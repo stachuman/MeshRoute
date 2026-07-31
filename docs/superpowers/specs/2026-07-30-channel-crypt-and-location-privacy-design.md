@@ -308,6 +308,19 @@ stated in `INBOX_SYNC_CONTRACT.md`; belt and braces cost nothing and the Q-opcod
 | **O2** | The plaintext-team-post opt-out: **`cfg set team_channel_crypt 0` only** (QA's recommendation) or also a per-send flag? |
 | **O3** | Should `send_channel -a` exist too? The contract's *"no ack/enc"* covers both, and a channel post has no single recipient to ack — **QA recommends NO**, recorded so it is not re-asked |
 
+### 4.1 ★ A `wire_version` bump is NOT a blocker (owner, 2026-07-31)
+
+> **Owner:** *"No wire version bump required, MeshRoute is NOT shipped, it lives only on my test hardware."*
+
+★★ **Read precisely, because C4 bundles two costs and only one is void.** **(1) Fleet reflash — VOID.** There is no
+fleet; reflash-all is always available, so a bump is **free to deploy** and is **never a reason to stop or to contort the
+design** to avoid one. **(2) Attribution — STILL REAL, and it is a GATE cost, not a deployment one:** a `wire_version`
+bump **re-anchors all 36 streams at once**, and when everything moves you cannot tell a genuine regression from the bump.
+⇒ **if CL2 needs a bump, take it — but as its OWN slice/commit**, so the behaviour change is measured against a corpus
+that moved for exactly one reason. **One extra commit, not a stop.**
+⇒ **CL2 may therefore choose the RIGHT wire shape** (e.g. §2.2.1's flags byte) instead of the shape that happens to fit
+a spare bit — which is the whole reason the two prior codepoint spaces reached exhaustion.
+
 ## 5. Gate expectations
 
 Standard gate — ★ **read `docs/2026-07-26-slice-gate-method.md`, and §0 of `docs/2026-07-30-open-bug-register.md`

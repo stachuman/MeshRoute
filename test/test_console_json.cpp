@@ -822,6 +822,24 @@ TEST_CASE("★ enum->string mappers cover EVERY enumerator — no silent fallbac
     CHECK(std::strcmp(sendfailreason_name(SendFailReason::unsealable), "unsealable") == 0);            // §team-ch-key T-K3: a sealed-only TYPE on a transport that cannot carry it sealed-AND-typed
     CHECK(std::strcmp(pushkind_name(PushKind::team_key_received), "team_key_received") == 0);          // §team-ch-key T-K3: the granted-key notification
     CHECK(std::strcmp(cmdcode_name(CmdCode::err_ack_ring_full), "err_ack_ring_full") == 0);            // enumerator-name convention
+    // ★★ §err-reason/B32 — THE TEXT CONSOLE'S SELF-LABELLING INVARIANT, and the only part of that slice native can see.
+    // src/fw_main.cpp now prints this mapper's token BARE on the USB console (`> err_no_binding ctr=0 depth=0`), with no
+    // `err ` word in front of it, precisely because every refusal's string already begins with `err_`. That print site is
+    // compiled by NEITHER native NOR the simulator, so this loop is the only place the convention can be enforced: an
+    // enumerator later mapped to a non-`err_` string (say `parked`) would silently make a REFUSAL read as a success line
+    // on the bench. `queued` is the single exemption — it is the success code and owns its own word. The `ord()` switch
+    // above already breaks the build when an enumerator is added, so this cannot go stale unnoticed (U1: same walker).
+    for (unsigned v = 0; v < 10; ++v) {
+        const CmdCode c = static_cast<CmdCode>(v);
+        if (ord(c) == kUnlisted) continue;
+        const char* s = cmdcode_name(c);
+        if (c == CmdCode::queued) { CHECK(std::strcmp(s, "queued") == 0); continue; }
+        CHECK_MESSAGE(std::strncmp(s, "err_", 4) == 0,
+                      "CmdCode enumerator ", v, " maps to \"", std::string(s),
+                      "\" which does not begin with \"err_\" — src/fw_main.cpp prints this token BARE, so this refusal"
+                      " would read as a SUCCESS line on the text console");
+    }
+    CHECK(std::strncmp(cmdcode_name(static_cast<CmdCode>(200)), "err_", 4) == 0);   // the out-of-range fallback self-labels too
 }
 
 // The same three defects at the LINE the app actually reads — a rendered NDJSON push/ack, not just the mapper.

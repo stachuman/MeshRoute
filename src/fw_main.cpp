@@ -857,7 +857,18 @@ static void service_console() {
                     } else {
                     const meshroute::CmdResult r = g_node.on_command(cmd);
                     mrcon.print(F("> "));
-                    mrcon.print(r.code == meshroute::CmdCode::queued ? F("queued ctr=") : F("err ctr="));
+                    // ★ §err-reason/B32 (bench-found 2026-07-31): print the CmdCode ITSELF, never a bare `err`. The old
+                    // ternary collapsed err_no_binding / err_unprovisioned / err_unknown_dst / err_too_large … into ONE
+                    // indistinguishable `err ctr=`, so a refusal named no reason: `reqpubkey 245` answered `err ctr=0
+                    // depth=0` and the operator could not tell which wall he had hit. C2 — printing `err` without the
+                    // reason is not "loud". cmdcode_name is the ONE mapper (U1, no second switch here) and it is the
+                    // SAME token the companion's {"ack":"…"} carries, so the text and JSON transports can no longer
+                    // drift apart. ★ No `err ` word is prefixed and that is deliberate, not an omission: every
+                    // non-`queued` enumerator's string already begins with `err_` (so does the out-of-range fallback
+                    // "err_unknown"), so the token self-labels — an invariant this print site cannot test, and which is
+                    // therefore ASSERTED NATIVELY in test/test_console_json.cpp beside the enum-walker. The success
+                    // line `queued ctr=N depth=N` is byte-identical to before; only refusals gained a reason.
+                    mrcon.print(meshroute::console::cmdcode_name(r.code)); mrcon.print(F(" ctr="));
                     mrcon.print(r.ctr); mrcon.print(F(" depth=")); mrcon.print(r.queue_depth);
                     // The send handle for hash/layer-addressed sends (dh != 0 = correlate by hash, not id).
                     if (r.dst_hash) { mrcon.print(F(" dh=0x")); mrcon.print(r.dst_hash, HEX); }

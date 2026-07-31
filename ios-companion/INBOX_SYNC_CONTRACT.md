@@ -33,6 +33,35 @@
 > address book does not. **How to see it happen:** a new boot line `peers = N restored (P pinned, A authoritative)` —
 > `peers = 0 restored` is the loss.
 >
+> ### ✅ ★★ NEW 2026-07-31 (`§ab4`) — the `peer` row gains a POSITION (RAM only)
+> ```
+> {"ev":"peer", … ,"lat":<i32 1e-7 deg>,"lon":<i32 1e-7 deg>,"loc_age_s":<u32>,"loc_src":"peer"|"team"}
+> ```
+> **All four fields appear TOGETHER or all four are ABSENT. Absence is NORMAL, not an error** — most peers have never
+> sent a position.
+> ★★ **TWO OBLIGATIONS ON THE APP. Both exist because the alternative actively misleads the user:**
+> 1. **Render `loc_age_s` alongside any position — never a bare pin.** ★ **An age-less pin reads as CURRENT**, and this
+>    book deliberately keeps positions that may be hours old. A three-hour-old fix drawn as "here now" is worse than no
+>    pin at all. ⓘ `loc_age_s == 0xFFFFFFFF` means **maximally stale** (the node's clock went backwards) — treat it as
+>    unknown-vintage, **not** as fresh.
+> 2. ★★ **Render the `loc_src` distinction — the two values are NOT equally trustworthy:**
+>    - **`"peer"` — PAIRWISE.** The position arrived in a DM **sealed to us and opened with our key**, so **only that
+>      peer could have written it.**
+>    - **`"team"` — GROUP.** Sealed to the **shared** team content key ⇒ it proves **MEMBERSHIP, not IDENTITY**:
+>      **any holder of the team key could have written it, including forging another member's `source_hash`.**
+>    ⇒ **a map that draws both identically OVERSTATES the weaker one.** This bound is accepted **by design** (the I9
+>    pattern), not a defect awaiting a fix — the group key cannot distinguish members, so the UI must.
+>    ⓘ **`"team"` cannot occur yet** — the channel source needs CL2 (spec-only today). Handle it now anyway: when CL2
+>    lands it adds a **source**, not a schema change, so an app that already renders the distinction needs no update.
+> ★ **Only an AUTHENTICATED position is ever stored.** A **plaintext** location is still delivered on `msg_recv`
+> exactly as before but is **NEVER retained in the book** — an unauthenticated position is spoofable, and a spoofed
+> position that the UI presents as fact is worse than an absent one. A refused one raises telemetry only
+> (`peer_location_unauth`), no push.
+> ⚠ **RAM ONLY, deliberately: a REBOOT CLEARS EVERY POSITION.** Two reasons, both intentional — a stale position is
+> worse than none, and **a captured or stolen node must not yield every teammate's last known position.** ⇒ **the app
+> must not treat the book as a position history**, and must expect all four fields to vanish across a node restart
+> (unlike names and keys, which `§ab1` persists).
+
 > ### ✅ ★★ NEW 2026-07-31 (`§ab3`) — the `peers` ADDRESS BOOK surface
 > ```
 > peers        -> {"ev":"peer","hash":<dec u32>,"conf":"overheard"|"authoritative"|"pinned","confirmed":<bool>

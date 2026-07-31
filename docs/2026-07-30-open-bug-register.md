@@ -203,6 +203,62 @@ direction and a **"do not restore the miss-case assertion"** warning so nobody r
 ⚠ **BENCH WARNING: do not run `rcmd <unknown-id> <gated-verb>` on metal until this is fixed — it will hang the node.**
 Note: `§ab3`.
 
+### ~~B32 + B33~~ ✅ **CLOSED 2026-07-31** (`§err-reason`) — **two functional lines, and the fix was flash-NEGATIVE**
+★ `> err_no_binding ctr=0 depth=0` (was `> err ctr=0 depth=0`); `hashof`'s advice now names the beacon/QR remedies **and**
+warns that `reqpubkey <id>` is the one thing that cannot work. Native 1069/71228 → **1069/71239/0**; corpus proven at the
+**binary** level (0 recompiles, bit-identical `lus`); boards 3/3 **ΔRAM 0**, `fw_main.o` **−16/−24/−5**.
+★★ **The text console now emits the SAME token as the companion `{"ack":"…"}` ⇒ one bench regex serves both transports,
+and no contract change is owed.** The `err_` self-labelling convention is now a **native assertion** (the pre-existing
+enum-walker was blind to it).
+★★★ **Yielded B34** — the same defect **7× in the simulator**, which is why this arc's refusals kept having no automated
+detector. *(original entry below)*
+
+### B32 + B33 — ★★ **a refusal that does not name its reason** · ONE SLICE · **BENCH-FOUND 2026-07-31 (owner)**
+**The transcript** (owner, on metal):
+```
+hashof 245     -> [hashof] id=245 -> unknown (neither plane — no beacon heard; try `reqpubkey`)
+reqpubkey 245  -> err ctr=0 depth=0
+```
+★ **The DECISION is correct and must not change.** `reqpubkey <bare decimal>` means a **team_local_id**, so it must
+resolve id → hash via `team_key_of_id` first; with no hash it returns **`err_no_binding`** rather than flooding a query
+for hash `0` (`node.cpp:1399-1401`, whose comment says exactly that). **C2, working as designed.** Two defects sit on
+top of it, and they compose into the transcript above.
+
+**B32 — the text console DISCARDS every `CmdCode`.** `src/fw_main.cpp:860` prints only `queued ctr=` / `err ctr=`, so
+`err_no_binding`, `err_unprovisioned`, `err_unknown_dst`, `err_too_large` … **all render identically**. ★★ **The mapper
+ALREADY EXISTS and is already reachable: `meshroute::console::cmdcode_name(CmdCode)` (`console_json.cpp:102`, with an
+`err_no_binding` arm), and `firmware_commands.cpp:18` already includes `console_json.h`.** ⇒ **a one-line fix.**
+⚠ **C2 reading: printing `err` without the reason is not "loud".** This is pre-existing, but this arc added many
+fail-loud refusals whose entire value is naming the remedy — so it is newly expensive. ⓘ **Only ONE print site**
+(QA-grepped: `err ctr=` appears exactly once in `src/`), so the sweep is genuinely small — **but verify that, do not
+trust it.**
+
+**B33 — `hashof`'s advice is CIRCULAR, and it is QA's own wording.** `src/firmware_commands.cpp:553` prints
+*"(neither plane — no beacon heard; try `reqpubkey`)"* — but **`reqpubkey <bare-id>` REQUIRES a beacon-heard hash**,
+which is precisely the state `hashof` just reported as missing. ⇒ **for a bare team-id target the suggestion cannot
+possibly help**; it is valid only for a **hash** target (`reqpubkey 0x<hash>`). ★ **Introduced by `§ab3` and gated by me
+— my wording, my miss.**
+**The real remedies for an unheard id:** wait for / provoke a **beacon** from that member, or import the peer
+out-of-band via **QR → `peerkey <hex64>`**, which needs no prior hash. ⓘ The sibling narrowed messages at `:551-552`
+(`drop -t` / `drop -s`) are **correct** — do not touch them.
+
+**Why one slice:** both are the same concern — *a refusal must name its reason and its remedy* — both are `src/`-only,
+and B33's new wording is only correct once B32 makes the reason visible. Gate: **corpus byte-identical BY CONSTRUCTION**
+(`src/` is compiled by neither native nor the sim — prove it with the 0-recompile / bit-identical-`lus` check), boards
+3/3, `sizeof(Node)` unmoved. Note: bench transcript, this file.
+
+### B34 — ★★★ the SIMULATOR drops every refusal reason, **7 times over** ⇒ fail-loud refusals are corpus-untestable BY CONSTRUCTION · NEW 2026-07-31
+`orchestrator/runtime/NodeRuntimeWrapper.cpp` lines **656, 818, 843, 872, 901, 941, 964** each carry
+`(r.code == CmdCode::queued) ? "queued" : "error"`. ⇒ **no scenario can assert WHICH refusal happened.**
+★★ **This is the structural explanation for a pattern that has cost this arc real coverage:** every fail-loud refusal
+added since 2026-07-29 — `unsealable`, `no_location`, `role_refused`, `err_no_binding`, `unknown_key`, `too_long` — is
+**untestable in the corpus by construction, not merely unexercised.** Slice after slice reported *"native or the bench
+only"*; **this is why.**
+⚠⚠ **Fixing it moves a DETECTOR PROBE: `OK error ctr=0 depth=0` is P-T1's own expected signature** (register §0), so the
+fix re-anchors scenarios **and** re-baselines a documented probe expectation ⇒ **it must be its own slice, and §0's P-T1
+row must be updated in the same commit.** ★ **Payoff: it would make the whole `err_*` family assertable in scenarios** —
+the single biggest coverage gain available to this corpus. Note: `§err-reason`.
+
 ### B31 — `key_hash_for_id` is neither **authoritative**- nor **TTL**-gated · NEW 2026-07-31
 After `§idbind-loop` it shares its loop idiom with `key_hash_of_id`, but **not that sibling's gating** — so it can answer
 from a `claimed` (unvouched) or TTL-lapsed `_id_bind` row. ★ **Residual is narrow and that is why it was scoped out:** the
@@ -393,8 +449,11 @@ The sim's "NATURAL" arm (`NodeRuntimeWrapper.cpp:813`) sets `team = (is_mobile &
 post (`console_parse.cpp:205-213`, *"plain = GLOBAL"*), and `node.cpp:1323`'s `want_global = global || !team` routes it
 to the **global/home** path — where an **off-grid** member has no home and it **fails loud**
 (`send_failed{channel_no_home}` + `err_no_binding`). **Both sides QA-verified in source.**
-★★ **This is worse than B3, which it was found by: not a different plane but SUCCESS-vs-REFUSAL.** **10 corpus commands
-in 4 scenarios take that arm** (s22 ×2, s28 ×3, s29 ×2, s34 ×3) ⇒ **s22's and s34's team-channel assertions validate a
+★★ **This is worse than B3, which it was found by: not a different plane but SUCCESS-vs-REFUSAL.** ⚠ **12** corpus commands in 4 scenarios take that arm — **QA re-derived 2026-07-31 by EVALUATING the predicate
+(`is_mobile && team_id != 0` per node, matched to each command's sender), not by grepping: s22 ×2 (TeamA), s28 ×5
+(XH1 ×4, XO4 ×1), s29 ×2 (T1), s34 ×3 (X1 ×2, X2 ×1). My earlier "10 (s28 ×3)" was LOW BY TWO** — the fourth count of
+mine in this arc to come in low, and all four came from pattern-matching a shared name instead of evaluating the
+condition. ★ **Derive a count by evaluating the predicate, never by matching the substring** ⇒ **s22's and s34's team-channel assertions validate a
 behaviour metal does not have.** ★★ **OWNER RULING 2026-07-31: "plain `send_channel` should refuse on an off-grid member, like metal."** ⇒ **METAL IS THE
 REFERENCE; the SIM is what changes.** Delete the `team_member` heuristic at `NodeRuntimeWrapper.cpp:813` so a plain post
 sets `team=false, global=false` exactly as `console_parse.cpp:205-213` does. ⚠ **Consequence to expect and NOT paper
@@ -720,7 +779,17 @@ the static table needs the treatment the write sites got.** Spec `2026-07-27-…
 |---|---|---|
 | ~~**O1**~~ | ✅ **RESOLVED — B1 CLOSED 2026-07-31** (`§team-target-whole`); the gate was dropped and it went wider than the one line (`team 12abc` too). ⚠ Its **range** sibling is still open as **B17** |
 | **O2** | `noinline` on `deleg_ack_put`? ⚠ **Superseded in detail by B19** — measured **8** call sites and **≈4 KB**, not 5 and 1.8 KB, and it must **fold into B12**. ★ **PARKED: `gateway` flash is 54.9%, so there is no pressure behind it** | one line, but re-codegens 8 sites |
-| **O3** | **T-K2 must rule before it seals:** `set_team_id` deliberately does **not** clear the team channel key, so a `team <other>` switch leaves the **previous team's key** in place. Inert today; the moment T-K2 seals, **a switched member seals for its new team under the old key.** Marked in-source and pinned by a test | a decision, then a small change |
+| ~~**O3**~~ | ✅ **RULED 2026-07-31 (owner) — THE KEY LIVES EXACTLY AS LONG AS THE `team_id` IT WAS GRANTED FOR.**
+**`set_team_id` must CLEAR `team_ch_pub`/`team_ch_priv`/`team_ch_key_present` whenever `team_id` actually changes,
+including `team 0`.** QA-verified the current state: `set_team_id` already clears routes, the peer set, liveness, the
+**peer** key cache and the DAD id — but **not** the channel keypair, and that key is **UNRECOVERABLE (no seed derives
+it)**. ★ **Fails safe:** after a switch the member holds no key, so a post refuses `team_channel_no_key` and the app
+prompts *"ask a teammate for the key"* — the flow T-K2 already defines. **Cost accepted:** switching away and back needs
+one re-grant, which is precisely what T-K3 exists for. ⚠ **`create`/`join` must STILL PRESERVE the key** — they do not
+change `team_id`, so the rule does not touch them, and `blob_take_team_channel_key` stays as built.
+★★ **The rejected alternative, recorded so it is not re-proposed:** tagging the key with its own `team_id` and refusing
+on mismatch would never destroy the key — but it needs a **new persisted field ⇒ a `kVersion` bump ⇒ a THIRD reprovision
+event** on top of the two already stacked, for a rare case. **⇒ CL2 IS UNBLOCKED.** |
 | **O4** | The **BLE console exposure** is no longer a watch-item — under the `team exportkey` ruling it is **the only control protecting the team content key.** Closing it (pairing / auth gate / console allow-list) makes "any transport" safe | its own slice |
 
 ---

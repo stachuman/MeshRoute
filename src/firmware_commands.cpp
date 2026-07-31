@@ -550,7 +550,14 @@ static void handle_hashof(const char* arg, size_t n, Print& out) {
         out.print(F(" -> unknown"));
         if (only_team)        out.print(F(" (team plane; drop -t to search both)"));
         else if (only_static) out.print(F(" (static plane; drop -s to search both)"));
-        else                  out.print(F(" (neither plane — no beacon heard; try `reqpubkey`)"));
+        // ★ §err-reason/B33: the old text here said "try `reqpubkey`" and that advice was CIRCULAR. `reqpubkey <bare id>`
+        // means a team_local_id, so node.cpp's reqpubkey arm resolves id -> hash through team_key_of_id FIRST and
+        // refuses with err_no_binding rather than flood a query for hash 0 — i.e. it needs exactly the beacon-heard hash
+        // this lookup has just reported as MISSING. It is sound advice only for a `reqpubkey 0x<hash>` target. So name
+        // the two remedies that actually work with no hash in hand: a beacon (the on-air source of the binding), or an
+        // out-of-band QR import, which needs no prior hash. U3: same shape as `team grantkey`'s already-correct
+        // unheard-target refusal in firmware_config.cpp. ⓘ The sibling `-t`/`-s` lines above are correct — untouched.
+        else                  out.print(F(" (neither plane — no beacon heard, so its key_hash32 is unknown. Remedy: wait for / provoke a beacon from it, or import its QR out-of-band with `peerkey <hex64>`. ⚠ NOT `reqpubkey <id>` — that resolves the id through this very cache and refuses with err_no_binding; only `reqpubkey 0x<hash>` works, and the hash is what is missing)"));
         out.println();
     }
 }

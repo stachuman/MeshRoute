@@ -19,7 +19,7 @@ Check the relevant **[TRIGGER]** group *before* acting; cite rules by ID to stee
 - ★ C1 refactor XOR feature/fix — never both; never fold a file-move into a semantic edit
 - C2 fail loud — no unagreed fallback/default (empty `sf_list` → refuse to send, don't silently default)
 - C3 respect the planes — a mobile/team local-id never writes a static `node_id`-indexed array; runtime-gate so a static build stays inert
-- C4 don't bump `wire_version` casually (forces a fleet reflash) — reuse an existing frame/field; guard optional state/verbs by `MR_FEAT_*`
+- C4 don't bump `wire_version` casually — ⚠ **NOT for reflash cost: owner re-confirmed 2026-07-31 that MeshRoute is UNSHIPPED (test hardware only), so a bump is FREE to deploy and is never a reason to stop.** The real cost is **attribution: a bump re-anchors all 36 streams at once, so bundling it with a behaviour change makes both unmeasurable** ⇒ if you need one, give it **its own slice/commit**. Still prefer reusing an existing frame/field; guard optional state/verbs by `MR_FEAT_*`
 
 **[DONE] — before you say "ready"**
 - ★ D1 run the gate: native (`pio test -e native` then RUN `./.pio/build/native/program` — the wrapper lies "0 test cases"; the binary prints the real count, 0 failed) + s18 md5 EXACT + every board env, sequentially. **The current keystone md5 + per-scenario anchors live in `simulation/BASELINE.md` — read them there; NEVER hardcode or assume the value (it re-anchors when sim physics or lib/core legitimately changes; `3ac88d40` is retired).**
