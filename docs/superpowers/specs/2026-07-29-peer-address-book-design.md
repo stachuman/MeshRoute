@@ -222,6 +222,61 @@ inserting one). A synchronous ack needs no enum and no sim coordination.
 nothing asynchronous to notify — and it avoids touching an enum whose ordering has already cost this arc two
 near-misses. The `peerkey_set` ack is the precedent to mirror (U3).
 
+### 2.7 ★★ Retained peer location — RAM ONLY (owner-ruled 2026-07-31)
+
+> **Owner's words:** *"address book has to be extended to keep the location - but in ram only, not flash - for
+> nodes. When we will receive DM with location through team channel message - we should store this location - and
+> then - when listing address book - show location if available."*
+
+★ **The receive side already does nearly all of it.** `node_mac_rx.cpp:1189-1194` already parses a received
+location, **already distinguishes sealed from plaintext** (`crypted_ok ? dec_has_loc : ui->has_location`), already
+pushes it to the app (`pu.has_location/lat_e7/lon_e7`) and already emits
+`peer_location{origin, hash, lat_e7, …}` — with **`sender_hash` in scope**, which is exactly the key the book needs.
+⇒ **only RETENTION is missing.** Do not rebuild the extraction (U1).
+
+**Storage: extend `PeerKey`** (`node.h:1451`), keyed by `key_hash32` — the stable identity per §1.2 — with
+`{int32_t lat_e7; int32_t lon_e7; uint32_t loc_seen_s;}`. The generated view (§2.1) then picks it up for free.
+★ **Expect ≈ +128 B, not +192**: `PeerKey` carries ~5 bytes of tail padding today, so 12 bytes of fields should cost
+about 8 per entry × 16. **Measure it; do not assume.** ⚠ It is a `Node` member ⇒ **`sizeof(Node)` moves** ⇒ D2 in
+full, and the six-env grid **if the measurement says so**.
+
+★★ **RAM ONLY — deliberately volatile, and the reason belongs in the source so no later slice "completes" it:**
+1. **a stale position is worse than none** — an app rendering a three-hour-old fix as current is actively
+   misleading;
+2. **a captured or stolen node must not yield every teammate's last known position.**
+⇒ **`PeerRec`/NV gain NOTHING.** AB1 persists names and `authoritative` keys; **location is the deliberate
+exception**, and §1.4's "one table, lossy backup" picture stays true.
+
+**Two sources, ONE setter** (U1/U2 — one conversion path, as `seed_blob_from_live` is for the carriers):
+- a **DM** carrying `DATA_FLAG_LOCATION` (the `-l` path, `2026-07-30-channel-crypt-…` §2.3);
+- a **team channel post** with `inner_type = 1` (T-K2/T-K5).
+
+★★ **STORE ONLY AN AUTHENTICATED LOCATION (C2, and symmetric with the send-side rule).** The site already computes
+`crypted_ok` — require it. ⇒ a **plaintext** `DATA_FLAG_LOCATION` (from an older or foreign node) is parsed and
+pushed **exactly as today** but **NOT retained**. **Rationale: an unauthenticated position is spoofable** — anyone
+in range can claim to be anywhere — and **a spoofed position in an address book is worse than an absent one**,
+because the UI presents it as fact. ⇒ **Decide:** drop silently, or emit a distinct `peer_location_unauth`?
+**QA recommends the emit** — visibility with no behaviour change, and it makes a spoof attempt observable.
+
+**The view row gains `lat?`, `lon?`, `loc_age_s?`.** ★ **The age is MANDATORY, not optional.** A position without
+one gets rendered as current, which is the whole failure mode above. The contract must state that the app renders
+age alongside any position, and that absence of `lat`/`lon` is normal, not an error.
+
+⚠ **OPEN — §4/O5: the channel case may have no `PeerKey` row to store into.** T-K2 authenticates a channel post's
+sender via the sealed-sender interior *"verified against the **team key cache**"* — that is **`_team_keys`
+(hash ↔ team id)**, **not** `_peer_keys` (hash ↔ `ed_pub`). So a teammate can be authenticated *as a teammate*
+without us holding their `ed_pub` ⇒ **no row.** Options: **(a)** refuse to store — consistent, but loses map
+coverage for exactly the members a map is for; **(b)** a separate `_peer_loc` ring keyed by hash (~160–320 B,
+covers both sources); **(c)** a keyless `PeerKey` row — ⚠ **fights an existing invariant**, since `peer_key_set`
+*verifies* `ed_pub[:4] == hash`. **QA recommends (a) for v1 and revisiting with T-K5**, which owns the map and will
+know what coverage it actually needs. **The DM path is unaffected either way** — location is encryption-only there,
+so opening it proves we hold the key, so a row always exists.
+
+★ **A privacy consequence to record, not solve here:** retaining positions makes the node a **position database**.
+Combined with the standing *"BLE fallback exposes the full console"* item, anyone who can reach the console could
+read **every teammate's last known position**. ⇒ that watch-item is now load-bearing for a **second** reason (it
+already is for the team content key under the `team exportkey` ruling). Registered as **O4** there.
+
 ## 3. Slices
 
 - **AB1** — NV: `PeerRec` gains `confidence` + name, `kPeersVersion` 1→2, boot restore honours both, eviction
@@ -229,6 +284,9 @@ near-misses. The `peerkey_set` ack is the precedent to mirror (U3).
   round-trip incl. a v1-blob rejection test.
 - **AB2** — `peername` (+ optional `peerkey name=`), and `peer_key_cached` gains `conf`. Gate: byte-identical;
   native for every refusal; a JSON golden for `conf`.
+- ★ **AB4** — §2.7 retained peer location: extend `PeerKey`, one authenticated setter fed by both sources, the view
+  row's `lat`/`lon`/`loc_age_s`, and **NV deliberately untouched**. **After AB3** (it needs the view). ⚠ **This is
+  the one AB slice that moves `sizeof(Node)`** — D2 in full, and the six-env grid only if the measurement says so.
 - **AB3** — the generated view: a `peers` console dump + its JSON surface **bounded per §2.6(a)**, **and rewire `hashof`/`nameof` onto it**
   (§2.5 — they must not keep reading one table each). Gate: byte-identical; native for the merge/dedup incl. the
   ambiguous-reverse-lookup case, all four id-only/hash-only shapes, and ★ **the §2.5 regression directly: after a
@@ -243,6 +301,9 @@ other or with the cross-layer cleartext fix.
 Naming an **id-only** peer (there is no hash to attach a name to — and no stable key to attach it *by*).
 Persisting `_id_bind`/`_team_keys`. Any `overheard` → `authoritative` promotion. Auto-`reqpubkey` — **forbidden
 by the 2026-07-29 ruling**, see `ios-companion/INBOX_SYNC_CONTRACT.md`.
+
+| **O5** | ★ §2.7 — the **channel** location case: refuse to store when we hold no `PeerKey` row **(a, recommended)**, add a separate `_peer_loc` ring **(b)**, or allow a keyless row **(c)**? |
+| **O6** | §2.7 — an unauthenticated (plaintext) location: **drop silently** or emit `peer_location_unauth` (QA recommends the emit)? |
 
 ## 5. Gate expectations
 
