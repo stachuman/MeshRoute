@@ -83,7 +83,7 @@ scenario was relying on the broken behaviour. Attribute it and report before pro
 | **B0** | **byte-identical expected** | `loc_in_dm` is **off** by default in the whole corpus — ⚠ if any scenario moves, a scenario has `loc_dm` on and is airing position in clear, which is a finding |
 | **B1** | **byte-identical** | `handle_team` is in `src/`, outside both the sim and native builds |
 | **B2** | **re-anchor likely** | the ingest fires in team scenarios; attribute per scenario |
-| **B3** | **re-anchor, and `s22` should go GREEN** | it is currently **RED** — that is the point of the fix |
+| **B3** | ⚠ **`s22` is GREEN today and the fix TURNS IT RED** | correcting my own row: `s22` passes now (`d1855325`/1804) only because the sim's AUTO papers over it. Applying the plane fix makes it **fail until the scenario adds `-t`** — so the slice is *fix + scenario edit + re-anchor*, and a red s22 mid-slice is **expected**, not a regression |
 | **B4** | **byte-identical** | inert while `sync_response_min_routes` defaults 0 |
 | **B5** | **re-anchor likely** | changes a live frame's contents |
 | **B6, B7** | **byte-identical or small** | both are currently-zeroed bypasses |
