@@ -298,6 +298,35 @@ Once §2.3 lands, **`:1018`** — the **unsealed** LOCATION pack path — become
   `kVersion` 22 → 23, retire the TLV number**, and enforce the three refusals. ⚠ **Bigger than it looks** — a
   config-surface removal plus an NV bump, not just a flag. (+ §2.4's channel case once T-K2 has landed.)
 
+### 3.1 ★★ CL2 IS SPLIT — QA decision 2026-07-31, taken under the owner's "land it in gated pieces" instruction
+
+CL2 as written bundles **ten** deliverables (flavour, seal/open, nonce, carried ctr/seed, un-keyed drop,
+`team_channel_no_key`, `record_channel(enc=1)`, `team_channel_crypt`, the `inner_type` flags byte + `pack_loc6`, `-l` on
+`send_channel`) plus O3 and a re-anchor of every team-channel scenario. **That is not one reviewable slice**, and the
+location half is *separable*: it **depends on** the crypto half but the crypto half stands alone.
+
+- ★ **O3 first, as its own ~3-line slice** — clear `team_ch_*` when `team_id` changes (owner-ruled). **It is inert until
+  something seals**, which is exactly why it must land BEFORE CL2a rather than inside it: bundled, its effect would be
+  unattributable inside CL2a's re-anchor.
+- **CL2a — THE CRYPTO.** `channel_flavor_crypted`, seal/open, the nonce (below), the carried `[seal_ctr][seed8]`, the
+  un-keyed-receiver drop + `team_channel_no_key`, `record_channel(enc=1)`, `team_channel_crypt` default-ON.
+  ⇒ **delivers `send_channel -t -e` working**, which is the owner's primary goal and benchable on its own.
+- **CL2b — THE LOCATION.** The `inner_type` **flags byte** + `pack_loc6` (§2.2.1), `-l` on `send_channel` and its
+  refusals per O6, §2.4's crypted-flavour rule, and the hook that lights up **AB4's `peer_loc_set(…, PeerLocSrc::team)`**
+  — which AB4 left as one call, no schema change.
+
+★★ **THE NONCE DESIGN IS SETTLED, not deferred — QA assessed it against the primitive and the codebase's own precedent.**
+`dm_nonce(nonce, rand8, ctr, dst_key_hash32)` hashes `rand8 | ctr LE | dst_key_hash32 LE`, so a channel post supplies:
+**`rand8`** = a **fresh per-post random seed CARRIED in the body**; **`ctr`** = a dedicated carried seal counter;
+**`dst_key_hash32`** = the team channel key's hash, which **every keyholder derives from the key it already holds**.
+⇒ this is the spec's own documented fallback, and **`build_sealed_relay_body` already does exactly this** — its body is
+`[seal_ctr 2][seed8 8][ct‖tag]` with a dedicated `++_relay_seal_ctr`, adopted for the same reason.
+⚠⚠ **THE HAZARD THE SHARED KEY CREATES, and it is the one thing to get right: every member seals under the SAME key.**
+Uniqueness therefore cannot rest on a per-node counter — two members can trivially hold the same one. ⇒ **the FRESH
+RANDOM SEED is the load-bearing uniquifier and the ctr is defence in depth**, which is also why R7 already refuses to
+seal on a degenerate all-zero seed. **Bind the sender's hash in the AAD** so two members' nonces cannot collide
+meaningfully. **A per-boot seed, or a ctr-only nonce, is keystream reuse under a shared static key — catastrophic.**
+
 ★ **CL3 is independent of CL1/CL2 and is the only one closing a LIVE leak** — take it first if the owner wants the
 privacy hole shut before the feature. CL1 alone is inert scaffolding; CL2 is the substantial slice.
 
