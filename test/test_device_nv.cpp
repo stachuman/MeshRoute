@@ -15,13 +15,21 @@
 //   - the no-backend arm: read_slot/write_slot report "no NV", so every load fails and every save reports
 //     failure — the property that lets a device-less build link and boot on compile-time defaults.
 //
+// §AB1 (2026-07-31) added the second half: the /mrpeers ADDRESS-BOOK RECORD POLICY (mrnv::peer_rec_put) — the
+// round-trip of a name + confidence, the v1-blob rejection, `overheard` refused, upgrade-never-downgrade,
+// pinned-over-authoritative eviction, the all-pinned refusal, the flash-wear guard, and the PeerPut enum->string
+// mapper. That policy is in device_nv.h and NOT in firmware_commands.cpp precisely so these cases can reach it:
+// `test_build_src = no` keeps every src/*.cpp out of the native build.
+//
 // ⚠ WHAT THIS FILE CANNOT SEE: the two real backends (Adafruit LittleFS files / ESP32 Preferences NVS) are
 // unreachable from the host — the three board builds compile them and the owner's bench exercises the flash.
 // These tests cover the POLICY, not the storage.
 #include "doctest.h"
 #include "device_nv.h"
 #include "fault_log.h"
+#include "node.h"        // §AB1: meshroute::Node::PeerKeyConf — the enum whose VALUES /mrpeers stores verbatim
 
+#include <cstddef>       // offsetof — the on-flash PeerRec field order is a pinned contract
 #include <cstring>
 
 using namespace mrnv;
@@ -106,11 +114,12 @@ TEST_CASE("device_nv: /mrid (IdBlob) takes the EXACT policy — only kIdVersion 
     }
 }
 
-// ★★ THE AB1 HOOK. `2026-07-29-peer-address-book-design.md` bumps kPeersVersion and must DECIDE whether v2
-// accepts a range (load + migrate) or demands equality (reject v1). Today it is EQUALITY, and this case pins
-// the POLICY rather than the constant: it asserts version-1 and version+1 are BOTH rejected at whatever
-// kPeersVersion happens to be. So a bare bump stays green (a v1 record is rejected — the rejection test AB1's
-// gate asks for), while a switch to `blob_valid_range` turns it RED and forces the decision to be explicit.
+// ★★ THE AB1 HOOK — AND AB1 TOOK IT, KEEPING EQUALITY. NV1 wrote this case to pin the POLICY rather than the
+// constant (version-1 and version+1 both rejected at whatever kPeersVersion happens to be), so that AB1's bump to
+// 2 would stay green and BE the v1-blob rejection test the address-book spec's gate asks for, while a switch to
+// `blob_valid_range` would have turned it RED and forced the decision to be argued. The decision, recorded at
+// load_peers: EQUALITY KEPT — a v1 store is rejected outright, the pinned peers are lost once, and no migration
+// arm is written (it would be code that runs once per chip and can then never be exercised again).
 TEST_CASE("device_nv: /mrpeers (PeerBlob) takes the EXACT policy — an older-version store is REJECTED, not migrated") {
     const int full = full_read(sizeof(PeerBlob));
     {   PeerBlob b = stamped<PeerBlob>(kPeersMagic, kPeersVersion);
@@ -130,6 +139,254 @@ TEST_CASE("device_nv: /mrpeers (PeerBlob) takes the EXACT policy — an older-ve
         PeerBlob b = stamped<PeerBlob>(kPeersMagic, kPeersVersion);
         CHECK_FALSE(blob_valid_exact(b, full - static_cast<int>(sizeof(PeerRec)), kPeersMagic, kPeersVersion));
     }
+    {   // ★ THE v1-BLOB REJECTION, stated in the terms a v1 chip actually presents: a v1 record is 8 + 16*36 = 584
+        // bytes, not sizeof(PeerBlob). It fails on SIZE ALONE, before the version byte is even consulted — so the
+        // rejection holds on both backends (nRF52 File::read returns 584; ESP32 nvs_get_blob returns 584) even if a
+        // later slice were to loosen the version policy. The version bump is belt-and-braces on top.
+        constexpr int kV1Bytes = 8 + 16 * (4 + 32);
+        CHECK(kV1Bytes == 584);
+        CHECK(sizeof(PeerBlob) != static_cast<size_t>(kV1Bytes));         // v2 CHANGED the layout — that is the primary rejector
+        PeerBlob v1 = stamped<PeerBlob>(kPeersMagic, 1);                  // magic right, version 1, v1 length
+        CHECK_FALSE(blob_valid_exact(v1, kV1Bytes, kPeersMagic, kPeersVersion));
+        CHECK_FALSE(blob_valid_range(v1, kV1Bytes, kPeersMagic, 1, kPeersVersion));   // even a RANGE policy could not parse it
+    }
+}
+
+// ---- §AB1: the /mrpeers RECORD POLICY (mrnv::peer_rec_put) ------------------------------------------------------
+// ★ WHY THESE LIVE IN device_nv.h AT ALL: `test_build_src = no` keeps every src/*.cpp out of the native build, so a
+// selection/eviction policy written in firmware_commands.cpp would be exactly as untestable as the six hand-copied
+// validators NV1 hoisted. The policy is pure and header-inline, so these cases reach it. What they CANNOT see is
+// the flash itself — the three board builds compile the backends and the owner's bench exercises the wear.
+namespace {
+// a record's ed_pub must hash to its key_hash32 (Node::peer_key_set re-verifies it), so build both from one seed
+struct TestKey { uint32_t hash; uint8_t ed[32]; };
+TestKey key_of(uint8_t seed) {
+    TestKey k{};
+    for (int i = 0; i < 32; ++i) k.ed[i] = static_cast<uint8_t>(seed + i);
+    k.hash = static_cast<uint32_t>(k.ed[0]) | (static_cast<uint32_t>(k.ed[1]) << 8)
+           | (static_cast<uint32_t>(k.ed[2]) << 16) | (static_cast<uint32_t>(k.ed[3]) << 24);
+    return k;
+}
+// ⚠ BY VALUE, with an all-zero record for "absent", and a separate has_rec(). A pointer-returning finder let a
+// POISON PROBE (pinned made evictable) SIGSEGV the whole runner at the first dereference, which aborted 927 later
+// cases — the detection was right but unreadable. A total accessor keeps a broken invariant REPORTABLE.
+bool has_rec(const PeerBlob& b, uint32_t hash) {
+    for (uint16_t i = 0; i < b.count; ++i) if (b.rec[i].key_hash32 == hash) return true;
+    return false;
+}
+PeerRec rec_of(const PeerBlob& b, uint32_t hash) {
+    for (uint16_t i = 0; i < b.count; ++i) if (b.rec[i].key_hash32 == hash) return b.rec[i];
+    return PeerRec{};
+}
+PeerPut put(PeerBlob& b, const TestKey& k, uint8_t conf, const char* name = nullptr) {
+    return peer_rec_put(b, k.hash, k.ed, conf, name, name ? static_cast<uint8_t>(std::strlen(name)) : 0);
+}
+}  // namespace
+
+// ★ THE CONFIDENCE BYTE IS A CROSS-LAYER CONTRACT: device_nv.h deliberately does NOT include node.h (the record
+// layer must stay free of the protocol engine), so the two constants are asserted equal HERE instead of trusted to
+// a comment. If PeerKeyConf is ever reordered, this fails the native BUILD, not a run.
+static_assert(kPeerConfAuthoritative == static_cast<uint8_t>(meshroute::Node::PeerKeyConf::authoritative),
+              "/mrpeers stores PeerKeyConf values verbatim — kPeerConfAuthoritative must track the enum");
+static_assert(kPeerConfPinned == static_cast<uint8_t>(meshroute::Node::PeerKeyConf::pinned),
+              "/mrpeers stores PeerKeyConf values verbatim — kPeerConfPinned must track the enum");
+static_assert(static_cast<uint8_t>(meshroute::Node::PeerKeyConf::overheard) != kPeerConfAuthoritative
+           && static_cast<uint8_t>(meshroute::Node::PeerKeyConf::overheard) != kPeerConfPinned,
+              "`overheard` must NOT be a persistable confidence — it cannot seal");
+
+TEST_CASE("device_nv/AB1: ROUND-TRIP — a stored record returns the same key, NAME and CONFIDENCE") {
+    // The property v1 could not hold: the name and the confidence survive the store. (The flash leg is the boards';
+    // this is the record leg, which is where v1 actually lost the data — PeerRec had nowhere to put either field.)
+    PeerBlob b{}; peers_blob_init(b);
+    CHECK(b.magic == kPeersMagic);
+    CHECK(b.version == kPeersVersion);
+    CHECK(b.count == 0);
+
+    const TestKey a = key_of(0x10), p = key_of(0x90);
+    CHECK(put(b, a, kPeerConfAuthoritative, "Ania") == PeerPut::inserted);
+    CHECK(put(b, p, kPeerConfPinned, "QR contact") == PeerPut::inserted);
+    CHECK(b.count == 2);
+
+    CHECK(has_rec(b, a.hash));
+    const PeerRec ra = rec_of(b, a.hash);
+    CHECK(ra.confidence == kPeerConfAuthoritative);            // ★ NOT promoted to pinned — the v1 restore's bug
+    CHECK(ra.name_len == 4);
+    CHECK(std::memcmp(ra.name, "Ania", 4) == 0);
+    CHECK(std::memcmp(ra.ed_pub, a.ed, 32) == 0);
+    CHECK(ra.key_hash32 == a.hash);
+
+    CHECK(has_rec(b, p.hash));
+    const PeerRec rp = rec_of(b, p.hash);
+    CHECK(rp.confidence == kPeerConfPinned);
+    CHECK(rp.name_len == 10);
+    CHECK(std::memcmp(rp.name, "QR contact", 10) == 0);
+
+    // and both are RESTORABLE, i.e. the boot restore will re-install them at these levels and not skip them
+    CHECK(peer_conf_restorable(ra.confidence));
+    CHECK(peer_conf_restorable(rp.confidence));
+}
+
+TEST_CASE("device_nv/AB1: the record layer REFUSES to persist an `overheard` key or an unrecognised confidence") {
+    // C2. `overheard` cannot seal (sealing gates on conf >= authoritative), so storing one would spend a slot and
+    // evict something useful; an unrecognised byte must never be guessed into a sealing capability.
+    PeerBlob b{}; peers_blob_init(b);
+    const TestKey k = key_of(0x20);
+    CHECK(put(b, k, static_cast<uint8_t>(meshroute::Node::PeerKeyConf::overheard), "nope") == PeerPut::refused_conf);
+    CHECK(put(b, k, 3, "nope") == PeerPut::refused_conf);      // a value above `pinned`
+    CHECK(put(b, k, 0xFF, nullptr) == PeerPut::refused_conf);  // erased flash / bit-rot
+    CHECK(b.count == 0);                                       // nothing was stored on any refusal
+    CHECK_FALSE(peer_conf_restorable(0));
+    CHECK_FALSE(peer_conf_restorable(3));
+    CHECK_FALSE(peer_conf_restorable(0xFF));
+    CHECK(peer_conf_restorable(kPeerConfAuthoritative));
+    CHECK(peer_conf_restorable(kPeerConfPinned));
+}
+
+TEST_CASE("device_nv/AB1: confidence UPGRADES, never DOWNGRADES — and PINNED is immutable to an on-air set") {
+    // Mirrors Node::peer_key_set's hit path exactly (U1). The pinned case is a COMPLETE no-op — not even the name is
+    // refreshed — because RAM refuses the refresh too, and a store that refreshed it would show a reboot-only label.
+    PeerBlob b{}; peers_blob_init(b);
+    const TestKey k = key_of(0x30);
+    CHECK(put(b, k, kPeerConfAuthoritative, "on-air") == PeerPut::inserted);
+    CHECK(put(b, k, kPeerConfPinned, "scanned") == PeerPut::updated);          // upgrade
+    CHECK(has_rec(b, k.hash));
+    CHECK(rec_of(b, k.hash).confidence == kPeerConfPinned);
+    CHECK(std::memcmp(rec_of(b, k.hash).name, "scanned", 7) == 0);
+
+    CHECK(put(b, k, kPeerConfAuthoritative, "renamed by air") == PeerPut::unchanged);   // ★ no downgrade, no rename
+    CHECK(rec_of(b, k.hash).confidence == kPeerConfPinned);
+    CHECK(rec_of(b, k.hash).name_len == 7);
+    CHECK(std::memcmp(rec_of(b, k.hash).name, "scanned", 7) == 0);
+    CHECK(b.count == 1);                                                       // and no second record for the same hash
+
+    CHECK(put(b, k, kPeerConfPinned, "re-pinned") == PeerPut::updated);         // a USER re-pin still lands
+    CHECK(std::memcmp(rec_of(b, k.hash).name, "re-pinned", 9) == 0);
+}
+
+TEST_CASE("device_nv/AB1: peer_rec_merge REFUSES a downgrade on its own — the rule peer_rec_put's rule-1 shadows") {
+    // ★ THIS CASE EXISTS BECAUSE A POISON PROBE FOUND A HOLE. Forcing peer_rec_merge's `upgrade` to true was
+    // INVISIBLE through peer_rec_put: its rule-1 early return intercepts the one reachable downgrade (stored pinned +
+    // incoming authoritative), and with only two persistable levels everything else IS an upgrade. So the
+    // no-downgrade rule was untested even though the store depends on it for any direct caller or a third level.
+    // Drive the merge DIRECTLY, which is the only way to reach the conjunct.
+    const TestKey scanned = key_of(0x80), other = key_of(0xA0);
+    PeerRec pinned_rec = peer_rec_merge(PeerRec{}, scanned.hash, scanned.ed, kPeerConfPinned, "scanned", 7);
+    CHECK(pinned_rec.confidence == kPeerConfPinned);
+    // an `authoritative` merge onto a `pinned` record must keep BOTH the level and the key
+    const PeerRec after = peer_rec_merge(pinned_rec, scanned.hash, other.ed, kPeerConfAuthoritative, "air", 3);
+    CHECK(after.confidence == kPeerConfPinned);                       // ★ NOT downgraded to authoritative
+    CHECK(std::memcmp(after.ed_pub, scanned.ed, 32) == 0);            // ★ and the verified key was NOT replaced
+    CHECK(after.name_len == 3);                                       // the name IS mutable, and only the name moved
+    CHECK(std::memcmp(after.name, "air", 3) == 0);
+    // the symmetric direction still upgrades: authoritative -> pinned takes the new key AND the new level
+    const PeerRec up = peer_rec_merge(peer_rec_merge(PeerRec{}, other.hash, other.ed, kPeerConfAuthoritative, "a", 1),
+                                      other.hash, other.ed, kPeerConfPinned, "p", 1);
+    CHECK(up.confidence == kPeerConfPinned);
+    CHECK(std::memcmp(up.ed_pub, other.ed, 32) == 0);
+}
+
+TEST_CASE("device_nv/AB1: the name is MUTABLE and refreshed; an EMPTY name keeps the stored label") {
+    PeerBlob b{}; peers_blob_init(b);
+    const TestKey k = key_of(0x40);
+    CHECK(put(b, k, kPeerConfAuthoritative, "MeshRoute node: 0x40414243") == PeerPut::inserted);
+    CHECK(put(b, k, kPeerConfAuthoritative, "Marek") == PeerPut::updated);      // §1.3: MUTABLE name
+    CHECK(rec_of(b, k.hash).name_len == 5);
+    CHECK(put(b, k, kPeerConfAuthoritative, nullptr) == PeerPut::unchanged);    // no name carried -> KEEP, and do not write
+    CHECK(rec_of(b, k.hash).name_len == 5);
+    CHECK(std::memcmp(rec_of(b, k.hash).name, "Marek", 5) == 0);
+    // over-long names are CLAMPED to the field, never overrun (a 40-char label from a future longer wire field)
+    const char long_name[] = "0123456789012345678901234567890123456789";
+    CHECK(std::strlen(long_name) == 40);
+    CHECK(put(b, k, kPeerConfAuthoritative, long_name) == PeerPut::updated);
+    CHECK(rec_of(b, k.hash).name_len == sizeof(PeerRec::name));
+    CHECK(rec_of(b, k.hash).name_len == 32);
+}
+
+TEST_CASE("device_nv/AB1: `unchanged` IS THE FLASH-WEAR GUARD — a byte-identical re-cache reports no write") {
+    // v2 made EVERY on-air key-learn a write candidate, and a TYPE-5 cache-on-pass flood can re-learn the same key
+    // repeatedly. Without this the store would take one whole-blob flash write per re-learn. The guard is a
+    // whole-RECORD byte compare, which is only valid because peer_rec_merge zeroes the name tail AND _pad.
+    PeerBlob b{}; peers_blob_init(b);
+    const TestKey k = key_of(0x50);
+    CHECK(put(b, k, kPeerConfAuthoritative, "Zosia") == PeerPut::inserted);
+    for (int i = 0; i < 5; ++i) CHECK(put(b, k, kPeerConfAuthoritative, "Zosia") == PeerPut::unchanged);
+    CHECK(b.count == 1);
+    // the padding really is deterministic: two independently-built identical records compare equal byte-for-byte
+    const PeerRec x = peer_rec_merge(PeerRec{}, k.hash, k.ed, kPeerConfAuthoritative, "Zosia", 5);
+    const PeerRec y = peer_rec_merge(PeerRec{}, k.hash, k.ed, kPeerConfAuthoritative, "Zosia", 5);
+    CHECK(std::memcmp(&x, &y, sizeof x) == 0);
+    const PeerRec stored = rec_of(b, k.hash);
+    CHECK(std::memcmp(&x, &stored, sizeof x) == 0);
+}
+
+TEST_CASE("device_nv/AB1: EVICTION is PINNED-OVER-AUTHORITATIVE — the oldest non-pinned goes, a pinned key never does") {
+    // Spec §2.4's open question, settled: authoritative keys now compete for the same 16 slots, so pinned must win.
+    PeerBlob b{}; peers_blob_init(b);
+    const TestKey pin0 = key_of(0x01), pin1 = key_of(0x02);
+    CHECK(put(b, pin0, kPeerConfPinned, "P0") == PeerPut::inserted);
+    CHECK(put(b, pin1, kPeerConfPinned, "P1") == PeerPut::inserted);
+    for (uint8_t i = 0; i < 14; ++i) CHECK(put(b, key_of(static_cast<uint8_t>(0x60 + i)), kPeerConfAuthoritative, "A") == PeerPut::inserted);
+    CHECK(b.count == kMaxPeerRecs);
+
+    const TestKey newcomer = key_of(0xB0);
+    CHECK(put(b, newcomer, kPeerConfAuthoritative, "new") == PeerPut::evicted);
+    CHECK(b.count == kMaxPeerRecs);                                    // rolled, not grown
+    CHECK_FALSE(has_rec(b, key_of(0x60).hash));                         // the OLDEST-INSERTED non-pinned went
+    CHECK(has_rec(b, newcomer.hash));
+    CHECK(has_rec(b, pin0.hash));                                       // ★ both pinned keys survived
+    CHECK(has_rec(b, pin1.hash));
+    CHECK(rec_of(b, pin0.hash).confidence == kPeerConfPinned);
+    // and index order is still INSERTION order after the shift-down compaction, so the NEXT victim is the next-oldest
+    CHECK(put(b, key_of(0xB4), kPeerConfAuthoritative, "new2") == PeerPut::evicted);
+    CHECK_FALSE(has_rec(b, key_of(0x61).hash));
+    CHECK(has_rec(b, key_of(0x62).hash));
+    CHECK(b.rec[kMaxPeerRecs - 1].key_hash32 == key_of(0xB4).hash);     // the newcomer is appended at the back
+}
+
+TEST_CASE("device_nv/AB1: a store FULL OF PINNED keys REFUSES an insert — it never drops a human-verified key") {
+    // The exact fail-loud Node::peer_key_set takes (`peer_key_full`), because the alternative is silently losing a
+    // key a human checked by QR in favour of one that arrived on air.
+    PeerBlob b{}; peers_blob_init(b);
+    for (uint8_t i = 0; i < kMaxPeerRecs; ++i)
+        CHECK(put(b, key_of(static_cast<uint8_t>(0x01 + i)), kPeerConfPinned, "P") == PeerPut::inserted);
+    CHECK(b.count == kMaxPeerRecs);
+    CHECK(put(b, key_of(0xC0), kPeerConfAuthoritative, "air") == PeerPut::refused_full);
+    CHECK(put(b, key_of(0xC0), kPeerConfPinned, "qr") == PeerPut::refused_full);   // even another PINNED key is refused
+    CHECK(b.count == kMaxPeerRecs);
+    CHECK_FALSE(has_rec(b, key_of(0xC0).hash));
+    for (uint8_t i = 0; i < kMaxPeerRecs; ++i) CHECK(has_rec(b, key_of(static_cast<uint8_t>(0x01 + i)).hash));
+    // an UPDATE to one of the 16 still works when full — a refusal is about admitting a NEW hash, not about writing
+    CHECK(put(b, key_of(0x01), kPeerConfPinned, "P renamed") == PeerPut::updated);
+}
+
+TEST_CASE("device_nv/AB1: a bit-rotted `count` cannot index past rec[]") {
+    PeerBlob b{}; peers_blob_init(b);
+    b.count = 9999;                                            // same size + magic + version, corrupt count
+    CHECK(put(b, key_of(0x70), kPeerConfPinned, "x") != PeerPut::refused_conf);
+    CHECK(b.count <= kMaxPeerRecs);
+}
+
+TEST_CASE("device_nv/AB1: peer_put_name covers EVERY PeerPut enumerator (the enum->string defect class)") {
+    // Three enum->string bugs shipped in this tree because the byte-identity gate cannot see a label. The mapper is
+    // `default`-less so the compiler catches a 7th enumerator; this catches a 7th that someone maps to "?".
+    const PeerPut all[] = { PeerPut::unchanged, PeerPut::updated, PeerPut::inserted, PeerPut::evicted,
+                            PeerPut::refused_full, PeerPut::refused_conf, PeerPut::refused_absent };
+    CHECK(sizeof(all) / sizeof(all[0]) == 7);
+    for (PeerPut r : all) {
+        CHECK(peer_put_name(r) != nullptr);
+        CHECK(std::strcmp(peer_put_name(r), "?") != 0);        // every enumerator has a REAL name
+    }
+    CHECK(std::strcmp(peer_put_name(PeerPut::unchanged), "unchanged") == 0);
+    CHECK(std::strcmp(peer_put_name(PeerPut::refused_full), "refused_full") == 0);
+    CHECK(std::strcmp(peer_put_name(PeerPut::refused_absent), "refused_absent") == 0);
+    CHECK(std::strcmp(peer_put_name(static_cast<PeerPut>(99)), "?") == 0);   // and the total-function fallback holds
+    // ★ refused_absent is NOT producible by peer_rec_put — it is peer_store_sync's "the live table lost this hash"
+    // verdict (firmware_commands.cpp, outside the native build). Pin that division so nobody "fixes" the policy to
+    // return it: the record layer never learns about RAM.
+    PeerBlob b{}; peers_blob_init(b);
+    const TestKey k = key_of(0x22);
+    CHECK(put(b, k, kPeerConfPinned, "x") != PeerPut::refused_absent);
+    CHECK(put(b, k, 0, "x") == PeerPut::refused_conf);          // the record layer's own refusal is refused_conf
 }
 
 TEST_CASE("device_nv: the RANGE-vs-EXACT asymmetry is REAL — the same version offset loads /mrcfg and rejects /mrid+/mrpeers") {
@@ -205,10 +462,23 @@ TEST_CASE("device_nv: with no backend compiled every load and save FAILS LOUD; f
 
 TEST_CASE("device_nv: the record sizes the version policy guards are what the stored layout expects") {
     // The size check IS the migration policy for these records, so a silent sizeof change must be visible.
-    CHECK(sizeof(PeerRec) == 36);                             // 4-byte hash + 32-byte ed25519 pubkey, no padding
-    CHECK(sizeof(PeerBlob) == 8 + kMaxPinnedPeers * sizeof(PeerRec));
-    CHECK(kMaxPinnedPeers == 16);
-    CHECK(kPeersVersion == 1);                                // ⚠ AB1 bumps this; see the /mrpeers case above
+    // ★ §AB1 UPDATED all three /mrpeers tripwires TO THE NEW TRUTH rather than deleting any of them — 36 -> 72,
+    //   kPeersVersion 1 -> 2, and the blob identity re-stated over the renamed cap.
+    // ⚠ 72, NOT 70: the payload is 4 + 32 + 1 + 1 + 32 = 70 and alignof(PeerRec) is 4, so the record carries 2
+    //   bytes of tail padding — declared as the named `_pad[2]` so the on-flash bytes are deterministic (the
+    //   wear-guard's whole-record memcmp depends on it) rather than indeterminate. The blob therefore doubles
+    //   584 -> 1160 B (1.986x), which is ALSO what rejects a v1 record on size alone.
+    CHECK(sizeof(PeerRec) == 72);                             // hash 4 + ed_pub 32 + confidence 1 + name_len 1 + name 32 + _pad 2
+    CHECK(offsetof(PeerRec, key_hash32) == 0);                // the on-flash field order, pinned: a reorder is a format change
+    CHECK(offsetof(PeerRec, ed_pub) == 4);
+    CHECK(offsetof(PeerRec, confidence) == 36);
+    CHECK(offsetof(PeerRec, name_len) == 37);
+    CHECK(offsetof(PeerRec, name) == 38);
+    CHECK(sizeof(PeerRec::name) == 32);                       // == Node::PeerKey::name and peer_key_set's clamp
+    CHECK(sizeof(PeerBlob) == 8 + kMaxPeerRecs * sizeof(PeerRec));
+    CHECK(sizeof(PeerBlob) == 1160);
+    CHECK(kMaxPeerRecs == 16);                                // == protocol::cap_peer_keys (the RAM table's cap)
+    CHECK(kPeersVersion == 2);                                // §AB1: v2 = confidence + name persisted; v1 rejected outright
     CHECK(kIdVersion == 1);
     CHECK(kVersion == 23);                                    // §loc-per-send dropped loc_in_dm at v23
     CHECK(kMagic == 0x4D524331u);                             // 'MRC1'

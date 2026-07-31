@@ -26,26 +26,90 @@
 
 namespace mrfw {
 
-static bool persist_pinned_peer(uint32_t kh, const uint8_t ed_pub[32]) {
-    mrnv::PeerBlob pb{};
-    if (!mrnv::load_peers(pb)) { pb = mrnv::PeerBlob{}; pb.magic = mrnv::kPeersMagic; pb.version = mrnv::kPeersVersion; pb.count = 0; }
-    for (uint16_t i = 0; i < pb.count && i < mrnv::kMaxPinnedPeers; ++i)
-        if (pb.rec[i].key_hash32 == kh) { memcpy(pb.rec[i].ed_pub, ed_pub, 32); return mrnv::save_peers(pb); }   // update in place
-    if (pb.count >= mrnv::kMaxPinnedPeers) return false;                                                          // store full
-    pb.rec[pb.count].key_hash32 = kh; memcpy(pb.rec[pb.count].ed_pub, ed_pub, 32); pb.count++;
-    pb.magic = mrnv::kPeersMagic; pb.version = mrnv::kPeersVersion;
-    return mrnv::save_peers(pb);
+// ---- the /mrpeers address book: the I/O half (§AB1, spec 2026-07-29 §2.4) --------------------------------------
+// ★ ONE 1160-B SCRATCH RECORD, STATIC, SHARED BY BOTH USERS BELOW — and `static` here is a HARD requirement, not
+// tidiness. /mrpeers is whole-blob R/W and v2 doubled it (584 -> 1160 B), and BOTH call sites are stack-critical:
+//   - peer_store_restore() runs from setup(), i.e. on the nRF52 Arduino loop task, whose stack is a FIXED 4 KB
+//     (LOOP_STACK_SZ = 256*4 in cores/nRF5/main.cpp, not overridable) — 1160 B is 28% of the WHOLE stack, and this
+//     tree has already HARDFAULTed on that stack once (fw_main.cpp §stability: `stackhw` fell to 72 B);
+//   - peer_store_sync() runs from the console / push drain in the 8 KB g_mesh_task, whose deepest RX path
+//     (hash-locate -> RREQ flood -> do_post_ack) already nests ~1.4 KB.
+// Sharing it is safe because the two CANNOT overlap: setup() returns before loop() lazily creates g_mesh_task, and
+// everything after that is single-threaded cooperative on that one task. Same reason (and the same wording) as the
+// `static Blob cur` in mrnv::save() and the `static mrfault::FaultLog fl` in mrnv::factory_erase().
+static mrnv::PeerBlob s_peers;
+
+// Mirror ONE peer of the live address book into /mrpeers. Was `persist_pinned_peer` (pinned-only, one record built
+// field-by-field at the call site); EXTENDED rather than forked (U1). Two halves, deliberately split:
+//   - the SELECTION + EVICTION policy is mrnv::peer_rec_put (device_nv.h — pure, host-tested, mirrors
+//     Node::peer_key_set's rules without forking them);
+//   - this function is the I/O half plus THE ONE RAM->NV conversion path (U2): every field is read from the LIVE
+//     table through the existing accessors (peer_key_find -> ed_pub + the CURRENT confidence, peer_name_find -> the
+//     cached name), so no caller can hand the store a name or a confidence that disagrees with RAM.
+mrnv::PeerPut peer_store_sync(uint32_t kh) {
+    uint8_t ed[32];
+    meshroute::Node::PeerKeyConf conf = meshroute::Node::PeerKeyConf::overheard;
+    if (!g_node.peer_key_find(kh, ed, &conf)) return mrnv::PeerPut::refused_absent;   // C2: absent/aged in RAM -> nothing to mirror
+                                                                                    // (reachable: a peer_key_cached push is drained
+                                                                                    // after the cache event, and a cache-on-pass flood
+                                                                                    // can evict the entry in between)
+    char nm[32];
+    const uint8_t nl = g_node.peer_name_find(kh, nm, sizeof nm);
+    // ★ RE-READ THE STORE EVERY TIME, deliberately — do NOT treat `s_peers` as a warm cache after the first load.
+    // `factory_erase()` (a `factory_reset confirm`) wipes /mrpeers behind this function's back, and a cached copy
+    // would then be written straight back over the wipe. A read is cheap and wears nothing; only writes wear flash.
+    if (!mrnv::load_peers(s_peers)) mrnv::peers_blob_init(s_peers);   // absent, or a REJECTED v1 record -> start a fresh v2 store
+    const mrnv::PeerPut r = mrnv::peer_rec_put(s_peers, kh, ed, (uint8_t)conf, nm, nl);
+    // ★ `unchanged` => DO NOT WRITE. The wear guard is the whole reason peer_rec_put reports an outcome instead of a
+    // bool: v2 made every on-air key-learn a write candidate, and a re-cache of an identical record must cost no flash.
+    if (r == mrnv::PeerPut::updated || r == mrnv::PeerPut::inserted || r == mrnv::PeerPut::evicted)
+        (void)mrnv::save_peers(s_peers);   // §nv-unchecked [5/5]: the save verdict is DISCARDED, preserved deliberately
+                                           // (see fw_main §nv-unchecked [1/5]) — best-effort NV; the RAM key works
+                                           // regardless. Owner ruling owed. The POLICY verdict `r` IS returned.
+    return r;
 }
-// E2E §3: a `peerkey` command -> install the RAM PINNED key (Node::on_command) + persist to /mrpeers + the contract ack.
+
+// E2E §2 + §AB1: reload the address book at boot. Re-installs each stored record AT ITS STORED CONFIDENCE — v1
+// re-installed EVERYTHING as `pinned`, which silently asserted "a human verified this via QR" of a key learned on
+// air. An unrecognised confidence byte is SKIPPED, never guessed at (mrnv::peer_conf_restorable). Called from
+// setup() AFTER on_init so the LayerRuntime `_active` is live. Returns the number of records re-installed.
+uint16_t peer_store_restore() {
+    uint16_t ok = 0, pinned = 0, bad = 0;
+    if (mrnv::load_peers(s_peers) && s_peers.count <= mrnv::kMaxPeerRecs) {
+        for (uint16_t i = 0; i < s_peers.count; ++i) {
+            const mrnv::PeerRec& rec = s_peers.rec[i];
+            if (!mrnv::peer_conf_restorable(rec.confidence)) { ++bad; continue; }
+            const bool pin = (rec.confidence == mrnv::kPeerConfPinned);
+            uint8_t nl = rec.name_len;
+            if (nl > sizeof rec.name) nl = (uint8_t)sizeof rec.name;      // a bit-rotted name_len must not overrun
+            if (g_node.peer_key_set(rec.key_hash32, rec.ed_pub,
+                                    pin ? meshroute::Node::PeerKeyConf::pinned
+                                        : meshroute::Node::PeerKeyConf::authoritative,
+                                    rec.name, nl)) { ++ok; pinned += pin ? 1 : 0; }
+            else ++bad;                                                   // ed_pub[:4] != hash, or the cache is full of pinned keys
+        }
+    }
+    // One boot line: the kPeersVersion 1->2 bump makes this read `0 restored` exactly once (the v1 record is
+    // rejected), so the one-time loss of the pinned store is OBSERVABLE rather than silent.
+    mrcon.print(F("  peers     = ")); mrcon.print(ok);   mrcon.print(F(" restored ("));
+    mrcon.print(pinned);              mrcon.print(F(" pinned, "));
+    mrcon.print((uint16_t)(ok - pinned)); mrcon.print(F(" authoritative)"));
+    if (bad) { mrcon.print(F(" ⚠ ")); mrcon.print(bad); mrcon.print(F(" REJECTED")); }
+    mrcon.println();
+    return ok;
+}
+
+// E2E §3: a `peerkey` command -> install the RAM PINNED key (Node::on_command) + mirror it to /mrpeers + the ack.
 size_t handle_peerkey(char* out, size_t cap, const meshroute::Command& cmd) {
     const uint8_t* ep = cmd.u.peerkey.ed_pub;
     const uint32_t kh = (uint32_t)ep[0] | ((uint32_t)ep[1] << 8) | ((uint32_t)ep[2] << 16) | ((uint32_t)ep[3] << 24);
     if (g_node.on_command(cmd).code != meshroute::CmdCode::queued)        // false only when the cache is full of pinned keys
         return (size_t)snprintf(out, cap, "{\"ev\":\"peerkey_err\",\"reason\":\"full\"}\n");
-    // §nv-unchecked [5/5]: persist_pinned_peer CHECKS its own save and returns the verdict — this CALLER discards it.
-    // Preserved deliberately (see fw_main §nv-unchecked [1/5]): best-effort NV (bench); the RAM key works regardless,
-    // but the `peerkey_set` ack below claims `"pinned":true` even when the /mrpeers write failed. Owner ruling owed.
-    (void)persist_pinned_peer(kh, ep);
+    // §nv-unchecked [5/5] (cont.): peer_store_sync reports its POLICY outcome — this CALLER discards it, preserved
+    // deliberately: the `peerkey_set` ack below claims `"pinned":true` even when /mrpeers refused or failed to write.
+    // Owner ruling owed. NB the RAM install above must come FIRST — the sync reads the name + confidence back out of
+    // the live table, so a QR import inherits any name already learned on air for that hash.
+    (void)peer_store_sync(kh);
     return (size_t)snprintf(out, cap, "{\"ev\":\"peerkey_set\",\"hash\":%lu,\"pinned\":true}\n", (unsigned long)kh);
 }
 

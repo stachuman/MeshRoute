@@ -5,7 +5,7 @@
 //   - `/mrcfg`   (Blob)     = RADIO/PROTOCOL CONFIG + the short `node_id` (a `cfg set` over the console).
 //   - `/mrid`    (IdBlob)   = the 32-byte identity master seed + name (HW-RNG on first boot; `regen`). The
 //                             keypair / key_hash32 are DERIVED from the seed at boot (lib/core/identity).
-//   - `/mrpeers` (PeerBlob) = the pinned peer-key store (see §2 below).
+//   - `/mrpeers` (PeerBlob) = the peer ADDRESS BOOK: key + name + confidence (see §2 below).
 //   - `/mrfault` (mrfault::FaultLog) = the HW fault history; lib/core/fault_log.h owns its validity rule.
 //
 // STRUCTURE — three layers, and the ORDER is deliberate (NV1, register B26):
@@ -143,19 +143,65 @@ struct IdBlob {
 constexpr uint32_t kIdMagic   = 0x4D524944u; // 'MRID'
 constexpr uint16_t kIdVersion = 1;
 
-// ---- Pinned peer-key store (`/mrpeers`) — E2E §2. The QR/`peerkey`-installed VERIFIED keys, reloaded at boot as
-// PINNED so a scanned contact survives reboot with no re-scan. On-air (TOFU) keys stay RAM-only. Whole-blob R/W like
-// /mrid; a `peerkey` install rewrites it. Dev hardware: a format change just bumps kPeersVersion (no migration).
-struct PeerRec  { uint32_t key_hash32; uint8_t ed_pub[32]; };
+// ---- Peer ADDRESS BOOK (`/mrpeers`) — E2E §2 + spec 2026-07-29 §2.4 (slice AB1). Whole-blob R/W like /mrid; a
+// `peerkey` install or an on-air key-learn rewrites it. Dev hardware: a format change just bumps kPeersVersion
+// (no migration). Holds the peers whose identity we can NAME and SEAL to:
+//   - the QR/`peerkey`-installed VERIFIED keys (`pinned` — a human checked this one), and
+//   - the keys learned ON AIR at `authoritative` (v2 — before it, a reboot cost the ability to send encrypted to
+//     every on-air peer, recoverable only by a manual `reqpubkey` each),
+// each with its cached NAME (v2), and each reloaded at boot AT THE STORED CONFIDENCE — never promoted. v1 stored
+// PINNED keys only, NAMELESS, and re-installed them all as `pinned`; re-installing an on-air key that way would
+// assert "a human verified this via QR", which is a lie the seal/UI paths act on.
+// ⚠ ONE-TIME LOSS: v2's layout change makes every v1 record fail load()'s size check (584 -> 1160 B, so the
+// version byte is belt-and-braces), so the store is EMPTY on the first boot after this flash — the QR ceremony
+// must be redone once. Deliberate: the node is not deployed, and a migration path is code that never runs again.
+// ✖ NOT persisted, deliberately:
+//   - `overheard` keys — they cannot seal (node_hashlocate.cpp gates sealing on conf >= authoritative), so storing
+//     one would only spend a slot and evict a useful record;
+//   - `peer_confirmed` — a PER-SESSION fact ("we opened a SEALED frame from them", i.e. they hold OUR key). A
+//     reboot un-knows it; restoring it from flash would suppress the §S2 INTRO first-contact attach toward a peer
+//     who may never have seen our key. It stays RAM-only in Node::PeerKey by design;
+//   - the retained peer LOCATION (spec §2.7, owner-ruled RAM-only): a stale position rendered as current is worse
+//     than none, and a captured node must not yield every teammate's last known fix.
+struct PeerRec {
+    uint32_t key_hash32;   // == LE(ed_pub[:4]); THE identity of the address book (ids are addresses, the hash is identity)
+    uint8_t  ed_pub[32];   // Ed25519 identity pubkey — IMMUTABLE (Node::peer_key_set re-verifies ed_pub[:4] == hash)
+    uint8_t  confidence;   // v2: a Node::PeerKeyConf value; ONLY authoritative(1)/pinned(2) are ever stored (see peer_conf_restorable)
+    uint8_t  name_len;     // v2: 0..sizeof(name)
+    char     name[32];     // v2: the peer's cached human label — MUTABLE (refreshed on every pubkey message)
+    uint8_t  _pad[2];      // ABI tail padding (4+32+1+1+32 = 70, alignof 4 -> 72), NAMED so the on-flash record is
+                           // fully zeroable: peer_rec_merge's byte-compare wear-guard needs deterministic padding.
+                           // Repurposable without moving sizeof — as Blob's _pad/_pad2 became claim_epoch/tx_power.
+};
 struct PeerBlob {
     uint32_t magic;       // kPeersMagic
     uint16_t version;     // kPeersVersion
-    uint16_t count;       // entries in use (0..kMaxPinnedPeers)
-    PeerRec  rec[16];     // == cap_peer_keys; PINNED keys only
+    uint16_t count;       // entries in use (0..kMaxPeerRecs)
+    PeerRec  rec[16];     // == cap_peer_keys; v2: pinned AND authoritative records (v1 was pinned-only)
 };
-constexpr uint32_t kPeersMagic     = 0x4D525052u;  // 'MRPR'
-constexpr uint16_t kPeersVersion   = 1;
-constexpr uint8_t  kMaxPinnedPeers = 16;
+constexpr uint32_t kPeersMagic   = 0x4D525052u;  // 'MRPR'
+constexpr uint16_t kPeersVersion = 2;            // v2: §AB1 the address book — PeerRec gains `confidence` + `name`/`name_len`, so
+                                                 // `authoritative` on-air keys and cached names survive a reboot and nothing is
+                                                 // silently promoted to pinned. ⚠ ONE-TIME LOSS of the v1 pinned store, see above.
+constexpr uint8_t  kMaxPeerRecs  = 16;           // v2 rename (was kMaxPinnedPeers): ruling (b) made "pinned" false — the store is
+                                                 // no longer pinned-only, and a cap named after one of two kinds mis-states the contract.
+
+// A stored `confidence` byte -> may we re-install this record, and at what level? ★ DELIBERATELY NOT "anything
+// that is not pinned means authoritative": `authoritative` is exactly the level that lets a DM be SEALED to a peer,
+// so widening this would manufacture a sealing capability out of a corrupt flash byte. An unrecognised value is
+// SKIPPED by the boot restore and REFUSED by peer_rec_put (C2), never guessed at.
+constexpr uint8_t kPeerConfAuthoritative = 1;    // == static_cast<uint8_t>(meshroute::Node::PeerKeyConf::authoritative)
+constexpr uint8_t kPeerConfPinned        = 2;    // == static_cast<uint8_t>(meshroute::Node::PeerKeyConf::pinned)
+                                                 // ⚠ NOT #included from node.h (this is the device record layer, which must stay
+                                                 // free of the protocol engine); test_device_nv.cpp static_asserts the two agree.
+inline bool peer_conf_restorable(uint8_t stored) {
+    return stored == kPeerConfAuthoritative || stored == kPeerConfPinned;
+}
+// ★ PER-ABI, NOT native-only. `sizeof` IS the migration policy for this record (load_peers' exact size check), and
+// test_device_nv.cpp can only measure the HOST ABI — so pin it here, where it compiles on nRF52/ARM and ESP32/Xtensa
+// too. 70 bytes of payload, alignof 4, `_pad[2]` named ⇒ 72; blob = 8-byte header + 16 × 72 = 1160 (v1 was 584).
+static_assert(sizeof(PeerRec) == 72,  "device_nv.h: the /mrpeers on-flash record layout moved — bump kPeersVersion");
+static_assert(sizeof(PeerBlob) == 8 + 16 * 72, "device_nv.h: the /mrpeers blob layout moved — bump kPeersVersion");
 
 // ---- slot table --------------------------------------------------------------------------------------
 // The ONE place each record's storage names live. Both live backends address the same four records with
@@ -179,10 +225,11 @@ inline constexpr Slot kSlotFault { "/mrfault", "mrfault", "log"   };
 //   /mrcfg   (Blob)     accepts a RANGE, `version >= 2 && <= kVersion`: an older-but-parsable config loads
 //                       and is re-stamped in place by nv_load_stamped (src/firmware_config.cpp).
 //   /mrid    (IdBlob)   \ EQUALITY only — a mismatch rejects the record outright, so the node re-mints its
-//   /mrpeers (PeerBlob) / identity or comes up with no pinned peers (kVersion's REPROVISION-ON-REFLASH note).
+//   /mrpeers (PeerBlob) / identity or comes up with an EMPTY address book (kVersion's REPROVISION-ON-REFLASH note).
 // The policy is now a NAMED call at the one wrapper instead of a hand-copied comparison, so changing one
 // record's policy is one line and cannot leak into another's. `blob_valid_exact` IS the degenerate range —
 // one comparison core, two names, no fork (U1).
+// ★ §AB1 KEPT /mrpeers ON EQUALITY at the v1 -> v2 bump — deliberately, not by inertia. See load_peers below.
 //
 // `n` is SIGNED and that is load-bearing: nRF52's `File::read()` returns a NEGATIVE on a corrupt LittleFS
 // CTZ block — the very signal `mount_or_repair()` keys its self-heal on — so it must never be laundered
@@ -197,6 +244,105 @@ inline bool blob_valid_range(const BlobT& b, int n, uint32_t magic, uint16_t v_m
 template <typename BlobT>
 inline bool blob_valid_exact(const BlobT& b, int n, uint32_t magic, uint16_t version) {
     return blob_valid_range(b, n, magic, version, version);
+}
+
+// ---- /mrpeers RECORD POLICY — pure, and ABOVE the platform `#if` for the SAME reason as blob_valid_* ----------
+// §AB1. This is the SELECTION + EVICTION policy of the address book, and it is deliberately NOT in
+// firmware_commands.cpp: `test_build_src = no` keeps every `src/*.cpp` out of the native build, so a policy living
+// there would be as untestable as the six hand-copied validators NV1 hoisted — and this one has a
+// security-relevant invariant (a pinned key must never be silently lost or invented).
+//
+// ★ IT MIRRORS Node::peer_key_set (lib/core/node_hashlocate.cpp) AND DOES NOT FORK IT (U1) — same four rules:
+//   1. a stored PINNED record is IMMUTABLE to an on-air (non-pinned) set — a complete no-op, NOT EVEN a name
+//      refresh, exactly as the RAM path returns early. (If NV refreshed a name RAM had refused, a reboot would
+//      show a label the live table never held.)
+//   2. UPGRADE, NEVER DOWNGRADE: the key + confidence move only upwards, or on a user re-pin;
+//   3. a PINNED record is NEVER the eviction victim — pinned-over-authoritative (spec §2.4);
+//   4. every slot pinned + a new hash => REFUSE (C2 fail loud), never drop a human-verified key.
+// ✖ THE ONE DELIBERATE DIVERGENCE FROM THE RAM POLICY: RAM evicts the least-recently-SEEN non-pinned entry;
+//   PeerRec carries NO timestamp (the spec's record has none), so NV evicts the OLDEST-INSERTED non-pinned record —
+//   `rec[]` index order IS insertion order, kept so by the shift-down compaction in peer_rec_put, so "the first
+//   non-pinned" IS the oldest. A refresh deliberately does NOT promote a record to the back: reordering the array
+//   on every re-cache would move the whole blob's bytes and so defeat the `unchanged` wear-guard below. FIFO with
+//   no flash write beats LRU with one write per re-cache — this store lives on flash, the RAM one does not.
+enum class PeerPut : uint8_t {
+    unchanged,      // the store already says exactly this -> ★ the caller MUST NOT write (the flash-wear guard)
+    updated,        // an existing record's key / name / confidence moved
+    inserted,       // a free slot took it
+    evicted,        // the store was full -> the oldest NON-PINNED record was dropped to make room
+    refused_full,   // every slot is PINNED -> nothing dropped, nothing stored (C2)
+    refused_conf,   // not a confidence this store persists (`overheard`, or an unrecognised byte) (C2)
+    refused_absent, // the LIVE table no longer holds this hash, so there is nothing to mirror (C2 — see peer_store_sync:
+                    // a peer_key_cached push is drained AFTER the cache event, and a flood can evict the entry in
+                    // between. Distinct from refused_conf on purpose: "gone from RAM" and "a confidence we refuse to
+                    // store" are different facts and must not share a label.)
+};
+// enum -> string, `default`-LESS so -Wswitch fails the build when a seventh outcome is added. This project has
+// shipped THREE enum->string defects that the byte-identity gate was structurally blind to; the all-enumerators
+// case in test/test_device_nv.cpp is the other half of that lesson.
+inline const char* peer_put_name(PeerPut r) {
+    switch (r) {
+        case PeerPut::unchanged:    return "unchanged";
+        case PeerPut::updated:      return "updated";
+        case PeerPut::inserted:     return "inserted";
+        case PeerPut::evicted:      return "evicted";
+        case PeerPut::refused_full: return "refused_full";
+        case PeerPut::refused_conf: return "refused_conf";
+        case PeerPut::refused_absent: return "refused_absent";
+    }
+    return "?";     // no `default:` arm — unreachable for a valid enumerator, but the function stays total
+}
+// Stamp an EMPTY v2 store. The magic/version/count triple used to be re-typed at each write site; one path (U2).
+inline void peers_blob_init(PeerBlob& b) {
+    b = PeerBlob{};
+    b.magic = kPeersMagic;
+    b.version = kPeersVersion;
+    b.count = 0;
+}
+// THE one conversion path onto a PeerRec (U2 — never rebuild the carrier field-by-field at a call site). Merging
+// onto a ZEROED `prev` is exactly the fresh-insert case, so insert and update cannot drift apart.
+inline PeerRec peer_rec_merge(const PeerRec& prev, uint32_t key_hash32, const uint8_t ed_pub[32],
+                              uint8_t conf, const char* name, uint8_t name_len) {
+    PeerRec r{};                        // zeroed FIRST so the name tail AND _pad are deterministic — which is what
+    r.key_hash32 = key_hash32;          // makes peer_rec_put's whole-record byte-compare a valid "nothing changed"
+    const bool carries_name = (name && name_len);
+    uint8_t nl = carries_name ? name_len : prev.name_len;                     // rule: the name is MUTABLE, refreshed
+    if (nl > sizeof r.name) nl = static_cast<uint8_t>(sizeof r.name);         // whenever one is carried; an empty name
+    memcpy(r.name, carries_name ? name : prev.name, nl);                      // KEEPS the stored label. Clamp: a
+    r.name_len = nl;                                                          // corrupt stored name_len cannot overrun.
+    // rule 2 (and a user re-pin). ⚠ MEASURED 2026-07-31 (§AB1 poison probe P2): forcing this to `true` — i.e.
+    // allowing a DOWNGRADE — moves NOTHING when peer_rec_put is the caller, because peer_rec_put's rule-1 early
+    // return already intercepts the only reachable downgrade (stored pinned + incoming authoritative), and with only
+    // two persistable levels every other combination IS an upgrade. So this conjunct is DEFENCE IN DEPTH that rule 1
+    // currently shadows. It is KEPT, not deleted, because it is the invariant a DIRECT peer_rec_merge caller or a
+    // THIRD confidence level would need — and it now has its own native case driving peer_rec_merge directly, so the
+    // probe that found this gap fails if the rule is broken. Do not "simplify" it away on the strength of a green run.
+    const bool upgrade = (conf == kPeerConfPinned) || (conf > prev.confidence);
+    r.confidence = upgrade ? conf : prev.confidence;
+    memcpy(r.ed_pub, upgrade ? ed_pub : prev.ed_pub, sizeof r.ed_pub);
+    return r;
+}
+inline PeerPut peer_rec_put(PeerBlob& b, uint32_t key_hash32, const uint8_t ed_pub[32],
+                            uint8_t conf, const char* name, uint8_t name_len) {
+    if (!peer_conf_restorable(conf)) return PeerPut::refused_conf;            // C2: `overheard`/garbage is not persisted
+    if (b.count > kMaxPeerRecs) b.count = kMaxPeerRecs;                       // a bit-rotted count must never index past rec[]
+    for (uint16_t i = 0; i < b.count; ++i) {
+        if (b.rec[i].key_hash32 != key_hash32) continue;
+        if (b.rec[i].confidence == kPeerConfPinned && conf != kPeerConfPinned) return PeerPut::unchanged;   // rule 1
+        const PeerRec want = peer_rec_merge(b.rec[i], key_hash32, ed_pub, conf, name, name_len);
+        if (memcmp(&want, &b.rec[i], sizeof want) == 0) return PeerPut::unchanged;   // ★ the flash-wear guard
+        b.rec[i] = want;
+        return PeerPut::updated;
+    }
+    const PeerRec fresh = peer_rec_merge(PeerRec{}, key_hash32, ed_pub, conf, name, name_len);
+    if (b.count < kMaxPeerRecs) { b.rec[b.count++] = fresh; return PeerPut::inserted; }
+    uint16_t victim = kMaxPeerRecs;                                           // rules 3+4: the OLDEST non-pinned, or refuse
+    for (uint16_t i = 0; i < kMaxPeerRecs; ++i)
+        if (b.rec[i].confidence != kPeerConfPinned) { victim = i; break; }
+    if (victim == kMaxPeerRecs) return PeerPut::refused_full;
+    for (uint16_t i = victim; i + 1u < kMaxPeerRecs; ++i) b.rec[i] = b.rec[i + 1];   // compact: index order stays INSERTION order
+    b.rec[kMaxPeerRecs - 1] = fresh;
+    return PeerPut::evicted;
 }
 
 }  // namespace mrnv
@@ -340,12 +486,17 @@ inline bool save(const Blob& b) {
     // OR companion/BLE) to the SAME value must NOT rewrite the whole record — every rewrite is flash wear AND
     // widens the reset-during-write corruption window, and this tree has already been BRICKED by NV corruption
     // once (specs/archive/2026-06-24-internalfs-self-heal.md). /mrcfg is the one record a companion slider
-    // bound to `cfg set` can hammer, and the one nv_persist_join_state re-writes on the leased channel-ctr
-    // roll (fw_main.cpp — `lease_due`, roughly every kChannelCtrLeaseMargin sends).
+    // bound to `cfg set` can hammer, and the one persist_cfg_if_needed re-writes on the leased channel-ctr
+    // roll (fw_main.cpp — `lease_due`, roughly every kChannelCtrLeaseMargin sends). [V1: this comment said
+    // `nv_persist_join_state`, a name that no longer exists — the function is persist_cfg_if_needed.]
     // ✖ NOT REPLICATED onto save_id / save_peers / save_faults, ON PURPOSE (NV1 scope ruling, C1): /mrid is
-    // written on `regen` or `cfg set name`, /mrpeers on a `peerkey` install, /mrfault once per boot — none is
-    // slider-driven, and adding a read-before-write to them would be a real behaviour change (an extra flash
-    // read per save) smuggled inside a refactor. This is a deliberate asymmetry, NOT missed dedup.
+    // written on `regen` or `cfg set name`, /mrfault once per boot — neither is slider-driven, and adding a
+    // read-before-write to them would be a real behaviour change (an extra flash read per save) smuggled inside a
+    // refactor. This is a deliberate asymmetry, NOT missed dedup.
+    // ⚠ /mrpeers IS NOW HAMMERABLE and is guarded DIFFERENTLY: §AB1 made every on-air key-learn a write candidate
+    // (a TYPE-5 cache-on-pass flood can re-cache the same key repeatedly), so the dedup lives one level down in
+    // mrnv::peer_rec_put, which returns `unchanged` on a byte-identical record and the caller then does not call
+    // save_peers at all. That is CHEAPER than this whole-blob memcmp — no second 1160-B buffer, and no extra read.
     // No existing/unreadable record (the load fails) => always write (first provision).
     static Blob cur;   // STATIC not stack — keep the console-path frame small (the do_post_ack overflow lesson)
     if (load(cur) && memcmp(&cur, &b, sizeof b) == 0) return true;   // byte-identical -> no-op success
@@ -356,9 +507,14 @@ inline bool load_id(IdBlob& out) {
     return blob_valid_exact(out, n, kIdMagic, kIdVersion);           // EQUALITY — a mismatch re-mints the identity
 }
 inline bool save_id(const IdBlob& b) { return write_slot(kSlotId, &b, sizeof b); }
-inline bool load_peers(PeerBlob& out) {                              // §2: the pinned-key store
+inline bool load_peers(PeerBlob& out) {                              // §2: the peer address book
     const int n = read_slot(kSlotPeers, &out, sizeof out);
-    return blob_valid_exact(out, n, kPeersMagic, kPeersVersion);     // EQUALITY — a mismatch drops the store
+    // ★ EQUALITY, KEPT AT v2 — the AB1 decision, made deliberately (NV1 wired this line so a switch to
+    // blob_valid_range would turn test_device_nv.cpp's /mrpeers case RED rather than pass silently). A v1 record is
+    // REJECTED OUTRIGHT, not migrated: the node is not deployed, so a one-time loss of the pinned store costs one
+    // QR ceremony, whereas a migration arm is code that runs once per chip and then can never be exercised again.
+    // The size check would reject a v1 record anyway (584 vs 1160 B), so a range policy could not even parse one.
+    return blob_valid_exact(out, n, kPeersMagic, kPeersVersion);
 }
 inline bool save_peers(const PeerBlob& b) { return write_slot(kSlotPeers, &b, sizeof b); }
 // Persistent fault log (`/mrfault`) — whole-blob R/W like Blob, but its magic+version rule belongs to

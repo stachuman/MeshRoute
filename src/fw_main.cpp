@@ -380,9 +380,11 @@ uint32_t g_admin_tx_ctr   = 0;      // monotonic command counter (bumped past a 
 
 // handle_testsched/handle_teststatus/dispatch/read_batt_mv/make_status_fields/node_state_str/handle_routes/make_cfg_extras moved to firmware_commands.{h,cpp} (cleanup 2026-07-15; dispatch reaches board-glue via fw_* wrappers). §3 exports via `using mrfw::…` above.
 
-// E2E §2: persist a freshly-installed PINNED peer key to /mrpeers (whole-blob rewrite; update-in-place or append).
-// Best-effort — a full store / no-NV target just means it won't survive a reboot (the RAM PINNED key still works).
-// persist_pinned_peer + handle_peerkey moved to firmware_commands.{h,cpp} (cleanup 2026-07-15); `using mrfw::handle_peerkey` above.
+// E2E §2 + §AB1: the /mrpeers PEER ADDRESS BOOK — mirror a live peer's key + NAME + CONFIDENCE into NV (whole-blob
+// rewrite; update-in-place, append, or evict the oldest non-pinned), and re-install the book at boot. Best-effort —
+// a store full of pinned keys / a no-NV target just means the key won't survive a reboot (the RAM key still works).
+// Both halves (peer_store_sync — was persist_pinned_peer — and peer_store_restore) plus handle_peerkey live in
+// firmware_commands.{h,cpp} (cleanup 2026-07-15; §AB1 for the restore); `using mrfw::handle_peerkey` above.
 
 // BLE companion inbound: handle ONE console line, emitting a single NDJSON response (the schema of
 // docs/specs/2026-05-30-device-console-design.md §4). Reuses the USB command engine — parse_command +
@@ -744,11 +746,12 @@ void setup() {
     g_inbox_dm.set_epoch(boot_epoch); g_inbox_ch.set_epoch(boot_epoch);
 #endif
     g_node.inbox().on_init(&g_inbox_dm, &g_inbox_ch);
-    // E2E §2: reload the PINNED peer keys (/mrpeers) so a QR-scanned contact survives a reboot — re-install each as
-    // PeerKeyConf::pinned (never on-air-overwritten/evicted/aged). After on_init so the LayerRuntime _active is live.
-    { mrnv::PeerBlob pb{}; if (mrnv::load_peers(pb) && pb.count <= mrnv::kMaxPinnedPeers)
-        for (uint16_t i = 0; i < pb.count; ++i)
-            g_node.peer_key_set(pb.rec[i].key_hash32, pb.rec[i].ed_pub, meshroute::Node::PeerKeyConf::pinned); }
+    // E2E §2 + §AB1: reload the peer ADDRESS BOOK (/mrpeers) — the QR-pinned keys AND the on-air `authoritative`
+    // ones, each with its cached NAME, re-installed AT THE STORED CONFIDENCE (v1 re-installed everything as
+    // `pinned`, silently promoting on-air keys). After on_init so the LayerRuntime _active is live. ⚠ The 1160-B
+    // blob buffer is deliberately NOT a local here: setup() runs on the FIXED 4 KB nRF52 loop-task stack — see the
+    // static in firmware_commands.cpp, which owns both /mrpeers users.
+    mrfw::peer_store_restore();
 #if defined(MRINBOX_QSPI_READY)
     mrcon.println(F("  inbox     = QSPI (durable)"));
 #else
@@ -1117,10 +1120,19 @@ static void mesh_service_once() {
                        mrcon.println(pu.dst ? F(" (auth)") : F(" (cached)")); }
                 break;
             }
-            case meshroute::PushKind::peer_key_cached:   // E2E §7: a recipient's pubkey was learned on-air -> an `-e` send to that hash can now be sealed
+            case meshroute::PushKind::peer_key_cached: {  // E2E §7: a recipient's pubkey was learned on-air -> an `-e` send to that hash can now be sealed
+                // §AB1: mirror it into /mrpeers so the ability to seal to this peer SURVIVES A REBOOT (v1 kept
+                // on-air keys RAM-only, so every reboot cost a manual `reqpubkey` per peer). Stored at
+                // `authoritative`, never promoted to pinned. peer_store_sync returns `unchanged` — and writes no
+                // flash — when the record is already byte-identical, which is what makes a cache-on-pass re-learn
+                // free. Its outcome is REPORTED, not swallowed: `refused_full` means the book is full of pinned
+                // keys and this key will NOT survive the reboot (C2).
+                const mrnv::PeerPut kept = mrfw::peer_store_sync(pu.sender_hash);
                 mrcon.print(F("KEY CACHED hash=0x")); mrcon.print(pu.sender_hash, HEX);
                 if (pu.body_len) { mrcon.print(F(" name=")); mrcon.write(pu.body, pu.body_len); }   // §S6: the name cached alongside the key (omitted when unknown)
-                mrcon.println(F(" (on-air, unpinned)")); break;
+                mrcon.print(F(" (on-air, unpinned) nv=")); mrcon.println(mrnv::peer_put_name(kept));
+                break;
+            }
             case meshroute::PushKind::config_adopted: {   // R6.2: a pulled leaf config was adopted -> persist to NV
                 const meshroute::NodeConfig& nc = g_node.config();
                 // NB deliberately NOT the §nv-ritual prologue: this is load-IF-PRESENT, not load-or-seed. With no

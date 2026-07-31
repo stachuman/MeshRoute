@@ -25,7 +25,13 @@
 > ★ **App-facing consequence worth designing for:** a `-l` DM to a peer whose key you do not hold **will refuse**. Surface
 > `reqpubkey`/QR to the user — **do not silently retry**, and do not auto-issue `reqpubkey` (standing owner ruling).
 > ⚠ It also carried **`kVersion` 22 → 23**, so **expect an unprovisioned node on first contact after that flash**
-> (the second such bump; T-K1 was the first). `/mrid` identity and `/mrpeers` are unaffected.
+> (the second such bump; T-K1 was the first). `/mrid` identity is unaffected.
+> ⚠⚠ **CORRECTED 2026-07-31 (`§ab1`): `/mrpeers` is NO LONGER unaffected — it is now a THIRD, NARROWER reprovision event.**
+> `kPeersVersion` **1 → 2** (the record grew by name + confidence), and the store is **rejected outright** rather than
+> migrated ⇒ **the pinned-peer store is LOST ONCE on the first boot after this flash, and every QR ceremony must be
+> redone per contact.** ★ **Independent of `kVersion` (still 23) and of `/mrid`:** config and identity survive, the
+> address book does not. **How to see it happen:** a new boot line `peers = N restored (P pinned, A authoritative)` —
+> `peers = 0 restored` is the loss.
 >
 > ### ★★ NEW 2026-07-31 (`§role-model`) — `cfg set mobile` CAN NOW FAIL, and there is a new reply line
 > The node now enforces **team ⇒ mobile** (`team_id != 0` implies `is_mobile`). Three app-visible consequences:
@@ -276,7 +282,16 @@ peerkey <ed_pub hex64>      # install a verified peer key from a scanned card. h
   never aged, and NEVER overwritten by an on-air `WANT_PUBKEY` answer for the same hash** — else an attacker
   who grinds a colliding 32-bit hash and answers on-air could replace the scanned key (defeating the
   ceremony). **NV-persisted** (a small `/mrpeers` store, the `/mrid` write pattern) so a verified contact
-  survives reboot without re-scanning. The name is NOT sent (names are app-side; the firmware key cache is
+  survives reboot without re-scanning.
+  ★★ **UPDATED 2026-07-31 (`§ab1`) — TWO app-facing IMPROVEMENTS the app currently assumes are absent:**
+  **(1) the store is no longer "pinned keys only".** It now also persists keys learned **ON AIR** at `authoritative`,
+  **with their cached names** ⇒ **the ability to send ENCRYPTED to an on-air peer now SURVIVES a reboot**, and a rebooted
+  node no longer needs a manual `reqpubkey` per peer. (Provenance is preserved, not widened: a stored `authoritative`
+  restores as `authoritative`, never as `pinned`, and any other value is skipped — so `pinned` still means "a human
+  verified this by QR".)
+  **(2) ⚠ the claim below that "the name is NOT sent" is STALE** — names have ridden the pubkey exchange since §S6, and
+  as of `§ab1` they **persist** too. The app may treat a node-supplied name as a starting label. *(original text:)*
+  The name is NOT sent (names are app-side; the firmware key cache is
   keyed by hash).
 - Ack (node → app):
 ```json

@@ -25,6 +25,14 @@ namespace mrfw {
 // E2E §3: a `peerkey` command -> install the RAM PINNED key + persist to /mrpeers + the contract ack.
 size_t handle_peerkey(char* out, size_t cap, const meshroute::Command& cmd);
 
+// §AB1 the /mrpeers address book (spec 2026-07-29 §2.4). The RECORD POLICY lives in mrnv:: (device_nv.h, pure +
+// host-tested); these two are the I/O half, and they share one static blob buffer inside firmware_commands.cpp.
+mrnv::PeerPut peer_store_sync(uint32_t key_hash32);   // mirror ONE live peer (key + name + confidence) into /mrpeers.
+                                                     // Callers: handle_peerkey (a QR pin) and fw_main's
+                                                     // PushKind::peer_key_cached case (an on-air key-learn).
+uint16_t      peer_store_restore();                  // setup(): re-install the stored book AT THE STORED CONFIDENCE
+                                                     // (prints the one-line boot summary); -> records re-installed
+
 // §3 exports reached by the STAYING fw_main callers (setup / service_console / ble_dispatch_line / mesh_service_once):
 bool dispatch(const char* line, size_t len, Print& out);            // the console verb-router
 void print_banner(Print& out);                                      // setup() + `version`
