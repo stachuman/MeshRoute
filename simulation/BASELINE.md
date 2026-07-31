@@ -3,6 +3,9 @@
 
 Replaces byte-identical s18 md5 as the gate for **behaviour-changing** work (routing-liveness, gateway/cross-layer, etc.). Gate on the **delivery breakdown**, not the byte stream.
 
+> ★★★ **RESUMING? READ `docs/2026-07-31-agent-handover.md` FIRST** — open topics (bug queue, address book,
+> remote-admin, channel-crypt + location), the pending owner decisions, and the method lessons.
+>
 > ★★ **OPEN BUGS LIVE IN `docs/2026-07-30-open-bug-register.md`** — 16 entries, tiered, each pointing at the note
 > here that carries its evidence. **Close an entry there in the same commit as its fix.**
 >

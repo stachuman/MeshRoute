@@ -19,6 +19,9 @@ slice that declined to fix it (C1). Where an entry is *unmeasured*, it says so e
 > cfg key **and** binary TLV) — if the app reads it, it must stop. **QA writes that file; a coder never edits it —
 > report what is owed instead.**
 
+> ★★★ **For the wider picture — open topics, the four spec arcs, pending owner decisions — read
+> `docs/2026-07-31-agent-handover.md`.** This file is the bug index; that one is the map.
+
 ## 0. ★★ BEFORE YOU TOUCH ANYTHING — the dispatch contract
 
 ⚠ **This section exists because the register FAILED its own test on 2026-07-30.** Grepped for the ten things a
