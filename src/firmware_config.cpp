@@ -7,6 +7,7 @@
 #include "firmware_config.h"
 #include "fw_context.h"              // g_radio, g_iradio, g_hal, g_node, g_identity, g_freq_mhz, g_tx_power, g_radio_ok, g_lat_e7/lon_e7, g_ble_*
 #include "firmware_config_parse.h"   // mrfw::parse_sf_list
+#include "node_role.h"               // ★ §role-model/B28: role_set_refusal — the O1/O2/R4 role-transition truth table (pure, natively tested)
 #include "protocol_constants.h"      // meshroute::protocol::* (preamble_sym, gateway_node_id_max, discovery_beacon_period_ms, leaf_name_max)
 #include "leaf_config.h"             // meshroute::duty_to_bp/bp_to_duty/frac_to_bp/bp_to_frac/ms_to_u16
 #include "admin_auth.h"              // meshroute::Identity, admin_key_from_password (handle_password)
@@ -61,6 +62,38 @@ static void seed_blob_from_live(mrnv::Blob& b);   // fwd decl — defined below 
 void nv_load_stamped(mrnv::Blob& b) {
     if (!mrnv::load(b)) seed_blob_from_live(b);            // nothing persisted (or a rejected version) -> the live config
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;    // (re)stamp on BOTH paths — also upgrades an older loaded blob
+}
+
+// ★★ §role-model — THE ONE place a refused role transition is answered (spec §2.3 + owner rulings O1/O2 + R4).
+// The DECISION is `meshroute::role_set_refusal` (node_role.h, pure + natively tested); this is only its voice, so the
+// two verbs that can change the role — `cfg set mobile` and the team-IMPLIED promotion in handle_team — refuse
+// through ONE message set instead of forking two (U1). Returns true iff refused, in which case the caller must
+// return: nothing has been mutated yet at either call site.
+// ★ Every message names the WAY OUT, because the whole reason these are refusals rather than cascades is that the
+// cascade would destroy state the operator never mentioned (O1: the team channel key is UNRECOVERABLE — no seed
+// derives it — plus the team-DAD id and the team routes; O2: the guests' home and reverse-ack path). `prefix` keeps
+// each verb's established error grammar (`> cfg err …` / `> team err …`) so the companion's parser is unaffected.
+static bool role_refused(meshroute::RoleSetRefusal r, const __FlashStringHelper* prefix, Print& out) {
+    if (r == meshroute::RoleSetRefusal::none) return false;
+    out.print(prefix);
+    switch (r) {
+        case meshroute::RoleSetRefusal::none: break;                             // unreachable (returned above); listed so -Wswitch stays exhaustive
+        case meshroute::RoleSetRefusal::no_mobile_plane:
+            out.println(F("role_refused no_mobile_plane — this firmware is built WITHOUT the mobile/team plane, so it cannot become a mobile. Flash a normal-node build."));
+            break;
+        case meshroute::RoleSetRefusal::gateway_static:
+            out.println(F("role_refused gateway_is_static — a GATEWAY is two-layer infrastructure and carries the static plane for others, so it can never be reached THROUGH someone else. Set `cfg set n_layers 1` + reboot first."));
+            break;
+        case meshroute::RoleSetRefusal::hosting_mobiles:
+            out.print(F("role_refused hosting_mobiles n=")); out.print(g_node.mobile_reg_count());
+            out.println(F(" — becoming a mobile drops the STATIC plane this node carries, so its registered mobiles would lose their home and reverse-ack path with NO notification. Nothing changed."));
+            break;
+        case meshroute::RoleSetRefusal::in_a_team:
+            out.println(F("role_refused in_a_team — a team member IS a mobile, so this node cannot go static while it holds a team_id. Say `team 0` (leave the team, keep the role) or `leave` (wipe everything) FIRST."));
+            out.println(F(">   deliberately NOT cascaded: clearing your team from here would destroy the team channel KEY (unrecoverable — no seed derives it), the team-DAD id and the team routes, from a command that never mentioned teams."));
+            break;
+    }
+    return true;
 }
 
 // `cfg set <key> <value>` — ACCUMULATES onto the pending NV blob (so several sets + ONE reboot works), then
@@ -217,26 +250,53 @@ void handle_cfg_set(const char* args, Print& out) {
     // `gateway` is NOT a cfg key — is_gateway is DERIVED = (n_layers==2) in on_init (a gateway is the dedicated
     // gateway BUILD, MR_GATEWAY_BUILD; non-configurable so the companion's reported `gateway` is reliable).
     else if (!strcmp(key, "gateway_only")) { lc.gateway_only = (atoi(val) != 0 || !strcmp(val, "true")); b.gateway_only = lc.gateway_only ? 1 : 0; }
-    else if (!strcmp(key, "mobile"))       { lc.is_mobile    = (atoi(val) != 0 || !strcmp(val, "true")); b.is_mobile    = lc.is_mobile    ? 1 : 0; }
-    // §mobile 6.1: JOIN a team (LIVE + persist; reboot-to-apply like `mobile`). §clean-team (2026-07-27): routed through
-    // the SAME core switch as `team new`/`team <id>` — this raw key was the SECOND live team-switch path and cleared
-    // nothing at all, not even the stale team-DAD id. b.team_local_id must be re-read after the switch or a reboot would
-    // resurrect the OLD team's id as CONFIRMED on the new team. (No team_dad_fire here — as before, this key is
-    // reboot-to-apply; a mobile's FSM tick re-DADs on _team_local_id==0, node_mobile.cpp:30.)
-    // ✖ MISSING / NOT THIS SLICE (C1) — ★★ THIS PARSE HAS **NONE** OF THE THREE GUARDS `team <id>` NOW HAS, and it is
-    // the SAME destructive family, found 2026-07-31 while closing register B17. `strtoul(val, nullptr, 0)` DISCARDS the
-    // endptr, so unlike mrfw::parse_team_target (firmware_config_parse.h) it enforces no leading digit, no whole-token
-    // consumption and no 32-bit range. All three defects are live here, and this key is a LIVE team switch (see the note
-    // above), reachable from every transport (`cfg set ` dispatches at fw_main.cpp's USB reader AND at
-    // firmware_commands.cpp's shared sink):
-    //   • `cfg set team_id exportky`   -> strtoul yields 0 -> set_team_id(0) = LEAVE THE TEAM   (the 07-30 §team-target bug)
-    //   • `cfg set team_id 88A672BA`   -> joins team 88                                          (the 07-31 B1 bug)
-    //   • `cfg set team_id 4294967296` -> 0 = LEAVE on a 64-bit host, garbage team 0xFFFFFFFF on the 32-bit boards (B17)
-    // ⇒ B17/B1 are closed on the `team` verb ONLY. Deferred, not forgotten: the fix is to route this value through
-    // parse_team_target (U1 — do NOT fork a fourth spelling of the rule) and refuse LOUD via the `cfg err bad_value`
-    // convention the siblings above use, which is a behaviour change on a SECOND command and therefore its own slice.
-    else if (!strcmp(key, "team_id"))      { (void)g_node.set_team_id((uint32_t)strtoul(val, nullptr, 0));
-                                             b.team_id = lc.team_id; b.team_local_id = g_node.team_local_id(); }
+    // ★★ §role-model (2026-07-31): KEPT as the role key (owner ruling O3 — *"ok so we keep it — but we make it
+    //    consistent"*), and it is now a RULED transition instead of a raw flag flip. Three refusals, all from the ONE
+    //    truth table in node_role.h: O1 refuses a DEMOTION while `team_id != 0` (the B28 invariant — and NOT by
+    //    cascading the team away); O2 refuses a PROMOTION while this node HOSTS mobiles (they would silently lose
+    //    their home); R4 refuses a promotion on a GATEWAY (two-layer infrastructure is static, exclusively — this was
+    //    entirely unruled before: the only combined `is_gateway && is_mobile` read in the tree is incidental).
+    //    Re-asserting the role you already hold is not a transition and is never refused.
+    // ⓘ LIVENESS, MEASURED NOT INHERITED — ★ the spec's §1.2 row for this key ("⚠ reboot-to-apply") and the register's
+    //    third-enforcement-point bullet ("a raw flag flip … and is reboot-to-apply") are BOTH WRONG about the flag, and
+    //    this handler is the evidence: `lc` IS `g_node.mutable_config()`, so the write below lands in the LIVE `_cfg`
+    //    that all ~216 `is_mobile` readers consult, `live` is left at its `true` default (unlike `duty`/`ble_*`/`n_layers`
+    //    /the `l1_*` block, which set it false explicitly), and the reply this path prints is `ok (live + saved)`, not
+    //    `ok (reboot to apply)`. The section header two blocks up says the same: *"role/topology: LIVE via
+    //    mutable_config() + PERSISTED"*. ⇒ the FLAG has always applied immediately, and because `is_mobile` is packed
+    //    off `_cfg` at frame-build time (beacon bit 0x20 / J bit 0x40) the role is RE-ANNOUNCED on the very next beacon
+    //    with no explicit re-beacon anywhere. There is therefore no reboot-to-apply asymmetry between this key and the
+    //    team-implied promotion (spec §1.2 I-d dissolves), and R5's announcement requirement is already met on both.
+    // ✖ MISSING, deliberately (spec §3.2, its own slice — C1): the STATE half of the transition. A demotion does NOT
+    //    clear `_my_mobile_reg` (the home registration) or pending presence/registration state, and a promotion does
+    //    not kick the registration FSM. That — not the flag, and not the announcement — is what "reboot to make it
+    //    stick" was really about, and it is a behaviour change with its own gate. This slice is the INVARIANT + the
+    //    refusals only.
+    else if (!strcmp(key, "mobile"))       { const bool want_mobile = (atoi(val) != 0 || !strcmp(val, "true"));
+                                             if (role_refused(meshroute::role_set_refusal(want_mobile, lc.is_mobile, lc.is_gateway, lc.team_id, g_node.mobile_reg_count()),
+                                                              F("> cfg err "), out)) return;   // nothing mutated yet — b/lc untouched, no NV write
+                                             lc.is_mobile    = want_mobile;                            b.is_mobile    = lc.is_mobile    ? 1 : 0; }
+    // --- ★★ `team_id` KEY REMOVED 2026-07-31 (§team-id-cfg-removal, open-bug-register B27). It was a FORKED, UNGUARDED
+    //     DUPLICATE of a destructive operation, not a feature: `set_team_id((uint32_t)strtoul(val, nullptr, 0))` DISCARDED
+    //     the endptr, so unlike mrfw::parse_team_target (firmware_config_parse.h) it enforced no leading-digit rule, no
+    //     whole-token consumption and no 32-bit range — all three defects live on a LIVE team switch reachable from every
+    //     transport: `cfg set team_id exportky` -> strtoul 0 -> LEFT THE TEAM · `88A672BA` -> joined team 88 ·
+    //     `4294967296` -> LEFT on a 64-bit host / joined garbage 0xFFFFFFFF on the 32-bit boards.
+    //     ⇒ REMOVED, not guarded (owner ruling): `team new` / `team <id>` / `team 0` (handle_team below) already do
+    //     everything this key did PLUS those three guards, the PHY tail, channel-key minting, team_dad_fire and the full NV
+    //     persist. There is deliberately NO replacement key and none should be re-added — a second spelling of a
+    //     destructive switch is the exact fork U1 exists to prevent. An unknown key falls through to this handler's trailing
+    //     unknown_key branch (below), so `cfg set team_id 5` now fails LOUD instead of silently switching teams. §clean-team
+    //     still holds and is now STRONGER: Node::set_team_id() is the one core entry point for every live team change, and
+    //     handle_team is its ONLY src/ caller.
+    //     ★★ EVERY READ SURFACE STAYS — only the WRITE is gone: the `cfg`/`status` text dumps (firmware_commands.cpp),
+    //     the JSON (console_json.h), and ⚠ the binary TLV TAG_CFG_TEAM_ID = 0x12, which is **NOT** retired the way
+    //     0x18/ex-`loc_dm` above was: dec_cfg is a pure decoder called from no src/ file, so that tag is a read-OUT the
+    //     companion depends on ("team_id ALWAYS present in cfg"). Retiring it would break the app.
+    //     ✔ The `team_id != 0 && !is_mobile` role hole this marker used to leave OPEN is now CLOSED (§role-model, B28/R2,
+    //     2026-07-31): `Node::set_team_id` promotes to mobile on a non-zero team, fw_main's NV restore normalises the same
+    //     implication at boot (NV still persists the two fields independently — that path is the backstop, not a leak),
+    //     and `cfg set mobile` below refuses the transitions that would break it. ---
     else if (!strcmp(key, "mobile_autoregister")) { lc.mobile_autoregister = (atoi(val)!=0 || !strcmp(val,"true")); b.mobile_autoregister = lc.mobile_autoregister?1:0; }   // §mobile console: autonomy toggle (LIVE + persist)
     // --- BLE companion policy: PERSISTED, reboot-to-apply (the stack inits at boot from these). Invalid input
     //     is REJECTED (fail loud), never silently defaulted. ---
@@ -877,6 +937,21 @@ void handle_team(const char* args, Print& out) {
         out.println(F(">   `team grantkey <target>` sends this team's channel key to a teammate in a SEALED DM (needs a verified pubkey for it)"));
         return;
     }
+    // ★★ §role-model / O2 + R4 (2026-07-31): ADOPTING a team makes this node MOBILE (B28/R2, enforced in
+    // Node::set_team_id), so the two refusals that guard a static->mobile promotion must guard THIS path too —
+    // otherwise `team <id>` is a silent back door around `cfg set mobile 1`'s guards. Same truth table, same messages
+    // (role_set_refusal / role_refused, U1 — not a second spelling of the policy).
+    // ★ Placed here, before ANY state moves: no NV read, no PHY retune, no key mint/adopt, no set_team_id.
+    // ⚠ GUARDED ON `t != 0` because the team verb can only ever PROMOTE: by R3 `team 0` (leave) does NOT demote —
+    // a mobile with no team is legitimate — so passing t==0 as "wants static" would make the O1 demotion clause fire
+    // and REFUSE every `team 0`, i.e. trap members in their team. The team verb is a one-way role gate by design.
+    // ⚠ O2 is the case the B28 entry did not have and the spec found: a static node that HOSTS mobiles stops carrying
+    // the static plane the moment it becomes one, so its guests lose their home and reverse-ack path unnotified.
+    // Refusing means a busy host must shed its guests first — the honest trade (owner ruling O2; eviction-with-notice
+    // is its own slice).
+    if (t != 0 && role_refused(meshroute::role_set_refusal(/*want_mobile=*/true, c.is_mobile, c.is_gateway,
+                                                           c.team_id, g_node.mobile_reg_count()),
+                               F("> team err "), out)) return;
     // §team-ch-key (T-K1): peel `tkpub=`/`tkpriv=` off the tail FIRST — parse_phy_tail below refuses unknown keys.
     // Nothing is applied here; we only VALIDATE + stage, so a malformed key refuses before any state moves.
 #if MR_FEAT_TEAM
@@ -954,10 +1029,20 @@ void handle_team(const char* args, Print& out) {
     // §clean-team (2026-07-27): ONE core call does the whole switch — drop the OLD team's learned plane (_rt_team /
     // _team_peer / team liveness / the team KEY CACHE / team RREQ ledgers) and the stale team-DAD id, then adopt the new
     // team_id LIVE. Returns false on a same-team no-op (`team <current_id>`), which clears nothing and skips the re-DAD.
+    const bool was_mobile    = c.is_mobile;                  // ★ §role-model: capture the role BEFORE the switch — set_team_id may PROMOTE us (B28/R2), and a role change must be reported, not inferred
     const bool team_switched = g_node.set_team_id(t);
+    // ★★ §role-model / B28 constraint 3 — REPORT the automatic promotion; never flip the role silently. `is_mobile`
+    // changes beaconing (the node beacons on its team_local_id, not its node_id), home registration, DAD and relay
+    // behaviour, and it is ON THE WIRE (beacon bit 0x20 / J bit 0x40) — peers make routing decisions from it.
+    // ⓘ `c` is a REFERENCE to the live config, so it already reads the promoted value here — which is also what turns
+    // the pre-existing team_dad_fire() below ON for a just-promoted node, giving it the same team-plane bootstrap an
+    // already-mobile joiner has always got. That is the whole "self-announcing" argument for R5 on this path.
+    if (!was_mobile && c.is_mobile)
+        out.println(F("> role -> MOBILE (automatic: a team member IS a mobile — reachable by team_local_id, not by a static node_id). `team 0` leaves the team; the role then STAYS mobile."));
     if (c.is_mobile && t != 0 && team_switched) g_node.team_dad_fire();   // §6.4: bootstrap the team plane (self-assign a _team_local_id, no static host needed)
     b.node_id       = g_node.canonical_node_id();            // §6.4: team_dad_fire may have MOVED node_id (off-grid: node_id==team id) -> persist the live id, don't re-save the stale one loaded at entry
     b.team_local_id = g_node.team_local_id();                // §6.4: persist the fresh id (or 0 on leave) alongside team_id
+    b.is_mobile     = c.is_mobile ? 1 : 0;                   // ★ §role-model: PERSIST the (possibly just-promoted) role. NV carries team_id and is_mobile INDEPENDENTLY, so without this line a reboot would land straight back in the outlawed combination and lean on fw_main's boot normalisation to re-fix it every single boot.
     blob_take_team_channel_key(b);                            // §team-ch-key (v22): persist the pair we just minted/adopted (or carry the existing one through a leave)
     if (!mrnv::save(b)) out.println(F("> team err nv_save_failed (team is LIVE but NOT persisted — will revert on reboot)"));   // §3-A.4: was the ONLY unchecked save of 9 (the LIVE team state above is already applied, so report — don't roll back)
     char tx[9]; snprintf(tx, sizeof tx, "%08lX", (unsigned long)t);

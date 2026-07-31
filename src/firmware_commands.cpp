@@ -560,10 +560,10 @@ static void dump_help(Print& out) {
     hl(F(""));
     hl(F("CFG KEYS  (`cfg set <key> <val>`; bool keys take on|off / 1|0)"));
     hl(F("  node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap team_hop_cap leaf_id"));
-    hl(F("  mobile team_id mobile_autoregister host_mobiles intra_layer_relay gateway_only"));
+    hl(F("  mobile mobile_autoregister host_mobiles intra_layer_relay gateway_only"));   // §team-id-cfg-removal: `team_id` REMOVED — a team is joined/left with the `team` verb (see below)
     hl(F("  lat lon e2e_dm intro_attach ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack"));   // §loc-per-send: `loc_in_dm` REMOVED — use `send … -l` per message
     hl(F("  active_fraction ch_min_ms dm_min_ms leaf_name"));
-    hl(F("    `name`=node identity · `leaf_name`=managed leaf (bumps epoch) · team_id=0x-hex (`team new` mints) · identity via `regen`"));
+    hl(F("    `name`=node identity · `leaf_name`=managed leaf (bumps epoch) · identity via `regen` · NO team_id key -> `team new`/`team <id>`/`team 0`"));
     hl(F("  gateway-only keys: n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms l1_freq"));
 }
 

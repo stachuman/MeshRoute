@@ -17,6 +17,7 @@
 #include "frame_codec.h"  // DATA_HDR_LEN — §3e exchange_airtime_ms DATA-leg sizing
 #include "identity.h"  // §P2-6: key_hash32_of (LE(ed_pub[:4]) derivation); §team-ch-key: team_channel_key_derive
 #include "monocypher.h"   // §team-ch-key: crypto_wipe — scrub the scalar/priv scratch on the mint/adopt paths
+#include "node_role.h"    // ★ B28/R2: role_enforce + kRoleHasMobilePlane — the role model's ONE definition (set_team_id below)
 #include "wire.h"
 
 #include <cstdlib>     // atol — parse_gateway_cmd
@@ -583,10 +584,39 @@ void Node::clear_team_routing_state() {
 // both profiles and the gateway build keeps identical behaviour (bare _cfg.team_id assignment) by construction.
 bool Node::set_team_id(uint32_t team_id) {
     if (_cfg.team_id == team_id) return false;   // no-op: same team -> nothing is stale (C2: no silent side-effects)
+    // ★ B28/R2's "unless it is IMPOSSIBLE (firmware without teams handling)" clause, at the live switch: a build with
+    // MR_FEAT_MOBILE 0 has no roaming-endpoint plane for a team member to be reachable ON, so a non-zero team is
+    // REFUSED here rather than adopted — nothing moves, and the caller sees the same `false` it gets for a same-team
+    // no-op. Deliberately NOT folded into role_enforce() below: that helper RESTORES the invariant on a config it is
+    // handed (the NV boot path has no way to refuse a provisioned blob, so there it drops the team instead), whereas a
+    // LIVE verb can refuse before any state moves — and refusing beats adopting-then-stripping, which would have this
+    // function return true while team_id stayed 0 and make its caller announce a team it did not join.
+    // ⓘ Fully DEAD CODE on every profile that HAS the plane (kRoleHasMobilePlane is constexpr) — and on the profiles
+    // that do not, `handle_team` is itself compiled out (`#if MR_N_LAYERS < 2`), so this is the backstop for a direct
+    // core caller, not a reachable console path. See role_enforce's twin arm for the path that IS reachable there (NV).
+    if (team_id != 0 && !kRoleHasMobilePlane) {
+        _hal.log("set_team_id refused: this build has no mobile plane (MR_FEAT_MOBILE 0) for a team member to live on");
+        return false;
+    }
     clear_team_routing_state();                  // the OLD team's routes / peer set / liveness / key cache / RREQ ledgers
     purge_tx_carriers(PurgeAxis::team_switch);    // §clean-team-channel: the OLD team's channel CONTENT + every carrier that would re-emit it (buffer rows / flood states / staged + in-flight M frames / re-offer slots). Team-scoped rows only — the leaf channel rows survive. Compiled on EVERY profile now (it also serves the reprovision axis), but the team_switch predicate can never match on a !MR_FEAT_TEAM build: no writer sets ChannelEntry::team_id / FloodState::team_flood / the channel_flavor_team bit there.
     set_team_local_id(0);                        // §6.4: drop the stale team-DAD id (0 = left; a re-DAD picks a fresh one for the new team) + clear _team_dad_pending
     _cfg.team_id = team_id;                      // LIVE (team_dad_fire / same_team / team_addr_for_us all read _cfg.team_id)
+    // ★★ B28/R2 (owner ruling 2026-07-31: *"setting mobile if creating or joining a team"*): a team member IS a mobile
+    // — `team_local_id` is a reachable-through-someone-else identity — so ADOPTING a team promotes this node to MOBILE.
+    // THE single LIVE enforcement point, and it covers BOTH verb spellings (`team new` mint and `team <id>` join)
+    // because both route through here (U1); the other two points are the NV boot restore (src/fw_main.cpp) and the
+    // `cfg set mobile 0` refusal (src/firmware_config.cpp), because NV carries the two fields independently.
+    // ⚠ ONE-DIRECTIONAL (R3): `team 0` returns RoleFix::none and leaves is_mobile ALONE — a mobile with no team is a
+    // legitimate, reachable configuration (a homed roaming endpoint), so leaving a team must not un-mobile the node.
+    // ★ SELF-ANNOUNCING, so R5 needs no explicit re-beacon here: is_mobile rides the BEACON (bit 0x20) and the J frame
+    // (bit 0x40) packed straight off _cfg at frame-build time (node_beacon.cpp / node_join.cpp), so the next beacon
+    // already carries the new role — and handle_team's existing `c.is_mobile && t != 0 && team_switched` team_dad_fire()
+    // now fires for a promoted node too, which is exactly the team-plane bootstrap an already-mobile joiner gets.
+    // ⓘ The RoleFix is deliberately NOT plumbed through this function's bool, which means "the team ACTUALLY changed"
+    // and nothing else. The caller detects the promotion by comparing config().is_mobile across the call — which it
+    // must do anyway, to REPORT it (B28 constraint 3: never flip the role silently) and to PERSIST it to NV.
+    (void)role_enforce(_cfg);
     return true;
 }
 

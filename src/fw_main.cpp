@@ -22,6 +22,7 @@
 #include "device_hal.h"
 #include "frame_trace.h"      // mr_trace_frame() — decoded one-line RX/TX console trace
 #include "node.h"
+#include "node_role.h"        // ★ §role-model/B28 R2: role_enforce — the boot normalisation of `team_id != 0` ⇒ `is_mobile`
 #include "leaf_config.h"      // §5: duty_to_bp/bp_to_duty — quantize duty to the C-frame wire step (hash parity)
 #include "identity.h"
 #include "command.h"
@@ -602,6 +603,30 @@ void setup() {
         cfg.is_gateway        = nv.is_gateway != 0;   cfg.gateway_only = nv.gateway_only != 0;   // v6 role/topology (only v6 blobs load -> always present)
         cfg.is_mobile         = nv.is_mobile != 0;    cfg.leaf_id      = nv.leaf_id;
         cfg.team_id           = nv.team_id;           // §mobile 6.1: team-id overlay (0 = no team)
+        // ★★ §role-model / B28 R2 — THE BOOT ENFORCEMENT POINT, and the reason the live switch alone is not enough:
+        // NV persists `team_id` and `is_mobile` INDEPENDENTLY (the two lines above), so a provisioned blob can
+        // reproduce the outlawed `team_id != 0 && !is_mobile` config with NO console involved — without this, a power
+        // cycle trivially bypasses Node::set_team_id's enforcement. role_enforce() is the SAME rule the live switch
+        // uses (node_role.h — ONE definition, U1), and the correction is REPORTED, never silent (B28 constraint 3).
+        // ⓘ LIVE-ONLY, deliberately: this does NOT rewrite NV. This function avoids boot-time NV writes on principle
+        // (see the g_persist_* priming below, whose whole purpose is "no spurious boot write"); the fix is idempotent
+        // so it simply re-applies each boot; and every surface the operator/app reads (`cfg`, `status`, the ready JSON)
+        // reports the LIVE role, not the blob. The bytes are corrected the next time the role legitimately changes
+        // (handle_team persists config().is_mobile right after its switch).
+        // ⓘ The `dropped_team` arm is the owner's "unless it is impossible" case: a MR_FEAT_MOBILE 0 build has no plane
+        // for a team member to be reachable on, and a stale non-zero team_id there is NOT inert — the pre-parse
+        // foreign-nibble beacon drop (`wire::flags_of(bytes[0]) != _cfg.leaf_id && _cfg.team_id == 0`,
+        // node_beacon.cpp) is NOT MR_FEAT_TEAM-gated, so it would make such a build ingest beacons from FOREIGN leaf
+        // nibbles. Dropping the id is what keeps a feature-stripped build behaving as built.
+        switch (meshroute::role_enforce(cfg)) {
+            case meshroute::RoleFix::none: break;
+            case meshroute::RoleFix::forced_mobile:
+                mrcon.println(F("  role      = MOBILE (forced: NV held team_id != 0 with mobile=0 — a team member IS a mobile; `team 0` leaves the team)"));
+                break;
+            case meshroute::RoleFix::dropped_team:
+                mrcon.println(F("  role      = STATIC, NV team_id DROPPED (this firmware has no mobile/team plane)"));
+                break;
+        }
         cfg.mobile_autoregister = nv.mobile_autoregister != 0;   // §mobile console: autonomy toggle (a valid v18 NV was seeded from the ON default)
         cfg.intro_attach      = nv.intro_attach != 0;            // §S2: first-contact INTRO auto-attach (a valid v21 NV was seeded from the ON default)
         g_ble_mode            = nv.ble_mode;          g_ble_period_min = nv.ble_period_min;      // v7 BLE policy (only v7 blobs load)

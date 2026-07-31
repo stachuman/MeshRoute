@@ -35,7 +35,7 @@ blocks functionality** — it is all quality, telemetry, plane-parity and dedup.
 3. **B26 / NV1** — ★ **owner-queued 2026-07-31 BEFORE AB1**: factor the NV backend's 6-times-duplicated blob validation
    **above** the `#if`, so it is natively testable — which is what makes AB1's "v1-blob rejection test" runnable at all.
    **Load side + primitives ONLY; `save`'s change-detection stays untouched** (see the entry — that is the trap).
-4. **B27** — ★ **owner-ruled 2026-07-31: REMOVE `cfg set team_id`** (not guard it). Small, destructive-by-typo, and it
+4. ~~**B27**~~ ✅ **CLOSED** — removed; ΔFlash negative on all three boards. *(was: owner-ruled REMOVE, not guard)* — it
    deletes a forked surface. **Remove the write, KEEP every read** — see the entry; tag `0x12` is **not** retired.
 5. **B28** — ★ **owner-ruled: auto-set `is_mobile` when a team is in use** (two enforcement points, one-directional, reported not silent — see the entry)
 6. **AB1 → AB2 → AB3** — `docs/superpowers/specs/2026-07-29-peer-address-book-design.md`. **Fully unblocked** — nothing
@@ -118,6 +118,11 @@ gate; an agent handed only the file above would have reproduced every failure th
   narrower/louder than described" and "the reference implementation I was told to copy is itself broken", both of
   which have happened. ⚠ **V1 applies to comments too: verifying that a comment exists is not verifying that it
   is true.** A drifted note cost a whole extra defective site on 2026-07-30.
+- ★★ **DURABLE OUTPUT GOES IN YOUR REPORT, NEVER ONLY IN A SCRATCHPAD** — a proven 33-assert scenario was **LOST** this
+  way. ⚠⚠ **AND THE SESSION SCRATCHPAD IS SHARED BETWEEN CONCURRENT SESSIONS** (proven 2026-07-31: another agent's
+  `before/`/`after/`/`pristine/` directories were already present, and its files appeared **mid-slice**). ⇒ **prefix EVERY
+  scratchpad path with your slice tag** (`nv1-before/`, never `before/`), and **if a comparison looks impossible, suspect
+  the shared directory before you suspect the tree.** Same family as the `cp -a` preserved-mtime incident.
 - **Report as:** INVENTORY CONFIRMED / DESIGN / COVERAGE / GATE / DEVIATIONS / MINE-VS-THEIRS. Report failures
   with their output; if you skipped a step, say so.
 
@@ -205,7 +210,7 @@ role-exclusion invariant** (BASELINE ~line 433) and is the only way several team
 `MR_FEAT_TEAM 0` AND `MR_FEAT_MOBILE 0`** (`lib/core/mr_features.h:12-13`) — so there is no mobile plane to enter.
 ⇒ on such a build the answer is **treat `team_id` as 0 / refuse loudly**, **NOT** set a flag whose plane is compiled
 out. ⓘ And after **B27** removes `cfg set team_id`, a no-team build has **no console path to a non-zero team_id at all**
-(`handle_team` is `#if MR_FEAT_TEAM`-gated and **absent from the gateway ELF** — the B17 link-level finding), so the
+(`handle_team` is **absent from the gateway ELF** — the B17 link-level finding. ⚠ **CORRECTED 2026-07-31: the guard is `#if MR_N_LAYERS < 2`** (`firmware_config.h:40`), **not** `MR_FEAT_TEAM`; the conclusion holds only because `env:gateway` sets **both** `-DMR_N_LAYERS=2` and `-DMR_PROFILE_GATEWAY`. The axes are independent — a single-layer `MR_FEAT_TEAM 0` build would still compile `handle_team` with its internals stubbed), so the
 exemption is nearly vacuous **by construction**; only a provisioned NV blob can still carry one.
 ★★★ **THE DEMOTION QUESTION — asked by the owner, and it exposed a THIRD enforcement point QA had not named.**
 *"How do we move from mobile role to static role?"* QA traced all four candidates:
@@ -228,8 +233,31 @@ exemption is nearly vacuous **by construction**; only a provisioned NV blob can 
 fields atomically · `cfg set mobile 0` refuses while in a team · the boot normalisation is the backstop for a
 provisioned NV blob.
 
+★★★ **B28 IS NOW SCOPED BY A SPEC: `docs/superpowers/specs/2026-07-31-node-role-model-design.md`** — the owner asked for
+a consistent role model after the demotion question showed the transitions are **five mechanisms that disagree**. The spec
+holds the organising principle (**the role is about how reachability is obtained**, which makes team ⇒ mobile a
+*consequence* rather than an extra rule), rules **R1–R5**, the transition table, and **three owner decisions (O1–O3)**.
+★ **It also found a problem this entry did not have: static → mobile ORPHANS HOSTED MOBILES** — a host that becomes a
+mobile stops carrying the static plane and its guests lose their home with no notification (`mobile_reg_count()` already
+detects it). ⇒ **O2.** **Read the spec before implementing B28.**
+
 **Order: after B27** (which removes one of the two write paths, shrinking what must be normalised). Note: owner ruling,
-this file.
+this file + the role-model spec.
+
+### ~~B27~~ ✅ **CLOSED 2026-07-31** (`§team-id-cfg-removal`) — the key is GONE, and the family is now closed on the device
+★ **−2 executable lines, 0 added.** Native **1023/70582/0 unchanged**, 36/36 byte-identical with the **0-recompile /
+bit-identical-`lus`** proof, keystone unmoved, `sizeof(Node)` 220648, boards 3/3 **ΔRAM 0** and ★ **ΔFlash NEGATIVE on all
+three (−112 / −80 / −40)** — including `gateway`, which is the sharper instrument reading in the *opposite* direction
+from `handle_team`: `handle_cfg_set` **is** in every ELF, so the gateway is **not** inert here.
+★ **Removal fails LOUD** via the existing `unknown_key` branch (`firmware_config.cpp:339`) — C2 by construction, no new code.
+★ **A stronger corpus premise than briefed: the sim has NO `cfg` verb at all** (`NodeRuntimeWrapper.cpp:741-742`), so the
+key was unreachable from every scenario by construction.
+⚠ **The `✖ MISSING` marker AND the `§clean-team` note above it were both removed** — QA had warned to preserve the
+neighbour, and that warning was **wrong**: all five lines were about the deleted key (*"**this key** is
+reboot-to-apply"*). The durable claim lives in `lib/core/node.cpp:529/574` + `node.h:364`, untouched.
+★ **And it does NOT close the role hole** — `team <id>` still reaches `team_id != 0 && !is_mobile`; that is **B28**, and
+the replacement marker says so in-source so B28 cannot inherit a false premise. Note: `§team-id-cfg-removal`.
+*(original entry below)*
 
 ### B27 — ★★★ `cfg set team_id` has **NONE** of the three guards ⇒ **B1 and B17 are NOT closed on the device** · NEW 2026-07-31
 `src/firmware_config.cpp:238` does `set_team_id((uint32_t)strtoul(val, nullptr, 0))` with the **endptr DISCARDED**, so it

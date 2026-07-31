@@ -361,10 +361,13 @@ public:
     void purge_tx_carriers(PurgeAxis axis);
     // §clean-team (2026-07-27, owner bench report "when creating a new team / joining a team, existing team routes need
     // to be cleared"): THE team-switch entry point — every LIVE writer of _cfg.team_id goes through here (`team new`,
-    // `team <id>`, `team 0`, `cfg set team_id`), so the switch is coherent in ONE place instead of per-verb. Returns
-    // true iff the team ACTUALLY changed (a same-team no-op clears nothing — nothing is stale — and the caller skips
-    // its re-DAD). ⚠ NOT for the boot/NV path, which writes _cfg.team_id directly: at boot nothing is stale AND the
-    // persisted team-DAD id must survive (see node.cpp for the full rationale).
+    // `team <id>`, `team 0` — `cfg set team_id` was REMOVED 2026-07-31, §team-id-cfg-removal/B27), so the switch is
+    // coherent in ONE place instead of per-verb. Returns true iff the team ACTUALLY changed (a same-team no-op clears
+    // nothing — nothing is stale — and the caller skips its re-DAD). ⚠ NOT for the boot/NV path, which writes
+    // _cfg.team_id directly: at boot nothing is stale AND the persisted team-DAD id must survive (see node.cpp).
+    // ★★ B28/R2 (2026-07-31): adopting a NON-ZERO team also sets `_cfg.is_mobile` (role_enforce, node_role.h) — a team
+    // member IS a mobile. ONE-DIRECTIONAL: `team 0` never clears it. On a build with MR_FEAT_MOBILE 0 a non-zero team
+    // is REFUSED (returns false, nothing moves) instead — see the definition.
     bool set_team_id(uint32_t team_id);
     // `prep-restart` middle-tier reset: drop EVERY volatile/learned table (routes + channel buffer + liveness + pending
     // TX/RX + flood + digest/pull + dedup maps + parked/l2c/mediated) to a fresh-but-PROVISIONED state. KEEPS _cfg
@@ -1460,8 +1463,14 @@ private:
                            // H-flood plane". VERIFIED AT SOURCE, and the invariant is DEFEATABLE BY LIVE CONFIG, not
                            // merely fragile: handle_h returns before any mark for a static H iff `_cfg.is_mobile`
                            // (node_hashlocate.cpp:584) and for a team H iff `!same_team` (:603) — so a node with
-                           // `team_id != 0 && !is_mobile` marks BOTH. `set_team_id` (node.cpp:413) never touches
-                           // is_mobile, so `cfg set team_id <x>` / `team <id>` on the console produces exactly that node.
+                           // `team_id != 0 && !is_mobile` marks BOTH.
+                           // ★★ UPDATED 2026-07-31 (§role-model / B28/R2): that config is now OUTLAWED, so this alias is
+                           // UNREACHABLE BY CONFIG rather than merely keyed around — `set_team_id` DOES set is_mobile
+                           // when the new team is non-zero (role_enforce, node_role.h), the NV boot restore normalises
+                           // the same implication, and `cfg set mobile 0` REFUSES while in a team. (`cfg set team_id`,
+                           // the other spelling this note used to name, was removed entirely — B27.) The `team_scoped`
+                           // key below STAYS: it is the correct plane discriminator regardless, it costs zero bytes,
+                           // and belt-and-braces beats resting a suppress-direction failure on a config invariant.
                            // The alias is not hypothetical either: `key_hash32` is a node's key, IDENTICAL on both planes
                            // (a dual member has one key, a static id and a team_local_id), so a team H and a static H for
                            // the SAME target collide as soon as the two queriers' 8-bit origins collide (§18) — and the

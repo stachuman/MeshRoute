@@ -14,6 +14,7 @@
 #include "frame_codec.h"   // Slice 3e: parse_beacon / parse_beacon_schedule to verify the gateway's advertised schedule
 #include "airtime.h"       // §3e: re-derive exchange_airtime_ms from the airtime_ms primitive
 #include "identity.h"      // §S2: Identity / identity_from_seed — self-consistent ed_pub for the INTRO receive/attach tests
+#include "node_role.h"     // ★ §role-model/B28: role_enforce / role_set_refusal — the role model's truth tables (pinned below, beside the §clean-team set_team_id cases)
 #include "support/test_hal.h"
 
 using namespace meshroute;
@@ -4861,6 +4862,103 @@ TEST_CASE("§clean-team — `team 0` (leave) clears the plane; a same-team no-op
     CHECK_FALSE(DualLayerTestAccess::is_team_peer(mob, 25));
     // (c) leaving again is a no-op (already 0)
     CHECK_FALSE(mob.set_team_id(0));
+    // ★ §role-model R3: the leave did NOT un-mobile the node — a mobile with no team is legitimate.
+    CHECK(mob.config().is_mobile);
+}
+
+// ============================================================================================================
+// ★★ §role-model / B28 — THE NODE ROLE MODEL (spec 2026-07-31-node-role-model-design.md, rules R2/R3/R4 + O1/O2).
+// The invariant is `team_id != 0` ⇒ `is_mobile`, enforced at three points. Only ONE of them is reachable from a
+// native test (Node::set_team_id, below) — the other two live in `src/` (the NV boot restore in fw_main.cpp and the
+// `cfg set mobile` refusal in firmware_config.cpp), which `test_build_src = no` keeps out of this binary. So the
+// DECISIONS both of those consume were factored into two pure functions in lib/core/node_role.h, and these cases
+// pin them directly. That is what makes the refusals covered by something rather than by an argument.
+// ============================================================================================================
+
+TEST_CASE("§role-model R2/R3 — role_enforce: a non-zero team forces is_mobile, and it is STRICTLY one-directional") {
+    using namespace meshroute;
+    // (a) no team -> nothing to imply, whatever the role
+    { NodeConfig c; c.team_id = 0; c.is_mobile = false;
+      CHECK(role_enforce(c) == RoleFix::none); CHECK_FALSE(c.is_mobile); CHECK(c.team_id == 0); }
+    // (b) ★ R3 THE ONE-DIRECTIONAL CLAUSE: no team + ALREADY mobile must stay mobile. A homed roaming endpoint with
+    //     no team is legitimate, and so is a member that just said `team 0`. Making this symmetric would silently
+    //     un-mobile every departing team member — the exact "simplification" the header warns against.
+    { NodeConfig c; c.team_id = 0; c.is_mobile = true;
+      CHECK(role_enforce(c) == RoleFix::none); CHECK(c.is_mobile); }
+    // (c) ★ R2: a team on a STATIC node promotes it, and says so
+    { NodeConfig c; c.team_id = 0xAAAA1111u; c.is_mobile = false;
+      CHECK(role_enforce(c) == RoleFix::forced_mobile);
+      CHECK(c.is_mobile);
+      CHECK(c.team_id == 0xAAAA1111u);                         // the team is KEPT — this is a promotion, not a cascade
+      CHECK(role_enforce(c) == RoleFix::none); }                // idempotent: the second call has nothing to fix
+    // (d) a team on an already-mobile node is the normal, consistent case
+    { NodeConfig c; c.team_id = 0xAAAA1111u; c.is_mobile = true;
+      CHECK(role_enforce(c) == RoleFix::none); CHECK(c.is_mobile); }
+    // (e) role_enforce NEVER touches is_gateway (R4 is a refusal, not a normalisation — a gateway is DERIVED from
+    //     n_layers==2 in on_init, so a normalisation may not re-decide it)
+    { NodeConfig c; c.team_id = 0xAAAA1111u; c.is_mobile = false; c.is_gateway = true;
+      CHECK(role_enforce(c) == RoleFix::forced_mobile); CHECK(c.is_gateway); }
+    // (f) the build clause. This native binary HAS the mobile plane (no MR_PROFILE_* => every MR_FEAT_* defaults to
+    //     1), so `dropped_team` is unreachable here by construction — assert the premise rather than pretend to
+    //     cover the arm. The arm itself is validated by the `gateway` board build (MR_FEAT_MOBILE 0) compiling and
+    //     staying inert; a native test cannot reach it without a second binary.
+    CHECK(kRoleHasMobilePlane);
+}
+
+TEST_CASE("§role-model R4/O1/O2 — role_set_refusal: the four refusals, and why `team 0` must not be routed through it") {
+    using namespace meshroute;
+    // (a) NO TRANSITION is never refused — re-asserting the role you already hold is not a change (R5).
+    CHECK(role_set_refusal(/*want*/true,  /*now*/true,  /*gw*/true,  /*team*/0xABCDu, /*hosting*/3) == RoleSetRefusal::none);
+    CHECK(role_set_refusal(/*want*/false, /*now*/false, /*gw*/true,  /*team*/0xABCDu, /*hosting*/3) == RoleSetRefusal::none);
+    // (b) a clean promotion is allowed
+    CHECK(role_set_refusal(true,  false, false, 0, 0) == RoleSetRefusal::none);
+    // (c) ★ R4 — is_gateway ⇒ STATIC, exclusively. This was entirely UNRULED before the spec.
+    CHECK(role_set_refusal(true,  false, true,  0, 0) == RoleSetRefusal::gateway_static);
+    // (d) ★ O2 — a promotion that would orphan hosted mobiles is refused, not silently accepted
+    CHECK(role_set_refusal(true,  false, false, 0, 1) == RoleSetRefusal::hosting_mobiles);
+    CHECK(role_set_refusal(true,  false, false, 0, 7) == RoleSetRefusal::hosting_mobiles);
+    // (e) ordering: the refusal an operator CANNOT fix by shedding guests is reported first
+    CHECK(role_set_refusal(true,  false, true,  0, 5) == RoleSetRefusal::gateway_static);
+    // (f) ★ O1 — a demotion is refused while a team is held; with no team it is allowed. A gateway/hosting node
+    //     going STATIC is fine (that is the direction the other rules want).
+    CHECK(role_set_refusal(false, true,  false, 0,        0) == RoleSetRefusal::none);
+    CHECK(role_set_refusal(false, true,  false, 0xAAAA1111u, 0) == RoleSetRefusal::in_a_team);
+    CHECK(role_set_refusal(false, true,  true,  0,        4) == RoleSetRefusal::none);
+    // (g) ★★ THE CALL-SITE TRAP this pins: `team 0` (leave) is NOT a demotion (R3), so handle_team must NOT pass
+    //     `want_mobile = (t != 0)`. If it did, this is the value it would get back — and every `team 0` would be
+    //     REFUSED, trapping members in their team. handle_team therefore guards its call on `t != 0`.
+    CHECK(role_set_refusal(/*want*/false, /*now*/true, false, 0xAAAA1111u, 0) == RoleSetRefusal::in_a_team);
+}
+
+TEST_CASE("§role-model R2 — Node::set_team_id PROMOTES a static node to mobile, and `team 0` leaves it mobile") {
+    using namespace meshroute;
+    // ★ The outlawed config as its own starting point: on_init accepts `team_id != 0 && !is_mobile` verbatim (it is
+    // NOT a fourth enforcement point — see node_role.h's ✖ MISSING note), so build the node STATIC + teamless and
+    // let the team verb be what promotes it. That is exactly the `team <id>` on a static node the ruling is about.
+    StubHal hal; Node n(hal, 21, 0x7A7Au);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7); cfg.leaf_id = 4;
+    cfg.is_mobile = false; cfg.team_id = 0;
+    CHECK(n.on_init(cfg));
+    CHECK_FALSE(n.config().is_mobile);
+
+    // (a) `team <id>` on a STATIC node -> the team is adopted AND the role becomes MOBILE (B28/R2)
+    CHECK(n.set_team_id(0xAAAA1111u));
+    CHECK(n.config().team_id == 0xAAAA1111u);
+    CHECK(n.config().is_mobile);                       // ★ the whole point of B28
+
+    // (b) a team SWITCH keeps it mobile (already consistent — nothing to force)
+    CHECK(n.set_team_id(0xBBBB2222u));
+    CHECK(n.config().is_mobile);
+
+    // (c) a same-team no-op changes nothing at all
+    CHECK_FALSE(n.set_team_id(0xBBBB2222u));
+    CHECK(n.config().is_mobile);
+
+    // (d) ★ R3: `team 0` drops the team but the node STAYS MOBILE — an off-grid member that leaves is still a
+    //     roaming endpoint, and a symmetric clear here would silently un-mobile it.
+    CHECK(n.set_team_id(0));
+    CHECK(n.config().team_id == 0);
+    CHECK(n.config().is_mobile);
 }
 
 TEST_CASE("§clean-team — clear_routing_state (the static reprovision verbs) still wipes the team plane, now completely") {

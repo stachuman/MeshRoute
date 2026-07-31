@@ -230,7 +230,7 @@ registry + suspends OFFERs and rosters while `_node_id == 0`.
 ## 13. Team plane
 
 **Switching teams (`§clean-team`, 2026-07-27).** Every live `team_id` change — `team new`, `team <id>`, `team 0`
-and `cfg set team_id` — goes through **`Node::set_team_id()`**, which drops the whole team plane before the new id
+— goes through **`Node::set_team_id()`** (★ `cfg set team_id` was a FOURTH spelling and was **REMOVED 2026-07-31**, `§team-id-cfg-removal`: it had none of the three guards `team <id>` carries), which drops the whole team plane before the new id
 takes effect: `_rt_team`/`_team_peer`, the team liveness mirror, the **team key cache `_team_keys`**, the team RREQ
 dedup/rate rings, and `_team_local_id`. It returns *switched*, so a same-team no-op clears nothing and skips the
 re-DAD. ⚠ **The static plane is deliberately untouched** — a homed mobile changing team keeps its routes,
