@@ -477,14 +477,20 @@ Slices are named `UI-n` deliberately: bare `U1`/`U3` would collide with the CLAU
 | # | slice | gate |
 |---|---|---|
 | UI-1 | `firmware_ui_input.h` + native test | native |
-| UI-2 | `firmware_ui_model.h` + native test (screens, cursors, no emergency) | native |
-| UI-3 | board port: display driver, page-chunked paint, blanking; renders STATUS + INBOX | on-target (V3) |
-| UI-4 | button GPIO 0 wiring into the classifier; the cycle becomes live | on-target (V3) |
-| UI-5 | TEAM peer list + the compose sub-view (DM and channel), `MR_FEAT_TEAM` | on-target (V3) |
-| UI-6 | emergency machine end-to-end incl. `send_blocked`/retry | native + on-target |
-| UI-7 | V3 battery reader (auto-detected ADC_CTRL polarity, no delay) | on-target, multimeter-verified |
+| UI-2 | `firmware_ui_model.h`: screens, list-aware cursor, compose modal + native test | native |
+| UI-3 | emergency + DM outcome machines in the model (§4, §3.4.1) + native test | native |
+| UI-4 | **send tracker + typed send result** (§2.1) — the attribution layer | native + on-target |
+| UI-5 | board canvas port: U8g2 behind `board_ui.h`, page-chunked paint, `set_power_save` blanking | on-target (V3) |
+| UI-6 | button GPIO 0 into the classifier; `firmware_ui.cpp` render policy; the cycle becomes live | on-target (V3) |
+| UI-7 | TEAM peer list + compose sub-views + inbox adapter over `Inbox::pull()` (`MR_FEAT_TEAM`) | on-target (V3) |
+| UI-8 | emergency end-to-end on hardware incl. blocked/retry/reply | on-target |
+| UI-9 | V3 battery reader (auto-detected ADC_CTRL polarity, no delay) + the 30 s cache | on-target, multimeter-verified |
 
-UI-1 and UI-2 are pure and can start immediately — no hardware question blocks them. UI-3 is blocked only on the display-library choice (§8). Every V3 pin UI-3/UI-4/UI-7 needs is now known (§10.1), except the panel reset pin, which wants a hardware confirmation.
+Renumbered after the 2026-08-01 review. **UI-4 is new and is the review's first ordering item**: without send attribution, UI-3's emergency machine can be completed by an unrelated push, so the tracker must exist before the emergency is trusted on hardware.
+
+UI-1 through UI-4 are pure or near-pure and can start immediately. UI-5 is blocked only on the display-library choice (§8). Every V3 pin UI-5/UI-6/UI-9 needs is known (§10.1) except the panel reset pin, which wants a hardware confirmation.
+
+**Prerequisites: discharged.** `send_channel … -t -l -e` is built and honoured — the parser accepts `-e`/`-l` (`console_parse.cpp:250,267`) and `on_command` enforces the refusal matrix including `no_fix` (`node.cpp:1402-1526`), with `team_channel_crypt` defaulting true (`node_carriers.h:184`). Verified 2026-08-01; nothing in Phase A waits on protocol work.
 
 ### Phase B — Heltec V4 (separate specs, not this one)
 
@@ -503,4 +509,4 @@ B-1 and B-2 must land before any V4 hardware is trusted on air. B-3 is small onc
 2. **§4 — is 3.5 s the right arm time?** Long enough to prevent pocket-fires, short enough not to feel broken. It is a guess and wants a bench opinion, not a code review.
 3. ~~Should the emergency message include location?~~ **RESOLVED 2026-07-31 by owner ruling: yes, when available** — see §4.1. I had recommended omitting it in Phase A on staleness grounds; the owner ruled otherwise and the design now follows that. The residual implementation risk is the conditional `-l` (§4.1): getting it wrong converts "no fix" into "no alarm", so it belongs in the Task 8 bench matrix, not in a code review.
 4. **§5 — is the idle-paint rule sufficient?** It prevents a paint from *starting* mid-exchange, but a paint already in progress when an RTS lands still holds the bus for one page (~3 ms). That should be inside the RX window slop, but it is an assumption a reviewer familiar with the metal RX path should confirm.
-5. **§3.1 — two canned messages, or three?** The draft listed three, one of which became the long-press path. If a third benign message is wanted ("moving on", "waiting here"), it is one more slot — but each slot lengthens the cycle for every other interaction.
+5. **§3.2.2 — is the canned-text list right?** Largely moot now: the compose sub-view means an extra text costs one list row, not a cycle slot, so adding "moving on" or "waiting here" later is nearly free. The only real question is whether either DM list should differ per direction — currently both ends see the same two texts.

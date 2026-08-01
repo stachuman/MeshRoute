@@ -271,7 +271,24 @@ green** — every assertion named the flag **symbolically**, so the KAT was **se
 independently-built nodes must agree on.** A node built before the renumber and one built after would have failed to
 interoperate **with all tests passing on both**. Fixed for the channel inner (numeric pins on every flag, both widths,
 and a literal `inner[0]` in the KAT); ⚠ **CL2b's values were equally unpinned.**
-★★ **THE CLASS, and it is worth a sweep of its own:** `CHECK(x == kFlag)` proves the code is **self-consistent**; only
+⚠⚠ **QA DOWNGRADED THIS 2026-08-01, ON THE OWNER'S CHALLENGE — the original framing OVERSOLD it.** I wrote that
+*"two independently-built nodes would fail to interoperate with all tests passing."* **That scenario is nearly
+unreachable here:** it needs two nodes on **different builds**, and this project is **undeployed, reflashed all-at-once,
+and wire changes are FREE by M3** — so a wire constant changing is **expected**, not a hazard.
+★★ **What IS true is different, and more useful: NO TEST IN THIS PROJECT CAN DETECT A WIRE-FORMAT CHANGE AT ALL.**
+**One `lus` executable drives both ends of every simulated link** and the native suite compiles one copy of the
+constants, so a renumber moves both sides identically. ⇒ **every "byte-identical" result this file relies on is
+byte-identical AGAINST ITSELF: the corpus validates BEHAVIOUR, never FORMAT.** Our only real format checks are the
+**KATs** — and `§cl2a`'s is the pattern to copy, because it recomputes key/nonce/AAD **from the spec wording** and opens
+with raw `crypto_aead_unlock` instead of calling our own sealer.
+★ **What a numeric pin actually buys: not bug prevention, a DELIBERATENESS TRIPWIRE** — it turns "someone silently
+changed a wire number" into "someone had to edit a test that says `0x04`". Worth most **at the moment a constant is
+CREATED**, because retrofitting one later means first establishing what the number *should* be, and by then the only
+record is the code that may have drifted.
+⇒ ★ **PRIORITY: NOT NOW. Pin on creation; do not sweep.** A sweep would touch ~161 constants for low yield while the
+reflash-all assumption holds. **Two triggers make it real: the first time two boards run DIFFERENT builds, and
+DEPLOYMENT** — at which point M3 also stops being true and this entry should be re-read together with it.
+*(the original, overstated framing, kept as the record:)* ★★ **THE CLASS, and it is worth a sweep of its own:** `CHECK(x == kFlag)` proves the code is **self-consistent**; only
 `CHECK(kFlag == 0x04)` proves it matches **the other end of the link.** ⇒ **audit every wire constant** — DATA flags,
 `q_opcode`, frame types, `PushKind`/`SendFailReason` numeric values, the cfg TLV tags — **for a numeric pin**, and add
 one where it is missing. A renumber is otherwise invisible to this project's entire gate. Note: `§cl2c`.

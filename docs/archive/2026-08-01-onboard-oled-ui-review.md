@@ -1,3 +1,36 @@
+> ## ⛔ OBSOLETE — ADDRESSED AND ARCHIVED 2026-08-01
+>
+> **Every finding in this review has been applied to the two documents it reviewed.** It is kept only as the audit
+> trail for *why* those documents changed; do not action it again.
+>
+> | § | finding | where it landed |
+> |---|---|---|
+> | 1 | send attribution (P0, false `PICKED UP`) | spec §2.1 · plan **Task 4** (new send tracker) |
+> | 2 | retry deadline / attempt accounting (P0) | spec §4 "Retry timing" · plan Task 3 |
+> | 3 | incomplete emergency transitions (P0) | spec §4.2-§4.4 · plan Tasks 2-3 |
+> | 4 | DM outcome model | spec §3.4.1 · plan Task 3 |
+> | 5 | inbox adapter over `Inbox::pull()` | spec §6.1 · plan Task 7 Step 3 |
+> | 6 | blanking bypassed page-chunking | spec §5 (edge-triggered `set_power_save`) · plan Task 5 |
+> | 7 | battery ADC on every tick | spec §7 · plan Task 6 Step 2 (30 s cache, MAC-idle) |
+> | 8 | board/feature boundary violation | spec §2 (canvas) · plan Tasks 5-6; `mrfw::dispatch` qualified |
+> | 9 | snapshot/status omissions, V3 BLE inert | spec §3.3, §6 (BLE dropped on V3; volts not %) |
+> | 10 | editorial consistency | applied throughout both documents |
+>
+> **One correction to this review.** §2 states that `next_ms == 0` leaves the retry "blocked forever" because
+> `on_tick` requires `_retry_at_ms != 0`. It does the opposite: `_retry_at_ms` was `_last_try_ms + 0`, a non-zero
+> timestamp already in the past, so the guard passed and the retry **spun every tick**, burning all three alarms in
+> milliseconds. The defect was real and worse than described, but the fix differs — a backoff floor, not a non-zero
+> check. The spec adopts 2 s doubling to 30 s.
+>
+> **Also superseded by events:** this review assumed the channel-encryption and per-send-location prerequisite was
+> still pending. It landed before the revision — `-e`/`-l` are accepted (`console_parse.cpp:250,267`) and honoured
+> with the full refusal matrix including `no_fix` (`node.cpp:1402-1526`). Nothing in Phase A waits on protocol work.
+>
+> Findings were **not** entered in `docs/2026-07-30-open-bug-register.md`: per owner ruling 2026-08-01 that register
+> is for implemented code, not for plan/spec defects.
+
+---
+
 # On-device OLED UI design and Phase A plan — review findings
 
 *2026-08-01. Standalone review of the following draft documents; neither source document is modified by this review.*
