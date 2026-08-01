@@ -129,6 +129,19 @@ enum class PushKind : uint8_t {
                         //   on its underlying uint8_t with a static_assert pinning join_adopted == 13
                         //   (lora-universal-simulator ConsoleNames.cpp + NodeRuntimeWrapper.cpp). Inserting anywhere
                         //   above would silently RENAME an existing push kind for every scenario and the companion.
+    team_channel_no_key,  // §chan-crypt CL2a (T-K2 §2.2): a CRYPTED team channel post was delivered to us and we hold
+                          //   NO team content key, so the CONTENT was dropped — nothing was inboxed and no
+                          //   `channel_recv` will follow for this id. The app's action is to prompt "ask a teammate
+                          //   for the key" (`team grantkey` from any keyholder, or the T-K4 QR). team_id = the posting
+                          //   team, channel_id / channel_msg_id / origin / layer_id name the post that could not be read.
+                          //   ★ RATE-LIMITED to one per protocol::team_channel_no_key_push_min_ms — a member without
+                          //   the key cannot read ANY post, so an un-limited push would mirror the channel's whole
+                          //   traffic into the app as prompts.
+                          //   ⚠ NOT stored-for-later in v1 (T-K2 Open Question Q1): the sealed bytes are not retained
+                          //   for a retro-decrypt once a key arrives. The post is still RELAYED normally — a relay is
+                          //   content-blind, and an un-keyed member must not break the flood for everyone else.
+                          //   ★ APPENDED AT THE END, same contract rule as team_key_received above. Both sim asserts
+                          //   pin join_adopted == 13 and are UNAFFECTED (this enumerator is 15).
 };
 // E2E §5: why a send_failed Push fired, so the app reacts (no_pubkey -> offer Request-key/Scan-QR; the permanent
 // reasons -> plain fail). Mirrors the contract `send_failed.reason`. `none` = a non-send_failed push.

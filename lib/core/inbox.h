@@ -97,7 +97,7 @@ public:
     // BEFORE enqueue_push. `sender_hash` = the DM sender's key_hash32 (stable identity, 0 if SOURCE_HASH absent).
     // The channel identity is the FULL channel_msg_id (origin = its high byte) — store it whole, not the ctr.
     uint32_t record_dm(uint8_t origin, uint32_t sender_hash, uint16_t ctr, uint8_t layer_id, const uint8_t* body, uint8_t len, uint64_t now_ms, uint8_t enc = 0, uint8_t origin_layer = 0);   // §8b: enc=1 if the DM was delivered sealed; §GapA-durable: origin_layer = the XL sender's layer (0 = same-layer)
-    uint32_t record_channel(uint8_t channel_id, uint32_t channel_msg_id, uint8_t layer_id, const uint8_t* body, uint8_t len, uint64_t now_ms, uint32_t team_id = 0);   // channels are cleartext today -> enc always 0; §S5 team_id scopes the durable record
+    uint32_t record_channel(uint8_t channel_id, uint32_t channel_msg_id, uint8_t layer_id, const uint8_t* body, uint8_t len, uint64_t now_ms, uint32_t team_id = 0, uint8_t enc = 0);   // §S5 team_id scopes the durable record; §chan-crypt CL2a: enc=1 iff the post arrived CRYPTED and we OPENED it (`body` is then the recovered plaintext) — the record FORMAT always carried the field (InboxEntry::enc), so this is a parameter, not a store-version bump. APPENDED after team_id so every existing call site is untouched and defaults to 0.
     // Record an E2E-ack RECEIPT for a -a DM WE originated (the dest `from_origin` confirmed delivery of our ctr `acked_ctr`).
     // A DM-store entry under the DM seq-cursor: kind=dm, type=DATA_TYPE_E2E_ACK, origin=from_origin, msg_id=acked_ctr, body_len=0,
     // enc=0. `acker_hash` = the acker's stable key_hash32 for a cross-layer ack (the 8-bit origin aliases across leaves); 0 same-layer.

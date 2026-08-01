@@ -215,6 +215,17 @@ void handle_cfg_set(const char* args, Print& out) {
     // --- E2E §4b: originate app DMs ENCRYPTED. LIVE via mutable_config() + PERSISTED (NV v10). A no-pubkey CRYPTED send
     //     fails loud (send_failed{no_pubkey}); the user provisions keys via `peerkey`/`reqpubkey`. Default off = plaintext. ---
     else if (!strcmp(key, "e2e_dm"))     { b.e2e_dm = (atoi(val) != 0 || !strcmp(val, "on") || !strcmp(val, "true")) ? 1 : 0; lc.e2e_dm = (b.e2e_dm != 0); }
+    // --- §chan-crypt CL2a (T-K2 §2.5): SEAL a `-t` team channel post by default when this node holds the team
+    //     CONTENT key. Default ON; this is the OPT-OUT, and per open decision O2 it is the ONLY one (no per-send
+    //     "air this in clear" flag — a footgun on a privacy feature). `send_channel -t -e` still seals explicitly
+    //     with this off; what it turns off is only the DEFAULT.
+    //     ★ LIVE-ONLY (`persist = false`), deliberately, and NOT the e2e_dm shape it sits beside — the
+    //     team_hop_cap / nav / intra_layer_relay precedent: reboot reverts to the DESIGN value, and here the design
+    //     value is the PRIVACY-SAFE one, so a forgotten opt-out heals itself instead of silently keeping a team
+    //     channel in clear forever. It also keeps an unrequested NV kVersion bump (= another reprovision-on-reflash)
+    //     out of this slice. ✖ MISSING, and deliberately: no NV field. If the owner wants the opt-out to survive a
+    //     reboot, that is a device_nv v24 + fw_main boot-restore slice of its own.
+    else if (!strcmp(key, "team_channel_crypt")) { lc.team_channel_crypt = (atoi(val) != 0 || !strcmp(val, "on") || !strcmp(val, "true")); persist = false; }
     // --- §S2 first-contact INTRO auto-attach: LIVE via mutable_config() + PERSISTED (NV v21). Default ON. OFF = never
     //     attach our pubkey to a plaintext first send (the app must reqpubkey/QR-import). Mirrors e2e_dm/mobile_autoregister. ---
     else if (!strcmp(key, "intro_attach")) { b.intro_attach = (atoi(val) != 0 || !strcmp(val, "on") || !strcmp(val, "true")) ? 1 : 0; lc.intro_attach = (b.intro_attach != 0); }

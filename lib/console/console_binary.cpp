@@ -137,6 +137,7 @@ size_t enc_cfg(uint8_t* buf, size_t cap, const NodeConfig& c, const CfgExtras& x
     // §loc-per-send: TAG_CFG_LOC_DM (0x18) is GONE and its number RETIRED (see console_binary.h) — location is a
     // per-send `-l` flag, not config, so there is no field to encode.
     if (!put_u8 (buf,cap,off,TAG_CFG_E2E_DM,     c.e2e_dm?1:0))          return 0;
+    if (!put_u8 (buf,cap,off,TAG_CFG_TEAM_CH_CRYPT, c.team_channel_crypt?1:0)) return 0;   // §chan-crypt CL2a: the seal-by-default toggle, beside its DM twin e2e_dm
     if (!put_i32(buf,cap,off,TAG_CFG_LAT,        x.lat_e7))              return 0;
     if (!put_i32(buf,cap,off,TAG_CFG_LON,        x.lon_e7))              return 0;
     return off;
@@ -159,6 +160,7 @@ bool dec_cfg(const uint8_t* buf, size_t len, CfgOut& o) {
         case TAG_CFG_BLE_MODE: o.ble_mode=get_u8(v,n); break;    case TAG_CFG_BLE_PERIOD: o.ble_period=get_u16(v,n); break;
         case TAG_CFG_BLE_PIN: o.ble_pin=get_u32(v,n); break;
         case TAG_CFG_E2E_DM: o.e2e_dm=get_u8(v,n); break;        case TAG_CFG_LAT: o.lat_e7=get_i32(v,n); break;
+        case TAG_CFG_TEAM_CH_CRYPT: o.team_channel_crypt=get_u8(v,n); break;   // §chan-crypt CL2a
         case TAG_CFG_LON: o.lon_e7=get_i32(v,n); break;
         // §loc-per-send: tag 0x18 (ex-TAG_CFG_LOC_DM) falls to `default` and is IGNORED — which is exactly the desired
         // behaviour for an older app that still sends it, and exactly why the number must never be recycled.

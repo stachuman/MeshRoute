@@ -2198,18 +2198,18 @@ TEST_CASE("§chan-crypt — `-t -g -e` is REFUSED because the GLOBAL copy would 
     CHECK(h2.count("channel_crypt_refused") == 0);
 }
 
-TEST_CASE("§chan-crypt — `-t -e` (THE target) is a CL1 STUB: refuses `unsealable`, not bad_args; `-t` alone unaffected") {
-    // ✖ MISSING, TRIGGER: CL2. The refusal deliberately uses the REAL unsealable path so the operator is told the
-    // truth and so this test keeps its meaning once CL2 lands — at which point ONLY the expected code changes
-    // (err_unsupported -> queued) while the two refusal cases above and the membership test stay exactly as they are.
+TEST_CASE("§chan-crypt CL2a — `-t -e` on a member holding NO team content key refuses `no_key`/unsealable; `-t` alone unaffected") {
+    // The CL1 `not_implemented` stub is GONE; this is the arm that replaced it. Membership is NOT readership, so a
+    // team member with no CONTENT key cannot honour `-e` — and the remedy is a GRANT, not re-joining the team.
     TestHal hal; Node node(hal, /*id=*/3, /*key=*/0x1234ABCDu);
     NodeConfig cfg = basic_cfg(); cfg.is_mobile = true; cfg.team_id = 0xABCD1234u; node.on_init(cfg);
+    CHECK_FALSE(node.team_channel_key_present());
     const CmdResult r = send_channel(node, /*ch=*/7, "team-secret", /*team=*/true, /*global=*/false, CryptIntent::on);
     CHECK(r.code == CmdCode::err_unsupported);
     CHECK(node.channel_buffer_count() == 0);          // ★ NOT posted in clear as a fallback (C2: never downgrade)
     CHECK(hal.tx_frames.empty());
     const Ev* e = hal.last("channel_crypt_refused");
-    CHECK(e != nullptr); if (e) CHECK(e->reason == "not_implemented");
+    CHECK(e != nullptr); if (e) CHECK(e->reason == "no_key");
     Push pu{}; CHECK(find_push(drain_all(node), PushKind::send_failed, pu));
     CHECK(pu.reason == SendFailReason::unsealable);
     // ★ SAME-SITE CONTROL: `-t` WITHOUT `-e` still floods the team plane in clear (unchanged). A keyless member must
@@ -2249,4 +2249,354 @@ TEST_CASE("§chan-crypt — CryptIntent::off behaves exactly like `def` (there i
     CHECK(send_channel(node, 7, "clear", /*team=*/true, /*global=*/false, CryptIntent::off).code == CmdCode::queued);
     CHECK(node.channel_buffer_count() == 1);
     CHECK(hal.count("channel_crypt_refused") == 0);
+}
+
+// ============================ §chan-crypt CL2a — the SEALED team channel post ============================
+// The corpus is STRUCTURALLY BLIND to this whole slice: no simulator node can hold a team content key (every
+// establish path — mint / adopt / adopt_priv / NV load / the sealed TYPE-19 grant — is reachable only from `src/`,
+// which the sim does not build), so `team_channel_key_present()` is false for all 36 scenarios and nothing seals.
+// ⇒ these tests are the ONLY coverage of the crypto. They are written accordingly: KATs and negative cases, not
+// round-trips (a round-trip passes with both halves wrong in the same way — test_dm_crypto.cpp's own lesson).
+namespace {
+
+// A deterministic, non-degenerate 32-byte scalar -> the SAME content key on every node given the same `fill`.
+static void give_team_key(Node& n, uint8_t fill) {
+    uint8_t priv[32]; for (int i = 0; i < 32; ++i) priv[i] = static_cast<uint8_t>(fill + i);
+    CHECK(n.team_channel_key_adopt_priv(priv));
+}
+// The canonical (RFC-7748-clamped) form of that scalar, plus its public half — what the node actually stored.
+static void ref_team_pair(uint8_t fill, uint8_t pub[32], uint8_t canon_priv[32]) {
+    uint8_t priv[32]; for (int i = 0; i < 32; ++i) priv[i] = static_cast<uint8_t>(fill + i);
+    CHECK(meshroute::team_channel_key_derive(pub, canon_priv, priv));
+}
+// ★ THE REFERENCE DERIVATIONS — recomputed here from the SPEC WORDING, not by calling the node's helpers. If the
+// domain string, the truncation, the nonce input ORDER or the AAD layout ever drift, these stop agreeing.
+static void ref_content_key(const uint8_t canon_priv[32], uint8_t key[32]) {
+    const char dom[] = "MR-TEAM-CH-v1";
+    uint8_t msg[13 + 32];
+    std::memcpy(msg, dom, 13); std::memcpy(msg + 13, canon_priv, 32);
+    uint8_t full[64]; crypto_blake2b(full, 64, msg, sizeof msg);
+    std::memcpy(key, full, 32);
+}
+static void ref_nonce(const uint8_t seed8[8], uint16_t ctr, uint32_t x32, uint8_t nonce[24]) {
+    uint8_t msg[8 + 2 + 4];
+    std::memcpy(msg, seed8, 8);
+    msg[8] = uint8_t(ctr); msg[9] = uint8_t(ctr >> 8);
+    msg[10] = uint8_t(x32); msg[11] = uint8_t(x32 >> 8); msg[12] = uint8_t(x32 >> 16); msg[13] = uint8_t(x32 >> 24);
+    uint8_t full[64]; crypto_blake2b(full, 64, msg, sizeof msg);
+    std::memcpy(nonce, full, 24);
+}
+static void ref_aad(uint32_t tk_hash, uint32_t msg_id, uint8_t channel_id, uint8_t aad[9]) {
+    aad[0] = uint8_t(tk_hash); aad[1] = uint8_t(tk_hash >> 8); aad[2] = uint8_t(tk_hash >> 16); aad[3] = uint8_t(tk_hash >> 24);
+    aad[4] = uint8_t(msg_id);  aad[5] = uint8_t(msg_id >> 8);  aad[6] = uint8_t(msg_id >> 16);  aad[7] = uint8_t(msg_id >> 24);
+    aad[8] = channel_id;
+}
+// Post `-t` and hand back the M frame that actually aired (flavor + the on-wire body).
+struct AiredM { bool ok = false; uint8_t flavor = 0; uint32_t id = 0; std::vector<uint8_t> body; };
+static AiredM post_team_and_capture(TestHal& hal, Node& n, uint8_t ch, const char* text,
+                                    CryptIntent crypt = CryptIntent::def) {
+    AiredM out{};
+    if (send_channel(n, ch, text, /*team=*/true, /*global=*/false, crypt).code != CmdCode::queued) return out;
+    drain_originate_flood(n);
+    const std::vector<uint8_t>* mf = hal.last_tx_cmd(0xA);
+    if (!mf) return out;
+    auto pm = parse_m(std::span<const uint8_t>(mf->data(), mf->size()));
+    if (!pm) return out;
+    out.ok = true; out.flavor = pm->flavor; out.id = pm->channel_msg_id;
+    out.body.assign(pm->body.begin(), pm->body.end());
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("§chan-crypt CL2a — KAT: the sealed body is [seal_ctr 2][seed8 8][ct‖tag] and opens under an INDEPENDENTLY recomputed key/nonce/AAD") {
+    constexpr uint32_t T = 0xABCD1234u;
+    TkHal hal; hal._fill = 0x41;                       // deterministic, non-degenerate nonce seed
+    Node n(hal, /*id=*/3, /*key=*/0x1234ABCDu);
+    NodeConfig c = team_cfg(T); n.on_init(c);
+    give_team_key(n, /*fill=*/0x10);
+    const AiredM m = post_team_and_capture(hal, n, /*ch=*/7, "team-secret", CryptIntent::on);
+    CHECK(m.ok);
+    if (!m.ok) return;
+    // (1) the flavor carries BOTH bits, and crypted is never set alone.
+    CHECK((m.flavor & protocol::channel_flavor_crypted) != 0);
+    CHECK((m.flavor & protocol::channel_flavor_team) != 0);
+    // (2) the body layout + its exact length.
+    const size_t pt_len = std::strlen("team-secret");
+    CHECK(m.body.size() == pt_len + protocol::channel_seal_overhead_bytes);
+    CHECK(protocol::channel_seal_overhead_bytes == 26);
+    const uint16_t seal_ctr = static_cast<uint16_t>(m.body[0] | (m.body[1] << 8));
+    CHECK(seal_ctr == 1);                                     // ++_channel_seal_ctr, pre-incremented, first seal
+    for (int i = 0; i < 8; ++i) CHECK(m.body[2 + i] == static_cast<uint8_t>(0x41 + i));   // seed8 CARRIED verbatim
+    // ★ the ciphertext is NOT the plaintext (the one assertion that would catch a no-op "seal")
+    CHECK(std::memcmp(m.body.data() + 10, "team-secret", pt_len) != 0);
+    // (3) INDEPENDENT open: recompute the key, the nonce and the AAD from the spec and unlock with monocypher.
+    uint8_t pub[32], canon[32]; ref_team_pair(0x10, pub, canon);
+    uint8_t key[32]; ref_content_key(canon, key);
+    uint8_t nonce[24]; ref_nonce(m.body.data() + 2, seal_ctr, /*x32=*/m.id, nonce);       // ★ x32 = the channel_msg_id
+    uint8_t aad[9];   ref_aad(meshroute::key_hash32_of(pub), m.id, /*channel_id=*/7, aad);
+    uint8_t pt[64];
+    CHECK(crypto_aead_unlock(pt, m.body.data() + 10 + pt_len, key, nonce, aad, sizeof aad,
+                             m.body.data() + 10, pt_len) == 0);
+    CHECK(std::memcmp(pt, "team-secret", pt_len) == 0);
+    // (4) EVERY AAD field is genuinely bound — perturb one at a time, each must fail the tag.
+    uint8_t bad[9];
+    ref_aad(meshroute::key_hash32_of(pub) ^ 1u, m.id, 7, bad);
+    CHECK(crypto_aead_unlock(pt, m.body.data() + 10 + pt_len, key, nonce, bad, sizeof bad, m.body.data() + 10, pt_len) != 0);
+    ref_aad(meshroute::key_hash32_of(pub), m.id ^ 1u, 7, bad);
+    CHECK(crypto_aead_unlock(pt, m.body.data() + 10 + pt_len, key, nonce, bad, sizeof bad, m.body.data() + 10, pt_len) != 0);
+    ref_aad(meshroute::key_hash32_of(pub), m.id, 8, bad);
+    CHECK(crypto_aead_unlock(pt, m.body.data() + 10 + pt_len, key, nonce, bad, sizeof bad, m.body.data() + 10, pt_len) != 0);
+    // (5) and the NONCE really is the msg-id one: the same body under a team-key-hash nonce must NOT open.
+    uint8_t wrong_nonce[24]; ref_nonce(m.body.data() + 2, seal_ctr, meshroute::key_hash32_of(pub), wrong_nonce);
+    ref_aad(meshroute::key_hash32_of(pub), m.id, 7, aad);
+    CHECK(crypto_aead_unlock(pt, m.body.data() + 10 + pt_len, key, wrong_nonce, aad, sizeof aad, m.body.data() + 10, pt_len) != 0);
+}
+
+TEST_CASE("★★ §chan-crypt CL2a — NONCE UNIQUENESS: never reused across posts, and NOT EVEN between two members sharing the key + seed + ctr") {
+    constexpr uint32_t T = 0xABCD1234u;
+    // (a) SAME node, two posts of the SAME text: the carried ctr advances and the nonce differs. (The seed is forced
+    //     CONSTANT here on purpose — it isolates the ctr's contribution instead of letting randomness hide a bug.)
+    TkHal hal; hal._fill = 0x41;
+    Node n(hal, 3, 0x1234ABCDu); NodeConfig c = team_cfg(T); n.on_init(c);
+    give_team_key(n, 0x10);
+    n.mutable_config().channel_min_interval_ms = 0;           // the burst floor is not what this case is about
+    const AiredM a = post_team_and_capture(hal, n, 7, "same", CryptIntent::on);
+    hal.tx_frames.clear();
+    hal._now += 1;
+    const AiredM b = post_team_and_capture(hal, n, 7, "same", CryptIntent::on);
+    CHECK(a.ok); CHECK(b.ok);
+    if (a.ok && b.ok) {
+        const uint16_t ca = static_cast<uint16_t>(a.body[0] | (a.body[1] << 8));
+        const uint16_t cb = static_cast<uint16_t>(b.body[0] | (b.body[1] << 8));
+        CHECK(ca == 1); CHECK(cb == 2);                       // the CARRIED ctr advanced
+        uint8_t na[24], nb[24];
+        ref_nonce(a.body.data() + 2, ca, a.id, na);
+        ref_nonce(b.body.data() + 2, cb, b.id, nb);
+        CHECK(std::memcmp(na, nb, 24) != 0);                  // ⇒ no keystream reuse
+        CHECK(std::memcmp(a.body.data() + 10, b.body.data() + 10, 4) != 0);   // and the ciphertexts differ
+    }
+    // (b) ★★ THE SHARED-KEY HAZARD — TWO DIFFERENT MEMBERS, one team key, an IDENTICAL forced seed and an identical
+    //     ctr (both are on their first seal). A per-node counter cannot separate them and the random seed has been
+    //     deliberately neutralised, so the ONLY thing left is the channel_msg_id bound into the nonce.
+    TkHal hA; hA._fill = 0x41; Node A(hA, /*id=*/3, /*key=*/0x1234ABCDu); NodeConfig cA = team_cfg(T); A.on_init(cA);
+    TkHal hB; hB._fill = 0x41; Node B(hB, /*id=*/4, /*key=*/0x5678BEEFu); NodeConfig cB = team_cfg(T); B.on_init(cB);
+    give_team_key(A, 0x10); give_team_key(B, 0x10);           // the SAME content key on both
+    const AiredM ma = post_team_and_capture(hA, A, 7, "same", CryptIntent::on);
+    const AiredM mb = post_team_and_capture(hB, B, 7, "same", CryptIntent::on);
+    CHECK(ma.ok); CHECK(mb.ok);
+    if (ma.ok && mb.ok) {
+        CHECK(std::memcmp(ma.body.data(), mb.body.data(), 10) == 0);   // identical [seal_ctr][seed8] — the collision setup
+        CHECK(ma.id != mb.id);                                          // ...but different wire identities
+        uint8_t na[24], nb[24];
+        ref_nonce(ma.body.data() + 2, 1, ma.id, na);
+        ref_nonce(mb.body.data() + 2, 1, mb.id, nb);
+        CHECK(std::memcmp(na, nb, 24) != 0);                            // ★ DIFFERENT NONCES anyway
+        CHECK(std::memcmp(ma.body.data() + 10, mb.body.data() + 10, 4) != 0);   // ⇒ different keystream
+        // ★★ AND THE COUNTERFACTUAL, which is the whole argument for choosing the msg_id over the team key hash:
+        // with the TEAM KEY HASH in the nonce's 32-bit slot (the shape the dispatch had settled on) these two
+        // members would have produced the SAME nonce under the SAME key — textbook keystream reuse.
+        uint8_t pub[32], canon[32]; ref_team_pair(0x10, pub, canon);
+        uint8_t ka[24], kb[24];
+        ref_nonce(ma.body.data() + 2, 1, meshroute::key_hash32_of(pub), ka);
+        ref_nonce(mb.body.data() + 2, 1, meshroute::key_hash32_of(pub), kb);
+        CHECK(std::memcmp(ka, kb, 24) == 0);
+    }
+}
+
+TEST_CASE("§chan-crypt CL2a — R7: a DEAD crypto RNG (all-zero seed) REFUSES to seal; nothing is buffered, flooded or downgraded") {
+    constexpr uint32_t T = 0xABCD1234u;
+    TkHal hal;                                                // _fill 0 -> the base ALL-ZERO stream = R7 the dead-RNG case
+    Node n(hal, 3, 0x1234ABCDu); NodeConfig c = team_cfg(T); n.on_init(c);
+    give_team_key(n, 0x10);
+    const CmdResult r = send_channel(n, 7, "secret", /*team=*/true, /*global=*/false, CryptIntent::on);
+    CHECK(r.code == CmdCode::queued);                         // the command was accepted; the SEAL then refused
+    CHECK(r.ctr == 0);                                        // ...and reported "not sent" the way the self-gate does
+    CHECK(n.channel_buffer_count() == 0);                     // ★ NOT buffered in clear (C2: refuse, never downgrade)
+    CHECK(hal.tx_frames.empty());                             // ★ and nothing aired
+    const Ev* e = hal.last("channel_seal_failed");
+    CHECK(e != nullptr); if (e) CHECK(e->reason == "bad_rng");
+    Push pu{}; CHECK(find_push(drain_all(n), PushKind::send_failed, pu));
+    CHECK(pu.reason == SendFailReason::bad_rng);
+}
+
+TEST_CASE("§chan-crypt CL2a — the SEALED size cap: a body that fits plaintext but not sealed is REFUSED, not truncated") {
+    constexpr uint32_t T = 0xABCD1234u;
+    CHECK(protocol::channel_seal_max_plaintext_bytes == 174);   // 200 - 26
+    TkHal hal; hal._fill = 0x41;
+    Node n(hal, 3, 0x1234ABCDu); NodeConfig c = team_cfg(T); n.on_init(c);
+    give_team_key(n, 0x10);
+    const std::string over(protocol::channel_seal_max_plaintext_bytes + 1, 'x');   // 175: legal plain, illegal sealed
+    const CmdResult r = send_channel(n, 7, over.c_str(), /*team=*/true, /*global=*/false, CryptIntent::on);
+    CHECK(r.code == CmdCode::err_too_large);
+    CHECK(n.channel_buffer_count() == 0);
+    CHECK(hal.tx_frames.empty());
+    const Ev* e = hal.last("channel_crypt_refused"); CHECK(e != nullptr); if (e) CHECK(e->reason == "too_large");
+    Push pu{}; CHECK(find_push(drain_all(n), PushKind::send_failed, pu));
+    CHECK(pu.reason == SendFailReason::too_large);
+    // SAME-SITE CONTROL: exactly at the cap it seals and airs.
+    TkHal h2; h2._fill = 0x41; Node n2(h2, 3, 0x1234ABCDu); NodeConfig c2 = team_cfg(T); n2.on_init(c2);
+    give_team_key(n2, 0x10);
+    const std::string at(protocol::channel_seal_max_plaintext_bytes, 'x');
+    CHECK(send_channel(n2, 7, at.c_str(), /*team=*/true, /*global=*/false, CryptIntent::on).code == CmdCode::queued);
+    CHECK(n2.channel_buffer_count() == 1);
+    // ...and the SAME 175 bytes still post fine WITHOUT `-e` on a node with no key (the plain cap is unchanged).
+    TestHal h3; Node n3(h3, 3, 0x1234ABCDu); NodeConfig c3 = team_cfg(T); n3.on_init(c3);
+    CHECK(send_channel(n3, 7, over.c_str(), /*team=*/true).code == CmdCode::queued);
+}
+
+TEST_CASE("★ §chan-crypt CL2a — RECEIVE: a keyholder opens the post (enc=1); a WRONG key and NO key both fail CLOSED and still RELAY") {
+    constexpr uint32_t T = 0xABCD1234u;
+    // Produce one real sealed post from a keyholder.
+    TkHal hs; hs._fill = 0x41; Node S(hs, /*id=*/3, /*key=*/0x1234ABCDu);
+    NodeConfig cs = team_cfg(T); S.on_init(cs); give_team_key(S, 0x10);
+    const AiredM m = post_team_and_capture(hs, S, /*ch=*/7, "team-secret", CryptIntent::on);
+    CHECK(m.ok); if (!m.ok) return;
+    auto deliver = [&](Node& R, TestHal& hr) {
+        m_out mm = mk_m(m.id, /*ch=*/7, m.flavor, m.body.data(), static_cast<uint8_t>(m.body.size()));
+        mm.team_id = T; R.ingest_channel_m(mm, /*from=*/9); (void)hr;
+    };
+    // (a) RIGHT key -> opened, channel_recv carries the PLAINTEXT and enc=true.
+    { TestHal hr; Node R(hr, /*id=*/5, /*key=*/0xAAAA1111u); NodeConfig cr = team_cfg(T); R.on_init(cr);
+      give_team_key(R, 0x10);
+      deliver(R, hr);
+      Push pu{}; CHECK(find_push(drain_all(R), PushKind::channel_recv, pu));
+      CHECK(pu.enc);
+      CHECK(pu.body_len == std::strlen("team-secret"));
+      CHECK(std::memcmp(pu.body, "team-secret", pu.body_len) == 0);
+      CHECK(R.channel_buffer_count() == 1);                   // buffered (still SEALED — it may have to be re-served)
+      CHECK(hr.count("channel_crypt_undecryptable") == 0); }
+    // (b) WRONG key (a stale one after a re-key) -> FAILS CLOSED: no channel_recv at all, team_channel_no_key instead.
+    { TestHal hr; Node R(hr, 5, 0xAAAA1111u); NodeConfig cr = team_cfg(T); R.on_init(cr);
+      give_team_key(R, /*fill=*/0x77);                        // a DIFFERENT content key
+      deliver(R, hr);
+      const auto v = drain_all(R);
+      Push pu{}; CHECK_FALSE(find_push(v, PushKind::channel_recv, pu));   // ★ nothing forged, nothing partial
+      CHECK(find_push(v, PushKind::team_channel_no_key, pu));
+      CHECK(pu.channel_msg_id == m.id); CHECK(pu.channel_id == 7); CHECK(pu.team_id == T);
+      const Ev* e = hr.last("channel_crypt_undecryptable");
+      CHECK(e != nullptr); if (e) CHECK(e->reason == "open_failed");
+      CHECK(R.channel_buffer_count() == 1); }                 // ★ STILL BUFFERED -> still relayed (content-blind)
+    // (c) NO key -> the same closed failure, but the telemetry names the other cause.
+    { TestHal hr; Node R(hr, 5, 0xAAAA1111u); NodeConfig cr = team_cfg(T); R.on_init(cr);
+      deliver(R, hr);
+      const auto v = drain_all(R);
+      Push pu{}; CHECK_FALSE(find_push(v, PushKind::channel_recv, pu));
+      CHECK(find_push(v, PushKind::team_channel_no_key, pu));
+      const Ev* e = hr.last("channel_crypt_undecryptable");
+      CHECK(e != nullptr); if (e) CHECK(e->reason == "no_key");
+      // ★★ THE CONTENT-BLIND-RELAY PROOF, and it is the assertion that matters most in this case: the un-keyed node
+      // still HOLDS the post and still SERVES it, byte-for-byte sealed, to a peer that pulls it. A member without
+      // the key must never sever the channel for the members who have it.
+      CHECK(R.channel_buffer_count() == 1);
+      std::array<uint8_t,32> qb{};
+      const size_t qn = mk_q_pull(/*src=*/6, /*dest=*/5, &m.id, 1, qb);
+      R.on_recv(qb.data(), qn, meta_at(100));
+      CHECK(hr.count("channel_broadcast_tx") == 1);
+      R.on_timer(kCtsToDataGapTimerId);                       // RTS -> the M frame itself
+      const std::vector<uint8_t>* served = hr.last_tx_cmd(0xA);
+      CHECK(served != nullptr);
+      if (served) { auto pm = parse_m(std::span<const uint8_t>(served->data(), served->size()));
+                    CHECK(pm.has_value());
+                    if (pm) { CHECK((pm->flavor & protocol::channel_flavor_crypted) != 0);
+                              CHECK(pm->body.size() == m.body.size());
+                              CHECK(std::memcmp(pm->body.data(), m.body.data(), m.body.size()) == 0); } } }
+    // (d) a TAMPERED ciphertext byte -> the tag catches it, same closed failure.
+    { TestHal hr; Node R(hr, 5, 0xAAAA1111u); NodeConfig cr = team_cfg(T); R.on_init(cr);
+      give_team_key(R, 0x10);
+      std::vector<uint8_t> tampered = m.body; tampered[12] ^= 0x01;
+      m_out mm = mk_m(m.id, 7, m.flavor, tampered.data(), static_cast<uint8_t>(tampered.size()));
+      mm.team_id = T; R.ingest_channel_m(mm, 9);
+      Push pu{}; CHECK_FALSE(find_push(drain_all(R), PushKind::channel_recv, pu)); }
+    // (e) RE-ATTRIBUTION: the same sealed body republished under a DIFFERENT channel_msg_id must NOT open (the AAD
+    //     and the nonce both bind the id) — a relay cannot re-label someone else's post as its own.
+    { TestHal hr; Node R(hr, 5, 0xAAAA1111u); NodeConfig cr = team_cfg(T); R.on_init(cr);
+      give_team_key(R, 0x10);
+      m_out mm = mk_m(m.id ^ 0x01000000u, 7, m.flavor, m.body.data(), static_cast<uint8_t>(m.body.size()));
+      mm.team_id = T; R.ingest_channel_m(mm, 9);
+      Push pu{}; CHECK_FALSE(find_push(drain_all(R), PushKind::channel_recv, pu)); }
+}
+
+TEST_CASE("§chan-crypt CL2a — the team_channel_no_key push is RATE-LIMITED; the telemetry is not") {
+    constexpr uint32_t T = 0xABCD1234u;
+    TkHal hs; hs._fill = 0x41; Node S(hs, 3, 0x1234ABCDu);
+    NodeConfig cs = team_cfg(T); S.on_init(cs); give_team_key(S, 0x10);
+    S.mutable_config().channel_min_interval_ms = 0;
+    std::vector<AiredM> posts;
+    for (int i = 0; i < 3; ++i) { hs.tx_frames.clear(); hs._now += 1;
+        posts.push_back(post_team_and_capture(hs, S, 7, i == 0 ? "one" : i == 1 ? "two" : "three", CryptIntent::on)); }
+    TestHal hr; Node R(hr, 5, 0xAAAA1111u); NodeConfig cr = team_cfg(T); R.on_init(cr);   // NO key
+    for (const auto& p : posts) { CHECK(p.ok); if (!p.ok) continue;
+        m_out mm = mk_m(p.id, 7, p.flavor, p.body.data(), static_cast<uint8_t>(p.body.size()));
+        mm.team_id = T; R.ingest_channel_m(mm, 9); }
+    int pushes = 0; for (const auto& p : drain_all(R)) if (p.kind == PushKind::team_channel_no_key) ++pushes;
+    CHECK(pushes == 1);                                        // ★ one prompt, not one per unreadable post
+    CHECK(hr.count("channel_crypt_undecryptable") == 3);       // ...while the bench still sees every occurrence
+    // ...and once the window elapses the app is prompted again (the key may have arrived meanwhile).
+    hr._now += protocol::team_channel_no_key_push_min_ms;
+    { const auto& p = posts[0];
+      m_out mm = mk_m(p.id ^ 0x00000055u, 7, p.flavor, p.body.data(), static_cast<uint8_t>(p.body.size()));
+      mm.team_id = T; R.ingest_channel_m(mm, 9); }
+    Push pu{}; CHECK(find_push(drain_all(R), PushKind::team_channel_no_key, pu));
+}
+
+TEST_CASE("★ §chan-crypt CL2a — team_channel_crypt DEFAULT-ON: `-t` seals when a key is held, and the CONFIG toggle is the only opt-out") {
+    constexpr uint32_t T = 0xABCD1234u;
+    // (a) key held, default config, NO `-e` -> SEALED anyway (T-K2 §2.5).
+    { TkHal hal; hal._fill = 0x41; Node n(hal, 3, 0x1234ABCDu);
+      NodeConfig c = team_cfg(T); CHECK(c.team_channel_crypt); n.on_init(c);
+      give_team_key(n, 0x10);
+      const AiredM m = post_team_and_capture(hal, n, 7, "auto", CryptIntent::def);
+      CHECK(m.ok); if (m.ok) { CHECK((m.flavor & protocol::channel_flavor_crypted) != 0);
+                               CHECK(m.body.size() == 4 + protocol::channel_seal_overhead_bytes); } }
+    // (b) the OPT-OUT: cfg team_channel_crypt = 0 -> plaintext, byte-for-byte the pre-CL2a post.
+    { TkHal hal; hal._fill = 0x41; Node n(hal, 3, 0x1234ABCDu);
+      NodeConfig c = team_cfg(T); c.team_channel_crypt = false; n.on_init(c);
+      give_team_key(n, 0x10);
+      const AiredM m = post_team_and_capture(hal, n, 7, "auto", CryptIntent::def);
+      CHECK(m.ok); if (m.ok) { CHECK((m.flavor & protocol::channel_flavor_crypted) == 0);
+                               CHECK(m.body.size() == 4);
+                               CHECK(std::memcmp(m.body.data(), "auto", 4) == 0); } }
+    // (c) ...and `-e` STILL seals with the toggle off — the toggle governs the DEFAULT, not the capability.
+    { TkHal hal; hal._fill = 0x41; Node n(hal, 3, 0x1234ABCDu);
+      NodeConfig c = team_cfg(T); c.team_channel_crypt = false; n.on_init(c);
+      give_team_key(n, 0x10);
+      const AiredM m = post_team_and_capture(hal, n, 7, "auto", CryptIntent::on);
+      CHECK(m.ok); if (m.ok) CHECK((m.flavor & protocol::channel_flavor_crypted) != 0); }
+    // (d) NO key, default config -> plaintext, unchanged. A keyless member must keep posting.
+    { TkHal hal; hal._fill = 0x41; Node n(hal, 3, 0x1234ABCDu);
+      NodeConfig c = team_cfg(T); n.on_init(c);
+      const AiredM m = post_team_and_capture(hal, n, 7, "auto", CryptIntent::def);
+      CHECK(m.ok); if (m.ok) { CHECK((m.flavor & protocol::channel_flavor_crypted) == 0);
+                               CHECK(m.body.size() == 4); } }
+}
+
+TEST_CASE("★★ §chan-crypt CL2a — the implicit seal is scoped to a TEAM-ONLY post: a keyholder's GLOBAL and `-t -g` posts are UNCHANGED") {
+    // THE REGRESSION THIS PINS: an unqualified `want_crypt = -e || (crypt_cfg && key_held)` makes a keyholder's plain
+    // GLOBAL post hit the `no_team` refusal and its `-t -g` post hit `global_clear_copy` — two invocations that work
+    // today would start FAILING purely because a content key arrived. Both spec rows say "unchanged".
+    constexpr uint32_t T = 0xABCD1234u;
+    TkHal hal; hal._fill = 0x41; Node n(hal, 3, 0x1234ABCDu);
+    NodeConfig c = team_cfg(T); n.on_init(c);
+    give_team_key(n, 0x10);
+    n.mutable_config().channel_min_interval_ms = 0;
+    // plain (GLOBAL): a mobile delegates to its home and has none here -> mobile_no_home, which is the PRE-CL2a
+    // outcome for this node shape. What matters is that it is NOT a crypt refusal.
+    CHECK(send_channel(n, 7, "global").code == CmdCode::err_no_binding);
+    CHECK(hal.count("channel_crypt_refused") == 0);
+    // `-t -g` on a keyholder: accepted, and the TEAM copy is deliberately CLEAR (sealing it while the global twin
+    // airs the same text would defeat the seal) — announced by channel_crypt_skipped, never silently.
+    hal._now += 1;
+    CHECK(send_channel(n, 7, "both", /*team=*/true, /*global=*/true).code == CmdCode::queued);
+    CHECK(hal.count("channel_crypt_refused") == 0);
+    const Ev* sk = hal.last("channel_crypt_skipped");
+    CHECK(sk != nullptr); if (sk) CHECK(sk->reason == "global_clear_copy");
+    drain_originate_flood(n);
+    const std::vector<uint8_t>* mf = hal.last_tx_cmd(0xA);
+    CHECK(mf != nullptr);
+    if (mf) { auto pm = parse_m(std::span<const uint8_t>(mf->data(), mf->size()));
+              CHECK(pm.has_value()); if (pm) CHECK((pm->flavor & protocol::channel_flavor_crypted) == 0); }
+    // and the two permanent refusals still fire for EXPLICIT `-e` only, on a keyholder exactly as on a keyless node.
+    CHECK(send_channel(n, 7, "x", /*team=*/false, /*global=*/false, CryptIntent::on).code == CmdCode::err_unsupported);
+    CHECK(send_channel(n, 7, "x", /*team=*/true,  /*global=*/true,  CryptIntent::on).code == CmdCode::err_unsupported);
 }

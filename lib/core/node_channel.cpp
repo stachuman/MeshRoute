@@ -18,6 +18,9 @@
 // Part of Node (declared in node.h).
 #include "node.h"
 #include "frame_codec.h"
+#include "dm_crypto.h"   // §chan-crypt CL2a: dm_nonce / dm_seal / dm_open + DM_TAG_LEN / DM_NONCE_SEED_LEN
+#include "identity.h"    // §chan-crypt CL2a: key_hash32_of — the team content key's 32-bit handle (the AAD's team binding)
+#include "monocypher.h"  // §chan-crypt CL2a: crypto_blake2b (the content-key KDF) + crypto_wipe
 
 #include <cstring>
 #include <cstdio>      // snprintf — the DEBUG flood_log_coverage trace (trace_on-gated)
@@ -251,18 +254,70 @@ void Node::ingest_channel_m(const m_out& m, uint8_t from) {
             // 32-bit channel_msg_id (the exact identity the app dedups by). The live channel_recv push carries
             // the SAME channel_msg_id + seq -> the app unifies live+pulled + detects gaps (model B).
             const uint8_t rx_layer = active_layer_id();   // §2/Q13: the receiving layer (leaf-local; gateways skip channels)
-            const uint32_t seq = _inbox.record_channel(m.channel_id, id, rx_layer, e.payload,
-                                                       static_cast<uint8_t>(e.payload_len), _hal.now(), m.team_id);   // §S5: durable team scoping
+            // ★★ §chan-crypt CL2a — DELIVERY-TO-SELF is the ONLY place a channel body is ever opened (T-K2 §2.2).
+            // The BUFFERED entry deliberately stays SEALED: we may still have to serve this id to a puller or
+            // re-flood it, and it must go back out byte-identical. So we open into a LOCAL buffer and the plaintext
+            // reaches exactly two places, the durable record and the app push.
+            // ⚠ A FAILURE HERE DROPS THE CONTENT, NEVER THE FRAME. The entry is already buffered above and the
+            // flood/forward decision below still runs — a member who cannot read the post must still relay it for
+            // everyone who can (that is precisely T-K2's content-blind-relay rule, and breaking it would let one
+            // key-less member sever a team's channel).
+            // ★ THE PLAINTEXT LANDS DIRECTLY IN THE PUSH'S OWN BODY — no scratch buffer of any kind, and that is a
+            // MEASURED choice, not a stylistic one. `Push::body` is already a 241-B buffer on this frame and 241 >=
+            // channel_seal_max_plaintext_bytes (174), so opening into it costs ZERO extra bytes. The two rejected
+            // alternatives both cost real memory on the target that has least of it: a 174-B STACK array on the RX
+            // path is the shape of the fault-log stack overflow (e2e_open_relay refuses it for exactly this reason),
+            // and the function-STATIC that idiom uses instead measured +174 B of permanent nRF52840 .bss by `nm`
+            // (xiao_sx1262 RAM +184 instead of +8) for a buffer that is live for microseconds. Hoisting `pu` is the
+            // whole trick; it is default-constructed either way, just earlier.
             Push pu{};
-            pu.kind = PushKind::channel_recv; pu.origin = origin; pu.channel_id = m.channel_id;
-            pu.layer_id = rx_layer;            // §2/Q13: the receiving layer
-            pu.channel_msg_id = id;            // the FULL 32-bit channel id — the app's dedup identity (matches the inbox record)
-            pu.team_id = m.team_id;            // §S4: team scoping (0 = a leaf channel -> write_push omits it)
-            pu.seq = seq;                      // the inbox per-store seq (0 = inbox disabled -> write_push omits it)
-            pu.body_len = static_cast<uint8_t>(e.payload_len > protocol::max_payload_bytes_hard_cap
-                                               ? protocol::max_payload_bytes_hard_cap : e.payload_len);
-            for (uint8_t i = 0; i < pu.body_len; ++i) pu.body[i] = e.payload[i];
-            enqueue_push(pu);
+            const uint8_t* app_body = e.payload;
+            uint8_t        app_len  = static_cast<uint8_t>(e.payload_len);
+            uint8_t        enc      = 0;
+            bool           readable = true;
+            if (e.flavor & protocol::channel_flavor_crypted) {
+                uint8_t clear_len = 0;
+                readable = channel_open_body(id, m.channel_id, e.payload, e.payload_len, pu.body, clear_len);
+                if (readable) { app_body = pu.body; app_len = clear_len; enc = 1; }
+                else {
+                    // ⚠ dm_open WIPES its output on a tag failure, so `pu.body` is all-zero here, not a partial
+                    // forgery — and nothing is enqueued on this path anyway.
+                    // Two causes, ONE remedy — "get the current team content key" — so ONE push kind, and the
+                    // telemetry carries the distinction for the bench: `no_key` (we hold none) vs `open_failed`
+                    // (we hold one that does not open this post: a stale key after a re-key, a foreign key, or a
+                    // tampered/re-attributed body the AAD caught).
+                    // (the have-key test is INLINE for the same reason the seal's reason string is — a local read
+                    // only inside MR_EMIT is unused on a board build, and warnings are gate-blocking.)
+                    MR_EMIT("channel_crypt_undecryptable", EF_I("id", static_cast<int64_t>(id)),
+                            EF_I("channel_id", m.channel_id),
+                            EF_S("reason", team_channel_priv() != nullptr ? "open_failed" : "no_key"));
+                    const uint64_t nw = _hal.now();
+                    if (nw >= _team_ch_nokey_push_next_ms) {          // next-ALLOWED, not last-pushed — see the member's note
+                        _team_ch_nokey_push_next_ms = nw + protocol::team_channel_no_key_push_min_ms;
+                        Push nk{};
+                        nk.kind = PushKind::team_channel_no_key; nk.origin = origin; nk.channel_id = m.channel_id;
+                        nk.layer_id = rx_layer; nk.channel_msg_id = id; nk.team_id = m.team_id;
+                        enqueue_push(nk);
+                    }
+                }
+            }
+            if (readable) {                    // plaintext post, or a sealed one we opened. Unreadable -> NOTHING is
+                                               // inboxed and NO channel_recv follows: the app must never see a row it
+                                               // cannot render, and a ciphertext "message" is exactly that.
+                const uint32_t seq = _inbox.record_channel(m.channel_id, id, rx_layer, app_body,
+                                                           app_len, _hal.now(), m.team_id, enc);   // §S5: durable team scoping; §chan-crypt CL2a: enc
+                pu.kind = PushKind::channel_recv; pu.origin = origin; pu.channel_id = m.channel_id;
+                pu.layer_id = rx_layer;            // §2/Q13: the receiving layer
+                pu.channel_msg_id = id;            // the FULL 32-bit channel id — the app's dedup identity (matches the inbox record)
+                pu.team_id = m.team_id;            // §S4: team scoping (0 = a leaf channel -> write_push omits it)
+                pu.seq = seq;                      // the inbox per-store seq (0 = inbox disabled -> write_push omits it)
+                pu.enc = (enc != 0);               // §chan-crypt CL2a: the post arrived SEALED and `body` is the opened plaintext (the field existed, hardcoded false for channels)
+                pu.body_len = static_cast<uint8_t>(app_len > protocol::max_payload_bytes_hard_cap
+                                                   ? protocol::max_payload_bytes_hard_cap : app_len);
+                if (app_body != pu.body)                 // the SEALED path already opened straight into pu.body
+                    for (uint8_t i = 0; i < pu.body_len; ++i) pu.body[i] = app_body[i];
+                enqueue_push(pu);
+            }
         }
         MR_TELEMETRY(
             const char* src = was_pulled ? "pull_target" : "overheard";
@@ -292,10 +347,159 @@ void Node::ingest_channel_m(const m_out& m, uint8_t from) {
     }
 }
 
+// =============================================================================
+// §chan-crypt CL2a — the SEALED team channel post (T-K2 §2.2, spec 2026-07-30 §2.1/§3.1)
+// =============================================================================
+//
+// WHERE THE SEAL SITS, and why it is exactly one place at each end:
+//   SEAL   — do_send_channel, immediately after the channel_msg_id is minted. `ChannelEntry::payload` then holds the
+//            CIPHERTEXT, so the buffer, the FLOOD DATA-M, the cached re-flood body, the pull-response M and the
+//            digest all carry it verbatim. ⇒ the relay plane stays CONTENT-BLIND by construction — not one line of
+//            flood/pull/digest code changes, and a member WITHOUT the key still forwards the post normally.
+//   OPEN   — ingest_channel_m, on DELIVERY-TO-SELF only, into a local buffer. The BUFFERED entry stays sealed
+//            (we must be able to re-serve the exact bytes to a puller). Only the inbox record + the channel_recv
+//            push see plaintext.
+//
+// ★★★ THE NONCE — the review point the spec names, spelled out in full because getting it wrong is catastrophic.
+// The primitive is the DM's: `dm_nonce(nonce, rand8, ctr, x32) = BLAKE2b-512(rand8 | ctr LE2 | x32 LE4)[:24]`,
+// reused unchanged (U1/U2 — no third scheme). A channel post supplies:
+//   rand8  = 8 FRESH bytes from the HAL CSPRNG, drawn per post and CARRIED in the body. THE LOAD-BEARING UNIQUIFIER.
+//   ctr    = ++_channel_seal_ctr, a dedicated per-node counter, CARRIED in the body. Defence in depth ONLY.
+//   x32    = ★ the channel_msg_id — NOT the DM's dst_key_hash32, and NOT the team key hash. See below.
+//
+// ⚠⚠ WHY THE MSG-ID AND NOT THE TEAM KEY HASH, which is what the dispatch settled on. EVERY MEMBER SEALS UNDER THE
+// SAME KEY, so the hazard is a nonce collision BETWEEN TWO MEMBERS, and the fix must be something that DIFFERS
+// between them and is derivable by every reader from CLEARTEXT.
+//   · The team key hash is IDENTICAL for every member, so it contributes exactly nothing to cross-member
+//     separation — and it is not needed for domain separation either, since the AEAD KEY is already team-specific
+//     (two teams' keystreams differ whatever the nonce). It is bound in the AAD instead, where it does real work.
+//   · The channel_msg_id is `origin<<24 | (sender key_hash32 & 0xffff)<<8 | ctr8` (channel_msg_id_mint). It is the
+//     M frame's own id field, IN THE CLEAR, so every reader has it before opening — and it carries 24 bits that
+//     DISTINGUISH THE SENDER (the 8-bit plane-local origin + 16 bits of the sender's stable key hash). ⇒ two
+//     members' nonces differ even if their seed8 AND their ctr collided.
+//   · The dispatch also asked for "the sender bound in the AAD". ⚠ AAD BINDING CANNOT PREVENT KEYSTREAM REUSE —
+//     XChaCha20's keystream is f(key, nonce) alone and the AAD only enters the Poly1305 tag. Binding the sender
+//     into the NONCE is the property that was actually wanted, and that is what this does; the msg_id is ALSO in
+//     the AAD, so the requirement is met in both places and the stronger one is the real one.
+//   · The full 32-bit sender hash is deliberately NOT put on the wire to bind more: it would cost 4 B/post, would
+//     leak the sender's stable identity to non-members (today only the 8-bit plane-local origin and 16 hash bits
+//     leak, via the id), and would buy nothing under a shared key.
+// R7's all-zero-seed refusal is KEPT verbatim (a dead RNG would collapse uniqueness onto the 16-bit ctr — refuse,
+// never reuse). A per-boot seed or a ctr-only nonce would be keystream reuse under a static shared key.
+//
+// AAD = [team_content_key_hash32 4 LE][channel_msg_id 4 LE][channel_id 1], all cleartext-derivable by any reader:
+//   · the KEY HASH binds the post to ITS TEAM's key (a sealed body cannot be replayed into another team's channel);
+//   · the MSG ID binds the ciphertext to its WIRE IDENTITY — a relay cannot re-attribute a body to a different
+//     origin/ctr, which for a flooded frame is a real integrity property, not decoration;
+//   · the CHANNEL ID binds it to the channel it was posted on.
+//
+// Body on the wire = [seal_ctr 2 LE][seed8 8][ct‖tag] — byte-for-byte the shape build_sealed_relay_body already
+// uses (node_hashlocate.cpp), adopted for exactly the same reason: the frame carries no ctr this end can use (an M
+// frame has no ctr field at all — enqueue_channel_m DERIVES its MAC ctr from the id), so the seal ctr and the seed
+// must ride in the body. U1: same layout, same offsets, same reasoning.
+namespace {
+constexpr char     kChanKeyDomain[]  = "MR-TEAM-CH-v1";        // domain separation — NO trailing NUL is hashed
+constexpr size_t   kChanKeyDomainLen = sizeof(kChanKeyDomain) - 1;
+constexpr uint8_t  kChanSealHdrLen   = 2 + DM_NONCE_SEED_LEN;  // [seal_ctr 2][seed8 8] = the clear prefix
+constexpr uint8_t  kChanAadLen       = 4 + 4 + 1;              // [team_key_hash32][channel_msg_id][channel_id]
+inline void chan_aad(uint8_t aad[kChanAadLen], uint32_t team_key_hash32, uint32_t msg_id, uint8_t channel_id) {
+    aad[0] = uint8_t(team_key_hash32);       aad[1] = uint8_t(team_key_hash32 >> 8);
+    aad[2] = uint8_t(team_key_hash32 >> 16); aad[3] = uint8_t(team_key_hash32 >> 24);
+    aad[4] = uint8_t(msg_id);                aad[5] = uint8_t(msg_id >> 8);
+    aad[6] = uint8_t(msg_id >> 16);          aad[7] = uint8_t(msg_id >> 24);
+    aad[8] = channel_id;
+}
+}  // namespace
+// The one place protocol_constants.h's numeric overhead meets dm_crypto.h's real sizes.
+static_assert(protocol::channel_seal_overhead_bytes == 2 + DM_NONCE_SEED_LEN + DM_TAG_LEN,
+              "protocol_constants.h: channel_seal_overhead_bytes no longer matches [seal_ctr 2][seed8][tag]");
+
+// The team CONTENT key: ONE symmetric AEAD key per team keypair, derived from the private half every member holds.
+// BLAKE2b-512("MR-TEAM-CH-v1" | team_ch_priv)[:32] — the dm_kdf shape (domain string, hash, truncate), separate
+// domain string so this key can never coincide with a DM per-pair key or any future use of the same scalar.
+// ★ NOT an ECDH to team_ch_pub: `team_ch_priv` is already shared with every member (T-K3 grants the private half,
+// T-K4's QR carries it), so an ECDH would add no confidentiality while making a post unreadable to any keyholder
+// that lacks the SENDER's pubkey — which contradicts T-K2's own requirement, "Everyone holding team_ch_priv opens".
+// The security bound this accepts is stated once, at Node::PeerLocSrc (node.h): sealing proves MEMBERSHIP, not
+// identity — a keyholder can impersonate another keyholder; an outsider can do neither.
+// false = keyless (the buffer is left untouched — never a zero key). Inert on MR_FEAT_TEAM 0: team_channel_priv()
+// is the `return nullptr` stub there, so the compiler folds this to `return false` and drops the body.
+bool Node::channel_content_key(uint8_t key[32]) const {
+    const uint8_t* priv = team_channel_priv();
+    if (!priv) return false;
+    uint8_t msg[kChanKeyDomainLen + 32];
+    std::memcpy(msg, kChanKeyDomain, kChanKeyDomainLen);
+    std::memcpy(msg + kChanKeyDomainLen, priv, 32);
+    uint8_t full[64];
+    crypto_blake2b(full, 64, msg, sizeof msg);       // BLAKE2b-512 ...
+    std::memcpy(key, full, 32);                      // ... truncated to 32, exactly as dm_kdf does
+    crypto_wipe(full, sizeof full);
+    crypto_wipe(msg, sizeof msg);                    // msg held the raw private scalar — wipe it
+    return true;
+}
+
+// SEAL `pt` -> `out` = [seal_ctr 2 LE][seed8 8][ct‖tag]. Returns the body length, or 0 with `outcome` set.
+// The caller pre-flights the two conditions an operator can act on (no key / too large); the arms here are the
+// structural backstops plus the one failure that cannot be pre-checked, R7's dead RNG.
+uint8_t Node::channel_seal_body(uint32_t msg_id, uint8_t channel_id, const uint8_t* pt, uint8_t pt_len,
+                                uint8_t* out, uint8_t out_cap, SealOutcome& outcome) {
+    // no_identity is R3's "never seal under a zero key" outcome and it is the right one here too: we hold no key
+    // material to seal WITH. (Not no_pubkey — there is no recipient pubkey in this keying model at all.)
+    outcome = SealOutcome::no_identity;
+    uint8_t key[32];
+    if (!channel_content_key(key)) return 0;
+    const uint8_t* pub = team_channel_pub();                       // non-null whenever priv is — one presence flag governs both
+    const uint32_t tk_hash = key_hash32_of(pub);
+    outcome = SealOutcome::too_large;
+    const size_t total = static_cast<size_t>(kChanSealHdrLen) + pt_len + DM_TAG_LEN;
+    if (total > out_cap) { crypto_wipe(key, 32); return 0; }
+    uint8_t seed[DM_NONCE_SEED_LEN];
+    _hal.rand_bytes(seed, DM_NONCE_SEED_LEN);                      // THE uniquifier — fresh per post, carried below
+    // R7 (the e2e_seal_inner guard, verbatim and for a STRICTLY worse case): a broken CSPRNG returning an all-zero
+    // seed collapses nonce uniqueness onto the 16-bit ctr — and here the key is SHARED, so that is keystream reuse
+    // across the whole team, not just across one pair. Refuse loudly rather than seal under a degenerate nonce.
+    bool seed_zero = true; for (size_t i = 0; i < DM_NONCE_SEED_LEN; ++i) if (seed[i]) { seed_zero = false; break; }
+    if (seed_zero) { crypto_wipe(key, 32); outcome = SealOutcome::bad_rng; return 0; }
+    const uint16_t seal_ctr = ++_channel_seal_ctr;
+    uint8_t nonce[DM_NONCE_LEN]; dm_nonce(nonce, seed, seal_ctr, msg_id);   // ★ msg_id, not the key hash — see the header
+    uint8_t aad[kChanAadLen];    chan_aad(aad, tk_hash, msg_id, channel_id);
+    out[0] = uint8_t(seal_ctr); out[1] = uint8_t(seal_ctr >> 8);
+    for (size_t i = 0; i < DM_NONCE_SEED_LEN; ++i) out[2 + i] = seed[i];
+    uint8_t tag[DM_TAG_LEN];
+    dm_seal(out + kChanSealHdrLen, tag, key, nonce, aad, sizeof aad, pt, pt_len);
+    for (size_t i = 0; i < DM_TAG_LEN; ++i) out[kChanSealHdrLen + pt_len + i] = tag[i];
+    crypto_wipe(key, 32);
+    outcome = SealOutcome::ok;
+    return static_cast<uint8_t>(total);
+}
+
+// OPEN a sealed body. false = we cannot read it — keyless, malformed, or the TAG FAILED (wrong/stale key, a
+// tampered body, or a body re-attributed to another msg_id/channel_id, all of which the AAD catches). A false is
+// always a CONTENT drop, never a frame drop: the caller still buffers and relays (content-blind relaying is the
+// whole point of T-K2's un-keyed-member rule). `out` must hold channel_seal_max_plaintext_bytes.
+bool Node::channel_open_body(uint32_t msg_id, uint8_t channel_id, const uint8_t* body, uint16_t body_len,
+                             uint8_t* out, uint8_t& out_len) {
+    out_len = 0;
+    uint8_t key[32];
+    if (!channel_content_key(key)) return false;                   // keyless — the caller raises team_channel_no_key
+    if (body_len < static_cast<uint16_t>(kChanSealHdrLen + DM_TAG_LEN)) { crypto_wipe(key, 32); return false; }
+    const size_t ct_len = static_cast<size_t>(body_len) - kChanSealHdrLen - DM_TAG_LEN;
+    if (ct_len > protocol::channel_seal_max_plaintext_bytes) { crypto_wipe(key, 32); return false; }   // cannot have been produced by our own seal -> refuse rather than overrun `out`
+    const uint16_t seal_ctr = static_cast<uint16_t>(body[0] | (body[1] << 8));
+    uint8_t nonce[DM_NONCE_LEN]; dm_nonce(nonce, body + 2, seal_ctr, msg_id);
+    uint8_t aad[kChanAadLen];    chan_aad(aad, key_hash32_of(team_channel_pub()), msg_id, channel_id);
+    const bool ok = dm_open(out, key, nonce, aad, sizeof aad, body + kChanSealHdrLen, ct_len,
+                            body + kChanSealHdrLen + ct_len);
+    crypto_wipe(key, 32);
+    if (!ok) return false;                                         // dm_open wiped `out` on failure — no forged plaintext escapes
+    out_len = static_cast<uint8_t>(ct_len);
+    return true;
+}
+
 // ---- send_channel origination (dv:12126): mint an id, buffer it dirty (the next BCN digest will
 //      advertise it; neighbours pull on demand — no proactive broadcast). Counts toward the unified
 //      self-origination budget. Returns the per-origin ctr used. -----------------------------------
-uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t body_len) {
+uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t body_len, bool crypt) {
     const uint64_t now = _hal.now();
     // §F-PS-1/§18: a TEAM-scoped channel flood must originate under the TEAM id, never the host-assigned STATIC local
     // id. do_send_channel is reached on the mobile ONLY for a `-t` team post (node.cpp:947); a static leaf/GLOBAL post
@@ -342,16 +546,53 @@ uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t 
     e.payload_len = (body_len > protocol::channel_msg_max_payload_bytes)
                     ? protocol::channel_msg_max_payload_bytes : body_len;
     if (e.payload_len) std::memcpy(e.payload, body, e.payload_len);
+    // ★★ §chan-crypt CL2a — SEAL IN PLACE, right here and nowhere else. From this line on, `e.payload` is the
+    // CIPHERTEXT, so every carrier downstream (the buffer entry, the FLOOD DATA-M, the cached re-flood body, a
+    // pull-response M, the digest) transports it verbatim and CONTENT-BLIND — no flood/pull/digest code changes.
+    // ⚠ It must happen AFTER the mint: the nonce and the AAD both bind `id`, so a body sealed before the id existed
+    // could not be opened. It must also happen BEFORE channel_buffer_add: the buffered copy is what we later re-serve.
+    // The size and no-key refusals are pre-flighted by the caller (Node::on_command) so an operator gets a specific
+    // message; reaching them here would be a bug, and R7's dead-RNG arm CANNOT be pre-flighted. All three fail LOUD
+    // and mint NOTHING further: the id's ctr is burned (next_ctr already advanced — visible, not silent), no buffer
+    // row, no flood, no beacon. C2, and the same "refuse rather than seal degenerately" rule R7 itself encodes.
+    if (crypt) {
+        uint8_t sealed[protocol::channel_msg_max_payload_bytes];
+        SealOutcome oc = SealOutcome::ok;
+        const uint8_t n = channel_seal_body(id, channel_id, e.payload, static_cast<uint8_t>(e.payload_len),
+                                            sealed, sizeof sealed, oc);
+        if (n == 0) {
+            // NB the reason string is INLINE, not a local: MR_EMIT compiles to nothing on device (telemetry is
+            // sim-only), so a local used only inside it is -Wunused-variable on every board build — and warnings
+            // are gate-blocking here.
+            MR_EMIT("channel_seal_failed", EF_I("id", static_cast<int64_t>(id)),
+                    EF_I("channel_id", channel_id),
+                    EF_S("reason", (oc == SealOutcome::bad_rng)   ? "bad_rng"
+                                 : (oc == SealOutcome::too_large) ? "too_large" : "no_key"));
+            push_send_failed(oc == SealOutcome::bad_rng   ? SendFailReason::bad_rng
+                           : oc == SealOutcome::too_large ? SendFailReason::too_large
+                                                          : SendFailReason::unsealable, /*dst=*/0, /*ctr=*/c);
+            return 0;                                         // NOT sent (the caller's `queued` becomes ctr=0)
+        }
+        std::memcpy(e.payload, sealed, n);
+        e.payload_len = n;
+        e.flavor |= protocol::channel_flavor_crypted;         // ALWAYS alongside the team bit (on_command refuses `-e` without `-t`)
+        crypto_wipe(sealed, sizeof sealed);
+    }
     channel_buffer_add(e);
     _last_channel_origin_ms = now;                            // Slice 2: stamp for the next self-interval check
     // (Slice 3 removes self_originate_observe(); do_send_channel no longer shares the removed DM self-cap ledger)
     MR_TELEMETRY(
         // `payload` carries the post text so the analyzer (dm_delivery_breakdown.py) can match a post to its
         // msg_id — emit-parity with the Lua self_originate event (the tool keys Pass 1 on the payload).
+        // ★ §chan-crypt CL2a: read the CLEARTEXT ARGUMENT, not `e.payload` — which is the ciphertext once the post
+        // is sealed. Byte-identical on the plaintext path (e.payload IS `body` truncated the same way, so the same
+        // bytes with the same cap), and on the sealed path it keeps the analyzer's msg-id↔text join working instead
+        // of writing 200 bytes of binary into NDJSON. Telemetry is SIM-ONLY (stripped on device), so no secret
+        // leaves a real node by this route.
         char pbuf[protocol::channel_msg_max_payload_bytes + 1];
-        const uint16_t pl = (e.payload_len > protocol::channel_msg_max_payload_bytes)
-                            ? protocol::channel_msg_max_payload_bytes : e.payload_len;
-        for (uint16_t i = 0; i < pl; ++i) pbuf[i] = static_cast<char>(e.payload[i]);
+        const uint16_t pl = (body_len > protocol::channel_msg_max_payload_bytes)
+                            ? protocol::channel_msg_max_payload_bytes : body_len;
+        for (uint16_t i = 0; i < pl; ++i) pbuf[i] = static_cast<char>(body[i]);
         pbuf[pl] = '\0';
         EventField f[] = { { .key = "id",         .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
                            { .key = "channel_id", .type = EventField::T::i64, .i = channel_id },

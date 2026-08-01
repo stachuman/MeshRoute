@@ -163,6 +163,25 @@ struct NodeConfig {
     // lands in the SAME existing alignment padding the radio_freq_mhz note describes: measured native offsets are
     // dv_hop_cap@93 / radio_freq_mhz@96, i.e. bytes 94-95 are pure pad. Cost measured: sizeof(NodeConfig) 264 -> 264.
     uint8_t  team_hop_cap = protocol::team_hop_cap;
+    // ★★ §chan-crypt CL2a (T-K2 §2.5, spec 2026-07-30 §2.2): SEAL a `-t` team channel post by default whenever this
+    // node HOLDS the team content key. DEFAULT ON — the privacy-safe direction, and the reason `-e` is mostly
+    // unnecessary in practice: `-e` exists to be EXPLICIT and to fail loud when sealing is impossible.
+    // The effective decision is `(-e) || (team_channel_crypt && team_channel_priv() != nullptr)` — ONE line in
+    // Node::on_command's send_channel arm, so both permanent refusals (`-e` without `-t`, and `-t -g -e`) cover the
+    // IMPLICIT seal automatically. A node WITHOUT the key posts plaintext exactly as before (unchanged), and
+    // keyholders still read it — a plaintext flavor is always openable.
+    // ⚠ INERT ACROSS THE WHOLE SIM CORPUS BY CONSTRUCTION: no scenario can hold a team content key (every establish
+    // path — mint / adopt / adopt_priv / NV load / the sealed TYPE-19 grant — is reachable only from `src/`, which
+    // the simulator does not build). That is WHY flipping this default to ON moved 0 of 36 streams.
+    // ★ OPT-OUT IS THE CONFIG TOGGLE ONLY (`cfg set team_channel_crypt 0`), open decision O2: a per-send
+    // "air this one in clear" flag is a footgun on a privacy feature. PERSISTED (device_nv v24) — an operator
+    // setting that silently reverted on reboot is the footgun the toggle exists to avoid.
+    // Placed here (immediately after team_hop_cap, ahead of the 8-byte-aligned `double radio_freq_mhz`) so it lands in
+    // the ONE remaining pad byte of the same hole team_hop_cap's note describes: dv_hop_cap@93, team_hop_cap@94,
+    // radio_freq_mhz@96 ⇒ byte 95 was pure pad. Cost MEASURED: sizeof(NodeConfig) 256 -> 256. SEVENTH application of
+    // the radio_freq_mhz / team_hop_cap / HashQuerySeen.team_scoped / T5-PeerLiveness / T-K1-_team_ch_key_present /
+    // AB4-_peer_loc_n padding-placement rule.
+    bool     team_channel_crypt = true;
     // §layer-freq (2026-07-27): the node's GLOBAL RF carrier, MHz — the freq twin of radio_bw_hz/radio_cr.
     // Sources: the firmware's LORA_FREQ / persisted nv.freq_mhz (fw_main) and the sim node's freq_khz
     // (injected as _sim_freq_khz). It exists for ONE reason: active_freq_mhz() must be able to RESET the HAL

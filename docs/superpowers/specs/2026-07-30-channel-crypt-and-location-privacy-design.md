@@ -308,7 +308,13 @@ location half is *separable*: it **depends on** the crypto half but the crypto h
 - ★ **O3 first, as its own ~3-line slice** — clear `team_ch_*` when `team_id` changes (owner-ruled). **It is inert until
   something seals**, which is exactly why it must land BEFORE CL2a rather than inside it: bundled, its effect would be
   unattributable inside CL2a's re-anchor.
-- **CL2a — THE CRYPTO.** `channel_flavor_crypted`, seal/open, the nonce (below), the carried `[seal_ctr][seed8]`, the
+- ✅ **CL2a — BUILT 2026-08-01 (`§cl2a`), QA GO, committed.** `-t -e` works. 36/36 byte-identical (the corpus is
+  **structurally blind** — no sim node can hold a team key; Poison A measures it at 4/36 when forced). ★★ **The nonce
+  as BUILT differs from §3.1 and is stronger: `channel_msg_id` occupies the 32-bit slot, NOT the team-key hash** — the
+  latter is identical for every member and would have collided across senders (proven by counterfactual test). ★★ **And
+  QA's "bind the sender in the AAD" was cryptographically void: AAD enters only the Poly1305 tag, never the keystream.**
+  Evidence: `BASELINE.md` note `§cl2a`.
+- **CL2a (as designed) — THE CRYPTO.** `channel_flavor_crypted`, seal/open, the nonce (below), the carried `[seal_ctr][seed8]`, the
   un-keyed-receiver drop + `team_channel_no_key`, `record_channel(enc=1)`, `team_channel_crypt` default-ON.
   ⇒ **delivers `send_channel -t -e` working**, which is the owner's primary goal and benchable on its own.
 - **CL2b — THE LOCATION.** The `inner_type` **flags byte** + `pack_loc6` (§2.2.1), `-l` on `send_channel` and its

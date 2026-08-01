@@ -251,7 +251,7 @@ TEST_CASE("write_limits — the companion `limits` query shape/values") {
 }
 
 TEST_CASE("write_route / write_routes_end / write_cfg — Node+Network screens") {
-    char b[400];
+    char b[512];   // §chan-crypt CL2a: the cfg golden grew by `"team_channel_crypt":true,` and 400 now OVERFLOWS (write_cfg returns 0). The DEVICE buffer is fw_main.cpp's 1700-B s_inbox_jb, so this was a test-fixture bound only.
     meshroute::console::RouteRow r;
     r.dest = 2; r.next = 4; r.hops = 2; r.score = -48; r.gw = true; r.leaf = 7; r.age_ms = 5000; r.cand = 1;
     size_t n = write_route(b, sizeof b, r);
@@ -271,7 +271,7 @@ TEST_CASE("write_route / write_routes_end / write_cfg — Node+Network screens")
     CHECK(std::string(b, n) ==
       "{\"ev\":\"cfg\",\"node_id\":5,\"freq_hz\":869462500,\"routing_sf\":7,\"sf_list\":\"7,12\",\"bw_hz\":125000,\"cr\":5,"
       "\"tx_power\":22,\"duty_x1000\":100,\"lbt\":true,\"beacon_ms\":900000,\"hop_cap\":16,\"team_hop_cap\":8,\"leaf_id\":0,"   // §team-parity T3: team_hop_cap defaults to protocol::team_hop_cap = 8, distinct from dv_hop_cap's 16 -> the golden pins WHICH field each key reads
-      "\"gateway\":false,\"mobile\":false,\"mobile_autoregister\":true,\"team_id\":\"00000000\",\"team_ch_key\":false,"   // §team-ch-key T-K1b: the CONTENT-key lock state, ALWAYS present (cfg is the explicit dump) — default extras = no key
+      "\"gateway\":false,\"mobile\":false,\"mobile_autoregister\":true,\"team_id\":\"00000000\",\"team_channel_crypt\":true,\"team_ch_key\":false,"   // §team-ch-key T-K1b: the CONTENT-key lock state, ALWAYS present (cfg is the explicit dump) — default extras = no key. §chan-crypt CL2a: team_channel_crypt sits beside it and is likewise ALWAYS present; NodeConfig defaults it to true (T-K2 §2.5 default-ON)
       "\"ble_mode\":\"on\",\"ble_period\":15,\"ble_pin\":123456,"
       "\"lat_e7\":522297000,\"lon_e7\":-41000000}\n");
     // §S1: cfg team_id round-trips as a hex string; mobile_autoregister always present.
@@ -427,14 +427,18 @@ TEST_CASE("write_cfg — §team-ch-key T-K1b: team_ch_key always present") {
     NodeConfig c{}; c.routing_sf = 7; c.team_id = 0xcccc0001u;
     meshroute::console::CfgExtras x; x.node_id = 3;
     size_t n = write_cfg(b, sizeof b, c, x);                     // default extras -> no key
-    CHECK(std::string(b, n).find("\"team_id\":\"cccc0001\",\"team_ch_key\":false") != std::string::npos);
+    CHECK(std::string(b, n).find("\"team_id\":\"cccc0001\",\"team_channel_crypt\":true,\"team_ch_key\":false") != std::string::npos);   // §chan-crypt CL2a: a DEFAULT-constructed NodeConfig has team_channel_crypt = true; key absent -> nothing is sealed anyway
     x.team_ch_key = true;
     n = write_cfg(b, sizeof b, c, x);
-    CHECK(std::string(b, n).find("\"team_id\":\"cccc0001\",\"team_ch_key\":true") != std::string::npos);
+    CHECK(std::string(b, n).find("\"team_id\":\"cccc0001\",\"team_channel_crypt\":true,\"team_ch_key\":true") != std::string::npos);
+    // §chan-crypt CL2a: the OPT-OUT round-trips — key held but the node will not seal by default (`cfg set team_channel_crypt 0`).
+    { NodeConfig cx{}; cx.routing_sf = 7; cx.team_id = 0xcccc0001u; cx.team_channel_crypt = false;
+      const size_t nn = write_cfg(b, sizeof b, cx, x);
+      CHECK(std::string(b, nn).find("\"team_channel_crypt\":false,\"team_ch_key\":true") != std::string::npos); }
     // present even with NO team (team_id "00000000") — cfg is the explicit dump, unlike ready's omit.
     NodeConfig c0{}; c0.routing_sf = 7;
     n = write_cfg(b, sizeof b, c0, x);
-    CHECK(std::string(b, n).find("\"team_id\":\"00000000\",\"team_ch_key\":true") != std::string::npos);
+    CHECK(std::string(b, n).find("\"team_id\":\"00000000\",\"team_channel_crypt\":true,\"team_ch_key\":true") != std::string::npos);
     // the pair itself is NEVER on the cfg surface either.
     CHECK(std::string(b, n).find("tkpriv") == std::string::npos);
 }
@@ -711,6 +715,7 @@ static unsigned ord(PushKind k) {
         case PushKind::peer_key_cached:case PushKind::config_adopted: case PushKind::join_refused:
         case PushKind::send_blocked:   case PushKind::channel_sent:   case PushKind::mobile_reg:
         case PushKind::team_reg:       case PushKind::join_adopted:   case PushKind::team_key_received:
+        case PushKind::team_channel_no_key:   // §chan-crypt CL2a
             return static_cast<unsigned>(k);
     }
     return kUnlisted;
@@ -785,7 +790,7 @@ static void check_mapper_covers_every_enumerator(const char* enum_name, const ch
 
 TEST_CASE("★ enum->string mappers cover EVERY enumerator — no silent fallback at the app boundary") {
     check_mapper_covers_every_enumerator<CmdCode>("CmdCode", cmdcode_name, "err_unknown", 10);
-    check_mapper_covers_every_enumerator<PushKind>("PushKind", pushkind_name, "unknown", 15);   // 14 -> 15: §team-ch-key T-K3 `team_key_received`
+    check_mapper_covers_every_enumerator<PushKind>("PushKind", pushkind_name, "unknown", 16);   // 14 -> 15: §team-ch-key T-K3 `team_key_received`; 15 -> 16: §chan-crypt CL2a `team_channel_no_key`
     check_mapper_covers_every_enumerator<SendFailReason>("SendFailReason", sendfailreason_name, "none", 18,
                                                          /*exempt_ord=*/0);   // SendFailReason::none == "none"  (15 -> 16: §clean-join-carriers `reprovisioned`; 16 -> 17: §team-ch-key T-K3 `unsealable`; 17 -> 18: §loc-per-send `no_location`)
     check_mapper_covers_every_enumerator<JoinRefuseReason>("JoinRefuseReason", joinrefusereason_name, "none", 4);

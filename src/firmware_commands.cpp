@@ -312,6 +312,7 @@ static void dump_cfg(Print& out) {
     // §loc-per-send (2026-07-31): `loc_dm=` is GONE from this dump — the toggle it reported no longer exists. Location is
     // a PER-SEND `-l` flag on `send`, so there is no persistent state to show; lat/lon below are still the node's fix.
     out.print(F("  loc   : e2e_dm="));  out.print(c.e2e_dm ? 1 : 0);
+    out.print(F(" team_channel_crypt=")); out.print(c.team_channel_crypt ? 1 : 0);   // §chan-crypt CL2a: seal a `-t` post by default when a key is held. Read together with `team_ch_key=` below: key+crypt = encrypted, key+!crypt = opted out, !key = cannot encrypt at all
     out.print(F(" intro_attach="));     out.print(c.intro_attach ? 1 : 0);
     out.print(F(" lat="));              out.print(g_lat_e7 / 1e7, 7);
     out.print(F(" lon="));              out.println(g_lon_e7 / 1e7, 7);
@@ -747,7 +748,7 @@ static void dump_help(Print& out) {
     hl(F("CFG KEYS  (`cfg set <key> <val>`; bool keys take on|off / 1|0)"));
     hl(F("  node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap team_hop_cap leaf_id"));
     hl(F("  mobile mobile_autoregister host_mobiles intra_layer_relay gateway_only"));   // §team-id-cfg-removal: `team_id` REMOVED — a team is joined/left with the `team` verb (see below)
-    hl(F("  lat lon e2e_dm intro_attach ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack"));   // §loc-per-send: `loc_in_dm` REMOVED — use `send … -l` per message
+    hl(F("  lat lon e2e_dm team_channel_crypt intro_attach ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack"));   // §loc-per-send: `loc_in_dm` REMOVED — use `send … -l` per message
     hl(F("  active_fraction ch_min_ms dm_min_ms leaf_name"));
     hl(F("    `name`=node identity · `leaf_name`=managed leaf (bumps epoch) · identity via `regen` · NO team_id key -> `team new`/`team <id>`/`team 0`"));
     hl(F("  gateway-only keys: n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms l1_freq"));

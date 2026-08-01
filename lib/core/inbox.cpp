@@ -129,11 +129,11 @@ uint32_t Inbox::record_dm(uint8_t origin, uint32_t sender_hash, uint16_t ctr, ui
 }
 
 uint32_t Inbox::record_channel(uint8_t channel_id, uint32_t channel_msg_id, uint8_t layer_id,
-                               const uint8_t* body, uint8_t len, uint64_t now_ms, uint32_t team_id) {
+                               const uint8_t* body, uint8_t len, uint64_t now_ms, uint32_t team_id, uint8_t enc) {
     if (!enabled()) return 0;
     const uint8_t origin = static_cast<uint8_t>(channel_msg_id >> 24);   // the minter (channel_msg_id high byte)
     return record(_chan, _chan_next, _chan_unpersisted, InboxKind::channel, origin, channel_id, channel_msg_id,
-                  /*sender_hash*/ 0, layer_id, body, len, now_ms, /*enc*/ 0, /*type*/ 0, team_id, /*origin_layer*/ 0);   // channels are cleartext today; §S5 team scoping
+                  /*sender_hash*/ 0, layer_id, body, len, now_ms, enc, /*type*/ 0, team_id, /*origin_layer*/ 0);   // §S5 team scoping; §chan-crypt CL2a: enc=1 = the post arrived SEALED and `body` is the opened plaintext
 }
 
 uint32_t Inbox::record_ack(uint8_t from_origin, uint16_t acked_ctr, uint8_t layer_id, uint64_t now_ms, uint32_t acker_hash) {

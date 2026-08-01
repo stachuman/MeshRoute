@@ -96,11 +96,17 @@ inline constexpr uint8_t TAG_CFG_NODE_ID=0x01, TAG_CFG_FREQ=0x02, TAG_CFG_ROUTIN
     // §team-parity T3: the TEAM plane's hop radius, beside TAG_CFG_HOP_CAP's static twin. APPENDED at the end of the
     // tag space (never renumbering an existing tag) — a companion that does not know 0x1C skips it via dec_cfg's
     // `default: break;`, so this is purely additive on the BLE/companion framing and no version bump is needed.
-    TAG_CFG_TEAM_HOP_CAP=0x1C;
+    TAG_CFG_TEAM_HOP_CAP=0x1C,
+    // §chan-crypt CL2a: `team_channel_crypt` — does this node SEAL a `-t` team channel post by default when it
+    // holds the team content key (T-K2 §2.5, default ON)? The app pairs it with `team_ch_key` to render the
+    // channel's lock state: key + crypt = posts are encrypted; key + !crypt = the operator opted out; !key = the
+    // node cannot encrypt at all. APPENDED at the end for the same reason 0x1C was — a tag number is app-facing
+    // and an insert would silently relabel a live field. 0x18 stays RETIRED.
+    TAG_CFG_TEAM_CH_CRYPT=0x1D;
 struct CfgOut {
     // §loc-per-send: `loc_dm` REMOVED with its TLV (0x18, retired above) — location is per-send (`send -l`), not config.
     uint8_t node_id=0, routing_sf=0, cr=0, hop_cap=0, team_hop_cap=0, lbt=0, nav=0, intra_relay=0, host_mobiles=0, leaf_id=0,
-            is_gateway=0, is_mobile=0, ble_mode=0, e2e_dm=0; int8_t tx_power=0;
+            is_gateway=0, is_mobile=0, ble_mode=0, e2e_dm=0, team_channel_crypt=1; int8_t tx_power=0;   // §chan-crypt CL2a: team_channel_crypt defaults to 1 here too — an answer that omits the tag must decode as the node's ON default, never as "encryption off"
     uint16_t sf_list=0, lineage_id=0, config_epoch=0, ble_period=0;
     uint32_t freq_hz=0, bw=0, duty_x1000=0, beacon_ms=0, team_id=0, ble_pin=0; int32_t lat_e7=0, lon_e7=0;
 };

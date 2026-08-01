@@ -1117,6 +1117,7 @@ static void mesh_service_once() {
                 break;
             case meshroute::PushKind::channel_recv:
                 mrcon.print(F("CH ")); mrcon.print(pu.channel_id);
+                if (pu.enc) mrcon.print(F(" [enc]"));   // §chan-crypt CL2a: the post arrived SEALED under the team content key and was opened here
                 mrcon.print(F(" from=")); mrcon.print(pu.origin); mrcon.print(F(": "));
                 mrcon.write(pu.body, pu.body_len); mrcon.println();
                 break;
@@ -1145,7 +1146,7 @@ static void mesh_service_once() {
                     // reason is deliberately the SHARED `unsealable` enumerator — U1, no new enumerator), so the
                     // `-t -g` case MUST state that the clear global copy is what defeats the seal. Without that an
                     // operator reads it as an arbitrary limitation and works around it by dropping `-e` instead of `-g`.
-                    case meshroute::SendFailReason::unsealable:          mrcon.print(F(" (this may travel ONLY sealed, and this route cannot carry it sealed — for `-l` use -e / `cfg set e2e_dm 1` (and NOT send_layer/cross-layer); for a team key grant, grant over `-t` or from the target's own layer; for send_channel -e the ONLY sealable form is `-t -e` — a GLOBAL channel has no key, and `-t -g -e` is refused because the global copy would air the SAME text in the CLEAR, defeating the seal, so drop `-g`, not `-e`)")); break;   // §team-ch-key T-K3 + §loc-per-send + §chan-crypt
+                    case meshroute::SendFailReason::unsealable:          mrcon.print(F(" (this may travel ONLY sealed, and this route cannot carry it sealed — for `-l` use -e / `cfg set e2e_dm 1` (and NOT send_layer/cross-layer); for a team key grant, grant over `-t` or from the target's own layer; for send_channel -e the ONLY sealable form is `-t -e` ON A NODE THAT HOLDS THE TEAM CONTENT KEY — a GLOBAL channel has no key, `-t -g -e` is refused because the global copy would air the SAME text in the CLEAR (drop `-g`, not `-e`), and a member with no key must be GRANTED one (`team grantkey` from any keyholder, or the team QR): membership is not readership)")); break;   // §team-ch-key T-K3 + §loc-per-send + §chan-crypt CL2a
                     case meshroute::SendFailReason::no_location:         mrcon.print(F(" (-l asked to attach a position and this node has NO fix — set `cfg set lat`/`lon`, or wait for GPS; NOT an encryption problem)")); break;   // §loc-per-send
                     case meshroute::SendFailReason::none:                break;   // not a send_failed reason
                 }
@@ -1250,6 +1251,12 @@ static void mesh_service_once() {
                 mrcon.print(F(" from=0x")); mrcon.print(pu.sender_hash, HEX);
                 if (pu.body_len) { mrcon.print(F(" name=")); mrcon.write(pu.body, pu.body_len); }   // the granter's optional label (NOT persisted)
                 mrcon.println(F(" — this node can now read the team channel")); break;   // ⚠ the KEY itself is never printed; `team exportkey` is its one disclosure
+            case meshroute::PushKind::team_channel_no_key:   // §chan-crypt CL2a: an ENCRYPTED team post arrived that this node cannot read. Rate-limited node-side, so this line is a prompt, not a flood.
+                mrcon.print(F("CH ")); mrcon.print(pu.channel_id);
+                mrcon.print(F(" from=")); mrcon.print(pu.origin);
+                mrcon.print(F(" team=0x")); mrcon.print(pu.team_id, HEX);
+                mrcon.println(F(": ENCRYPTED — no team content key (ask a teammate to `team grantkey <your 0xhash>`, or scan the team QR). The post was still RELAYED."));
+                break;
         }
         // BLE companion: the structured NDJSON twin of the plain-text line above (design doc §4). The ring is
         // drained ONCE here and fanned to both sinks — formatting + TX happen only when a phone is connected,

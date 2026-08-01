@@ -437,11 +437,29 @@ inline constexpr uint8_t  channel_reoffer_team_max_retries = 3;  // team floods:
 inline constexpr uint8_t  channel_holder_reoffer_max_retries = 2;
 inline constexpr uint32_t channel_reoffer_delay_ms    = 10000;   // base cadence (>= originator_retry_dedup_ms=10000 so re-floods dedup receiver-side, not double-inbox)
 inline constexpr uint32_t channel_reoffer_jitter_ms   = 2000;    // +rand(0,jitter) spread so multiple origins don't re-offer in lockstep
-// channel_msg_id flavor (encryption variant; crypto deferred — all plaintext v1, dv:2229-2231)
+// channel_msg_id flavor. The low bits carry the (still-unused) plaintext VARIANT value; the two high bits are FLAGS.
 inline constexpr uint8_t  channel_flavor_public  = 0;
 inline constexpr uint8_t  channel_flavor_group   = 1;
 inline constexpr uint8_t  channel_flavor_private = 2;
 inline constexpr uint8_t  channel_flavor_team    = 0x80;   // §mobile 6.3: a FLAG bit OR-ed into the M-frame flavor byte -> the frame is TEAM-scoped + carries a 4-B team_id tail (parse reads it). Low bits keep the flavor value; a non-team M has this clear -> byte-identical.
+// ★★ §chan-crypt CL2a (T-K2 §2.2): the post BODY is SEALED under the team CONTENT key. A FLAG bit, like the team bit
+// above and for the same reason — the low bits stay the plaintext variant value and every existing flavor byte keeps
+// its meaning, so NO wire_version bump is needed (the flavor byte is an existing wire field and 0x40 was never
+// emitted; the body stays opaque bytes the flood machinery never reads).
+// ★ ALWAYS set TOGETHER with channel_flavor_team — v1 has exactly one content key, the TEAM key, so a crypted GLOBAL
+// post is a state that cannot be reached (Node::on_command refuses `-e` without `-t`, T-K2 §2.2 / spec §2.2).
+inline constexpr uint8_t  channel_flavor_crypted = 0x40;
+// Body overhead of a sealed post: [seal_ctr 2][seed8 8][ct‖tag] — the ct is the plaintext length, so the constant is
+// 2 + DM_NONCE_SEED_LEN + DM_TAG_LEN. Spelled numerically here because protocol_constants.h is deliberately free of
+// dm_crypto.h; the identity is static_assert'ed where the two headers meet (node_channel.cpp).
+inline constexpr uint8_t  channel_seal_overhead_bytes = 2 + 8 + 16;   // = 26
+// Max PLAINTEXT of a sealed post: the sealed blob must still fit the 200-B channel payload carriers (ChannelEntry,
+// FloodState). Origination REFUSES above this (C2 — never silently truncate a message the operator typed).
+inline constexpr uint16_t channel_seal_max_plaintext_bytes = channel_msg_max_payload_bytes - channel_seal_overhead_bytes;   // 174
+// Rate limit on the `team_channel_no_key` push (T-K2 §2.2). One prompt per minute is enough for the app to raise
+// "ask a teammate for the key"; a busy team channel would otherwise emit one per post to a member who cannot read any
+// of them. Telemetry (`channel_crypt_no_key`) is NOT rate-limited — the sim/bench wants every occurrence.
+inline constexpr uint32_t team_channel_no_key_push_min_ms = 60000;
 
 // ---- Identity binding ------------------------------------------------------
 inline constexpr uint32_t id_bind_ttl_ms = 172800000;   // 48 h

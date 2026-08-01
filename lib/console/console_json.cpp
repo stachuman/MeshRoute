@@ -131,6 +131,7 @@ const char* pushkind_name(PushKind k) {
         case PushKind::team_reg:      return "team_reg";           // §S2: team-DAD id adopted/re-picked
         case PushKind::join_adopted:  return "join_adopted";       // a DAD/join adopt landed (id may have changed)
         case PushKind::team_key_received: return "team_key_received";   // §team-ch-key T-K3: a teammate granted us the team CONTENT key over a sealed TYPE-19 DM (already adopted)
+        case PushKind::team_channel_no_key: return "team_channel_no_key";   // §chan-crypt CL2a: a CRYPTED team channel post arrived and we cannot read it (no key, or a stale one) -> the app prompts for a grant. Rate-limited node-side.
     }
     return "unknown";
 }
@@ -267,7 +268,14 @@ size_t write_push(char* buf, size_t cap, const Push& p, const NodeConfig* cfg) {
         j.lit(",\"channel_msg_id\":"); j.u32(p.channel_msg_id);   // Phase-3: the full 32-bit channel dedup identity
         if (p.seq) { j.lit(",\"seq\":"); j.u32(p.seq); }          // model B: the inbox seq (gap detector). OMITTED if 0 = inbox disabled
         if (p.team_id) { j.lit(",\"team_id\":"); key_hex32(j, p.team_id); }   // §S4: team scoping (omit-when-0 -> a leaf channel push is byte-identical)
+        if (p.enc) j.lit(",\"enc\":true");                        // §chan-crypt CL2a: the post arrived SEALED under the team content key and we OPENED it; omitted (=false) for a plaintext post, so every existing stream is byte-identical. Same shape as msg_recv's `enc` above.
         j.lit(",\"body\":");           j.str(reinterpret_cast<const char*>(p.body), body_n);
+    } else if (p.kind == PushKind::team_channel_no_key) {  // §chan-crypt CL2a: a CRYPTED team post we cannot read -> the app prompts "ask a teammate for the key". NO body and NO seq: nothing was inboxed and there is no plaintext to show.
+        j.lit(",\"origin\":");         j.u32(p.origin);
+        j.lit(",\"layer_id\":");       j.u32(p.layer_id);
+        j.lit(",\"channel_id\":");     j.u32(p.channel_id);
+        j.lit(",\"channel_msg_id\":"); j.u32(p.channel_msg_id);
+        if (p.team_id) { j.lit(",\"team_id\":"); key_hex32(j, p.team_id); }
     } else if (p.kind == PushKind::hash_resolved) {
         const uint32_t hash = static_cast<uint32_t>(p.body[0]) | (static_cast<uint32_t>(p.body[1]) << 8)
                             | (static_cast<uint32_t>(p.body[2]) << 16) | (static_cast<uint32_t>(p.body[3]) << 24);
@@ -628,6 +636,7 @@ size_t write_cfg(char* buf, size_t cap, const NodeConfig& c, const CfgExtras& x)
     j.lit(",\"mobile\":");     j.lit(c.is_mobile ? "true" : "false");
     j.lit(",\"mobile_autoregister\":"); j.lit(c.mobile_autoregister ? "true" : "false");   // §S1: always present (cfg is the explicit dump) — round-trips `cfg set mobile_autoregister`
     j.lit(",\"team_id\":");    key_hex32(j, c.team_id);   // §S1: hex string; "00000000" when unset (explicit, unlike ready's omit)
+    j.lit(",\"team_channel_crypt\":"); j.lit(c.team_channel_crypt ? "true" : "false");   // §chan-crypt CL2a (T-K2 §2.5): SEAL a `-t` post by default when a key is held. Pairs with team_ch_key below — key+crypt = encrypted, key+!crypt = opted out, !key = cannot encrypt. Round-trips `cfg set team_channel_crypt`.
     j.lit(",\"team_ch_key\":"); j.lit(x.team_ch_key ? "true" : "false");   // §team-ch-key (T-K1b): the CONTENT-key lock state — the JSON twin of dump_cfg's `team_ch_key=0|1`. ALWAYS present (cfg is the explicit dump, like team_id above). BOOLEAN ONLY — the pair is a secret; `team exportkey` is its one disclosure.
     j.lit(",\"ble_mode\":");   j.str(x.ble_mode, std::strlen(x.ble_mode));
     j.lit(",\"ble_period\":"); j.u32(x.ble_period);
