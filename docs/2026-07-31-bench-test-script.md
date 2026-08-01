@@ -143,6 +143,13 @@ team exportkey                                 # then grant it to node B (team g
 | 6.12 | ★ **O3:** on A, `team 0x<other>` then `cfg` | **`team_ch_key=0`** — the key is cleared on a team switch and must be re-granted |
 | 6.13 | size limits | **173 B** text sealed OK / 174 refused; **167 B** with `-l` OK / 168 refused |
 
+⚠⚠ **THREE things that are NOT bugs if you see them.** ★ **First, the one most likely to look broken: on a small
+co-located team every channel post reports `NOT HEARD` / `relayed:false` even though everybody received it.** That is
+**owner-ruled expected** (2026-08-01): with all members 1 hop away nobody re-broadcasts, so there is no relay to
+overhear, and `relayed` means *"a relay was observed"* — never *"it was delivered"*. `§b38-b40` fixed the **multi-hop**
+false negative (s28 confirmed at **2.4 s** instead of exhausting at **43.6 s**); the 1-hop reading is truthful. **To see
+the fix work you need a member that is 2+ hops away.** And two more:
+
 ⚠ **Two things that are NOT bugs if you see them:** `team_channel_crypt` **does not survive a reboot** (live-only by
 design — the default is the privacy-safe value, so a forgotten opt-out heals itself); and a **plaintext** channel post
 is still accepted from a keyholder when the toggle is off — that is the documented opt-out, and it emits a loud
