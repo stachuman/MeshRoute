@@ -6,9 +6,10 @@ platform differs (native is 64-bit), or the file is compiled by neither the nati
 effect is flash wear that only metal exhibits. The 36-scenario corpus and 1046 native cases already cover everything
 else, so this is deliberately the residue, not a re-test.*
 
-**Covers what is COMMITTED** through `add907f`: `§loc-per-send` (B0) · `§team-target-range` (B17) · `§nv1` (B26) ·
-`§team-id-cfg-removal` (B27) · `§role-model` (B28) · `§ab1`. ⏳ **`§ab2` (`peername`, `conf`) is uncommitted and
-`§ab3` in flight — Part 5 is for after the next flash.**
+**UPDATED 2026-08-01 — everything below is now COMMITTED and flashable** through `1918904`:
+`§loc-per-send` (B0) · `§team-target-range` (B17) · `§nv1` (B26) · `§team-id-cfg-removal` (B27) · `§role-model` (B28) ·
+`§ab1` · `§ab2` · `§ab3` · `§ab4` · `§err-reason` (B32+B33) · `§b22` · `§cl1` · `§o3-key-lifetime` · `§cl2a` · `§cl2b`.
+⇒ **the address book is complete and the channel-crypt arc is complete. Part 5 and Part 6 are both live — no ⏳ left.**
 
 **Setup:** one node is enough for Parts 0–2 and 4. Parts 3 and 5 need two nodes that can hear each other.
 ⚠ **Flash the `xiao_sx1262` (or another 32-bit board) for Part 1** — that is the whole point of check 1.2.
@@ -74,7 +75,7 @@ flash wear **and** a wider reset-during-write corruption window, in a tree that 
 | 3.3 | same, plain `send <peer> "hi"` (no `-l`) | **sends normally** — an ordinary DM is untouched |
 | 3.4 | acquire the peer key (`reqpubkey` / QR), then `send <peer> "hi" -l -e` | **sends**; the peer's `msg_recv` carries the position |
 | 3.5 | `send_layer … -l` | **REFUSED** `err_unsupported` — cross-layer cannot carry a position (the SEALED_RELAY body has no flags word) |
-| 3.6 | `send_channel <ch> "x" -l` | **`bad_args`** — ⏳ *this becomes a real feature only after CL2; the owner's `-t -l -e` design is spec'd, not built* |
+| 3.6 | `send_channel <ch> "x" -l` (no `-t`) | ❌ **`unsealable`** — ⓘ **UPDATED: `-l` on `send_channel` is now REAL** (`§cl2b`). Without `-t` there is no team ⇒ no content key ⇒ it cannot be sealed. **See Part 6 for the working form.** |
 
 ---
 
@@ -88,7 +89,7 @@ flash wear **and** a wider reset-during-write corruption window, in a tree that 
 | 4.2 | **reboot** | boot line shows `peers = 1 restored (0 pinned, 1 authoritative)` — ★ **the on-air key survived, at its true confidence** |
 | 4.3 | `send <peer> "x" -e` immediately after that reboot | **works with no `reqpubkey` first** — the capability now persists |
 | 4.4 | QR-import a peer (`peerkey <hex64>`), reboot | that one restores as **`1 pinned`** — provenance is preserved, **never widened** |
-| 4.5 | ⏳ *(after `§ab2` lands)* `peername 0x<hash> "Alice"`, reboot, `nameof 0x<hash>` | the name **survives** |
+| 4.5 | `peername 0x<hash> "Alice"`, reboot, `nameof 0x<hash>` | the name **survives** |
 
 ⚠ **Two things to watch rather than assert** (both are new steady-state costs, not bugs):
 1. **ESP32 NVS churn** — NVS is copy-on-write, the blob doubled (584→1160 B), and a write now happens on **every
@@ -98,7 +99,7 @@ flash wear **and** a wider reset-during-write corruption window, in a tree that 
 
 ---
 
-## Part 5 — ⏳ after the next flash (`§ab2` / `§ab3`)
+## Part 5 — the address-book verbs (`§ab2` / `§ab3`) — ✅ now live
 
 | # | do | expect |
 |---|---|---|
@@ -106,8 +107,8 @@ flash wear **and** a wider reset-during-write corruption window, in a tree that 
 | 5.2 | `peername 0x<unknown> "X"` | `{"ev":"peer_name_err","reason":"unknown_hash"}` — remedy is `reqpubkey` first |
 | 5.3 | a 40-char name | `too_long` — **refused, never truncated** |
 | 5.4 | `peername` on a **QR-pinned** peer | **succeeds**, and its `conf` stays `pinned` |
-| 5.5 | ★★ **the bug you hit on metal:** on an off-grid team node, `reqpubkey <team-id>` then `hashof <that id>` | **resolves** (it used to answer `unknown`) — *needs `§ab3`* |
-| 5.6 | `peers` / `peers all` | the book (≤16 rows) vs the full known-node list — *needs `§ab3`* |
+| 5.5 | ★★ **THE BUG YOU HIT ON METAL — the one to try first:** on an off-grid team node, `reqpubkey <team-id>` then `hashof <that id>` | **resolves** (it used to answer `unknown`) |
+| 5.6 | `peers` / `peers all` | the book (≤16 rows) vs the full known-node list |
 
 ---
 
