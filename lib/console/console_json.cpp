@@ -178,7 +178,8 @@ const char* peerkeyconf_name(Node::PeerKeyConf c) {
 // holder of the shared team content key (membership, not identity), while a `peer`-anchored one was sealed to us and
 // opened with our key, so only that peer could have written it. The app must render the distinction.
 // Takes the ENUM, so -Wswitch (gate-blocking since the 2026-07-25 ruling) fails the build if a third anchor is added
-// and not mapped. ★ Only `peer` is producible today — see Node::PeerLocSrc for CL2, the `team` arm's named trigger.
+// and not mapped. ★ BOTH anchors are producible since §chan-crypt CL2b (`send_channel -t -l -e` writes the `team`
+// arm); before it, only `peer` could occur. See Node::PeerLocSrc.
 const char* peerlocsrc_name(Node::PeerLocSrc s) {
     switch (s) {
         case Node::PeerLocSrc::peer: return "peer";   // PAIRWISE — sealed to us, opened with our key ⇒ "this specific peer"

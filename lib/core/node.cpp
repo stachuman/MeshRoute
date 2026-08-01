@@ -1399,6 +1399,7 @@ CmdResult Node::on_command(const Command& c) {
             const bool key_held    = (team_channel_priv() != nullptr);
             const bool want_crypt  = (c.crypt == CryptIntent::on)
                                   || (want_team && !want_global && _cfg.team_channel_crypt && key_held);
+            const bool want_loc    = c.u.channel.loc;             // §chan-crypt CL2b `-l` — gated BELOW, after want_crypt is known
             // A keyholder who types `-t -g` gets TWO CLEAR copies, deliberately (the global copy cannot be sealed, and
             // sealing only the team copy is the self-cancelling combination the `-e` arm below refuses outright). That
             // is a SILENT downgrade of this node's default, so say so — telemetry only, no push: the operator asked
@@ -1418,8 +1419,11 @@ CmdResult Node::on_command(const Command& c) {
             //   `-t`          -> TEAM,   plaintext on a KEYLESS member (unchanged, and deliberately so: a member
             //                    without the key must still be able to post, and plaintext is always openable) —
             //                    ✅ SEALED on a keyholder, by the `team_channel_crypt` default above (T-K2 §2.5)
-            //   `-t -e`       -> ✅ BUILT (§chan-crypt CL2a) — TEAM, sealed under the team CONTENT key. The two
-            //                    pre-flights below (`no_key`, `too_large`) are the only things that stop it.
+            //   `-t -e`       -> ✅ BUILT (§chan-crypt CL2a) — TEAM, sealed under the team CONTENT key. The pre-flights
+            //                    below (`no_key`, `no_fix`, `empty`, `too_large`) are the only things that stop it.
+            //   `-t -l -e`    -> ✅ BUILT (§chan-crypt CL2b) — ★ THE OWNER'S TARGET: text AND this node's position in
+            //                    ONE sealed post. The position rides the SEALED INNER's flags byte (bit1), so it is
+            //                    never on the wire in clear; see the location gate above for the full O6 matrix.
             //   `-e` (no -t)  -> ❌ REFUSE. A GLOBAL channel has NO KEY. The only content key in the system is the TEAM
             //                    key (`team_ch_pub`, §team-ch-key T-K1) and a global channel has no team to own one, so
             //                    "sealed" is not a state this post can be reached in. Refusing beats both alternatives
@@ -1450,6 +1454,30 @@ CmdResult Node::on_command(const Command& c) {
             // after the wrong remedy, the exact confusion `no_location` was appended to avoid.
             // The operator-facing WHY rides the push: src/fw_main.cpp's `unsealable` arm names the sealable form and
             // why the others are not.
+            // ★★★ §chan-crypt CL2b (spec §2.2.1, OWNER-RULED O6) — THE LOCATION GATE, and its POSITION IN THIS FILE IS
+            // THE WHOLE POINT: it is tested AFTER `want_crypt` above, never before. The rule being enforced is
+            // "a position never travels in clear", which is a property of WHAT HAPPENS ON THE WIRE, not of which
+            // letters the operator typed — so a `-t -l` that WILL be sealed by the `team_channel_crypt` default must
+            // succeed, exactly as `send -l` succeeds under `e2e_dm` with no `-e`. Deciding it before the effective-crypt
+            // expression is known is precisely how register-B0 became a live leak on the DM plane (node_mac.cpp had to
+            // HOIST `want_crypt` above its own location gate for the same reason — U1, that hoist is this one's twin).
+            //   -t -l    + key held, crypt on   ->  OK      (sealed by the node default; want_crypt already true)
+            //   -t -l    + no team key          ->  REFUSE  unsealable  (want_crypt false — the implicit term needs a key)
+            //   -t -l    + team_channel_crypt 0 ->  REFUSE  unsealable  (want_crypt false — the operator opted out)
+            //   -t -l -e                        ->  OK      (explicit; a missing key then refuses `no_key` below)
+            //   -l       (no -t)                ->  REFUSE  unsealable  (no team ⇒ no content key, ever)
+            //   -t -g -l -e                     ->  REFUSE  global_clear_copy (below) — the GLOBAL copy would air COORDINATES
+            //   -t -l    + no fix (0,0)         ->  REFUSE  no_location (below, after the key checks)
+            // ⚠ Only the FIRST row of the block below is decided here; the rest fall out of the `-e` matrix that
+            // follows, which is the point of computing `want_crypt` once (U1) instead of re-deriving "will this be
+            // sealed?" per flag. `unsealable` is REUSED verbatim (no new enumerator): its documented meaning — "this
+            // content may travel ONLY sealed and this transport cannot carry it sealed, so it was REFUSED rather than
+            // downgraded" — is exactly this, and `send -l` already reuses it for the identical DM case.
+            if (want_loc && !want_crypt) {
+                MR_EMIT("channel_crypt_refused", EF_I("channel_id", c.u.channel.channel_id), EF_S("reason", "loc_unsealed"));
+                push_send_failed(SendFailReason::unsealable, /*dst=*/0, /*ctr=*/0);
+                return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };
+            }
             if (want_crypt) {
                 if (!want_team) {                             // `-e` with no `-t` — no team plane ⇒ no content key
                     MR_EMIT("channel_crypt_refused", EF_I("channel_id", c.u.channel.channel_id), EF_S("reason", "no_team"));
@@ -1474,18 +1502,46 @@ CmdResult Node::on_command(const Command& c) {
                     push_send_failed(SendFailReason::unsealable, /*dst=*/0, /*ctr=*/0);
                     return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };
                 }
-                if (c.body_len > protocol::channel_seal_max_plaintext_bytes) {
-                    // The seal costs channel_seal_overhead_bytes (26) on the wire — [seal_ctr 2][seed8 8][tag 16] —
-                    // and the sealed blob must still fit the 200-B channel payload carriers. The plain-post check at
-                    // the top of this arm passed 175..200 B, so refuse HERE with the sealed cap rather than truncate
-                    // a message the operator typed (C2). Distinct code from the plain one only in the limit.
+                // ★ §chan-crypt CL2b: no fix -> REFUSE `no_location`. Verbatim the DM rule (node_mac.cpp's `-l` gate,
+                // U1) including its ORDER: the CONFIDENTIALITY refusals above win, so a `-l` post that is both
+                // unsealable and fix-less reports the leak it would have caused, not the missing fix. `no_location` is
+                // DISTINCT from `unsealable` on purpose — conflating them sends the operator after the wrong remedy
+                // (encryption vs a GPS fix), which is the confusion the enumerator was appended to prevent.
+                if (want_loc && _cfg.lat_e7 == 0 && _cfg.lon_e7 == 0) {
+                    MR_EMIT("channel_crypt_refused", EF_I("channel_id", c.u.channel.channel_id), EF_S("reason", "no_fix"));
+                    push_send_failed(SendFailReason::no_location, /*dst=*/0, /*ctr=*/0);
+                    return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };
+                }
+                // ★ §chan-crypt CL2b — `flags == 0` IS REFUSED (spec §2.2.1: "an empty post is a bug, not a feature").
+                // The sealed inner's flags byte would be 0: no text AND no position, i.e. 26 bytes of seal wrapped
+                // around nothing, which no reader can render and no sender can have meant.
+                // ⚠ SCOPED TO THE SEALED PATH, deliberately: `send_channel <ch> ""` PLAINTEXT is accepted today and
+                // stays accepted (C1 — changing it is a different slice, and the flags byte does not exist there).
+                // ⚠⚠ NO `send_failed` PUSH HERE, and that is a REPORTED GAP rather than a silent choice: none of the
+                // three reusable enumerators is true (`unsealable` would send the operator after a key, `too_large` is
+                // the opposite complaint, `no_location` names a fix this post never asked for) and appending an
+                // enumerator is out of this slice's scope. The SYNCHRONOUS `err_unsupported` is the app-facing answer —
+                // `send_channel` is a console line whose CmdResult the app reads directly — plus the telemetry below.
+                if (!want_loc && c.body_len == 0) {
+                    MR_EMIT("channel_crypt_refused", EF_I("channel_id", c.u.channel.channel_id), EF_S("reason", "empty"));
+                    return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };
+                }
+                // The seal costs channel_seal_overhead_bytes (26) on the wire — [seal_ctr 2][seed8 8][tag 16] — and the
+                // sealed blob must still fit the 200-B channel payload carriers. The plain-post check at the top of
+                // this arm admits up to 200 B, so refuse HERE with the sealed cap rather than truncate a message the
+                // operator typed (C2). Distinct code from the plain one only in the limit.
+                // ★ §chan-crypt CL2b: the cap now bounds the whole INNER, `[flags 1][loc 6?][text]`, so the text a
+                // sealed post can carry is 173 B (174 − 1) and 167 B with `-l`. ONE definition of the overhead
+                // (protocol::channel_inner_overhead) is shared with the assembly in do_send_channel — a second copy
+                // here is exactly how a size gate and its writer drift apart.
+                if (protocol::channel_inner_overhead(want_loc) + c.body_len > protocol::channel_seal_max_plaintext_bytes) {
                     MR_EMIT("channel_crypt_refused", EF_I("channel_id", c.u.channel.channel_id), EF_S("reason", "too_large"));
                     push_send_failed(SendFailReason::too_large, /*dst=*/0, /*ctr=*/0);
                     return CmdResult{ CmdCode::err_too_large, 0, _active->_tx_queue_n };
                 }
             }
             uint16_t ctr = 0;
-            if (want_team) ctr = do_send_channel(c.u.channel.channel_id, c.body, c.body_len, want_crypt);   // TEAM: the mobile self-originates the team-scoped flood (do_send_channel team-scopes on is_mobile+team_id). §chan-crypt CL2a: want_crypt is true ONLY for a team-ONLY post, so the GLOBAL arms below keep the default (plaintext) by construction
+            if (want_team) ctr = do_send_channel(c.u.channel.channel_id, c.body, c.body_len, want_crypt, want_loc);   // TEAM: the mobile self-originates the team-scoped flood (do_send_channel team-scopes on is_mobile+team_id). §chan-crypt CL2a: want_crypt is true ONLY for a team-ONLY post, so the GLOBAL arms below keep the default (plaintext) by construction. CL2b: want_loc reaches here ONLY with want_crypt true (the gate above) — the GLOBAL arms take the defaulted false and never carry a position
             if (want_global) {
 #if MR_FEAT_MOBILE
                 if (_cfg.is_mobile) {                         // a mobile DELEGATES a GLOBAL post to its home (the home mints under its own origin). Off-grid (no home) -> fail loud.

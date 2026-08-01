@@ -166,9 +166,10 @@ size_t write_routes_end(char* buf, size_t cap, uint32_t count);
 //                 `"peer"` = a DM sealed to US and opened with OUR key ⇒ PAIRWISE, "this specific peer said so".
 //                 `"team"` = a channel post sealed to the SHARED team content key ⇒ GROUP, "some holder of the team key
 //                 said so" — every member holds that key, so ANY member can publish a position attributed to another.
-//                 That bound is accepted by design, not a defect; this field is what keeps it honest. ⓘ Only `"peer"`
-//                 can occur today (CL2 lights up `"team"`), but the field is emitted from the start so the app ships
-//                 ONE renderer and the weaker claim can never be retro-fitted into the stronger one's slot.
+//                 That bound is accepted by design, not a defect; this field is what keeps it honest. ✅ BOTH values
+//                 occur since §chan-crypt CL2b, which lit up `"team"` via `send_channel <ch> "…" -t -l -e`; the field
+//                 was emitted from the start so the app ships ONE renderer and the weaker claim was never
+//                 retro-fitted into the stronger one's slot.
 size_t write_peer_row (char* buf, size_t cap, const Node::PeerBookRow& r);
 size_t write_peers_end(char* buf, size_t cap, uint32_t count);
 size_t write_peers_err(char* buf, size_t cap, const char* reason);   // {"ev":"peers_err","reason":"console_only"}

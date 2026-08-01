@@ -18,7 +18,9 @@
 #include "monocypher.h"          // §team-ch-key: crypto_x25519_public_key — cross-check the minted pair independently
 #include "support/test_hal.h"
 
+#include <algorithm>             // §chan-crypt CL2b: std::search — "the packed position is nowhere in the aired body"
 #include <array>
+#include <cstdlib>               // §chan-crypt CL2b: std::abs on the pack_loc6 quantisation bound
 #include <cstring>
 #include <span>
 #include <string>
@@ -75,9 +77,10 @@ static m_out mk_m(uint32_t id, uint8_t channel_id, uint8_t flavor, const uint8_t
 }
 
 static CmdResult send_channel(Node& n, uint8_t ch, const char* text, bool team = false, bool global = false,
-                              CryptIntent crypt = CryptIntent::def) {
+                              CryptIntent crypt = CryptIntent::def, bool loc = false) {
     Command c{}; c.kind = CmdKind::send_channel; c.u.channel.channel_id = ch;
     c.u.channel.team = team; c.u.channel.global = global;   // §S7 T-B: plane select (plain => GLOBAL/leaf; -t => TEAM; -t -g => BOTH)
+    c.u.channel.loc = loc;   // §chan-crypt CL2b: `-l` => attach this node's position INSIDE the seal (defaulted false — every pre-CL2b call site unchanged)
     c.body = reinterpret_cast<const uint8_t*>(text); c.body_len = static_cast<uint8_t>(std::strlen(text));
     c.crypt = crypt;   // §chan-crypt CL1: `-e` => CryptIntent::on (defaulted so every pre-CL1 call site is unchanged — U1)
     return n.on_command(c);
@@ -2294,9 +2297,9 @@ static void ref_aad(uint32_t tk_hash, uint32_t msg_id, uint8_t channel_id, uint8
 // Post `-t` and hand back the M frame that actually aired (flavor + the on-wire body).
 struct AiredM { bool ok = false; uint8_t flavor = 0; uint32_t id = 0; std::vector<uint8_t> body; };
 static AiredM post_team_and_capture(TestHal& hal, Node& n, uint8_t ch, const char* text,
-                                    CryptIntent crypt = CryptIntent::def) {
+                                    CryptIntent crypt = CryptIntent::def, bool loc = false) {
     AiredM out{};
-    if (send_channel(n, ch, text, /*team=*/true, /*global=*/false, crypt).code != CmdCode::queued) return out;
+    if (send_channel(n, ch, text, /*team=*/true, /*global=*/false, crypt, loc).code != CmdCode::queued) return out;
     drain_originate_flood(n);
     const std::vector<uint8_t>* mf = hal.last_tx_cmd(0xA);
     if (!mf) return out;
@@ -2321,36 +2324,43 @@ TEST_CASE("§chan-crypt CL2a — KAT: the sealed body is [seal_ctr 2][seed8 8][c
     // (1) the flavor carries BOTH bits, and crypted is never set alone.
     CHECK((m.flavor & protocol::channel_flavor_crypted) != 0);
     CHECK((m.flavor & protocol::channel_flavor_team) != 0);
-    // (2) the body layout + its exact length.
-    const size_t pt_len = std::strlen("team-secret");
-    CHECK(m.body.size() == pt_len + protocol::channel_seal_overhead_bytes);
+    // (2) the body layout + its exact length. ★ §chan-crypt CL2b: the SEALED PLAINTEXT is the INNER
+    //     `[flags u8][loc 6?][text]`, so a text-only post costs ONE byte more than the bare text it used to seal.
+    const size_t txt_len = std::strlen("team-secret");
+    const size_t ct_len  = 1 + txt_len;                       // [flags 0x01][text] — no position on this post
+    CHECK(m.body.size() == ct_len + protocol::channel_seal_overhead_bytes);
     CHECK(protocol::channel_seal_overhead_bytes == 26);
     const uint16_t seal_ctr = static_cast<uint16_t>(m.body[0] | (m.body[1] << 8));
     CHECK(seal_ctr == 1);                                     // ++_channel_seal_ctr, pre-incremented, first seal
     for (int i = 0; i < 8; ++i) CHECK(m.body[2 + i] == static_cast<uint8_t>(0x41 + i));   // seed8 CARRIED verbatim
     // ★ the ciphertext is NOT the plaintext (the one assertion that would catch a no-op "seal")
-    CHECK(std::memcmp(m.body.data() + 10, "team-secret", pt_len) != 0);
+    CHECK(std::memcmp(m.body.data() + 11, "team-secret", txt_len) != 0);
     // (3) INDEPENDENT open: recompute the key, the nonce and the AAD from the spec and unlock with monocypher.
     uint8_t pub[32], canon[32]; ref_team_pair(0x10, pub, canon);
     uint8_t key[32]; ref_content_key(canon, key);
     uint8_t nonce[24]; ref_nonce(m.body.data() + 2, seal_ctr, /*x32=*/m.id, nonce);       // ★ x32 = the channel_msg_id
     uint8_t aad[9];   ref_aad(meshroute::key_hash32_of(pub), m.id, /*channel_id=*/7, aad);
     uint8_t pt[64];
-    CHECK(crypto_aead_unlock(pt, m.body.data() + 10 + pt_len, key, nonce, aad, sizeof aad,
-                             m.body.data() + 10, pt_len) == 0);
-    CHECK(std::memcmp(pt, "team-secret", pt_len) == 0);
+    CHECK(crypto_aead_unlock(pt, m.body.data() + 10 + ct_len, key, nonce, aad, sizeof aad,
+                             m.body.data() + 10, ct_len) == 0);
+    // ★★ THE INNER, byte for byte: a flags byte that says TEXT-ONLY, then the text. Nothing about the seal, the
+    //    nonce or the AAD changed to carry it — the inner is opaque to all three, which is the whole reason CL2b
+    //    needed no wire_version bump.
+    CHECK(pt[0] == protocol::channel_inner_flag_text);
+    CHECK((pt[0] & protocol::channel_inner_flag_location) == 0);
+    CHECK(std::memcmp(pt + 1, "team-secret", txt_len) == 0);
     // (4) EVERY AAD field is genuinely bound — perturb one at a time, each must fail the tag.
     uint8_t bad[9];
     ref_aad(meshroute::key_hash32_of(pub) ^ 1u, m.id, 7, bad);
-    CHECK(crypto_aead_unlock(pt, m.body.data() + 10 + pt_len, key, nonce, bad, sizeof bad, m.body.data() + 10, pt_len) != 0);
+    CHECK(crypto_aead_unlock(pt, m.body.data() + 10 + ct_len, key, nonce, bad, sizeof bad, m.body.data() + 10, ct_len) != 0);
     ref_aad(meshroute::key_hash32_of(pub), m.id ^ 1u, 7, bad);
-    CHECK(crypto_aead_unlock(pt, m.body.data() + 10 + pt_len, key, nonce, bad, sizeof bad, m.body.data() + 10, pt_len) != 0);
+    CHECK(crypto_aead_unlock(pt, m.body.data() + 10 + ct_len, key, nonce, bad, sizeof bad, m.body.data() + 10, ct_len) != 0);
     ref_aad(meshroute::key_hash32_of(pub), m.id, 8, bad);
-    CHECK(crypto_aead_unlock(pt, m.body.data() + 10 + pt_len, key, nonce, bad, sizeof bad, m.body.data() + 10, pt_len) != 0);
+    CHECK(crypto_aead_unlock(pt, m.body.data() + 10 + ct_len, key, nonce, bad, sizeof bad, m.body.data() + 10, ct_len) != 0);
     // (5) and the NONCE really is the msg-id one: the same body under a team-key-hash nonce must NOT open.
     uint8_t wrong_nonce[24]; ref_nonce(m.body.data() + 2, seal_ctr, meshroute::key_hash32_of(pub), wrong_nonce);
     ref_aad(meshroute::key_hash32_of(pub), m.id, 7, aad);
-    CHECK(crypto_aead_unlock(pt, m.body.data() + 10 + pt_len, key, wrong_nonce, aad, sizeof aad, m.body.data() + 10, pt_len) != 0);
+    CHECK(crypto_aead_unlock(pt, m.body.data() + 10 + ct_len, key, wrong_nonce, aad, sizeof aad, m.body.data() + 10, ct_len) != 0);
 }
 
 TEST_CASE("★★ §chan-crypt CL2a — NONCE UNIQUENESS: never reused across posts, and NOT EVEN between two members sharing the key + seed + ctr") {
@@ -2420,13 +2430,17 @@ TEST_CASE("§chan-crypt CL2a — R7: a DEAD crypto RNG (all-zero seed) REFUSES t
     CHECK(pu.reason == SendFailReason::bad_rng);
 }
 
-TEST_CASE("§chan-crypt CL2a — the SEALED size cap: a body that fits plaintext but not sealed is REFUSED, not truncated") {
+TEST_CASE("§chan-crypt CL2a/CL2b — the SEALED size cap bounds the INNER: text 173, 167 with `-l`; refused, never truncated") {
     constexpr uint32_t T = 0xABCD1234u;
-    CHECK(protocol::channel_seal_max_plaintext_bytes == 174);   // 200 - 26
+    CHECK(protocol::channel_seal_max_plaintext_bytes == 174);   // 200 - 26 — the INNER's cap, not the text's
+    CHECK(protocol::channel_inner_overhead(false) == 1);        // [flags]
+    CHECK(protocol::channel_inner_overhead(true)  == 7);        // [flags][loc6]
+    const size_t text_cap     = protocol::channel_seal_max_plaintext_bytes - 1;   // 173
+    const size_t text_cap_loc = protocol::channel_seal_max_plaintext_bytes - 7;   // 167
     TkHal hal; hal._fill = 0x41;
     Node n(hal, 3, 0x1234ABCDu); NodeConfig c = team_cfg(T); n.on_init(c);
     give_team_key(n, 0x10);
-    const std::string over(protocol::channel_seal_max_plaintext_bytes + 1, 'x');   // 175: legal plain, illegal sealed
+    const std::string over(text_cap + 1, 'x');                  // 174: legal plain, one byte too long sealed
     const CmdResult r = send_channel(n, 7, over.c_str(), /*team=*/true, /*global=*/false, CryptIntent::on);
     CHECK(r.code == CmdCode::err_too_large);
     CHECK(n.channel_buffer_count() == 0);
@@ -2434,15 +2448,35 @@ TEST_CASE("§chan-crypt CL2a — the SEALED size cap: a body that fits plaintext
     const Ev* e = hal.last("channel_crypt_refused"); CHECK(e != nullptr); if (e) CHECK(e->reason == "too_large");
     Push pu{}; CHECK(find_push(drain_all(n), PushKind::send_failed, pu));
     CHECK(pu.reason == SendFailReason::too_large);
-    // SAME-SITE CONTROL: exactly at the cap it seals and airs.
+    // SAME-SITE CONTROL: exactly at the cap it seals and airs, and the aired body is inner+overhead exactly.
     TkHal h2; h2._fill = 0x41; Node n2(h2, 3, 0x1234ABCDu); NodeConfig c2 = team_cfg(T); n2.on_init(c2);
     give_team_key(n2, 0x10);
-    const std::string at(protocol::channel_seal_max_plaintext_bytes, 'x');
-    CHECK(send_channel(n2, 7, at.c_str(), /*team=*/true, /*global=*/false, CryptIntent::on).code == CmdCode::queued);
+    const std::string at(text_cap, 'x');
+    const AiredM ma = post_team_and_capture(h2, n2, 7, at.c_str(), CryptIntent::on);
+    CHECK(ma.ok);
+    if (ma.ok) CHECK(ma.body.size() == protocol::channel_msg_max_payload_bytes);   // 174 inner + 26 = 200, the carrier cap
     CHECK(n2.channel_buffer_count() == 1);
-    // ...and the SAME 175 bytes still post fine WITHOUT `-e` on a node with no key (the plain cap is unchanged).
+    // ★ §chan-crypt CL2b — WITH `-l` the cap drops by the 6 position bytes, and BOTH SIDES of it are measured.
+    TkHal h4; h4._fill = 0x41; Node n4(h4, 3, 0x1234ABCDu);
+    NodeConfig c4 = team_cfg(T); c4.lat_e7 = 521000000; c4.lon_e7 = 210000000; c4.channel_min_interval_ms = 0;
+    n4.on_init(c4); give_team_key(n4, 0x10);
+    const std::string over_loc(text_cap_loc + 1, 'y');          // 168 + 7 = 175 > 174 -> REFUSED
+    CHECK(send_channel(n4, 7, over_loc.c_str(), /*team=*/true, /*global=*/false, CryptIntent::on, /*loc=*/true).code
+          == CmdCode::err_too_large);
+    CHECK(n4.channel_buffer_count() == 0);
+    CHECK(h4.tx_frames.empty());
+    // ...and the SAME 168 bytes fit WITHOUT `-l` — the same-site control that proves the 6 bytes are what refused it.
+    CHECK(send_channel(n4, 7, over_loc.c_str(), /*team=*/true, /*global=*/false, CryptIntent::on).code == CmdCode::queued);
+    // AT the located cap: 167 + 7 = 174 -> seals and airs a full 200-B body.
+    TkHal h5; h5._fill = 0x41; Node n5(h5, 3, 0x1234ABCDu);
+    NodeConfig c5 = team_cfg(T); c5.lat_e7 = 521000000; c5.lon_e7 = 210000000; n5.on_init(c5);
+    give_team_key(n5, 0x10);
+    const AiredM mb = post_team_and_capture(h5, n5, 7, std::string(text_cap_loc, 'z').c_str(), CryptIntent::on, /*loc=*/true);
+    CHECK(mb.ok);
+    if (mb.ok) CHECK(mb.body.size() == protocol::channel_msg_max_payload_bytes);
+    // ...and the SAME 175 bytes still post fine WITHOUT `-e` on a node with no key (the PLAIN cap is unchanged: 200).
     TestHal h3; Node n3(h3, 3, 0x1234ABCDu); NodeConfig c3 = team_cfg(T); n3.on_init(c3);
-    CHECK(send_channel(n3, 7, over.c_str(), /*team=*/true).code == CmdCode::queued);
+    CHECK(send_channel(n3, 7, std::string(175, 'x').c_str(), /*team=*/true).code == CmdCode::queued);
 }
 
 TEST_CASE("★ §chan-crypt CL2a — RECEIVE: a keyholder opens the post (enc=1); a WRONG key and NO key both fail CLOSED and still RELAY") {
@@ -2548,7 +2582,7 @@ TEST_CASE("★ §chan-crypt CL2a — team_channel_crypt DEFAULT-ON: `-t` seals w
       give_team_key(n, 0x10);
       const AiredM m = post_team_and_capture(hal, n, 7, "auto", CryptIntent::def);
       CHECK(m.ok); if (m.ok) { CHECK((m.flavor & protocol::channel_flavor_crypted) != 0);
-                               CHECK(m.body.size() == 4 + protocol::channel_seal_overhead_bytes); } }
+                               CHECK(m.body.size() == 1 + 4 + protocol::channel_seal_overhead_bytes); } }   // §CL2b: [flags]["auto"] + seal
     // (b) the OPT-OUT: cfg team_channel_crypt = 0 -> plaintext, byte-for-byte the pre-CL2a post.
     { TkHal hal; hal._fill = 0x41; Node n(hal, 3, 0x1234ABCDu);
       NodeConfig c = team_cfg(T); c.team_channel_crypt = false; n.on_init(c);
@@ -2599,4 +2633,384 @@ TEST_CASE("★★ §chan-crypt CL2a — the implicit seal is scoped to a TEAM-ON
     // and the two permanent refusals still fire for EXPLICIT `-e` only, on a keyholder exactly as on a keyless node.
     CHECK(send_channel(n, 7, "x", /*team=*/false, /*global=*/false, CryptIntent::on).code == CmdCode::err_unsupported);
     CHECK(send_channel(n, 7, "x", /*team=*/true,  /*global=*/true,  CryptIntent::on).code == CmdCode::err_unsupported);
+}
+
+// =============================================================================
+// ★★★ §chan-crypt CL2b — `send_channel -t -l -e`: A POSITION INSIDE THE SEAL
+// (spec 2026-07-30 §2.2.1 + ruling O6, T-K2 §2.2 as corrected, AB4 §2.7)
+// =============================================================================
+// The corpus is STRUCTURALLY BLIND to all of this for the SAME reason it was blind to CL2a — no simulator node can
+// hold a team content key, and `-l` is not in the sim's send_channel grammar either — so these tests are the ONLY
+// coverage. They are written as KATs, negatives and refusal-matrices rather than round-trips wherever a round-trip
+// could pass with both halves wrong in the same way.
+namespace {
+
+// A team member WITH a fix. lat/lon are a real place at 1e-7 deg so pack_loc6's ~11 m quantisation is exercised
+// (the 6-B encoding is LOSSY on purpose — a test that used 0,0 would not notice if it silently packed nothing).
+constexpr int32_t kLat = 521234567;    // +52.1234567
+constexpr int32_t kLon = -12345678;    // -1.2345678
+static NodeConfig team_cfg_loc(uint32_t team = 0xABCD1234u) {
+    NodeConfig c = team_cfg(team); c.lat_e7 = kLat; c.lon_e7 = kLon; return c;
+}
+// The ~11 m-quantised round trip of a coordinate — what a receiver MUST see, and never the raw e7 value.
+static void quantised(int32_t lat_in, int32_t lon_in, int32_t& lat_out, int32_t& lon_out) {
+    uint8_t six[6]; pack_loc6(lat_in, lon_in, std::span<uint8_t>(six, 6));
+    CHECK(unpack_loc6(std::span<const uint8_t>(six, 6), lat_out, lon_out));
+}
+// Open an aired sealed body with the INDEPENDENT reference derivations and hand back the raw INNER.
+static std::vector<uint8_t> ref_open_inner(const AiredM& m, uint8_t key_fill, uint8_t channel_id) {
+    std::vector<uint8_t> out;
+    if (!m.ok || m.body.size() < protocol::channel_seal_overhead_bytes) return out;
+    uint8_t pub[32], canon[32]; ref_team_pair(key_fill, pub, canon);
+    uint8_t key[32]; ref_content_key(canon, key);
+    const uint16_t sc = static_cast<uint16_t>(m.body[0] | (m.body[1] << 8));
+    uint8_t nonce[24]; ref_nonce(m.body.data() + 2, sc, m.id, nonce);
+    uint8_t aad[9];   ref_aad(meshroute::key_hash32_of(pub), m.id, channel_id, aad);
+    const size_t ct_len = m.body.size() - protocol::channel_seal_overhead_bytes;
+    std::vector<uint8_t> pt(ct_len ? ct_len : 1, 0);
+    if (crypto_aead_unlock(pt.data(), m.body.data() + 10 + ct_len, key, nonce, aad, sizeof aad,
+                           m.body.data() + 10, ct_len) != 0) return out;
+    pt.resize(ct_len);
+    return pt;
+}
+// FORGE a sealed body carrying an ARBITRARY inner, under the same key a node with `key_fill` holds. This is what
+// makes the malformed-inner cases testable at all: our own sender can never produce them, so they must be built.
+static std::vector<uint8_t> forge_sealed(const uint8_t* inner, size_t inner_len, uint32_t msg_id,
+                                         uint8_t channel_id, uint8_t key_fill, uint16_t seal_ctr = 1) {
+    uint8_t pub[32], canon[32]; ref_team_pair(key_fill, pub, canon);
+    uint8_t key[32]; ref_content_key(canon, key);
+    uint8_t seed[8]; for (int i = 0; i < 8; ++i) seed[i] = static_cast<uint8_t>(0x41 + i);
+    uint8_t nonce[24]; ref_nonce(seed, seal_ctr, msg_id, nonce);
+    uint8_t aad[9];    ref_aad(meshroute::key_hash32_of(pub), msg_id, channel_id, aad);
+    std::vector<uint8_t> body(2 + 8 + inner_len + 16, 0);
+    body[0] = static_cast<uint8_t>(seal_ctr); body[1] = static_cast<uint8_t>(seal_ctr >> 8);
+    for (int i = 0; i < 8; ++i) body[2 + i] = seed[i];
+    crypto_aead_lock(body.data() + 10, body.data() + 10 + inner_len, key, nonce, aad, sizeof aad,
+                     inner_len ? inner : nullptr, inner_len);
+    return body;
+}
+// Deliver a team-scoped sealed M to `R`.
+static void deliver_sealed(Node& R, uint32_t id, uint8_t channel_id, const std::vector<uint8_t>& body, uint32_t team) {
+    m_out mm = mk_m(id, channel_id, static_cast<uint8_t>(protocol::channel_flavor_team | protocol::channel_flavor_crypted),
+                    body.data(), static_cast<uint8_t>(body.size()));
+    mm.team_id = team; R.ingest_channel_m(mm, /*from=*/9);
+}
+// Teach `R` that team_local_id `src` is a same-team peer whose stable key_hash32 is 0x1000+src (mk_beacon_digest_team's
+// own convention) — the ONLY route by which a full 32-bit sender hash is derivable at ingest.
+static void learn_team_peer(Node& R, uint8_t src, uint32_t team, uint32_t advertise_id) {
+    std::array<uint8_t,64> bb{};
+    const size_t bn = mk_beacon_digest_team(src, &advertise_id, 1, team, bb);
+    R.on_recv(bb.data(), bn, meta_at(10));
+}
+
+}  // namespace
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE SEND SIDE — ruling O6, row for row
+// ─────────────────────────────────────────────────────────────────────────────
+TEST_CASE("★★★ §chan-crypt CL2b — RULING O6, EVERY ROW: `-l` is refused exactly when the post would NOT be sealed") {
+    constexpr uint32_t T = 0xABCD1234u;
+    // (1) `-t -l` + key held + team_channel_crypt ON (the DEFAULT) -> ★ OK, sealed by the node default. NO `-e` typed.
+    //     This is the row that makes the rule "a position never travels in clear" rather than "always type -e":
+    //     the post IS sealed, so the position is safe, so it must succeed — exactly as `send -l` succeeds under e2e_dm.
+    { TkHal hal; hal._fill = 0x41; Node n(hal, 3, 0x1234ABCDu);
+      NodeConfig c = team_cfg_loc(T); CHECK(c.team_channel_crypt); n.on_init(c);
+      give_team_key(n, 0x10);
+      const AiredM m = post_team_and_capture(hal, n, 7, "here", CryptIntent::def, /*loc=*/true);
+      CHECK(m.ok);
+      if (m.ok) { CHECK((m.flavor & protocol::channel_flavor_crypted) != 0);
+                  CHECK(m.body.size() == 1 + 6 + 4 + protocol::channel_seal_overhead_bytes); }
+      CHECK(hal.count("channel_crypt_refused") == 0); }
+    // (2) `-t -l` + NO team key -> REFUSE unsealable. want_crypt is false (the implicit term REQUIRES a key), so the
+    //     location gate fires before any of the `-e` matrix. Nothing airs.
+    { TkHal hal; hal._fill = 0x41; Node n(hal, 3, 0x1234ABCDu);
+      NodeConfig c = team_cfg_loc(T); n.on_init(c);
+      const CmdResult r = send_channel(n, 7, "here", /*team=*/true, /*global=*/false, CryptIntent::def, /*loc=*/true);
+      CHECK(r.code == CmdCode::err_unsupported);
+      CHECK(n.channel_buffer_count() == 0); CHECK(hal.tx_frames.empty());
+      const Ev* e = hal.last("channel_crypt_refused"); CHECK(e != nullptr); if (e) CHECK(e->reason == "loc_unsealed");
+      Push pu{}; CHECK(find_push(drain_all(n), PushKind::send_failed, pu));
+      CHECK(pu.reason == SendFailReason::unsealable); }
+    // (3) `-t -l` + team_channel_crypt 0 -> REFUSE unsealable. The operator opted OUT of sealing, so the post would go
+    //     in clear; the position may not ride it. (Key held — this is not a key problem, and the reason says so.)
+    { TkHal hal; hal._fill = 0x41; Node n(hal, 3, 0x1234ABCDu);
+      NodeConfig c = team_cfg_loc(T); c.team_channel_crypt = false; n.on_init(c);
+      give_team_key(n, 0x10);
+      CHECK(send_channel(n, 7, "here", /*team=*/true, /*global=*/false, CryptIntent::def, /*loc=*/true).code
+            == CmdCode::err_unsupported);
+      CHECK(n.channel_buffer_count() == 0); CHECK(hal.tx_frames.empty());
+      const Ev* e = hal.last("channel_crypt_refused"); CHECK(e != nullptr); if (e) CHECK(e->reason == "loc_unsealed");
+      // ...and `-e` STILL works with the toggle off: the toggle governs the DEFAULT, not the capability.
+      CHECK(send_channel(n, 7, "here", /*team=*/true, /*global=*/false, CryptIntent::on, /*loc=*/true).code
+            == CmdCode::queued); }
+    // (4) `-t -l -e` -> ★ OK, explicit. THE OWNER'S TARGET FORM.
+    { TkHal hal; hal._fill = 0x41; Node n(hal, 3, 0x1234ABCDu);
+      NodeConfig c = team_cfg_loc(T); n.on_init(c); give_team_key(n, 0x10);
+      const AiredM m = post_team_and_capture(hal, n, 7, "here", CryptIntent::on, /*loc=*/true);
+      CHECK(m.ok); if (m.ok) CHECK((m.flavor & protocol::channel_flavor_crypted) != 0); }
+    //     ...and `-t -l -e` with NO key refuses `no_key`, not `loc_unsealed` — want_crypt is TRUE (explicit `-e`), so
+    //     the key pre-flight owns it and the operator is told to get a key, not to enable encryption.
+    { TkHal hal; hal._fill = 0x41; Node n(hal, 3, 0x1234ABCDu);
+      NodeConfig c = team_cfg_loc(T); n.on_init(c);
+      CHECK(send_channel(n, 7, "here", /*team=*/true, /*global=*/false, CryptIntent::on, /*loc=*/true).code
+            == CmdCode::err_unsupported);
+      const Ev* e = hal.last("channel_crypt_refused"); CHECK(e != nullptr); if (e) CHECK(e->reason == "no_key"); }
+    // (5) `-l` with NO `-t` -> REFUSE unsealable. A GLOBAL channel has no content key in this system, ever.
+    { TkHal hal; hal._fill = 0x41; Node n(hal, 3, 0x1234ABCDu);
+      NodeConfig c = team_cfg_loc(T); n.on_init(c); give_team_key(n, 0x10);
+      CHECK(send_channel(n, 7, "here", /*team=*/false, /*global=*/false, CryptIntent::def, /*loc=*/true).code
+            == CmdCode::err_unsupported);
+      CHECK(n.channel_buffer_count() == 0); CHECK(hal.tx_frames.empty());
+      const Ev* e = hal.last("channel_crypt_refused"); CHECK(e != nullptr); if (e) CHECK(e->reason == "loc_unsealed");
+      // and `-l -e` without `-t` refuses on the SAME enumerator via the `no_team` arm (one remedy: post with -t).
+      Push pu{}; CHECK(find_push(drain_all(n), PushKind::send_failed, pu));
+      CHECK(pu.reason == SendFailReason::unsealable);
+      CHECK(send_channel(n, 7, "here", /*team=*/false, /*global=*/false, CryptIntent::on, /*loc=*/true).code
+            == CmdCode::err_unsupported);
+      const Ev* e2 = hal.last("channel_crypt_refused"); CHECK(e2 != nullptr); if (e2) CHECK(e2->reason == "no_team"); }
+    // (6) `-t -g -l -e` -> REFUSE. Already refused for `-t -g -e`; with a position the GLOBAL copy would air
+    //     COORDINATES in clear, so the reason is STRONGER, not different — and the existing arm still owns it.
+    { TkHal hal; hal._fill = 0x41; Node n(hal, 3, 0x1234ABCDu);
+      NodeConfig c = team_cfg_loc(T); n.on_init(c); give_team_key(n, 0x10);
+      CHECK(send_channel(n, 7, "here", /*team=*/true, /*global=*/true, CryptIntent::on, /*loc=*/true).code
+            == CmdCode::err_unsupported);
+      CHECK(n.channel_buffer_count() == 0); CHECK(hal.tx_frames.empty());
+      const Ev* e = hal.last("channel_crypt_refused"); CHECK(e != nullptr); if (e) CHECK(e->reason == "global_clear_copy");
+      // ⚠ and `-t -g -l` WITHOUT `-e` on a keyholder is refused too, by the LOCATION gate: `-t -g` scopes the implicit
+      //   seal off (want_crypt false), so both copies would be clear. Different arm, same correct outcome.
+      TkHal h2; h2._fill = 0x41; Node n2(h2, 3, 0x1234ABCDu);
+      NodeConfig c2 = team_cfg_loc(T); n2.on_init(c2); give_team_key(n2, 0x10);
+      CHECK(send_channel(n2, 7, "here", /*team=*/true, /*global=*/true, CryptIntent::def, /*loc=*/true).code
+            == CmdCode::err_unsupported);
+      const Ev* e2 = h2.last("channel_crypt_refused"); CHECK(e2 != nullptr); if (e2) CHECK(e2->reason == "loc_unsealed"); }
+    // (7) `-t -l` with NO FIX (0,0) -> REFUSE `no_location`, and it is DISTINCT from unsealable on purpose: telling an
+    //     operator with no GPS to enable encryption sends him after the wrong remedy.
+    { TkHal hal; hal._fill = 0x41; Node n(hal, 3, 0x1234ABCDu);
+      NodeConfig c = team_cfg(T); CHECK(c.lat_e7 == 0); CHECK(c.lon_e7 == 0); n.on_init(c);
+      give_team_key(n, 0x10);
+      CHECK(send_channel(n, 7, "here", /*team=*/true, /*global=*/false, CryptIntent::def, /*loc=*/true).code
+            == CmdCode::err_unsupported);
+      CHECK(n.channel_buffer_count() == 0); CHECK(hal.tx_frames.empty());
+      const Ev* e = hal.last("channel_crypt_refused"); CHECK(e != nullptr); if (e) CHECK(e->reason == "no_fix");
+      Push pu{}; CHECK(find_push(drain_all(n), PushKind::send_failed, pu));
+      CHECK(pu.reason == SendFailReason::no_location);
+      // ORDER: unsealable WINS over no_fix — a post that is both unsealed and fix-less reports the LEAK it would have
+      // caused, not the missing fix (verbatim node_mac.cpp's `-l` ordering, U1).
+      TkHal h2; h2._fill = 0x41; Node n2(h2, 3, 0x1234ABCDu);
+      NodeConfig c2 = team_cfg(T); n2.on_init(c2);                        // no fix AND no key
+      CHECK(send_channel(n2, 7, "here", /*team=*/true, /*global=*/false, CryptIntent::def, /*loc=*/true).code
+            == CmdCode::err_unsupported);
+      const Ev* e2 = h2.last("channel_crypt_refused"); CHECK(e2 != nullptr); if (e2) CHECK(e2->reason == "loc_unsealed"); }
+    // (8) CONTROL — every one of the rows above leaves an ORDINARY post untouched: no `-l`, no key, plain `-t`, works.
+    { TkHal hal; hal._fill = 0x41; Node n(hal, 3, 0x1234ABCDu);
+      NodeConfig c = team_cfg_loc(T); n.on_init(c);
+      CHECK(send_channel(n, 7, "plain", /*team=*/true).code == CmdCode::queued);
+      CHECK(hal.count("channel_crypt_refused") == 0); }
+}
+
+TEST_CASE("★ §chan-crypt CL2b — `flags == 0` (no text AND no position) is REFUSED; a position-only post is NOT") {
+    constexpr uint32_t T = 0xABCD1234u;
+    // (a) an EMPTY sealed post: 26 bytes of seal wrapped around nothing. Refused (spec §2.2.1).
+    TkHal hal; hal._fill = 0x41; Node n(hal, 3, 0x1234ABCDu);
+    NodeConfig c = team_cfg_loc(T); c.channel_min_interval_ms = 0; n.on_init(c);
+    give_team_key(n, 0x10);
+    CHECK(send_channel(n, 7, "", /*team=*/true, /*global=*/false, CryptIntent::on).code == CmdCode::err_unsupported);
+    CHECK(n.channel_buffer_count() == 0); CHECK(hal.tx_frames.empty());
+    const Ev* e = hal.last("channel_crypt_refused"); CHECK(e != nullptr); if (e) CHECK(e->reason == "empty");
+    // ⚠ NO send_failed push accompanies it — none of the three reusable reasons is true and appending an enumerator
+    //   was out of scope. The SYNCHRONOUS err_unsupported is the app-facing answer. Pinned so the gap is visible.
+    Push pu{}; CHECK_FALSE(find_push(drain_all(n), PushKind::send_failed, pu));
+    // (b) SAME-SITE CONTROL: the same empty text WITH `-l` is flags = 0x02 and is perfectly legal — "here I am".
+    hal._now += 1;
+    const AiredM m = post_team_and_capture(hal, n, 7, "", CryptIntent::on, /*loc=*/true);
+    CHECK(m.ok);
+    if (m.ok) CHECK(m.body.size() == 1 + 6 + protocol::channel_seal_overhead_bytes);
+    const std::vector<uint8_t> inner = ref_open_inner(m, 0x10, 7);
+    CHECK(inner.size() == 7);
+    if (inner.size() == 7) CHECK(inner[0] == protocol::channel_inner_flag_location);   // bit1 ONLY — no text bit
+    // (c) SECOND CONTROL: an empty PLAINTEXT post is still accepted, exactly as before CL2b. The flags byte exists
+    //     only inside the seal, so nothing about the plain path changed (C1 — tightening it is a different slice).
+    TestHal h2; Node n2(h2, 3, 0x1234ABCDu); NodeConfig c2 = team_cfg(T); n2.on_init(c2);
+    CHECK(send_channel(n2, 7, "", /*team=*/true).code == CmdCode::queued);
+    CHECK(n2.channel_buffer_count() == 1);
+}
+
+TEST_CASE("★★★ §chan-crypt CL2b — KAT: the sealed inner is [flags 0x03][pack_loc6 6][text], and NOTHING is in clear") {
+    constexpr uint32_t T = 0xABCD1234u;
+    TkHal hal; hal._fill = 0x41; Node n(hal, /*id=*/3, /*key=*/0x1234ABCDu);
+    NodeConfig c = team_cfg_loc(T); n.on_init(c);
+    give_team_key(n, 0x10);
+    const char* txt = "at the col";
+    const AiredM m = post_team_and_capture(hal, n, /*ch=*/7, txt, CryptIntent::on, /*loc=*/true);
+    CHECK(m.ok); if (!m.ok) return;
+    const size_t txt_len = std::strlen(txt);
+    CHECK(m.body.size() == 1 + 6 + txt_len + protocol::channel_seal_overhead_bytes);
+    // ★ INDEPENDENT open (the reference key/nonce/AAD, recomputed from the spec — see ref_* above).
+    const std::vector<uint8_t> inner = ref_open_inner(m, 0x10, 7);
+    CHECK(inner.size() == 1 + 6 + txt_len);
+    if (inner.size() != 1 + 6 + txt_len) return;
+    // (1) the FLAGS byte: both bits, nothing else. This is the assertion the whole encoding argument rests on —
+    //     an ENUM could not have represented text+location at all.
+    CHECK(inner[0] == (protocol::channel_inner_flag_text | protocol::channel_inner_flag_location));
+    // (2) the POSITION, fixed-size and FIRST (mirroring the DATA inner's field order), 6 bytes not 8.
+    int32_t lat = 0, lon = 0;
+    CHECK(unpack_loc6(std::span<const uint8_t>(inner.data() + 1, 6), lat, lon));
+    int32_t qlat = 0, qlon = 0; quantised(kLat, kLon, qlat, qlon);
+    CHECK(lat == qlat); CHECK(lon == qlon);
+    CHECK(std::abs(static_cast<long>(lat) - kLat) < 2000);       // ~11 m quantisation, not a different coordinate
+    CHECK(std::abs(static_cast<long>(lon) - kLon) < 2000);
+    // (3) the TEXT, variable-length and LAST.
+    CHECK(std::memcmp(inner.data() + 7, txt, txt_len) == 0);
+    // (4) ★★ NOTHING OF IT IS IN CLEAR ON THE WIRE — neither the text nor the packed position bytes appear anywhere
+    //     in the aired body. This is the assertion the privacy rule actually needs; the length checks above would
+    //     pass even if the seal were a no-op.
+    const std::string wire(reinterpret_cast<const char*>(m.body.data()), m.body.size());
+    CHECK(wire.find(txt) == std::string::npos);
+    uint8_t six[6]; pack_loc6(kLat, kLon, std::span<uint8_t>(six, 6));
+    CHECK(std::search(m.body.begin(), m.body.end(), six, six + 6) == m.body.end());
+    // (5) and the flavor says CRYPTED+TEAM — a position can only ever ride a sealed team post.
+    CHECK((m.flavor & protocol::channel_flavor_crypted) != 0);
+    CHECK((m.flavor & protocol::channel_flavor_team) != 0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE RECEIVE SIDE — parse, surface, retain
+// ─────────────────────────────────────────────────────────────────────────────
+TEST_CASE("★★★ §chan-crypt CL2b — RECEIVE: the text is stripped of its header, the position rides the push, and AB4 RETAINS it as `team`") {
+    constexpr uint32_t T = 0xABCD1234u;
+    // The sender is team_local_id 3 with key_hash32 0x1003 — the value mk_beacon_digest_team advertises for src 3
+    // (0x1000 + src), so the receiver can resolve the FULL 32-bit hash from its team key cache.
+    TkHal hs; hs._fill = 0x41; Node S(hs, /*id=*/3, /*key=*/0x00001003u);
+    NodeConfig cs = team_cfg_loc(T); S.on_init(cs); give_team_key(S, 0x10);
+    const AiredM m = post_team_and_capture(hs, S, /*ch=*/7, "at the col", CryptIntent::on, /*loc=*/true);
+    CHECK(m.ok); if (!m.ok) return;
+    CHECK((m.id >> 24) == 3);                                  // origin = the sender's plane-local id
+    CHECK(((m.id >> 8) & 0xffffu) == 0x1003u);                 // ...and 16 bits of its stable key hash
+    int32_t qlat = 0, qlon = 0; quantised(kLat, kLon, qlat, qlon);
+
+    // (a) ★ THE WHOLE FEATURE, END TO END: a keyholder that KNOWS the sender opens the post, gets the TEXT ONLY on
+    //     the push (the flags byte and the 6 position bytes are consumed, never shown), the position on the push's
+    //     own fields, and a RETAINED address-book row anchored `team`.
+    { TestHal hr; Node R(hr, /*id=*/5, /*key=*/0xAAAA1111u); NodeConfig cr = team_cfg(T); R.on_init(cr);
+      give_team_key(R, 0x10);
+      learn_team_peer(R, /*src=*/3, T, /*advertise_id=*/m.id);
+      CHECK(R.peer_loc_count() == 0);                          // nothing retained before the post
+      deliver_sealed(R, m.id, 7, m.body, T);
+      Push pu{}; CHECK(find_push(drain_all(R), PushKind::channel_recv, pu));
+      CHECK(pu.enc);
+      CHECK(pu.body_len == std::strlen("at the col"));         // ★ the HEADER IS GONE from the app's body
+      CHECK(std::memcmp(pu.body, "at the col", pu.body_len) == 0);
+      CHECK(pu.has_location);                                  // the SAME Push fields a located DM sets (U1)
+      CHECK(pu.lat_e7 == qlat); CHECK(pu.lon_e7 == qlon);
+      // ★★ AB4's `team` arm, LIVE. One call, no schema change — the row is keyed by the sender's FULL key_hash32.
+      CHECK(R.peer_loc_count() == 1);
+      int32_t la = 0, lo = 0; uint32_t age = 0; Node::PeerLocSrc src = Node::PeerLocSrc::peer;
+      CHECK(R.peer_loc_find(0x1003u, la, lo, age, src));
+      CHECK(la == qlat); CHECK(lo == qlon);
+      CHECK(src == Node::PeerLocSrc::team);                    // ★ GROUP-anchored, never mis-labelled `peer`
+      CHECK_FALSE(R.peer_loc_find(0x1004u, la, lo, age, src)); // and under no other hash
+      const Ev* e = hr.last("peer_location"); CHECK(e != nullptr);
+      CHECK(hr.count("peer_location_unattributed") == 0); }
+      // ⓘ The durable record needs no separate assertion here: record_channel and this push are fed the SAME
+      //   `app_body`/`app_len` pair from one expression, so the body checked above IS what is inboxed. (This harness
+      //   also has no inbox backend attached — chan_newest_seq() is 0 — so an assertion on it would be vacuous.)
+
+    // (b) UNKNOWN SENDER (no beacon heard) -> the position is still SURFACED to the app but NEVER RETAINED. An
+    //     unattributable position in an address book is worse than an absent one — the UI presents it as fact.
+    { TestHal hr; Node R(hr, 5, 0xAAAA1111u); NodeConfig cr = team_cfg(T); R.on_init(cr);
+      give_team_key(R, 0x10);
+      deliver_sealed(R, m.id, 7, m.body, T);
+      Push pu{}; CHECK(find_push(drain_all(R), PushKind::channel_recv, pu));
+      CHECK(pu.has_location);                                  // shown...
+      CHECK(R.peer_loc_count() == 0);                          // ...but not stored
+      const Ev* e = hr.last("peer_location_unattributed");
+      CHECK(e != nullptr); if (e) CHECK(e->reason == "unknown_team_peer"); }
+
+    // (c) ★★ THE HASH CROSS-CHECK EARNS ITS KEEP: a STALE team-key row (id 3 now resolves to a DIFFERENT peer's hash,
+    //     which a re-picked team_local_id really can produce) must NOT store this position under that wrong key.
+    //     `mk_beacon_digest_team` advertises 0x1000+src, so a beacon from src 4 re-using... — instead we make the
+    //     mismatch directly: teach id 3 with a beacon, then deliver a post whose msg-id carries OTHER hash bits.
+    { TestHal hr; Node R(hr, 5, 0xAAAA1111u); NodeConfig cr = team_cfg(T); R.on_init(cr);
+      give_team_key(R, 0x10);
+      learn_team_peer(R, /*src=*/3, T, /*advertise_id=*/m.id);
+      // Forge a post from a DIFFERENT sender that still claims origin 3: same origin byte, different hash bits.
+      const uint32_t bad_id = (3u << 24) | (0x7777u << 8) | 0x01u;
+      uint8_t inner[1 + 6 + 2];
+      inner[0] = static_cast<uint8_t>(protocol::channel_inner_flag_text | protocol::channel_inner_flag_location);
+      pack_loc6(kLat, kLon, std::span<uint8_t>(inner + 1, 6));
+      inner[7] = 'h'; inner[8] = 'i';
+      const std::vector<uint8_t> body = forge_sealed(inner, sizeof inner, bad_id, 7, /*key_fill=*/0x10);
+      deliver_sealed(R, bad_id, 7, body, T);
+      Push pu{}; CHECK(find_push(drain_all(R), PushKind::channel_recv, pu));
+      CHECK(pu.has_location);                                  // still shown (the seal authenticates MEMBERSHIP)
+      CHECK(R.peer_loc_count() == 0);                          // ★ never stored under a hash we cannot confirm
+      const Ev* e = hr.last("peer_location_unattributed");
+      CHECK(e != nullptr); if (e) CHECK(e->reason == "hash_mismatch"); }
+
+    // (d) CONTROL — a TEXT-ONLY sealed post retains NOTHING and sets no position, i.e. the retention is driven by
+    //     bit1 and not by "it was sealed". (Also the CL2a behaviour, unchanged.)
+    { TkHal h2; h2._fill = 0x41; Node S2(h2, 3, 0x00001003u);
+      NodeConfig c2 = team_cfg_loc(T); S2.on_init(c2); give_team_key(S2, 0x10);
+      const AiredM t = post_team_and_capture(h2, S2, 7, "no position here", CryptIntent::on);
+      CHECK(t.ok); if (!t.ok) return;
+      TestHal hr; Node R(hr, 5, 0xAAAA1111u); NodeConfig cr = team_cfg(T); R.on_init(cr);
+      give_team_key(R, 0x10); learn_team_peer(R, 3, T, t.id);
+      deliver_sealed(R, t.id, 7, t.body, T);
+      Push pu{}; CHECK(find_push(drain_all(R), PushKind::channel_recv, pu));
+      CHECK_FALSE(pu.has_location);
+      CHECK(pu.body_len == std::strlen("no position here"));
+      CHECK(R.peer_loc_count() == 0);
+      CHECK(hr.count("peer_location") == 0); }
+
+    // (e) A POSITION-ONLY post ("here I am"): the push has an EMPTY body and the position, and the row is retained.
+    { TkHal h2; h2._fill = 0x41; Node S2(h2, 3, 0x00001003u);
+      NodeConfig c2 = team_cfg_loc(T); S2.on_init(c2); give_team_key(S2, 0x10);
+      const AiredM p = post_team_and_capture(h2, S2, 7, "", CryptIntent::on, /*loc=*/true);
+      CHECK(p.ok); if (!p.ok) return;
+      TestHal hr; Node R(hr, 5, 0xAAAA1111u); NodeConfig cr = team_cfg(T); R.on_init(cr);
+      give_team_key(R, 0x10); learn_team_peer(R, 3, T, p.id);
+      deliver_sealed(R, p.id, 7, p.body, T);
+      Push pu{}; CHECK(find_push(drain_all(R), PushKind::channel_recv, pu));
+      CHECK(pu.body_len == 0);
+      CHECK(pu.has_location);
+      CHECK(R.peer_loc_count() == 1); }
+}
+
+TEST_CASE("★★ §chan-crypt CL2b — a MALFORMED inner is a CONTENT drop, NOT a key problem: no channel_recv, no key prompt, still relayed") {
+    constexpr uint32_t T = 0xABCD1234u;
+    const uint32_t id = (3u << 24) | (0x1003u << 8) | 0x01u;
+    struct Case { const char* name; std::vector<uint8_t> inner; };
+    // Every way an inner can contradict itself. All are UNPRODUCIBLE by our own sender — they are forged here under
+    // the RIGHT key so the tag PASSES, which is exactly what separates this class from "cannot decrypt".
+    const std::vector<Case> cases = {
+        { "zero-length inner",            {} },
+        { "flags == 0",                   { 0x00 } },
+        { "unknown bit (a v2 field)",     { 0x05, 'h', 'i' } },
+        { "loc bit, inner too short",     { 0x02, 1, 2, 3 } },
+        { "text bit, no text byte",       { 0x01 } },
+        { "loc bit only, trailing bytes", { 0x02, 1, 2, 3, 4, 5, 6, 'x' } },
+    };
+    for (const Case& k : cases) {
+        TestHal hr; Node R(hr, 5, 0xAAAA1111u); NodeConfig cr = team_cfg(T); R.on_init(cr);
+        give_team_key(R, 0x10);
+        const std::vector<uint8_t> body = forge_sealed(k.inner.data(), k.inner.size(), id, 7, /*key_fill=*/0x10);
+        deliver_sealed(R, id, 7, body, T);
+        const auto v = drain_all(R);
+        Push pu{};
+        CHECK_MESSAGE(!find_push(v, PushKind::channel_recv, pu), k.name);          // nothing the app could render
+        CHECK_MESSAGE(!find_push(v, PushKind::team_channel_no_key, pu), k.name);   // ★ we HOLD the key — never prompt
+        CHECK_MESSAGE(hr.count("channel_inner_malformed") == 1, k.name);
+        CHECK_MESSAGE(hr.count("channel_crypt_undecryptable") == 0, k.name);       // the tag PASSED; this is not that
+        CHECK_MESSAGE(R.channel_buffer_count() == 1, k.name);                      // ★ STILL BUFFERED -> still relayed
+        CHECK_MESSAGE(R.peer_loc_count() == 0, k.name);                            // and nothing half-parsed was stored
+    }
+    // SAME-SITE CONTROL: the minimal WELL-FORMED inner at the same site opens and delivers.
+    { TestHal hr; Node R(hr, 5, 0xAAAA1111u); NodeConfig cr = team_cfg(T); R.on_init(cr);
+      give_team_key(R, 0x10);
+      const uint8_t ok_inner[2] = { protocol::channel_inner_flag_text, 'x' };
+      const std::vector<uint8_t> body = forge_sealed(ok_inner, sizeof ok_inner, id, 7, 0x10);
+      deliver_sealed(R, id, 7, body, T);
+      Push pu{}; CHECK(find_push(drain_all(R), PushKind::channel_recv, pu));
+      CHECK(pu.body_len == 1); CHECK(pu.body[0] == 'x');
+      CHECK(hr.count("channel_inner_malformed") == 0); }
 }

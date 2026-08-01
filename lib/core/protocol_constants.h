@@ -455,7 +455,35 @@ inline constexpr uint8_t  channel_flavor_crypted = 0x40;
 inline constexpr uint8_t  channel_seal_overhead_bytes = 2 + 8 + 16;   // = 26
 // Max PLAINTEXT of a sealed post: the sealed blob must still fit the 200-B channel payload carriers (ChannelEntry,
 // FloodState). Origination REFUSES above this (C2 — never silently truncate a message the operator typed).
+// ★ §chan-crypt CL2b: this bounds the whole INNER `[flags][loc6?][text?]`, not the text — see channel_inner_overhead.
 inline constexpr uint16_t channel_seal_max_plaintext_bytes = channel_msg_max_payload_bytes - channel_seal_overhead_bytes;   // 174
+// ★★★ §chan-crypt CL2b (spec 2026-07-30 §2.2.1, T-K2 §2.2 as CORRECTED) — THE SEALED INNER IS `[flags u8][loc 6 if
+// bit1][text if bit0]`, and the first byte is a FLAGS byte, NOT an enumerated inner_type.
+// WHY FLAGS: an ENUMERATED space must spend a codepoint per COMBINATION (text, loc, text+loc, telemetry,
+// telemetry+loc, waypoint, waypoint+loc…). Both codepoint spaces this project has already EXHAUSTED — the DATA flags
+// byte (0xFF, full) and q_opcode (2 bits, full) — died exactly that way. With flags each FEATURE costs one bit and
+// every COMBINATION is free: two bits used, six spare, and the explosion never happens. It is also the only encoding
+// that can express the owner's actual request, `send_channel -t -l -e` = text TOGETHER WITH a position.
+// LAYOUT mirrors the DATA inner — FIXED-SIZE field first, VARIABLE last (`[dst_hash?][origin][source_hash?]
+// [location?][body]`) — so one mental model covers both planes.
+// ⚠ THE INNER EXISTS ONLY INSIDE THE SEAL. A PLAINTEXT channel post's body is still the bare text, byte-for-byte as
+// before: adding a flags byte there would change every plaintext post on the wire for nothing (bit1 requires the
+// crypted flavour anyway, spec §2.4), and the global plane has no key to ever set it.
+// ⚠ UNKNOWN BITS ⇒ THE READER MUST REFUSE, and that is structural, not strictness for its own sake: a future field
+// sits BETWEEN the flags byte and the variable-length text, so a reader that does not know its width cannot find the
+// text. A v2 sender therefore reaches v1 readers only by re-keying the feature, never by silent partial parse (C2).
+inline constexpr uint8_t  channel_inner_flag_text     = 0x01;   // a text body is present (variable length, LAST)
+inline constexpr uint8_t  channel_inner_flag_location = 0x02;   // a 6-B pack_loc6 position is present (fixed, FIRST)
+inline constexpr uint8_t  channel_inner_flags_known   = channel_inner_flag_text | channel_inner_flag_location;
+// ★ 6 BYTES, NOT the 8 (`lat_e7 i32, lon_e7 i32`) T-K2 originally sketched: the DM plane already carries `pack_loc6`
+// (~11 m). Two encodings on two planes would force the companion to carry two decoders and make one plane silently
+// more precise than the other (U1).
+inline constexpr uint8_t  channel_inner_location_bytes = 6;
+// The bytes a sealed inner spends BEFORE the text. ONE definition, read by the size pre-flight (Node::on_command),
+// the assembly (do_send_channel) and the parse (ingest_channel_m) — so the three can never disagree.
+inline constexpr uint16_t channel_inner_overhead(bool with_location) {
+    return static_cast<uint16_t>(1u + (with_location ? channel_inner_location_bytes : 0u));
+}
 // Rate limit on the `team_channel_no_key` push (T-K2 §2.2). One prompt per minute is enough for the app to raise
 // "ask a teammate for the key"; a busy team channel would otherwise emit one per post to a member who cannot read any
 // of them. Telemetry (`channel_crypt_no_key`) is NOT rate-limited — the sim/bench wants every occurrence.

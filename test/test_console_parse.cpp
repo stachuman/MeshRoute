@@ -159,7 +159,7 @@ TEST_CASE("parse_command — §loc-per-send `-l` sets DATA_FLAG_LOCATION on send
     CHECK((c.u.send.flags & DATA_FLAG_LOCATION) == 0);
 }
 
-TEST_CASE("parse_command — §loc-per-send `-l` parses on send_layer (refused later) and is REJECTED on send_channel") {
+TEST_CASE("parse_command — §loc-per-send `-l` parses on send_layer AND (§chan-crypt CL2b) on send_channel; on_command owns the refusals") {
     Command c{};
     // send_layer ACCEPTS the letter so on_command can refuse it with an explanation (a cross-layer frame carries no
     // position) instead of the operator getting a bare bad_args. One letter, one meaning, across the verbs.
@@ -167,15 +167,24 @@ TEST_CASE("parse_command — §loc-per-send `-l` parses on send_layer (refused l
     CHECK(parse_command(lay, std::strlen(lay), c) == ParseErr::ok);
     CHECK(c.kind == CmdKind::send_layer);
     CHECK(c.u.layer.flags == DATA_FLAG_LOCATION);
-    // send_channel has no -l YET — ✖ MISSING, TRIGGER: CL2. ⚠ V1: the reason recorded here was *"a location is an
-    // ALTERNATIVE inner TYPE … that belongs to T-K5"*, and the owner STRUCK it (spec §2.2.1): `-t -l -e` IS the target.
-    // The real blocker is T-K2's `[inner_type u8]` being an XOR of text-or-location; CL2 must make it a FLAGS byte
-    // first. Until then there is nothing to seal a position into, and an UNSEALED channel location is register-B0's
-    // leak on a wider blast radius, so the letter stays refused.
+    // ★ §chan-crypt CL2b: send_channel now ACCEPTS `-l` too — the owner's target is `send_channel <ch> "…" -t -l -e`.
+    // Same accepted-not-honoured rule as `-e`: whether a position may ride depends on the EFFECTIVE-crypt decision
+    // (key held + team_channel_crypt), which only on_command can compute — so all three producers get one rule.
+    // The position lands in the SEALED inner's flags byte (bit1), never in a DATA frame flag, which is why this
+    // verb carries a dedicated `u.channel.loc` rather than borrowing `SendCmd::flags`/DATA_FLAG_LOCATION.
     const char* ch = "send_channel 7 \"x\" -l";
-    CHECK(parse_command(ch, std::strlen(ch), c) == ParseErr::bad_args);
-    const char* cht = "send_channel 7 \"x\" -t -l";
-    CHECK(parse_command(cht, std::strlen(cht), c) == ParseErr::bad_args);
+    CHECK(parse_command(ch, std::strlen(ch), c) == ParseErr::ok);
+    CHECK(c.kind == CmdKind::send_channel);
+    CHECK(c.u.channel.loc);
+    CHECK_FALSE(c.u.channel.team);                        // on_command refuses THIS one (no team ⇒ no content key)
+    const char* cht = "send_channel 7 \"x\" -t -l -e";     // ★ the target form
+    CHECK(parse_command(cht, std::strlen(cht), c) == ParseErr::ok);
+    CHECK(c.u.channel.team); CHECK(c.u.channel.loc); CHECK(c.crypt == CryptIntent::on);
+    const char* none = "send_channel 7 \"x\" -t -e";       // CONTROL: no -l => the field stays clear
+    CHECK(parse_command(none, std::strlen(none), c) == ParseErr::ok);
+    CHECK_FALSE(c.u.channel.loc);
+    const char* glued = "send_channel 7 \"x\" -tl";        // still a LONE token, like every other flag
+    CHECK(parse_command(glued, std::strlen(glued), c) == ParseErr::bad_args);
 }
 
 TEST_CASE("parse_command — send_channel <ch> \"text\" (no ack: O3)") {
@@ -219,11 +228,13 @@ TEST_CASE("parse_command — §chan-crypt send_channel -e: all four matrix cases
     // `-e` is a LONE token like every other flag: a glued form is still an error, not a silent accept.
     const char* glued = "send_channel 4 \"hi\" -et";
     CHECK(parse_command(glued, std::strlen(glued), c) == ParseErr::bad_args);
-    // and it is still not a licence for -a (O3) or -l (CL2) on this verb
+    // and it is still not a licence for -a (O3) on this verb — a channel post has no single recipient to ack.
     const char* ae = "send_channel 4 \"hi\" -e -a";
     CHECK(parse_command(ae, std::strlen(ae), c) == ParseErr::bad_args);
+    // ★ `-l` IS a licence now (§chan-crypt CL2b) — it parses here and is adjudicated in on_command by ruling O6.
     const char* el = "send_channel 4 \"hi\" -e -l";
-    CHECK(parse_command(el, std::strlen(el), c) == ParseErr::bad_args);
+    CHECK(parse_command(el, std::strlen(el), c) == ParseErr::ok);
+    CHECK(c.u.channel.loc); CHECK(c.crypt == CryptIntent::on); CHECK_FALSE(c.u.channel.team);
 }
 
 TEST_CASE("parse_command — send_layer <hash> <l1,l2,…> \"text\" [-a] [-e]") {

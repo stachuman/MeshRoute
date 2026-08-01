@@ -130,11 +130,13 @@ public:
     //          said so". node_mac.cpp's send gate makes a `-l` DM sealed BY CONSTRUCTION (an unsealed one is refused
     //          `unsealable`), so opening it also proves we hold that peer's key. ★ THE ONLY VALUE REACHABLE TODAY.
     //   team — a team CHANNEL post sealed to the shared team content key. GROUP ⇒ only "some holder of the team key
-    //          said so". ✖ MISSING: NOTHING PRODUCES THIS YET, and its trigger is named — CL2
-    //          (docs/superpowers/specs/2026-07-30-channel-crypt-and-location-privacy-design.md), which is spec-only by
-    //          the owner's 2026-07-31 ruling *"we finish address book fully before moving to channel message"*.
-    //          ⚠ IT IS BUILT ANYWAY, ON PURPOSE: CL2 then adds a SOURCE, not a schema change, so the app ships one
-    //          renderer and the weaker claim can never be retro-fitted into the stronger one's slot.
+    //          said so". ✅ LIVE since §chan-crypt CL2b: `send_channel <ch> "…" -t -l -e` packs pack_loc6 into the
+    //          SEALED inner (bit1) and node_channel.cpp's ingest_channel_m stores it here. ★ AB4's prediction HELD —
+    //          CL2b added a SOURCE and nothing else: one `peer_loc_set` call, no schema change, no new field, no new
+    //          PushKind, so the app ships ONE renderer and the weaker claim was never retro-fitted into the stronger
+    //          one's slot. ⚠ The `team` row is keyed by the sender's FULL key_hash32 resolved through `_team_keys`
+    //          (the msg-id carries only 16 hash bits) and CROSS-CHECKED against those 16 bits; an unresolvable or
+    //          mismatching sender is surfaced to the app but NEVER retained — see the call site for why.
     // ★★ THE BOUND THIS RECORDS, ACCEPTED DELIBERATELY (the I9 pattern) — DO NOT "FIX" IT: the team content key is
     // SHARED, so sealing a channel post proves MEMBERSHIP, NOT IDENTITY. Every member holds the same team_ch_priv, so
     // ANY KEYHOLDER CAN FORGE ANOTHER MEMBER'S source_hash and publish a false position attributed to a teammate.
@@ -721,7 +723,12 @@ public:
     // function cannot re-derive it from four scalars. ★ A plaintext DATA_FLAG_LOCATION is still parsed and still pushed
     // to the app exactly as before; it is only never RETAINED. Rationale: an unauthenticated position is spoofable by
     // anyone in range, and a spoofed position in an address book is WORSE than an absent one, because the UI presents it
-    // as fact. (`✖ MISSING` — the second, `team`-anchored caller: CL2's sealed channel post. See PeerLocSrc.)
+    // as fact.
+    // ★ TWO CALLERS NOW, one per source, and each does its OWN evidence test before calling — for the same reason:
+    //   · node_mac_rx.cpp's DELIVER path -> PeerLocSrc::peer (tests `crypted_ok && sender_hash`);
+    //   · node_channel.cpp's ingest_channel_m -> PeerLocSrc::team (§chan-crypt CL2b; the seal under the shared team
+    //     content key IS the trust anchor per owner ruling O5, and the test there is ATTRIBUTION — resolving the
+    //     sender's full key_hash32 from `_team_keys` and cross-checking the msg-id's 16 hash bits).
     bool              peer_loc_set(uint32_t key_hash32, int32_t lat_e7, int32_t lon_e7, PeerLocSrc src);
     // The read twin. `age_s` is derived from the stored second-stamp against `_hal.now()` — see PeerLoc::t_s for the
     // rollover reasoning and for why a backwards clock reports MAXIMALLY STALE rather than 0. false = no position held
@@ -1243,7 +1250,7 @@ private:
     bool    channel_entry_fully_seen(const ChannelEntry& e) const; // 2026-06-23: every live 1-hop neighbour holds e (or none to serve) -> retire-OK (holder-aware retirement; NOT shared with pick_eviction — opposite nn==0 meaning)
     void    channel_buffer_add(const ChannelEntry& e);             // insert; evict if full (dv:3511)
     void    cancel_channel_pull(uint32_t id, uint8_t overheard_from, bool peer_q = false); // pull cancel: peer_q=true -> a peer's Q pulled it (dv:11831); else we received it (dv:11006)
-    uint16_t do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t body_len, bool crypt = false);  // send_channel origination (dv:12126). §chan-crypt CL2a: crypt=true SEALS the body under the team content key (+ channel_flavor_crypted). Defaulted false so the two OTHER callers — the home's delegated re-originate (handle_channel_post) and src/fw_main.cpp's `testch` workload — stay plaintext by construction.
+    uint16_t do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t body_len, bool crypt = false, bool with_location = false);  // send_channel origination (dv:12126). §chan-crypt CL2a: crypt=true SEALS the body under the team content key (+ channel_flavor_crypted). §chan-crypt CL2b: with_location=true also packs THIS node's pack_loc6 position into the sealed inner (bit1) — it REQUIRES crypt (Node::on_command refuses `-l` on any post that would not be sealed, ruling O6) and is ignored without it, so a position can never reach a plaintext body. BOTH defaulted false so the two OTHER callers — the home's delegated re-originate (handle_channel_post) and src/fw_main.cpp's `testch` workload — stay plaintext AND position-free by construction.
 #if MR_FEAT_MOBILE
     bool    do_send_channel_delegated(uint8_t channel_id, const uint8_t* body, uint8_t body_len);  // §S7 T-B: a registered mobile delegates a GLOBAL/leaf channel post to its home (MOBILE_SEND wrapper, enclosed DATA_TYPE_CHANNEL_POST). false = no home (off-grid) -> caller fails loud.
 #endif

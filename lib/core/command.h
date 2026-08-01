@@ -42,7 +42,14 @@ enum class CryptIntent : uint8_t { def = 0, on, off };
 // byte before text+position can coexist). Node::enqueue_data validates it and REFUSES the send if the DM would not be sealed.
 struct SendCmd        { uint8_t dst_id; uint32_t dst_hash; uint8_t flags; uint8_t plane; };   // Wave 2: plane 0=AUTO (companion/sim default -> today's cascade), 1=TEAM (`-t`), 2=GLOBAL (plain `send`). Host-side only, NOT on the wire.
 struct SendLayerCmd   { uint8_t hops[protocol::gw_env_max_hops]; uint8_t hop_count; uint32_t dst_hash; uint8_t flags; };   // flags honored on the cross-layer DM (E2E_ACK_REQ -> Y acks via the reversed path, Slice 4d/e2e)
-struct SendChannelCmd { uint8_t channel_id; bool team; bool global; };   // §S7 T-B DM-symmetric plane select: team=`-t` (TEAM), global=`-g` (explicit GLOBAL). Plain (neither) => GLOBAL. `-t -g` => BOTH. Static: plain=leaf, `-t` refused. Host-side only, NOT on the wire. ★ §chan-crypt CL1: the `-e` intent does NOT live here — it rides Command::crypt, the one field every verb's per-message crypt intent uses (U1). on_command refuses `-e` without `-t` (a global channel has no key) and `-t -g -e` (the clear global copy would defeat the seal).
+// ★ §chan-crypt CL2b: `loc` = the console `-l`, "attach THIS node's position to THIS post". It gets a field of its
+// own rather than riding a flags word: `SendCmd::flags` carries DATA_FLAG_LOCATION because a DM's location IS a DATA
+// frame flag, but a channel post has no DATA flags at all — its position rides the SEALED INNER's flags byte
+// (protocol::channel_inner_flag_location), which is a different wire field with a different width. Borrowing the DATA
+// bit here would name a wire field this command never touches. Costs 0 bytes of `Command` (the union is sized by
+// SendLayerCmd) and defaults false, so the two hand-built producers (`testch`, the sim wrapper) are inert by
+// construction. on_command refuses it whenever the post would NOT actually be sealed (spec §2.2.1, ruling O6).
+struct SendChannelCmd { uint8_t channel_id; bool team; bool global; bool loc; };   // §S7 T-B DM-symmetric plane select: team=`-t` (TEAM), global=`-g` (explicit GLOBAL). Plain (neither) => GLOBAL. `-t -g` => BOTH. Static: plain=leaf, `-t` refused. Host-side only, NOT on the wire. ★ §chan-crypt CL1: the `-e` intent does NOT live here — it rides Command::crypt, the one field every verb's per-message crypt intent uses (U1). on_command refuses `-e` without `-t` (a global channel has no key) and `-t -g -e` (the clear global copy would defeat the seal).
 struct JoinCmd        { enum Op : uint8_t { discover, claim, deny } op; uint8_t node_id; uint32_t claimant_hash; };
 // Diagnostic: locate the node owning key_hash32 (the hash-locate H flood); the answer rides
 // PushKind::hash_resolved. hard = skip caches, reach the owner (verify-on-use). NO body — notify-only,

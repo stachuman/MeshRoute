@@ -685,10 +685,13 @@ static void dump_help(Print& out) {
     hl(F("    -l = attach this node's position to THIS message. REFUSED unless the DM is SEALED (use -e, or `cfg set e2e_dm 1`),"));
     hl(F("         refused if this node has no fix (set lat/lon), and refused as too_large if the +6 B no longer fits."));
     hl(F("         Replaces the removed `cfg set loc_dm`, which aired coordinates in the clear."));
-    hl(F("  send_channel <ch> \"<text>\" [-t] [-g] [-e]   -t=team plane  -g=explicit global  `-t -g`=BOTH planes  plain=global"));
+    hl(F("  send_channel <ch> \"<text>\" [-t] [-g] [-e] [-l]   -t=team plane  -g=explicit global  `-t -g`=BOTH  plain=global"));
     hl(F("    -e = seal the post to the TEAM content key. Valid ONLY as `-t -e`: a global channel has no key, and"));
-    hl(F("         `-t -g -e` is refused because the global copy would air the same text in the clear. (`-t -e` itself"));
-    hl(F("         is not built yet — it refuses `unsealable` until the channel-crypt slice lands.)  No -a, no -l."));
+    hl(F("         `-t -g -e` is refused because the global copy would air the same text in the clear. With a key held,"));
+    hl(F("         `-t` seals by DEFAULT (`cfg set team_channel_crypt 0` opts out).  No -a on this verb."));
+    hl(F("    -l = attach this node's position INSIDE the seal. `-t -l -e` sends text AND position in one sealed post."));
+    hl(F("         REFUSED whenever the post would not actually be sealed (no team, no key, crypt off, or `-t -g`),"));
+    hl(F("         and refused `no_location` with no fix. Max text 173 B sealed, 167 B with -l."));
     hl(F("  send_layer <0xhash> <l1,l2,…> \"<text>\" [-a] [-e]   explicit cross-layer destination path; -e=encrypt (sealed relay); -l is refused (cross-layer carries no position)"));
     hl(F(""));
     hl(F("IDENTITY / KEYS"));

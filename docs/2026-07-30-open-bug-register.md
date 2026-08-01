@@ -126,6 +126,12 @@ gate; an agent handed only the file above would have reproduced every failure th
   narrower/louder than described" and "the reference implementation I was told to copy is itself broken", both of
   which have happened. ⚠ **V1 applies to comments too: verifying that a comment exists is not verifying that it
   is true.** A drifted note cost a whole extra defective site on 2026-07-30.
+- ⚠⚠ **RESTORING A PROBED FILE IS NOT ENOUGH — PROVE THE REBUILD HAPPENED. Three incidents now, and the two build
+  systems need OPPOSITE fixes:** **ninja** (the sim) keys on **mtime**, so `cp -a`/`cp -p` restore a file the build then
+  **skips** ⇒ **`touch` it after restoring**; **PlatformIO** keys on a **content signature**, so `touch` does NOTHING
+  ⇒ **delete the `.o`.** ★ **In both cases the control is the same: the rebuilt binary's md5 must return to its clean
+  value.** `§cl2b` ran a whole probe pass on contaminated binaries and caught it only because the post-restore corpus
+  showed 5 phantom movers.
 - ★★ **DURABLE OUTPUT GOES IN YOUR REPORT, NEVER ONLY IN A SCRATCHPAD** — a proven 33-assert scenario was **LOST** this
   way. ⚠⚠ **AND THE SESSION SCRATCHPAD IS SHARED BETWEEN CONCURRENT SESSIONS** (proven 2026-07-31: another agent's
   `before/`/`after/`/`pristine/` directories were already present, and its files appeared **mid-slice**). ⇒ **prefix EVERY
@@ -258,6 +264,23 @@ only"*; **this is why.**
 fix re-anchors scenarios **and** re-baselines a documented probe expectation ⇒ **it must be its own slice, and §0's P-T1
 row must be updated in the same commit.** ★ **Payoff: it would make the whole `err_*` family assertable in scenarios** —
 the single biggest coverage gain available to this corpus. Note: `§err-reason`.
+
+### B35 — `ingest_channel_m`'s self-skip is **PLANE-BLIND** ⇒ a teammate's posts can be SILENTLY SWALLOWED · NEW 2026-08-01
+`ingest_channel_m:252` skips on `origin != _node_id` — comparing a **TEAM-plane origin** against the **STATIC node id**.
+On a **registered (dual) member** those are different id spaces, so a teammate whose `team_local_id` numerically equals
+our static `node_id` has its channel posts **silently dropped: no inbox row, no push, and (since `§cl2b`) no retained
+position — while the flood still relays them.** §18 numeric-collision class; **predates CL2a**, found by `§cl2b`, not
+fixed (C1). ⚠ **Silent** is the severity: the sender sees a normal post, the receiver sees nothing, and no telemetry
+names it. Note: `§cl2b`.
+
+### B36 — a located DM's position reaches **no app surface** — `send -l` is only visible via the address book · NEW 2026-08-01
+`Push::has_location/lat_e7/lon_e7` are set at `node_mac_rx.cpp:1196` and **consumed by nothing**: `write_push`'s
+`msg_recv` arm emits no coordinates, the console renderer prints none, `record_dm` has no location field. **QA-verified:**
+the only `has_location` consumer in `console_json.cpp` is **`write_peer_row`** — AB4's peers row, a different struct.
+⇒ ★ **CL3 shipped `send -l` and its position becomes visible ONLY through the address book (`§ab4`).** `§cl2b` mirrored
+that deliberately rather than forking a richer channel surface, so **the per-message JSON carries no coordinates on
+EITHER plane** — consistent, but probably not what an app author expects. ⚠ **Fixing it is a contract addition on BOTH
+planes and its own slice** — decide whether a position belongs on the message or only on the contact. Note: `§cl2b`.
 
 ### B31 — `key_hash_for_id` is neither **authoritative**- nor **TTL**-gated · NEW 2026-07-31
 After `§idbind-loop` it shares its loop idiom with `key_hash_of_id`, but **not that sibling's gating** — so it can answer

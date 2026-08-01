@@ -317,7 +317,11 @@ location half is *separable*: it **depends on** the crypto half but the crypto h
 - **CL2a (as designed) — THE CRYPTO.** `channel_flavor_crypted`, seal/open, the nonce (below), the carried `[seal_ctr][seed8]`, the
   un-keyed-receiver drop + `team_channel_no_key`, `record_channel(enc=1)`, `team_channel_crypt` default-ON.
   ⇒ **delivers `send_channel -t -e` working**, which is the owner's primary goal and benchable on its own.
-- **CL2b — THE LOCATION.** The `inner_type` **flags byte** + `pack_loc6` (§2.2.1), `-l` on `send_channel` and its
+- ✅ **CL2b — BUILT 2026-08-01 (`§cl2b`), QA GO, committed. ⇒ THE ARC IS COMPLETE: `send_channel -t -l -e` works.**
+  Flags byte + `pack_loc6`, O6 live, AB4's `loc_src:"team"` lit up. 36/36 byte-identical, `sizeof(Node)` unchanged, no
+  `wire_version` bump (the inner is entirely inside the ciphertext). ⚠ **My O6 matrix omitted one row: `-t -g -l`
+  without `-e` is also refused.** Evidence: `BASELINE.md` note `§cl2b`.
+- **CL2b (as designed) — THE LOCATION.** The `inner_type` **flags byte** + `pack_loc6` (§2.2.1), `-l` on `send_channel` and its
   refusals per O6, §2.4's crypted-flavour rule, and the hook that lights up **AB4's `peer_loc_set(…, PeerLocSrc::team)`**
   — which AB4 left as one call, no schema change.
 
