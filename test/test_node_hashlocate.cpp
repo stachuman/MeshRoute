@@ -2386,10 +2386,17 @@ TEST_CASE("§AB3 view — §18: one number answering in BOTH planes reports BOTH
 // A test that only checked "hashof answers" would pass with the forbidden fix in place; these three CHECK_FALSEs are
 // what makes it a test of the RIGHT fix.
 TEST_CASE("§AB3 §2.5 regression — after reqpubkey <team-id>, the id RESOLVES via the view and _id_bind is NOT written") {
-    TestHal hal; Node node(hal, /*id=*/114, /*key=*/0x7114A11Au);
+    const Identity self = ab3_identity(114);
+    TestHal hal; Node node(hal, /*id=*/114, self.key_hash32);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
     cfg.is_mobile = true; cfg.team_id = 0xABCD1234u;
     node.on_init(cfg); node.set_team_local_id(114);
+    // ⚠ CHANGED 2026-08-01 (§id-hash S1b, QA finding P1c): this fixture used to run WITHOUT a crypto identity and
+    // assert `queued` below — and that assertion was the false-success P1c is about. `emit_hash_query` bails at
+    // `want_pubkey && !_crypto_ready` and airs nothing, so the old `queued` was firmware reporting a flood that never
+    // happened, and the test was pinning it. The fixture now provisions an identity, which makes the send REAL and
+    // lets the same line assert `aired` too. The no-identity path gets its own test (err_no_identity), below.
+    node.set_crypto_identity(self.x_secret, self.ed_pub);
     hal._now = 100000;
 
     const Identity peer = ab3_identity(51);           // the bench's 0x6C297145
@@ -2409,6 +2416,7 @@ TEST_CASE("§AB3 §2.5 regression — after reqpubkey <team-id>, the id RESOLVES
     rq.u.resolve.plane = static_cast<uint8_t>(Plane::TEAM);
     const CmdResult rr = node.on_command(rq);
     CHECK(rr.code == CmdCode::queued);                // it KNEW the hash — err_no_binding would mean it did not
+    CHECK(rr.aired);                                  // ★ §id-hash S1b: and a frame really went out for it
     uint32_t resolved = 0;
     CHECK(node.team_key_of_id(228, resolved));
     CHECK(resolved == peer.key_hash32);               // ★ the SAME function the view's team arm reads
@@ -2718,4 +2726,668 @@ TEST_CASE("§AB4 — the ring is RAM-ONLY and its cap is the team-scale 16 (so t
     CHECK(node.peer_loc_count() == 0);
     int32_t lat = 1, lon = 2; uint32_t age = 3; Node::PeerLocSrc src = Node::PeerLocSrc::team;
     CHECK_FALSE(node.peer_loc_find(0x0777A777u, lat, lon, age, src));   // not even for ITS OWN hash
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════
+// ★★★ §id-hash S1 (spec docs/superpowers/specs/2026-08-01-id-to-hash-resolution-design.md §1-A / §3-D9)
+//
+// THE DEFECT, bench-proven 2026-08-01 and reproduced as an executable BEFORE-arm below: `reqpubkey <bare id>`
+// resolved id -> hash through `team_key_of_id` ALONE, whose first line is
+//     if (_cfg.team_id == 0 || !is_team_peer(id)) return false;                     (node_routing.cpp:842)
+// ⇒ on a STATIC node the verb could not succeed for ANY id, while `hashof <id>` answered the same number
+// happily out of `_id_bind`. Two verbs, one question, two tables — §AB3's own diagnosis, whose fix landed on
+// `hashof` and never here.
+//
+// ⚠ COVERAGE NOTE (why this lives in native and not in a scenario): the sim's console has NO by-id reqpubkey
+// at all — `NodeRuntimeWrapper.cpp:909` parses `reqpubkey <hex>` only and hard-sets `dst_id = 0`. So the
+// corpus cannot reach this arm even though it DOES execute the surrounding reqpubkey code (s22). Measured,
+// not assumed; see the BASELINE note's poison matrix.
+//
+// ★★ EVERY NODE BELOW INSTALLS A CRYPTO IDENTITY, and that is load-bearing rather than boilerplate: a
+// WANT_PUBKEY query bails at `if (want_pubkey && !_crypto_ready)` (node_hashlocate.cpp:1524) with
+// `h_want_pubkey_no_identity` and NO flood. Without an identity, "no h_tx after a refusal" would be true for
+// a SUCCESS too — i.e. the airtime assertions would be vacuous. The first test's positive `h_tx != nullptr`
+// is the control that proves they are not. (Found the hard way: the first draft of this block had no
+// identity and that assertion was the only thing that failed.)
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+namespace {
+// A reqpubkey Command in the exact shape console_parse.cpp now produces. plane: 0 = AUTO (a bare `reqpubkey <id>`),
+// 1 = TEAM (`-t`), 2 = GLOBAL/static (`-s`).
+Command s1_reqpubkey_by_id(uint8_t id, uint8_t plane) {
+    Command c{}; c.kind = CmdKind::reqpubkey;
+    c.u.resolve.dst_hash = 0; c.u.resolve.dst_id = id; c.u.resolve.hard = true; c.u.resolve.plane = plane;
+    return c;
+}
+}  // namespace
+
+TEST_CASE("§id-hash S1 — reqpubkey <id> RESOLVES ON THE STATIC PLANE (the bench defect: it could not, for any id)") {
+    const Identity self = ab3_identity(101);
+    TestHal hal; Node node(hal, /*id=*/42, self.key_hash32);            // spec §0's bench node: static 42
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    cfg.team_id = 0;                                                   // ★ A PURE STATIC NODE — no team plane at all
+    node.on_init(cfg); node.set_crypto_identity(self.x_secret, self.ed_pub);
+    hal._now = 100000;
+
+    const uint32_t k186 = 0x61CD83EAu;                                 // spec §0: `hashof 186` answered this
+    CHECK(node.test_id_bind_set(/*id=*/186, k186, /*authoritative=*/true));
+
+    // ---- THE BEFORE-ARM, executable: the OLD resolver refuses this id outright, on a node that plainly knows it.
+    uint32_t team_answer = 0;
+    CHECK_FALSE(node.team_key_of_id(186, team_answer));                // <- the WHOLE of the old resolution path
+    uint32_t static_answer = 0;
+    CHECK(node.key_hash_of_id(186, static_answer));                    // ...while the STATIC table answers
+    CHECK(static_answer == k186);                                      // ★ the two tables disagreed; that WAS the bug
+
+    // ---- AFTER: the verb resolves, floods, and ECHOES the hash it flew for + the plane it flew on (§3-D9).
+    hal.events.clear(); hal.tx_frames.clear();
+    const CmdResult r = node.on_command(s1_reqpubkey_by_id(186, /*plane=*/0 /*AUTO — a bare `reqpubkey 186`*/));
+    CHECK(r.code == CmdCode::queued);                                  // was err_no_binding, for every id, forever
+    CHECK(r.dst_hash == k186);                                         // ★ the RESOLVED hash rides the result...
+    CHECK(r.plane == 2);                                               // ...and it resolved on the STATIC plane
+    // ★★ THE POSITIVE CONTROL for every "no h_tx" assertion in this block: a query DOES fly here, so their absence
+    //    elsewhere is a property of the refusal and not of the fixture.
+    const Ev* q = find_ev(hal.events, "h_tx");
+    CHECK(q != nullptr);
+    if (q) CHECK(q->key_hash32 == static_cast<int64_t>(k186));         // ...for the RESOLVED hash, not for 0
+    CHECK(find_ev(hal.events, "h_want_pubkey_no_identity") == nullptr);// the fixture really is crypto-ready
+
+    // The resolver is the SHARED one, so `hashof 186` cannot answer differently (that divergence is the defect class).
+    Node::PeerBookRow st{}, tm{};
+    CHECK(node.peer_book_by_id(186, st, tm) == Node::kPeerBookStatic);
+    CHECK(st.hash == k186);
+}
+
+TEST_CASE("§id-hash S1 — a forced plane must MATCH: `-t` on a static-only node refuses, echoing the plane searched") {
+    const Identity self = ab3_identity(102);
+    TestHal hal; Node node(hal, /*id=*/42, self.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    cfg.team_id = 0;
+    node.on_init(cfg); node.set_crypto_identity(self.x_secret, self.ed_pub);
+    hal._now = 100000;
+    CHECK(node.test_id_bind_set(/*id=*/186, 0x61CD83EAu, /*authoritative=*/true));
+
+    hal.events.clear(); hal.tx_frames.clear();
+    const CmdResult t = node.on_command(s1_reqpubkey_by_id(186, /*plane=*/1 /*`-t`*/));
+    CHECK(t.code == CmdCode::err_no_binding);          // the id is known — but NOT on the plane the operator named
+    CHECK(t.plane == 1);                               // ★ the echo is what lets the console say "drop -t"
+    CHECK(t.dst_hash == 0);                            // nothing resolved, so nothing is echoed as resolved
+    CHECK(find_ev(hal.events, "h_tx") == nullptr);     // ★ a refusal spends NO AIRTIME (control: test 1 flies one)
+    CHECK(hal.tx_frames.empty());
+
+    // `-s` on the same node is the same query the bare form picked, and it succeeds.
+    hal.events.clear();
+    const CmdResult s = node.on_command(s1_reqpubkey_by_id(186, /*plane=*/2 /*`-s`*/));
+    CHECK(s.code == CmdCode::queued);
+    CHECK(s.dst_hash == 0x61CD83EAu);
+    CHECK(s.plane == 2);
+    CHECK(find_ev(hal.events, "h_tx") != nullptr);     // ...and this same fixture CAN fly one
+}
+
+TEST_CASE("§id-hash S1 — an id UNKNOWN in both planes refuses with plane 0 = 'neither', and floods nothing") {
+    const Identity self = ab3_identity(103);
+    TestHal hal; Node node(hal, /*id=*/114, self.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    cfg.is_mobile = true; cfg.team_id = 0xABCD1234u;   // a DUAL-plane node, so "neither" is a real answer not a stub
+    node.on_init(cfg); node.set_crypto_identity(self.x_secret, self.ed_pub); node.set_team_local_id(114);
+    hal._now = 100000;
+
+    hal.events.clear(); hal.tx_frames.clear();
+    const CmdResult r = node.on_command(s1_reqpubkey_by_id(109, /*plane=*/0));   // spec §0's unresolvable 109
+    CHECK(r.code == CmdCode::err_no_binding);
+    CHECK(r.plane == 0);                               // ★ 0 = neither plane was selected, which is the honest echo
+    CHECK(r.dst_hash == 0);
+    CHECK(find_ev(hal.events, "h_tx") == nullptr);     // C2: never flood a query for hash 0
+    CHECK(hal.tx_frames.empty());
+    // SAME-FIXTURE CONTROL: give this node a team binding for 109 and the identical command now flies.
+    node.test_learn_route(/*dest=*/109, /*via=*/109, 1, 40, /*team_plane=*/true);
+    node.team_key_set(/*id=*/109, 0x1090109Au);
+    hal.events.clear();
+    const CmdResult r2 = node.on_command(s1_reqpubkey_by_id(109, /*plane=*/0));
+    CHECK(r2.code == CmdCode::queued); CHECK(r2.plane == 1); CHECK(r2.dst_hash == 0x1090109Au);
+    CHECK(find_ev(hal.events, "h_tx") != nullptr);
+    // ⓘ §3-D9's "unresolved id on a dual-plane node -> require a flag" arm is deliberately NOT implemented in S1, and
+    //   the first half of this test is why it CANNOT be: the refusal happens BEFORE any plane is selected, so a flag
+    //   would change nothing observable. It becomes live in S4a, where an unresolved id does fly a by-id query.
+}
+
+TEST_CASE("§id-hash S1 §3-D9 — one number in BOTH planes refuses err_ambiguous_plane; `-s`/`-t` then pick, and differ") {
+    const Identity self = ab3_identity(104);
+    TestHal hal; Node node(hal, /*id=*/114, self.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    cfg.is_mobile = true; cfg.team_id = 0xABCD1234u;
+    node.on_init(cfg); node.set_crypto_identity(self.x_secret, self.ed_pub); node.set_team_local_id(114);
+    hal._now = 100000;
+
+    // The §18 collision, built exactly as the §AB3 view test builds it: static 20 and TEAM 20 are DIFFERENT peers.
+    const Identity stat = ab3_identity(41), team = ab3_identity(42);
+    CHECK(stat.key_hash32 != team.key_hash32);
+    CHECK(node.test_id_bind_set(/*id=*/20, stat.key_hash32, /*authoritative=*/true));
+    node.test_learn_route(20, 20, 1, 40, /*team_plane=*/true);
+    node.team_key_set(/*id=*/20, team.key_hash32);
+
+    hal.events.clear(); hal.tx_frames.clear();
+    const CmdResult amb = node.on_command(s1_reqpubkey_by_id(20, /*plane=*/0));
+    CHECK(amb.code == CmdCode::err_ambiguous_plane);   // ★ NOT err_no_binding: the remedy is the opposite one
+    CHECK(amb.plane == 0);                             // nothing was selected — that IS the report
+    CHECK(amb.dst_hash == 0);
+    CHECK(find_ev(hal.events, "h_tx") == nullptr);     // ★★ and no airtime is spent guessing: the whole point of D9
+    CHECK(hal.tx_frames.empty());
+
+    // Forced, the two planes give the two DIFFERENT hashes — so guessing would have queried the wrong peer.
+    hal.events.clear();
+    const CmdResult t = node.on_command(s1_reqpubkey_by_id(20, /*plane=*/1));
+    CHECK(t.code == CmdCode::queued); CHECK(t.dst_hash == team.key_hash32); CHECK(t.plane == 1);
+    CHECK(find_ev(hal.events, "h_tx") != nullptr);     // ...the same fixture floods happily once a plane is named
+    CHECK_FALSE(hal.tx_frames.empty());                // (and a real frame reached the radio, not just the emit)
+    hal.events.clear(); hal.tx_frames.clear();
+    const CmdResult s = node.on_command(s1_reqpubkey_by_id(20, /*plane=*/2));
+    CHECK(s.dst_hash == stat.key_hash32); CHECK(s.plane == 2);   // it RESOLVED the static row (the D9 half)
+    CHECK(s.dst_hash != t.dst_hash);                   // ★ the counterfactual: one silent pick = the wrong hash, 50 %
+    // ★★ §id-hash S1b (QA finding P1c) — B47 IS NOW FIXED, AND THIS ASSERTION IS THE PROOF. This fixture is an
+    //    UNREGISTERED (off-grid) mobile, so the GLOBAL query resolves its hash and then bails inside emit_hash_query
+    //    at `want_pubkey && mobile_req && origin == _node_id && !team_scoped` — a mobile's node_id is a LOCAL id the
+    //    owner has no route back to. It airs NOTHING.
+    //    ⚠ THIS LINE USED TO ASSERT `queued`, and that was the false success: the firmware reported a flood that
+    //    provably did not happen, and over BLE it became `{"ev":"reqpubkey_sent"}`. Now the outcome is reported.
+    CHECK(s.code == CmdCode::err_no_gateway);          // ★ was CmdCode::queued — the honest answer for "no way back"
+    CHECK_FALSE(s.aired);                              // ★ and the BLE-visible bit says so, so no reqpubkey_sent
+    CHECK(find_ev(hal.events, "h_want_pubkey_mobile_no_route") != nullptr);
+    CHECK(find_ev(hal.events, "h_tx") == nullptr);
+    CHECK(hal.tx_frames.empty());
+    // ...while the TEAM arm on the SAME node in the SAME test DID air and DID set the bit (the same-fixture control).
+    CHECK(t.aired);
+}
+
+TEST_CASE("§id-hash S1 — the TEAM arm is UNREGRESSED: a bare id on a team-only node still resolves via _team_keys") {
+    const Identity self = ab3_identity(105);
+    TestHal hal; Node node(hal, /*id=*/114, self.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    cfg.is_mobile = true; cfg.team_id = 0xABCD1234u;
+    node.on_init(cfg); node.set_crypto_identity(self.x_secret, self.ed_pub); node.set_team_local_id(114);
+    hal._now = 100000;
+    const Identity peer = ab3_identity(51);
+    node.test_learn_route(/*dest=*/228, /*via=*/228, 1, 40, /*team_plane=*/true);
+    node.team_key_set(/*id=*/228, peer.key_hash32);
+
+    // 228 exists ONLY in the team plane, so the bare form picks TEAM with no flag — the pre-S1 behaviour, preserved.
+    const CmdResult bare = node.on_command(s1_reqpubkey_by_id(228, /*plane=*/0));
+    CHECK(bare.code == CmdCode::queued);
+    CHECK(bare.dst_hash == peer.key_hash32);
+    CHECK(bare.plane == 1);                            // ★ TEAM, chosen because it is the ONLY plane that holds 228
+    // and the explicit `-t` (what every existing caller sends) is identical
+    const CmdResult forced = node.on_command(s1_reqpubkey_by_id(228, /*plane=*/1));
+    CHECK(forced.code == CmdCode::queued); CHECK(forced.dst_hash == peer.key_hash32); CHECK(forced.plane == 1);
+    // ★ AND the negative half §AB3 established: no team answer leaked into the static map (I2).
+    uint32_t sh = 0;
+    CHECK_FALSE(node.key_hash_of_id(228, sh));
+    CHECK(node.id_bind_find_by_hash(peer.key_hash32) == -1);
+}
+
+TEST_CASE("§id-hash S1 — a CLAIMED static binding does not satisfy reqpubkey (the authoritative floor is unchanged)") {
+    const Identity self = ab3_identity(106);
+    TestHal hal; Node node(hal, /*id=*/42, self.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    cfg.team_id = 0;
+    node.on_init(cfg); node.set_crypto_identity(self.x_secret, self.ed_pub);
+    hal._now = 100000;
+    // §3-D6 puts `reqpubkey` at the `claimed` floor — but that needs S3's floor parameter, which does not exist yet.
+    // S1 therefore inherits key_hash_of_id's AUTHORITATIVE-only gate, and this pins that so S3's change is VISIBLE
+    // (an assertion that must flip is worth more than an absent one).
+    CHECK(node.test_id_bind_set(/*id=*/77, 0x77777777u, /*authoritative=*/false));
+    const CmdResult r = node.on_command(s1_reqpubkey_by_id(77, /*plane=*/0));
+    CHECK(r.code == CmdCode::err_no_binding);          // ✖ MISSING (deferred to S3): the `claimed` floor + `actual`
+    CHECK(r.plane == 0);
+    // control: the SAME id at authoritative resolves — so the refusal above is the confidence gate, not the id
+    CHECK(node.test_id_bind_set(/*id=*/77, 0x77777777u, /*authoritative=*/true));
+    const CmdResult r2 = node.on_command(s1_reqpubkey_by_id(77, /*plane=*/0));
+    CHECK(r2.code == CmdCode::queued); CHECK(r2.dst_hash == 0x77777777u); CHECK(r2.plane == 2);
+}
+
+TEST_CASE("§id-hash S1 — the by-HASH form is untouched: same plane, and dst_hash echoes what was asked") {
+    const Identity self = ab3_identity(107);
+    TestHal hal; Node node(hal, /*id=*/42, self.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    node.on_init(cfg); node.set_crypto_identity(self.x_secret, self.ed_pub);
+    hal._now = 100000;
+    Command c{}; c.kind = CmdKind::reqpubkey;
+    c.u.resolve.dst_hash = 0xDEADBEEFu; c.u.resolve.dst_id = 0; c.u.resolve.hard = true;
+    c.u.resolve.plane = 2;                             // what `reqpubkey 0xdeadbeef` has always produced
+    const CmdResult r = node.on_command(c);
+    CHECK(r.code == CmdCode::queued);
+    CHECK(r.dst_hash == 0xDEADBEEFu);                  // the transport echoes THIS, with no lookup of its own
+    CHECK(r.plane == 2);
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════
+// ★★★ §id-hash S2 (spec §1-C plane symmetry / §1-D self-skip) — `peers all` told two different stories about
+// the same condition, one per plane. Bench evidence, spec §0, ONE node:
+//     [peer] hash=0x7B18ADA2 static_id=245(auth)   [peer] team_id=114   <- routable, unidentifiable: LISTED
+//     [route] dest=48  next=186 hops=3             [peers] count=2      <- routable, unidentifiable: INVISIBLE
+//     [route] dest=109 next=186 hops=2
+// ...and the one row it did print for the static plane was OURSELVES (`static_id=42(auth)` on node 42).
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+TEST_CASE("§id-hash S2 §1-D — the book no longer lists US: the self-binding is present in _id_bind and SKIPPED") {
+    const Identity self = ab3_identity(120);
+    TestHal hal; Node node(hal, /*id=*/42, self.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    node.on_init(cfg);
+    hal._now = 100000;
+
+    // ★ THE BEFORE-ARM: the self row really IS in the table (on_init self-seeds it), so the skip below is a live
+    //   filter, not an assertion about an empty table.
+    CHECK(node.id_bind_find_by_hash(self.key_hash32) == 42);
+    uint32_t own = 0;
+    CHECK(node.key_hash_of_id(42, own));                 // ...and it is AUTHORITATIVE, which is why it printed "(auth)"
+    CHECK(own == self.key_hash32);
+
+    BookRows all; node.peer_book_walk(/*include_id_rows=*/true, BookRows::collect, &all);
+    CHECK(all.by_static(42) == nullptr);                 // ★ gone: an address book is a list of OTHERS
+    CHECK(all.by_hash(self.key_hash32) == nullptr);
+    CHECK(all.rows.empty());                             // and on a fresh node that is the WHOLE book
+
+    // CONTROL: a genuine peer still lists, so the filter is `us`, not `everything`.
+    CHECK(node.test_id_bind_set(/*id=*/186, 0x61CD83EAu, /*authoritative=*/true));
+    BookRows all2; node.peer_book_walk(/*include_id_rows=*/true, BookRows::collect, &all2);
+    CHECK(all2.rows.size() == 1);
+    const auto* p = all2.by_static(186);
+    CHECK(p != nullptr);
+    if (p) { CHECK(p->hash == 0x61CD83EAu); CHECK(p->static_authoritative); }
+    CHECK(all2.by_static(42) == nullptr);
+}
+
+TEST_CASE("§id-hash S2 §1-C — a routed-but-unkeyed STATIC dest is now a row, exactly as its team twin already was") {
+    const Identity self = ab3_identity(121);
+    TestHal hal; Node node(hal, /*id=*/42, self.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    cfg.is_mobile = true; cfg.team_id = 0xABCD1234u;     // BOTH planes live, so the symmetry is testable on one node
+    node.on_init(cfg); node.set_team_local_id(114);
+    hal._now = 100000;
+
+    // The bench's three static dests, routed and unbound...
+    node.test_learn_route(/*dest=*/48,  /*via=*/186, 3, 40, /*team_plane=*/false);
+    node.test_learn_route(/*dest=*/59,  /*via=*/186, 2, 40, /*team_plane=*/false);
+    node.test_learn_route(/*dest=*/109, /*via=*/186, 2, 40, /*team_plane=*/false);
+    // ...and the bench's two team ids, routed and unbound — pass (4)'s existing shape, kept as the SYMMETRY CONTROL.
+    node.test_learn_route(/*dest=*/114, /*via=*/114, 1, 40, /*team_plane=*/true);
+    node.test_learn_route(/*dest=*/214, /*via=*/214, 1, 40, /*team_plane=*/true);
+    CHECK(node.rt_count() >= 3);
+
+    BookRows all; node.peer_book_walk(/*include_id_rows=*/true, BookRows::collect, &all);
+    for (uint8_t d : {48, 59, 109}) {
+        const auto* r = all.by_static(d);
+        CHECK(r != nullptr);                             // ★ THE FIX: the static plane finally answers
+        if (r) {
+            CHECK(r->hash == 0);                         // id-only: we route to it, we cannot name it
+            CHECK_FALSE(r->static_authoritative);        // there is no binding to vouch for (the renderer omits the tag)
+            CHECK_FALSE(r->has_key);
+            CHECK(r->team_id == 0);                      // a static row does not borrow the team plane's identity
+        }
+    }
+    CHECK(all.by_team(214) != nullptr);                  // the team twin still works — this is a SYMMETRY fix, not a swap
+    CHECK(all.by_static(42) == nullptr);                 // ...and §1-D still holds: we are not in our own book
+
+    // DEDUP: bind 59 and it collapses to ONE row, the KEYED one — never a duplicate id-only twin.
+    CHECK(node.test_id_bind_set(/*id=*/59, 0x59595959u, /*authoritative=*/true));
+    BookRows all2; node.peer_book_walk(/*include_id_rows=*/true, BookRows::collect, &all2);
+    int n59 = 0; for (const auto& r : all2.rows) if (r.static_id == 59) ++n59;
+    CHECK(n59 == 1);
+    const auto* r59 = all2.by_static(59);
+    if (r59) { CHECK(r59->hash == 0x59595959u); CHECK(r59->static_authoritative); }
+    // ★ AND the dedup is against _id_bind MEMBERSHIP, not against key_hash_of_id: a CLAIMED binding is invisible to
+    //   that accessor but pass (2) still emits it, so testing through the accessor would print 48 twice.
+    CHECK(node.test_id_bind_set(/*id=*/48, 0x48484848u, /*authoritative=*/false));
+    uint32_t unused = 0;
+    CHECK_FALSE(node.key_hash_of_id(48, unused));        // <- the accessor says "nothing here"...
+    BookRows all3; node.peer_book_walk(/*include_id_rows=*/true, BookRows::collect, &all3);
+    int n48 = 0; for (const auto& r : all3.rows) if (r.static_id == 48) ++n48;
+    CHECK(n48 == 1);                                     // ...and the book still emits exactly one row for 48
+}
+
+TEST_CASE("§id-hash S2 §2.6(a) — the JSON book (include_id_rows=false) is UNTOUCHED by the new pass") {
+    const Identity self = ab3_identity(122), peer = ab3_identity(123);
+    TestHal hal; Node node(hal, /*id=*/42, self.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    node.on_init(cfg);
+    hal._now = 100000;
+    CHECK(node.peer_key_set(peer.key_hash32, peer.ed_pub, Node::PeerKeyConf::authoritative, "P", 1));
+    for (uint8_t d = 50; d < 60; ++d) node.test_learn_route(d, 186, 2, 40, /*team_plane=*/false);
+
+    BookRows bounded; const uint16_t nb = node.peer_book_walk(/*include_id_rows=*/false, BookRows::collect, &bounded);
+    CHECK(nb == 1);                                      // ★ only the _peer_keys row — no route rows leaked into it
+    CHECK(bounded.rows.size() == 1);
+    CHECK(bounded.rows[0].hash == peer.key_hash32);
+    // ...while the diagnostic form sees all ten. That difference IS the §2.6(a) bound the BLE transport relies on.
+    BookRows all; const uint16_t na = node.peer_book_walk(/*include_id_rows=*/true, BookRows::collect, &all);
+    CHECK(na == 11);
+    for (uint8_t d = 50; d < 60; ++d) CHECK(all.by_static(d) != nullptr);
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════
+// ★★★ §id-hash S2b (spec §1-E) — id_bind_set was NOT upgrade-only. A LIVE bug, needing no new feature:
+// `_id_bind[i].confidence = incoming` ran unconditionally on a matching row, so one relayed soft H answer
+// (h_relay/claimed, node_hashlocate.cpp:1252) DEMOTED a first-hand beacon binding, and key_hash_of_id — which
+// hard-filters non-authoritative rows (:148) — then refused DST_HASH for that peer until the next beacon.
+// The sibling store peer_key_set has had the opposite (correct) rule since Phase 1 (:255-261).
+//
+// ⓘ The fixture drives `claimed` through test_id_bind_set (source `bcn`). The demotion is a function of
+// CONFIDENCE alone, so this is the faithful shape of the h_relay path; `source` itself has no public reader
+// and deliberately did not gain one for a test (C1).
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+TEST_CASE("§id-hash S2b §1-E — a CLAIMED sighting cannot demote an AUTHORITATIVE binding (the seal path survives)") {
+    TestHal hal; Node node(hal, /*id=*/42, /*key=*/0xD0D0D0D0u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    node.on_init(cfg);
+    hal._now = 1000;
+    const uint32_t H = 0x61CD83EAu;
+
+    CHECK(node.test_id_bind_set(/*id=*/186, H, /*authoritative=*/true));    // a first-hand beacon
+    uint32_t out = 0;
+    CHECK(node.key_hash_of_id(186, out)); CHECK(out == H);                  // the seal/DST_HASH path can use it
+
+    hal._now = 2000;
+    CHECK(node.test_id_bind_set(/*id=*/186, H, /*authoritative=*/false));   // ★ the relayed claim, SAME hash
+    Node::IdBindConf conf = Node::IdBindConf::claimed;
+    CHECK(node.id_bind_find_by_hash(H, &conf) == 186);
+    CHECK(conf == Node::IdBindConf::authoritative);                         // ★ NOT demoted (was: claimed)
+    out = 0;
+    CHECK(node.key_hash_of_id(186, out));                                   // ★ and the reader still answers
+    CHECK(out == H);
+    // ...and the display agrees, so `peers`/`hashof` cannot report a downgrade that did not happen.
+    BookRows all; node.peer_book_walk(/*include_id_rows=*/true, BookRows::collect, &all);
+    const auto* r = all.by_static(186);
+    CHECK(r != nullptr);
+    if (r) CHECK(r->static_authoritative);
+}
+
+TEST_CASE("§id-hash S2b — UPGRADE still applies, and a claimed row still refreshes on a claimed sighting") {
+    TestHal hal; Node node(hal, /*id=*/42, /*key=*/0xD1D1D1D1u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.id_bind_ttl_ms = 5000;
+    node.on_init(cfg);
+    const uint32_t H = 0x77778888u;
+
+    hal._now = 1000;
+    CHECK(node.test_id_bind_set(/*id=*/90, H, /*authoritative=*/false));    // claimed first
+    Node::IdBindConf conf = Node::IdBindConf::authoritative;
+    CHECK(node.id_bind_find_by_hash(H, &conf) == 90); CHECK(conf == Node::IdBindConf::claimed);
+    uint32_t out = 0;
+    CHECK_FALSE(node.key_hash_of_id(90, out));                              // claimed is below the seal floor
+
+    // (a) claimed -> claimed REFRESHES: an unverified row's lease is its own to extend.
+    hal._now = 1000 + 4000;
+    CHECK(node.test_id_bind_set(/*id=*/90, H, /*authoritative=*/false));
+    hal._now = 1000 + 4000 + 4000;                                          // > TTL from the FIRST sighting
+    CHECK(node.id_bind_find_by_hash(H) == 90);                              // still alive -> it was refreshed
+
+    // (b) claimed -> AUTHORITATIVE upgrades (the direction the fix must NOT block).
+    CHECK(node.test_id_bind_set(/*id=*/90, H, /*authoritative=*/true));
+    conf = Node::IdBindConf::claimed;
+    CHECK(node.id_bind_find_by_hash(H, &conf) == 90); CHECK(conf == Node::IdBindConf::authoritative);
+    out = 0;
+    CHECK(node.key_hash_of_id(90, out)); CHECK(out == H);
+}
+
+TEST_CASE("§id-hash S2b — a CLAIMED sighting does not extend an AUTHORITATIVE row's lease (owner-specified)") {
+    TestHal hal; Node node(hal, /*id=*/42, /*key=*/0xD2D2D2D2u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.id_bind_ttl_ms = 5000;
+    node.on_init(cfg);
+    const uint32_t H = 0x99990000u;
+
+    hal._now = 1000;
+    CHECK(node.test_id_bind_set(/*id=*/91, H, /*authoritative=*/true));     // first-hand at t=1000
+    hal._now = 1000 + 4000;
+    CHECK(node.test_id_bind_set(/*id=*/91, H, /*authoritative=*/false));    // hearsay at t=5000
+    hal._now = 1000 + 5000;                                                 // exactly TTL after the FIRST-HAND one
+    // ★ EXPIRED. Under the old code the claim refreshed last_seen_ms to 5000 and this row would live to t=10000 —
+    //   i.e. a third party's say-so kept a first-hand binding alive. `last_seen_ms` on an authoritative row means
+    //   "when we last had FIRST-HAND evidence", and only first-hand evidence may move it (spec §3-D5c's symmetry).
+    CHECK(node.id_bind_find_by_hash(H) == -1);
+    uint32_t out = 0;
+    CHECK_FALSE(node.key_hash_of_id(91, out));
+    // CONTROL, same fixture, same timings, first-hand instead of hearsay at t=5000 -> the lease DOES move.
+    TestHal h2; Node n2(h2, /*id=*/42, /*key=*/0xD3D3D3D3u);
+    NodeConfig c2; c2.routing_sf = 7; c2.leaf_id = 0; c2.allowed_sf_bitmap = (1u << 12); c2.id_bind_ttl_ms = 5000;
+    n2.on_init(c2);
+    h2._now = 1000;  CHECK(n2.test_id_bind_set(/*id=*/91, H, /*authoritative=*/true));
+    h2._now = 5000;  CHECK(n2.test_id_bind_set(/*id=*/91, H, /*authoritative=*/true));
+    h2._now = 6000;  CHECK(n2.id_bind_find_by_hash(H) == 91);               // alive: an authoritative re-sighting refreshed it
+}
+
+TEST_CASE("§id-hash S2b — the CONFLICT arm is untouched: an authoritative rebind still wins, a claimed one still refuses") {
+    TestHal hal; Node node(hal, /*id=*/42, /*key=*/0xD4D4D4D4u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    node.on_init(cfg);
+    hal._now = 1000;
+    const uint32_t H1 = 0x11112222u, H2 = 0x33334444u;
+    CHECK(node.test_id_bind_set(/*id=*/33, H1, /*authoritative=*/false));   // claimed row for 33
+    CHECK_FALSE(node.test_id_bind_set(/*id=*/33, H2, /*authoritative=*/false));  // a CLAIMED conflict still refuses
+    CHECK(node.id_bind_find_by_hash(H1) == 33);
+    CHECK(node.id_bind_find_by_hash(H2) == -1);
+    CHECK(node.test_id_bind_set(/*id=*/33, H2, /*authoritative=*/true));    // an AUTHORITATIVE conflict still overwrites
+    Node::IdBindConf conf = Node::IdBindConf::claimed;
+    CHECK(node.id_bind_find_by_hash(H2, &conf) == 33); CHECK(conf == Node::IdBindConf::authoritative);
+    CHECK(node.id_bind_find_by_hash(H1) == -1);
+    // ...and the SELF-defence is still the first gate: nothing may rebind our own id away from our own key.
+    CHECK_FALSE(node.test_id_bind_set(/*id=*/42, 0xBADBAD00u, /*authoritative=*/true));
+    uint32_t own = 0; CHECK(node.key_hash_of_id(42, own)); CHECK(own == 0xD4D4D4D4u);
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════
+// ★★★ §id-hash S1b / S2b-fix — the four QA blockers (assessment 2026-08-01), each with its own arm.
+//
+// ★ `ble_claims_sent` below is the fw_main predicate VERBATIM (`src/fw_main.cpp`: `cmd.kind == reqpubkey &&
+//   r.code == queued && r.aired`). `src/` is compiled by neither native nor the simulator, so mirroring the
+//   condition here is the closest a test can get to asserting the BLE-visible disposition — which is what the
+//   assessment asked for, and what the old tests missed by checking only `h_tx` absence.
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+namespace {
+// The exact disposition `{"ev":"reqpubkey_sent"}` is keyed on. Keep in step with src/fw_main.cpp.
+bool ble_claims_sent(const CmdResult& r) { return r.code == CmdCode::queued && r.aired; }
+}  // namespace
+
+TEST_CASE("§id-hash S2b-fix (QA P1a) — a CLAIMED rehome cannot EVICT an authoritative holder of the same hash") {
+    TestHal hal; Node node(hal, /*id=*/42, /*key=*/0xE0E0E0E0u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    node.on_init(cfg);
+    hal._now = 1000;
+    const uint32_t H = 0x61CD83EAu;
+
+    // 1. a first-hand beacon binds H to id 10.
+    CHECK(node.test_id_bind_set(/*id=*/10, H, /*authoritative=*/true));
+    uint32_t out = 0;
+    CHECK(node.key_hash_of_id(10, out)); CHECK(out == H);
+
+    // 2. ★ THE ATTACK, and it is the SAME demotion class S2b exists to remove, arriving through the REVERSE
+    //    uniqueness rule instead of the matching row: a relayed soft answer claims H under a DIFFERENT id. Before
+    //    this fix the new-node_id path called id_bind_evict_other_hash_holders(H, 20) unconditionally, deleting the
+    //    authoritative row, and then inserted {20, H, claimed}.
+    hal.events.clear();
+    CHECK_FALSE(node.test_id_bind_set(/*id=*/20, H, /*authoritative=*/false));   // REFUSED, loudly
+    CHECK(find_ev(hal.events, "addr_rehome_refused") != nullptr);
+
+    // 3. the authoritative binding is intact, and the READER the whole rule protects still answers.
+    out = 0;
+    CHECK(node.key_hash_of_id(10, out)); CHECK(out == H);
+    Node::IdBindConf conf = Node::IdBindConf::claimed;
+    CHECK(node.id_bind_find_by_hash(H, &conf) == 10);
+    CHECK(conf == Node::IdBindConf::authoritative);
+    CHECK(node.key_hash_for_id(20) == 0);                       // and id 20 was never inserted
+    uint32_t none = 0;
+    CHECK_FALSE(node.key_hash_of_id(20, none));
+
+    // 4. ★ POSITIVE CONTROL — the AUTHORITATIVE rehome this eviction exists for still works, on the same fixture.
+    //    Without this, "20 is absent" would be equally true of a fix that broke the rejoin self-heal outright.
+    CHECK(node.test_id_bind_set(/*id=*/20, H, /*authoritative=*/true));
+    CHECK(node.id_bind_find_by_hash(H) == 20);                  // the hash moved...
+    CHECK_FALSE(node.key_hash_of_id(10, none));                 // ...and the stale id-10 row was evicted
+    out = 0;
+    CHECK(node.key_hash_of_id(20, out)); CHECK(out == H);
+}
+
+TEST_CASE("§id-hash S2b-fix (QA P1a) — claimed->claimed rehome stays NEWEST-WINS (owner ruling), self is protected") {
+    TestHal hal; Node node(hal, /*id=*/42, /*key=*/0xE1E1E1E1u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    node.on_init(cfg);
+    hal._now = 1000;
+    const uint32_t H = 0x12345678u;
+
+    // Two CLAIMS have no trust ordering between them, so the newer one still wins — preserving current behaviour is
+    // what keeps this a fix rather than a redesign (C1). Only the AUTHORITATIVE tier is protected.
+    CHECK(node.test_id_bind_set(/*id=*/30, H, /*authoritative=*/false));
+    CHECK(node.id_bind_find_by_hash(H) == 30);
+    CHECK(node.test_id_bind_set(/*id=*/31, H, /*authoritative=*/false));   // accepted
+    CHECK(node.id_bind_find_by_hash(H) == 31);
+    CHECK(node.key_hash_for_id(30) == 0);                                   // ...and 30 was evicted, as before
+
+    // ★ OUR OWN self-binding is authoritative and never expires, so a claim on OUR hash is refused by the same rule —
+    //   the strongest case for it, since losing our own row corrupts every hash-locate answer we give.
+    hal.events.clear();
+    CHECK_FALSE(node.test_id_bind_set(/*id=*/33, 0xE1E1E1E1u, /*authoritative=*/false));
+    CHECK(find_ev(hal.events, "addr_rehome_refused") != nullptr);
+    uint32_t own = 0;
+    CHECK(node.key_hash_of_id(42, own)); CHECK(own == 0xE1E1E1E1u);
+
+    // ★ AN EXPIRED authoritative holder must NOT block: it is invisible to every reader already, so blocking on it
+    //   would freeze the table until the age-out sweep runs. Same TTL gate as key_hash_of_id (U1).
+    TestHal h2; Node n2(h2, /*id=*/42, /*key=*/0xE2E2E2E2u);
+    NodeConfig c2; c2.routing_sf = 7; c2.leaf_id = 0; c2.allowed_sf_bitmap = (1u << 12); c2.id_bind_ttl_ms = 5000;
+    n2.on_init(c2);
+    h2._now = 1000; CHECK(n2.test_id_bind_set(/*id=*/40, H, /*authoritative=*/true));
+    h2._now = 1000; CHECK_FALSE(n2.test_id_bind_set(/*id=*/41, H, /*authoritative=*/false));   // fresh -> blocked
+    h2._now = 1000 + 5000;                                                                     // ...now expired
+    CHECK(n2.test_id_bind_set(/*id=*/41, H, /*authoritative=*/false));                         // -> allowed
+    CHECK(n2.id_bind_find_by_hash(H) == 41);
+}
+
+TEST_CASE("§id-hash S1b (QA P1c) — NO CRYPTO IDENTITY: err_no_identity, nothing aired, and BLE claims nothing") {
+    const Identity self = ab3_identity(130);
+    TestHal hal; Node node(hal, /*id=*/42, self.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    cfg.team_id = 0;
+    node.on_init(cfg);                                   // ★ deliberately NO set_crypto_identity
+    hal._now = 100000;
+    CHECK(node.test_id_bind_set(/*id=*/186, 0x61CD83EAu, /*authoritative=*/true));
+
+    hal.events.clear(); hal.tx_frames.clear();
+    const CmdResult r = node.on_command(s1_reqpubkey_by_id(186, /*plane=*/0));
+    // ★★ THE FALSE SUCCESS THIS REMOVES: the id resolves, so the arm reached emit_hash_query — which bails at
+    //    `want_pubkey && !_crypto_ready` and airs NOTHING, while on_command used to answer `queued` and fw_main then
+    //    rendered `{"ev":"reqpubkey_sent"}`, i.e. "the request was flooded". Both the source comment and the
+    //    companion contract claimed this path "keeps its existing error ack"; there was no such ack.
+    CHECK(r.code == CmdCode::err_no_identity);
+    CHECK_FALSE(r.aired);
+    CHECK_FALSE(ble_claims_sent(r));                     // ★ the BLE-visible disposition, not just telemetry
+    CHECK(r.dst_hash == 0x61CD83EAu);                    // it still says WHICH target, and on which plane
+    CHECK(r.plane == 2);
+    CHECK(find_ev(hal.events, "h_want_pubkey_no_identity") != nullptr);
+    CHECK(find_ev(hal.events, "h_tx") == nullptr);
+    CHECK(hal.tx_frames.empty());
+
+    // ★ SAME-FIXTURE POSITIVE CONTROL: provision an identity and the identical command flies and claims sent.
+    node.set_crypto_identity(self.x_secret, self.ed_pub);
+    hal.events.clear(); hal.tx_frames.clear();
+    const CmdResult ok = node.on_command(s1_reqpubkey_by_id(186, /*plane=*/0));
+    CHECK(ok.code == CmdCode::queued);
+    CHECK(ok.aired);
+    CHECK(ble_claims_sent(ok));
+    CHECK(find_ev(hal.events, "h_tx") != nullptr);
+    CHECK_FALSE(hal.tx_frames.empty());
+}
+
+TEST_CASE("§id-hash S1b (QA P1c) — a DEGENERATE target (our own hash / 0) refuses instead of claiming a flood") {
+    const Identity self = ab3_identity(131);
+    TestHal hal; Node node(hal, /*id=*/42, self.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    node.on_init(cfg); node.set_crypto_identity(self.x_secret, self.ed_pub);
+    hal._now = 100000;
+
+    hal.events.clear(); hal.tx_frames.clear();
+    Command own{}; own.kind = CmdKind::reqpubkey;
+    own.u.resolve.dst_hash = self.key_hash32; own.u.resolve.hard = true; own.u.resolve.plane = 2;
+    const CmdResult r = node.on_command(own);            // `reqpubkey 0x<our own hash>`
+    CHECK(r.code == CmdCode::err_unsupported);           // was `queued` + reqpubkey_sent for a frame that never flew
+    CHECK_FALSE(r.aired);
+    CHECK_FALSE(ble_claims_sent(r));
+    CHECK(find_ev(hal.events, "h_tx") == nullptr);
+    CHECK(hal.tx_frames.empty());
+    // ★ SAME-FIXTURE CONTROL: any OTHER hash on the same node flies.
+    hal.events.clear();
+    Command other = own; other.u.resolve.dst_hash = self.key_hash32 ^ 1u;
+    const CmdResult ok = node.on_command(other);
+    CHECK(ok.code == CmdCode::queued); CHECK(ok.aired); CHECK(ble_claims_sent(ok));
+    CHECK(find_ev(hal.events, "h_tx") != nullptr);
+}
+
+TEST_CASE("§id-hash S1b §3-D9 (QA P2) — the SAME hash in BOTH planes is still TWO planes: ambiguous, and `-t` works") {
+    const Identity self = ab3_identity(132);
+    TestHal hal; Node node(hal, /*id=*/114, self.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    cfg.is_mobile = true; cfg.team_id = 0xABCD1234u;
+    node.on_init(cfg); node.set_crypto_identity(self.x_secret, self.ed_pub); node.set_team_local_id(114);
+    hal._now = 100000;
+
+    // ★ ONE identity, id 20 on BOTH planes — the case the resolver used to de-duplicate away. That de-dup was a
+    //   DISPLAY choice, and S1 turned the mask into an AIRTIME decision, where it produced two wrong answers.
+    const Identity both = ab3_identity(60);
+    CHECK(node.test_id_bind_set(/*id=*/20, both.key_hash32, /*authoritative=*/true));
+    node.test_learn_route(20, 20, 1, 40, /*team_plane=*/true);
+    node.team_key_set(/*id=*/20, both.key_hash32);
+
+    Node::PeerBookRow st{}, tm{};
+    const uint8_t mask = node.peer_book_by_id(20, st, tm);
+    CHECK(mask == (Node::kPeerBookStatic | Node::kPeerBookTeam));   // ★ BOTH bits — was kPeerBookStatic alone
+    CHECK(st.hash == both.key_hash32); CHECK(tm.hash == both.key_hash32);
+    CHECK(tm.team_id == 20);
+
+    // (a) bare AUTO is AMBIGUOUS — it used to silently select STATIC.
+    hal.events.clear(); hal.tx_frames.clear();
+    const CmdResult amb = node.on_command(s1_reqpubkey_by_id(20, /*plane=*/0));
+    CHECK(amb.code == CmdCode::err_ambiguous_plane);
+    CHECK_FALSE(amb.aired);
+    CHECK(find_ev(hal.events, "h_tx") == nullptr);
+
+    // (b) ★ explicit `-t` SENDS — it used to see has_team == false and refuse err_no_binding for a team binding
+    //     that plainly exists. Hash equality never made the two planes' routes or return paths equal.
+    hal.events.clear();
+    const CmdResult t = node.on_command(s1_reqpubkey_by_id(20, /*plane=*/1));
+    CHECK(t.code == CmdCode::queued); CHECK(t.aired); CHECK(t.plane == 1);
+    CHECK(t.dst_hash == both.key_hash32);
+    CHECK(find_ev(hal.events, "h_tx") != nullptr);
+
+    // (c) explicit `-s` resolves the static row (this fixture is an off-grid mobile, so the GLOBAL query has no
+    //     return path and honestly refuses — P1c — but the RESOLUTION half is what `-s` selects and it is correct).
+    const CmdResult s = node.on_command(s1_reqpubkey_by_id(20, /*plane=*/2));
+    CHECK(s.plane == 2); CHECK(s.dst_hash == both.key_hash32);
+    CHECK(s.code == CmdCode::err_no_gateway); CHECK_FALSE(s.aired);
+}
+
+TEST_CASE("§id-hash S1b (QA P1c) — the HOSTED-MOBILE cache hit is a SUCCESS that must not claim a flood") {
+#if MR_FEAT_MOBILE
+    const Identity self = ab3_identity(133), guest = ab3_identity(134);
+    TestHal hal; Node node(hal, /*id=*/42, self.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    node.on_init(cfg); node.set_crypto_identity(self.x_secret, self.ed_pub);
+    hal._now = 100000;
+    // Host the guest with its pubkey via the EXISTING white-box seam (U1) — the full CLAIM+probe path is s22's job.
+    node.test_add_host_mobile(guest.key_hash32, /*local_id=*/200, guest.ed_pub);
+
+    hal.events.clear(); hal.tx_frames.clear();
+    Command c{}; c.kind = CmdKind::reqpubkey;
+    c.u.resolve.dst_hash = guest.key_hash32; c.u.resolve.hard = true; c.u.resolve.plane = 2;
+    const CmdResult r = node.on_command(c);
+    // ★ A GENUINE SUCCESS — the key is cached and the app learns it from the peer_key_cached push — that airs
+    //   NOTHING. `queued` is right; `reqpubkey_sent` ("the request was flooded") is not, and `aired` is the bit
+    //   that lets the transport tell them apart. This is why `aired` is not redundant with `code == queued`.
+    CHECK(r.code == CmdCode::queued);
+    CHECK_FALSE(r.aired);
+    CHECK_FALSE(ble_claims_sent(r));
+    CHECK(find_ev(hal.events, "peer_key_cached") != nullptr);   // the honest report the app actually gets
+    CHECK(find_ev(hal.events, "h_tx") == nullptr);
+    CHECK(hal.tx_frames.empty());
+    uint8_t ed[32];
+    CHECK(node.peer_key_find(guest.key_hash32, ed));            // ...and the key really is available now
+#endif
 }

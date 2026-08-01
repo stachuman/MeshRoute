@@ -551,16 +551,67 @@ static void handle_hashof(const char* arg, size_t n, Print& out) {
         out.print(F(" -> unknown"));
         if (only_team)        out.print(F(" (team plane; drop -t to search both)"));
         else if (only_static) out.print(F(" (static plane; drop -s to search both)"));
-        // ★ §err-reason/B33: the old text here said "try `reqpubkey`" and that advice was CIRCULAR. `reqpubkey <bare id>`
-        // means a team_local_id, so node.cpp's reqpubkey arm resolves id -> hash through team_key_of_id FIRST and
-        // refuses with err_no_binding rather than flood a query for hash 0 — i.e. it needs exactly the beacon-heard hash
-        // this lookup has just reported as MISSING. It is sound advice only for a `reqpubkey 0x<hash>` target. So name
-        // the two remedies that actually work with no hash in hand: a beacon (the on-air source of the binding), or an
+        // ★ §err-reason/B33: the old text here said "try `reqpubkey`" and that advice was CIRCULAR. So name the two
+        // remedies that actually work with no hash in hand: a beacon (the on-air source of the binding), or an
         // out-of-band QR import, which needs no prior hash. U3: same shape as `team grantkey`'s already-correct
         // unheard-target refusal in firmware_config.cpp. ⓘ The sibling `-t`/`-s` lines above are correct — untouched.
-        else                  out.print(F(" (neither plane — no beacon heard, so its key_hash32 is unknown. Remedy: wait for / provoke a beacon from it, or import its QR out-of-band with `peerkey <hex64>`. ⚠ NOT `reqpubkey <id>` — that resolves the id through this very cache and refuses with err_no_binding; only `reqpubkey 0x<hash>` works, and the hash is what is missing)"));
+        // ⚠ V1 2026-08-01 (§id-hash S1): the old wording explained the circularity as *"`reqpubkey <bare id>` means a
+        // team_local_id, so it resolves through team_key_of_id"* — TRUE THEN, STALE NOW. S1 made `reqpubkey <id>` read
+        // `peer_book_by_id`, i.e. THIS VERY VIEW, on BOTH planes. The advice is unchanged and now holds for a stronger
+        // reason: the two verbs share ONE resolver, so `reqpubkey <id>` cannot succeed where `hashof <id>` just failed.
+        else                  out.print(F(" (neither plane — no beacon heard, so its key_hash32 is unknown. Remedy: wait for / provoke a beacon from it, or import its QR out-of-band with `peerkey <hex64>`. ⚠ NOT `reqpubkey <id>` — since §id-hash S1 it resolves through THIS SAME view, so it refuses with err_no_binding for the same reason; only `reqpubkey 0x<hash>` works, and the hash is what is missing)"));
         out.println();
     }
+}
+
+// ★★ §id-hash S1 (spec 2026-08-01 §1-A): a refused `reqpubkey` gets the SAME quality of remedy text handle_hashof
+// above gives — the bare CmdCode (`err_no_binding` / `err_ambiguous_plane`) names the wall, not the way round it, and
+// the way round it is DIFFERENT per refusal. Deliberately in this TU and not in fw_main (U3: fw_main is board/runtime
+// glue; the wording belongs next to handle_hashof's so a future edit sees both).
+// ★ §id-hash S1b (QA P1c) EXTENDS IT to the three send-side refusals emit_hash_query can now report, and those need it
+// MORE than the resolution ones: `err_no_gateway` and `err_too_large` are REUSED codes (U1), so on this verb the token
+// alone is actively confusing — nobody reads "no gateway" as "your mobile has no home to answer through". They apply to
+// the by-HASH form too, so they are handled before the id-only arms.
+void print_reqpubkey_hint(Print& out, const meshroute::Command& cmd, const meshroute::CmdResult& r) {
+    if (cmd.kind != meshroute::CmdKind::reqpubkey) return;
+    const uint8_t id = cmd.u.resolve.dst_id;
+    if (r.code == meshroute::CmdCode::err_no_identity) {
+        out.println(F("> reqpubkey: this node holds NO crypto identity, and the exchange is MUTUAL (our own ed_pub rides"
+                      " the query), so nothing was aired. Remedy: provision an identity (`regen`), then retry."));
+        return;
+    }
+    if (r.code == meshroute::CmdCode::err_no_gateway) {
+        out.println(F("> reqpubkey: nothing aired — this node is an UNREGISTERED mobile, so its id is a LOCAL id the"
+                      " owner has no route back to. Remedy: register with a home (`mobile register`), or ask on the team"
+                      " plane with `-t` if the target is a teammate."));
+        return;
+    }
+    if (r.code == meshroute::CmdCode::err_unsupported) {
+        out.println(F("> reqpubkey: nothing aired — the target is not a queryable peer (hash 0, or this node's own"
+                      " key_hash32). Remedy: name another node's hash or id."));
+        return;
+    }
+    if (r.code == meshroute::CmdCode::err_ambiguous_plane) {
+        // §3-D9: BOTH planes hold this number, and they may be different peers (§18). Refusing beats guessing here
+        // because the next step spends AIRTIME at a hash we picked for the operator.
+        out.print(F("> reqpubkey: id ")); out.print(id);
+        out.println(F(" resolves in BOTH planes (§18: a static node_id and a team local id may be the same number, and"
+                      " need not be the same peer). Remedy: say which — `reqpubkey <id> -s` (static) or `-t` (team)."
+                      " `hashof <id>` prints both rows with their hashes."));
+        return;
+    }
+    if (r.code != meshroute::CmdCode::err_no_binding || id == 0) return;
+    out.print(F("> reqpubkey: no id->hash binding for ")); out.print(id);
+    if (r.plane == 0)      out.println(F(" in EITHER plane. A pubkey request must be addressed to a key_hash32, and no"
+                                        " beacon has bound this id to one. Remedy: wait for / provoke a beacon from it,"
+                                        " import its QR with `peerkey <hex64>`, or use `reqpubkey 0x<hash>` directly."
+                                        " `hashof <id>` reads the same view and will agree."));
+    else if (r.plane == 1) out.println(F(" on the TEAM plane (searched because of `-t`). Remedy: drop `-t` to search"
+                                        " both planes, or wait for that teammate's beacon — the team key cache is fed"
+                                        " ONLY by a directly-heard same-team beacon."));
+    else                   out.println(F(" on the STATIC plane (searched because of `-s`). Remedy: drop `-s` to search"
+                                        " both planes, or wait for that node's beacon — only an AUTHORITATIVE (first-hand"
+                                        " beacon / owner-confirmed) binding qualifies."));
 }
 
 // ★★ §AB3 `peers` / `peers all` — the GENERATED address book as text (spec §2.1). The bounded form (rows backed by the
@@ -572,7 +623,12 @@ static void peers_text_row(const meshroute::Node::PeerBookRow& r, void* ctx) {
     out.print(F("[peer]"));
     if (r.hash) { out.print(F(" hash=0x")); out.print(r.hash, HEX); }
     if (r.name_len) { out.print(F(" name=\"")); out.write(r.name, r.name_len); out.print('"'); }
-    if (r.static_id) { out.print(F(" static_id=")); out.print(r.static_id); out.print(r.static_authoritative ? F("(auth)") : F("(claimed)")); }
+    // ★ §id-hash S2: the (auth)/(claimed) suffix is printed ONLY when there is a hash to be authoritative ABOUT. An
+    // id-only row (the new `_rt` pass 2b, and pass 2's hash==0 shape) holds NO binding at all, and labelling that
+    // `static_id=48(claimed)` would report a claim nobody made — the opposite of the honesty this dump exists for.
+    // A bare `static_id=48` reads correctly: we route to it, we cannot name it.
+    if (r.static_id) { out.print(F(" static_id=")); out.print(r.static_id);
+                       if (r.hash) out.print(r.static_authoritative ? F("(auth)") : F("(claimed)")); }
     if (r.team_id)   { out.print(F(" team_id="));   out.print(r.team_id); }
     if (r.has_key) { out.print(F(" conf=")); out.print(meshroute::console::peerkeyconf_name(r.conf));
                      out.print(F(" confirmed=")); out.print(r.peer_confirmed ? 1 : 0); }

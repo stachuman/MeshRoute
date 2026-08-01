@@ -112,6 +112,20 @@ public:
     // dedup-by-hash; claimed (beacon / cached / snooped) refuses a same-id conflict.
     enum class IdBindSource : uint8_t { self = 0, bcn = 1, h_query = 2, h_relay = 3 };
     enum class IdBindConf   : uint8_t { claimed = 0, authoritative = 1 };
+    // ★★★ §id-hash S1b (2026-08-01, QA finding P1c): emit_hash_query's DISPOSITION. It used to be `void` with FOUR
+    // silent early-outs, and `on_command`'s reqpubkey arm returned `queued` regardless — which the BLE transport then
+    // turned into `{"ev":"reqpubkey_sent"}`, i.e. the contract's "the on-air request was flooded", for a request that
+    // provably never left the node. ⇒ the originator now REPORTS, and the command arm maps the report to an honest
+    // CmdCode. ⓘ Widening `void` -> this enum changed ZERO call sites: all four other callers already discarded the
+    // (absent) return, and there is no [[nodiscard]] — so this is not the caller sweep C1 would have made a separate
+    // slice, it is a return-type widening plus one reader.
+    enum class HQueryOutcome : uint8_t {
+        sent = 0,          // a frame reached tx_initiating — the ONLY value that may claim `reqpubkey_sent`
+        degenerate,        // key_hash32 == 0, or it is OUR OWN hash: there is no other node to ask
+        no_identity,       // want_pubkey with no crypto identity — the MUTUAL exchange needs our ed_pub
+        no_return_route,   // a mobile whose origin is still its own LOCAL id and is not team-scoped: no way back
+        encode_failed      // pack_h refused (the frame did not fit the buffer)
+    };
     // overheard < authoritative < pinned. pinned = a QR/manually-scanned key (E2E provisioning §1): the MITM-resistant
     // tier — NEVER overwritten by an on-air answer, NEVER LRU-evicted, NEVER aged out (NV-backed on device).
     enum class PeerKeyConf  : uint8_t { overheard = 0, authoritative = 1, pinned = 2 };
@@ -958,6 +972,9 @@ private:
     // sender's key_hash32) + self + hash-bind responses.
     bool    id_bind_set(uint8_t node_id, uint32_t key_hash32, IdBindSource source, IdBindConf confidence); // insert/update; dedup-by-hash; authoritative overwrites a conflict, claimed refuses
     uint8_t id_bind_evict_other_hash_holders(uint32_t key_hash32, uint8_t keep_node_id);   // rejoin self-heal: one hash -> one node_id
+    // ★ §id-hash S2b-fix (QA P1a): the CONFIDENCE guard on that self-heal — the node_id (>= 0) that holds this hash
+    // AUTHORITATIVELY and is not `except_node_id`, else -1. Gates are key_hash_of_id's verbatim (U1).
+    int     id_bind_auth_holder_other(uint32_t key_hash32, uint8_t except_node_id) const;
     void    id_bind_age_out();                                    // drop expired (TTL); emit id_bind_aged
     // ★ §AB3 view internals (node_hashlocate.cpp). peer_book_fill_from_peer_key does the reverse (hash -> id) JOINS.
     int     peer_key_slot_of(uint32_t key_hash32) const;                         // _peer_keys index, or -1 (NOT age-gated)
@@ -997,7 +1014,7 @@ private:
     uint16_t send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def, uint32_t reply_to_hash = 0, uint16_t mobile_ctr = 0, Plane plane = Plane::AUTO, uint8_t type = 0, bool suppress_intro = false); // authoritative binding -> send now; soft/unknown -> park + flood (soft binding -> HARD verify). §mobile: reply_to_hash!=0 = the HOME re-originating for its mobile (stamps SOURCE_HASH=mobile hash); reply_to_hash==0 + is_mobile+registered = the mobile ITSELF -> delegate to its home (DATA_TYPE_MOBILE_SEND). mobile_ctr = the mobile's original ctr (ctr_M) -> the ctr_H->ctr_M reverse-ack map (0 = not delegated). §S2: type=0 lets INTRO auto-attach at origination (reply_to_hash==0); type=DATA_TYPE_INTRO = the HOME re-originating an already-prefixed delegated INTRO (no re-attach, threaded to the wire TYPE)
     // §S2: decide + build the INTRO first-contact prefix [ed_pub 32][name_len 1][name] for a plaintext hash-addressed send to dst_hash. Returns the prefix length (33 + name_len), or 0 = no attach (send plain: no identity / sealed intent / already peer_confirmed / cfg off / would overflow the DM body cap — message delivery beats key bootstrap).
     uint8_t  intro_attach_prefix(uint32_t dst_hash, CryptIntent crypt, uint8_t body_len, uint8_t* pfx, uint8_t pfx_cap);
-    void    emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey = false, Plane plane = Plane::AUTO);   // H flood for key_hash32 (hard = verify-on-use; want_pubkey = E2E §6, ask the owner's ed_pub). Wave 2: TEAM => team_scoped + origin=team_local_id (answer routes via _rt_team); GLOBAL => not team-scoped
+    HQueryOutcome emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey = false, Plane plane = Plane::AUTO);   // H flood for key_hash32 (hard = verify-on-use; want_pubkey = E2E §6, ask the owner's ed_pub). Wave 2: TEAM => team_scoped + origin=team_local_id (answer routes via _rt_team); GLOBAL => not team-scoped
     void    park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def, uint32_t reply_to_hash = 0, uint16_t mobile_ctr = 0, uint8_t type = 0, bool reflood = false, bool reflood_hard = false, Plane reflood_plane = Plane::AUTO);   // M3: crypt stamped at park so a parked CRYPTED send flies sealed on drain. §mobile: reply_to_hash carried so a parked delegated send keeps the mobile's reply address; mobile_ctr -> the ctr_H->ctr_M reverse-ack map on drain. §S2: type (DATA_TYPE_INTRO) preserved so a parked INTRO re-originates with its TYPE + prefix intact on drain. §F-SL-1: reflood => re-emit the H (hard/plane preserved) on a jittered bounded retry while parked
     void    park_reflood_arm();                                  // §F-SL-1: (re)arm kParkRefloodTimerId to the earliest pending re-flood (cancel if none)
     void    park_reflood_fire();                                 // §F-SL-1: scan parked sends -> re-emit the H for those due (bounded); re-arm

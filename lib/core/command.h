@@ -54,7 +54,14 @@ struct JoinCmd        { enum Op : uint8_t { discover, claim, deny } op; uint8_t 
 // Diagnostic: locate the node owning key_hash32 (the hash-locate H flood); the answer rides
 // PushKind::hash_resolved. hard = skip caches, reach the owner (verify-on-use). NO body — notify-only,
 // distinct from a send-by-hash (which carries a DM and rides CmdKind::send with dst_hash set).
-struct ResolveCmd     { uint32_t dst_hash; uint8_t dst_id; bool hard; uint8_t plane; };   // §enc: dst_id!=0 (dst_hash==0) = reqpubkey BY team_local_id -> resolve the hash from the team key cache at execution. Wave 2 plane: 0=AUTO/1=TEAM(-t)/2=GLOBAL
+// ★ §id-hash S1 (spec 2026-08-01 §1-A/§3-D9): `dst_id != 0` (with dst_hash == 0) = reqpubkey BY AN 8-BIT ID, resolved
+// at execution through Node::peer_book_by_id — the DUAL-plane resolver, NOT `team_key_of_id` alone (which made
+// `reqpubkey <id>` team-only by construction, so on a static node it could not succeed for ANY id).
+// Wave 2 plane: 0=AUTO / 1=TEAM (`-t`) / 2=GLOBAL-i.e.-static (`-s`, and the default for a bare hash).
+// ⚠ 0/AUTO IS NOW A LEGAL CONSOLE-PRODUCED VALUE, and only for the by-id form: `reqpubkey <id>` with neither flag
+// means "you pick", and on_command resolves it to TEAM or GLOBAL per §3-D9 **before** any flood — emit_hash_query is
+// never handed AUTO from this verb (that arm is the §sim-plane-parity B3 divergence, deliberately not re-opened).
+struct ResolveCmd     { uint32_t dst_hash; uint8_t dst_id; bool hard; uint8_t plane; };
 // E2E §3 (QR import): install a scanned peer's full Ed25519 pubkey as a PINNED (verified) key. key_hash32 = ed_pub[:4]
 // is derived (never trusted from the wire), so only the 32-byte pubkey rides the command.
 struct PeerkeyCmd     { uint8_t ed_pub[32]; };
@@ -87,7 +94,20 @@ enum class CmdCode : uint8_t { queued, err_unknown_dst, err_too_large,
                                err_no_gateway, err_priority_capped, err_no_binding, err_unsupported,
                                err_unprovisioned,    // node_id==0: must join or `cfg set node_id` first
                                err_no_data_sf,       // allowed_sf_bitmap==0: configure sf_list before sending data
-                               err_ack_ring_full };  // E2E-ack deadline (2026-07-24): the pending-ack ring (cap_pending_e2e_acks) is full -> REFUSE a new -a send loudly rather than evict-oldest (which would re-create the silent-forever class). The app retries once an in-flight -a send is acked or times out.
+                               err_ack_ring_full,    // E2E-ack deadline (2026-07-24): the pending-ack ring (cap_pending_e2e_acks) is full -> REFUSE a new -a send loudly rather than evict-oldest (which would re-create the silent-forever class). The app retries once an in-flight -a send is acked or times out.
+                               // ★ §id-hash S1 (spec §3-D9): an 8-bit id that resolves in BOTH the static and the team
+                               // plane, with no `-s`/`-t` to say which. APPENDED, per this file's enum rule. The number
+                               // is an ADDRESS, not an identity, so the two planes' namespaces legitimately collide
+                               // (§18) — picking one silently at an AIRTIME/mutation boundary is the defect, so we
+                               // refuse and name the flag. Distinct from err_no_binding (which means "no plane holds
+                               // it"): the remedies are opposites — add a flag vs acquire a binding.
+                               err_ambiguous_plane,
+                               // ★ §id-hash S1b (QA P1c): this node holds NO Ed25519 identity, so the MUTUAL
+                               // WANT_PUBKEY exchange is impossible and no query is flooded. It gets its own code
+                               // rather than folding into err_unsupported because §err-reason/B32 ruled exactly that
+                               // collapse a defect: the remedy here is specific and different (provision/`regen` an
+                               // identity), and a refusal that cannot name its remedy is not "loud".
+                               err_no_identity };
 // The synchronous "send handle" — the app records it and correlates async send_acked/send_failed pushes by `ctr`.
 // dst_hash / layer_path echo WHAT was sent so the app keeps no command->identity map of its own (and so a small
 // hash like 0x10 is NEVER confused with an 8-bit id — it lives in its own 32-bit field):
@@ -95,12 +115,35 @@ enum class CmdCode : uint8_t { queued, err_unknown_dst, err_too_large,
 //   sendhash <hash>      -> ctr, dst_hash=hash, layer_path=0
 //   send_layer <hash> <l..> -> ctr, dst_hash=hash, layer_path = the hops packed MSB-first (hops[0] high byte;
 //                              [2,3] -> (2<<8)|3 = 0x0203; 0 = no layers). Layer ids are >=1 so no leading-zero hop.
+//   reqpubkey <id|0xhash> -> ctr 0, dst_hash = the hash the query FLEW FOR (§id-hash S1: for the by-id form that is
+//                              the hash peer_book_by_id RESOLVED, so no transport re-runs the lookup — U1), plane =
+//                              which plane answered.
 struct CmdResult {
     CmdCode  code        = CmdCode::queued;
     uint16_t ctr         = 0;
     uint8_t  queue_depth = 0;
     uint32_t dst_hash    = 0;   // hash/layer-addressed sends: the target key_hash32 (0 = id-addressed)
     uint32_t layer_path  = 0;   // send_layer: the destination layer path packed MSB-first (0 = not a layer send)
+    // ★ §id-hash S1 (spec §3-D9: "the acknowledgement echoes the selected plane"). 0 = this command is not
+    // plane-scoped (every verb but `reqpubkey` today) / 1 = TEAM / 2 = GLOBAL-i.e.-static — the SAME encoding
+    // ResolveCmd::plane uses, deliberately not a second enum (U1); `lib/core`'s own `Plane` cannot appear here
+    // because command.h is the app seam and must not include node_carriers.h.
+    // ⚠ APPENDED LAST, and that placement is deliberate rather than optimal: the 4-byte pad after `queue_depth`
+    // would have absorbed it for free, but 17 sites brace-initialise this aggregate POSITIONALLY
+    // (`CmdResult{code, ctr, qd, dst_hash, layer_path}`), so a middle insert means a 17-site mechanical sweep
+    // bundled into a behaviour fix (C1). Cost of appending, MEASURED not inferred: sizeof(CmdResult) 16 -> 20 on a
+    // value that only ever lives as a return temporary — it is not a Node member, so sizeof(Node) and RAM_used are
+    // untouched. Every serialiser omits it when 0, so no existing ack line changed.
+    uint8_t  plane       = 0;
+    // ★★ §id-hash S1b (QA finding P1c): TRUE iff this command actually put a frame on the air.
+    // ⚠ IT IS NOT REDUNDANT WITH `code == queued`, and that is the whole reason it exists: `reqpubkey` has ONE
+    // accepted outcome that legitimately airs nothing — the hosted-mobile branch, which answers from the local key
+    // cache and reports through the `peer_key_cached` push. Every *failed* silent early-out now has its own error
+    // code, so this bit distinguishes exactly that success-without-airtime case. The BLE transport keys
+    // `{"ev":"reqpubkey_sent"}` — whose contract meaning is "the request was FLOODED" — on it.
+    // ⓘ Costs ZERO bytes: it lands in the 3-byte tail pad after `plane` (measured, sizeof stays 20), and it is
+    // appended so none of the 17 positional aggregate initialisers shift.
+    bool     aired       = false;
 };
 
 // ---- async push channel (delivery/ACK/inbound; matches MeshCore PUSH_CODE_*) ----

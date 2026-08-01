@@ -291,7 +291,11 @@ TEST_CASE("§T-K3 parse_grant_args — the 0x-hex target, the bare team-id targe
     CHECK(mrfw::parse_grant_args("0x1", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::ok);
     CHECK(o.target_hash == 1u);                                  // 1..8 digits, not exactly 8
 
-    // A bare decimal 1..254 = a teammate's team_local_id, and it IMPLIES the team plane (reqpubkey's convention).
+    // A bare decimal 1..254 = a teammate's team_local_id, and it IMPLIES the team plane.
+    // ⚠ V1 2026-08-01 (§id-hash S1): this used to be justified as *"reqpubkey's convention"* — that citation is now
+    // STALE. `reqpubkey <bare id>` no longer forces TEAM (it resolves on both planes and refuses `err_ambiguous_plane`
+    // on a collision). `grantkey` keeps the team-only reading on its own merits, not by borrowing that one: a grant
+    // SHIPS A PRIVATE TEAM KEY, so a static-plane target is not a plane choice but a category error.
     CHECK(mrfw::parse_grant_args("213", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::ok);
     CHECK(o.target_id == 213);
     CHECK(o.target_hash == 0);

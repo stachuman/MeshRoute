@@ -100,6 +100,27 @@ TEST_CASE("write_ack — CmdResult → ack JSON") {
     // hash/layer-addressed send: the handle (dh = key_hash32, lp = packed path [2,3] -> 0x0203 = 515)
     n = write_ack(b, sizeof b, CmdResult{CmdCode::queued, 9, 2, 0xDEADBEEFu, 0x0203u});
     CHECK(std::string(b, n) == "{\"ack\":\"queued\",\"ctr\":9,\"qd\":2,\"dh\":3735928559,\"lp\":515}\n");
+    // ★ §id-hash S1: `plane` is OMITTED when 0, which is why all three lines above are BYTE-IDENTICAL to pre-S1. That
+    // is the whole compatibility argument for appending a field to a shipped ack, so it is pinned rather than assumed.
+    CmdResult pl{CmdCode::queued, 0, 0, 0x61CD83EAu, 0}; pl.plane = 2;
+    n = write_ack(b, sizeof b, pl);
+    CHECK(std::string(b, n) == "{\"ack\":\"queued\",\"ctr\":0,\"qd\":0,\"dh\":1640858602,\"lp\":0,\"plane\":\"static\"}\n");
+    CmdResult amb{CmdCode::err_ambiguous_plane, 0, 0}; amb.plane = 1;
+    n = write_ack(b, sizeof b, amb);
+    CHECK(std::string(b, n) == "{\"ack\":\"err_ambiguous_plane\",\"ctr\":0,\"qd\":0,\"dh\":0,\"lp\":0,\"plane\":\"team\"}\n");
+    // the plane token's one spelling, including the out-of-range policy (never claim a team membership we cannot back)
+    CHECK(std::string(cmdplane_name(1)) == "team");
+    CHECK(std::string(cmdplane_name(2)) == "static");
+    CHECK(std::string(cmdplane_name(0)) == "static");
+    CHECK(std::string(cmdplane_name(200)) == "static");
+    // ★ §id-hash S1b: the new refusal renders its own token — §err-reason/B32's rule (a refusal must name its remedy)
+    // is why this is not folded into err_unsupported, so the string is pinned rather than left to the walker alone.
+    CHECK(std::string(cmdcode_name(CmdCode::err_no_identity)) == "err_no_identity");
+    CmdResult ni{CmdCode::err_no_identity, 0, 0, 0x61CD83EAu, 0}; ni.plane = 1;
+    n = write_ack(b, sizeof b, ni);
+    CHECK(std::string(b, n) == "{\"ack\":\"err_no_identity\",\"ctr\":0,\"qd\":0,\"dh\":1640858602,\"lp\":0,\"plane\":\"team\"}\n");
+    // ⓘ `aired` is deliberately NOT serialised: it is a TRANSPORT-selection bit (fw_main keys reqpubkey_sent on it),
+    // not app-facing state — the app already learns the disposition from `ack` and from the peer_key_cached push.
 }
 
 TEST_CASE("write_event — type + typed EventField k/v") {
@@ -650,6 +671,12 @@ TEST_CASE("write_reqpubkey_sent — §2 the on-air pubkey-request event (replace
     char b[64];
     size_t n = write_reqpubkey_sent(b, sizeof b, 3735928559u);   // 0xDEADBEEF
     CHECK(std::string(b, n) == "{\"ev\":\"reqpubkey_sent\",\"hash\":3735928559}\n");
+    // ★ §id-hash S1: plane defaults to 0 = omit, so the shipped line above is byte-identical. With a plane it is named,
+    // and `hash` is then the hash peer_book_by_id RESOLVED for a by-id request (CmdResult::dst_hash), not a re-lookup.
+    n = write_reqpubkey_sent(b, sizeof b, 1640858602u, /*plane=*/2);   // 0x61CD83EA, spec §0's `hashof 186` answer
+    CHECK(std::string(b, n) == "{\"ev\":\"reqpubkey_sent\",\"hash\":1640858602,\"plane\":\"static\"}\n");
+    n = write_reqpubkey_sent(b, sizeof b, 1640858602u, /*plane=*/1);
+    CHECK(std::string(b, n) == "{\"ev\":\"reqpubkey_sent\",\"hash\":1640858602,\"plane\":\"team\"}\n");
 }
 TEST_CASE("write_push — send_e2e_acked → live e2e_acked twin (origin/ctr/sender_hash; never ev:unknown)") {
     char b[128];
@@ -721,7 +748,8 @@ static unsigned ord(CmdCode c) {
         case CmdCode::queued:            case CmdCode::err_unknown_dst:  case CmdCode::err_too_large:
         case CmdCode::err_no_gateway:    case CmdCode::err_priority_capped: case CmdCode::err_no_binding:
         case CmdCode::err_unsupported:   case CmdCode::err_unprovisioned: case CmdCode::err_no_data_sf:
-        case CmdCode::err_ack_ring_full:
+        case CmdCode::err_ack_ring_full: case CmdCode::err_ambiguous_plane:   // §id-hash S1
+        case CmdCode::err_no_identity:                                        // §id-hash S1b
             return static_cast<unsigned>(c);
     }
     return kUnlisted;
@@ -807,7 +835,7 @@ static void check_mapper_covers_every_enumerator(const char* enum_name, const ch
 }
 
 TEST_CASE("★ enum->string mappers cover EVERY enumerator — no silent fallback at the app boundary") {
-    check_mapper_covers_every_enumerator<CmdCode>("CmdCode", cmdcode_name, "err_unknown", 10);
+    check_mapper_covers_every_enumerator<CmdCode>("CmdCode", cmdcode_name, "err_unknown", 12);   // 10 -> 11: §id-hash S1 `err_ambiguous_plane`; 11 -> 12: §id-hash S1b `err_no_identity`
     check_mapper_covers_every_enumerator<PushKind>("PushKind", pushkind_name, "unknown", 16);   // 14 -> 15: §team-ch-key T-K3 `team_key_received`; 15 -> 16: §chan-crypt CL2a `team_channel_no_key`
     check_mapper_covers_every_enumerator<SendFailReason>("SendFailReason", sendfailreason_name, "none", 18,
                                                          /*exempt_ord=*/0);   // SendFailReason::none == "none"  (15 -> 16: §clean-join-carriers `reprovisioned`; 16 -> 17: §team-ch-key T-K3 `unsealable`; 17 -> 18: §loc-per-send `no_location`)

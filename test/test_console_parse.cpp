@@ -56,19 +56,40 @@ TEST_CASE("parse_command — Wave 2 `-t` sets the TEAM plane; plain send = GLOBA
     CHECK(c.crypt == CryptIntent::on);
 }
 
-TEST_CASE("parse_command — reqpubkey -t = TEAM plane; plain = GLOBAL; a bare team-id is implicitly TEAM") {
+// ★★ §id-hash S1 — DELIBERATE TEST REWRITE, and the old title said what it pinned: *"a bare team-id is implicitly
+// TEAM"*. That WAS the front half of spec §1-A's defect (`bool team = (dst_id != 0)`), so keeping the assertion would
+// have pinned the bug. Its sound residue survives below: the HASH form's planes are unchanged, and the bare-id form now
+// asserts the new contract (0 = AUTO, resolved by on_command per §3-D9) plus the `-s`/`-t` pair and their exclusion.
+TEST_CASE("parse_command — reqpubkey: -t = TEAM, -s = static, bare hash = GLOBAL, bare ID = AUTO (§id-hash S1 D9)") {
     Command c{};
-    const char* g = "reqpubkey 0xdeadbeef";                  // plain -> GLOBAL (2)
+    const char* g = "reqpubkey 0xdeadbeef";                  // plain hash -> GLOBAL (2)  [UNCHANGED by S1]
     CHECK(parse_command(g, std::strlen(g), c) == ParseErr::ok);
     CHECK(c.kind == CmdKind::reqpubkey); CHECK(c.u.resolve.plane == 2); CHECK(c.u.resolve.dst_hash == 0xdeadbeefu);
-    const char* t = "reqpubkey 0xdeadbeef -t";               // -t -> TEAM (1)
+    const char* t = "reqpubkey 0xdeadbeef -t";               // -t -> TEAM (1)             [UNCHANGED by S1]
     CHECK(parse_command(t, std::strlen(t), c) == ParseErr::ok);
     CHECK(c.u.resolve.plane == 1);
-    const char* bid = "reqpubkey 93";                        // bare team-id -> implicitly TEAM
+    const char* hs = "reqpubkey 0xdeadbeef -s";              // -s on a hash = the explicit spelling of the default
+    CHECK(parse_command(hs, std::strlen(hs), c) == ParseErr::ok);
+    CHECK(c.u.resolve.plane == 2); CHECK(c.u.resolve.dst_id == 0);
+    // ★ THE FIX: a bare id no longer FORCES the team plane. It goes out as AUTO and on_command picks the plane that
+    // actually holds the binding — the parser cannot know, because only the tables do.
+    const char* bid = "reqpubkey 93";
     CHECK(parse_command(bid, std::strlen(bid), c) == ParseErr::ok);
+    CHECK(c.u.resolve.plane == 0); CHECK(c.u.resolve.dst_id == 93); CHECK(c.u.resolve.dst_hash == 0);
+    const char* bidt = "reqpubkey 93 -t";                    // ...and both flags still force, on the id form too
+    CHECK(parse_command(bidt, std::strlen(bidt), c) == ParseErr::ok);
     CHECK(c.u.resolve.plane == 1); CHECK(c.u.resolve.dst_id == 93);
+    const char* bids = "reqpubkey 93 -s";
+    CHECK(parse_command(bids, std::strlen(bids), c) == ParseErr::ok);
+    CHECK(c.u.resolve.plane == 2); CHECK(c.u.resolve.dst_id == 93);
+    const char* both = "reqpubkey 93 -t -s";                 // C2: a contradiction is REFUSED, not resolved by precedence
+    CHECK(parse_command(both, std::strlen(both), c) == ParseErr::bad_args);
+    const char* both2 = "reqpubkey 93 -s -t";                // ...in either order
+    CHECK(parse_command(both2, std::strlen(both2), c) == ParseErr::bad_args);
     const char* bad = "reqpubkey 0xdeadbeef -x";             // unknown trailing flag -> error
     CHECK(parse_command(bad, std::strlen(bad), c) == ParseErr::bad_args);
+    const char* bad2 = "reqpubkey 93 -t junk";               // ...including AFTER a good flag (the loop must not stop early)
+    CHECK(parse_command(bad2, std::strlen(bad2), c) == ParseErr::bad_args);
 }
 
 TEST_CASE("parse_command — send 0xhash + -e (CRYPTED, hash-only)") {

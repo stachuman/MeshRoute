@@ -11,6 +11,9 @@ else, so this is deliberately the residue, not a re-test.*
 `§ab1` · `§ab2` · `§ab3` · `§ab4` · `§err-reason` (B32+B33) · `§b22` · `§cl1` · `§o3-key-lifetime` · `§cl2a` · `§cl2b`.
 ⇒ **the address book is complete and the channel-crypt arc is complete. Part 5 and Part 6 are both live — no ⏳ left.**
 
+⏳ **PART 7 IS NOT YET COMMITTED** — `§id-hash S1` / `S2` / `S2b` (register B42/B44/B45/B46) are green and awaiting the
+owner's commit. Everything else on this page is flashable today.
+
 **Setup:** one node is enough for Parts 0–2 and 4. Parts 3 and 5 need two nodes that can hear each other.
 ⚠ **Flash the `xiao_sx1262` (or another 32-bit board) for Part 1** — that is the whole point of check 1.2.
 
@@ -107,8 +110,8 @@ flash wear **and** a wider reset-during-write corruption window, in a tree that 
 | 5.2 | `peername 0x<unknown> "X"` | `{"ev":"peer_name_err","reason":"unknown_hash"}` — remedy is `reqpubkey` first |
 | 5.3 | a 40-char name | `too_long` — **refused, never truncated** |
 | 5.4 | `peername` on a **QR-pinned** peer | **succeeds**, and its `conf` stays `pinned` |
-| 5.5 | ★★ **THE BUG YOU HIT ON METAL — the one to try first:** on an off-grid team node, `reqpubkey <team-id>` then `hashof <that id>` | **resolves** (it used to answer `unknown`) |
-| 5.6 | `peers` / `peers all` | the book (≤16 rows) vs the full known-node list |
+| 5.5 | ★★ **THE BUG YOU HIT ON METAL — the one to try first:** on an off-grid team node, `reqpubkey <team-id>` then `hashof <that id>` | **resolves** (it used to answer `unknown`) — ⓘ this is the TEAM half; **Part 7 is the static half, which never worked at all** |
+| 5.6 | `peers` / `peers all` | the book (≤16 rows) vs the full known-node list — ⓘ `peers all` gained rows and lost one in `§id-hash S2`; see 7.6 |
 
 ---
 
@@ -160,5 +163,42 @@ token is the **same string the companion sees** in `{"ack":"…"}` — one regex
 
 ---
 
+## Part 7 — ★ id → hash on BOTH planes (`§id-hash S1/S2/S2b`) · ⏳ UNCOMMITTED (5 minutes, one node)
+
+★ **Why it is here:** the resolver and the store rules are natively tested, but the three surfaces that carry them to
+you — `print_reqpubkey_hint` / `peers_text_row` / `handle_hashof` in `src/firmware_commands.cpp`, and the ack line +
+BLE echo in `src/fw_main.cpp` — are compiled by **neither** the native suite **nor** the simulator. The sim's console
+also has **no by-id `reqpubkey` at all** (it parses `reqpubkey <hex>` only), so the corpus cannot reach this verb's
+by-id arm even in principle. **Run this on a STATIC node** (`team_id == 0`) — that is the configuration in which the
+verb previously could not succeed for *any* id.
+
+| # | do | expect |
+|---|---|---|
+| 7.1 | ★★ **THE HEADLINE PAIR, on one node, with a directly-heard neighbour (e.g. 186):** `hashof 186` then `reqpubkey 186` | **both answer, with the SAME hash.** `reqpubkey` prints `> queued ctr=0 depth=0 dh=0x<hash> plane=static`. ⇒ **before this it printed `> err_no_binding ctr=0 depth=0`, for every id, on every static node** |
+| 7.2 | `reqpubkey <an id you have no binding for>` | `> err_no_binding ctr=0 depth=0` **plus a second line**: `> reqpubkey: no id->hash binding for N in EITHER plane. …` naming beacon / `peerkey <hex64>` / `reqpubkey 0x<hash>` |
+| 7.3 | `reqpubkey 186 -t` on that same static node | `> err_no_binding …` **plus** `> reqpubkey: no id->hash binding for 186 on the TEAM plane (searched because of \`-t\`). Remedy: drop \`-t\` …` — ★ the plane echo is the point: the id IS known, just not there |
+| 7.4 | `reqpubkey 186 -s` | identical to 7.1 — `-s` is the explicit spelling of what the bare form chose |
+| 7.5 | `reqpubkey 186 -t -s` | `> parse error` — mutually exclusive, refused rather than resolved by precedence |
+| 7.6 | ★ `peers all`, compared with `routes` | every `[route] dest=N` with no binding now appears as a bare **`[peer] static_id=N`** — **no `(claimed)` suffix** (there is no claim; the suffix prints only beside a hash) — and **our OWN row is gone** (pre-S2 a node 42 printed `[peer] hash=0x… static_id=42(auth)`). `[peers] count=` rises by the route-only set and falls by one |
+| 7.7 | plain `peers` (bounded book), and `peers` over **BLE** | **unchanged** — the ≤16-row JSON book must NOT have gained route rows (`include_id_rows=false`) |
+| 7.8 | over **BLE/companion**: `reqpubkey <bare id>` that resolves statically | `{"ev":"reqpubkey_sent","hash":<the RESOLVED hash>,"plane":"static"}` — ⇒ **before this the companion got `"hash":0`** even after the engine fixed itself |
+| 7.9 | ★ **if you can arrange a dual-plane node** (a team member that also holds a static binding for the *same number*): `reqpubkey <that number>` | `> err_ambiguous_plane ctr=0 depth=0` **plus** `> reqpubkey: id N resolves in BOTH planes (§18 …). Remedy: … \`-s\` … or \`-t\`.` and **no frame is aired**. `hashof N` prints both rows. ★ **This now also holds when the two planes carry the SAME hash** — `hashof N` prints two lines with the same hash, and `reqpubkey N -t` **sends** (it used to answer `err_no_binding` for a team binding that plainly existed) |
+| 7.10 | ★★ **the false-success checks — run these on a node with NO crypto identity** (fresh, before `regen`): `reqpubkey 0x<any hash>` | `> err_no_identity ctr=0 depth=0 dh=0x… plane=static` **plus** `> reqpubkey: this node holds NO crypto identity … Remedy: provision an identity (\`regen\`)`. ⇒ **before this it answered `queued`, and over BLE it emitted `{"ev":"reqpubkey_sent"}` for a frame that never left the node** |
+| 7.11 | `reqpubkey 0x<THIS node's own key_hash32>` | `> err_unsupported …` + `> reqpubkey: nothing aired — the target is not a queryable peer …` (was a silent `queued`) |
+| 7.12 | on an **off-grid / unregistered mobile**: `reqpubkey <id that resolves statically>` (no flag, or `-s`) | `> err_no_gateway …` + `> reqpubkey: nothing aired — this node is an UNREGISTERED mobile …`. ★ **CONTROL on the same node:** the same id with `-t`, for a teammate, **does** send |
+| 7.13 | over **BLE**, repeat 7.10–7.12 | a plain `{"ack":"err_…"}` and **NO `reqpubkey_sent`** — that event now means "a frame really aired". A hosted-mobile cache hit is the one *success* that also emits no `reqpubkey_sent`: you get `{"ack":"queued",…}` and the `peer_key_cached` push instead |
+
+⚠ **COMPANION (iOS), bench/CI-owed — `swift` is unavailable in the dev environment so this could NOT be gate-verified:**
+`Command.reqPubkeyTeam(localID:)` now emits **`reqpubkey <id> -t`** (it emitted the bare form and relied on a bare
+decimal meaning TEAM, which S1 changed to AUTO). Run the MeshRouteKit package tests, and confirm on the wire that the
+teammate-bootstrap line carries the `-t`.
+
+ⓘ **S2b (the demotion + rehome rules) has NO bench check and that is deliberate**: producing a relayed *soft* H answer
+for an id you already hold first-hand needs a 3-node topology and precise timing. It is fully covered natively, and the
+corpus was measured to contain **zero** `claimed` bindings in 304 885 `id_bind_set` calls — and even with those learns
+FORCED to `claimed`, the cross-id rehome case fires **0** times — so there is nothing a two-node bench adds.
+
+---
+
 **If anything in Part 1 or 2 fails, stop and report before continuing** — those are the checks with no second line of
-defence. Parts 3–5 have native coverage behind them, so a failure there is a narrower question.
+defence. Parts 3–5 and 7 have native coverage behind them, so a failure there is a narrower question.

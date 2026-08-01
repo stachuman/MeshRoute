@@ -523,6 +523,225 @@ Found by the OLED-UI second review, §3. **UNMEASURED** — found in-source.
 
 ---
 
+> ★★ **B42–B46 ARE ONE FAMILY: id → hash resolution.** The design + slicing lives in
+> `docs/superpowers/specs/2026-08-01-id-to-hash-resolution-design.md` (**v2**, revised against
+> `docs/archive/2026-08-01-id-to-hash-resolution-design-review.md`).
+> ★ **2026-08-01: B42 / B44 / B45 / B46 / B47 are FIXED (slices S1 / S2 / S2b + the S1b/S2b-fix round), green and
+> UNCOMMITTED** — see each entry's CLOSED line and `simulation/BASELINE.md`'s three `§id-hash` notes for the gate
+> numbers and poison matrices.
+> ⚠⚠ **B46 WAS CLOSED PREMATURELY ONCE (2026-08-01) AND RE-OPENED THE SAME DAY** by the independent implementation
+> assessment (`docs/2026-08-01-id-to-hash-resolution-implementation-assessment.md`, finding P1a): the first fix guarded
+> the matching row but left `id_bind_evict_other_hash_holders` un-gated, so the identical demotion still walked in
+> through the REVERSE uniqueness rule. **The coder's own poison matrix could not see it — and the re-probe proved why
+> in numbers: even with the corpus's relayed learns FORCED to `claimed`, the rehome case fires 0 times in 304 885
+> `id_bind_set` calls.** ⇒ ★ **a "guard the write" fix must be checked against every OTHER path that mutates the same
+> invariant**, and byte-identity on a corpus that cannot produce the precondition is not evidence either way.
+> **B43 is the wire slice (S4a/S4b) and is still NOT dispatched**: it waits on the spec's remaining rulings (verb name,
+> BLE availability, `HARD`-under-`BY_ID`).
+> ⚠ **B46 was a live demotion bug that exists independently of the feature** — registered and fixed on its own merits,
+> in its own slice, not buried inside the design entry.
+> ⚠⚠ **ONE MEASUREMENT THE WHOLE FAMILY SHOULD INHERIT (S2b, 2026-08-01): the 36-scenario corpus contains ZERO
+> `IdBindConf::claimed` bindings.** Instrumented directly: **299 441** matching-row `id_bind_set` updates, every one
+> `existing=authoritative, incoming=authoritative, same hash`; plus **5 444** NEW-row inserts, all `authoritative`
+> (4559 `bcn` · 858 `self` · 14 `h_relay` · 13 `h_query`). ⇒ **the corpus is structurally blind to the entire `claimed`
+> tier**, so S3/S4a — which are ABOUT that tier — will be equally invisible to it unless a scenario is authored to
+> produce a relayed soft H answer. Budget scenario work into those slices; do not expect the corpus to gate them.
+
+### B42 — ★★ `reqpubkey <id>` is **team-only by construction** ⇒ on a static node it cannot succeed for ANY id · NEW 2026-08-01
+`console_parse.cpp:~232` sets `bool team = (out.u.resolve.dst_id != 0)` — a bare decimal **forces** the TEAM plane — and
+`:~234` accepts only `-t`, so **no `-s` exists**. `node.cpp:~1646` then resolves via `team_key_of_id` alone, whose first
+line is `if (_cfg.team_id == 0 || !is_team_peer(id)) return false;` (`node_routing.cpp:~842`). ⇒ with `team_id == 0`
+every bare-id `reqpubkey` returns `err_no_binding`, **including for a directly-heard neighbour held authoritatively**.
+★ **MEASURED on the bench 2026-08-01**, and the two-verb contrast is the whole proof on one node: `hashof 186` →
+`0x61CD83EA` (reads `_id_bind` via `key_hash_of_id`) while `reqpubkey 186` → `err_no_binding` (reads `_team_keys`).
+This is verbatim the defect `firmware_commands.cpp:527-530` records from 2026-07-30 — *"Each verb was correct about its
+own table; neither answered the question"* — **whose fix landed on `hashof` and never on `reqpubkey`**.
+★ **A SECOND SITE, and the fix is half-landed without it** (the sweep-scope meta-bug's tenth instance, this time across
+**transports**): `src/fw_main.cpp:~490-491`, the **BLE** `reqpubkey_sent` echo, resolves through `team_key_of_id` too, so
+a static-plane by-id `reqpubkey` would still echo `hash=0` to the companion after `on_command` is fixed.
+**Fix shape:** both sites read `Node::peer_book_by_id` (U1 — it already searches both planes and already returns a
+*mask*); add `-s`, make `-s`/`-t` exclusive, and specify plane-ambiguity (spec §3-D9). No wire change.
+**Coverage owed:** static-only node · team-only node · the same numeric id live in BOTH planes · unresolved id on a
+dual-plane node · the BLE echo's resolved hash. **MEASURED** (bench) + in-source.
+★ **CLOSED 2026-08-01 by slice `§id-hash S1` (green, UNCOMMITTED).** Both sites now read `Node::peer_book_by_id`; `-s`
+lands, `-s`/`-t` are exclusive, a bare id goes out as plane 0/AUTO and `on_command` picks per §3-D9 (both planes hold
+it ⇒ the new `CmdCode::err_ambiguous_plane`, and **no airtime is spent guessing**). The BLE echo no longer re-resolves
+anything: `CmdResult` now carries `dst_hash` (the RESOLVED hash) and a new `plane` field, and every transport reads
+them. All five owed coverage cases are native tests (`test_node_hashlocate.cpp`, the `§id-hash S1` block).
+⚠ **ONE OWED CASE COULD NOT BE BUILT AS SPECIFIED, and the reason is a spec correction — see §3-D9 in the ENTRY BELOW
+and BASELINE's S1 note:** *"unresolved id on a dual-plane node"* has **no distinguishable outcome in S1**, because an
+unresolved by-id `reqpubkey` refuses (`err_no_binding`) BEFORE any plane is selected or any query flies. It becomes a
+real case in S4a, where an unresolved id does fly a by-id query. Pinned as such by a test rather than faked.
+⚠ **NEW FINDING while building it → B47 below** (an off-grid mobile answers `queued` for a GLOBAL by-id request that
+provably airs nothing).
+⚠⚠ **COMPANION CONTRACT OWED (reported, NOT written — `ios-companion/INBOX_SYNC_CONTRACT.md` is QA's file).**
+★★ **CORRECTION 2026-08-01, and it was my error: I first reported these as "three ADDITIVE changes, all
+backward-safe". THAT WAS WRONG, and the assessment (P1b) caught it.** The RESPONSE-side changes are additive and the
+Swift decoder tolerates them; **the OUTGOING command's MEANING changed, and that is a break**:
+① ★★ **BREAKING (outgoing):** `Command.reqPubkeyTeam(localID:)` emitted the bare `reqpubkey <id>` and relied on the
+firmware reading a bare decimal as implicitly TEAM. S1 made a bare decimal **AUTO** ⇒ that operation no longer
+guarantees its own name: it draws `err_ambiguous_plane` when both namespaces hold the number, or silently selects
+**static** when only a static binding exists. **FIXED in the checked-in companion** — `Command.swift:150` now emits
+`reqpubkey <id> -t`, `CommandEncoderTests.swift` pins the exact line, and the stale "implicitly TEAM" comments are
+corrected. ⚠ **NOT gate-verified: `swift` is unavailable in this environment — bench/CI-owed.**
+② two new ack codes: **`err_ambiguous_plane`** (CmdCode 10) and **`err_no_identity`** (11). `AckCode` in
+`Inbound.swift` has a `.unknown` forward-compat case so both degrade, exactly as the already-unmodelled
+`err_ack_ring_full` does.
+③ `{"ack":…}` may now carry **`"plane":"team"|"static"`**, and `{"ev":"reqpubkey_sent"}` the same — **both omitted
+when absent, so every pre-S1 line is byte-identical** (pinned by a test).
+④ ★ **`reqpubkey_sent.hash` is now the RESOLVED hash** for a by-id request, where it used to be `0` on the static
+plane — and, per B47, the event now fires **only when a frame actually aired**.
+⑤ the grammar itself: `reqpubkey <0xhash|id> [-s|-t]`, flags mutually exclusive, bare id = AUTO.
+
+### B43 — ★★ no id → hash for a node we **route to** but never heard directly (both planes) · NEW 2026-08-01
+`_team_keys` is written at exactly one site — `node_beacon.cpp:~831` — reached only from a **directly-heard same-team
+beacon**. A multi-hop teammate still gets its `_team_peer` dispatch bit, from the DV merge at `node_beacon.cpp:~939-940`,
+off a route entry that **carries no key**. Static is the same shape: `_id_bind` is fed by a heard beacon
+(`node_beacon.cpp:~664`) or an H answer, never by a route. ⇒ a peer is **routable but unidentifiable**, which blocks
+`reqpubkey`, sealed send, `team grantkey` and any `hashof` answer.
+★ **MEASURED on the bench 2026-08-01, on BOTH planes**: team — `[peer] team_id=114` / `team_id=214` with no hash while
+228 is keyed; static — `_rt` holds routes to 48 (3 hops), 59 and 109 (2 hops) and **not one appears in `peers all`**.
+★ **Not a new discovery — the deferred half of §hashbind-plane / B2.** `on_hash_bind_snoop`'s header already scoped it
+and marked it `✖ MISSING` on 2026-07-31 (`node_hashlocate.cpp:~1245-1248`): *"a team-plane bind store with its own
+confidence field … **needs the trust question in (1) answered first**."* The owner answered it 2026-08-01: an on-air
+id→hash answer is a **claim**, never authoritative.
+**Fix shape:** spec S3 + S4a/S4b — `H_FLAG_BY_ID` (byte 7 has four free bits), owner-only answers, `claimed` landing on
+both planes, and the two-stage `reqpubkey` completion. ⚠ **NOT dispatched** — see the box above.
+**Coverage owed:** the spec's §9 gate list. **MEASURED** (bench, both planes).
+
+### B44 — `peers all` surfaces routed-but-unkeyed **team** peers and has **no static equivalent** · NEW 2026-08-01
+`peer_book_walk` (`node_hashlocate.cpp:~462-507`) runs four passes — `_peer_keys` → `_id_bind` → `_team_keys` →
+`_team_peer` bits. The fourth emits an id-only row for a teammate we route to but hold no key for; **there is no pass
+over `_rt`**, so the static plane has no counterpart and the team plane is currently the *more* informative of the two.
+★ **MEASURED on the bench 2026-08-01**: 114/214 listed, 48/59/109 absent despite live routes (same transcripts as B43).
+**Fix shape:** a static `_rt` pass mirroring team pass (4), gated on `include_id_rows` so the JSON book
+(`include_id_rows=false`, `:~466`) stays untouched. **MEASURED** (bench).
+★ **CLOSED 2026-08-01 by slice `§id-hash S2` (green, UNCOMMITTED).** Pass **(2b)** added, sitting between `_id_bind`
+and the team passes; the JSON book is untouched (asserted: `include_id_rows=false` returns the `_peer_keys` count with
+ten live routes present). ⓘ **Its dedup is against `_id_bind` MEMBERSHIP, not `key_hash_of_id`** — the accessor filters
+`claimed` rows and hash-0 rows that pass (2) still emits, so testing through it would print those ids twice; a native
+test pins exactly that (a `claimed` binding for 48 ⇒ still one row).
+ⓘ **Renderer honesty, folded in:** `peers_text_row` printed `(auth)`/`(claimed)` from `static_authoritative` for EVERY
+`static_id`, so an id-only row would have read `static_id=48(claimed)` — a claim nobody made. The suffix now prints
+only when the row carries a hash to be authoritative *about*. This also cleans up pass (2)'s hash-0 rows.
+
+### B45 — we list **ourselves** as a peer in `peers all` · NEW 2026-08-01
+`id_bind_set(_node_id, _key_hash32, IdBindSource::self, IdBindConf::authoritative)` (`node.cpp:~77`, `:~539`, `:~864`)
+seeds our own binding into `_id_bind`, and `peer_book_walk`'s pass (2) has **no self-skip**.
+★ **MEASURED on the bench 2026-08-01**: node 42 reports `[peer] hash=0x8CC9BDFF static_id=42(auth)`, so `count=2`
+actually means "one peer and me". **Text-console only** — the JSON book passes `include_id_rows=false` and we are not in
+`_peer_keys`. **Fix shape:** skip self in pass (2). **MEASURED** (bench).
+★ **CLOSED 2026-08-01 by slice `§id-hash S2` (green, UNCOMMITTED).**
+⚠ **THE PREDICATE IS THE SELF-BINDING, NOT THE ID**, and that is load-bearing rather than pedantic: the skip is
+`node_id == _node_id && key_hash32 == _key_hash32` — `id_bind_set`'s own self-defence test (`:~59`), verbatim (U1).
+`node_id == _node_id` alone would ALSO hide a FOREIGN key claiming our id, i.e. an address collision — the single most
+diagnostic row this dump can carry, and the exact condition `addr_conflict_self_defended` exists to surface.
+
+### B46 — ★★ `id_bind_set` is **not upgrade-only** ⇒ a `claimed` observation **DEMOTES** an authoritative binding · NEW 2026-08-01
+On a matching row, `node_hashlocate.cpp:~102-104` writes the incoming `source` and `confidence` **unconditionally**:
+```cpp
+_active->_id_bind[i].last_seen_ms = now;
+_active->_id_bind[i].source       = static_cast<uint8_t>(source);
+_active->_id_bind[i].confidence   = static_cast<uint8_t>(confidence);
+```
+⇒ **live today, with no new feature required**: a relayed soft H answer (`IdBindSource::h_relay`,
+`node_hashlocate.cpp:~1252-1253`) demotes a first-hand beacon binding to `claimed`, and the **seal path then refuses**
+— `key_hash_of_id:~148` filters `confidence != authoritative` — until the next beacon re-asserts it. The sibling store
+already has the correct rule and is the reference: `peer_key_set:~255-261` upgrades and never downgrades.
+⚠ **Also a correction to the record:** there is **no `IdBindConf` NV encoding at all** (`src/device_nv.h`'s `kPeerConf*`
+is `PeerKeyConf`'s). `_id_bind` is RAM-only, TTL-bound at 48 h (`protocol_constants.h:~535`) — which is why the spec's
+manual-confirm verb is scoped as *ephemeral*, not as a pinned trust anchor.
+**Fix shape:** confidence upgrade-only; and a `claimed` sighting must **not** extend an `authoritative` row's
+`last_seen_ms` (a claim must not keep an unverified binding alive) — deliberately symmetric with the spec's team-plane
+rule §3-D5c. ⚠ **May legitimately re-anchor** — an unattributable re-anchor is a failed gate.
+**Coverage owed:** claimed-after-authoritative (no demotion, no TTL extension) · authoritative-after-claimed (promotes)
+· same-node re-key still applies · the self-binding stays exempt. **UNMEASURED** — found in-source by the design review.
+⚠⚠ **RE-OPENED 2026-08-01 (assessment P1a), THEN CLOSED — read both halves.**
+**FIRST FIX (incomplete):** the matching-row write became upgrade-only. **What it missed:** `id_bind_set` also enforces
+the REVERSE rule (one hash -> one node_id) through `id_bind_evict_other_hash_holders`, and **both** accept paths called
+it without looking at confidence. So the same demotion survived through a different door: authoritative `{10,H}` +
+a relayed claimed `{20,H}` takes the NEW-node_id path, **evicts the authoritative row**, and inserts the claim.
+★ **SECOND FIX — CLOSED 2026-08-01 (green, UNCOMMITTED):** a claimed observation may not displace an authoritative
+holder of the same hash. New `id_bind_auth_holder_other()` (gates = `key_hash_of_id`'s verbatim, U1: authoritative +
+fresh, self exempt from the TTL); the whole write is REFUSED with a named `addr_rehome_refused` emit, because
+inserting-without-evicting would leave two rows for one hash and break the bijection `id_bind_find_by_hash` relies on
+— strictly worse. **Owner ruling: claimed -> claimed stays NEWEST-WINS** (no trust ordering between two claims; keeping
+it makes this a fix, not a redesign — C1). An **authoritative** rehome still evicts, held as the positive control.
+An **expired** authoritative holder does not block (it is invisible to every reader already), also tested.
+★ Confidence is upgrade-only; `source` and `last_seen_ms` are frozen with it, so a claim can neither relabel the
+provenance nor fake first-hand liveness. All four originally-owed coverage cases are native tests, plus the
+conflict/self-defence arms as controls. **`IdBindSource::manual` was
+DELIBERATELY NOT added** — its only producer is `confirmid`, which is S5, and an enumerator with no writer is exactly
+the `PeerKeyConf::overheard` smell the spec criticises in §2.4. **Spec §6's S2b row should be amended to drop it.**
+★★ **IT DID NOT RE-ANCHOR — 36/36 byte-identical — AND THE REASON IS MEASURED, NOT ASSUMED.** Both doors were
+re-probed after the second fix (assessment §4.6): same-row demotion **0/36**, cross-id claimed rehome **0/36**. Then a
+CAPABILITY probe made the instrument capable — force the corpus's own `h_relay`/`h_query` learns to land `claimed`
+(the exact input class this rule protects against): that alone moves **3/36**, so the precondition is now live, and
+under it the numbers are decisive across **304 885** `id_bind_set` calls:
+· **same-row demotion: 15 occurrences** ⇒ the guard IS executed — but reverting it under the same poison still moves
+  **0/36**, because the corpus re-asserts those rows from a first-hand beacon **296 397** times and the demotion window
+  closes before any reader looks. A real masking mechanism, not an absent one.
+· **cross-id claimed rehome: 0 of 304 885** ⇒ **structurally unreachable even with claimed bindings forced**, because
+  no corpus soft answer ever brings a hash in under a SECOND id. ★ **That is precisely why the original poison matrix
+  could not have caught P1a, and it is the honest statement to inherit: this door has no corpus gate at all, only
+  native.**
+⚠ **THE INTENDED SIDE EFFECT, stated so it is not later read as a regression:** an authoritative row that only ever
+gets re-CLAIMED now ages out at `id_bind_ttl_ms` (48 h) instead of living forever on hearsay. That is the point of the
+liveness half of the rule; the self-binding remains exempt via `id_bind_age_out`'s `self_keep`.
+
+### B47 — an OFF-GRID mobile answers `queued` to a GLOBAL `reqpubkey` that provably airs nothing · NEW 2026-08-01
+`emit_hash_query` bails at `want_pubkey && mobile_req && origin == _node_id && !team_scoped`
+(`node_hashlocate.cpp:~1557`) — an unregistered mobile's `_node_id` is a LOCAL id with no static return path, so the
+owner could not answer. It emits `h_want_pubkey_mobile_no_route` and **no frame**, but `on_command` has already
+returned **`CmdResult{queued}`**, so the operator/app is told the request went out.
+★ **MEASURED 2026-08-01** by a native test (`test_node_hashlocate.cpp`, the `§id-hash S1 §3-D9` case): on an
+unregistered mobile the `-s` arm produces `queued`, `h_want_pubkey_mobile_no_route`, zero `h_tx`, zero tx_frames —
+while the `-t` arm on the SAME node in the SAME test flies a real frame (the control).
+**PRE-EXISTING, NEWLY REACHABLE.** The bail is old and already documented in `s22_mobile_team`'s `_desc`
+(*"on this homeless off-grid member NO h_tx is emitted at all"*). What changed with `§id-hash S1` is the WAY IN: a bare
+`reqpubkey <id>` used to force TEAM, so this arm needed an explicit `reqpubkey 0x<hash>`; now a bare id that resolves
+STATICALLY on an off-grid member lands there too.
+**This is B39's class** — `queued` means "accepted", never "sent".
+⚠⚠ **WIDER THAN I RECORDED, and the assessment (P1c) found the rest: `emit_hash_query` is `void` and returns early in
+FOUR ways, not one** — degenerate/self target, **no crypto identity**, off-grid mobile with no return path, and a
+`pack_h` codec failure. `on_command` answered `queued` through all four and BLE turned every one into
+`{"ev":"reqpubkey_sent"}`, whose contract meaning is *"the on-air request was flooded"*.
+★ **The no-identity case also DISPROVES two claims of mine**: the in-source comment at the BLE echo and the companion
+contract both said that path *"keeps its existing error ack"*. **There was no such ack** — it reported success.
+★ **CLOSED 2026-08-01 by `§id-hash S1b` (green, UNCOMMITTED).** `emit_hash_query` now returns
+`Node::HQueryOutcome{sent, degenerate, no_identity, no_return_route, encode_failed}` and the reqpubkey arm maps it to
+an honest `CmdResult`: `err_unsupported` / **`err_no_identity`** (new code) / `err_no_gateway` / `err_too_large`,
+each still echoing `dst_hash` + `plane`. ⓘ **The "preferred" option was taken and it did NOT become refactor-plus-fix
+(C1): widening `void` -> the enum changed ZERO call sites**, because all four other callers already discarded the
+absent return and there is no `[[nodiscard]]` — so the diff is the function's own returns plus one reader.
+★ **`CmdResult::aired`** (free — it lands in the existing tail pad, `sizeof` stays 20) is what `reqpubkey_sent` is now
+keyed on, because one **accepted** outcome legitimately airs nothing: the **hosted-mobile local cache hit**, which is
+a genuine success reported through its own `peer_key_cached` push and must not also claim a flood.
+**Coverage:** each branch asserts the `CmdResult` **and** the BLE-visible disposition (a test-local mirror of
+fw_main's exact `code == queued && aired` predicate), every negative paired with a same-fixture successful flight.
+**MEASURED** (native; 4 cases / 10 assertions redden when the outcome mapping is bypassed).
+
+### B48 — ★ a DISPLAY de-duplication rule in `peer_book_by_id` was making an AIRTIME decision · NEW 2026-08-01
+`peer_book_by_id`'s team arm read `if (team_key_of_id(id, th) && !(mask && th == h))` — it suppressed the TEAM
+presence bit whenever both planes resolved the **same hash**. Harmless while only `hashof` read the mask (it was a
+tidiness choice, from `§AB3`); **`§id-hash S1` made that mask select a query plane**, and there it produced two wrong
+answers on a node where one identity occupies the same number in both namespaces:
+· a bare `reqpubkey <id>` **silently selected STATIC** instead of §3-D9's ambiguity refusal;
+· an explicit `reqpubkey <id> -t` saw `has_team == false` and returned **`err_no_binding` for a team binding that
+  exists**.
+★ **Found by the independent implementation assessment (P2)**, not by the corpus: the original D9 test covered only
+DIFFERING hashes, so the exact-duplicate branch was untested.
+★ **CLOSED 2026-08-01 by `§id-hash S1b` (green, UNCOMMITTED):** the resolver now reports PRESENCE per plane and
+nothing else — hash equality never made the two planes' routes, return paths or flood scope equal, which is exactly
+what the flag selects. Identity de-duplication, if ever wanted, is a **renderer** concern; `handle_hashof` now prints
+both rows and their equal hashes say "one identity, two planes" more clearly than the suppressed row did.
+**Coverage:** the same-id/same-hash dual-plane test — bare = `err_ambiguous_plane` with no airtime, `-t` sends on the
+team plane, `-s` selects the static row. **MEASURED** (native; restoring the de-dup reddens 2 cases / 12 assertions).
+⇒ ★ **The durable rule: a shared resolver returns facts. The moment a "tidy display" filter lives inside one, some
+future caller will make a decision on the filtered answer.**
+
+---
+
 ## Deferred with an explicit trigger
 
 ### D1 — the team **DV hop-cap flip** (T3 Part C)

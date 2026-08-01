@@ -1642,10 +1642,45 @@ CmdResult Node::on_command(const Command& c) {
         }
         case CmdKind::reqpubkey: {   // §6: user-triggered on-air pubkey request — the ONLY auto-source of WANT_PUBKEY now
             if (_node_id == 0) return CmdResult{ CmdCode::err_unprovisioned, 0, _active->_tx_queue_n };
-            uint32_t h = c.u.resolve.dst_hash;
-            if (h == 0 && c.u.resolve.dst_id != 0                       // §enc: reqpubkey BY team_local_id -> resolve the hash from the team key cache (heard on the teammate's beacon)
-                && !team_key_of_id(c.u.resolve.dst_id, h))              // unknown team peer (no beacon heard yet) -> fail loud, don't flood a 0-hash query
-                return CmdResult{ CmdCode::err_no_binding, 0, _active->_tx_queue_n };
+            uint32_t h     = c.u.resolve.dst_hash;
+            uint8_t  plane = c.u.resolve.plane;                         // 0=AUTO / 1=TEAM (`-t`) / 2=GLOBAL i.e. static (`-s`)
+            if (h == 0 && c.u.resolve.dst_id != 0) {
+                // ★★ §id-hash S1 (spec 2026-08-01 §1-A / §3-D1 / §3-D9) — THE DEFECT REPLACED HERE, bench-proven
+                // 2026-08-01: this arm resolved through `team_key_of_id` ALONE, and that function's first line is
+                // `if (_cfg.team_id == 0 || !is_team_peer(id)) return false` (node_routing.cpp:842) ⇒ `reqpubkey
+                // <bare id>` was TEAM-ONLY BY CONSTRUCTION and on a STATIC node could not succeed for ANY id. The
+                // bench pair: `hashof 186` answered 0x61CD83EA out of _id_bind while `reqpubkey 186` refused
+                // err_no_binding out of _team_keys. §AB3's "each verb was correct about its own table; neither
+                // answered the question" fix landed on `hashof` (firmware_commands.cpp:527) and never here.
+                // ⇒ resolve through peer_book_by_id, THE dual-plane resolver — not a second hand-rolled two-table
+                // scan (U1). It returns a MASK rather than a winner on purpose: the same 8-bit number legitimately
+                // names different peers in the two planes (§18), so the choice is the CALLER's and must be explicit.
+                PeerBookRow st{}, tm{};
+                const uint8_t mask = peer_book_by_id(c.u.resolve.dst_id, st, tm);
+                const bool has_static = (mask & kPeerBookStatic) != 0;
+                const bool has_team   = (mask & kPeerBookTeam)   != 0;
+                // §3-D9 — plane selection is EXPLICIT at the airtime/mutation boundary, where picking the wrong row
+                // costs more than a display error. `-s`/`-t` force (and then must match, or we refuse); a bare id
+                // picks only when exactly one plane holds it.
+                if (plane == static_cast<uint8_t>(Plane::AUTO)) {
+                    if (has_static && has_team)                         // the §18 collision, live -> name the flag, never guess
+                        return CmdResult{ CmdCode::err_ambiguous_plane, 0, _active->_tx_queue_n };
+                    if (!has_static && !has_team)                       // neither plane holds it -> plane stays 0 = "neither", which is the honest echo
+                        return CmdResult{ CmdCode::err_no_binding, 0, _active->_tx_queue_n };
+                    plane = static_cast<uint8_t>(has_team ? Plane::TEAM : Plane::GLOBAL);
+                }
+                // ⓘ SPEC DEVIATION, DELIBERATE (§3-D9 bullet 4, "unresolved id on a dual-plane node -> require a
+                // flag rather than guess"): that arm has NO distinguishable outcome in S1 and is therefore NOT
+                // implemented. An unresolved by-id reqpubkey refuses BEFORE any flood (the `h == 0` guarantee
+                // below), so no plane is ever selected for it and `err_no_binding` is the whole answer. The bullet
+                // becomes live in S4a, where an unresolved id DOES fly a by-id query and a plane must be chosen.
+                const bool resolved = (plane == static_cast<uint8_t>(Plane::TEAM)) ? has_team : has_static;
+                if (!resolved)                                          // forced plane holds no binding -> fail loud, echoing WHICH plane was searched
+                    return CmdResult{ CmdCode::err_no_binding, 0, _active->_tx_queue_n, 0, 0, plane };
+                h = (plane == static_cast<uint8_t>(Plane::TEAM)) ? tm.hash : st.hash;
+                if (h == 0)                                             // C2: never flood a 0-hash query (the guarantee the old one-table guard gave)
+                    return CmdResult{ CmdCode::err_no_binding, 0, _active->_tx_queue_n, 0, 0, plane };
+            }
 #if MR_FEAT_MOBILE
             // §mobile Part 2: a mobile WE HOST already pushed us its pubkey -> cache it LOCALLY, no flood (the home is the key
             // authority for its hosted mobiles). Lets the home send ENCRYPTED to its own hosted mobile. Mirrors the send-side _mobile_reg last-mile.
@@ -1653,11 +1688,43 @@ CmdResult Node::on_command(const Command& c) {
                 peer_key_set(h, mk, PeerKeyConf::authoritative);
                 MR_EMIT("peer_key_cached", EF_I("hash", static_cast<int64_t>(h)), EF_I("node", 0));   // mirror the handle_h path (telemetry + push)
                 push_peer_key_cached(h);   // §S6: + the cached name
-                return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n };
+                // ★ §id-hash S1b (QA P1c): a GENUINE success that airs NOTHING — the key came out of the local cache
+                // and the app learns it from the peer_key_cached push above. `aired` stays FALSE so the BLE transport
+                // does not additionally claim `reqpubkey_sent`, whose contract meaning is "the request was flooded".
+                return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n, h, 0, plane, /*aired=*/false };
             }
 #endif
-            emit_hash_query(h, /*hard=*/true, /*want_pubkey=*/true, static_cast<Plane>(c.u.resolve.plane));   // §6.4: -t=TEAM (team_scoped, origin=team_local_id); else GLOBAL
-            return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n };
+            // ★★ §id-hash S1b (QA finding P1c): emit_hash_query has FOUR silent early-outs and this arm used to
+            // answer `queued` through all of them, which fw_main then rendered as `{"ev":"reqpubkey_sent"}` — a
+            // contract event that asserts a flood happened. Worst case: a node with NO crypto identity reported
+            // every reqpubkey as sent, and the in-source comment + the companion contract both claimed it "keeps its
+            // existing error ack" — there was no such ack. The originator now reports and we map it honestly.
+            // The mapping reuses existing codes wherever one is already the RIGHT answer (U1/U3), and adds exactly
+            // one where none was:
+            //   · degenerate      -> err_unsupported  (verbatim the precedent two arms below: send_layer refuses a
+            //                                          0 dst_hash with err_unsupported — "this target is not a thing
+            //                                          you can address", which also covers "the target is us")
+            //   · no_identity     -> err_no_identity  (NEW — §err-reason/B32: its remedy is specific, `regen`)
+            //   · no_return_route -> err_no_gateway   (verbatim the precedent below: a mobile with no home cannot
+            //                                          delegate, `if (!_my_mobile_reg.active) return err_no_gateway`)
+            //   · encode_failed   -> err_too_large    (pack_h refused: the frame did not fit its buffer)
+            // The refusal still echoes `dst_hash` + `plane` so the app knows WHICH target on WHICH plane failed.
+            const HQueryOutcome oc = emit_hash_query(h, /*hard=*/true, /*want_pubkey=*/true, static_cast<Plane>(plane));   // §6.4: -t=TEAM (team_scoped, origin=team_local_id); else GLOBAL
+            if (oc != HQueryOutcome::sent) {
+                CmdCode code = CmdCode::err_unsupported;
+                switch (oc) {                                   // -Wswitch: a new outcome must be mapped here
+                    case HQueryOutcome::sent:            break;                              // unreachable (guarded above)
+                    case HQueryOutcome::degenerate:      code = CmdCode::err_unsupported; break;
+                    case HQueryOutcome::no_identity:     code = CmdCode::err_no_identity;  break;
+                    case HQueryOutcome::no_return_route: code = CmdCode::err_no_gateway;   break;
+                    case HQueryOutcome::encode_failed:   code = CmdCode::err_too_large;    break;
+                }
+                return CmdResult{ code, 0, _active->_tx_queue_n, h, 0, plane, /*aired=*/false };
+            }
+            // §id-hash S1: echo the hash the query ACTUALLY flew for (the by-id form's RESOLVED hash) + the plane it
+            // flew on, so no transport re-runs the lookup to build its own answer — that duplicate is exactly how
+            // fw_main's BLE `reqpubkey_sent` echo kept the one-table bug alive after this arm was first fixed (U1).
+            return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n, h, 0, plane, /*aired=*/true };
         }
         case CmdKind::peerkey: {     // §3: QR import — install the scanned full pubkey as a PINNED (verified) key.
             const uint8_t* ep = c.u.peerkey.ed_pub;             // key_hash32 = ed_pub[:4] (derived, never trusted from the wire)

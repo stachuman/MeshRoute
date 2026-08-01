@@ -56,6 +56,7 @@ using mrfw::print_sf_list;            // §3 export: setup() + mesh_service_once
 using mrfw::board_name;               // §3 export: ble_dispatch_line `version`
 using mrfw::handle_routes;            // §3 export: ble_dispatch_line `routes`
 using mrfw::handle_peers;             // §3 export: ble_dispatch_line `peers` (§AB3, the bounded JSON address book)
+using mrfw::print_reqpubkey_hint;     // §3 export: §id-hash S1 — the refused-`reqpubkey` remedy line (service_console)
 using mrfw::make_status_fields;       // §3 export: ble_dispatch_line `status`
 using mrfw::node_state_str;           // §3 export: ble_dispatch_line `status`
 using mrfw::make_cfg_extras;          // §3 export: ble_dispatch_line `cfg`
@@ -486,10 +487,19 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
         if (cmd.kind == meshroute::CmdKind::peerkey) return handle_peerkey(out, cap, cmd);   // §2/§3: install + persist + contract ack
         if (cmd.kind == meshroute::CmdKind::peername) return handle_peername(out, cap, cmd); // §AB2: rename + persist + the synchronous ack
         const meshroute::CmdResult r = g_node.on_command(cmd);
-        if (cmd.kind == meshroute::CmdKind::reqpubkey && r.code == meshroute::CmdCode::queued) {
-            uint32_t rh = cmd.u.resolve.dst_hash;                                       // §enc: a by-team-id reqpubkey resolved the hash at execution -> echo the RESOLVED hash
-            if (rh == 0 && cmd.u.resolve.dst_id != 0) (void)g_node.team_key_of_id(cmd.u.resolve.dst_id, rh);
-            return write_reqpubkey_sent(out, cap, rh);   // §2: the contract's reqpubkey_sent event (the no-identity fail path keeps its existing error ack)
+        // ★★ §id-hash S1b (QA finding P1c): `r.aired`, NOT `r.code == queued`. `reqpubkey_sent` means "the on-air
+        // request was FLOODED" (console_json.h), and two accepted outcomes do not flood: the hosted-mobile local
+        // cache hit (which reports through its own peer_key_cached push), and — before S1b — every one of
+        // emit_hash_query's four silent early-outs, which now carry their own error codes instead. Anything that did
+        // not air falls through to the generic write_ack, which is the honest answer for both.
+        if (cmd.kind == meshroute::CmdKind::reqpubkey && r.code == meshroute::CmdCode::queued && r.aired) {
+            // ★★ §id-hash S1 (spec §1-A's SECOND SITE): this echo used to re-resolve the id itself with
+            //     `if (rh == 0 && dst_id != 0) g_node.team_key_of_id(dst_id, rh);`
+            // — a THIRD hand-rolled one-table lookup, so a static-plane by-id reqpubkey would still have echoed
+            // hash=0 to the companion after node.cpp's arm was fixed. The result now CARRIES the answer
+            // (CmdResult::dst_hash = the hash the query flew for, ::plane = which plane resolved it), so this
+            // transport reads it instead of re-deriving it and the two can no longer disagree (U1).
+            return write_reqpubkey_sent(out, cap, r.dst_hash, r.plane);   // §2: the contract's reqpubkey_sent event (the no-identity fail path keeps its existing error ack)
         }
         return write_ack(out, cap, r);
     }
@@ -873,7 +883,14 @@ static void service_console() {
                     // The send handle for hash/layer-addressed sends (dh != 0 = correlate by hash, not id).
                     if (r.dst_hash) { mrcon.print(F(" dh=0x")); mrcon.print(r.dst_hash, HEX); }
                     if (r.layer_path) { mrcon.print(F(" lp=0x")); mrcon.print(r.layer_path, HEX); }
+                    // ★ §id-hash S1 (spec §3-D9): the plane the command executed on. Omitted when 0 (= not
+                    // plane-scoped), so every other verb's line is byte-identical to before. On `reqpubkey <id>` this is
+                    // the answer to "which namespace did you just spend airtime in", which a bare `queued` never said.
+                    if (r.plane) { mrcon.print(F(" plane=")); mrcon.print(meshroute::console::cmdplane_name(r.plane)); }
                     mrcon.println();
+                    // §id-hash S1: the remedy line for a refused reqpubkey, at handle_hashof parity. The text lives in
+                    // firmware_commands beside hashof's (U3 — fw_main stays glue); a `queued` prints nothing.
+                    print_reqpubkey_hint(mrcon, cmd, r);
                     }
                 } else if (e != meshroute::console::ParseErr::empty) {
                     if (pos >= 8 && !strncmp(line, "peerkey ", 8))       // §3: a malformed peerkey -> the contract's peerkey_err

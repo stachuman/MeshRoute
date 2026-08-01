@@ -48,6 +48,13 @@ void handle_routes(Print& out);                                     // ble_dispa
 // The full up-to-256 id-only list is deliberately NOT reachable here (§2.6(a)); ble_dispatch_line refuses `peers all`
 // with peers_err{console_only} rather than streaming a few hundred rows over a link that has wedged this node before.
 void handle_peers(Print& out);                                      // ble_dispatch_line `peers`
+// ★★ §id-hash S1 (spec §1-A): the REMEDY text for a refused `reqpubkey`, at parity with `handle_hashof`'s (which is in
+// this TU, so the two wordings sit side by side and cannot drift). The bare CmdCode names the wall but not the way
+// round it, and for this verb the way round it differs per plane — that is the whole point of the slice.
+// Called from service_console (USB text) only: the companion gets the same facts STRUCTURED, as
+// {"ack":"err_…","plane":"…"} — prose over a link that has wedged this node before is the wrong shape.
+// A `queued` result prints nothing.
+void print_reqpubkey_hint(Print& out, const meshroute::Command& cmd, const meshroute::CmdResult& r);
 meshroute::console::StatusFields make_status_fields();              // ble_dispatch_line `status`
 const char* node_state_str();                                       // ble_dispatch_line `status`
 meshroute::console::CfgExtras make_cfg_extras();                    // ble_dispatch_line `cfg`

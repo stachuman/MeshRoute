@@ -217,22 +217,41 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
     }
 
     //   reqpubkey <hash> — §6: user-triggered on-air pubkey request (a HARD WANT_PUBKEY H flood). The only auto-source.
-    if (tok_eq(verb, "reqpubkey")) {                            // reqpubkey <0xhash|team-id> — 0x-hex => key_hash32; bare decimal <=254 => a teammate's team_local_id (resolve the hash from the team key cache)
+    //   ★★ §id-hash S1 (spec 2026-08-01 §1-A / §3-D9): `-s` EXISTS NOW and a bare decimal NO LONGER FORCES TEAM.
+    //   The old line was `bool team = (out.u.resolve.dst_id != 0);` with only `-t` accepted below ⇒ a bare id was
+    //   team-only *at the parser*, which is the front half of the defect (the back half was node.cpp resolving through
+    //   team_key_of_id alone). ⇒ an id with no flag now goes out as plane 0/AUTO and on_command picks the plane from
+    //   which one actually holds the binding (§3-D9), refusing `err_ambiguous_plane` when BOTH do.
+    //   U3: the `-t` / `-s` pair, and their mutual exclusion, is `hashof`'s idiom verbatim (firmware_commands.cpp:537).
+    //   ⓘ THE HASH FORM IS UNCHANGED on purpose — no flag => GLOBAL, `-t` => TEAM (`-s` is just the explicit spelling
+    //   of the default). A hash needs no resolution, so it has no ambiguity to report and no reason to move.
+    if (tok_eq(verb, "reqpubkey")) {                            // reqpubkey <0xhash|id> [-s|-t] — 0x-hex => key_hash32; bare decimal <=254 => an 8-bit id resolved on BOTH planes at execution
         Tok arg = token(s);
         uint32_t hash = 0, id = 0;
         out = Command{};
         out.kind = CmdKind::reqpubkey;
         if (parse_hex32_0x(arg, hash) && hash != 0) {                 // 0x-hex -> a key_hash32
             out.u.resolve.dst_hash = hash; out.u.resolve.dst_id = 0;
-        } else if (parse_u32_tok(arg, 254u, id) && id != 0) {         // decimal <=254 -> a team_local_id
+        } else if (parse_u32_tok(arg, 254u, id) && id != 0) {         // decimal <=254 -> a static node_id / team local id
             out.u.resolve.dst_hash = 0; out.u.resolve.dst_id = static_cast<uint8_t>(id);
         } else return ParseErr::bad_args;
-        // §6.4 HARD SPLIT: optional trailing -t = TEAM plane (team-scoped pubkey req -> origin=team_local_id, answer via _rt_team).
-        // A bare team-id target is implicitly TEAM; else default GLOBAL (via home/static). Consistent with `send`.
-        bool team = (out.u.resolve.dst_id != 0);
+        // §6.4 HARD SPLIT: optional trailing -t = TEAM plane (team-scoped pubkey req -> origin=team_local_id, answer
+        // via _rt_team) / -s = the STATIC plane. Mutually exclusive (C2: `-t -s` is a contradiction, not a precedence
+        // puzzle). Consistent with `send` and `hashof`.
+        bool team = false, stat = false;
         skip_ws(s);
-        if (s.p < s.end) { Tok fl = token(s); if (tok_eq(fl, "-t")) team = true; else return ParseErr::bad_args; }
-        out.u.resolve.plane = team ? 1 /*TEAM*/ : 2 /*GLOBAL*/;
+        while (s.p < s.end) {
+            Tok fl = token(s);
+            if      (tok_eq(fl, "-t")) team = true;
+            else if (tok_eq(fl, "-s")) stat = true;
+            else return ParseErr::bad_args;
+            skip_ws(s);
+        }
+        if (team && stat) return ParseErr::bad_args;                  // `-t -s` -> refuse, don't pick one
+        if (team)      out.u.resolve.plane = 1 /*TEAM*/;
+        else if (stat) out.u.resolve.plane = 2 /*GLOBAL = static*/;
+        else           out.u.resolve.plane = (out.u.resolve.dst_id != 0) ? 0 /*AUTO -> §3-D9 at execution*/
+                                                                        : 2 /*GLOBAL — a hash needs no plane guess*/;
         return ParseErr::ok;
     }
 

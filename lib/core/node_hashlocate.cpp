@@ -44,16 +44,67 @@ uint8_t Node::id_bind_evict_other_hash_holders(uint32_t key_hash32, uint8_t keep
     return evicted;
 }
 
+// ★★★ §id-hash S2b-fix (2026-08-01, QA finding P1a): "is this hash held AUTHORITATIVELY by a DIFFERENT node_id?"
+// -> that node_id, else -1. The gates are `key_hash_of_id`'s VERBATIM (authoritative + within id_bind_ttl_ms, with the
+// self-binding exempt from the TTL) — U1, because this predicate exists to protect exactly what that reader answers:
+// asking a different question here would let a row block a rehome that the reader can no longer see, or vice versa.
+int Node::id_bind_auth_holder_other(uint32_t key_hash32, uint8_t except_node_id) const {
+    if (key_hash32 == 0) return -1;
+    const uint64_t now = _hal.now();
+    for (uint16_t i = 0; i < _active->_id_bind_n; ++i) {
+        const IdBind& e = _active->_id_bind[i];
+        if (e.key_hash32 != key_hash32 || e.node_id == except_node_id) continue;
+        if (e.confidence != static_cast<uint8_t>(IdBindConf::authoritative)) continue;
+        const bool self_keep = (e.node_id == _node_id && e.key_hash32 == _key_hash32);
+        if (!self_keep && _cfg.id_bind_ttl_ms > 0 && (now - e.last_seen_ms) >= _cfg.id_bind_ttl_ms) continue;
+        return e.node_id;
+    }
+    return -1;
+}
+
 // Insert/update a binding (Lua id_bind_set dv:4677, + the rejoin/authoritative amendments). Maintains the
 // (node_id <-> key_hash32) bijection: dedup-by-hash on accept (one hash -> one id), and a same-id CONFLICT
 // (a different hash claims this node_id) is OVERWRITTEN by an authoritative source (self / owner-confirmed
 // hash-bind) but REFUSED for a claimed one (emit addr_conflict_observed; the join-defense J_DENY stays
 // deferred). NEW + table full -> table_cap_hit refuse. Only a NEW node_id emits id_bind_set (an update is
 // silent — the Lua is_new gate). Returns true if the binding is now present.
+// ★ §id-hash S2b: the update is UPGRADE-ONLY on BOTH axes — a `claimed` observation can neither demote an
+// `authoritative` binding on a matching row (nor refresh its liveness stamp), nor EVICT an authoritative holder of the
+// same hash under another id. See the two blocks below for the full reasoning; the second was QA finding P1a.
+// ⓘ `IdBindSource::manual` (an operator assertion, spec §3-D8) is deliberately NOT added here: its only producer
+// would be the `confirmid` verb, which is S5. An enumerator with no producer is the very `PeerKeyConf::overheard`
+// smell the spec criticises in §2.4 — the tier exists in the ladder, in NV and in the app contract with nothing
+// writing it. It lands WITH its writer or not at all.
 bool Node::id_bind_set(uint8_t node_id, uint32_t key_hash32, IdBindSource source, IdBindConf confidence) {
     if (node_id == 0xFF) return false;                           // reserved id
     const uint64_t now = _hal.now();
     const bool authoritative = (confidence == IdBindConf::authoritative);
+    // ★★★ §id-hash S2b-fix (QA finding P1a) — THE UPGRADE-ONLY RULE ALSO HAS TO HOLD ACROSS A REHOME, and it did not.
+    // The matching-row guard below stops a claim demoting the SAME row, but this function also enforces the reverse
+    // uniqueness rule (one hash -> one node_id) via id_bind_evict_other_hash_holders, which BOTH accept paths call
+    // WITHOUT looking at confidence. So the demotion walked in through a different door:
+    //     1. authoritative {id=10, H}                      (a first-hand beacon)
+    //     2. claimed      {id=20, H}                       (a relayed soft H answer)
+    //     3. no row for 20 -> the NEW-node_id path -> evict_other_hash_holders(H, 20) DELETES the authoritative row,
+    //        then inserts {20, H, claimed} ⇒ key_hash_of_id(10) goes dark on a third party's say-so.
+    // ⇒ A CLAIMED OBSERVATION MAY NOT DISPLACE AN AUTHORITATIVE HOLDER OF THE SAME HASH. Refusing the whole write is
+    //   the right shape, not "insert without evicting": skipping the eviction would leave TWO rows for one hash and
+    //   break the bijection id_bind_find_by_hash depends on (it returns the first match) — strictly worse. This is
+    //   also the SAME policy, wording and telemetry family as the same-id conflict arm 20 lines below (U3).
+    // ⓘ RULED (owner, 2026-08-01): claimed -> claimed stays NEWEST-WINS. There is no trust ordering between two
+    //   claims, so keeping the existing behaviour keeps this a fix rather than a redesign (C1).
+    // ⓘ An AUTHORITATIVE rehome is untouched and still evicts — that is the rejoin self-heal this whole mechanism
+    //   exists for, and a test holds it as the positive control.
+    // ⓘ The check is here, ABOVE the loop, because it must guard both accept paths and its answer cannot differ
+    //   between them; `except_node_id = node_id` is what keeps a row from blocking its own refresh.
+    if (!authoritative) {
+        const int holder = id_bind_auth_holder_other(key_hash32, node_id);
+        if (holder >= 0) {
+            MR_EMIT("addr_rehome_refused", EF_I("node", node_id), EF_I("holder", holder),
+                    EF_I("key_hash32", static_cast<int64_t>(key_hash32)), EF_S("source", id_bind_source_str(source)));
+            return false;
+        }
+    }
     for (uint16_t i = 0; i < _active->_id_bind_n; ++i) {                  // existing entry for this node_id?
         if (_active->_id_bind[i].node_id != node_id) continue;
         if (_active->_id_bind[i].key_hash32 != key_hash32) {              // CONFLICT: a different hash claims this id
@@ -99,9 +150,35 @@ bool Node::id_bind_set(uint8_t node_id, uint32_t key_hash32, IdBindSource source
             }
             _active->_id_bind[i].key_hash32 = key_hash32;                // authoritative -> overwrite the hash (incoming wins / same-node rekey)
         }
-        _active->_id_bind[i].last_seen_ms = now;                         // refresh (silent — not new)
-        _active->_id_bind[i].source       = static_cast<uint8_t>(source);
-        _active->_id_bind[i].confidence   = static_cast<uint8_t>(confidence);
+        // ★★★ §id-hash S2b (spec 2026-08-01 §1-E) — A LIVE DEMOTION BUG, and it needed no new feature to bite.
+        // These three lines wrote the incoming source and confidence UNCONDITIONALLY, so a `claimed` observation
+        // silently DEMOTED an `authoritative` binding: a relayed soft H answer (IdBindSource::h_relay, :1252) landed
+        // on a first-hand beacon row, and `key_hash_of_id` — which hard-filters `confidence != authoritative` (:148)
+        // — then refused to stamp DST_HASH for that peer until the next beacon re-asserted it. Every reader of
+        // `_id_bind` sat behind that filter, so the whole binding went dark on a THIRD PARTY's say-so.
+        // ⇒ CONFIDENCE IS NOW UPGRADE-ONLY, mirroring peer_key_set's own rule for the sibling store (:255-261): the
+        //   two tables answer the same shape of question and must not have opposite overwrite policies.
+        // ★ AND `last_seen_ms` MOVES WITH IT — a claimed sighting does NOT extend an authoritative row's lease.
+        //   RATIONALE (owner-specified, and deliberately symmetric with the spec's team-plane rule §3-D5c): on an
+        //   authoritative row `last_seen_ms` means *"when we last had FIRST-HAND evidence"*, and it is load-bearing
+        //   twice — the TTL gate in key_hash_of_id/id_bind_find_by_hash and the id_bind_age_out sweep. A relayed
+        //   claim is not first-hand evidence, so refreshing on it would FAKE that liveness, exactly the hazard
+        //   node_hashlocate.cpp:1240 names for _team_keys' cache-on-pass.
+        //   ⚠ THE CONSEQUENCE IS INTENDED, not an oversight: an authoritative row that only ever gets re-CLAIMED now
+        //   ages out at id_bind_ttl_ms (48 h) instead of living forever on hearsay. A binding nobody re-asserts
+        //   first-hand SHOULD lapse. (The self-binding is exempt everywhere — id_bind_age_out's self_keep.)
+        // ★ `source` is frozen with them, on purpose: it records WHICH observation established the confidence now
+        //   held. Keeping `authoritative` while writing `source = h_relay` would label a relay as the authority —
+        //   the provenance mislabelling §3-D8 refuses to ship.
+        // ⓘ NO TELEMETRY ADDED, deliberately: a refused demotion is ROUTINE (every relayed answer about a known
+        //   peer), and an emit here would re-anchor scenario streams and make this behaviour change unattributable
+        //   in the same run (C4's rule applied to telemetry). Observability is the poison matrix + native tests.
+        const bool existing_auth = (_active->_id_bind[i].confidence == static_cast<uint8_t>(IdBindConf::authoritative));
+        if (authoritative || !existing_auth) {
+            _active->_id_bind[i].last_seen_ms = now;                     // refresh (silent — not new)
+            _active->_id_bind[i].source       = static_cast<uint8_t>(source);
+            _active->_id_bind[i].confidence   = static_cast<uint8_t>(confidence);
+        }
         id_bind_evict_other_hash_holders(key_hash32, node_id);  // one hash -> one id (heal a same-hash rehome)
         if (authoritative) evict_aliased_hosted_mobile(node_id, key_hash32);   // §S0(b): a confirmed static reclaims an id we gave a mobile
         return true;
@@ -471,6 +548,14 @@ uint16_t Node::peer_book_walk(bool include_id_rows, PeerBookVisit fn, void* ctx)
     for (uint16_t i = 0; i < _active->_id_bind_n; ++i) {
         const IdBind& e = _active->_id_bind[i];
         if (e.key_hash32 && peer_key_slot_of(e.key_hash32) >= 0) continue;   // already emitted by (1)
+        // ★ §id-hash S2 (spec 2026-08-01 §1-D): SKIP OUR OWN BINDING. on_init/rejoin call
+        // id_bind_set(_node_id, _key_hash32, IdBindSource::self, …) (node.cpp:77/:539/:864), so before this the address
+        // book listed US as a peer — `[peer] hash=0x8CC9BDFF static_id=42(auth)` on node 42, verbatim from the bench
+        // transcript in spec §0. An address book is a list of OTHERS.
+        // ⚠ THE PREDICATE IS THE SELF-BINDING, NOT THE ID: `node_id == _node_id` alone would also hide a FOREIGN key
+        // claiming our id — an address collision, which is the single most diagnostic row this dump can carry. Same
+        // (id AND hash) test id_bind_set's own self-defence uses (:59) — U1, one spelling of "this row is us".
+        if (e.node_id == _node_id && e.key_hash32 == _key_hash32) continue;
         r = PeerBookRow{};
         r.hash = e.key_hash32;
         r.static_id = e.node_id;
@@ -478,6 +563,28 @@ uint16_t Node::peer_book_walk(bool include_id_rows, PeerBookVisit fn, void* ctx)
         if (r.hash) r.team_id = team_id_of_key_freshest(r.hash, r.team_alias_dropped);   // §18: the same hash may hold both
         peer_book_join_loc(r);                                                          // §AB4 (no join_ids here: static_id came straight off the row)
         ++n; if (fn) fn(r, ctx);
+    }
+    // ★★ (2b) §id-hash S2 (spec §1-C): _rt dests nothing else covered ⇒ STATIC-ID-ONLY rows — the exact twin of the
+    //     team pass (4) below, which has existed since §AB3 while the static plane had NO equivalent. That asymmetry
+    //     is spec §0's bench evidence: on one node `[peer] team_id=114` / `team_id=214` were listed as
+    //     routable-but-unidentifiable, while `[route] dest=48/59/109` — the same condition on the static plane —
+    //     appeared in `routes` and NOWHERE in `peers all`.
+    //     ⓘ DEDUP is against `_id_bind` MEMBERSHIP, not against key_hash_of_id: pass (2) emits a row for EVERY
+    //     _id_bind entry, including a `claimed` one and one whose hash is 0, both of which key_hash_of_id filters out
+    //     — testing through the accessor would re-emit those as duplicates. Scanning the earlier pass's TABLE directly
+    //     is this function's stated dedup idiom (see the header note), which is why there is no auxiliary "seen" array.
+    //     ⓘ COST: O(_rt_count x _id_bind_n), both <= 254. That is the same shape pass (4) already pays (254 ids x a
+    //     16-slot _team_keys scan) and it runs only for `peers all`, which is TEXT-CONSOLE ONLY (§2.6(a)).
+    for (uint8_t i = 0; i < _active->_rt_count; ++i) {
+        const uint8_t d = _active->_rt[i].dest;
+        if (d == 0 || d == 0xFF || d == _node_id) continue;      // 0 unprovisioned / 0xFF reserved / ourselves (§1-D)
+        bool covered = false;
+        for (uint16_t j = 0; j < _active->_id_bind_n && !covered; ++j)
+            covered = (_active->_id_bind[j].node_id == d);        // pass (2) already emitted this id
+        if (covered) continue;
+        r = PeerBookRow{};
+        r.static_id = d;                                          // hash 0 ⇒ an id-only row; static_authoritative stays
+        ++n; if (fn) fn(r, ctx);                                  //   false because there is no binding to vouch for
     }
 #if MR_FEAT_TEAM
     // (3) _team_keys — a hash covered by (1) or (2) is already merged; anything else is a new hash+team_id row.
@@ -535,7 +642,17 @@ uint8_t Node::peer_book_by_id(uint8_t id, PeerBookRow& static_out, PeerBookRow& 
         mask |= kPeerBookStatic;
     }
     uint32_t th = 0;
-    if (team_key_of_id(id, th) && !(mask && th == h)) {       // TEAM: the team key cache — and skip an exact duplicate
+    // ★★★ §id-hash S1b (2026-08-01, QA finding P2) — THE DE-DUP `&& !(mask && th == h)` IS GONE, and its removal is a
+    // CORRECTNESS fix, not tidying. It suppressed the TEAM bit whenever both planes resolved the SAME hash. That was a
+    // harmless display choice while only `hashof` read this — but S1 made the mask an AIRTIME decision, and there it
+    // produced two wrong answers: a bare `reqpubkey <id>` silently picked STATIC instead of §3-D9's ambiguity refusal,
+    // and an explicit `reqpubkey <id> -t` saw `has_team == false` and refused `err_no_binding` FOR A TEAM BINDING THAT
+    // EXISTS. Hash equality does not make the two planes equal — the routes, the return paths and the flood scope all
+    // still differ, which is exactly what the flag selects.
+    // ⇒ this function reports PRESENCE, per plane, and nothing else. Any identity de-duplication is a RENDERER
+    //   concern; `handle_hashof` now prints both rows and their equal hashes say "one identity, two planes" on their
+    //   own, which is more information than the suppressed row carried.
+    if (team_key_of_id(id, th)) {                             // TEAM: the team key cache
         if (!peer_book_by_hash(th, team_out)) { team_out = PeerBookRow{}; team_out.hash = th; }
         // ⚠ team_id is left as the view RESOLVED it, NOT overwritten with `id`: when two team ids alias one hash the
         // freshest is the honest answer and team_alias_dropped says a loser exists. The caller reports the queried id.
@@ -1520,11 +1637,17 @@ bool Node::deleg_ack_translate(uint32_t mobile_hash, uint16_t acked_ctr, uint16_
 }
 
 // Originate an H flood for key_hash32 (Lua send_hash_query dv:5625). hard = the verify-on-use escalation.
-void Node::emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey, Plane plane) {
-    if (key_hash32 == 0 || key_hash32 == _key_hash32) return;    // nothing to locate (degenerate / it's us)
+// ★★★ §id-hash S1b (QA P1c): it RETURNS its disposition now. See Node::HQueryOutcome for why — in short, this
+// function has four silent early-outs and its reqpubkey caller was reporting all of them to the app as a flood.
+// ⚠ The three OTHER callers (node_join.cpp:468, node_mac_rx.cpp:1384, node.cpp's send_layer arm) deliberately keep
+// ignoring the value: they are best-effort locates whose failure is already handled by a park/timeout, and giving
+// them outcome handling would be a behaviour change in three unrelated paths (C1). If one of them ever needs it,
+// the value is now there to read.
+Node::HQueryOutcome Node::emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey, Plane plane) {
+    if (key_hash32 == 0 || key_hash32 == _key_hash32) return HQueryOutcome::degenerate;   // nothing to locate (degenerate / it's us)
     if (want_pubkey && !_crypto_ready) {                         // §2: the mutual exchange needs OUR pubkey -> fail loud, no flood
         MR_EMIT("h_want_pubkey_no_identity", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
-        return;
+        return HQueryOutcome::no_identity;
     }
     h_in in{};
     // §P2-1: for a TEAM-scoped H (team_q below) in.leaf_id is ADVISORY — the receiver's handle_h skips the leaf gate for a
@@ -1556,14 +1679,15 @@ void Node::emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey, Pla
     // Fail loud, do NOT flood. (Registered => origin=home_id; TEAM/AUTO-team => team_scoped — both skip this.)
     if (want_pubkey && in.mobile_req && in.origin == _node_id && !in.team_scoped) {
         MR_EMIT("h_want_pubkey_mobile_no_route", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
-        return;
+        return HQueryOutcome::no_return_route;
     }
     uint8_t buf[8 + 32 + 4 + 1 + 32];                            // §2: WANT_PUBKEY H = 40 B; §mobile 6.2: +4 B team_id; §name: +1+name_len (max 33) -> a named team_scoped WANT_PUBKEY is up to 77 B
     const size_t n = pack_h(in, std::span<uint8_t>(buf, sizeof(buf)));
-    if (n == 0) return;
+    if (n == 0) return HQueryOutcome::encode_failed;
     // the originate (dv:5625)
     MR_EMIT("h_tx", EF_I("key_hash32", static_cast<int64_t>(key_hash32)), EF_I("ttl", protocol::hash_query_max_ttl), EF_B("hard", hard));
     tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
+    return HQueryOutcome::sent;
 }
 
 void Node::park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t reply_to_hash, uint16_t mobile_ctr, uint8_t type, bool reflood, bool reflood_hard, Plane reflood_plane) {

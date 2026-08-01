@@ -199,6 +199,11 @@ inline TeamKeyTail split_team_key_tail(const char* tail, char* scratch, size_t s
 //     id-vs-hash ambiguity (the same rule and the same reason as parse_hex32_0x).
 //   · a bare decimal 1..254  -> a teammate's team_local_id, as seen in the roster/beacons; the CALLER resolves it to a
 //     hash via Node::team_key_of_id and reports `bad_target` if that teammate has not been heard. Implicitly TEAM plane.
+//     ★ DELIBERATELY NOT MOVED to the dual-plane Node::peer_book_by_id by §id-hash S1 (2026-08-01), and this is a
+//     RULING not an omission: `reqpubkey` had to move because a pubkey request is plane-agnostic (an id in EITHER
+//     namespace is a legitimate target), whereas `grantkey` SHIPS A PRIVATE TEAM KEY — a static-plane target is a
+//     category error, not a plane choice. Its one-table read is therefore correct BY DESIGN. (Spec §6-D6 lists
+//     `team grantkey` at the `authoritative` floor for the same reason.)
 //   · `name="…"`             -> the optional team label that rides the grant body (quoted, so it may contain spaces —
 //     kv_next handles the quoting). Longer than 32 -> too_long (C2: refuse, never silently truncate an operator label).
 //   · `-t`                   -> force the TEAM plane, exactly as on `send` / `reqpubkey`.

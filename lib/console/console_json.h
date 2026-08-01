@@ -51,7 +51,11 @@ struct JsonBuf {
 
 // Complete NDJSON line serializers (return bytes written incl. '\n', 0 on overflow).
 size_t write_ack   (char* buf, size_t cap, const CmdResult& r);
-size_t write_reqpubkey_sent(char* buf, size_t cap, uint32_t hash);   // §2: {"ev":"reqpubkey_sent","hash":…} — the on-air pubkey-request twin
+// §2: {"ev":"reqpubkey_sent","hash":…[,"plane":"team"|"static"]} — the on-air pubkey-request twin.
+// ★ §id-hash S1: `hash` is CmdResult::dst_hash (for a by-id request, the hash peer_book_by_id RESOLVED) and `plane` is
+// CmdResult::plane. Both come straight off the result — the caller must NOT re-resolve the id, which is precisely the
+// duplicate lookup that kept the one-table defect alive on the BLE transport. plane defaults to 0 = omit the field.
+size_t write_reqpubkey_sent(char* buf, size_t cap, uint32_t hash, uint8_t plane = 0);
 size_t write_push  (char* buf, size_t cap, const Push& p, const NodeConfig* cfg = nullptr);   // cfg: config_adopted membership fields (R6.3)
 // join_started — the JSON verb ack for `join`/`create` (replaces the human success line so the app gets a parseable
 // start-of-DAD event; the adopt itself rides the async join_adopted push). freq_khz/bw_hz are integer (no float on
@@ -267,6 +271,10 @@ size_t write_inbox_end    (char* buf, size_t cap, uint32_t dm_seq, uint32_t chan
 size_t write_inbox_marked (char* buf, size_t cap, const char* kind, uint32_t seq);
 
 const char* cmdcode_name(CmdCode c);
+// ★ §id-hash S1 (spec §3-D9): CmdResult::plane / ResolveCmd::plane -> "team" (1) | "static" (anything else). Takes the
+// RAW uint8_t, not `Plane`: that enum is in node_carriers.h and the app seam (command.h) must not include it, so 0/1/2
+// IS the contract encoding and this is its one spelling. Callers omit the field entirely when plane == 0.
+const char* cmdplane_name(uint8_t plane);
 const char* pushkind_name(PushKind k);
 const char* sendfailreason_name(SendFailReason r);      // send_failed / send_blocked `reason` (out-of-range -> "none")
 const char* joinrefusereason_name(JoinRefuseReason r);  // join_refused `reason` (out-of-range -> "none")

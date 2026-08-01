@@ -111,9 +111,17 @@ const char* cmdcode_name(CmdCode c) {
         case CmdCode::err_unprovisioned:   return "err_unprovisioned";   // node_id==0 (very common on a fresh device)
         case CmdCode::err_no_data_sf:      return "err_no_data_sf";      // allowed_sf_bitmap==0 (sf_list unset)
         case CmdCode::err_ack_ring_full:   return "err_ack_ring_full";   // pending-ack ring saturated: a new -a send is REFUSED loudly (protocol_constants.h: NEVER evict-oldest)
+        case CmdCode::err_ambiguous_plane: return "err_ambiguous_plane"; // ★ §id-hash S1: a bare id resolves in BOTH planes -> pass `-s` or `-t` (NOT err_no_binding: the remedy is the opposite one)
+        case CmdCode::err_no_identity:     return "err_no_identity";     // ★ §id-hash S1b: no Ed25519 identity -> a MUTUAL pubkey exchange is impossible; remedy `regen`
     }
     return "err_unknown";
 }
+// ★ §id-hash S1 (spec §3-D9): CmdResult::plane / ResolveCmd::plane as a token. 0 = the command is not plane-scoped,
+// which every serialiser renders by OMITTING the field — so no existing ack line changed. Deliberately NOT a switch on
+// `Plane`: that enum lives in node_carriers.h, which the app seam (command.h) does not and must not include, so the
+// contract carries the raw 0/1/2 and this is its one spelling (U1). Out of range reads as "static", the plane a node
+// always has (an unprovisioned node never gets this far), never a team claim we cannot back.
+const char* cmdplane_name(uint8_t plane) { return plane == 1 ? "team" : "static"; }
 const char* pushkind_name(PushKind k) {
     switch (k) {
         case PushKind::msg_recv:      return "msg_recv";
@@ -218,12 +226,21 @@ size_t write_ack(char* buf, size_t cap, const CmdResult& r) {
     // dh, never the 8-bit id); lp != 0 => the send_layer destination path packed MSB-first ([2,3] -> 0x0203).
     j.lit(",\"dh\":"); j.u32(r.dst_hash);
     j.lit(",\"lp\":"); j.u32(r.layer_path);
+    // ★ §id-hash S1 (spec §3-D9): the plane the command actually executed on, OMITTED when 0 (= not plane-scoped), so
+    // every pre-S1 ack line is byte-identical. Today only `reqpubkey` sets it; a refusal carries it too, which is how a
+    // `-t`/`-s`-forced err_no_binding says WHICH plane it searched.
+    if (r.plane) { j.lit(",\"plane\":\""); j.lit(cmdplane_name(r.plane)); j.ch('"'); }
     j.ch('}');
     return j.finish();
 }
-size_t write_reqpubkey_sent(char* buf, size_t cap, uint32_t hash) {   // §2: the on-air pubkey request was flooded (replaces the generic {"ack":"queued"})
+size_t write_reqpubkey_sent(char* buf, size_t cap, uint32_t hash, uint8_t plane) {   // §2: the on-air pubkey request was flooded (replaces the generic {"ack":"queued"})
     JsonBuf j(buf, cap);
-    j.lit("{\"ev\":\"reqpubkey_sent\",\"hash\":"); j.u32(hash); j.ch('}');
+    j.lit("{\"ev\":\"reqpubkey_sent\",\"hash\":"); j.u32(hash);
+    // §id-hash S1: `hash` is now the RESOLVED hash for a by-id request (CmdResult::dst_hash — one resolver, no
+    // transport-side re-lookup), and `plane` names which plane resolved it. Omitted when 0 for the same
+    // byte-identity reason as write_ack's.
+    if (plane) { j.lit(",\"plane\":\""); j.lit(cmdplane_name(plane)); j.ch('"'); }
+    j.ch('}');
     return j.finish();
 }
 size_t write_join_started(char* buf, size_t cap, const JoinStartedFields& s) {   // the JSON verb ack for join/create
