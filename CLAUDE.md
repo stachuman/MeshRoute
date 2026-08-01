@@ -32,6 +32,20 @@ Check the relevant **[TRIGGER]** group *before* acting; cite rules by ID to stee
 - P2 big or risky → design spec first (`docs/superpowers/specs/`), reviewed before code — then distil its durable agreements into a `MEMORY.md` line so they don't rot in a doc I won't reopen
 - P3 my role is yours to assign per task (QA-gate / spec / implement) — I won't drift into coding what the coder owns; when unsure, I ask
 
+**[MAINTAIN] — living documents, not one-off artefacts**
+- ★ M1 **`docs/2026-07-30-open-bug-register.md` is MAINTAINED, not archived** — every finding lands there with its
+  measurement, entries are closed in place (never deleted), and §0 is the dispatch contract a coder is handed. **A bug
+  found and not registered is a bug found twice.**
+- ★ M2 **`docs/2026-07-31-bench-test-script.md` is MAINTAINED** — it holds only what **no automated gate can reach**
+  (a different ABI, a file neither native nor the sim compiles, flash wear, real radio). **Every slice that adds a
+  metal-only behaviour adds its check here**, with the exact expected console line. Keep it short; it is the residue,
+  not a re-test of the corpus.
+- ★★ M3 **MeshRoute is NOT DEPLOYED — it runs only on the owner's test hardware. WIRE CHANGES ARE FREE.** Owner
+  re-confirmed 2026-07-31 and 2026-08-01. ⇒ **never contort a design to fit a spare bit or dodge a `wire_version`
+  bump** — that is exactly how the DATA flags byte (`0xFF`) and `q_opcode` (2 bits) both reached exhaustion. Pick the
+  RIGHT shape. ⚠ The one residual cost is **attribution**: a bump re-anchors all 36 streams at once, so give it **its
+  own slice/commit** (see C4).
+
 ## Map
 
 - `docs/CODE_GUIDELINES.md` — code-quality discipline (read first).

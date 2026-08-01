@@ -298,6 +298,34 @@ Once §2.3 lands, **`:1018`** — the **unsealed** LOCATION pack path — become
   `kVersion` 22 → 23, retire the TLV number**, and enforce the three refusals. ⚠ **Bigger than it looks** — a
   config-surface removal plus an NV bump, not just a flag. (+ §2.4's channel case once T-K2 has landed.)
 
+### 3.0 ★★★ OWNER REVERSALS 2026-08-01 — CL2c
+
+> **Owner:** *"1. team channel — when message is decrypted it has to go into normal inbox we handle now. 2. source_hash is required — when send channel message contains location it is required to include which node location is it."*
+
+**Reversal 1 needs NO WORK — it is already true, and QA's summary was what misled.** `node_channel.cpp:382` already calls
+`record_channel(...)` with **the OPENED PLAINTEXT** and `enc=1`, inside `if (readable)`, alongside a normal `channel_recv`
+push carrying the same text, `seq` and the row identity. ⇒ **the message and its text were always in the normal inbox.**
+What QA reported was that the **COORDINATES** reach no per-message surface (B36) — a different claim, badly phrased.
+
+**Reversal 2 is real and is CL2c.** A located post carries **no identity of whose position it is**. Attribution today is
+*inferred*: `origin` (a `team_local_id`) → `_team_keys` → hash, cross-checked against the msg-id's 16 bits — and `§cl2b`
+measured that this **can fail** (`unknown_team_peer` / `hash_mismatch`), after which the position is dropped. **A
+`team_local_id` is DAD-assigned and re-pickable, so inference is structurally weaker than carrying the fact.**
+⇒ **`source_hash` (the sender's full `key_hash32`) goes IN THE SEALED INNER as `bit2`, REQUIRED whenever `bit1`
+(location) is set.** A wire change, and **free** per CLAUDE.md **M3**.
+
+★★ **RULED 2026-08-01 — WHERE THE COORDINATES LIVE, and it resolves a real conflict with AB4 §2.7.** Putting them in the
+**durable inbox** would reverse AB4's second RAM-only reason — *"a captured or stolen node must not yield every
+teammate's last known position"* — by yielding a position **history**, strictly worse than the RAM ring that ruling
+protects. **Owner chose:**
+```
+channel_recv  ->  text + lat/lon + source_hash     (LIVE push)
+peers row     ->  lat/lon/loc_age_s/loc_src        (RAM, AB4)
+inbox record  ->  text only, enc=1                 (DURABLE — NO coordinates, NO format change)
+```
+⇒ **a captured node yields no positions at all.** Accepted cost, stated: an app offline when the post arrived sees the
+text but not the position.
+
 ### 3.1 ★★ CL2 IS SPLIT — QA decision 2026-07-31, taken under the owner's "land it in gated pieces" instruction
 
 CL2 as written bundles **ten** deliverables (flavour, seal/open, nonce, carried ctr/seed, un-keyed drop,
