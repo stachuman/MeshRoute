@@ -19,6 +19,10 @@ slice that declined to fix it (C1). Where an entry is *unmeasured*, it says so e
 > cfg key **and** binary TLV) — if the app reads it, it must stop. **QA writes that file; a coder never edits it —
 > report what is owed instead.**
 
+> ★★★★ **START HERE IF YOU ARE PICKING THIS UP: `docs/2026-08-01-agent-handover.md`** — state, the open queue in
+> priority order, the rulings that must not be re-litigated, and the method that earned its place. **It supersedes the
+> 07-31 handover.**
+>
 > ★★★ **For the wider picture — open topics, the four spec arcs, pending owner decisions — read
 > `docs/2026-07-31-agent-handover.md`.** This file is the bug index; that one is the map.
 
