@@ -146,6 +146,13 @@ static size_t mk_flood_rts(uint8_t leaf, uint8_t src, uint32_t id, const uint8_t
     in.flood_bitmap = std::span<const uint8_t>(bm32, 32);
     return pack_rts(in, std::span<uint8_t>(b.data(), b.size()));
 }
+static size_t mk_team_flood_rts(uint8_t src, uint32_t id, const uint8_t* bm32, uint8_t hop_left, std::array<uint8_t,64>& b) {
+    rts_in in{}; in.leaf_id = 0; in.src = src; in.next = 0xFF; in.ctr_lo = static_cast<uint8_t>(id & 0x0F);
+    in.dst = hop_left; in.sf_index = 0; in.rts_flags = static_cast<uint8_t>(RTS_FLAG_M_BROADCAST | RTS_FLAG_FLOOD);
+    in.payload_len = 8; in.flood_channel_msg_id = id; in.flood_bitmap = std::span<const uint8_t>(bm32, 32); in.mobile_src = true;   // §S7: mobile_src => TEAM flood
+    return pack_rts(in, std::span<uint8_t>(b.data(), b.size()));
+}
+
 static inline bool bm_bit(const uint8_t* bm, uint8_t n) { return (bm[n >> 3] >> (n & 7)) & 1u; }
 static inline void bm_set(uint8_t* bm, uint8_t n) { bm[n >> 3] |= static_cast<uint8_t>(1u << (n & 7)); }
 
@@ -1144,6 +1151,20 @@ TEST_CASE("RE-OFFER: an unconfirmed origin re-floods on each timer fire up to th
     CHECK(hal.count("channel_reoffer_tx") == protocol::channel_reoffer_max_retries);
 }
 
+// §b38 helper — drain every queued Push and summarise the channel_sent outcomes. Returns the count; `last_*` carry
+// the final one. Used by the outcome tests below: the CONTRACT is "exactly ONE channel_sent per origination", so the
+// count matters as much as the value (a `true` followed by a `false` is the failure this slice exists to prevent).
+struct ChSentSummary { int n = 0; int n_true = 0; int n_false = 0; bool last_relayed = false; uint16_t last_ctr = 0; };
+static ChSentSummary drain_channel_sent(Node& n) {
+    ChSentSummary s{}; Push p{};
+    while (n.next_push(p))
+        if (p.kind == PushKind::channel_sent) {
+            ++s.n; if (p.relayed) ++s.n_true; else ++s.n_false;
+            s.last_relayed = p.relayed; s.last_ctr = p.ctr;
+        }
+    return s;
+}
+
 TEST_CASE("RE-OFFER: a confirmed origin (it overhears a RELAY of its message) never re-floods") {
     TestHal hal; Node node(hal, /*id=*/3, 0x1234ABCDu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
     std::array<uint8_t,64> bb{}; node.on_recv(bb.data(), mk_beacon(7, bb), meta_at(10));
@@ -1159,6 +1180,12 @@ TEST_CASE("RE-OFFER: a confirmed origin (it overhears a RELAY of its message) ne
         drain_originate_flood(node);
     }
     CHECK(hal.count("channel_reoffer_tx") == 0);                     // confirmed (relay overheard) -> ZERO re-offers
+    // §b38 — the NON-TEAM plane is unchanged by this slice and this pins it: exactly ONE channel_sent{relayed:true},
+    // at the confirm, carrying the originating ctr. Here `relayed` means "the flood COMPLETED" (see emit_channel_sent).
+    const ChSentSummary s = drain_channel_sent(node);
+    CHECK(s.n == 1);
+    CHECK(s.n_true == 1);
+    CHECK(s.last_ctr == r.ctr);
 }
 
 // ★ P-BUDGET (s28 class): a TEAM flood does NOT let one overheard relay confirm coverage (a mixed multi-hop team chain
@@ -1174,8 +1201,22 @@ TEST_CASE("RE-OFFER: a TEAM flood re-offers all its retries DESPITE overhearing 
     const uint32_t id = Node::channel_msg_id_mint(3, 0x1234ABCDu, static_cast<uint8_t>(r.ctr & 0xff));
     drain_originate_flood(node);
     // OVERHEAR a relay of OUR team message (would CONFIRM+stop a non-team re-offer) — the team path must ignore it.
+    // ⚠⚠ FIXED BY §b38 — THIS TEST USED TO BUILD THE WRONG FRAME AND WAS THEREFORE VACUOUS ON ITS OWN PREMISE. It sent
+    // mk_flood_rts (mobile_src == 0, a LEAF flood), and this node is an OFF-GRID mobile, so node_mac_rx.cpp's
+    // `!(_cfg.is_mobile && !r.mobile_src && !mobile_registered())` gate DROPPED it before handle_flood_rts ->
+    // channel_reoffer_confirm was NEVER CALLED and the "DESPITE overhearing a relay" clause tested nothing. It passed
+    // because an unconfirmed team origin re-offers all its retries anyway. mk_team_flood_rts (mobile_src == 1) is the
+    // frame a real teammate relay actually airs, and it reaches the confirm. Found by the §b38 push assertions below.
     uint8_t fbm[32] = {}; bm_set(fbm, 7); bm_set(fbm, node.team_local_id());
-    std::array<uint8_t,64> rb{}; node.on_recv(rb.data(), mk_flood_rts(0, /*src=*/7, id, fbm, 8, /*sf_index=*/3, rb), meta_at(20));
+    std::array<uint8_t,64> rb{}; node.on_recv(rb.data(), mk_team_flood_rts(/*src=*/7, id, fbm, 8, rb), meta_at(20));
+    // ★★★ §b38 — THE TWO RETRY LOOPS ARE SEPARATE, AND THIS TEST IS WHERE THAT IS PINNED. The NODE's re-offers must
+    // keep running (the loop below) while the CONSUMER's outcome is reported ONCE, immediately at the confirm above.
+    // Before §b38 the confirm returned before the emit, so this post could only ever end `relayed:false` — a false
+    // negative on every team post the whole team received.
+    const ChSentSummary at_confirm = drain_channel_sent(node);
+    CHECK(at_confirm.n == 1);                                        // reported IMMEDIATELY on the first confirm...
+    CHECK(at_confirm.n_true == 1);                                   // ...and truthfully ("at least one relay observed")
+    CHECK(at_confirm.last_ctr == r.ctr);
     for (int k = 0; k < protocol::channel_reoffer_team_max_retries; ++k) {   // each fire re-floods despite the relay
         node.on_timer(kChannelReofferTimerId);
         drain_originate_flood(node);
@@ -1184,6 +1225,73 @@ TEST_CASE("RE-OFFER: a TEAM flood re-offers all its retries DESPITE overhearing 
     // bounded: past the team cap, no further re-offer
     node.on_timer(kChannelReofferTimerId); drain_originate_flood(node);
     CHECK(hal.count("channel_reoffer_tx") == protocol::channel_reoffer_team_max_retries);
+    // ★ AND EXHAUSTION MUST NOT CONTRADICT THE `true` ALREADY SENT — no second push, of either polarity. This is the
+    // relay_seen latch; without it the app would see success then failure for one post.
+    const ChSentSummary after_exhaustion = drain_channel_sent(node);
+    CHECK(after_exhaustion.n == 0);
+}
+
+// §b38 — the OTHER team arm: a team post NO teammate ever relays still reports the truth, `relayed:false`, once, at
+// exhaustion. (The pre-§b38 behaviour for EVERY team post, right or wrong; after §b38 it is reserved for the case
+// that actually earns it.)
+TEST_CASE("RE-OFFER §b38: a TEAM post that is NEVER relayed reports channel_sent{relayed:false} once, at exhaustion") {
+    TestHal hal; Node node(hal, /*id=*/3, 0x1234ABCDu);
+    NodeConfig cfg = basic_cfg(); cfg.is_mobile = true; cfg.team_id = 0xABCD1234u; node.on_init(cfg);
+    const CmdResult r = send_channel(node, /*ch=*/5, "team-hi", /*team=*/true);
+    CHECK(r.code == CmdCode::queued);
+    drain_originate_flood(node);
+    CHECK(drain_channel_sent(node).n == 0);                          // nothing reported while the re-offers still run
+    for (int k = 0; k < protocol::channel_reoffer_team_max_retries; ++k) {   // never confirmed -> re-offer every fire
+        node.on_timer(kChannelReofferTimerId); drain_originate_flood(node);
+        CHECK(drain_channel_sent(node).n == 0);                      // ...and still nothing: the budget is not spent
+    }
+    node.on_timer(kChannelReofferTimerId); drain_originate_flood(node);      // retries_left == 0 -> give up
+    const ChSentSummary s = drain_channel_sent(node);
+    CHECK(s.n == 1);
+    CHECK(s.n_false == 1);
+    CHECK(s.last_ctr == r.ctr);
+    node.on_timer(kChannelReofferTimerId); drain_originate_flood(node);      // the slot is freed: no repeat outcome
+    CHECK(drain_channel_sent(node).n == 0);
+}
+
+// ★★ §b38 — B40's coverage, and the finding it demonstrates: the emitted ctr is the FULL 16-bit origination handle,
+// while the ON-WIRE msg-id keeps only its low byte BY DESIGN. Both facts are asserted here, because the second one is
+// what stops a future reader from matching this handle against a received id.
+// Values required by the register: 255 · 256 · 257 · 65535->1, plus a LOW-BYTE-COLLIDING pair (255 and 511 mint the
+// IDENTICAL channel_msg_id) whose outcomes must remain distinguishable.
+TEST_CASE("RE-OFFER §b40: channel_sent carries the FULL 16-bit ctr — 255/256/257/wrap, and a low-byte collision stays distinguishable") {
+    TestHal hal; Node node(hal, /*id=*/3, 0x1234ABCDu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+    std::array<uint8_t,64> bb{}; node.on_recv(bb.data(), mk_beacon(7, bb), meta_at(10));
+    uint32_t last_id = 0;
+    // Post once with next_ctr seeded to `seed`, then OVERHEAR a relay -> the confirm reports the outcome.
+    // Returns the pushed ctr; `minted` gets the command's own return value and `msg_id` the on-wire id.
+    auto post_and_confirm = [&](uint16_t seed, uint8_t ch, uint16_t& minted, uint32_t& msg_id) -> ChSentSummary {
+        hal._now += protocol::channel_min_interval_ms + 1;           // clear the own-origin burst floor
+        node.restore_channel_ctr(seed);                              // the self-keyed counter IS the channel ctr
+        const CmdResult r = send_channel(node, ch, "x");
+        CHECK(r.code == CmdCode::queued);
+        minted = r.ctr;
+        msg_id = Node::channel_msg_id_mint(3, 0x1234ABCDu, static_cast<uint8_t>(r.ctr & 0xff));
+        drain_originate_flood(node);
+        uint8_t fbm[32] = {}; bm_set(fbm, 7); bm_set(fbm, 3);
+        std::array<uint8_t,64> rb{};
+        node.on_recv(rb.data(), mk_flood_rts(0, /*src=*/7, msg_id, fbm, 8, /*sf_index=*/3, rb), meta_at(hal._now));
+        return drain_channel_sent(node);
+    };
+    uint16_t minted = 0; uint32_t msg_id = 0;
+    {   ChSentSummary s = post_and_confirm(254, 5, minted, msg_id);          // -> ctr 255, the last value the old code got right
+        CHECK(minted == 255); CHECK(s.n == 1); CHECK(s.last_ctr == 255);
+        last_id = msg_id; }
+    {   ChSentSummary s = post_and_confirm(255, 6, minted, msg_id);          // -> ctr 256: the old code pushed 0
+        CHECK(minted == 256); CHECK(s.n == 1); CHECK(s.last_ctr == 256);
+        CHECK((msg_id & 0xff) == 0); }                                       // the WIRE really does carry only the low byte
+    {   ChSentSummary s = post_and_confirm(256, 7, minted, msg_id);          // -> ctr 257: the old code pushed 1
+        CHECK(minted == 257); CHECK(s.n == 1); CHECK(s.last_ctr == 257); }
+    {   ChSentSummary s = post_and_confirm(65535, 8, minted, msg_id);        // next_ctr wraps 65535 -> 1 (never 0)
+        CHECK(minted == 1); CHECK(s.n == 1); CHECK(s.last_ctr == 1); }
+    {   ChSentSummary s = post_and_confirm(510, 9, minted, msg_id);          // -> ctr 511: low byte 0xFF, colliding with 255
+        CHECK(minted == 511); CHECK(s.n == 1); CHECK(s.last_ctr == 511);
+        CHECK(msg_id == last_id); }                                          // ★ SAME on-wire id, DIFFERENT outcome handle
 }
 
 TEST_CASE("RE-OFFER: the re-offer timer delay is channel_reoffer_delay_ms + the deterministic jitter (mt19937 path)") {
@@ -1261,13 +1369,6 @@ TEST_CASE("Slice 6: emit_send_blocked + emit_channel_sent{relayed:false} reachab
 // ============================ §S7 — plane-keyed flood (T-A) + channel plane membership (T-B) =================
 // T-A: a team-scoped flood consults the TEAM peer set (_rt_team) for coverage; a static flood consults _rt.
 // The SAME functions (flood_set_my_coverage / flood_any_unmarked), plane-keyed — no table mixing.
-static size_t mk_team_flood_rts(uint8_t src, uint32_t id, const uint8_t* bm32, uint8_t hop_left, std::array<uint8_t,64>& b) {
-    rts_in in{}; in.leaf_id = 0; in.src = src; in.next = 0xFF; in.ctr_lo = static_cast<uint8_t>(id & 0x0F);
-    in.dst = hop_left; in.sf_index = 0; in.rts_flags = static_cast<uint8_t>(RTS_FLAG_M_BROADCAST | RTS_FLAG_FLOOD);
-    in.payload_len = 8; in.flood_channel_msg_id = id; in.flood_bitmap = std::span<const uint8_t>(bm32, 32); in.mobile_src = true;   // §S7: mobile_src => TEAM flood
-    return pack_rts(in, std::span<uint8_t>(b.data(), b.size()));
-}
-
 TEST_CASE("§S7 T-A — a team member re-floods a TEAM flood to an UNMARKED team peer; SILENT when covered (coverage keyed on _rt_team)") {
     const uint32_t T = 0xABCD1234u;
     const uint32_t id = Node::channel_msg_id_mint(9, 0x1u, 1);
@@ -1339,6 +1440,11 @@ TEST_CASE("§F-CH-RELAY — overhearing a downstream peer re-broadcast (seen_by 
         n.on_timer(kChannelReofferTimerId); drain_originate_flood(n);
     }
     CHECK(hal.count("channel_holder_reoffer_tx") == 0);              // downstream now marked -> coverage complete -> ZERO re-offers
+    // ★★ §b38 — A HOLDER MUST NEVER PUSH channel_sent. This node is a RELAY: node 9 originated the post, node 50 only
+    // carried it. The RTS-M above reached channel_reoffer_confirm through handle_flood_rts's already-buffered branch
+    // and found node 50's HOLDER slot — before §b38 that was absorbed by the blanket `if (rp.team) return`, so making
+    // the team arm report WITHOUT the holder guard would have every relay claim an origination it never made.
+    CHECK(drain_channel_sent(n).n == 0);
 }
 
 TEST_CASE("§F-CH-RELAY — a STATIC / leaf flood HOLDER never arms a holder re-offer (team-scoped; delivery-suite inert)") {

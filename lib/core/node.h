@@ -1235,11 +1235,30 @@ private:
     struct ChannelPullPending  { bool active; uint32_t id; uint8_t target; uint64_t requested_at; uint64_t fire_at; };
     struct ChannelPullRecent   { uint32_t id; uint64_t t_ms;       // re-pull dedup (Lua channel_pull_recent)
                                  bool same_key(const ChannelPullRecent& o) const { return id == o.id; } };
-    struct ChannelReofferPending { bool active; uint32_t id; uint8_t retries_left; bool team; bool holder; };   // Part 2: per-origin re-offer (timer kChannelReofferTimerId+slot). team = a TEAM flood: a single relay does NOT confirm coverage on a mixed multi-hop chain, so it re-offers all its retries (P-BUDGET s28 class). holder (§F-CH-RELAY) = a RELAY (not the origin) re-offering to cover its own still-unmarked downstream team neighbours — coverage-driven (seen_by), deterministic jitter, team-only.
-    void    channel_reoffer_register(uint32_t id, bool team);      // Part 2: arm a re-offer slot on flood origination (retries_left = team ? channel_reoffer_team_max_retries : channel_reoffer_max_retries)
+    // Part 2: per-origin re-offer (timer kChannelReofferTimerId+slot). team = a TEAM flood: a single relay does NOT confirm coverage on a mixed multi-hop chain, so it re-offers all its retries (P-BUDGET s28 class). holder (§F-CH-RELAY) = a RELAY (not the origin) re-offering to cover its own still-unmarked downstream team neighbours — coverage-driven (seen_by), deterministic jitter, team-only.
+    // ★★ §b38-b40 FIELD ORDER IS LOAD-BEARING — the four bools lead, then the 4-aligned `id`, then `ctr`+`retries_left`
+    // in the 2 bytes that follow it. MEASURED: 12 B before this slice (active/pad3/id/retries_left/team/holder/pad1) and
+    // 12 B after, i.e. `relay_seen` (+1 B) and `ctr` (+2 B) BOTH cost zero — they land in the 3-byte hole that sat after
+    // `active` and the 1-byte tail pad. x cap_channel_reoffer_pending(4) x MR_N_LAYERS, so a grown record would move
+    // sizeof(Node) (the D2 trigger); the static_assert below is the tripwire, and it is per-ABI, not native-only.
+    struct ChannelReofferPending {
+        bool     active;
+        bool     team;
+        bool     holder;
+        bool     relay_seen;     // §b38: a relay of THIS origination was overheard at least once. Remembered rather than discarded, so a TEAM post can report the truth (see channel_reoffer_confirm) AND keep re-offering for its far members. Also the once-only latch: the outcome push is emitted exactly once per origination and exhaustion must never contradict a `true` already sent.
+        uint32_t id;
+        uint16_t ctr;            // §b40: the FULL 16-bit originating ctr (next_ctr), so channel_sent can be correlated past 255 posts. ⚠ A LOCAL CORRELATION HANDLE ONLY — the wire carries just `ctr & 0xff` (the channel msg-id's low byte, channel_msg_id_mint), so no peer can echo more than 8 bits and this must never be matched against a received id. 0 on a holder slot (a relay owns no origination).
+        uint8_t  retries_left;
+    };
+    static_assert(sizeof(ChannelReofferPending) == 12 && offsetof(ChannelReofferPending, id) == 4
+                      && offsetof(ChannelReofferPending, ctr) == 8,
+                  "node.h: ChannelReofferPending grew — §b38's relay_seen / §b40's ctr left the padding they were "
+                  "placed in, so the record now costs real bytes x cap_channel_reoffer_pending x MR_N_LAYERS and "
+                  "sizeof(Node) has moved (see the layout tripwire at the end of this header)");
+    void    channel_reoffer_register(uint32_t id, bool team, uint16_t ctr);   // Part 2: arm a re-offer slot on flood origination (retries_left = team ? channel_reoffer_team_max_retries : channel_reoffer_max_retries). §b40: `ctr` is the origination's full 16-bit next_ctr, remembered for the channel_sent push.
     void    channel_holder_reoffer_register(uint32_t id);          // §F-CH-RELAY: a team-flood HOLDER arms a coverage-driven re-offer after it re-broadcasts, iff it still has unmarked hops-1 team neighbours (deterministic jitter, no RNG draw)
-    void    channel_reoffer_fire(uint8_t slot);                    // Part 2: timer fire — re-flood if not yet confirmed + retries remain, else free (holder slot: re-check seen_by coverage instead of the confirm flag)
-    void    channel_reoffer_confirm(uint32_t id);                  // Part 2: a relay of OUR message was overheard -> cancel its pending re-offer (dedicated signal, NOT seen_by)
+    void    channel_reoffer_fire(uint8_t slot);                    // Part 2: timer fire — re-flood if not yet confirmed + retries remain, else free (holder slot: re-check seen_by coverage instead of the confirm flag). §b38: the exhaustion give-up emits channel_sent{relayed:false} ONLY when no relay was ever seen.
+    void    channel_reoffer_confirm(uint32_t id);                  // Part 2: a relay of OUR message was overheard -> report the outcome (channel_sent{relayed:true}, once) and, on the NON-team plane, cancel the pending re-offer (dedicated signal, NOT seen_by). §b38: a TEAM origin reports AND keeps re-offering; a HOLDER slot reports nothing.
     int     channel_buffer_find(uint32_t id) const;                // index of the entry, or -1 (dv:3426)
     bool    channel_mark_seen_by(uint32_t id, uint8_t neighbour);  // set seen_by bit; true if newly set (dv:3434)
 public:

@@ -773,7 +773,7 @@ uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t 
         uint8_t bm[32] = {};
         flood_set_my_coverage(bm, team);                     // {self + hops==1 neighbours} on the flood's plane — the frugal seed (KEPT; the honest seed regressed)
         enqueue_flood_m(e.channel_id, e.flavor, e.id, e.payload, static_cast<uint8_t>(e.payload_len), bm, protocol::flood_hop_max);
-        channel_reoffer_register(e.id, team);                // Part 2: own this message's propagation until a RELAY of it is overheard (team: until all retries — mixed-chain coverage)
+        channel_reoffer_register(e.id, team, c);             // Part 2: own this message's propagation until a RELAY of it is overheard (team: until all retries — mixed-chain coverage). §b40: `c` is the FULL 16-bit ctr this function returns to the caller, so the outcome push correlates to the origination handle past 255 posts (the msg-id keeps only `c & 0xff`, by wire design).
     }
     schedule_triggered_beacon();                              // §4.1.7: make the repair digest prompt, not 15-min
     return c;
@@ -815,6 +815,25 @@ void Node::emit_send_blocked(bool channel, SendFailReason reason, uint32_t next_
 // Slice 6c: the OWN-channel-post outcome push. relayed=true when a relay of our post is overheard
 // (channel_reoffer_confirm); relayed=false when the origin re-offer exhausts all retries with no relay
 // (channel_reoffer_fire's give-up branch) -> the companion backs off. Local-only (node -> its companion).
+//
+// ★★★ §b38 — `relayed` MEANS TWO DIFFERENT THINGS DEPENDING ON THE PLANE, AND THAT IS THE OWNER'S RULING
+// (2026-08-01: *"we name it as first relay only — we cannot guarantee full flood"*). State it wherever this field
+// is read, because the two readings are not interchangeable for a safety consumer:
+//   NON-TEAM (leaf/global): "THE FLOOD COMPLETED." One overheard relay IS coverage here — the origin's frugal
+//     {self + hops-1 neighbours} seed plus one holder taking it onward is the whole propagation model, so the
+//     re-offer is a 1-shot that stops dead on confirm. Unchanged by §b38.
+//   TEAM: "AT LEAST ONE RELAY WAS OBSERVED." A mixed multi-hop team chain has far members a single near relay
+//     never reached (the s28 class), so this is an OBSERVATION, never a completion claim — the node deliberately
+//     keeps re-offering all its retries after reporting (channel_reoffer_confirm). A consumer must read a team
+//     `true` as "someone heard me", not "everyone heard me".
+// ⚠ Before §b38 the team plane could emit ONLY `false` (the `true` branch sat behind an early `return`), so every
+// successful team post reported failure and the shipped companion's stop-and-back-off rule fired on success.
+// The once-only latch is ChannelReofferPending::relay_seen: exactly one channel_sent per origination, and
+// exhaustion must never contradict a `true` already sent.
+// ⚠ §b40 — `ctr` is the FULL 16-bit originating counter (rp.ctr), no longer `id & 0xff`. It is a LOCAL
+// CORRELATION HANDLE ONLY: the wire carries just the low byte (channel_msg_id_mint stuffs `c & 0xff` into the
+// msg-id, deliberately — see the `item.ctr` masks in enqueue_channel_m / enqueue_flood_m), so no peer can echo
+// more than 8 bits and this value must never be matched against a received message id.
 void Node::emit_channel_sent(bool relayed, uint16_t ctr) {
     Push pu{}; pu.kind = PushKind::channel_sent; pu.relayed = relayed; pu.ctr = ctr;
     enqueue_push(pu);
@@ -1073,11 +1092,15 @@ void Node::flood_state_free(uint8_t layer, uint8_t slot) {
 // ---- Part 2: channel ORIGIN re-offer (spec 2026-06-25-channel-origin-reoffer.md) -------------------------------
 // The origin owns its message's propagation until seen_by proves it got out. channel_reoffer_register arms a slot at
 // flood origination; channel_reoffer_fire re-floods the cached body while seen_by stays empty, up to N retries.
-void Node::channel_reoffer_register(uint32_t id, bool team) {
+void Node::channel_reoffer_register(uint32_t id, bool team, uint16_t ctr) {
     for (uint8_t s = 0; s < protocol::cap_channel_reoffer_pending; ++s) {
         ChannelReofferPending& rp = _active->_channel_reoffer_pending[s];
         if (rp.active) continue;
-        rp.active = true; rp.id = id; rp.team = team; rp.holder = false;   // §F-CH-RELAY: this is the ORIGIN path — clear any stale holder flag from a reused slot (else channel_reoffer_fire would wrongly take the holder branch)
+        // ★ EVERY field is written, none inherited: the slot is reused and a stale value is a live bug, not cosmetics.
+        // §F-CH-RELAY set the precedent with `holder` (a stale true takes channel_reoffer_fire's holder branch);
+        // §b38 adds `relay_seen` (a stale true would SWALLOW this origination's honest relayed=false at exhaustion)
+        // and §b40 adds `ctr` (a stale value would correlate the push to the PREVIOUS post).
+        rp.active = true; rp.id = id; rp.team = team; rp.holder = false; rp.relay_seen = false; rp.ctr = ctr;
         rp.retries_left = team ? protocol::channel_reoffer_team_max_retries : protocol::channel_reoffer_max_retries;
         const uint32_t jitter = static_cast<uint32_t>(_hal.rand_range(0, static_cast<int32_t>(protocol::channel_reoffer_jitter_ms) + 1));
         (void)_hal.after(protocol::channel_reoffer_delay_ms + jitter, kChannelReofferTimerId + s);
@@ -1097,7 +1120,10 @@ void Node::channel_holder_reoffer_register(uint32_t id) {
     for (uint8_t s = 0; s < protocol::cap_channel_reoffer_pending; ++s) {
         ChannelReofferPending& rp = _active->_channel_reoffer_pending[s];
         if (rp.active) continue;
-        rp.active = true; rp.id = id; rp.team = true; rp.holder = true;
+        // §b38/§b40: a HOLDER owns no origination, so it owns no channel_sent future — `ctr` is 0 and `relay_seen`
+        // is irrelevant here (channel_reoffer_confirm returns on `holder` before it can report anything). Both are
+        // still written explicitly, for the same stale-slot reason as the origin path above.
+        rp.active = true; rp.id = id; rp.team = true; rp.holder = true; rp.relay_seen = false; rp.ctr = 0;
         rp.retries_left = protocol::channel_holder_reoffer_max_retries;
         const uint32_t djit = (id * 2654435761u + static_cast<uint32_t>(_node_id) * 40503u) % (protocol::channel_reoffer_jitter_ms + 1);
         (void)_hal.after(protocol::channel_reoffer_delay_ms + djit, kChannelReofferTimerId + s);
@@ -1128,7 +1154,15 @@ void Node::channel_reoffer_fire(uint8_t slot) {
         (void)_hal.after(protocol::channel_reoffer_delay_ms + djit, kChannelReofferTimerId + slot);
         return;
     }
-    if (rp.retries_left == 0 || max_data_sf() == 0) { emit_channel_sent(false, static_cast<uint16_t>(e.id & 0xff)); rp.active = false; return; } // Slice 6c: exhausted (or data-incapable) -> give up (channel_sent{relayed:false}); repair digest is the last resort
+    // Slice 6c: exhausted (or data-incapable) -> give up; repair digest is the last resort.
+    // ★ §b38: `!rp.relay_seen` is the once-only latch, and it is what makes the fix HONEST rather than merely louder.
+    // A team origin reports `true` at its FIRST confirm and then keeps re-offering (channel_reoffer_confirm), so it
+    // reaches this line with the outcome ALREADY sent — emitting here would contradict it with a `false` on the very
+    // safety signal the app backs off on. Silence is correct: the future is closed, not lost.
+    if (rp.retries_left == 0 || max_data_sf() == 0) {
+        if (!rp.relay_seen) emit_channel_sent(false, rp.ctr);   // §b40: the FULL 16-bit origination ctr, not `e.id & 0xff`
+        rp.active = false; return;
+    }
     // RE-FLOOD the cached body with the SAME frugal seed as origination (flood_set_my_coverage — NOT empty, which the
     // fail-loud zero-bitmap guard in tx_m_broadcast_rts would refuse). Receivers dedup by originator_retry_dedup_ms
     // (no double-inbox) but DO re-broadcast for coverage; LBT is applied by the TX path (enqueue_flood_m -> become_free).
@@ -1149,13 +1183,35 @@ void Node::channel_reoffer_fire(uint8_t slot) {
 void Node::channel_reoffer_confirm(uint32_t id) {
     for (uint8_t s = 0; s < protocol::cap_channel_reoffer_pending; ++s) {
         ChannelReofferPending& rp = _active->_channel_reoffer_pending[s];
-        if (rp.active && rp.id == id) {
-            // ★ P-BUDGET (s28 class): a TEAM flood does NOT treat one overheard relay as full coverage — a mixed
-            // multi-hop team chain has far members a single near relay never reached. Keep re-offering (all retries)
-            // so those far members get independent shots; the retry-exhaustion in channel_reoffer_fire ends it. A
-            // NON-team flood keeps the original relay-confirmed 1-shot semantics (delivery-suite byte-inert).
-            if (rp.team) return;
-            emit_channel_sent(true, static_cast<uint16_t>(id & 0xff)); rp.active = false; _hal.cancel(kChannelReofferTimerId + s); return; }  // Slice 6c: a relay was overheard -> channel_sent{relayed:true}
+        if (!(rp.active && rp.id == id)) continue;
+        // ★★ §b38 — A HOLDER SLOT REPORTS NOTHING, and this guard is load-bearing, not defensive. A §F-CH-RELAY
+        // holder is a RELAY covering its own unmarked downstream, not an origin: it has no `channel_sent` future and
+        // no ctr of its own. It also reaches this line routinely — handle_flood_rts's already-buffered branch calls us
+        // for ANY id we hold, so a sibling re-broadcast lands here — and before §b38 it was absorbed by the blanket
+        // `if (rp.team) return` (a holder slot is always team-flagged). Removing that blanket without this guard would
+        // make every relay push a `channel_sent{relayed:true}` for a message it never sent.
+        // Its coverage stop is elsewhere and unchanged: channel_mark_seen_by at the same call site, re-checked by
+        // channel_reoffer_fire's holder branch.
+        if (rp.holder) return;
+        // ★★★ REPORT THE OUTCOME ON THE FIRST CONFIRM, ON BOTH PLANES (owner ruling 2026-08-01: *"this is correct to
+        // stop after first confirm"*). `relay_seen` latches it so the push is emitted EXACTLY ONCE per origination and
+        // channel_reoffer_fire's exhaustion can never contradict it. See emit_channel_sent for what `relayed` means on
+        // each plane — the two readings differ, and the difference is the owner's ruling, not an accident.
+        if (!rp.relay_seen) {
+            rp.relay_seen = true;
+            emit_channel_sent(true, rp.ctr);                    // §b40: the FULL 16-bit origination ctr, not `id & 0xff`
+        }
+        // ★ P-BUDGET (s28 class): a TEAM flood does NOT treat one overheard relay as full coverage — a mixed
+        // multi-hop team chain has far members a single near relay never reached. Keep re-offering (all retries)
+        // so those far members get independent shots; the retry-exhaustion in channel_reoffer_fire ends it.
+        // ⚠ THE TWO RETRY LOOPS ARE SEPARATE AND ONLY ONE OF THEM STOPS: the CONSUMER's retries stop, because they are
+        // driven by the value just emitted; the NODE's re-offers below keep running, because they are what the far
+        // members depend on. Returning here — WITHOUT clearing rp.active and WITHOUT cancelling the timer — is what
+        // keeps them running. A NON-team flood keeps the original relay-confirmed 1-shot semantics (delivery-suite
+        // byte-inert): free the slot and cancel.
+        if (rp.team) return;
+        rp.active = false; _hal.cancel(kChannelReofferTimerId + s);
+        return;
     }
 }
 
@@ -1341,11 +1397,16 @@ void Node::channel_reoffer_confirm(uint32_t id) {
 //   (5) _channel_reoffer_pending   NO push — and this one IS a real app future (channel_sent{relayed}), so the reason
 //                                  matters: it is stranded PRE-EXISTING-IDENTICALLY by plain buffer eviction.
 //                                  channel_reoffer_fire bails at `channel_buffer_find(rp.id) < 0` with a bare
-//                                  `rp.active = false` and NO emit_channel_sent (node_channel.cpp:676), so a row that
-//                                  falls out of the buffer for ANY reason already loses its future. Completing it only
-//                                  here would make the purge path diverge from the eviction path for one shared bug.
-//                                  ⚠ MISSING, NOT DONE, AND WHY: fixing it belongs at :676 (all callers at once), which
-//                                  is a different mechanism and a different axis -> C1 keeps it out. Reported open.
+//                                  `rp.active = false` and NO emit_channel_sent (the `entry evicted` line in
+//                                  channel_reoffer_fire), so a row that falls out of the buffer for ANY reason already
+//                                  loses its future. Completing it only here would make the purge path diverge from
+//                                  the eviction path for one shared bug.
+//                                  ⚠ MISSING, NOT DONE, AND WHY: fixing it belongs at that bail (all callers at once),
+//                                  which is a different mechanism and a different axis -> C1 keeps it out. Reported open.
+//                                  ★ §b38 NARROWED IT, and only for one case: a TEAM post whose first relay was already
+//                                  overheard has ALREADY reported `channel_sent{relayed:true}` (the emit moved from
+//                                  exhaustion to first confirm), so an eviction/purge after that point strands nothing.
+//                                  Still open for every UNCONFIRMED origination and for the whole non-team plane.
 //   ALSO PUSHED, one line away in clear_routing_state(): the `_deferred_n = 0` wipe. Same disease, same act, same
 //   ruling — see the note at that line (node.cpp).
 //   ⚠ HONEST BOUND: _push_ring is cap_push_ring(=32) with DROP-OLDEST (node.cpp enqueue_push). A worst-case gateway

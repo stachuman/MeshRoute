@@ -5,208 +5,243 @@
 
 **Status: SPEC'D, NOT DISPATCHED.**
 
-**Why it exists:** `docs/superpowers/specs/2026-07-31-onboard-oled-ui-design.md` §10.2 named the V4 radio port a Phase B prerequisite (B-1/B-2) but deliberately did not contain it — a PA/LNA switching path and a transmit-power semantics change do not belong inside a display feature (C1). This is that spec.
+*Revision 2 (2026-08-01) — rewritten against the review archived at `docs/archive/2026-08-01-heltec-v4-radio-port-and-board-rf-seam-review.md`. Material changes: a fail-closed FEM lifecycle; the `LORA_TX_POWER` macro split (it is consumed by a **vendored** file as chip drive); a total, failure-reporting power capability with runtime clamps; **conducted-at-connector** named as the power contract with EIRP explicitly out of scope; calibration coverage as an R4 entry criterion; `sleep_mode` → `power_off` with a "never called on the light-sleep path" rule; the V4 board assets; honest gates; and the two-vs-three call-site inconsistency fixed.*
+
+**Why it exists:** `docs/superpowers/specs/2026-07-31-onboard-oled-ui-design.md` §10.2 named the V4 radio port a Phase B prerequisite (B-1/B-2) but deliberately did not contain it — a PA/LNA switching path and a transmit-power semantics change do not belong inside a display feature (C1).
 
 ---
 
-## 0. The problem, in one paragraph
+## 0. The problem
 
-The Heltec V4 has an **external front-end module** (PA + LNA) that must be switched between transmit and receive on **every frame**. MeshCore drives it from `onBeforeTransmit()` / `onAfterTransmit()` on a per-board `Board` class (`~/MeshCore/variants/heltec_v4/HeltecV4Board.cpp`). **Our tree has no such hook**: `Sx1262Radio` drives RadioLib directly (`lib/hal/device_radio.h`), and nothing between the MAC and the silicon can run per-TX board logic. Without it a V4 transmits through a **bypassed PA with the LNA still in circuit** — the radio appears to work, badly, in a way no test in our corpus can see.
+The Heltec V4 has an **external front-end module** (PA + LNA) that must be switched between transmit and receive on **every frame**, and initialised — including a runtime silicon-revision detect — before either. MeshCore drives this from a per-board `Board` class (`~/MeshCore/variants/heltec_v4/`). **Our tree has no such hook**: `Sx1262Radio` drives RadioLib directly (`lib/hal/device_radio.h`), so nothing between the MAC and the silicon can run per-TX board logic. Without it a V4 transmits through a **bypassed PA with the LNA still in circuit** — the radio appears to work, badly, in a way no test in our corpus can see.
 
-## 1. What is already right (measured 2026-08-01, do not rebuild it)
-
-Establishing this first, because the seam is much smaller than "add a board abstraction" suggests:
+## 1. What is already right — do not rebuild it
 
 | already solved | by | evidence |
 |---|---|---|
 | protocol ⟂ device | `lib/core` purity | **1** board `#if` in 43 files (`frame_trace.h:12`, a debug trace); the other grep hits are comments, incl. `hal.h:8` and `node.h:4` stating the rule |
-| a **different radio chip** (LR1110 / T1000-E) | **`IRadio` itself** | it is a virtual interface; a `Lr1110Radio : IRadio` is a new TU, not a refactor. This is why the T1000-E assessment scoped that variant as "one job: the driver" |
-| **optional** board capability with zero cost when absent | **`IRadio`'s own precedent** | `set_rx_freq` (`iradio.h:51`), `set_rx_bw` / `set_rx_cr` (`:57-58`) are **non-pure virtuals with no-op defaults** — "an IRadio that doesn't model BW/CR need not override" |
+| a **different radio chip** (LR1110 / T1000-E) | **`IRadio` itself** | a virtual interface; `Lr1110Radio : IRadio` is a new TU, not a refactor. It shares `IRadio`, **not** this FEM lifecycle — keep it in its own spec and slice |
+| **optional** board capability, zero cost when absent | **`IRadio`'s own precedent** | `set_rx_freq` (`iradio.h:51`), `set_rx_bw`/`set_rx_cr` (`:57-58`) are non-pure virtuals with no-op defaults |
 | per-board pins | `platformio.ini` build flags | already how NSS/DIO1/BUSY/SCLK reach `Module(...)` |
-| a board-capability TU behind an interface | `lib/hal/mr_ui.h` + `src/board_ui.cpp` | inline no-ops when `MR_FEAT_OLED=0`, so call sites stay unconditional |
+| a board-capability TU behind an interface | `lib/hal/mr_ui.h` + `src/board_ui.cpp` | inline no-ops when the feature is off, so call sites stay unconditional |
 
-⇒ **The only missing axis is per-TX board RF control.** That is one seam, not an architecture.
+⇒ **The missing axis is per-TX board RF control.** One seam, not an architecture.
 
-## 2. Present state of the TX path (verified)
+## 2. Present state of the TX/RX path (verified)
 
-`Sx1262Radio` (`lib/hal/device_radio.h:69`) holds `CustomSX1262& _radio` and owns four transitions:
+`Sx1262Radio` (`lib/hal/device_radio.h:69`) holds `CustomSX1262& _radio`:
 
-| site | what it does | FEM needs |
+| site | what it does | needs |
 |---|---|---|
-| `start_transmit` `:137-157` | `standby()` → set SF/BW/CR/power/preamble → `startTransmit()` | **TX mode** before `startTransmit`; **RX mode** on the `radio_error` early-return (`:150-154`, which calls `arm_rx()`) |
-| `poll_tx_done` `:162-173` | TxDone edge → `finishTransmit()` → restore `_rx_sf` → `arm_rx()` | **RX mode** |
-| `abort_tx` `:178-187` | watchdog recovery → `standby()` → restore SF → `arm_rx()` | **RX mode** |
-| `arm_rx()` (private, `:324`) | the common continuous-RX re-arm — **8 call sites**: `:152` (TX arm failed), `:170` (TxDone), `:186` (abort), `:196` (`set_rx_sf`), `:208` (`set_rx_freq`), `:221`/`:229` (`set_rx_bw`/`set_rx_cr`), `:296` (after `poll_rx` reads a packet) | **RX mode** |
-| **`begin()` `:77`** | **calls `_radio.startReceive()` DIRECTLY**, not through `arm_rx()` | **RX mode** |
+| `begin()` `:75-78` | ISR registration, then **`_radio.startReceive()` DIRECTLY** | FEM `begin()`, then **RX mode** |
+| `start_transmit` `:137-157` | `standby()` → set SF/BW/CR/power/preamble → `startTransmit()` | **TX mode** before `startTransmit`; the `radio_error` path (`:150-154`) already returns via `arm_rx()` |
+| `poll_tx_done` `:162-173` | TxDone → `finishTransmit()` → restore `_rx_sf` → `arm_rx()` | (covered by `arm_rx`) |
+| `abort_tx` `:178-187` | watchdog → `standby()` → restore SF → `arm_rx()` | (covered by `arm_rx`) |
+| `arm_rx()` `:324` | `startReceive()` + failure counter — **8 call sites**: `:152`, `:170`, `:186`, `:196`, `:208`, `:221`, `:229`, `:296` | **RX mode** |
 
-★ **`arm_rx()` is the insertion point for RX mode — but it is not the *only* one, and the exception is easy to miss.** `arm_rx()`'s own comment (`:321`) says "every RX re-arm routes through here", and for *re*-arms that is true; the **initial** arm in `begin()` (`:77`) predates it and bypasses it. A FEM hooked only into `arm_rx()` would leave the V4 booting with the front end in an **undefined state until the first TX or first received packet** — intermittent, board-specific, and invisible to every automated gate we have.
+★★ **THREE production placements — say "three" everywhere.** `arm_rx()`'s own comment (`:321`) claims *"every RX re-arm routes through here"*; that is true of **re**-arms, but the **initial** arm in `begin():77` predates it and bypasses it. A FEM hooked only into `arm_rx()` leaves the V4 booting with the front end **undefined until the first TX or first received packet** — intermittent, board-specific, invisible to every automated gate.
 
-⇒ **3 call sites total**: `tx_mode()` before `startTransmit`, `rx_mode()` in `arm_rx()`, and `rx_mode()` in `begin()` before the initial `startReceive()`. *(Verified 2026-08-01 by enumerating every `startReceive` in the TU; this was an open question in an earlier draft of this spec and is now closed.)*
+**The three placements are:** ① `tx_mode()` before `startTransmit` · ② `rx_mode()` inside `arm_rx()` · ③ FEM `begin()` + `rx_mode()` in `Sx1262Radio::begin()` before the initial `startReceive()`.
 
-## 3. Design — `IBoardRf`, composed not inherited
+*(Two methods, three placements — an earlier revision of this spec said "two call sites" in two places while concluding three, which is exactly the wording that gets ③ omitted.)*
+
+## 3. Design — `IBoardRf`, composed, with a fail-closed lifecycle
 
 ### 3.1 The interface
 
-A new `lib/hal/iboardrf.h`:
+`lib/hal/iboardrf.h`:
 
 ```cpp
-// The per-TX board RF seam. A board with an external front-end (PA/LNA) implements this; every other board
-// supplies nothing and the radio holds a null pointer — the calls compile to a null test the branch predictor
-// eats. NOT part of IRadio: a FEM is a property of the BOARD, not of the radio chip, and the same SX1262 driver
-// serves boards with and without one.
+// The per-TX board RF seam. A board with an external front end (PA/LNA) implements this; every other board supplies
+// nothing and the radio holds a null pointer. NOT part of IRadio: a front end is a property of the BOARD, not of the
+// radio chip, and one SX1262 driver serves boards with and without one.
+struct BoardRfDrive { bool valid; int8_t chip_dbm; };   // valid=false => the request cannot be met SAFELY -> refuse
+
 struct IBoardRf {
     virtual ~IBoardRf() = default;
-    virtual void tx_mode() = 0;    // PA on, LNA out of circuit — called immediately before startTransmit()
-    virtual void rx_mode() = 0;    // LNA in circuit, PA idle — called on every path that ends in receive
-    virtual void sleep_mode() {}   // optional: FEM off for deep sleep (uA). Default no-op.
+
+    // Detect/configure the front end and leave it in a safe RX state. Called ONCE, before the initial startReceive().
+    // false = the board could not establish a KNOWN configuration -> the radio must refuse to transmit (§3.4).
+    virtual bool begin() = 0;
+
+    virtual void tx_mode() = 0;
+    virtual void rx_mode() = 0;
+
+    // DEEP power-off only (front end to µA). ⚠ NEVER called on the light-sleep path — see §6.
+    virtual void power_off() {}
+
+    // The board's conducted-output envelope AT THE ANTENNA CONNECTOR (§4). Defaults = the SX1262's own range, i.e.
+    // the identity case for a board with no front end.
+    virtual int8_t min_output_dbm() const { return -9; }
+    virtual int8_t max_output_dbm() const { return 22; }
+
+    // Map a DESIRED conducted output to the chip drive that achieves it WITHOUT EXCEEDING it. Total over int8_t:
+    // every input either yields a measured-safe drive or {valid=false}. Default = identity (no front end).
+    virtual BoardRfDrive drive_for_output(int8_t want_output_dbm) const {
+        return { want_output_dbm >= min_output_dbm() && want_output_dbm <= max_output_dbm(), want_output_dbm };
+    }
 };
 ```
 
 ### 3.2 Wiring
 
-`Sx1262Radio` gains one nullable member and two call sites:
+`Sx1262Radio` gains one nullable member, a readiness flag, and the three placements of §2:
 
 ```cpp
     explicit Sx1262Radio(CustomSX1262& radio, IBoardRf* fem = nullptr) : _radio(radio), _fem(fem) {}
-    …
     IBoardRf* _fem = nullptr;
+    bool      _fem_ready = false;
 ```
 
-- `start_transmit`: `if (_fem) _fem->tx_mode();` immediately before `_radio.startTransmit(...)` — **after** the `standby()` + param block, so a refused arm still leaves the FEM correct via the existing `arm_rx()` on the error path.
-- `arm_rx()` (`:324`): `if (_fem) _fem->rx_mode();` before `startReceive()`. Covers all 8 re-arm paths.
-- `begin()` (`:77`): the same call before the **initial** `startReceive()` — see §2. Missing this is the one placement error that would not show up until metal.
+- `begin()`: `if (_fem) { _fem_ready = _fem->begin(); if (_fem_ready) _fem->rx_mode(); }` **before** the initial `startReceive()`; return false if the FEM failed, so the caller can surface it.
+- `arm_rx()`: `if (_fem && _fem_ready) _fem->rx_mode();` before `startReceive()`.
+- `start_transmit`: **refuse if the FEM is present but not ready** (§3.4), else `_fem->tx_mode()` immediately before `_radio.startTransmit(...)` — after the `standby()` + param block, so a refused arm still recovers through the existing `arm_rx()`.
 
-A one-line `static_assert`-style discipline for the implementer: **grep the TU for `startReceive` and `startTransmit` and prove every occurrence is preceded by a mode call.** There are three today; a future one added without a mode call is the regression this seam invites.
+**Implementer discipline:** grep the TU for `startReceive` and `startTransmit` and prove every occurrence is preceded by a mode call. Three today; a fourth added without one is the regression this seam invites. ⚠ This is a **review** check, not a substitute for the runtime coverage in §8.
 
-**Why composition, not a `Sx1262FemRadio` subclass or virtuals on `IRadio`:**
-
-- A subclass would have to re-override `start_transmit`, `poll_tx_done`, `abort_tx` **and** reach `arm_rx()` (private), duplicating the exact sequencing that took M11/H6 several bug-fixes to get right. Duplicating it is the U1 rot.
-- Hooks on `IRadio` would make the interface's *implementation* call its own virtuals (a template method) and would push a board concern into the radio-chip contract. The LR1110 driver would inherit hooks it may not need in the same places.
-- Composition keeps the FEM's own complexity — including §3.3's runtime detection — entirely inside the board TU.
-
-**★ `_fem == nullptr` is the inertness proof.** V3, XIAO nRF52 and XIAO ESP32-S3 pass nothing, so their emitted sequence is unchanged by construction. This is what makes the seam gateable independently of the V4 port (§6, slice R1).
+**Why composition, not a `Sx1262FemRadio` subclass or virtuals on `IRadio`:** a subclass would have to re-override `start_transmit`, `poll_tx_done`, `abort_tx` **and** reach `arm_rx()` (private), duplicating the exact sequencing M11/H6 took several fixes to get right — the U1 rot. Hooks on `IRadio` would push a board concern into the radio-chip contract, which the LR1110 driver would then inherit in places it may not need.
 
 ### 3.3 The V4 implementation
 
-`src/board_rf_heltec_v4.cpp`, compiled only under the V4 env, implementing `IBoardRf` for **two silicon revisions behind one product name**:
+`src/board_rf_heltec_v4.cpp`, compiled only under the V4 env. `begin()` performs, in MeshCore's order (`~/MeshCore/variants/heltec_v4/LoRaFEMControl.cpp:6-41`): power the FEM LDO (`P_LORA_PA_POWER=7`), release RTC holds, wait for cold-start settling, **sample GPIO 2 once** — pull-down ⇒ **GC1109 (V4.2)**, pull-up ⇒ **KCT8103L (V4.3)** — then configure that type's pins (GC1109 `EN=2`/`TX_EN=46`; KCT8103L `CSD=2`/`CTX=5`) and establish RX.
 
-- `LoRaFEMControl::init()` auto-detects at boot by reading GPIO 2's default pull level — **pull-down ⇒ GC1109 (V4.2)**, **pull-up ⇒ KCT8103L (V4.3)** — and the two need different pin sequences (`~/MeshCore/variants/heltec_v4/LoRaFEMControl.cpp`).
-- Pins from `~/MeshCore/variants/heltec_v4/platformio.ini`: `P_LORA_PA_POWER=7` (FEM LDO enable), GC1109 `EN=2` / `TX_EN=46`, KCT8103L `CSD=2` / `CTX=5`.
-- ⚠ **Do not edit vendored files.** The MeshCore tree is a reference, not a dependency: read the method, implement it in our TU under our own author header. (Standing rule: vendor only the RadioLib-only radio headers, never edit them.)
-- ⚠ The detect reads a pin that is also a FEM control line; do it **once at boot**, cache the type, and never re-probe.
+- ⚠ **Do not edit vendored files.** MeshCore is a reference, not a dependency: read the method, implement it in our TU under our own author header.
+- ⚠ The detect reads a pin that is also a FEM control line. Sample **once**, cache the type, never re-probe.
+- ⚠ Cold boot, warm reset and light-sleep wake must each leave a correct state — R3 carries that matrix (§8).
 
-### 3.4 What this does NOT do
+### 3.4 Fail-closed
 
-- **No `Board` class**, no `variants/<board>/` tree. At 3 boards (5 planned) that is ahead of the need; `IRadio` + `IBoardRf` + build flags already cover the axes we have.
-- **No sweep of `fw_main.cpp`'s 10 board conditionals.** They move **only as each is touched**, one refactor slice at a time (C1). This spec moves none of them.
+If `_fem` is present and `begin()` returned false, the type is unknown and **no drive value can be trusted**:
 
-## 4. ★★ `tx_power` means something different on V4 — and the current range is unsafe there
+- `start_transmit` returns `TxResult::radio_error` — **no TX at all**;
+- the failure is **visible**: a boot line and a `status` field, not a silent mute;
+- the front end is left in its safest reachable state;
+- `Sx1262Radio::begin()`'s bool must be **combined into `g_radio_ok`** by the caller. ⚠ Today `fw_main.cpp` ignores that return value — fixing that is part of R1, since a seam whose failure is discarded is not fail-closed.
 
-**This is the part that is not a refactor.**
+## 4. `tx_power` = **desired conducted dBm at the antenna connector**
 
-| | V3 (and every current board) | V4 |
-|---|---|---|
-| `LORA_TX_POWER` | `22` = 22 dBm at the SX1262 | `10` = **22 dBm at the antenna** |
-| MeshCore's own table | — | setting **22 ⇒ 28 dBm output**, prefixed with a hardware-damage warning (`~/MeshCore/docs/faq.md` §7.7) |
+★ **Ruled by the owner 2026-08-01**, and refined the same day: the contract is **conducted power at the antenna connector** — a board property we can measure and bound.
 
-Our console validates `-9..22` and documents it as SX1262 dBm (`src/firmware_config.cpp:142`). On a V4 that same range silently reaches **28 dBm actual** — past what most EU868 sub-bands permit, and into the range MeshCore warns can destroy the front end. The value also flows unchanged from `cfg set tx_power` → NV → `DeviceHal::_def_power` → `IRadio::start_transmit`'s `power_dbm` → `setOutputPower`, so **nothing on that path knows the board has gain after the chip**.
+⚠ **EIRP / ERP is explicitly OUT OF SCOPE of this seam.** What regulations limit is radiated power, which adds antenna gain and cable loss to the conducted figure. Those are installation properties, not board properties, and `IBoardRf` cannot know them. A future region/antenna policy layer may sit **above** this contract and compute a conducted ceiling from an EIRP limit; this spec neither provides nor claims it. **Nothing in this document may be described as making the node regulatorily compliant** — it makes the *conducted* number honest, which is the prerequisite for such a policy.
 
-### ✅ **O-V4-1 — RULED by the owner 2026-08-01: option (b). `tx_power` means DESIRED OUTPUT dBm AT THE ANTENNA.**
+★ **The migration is a no-op for every board that exists today.** With no front end, conducted output at the connector **is** chip drive (we do not model trace/connector loss), so `tx_power=22` keeps its meaning and no NV migration is needed. Only V4 — which has no env yet — gets a non-identity map.
 
-One meaning fleet-wide — "what leaves the antenna" — which is also the number regulations are written against. The board translates to chip drive at the last moment.
+### 4.1 The translation is not a constant offset
 
-**★ The migration is a no-op for every board that exists today.** On a board with no front end, antenna dBm **is** chip dBm (we do not model trace/connector loss), so `tx_power=22` still means exactly what it meant. Only V4 — which has no env yet — gets a non-identity translation. ⇒ **R4 carries no risk to the current fleet**, and no NV migration is needed despite being a reinterpretation.
+MeshCore's table gives V4 two points: chip **10 → 22 dBm** and **22 → 28 dBm** — gain **+12** then **+6**. The PA **compresses**, the same pattern the Station G2 rows annotate as *"1 dB compression point"*. A single gain constant calibrated at the high point would make a request for 22 dBm compute chip 16, which on a curve with +12 dB small-signal gain radiates well over the request. **Silent over-delivery.**
 
-#### ★★ The translation is NOT a constant offset, and assuming one would over-deliver
+⇒ a **monotonic measured table** `(chip_dbm → measured conducted dBm)`, and `drive_for_output()` selects **the highest chip entry whose measured output does not exceed the request**.
 
-MeshCore's table gives V4 **two** operating points:
+**Total by construction:**
 
-| chip setting | output | implied gain |
-|---|---|---|
-| 10 dBm | 22 dBm | **+12** |
-| 22 dBm | 28 dBm | **+6** |
+| request | result |
+|---|---|
+| below `min_output_dbm()` — no entry qualifies | `{valid=false}` → **refuse loudly**. Never "bypass the PA" or fall to a point that over-delivers |
+| between measured points | the lower bracketing entry (round **down**) |
+| at a measured point | that entry |
+| above `max_output_dbm()` | `{valid=false}` → refuse |
 
-The PA **compresses** — the same pattern the Station G2 rows annotate with *"1 dB compression point"*. A single `fem_gain_db` constant (which this spec proposed before the numbers were read closely) is therefore wrong in a **dangerous direction**: calibrate it at the high point (+6) and a request for 22 dBm computes chip 16, which on a curve with +12 dB of small-signal gain actually radiates ~26-28 dBm. **Over-delivery on a regulatory limit, silently.**
+Table invariants, asserted at construction: sorted by chip drive, measured output **monotonic non-decreasing**, and every value inside `[min_output_dbm, max_output_dbm]` covered. Selection carries a **margin below the ceiling** rather than treating a measured mean equal to the limit as acceptable.
 
-#### The mechanism
+### 4.2 ★★ `LORA_TX_POWER` must be split — it is consumed as CHIP DRIVE by a vendored file
 
-`IBoardRf` gains two members, both with defaults that make a FEM-less board the identity case:
+**Verified:** `LORA_TX_POWER` is passed straight into `SX1262::begin(...)` as chip power at `lib/meshcore/src/helpers/radiolib/CustomSX1262.h:45` **and** `:49` (the TCXO-retry path) — a **vendored file we may not edit**. It also seeds `g_tx_power` (`src/fw_main.cpp:189`), the v2-blob fallback (`:622`) and the `leave` NV reset (`src/firmware_config.cpp:1176`).
+
+One macro therefore cannot carry both meanings. On V4: leave it at 10 and the chip init is safe but the operator default becomes "10 dBm conducted", which the table **cannot represent** (its minimum is 22); set it to 22 and `std_init()` boots the chip at 22 — the 28 dBm high-output point this design exists to avoid.
+
+**Split, preserving today's behaviour by aliasing:**
 
 ```cpp
-    // Highest chip drive whose MEASURED output does not exceed `want_output_dbm`. Never over-deliver: where the
-    // curve is unknown, round DOWN. Default = identity: on a board with no front end, antenna dBm IS chip dBm.
-    virtual int8_t chip_dbm_for_output(int8_t want_output_dbm) const { return want_output_dbm; }
-    // The board's ceiling AT THE ANTENNA. Default 22 = the SX1262's own maximum.
-    virtual int8_t max_output_dbm() const { return 22; }
+#ifndef MR_DEFAULT_OUTPUT_DBM
+#define MR_DEFAULT_OUTPUT_DBM LORA_TX_POWER   // identity boards: the two meanings coincide
+#endif
 ```
 
-V4 implements `chip_dbm_for_output` as a lookup over a **small monotonic calibration table** of `(chip_dbm → measured_output_dbm)` pairs, selecting **the highest chip value whose output is ≤ the request**. Conservative by construction: an un-tabulated request lands on the point below it, so the node transmits *at or under* what was asked, never over.
+- **`LORA_TX_POWER` stays direct chip drive** for the vendored init — on V4 the safe bring-up value (10 unless measurement rules otherwise).
+- **`MR_DEFAULT_OUTPUT_DBM`** becomes the operator/NV/HAL default in conducted dBm; `g_tx_power`, fresh-blob seeding, `leave`, and status/help text move to it.
+- Document at both sites that the RadioLib boot value is chip drive and is **never** the operator setting on a gain board.
 
-Applied at the single site that already sets power (`device_radio.h:146`):
+### 4.3 Clamps — runtime, not build-time
+
+Two enforcement points, both required:
+
+1. **Console** (`src/firmware_config.cpp:142`) validates the requested conducted value against the **detected board's** `min/max_output_dbm()`, so the operator is refused loudly with the reason.
+2. **Radio**, as the final backstop, because the console is not the only producer:
 
 ```cpp
         if (pw > -100) {
-            const int8_t chip = _fem ? _fem->chip_dbm_for_output(pw) : pw;   // null FEM -> identity -> byte-identical
-            _radio.setOutputPower(clamp_sx1262(chip));                        // and still clamp to the chip's own -9..22
+            const BoardRfDrive d = _fem ? _fem->drive_for_output(pw) : BoardRfDrive{ true, pw };
+            if (!d.valid) return TxResult::radio_error;          // refuse; never substitute a nearby point
+            _radio.setOutputPower(clamp_sx1262(d.chip_dbm));     // and still clamp to the chip's own -9..22
         }
 ```
 
-**Two clamps, both required:** the requested *antenna* value against `max_output_dbm` (at the console, so the operator is refused loudly), and the derived *chip* value against the SX1262's own −9..22 (at the radio, because a table error must not reach `setOutputPower`).
+⚠ **Prefer one runtime source of truth over `MR_TX_*` build flags.** Persisted NV can predate a policy change, a revision-dependent ceiling cannot be expressed by one compile-time number, and two independent constants drift. `src/firmware_config.cpp` already includes `fw_context.h` and can reach `g_iradio`; expose the detected envelope through `Sx1262Radio`. If a build flag is kept for the console, define it **once** and assert it equals the runtime value in the V4 TU.
 
-#### Console side
+**Boot validation:** a persisted `tx_power` outside the detected board's envelope must be reported and remediated **before any send**, not silently used.
 
-`src/firmware_config.cpp:142` currently validates −9..22 as chip dBm. It becomes a validation against the **board's antenna range**, exposed as build flags so the console needs no radio handle:
+## 5. Other V4 deltas
 
-```ini
-  -DMR_TX_MIN_OUTPUT_DBM=-9     ; defaults = the SX1262's own range (identity boards)
-  -DMR_TX_MAX_OUTPUT_DBM=22
-```
+- **LoRa reset pin**: V4 uses **GPIO 12**; our `heltec_v3` env sets `LORA_PIN_RST=RADIOLIB_NC` (`platformio.ini:218`). Build-flag difference only.
+- **`SX126X_REGISTER_PATCH=1`** (register 0x8B5, "improved RX") is set for V4 in MeshCore and absent from all our envs. Enable **for V4 only** — it is an unmeasured per-board RX tuning claim; adopting it fleet-wide needs an A/B on metal, not a copy.
+- ★ **Board assets (R2 blocker, verified):** the pinned platform ships `heltec_wifi_lora_32_V3.json` but **no V4 manifest**, and our `boards/` holds only nRF52 assets — so `board = heltec_v4` fails. MeshCore supplies its own `boards/heltec_v4.json` + `variants/heltec_v4/pins_arduino.h`. **Choose one and list every file in R2:** (a) add a project-local V4 board JSON plus its Arduino variant and point the variants dir at it, or (b) extend a supported generic ESP32-S3 board and spell out flash (16 MB), PSRAM (2 MB), partitions, USB-CDC and every pin. **A clean checkout must build both V4 envs without any file from a local MeshCore clone.**
 
-V4 sets its own pair. ⚠ **`MR_TX_MAX_OUTPUT_DBM` and `IBoardRf::max_output_dbm()` must agree** — same board, two consumers. Assert it once in the V4 TU rather than trusting two build flags to stay in step.
+## 6. Sleep — `power_off()` is NOT for our sleep path
 
-⚠ **The vendor table is a STARTING POINT, not the calibration.** MeshCore's numbers are a vendor claim for a board with two silicon revisions; the entire reason for moving to antenna-dBm is that the number becomes regulatorily meaningful, and a meaningful number has to be **measured**. R4's bench step replaces the table with measured values, per revision if they differ (§8 Q6).
+**Verified** (`src/fw_main.cpp:918-947`): MeshRoute uses **light sleep with the radio in continuous RX**, woken by DIO1 RxDone (`esp_sleep_enable_ext1_wakeup` on `LORA_PIN_DIO1`) or the next-timer deadline. The header comment says it outright: *"The radio stays in continuous RX, so a DIO1 RxDone (an incoming frame) wakes us."*
 
-⚠ **R4 is its own slice** — it changes an operator-visible meaning and must not ride the FEM commit (C1).
+⇒ **powering the front end down there would make the node deaf** — the LNA leaves circuit while we depend on RxDone to wake. Rules:
 
-## 5. Two more V4 deltas, both small
+- the optional method is named **`power_off()`**, deep-power-off only, and **is not called from `board_sleep_until()`**;
+- light sleep retains RX mode and GPIO state; nothing in R1-R4 calls `power_off()` at all;
+- if deep sleep with radio wake is added later it needs its own lifecycle (RTC holds configured exactly as the FEM requires) — **a separate slice**, and the warm/deep-reset GPIO-hold question belongs to it;
+- **deep-sleep current is therefore NOT an R3 acceptance criterion** (this tree has no V4 deep-sleep path to measure).
 
-- **LoRa reset pin**: V4 uses **GPIO 12**; our `heltec_v3` env sets `LORA_PIN_RST=RADIOLIB_NC` (`platformio.ini:218`). A build-flag difference only — no code change.
-- **`SX126X_REGISTER_PATCH=1`** (register 0x8B5, "improved RX") is set for V4 in MeshCore and absent from all our envs. ⚠ **Do not adopt it blindly on the other boards**: it is a per-board RX tuning claim, unmeasured here. Enable for V4 only, and note it as an A/B candidate for the rest rather than a fleet change.
-
-## 6. Slices
+## 7. Slices
 
 | # | slice | gate |
 |---|---|---|
-| **R1** | `lib/hal/iboardrf.h` + the two `Sx1262Radio` call sites, `_fem = nullptr` everywhere. **No board supplies one yet.** | s18 md5 **EXACT** + all board envs. A null-FEM build must be byte-identical — that is the whole proof the seam is inert. |
-| **R2** | `heltec_v4` / `heltec_v4_mobile` envs + pins + `SX126X_REGISTER_PATCH`; **no FEM yet** | boards build; **do not transmit on real V4 hardware after R2 and before R3** |
-| **R3** | `src/board_rf_heltec_v4.cpp` — GC1109/KCT8103L runtime detect + `tx_mode`/`rx_mode`/`sleep_mode`; wire it into the V4 `Sx1262Radio` ctor | on-target; **bench-verified with a power meter or a second node's RSSI**, per M2 |
-| **R4** | **O-V4-1 as ruled**: `tx_power` = antenna dBm. `IBoardRf::chip_dbm_for_output()` + `max_output_dbm()`, the console range flags, the V4 calibration table, both clamps | s18 **EXACT** (identity boards are unchanged — see §4) + all board envs + **the bench calibration below** |
+| **R1** | `lib/hal/iboardrf.h`; the three placements; `_fem = nullptr` everywhere; `_fem_ready` + fail-closed TX; **`Sx1262Radio::begin()`'s bool folded into `g_radio_ok`** | s18 EXACT *(core-only — see §8)* + all board envs + **on-target null-FEM smoke on V3 and XIAO**: TX, RX, arm-failure, watchdog abort |
+| **R2** | V4 board assets (§5) + `heltec_v4` / `heltec_v4_mobile` envs + pins + register patch. **No FEM yet** | both V4 envs build **from a clean checkout**; ⚠ **do not transmit on real V4 hardware between R2 and R3** |
+| **R3** | `src/board_rf_heltec_v4.cpp` — revision detect, `begin`/`tx_mode`/`rx_mode`, fail-closed; wire into the V4 ctor | on-target: the cold-boot / warm-reset / light-sleep-wake matrix; instrumented mode-transition trace (§8) |
+| **R4** | `tx_power` = conducted dBm: the `MR_DEFAULT_OUTPUT_DBM` split, `drive_for_output`/min/max, runtime clamps, boot validation, the measured table, the §10 renames | s18 EXACT + board envs + **the calibration below, which is an ENTRY criterion** |
 
-R1 is the only slice that touches shared code, and its gate is byte-identity. R2/R3 are additive per-board TUs. R4 is deliberately last: it is a policy change, not a port — and although §4 shows it is a no-op for every current board, it is the slice where a mistake radiates.
+**R4 entry criteria — not open questions:**
 
-**R4's bench step is not optional (M2).** Measure actual output at each table point on real V4 hardware — a power meter, or a calibrated second node's RSSI at fixed distance — and **replace the vendor numbers with the measured ones**. Record the pairs in `docs/2026-07-31-bench-test-script.md`. A calibration table that was never measured is a guess wearing a regulatory label.
+- a **measured** table for **each detected revision**, or a documented conservative fallback with a deliberately restricted output set for the uncalibrated one;
+- measurement across the **supported frequency band**, worst-case-safe. ⚠ `cfg set freq` currently accepts 100..1000 MHz (`src/firmware_config.cpp`), which no single-frequency calibration can justify — **the V4 env must declare its supported interval and refuse out-of-band configuration**;
+- unknown revision, missing table or out-of-band frequency ⇒ **refuse TX, or cap to an explicitly safe bring-up point**.
 
-## 7. Test strategy
+R3 switching may land before full calibration, but **an uncalibrated R4 is a bench configuration, never a release one**.
 
-**Native** — `IBoardRf` is a pure interface, so `test_device_hal.cpp`'s existing `MockRadio` pattern extends directly: a `MockFem` recording call order, asserting **`tx_mode` precedes every `startTransmit`** and **`rx_mode` precedes every `startReceive`** — including the **initial arm in `begin()`** (§2), the `radio_error` early-return, and the `abort_tx` watchdog path. This is the valuable half: ordering is what a FEM gets wrong, and it is cheap to test and expensive to debug on metal.
+## 8. Test strategy — and an honest account of what each gate proves
 
-⚠ `Sx1262Radio` itself is device-only (it pulls RadioLib), so the mock must sit at the `IBoardRf` seam driven by a test double of the *sequence*, not by instantiating `Sx1262Radio` on host. If that proves awkward, the fallback is an on-target trace assertion — but try native first; the ordering is pure logic.
+⚠ **s18 does NOT exercise this seam.** `Sx1262Radio` is device-only (it pulls RadioLib); s18 is the simulator. An exact digest proves **the core is unchanged** — a necessary, orthogonal check. It says nothing about hook placement, and the board binary will **not** be byte-identical once a pointer and branches are added. An earlier revision claimed s18 exactness was "the whole proof the seam is inert"; **that was wrong** and is retracted.
 
-**s18 byte-identity** — R1's real gate. `_fem == nullptr` ⇒ no behaviour change ⇒ the stream must not move. If it does, the seam was inserted in the wrong place.
+**What actually covers the seam:**
 
-**Metal (M2 — add to `docs/2026-07-31-bench-test-script.md`)**, because no automated gate can reach any of it:
+| level | coverage |
+|---|---|
+| **native** | ordering logic, *if* a small sequencing component used by production is extracted and driven with a fake radio + fake FEM. ⚠ A test double that merely replays an invented order tests itself — either share the production path or drop this level and rely on the instrumented target test |
+| **on-target, null FEM (V3 + XIAO)** | TX, RX, `start_transmit` arm-failure, watchdog abort — proves R1 did not disturb boards without a front end |
+| **on-target, V4** | an instrumented mode-transition trace asserting **no `startTransmit` outside TX mode** and **no `startReceive` outside RX mode**, across boot, normal traffic, arm failure and abort |
+| **review** | the `startReceive`/`startTransmit` grep of §3.2 — a check, not a gate |
 
-1. **The R4 calibration itself** — actual radiated output at each table point, per silicon revision if both are to hand (§8 Q6). This *is* the table; the vendor numbers are only its seed.
-2. RX sensitivity sanity: V4 hears a distant node the V3 also hears (LNA actually in circuit).
-3. **Both silicon revisions** if both are available — the GC1109/KCT8103L detect is a runtime branch no build can prove.
-4. Deep sleep current with `sleep_mode()` — MeshCore notes the FEM drops to µA only when explicitly shut down.
+**Metal (M2 — add to `docs/2026-07-31-bench-test-script.md`)**, none of it reachable by any automated gate:
 
-## 8. Open questions for the reviewer
+1. **The R4 calibration**: conducted output at each table point, measured with an **RF power meter / spectrum analyser** with rated attenuation and a **stated uncertainty**, per revision, across the declared band. ⚠ **Second-node RSSI is a relative functional check only** — it cannot calibrate absolute power unless the whole link is itself calibrated, and an earlier revision of this spec wrongly offered it as an alternative.
+2. RX sensitivity sanity: the V4 hears a distant node the V3 also hears (LNA genuinely in circuit).
+3. **Both silicon revisions**, if both are to hand — the detect is a runtime branch no build can prove.
+4. FEM-init failure behaviour: force a failed detect and confirm **no TX**, visible reason.
 
-1. ~~O-V4-1~~ ✅ **RULED 2026-08-01: antenna dBm** (§4). Two things came out of specifying it that a reviewer should still check: (i) the V4 gain is **non-linear** (+12 at 10 dBm drive, +6 at 22), so the table-with-round-down replaces the constant-offset sketch — verify the "never exceed" selection rule is actually monotonic-safe; (ii) it is a **no-op for every existing board**, which is the claim R4's s18 gate rests on.
+## 9. Naming — finish the rename in R4
 
-6. **§4 — do the two V4 silicon revisions share a power curve?** MeshCore publishes one table for "Heltec V4" while `LoRaFEMControl` detects GC1109 (V4.2) vs KCT8103L (V4.3) at runtime. Different PAs plausibly differ in gain and compression. If they do, `chip_dbm_for_output()` must select its table by the detected type — the mechanism already allows it, but nobody has measured whether it is needed. **This is a bench question, not a code-review one.**
-2. ~~Is `arm_rx()` the only RX-mode site?~~ **CLOSED by enumeration during self-review, and the answer was no** — `begin():77` calls `startReceive()` directly, bypassing `arm_rx()` despite that function's own "every RX re-arm routes through here" comment (true for *re*-arms; the initial arm predates it). §2 and §3.2 now specify three sites. Kept visible because it is exactly the drift `arm_rx`'s comment invites, and the next person to add a `startReceive` will read that comment and trust it.
-3. **§3.3 — is the boot-time FEM detect safe on a warm reset?** MeshCore's `init()` handles `ESP_RST_DEEPSLEEP` specially and holds RTC GPIOs across sleep. Our sleep path differs; confirm the detect is not run while the pin is held by an RTC latch.
-4. **§5 — `SX126X_REGISTER_PATCH` on the other boards.** Left V4-only deliberately. If someone wants it fleet-wide it needs an A/B on metal, not a copy.
-5. **Scope check:** should T1000-E's `Lr1110Radio : IRadio` be named in this spec's slice list, or stay in its own? I have kept it out — it shares no code with the FEM path and would only make this spec's gate broader.
+`tx_power`'s meaning changes, so the declarations that still say "SX1262 / chip dBm" must change with it: `src/device_nv.h:48`, `lib/hal/iradio.h:30-31`, `lib/core/hal.h:29`, `src/fw_main.cpp:189`, and the console help/status strings. **Keep the two meanings lexically distinct**: the value above the board translator is `output_dbm`; the value handed to RadioLib is `chip_dbm`. That is what stops them reconverging later.
+
+## 10. Open questions for the reviewer
+
+1. **§4 EIRP boundary.** Conducted-at-connector is ruled and specified. Is a region/antenna policy layer *wanted* on top, and if so does it belong to the address-book/config arc rather than the radio? This spec deliberately stops at the connector.
+2. **§8 native level.** Extracting a production-shared sequencing component from `Sx1262Radio` may cost more than it returns, given the on-target trace covers the same property. My inclination is to **skip the native level and rely on the instrumented target test**, but a second opinion is worth having before someone builds a self-testing double.
+3. **§5 board assets.** (a) project-local V4 JSON + Arduino variant, or (b) generic ESP32-S3 base plus explicit properties? (a) matches MeshCore and is reproducible; (b) avoids carrying vendor manifests. No strong preference — but it must be decided *in R2*, not discovered during it.
+4. **§7 band declaration.** What *is* the V4's supported frequency interval for calibration purposes? Needs the hardware's matching network, not a guess.
+5. **§4.2** — is `LORA_TX_POWER=10` the right bring-up value for V4's vendored `std_init()`, or should it be lower until R4's table exists?

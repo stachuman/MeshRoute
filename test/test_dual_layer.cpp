@@ -547,7 +547,7 @@ struct DualLayerTestAccess {
         auto& fs = n._layers[leaf]._flood[0];
         fs = Node::FloodState{}; fs.active = true; fs.id = id; fs.hop_left = 3;
     }
-    static void           reoffer_register(Node& n, uint32_t id, bool team) { n.channel_reoffer_register(id, team); }
+    static void           reoffer_register(Node& n, uint32_t id, bool team, uint16_t ctr = 0) { n.channel_reoffer_register(id, team, ctr); }
     static void           mobile_reset_reg(Node& n, const char* why) { n.mobile_reset_registration(why); }   // §set_identity(0) ruling: the third site, and one with NO following _id_bind wipe
     static uint32_t       flood_timer_id(uint8_t s)   { return Node::kFloodRebcastTimerId + s; }        // the ring bases + m_inner_id are private -> reach them through the friend (the sync_timer_id idiom above), never a re-declared literal
     static uint32_t       reoffer_timer_id(uint8_t s) { return Node::kChannelReofferTimerId + s; }

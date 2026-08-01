@@ -123,6 +123,17 @@ enum class PushKind : uint8_t {
                    //   (kind = channel|dm; reason = cap|min_interval; next_ms = ms until allowed). Companion holds + retries.
     channel_sent,  // Slice 6c: outcome of an OWN channel post's origin re-offer. relayed=true (a relay was overheard =
                    //   channel_reoffer_confirm) or relayed=false (the re-offer exhausted with no relay -> reason "no_relay").
+                   // ★★ §b38 — `relayed` CARRIES TWO MEANINGS, ONE PER PLANE (owner ruling 2026-08-01), and a consumer
+                   //   that conflates them turns one wrong answer into the other:
+                   //     non-team (leaf/global) = "the flood COMPLETED" (one relay is coverage on this plane);
+                   //     team                   = "AT LEAST ONE RELAY WAS OBSERVED" — an observation, never coverage.
+                   //   A team post is reported at the FIRST confirm and the node then KEEPS re-offering for its far
+                   //   members, so `true` on a team post does not mean the node has stopped transmitting.
+                   //   Exactly ONE channel_sent per origination: a `true` is never followed by a `false`.
+                   // ★ §b40 — `ctr` is the FULL 16-bit value do_send_channel returned to the caller (it used to be the
+                   //   low 8 bits, so an origination handle of 256 was answered by a push ctr of 0). It is a LOCAL
+                   //   correlation handle only: the wire carries just `ctr & 0xff` inside the channel msg-id, so it
+                   //   must never be matched against a received message id.
     mobile_reg,    // §S2: mobile registration changed. origin=home, dst=local, layer_id=home_layer, ctr=epoch,
                    //   relayed=registered (home_layer/epoch emitted only when registered). registered:false = home lost/dereg.
     team_reg,      // §S2: team-DAD id adopted/re-picked. team_id = _cfg.team_id (hex string), dst=team_local_id.
@@ -207,7 +218,8 @@ struct Push {
     uint8_t  origin_layer = 0; // §GapA (cross-layer mobile): msg_recv — the SENDER's layer (layer_ids[0] of the preserved XL path; 0 = same-layer/non-XL). Lets the recipient build the (layer_path, hash) REPLY address; JSON omit-when-0.
     bool     enc = false;      // §8b: msg_recv -> the DM was delivered SEALED (CRYPTED + opened); channel_recv -> false (cleartext today)
     bool     blocked_channel = false;  // send_blocked: true => "channel", false => "dm"
-    bool     relayed = false;          // channel_sent: a relay of our channel post was overheard (true) or the re-offer exhausted (false)
+    bool     relayed = false;          // channel_sent: a relay of our channel post was overheard (true) or the re-offer exhausted (false).
+                                       // ⚠ §b38: PLANE-DEPENDENT MEANING — see the PushKind::channel_sent note above.
     // ★★ §AB2 (address-book spec 2026-07-29 §0.1/§2.2): peer_key_cached ONLY — the confidence the cached entry actually
     // holds, read back out of the live table by Node::push_peer_key_cached. Before this the JSON emitted a HARDCODED
     // `"pinned":false`, so the app could not tell `overheard` (key present, CANNOT seal) from `authoritative` (can) —
