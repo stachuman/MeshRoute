@@ -188,6 +188,18 @@ const char* peerlocsrc_name(Node::PeerLocSrc s) {
     return "team";   // an out-of-range byte reads as the WEAKER anchor (never claim an attribution we cannot back — the
                      // mirror of peerkeyconf_name's least-capable policy, in this field's own honest direction)
 }
+// ★★ §chan-crypt CL2c — THE ONE `"lat"/"lon"` EMITTER, shared by the AB4 peers row and the located channel_recv push
+// (U1: the second call site is what created the obligation to share rather than fork — the four statements below were
+// `write_peer_row`'s alone until this slice).
+// ⚠ MEASURED, and this is why it is a function rather than four copied lines: `JsonBuf::i64` is a hand-rolled 64-bit
+// decimal loop with NO out-of-line symbol — GCC inlines it at every call site, and on nRF52/ARM `u64 /= 10` expands to
+// a multiply-high sequence. Two more inlined copies inside `write_push` measured **+1540 B of gateway flash**; routing
+// both callers through one body gives the compiler one place to put it. `f` and `noinline` are deliberately NOT used —
+// the shape carries the intent, and forcing codegen is not this slice's business.
+static void emit_lat_lon(JsonBuf& j, int32_t lat_e7, int32_t lon_e7) {
+    j.lit(",\"lat\":"); j.i64(lat_e7);
+    j.lit(",\"lon\":"); j.i64(lon_e7);
+}
 const char* joinrefusereason_name(JoinRefuseReason r) {   // R6.3 §7c
     switch (r) {
         case JoinRefuseReason::wire_version: return "wire_version";
@@ -270,6 +282,20 @@ size_t write_push(char* buf, size_t cap, const Push& p, const NodeConfig* cfg) {
         if (p.seq) { j.lit(",\"seq\":"); j.u32(p.seq); }          // model B: the inbox seq (gap detector). OMITTED if 0 = inbox disabled
         if (p.team_id) { j.lit(",\"team_id\":"); key_hex32(j, p.team_id); }   // §S4: team scoping (omit-when-0 -> a leaf channel push is byte-identical)
         if (p.enc) j.lit(",\"enc\":true");                        // §chan-crypt CL2a: the post arrived SEALED under the team content key and we OPENED it; omitted (=false) for a plaintext post, so every existing stream is byte-identical. Same shape as msg_recv's `enc` above.
+        // ★★ §chan-crypt CL2c — WHOSE POST IT IS, and WHERE THE SENDER WAS. Both OMIT-WHEN-ABSENT so a plaintext or
+        // unlocated post's push is byte-identical to the pre-CL2c line.
+        //   `sender_hash` — the sealed inner's bit2, the sender's stable 32-bit key_hash32. ★ THE APP MUST PREFER IT
+        //     OVER `origin` for identity: `origin` is a DAD-assigned, re-pickable team_local_id, so it labels a plane
+        //     slot, not a person. Same field name, same meaning and the same "0 = unknown" convention as msg_recv's.
+        //     ⚠ It proves TEAM MEMBERSHIP, not sender identity (the content key is shared) — render it as "from a
+        //     teammate", never as a cryptographic attestation.
+        //   `lat`/`lon` — deg×1e7, quantised to ~11 m by pack_loc6. The SAME names the peers-row emits (U1) so the app
+        //     ships ONE coordinate renderer. ⚠ THEY ARE LIVE-ONLY BY OWNER RULING (spec §3.0): the durable inbox
+        //     record stores the TEXT ONLY, deliberately, so a captured node yields no position history. An app that
+        //     was offline when the post arrived sees the text on a later pull and NO position — that is the accepted
+        //     cost, not a bug to work around by persisting them.
+        if (p.sender_hash)  { j.lit(",\"sender_hash\":"); j.u32(p.sender_hash); }
+        if (p.has_location) emit_lat_lon(j, p.lat_e7, p.lon_e7);   // the SAME emitter the peers row uses (U1)
         j.lit(",\"body\":");           j.str(reinterpret_cast<const char*>(p.body), body_n);
     } else if (p.kind == PushKind::team_channel_no_key) {  // §chan-crypt CL2a: a CRYPTED team post we cannot read -> the app prompts "ask a teammate for the key". NO body and NO seq: nothing was inboxed and there is no plaintext to show.
         j.lit(",\"origin\":");         j.u32(p.origin);
@@ -585,8 +611,7 @@ size_t write_peer_row(char* buf, size_t cap, const Node::PeerBookRow& r) {
     // position (a position without an age is rendered as current) and `loc_src` is MANDATORY beside it too (a
     // group-anchored claim must never be presented as a pairwise one). Absence is the NORMAL case, not an error.
     if (r.has_location) {
-        j.lit(",\"lat\":");       j.i64(r.lat_e7);
-        j.lit(",\"lon\":");       j.i64(r.lon_e7);
+        emit_lat_lon(j, r.lat_e7, r.lon_e7);          // §chan-crypt CL2c: shared with write_push's channel_recv arm
         j.lit(",\"loc_age_s\":"); j.u32(r.loc_age_s);
         j.lit(",\"loc_src\":\""); j.lit(peerlocsrc_name(r.loc_src)); j.ch('"');
     }

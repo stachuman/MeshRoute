@@ -1502,6 +1502,21 @@ CmdResult Node::on_command(const Command& c) {
                     push_send_failed(SendFailReason::unsealable, /*dst=*/0, /*ctr=*/0);
                     return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };
                 }
+                // ★★ §chan-crypt CL2c — A LOCATED POST MUST NAME ITS SENDER, so a node with NO STABLE IDENTITY
+                // (`_key_hash32 == 0`) REFUSES to originate one rather than airing bit2 with a zero hash (C2).
+                // ⚠ WHY IT SITS AHEAD OF THE FIX CHECK: identity is the deeper lack. A node with neither will be told
+                // to provision, which is the only order in which the remedies compose — telling it to acquire a GPS
+                // fix first would send the operator after a step that cannot make the post legal.
+                // `no_identity` is REUSED verbatim (U1, no new enumerator): it already means exactly this and
+                // src/fw_main.cpp already renders it "(no crypto identity)".
+                // ⓘ NARROW BY CONSTRUCTION, not dead: src/fw_main.cpp constructs `g_node` with key_hash32 0 and only
+                // `setup()` replaces it from /mrid (identity_from_seed -> ed_pub[:4]), so this fires on a node whose
+                // identity never came up. Natively reachable and tested; on metal it is the fail-loud backstop.
+                if (want_loc && _key_hash32 == 0) {
+                    MR_EMIT("channel_crypt_refused", EF_I("channel_id", c.u.channel.channel_id), EF_S("reason", "no_identity"));
+                    push_send_failed(SendFailReason::no_identity, /*dst=*/0, /*ctr=*/0);
+                    return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };
+                }
                 // ★ §chan-crypt CL2b: no fix -> REFUSE `no_location`. Verbatim the DM rule (node_mac.cpp's `-l` gate,
                 // U1) including its ORDER: the CONFIDENTIALITY refusals above win, so a `-l` post that is both
                 // unsealable and fix-less reports the leak it would have caused, not the missing fix. `no_location` is
@@ -1530,11 +1545,14 @@ CmdResult Node::on_command(const Command& c) {
                 // sealed blob must still fit the 200-B channel payload carriers. The plain-post check at the top of
                 // this arm admits up to 200 B, so refuse HERE with the sealed cap rather than truncate a message the
                 // operator typed (C2). Distinct code from the plain one only in the limit.
-                // ★ §chan-crypt CL2b: the cap now bounds the whole INNER, `[flags 1][loc 6?][text]`, so the text a
-                // sealed post can carry is 173 B (174 − 1) and 167 B with `-l`. ONE definition of the overhead
-                // (protocol::channel_inner_overhead) is shared with the assembly in do_send_channel — a second copy
-                // here is exactly how a size gate and its writer drift apart.
-                if (protocol::channel_inner_overhead(want_loc) + c.body_len > protocol::channel_seal_max_plaintext_bytes) {
+                // ★ §chan-crypt CL2b/CL2c: the cap bounds the whole INNER, `[flags 1][source_hash 4?][loc 6?][text]`,
+                // so the text a sealed post can carry is 173 B (174 − 1) and **163 B** with `-l` (174 − 1 − 4 − 6).
+                // ⚠ 163, NOT CL2b's 167: `-l` now costs 10 header bytes, not 6. ONE definition of the overhead AND of
+                // the flags that drive it (protocol::channel_inner_flags / channel_inner_overhead) is shared with the
+                // assembly in do_send_channel — a second copy here is exactly how a size gate and its writer drift
+                // apart, and with two optional fields the drift would be silent truncation rather than a refusal.
+                if (protocol::channel_inner_overhead(protocol::channel_inner_flags(c.body_len != 0, want_loc))
+                        + c.body_len > protocol::channel_seal_max_plaintext_bytes) {
                     MR_EMIT("channel_crypt_refused", EF_I("channel_id", c.u.channel.channel_id), EF_S("reason", "too_large"));
                     push_send_failed(SendFailReason::too_large, /*dst=*/0, /*ctr=*/0);
                     return CmdResult{ CmdCode::err_too_large, 0, _active->_tx_queue_n };

@@ -455,34 +455,76 @@ inline constexpr uint8_t  channel_flavor_crypted = 0x40;
 inline constexpr uint8_t  channel_seal_overhead_bytes = 2 + 8 + 16;   // = 26
 // Max PLAINTEXT of a sealed post: the sealed blob must still fit the 200-B channel payload carriers (ChannelEntry,
 // FloodState). Origination REFUSES above this (C2 — never silently truncate a message the operator typed).
-// ★ §chan-crypt CL2b: this bounds the whole INNER `[flags][loc6?][text?]`, not the text — see channel_inner_overhead.
+// ★ §chan-crypt CL2b/CL2c: this bounds the whole INNER `[flags][source_hash 4?][loc6?][text?]`, not the text — see
+// channel_inner_overhead. ⇒ the TEXT a sealed post can carry is 173 plain, and 163 with `-l` (1 + 4 + 6 of header).
 inline constexpr uint16_t channel_seal_max_plaintext_bytes = channel_msg_max_payload_bytes - channel_seal_overhead_bytes;   // 174
-// ★★★ §chan-crypt CL2b (spec 2026-07-30 §2.2.1, T-K2 §2.2 as CORRECTED) — THE SEALED INNER IS `[flags u8][loc 6 if
-// bit1][text if bit0]`, and the first byte is a FLAGS byte, NOT an enumerated inner_type.
+// ★★★ §chan-crypt CL2b/CL2c (spec 2026-07-30 §2.2.1 + §3.0, T-K2 §2.2 as CORRECTED) — THE SEALED INNER IS
+// `[flags u8][source_hash 4 if bit2][loc 6 if bit1][text if bit0]`, and the first byte is a FLAGS byte, NOT an
+// enumerated inner_type.
 // WHY FLAGS: an ENUMERATED space must spend a codepoint per COMBINATION (text, loc, text+loc, telemetry,
 // telemetry+loc, waypoint, waypoint+loc…). Both codepoint spaces this project has already EXHAUSTED — the DATA flags
 // byte (0xFF, full) and q_opcode (2 bits, full) — died exactly that way. With flags each FEATURE costs one bit and
-// every COMBINATION is free: two bits used, six spare, and the explosion never happens. It is also the only encoding
-// that can express the owner's actual request, `send_channel -t -l -e` = text TOGETHER WITH a position.
-// LAYOUT mirrors the DATA inner — FIXED-SIZE field first, VARIABLE last (`[dst_hash?][origin][source_hash?]
-// [location?][body]`) — so one mental model covers both planes.
+// every COMBINATION is free: THREE bits used, five spare, and the explosion never happens. It is also the only
+// encoding that can express the owner's actual request, `send_channel -t -l -e` = text TOGETHER WITH a position.
+// ✔ CL2c IS THE PROOF THE ENCODING CHOICE WAS RIGHT: adding `source_hash` cost ONE BIT and no reshaping. Under the
+// enumerated `inner_type` T-K2 first specified it would have cost FOUR new codepoints (src, src+loc, src+text,
+// src+loc+text) on a space that was already the wrong shape.
+// LAYOUT mirrors the DATA inner FIELD FOR FIELD AND IN ORDER — `[dst_hash?][origin][source_hash?][location?][body]`
+// (frame_codec.cpp pack_unicast_inner) — so one mental model covers both planes: fixed-size fields first in the same
+// sequence, variable-length body last. ★ §chan-crypt CL2c put `source_hash` BEFORE `location` for exactly that
+// reason, and it also matches the DM's 4-B LITTLE-ENDIAN encoding of the same quantity (U1).
 // ⚠ THE INNER EXISTS ONLY INSIDE THE SEAL. A PLAINTEXT channel post's body is still the bare text, byte-for-byte as
 // before: adding a flags byte there would change every plaintext post on the wire for nothing (bit1 requires the
 // crypted flavour anyway, spec §2.4), and the global plane has no key to ever set it.
 // ⚠ UNKNOWN BITS ⇒ THE READER MUST REFUSE, and that is structural, not strictness for its own sake: a future field
 // sits BETWEEN the flags byte and the variable-length text, so a reader that does not know its width cannot find the
 // text. A v2 sender therefore reaches v1 readers only by re-keying the feature, never by silent partial parse (C2).
+// ⚠ ONE CROSS-BIT RULE, AND ONLY ONE: bit1 (location) REQUIRES bit2 (source_hash). It is not taste — an unattributable
+// position is precisely what CL2c exists to remove, so a located inner without a sender is malformed on BOTH sides
+// (the composer below cannot build one; ingest_channel_m refuses one). The converse is NOT a rule: bit2 alone is
+// well-formed and readable. ★ NO `wire_version` BUMP FOR ANY OF THIS — the inner lives entirely inside the AEAD
+// ciphertext, so a non-keyholder observes only a body four bytes longer; the flags byte IS this format's version
+// mechanism, enforced by the unknown-bit refusal above.
 inline constexpr uint8_t  channel_inner_flag_text     = 0x01;   // a text body is present (variable length, LAST)
-inline constexpr uint8_t  channel_inner_flag_location = 0x02;   // a 6-B pack_loc6 position is present (fixed, FIRST)
-inline constexpr uint8_t  channel_inner_flags_known   = channel_inner_flag_text | channel_inner_flag_location;
+inline constexpr uint8_t  channel_inner_flag_location = 0x02;   // a 6-B pack_loc6 position is present (fixed, SECOND)
+// ★★★ §chan-crypt CL2c (owner 2026-08-01: "source_hash is required — when send channel message contains location it
+// is required to include which node location is it"). The SENDER'S FULL 32-bit key_hash32, 4 B LE, fixed, FIRST.
+// WHY IT IS CARRIED RATHER THAN INFERRED — the inference CL2b shipped is structurally weaker, and CL2b measured it
+// failing: `origin` on a team post is a `team_local_id`, resolved through `_team_keys` (learned from the sender's
+// BEACON) to a full hash. Two ways that loses: we may never have heard the sender's beacon at all, and a
+// team_local_id is DAD-assigned and RE-PICKABLE, so a stale row names the WRONG peer. Both produced
+// `peer_location_unattributed`, after which the position was surfaced but never retained. Carrying the fact removes
+// the whole class: the post names its own sender, inside the seal, with no dependence on the receiver's beacon
+// history. ⚠ IT DOES NOT ADD AUTHENTICATION and must never be read as if it did — see PeerLocSrc (node.h): the team
+// content key is SHARED, so any keyholder can already publish a post under another member's `origin`. This makes
+// attribution RELIABLE, not UNFORGEABLE.
+inline constexpr uint8_t  channel_inner_flag_source   = 0x04;
+inline constexpr uint8_t  channel_inner_flags_known   = channel_inner_flag_text | channel_inner_flag_location
+                                                      | channel_inner_flag_source;
 // ★ 6 BYTES, NOT the 8 (`lat_e7 i32, lon_e7 i32`) T-K2 originally sketched: the DM plane already carries `pack_loc6`
 // (~11 m). Two encodings on two planes would force the companion to carry two decoders and make one plane silently
 // more precise than the other (U1).
 inline constexpr uint8_t  channel_inner_location_bytes = 6;
-// The bytes a sealed inner spends BEFORE the text. ONE definition, read by the size pre-flight (Node::on_command),
-// the assembly (do_send_channel) and the parse (ingest_channel_m) — so the three can never disagree.
-inline constexpr uint16_t channel_inner_overhead(bool with_location) {
-    return static_cast<uint16_t>(1u + (with_location ? channel_inner_location_bytes : 0u));
+inline constexpr uint8_t  channel_inner_source_bytes   = 4;     // key_hash32, LE — the DM inner's own width for the same field
+// The bytes a sealed inner spends BEFORE the text, DERIVED FROM THE FLAGS BYTE ITSELF. ONE definition, read by the
+// size pre-flight (Node::on_command), the assembly (do_send_channel) and the parse (ingest_channel_m) — so the three
+// can never disagree.
+// ★ §chan-crypt CL2c took the argument from a bool (CL2b) to the flags byte: with two optional fields a bool PAIR is
+// swappable at a call site and would silently mis-size the header, whereas the parse already HOLDS the flags byte and
+// the send side composes one — so this form is the only one where the layout cannot drift from the bits that announce
+// it. UNKNOWN bits are not this function's business; the parse refuses them before asking for a size (see below).
+inline constexpr uint16_t channel_inner_overhead(uint8_t flags) {
+    return static_cast<uint16_t>(1u + ((flags & channel_inner_flag_source)   ? channel_inner_source_bytes   : 0u)
+                                    + ((flags & channel_inner_flag_location) ? channel_inner_location_bytes : 0u));
+}
+// The SEND side's flags byte, composed in ONE place. ★ THE `bit1 ⇒ bit2` RULE LIVES HERE and nowhere else: a located
+// post always names its sender, so "required whenever location is set" is a property of the composer rather than a
+// check some caller might forget. (The READ side accepts bit2 alone — a post that names its sender without carrying a
+// position is well-formed and costs 4 B; forbidding a COMBINATION is the enum thinking that exhausted q_opcode. This
+// node simply has no verb that asks for one yet.)
+inline constexpr uint8_t channel_inner_flags(bool with_text, bool with_location) {
+    return static_cast<uint8_t>((with_text     ? channel_inner_flag_text : 0u)
+                              | (with_location ? (channel_inner_flag_location | channel_inner_flag_source) : 0u));
 }
 // Rate limit on the `team_channel_no_key` push (T-K2 §2.2). One prompt per minute is enough for the app to raise
 // "ask a teammate for the key"; a busy team channel would otherwise emit one per post to a member who cannot read any

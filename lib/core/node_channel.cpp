@@ -283,37 +283,70 @@ void Node::ingest_channel_m(const m_out& m, uint8_t from) {
                 const bool opened = channel_open_body(id, m.channel_id, e.payload, e.payload_len, pu.body, clear_len);
                 readable = opened;
                 if (opened) {
-                    // ★★★ §chan-crypt CL2b — PARSE THE SEALED INNER `[flags u8][loc 6 if bit1][text if bit0]`.
+                    // ★★★ §chan-crypt CL2b/CL2c — PARSE THE SEALED INNER
+                    // `[flags u8][source_hash 4 if bit2][loc 6 if bit1][text if bit0]`.
                     // The plaintext is already in `pu.body`; the text is shifted DOWN over the header so `pu.body`
                     // ends up holding exactly what the app and the inbox record want, with no second buffer.
                     const uint8_t  fl       = clear_len ? pu.body[0] : 0u;
                     const bool     has_text = (fl & protocol::channel_inner_flag_text) != 0;
                     const bool     has_loc  = (fl & protocol::channel_inner_flag_location) != 0;
-                    const uint16_t hdr      = protocol::channel_inner_overhead(has_loc);
+                    const bool     has_src  = (fl & protocol::channel_inner_flag_source) != 0;
+                    const uint16_t hdr      = protocol::channel_inner_overhead(fl);
                     // MALFORMED ⇒ DROP THE CONTENT, and it is a DISTINCT outcome from "cannot decrypt" — we hold the
                     // right key and the tag PASSED, so prompting for a key (team_channel_no_key) would send the
-                    // operator after a remedy that changes nothing. Four ways to be malformed, all fail-loud (C2):
+                    // operator after a remedy that changes nothing. Five ways to be malformed, all fail-loud (C2):
                     //   · no flags byte at all (a 26-B sealed body — zero-length inner);
                     //   · flags == 0 — neither text nor position, i.e. the empty post the SEND side refuses;
                     //   · an UNKNOWN bit — a future field of unknown width sits between the flags byte and the
                     //     variable-length text, so this reader cannot locate the text. Refusing beats guessing;
-                    //   · a length that contradicts the flags (bit1 with no room for 6 B; bit0 with no text byte;
-                    //     or trailing bytes with bit0 CLEAR, which would be an unannounced field).
+                    //   · ★ §chan-crypt CL2c: bit1 WITHOUT bit2 — a position with no sender. That is the single
+                    //     cross-bit rule, and refusing it here is the whole point of the slice: an unattributable
+                    //     position must not reach the app at all, let alone the address book. The CONVERSE is legal —
+                    //     bit2 alone is a post that names its sender and carries no position, and it parses fine;
+                    //   · a length that contradicts the flags (bit2/bit1 with no room for their fixed fields; bit0
+                    //     with no text byte; or trailing bytes with bit0 CLEAR, which would be an unannounced field).
                     // ⚠ The frame is STILL BUFFERED AND STILL RELAYED — a content failure is never a frame failure
                     // (T-K2's content-blind-relay rule, verbatim the reasoning of the open-failure arm below).
                     const bool malformed = (clear_len < 1) || (fl == 0)
                                         || ((fl & ~protocol::channel_inner_flags_known) != 0)
+                                        || (has_loc && !has_src)
                                         || (clear_len < hdr)
                                         || (has_text ? (clear_len == hdr) : (clear_len != hdr));
-                    if (malformed) {
+                    // ★★ §chan-crypt CL2c — THE CARRIED SENDER, and its CONSISTENCY ASSERTION against the msg-id.
+                    // Both quantities live INSIDE the AEAD envelope (the inner is the ciphertext; the msg-id is bound
+                    // into both the nonce and the AAD), so only a keyholder can produce a pair at all — and our own
+                    // sender makes them agree by construction (do_send_channel writes `_key_hash32`, the same value
+                    // channel_msg_id_mint hashed into the id's 16 bits). ⇒ a disagreement is a FORGED or CORRUPT post,
+                    // never an ordinary condition, and it is refused rather than half-honoured.
+                    // ⚠ A ZERO hash is refused for the same reason: it names nobody, `peer_loc_set` cannot key on it,
+                    // and the send side already refuses to originate one (Node::on_command's no-identity gate).
+                    // ⚠ THIS IS NOT AUTHENTICATION and the check must not be read as such — the team content key is
+                    // SHARED, so a keyholder can mint an id and an inner that agree on ANY member's hash. See
+                    // PeerLocSrc (node.h) for the bound this whole plane accepts. What it does buy is defence in depth
+                    // against a corrupt/mis-built sender, for free, on a field we now carry anyway.
+                    uint32_t sender_hash = 0;
+                    if (!malformed && has_src) {
+                        sender_hash = static_cast<uint32_t>(pu.body[1])
+                                    | (static_cast<uint32_t>(pu.body[2]) << 8)
+                                    | (static_cast<uint32_t>(pu.body[3]) << 16)
+                                    | (static_cast<uint32_t>(pu.body[4]) << 24);
+                    }
+                    const bool src_bad = !malformed && has_src
+                                      && (sender_hash == 0 || (sender_hash & 0xffffu) != ((id >> 8) & 0xffffu));
+                    if (malformed || src_bad) {
                         readable = false;
-                        MR_EMIT("channel_inner_malformed", EF_I("id", static_cast<int64_t>(id)),
-                                EF_I("channel_id", m.channel_id), EF_I("flags", fl), EF_I("len", clear_len));
+                        if (src_bad) MR_EMIT("channel_inner_source_mismatch", EF_I("id", static_cast<int64_t>(id)),
+                                             EF_I("channel_id", m.channel_id),
+                                             EF_I("source_hash", static_cast<int64_t>(sender_hash)),
+                                             EF_I("id_hash16", static_cast<int64_t>((id >> 8) & 0xffffu)));
+                        else MR_EMIT("channel_inner_malformed", EF_I("id", static_cast<int64_t>(id)),
+                                     EF_I("channel_id", m.channel_id), EF_I("flags", fl), EF_I("len", clear_len));
                     } else {
                         enc = 1;
                         if (has_loc) {
                             int32_t lat = 0, lon = 0;
-                            unpack_loc6(std::span<const uint8_t>(pu.body + 1, protocol::channel_inner_location_bytes), lat, lon);
+                            unpack_loc6(std::span<const uint8_t>(pu.body + hdr - protocol::channel_inner_location_bytes,
+                                                                 protocol::channel_inner_location_bytes), lat, lon);
                             pu.has_location = true; pu.lat_e7 = lat; pu.lon_e7 = lon;   // the SAME Push fields a located DM sets (U1)
                             // ★★★ §AB4 RETENTION, `team` SOURCE — the call AB4 built the `loc_src` field for and marked
                             // `✖ MISSING` with CL2 as its trigger (node.h PeerLocSrc). ONE call: no schema change, no new
@@ -321,35 +354,28 @@ void Node::ingest_channel_m(const m_out& m, uint8_t from) {
                             // message is sent using team encrypted message we treat it as trusted"), so this position is
                             // stored whether or not we hold this peer's ed_pub — but it is GROUP-anchored, never pairwise,
                             // which is exactly what PeerLocSrc::team records and what the app must render differently.
-                            // ★★ WHICH HASH, and how it is established — this is the load-bearing question, because
-                            // storing a position under a WRONG key corrupts the address book:
+                            // ★★ WHICH HASH — CL2b INFERRED it, CL2c READS IT OFF THE POST, and that is the slice:
                             //   · the msg-id carries only SIXTEEN hash bits (`origin<<24 | (key_hash32 & 0xffff)<<8 |
-                            //     ctr8`), so it CANNOT be the key on its own — a truncated hash would collide across
-                            //     peers and would not match the 32-bit key every other AB table joins on;
-                            //   · `origin` on a TEAM post IS the sender's team_local_id (do_send_channel stamps
-                            //     `_team_local_id` for a team-scoped post), and `_team_keys` maps exactly that id to the
-                            //     teammate's FULL 32-bit key_hash32, learned from its beacon (node_beacon.cpp's
-                            //     team_key_set) — the same table `reqpubkey <id>` and a CRYPTED send-by-team-id already
-                            //     trust for addressing. team_key_of_id also enforces same-team + the 48 h TTL.
-                            //   · ★ AND THE TWO ARE CROSS-CHECKED: the resolved hash's low 16 bits must equal the msg-id's.
-                            //     That is a genuine consistency test, not decoration — a team_local_id is DAD'd and can be
-                            //     re-picked, so a stale `_team_keys` row could name the WRONG peer; the id carries the
-                            //     sender's own hash bits, so a mismatch means "this post is not from the peer that id
-                            //     currently resolves to" and the position is NOT stored.
-                            // ⇒ NO resolution / NO match ⇒ the position is surfaced to the app on this push exactly as
-                            // before but never RETAINED. An unattributable position in an address book is worse than an
-                            // absent one — the UI presents it as fact (AB4's own rule, applied to this plane).
-                            uint32_t sender_hash = 0;
-                            const bool attributed = team_key_of_id(origin, sender_hash) && sender_hash != 0
-                                                 && (sender_hash & 0xffffu) == ((id >> 8) & 0xffffu);
+                            //     ctr8`), so it never could be the key on its own — a truncated hash collides across
+                            //     peers and does not match the 32-bit key every other AB table joins on;
+                            //   · CL2b therefore resolved `origin` (a team_local_id) through `_team_keys`, i.e. through
+                            //     the sender's BEACON. ⚠ That FAILED in two measurable ways — no beacon heard
+                            //     (`unknown_team_peer`) and a DAD-re-picked id resolving to the wrong peer — after
+                            //     which a position was shown to the app and silently never retained;
+                            //   · ⇒ the sender's FULL hash is now carried in the sealed inner (bit2), REQUIRED beside a
+                            //     position, and cross-checked against the id above. `_team_keys` is NOT consulted here
+                            //     any more: re-introducing it would re-introduce exactly the staleness this removes.
+                            //     (`team_key_of_id` is untouched and still serves addressing — reqpubkey, crypted
+                            //     send-by-team-id; only THIS reader stopped inferring.)
                             MR_EMIT("peer_location", EF_I("origin", origin),
-                                    EF_I("hash", static_cast<int64_t>(attributed ? sender_hash : 0u)),
+                                    EF_I("hash", static_cast<int64_t>(sender_hash)),
                                     EF_I("lat_e7", lat), EF_I("lon_e7", lon), EF_S("src", "team"));
-                            if (attributed) (void)peer_loc_set(sender_hash, lat, lon, PeerLocSrc::team);
-                            else MR_EMIT("peer_location_unattributed", EF_I("origin", origin),
-                                         EF_I("id", static_cast<int64_t>(id)),
-                                         EF_S("reason", sender_hash ? "hash_mismatch" : "unknown_team_peer"));
+                            (void)peer_loc_set(sender_hash, lat, lon, PeerLocSrc::team);   // sender_hash is non-zero and id-consistent by the gate above
                         }
+                        // ★ §chan-crypt CL2c: the sender rides the push under the field msg_recv already uses for the
+                        // same quantity (U1). 0 for a post that did not name one — the app's "unknown sender" value,
+                        // identical to a DM with no SOURCE_HASH.
+                        pu.sender_hash = sender_hash;
                         app_len = static_cast<uint8_t>(clear_len - hdr);   // 0 when bit0 is clear (a position-only post)
                         if (app_len) std::memmove(pu.body, pu.body + hdr, app_len);   // OVERLAPPING (hdr >= 1 always) — memmove, never memcpy
                         app_body = pu.body;
@@ -626,8 +652,8 @@ uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t 
         e.team_id = _cfg.team_id; e.flavor |= protocol::channel_flavor_team;
     }
     e.dirty = true; e.bcn_ad_count = 0; e.received_at = now;
-    // ★★★ §chan-crypt CL2b — THE SEALED INNER `[flags u8][loc 6 if bit1][text if bit0]` IS ASSEMBLED HERE, in
-    // `e.payload`, and it is assembled ONLY on the crypt path.
+    // ★★★ §chan-crypt CL2b/CL2c — THE SEALED INNER `[flags u8][source_hash 4 if bit2][loc 6 if bit1][text if bit0]`
+    // IS ASSEMBLED HERE, in `e.payload`, and it is assembled ONLY on the crypt path.
     // ⚠ WHY IN `e.payload` AND NOT IN A SCRATCH BUFFER: `ChannelEntry e` is already on this frame and its `payload` is
     // already a channel_msg_max_payload_bytes array, so building in place costs ZERO extra stack. A 174-B local in
     // Node::on_command (the obvious alternative) would put a buffer of exactly the shape the fault-log stack overflow
@@ -639,14 +665,36 @@ uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t 
     // (ruling O6) and this is the structural backstop making "a position never travels in clear" true even if a future
     // caller forgets — the same defence-in-depth shape node_mac.cpp's TYPE-19 guard uses.
     if (crypt) {
-        // bit0 ⟺ there IS text; bit1 ⟺ `-l`. `flags == 0` is UNREACHABLE here — Node::on_command refuses an empty
-        // post with no position before it can reach this line — and that refusal is the only thing making it so.
-        const uint8_t inner_flags = static_cast<uint8_t>((body_len ? protocol::channel_inner_flag_text : 0u)
-                                                       | (with_location ? protocol::channel_inner_flag_location : 0u));
-        const uint8_t off = static_cast<uint8_t>(protocol::channel_inner_overhead(with_location));   // 1, or 7 with a position
+        // bit0 ⟺ there IS text; bit1 ⟺ `-l`; bit2 ⟺ bit1 (§chan-crypt CL2c — a located post ALWAYS names its sender,
+        // and that rule lives inside channel_inner_flags so no call site can forget it). `flags == 0` is UNREACHABLE
+        // here — Node::on_command refuses an empty post with no position before it can reach this line — and that
+        // refusal is the only thing making it so.
+        const uint8_t inner_flags = protocol::channel_inner_flags(body_len != 0, with_location);
+        const uint8_t off = static_cast<uint8_t>(protocol::channel_inner_overhead(inner_flags));   // 1, or 11 with a position
         e.payload[0] = inner_flags;
-        if (with_location)                                        // pack_loc6 — the SAME 6-B encoding the DM inner carries (U1)
-            pack_loc6(_cfg.lat_e7, _cfg.lon_e7, std::span<uint8_t>(e.payload + 1, protocol::channel_inner_location_bytes));
+        // ★ BOTH field positions are DERIVED FROM `off`, never tracked by a second cursor: source_hash is always the
+        // first field after the flags byte, and the position is always the LAST fixed field, i.e. it ends exactly
+        // where the text begins. A running offset would be a second definition of the layout and would be free to
+        // drift from channel_inner_overhead — the one thing this helper exists to prevent.
+        if (inner_flags & protocol::channel_inner_flag_source) {
+            const uint8_t src_at = 1;
+            // ★★ §chan-crypt CL2c — `_key_hash32`, 4 B LE, and it is THE SAME VALUE the msg-id was minted from three
+            // lines above (channel_msg_id_mint(origin, _key_hash32, …)). ⇒ the carried hash and the id's 16 hash bits
+            // agree BY CONSTRUCTION, which is what makes the receiver's cross-check a real assertion about the SENDER
+            // rather than a tautology about the wire. ⚠ NOT `origin`: origin is a plane-local, DAD-assigned
+            // team_local_id (and for a registered mobile it is _team_local_id, not _node_id); the hash is the stable
+            // 32-bit identity every address-book table joins on.
+            // Node::on_command refuses a `-l` post from a node with NO identity (_key_hash32 == 0), so a zero can
+            // never be written here — the receiver refuses one anyway, both sides fail loud on the same invariant.
+            e.payload[src_at]     = static_cast<uint8_t>(_key_hash32);
+            e.payload[src_at + 1] = static_cast<uint8_t>(_key_hash32 >> 8);
+            e.payload[src_at + 2] = static_cast<uint8_t>(_key_hash32 >> 16);
+            e.payload[src_at + 3] = static_cast<uint8_t>(_key_hash32 >> 24);
+        }
+        if (inner_flags & protocol::channel_inner_flag_location) {   // pack_loc6 — the SAME 6-B encoding the DM inner carries (U1)
+            const uint8_t loc_at = static_cast<uint8_t>(off - protocol::channel_inner_location_bytes);
+            pack_loc6(_cfg.lat_e7, _cfg.lon_e7, std::span<uint8_t>(e.payload + loc_at, protocol::channel_inner_location_bytes));
+        }
         const uint16_t room = static_cast<uint16_t>(protocol::channel_msg_max_payload_bytes - off);
         const uint16_t n    = (body_len > room) ? room : body_len;   // defensive: on_command pre-flights the real cap (174 total)
         if (n) std::memcpy(e.payload + off, body, n);

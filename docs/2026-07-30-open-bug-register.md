@@ -265,6 +265,17 @@ fix re-anchors scenarios **and** re-baselines a documented probe expectation ⇒
 row must be updated in the same commit.** ★ **Payoff: it would make the whole `err_*` family assertable in scenarios** —
 the single biggest coverage gain available to this corpus. Note: `§err-reason`.
 
+### B37 — ★★ a **symbolic-only** assertion on a WIRE CONSTANT is not coverage · CLASS, found 2026-08-01
+`§cl2c`'s poison P1 renumbered `channel_inner_flag_source` **0x04 → 0x08** and **the entire 1091-case suite stayed
+green** — every assertion named the flag **symbolically**, so the KAT was **self-referential about the one thing two
+independently-built nodes must agree on.** A node built before the renumber and one built after would have failed to
+interoperate **with all tests passing on both**. Fixed for the channel inner (numeric pins on every flag, both widths,
+and a literal `inner[0]` in the KAT); ⚠ **CL2b's values were equally unpinned.**
+★★ **THE CLASS, and it is worth a sweep of its own:** `CHECK(x == kFlag)` proves the code is **self-consistent**; only
+`CHECK(kFlag == 0x04)` proves it matches **the other end of the link.** ⇒ **audit every wire constant** — DATA flags,
+`q_opcode`, frame types, `PushKind`/`SendFailReason` numeric values, the cfg TLV tags — **for a numeric pin**, and add
+one where it is missing. A renumber is otherwise invisible to this project's entire gate. Note: `§cl2c`.
+
 ### B35 — `ingest_channel_m`'s self-skip is **PLANE-BLIND** ⇒ a teammate's posts can be SILENTLY SWALLOWED · NEW 2026-08-01
 `ingest_channel_m:252` skips on `origin != _node_id` — comparing a **TEAM-plane origin** against the **STATIC node id**.
 On a **registered (dual) member** those are different id spaces, so a teammate whose `team_local_id` numerically equals

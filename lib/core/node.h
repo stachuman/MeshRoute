@@ -134,9 +134,11 @@ public:
     //          SEALED inner (bit1) and node_channel.cpp's ingest_channel_m stores it here. ★ AB4's prediction HELD —
     //          CL2b added a SOURCE and nothing else: one `peer_loc_set` call, no schema change, no new field, no new
     //          PushKind, so the app ships ONE renderer and the weaker claim was never retro-fitted into the stronger
-    //          one's slot. ⚠ The `team` row is keyed by the sender's FULL key_hash32 resolved through `_team_keys`
-    //          (the msg-id carries only 16 hash bits) and CROSS-CHECKED against those 16 bits; an unresolvable or
-    //          mismatching sender is surfaced to the app but NEVER retained — see the call site for why.
+    //          one's slot. ★★ CORRECTED BY §chan-crypt CL2c (owner 2026-08-01): the `team` row is keyed by the
+    //          sender's FULL key_hash32 CARRIED IN THE SEALED INNER (bit2, REQUIRED beside bit1), no longer INFERRED
+    //          through `_team_keys` — inference failed when no beacon had been heard and mis-attributed after a
+    //          DAD-re-picked team_local_id. The carried hash is still cross-checked against the msg-id's 16 hash bits;
+    //          a post that fails that, or names a zero hash, is refused outright (no push, no retention).
     // ★★ THE BOUND THIS RECORDS, ACCEPTED DELIBERATELY (the I9 pattern) — DO NOT "FIX" IT: the team content key is
     // SHARED, so sealing a channel post proves MEMBERSHIP, NOT IDENTITY. Every member holds the same team_ch_priv, so
     // ANY KEYHOLDER CAN FORGE ANOTHER MEMBER'S source_hash and publish a false position attributed to a teammate.
@@ -727,8 +729,9 @@ public:
     // ★ TWO CALLERS NOW, one per source, and each does its OWN evidence test before calling — for the same reason:
     //   · node_mac_rx.cpp's DELIVER path -> PeerLocSrc::peer (tests `crypted_ok && sender_hash`);
     //   · node_channel.cpp's ingest_channel_m -> PeerLocSrc::team (§chan-crypt CL2b; the seal under the shared team
-    //     content key IS the trust anchor per owner ruling O5, and the test there is ATTRIBUTION — resolving the
-    //     sender's full key_hash32 from `_team_keys` and cross-checking the msg-id's 16 hash bits).
+    //     content key IS the trust anchor per owner ruling O5, and the test there is ATTRIBUTION — §chan-crypt CL2c:
+    //     the sender's full key_hash32 READ OFF THE SEALED INNER (bit2, required beside a position), non-zero, and
+    //     cross-checked against the msg-id's 16 hash bits. It no longer resolves through `_team_keys`).
     bool              peer_loc_set(uint32_t key_hash32, int32_t lat_e7, int32_t lon_e7, PeerLocSrc src);
     // The read twin. `age_s` is derived from the stored second-stamp against `_hal.now()` — see PeerLoc::t_s for the
     // rollover reasoning and for why a backwards clock reports MAXIMALLY STALE rather than 0. false = no position held

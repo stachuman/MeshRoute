@@ -225,12 +225,22 @@ struct Push {
     uint32_t next_ms = 0;              // send_blocked: ms until the origination is allowed (0 = the floor already passed but cap/duty blocks)
     uint32_t sender_hash = 0;      // msg_recv: the DM sender's stable key_hash32 (0 = no SOURCE_HASH). The app's
                                    //   DM dedup identity is (sender_hash, ctr) when set, else (origin, ctr).
+                                   // ★ §chan-crypt CL2c: channel_recv carries the SAME quantity here — the sealed
+                                   //   inner's bit2 source_hash (0 = the post did not name one, or it was plaintext).
+                                   //   Deliberately the SAME field, not a parallel one (U1): it is the same identity
+                                   //   the same app renders, and `origin` on a team post is only a DAD-assigned
+                                   //   team_local_id. ⚠ MEMBERSHIP-authenticated, not sender-authenticated — see
+                                   //   node.h PeerLocSrc for the bound.
     uint32_t channel_msg_id = 0;   // channel_recv: the FULL 32-bit channel message id (the app's dedup identity)
     uint32_t team_id = 0;          // §S4: channel_recv team scoping (0 = a plain leaf channel -> omitted); §S2 team_reg carries the team id here
     uint32_t seq = 0;              // msg_recv/channel_recv: the inbox per-store seq (0 = inbox disabled -> omit).
                                    //   The app unifies live + pulled by seq + detects a dropped live push (model B).
     bool     has_location = false; // msg_recv: the sender piggybacked a 6-B location (DATA_FLAG_LOCATION).
-    int32_t  lat_e7 = 0, lon_e7 = 0;  //   deg×1e7 (~11 m), valid iff has_location. (M receive deferred.)
+                                   // ★ §chan-crypt CL2b sets it for channel_recv too (the sealed inner's bit1), and
+                                   //   §chan-crypt CL2c is what put it on the WIRE FORMAT of the push — write_push's
+                                   //   channel_recv arm now emits `lat`/`lon`. (The DM arm still does not; that is
+                                   //   register B36's half, a rendering fix with no wire change.)
+    int32_t  lat_e7 = 0, lon_e7 = 0;  //   deg×1e7 (~11 m), valid iff has_location.
     uint8_t  body[protocol::max_payload_bytes_hard_cap] = {};   // msg_recv / channel_recv text (empty otherwise)
     uint8_t  body_len = 0;
 };

@@ -1118,7 +1118,16 @@ static void mesh_service_once() {
             case meshroute::PushKind::channel_recv:
                 mrcon.print(F("CH ")); mrcon.print(pu.channel_id);
                 if (pu.enc) mrcon.print(F(" [enc]"));   // §chan-crypt CL2a: the post arrived SEALED under the team content key and was opened here
-                mrcon.print(F(" from=")); mrcon.print(pu.origin); mrcon.print(F(": "));
+                mrcon.print(F(" from=")); mrcon.print(pu.origin);
+                // ★ §chan-crypt CL2c — the operator-facing half of the app contract, and the ONLY place a bench
+                // operator can read either value back (fw_main is outside the native gate and the corpus is blind to
+                // the whole sealed plane). `src=0x…` is the sealed inner's source_hash, spelled exactly as
+                // firmware_commands.cpp's `hashof`/`nameof`/`peers` print a key_hash32 (U3 — `0x` prefix, uppercase,
+                // no padding); `loc=` is its position, matching the `peers` row's `loc=lat,lon`. Both omitted when
+                // absent, so a plaintext post's line is unchanged.
+                if (pu.sender_hash) { mrcon.print(F(" src=0x")); mrcon.print(pu.sender_hash, HEX); }
+                if (pu.has_location) { mrcon.print(F(" loc=")); mrcon.print(pu.lat_e7); mrcon.print(','); mrcon.print(pu.lon_e7); }
+                mrcon.print(F(": "));
                 mrcon.write(pu.body, pu.body_len); mrcon.println();
                 break;
             case meshroute::PushKind::send_acked:

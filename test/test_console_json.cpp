@@ -134,6 +134,24 @@ TEST_CASE("write_push — msg_recv/channel_recv carry identity + seq (model B); 
     n = write_push(b, sizeof b, a);
     CHECK(std::string(b, n) == "{\"ev\":\"send_acked\",\"dst\":5,\"ctr\":7}\n");
 
+    // ★★★ §chan-crypt CL2c — A LOCATED SEALED TEAM POST: the app learns WHOSE position it is and WHERE. Both fields
+    // ride between `enc` and `body`, and both are OMIT-WHEN-ABSENT (proven by the plain `ch` case above, whose line is
+    // byte-identical to the pre-CL2c one).
+    Push lp{}; lp.kind = PushKind::channel_recv; lp.origin = 4; lp.layer_id = 9; lp.channel_id = 3;
+    lp.channel_msg_id = 68298753u; lp.seq = 7; lp.team_id = 0xcccc0001u; lp.enc = true;
+    lp.sender_hash = 0x00001003u; lp.has_location = true; lp.lat_e7 = 521234567; lp.lon_e7 = -12345678;
+    const char* lb = "at the col"; lp.body_len = 10; std::memcpy(lp.body, lb, 10);
+    n = write_push(b, sizeof b, lp);
+    CHECK(std::string(b, n) ==
+      "{\"ev\":\"channel_recv\",\"origin\":4,\"layer_id\":9,\"channel_id\":3,\"channel_msg_id\":68298753,\"seq\":7,"
+      "\"team_id\":\"cccc0001\",\"enc\":true,\"sender_hash\":4099,\"lat\":521234567,\"lon\":-12345678,"
+      "\"body\":\"at the col\"}\n");
+    // ...and a NAMED post with NO position emits the sender alone (bit2 without bit1 — legal on the read side).
+    Push np = lp; np.has_location = false; np.lat_e7 = 0; np.lon_e7 = 0;
+    n = write_push(b, sizeof b, np);
+    CHECK(std::string(b, n).find("\"sender_hash\":4099,\"body\":\"at the col\"") != std::string::npos);
+    CHECK(std::string(b, n).find("\"lat\"") == std::string::npos);
+
     // §8b: a SEALED msg_recv stamps "enc":true (after seq, before body); plaintext omits it (above).
     Push e{}; e.kind = PushKind::msg_recv; e.origin = 3; e.layer_id = 5; e.ctr = 7; e.sender_hash = 0xDEADBEEFu; e.seq = 42; e.enc = true;
     const char* eb = "x"; e.body_len = 1; std::memcpy(e.body, eb, 1);

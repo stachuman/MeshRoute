@@ -42,11 +42,44 @@ Four units:
 | unit | responsibility | depends on | tested |
 |---|---|---|---|
 | `src/firmware_ui_input.h` — pure header | classify `(level, now_ms)` samples → `short` / `double` / `long-arm-progress` / `long-fire` / `cancel` | nothing | **native** |
-| `src/firmware_ui_model.h` — pure header | reduce `(Gesture, UiSnapshot) → UiState` (screen, cursors, emergency phase, dirty flag) | nothing | **native** |
-| `src/firmware_ui.cpp` | build `UiSnapshot` from `g_node` / `mrble` / `Inbox` each tick; drive the model; call render primitives | core accessors, model | on-target |
-| `src/board_ui.cpp` | board port: panel driver, button GPIO, battery ADC, per-board pin table | Arduino, display lib | on-target |
+| `src/firmware_ui_model.h` — pure header | reduce `(Gesture, UiSnapshot, SendOutcome) → UiState` — screens, cursors, compose modal, emergency machine, per-send outcome states, dirty flag | nothing | **native** |
+| `src/firmware_ui.cpp` | build `UiSnapshot`; drive the model; perform sends and **correlate their outcomes**; own all screen selection and text formatting; call canvas primitives | core accessors, model, canvas | on-target |
+| `src/board_ui.cpp` | board port **only**: U8g2, I²C, button GPIO, battery ADC, panel power state | Arduino, display lib | on-target |
 
-**Hard boundary:** `firmware_ui.cpp` never touches GPIO or I²C; `board_ui.cpp` never knows what a screen *is*. This honours U3 (feature logic lives in a `firmware_*` module; board glue stays board glue) and keeps `board_ui.cpp` as the board seam it already claims to be.
+**Hard boundary — restated after review, because the first plan draft broke it.** `board_ui.h` exposes a **display-independent canvas**, not the UI model:
+
+```
+begin_frame() · next_page() · set_font(Font) · draw_text(x, y, const char*) · draw_hline(x, y, w)
+set_power_save(bool) · button_pressed() · battery_sample_mv()
+```
+
+`board_ui.h` **must not include `firmware_ui_model.h`**. `firmware_ui.cpp` owns every decision about *what* is drawn; `board_ui.cpp` owns only *how pixels reach the panel*. That keeps U3 honest and is what makes the Phase B port a pin table rather than a rewrite — the V4 has the same panel, so a correct boundary means zero render changes.
+
+### 2.1 Send attribution — the contract that makes outcomes trustworthy
+
+★ **This section exists because the first plan draft could report a false `PICKED UP`.** Pushes are node-wide: `channel_sent` and `send_blocked` fire for *every* origination, including console, BLE, scheduled and canned sends. Routing them into the emergency machine unconditionally means an unrelated channel post can complete an emergency that was never transmitted — a false safety confirmation, which is the exact failure this feature must not have.
+
+`firmware_ui.cpp` therefore owns a **send tracker**, and the model never sees a raw push:
+
+| field | why |
+|---|---|
+| `kind` | emergency · canned channel · DM |
+| `state` | `submitted` → `accepted` / `refused` → terminal |
+| `ctr` | the accepted send handle from `CmdResult`, the only reliable correlator |
+| `channel_id` / `peer_id` | scope check before a push may match |
+| `accepted_ms` | opens a bounded outcome window |
+
+Rules, all of which must hold before a push may complete a UI transaction:
+
+1. `ui_perform_send()` returns a **typed result**, never a discarded `BufferSink`. A parser refusal or an immediate `CmdCode::err_*` is a terminal outcome shown on the panel — never an indefinite `SENDING...`.
+2. `channel_sent` completes an emergency **only** when its `ctr` matches the tracked handle.
+3. `send_blocked` must be `blocked_channel == true` **and** arrive inside the pending request's outcome window. It carries no `ctr`, so serialisation is the only correlator available — the UI holds at most one in-flight send at a time, which makes that sound.
+4. `send_e2e_acked` / `send_failed` complete a **DM** only on a matching `ctr` **and** peer.
+5. `send_failed` reasons are surfaced, not swallowed — `no_pubkey` → `NO KEY`, `unsealable` / `no_location` → their own actionable text.
+
+Anything unmatched is ignored. Native tests must interleave unrelated channel and DM outcomes and prove the emergency state cannot move.
+
+**Why not parse the console response text.** `dispatch()` writes human strings into a `BufferSink`, and scraping them would put a UI behaviour on a formatting detail. `mrfw::dispatch` is still the send path (it is the one place the parser and `Node::on_command` are already wired together), but the **typed** `CmdResult` must reach the UI. If that means factoring a small typed helper out of the dispatch path so console and UI share it, do that rather than parsing text.
 
 **Why two pure headers.** `[env:native]` sets `test_build_src = no` but adds `-I src` (`platformio.ini:83`), so a pure header in `src/` is reachable from native tests — the established precedent is `firmware_config_parse.h` driven by `test_firmware_config_parse.cpp`. Gesture timing and emergency-state transitions are miserable to debug on hardware and trivial to test on host; both belong on the right side of that line.
 
@@ -114,16 +147,20 @@ A persistent 8 px status bar on every screen, so "is anything wrong" never requi
 
 ```
 +---------------------------------------+
-| DM3 CH12  T4/5  BLE*  84%             |  <- 6x8, always
+| DM3 CH12  T4/5  3.9V                  |  <- 6x8, always
 +---------------------------------------+
 |  screen body: 4 lines @ 6x8,          |
 |  or 2 lines @ 8x16 (emergency)        |
 +---------------------------------------+
 ```
 
-STATUS becomes the detail view: ages spelled out ("DM 3, newest 1h05"), **our own team local id** (so the wearer can tell a teammate how to address them), team id, registration state, BLE mode, battery mV.
+**No BLE indicator on V3.** `mrble::connected()` is `inline bool connected() { return false; }` on ESP32 (`device_ble.h:47`) — the whole module is nRF52-only. An indicator that is structurally always "disconnected" reads as a broken service rather than an absent one, so V3 omits it entirely. It returns in Phase B only if an ESP32 BLE transport exists by then.
 
-TEAM shows one row per teammate: name (or `0x<hash>`, or the bare team id), last-heard age, signal quality, hops. **Phase B adds a distance column on V4**, rendered only when both our fix and the peer's location are known and fresh — omitted, never estimated (§10.3).
+**Battery is shown as volts, not a percentage.** A percentage requires a chemistry and discharge-curve policy nobody has approved; `3.9V` is honest with zero assumptions. `--` when unavailable, per the `console_json.h:126` rule.
+
+STATUS becomes the detail view: ages spelled out ("DM 3, newest 1h05"), **our own team local id** (so the wearer can tell a teammate how to address them), the configured `team_id`, registration state, and battery mV.
+
+TEAM shows one row per teammate: a display label resolved through `team_key_of_id()` → `peer_name_find()`, falling back to `0x<hash>` and then the bare team id; plus last-heard age, signal quality and hops. When `rt_team_count()` exceeds `kMaxTeamRows`, the screen shows the true total and a truncation marker (`3/12`) — it must never present the cap as the team size. **Phase B adds a distance column on V4**, rendered only when both our fix and the peer's location are known and fresh — omitted, never estimated (§10.3).
 
 ### 3.4 Direct messages to a teammate
 
@@ -142,6 +179,22 @@ Sent as `send <team_local_id> "<text>" -t -a`. Every part of that already exists
 ⚠ **The UI cannot force plaintext**, and should not try: `CryptIntent::off` was deliberately removed from the console ("force-plain dropped", `console_parse.cpp:328`). A node its owner configured for encryption must not be silently downgraded by a button press. So "cleartext" here means *"we do not ask for encryption"*, not *"we guarantee no encryption"* — the accurate framing, and it is the correct behaviour.
 
 The `no_pubkey` case is a genuine dead end on-device: the 2026-07-29 ruling forbids the node ever auto-issuing `reqpubkey`, so the user cannot resolve it from the panel — it needs a QR ceremony or a typed `reqpubkey`. The sub-view must therefore report that failure plainly (`NO KEY`) rather than showing a generic failure the user cannot act on.
+
+### 3.4.1 DM outcome states
+
+A DM needs its own small outcome machine — separate from the emergency one, correlated by `ctr` **and** peer per §2.1, and never advanced by an unrelated push:
+
+| state | entered when | shown |
+|---|---|---|
+| `submitting` | the command was handed to `dispatch()` | `SENDING...` |
+| `refused` | the synchronous `CmdResult` was an `err_*`, or the parser rejected it | the reason, terminal |
+| `waiting_ack` | accepted, `ctr` recorded (`-a` was set) | `SENT, waiting` |
+| `delivered` | `send_e2e_acked` with matching `ctr` **and** `dst` | `DELIVERED to <label>` |
+| `no_key` | `send_failed{no_pubkey}` matching | `NO KEY` |
+| `not_confirmed` | the ack deadline passed with no ack | `NO CONFIRM` |
+| `failed` | any other matching `send_failed` | a compact reason |
+
+The sub-view closes to its parent on an explicit `double`, or after a bounded display window. `delivered` is the one place in this design where the word **DELIVERED is accurate** — it is a genuine end-to-end ack, unlike a channel post's `PICKED UP`.
 
 ## 4. Emergency state machine
 
@@ -163,7 +216,40 @@ Two constraints the draft could not have anticipated, both verified:
 - **`send_blocked` must be handled.** `channel_min_interval_ms = 10000` (`protocol_constants.h:377`) means a second emergency post inside 10 s is refused **pre-TX** with `send_blocked{min_interval, next_ms}` (`command.h:103, 177-180`). A safety UI that displayed "sent" there would be lying. Show the countdown; auto-retry at `next_ms`.
 - **Delivery evidence is weaker than "delivered", and the wording must say so.** Team channel messages carry no end-to-end ack — there is no `DATA_FLAG_E2E_ACK_REQ` anywhere in `node_channel.cpp`. The only signal is `PushKind::channel_sent` (`command.h:105`, `node_channel.cpp:403-416`): `relayed=true` means a neighbour was overheard re-flooding the post. Render that as **`PICKED UP`**, never `DELIVERED`. True human confirmation arrives only as a teammate's reply — which is precisely why "Got your message" earns slot 4.
 
-**Auto-retry bound:** 3 attempts, backoff respecting `next_ms` when blocked; then a sticky `NOT HEARD` that the user can re-fire with `double`. Unbounded retry is not acceptable — it would burn the duty budget the rest of the team needs to answer.
+**Auto-retry bound: exactly 3 accepted transmissions**, then a sticky `NOT HEARD` the user can re-fire with `double`. Unbounded retry is not acceptable — it would burn the duty budget the rest of the team needs to answer.
+
+★ **"3" means three *transmissions*, not three retries after the first.** Both readings appeared in an earlier draft; this is the binding one and the native tests pin it.
+
+★★ **An attempt is counted on ACCEPTANCE, never on request.** A parser refusal or a pre-TX `send_blocked` puts nothing on the air, so it must not consume one of the three alarms. The counter increments when `CmdResult` comes back accepted with a `ctr`.
+
+**Retry timing, corrected after review:**
+
+- The deadline is `now_ms + next_ms`, computed from **the moment the block outcome arrived** — not from the originating gesture. An earlier draft based it on the gesture timestamp, which is stale by the time an automatic retry blocks.
+- Comparisons are wrap-safe unsigned (`now - deadline` sign trick), not `now >= deadline`.
+- **`next_ms == 0` is legal and means "the floor has passed but a cap or duty limit still blocks"** (`command.h:203`). It must not be treated as "retry immediately": doing so spins the retry every tick and burns all three alarms in milliseconds. Phase A policy: a UI-side recheck backoff starting at 2 s, doubling, capped at 30 s, staying in `BLOCKED` and **consuming no attempt** until a send is actually accepted.
+
+### 4.2 Emergency gestures pre-empt everything
+
+`long_arm` / `long_fire` / `long_cancel` are handled **before** blank-wake consumption and **before** compose-modal dispatch. An earlier draft checked the modal first, which silently swallowed all three inside both sub-views — directly contradicting "from any screen, sub-views included". The order is: long gestures → blank wake → modal → normal navigation.
+
+### 4.3 Time-based transitions are explicit model state
+
+Every timed transition is a field, so the renderer never computes deadlines and the native tests can drive them:
+
+| field | drives |
+|---|---|
+| `arming_fire_at_ms` | the countdown digit, derived as `(fire_at - now)/1000` |
+| `cancelled_until_ms` | `CANCELLED` auto-returns to the parent after ~1 s |
+| `emergency_hold_until_ms` | the capped panel-on window (§5) |
+| `retry_at_ms` | the blocked-retry deadline |
+
+The model marks itself dirty **only when the visible countdown digit changes**, not every tick — otherwise the emergency repaints at the full tick rate for no visual difference.
+
+### 4.4 Human confirmation — the `REPLY` state
+
+`PICKED UP` is relay evidence. The only *human* confirmation is a teammate answering, so an inbound team channel post arriving while the emergency is live or sticky transitions to a sticky `reply` state carrying a bounded sender label and a display-clamped body.
+
+**Scope: only posts on `MR_UI_TEAM_CHANNEL_ID` qualify.** Accepting any team channel traffic would let unrelated chatter read as "someone answered my distress call", which is the same false-confirmation class as §2.1.
 
 ### 4.1 ★ Location on the distress call (owner ruling 2026-07-31)
 
@@ -192,9 +278,16 @@ Three rules:
 2. **Paint only when the model reports dirty**, throttled to ≤2 Hz, as `mr_ui.h` already instructs.
 3. **Chunk the frame across ticks** — 8 pages of 128 B ≈ 3 ms each, so no single tick holds the bus. This is why §8 recommends a page-buffered driver rather than a full-frame one.
 
-Emergency states override rule 2's throttle but **not** rule 1's idle check: sending is more important than drawing, and the send is what the screen is about.
+Emergency states override rule 2's throttle but **not** rule 1's idle check: sending is more important than drawing, and the send is what the screen is about. Even then the emergency repaints only when its countdown digit or state actually changes (§4.3).
 
-**Power:** the panel blanks after `MR_UI_BLANK_MS` (build constant, proposed 15000) of no input. Any press wakes it and **the waking press is consumed** — it must not actuate, or a wake becomes an accidental screen change. Emergency states hold the panel on for at most 120 s, after which it blanks with state retained; the next press restores the emergency screen, not the cycle.
+**Power — blanking is EDGE-triggered, corrected after review.** An earlier draft called U8g2 `clearDisplay()` on every tick while blanked. That is not a local state change: it clears the panel over I²C, so a "blanked" screen would have generated a full-frame transfer every service pass — the exact traffic the page-chunking rule exists to prevent, plus wasted power.
+
+- Blank by `set_power_save(1)` **once**, on the transition into blanked. It turns the SSD1306 off without clearing display RAM, so waking needs no full redraw.
+- `set_power_save(0)` **once** on wake.
+- The board keeps a `panel_asleep` latch so repeated ticks are genuine no-ops.
+- A tick that pushes the final page must not start another display operation in the same pass.
+
+The panel blanks after `MR_UI_BLANK_MS` (build constant, proposed 15000) of no input. Any press wakes it and **the waking press is consumed** — except a long press, which wakes *and* arms (§4.2). Emergency states hold the panel on for at most 120 s, after which it blanks with state retained; the next press restores the emergency screen, not the cycle.
 
 ## 6. Data sources
 
@@ -204,18 +297,32 @@ Every field, and where it comes from:
 |---|---|
 | unread DM / CH counts | **counted UI-locally in `mr_ui_on_push`**, cleared when the INBOX screen is viewed. ⚠ Corrected 2026-07-31 during planning: the original `dm_newest_seq() - read_cursor()` here was not implementable — `Inbox` (`inbox.h:111-116`) has no read-cursor getter (`read_cursor()` is on `InboxStore`), and `firmware_inbox.h:11` states that verbs use `g_node.inbox()`, not the `g_inbox_*` stores. Counting locally needs no new core API. Consequence: counts are **session-scoped** and reset on reboot, which for a glanceable bar arguably reads better as "since you last looked". |
 | "newest received Nm ago" | **stamped by the UI in `mr_ui_on_push`**, not scanned from the store — `msg_recv` / `channel_recv` already fire there (`fw_main.cpp:1066`). Avoids a store scan on the service path. Consequence: after a reboot the age reads `—` until the first push, while counts stay correct (the store persists, the stamp does not). Accepted; the alternative is an `InboxEntry.rx_time_ms` (`inbox.h:38`) lookup via `read_since`, which is a scan we do not need. |
-| team member count / roster | `rt_team_count()`, `rt_team_at(i)` (`node.h:420-421`) |
+| inbox rows | `g_node.inbox().pull(dm_since, chan_since, cb, ctx)` (`inbox.h:107`) — the same API `pull_inbox` streams. See §6.1 |
+| team member count / roster | `rt_team_count()`, `rt_team_at(i)` (`node.h:420-421`); snapshot carries **shown** and **total** separately |
 | per-member last heard / quality / hops | `RtCandidate.last_seen_ms`, `.score` (Q4 dB), `.hops` (`node_carriers.h:265-272`) |
-| member name | `peer_name_find(key_hash32, …)` (`node.h:622`) via `team_key_of_id` (`node.h:129`); falls back to `0x<hash>` then to the bare team id |
-| our own team id | `team_local_id()` (`node.h:258`) |
-| BLE connected | `mrble::connected()` (`fw_main.cpp:1195`) |
-| BLE mode / period / pin | `g_ble_mode`, `g_ble_period_min` (`fw_context.h:75-76`) |
-| battery | **new** — see §7 |
-| emergency outcome | `PushKind::channel_sent` / `send_blocked` via `mr_ui_on_push` |
+| member label | `team_key_of_id` (`node.h:129`) → `peer_name_find(key_hash32, …)` (`node.h:622`); falls back to `0x<hash>` then the bare team id |
+| our own team local id | `team_local_id()` (`node.h:258`) |
+| configured team id | `g_node.config().team_id` |
+| BLE | **not shown on V3** — `mrble::connected()` is inert on ESP32 (`device_ble.h:47`). See §3.3 |
+| battery | **new, and cached** — see §7 |
+| send outcomes | correlated by the tracker in `firmware_ui.cpp`, never fed raw to the model — see §2.1 |
+
+### 6.1 Inbox adapter
+
+No new inbox subsystem is needed; `Inbox::pull()` already visits both stores and every `InboxEntry` carries its `InboxKind`, sender/channel metadata and body.
+
+- Call `g_node.inbox().pull()` **directly**. Do **not** dispatch a textual `pull_inbox` into the 512 B `BufferSink` — the NDJSON is unbounded and would truncate.
+- `pull()` returns the **DM block oldest-first, then the channel block oldest-first** (`inbox.h:107-109`) — the two seq spaces are independent and there is no interleaved chronological stream.
+- Phase A renders **one screen with labelled rows** (`DM` / `CH <n>`) in that block order. Chronological interleaving by `rx_time_ms` is explicitly *not* implied; adopting it later needs a stated rule about reboot/uptime semantics first.
+- Retain only the bounded number of rows the panel can browse; clamp sender and body text to the display width.
+- `short` walks the retained rows and leaves at the end, like TEAM. When more rows exist than are retained, show that rather than implying the list is complete.
+- Viewing on the panel does **not** advance the durable `mark_read` cursor. The UI's unread counters stay session-local (§6 above); moving the durable cursor from a button press would desynchronise the companion app, which is the cursor's real owner.
 
 ## 7. Battery reader (new work)
 
 The only battery reader in the tree is nRF52-only: `#if defined(NRF52_PLATFORM) && defined(PIN_VBAT) && !defined(MR_NO_BATT)` (`firmware_commands.cpp:299-304`, method at `:709`). Both Heltec boards are ESP32-S3, so `batt_mv` is unavailable on either today, and `console_json.h:126` records the project rule: an unavailable reading is **omitted, never faked**. The status bar must render `--` rather than a plausible wrong percentage.
+
+★ **Sampling is cached and slow, not per-tick.** The board function performs one sample: a divider toggle plus eight `analogRead()` calls. `firmware_ui.cpp` calls it **at boot and then every 30 s**, only under the §5 rule 1 MAC-idle predicate, and keeps the last good value between samples. An earlier draft sampled inside `build_snapshot()` on every service pass — ADC work on the radio hot path for a value that changes over minutes. Until the first successful sample the field is unavailable and renders `--`.
 
 Add an ESP32-S3 reader behind the same shape (a board-gated function returning millivolts, `<0` = unavailable). Both methods come from MeshCore — the same provenance `firmware_commands.cpp:709` used for the nRF52 reader ("the authoritative MeshCore XiaoNrf52Board method").
 
@@ -255,7 +362,7 @@ The tree has **no display library** — `board_ui.cpp` is deliberately driver-fr
 ## 9. Feature gating
 
 - `MR_FEAT_OLED` (board capability) gates the UI TUs. Default 0 (`mr_features.h`); set to 1 on `heltec_v3` (`platformio.ini:215`), inherited by `heltec_mobile`.
-- `MR_FEAT_OLED && MR_FEAT_TEAM` gates slots 2, 4, 5 and the team rows of the status bar.
+- `MR_FEAT_OLED && MR_FEAT_TEAM` gates the TEAM and SEND slots, both compose sub-views, and the team fields of the status bar. A non-team build cycles STATUS → INBOX only.
 
 **Deviation from the owner's draft, approved 2026-07-31:** the draft said "gate it behind `MR_FEAT_TEAM`". Composing the two gates instead means a static OLED board still gets a status screen and an inbox rather than a blank panel, at no cost. `MR_FEAT_TEAM` alone would have conflated a board capability with a protocol plane.
 
@@ -312,13 +419,13 @@ Phase B adds, in this order:
 1. **A UART NMEA driver** behind a board-gated seam, on V4's `PIN_GPS_RX 38` / `PIN_GPS_TX 39`, with `PIN_GPS_EN 34` (active LOW) and `PIN_GPS_RESET 42` (active LOW) for power control. It must not block: NMEA arrives continuously and the parser has to be fed incrementally from the service loop, never with a blocking read — the same discipline §5 imposes on the panel and §7 on the battery.
 2. **Feed the fix into the existing location plumbing** rather than inventing a parallel one (U1): `lat_e7` / `lon_e7` already exist in `NodeConfig` and in the identity record, and a DM location piggyback already exists. A GPS fix should write the same fields `cfg set lat/lon` writes, so every existing consumer works unchanged.
 3. **Distance column on the TEAM screen**, shown only when both our fix and the peer's location are known and fresh; otherwise the column is omitted, never estimated. This follows the project rule already recorded for battery (`console_json.h:126`): an unavailable reading is omitted, never faked. A wrong distance in a safety context is worse than no distance.
-4. **Location in the emergency message** becomes viable and should be revisited then — it is §14 question 3, which Phase A cannot answer because Phase A has no fix worth sending.
+4. **Location in the emergency message** is already resolved for both phases (§4.1: include when available). Phase B changes only its *quality* — a live fix replaces a hand-typed coordinate — so no decision is outstanding, and the conditional `-l` written for Phase A needs no change.
 
 Peer location exchange is the open dependency: distance needs teammates' coordinates, and how those propagate on the team plane (beacon TLV, DM piggyback, or channel message) is not settled. That question belongs to the Phase B spec, not this one.
 
 ## 11. Flash / RAM budget and D2
 
-- RAM: `UiSnapshot` + `UiState` + a bounded teammate array (cap 16, matching `cap_team_liveness`) + a 128 B page buffer. Expected low hundreds of bytes; measure, don't estimate.
+- RAM: `UiSnapshot` + `UiState` + a teammate array capped at **`kMaxTeamRows = 8`** + a 128 B page buffer. Expected low hundreds of bytes; measure, don't estimate. **8, not 16** — a 3–10 member hiking group (§1) is the design target, each row carries a display label, and the TEAM screen must show a truncation marker rather than silently under-report when `rt_team_count()` exceeds the cap. The snapshot therefore carries both the shown count and the true total.
 - Flash: U8g2 with **two** fonts selected (6×8, 8×16). Do not link the full font set.
 - These units live in `src/`, not `lib/core`, so **`sizeof(Node)` is unchanged** and the `node.h:1976` assert is untouched. That is a deliberate architectural consequence: no UI state belongs in the protocol engine.
 - Per D2/the 3-env board rule, gate on `gateway` + `xiao_sx1262` + `xiao_esp32s3`, plus `heltec_v3` and `heltec_mobile` since those are the envs Phase A changes. Record the flash/RAM delta for the Heltec envs. ESP32-S3 flash is not the constraint here (V3 devkit part; V4 is 16 MB) — the reason to record it is the RadioLib-pinning lesson about baselines drifting unnoticed, not headroom anxiety.
@@ -342,6 +449,22 @@ Both are pure and table-driven; no Arduino, no radio, no display.
 4. Fire twice inside 10 s → second shows `BLOCKED` with a live countdown, then auto-fires.
 5. **Paint-vs-radio:** run the s18-style DM load while cycling screens continuously; confirm no CTS timeout regression. This is the check that §5 rule 1 exists for, and the one most likely to fail.
 6. Blank/wake: waking press does not change screen.
+
+**Additional acceptance cases (from the 2026-08-01 review, all adopted):**
+
+- a canned or console channel post completing while the emergency is `firing` **cannot** alter the emergency state
+- a blocked **DM** cannot put the emergency screen into `BLOCKED`
+- a parser refusal and `send_failed{unsealable}` both leave `SENDING...` and show an actionable failure
+- `next_ms == 0` neither deadlocks nor spins — the backoff applies and no attempt is consumed
+- exactly **three accepted transmissions** occur even when preceding requests were blocked
+- long gestures work from both compose sub-views and from a blanked panel
+- the arming countdown digit visibly changes; `CANCELLED` auto-returns to the parent
+- a matching teammate reply on `MR_UI_TEAM_CHANNEL_ID` becomes sticky confirmation; other team channel traffic does not
+- a DM ack/failure is matched by `ctr` **and** peer; unrelated acks are ignored
+- the inbox shows bounded labelled rows via `Inbox::pull()`
+- a blanked panel produces **no repeated I²C traffic** (instrument or trace-count it)
+- battery sampling happens only at its slow cadence and never starts while the MAC is busy
+- `heltec_v3` and `heltec_mobile` compile with the final TU ownership and `mrfw::dispatch` qualified
 
 **Gate:** the standing D1 gate applies — native, s18 md5 exact (this work is `src/`-only, so it is inert by construction and the md5 must not move), and the board envs per §11.
 
