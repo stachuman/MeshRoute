@@ -39,7 +39,21 @@ public:
     std::vector<std::vector<uint8_t>> tx_frames;          // captured TX bytes (the H forward)
 
     std::vector<std::pair<uint32_t, uint32_t>> armed;     // §F-XL-1: (delay_ms, timer_id) captured from after()
-    TxResult tx(const uint8_t* b, size_t n, const TxParams&) override { tx_frames.emplace_back(b, b + n); return TxResult::ok; }
+    // ★★ §tx-admission TX1: the TX answer is SCRIPTABLE, and it had to become so — this override returned a hard
+    // `ok`, and the SIMULATOR's HAL effectively does too (`FirmwareNode::simTx` pushes onto an UNBOUNDED vector and
+    // can only answer `too_long`, at len > 255, which no packer can produce). ⇒ HAL admission failure was
+    // unreachable by EVERY automated gate, which is why a definitive hardware drop reported as a send survived
+    // three review rounds. DEFAULT `ok` + still recorded, so every pre-existing fixture is unchanged.
+    // `_tx_reject_after` models the 8-entry DeviceHal ring's actual shape: accept N, then reject. A rejected frame
+    // is NOT recorded — DeviceHal does not retain it either (it bumps `txq_drops` and drops).
+    TxResult _tx_reject_with  = TxResult::busy;
+    int      _tx_reject_after = -1;                       // <0 = never reject; else reject from the Nth tx() onward
+    int      tx_calls = 0;
+    TxResult tx(const uint8_t* b, size_t n, const TxParams&) override {
+        const int call = tx_calls++;                      // ONE increment, on every call, accepted or not
+        if (_tx_reject_after >= 0 && call >= _tx_reject_after) return _tx_reject_with;
+        tx_frames.emplace_back(b, b + n); return TxResult::ok;
+    }
     bool     after(uint32_t delay, uint32_t id) override { armed.emplace_back(delay, id); return true; }
     // Crypto RNG: a real HW RNG never returns all-zeros (which e2e_seal_inner now refuses, R7). Emulate a
     // non-degenerate deterministic stream so the e2e seal/open round-trip uses a realistic nonce-seed.
@@ -2416,7 +2430,7 @@ TEST_CASE("§AB3 §2.5 regression — after reqpubkey <team-id>, the id RESOLVES
     rq.u.resolve.plane = static_cast<uint8_t>(Plane::TEAM);
     const CmdResult rr = node.on_command(rq);
     CHECK(rr.code == CmdCode::queued);                // it KNEW the hash — err_no_binding would mean it did not
-    CHECK(rr.aired);                                  // ★ §id-hash S1b: and a frame really went out for it
+    CHECK(rr.accepted);                                  // ★ §id-hash S1b: and a frame really went out for it
     uint32_t resolved = 0;
     CHECK(node.team_key_of_id(228, resolved));
     CHECK(resolved == peer.key_hash32);               // ★ the SAME function the view's team arm reads
@@ -2891,12 +2905,12 @@ TEST_CASE("§id-hash S1 §3-D9 — one number in BOTH planes refuses err_ambiguo
     //    ⚠ THIS LINE USED TO ASSERT `queued`, and that was the false success: the firmware reported a flood that
     //    provably did not happen, and over BLE it became `{"ev":"reqpubkey_sent"}`. Now the outcome is reported.
     CHECK(s.code == CmdCode::err_no_gateway);          // ★ was CmdCode::queued — the honest answer for "no way back"
-    CHECK_FALSE(s.aired);                              // ★ and the BLE-visible bit says so, so no reqpubkey_sent
+    CHECK_FALSE(s.accepted);                              // ★ and the BLE-visible bit says so, so no reqpubkey_sent
     CHECK(find_ev(hal.events, "h_want_pubkey_mobile_no_route") != nullptr);
     CHECK(find_ev(hal.events, "h_tx") == nullptr);
     CHECK(hal.tx_frames.empty());
     // ...while the TEAM arm on the SAME node in the SAME test DID air and DID set the bit (the same-fixture control).
-    CHECK(t.aired);
+    CHECK(t.accepted);
 }
 
 TEST_CASE("§id-hash S1 — the TEAM arm is UNREGRESSED: a bare id on a team-only node still resolves via _team_keys") {
@@ -3178,14 +3192,14 @@ TEST_CASE("§id-hash S2b — the CONFLICT arm is untouched: an authoritative reb
 // ★★★ §id-hash S1b / S2b-fix — the four QA blockers (assessment 2026-08-01), each with its own arm.
 //
 // ★ `ble_claims_sent` below is the fw_main predicate VERBATIM (`src/fw_main.cpp`: `cmd.kind == reqpubkey &&
-//   r.code == queued && r.aired`). `src/` is compiled by neither native nor the simulator, so mirroring the
+//   r.code == queued && r.accepted`). `src/` is compiled by neither native nor the simulator, so mirroring the
 //   condition here is the closest a test can get to asserting the BLE-visible disposition — which is what the
 //   assessment asked for, and what the old tests missed by checking only `h_tx` absence.
 // ════════════════════════════════════════════════════════════════════════════════════════════════════════
 
 namespace {
 // The exact disposition `{"ev":"reqpubkey_sent"}` is keyed on. Keep in step with src/fw_main.cpp.
-bool ble_claims_sent(const CmdResult& r) { return r.code == CmdCode::queued && r.aired; }
+bool ble_claims_sent(const CmdResult& r) { return r.code == CmdCode::queued && r.accepted; }
 }  // namespace
 
 TEST_CASE("§id-hash S2b-fix (QA P1a) — a CLAIMED rehome cannot EVICT an authoritative holder of the same hash") {
@@ -3278,7 +3292,7 @@ TEST_CASE("§id-hash S1b (QA P1c) — NO CRYPTO IDENTITY: err_no_identity, nothi
     //    rendered `{"ev":"reqpubkey_sent"}`, i.e. "the request was flooded". Both the source comment and the
     //    companion contract claimed this path "keeps its existing error ack"; there was no such ack.
     CHECK(r.code == CmdCode::err_no_identity);
-    CHECK_FALSE(r.aired);
+    CHECK_FALSE(r.accepted);
     CHECK_FALSE(ble_claims_sent(r));                     // ★ the BLE-visible disposition, not just telemetry
     CHECK(r.dst_hash == 0x61CD83EAu);                    // it still says WHICH target, and on which plane
     CHECK(r.plane == 2);
@@ -3291,7 +3305,7 @@ TEST_CASE("§id-hash S1b (QA P1c) — NO CRYPTO IDENTITY: err_no_identity, nothi
     hal.events.clear(); hal.tx_frames.clear();
     const CmdResult ok = node.on_command(s1_reqpubkey_by_id(186, /*plane=*/0));
     CHECK(ok.code == CmdCode::queued);
-    CHECK(ok.aired);
+    CHECK(ok.accepted);
     CHECK(ble_claims_sent(ok));
     CHECK(find_ev(hal.events, "h_tx") != nullptr);
     CHECK_FALSE(hal.tx_frames.empty());
@@ -3309,7 +3323,7 @@ TEST_CASE("§id-hash S1b (QA P1c) — a DEGENERATE target (our own hash / 0) ref
     own.u.resolve.dst_hash = self.key_hash32; own.u.resolve.hard = true; own.u.resolve.plane = 2;
     const CmdResult r = node.on_command(own);            // `reqpubkey 0x<our own hash>`
     CHECK(r.code == CmdCode::err_unsupported);           // was `queued` + reqpubkey_sent for a frame that never flew
-    CHECK_FALSE(r.aired);
+    CHECK_FALSE(r.accepted);
     CHECK_FALSE(ble_claims_sent(r));
     CHECK(find_ev(hal.events, "h_tx") == nullptr);
     CHECK(hal.tx_frames.empty());
@@ -3317,7 +3331,7 @@ TEST_CASE("§id-hash S1b (QA P1c) — a DEGENERATE target (our own hash / 0) ref
     hal.events.clear();
     Command other = own; other.u.resolve.dst_hash = self.key_hash32 ^ 1u;
     const CmdResult ok = node.on_command(other);
-    CHECK(ok.code == CmdCode::queued); CHECK(ok.aired); CHECK(ble_claims_sent(ok));
+    CHECK(ok.code == CmdCode::queued); CHECK(ok.accepted); CHECK(ble_claims_sent(ok));
     CHECK(find_ev(hal.events, "h_tx") != nullptr);
 }
 
@@ -3346,14 +3360,14 @@ TEST_CASE("§id-hash S1b §3-D9 (QA P2) — the SAME hash in BOTH planes is stil
     hal.events.clear(); hal.tx_frames.clear();
     const CmdResult amb = node.on_command(s1_reqpubkey_by_id(20, /*plane=*/0));
     CHECK(amb.code == CmdCode::err_ambiguous_plane);
-    CHECK_FALSE(amb.aired);
+    CHECK_FALSE(amb.accepted);
     CHECK(find_ev(hal.events, "h_tx") == nullptr);
 
     // (b) ★ explicit `-t` SENDS — it used to see has_team == false and refuse err_no_binding for a team binding
     //     that plainly exists. Hash equality never made the two planes' routes or return paths equal.
     hal.events.clear();
     const CmdResult t = node.on_command(s1_reqpubkey_by_id(20, /*plane=*/1));
-    CHECK(t.code == CmdCode::queued); CHECK(t.aired); CHECK(t.plane == 1);
+    CHECK(t.code == CmdCode::queued); CHECK(t.accepted); CHECK(t.plane == 1);
     CHECK(t.dst_hash == both.key_hash32);
     CHECK(find_ev(hal.events, "h_tx") != nullptr);
 
@@ -3361,7 +3375,7 @@ TEST_CASE("§id-hash S1b §3-D9 (QA P2) — the SAME hash in BOTH planes is stil
     //     return path and honestly refuses — P1c — but the RESOLUTION half is what `-s` selects and it is correct).
     const CmdResult s = node.on_command(s1_reqpubkey_by_id(20, /*plane=*/2));
     CHECK(s.plane == 2); CHECK(s.dst_hash == both.key_hash32);
-    CHECK(s.code == CmdCode::err_no_gateway); CHECK_FALSE(s.aired);
+    CHECK(s.code == CmdCode::err_no_gateway); CHECK_FALSE(s.accepted);
 }
 
 TEST_CASE("§id-hash S1b (QA P1c) — the HOSTED-MOBILE cache hit is a SUCCESS that must not claim a flood") {
@@ -3382,7 +3396,7 @@ TEST_CASE("§id-hash S1b (QA P1c) — the HOSTED-MOBILE cache hit is a SUCCESS t
     //   NOTHING. `queued` is right; `reqpubkey_sent` ("the request was flooded") is not, and `aired` is the bit
     //   that lets the transport tell them apart. This is why `aired` is not redundant with `code == queued`.
     CHECK(r.code == CmdCode::queued);
-    CHECK_FALSE(r.aired);
+    CHECK_FALSE(r.accepted);
     CHECK_FALSE(ble_claims_sent(r));
     CHECK(find_ev(hal.events, "peer_key_cached") != nullptr);   // the honest report the app actually gets
     CHECK(find_ev(hal.events, "h_tx") == nullptr);
@@ -3408,7 +3422,7 @@ TEST_CASE("§id-hash S1c (QA round 2) — a DROPPED frame (LBT defer ring full) 
     Command q{}; q.kind = CmdKind::reqpubkey; q.u.resolve.hard = true; q.u.resolve.plane = 2;
     q.u.resolve.dst_hash = 0xAAAA0000u;
     const CmdResult idle = node.on_command(q);
-    CHECK(idle.code == CmdCode::queued); CHECK(idle.aired); CHECK(ble_claims_sent(idle));
+    CHECK(idle.code == CmdCode::queued); CHECK(idle.accepted); CHECK(ble_claims_sent(idle));
     CHECK_FALSE(hal.tx_frames.empty());
 
     // Now hold the channel busy. The first FOUR queries DEFER — scheduled, will fly ⇒ still `sent`/`aired`, which is
@@ -3419,7 +3433,7 @@ TEST_CASE("§id-hash S1c (QA round 2) — a DROPPED frame (LBT defer ring full) 
         q.u.resolve.dst_hash = 0xBBBB0000u + i;
         const CmdResult d = node.on_command(q);
         CHECK(d.code == CmdCode::queued);
-        CHECK(d.aired);                                  // ★ deferred == will fly: the contract's claim holds
+        CHECK(d.accepted);                                  // ★ deferred == will fly: the contract's claim holds
         CHECK(ble_claims_sent(d));
         CHECK(find_ev(hal.events, "tx_lbt_defer") != nullptr);
         CHECK(find_ev(hal.events, "tx_lbt_defer_dropped") == nullptr);
@@ -3434,8 +3448,8 @@ TEST_CASE("§id-hash S1c (QA round 2) — a DROPPED frame (LBT defer ring full) 
     const CmdResult drop = node.on_command(q);
     CHECK(find_ev(hal.events, "tx_lbt_defer_dropped") != nullptr);   // the frame really was dropped
     CHECK(hal.tx_frames.empty());
-    CHECK(drop.code == CmdCode::err_tx_ring_full);       // ★ was CmdCode::queued
-    CHECK_FALSE(drop.aired);                             // ★ was true
+    CHECK(drop.code == CmdCode::err_tx_queue_full);       // ★ was CmdCode::queued
+    CHECK_FALSE(drop.accepted);                             // ★ was true
     CHECK_FALSE(ble_claims_sent(drop));                  // ★ the BLE-visible disposition — no reqpubkey_sent
     CHECK(drop.dst_hash == 0xCCCC0000u);                 // it still says WHICH target failed...
     CHECK(drop.plane == 2);                              // ...and on which plane
@@ -3445,6 +3459,106 @@ TEST_CASE("§id-hash S1c (QA round 2) — a DROPPED frame (LBT defer ring full) 
     hal._busy_until = 0;
     hal.events.clear(); hal.tx_frames.clear();
     const CmdResult again = node.on_command(q);
-    CHECK(again.code == CmdCode::queued); CHECK(again.aired); CHECK(ble_claims_sent(again));
+    CHECK(again.code == CmdCode::queued); CHECK(again.accepted); CHECK(ble_claims_sent(again));
     CHECK_FALSE(hal.tx_frames.empty());
 }
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════
+// ★★★ §tx-admission TX1 + §id-hash S1d — the HARDWARE admission layer, and it is METAL-ONLY BY CONSTRUCTION.
+// `DeviceHal::tx` answers `busy` when its 8-entry outbound ring is full: it bumps `txq_drops` and DOES NOT
+// retain the frame. `tx_with_retry` discarded that `TxResult` and answered "handed", so a definitive hardware
+// drop reached the app as `reqpubkey_sent`. Neither automated gate could see it — this file's HAL returned a
+// hard `ok`, and the simulator's `FirmwareNode::simTx` pushes onto an UNBOUNDED vector — which is why the
+// scriptable `_tx_reject_after` above is a PREREQUISITE for these tests, not a convenience.
+//
+// ★ OWNER RULING the contract now rests on: `reqpubkey_sent` means **"the TX path ACCEPTED the frame"**, not a
+// claim of airtime — the only thing answerable synchronously, since a deferred frame reaches the radio when a
+// timer fires long after `on_command` returned. What acceptance cannot cover is reported LATE (test 2).
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+TEST_CASE("§tx-admission TX1 — CONTROL 1: an idle-channel HAL rejection is not a send") {
+    const Identity self = ab3_identity(150);
+    TestHal hal; Node node(hal, /*id=*/42, self.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    cfg.lbt_enabled = false;                              // idle channel ⇒ tx_initiating -> lbt_complete -> _hal.tx
+    cfg.team_id = 0;
+    node.on_init(cfg); node.set_crypto_identity(self.x_secret, self.ed_pub);
+    hal._now = 100000;
+    CHECK(node.test_id_bind_set(/*id=*/186, 0x61CD83EAu, /*authoritative=*/true));
+
+    // ★ POSITIVE CONTROL FIRST, same fixture, HAL answering ok.
+    hal.events.clear(); hal.tx_frames.clear(); hal.tx_calls = 0; hal._tx_reject_after = -1;
+    const CmdResult ok = node.on_command(s1_reqpubkey_by_id(186, /*plane=*/0));
+    CHECK(ok.code == CmdCode::queued); CHECK(ok.accepted); CHECK(ble_claims_sent(ok));
+    CHECK_FALSE(hal.tx_frames.empty());
+    CHECK(find_ev(hal.events, "tx_hal_rejected") == nullptr);
+
+    // ★★ THE DEFECT: the HAL refuses the frame outright. It is gone — a flood has no stash and no MAC timeout.
+    hal.events.clear(); hal.tx_frames.clear(); hal.tx_calls = 0;
+    hal._tx_reject_with = TxResult::busy; hal._tx_reject_after = 0;
+    const CmdResult r = node.on_command(s1_reqpubkey_by_id(186, /*plane=*/0));
+    CHECK(r.code == CmdCode::err_tx_queue_full);          // was CmdCode::queued
+    CHECK_FALSE(r.accepted);                              // was true
+    CHECK_FALSE(ble_claims_sent(r));                      // ★ and therefore NO reqpubkey_sent over BLE
+    CHECK(r.dst_hash == 0x61CD83EAu); CHECK(r.plane == 2);   // still says WHICH target, on WHICH plane
+    CHECK(find_ev(hal.events, "tx_hal_rejected") != nullptr);
+    CHECK(hal.tx_frames.empty());                         // the HAL did not retain it — neither does DeviceHal
+    CHECK(find_ev(hal.events, "h_tx") != nullptr);        // ⓘ `h_tx` still fires: it means "we originated an H", and
+                                                          //    moving it after the hand-off would re-anchor streams
+    // `too_long` is the same class and must map identically (the SX1262 length register on metal).
+    hal.events.clear(); hal.tx_calls = 0; hal._tx_reject_with = TxResult::too_long;
+    const CmdResult tl = node.on_command(s1_reqpubkey_by_id(186, /*plane=*/0));
+    CHECK(tl.code == CmdCode::err_tx_queue_full); CHECK_FALSE(tl.accepted);
+}
+
+TEST_CASE("§id-hash S1d — CONTROL 2: a frame ACCEPTED into the defer ring that later meets a full HAL queue") {
+    const Identity self = ab3_identity(151);
+    TestHal hal; Node node(hal, /*id=*/42, self.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    cfg.lbt_enabled = true;                               // ⇒ a busy channel takes the defer path
+    cfg.team_id = 0;
+    node.on_init(cfg); node.set_crypto_identity(self.x_secret, self.ed_pub);
+    hal._now = 100000;
+    CHECK(node.test_id_bind_set(/*id=*/186, 0x61CD83EAu, /*authoritative=*/true));
+
+    // ---- the command is ACCEPTED while the channel is busy. Per the ruling that is TRUE and stays true: the TX
+    //      path took the frame. Nothing here can know what the radio queue will look like when the timer fires.
+    hal._busy_until = hal._now + 5000;
+    hal.events.clear(); hal.tx_frames.clear(); hal.tx_calls = 0; hal._tx_reject_after = -1; hal.logs.clear();
+    const CmdResult r = node.on_command(s1_reqpubkey_by_id(186, /*plane=*/0));
+    CHECK(r.code == CmdCode::queued);
+    CHECK(r.accepted);                                    // ★ acceptance, NOT airtime — that is the whole ruling
+    CHECK(ble_claims_sent(r));
+    CHECK(find_ev(hal.events, "tx_lbt_defer") != nullptr);
+    CHECK(hal.tx_frames.empty());                         // nothing on the air YET
+
+    // ---- ★★ THE RESIDUAL: the channel clears, the timer fires, and the HAL queue is now FULL. The frame dies
+    //      here — and unlike a DATA frame there is no MAC timeout behind an H query to recover it, so without a
+    //      report the operator waits forever on an answer that can never come.
+    hal._busy_until = 0;
+    hal.events.clear(); hal.tx_frames.clear(); hal.tx_calls = 0; hal.logs.clear();
+    hal._tx_reject_with = TxResult::busy; hal._tx_reject_after = 0;
+    node.test_fire_lbt_defer(0);
+    CHECK(find_ev(hal.events, "tx_hal_rejected") != nullptr);
+    CHECK(find_ev(hal.events, "tx_deferred_lost") != nullptr);   // ★ NO SILENT LOSS — the binding requirement
+    CHECK(hal.logged("deferred TX dropped"));                    // ★ and on METAL, where MR_EMIT is stripped, via log()
+    CHECK(hal.tx_frames.empty());
+
+    // ★ POSITIVE CONTROL, same fixture, same timer: with the HAL accepting, the deferred frame DOES fly and
+    //   nothing is reported lost. Without this, both assertions above would also hold for a broken timer path.
+    hal._busy_until = hal._now + 5000;
+    hal.events.clear(); hal.tx_frames.clear(); hal.tx_calls = 0; hal.logs.clear(); hal._tx_reject_after = -1;
+    const CmdResult r2 = node.on_command(s1_reqpubkey_by_id(186, /*plane=*/0));
+    CHECK(r2.accepted); CHECK(hal.tx_frames.empty());
+    hal._busy_until = 0;
+    hal.events.clear(); hal.tx_frames.clear();
+    node.test_fire_lbt_defer(0);
+    CHECK_FALSE(hal.tx_frames.empty());                          // ★ it really did fly this time
+    CHECK(find_ev(hal.events, "tx_deferred_lost") == nullptr);
+    CHECK_FALSE(hal.logged("deferred TX dropped"));
+}
+
+// ⓘ The third property of this slice — that a HAL rejection must NOT suppress the DATA ack timeout — is pinned by
+// two `static_assert`s in `lib/core/node_mac.cpp`, beside the three readers, because `Node::TxHandOff` is private and
+// widening the seam for a test would be the wrong trade. See the note there: it is the regression a two-way
+// `false-on-rejection` would have caused (a dropped DATA with no recovery at all).

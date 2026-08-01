@@ -516,6 +516,9 @@ public:
     // §S0 (cold-boot mobile-id alias) white-box seams.
     uint8_t           test_find_free_mobile_id(uint32_t key_hash32) { return find_free_mobile_id(key_hash32); }   // top-down allocation + static-exclusion
     bool              test_route_uses_mobile_as_transit(uint8_t dest, uint8_t next) const { return route_uses_mobile_as_transit(dest, next); }   // the transit filter (alias carve)
+    // ★ §id-hash S1d test seam: fire one LBT deferred-TX slot's timer. The id range is private and MUST stay so —
+    // a test hard-coding 15 would silently drive the wrong timer if the range ever moves.
+    void              test_fire_lbt_defer(uint8_t slot) { on_timer(kLbtDeferTimerId + slot); }
     void              test_mark_mobile_peer(uint8_t id) { _active->_mobile_peer[id >> 3] |= static_cast<uint8_t>(1u << (id & 7)); }   // simulate an is_mobile beacon setting the SET-only bit
     bool              test_id_bind_set(uint8_t id, uint32_t key_hash32, bool authoritative) { return id_bind_set(id, key_hash32, IdBindSource::bcn, authoritative ? IdBindConf::authoritative : IdBindConf::claimed); }
     void              test_defer_send(uint8_t dst, uint16_t ctr, uint8_t redrain_count) { TxItem it{}; it.dst = dst; it.ctr = ctr; it.redrain_count = redrain_count; defer_send(it); }   // drive the defer-loop giveup directly
@@ -1514,7 +1517,11 @@ private:
     void     jtx_fire(uint8_t* buf, uint8_t& len);
     void     rts_duty_defer_fire();                                // cleanup #A redo: re-check duty + hand the deferred RTS (or re-defer / drop-if-stale)
     bool     tx_flood(const uint8_t* bytes, size_t len, int16_t sf);   // false = dropped/skipped (no TX)
-    void     lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen);
+    // §tx-admission TX1: FALSE iff the HAL REJECTED the frame (a definitive drop). The two RTS-only early-outs
+    // return true — a stale-flight CANCEL abandons a flight that is already gone, and the duty defer re-arms
+    // kRtsDutyDeferTimerId — so neither is a loss to report. Unreachable from the one reader anyway: emit_hash_query
+    // always passes LbtKind::flood.
+    bool     lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen);
     bool     schedule_lbt_defer(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind,   // free-slot stash
                                 uint32_t rts_flight_gen, uint32_t delay);   // false = ring full (dropped)
     // NAV (virtual carrier sense, nav_enabled): an overheard unicast RTS/CTS reserves the medium for the rest
@@ -1527,9 +1534,28 @@ private:
     uint32_t nav_duration_cts(uint8_t data_sf, uint8_t payload_len, uint8_t data_cr) const;  // overheard CTS -> DATA(exact, or max if payload_len=0)+ACK+gaps
     void     nav_arm(uint32_t duration_ms);                                 // _nav_until_ms = max(_nav_until_ms, now+dur)
     bool     reserve_yield(uint32_t reserve_ms);                            // spec 2026-06-28: push the pending CTS/ACK timeout past an overheard reserve involving our next-hop, NO retry burned; lifetime-bounded (no starvation). Returns true if yielded.
+    // ★★★ §tx-admission TX1 (2026-08-01): tx_with_retry's disposition. It used to be a `bool handed` that was TRUE
+    // whenever the frame reached `_hal.tx`, **whatever the HAL answered** — and `DeviceHal::tx` returns `busy` on a
+    // full 8-entry ring, bumps `txq_drops` and DOES NOT RETAIN the frame. So a definitive hardware drop read as
+    // "handed" all the way up to the app.
+    // ⚠⚠ THE THREE-WAY SPLIT IS LOAD-BEARING, and a two-way `false-on-rejection` would have caused a REGRESSION —
+    // this is the finding that shaped the slice. `tx_with_retry` has THREE readers (duty_defer_fire, and both
+    // do_data_tx arms) and every one of them uses the answer to decide *"arm the post-TX state?"*. Their existing
+    // `false` means **"not sent, but a re-send timer IS armed"** (the duty defer). A HAL rejection arms NOTHING, so
+    // folding it into that same `false` would suppress `start_ack_timeout()` on a dropped DATA and leave the flight
+    // with **no recovery at all** — strictly worse than the reporting defect being fixed. For a retry-eligible frame
+    // the MAC timeout IS the recovery (`device_hal.h`'s "MAC timeouts recover the frame"), so those readers must keep
+    // arming it. They therefore branch on `!= deferred_retry_armed`, which is EXACTLY their old `true`.
+    // ⇒ only `slot < 0` frames (RTS / beacon-flood) have no stash and no MAC timeout, and among those only the H
+    //   query reports a disposition to an app — which is why S1d reads this and nothing else does.
+    enum class TxHandOff : uint8_t {
+        handed = 0,             // the HAL accepted it (queued for the radio)
+        deferred_retry_armed,   // NOT sent — the duty pre-check deferred it and kDutyDeferTimerId+slot will re-run
+        rejected                // the HAL REFUSED it (busy / too_long / radio_error): dropped, nothing will retry
+    };
     // R4.5b: the central TX helper (Lua tx_with_retry dv:3599) — stash the retry-eligible frame + set the
     // frame-type tag + duty pre-check + _hal.tx. Every TX except the beacon routes through it.
-    bool     tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf, FrameTag tag);   // returns handed (false on a duty defer)
+    TxHandOff tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf, FrameTag tag);   // §tx-admission TX1: handed / deferred_retry_armed / rejected
     void     retry_stashed(uint8_t slot);                          // re-issue a stashed frame (kRadioBusyRetryTimerId+slot)
     void     duty_defer_fire(uint8_t slot);                        // re-run tx_with_retry from the stash after a duty defer (kDutyDeferTimerId+slot)
     bool     duty_over_budget(size_t len, int16_t sf, uint32_t* wait_ms);   // check_duty_cycle dv:3573; *wait_ms = defer time when over budget

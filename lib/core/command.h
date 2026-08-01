@@ -108,15 +108,20 @@ enum class CmdCode : uint8_t { queued, err_unknown_dst, err_too_large,
                                // collapse a defect: the remedy here is specific and different (provision/`regen` an
                                // identity), and a refusal that cannot name its remedy is not "loud".
                                err_no_identity,
-                               // ★ §id-hash S1c (QA round 2): the radio's 4-slot LBT DEFER ring was full, so the frame
-                               // was dropped rather than sent or scheduled. Remedy: retry in a moment — TRANSIENT,
-                               // unlike every other refusal here.
-                               // ⚠ U1 CHECKED AND DELIBERATELY NOT REUSED: `err_ack_ring_full` (9) is the same SHAPE
-                               // ("a bounded ring is full, refuse loudly") but a different RING, and the shipped
-                               // contract documents it as the pending-E2E-ack ring — *"a new `-a` send is refused
-                               // while 8 sends already await acks"*. Reusing it would hand the app a wrong diagnosis
-                               // and a wrong remedy (wait for an in-flight `-a` send that need not exist at all).
-                               err_tx_ring_full };
+                               // ★ §id-hash S1d: a bounded TX queue REJECTED the frame, so it was dropped rather than
+                               // sent or scheduled. Remedy: retry in a moment — TRANSIENT, unlike every other
+                               // refusal here.
+                               // ⚠ DELIBERATELY NOT NAMED AFTER ONE QUEUE. It was `err_tx_ring_full` for a day, when
+                               // only the Node's 4-slot LBT defer ring was known to reject. **TWO different bounded
+                               // queues can produce it** — that ring, and `DeviceHal`'s 8-entry outbound ring — so a
+                               // name (or a hint) fingering one of them is a wrong diagnosis half the time. Same
+                               // reasoning that kept it out of `err_ack_ring_full`, applied to over-narrow naming.
+                               // ⚠ U1 CHECKED AND `err_ack_ring_full` (9) DELIBERATELY NOT REUSED: same SHAPE ("a
+                               // bounded ring is full, refuse loudly"), different RING, and the shipped contract
+                               // documents it as the pending-E2E-ack ring — *"a new `-a` send is refused while 8
+                               // sends already await acks"*. Reusing it would hand the app a wrong remedy (wait for
+                               // an in-flight `-a` send that need not exist at all).
+                               err_tx_queue_full };
 // The synchronous "send handle" — the app records it and correlates async send_acked/send_failed pushes by `ctr`.
 // dst_hash / layer_path echo WHAT was sent so the app keeps no command->identity map of its own (and so a small
 // hash like 0x10 is NEVER confused with an 8-bit id — it lives in its own 32-bit field):
@@ -124,7 +129,7 @@ enum class CmdCode : uint8_t { queued, err_unknown_dst, err_too_large,
 //   sendhash <hash>      -> ctr, dst_hash=hash, layer_path=0
 //   send_layer <hash> <l..> -> ctr, dst_hash=hash, layer_path = the hops packed MSB-first (hops[0] high byte;
 //                              [2,3] -> (2<<8)|3 = 0x0203; 0 = no layers). Layer ids are >=1 so no leading-zero hop.
-//   reqpubkey <id|0xhash> -> ctr 0, dst_hash = the hash the query FLEW FOR (§id-hash S1: for the by-id form that is
+//   reqpubkey <id|0xhash> -> ctr 0, dst_hash = the hash the query WAS ISSUED FOR (§id-hash S1: for the by-id form that is
 //                              the hash peer_book_by_id RESOLVED, so no transport re-runs the lookup — U1), plane =
 //                              which plane answered.
 struct CmdResult {
@@ -144,15 +149,21 @@ struct CmdResult {
     // value that only ever lives as a return temporary — it is not a Node member, so sizeof(Node) and RAM_used are
     // untouched. Every serialiser omits it when 0, so no existing ack line changed.
     uint8_t  plane       = 0;
-    // ★★ §id-hash S1b (QA finding P1c): TRUE iff this command actually put a frame on the air.
-    // ⚠ IT IS NOT REDUNDANT WITH `code == queued`, and that is the whole reason it exists: `reqpubkey` has ONE
-    // accepted outcome that legitimately airs nothing — the hosted-mobile branch, which answers from the local key
-    // cache and reports through the `peer_key_cached` push. Every *failed* silent early-out now has its own error
-    // code, so this bit distinguishes exactly that success-without-airtime case. The BLE transport keys
-    // `{"ev":"reqpubkey_sent"}` — whose contract meaning is "the request was FLOODED" — on it.
+    // ★★ §id-hash S1b/S1d: TRUE iff **the TX path ACCEPTED the frame — nothing rejected it.**
+    // ⚠⚠ IT IS NOT A CLAIM OF AIRTIME, and the rename from `aired` records why. OWNER RULING 2026-08-01: acceptance
+    // is the only thing answerable SYNCHRONOUSLY. A frame the LBT layer defers reaches the radio when a timer fires,
+    // long after `on_command` returned, so "it left the antenna" is unsatisfiable in a `CmdResult` by construction.
+    // Chasing the stronger wording cost two review rounds; the weaker one is the true one.
+    // ⚠ NOT REDUNDANT WITH `code == queued`: `reqpubkey` has one accepted outcome that legitimately hands the TX
+    // path nothing at all — the hosted-mobile branch, which answers from the local key cache and reports through the
+    // `peer_key_cached` push. Every *rejection* now carries its own error code, so this bit distinguishes exactly
+    // that success-without-a-frame case. The BLE transport keys `{"ev":"reqpubkey_sent"}` on it.
+    // ⓘ What acceptance does NOT cover, and where it IS covered: a deferred frame whose timer later meets a full
+    // HAL queue. That death is reported LATE (`tx_deferred_lost` + a device log, node.cpp's defer arm) — the
+    // no-silent-loss rule — because no synchronous result could have known it.
     // ⓘ Costs ZERO bytes: it lands in the 3-byte tail pad after `plane` (measured, sizeof stays 20), and it is
     // appended so none of the 17 positional aggregate initialisers shift.
-    bool     aired       = false;
+    bool     accepted    = false;
 };
 
 // ---- async push channel (delivery/ACK/inbound; matches MeshCore PUSH_CODE_*) ----

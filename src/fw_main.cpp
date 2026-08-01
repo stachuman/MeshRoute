@@ -487,12 +487,12 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
         if (cmd.kind == meshroute::CmdKind::peerkey) return handle_peerkey(out, cap, cmd);   // §2/§3: install + persist + contract ack
         if (cmd.kind == meshroute::CmdKind::peername) return handle_peername(out, cap, cmd); // §AB2: rename + persist + the synchronous ack
         const meshroute::CmdResult r = g_node.on_command(cmd);
-        // ★★ §id-hash S1b (QA finding P1c): `r.aired`, NOT `r.code == queued`. `reqpubkey_sent` means "the on-air
+        // ★★ §id-hash S1b (QA finding P1c): `r.accepted`, NOT `r.code == queued`. `reqpubkey_sent` means "the on-air
         // request was FLOODED" (console_json.h), and two accepted outcomes do not flood: the hosted-mobile local
         // cache hit (which reports through its own peer_key_cached push), and — before S1b — every one of
         // emit_hash_query's four silent early-outs, which now carry their own error codes instead. Anything that did
         // not air falls through to the generic write_ack, which is the honest answer for both.
-        if (cmd.kind == meshroute::CmdKind::reqpubkey && r.code == meshroute::CmdCode::queued && r.aired) {
+        if (cmd.kind == meshroute::CmdKind::reqpubkey && r.code == meshroute::CmdCode::queued && r.accepted) {
             // ★★ §id-hash S1 (spec §1-A's SECOND SITE): this echo used to re-resolve the id itself with
             //     `if (rh == 0 && dst_id != 0) g_node.team_key_of_id(dst_id, rh);`
             // — a THIRD hand-rolled one-table lookup, so a static-plane by-id reqpubkey would still have echoed

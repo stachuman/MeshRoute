@@ -726,17 +726,50 @@ fw_main's exact `code == queued && aired` predicate), every negative paired with
 4-slot LBT defer ring is full (*"ring full -> drop loudly"*). ⇒ frame **dropped** → outcome still `sent` → `aired=true`
 → **`reqpubkey_sent`**. Same false-success class, one call deeper, and it breached spec **§5.1**'s *"must not be
 reachable from any bail point"*.
-★ **CLOSED 2026-08-01 by `§id-hash S1c`:** `tx_initiating` returns `bool`; the new `HQueryOutcome::tx_dropped` maps to
-**`err_tx_ring_full`**. ⓘ **U1 CHECKED: `err_ack_ring_full` (9) was NOT reused** — same shape, different ring, and the
+⚠⚠ **RE-OPENED 2026-08-01 A SECOND TIME (assessment §6) — and this one reached REAL HARDWARE.** S1c stopped at the
+Node's LBT ring. One layer below, `tx_with_retry` did `_hal.tx(...)` and **discarded the `TxResult`**, then
+`return true // handed`. `DeviceHal::tx` answers `busy` when its **8-entry outbound ring** is full — it bumps
+`txq_drops` and **does not retain the frame** — and an H/beacon frame has `slot < 0`, so there is no stash retry
+either. A definitive hardware drop still reported acceptance. Neither automated gate could see it: this repo's test
+HAL returned a hard `ok`, and the sim's `FirmwareNode::simTx` pushes onto an **unbounded vector**.
+★★ **OWNER RULING that settled the semantics (2026-08-01), after two rounds of chasing a stronger claim:**
+`reqpubkey_sent` means **"the TX path ACCEPTED the frame — nothing rejected it"**, NOT a claim of airtime. *"Emitted
+only when a frame actually left"* is **unsatisfiable synchronously** — a deferred frame reaches the radio when a timer
+fires, long after `on_command` returned. ⇒ `CmdResult::aired` is renamed **`accepted`** and documented as such.
+★ **CLOSED 2026-08-01 by `§id-hash S1c` + `§tx-admission TX1` + `§id-hash S1d`:** `tx_initiating` returns `bool`;
+`tx_with_retry` inspects the `TxResult` (see **B50**); `HQueryOutcome::tx_dropped` maps to **`err_tx_queue_full`**
+(renamed from `err_tx_ring_full` — see below). ⓘ **U1 CHECKED: `err_ack_ring_full` (9) was NOT reused** — same shape, different ring, and the
 shipped contract documents it as the pending-E2E-ack ring, so reusing it would hand the app a wrong diagnosis and a
 wrong remedy. This one is the only **TRANSIENT** refusal on the verb ("retry in a moment"), and the hint text says so.
+⚠ **AND THE SAME REASONING FORCED A RENAME ONE DAY LATER: `err_tx_ring_full` → `err_tx_queue_full`.** **TWO** bounded
+queues can reject this command — the Node's 4-slot LBT defer ring and `DeviceHal`'s 8-entry outbound ring — so a name
+(or an operator hint) fingering one of them is a wrong diagnosis half the time. The hint now says *"a bounded TX queue
+rejected the frame (the radio or the channel is saturated)"* and names neither. Renaming was free (M3, and the code
+was uncommitted).
+★ **THE DEFERRED RESIDUAL — no silent loss.** A frame ACCEPTED into `_deferred_lbt` can still meet a full HAL queue
+when its timer fires, and unlike DATA an H query has **no MAC timeout** behind it to recover. That death is now
+reported LATE: `tx_deferred_lost` **plus `_hal.log`**, which is the one operator-facing channel `lib/core` has on
+metal (MR_EMIT is device-stripped).
+⚠ **A BOUNDED RE-DEFER WAS CONSIDERED AND REFUSED, and the reason is specific to the payload:** re-deferring would air
+an H query at an unbounded later time, after the operator has been told and has plausibly retried by hand —
+duplicate airtime for a question that is already stale — and it needs retry state plus a second timer path for a case
+no automated gate can reach. ⓘ A per-command PUSH was also refused: correlating the loss back to the `reqpubkey` that
+queued it needs a handle the frame does not carry, and `send_failed{ctr:0}` is exactly the uncorrelated shape **B39**
+exists to fix. Owed to B39 (C1), recorded rather than faked.
 ★ **SCOPE RULING (owner): a SUCCESSFUL defer is still `aired`** — it is scheduled and will fly, so the contract's
 claim holds; only the ring-full DROP is false. `lbt_complete`'s own early returns are excluded on inspection: both are
 RTS-only (a stale-flight cancel, and a duty defer that does fly) and neither is reachable from `emit_hash_query`,
 which always passes `LbtKind::flood`.
 ⓘ **The widening again changed ZERO call sites** — 22 callers across 8 files discard it and there is no
 `[[nodiscard]]`; `git diff` shows the six files holding 18 of them were not touched at all.
-**MEASURED** (native: the ring-full fixture reddens 1 case / 3 assertions when the `bool` is discarded again).
+**MEASURED** (native): the ring-full fixture reddens 1 case / 3 assertions when S1c's `bool` is discarded; the
+HAL-rejection fixtures redden **2 cases / 9 assertions** when the `TxResult` is discarded, **2 / 7** when
+`lbt_complete` swallows it, and **1 / 2** when the deferred-loss report is removed.
+★ **Corpus: 0 HAL rejections and 0 deferred losses — structurally, not accidentally** (the sim's `simTx` has an
+unbounded queue and can only answer `too_long` at len > 255, which no packer produces). A **capability probe** (force
+the HAL to reject every flood) reaches **7123** rejections, and the behavioural delta isolates to **s22's
+`"OK reqpubkey queued"` → `"OK reqpubkey error"`** — with the propagation reverted under the same poison, all 36
+streams return **byte-identical to clean**, proving the poison is otherwise inert.
 
 ### B48 — ★ a DISPLAY de-duplication rule in `peer_book_by_id` was making an AIRTIME decision · NEW 2026-08-01
 `peer_book_by_id`'s team arm read `if (team_key_of_id(id, th) && !(mask && th == h))` — it suppressed the TEAM
@@ -756,6 +789,32 @@ both rows and their equal hashes say "one identity, two planes" more clearly tha
 team plane, `-s` selects the static row. **MEASURED** (native; restoring the de-dup reddens 2 cases / 12 assertions).
 ⇒ ★ **The durable rule: a shared resolver returns facts. The moment a "tidy display" filter lives inside one, some
 future caller will make a decision on the filtered answer.**
+
+### B50 — ★★ GLOBAL: `tx_with_retry` DISCARDED the HAL's `TxResult`, so every caller believed a dropped frame was sent · NEW 2026-08-01
+`lib/core/node_mac.cpp`'s central TX helper did `_hal.tx(bytes, len, p);` and then `return true; // handed`, throwing
+away the only answer the radio layer gives. On hardware `DeviceHal::tx` returns **`busy`** when its 8-entry outbound
+ring is full (it increments `txq_drops` and **does not retain the frame**) and **`too_long`** past the SX1262 length
+register. ⇒ **every** TX caller in the tree — not just `reqpubkey` — could not distinguish "queued for the radio" from
+"dropped on the floor".
+★ **This is registered separately from B47 on purpose:** B47 is one verb's contract, this is a function every TX path
+in the firmware goes through, and its attribution must stay separable (C4).
+⚠⚠ **THE OBVIOUS FIX WOULD HAVE CAUSED A REGRESSION, and finding that changed the slice's shape.** The dispatch
+assumed `tx_with_retry` might be a `void`/all-discard function. **It is neither:** it already returned `bool`, and
+**three callers READ it** — `duty_defer_fire` and both `do_data_tx` arms — each using it to decide *"arm the post-TX
+state?"*. Their existing `false` means **"not sent, but a re-send timer IS armed"** (the duty defer). A HAL rejection
+arms nothing, so folding it into that same `false` would have suppressed `start_ack_timeout()` on a dropped DATA and
+left the flight with **no recovery at all** — strictly worse than the reporting defect. For a retry-eligible frame the
+MAC timeout **is** the recovery (`device_hal.h` says so).
+★ **FIXED 2026-08-01 by `§tx-admission TX1` (green, UNCOMMITTED, its own commit):** the return becomes a three-way
+`Node::TxHandOff{handed, deferred_retry_armed, rejected}`. The three existing readers branch on
+`!= deferred_retry_armed`, which is **bit-for-bit their previous `true`** — pinned by two `static_assert`s beside them
+so a future fourth enumerator on the wrong side of that line is a build failure, not a silent DATA regression. The
+result propagates through `lbt_complete` (whose two RTS-only early-outs are excluded on inspection: a stale-flight
+cancel abandons a dead flight, and the duty defer re-arms) and out of `tx_initiating`.
+ⓘ Telemetry only (`tx_hal_rejected`) — MR_EMIT is device-stripped, and the metal-side diagnostic `txq_drops` already
+exists. ⚠ **`txq_drops` has no console surface**, so on metal a rejection is currently invisible unless it hits the H
+path; noted in the bench script, not fixed here (C1).
+**MEASURED** (native + capability probe; see B47). **Corpus 36/36 byte-identical** — 0 rejections, structurally.
 
 ### B49 — the `CmdCode` self-labelling invariant test was bounded by a LITERAL and silently stopped covering · NEW 2026-08-01
 `test_console_json.cpp`'s *"every refusal's token begins with `err_`"* loop — the ONLY detector for the §err-reason/B32

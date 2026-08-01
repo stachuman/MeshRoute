@@ -1232,7 +1232,25 @@ void Node::on_timer(uint32_t timer_id) {
         if (timer_id >= kLbtDeferTimerId && timer_id < kLbtDeferTimerId + kLbtSlots) {
             DeferredLbt& d = _deferred_lbt[timer_id - kLbtDeferTimerId];
             if (d.pending) { d.pending = false;
-                lbt_complete(d.buf, d.len, d.sf, static_cast<LbtKind>(d.kind), d.rts_flight_gen); }
+                // ★★★ §id-hash S1d (2026-08-01) — THE DEFERRED RESIDUAL, and the binding requirement is NO SILENT
+                // LOSS. `tx_initiating` answered "accepted" when this frame entered the defer ring, and the
+                // synchronous ack has long since reached the operator. If the HAL queue has filled during the wait,
+                // the frame dies HERE — and unlike a DATA frame there is no MAC timeout behind an H query to
+                // recover it, so without this the operator waits forever on an answer that can never come.
+                // ⇒ REPORTED, LOUDLY AND ON THE DEVICE: `_hal.log` reaches the console on metal (MR_EMIT does not —
+                //   telemetry is device-stripped), and the emit gives the simulator something to assert.
+                // ⚠ A BOUNDED RE-DEFER WAS CONSIDERED AND REFUSED, and the reason is specific to what this carries:
+                //   re-deferring would put an H query on the air at an unbounded later time, after the operator has
+                //   been told and has plausibly retried by hand — duplicate airtime for a question that is already
+                //   stale. It also needs retry state in the ring plus a second timer path, for a case no automated
+                //   gate can reach. Reporting the death is the honest product; re-sending a stale query is not.
+                // ⓘ NOT a per-command push: correlating this back to the `reqpubkey` that queued it needs a handle
+                //   this frame does not carry, and a `send_failed{ctr:0}` is exactly the uncorrelated shape B39
+                //   exists to fix. Owed to B39's discriminated result (C1) — recorded, not faked here.
+                if (!lbt_complete(d.buf, d.len, d.sf, static_cast<LbtKind>(d.kind), d.rts_flight_gen)) {
+                    MR_EMIT("tx_deferred_lost", EF_I("kind", d.kind), EF_I("len", d.len));
+                    _hal.log("deferred TX dropped at the radio queue — a request reported as accepted never aired");
+                } }
         } else if (timer_id >= kRadioBusyRetryTimerId && timer_id < kRadioBusyRetryTimerId + kRetrySlots) {
             retry_stashed(static_cast<uint8_t>(timer_id - kRadioBusyRetryTimerId));   // R4.5b stash re-issue
         } else if (timer_id >= kDutyDeferTimerId && timer_id < kDutyDeferTimerId + kRetrySlots) {
@@ -1691,7 +1709,7 @@ CmdResult Node::on_command(const Command& c) {
                 // ★ §id-hash S1b (QA P1c): a GENUINE success that airs NOTHING — the key came out of the local cache
                 // and the app learns it from the peer_key_cached push above. `aired` stays FALSE so the BLE transport
                 // does not additionally claim `reqpubkey_sent`, whose contract meaning is "the request was flooded".
-                return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n, h, 0, plane, /*aired=*/false };
+                return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n, h, 0, plane, /*accepted=*/false };
             }
 #endif
             // ★★ §id-hash S1b (QA finding P1c): emit_hash_query has FOUR silent early-outs and this arm used to
@@ -1708,7 +1726,7 @@ CmdResult Node::on_command(const Command& c) {
             //   · no_return_route -> err_no_gateway   (verbatim the precedent below: a mobile with no home cannot
             //                                          delegate, `if (!_my_mobile_reg.active) return err_no_gateway`)
             //   · encode_failed   -> err_too_large    (pack_h refused: the frame did not fit its buffer)
-            //   · tx_dropped      -> err_tx_ring_full (NEW — the LBT defer ring was full; the only TRANSIENT one,
+            //   · tx_dropped      -> err_tx_queue_full (NEW — the LBT defer ring was full; the only TRANSIENT one,
             //                                          and U1-checked against err_ack_ring_full, a different ring)
             // The refusal still echoes `dst_hash` + `plane` so the app knows WHICH target on WHICH plane failed.
             const HQueryOutcome oc = emit_hash_query(h, /*hard=*/true, /*want_pubkey=*/true, static_cast<Plane>(plane));   // §6.4: -t=TEAM (team_scoped, origin=team_local_id); else GLOBAL
@@ -1720,14 +1738,14 @@ CmdResult Node::on_command(const Command& c) {
                     case HQueryOutcome::no_identity:     code = CmdCode::err_no_identity;  break;
                     case HQueryOutcome::no_return_route: code = CmdCode::err_no_gateway;   break;
                     case HQueryOutcome::encode_failed:   code = CmdCode::err_too_large;    break;
-                    case HQueryOutcome::tx_dropped:      code = CmdCode::err_tx_ring_full; break;   // §S1c: transient — retry
+                    case HQueryOutcome::tx_dropped:      code = CmdCode::err_tx_queue_full; break;   // §S1c: transient — retry
                 }
-                return CmdResult{ code, 0, _active->_tx_queue_n, h, 0, plane, /*aired=*/false };
+                return CmdResult{ code, 0, _active->_tx_queue_n, h, 0, plane, /*accepted=*/false };
             }
             // §id-hash S1: echo the hash the query ACTUALLY flew for (the by-id form's RESOLVED hash) + the plane it
             // flew on, so no transport re-runs the lookup to build its own answer — that duplicate is exactly how
             // fw_main's BLE `reqpubkey_sent` echo kept the one-table bug alive after this arm was first fixed (U1).
-            return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n, h, 0, plane, /*aired=*/true };
+            return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n, h, 0, plane, /*accepted=*/true };
         }
         case CmdKind::peerkey: {     // §3: QR import — install the scanned full pubkey as a PINNED (verified) key.
             const uint8_t* ep = c.u.peerkey.ed_pub;             // key_hash32 = ed_pub[:4] (derived, never trusted from the wire)

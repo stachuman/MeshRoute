@@ -3,16 +3,16 @@
 
 **Status: v2 AGREED — S1 / S2 / S2b IN FLIGHT, S3 onward not dispatched.**
 
-| slice | state (2026-08-01, after QA pass 2) |
+| slice | state (2026-08-01, after QA pass 3) |
 |---|---|
-| **S1** | implemented + reworked. **QA pass 1's four blockers all FIXED**; ⏳ **one NEW blocker in flight** — see §5.1's last bullet |
-| **S2** | implemented, **QA: ACCEPTED** (unchanged since) |
-| **S2b** | implemented + reworked. **Rehome door closed** (§1-E) — no blocker outstanding |
+| **S1 · S2 · S2b** | committed at **`738a12b`**. QA passes 1–2 raised five blockers; **all five fixed and accepted** |
+| **TX1 · S1d** | ⏳ **in flight** — QA pass 3's blocker: the disposition stops above the **device** TX queue (§5.1) |
 | **S3 · S4a · S4b · S5** | **not dispatched** — S4a/S4b wait on the §7 rulings (verb name, BLE availability, `HARD`-under-`BY_ID`) |
 
-⚠ **Nothing is committed.** The companion contract's `§id-hash` section is written
-(`ios-companion/INBOX_SYNC_CONTRACT.md`) and carries the one **breaking** app change: a bare `reqpubkey <id>` moved
-from implicit-TEAM to AUTO, so `Command.reqPubkeyTeam` must emit `-t`.
+★★ **The one BREAKING app change in this arc**, recorded in `ios-companion/INBOX_SYNC_CONTRACT.md`: a bare
+`reqpubkey <id>` moved from implicit-TEAM to **AUTO**, so `Command.reqPubkeyTeam` must emit `-t`. ⚠ Its Swift fix is
+**source-correct but never executed** — no `swift` toolchain in this environment. **Run the package tests before
+shipping.**
 
 ★ **Implementation assessment: `docs/2026-08-01-id-to-hash-resolution-implementation-assessment.md`** (independent QA,
 the same reviewer as v1). Its four blockers were re-verified against source and **all upheld**: a claimed *rehome* still
@@ -398,10 +398,21 @@ degenerate/self (`node_hashlocate.cpp:1586`), **no crypto identity** (`:1587-159
 return path (`:1618-1621`), and a `pack_h` codec failure — while `on_command` returns `queued` unconditionally and BLE
 converts every one of them into **`reqpubkey_sent`** (`fw_main.cpp:490-497`). B47 recorded only the third.
 
+★★★ **OWNER RULING 2026-08-01, after QA pass 3 — READ THIS BEFORE THE BULLETS, IT SUPERSEDES THEIR WORDING.**
+`reqpubkey_sent` means **"the TX path ACCEPTED the frame — nothing rejected it." It is NOT a claim of airtime.**
+
+⚠ **v2 of this section demanded the impossible and cost two review rounds.** It said *"only when a frame actually
+left"* — which is **unsatisfiable synchronously** on the deferred path: an LBT-deferred frame reaches the radio when a
+timer fires, long after `on_command` returned, so no synchronous `CmdResult` can ever prove it flew. Each round chased
+the requirement one layer deeper (`emit_hash_query` → `tx_initiating` → `DeviceHal::tx`) without it ever becoming
+reachable. **The defect was in the requirement, not only in the code.**
+⇒ The bullets below stand with *"a frame actually left"* read as **"the TX path accepted the frame"**, and
+`CmdResult::aired` is renamed **`accepted`** to stop the field asserting more than it can know.
+
 **Requirements, binding on S1's rework and on S4a/S4b:**
 
-- **`reqpubkey_sent` is emitted only when a frame actually left.** It is the contract's "the request was flooded" event
-  and must not be reachable from any bail point.
+- **`reqpubkey_sent` is emitted only when the TX path ACCEPTED the frame.** It must not be reachable from any bail
+  point, nor from any queue that rejected and discarded the frame.
 - **Each bail point is separately nameable** — `no_identity` / `no_return_route` / `degenerate` / `encode_failed`. They
   have different operator remedies, so collapsing them into one refusal repeats B34's loss of the reason.
 - ★ **A local cache hit is a success but NOT a send.** The hosted-mobile branch (`node.cpp:1688-1691`) legitimately
@@ -412,16 +423,37 @@ converts every one of them into **`reqpubkey_sent`** (`fw_main.cpp:490-497`). B4
 ⓘ This is B39's class ("a success that isn't") reached through a new door. The broader B39 redesign stays separate —
 these branches are locally knowable and do not wait on it.
 
-★★ **AND THE REQUIREMENT REACHES BELOW `emit_hash_query` — QA pass 2, in flight.** Naming the four bail points was
-not sufficient, because the send itself can still fail *after* the outcome is decided: `schedule_lbt_defer`
-(`node_mac.cpp:1218-1231`) returns **`false`** when its 4-slot ring is full and drops the frame — its own comment says
-*"ring full -> drop loudly"* — but `tx_initiating` (`:1106`) **discards that return and is `void`**, so the outcome is
-still `sent` and `reqpubkey_sent` fires for a frame that was explicitly thrown away.
-⇒ **"only when a frame actually left" is a property of the whole TX path, not of the originator's preflight.** Any
-future caller that reports transmission must propagate failure from `tx_initiating` too.
-⚠ **Scope bound:** a **successful defer is still `aired`** — the frame is scheduled and will fly, so the claim holds.
-Only the ring-full **drop** is the false case; widening this to "already on air" would make every deferred send report
-a failure.
+### §5.2 ★★ The disposition must reach the LAST queue that can DISCARD — three layers, found one per review round
+
+The same defect shape surfaced three times, each a layer further down. **Recorded together because the pattern, not
+any one instance, is the transferable lesson:**
+
+| layer | how it discards | fixed in |
+|---|---|---|
+| `emit_hash_query` | four preflight bail-outs, `void` return | S1 |
+| `tx_initiating` → `schedule_lbt_defer` | 4-slot LBT defer ring full — *"ring full -> drop loudly"* (`node_mac.cpp:1229`); return **discarded** | S1c |
+| `tx_with_retry` → `DeviceHal::tx` | **8-entry device TX ring** full ⇒ `TxResult::busy`, `txq_drops++`, **frame NOT retained**; `TxResult` **discarded** at `node_mac.cpp:1477` | ⏳ **TX1 / S1d** |
+
+★ **The third layer is real hardware and no automated gate can see it**: `lib/hal/DeviceHal` is device-side, and both
+the simulator's HAL and `test_node_hashlocate.cpp`'s HAL always return `ok`. ⇒ **a scriptable `TxResult` in the test
+HAL is a prerequisite for coverage, not a nicety**, and this earns an M2 bench entry.
+★ H/beacon frames take `slot < 0` in `tx_with_retry`, so there is **no stash retry** — the drop is definitive. And
+unlike DATA there is **no MAC timeout to recover it**, so `DeviceHal`'s own *"MAC timeouts recover"* comment does not
+apply to an H query.
+
+**Slicing (owner-ruled):** `tx_with_retry` inspecting `TxResult` is **TX1 — a GLOBAL change on a function every TX
+caller uses**, so it gets its own entry and its own commit; folding it into an id→hash slice would make both
+unattributable (C4). **S1d** carries the reqpubkey-facing half: `aired` → `accepted`, `err_tx_ring_full` →
+**`err_tx_queue_full`** (two different bounded queues can reject — a hint naming only the LBT ring is a wrong
+diagnosis with a wrong remedy), and the HAL-rejection mapping.
+
+⚠ **The residual, and its binding requirement: NO SILENT LOSS.** A frame accepted into `_deferred_lbt` can still meet a
+full device queue when its timer fires — *after* the ack was returned. Acceptance is therefore honest at ack time and
+can still be falsified later, so that later failure must surface (bounded re-defer, a late failure event, or both).
+The operator must never wait forever on a frame that died after the acknowledgement.
+
+⇒ **The general rule for this codebase: an event asserting a physical act must follow the value to the LAST queue that
+can discard it. Stopping at the first `void` return is how this survived three rounds.**
 
 ---
 

@@ -749,7 +749,7 @@ static unsigned ord(CmdCode c) {
         case CmdCode::err_no_gateway:    case CmdCode::err_priority_capped: case CmdCode::err_no_binding:
         case CmdCode::err_unsupported:   case CmdCode::err_unprovisioned: case CmdCode::err_no_data_sf:
         case CmdCode::err_ack_ring_full: case CmdCode::err_ambiguous_plane:   // §id-hash S1
-        case CmdCode::err_no_identity:   case CmdCode::err_tx_ring_full:      // §id-hash S1b / S1c
+        case CmdCode::err_no_identity:   case CmdCode::err_tx_queue_full:      // §id-hash S1b / S1c
             return static_cast<unsigned>(c);
     }
     return kUnlisted;
@@ -835,7 +835,7 @@ static void check_mapper_covers_every_enumerator(const char* enum_name, const ch
 }
 
 TEST_CASE("★ enum->string mappers cover EVERY enumerator — no silent fallback at the app boundary") {
-    check_mapper_covers_every_enumerator<CmdCode>("CmdCode", cmdcode_name, "err_unknown", 13);   // 10 -> 11 S1 `err_ambiguous_plane`; 11 -> 12 S1b `err_no_identity`; 12 -> 13 S1c `err_tx_ring_full`
+    check_mapper_covers_every_enumerator<CmdCode>("CmdCode", cmdcode_name, "err_unknown", 13);   // 10 -> 11 S1 `err_ambiguous_plane`; 11 -> 12 S1b `err_no_identity`; 12 -> 13 S1c `err_tx_queue_full`
     check_mapper_covers_every_enumerator<PushKind>("PushKind", pushkind_name, "unknown", 16);   // 14 -> 15: §team-ch-key T-K3 `team_key_received`; 15 -> 16: §chan-crypt CL2a `team_channel_no_key`
     check_mapper_covers_every_enumerator<SendFailReason>("SendFailReason", sendfailreason_name, "none", 18,
                                                          /*exempt_ord=*/0);   // SendFailReason::none == "none"  (15 -> 16: §clean-join-carriers `reprovisioned`; 16 -> 17: §team-ch-key T-K3 `unsealable`; 17 -> 18: §loc-per-send `no_location`)
@@ -882,7 +882,7 @@ TEST_CASE("★ enum->string mappers cover EVERY enumerator — no silent fallbac
     // above already breaks the build when an enumerator is added, so this cannot go stale unnoticed (U1: same walker).
     // ★★ FIXED 2026-08-01 (§id-hash S1c, QA round 2) — AND THE COMMENT ABOVE WAS FALSE UNTIL NOW. The bound was the
     // LITERAL `v < 10`, which `-Wswitch` cannot reach, so the moment CmdCode grew past 9 this loop silently stopped
-    // testing the new enumerators: `err_ambiguous_plane` (10), `err_no_identity` (11) and `err_tx_ring_full` (12) were
+    // testing the new enumerators: `err_ambiguous_plane` (10), `err_no_identity` (11) and `err_tx_queue_full` (12) were
     // all excluded while the loop still looked like it covered the enum. **Bumping the literal is not the fix** — it
     // would fail again identically at 13. The bound is now DERIVED from `ord()`, the same `-Wswitch`-guarded walker
     // check_mapper_covers_every_enumerator uses: walk the whole underlying range and let `kUnlisted` do the filtering,

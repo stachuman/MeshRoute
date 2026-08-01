@@ -151,8 +151,10 @@
 > target is unchanged.
 >
 > **New ack codes (additive):** `err_ambiguous_plane` (pass `-s` or `-t` — note the remedy is the *opposite* of
-> `err_no_binding`'s) and `err_no_identity` (no Ed25519 identity, so a mutual exchange is impossible; remedy `regen`).
-> ⚠ **One more code is pending** — the LBT-drop case below is still in QA.
+> `err_no_binding`'s) · `err_no_identity` (no Ed25519 identity, so a mutual exchange is impossible; remedy `regen`) ·
+> ⏳ **`err_tx_queue_full`** — ★ **TRANSIENT: a bounded TX queue rejected the frame. Remedy is RETRY SHORTLY, and the
+> app should offer exactly that rather than a key/plane remedy.** (In flight: renamed from `err_tx_ring_full` because
+> **two** different bounded queues can reject, and a hint naming only one is a wrong diagnosis.)
 >
 > **`{"ack":…}` gains an optional `"plane":"team"|"static"`** — present only when the node actually chose a plane, so
 > every pre-existing ack line stays byte-identical.
@@ -160,14 +162,19 @@
 > ★★ **`reqpubkey_sent` changed TWICE, and the second one matters more:**
 > 1. **`"hash"` now carries the RESOLVED hash** for the by-id form. It used to be **`0`**. It also gains the optional
 >    `"plane"`.
-> 2. ★ **It is now emitted ONLY when a frame actually left.** Previously *every* `queued` produced one — including
->    four paths that transmitted nothing (no crypto identity · an off-grid mobile with no return route · a
->    degenerate/self target · a codec failure). An app reading it as *"the request is on the air"* was being told that
->    four ways that were not true.
-> ⇒ **App consequence:** a `reqpubkey` answering `err_*` now genuinely means nothing flew. And a **local cache hit**
-> (a hosted mobile, whose key the node already holds) still answers `queued` and still fires `peer_key_cached` — but
-> **no longer `reqpubkey_sent`**, because no query was flooded. Treat `peer_key_cached` as the success signal;
-> `reqpubkey_sent` means only *"a query is on the air, expect an answer later or nothing."*
+> 2. ★★ **It now means "the TX path ACCEPTED the frame" — and that is DELIBERATELY NOT a claim of airtime**
+>    (owner-ruled 2026-08-01). Previously *every* `queued` produced one, including paths that transmitted nothing: no
+>    crypto identity · an off-grid mobile with no return route · a degenerate/self target · a codec failure · and a
+>    frame discarded by a full TX queue. An app reading it as *"the request is on the air"* was being told so **five**
+>    ways that were not true.
+>    ⓘ **Why not "actually transmitted":** an LBT-deferred frame reaches the radio when a timer fires, **after** this
+>    acknowledgement is returned — no synchronous ack can prove a future transmission. Acceptance is the strongest
+>    honest synchronous claim, and it answers the app's real question: *is it reasonable to wait?*
+> ⇒ **App consequence:** a `reqpubkey` answering `err_*` genuinely means nothing flew. A **local cache hit** (a hosted
+> mobile whose key the node already holds) still answers `queued` and still fires `peer_key_cached` — but **no longer
+> `reqpubkey_sent`**, because no query was flooded. ★ **Treat `peer_key_cached` as the success signal;
+> `reqpubkey_sent` means only "a query was accepted for transmission — expect an answer later, or nothing."** Do not
+> build a UI that promises delivery on it.
 >
 > ⓘ **`peers` over BLE is UNCHANGED by this arc.** S2 added static route-only rows and stopped listing the node
 > itself, but both are `peers all` — **text-console only** (`include_id_rows=true`). The JSON book still returns
@@ -416,9 +423,18 @@ The firmware does **NOT** auto-flood `WANT_PUBKEY` on a failed encrypted send. O
 **warns the app and drops** (`send_failed` below); the user then either **requests** the key on-air or
 **provides** it via QR. On-air resolution is thus an explicit action:
 ```
-reqpubkey <key_hash32 hex8>     # fire ONE HARD WANT_PUBKEY for this hash (the "request key" UX action)
+reqpubkey <0xhash | id> [-s|-t]   # fire ONE HARD WANT_PUBKEY (the "request key" UX action)
 ```
-- Firmware: `emit_hash_query(hash, hard=true, want_pubkey=true)` (`node.cpp:831`). The verb returns the dedicated event `{"ev":"reqpubkey_sent","hash":<key_hash32>}` (`fw_main.cpp:1503` → `write_reqpubkey_sent`, landed 2026-06-29). The **no-crypto-identity** failure path keeps its existing error ack (fails loud, no flood — see below).
+⚠⚠ **THIS SECTION IS SUPERSEDED IN TWO PLACES BY THE `§id-hash` BLOCK AT THE TOP — read that one.** Kept here because
+the surrounding mutual-exchange text below is still accurate. The two corrections:
+1. **The id form exists and a bare id is AUTO, not TEAM.** `-s` / `-t` select the plane and are mutually exclusive.
+   **`Command.reqPubkeyTeam` MUST emit `-t`.**
+2. ★ **"The no-crypto-identity failure path keeps its existing error ack" was FALSE and is now fixed.** That path
+   returned `queued`, which BLE turned into `reqpubkey_sent` — one of **five** ways the event claimed a request had
+   flown when nothing had. It now answers **`err_no_identity`**.
+- Firmware: `emit_hash_query(hash, hard=true, want_pubkey=true)`. The verb returns
+  `{"ev":"reqpubkey_sent","hash":<resolved key_hash32>[,"plane":"team"|"static"]}` (`write_reqpubkey_sent`).
+  ★ **`hash` is the RESOLVED hash for the id form — it used to be `0`.**
 - **Mutual (Slice 2, implemented 2026-06-17):** the WANT_PUBKEY H **always appends the requester's OWN pubkey**
   (the 8→40-B H), so ONE request provisions BOTH directions: the **owner caches the requester** (key + id_bind)
   before answering, and the requester caches the owner from the TYPE-5 answer. This is the bootstrap before any

@@ -1092,19 +1092,22 @@ void Node::tx_rts_retry() {
 // R4.5 LBT: hand an INITIATING frame to the radio, but if the channel is busy (and lbt_enabled) defer the real
 // TX past busy_until + rand(0,lbt_backoff+1) — the ONE LBT draw, ONLY when busy (dv:3693-3706). lbt_enabled=false
 // (every gate) -> straight to lbt_complete -> byte-identical, NO draw.
-// ★★★ §id-hash S1c (2026-08-01, QA round 2): it RETURNS now — `false` means the frame was DROPPED, not sent and not
-// scheduled. Exactly one thing can produce that: `schedule_lbt_defer` refusing a full 4-slot ring (its own comment
-// says *"ring full -> drop loudly"*). That `bool` was being DISCARDED here, so `emit_hash_query` reported `sent`,
-// `CmdResult` carried `aired = true`, and BLE emitted `reqpubkey_sent` — spec §5.1's *"must not be reachable from any
-// bail point"*, breached one layer below the four bail points S1b closed.
-// ★ SCOPE, deliberately narrow (owner ruling): **a SUCCESSFUL defer is `true`.** A deferred frame is scheduled and
-//   will fly; the contract's claim holds for it. Only the ring-full DROP is false. This return is therefore
-//   "handed to the radio layer without being dropped", NOT "already on air" — widening it to the latter would make
-//   every deferred send report a failure, which is a different (and wrong) semantic.
-// ⓘ `lbt_complete`'s own early returns are NOT folded in, and that is a judgement not an omission: both are
-//   RTS-only (a stale-flight CANCEL of a superseded flight, and a duty-budget DEFER that re-arms and does fly), so
-//   neither is a silent drop of a live frame — and neither is reachable from `emit_hash_query`, which always passes
-//   `LbtKind::flood`. If an RTS caller ever needs that distinction it is its own slice.
+// ★★★ §id-hash S1c + §tx-admission TX1 (2026-08-01): it RETURNS. `false` = the frame was DROPPED — not sent, not
+// scheduled, and NOTHING will retry it. TWO things produce that, one per branch, and they were found one review
+// apart:
+//   · the busy branch — `schedule_lbt_defer` refusing a full 4-slot ring (*"ring full -> drop loudly"*), whose
+//     `bool` this function used to discard (S1c);
+//   · the clear-channel branch — `lbt_complete` -> `tx_with_retry` -> `DeviceHal::tx` answering `busy` on a full
+//     8-entry outbound ring (it bumps `txq_drops` and does NOT retain the frame) or `too_long` (TX1).
+// Either way `emit_hash_query` used to report `sent`, `CmdResult` carried acceptance, and BLE emitted
+// `reqpubkey_sent`.
+// ★ OWNER RULING ON THE SEMANTICS (2026-08-01): the event means **"the TX path ACCEPTED the frame — nothing rejected
+//   it"**, NOT a claim of airtime. That is the only thing answerable synchronously: a deferred frame reaches the
+//   radio when a timer fires, long after on_command returned. ⇒ a SUCCESSFUL defer is `true` here. What can still
+//   go wrong AFTER that — the deferred timer meeting a full HAL queue — is reported LATE, by on_timer's defer arm.
+// ⓘ `lbt_complete`'s two RTS-only early-outs are excluded on inspection, not by omission: a stale-flight CANCEL
+//   abandons a flight that is already gone, and the duty defer re-arms kRtsDutyDeferTimerId — neither is a loss.
+//   Unreachable from the one reader regardless: `emit_hash_query` always passes `LbtKind::flood`.
 // ⓘ U3: `tx_flood` in this same file has returned `bool` on exactly this "did the frame survive the gates" question
 //   since R4.5, so this is the sibling shape, not a new convention.
 bool Node::tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen) {
@@ -1119,8 +1122,7 @@ bool Node::tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind k
                 EF_I("busy_until_ms", busy_until));
         return schedule_lbt_defer(bytes, len, sf, kind, rts_flight_gen, delay);   // false ⇒ ring full ⇒ DROPPED
     }
-    lbt_complete(bytes, len, sf, kind, rts_flight_gen);
-    return true;
+    return lbt_complete(bytes, len, sf, kind, rts_flight_gen);        // §tx-admission TX1: false ⇒ the HAL REJECTED it
 }
 
 // NAV (virtual carrier sense) duration helpers — pure, native-testable. Conservative: an overheard RTS
@@ -1248,11 +1250,11 @@ bool Node::schedule_lbt_defer(const uint8_t* bytes, size_t len, int16_t sf, LbtK
 // The actual TX (immediate clear-channel path OR the kLbtDeferTimerId re-fire). RTS: the flight-gen staleness check
 // (cancel a stale deferred RTS, dv:3708/3712) + the #A duty pre-check (defer over-budget) + start_rts_timeout (the
 // after_tx). NACK/flood: just TX.
-void Node::lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen) {
+bool Node::lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen) {
     if (kind == LbtKind::rts) {
         if (!_active->_pending_tx || _active->_pending_tx->flight_gen != rts_flight_gen) {  // flight changed while we waited (flight_gen = object-identity, not the 4-bit ctr_lo)
             MR_EMIT("rts_tx_cancelled_stale", EF_S("reason", "pending_tx_changed"));
-            return;
+            return true;                                              // §TX1: a deliberate CANCEL of a dead flight — nothing was rejected, nothing to report
         }
         // Cleanup #A (redo): duty pre-check the RTS (the #2 slot<0 residual). Over budget -> defer in the DEDICATED
         // _rts_duty_defer slot (NOT the shared LBT ring — that reuse was net-worse, review wgvbtirmu) + arm the
@@ -1266,13 +1268,14 @@ void Node::lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind ki
             d.len = static_cast<uint16_t>(len < sizeof(d.buf) ? len : sizeof(d.buf));
             for (uint16_t i = 0; i < d.len; ++i) d.buf[i] = bytes[i];
             (void)_hal.after(wait, kRtsDutyDeferTimerId);
-            return;
+            return true;                                              // §TX1: deferred, kRtsDutyDeferTimerId will re-run it — not a loss
         }
     }
     const FrameTag tag = (kind == LbtKind::rts)  ? FrameTag::rts
                        : (kind == LbtKind::nack) ? FrameTag::nack : FrameTag::beacon;
-    tx_with_retry(bytes, len, sf, tag);                               // R4.5b: stash (NACK) + tag the frame
+    const TxHandOff r = tx_with_retry(bytes, len, sf, tag);           // R4.5b: stash (NACK) + tag the frame
     if (kind == LbtKind::rts) start_rts_timeout();                     // after_tx: CTS-wait starts when the RTS is on air
+    return r != TxHandOff::rejected;                                  // §tx-admission TX1: the HAL's answer, propagated
 }
 
 // Cleanup #A redo: the RTS duty-defer timer fired. Drop if the flight is gone/replaced (flight_gen = the Lua
@@ -1448,7 +1451,13 @@ bool Node::duty_over_budget(size_t len, int16_t sf, uint32_t* wait_ms) {
 // R4.5b central TX (Lua tx_with_retry dv:3599-3639): STASH the retry-eligible frame so on_radio_busy can re-issue
 // it on a busy channel, then hand to the radio tagged with the frame type (the sim echoes the tag back). RTS and
 // beacon are not retry-eligible (slot -1).
-bool Node::tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf, FrameTag tag) {
+// ★ §tx-admission TX1 — THE INERTNESS ARGUMENT FOR EVERY NON-reqpubkey CALLER, pinned rather than argued: the three
+// readers below branch on `!= deferred_retry_armed`, and BOTH other enumerators satisfy that, so their behaviour is
+// bit-for-bit the pre-TX1 `handed == true`. A fourth enumerator added on the wrong side of this line would change
+// DATA post-TX arming silently; these asserts make that a build failure instead.
+Node::TxHandOff Node::tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf, FrameTag tag) {
+    static_assert(TxHandOff::handed   != TxHandOff::deferred_retry_armed, "TX1: `handed` must satisfy the readers' predicate");
+    static_assert(TxHandOff::rejected != TxHandOff::deferred_retry_armed, "TX1: a HAL rejection must still arm the MAC timeout that recovers a retry-eligible frame");
     const int slot = retry_slot_of(tag);
     if (slot >= 0) {
         TxStashSlot& s = _tx_stash[slot];
@@ -1470,11 +1479,24 @@ bool Node::tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf, FrameTag 
         MR_EMIT("duty_cycle_blocked", EF_S("label", label_of_frame(tag)), EF_I("wait_ms", wait), EF_S("source", "tx_with_retry"));
         _tx_stash[slot].reissue_pending = true;                        // a duty re-issue timer is now armed (gates the gateway layer swap)
         (void)_hal.after(wait, kDutyDeferTimerId + static_cast<uint32_t>(slot));
-        return false;                                                  // NOT handed to the radio (caller must not arm post-tx state)
+        return TxHandOff::deferred_retry_armed;                        // NOT handed to the radio (caller must not arm post-tx state)
     }
     TxParams p; p.sf = sf; p.label = label_of_frame(tag); p.tag = static_cast<uint16_t>(tag);
-    _hal.tx(bytes, len, p);
-    return true;                                                      // handed
+    // ★★★ §tx-admission TX1 (2026-08-01): the TxResult was DISCARDED here and this returned `true // handed`
+    // unconditionally. `DeviceHal::tx` answers `busy` when its 8-entry outbound ring is full — it bumps `txq_drops`
+    // and **does not retain the frame** — and `too_long` past the SX1262 length register. For a `slot < 0` frame
+    // (RTS / beacon-flood) there is no stash and no MAC timeout, so that is a DEFINITIVE drop that was reported
+    // upward as a send. Now it is answered honestly. See Node::TxHandOff for why this is three-way and not a bool.
+    // ⓘ Telemetry only (MR_EMIT is device-stripped): the metal-side diagnostic is DeviceHal's own `txq_drops`
+    // counter, which already existed. A per-frame device log would fire on every rejection on a saturated radio —
+    // noise, and out of scope for this slice.
+    const TxResult tr = _hal.tx(bytes, len, p);
+    if (tr != TxResult::ok) {
+        MR_EMIT("tx_hal_rejected", EF_S("label", label_of_frame(tag)), EF_I("result", static_cast<uint8_t>(tr)),
+                EF_I("len", static_cast<int64_t>(len)));
+        return TxHandOff::rejected;
+    }
+    return TxHandOff::handed;
 }
 
 // SHARED-BUG FIX (#2): the duty-defer timer (kDutyDeferTimerId+slot) fired — re-run tx_with_retry from the stashed
@@ -1489,7 +1511,9 @@ void Node::duty_defer_fire(uint8_t slot) {
     // _active->_pending_tx), do NOT re-transmit the stale DATA / re-stash with a mismatched ctr_lo. Mirrors retry_stashed +
     // the Lua m_broadcast retry guard (dv:12172). CTS/ACK/NACK are idempotent responses -> no flight guard.
     if (tag == FrameTag::data && (!_active->_pending_tx || _active->_pending_tx->flight_gen != s.flight_gen)) return;   // L9: exact flight match (was the 4-bit ctr_lo, 1/16 alias)
-    const bool handed = tx_with_retry(s.buf, s.len, s.sf, tag);       // re-runs the duty pre-check (re-defers if still over budget)
+    // §tx-admission TX1: `!= deferred_retry_armed` is EXACTLY this site's previous `handed == true` — a HAL
+    // rejection must still arm the ACK wait, because for a retry-eligible frame that timeout IS the recovery.
+    const bool handed = tx_with_retry(s.buf, s.len, s.sf, tag) != TxHandOff::deferred_retry_armed;   // re-runs the duty pre-check (re-defers if still over budget)
     // DATA re-hand: re-arm the ACK wait do_data_tx skipped at defer-time (the DATA now hit the air). Anchored to the
     // actual send time, matching the Lua deferred re-run replaying on_handed (dv:3633 -> 3637 -> 10274-10278).
     if (handed && tag == FrameTag::data && _active->_pending_tx && _active->_pending_tx->flight_gen == s.flight_gen) {   // L9: exact flight match
@@ -1558,7 +1582,7 @@ void Node::do_data_tx() {
         uint8_t mbuf[protocol::lora_max_frame_bytes];
         const size_t mlen = pack_m(min, std::span<uint8_t>(mbuf, sizeof(mbuf)));
         if (mlen == 0) { _hal.log("M-frame pack failed"); return; }
-        const bool handed = tx_with_retry(mbuf, mlen, static_cast<int16_t>(pt.chosen_data_sf), FrameTag::data);
+        const bool handed = tx_with_retry(mbuf, mlen, static_cast<int16_t>(pt.chosen_data_sf), FrameTag::data) != TxHandOff::deferred_retry_armed;   // §tx-admission TX1: verbatim the old `handed`
         MR_EMIT("data_tx", EF_I("dst", pt.dst), EF_I("next", pt.next), EF_I("ctr", pt.ctr),
                 EF_I("sf", pt.chosen_data_sf), EF_B("m_broadcast", true));
         if (handed) {
@@ -1604,7 +1628,7 @@ void Node::do_data_tx() {
     uint8_t buf[protocol::lora_max_frame_bytes];
     const size_t dlen = pack_data(din, std::span<uint8_t>(buf, sizeof(buf)));
     if (dlen == 0) { _hal.log("DATA pack failed"); return; }
-    const bool handed = tx_with_retry(buf, dlen, static_cast<int16_t>(pt.chosen_data_sf), FrameTag::data);   // R4.5b stash; #2 may duty-defer
+    const bool handed = tx_with_retry(buf, dlen, static_cast<int16_t>(pt.chosen_data_sf), FrameTag::data) != TxHandOff::deferred_retry_armed;   // R4.5b stash; #2 may duty-defer. §tx-admission TX1: verbatim the old `handed` — see TxHandOff for why a HAL rejection must NOT suppress start_ack_timeout()
     MR_EMIT("data_tx", EF_I("dst", pt.dst), EF_I("next", pt.next), EF_I("ctr", pt.ctr),
             EF_I("sf", pt.chosen_data_sf), EF_B("m_broadcast", false));   // emitted before tx_with_retry (dv:10251); m_broadcast handled above (early return)
     // Arm the ACK wait ONLY if the DATA actually hit the air — mirrors the Lua DATA on_handed (dv:10270-10279, fires only

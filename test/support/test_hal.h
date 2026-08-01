@@ -27,6 +27,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
+#include <vector>
 
 namespace mrtest {
 
@@ -78,7 +80,16 @@ public:
     }
 
     // ---- telemetry — `emit` stays PURE ON PURPOSE (each TU captures its own projection).
-    void log(const char*) override {}
+    // ★ §id-hash S1d: logs are CAPTURED now (they were discarded). `_hal.log` is the ONE operator-facing channel
+    // lib/core has on metal — MR_EMIT is device-stripped — so the no-silent-loss report for a deferred frame that
+    // dies at the radio queue lands here, and a test must be able to see it. Default behaviour is unchanged for
+    // every existing fixture: they simply never look.
+    std::vector<std::string> logs;
+    void log(const char* m) override { logs.emplace_back(m ? m : ""); }
+    bool logged(const char* needle) const {
+        for (const auto& l : logs) if (l.find(needle) != std::string::npos) return true;
+        return false;
+    }
 };
 
 }  // namespace mrtest

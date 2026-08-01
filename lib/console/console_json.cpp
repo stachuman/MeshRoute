@@ -113,7 +113,7 @@ const char* cmdcode_name(CmdCode c) {
         case CmdCode::err_ack_ring_full:   return "err_ack_ring_full";   // pending-ack ring saturated: a new -a send is REFUSED loudly (protocol_constants.h: NEVER evict-oldest)
         case CmdCode::err_ambiguous_plane: return "err_ambiguous_plane"; // ★ §id-hash S1: a bare id resolves in BOTH planes -> pass `-s` or `-t` (NOT err_no_binding: the remedy is the opposite one)
         case CmdCode::err_no_identity:     return "err_no_identity";     // ★ §id-hash S1b: no Ed25519 identity -> a MUTUAL pubkey exchange is impossible; remedy `regen`
-        case CmdCode::err_tx_ring_full:    return "err_tx_ring_full";    // ★ §id-hash S1c: the LBT defer ring was full -> the frame was DROPPED. TRANSIENT: retry shortly
+        case CmdCode::err_tx_queue_full:   return "err_tx_queue_full";   // ★ §id-hash S1d: a bounded TX queue (LBT defer ring OR the radio's outbound ring) REJECTED the frame. TRANSIENT: retry shortly
     }
     return "err_unknown";
 }

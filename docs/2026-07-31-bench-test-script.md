@@ -11,8 +11,9 @@ else, so this is deliberately the residue, not a re-test.*
 `§ab1` · `§ab2` · `§ab3` · `§ab4` · `§err-reason` (B32+B33) · `§b22` · `§cl1` · `§o3-key-lifetime` · `§cl2a` · `§cl2b`.
 ⇒ **the address book is complete and the channel-crypt arc is complete. Part 5 and Part 6 are both live — no ⏳ left.**
 
-⏳ **PART 7 IS NOT YET COMMITTED** — `§id-hash S1` / `S2` / `S2b` (register B42/B44/B45/B46) are green and awaiting the
-owner's commit. Everything else on this page is flashable today.
+⏳ **PART 7 IS NOT YET COMMITTED** — `§id-hash S1/S1b/S1c/S1d` + `§tx-admission TX1` / `S2` / `S2b`
+(register B42/B44/B45/B46/B47/B48/B49/B50) are green and awaiting the owner's commit. Everything else on this page is
+flashable today. ⚠ **TX1 is a separate commit from the reqpubkey work** (it changes a function every TX caller uses).
 
 **Setup:** one node is enough for Parts 0–2 and 4. Parts 3 and 5 need two nodes that can hear each other.
 ⚠ **Flash the `xiao_sx1262` (or another 32-bit board) for Part 1** — that is the whole point of check 1.2.
@@ -187,7 +188,10 @@ verb previously could not succeed for *any* id.
 | 7.11 | `reqpubkey 0x<THIS node's own key_hash32>` | `> err_unsupported …` + `> reqpubkey: nothing aired — the target is not a queryable peer …` (was a silent `queued`) |
 | 7.12 | on an **off-grid / unregistered mobile**: `reqpubkey <id that resolves statically>` (no flag, or `-s`) | `> err_no_gateway …` + `> reqpubkey: nothing aired — this node is an UNREGISTERED mobile …`. ★ **CONTROL on the same node:** the same id with `-t`, for a teammate, **does** send |
 | 7.13 | over **BLE**, repeat 7.10–7.12 | a plain `{"ack":"err_…"}` and **NO `reqpubkey_sent`** — that event now means "a frame really aired". A hosted-mobile cache hit is the one *success* that also emits no `reqpubkey_sent`: you get `{"ack":"queued",…}` and the `peer_key_cached` push instead |
-| 7.14 | ⓘ **OBSERVE, don't try to force:** on a genuinely busy channel you may see `> err_tx_ring_full ctr=0 depth=0 …` + `> reqpubkey: nothing aired — the radio's deferred-TX ring is full … TRANSIENT: just retry` | **NOT a fault.** The 4-slot LBT defer ring was full, so the frame was dropped rather than sent. **Retrying immediately should succeed.** ⚠ It is **not** `err_ack_ring_full` (a different ring, and that one is about pending `-a` sends). Reproducing it deliberately needs 5 concurrent initiating TXs into a busy channel — natively fixtured instead |
+| 7.14 | ⓘ **OBSERVE, don't try to force:** under radio saturation you may see `> err_tx_queue_full ctr=0 depth=0 …` + `> reqpubkey: nothing was sent — a bounded TX queue rejected the frame …` | **NOT a fault, and TRANSIENT — retry.** ⚠ It deliberately does **not** name which queue: **two** can reject (the Node's 4-slot LBT defer ring on a busy channel, and `DeviceHal`'s 8-entry outbound ring on a saturated radio). It is **not** `err_ack_ring_full` (a third, unrelated ring, about pending `-a` sends) |
+| 7.15 | ★★ **THE ONE THAT ONLY METAL CAN SHOW — `DeviceHal`'s outbound queue.** Saturate the radio (several nodes in range + a burst: `testch`/a channel flood, or repeated `reqpubkey` while beacons and DMs are flying) and watch for `> err_tx_queue_full` from `reqpubkey` | ⇒ the H frame was **refused by the hardware queue** (`DeviceHal::tx` → `busy`: it bumps `txq_drops` and **does not retain** the frame; an H is `slot < 0` so there is no stash retry). **Before this it reported success and BLE emitted `reqpubkey_sent` for a frame that never existed.** ⚠ **No automated gate can reach this**: the native HAL and the simulator's both always accept (the sim's queue is unbounded) |
+| 7.16 | ★ **the LATE loss** — the same saturation, but with the channel busy at the moment you type it: the ack is `> queued … ` (accepted) and then, seconds later, the console prints `deferred TX dropped at the radio queue — a request reported as accepted never aired` | ⇒ the frame was accepted into the LBT defer ring and **died when its timer met a full radio queue**. This line is the **no-silent-loss** guarantee: an H query has **no MAC timeout** behind it, so without it you would wait forever. ⓘ It is deliberately NOT re-sent — a stale H aired seconds late duplicates a question you have probably already retried |
+| 7.17 | ⓘ **KNOWN GAP, not a test:** `DeviceHal::_txq_drops` counts every rejected frame but **has no console surface** | ⇒ outside the `reqpubkey` path a hardware TX drop is currently invisible on metal. Recorded in the register (B50); exposing it is its own slice |
 
 ⚠ **COMPANION (iOS), bench/CI-owed — `swift` is unavailable in the dev environment so this could NOT be gate-verified:**
 `Command.reqPubkeyTeam(localID:)` now emits **`reqpubkey <id> -t`** (it emitted the bare form and relied on a bare
