@@ -111,5 +111,46 @@ flash wear **and** a wider reset-during-write corruption window, in a tree that 
 
 ---
 
+## Part 6 — ★ CHANNEL CRYPT, the overnight arc (10 minutes, two nodes in one team)
+
+⚠ **This whole plane is CORPUS-BLIND** — no simulator node can hold a team content key, so **your bench is the only
+end-to-end validator.** Native covers the crypto (KATs, nonce-uniqueness, tamper, wrong-key); metal covers that it is
+wired up at all.
+
+**Setup** — on node A (a keyholder with a fix):
+```
+cfg set mobile 1
+team new key=… freq=… sf=… bw=… sf_list=…      # mints the team CONTENT key
+cfg set lat 521234567 ; cfg set lon -12345678
+cfg                                            # expect team_ch_key=1  team_channel_crypt=1
+team exportkey                                 # then grant it to node B (team grantkey / QR)
+```
+
+| # | do | expect |
+|---|---|---|
+| 6.1 | ★★ `send_channel 7 "at the col" -t -l -e` | **OK — THE TARGET.** B shows `CH 7 [enc] from=<team_local_id>: at the col`, and **`peers` on B shows A's row with `lat`/`lon`/`loc_age_s`/`loc_src:"team"`** |
+| 6.2 | `send_channel 7 "at the col" -t -l` | **OK** — sealed by the `team_channel_crypt` default, no `-e` needed |
+| 6.3 | `send_channel 7 "" -t -l -e` | **OK** — a position-only *"here I am"* post |
+| 6.4 | `send_channel 7 "x" -l` (no `-t`) | ❌ `unsealable` — no team ⇒ no content key |
+| 6.5 | `send_channel 7 "x" -t -g -l -e` | ❌ `unsealable` — the global copy would air **coordinates** in the clear |
+| 6.6 | `send_channel 7 "" -t -e` | ❌ empty post (`flags==0`) — ⓘ **sync error only, no `FAILED` push, by design** |
+| 6.7 | `cfg set team_channel_crypt 0` then `send_channel 7 "x" -t -l` | ❌ `unsealable` — opted out ⇒ it would go clear |
+| 6.8 | …and `send_channel 7 "x" -t -l -e` | **OK** — explicit `-e` still seals |
+| 6.9 | `cfg set team_channel_crypt 1`, `cfg set lat 0`, `cfg set lon 0`, then `-t -l` | ❌ **`no_location`** — *"asked for a position and this node has NO fix"*. ⚠ **Not** an encryption error |
+| 6.10 | on a member with **no** key: `send_channel 7 "x" -t -e` | ❌ `no_key` → remedy is `team grantkey` from a teammate |
+| 6.11 | same node, plain `send_channel 7 "x" -t` | **OK, plaintext** — a keyless member still posts, unchanged |
+| 6.12 | ★ **O3:** on A, `team 0x<other>` then `cfg` | **`team_ch_key=0`** — the key is cleared on a team switch and must be re-granted |
+| 6.13 | size limits | **173 B** text sealed OK / 174 refused; **167 B** with `-l` OK / 168 refused |
+
+⚠ **Two things that are NOT bugs if you see them:** `team_channel_crypt` **does not survive a reboot** (live-only by
+design — the default is the privacy-safe value, so a forgotten opt-out heals itself); and a **plaintext** channel post
+is still accepted from a keyholder when the toggle is off — that is the documented opt-out, and it emits a loud
+`channel_crypt_skipped` rather than downgrading silently.
+
+★ **A refusal now names itself** (`§err-reason`): every one of the above prints `> <err_token> ctr=0 depth=0`, and the
+token is the **same string the companion sees** in `{"ack":"…"}` — one regex serves both transports.
+
+---
+
 **If anything in Part 1 or 2 fails, stop and report before continuing** — those are the checks with no second line of
 defence. Parts 3–5 have native coverage behind them, so a failure there is a narrower question.
