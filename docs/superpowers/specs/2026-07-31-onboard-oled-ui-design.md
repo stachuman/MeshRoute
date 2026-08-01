@@ -72,14 +72,22 @@ set_power_save(bool) · button_pressed() · battery_sample_mv()
 Rules, all of which must hold before a push may complete a UI transaction:
 
 1. `ui_perform_send()` returns a **typed result**, never a discarded `BufferSink`. A parser refusal or an immediate `CmdCode::err_*` is a terminal outcome shown on the panel — never an indefinite `SENDING...`.
-2. `channel_sent` completes an emergency **only** when its `ctr` matches the tracked handle.
-3. `send_blocked` must be `blocked_channel == true` **and** arrive inside the pending request's outcome window. It carries no `ctr`, so serialisation is the only correlator available — the UI holds at most one in-flight send at a time, which makes that sound.
-4. `send_e2e_acked` / `send_failed` complete a **DM** only on a matching `ctr` **and** peer.
-5. `send_failed` reasons are surfaced, not swallowed — `no_pubkey` → `NO KEY`, `unsealable` / `no_location` → their own actionable text.
+2. ★ **Accepted requires a NON-ZERO `ctr`.** `CmdCode::queued` alone is not proof of transmission — a blocked or seal-failed channel post returns `queued` with `ctr == 0` (B39). `next_ctr` never yields 0, so zero is the sentinel. A zero-ctr result means *nothing was sent*: no attempt is counted, and the tracker waits for the matching `send_blocked` / `send_failed` instead.
+3. `channel_sent` completes an emergency **only** when its `ctr` matches the tracked handle (needs B40 for the full width).
+4. `send_blocked` must be `blocked_channel == true` **and** arrive inside the pending request's outcome window. It carries no `ctr`, so scope plus a bounded window is the only correlator available — weaker than exact matching, and labelled as such rather than described as exact attribution.
+5. `send_e2e_acked` / `send_failed` complete a **DM** only on a matching `ctr` **and** peer.
+6. **The full `SendFailReason` reaches the UI**, not a boolean: `no_pubkey` → `NO KEY`, `e2e_ack_timeout` → `NO CONFIRM`, others → a compact reason. Collapsing them makes `NO CONFIRM` unreachable and discards the one thing that tells the user what to do next.
 
 Anything unmatched is ignored. Native tests must interleave unrelated channel and DM outcomes and prove the emergency state cannot move.
 
-**Why not parse the console response text.** `dispatch()` writes human strings into a `BufferSink`, and scraping them would put a UI behaviour on a formatting detail. `mrfw::dispatch` is still the send path (it is the one place the parser and `Node::on_command` are already wired together), but the **typed** `CmdResult` must reach the UI. If that means factoring a small typed helper out of the dispatch path so console and UI share it, do that rather than parsing text.
+**Two trackers, and the emergency always wins.** A single in-flight slot would serialise a distress call behind an outstanding `-a` DM waiting on its end-to-end ack — a long press would queue an alarm that cannot dispatch until the DM's ack or deadline closes. That defeats "fires from any screen". So:
+
+- the **emergency** slot and the **normal** slot (DM or canned channel) are independent and may be in flight together; their pushes are distinguishable by kind plus `ctr`/peer;
+- an emergency **never** waits on, and is never overwritten by, normal UI work;
+- if a canned channel transaction is outstanding when the emergency fires, its UI outcome tracking is **abandoned** — the emergency takes the channel slot immediately, and the late canned `ctr` simply will not match;
+- the model likewise holds the pending emergency request separately, so a normal compose action cannot overwrite it.
+
+**How the UI issues a send.** ⚠ Not through `dispatch()` — that is a console *verb router* which returns `false` for `send` / `send_channel`; its callers (`service_console`, `ble_dispatch_line`) each open-code `parse_command` + `Node::on_command`. The UI uses a small typed helper, **`mrfw::exec_command(line, len) → ExecResult`** (owner-approved 2026-08-01), which runs that same sequence and returns the `CmdResult`. Composing a command *string* keeps the UI off the `Command` struct's field names, so flags like `-e` and `-l` needed no UI change when they landed; taking the result *typed* keeps a safety behaviour off a formatting detail. Scraping `BufferSink` text is explicitly rejected.
 
 **Why two pure headers.** `[env:native]` sets `test_build_src = no` but adds `-I src` (`platformio.ini:83`), so a pure header in `src/` is reachable from native tests — the established precedent is `firmware_config_parse.h` driven by `test_firmware_config_parse.cpp`. Gesture timing and emergency-state transitions are miserable to debug on hardware and trivial to test on host; both belong on the right side of that line.
 
@@ -191,8 +199,12 @@ A DM needs its own small outcome machine — separate from the emergency one, co
 | `waiting_ack` | accepted, `ctr` recorded (`-a` was set) | `SENT, waiting` |
 | `delivered` | `send_e2e_acked` with matching `ctr` **and** `dst` | `DELIVERED to <label>` |
 | `no_key` | `send_failed{no_pubkey}` matching | `NO KEY` |
-| `not_confirmed` | the ack deadline passed with no ack | `NO CONFIRM` |
+| `not_confirmed` | `send_failed{e2e_ack_timeout}` matching | `NO CONFIRM` |
 | `failed` | any other matching `send_failed` | a compact reason |
+
+The tracker must therefore carry the **whole `SendFailReason`** into the model, not an `acked`/`no_pubkey` pair of booleans — with only those two, `not_confirmed` is unreachable and every other reason collapses to a `failed` the user cannot act on.
+
+**Late acks:** the core deliberately permits `send_e2e_acked` to arrive after `e2e_ack_timeout` (`command.h:160`). Phase A **upgrades** `not_confirmed` → `delivered` if a matching late ack arrives while the sub-view is still showing — the truth is worth more than the tidiness, and the correlation data is already retained.
 
 The sub-view closes to its parent on an explicit `double`, or after a bounded display window. `delivered` is the one place in this design where the word **DELIVERED is accurate** — it is a genuine end-to-end ack, unlike a channel post's `PICKED UP`.
 
@@ -236,12 +248,14 @@ Two constraints the draft could not have anticipated, both verified:
 
 Every timed transition is a field, so the renderer never computes deadlines and the native tests can drive them:
 
-| field | drives |
-|---|---|
-| `arming_fire_at_ms` | the countdown digit, derived as `(fire_at - now)/1000` |
-| `cancelled_until_ms` | `CANCELLED` auto-returns to the parent after ~1 s |
-| `emergency_hold_until_ms` | the capped panel-on window (§5) |
-| `retry_at_ms` | the blocked-retry deadline |
+| field | drives | reset by |
+|---|---|---|
+| `arming_fire_at_ms` | the countdown digit, derived as `(fire_at - now)/1000` | `long_arm` |
+| `cancelled_until_ms` | `CANCELLED` auto-returns to the parent after ~1 s | `long_cancel` |
+| `emergency_hold_until_ms` | the capped panel-on window (§5) | `long_fire`, and **every retained outcome** — `picked_up`, `not_heard`, `blocked`, `reply` |
+| `retry_at_ms` | the blocked-retry deadline | a `blocked` outcome |
+
+★ **`emergency_hold_until_ms` must actually be READ by the blanking rule.** It is a deadline, not a duration: the panel stays on until `now >= emergency_hold_until_ms`, compared wrap-safely like the retry deadline. An earlier plan draft wrote the field on fire and on reply but then measured the hold from *last input* instead — so a reply that arrived while the user's hands were elsewhere never extended the window it had just set, and `picked_up` fell back to the ordinary 15 s blanking.
 
 The model marks itself dirty **only when the visible countdown digit changes**, not every tick — otherwise the emergency repaints at the full tick rate for no visual difference.
 
@@ -250,6 +264,8 @@ The model marks itself dirty **only when the visible countdown digit changes**, 
 `PICKED UP` is relay evidence. The only *human* confirmation is a teammate answering, so an inbound team channel post arriving while the emergency is live or sticky transitions to a sticky `reply` state carrying a bounded sender label and a display-clamped body.
 
 **Scope: only posts on `MR_UI_TEAM_CHANNEL_ID` qualify.** Accepting any team channel traffic would let unrelated chatter read as "someone answered my distress call", which is the same false-confirmation class as §2.1.
+
+★ **And only after an alarm was actually transmitted.** The state whitelist is `firing` · `blocked` · `picked_up` · `not_heard` · `reply`, and **at least one emergency transmission must have been accepted**. `arming`, `cancelled` and `failed` are excluded: in all three, nothing went out, so a coincident channel-0 post becoming `REPLY` would manufacture a confirmation of a message that was never sent — including during the 3.5 s hold *before* the user has even committed.
 
 ### 4.1 ★ Location on the distress call (owner ruling 2026-07-31)
 
@@ -277,6 +293,10 @@ Three rules:
 1. **Paint only when the MAC is idle** — no pending TX/RX, `!g_iradio.tx_busy()`, `g_hal.txq_depth() == 0`. `fw_main.cpp:1274` already computes this predicate to decide it may sleep; reuse it rather than inventing a second one (U1).
 2. **Paint only when the model reports dirty**, throttled to ≤2 Hz, as `mr_ui.h` already instructs.
 3. **Chunk the frame across ticks** — 8 pages of 128 B ≈ 3 ms each, so no single tick holds the bus. This is why §8 recommends a page-buffered driver rather than a full-frame one.
+
+⚠ **U8g2 page mode redraws the WHOLE scene once per page.** Its picture loop is `firstPage(); do { draw_everything(); } while (nextPage());` — the draw calls are clipped to the current page, not accumulated. An earlier plan draft drew the scene once at frame start and then only advanced pages, which would have left seven of eight pages blank. So per eligible tick: **draw the full scene, then advance one page.**
+
+**Freeze the frame's inputs at `begin_frame()`.** The `UiState`/`UiSnapshot` a frame renders are copied when it starts and the page loop reads only that copy — a frame spans several ticks, and live state changing mid-frame would tear the image across page boundaries.
 
 Emergency states override rule 2's throttle but **not** rule 1's idle check: sending is more important than drawing, and the send is what the screen is about. Even then the emergency repaints only when its countdown digit or state actually changes (§4.3).
 
@@ -314,7 +334,7 @@ No new inbox subsystem is needed; `Inbox::pull()` already visits both stores and
 - Call `g_node.inbox().pull()` **directly**. Do **not** dispatch a textual `pull_inbox` into the 512 B `BufferSink` — the NDJSON is unbounded and would truncate.
 - `pull()` returns the **DM block oldest-first, then the channel block oldest-first** (`inbox.h:107-109`) — the two seq spaces are independent and there is no interleaved chronological stream.
 - Phase A renders **one screen with labelled rows** (`DM` / `CH <n>`) in that block order. Chronological interleaving by `rx_time_ms` is explicitly *not* implied; adopting it later needs a stated rule about reboot/uptime semantics first.
-- Retain only the bounded number of rows the panel can browse; clamp sender and body text to the display width.
+- Retain only the bounded number of rows the panel can browse; clamp sender and body text to the display width. ⚠ **Allocate the bound PER KIND** (e.g. 4 DM + 4 channel), not as one shared pool filled in visit order — `pull()` visits the channel block second, so a shared "keep the newest N" would let a chatty channel evict every DM row, on a screen whose whole point is showing both.
 - `short` walks the retained rows and leaves at the end, like TEAM. When more rows exist than are retained, show that rather than implying the list is complete.
 - Viewing on the panel does **not** advance the durable `mark_read` cursor. The UI's unread counters stay session-local (§6 above); moving the durable cursor from a button press would desynchronise the companion app, which is the cursor's real owner.
 
@@ -323,6 +343,8 @@ No new inbox subsystem is needed; `Inbox::pull()` already visits both stores and
 The only battery reader in the tree is nRF52-only: `#if defined(NRF52_PLATFORM) && defined(PIN_VBAT) && !defined(MR_NO_BATT)` (`firmware_commands.cpp:299-304`, method at `:709`). Both Heltec boards are ESP32-S3, so `batt_mv` is unavailable on either today, and `console_json.h:126` records the project rule: an unavailable reading is **omitted, never faked**. The status bar must render `--` rather than a plausible wrong percentage.
 
 ★ **Sampling is cached and slow, not per-tick.** The board function performs one sample: a divider toggle plus eight `analogRead()` calls. `firmware_ui.cpp` calls it **at boot and then every 30 s**, only under the §5 rule 1 MAC-idle predicate, and keeps the last good value between samples. An earlier draft sampled inside `build_snapshot()` on every service pass — ADC work on the radio hot path for a value that changes over minutes. Until the first successful sample the field is unavailable and renders `--`.
+
+⚠ **The cadence must gate on "attempted", not on "succeeded".** A reader that returns the documented unavailable value (`<0`) on a board without a battery would otherwise be retried every idle pass forever — eight ADC reads per tick for a value that will never arrive. Advance the 30 s deadline after **every** attempt; keep the last good value separately.
 
 Add an ESP32-S3 reader behind the same shape (a board-gated function returning millivolts, `<0` = unavailable). Both methods come from MeshCore — the same provenance `firmware_commands.cpp:709` used for the nRF52 reader ("the authoritative MeshCore XiaoNrf52Board method").
 
@@ -466,6 +488,21 @@ Both are pure and table-driven; no Arduino, no radio, no display.
 - battery sampling happens only at its slow cadence and never starts while the MAC is busy
 - `heltec_v3` and `heltec_mobile` compile with the final TU ownership and `mrfw::dispatch` qualified
 
+**Added by the second review (2026-08-01), all adopted:**
+
+- a team relay produces exactly one truthful `channel_sent{relayed=true}` while coverage retries remain valid *(needs B38)*
+- a blocked emergency returns **no** accepted counter and consumes none of the three transmissions *(needs B39)*
+- a channel seal failure leaves `SENDING...` and shows its exact reason
+- channel counters **255 · 256 · 257 · 65535→1** correlate correctly, with a low-byte-colliding unrelated outcome interleaved *(needs B40)*
+- an outstanding DM or canned channel transaction **cannot delay** emergency command execution — proven at the firmware integration boundary, not only in the pure model
+- delayed outcomes from an abandoned normal transaction cannot move the emergency
+- one frame redraws the scene **once per page** and performs one page transfer per MAC-idle tick
+- `PICKED UP` and a late reply obey the 120 s hold deadline across `millis()` wrap
+- `e2e_ack_timeout` shows `NO CONFIRM`, and a late ack upgrades it to `DELIVERED`
+- an unavailable battery reader is retried at 30 s cadence, not loop cadence
+- channel traffic during `arming`, `cancelled` or `failed` cannot become a distress `REPLY`
+- the bounded inbox retains labelled DM **and** CH rows — a chatty channel cannot evict every DM row
+
 **Gate:** the standing D1 gate applies — native, s18 md5 exact (this work is `src/`-only, so it is inert by construction and the md5 must not move), and the board envs per §11.
 
 ## 13. Slices
@@ -490,7 +527,19 @@ Renumbered after the 2026-08-01 review. **UI-4 is new and is the review's first 
 
 UI-1 through UI-4 are pure or near-pure and can start immediately. UI-5 is blocked only on the display-library choice (§8). Every V3 pin UI-5/UI-6/UI-9 needs is known (§10.1) except the panel reset pin, which wants a hardware confirmation.
 
-**Prerequisites: discharged.** `send_channel … -t -l -e` is built and honoured — the parser accepts `-e`/`-l` (`console_parse.cpp:250,267`) and `on_command` enforces the refusal matrix including `no_fix` (`node.cpp:1402-1526`), with `team_channel_crypt` defaulting true (`node_carriers.h:184`). Verified 2026-08-01; nothing in Phase A waits on protocol work.
+**Prerequisites — one discharged, one OUTSTANDING.**
+
+✅ `send_channel … -t -l -e` is built and honoured — the parser accepts `-e`/`-l` (`console_parse.cpp:250,267`) and `on_command` enforces the refusal matrix including `no_fix` (`node.cpp:1402-1526`), with `team_channel_crypt` defaulting true (`node_carriers.h:184`).
+
+⛔ **`B38` / `B39` / `B40` must land first** (`docs/2026-07-30-open-bug-register.md`, registered 2026-08-01 from the second review). An earlier revision of this spec claimed no core prerequisite remained; **that was wrong** — the claim was made without checking the channel-origination outcome contract:
+
+| # | why Phase A cannot ship without it |
+|---|---|
+| **B38** | `channel_reoffer_confirm` returns on `rp.team` before `emit_channel_sent(true, …)`, and exhaustion emits `relayed=false`. ⇒ **`PICKED UP` is unreachable on the team plane**, and worse: §4's retry fires on `channel_no_relay`, so a distress call would always spend its full 3-attempt budget and always display `NOT HEARD` — *even when every teammate received it*. A safety feature reporting failure on success. |
+| **B39** | `CmdCode::queued` with `ctr == 0` means **not sent** (blocked, or seal failure). §4's "count on acceptance" rule is unimplementable until the result distinguishes accepted / blocked / refused. |
+| **B40** | `channel_sent.ctr` carries only `id & 0xff` while the origination handle is the full 16-bit `next_ctr`. §2.1's exact-`ctr` correlation breaks permanently after 255 channel posts. |
+
+Until they land, §2.1's attribution degrades to "accepted with a non-zero ctr" and `PICKED UP` must not be claimed. **Do not implement the emergency outcome path against the current core contract.**
 
 ### Phase B — Heltec V4 (separate specs, not this one)
 

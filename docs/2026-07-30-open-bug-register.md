@@ -56,6 +56,18 @@ blocks functionality** — it is all quality, telemetry, plane-parity and dedup.
    **plaintext** post, which that ruling rejects. ⚠ **Take B22 immediately before CL2:** while B22 is open, four scenarios'
    team-channel asserts validate behaviour **metal does not have**, so CL2 would be gated against a lying corpus.
 
+★★ **NEW 2026-08-01 — B38 / B39 / B40: ONE SLICE, and it is a PREREQUISITE, not backlog.** All three are channel-origination
+outcome bugs found by the OLED-UI second review (archived at `docs/archive/2026-08-01-onboard-oled-ui-second-review.md`).
+They are grouped because **B38 and B40 touch the same struct and the same two emit sites**, and B39 is the same seam one
+level up. **Owner handed these to an independent agent 2026-08-01.**
+- **B38 is the functional one:** a team channel post can never report `relayed=true`, so its outcome is a false negative
+  for *every* consumer — the companion app today, and the OLED distress call the moment it exists.
+- **Take them before the OLED Phase A plan** (`docs/superpowers/plans/2026-07-31-onboard-oled-ui-phase-a.md`): that plan's
+  emergency path correlates on `channel_sent.ctr` (B40) and counts attempts on the synchronous result (B39), and its
+  `PICKED UP` state is unreachable without B38. The plan's "no core prerequisite remains" line is **superseded by these**.
+- ⚠ **B38/B40 change an EMITTED VALUE** ⇒ expect a re-anchor on channel-carrying scenarios; own slice, own commit (C4),
+  and pin `sizeof(ChannelReofferPending)`/`sizeof(Node)` with `static_assert` rather than assuming the reorder is free (D2).
+
 ⚠ **Two rulings owed, both OUTSIDE this file, and one is time-critical:**
 - **O3 must be ruled BEFORE CL2** (not after): `set_team_id` deliberately does not clear the team channel key, so a
   `team <other>` switch leaves the **previous team's key** in place. Inert today — **the moment CL2 seals, a switched
@@ -292,6 +304,91 @@ DEPLOYMENT** — at which point M3 also stops being true and this entry should b
 `CHECK(kFlag == 0x04)` proves it matches **the other end of the link.** ⇒ **audit every wire constant** — DATA flags,
 `q_opcode`, frame types, `PushKind`/`SendFailReason` numeric values, the cfg TLV tags — **for a numeric pin**, and add
 one where it is missing. A renumber is otherwise invisible to this project's entire gate. Note: `§cl2c`.
+
+### B41 — the sim's push bridge has **no `channel_sent` arm** ⇒ `relayed` is invisible to the corpus · NEW 2026-08-01
+`orchestrator/runtime/NodeRuntimeWrapper.cpp:1023-1028` renders `kind` / `ctr` / `dst` and then **a per-kind extension
+block** — `msg_recv` already has an arm. `channel_sent` has none, so **`Push::relayed` never reaches a stream** and no
+scenario can assert a send outcome.
+★★ **THIS — NOT B34 — IS B38's ENABLER, and QA had it wrong.** I first told the owner *"fix B34 first, it unblocks
+B38"*. **Wrong:** B34 is the **7 command-reply sites** (`(queued) ? "queued" : "error"`, dropping the *CmdCode*), a
+different gap that additionally **moves P-T1's documented signature**. B38 needs only **a small additive arm on an
+extension point that already exists** — no P-T1 impact.
+⚠ **Expect a re-anchor:** 93 `channel_sent` pushes across **9** scenarios gain a field (s15 ×2, s17, s22, s28, s29, s33,
+s34, sim_9node_base). Attributable and expected — value-only, no event-count change. ★ **Do it BEFORE B38+B40**, so
+those land with a before-arm you can actually see. Note: QA review of B38/B39/B40.
+
+### B38 — ★★★ a TEAM channel post can **NEVER** report `relayed=true` ⇒ every team post's outcome is a FALSE NEGATIVE · NEW 2026-08-01
+`channel_reoffer_confirm` (`node_channel.cpp:~1155`) returns **before** `emit_channel_sent(true, …)` when `rp.team`:
+```
+if (rp.team) return;                                   // keep re-offering for far members
+emit_channel_sent(true, static_cast<uint16_t>(id & 0xff)); …   // <- unreachable on the team plane
+```
+The team carve-out is **correct in intent** (one near relay ≠ full coverage of a multi-hop chain, the s28 class) but it
+also **discards the observation**. Retry exhaustion then emits `emit_channel_sent(false, …)` at `:~1131`. ⇒ **a team post
+that WAS relayed by every teammate still ends `relayed=false`.** The only truthful outcome the channel plane can produce
+is unreachable on the plane teams actually use, for **every** consumer — companion app included, not just the OLED UI.
+★ **Why it is severity-3:** the OLED emergency (spec `2026-07-31-onboard-oled-ui-design.md` §4) retries on
+`relayed=false`, so a distress call would **always transmit its full 3-attempt budget and always display `NOT HEARD`,
+even when the whole team received it.** A safety feature reporting failure on success.
+★★★ **OWNER RULING 2026-08-01 — `relayed` ON A TEAM POST MEANS "FIRST RELAY ONLY". We cannot guarantee a full flood,
+and the field must not be read as coverage.** ⇒ the fix emits the *observation* (**at least one relay was heard**), not
+a completion claim. ⚠ **NAME IT IN THE CONTRACT AND IN-SOURCE:** the boolean already means "the flood completed" on the
+NON-team plane, so after this fix **one field carries two meanings depending on the plane** — leave that unstated and
+the false negative simply becomes a false positive on the same safety feature.
+⚠⚠ **CONSEQUENCE THE OLED SPEC MUST RULE ON (QA flag, not a blocker):** today the emergency retries its **full**
+3-attempt budget because `relayed` is always false. After the fix it will **stop at the first relay confirm**. For a
+distress call, "one teammate heard me" may or may not be a reason to stop transmitting — **that is an OLED-spec
+decision, not this slice's.**
+★ **QA-VERIFIED IN SOURCE 2026-08-01:** `:1157`'s `if (rp.team) return;` sits **immediately before** `:1158`'s
+`emit_channel_sent(true, …)`, and `:1131` is the only other emit (`false`) ⇒ **the `true` branch is structurally
+unreachable on the team plane.** The entry is exactly right.
+★★ **AND QA MEASURED WHAT IT COULD: the path is WELL EXERCISED but the OUTCOME IS INVISIBLE.** `channel_sent` fires as a
+**Push** (not an `MR_EMIT`) **93 times across 9 scenarios** — s28 ×7, s22, s29, s34 among them — but the sim renders
+`{"kind":"channel_sent","ctr":…,"dst":…}` **with no `relayed`**. ⇒ **B38 is corpus-blind, and B41 is the reason.**
+**Fix shape (with B40):** remember the observation instead of discarding it — extend `ChannelReofferPending` with
+`relay_seen`, keep the retries running, and emit the remembered truthful result once (either immediately on first
+confirm, or at exhaustion). **Never emit a contradictory `relayed=false` for a post already confirmed relayed.**
+⚠ `ChannelReofferPending` is 12 B (`node.h:~1238`); B40 adds a `uint16_t` and this adds a flag — a field **reorder**
+should absorb both without growing `Node`, but that must be **pinned by `static_assert`, never assumed** (D2).
+⚠ **Emitted-value change ⇒ expect a re-anchor** on any scenario with channel re-offers; give it its own slice (C4).
+Found by the OLED-UI second review, `docs/archive/2026-08-01-onboard-oled-ui-second-review.md` §1. **UNMEASURED on
+metal** — found in-source; the sim corpus should show it as a `channel_sent{relayed:false}` on a delivered team post.
+
+### B39 — ★★ `CmdCode::queued` with `ctr == 0` means **NOT SENT** — the result is ambiguous by construction · NEW 2026-08-01
+Two `do_send_channel` paths return `0` and say so in their own comments — the pre-TX gate (`node_channel.cpp:~645`,
+`// not sent (no ctr minted)`) and a seal failure (`:~734`, `// NOT sent (the caller's queued becomes ctr=0)`) — and
+`Node::on_command` wraps that zero unchanged: `return CmdResult{ CmdCode::queued, ctr, … }` (`node.cpp:~1578`).
+⇒ **the synchronous result cannot distinguish accepted from blocked from failed-before-enqueue.** `next_ctr` never
+returns 0 (`node_mac.cpp:20-24`, wraps 65535→1), so `ctr == 0` IS the sentinel — but it is undocumented at the seam and
+every current caller ignores it. A caller that counts `queued` as "on the air" (any retry/attempt budget) miscounts a
+**blocked** send as a transmission, and a **seal failure** leaves it waiting for an outcome push that names a different
+ctr. ⚠ `CmdCode` alone also cannot separate `unsealable` from `no_location` — both surface as `err_unsupported`; the
+actionable distinction exists only in `SendFailReason`, which the synchronous path does not carry.
+**Fix shape:** return a discriminated result from the channel-origination path — **accepted** (non-zero ctr) ·
+**blocked** (`reason` + `next_ms`) · **refused** (`SendFailReason`) — and adapt console formatting around it.
+★ **QA-VERIFIED:** `next_ctr` is `c = (c >= 65535) ? 1 : c + 1` — **never 0**, so the sentinel is real.
+ⓘ **NARROWER THAN WHEN WRITTEN:** `§err-reason` (B32) has since made a *refusal* name itself (`> err_no_binding …`), so
+the residual gap is precisely the **`queued` + `ctr == 0`** case — *"command accepted, nothing minted"*. **The interim is
+the right call; the discriminated result is a design change that can wait.**
+**Minimum interim:** document `ctr == 0` as "not sent" at the `on_command` seam so callers stop treating `queued` as
+proof of transmission. Found by the OLED-UI second review, §2. **UNMEASURED** — found in-source.
+
+### B40 — ★★ `channel_sent.ctr` carries only the **LOW 8 BITS** of a 16-bit counter ⇒ correlation breaks after 255 posts · NEW 2026-08-01
+`do_send_channel` mints and returns the **full 16-bit** `next_ctr` (`node_channel.cpp:~647`), but the message id keeps
+`c & 0xff`, and **both** `channel_sent` emit sites reconstruct from it: `emit_channel_sent(…, static_cast<uint16_t>(id
+& 0xff))` (`:~1131`, `:~1158`). `Push::ctr` is already `uint16_t` (`command.h:~224`), so the width is available and
+unused. ⇒ **an origination handle of 256 is answered by a push ctr of 0 and never matches again**; low-byte comparison
+"works" only by colliding every 256 posts, which is precisely no correlation at all. Any consumer correlating its own
+channel post to its outcome — the OLED UI's send tracker, and any future app-side equivalent — is affected.
+★ **QA-VERIFIED, with one caveat to state in the fix:** `Push::ctr` is `uint16_t` and both emits mask `id & 0xff`, as
+described. ⚠ **But `item.ctr` is ALSO masked** (`:1002`, `:1491`) — and *that* one is **by design**: the channel
+msg-id's low byte **is** the ctr on the wire. ⇒ the fix is right and needs no wire change, but **the 16-bit ctr it emits
+is a LOCAL correlation handle only — no peer can echo more than 8 bits.** Say so, or someone will later try to match it
+against a received id.
+**Fix shape:** store the full originating ctr in `ChannelReofferPending` and emit **that**. **No push-schema or wire
+change** (the field is already 16-bit). Naturally one slice with **B38** — same struct, same emit sites.
+**Coverage owed:** ctr 255 · 256 · 257 · 65535→1, with a low-byte-colliding unrelated outcome interleaved.
+Found by the OLED-UI second review, §3. **UNMEASURED** — found in-source.
 
 ### B35 — `ingest_channel_m`'s self-skip is **PLANE-BLIND** ⇒ a teammate's posts can be SILENTLY SWALLOWED · NEW 2026-08-01
 `ingest_channel_m:252` skips on `origin != _node_id` — comparing a **TEAM-plane origin** against the **STATIC node id**.

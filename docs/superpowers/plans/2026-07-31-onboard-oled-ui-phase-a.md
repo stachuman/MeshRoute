@@ -10,7 +10,9 @@
 
 **Spec:** `docs/superpowers/specs/2026-07-31-onboard-oled-ui-design.md`. Read §2, §2.1, §4 and §5 before Task 4.
 
-*Revision 2026-08-01: rewritten against the review findings (now archived at `docs/archive/2026-08-01-onboard-oled-ui-review.md`). The material changes are the new send-attribution task, the corrected retry arithmetic, long-gesture pre-emption, the DM outcome machine, the canvas boundary, edge-triggered blanking and cached battery sampling.*
+*Revision 1 (2026-08-01): rewritten against the first review (`docs/archive/2026-08-01-onboard-oled-ui-review.md`) — send attribution, corrected retry arithmetic, long-gesture pre-emption, the DM outcome machine, the canvas boundary, edge-triggered blanking, cached battery sampling.*
+
+*Revision 2 (2026-08-01): rewritten against the second review (`docs/archive/2026-08-01-onboard-oled-ui-second-review.md`) — **B38/B39/B40 registered as core prerequisites**, two independent send trackers with emergency priority, the `ctr == 0` "not sent" sentinel, the U8g2 per-page redraw, the hold deadline actually read, full `SendFailReason` propagation with late-ack upgrade, the reply whitelist, per-kind inbox bounds, and the battery attempt-cadence fix.*
 
 ---
 
@@ -23,13 +25,24 @@
 - **Warnings are gate-blocking.** Zero `-Wswitch`, no new warnings vs the pio baseline.
 - **Author header:** every new source file gets `// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>` as line 2.
 - **`sizeof(Node)` must not change.** No UI state enters `lib/core`.
-- **Reuse, do not add.** The only new firmware surfaces are the UI TUs, the U8g2 dependency, and the V3 battery reader. If a task appears to need a new config key, console verb, NV field or wire change — **stop and ask**.
-- **`dispatch` is `mrfw::dispatch`** (`src/firmware_commands.h:23,41`). Qualify every call.
+- **Reuse, do not add.** The new firmware surfaces are: the UI TUs, the U8g2 dependency, the V3 battery reader, and **`mrfw::exec_command`** (Task 7 — owner-approved 2026-08-01; additive, no verb/key/NV/wire surface). If a task appears to need anything beyond these — **stop and ask**.
+- **Everything in `mrfw` must be qualified** (`src/firmware_commands.h:23`) — `mrfw::dispatch`, `mrfw::exec_command`.
+- ⚠ **`dispatch()` is a console-verb router, not the send path.** It returns `false` for `send` / `send_channel`; its callers do the `parse_command` + `on_command` work. Do not route UI sends through it — see Task 7.
 - **Bench-only behaviour goes in `docs/2026-07-31-bench-test-script.md`** (rule M2) — the panel, the button and the ADC are unreachable by native tests and the sim, so their checks belong there with exact expected console lines.
 
-### Prerequisites — discharged, verified 2026-08-01
+### Prerequisites
 
-`send_channel … -t -l -e` is **built and honoured**: the parser accepts `-e`/`-l` (`lib/console/console_parse.cpp:250,267`), and `Node::on_command` enforces the refusal matrix — `loc_unsealed`, `no_team`, `global_clear_copy`, `no_key`, `no_identity`, **`no_fix`** (`lib/core/node.cpp:1402-1526`). `team_channel_crypt` defaults **true** (`lib/core/node_carriers.h:184`). Nothing in Phase A waits on protocol work.
+✅ **Discharged.** `send_channel … -t -l -e` is built and honoured: the parser accepts `-e`/`-l` (`lib/console/console_parse.cpp:250,267`), and `Node::on_command` enforces the refusal matrix — `loc_unsealed`, `no_team`, `global_clear_copy`, `no_key`, `no_identity`, **`no_fix`** (`lib/core/node.cpp:1402-1526`). `team_channel_crypt` defaults **true** (`lib/core/node_carriers.h:184`).
+
+⛔ **OUTSTANDING — `B38` / `B39` / `B40` must land before Tasks 4, 7 and 8.** Registered 2026-08-01 in `docs/2026-07-30-open-bug-register.md` (see its §0 dispatch note); handed to an independent agent. **An earlier revision of this plan claimed no core prerequisite remained — that was wrong**, and the error was not checking the channel-origination outcome contract before asserting it.
+
+| # | blocks |
+|---|---|
+| **B38** | `PICKED UP` is unreachable on the team plane (`channel_reoffer_confirm` returns on `rp.team` before the `relayed=true` emit; exhaustion emits `relayed=false`). Task 3's retry fires on `channel_no_relay` ⇒ a distress call would always spend all 3 attempts and always show `NOT HEARD`, **even when every teammate received it**. |
+| **B39** | `queued` with `ctr == 0` means *not sent*. Task 3's count-on-acceptance rule is unimplementable until accepted / blocked / refused are distinguishable. |
+| **B40** | `channel_sent.ctr` is `id & 0xff` vs a full 16-bit handle ⇒ Task 4's exact match breaks permanently after 255 channel posts. |
+
+**Tasks 1–3, 5, 6 and 9 do not depend on them** and can proceed. Tasks 4/7/8 must not be implemented against the current core contract.
 
 ### Constants fixed by the owner
 
@@ -287,6 +300,7 @@ TEST_CASE("panel blanks and the waking SHORT press is consumed") {
 // to draw. Knows nothing of g_node, Arduino or the display — that is what keeps it native-testable and every hardware
 // concern in board_ui.cpp. See docs/superpowers/specs/2026-07-31-onboard-oled-ui-design.md §2-§5.
 #pragma once
+#include <cstddef>   // std::size_t (copy_clamped) — do NOT rely on <cstdint> to drag it in transitively
 #include <cstdint>
 #include "firmware_ui_input.h"
 
@@ -358,25 +372,35 @@ public:
         if (_st.compose != Compose::none && elapsed(s.now_ms, _last_input_ms) >= kBlankMs) {
             _st.compose = Compose::none; _st.cursor = 0; _st.dirty = true;   // never outlive attention; sends nothing
         }
-        if (!_st.blanked && elapsed(s.now_ms, _last_input_ms) >= blank_limit()) { _st.blanked = true; _st.dirty = true; }
+        if (!_st.blanked && !hold_active(s.now_ms) &&
+            elapsed(s.now_ms, _last_input_ms) >= kBlankMs) { _st.blanked = true; _st.dirty = true; }
     }
 
     const UiState& state() const { return _st; }
     void clear_dirty() { _st.dirty = false; }
+    // ★ TWO independent slots, emergency first. One shared slot would let a normal compose action OVERWRITE a queued
+    // alarm, and (with the tick's in-flight gate) serialise the emergency behind a DM awaiting its e2e ack — which
+    // defeats "long press fires from any screen". Normal work never touches the emergency slot. Spec §2.1.
     bool take_send_request(SendReq& out) {
+        if (_emg_req_pending) { _emg_req_pending = false; out = SendReq{SendKind::emergency, 0, 0}; return true; }
         if (!_req_pending) return false;
         _req_pending = false; out = _req; return true;
     }
+    bool emergency_pending() const { return _emg_req_pending; }
 
 protected:
     // Wrap-safe elapsed time. millis() wraps at ~49.7 days; `a >= b` would break across it, this does not.
     static uint32_t elapsed(uint32_t now, uint32_t then) { return now - then; }
-    void queue(SendKind k, uint8_t peer, uint8_t idx) { _req = {k, peer, idx}; _req_pending = true; }
+    void queue(SendKind k, uint8_t peer, uint8_t idx) {
+        if (k == SendKind::emergency) { _emg_req_pending = true; return; }   // its own slot; never overwritten
+        _req = {k, peer, idx}; _req_pending = true;
+    }
 
     UiState  _st{};
     uint32_t _last_input_ms = 0;
     SendReq  _req{};
     bool     _req_pending = false;
+    bool     _emg_req_pending = false;   // separate slot: normal work can never clobber a queued alarm
 
 private:
     void advance_or_next(const UiSnapshot& s) {
@@ -414,13 +438,13 @@ private:
     // Task 3 supplies these; declared here so on_gesture/on_tick compile in task order.
     void emergency_gesture(Gesture g, const UiSnapshot& s);
     void tick_emergency(const UiSnapshot& s);
-    uint32_t blank_limit() const;
+    bool hold_active(uint32_t now_ms) const;
 };
 
 }  // namespace mrui
 ```
 
-Task 3 defines the three declared members **inline in this same header**, immediately after the class. Do not leave them undefined at the end of Task 2 — instead add temporary inline definitions (`emergency_gesture` empty, `tick_emergency` empty, `blank_limit` returning `kBlankMs`) so Task 2 links and its tests run; Task 3 replaces them.
+Task 3 defines the three declared members **inline in this same header**, immediately after the class. Do not leave them undefined at the end of Task 2 — instead add temporary inline definitions (`emergency_gesture` empty, `tick_emergency` empty, `hold_active` returning `false`) so Task 2 links and its tests run; Task 3 replaces them.
 
 - [ ] **Step 4: Run and verify all seven cases pass**
 - [ ] **Step 5: Report ready — do NOT commit**
@@ -625,8 +649,13 @@ Add to `UiModel`'s public section:
         if (_tries >= kEmgMaxTries) { _emg = Emergency::not_heard; _st.dirty = true; return; }
         _emg = Emergency::firing; queue(SendKind::emergency, 0, 0); _st.dirty = true;
     }
+    // ★ Whitelist + "an alarm actually went out". Accepting every non-idle state would let a coincident channel-0 post
+    // become REPLY during `arming` (before the user even committed), or after `cancelled`/`failed` — manufacturing
+    // confirmation of a message that was never sent. Spec §4.4.
     void on_reply(const char* who, const char* text, uint32_t now_ms) {
-        if (_emg == Emergency::idle) return;                  // only while an emergency is live or sticky
+        const bool ok = (_emg == Emergency::firing || _emg == Emergency::blocked ||
+                         _emg == Emergency::picked_up || _emg == Emergency::not_heard || _emg == Emergency::reply);
+        if (!ok || _tries == 0) return;
         copy_clamped(_reply_who,  who,  sizeof _reply_who);
         copy_clamped(_reply_text, text, sizeof _reply_text);
         _emg = Emergency::reply; _emg_hold_until_ms = now_ms + kEmgHoldMs; _st.dirty = true;
@@ -657,12 +686,25 @@ inline void UiModel::tick_emergency(const UiSnapshot& s) {
         if (d != _last_countdown) { _last_countdown = d; _st.dirty = true; }
     }
 }
-inline uint32_t UiModel::blank_limit() const {
-    const bool live = (_emg == Emergency::arming || _emg == Emergency::firing ||
-                       _emg == Emergency::blocked || _emg == Emergency::not_heard || _emg == Emergency::reply);
-    return live ? kEmgHoldMs : kBlankMs;
+// ★ The hold is a DEADLINE, not a duration. Returning kEmgHoldMs and letting on_tick measure it from _last_input_ms
+// (an earlier draft) meant a reply that set a fresh _emg_hold_until_ms never actually extended the window, and
+// picked_up fell back to the ordinary 15 s blank. Read the field; compare wrap-safely. Spec §4.3.
+inline bool UiModel::hold_active(uint32_t now_ms) const {
+    const bool retained = (_emg == Emergency::arming    || _emg == Emergency::firing  ||
+                           _emg == Emergency::blocked   || _emg == Emergency::picked_up ||
+                           _emg == Emergency::not_heard || _emg == Emergency::reply);
+    return retained && elapsed(_emg_hold_until_ms, now_ms) < (1u << 31);   // now < deadline, wrap-safe
 }
 ```
+
+and replace the blanking line in `on_tick` (Task 2) with:
+
+```cpp
+        if (!_st.blanked && !hold_active(s.now_ms) &&
+            elapsed(s.now_ms, _last_input_ms) >= kBlankMs) { _st.blanked = true; _st.dirty = true; }
+```
+
+`_emg_hold_until_ms` is set on `long_fire` **and on every retained outcome** — `picked_up`, `not_heard`, `blocked`, `reply` — so each refreshes the 120 s window. Replace the Task 2 declaration of `blank_limit()` with `bool hold_active(uint32_t) const;`.
 
 with the private members `_emg`, `_dm`, `_refuse`, `_tries`, `_retry_at_ms` (init `_no_deadline`), `_last_try_ms`, `_arm_fire_at_ms`, `_cancelled_until_ms`, `_emg_hold_until_ms`, `_backoff_ms`, `_last_countdown`, `_reply_who[kLabelCap+1]`, `_reply_text[21]`, a `static constexpr uint32_t _no_deadline = 0xFFFFFFFFu`, `kArmToFireMs = 3500` matching `InputCfg::fire_ms`, plus:
 
@@ -672,8 +714,8 @@ with the private members `_emg`, `_dm`, `_refuse`, `_tries`, `_retry_at_ms` (ini
                                          : ((_backoff_ms * 2 > kBlockedBackoffMaxMs) ? kBlockedBackoffMaxMs : _backoff_ms * 2);
         return _backoff_ms;
     }
-    static void copy_clamped(char* dst, const char* src, size_t cap) {
-        size_t i = 0; for (; src && src[i] && i + 1 < cap; ++i) dst[i] = src[i]; dst[i] = '\0';
+    static void copy_clamped(char* dst, const char* src, std::size_t cap) {
+        std::size_t i = 0; for (; src && src[i] && i + 1 < cap; ++i) dst[i] = src[i]; dst[i] = '\0';
     }
 ```
 
@@ -737,7 +779,39 @@ TEST_CASE("a refused submit leaves nothing to match") {
     CHECK(t.idle() == true);
     CHECK(t.match_channel_sent(77, true, o) == false);
 }
+TEST_CASE("B39: a ctr==0 result awaits its outcome and never claims a channel_sent") {
+    SendTracker t; SendOutcome o{};
+    t.submit(SendKind::emergency, 0, 0, 1000); t.awaiting_outcome(1010);
+    CHECK(t.match_channel_sent(0, true, o) == false);              // ctr 0 is a sentinel, not a handle
+    CHECK(t.match_blocked(true, 5000, 1020, o) == true);
+}
+TEST_CASE("a channel seal failure is terminal, not a stuck SENDING...") {
+    SendTracker t; SendOutcome o{};
+    t.submit(SendKind::emergency, 0, 0, 1000); t.awaiting_outcome(1010);
+    REQUIRE(t.match_channel_failed(meshroute::SendFailReason::unsealable, 1020, o) == true);
+    CHECK(o.kind == SendOutcome::Kind::channel_failed);
+}
+TEST_CASE("B40: full-width counters correlate across the 8-bit boundary") {
+    for (uint16_t c : {uint16_t(255), uint16_t(256), uint16_t(257), uint16_t(65535)}) {
+        SendTracker t; SendOutcome o{};
+        t.submit(SendKind::emergency, 0, 0, 1000); t.accept(c, 1010);
+        CHECK(t.match_channel_sent(uint16_t(c & 0xff), true, o) == (c < 256));   // low-byte collider must NOT match
+        SendTracker t2; SendOutcome o2{};
+        t2.submit(SendKind::emergency, 0, 0, 1000); t2.accept(c, 1010);
+        CHECK(t2.match_channel_sent(c, true, o2) == true);
+    }
+}
+TEST_CASE("e2e_ack_timeout yields NO CONFIRM and a late ack upgrades it") {
+    SendTracker t; SendOutcome o{};
+    t.submit(SendKind::dm, 174, 0, 1000); t.accept(900, 1010);
+    REQUIRE(t.match_dm(900, 174, false, meshroute::SendFailReason::e2e_ack_timeout, o) == true);
+    CHECK(o.kind == SendOutcome::Kind::dm_timeout);
+    REQUIRE(t.match_dm(900, 174, true, meshroute::SendFailReason::none, o) == true);   // late ack still correlates
+    CHECK(o.kind == SendOutcome::Kind::dm_acked);
+}
 ```
+
+⚠ **`SendFailReason::none` / `e2e_ack_timeout` spellings must be checked against `lib/core/command.h` before writing** (V2). Add `channel_failed(SendFailReason)` to `SendOutcome` in Task 3 alongside the existing factories, and a `RefuseReason` mapping for it in the model.
 
 - [ ] **Step 2: Run and verify it fails**
 
@@ -759,12 +833,18 @@ namespace mrui {
 
 inline constexpr uint32_t kOutcomeWindowMs = 8000;   // how long an accepted send may still claim a ctr-less outcome
 
+// ONE SLOT. The UI owns TWO of these (Task 6): an emergency slot and a normal slot, so an alarm never waits on a DM
+// that is waiting on its e2e ack. Their pushes are told apart by kind plus ctr/peer.
 class SendTracker {
 public:
     void submit(SendKind k, uint8_t peer_id, uint8_t channel_id, uint32_t now_ms) {
         _k = k; _peer = peer_id; _chan = channel_id; _state = State::submitted; _submit_ms = now_ms; _ctr = 0;
     }
+    // ★ B39: `queued` with ctr==0 means NOT SENT (blocked, or seal failure). next_ctr never yields 0, so zero is the
+    // sentinel. Caller must not call this with 0 — use awaiting_outcome() and let the matching push finish it.
     void accept(uint16_t ctr, uint32_t now_ms) { _ctr = ctr; _accept_ms = now_ms; _state = State::accepted; }
+    // Accepted-shaped result with ctr==0: nothing is on the air, but a send_blocked / send_failed is still coming.
+    void awaiting_outcome(uint32_t now_ms)     { _ctr = 0; _accept_ms = now_ms; _state = State::awaiting; }
     void refuse()                              { _state = State::idle; }
     void close()                               { _state = State::idle; }
     bool idle() const                          { return _state == State::idle; }
@@ -777,24 +857,41 @@ public:
         out = relayed ? SendOutcome::channel_relayed() : SendOutcome::channel_no_relay();
         _state = State::idle; return true;
     }
-    // send_blocked carries NO ctr (command.h). Scope by channel-ness + the bounded window; serialisation does the rest.
+    // send_blocked carries NO ctr (command.h). Scope by channel-ness + a bounded window. ⚠ This is WEAKER than exact
+    // matching and must not be described as exact attribution — it is the best the current push schema allows.
     bool match_blocked(bool blocked_channel, uint32_t next_ms, uint32_t now_ms, SendOutcome& out) {
-        if (_state != State::accepted) return false;
+        if (_state != State::accepted && _state != State::awaiting) return false;
         if (_k == SendKind::dm) return false;
         if (!blocked_channel) return false;
         if (uint32_t(now_ms - _accept_ms) > kOutcomeWindowMs) return false;
         out = SendOutcome::blocked(next_ms);
         _state = State::idle; return true;
     }
-    bool match_dm(uint16_t ctr, uint8_t dst, bool acked, bool no_pubkey, SendOutcome& out) {
-        if (_state != State::accepted || _k != SendKind::dm) return false;
-        if (ctr != _ctr || dst != _peer) return false;    // ★ ctr AND peer
-        out = acked ? SendOutcome::dm_acked() : (no_pubkey ? SendOutcome::dm_no_key() : SendOutcome::dm_failed());
+    // A channel post that failed BEFORE enqueue (seal failure) — the ctr==0 case. Without this the emergency would sit
+    // on SENDING... forever after a seal failure, because match_channel_sent can never fire for it.
+    bool match_channel_failed(meshroute::SendFailReason r, uint32_t now_ms, SendOutcome& out) {
+        if (_state != State::awaiting || _k == SendKind::dm) return false;
+        if (uint32_t(now_ms - _accept_ms) > kOutcomeWindowMs) return false;
+        out = SendOutcome::channel_failed(r);
         _state = State::idle; return true;
+    }
+    // ★ The FULL reason reaches the model — an acked/no_pubkey bool pair makes NO CONFIRM unreachable and collapses
+    // every other failure into something the user cannot act on.
+    bool match_dm(uint16_t ctr, uint8_t dst, bool acked, meshroute::SendFailReason r, SendOutcome& out) {
+        if ((_state != State::accepted && _state != State::late_ack) || _k != SendKind::dm) return false;
+        if (ctr != _ctr || dst != _peer) return false;    // ★ ctr AND peer
+        if (acked) { out = SendOutcome::dm_acked(); _state = State::idle; return true; }
+        out = (r == meshroute::SendFailReason::no_pubkey)       ? SendOutcome::dm_no_key()
+            : (r == meshroute::SendFailReason::e2e_ack_timeout) ? SendOutcome::dm_timeout()
+                                                                : SendOutcome::dm_failed();
+        // A late ack may still arrive after e2e_ack_timeout (command.h:160) -> retain identity so it can upgrade
+        // NO CONFIRM to DELIVERED while the sub-view is still showing (spec §3.4.1).
+        _state = (r == meshroute::SendFailReason::e2e_ack_timeout) ? State::late_ack : State::idle;
+        return true;
     }
 
 private:
-    enum class State : uint8_t { idle = 0, submitted, accepted };
+    enum class State : uint8_t { idle = 0, submitted, accepted, awaiting, late_ack };
     State    _state = State::idle;
     SendKind _k = SendKind::emergency;
     uint8_t  _peer = 0, _chan = 0;
@@ -949,11 +1046,15 @@ static bool mac_idle() {   // spec §5 rule 1 — the same predicate fw_main.cpp
 
 // Battery: sampled at boot and every 30 s, only when the MAC is idle. An earlier draft sampled 8 ADC reads on EVERY
 // service pass for a value that changes over minutes (spec §7).
+// ★ The cadence gates on ATTEMPTED, not on SUCCEEDED. Gating on `s_batt_mv >= 0` meant a board whose reader returns
+// the documented unavailable value was re-read on every idle pass, forever.
+static bool     s_batt_attempted = false;
 static void battery_maybe_sample(uint32_t now_ms) {
     if (!mac_idle()) return;
-    if (s_batt_mv >= 0 && uint32_t(now_ms - s_batt_next_ms) >= (1u << 31)) return;   // wrap-safe "not due yet"
+    if (s_batt_attempted && uint32_t(now_ms - s_batt_next_ms) >= (1u << 31)) return;   // wrap-safe "not due yet"
     const int32_t mv = mrui::battery_sample_mv();
-    if (mv >= 0) s_batt_mv = mv;
+    if (mv >= 0) s_batt_mv = mv;                    // keep the last GOOD value; an unavailable read never erases it
+    s_batt_attempted = true;
     s_batt_next_ms = now_ms + 30000;
 }
 ```
@@ -967,6 +1068,11 @@ static void battery_maybe_sample(uint32_t now_ms) {
 - [ ] **Step 4: Write the tick**
 
 ```cpp
+// TWO trackers: an alarm must never queue behind a DM waiting on its e2e ack (spec §2.1).
+static mrui::SendTracker s_tracker_emg, s_tracker_normal;
+static mrui::UiState     s_frame_state{};    // frozen at frame start — a frame spans ticks; live state would tear it
+static mrui::UiSnapshot  s_frame_snap{};
+
 void mr_ui_tick(uint32_t now_ms) {
     static uint32_t s_last_paint_ms = 0;
     static bool     s_frame_open = false;
@@ -976,23 +1082,38 @@ void mr_ui_tick(uint32_t now_ms) {
     s_model.on_tick(s);
     if (s_model.state().screen == mrui::Screen::inbox) { s_unread_dm = 0; s_unread_ch = 0; }
 
+    // The emergency slot is checked FIRST and is not gated on the normal slot. If a canned channel post is still
+    // outstanding when the alarm fires, ABANDON its UI tracking and take the channel — its late ctr will not match.
     mrui::SendReq req{};
-    if (s_tracker.idle() && s_model.take_send_request(req)) ui_perform_send(req, now_ms);   // one in flight at a time
+    if (s_model.emergency_pending()) {
+        if (!s_tracker_normal.idle() && s_tracker_normal.kind() != mrui::SendKind::dm) s_tracker_normal.close();
+        if (s_model.take_send_request(req)) ui_perform_send(req, now_ms);
+    } else if (s_tracker_normal.idle() && s_model.take_send_request(req)) {
+        ui_perform_send(req, now_ms);
+    }
 
     if (!mac_idle()) return;                                  // never start OR continue a paint mid-exchange
-    if (s_frame_open) { s_frame_open = mrui::next_page(); return; }   // one page, then yield the bus
+    // ★ U8g2 page mode redraws the WHOLE scene per page — the draw calls are clipped, not accumulated. Drawing once
+    // at frame start and only advancing pages (an earlier draft) leaves 7 of 8 pages blank.
+    if (s_frame_open) {
+        draw_frame(s_frame_state, s_frame_snap);              // the FROZEN copies, so the image cannot tear
+        s_frame_open = mrui::next_page();
+        if (!s_frame_open) s_model.clear_dirty();             // dirty clears only when the LAST page has gone out
+        return;
+    }
     if (s_model.state().blanked) { mrui::set_power_save(true); s_model.clear_dirty(); return; }
     mrui::set_power_save(false);
     const bool emg = s_model.emergency() != mrui::Emergency::idle;
     if (s_model.state().dirty && (emg || uint32_t(now_ms - s_last_paint_ms) >= 500)) {
-        mrui::begin_frame(); draw_frame(s_model.state(), s);
-        s_frame_open = mrui::next_page(); s_model.clear_dirty(); s_last_paint_ms = now_ms;
+        s_frame_state = s_model.state(); s_frame_snap = s;    // freeze
+        mrui::begin_frame(); draw_frame(s_frame_state, s_frame_snap);
+        s_frame_open = mrui::next_page(); s_last_paint_ms = now_ms;
     }
 }
 void mr_ui_init() { mrui::board_init(); }
 ```
 
-Emergency bypasses the 2 Hz throttle but **not** the MAC-idle gate, and the model marks itself dirty only when the countdown digit changes (Task 3), so this does not repaint at tick rate.
+Emergency bypasses the 2 Hz throttle but **not** the MAC-idle gate, and the model marks itself dirty only when the countdown digit changes (Task 3), so this does not repaint at tick rate. One page per eligible tick keeps the bus held ~3 ms at a time.
 
 - [ ] **Step 5: Write the push correlation**
 
@@ -1008,25 +1129,32 @@ void mr_ui_on_push(const meshroute::Push& pu) {
             if (pu.channel_id == MR_UI_TEAM_CHANNEL_ID)                      // spec §4.4: ONLY our channel qualifies
                 s_model.on_reply(label_for_origin(pu), reinterpret_cast<const char*>(pu.body), now);
             break;
+        // Each outcome is offered to the EMERGENCY tracker first, then the normal one. Whichever matches wins; an
+        // unmatched push is ignored, which is the whole point of the tracker.
         case PK::channel_sent:
-            if (s_tracker.match_channel_sent(pu.ctr, pu.relayed, o)) s_model.on_outcome(o, now);
+            if      (s_tracker_emg.match_channel_sent(pu.ctr, pu.relayed, o))    s_model.on_outcome(o, now);
+            else if (s_tracker_normal.match_channel_sent(pu.ctr, pu.relayed, o)) { /* canned: no model state */ }
             break;
         case PK::send_blocked:
-            if (s_tracker.match_blocked(pu.blocked_channel, pu.next_ms, now, o)) s_model.on_outcome(o, now);
+            if      (s_tracker_emg.match_blocked(pu.blocked_channel, pu.next_ms, now, o))    s_model.on_outcome(o, now);
+            else if (s_tracker_normal.match_blocked(pu.blocked_channel, pu.next_ms, now, o)) { }
             break;
         case PK::send_e2e_acked:
-            if (s_tracker.match_dm(pu.ctr, pu.dst, /*acked=*/true, false, o)) s_model.on_outcome(o, now);
+            if (s_tracker_normal.match_dm(pu.ctr, pu.dst, /*acked=*/true, meshroute::SendFailReason::none, o))
+                s_model.on_outcome(o, now);
             break;
         case PK::send_failed:
-            if (s_tracker.match_dm(pu.ctr, pu.dst, false, pu.reason == meshroute::SendFailReason::no_pubkey, o))
-                s_model.on_outcome(o, now);
+            if      (s_tracker_normal.match_dm(pu.ctr, pu.dst, false, pu.reason, o)) s_model.on_outcome(o, now);
+            else if (s_tracker_emg.match_channel_failed(pu.reason, now, o))          s_model.on_outcome(o, now);
             break;
         default: break;
     }
 }
 ```
 
-★ Every branch that can move the emergency goes through the tracker. Verify the exact `Push` field names against `lib/core/command.h` before writing — `relayed` and `next_ms` are confirmed, `blocked_channel`, `ctr`, `dst`, `channel_id` and the `SendFailReason` enumerator spelling must be re-checked (V2: specs are point-in-time).
+★ Every branch that can move the emergency goes through a tracker. **`send_failed` must reach the emergency path too** (`match_channel_failed`) — otherwise a seal failure leaves the alarm on `SENDING...` with no terminal state, which is how the first draft lost it.
+
+⚠ Verify the exact `Push` field names against `lib/core/command.h` before writing (V2). `relayed` and `next_ms` are confirmed at `:188`/`:203`; `blocked_channel`, `ctr`, `dst`, `channel_id`, `reason` and the `SendFailReason` enumerator spellings (`none`, `no_pubkey`, `e2e_ack_timeout`, `unsealable`) must each be re-checked.
 
 - [ ] **Step 6: Build, flash, verify the cycle**
 
@@ -1038,7 +1166,11 @@ Short presses walk TEAM then move on; counts and battery render; the panel sleep
 
 ### Task 7: Sends, compose sub-views, inbox adapter
 
-**Files:** Modify `src/firmware_ui.cpp`.
+⛔ **Gated on B39** (and B38/B40 for the emergency half) — see Prerequisites.
+
+**Files:**
+- Modify: `src/firmware_ui.cpp`
+- Modify: `src/firmware_commands.h`, `src/firmware_commands.cpp` (add `mrfw::exec_command` — Step 1)
 
 - [ ] **Step 1: Implement `ui_perform_send` with a typed result**
 
@@ -1073,20 +1205,70 @@ static void ui_perform_send(const mrui::SendReq& req, uint32_t now_ms) {
 
     // ★ The synchronous result must reach the model TYPED — never a discarded BufferSink, or a parser refusal leaves
     // the panel on SENDING... forever (spec §2.1).
-    BufferSink sink;
-    const meshroute::CmdResult r = mrfw::dispatch_typed(line, size_t(n), sink);
-    if (r.code == meshroute::CmdCode::queued) { s_tracker.accept(r.ctr, now_ms); s_model.on_send_accepted(req.kind, now_ms); }
-    else { s_tracker.refuse(); s_model.on_send_refused(req.kind, refuse_reason_of(r.code)); }
+    mrui::SendTracker& tr = (req.kind == mrui::SendKind::emergency) ? s_tracker_emg : s_tracker_normal;
+    const mrfw::ExecResult r = mrfw::exec_command(line, size_t(n));
+    if (!r.ok || r.result.code != meshroute::CmdCode::queued) {
+        tr.refuse(); s_model.on_send_refused(req.kind, refuse_reason_of(r)); return;
+    }
+    // ★ B39: `queued` is NOT proof of transmission. A blocked or seal-failed channel post returns queued with ctr==0
+    // (node_channel.cpp `return 0` -> node.cpp wraps it). next_ctr never yields 0, so zero is the sentinel: nothing is
+    // on the air, NO attempt is counted, and we wait for the matching send_blocked / send_failed instead.
+    if (r.result.ctr == 0) { tr.awaiting_outcome(now_ms); return; }
+    tr.accept(r.result.ctr, now_ms);
+    s_model.on_send_accepted(req.kind, now_ms);
 }
 ```
 
-**`mrfw::dispatch_typed` does not exist yet.** `dispatch()` returns `bool` and writes text. Add a small typed sibling in `firmware_commands.{h,cpp}` that runs the same parse → `on_command` path and returns the `CmdResult`, with `dispatch()` implemented in terms of it so there is **one** parser path (U1). This is the one place this plan touches an existing firmware file; it adds no verb, key or wire surface. If the reviewer prefers otherwise, **stop and ask** rather than parsing `sink` text.
+**★ Add `mrfw::exec_command` — approved 2026-08-01 as the one firmware modification in this plan.**
+
+⚠ **First, a correction to an earlier draft of this plan: `dispatch()` does NOT handle `send` / `send_channel`.** It is a *verb router* for console-only verbs (`cfg`, `routes`, `team`, `pull_inbox`, …) and returns `false` for anything else — the send path lives in its **callers**: `service_console` runs dispatch-first-then-`parse_command` (`fw_main.cpp:792`), and `ble_dispatch_line` runs `parse_command`-first-then-dispatch (`fw_main.cpp:484-514`). Calling `dispatch()` with a `send_channel` line would have returned `false` and sent nothing.
+
+So the helper is **not** a wrapper around `dispatch()`. Add to `src/firmware_commands.{h,cpp}`:
+
+```cpp
+// firmware_commands.h — ADD THIS INCLUDE: the header names meshroute::console::ParseErr in a public struct, so it
+// must include the declaration directly rather than relying on an unrelated transitive header.
+#include "console_parse.h"
+
+// inside namespace mrfw
+struct ExecResult {
+    bool                     ok = false;   // false => the line did not parse as a Command
+    meshroute::console::ParseErr parse_err = meshroute::console::ParseErr::ok;
+    meshroute::CmdResult     result{};     // valid only when ok
+};
+// Parse ONE command line and execute it on the node, returning the TYPED result. No text output: the caller wants
+// the CmdResult, not a human string. This is the send path `service_console` and `ble_dispatch_line` each open-code;
+// the board UI is the third consumer and the first that needs the result programmatically.
+ExecResult exec_command(const char* line, size_t len);
+```
+
+```cpp
+// firmware_commands.cpp
+ExecResult exec_command(const char* line, size_t len) {
+    ExecResult r{};
+    meshroute::Command cmd{};
+    r.parse_err = meshroute::console::parse_command(line, len, cmd);
+    if (r.parse_err != meshroute::console::ParseErr::ok) return r;
+    r.ok = true; r.result = g_node.on_command(cmd);
+    return r;
+}
+```
+
+**Deliberately NOT retrofitting the two existing call sites in this plan.** They use *opposite* orderings relative to `dispatch()`, so unifying them is a behaviour change on two working transports and needs its own slice and gate (C1: refactor XOR feature). `exec_command` is additive: nothing that works today changes. Note the retrofit as a follow-up cleanup, do not perform it here.
+
+`refuse_reason_of(const ExecResult&)` maps a non-`ok` parse → `RefuseReason::parser`, `err_ack_ring_full` → `RefuseReason::ack_ring_full`, and **everything else → `RefuseReason::refused`** with the `CmdCode` carried alongside for the panel text.
+
+⚠ **Do not map `err_no_binding`/`err_unsupported` to `unsealable`.** That was over-broad: `err_unsupported` covers both `unsealable` *and* `no_location`, and the two have opposite remedies (enable encryption vs set a position). `CmdCode` **cannot** distinguish them — only `SendFailReason` can, which is why B39's richer result matters. Until it lands, show the generic refusal and the code; do not invent a specific reason. `queue_full` is the *deferred-send* reason and is unrelated to the ack ring — do not conflate them.
+
+Keep the mapping a small `switch` in `firmware_ui.cpp` so `-Wswitch` covers new `CmdCode` values.
 
 - [ ] **Step 2: Implement the compose sub-view render** — header line (`to: <label>` / `to: team`), then the item list with a `>` marker on `cursor`, `back, don't send` last. Outcome states replace the list: `SENDING...`, `SENT, waiting`, `DELIVERED to <label>`, `NO KEY`, `NO CONFIRM`, or the refusal reason.
 
 - [ ] **Step 3: Implement the inbox adapter over `Inbox::pull()`**
 
-Call `g_node.inbox().pull(dm_since, chan_since, cb, ctx)` directly — **never** dispatch textual `pull_inbox` into the 512 B `BufferSink`. Keep the newest `kMaxInboxRows`; prefix each `DM` or `CH<n>`; clamp body text to 20 chars. `pull()` returns the DM block oldest-first then the channel block oldest-first (`inbox.h:107-109`) — render in that block order and do **not** imply chronological interleaving. Viewing does **not** advance the durable `mark_read` cursor.
+Call `g_node.inbox().pull(dm_since, chan_since, cb, ctx)` directly — **never** dispatch textual `pull_inbox` into the 512 B `BufferSink`. Prefix each row `DM` or `CH<n>`; clamp body text to 20 chars.
+
+⚠ **Allocate the row budget PER KIND — 4 DM + 4 channel, not one shared pool of 8.** `pull()` visits the DM block first and the channel block second, so a shared "keep the newest 8" lets a chatty channel evict every DM row on a screen whose entire purpose is showing both. `pull()` returns the DM block oldest-first then the channel block oldest-first (`inbox.h:107-109`) — render in that block order and do **not** imply chronological interleaving. Viewing does **not** advance the durable `mark_read` cursor.
 
 - [ ] **Step 4: Build, flash, verify all four paths**
 
@@ -1100,6 +1282,8 @@ Call `g_node.inbox().pull(dm_since, chan_since, cb, ctx)` directly — **never**
 ---
 
 ### Task 8: Emergency end-to-end on hardware
+
+⛔ **Gated on B38 / B39 / B40.** Cases 3, 4 and 8 below cannot pass against the current core contract: with B38 open, a team post can never report `relayed=true`, so `PICKED UP` is unreachable and the alarm always ends `NOT HEARD`. **Do not "adjust" the expectations to match** — that would bake the bug into the acceptance criteria.
 
 **Files:** Modify `src/firmware_ui.cpp` (render only — the machine is built and tested in Task 3).
 
@@ -1118,6 +1302,10 @@ Call `g_node.inbox().pull(dm_since, chan_since, cb, ctx)` directly — **never**
 7. **Conditional `-l`, both halves:** with `cfg set lat/lon` set → the receiver's record carries a position. With `lat 0` / `lon 0` → **the alarm still goes out**, positionless, with no `no_location` refusal. If this fails, the conditional is inverted and the feature is broken where it matters.
 8. **Attribution:** while the emergency is `firing`, post a canned channel message from the *console* of the same node — the emergency state must **not** move.
 9. **Blanked panel produces no repeated I²C** — confirm by trace counter or scope.
+10. **Emergency pre-emption:** send a `-a` DM, and *while it is still awaiting its ack*, long-press. The alarm must reach `Node::on_command` in the **same service pass** — not after the DM's ack or deadline. Repeat with an outstanding canned channel post, and confirm the abandoned post's late outcome does not move the emergency.
+11. **Full-frame integrity:** confirm the whole scene renders (not just the top eighth) and that one frame is eight page transfers.
+12. **Hold deadline:** on `PICKED UP`, the panel stays on ~120 s, not 15 s; a reply arriving late restarts the window.
+13. **Battery cadence:** with the reader forced to return `<0`, confirm sampling is attempted every ~30 s, **not** every pass.
 
 - [ ] **Step 3: Report ready — do NOT commit**
 
@@ -1176,4 +1364,4 @@ int32_t battery_sample_mv() {
 
 - **Arm duration 3.5 s** — a bench opinion. Tune `InputCfg::fire_ms` (and the matching `kArmToFireMs`) after Task 8.
 - **V3 panel reset pin** — 21 per `board_ui.cpp:14`; MeshCore's V3 variant defines none. Confirm during Task 5 Step 5.
-- **`mrfw::dispatch_typed`** — Task 7 Step 1 proposes factoring the typed result out of the existing dispatch path. It adds no verb, key or wire surface, but it does touch an existing firmware file; confirm before implementing.
+- **Retrofitting `service_console` and `ble_dispatch_line` onto `mrfw::exec_command`** — a genuine dedup (both open-code the same parse + `on_command` sequence), but they use opposite orderings relative to `dispatch()`, so it is a behaviour change on two working transports. Its own slice, its own gate; explicitly out of this plan.
