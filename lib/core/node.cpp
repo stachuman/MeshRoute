@@ -1563,6 +1563,9 @@ CmdResult Node::on_command(const Command& c) {
             if (want_global) {
 #if MR_FEAT_MOBILE
                 if (_cfg.is_mobile) {                         // a mobile DELEGATES a GLOBAL post to its home (the home mints under its own origin). Off-grid (no home) -> fail loud.
+                    // ★ §b39 PRODUCER (3): `true` here means a MOBILE_SEND DM really flew, but the HOME mints the
+                    // channel ctr, so `ctr` stays 0 and this SUCCESS is reported as `queued ctr=0` — see the contract
+                    // on the return below. Deliberate (C1): a local handle for a remote mint is B39's real fix.
                     if (!do_send_channel_delegated(c.u.channel.channel_id, c.body, c.body_len)) {
                         MR_EMIT("send_failed", EF_S("reason", "channel_no_home"));
                         push_send_failed(SendFailReason::mobile_no_home, /*dst=*/0, /*ctr=*/0);
@@ -1575,6 +1578,50 @@ CmdResult Node::on_command(const Command& c) {
                     if (!want_team) ctr = gctr;
                 }
             }
+            // ★★★ §b39 (register B39) — `CmdCode::queued` HERE MEANS "THE COMMAND WAS ACCEPTED", NEVER "A POST WENT
+            // OUT", AND `ctr == 0` IS THE SENTINEL THAT SAYS SO. Every path above that fails to mint answers 0 and
+            // that 0 is handed through UNCHANGED, so a caller which spends an attempt/retry budget on
+            // `code == queued` miscounts. ⇒ **TEST `ctr != 0`, NOT `code == queued`.** (src/fw_main.cpp's
+            // scheduled-send `testch` counts `fired` on the code alone — see the note at its on_command call.)
+            // ⓘ WHY 0 IS A SOUND SENTINEL AND NOT MERELY A PLAUSIBLE ONE: next_ctr (node_mac.cpp:20) floors below the
+            // persisted per-peer high-water and then wraps 65535 -> 1, so its range is 1..65535 and it can NEVER mint
+            // 0. That invariant is PINNED natively by "§b39 — next_ctr NEVER mints 0" (test/test_node_r3.cpp), so a
+            // future `c + 1` "simplification" — which WOULD yield 0 — fails a test that names this contract instead of
+            // only tripping a channel-push width assertion by luck.
+            // ★★ THREE THINGS PRODUCE THE ZERO, AND — CORRECTING THE REGISTER ENTRY, WHICH NAMES ONLY THE FIRST TWO —
+            // THE THIRD IS A **SUCCESS**. So `ctr == 0` means "THIS NODE MINTED NO CHANNEL CTR", which is NOT a synonym
+            // for "nothing was sent":
+            //   (1) node_channel.cpp:~645  the pre-TX SELF-GATE (min_interval / cap). NOT SENT: nothing minted, nothing
+            //       buffered, nothing flooded. Reason + retry-after ride the `send_blocked` push — which carries NO ctr
+            //       at all (emit_send_blocked, node_channel.cpp:~809), so it cannot be correlated either.
+            //   (2) node_channel.cpp:~734  a SEAL failure AFTER the mint. NOT SENT, and worse: the ctr was burned and
+            //       the `send_failed` push names THAT burned value — a handle this caller was never given. The reason
+            //       arrives asynchronously and correlates with nothing.
+            //   (3) ★ the mobile DELEGATED-GLOBAL arm just above: do_send_channel_delegated returns TRUE after a real
+            //       MOBILE_SEND DM flew, but it discards that DM's ctr `(void)do_send(...)` and `ctr` is never assigned
+            //       on that path ⇒ a registered mobile's plain (GLOBAL) `send_channel` answers `queued ctr=0` ON
+            //       SUCCESS. Nothing distinguishes it from (1)/(2) synchronously, and it emits no CHANNEL-level push at
+            //       all — only the wrapper DM's own send_acked/send_failed, under a ctr this caller never saw.
+            //       Named, not fixed (C1): giving it a handle means minting/plumbing one, i.e. B39's real fix.
+            // ⓘ NARROWER THAN THE ENTRY IMPLIES, and deliberately so after §err-reason/B32: a REFUSAL now names its own
+            // code and the console prints it (`> err_unsupported ctr=0 depth=0`), so every refusal above is
+            // self-describing. The residual ambiguity is EXACTLY this — `queued` + `ctr == 0`, i.e. "accepted, no local
+            // handle" — and it is one bucket, not the three-way accepted/blocked/failed the entry was written against.
+            // ⚠ SCOPE, twice over:
+            //   (a) with `-t` present `ctr` is the TEAM copy's handle and NOTHING else — in BOTH global arms: on a
+            //       mobile the global copy is delegated (producer 3, which has no handle to give) and on the static arm
+            //       `gctr` is DISCARDED by its `if (!want_team)` guard. ⇒ 0 on a `-t -g` post reports the TEAM copy and
+            //       says NOTHING about the global one.
+            //   (b) this is NOT a statement about `queued` generally. `join`/`resolve`/`reqpubkey`/`peername` return
+            //       `queued, 0` because they mint no ctr at all, and on the HASH-addressed `send` arm 0 can mean
+            //       "parked behind an H resolve" — sent LATER, not refused (send_by_hash's documented contract, "the
+            //       ctr if sent immediately, else 0", node_hashlocate.cpp:~1450; restated at node.h:201). There is no
+            //       parking on THIS arm.
+            // Deliberately NOT fixed here (C1): B39's fix shape is a discriminated result (accepted / blocked /
+            // refused + SendFailReason), which changes what this function RETURNS, every caller, and the console
+            // format. The `send_layer` arm below already carries the cheap half of that shape
+            // (`ctr ? CmdCode::queued : CmdCode::err_no_gateway`) — adopting it here is a behaviour change, hence its
+            // own slice.
             return CmdResult{ CmdCode::queued, ctr, _active->_tx_queue_n };   // buffered dirty -> advertised next BCN -> pulled
         }
         case CmdKind::join: {        // node_id DAD. Idempotent once joined. CLAIM-AFTER-LISTEN (L1): hear the

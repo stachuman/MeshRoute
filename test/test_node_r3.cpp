@@ -6387,6 +6387,29 @@ TEST_CASE("D7 — per-peer ctr floor: a fresh peer resumes above the persisted h
     CHECK(node.peer_ctr_high() == 500);                    // ...and it feeds the lease high-water too (channel id-reuse fix subsumed)
 }
 
+// ★★ §b39 (register B39) — THE INVARIANT THE `ctr == 0` SENTINEL RESTS ON: next_ctr NEVER mints 0, so a zero `ctr` in a
+// CmdResult can only mean "nothing was minted HERE" — the reading Node::on_command's send_channel arm documents (with
+// the three ways it happens, one of which is a success). Pinned DIRECTLY here because the only prior coverage was
+// INCIDENTAL: test_node_channel.cpp's §b40 case asserts the 65535 -> 1 wrap as a side effect of a 16-bit-width check,
+// so a coder who "simplifies" the wrap to a bare `c + 1` — which WOULD yield 0 — would see a channel-push test go red
+// and not a test that names the property he broke. Lives beside the D7 floor case above because the floor is the other
+// half of next_ctr's range argument (both must be unable to reach 0).
+TEST_CASE("§b39 — next_ctr NEVER mints 0: the 65535 wrap yields 1, and the reboot floor cannot produce a 0 either") {
+    TestHal hal; Node node(hal, /*id=*/7, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
+    // The persisted floor is the only way to drive a fresh counter to the wrap boundary without 65535 calls.
+    node.restore_peer_ctr_floor(65535);                    // pre-reboot high-water sits exactly AT the boundary
+    const uint16_t w = node.test_next_ctr(9);              // floored up to 65535, then wrapped
+    CHECK(w == 1);                                         // `c = (c >= 65535) ? 1 : c + 1` — the wrap lands on ONE...
+    CHECK(w != 0);                                         // ...which is the sentinel invariant, asserted as itself
+    for (int i = 0; i < 4; ++i) CHECK(node.test_next_ctr(9) != 0);        // and it stays non-zero across the boundary
+    CHECK(node.test_next_ctr(11) != 0);                    // a FRESH peer at the same floor wraps the same way
+    // No floor at all (the ordinary case): a never-used peer's FIRST mint is 1, so it cannot answer 0 either.
+    TestHal h2; Node n2(h2, /*id=*/7, /*key=*/0xABCD);
+    NodeConfig c2; c2.routing_sf = 7; c2.leaf_id = 0; n2.on_init(c2);
+    CHECK(n2.test_next_ctr(9) == 1);
+}
+
 // ── Anti-spam v2 duty-channel-cap, SLICE 0 (inert) ───────────────────────────
 TEST_CASE("Slice0 — channel_active_fraction Cfg field default + settable (inert)") {
     NodeConfig cfg;

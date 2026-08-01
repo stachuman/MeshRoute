@@ -1080,6 +1080,13 @@ static void mesh_service_once() {
                 // an -e seal-fail with no authoritative pubkey) — those count `fired` here though no DM aired. The
                 // DURABLE INBOX is the delivery truth (spec); teststatus `fired` = "handed to the send path". For the
                 // headline workload (plain DMs on a provisioned node) neither early-out can trigger.
+                // ★★ §b39 — BUT THAT LAST SENTENCE IS SCOPED TO THE **DM** ARM, and the `kChannel` arm above is NOT
+                // covered by it: a channel post blocked by this node's own min_interval / cap answers `queued` with
+                // `ctr == 0` and nothing airs — and a `testch` workload posting on a short period is precisely how that
+                // gate gets hit, so it is the LIKELY case here, not a rare one. `ctr != 0` is the "a ctr was minted"
+                // test (next_ctr never mints 0); see the contract on Node::on_command's send_channel return. NOT
+                // changed here (C1 — this slice documents the seam): a `fired`-vs-`blocked` split for the harness is
+                // its own edit, and `send_blocked` telemetry already names the reason on the sim side.
                 if (r.code == meshroute::CmdCode::queued) g_sched.mark_fired(si, mnow);
                 else                                       g_sched.mark_dropped(si);   // a permanent error (unprovisioned/no_data_sf/…) -> retry won't help
             }

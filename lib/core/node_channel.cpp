@@ -642,6 +642,11 @@ uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t 
         // actually receives. Map the gate's block_reason string to the SendFailReason enum (min_interval | cap).
         const SendFailReason r = (block_reason[0] == 'm') ? SendFailReason::min_interval : SendFailReason::cap;
         emit_send_blocked(/*channel=*/true, r, next_ms);
+        // ★★ §b39 — PRODUCER (1) OF THE `ctr == 0` SENTINEL. next_ctr never mints 0 (node_mac.cpp:20 wraps
+        // 65535 -> 1), so this 0 is unambiguous — and Node::on_command hands it through UNCHANGED as
+        // CmdResult{ queued, 0 }, where the FULL contract is written out (the send_channel arm's return, node.cpp).
+        // The reason and the retry-after ride the send_blocked push above; the SYNCHRONOUS result carries neither, so
+        // a caller budgeting attempts must test `ctr != 0` rather than `code == queued`.
         return 0;                                             // not sent (no ctr minted)
     }
     const uint16_t c = next_ctr(origin);
@@ -731,6 +736,11 @@ uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t 
             push_send_failed(oc == SealOutcome::bad_rng   ? SendFailReason::bad_rng
                            : oc == SealOutcome::too_large ? SendFailReason::too_large
                                                           : SendFailReason::unsealable, /*dst=*/0, /*ctr=*/c);
+            // ★★ §b39 — PRODUCER (2) OF THE `ctr == 0` SENTINEL, and the WORSE of the two: the ctr was already minted
+            // and is BURNED here, so the send_failed push above names `c` — a handle the caller NEVER RECEIVES, because
+            // Node::on_command returns this 0 as CmdResult{ queued, 0 } (its send_channel arm, node.cpp, where the full
+            // contract is written out). ⇒ the reason arrives asynchronously and correlates with nothing. next_ctr never
+            // mints 0 (node_mac.cpp:20), so the 0 itself cannot be confused with a real handle.
             return 0;                                         // NOT sent (the caller's `queued` becomes ctr=0)
         }
         std::memcpy(e.payload, sealed, n);
@@ -787,6 +797,9 @@ uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t 
 // DATA_FLAG_MS_ENCLOSED_TYPE). The home strips it + re-originates via do_send_channel under ITS OWN origin/ctr —
 // anti-spam bills the home (deliberate: hosting implies consenting to the mobile's channel share; the home's self-GATE
 // applies). Returns false when there is no home (off-grid) -> the caller fails loud (no silent drop).
+// ★★ §b39 — AND `true` DOES NOT COME WITH A HANDLE: the wrapper DM's ctr is discarded below `(void)do_send(...)` and
+// the channel ctr is minted by the HOME, so Node::on_command reports this SUCCESS as `queued ctr=0` — the same
+// synchronous shape its two blocked/failed paths produce. The full sentinel contract is on that arm's return (node.cpp).
 bool Node::do_send_channel_delegated(uint8_t channel_id, const uint8_t* body, uint8_t body_len) {
     if (!(_cfg.is_mobile && _my_mobile_reg.active)) return false;   // off-grid: no home to delegate to
     uint8_t wbody[protocol::max_payload_bytes_hard_cap];
