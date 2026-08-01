@@ -107,7 +107,16 @@ enum class CmdCode : uint8_t { queued, err_unknown_dst, err_too_large,
                                // rather than folding into err_unsupported because §err-reason/B32 ruled exactly that
                                // collapse a defect: the remedy here is specific and different (provision/`regen` an
                                // identity), and a refusal that cannot name its remedy is not "loud".
-                               err_no_identity };
+                               err_no_identity,
+                               // ★ §id-hash S1c (QA round 2): the radio's 4-slot LBT DEFER ring was full, so the frame
+                               // was dropped rather than sent or scheduled. Remedy: retry in a moment — TRANSIENT,
+                               // unlike every other refusal here.
+                               // ⚠ U1 CHECKED AND DELIBERATELY NOT REUSED: `err_ack_ring_full` (9) is the same SHAPE
+                               // ("a bounded ring is full, refuse loudly") but a different RING, and the shipped
+                               // contract documents it as the pending-E2E-ack ring — *"a new `-a` send is refused
+                               // while 8 sends already await acks"*. Reusing it would hand the app a wrong diagnosis
+                               // and a wrong remedy (wait for an in-flight `-a` send that need not exist at all).
+                               err_tx_ring_full };
 // The synchronous "send handle" — the app records it and correlates async send_acked/send_failed pushes by `ctr`.
 // dst_hash / layer_path echo WHAT was sent so the app keeps no command->identity map of its own (and so a small
 // hash like 0x10 is NEVER confused with an 8-bit id — it lives in its own 32-bit field):

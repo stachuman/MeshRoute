@@ -86,8 +86,14 @@ public enum Command: Hashable, Sendable {
     // E2E peer-key provisioning (2026-06-16 contract). The app does NO crypto — these just hand the node bytes.
     case peerKey(pubkeyHex: String)              // install a scanned card's pubkey (PINNED) → "peerkey <hex64>"
     case reqPubkey(KeyHash, team: Bool)           // on-air key request → "reqpubkey 0x<hex8> [-t]" (-t = team-scoped, D30)
-    case reqPubkeyTeam(localID: UInt8)            // "reqpubkey <id>" — a BARE decimal is implicitly TEAM-scoped (D30):
-                                                  // the teammate-bootstrap (mutual handshake → peer_key_cached{hash,name})
+    // ★★ CHANGED 2026-08-01 (firmware §id-hash S1): emits "reqpubkey <id> -t" — the `-t` is now REQUIRED.
+    // A bare decimal USED to be implicitly TEAM-scoped; the firmware changed it to AUTO, which resolves on BOTH
+    // planes and then either picks the only one that matches, refuses `err_ambiguous_plane` when both do, or —
+    // worst for this operation — silently selects STATIC when only a static binding exists. None of those is what
+    // an API case named `reqPubkeyTeam` promises, so it now says so explicitly. Firmware grammar:
+    //   `reqpubkey <0xhash|id> [-s|-t]`, flags mutually exclusive, bare id = AUTO.
+    case reqPubkeyTeam(localID: UInt8)            // "reqpubkey <id> -t" — the teammate bootstrap
+                                                  // (mutual handshake → peer_key_cached{hash,name})
     // Mobile roam / status (D30 / S3) — the roam screen's verbs.
     case mobileStatus                             // "mobile status"  → {"ev":"mobile_status",…}
     case mobileGateways                           // "mobile gateways" → mobile_gw* / mobile_net* / mobile_gw_end
@@ -147,7 +153,7 @@ public enum Command: Hashable, Sendable {
         case .markRead(let kind, let seq):  return "mark_read \(kind.commandToken) \(seq)"
         case .peerKey(let hex):             return "peerkey \(hex)"
         case .reqPubkey(let h, let team):   return "reqpubkey 0x\(h.hex8)\(team ? " -t" : "")"
-        case .reqPubkeyTeam(let id):        return "reqpubkey \(id)"
+        case .reqPubkeyTeam(let id):        return "reqpubkey \(id) -t"   // ★ `-t` REQUIRED since firmware §id-hash S1 (a bare id is AUTO, not TEAM)
         case .mobileStatus:                 return "mobile status"
         case .mobileGateways:               return "mobile gateways"
         case .mobileRegister:               return "mobile register"

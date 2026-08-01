@@ -73,7 +73,13 @@ final class CommandEncoderTests: XCTestCase {
     }
 
     func testTeammateAndRoamVerbs() {     // D30 c2: the teammate bootstrap + the roam screen's verbs
-        XCTAssertEqual(Command.reqPubkeyTeam(localID: 9).line, "reqpubkey 9")   // BARE decimal = implicitly TEAM-scoped
+        // ★★ CHANGED 2026-08-01 (firmware §id-hash S1): the `-t` is REQUIRED. A bare decimal is no longer implicitly
+        // TEAM — the firmware resolves it on BOTH planes (AUTO), so without the flag this operation can draw
+        // `err_ambiguous_plane` or silently select the STATIC plane. The suffix is the contract; pin the exact line.
+        XCTAssertEqual(Command.reqPubkeyTeam(localID: 9).line, "reqpubkey 9 -t")
+        // CONTROL: the by-HASH form is UNCHANGED by that firmware slice — only the bare-id form's plane moved.
+        // (Both hash spellings are also pinned in PushDecoderTests; this one line is here for the contrast.)
+        XCTAssertEqual(Command.reqPubkey(KeyHash(0xdeadbeef), team: false).line, "reqpubkey 0xdeadbeef")
         XCTAssertEqual(Command.mobileStatus.line, "mobile status")
         XCTAssertEqual(Command.mobileGateways.line, "mobile gateways")
         XCTAssertEqual(Command.mobileRegister.line, "mobile register")

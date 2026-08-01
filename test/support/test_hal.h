@@ -45,7 +45,11 @@ public:
         return MESHROUTE_NS::TxResult::ok;
     }
     void     set_rx_sf(int) override {}
-    uint64_t channel_busy_until() override { return 0; }
+    // ★ §id-hash S1c: scriptable, DEFAULT 0 — so every pre-existing test sees the historical "always idle" channel and
+    // is byte-identical. Set it (with cfg.lbt_enabled) to force tx_initiating down its LBT-defer path, which is the
+    // only way to reach `schedule_lbt_defer`'s ring-full DROP from a native fixture.
+    uint64_t _busy_until = 0;
+    uint64_t channel_busy_until() override { return _busy_until; }
     uint64_t airtime_used_ms(uint64_t) override { return 0; }
     uint64_t oldest_tx_end_ms() override { return 0; }
 

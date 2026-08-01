@@ -1092,7 +1092,22 @@ void Node::tx_rts_retry() {
 // R4.5 LBT: hand an INITIATING frame to the radio, but if the channel is busy (and lbt_enabled) defer the real
 // TX past busy_until + rand(0,lbt_backoff+1) — the ONE LBT draw, ONLY when busy (dv:3693-3706). lbt_enabled=false
 // (every gate) -> straight to lbt_complete -> byte-identical, NO draw.
-void Node::tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen) {
+// ★★★ §id-hash S1c (2026-08-01, QA round 2): it RETURNS now — `false` means the frame was DROPPED, not sent and not
+// scheduled. Exactly one thing can produce that: `schedule_lbt_defer` refusing a full 4-slot ring (its own comment
+// says *"ring full -> drop loudly"*). That `bool` was being DISCARDED here, so `emit_hash_query` reported `sent`,
+// `CmdResult` carried `aired = true`, and BLE emitted `reqpubkey_sent` — spec §5.1's *"must not be reachable from any
+// bail point"*, breached one layer below the four bail points S1b closed.
+// ★ SCOPE, deliberately narrow (owner ruling): **a SUCCESSFUL defer is `true`.** A deferred frame is scheduled and
+//   will fly; the contract's claim holds for it. Only the ring-full DROP is false. This return is therefore
+//   "handed to the radio layer without being dropped", NOT "already on air" — widening it to the latter would make
+//   every deferred send report a failure, which is a different (and wrong) semantic.
+// ⓘ `lbt_complete`'s own early returns are NOT folded in, and that is a judgement not an omission: both are
+//   RTS-only (a stale-flight CANCEL of a superseded flight, and a duty-budget DEFER that re-arms and does fly), so
+//   neither is a silent drop of a live frame — and neither is reachable from `emit_hash_query`, which always passes
+//   `LbtKind::flood`. If an RTS caller ever needs that distinction it is its own slice.
+// ⓘ U3: `tx_flood` in this same file has returned `bool` on exactly this "did the frame survive the gates" question
+//   since R4.5, so this is the sibling shape, not a new convention.
+bool Node::tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen) {
     const uint64_t now = _hal.now();
     uint64_t busy_until = 0;
     if (_cfg.lbt_enabled) { const uint64_t b = _hal.channel_busy_until(); if (b > busy_until) busy_until = b; }  // physical carrier sense (LBT)
@@ -1102,10 +1117,10 @@ void Node::tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind k
         const uint32_t delay = wait + static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(_lbt_backoff_ms) + 1));   // shared backoff jitter -> NAV-released TX de-syncs
         MR_EMIT("tx_lbt_defer", EF_S("kind", "initiating"), EF_I("defer_ms", delay),
                 EF_I("busy_until_ms", busy_until));
-        schedule_lbt_defer(bytes, len, sf, kind, rts_flight_gen, delay);
-        return;
+        return schedule_lbt_defer(bytes, len, sf, kind, rts_flight_gen, delay);   // false ⇒ ring full ⇒ DROPPED
     }
     lbt_complete(bytes, len, sf, kind, rts_flight_gen);
+    return true;
 }
 
 // NAV (virtual carrier sense) duration helpers — pure, native-testable. Conservative: an overheard RTS

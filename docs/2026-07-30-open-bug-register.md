@@ -584,9 +584,10 @@ guarantees its own name: it draws `err_ambiguous_plane` when both namespaces hol
 **static** when only a static binding exists. **FIXED in the checked-in companion** — `Command.swift:150` now emits
 `reqpubkey <id> -t`, `CommandEncoderTests.swift` pins the exact line, and the stale "implicitly TEAM" comments are
 corrected. ⚠ **NOT gate-verified: `swift` is unavailable in this environment — bench/CI-owed.**
-② two new ack codes: **`err_ambiguous_plane`** (CmdCode 10) and **`err_no_identity`** (11). `AckCode` in
-`Inbound.swift` has a `.unknown` forward-compat case so both degrade, exactly as the already-unmodelled
-`err_ack_ring_full` does.
+② three new ack codes: **`err_ambiguous_plane`** (CmdCode 10), **`err_no_identity`** (11) and
+**`err_tx_ring_full`** (12). `AckCode` in `Inbound.swift` has a `.unknown` forward-compat case so all three degrade,
+exactly as the already-unmodelled `err_ack_ring_full` does. ⚠ **`err_tx_ring_full` is TRANSIENT** — the app should
+retry rather than surface a configuration error; it is NOT `err_ack_ring_full` (different ring, different remedy).
 ③ `{"ack":…}` may now carry **`"plane":"team"|"static"`**, and `{"ev":"reqpubkey_sent"}` the same — **both omitted
 when absent, so every pre-S1 line is byte-identical** (pinned by a test).
 ④ ★ **`reqpubkey_sent.hash` is now the RESOLVED hash** for a by-id request, where it used to be `0` on the static
@@ -720,6 +721,22 @@ a genuine success reported through its own `peer_key_cached` push and must not a
 **Coverage:** each branch asserts the `CmdResult` **and** the BLE-visible disposition (a test-local mirror of
 fw_main's exact `code == queued && aired` predicate), every negative paired with a same-fixture successful flight.
 **MEASURED** (native; 4 cases / 10 assertions redden when the outcome mapping is bypassed).
+⚠⚠ **AND IT WAS STILL ONE LAYER SHORT — a FIFTH bail point, found by the second QA pass.** `tx_initiating`
+(`node_mac.cpp:1095`) was itself `void` and **discarded** `schedule_lbt_defer`'s `bool`, which is `false` when the
+4-slot LBT defer ring is full (*"ring full -> drop loudly"*). ⇒ frame **dropped** → outcome still `sent` → `aired=true`
+→ **`reqpubkey_sent`**. Same false-success class, one call deeper, and it breached spec **§5.1**'s *"must not be
+reachable from any bail point"*.
+★ **CLOSED 2026-08-01 by `§id-hash S1c`:** `tx_initiating` returns `bool`; the new `HQueryOutcome::tx_dropped` maps to
+**`err_tx_ring_full`**. ⓘ **U1 CHECKED: `err_ack_ring_full` (9) was NOT reused** — same shape, different ring, and the
+shipped contract documents it as the pending-E2E-ack ring, so reusing it would hand the app a wrong diagnosis and a
+wrong remedy. This one is the only **TRANSIENT** refusal on the verb ("retry in a moment"), and the hint text says so.
+★ **SCOPE RULING (owner): a SUCCESSFUL defer is still `aired`** — it is scheduled and will fly, so the contract's
+claim holds; only the ring-full DROP is false. `lbt_complete`'s own early returns are excluded on inspection: both are
+RTS-only (a stale-flight cancel, and a duty defer that does fly) and neither is reachable from `emit_hash_query`,
+which always passes `LbtKind::flood`.
+ⓘ **The widening again changed ZERO call sites** — 22 callers across 8 files discard it and there is no
+`[[nodiscard]]`; `git diff` shows the six files holding 18 of them were not touched at all.
+**MEASURED** (native: the ring-full fixture reddens 1 case / 3 assertions when the `bool` is discarded again).
 
 ### B48 — ★ a DISPLAY de-duplication rule in `peer_book_by_id` was making an AIRTIME decision · NEW 2026-08-01
 `peer_book_by_id`'s team arm read `if (team_key_of_id(id, th) && !(mask && th == h))` — it suppressed the TEAM
@@ -739,6 +756,23 @@ both rows and their equal hashes say "one identity, two planes" more clearly tha
 team plane, `-s` selects the static row. **MEASURED** (native; restoring the de-dup reddens 2 cases / 12 assertions).
 ⇒ ★ **The durable rule: a shared resolver returns facts. The moment a "tidy display" filter lives inside one, some
 future caller will make a decision on the filtered answer.**
+
+### B49 — the `CmdCode` self-labelling invariant test was bounded by a LITERAL and silently stopped covering · NEW 2026-08-01
+`test_console_json.cpp`'s *"every refusal's token begins with `err_`"* loop — the ONLY detector for the §err-reason/B32
+convention that `src/fw_main.cpp` prints the token BARE — ran `for (unsigned v = 0; v < 10; ++v)`. The moment `CmdCode`
+grew past 9 it stopped testing the new enumerators, while still looking complete. ★ **Its own comment claimed the
+opposite** — *"the `ord()` switch above already breaks the build when an enumerator is added, so this cannot go stale
+unnoticed"* — which is true of the sibling walker and **false of this loop**, because `-Wswitch` cannot reach a literal
+bound. Found by the second QA pass; three enumerators (10/11/12) were already excluded.
+★ **CLOSED 2026-08-01 (`§id-hash S1c`): the bound now DERIVES from `ord()`** — walk the full underlying range and let
+`kUnlisted` filter, exactly as `check_mapper_covers_every_enumerator` already did — so listing an enumerator in the
+`-Wswitch`-guarded walker (which the build forces) automatically enrolls it here. **Bumping the literal was explicitly
+rejected: it fails again identically at 13.**
+ⓘ **A `_count` sentinel was considered and refused:** adding one to `CmdCode` puts a non-value enumerator into every
+`switch` over it, so `-Wswitch` would then demand a `case _count:` arm at each mapper — a permanent tax on the
+instrument that is working, to fix the one that is not.
+**MEASURED** (native): mis-naming enumerator 12 is caught by the derived bound (1 assertion) and is **completely
+invisible** with the old `v < 10` restored — 0 failures. The under-cover demonstrated, not argued.
 
 ---
 

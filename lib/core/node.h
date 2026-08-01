@@ -120,11 +120,15 @@ public:
     // (absent) return, and there is no [[nodiscard]] — so this is not the caller sweep C1 would have made a separate
     // slice, it is a return-type widening plus one reader.
     enum class HQueryOutcome : uint8_t {
-        sent = 0,          // a frame reached tx_initiating — the ONLY value that may claim `reqpubkey_sent`
+        sent = 0,          // the frame was handed to the radio (immediately, or SCHEDULED as an LBT defer that will
+                           //   fly) — the ONLY value that may claim `reqpubkey_sent`
         degenerate,        // key_hash32 == 0, or it is OUR OWN hash: there is no other node to ask
         no_identity,       // want_pubkey with no crypto identity — the MUTUAL exchange needs our ed_pub
         no_return_route,   // a mobile whose origin is still its own LOCAL id and is not team-scoped: no way back
-        encode_failed      // pack_h refused (the frame did not fit the buffer)
+        encode_failed,     // pack_h refused (the frame did not fit the buffer)
+        // ★ §id-hash S1c (QA round 2): tx_initiating DROPPED it — the 4-slot LBT defer ring was full. Distinct from
+        // the four above because it is TRANSIENT: the remedy is "retry in a moment", not "change something".
+        tx_dropped
     };
     // overheard < authoritative < pinned. pinned = a QR/manually-scanned key (E2E provisioning §1): the MITM-resistant
     // tier — NEVER overwritten by an on-air answer, NEVER LRU-evicted, NEVER aged out (NV-backed on device).
@@ -1498,7 +1502,11 @@ private:
     enum class LbtKind : uint8_t { rts = 0, nack = 1, flood = 2 };
     // R4.5b frame-type tag (echoed by the sim in on_radio_busy; identifies a blocked TX heap-free).
     enum class FrameTag : uint16_t { rts = 0, cts = 1, data = 2, ack = 3, nack = 4, beacon = 5 };
-    void     tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen);
+    // ★ §id-hash S1c: returns FALSE iff the frame was DROPPED (the LBT defer ring was full — `schedule_lbt_defer`'s
+    // own "drop loudly"). A successful DEFER is TRUE: it is scheduled and will fly. NOT `[[nodiscard]]` — the ~22
+    // best-effort callers legitimately ignore it; only `emit_hash_query` reads it, because only it feeds a contract
+    // event that ASSERTS a frame left. See the definition for why lbt_complete's RTS-only bails are excluded.
+    bool     tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen);
     // §3-B.5 de-storm fire, shared by ALL THREE jittered_tx_stash.h members (§F-XL-1 H-forward ring,
     // §F-XL-2 RREQ-forward ring, §S6/QA-3b mobile-OFFER slot): tx the stashed frame at routing_sf as a
     // flood, then clear the slot so a re-entry can't double-send. The tx itself cannot live in the header

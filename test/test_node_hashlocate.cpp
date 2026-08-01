@@ -3391,3 +3391,60 @@ TEST_CASE("§id-hash S1b (QA P1c) — the HOSTED-MOBILE cache hit is a SUCCESS t
     CHECK(node.peer_key_find(guest.key_hash32, ed));            // ...and the key really is available now
 #endif
 }
+
+TEST_CASE("§id-hash S1c (QA round 2) — a DROPPED frame (LBT defer ring full) must not report `sent`") {
+    const Identity self = ab3_identity(140);
+    TestHal hal; Node node(hal, /*id=*/42, self.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    cfg.lbt_enabled = true;                              // ★ required: the defer path only exists under LBT
+    cfg.team_id = 0;
+    node.on_init(cfg); node.set_crypto_identity(self.x_secret, self.ed_pub);
+    hal._now = 100000;
+
+    // ★ SAME-FIXTURE POSITIVE CONTROL FIRST, on an IDLE channel: the identical command flies and claims sent. Without
+    //   this, every assertion below would also hold for a fixture that simply cannot send anything.
+    hal._busy_until = 0;
+    hal.events.clear(); hal.tx_frames.clear();
+    Command q{}; q.kind = CmdKind::reqpubkey; q.u.resolve.hard = true; q.u.resolve.plane = 2;
+    q.u.resolve.dst_hash = 0xAAAA0000u;
+    const CmdResult idle = node.on_command(q);
+    CHECK(idle.code == CmdCode::queued); CHECK(idle.aired); CHECK(ble_claims_sent(idle));
+    CHECK_FALSE(hal.tx_frames.empty());
+
+    // Now hold the channel busy. The first FOUR queries DEFER — scheduled, will fly ⇒ still `sent`/`aired`, which is
+    // the scope ruling: a successful defer is NOT a false success.
+    hal._busy_until = hal._now + 5000;
+    for (uint32_t i = 0; i < 4; ++i) {
+        hal.events.clear(); hal.tx_frames.clear();
+        q.u.resolve.dst_hash = 0xBBBB0000u + i;
+        const CmdResult d = node.on_command(q);
+        CHECK(d.code == CmdCode::queued);
+        CHECK(d.aired);                                  // ★ deferred == will fly: the contract's claim holds
+        CHECK(ble_claims_sent(d));
+        CHECK(find_ev(hal.events, "tx_lbt_defer") != nullptr);
+        CHECK(find_ev(hal.events, "tx_lbt_defer_dropped") == nullptr);
+        CHECK(hal.tx_frames.empty());                    // ...not on air YET, and that is fine
+    }
+
+    // ★★ THE FIFTH one finds the 4-slot ring FULL: schedule_lbt_defer drops it loudly, and before S1c that `bool` was
+    //    discarded by tx_initiating, so emit_hash_query answered `sent`, CmdResult carried aired=true, and BLE emitted
+    //    `{"ev":"reqpubkey_sent"}` for a frame that was never sent and never scheduled.
+    hal.events.clear(); hal.tx_frames.clear();
+    q.u.resolve.dst_hash = 0xCCCC0000u;
+    const CmdResult drop = node.on_command(q);
+    CHECK(find_ev(hal.events, "tx_lbt_defer_dropped") != nullptr);   // the frame really was dropped
+    CHECK(hal.tx_frames.empty());
+    CHECK(drop.code == CmdCode::err_tx_ring_full);       // ★ was CmdCode::queued
+    CHECK_FALSE(drop.aired);                             // ★ was true
+    CHECK_FALSE(ble_claims_sent(drop));                  // ★ the BLE-visible disposition — no reqpubkey_sent
+    CHECK(drop.dst_hash == 0xCCCC0000u);                 // it still says WHICH target failed...
+    CHECK(drop.plane == 2);                              // ...and on which plane
+
+    // ★ AND IT RECOVERS: free the channel and the identical command flies again. This is what makes the refusal
+    //   TRANSIENT rather than a configuration fault, which is why it earns its own CmdCode.
+    hal._busy_until = 0;
+    hal.events.clear(); hal.tx_frames.clear();
+    const CmdResult again = node.on_command(q);
+    CHECK(again.code == CmdCode::queued); CHECK(again.aired); CHECK(ble_claims_sent(again));
+    CHECK_FALSE(hal.tx_frames.empty());
+}

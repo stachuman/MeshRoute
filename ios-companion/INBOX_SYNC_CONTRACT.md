@@ -134,6 +134,48 @@
 > - NV gains **names + `authoritative` keys** — but ★ **the node remains a 16-slot ageing cache. The APP owns the
 >   durable address book**; the node's view is a reconcile source, not the record.
 >
+> ### ⏳ IN REVIEW 2026-08-01 (`§id-hash` S1/S2/S2b) — `reqpubkey` grammar, and ★★ ONE BREAKING APP CHANGE
+> **Status: implemented and gated, NOT committed, one QA blocker still open.** Written here now because one item
+> **needs app action** and the app team should not discover it from a field failure.
+>
+> ★★★ **THE BREAKING ONE — a bare `reqpubkey <id>` CHANGED MEANING.** It used to be *implicitly TEAM-scoped*; it is
+> now **AUTO**, resolved across both the static and team planes. This is **not** an additive change: it alters what an
+> already-shipped outgoing command does.
+> - ⇒ **`Command.reqPubkeyTeam` must emit `reqpubkey <id> -t`.** Changed in `Command.swift` in the same slice and
+>   pinned by `CommandEncoderTests`, but ⚠ **NOT gate-verified — there is no `swift` toolchain in the firmware
+>   environment. Run the package tests before shipping.**
+> - **Without `-t`:** with both namespaces populated the node answers **`err_ambiguous_plane`**; with only a static
+>   binding it **silently selects the static plane** despite the operation being named "team".
+>
+> **New grammar:** `reqpubkey <0xhash|id> [-s|-t]` — `-s` and `-t` are mutually exclusive; a bare id is AUTO. A hash
+> target is unchanged.
+>
+> **New ack codes (additive):** `err_ambiguous_plane` (pass `-s` or `-t` — note the remedy is the *opposite* of
+> `err_no_binding`'s) and `err_no_identity` (no Ed25519 identity, so a mutual exchange is impossible; remedy `regen`).
+> ⚠ **One more code is pending** — the LBT-drop case below is still in QA.
+>
+> **`{"ack":…}` gains an optional `"plane":"team"|"static"`** — present only when the node actually chose a plane, so
+> every pre-existing ack line stays byte-identical.
+>
+> ★★ **`reqpubkey_sent` changed TWICE, and the second one matters more:**
+> 1. **`"hash"` now carries the RESOLVED hash** for the by-id form. It used to be **`0`**. It also gains the optional
+>    `"plane"`.
+> 2. ★ **It is now emitted ONLY when a frame actually left.** Previously *every* `queued` produced one — including
+>    four paths that transmitted nothing (no crypto identity · an off-grid mobile with no return route · a
+>    degenerate/self target · a codec failure). An app reading it as *"the request is on the air"* was being told that
+>    four ways that were not true.
+> ⇒ **App consequence:** a `reqpubkey` answering `err_*` now genuinely means nothing flew. And a **local cache hit**
+> (a hosted mobile, whose key the node already holds) still answers `queued` and still fires `peer_key_cached` — but
+> **no longer `reqpubkey_sent`**, because no query was flooded. Treat `peer_key_cached` as the success signal;
+> `reqpubkey_sent` means only *"a query is on the air, expect an answer later or nothing."*
+>
+> ⓘ **`peers` over BLE is UNCHANGED by this arc.** S2 added static route-only rows and stopped listing the node
+> itself, but both are `peers all` — **text-console only** (`include_id_rows=true`). The JSON book still returns
+> exactly the ≤16 keyed rows described above.
+>
+> ⇒ **Tracking: `docs/2026-07-30-open-bug-register.md`** (**B42**–**B48**) and
+> `docs/superpowers/specs/2026-08-01-id-to-hash-resolution-design.md`.
+
 > ⇒ **Tracking: `docs/2026-07-30-open-bug-register.md`** (entry **B0** is the live location leak).
 
 

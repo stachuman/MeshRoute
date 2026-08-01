@@ -586,6 +586,13 @@ void print_reqpubkey_hint(Print& out, const meshroute::Command& cmd, const meshr
                       " plane with `-t` if the target is a teammate."));
         return;
     }
+    if (r.code == meshroute::CmdCode::err_tx_ring_full) {
+        // ★ §id-hash S1c: the ONLY transient refusal on this verb — say so, or the operator treats it like the others
+        // and starts changing configuration that was never wrong.
+        out.println(F("> reqpubkey: nothing aired — the radio's deferred-TX ring is full (the channel has been busy)."
+                      " TRANSIENT: just retry in a moment. Nothing is misconfigured."));
+        return;
+    }
     if (r.code == meshroute::CmdCode::err_unsupported) {
         out.println(F("> reqpubkey: nothing aired — the target is not a queryable peer (hash 0, or this node's own"
                       " key_hash32). Remedy: name another node's hash or id."));

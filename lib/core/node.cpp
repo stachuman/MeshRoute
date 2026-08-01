@@ -1708,6 +1708,8 @@ CmdResult Node::on_command(const Command& c) {
             //   · no_return_route -> err_no_gateway   (verbatim the precedent below: a mobile with no home cannot
             //                                          delegate, `if (!_my_mobile_reg.active) return err_no_gateway`)
             //   · encode_failed   -> err_too_large    (pack_h refused: the frame did not fit its buffer)
+            //   · tx_dropped      -> err_tx_ring_full (NEW — the LBT defer ring was full; the only TRANSIENT one,
+            //                                          and U1-checked against err_ack_ring_full, a different ring)
             // The refusal still echoes `dst_hash` + `plane` so the app knows WHICH target on WHICH plane failed.
             const HQueryOutcome oc = emit_hash_query(h, /*hard=*/true, /*want_pubkey=*/true, static_cast<Plane>(plane));   // §6.4: -t=TEAM (team_scoped, origin=team_local_id); else GLOBAL
             if (oc != HQueryOutcome::sent) {
@@ -1718,6 +1720,7 @@ CmdResult Node::on_command(const Command& c) {
                     case HQueryOutcome::no_identity:     code = CmdCode::err_no_identity;  break;
                     case HQueryOutcome::no_return_route: code = CmdCode::err_no_gateway;   break;
                     case HQueryOutcome::encode_failed:   code = CmdCode::err_too_large;    break;
+                    case HQueryOutcome::tx_dropped:      code = CmdCode::err_tx_ring_full; break;   // §S1c: transient — retry
                 }
                 return CmdResult{ code, 0, _active->_tx_queue_n, h, 0, plane, /*aired=*/false };
             }

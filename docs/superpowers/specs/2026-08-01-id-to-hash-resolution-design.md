@@ -3,12 +3,16 @@
 
 **Status: v2 AGREED — S1 / S2 / S2b IN FLIGHT, S3 onward not dispatched.**
 
-| slice | state (2026-08-01) |
+| slice | state (2026-08-01, after QA pass 2) |
 |---|---|
-| **S1** | implemented, **QA: changes requested** — four blockers (below); rework in flight |
-| **S2** | implemented, **QA: ACCEPTED** |
-| **S2b** | implemented, **QA: changes requested** — the upgrade-only rule does not cover a rehome; rework in flight |
+| **S1** | implemented + reworked. **QA pass 1's four blockers all FIXED**; ⏳ **one NEW blocker in flight** — see §5.1's last bullet |
+| **S2** | implemented, **QA: ACCEPTED** (unchanged since) |
+| **S2b** | implemented + reworked. **Rehome door closed** (§1-E) — no blocker outstanding |
 | **S3 · S4a · S4b · S5** | **not dispatched** — S4a/S4b wait on the §7 rulings (verb name, BLE availability, `HARD`-under-`BY_ID`) |
+
+⚠ **Nothing is committed.** The companion contract's `§id-hash` section is written
+(`ios-companion/INBOX_SYNC_CONTRACT.md`) and carries the one **breaking** app change: a bare `reqpubkey <id>` moved
+from implicit-TEAM to AUTO, so `Command.reqPubkeyTeam` must emit `-t`.
 
 ★ **Implementation assessment: `docs/2026-08-01-id-to-hash-resolution-implementation-assessment.md`** (independent QA,
 the same reviewer as v1). Its four blockers were re-verified against source and **all upheld**: a claimed *rehome* still
@@ -407,6 +411,17 @@ converts every one of them into **`reqpubkey_sent`** (`fw_main.cpp:490-497`). B4
 
 ⓘ This is B39's class ("a success that isn't") reached through a new door. The broader B39 redesign stays separate —
 these branches are locally knowable and do not wait on it.
+
+★★ **AND THE REQUIREMENT REACHES BELOW `emit_hash_query` — QA pass 2, in flight.** Naming the four bail points was
+not sufficient, because the send itself can still fail *after* the outcome is decided: `schedule_lbt_defer`
+(`node_mac.cpp:1218-1231`) returns **`false`** when its 4-slot ring is full and drops the frame — its own comment says
+*"ring full -> drop loudly"* — but `tx_initiating` (`:1106`) **discards that return and is `void`**, so the outcome is
+still `sent` and `reqpubkey_sent` fires for a frame that was explicitly thrown away.
+⇒ **"only when a frame actually left" is a property of the whole TX path, not of the originator's preflight.** Any
+future caller that reports transmission must propagate failure from `tx_initiating` too.
+⚠ **Scope bound:** a **successful defer is still `aired`** — the frame is scheduled and will fly, so the claim holds.
+Only the ring-full **drop** is the false case; widening this to "already on air" would make every deferred send report
+a failure.
 
 ---
 

@@ -1685,8 +1685,15 @@ Node::HQueryOutcome Node::emit_hash_query(uint32_t key_hash32, bool hard, bool w
     const size_t n = pack_h(in, std::span<uint8_t>(buf, sizeof(buf)));
     if (n == 0) return HQueryOutcome::encode_failed;
     // the originate (dv:5625)
+    // ⚠ THE `h_tx` EMIT STAYS BEFORE THE HAND-OFF, deliberately: moving it after would reorder it against
+    // `tx_lbt_defer` / `tx_lbt_defer_dropped` and re-anchor scenario streams — a telemetry re-anchor folded into a
+    // behaviour fix is exactly what C4/C1 forbid. It means "we originated an H"; the drop, when it happens, is
+    // reported by the very next line's `tx_lbt_defer_dropped` and by the outcome below.
     MR_EMIT("h_tx", EF_I("key_hash32", static_cast<int64_t>(key_hash32)), EF_I("ttl", protocol::hash_query_max_ttl), EF_B("hard", hard));
-    tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
+    // ★★ §id-hash S1c (QA round 2): tx_initiating's `bool` was discarded ONE LAYER DOWN, so a full LBT defer ring
+    // dropped the frame and this still answered `sent`. Spec §5.1: `reqpubkey_sent` "must not be reachable from any
+    // bail point" — and that was one.
+    if (!tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0)) return HQueryOutcome::tx_dropped;
     return HQueryOutcome::sent;
 }
 
