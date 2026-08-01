@@ -545,8 +545,8 @@ Until they land, §2.1's attribution degrades to "accepted with a non-zero ctr" 
 
 | # | work | owning spec |
 |---|---|---|
-| B-1 | V4 radio port: FEM TX/RX switching, runtime GC1109-vs-KCT8103L detection, LoRa RST 12, `SX126X_REGISTER_PATCH` | **new spec** (§10.2) |
-| B-2 | `tx_power` semantics and per-board clamp — a compliance decision | **new spec / owner decision** (§10.2 item 3) |
+| B-1 | V4 radio port: FEM TX/RX switching, runtime GC1109-vs-KCT8103L detection, LoRa RST 12, `SX126X_REGISTER_PATCH` | ✅ **spec'd**: `2026-08-01-heltec-v4-radio-port-and-board-rf-seam-design.md` (slices R1-R3) |
+| B-2 | `tx_power` semantics and per-board clamp — a compliance decision | ✅ **spec'd + RULED 2026-08-01** (= antenna dBm) — same spec, §4 + slice R4 |
 | B-3 | V4 board port for the UI: battery polarity fixed HIGH, the `delay(10)` restructured, Vext ACTIVE=HIGH | this spec's §7 + §10.1, applied to a new env |
 | B-4 | GPS driver + peer-location exchange + TEAM distance column | **new spec** (§10.3) |
 

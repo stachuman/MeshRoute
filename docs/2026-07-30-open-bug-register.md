@@ -305,6 +305,15 @@ DEPLOYMENT** — at which point M3 also stops being true and this entry should b
 `q_opcode`, frame types, `PushKind`/`SendFailReason` numeric values, the cfg TLV tags — **for a numeric pin**, and add
 one where it is missing. A renumber is otherwise invisible to this project's entire gate. Note: `§cl2c`.
 
+### ~~B41~~ ✅ **CLOSED 2026-08-01** (`§b41`) — and it CONFIRMED B38 outright
+★ 9 value-only re-anchors, event counts unchanged, native unchanged, s18 unmoved. **TEAM subtotal 0 `true` / 9 `false`;
+global 65 / 19.** ★★ **s28's `send_channel_b` is a perfect controlled A/B — ONE command, two planes, global half
+`true` and team half `false`, same node and instant.** Team outcomes also arrive at **42.5–45.4 s** (full budget
+exhausted) vs **2.29 s** for a comparable global post.
+★★★★ **AND IT RAISED B38's SEVERITY: `INBOX_SYNC_CONTRACT.md:502` makes the SHIPPED app treat `relayed:false` as
+"stop-and-back-off" ⇒ the companion ALREADY backs off from every successful team channel post.** Not a future-OLED
+problem. *(original entry below)*
+
 ### B41 — the sim's push bridge has **no `channel_sent` arm** ⇒ `relayed` is invisible to the corpus · NEW 2026-08-01
 `orchestrator/runtime/NodeRuntimeWrapper.cpp:1023-1028` renders `kind` / `ctr` / `dst` and then **a per-kind extension
 block** — `msg_recv` already has an arm. `channel_sent` has none, so **`Push::relayed` never reaches a stream** and no
@@ -327,6 +336,10 @@ The team carve-out is **correct in intent** (one near relay ≠ full coverage of
 also **discards the observation**. Retry exhaustion then emits `emit_channel_sent(false, …)` at `:~1131`. ⇒ **a team post
 that WAS relayed by every teammate still ends `relayed=false`.** The only truthful outcome the channel plane can produce
 is unreachable on the plane teams actually use, for **every** consumer — companion app included, not just the OLED UI.
+★★★★ **SEVERITY RAISED 2026-08-01 by `§b41`: this is LIVE IN THE SHIPPED APP, not only the future OLED.**
+`INBOX_SYNC_CONTRACT.md:502` — *"the app treats `channel_sent{relayed:false}` as stop-and-back-off (don't keep firing)"*
+⇒ **the companion already backs off from EVERY SUCCESSFUL TEAM CHANNEL POST.** Measured: **0 `true` / 9 `false`** on the
+team plane corpus-wide, with **every** post actually received by every teammate.
 ★ **Why it is severity-3:** the OLED emergency (spec `2026-07-31-onboard-oled-ui-design.md` §4) retries on
 `relayed=false`, so a distress call would **always transmit its full 3-attempt budget and always display `NOT HEARD`,
 even when the whole team received it.** A safety feature reporting failure on success.
