@@ -356,6 +356,31 @@ inline constexpr uint8_t  park_reflood_max_retries      = 6;       // ~6 indepen
 // reappearing on the next beacon — different regimes, different patience. Keeping send_defer_ttl_ms at 30 s also keeps
 // s18 (which exercises the deferred-queue giveup but NEVER the parked path) byte-identical. = park + all refloods.
 inline constexpr uint32_t hash_locate_giveup_ms         = park_reflood_retry_ms * (park_reflood_max_retries + 1);   // 175 s
+// ★★ §id-hash S4b (spec §5) — THE `resolve-id-for-pubkey` INTENT. A `reqpubkey <id>` against an id with no binding
+// is a TWO-STAGE operation: stage 1 asks "who owns id N?" (H_FLAG_BY_ID, want_pubkey=false), and the answer's arrival
+// is what makes stage 2 — the ordinary HARD WANT_PUBKEY query BY HASH — expressible at all. The intent is the state
+// that survives between them, and it is bounded on BOTH axes:
+//
+// · CAPACITY. The bound here is AIRTIME, not RAM. Every armed intent is one H FLOOD already on the air, and a second
+//   flood follows it when the answer lands — so a ring of 4 is a de-facto rate limit on a plane where 4 floods inside
+//   one round-trip is already aggressive. A FULL ring REFUSES the new command loud (CmdCode::err_resolve_pending_full)
+//   and NEVER evicts: evict-oldest would silently kill a request the operator was told had been accepted, which is
+//   precisely the "a success that isn't" class this whole arc exists to remove (cf. cap_pending_e2e_acks' identical
+//   ruling). Re-issuing the SAME (id, plane) refreshes the deadline instead of consuming a second slot
+//   (park_resolve_request's precedent).
+// · TIME. The budget is ONE flood round-trip — park_reflood_retry_ms, whose own derivation above prices exactly that
+//   ("a flood-out + routed-answer leg is ~1-1.5 s/hop; over an ~8-hop design envelope one round-trip is ~15-25 s").
+//   NOT hash_locate_giveup_ms: that value prices park + SIX refloods, and this intent re-floods nothing — claiming its
+//   patience would make the operator wait 175 s for a retry that never happens.
+//   ⚠ THE EFFECTIVE BOUND IS COARSER THAN THE BUDGET, and it is stated rather than rounded away: the sweep runs on the
+//   periodic kAgingTimerId (rt_aging_check_period_ms, 60 s) beside age_out_parked_sends — the SAME mechanism, for the
+//   same question — so an intent expires somewhere in
+//        [id_pubkey_intent_ttl_ms, id_pubkey_intent_ttl_ms + rt_aging_check_period_ms]  = [25 s, 85 s].
+//   That is a real bound and the operator report names the window; a dedicated one-shot timer would tighten it to the
+//   ms at the cost of the last free timer-wheel id (kCap 91, all consumed) for a diagnostic deadline. Recorded so the
+//   choice is visible, not inferred.
+inline constexpr uint32_t id_pubkey_intent_ttl_ms       = park_reflood_retry_ms;   // 25 s = one by-id flood round trip
+inline constexpr uint8_t  cap_pending_id_pubkey         = 4;                       // see CAPACITY above — an airtime bound, refuse-when-full
 // NOTE: the E2E-ack DEADLINE constants (e2e_ack_deadline_ms / _xl_ms / cap_pending_e2e_acks) live in the Gateway-scheduling
 // section below — they derive from gateway_send_giveup_ms, which is declared there (a constexpr must see its base first).
 

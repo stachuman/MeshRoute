@@ -14,6 +14,7 @@
 #include "dm_crypto.h"     // dm_kdf / dm_nonce / dm_seal / dm_open (E2E seal/open)
 #include "monocypher.h"    // crypto_x25519 / crypto_wipe
 
+#include <cstdio>          // §id-hash S4b: snprintf, for the `!!` operator-critical log lines (node_channel.cpp's idiom)
 #include <span>
 
 namespace MESHROUTE_NS {
@@ -214,18 +215,26 @@ int Node::id_bind_find_by_hash(uint32_t key_hash32, IdBindConf* conf_out) const 
 }
 
 // Reverse lookup: a node_id -> its stable key_hash32 (the inverse of id_bind_find_by_hash). Used by the
-// send path to stamp DST_HASH (L2c verify-on-delivery) on an app DM. ONLY an AUTHORITATIVE (owner-confirmed
-// / first-hand beacon / self) binding qualifies — a CLAIMED (second-hand / relayed) binding can be stale and
-// would stamp a wrong dst_hash that triggers a spurious redirect at the recipient (mirrors send_by_hash's
+// send path to stamp DST_HASH (L2c verify-on-delivery) on an app DM. By DEFAULT only an AUTHORITATIVE
+// (owner-confirmed / first-hand beacon / self) binding qualifies — a CLAIMED (second-hand / relayed) binding can be
+// stale and would stamp a wrong dst_hash that triggers a spurious redirect at the recipient (mirrors send_by_hash's
 // trust model, which HARD-verifies a soft binding before use). Returns false (DST_HASH omitted) otherwise.
-bool Node::key_hash_of_id(uint8_t id, uint32_t& out) const {
+// ★★ §id-hash S3 (spec §3-D1): the AUTHORITATIVE test became the `min` FLOOR and the row's real tier is reported
+// through `actual`. THE DEFAULT IS THE OLD CONSTANT, so every pre-S3 caller — DST_HASH stamping (node_mac.cpp:137),
+// the gateway trust test (:425), the sender-vs-origin check (:665), route_uses_mobile_as_transit, peer_book_by_id —
+// is byte-identical. ⚠ Spec §3-D7 keeps it that way for the SEND path specifically: a false claimed binding would
+// not be REJECTED by the recipient, it would be REDIRECTED (l2c_handle_misdelivery forwards to the claimed hash's
+// owner), so a claim must never reach DST_HASH. Only display/inspection callers may lower the floor.
+bool Node::key_hash_of_id(uint8_t id, uint32_t& out, IdBindConf min, IdBindConf* actual) const {
     const uint64_t now = _hal.now();
     for (uint16_t i = 0; i < _active->_id_bind_n; ++i) {
         if (_active->_id_bind[i].node_id != id) continue;
-        if (_active->_id_bind[i].confidence != static_cast<uint8_t>(IdBindConf::authoritative)) continue;  // confident only
+        const IdBindConf conf = static_cast<IdBindConf>(_active->_id_bind[i].confidence);
+        if (static_cast<uint8_t>(conf) < static_cast<uint8_t>(min)) continue;   // below the floor (the pre-S3 "confident only")
         const bool self_keep = (id == _node_id && _active->_id_bind[i].key_hash32 == _key_hash32);
         if (!self_keep && _cfg.id_bind_ttl_ms > 0
             && (now - _active->_id_bind[i].last_seen_ms) >= _cfg.id_bind_ttl_ms) continue;     // expired
+        if (actual) *actual = conf;
         out = _active->_id_bind[i].key_hash32;
         return true;
     }
@@ -471,31 +480,41 @@ int Node::peer_key_slot_of(uint32_t key_hash32) const {
 // ⚠ DELIBERATELY NOT team_id_of_key (node_routing.cpp), and this is a FINDING rather than a preference: that function
 // returns the FIRST matching row, so on an aliased hash it silently picks by table order. It is on the live
 // PLAINTEXT send-by-hash path, so changing it is a behaviour fix in its own right (C1) — reported, not folded in here.
-uint8_t Node::team_id_of_key_freshest(uint32_t key_hash32, uint8_t& alias_dropped) const {
+uint8_t Node::team_id_of_key_freshest(uint32_t key_hash32, uint8_t& alias_dropped, IdBindConf* conf_out) const {
     alias_dropped = 0;
+    if (conf_out) *conf_out = IdBindConf::claimed;   // ★ §id-hash S3: the SAFE default — "no row" never reads as first-hand
     if (key_hash32 == 0 || _cfg.team_id == 0) return 0;
     const uint64_t now = _hal.now();
     uint8_t  best = 0; uint64_t best_seen = 0; uint8_t hits = 0;
+    IdBindConf best_conf = IdBindConf::claimed;
     for (uint8_t i = 0; i < _active->_team_keys_n; ++i) {
         const auto& e = _active->_team_keys[i];
         if (e.key_hash32 != key_hash32 || !is_team_peer(e.id)) continue;
         if (now - e.last_seen_ms > protocol::id_bind_ttl_ms) continue;      // §P2-6 48 h staleness — team_key_of_id's rule
         ++hits;
-        if (best == 0 || e.last_seen_ms > best_seen) { best = e.id; best_seen = e.last_seen_ms; }
+        // ★★ §id-hash S3: FRESHEST STILL WINS — the tier is REPORTED, it does not re-rank. Letting an older
+        // authoritative row beat a fresher claimed one would make this reader disagree with `team_id` itself (the
+        // view's whole contract is "the freshest row is the honest answer, and team_alias_dropped says a loser
+        // exists"), and would put a trust decision inside a DISPLAY resolver — the §AB3 de-dup mistake that S1b's
+        // QA finding P2 already cost this arc one round. The floor belongs at the CALLER (spec §3-D6), not here.
+        if (best == 0 || e.last_seen_ms > best_seen) { best = e.id; best_seen = e.last_seen_ms; best_conf = static_cast<IdBindConf>(e.confidence); }
     }
     alias_dropped = hits ? static_cast<uint8_t>(hits - 1) : 0;
+    if (conf_out) *conf_out = best_conf;
     return best;
 }
 #endif
 
 // The reverse (hash -> id) joins for a row that already carries a hash. Fills static_id/static_authoritative and
-// team_id/team_alias_dropped, leaving them at 0/false when that plane holds nothing.
+// team_id/team_authoritative/team_alias_dropped, leaving them at 0/false when that plane holds nothing.
 void Node::peer_book_join_ids(PeerBookRow& r) const {
     if (r.hash == 0) return;                                  // an id-only row has nothing to join BY
     IdBindConf ic = IdBindConf::claimed;
     const int sid = id_bind_find_by_hash(r.hash, &ic);        // U1: the existing _id_bind reverse scan (skips expired)
     if (sid >= 0) { r.static_id = static_cast<uint8_t>(sid); r.static_authoritative = (ic == IdBindConf::authoritative); }
-    r.team_id = team_id_of_key_freshest(r.hash, r.team_alias_dropped);
+    IdBindConf tc = IdBindConf::claimed;                      // ★ §id-hash S3: the team plane's twin of the line above
+    r.team_id = team_id_of_key_freshest(r.hash, r.team_alias_dropped, &tc);
+    r.team_authoritative = (r.team_id != 0) && (tc == IdBindConf::authoritative);
     peer_book_join_loc(r);
 }
 
@@ -560,7 +579,11 @@ uint16_t Node::peer_book_walk(bool include_id_rows, PeerBookVisit fn, void* ctx)
         r.hash = e.key_hash32;
         r.static_id = e.node_id;
         r.static_authoritative = (e.confidence == static_cast<uint8_t>(IdBindConf::authoritative));
-        if (r.hash) r.team_id = team_id_of_key_freshest(r.hash, r.team_alias_dropped);   // §18: the same hash may hold both
+        if (r.hash) {                                                                   // §18: the same hash may hold both
+            IdBindConf tc = IdBindConf::claimed;
+            r.team_id = team_id_of_key_freshest(r.hash, r.team_alias_dropped, &tc);
+            r.team_authoritative = (r.team_id != 0) && (tc == IdBindConf::authoritative);   // §id-hash S3
+        }
         peer_book_join_loc(r);                                                          // §AB4 (no join_ids here: static_id came straight off the row)
         ++n; if (fn) fn(r, ctx);
     }
@@ -596,6 +619,7 @@ uint16_t Node::peer_book_walk(bool include_id_rows, PeerBookVisit fn, void* ctx)
         if (id_bind_find_by_hash(e.key_hash32) >= 0) continue;                 // covered by (2)
         r = PeerBookRow{};
         r.hash = e.key_hash32; r.team_id = e.id; r.team_alias_dropped = dropped;
+        r.team_authoritative = (e.confidence == static_cast<uint8_t>(IdBindConf::authoritative));   // §id-hash S3: straight off the row, like static_authoritative in pass (2)
         peer_book_join_loc(r);                                                          // §AB4 (ditto — team_id came straight off the row)
         ++n; if (fn) fn(r, ctx);
     }
@@ -606,7 +630,15 @@ uint16_t Node::peer_book_walk(bool include_id_rows, PeerBookVisit fn, void* ctx)
         for (uint16_t id = 1; id <= 254; ++id) {
             if (!is_team_peer(static_cast<uint8_t>(id))) continue;
             uint32_t th = 0;
-            if (team_key_of_id(static_cast<uint8_t>(id), th) && th != 0) continue;   // has a _team_keys row -> (1)/(2)/(3)
+            // ★★ §id-hash S3 — THE DISPLAY FLOOR IS EXPLICIT HERE, and passing the default would have PLANTED a
+            // duplicate-row bug for S4a. This is a DEDUP against what pass (3) emitted, and pass (3) resolves through
+            // `team_id_of_key_freshest`, which has no floor. If this asked at the `authoritative` default, a CLAIMED
+            // row would answer false here, pass (4) would emit a team-id-only row for an id pass (3) already emitted
+            // WITH its hash, and `peers all` would print it twice. Exactly the trap §id-hash S2 recorded for pass
+            // (2b) — *"the dedup must read the TABLE, not the accessor"* — reached through the new floor parameter.
+            // ⓘ INERT IN S3 by construction: the beacon is the only writer and it writes `authoritative`, so no row
+            //   is below the floor yet. The explicit floor is what keeps it inert once S4a adds the claimed writer.
+            if (team_key_of_id(static_cast<uint8_t>(id), th, IdBindConf::claimed) && th != 0) continue;   // has a _team_keys row -> (1)/(2)/(3)
             r = PeerBookRow{};
             r.team_id = static_cast<uint8_t>(id);
             ++n; if (fn) fn(r, ctx);
@@ -635,10 +667,26 @@ uint8_t Node::peer_book_by_id(uint8_t id, PeerBookRow& static_out, PeerBookRow& 
     uint8_t mask = 0;
     if (id == 0 || id == 0xFF) return 0;                     // 0 = unprovisioned, 0xFF = reserved
     uint32_t h = 0;
-    if (key_hash_of_id(id, h)) {                             // STATIC: authoritative + fresh, exactly what DST_HASH stamps
+    // ★★★ §id-hash S4a (register B53, spec §3-D6) — THE FLOOR IS NOW `claimed`, ON BOTH ARMS, AND THEY MOVED
+    // TOGETHER. S3 left it at `authoritative` because lowering it is NOT inert (claimed static rows exist today, so
+    // `hashof <id>` starts answering for them and `reqpubkey <id>` starts spending AIRTIME on them) and S3's contract
+    // was inertness. S4a is the slice that both creates the team-side claimed tier and needs the tier to be visible:
+    // ⚠ **without this, S4a would land a mechanism nothing can observe** — the claimed row it writes would be
+    // invisible to every verb that could show or use it (spec §3-D1's own warning).
+    // ⚠ BOTH ARMS OR NEITHER: a resolver that filters one plane harder than the other rebuilds spec §1-C's asymmetry
+    //   defect, one of the five this arc exists to remove. B53 says so explicitly.
+    // ★ WHAT THIS DOES **NOT** UNLOCK, and the distinction is the whole trust model: the SEND path is untouched.
+    //   `key_hash_of_id` / `team_key_of_id` / `team_id_of_key` keep their `authoritative` DEFAULT, so DST_HASH
+    //   stamping (node_mac.cpp:137), sealing and `team grantkey` still refuse a claim (spec §3-D6/D7). The floor is
+    //   lowered HERE, in the resolver behind display and pubkey INSPECTION — where a claim is the thing you want to
+    //   see and then check, because fetching the pubkey self-verifies against the hash and upgrades nothing.
+    // ⓘ `actual` was already read and PROPAGATED into the row by S3 rather than hardcoded, precisely so the display
+    //   could not start lying the moment this moved: a claimed row now renders `(claimed)`, not `(auth)`.
+    IdBindConf sc = IdBindConf::claimed;
+    if (key_hash_of_id(id, h, IdBindConf::claimed, &sc)) {   // STATIC: §3-D6's display/inspection floor
         if (!peer_book_by_hash(h, static_out)) { static_out = PeerBookRow{}; static_out.hash = h; }
         static_out.static_id = id;                           // the queried id IS the binding's id (one-hash-one-id)
-        static_out.static_authoritative = true;
+        static_out.static_authoritative = (sc == IdBindConf::authoritative);
         mask |= kPeerBookStatic;
     }
     uint32_t th = 0;
@@ -652,11 +700,14 @@ uint8_t Node::peer_book_by_id(uint8_t id, PeerBookRow& static_out, PeerBookRow& 
     // ⇒ this function reports PRESENCE, per plane, and nothing else. Any identity de-duplication is a RENDERER
     //   concern; `handle_hashof` now prints both rows and their equal hashes say "one identity, two planes" on their
     //   own, which is more information than the suppressed row carried.
-    if (team_key_of_id(id, th)) {                             // TEAM: the team key cache
+    IdBindConf tc = IdBindConf::claimed;
+    if (team_key_of_id(id, th, IdBindConf::claimed, &tc)) {   // TEAM: the team key cache, at the SAME §3-D6 floor as the static arm (B53 — both or neither)
         if (!peer_book_by_hash(th, team_out)) { team_out = PeerBookRow{}; team_out.hash = th; }
         // ⚠ team_id is left as the view RESOLVED it, NOT overwritten with `id`: when two team ids alias one hash the
         // freshest is the honest answer and team_alias_dropped says a loser exists. The caller reports the queried id.
-        if (team_out.team_id == 0) team_out.team_id = id;
+        // ★ §id-hash S3: team_authoritative follows team_id for the same reason — when the join named a DIFFERENT
+        // (fresher) id, its tier is the one being displayed. Only the fallback below describes the QUERIED id.
+        if (team_out.team_id == 0) { team_out.team_id = id; team_out.team_authoritative = (tc == IdBindConf::authoritative); }
         mask |= kPeerBookTeam;
     }
     return mask;
@@ -929,14 +980,16 @@ bool Node::e2e_open_relay(const uint8_t* relay_body, size_t len, uint32_t source
 // for the measured reason (the role-exclusion invariant it used to rely on is defeatable by `cfg set team_id` on a
 // non-mobile node). Static reduction: every static H carries team_scoped=false and every existing team H carries true,
 // so no static entry's key value changes and a static-only mesh is byte-identical by construction.
-bool Node::hash_query_seen_recently(uint8_t origin, uint32_t key_hash32, bool hard, bool want_pubkey, bool team_scoped) {
+// ★ §id-hash S4a: `by_id` joins the key too — `key_hash32` here is the H's RAW bytes 2-5, so a by-id query for id
+// 114 and a by-hash query for 0x00000072 are the same 32-bit value. See the HashQuerySeen struct comment.
+bool Node::hash_query_seen_recently(uint8_t origin, uint32_t query_key32, bool hard, bool want_pubkey, bool team_scoped, bool by_id) {
     return recent_ring_hit(_active->_hash_query_seen, _active->_hash_query_seen_n,
-                           HashQuerySeen{ origin, key_hash32, 0, hard, want_pubkey, team_scoped },
+                           HashQuerySeen{ origin, query_key32, 0, hard, want_pubkey, team_scoped, by_id },
                            _hal.now(), protocol::hash_query_seen_ttl_ms);
 }
-void Node::mark_hash_query_seen(uint8_t origin, uint32_t key_hash32, bool hard, bool want_pubkey, bool team_scoped) {
+void Node::mark_hash_query_seen(uint8_t origin, uint32_t query_key32, bool hard, bool want_pubkey, bool team_scoped, bool by_id) {
     recent_ring_mark(_active->_hash_query_seen, _active->_hash_query_seen_n,
-                     HashQuerySeen{ origin, key_hash32, _hal.now(), hard, want_pubkey, team_scoped });
+                     HashQuerySeen{ origin, query_key32, _hal.now(), hard, want_pubkey, team_scoped, by_id });
 }
 
 // H query flood handler (Lua dv:11628-11671). RESOLVE from own-hash (HARD) or a cached binding (its stored
@@ -954,7 +1007,11 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // H is single-leaf (h.leaf_id==_cfg.leaf_id) -> the gate never fires -> s18/s21-s28 byte-identical.
     if (h.leaf_id != _cfg.leaf_id && !(h.team_scoped && same_team(h.team_id))) return;   // foreign-layer (dv:11635)
     if (h.origin == _node_id) return;                      // our own query echoed back (dv:11637)
-    MR_EMIT("h_rx", EF_I("origin", h.origin), EF_I("key_hash32", static_cast<int64_t>(h.key_hash32)), EF_I("ttl", h.ttl),
+    // ⚠ §id-hash S4a: `key_hash32` here is the RAW query key (an id when `h.by_id`), and NO `by_id` FIELD IS ADDED
+    // to this emit — deliberately. h_rx/h_forward/h_resolved fire on every H in the corpus, so a new field would
+    // re-anchor all 36 streams and make THIS slice's real behaviour delta (the team ingestion, below) unattributable
+    // in the same run — exactly what C4 forbids. The by-id path is observed in native tests and by the store writes.
+    MR_EMIT("h_rx", EF_I("origin", h.origin), EF_I("key_hash32", static_cast<int64_t>(h.query_key32)), EF_I("ttl", h.ttl),
             EF_B("hard", h.hard));  // dv:11638
 
     // §mobile (2026-07-11): a MOBILE is a LEAF on the static plane — it does NOT participate in a STATIC hash-locate flood:
@@ -965,7 +1022,7 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         // §S3 part3 (TX-free overhear): a WANT_PUBKEY H for OUR OWN hash carries the requester's appended key. Cache it
         // BEFORE returning (no answer, no relay, no TX — the home answers on our behalf, Part 2). Covers the sender-in-RF-range
         // case at zero cost; redundant with the Part-2 forward when the home is in range, kept for the home-momentarily-deaf case.
-        if (h.key_hash32 == _key_hash32 && h.want_pubkey) (void)cache_want_pubkey_requester(h);
+        if (h.query_hash() == _key_hash32 && h.want_pubkey) (void)cache_want_pubkey_requester(h);   // by_id ⇒ query_hash()==0 ⇒ never matches (and by_id+want_pubkey is refused at the codec)
         return;
     }
 
@@ -973,7 +1030,18 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // (verify-on-use, dv §3.7a): resolve ONLY via own-hash — SKIP the cache so it reaches the OWNER for an
     // authoritative correction. A cached binding carries its own confidence (beacon = authoritative/first-hand;
     // snooped hash-bind = claimed/second-hand, Phase C).
-    int node_id = -1; bool authoritative = false; bool mobile_proxy = false; uint8_t mobile_epoch = 0; uint8_t mobile_layer = 0;   // §mobile 4a proxy flag + epoch; §5b the home's layer
+    // ★★ §id-hash S4a / spec §3-D4 — TWO FACTS, NOT ONE BOOLEAN. The single local `authoritative` conflated them:
+    //   · `answered_by_owner`   — we ARE the target: selects owner-only behaviour (the WANT_PUBKEY answer, the
+    //                             team_local_id substitution). It is NOT `node_id == _node_id` any more, because a
+    //                             team BY_ID owner answers with its team_local_id, which is a DIFFERENT number.
+    //   · `binding_verifiable`  — the id->hash assertion in the answer is one the receiver can check: selects plain
+    //                             `DATA_TYPE_H_ANSWER` vs `DATA_TYPE_AUTHORITATIVE_H_ANSWER`.
+    // By-hash self-match: BOTH true. **BY_ID self-match: owner TRUE, verifiable FALSE** — the owner possesses the
+    // key, but an id is an address, not a commitment (owner ruling: "we can be sure only if we scan QR or exchange
+    // keys out of network"). Making that structural is the point: the alternative is one call site passing a
+    // surprising `false` and a later branch reading the wrong one.
+    int node_id = -1; bool answered_by_owner = false; bool binding_verifiable = false;
+    bool mobile_proxy = false; uint8_t mobile_epoch = 0; uint8_t mobile_layer = 0;   // §mobile 4a proxy flag + epoch; §5b the home's layer
     const bool same_team = h.team_scoped && this->same_team(h.team_id);   // §mobile-team / §P2-1: a teammate's locate (the mobile IS the endpoint on the team plane) — ONE same_team() definition, leaf-agnostic
     // §team-multihop (spec 2026-07-15 §2): a team-scoped H is a TEAM-plane flood — only same-team members answer/relay it.
     // A static node (team_id==0) or a wrong-team member DROPS it here, BEFORE any answer, forward, or mark_hash_query_seen,
@@ -984,7 +1052,22 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // §mobile: a REGISTERED mobile is INVISIBLE to the static plane — it SKIPS own-hash resolution (the home proxies) so its
     // LOCAL id never leaks. It DOES answer a same-team locate (the 6.2 team-scoped table routes to its local id). A static
     // node (is_mobile=false) is unchanged. This also suppresses its want_pubkey owner-answer -> the home answers it (Part 2).
-    if (h.key_hash32 == _key_hash32 && (!mobile_registered() || same_team)) { node_id = _node_id; authoritative = true; }   // own-hash: resolves either variant (mobile_registered() is false on a static/gateway build -> always resolves)
+    // ★★★ §id-hash S4a / spec §3-D3 — A BY_ID QUERY IS ANSWERED BY THE OWNER ONLY, AND NEVER FROM A CACHE.
+    // The principle: **a cached answer is allowed exactly when the answer is SELF-VERIFYING.** hash->pubkey is
+    // (`peer_key_set` recomputes `key_hash32_of(ed_pub)` and refuses a mismatch), which is what makes cache-on-pass
+    // sound for the TYPE-5 path. id->hash is NOT, so a third party relaying its guess is pure attack surface for
+    // nothing — it cannot be checked at the receiver and it would out-race the owner's real answer. Hence: no
+    // `_id_bind` / `_team_keys` consult on this branch at all, only a SELF-match, and the self-match is on the
+    // plane's OWN id — `team_local_id()` for a team-scoped locate, `_node_id` for a static one (spec §3-D3
+    // "instead of `_key_hash32`"). `_key_hash32 != 0` is a genuine precondition, not defence: an answer carrying
+    // hash 0 reads as "no hash" to every reader, so a keyless node must stay silent and let the flood continue.
+    if (h.by_id) {
+        const uint8_t self_id = same_team ? team_local_id() : _node_id;
+        if (self_id != 0 && h.query_id() == self_id && _key_hash32 != 0 && (!mobile_registered() || same_team)) {
+            node_id = self_id; answered_by_owner = true; binding_verifiable = false;   // §3-D4: owner, but the binding is a CLAIM
+        }
+    }
+    else if (h.query_hash() == _key_hash32 && (!mobile_registered() || same_team)) { node_id = _node_id; answered_by_owner = true; binding_verifiable = true; }   // own-hash: resolves either variant (mobile_registered() is false on a static/gateway build -> always resolves)
     else if (!h.hard) {                                                              // HARD skips the cache -> flood to the owner
         // ⚠ ✖ MISSING (register B2's READ-side twin, deliberately NOT fixed here — C1; it is spec §12 / register D2's
         // read-path plane audit): this cache lookup has NO plane test, so a TEAM-scoped H can still be answered out of
@@ -994,56 +1077,65 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         // static cache and now let the OWNER answer (+78/+78/+56 events, delivery unchanged). What remains reachable is
         // a genuinely-static binding (from a beacon) answering a team-scoped query — same class, other direction.
         IdBindConf conf = IdBindConf::claimed;
-        const int found = id_bind_find_by_hash(h.key_hash32, &conf);
-        if (found >= 0) { node_id = found; authoritative = (conf == IdBindConf::authoritative); }
+        const int found = id_bind_find_by_hash(h.query_hash(), &conf);
+        // §3-D4: a cache hit is NOT an owner answer (we hold somebody else's binding), and `binding_verifiable`
+        // keeps the row's own tier exactly as the pre-S4a `authoritative` local did.
+        if (found >= 0) { node_id = found; answered_by_owner = false; binding_verifiable = (conf == IdBindConf::authoritative); }
     }
     // §mobile 3a: HOST proxy — I HOST this mobile, so answer with MY id (home_id) as a CLAIMED binding; the querier caches
     // mobile_hash -> home_id and routes the DM to me (the host), which then last-mile-forwards it (do_post_ack). The home is
     // the mobile's LOCATION AUTHORITY, soft AND hard (was `!h.hard`, which let a HARD locate — e2e_ack_req drives it — bypass
     // the home + flood to the mobile owner). Redirect forwards unconditionally; the DIRECT proxy is LIVENESS-gated so a
     // long-dead mobile's entry stops black-holing. Gated on _mobile_reg_n>0 -> a non-host is byte-identical (no wire change).
-    if (node_id < 0 && _active->_mobile_reg_n > 0) {
+    // ★ §id-hash S4a: `!h.by_id` — the host proxy is keyed by the mobile's HASH, and a hosted mobile's local id is
+    // not a globally addressable number in the first place. Proxy-answering a by-id query would also be exactly the
+    // NON-owner answer §3-D3 forbids (the home does not own the binding; it holds a registration).
+    if (node_id < 0 && !h.by_id && _active->_mobile_reg_n > 0) {
         for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
-            if (_active->_mobile_reg[i].key_hash32 == h.key_hash32) {   // §mobile 4a: a MOBILE_H_ANSWER carrying the registration epoch (freshest-proxy wins)
+            if (_active->_mobile_reg[i].key_hash32 == h.query_hash()) {   // §mobile 4a: a MOBILE_H_ANSWER carrying the registration epoch (freshest-proxy wins)
                 if (_active->_mobile_reg[i].redirect_home_id != 0) {    // §mobile 4b/5b: we're STALE -> redirect to the mobile's NEW home + ITS layer (NOT liveness-gated)
                     if (h.want_pubkey) break;                          // §Part 2: a STALE home holds NO key for M -> do NOT answer/suppress a WANT_PUBKEY locate (that black-holes the encrypted DM when we're a flood cut-vertex). Leave node_id=-1 -> FORWARD the flood on to the NEW home, which cached M's key (Fix 6) and answers with the pubkey. The plain (location) redirect below is unaffected.
                     node_id = _active->_mobile_reg[i].redirect_home_id;
                     mobile_epoch = _active->_mobile_reg[i].redirect_epoch;
                     mobile_layer = _active->_mobile_reg[i].redirect_home_layer;
-                    authoritative = false; mobile_proxy = true;
+                    answered_by_owner = false; binding_verifiable = false; mobile_proxy = true;   // §3-D4: a proxy is neither the owner nor verifiable
                 } else if (_hal.now() - _active->_mobile_reg[i].last_heard_ms < protocol::mobile_liveness_ms) {   // §mobile: I'm the home -> proxy ONLY if the mobile is recently alive
                     node_id = _node_id;
                     mobile_epoch = static_cast<uint8_t>(_active->_mobile_reg[i].epoch);
                     mobile_layer = active_layer_id();
-                    authoritative = false; mobile_proxy = true;
+                    answered_by_owner = false; binding_verifiable = false; mobile_proxy = true;   // §3-D4: a proxy is neither the owner nor verifiable
                 }
                 break;   // matched (live/stale/redirect) — STALE leaves node_id=-1 -> forward -> the locate times out = "unreachable" (NOT a black hole)
             }
     }
 
     if (node_id >= 0) {                                    // RESOLVER path (dv:11644) — answer + SUPPRESS the forward
-        mark_hash_query_seen(h.origin, h.key_hash32, h.hard, h.want_pubkey, h.team_scoped);   // §T6/B: keyed by the H's own plane. mark BEFORE replying so a re-flood doesn't double-answer (dv:11647)
+        mark_hash_query_seen(h.origin, h.query_key32, h.hard, h.want_pubkey, h.team_scoped, h.by_id);   // §T6/B: keyed by the H's own plane; §S4a: + its key space. mark BEFORE replying so a re-flood doesn't double-answer (dv:11647)
         // §F-TR-2: the ANSWER binding for a TEAM-scoped own-hash resolve must name our TEAM identity (team_local_id), NOT the
         // host-assigned static node_id. A DUAL (registered) member's _node_id is its static host id (e.g. 254); answering a
         // team locate with that sends the querier to _rt_team looking for a static id that has no team route -> no_route/giveup.
-        // Owner-detection below still keys on node_id==_node_id (unchanged); only the emitted/answered id is substituted, and
-        // mirrors the team H-flood origin (:~1207) + team RTS src. OFF-GRID team & static: team_local_id()==_node_id (or not
-        // same_team / not registered) -> answer_node_id==node_id -> byte-identical (s18/s22-s26 unshifted; audited).
+        // ★ §id-hash S4a: the owner test is now `answered_by_owner` (§3-D4), NOT `node_id == _node_id`. Behaviour is
+        // unchanged on the by-hash paths — `id_bind_set`'s `addr_conflict_self_defended` arm makes it impossible for
+        // a FOREIGN hash to bind to our own id, so a cache hit could never return `_node_id` — but a team BY_ID owner
+        // answers with `team_local_id()`, which is a different number, and the old predicate would read FALSE for it.
         uint8_t answer_node_id = static_cast<uint8_t>(node_id);
-        if (node_id == _node_id && same_team && mobile_registered() && team_local_id() != 0)
-            answer_node_id = team_local_id();
-        MR_EMIT("h_resolved", EF_I("origin", h.origin), EF_I("key_hash32", static_cast<int64_t>(h.key_hash32)),
-                EF_I("node", answer_node_id), EF_I("target_layer", _cfg.leaf_id), EF_B("authoritative", authoritative));  // dv:11649
+        if (answered_by_owner && same_team && mobile_registered() && team_local_id() != 0)
+            answer_node_id = team_local_id();                       // idempotent for BY_ID (node_id already IS team_local_id())
+        // ★ §id-hash S4a: BY_ID answers OUR OWN hash — the query carried an id, so the hash is the thing being
+        // reported. Only the owner reaches here on that path (§3-D3), so `_key_hash32` is the correct and only answer.
+        const uint32_t answer_hash = h.by_id ? _key_hash32 : h.query_hash();
+        MR_EMIT("h_resolved", EF_I("origin", h.origin), EF_I("key_hash32", static_cast<int64_t>(h.query_key32)),
+                EF_I("node", answer_node_id), EF_I("target_layer", _cfg.leaf_id), EF_B("authoritative", binding_verifiable));  // dv:11649
         if (h.want_pubkey && mobile_proxy) {                        // §Part 2 Fix 7: the HOME answers WANT_PUBKEY on behalf of its LIVE mobile (Option 1 — the home carries the key). MUST precede the owner branch: a live proxy has node_id==_node_id, so the owner branch would otherwise leak the HOME's own key under the mobile's hash.
-            const uint8_t* mk = host_mobile_ed_pub(h.key_hash32);  // the mobile's cached ed_pub (Fix 6 push), iff a LIVE direct proxy has_pubkey (a redirect carries no local key)
-            if (mk) send_mobile_pubkey_answer(h.origin, mobile_layer, static_cast<uint8_t>(node_id), h.key_hash32, mobile_epoch, mk);
+            const uint8_t* mk = host_mobile_ed_pub(h.query_hash());  // the mobile's cached ed_pub (Fix 6 push), iff a LIVE direct proxy has_pubkey (a redirect carries no local key)
+            if (mk) send_mobile_pubkey_answer(h.origin, mobile_layer, static_cast<uint8_t>(node_id), h.query_hash(), mobile_epoch, mk);
             // no cached key (the push hasn't arrived yet, or this is a redirect) -> stay SILENT on WANT_PUBKEY: the locate times out and the sender's reqpubkey retries (the push races registration). The flood is still suppressed by the return below.
             // §S3 part2 (D3 eager): the requester needs OUR mobile's key (above) AND our mobile needs the REQUESTER's key to
             // DECRYPT its future sealed DM. Cache the requester here (the owner branch's mutual-exchange, which this proxy
             // branch replaces for a hosted mobile) + FORWARD it to the mobile as a 1-hop last-mile so the mobile can e2e_open.
             const uint32_t rq = cache_want_pubkey_requester(h);
-            if (rq != 0) forward_requester_key_to_mobile(h.key_hash32, h.requester_ed_pub, reinterpret_cast<const char*>(h.name), h.name_len);
-        } else if (h.want_pubkey && node_id == _node_id && _crypto_ready) {   // §6 + review#1: ONLY the OWNER (own-hash) answers WANT_PUBKEY
+            if (rq != 0) forward_requester_key_to_mobile(h.query_hash(), h.requester_ed_pub, reinterpret_cast<const char*>(h.name), h.name_len);
+        } else if (h.want_pubkey && answered_by_owner && _crypto_ready) {   // §6 + review#1: ONLY the OWNER answers WANT_PUBKEY (§3-D4's `answered_by_owner`; by_id+want_pubkey is refused at the codec so this is by-hash only)
             // §2 MUTUAL: cache the requester's key + id_bind (from the H's appended ed_pub) BEFORE answering, so we can
             // both DECRYPT and ADDRESS its future sealed DMs -> the exchange provisions BOTH directions in one round.
             // requester_hash = requester_ed_pub[:4] LE (self-consistent: peer_key_set derives/checks the same hash).
@@ -1063,22 +1155,27 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             }
             send_hash_bind_pubkey_response(h.origin, _cfg.leaf_id, answer_node_id, _ed_pub, h.mobile_req ? requester_hash : 0, /*team_scoped=*/h.team_scoped);   // §mobile: a MOBILE requester -> DST_HASH=the mobile so the answer routes to origin (=the mobile's home) + last-miles; §F-TR-2: team-scoped own answer names team_local_id + routes on the team plane
         } else
-            send_hash_bind_response(h.origin, mobile_proxy ? mobile_layer : _cfg.leaf_id, answer_node_id, h.key_hash32, authoritative, mobile_proxy, mobile_epoch, /*team_scoped=*/h.team_scoped);   // §5b: a mobile answer carries the HOME's full layer_id (not the proxy's leaf); §F-TR-2: team-scoped own answer names team_local_id (not the static host id) + routes on the team plane (_rt_team + team RREQ)
+            send_hash_bind_response(h.origin, mobile_proxy ? mobile_layer : _cfg.leaf_id, answer_node_id, answer_hash, binding_verifiable, mobile_proxy, mobile_epoch, /*team_scoped=*/h.team_scoped);   // §5b: a mobile answer carries the HOME's full layer_id (not the proxy's leaf); §F-TR-2: team-scoped own answer names team_local_id (not the static host id) + routes on the team plane (_rt_team + team RREQ). §S4a: BY_ID reports OUR hash + binding_verifiable=false -> plain H_ANSWER -> lands `claimed` (§3-D5a)
         return;                                            // SUPPRESS — the whole point: the flood stops here
     }
 
     // FORWARD path (dv:11655): we don't know it (or it's a HARD query and we're not the owner) -> re-broadcast
     // once, deduped per variant, until TTL runs out.
-    if (hash_query_seen_recently(h.origin, h.key_hash32, h.hard, h.want_pubkey, h.team_scoped)) return;   // flood dedup (dv:11656) — §2: WANT_PUBKEY is its own variant
-    mark_hash_query_seen(h.origin, h.key_hash32, h.hard, h.want_pubkey, h.team_scoped);    // (dv:11657)
+    if (hash_query_seen_recently(h.origin, h.query_key32, h.hard, h.want_pubkey, h.team_scoped, h.by_id)) return;   // flood dedup (dv:11656) — §2: WANT_PUBKEY is its own variant; §S4a: so is BY_ID
+    mark_hash_query_seen(h.origin, h.query_key32, h.hard, h.want_pubkey, h.team_scoped, h.by_id);    // (dv:11657)
     if (h.ttl == 0) return;                                         // TTL exhausted (dv:11658)
     // L7: h.ttl is an unauthenticated wire byte — a forged ttl=255 would re-flood with a 255-hop horizon. Clamp to
     // flood_hop_max so the re-flooded ttl can't exceed the mesh diameter (dedup already bounds re-broadcasts per node).
     const uint8_t fwd_ttl = (h.ttl > protocol::flood_hop_max ? protocol::flood_hop_max : h.ttl) - 1;
-    MR_EMIT("h_forward", EF_I("origin", h.origin), EF_I("key_hash32", static_cast<int64_t>(h.key_hash32)),
+    MR_EMIT("h_forward", EF_I("origin", h.origin), EF_I("key_hash32", static_cast<int64_t>(h.query_key32)),
             EF_I("ttl", static_cast<int64_t>(fwd_ttl)), EF_B("hard", h.hard));  // dv:11661
     h_in fwd{};
-    fwd.leaf_id = _cfg.leaf_id; fwd.origin = h.origin; fwd.key_hash32 = h.key_hash32;
+    // ★ §id-hash S4a: `query_key32` is copied VERBATIM and `by_id` rides with it — spec §4, "forwarders preserve the
+    // bit AND the canonical value". Dropping the bit is not a degradation to "no answer": the frame would re-pack as
+    // a by-HASH query for a small integer, which a low-valued hash could actually MATCH, so a multi-hop by-id query
+    // would silently become a different question after the first hop. (pack_h re-validates the canonical value, so a
+    // forward of a non-canonical frame is impossible — parse_h already rejected it.)
+    fwd.leaf_id = _cfg.leaf_id; fwd.origin = h.origin; fwd.query_key32 = h.query_key32; fwd.by_id = h.by_id;
     fwd.ttl = fwd_ttl; fwd.hard = h.hard;                          // preserve the variant across forwards
     fwd.want_pubkey = h.want_pubkey;   // R4: PRESERVE the E2E pubkey-request flag so a multi-hop WANT_PUBKEY reaches the owner
     if (h.want_pubkey) for (int i = 0; i < 32; ++i) fwd.requester_ed_pub[i] = h.requester_ed_pub[i];   // §2: carry the requester's pubkey across the forward
@@ -1108,10 +1205,15 @@ void Node::h_forward_fire(uint8_t slot) {
 // =============================================================================
 
 // Enqueue a normal DATA carrying the H_ANSWER inner, addressed to the H-query origin; it routes home
-// hop-by-hop on the existing rt[origin] (the H flood lays no reverse path). AUTHORITATIVE = the resolver
-// answered as the owner (matches_self), not from a cached binding. (Lua send_hash_bind_response dv:5877.)
+// hop-by-hop on the existing rt[origin] (the H flood lays no reverse path). (Lua send_hash_bind_response dv:5877.)
+// ★★ §id-hash S4a (spec §3-D4): the flag is `binding_verifiable`, and the rename is the point. It used to be
+// `authoritative`, read as *"the resolver answered as the owner"* — which conflated OWNERSHIP with CHECKABILITY.
+// The AUTHORITATIVE frame TYPE means *"this id->hash assertion is one you can verify"*, and a BY_ID answer is not:
+// the owner proved it holds the key, never that it holds the id. So the owner passes FALSE here for a by-id answer,
+// the plain `DATA_TYPE_H_ANSWER` goes out, and `on_hash_bind_response` maps it to `IdBindConf::claimed` — honest
+// reuse of an existing codepoint (§3-D5a), not a workaround.
 void Node::send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id,
-                                   uint32_t key_hash32, bool authoritative, bool mobile_proxy, uint8_t epoch, bool team_scoped) {
+                                   uint32_t key_hash32, bool binding_verifiable, bool mobile_proxy, uint8_t epoch, bool team_scoped) {
     if (_active->_tx_queue_n >= kTxQueueCap) return;                       // queue full -> drop (the querier can re-flood)
     hash_bind_inner hb{};
     hb.target_layer = target_layer; hb.node_id = node_id; hb.key_hash32 = key_hash32;   // authoritative rides the frame TYPE, not the inner
@@ -1130,13 +1232,13 @@ void Node::send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint
     // team_local_id). Byte-identical where a team route already exists (AUTO already picked _rt_team); s22-s26 audited.
     item.plane = team_scoped ? Plane::TEAM : Plane::AUTO;
     item.type  = mobile_proxy ? DATA_TYPE_MOBILE_H_ANSWER
-               : authoritative ? DATA_TYPE_AUTHORITATIVE_H_ANSWER : DATA_TYPE_H_ANSWER;
+               : binding_verifiable ? DATA_TYPE_AUTHORITATIVE_H_ANSWER : DATA_TYPE_H_ANSWER;
     for (size_t i = 0; i < n; ++i) item.inner[i] = inner[i];
     item.inner_len = static_cast<uint8_t>(n);
     item.enqueue_time_ms = _hal.now();
     _active->_tx_queue[_active->_tx_queue_n++] = item;
     MR_EMIT("hash_bind_response_enqueued", EF_I("to", to_origin), EF_I("node", node_id),
-            EF_I("key_hash32", static_cast<int64_t>(key_hash32)), EF_B("authoritative", authoritative));  // dv:5897
+            EF_I("key_hash32", static_cast<int64_t>(key_hash32)), EF_B("authoritative", binding_verifiable));  // dv:5897 — the field name is the WIRE bit's name (the answer TYPE), kept so no stream re-anchors on a rename
     become_free();                                               // kick the queue to route the answer home
 }
 
@@ -1181,17 +1283,36 @@ void Node::on_hash_bind_response(const uint8_t* inner, uint8_t inner_len, bool a
     // C.1 destination consume: WE asked -> source h_query; the answer's AUTHORITATIVE bit (now the frame TYPE,
     // passed in) carries the confidence (an owner answer is authoritative, a cache-relayed soft answer is
     // claimed -> verify-on-use).
-    // ★★ §hashbind-plane (2026-07-31, register B2): NOT when the answer rode the TEAM plane. `hb->node_id` is then a
-    // TEAM LOCAL id (handle_h answers a team-scoped locate with team_local_id, node_hashlocate.cpp F-TR-2), and
-    // _id_bind is the STATIC node_id-indexed plane -> writing it is the I2 breach s24 asserts a static bystander never
-    // commits. Same rule and same shape as the two shipped gates in this file (the WANT_PUBKEY owner branch and
-    // cache_want_pubkey_requester, both `!h.team_scoped && !h.mobile_req`), which also just SKIP the write.
-    // ⚠ NOT redirected into team_key_set, and that is a deliberate refusal — see the on_hash_bind_snoop note below.
-    // Nothing else is lost: drain_parked_sends (right below) takes `hb->node_id` DIRECTLY, so the parked team send
-    // still flies on this answer; only the static-plane CACHE of a team id is withheld.
+    // ★★ §hashbind-plane (2026-07-31, register B2): NEVER `_id_bind` when the answer rode the TEAM plane.
+    // `hb->node_id` is then a TEAM LOCAL id (handle_h answers a team-scoped locate with team_local_id,
+    // node_hashlocate.cpp F-TR-2), and _id_bind is the STATIC node_id-indexed plane -> writing it is the I2 breach
+    // s24 asserts a static bystander never commits. Same rule and same shape as the two shipped gates in this file
+    // (the WANT_PUBKEY owner branch and cache_want_pubkey_requester, both `!h.team_scoped && !h.mobile_req`).
+    // ⓘ THAT rule stands unchanged; what changed in S4a is where the team binding GOES instead of the floor.
+    // ★★★ §id-hash S4a (spec §3-D5b) — THE TEAM ARM IS NOW BUILT, and B2's "deliberate refusal" is retired in place.
+    // S3 built the STORE (`TeamKey{source,confidence}`, upgrade-only, claimed-cohort-first eviction, floors on every
+    // reader) and deliberately shipped NO producer. This IS the producer: a team-plane answer we ASKED for lands in
+    // `_team_keys` — never `_id_bind`, whose index space is the static `node_id` plane (§18/C3).
+    // ★★ IT LANDS `claimed` UNCONDITIONALLY, INCLUDING FOR AN OWNER'S AUTHORITATIVE by-HASH ANSWER — a deliberate
+    //    ASYMMETRY vs the static line above, and the reason is `on_hash_bind_snoop`'s reason (2), the one refusal
+    //    reason S3 left LIVE: `_team_keys` feeds the team-DAD L2a mediation comparator (`node_beacon.cpp` compares
+    //    `team_key_of_id(b.src)` against the beacon's own key and sends a mediated DENY on a mismatch). That
+    //    comparator reads at the DEFAULT `authoritative` floor, so writing `authoritative` from ANY on-air source
+    //    would let transit-derived rows manufacture spurious DENYs against legitimate teammates. The static plane
+    //    has no analogue of that comparator, which is why its tiering can follow the frame TYPE and this cannot.
+    //    ⇒ first-hand beacon = the ONLY writer of an authoritative team row (`node_beacon.cpp:839`), exactly as
+    //    before; everything learned on air is a claim. Spec §3-D5b says `claimed` and §9 gates it.
+    // ★ NEITHER ARM SETS `_team_peer` (spec §3-D5b, ★): membership is not manufacturable from a binding. A claimed
+    //   row for a non-member is inert by construction — `team_key_of_id` gates on `is_team_peer(id)` first — which
+    //   is the property that makes this safe to write without a membership test of its own.
+    // ⓘ NO NEW EMIT on either arm, and that is C4 applied to telemetry: this path IS corpus-reachable (s24/s25/s26/
+    //   s28 carry team-plane answers), so an emit here would re-anchor those streams in the same run as the
+    //   behaviour change and make the delta unattributable. The store is observed by native tests.
     if (!team_plane)
         id_bind_set(hb->node_id, hb->key_hash32, IdBindSource::h_query,
                     authoritative ? IdBindConf::authoritative : IdBindConf::claimed);
+    else
+        team_key_set(hb->node_id, hb->key_hash32, IdBindSource::h_query, IdBindConf::claimed);
     // §mobile 4a: the 3c key_hash_of_id heuristic is GONE — a mobile proxy now carries the distinct DATA_TYPE_MOBILE_H_ANSWER
     // (handled in on_mobile_hash_bind_response), so a plain H_ANSWER for a hash we don't own is NEVER treated as a mobile proxy.
     // ★ §hashbind-plane: outside the gate deliberately — this records the ANSWER ARRIVING (and the drain below still
@@ -1202,6 +1323,11 @@ void Node::on_hash_bind_response(const uint8_t* inner, uint8_t inner_len, bool a
     // Slice 4f: the binding for a DEFERRED cross-layer handoff just arrived on THIS leaf -> re-resolve + drain it now
     // (else it waits a full visit period). _active is the leaf the answer arrived on; the caller become_free()s next.
     drain_xl_handoffs_for_leaf(static_cast<uint8_t>(_active - &_layers[0]));
+    // ★★★ §id-hash S4b (spec §5 step 3): LAST, and the position is deliberate. Everything above is what this answer
+    // already did before S4b — store, record, drain — and it stays in the same order, so a corpus stream can only move
+    // if an intent actually matches. Nothing in the 36-scenario corpus can arm one (the sim console has no by-id
+    // `reqpubkey` form at all), so this call is inert there BY CONSTRUCTION, not by luck.
+    id_pubkey_intent_consume(hb->node_id, team_plane, hb->key_hash32);
 }
 
 // §mobile 4a: a MOBILE_H_ANSWER (a host PROXYing for a hosted mobile) -> cache M->home + its registration epoch, and
@@ -1345,30 +1471,44 @@ void Node::on_mobile_hash_bind_pubkey_response(const uint8_t* inner, uint8_t inn
 // ★★ §hashbind-plane (2026-07-31, register B2) — WHY THE TEAM BINDING IS DROPPED RATHER THAN RE-HOMED INTO
 // `team_key_set`. The dispatch brief proposed routing it to the team map (whose own comment says team-scoped bindings
 // belong there), and that was measured and REFUSED, three reasons, all at source:
-//   (1) `_team_keys` has NO confidence dimension, and this path ingests CLAIMED bindings (a cache-relayed
-//       DATA_TYPE_H_ANSWER, and every snoop is second-hand by construction). `_id_bind` keeps claimed-vs-authoritative
-//       and send_by_hash refuses to use a claimed row (node_hashlocate.cpp `conf == authoritative`); team_key_of_id /
-//       team_id_of_key have no such test, so re-homing would UPGRADE an unverified observation to a trusted one — and
-//       one of its consumers is DST_HASH derivation for a SEALED team DM (node_mac.cpp).
-//   (2) It feeds the team-DAD L2a mediation: node_beacon.cpp compares team_key_of_id(b.src) against the beacon's own
-//       key and sends a mediated DENY on a mismatch. Seeding that comparator from unauthenticated transit traffic
-//       manufactures spurious DENYs against legitimate teammates — the exact hazard node.cpp already warns about for
-//       stale `_team_keys` rows.
-//   (3) `_team_keys` is a 16-slot evict-OLDEST LRU whose documented feed is the BEACON ("cache a same-team peer's
-//       key_hash32 (from its beacon)"), and its `last_seen_ms` means "heard now". Cache-on-pass would both fake that
-//       liveness and let transit traffic evict genuine beacon rows.
+//   (1) ✅ ANSWERED AND BUILT by §id-hash S3 (2026-08-02) — kept as the audit trail, NOT as a live reason.
+//       IT SAID: "`_team_keys` has NO confidence dimension, and this path ingests CLAIMED bindings … team_key_of_id /
+//       team_id_of_key have no such test, so re-homing would UPGRADE an unverified observation to a trusted one."
+//       IT NOW HAS ONE: `TeamKey{source,confidence}` reusing IdBindSource/IdBindConf, the writer is upgrade-only, and
+//       BOTH readers named there (plus `key_hash_of_id`) take a confidence FLOOR defaulting to `authoritative` — so
+//       the DST_HASH consumer this bullet worried about refuses a claimed row exactly as `send_by_hash` does.
+//   (2) ⚠ STILL LIVE, and it is now the LOAD-BEARING one. It feeds the team-DAD L2a mediation: node_beacon.cpp
+//       compares team_key_of_id(b.src) against the beacon's own key and sends a mediated DENY on a mismatch. Seeding
+//       that comparator from unauthenticated transit traffic manufactures spurious DENYs against legitimate teammates
+//       — the exact hazard node.cpp already warns about for stale `_team_keys` rows. ⇒ that call site keeps the
+//       DEFAULT `authoritative` floor, so a claimed row can never reach the comparator once S4a starts writing them.
+//   (3) ✅ NEUTRALISED by §id-hash S3's D5c rules, and this bullet is what specified them. It said `_team_keys` is a
+//       16-slot evict-OLDEST LRU whose `last_seen_ms` means "heard now", so cache-on-pass "would both fake that
+//       liveness and let transit traffic evict genuine beacon rows." Both consequences are now structurally
+//       prevented: a claimed write cannot refresh an authoritative row's stamp, and eviction drains the CLAIMED
+//       cohort before it will touch any authoritative row (node_routing.cpp team_key_set).
 // ⇒ the correct fix is the one the two shipped sibling gates already make: DON'T write the wrong plane. This does NOT
 // contradict the address-book design (2026-07-29 §2.5), which forbids the `_id_bind` write and fixes `hashof` with a
-// VIEW over both maps, "never by a write". ✖ MISSING, stated so it is not mistaken for done: a team member still has
-// no hash->team_local_id cache from an H answer, so a repeat `send -t 0x<hash>` to an unheard teammate re-floods the
-// locate instead of resolving from cache. That is a FEATURE (a team-plane bind store with its own confidence field),
-// not this fix, and it needs the trust question in (1) answered first.
+// VIEW over both maps, "never by a write".
+// ✅ BUILT BY §id-hash S4a (2026-08-02) — the team-plane INGEST that S3 deliberately left out. Both halves now land:
+// the DESTINATION consume in `on_hash_bind_response` (`h_query`) and the RELAY observation here (`h_relay`), each
+// `team_key_set(id, hash, …, IdBindConf::claimed)`, ★ neither setting `_team_peer`. Reason (2) is respected by the
+// tier, not by a special case: a `claimed` row is below the DAD comparator's default `authoritative` floor.
+// ⇒ a repeat `send -t 0x<hash>` to an unheard teammate now resolves from cache instead of re-flooding the locate.
 void Node::on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool authoritative, bool team_plane) {
     auto hb = parse_hash_bind_inner(std::span<const uint8_t>(inner, inner_len));
     if (!hb) return;
     if (!team_plane)   // ★ §hashbind-plane: a TEAM-plane answer carries a TEAM LOCAL id -> never the static _id_bind (§18/C3)
         id_bind_set(hb->node_id, hb->key_hash32, IdBindSource::h_relay,
                     authoritative ? IdBindConf::authoritative : IdBindConf::claimed);
+    else
+        // ★★★ §id-hash S4a (spec §3-D5b, "relay observation, if retained -> source = h_relay, confidence = claimed").
+        // RETAINED, and the three refusal reasons in the header above are why it is now safe rather than why it was
+        // dropped: (1) the confidence dimension exists, (3) D5c stops it faking liveness or evicting a beacon row,
+        // and (2) — the live one — is respected by writing `claimed`, which the DAD comparator's default
+        // `authoritative` floor cannot see. ★ It does NOT set `_team_peer`: storing a binding for display is not
+        // membership, and `team_key_of_id`'s `is_team_peer` gate keeps a non-member's row inert.
+        team_key_set(hb->node_id, hb->key_hash32, IdBindSource::h_relay, IdBindConf::claimed);
     // ★ The emit stays OUTSIDE the gate on purpose: it records "a relayed answer passed through us" (the frame IS still
     // forwarded), not "we stored it". The store record is the `id_bind_set` emit above, so its ABSENCE beside a
     // `hash_bind_snooped` is exactly the plane refusal — which is how the s24/s25/s26/s28/s34 delta reads in the stream.
@@ -1643,10 +1783,20 @@ bool Node::deleg_ack_translate(uint32_t mobile_hash, uint16_t acked_ctr, uint16_
 // ignoring the value: they are best-effort locates whose failure is already handled by a park/timeout, and giving
 // them outcome handling would be a behaviour change in three unrelated paths (C1). If one of them ever needs it,
 // the value is now there to read.
-Node::HQueryOutcome Node::emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey, Plane plane) {
-    if (key_hash32 == 0 || key_hash32 == _key_hash32) return HQueryOutcome::degenerate;   // nothing to locate (degenerate / it's us)
+Node::HQueryOutcome Node::emit_hash_query(uint32_t query_key32, bool hard, bool want_pubkey, Plane plane, bool by_id) {
+    // ★ §id-hash S4a: the BY_ID degeneracy tests are the by-hash ones re-stated in the id key space — a
+    // non-canonical id (0 / 255 / upper bytes set) and OUR OWN id are both "nothing to locate". The self test is
+    // per-PLANE: a team-scoped by-id query for our own `team_local_id()` is as degenerate as a static one for
+    // `_node_id`. Catching it HERE rather than at pack_h is what keeps the operator's error honest (`degenerate` ->
+    // err_unsupported), because pack_h's refusal maps to `encode_failed` -> err_too_large, a wrong diagnosis.
+    if (by_id) {
+        const bool team_q_self = (plane == Plane::TEAM) && team_local_id() != 0;
+        const uint8_t self_id  = team_q_self ? team_local_id() : _node_id;
+        if (!h_by_id_key_canonical(query_key32) || query_key32 == self_id) return HQueryOutcome::degenerate;
+    }
+    else if (query_key32 == 0 || query_key32 == _key_hash32) return HQueryOutcome::degenerate;   // nothing to locate (degenerate / it's us)
     if (want_pubkey && !_crypto_ready) {                         // §2: the mutual exchange needs OUR pubkey -> fail loud, no flood
-        MR_EMIT("h_want_pubkey_no_identity", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
+        MR_EMIT("h_want_pubkey_no_identity", EF_I("key_hash32", static_cast<int64_t>(query_key32)));
         return HQueryOutcome::no_identity;
     }
     h_in in{};
@@ -1654,7 +1804,7 @@ Node::HQueryOutcome Node::emit_hash_query(uint32_t key_hash32, bool hard, bool w
     // team-scoped frame (membership is team_id), so a mixed-leaf team resolves across nibbles. We still stamp our own leaf so
     // a same-leaf teammate's frame is unremarkable and any static overhearer sees a well-formed nibble. A STATIC H's leaf_id
     // remains load-bearing (the receiver leaf-gates it).
-    in.leaf_id = _cfg.leaf_id; in.origin = _node_id; in.key_hash32 = key_hash32;
+    in.leaf_id = _cfg.leaf_id; in.origin = _node_id; in.query_key32 = query_key32; in.by_id = by_id;
     in.ttl = protocol::hash_query_max_ttl; in.hard = hard; in.want_pubkey = want_pubkey;
     in.mobile_req = _cfg.is_mobile;                              // §mobile: OUR origin (in.origin=_node_id) is a mobile/team LOCAL id -> tell the owner NOT to id_bind it (the seal-back caches by hash + routes via home/_rt_team). Static -> 0 -> byte-identical H.
     if (want_pubkey) {
@@ -1677,8 +1827,12 @@ Node::HQueryOutcome Node::emit_hash_query(uint32_t key_hash32, bool hard, bool w
     // LOCAL node_id — no home overrode it above, and it's not team-scoped (so no team return path) — the owner has NO way
     // back: routing/RREQ for a local id can even resolve a WRONG static node (the user's "F query does not make sense").
     // Fail loud, do NOT flood. (Registered => origin=home_id; TEAM/AUTO-team => team_scoped — both skip this.)
-    if (want_pubkey && in.mobile_req && in.origin == _node_id && !in.team_scoped) {
-        MR_EMIT("h_want_pubkey_mobile_no_route", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
+    // ★ §id-hash S4a WIDENS THIS GUARD TO `by_id`, and it is the same defect not a new one: the by-id ANSWER is the
+    // same routed DATA back to `in.origin`, so an unregistered mobile asking a GLOBAL by-id question has exactly the
+    // same no-way-back problem — and unlike the best-effort by-hash locate (which a park/timeout covers) this one is
+    // operator-initiated and must report. B47's class, reached through the new door.
+    if ((want_pubkey || by_id) && in.mobile_req && in.origin == _node_id && !in.team_scoped) {
+        MR_EMIT("h_want_pubkey_mobile_no_route", EF_I("key_hash32", static_cast<int64_t>(query_key32)));
         return HQueryOutcome::no_return_route;
     }
     uint8_t buf[8 + 32 + 4 + 1 + 32];                            // §2: WANT_PUBKEY H = 40 B; §mobile 6.2: +4 B team_id; §name: +1+name_len (max 33) -> a named team_scoped WANT_PUBKEY is up to 77 B
@@ -1689,7 +1843,7 @@ Node::HQueryOutcome Node::emit_hash_query(uint32_t key_hash32, bool hard, bool w
     // `tx_lbt_defer` / `tx_lbt_defer_dropped` and re-anchor scenario streams — a telemetry re-anchor folded into a
     // behaviour fix is exactly what C4/C1 forbid. It means "we originated an H"; the drop, when it happens, is
     // reported by the very next line's `tx_lbt_defer_dropped` and by the outcome below.
-    MR_EMIT("h_tx", EF_I("key_hash32", static_cast<int64_t>(key_hash32)), EF_I("ttl", protocol::hash_query_max_ttl), EF_B("hard", hard));
+    MR_EMIT("h_tx", EF_I("key_hash32", static_cast<int64_t>(query_key32)), EF_I("ttl", protocol::hash_query_max_ttl), EF_B("hard", hard));
     // ★★ §id-hash S1c (QA round 2): tx_initiating's `bool` was discarded ONE LAYER DOWN, so a full LBT defer ring
     // dropped the frame and this still answered `sent`. Spec §5.1: `reqpubkey_sent` "must not be reachable from any
     // bail point" — and that was one.
@@ -1923,6 +2077,117 @@ void Node::age_out_parked_sends() {
         _parked_sends[w++] = p;
     }
     _parked_sends_n = w;
+}
+
+// ============================================================================================================
+// ★★★ §id-hash S4b (spec 2026-08-01 §5) — THE TWO-STAGE by-id `reqpubkey`, i.e. ONE command again.
+//
+// S4a made `reqpubkey <unresolved id>` fly a BY_ID query instead of refusing, but it flew the WRONG STAGE'S query:
+// the answer is an id->hash BINDING, never a key, so the operator had to run the verb a SECOND time once the binding
+// landed. These four functions close that: arm a bounded intent at stage 1, consume the answer, emit the existing
+// HARD WANT_PUBKEY query by the returned hash, and give up loudly if no answer comes.
+//
+// ★★★ THIS IS NOT THE AUTO-RESOLUTION `§no-auto-reqpubkey` FORBIDS, AND THE DISTINCTION IS EXACT. That ruling
+// (owner-ratified 2026-07-29, stated in full at send_by_hash above) forbids a **send** silently escalating into a
+// WANT_PUBKEY locate — because that would substitute on-air TOFU for the QR ceremony on a message the user marked
+// `-e`, making the trust decision FOR them, invisibly. Here:
+//   · the operator typed `reqpubkey`, the verb whose entire purpose is that on-air fetch — stage 2 is the COMPLETION
+//     of the command they issued, not a new decision taken on their behalf;
+//   · it is BOUNDED (one intent, one escalation, protocol::id_pubkey_intent_ttl_ms) and REPORTED (below);
+//   · it escalates NOTHING else: no send path, no seal, no `team grantkey` reaches this code.
+// ⇒ a future reader must not "fix" this by deleting it. The four `want_pubkey = false` locate sites the ruling names
+//   are untouched and still carry their tags.
+//
+// ⚠ THE HONEST COST, recorded by the spec and not hidden: TWO query/answer exchanges when the binding is absent.
+// ============================================================================================================
+
+// Refresh-or-insert. Returns false ONLY when the ring is full of OTHER live intents — the caller must then refuse
+// BEFORE spending airtime, because a query we cannot remember asking is a query whose answer we will discard.
+// Re-issuing the SAME (id, plane) refreshes the deadline instead of consuming a second slot (park_resolve_request's
+// precedent): a retry is the operator re-asking one question, not asking two.
+bool Node::id_pubkey_intent_arm(uint8_t id, uint8_t plane) {
+    if (id == 0) return false;                                   // structurally impossible (canonical gate) — fail closed
+    for (auto& e : _pending_id_pubkey)
+        if (e.id == id && e.plane == plane) { e.deadline_ms = _hal.now() + protocol::id_pubkey_intent_ttl_ms; return true; }
+    for (auto& e : _pending_id_pubkey)
+        if (e.id == 0) { e.id = id; e.plane = plane; e.deadline_ms = _hal.now() + protocol::id_pubkey_intent_ttl_ms; return true; }
+    // FULL. ★ REFUSE, NEVER EVICT — an evicted intent is a request the operator was told had been accepted and that
+    // then dies in silence, which is the exact class this arc spent six review rounds removing. cap_pending_id_pubkey
+    // documents why the bound is airtime rather than RAM.
+    MR_EMIT("reqpubkey_intent_ring_full", EF_I("node", id), EF_I("plane", plane));
+    return false;
+}
+
+// Undo an arm. The ONE caller is the stage-1 command path, when `emit_hash_query` then reports a non-`sent` outcome:
+// arming precedes the emit (the ring-full refusal must beat the airtime), so a rejected frame must not leave an
+// intent behind — it would wait out its whole TTL and then report a timeout for a query that never flew.
+void Node::id_pubkey_intent_clear(uint8_t id, uint8_t plane) {
+    for (auto& e : _pending_id_pubkey)
+        if (e.id == id && e.plane == plane) { e = PendingIdPubkey{}; return; }
+}
+
+// Spec §5 step 3: an id->hash answer just landed -> if we were waiting for exactly this (id, plane), consume the
+// intent and emit the EXISTING HARD WANT_PUBKEY query by the hash the answer returned. Step 4 (the pubkey answer
+// self-verifying into `_peer_keys` as authoritative) is `on_hash_bind_pubkey`, unchanged — S4b adds no trust
+// semantics, it only stops making the operator type the second command.
+//
+// ⓘ IT KEYS ON THE BINDING ARRIVING, NOT ON "OUR BY-ID QUERY BEING ANSWERED", and that is deliberately wider than the
+//   spec's wording: an ordinary by-HASH answer that happens to bind the same id answers the same question we asked,
+//   so consuming it is correct and strictly faster. The intent carries no query nonce to match against anyway.
+// ⚠ NOT hooked into `on_hash_bind_snoop` (the relay observation): a snooped answer is addressed to someone else. If it
+//   were addressed to us it would arrive here instead.
+// ⚠ NOT hooked into the BEACON id_bind/team_key writers either, and that is a KNOWN RESIDUAL rather than an
+//   oversight: a beacon that resolves the id while an intent is pending does not escalate, so the operator gets the
+//   bounded timeout below and a re-issued `reqpubkey <id>` then resolves immediately from the beacon-learned row. The
+//   hook would sit on the hottest corpus path in the tree (node_beacon), re-anchoring every stream for an ergonomic
+//   gain on the case the by-id query exists precisely because it does NOT cover (routable but never heard).
+void Node::id_pubkey_intent_consume(uint8_t id, bool team_plane, uint32_t key_hash32) {
+    const uint8_t plane = static_cast<uint8_t>(team_plane ? Plane::TEAM : Plane::GLOBAL);
+    for (auto& e : _pending_id_pubkey) {
+        if (e.id != id || e.plane != plane) continue;
+        e = PendingIdPubkey{};                                   // CONSUMED: one intent buys exactly one escalation
+        // The stage-2 query is the pre-existing one, byte-for-byte: HARD + WANT_PUBKEY, keyed BY HASH, on the same
+        // plane the operator selected. `by_id = false` — the id question is answered; asking it again would be the
+        // one-round form spec §5 explicitly does not design (and `pack_h` refuses BY_ID|WANT_PUBKEY outright).
+        const HQueryOutcome oc = emit_hash_query(key_hash32, /*hard=*/true, /*want_pubkey=*/true,
+                                                 static_cast<Plane>(plane), /*by_id=*/false);
+        if (oc == HQueryOutcome::sent) return;
+        // ★★ SPEC §5.2's RULE, one level up: the disposition must reach the last thing that can discard it, and the
+        // synchronous ack for this command was returned SECONDS AGO. Stage 2 can still fail — `degenerate` (the answer
+        // named our own hash), `tx_dropped` (a bounded TX queue), `encode_failed` — so the failure is REPORTED, never
+        // swallowed. `no_identity` cannot reach here: the command path pre-flights `_crypto_ready` precisely because
+        // it is the one stage-2 precondition knowable at stage 1 (node.cpp).
+        // ⚠ `_hal.log` WITH THE `!!` PREFIX, not MR_EMIT alone, and the reason is a QA finding this arc already paid
+        //   for once (S1d/P2): MR_EMIT is stripped on the device, and `fw_main`'s log sink is otherwise trace-gated —
+        //   so an unprefixed report is invisible on metal under normal `debug off` operation. The prefix is what makes
+        //   "no silent loss" true rather than merely written down.
+        MR_EMIT("reqpubkey_escalate_failed", EF_I("node", id), EF_I("key_hash32", static_cast<int64_t>(key_hash32)),
+                EF_I("outcome", static_cast<int64_t>(oc)));
+        char b[96];
+        snprintf(b, sizeof b, "!! reqpubkey %u: id resolved to %08lX but the pubkey request was NOT sent (rc=%u)",
+                 static_cast<unsigned>(id), static_cast<unsigned long>(key_hash32), static_cast<unsigned>(oc));
+        _hal.log(b);
+        return;
+    }
+}
+
+// Spec §5 step 5: the bounded timeout. Periodic on kAgingTimerId, beside age_out_parked_sends — the SAME sweep for the
+// same question ("a hash-locate that never came back"), which is why this needs no timer id of its own. The effective
+// window is [id_pubkey_intent_ttl_ms, + rt_aging_check_period_ms]; protocol_constants.h states it and the operator
+// line below does not pretend to be tighter than it is.
+void Node::age_out_pending_id_pubkey() {
+    const uint64_t now = _hal.now();
+    for (auto& e : _pending_id_pubkey) {
+        if (e.id == 0 || now < e.deadline_ms) continue;
+        MR_EMIT("reqpubkey_id_giveup", EF_I("node", e.id), EF_I("plane", e.plane));   // mirrors send_hash_giveup's shape
+        char b[112];
+        snprintf(b, sizeof b, "!! reqpubkey %u: nobody answered \"who owns id %u\" on the %s plane within ~%us — no pubkey was requested",
+                 static_cast<unsigned>(e.id), static_cast<unsigned>(e.id),
+                 e.plane == static_cast<uint8_t>(Plane::TEAM) ? "team" : "static",
+                 static_cast<unsigned>(protocol::id_pubkey_intent_ttl_ms / 1000));
+        _hal.log(b);                                             // `!!` = operator-critical: prints on metal under `debug off` (S1d/P2)
+        e = PendingIdPubkey{};
+    }
 }
 
 // ---- Diagnostic `resolve` (CmdKind::resolve) -----------------------------------------------------------

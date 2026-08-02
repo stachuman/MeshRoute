@@ -514,15 +514,23 @@ void Node::emit_beacon(const char* kind) {
     TxParams p;
     p.sf    = static_cast<int16_t>(_cfg.routing_sf);
     p.label = "BCN";
-    const bool sent = tx_flood(buf, len, p.sf);   // R4.5 FLOOD LBT + duty pre-check (was a raw _hal.tx)
+    // ⚠ [[maybe_unused]] IS REQUIRED, not cosmetic: since §TX3 moved the digest commit into tx_flood, `sent`'s ONLY
+    // remaining reader is the `beacon_tx` MR_EMIT below — and MR_EMIT is DEVICE-STRIPPED, so every board build sees
+    // an unused variable. Warnings are gate-blocking here (the §team-parity T5 precedent, same fix, same reason).
+    [[maybe_unused]] const bool sent = tx_flood(buf, len, p.sf, ch_picked, ch_npicked);   // R4.5 FLOOD LBT + duty pre-check (was a raw _hal.tx)
     _last_beacon_tx_ms = _hal.now();              // OUT OF SCOPE (flagged in the PR): stamped even when !sent — a broader beacon min-interval/Lua-parity concern, its own analysis
 
     // Clear dirty ONLY on the dirty entries that landed in THIS beacon — overflow
     // dirty routes stay dirty for the next one (dv_dual_sf.lua:1832-1836).
     for (uint8_t k = 0; k < dirty_n; ++k) src_rt[pack_idx[k]].dirty = false;
-    // Channel digest COMMIT (B, 2026-06-23): burn an ad_count / trigger holder-aware retire ONLY for advertisements that
-    // ACTUALLY AIRED. An LBT-suppressed / pack-dropped beacon never orphans a digest entry (the air-honesty fix).
-    if (sent) commit_channel_digest_advertised(ch_picked, ch_npicked);
+    // Channel digest COMMIT (B, 2026-06-23; boundary re-ruled 2026-08-02) — ★ THE COMMIT NO LONGER HAPPENS HERE.
+    // It moved INTO tx_flood, because only tx_flood knows WHERE the frame was admitted: an immediate `_hal.tx` == ok
+    // commits at once, while a frame ACCEPTED INTO THE LBT DEFER RING carries its ids in the slot and is committed by
+    // node.cpp's defer arm iff DeviceHal answers ok when the timer fires. Committing at this call site could only ever
+    // mean "we tried", which is what let a dropped beacon burn an advertisement horizon and retire a digest nobody
+    // received. `sent` is still the telemetry `result` below.
+    // ★ THE BOUNDARY, precisely: "sent" = ACCEPTED BY THE TRANSMITTER/DeviceHal — the strongest thing this
+    //   architecture can observe. It is NOT literal RF airtime, and a later pump_tx radio-start error is OUTSIDE it.
 
     MR_EMIT("beacon_tx", EF_I("n_entries",n),EF_I("rt_total",_active->_rt_count),EF_I("routing_sf",_cfg.routing_sf),EF_S("kind",kind),EF_I("result",sent ? 0 : 2));
     MR_EMIT("beacon_diff_breakdown", EF_I("dirty_n",dirty_n),EF_I("stable_n",stable_n),EF_I("total_dirty",total_dirty));
@@ -828,7 +836,12 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                 mark_mediated(b.src, loser);
             }
         }
-        team_key_set(b.src, b.key_hash32);   // §enc: cache the teammate's key_hash32 (the beacon carries it — dropped for is_mobile at :548) so an ENCRYPTED send BY team_local_id can derive DST_HASH. Take the incoming (mirror static: the DENY converges, the flap is transient).
+        // §enc: cache the teammate's key_hash32 (the beacon carries it — dropped for is_mobile at :548) so an ENCRYPTED
+        // send BY team_local_id can derive DST_HASH. Take the incoming (mirror static: the DENY converges, the flap is
+        // transient). ★ §id-hash S3: `{bcn, authoritative}` — the SAME pair the static plane stamps for the same event
+        // (id_bind_set at :664, "the owner's own beacon = FIRST-HAND assertion of its key_hash32"). This is the ONLY
+        // producer of a _team_keys row in the tree; S4a adds the `{h_query|h_relay, claimed}` on-air one.
+        team_key_set(b.src, b.key_hash32, IdBindSource::bcn, IdBindConf::authoritative);
         if (learn_direct_neighbor(b.src, meta_snr_q4, false, /*team_plane=*/true)) rt_changed = true;
     } else if (!b.is_mobile && learn_direct_neighbor(b.src, meta_snr_q4, b.self_gateway)) rt_changed = true;
 #else   // §featuresplit: no team plane -> a static beacon learns into _rt (a mobile beacon is not route-learned here)

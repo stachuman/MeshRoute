@@ -133,7 +133,11 @@ inline void mr_trace_frame(bool is_rx, const uint8_t* b, size_t n, int sf,
                   } break;
         case 0x7: if (auto h = parse_h(f))  { Serial.print(F(" leaf=")); Serial.print(h->leaf_id);
                       Serial.print(F(" origin=")); Serial.print(h->origin);
-                      Serial.print(F(" hash=")); Serial.print(h->key_hash32, HEX);
+                      // ★ §id-hash S4a: bytes 2-5 are a hash OR a zero-extended id (H_FLAG_BY_ID), so LABEL WHICH —
+                      // a bench trace reading `hash=72` for a by-id query for 114 is precisely the confusion the
+                      // `query_key32` rename exists to prevent.
+                      if (h->by_id) { Serial.print(F(" BY_ID id=")); Serial.print(h->query_id()); }
+                      else          { Serial.print(F(" hash=")); Serial.print(h->query_hash(), HEX); }
                       Serial.print(F(" ttl=")); Serial.print(h->ttl);
                       if (h->hard)    Serial.print(F(" HARD"));
                       if (h->want_pubkey) Serial.print(F(" WANT_PUBKEY"));

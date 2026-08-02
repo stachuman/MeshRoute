@@ -180,6 +180,47 @@
 > itself, but both are `peers all` — **text-console only** (`include_id_rows=true`). The JSON book still returns
 > exactly the ≤16 keyed rows described above.
 >
+> ### ⏳ ALSO IN REVIEW (`§id-hash` S3/S4a) — an id is now a CLAIM unless labelled otherwise
+>
+> ★★ **THE MODEL, and the app has to render it: `hash → pubkey` is self-verifying; `id → hash` is NOT.** A public key
+> is checked against its own hash on arrival, so it cannot be forged. **An 8-bit id is an address, not a commitment** —
+> so an id→hash binding learned over the air is a **claim**, and the node now says which is which.
+>
+> **`{"ev":"peer"}` gains `"team_auth":<bool>`** — `true` = we heard that teammate's own beacon (first-hand);
+> `false` = somebody told us her number. ⚠ **`static_id` is still emitted BARE and that is a known gap (register
+> B52):** a relayed soft answer lands a *claimed* static binding **today**, and every such row reaches you unlabelled.
+> ⇒ **until `static_auth` ships, do not present a `static_id` as identity.** The text console already renders
+> `static_id=N(auth)` / `(claimed)`; the JSON is the half that is missing.
+>
+> ★★ **`reqpubkey_sent` can now carry `"hash":0`, and it means something new (register B55).** A by-id `reqpubkey`
+> against an *unresolved* id is **two-stage**: the frame that flies first is the **id→hash query**, not the pubkey
+> request. The event still fires (the TX path did accept a frame), but `hash == 0` is the **only** signal that this was
+> stage 1. ⇒ **an app treating `reqpubkey_sent` as "a pubkey is coming" will wait for one that is not sent.**
+>
+> ⚠⚠ **CORRECTED 2026-08-02 (S4b) — AND THE EARLIER ADVICE HERE IS NOW ACTIVELY WRONG.** This paragraph previously
+> said *"on `hash == 0`, re-issue `reqpubkey <id>` once the binding lands, or wait for S4b which removes the case."*
+> **Both halves are false:**
+> - **`hash == 0` DOES NOT GO AWAY, and it should not.** It is the honest report of a real stage-1 acceptance: the
+>   frame the TX path took *was* the id→hash query, and the hash is the very thing that frame went to ask for. A
+>   synchronous acknowledgement cannot carry a value that does not exist yet. Removing the case would mean either
+>   suppressing a true event or inventing a hash. (Same wall as `aired` → `accepted`, one level up.)
+> - ★ **DO NOT RE-ISSUE.** S4b made the node consume the id→hash answer and emit the pubkey request **itself**. An app
+>   still coded to the old advice fires a **redundant duplicate flood** — harmless (dedup and the intent refresh absorb
+>   it) but wasted airtime on a constrained link.
+>
+> ⇒ **What the app should do on `hash == 0`: nothing. Wait.** The success signal is the **`peer_key_cached`** push;
+> the failure signal is a bounded timeout, currently **console + telemetry only** — ⚠ **a stage-2 failure does NOT
+> reach the app today (register B56).** Closing that needs a new `PushKind`, i.e. a contract decision, so until then an
+> app must not present stage 1 as a promise.
+>
+> **Three smaller deltas ride with it:** a new **`err_resolve_pending_full`** ack — the pending-resolve ring (4 slots)
+> is full; ★ **transient, retry shortly**, and the bound is *airtime* (each intent is a flood in flight), not memory.
+> `err_ambiguous_plane` has a **second** cause — an *unresolved* id on a dual-plane node, where the query itself must
+> pick a plane (previously it meant only "both planes hold this number"). And `err_no_binding` on a bare or `-t` id is
+> now reachable from exactly one place: an explicit `-t` on a node that holds no team plane at all.
+>
+> ⇒ **Tracking: B52, B55** in `docs/2026-07-30-open-bug-register.md`.
+>
 > ⇒ **Tracking: `docs/2026-07-30-open-bug-register.md`** (**B42**–**B48**) and
 > `docs/superpowers/specs/2026-08-01-id-to-hash-resolution-design.md`.
 

@@ -114,6 +114,7 @@ const char* cmdcode_name(CmdCode c) {
         case CmdCode::err_ambiguous_plane: return "err_ambiguous_plane"; // ★ §id-hash S1: a bare id resolves in BOTH planes -> pass `-s` or `-t` (NOT err_no_binding: the remedy is the opposite one)
         case CmdCode::err_no_identity:     return "err_no_identity";     // ★ §id-hash S1b: no Ed25519 identity -> a MUTUAL pubkey exchange is impossible; remedy `regen`
         case CmdCode::err_tx_queue_full:   return "err_tx_queue_full";   // ★ §id-hash S1d: a bounded TX queue (LBT defer ring OR the radio's outbound ring) REJECTED the frame. TRANSIENT: retry shortly
+        case CmdCode::err_resolve_pending_full: return "err_resolve_pending_full";   // ★ §id-hash S4b: the two-stage by-id reqpubkey intent ring is full. TRANSIENT: retry once an in-flight by-id request resolves or times out
     }
     return "err_unknown";
 }
@@ -623,7 +624,11 @@ size_t write_peer_row(char* buf, size_t cap, const Node::PeerBookRow& r) {
     j.lit(",\"confirmed\":");   j.lit(r.peer_confirmed ? "true" : "false");
     if (r.name_len)   { j.lit(",\"name\":");       j.str(r.name, r.name_len); }
     if (r.static_id)  { j.lit(",\"static_id\":");  j.u32(r.static_id); }
-    if (r.team_id)    { j.lit(",\"team_id\":");    j.u32(r.team_id); }
+    // ★★ §id-hash S3: `team_auth` rides WITH `team_id` — always together, never one without the other. An id shown
+    // without its confidence gets read as identity, which is the one thing the owner's "we can never be sure" ruling
+    // says it is not. (Same discipline as loc_age_s beside a position, three fields below.)
+    if (r.team_id)    { j.lit(",\"team_id\":");    j.u32(r.team_id);
+                        j.lit(",\"team_auth\":");  j.lit(r.team_authoritative ? "true" : "false"); }
     if (r.team_alias_dropped) { j.lit(",\"team_alias\":"); j.u32(r.team_alias_dropped); }   // never silently drop a loser
     // ★★ §AB4: the retained position. ALL FOUR fields ride together or none do — `loc_age_s` is MANDATORY beside a
     // position (a position without an age is rendered as current) and `loc_src` is MANDATORY beside it too (a

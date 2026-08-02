@@ -55,6 +55,24 @@ size_t write_ack   (char* buf, size_t cap, const CmdResult& r);
 // ★ §id-hash S1: `hash` is CmdResult::dst_hash (for a by-id request, the hash peer_book_by_id RESOLVED) and `plane` is
 // CmdResult::plane. Both come straight off the result — the caller must NOT re-resolve the id, which is precisely the
 // duplicate lookup that kept the one-table defect alive on the BLE transport. plane defaults to 0 = omit the field.
+// ★★ §id-hash S4a: `hash == 0` on a by-id request is MEANINGFUL, not a failure — it says the frame that flew was the
+// STAGE-1 id->hash query (H_FLAG_BY_ID, "who owns id N?"), because no binding existed to address a pubkey request to.
+// `hash != 0` keeps its S1 meaning: the pubkey request itself flew, for that hash.
+// ★★★ §id-hash S4b CHANGES WHAT `hash == 0` INSTRUCTS THE APP TO DO, and the bytes did not change with it — so an app
+// written against the S4a paragraph now does the WRONG thing (a harmless-but-wasteful duplicate flood):
+//   · S4a said: "expect NO pubkey; re-issue `reqpubkey <id>` once the binding lands."
+//   · S4b says: **do not re-issue.** The node holds a bounded `resolve-id-for-pubkey` intent, consumes the id->hash
+//     answer itself and emits the HARD WANT_PUBKEY query by the returned hash (spec §5 steps 3-4). The workflow is one
+//     command again.
+// ⚠ AND THE EVENT STILL CLAIMS NOTHING ABOUT A PUBKEY. It has exactly one meaning, unchanged since the 2026-08-01
+// owner ruling: **the TX path ACCEPTED a frame.** Which frame it accepted is what `hash` distinguishes. A stage-1
+// acceptance cannot promise a binding will come back, still less a key — the two honest continuations are the
+// `peer_key_cached` push (the whole workflow completed) and a bounded failure report, both asynchronous.
+// ⚠ NO SECOND `reqpubkey_sent` FIRES FOR STAGE 2, and that is a gap this event cannot close by itself: it is written
+// only on the SYNCHRONOUS BLE command path (`src/fw_main.cpp`), and stage 2 is fired from an RX callback with no
+// command in scope. Stage-2 failures reach the operator console (`!!` log) + telemetry, NOT the app — registered, not
+// hidden. Closing it needs a push kind, i.e. an app-contract decision.
+// ⚠ OWED to `ios-companion/INBOX_SYNC_CONTRACT.md` (QA-owned; reported by the S4a/S4b slices, not written by them).
 size_t write_reqpubkey_sent(char* buf, size_t cap, uint32_t hash, uint8_t plane = 0);
 size_t write_push  (char* buf, size_t cap, const Push& p, const NodeConfig* cfg = nullptr);   // cfg: config_adopted membership fields (R6.3)
 // join_started — the JSON verb ack for `join`/`create` (replaces the human success line so the app gets a parseable
@@ -160,6 +178,14 @@ size_t write_routes_end(char* buf, size_t cap, uint32_t count);
 //   `confirmed` — §S2 peer_confirmed: THEY hold OUR key, so a sealed reply can come back. Always present.
 //   `team_alias`— >0 ⇒ that many OTHER team ids also cache this hash and lost the freshest-wins race. Never silently
 //                 dropped (spec §2.1's explicit requirement that the emit says so).
+//   ★★ §id-hash S3 — `team_auth`: present exactly when `team_id` is, and it is the CONFIDENCE of that id->hash
+//                 binding, not of the key. Owner ruling 2026-08-01: hash->pubkey self-verifies, **id->hash does
+//                 not** — an id is an address, not a commitment — so an id->hash answer heard on air is a CLAIM.
+//                 `true` = first-hand (we heard that teammate's own beacon). `false` = someone told us. An app may
+//                 DISPLAY a false one, and may fetch its pubkey to inspect it (the pubkey self-verifies against the
+//                 hash), but must not present it as identity. ⚠ There is deliberately **no `static_auth` twin yet**
+//                 — the static plane's tier is carried in `PeerBookRow::static_authoritative` and rendered by the
+//                 TEXT console only; exposing it here is a separate contract change (register B52).
 //   ★★ §AB4 — `lat`/`lon`/`loc_age_s`/`loc_src`: the RETAINED POSITION, all four present together or all four absent.
 //                 `lat`/`lon` are 1e-7 degrees (signed). **ABSENCE IS NORMAL, NOT AN ERROR** — most peers never send a
 //                 position, and it is RAM-only so a node reboot clears every one of them (deliberately: a stale fix is

@@ -478,7 +478,16 @@ re-anchor is attributable (C4). S1/S2b/S3 touch `lib/core` ⇒ D2 applies.
 ## §7 Open questions remaining
 
 v1's O1 → **reuse, with §4's canonical encoding and honest naming.** O2 → **D8: ship ephemeral `confirmid`; pinning is
-S5.** O3 → **D7: claimed NEVER stamps DST_HASH.** O4 → below.
+S5.** O3 → **D7: claimed NEVER stamps DST_HASH.** **O6 → RULED, below.**
+
+★ **WHAT EACH REMAINING QUESTION ACTUALLY BLOCKS** — recorded so no slice waits on a ruling it does not need:
+
+| slice | blocked by |
+|---|---|
+| **S3** | **nothing.** Fully specified — dispatchable on its own |
+| **S4a** | **O6 only** — now ruled |
+| **S4b** | **nothing** |
+| **S5** | **O4 + O5** — the last slice, so these can wait |
 
 - **O4** verb name — `confirmid` (recommended, honest for a RAM-only expiring promotion) vs `bindid`.
 - **O5** BLE availability for `confirmid`. The review's position, which I endorse: **acceptable as a first-class
@@ -490,7 +499,16 @@ S5.** O3 → **D7: claimed NEVER stamps DST_HASH.** O4 → below.
   that BLE is too weak for trust-anchor writes, it must apply consistently to `peerkey`, identity regeneration and
   factory reset — not to `confirmid` alone.** ⓘ This intersects the still-open **O4 (`team exportkey` over
   unauthenticated BLE)** from the 2026-08-01 handover.
-- **O6** is `HARD` forbidden or merely ignored under `BY_ID` (§4).
+- ✅ **O6 — RULED (QA-gate, 2026-08-02): `BY_ID` IMPLIES the hard semantics; `HARD` is neither forbidden nor
+  meaningful under it.** Ruled here rather than escalated because it changes nothing an operator can see or do.
+  **Reasoning:** `HARD` exists to bypass a cached answer and demand the owner's (`frame_codec.h:375-376`), and **D3
+  already makes a `BY_ID` query owner-only with no cached answers permitted** — which is strictly *stronger* than
+  `HARD`, not weaker. So there is nothing left for the flag to escalate.
+  **Implementation:** the pack side **sets `HARD`** on a `BY_ID` query — consistency, not necessity, since the one
+  originator (`reqpubkey`) already passes `hard=true` unconditionally (`node.cpp:~1659`). The receive side **must not
+  require it**: a `BY_ID` query is owner-only whether or not the bit is set, and enforcing the bit would add a refusal
+  for a combination that is harmless. ⓘ Not a C2 silent fallback — this *defines* the semantics rather than papering
+  over a missing input. ⚠ `hard` stays part of the dedup key regardless (`node.h:1703-1705`); do not fold it away.
 
 ## §8 What this deliberately does NOT do
 

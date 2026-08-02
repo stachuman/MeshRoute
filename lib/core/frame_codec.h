@@ -369,25 +369,47 @@ std::optional<uint32_t> parse_q_channel_id(std::span<const uint8_t> frame,
 // never read on parse; leaf_id relocates into the cmd byte). Forwardable TTL flood.
 //   byte 0   : cmd=0x7(7..4) | leaf_id(3..0)
 //   byte 1   : origin            (querier node_id; PRESERVED across forwards)
-//   bytes 2-5: key_hash32 (LITTLE-ENDIAN)
+//   bytes 2-5: query_key32 (LITTLE-ENDIAN) — a key_hash32, OR a zero-extended id when BY_ID (see below)
 //   byte 6   : ttl               (decremented per forward; 0 = drop)
 //   byte 7   : H flags — bit 0 = HARD (skip the id_bind cache; resolve own-hash only -> reach the OWNER for
 //              an authoritative correction; the verify-on-use escalation). soft (default) consults the cache.
 enum HFlag : uint8_t { H_FLAG_HARD = 0x01,
                        H_FLAG_WANT_PUBKEY = 0x02,     // E2E §6: request the owner's ed_pub (set WITH HARD; owner answers DATA TYPE 5)
                        H_FLAG_TEAM = 0x04,            // §mobile-team: a teammate's locate -> appends team_id (4 B); a registered mobile answers ONLY a same-team query (else the home proxies)
-                       H_FLAG_MOBILE_REQ = 0x08 };    // §mobile: the requester (origin) is a MOBILE/team member -> its origin is a LOCAL id, not a global identity. The owner-answerer MUST NOT id_bind it (a WANT_PUBKEY seal-back caches by hash + routes via home/_rt_team, never the static id-plane). Backward-compat rsv bit (old senders 0, old receivers ignore).
+                       H_FLAG_MOBILE_REQ = 0x08,      // §mobile: the requester (origin) is a MOBILE/team member -> its origin is a LOCAL id, not a global identity. The owner-answerer MUST NOT id_bind it (a WANT_PUBKEY seal-back caches by hash + routes via home/_rt_team, never the static id-plane). Backward-compat rsv bit (old senders 0, old receivers ignore).
+                       H_FLAG_BY_ID = 0x10 };         // ★ §id-hash S4a (spec 2026-08-01 §4): bytes 2-5 are a ZERO-EXTENDED id, not a hash — "who owns id N?". 0x20/0x40/0x80 remain free.
+// ★★ §id-hash S4a — THE BY_ID QUERY KEY IS CANONICAL, and both directions enforce it.
+// `H_FLAG_BY_ID` reuses bytes 2-5 (0 extra wire bytes) to carry an id. Without a canonical rule the same id has
+// 2^24 spellings, each occupying a DIFFERENT dedup slot in HashQuerySeen -> redundant floods for one question and
+// telemetry that cannot be correlated. So: bytes 3..5 MUST be zero and ids 0 (unprovisioned) / 255 (reserved,
+// `peer_book_by_id`) are refused. ONE predicate, used by pack AND parse AND the originator, so the three cannot
+// drift apart (U1).
+// ⓘ `by_id` ALSO joins the dedup key (Node::HashQuerySeen) — without it `H(id 114)` and `H(hash 0x00000072)`
+//   alias, and one silently suppresses the other's forward.
+inline constexpr bool h_by_id_key_canonical(uint32_t query_key32) { return query_key32 >= 1u && query_key32 <= 254u; }
 // §2 mutual reqpubkey: when want_pubkey is set, the H frame APPENDS the requester's ed_pub[32] (so the owner caches
 // the requester + can decrypt its future sealed DMs). requester_ed_pub is meaningful ONLY when want_pubkey.
 // §name: WITH the pubkey, a WANT_PUBKEY H also appends the requester's [name_len u8][name…] (iff name_len>0), AFTER the
 // team_id — so the owner caches hash->name too, symmetric to the TYPE-5/12/13 pubkey ANSWER frames. Optional/trailing:
 // an old WANT_PUBKEY H (or one with no name) carries none -> name_len parses 0.
-struct h_in  { uint8_t leaf_id; uint8_t origin; uint32_t key_hash32; uint8_t ttl; bool hard = false; bool want_pubkey = false; uint8_t requester_ed_pub[32] = {};
-               bool team_scoped = false; uint32_t team_id = 0; bool mobile_req = false; uint8_t name[32] = {}; uint8_t name_len = 0; };   // §mobile-team: appended team_id (4 B) iff team_scoped; mobile_req = origin is a LOCAL id; §name: [name_len][name] iff want_pubkey&&name_len>0
-struct h_out { uint8_t leaf_id; uint8_t origin; uint32_t key_hash32; uint8_t ttl; bool hard = false; bool want_pubkey = false; uint8_t requester_ed_pub[32] = {};
-               bool team_scoped = false; uint32_t team_id = 0; bool mobile_req = false; uint8_t name[32] = {}; uint8_t name_len = 0; };
-size_t pack_h(const h_in& in, std::span<uint8_t> out);            // 8; +32 want_pubkey; +4 team_scoped; +1+name_len when want_pubkey&&name_len>0; 0 on short buf
-std::optional<h_out> parse_h(std::span<const uint8_t> frame);     // nullopt: len<7 / cmd / (want_pubkey && len<40) / bad-name-len; hard+flags from byte 7
+// ★ §id-hash S4a — HONEST IN-MEMORY NAMING (spec §4). The field is `query_key32` because bytes 2-5 hold two
+// different things; `query_hash()` / `query_id()` name which one, and each answers 0 in the wrong mode — 0 is the
+// "no hash" / "unprovisioned id" sentinel everywhere in this codebase, so a mis-read can never name a real target.
+// ⚠ The `f_in.ttl_or_next_hop` precedent (:399-401) licenses OVERLOADED WIRE STORAGE; it does not license a struct
+// field called `key_hash32` that holds an id. `by_id` is APPENDED LAST so the positional aggregate initialisers
+// (`pack_h({leaf, origin, key, ttl, hard}, …)`) do not shift.
+struct h_in  { uint8_t leaf_id; uint8_t origin; uint32_t query_key32; uint8_t ttl; bool hard = false; bool want_pubkey = false; uint8_t requester_ed_pub[32] = {};
+               bool team_scoped = false; uint32_t team_id = 0; bool mobile_req = false; uint8_t name[32] = {}; uint8_t name_len = 0;   // §mobile-team: appended team_id (4 B) iff team_scoped; mobile_req = origin is a LOCAL id; §name: [name_len][name] iff want_pubkey&&name_len>0
+               bool by_id = false;                                                        // §id-hash S4a: bytes 2-5 are a zero-extended id ("who owns id N?")
+               uint32_t query_hash() const { return by_id ? 0u : query_key32; }
+               uint8_t  query_id()   const { return by_id ? static_cast<uint8_t>(query_key32) : uint8_t(0); } };
+struct h_out { uint8_t leaf_id; uint8_t origin; uint32_t query_key32; uint8_t ttl; bool hard = false; bool want_pubkey = false; uint8_t requester_ed_pub[32] = {};
+               bool team_scoped = false; uint32_t team_id = 0; bool mobile_req = false; uint8_t name[32] = {}; uint8_t name_len = 0;
+               bool by_id = false;
+               uint32_t query_hash() const { return by_id ? 0u : query_key32; }
+               uint8_t  query_id()   const { return by_id ? static_cast<uint8_t>(query_key32) : uint8_t(0); } };
+size_t pack_h(const h_in& in, std::span<uint8_t> out);            // 8; +32 want_pubkey; +4 team_scoped; +1+name_len when want_pubkey&&name_len>0; 0 on short buf / non-canonical by_id / by_id+want_pubkey
+std::optional<h_out> parse_h(std::span<const uint8_t> frame);     // nullopt: len<7 / cmd / (want_pubkey && len<40) / bad-name-len / non-canonical by_id / by_id+want_pubkey; hard+flags from byte 7
 
 // -----------------------------------------------------------------------------
 // F — route-find RREQ/RREP flood (cmd-nibble 0x8, 7 B) — ROADMAP §10.3

@@ -592,15 +592,27 @@ std::optional<uint32_t> parse_q_channel_id(std::span<const uint8_t> frame,
 // H — cmd 0x7, 8 B (§3.7a). key_hash32 LE; byte 7 = H flags (bit 0 = HARD: skip the cache, reach the owner).
 // -----------------------------------------------------------------------------
 size_t pack_h(const h_in& in, std::span<uint8_t> out) {
+    // ★ §id-hash S4a: the BY_ID canonical-encoding gate, enforced HERE so no originator can spell an id two ways.
+    if (in.by_id) {
+        if (!h_by_id_key_canonical(in.query_key32)) return 0;   // bytes 3-5 non-zero, or id 0 / 255 -> refuse (C2)
+        // ⓘ §5's ONE-ROUND FORM (a by-id query answered with hash AND pubkey together) is explicitly "not designed
+        //   here": the pubkey answer (DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY) self-verifies hash->pubkey but its
+        //   receiver `on_hash_bind_pubkey` writes NO id binding at all, so the combination spends airtime and
+        //   answers the question that was asked with silence. Refuse it rather than half-answer it.
+        if (in.want_pubkey) return 0;
+    }
     const size_t need = 8u + (in.want_pubkey ? 32u : 0u) + (in.team_scoped ? 4u : 0u)
                       + ((in.want_pubkey && in.name_len) ? 1u + in.name_len : 0u);   // §2 WANT_PUBKEY appends ed_pub[32]; §mobile-team appends team_id[4]; §name appends [name_len][name] WITH the pubkey
     if (out.size() < need) return 0;
     wire::Writer w(out);
     w.u8(wire::cmd_byte(wire::Cmd::H, static_cast<uint8_t>(in.leaf_id & 0x0F)));
     w.u8(in.origin);
-    w.u32_le(in.key_hash32);
+    w.u32_le(in.query_key32);              // §id-hash S4a: a key_hash32, or a zero-extended id when BY_ID (canonical: bytes 3-5 zero)
     w.u8(in.ttl);                          // u8: config caps ttl <= 16
-    w.u8(static_cast<uint8_t>((in.hard ? H_FLAG_HARD : 0) | (in.want_pubkey ? H_FLAG_WANT_PUBKEY : 0) | (in.team_scoped ? H_FLAG_TEAM : 0) | (in.mobile_req ? H_FLAG_MOBILE_REQ : 0)));   // byte 7: H flags
+    // ★ §7-O6 RULED (2026-08-02): BY_ID **implies** the hard semantics, so pack SETS `HARD` for consistency. It is
+    // not necessity — D3 already makes a BY_ID query owner-only with no cached answers permitted, which is strictly
+    // STRONGER than HARD ("skip the cache, reach the owner"). The receive side must NOT require the bit; see parse_h.
+    w.u8(static_cast<uint8_t>(((in.hard || in.by_id) ? H_FLAG_HARD : 0) | (in.want_pubkey ? H_FLAG_WANT_PUBKEY : 0) | (in.team_scoped ? H_FLAG_TEAM : 0) | (in.mobile_req ? H_FLAG_MOBILE_REQ : 0) | (in.by_id ? H_FLAG_BY_ID : 0)));   // byte 7: H flags
     if (in.want_pubkey) for (int i = 0; i < 32; ++i) w.u8(in.requester_ed_pub[i]);   // bytes 8..39: the requester's ed_pub
     if (in.team_scoped) w.u32_le(in.team_id);   // §mobile-team: after the ed_pub (if any) -> the querier's team_id
     if (in.want_pubkey && in.name_len) { w.u8(in.name_len); for (uint8_t i = 0; i < in.name_len; ++i) w.u8(in.name[i]); }   // §name: [name_len][name] AFTER the team_id — the requester's name rides WITH its pubkey (mirrors the answer frames)
@@ -613,13 +625,21 @@ std::optional<h_out> parse_h(std::span<const uint8_t> frame) {
     const uint8_t b0 = r.u8();
     if (wire::cmd_of(b0) != wire::Cmd::H) return std::nullopt;
     h_out o{};
-    o.leaf_id    = wire::flags_of(b0);
-    o.origin     = r.u8();
-    o.key_hash32 = r.u32_le();
-    o.ttl        = r.u8();
+    o.leaf_id     = wire::flags_of(b0);
+    o.origin      = r.u8();
+    o.query_key32 = r.u32_le();
+    o.ttl         = r.u8();
     if (!r.ok()) return std::nullopt;
     o.hard        = (frame.size() >= 8) && (frame[7] & H_FLAG_HARD);          // lenient: a 7-B frame parses as soft
     o.want_pubkey = (frame.size() >= 8) && (frame[7] & H_FLAG_WANT_PUBKEY);   // E2E §6: the sender wants the owner's ed_pub
+    o.by_id       = (frame.size() >= 8) && (frame[7] & H_FLAG_BY_ID);         // ★ §id-hash S4a: bytes 2-5 are a zero-extended id
+    if (o.by_id) {                                                            // the SAME canonical gate pack_h applies (U1) — a non-canonical spelling is a forged/buggy frame, not a variant
+        if (!h_by_id_key_canonical(o.query_key32)) return std::nullopt;      // bytes 3-5 non-zero, or id 0 / 255 -> reject (fail loud)
+        if (o.want_pubkey) return std::nullopt;                              // §5: the one-round by-id+pubkey form is not designed — refuse rather than half-answer
+        // ⚠ §7-O6: HARD is deliberately NOT required here. A BY_ID query is owner-only whether or not the bit is
+        //   set (handle_h enforces that structurally), so demanding it would add a refusal for a harmless
+        //   combination. `hard` still rides the dedup key unchanged.
+    }
     if (o.want_pubkey) {                                                      // §2: a WANT_PUBKEY H MUST carry the 32-B requester pubkey
         if (frame.size() < 8 + 32) return std::nullopt;                      // flag set but pubkey missing -> reject (fail loud)
         for (int i = 0; i < 32; ++i) o.requester_ed_pub[i] = frame[8 + i];

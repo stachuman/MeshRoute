@@ -556,7 +556,7 @@ TEST_CASE("H — round-trip (key_hash32 LE) + golden + reject") {
                         CHECK(o.has_value());
                         if (o) {
                             CHECK(o->leaf_id == leaf);   CHECK(o->origin == origin);
-                            CHECK(o->key_hash32 == kh);  CHECK(o->ttl == ttl);
+                            CHECK(o->query_key32 == kh);  CHECK(o->ttl == ttl);
                             CHECK(o->hard == hard);      // byte 7 H flags
                         }
                     }
@@ -573,7 +573,7 @@ TEST_CASE("H — round-trip (key_hash32 LE) + golden + reject") {
 
 TEST_CASE("§2 H — a WANT_PUBKEY query appends the requester's ed_pub[32] (mutual reqpubkey); non-pubkey H unchanged") {
     uint8_t reqpub[32]; for (int i = 0; i < 32; ++i) reqpub[i] = uint8_t(0xA0 + i);
-    h_in in{}; in.leaf_id = 2; in.origin = 7; in.key_hash32 = 0x11223344u; in.ttl = 16; in.hard = true; in.want_pubkey = true;
+    h_in in{}; in.leaf_id = 2; in.origin = 7; in.query_key32 = 0x11223344u; in.ttl = 16; in.hard = true; in.want_pubkey = true;
     for (int i = 0; i < 32; ++i) in.requester_ed_pub[i] = reqpub[i];
     std::array<uint8_t, 40> buf{};
     CHECK(pack_h(in, buf) == 40);                              // 8 header + 32 appended requester pubkey
@@ -581,7 +581,7 @@ TEST_CASE("§2 H — a WANT_PUBKEY query appends the requester's ed_pub[32] (mut
     CHECK(o.has_value());
     if (o) {
         CHECK(o->want_pubkey); CHECK(o->hard);
-        CHECK(o->origin == 7); CHECK(o->key_hash32 == 0x11223344u);
+        CHECK(o->origin == 7); CHECK(o->query_key32 == 0x11223344u);
         bool same = true; for (int i = 0; i < 32; ++i) if (o->requester_ed_pub[i] != reqpub[i]) same = false;
         CHECK(same);                                           // §2: the requester's pubkey round-trips
     }
@@ -595,9 +595,85 @@ TEST_CASE("§2 H — a WANT_PUBKEY query appends the requester's ed_pub[32] (mut
     if (o8) CHECK_FALSE(o8->want_pubkey);
 }
 
+// ★★★ §id-hash S4a (spec §4) — H_FLAG_BY_ID and its CANONICAL query key.
+// ⚠ THIS IS UNIT-ONLY BY NECESSITY: one `lus` drives BOTH ends of every simulated link, so the corpus validates
+// BEHAVIOUR and never FORMAT — a canonical-encoding rule cannot be gated there, only here.
+TEST_CASE("§id-hash S4a — a BY_ID H is 8 B, canonical, and sets HARD (O6); the accessors refuse to read the wrong mode") {
+    for (uint32_t id : {1u, 114u, 254u}) {
+        h_in in{}; in.leaf_id = 2; in.origin = 7; in.query_key32 = id; in.ttl = 16; in.by_id = true;
+        std::array<uint8_t, 16> buf{};
+        CHECK(pack_h(in, buf) == 8);                                // no extra wire bytes — bytes 2-5 are REUSED
+        CHECK(buf[2] == uint8_t(id));                               // zero-extended, LITTLE-endian
+        CHECK(buf[3] == 0); CHECK(buf[4] == 0); CHECK(buf[5] == 0); // ★ bytes 3-5 MUST be zero
+        CHECK(buf[7] == uint8_t(H_FLAG_HARD | H_FLAG_BY_ID));       // ★ §7-O6: pack sets HARD for consistency
+        auto o = parse_h(std::span<const uint8_t>(buf.data(), 8));
+        CHECK(o.has_value());
+        if (o) {
+            CHECK(o->by_id); CHECK(o->hard); CHECK_FALSE(o->want_pubkey); CHECK_FALSE(o->team_scoped);
+            CHECK(o->query_key32 == id);
+            CHECK(o->query_id()   == uint8_t(id));
+            CHECK(o->query_hash() == 0u);                           // ★ an id is never readable as a hash...
+        }
+    }
+    // ...and symmetrically, a by-HASH frame is never readable as an id. 0 is the "no hash"/"unprovisioned id"
+    // sentinel everywhere in this codebase, so a mis-read can never name a real target.
+    h_in hq{}; hq.leaf_id = 2; hq.origin = 7; hq.query_key32 = 0x11223344u; hq.ttl = 16;
+    std::array<uint8_t, 16> hb{};
+    CHECK(pack_h(hq, hb) == 8);
+    CHECK(hb[7] == 0);                                              // ★ a non-BY_ID H is byte-identical to pre-S4a
+    auto oh = parse_h(std::span<const uint8_t>(hb.data(), 8));
+    CHECK(oh.has_value());
+    if (oh) { CHECK_FALSE(oh->by_id); CHECK(oh->query_hash() == 0x11223344u); CHECK(oh->query_id() == 0); }
+}
+
+TEST_CASE("§id-hash S4a — the canonical gate REFUSES on pack AND rejects on parse (ids 0/255, non-zero upper bytes)") {
+    std::array<uint8_t, 16> buf{};
+    for (uint32_t bad : {0u, 255u, 256u, 0x0000FF72u, 0x00010072u, 0xFFFFFFFFu}) {
+        h_in in{}; in.leaf_id = 2; in.origin = 7; in.query_key32 = bad; in.ttl = 16; in.by_id = true;
+        CHECK(pack_h(in, buf) == 0);                                // ★ pack REFUSES (C2 — fail loud, no silent clamp)
+    }
+    // PARSE side, driven from hand-built bytes because pack can no longer produce them — which is exactly why the
+    // receiver needs its own gate: an adversary or a buggy build is not bound by our packer.
+    auto frame = [](uint32_t key) {
+        std::array<uint8_t, 8> f{};
+        f[0] = 0x70; f[1] = 9;
+        f[2] = uint8_t(key); f[3] = uint8_t(key >> 8); f[4] = uint8_t(key >> 16); f[5] = uint8_t(key >> 24);
+        f[6] = 3; f[7] = uint8_t(H_FLAG_HARD | H_FLAG_BY_ID);
+        return f;
+    };
+    for (uint32_t bad : {0u, 255u, 256u, 0x00010072u, 0x72000000u}) {
+        auto f = frame(bad);
+        CHECK_FALSE(parse_h(std::span<const uint8_t>(f.data(), f.size())).has_value());   // ★ rejected, not "cleaned up"
+    }
+    auto ok = frame(114);                                           // POSITIVE CONTROL for the whole loop above
+    CHECK(parse_h(std::span<const uint8_t>(ok.data(), ok.size())).has_value());
+    // ...and the identical byte pattern WITHOUT the BY_ID bit is a perfectly legal by-hash query for hash 255 —
+    // proving the refusals are the canonical rule, not a length/shape accident.
+    auto as_hash = frame(255); as_hash[7] = H_FLAG_HARD;
+    CHECK(parse_h(std::span<const uint8_t>(as_hash.data(), as_hash.size())).has_value());
+}
+
+TEST_CASE("§id-hash S4a §5 — BY_ID + WANT_PUBKEY is refused both ways: the one-round form is NOT DESIGNED") {
+    // §5: the pubkey answer self-verifies hash->pubkey, but its receiver (`on_hash_bind_pubkey`) writes NO id
+    // binding at all — so the combination would spend airtime and answer the question asked with silence.
+    h_in in{}; in.leaf_id = 2; in.origin = 7; in.query_key32 = 114; in.ttl = 16; in.by_id = true; in.want_pubkey = true;
+    for (int i = 0; i < 32; ++i) in.requester_ed_pub[i] = uint8_t(0xA0 + i);
+    std::array<uint8_t, 80> buf{};
+    CHECK(pack_h(in, buf) == 0);
+    // control: drop EITHER flag and the same struct packs.
+    h_in a = in; a.want_pubkey = false;  CHECK(pack_h(a, buf) == 8);
+    h_in b = in; b.by_id = false; b.query_key32 = 0x11223344u; CHECK(pack_h(b, buf) == 40);
+    // parse side, hand-built (pack cannot make one)
+    std::array<uint8_t, 40> f{};
+    f[0] = 0x70; f[1] = 9; f[2] = 114; f[6] = 3; f[7] = uint8_t(H_FLAG_HARD | H_FLAG_BY_ID | H_FLAG_WANT_PUBKEY);
+    CHECK_FALSE(parse_h(std::span<const uint8_t>(f.data(), f.size())).has_value());
+    f[7] = uint8_t(H_FLAG_HARD | H_FLAG_WANT_PUBKEY);               // same 40 bytes, no BY_ID -> legal
+    CHECK(parse_h(std::span<const uint8_t>(f.data(), f.size())).has_value());
+}
+
 TEST_CASE("§name — a WANT_PUBKEY H appends the requester's [name_len][name] WITH the pubkey (after team_id); nameless stays 40 B (backward-compatible); round-trips") {
     uint8_t reqpub[32]; for (int i = 0; i < 32; ++i) reqpub[i] = uint8_t(0x50 + i);
-    h_in in{}; in.leaf_id = 1; in.origin = 9; in.key_hash32 = 0xCAFEBABEu; in.ttl = 12; in.want_pubkey = true;
+    h_in in{}; in.leaf_id = 1; in.origin = 9; in.query_key32 = 0xCAFEBABEu; in.ttl = 12; in.want_pubkey = true;
     for (int i = 0; i < 32; ++i) in.requester_ed_pub[i] = reqpub[i];
     const char* nm = "Alice-Rover"; in.name_len = 11; for (int i = 0; i < 11; ++i) in.name[i] = uint8_t(nm[i]);
     std::array<uint8_t, 8 + 32 + 1 + 32> buf{};

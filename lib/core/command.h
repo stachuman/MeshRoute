@@ -121,7 +121,19 @@ enum class CmdCode : uint8_t { queued, err_unknown_dst, err_too_large,
                                // documents it as the pending-E2E-ack ring — *"a new `-a` send is refused while 8
                                // sends already await acks"*. Reusing it would hand the app a wrong remedy (wait for
                                // an in-flight `-a` send that need not exist at all).
-                               err_tx_queue_full };
+                               err_tx_queue_full,
+                               // ★ §id-hash S4b (spec §5): the bounded `resolve-id-for-pubkey` intent ring
+                               // (protocol::cap_pending_id_pubkey) is full, so a NEW two-stage `reqpubkey <id>` is
+                               // refused BEFORE any airtime. TRANSIENT, like err_tx_queue_full — a slot frees when an
+                               // in-flight by-id request completes or times out — but the remedy differs (wait for a
+                               // resolution, not for the radio), which is why it is not folded into it.
+                               // ⚠ U1 CHECKED AND `err_ack_ring_full` (9) DELIBERATELY NOT REUSED, for the third time
+                               // in this arc and for the same reason: same SHAPE, different RING. That code's shipped
+                               // contract says "a new -a send is refused while 8 sends await acks" — a remedy that
+                               // does not exist on this verb.
+                               // ⓘ NOT REACHABLE from the by-HASH form: only the by-id form has a second stage to
+                               // remember. The refusal cannot appear where an operator cannot act on it.
+                               err_resolve_pending_full };
 // The synchronous "send handle" — the app records it and correlates async send_acked/send_failed pushes by `ctr`.
 // dst_hash / layer_path echo WHAT was sent so the app keeps no command->identity map of its own (and so a small
 // hash like 0x10 is NEVER confused with an 8-bit id — it lives in its own 32-bit field):
@@ -132,6 +144,14 @@ enum class CmdCode : uint8_t { queued, err_unknown_dst, err_too_large,
 //   reqpubkey <id|0xhash> -> ctr 0, dst_hash = the hash the query WAS ISSUED FOR (§id-hash S1: for the by-id form that is
 //                              the hash peer_book_by_id RESOLVED, so no transport re-runs the lookup — U1), plane =
 //                              which plane answered.
+//                              ★★ §id-hash S4b: `dst_hash == 0` on a by-id request is the STAGE-1 case and it is a
+//                              TRUE statement, not a missing one — the hash is precisely what the accepted frame went
+//                              to ask for, so no synchronous result can carry it. What it now means to the app has
+//                              CHANGED: the node itself completes stage 2 when the binding arrives (spec §5 step 3),
+//                              so the app must NOT re-issue on seeing 0. ⚠ AND THE ACK STILL PROMISES NO PUBKEY —
+//                              `accepted` means the TX path took the STAGE-1 frame, nothing more. The outcomes that
+//                              follow are the `peer_key_cached` push (the workflow completed) or a bounded failure
+//                              report; both are asynchronous and neither is knowable here.
 struct CmdResult {
     CmdCode  code        = CmdCode::queued;
     uint16_t ctr         = 0;

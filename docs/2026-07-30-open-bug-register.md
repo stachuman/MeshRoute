@@ -536,8 +536,21 @@ Found by the OLED-UI second review, §3. **UNMEASURED** — found in-source.
 > in numbers: even with the corpus's relayed learns FORCED to `claimed`, the rehome case fires 0 times in 304 885
 > `id_bind_set` calls.** ⇒ ★ **a "guard the write" fix must be checked against every OTHER path that mutates the same
 > invariant**, and byte-identity on a corpus that cannot produce the precondition is not evidence either way.
-> **B43 is the wire slice (S4a/S4b) and is still NOT dispatched**: it waits on the spec's remaining rulings (verb name,
-> BLE availability, `HARD`-under-`BY_ID`).
+> ★ **2026-08-02: B43's WIRE HALF IS BUILT (`§id-hash S4a`), and B53 closed with it.** `H_FLAG_BY_ID` is on the wire,
+> both planes ingest a `claimed` binding, and `peer_book_by_id` reads at the `claimed` floor so the tier is visible and
+> LABELLED. **B54 stays open by decision, not omission** (see its entry). **B55 is new** — the two-stage
+> `reqpubkey_sent.hash == 0` meaning, owed to the companion contract.
+> ★★ **2026-08-02: `§id-hash S4b` IS BUILT — the by-id flow is ONE command** (bounded `resolve-id-for-pubkey` intent +
+> on-node second stage + a bounded loud timeout; note in `BASELINE.md`). ⚠ **B55 did NOT close with it and was NOT
+> meant to**: `reqpubkey_sent.hash == 0` is the honest report of a stage-1 acceptance and stays — what changed is the
+> INSTRUCTION it carries (`do not re-issue`), so the owed contract paragraph is now a **correction**, not an addition.
+> **B56 / B57 / B58 are new** (S4b's registered residuals). **S5** (`confirmid`) remains undispatched, still on O4/O5.
+> ⚠⚠ **AND THE FAMILY'S INHERITED PREMISE — "the corpus is structurally blind to the `claimed` tier" — IS NOW
+> DISPROVEN IN BOTH DIRECTIONS.** S3 showed the *floor* is corpus-live (a beacon-stamps-claimed probe moves 5/36);
+> S4a shows the *producer* is corpus-live too — **26 team-plane ingests across five scenarios** — while the streams
+> stay 36/36 byte-identical **because the floor contains them**, proven by disabling the floor (3/36 move) and then
+> disabling it again with the producer reverted (back to clean). ⇒ **stop writing "the corpus cannot see this tier";
+> write which LAYER it cannot see, and measure it.**
 > ⚠ **B46 was a live demotion bug that exists independently of the feature** — registered and fixed on its own merits,
 > in its own slice, not buried inside the design entry.
 > ⚠⚠ **ONE MEASUREMENT THE WHOLE FAMILY SHOULD INHERIT (S2b, 2026-08-01): the 36-scenario corpus contains ZERO
@@ -591,7 +604,11 @@ retry rather than surface a configuration error; it is NOT `err_ack_ring_full` (
 ③ `{"ack":…}` may now carry **`"plane":"team"|"static"`**, and `{"ev":"reqpubkey_sent"}` the same — **both omitted
 when absent, so every pre-S1 line is byte-identical** (pinned by a test).
 ④ ★ **`reqpubkey_sent.hash` is now the RESOLVED hash** for a by-id request, where it used to be `0` on the static
-plane — and, per B47, the event now fires **only when a frame actually aired**.
+plane — and, per B47, the event now fires **only when the TX path ACCEPTED the frame**. ⚠ **"accepted", not "aired"**
+(owner ruling 2026-08-02): a synchronous `CmdResult` cannot prove a future transmission, because an LBT-deferred frame
+reaches the radio after `on_command` has already returned. Acceptance = no bail-out, no LBT-ring drop, no `DeviceHal`
+rejection; a later `pump_tx` radio-start error is **outside** the guarantee. The residual is covered by the late
+`!!` report, not by this event.
 ⑤ the grammar itself: `reqpubkey <0xhash|id> [-s|-t]`, flags mutually exclusive, bare id = AUTO.
 
 ### B43 — ★★ no id → hash for a node we **route to** but never heard directly (both planes) · NEW 2026-08-01
@@ -607,8 +624,31 @@ and marked it `✖ MISSING` on 2026-07-31 (`node_hashlocate.cpp:~1245-1248`): *"
 confidence field … **needs the trust question in (1) answered first**."* The owner answered it 2026-08-01: an on-air
 id→hash answer is a **claim**, never authoritative.
 **Fix shape:** spec S3 + S4a/S4b — `H_FLAG_BY_ID` (byte 7 has four free bits), owner-only answers, `claimed` landing on
-both planes, and the two-stage `reqpubkey` completion. ⚠ **NOT dispatched** — see the box above.
+both planes, and the two-stage `reqpubkey` completion.
 **Coverage owed:** the spec's §9 gate list. **MEASURED** (bench, both planes).
+★ **CLOSED — THE BINDING HALF — 2026-08-02 by slice `§id-hash S4a` (green, UNCOMMITTED).** `H_FLAG_BY_ID = 0x10`
+reuses H bytes 2-5 as a **canonical** zero-extended id (bytes 3-5 zero, ids 0/255 refused on pack **and** parse,
+`h_by_id_key_canonical` is the one predicate all three sites share); `by_id` joins the `HashQuerySeen` key (at **0
+bytes** — `offsetof == 19`, `sizeof` 24 unmoved) and rides every forward. **Only the OWNER answers**, self-matching on
+`_node_id` (static) / `team_local_id()` (team), never from a cache — spec §3-D3's principle: *a cached answer is
+allowed exactly when the answer is self-verifying, and an id→hash one is not.* The answer is a plain
+`DATA_TYPE_H_ANSWER` (§3-D4's `binding_verifiable = false`), so it lands **`claimed`** on the static plane through the
+existing codepoint and — **newly built** — in `_team_keys` on the team plane, ★ **without ever touching `_team_peer`**.
+`reqpubkey <id>` on an unresolved id now FLIES that query instead of refusing (spec §5 stage 1), which is the
+originator B43 needs; **B53's floor, lowered in the same slice, is what makes the resulting row visible.**
+⚠ **RESIDUAL, NOT A REGRESSION — the operator workflow is TWO commands until S4b:** stage 1 lands the binding, and the
+second `reqpubkey <id>` fetches the key. Spec §5's pending `resolve-id-for-pubkey` intent + timeout is **S4b**, by
+design (§6). The BLE discriminator is `reqpubkey_sent.hash == 0` — see **B55**.
+⚠ **NOT unblocked, per spec §8:** multi-hop `team grantkey` and sealed send still refuse a claim. That is the owner's
+confidence split working, not a gap.
+★★ **THE MEASUREMENT WORTH INHERITING (and it contradicts spec §6's own "re-anchors" prediction): the corpus is
+36/36 BYTE-IDENTICAL, and that is CONTAINMENT rather than absence.** Instrumented: the new team ingest fires **26
+times** across s24/s25/s26/s28/s34 (13 destination `h_query` + 13 relay `h_relay`, **every one arriving on an
+AUTHORITATIVE frame type**); of those, **13 are refused by S3's D5c① rule**, **6 insert new claimed rows** and **7
+refresh a claim**. The streams do not move because every reader is either behind the default `authoritative` floor or
+lives in `src/` (outside the sim build). **Proof, not inference:** disabling the two team floors moves **3/36**
+(s24/s25/s26, event counts *falling* 1574→1408 / 792→638 / 1045→854 — a cache doing its job), and doing that *with the
+ingest reverted* returns all 36 streams **byte-identical to clean**.
 
 ### B44 — `peers all` surfaces routed-but-unkeyed **team** peers and has **no static equivalent** · NEW 2026-08-01
 `peer_book_walk` (`node_hashlocate.cpp:~462-507`) runs four passes — `_peer_keys` → `_id_bind` → `_team_keys` →
@@ -844,19 +884,39 @@ mechanism defeated by two discarded returns.
 ★ **FIXED 2026-08-01 by `§tx-admission TX2` (green, UNCOMMITTED) at ZERO bytes.** Both sites return the real result;
 the digest commit now follows the **acceptance** boundary — the same one the owner ruled for `reqpubkey_sent` — so a
 ring-full drop and a HAL rejection both leave the entry **dirty**, and an accepted defer commits.
-⚠ **RESIDUAL, FLAGGED FOR AN OWNER RULING RATHER THAN DECIDED: the late edge.** An accepted defer commits at
-acceptance, so a beacon that dies at the radio queue when its timer fires has already burned one `bcn_ad_count`.
-Rolling that back needs the selected digest ids carried in the defer ring — **MEASURED: +16 B/slot x 4 = +64 B of
-`sizeof(Node)`** (native model; per-board confirmation owed if taken). Against that: the residual burns **exactly one**
-count of a **horizon backstop** whose primary retire path is holder coverage (`channel_entry_fully_seen`), and needs
-the radio queue to saturate inside a sub-second defer window. The frame's death is already reported.
-⚠⚠ **COVERAGE IS PARTIAL AND I AM SAYING SO.** The **immediate HAL rejection** case is tested with a paired positive
-control (`test_node_channel.cpp`, case D) — poisoning that site reddens 1 case. The **ring-full beacon** case is
-**fixed but UNTESTED**: my fixture measured `DEFER=0` — the beacons were *skipped* (`wait > flood_lbt_max_defer_ms`),
-not deferred — so the ring never filled, and poisoning that site reddens **nothing**. ⇒ **OWED: a fixture that
-provably defers a beacon (assert `tx_lbt_defer` fired) before filling the ring.** The ring-full DROP mechanism itself
-is covered on the other `tx_initiating` path (S1c's fifth-frame test).
-**MEASURED** (native + corpus 36/36 byte-identical; 0 rejections and 0 deferred losses corpus-wide, structurally).
+★★ **THE RESIDUAL WAS RULED ON, AND THE RULING REVERSED THE EARLIER CALL — `§tx-admission TX3`, 2026-08-02.**
+> for channel-digest accounting, **"sent" means accepted by the transmitter/DeviceHal** — the strongest boundary the
+> current architecture can observe. It does not mean literal RF airtime.
+⇒ commit-on-LBT-entry is gone. The advertised digest ids ride the deferred slot (`DeferredLbt::digest_ids[3]`) and
+the commit happens in node.cpp's defer arm **iff the deferred `lbt_complete` reaches `_hal.tx` and DeviceHal answers
+ok**; a ring-full drop or a HAL rejection leaves **both** the `bcn_ad_count` and the dirty flag untouched. Immediate
+beacons commit right after their own `_hal.tx == ok`. The commit now lives in `tx_flood`/the defer arm — the two
+ADMISSION points — not at `emit_beacon`'s call site, which could only ever have meant "we tried".
+★ **Why the earlier reasoning was incomplete:** the `reqpubkey_sent` ruling settled an **app event**; digest
+retirement is an **independently load-bearing state machine**, so carrying one boundary to the other was a design
+decision, not an implementation detail.
+⚠ **WHAT THE BOUNDARY IS NOT, said in every comment that states it:** a later `DeviceHal::pump_tx` radio-start error
+drops the frame AFTER admission and is **outside** the guarantee.
+★ **COST CAME IN UNDER THE ESTIMATE, MEASURED BY `offsetof`: +48 B, not +64.** `sizeof(DeferredLbt)` **164 → 176**
+(+12/slot × 4); `offsetof(digest_ids) == 12`, `offsetof(buf)` 12 → 24 — it lands in the 4-aligned run before `buf`
+and opens no new hole. `sizeof(Node)` **220976 → 221024**, and **ΔRAM = +48 on all three boards**, so the native
+measurement holds on both ABIs. The count byte was dropped (`digest_ids[0] == 0` terminates — a live channel id can
+never be 0), which is what bought back the 16 bytes.
+⚠⚠ **IT RE-ANCHORS SIX SCENARIOS, ATTRIBUTED MECHANICALLY** — s15 · s15_metal · s17 · s28 · s29 · sim_9node_base
+(s18 keystone UNMOVED). 3824 beacon defers corpus-wide is the exposure. **s28 settles the mechanism: the entire delta
+is ONE `channel_dirty_cleared` moving `t=820265` → `t=820380`** — same node, id, channel, `ad_count`, `reason` —
+**115 ms = exactly the LBT defer delay**. s15_metal 32/32 changed lines are `channel_dirty_cleared`, s28 2/2, s29 2/2,
+sim_9node_base 6/6; s15 (29/33) and s17 (50/104) carry the expected SECOND-ORDER tail — an entry dirty ~115 ms longer
+is re-advertised in the next beacon, so that beacon's content and its receivers' `beacon_rx`/bidi lines shift.
+⚠ **AND TX3 COST B51 ITS OBSERVABLE:** once ring entry commits nothing, a ring-full drop and an accepted defer have
+**identical** digest outcomes, so the digest can no longer discriminate `tx_flood`'s ring-full return — that poison
+reddened nothing. The surviving discriminator is **`beacon_tx.result`** (0 admitted / 2 dropped), now asserted; with
+it the step-6 poison reddens 1 case / 2 assertions. ⇒ **fixing one layer can silently remove the observable another
+layer's test depended on.**
+★ **B51's ring-full fixture now EXISTS and is gate-complete** (the 6-step recipe, with every premise asserted —
+`tx_lbt_defer == 4`, `tx_flood_skipped == 0`, and a 1-hop neighbour installed so holder-coverage cannot retire early;
+that guard is what my first `DEFER=0` attempt lacked).
+**MEASURED** (native; corpus: 0 HAL rejections structurally — the sim's queue is unbounded — and the 6 attributed TX3 movers above).
 
 ### B49 — the `CmdCode` self-labelling invariant test was bounded by a LITERAL and silently stopped covering · NEW 2026-08-01
 `test_console_json.cpp`'s *"every refusal's token begins with `err_`"* loop — the ONLY detector for the §err-reason/B32
@@ -874,6 +934,158 @@ rejected: it fails again identically at 13.**
 instrument that is working, to fix the one that is not.
 **MEASURED** (native): mis-naming enumerator 12 is caught by the derived bound (1 assertion) and is **completely
 invisible** with the old `v < 10` restored — 0 failures. The under-cover demonstrated, not argued.
+
+### B52 — the JSON address book carries the TEAM plane's confidence but still NOT the STATIC plane's · NEW 2026-08-02
+`§id-hash S3` added `"team_auth"` to `write_peer_row` (`lib/console/console_json.cpp`), so an app can finally tell
+*"we heard that teammate's own beacon"* from *"somebody told us her number"*. **`static_id` is still emitted bare.**
+The row already carries `PeerBookRow::static_authoritative` and the TEXT console has rendered `static_id=N(auth)` /
+`(claimed)` since §id-hash S2 — only the JSON drops it. ⚠ **This is not hypothetical on the static plane the way it
+is on the team plane: a relayed soft H answer lands `IdBindConf::claimed` in `_id_bind` TODAY**
+(`on_hash_bind_snoop` → `id_bind_set(..., h_relay, claimed)`), and every such row reaches the companion as an
+unlabelled `static_id`. An app that treats an id as identity is therefore already able to be wrong, on the plane that
+has had the ladder longest.
+★ **NOT FIXED IN S3 on purpose (C1):** it is a second shipped-contract change, and S3's contract with its own gate is
+inertness. One line beside the `team_auth` one, plus its contract paragraph.
+ⓘ **OWED REGARDLESS: `ios-companion/INBOX_SYNC_CONTRACT.md` has no `team_auth` entry** — QA owns that file, a coder
+never edits it. The field contract as built is documented in `lib/console/console_json.h` beside `write_peer_row`.
+**MEASURED** (native): the presence/absence rule is pinned three ways in `test_console_json.cpp` — `team_auth` rides
+with `team_id` always, a static-only row's line is byte-identical to its pre-S3 golden, and true/false render
+distinctly.
+
+### B53 — `hashof`/`peers`/`reqpubkey` still resolve an id at the AUTHORITATIVE floor, not §3-D6's `claimed` · NEW 2026-08-02
+Spec `2026-08-01-id-to-hash-resolution-design.md` §3-D6 sets the display and pubkey-inspection floor at **`claimed`**
+(*"shows a claim, labelled as one"*; *"the pubkey self-verifies against that hash, so fetching it is how you inspect a
+claim"*). `Node::peer_book_by_id` — the ONE resolver behind all three verbs since §id-hash S1 — passes the
+**`authoritative`** default on both arms. ⇒ a claimed STATIC binding is invisible to `hashof <id>` today, and the
+team plane will inherit the same blindness the moment S4a writes its first claimed row.
+★ **DELIBERATELY NOT CHANGED IN S3, and the reason is the gate:** lowering it is **not inert** — claimed static rows
+exist in the live tree now, so `hashof` would start answering for them and `reqpubkey <id>` would start spending
+**AIRTIME** at a hash the operator was never shown. Spec §6's S3 row requires *"s18 keystone reproduces by
+construction (defaults)"*, which that would break.
+⚠ **WHEN IT LANDS (S4a) IT MUST MOVE ON BOTH ARMS TOGETHER.** A resolver that filters one plane harder than the other
+is spec §1-C's asymmetry defect rebuilt, and §1-C is one of the five defects this whole arc exists to remove.
+ⓘ Already prepared: both arms read the accessor's `actual` and propagate it into
+`static_authoritative`/`team_authoritative` instead of hardcoding, so the display cannot start lying when the floor
+moves. `node_hashlocate.cpp`'s in-source note states the whole of this beside the code.
+**MEASURED** (native): a test pins the present boundary (a `claimed` team binding returns mask 0 from
+`peer_book_by_id`) precisely so S4a's change shows up as a failing assertion rather than a silent one.
+★ **CLOSED 2026-08-02 by slice `§id-hash S4a` (green, UNCOMMITTED)** — and the planted assertion did exactly its job:
+three test cases went red on the first build and were rewritten to the new contract, so the change is a visible diff.
+**BOTH arms moved together**, as this entry required. ⚠ **What did NOT move, and the distinction is the trust model:**
+`key_hash_of_id` / `team_key_of_id` / `team_id_of_key` keep their `authoritative` DEFAULT, so DST_HASH stamping,
+sealing and `team grantkey` still refuse a claim (spec §3-D6/D7). Only the display + pubkey-inspection resolver was
+lowered, and `actual` (prepared by S3) means the row renders `(claimed)` rather than `(auth)`.
+⚠ **THE JSON BOOK IS UNAFFECTED, verified at source rather than assumed:** the app's rows are built by
+`peer_book_join_ids`, which resolves through `id_bind_find_by_hash` / `team_id_of_key_freshest` — **neither takes a
+floor** — so lowering `peer_book_by_id` cannot leak an unlabelled claim to the companion. **B52's scope is unchanged.**
+**MEASURED** (corpus): reverting both arms to `authoritative` under the full S4a tree moves **0/36** — `peer_book_by_id`
+has no simulator-reachable caller on the by-id path (`NodeRuntimeWrapper.cpp` parses only `reqpubkey <hex>`), so this
+is native-gated by construction. Positive control in the same file: poisoning the statement the by-id branch feeds
+(`answer_hash`) moves **10/36** with **37 assertion failures**.
+
+### B54 — the FIRST claim into a FULL first-hand `_team_keys` still evicts one beacon row · NEW 2026-08-02
+Spec §3-D5c requires eviction to *"prefer a claimed victim over any authoritative row"*, and `team_key_set` now does:
+it drains the claimed cohort completely before it will consider a first-hand row. **Residual:** with all 16 slots
+first-hand and no claim yet resident, the fallback is still oldest-wins, so the **first** claimed insert costs one
+genuine beacon row. Every claim after it consumes only the previous claim.
+**Bound:** exactly **one** row per storm, re-learned on that teammate's next beacon; and it needs 16 simultaneously
+live teammates to be reachable at all.
+★ **NOT WIDENED IN S3 (C2 cuts both ways here):** refusing the insert outright is a *stricter* policy than the spec
+asked for, and choosing it belongs to the slice that actually creates claimed writes (S4a) or to the owner — not to a
+slice whose contract is inertness. Recorded with its number so the decision is made, not inherited.
+**MEASURED** (native): both halves are asserted — the fallback eviction (id 1 is displaced by the first claim) and
+the cohort rule (a 16-frame storm afterwards leaves every first-hand row intact).
+★ **STILL OPEN, AND S4a — THE SLICE THIS DECISION WAS DEFERRED TO — DELIBERATELY DID NOT WIDEN IT (2026-08-02).**
+Reasoning, so the decision is made rather than inherited again: refusing the first claimed insert outright would make
+the by-id answer **the operator explicitly asked for** the one write that silently does nothing, which trades a
+one-row cost for a silent failure — the worse of the two (C2 cuts toward *reporting*, and there is nothing to report
+here). Cost stands at **exactly one** first-hand row per storm, re-learned on that teammate's next beacon, and it
+needs **16 simultaneously-live teammates** to be reachable at all.
+**MEASURED** (corpus, S4a): **unreachable today** — the largest team scenario inserts 12 `_team_keys` rows against a
+16-slot table, so no eviction of any kind occurs in the 36-scenario corpus. Native keeps both halves pinned, and S4a
+added a third case driving the residual through the real ingest path rather than the direct setter.
+⇒ **owner call if it should become a refusal; it is not a coder's to widen.**
+
+### B55 — `reqpubkey_sent.hash == 0` is a NEW app-visible meaning that the companion contract does not describe · OPEN, MUTATED BY S4b 2026-08-02
+`§id-hash S4a` gave a by-id `reqpubkey` a **two-stage** shape: when the id has no binding, the frame that flies is the
+**id→hash** query, not the pubkey request. The BLE event still fires (the TX path did accept a frame — the 2026-08-01
+owner ruling's meaning), but it carries **`"hash":0`**, and that value is the only thing distinguishing stage 1 from
+stage 2. An app that treats `reqpubkey_sent` as *"a pubkey is coming"* will now wait for one that is not.
+★ **The firmware side is built and documented in `lib/console/console_json.h` beside `write_reqpubkey_sent`.** What is
+owed is the contract paragraph — plus, ideally, the app behaviour: on `hash == 0`, re-issue `reqpubkey <id>` once the
+binding lands (or simply wait for **S4b**, which does the second stage on-node and removes the case entirely).
+ⓘ **Two smaller contract deltas ride with it:** (a) `err_ambiguous_plane` now has a SECOND cause — an *unresolved* id
+on a node that lives on both planes, where the by-id query itself must pick one (before, it meant only "both planes
+hold this number"); (b) `err_no_binding` on a bare/`-t` id is now reachable from exactly ONE place, an explicit `-t`
+on a node with `team_id == 0`.
+ⓘ **OWED, NOT WRITTEN: `ios-companion/INBOX_SYNC_CONTRACT.md` is QA-owned and a coder never edits it.** Stacked with
+**B52**'s owed `team_auth` line — one documentation pass covers both.
+**MEASURED** (native): the stage-1 result is pinned (`code == queued`, `accepted`, `dst_hash == 0`, `plane == 1`) with
+a same-fixture control proving the resolved case still carries the real hash.
+
+★★★ **UPDATED BY `§id-hash S4b` (2026-08-02) — AND THE DISPATCH'S EXPECTATION THAT THIS ENTRY WOULD CLOSE IS WRONG,
+REPORTED RATHER THAN QUIETLY TICKED.** S4b makes the node perform stage 2 itself, so the brief predicted the
+`hash == 0` case would "disappear for the normal path". **It does not, and it must not.** The value is the *honest
+report of a real stage-1 acceptance*: the frame the TX path took **was** the id→hash query, and the hash is precisely
+what that frame went to ask for — a synchronous `CmdResult` cannot carry a value that does not exist yet. Removing the
+case would require either suppressing a true event (re-creating the silence S1b was built to remove) or inventing a
+hash. This is the same wall the `aired`→`accepted` rename hit, one level up: **an acknowledgement may only claim what
+it can know.**
+⇒ **WHAT ACTUALLY CHANGED IS THE INSTRUCTION, WITH THE BYTES UNMOVED** — and that makes the owed contract text a
+CORRECTION, not an addition:
+· **was** (S4a): `hash == 0` ⇒ *"expect no pubkey; re-issue `reqpubkey <id>` once the binding lands."*
+· **is** (S4b): `hash == 0` ⇒ *"do NOT re-issue — the node consumes the answer and emits the pubkey request itself."*
+⚠ **LIVE HAZARD FOR AN ALREADY-WRITTEN APP:** a companion coded against the S4a wording now fires a redundant second
+`reqpubkey` while the node is already escalating — duplicate airtime for one question. Harmless (dedup + the intent
+refresh absorb it) but wasteful, and it is exactly the kind of drift that made this entry necessary.
+★ **The two continuations the app CAN rely on:** `peer_key_cached` (the whole workflow completed — an existing push,
+no contract change) or nothing, bounded by S4b's timeout. **A stage-2 FAILURE is not app-visible at all — that is
+B56.**
+ⓘ **STILL OWED, STILL NOT WRITTEN: `ios-companion/INBOX_SYNC_CONTRACT.md` is QA-owned.** Stacked with **B52**'s
+`team_auth` line and now **B56**'s decision — one documentation pass covers all three.
+**MEASURED** (native, S4b): the stage-1 ack is re-pinned unchanged (`queued` / `accepted` / `dst_hash == 0`), with a
+same-fixture control proving the *second stage* then flies by hash without a second command.
+
+### B56 — a STAGE-2 `reqpubkey` failure never reaches the app · NEW 2026-08-02
+`§id-hash S4b` completes the by-id workflow on-node, so the pubkey request is emitted from an **RX callback** — with
+no command in scope. `reqpubkey_sent` is written only on the SYNCHRONOUS BLE command path (`src/fw_main.cpp`), so a
+stage-2 refusal (`degenerate` — the answer named our own hash; `tx_dropped` — a bounded TX queue) and the bounded
+**timeout** both reach the operator console (`!!`-prefixed `_hal.log`, prints under `debug off`) and telemetry, and
+**not the companion**. The app sees the stage-1 `reqpubkey_sent{hash:0}` and then either `peer_key_cached` (success)
+or silence.
+★ **NOT A REGRESSION — a gap S4b makes reachable and does not widen.** Before S4b the app was told to re-issue by
+hand, so the silence was covered by the operator's second command; now the second command is gone, so the silence is
+the whole failure report.
+**THE FIX IS AN APP-CONTRACT DECISION, WHICH IS WHY A CODER DID NOT TAKE IT:** it needs a new `PushKind` (appended, per
+`command.h`'s enum rule) — plus its name in the sim's `ConsoleNames.cpp`/`NodeRuntimeWrapper.cpp` bridge, i.e. a
+SECOND repo. ⚠ **The two obvious reuses are both wrong and are recorded so they are not re-proposed:** `send_failed`
+would render a *failed message* for a command that sent none, and `hash_resolved` keys on a hash we never learned.
+**MEASURED** (native): the console/telemetry half is asserted both ways — the `!!` line and its `MR_EMIT` fire on a
+degenerate stage 2 and on the timeout, with a same-fixture control proving neither fires on the success path.
+
+### B57 — a BEACON that resolves the id does not complete a pending `reqpubkey` · NEW 2026-08-02
+`§id-hash S4b`'s intent is consumed only in `on_hash_bind_response` (spec §5 step 3 names the *answer*). If the id→hash
+binding instead arrives from a heard **beacon** — `node_beacon.cpp`'s `_id_bind` / `_team_keys` writers — the intent
+sits until its bounded timeout, and the operator must re-issue (which then resolves immediately from the
+beacon-learned row).
+★ **DELIBERATE, WITH THE COST PRICED:** the hook would sit on the hottest corpus path in the tree, re-anchoring all 36
+streams for an ergonomic gain on the case the by-id query exists precisely because it does **not** cover — an id we
+route to but have never heard, i.e. one no beacon is arriving for. `drain_resolved_parked_sends` is the precedent for
+the beacon-triggered shape if this is ever wanted; it would be its own slice (C1) and its own re-anchor (C4).
+**MEASURED** (native): the answer-driven consume is pinned; the beacon path is asserted only as *not* consuming, via
+the timeout test's late-answer arm.
+
+### B58 — the intent ring and the LBT defer ring cannot both be exercised by one command · NEW 2026-08-02 · NOT A DEFECT, A TEST-DESIGN CONSTRAINT
+`§id-hash S4b` refuses a full intent ring (`err_resolve_pending_full`) **before** `emit_hash_query`, which is the
+correct order (D9: never spend airtime on a decision that is going to be refused). A consequence: with
+`cap_pending_id_pubkey == 4` and the shared LBT defer ring also 4 slots, four by-id commands fill the intent ring
+first, so **a fifth by-id command can never reach the TX-rejection path**. The LBT-drop fixture therefore has to fill
+the defer ring through the **by-hash** door.
+★ Registered because it is invisible from the source and cost a test iteration to find: a future slice that changes
+either capacity, or the refusal order, silently changes which fixtures can reach which failure. **If the two caps ever
+need to be exercised together, the honest lever is `cap_pending_id_pubkey`, not the refusal order.**
+**MEASURED** (native): the by-hash-filled fixture reaches `err_tx_queue_full` and proves the intent is unwound; the
+by-id-filled attempt returns `err_resolve_pending_full` instead, which is how the constraint was found.
 
 ---
 

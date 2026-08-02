@@ -825,36 +825,98 @@ bool Node::is_team_peer(uint8_t id) const {   // §mobile 6.2: a known same-team
 }
 // §enc: cache a same-team peer's key_hash32 (from its beacon). Team-SCOPED — NEVER _id_bind (the static plane, §18).
 // Upsert by id; on a full ring evict the OLDEST. Read by team_key_of_id for an ENCRYPTED send BY team_local_id.
-void Node::team_key_set(uint8_t id, uint32_t key_hash32) {
+//
+// ★★★ §id-hash S3 (spec 2026-08-01 §3-D2 + §3-D5c) — THIS TABLE NOW CARRIES THE CONFIDENCE LADDER, AND THE TWO RULES
+// BELOW ARE WHAT KEEP IT HONEST. Owner ruling that frames both (2026-08-01): *"we can be sure only if we scan QR or
+// exchange keys out of network. Otherwise we never can be sure."* ⇒ hash->pubkey self-verifies, id->hash does NOT, so
+// an on-air id->hash answer is a CLAIM and must never be able to displace first-hand evidence.
+//
+// ① UPGRADE-ONLY, mirroring what §id-hash S2b established for the sibling `_id_bind` (node_hashlocate.cpp:153-181)
+//    and what `peer_key_set` has always done for `_peer_keys` (:332-343). A `claimed` write onto an `authoritative`
+//    row is a COMPLETE no-op: it may not demote the tier, may not relabel `source` (keeping `authoritative` while
+//    writing `source = h_relay` would name a relay as the authority — the provenance mislabelling spec §3-D8
+//    refuses), may not overwrite the hash, and — spec §3-D5c, the part that is easy to miss — may not refresh
+//    `last_seen_ms`. On an authoritative row that stamp means *"when we last had FIRST-HAND evidence"*, and
+//    node_hashlocate.cpp's own on_hash_bind_snoop header already named the hazard for THIS table: cache-on-pass
+//    *"would both fake that liveness and let transit traffic evict genuine beacon rows."* Refreshing on hearsay is
+//    exactly that fake. ⚠ THE CONSEQUENCE IS INTENDED: a teammate we only ever hear ABOUT ages out at 48 h.
+//
+// ② EVICTION PREFERS A CLAIMED VICTIM (spec §3-D5c's second bullet). Sixteen slots, evict-oldest: without this a
+//    2-hop by-id query storm would evict the genuine beacon rows the seal/DST_HASH path depends on. Same shape as
+//    peer_key_set's "evict the oldest NON-pinned" (U3) — except this one FALLS BACK to the oldest authoritative
+//    instead of refusing, because the incoming write here is itself first-hand and refusing it would be worse.
+//
+// ⓘ NO SECOND TIMESTAMP, and that was the open question the dispatch asked me to answer by measurement rather than
+//   assume. `last_seen_ms` is read for two different meanings — the 48 h freshness gate in team_key_of_id and the
+//   eviction order here — and ONE field serves both, because the two rules above remove the only conflict: (a) a
+//   claim can no longer touch an authoritative row's stamp, so within the authoritative cohort it still means
+//   "first-hand evidence"; (b) a claimed row's own stamp is the age of the claim, which is the correct LRU key for
+//   it AND the correct input to its own TTL; (c) the two cohorts are never LRU-compared against each other, because
+//   the claimed cohort is drained first. A second field would have cost 16 slots x MR_N_LAYERS.
+// ⓘ TELEMETRY ON THE REFUSALS was deliberately omitted by S3 (which shipped no producer of a claimed team binding)
+//   and is STILL omitted by §id-hash S4a, which created the producer: the refusal fires 13 times across the corpus's
+//   five team scenarios, so an emit here would re-anchor those streams in the same run as the behaviour change and
+//   make the delta unattributable (C4 applied to telemetry). Coverage is native + the S4a probe matrix.
+void Node::team_key_set(uint8_t id, uint32_t key_hash32, IdBindSource source, IdBindConf confidence) {
     if (id == 0 || id == 0xFF || key_hash32 == 0) return;
     auto& L = *_active;
+    const bool authoritative = (confidence == IdBindConf::authoritative);
     for (uint8_t i = 0; i < L._team_keys_n; ++i)
-        if (L._team_keys[i].id == id) { L._team_keys[i].key_hash32 = key_hash32; L._team_keys[i].last_seen_ms = _hal.now(); return; }
+        if (L._team_keys[i].id == id) {
+            const bool existing_auth = (L._team_keys[i].confidence == static_cast<uint8_t>(IdBindConf::authoritative));
+            if (!authoritative && existing_auth) return;         // ① a claim cannot demote, relabel, rebind OR re-date first-hand evidence
+            L._team_keys[i].key_hash32   = key_hash32;
+            L._team_keys[i].last_seen_ms = _hal.now();
+            L._team_keys[i].source       = static_cast<uint8_t>(source);
+            L._team_keys[i].confidence   = static_cast<uint8_t>(confidence);
+            return;
+        }
     uint8_t slot;
     if (L._team_keys_n < static_cast<uint8_t>(sizeof(L._team_keys) / sizeof(L._team_keys[0]))) {
         slot = L._team_keys_n++;
-    } else {                                                     // full -> evict the OLDEST
-        slot = 0; uint64_t oldest = ~0ull;
-        for (uint8_t i = 0; i < L._team_keys_n; ++i) if (L._team_keys[i].last_seen_ms < oldest) { oldest = L._team_keys[i].last_seen_ms; slot = i; }
+    } else {                                                     // full -> evict the OLDEST, ② CLAIMED COHORT FIRST
+        slot = 0; uint64_t oldest = ~0ull; bool claimed_victim = false;
+        for (uint8_t i = 0; i < L._team_keys_n; ++i) {
+            const bool row_claimed = (L._team_keys[i].confidence != static_cast<uint8_t>(IdBindConf::authoritative));
+            if (claimed_victim && !row_claimed) continue;        // already holding a claimed victim -> authoritative rows are out of the running
+            if (row_claimed && !claimed_victim) { claimed_victim = true; oldest = ~0ull; }   // first claimed row RESTARTS the LRU search inside its cohort
+            if (L._team_keys[i].last_seen_ms < oldest) { oldest = L._team_keys[i].last_seen_ms; slot = i; }
+        }
     }
-    L._team_keys[slot] = { id, key_hash32, _hal.now() };
+    L._team_keys[slot] = { id, static_cast<uint8_t>(source), static_cast<uint8_t>(confidence), key_hash32, _hal.now() };
 }
-bool Node::team_key_of_id(uint8_t id, uint32_t& out) const {   // §enc: team-scoped id->key (for a CRYPTED send by team_local_id)
+// §enc: team-scoped id->key (for a CRYPTED send by team_local_id). §id-hash S3: `min` is the confidence FLOOR and
+// `actual` reports the tier of the row that answered (nullptr = don't care). The default floor is `authoritative`,
+// which is exactly the pre-S3 behaviour: the only writer today is the heard beacon, so nothing is filtered out yet.
+bool Node::team_key_of_id(uint8_t id, uint32_t& out, IdBindConf min, IdBindConf* actual) const {
     if (_cfg.team_id == 0 || !is_team_peer(id)) return false;   // only a known same-team peer (gate on team membership + the peer bitmap)
     const uint64_t now = _hal.now();
     for (uint8_t i = 0; i < _active->_team_keys_n; ++i)
         if (_active->_team_keys[i].id == id) {
             if (now - _active->_team_keys[i].last_seen_ms > protocol::id_bind_ttl_ms) return false;   // §P2-6: stale (>48 h) -> absent — the TTL the sibling id_bind/peer_key stores already carry (id unique -> no fresher dup)
+            const IdBindConf conf = static_cast<IdBindConf>(_active->_team_keys[i].confidence);
+            if (static_cast<uint8_t>(conf) < static_cast<uint8_t>(min)) return false;   // below the floor -> absent (id unique -> no better dup to keep scanning for)
+            if (actual) *actual = conf;
             out = _active->_team_keys[i].key_hash32; return true;
         }
     return false;
 }
-bool Node::team_id_of_key(uint32_t key_hash32, uint8_t& out_id) const {   // §mobile 6.4: reverse (hash->team_local_id) for a PLAINTEXT send-by-hash to a HEARD teammate
+// §mobile 6.4: reverse (hash->team_local_id) for a PLAINTEXT send-by-hash to a HEARD teammate.
+// ★★ §id-hash S3: THIS is the reader v1 of the spec missed (§3-D1). It is on the LIVE send path — do_send's `-t`
+// arm and the AUTO mobile cascade both resolve through it — and before S3 it accepted every fresh row with no
+// confidence test at all, so a claimed binding would have gone straight into addressing a real transmission.
+// Same default floor as the forward reader, so the two directions cannot disagree (spec §9: "claimed forward AND
+// reverse lookups fail under the default authoritative floor — team_id_of_key included").
+bool Node::team_id_of_key(uint32_t key_hash32, uint8_t& out_id, IdBindConf min, IdBindConf* actual) const {
     if (_cfg.team_id == 0 || key_hash32 == 0) return false;
     const uint64_t now = _hal.now();
     for (uint8_t i = 0; i < _active->_team_keys_n; ++i)                     // require the cached hash AND a live team-peer route (is_team_peer <-> _rt_team route) AND freshness (§P2-6 48 h TTL) -> do_send routes via _rt_team
         if (_active->_team_keys[i].key_hash32 == key_hash32 && is_team_peer(_active->_team_keys[i].id)
-            && now - _active->_team_keys[i].last_seen_ms <= protocol::id_bind_ttl_ms) { out_id = _active->_team_keys[i].id; return true; }
+            && now - _active->_team_keys[i].last_seen_ms <= protocol::id_bind_ttl_ms
+            && static_cast<uint8_t>(_active->_team_keys[i].confidence) >= static_cast<uint8_t>(min)) {   // §S3 floor: keep SCANNING past a below-floor row (this table aliases — see team_id_of_key_freshest)
+            if (actual) *actual = static_cast<IdBindConf>(_active->_team_keys[i].confidence);
+            out_id = _active->_team_keys[i].id; return true;
+        }
     return false;
 }
 #endif   // MR_FEAT_TEAM

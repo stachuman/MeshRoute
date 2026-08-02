@@ -441,7 +441,7 @@ struct DualLayerTestAccess {
     static void           learn_team_neighbor(Node& n, uint8_t id, uint32_t key_hash) {   // §enc: a same-team peer as its beacon would leave it — bitmap + _rt_team route + key cache
         n._active->_team_peer[id >> 3] |= static_cast<uint8_t>(1u << (id & 7));
         (void)n.learn_direct_neighbor(id, 40, false, /*team_plane=*/true);
-        n.team_key_set(id, key_hash);
+        n.team_key_set(id, key_hash, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);   // §id-hash S3: a BEACON learn is first-hand (mirrors hear_on_leaf's static spelling)
     }
     // §2c team-liveness seams
     static void           team_rts_timeout(Node& n, uint8_t id) { n.record_peer_rts_timeout(id, 0, /*team_plane=*/true); }
@@ -3974,7 +3974,7 @@ TEST_CASE("§mobile hash-locate Fix 1/2 — a registered mobile is SILENT on a s
     NodeConfig mc; mc.routing_sf=8; mc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); mc.leaf_id=4; mc.is_mobile=true; CHECK(mob.on_init(mc));
     DualLayerTestAccess::make_registered_mobile(mob, /*local*/17, /*home*/30, /*home_hash*/0x3030u);
     DualLayerTestAccess::learn_neighbor(mob, 50);                 // a route so an answer COULD fly -> proves the silence is a choice, not a dead link
-    h_in q{}; q.leaf_id=4; q.origin=50; q.key_hash32=0xB0B1u; q.ttl=3; q.hard=true;   // ★ HARD (an e2e_ack_req locate drives this)
+    h_in q{}; q.leaf_id=4; q.origin=50; q.query_key32=0xB0B1u; q.ttl=3; q.hard=true;   // ★ HARD (an e2e_ack_req locate drives this)
     std::array<uint8_t,16> qb{}; size_t qn = pack_h(q, std::span<uint8_t>(qb.data(), qb.size()));
     mob.on_recv(qb.data(), qn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
     CHECK_FALSE(hm.saw_emit("h_resolved"));                       // ★ Fix 1: a registered mobile skips its own-hash resolution on the static plane
@@ -4003,7 +4003,7 @@ TEST_CASE("§mobile hash-locate Fix 2 — the home proxies a HARD locate ONLY wh
     DualLayerTestAccess::learn_neighbor(home, 50);
     // (a) STALE: advance the clock past mobile_liveness_ms -> NO proxy answer (node_id stays -1 -> forward -> the locate times out = "unreachable")
     hal._now = protocol::mobile_liveness_ms + 1;
-    h_in q{}; q.leaf_id=4; q.origin=50; q.key_hash32=0xB0B1u; q.ttl=3; q.hard=true;
+    h_in q{}; q.leaf_id=4; q.origin=50; q.query_key32=0xB0B1u; q.ttl=3; q.hard=true;
     std::array<uint8_t,16> qb{}; size_t qn = pack_h(q, std::span<uint8_t>(qb.data(), qb.size()));
     home.on_recv(qb.data(), qn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
     CHECK_FALSE(hal.saw_emit("h_resolved"));
@@ -4036,7 +4036,7 @@ TEST_CASE("§mobile hash-locate liveness — a hosted mobile's BEACON refreshes 
     std::array<uint8_t,64> bb{}; size_t bn = pack_beacon(bin, std::span<uint8_t>(bb.data(), bb.size()));
     home.on_recv(bb.data(), bn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
     // a HARD locate now RESOLVES (the beacon proved liveness) -> a MOBILE_H_ANSWER, not "unreachable"
-    h_in q{}; q.leaf_id=4; q.origin=50; q.key_hash32=0xB0B1u; q.ttl=3; q.hard=true;
+    h_in q{}; q.leaf_id=4; q.origin=50; q.query_key32=0xB0B1u; q.ttl=3; q.hard=true;
     std::array<uint8_t,16> qb{}; size_t qn = pack_h(q, std::span<uint8_t>(qb.data(), qb.size()));
     home.on_recv(qb.data(), qn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
     const PendingTx* pt = DualLayerTestAccess::pending(home);
@@ -4060,7 +4060,7 @@ TEST_CASE("§mobile hash-locate Fix 1/1b — a TEAM-scoped locate gets the mobil
     DualLayerTestAccess::make_registered_mobile(mob, /*local*/17, /*home*/30, /*home_hash*/0x3030u);
     DualLayerTestAccess::learn_team_neighbor(mob, /*id=*/50, /*key=*/0x5050u);   // §F-TR-2: the querying teammate is a TEAM neighbor — a team-scoped answer routes on _rt_team (was learn_neighbor/static, which only flew via the pre-fix AUTO->static fallback)
     // team-scoped locate for the mobile's own hash, MATCHING team_id -> the mobile IS the endpoint on the team plane -> answers AUTHORITATIVELY with its local id
-    h_in tq{}; tq.leaf_id=4; tq.origin=50; tq.key_hash32=0xB0B1u; tq.ttl=3; tq.hard=true; tq.team_scoped=true; tq.team_id=0xABCD1234u;
+    h_in tq{}; tq.leaf_id=4; tq.origin=50; tq.query_key32=0xB0B1u; tq.ttl=3; tq.hard=true; tq.team_scoped=true; tq.team_id=0xABCD1234u;
     std::array<uint8_t,16> tb{}; size_t tn = pack_h(tq, std::span<uint8_t>(tb.data(), tb.size()));
     mob.on_recv(tb.data(), tn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
     CHECK(hal.saw_emit("h_resolved"));
@@ -4084,7 +4084,7 @@ TEST_CASE("§mobile hash-locate Fix 1/1b — a TEAM-scoped locate gets the mobil
     StubHal hs; Node st(hs, 40, 0x4040u);
     NodeConfig sc; sc.routing_sf=8; sc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); sc.leaf_id=4; CHECK(st.on_init(sc));   // is_mobile=false, team_id=0
     DualLayerTestAccess::learn_neighbor(st, 50);
-    h_in sq = tq; sq.origin=52; sq.key_hash32=0x9AA9u;           // a team locate the static node can neither own nor answer
+    h_in sq = tq; sq.origin=52; sq.query_key32=0x9AA9u;           // a team locate the static node can neither own nor answer
     std::array<uint8_t,16> sb{}; size_t sn = pack_h(sq, std::span<uint8_t>(sb.data(), sb.size()));
     st.on_recv(sb.data(), sn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
     CHECK_FALSE(hs.saw_emit("h_forward"));                       // ★ a static node never relays a team-scoped H
@@ -4135,7 +4135,7 @@ TEST_CASE("§mobile Part 2 Fix 7 — a home answers a WANT_PUBKEY locate for its
     DualLayerTestAccess::learn_neighbor(home, 50);
     uint8_t ed[32] = {}; ed[0]=0xB1; ed[1]=0xB0; for (int i=4;i<32;++i) ed[i]=static_cast<uint8_t>(0x40+i);
     // (a) NO cached key yet -> a WANT_PUBKEY HARD locate gets NO answer (silent; the sender's reqpubkey retries)
-    h_in wq{}; wq.leaf_id=4; wq.origin=50; wq.key_hash32=0xB0B1u; wq.ttl=3; wq.hard=true; wq.want_pubkey=true;
+    h_in wq{}; wq.leaf_id=4; wq.origin=50; wq.query_key32=0xB0B1u; wq.ttl=3; wq.hard=true; wq.want_pubkey=true;
     std::array<uint8_t,48> wb{}; size_t wn = pack_h(wq, std::span<uint8_t>(wb.data(), wb.size()));
     home.on_recv(wb.data(), wn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
     CHECK(DualLayerTestAccess::pending(home) == nullptr);        // ★ no answer without the key
@@ -4166,7 +4166,7 @@ TEST_CASE("§mobile Part 2 — a STALE (redirect) home FORWARDS a WANT_PUBKEY lo
     DualLayerTestAccess::drive_post_ack_breadcrumb(home, /*source_hash*/0xB0B1u, /*new_home*/99, /*epoch*/7, /*new_home_layer*/4);   // M re-homed to 99 -> this home is now STALE (redirect)
     CHECK(DualLayerTestAccess::mobile_reg_redirect(home, 0) == 99);
     // (a) a WANT_PUBKEY locate: the stale home holds NO key -> FORWARD the flood (so it reaches the NEW home which cached the key), do NOT answer/suppress -> no black hole
-    h_in wq{}; wq.leaf_id=4; wq.origin=50; wq.key_hash32=0xB0B1u; wq.ttl=3; wq.hard=true; wq.want_pubkey=true;
+    h_in wq{}; wq.leaf_id=4; wq.origin=50; wq.query_key32=0xB0B1u; wq.ttl=3; wq.hard=true; wq.want_pubkey=true;
     std::array<uint8_t,48> wb{}; size_t wn = pack_h(wq, std::span<uint8_t>(wb.data(), wb.size()));
     home.on_recv(wb.data(), wn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
     CHECK(hal.saw_emit("h_forward"));                            // ★ forwarded on to the new home
@@ -4175,7 +4175,7 @@ TEST_CASE("§mobile Part 2 — a STALE (redirect) home FORWARDS a WANT_PUBKEY lo
     // (b) a PLAIN (location) locate still gets the redirect answer -> new home 99 (unchanged; fresh origin sidesteps dedup)
     hal.emits.clear();
     DualLayerTestAccess::learn_neighbor(home, 51);
-    h_in pq{}; pq.leaf_id=4; pq.origin=51; pq.key_hash32=0xB0B1u; pq.ttl=3; pq.hard=false;
+    h_in pq{}; pq.leaf_id=4; pq.origin=51; pq.query_key32=0xB0B1u; pq.ttl=3; pq.hard=false;
     std::array<uint8_t,16> pb{}; size_t pn = pack_h(pq, std::span<uint8_t>(pb.data(), pb.size()));
     home.on_recv(pb.data(), pn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
     const PendingTx* pt = DualLayerTestAccess::pending(home);
@@ -4246,7 +4246,7 @@ TEST_CASE("§mobile Wave 2 — the owner's WANT_PUBKEY answer to a MOBILE reques
     DualLayerTestAccess::learn_neighbor(owner, 99);                              // a route to the mobile's home (99)
     // a MOBILE requester (mobile_req=1), origin=99 (its home), requesting the owner's (0x3030) pubkey
     uint8_t red[32] = {}; red[0]=0xCD; red[1]=0xAB; for (int i=4;i<32;++i) red[i]=static_cast<uint8_t>(i);   // requester key 0xABCD (the mobile)
-    h_in wq{}; wq.leaf_id=4; wq.origin=99; wq.key_hash32=0x3030u; wq.ttl=3; wq.hard=true; wq.want_pubkey=true; wq.mobile_req=true;
+    h_in wq{}; wq.leaf_id=4; wq.origin=99; wq.query_key32=0x3030u; wq.ttl=3; wq.hard=true; wq.want_pubkey=true; wq.mobile_req=true;
     for (int i=0;i<32;++i) wq.requester_ed_pub[i]=red[i];
     std::array<uint8_t,48> wb{}; size_t wn = pack_h(wq, std::span<uint8_t>(wb.data(), wb.size()));
     owner.on_recv(wb.data(), wn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
@@ -4267,7 +4267,7 @@ TEST_CASE("§name — a WANT_PUBKEY H carrying the requester's name -> the OWNER
     owner.set_crypto_identity(xs, ed);
     // a requester with key 0xABCD (ed[:4] LE) + name "Rover"
     uint8_t red[32] = {}; red[0]=0xCD; red[1]=0xAB; for (int i=4;i<32;++i) red[i]=static_cast<uint8_t>(i);
-    h_in wq{}; wq.leaf_id=4; wq.origin=99; wq.key_hash32=0x3030u; wq.ttl=3; wq.hard=true; wq.want_pubkey=true;
+    h_in wq{}; wq.leaf_id=4; wq.origin=99; wq.query_key32=0x3030u; wq.ttl=3; wq.hard=true; wq.want_pubkey=true;
     for (int i=0;i<32;++i) wq.requester_ed_pub[i]=red[i];
     const char* nm = "Rover"; wq.name_len=5; for (int i=0;i<5;++i) wq.name[i]=static_cast<uint8_t>(nm[i]);
     std::array<uint8_t,64> wb{}; size_t wn = pack_h(wq, std::span<uint8_t>(wb.data(), wb.size()));
@@ -6244,7 +6244,7 @@ TEST_CASE("§F-TR-2 (a): a DUAL (registered) team member answers a TEAM-scoped H
     CHECK(A::node_id(n) == 254);
     CHECK(n.team_local_id() == 138);
 
-    h_in q{}; q.leaf_id = 4; q.origin = 50; q.key_hash32 = 0xC0FFEEu; q.ttl = 3; q.hard = false; q.team_scoped = true; q.team_id = 0xABCD1234u;
+    h_in q{}; q.leaf_id = 4; q.origin = 50; q.query_key32 = 0xC0FFEEu; q.ttl = 3; q.hard = false; q.team_scoped = true; q.team_id = 0xABCD1234u;
     std::array<uint8_t,16> qb{}; size_t qn = pack_h(q, std::span<uint8_t>(qb.data(), qb.size()));
     n.on_recv(qb.data(), qn, RxMeta{8.0f, -80.0f, 0, static_cast<int8_t>(-1)});
 
@@ -6269,7 +6269,7 @@ TEST_CASE("§F-TR-2 (b): a TEAM-scoped H answer to an UNROUTED origin discovers 
     n.set_team_local_id(138);
     // NO team route to the querier (origin 90) -> the answer must DEFER and RREQ on the TEAM plane (the dual owner, whose
     // static id != its team id, only self-answers a TEAM RREQ for team_local_id; a static RREQ would never resolve).
-    h_in q{}; q.leaf_id = 4; q.origin = 90; q.key_hash32 = 0xC0FFEEu; q.ttl = 3; q.hard = false; q.team_scoped = true; q.team_id = 0xABCD1234u;
+    h_in q{}; q.leaf_id = 4; q.origin = 90; q.query_key32 = 0xC0FFEEu; q.ttl = 3; q.hard = false; q.team_scoped = true; q.team_id = 0xABCD1234u;
     std::array<uint8_t,16> qb{}; size_t qn = pack_h(q, std::span<uint8_t>(qb.data(), qb.size()));
     n.on_recv(qb.data(), qn, RxMeta{8.0f, -80.0f, 0, static_cast<int8_t>(-1)});
 

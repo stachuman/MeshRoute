@@ -4,10 +4,10 @@
 **Date:** 2026-08-01  
 **Reviewed:** implementation and rework of S1, S2 and S2b from
 `docs/superpowers/specs/2026-08-01-id-to-hash-resolution-design.md`, plus the coder's poison-matrix report  
-**Disposition after fifth review:** **changes requested for the bundled global TX closure; S1/S2/S2b remain acceptable
-as scoped.** Both synchronous `tx_flood()` rejection sites are now fixed and the hardware late-loss log is genuinely
-operator-visible. Closure still lacks a non-vacuous beacon ring-full test, and the late-deferred beacon digest commit
-must move to the now-approved DeviceHal/transmitter-admission boundary.
+**Disposition after sixth review:** **TX3 code is accepted; changes are requested only for contradictory current
+documentation before the bundled landing. S1/S2/S2b remain acceptable as scoped.** The ring-full and deferred
+DeviceHal-admission cases are now implemented, tested and poison-proven. The remaining gate work is to remove stale
+claims that success means literal airtime or that the new cases are untested.
 
 This is a separate review artifact. It does not modify the design, implementation, baseline, bug register or companion
 contract.
@@ -541,3 +541,78 @@ the transmitter-admission ruling rather than adding another historical correctio
 
 **Fifth-pass landing order:** add and poison the deterministic beacon ring-full fixture; implement and test the approved
 transmitter-admission digest boundary; reconcile the remaining acceptance/airtime wording; then rerun the same gates.
+
+## 9. Sixth quality gate — TX3
+
+### Verdict
+
+**TX3 runtime implementation: GO. Bundled landing: documentation cleanup required.** No TX3 runtime blocker was found.
+The concurrent B43 work is explicitly outside this verdict; no B43 source or behavior was assessed here.
+
+### Resolution of the fifth-pass blockers
+
+- **Beacon ring-full propagation is now covered.** The deterministic native fixture fills all four shared defer slots,
+  distinguishes the fifth beacon's `ring_full` rejection through `beacon_tx.result`, keeps the digest dirty, and has a
+  recovery control (`test/test_node_channel.cpp:773-843`). The reported poison of the return propagation reddens this
+  test, so it is not merely exercising the shared ring in another caller.
+- **Deferred digest commit now occurs at the approved boundary.** A deferred slot carries the three selected digest
+  IDs. The timer path commits them only after `lbt_complete` admits the frame to `DeviceHal`; a late rejection leaves
+  the digest untouched (`lib/core/node.cpp:1232-1262`, `lib/core/node_mac.cpp:1311-1361`). Immediate beacons likewise
+  commit only after direct `_hal.tx` success.
+- **The paired late-result test is non-vacuous.** The same fixture proves both a rejected deferred completion that does
+  not commit and an accepted completion that does (`test/test_node_channel.cpp:856` onward). This directly exercises
+  the state transition that was missing in the fifth pass.
+- **Deferred-slot lifecycle is bounded and reset-safe.** All three IDs are overwritten on every allocation, including
+  zeroing for frames with no digest metadata, so recycled slots cannot inherit a previous beacon's commit set
+  (`lib/core/node_mac.cpp:1235-1252`). Zero is an unambiguous sentinel because channel message IDs are generated with a
+  nonzero origin byte.
+- **Layer ownership remains coherent.** The deferred record does not carry a layer, but production cannot switch the
+  active layer while any deferred LBT slot is occupied: `layer_swap_blocked()` checks the ring, and the existing
+  dual-layer test pins that rule (`lib/core/node.cpp:765-775`, `test/test_dual_layer.cpp:1456`). The later ID lookup
+  therefore commits against the same active channel state from which the IDs were selected.
+- **The cost is smaller than the earlier estimate.** Three IDs per four slots increase `Node` by 48 bytes; the board
+  builds remain within their existing budgets. The checked-in baseline records only the expected defer-timing
+  movements and reports all scenarios passing. That baseline was reviewed but not independently regenerated here.
+
+### P2 — current documentation contradicts the completed TX3 behavior
+
+These are not runtime defects, but they should be corrected before the bundle is described as closed:
+
+- `test/test_node_channel.cpp:844-854` says the late edge is deliberately untested, that accepted defer commits at ring
+  entry, and that implementation awaits an owner ruling. The implemented paired test starts immediately below that
+  stale block. Replace it with the approved DeviceHal-admission contract or remove the obsolete history.
+- `docs/2026-07-31-bench-test-script.md:195` says the beacon ring-full variant has **no automated test**. Point it to
+  the deterministic native case at `test/test_node_channel.cpp:773` instead.
+- `lib/core/node.h:1337-1340` still assigns digest commit to `emit_beacon` and calls the boundary “actually aired” /
+  “on air.” Commit now occurs in the immediate/deferred transmitter-admission sites. Describe exactly that boundary.
+- `test/test_node_channel.cpp:730-732` says only an “AIRED” beacon commits. The tested condition is DeviceHal acceptance,
+  not observable RF airtime; use “transmitter-admitted.”
+- The same acceptance vocabulary remains inconsistent in `test/test_node_hashlocate.cpp:3428-3436`,
+  `docs/2026-07-31-bench-test-script.md:190`, and `docs/2026-07-30-open-bug-register.md:594`, where accepted work is
+  described as “will fly,” “really aired,” or “actually aired.” Reconcile these with the owner-approved contract.
+
+The B51/TX3 history in the bug register may retain rejected alternatives if clearly labelled historical, but its
+current contract and acceptance criteria should not preserve the superseded meaning alongside the correction.
+
+### Boundary and residual scope
+
+For this gate, “sent” means handed to `DeviceHal` and accepted by it. It does not claim that a later
+`DeviceHal::pump_tx` or radio-start operation produced literal RF airtime. This is the strongest observable guarantee
+approved by the owner and is implemented consistently by TX3. No additional radio-driver acknowledgement was required.
+
+### Sixth-pass independent verification
+
+- An isolated native build's doctest executable passed **1126/1126 cases and 72348/72348 assertions**.
+- Isolated `gateway`, `xiao_sx1262`, and `heltec_v3` builds all passed. The observed gateway and Heltec V3 figures were
+  RAM 81.5% / flash 57.3% and RAM 64.3% / flash 36.1%, respectively.
+- `git diff --check` passed.
+- The shared `.pio/build/native` result was discarded after concurrent B43 activity caused PlatformIO to report zero
+  cases. Verification used a separate build directory and invoked the resulting doctest binary directly.
+- Hashes of the TX3 source and test files were unchanged across the isolated verification. The native total includes
+  the concurrently modified worktree snapshot, but this review neither attributes those extra cases to TX3 nor grants
+  B43 a quality verdict.
+- The simulation report was inspected, not rerun. Swift/companion tests were not relevant to the TX3 digest path and
+  were not run.
+
+**Sixth-pass landing order:** correct the contradictory current comments and bench/register claims, then land TX3. No
+further TX3 production-code change is required by this review.

@@ -1168,6 +1168,7 @@ void Node::on_timer(uint32_t timer_id) {
         id_bind_age_out();            // hash-locate A0: drop expired bindings on the same periodic sweep
         mobile_home_age_out();        // §mobile 3c: TTL-drop the sender-side mobile_hash->home cache on the same sweep
         age_out_parked_sends();       // hash-locate D: give up on DMs whose hash never resolved
+        age_out_pending_id_pubkey();  // §id-hash S4b (spec §5 step 5): give up on by-id reqpubkeys whose id never resolved
         age_out_denied_ids();         // node_id DAD: a denied slot becomes reusable after dad_denied_id_ttl_ms
         age_out_mediated();           // L2a: drop mediation-suppression records past the window
         age_out_rreq_last();          // F route-discovery: free spent per-dst RREQ rate-limit slots (BOTH planes) — the table is refuse-when-full, so with no age-out `cap` distinct dsts kill discovery for good
@@ -1251,7 +1252,12 @@ void Node::on_timer(uint32_t timer_id) {
                 // ⓘ NOT a per-command push: correlating this back to the `reqpubkey` that queued it needs a handle
                 //   this frame does not carry, and a `send_failed{ctr:0}` is exactly the uncorrelated shape B39
                 //   exists to fix. Owed to B39's discriminated result (C1) — recorded, not faked here.
-                if (!lbt_complete(d.buf, d.len, d.sf, static_cast<LbtKind>(d.kind), d.rts_flight_gen)) {
+                // §TX3: for a beacon, `lbt_complete` true ⇔ DeviceHal answered ok (a slot<0 frame cannot duty-defer),
+                // which IS the owner's admission boundary — so THIS is where a deferred beacon's digest commits.
+                // A rejection leaves the ad_count and the dirty flag untouched.
+                const bool admitted = lbt_complete(d.buf, d.len, d.sf, static_cast<LbtKind>(d.kind), d.rts_flight_gen);
+                if (admitted) commit_channel_digest_advertised(d.digest_ids, kDeferDigestIds);
+                if (!admitted) {
                     MR_EMIT("tx_deferred_lost", EF_I("kind", d.kind), EF_I("len", d.len));
                     _hal.log("!! deferred TX dropped at the radio queue — a request reported as accepted never aired");
                 } }
@@ -1666,7 +1672,9 @@ CmdResult Node::on_command(const Command& c) {
             if (_node_id == 0) return CmdResult{ CmdCode::err_unprovisioned, 0, _active->_tx_queue_n };
             uint32_t h     = c.u.resolve.dst_hash;
             uint8_t  plane = c.u.resolve.plane;                         // 0=AUTO / 1=TEAM (`-t`) / 2=GLOBAL i.e. static (`-s`)
-            if (h == 0 && c.u.resolve.dst_id != 0) {
+            const uint8_t qid = c.u.resolve.dst_id;                     // §S4a: the queried id (0 = a hash-form request)
+            bool by_id = false;                                         // §S4a: stage 1 — we could not resolve the id, so ASK who owns it
+            if (h == 0 && qid != 0) {
                 // ★★ §id-hash S1 (spec 2026-08-01 §1-A / §3-D1 / §3-D9) — THE DEFECT REPLACED HERE, bench-proven
                 // 2026-08-01: this arm resolved through `team_key_of_id` ALONE, and that function's first line is
                 // `if (_cfg.team_id == 0 || !is_team_peer(id)) return false` (node_routing.cpp:842) ⇒ `reqpubkey
@@ -1678,7 +1686,7 @@ CmdResult Node::on_command(const Command& c) {
                 // scan (U1). It returns a MASK rather than a winner on purpose: the same 8-bit number legitimately
                 // names different peers in the two planes (§18), so the choice is the CALLER's and must be explicit.
                 PeerBookRow st{}, tm{};
-                const uint8_t mask = peer_book_by_id(c.u.resolve.dst_id, st, tm);
+                const uint8_t mask = peer_book_by_id(qid, st, tm);
                 const bool has_static = (mask & kPeerBookStatic) != 0;
                 const bool has_team   = (mask & kPeerBookTeam)   != 0;
                 // §3-D9 — plane selection is EXPLICIT at the airtime/mutation boundary, where picking the wrong row
@@ -1687,32 +1695,82 @@ CmdResult Node::on_command(const Command& c) {
                 if (plane == static_cast<uint8_t>(Plane::AUTO)) {
                     if (has_static && has_team)                         // the §18 collision, live -> name the flag, never guess
                         return CmdResult{ CmdCode::err_ambiguous_plane, 0, _active->_tx_queue_n };
-                    if (!has_static && !has_team)                       // neither plane holds it -> plane stays 0 = "neither", which is the honest echo
-                        return CmdResult{ CmdCode::err_no_binding, 0, _active->_tx_queue_n };
-                    plane = static_cast<uint8_t>(has_team ? Plane::TEAM : Plane::GLOBAL);
+                    if (has_static || has_team) plane = static_cast<uint8_t>(has_team ? Plane::TEAM : Plane::GLOBAL);
+                    else {
+                        // ★★ §id-hash S4a — §3-D9 BULLET 4 IS NOW LIVE, and S1's own note said it would be: an
+                        // UNRESOLVED id no longer refuses, it FLIES A BY-ID QUERY, so a plane must be chosen for it.
+                        // The rule is D9's last two bullets, read off CONFIGURATION rather than off a binding we do
+                        // not have: static-only defaults static, team-only/off-grid defaults team, and a node that
+                        // genuinely lives on BOTH planes must say which — because the same 8-bit number names two
+                        // different peers there (§18) and this decision now spends AIRTIME.
+                        // ⓘ `mobile_registered()` is the dual test: an off-grid team member has no static return
+                        //   path for a GLOBAL answer (emit_hash_query would refuse it), whereas a HOMED team mobile
+                        //   stamps origin=home_id and is genuinely reachable on both.
+                        const bool team_capable   = (_cfg.team_id != 0);
+                        const bool static_capable = (!_cfg.is_mobile || mobile_registered());   // mirrors emit_hash_query's return-route guard exactly (U1)
+                        if (team_capable && static_capable)                 // genuinely dual -> the operator must say which
+                            return CmdResult{ CmdCode::err_ambiguous_plane, 0, _active->_tx_queue_n };
+                        plane = static_cast<uint8_t>(team_capable ? Plane::TEAM : Plane::GLOBAL);
+                    }
                 }
-                // ⓘ SPEC DEVIATION, DELIBERATE (§3-D9 bullet 4, "unresolved id on a dual-plane node -> require a
-                // flag rather than guess"): that arm has NO distinguishable outcome in S1 and is therefore NOT
-                // implemented. An unresolved by-id reqpubkey refuses BEFORE any flood (the `h == 0` guarantee
-                // below), so no plane is ever selected for it and `err_no_binding` is the whole answer. The bullet
-                // becomes live in S4a, where an unresolved id DOES fly a by-id query and a plane must be chosen.
                 const bool resolved = (plane == static_cast<uint8_t>(Plane::TEAM)) ? has_team : has_static;
-                if (!resolved)                                          // forced plane holds no binding -> fail loud, echoing WHICH plane was searched
+                h = resolved ? ((plane == static_cast<uint8_t>(Plane::TEAM)) ? tm.hash : st.hash) : 0u;
+                // ★★★ §id-hash S4a (spec §5 stage 1 + §6's B fix) — THE ORIGINATOR. Where S1 refused
+                // `err_no_binding`, we now ask the mesh "who owns id N?" on the selected plane. This is the ONLY
+                // producer of a BY_ID query in the tree, and it is what makes register B43 fixable at all: a node we
+                // ROUTE to but never heard has no hash on either plane, so no by-hash question can be asked about it.
+                // ⚠ `want_pubkey = false` (spec §5 stage 1): the answer that comes back is an id->hash binding, not a
+                //   key. §5's one-round form (hash + pubkey together) is explicitly NOT DESIGNED and pack_h refuses
+                //   the combination.
+                // ✅ §id-hash S4b LANDED SPEC §5's STAGES 3-5 (2026-08-02): the bounded `resolve-id-for-pubkey`
+                //   intent armed below consumes the answer, re-asks BY HASH and times out loudly, so the operator no
+                //   longer runs the verb twice. S4a's "until it lands, run it by hand" note is retired in place.
+                // ⓘ `h == 0` on a "resolved" row is folded in here rather than refused separately: a row carrying no
+                //   hash answers the same question as no row at all, and the by-id query is the better answer to it.
+                // ⚠ …BUT ONLY ONTO A PLANE THIS NODE ACTUALLY HAS. An explicit `-t` on a node with `team_id == 0`
+                //   selects a plane that does not exist here: `emit_hash_query` would leave `team_scoped` UNSET (it
+                //   needs a team_id to stamp) and the frame would fly as a STATIC by-id query wearing the operator's
+                //   `-t`. Keep S1's `err_no_binding` refusal for that, echoing the plane searched (C2 — refuse, do
+                //   not silently answer a different question).
+                const bool plane_usable = (plane != static_cast<uint8_t>(Plane::TEAM)) || (_cfg.team_id != 0);
+                if (h == 0 && !plane_usable)
                     return CmdResult{ CmdCode::err_no_binding, 0, _active->_tx_queue_n, 0, 0, plane };
-                h = (plane == static_cast<uint8_t>(Plane::TEAM)) ? tm.hash : st.hash;
-                if (h == 0)                                             // C2: never flood a 0-hash query (the guarantee the old one-table guard gave)
-                    return CmdResult{ CmdCode::err_no_binding, 0, _active->_tx_queue_n, 0, 0, plane };
+                if (h == 0) by_id = true;
+            }
+            // ★★★ §id-hash S4b (spec §5 stages 1 + 5) — THE TWO PRE-FLIGHTS THE STAGE-1 ACK *CAN* MAKE, and both exist
+            // because the ack must not defer a failure it is already able to see. Ordered BEFORE emit_hash_query so a
+            // refusal costs no airtime (D9's discipline), and applied ONLY to the by-id form — the by-hash form has no
+            // second stage to fail.
+            if (by_id) {
+                // (1) ★★ THE STAGE-1 PREFLIGHT IS WEAKER THAN THE STAGE-2 REQUIREMENT, and S4a shipped that gap:
+                //     `emit_hash_query` gates `_crypto_ready` on `want_pubkey`, and stage 1 passes `want_pubkey =
+                //     false`. So an identity-less node ACCEPTED the by-id query, flooded it, waited for the answer —
+                //     and only then discovered it can never issue the mutual WANT_PUBKEY request. ⇒ ask the question
+                //     now. `err_no_identity` already exists with exactly this remedy (`regen`), and reporting it
+                //     synchronously is strictly better than an asynchronous giveup ~25 s later for a fact known here.
+                //     ⓘ This CHANGES S4a's behaviour on that node (queued+accepted -> err_no_identity). Deliberate:
+                //       the verb's contract is a pubkey, and we can prove we will not deliver one.
+                if (!_crypto_ready)
+                    return CmdResult{ CmdCode::err_no_identity, 0, _active->_tx_queue_n, 0, 0, plane, /*accepted=*/false };
+                // (2) The bounded intent (spec §5 step 1). ARMED BEFORE THE EMIT so a full ring refuses ahead of the
+                //     airtime; cleared below if the TX path then rejects the frame. A query whose answer we could not
+                //     remember wanting is a flood spent on nothing.
+                if (!id_pubkey_intent_arm(qid, plane))
+                    return CmdResult{ CmdCode::err_resolve_pending_full, 0, _active->_tx_queue_n, 0, 0, plane, /*accepted=*/false };
             }
 #if MR_FEAT_MOBILE
             // §mobile Part 2: a mobile WE HOST already pushed us its pubkey -> cache it LOCALLY, no flood (the home is the key
             // authority for its hosted mobiles). Lets the home send ENCRYPTED to its own hosted mobile. Mirrors the send-side _mobile_reg last-mile.
-            if (const uint8_t* mk = host_mobile_ed_pub(h)) {
+            // ⚠ §id-hash S4a: `!by_id` is load-bearing, not defensive — on the by-id path `h` is 0 and the ID is the
+            // query key, so passing either to a HASH-keyed lookup asks a different question of the wrong table.
+            if (const uint8_t* mk = by_id ? nullptr : host_mobile_ed_pub(h)) {
                 peer_key_set(h, mk, PeerKeyConf::authoritative);
                 MR_EMIT("peer_key_cached", EF_I("hash", static_cast<int64_t>(h)), EF_I("node", 0));   // mirror the handle_h path (telemetry + push)
                 push_peer_key_cached(h);   // §S6: + the cached name
                 // ★ §id-hash S1b (QA P1c): a GENUINE success that airs NOTHING — the key came out of the local cache
-                // and the app learns it from the peer_key_cached push above. `aired` stays FALSE so the BLE transport
-                // does not additionally claim `reqpubkey_sent`, whose contract meaning is "the request was flooded".
+                // and the app learns it from the peer_key_cached push above. `accepted` stays FALSE so the BLE
+                // transport does not additionally claim `reqpubkey_sent` — which means "the TX path accepted a
+                // frame" (owner ruling 2026-08-01), and this path hands the TX path nothing at all.
                 return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n, h, 0, plane, /*accepted=*/false };
             }
 #endif
@@ -1733,7 +1791,9 @@ CmdResult Node::on_command(const Command& c) {
             //   · tx_dropped      -> err_tx_queue_full (NEW — the LBT defer ring was full; the only TRANSIENT one,
             //                                          and U1-checked against err_ack_ring_full, a different ring)
             // The refusal still echoes `dst_hash` + `plane` so the app knows WHICH target on WHICH plane failed.
-            const HQueryOutcome oc = emit_hash_query(h, /*hard=*/true, /*want_pubkey=*/true, static_cast<Plane>(plane));   // §6.4: -t=TEAM (team_scoped, origin=team_local_id); else GLOBAL
+            // §id-hash S4a: on the by-id stage the QUERY KEY is the id and `want_pubkey` is false (spec §5 stage 1);
+            // the by-hash form is unchanged. `degenerate` now also covers "id 0/255" and "that id is us".
+            const HQueryOutcome oc = emit_hash_query(by_id ? static_cast<uint32_t>(qid) : h, /*hard=*/true, /*want_pubkey=*/!by_id, static_cast<Plane>(plane), by_id);   // §6.4: -t=TEAM (team_scoped, origin=team_local_id); else GLOBAL
             if (oc != HQueryOutcome::sent) {
                 CmdCode code = CmdCode::err_unsupported;
                 switch (oc) {                                   // -Wswitch: a new outcome must be mapped here
@@ -1744,11 +1804,28 @@ CmdResult Node::on_command(const Command& c) {
                     case HQueryOutcome::encode_failed:   code = CmdCode::err_too_large;    break;
                     case HQueryOutcome::tx_dropped:      code = CmdCode::err_tx_queue_full; break;   // §S1c: transient — retry
                 }
+                // ★ §id-hash S4b: the stage-1 frame was NOT accepted, so the intent armed for it must go. Leaving it
+                // would burn a ring slot for a full TTL and then report a timeout for a query that never flew —
+                // a manufactured failure on top of a real one.
+                if (by_id) id_pubkey_intent_clear(qid, plane);
                 return CmdResult{ code, 0, _active->_tx_queue_n, h, 0, plane, /*accepted=*/false };
             }
             // §id-hash S1: echo the hash the query ACTUALLY flew for (the by-id form's RESOLVED hash) + the plane it
             // flew on, so no transport re-runs the lookup to build its own answer — that duplicate is exactly how
             // fw_main's BLE `reqpubkey_sent` echo kept the one-table bug alive after this arm was first fixed (U1).
+            // ★ §id-hash S4a: on the BY-ID stage `h` is 0 and that is the HONEST echo — the hash is precisely what we
+            // just went to ask for. It is also the app-visible discriminator between the two stages: a
+            // `reqpubkey_sent` with `hash != 0` means the PUBKEY request flew, `hash == 0` means the id->hash query did.
+            // ★★★ §id-hash S4b — WHAT THIS ACK CLAIMS, AND WHY IT IS NOT STRENGTHENED. S4b makes the node complete the
+            // workflow, so the tempting wording is "a pubkey is on its way". **It cannot be.** Synchronously we know
+            // one fact: the TX path accepted the STAGE-1 frame. Whether anyone owns that id, whether the answer routes
+            // back, whether stage 2's frame is then accepted — all lie in the future, exactly as "the frame aired" lay
+            // in the future for the ack this arc already had to weaken (owner ruling 2026-08-01, two review rounds).
+            // ⇒ the RESULT is unchanged; only the app's INSTRUCTION changes (`hash == 0` no longer means "re-issue"),
+            //   and that lives in write_reqpubkey_sent's contract note.
+            // ⇒ B55's `hash == 0` case therefore DOES NOT DISAPPEAR — it is the honest report of a real stage-1
+            //   acceptance. What disappears is the operator's second command.
+            // ⚠ OWED to `ios-companion/INBOX_SYNC_CONTRACT.md` (QA-owned — reported, not written).
             return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n, h, 0, plane, /*accepted=*/true };
         }
         case CmdKind::peerkey: {     // §3: QR import — install the scanned full pubkey as a PINNED (verified) key.

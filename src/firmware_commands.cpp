@@ -515,6 +515,11 @@ static void handle_nameof(const char* arg, size_t n, Print& out) {
 static void hashof_print_row(Print& out, uint8_t queried, bool team_plane, const meshroute::Node::PeerBookRow& row) {
     out.print(F("[hashof] id=")); out.print(queried);
     out.print(team_plane ? F(" team -> 0x") : F(" static -> 0x")); out.print(row.hash, HEX);
+    // ★ §id-hash S3: name the CONFIDENCE of the binding this line just resolved — the same `(auth)`/`(claimed)`
+    // vocabulary `peers` uses (U1, one spelling for one fact). `hashof` is the verb an operator reaches for before
+    // spending airtime on a hash, so it is exactly where a claim must not be dressed as a fact.
+    out.print(team_plane ? (row.team_authoritative ? F("(auth)") : F("(claimed)"))
+                         : (row.static_authoritative ? F("(auth)") : F("(claimed)")));
     if (row.name_len) { out.print(F(" name=\"")); out.write(row.name, row.name_len); out.print('"'); }
     if (team_plane && row.team_id && row.team_id != queried) {          // freshest-wins picked a DIFFERENT id for this hash
         out.print(F(" (ALIASED: team id ")); out.print(row.team_id); out.print(F(" is FRESHER for this hash)"));
@@ -557,9 +562,13 @@ static void handle_hashof(const char* arg, size_t n, Print& out) {
         // unheard-target refusal in firmware_config.cpp. ⓘ The sibling `-t`/`-s` lines above are correct — untouched.
         // ⚠ V1 2026-08-01 (§id-hash S1): the old wording explained the circularity as *"`reqpubkey <bare id>` means a
         // team_local_id, so it resolves through team_key_of_id"* — TRUE THEN, STALE NOW. S1 made `reqpubkey <id>` read
-        // `peer_book_by_id`, i.e. THIS VERY VIEW, on BOTH planes. The advice is unchanged and now holds for a stronger
-        // reason: the two verbs share ONE resolver, so `reqpubkey <id>` cannot succeed where `hashof <id>` just failed.
-        else                  out.print(F(" (neither plane — no beacon heard, so its key_hash32 is unknown. Remedy: wait for / provoke a beacon from it, or import its QR out-of-band with `peerkey <hex64>`. ⚠ NOT `reqpubkey <id>` — since §id-hash S1 it resolves through THIS SAME view, so it refuses with err_no_binding for the same reason; only `reqpubkey 0x<hash>` works, and the hash is what is missing)"));
+        // `peer_book_by_id`, i.e. THIS VERY VIEW, on BOTH planes.
+        // ⚠⚠ V1 AGAIN 2026-08-02 (§id-hash S4a): the "⚠ NOT `reqpubkey <id>`" advice this line used to carry is now
+        // WRONG, and reversing it is the whole point of the slice. `reqpubkey <id>` no longer refuses on an unknown
+        // id — it asks the mesh "who owns id N?" (H_FLAG_BY_ID), which is the ONE remedy that works for a peer we
+        // route to but have never heard. The answer lands as a CLAIM, so this view will then show it labelled
+        // `(claimed)` rather than `(auth)`.
+        else                  out.print(F(" (neither plane — no beacon heard, so its key_hash32 is unknown. Remedy: `reqpubkey <id>` (or `-s`/`-t`) floods a BY-ID query asking who owns it — the answer is a CLAIM, shown here as (claimed), and the node then fetches the pubkey itself (§S4b: one command, not two). Alternatives: wait for / provoke a beacon, or import its QR out-of-band with `peerkey <hex64>`)"));
         out.println();
     }
 }
@@ -596,32 +605,45 @@ void print_reqpubkey_hint(Print& out, const meshroute::Command& cmd, const meshr
                       " is saturated). TRANSIENT: just retry in a moment. Nothing is misconfigured."));
         return;
     }
+    if (r.code == meshroute::CmdCode::err_resolve_pending_full) {
+        // ★ §id-hash S4b: the second TRANSIENT refusal on this verb, and it must not be mistaken for the first.
+        // err_tx_queue_full means the radio/channel is saturated; this means WE are already waiting on that many
+        // unresolved by-id questions — each of which is a flood in flight. Different wait, different remedy.
+        out.println(F("> reqpubkey: nothing aired — this node is already waiting on the maximum number of unresolved"
+                      " by-id requests (each one is an H flood in flight). TRANSIENT: retry once one of them resolves"
+                      " or times out (~25 s). Nothing is misconfigured."));
+        return;
+    }
     if (r.code == meshroute::CmdCode::err_unsupported) {
         out.println(F("> reqpubkey: nothing aired — the target is not a queryable peer (hash 0, or this node's own"
                       " key_hash32). Remedy: name another node's hash or id."));
         return;
     }
     if (r.code == meshroute::CmdCode::err_ambiguous_plane) {
-        // §3-D9: BOTH planes hold this number, and they may be different peers (§18). Refusing beats guessing here
-        // because the next step spends AIRTIME at a hash we picked for the operator.
+        // §3-D9: the operator must pick a plane, and since §id-hash S4a there are TWO ways to get here — RESOLVED in
+        // both planes (two known, possibly different, peers), or UNRESOLVED on a node that genuinely lives on both,
+        // where the by-id query itself has to choose one. Both refuse for the same reason: the next step spends
+        // AIRTIME, and D9 will not guess at an airtime boundary.
         out.print(F("> reqpubkey: id ")); out.print(id);
-        out.println(F(" resolves in BOTH planes (§18: a static node_id and a team local id may be the same number, and"
-                      " need not be the same peer). Remedy: say which — `reqpubkey <id> -s` (static) or `-t` (team)."
-                      " `hashof <id>` prints both rows with their hashes."));
+        out.println(F(" is ambiguous — this node has BOTH planes (§18: a static node_id and a team local id may be the"
+                      " same number, and need not be the same peer), so either both hold a binding or neither does and"
+                      " the by-id query must pick one. Remedy: say which — `reqpubkey <id> -s` (static) or `-t` (team)."
+                      " `hashof <id>` prints whichever rows exist, with their hashes."));
         return;
     }
     if (r.code != meshroute::CmdCode::err_no_binding || id == 0) return;
+    // ★ §id-hash S4a: this refusal is now REACHABLE FROM ONE PLACE ONLY — an explicit `-t` on a node that is not in a
+    // team. Every other unresolved by-id request flies a BY_ID query instead of refusing, so the old "no beacon has
+    // bound this id" wording (kept below for the unreachable arms, in case a future slice re-opens them) no longer
+    // describes the common case.
     out.print(F("> reqpubkey: no id->hash binding for ")); out.print(id);
-    if (r.plane == 0)      out.println(F(" in EITHER plane. A pubkey request must be addressed to a key_hash32, and no"
-                                        " beacon has bound this id to one. Remedy: wait for / provoke a beacon from it,"
-                                        " import its QR with `peerkey <hex64>`, or use `reqpubkey 0x<hash>` directly."
-                                        " `hashof <id>` reads the same view and will agree."));
-    else if (r.plane == 1) out.println(F(" on the TEAM plane (searched because of `-t`). Remedy: drop `-t` to search"
-                                        " both planes, or wait for that teammate's beacon — the team key cache is fed"
-                                        " ONLY by a directly-heard same-team beacon."));
-    else                   out.println(F(" on the STATIC plane (searched because of `-s`). Remedy: drop `-s` to search"
-                                        " both planes, or wait for that node's beacon — only an AUTHORITATIVE (first-hand"
-                                        " beacon / owner-confirmed) binding qualifies."));
+    if (r.plane == 1)      out.println(F(" on the TEAM plane, and this node is not IN a team (`team_id` is 0) — so there"
+                                        " is no team plane to ask on and the `-t` query was not aired. Remedy: drop `-t`"
+                                        " (the static by-id query is then sent), or join a team first."));
+    else if (r.plane == 0) out.println(F(" in EITHER plane, and no by-id query could be aired for it. Remedy: check the"
+                                        " id is 1..254 and not this node's own, or use `reqpubkey 0x<hash>` directly."));
+    else                   out.println(F(" on the STATIC plane, and no by-id query could be aired for it. Remedy: drop"
+                                        " `-s` to let the resolver choose, or use `reqpubkey 0x<hash>` directly."));
 }
 
 // ★★ §AB3 `peers` / `peers all` — the GENERATED address book as text (spec §2.1). The bounded form (rows backed by the
@@ -639,7 +661,12 @@ static void peers_text_row(const meshroute::Node::PeerBookRow& r, void* ctx) {
     // A bare `static_id=48` reads correctly: we route to it, we cannot name it.
     if (r.static_id) { out.print(F(" static_id=")); out.print(r.static_id);
                        if (r.hash) out.print(r.static_authoritative ? F("(auth)") : F("(claimed)")); }
-    if (r.team_id)   { out.print(F(" team_id="));   out.print(r.team_id); }
+    // ★ §id-hash S3: the TEAM plane gains the same label, under the same "only when there is a hash to be
+    // authoritative ABOUT" rule (an id-only team row from pass (4) asserts no binding). Owner ruling: an id->hash
+    // answer heard on air is a CLAIM, never a fact — so the operator must be able to SEE which one they are looking
+    // at. Until S4a there is no claimed producer, so this reads `(auth)` on every row a live node can build.
+    if (r.team_id)   { out.print(F(" team_id="));   out.print(r.team_id);
+                       if (r.hash) out.print(r.team_authoritative ? F("(auth)") : F("(claimed)")); }
     if (r.has_key) { out.print(F(" conf=")); out.print(meshroute::console::peerkeyconf_name(r.conf));
                      out.print(F(" confirmed=")); out.print(r.peer_confirmed ? 1 : 0); }
     else if (r.hash && r.name_len) out.print(F(" key=AGED(unusable — reqpubkey to refresh)"));
@@ -768,7 +795,9 @@ static void dump_help(Print& out) {
     hl(F("    plain = the 16 rows we hold a key for (also the JSON book over BLE); `all` adds id-only rows (console only)."));
     hl(F("  peerkey <ed_pub hex64> [\"<name>\"]   pin a scanned/QR pubkey (optional one-shot label, max 32)"));
     hl(F("  peername 0x<hash> \"<name>\"  rename a CACHED peer (key + confidence untouched; works on a pinned peer)"));
-    hl(F("  reqpubkey <0xhash|team-id>  request a peer's key on-air (0xhash, or a bare team-id via the team cache)"));
+    hl(F("  reqpubkey <0xhash|id> [-t|-s]  request a peer's key on-air. A bare id searches BOTH planes (-t/-s force one)."));
+    hl(F("    If the id has no binding yet, it floods a BY-ID query (\"who owns id N?\"); the owner's answer is a CLAIM,"));
+    hl(F("    so run `reqpubkey <id>` once more afterwards to fetch the key itself. `hashof <id>` shows what landed."));
 #if MR_N_LAYERS < 2
     hl(F(""));
     hl(F("MOBILE / TEAM  (normal-node only)"));

@@ -1760,7 +1760,7 @@ TEST_CASE("§P2-1 — a cross-NIBBLE team-scoped H is HANDLED leaf-agnostically 
     RxMeta meta{8.0f,-80.0f,0,-1};
     const uint32_t TEAM = 0xABCD1234u;
     auto mk_h=[&](bool team_scoped, uint32_t key, std::array<uint8_t,64>& buf)->size_t{
-        h_in in{}; in.leaf_id=4; in.origin=20; in.key_hash32=key; in.ttl=3; in.team_scoped=team_scoped; in.team_id=team_scoped?TEAM:0;
+        h_in in{}; in.leaf_id=4; in.origin=20; in.query_key32=key; in.ttl=3; in.team_scoped=team_scoped; in.team_id=team_scoped?TEAM:0;
         return pack_h(in, std::span<uint8_t>(buf.data(), buf.size())); };
     // (a) a same-team member on leaf 6 receives a leaf-4 TEAM-scoped H for ITS OWN hash -> handled + resolved (leaf-exempt).
     { TestHal hal; Node m(hal, /*id=*/30, /*key=*/0x3030u);
@@ -3133,11 +3133,11 @@ TEST_CASE("§mobile — a receiver ACKs a mobile_src originator with mobile_to=1
 
 TEST_CASE("§mobile — H mobile_req + NACK mobile_to wire bits round-trip (backward-compat rsv bits; plain frame -> 0)") {
     // H mobile_req (byte-7 b3) — the requester's origin is a LOCAL id -> owner skips id_bind
-    { h_in in{}; in.leaf_id=4; in.origin=17; in.key_hash32=0xABCDu; in.ttl=3; in.mobile_req=true;
+    { h_in in{}; in.leaf_id=4; in.origin=17; in.query_key32=0xABCDu; in.ttl=3; in.mobile_req=true;
       uint8_t buf[8]; size_t n = pack_h(in, std::span<uint8_t>(buf, sizeof buf));
       auto o = parse_h(std::span<const uint8_t>(buf, n)); CHECK(o.has_value());
       if (o) { CHECK(o->mobile_req); CHECK_FALSE(o->team_scoped); CHECK_FALSE(o->hard); CHECK_FALSE(o->want_pubkey); } }
-    { h_in in{}; in.leaf_id=4; in.origin=17; in.key_hash32=0xABCDu; in.ttl=3;   // plain H -> mobile_req false
+    { h_in in{}; in.leaf_id=4; in.origin=17; in.query_key32=0xABCDu; in.ttl=3;   // plain H -> mobile_req false
       uint8_t buf[8]; size_t n = pack_h(in, std::span<uint8_t>(buf, sizeof buf));
       auto o = parse_h(std::span<const uint8_t>(buf, n)); CHECK(o.has_value());
       if (o) CHECK_FALSE(o->mobile_req); }
@@ -6918,7 +6918,7 @@ TEST_CASE("§team-parity T6/B — the H-flood dedup ring is PLANE-KEYED: a team 
     N.set_team_local_id(93);
     const uint32_t UNKNOWN_KEY = 0xDEADBEEFu;    // resolves nowhere -> handle_h takes the FORWARD (dedup) path
     auto feed_h = [&](bool team_scoped) {
-        h_in in{}; in.leaf_id = 0; in.origin = 77; in.key_hash32 = UNKNOWN_KEY; in.ttl = 3;
+        h_in in{}; in.leaf_id = 0; in.origin = 77; in.query_key32 = UNKNOWN_KEY; in.ttl = 3;
         in.team_scoped = team_scoped; in.team_id = team_scoped ? TEAM : 0u;
         uint8_t buf[8 + 32 + 4 + 1 + 32];
         const size_t n = pack_h(in, std::span<uint8_t>(buf, sizeof buf));

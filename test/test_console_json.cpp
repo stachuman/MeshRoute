@@ -119,7 +119,15 @@ TEST_CASE("write_ack — CmdResult → ack JSON") {
     CmdResult ni{CmdCode::err_no_identity, 0, 0, 0x61CD83EAu, 0}; ni.plane = 1;
     n = write_ack(b, sizeof b, ni);
     CHECK(std::string(b, n) == "{\"ack\":\"err_no_identity\",\"ctr\":0,\"qd\":0,\"dh\":1640858602,\"lp\":0,\"plane\":\"team\"}\n");
-    // ⓘ `aired` is deliberately NOT serialised: it is a TRANSPORT-selection bit (fw_main keys reqpubkey_sent on it),
+    // ★ §id-hash S4b: the by-id intent ring's refusal. Pinned by NAME as well as by the walker because two TRANSIENT
+    // refusals now exist on `reqpubkey` (this and err_tx_queue_full) and the app's remedies differ — wait for a
+    // resolution vs wait for the radio. `dh` is 0: the whole point is that the hash is still unknown.
+    CHECK(std::string(cmdcode_name(CmdCode::err_resolve_pending_full)) == "err_resolve_pending_full");
+    CmdResult rp{CmdCode::err_resolve_pending_full, 0, 0}; rp.plane = 2;
+    n = write_ack(b, sizeof b, rp);
+    CHECK(std::string(b, n) == "{\"ack\":\"err_resolve_pending_full\",\"ctr\":0,\"qd\":0,\"dh\":0,\"lp\":0,\"plane\":\"static\"}\n");
+    // ⓘ `accepted` (named `aired` until the 2026-08-01 ruling) is deliberately NOT serialised: it is a
+    // TRANSPORT-selection bit (fw_main keys reqpubkey_sent on it),
     // not app-facing state — the app already learns the disposition from `ack` and from the peer_key_cached push.
 }
 
@@ -750,6 +758,7 @@ static unsigned ord(CmdCode c) {
         case CmdCode::err_unsupported:   case CmdCode::err_unprovisioned: case CmdCode::err_no_data_sf:
         case CmdCode::err_ack_ring_full: case CmdCode::err_ambiguous_plane:   // §id-hash S1
         case CmdCode::err_no_identity:   case CmdCode::err_tx_queue_full:      // §id-hash S1b / S1c
+        case CmdCode::err_resolve_pending_full:                                // §id-hash S4b
             return static_cast<unsigned>(c);
     }
     return kUnlisted;
@@ -835,7 +844,7 @@ static void check_mapper_covers_every_enumerator(const char* enum_name, const ch
 }
 
 TEST_CASE("★ enum->string mappers cover EVERY enumerator — no silent fallback at the app boundary") {
-    check_mapper_covers_every_enumerator<CmdCode>("CmdCode", cmdcode_name, "err_unknown", 13);   // 10 -> 11 S1 `err_ambiguous_plane`; 11 -> 12 S1b `err_no_identity`; 12 -> 13 S1c `err_tx_queue_full`
+    check_mapper_covers_every_enumerator<CmdCode>("CmdCode", cmdcode_name, "err_unknown", 14);   // 10 -> 11 S1 `err_ambiguous_plane`; 11 -> 12 S1b `err_no_identity`; 12 -> 13 S1c `err_tx_queue_full`; 13 -> 14 S4b `err_resolve_pending_full`
     check_mapper_covers_every_enumerator<PushKind>("PushKind", pushkind_name, "unknown", 16);   // 14 -> 15: §team-ch-key T-K3 `team_key_received`; 15 -> 16: §chan-crypt CL2a `team_channel_no_key`
     check_mapper_covers_every_enumerator<SendFailReason>("SendFailReason", sendfailreason_name, "none", 18,
                                                          /*exempt_ord=*/0);   // SendFailReason::none == "none"  (15 -> 16: §clean-join-carriers `reprovisioned`; 16 -> 17: §team-ch-key T-K3 `unsealable`; 17 -> 18: §loc-per-send `no_location`)
@@ -933,11 +942,21 @@ TEST_CASE("§AB3 write_peer_row / write_peers_end / write_peers_err — the addr
     Node::PeerBookRow r{};
     r.hash = 0x6C297145u; std::memcpy(r.name, "Ola", 3); r.name_len = 3;
     r.static_id = 34; r.team_id = 228; r.conf = Node::PeerKeyConf::authoritative;
-    r.has_key = true; r.peer_confirmed = true; r.static_authoritative = true;
+    r.has_key = true; r.peer_confirmed = true; r.static_authoritative = true; r.team_authoritative = true;
     size_t n = write_peer_row(b, sizeof b, r);
     CHECK(std::string(b, n) ==
       "{\"ev\":\"peer\",\"hash\":1814655301,\"conf\":\"authoritative\",\"confirmed\":true,"
-      "\"name\":\"Ola\",\"static_id\":34,\"team_id\":228}\n");
+      "\"name\":\"Ola\",\"static_id\":34,\"team_id\":228,\"team_auth\":true}\n");
+    // 1b. ★★ §id-hash S3 — THE SAME ROW WITH A *CLAIMED* TEAM BINDING, and this pair is the whole point of the field:
+    //     the two lines must differ, or an app cannot tell "we heard her beacon" from "somebody told us her number".
+    //     ⚠ `team_auth` rides WITH `team_id`, ALWAYS — never emitted-only-when-false. An absent marker would be read
+    //     as "authoritative" by every already-shipped consumer, i.e. a claim silently promoted at the app boundary.
+    r.team_authoritative = false;
+    n = write_peer_row(b, sizeof b, r);
+    CHECK(std::string(b, n) ==
+      "{\"ev\":\"peer\",\"hash\":1814655301,\"conf\":\"authoritative\",\"confirmed\":true,"
+      "\"name\":\"Ola\",\"static_id\":34,\"team_id\":228,\"team_auth\":false}\n");
+    r.team_authoritative = true;
     // 2. The lean row: no name, no ids, unconfirmed — every optional field OMITTED (absence is normal, not an error).
     Node::PeerBookRow lean{};
     lean.hash = 7u; lean.conf = Node::PeerKeyConf::overheard; lean.has_key = true;
@@ -945,11 +964,18 @@ TEST_CASE("§AB3 write_peer_row / write_peers_end / write_peers_err — the addr
     CHECK(std::string(b, n) == "{\"ev\":\"peer\",\"hash\":7,\"conf\":\"overheard\",\"confirmed\":false}\n");
     // 3. ★ The AMBIGUITY REPORT: a dropped stale team-id alias is NAMED on the line (spec §2.1 forbids silence).
     Node::PeerBookRow amb{};
-    amb.hash = 9u; amb.team_id = 231; amb.team_alias_dropped = 1;
+    amb.hash = 9u; amb.team_id = 231; amb.team_alias_dropped = 1; amb.team_authoritative = true;
     amb.conf = Node::PeerKeyConf::pinned; amb.has_key = true;
     n = write_peer_row(b, sizeof b, amb);
     CHECK(std::string(b, n) ==
-      "{\"ev\":\"peer\",\"hash\":9,\"conf\":\"pinned\",\"confirmed\":false,\"team_id\":231,\"team_alias\":1}\n");
+      "{\"ev\":\"peer\",\"hash\":9,\"conf\":\"pinned\",\"confirmed\":false,\"team_id\":231,\"team_auth\":true,\"team_alias\":1}\n");
+    // 3b. ★ §id-hash S3: a row with NO team_id carries NO `team_auth` — the two fields are one unit, so a static-only
+    //     row's line is BYTE-IDENTICAL to its pre-S3 golden (case 4 below is that proof; this pins the rule itself).
+    Node::PeerBookRow st_only{};
+    st_only.hash = 13u; st_only.static_id = 8; st_only.static_authoritative = true; st_only.has_key = true;
+    n = write_peer_row(b, sizeof b, st_only);
+    CHECK(std::string(b, n).find("team_auth") == std::string::npos);
+    CHECK(std::string(b, n) == "{\"ev\":\"peer\",\"hash\":13,\"conf\":\"overheard\",\"confirmed\":false,\"static_id\":8}\n");
     // 4. ★ An AGED key: has_key=false -> "aged":true AND conf already reads "overheard", so a consumer that ignores
     //    `aged` still cannot offer an encryption that would fail (§0.1, the whole reason `conf` is a level).
     Node::PeerBookRow aged{};
@@ -1005,12 +1031,15 @@ TEST_CASE("§AB4 write_peer_row — the retained position rides with its AGE and
     //    golden exists exactly so that when CL2 lands it adds a SOURCE and not a schema change: the app's renderer is
     //    already obliged to distinguish "some holder of the team key said so" from "this specific peer said so".
     Node::PeerBookRow grp{};
+    //    ⓘ §id-hash S3: `team_auth` stays FALSE here deliberately — this row was built by hand with no _team_keys
+    //    behind it, and the group-anchored position is precisely the weaker claim, so the two weak markers agreeing
+    //    on one line is the honest rendering.
     grp.hash = 9u; grp.team_id = 228;
     grp.has_location = true; grp.lat_e7 = 1; grp.lon_e7 = 2; grp.loc_age_s = 7200;
     grp.loc_src = Node::PeerLocSrc::team;
     n = write_peer_row(b, sizeof b, grp);
     CHECK(std::string(b, n) ==
-      "{\"ev\":\"peer\",\"hash\":9,\"conf\":\"overheard\",\"confirmed\":false,\"team_id\":228,"
+      "{\"ev\":\"peer\",\"hash\":9,\"conf\":\"overheard\",\"confirmed\":false,\"team_id\":228,\"team_auth\":false,"
       "\"lat\":1,\"lon\":2,\"loc_age_s\":7200,\"loc_src\":\"team\",\"aged\":true}\n");
     // 4. ★ ALL FOUR RIDE TOGETHER OR NONE DO: a row whose coordinates are set but has_location is false emits NOTHING
     //    positional. This is what stops a zeroed/garbage row rendering as a fix at (0,0) — and `loc_age_s` can never be

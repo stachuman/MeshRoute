@@ -99,7 +99,7 @@ static size_t make_beacon(uint8_t src, uint32_t key_hash32, std::array<uint8_t, 
 // An H query (hash-locate flood) from `origin` for `key_hash32` with `ttl`. hard=true skips the cache (reach owner).
 static size_t make_h(uint8_t origin, uint32_t key_hash32, uint8_t ttl, std::span<uint8_t> buf, bool hard = false,
                      bool want_pubkey = false, const uint8_t* requester_ed_pub = nullptr) {
-    h_in in{}; in.leaf_id = 0; in.origin = origin; in.key_hash32 = key_hash32; in.ttl = ttl; in.hard = hard; in.want_pubkey = want_pubkey;
+    h_in in{}; in.leaf_id = 0; in.origin = origin; in.query_key32 = key_hash32; in.ttl = ttl; in.hard = hard; in.want_pubkey = want_pubkey;
     if (want_pubkey) for (int i = 0; i < 32; ++i) in.requester_ed_pub[i] = requester_ed_pub ? requester_ed_pub[i] : uint8_t(0xC0 + i);
     return pack_h(in, buf);   // §2: a WANT_PUBKEY H needs a >=40-B buf (8 hdr + 32 pubkey)
 }
@@ -317,7 +317,7 @@ TEST_CASE("A handle_h — unknown hash FORWARDS with TTL-1 (deduped on a re-floo
     if (!hal.tx_frames.empty()) {
         auto pf = parse_h(std::span<const uint8_t>(hal.tx_frames[0].data(), hal.tx_frames[0].size()));
         CHECK(pf.has_value());
-        if (pf) { CHECK(pf->origin == 9); CHECK(pf->key_hash32 == 0x0000FACE); CHECK(pf->ttl == 3); }
+        if (pf) { CHECK(pf->origin == 9); CHECK(pf->query_key32 == 0x0000FACE); CHECK(pf->ttl == 3); }
     }
 
     // Re-flood of the SAME (origin, hash) -> deduped, no second forward.
@@ -524,7 +524,7 @@ TEST_CASE("F-XL-1 handle_h — the fired (jittered) frame is byte-identical to a
     fire_h_forwards(node, hal);
     CHECK(hal.tx_frames.size() == 1);
     // the exact bytes the OLD immediate re-tx would have sent: fwd{leaf 0, origin 9, hash FACE, ttl 4-1=3}
-    h_in expect{}; expect.leaf_id = 0; expect.origin = 9; expect.key_hash32 = 0x0000FACE; expect.ttl = 3; expect.hard = false;
+    h_in expect{}; expect.leaf_id = 0; expect.origin = 9; expect.query_key32 = 0x0000FACE; expect.ttl = 3; expect.hard = false;
     uint8_t eb[8 + 32 + 4 + 1 + 32]; const size_t en = pack_h(expect, std::span<uint8_t>(eb, sizeof(eb)));
     if (!hal.tx_frames.empty()) {
         CHECK(en == hal.tx_frames[0].size());
@@ -1451,7 +1451,7 @@ TEST_CASE("§6 reqpubkey — fires ONE hard WANT_PUBKEY H query carrying OUR pub
     for (const auto& f : hal.tx_frames) {
         auto pf = parse_h(std::span<const uint8_t>(f.data(), f.size()));
         if (pf) { ++n_h;
-            if (pf->hard && pf->want_pubkey && pf->key_hash32 == 0x0000FACEu) {
+            if (pf->hard && pf->want_pubkey && pf->query_key32 == 0x0000FACEu) {
                 hard_wp = true;
                 bool same = true; for (int i = 0; i < 32; ++i) if (pf->requester_ed_pub[i] != me.ed_pub[i]) same = false;
                 pub_ok = same;
@@ -2200,7 +2200,7 @@ TEST_CASE("§AB3 view — MERGE/DEDUP: one hash held by all three tables emits O
     CHECK(node.peer_key_set(ann.key_hash32, ann.ed_pub, Node::PeerKeyConf::authoritative, "Ann", 3));
     node.test_id_bind_set(/*id=*/34, ann.key_hash32, /*authoritative=*/true);        // the STATIC plane knows her as 34
     node.test_learn_route(/*dest=*/228, /*via=*/228, 1, 40, /*team_plane=*/true);    // _team_peer bit for 228
-    node.team_key_set(/*id=*/228, ann.key_hash32);                                   // the TEAM plane knows her as 228
+    node.team_key_set(/*id=*/228, ann.key_hash32, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);                                   // the TEAM plane knows her as 228
 
     BookRows b;
     const uint16_t n = node.peer_book_walk(/*include_id_rows=*/false, &BookRows::collect, &b);
@@ -2236,8 +2236,8 @@ TEST_CASE("§AB3 view — the AMBIGUOUS reverse lookup: two team ids on one hash
     const Identity ann = ab3_identity(11);
     // ⚠ THIS IS THE STATE THE SPEC WARNS ABOUT, and _team_keys is the table where it is REACHABLE: team_key_set upserts
     // BY ID and never dedups by hash, so a teammate that re-ran team-DAD leaves its OLD (id,hash) row live.
-    hal._now = 100000; node.team_key_set(/*old id=*/228, ann.key_hash32);
-    hal._now = 200000; node.team_key_set(/*new id=*/231, ann.key_hash32);
+    hal._now = 100000; node.team_key_set(/*old id=*/228, ann.key_hash32, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);
+    hal._now = 200000; node.team_key_set(/*new id=*/231, ann.key_hash32, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);
     node.test_learn_route(228, 228, 1, 40, /*team_plane=*/true);
     node.test_learn_route(231, 231, 1, 40, /*team_plane=*/true);
     CHECK(node.peer_key_set(ann.key_hash32, ann.ed_pub, Node::PeerKeyConf::authoritative));
@@ -2283,7 +2283,7 @@ TEST_CASE("§AB3 view — ALL FOUR id-only / hash-only shapes are representable 
     node.test_id_bind_set(/*id=*/50, 0x50505050u, /*authoritative=*/true);
     // (c) HASH + TEAM_ID, no key/name: a teammate's beacon cached its hash but we never fetched its pubkey.
     node.test_learn_route(60, 60, 1, 40, /*team_plane=*/true);
-    node.team_key_set(/*id=*/60, 0x60606060u);
+    node.team_key_set(/*id=*/60, 0x60606060u, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);
     // (d) TEAM-ID-ONLY: a _team_peer bit with NO _team_keys row — a teammate we route to whose hash we never cached.
     //     ★ This is the network-reachable id-only flavour (a multi-hop DV entry carries no key at all).
     node.test_learn_route(70, 70, 2, 40, /*team_plane=*/true);
@@ -2376,7 +2376,7 @@ TEST_CASE("§AB3 view — §18: one number answering in BOTH planes reports BOTH
     const Identity stat = ab3_identity(41), team = ab3_identity(42);
     node.test_id_bind_set(/*id=*/20, stat.key_hash32, /*authoritative=*/true);       // static 20
     node.test_learn_route(20, 20, 1, 40, /*team_plane=*/true);
-    node.team_key_set(/*id=*/20, team.key_hash32);                                   // TEAM 20 — a DIFFERENT node
+    node.team_key_set(/*id=*/20, team.key_hash32, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);                                   // TEAM 20 — a DIFFERENT node
     CHECK(node.peer_key_set(stat.key_hash32, stat.ed_pub, Node::PeerKeyConf::authoritative, "Static20", 8));
     CHECK(node.peer_key_set(team.key_hash32, team.ed_pub, Node::PeerKeyConf::authoritative, "Team20", 6));
 
@@ -2409,13 +2409,13 @@ TEST_CASE("§AB3 §2.5 regression — after reqpubkey <team-id>, the id RESOLVES
     // assert `queued` below — and that assertion was the false-success P1c is about. `emit_hash_query` bails at
     // `want_pubkey && !_crypto_ready` and airs nothing, so the old `queued` was firmware reporting a flood that never
     // happened, and the test was pinning it. The fixture now provisions an identity, which makes the send REAL and
-    // lets the same line assert `aired` too. The no-identity path gets its own test (err_no_identity), below.
+    // lets the same line assert `accepted` too. The no-identity path gets its own test (err_no_identity), below.
     node.set_crypto_identity(self.x_secret, self.ed_pub);
     hal._now = 100000;
 
     const Identity peer = ab3_identity(51);           // the bench's 0x6C297145
     node.test_learn_route(/*dest=*/228, /*via=*/228, 1, 40, /*team_plane=*/true);   // heard 228's team beacon
-    node.team_key_set(/*id=*/228, peer.key_hash32);                                 // ...which carried its hash
+    node.team_key_set(/*id=*/228, peer.key_hash32, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);                                 // ...which carried its hash
 
     // ---- BEFORE: `hashof 228`'s OLD read path (key_hash_of_id -> _id_bind only) says unknown. That is the defect.
     uint32_t old_answer = 0;
@@ -2430,7 +2430,7 @@ TEST_CASE("§AB3 §2.5 regression — after reqpubkey <team-id>, the id RESOLVES
     rq.u.resolve.plane = static_cast<uint8_t>(Plane::TEAM);
     const CmdResult rr = node.on_command(rq);
     CHECK(rr.code == CmdCode::queued);                // it KNEW the hash — err_no_binding would mean it did not
-    CHECK(rr.accepted);                                  // ★ §id-hash S1b: and a frame really went out for it
+    CHECK(rr.accepted);                                  // ★ §id-hash S1b: the TX path took it (acceptance, not airtime)
     uint32_t resolved = 0;
     CHECK(node.team_key_of_id(228, resolved));
     CHECK(resolved == peer.key_hash32);               // ★ the SAME function the view's team arm reads
@@ -2471,7 +2471,7 @@ TEST_CASE("§AB3 view — it is a PURE READ: walking the book mutates no table a
     CHECK(node.peer_key_set(p.key_hash32, p.ed_pub, Node::PeerKeyConf::authoritative, "P", 1));
     node.test_id_bind_set(90, p.key_hash32, /*authoritative=*/true);
     node.test_learn_route(91, 91, 1, 40, /*team_plane=*/true);
-    node.team_key_set(91, 0x91919191u);
+    node.team_key_set(91, 0x91919191u, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);
     const size_t ev_before = hal.events.size();
     const uint16_t keys_before = node.peer_key_count();
 
@@ -2828,6 +2828,11 @@ TEST_CASE("§id-hash S1 — a forced plane must MATCH: `-t` on a static-only nod
     CHECK(t.dst_hash == 0);                            // nothing resolved, so nothing is echoed as resolved
     CHECK(find_ev(hal.events, "h_tx") == nullptr);     // ★ a refusal spends NO AIRTIME (control: test 1 flies one)
     CHECK(hal.tx_frames.empty());
+    // ⚠ §id-hash S4a, V1 — SAME OUTCOME, DIFFERENT REASON, and the reason is now load-bearing. S4a makes an
+    // unresolved id FLY a by-id query instead of refusing, so this arm survives only because `team_id == 0` means
+    // there is no team plane to ask on: `emit_hash_query` could not stamp `team_scoped`, and the frame would go out
+    // as a STATIC by-id query wearing the operator's `-t`. `plane_usable` (node.cpp) refuses instead of answering a
+    // different question. The `-t` case that DOES fly now is the next test.
 
     // `-s` on the same node is the same query the bare form picked, and it succeeds.
     hal.events.clear();
@@ -2838,31 +2843,121 @@ TEST_CASE("§id-hash S1 — a forced plane must MATCH: `-t` on a static-only nod
     CHECK(find_ev(hal.events, "h_tx") != nullptr);     // ...and this same fixture CAN fly one
 }
 
-TEST_CASE("§id-hash S1 — an id UNKNOWN in both planes refuses with plane 0 = 'neither', and floods nothing") {
+TEST_CASE("§id-hash S4a §5 — an UNRESOLVED id no longer refuses: it flies a canonical BY-ID query on the chosen plane") {
     const Identity self = ab3_identity(103);
     TestHal hal; Node node(hal, /*id=*/114, self.key_hash32);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
-    cfg.is_mobile = true; cfg.team_id = 0xABCD1234u;   // a DUAL-plane node, so "neither" is a real answer not a stub
+    cfg.is_mobile = true; cfg.team_id = 0xABCD1234u;   // OFF-GRID team member: team-capable, no static return path
+    node.on_init(cfg); node.set_crypto_identity(self.x_secret, self.ed_pub); node.set_team_local_id(114);
+    hal._now = 100000;
+
+    // ★★ THE S1 FLIP, and S1's own note predicted it verbatim: *"It becomes live in S4a, where an unresolved id does
+    // fly a by-id query."* This is register B43's whole point — 109 is routable-but-unidentifiable, so no by-HASH
+    // question about it can even be FORMED, and before S4a nothing on the wire asked "who owns id N?".
+    hal.events.clear(); hal.tx_frames.clear();
+    const CmdResult r = node.on_command(s1_reqpubkey_by_id(109, /*plane=*/0));   // spec §0's unresolvable 109
+    CHECK(r.code == CmdCode::queued);
+    CHECK(r.accepted);
+    CHECK(r.plane == 1);                               // §3-D9 last bullets: team-only / off-grid defaults TEAM
+    CHECK(r.dst_hash == 0);                            // ★ the honest echo — the hash is precisely what we went to ask for
+    const Ev* q = find_ev(hal.events, "h_tx");
+    CHECK(q != nullptr);
+    if (q) CHECK(q->key_hash32 == 109);                // the query KEY is the id, zero-extended
+    // ★ AND THE FRAME ON THE WIRE IS CANONICAL — asserted from the bytes, not from the emit (the corpus validates
+    //   behaviour, never format, so the encoding needs its own eyes).
+    CHECK_FALSE(hal.tx_frames.empty());
+    bool saw_by_id = false;
+    for (const auto& f : hal.tx_frames) {
+        auto ph = parse_h(std::span<const uint8_t>(f.data(), f.size()));
+        if (!ph || !ph->by_id) continue;
+        saw_by_id = true;
+        CHECK(ph->query_id() == 109);
+        CHECK(ph->query_hash() == 0);                  // the accessor refuses to read an id as a hash
+        CHECK(ph->query_key32 == 109u);                // bytes 3-5 are zero on the wire
+        CHECK(ph->hard);                               // §7-O6: pack SETS hard under BY_ID
+        CHECK_FALSE(ph->want_pubkey);                  // §5 stage 1: the binding first, the key second
+        CHECK(ph->team_scoped);                        // ...on the TEAM plane the resolver selected
+        CHECK(ph->origin == 114);                      // team_local_id, so the answer can route back on _rt_team
+    }
+    CHECK(saw_by_id);
+
+    // SAME-FIXTURE CONTROL: once the binding EXISTS the identical command flies the by-HASH pubkey query instead —
+    // so the by-id form above is the unresolved branch, not the only thing this fixture can do.
+    node.test_learn_route(/*dest=*/109, /*via=*/109, 1, 40, /*team_plane=*/true);
+    node.team_key_set(/*id=*/109, 0x1090109Au, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);
+    hal.events.clear(); hal.tx_frames.clear();
+    const CmdResult r2 = node.on_command(s1_reqpubkey_by_id(109, /*plane=*/0));
+    CHECK(r2.code == CmdCode::queued); CHECK(r2.plane == 1); CHECK(r2.dst_hash == 0x1090109Au);
+    bool saw_hash_q = false;
+    for (const auto& f : hal.tx_frames) {
+        auto ph = parse_h(std::span<const uint8_t>(f.data(), f.size()));
+        if (!ph) continue;
+        CHECK_FALSE(ph->by_id);                        // ★ resolved ⇒ the by-id stage is skipped entirely
+        if (ph->want_pubkey && ph->query_hash() == 0x1090109Au) saw_hash_q = true;
+    }
+    CHECK(saw_hash_q);
+}
+
+TEST_CASE("§id-hash S4a §3-D9 — an UNRESOLVED id on a genuinely DUAL-plane node refuses rather than guessing a plane") {
+    // §3-D9 bullet 4, which S1 recorded as un-implementable and deferred here: with nothing resolved there is no
+    // binding to pick from, so the plane comes off CONFIGURATION — and a homed team mobile really does live on both.
+    const Identity self = ab3_identity(113);
+    TestHal hal; Node node(hal, /*id=*/114, self.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    cfg.is_mobile = true; cfg.team_id = 0xABCD1234u;
+    node.on_init(cfg); node.set_crypto_identity(self.x_secret, self.ed_pub); node.set_team_local_id(114);
+    node.test_set_my_mobile_reg(/*home_id=*/7, /*local_id=*/114);   // ...and HOMED ⇒ a static return path exists too
+    hal._now = 100000;
+
+    hal.events.clear(); hal.tx_frames.clear();
+    const CmdResult amb = node.on_command(s1_reqpubkey_by_id(109, /*plane=*/0));
+    CHECK(amb.code == CmdCode::err_ambiguous_plane);
+    CHECK(amb.plane == 0);
+    CHECK_FALSE(amb.accepted);
+    CHECK(find_ev(hal.events, "h_tx") == nullptr);     // ★★ no airtime is spent guessing — D9's whole reason
+    CHECK(hal.tx_frames.empty());
+    // ...and BOTH explicit flags then fly, on their own planes. This is the control that makes the refusal a policy
+    // rather than an inability.
+    hal.events.clear(); hal.tx_frames.clear();
+    const CmdResult t = node.on_command(s1_reqpubkey_by_id(109, /*plane=*/1 /*-t*/));
+    CHECK(t.code == CmdCode::queued); CHECK(t.plane == 1); CHECK(t.dst_hash == 0);
+    CHECK(find_ev(hal.events, "h_tx") != nullptr);
+    hal.events.clear(); hal.tx_frames.clear();
+    const CmdResult s = node.on_command(s1_reqpubkey_by_id(109, /*plane=*/2 /*-s*/));
+    CHECK(s.code == CmdCode::queued); CHECK(s.plane == 2); CHECK(s.dst_hash == 0);
+    bool static_by_id = false;
+    for (const auto& f : hal.tx_frames) {
+        auto ph = parse_h(std::span<const uint8_t>(f.data(), f.size()));
+        if (!ph || !ph->by_id) continue;
+        static_by_id = true;
+        CHECK_FALSE(ph->team_scoped);
+        CHECK(ph->origin == 7);                        // ★ a HOMED mobile stamps its home so the answer can come back
+    }
+    CHECK(static_by_id);
+}
+
+TEST_CASE("§id-hash S4a §3-D9 — an OFF-GRID mobile cannot ask a GLOBAL by-id question: no return path, reported not flown") {
+    // The B47 class through the new door: `emit_hash_query`'s no-return-route guard used to test `want_pubkey`, and a
+    // by-id query carries want_pubkey=false. Widened to `(want_pubkey || by_id)` — the ANSWER is the same routed DM.
+    const Identity self = ab3_identity(115);
+    TestHal hal; Node node(hal, /*id=*/114, self.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    cfg.is_mobile = true; cfg.team_id = 0xABCD1234u;   // off-grid: no home
     node.on_init(cfg); node.set_crypto_identity(self.x_secret, self.ed_pub); node.set_team_local_id(114);
     hal._now = 100000;
 
     hal.events.clear(); hal.tx_frames.clear();
-    const CmdResult r = node.on_command(s1_reqpubkey_by_id(109, /*plane=*/0));   // spec §0's unresolvable 109
-    CHECK(r.code == CmdCode::err_no_binding);
-    CHECK(r.plane == 0);                               // ★ 0 = neither plane was selected, which is the honest echo
-    CHECK(r.dst_hash == 0);
-    CHECK(find_ev(hal.events, "h_tx") == nullptr);     // C2: never flood a query for hash 0
+    const CmdResult s = node.on_command(s1_reqpubkey_by_id(109, /*plane=*/2 /*-s*/));
+    CHECK(s.code == CmdCode::err_no_gateway);
+    CHECK_FALSE(s.accepted);
+    CHECK(find_ev(hal.events, "h_want_pubkey_mobile_no_route") != nullptr);
+    CHECK(find_ev(hal.events, "h_tx") == nullptr);
     CHECK(hal.tx_frames.empty());
-    // SAME-FIXTURE CONTROL: give this node a team binding for 109 and the identical command now flies.
-    node.test_learn_route(/*dest=*/109, /*via=*/109, 1, 40, /*team_plane=*/true);
-    node.team_key_set(/*id=*/109, 0x1090109Au);
+    // control: the TEAM plane, which DOES have a return path on this same node, flies.
     hal.events.clear();
-    const CmdResult r2 = node.on_command(s1_reqpubkey_by_id(109, /*plane=*/0));
-    CHECK(r2.code == CmdCode::queued); CHECK(r2.plane == 1); CHECK(r2.dst_hash == 0x1090109Au);
+    const CmdResult t = node.on_command(s1_reqpubkey_by_id(109, /*plane=*/1 /*-t*/));
+    CHECK(t.code == CmdCode::queued);
     CHECK(find_ev(hal.events, "h_tx") != nullptr);
-    // ⓘ §3-D9's "unresolved id on a dual-plane node -> require a flag" arm is deliberately NOT implemented in S1, and
-    //   the first half of this test is why it CANNOT be: the refusal happens BEFORE any plane is selected, so a flag
-    //   would change nothing observable. It becomes live in S4a, where an unresolved id does fly a by-id query.
 }
 
 TEST_CASE("§id-hash S1 §3-D9 — one number in BOTH planes refuses err_ambiguous_plane; `-s`/`-t` then pick, and differ") {
@@ -2878,7 +2973,7 @@ TEST_CASE("§id-hash S1 §3-D9 — one number in BOTH planes refuses err_ambiguo
     CHECK(stat.key_hash32 != team.key_hash32);
     CHECK(node.test_id_bind_set(/*id=*/20, stat.key_hash32, /*authoritative=*/true));
     node.test_learn_route(20, 20, 1, 40, /*team_plane=*/true);
-    node.team_key_set(/*id=*/20, team.key_hash32);
+    node.team_key_set(/*id=*/20, team.key_hash32, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);
 
     hal.events.clear(); hal.tx_frames.clear();
     const CmdResult amb = node.on_command(s1_reqpubkey_by_id(20, /*plane=*/0));
@@ -2922,7 +3017,7 @@ TEST_CASE("§id-hash S1 — the TEAM arm is UNREGRESSED: a bare id on a team-onl
     hal._now = 100000;
     const Identity peer = ab3_identity(51);
     node.test_learn_route(/*dest=*/228, /*via=*/228, 1, 40, /*team_plane=*/true);
-    node.team_key_set(/*id=*/228, peer.key_hash32);
+    node.team_key_set(/*id=*/228, peer.key_hash32, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);
 
     // 228 exists ONLY in the team plane, so the bare form picks TEAM with no flag — the pre-S1 behaviour, preserved.
     const CmdResult bare = node.on_command(s1_reqpubkey_by_id(228, /*plane=*/0));
@@ -2938,24 +3033,38 @@ TEST_CASE("§id-hash S1 — the TEAM arm is UNREGRESSED: a bare id on a team-onl
     CHECK(node.id_bind_find_by_hash(peer.key_hash32) == -1);
 }
 
-TEST_CASE("§id-hash S1 — a CLAIMED static binding does not satisfy reqpubkey (the authoritative floor is unchanged)") {
+TEST_CASE("§id-hash S4a/B53 — a CLAIMED static binding NOW satisfies reqpubkey (the §3-D6 floor), and still not the send path") {
     const Identity self = ab3_identity(106);
     TestHal hal; Node node(hal, /*id=*/42, self.key_hash32);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
     cfg.team_id = 0;
     node.on_init(cfg); node.set_crypto_identity(self.x_secret, self.ed_pub);
     hal._now = 100000;
-    // §3-D6 puts `reqpubkey` at the `claimed` floor — but that needs S3's floor parameter, which does not exist yet.
-    // S1 therefore inherits key_hash_of_id's AUTHORITATIVE-only gate, and this pins that so S3's change is VISIBLE
-    // (an assertion that must flip is worth more than an absent one).
+    // ★★ THE B53 FLIP. S1/S3 asserted `err_no_binding` here and said so in as many words: *"pins that so the change
+    // is VISIBLE — an assertion that must flip is worth more than an absent one."* This is that flip. §3-D6:
+    // `reqpubkey <id>` reads at the `claimed` floor, because fetching the pubkey SELF-VERIFIES against the hash and
+    // upgrades nothing — inspecting a claim is exactly what the verb is for.
     CHECK(node.test_id_bind_set(/*id=*/77, 0x77777777u, /*authoritative=*/false));
+    hal.events.clear();
     const CmdResult r = node.on_command(s1_reqpubkey_by_id(77, /*plane=*/0));
-    CHECK(r.code == CmdCode::err_no_binding);          // ✖ MISSING (deferred to S3): the `claimed` floor + `actual`
-    CHECK(r.plane == 0);
-    // control: the SAME id at authoritative resolves — so the refusal above is the confidence gate, not the id
+    CHECK(r.code == CmdCode::queued);
+    CHECK(r.dst_hash == 0x77777777u);                  // the CLAIMED hash — and the query flies BY HASH, not by id
+    CHECK(r.plane == 2);
+    const Ev* q = find_ev(hal.events, "h_tx");
+    CHECK(q != nullptr);
+    if (q) CHECK(q->key_hash32 == static_cast<int64_t>(0x77777777u));
+    // ★ CONTROL — the lowered floor is display/inspection ONLY (§3-D6/D7): DST_HASH stamping still refuses a claim,
+    //   so a false claim can never drive an L2c redirect. That default is what S4a did NOT move.
+    uint32_t stamp = 0;
+    CHECK_FALSE(node.key_hash_of_id(77, stamp));                     // default floor = authoritative
+    Node::IdBindConf actual = Node::IdBindConf::authoritative;
+    CHECK(node.key_hash_of_id(77, stamp, Node::IdBindConf::claimed, &actual));
+    CHECK(actual == Node::IdBindConf::claimed);                      // ...and the tier is REPORTED, not smoothed over
+    // control: the SAME id at authoritative resolves too — so the arm above is not simply "any row wins"
     CHECK(node.test_id_bind_set(/*id=*/77, 0x77777777u, /*authoritative=*/true));
     const CmdResult r2 = node.on_command(s1_reqpubkey_by_id(77, /*plane=*/0));
     CHECK(r2.code == CmdCode::queued); CHECK(r2.dst_hash == 0x77777777u); CHECK(r2.plane == 2);
+    CHECK(node.key_hash_of_id(77, stamp));                           // and it IS stampable now
 }
 
 TEST_CASE("§id-hash S1 — the by-HASH form is untouched: same plane, and dst_hash echoes what was asked") {
@@ -3348,7 +3457,7 @@ TEST_CASE("§id-hash S1b §3-D9 (QA P2) — the SAME hash in BOTH planes is stil
     const Identity both = ab3_identity(60);
     CHECK(node.test_id_bind_set(/*id=*/20, both.key_hash32, /*authoritative=*/true));
     node.test_learn_route(20, 20, 1, 40, /*team_plane=*/true);
-    node.team_key_set(/*id=*/20, both.key_hash32);
+    node.team_key_set(/*id=*/20, both.key_hash32, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);
 
     Node::PeerBookRow st{}, tm{};
     const uint8_t mask = node.peer_book_by_id(20, st, tm);
@@ -3392,9 +3501,10 @@ TEST_CASE("§id-hash S1b (QA P1c) — the HOSTED-MOBILE cache hit is a SUCCESS t
     Command c{}; c.kind = CmdKind::reqpubkey;
     c.u.resolve.dst_hash = guest.key_hash32; c.u.resolve.hard = true; c.u.resolve.plane = 2;
     const CmdResult r = node.on_command(c);
-    // ★ A GENUINE SUCCESS — the key is cached and the app learns it from the peer_key_cached push — that airs
-    //   NOTHING. `queued` is right; `reqpubkey_sent` ("the request was flooded") is not, and `aired` is the bit
-    //   that lets the transport tell them apart. This is why `aired` is not redundant with `code == queued`.
+    // ★ A GENUINE SUCCESS that hands the TX path NOTHING — the key is cached and the app learns it from the
+    //   peer_key_cached push. `queued` is right; `reqpubkey_sent` is not, and `accepted` is the bit that lets the
+    //   transport tell them apart. This is why `accepted` is not redundant with `code == queued`.
+    //   ⓘ `reqpubkey_sent` means "the TX path ACCEPTED the frame" (owner ruling 2026-08-01), never "it aired".
     CHECK(r.code == CmdCode::queued);
     CHECK_FALSE(r.accepted);
     CHECK_FALSE(ble_claims_sent(r));
@@ -3425,24 +3535,26 @@ TEST_CASE("§id-hash S1c (QA round 2) — a DROPPED frame (LBT defer ring full) 
     CHECK(idle.code == CmdCode::queued); CHECK(idle.accepted); CHECK(ble_claims_sent(idle));
     CHECK_FALSE(hal.tx_frames.empty());
 
-    // Now hold the channel busy. The first FOUR queries DEFER — scheduled, will fly ⇒ still `sent`/`aired`, which is
-    // the scope ruling: a successful defer is NOT a false success.
+    // Now hold the channel busy. The first FOUR queries DEFER — the TX path ACCEPTED them ⇒ still `sent`/`accepted`,
+    // which is the scope ruling: a successful defer is NOT a false success.
+    // ⚠ V1 2026-08-02: this used to read "scheduled, will fly". Acceptance is NOT a promise of airtime — a deferred
+    // frame can still meet a full HAL queue when its timer fires, which is exactly what "CONTROL 2" below covers.
     hal._busy_until = hal._now + 5000;
     for (uint32_t i = 0; i < 4; ++i) {
         hal.events.clear(); hal.tx_frames.clear();
         q.u.resolve.dst_hash = 0xBBBB0000u + i;
         const CmdResult d = node.on_command(q);
         CHECK(d.code == CmdCode::queued);
-        CHECK(d.accepted);                                  // ★ deferred == will fly: the contract's claim holds
+        CHECK(d.accepted);                                  // ★ deferred == ACCEPTED by the TX path: the contract's claim holds
         CHECK(ble_claims_sent(d));
         CHECK(find_ev(hal.events, "tx_lbt_defer") != nullptr);
         CHECK(find_ev(hal.events, "tx_lbt_defer_dropped") == nullptr);
-        CHECK(hal.tx_frames.empty());                    // ...not on air YET, and that is fine
+        CHECK(hal.tx_frames.empty());                    // ...and NOT handed to the radio yet, which is exactly what acceptance does and does not claim
     }
 
     // ★★ THE FIFTH one finds the 4-slot ring FULL: schedule_lbt_defer drops it loudly, and before S1c that `bool` was
-    //    discarded by tx_initiating, so emit_hash_query answered `sent`, CmdResult carried aired=true, and BLE emitted
-    //    `{"ev":"reqpubkey_sent"}` for a frame that was never sent and never scheduled.
+    //    discarded by tx_initiating, so emit_hash_query answered `sent`, CmdResult carried accepted=true (then named
+    //    `aired`), and BLE emitted `{"ev":"reqpubkey_sent"}` for a frame that was never sent and never scheduled.
     hal.events.clear(); hal.tx_frames.clear();
     q.u.resolve.dst_hash = 0xCCCC0000u;
     const CmdResult drop = node.on_command(q);
@@ -3562,3 +3674,910 @@ TEST_CASE("§id-hash S1d — CONTROL 2: a frame ACCEPTED into the defer ring tha
 // two `static_assert`s in `lib/core/node_mac.cpp`, beside the three readers, because `Node::TxHandOff` is private and
 // widening the seam for a test would be the wrong trade. See the note there: it is the regression a two-way
 // `false-on-rejection` would have caused (a dropped DATA with no recovery at all).
+
+// =============================================================================
+// ★★★ §id-hash S3 (spec 2026-08-01 §3-D1 / §3-D2 / §3-D5c) — THE TEAM PLANE'S CONFIDENCE LADDER.
+//
+// ⚠⚠ NATIVE IS THE GATE FOR THIS SLICE, AND THE MEASUREMENT SAYS WHY, not a preference. The 36-scenario corpus
+// produces ZERO `claimed` bindings — instrumented at 304 885 `id_bind_set` samples (BASELINE 2026-08-01 §id-hash S2b)
+// — and S3 ships NO producer of a claimed TEAM binding at all (the heard beacon is the only writer of `_team_keys`
+// and it writes `authoritative`; the on-air ingest is S4a/§3-D5b). ⇒ a corpus "0/36 movers" here means *"the corpus
+// cannot construct the input"*, NEVER *"the change is inert"*. The public setter is the seam these tests use, and it
+// is the same seam S4a's ingest will call.
+//
+// THE SWEEP IS ENUMERATIVE ON PURPOSE (spec §3-D1's closing requirement): every reader of `_team_keys` and of
+// `_id_bind` is exercised at both floors here, so a future reader that omits the parameter cannot quietly bypass the
+// policy — the list below IS the reader set, derived from `grep -rn 'key_hash_of_id\|team_key_of_id\|team_id_of_key'`.
+// =============================================================================
+
+// A team member with a routable teammate, i.e. the state `team_key_of_id`/`team_id_of_key` actually gate on
+// (`_cfg.team_id != 0` AND the `_team_peer` bit, which only an `_rt_team` route sets).
+static void s3_team_node(Node& node, TestHal& hal, std::initializer_list<uint8_t> teammates) {
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    cfg.is_mobile = true; cfg.team_id = 0xABCD1234u;
+    node.on_init(cfg); node.set_team_local_id(114);
+    for (uint8_t t : teammates) node.test_learn_route(t, t, 1, 40, /*team_plane=*/true);
+    hal._now = 100000;
+}
+
+TEST_CASE("§id-hash S3 §3-D1 — the FLOOR reaches all three accessors, and `actual` reports the tier") {
+    TestHal hal; Node node(hal, /*id=*/114, /*key=*/0x5114A11Au);
+    s3_team_node(node, hal, {20, 21});
+    const uint32_t HA = 0xAAAA0001u;   // an AUTHORITATIVE team binding (what a heard beacon leaves)
+    const uint32_t HC = 0xCCCC0002u;   // a CLAIMED one (what §3-D5b's on-air answer will leave in S4a)
+    node.team_key_set(20, HA, Node::IdBindSource::bcn,     Node::IdBindConf::authoritative);
+    node.team_key_set(21, HC, Node::IdBindSource::h_query, Node::IdBindConf::claimed);
+
+    uint32_t out = 0; uint8_t id_out = 0;
+    Node::IdBindConf actual = Node::IdBindConf::claimed;
+
+    // (1) FORWARD, team — team_key_of_id. Default floor = authoritative ⇒ the claim is INVISIBLE (this is what makes
+    //     every pre-S3 caller byte-identical), and lowering the floor reveals it WITH its tier.
+    CHECK(node.team_key_of_id(20, out, Node::IdBindConf::authoritative, &actual));
+    CHECK(out == HA); CHECK(actual == Node::IdBindConf::authoritative);
+    out = 0; actual = Node::IdBindConf::authoritative;
+    CHECK_FALSE(node.team_key_of_id(21, out));                                        // ★ the default floor refuses it
+    CHECK(out == 0);                                                                  // ...and writes nothing
+    CHECK(node.team_key_of_id(21, out, Node::IdBindConf::claimed, &actual));          // ★ the display floor sees it
+    CHECK(out == HC); CHECK(actual == Node::IdBindConf::claimed);                     // ★ LABELLED as a claim
+
+    // (2) REVERSE, team — team_id_of_key. ★★ THE READER v1 OF THE SPEC MISSED, and the one that matters most: it is
+    //     on the LIVE plaintext send-by-hash path, so before S3 a claimed row would have addressed a transmission.
+    CHECK(node.team_id_of_key(HA, id_out)); CHECK(id_out == 20);
+    id_out = 0;
+    CHECK_FALSE(node.team_id_of_key(HC, id_out));                                     // ★ §3-D7: a claim never drives a send
+    CHECK(id_out == 0);
+    actual = Node::IdBindConf::authoritative;
+    CHECK(node.team_id_of_key(HC, id_out, Node::IdBindConf::claimed, &actual));
+    CHECK(id_out == 21); CHECK(actual == Node::IdBindConf::claimed);
+
+    // (3) FORWARD, static — key_hash_of_id. The pre-S3 hard filter is now the same parameter with the same default,
+    //     so the static and team planes cannot drift apart again (spec §1-C's asymmetry defect).
+    const uint32_t SA = 0x51510001u, SC = 0x51510002u;
+    CHECK(node.test_id_bind_set(/*id=*/30, SA, /*authoritative=*/true));
+    CHECK(node.test_id_bind_set(/*id=*/31, SC, /*authoritative=*/false));
+    out = 0; actual = Node::IdBindConf::claimed;
+    CHECK(node.key_hash_of_id(30, out, Node::IdBindConf::authoritative, &actual));
+    CHECK(out == SA); CHECK(actual == Node::IdBindConf::authoritative);
+    out = 0; actual = Node::IdBindConf::authoritative;
+    CHECK_FALSE(node.key_hash_of_id(31, out));                                        // the pre-S3 behaviour, verbatim
+    CHECK(node.key_hash_of_id(31, out, Node::IdBindConf::claimed, &actual));
+    CHECK(out == SC); CHECK(actual == Node::IdBindConf::claimed);
+
+    // (4) ★ `actual` IS NOT WRITTEN ON A MISS. A caller that reads it after `false` would be reading its own
+    //     initialiser, so the safe initialiser is the caller's job — pinned so nobody "helpfully" writes a
+    //     confidence for a binding that does not exist.
+    actual = Node::IdBindConf::authoritative;
+    CHECK_FALSE(node.team_key_of_id(99, out, Node::IdBindConf::claimed, &actual));    // 99 is not a teammate at all
+    CHECK(actual == Node::IdBindConf::authoritative);                                 // untouched
+}
+
+TEST_CASE("§id-hash S3 §3-D5c — a CLAIM cannot demote, relabel, rebind OR re-date a first-hand team row") {
+    TestHal hal; Node node(hal, /*id=*/114, /*key=*/0x5214A11Au);
+    s3_team_node(node, hal, {20});
+    const uint32_t H = 0xBEEF0001u, OTHER = 0xBEEF0002u;
+
+    hal._now = 1000;
+    node.team_key_set(20, H, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);
+
+    // (a) SAME hash, claimed -> the tier survives and the reader still answers at the seal floor.
+    hal._now = 2000;
+    node.team_key_set(20, H, Node::IdBindSource::h_relay, Node::IdBindConf::claimed);
+    uint32_t out = 0; Node::IdBindConf actual = Node::IdBindConf::claimed;
+    CHECK(node.team_key_of_id(20, out, Node::IdBindConf::authoritative, &actual));
+    CHECK(out == H); CHECK(actual == Node::IdBindConf::authoritative);   // ★ NOT demoted
+
+    // (b) DIFFERENT hash, claimed -> REFUSED outright. `team_key_set` used to take the incoming unconditionally
+    //     ("the DENY converges, the flap is transient"), which is right for two FIRST-HAND beacons and wrong for
+    //     hearsay: a claim must never re-point a binding the seal path trusts.
+    node.team_key_set(20, OTHER, Node::IdBindSource::h_query, Node::IdBindConf::claimed);
+    out = 0;
+    CHECK(node.team_key_of_id(20, out, Node::IdBindConf::claimed));
+    CHECK(out == H);                                                     // ★ still the first-hand hash
+    uint8_t id_out = 0;
+    CHECK_FALSE(node.team_id_of_key(OTHER, id_out, Node::IdBindConf::claimed));   // the claim was not stored anywhere
+
+    // (c) ★★ THE LIVENESS RULE, AND ITS CONTROL. `last_seen_ms` on an authoritative row means "when we last had
+    //     FIRST-HAND evidence"; a claim may not refresh it, or hearsay keeps a stale binding alive forever — the
+    //     exact hazard on_hash_bind_snoop's header names for this table. ⇒ re-claiming at +47 h does NOT stop the
+    //     48 h TTL retiring the row.
+    hal._now = 1000 + 47ull * 3600 * 1000;
+    node.team_key_set(20, H, Node::IdBindSource::h_relay, Node::IdBindConf::claimed);
+    hal._now = 1000 + 49ull * 3600 * 1000;                               // > id_bind_ttl_ms from the FIRST-HAND stamp
+    out = 0;
+    CHECK_FALSE(node.team_key_of_id(20, out, Node::IdBindConf::claimed));   // ★ aged out ON SCHEDULE
+    CHECK_FALSE(node.team_id_of_key(H, id_out, Node::IdBindConf::claimed));
+
+    // (c-CONTROL) the IDENTICAL timing with an AUTHORITATIVE re-sighting DOES extend the lease. Without this,
+    // "it expired" would prove nothing about WHY it expired (the S2b lesson, applied to the team table).
+    TestHal hal2; Node ctl(hal2, /*id=*/114, /*key=*/0x5314A11Au);
+    s3_team_node(ctl, hal2, {20});
+    hal2._now = 1000;
+    ctl.team_key_set(20, H, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);
+    hal2._now = 1000 + 47ull * 3600 * 1000;
+    ctl.team_key_set(20, H, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);   // ← the ONLY difference
+    hal2._now = 1000 + 49ull * 3600 * 1000;
+    out = 0;
+    CHECK(ctl.team_key_of_id(20, out));                                  // ★ alive, at the seal floor
+    CHECK(out == H);
+}
+
+TEST_CASE("§id-hash S3 §3-D5c — UPGRADE still works: claimed -> authoritative, and claimed -> claimed is newest-wins") {
+    TestHal hal; Node node(hal, /*id=*/114, /*key=*/0x5414A11Au);
+    s3_team_node(node, hal, {20});
+    const uint32_t H1 = 0x11110001u, H2 = 0x22220002u;
+
+    hal._now = 1000;
+    node.team_key_set(20, H1, Node::IdBindSource::h_query, Node::IdBindConf::claimed);
+    uint32_t out = 0;
+    CHECK_FALSE(node.team_key_of_id(20, out));                                        // below the seal floor
+    CHECK(node.team_key_of_id(20, out, Node::IdBindConf::claimed)); CHECK(out == H1);
+
+    // claimed -> claimed with a DIFFERENT hash is NEWEST-WINS. Owner ruling 2026-08-01 for the sibling `_id_bind`
+    // (BASELINE §id-hash S2b): there is no trust ordering between two claims, so keeping the pre-existing
+    // take-the-incoming behaviour is what makes S3 a ladder addition rather than a redesign (C1).
+    hal._now = 2000;
+    node.team_key_set(20, H2, Node::IdBindSource::h_relay, Node::IdBindConf::claimed);
+    out = 0;
+    CHECK(node.team_key_of_id(20, out, Node::IdBindConf::claimed)); CHECK(out == H2);
+
+    // claimed -> AUTHORITATIVE upgrades: the direction the guard must never block (a teammate's beacon finally
+    // arriving is exactly how a claim is supposed to be resolved).
+    hal._now = 3000;
+    node.team_key_set(20, H1, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);
+    out = 0; Node::IdBindConf actual = Node::IdBindConf::claimed;
+    CHECK(node.team_key_of_id(20, out, Node::IdBindConf::authoritative, &actual));
+    CHECK(out == H1); CHECK(actual == Node::IdBindConf::authoritative);
+}
+
+TEST_CASE("§id-hash S3 §3-D5c — EVICTION drains the CLAIMED cohort first, so a query storm cannot evict beacon rows") {
+    TestHal hal; Node node(hal, /*id=*/114, /*key=*/0x5514A11Au);
+    std::vector<uint8_t> mates; for (uint8_t i = 1; i <= 20; ++i) mates.push_back(static_cast<uint8_t>(i));
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    cfg.is_mobile = true; cfg.team_id = 0xABCD1234u;
+    node.on_init(cfg); node.set_team_local_id(114);
+    for (uint8_t t : mates) node.test_learn_route(t, t, 1, 40, /*team_plane=*/true);
+
+    // 16 slots: id 1 is the OLDEST row in the table and is AUTHORITATIVE (a genuine beacon). ids 2..16 are newer
+    // authoritative rows. Slot 0's row is therefore what a plain evict-oldest would take.
+    for (uint8_t i = 1; i <= 16; ++i) {
+        hal._now = 1000 + i * 10;
+        node.team_key_set(i, 0x1000u + i, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);
+    }
+    uint32_t out = 0;
+    CHECK(node.team_key_of_id(1, out)); CHECK(out == 0x1001u);
+
+    // A CLAIMED row cannot even get in while the table is full of first-hand rows — the fallback victim would be the
+    // oldest authoritative one, and taking it for hearsay is precisely the eviction hazard D5c forbids... but the
+    // rule is stated as "prefer a claimed victim", not "refuse a claimed insert", so we must FIRST create a claimed
+    // occupant the storm can consume. That happens naturally: an authoritative row is replaced by a fresh teammate,
+    // then S4a's ingest lands a claim in that slot.
+    hal._now = 5000;
+    node.team_key_set(17, 0x1017u, Node::IdBindSource::h_query, Node::IdBindConf::claimed);   // evicts oldest (id 1)
+    CHECK_FALSE(node.team_key_of_id(1, out));                       // ⇒ the pre-S3 LRU still governs a full auth table
+    CHECK(node.team_key_of_id(17, out, Node::IdBindConf::claimed)); CHECK(out == 0x1017u);
+
+    // ★★ NOW THE RULE BITES. id 2 is the oldest row in the table; id 17 is the NEWEST — but 17 is a CLAIM, so it is
+    // the victim. Plain evict-oldest would have taken the first-hand row 2 and left the hearsay in place, which is
+    // exactly how a 2-hop by-id query storm would hollow out the beacon cache the seal path depends on.
+    hal._now = 6000;
+    node.team_key_set(18, 0x1018u, Node::IdBindSource::h_query, Node::IdBindConf::claimed);
+    CHECK(node.team_key_of_id(2, out));                             // ★ the OLDEST AUTHORITATIVE row SURVIVES
+    CHECK(out == 0x1002u);
+    CHECK_FALSE(node.team_key_of_id(17, out, Node::IdBindConf::claimed));   // ★ the claim was the victim
+    CHECK(node.team_key_of_id(18, out, Node::IdBindConf::claimed)); CHECK(out == 0x1018u);
+
+    // ★ and it holds under a STORM, not just one frame: 8 more claims in a row must consume only each other.
+    for (uint8_t k = 0; k < 8; ++k) {
+        hal._now = 7000 + k * 10;
+        node.team_key_set(static_cast<uint8_t>(19), 0x2000u + k, Node::IdBindSource::h_query, Node::IdBindConf::claimed);
+        node.team_key_set(static_cast<uint8_t>(20), 0x3000u + k, Node::IdBindSource::h_relay, Node::IdBindConf::claimed);
+    }
+    for (uint8_t i = 2; i <= 16; ++i) {                             // ★ EVERY first-hand row is still there
+        out = 0;
+        CHECK(node.team_key_of_id(i, out));
+        CHECK(out == 0x1000u + i);
+    }
+}
+
+TEST_CASE("§id-hash S3 — the VIEW labels a team claim as a claim, on every fill path, and never doubles a row") {
+    TestHal hal; Node node(hal, /*id=*/114, /*key=*/0x5614A11Au);
+    s3_team_node(node, hal, {20, 21, 22, 23});
+    const Identity ann = ab3_identity(31);
+
+    // (1) THE JOIN PATH (peer_book_join_ids, via a _peer_keys row): the team tier rides the joined row.
+    CHECK(node.peer_key_set(ann.key_hash32, ann.ed_pub, Node::PeerKeyConf::authoritative, "Ann", 3));
+    node.team_key_set(20, ann.key_hash32, Node::IdBindSource::h_query, Node::IdBindConf::claimed);
+    // (2) THE PASS-(3) PATH (a _team_keys row with no key and no static binding): straight off the row.
+    node.team_key_set(21, 0x21210000u, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);
+    node.team_key_set(22, 0x22220000u, Node::IdBindSource::h_relay, Node::IdBindConf::claimed);
+    // (3) THE PASS-(4) PATH: a routable teammate with NO _team_keys row at all — an id-only row, which asserts no
+    //     binding, so its `team_authoritative` must stay FALSE without that reading as "we heard a claim".
+    //     (23 gets a route above and no key.)
+
+    BookRows all; node.peer_book_walk(/*include_id_rows=*/true, BookRows::collect, &all);
+    const auto* r20 = all.by_team(20);
+    CHECK(r20 != nullptr);
+    if (r20) { CHECK(r20->hash == ann.key_hash32); CHECK_FALSE(r20->team_authoritative); }   // ★ the join reports the CLAIM
+    const auto* r21 = all.by_team(21);
+    CHECK(r21 != nullptr);
+    if (r21) { CHECK(r21->hash == 0x21210000u); CHECK(r21->team_authoritative); }
+    const auto* r22 = all.by_team(22);
+    CHECK(r22 != nullptr);
+    if (r22) { CHECK(r22->hash == 0x22220000u); CHECK_FALSE(r22->team_authoritative); }
+    const auto* r23 = all.by_team(23);
+    CHECK(r23 != nullptr);
+    if (r23) { CHECK(r23->hash == 0); CHECK_FALSE(r23->team_authoritative); }   // id-only: no binding to vouch for
+
+    // ★★ THE PLANTED-BUG GUARD, and it is the reason pass (4) passes an EXPLICIT `claimed` floor. Pass (3) resolves
+    // through `team_id_of_key_freshest`, which has NO floor; if pass (4)'s dedup asked at the default AUTHORITATIVE
+    // floor, a CLAIMED row would answer "absent" there and the walk would emit id 22 TWICE — once with its hash from
+    // (3) and once as an id-only row from (4). Same trap §id-hash S2 recorded for pass (2b): *the dedup must read the
+    // TABLE, not a filtering accessor.*
+    int seen22 = 0, seen20 = 0;
+    for (const auto& row : all.rows) { if (row.team_id == 22) ++seen22; if (row.team_id == 20) ++seen20; }
+    CHECK(seen22 == 1);
+    CHECK(seen20 == 1);
+
+    // (4) THE by-id RESOLVER. ★★ §id-hash S4a / register B53 — THE FLOOR MOVED TO `claimed` HERE, and this block is
+    //     the visible diff S3 planted it to be: it used to assert `== 0` for both claimed ids. §3-D6 puts display and
+    //     pubkey inspection at the `claimed` floor, and S4a is the slice that needed it (its own claimed rows would
+    //     otherwise be invisible to every verb). The tier still rides the row, so the claim is SHOWN AS a claim.
+    Node::PeerBookRow st{}, tm{};
+    CHECK(node.peer_book_by_id(21, st, tm) == Node::kPeerBookTeam);
+    CHECK(tm.team_id == 21); CHECK(tm.team_authoritative);
+    CHECK(node.peer_book_by_id(22, st, tm) == Node::kPeerBookTeam);   // ★ S4a: resolvable...
+    CHECK(tm.team_id == 22); CHECK_FALSE(tm.team_authoritative);      // ...and LABELLED as a claim (§3-D6)
+    CHECK(node.peer_book_by_id(20, st, tm) == Node::kPeerBookTeam);   // ★ the join-path fill, same rule
+    CHECK(tm.team_id == 20); CHECK_FALSE(tm.team_authoritative);
+    // ★ CONTROL — what the lowered floor did NOT unlock (spec §3-D6/D7): the SEND path still refuses a claim.
+    uint32_t send_h = 0; uint8_t send_id = 0;
+    CHECK_FALSE(node.team_key_of_id(22, send_h));                    // default floor = authoritative
+    CHECK_FALSE(node.team_id_of_key(0x22220000u, send_id));          // ...and the reverse reader agrees
+    CHECK(node.team_key_of_id(21, send_h));                          // the authoritative row still sends
+}
+
+TEST_CASE("§id-hash S3 — the ALIAS resolver reports the WINNER's tier and does not re-rank by trust") {
+    TestHal hal; Node node(hal, /*id=*/114, /*key=*/0x5714A11Au);
+    s3_team_node(node, hal, {228, 231});
+    const Identity ann = ab3_identity(41);
+    CHECK(node.peer_key_set(ann.key_hash32, ann.ed_pub, Node::PeerKeyConf::authoritative));
+
+    hal._now = 100000; node.team_key_set(228, ann.key_hash32, Node::IdBindSource::bcn,     Node::IdBindConf::authoritative);
+    hal._now = 200000; node.team_key_set(231, ann.key_hash32, Node::IdBindSource::h_query, Node::IdBindConf::claimed);
+    hal._now = 300000;
+
+    // ★ FRESHEST STILL WINS, and the tier is REPORTED rather than used to re-rank. Letting the older authoritative
+    // row beat the fresher claim would put a TRUST decision inside a DISPLAY resolver — the §AB3 de-dup mistake that
+    // cost this arc a review round (S1b/QA P2). The honest rendering is "231, and it is only a claim".
+    BookRows b; CHECK(node.peer_book_walk(false, BookRows::collect, &b) == 1);
+    CHECK(b.rows[0].team_id == 231);
+    CHECK_FALSE(b.rows[0].team_authoritative);
+    CHECK(b.rows[0].team_alias_dropped == 1);            // the loser is still NAMED, per spec §2.1
+
+    // and the SEND-path reverse reader is unaffected by the display's choice: at the default floor it still resolves
+    // the hash to the FIRST-HAND id, because the claim is simply not a candidate there.
+    uint8_t id_out = 0;
+    CHECK(node.team_id_of_key(ann.key_hash32, id_out));
+    CHECK(id_out == 228);                                // ★ the claim did not shadow the beacon row on the send path
+}
+
+// =============================================================================
+// ★★★ §id-hash S4a (spec 2026-08-01 §4 / §3-D3 / §3-D4 / §3-D5) — H_FLAG_BY_ID:
+// "who owns id N?". Register B43: a peer we ROUTE to but never HEARD has no hash
+// on either plane, so no by-HASH question about it can even be formed.
+// ⚠ THE CORPUS CANNOT REACH THE ORIGINATOR: the simulator console parses only
+// `reqpubkey <hex>` and hard-sets dst_id = 0 (NodeRuntimeWrapper.cpp), so every
+// by-id assertion below is native BY CONSTRUCTION, not by omission. The team
+// INGEST half (§3-D5b) *is* corpus-reachable and does re-anchor — see BASELINE.
+// =============================================================================
+
+// A one-hop static pair driver: hand `node` a raw H frame built from `in`.
+static void s4a_feed_h(Node& node, const h_in& in) {
+    std::array<uint8_t, 80> buf{};
+    const size_t n = pack_h(in, std::span<uint8_t>(buf.data(), buf.size()));
+    CHECK(n > 0);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    node.on_recv(buf.data(), n, meta);
+}
+
+// The H frames a node put on the air, parsed back.
+static std::vector<h_out> s4a_h_frames(const TestHal& hal) {
+    std::vector<h_out> v;
+    for (const auto& f : hal.tx_frames)
+        if (auto p = parse_h(std::span<const uint8_t>(f.data(), f.size()))) v.push_back(*p);
+    return v;
+}
+
+TEST_CASE("§id-hash S4a §3-D3 — ONLY THE OWNER answers a by-id query; a node holding a CACHED binding must not") {
+    // ★★ The load-bearing case of the whole slice. A cached answer is allowed exactly when the answer is
+    // SELF-VERIFYING; id->hash is not, so a third party relaying its guess is attack surface for nothing.
+    const uint32_t K186 = 0x61CD83EAu;
+
+    // (a) THE CACHE HOLDER. It knows 186 -> K186 AUTHORITATIVELY (a heard beacon), which is the strongest cached
+    //     state that exists — and it still must stay silent and FORWARD.
+    TestHal hc; Node cache(hc, /*id=*/50, /*key=*/0x00005050u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    cache.on_init(cfg);
+    CHECK(cache.test_id_bind_set(/*id=*/186, K186, /*authoritative=*/true));
+    hc._now = 100000; hc.events.clear(); hc.tx_frames.clear();
+    h_in q{}; q.leaf_id = 0; q.origin = 9; q.query_key32 = 186; q.ttl = 3; q.by_id = true;
+    s4a_feed_h(cache, q);
+    CHECK(find_ev(hc.events, "h_resolved") == nullptr);            // ★ NO answer from the cache
+    CHECK(find_ev(hc.events, "hash_bind_response_enqueued") == nullptr);
+    CHECK(find_ev(hc.events, "h_forward") != nullptr);             // ...it forwards instead, so the OWNER can answer
+    // ★ SAME-FIXTURE POSITIVE CONTROL: the identical node DOES answer the by-HASH form out of that same cache row,
+    //   which is what proves the silence above is the by-id rule and not a broken fixture.
+    hc.events.clear();
+    h_in qh{}; qh.leaf_id = 0; qh.origin = 9; qh.query_key32 = K186; qh.ttl = 3;   // soft, by hash
+    s4a_feed_h(cache, qh);
+    CHECK(find_ev(hc.events, "h_resolved") != nullptr);
+    CHECK(find_ev(hc.events, "hash_bind_response_enqueued") != nullptr);
+
+    // (b) THE OWNER. Same query, and it answers — with its OWN hash, and NOT authoritatively (§3-D4).
+    TestHal ho; Node owner(ho, /*id=*/186, K186);
+    owner.on_init(cfg);
+    ho._now = 100000; ho.events.clear(); ho.tx_frames.clear();
+    s4a_feed_h(owner, q);
+    const Ev* res = find_ev(ho.events, "h_resolved");
+    CHECK(res != nullptr);
+    if (res) CHECK(res->node == 186);
+    const Ev* ans = find_ev(ho.events, "hash_bind_response_enqueued");
+    CHECK(ans != nullptr);
+    if (ans) {
+        CHECK(ans->key_hash32 == static_cast<int64_t>(K186));      // ★ the OWNER'S hash, not the query key
+        CHECK(ans->has_auth);
+        CHECK_FALSE(ans->authoritative);                           // ★★ §3-D4: owner TRUE, binding_verifiable FALSE
+    }
+    CHECK(find_ev(ho.events, "h_forward") == nullptr);             // resolved ⇒ the flood stops here
+    // ★ CONTROL: the SAME owner answers a by-HASH query AUTHORITATIVELY, so `false` above is the by-id rule and not
+    //   a fixture that can only produce plain answers.
+    ho.events.clear();
+    s4a_feed_h(owner, qh);
+    const Ev* ans2 = find_ev(ho.events, "hash_bind_response_enqueued");
+    CHECK(ans2 != nullptr);
+    if (ans2) CHECK((ans2->has_auth && ans2->authoritative));
+
+    // (c) A BYSTANDER that is neither owner nor cache forwards, and never answers.
+    TestHal hb; Node by(hb, /*id=*/77, /*key=*/0x00007777u);
+    by.on_init(cfg); hb._now = 100000; hb.events.clear();
+    s4a_feed_h(by, q);
+    CHECK(find_ev(hb.events, "h_resolved") == nullptr);
+    CHECK(find_ev(hb.events, "h_forward") != nullptr);
+}
+
+TEST_CASE("§id-hash S4a §7-O6 — the RECEIVE side does not require HARD under BY_ID (pack sets it; parse must not demand it)") {
+    const uint32_t K186 = 0x61CD83EAu;
+    TestHal ho; Node owner(ho, /*id=*/186, K186);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    owner.on_init(cfg); ho._now = 100000;
+
+    // Build a canonical BY_ID frame, then CLEAR the HARD bit by hand — the combination pack_h will never emit.
+    h_in q{}; q.leaf_id = 0; q.origin = 9; q.query_key32 = 186; q.ttl = 3; q.by_id = true;
+    std::array<uint8_t, 16> buf{};
+    const size_t n = pack_h(q, std::span<uint8_t>(buf.data(), buf.size()));
+    CHECK(n == 8);
+    CHECK((buf[7] & 0x01) != 0);                                   // ★ pack SET hard (O6: consistency)
+    CHECK((buf[7] & 0x10) != 0);                                   // ...and BY_ID
+    buf[7] = static_cast<uint8_t>(buf[7] & ~0x01u);                // now take HARD away
+    auto p = parse_h(std::span<const uint8_t>(buf.data(), n));
+    CHECK(p.has_value());
+    if (p) { CHECK(p->by_id); CHECK_FALSE(p->hard); }              // ★ still a valid BY_ID query
+    ho.events.clear();
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    owner.on_recv(buf.data(), n, meta);
+    CHECK(find_ev(ho.events, "h_resolved") != nullptr);            // ★★ owner-only holds WITHOUT the hard bit
+}
+
+TEST_CASE("§id-hash S4a §4 — BY_ID joins the dedup key: H(id 114) and H(hash 0x72) cannot suppress each other") {
+    // ★★ THE ALIAS IS ARITHMETIC, NOT HYPOTHETICAL: the ring keys on the H's raw bytes 2-5, so id 114 and hash
+    // 0x00000072 are the same 32-bit value from the same origin. Without `by_id` in the key one kills the other's
+    // FORWARD and a locate dies silently.
+    TestHal h; Node relay(h, /*id=*/50, /*key=*/0x00005050u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    relay.on_init(cfg); h._now = 100000;
+
+    h_in byid{};  byid.leaf_id = 0;  byid.origin = 9; byid.query_key32 = 114; byid.ttl = 3; byid.by_id = true;
+    h_in byhash{}; byhash.leaf_id = 0; byhash.origin = 9; byhash.query_key32 = 0x72u; byhash.ttl = 3; byhash.hard = true;
+    CHECK(byid.query_key32 == byhash.query_key32 + 0);             // 114 == 0x72: the collision, stated
+
+    h.events.clear(); s4a_feed_h(relay, byid);
+    CHECK(find_ev(h.events, "h_forward") != nullptr);
+    h.events.clear(); s4a_feed_h(relay, byhash);
+    CHECK(find_ev(h.events, "h_forward") != nullptr);              // ★ NOT suppressed by the by-id entry
+    // ...and the ring still works WITHIN a key space: an immediate repeat of either is suppressed.
+    h.events.clear(); s4a_feed_h(relay, byid);
+    CHECK(find_ev(h.events, "h_forward") == nullptr);
+    h.events.clear(); s4a_feed_h(relay, byhash);
+    CHECK(find_ev(h.events, "h_forward") == nullptr);
+}
+
+TEST_CASE("§id-hash S4a §4 — a FORWARD preserves the BY_ID bit and the canonical value") {
+    // Dropping the bit is not "no answer": the frame re-packs as a by-HASH query for a small integer, which a
+    // low-valued hash could genuinely MATCH — so a multi-hop by-id query would silently become another question.
+    TestHal h; Node relay(h, /*id=*/50, /*key=*/0x00005050u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    relay.on_init(cfg); h._now = 100000; h.events.clear(); h.tx_frames.clear();
+
+    h_in q{}; q.leaf_id = 0; q.origin = 9; q.query_key32 = 114; q.ttl = 3; q.by_id = true; q.team_scoped = false;
+    s4a_feed_h(relay, q);
+    CHECK(find_ev(h.events, "h_forward") != nullptr);
+    // §F-XL-1: the forward is STASHED and released by a jittered timer — drive every slot.
+    h.tx_frames.clear();
+    for (uint32_t s = 0; s < kHForwardSlots; ++s) relay.on_timer(kHForwardTimerBase + s);
+    const auto out = s4a_h_frames(h);
+    bool found = false;
+    for (const auto& f : out) {
+        if (!f.by_id) continue;
+        found = true;
+        CHECK(f.query_id() == 114);
+        CHECK(f.query_key32 == 114u);                              // canonical: bytes 3-5 still zero
+        CHECK(f.origin == 9);                                      // origin preserved (it always was)
+        CHECK(f.ttl == q.ttl - 1);
+    }
+    CHECK(found);                                                  // ★ the bit survived the re-pack
+}
+
+TEST_CASE("§id-hash S4a §3-D5a — a by-id owner answer lands `claimed` in the STATIC _id_bind (existing codepoint reused)") {
+    TestHal hal; Node node(hal, /*id=*/9, /*key=*/0x00009999u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    node.on_init(cfg); hal._now = 100000;
+
+    // What a BY_ID owner emits: the plain (non-AUTHORITATIVE) H_ANSWER carrying {id, its own hash}.
+    std::array<uint8_t, 7> inner{};
+    hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 109; hb.key_hash32 = 0x1090109Au;
+    const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
+    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in), /*authoritative=*/false, /*team_plane=*/false);
+
+    CHECK(node.id_bind_find_by_hash(0x1090109Au) == 109);
+    Node::IdBindConf conf = Node::IdBindConf::authoritative;
+    node.id_bind_find_by_hash(0x1090109Au, &conf);
+    CHECK(conf == Node::IdBindConf::claimed);                      // ★ §3-D5a: plain type ⇒ claimed, never authoritative
+    // ★ AND THE FLOOR SPLIT IS WHAT MAKES IT USEFUL WITHOUT BEING DANGEROUS (§3-D6/D7):
+    uint32_t out = 0;
+    CHECK_FALSE(node.key_hash_of_id(109, out));                    // NOT stampable into DST_HASH / sealable
+    CHECK(node.key_hash_of_id(109, out, Node::IdBindConf::claimed));
+    CHECK(out == 0x1090109Au);                                     // ...but visible to display + `reqpubkey` (B53)
+    Node::PeerBookRow st{}, tm{};
+    CHECK(node.peer_book_by_id(109, st, tm) == Node::kPeerBookStatic);
+    CHECK_FALSE(st.static_authoritative);                          // shown AS a claim
+}
+
+TEST_CASE("§id-hash S4a §3-D5b — a TEAM answer now lands in _team_keys as `claimed`, and NEVER in _id_bind or _team_peer") {
+    TestHal hal; Node node(hal, /*id=*/114, /*key=*/0x5A14A11Au);
+    s3_team_node(node, hal, {20});                                 // 20 is a routable teammate; 21 deliberately is NOT
+    const uint32_t H20 = 0x20200000u, H21 = 0x21210000u;
+
+    std::array<uint8_t, 7> inner{};
+    hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 20; hb.key_hash32 = H20;
+    size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
+    // ★★ passed `authoritative = true` ON PURPOSE — this is the OWNER's by-HASH team answer, the strongest thing the
+    // team plane can receive, and it STILL lands `claimed`. That asymmetry vs the static line is deliberate: this
+    // table feeds the team-DAD L2a mediation comparator, which reads at the default `authoritative` floor, so an
+    // on-air row must never reach it (on_hash_bind_snoop's reason (2), the one S3 left live).
+    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in), /*authoritative=*/true, /*team_plane=*/true);
+    CHECK(node.id_bind_find_by_hash(H20) == -1);                   // ★ never the STATIC plane (§18/C3, register B2)
+    uint32_t out = 0; Node::IdBindConf conf = Node::IdBindConf::authoritative;
+    CHECK_FALSE(node.team_key_of_id(20, out));                     // default floor: a claim cannot seal / stamp / grant
+    CHECK(node.team_key_of_id(20, out, Node::IdBindConf::claimed, &conf));
+    CHECK(out == H20);
+    CHECK(conf == Node::IdBindConf::claimed);                      // ★★ §3-D5b: claimed, even from an owner answer
+    uint8_t rid = 0;
+    CHECK_FALSE(node.team_id_of_key(H20, rid));                    // the REVERSE send-path reader agrees
+    CHECK(node.team_id_of_key(H20, rid, Node::IdBindConf::claimed));
+    CHECK(rid == 20);
+
+    // ★★★ MEMBERSHIP IS NOT MANUFACTURABLE. 21 has no route ⇒ no `_team_peer` bit; ingesting a binding for it must
+    // not invent one. `team_key_of_id`'s `is_team_peer` gate is what keeps such a row inert, and that is the property.
+    CHECK_FALSE(node.is_team_peer(21));
+    hb.node_id = 21; hb.key_hash32 = H21;
+    in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
+    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in), /*authoritative=*/true, /*team_plane=*/true);
+    CHECK_FALSE(node.is_team_peer(21));                            // ★ still not a member
+    CHECK_FALSE(node.team_key_of_id(21, out, Node::IdBindConf::claimed));   // ...so the row is inert even at the floor
+    Node::PeerBookRow st{}, tm{};
+    CHECK(node.peer_book_by_id(21, st, tm) == 0);
+}
+
+TEST_CASE("§id-hash S4a §3-D5b — the RELAY observation is retained too, as h_relay/claimed, and still not _team_peer") {
+    TestHal hal; Node node(hal, /*id=*/114, /*key=*/0x5B14A11Au);
+    s3_team_node(node, hal, {20});
+    const uint32_t H20 = 0x20200000u;
+    std::array<uint8_t, 7> inner{};
+    hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 20; hb.key_hash32 = H20;
+    const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
+    hal.events.clear();
+    node.on_hash_bind_snoop(inner.data(), static_cast<uint8_t>(in), /*authoritative=*/true, /*team_plane=*/true);
+    CHECK(node.id_bind_find_by_hash(H20) == -1);
+    uint32_t out = 0; Node::IdBindConf conf = Node::IdBindConf::authoritative;
+    CHECK(node.team_key_of_id(20, out, Node::IdBindConf::claimed, &conf));
+    CHECK(out == H20); CHECK(conf == Node::IdBindConf::claimed);
+    CHECK(find_ev(hal.events, "hash_bind_snooped") != nullptr);    // the pass-through record is unchanged
+}
+
+TEST_CASE("§id-hash S4a — S3's D5c protections HOLD under the NEW producer (the point of building them first)") {
+    // S3 built these with no producer at all. This drives them through the S4a ingest path, which is the input class
+    // they exist to defend against, rather than through the direct setter.
+    TestHal hal; Node node(hal, /*id=*/114, /*key=*/0x5C14A11Au);
+    s3_team_node(node, hal, {20});
+    const uint32_t HB = 0xBEAC0020u, HX = 0xDEAD0020u;
+    hal._now = 100000;
+    node.team_key_set(20, HB, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);   // a heard beacon
+
+    std::array<uint8_t, 7> inner{};
+    hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 20; hb.key_hash32 = HX;
+    const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
+    hal._now = 200000;
+    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in), /*authoritative=*/true, /*team_plane=*/true);
+    uint32_t out = 0; Node::IdBindConf conf = Node::IdBindConf::claimed;
+    CHECK(node.team_key_of_id(20, out, Node::IdBindConf::authoritative, &conf));
+    CHECK(out == HB);                                              // ★ the on-air claim did not REBIND the hash...
+    CHECK(conf == Node::IdBindConf::authoritative);                // ...nor DEMOTE the tier
+    // ★ NOR RE-DATE IT: the 48 h TTL still runs from the BEACON, so a row only ever re-claimed still ages out.
+    hal._now = 100000 + protocol::id_bind_ttl_ms + 1;
+    CHECK_FALSE(node.team_key_of_id(20, out, Node::IdBindConf::claimed));
+    // CONTROL, same timing: an AUTHORITATIVE re-sighting DOES extend the lease, so "it expired" above proves why.
+    TestHal h2; Node ctl(h2, /*id=*/114, /*key=*/0x5C14A11Au);
+    s3_team_node(ctl, h2, {20});
+    h2._now = 100000; ctl.team_key_set(20, HB, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);
+    h2._now = 200000; ctl.team_key_set(20, HB, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);
+    h2._now = 100000 + protocol::id_bind_ttl_ms + 1;
+    CHECK(ctl.team_key_of_id(20, out));
+}
+
+TEST_CASE("§id-hash S4a / register B54 — the FIRST claim into a FULL first-hand table still costs ONE beacon row") {
+    // Recorded, bounded and DELIBERATELY NOT widened. S3 left the decision to this slice; refusing the insert
+    // outright is a stricter policy than spec §3-D5c asked for, and it would make the by-id answer the operator
+    // explicitly requested the one write that silently does nothing. Cost: one row, re-learned on the next beacon,
+    // and it needs 16 simultaneously-live teammates to be reachable at all.
+    TestHal hal; Node node(hal, /*id=*/114, /*key=*/0x5D14A11Au);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    cfg.is_mobile = true; cfg.team_id = 0xABCD1234u;
+    node.on_init(cfg); node.set_team_local_id(114);
+    for (uint8_t t = 1; t <= 17; ++t) node.test_learn_route(t, t, 1, 40, /*team_plane=*/true);
+    for (uint8_t t = 1; t <= 16; ++t) { hal._now = 100000 + t * 1000; node.team_key_set(t, 0xB0000000u + t, Node::IdBindSource::bcn, Node::IdBindConf::authoritative); }
+    hal._now = 200000;
+    uint32_t out = 0;
+    CHECK(node.team_key_of_id(1, out));                            // the oldest first-hand row, present
+    node.team_key_set(17, 0xC0000017u, Node::IdBindSource::h_query, Node::IdBindConf::claimed);
+    CHECK_FALSE(node.team_key_of_id(1, out));                      // ★ the residual: it was the fallback victim
+    CHECK(node.team_key_of_id(17, out, Node::IdBindConf::claimed));
+    // ...and every claim AFTER it consumes only the previous claim — a storm costs exactly one beacon row.
+    for (uint8_t t = 18; t < 40; ++t) node.team_key_set(t, 0xC0000000u + t, Node::IdBindSource::h_query, Node::IdBindConf::claimed);
+    for (uint8_t t = 2; t <= 16; ++t) CHECK(node.team_key_of_id(t, out));
+}
+
+// =============================================================================
+// ★★★ §id-hash S4b (spec 2026-08-01 §5) — THE TWO-STAGE by-id `reqpubkey`: one command, not two.
+//
+// ⚠⚠ NATIVE IS THE ONLY GATE THAT CAN SEE ANY OF THIS, and the reason is structural rather than a coverage gap:
+// the simulator's console parses `reqpubkey <hex>` ONLY and hard-sets `dst_id = 0` (`NodeRuntimeWrapper.cpp`), so
+// **no by-id H frame can exist in the 36-scenario corpus** — nothing can arm an intent, so nothing can consume one.
+// A 0/36 on this slice means "the corpus cannot construct the input", NEVER "the change is inert" (S4a measured the
+// same wall on its originator half while its RECEIVER half was corpus-live; the layer, not the slice, is what is
+// out of reach). The probe matrix in BASELINE.md pairs every such 0/36 with a positive control.
+// =============================================================================
+
+namespace {
+// A pure STATIC node with a crypto identity — spec §0's bench shape, and the plane the whole arc opened on.
+void s4b_static_node(Node& node, TestHal& hal, const Identity& self) {
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    cfg.team_id = 0;
+    node.on_init(cfg); node.set_crypto_identity(self.x_secret, self.ed_pub);
+    hal._now = 100000;
+}
+// Deliver the id->hash answer a BY_ID query earns: the plain (non-AUTHORITATIVE) H_ANSWER ⇒ IdBindConf::claimed.
+void s4b_deliver_answer(Node& node, uint8_t id, uint32_t hash, bool team_plane) {
+    std::array<uint8_t, 7> inner{};
+    hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = id; hb.key_hash32 = hash;
+    const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
+    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in), /*authoritative=*/false, team_plane);
+}
+// Did a HARD WANT_PUBKEY query for exactly this hash reach the air? Read off the BYTES, not the emit — `h_tx` cannot
+// distinguish the two stages (it reports `key_hash32` for both, and a by-id stage's value is an id).
+bool s4b_saw_pubkey_query(const TestHal& hal, uint32_t hash) {
+    for (const auto& f : hal.tx_frames) {
+        auto ph = parse_h(std::span<const uint8_t>(f.data(), f.size()));
+        if (!ph || !ph->want_pubkey || ph->by_id) continue;
+        if (ph->query_hash() == hash && ph->hard) return true;
+    }
+    return false;
+}
+size_t s4b_count_ev(const std::vector<Ev>& evs, const char* type) {
+    size_t n = 0; for (const auto& e : evs) if (e.type == type) ++n; return n;
+}
+}  // namespace
+
+TEST_CASE("§id-hash S4b §5 — ONE command: the id->hash answer is CONSUMED and the pubkey query flies BY HASH") {
+    const Identity self = ab3_identity(201);
+    TestHal hal; Node node(hal, /*id=*/42, self.key_hash32);
+    s4b_static_node(node, hal, self);
+    const uint32_t H109 = 0x1090109Au;
+
+    // ---- STAGE 1 (S4a, unchanged): an id with no binding flies "who owns id 109?", want_pubkey=false.
+    hal.events.clear(); hal.tx_frames.clear();
+    const CmdResult r = node.on_command(s1_reqpubkey_by_id(109, /*plane=*/0));
+    CHECK(r.code == CmdCode::queued);
+    CHECK(r.accepted);
+    CHECK(r.plane == 2);
+    CHECK(r.dst_hash == 0);                                        // ★ THE ACK IS NOT STRENGTHENED BY S4b: it still
+    CHECK(ble_claims_sent(r));                                     //   reports only that the TX path took STAGE 1.
+    CHECK_FALSE(s4b_saw_pubkey_query(hal, H109));                  // no pubkey query yet — there is no hash to ask for
+
+    // ---- STAGES 2-3: the ordinary H answer lands the binding as a CLAIM *and* consumes the intent.
+    hal.events.clear(); hal.tx_frames.clear();
+    s4b_deliver_answer(node, /*id=*/109, H109, /*team_plane=*/false);
+    Node::IdBindConf conf = Node::IdBindConf::authoritative;
+    CHECK(node.id_bind_find_by_hash(H109, &conf) == 109);
+    CHECK(conf == Node::IdBindConf::claimed);                      // §3-D5a semantics UNCHANGED by S4b
+    CHECK(s4b_saw_pubkey_query(hal, H109));                        // ★★★ THE SLICE: the second stage flew ITSELF
+    CHECK(s4b_count_ev(hal.events, "reqpubkey_escalate_failed") == 0);
+
+    // ---- ONE intent buys exactly ONE escalation. A duplicate answer (a re-flooded copy, a second holder) must not
+    //      re-ask: without this the mechanism turns a lossy return path into an amplifier.
+    hal.events.clear(); hal.tx_frames.clear();
+    s4b_deliver_answer(node, /*id=*/109, H109, /*team_plane=*/false);
+    CHECK_FALSE(s4b_saw_pubkey_query(hal, H109));
+
+    // ---- CONTROL, same fixture: an answer for an id NOBODY asked about escalates nothing. Without it, every
+    //      assertion above would also hold for an implementation that re-asks on any answer at all.
+    hal.events.clear(); hal.tx_frames.clear();
+    s4b_deliver_answer(node, /*id=*/77, 0x77770000u, /*team_plane=*/false);
+    CHECK(node.id_bind_find_by_hash(0x77770000u) == 77);           // it really was ingested...
+    CHECK_FALSE(s4b_saw_pubkey_query(hal, 0x77770000u));           // ...and still nothing flew
+}
+
+TEST_CASE("§id-hash S4b §5 — the intent is PLANE-KEYED: a static answer cannot complete a `-t` request") {
+    // §18: the same 8-bit number names different peers in the two planes, so consuming across planes would fetch the
+    // pubkey of the WRONG node — and do it under a request the operator explicitly scoped with `-t`.
+    const Identity self = ab3_identity(202);
+    TestHal hal; Node node(hal, /*id=*/114, self.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    cfg.is_mobile = true; cfg.team_id = 0xABCD1234u;               // off-grid team member: TEAM only
+    node.on_init(cfg); node.set_crypto_identity(self.x_secret, self.ed_pub); node.set_team_local_id(114);
+    hal._now = 100000;
+    const uint32_t HT = 0x7EA10009u, HS = 0x57A70009u;
+
+    hal.events.clear(); hal.tx_frames.clear();
+    const CmdResult t = node.on_command(s1_reqpubkey_by_id(109, /*plane=*/1 /*-t*/));
+    CHECK(t.code == CmdCode::queued); CHECK(t.plane == 1);
+
+    // A STATIC answer for the same number: ingested on its own plane, but it is not the question we asked.
+    hal.events.clear(); hal.tx_frames.clear();
+    s4b_deliver_answer(node, /*id=*/109, HS, /*team_plane=*/false);
+    CHECK_FALSE(s4b_saw_pubkey_query(hal, HS));                    // ★ no cross-plane completion
+    // ...and the TEAM answer, arriving after it, still completes the request that is genuinely outstanding.
+    hal.events.clear(); hal.tx_frames.clear();
+    s4b_deliver_answer(node, /*id=*/109, HT, /*team_plane=*/true);
+    CHECK(s4b_saw_pubkey_query(hal, HT));
+    for (const auto& f : hal.tx_frames) {                          // and on the TEAM plane, so the answer can route back
+        auto ph = parse_h(std::span<const uint8_t>(f.data(), f.size()));
+        if (ph && ph->want_pubkey) { CHECK(ph->team_scoped); CHECK(ph->origin == 114); }
+    }
+}
+
+TEST_CASE("§id-hash S4b §5 step 5 — the BOUNDED timeout: a loud giveup, and the intent is really gone") {
+    const Identity self = ab3_identity(203);
+    TestHal hal; Node node(hal, /*id=*/42, self.key_hash32);
+    s4b_static_node(node, hal, self);
+    const uint32_t H109 = 0x1090109Au;
+
+    hal.events.clear(); hal.tx_frames.clear(); hal.logs.clear();
+    CHECK(node.on_command(s1_reqpubkey_by_id(109, /*plane=*/0)).accepted);
+
+    // ---- NOT YET. The sweep before the deadline must not report anything — otherwise the "bounded" claim below is
+    //      satisfied by an instrument that fires unconditionally.
+    hal._now += protocol::id_pubkey_intent_ttl_ms - 1;
+    hal.events.clear(); hal.logs.clear();
+    node.test_fire_aging();
+    CHECK(find_ev(hal.events, "reqpubkey_id_giveup") == nullptr);
+    CHECK_FALSE(hal.logged("!! reqpubkey 109"));
+    // ...and an answer arriving inside the window still completes the workflow. THE POSITIVE CONTROL for the whole
+    // test: the intent is alive here, so its absence after the timeout is the timeout's doing.
+    hal.events.clear(); hal.tx_frames.clear();
+    s4b_deliver_answer(node, /*id=*/109, H109, /*team_plane=*/false);
+    CHECK(s4b_saw_pubkey_query(hal, H109));
+
+    // ---- NOW THE TIMEOUT, on a fresh request. Past the deadline the sweep reports and clears.
+    hal.events.clear(); hal.tx_frames.clear(); hal.logs.clear();
+    CHECK(node.on_command(s1_reqpubkey_by_id(200, /*plane=*/0)).accepted);
+    hal._now += protocol::id_pubkey_intent_ttl_ms + protocol::rt_aging_check_period_ms;
+    hal.events.clear(); hal.tx_frames.clear(); hal.logs.clear();
+    node.test_fire_aging();
+    const Ev* g = find_ev(hal.events, "reqpubkey_id_giveup");
+    CHECK(g != nullptr);
+    if (g) CHECK(g->node == 200);
+    // ★ AND ON METAL, where MR_EMIT is stripped: the `!!` prefix is what makes fw_main's otherwise trace-gated sink
+    //   print it under `debug off`. That claim was FALSE once in this arc (S1d/QA-P2) and is not repeated on trust.
+    CHECK(hal.logged("!! reqpubkey 200"));
+    CHECK(hal.logged("no pubkey was requested"));
+
+    // ---- THE INTENT IS GONE, not merely reported: a late answer must NOT escalate. A timeout that reports and then
+    //      still fires would be worse than no timeout — the operator was told it failed.
+    hal.events.clear(); hal.tx_frames.clear();
+    s4b_deliver_answer(node, /*id=*/200, 0x20020002u, /*team_plane=*/false);
+    CHECK(node.id_bind_find_by_hash(0x20020002u) == 200);          // the binding still lands (that path is untouched)
+    CHECK_FALSE(s4b_saw_pubkey_query(hal, 0x20020002u));           // ...but nothing is asked on its back
+    // ...and a second sweep does not re-report a cleared slot.
+    hal.events.clear(); hal.logs.clear();
+    node.test_fire_aging();
+    CHECK(find_ev(hal.events, "reqpubkey_id_giveup") == nullptr);
+}
+
+TEST_CASE("§id-hash S4b — the intent ring REFUSES when full (never evicts), and a re-issue refreshes one slot") {
+    const Identity self = ab3_identity(204);
+    TestHal hal; Node node(hal, /*id=*/42, self.key_hash32);
+    s4b_static_node(node, hal, self);
+
+    for (uint8_t i = 0; i < protocol::cap_pending_id_pubkey; ++i) {
+        hal.events.clear(); hal.tx_frames.clear();
+        const CmdResult a = node.on_command(s1_reqpubkey_by_id(static_cast<uint8_t>(120 + i), /*plane=*/0));
+        CHECK(a.code == CmdCode::queued); CHECK(a.accepted);
+        CHECK(find_ev(hal.events, "h_tx") != nullptr);             // each one really did spend airtime
+    }
+    // ---- A RE-ISSUE OF AN ALREADY-PENDING (id, plane) IS ONE QUESTION, NOT TWO: it refreshes and still flies.
+    hal.events.clear(); hal.tx_frames.clear();
+    const CmdResult again = node.on_command(s1_reqpubkey_by_id(120, /*plane=*/0));
+    CHECK(again.code == CmdCode::queued); CHECK(again.accepted);
+
+    // ---- THE FIFTH DISTINCT id IS REFUSED, BEFORE ANY AIRTIME.
+    hal.events.clear(); hal.tx_frames.clear();
+    const CmdResult full = node.on_command(s1_reqpubkey_by_id(199, /*plane=*/0));
+    CHECK(full.code == CmdCode::err_resolve_pending_full);
+    CHECK_FALSE(full.accepted);
+    CHECK_FALSE(ble_claims_sent(full));                            // the BLE transport claims nothing either
+    CHECK(full.plane == 2);                                        // ...but still echoes WHICH plane was refused
+    CHECK(find_ev(hal.events, "h_tx") == nullptr);                 // ★ refuse BEFORE the flood, not after it
+    CHECK(hal.tx_frames.empty());
+    CHECK(find_ev(hal.events, "reqpubkey_intent_ring_full") != nullptr);
+    // ★★ NEVER EVICT: the four requests the operator was told were accepted are all still live, and each still
+    //    completes. An evict-oldest ring would have silently killed 120 to make room for 199.
+    hal.events.clear(); hal.tx_frames.clear();
+    s4b_deliver_answer(node, /*id=*/120, 0x12000120u, /*team_plane=*/false);
+    CHECK(s4b_saw_pubkey_query(hal, 0x12000120u));
+
+    // ---- RECOVERY CONTROL: that consume freed a slot, so the same refused command now succeeds. Without this the
+    //      refusal above could equally be a permanent inability.
+    hal.events.clear(); hal.tx_frames.clear();
+    const CmdResult after = node.on_command(s1_reqpubkey_by_id(199, /*plane=*/0));
+    CHECK(after.code == CmdCode::queued); CHECK(after.accepted);
+    CHECK(find_ev(hal.events, "h_tx") != nullptr);
+}
+
+TEST_CASE("§id-hash S4b — NO CRYPTO IDENTITY is now refused AT STAGE 1, because stage 2 provably cannot happen") {
+    // ★★ THE GAP S4a SHIPPED, and it is the arc's own rule applied forwards: an acknowledgement may not claim what it
+    // cannot know — and it must not DEFER a failure it already can. `emit_hash_query` gates `_crypto_ready` on
+    // `want_pubkey`, and stage 1 passes want_pubkey=false, so an identity-less node used to be told `queued/accepted`,
+    // flood the by-id query, and only discover at stage 2 (~25 s later, in an RX callback) that the MUTUAL exchange is
+    // impossible. Refusing now costs the operator nothing and names the remedy.
+    const Identity self = ab3_identity(205);
+    TestHal hal; Node node(hal, /*id=*/42, self.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    cfg.team_id = 0;
+    node.on_init(cfg);                                             // ★ set_crypto_identity DELIBERATELY NOT CALLED
+    hal._now = 100000;
+
+    hal.events.clear(); hal.tx_frames.clear();
+    const CmdResult r = node.on_command(s1_reqpubkey_by_id(109, /*plane=*/0));
+    CHECK(r.code == CmdCode::err_no_identity);
+    CHECK_FALSE(r.accepted);
+    CHECK_FALSE(ble_claims_sent(r));
+    CHECK(find_ev(hal.events, "h_tx") == nullptr);                 // ★ and NOTHING is flooded for a two-stage
+    CHECK(hal.tx_frames.empty());                                  //   workflow whose second stage cannot run
+    // ★ NO PHANTOM INTENT EITHER: a refusal that armed one would report a timeout ~25 s later for a request that was
+    //   never accepted — a manufactured failure on top of a real refusal.
+    hal.events.clear(); hal.logs.clear();
+    s4b_deliver_answer(node, /*id=*/109, 0x1090109Au, /*team_plane=*/false);
+    CHECK_FALSE(s4b_saw_pubkey_query(hal, 0x1090109Au));
+    hal._now += protocol::id_pubkey_intent_ttl_ms + protocol::rt_aging_check_period_ms;
+    node.test_fire_aging();
+    CHECK(find_ev(hal.events, "reqpubkey_id_giveup") == nullptr);
+
+    // ★★ POSITIVE CONTROL, SAME FIXTURE: install the identity and the same command shape is accepted and completes
+    //    BOTH stages. This is what makes the refusal a property of the missing identity, not of the fixture.
+    // ⚠ ON A FRESH id (111), deliberately: the failed run above still INGESTED 109's binding (that path is not
+    //   identity-gated), so re-using 109 would resolve at `peer_book_by_id` and take the ONE-stage by-hash arm —
+    //   passing this assertion while proving nothing about the two-stage path. Found by writing it the other way.
+    node.set_crypto_identity(self.x_secret, self.ed_pub);
+    hal.events.clear(); hal.tx_frames.clear();
+    CHECK(node.on_command(s1_reqpubkey_by_id(111, /*plane=*/0)).accepted);
+    CHECK_FALSE(s4b_saw_pubkey_query(hal, 0x1110111Au));           // stage 1 only — no hash to ask for yet
+    hal.events.clear(); hal.tx_frames.clear();
+    s4b_deliver_answer(node, /*id=*/111, 0x1110111Au, /*team_plane=*/false);
+    CHECK(s4b_saw_pubkey_query(hal, 0x1110111Au));
+}
+
+TEST_CASE("§id-hash S4b — a stage-1 frame the TX PATH REJECTED leaves NO intent behind") {
+    // The intent is armed BEFORE the emit (the ring-full refusal has to beat the airtime), so the rejection path must
+    // undo it. Otherwise a full LBT ring costs the operator a real refusal now AND a phantom timeout 25 s later.
+    const Identity self = ab3_identity(206);
+    TestHal hal; Node node(hal, /*id=*/42, self.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    cfg.lbt_enabled = true; cfg.team_id = 0;
+    node.on_init(cfg); node.set_crypto_identity(self.x_secret, self.ed_pub);
+    hal._now = 100000;
+
+    // ★ THE 4-SLOT LBT RING IS FILLED WITH **BY-HASH** QUERIES, and that is not incidental. Filling it with by-id
+    //   ones cannot reach the TX rejection at all: the intent ring (cap 4) would refuse the fifth command FIRST, with
+    //   err_resolve_pending_full — which is the correct order (refuse before airtime) and therefore also the reason
+    //   the two rings have to be exercised through different doors. Found by writing the test the other way round.
+    hal._busy_until = hal._now + 5000;                             // busy -> the 4-slot shared LBT defer ring
+    hal.events.clear(); hal.tx_frames.clear();
+    for (uint32_t i = 0; i < 4; ++i) {
+        Command q{}; q.kind = CmdKind::reqpubkey; q.u.resolve.hard = true; q.u.resolve.plane = 2;
+        q.u.resolve.dst_hash = 0xBBBB0000u + i;
+        CHECK(node.on_command(q).accepted);
+    }
+    CHECK(s4b_count_ev(hal.events, "tx_lbt_defer") == 4);          // the ring is now full, and provably so
+    CHECK(find_ev(hal.events, "tx_lbt_defer_dropped") == nullptr);
+
+    hal.events.clear(); hal.tx_frames.clear();
+    const CmdResult drop = node.on_command(s1_reqpubkey_by_id(150, /*plane=*/0));
+    CHECK(drop.code == CmdCode::err_tx_queue_full);                // §S1c: the frame was DROPPED, not deferred...
+    CHECK_FALSE(drop.accepted);                                    // ...so this is NOT the intent ring refusing
+    CHECK(find_ev(hal.events, "tx_lbt_defer_dropped") != nullptr);
+    // ★ THE INTENT WAS UNWOUND: an answer for 150 escalates nothing, and no giveup is ever reported for it.
+    hal.events.clear(); hal.tx_frames.clear(); hal.logs.clear();
+    s4b_deliver_answer(node, /*id=*/150, 0x15000150u, /*team_plane=*/false);
+    CHECK_FALSE(s4b_saw_pubkey_query(hal, 0x15000150u));
+    hal._now += protocol::id_pubkey_intent_ttl_ms + protocol::rt_aging_check_period_ms;
+    hal.events.clear(); hal.logs.clear();
+    node.test_fire_aging();
+    CHECK_FALSE(hal.logged("!! reqpubkey 150"));
+    CHECK(find_ev(hal.events, "reqpubkey_id_giveup") == nullptr);
+    // ★ RECOVERY CONTROL, same fixture: with the channel clear an equivalent by-id command IS accepted, arms its
+    //   intent, and completes both stages. Without it, "no intent" above would also hold for a broken arm path.
+    // ⚠ ON A FRESH id (151) for the same reason the no-identity test needs one: the probe answer above INGESTED
+    //   150's binding, so re-using 150 would take the resolved ONE-stage arm and prove nothing about arming.
+    hal._busy_until = 0;
+    hal.events.clear(); hal.tx_frames.clear();
+    CHECK(node.on_command(s1_reqpubkey_by_id(151, /*plane=*/0)).accepted);
+    CHECK_FALSE(s4b_saw_pubkey_query(hal, 0x15100151u));
+    hal.events.clear(); hal.tx_frames.clear();
+    s4b_deliver_answer(node, /*id=*/151, 0x15100151u, /*team_plane=*/false);
+    CHECK(s4b_saw_pubkey_query(hal, 0x15100151u));
+}
+
+TEST_CASE("§id-hash S4b §5.2 — a STAGE-2 failure is REPORTED, not swallowed (the ack is long gone)") {
+    // §5.2's rule reached one level up: the synchronous ack was returned seconds ago, so a stage-2 refusal has no
+    // command to fail. The degenerate case is the reachable one — the answer names OUR OWN hash, i.e. "id N is you".
+    const Identity self = ab3_identity(207);
+    TestHal hal; Node node(hal, /*id=*/42, self.key_hash32);
+    s4b_static_node(node, hal, self);
+
+    hal.events.clear(); hal.tx_frames.clear(); hal.logs.clear();
+    CHECK(node.on_command(s1_reqpubkey_by_id(109, /*plane=*/0)).accepted);
+    hal.events.clear(); hal.tx_frames.clear(); hal.logs.clear();
+    s4b_deliver_answer(node, /*id=*/109, self.key_hash32, /*team_plane=*/false);   // "109 owns YOUR hash"
+    CHECK(find_ev(hal.events, "reqpubkey_escalate_failed") != nullptr);
+    CHECK(hal.logged("!! reqpubkey 109"));
+    CHECK(hal.logged("was NOT sent"));
+    CHECK_FALSE(s4b_saw_pubkey_query(hal, self.key_hash32));       // and nothing was aired for it
+    // ★ CONTROL: the SAME fixture, an answer naming a real other hash, reports nothing and does fly.
+    hal.events.clear(); hal.tx_frames.clear(); hal.logs.clear();
+    CHECK(node.on_command(s1_reqpubkey_by_id(110, /*plane=*/0)).accepted);
+    hal.events.clear(); hal.tx_frames.clear(); hal.logs.clear();
+    s4b_deliver_answer(node, /*id=*/110, 0x1100110Au, /*team_plane=*/false);
+    CHECK(find_ev(hal.events, "reqpubkey_escalate_failed") == nullptr);
+    CHECK(s4b_saw_pubkey_query(hal, 0x1100110Au));
+}
+
+TEST_CASE("§id-hash S4b — the by-HASH form gains NO intent: there is no second stage to remember") {
+    // `reqpubkey 0x<hash>` is one stage by construction. It must not consume a ring slot (that would let a hash-form
+    // caller starve the by-id form) and must not be refusable with err_resolve_pending_full.
+    const Identity self = ab3_identity(208);
+    TestHal hal; Node node(hal, /*id=*/42, self.key_hash32);
+    s4b_static_node(node, hal, self);
+
+    for (int i = 0; i < 8; ++i) {                                  // twice the ring capacity, by hash
+        Command c{}; c.kind = CmdKind::reqpubkey;
+        c.u.resolve.dst_hash = 0xAB000000u + static_cast<uint32_t>(i); c.u.resolve.dst_id = 0;
+        c.u.resolve.hard = true; c.u.resolve.plane = 0;
+        const CmdResult r = node.on_command(c);
+        CHECK(r.code == CmdCode::queued);                          // never err_resolve_pending_full
+        CHECK(r.accepted);
+    }
+    // ...and the by-id ring is untouched: cap_pending_id_pubkey distinct ids still all fit.
+    for (uint8_t i = 0; i < protocol::cap_pending_id_pubkey; ++i)
+        CHECK(node.on_command(s1_reqpubkey_by_id(static_cast<uint8_t>(160 + i), /*plane=*/0)).accepted);
+}

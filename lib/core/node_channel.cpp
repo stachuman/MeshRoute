@@ -860,8 +860,10 @@ void Node::emit_channel_sent(bool relayed, uint16_t ctr) {
 
 // build_channel_digest_ext — SELECT (dv:1426): walk the buffer NEWEST-first, pick up to channel_dirty_max_per_bcn
 // DIRTY ids, pack the ext-TLV, and return the picked ids in `picked`/`npicked`. SIDE-EFFECT-FREE (B, 2026-06-23):
-// the per-advertisement ad_count++/retire is COMMITTED by emit_beacon only when the beacon actually aired — an
-// LBT-suppressed / pack-dropped beacon no longer burns an advertisement. DRAW-FREE. Returns the TLV byte count.
+// the per-advertisement ad_count++/retire is COMMITTED only when the TRANSMITTER ADMITS the beacon (§tx-admission
+// TX3, owner-ruled 2026-08-02: `_hal.tx` answers ok on the immediate path, or the deferred LBT timer reaches it) —
+// an LBT-suppressed, ring-dropped or HAL-rejected beacon burns no advertisement. ⚠ NOT literal airtime: a later
+// pump_tx radio-start error is outside the boundary. DRAW-FREE. Returns the TLV byte count.
 size_t Node::build_channel_digest_ext(uint8_t* out, size_t cap, uint32_t* picked, uint8_t& npicked) {
     uint8_t count = 0;
     for (int i = static_cast<int>(_active->_channel_buffer_n) - 1; i >= 0 && count < protocol::channel_dirty_max_per_bcn; --i) {
@@ -887,8 +889,12 @@ bool Node::channel_entry_fully_seen(const ChannelEntry& e) const {
     return true;                                                   // every live 1-hop neighbour holds it
 }
 
-// commit_channel_digest_advertised — COMMIT (B): the per-advertisement side effects for the ids that ACTUALLY AIRED
-// (emit_beacon calls this only when tx_flood `sent`). Re-find by id (indices may shift between select + commit; n<=3 so
+// commit_channel_digest_advertised — COMMIT (B): the per-advertisement side effects for the ids the TRANSMITTER
+// ACCEPTED. ★ BOUNDARY RE-RULED BY THE OWNER 2026-08-02: "sent" here means **accepted by the transmitter/DeviceHal**
+// — the strongest thing this architecture can observe — NOT literal RF airtime. ⚠ A later `DeviceHal::pump_tx`
+// radio-start error drops the frame AFTER admission and is OUTSIDE this guarantee; do not read it as covered.
+// The callers are now the two ADMISSION points, not emit_beacon: `tx_flood`'s immediate `_hal.tx == ok`, and
+// node.cpp's LBT-defer arm when the deferred `lbt_complete` reaches DeviceHal and it answers ok. Re-find by id (indices may shift between select + commit; n<=3 so
 // the cost is nil). ++bcn_ad_count, then RETIRE on HOLDER COVERAGE (channel_entry_fully_seen) — a blind count no longer
 // orphans a held-by-nobody origin; channel_dirty_max_advertisements is now just the horizon SAFETY backstop (the
 // asymmetric neighbour we hear but that never pulls). A retired entry still answers pulls; buffer eviction is the bound.
@@ -1335,11 +1341,13 @@ void Node::channel_reoffer_confirm(uint32_t id) {
 //   • seen_by[32] on survivors  NOT AFFECTED: per-row and independent; dropping row A invalidates nothing in row B.
 //       It also means no id-space mixes — a team row's seen_by indexes TEAM ids, a leaf row's STATIC ids (§18) — and
 //       whole-row drops keep it that way.
-//   • BCN digest (dirty / bcn_ad_count)  NOT AFFECTED: both live ON the row and go with it. The SELECT/COMMIT pair is
-//       stack-local to one emit_beacon call (ch_picked, node_beacon.cpp:353) — no cross-call promise — and
-//       commit_channel_digest_advertised re-finds by id and skips a vanished one. An advertisement that ALREADY aired
-//       leaves a promise we can no longer honour, which fails CLOSED: handle_channel_pull serves only ids it finds, so
-//       the puller gets nothing and its own channel_pull_recent stops it re-asking for the window.
+//   • BCN digest (dirty / bcn_ad_count)  NOT AFFECTED: both live ON the row and go with it.
+//       ⚠ V1 §tx-admission TX3: the SELECT/COMMIT pair is no longer "stack-local to one emit_beacon call, no
+//       cross-call promise" — a DEFERRED beacon carries its selected ids in its `DeferredLbt` slot and commits when
+//       the timer admits the frame, so the pair now SPANS calls. What still holds is the property this bullet needs:
+//       commit_channel_digest_advertised re-finds by id and skips a vanished one. An advertisement already
+//       TRANSMITTER-ADMITTED leaves a promise we can no longer honour, which fails CLOSED: handle_channel_pull
+//       serves only ids it finds, so the puller gets nothing and its own channel_pull_recent stops it re-asking.
 //   • _per_sender_originator    NOT AFFECTED: keyed by (sender, kind, ctr_lo) — an airtime observation about a
 //       NEIGHBOUR, not about our content.
 //   • inbox records (record_channel, which stores team_id)  DELIBERATELY KEPT: durable app-facing history, never a

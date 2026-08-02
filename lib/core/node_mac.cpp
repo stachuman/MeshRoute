@@ -1233,11 +1233,16 @@ bool Node::reserve_yield(uint32_t reserve_ms) {
 // Stash a busy-channel deferred TX in a free ring slot + arm its own timer (kLbtDeferTimerId + slot), so
 // concurrent defers each fire independently (Lua per-closure semantics). false = ring full (rare; >4 defers).
 bool Node::schedule_lbt_defer(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind,
-                              uint32_t rts_flight_gen, uint32_t delay) {
+                              uint32_t rts_flight_gen, uint32_t delay,
+                              const uint32_t* digest_ids, uint8_t digest_n) {
     for (uint8_t s = 0; s < kLbtSlots; ++s) {
         if (_deferred_lbt[s].pending) continue;
         DeferredLbt& d = _deferred_lbt[s];
         d.pending = true; d.kind = static_cast<uint8_t>(kind); d.sf = sf; d.rts_flight_gen = rts_flight_gen;
+        // §TX3: carry the advertised digest ids (beacon only). ALWAYS rewritten — a recycled slot must not inherit a
+        // previous beacon's ids and commit them for an unrelated frame.
+        for (uint8_t k = 0; k < kDeferDigestIds; ++k)
+            d.digest_ids[k] = (digest_ids && k < digest_n) ? digest_ids[k] : 0u;
         d.len = static_cast<uint8_t>(len < sizeof(d.buf) ? len : sizeof(d.buf));
         for (uint8_t i = 0; i < d.len; ++i) d.buf[i] = bytes[i];
         (void)_hal.after(delay, kLbtDeferTimerId + s);
@@ -1303,7 +1308,8 @@ void Node::rts_duty_defer_fire() {
 
 // R4.5 FLOOD TX (beacon, dv:3765-3814). Duty pre-check (skip if it would breach budget), then LBT: drop the page
 // if the channel is busy longer than flood_lbt_max_defer_ms, else defer past busy_until + a backoff, else TX now.
-bool Node::tx_flood(const uint8_t* bytes, size_t len, int16_t sf) {
+bool Node::tx_flood(const uint8_t* bytes, size_t len, int16_t sf,
+                    const uint32_t* digest_ids, uint8_t digest_n) {
     if (_duty_cycle_budget_ms > 0) {                                   // duty pre-check (dv:7781) — only when enabled
         const uint64_t airtime = airtime_routing_ms(static_cast<int>(len));
         const uint64_t used    = _hal.airtime_used_ms(_cfg.duty_cycle_window_ms);
@@ -1330,10 +1336,13 @@ bool Node::tx_flood(const uint8_t* bytes, size_t len, int16_t sf) {
             // ★★★ §tx-admission TX2 (2026-08-01): the ring-full DROP was DISCARDED here and this answered `true`.
             // ⚠ THIS IS NOT TELEMETRY — `emit_beacon:517` takes this boolean as `sent` and `:525` calls
             // `commit_channel_digest_advertised` under the comment *"burn an ad_count … ONLY for advertisements that
-            // ACTUALLY AIRED … the air-honesty fix"*. That commit does `++e.bcn_ad_count` and, on horizon, sets
+            // ACTUALLY AIRED … the air-honesty fix"* (that wording is now the TRANSMITTER-ADMITTED boundary, owner-ruled
+            // 2026-08-02). That commit does `++e.bcn_ad_count` and, on horizon, sets
             // `e.dirty = false`. ⇒ a beacon the ring dropped consumed the advertisement horizon and could RETIRE a
             // digest nothing ever received. The air-honesty mechanism was defeated by a discarded return.
-            return schedule_lbt_defer(bytes, len, sf, LbtKind::flood, 0, delay);   // false ⇒ ring full ⇒ stays dirty
+            // §TX3: ACCEPTED into the ring ⇒ NO commit yet. The ids ride the slot and node.cpp's defer arm commits
+            // them iff DeviceHal later answers ok. Ring full ⇒ false ⇒ the entry stays dirty.
+            return schedule_lbt_defer(bytes, len, sf, LbtKind::flood, 0, delay, digest_ids, digest_n);
         }
     }
     TxParams p; p.sf = sf; p.label = "BCN"; p.tag = static_cast<uint16_t>(FrameTag::beacon);  // tag the immediate beacon too (the deferred path tags via lbt_complete) — else a blocked clear-channel beacon reaches on_radio_busy mislabelled tag=0(rts)
@@ -1347,6 +1356,8 @@ bool Node::tx_flood(const uint8_t* bytes, size_t len, int16_t sf) {
                 EF_I("len", static_cast<int64_t>(len)));
         return false;                                                  // dropped ⇒ the digest MUST stay dirty
     }
+    // §TX3: the IMMEDIATE path's admission point — DeviceHal took it, so commit here (the owner's boundary).
+    if (digest_ids && digest_n) commit_channel_digest_advertised(digest_ids, digest_n);
     return true;
 }
 
