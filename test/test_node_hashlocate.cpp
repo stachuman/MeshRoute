@@ -2257,6 +2257,14 @@ TEST_CASE("§AB3 view — the AMBIGUOUS reverse lookup: two team ids on one hash
     CHECK(node.peer_book_by_id(231, st, tm) == Node::kPeerBookTeam);
     CHECK(tm.team_id == 231);
 
+    // ★ B30: the live send resolver must use the SAME freshness rule. The old first-match scan returned 228 here,
+    // even though `peers all` honestly reported 231, which misaddressed a sealed team-key grant to the stale alias.
+    uint8_t send_id = 0;
+    Node::IdBindConf send_conf = Node::IdBindConf::claimed;
+    CHECK(node.team_id_of_key(ann.key_hash32, send_id, Node::IdBindConf::authoritative, &send_conf));
+    CHECK(send_id == 231);
+    CHECK(send_conf == Node::IdBindConf::authoritative);
+
     // ⚠ FINDING pinned as a test: the STATIC table cannot alias — id_bind_set calls
     // id_bind_evict_other_hash_holders on both accept paths, so a second id claiming the hash EVICTS the first.
     node.test_id_bind_set(40, ann.key_hash32, /*authoritative=*/true);
@@ -3960,6 +3968,12 @@ TEST_CASE("§id-hash S3 — the ALIAS resolver reports the WINNER's tier and doe
     uint8_t id_out = 0;
     CHECK(node.team_id_of_key(ann.key_hash32, id_out));
     CHECK(id_out == 228);                                // ★ the claim did not shadow the beacon row on the send path
+
+    // At the explicitly lowered floor both rows qualify, so freshness wins and the claimed tier is reported.
+    Node::IdBindConf actual = Node::IdBindConf::authoritative;
+    CHECK(node.team_id_of_key(ann.key_hash32, id_out, Node::IdBindConf::claimed, &actual));
+    CHECK(id_out == 231);
+    CHECK(actual == Node::IdBindConf::claimed);
 }
 
 // =============================================================================

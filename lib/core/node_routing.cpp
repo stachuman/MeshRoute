@@ -906,18 +906,16 @@ bool Node::team_key_of_id(uint8_t id, uint32_t& out, IdBindConf min, IdBindConf*
 // arm and the AUTO mobile cascade both resolve through it — and before S3 it accepted every fresh row with no
 // confidence test at all, so a claimed binding would have gone straight into addressing a real transmission.
 // Same default floor as the forward reader, so the two directions cannot disagree (spec §9: "claimed forward AND
-// reverse lookups fail under the default authoritative floor — team_id_of_key included").
+// reverse lookups fail under the default authoritative floor — team_id_of_key included"). B30 additionally requires
+// the freshest qualifying alias, shared with the address-book resolver rather than a first-match table scan.
 bool Node::team_id_of_key(uint32_t key_hash32, uint8_t& out_id, IdBindConf min, IdBindConf* actual) const {
-    if (_cfg.team_id == 0 || key_hash32 == 0) return false;
-    const uint64_t now = _hal.now();
-    for (uint8_t i = 0; i < _active->_team_keys_n; ++i)                     // require the cached hash AND a live team-peer route (is_team_peer <-> _rt_team route) AND freshness (§P2-6 48 h TTL) -> do_send routes via _rt_team
-        if (_active->_team_keys[i].key_hash32 == key_hash32 && is_team_peer(_active->_team_keys[i].id)
-            && now - _active->_team_keys[i].last_seen_ms <= protocol::id_bind_ttl_ms
-            && static_cast<uint8_t>(_active->_team_keys[i].confidence) >= static_cast<uint8_t>(min)) {   // §S3 floor: keep SCANNING past a below-floor row (this table aliases — see team_id_of_key_freshest)
-            if (actual) *actual = static_cast<IdBindConf>(_active->_team_keys[i].confidence);
-            out_id = _active->_team_keys[i].id; return true;
-        }
-    return false;
+    uint8_t alias_dropped = 0;
+    IdBindConf found = IdBindConf::claimed;
+    const uint8_t id = team_id_of_key_freshest(key_hash32, alias_dropped, min, &found);
+    if (id == 0) return false;                      // leave both outputs untouched on a miss
+    out_id = id;
+    if (actual) *actual = found;
+    return true;
 }
 #endif   // MR_FEAT_TEAM
 // True iff routing to `dest` via `next_hop` would relay THROUGH a mobile peer. The next_hop != dest carve-out is the

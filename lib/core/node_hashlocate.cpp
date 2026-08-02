@@ -475,12 +475,10 @@ int Node::peer_key_slot_of(uint32_t key_hash32) const {
 }
 
 #if MR_FEAT_TEAM
-// hash -> team_local_id, FRESHEST wins, and count the losers. See node.h for why this table (unlike _id_bind) really
-// can alias, and why the gate is team_key_of_id's verbatim gate rather than team_id_of_key's.
-// ⚠ DELIBERATELY NOT team_id_of_key (node_routing.cpp), and this is a FINDING rather than a preference: that function
-// returns the FIRST matching row, so on an aliased hash it silently picks by table order. It is on the live
-// PLAINTEXT send-by-hash path, so changing it is a behaviour fix in its own right (C1) — reported, not folded in here.
-uint8_t Node::team_id_of_key_freshest(uint32_t key_hash32, uint8_t& alias_dropped, IdBindConf* conf_out) const {
+// hash -> team_local_id, FRESHEST qualifying row wins, and count the qualifying losers. See node.h for why this table
+// (unlike _id_bind) really can alias. Display calls at the claimed floor; send calls at the authoritative floor.
+uint8_t Node::team_id_of_key_freshest(uint32_t key_hash32, uint8_t& alias_dropped,
+                                      IdBindConf min, IdBindConf* conf_out) const {
     alias_dropped = 0;
     if (conf_out) *conf_out = IdBindConf::claimed;   // ★ §id-hash S3: the SAFE default — "no row" never reads as first-hand
     if (key_hash32 == 0 || _cfg.team_id == 0) return 0;
@@ -491,13 +489,11 @@ uint8_t Node::team_id_of_key_freshest(uint32_t key_hash32, uint8_t& alias_droppe
         const auto& e = _active->_team_keys[i];
         if (e.key_hash32 != key_hash32 || !is_team_peer(e.id)) continue;
         if (now - e.last_seen_ms > protocol::id_bind_ttl_ms) continue;      // §P2-6 48 h staleness — team_key_of_id's rule
+        const IdBindConf conf = static_cast<IdBindConf>(e.confidence);
+        if (static_cast<uint8_t>(conf) < static_cast<uint8_t>(min)) continue;
         ++hits;
-        // ★★ §id-hash S3: FRESHEST STILL WINS — the tier is REPORTED, it does not re-rank. Letting an older
-        // authoritative row beat a fresher claimed one would make this reader disagree with `team_id` itself (the
-        // view's whole contract is "the freshest row is the honest answer, and team_alias_dropped says a loser
-        // exists"), and would put a trust decision inside a DISPLAY resolver — the §AB3 de-dup mistake that S1b's
-        // QA finding P2 already cost this arc one round. The floor belongs at the CALLER (spec §3-D6), not here.
-        if (best == 0 || e.last_seen_ms > best_seen) { best = e.id; best_seen = e.last_seen_ms; best_conf = static_cast<IdBindConf>(e.confidence); }
+        // FRESHEST STILL WINS inside the selected floor — trust filters candidates, it never re-ranks them.
+        if (best == 0 || e.last_seen_ms > best_seen) { best = e.id; best_seen = e.last_seen_ms; best_conf = conf; }
     }
     alias_dropped = hits ? static_cast<uint8_t>(hits - 1) : 0;
     if (conf_out) *conf_out = best_conf;
@@ -513,7 +509,7 @@ void Node::peer_book_join_ids(PeerBookRow& r) const {
     const int sid = id_bind_find_by_hash(r.hash, &ic);        // U1: the existing _id_bind reverse scan (skips expired)
     if (sid >= 0) { r.static_id = static_cast<uint8_t>(sid); r.static_authoritative = (ic == IdBindConf::authoritative); }
     IdBindConf tc = IdBindConf::claimed;                      // ★ §id-hash S3: the team plane's twin of the line above
-    r.team_id = team_id_of_key_freshest(r.hash, r.team_alias_dropped, &tc);
+    r.team_id = team_id_of_key_freshest(r.hash, r.team_alias_dropped, IdBindConf::claimed, &tc);
     r.team_authoritative = (r.team_id != 0) && (tc == IdBindConf::authoritative);
     peer_book_join_loc(r);
 }
@@ -581,7 +577,7 @@ uint16_t Node::peer_book_walk(bool include_id_rows, PeerBookVisit fn, void* ctx)
         r.static_authoritative = (e.confidence == static_cast<uint8_t>(IdBindConf::authoritative));
         if (r.hash) {                                                                   // §18: the same hash may hold both
             IdBindConf tc = IdBindConf::claimed;
-            r.team_id = team_id_of_key_freshest(r.hash, r.team_alias_dropped, &tc);
+            r.team_id = team_id_of_key_freshest(r.hash, r.team_alias_dropped, IdBindConf::claimed, &tc);
             r.team_authoritative = (r.team_id != 0) && (tc == IdBindConf::authoritative);   // §id-hash S3
         }
         peer_book_join_loc(r);                                                          // §AB4 (no join_ids here: static_id came straight off the row)
@@ -632,9 +628,9 @@ uint16_t Node::peer_book_walk(bool include_id_rows, PeerBookVisit fn, void* ctx)
             uint32_t th = 0;
             // ★★ §id-hash S3 — THE DISPLAY FLOOR IS EXPLICIT HERE, and passing the default would have PLANTED a
             // duplicate-row bug for S4a. This is a DEDUP against what pass (3) emitted, and pass (3) resolves through
-            // `team_id_of_key_freshest`, which has no floor. If this asked at the `authoritative` default, a CLAIMED
-            // row would answer false here, pass (4) would emit a team-id-only row for an id pass (3) already emitted
-            // WITH its hash, and `peers all` would print it twice. Exactly the trap §id-hash S2 recorded for pass
+            // `team_id_of_key_freshest` at its `claimed` display floor. If this asked `team_key_of_id` at its
+            // `authoritative` default, a CLAIMED row would answer false; pass (4) would then emit an id pass (3)
+            // already emitted WITH its hash, and `peers all` would print it twice. Exactly the S2 trap recorded for
             // (2b) — *"the dedup must read the TABLE, not the accessor"* — reached through the new floor parameter.
             // ⓘ INERT IN S3 by construction: the beacon is the only writer and it writes `authoritative`, so no row
             //   is below the floor yet. The explicit floor is what keeps it inert once S4a adds the claimed writer.
@@ -1494,7 +1490,21 @@ void Node::on_mobile_hash_bind_pubkey_response(const uint8_t* inner, uint8_t inn
 // the DESTINATION consume in `on_hash_bind_response` (`h_query`) and the RELAY observation here (`h_relay`), each
 // `team_key_set(id, hash, …, IdBindConf::claimed)`, ★ neither setting `_team_peer`. Reason (2) is respected by the
 // tier, not by a special case: a `claimed` row is below the DAD comparator's default `authoritative` floor.
-// ⇒ a repeat `send -t 0x<hash>` to an unheard teammate now resolves from cache instead of re-flooding the locate.
+// ⚠⚠ **CORRECTED 2026-08-02 (QA, §B30 review). The line here previously read "⇒ a repeat `send -t 0x<hash>` to an
+// unheard teammate now resolves from cache instead of re-flooding the locate." THAT IS FALSE, and the chain is short
+// enough to check: (1) `send -t 0x<hash>` resolves through `team_id_of_key` at its DEFAULT `authoritative` floor
+// (send_by_hash's team arm, ~:1572); (2) both ingest sites above write `IdBindConf::claimed` UNCONDITIONALLY (:1311
+// destination, :1507 relay) — the answer's own AUTHORITATIVE bit is deliberately not consulted, because an id is not
+// self-verifying whichever direction the query ran; (3) claimed < authoritative ⇒ the lookup MISSES; (4) the send
+// falls through to the §F-TR-1 team-scoped H flood; (5) that answer lands `claimed` again. ⇒ **IT NEVER CONVERGES.**
+// ★ WHAT THE INGEST ACTUALLY BUYS IS THE VIEW, NOT THE SEND: `hashof`/`peers all` can now name and LABEL an unheard
+//   teammate (`team_id_of_key_freshest` defaults to `claimed`), which is the whole point of §id-hash S4a. The send
+//   path deliberately declines to route on hearsay.
+// ★★ THE STANDING COST, RECORDED SO IT IS NOT "DISCOVERED" LATER: a repeat `send -t 0x<hash>` to a teammate we hold
+//   only a CLAIM for re-floods the locate every time (rate-limited only by `hash_query_seen_ttl_ms`). That is the
+//   ACCEPTED trade, not an oversight — spec §3-D7's reasoning: a false claimed binding used as a send target does not
+//   merely fail, it routes the message to the owner of the false hash. ⇒ **DO NOT "fix" the airtime by lowering this
+//   floor** — that reverses D7. The convergent cure is a first-hand beacon (which writes `authoritative`) or a QR.
 void Node::on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool authoritative, bool team_plane) {
     auto hb = parse_hash_bind_inner(std::span<const uint8_t>(inner, inner_len));
     if (!hb) return;

@@ -338,13 +338,36 @@ cannot say whether those repliers were `team_active`. **The measurement: a tempo
 emit** (the method B4 used), then check whether any static requester installs the replied ids. **Do not fix before
 measuring** — if it is unreachable, a guard here is decoration. Note: `§sync-response-plane`.
 
-### B30 — `team_id_of_key` silently first-matches an ALIASED hash · NEW 2026-07-31
-`lib/core/node_routing.cpp:855` returns the **first** id whose team-key row carries the hash. ★ **`_team_keys` genuinely
+### B30 — `team_id_of_key` silently first-matches an ALIASED hash · FIXED 2026-08-02
+The old `team_id_of_key` returned the **first** id whose team-key row carried the hash. ★ **`_team_keys` genuinely
 can alias:** `team_key_set` upserts **by id only** and never dedups by hash, so a teammate that re-runs team-DAD leaves
 its old `(id, hash)` row live for the full 48 h TTL. ⇒ on the **live plaintext send-by-hash path** the node may pick the
 **stale** id — exactly the silent-pick the address-book spec §2.1 forbids for the view.
-★ **The reference implementation already exists:** AB3's `team_id_of_key_freshest(hash, &alias_dropped)` picks max
-`last_seen_ms` and **reports the loser count**. Fix = route this site through it (U1). Not fixed (C1). Note: `§ab3`.
+★ **CLOSED 2026-08-02 by `§B30 send`.** The AB3 resolver is now the one shared reverse policy: it accepts a confidence
+floor, filters out below-floor rows, then picks max `last_seen_ms` among the qualifying aliases. Address-book callers
+pass `claimed`; the live send reader retains its default `authoritative` floor. Thus a fresher claim remains visible
+and labelled in the view but cannot shadow an older authoritative send target.
+★ **Bench state pinned verbatim:** authoritative aliases `245 → 0x7B18ADA2` then `86 → 0x7B18ADA2`; a sealed type-19
+TEAM grant must queue with `dst=86`, never stale `245`. The inverse-hash and command-path tests both assert it.
+**Poison control:** inverting the freshness comparison fails three cases, including `§B30 send` at `dst == 86`.
+★★ **QA REVIEW 2026-08-02 — GO, with one in-source claim CORRECTED and one standing cost now on the record.**
+① `node_hashlocate.cpp` (the `on_hash_bind_snoop` header) asserted *"a repeat `send -t 0x<hash>` to an unheard
+teammate now resolves from cache instead of re-flooding the locate."* **False, and it cannot ever be true as built:**
+the send reader is at the default `authoritative` floor, both ingest sites write `claimed` **unconditionally**, so the
+lookup misses, falls to the `§F-TR-1` flood, and the answer lands `claimed` again — **no convergence.** Corrected in
+place with the five-step chain. ⇒ ★ **the team ingest buys the VIEW (`hashof`/`peers all` can name and label an unheard
+teammate), NOT the send.** ② ⚠ **The accepted cost: a repeat `send -t 0x<hash>` to a claim-only teammate re-floods
+every time** (rate-limited only by `hash_query_seen_ttl_ms`). **DO NOT lower the floor to reclaim that airtime — it
+reverses spec §3-D7** (a false claimed binding does not fail closed; L2c *forwards* the DM to the owner of the false
+hash). The convergent cure is a first-hand beacon or a QR. ③ A `⚠` now sits on `team_id_of_key_freshest`'s declaration:
+its default is the permissive `claimed` while the `team_id_of_key` wrapper's is the strict `authoritative`, so a future
+**send**-path caller reaching for the raw resolver would silently route on a claim. All callers correct today.
+④ **Gate coverage was 2 envs, not 3** (`xiao_esp32s3` + `gateway`); QA built the missing `xiao_sx1262` — **SUCCESS, RAM
+70.9 % / 167044 B = S3's 166980 + S4b's +64 exactly, so B30 itself is +0 RAM.** Native **1149/72681/0** and s18
+`1cd21235`/271629 with 0 assertion failures both QA-reproduced.
+**Gate:** native **1149/72681/0**; target `xiao_esp32s3` and feature-off `gateway` link; **36/36** streams are byte-identical to
+clean HEAD with zero assertion failures, and s18 remains `1cd21235` / 271629.
+Note: `§ab3`, `§B30 send`.
 
 ★★ **2026-07-31: TIER 1 IS NOW EMPTY — B0, the last live leak, is CLOSED.** Both Tier-1 bugs found *inside* this arc were fixed: the cross-layer cleartext downgrade
 (`§xl-crypt`, `65833f2`) and the silently-dropped delegated sealed DM (`§deleg-ack-xl`, `442809b`).
@@ -611,7 +634,7 @@ rejection; a later `pump_tx` radio-start error is **outside** the guarantee. The
 `!!` report, not by this event.
 ⑤ the grammar itself: `reqpubkey <0xhash|id> [-s|-t]`, flags mutually exclusive, bare id = AUTO.
 
-### B43 — ★★ no id → hash for a node we **route to** but never heard directly (both planes) · NEW 2026-08-01
+### B43 — ★★ no id → hash for a node we **route to** but never heard directly (both planes) · FIXED 2026-08-02
 `_team_keys` is written at exactly one site — `node_beacon.cpp:~831` — reached only from a **directly-heard same-team
 beacon**. A multi-hop teammate still gets its `_team_peer` dispatch bit, from the DV merge at `node_beacon.cpp:~939-940`,
 off a route entry that **carries no key**. Static is the same shape: `_id_bind` is fed by a heard beacon
@@ -626,7 +649,7 @@ id→hash answer is a **claim**, never authoritative.
 **Fix shape:** spec S3 + S4a/S4b — `H_FLAG_BY_ID` (byte 7 has four free bits), owner-only answers, `claimed` landing on
 both planes, and the two-stage `reqpubkey` completion.
 **Coverage owed:** the spec's §9 gate list. **MEASURED** (bench, both planes).
-★ **CLOSED — THE BINDING HALF — 2026-08-02 by slice `§id-hash S4a` (green, UNCOMMITTED).** `H_FLAG_BY_ID = 0x10`
+★ **CLOSED — THE BINDING HALF — 2026-08-02 by slice `§id-hash S4a` (landed at HEAD `2ff40dc`).** `H_FLAG_BY_ID = 0x10`
 reuses H bytes 2-5 as a **canonical** zero-extended id (bytes 3-5 zero, ids 0/255 refused on pack **and** parse,
 `h_by_id_key_canonical` is the one predicate all three sites share); `by_id` joins the `HashQuerySeen` key (at **0
 bytes** — `offsetof == 19`, `sizeof` 24 unmoved) and rides every forward. **Only the OWNER answers**, self-matching on
@@ -636,9 +659,11 @@ allowed exactly when the answer is self-verifying, and an id→hash one is not.*
 existing codepoint and — **newly built** — in `_team_keys` on the team plane, ★ **without ever touching `_team_peer`**.
 `reqpubkey <id>` on an unresolved id now FLIES that query instead of refusing (spec §5 stage 1), which is the
 originator B43 needs; **B53's floor, lowered in the same slice, is what makes the resulting row visible.**
-⚠ **RESIDUAL, NOT A REGRESSION — the operator workflow is TWO commands until S4b:** stage 1 lands the binding, and the
-second `reqpubkey <id>` fetches the key. Spec §5's pending `resolve-id-for-pubkey` intent + timeout is **S4b**, by
-design (§6). The BLE discriminator is `reqpubkey_sent.hash == 0` — see **B55**.
+★★ **CLOSED IN FULL — 2026-08-02 by `§id-hash S4b` (landed at HEAD `2ff40dc`).** A bounded
+`resolve-id-for-pubkey` intent records stage 1, consumes the owner's claimed binding answer, and automatically emits
+the existing hash-keyed pubkey request as stage 2. A bounded loud timeout clears an unanswered intent. The operator
+workflow is therefore one `reqpubkey <id>` command on both planes.
+ⓘ `reqpubkey_sent.hash == 0` remains the honest stage-1 acceptance report; its app-contract meaning is tracked by B55.
 ⚠ **NOT unblocked, per spec §8:** multi-hop `team grantkey` and sealed send still refuse a claim. That is the owner's
 confidence split working, not a gap.
 ★★ **THE MEASUREMENT WORTH INHERITING (and it contradicts spec §6's own "re-anchors" prediction): the corpus is

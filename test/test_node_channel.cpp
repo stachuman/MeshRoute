@@ -2233,6 +2233,33 @@ TEST_CASE("§T-K3 send — the sealed grant is ACTUALLY sealed: CRYPTED + TYPE 1
     CHECK_FALSE(leaked);
 }
 
+TEST_CASE("§B30 send — a sealed TEAM grant targets the freshest authoritative team-id alias") {
+    uint8_t sa[32], sb[32]; for (int i = 0; i < 32; ++i) { sa[i] = uint8_t(i + 11); sb[i] = uint8_t(60 - i); }
+    Identity A{}, B{}; identity_from_seed(A, sa); identity_from_seed(B, sb);
+    TkHal hal; Node n(hal, 40, A.key_hash32); arm_granter(n, hal, A, B);
+    n.set_team_local_id(40);
+
+    // Reproduce the bench state: the same hash remains under stale id 245 and current id 86. Both routes are live,
+    // and table order puts the stale row first. Before B30 the reverse send resolver silently selected 245.
+    n.test_learn_route(245, 245, 1, 40, /*team_plane=*/true);
+    n.test_learn_route(86, 86, 1, 40, /*team_plane=*/true);
+    hal._now = 100000;
+    n.team_key_set(245, B.key_hash32, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);
+    hal._now = 200000;
+    n.team_key_set(86, B.key_hash32, Node::IdBindSource::bcn, Node::IdBindConf::authoritative);
+    hal._now = 300000;
+    n.test_suspend_tx_drain(true);
+
+    uint16_t ctr = 0;
+    CHECK(n.team_key_grant_send(B.key_hash32, nullptr, 0, Plane::TEAM, &ctr) == Node::TeamKeyGrantTx::queued);
+    CHECK(ctr != 0);
+    CHECK(n.test_tx_queue_n() == 1);
+    if (n.test_tx_queue_n() != 1) return;
+    CHECK(n.test_tx_type(0) == DATA_TYPE_TEAM_KEY_GRANT);
+    CHECK((n.test_tx_flags(0) & DATA_FLAG_CRYPTED) != 0);
+    CHECK(n.test_tx_dst(0) == 86);                  // current identity, not stale alias 245
+}
+
 // ---- (3) the FULL WIRE ROUND TRIP + the two wire-only properties ---------------------------------------------
 namespace {
 // Seal `body` as a TYPE-19 DM A->B (origin 1, ctr 5) and pack the DATA frame. Mirrors test_node_r3's e2e_seal_AtoB.

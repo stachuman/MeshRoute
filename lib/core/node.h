@@ -1028,19 +1028,22 @@ private:
     // (id_bind_set calls id_bind_evict_other_hash_holders on BOTH its accept paths) so hash -> static_id cannot alias.
     // _team_keys has NO such dedup — team_key_set upserts BY ID only — so a teammate that re-ran team-DAD leaves its
     // OLD (id, hash) row live until the 48 h TTL or the LRU reclaims it, and TWO team ids then carry one hash.
-    // ⇒ resolve by FRESHEST last_seen_ms and report how many rows lost, so the emit can say a loser was dropped.
-    // Gate is team_key_of_id's VERBATIM gate (team_id != 0 && is_team_peer(id) && within id_bind_ttl_ms) so the forward
-    // and reverse directions cannot disagree — the whole point of the view.
-    // ★★ §id-hash S3: ONE DELIBERATE DIVERGENCE FROM THAT "VERBATIM" CLAIM, and it is the spec's §3-D6 display floor.
-    // team_key_of_id now takes a confidence floor defaulting to `authoritative`; this reader takes NONE and accepts
-    // every tier, because its only callers are the address-book VIEW (peer_book_join_ids + walk passes 2/3), whose
-    // floor D6 sets at `claimed` — "shows a claim, LABELLED as one". It reports the winner's tier through `conf_out`
-    // so the row can carry that label. A floor here would silently hide claims from the one surface meant to show
-    // them; a hidden claim is how an operator concludes "nothing is there" about a binding that exists.
-    // ⚠ It is PRIVATE and must stay so: it is the display reader, never a send-path one.
-    uint8_t team_id_of_key_freshest(uint32_t key_hash32, uint8_t& alias_dropped, IdBindConf* conf_out = nullptr) const;
+    // ⇒ resolve by FRESHEST last_seen_ms among rows at the caller's confidence floor and report how many qualifying
+    // rows lost. This is the ONE reverse-resolution policy shared by display and send paths: the address-book view
+    // passes `claimed` (show a claim, LABELLED as one), while live sends retain their default `authoritative` floor.
+    // The winner's tier is returned through `conf_out`; the floor filters candidates but never re-ranks them by trust.
+    // ⚠⚠ THE TWO DEFAULTS POINT IN OPPOSITE DIRECTIONS, ON PURPOSE — and that makes this the easier one to misuse.
+    // This raw resolver defaults to the PERMISSIVE `claimed` (it exists for the VIEW); the `team_id_of_key` wrapper
+    // defaults to the STRICT `authoritative` (it exists for the SEND). ⇒ **a send-path caller reaching for THIS
+    // function — the more capable API, since it also returns `alias_dropped` and the winner's tier — would silently
+    // get the permissive floor and route on a claim, which spec §3-D7 forbids.** All four callers are correct today
+    // (three views pass or default to `claimed`; the wrapper threads its caller's floor). If you add a fifth from a
+    // send/mutation path, PASS `IdBindConf::authoritative` EXPLICITLY. Flagged by the §B30 QA review, 2026-08-02.
+    uint8_t team_id_of_key_freshest(uint32_t key_hash32, uint8_t& alias_dropped,
+                                    IdBindConf min = IdBindConf::claimed, IdBindConf* conf_out = nullptr) const;
 #else
-    uint8_t team_id_of_key_freshest(uint32_t, uint8_t& alias_dropped, IdBindConf* conf_out = nullptr) const { alias_dropped = 0; if (conf_out) *conf_out = IdBindConf::claimed; return 0; }
+    uint8_t team_id_of_key_freshest(uint32_t, uint8_t& alias_dropped,
+                                    IdBindConf = IdBindConf::claimed, IdBindConf* conf_out = nullptr) const { alias_dropped = 0; if (conf_out) *conf_out = IdBindConf::claimed; return 0; }
 #endif
     void    handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta);   // H flood: resolve (own-hash OR id_bind) + suppress, else forward TTL-1
     void    h_forward_fire(uint8_t slot);                                     // §F-XL-1: fire the jittered (de-stormed) h_forward stashed in ring slot
