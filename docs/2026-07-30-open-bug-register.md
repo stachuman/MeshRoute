@@ -748,16 +748,19 @@ rejected the frame (the radio or the channel is saturated)"* and names neither. 
 was uncommitted).
 ★ **THE DEFERRED RESIDUAL — no silent loss.** A frame ACCEPTED into `_deferred_lbt` can still meet a full HAL queue
 when its timer fires, and unlike DATA an H query has **no MAC timeout** behind it to recover. That death is now
-reported LATE: `tx_deferred_lost` **plus `_hal.log`**, which is the one operator-facing channel `lib/core` has on
-metal (MR_EMIT is device-stripped).
+reported LATE: `tx_deferred_lost` **plus an operator-critical `_hal.log`**. ⚠ **CORRECTED (QA P2): my first version of this was
+FALSE on metal** — `fw_main`'s sink gated every log line on `g_mr_trace_on`, so under `debug off` the report was
+completely silent and `_hal.log` is a DEBUG channel, not an operator channel. The message now carries a `!!`
+operator-critical marker and the sink prints those regardless of trace.
 ⚠ **A BOUNDED RE-DEFER WAS CONSIDERED AND REFUSED, and the reason is specific to the payload:** re-deferring would air
 an H query at an unbounded later time, after the operator has been told and has plausibly retried by hand —
 duplicate airtime for a question that is already stale — and it needs retry state plus a second timer path for a case
 no automated gate can reach. ⓘ A per-command PUSH was also refused: correlating the loss back to the `reqpubkey` that
 queued it needs a handle the frame does not carry, and `send_failed{ctr:0}` is exactly the uncorrelated shape **B39**
 exists to fix. Owed to B39 (C1), recorded rather than faked.
-★ **SCOPE RULING (owner): a SUCCESSFUL defer is still `aired`** — it is scheduled and will fly, so the contract's
-claim holds; only the ring-full DROP is false. `lbt_complete`'s own early returns are excluded on inspection: both are
+★ **SCOPE RULING (owner, superseded and restated 2026-08-01): a SUCCESSFUL defer is `accepted`** — the TX path
+took it. ⚠ It is **NOT** a claim that it flew (that is unsatisfiable synchronously); a deferred frame that dies later
+is reported by the late `tx_deferred_lost` + the operator log. Only a DROP is false. `lbt_complete`'s own early returns are excluded on inspection: both are
 RTS-only (a stale-flight cancel, and a duty defer that does fly) and neither is reachable from `emit_hash_query`,
 which always passes `LbtKind::flood`.
 ⓘ **The widening again changed ZERO call sites** — 22 callers across 8 files discard it and there is no
@@ -796,8 +799,22 @@ away the only answer the radio layer gives. On hardware `DeviceHal::tx` returns 
 ring is full (it increments `txq_drops` and **does not retain the frame**) and **`too_long`** past the SX1262 length
 register. ⇒ **every** TX caller in the tree — not just `reqpubkey` — could not distinguish "queued for the radio" from
 "dropped on the floor".
-★ **This is registered separately from B47 on purpose:** B47 is one verb's contract, this is a function every TX path
-in the firmware goes through, and its attribution must stay separable (C4).
+⚠⚠ **CORRECTION 2026-08-01 — THE CLAIM "a function every TX path goes through" WAS FALSE, and it hid a second site
+for a full round.** `tx_flood` does **not** go through `tx_with_retry`; it calls `_hal.tx` **directly**. The dispatch
+that produced TX1 asked for a sweep of *`tx_with_retry`'s callers*, which is the wrong set — the right one is **every
+direct `_hal.tx` caller**. ★ **That is the arc's next sweep-scope instance** (after directory-vs-file, verb-prefix,
+predicate-vs-pattern and transport scope), and it was in the dispatch, not the implementation.
+★ **THE FULL CLASSIFICATION — all FOUR direct `_hal.tx` call sites, which is what B50 should have listed from the
+start:**
+| # | site | consumer of the result | verdict |
+|---|---|---|---|
+| 1 | `node_mac.cpp:~1300` `rts_duty_defer_fire` | none — the function is `void` and calls `start_rts_timeout()` unconditionally | **OK as-is.** An RTS is retry-eligible in effect: the CTS-wait timeout it arms IS the recovery, exactly the argument that keeps TX1's three readers arming theirs. No app-visible claim, no state burned. |
+| 2 | `node_mac.cpp:~1335` `tx_flood` immediate | ★ **`emit_beacon:517` reads it as `sent` and `:525` commits the channel digest** | ★★ **WAS BROKEN — fixed by TX2.** Not telemetry: a dropped beacon burned an advertisement horizon. |
+| 3 | `node_mac.cpp:~1493` `tx_with_retry` | 3 readers (`duty_defer_fire`, both `do_data_tx` arms) | **fixed by TX1.** |
+| 4 | `node_mac.cpp:~1534` `retry_stashed` | none directly; it re-arms `awaiting_ack` + the ack timeout below | **OK as-is** — retry-eligible frame, the MAC timeout is the recovery (same argument as #1). |
+⇒ **exactly one of the four was a real defect beyond TX1, and it is the one the wrong sweep could not have found.**
+★ **This is registered separately from B47 on purpose:** B47 is one verb's contract; this is the shared TX layer, and
+its attribution must stay separable (C4).
 ⚠⚠ **THE OBVIOUS FIX WOULD HAVE CAUSED A REGRESSION, and finding that changed the slice's shape.** The dispatch
 assumed `tx_with_retry` might be a `void`/all-discard function. **It is neither:** it already returned `bool`, and
 **three callers READ it** — `duty_defer_fire` and both `do_data_tx` arms — each using it to decide *"arm the post-TX
@@ -815,6 +832,31 @@ cancel abandons a dead flight, and the duty defer re-arms) and out of `tx_initia
 exists. ⚠ **`txq_drops` has no console surface**, so on metal a rejection is currently invisible unless it hits the H
 path; noted in the bench script, not fixed here (C1).
 **MEASURED** (native + capability probe; see B47). **Corpus 36/36 byte-identical** — 0 rejections, structurally.
+
+### B51 — ★★ `tx_flood` discarded BOTH its admission results, and that BURNED CHANNEL DIGEST STATE · NEW 2026-08-01
+`tx_flood` answered `true` in two cases where the frame was definitively gone: a **full 4-slot LBT defer ring**
+(`schedule_lbt_defer`'s result discarded) and a **HAL rejection** (`_hal.tx`'s `TxResult` discarded).
+★★ **NOT a telemetry defect.** `emit_beacon` takes that boolean as `sent` and gates
+`commit_channel_digest_advertised` on it, under the comment *"burn an ad_count … ONLY for advertisements that ACTUALLY
+AIRED … the air-honesty fix"*. The commit does `++e.bcn_ad_count` and, on horizon, `e.dirty = false`. ⇒ **a dropped
+beacon consumed the advertisement horizon and could RETIRE a digest nothing ever received** — the air-honesty
+mechanism defeated by two discarded returns.
+★ **FIXED 2026-08-01 by `§tx-admission TX2` (green, UNCOMMITTED) at ZERO bytes.** Both sites return the real result;
+the digest commit now follows the **acceptance** boundary — the same one the owner ruled for `reqpubkey_sent` — so a
+ring-full drop and a HAL rejection both leave the entry **dirty**, and an accepted defer commits.
+⚠ **RESIDUAL, FLAGGED FOR AN OWNER RULING RATHER THAN DECIDED: the late edge.** An accepted defer commits at
+acceptance, so a beacon that dies at the radio queue when its timer fires has already burned one `bcn_ad_count`.
+Rolling that back needs the selected digest ids carried in the defer ring — **MEASURED: +16 B/slot x 4 = +64 B of
+`sizeof(Node)`** (native model; per-board confirmation owed if taken). Against that: the residual burns **exactly one**
+count of a **horizon backstop** whose primary retire path is holder coverage (`channel_entry_fully_seen`), and needs
+the radio queue to saturate inside a sub-second defer window. The frame's death is already reported.
+⚠⚠ **COVERAGE IS PARTIAL AND I AM SAYING SO.** The **immediate HAL rejection** case is tested with a paired positive
+control (`test_node_channel.cpp`, case D) — poisoning that site reddens 1 case. The **ring-full beacon** case is
+**fixed but UNTESTED**: my fixture measured `DEFER=0` — the beacons were *skipped* (`wait > flood_lbt_max_defer_ms`),
+not deferred — so the ring never filled, and poisoning that site reddens **nothing**. ⇒ **OWED: a fixture that
+provably defers a beacon (assert `tx_lbt_defer` fired) before filling the ring.** The ring-full DROP mechanism itself
+is covered on the other `tx_initiating` path (S1c's fifth-frame test).
+**MEASURED** (native + corpus 36/36 byte-identical; 0 rejections and 0 deferred losses corpus-wide, structurally).
 
 ### B49 — the `CmdCode` self-labelling invariant test was bounded by a LITERAL and silently stopped covering · NEW 2026-08-01
 `test_console_json.cpp`'s *"every refusal's token begins with `err_`"* loop — the ONLY detector for the §err-reason/B32

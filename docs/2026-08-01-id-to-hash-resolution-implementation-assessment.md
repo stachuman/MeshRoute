@@ -4,9 +4,10 @@
 **Date:** 2026-08-01  
 **Reviewed:** implementation and rework of S1, S2 and S2b from
 `docs/superpowers/specs/2026-08-01-id-to-hash-resolution-design.md`, plus the coder's poison-matrix report  
-**Disposition after third review:** **changes requested** — the LBT defer-ring refusal is now propagated correctly,
-and S2/S2b remain acceptable. S1 still has one blocking hardware-path gap: `reqpubkey_sent` can be emitted when the
-separate DeviceHal outbound queue rejects or later drops the H frame.
+**Disposition after fifth review:** **changes requested for the bundled global TX closure; S1/S2/S2b remain acceptable
+as scoped.** Both synchronous `tx_flood()` rejection sites are now fixed and the hardware late-loss log is genuinely
+operator-visible. Closure still lacks a non-vacuous beacon ring-full test, and the late-deferred beacon digest commit
+must move to the now-approved DeviceHal/transmitter-admission boundary.
 
 This is a separate review artifact. It does not modify the design, implementation, baseline, bug register or companion
 contract.
@@ -357,3 +358,186 @@ adding another layer of contradictory status text.
 
 **Third-pass landing order:** resolve the event semantics and propagate/recover DeviceHal rejection; add immediate and
 post-defer HAL-busy tests; then reconcile the spec, register and companion contract before rerunning all gates.
+
+## 7. Fourth quality gate
+
+### Resolution of the third-pass blocker
+
+The command-specific blocker is resolved under the owner's clarified contract:
+
+- `CmdResult::aired` is now `accepted`, and the companion contract correctly defines `reqpubkey_sent` as acceptance by
+  the Node/DeviceHal TX path rather than proof of physical airtime.
+- The immediate path propagates `schedule_lbt_defer` and `lbt_complete`; `tx_with_retry` now inspects `TxResult` and
+  distinguishes `handed`, `deferred_retry_armed` and `rejected` without breaking the DATA timeout recovery rule
+  (`lib/core/node_mac.cpp:1451-1499`).
+- A synchronous LBT-ring or DeviceHal rejection maps to `err_tx_queue_full` and suppresses `reqpubkey_sent`.
+- The two new native fixtures are non-vacuous: each rejected path has an accepting same-fixture control, and the late
+  deferred rejection is independently observable in the test HAL.
+
+On that narrow result, **S1 is acceptable**. S2 and S2b remain acceptable from the preceding gates. The blocker below
+belongs to the separately registered, bundled **global** TX-path closure (B50), not to by-ID resolution itself.
+
+### P1 — B50 is not global: `tx_flood()` still converts definitive drops into success and can retire channel state
+
+The register says `tx_with_retry` is a function every TX path goes through and closes B50 globally
+(`docs/2026-07-30-open-bug-register.md:793-817`). `tx_flood()` disproves both statements:
+
+- on a short busy interval it discards `schedule_lbt_defer(...)`'s boolean and returns `true`, including when the
+  four-slot defer ring is full (`lib/core/node_mac.cpp:1325-1331`);
+- on a clear channel it calls `_hal.tx(...)`, discards `TxResult`, and returns `true`, including when DeviceHal's
+  eight-slot queue rejects the frame (`:1334-1336`).
+
+This is not merely a false telemetry result. `emit_beacon()` interprets that boolean as `sent` and commits the selected
+channel digests under an explicit “ACTUALLY AIRED” invariant (`lib/core/node_beacon.cpp:517-525`). The commit increments
+`bcn_ad_count` and can clear/retire a dirty digest (`lib/core/node_channel.cpp:890-907`). Therefore either definite
+drop above can consume the advertisement horizon for a beacon that was never retained anywhere.
+
+There is a second timing edge: a successfully deferred beacon commits its digest immediately, before the timer calls
+DeviceHal. If that later call rejects, `tx_deferred_lost` is emitted but the already-consumed digest state is not rolled
+back. Existing air-honesty coverage drives only the long-busy `tx_flood -> false` branch
+(`test/test_node_channel.cpp:713-730`); it cannot see defer-ring exhaustion, immediate HAL rejection or late deferred
+rejection.
+
+**Proposed solution**
+
+- Return the real `schedule_lbt_defer` result and inspect the immediate `_hal.tx` result. Do not close B50 until all
+  direct `_hal.tx` callers have been classified; `tx_flood` is the definite missing caller.
+- Make beacon digest commit follow the chosen admission boundary. A bounded implementation is to carry the selected
+  digest IDs in the relevant `DeferredLbt` slot and commit them only when deferred `lbt_complete` succeeds. Immediate
+  beacons commit only after DeviceHal accepts them; ring-full and HAL rejection leave the digest dirty. If the intended
+  invariant is literal radio airtime instead, the commit must move to a DeviceHal/radio-start callback—the synchronous
+  Node return cannot prove it.
+- Add three native cases with positive controls: full LBT ring, immediate DeviceHal rejection, and accepted defer
+  followed by DeviceHal rejection. In every rejection case assert that the digest remains dirty and its advertisement
+  count is not burned; poison both discarded-result sites.
+
+This blocks the **global B50 closure** and the bundled landing as currently documented. It does not reopen the corrected
+`reqpubkey` result path.
+
+### P2 — the claimed operator-visible late-loss report is debug-only on hardware
+
+The deferred-loss branch calls `MR_EMIT`, which is stripped on device, plus `_hal.log`
+(`lib/core/node.cpp:1235-1253`). The register and source call that “no silent loss” and operator-facing. On metal,
+however, the installed log sink prints only while `g_mr_trace_on` is enabled (`src/fw_main.cpp:538-542`); normal
+`debug off` operation remains silent. The TestHal log assertion does not model that gate.
+
+**Proposed solution:** choose one honest contract. If a late accepted-frame loss may yield “answer later, or nothing,”
+describe `tx_deferred_lost`/`_hal.log` as debug telemetry and remove the no-silent-loss claim. If operators must be
+notified, add an unconditional console/app-visible asynchronous failure signal (with correlation deferred to B39 if
+necessary). This is diagnostic/product-contract work, not a reason to reject S1's synchronous acceptance result.
+
+### P3 — acceptance rename left contradictory comments and register text
+
+The live companion contract's new block is directionally correct, but several nearby sources still say “aired,” “will
+fly,” or “on-air request was flooded,” notably `lib/core/node.h:115-124`, `:1508-1511`, the register's summary at
+`docs/2026-07-30-open-bug-register.md:587-594`, and B47 at `:759-762`. Those claims are precisely what the owner ruling
+removed. Reconcile them in the same documentation pass as B50 rather than preserving two definitions of success.
+
+### Fourth-pass independent verification
+
+- Fresh native tests: **1117/1117 cases, 72202/72202 assertions passed**.
+- `pio run -e native`: passed. The pre-existing misleading-indentation warning at
+  `lib/core/node_hashlocate.cpp:1243` remains.
+- `pio run -e gateway -e xiao_sx1262 -e heltec_v3`: all passed.
+  - gateway: RAM 81.5%, flash 57.3%
+  - xiao_sx1262: RAM 70.9%, flash 62.9%
+  - heltec_v3: RAM 64.2%, flash 36.1%
+- `git diff --check`: passed.
+- The checked-in baseline reports 36/36 scenarios and the documented TX capability poison; the scenario runner was
+  not independently rerun in this pass.
+- Swift remains unavailable, so companion tests were not executed.
+
+**Fourth-pass landing order:** fix and poison-test both `tx_flood` rejection sites; make deferred beacon digest commit
+follow the admitted frame; correct the debug-only and stale acceptance claims; then rerun the same gates. The by-ID
+resolution slices themselves need no further redesign.
+
+## 8. Fifth quality gate
+
+### Resolution of the fourth-pass findings
+
+- **Immediate `tx_flood` HAL rejection: fixed correctly.** The direct `_hal.tx` result now maps non-`ok` to `false`,
+  preserving the digest (`lib/core/node_mac.cpp:1338-1349`). The paired native control is sound.
+- **LBT-ring result propagation: fixed in code.** The busy path now returns `schedule_lbt_defer(...)` directly
+  (`:1325-1336`). The coverage blocker below remains.
+- **Direct HAL-call sweep: now correctly scoped.** There are four direct `_hal.tx` sites in `lib/core`; the register's
+  classification of the two timeout-recovered sites, `tx_flood`, and `tx_with_retry` is credible.
+- **Hardware late-loss visibility: fixed in source.** `node.cpp` marks the message `!!`, and the `fw_main` sink prints
+  that prefix even with trace disabled (`src/fw_main.cpp:538-556`). The bench script now explicitly requires a
+  `debug off` check. This is acceptable as bench-owed hardware validation.
+
+### P1 — the load-bearing beacon ring-full fix still has no test
+
+The implementation and baseline explicitly say the attempted fixture never reached a beacon defer: all beacons were
+skipped for exceeding `_flood_lbt_max_defer_ms`. Consequently, poisoning the newly changed return at
+`node_mac.cpp:1336` reddens no test. The S1c query fixture proves the shared ring can fill, but it cannot prove this
+caller's return propagation or the channel-digest consequence.
+
+This is straightforward to make deterministic; no production timing search is required. `NodeConfig` exposes
+`flood_lbt_max_defer_ms` specifically for an explicit override.
+
+**Proposed fixture**
+
+1. Set `lbt_enabled=true`, `quiet_threshold_ms=0`, `flood_lbt_max_defer_ms=1000`, and
+   `channel_dirty_max_advertisements=5`.
+2. Create one dirty digest and install a direct neighbour that has not advertised holding it, preventing the
+   no-neighbour holder-coverage path from retiring it early.
+3. Set `busy_until = now + 100`; fire four beacon timers and assert four `tx_lbt_defer` events, zero
+   `tx_lbt_defer_dropped`, and a still-dirty digest.
+4. Fire a fifth beacon and assert one ring-full drop and that the digest remains dirty.
+5. Fire deferred slot 0 to free capacity, then fire another beacon; assert the accepted advertisement reaches the
+   configured horizon and retires the digest. This is the positive/recovery control.
+6. Poison `return schedule_lbt_defer(...)` back to unconditional `true`; the fifth-beacon assertions must fail.
+
+Until that test exists and the poison reddens it, B51's synchronous ring-full half is not gate-complete.
+
+### P1 — approved transmitter-admission boundary is not yet implemented
+
+The current choice commits a deferred beacon's digest immediately when the frame enters `_deferred_lbt`. If DeviceHal
+rejects it when the timer fires, one advertisement count has already been consumed and is not rolled back. The coder
+correctly reports this residual and the measured +64-byte cost of carrying three selected IDs through four slots.
+
+The `reqpubkey_sent` ruling does not automatically settle this state machine: it defined an app event as **accepted**,
+whereas the channel code still says the digest side effect occurs only for advertisements that **ACTUALLY AIRED**
+(`lib/core/node_beacon.cpp:523-525`, `node_channel.cpp:890-895`, and `node.h:1307`). Extending the app-event ruling to
+this independently load-bearing retirement rule is a design decision, not an implementation detail.
+
+**Owner ruling, 2026-08-02:** for channel-digest accounting, “sent” means **accepted by the transmitter/DeviceHal**—the
+strongest boundary the current architecture can observe. It does not mean literal RF airtime. This selects the deferred
+DeviceHal-admission design, not commit-on-entry to the Node's LBT ring.
+
+**Required implementation**
+
+- Carry the selected digest IDs in the relevant deferred LBT slot (or equivalent bounded metadata).
+- Do not commit them when `schedule_lbt_defer` accepts the frame.
+- On the timer path, commit only if deferred `lbt_complete` reaches `_hal.tx` and DeviceHal answers `ok`; rejection
+  leaves the count and dirty state unchanged.
+- Immediate beacons continue to commit after their direct `_hal.tx` returns `ok`.
+- Add paired late-rejection/acceptance tests and poison the deferred completion result.
+- Rename “ACTUALLY AIRED” comments to the precise transmitter-admitted boundary. A later
+  `DeviceHal::pump_tx` radio-start error is outside this achievable guarantee and must not be described as covered.
+
+The current commit-on-LBT-entry behavior therefore remains a blocking mismatch with the approved contract.
+
+### P3 — the acceptance cleanup is still incomplete
+
+Stale current-tense claims remain in `src/fw_main.cpp:490-502`, `lib/core/node.h:1513-1516`, the digest comments cited
+above, and the register summary at `docs/2026-07-30-open-bug-register.md:587-594`. Test comments at
+`test/test_node_hashlocate.cpp:3428-3444` also retain `aired`/“will fly.” The baseline corrects the operator-log claim
+at line 91 and repeats the old false version at line 97. These are non-runtime defects but should be reconciled with
+the transmitter-admission ruling rather than adding another historical correction layer.
+
+### Fifth-pass independent verification
+
+- Fresh native tests: **1118/1118 cases, 72208/72208 assertions passed**.
+- `pio run -e native`: passed; the pre-existing `node_hashlocate.cpp:1243` warning remains.
+- `pio run -e gateway -e xiao_sx1262 -e heltec_v3`: all passed.
+  - gateway: RAM 81.5%, flash 57.3% (464388 bytes)
+  - xiao_sx1262: RAM 70.9%, flash 62.9% (510500 bytes)
+  - heltec_v3: RAM 64.2%, flash 36.1% (1206752 bytes)
+- `git diff --check`: passed.
+- The recorded baseline reports 36/36 scenarios, zero failures and no movers; the scenario runner was not independently
+  rerun in this pass.
+- Swift remains unavailable, so companion tests were not executed.
+
+**Fifth-pass landing order:** add and poison the deterministic beacon ring-full fixture; implement and test the approved
+transmitter-admission digest boundary; reconcile the remaining acceptance/airtime wording; then rerun the same gates.

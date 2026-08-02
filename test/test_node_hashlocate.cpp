@@ -3541,7 +3541,7 @@ TEST_CASE("§id-hash S1d — CONTROL 2: a frame ACCEPTED into the defer ring tha
     node.test_fire_lbt_defer(0);
     CHECK(find_ev(hal.events, "tx_hal_rejected") != nullptr);
     CHECK(find_ev(hal.events, "tx_deferred_lost") != nullptr);   // ★ NO SILENT LOSS — the binding requirement
-    CHECK(hal.logged("deferred TX dropped"));                    // ★ and on METAL, where MR_EMIT is stripped, via log()
+    CHECK(hal.logged("!! deferred TX dropped"));                    // ★ and on METAL, where MR_EMIT is stripped, via log()
     CHECK(hal.tx_frames.empty());
 
     // ★ POSITIVE CONTROL, same fixture, same timer: with the HAL accepting, the deferred frame DOES fly and
@@ -3555,7 +3555,7 @@ TEST_CASE("§id-hash S1d — CONTROL 2: a frame ACCEPTED into the defer ring tha
     node.test_fire_lbt_defer(0);
     CHECK_FALSE(hal.tx_frames.empty());                          // ★ it really did fly this time
     CHECK(find_ev(hal.events, "tx_deferred_lost") == nullptr);
-    CHECK_FALSE(hal.logged("deferred TX dropped"));
+    CHECK_FALSE(hal.logged("!! deferred TX dropped"));
 }
 
 // ⓘ The third property of this slice — that a HAL rejection must NOT suppress the DATA ack timeout — is pinned by

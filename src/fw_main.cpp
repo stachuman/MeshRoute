@@ -538,8 +538,22 @@ void setup() {
     // Debug-trace hooks: route lib/core's _hal.trace_on()/_hal.log() to `debug on` + Serial. Keeps device_hal
     // Arduino-free (it can't read frame_trace.h's g_mr_trace_on). The log sink itself gates on g_mr_trace_on so
     // `debug off` stays fully silent (as before — DeviceHal::log was a no-op). Captureless lambdas -> fn-pointers.
+    // ★★ §id-hash S1d-fix (2026-08-01, QA P2): the sink is NO LONGER unconditionally trace-gated. A `lib/core`
+    // message prefixed `!!` is an OPERATOR-CRITICAL diagnostic and prints even under `debug off`.
+    // ⚠ THE CLAIM THIS REPAIRS WAS MINE AND IT WAS FALSE: the deferred-TX loss report was documented as
+    // "no silent loss", but with the old lambda it was invisible on hardware in normal operation — `_hal.log` is a
+    // DEBUG channel, not an operator channel, and I described it as the latter. QA caught it.
+    // ⓘ A prefix rather than a new Hal method: `log()` is the only text channel `lib/core` has, and widening the
+    // HAL interface would force every implementation (device, sim, three test HALs) to grow a method for one
+    // message. The marker is checked in ONE place, here.
+    // ⓘ Other existing `_hal.log` sites are equally operator-critical candidates ("beacon pack failed",
+    //   "team M-frame with no team_id — refusing tx"). They are deliberately NOT re-marked in this slice (C1):
+    //   changing when they print is a behaviour change of their own. The mechanism is now there for them.
     g_hal.set_debug_hooks([]() -> bool { return meshroute::g_mr_trace_on; },
-                          [](const char* m) { if (meshroute::g_mr_trace_on) mrcon.println(m); });
+                          [](const char* m) {
+                              if (meshroute::g_mr_trace_on) { mrcon.println(m); return; }
+                              if (m && m[0] == '!' && m[1] == '!') mrcon.println(m);   // operator-critical: never silent
+                          });
 #if MR_CONSOLE
     while (!Serial && millis() < 3000) { /* wait for USB CDC, but don't block forever */ }
 #endif

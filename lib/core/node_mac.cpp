@@ -1327,12 +1327,26 @@ bool Node::tx_flood(const uint8_t* bytes, size_t len, int16_t sf) {
                                    static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(_lbt_backoff_ms) + 1));
             MR_EMIT("tx_lbt_defer", EF_S("kind", "flood"), EF_I("defer_ms", delay),
                     EF_I("busy_until_ms", busy_until));
-            schedule_lbt_defer(bytes, len, sf, LbtKind::flood, 0, delay);
-            return true;
+            // ★★★ §tx-admission TX2 (2026-08-01): the ring-full DROP was DISCARDED here and this answered `true`.
+            // ⚠ THIS IS NOT TELEMETRY — `emit_beacon:517` takes this boolean as `sent` and `:525` calls
+            // `commit_channel_digest_advertised` under the comment *"burn an ad_count … ONLY for advertisements that
+            // ACTUALLY AIRED … the air-honesty fix"*. That commit does `++e.bcn_ad_count` and, on horizon, sets
+            // `e.dirty = false`. ⇒ a beacon the ring dropped consumed the advertisement horizon and could RETIRE a
+            // digest nothing ever received. The air-honesty mechanism was defeated by a discarded return.
+            return schedule_lbt_defer(bytes, len, sf, LbtKind::flood, 0, delay);   // false ⇒ ring full ⇒ stays dirty
         }
     }
     TxParams p; p.sf = sf; p.label = "BCN"; p.tag = static_cast<uint16_t>(FrameTag::beacon);  // tag the immediate beacon too (the deferred path tags via lbt_complete) — else a blocked clear-channel beacon reaches on_radio_busy mislabelled tag=0(rts)
-    _hal.tx(bytes, len, p);
+    // ★★★ §tx-admission TX2: the second discarded result, same consequence. `DeviceHal::tx` answers `busy` on a full
+    // 8-entry ring (bumps `txq_drops`, does NOT retain) and a beacon is `slot < 0` — no stash, no retry. It has its
+    // OWN emit because tx_flood bypasses `tx_with_retry` entirely: that was the sweep-scope error which hid this
+    // site for three rounds (the dispatch enumerated `tx_with_retry`'s callers; `tx_flood` is not one of them).
+    const TxResult tr = _hal.tx(bytes, len, p);
+    if (tr != TxResult::ok) {
+        MR_EMIT("tx_hal_rejected", EF_S("label", "BCN"), EF_I("result", static_cast<uint8_t>(tr)),
+                EF_I("len", static_cast<int64_t>(len)));
+        return false;                                                  // dropped ⇒ the digest MUST stay dirty
+    }
     return true;
 }
 

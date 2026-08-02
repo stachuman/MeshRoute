@@ -120,8 +120,11 @@ public:
     // (absent) return, and there is no [[nodiscard]] — so this is not the caller sweep C1 would have made a separate
     // slice, it is a return-type widening plus one reader.
     enum class HQueryOutcome : uint8_t {
-        sent = 0,          // the frame was handed to the radio (immediately, or SCHEDULED as an LBT defer that will
-                           //   fly) — the ONLY value that may claim `reqpubkey_sent`
+        sent = 0,          // ★ the TX path ACCEPTED the frame — handed to the radio, or accepted into the LBT defer
+                           //   ring. ⚠ NOT a claim of airtime (owner ruling 2026-08-01): a deferred frame reaches the
+                           //   radio when a timer fires, so "it flew" is unsatisfiable synchronously. The ONLY value
+                           //   that may produce `reqpubkey_sent`. A deferred frame that dies later is reported LATE
+                           //   (`tx_deferred_lost`, node.cpp's defer arm).
         degenerate,        // key_hash32 == 0, or it is OUR OWN hash: there is no other node to ask
         no_identity,       // want_pubkey with no crypto identity — the MUTUAL exchange needs our ed_pub
         no_return_route,   // a mobile whose origin is still its own LOCAL id and is not team-scoped: no way back
@@ -1505,8 +1508,10 @@ private:
     enum class LbtKind : uint8_t { rts = 0, nack = 1, flood = 2 };
     // R4.5b frame-type tag (echoed by the sim in on_radio_busy; identifies a blocked TX heap-free).
     enum class FrameTag : uint16_t { rts = 0, cts = 1, data = 2, ack = 3, nack = 4, beacon = 5 };
-    // ★ §id-hash S1c: returns FALSE iff the frame was DROPPED (the LBT defer ring was full — `schedule_lbt_defer`'s
-    // own "drop loudly"). A successful DEFER is TRUE: it is scheduled and will fly. NOT `[[nodiscard]]` — the ~22
+    // ★ §id-hash S1c/S1d: returns FALSE iff the frame was DROPPED — a full LBT defer ring, or a HAL rejection. A
+    // successful DEFER is TRUE: it was ACCEPTED, which is the boundary the owner ruled (2026-08-01); it is NOT a
+    // promise that it flew, and a deferred frame that dies later is reported by node.cpp's defer arm.
+    // NOT `[[nodiscard]]` — the ~22
     // best-effort callers legitimately ignore it; only `emit_hash_query` reads it, because only it feeds a contract
     // event that ASSERTS a frame left. See the definition for why lbt_complete's RTS-only bails are excluded.
     bool     tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen);
@@ -1516,7 +1521,12 @@ private:
     // (it needs tx_initiating + _cfg), so this is the one Node-side half of the discipline.
     void     jtx_fire(uint8_t* buf, uint8_t& len);
     void     rts_duty_defer_fire();                                // cleanup #A redo: re-check duty + hand the deferred RTS (or re-defer / drop-if-stale)
-    bool     tx_flood(const uint8_t* bytes, size_t len, int16_t sf);   // false = dropped/skipped (no TX)
+    // ★ §tx-admission TX2: false = the frame was DROPPED or SKIPPED — duty pre-check, busy-too-long, a FULL LBT
+    // defer ring, or a HAL rejection. TRUE = ADMITTED (handed to the radio, or accepted into the defer ring and
+    // scheduled) — the same acceptance boundary the owner ruled for `reqpubkey_sent`.
+    // ⚠ LOAD-BEARING BEYOND TELEMETRY: `emit_beacon` gates `commit_channel_digest_advertised` on this, so a `true`
+    // for a dropped beacon burns an advertisement horizon and can retire a digest nobody received.
+    bool     tx_flood(const uint8_t* bytes, size_t len, int16_t sf);
     // §tx-admission TX1: FALSE iff the HAL REJECTED the frame (a definitive drop). The two RTS-only early-outs
     // return true — a stale-flight CANCEL abandons a flight that is already gone, and the duty defer re-arms
     // kRtsDutyDeferTimerId — so neither is a loss to report. Unreachable from the one reader anyway: emit_hash_query

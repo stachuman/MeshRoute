@@ -39,7 +39,17 @@ public:
     std::vector<std::vector<uint8_t>> tx_frames;          // captured TX bytes
     std::vector<std::pair<uint32_t,uint32_t>> timers;     // (timer_id, delay)
     int      last_rx_sf = -1;
-    TxResult tx(const uint8_t* b, size_t n, const TxParams&) override { tx_frames.emplace_back(b, b + n); return TxResult::ok; }
+    // ★★ §tx-admission TX2: scriptable, DEFAULT `ok` + still recorded, so every pre-existing fixture is unchanged.
+    // Required because the digest air-honesty commit is gated on tx_flood's result and a HAL rejection was the one
+    // admission failure no automated gate could reach (the simulator's queue is unbounded).
+    TxResult _tx_reject_with  = TxResult::busy;
+    int      _tx_reject_after = -1;                       // <0 = never reject; else reject from the Nth tx() onward
+    int      tx_calls = 0;
+    TxResult tx(const uint8_t* b, size_t n, const TxParams&) override {
+        const int call = tx_calls++;
+        if (_tx_reject_after >= 0 && call >= _tx_reject_after) return _tx_reject_with;
+        tx_frames.emplace_back(b, b + n); return TxResult::ok;
+    }
     void     set_rx_sf(int sf) override { last_rx_sf = sf; }
     uint64_t _busy_until = 0;          // LBT knob: a far-future value (with cfg.lbt_enabled) makes tx_flood DROP (sent=false)
     uint64_t channel_busy_until() override { return _busy_until; }
@@ -728,6 +738,73 @@ TEST_CASE("digest air-honest: an LBT-suppressed beacon burns no ad_count / no re
     CHECK(!node.channel_entry_dirty(id));
     CHECK(hal.count("channel_dirty_cleared") == 1);
 }
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════
+// ★★★ §tx-admission TX2 (2026-08-01, QA §7 P1) — THE AIR-HONESTY MECHANISM WAS DEFEATED BY TWO DISCARDED
+// RETURNS, and this is NOT a telemetry defect: `emit_beacon` takes `tx_flood`'s boolean as `sent` and gates
+// `commit_channel_digest_advertised` on it — which does `++e.bcn_ad_count` and, on horizon, `e.dirty = false`.
+// `tx_flood` answered `true` for a full LBT defer ring AND for a HAL rejection, so **a dropped beacon consumed
+// the advertisement horizon and could retire a digest nothing ever received.**
+// ⚠ THE SWEEP-SCOPE ERROR THAT HID IT: `tx_flood` does NOT go through `tx_with_retry` — it calls `_hal.tx`
+// directly. TX1 enumerated `tx_with_retry`'s callers and this site is not one of them.
+// Case (B) above already covers the busy-too-long skip; these three cover the admission failures it cannot.
+// ════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// Shared fixture: one dirty digest entry, then a beacon under the condition under test.
+namespace {
+struct DigestFix {
+    TestHal hal; Node node; uint32_t id = 0;
+    DigestFix() : node(hal, 3, 0x1234ABCDu) {}
+    void arm(bool lbt) {
+        NodeConfig cfg = basic_cfg(); cfg.quiet_threshold_ms = 0; cfg.lbt_enabled = lbt;
+        node.on_init(cfg);
+        const CmdResult r = send_channel(node, 7, "hi");
+        id = Node::channel_msg_id_mint(3, 0x1234ABCDu, static_cast<uint8_t>(r.ctr & 0xff));
+        drain_originate_flood(node);
+        CHECK(node.channel_entry_dirty(id));
+    }
+};
+}  // namespace
+
+// ⚠⚠ CASE (C) — a beacon dropped by a FULL LBT DEFER RING — IS FIXED IN CODE BUT **NOT COVERED BY A TEST**, and
+// that is a gap I am reporting rather than papering over. My fixture set `_busy_until = now + 200` intending four
+// beacons to occupy the four defer slots; it measured `DEFER=0`, i.e. the beacons were **SKIPPED**
+// (`wait > _flood_lbt_max_defer_ms` -> `tx_flood_skipped`, the branch case (B) above already covers) rather than
+// deferred, so the ring never filled and the fifth beacon never met a full ring. Getting a beacon to DEFER needs a
+// busy window inside `_flood_lbt_max_defer_ms`, and I ran out of runway to find the right value rather than guess.
+// ⇒ **OWED**: a fixture that provably defers a beacon (assert `tx_lbt_defer` fired) before filling the ring.
+// ⓘ The ring-full DROP itself is proven on the other `tx_initiating` path — `test_node_hashlocate.cpp`'s S1c
+//   fifth-frame test fills all four slots and asserts the refusal — so the mechanism is covered; what is missing is
+//   specifically the BEACON caller's `return schedule_lbt_defer(...)` and its digest consequence.
+
+TEST_CASE("§tx-admission TX2 (D) — an IMMEDIATE HAL rejection must not burn the digest (positive control paired)") {
+    DigestFix f; f.arm(/*lbt=*/false);                               // idle channel -> tx_flood hands straight to _hal.tx
+    // ★★ THE DEFECT: the HAL refuses the beacon. Before this it answered `sent` and committed the digest.
+    f.hal.events.clear(); f.hal.tx_calls = 0;
+    f.hal._tx_reject_with = TxResult::busy; f.hal._tx_reject_after = 0;
+    f.node.on_timer(kBeaconTimerId);
+    CHECK(f.hal.count("tx_hal_rejected") > 0);
+    CHECK(f.node.channel_entry_dirty(f.id));                         // ★ still dirty
+    CHECK(f.hal.count("channel_dirty_cleared") == 0);
+    // ★ POSITIVE CONTROL, same fixture: with the HAL accepting, the very next beacon DOES commit and retires it
+    //   (nn == 0 ⇒ fully-seen). Without this, "still dirty" would also hold for a beacon that never happened.
+    f.hal.events.clear(); f.hal.tx_calls = 0; f.hal._tx_reject_after = -1;
+    f.node.on_timer(kBeaconTimerId);
+    CHECK_FALSE(f.node.channel_entry_dirty(f.id));
+    CHECK(f.hal.count("channel_dirty_cleared") == 1);
+}
+
+// ⚠⚠ CASE (E) — THE SECOND EDGE — IS DELIBERATELY NOT TESTED HERE, AND THE HONEST REASON IS THAT I COULD NOT BUILD
+// A RELIABLE FIXTURE FOR IT IN THIS PASS. An accepted defer commits the digest at the ADMISSION boundary (the same
+// boundary the owner ruled for `reqpubkey_sent`), so a beacon that dies LATER at the radio queue has already burned
+// its `bcn_ad_count`. Rolling that back needs the selected digest ids carried in the defer ring —
+// MEASURED at +16 B/slot x 4 = **+64 B of sizeof(Node)** — for a case that (a) burns exactly ONE count of a horizon
+// BACKSTOP whose primary retire path is holder coverage (`channel_entry_fully_seen`), and (b) requires the radio
+// queue to saturate inside a sub-second defer window. ⇒ FLAGGED FOR AN OWNER RULING, not decided here.
+// ⓘ The deferred-loss REPORT itself is covered and green — `test_node_hashlocate.cpp`'s S1d "CONTROL 2" asserts both
+//   `tx_deferred_lost` and the operator-critical `!!` log on exactly this path.
+// ⓘ My attempt at a beacon-path fixture measured `DEFER=0` (the beacon was skipped, not deferred) and I ran out of
+//   runway to find out why rather than guess. Recorded as owed, not silently dropped.
 
 TEST_CASE("digest ingest -> jittered pull: a missing id schedules (the DRAW) then fires a CHANNEL_PULL Q") {
     TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);

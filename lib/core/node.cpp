@@ -1237,8 +1237,12 @@ void Node::on_timer(uint32_t timer_id) {
                 // synchronous ack has long since reached the operator. If the HAL queue has filled during the wait,
                 // the frame dies HERE — and unlike a DATA frame there is no MAC timeout behind an H query to
                 // recover it, so without this the operator waits forever on an answer that can never come.
-                // ⇒ REPORTED, LOUDLY AND ON THE DEVICE: `_hal.log` reaches the console on metal (MR_EMIT does not —
-                //   telemetry is device-stripped), and the emit gives the simulator something to assert.
+                // ⇒ REPORTED, LOUDLY AND ON THE DEVICE. ⚠ CORRECTED 2026-08-01 (QA P2): the first version of this
+                //   said `_hal.log` "reaches the console on metal" — IT DID NOT. `fw_main`'s sink gated every log
+                //   line on `g_mr_trace_on`, so under normal `debug off` operation this report was completely
+                //   silent on hardware and the no-silent-loss claim was FALSE. The `!!` prefix marks it
+                //   operator-critical and `fw_main`'s sink now prints those regardless of trace (see it there).
+                //   The MR_EMIT beside it is telemetry only — device-stripped — and exists for the simulator.
                 // ⚠ A BOUNDED RE-DEFER WAS CONSIDERED AND REFUSED, and the reason is specific to what this carries:
                 //   re-deferring would put an H query on the air at an unbounded later time, after the operator has
                 //   been told and has plausibly retried by hand — duplicate airtime for a question that is already
@@ -1249,7 +1253,7 @@ void Node::on_timer(uint32_t timer_id) {
                 //   exists to fix. Owed to B39's discriminated result (C1) — recorded, not faked here.
                 if (!lbt_complete(d.buf, d.len, d.sf, static_cast<LbtKind>(d.kind), d.rts_flight_gen)) {
                     MR_EMIT("tx_deferred_lost", EF_I("kind", d.kind), EF_I("len", d.len));
-                    _hal.log("deferred TX dropped at the radio queue — a request reported as accepted never aired");
+                    _hal.log("!! deferred TX dropped at the radio queue — a request reported as accepted never aired");
                 } }
         } else if (timer_id >= kRadioBusyRetryTimerId && timer_id < kRadioBusyRetryTimerId + kRetrySlots) {
             retry_stashed(static_cast<uint8_t>(timer_id - kRadioBusyRetryTimerId));   // R4.5b stash re-issue
