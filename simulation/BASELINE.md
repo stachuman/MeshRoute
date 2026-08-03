@@ -54,6 +54,215 @@ the top**, and **the newest note naming a scenario is the authoritative anchor**
 - `s17_metro` cross-layer is **inert** on meshroute (untranslated source = single-layer gateways; *translating* it degrades the dense scenario — channels 101%→33%). So gate `s17` on **same-layer 26/30 + channels leaks 0 + scale**, not cross-layer. (Cross-layer coverage comes from s09/s10/s15/s16.) **Follow-up:** cross-layer-at-scale window tuning — separate from the baseline.
 - `s19_singlelayer_multihop_chain` is the suite's **multi-hop** coverage (s18/s17 same-layer are single-hop). Redundant 3-hop chain `A-{L,L2}-{R,R2}-B`, no A↔B direct link ⇒ every A↔B DM relays ≥2 hops (verified: A→L2→R2→B = 3 hops; routes converge at hops 2–4). Two disjoint paths ⇒ also the **liveness-reroute base** (kill one relay → reroute via the parallel path; the `t96` Phase-2 gate builds on this). Gate on **delivery 8/8** + the **mean_hops** column (A↔B **3.0**, A↔R **2.0**) — deterministic (seed 42, lossless links). (`dm_delivery_breakdown` counts hops via distinct `data_rx` receivers, which carry `origin`, rather than the origin-less relay `data_tx` — fixed 2026-06-17 so same-layer multi-hop is measured. Cross-layer hop-count is still uncounted — its records key on the gateway wire-dst; cross-layer *delivery* is measured by the `cross-layer DMs` line.)
 
+**★★★★★★★★★★★★ 2026-08-03 §A0 board_ui PLACEMENT — EXECUTED (plan ⛳ A0 / spec §0: `git mv src/board_ui.cpp variants/heltec_v3/board_ui.cpp` + `platformio.ini` rewire. ZERO content edit to the moved file — its md5 is `7da52f22` on both sides of the move, and `git status` shows `R` not `M`+`??`. UNCOMMITTED):** native **1149/72681/0** · s18 keystone **`1cd21235`/271629 EXACT** · **36/36 corpus rows byte-identical to the note below, 0 assertion failures in every one** · **11/11 envs rc=0** on both arms of a same-session grid.
+
+★★★★★★ **THE HEADLINE IS A DOUBLE INVERSION OF THE DISPATCH'S OWN PREDICTION, AND IT IS ARITHMETICALLY EXACT IN BOTH DIRECTIONS.** The brief (and the ⛳ A0 table, and §0's last row) said: *"expect ~±200 B flash and framework function motion on the **three Heltec** envs; the other **eight** must be EXACTLY untouched."* **Measured, same session, clean per env, serially: the three Heltec envs move ZERO flash and ZERO RAM — and three of the "untouched eight" are the only movers in the tree.**
+
+| env | objs before→after | RAM before→after | Flash before→after | sections differing | symbol multiset | warns | -Wswitch |
+|---|---|---|---|---|---|---|---|
+| `native` | 23 → 23 | — | — | **0** | **IDENTICAL** (25) | 2 → 2 | 0 |
+| `xiao_sx1262` | 284 → **283** | 167044 → 167044 | 512020 → 512020 | **0** | **IDENTICAL** (5822) | 18633 | 0 |
+| `gateway` | 284 → **283** | 191964 → 191964 | 466852 → 466852 | **0** | **IDENTICAL** (5611) | 18628 | 0 |
+| `production` | 284 → **283** | 166012 → 166012 | 501588 → 501588 | **0** | **IDENTICAL** (5794) | 18917 → **18916** | 0 |
+| `xiao_mobile` | 284 → **283** | 166564 → 166564 | 504292 → 504292 | **0** | **IDENTICAL** (5742) | 18633 | 0 |
+| ★ `heltec_v3` | 194 → 194 | 210604 → 210604 | 1209476 → 1209476 | 2 (**debug only**) | **IDENTICAL** (11232) | 49 | 0 |
+| ★ `gateway_heltec` | 194 → 194 | 235524 → 235524 | 1178976 → 1178976 | 2 (**debug only**) | **IDENTICAL** (11147) | 45 | 0 |
+| ★ `heltec_mobile` | 194 → 194 | 210124 → 210124 | 1202896 → 1202896 | 2 (**debug only**) | **IDENTICAL** (11200) | 49 | 0 |
+| ⚠ `xiao_esp32s3` | 194 → **193** | 211196 → **211188** | 1208036 → **1208204** | 5 | ⛔ **30 lines** | 54 | 0 |
+| ⚠ `gateway_esp32s3` | 194 → **193** | 236116 → **236108** | 1177772 → **1177820** | 3 | ⛔ **24 lines** | 50 | 0 |
+| ⚠ `xiao_esp32s3_mobile` | 194 → **193** | 210716 → **210708** | 1201416 → **1201540** | 5 | ⛔ **28 lines** | 54 | 0 |
+
+⚠ **Object count is printed beside every row on purpose** (the trap that produced a 0-object "green light wired to nothing"). Every cell is a CLEAN build — `rm -rf .pio/build/<env>` per env, one `pio run` at a time, 22 builds total, all rc=0. `-Wswitch` **0 on all eleven, both arms.** ELF md5s were captured and are **worthless as usual** (they move on every arm) — except `native`, which reproduced `9a63fa3a` on both arms and across the earlier session, because it carries no `__DATE__`/`GIT_REV` banner.
+⚠ **`GIT_REV` was controlled, not hoped for:** the tree was already dirty on both arms (B61 + four doc edits), so `git_rev.py` injected the identical `39c5224-dirty` into all four `xiao_sx1262`-family images. ⚠ **And trap ① reproduced for a third time:** my BEFORE arm reads `xiao_sx1262` Flash **512020** where the 2026-08-03 eleven-env grid reads **512052** — the same −32 banner-packing step B61 measured, on an unchanged source. **Same-session pre/post is the only valid byte comparand; the recorded grid is an object-count / warning-count reference only.**
+
+★★★★★ **THE THREE-ENV DELTA, ATTRIBUTED TO THE BYTE — AND IT IS 15, NOT 192.** On all three Heltec envs the *only* differing sections are `.debug_line` **+15** and `.debug_str` **+15**. `len("variants/heltec_v3/board_ui.cpp") − len("src/board_ui.cpp") = 31 − 16 = **15**`. ⇒ the entire cost of the move on the envs that actually compile the file is **the source path being 15 bytes longer, recorded twice in DWARF**. **Flash-bearing sections, RAM and the 11232-symbol multiset are IDENTICAL.** The flashed image is functionally the same firmware.
+
+★★★★★ **THE ⚠ ROWS ARE THE REAL FINDING, AND THE CAUSE IS NOT THE DIRECTORY — IT IS LINK-SET MEMBERSHIP OF A ZERO-BYTE OBJECT.** `+<board_ui.cpp>` was listed in **three** base filters, not one (`xiao_sx1262:117`, `heltec_v3:205`, `xiao_esp32s3:253`); `MR_FEAT_OLED` defaults **0** (`lib/core/mr_features.h:39-41`) and is set only on `heltec_v3`, so on the two XIAO families the TU compiled to an object with **`.text` 0 / `.data` 0 / `.bss` 0** — but it *was* a link input (`board_ui.cpp.o` present in every build dir). Once the file leaves `src/`, no glob in those filters can match it (`platformio/fs.py:156-186` — `match_src_files` is `glob.glob`, so a dangling `+<…>` silently matches **nothing**), so **A0 changes the link inputs of 10 of 11 envs and only `native` is structurally untouched.** Per-env section arithmetic, exact:
+
+| env | `.dram0.bss` | `.flash.rodata` | `.flash.text` | `.xt.lit` | `.xt.prop` | = pio RAM / Flash |
+|---|---|---|---|---|---|---|
+| `xiao_esp32s3` | **−8** | −8 | **+176** | −8 | −12 | −8 / +168 ✓ |
+| `gateway_esp32s3` | **−8** | −8 | **+56** | — | — | −8 / +48 ✓ |
+| `xiao_esp32s3_mobile` | **−8** | −8 | **+132** | −8 | −12 | −8 / +124 ✓ |
+
+The ~30 differing symbols are **all framework** — `WiFiGenericClass::mode` (0x3dc→0x3ec), `STAClass::connect`, `APClass::create`, `NetworkClient::write`, `UpdateClass::_decryptBuffer`, `WiFiScanClass::_scanDone` … **not one symbol of ours changes size, appears or disappears.** Same xtensa link-order relaxation signature the 2026-08-03 noise-floor table recorded — reached here by *removing* an object rather than by moving one.
+
+★★★ **DECOUPLED BY PROBE, NOT BY ARGUMENT — this is what kills the "+192 B is the cost of leaving `src/`" premise.** **P-A0-2:** put the same file back into `xiao_esp32s3`'s filter **from its new `variants/heltec_v3/` path** (link-set restored, directory changed) → **every section identical to the BEFORE arm, symbol multiset identical, RAM 211196, Flash 1208036.** ⇒ **the directory is irrelevant to code size; link-set membership is the whole effect.** The earlier +192 B was a property of moving `device_ota.cpp` — a 123-line TU with a 227 KB object — i.e. of reordering **non-empty** objects, not of crossing the boundary. ⚠ And the surprising half: the object A0 removes is **zero bytes of code, data and bss**, and removing it still moves `.flash.text` by up to **+176 B** and resizes 30 framework functions. **On ARM the identical removal is free (0 sections, identical symbols, identical RAM+Flash on all four nRF52 envs).** ⇒ *a future size gate must treat "an object entered or left the link set" as an xtensa-only ±200 B event even when the object is empty.* Registered **B63**.
+
+★★ **THE POSITIVE CONTROLS, because every claim above is a 0 or an equality.** ① **P-A0-1 (the instrument fires):** point the heltec filter at a non-existent `board_ui_PROBE_NOMATCH.cpp` → `heltec_v3` **rc=1**, `ld: undefined reference to '_Z10mr_ui_initv' / '_Z10mr_ui_tickm' / '_Z13mr_ui_on_pushRKN9meshroute4PushE'`, objs 194→193. ⇒ **"heltec_v3 linked" is real evidence that the new path matched** — with `MR_FEAT_OLED=1` the three hooks are declared non-inline (`lib/hal/mr_ui.h:18-21`), so a silent no-match is a hard link error, not a green build. (Serial, so the failure is genuine and not the concurrent-`pio` archive corruption.) ② **Seam still wired:** `nm` finds exactly **3** `mr_ui_*` symbols in each Heltec ELF and **0** in every other env (the `#else` inline no-ops), and the compiler's own `.d` at the new location resolves `mr_features.h`/`mr_ui.h`/`command.h`/`protocol_constants.h` from `lib/core` + `lib/hal`. ③ **`production`'s warning count −1 (18917→18916) is an attributed control, not noise:** that env re-defines `MR_CONSOLE`, so `"MR_CONSOLE" redefined` fires **once per TU** — 284→283 occurrences. The warning instrument is TU-sensitive and saw exactly one TU leave. ④ **Restore controls:** `platformio.ini` md5 returns to `2c42e116` after each probe and a fresh clean rebuild of `heltec_v3` **and** `xiao_esp32s3` reproduces the AFTER arm's **entire** section table — i.e. two builds of identical source in one session are exact, on xtensa as well. ⑤ **`lus` rebuild:** md5 `8cb1f0f5` unchanged, and the "make had nothing to do" reading was **proved not to be a broken instrument** — `touch lib/core/node.cpp` made it recompile both core libs and relink `lus`, which then reproduced `8cb1f0f5` and s18 `1cd21235` again.
+
+⛔⛔ **FOUR PREMISES OF THE DISPATCH THAT MEASUREMENT DISPROVED** (spec §0 / plan ⛳ A0 / the brief — **report only, none of those files edited**):
+1. **"rewire the `build_src_filter` of the three Heltec envs"** — there is **one** such line. `gateway_heltec` and `heltec_mobile` declare no filter; they inherit `heltec_v3:205` via `extends` (as this file's own 2026-08-03 note already recorded: only 4 of 11 envs declare one).
+2. **"+ `-I`"** — **not needed, and adding it would be dead config.** Measured from the compiler's dependency file, not argued: `board_ui.cpp`'s four headers all resolve from `lib/core/` + `lib/hal/`, **none from `src/`**, at the old path and the new one alike. The `-I variants/heltec_v3` the plan asks for becomes load-bearing only at **Phase A Task 5**, which creates `board_ui.h` *in that directory* and includes it from `src/firmware_ui.cpp` (plan:967/1022/1085). ⇒ **it belongs to Task 5, not A0.**
+3. **"the other EIGHT envs must be EXACTLY untouched"** — only `native` is untouched by construction. **Seven** of the eight lose an object from their link set, three of them measurably. The correct statement of the gate is *"the four nRF52 envs and native are exactly equal; the three xiao_esp32s3 envs move by an attributed link-relaxation delta with no symbol of ours affected."*
+4. **"expect ~±200 B flash and framework function motion on the Heltec envs; a rename inside `src/` is free, crossing the boundary is not"** — inverted. Crossing the boundary while staying in the link set is **free to the byte** (P-A0-2); the ±200 B lives in link-set membership, and it landed on the envs the brief listed as the safe half.
+
+ⓘ **The delivered wiring, for a reviewer's eye** (post-edit line numbers): `platformio.ini:211` `heltec_v3` filter ends `… +<device_ota.cpp> +<../variants/heltec_v3/board_ui.cpp>` — with a 6-line comment above it recording the §0 ruling, the `extends` inheritance and the no-`-I` finding; `:117` `xiao_sx1262` and `:262` `xiao_esp32s3` simply no longer carry a `board_ui.cpp` term (`:259`'s 3-line comment says why); `:221`'s `MR_FEAT_OLED=1` comment now names the new path. **Those four hunks plus the rename are the whole change** — `git diff --cached -M --stat` reads `{src => variants/heltec_v3}/board_ui.cpp | 0`, `1 file changed, 0 insertions(+), 0 deletions(-)`.
+
+ⓘ **Rejected alternative, recorded so it is not re-proposed:** adding `+<../variants/heltec_v3/board_ui.cpp>` to the two XIAO filters would hold all eleven object counts constant and make every env byte-identical — at the price of compiling a **Heltec V3** board file into XIAO images, which is the cross-board coupling the §0 ruling exists to remove. Not done. The three `.flash.text` deltas are the honest price of the ruling.
+ⓘ **`variants/` ownership re-verified independently before the move, not taken from the note below:** `boards/seeed-xiao-afruitnrf52-nrf52840.json` sets **no** `build.variants_dir` (so `adafruit.py:262-264` resolves to `FRAMEWORK_DIR/variants`), the whole repo names `variants/` at exactly two places (`platformio.ini:117` and `:137` — both hand-wired), and the **ESP32** side was checked too, which nobody had: the pioarduino builder never looks at `$PROJECT_DIR/variants` (only `espidf.py:2193`, a tasmota image path, unused by `framework=arduino`), and the Heltec board's `build.variant` is `heltec_wifi_lora_32_V3` — no collision with the new `heltec_v3/`. `variants_dir` was **not** added to the manifest (untested, separate slice, per the ruling).
+⚠ **THREE STALE IN-SOURCE PATHS A0 WAS FORBIDDEN TO FIX** (the brief's "no content edit" ⛔; registered **B62**): the moved file's own line 1 still reads `// MeshRoute — src/board_ui.cpp`; `lib/hal/mr_ui.h:5` still says `(src/board_ui.cpp)`; and the plan's File-Structure table + Tasks 5/9 (`plan:117/967/1371`) still name `src/board_ui.cpp` / `src/board_ui.h`. The `platformio.ini:221` comment **was** corrected, because it sits in the file A0 rewires. ⇒ **the OLED slice rewrites that file anyway — fold the line-1 fix into it**, or take it as a one-line commit; do not leave the header lying.
+ⓘ **M2 considered and NOT owed:** A0 adds no metal-only behaviour — the three Heltec images are byte-identical in every flash-bearing section — so `docs/2026-07-31-bench-test-script.md` gains nothing. The gate that A0 needs is a build gate, and it ran.
+
+**★★★★★★★★★★★★ 2026-08-03 §board-split PHASE 0 — MEASURED AND *NOT* EXECUTED (`docs/superpowers/plans/2026-07-31-onboard-oled-ui-phase-a.md` ⛳ PHASE 0 / spec §0. NO FILES MOVED, NO CODE CHANGED — the slice rests on two premises this note FALSIFIES, and both change what the work is. Tree left byte-identical to `39c5224` + the pre-existing doc edits):** the eleven-env baseline below is the durable output; it is the comparand whatever Phase 0 becomes. **Nothing in `src/`, `lib/`, `platformio.ini` or `boards/` was touched.**
+
+★ **THE TREE IS VERIFIED GREEN AT THIS BASELINE** (every number measured, not recalled): native **1149 cases / 72681 assertions / 0 failed** (from the RUNNER's stdout — `pio test -e native` again reported the false "0 test cases"); s18 keystone **`1cd21235`/271629, EXACT** vs the 08-02 §id-hash-S4b anchor; **36/36 corpus scenarios, 0 assertion failures in every one** (table below); `lus` rebuilt from `fd3295d` → **`8cb1f0f5`** (md5 unchanged by the rebuild ⇒ the binary was already current — the stale-`lus` trap did not fire, and the rebuild is the positive control that proves it could have); **11/11 envs link, rc=0.**
+
+### The eleven-env baseline (all from CLEAN — `rm -rf .pio/build/<env>` per env, built SERIALLY)
+
+⚠ **Object count is printed beside every row on purpose.** A prior slice's A/B compiled **0 objects** and reported 0 warnings on three envs — a green light wired to nothing. Non-zero everywhere below.
+
+| env | rc | objs | RAM (pio) | Flash (pio) | flash-bearing Σ | syms | warns | -Wswitch | ELF md5 |
+|---|---|---|---|---|---|---|---|---|---|
+| `native` | 0 | 23 | — | — | 1222 | 6 | 2 | 0 | `9a63fa3a` |
+| `xiao_sx1262` | 0 | 284 | 167044 | 512052 | 512052 | 2242 | 18633 | 0 | `3653a165` |
+| `heltec_v3` | 0 | 194 | 210604 | 1209476 | 1231487 | 9710 | 49 | 0 | `2962c364` |
+| `xiao_esp32s3` | 0 | 194 | 211196 | 1208036 | 1230047 | 9760 | 54 | 0 | `40714614` |
+| `gateway` | 0 | 284 | 191964 | 466852 | 466852 | 2179 | 18628 | 0 | `871f1307` |
+| `gateway_heltec` | 0 | 194 | 235524 | 1178976 | 1200987 | 9625 | 45 | 0 | `75b1929d` |
+| `gateway_esp32s3` | 0 | 194 | 236116 | 1177772 | 1199783 | 9675 | 50 | 0 | `0e10b6f8` |
+| `production` | 0 | 284 | 166012 | 501588 | 501588 | 2235 | 18917 | 0 | `0f2303fd` |
+| `xiao_mobile` | 0 | 284 | 166564 | 504324 | 504324 | 2211 | 18633 | 0 | `8cf50fe5` |
+| `heltec_mobile` | 0 | 194 | 210124 | 1202896 | 1224907 | 9678 | 49 | 0 | `8bbf82cb` |
+| `xiao_esp32s3_mobile` | 0 | 194 | 210716 | 1201416 | 1223427 | 9728 | 54 | 0 | `df33246e` |
+
+- **flash-bearing Σ** = `.text+.rodata+.data+.ARM.exidx` (ARM — matches pio's own Flash figure exactly) / `.flash.text+.flash.rodata+.flash.rodata_noload+.flash.appdesc+.dram0.data+.iram0.text+.iram0.vectors` (xtensa), from `size -A` on the ELF. ARM RAM = `.data+.bss+.noinit`, also an exact match to pio.
+- ★ **`native`'s row is legitimately tiny, not a broken instrument** (the 0/N discipline): `pio run -e native` builds **only** the 46-line `sim_main.cpp` driver against the archived core, so 23 objects / 6 sized symbols / 8659 B total is correct. The real native gate is `pio test -e native` **plus running the binary** — **1149/72681/0**, reported above.
+- `-Wswitch` = **0 on all eleven**; total warning counts are in the table. ⚠ The per-env warning *multisets* lived in agent scratch and are **gone** — scratch is volatile (that rule cost this project a proven 33-assert scenario). The counts above are the durable form; re-derive a multiset from a fresh clean build when you need one.
+- ★★ **The ELF md5 column is recorded as EVIDENCE OF THE OPPOSITE of a gate:** it is *not* reproducible across a rebuild, let alone a file move — see the noise floor below.
+
+### ⚠ THE NOISE FLOOR — measured, because the brief asserted it and an assertion is not a measurement
+
+| comparison (env `heltec_v3`, clean build each time) | sections differing | symbol multiset | pio RAM | pio Flash | ELF md5 | flashed image |
+|---|---|---|---|---|---|---|
+| **pristine → pristine** (pure noise floor) | **0** | **identical** | same | same | ⛔ **CHANGES** | same length, **71 bytes differ** |
+| `-I src` added, **no** file moved | **0** | **identical** | same | same | changes | same length, 73 bytes differ |
+| ★ **`git mv` inside `src/`** (rename only ⇒ link order) | **4** — `.flash.text` **−8**, `.dram0.bss` **+8**, 2 debug | **identical** | same | same | changes | same length, **996336 of 1210112 bytes differ** |
+| ★★ **`git mv` OUT of `src/`** (`platform/esp32/`, zero content change) | **4** — `.flash.text` **+192**, `.dram0.bss` **−8**, 2 debug | ⛔ **14 framework functions CHANGE SIZE** | **−8** | **+192** | changes | **length +192** |
+| pristine **restored** → the BEFORE grid above | **0** | **identical** | same | same | — | — |
+
+⚠⚠ **ADDENDUM 2026-08-03, measured while gating B61 — THIS GRID IS ONLY A VALID COMPARAND WITHIN ONE SESSION.** The
+noise-floor table above was measured on `heltec_v3` (**ESP32**) only; the **nRF52 floor was never measured**, and it is
+not the same. Two builds of identical source *inside one session* do reproduce exactly on `xiao_sx1262` (0 differing
+sections, `.text` and flash and symbols identical) — but the **first** grid above sits **32 B apart** from every later
+build of the *same* source: `xiao_sx1262` `.text` **511076 → 511044** and `gateway` **+32**, opposite signs, symbol
+multisets identical. Proven not to be any source change by reverting a candidate edit in full and rebuilding — the −32
+persists. It is a one-time, content-dependent step consistent with `__DATE__`/`__TIME__` literal packing in the banner
+strings, which this ld script folds into `.text`: **the "±32 B `__DATE__`/`__TIME__` flash floor" the QA brief named,
+now measured on ARM, where the symbol multiset is blind to it.** ⇒ **A0 (and any later slice) must build its OWN BEFORE
+arm in the same session as its AFTER arm.** Diffing against this table would misattribute ±32 B of banner packing to the
+file move, on top of the ~192 B the move genuinely costs. The eleven rows remain valid as an *order-of-magnitude* record
+and as the object-count / warning-count / `-Wswitch` reference.
+
+★★★ **READ THAT TABLE BEFORE WRITING A GATE FOR THIS SLICE.** Two conclusions, both measured, both load-bearing:
+1. **The prescribed controls are the right ones and their noise floor is ZERO** — sections, symbol multiset, RAM and the warning multiset all reproduce exactly across independent clean builds, and the round-trip row proves the tree really was restored. The **ELF md5 is worthless** (it changes on an *unchanged* tree), and so is any flashed-image byte comparison (**71 bytes** move with zero source change; a mere rename moves **996336**).
+2. ⛔ **…but a CORRECT, semantics-preserving file move VIOLATES them anyway.** Moving one 123-line TU out of `src/` with **zero content change** shifted `heltec_v3` flash **+192 B** and RAM **−8 B** and changed the size of **14 Arduino/ESP-IDF framework functions** (`WiFiGenericClass::mode`, `STAClass::connect`, `UpdateClass::_decryptBuffer`, `NetworkClient::write`, `APClass::create`, …) — **none of them ours**. Attribution is decoupled and clean: the added `-I src` was proven **innocent** (row 2: 0 section deltas, identical symbols), and a rename *within* `src/` reproduces a smaller ±8 B version of the same effect ⇒ the cause is **object link order shifting the layout, and the xtensa linker re-relaxing call sites across it**. ⇒ **"byte-identical per env" is UNACHIEVABLE for this slice on the ESP32 targets**, and the plan's step-0.2 gate wording (*"each byte-identical or its delta attributed"*) survives only in its second half — where "attributing" means explaining framework code motion, per env, per moved file. **Budget for that, or gate on something else.**
+
+### ★★ THE DERIVED CONDITIONAL SET — reproduce it, never quote it
+
+Mechanical scan of every `#if / #ifdef / #ifndef / #elif` **site** in `src/` + `lib/hal/` (whole-word match, continuation lines joined):
+
+| axis | **sites** | note |
+|---|---|---|
+| total conditional sites | **124** | the denominator |
+| name a board macro (`BOARD_XIAO_WIO_SX1262` / `BOARD_HELTEC_V3` / `BOARD_XIAO_ESP32S3`) | **26** | …of which **23 also name a chip-family macro** |
+| ★★ name **ONLY** a board macro — i.e. genuinely board-discriminating | **3** | `src/firmware_commands.cpp:340 / :342 / :344` — **one** `#if/#elif/#elif` chain, the body of `board_name()` |
+| nRF52 family (`ARDUINO_ARCH_NRF52`, `NRF52_SERIES`, `NRF52_PLATFORM`, `NRF52840_XXAA`) | **20** | |
+| ESP32 family (`ESP32`, `ARDUINO_ARCH_ESP32`, `ESP_ARDUINO_VERSION_MAJOR`) | **13** | |
+| ★ **host-vs-device** (`ARDUINO`, `MESHROUTE_NATIVE`) | **10** | **a FOURTH axis the spec's table omits** — and the one the native tests depend on |
+
+★ **Positive control for that "3":** the same instrument correctly flags `device_ota.cpp` as wholly ESP32-gated and finds all 26 board sites, so a 3 is "3", not "cannot reach".
+
+**Where board-specific detail ACTUALLY lives: `platformio.ini` build_flags — 56 `-D`, not 26 `#if`.** Declared per board: `xiao_sx1262` **25** · `heltec_v3` **16** · `xiao_esp32s3` **15** (pins `LORA_PIN_*` / `P_LORA_*`, RF wiring `SX126X_*`, and per-board capability switches `MR_FEAT_OLED`, `QSPIFLASH`, `NRFX_QSPI_ENABLED`, `CFG_TUD_*`, `LFS_NO_ASSERT`).
+
+### ⛔ THE TWO FALSIFIED PREMISES (spec §0 ① and ②) — this is why nothing moved
+
+**Ⓐ `boards/` IS TAKEN — by PlatformIO, and this time the ownership is real.** `boards_dir` is a first-class PlatformIO project option, *"A storage for custom board manifests"*, default `${PROJECT_DIR}/boards` (`platformio/project/options.py:297`), scanned in `platform/base.py:143-157`. It already holds **`seeed-xiao-afruitnrf52-nrf52840.json`** (named by `board =` at `platformio.ini:97`) and **`nrf52840_s140_v7.ld`** (`board_build.ldscript`, `:98`). Subdirectories survive (the scan is a non-recursive `*.json` filter), so `boards/heltec_v3/` would *build* — but it plants our source tree inside a tool-owned namespace, **which is the exact objection §0 ① raised in order to reject `variants/`.**
+
+**…and the grounds for rejecting `variants/` do not hold.** §0 ① says *"the nRF52 core **searches that tree** for `variant.h`"*. It does not, in this project: `adafruit.py:262-264` uses `$PROJECT_DIR/<build.variants_dir>` **only when the board manifest sets `build.variants_dir`** — and `boards/seeed-xiao-afruitnrf52-nrf52840.json` **does not set it**, so `variants_dir` resolves to `FRAMEWORK_DIR/variants`, which contains **no `Seeed_XIAO_nRF52840` at all** (14 Adafruit variants, verified). Our `variants/Seeed_XIAO_nRF52840/` is reached **exclusively** by the two hand-wired lines the spec cites as evidence of core ownership: `platformio.ini:117` (`build_src_filter += <../variants/…/variant.cpp>`) and `:137` (`-I variants/Seeed_XIAO_nRF52840`). ⇒ `variants/` is **ours already**, and it is already "one directory per board" containing exactly one board.
+
+★ **The constructive consequence — UNTESTED HYPOTHESIS, owner ruling needed:** adding `"variants_dir": "variants"` to the board manifest hands that directory to the toolchain, which then compiles `variant.cpp` as `FrameworkArduinoVariant` and puts it on CPPPATH by itself ⇒ **`platformio.ini:117`'s `../variants/…` term and `:137`'s `-I` both DROP** (they must drop together, or `g_ADigitalPinMap` is defined twice). That is "adding a board = adding a directory" delivered through the toolchain's own hook instead of a parallel convention. **Not built, not gated — do not adopt on my word.**
+
+**Ⓑ ★★ THERE IS NO BOARD TIER TO ABSORB.** §0 ② tabulates *"board — 25 uses — absorbed by a per-board dir ✅ yes"*. The 14 + 11 reproduce exactly as token occurrences, but **23 of the 26 sites are chip-family OR-chains in which the board macro is a redundant alias**, e.g. `device_nv.h:353`:
+
+```c
+#if defined(ARDUINO) && (defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(NRF52840_XXAA) || defined(BOARD_XIAO_WIO_SX1262))
+```
+
+Moving those into `boards/<board>/` would move **chip-family** code into a **board** directory — precisely the U1 duplication §0 ② was written to prevent, achieved by the mechanism it prescribes. ⚠ **The table also double-counts:** those same 23 sites are counted once under "board" (via the alias) and again under "chip/arch" (via the three chip macros), so the "25 vs ~65" ratio is a measurement artefact. Real site counts: **33 chip · 3 board.** And `BOARD_XIAO_ESP32S3` (2 occurrences, `device_fault.h:20`, `firmware_commands.cpp:342`) is missing from the table altogether.
+
+### ⛔ AND THE CHIP TIER CANNOT BE `git mv`-ed — the architecture is header-inline, deliberately, and tested
+
+Step 0.1 is *"`git mv` only — no content edits"*. Measured against the tree, **exactly one file qualifies**: `src/device_ota.cpp` (123 lines, wholly inside `#if ESP32…#endif`, listed only in the two ESP32 base filters). Every other chip-conditional file is **one portable-interface header with the per-backend arms inline, including a HOST arm**:
+
+| file | lines | arms | why it cannot move |
+|---|---|---|---|
+| `src/device_nv.h` | 528 | nRF52 LittleFS `:353` · ESP32 NVS `:430` · **no-backend/host `:462`** | included by **6 files incl. the native `test/test_device_nv.cpp`**; its header comment records that the policy was hoisted **above** `#if defined(ARDUINO)` (the NV1 cleanup) *so a host test could reach it* |
+| `src/device_rng.h` | 85 | nRF52 · ESP32 · else | included by 5 files |
+| `src/device_ble.h` | 205 | nRF52 impl + **inert stubs** for ESP32/native | the stub arm is the documented pattern (`CODE_GUIDELINES` "inert stubs so callers stay stable") |
+| `src/device_inbox_store.h` | 366 | nRF52+QSPI · else | |
+| ★★ `src/device_fault.h` | 254 | nRF52 `:29` · ESP32 `:183` — **and it DEFINES `MRFAULT_HW`/`MRFAULT_ESP32`** | **single-TU** (only `fw_main.cpp` includes it) and `fw_main.cpp` has **6** `MRFAULT_*`-guarded sites. Moving any of them into a `platform/*` TU **green-compiles the `#else`** — the silent regression `CODE_GUIDELINES` already names |
+| `src/fw_main.cpp` | 1422 | ~29 arch sites | interleaved *inside* functions (`fw_reboot`, `do_ota`): extraction, not relocation |
+| `lib/hal/device_radio.h` | 340 | 1 nRF52 site, nested in `MR_RADIO_CANARY` | and it is sim-compiled ⇒ any move is s18-live |
+
+⇒ splitting these is an **interface/impl restructure**, a content edit, and C1 puts it in a different slice from a file move. Per the brief's own instruction — *"if a conditional cannot move cleanly without changing meaning, leave it and record it"* — it is recorded, not done.
+
+⇒ ⛔ **`src/device_nv.h` must NEVER land in `platform/nrf52/`**: it would orphan the ESP32 and host arms and break a native test. It is not chip code; it is a portable interface.
+
+### Two more corrections to the gate's own framing
+
+- **11 envs, but only 4 declare `build_src_filter`**: `native:73`, `xiao_sx1262:117`, `heltec_v3:205`, `xiao_esp32s3:253`. The other 7 inherit via `extends`. And **`native`'s filter contains no board code at all** (`+<sim_main.cpp> -<fw_main.cpp>`), so a board/platform reorg does not change native's link inputs. The 11-env gate is still right — the 7 role envs inherit the changed filters — but not for the stated reason.
+- **3 physical boards + host, not "~4 boards"**: `xiao_sx1262` → {`xiao_sx1262`, `gateway`, `production`, `xiao_mobile`} · `heltec_v3` → {`heltec_v3`, `gateway_heltec`, `heltec_mobile`} · `xiao_esp32s3` → {`xiao_esp32s3`, `gateway_esp32s3`, `xiao_esp32s3_mobile`} · `native`. §0 ③'s *principle* (one dir per board, several envs) reproduces exactly.
+- ⚠ **NEW GATE HAZARD, not in the brief: `GIT_REV` embeds `-dirty`.** `tools/git_rev.py` appends `-dirty` when the tree differs from HEAD, on `xiao_sx1262` (inherited by `gateway`/`production`/`xiao_mobile`). A BEFORE built on a clean tree vs an AFTER built with moves staged differs in `.rodata` by the **6 bytes of `"-dirty"`** for a non-code reason. ⇒ **both arms must be equally dirty.** (This baseline: dirty on both, tracked doc edits pre-existed.)
+
+### 36/36 corpus — 0 assertion failures, s18 keystone EXACT
+
+```
+s06_seattle_lifecycle                          c74e0608 lus: 67009 events emitted, 0 assertion failure(s)
+s07_seattle_mobile_meshroute                   c17952b7 lus: 109562 events emitted, 0 assertion failure(s)
+s09_two_layer_gateway                          f171652c lus: 2266 events emitted, 0 assertion failure(s)
+s09_two_layer_gateway_metal                    d626eefc lus: 2345 events emitted, 0 assertion failure(s)
+s10_two_layer_separation                       0f81a374 lus: 2266 events emitted, 0 assertion failure(s)
+s15_three_layer                                3dae1b82 lus: 52488 events emitted, 0 assertion failure(s)
+s15_three_layer_metal                          f4ef243e lus: 52386 events emitted, 0 assertion failure(s)
+s16_dense_gateway                              b6d5dfc6 lus: 26267 events emitted, 0 assertion failure(s)
+s17_metro                                      b56ab583 lus: 1181343 events emitted, 0 assertion failure(s)
+s18_meshroute                                  1cd21235 lus: 271629 events emitted, 0 assertion failure(s)
+s19_singlelayer_multihop_chain                 29a3b1f5 lus: 1065 events emitted, 0 assertion failure(s)
+s20_random_mesh                                a267e553 lus: 40079 events emitted, 0 assertion failure(s)
+s21_leaf_config_divergence                     172b8646 lus: 390 events emitted, 0 assertion failure(s)
+s21_mobile_dm_milestone_meshroute              1a0c92b2 lus: 657 events emitted, 0 assertion failure(s)
+s22_leaf_config_join                           69010f6f lus: 215 events emitted, 0 assertion failure(s)
+s22_mobile_team_meshroute                      808f7abf lus: 1804 events emitted, 0 assertion failure(s)
+s23_leaf_config_epoch_write                    20e3f95b lus: 219 events emitted, 0 assertion failure(s)
+s23_mobile_team_multihop_meshroute             c789cfad lus: 924 events emitted, 0 assertion failure(s)
+s24_static_and_team_multihop_meshroute         6e92f8fd lus: 1574 events emitted, 0 assertion failure(s)
+s25_two_team_separation_meshroute              00813e38 lus: 792 events emitted, 0 assertion failure(s)
+s26_team_reroute_meshroute                     110269a7 lus: 1045 events emitted, 0 assertion failure(s)
+s27_cross_layer_mobiles_meshroute              e1fd5937 lus: 9277 events emitted, 0 assertion failure(s)
+s28_mixed_team_channels_meshroute              dd96c809 lus: 4018 events emitted, 0 assertion failure(s)
+s29_mixed_leaf_team_meshroute                  2e81833c lus: 1943 events emitted, 0 assertion failure(s)
+s30_team_dad_mediation_meshroute               db8cdb9b lus: 1034 events emitted, 0 assertion failure(s)
+s31_dual_carrier_gateway                       da5448a0 lus: 2300 events emitted, 0 assertion failure(s)
+s32_dual_cr_gateway                            dad00d6c lus: 2266 events emitted, 0 assertion failure(s)
+s33_mixed_cr_channel_overhear                  2e70c4f5 lus: 2845 events emitted, 0 assertion failure(s)
+s34_team_switch_clears_plane                   59310b6b lus: 921 events emitted, 0 assertion failure(s)
+s35a_cochannel_isolation_meshroute             585b9cc8 lus: 2388 events emitted, 0 assertion failure(s)
+s35b_cochannel_isolation_control_meshroute     4f49e969 lus: 1063 events emitted, 0 assertion failure(s)
+s36_reprovision_purges_carriers                fd11c9a4 lus: 472 events emitted, 0 assertion failure(s)
+s37_team_homed_origin_meshroute                7c517dcf lus: 768 events emitted, 0 assertion failure(s)
+s38_team_origin_learn_meshroute                a16ec83c lus: 526 events emitted, 0 assertion failure(s)
+sim_9node_base                                 04dc4ca0 lus: 4959 events emitted, 0 assertion failure(s)
+twin_9node_dm                                  cdba2942 lus: 13837 events emitted, 0 assertion failure(s)
+```
+
+### What a corrected Phase 0 needs (report only — spec/plan NOT edited, per instruction)
+
+1. **Owner ruling on the top-level name**, since `boards/` is PlatformIO's. Free and verified unowned: `platform/`. Already ours: `variants/`.
+2. **Drop steps 0.1–0.3 as scoped.** They target a tier of 3 sites. Step **0.4** (`capabilities.h` per board) is the only step aimed at the real defect — and the real defect is the **56 `-D` in `platformio.ini`**, not the `#if`s.
+3. **If the chip tier is still wanted**, it is a *pattern change* (portable header + per-chip TUs) with its own slice, its own spec, and `device_fault.h`'s single-TU/`MRFAULT_*` trap called out as the first hazard. It is not a `git mv`.
+4. **For the actual goals** — Heltec V4 and the OLED port — neither needs this: V4 needs the `IBoardRf` seam (spec 2026-08-01) plus a pin/PA table, and the OLED needs `board_ui.cpp`, which §0 ④ correctly measures as **32 lines, one `MR_FEAT_OLED` guard, zero board conditionals** (reproduced). ⇒ **Phase 0 is not a prerequisite for Phase A on the evidence available.**
+
 **★★★★★★★★★★★★ 2026-08-02 §id-hash S4b (`§id-hash S4b` — spec §5 stages 3-5: the by-id `reqpubkey` becomes ONE command. **36/36 BYTE-IDENTICAL, and this time the 0/36 is PROVEN rather than argued** — UNCOMMITTED):** an unresolved, plane-selected `reqpubkey <id>` now arms a **bounded `resolve-id-for-pubkey` intent** (`PendingIdPubkey[4]`, Node-global) beside its stage-1 BY_ID query; the ordinary id→hash answer **consumes** it in `on_hash_bind_response` and emits the pre-existing HARD `WANT_PUBKEY` query **by the returned hash**; a bounded sweep on `kAgingTimerId` gives up loudly. Native **1140/72553/0 → 1148/72668/0** (+8 cases, **+115 assertions**). ★ s18 keystone **`1cd21235`/271629 unmoved; 0 movers of 36; 0 assertion failures in all 36** (counted from the RUNNER's stdout). `sizeof(Node)` **221024 → 221088 (+64)**. Boards **6/6 flag-sets linked** (the full D2 grid, because `sizeof(Node)` moved): **ΔRAM +64 on every one**; ΔFlash gateway **+1328** · xiao_sx1262 **+1344** · xiao_esp32s3 **+1284** · xiao_mobile **+2256** · gateway_esp32s3 **+1280** · xiao_esp32s3_mobile **+1224**. Warning multisets **IDENTICAL ×3** (line-number-stripped; the only textual delta is two pre-existing warnings shifting line), `-Wswitch` **0 ×3**. `lus` `ca18b8fd` → **`50a2f604`**.
 
 ⚠⚠ **READ THIS FIRST — THE TREES OVERLAPPED, AND WHAT THAT DOES AND DOES NOT COST.** S4b was dispatched while S4a was still finishing, so both slices edited `node.cpp` / `node_hashlocate.cpp` / `node.h` / `command.h` / `protocol_constants.h` concurrently. **Every number above is nevertheless S4b-ISOLATED, and one measurement is what earns that claim:** the comparand was built by taking the live tree, reverting **only** the S4b hunks in a scratch COPY, and building `lus` from it — **it reproduces `ca18b8fd`, the exact md5 BASELINE records for S4a's final state.** ⇒ the BEFORE arm *is* S4a, verified rather than assumed, and the delta is S4b's alone. ★ The same copy-and-revert produced the board BEFORE figures, and the un-reverted copy **reproduced the live tree's RAM/flash on all three envs to the byte** — that calibration is what makes the ΔFlash numbers readable at all. **S4a's own figures are NOT re-derived here and must be read from its note.**

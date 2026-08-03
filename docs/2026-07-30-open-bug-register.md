@@ -41,6 +41,9 @@ Legend:
 - [ ] **B55 — OPEN / CONTRACT:** `reqpubkey_sent.hash == 0` needs its S4b meaning documented.
 - [ ] **B56 — OPEN / CONTRACT DECISION:** stage-2 `reqpubkey` failure is not app-visible.
 - [ ] **B60 — OPEN / SPEC READY; ACK POLICY OPEN:** multi-gateway `send_layer` resolves the final hash on an intermediate layer instead of selecting the next gateway.
+- [x] **B61 — FIXED 2026-08-03 (own commit, UNCOMMITTED):** `board_name()`'s silent `#else → "native"` is now an `#error`; `MESHROUTE_NATIVE` gets its own explicit arm.
+- [ ] **B62 — OPEN / ONE LINE, DEFERRED BY DESIGN:** three in-source paths still say `src/board_ui.cpp` after §A0 moved the file to `variants/heltec_v3/` — including the file's own line-1 header. Fold into the Phase-A OLED slice.
+- [ ] **B63 — RECORDED (gate methodology):** on xtensa, an object entering or leaving the link set moves `.flash.text` by up to ±200 B **even when it is zero bytes**; free on ARM. Retires the "+192 B = leaving `src/`" rule.
 
 ### Parked or trigger-gated
 
@@ -1291,9 +1294,118 @@ This is **not B59** and must not relax ordinary route loop guards, custody, casc
 rejection. The next gateway is supplied by the explicit layer path and selected with the existing per-leaf gateway
 directory; ordinary routing is reused only to reach that selected gateway within the active leaf.
 
+### B61 — `board_name()` silently reports `"native"` when a board env forgets its `-DBOARD_*` macro · NEW 2026-08-03 · ✅ FIXED 2026-08-03 (own commit, UNCOMMITTED)
+**MEASURED** during the §board-split Phase-0 assessment (`simulation/BASELINE.md`, 2026-08-03 note). `src/firmware_commands.cpp:339-349`
+is the **only** genuinely board-discriminating code in the firmware — 3 of the 26 board-macro conditional sites, all in this one
+`#if/#elif/#elif` chain — and its `#else` arm returns `"native"`:
+
+```c
+const char* board_name() {
+#if defined(BOARD_XIAO_WIO_SX1262)   return "xiao_nrf52";
+#elif defined(BOARD_XIAO_ESP32S3)    return "xiao_esp32s3";
+#elif defined(BOARD_HELTEC_V3)       return "heltec_v3";
+#else                                return "native";
+#endif
+}
+```
+
+⚠ **That `#else` is unreachable in all eleven envs** — `firmware_commands.cpp` is excluded from `[env:native]`'s
+`build_src_filter` (`platformio.ini:73`) and `test_build_src = no`, so every env that compiles it defines exactly one
+`BOARD_*`. ⇒ it is not a host arm; it is a **silent fallback**, and per **C2** it should be `#error`.
+
+**Why it matters now, not academically:** the whole point of the board-source-split work is that *adding a board becomes
+adding a directory*. A new board env that omits its `-DBOARD_*` **still links and still boots**, and reports `board=native`
+in the `version` banner and in `print_banner` (`:352-358`) — a provenance lie in exactly the diagnostic a bench operator
+trusts to tell two boards apart. **Fix:** replace the `#else` with `#error "no BOARD_* defined — add one to this env"`.
+Cost is one line; it converts a mislabelled image into a build failure. **Flash/RAM impact nil** (the arm is never compiled).
+
+**✅ FIX LANDED 2026-08-03 (own commit, uncommitted).** `#else return "native"` → `#elif defined(MESHROUTE_NATIVE) return
+"native"` + `#else #error "No supported BOARD_* or MESHROUTE_NATIVE target selected"`, plus an 8-line comment recording why
+the old arm was dead rather than host-facing. **Precondition re-verified independently, not taken on trust:** all four
+target macros are declared exactly once (`platformio.ini:79 / :134 / :218 / :263`); all **seven** extending envs re-list
+`${env:<board>.build_flags}` (`:324 :331 :338 :357 :369 :375 :381`) despite `:307`'s warning that `extends` does not
+auto-merge them; the simulator never compiles `src/`; and there is **no `__LINE__` and no `assert(` anywhere in
+`firmware_commands.cpp`**, so the +12-line shift cannot perturb emitted code.
+
+★ **GATE — 11/11 envs rc=0** (object counts 23 / 194 / 284, none zero). Native **1149 cases / 72681 assertions / 0
+failed** from the RUNNER's stdout; s18 keystone **`1cd21235`/271629 EXACT**; **36/36 corpus scenarios byte-identical to
+the pre-fix run and 0 assertion failures in every one** (s18 is inert by construction — the sim compiles `lib/`, not
+`src/`). **Symbol multisets identical on all eleven**, warning counts identical on all eleven, `-Wswitch` **0 ×11**.
+
+⚠⚠ **I PREDICTED "byte-identical on every board env" AND THAT PREDICTION WAS WRONG — recorded because the correction is
+the useful part.** Against the pre-slice eleven-env baseline, 8 of 11 envs showed one moving section: the four ESP32 envs
+`.debug_line` **+3 B** (DWARF, **not flash-bearing**, pio RAM/Flash unchanged), and `xiao_sx1262` `.text` **−32 B** /
+`gateway` `.text` **+32 B** — opposite signs, with symbol multisets identical.
+
+★ **The ±32 B is NOT this change, and that is measured rather than argued.** Reverting `board_name()` to its exact
+pre-fix form and rebuilding still yields `.text` **511044** — the *same* value as the fixed build, i.e. **−32 vs the
+original baseline even with the fix removed**. ⇒ the offset is a build-environment artefact that survives full reversion.
+Two builds of identical source *within one session* reproduce exactly (`.text`, flash 512020, symbols — **0 differing
+sections**), so it is not per-build noise either; it is a **one-time, content-dependent step** consistent with
+`__DATE__`/`__TIME__` literal packing in the banner strings (`firmware_commands.cpp:354` / `fw_main.cpp:427`), which on
+this ld script land in `.text`. **That is exactly the "±32 B `__DATE__`/`__TIME__` flash floor" the QA brief named — now
+measured on ARM, where it is invisible in the symbol multiset.** `gateway`'s +32 is the same artefact class by analogy
+(it is `extends env:xiao_sx1262`, identical symbol multiset); **verified directly only on `xiao_sx1262`.**
+
+★★ **THE GATE THAT ACTUALLY DECIDES B61 — pre-fix source vs post-fix source, both built in the SAME session:**
+**0 differing sections · symbol multiset identical · RAM 167044 identical · Flash 512020 identical · warnings identical ·
+`-Wswitch` 0.** ⇒ the fix is provably **code-neutral**, as the dead-arm reasoning predicted.
+
+⇒ ★ **METHOD CONSEQUENCE for the next slice: an eleven-env baseline is only a valid comparand for builds made in the
+same session.** A0 must rebuild its own BEFORE arm rather than diff against the 2026-08-03 grid, or ±32 B of banner-string
+packing will be misattributed to the file move — on top of the ~192 B the move genuinely costs.
+
+★★ **POSITIVE CONTROL — the `#error` was PROVEN to fire, because 11/11 green is otherwise a 0/11 that cannot be read.**
+Rebuilding `heltec_v3` with `PLATFORMIO_BUILD_UNFLAGS` dropping `-DBOARD_HELTEC_V3` fails at **`src/firmware_commands.cpp:357`**
+with exactly `error: #error "No supported BOARD_* or MESHROUTE_NATIVE target selected"`, and `-Werror=return-type` fires
+behind it as a second independent guard. ⇒ the guard is live, not decorative, and the green grid means "every env
+satisfies an arm", not "the instrument cannot fire".
+
+ⓘ **Honest residue:** the new `MESHROUTE_NATIVE` arm is itself still **unreachable in all eleven envs**, because
+`[env:native]` does not compile this TU. It exists so a future host build that *does* compile it has a legitimate answer
+instead of tripping the `#error` — not because anything reaches it today.
+
+### B62 — three in-source paths still say `src/board_ui.cpp` after §A0 moved it · NEW 2026-08-03 · OPEN (one-line fix, deliberately deferred)
+**MEASURED / created by §A0** (`simulation/BASELINE.md`, 2026-08-03 §A0 note). The file now lives at
+`variants/heltec_v3/board_ui.cpp`, but three places still name the old path:
+
+| site | text |
+|---|---|
+| `variants/heltec_v3/board_ui.cpp:1` | `// MeshRoute — src/board_ui.cpp` — **the file's own path header lies about itself** |
+| `lib/hal/mr_ui.h:5` | *"implement these three hooks in a TU compiled under `#if MR_FEAT_OLED` (src/board_ui.cpp)"* |
+| ✅ plan File-Structure table + Tasks 5/9 | **ALREADY CORRECTED 2026-08-03 by QA** — this row was stale when written; the table now reads `variants/heltec_v3/board_ui.{cpp,h}` and the `-I variants/heltec_v3` was moved to **Task 5**, where it first becomes load-bearing |
+| ✅ `lib/hal/mr_ui.h:5` | **FIXED 2026-08-03** — now names the new path and states the port is per-BOARD (V4 brings its own) |
+| ✅ plan architecture paragraph (`:7`) | **FIXED 2026-08-03** — flags that only the board-INDEPENDENT units remain in `src/` |
+| ⏳ `variants/heltec_v3/board_ui.cpp:1` | `// MeshRoute — src/board_ui.cpp` — **the file's own path header lies about itself.** ★★ **DELIBERATELY STILL OPEN, and the reason is a real conflict with the QA recommendation to "clean B62 before the owner commit": editing this file makes A0 STOP BEING A 100 % RENAME**, which is the property the A0 approval was verified against (`R100`, 0 insertions, 0 deletions). ⇒ **fix it in the FIRST commit AFTER A0 lands** — the OLED slice touches this file anyway (Task 9)
+
+⚠ **Not an oversight — A0's dispatch scoped it out** (*"⛔ Nothing else moves. No content edit"*, C1: never fold a
+semantic/textual edit into a file move). `platformio.ini:221`'s comment **was** fixed, because it sits inside the file A0
+rewires. **Fix:** the Phase-A OLED slice rewrites `board_ui.cpp` in full — correct line 1 and `mr_ui.h:5` there, and
+update the plan's file table when Task 5 lands `board_ui.h` in `variants/heltec_v3/` (which is also when the `-I
+variants/heltec_v3` the A0 brief asked for genuinely becomes necessary — see the §A0 note's premise 2). Zero build
+impact; a stale path header in a board-port file is exactly what the "code is read, docs rot" rule is about.
+
+### B63 — RECORDED (gate methodology, not a defect): on xtensa, adding or removing a **zero-byte** object from the link set moves `.flash.text` by up to +176 B · NEW 2026-08-03
+**MEASURED and decoupled by probe** in the §A0 note. `src/board_ui.cpp` compiled to an object with **`.text` 0 /
+`.data` 0 / `.bss` 0** on every non-Heltec env (`MR_FEAT_OLED` defaults 0). Dropping that empty object from the three
+`xiao_esp32s3`-family link lines nevertheless moved `.dram0.bss` **−8**, `.flash.rodata` **−8** and `.flash.text`
+**+176 / +56 / +132**, and resized ~30 **Arduino/ESP-IDF framework** functions (`WiFiGenericClass::mode`,
+`STAClass::connect`, `APClass::create`, `NetworkClient::write`, …) — **no symbol of ours affected**. Putting the same
+file back into the link set *from its new directory* reproduced the pre-move image **section-for-section and
+symbol-for-symbol** (P-A0-2) ⇒ **the source's directory is irrelevant; link-set membership is the entire effect**, and
+it is xtensa link-order relaxation. **The identical removal is free on ARM** (4 nRF52 envs: 0 differing sections,
+identical symbols, identical RAM and Flash).
+
+⇒ ★ **Consequence for every future size gate:** *"an object entered or left the link set"* is an xtensa-only **±200 B
+flash / ∓8 B RAM** event **even when the object is empty**, and it is visible in the symbol multiset only as framework
+functions changing size. Do not attribute it to the slice's own code, and do not expect the ARM envs to corroborate it.
+⚠ It also **retires the "+192 B is the price of moving a file out of `src/`" rule** recorded on 2026-08-03: that number
+came from relocating `device_ota.cpp` (123 lines, a 227 KB object), i.e. from reordering **non-empty** objects.
+
 ---
 
 ## Deferred with an explicit trigger
+
 
 ### D1 — the team **DV hop-cap flip** (T3 Part C)
 `node_beacon.cpp:861` still reads `hop_cap_for(false)`, so team RREQ floods at `team_hop_cap` **8** while team DV

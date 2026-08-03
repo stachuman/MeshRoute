@@ -37,6 +37,74 @@ The device remains fully usable with the companion app — this UI adds a degrad
 
 The `mr_ui` seam already defines the boundary and is already wired unconditionally — `mr_ui_init()` at `fw_main.cpp:795`, `mr_ui_on_push()` at `:1066`, `mr_ui_tick()` at `:1208`, with inline no-ops when `MR_FEAT_OLED=0` (`lib/hal/mr_ui.h`). This spec fills that seam; it does not change it.
 
+---
+
+## §0 BOARD SOURCE OWNERSHIP — ★ THE BROAD SPLIT IS PARKED (owner-ruled 2026-08-03)
+
+⚠⚠ **v1 of this section (2026-08-03, review-driven) SPECIFIED A PREREQUISITE SLICE THAT WAS MEASURED AND DISPROVEN
+BEFORE A LINE MOVED.** The measurements are in `simulation/BASELINE.md`'s top note and register **B61**; the withdrawn
+QA brief is `docs/2026-08-03-phase0-qa-objective.md`. **Four of my own claims were false — recorded because two of them
+are the reason the slice looked worth doing:**
+
+| v1 claimed | measured |
+|---|---|
+| "use `boards/`" | ⛔ **`boards/` is PlatformIO's** — it holds the vendored manifest `seeed-xiao-afruitnrf52-nrf52840.json` + `nrf52840_s140_v7.ld`, wired at `platformio.ini:97-98`. My own objection to `variants/`, aimed at the directory I recommended |
+| "`variants/` belongs to the Arduino core" | ⛔ **False.** The Adafruit core reads `variants_dir` from the **board manifest**; ours does not set it, so it resolves to `FRAMEWORK_DIR/variants` — which holds no `Seeed_XIAO_nRF52840`. The two hand-wired lines I cited as proof of core ownership **are the entire mechanism.** `variants/` was already ours |
+| "board ≈25 sites vs chip ≈65" | ⛔ **Double-counted.** Of **26** board-macro sites, **23 are chip-family OR-chains** where the board macro is a redundant alias — and those 23 were counted on **both** sides of my table. `BOARD_XIAO_ESP32S3` was omitted entirely. Real: **33 chip · 3 board** |
+| "byte-identical per env" as the gate | ⛔ **Unachievable.** The controls have a genuine **zero** noise floor and `-I src` is innocent, but a semantics-preserving `git mv` **out of `src/`** still moves flash **+192 B**, RAM **−8 B**, and resizes **14 Arduino/ESP-IDF functions** via link-order xtensa relaxation. Only "delta attributed" survives — and attribution means explaining *framework* code motion |
+
+★★ **The premise is gone: there is no board tier to absorb.** Genuinely board-discriminating code is **three lines** —
+the `#if/#elif/#elif` body of `board_name()` (`src/firmware_commands.cpp:339-349`). The real board coupling is the
+**56 `-D` flags** in `platformio.ini` (25/16/15 per board), and those are heterogeneous (application capability · radio
+wiring · RadioLib config · TinyUSB/framework · nRF52 storage). A `capabilities.h` cannot reach the framework and C
+translation units that receive them; a forced global include is a build-system redesign. ⇒ **its own design, its own
+tests, NOT a remnant of a disproven refactor, and NOT a prerequisite for the OLED work.**
+
+### The ruling — where board sources live
+
+| tree | owner | rule |
+|---|---|---|
+| **`variants/<board>/`** | ★ **ours** — per-board sources | already project-owned; matches MeshCore and "one directory per physical board". `Seeed_XIAO_nRF52840/` already lives here |
+| `boards/` | **PlatformIO** | manifests + linker assets ONLY. Never MeshRoute sources |
+| `platform/` | **RESERVED** | for a future *genuine* chip-family abstraction. **Not another name for board directories** |
+| `src/firmware_ui_*` | unchanged | board-INDEPENDENT product logic stays here |
+| `lib/hal/` | unchanged | the small composition interfaces (`IBoardRf`, the `board_ui.h` canvas) |
+
+⚠ **Do NOT add `variants_dir` to the board manifest yet.** Letting the toolchain own the directory (and thereby dropping
+`platformio.ini:117`'s `../variants/…` term and `:137`'s `-I` — which must drop **together**) is an **untested** change
+and a separate slice.
+
+### What survives: a narrow A0 placement slice
+
+★ **Phase 0's broad split is PARKED. `MR_FEAT_OLED` defaults 0 and the seam is 32 lines with one guard and zero board
+conditionals ⇒ nothing blocks Phase A.** (It now lives at `variants/heltec_v3/board_ui.cpp` — moved by A0, below.) The only placement work worth doing is done *before* the OLED code
+exists, so the feature lands in the right file rather than being moved afterwards:
+
+**A0** — move the **empty** `src/board_ui.cpp` seam to `variants/heltec_v3/board_ui.cpp`, rewire the Heltec
+environments, gate all eleven. Then implement the OLED feature in the already-correct location. **V4 later becomes
+`variants/heltec_v4/` carrying its own `board_ui.*`, `board_rf.*`, `lora_fem.*`, pins and power handling.**
+✅ **A0 HAS LANDED (2026-08-03) and the prediction that stood here was WRONG IN BOTH HALVES.** Measured: the **three
+Heltec envs are IDENTICAL** in every flash-bearing section, RAM and the whole symbol multiset — the only delta is
+`.debug_line`/`.debug_str` **+15**, exactly the path-length difference. The real movers are the **three `xiao_esp32s3`**
+envs (RAM −8, flash +168/+48/+124, ~30 **framework** symbols), because `MR_FEAT_OLED` defaults 0 and the TU was a
+**zero-byte object that was nonetheless a link input** there. ★ **B63, proven by probe: the directory is irrelevant to
+code size — LINK-SET MEMBERSHIP of even an empty object is the entire effect, and it is xtensa-only.** The old "+192 B
+for leaving `src/`" measured `device_ota.cpp`, a 227 KB object, i.e. reordering *non-empty* objects. Full grid:
+`simulation/BASELINE.md` §A0.
+
+ⓘ **Independently, as a tiny safety fix (register B61, its own commit):** `board_name()`'s `#else` silently returns
+`"native"` on any target defining no `BOARD_*`. Verified safe to make loud — all four macros are declared exactly once
+(`platformio.ini:79/134/218/263`) and every one of the seven extending envs re-lists `${env:<board>.build_flags}`, so
+all eleven envs satisfy an arm:
+
+```c
+#elif defined(MESHROUTE_NATIVE)
+    return "native";
+#else
+#error "No supported BOARD_* or MESHROUTE_NATIVE target selected"
+#endif
+```
+
 Four units:
 
 | unit | responsibility | depends on | tested |
@@ -44,7 +112,7 @@ Four units:
 | `src/firmware_ui_input.h` — pure header | classify `(level, now_ms)` samples → `short` / `double` / `long-arm-progress` / `long-fire` / `cancel` | nothing | **native** |
 | `src/firmware_ui_model.h` — pure header | reduce `(Gesture, UiSnapshot, SendOutcome) → UiState` — screens, cursors, compose modal, emergency machine, per-send outcome states, dirty flag | nothing | **native** |
 | `src/firmware_ui.cpp` | build `UiSnapshot`; drive the model; perform sends and **correlate their outcomes**; own all screen selection and text formatting; call canvas primitives | core accessors, model, canvas | on-target |
-| `src/board_ui.cpp` | board port **only**: U8g2, I²C, button GPIO, battery ADC, panel power state | Arduino, display lib | on-target |
+| `variants/heltec_v3/board_ui.cpp` | board port **only**: U8g2, I²C, button GPIO, battery ADC, panel power state | Arduino, display lib | on-target |
 
 **Hard boundary — restated after review, because the first plan draft broke it.** `board_ui.h` exposes a **display-independent canvas**, not the UI model:
 

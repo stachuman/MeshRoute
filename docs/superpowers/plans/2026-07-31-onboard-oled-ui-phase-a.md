@@ -4,7 +4,8 @@
 
 **Goal:** Give a Heltec V3 team mobile a usable no-phone interface — status, teammates, inbox, canned messages, teammate DMs, and a long-press emergency — driven by one button on the on-board SSD1306.
 
-**Architecture:** Two **pure headers** in `src/` hold all logic (gesture classification; screens, compose modal, emergency and DM outcome machines) and are unit-tested natively. `src/firmware_ui.cpp` builds a plain-data snapshot, owns all render policy, performs sends and **correlates their outcomes**. `src/board_ui.cpp` owns only U8g2, I²C, GPIO and the ADC, behind a display-independent canvas.
+**Architecture:** ⓘ *(§A0 2026-08-03: the board port now lives at `variants/heltec_v3/board_ui.cpp`; only the
+board-INDEPENDENT units below stay in `src/`.)* Two **pure headers** in `src/` hold all logic (gesture classification; screens, compose modal, emergency and DM outcome machines) and are unit-tested natively. `src/firmware_ui.cpp` builds a plain-data snapshot, owns all render policy, performs sends and **correlates their outcomes**. `src/board_ui.cpp` owns only U8g2, I²C, GPIO and the ADC, behind a display-independent canvas.
 
 **Tech Stack:** C++20, PlatformIO, doctest (native), U8g2 (page-buffer mode), Arduino-ESP32 (`heltec_v3` / `heltec_mobile`).
 
@@ -51,6 +52,71 @@
 
 ---
 
+## ⛳ A0 — the placement slice (owner-ruled 2026-08-03). ★ The broad Phase 0 split is PARKED.
+
+⚠⚠ **v1 of this section specified a four-step board-source split. It was MEASURED AND DISPROVEN before a line moved,
+and is withdrawn.** Full record in the spec's **§0** + `simulation/BASELINE.md`'s top note + register **B61**; the
+withdrawn QA brief is `docs/2026-08-03-phase0-qa-objective.md`. In one line: **there is no board tier to absorb** —
+genuinely board-discriminating code is **3 lines** (`board_name()`, `src/firmware_commands.cpp:339-349`), not the ~25 the
+old table claimed, because 23 of 26 board-macro sites are chip-family OR-chains and were double-counted on both sides.
+
+★ **NOTHING BLOCKS PHASE A.** `MR_FEAT_OLED` defaults 0 and the seam (32 lines, one guard, zero board
+conditionals. Only one narrow piece of placement is worth doing, and only because doing it *first* is cheaper than
+moving the OLED implementation afterwards.
+
+| step | scope | gate |
+|---|---|---|
+| **A0** | `git mv src/board_ui.cpp variants/heltec_v3/board_ui.cpp` (the **empty seam**, 32 lines) + rewire `heltec_v3` / `gateway_heltec` / `heltec_mobile` `build_src_filter` + `-I` | all **eleven** envs link; ⚠ **delta attributed, NOT byte-identical** — see below |
+| then | implement the OLED feature **in the already-correct location** (Phase A proper, below) | as Phase A specifies |
+| later | **V4** arrives as `variants/heltec_v4/` with its own `board_ui.* board_rf.* lora_fem.*`, pins, power | its own slice |
+
+✅ **A0 HAS LANDED AND ITS GATE IS MEASURED. The prediction that stood here was WRONG IN BOTH HALVES** — recorded
+because the mechanism it got wrong is a reusable rule (`simulation/BASELINE.md` §A0, register **B63**):
+
+| this block predicted | measured, same-session, 22 clean builds |
+|---|---|
+| "~±200 B flash / −8 B RAM / ~14 framework fns on the **three Heltec** envs" | ⛔ **All three Heltec envs IDENTICAL** — flash-bearing sections, RAM and the 11 232-symbol multiset. The only delta is `.debug_line +15` / `.debug_str +15` = exactly `len("variants/heltec_v3/board_ui.cpp") − len("src/board_ui.cpp")` |
+| "the other **eight** are exactly untouched" | ⛔ **Only `native` is untouched.** `+<board_ui.cpp>` sat in **three** base filters, and `MR_FEAT_OLED` defaults 0 ⇒ on the XIAO families the TU was a **zero-byte object that was still a link input**. The move makes those globs match nothing, so link inputs change on **10 of 11** envs |
+| — | ★ **The only movers are the three `xiao_esp32s3` envs**: RAM **−8**, flash **+168 / +48 / +124**, ~30 **framework** symbols resized (WiFi/NetworkClient/Update) — **not one symbol of ours**. The identical removal is **free on ARM** (4 nRF52 envs: 0 sections, identical symbols/RAM/flash) |
+| "+ an `-I` for the Heltec envs" | ⛔ **Not needed, and would be dead config** — the compiler's own `.d` shows all four headers resolving from `lib/core/` + `lib/hal/`. The `-I` becomes load-bearing only at **Task 5**, which creates `board_ui.h` *inside* `variants/heltec_v3/` |
+| "three Heltec `build_src_filter`s" | ⛔ **One.** `gateway_heltec` and `heltec_mobile` inherit it via `extends` |
+
+★★ **THE RULE THAT REPLACES "leaving `src/` costs ~192 B" (B63):** proven by probe, not argument — putting the same file
+back into `xiao_esp32s3`'s link set **from its new directory** reproduced the pre-move image section-for-section and
+symbol-for-symbol. ⇒ **the directory is irrelevant to code size; LINK-SET MEMBERSHIP of even a zero-byte object is the
+entire effect, and it is xtensa-only.** The old "+192 B" figure came from relocating `device_ota.cpp` — a 227 KB object —
+i.e. it measured **reordering non-empty objects**, a different phenomenon.
+
+⚠ **`GIT_REV` embeds `-dirty`** — a clean BEFORE against a dirty AFTER differs by 6 `.rodata` bytes for a non-code
+reason. Control for it or the attribution is noise.
+
+⛔⛔ **A0 MUST BUILD ITS OWN BEFORE ARM IN THE SAME SESSION AS ITS AFTER ARM. Do not diff against a recorded grid.**
+Measured 2026-08-03 by B61, which predicted "byte-identical on all eleven" and was **wrong**: 8 of 11 envs showed a
+moving section against the earlier grid — four ESP32 envs `.debug_line` +3 B (DWARF, not flash-bearing), and
+`xiao_sx1262` `.text` **−32** with `gateway` **+32**, *opposite signs, symbol multisets identical*. Proven **not** to be
+the change: reverting `board_name()` to its exact pre-fix form and rebuilding still read `.text` 511044. It is a
+one-time content-dependent step consistent with `__DATE__`/`__TIME__` literal packing in the banner strings, which this
+ld script folds into `.text` — i.e. **the ±32 B flash floor, now measured on ARM, where the symbol multiset is blind to
+it.** ★ **The earlier noise floor was measured on ESP32 only; the nRF52 floor is different.** Two builds of identical
+source **within one session** reproduce exactly, so same-session pre/post is the only valid byte comparand.
+⇒ the recorded grid stays useful as the **object-count / warning-count / `-Wswitch` reference** and as an
+order-of-magnitude record — **never as a cross-session byte comparand.** Diffing against it would misattribute ±32 B of
+banner packing to the file move, on top of the ~192 B the move genuinely costs.
+
+★ **`variants/` is the ruled home** (already project-owned; `boards/` is PlatformIO's manifest tree; `platform/` is
+reserved for a real chip-family abstraction later). ⚠ **Do not add `variants_dir` to the board manifest** — untested,
+separate slice.
+
+ⓘ **Independent of A0, its own commit (register B61):** make `board_name()`'s silent `#else → "native"` loud with
+`#error`. **Verified safe** — all four target macros are declared once each (`platformio.ini:79/134/218/263`) and every
+one of the seven extending envs re-lists `${env:<board>.build_flags}`, so all eleven envs satisfy an arm.
+
+⇒ **The 56 `-D` flags** (25/16/15 per board) are the real board coupling, are heterogeneous (application capability ·
+radio wiring · RadioLib · TinyUSB/framework · nRF52 storage), and need **their own design and tests**. Not a remnant of
+this refactor, and **not a prerequisite for the OLED work.**
+
+---
+
 ## File Structure
 
 | file | responsibility |
@@ -59,8 +125,8 @@
 | `src/firmware_ui_model.h` *(new, pure)* | screens, list-aware cursor, compose modal, emergency machine, DM outcome machine. Owns `UiSnapshot`, `UiState`, `SendReq`, `SendOutcome` |
 | `src/firmware_ui_send.h` *(new)* | the send tracker: typed result, `ctr`/peer/channel correlation, outcome window |
 | `src/firmware_ui.cpp` *(new)* | snapshot building, **all render policy**, send execution, push correlation, battery cache, the three `mr_ui_*` hooks |
-| `src/board_ui.cpp` *(modify — currently an empty seam)* | U8g2, I²C, button GPIO, battery ADC, panel power latch. **Nothing else.** |
-| `src/board_ui.h` *(new)* | the display-independent canvas. **Must not include `firmware_ui_model.h`.** |
+| `variants/heltec_v3/board_ui.cpp` *(modify — the empty seam, moved there by §A0)* | U8g2, I²C, button GPIO, battery ADC, panel power latch. **Nothing else.** |
+| `variants/heltec_v3/board_ui.h` *(new — beside its .cpp; ★ Task 5 is where the `-I variants/heltec_v3` becomes load-bearing)* | the display-independent canvas. **Must not include `firmware_ui_model.h`.** |
 | `test/test_firmware_ui_input.cpp` *(new)* | classifier tests |
 | `test/test_firmware_ui_model.cpp` *(new)* | screens, compose, emergency, DM outcome tests |
 | `test/test_firmware_ui_send.cpp` *(new)* | attribution/correlation tests |
@@ -909,7 +975,7 @@ private:
 
 ### Task 5: Board canvas port
 
-**Files:** Modify `platformio.ini` (`[env:heltec_v3]`), create `src/board_ui.h`, modify `src/board_ui.cpp`.
+**Files:** Modify `platformio.ini` (`[env:heltec_v3]`), create `variants/heltec_v3/board_ui.h` (+ the `-I variants/heltec_v3` this needs — NOT earlier), modify `variants/heltec_v3/board_ui.cpp`.
 
 **Interfaces:**
 - Produces: `mrui::board_init()`, `begin_frame()`, `next_page()`, `set_font(Font)`, `draw_text(x,y,const char*)`, `draw_hline(x,y,w)`, `set_power_save(bool)`, `button_pressed()`, `battery_sample_mv()`.
@@ -932,7 +998,7 @@ Run: `pio run -e heltec_v3` — SUCCESS. Record flash/RAM.
 - [ ] **Step 3: Write the canvas header**
 
 ```cpp
-// MeshRoute — src/board_ui.h
+// MeshRoute — variants/heltec_v3/board_ui.h
 // Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // The display-INDEPENDENT canvas the UI feature layer draws through. Nothing above this line knows U8g2 exists;
@@ -1313,7 +1379,7 @@ Call `g_node.inbox().pull(dm_since, chan_since, cb, ctx)` directly — **never**
 
 ### Task 9: V3 battery reader
 
-**Files:** Modify `src/board_ui.cpp`.
+**Files:** Modify `variants/heltec_v3/board_ui.cpp`.
 
 Spec §7 is the authority. **V3 polarity is auto-detected** (boards past rev 3.2 inverted it) — do not hardcode LOW. V3 has **no** settling delay; do not import V4's `delay(10)`.
 

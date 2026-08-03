@@ -2,7 +2,8 @@
 // Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // §featuresplit slice 4: the board-UI seam (MR_FEAT_OLED). A board with a display (e.g. the heltec_v3's on-board
-// SSD1306) implements these three hooks in a TU compiled under `#if MR_FEAT_OLED` (src/board_ui.cpp). EVERY other
+// SSD1306) implements these three hooks in a TU compiled under `#if MR_FEAT_OLED` (variants/heltec_v3/board_ui.cpp — §A0 2026-08-03; the port is
+// per-BOARD, so V4 brings its own variants/heltec_v4/board_ui.cpp). EVERY other
 // profile gets the inline no-ops below, so the fw_main call sites are UNCONDITIONAL (no `#if` sprawl at the call
 // site — the same stub pattern as the TEAM/MOBILE features). The next board-UI PR just fills the seam; it pulls
 // g_node / the config itself inside the .cpp, so this header stays dependency-light (only a Push forward-decl).

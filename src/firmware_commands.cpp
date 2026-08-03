@@ -336,6 +336,14 @@ static void dump_cfg(Print& out) {
     }
 }
 
+// ★ §B61 (2026-08-03): the LAST arm is an #error, not a fallback. This is the ONLY board-discriminating code in the
+// firmware (3 of the 26 board-macro conditional sites; the other 23 are chip-family OR-chains that merely name a
+// BOARD_* as an alias), and its value is read by `version` / print_banner — the one line a bench operator trusts to
+// tell two boards apart. The old `#else return "native"` was UNREACHABLE in all eleven envs (native does not compile
+// this TU: platformio.ini:73 + test_build_src=no), so it was never a host arm — it was a silent fallback that would
+// have let a NEW board env with a forgotten -DBOARD_* link, boot, and LIE about its own identity. Per C2 that must
+// fail loud instead. `MESHROUTE_NATIVE` gets its own explicit arm so a future host build that DOES compile this TU
+// has a legitimate answer rather than tripping the #error.
 const char* board_name() {
 #if defined(BOARD_XIAO_WIO_SX1262)
     return "xiao_nrf52";
@@ -343,8 +351,10 @@ const char* board_name() {
     return "xiao_esp32s3";
 #elif defined(BOARD_HELTEC_V3)
     return "heltec_v3";
-#else
+#elif defined(MESHROUTE_NATIVE)
     return "native";
+#else
+#error "No supported BOARD_* or MESHROUTE_NATIVE target selected"
 #endif
 }
 // The `version` banner — build stamp + git rev + board + the last reset reason (ON DEMAND, no reset). Refactored
