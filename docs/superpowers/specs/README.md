@@ -6,6 +6,7 @@ Per-feature design records. **Once a feature ships, the code is the source of tr
 
 The specs that are **not yet fully shipped** — in progress, deferred, parked, or forward-looking:
 
+- [multi-gateway explicit layer-path routing](2026-08-03-multi-gateway-explicit-layer-path-routing-design.md) — B60 repair: intermediate gateways follow the preserved path; capacity grows to 16 total layers
 - [mobile-node-handling-assumptions](2026-07-07-mobile-node-handling-assumptions.md) — the living mobile-node assumptions doc (`[DECIDED]` / `[OPEN]` items)
 - [protocol-plane-separation](2026-07-10-protocol-plane-separation.md) + [addendum-reaudit](2026-07-10-plane-separation-addendum-reaudit.md) — plane separation; the **PlaneRuntime per-plane leak *fix* is still deferred** (semantic, RAM-costed)
 - [code-cleanup-safe-plus-failloud](2026-07-10-code-cleanup-safe-plus-failloud.md) — parked cleanup backlog

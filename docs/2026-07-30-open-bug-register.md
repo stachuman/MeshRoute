@@ -1,5 +1,5 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
-# OPEN BUG REGISTER
+# BUG REGISTER
 
 *Opened 2026-07-30 at the owner's request, so findings stop living only inside `BASELINE.md` notes and agent
 reports. **This file is the index; `simulation/BASELINE.md` carries the evidence.** Each entry names the note
@@ -10,6 +10,104 @@ alone. **Re-locate by symbol before acting (V1/V2).** A line number in this file
 
 ★ **Nothing here is speculative.** Every entry was either measured, or found in-source with a marker left by the
 slice that declined to fix it (C1). Where an entry is *unmeasured*, it says so explicitly.
+
+---
+
+## Current status checklist — authoritative as of 2026-08-03
+
+Use this section to choose work and mark completion. The detailed records below preserve the full evidence,
+superseded premises and gate history; their older status language describes the time of the record and does not
+override this checklist.
+
+Legend:
+
+- `[x]` — fixed, closed or resolved; retain the numbered record.
+- `[ ] OPEN` — implementation, measurement or an owner decision is still available.
+- `[ ] PARKED` — recorded but not currently dispatched; do not implement without a new ruling.
+- `RECORDED` — useful constraint, not a defect.
+
+### Open
+
+- [ ] **B20 — OPEN:** encrypted DM lengths 215–216 can disappear without `send_failed`.
+- [ ] **B21 — OPEN:** an oversized DM reports the wrong condition and no `send_failed`.
+- [ ] **B24 — OPEN:** `q_tx.rt_total` remains plane-inconsistent telemetry.
+- [ ] **B25 — OPEN / UNMEASURED:** a team member may answer a static sync with a team-plane beacon.
+- [ ] **B31 — OPEN / POLICY:** `key_hash_for_id` has no authoritative or TTL gate.
+- [ ] **B34 — OPEN:** the simulator still collapses refusal reasons to generic `error`.
+- [ ] **B35 — OPEN / SILENT:** channel self-skip compares ids across planes.
+- [ ] **B36 — OPEN / CONTRACT:** received message JSON does not expose attached location.
+- [ ] **B52 — OPEN / CONTRACT:** JSON exposes team confidence but not static confidence.
+- [ ] **B54 — OPEN / OWNER CALL:** the first claim in a full first-hand team table evicts one beacon row.
+- [ ] **B55 — OPEN / CONTRACT:** `reqpubkey_sent.hash == 0` needs its S4b meaning documented.
+- [ ] **B56 — OPEN / CONTRACT DECISION:** stage-2 `reqpubkey` failure is not app-visible.
+- [ ] **B60 — OPEN / SPEC READY; ACK POLICY OPEN:** multi-gateway `send_layer` resolves the final hash on an intermediate layer instead of selecting the next gateway.
+
+### Parked or trigger-gated
+
+- [ ] **B5 — PARKED:** `channel_pull` has no team scope and exposes the static source id.
+- [ ] **B6 — PARKED:** the team plane has no budget-penalty mirror.
+- [ ] **B7 — PARKED:** the team plane has no slow-reprobe state.
+- [ ] **B8 — PARKED / UNMEASURED:** relay behavior for `src == 0` is unresolved.
+- [ ] **B9 — PARKED / SIM TELEMETRY:** team `rt_update.slot` is mislabelled.
+- [ ] **B10 — PARKED / TEST DEBT:** the simulator has no working `routes` command.
+- [ ] **B11 — PARKED / TRACE DEBT:** frame-trace switches omit live values.
+- [ ] **B12 — PARKED / REFACTOR:** seal-or-refuse logic is triplicated.
+- [ ] **B13 — PARKED / REFACTOR:** the team liveness scan is duplicated.
+- [ ] **B14 — PARKED / COMMENT:** a `node.h` routing comment has drifted.
+- [ ] **B15 — PARKED / REDESIGN DEPENDENCY:** the binary config TLV omits `team_ch_key`.
+- [ ] **B16 — PARKED / SIM PARITY:** `send_layer` grammar differs across sim and metal.
+- [ ] **B18 — PARKED / D2:** a team H relay can read the static binding table.
+- [ ] **B19 — PARKED / FOLD INTO B12:** `deleg_ack_put` is duplicated at eight call sites.
+- [ ] **B23 — PARKED / POLICY:** the metal `resolve` verb reaches AUTO and carries a dead field.
+- [ ] **B37 — PARKED / DEPLOYMENT TRIGGER:** symbolic wire tests cannot detect format drift.
+- [ ] **B57 — PARKED / DELIBERATE:** a beacon-learned binding does not consume a pending `reqpubkey` intent.
+- [ ] **B59 — PARKED / DO NOT DISPATCH:** reliable repair may require a routing/custody algorithm change.
+
+### Closed or fixed
+
+- [x] **B0:** plaintext coordinate disclosure removed.
+- [x] **B1:** whole-token team-id parsing enforced.
+- [x] **B2:** team H answers no longer write the static binding table.
+- [x] **B3:** `reqpubkey` plane behavior aligned between simulator and firmware.
+- [x] **B4:** sync-response route count made plane-aware.
+- [x] **B17:** out-of-range team ids rejected.
+- [x] **B22:** plain `send_channel` behavior aligned between simulator and metal.
+- [x] **B26:** NV blob validation factored into a testable shared path.
+- [x] **B27:** unsafe `cfg set team_id` write surface removed.
+- [x] **B28:** team membership now enforces the mobile-role invariant.
+- [x] **B29:** `key_hash_for_id` miss no longer loops or invokes undefined behavior.
+- [x] **B30:** aliased hashes resolve to the freshest authoritative team id.
+- [x] **B32:** command refusals retain their specific reason.
+- [x] **B33:** `hashof` refusal advice names remedies that can work.
+- [x] **B38:** a team post remembers and reports an observed first relay.
+- [x] **B39:** `ctr == 0` semantics documented without claiming that every zero means failure.
+- [x] **B40:** `channel_sent` carries the full local 16-bit correlation counter.
+- [x] **B41:** the simulator renders `channel_sent.relayed`.
+- [x] **B42:** by-id `reqpubkey` resolves both planes with explicit ambiguity handling.
+- [x] **B43:** routable-but-unheard ids can complete the two-stage pubkey workflow.
+- [x] **B44:** `peers all` includes static routed-but-unkeyed peers.
+- [x] **B45:** the local self-binding is no longer printed as a peer.
+- [x] **B46:** claimed observations cannot demote or displace authoritative bindings.
+- [x] **B47:** `reqpubkey` admission reports early and transmitter rejection honestly.
+- [x] **B48:** display de-duplication no longer decides whether airtime may be spent.
+- [x] **B49:** the `CmdCode` invariant test derives its bound.
+- [x] **B50:** `tx_with_retry` propagates the transmitter result.
+- [x] **B51:** channel-digest retirement follows the approved transmitter boundary.
+- [x] **B53:** inspection resolves at the claimed floor while send paths remain authoritative.
+
+### Recorded constraint
+
+- [x] **B58 — RECORDED, NOT A DEFECT:** the by-id intent ring fills before the LBT defer-ring rejection can be reached
+  through the same command.
+
+### Non-bug decisions and deferred audits
+
+- [ ] **D1 — TRIGGER-GATED:** revisit the team DV hop-cap only when a team path exceeds eight combined hops.
+- [ ] **D2 — OPEN AUDIT:** audit plane-typed read paths that can fall back to the static table.
+- [x] **O1 — RESOLVED:** B1 closed the team-target parsing decision.
+- [ ] **O2 — PARKED:** fold `deleg_ack_put` de-duplication into B12, never take it alone.
+- [x] **O3 — RESOLVED:** a team channel key lives exactly as long as its `team_id`.
+- [ ] **O4 — OPEN SECURITY DECISION:** decide how BLE access to `team exportkey` is protected.
 
 ---
 
@@ -26,7 +124,10 @@ slice that declined to fix it (C1). Where an entry is *unmeasured*, it says so e
 > ★★★ **For the wider picture — open topics, the four spec arcs, pending owner decisions — read
 > `docs/2026-07-31-agent-handover.md`.** This file is the bug index; that one is the map.
 
-## ★★★ CURRENT PRIORITY ORDER — owner-ruled 2026-07-31. **Most of this file is PARKED.**
+## Historical priority and owner rulings — preserved from 2026-07-31
+
+This section records the ordering and rationale that governed the 2026-07-31 work. It is historical context, not
+the current queue; use the checklist above for present status.
 
 ★ **TIER 1 IS EMPTY.** B0 was the last live leak and it closed 2026-07-31. **Nothing remaining in this register
 blocks functionality** — it is all quality, telemetry, plane-parity and dedup. The owner has therefore pivoted to the
@@ -174,10 +275,11 @@ scenario was relying on the broken behaviour. Attribute it and report before pro
 
 ---
 
-## ✅ CLOSED — one line each; the evidence lives in `simulation/BASELINE.md` under the tag
+## Original closed index — 2026-07-31 pass
 
-*Closed entries are deliberately terse. Each names the defect, the fix, and the BASELINE note that carries the
-measurements, the poison matrices and the premises that were disproven. **Do not re-expand them here.**
+These entries were already closed when this register was established. Later closures remain in the detailed records
+and are checked in the current-status section above. Each row names the original evidence tag in
+`simulation/BASELINE.md`.
 
 | # | the defect | the fix | evidence |
 |---|---|---|---|
@@ -197,10 +299,11 @@ measurements, the poison matrices and the premises that were disproven. **Do not
 
 ---
 
-## OPEN — the work orders
+## Detailed records — open, parked, and subsequently closed
 
-*Full detail is deliberate here: an open entry is what a coder is handed. Numeric order; no tiers — severity is
-stated in the entry and the running order lives in the priority block above.
+Full detail remains because these records carry implementation traps, measurements and rejected alternatives. Some
+entries were fixed after being written; their original work order remains underneath the current status checklist so
+references and evidence are not lost.
 
 ### B5 — `channel_pull` carries no `team_id`, and airs `src = _node_id`
 ⇒ it **cannot** receive the mixed-leaf exemption that `team_sync` got (there is nothing to scope on), so a
@@ -437,7 +540,7 @@ DEPLOYMENT** — at which point M3 also stops being true and this entry should b
 `q_opcode`, frame types, `PushKind`/`SendFailReason` numeric values, the cfg TLV tags — **for a numeric pin**, and add
 one where it is missing. A renumber is otherwise invisible to this project's entire gate. Note: `§cl2c`.
 
-### ✅ RULED 2026-08-01 — `relayed` STAYS AS-IS ON A 1-HOP TEAM. Do not "fix" this.
+#### Related ruling — `relayed` stays as-is on a one-hop team
 **Owner:** *keep `relayed`, accept `NOT HEARD` on 1-hop teams.* ⇒ **ACCEPTED BEHAVIOUR, not a defect.**
 On a fully-1-hop team (3–10 co-located members — the actual hiking case) **nobody re-broadcasts**: the frugal
 `{self + hops-1}` seed marks every neighbour covered, so `flood_forward_decision` goes silent and **there is nothing to
@@ -450,7 +553,7 @@ and display `NOT HEARD` on a 1-hop team, at 100 % delivery** — expected; (2) t
 is NOT a delivery signal on either plane** — a real one needs a per-member ack, which the owner **declined**. ⇒ **anyone
 proposing to "make `relayed` true when delivery succeeded" is reversing this ruling.** Evidence: `§b38-b40`.
 
-### B38 — ★★★ a TEAM channel post can **NEVER** report `relayed=true` ⇒ every team post's outcome is a FALSE NEGATIVE · NEW 2026-08-01
+### B38 — ★★★ a TEAM channel post could never report `relayed=true` · FIXED 2026-08-01
 `channel_reoffer_confirm` (`node_channel.cpp:~1155`) returns **before** `emit_channel_sent(true, …)` when `rp.team`:
 ```
 if (rp.team) return;                                   // keep re-offering for far members
@@ -508,7 +611,7 @@ classify producer (3) — a success — as a FAILURE.** A local handle for a rem
 (`join`/`resolve`/`reqpubkey`/`peername` mint nothing; the hash-addressed `send` arm's 0 can mean **parked behind an H
 resolve**, i.e. sent *later*). Note: `§b39-ctr0`. *(original entry below)*
 
-### B39 — ★★ `CmdCode::queued` with `ctr == 0` means **NOT SENT** — the result is ambiguous by construction · NEW 2026-08-01
+#### B39 original finding — `CmdCode::queued` with `ctr == 0` was ambiguous
 Two `do_send_channel` paths return `0` and say so in their own comments — the pre-TX gate (`node_channel.cpp:~645`,
 `// not sent (no ctr minted)`) and a seal failure (`:~734`, `// NOT sent (the caller's queued becomes ctr=0)`) — and
 `Node::on_command` wraps that zero unchanged: `return CmdResult{ CmdCode::queued, ctr, … }` (`node.cpp:~1578`).
@@ -527,7 +630,7 @@ the right call; the discriminated result is a design change that can wait.**
 **Minimum interim:** document `ctr == 0` as "not sent" at the `on_command` seam so callers stop treating `queued` as
 proof of transmission. Found by the OLED-UI second review, §2. **UNMEASURED** — found in-source.
 
-### B40 — ★★ `channel_sent.ctr` carries only the **LOW 8 BITS** of a 16-bit counter ⇒ correlation breaks after 255 posts · NEW 2026-08-01
+### B40 — ★★ `channel_sent.ctr` carried only the low 8 bits of a 16-bit counter · FIXED 2026-08-01
 `do_send_channel` mints and returns the **full 16-bit** `next_ctr` (`node_channel.cpp:~647`), but the message id keeps
 `c & 0xff`, and **both** `channel_sent` emit sites reconstruct from it: `emit_channel_sent(…, static_cast<uint16_t>(id
 & 0xff))` (`:~1131`, `:~1158`). `Push::ctr` is already `uint16_t` (`command.h:~224`), so the width is available and
@@ -583,7 +686,7 @@ Found by the OLED-UI second review, §3. **UNMEASURED** — found in-source.
 > tier**, so S3/S4a — which are ABOUT that tier — will be equally invisible to it unless a scenario is authored to
 > produce a relayed soft H answer. Budget scenario work into those slices; do not expect the corpus to gate them.
 
-### B42 — ★★ `reqpubkey <id>` is **team-only by construction** ⇒ on a static node it cannot succeed for ANY id · NEW 2026-08-01
+### B42 — ★★ by-id `reqpubkey` was team-only by construction · FIXED 2026-08-01
 `console_parse.cpp:~232` sets `bool team = (out.u.resolve.dst_id != 0)` — a bare decimal **forces** the TEAM plane — and
 `:~234` accepts only `-t`, so **no `-s` exists**. `node.cpp:~1646` then resolves via `team_key_of_id` alone, whose first
 line is `if (_cfg.team_id == 0 || !is_team_peer(id)) return false;` (`node_routing.cpp:~842`). ⇒ with `team_id == 0`
@@ -675,7 +778,7 @@ lives in `src/` (outside the sim build). **Proof, not inference:** disabling the
 (s24/s25/s26, event counts *falling* 1574→1408 / 792→638 / 1045→854 — a cache doing its job), and doing that *with the
 ingest reverted* returns all 36 streams **byte-identical to clean**.
 
-### B44 — `peers all` surfaces routed-but-unkeyed **team** peers and has **no static equivalent** · NEW 2026-08-01
+### B44 — `peers all` had no static equivalent for routed-but-unkeyed peers · FIXED 2026-08-01
 `peer_book_walk` (`node_hashlocate.cpp:~462-507`) runs four passes — `_peer_keys` → `_id_bind` → `_team_keys` →
 `_team_peer` bits. The fourth emits an id-only row for a teammate we route to but hold no key for; **there is no pass
 over `_rt`**, so the static plane has no counterpart and the team plane is currently the *more* informative of the two.
@@ -691,7 +794,7 @@ test pins exactly that (a `claimed` binding for 48 ⇒ still one row).
 `static_id`, so an id-only row would have read `static_id=48(claimed)` — a claim nobody made. The suffix now prints
 only when the row carries a hash to be authoritative *about*. This also cleans up pass (2)'s hash-0 rows.
 
-### B45 — we list **ourselves** as a peer in `peers all` · NEW 2026-08-01
+### B45 — `peers all` listed the local node as its own peer · FIXED 2026-08-01
 `id_bind_set(_node_id, _key_hash32, IdBindSource::self, IdBindConf::authoritative)` (`node.cpp:~77`, `:~539`, `:~864`)
 seeds our own binding into `_id_bind`, and `peer_book_walk`'s pass (2) has **no self-skip**.
 ★ **MEASURED on the bench 2026-08-01**: node 42 reports `[peer] hash=0x8CC9BDFF static_id=42(auth)`, so `count=2`
@@ -703,7 +806,7 @@ actually means "one peer and me". **Text-console only** — the JSON book passes
 `node_id == _node_id` alone would ALSO hide a FOREIGN key claiming our id, i.e. an address collision — the single most
 diagnostic row this dump can carry, and the exact condition `addr_conflict_self_defended` exists to surface.
 
-### B46 — ★★ `id_bind_set` is **not upgrade-only** ⇒ a `claimed` observation **DEMOTES** an authoritative binding · NEW 2026-08-01
+### B46 — ★★ a claimed observation could demote or displace an authoritative binding · FIXED 2026-08-01
 On a matching row, `node_hashlocate.cpp:~102-104` writes the incoming `source` and `confidence` **unconditionally**:
 ```cpp
 _active->_id_bind[i].last_seen_ms = now;
@@ -755,7 +858,7 @@ under it the numbers are decisive across **304 885** `id_bind_set` calls:
 gets re-CLAIMED now ages out at `id_bind_ttl_ms` (48 h) instead of living forever on hearsay. That is the point of the
 liveness half of the rule; the self-binding remains exempt via `id_bind_age_out`'s `self_keep`.
 
-### B47 — an OFF-GRID mobile answers `queued` to a GLOBAL `reqpubkey` that provably airs nothing · NEW 2026-08-01
+### B47 — an off-grid mobile could accept a GLOBAL `reqpubkey` that transmitted nothing · FIXED 2026-08-01
 `emit_hash_query` bails at `want_pubkey && mobile_req && origin == _node_id && !team_scoped`
 (`node_hashlocate.cpp:~1557`) — an unregistered mobile's `_node_id` is a LOCAL id with no static return path, so the
 owner could not answer. It emits `h_want_pubkey_mobile_no_route` and **no frame**, but `on_command` has already
@@ -839,7 +942,7 @@ the HAL to reject every flood) reaches **7123** rejections, and the behavioural 
 `"OK reqpubkey queued"` → `"OK reqpubkey error"`** — with the propagation reverted under the same poison, all 36
 streams return **byte-identical to clean**, proving the poison is otherwise inert.
 
-### B48 — ★ a DISPLAY de-duplication rule in `peer_book_by_id` was making an AIRTIME decision · NEW 2026-08-01
+### B48 — ★ a display de-duplication rule was making an airtime decision · FIXED 2026-08-01
 `peer_book_by_id`'s team arm read `if (team_key_of_id(id, th) && !(mask && th == h))` — it suppressed the TEAM
 presence bit whenever both planes resolved the **same hash**. Harmless while only `hashof` read the mask (it was a
 tidiness choice, from `§AB3`); **`§id-hash S1` made that mask select a query plane**, and there it produced two wrong
@@ -858,7 +961,7 @@ team plane, `-s` selects the static row. **MEASURED** (native; restoring the de-
 ⇒ ★ **The durable rule: a shared resolver returns facts. The moment a "tidy display" filter lives inside one, some
 future caller will make a decision on the filtered answer.**
 
-### B50 — ★★ GLOBAL: `tx_with_retry` DISCARDED the HAL's `TxResult`, so every caller believed a dropped frame was sent · NEW 2026-08-01
+### B50 — ★★ `tx_with_retry` discarded the HAL transmitter result · FIXED 2026-08-01
 `lib/core/node_mac.cpp`'s central TX helper did `_hal.tx(bytes, len, p);` and then `return true; // handed`, throwing
 away the only answer the radio layer gives. On hardware `DeviceHal::tx` returns **`busy`** when its 8-entry outbound
 ring is full (it increments `txq_drops` and **does not retain the frame**) and **`too_long`** past the SX1262 length
@@ -898,7 +1001,7 @@ exists. ⚠ **`txq_drops` has no console surface**, so on metal a rejection is c
 path; noted in the bench script, not fixed here (C1).
 **MEASURED** (native + capability probe; see B47). **Corpus 36/36 byte-identical** — 0 rejections, structurally.
 
-### B51 — ★★ `tx_flood` discarded BOTH its admission results, and that BURNED CHANNEL DIGEST STATE · NEW 2026-08-01
+### B51 — ★★ `tx_flood` discarded admission results and burned channel-digest state · FIXED 2026-08-02
 `tx_flood` answered `true` in two cases where the frame was definitively gone: a **full 4-slot LBT defer ring**
 (`schedule_lbt_defer`'s result discarded) and a **HAL rejection** (`_hal.tx`'s `TxResult` discarded).
 ★★ **NOT a telemetry defect.** `emit_beacon` takes that boolean as `sent` and gates
@@ -943,7 +1046,7 @@ layer's test depended on.**
 that guard is what my first `DEFER=0` attempt lacked).
 **MEASURED** (native; corpus: 0 HAL rejections structurally — the sim's queue is unbounded — and the 6 attributed TX3 movers above).
 
-### B49 — the `CmdCode` self-labelling invariant test was bounded by a LITERAL and silently stopped covering · NEW 2026-08-01
+### B49 — the `CmdCode` self-labelling test had a stale literal bound · FIXED 2026-08-01
 `test_console_json.cpp`'s *"every refusal's token begins with `err_`"* loop — the ONLY detector for the §err-reason/B32
 convention that `src/fw_main.cpp` prints the token BARE — ran `for (unsigned v = 0; v < 10; ++v)`. The moment `CmdCode`
 grew past 9 it stopped testing the new enumerators, while still looking complete. ★ **Its own comment claimed the
@@ -977,7 +1080,7 @@ never edits it. The field contract as built is documented in `lib/console/consol
 with `team_id` always, a static-only row's line is byte-identical to its pre-S3 golden, and true/false render
 distinctly.
 
-### B53 — `hashof`/`peers`/`reqpubkey` still resolve an id at the AUTHORITATIVE floor, not §3-D6's `claimed` · NEW 2026-08-02
+### B53 — inspection resolved ids at the authoritative rather than claimed floor · FIXED 2026-08-02
 Spec `2026-08-01-id-to-hash-resolution-design.md` §3-D6 sets the display and pubkey-inspection floor at **`claimed`**
 (*"shows a claim, labelled as one"*; *"the pubkey self-verifies against that hash, so fetching it is how you inspect a
 claim"*). `Node::peer_book_by_id` — the ONE resolver behind all three verbs since §id-hash S1 — passes the
@@ -1088,7 +1191,7 @@ would render a *failed message* for a command that sent none, and `hash_resolved
 **MEASURED** (native): the console/telemetry half is asserted both ways — the `!!` line and its `MR_EMIT` fire on a
 degenerate stage 2 and on the timeout, with a same-fixture control proving neither fires on the success path.
 
-### B57 — a BEACON that resolves the id does not complete a pending `reqpubkey` · NEW 2026-08-02
+### B57 — a beacon-resolved id does not complete a pending `reqpubkey` · PARKED / DELIBERATE 2026-08-02
 `§id-hash S4b`'s intent is consumed only in `on_hash_bind_response` (spec §5 step 3 names the *answer*). If the id→hash
 binding instead arrives from a heard **beacon** — `node_beacon.cpp`'s `_id_bind` / `_team_keys` writers — the intent
 sits until its bounded timeout, and the operator must re-issue (which then resolves immediately from the
@@ -1111,6 +1214,82 @@ either capacity, or the refusal order, silently changes which fixtures can reach
 need to be exercised together, the honest lever is `cap_pending_id_pubkey`, not the refusal order.**
 **MEASURED** (native): the by-hash-filled fixture reaches `err_tx_queue_full` and proves the intent is unwound; the
 by-id-filled attempt returns `err_resolve_pending_full` instead, which is how the constraint was found.
+
+### B59 — a relay can ACK custody, start route repair, then discard the transit DATA before that repair can help · NEW 2026-08-03 · PARKED — POTENTIAL ROUTING-ALGORITHM CHANGE
+**METAL-CONFIRMED** on the static four-node topology `42 — 186 — 109 — 48`, with weak/asymmetric links. Node 48's
+by-hash `reqpubkey 0x8CC9BDFF` reached owner 42. Owner 42 generated authoritative pubkey answer DATA `ctr=3598` and
+sent it to relay 186. Relay 186 received and cached the answer, ACKed 42, then exhausted RTS attempts on its selected
+direct next hop 48. It emitted an RREQ for 48, performed the one-way slow reprobe, and terminally reported
+`FAILED ctr=3598 (no CTS — next hop silent)`. On the same node, the valid RREP arrived immediately *after* that
+failure and installed `186 → 42 → 109 → 48`; requester 48 never received `ctr=3598`.
+
+The failure is the interaction between two existing routing policies, not a broken hash-answer encoder. In
+`cascade_to_alt`, §P3 can emit asynchronous route discovery when the exhausted next hop is silent, but the MF4
+`LinkBidi::one_way` arm then bypasses `try_cascade_requeue`: one final probe is allowed, and a failure inside the
+reprobe throttle window calls `giveup_flight`. The upstream ACK has already transferred custody, so neither owner 42
+nor requester 48 receives the relay's terminal outcome.
+
+★ **CONTROL, SAME METAL TOPOLOGY:** after the RREP had installed the repaired routes and the H-query dedup window had
+expired, node 48 repeated the command. Owner 42's new answer DATA `ctr=3602` selected `42 → 109 → 48`, survived ordinary
+RTS/DATA retries and was ACKed at node 48, which stored `0x8CC9BDFF` as authoritative (`nv=inserted`). This proves the
+first frame was not merely delayed: route repair benefited only the later transmission.
+
+★ **A HOLD-AND-RETRY PATCH IS NOT SUFFICIENT FOR THIS EXACT CASE.** At relay 186 the repaired route begins with node
+42, which is the transit frame's `previous_hop`; `next_hop_selectable` deliberately rejects it to prevent loop-back.
+Removing that guard is not an acceptable local fix. Retaining the frame while RREQ is outstanding would help only
+when discovery returns a selectable non-previous-hop route. Rescuing this topology may require explicit custody
+return/NACK semantics, a narrowly proven route-repair turnaround rule, or origin-level retry — all are routing
+algorithm/protocol decisions with possible loop, duplicate, airtime and corpus-wide consequences.
+
+★★ **OWNER RULING 2026-08-03: REGISTER, DO NOT DISPATCH.** The behavior is real and potentially affects any forwarded
+DATA that reaches this combined silent + one-way + no-selectable-alt state, but no solution is approved and there is
+currently no requirement to address it. Do not implement a one-line relaxation, remove the previous-hop guard, or
+extend retries under B59 without a separate routing design and adversarial loop/duplicate/airtime evaluation.
+
+### B60 — multi-gateway `send_layer` resolves the FINAL hash on the first intermediate layer and never selects the next gateway · NEW 2026-08-03 · OPEN — SPEC READY; ACK POLICY OPEN
+**METAL-CONFIRMED** on the explicit route `7 → 5 → 6`. A registered mobile on leaf 7 issued
+`send_layer 0x7B18ADA2 5,6 "Test multi layer 1"` for a mobile hosted on leaf 6. The mobile correctly sent a
+`DATA_TYPE_MOBILE_SEND` wrapper to home 177; the home correctly re-originated the preserved path `[7,5,6]` toward
+the gateway bridging layers 7/5 (local node IDs 7/8). After entering leaf 5, however, that gateway repeatedly emitted
+`H leaf=5 hash=7B18ADA2`. The destination and its home were on leaf 6, so no valid leaf-5 answer existed and the
+message never reached gateway 5/6.
+
+The path and cursor are not lost. `originate_layer_path` prepends the source layer correctly, and
+`bridge_cross_layer` advances `cur` when another entry remains. The defect is the handoff's destination decision:
+`bridge_cross_layer` always calls `id_on_leaf_by_hash` / `mobile_home_on_leaf` for the final `dst_hash` on the layer
+being entered, even when `cur + 1 < n_layers`. The unresolved handoff then reaches
+`drain_xl_handoffs_for_leaf`, where `dst_node_id == 0` has only one meaning — *resolve the final recipient* — so it
+H-floods that hash on the intermediate layer. No branch reads the advanced cursor and calls
+`select_gateway_for_leaf` for the next path entry.
+
+**Expected intermediate behavior:** on leaf 5, preserve the final hash but MAC-address the relay leg to the gateway
+that serves leaf 6. Only the final gateway, after entering leaf 6, may resolve/H-flood `0x7B18ADA2` and route it to
+the destination or its mobile home. A final-hash binding accidentally present on leaf 5 must not alter that decision.
+
+★★ **WHY TESTS WERE GREEN:** the native two-hop explicit-path test asserts only that origination encodes
+`[source,h0,h1]` with `cur=1` and sends it to the first gateway. It never drives a handoff through two gateways.
+The source comment says multi-gateway transit “just works,” while the bridge comment still calls it “reserved”; the
+original gateway design explicitly left it outside v1. This is a coverage and documentation contradiction, not a
+radio-loss diagnosis.
+
+★★ **OWNER REQUIREMENT 2026-08-03:** the repair must support an explicit route of up to **16 total layer entries,
+including the source** — therefore at most **15 user-supplied `send_layer` hops**. The current independent cap is four
+total entries (`gw_env_max_hops=4`), and `CmdResult::layer_path` can echo only four bytes, so widening the codec array
+alone is not a complete implementation. The parser, command/result carriers, mobile wrapper/home re-origination,
+cursor bridge, reversed E2E ACK policy, memory gates and tests must move together. Gateway selection and the wire leaf
+gate use `layer_id & 0x0F` in the current layer's local context, so **non-adjacent repeated nibbles are valid**. Only
+an adjacent same-nibble transition is structurally impossible: `validate_gateway_layers` already refuses a gateway
+whose own two leaves alias. The old `gw_env_max_hops` symbol must be deleted so the compiler exposes every four-entry
+assumption rather than silently widening missed validation guards.
+
+**OPEN OWNER DECISION B60-O1:** long-path `-a` admission/deadline policy. Linear scaling reaches 75 minutes and can
+occupy all eight ACK slots; keeping 300 seconds can false-timeout. The design recommends bounded ACK depth until
+resources are redesigned.
+
+**Implementation design:** `docs/superpowers/specs/2026-08-03-multi-gateway-explicit-layer-path-routing-design.md`.
+This is **not B59** and must not relax ordinary route loop guards, custody, cascade selection or previous-hop
+rejection. The next gateway is supplied by the explicit layer path and selected with the existing per-leaf gateway
+directory; ordinary routing is reused only to reach that selected gateway within the active leaf.
 
 ---
 
