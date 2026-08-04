@@ -75,8 +75,8 @@ public:
     // `channel_sent` — the ONE exactly-correlated channel outcome. §B40: `ctr` is the full 16-bit origination handle,
     // and it is LOCAL ONLY — the wire carries `ctr & 0xff` inside the channel msg-id, so this must never be matched
     // against a RECEIVED message id.
-    // ⓘ `_chan` is deliberately NOT checked, and that is a push-schema limit rather than an omission: spec §2.1's
-    // table promises a `channel_id` scope check, but `Node::emit_channel_sent` sets only `relayed` + `ctr`
+    // ⓘ `_chan` is deliberately NOT checked, and that is a push-schema limit rather than an omission: spec §2.1's table ONCE promised a `channel_id`
+    // scope check — WITHDRAWN 2026-08-04 as unsatisfiable (§B81) — but `Node::emit_channel_sent` sets only `relayed` + `ctr`
     // (node_channel.cpp:850-852) and `emit_send_blocked` only `blocked_channel`/`reason`/`next_ms` (:822-826) —
     // neither push carries a channel id at all. The exact ctr match is strictly stronger here anyway.
     bool match_channel_sent(uint16_t ctr, bool relayed, SendOutcome& out) {

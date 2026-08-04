@@ -54,6 +54,116 @@ the top**, and **the newest note naming a scenario is the authoritative anchor**
 - `s17_metro` cross-layer is **inert** on meshroute (untranslated source = single-layer gateways; *translating* it degrades the dense scenario — channels 101%→33%). So gate `s17` on **same-layer 26/30 + channels leaks 0 + scale**, not cross-layer. (Cross-layer coverage comes from s09/s10/s15/s16.) **Follow-up:** cross-layer-at-scale window tuning — separate from the baseline.
 - `s19_singlelayer_multihop_chain` is the suite's **multi-hop** coverage (s18/s17 same-layer are single-hop). Redundant 3-hop chain `A-{L,L2}-{R,R2}-B`, no A↔B direct link ⇒ every A↔B DM relays ≥2 hops (verified: A→L2→R2→B = 3 hops; routes converge at hops 2–4). Two disjoint paths ⇒ also the **liveness-reroute base** (kill one relay → reroute via the parallel path; the `t96` Phase-2 gate builds on this). Gate on **delivery 8/8** + the **mean_hops** column (A↔B **3.0**, A↔R **2.0**) — deterministic (seed 42, lossless links). (`dm_delivery_breakdown` counts hops via distinct `data_rx` receivers, which carry `origin`, rather than the origin-less relay `data_tx` — fixed 2026-06-17 so same-layer multi-hop is measured. Cross-layer hop-count is still uncounted — its records key on the gateway wire-dst; cross-layer *delivery* is measured by the `cross-layer DMs` line.)
 
+**★★★★★★★★★★★★ 2026-08-04 §UI-5 BOARD CANVAS PORT — THE FIRST PHASE-A SLICE WITH A FLASH COST, AND THE PLAN'S TASK-5 CODE BLOCK AS WRITTEN DOES NOT BUILD, DOES NOT LINK, AND CANNOT MEET ITS OWN STEP 5. NEW: `variants/heltec_v3/board_ui.h`. MODIFIED: `variants/heltec_v3/board_ui.cpp` (the empty seam filled), `platformio.ini` (`[env:heltec_v3]` only), this file, `docs/2026-07-30-open-bug-register.md`, `docs/2026-07-31-bench-test-script.md`. NOTHING ELSE — no `lib/core`, no `src/`, no `test/`, Tasks 1–4 untouched, spec and plan NOT edited (findings reported here). UNCOMMITTED, on top of the §UI-4-RULED note below:** native **1268 / 73247 / 0 failed — EXACT**, 60 objects / **32 test objects = 32 `test/*.cpp`**, warns 9, `-Wswitch` 0 · s18 keystone **`1cd21235`/271629 EXACT** · **36/36 corpus identical, 0 movers, 0 assertion failures**, **36 anchor rows extracted** · `lus` md5 **`8cb1f0f5` unchanged** with the recompilation control firing (**2 objects + 3 relinks**) · **5/5 board envs rc=0, `-Wswitch` 0 on every one** · `sizeof(Node)` untouched (no `lib/core` file edited).
+
+★★★★★★ **THE HEADLINE IS A DISAGREEMENT WITH BOTH THE BRIEF AND THE PLAN: THE PLAN'S TASK-5 STEP-4 BLOCK HAS THREE DEFECTS, AND TWO OF THEM ARE HARD BUILD FAILURES.** Registered as **B85**; each is measured, not inferred.
+
+| # | the plan's block | measured consequence |
+|---|---|---|
+| ① ★★ | *"The `mr_ui_*` hooks are **not** defined here — they live in `firmware_ui.cpp` (Task 6)"*, and the block omits all three | ⛔ **DOES NOT LINK.** `fw_main.cpp:842/1145/1326` calls all three unconditionally, and `MR_FEAT_OLED=1` removes `mr_ui.h`'s inline stubs (`:19-21`), so their absence is `undefined reference to '_Z10mr_ui_initv'` ×3 — the exact failure §A0's own positive control P-A0-1 used as its instrument. ⇒ **the three hooks MUST stay in this file until Task 6 exists** |
+| ② ★★ | `board_init()` and `button_pressed()` read `MR_UI_BTN_PIN` | ⛔ **DOES NOT COMPILE.** That `-D` is added by **Task 6** Step 1 (plan `:1349`), one task *after* the file that reads it. ⇒ moved into `[env:heltec_v3]` here |
+| ③ ★★★ | Step 5: *"Build and flash; **the panel lights**"* | ⛔ **UNREACHABLE FROM TASK 5's OWN CODE.** The only caller of `board_init()` is `mr_ui_init()`, which is Task 6's — so with the block as written the panel stays dark and the step is untestable. **And it is worse than untestable: this platform links `-Wl,--gc-sections`, so a canvas nothing calls is linked OUT and the slice's whole flash measurement would have been a vacuous zero.** ⇒ `mr_ui_init()` now brings the panel up and paints ONE frame through the real page loop |
+
+★★★★★ **AND THE `-I variants/heltec_v3` IS *STILL* DEAD CONFIG AT TASK 5 — the brief and §A0's premise-2 row are both off by ONE TASK.** §A0 measured that the `-I` was dead *before* Task 5 and concluded it "becomes load-bearing only at **Task 5**, which creates `board_ui.h` inside `variants/heltec_v3/`". Measured here, three ways:
+
+| probe | result |
+|---|---|
+| the board TU compiled **without** `-I variants/heltec_v3` | ✅ **rc=0** — `#include "board_ui.h"` resolves from the *including file's own directory*, which is the quoted-include rule and needs no `-I` |
+| a `src/`-side TU including `"board_ui.h"` **without** the `-I`, from a directory holding no copy | ⛔ `fatal error: board_ui.h: No such file or directory` |
+| the same TU **with** the `-I` | ✅ rc=0 |
+
+⇒ **the `-I` becomes load-bearing at TASK 6**, when `src/firmware_ui.cpp` first includes the canvas. It is kept (Task 6 needs it and the brief scoped it here) and `platformio.ini`'s comment now states the measured fact instead of the predicted one. ⚠ **The first run of the middle probe passed spuriously** because my own scratch directory still held a copy of `board_ui.h` that the quoted include found — a self-inflicted instance of exactly the contamination class this file keeps recording. Re-run from a clean directory, it failed as it should. **Print the reason a probe passed, not only that it passed.**
+
+★★★★ **THE FLASH DELTA, ATTRIBUTED — AND THE COST IS NOT THE DISPLAY LIBRARY.** Symbol-level, from an exact `nm` set-difference between the AFTER image and a **true BEFORE built in the same session** (a throwaway `git worktree` at HEAD, which independently reproduced `heltec_v3` 194 / 210604 / 1209476 — the same numbers as the main-tree BEFORE arm):
+
+| owner | new symbols | bytes |
+|---|---|---|
+| ★★ **Arduino/IDF I²C driver stack**, dragged in by U8g2's HW-I2C backend (`Wire`) | 92 | **17 962** |
+| **U8g2 itself** (pinned 2.35.30), incl. **4 990 B for the two named fonts** and the **128 B** page buffer | 87 | 9 860 |
+| FreeRTOS ring-buffer + clock helpers the I²C driver needs | 17 | 909 |
+| ★ **ours — the entire canvas + the seam** | 7 (+`mr_ui_init` +54 B, +`s_u8g2` 188 B `.bss`) | **≈ 497** |
+| identified | 203 | 28 984 |
+| measured image delta (flash + RAM) | — | 35 572 |
+
+**0 symbols removed, 35 resized** (link-order relaxation; the only meaningful one is `mr_ui_init` +54). The ~6.5 KB gap between identified and measured is section padding and merged string/const pools that carry no symbol — stated rather than smoothed over. ⇒ ★ **the honest one-line summary is "a display costs ~35 KB on this board, of which ~26 KB is the I²C transport and ~0.5 KB is ours"** — worth recording because `Wire` is what any `Wire`-based panel driver would pull, so switching display library would not recover it. Flash sits at **37.2 %** of 3.34 MB, so it is affordable (spec §11 says flash is not the constraint here); the number is recorded for attribution, not alarm. Registered **B89**.
+
+| env | objs | RAM | Flash | warns | `-Wswitch` |
+|---|---|---|---|---|---|
+| `heltec_v3` | 194 → **324** (+130) | 210604 → **211252** (**+648**) | 1209476 → **1244400** (**+34 924**) | 49 → **178** | **0** |
+| `heltec_mobile` | 194 → **324** (+130) | 210124 → **210772** (**+648**) | 1202896 → **1237796** (**+34 900**) | 49 → **178** | **0** |
+| `xiao_sx1262` | **283 = 283** | **167044 = 167044** | **512020 = 512020** | **18633** | **0** |
+| `xiao_esp32s3` | **193 = 193** | **211188 = 211188** | **1208204 = 1208204** | **54** | **0** |
+| `gateway` | **283 = 283** | **191964 = 191964** | 466884 → **466852** (−32) ⚠ see below | **18628** | **0** |
+
+★★★ **AND `gateway`'s −32 B IS A REFINEMENT OF §A0's OWN RULE, NOT A REGRESSION — PROVEN, NOT ARGUED.** §A0 concluded *"two builds of identical source **within one session** reproduce exactly, so same-session pre/post is the only valid byte comparand."* **That is too weak.** The banner packs `__DATE__ " " __TIME__` (`fw_main.cpp:427`, `firmware_commands.cpp:364`) and `__TIME__` changes every **second**, not every session, so the ±32 B ARM literal-packing quantum can fire between two builds *inside* one session — which is what happened: BEFORE 16:05 → **466884**, AFTER 16:19 → **466852**. Four independent controls exonerate the change:
+
+1. a **third** clean `gateway` build (16:27, identical source) reproduces **466852**;
+2. the **symbol multiset diff (name + size) between those two builds is 0 lines**;
+3. the image contains **0** `mrui` / `u8g2` / `u8x8` / `mr_ui` symbols;
+4. `pio project config` for `gateway` / `xiao_sx1262` / `xiao_esp32s3` mentions **`heltec_v3` false · `U8g2` false · `MR_UI` false**.
+
+⇒ ★ **the durable rule: on ARM compare the SYMBOL MULTISET, not the flash total** — the multiset was stable across three builds while the total was not. The recorded grid remains a valid *object-count / warning-count / `-Wswitch`* reference and is now also confirmed valid for `xiao_sx1262` / `xiao_esp32s3` flash, which reproduced **to the byte**. Registered **B86**.
+
+★★★ **WARNINGS: +129 ON THE TWO HELTEC ENVS, AND 127 OF THEM ARE OUR OWN FLAG, NOT U8g2's CODE.** `-Wswitch` stays **0** — which was a genuine risk worth measuring, because `-Werror=switch` is deliberately **blanket** (`[common]`'s own comment) and U8g2 is 129 new TUs; it survives because U8g2 switches on `uint8_t msg`, never on an enum.
+
+| class | before → after | attribution |
+|---|---|---|
+| `command-line option '-fno-rtti' is valid for C++/D/ObjC++ but not for C` | 30 → **157** (+127) | ★ **OURS.** `-fno-rtti` sits in `[common].build_flags`, which is blanket by the same measured ruling that put `-Werror=switch` there, and U8g2 ships **127 C** translation units. One warning per C TU |
+| `-Wunused-function` `mui.c:591` · `-Wunused-variable` `mui_u8g2.c:1256` | 0 → **2** | **U8g2's own**, in the **MUI menu module we never reference** — `nm` finds **0** `mui` symbols in the image, so it is compiled and then linked out. Not fixable without editing a vendored file (vendoring policy) |
+| every other class | **byte-for-byte identical** | — |
+
+⚠ **This is a warning-count regression on two envs and the standing ruling is "no new warnings", so it needs an owner call** — registered **B87** with both candidate fixes and my recommendation (accept: the 127 are a pre-existing consequence of a deliberately blanket flag, and moving `-fno-rtti` to `build_src_flags` would change codegen for *every* third-party C++ TU on *every* env — a separate slice, and C1 forbids folding it in here).
+
+★★★★ **THE PROBE TABLE — 34 checks on the REAL board TU, and SEVEN NEGATIVE CONTROLS that each fail when one behaviour alone is reverted.** No native test and no simulator can reach this file, so the probe compiles `variants/heltec_v3/board_ui.cpp` **itself** against counting shims for `Arduino.h` and U8g2, with the project's real flags (`-std=gnu++2a -Wall -Wextra -Werror=switch -fno-exceptions -fno-rtti`) — **rc=0, zero warnings, 34 passed / 0 failed / 34 total**. The shim's `nextPage()` reproduces the semantics verified in the pinned source (`u8g2_buffer.c:116`: each call *pushes* the page; the 8th returns 0).
+
+| control — revert ONE behaviour | what fails |
+|---|---|
+| drop the blanking **latch** (edge → level triggered) | **3** — `P1a/P1c` read 10 `setPowerSave` calls instead of 2, and `P2a` (100 blanked passes ⇒ 0 bus ops) reads 100 |
+| drop *"a blank abandons the open page loop"* | **7** — a tick pushes pages into a dark panel |
+| drop `next_page()`'s no-frame guard | **9** — the frame end stops being idempotent and a blanked panel resumes transferring |
+| draw the scene **once per frame** instead of once per page | **2** — `drawStr` 16 → 2, `drawHLine` 8 → 1. ★ This is spec §5's corrected note, and the failure mode it prevents is *seven of eight pages blank* |
+| park Vext **HIGH** instead of the proven LOW | 1 |
+| compare the button against **HIGH** | 2 |
+| battery stub returns a **fabricated** millivolt value | 1 |
+
+⚠⚠ **AND THE PROBE ITSELF IS NOT IN THE REPO, WHICH IS A KNOWN RISK I AM NOT ALLOWED TO CLOSE UNILATERALLY — READ THIS BEFORE TOUCHING `board_ui.cpp` AGAIN.** It is the **only** automated coverage this file will ever have (native cannot compile it, the sim never sees it), so Task 9's battery edit and the whole V4 port would otherwise land with **zero** regression cover. It is not landed because it needs a build surface that does not exist: a TU including `<Arduino.h>` and `<U8g2lib.h>` **cannot** go under `test/` (that is `pio test -e native`, which has neither), so it would need its own runner — a new build surface, i.e. a design decision, not a Task-5 detail. ⇒ **recommended follow-up slice: `test/board/` (or `tools/board_probe/`) with a two-line runner.** Until then it is **reconstructible from this recipe in ~15 minutes**, which is the most this slice's scope allows:
+
+```
+three files: fakes/Arduino.h · fakes/U8g2lib.h · probe_main.cpp
+  fakes/Arduino.h    constexpr LOW/HIGH/INPUT/OUTPUT/INPUT_PULLUP (NOT macros — command.h is in the same TU) +
+                     pinMode/digitalWrite/digitalRead/analogRead/analogReadResolution recording per-pin mode+level
+  fakes/U8g2lib.h    struct u8g2_cb_t; #define U8G2_R0 (&u8g2_cb_r0); extern const uint8_t u8g2_font_{6x10,10x20}_tf[];
+                     class U8G2_SSD1306_128X64_NONAME_1_HW_I2C{ ctor(cb*,reset,clock,data);
+                       begin/firstPage/nextPage/setFont/drawStr/drawHLine/setPowerSave } — all counting.
+                     ★ nextPage() MUST reproduce u8g2_buffer.c:116 — pages_left=8 at firstPage, each call decrements
+                       and PUSHES, the 8th returns 0. Get this wrong and the page-chunking checks are meaningless.
+  probe_main.cpp     defines the shim storage + the 34 CHKs (P1 latch · P2 blanked-silence · P3 chunking · P4
+                     blank-abandons-frame · P5 scene-per-page via drawStr==16/drawHLine==8 · P6 wiring · P7 button
+                     polarity · P8 battery<0 · P9 tick/on_push inert), printing "N passed / M failed / T total".
+build (from the repo root; this exact line was used):
+  g++ -std=gnu++2a -Wall -Wextra -Werror=switch -fno-exceptions -fno-rtti -DMR_FEAT_OLED=1 -DMR_UI_BTN_PIN=0 \
+      -DMESHROUTE_NATIVE=1 -DPROTOCOL_VERSION=1 -I<fakes> -Ilib/core -Ilib/hal -Ivariants/heltec_v3 \
+      variants/heltec_v3/board_ui.cpp probe_main.cpp -o probe        # rc=0, ZERO warnings, 34/0/34
+negative controls: a script that applies ONE textual substitution at a time to the real board_ui.cpp, asserts the
+  substitution matched EXACTLY once, rebuilds, records which CHKs fail, then restores and re-verifies the file md5.
+```
+
+★ **Two of the checks run on the SHIPPED IMAGE rather than the shim, which is stronger:** ① the page buffer is `buf$200` = **128 B** in the `heltec_v3` ELF ⇒ `_1_` page mode is really what linked (an `_F_` substitution would read **1024** — the single most load-bearing design choice in this slice, now assertable by `nm`); ② `nm` finds **0** `mui` symbols, so the two vendored warnings are provably in dead code. **Every substitution in the control script asserts it matched EXACTLY once**, and the file's md5 (`1ae9bb75…`) is verified restored after each — the "four broken text substitutions" lesson, mechanised.
+
+★★★ **THE HARD BOUNDARY IS MACHINE-CHECKED, NOT ASSERTED.** `g++ -MM` on a TU that includes only `board_ui.h` yields an include closure of **`board_ui.h` alone** (`<cstdint>` is the only other include and is a system header); the board TU's full closure is **`command.h` · `mr_features.h` · `protocol_constants.h` · `mr_ui.h` · `Arduino.h` · `U8g2lib.h` · `board_ui.h`** — **0** `firmware_ui*` headers. So nothing from Tasks 1–4 is reachable from the canvas, which is spec §2's central rule and the one an earlier plan draft broke. The canvas surface is exactly the nine functions the spec lists, no more.
+
+★★ **THREE OF THE NINE CANVAS ENTRY POINTS ARE GARBAGE-COLLECTED OUT OF THIS IMAGE, AND THAT MAKES THIS SLICE'S FLASH FIGURE A LOWER BOUND.** `nm` finds **0** occurrences of `mrui::set_power_save`, `mrui::button_pressed` and `mrui::battery_sample_mv` in the `heltec_v3` ELF — they are compiled (the object carries their `.literal.*`/`.text.*` sections) and then dropped by `--gc-sections` because Task 5's boot frame is the only caller of anything and it calls only six of them. ⇒ **the blanking path and the button cannot be exercised on metal until Task 6 wires them**, so the bench entries for those are written as *Task 6* checks, and the +34 924 B will grow slightly. Registered **B88**. ⓘ This is a 0/N that means *"linked out"*, not *"inert"* — the distinction this file keeps insisting on, and the reason the boot frame exists at all.
+
+★★ **ONE ADDITION AGAINST THE PLAN THAT IS A DARK-PANEL RISK, NOT A NICETY: THE PANEL POWER RAIL.** The plan's block never touches Vext (GPIO 36) and **nothing in this tree ever has**, so on an ESP32-S3 that pin comes up as an input with no pull and the rail's gate is indeterminate. MeshCore's working V3 port drives it to a definite level at board begin — `RefCountedDigitalPin::begin()` = `pinMode(36, OUTPUT)` + `digitalWrite(36, !active)` with `active` defaulting HIGH ⇒ **LOW** — and its SSD1306 comes up with the display holding **no** claim on that pin. ⇒ LOW is the level under which that panel is *known* to work; floating is not. ⚠ **What that port does NOT establish is whether the panel is on the rail at all**, so this is "reproduce the proven pin level", not "Vext is active-low", and the in-source comment says so. If the bench shows a dark panel, **flip `kVextOnLevel` to HIGH before suspecting the reset pin or the driver** — the plan's Step 5 hint sends you to the reset pin *first*, which on a previously-floating rail is the wrong first suspect. Registered **B90**; bench check in Part 8.
+
+★ **SPEC §14 Q1 (the V3 panel reset pin) IS SUBSTANTIALLY RESOLVED FROM THE REFERENCE PORT.** The spec says *"MeshCore's V3 variant defines no `PIN_OLED_RESET`"* — true, and misleading: the **display driver** it selects does, `SSD1306Display.h`'s `#ifndef PIN_OLED_RESET → 21`, which is also what our own pre-A0 seam note said. Still worth one bench confirmation, and it now has one.
+
+★ **SMALLER FINDINGS, ALL REGISTERED RATHER THAN LEFT TO BE REDISCOVERED.** **B91** — the canvas cannot *report* a dead panel: `board_init()` is `void` and U8g2's `begin()` always returns 1 (it performs no I²C ack check), whereas MeshCore probes the address; a wrong reset pin, wrong address or dead panel is indistinguishable from success in software, which is precisely the misdiagnosis §14 Q1 warns about. Needs a caller that can surface it ⇒ Task 6. **B92** — spec §11 names the two fonts *"6×8, 8×16"* while the plan and the shipped code use `u8g2_font_6x10_tf` / `u8g2_font_10x20_tf`; the plan wins per the brief, and the choice is now *measured* at **4 990 B of the 9 860 B U8g2 total**, so it is a real budget line and the spec should be corrected to match. **B93** — `lib/hal/mr_ui.h` forward-declares `namespace meshroute { struct Push; }` with a **hardcoded** `meshroute`, while `command.h` defines `Push` in the build-overridable `MESHROUTE_NS`; latent today (no env overrides it) and the same class the §UI-3-QA note found one level up. **B62's last open item is CLOSED**: `board_ui.cpp:1` said `// MeshRoute — src/board_ui.cpp`; the full rewrite fixes it and a tree-wide grep for `src/board_ui` now returns **nothing**.
+
+⛔ **NOT DONE, AND SAYING SO PLAINLY (D3): PLAN TASK 5 STEP 5 — `pio run -e heltec_v3 -t upload` WAS NOT RUN.** No board is attached to this session and flashing the owner's hardware is not mine to do. **Everything about this slice that only metal can answer is therefore unverified**: the panel lighting at all, the reset pin, the Vext level, the I²C address, and the legibility of a 10×20 string at x=6. All of it is now in `docs/2026-07-31-bench-test-script.md` **Part 8** with the exact expected panel content and, for the two ambiguous board facts, the one-line remedy for each outcome. This is the first Phase-A task that owes a bench entry; Tasks 1–4 correctly owed none.
+
+ⓘ **Premises of the brief that held, recorded so they are not re-litigated:** U8g2 **2.35.30 exists** (registry, published 2024-09-18; latest is 2.36.18) · the constructor really is `(rotation, reset, clock, data)` so the plan's `21, 18, 17` is SCL-then-SDA and correct · `firstPage()` touches **no** bus and the descriptor's `i2c_bus_clock_100kHz = 4` really is the **400 kHz** spec §5 computes 25 ms from · `setPowerSave` sends one DISPLAYOFF/ON and keeps display RAM · U8g2 puts every font in its own `.text.<font>` section so `--gc-sections` really does drop the ~700 unnamed ones · `toolchain-xtensa-esp-elf` **13.2.0** is what `heltec_v3` uses (the `toolchain-xtensa-esp32s3` trap avoided) · `heltec_mobile`/`gateway_heltec` declare no `lib_deps` of their own and so inherit U8g2 through `extends` — measured, not assumed, and `heltec_mobile`'s +34 900 B confirms it.
+
 **★★★★★★★★★★★★ 2026-08-04 §UI-4-RULED — THE OWNER DELETED MY B80 FIX AND BOUNDED THE PATH IT LEFT OPEN. `match_channel_failed` is GONE; an expired unattributable emergency now CONSUMES ONE BOUNDED ATTEMPT. MODIFIED: `src/firmware_ui_send.h`, `test/test_firmware_ui_send.cpp`, this file, `docs/2026-07-30-open-bug-register.md`. NOTHING ELSE — no `lib/core`, no `platformio.ini`, no board file, `variants/heltec_v3/board_ui.cpp` untouched, `_emg`'s exit path untouched, spec and plan NOT edited. UNCOMMITTED, on top of the §UI-4 note below:** native **1265/73203/0 → 1268/73247/0** (+3 cases, +44 assertions, 0 failed; `ui-send:*` now **25 cases / 157 assertions**) · s18 keystone **`1cd21235`/271629 EXACT** · **36/36 corpus identical, 0 movers, 0 assertion failures** · `lus` recompiled (control: 2 objects + relink) and md5 **`8cb1f0f5` unchanged** · **5/5 board envs rc=0, reference objs/RAM/Flash EXACT on all five, `-Wswitch` 0** · `sizeof(Node)` **221088** · `sizeof(SendTracker)` **16 B** on all three ABIs.
 
 ★★★★★★ **TWO OF MY OWN §UI-4 CLAIMS WERE WRONG, AND THE SECOND ONE MATTERED MORE THAN THE DEFECT I WAS FIXING.**
