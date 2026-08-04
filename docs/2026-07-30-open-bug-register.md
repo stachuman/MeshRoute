@@ -13,7 +13,7 @@ slice that declined to fix it (C1). Where an entry is *unmeasured*, it says so e
 
 ---
 
-## Current status checklist — authoritative as of 2026-08-03
+## Current status checklist — authoritative as of 2026-08-04
 
 Use this section to choose work and mark completion. The detailed records below preserve the full evidence,
 superseded premises and gate history; their older status language describes the time of the record and does not
@@ -44,6 +44,27 @@ Legend:
 - [x] **B61 — FIXED 2026-08-03 (own commit, UNCOMMITTED):** `board_name()`'s silent `#else → "native"` is now an `#error`; `MESHROUTE_NATIVE` gets its own explicit arm.
 - [ ] **B62 — OPEN / ONE LINE, DEFERRED BY DESIGN:** three in-source paths still say `src/board_ui.cpp` after §A0 moved the file to `variants/heltec_v3/` — including the file's own line-1 header. Fold into the Phase-A OLED slice.
 - [ ] **B63 — RECORDED (gate methodology):** on xtensa, an object entering or leaving the link set moves `.flash.text` by up to ±200 B **even when it is zero bytes**; free on ARM. Retires the "+192 B = leaving `src/`" rule.
+- [ ] **B64 — OPEN / OLED UI-2:** a team roster that shrinks between ticks makes the compose modal send the canned DM to a **different teammate** than the highlighted one.
+- [ ] **B65 — OPEN / OLED UI-2:** the UI model can blank the panel on its **first tick** if `mr_ui_init()` runs more than `kBlankMs` after boot — a panel that never drew anything.
+- [ ] **B66 — OPEN / OLED UI-2 DESIGN:** the compose modal's `back` row is identified **positionally**, with the count in the model and the strings in another TU.
+- [x] **B67 — FIXED IN THE PLAN 2026-08-03 (all nine sites):** `REQUIRE` is a **hard compile error** under `-fno-exceptions`. ⚠ Its fix introduced **B70** — read both.
+- [x] **B68 — FIXED IN THE PLAN 2026-08-03:** `SendOutcome` gained the eighth kind `channel_remote_mint`. ⚠ Its render obligation has no carrier — **B69**.
+- [ ] **B69 — OPEN / OLED UI-6-7:** `channel_remote_mint` must render as **SENT, never PICKED UP**, but the model has no state that distinguishes it from `channel_no_relay`.
+- [ ] **B70 — OPEN / PLAN DEFECT (measured, 9 of 11 assertions silently deleted):** the B67 fix guards a **draining** call by calling it **twice**, so the two most safety-critical emergency cases `return` early and report PASSED.
+- [x] **B71 — ✅ OWNER-RULED 2026-08-04, deferred to UI-6** (was: OPEN / SPEC GAP) — spec §4's `double` acknowledgement / re-fire is unimplemented, so a sticky emergency never returns to `idle` and UI-6's "emergency screen wins" policy has **no exit condition**.
+- [x] **B72 — FIXED 2026-08-04 (UI-3 QA, UNCOMMITTED):** `SendOutcome::channel_failed` — the **ninth** kind — now exists, is TERMINAL and carries its reason; a pre-enqueue seal failure can no longer leave the alarm on `SENDING...`. ⚠ **The entry was cited by the plan and had never been written here.**
+- [x] **B73 — FIXED 2026-08-04 (UI-3 QA, UNCOMMITTED):** an async failure carries its `SendFailReason` to the model (`dm_failed(r)` / `channel_failed(r)`, `fail_reason()`), so `refuse_reason()` is no longer pinned at `other`. ⚠ **Also cited by the plan and never written here.**
+- [x] **B74 — FIXED 2026-08-04 (UI-3 QA, UNCOMMITTED):** a valid retry deadline of `0xFFFFFFFF` collided with the "no deadline" **sentinel**, so a blocked emergency could stay blocked **for ever**. The sentinel is gone; a `_retry_armed` flag reserves no arithmetic value.
+- [x] **B75 — FIXED 2026-08-04 (UI-3 QA, UNCOMMITTED):** `DmState::submitting` was unreachable — nothing assigned it — **and the in-source comment claiming it was "written-but-unread" was false in both halves.** `take_send_request` writes it; the comment is corrected.
+- [x] **B76 — CLEARED 2026-08-04 (UI-4), and it was SEVEN errors not six:** the four `bool → SendFailReason` conversions, the `const bool ok` redeclaration and the reasonless `dm_failed()` are all gone. ⚠ **A seventh error the scratch-TU probe never reported:** the B40 case iterates a **braced list**, so the block needs `#include <initializer_list>` — measured on the real suite, `error: deducing from brace-enclosed initializer list requires …`.
+- [ ] **B77 — RECORDED (gate methodology):** `grep -n "36/36 corpus — 0 assertion failures"` matches the **prose that tells you to run that grep** before it matches the heading. Anchor on `^### `. ⚠ **Recurred 2026-08-04 in a new disguise — see B82.**
+- [x] **B79 — FIXED 2026-08-04 (UI-4, UNCOMMITTED):** `SendOutcome::channel_remote_mint()` — §B68's whole point — had **no producer anywhere in the tree**, and the `awaiting` state it belongs to was **never closed**, so B39's producer (3) left the alarm on `SENDING...` for ever. `SendTracker::tick()` is the window's expiry and the kind's only producer.
+- [x] **B80 — ★ OWNER-RULED then RESOLVED BY DELETION 2026-08-04 (UI-4, UNCOMMITTED):** `match_channel_failed` had **no correlator at all**, so any DM's `send_failed` inside the 8 s window terminated an awaiting alarm as TERMINAL `Emergency::failed`. ⛔ **My first fix — a `dst == 0` discriminator — was a CONVERSE ERROR and is withdrawn:** *channel ⇒ dst 0* does not give *dst 0 ⇒ channel*, and **six unrelated operations emit that shape**. ⇒ **the matcher is DELETED and must not be reintroduced**; the path is covered by synchronous preflight refusals plus `tick()`'s bounded expiry (**B84**).
+- [x] **B84 — ★★ FIXED 2026-08-04 (UI-4, UNCOMMITTED):** the `tick()` expiry that closed B79 was an **INFINITE RETRY LOOP** — `_tries` moves only in `on_send_accepted`, which a `ctr == 0` send never reaches, so the alarm re-queued for ever with `attempts() == 0`. **An expired unattributable emergency now CONSUMES ONE BOUNDED ATTEMPT before its outcome is processed**; three expiries end in sticky `NOT HEARD`.
+- [x] **B81 — ✅ CORRECTED IN THE SPEC 2026-08-04** (the `channel_id` half is withdrawn as unsatisfiable; `peer_id` stands): spec §2.1's table promises a **`channel_id` scope check no outcome push can satisfy** — neither `channel_sent` nor `send_blocked` carries a channel id. Marked in-source; the spec line needs correcting.
+- [ ] **B82 — RECORDED (gate methodology), B77's class in a new disguise:** the **`.d`-file census does not exist in this project on ANY env** (SCons uses `.sconsign*.dblite`), and a relative-path `find` in an agent shell whose cwd resets reported a tidy `NA` five times for the wrong reason. **Every census needs a POSITIVE CONTROL printed beside it.**
+- [ ] **B83 — OPEN (UI-6/UI-7), obligation named:** the tracker's `late_ack` slot is bounded only by the caller calling `close()`, and an `awaiting` DM leaves the model in `DmState::submitting`. Both are unreachable from today's UI and both are deliberately not papered over inside the tracker.
+- [x] **B78 — OWNER-RULED then FIXED 2026-08-04 (UI-3 QA, UNCOMMITTED):** `Emergency::failed` joins `hold_active()`'s retained set and holds for `kEmgHoldMs` from the failure's **own** arrival time (`on_send_refused` gained a `now_ms` parameter; `retain()` on both the synchronous and `channel_failed` paths). ⇒ **`kEmgHoldMs` re-ruled 120000 → 30000** in the same breath.
 
 ### Parked or trigger-gated
 
@@ -1402,6 +1423,266 @@ functions changing size. Do not attribute it to the slice's own code, and do not
 ⚠ It also **retires the "+192 B is the price of moving a file out of `src/`" rule** recorded on 2026-08-03: that number
 came from relocating `device_ota.cpp` (123 lines, a 227 KB object), i.e. from reordering **non-empty** objects.
 
+### B64 — a team roster that SHRINKS between ticks makes the compose modal retarget its DM · NEW 2026-08-03 · OPEN (behaviour choice, Task 6 or a plan ruling)
+**MEASURED / created by §UI-2** (`simulation/BASELINE.md`, 2026-08-03 §UI-1+UI-2 note). `UiModel::activate()`
+(`src/firmware_ui_model.h`) reads `s.team[_st.cursor % s.team_shown]`. The modulo is load-bearing — it is what keeps the
+read in range when a later snapshot carries fewer rows than the cursor the previous tick left behind — but its **effect**
+is that a cursor on row 2 meeting a 1-row roster opens the DM modal bound to **row 0**, i.e. `"Are you OK?"` goes to a
+teammate the user did not highlight. Pinned (not fixed) by the test *"a roster that shrinks between ticks cannot index
+out of range"*, so the behaviour is visible in the suite rather than latent.
+
+⇒ **Not fixed here because every fix is a behaviour decision the plan does not make** (C1): clamping to `shown - 1`
+retargets to the *last* row instead of the first (equally arbitrary); the sound cures are **re-anchoring the cursor when
+the snapshot's roster changes** (Task 6, which builds the snapshot) or **refusing the activation** and repainting.
+Severity is low — the canned DM texts are benign and `-a` reports where it actually went — but it is a mis-addressed
+message, so it wants a ruling rather than silence.
+
+### B65 — the UI model can blank the panel on its FIRST tick, having drawn nothing · NEW 2026-08-03 · OPEN (one line, but a behaviour change)
+**MEASURED / created by §UI-2.** `UiModel::on_tick` blanks when `elapsed(now_ms, _last_input_ms) >= kBlankMs`, and
+`_last_input_ms` is written **only** by `on_gesture` — it is `0` from construction. So if the first tick arrives more
+than `kBlankMs` (15 s) after `millis()` started — reachable on the NV **format-on-corrupt** and OTA-heavy boot paths —
+the panel goes to `set_power_save(1)` on the **very first service pass**, before anything was ever drawn, and only a
+button press recovers it. On a normal boot (UI init at ~1-3 s) the only effect is that the first blank window is short
+by the boot time.
+
+⇒ **Fix is one line** (seed `_last_input_ms` from the first `on_tick`/`on_gesture` snapshot), and it leaves all seven
+plan-authored Task-2 cases green — verified by inspection, since they all tick at `1000` first. Not applied because it
+changes documented behaviour and the plan's code is authoritative for this slice. **Owner/plan ruling wanted; Task 6 is
+the natural home.**
+
+### B66 — the compose modal's `back` row is identified POSITIONALLY, across a TU boundary · NEW 2026-08-03 · OPEN / DESIGN
+**MEASURED / created by §UI-2.** `UiModel::compose_gesture` leaves the modal when `cursor + 1 == n`, where `n` is
+`kDmTextCount` / `kChannelTextCount` in `src/firmware_ui_model.h`, while the **strings** those counts describe live in
+`src/firmware_ui.cpp` (Tasks 6/7, not yet written). Spec §3.2.2 advertises that adding a canned text is "a one-line
+change"; it is in fact **two places**, and updating the string table without the count turns `back without sending`
+into a **send**. A ⚠ comment now marks the coupling at both constants.
+
+⇒ **Durable cure:** one table with the count derived from it (`std::size`) — either the tables move into the model
+header (they are plain string literals; the unit stays board- and core-free) or the counts move out and the model takes
+the list length as a parameter. Either is a small Task-6/7 decision; it is registered so it is not rediscovered as a
+field bug.
+
+### B67 — RECORDED / PLAN DEFECT: the OLED plan's test blocks use `REQUIRE`, which cannot compile in this suite · NEW 2026-08-03
+**MEASURED by probe** (`simulation/BASELINE.md`, 2026-08-03 §UI-1+UI-2 note). `docs/superpowers/plans/2026-07-31-onboard-oled-ui-phase-a.md`
+calls `REQUIRE` at **:353** (Task 2), **:575 :584 :624 :631** (Task 3) and **:856 :874 :890 :892** (Task 4). The native
+build is `-fno-exceptions` (`platformio.ini:48`) ⇒ doctest auto-defines `DOCTEST_CONFIG_NO_EXCEPTIONS`, and `REQUIRE`
+becomes a **hard compile error**, not a weaker assert:
+
+```
+.pio/libdeps/native/doctest/doctest/doctest.h:2824: error: static assertion failed: Exceptions are disabled!
+    Use DOCTEST_CONFIG_NO_EXCEPTIONS_BUT_WITH_ALL_ASSERTS if you want to compile with exceptions disabled.
+.pio/libdeps/native/doctest/doctest/doctest.h:2977: error: expression cannot be used as a function
+```
+
+⇒ **A coder implementing Tasks 3 or 4 literally will hit a build failure on the first run.** Substitute `CHECK` plus an
+`if` guard wherever a later step depends on the assertion (the corpus already does exactly this: **30 of 30** test files
+carry the "no `REQUIRE`" note and **zero** call it). UI-1/UI-2 already ship that way. ⓘ The plan's `#include <doctest.h>`
+is **not** a defect — measured, both spellings resolve — but the repo idiom is the quoted form (U3). ⚠ The plan itself
+was **not edited** (the dispatch forbade it); this entry is the record.
+
+✅ **FIXED IN THE PLAN 2026-08-03 at all nine sites**, plus a Global Constraints rule so it cannot return.
+⚠⚠ **But the fix introduced `B70`:** four of the rewritten guards call a **draining** API twice, which silently voids the
+two most safety-critical emergency cases while reporting PASSED. **B67 and B70 must be read together.**
+
+### B68 — `SendOutcome` has no case for "accepted, no local handle, unknowable synchronously" · NEW 2026-08-03 · OPEN / TYPE DESIGN (Tasks 3-4)
+**Found while shaping UI-2 against the corrected `ctr` semantics** (`simulation/BASELINE.md`, 2026-08-03 §UI-1+UI-2
+note; the semantics themselves are the plan's own 2026-08-03 Prerequisites correction). The plan defines `SendOutcome`
+in **Task 3** (plan:677-688) with seven kinds — `channel_relayed · channel_no_relay · blocked · dm_acked · dm_no_key ·
+dm_failed · dm_timeout`. None of them can express the **third producer of `ctr == 0`, which is a SUCCESS**: on a
+registered mobile a plain/`-g` GLOBAL channel post flies as a real MOBILE_SEND DM while the **home** mints the channel
+ctr, so no local handle exists (`lib/core/node.cpp:1565-1573`).
+
+⇒ Task 4's tracker would have to either classify that success as `blocked`/`dm_failed` — the emergency machine then
+consumes alarms for a message that was delivered — or drop it, leaving a permanent `SENDING...`. **Task 3 needs an
+eighth kind** (e.g. `channel_unattributable`) with an explicit emergency-side policy. ⚠ **Not a live safety hole:** the
+alarm path posts on `MR_UI_TEAM_CHANNEL_ID` on the **team** plane, where this producer is unreachable. It is a
+correctness-of-type finding, raised now precisely so Task 4 does not have to rework the model's contract.
+
+✅ **FIXED IN THE PLAN 2026-08-03** — the kind is `channel_remote_mint` and the `ctr` semantics are inline at
+plan:707-719. **Landed in `src/firmware_ui_model.h` by UI-3.** ⚠ The residual is **B69**.
+
+### B69 — `channel_remote_mint` must render as SENT, but no model state carries that distinction · NEW 2026-08-03 · OPEN (UI-6/UI-7)
+**Created by B68's fix** (`simulation/BASELINE.md`, 2026-08-03 §UI-3 note). The eighth kind exists and `on_outcome`
+handles it **explicitly**, sharing the `channel_no_relay` branch — correctly, because neither carries relay evidence, so
+neither may claim `PICKED UP` and both leave the alarm unconfirmed ⇒ bounded retry. But the plan also rules *"render it
+as **SENT**, never as PICKED UP"*, and **both kinds land in the same `Emergency` state** (`firing`, then `not_heard`), so
+the model cannot tell a renderer which one happened.
+
+⇒ Today the obligation rests entirely on **UI-6/UI-7's channel path**, which sees the `SendOutcome` directly and does
+not consult the emergency machine — acceptable, because the kind is **unreachable on the team-plane alarm path**, but it
+must be *known* rather than assumed. If a future slice wants the emergency screen to say `SENT`, the model needs either
+a flag or a ninth `Emergency` state. Marked in-source at both the type and the branch, and pinned by the test
+*"channel_remote_mint is handled explicitly and never claims PICKED UP"*.
+
+### B70 — the B67 fix guards a DRAINING call by calling it TWICE, silently voiding the two most safety-critical cases · NEW 2026-08-03 · OPEN (plan defect, 4 sites)
+**MEASURED, with the instrument's own numbers** (`simulation/BASELINE.md`, 2026-08-03 §UI-3 note). The
+`REQUIRE → CHECK + if-guard` rewrite is written as two calls at plan **:602-603** and **:612-613**:
+
+```cpp
+CHECK(m.take_send_request(req) == true);
+if (!m.take_send_request(req)) return;   // ⛔ SECOND call
+```
+
+`UiModel::take_send_request()` **drains** — it clears `_emg_req_pending` / `_req_pending` and hands over the slot. So
+call 1 consumes the alarm and returns `true`, call 2 returns `false`, the guard `return`s, and **doctest reports the case
+PASSED**. Measured on *"attempts are counted on ACCEPTANCE"* + *"exactly THREE accepted transmissions, then sticky NOT
+HEARD"*, same binary, same filter: **2 assertions with the plan's form vs 11 with one call** — the THREE-transmissions
+case executed a single CHECK and returned, never counting an attempt and never reaching `not_heard`.
+
+⇒ **Correct shape** (now used throughout the suite and stated in the test file's header):
+`const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;`
+⚠ **Scope:** the two-call form appears at the **four `take_send_request` sites** (plan :602, :612, and the UI-2 site the
+same rewrite touched). **Task 4's four guards at :894 :913 :930 :933 are SOUND** — they call the consuming matcher once,
+inside the `if`, with no preceding CHECK. Do not "fix" those. ★ **The general rule this earns: never call a consuming
+API in an assertion that is followed by a guard on the same API.** The plan itself was not edited (forbidden).
+
+### B71 — spec §4's `double` was BOTH acknowledge and re-fire, so a sticky emergency had no exit · NEW 2026-08-03 · ✅ OWNER-RULED 2026-08-04, deferred to UI-6
+✅ **RULED 2026-08-04 (owner): after the emergency is sent AND ITS RESULT SEEN, the next SHORT PRESS restores the normal
+cycle.** Sticky until then; **`long` re-fires; `double` gets NO emergency job** (both its §4 duties withdrawn). Safe
+because the waking press is consumed (spec `:378`), so the result is always displayed before any press can dismiss it.
+**Deferred to UI-6**, which owns the implementation; Task 3's `_emg` exit path is unchanged. Full table: the plan's B71 block.
+**Found implementing UI-3** (`simulation/BASELINE.md`, 2026-08-03 §UI-3 note). Spec §4's diagram says *"sticky until
+acknowledged (**double**)"* and §4 line 299 says *"a sticky `NOT HEARD` the user can **re-fire with `double`**"*.
+**Neither is built.** A `double` in `picked_up` / `not_heard` / `reply` falls through to `activate()` — a compose modal,
+or nothing — and **no code path returns `_emg` to `idle`** except a fresh `long_fire`.
+
+⇒ The model is not stuck (`_st.screen` still cycles), but **spec §5 rules that "the next press restores the emergency
+screen, not the cycle"**, so UI-6's render policy inherits a state with **no exit condition** and the device shows a
+resolved alarm indefinitely. ⚠ **The two spec sentences ask the same gesture for different things** — *acknowledge*
+(clear to idle) vs *re-fire* (send again) — which is why UI-3 guessed neither. ⓘ A **long-press** re-fire does work and
+is pinned (*"a fresh long_fire re-arms the alarm from a sticky NOT HEARD"*: `_tries` resets to 0), so the user is never
+stranded without a way to raise a new alarm — only without a way to dismiss an old one.
+
+### B72 — `SendOutcome` had no `channel_failed`, so a pre-enqueue SEAL FAILURE left the alarm on `SENDING...` for ever · NEW 2026-08-03 (cited by the plan, never registered) · ✅ **FIXED 2026-08-04 (UI-3 QA, UNCOMMITTED)**
+⚠ **This entry did not exist.** The plan's Task-3 block cites `§B72` in a code comment (plan `:756`, `:773`) and the
+register's highest number was **B71** — so the finding was carried only inside the document it was a defect *in*. **M1:
+a bug found and not registered is a bug found twice.** Numbering here is deliberately the plan's, not a fresh number.
+
+**MEASURED** (`simulation/BASELINE.md`, 2026-08-04 §UI-3-QA note). Task 4's tracker returns `channel_failed`
+(plan `:1052`) and a Task-4 test checks `Kind::channel_failed` (plan `:968`), but the eight-kind type had **zero**
+occurrences of it ⇒ `'channel_failed' is not a member of 'mrui::SendOutcome'`. The behavioural cost, not the typing
+one: a channel post that fails **before enqueue** (seal failure) returns `queued` with `ctr == 0`, so
+`match_channel_sent` can never fire for it and **no outcome ever reaches the model** — a distress alarm displays
+`SENDING...` indefinitely with two of its three transmissions unspent.
+
+⇒ **Fixed as the NINTH kind, TERMINAL** (`_emg = Emergency::failed` + the reason), never a retry: `unsealable` /
+`no_location` are documented PERMANENT in `command.h`, so a retry burns the alarm budget and still fails. It lands
+exactly where the *synchronous* refusal lands, because it is the same event arriving late. ★ **And the class is now
+build-enforced:** `on_outcome`'s switch lists all nine kinds with **no `default:`**, so a tenth kind is a hard
+`-Werror=switch` error — proven by probe (`error: enumeration value 'channel_tenth_kind' not handled in switch`).
+
+### B73 — an async failure reason was DISCARDED, so `refuse_reason()` was pinned at `other` · NEW 2026-08-03 (cited by the plan, never registered) · ✅ **FIXED 2026-08-04 (UI-3 QA, UNCOMMITTED)**
+⚠ **Same as B72: cited by the plan (`:760`, `:767`), never written here.**
+
+**MEASURED.** `SendOutcome::dm_failed()` took no reason and `on_outcome`'s `dm_failed` case changed only `_dm`, so
+`refuse_reason()` returned its construction default `other` for **every** asynchronous DM failure. Spec §2.1 rule 6
+requires the opposite in as many words: *"The full `SendFailReason` reaches the UI, not a boolean … Collapsing them
+makes `NO CONFIRM` unreachable and discards the one thing that tells the user what to do next."*
+
+⇒ **Fixed on both axes.** `SendOutcome` carries `FailReason reason`; `dm_failed(r)` / `channel_failed(r)` **require**
+it (no defaulted `none` — a caller holding a reason must not be able to drop it silently, proven by a negative-control
+compile: `error: no matching function for call to 'mrui::SendOutcome::dm_failed()'`); `note_failure()` records the core
+reason **verbatim** in `_fail` (new `fail_reason()` accessor) **and** maps it to the compact `RefuseReason` the panel
+already reads. ★ **Why both and not one:** `RefuseReason` cannot be a mirror of `SendFailReason` — `parser` has no core
+equivalent (the line never became a `Command`) and mirroring 18 append-only core enumerators is the parallel-enum fork
+U1 forbids; but mapping *alone* discarded 12 of 18 reasons, which is the defect. Mapped: `unsealable` /
+`no_location` / `queue_full` — the three whose **remedy differs**. ⓘ A synchronous `on_send_refused` now **clears**
+`_fail` to `none`, so a parser refusal cannot inherit the previous send's core reason.
+
+⚠ **Consequence for Task 4, measured:** the plan's tracker calls the reasonless `SendOutcome::dm_failed()` at
+plan `:1066`. It must become `dm_failed(r)`. See **B76**.
+
+### B74 — ★★ a VALID retry deadline collided with the "no deadline" SENTINEL, blocking a distress alarm FOR EVER · NEW 2026-08-03 · ✅ **FIXED 2026-08-04 (UI-3 QA, UNCOMMITTED)**
+**MEASURED, with the probe in the suite.** `src/firmware_ui_model.h` reserved `0xFFFFFFFF` as *"no retry armed"*
+while computing `_retry_at_ms = now_ms + d` **with no bound**, so ordinary inputs could produce exactly the reserved
+value — `now = 0xFFFFF000`, `next_ms = 0xFFF`. `tick_emergency`'s guard (`_retry_at_ms != _no_deadline`) then refused
+to examine the deadline at all, so `Emergency::blocked` **never** returned to `firing`: the alarm was stuck, on the
+safety path, with two of three transmissions unspent and no user-visible reason. Reproduced by reverting only the
+guard: `CHECK( retried == true )` reads `CHECK( false == true )`.
+
+⇒ **Fixed with a separate `bool _retry_armed`, so NO arithmetic value is reserved** — `retry_at_ms()` is now
+meaningful *while the state is `blocked`* rather than sentinel-encoded, which is also what makes it honest for UI-6.
+Pinned by *"a retry deadline of 0xFFFFFFFF is a DEADLINE, not 'no deadline'"* (one tick early → still blocked; at the
+deadline → retries, `attempts()` still 1). ★ **The general rule this earns: never encode "absent" as a value a live
+computation can reach.** The pre-existing *"retry deadline is wrap-safe"* case passed throughout — it uses
+`blocked(0x2000)`, which wraps **past** `0xFFFFFFFF` and so never lands on it. **Wrap-safety and
+sentinel-collision are different bugs; a wrap test does not cover this one.**
+
+### B75 — `DmState::submitting` was UNREACHABLE, and the comment saying otherwise was false in both halves · NEW 2026-08-03 · ✅ **FIXED 2026-08-04 (UI-3 QA, UNCOMMITTED)**
+**MEASURED.** Spec §3.4.1's table requires `submitting` → `SENDING...` when *"the command was handed to `dispatch()`"*.
+The enumerator existed and **nothing assigned it** — `grep` found one declaration and zero writes — so a DM read `idle`
+from the moment it was queued until its result came back. ⚠ **And the in-source note claimed it was *"set at submit
+time … written-but-unread here on purpose"*, which was wrong twice over: it was neither written nor read.** A comment
+that describes a state as deliberately-deferred is the reason nobody looks for the missing write.
+
+⇒ **Fixed in `take_send_request()`**, which *is* the hand-off (`firmware_ui.cpp` performs the send in the same service
+pass), and only for `SendKind::dm` — exactly the scope `on_send_accepted` / `on_send_refused` already use. ★ Chosen
+over a new `on_submit()` API precisely because the plan's Task-7 code never calls one, so a new hook would have left
+the state unreachable *again*, one slice further on. Pinned by *"draining a DM request enters SUBMITTING, and only a DM
+does"* (with `clear_dirty()` first, so the repaint measured is the drain's and not the gesture's). The false comment is
+corrected in place; `_last_try_ms` is now the **one** genuinely written-but-unread field.
+
+### B76 — the plan's **Task 4** block cannot compile: 6 errors, one of them the B70 fix's own fallout · NEW 2026-08-04 · OPEN (plan defect, Task 4 is next)
+**MEASURED, not read** — the plan's Task-4 tracker and test blocks were extracted verbatim into a scratch TU (nothing
+landed in the repo) and compiled against the fixed Task-3 header with the project's exact native flags: **rc=1, 6
+errors.** They are three distinct classes and every one stops Task 4 on its first run:
+
+| plan site | error | class |
+|---|---|---|
+| `:987` | `redeclaration of 'const bool ok'` | ★★ **the B67→B70 fix's own fallout**: the case declares `const bool ok` **twice in one scope**. The B70 rewrite was applied per-site without checking the second one collides with the first |
+| `:937 :938 :939 :945` | `cannot convert 'bool' to 'meshroute::SendFailReason'` ×4 | the **test block disagrees with the tracker signature it is testing**: `match_dm(ctr, dst, acked, SendFailReason, out)` (plan `:1060`) vs `match_dm(900, 174, true, false, o)` / `/*no_pubkey=*/true`. `bool → enum class` is not implicit |
+| `:1066` | `no matching function for call to 'mrui::SendOutcome::dm_failed()'` | inside the plan's **own tracker**, and it contradicts the plan's **own §B73**: the reason must be threaded, so this is `dm_failed(r)` |
+
+⇒ **Fix in the plan before Task 4 is dispatched**, not in the coder's head. ⓘ The four `bool` sites are the *older*
+signature surviving a later edit to the implementation block — the same "prose updated, code block behind" pattern as
+the `retain()` disagreement UI-3 found, and as §B73 itself. ★ **Rule: when a plan block's signature changes, compile
+its test block against it — the two halves of a plan are not type-checked by being in the same file.**
+
+### B77 — RECORDED (gate methodology): the anchor-table heading grep matches the PROSE THAT TELLS YOU TO RUN IT · NEW 2026-08-04
+**MEASURED, and it produced a 1-row extraction on the first attempt.** The 2026-08-03 §UI-3 note fixed a
+line-number-based extraction by ruling *"locate the anchor block by its heading text
+(`grep -n "36/36 corpus — 0 assertion failures"`)"* — and that very sentence, sitting **above** the table in this
+same growing file, is now the **first** match. My loop anchored on it and extracted **1 row** (a stray `#if` line)
+instead of 36.
+
+⇒ ★ **Anchor on the heading FORM, not just its text: `grep -n "^### 36/36 corpus — …"`.** Caught only because the row
+count was printed beside the result, which is now the third consecutive slice where *printing the denominator* is what
+made a vacuous check visible. ⓘ Same session, same class: a `.d`-file census written as
+`grep -rl X $(find … -name '*.d')` **silently searches the whole tree** when `find` returns nothing (the two nRF52 envs
+emit no `.d` files at all), reporting `15` citations that do not exist. **Guard command substitutions that can be
+empty.**
+
+### B78 — a TERMINAL failed alarm blanked fastest of all the emergency outcomes · NEW 2026-08-04 · ★ OWNER-RULED and ✅ **FIXED 2026-08-04 (UI-3 QA, UNCOMMITTED)**
+★★ **RULED 2026-08-04 (owner):** `Emergency::failed` **joins the retained set** and holds for `kEmgHoldMs` like every
+other retained outcome — it is the state that says *the alarm did not go out*, so it must not be the fastest to go dark.
+⇒ **AND `kEmgHoldMs` is re-ruled 120000 → 30000** in the same breath. ✅ **Implemented** (`on_send_refused` needed a
+`now_ms` — `_last_input_ms` would timestamp the GESTURE, not the later refusal — plus `retain()` on both the synchronous
+and `channel_failed` paths, and `failed` added to `hold_active()`). ⓘ Composes with **B71**: `failed` being retained is
+what lets the next short press acknowledge it, so the hiker is never trapped on a failure screen.
+**MEASURED / created by the B72 fix.** `hold_active()`'s retained set is `arming · firing · blocked · picked_up ·
+not_heard · reply` — spec §4.3's table lists `long_fire` plus *"every retained outcome"*, and `failed` is in neither.
+So both routes into `Emergency::failed` — the synchronous `on_send_refused` (pre-existing) and the new
+`channel_failed` — left the panel on the ordinary `kBlankMs` blank timer, while a `blocked` or `not_heard` alarm held
+it for a full `kEmgHoldMs`. ⚠ Stated as CONSTANTS on purpose: `kEmgHoldMs` was 120000 when this was measured and 30000
+by the time it was fixed, in the same session.
+
+✅ **FIXED 2026-08-04 as ruled, in three parts, each with a probe that fails when reverted in isolation:**
+
+| part | probe (revert just this) |
+|---|---|
+| `failed` added to `hold_active()`'s set | **2 cases / 4 assertions fail** — both failure paths blank on the first tick |
+| `retain(now_ms)` on both paths, **`now_ms` a PARAMETER** | anchor it on `_last_input_ms` instead ⇒ **1 case / 2 assertions fail**: the refusal lands a full window after the gesture, so the gesture-anchored deadline is already spent |
+| **only** the emergency branch retains | retain for every kind ⇒ **1 case / 1 assertion fails**: a mid-alarm DM refusal must not push the alarm's deadline out |
+
+★ **Tests are written against `kEmgHoldMs`, never a literal** — the value was re-ruled mid-slice and a literal would
+have pinned the old behaviour while still passing. The constants tripwire is the ONE place the number appears.
+ⓘ **Superseded reasoning, kept as the audit trail:** this entry originally argued the fix should NOT be applied, because
+with `failed` outside the retained set a `retain()` call would be a **dead term** (the `arming` class from the §UI-3
+note). That was right about the mechanics and wrong about the scope: the cure is to fix *both* halves at once. The
+counter-argument was that a refused
+send never went out. **One line either way (`failed` into the retained set, plus `retain()` at both sites, or a
+sentence in §4.3 saying 15 s is intended). Owner/spec ruling wanted; UI-6 is the natural home.**
+
 ---
 
 ## Deferred with an explicit trigger
@@ -1442,6 +1723,129 @@ event** on top of the two already stacked, for a rare case. **⇒ CL2 IS UNBLOCK
 | **O4** | The **BLE console exposure** is no longer a watch-item — under the `team exportkey` ruling it is **the only control protecting the team content key.** Closing it (pairing / auth gate / console allow-list) makes "any transport" safe | its own slice |
 
 ---
+
+### B79 — ★★ `channel_remote_mint` had NO PRODUCER, and the state it belongs to was NEVER CLOSED · NEW 2026-08-04 · ✅ **FIXED 2026-08-04 (UI-4, UNCOMMITTED)**
+**MEASURED two ways, and it is §B72's defect one level up — on the same safety path, reached by a SUCCESS rather than a
+failure.** UI-3 added `SendOutcome::channel_remote_mint()` as B68's fix, and the plan's Task-4 tracker emits **eight of
+the nine kinds and never that one** — a tree-wide grep finds **zero** callers of the factory. The reason it cannot have
+one in the plan's shape: the `awaiting` state (entered whenever `ctr == 0`) is closed only by a `send_blocked` or a
+channel `send_failed`, and **B39's producer (3) emits neither.** Verbatim from `lib/core/node.cpp:1631-1634`: a
+registered mobile's delegated GLOBAL post *"emits no CHANNEL-level push at all, only the wrapper DM's own
+send_acked/send_failed, under a ctr this caller never saw"*. ⇒ **nothing can ever close that slot: the alarm or compose
+sits on `SENDING...` for ever, and the UI's send slot leaks permanently.** ⓘ The plan even names the missing half —
+`kOutcomeWindowMs` is documented as *"how long an accepted send may still claim a ctr-less outcome"* — and then never
+consumes the expiry.
+
+✅ **Fixed by `bool SendTracker::tick(uint32_t now_ms, SendOutcome& out)`:** the window's expiry, and the ONLY producer
+of the eighth kind. It reports a **SUCCESS shape** on purpose (§B68: *"a tracker that maps `ctr == 0` to failure calls a
+delivered message failed"*), and that is **safe on the alarm path as a property of UI-3, not an assumption** —
+`on_outcome` routes `channel_remote_mint` through the `channel_no_relay` branch ⇒ bounded retry, then `NOT HEARD`,
+never `PICKED UP`. It also covers a **dropped push** (`cap_push_ring` is bounded): the honest report is still
+"sent, unattributable". ★ `accepted` deliberately does NOT expire — see the confirmed premise in the §UI-4 note
+(a team `channel_sent` legitimately arrives ~36 s later). Probes **P4** (3 cases red) and **P6** (2 cases red).
+⚠ **Residual: B69 is unchanged** — the kind must render as `SENT` and no `Emergency` state carries the distinction.
+
+### B80 — ★★ `match_channel_failed` had NO CORRELATOR, so an unrelated DM failure could TERMINATE a live alarm · NEW 2026-08-04 · ★ OWNER-RULED: **the matcher is DELETED** (UI-4, UNCOMMITTED)
+⛔⛔ **RULED 2026-08-04 (owner): `match_channel_failed` IS DELETED AND MUST NOT BE REINTRODUCED — and MY FIX FOR THIS
+ENTRY WAS A CONVERSE ERROR.** I verified that *every channel producer passes `dst = 0`* and concluded *`dst = 0` ⇒
+channel*. That is the converse, and it is false: **six unrelated operations emit exactly `{dst = 0, ctr = 0}`** —
+`send_layer`'s `unsealable` arms at `node_mac.cpp:220/452/473/561/579` plus `node_mac.cpp:59/111`. A matcher built on it
+attributes a colliding `send_layer` refusal to the alarm and lands it in TERMINAL `Emergency::failed`: **the same false
+negative this entry names, reached by a different route.** ⇒ ★★ **THE REUSABLE RULE: a gate check must enumerate
+everything that EMITS the value, not everything the feature touches.**
+⇒ **The path is covered from both ends instead:** PREFLIGHT channel refusals are **synchronous** (`exec_command` →
+`refuse_reason_of` → `on_send_refused` → `Emergency::failed`, exact reason intact), and the **post-mint** seal failure —
+which has already burned a counter the caller never sees, so *"the reason arrives asynchronously and correlates with
+nothing"* (`node_channel.cpp:~723-744`) — is handled by `tick()`'s bounded expiry (**B84**). The guarantee is now
+**structural**: the tracker has no entry point that accepts an async `send_failed`, proven by a compile-level negative on
+**all five real flag sets** (`error: 'class mrui::SendTracker' has no member named 'match_channel_failed'`).
+⚠ **The plan's Task-4 block is unedited (forbidden) and its interface line still names the matcher.**
+**The original record follows.**
+**MEASURED against the core, and it is a false NEGATIVE on the safety path — the worst direction for this device.** The
+plan's signature is `match_channel_failed(FailReason r, uint32_t now_ms, SendOutcome& out)`: state + an 8 s window and
+**nothing else**. `channel_failed` lands as TERMINAL `Emergency::failed` (§B72's own landing state, never a retry), so
+**any DM `send_failed` arriving while the alarm is `awaiting` ends the alarm and destroys its two unspent
+transmissions** — an alarm that was merely `blocked` and would have auto-retried instead reports *the alarm did not go
+out*. A console DM giving up `no_route` inside 8 s is sufficient, and `awaiting` is reachable on the team-plane alarm
+path through B39's producers (1) and (2), so this is **not** an unreachable-by-construction case.
+
+✅ **Fixed with a measured discriminator, not an invented one:** every channel-side producer passes `/*dst=*/0`
+explicitly (`node_channel.cpp:736`; `node.cpp:1545/1551/1557/1573`) and every DM one passes the peer
+(`node_mac*.cpp`, `node_cascade.cpp`; `push_send_failed`'s definition is `node.cpp:1986`), and node id **0 is reserved
+for an unprovisioned node**, so it is never a real DM target. ⇒ the signature is
+`match_channel_failed(uint8_t dst, FailReason r, uint32_t now_ms, SendOutcome& out)` and requires `dst == 0`.
+Probe **P2**: reverting the guard alone turns the case red (3 assertions). ⏳ **The plan's Task-4 block is unedited
+(forbidden) and still shows the 3-argument form** — a coder copying it re-introduces the hole.
+
+### B84 — ★★ the fix for B79 was an INFINITE RETRY LOOP on the distress path · NEW 2026-08-04 · ★ OWNER-RULED and ✅ **FIXED 2026-08-04 (UI-4, UNCOMMITTED)**
+**MEASURED BY ARITHMETIC, and it is the second time in this slice that a stated safety property was assumed rather than
+traced.** B79's `tick()` closed the permanent `SENDING...` by expiring an `awaiting` slot into `channel_remote_mint`, and
+I claimed it "fails safe to `NOT HEARD` because `on_outcome` routes it through the `channel_no_relay` branch". **The
+branch is right and the conclusion is wrong.** That branch terminates on `_tries >= kEmgMaxTries`, and
+`UiModel::_tries` increments **only** in `on_send_accepted` — `firmware_ui_model.h:223`, documented at `:326` as
+*"ACCEPTED transmissions, never requests"*. A `ctr == 0` send never calls it. ⇒ the real cycle was
+
+    post-mint seal failure → awaiting → 8 s → channel_remote_mint → on_outcome → re-queue → awaiting → 8 s → …
+
+**for ever, with `attempts() == 0`**, never reaching `:278`'s terminal test. **Unbounded airtime on the alarm path —
+in that one dimension worse than the defect it replaced.**
+
+★★★ **RULED (owner, 2026-08-04): an expired unattributable EMERGENCY CONSUMES ONE BOUNDED ATTEMPT before its
+`channel_remote_mint` is processed.** Three expiries spend the three-alarm budget and terminate in sticky `NOT HEARD`
+with no fourth request queued. It matches the approved *"accepted by the transmitter is what we can establish"* policy
+and fails safely: if the missing push really was a failure, an attempt has been honestly spent. ⓘ **Accepted cost: this
+rare path loses its precise terminal REASON** — so `SendOutcome::channel_failed()` now has no producer (it stays in the
+model for UI-3's synchronous shape; recorded, not removed).
+⚠ **THE RULE LIVES IN THE CALLER'S ORDER**, because `_tries` is the model's and the sequencing is UI-6's ⇒
+`on_send_accepted(SendKind::emergency, now)` **must precede** `on_outcome`. Stated in `tick()`'s contract and pinned by
+**four integration cases plus a deliberate NEGATIVE CONTROL** that asserts the defect shape, so "green suite" and
+"bounded" cannot be confused again. Probe **P13** (patched in the caller): 4 assertions red.
+
+### B81 — spec §2.1 promises a `channel_id` scope check that NO outcome push can satisfy · NEW 2026-08-04 · OPEN (documentation only)
+Spec §2.1's tracker table lists *"`channel_id` / `peer_id` — scope check before a push may match"*, and the plan's
+`submit()` duly records `channel_id`. **Measured: neither channel outcome push carries a channel id at all.**
+`Node::emit_channel_sent` sets only `relayed` + `ctr` (`node_channel.cpp:850-852`) and `Node::emit_send_blocked` sets
+only `blocked_channel` / `reason` / `next_ms` (`:822-826`). ⇒ `SendTracker::_chan` is **written-never-read by
+construction**, which is now stated in-source beside the field ([[meshroute-mark-done-vs-missing-in-code]]) together
+with where the check would go if a push ever grows the field. ⓘ No behaviour is lost: on `channel_sent` the exact
+16-bit `ctr` match is strictly stronger, and on `send_blocked` there is nothing stronger available — which is why the
+header refuses to call that path "exact attribution". **Action: correct the spec line; do not add a check that cannot
+be evaluated.**
+
+### B82 — RECORDED (gate methodology): the `.d`-file census does not exist here, and a relative path made its absence look like a clean result · NEW 2026-08-04
+**B77's class, one day later, in a new disguise — and it produced a tidy five-row `NA` table that was wrong for the
+wrong reason.** Two independent faults compounded: (a) **no env in this project emits `.d` files** — measured `0` under
+`.pio` on all five, because SCons keeps dependencies in `.sconsign311.dblite`; the brief's framing ("NA on the nRF52
+envs, which emit none") implies the ESP32 ones do, and they do not. (b) the census read `.pio/build/$e` **relatively**,
+and an agent shell's cwd resets between calls, so `find` returned nothing and the guard printed `NA` five times having
+measured nothing at all. ⚠ Compounded by a third: `pio run -e X -t compiledb` **emits a valid compile database without
+compiling**, so it leaves `0` objects — a per-env sconsign census run against those directories is vacuous even with
+absolute paths.
+
+⇒ ★ **The rule, now three slices old and still earning its keep: print a POSITIVE CONTROL beside every census, and
+treat a `0` whose control did not fire as "cannot reach", never as "absent".** What replaced it: a sconsign binary
+census showing `firmware_ui_send.h` = **0** on all five envs **while `firmware_config_parse.h` = 2 and `node.h` = 4
+fire**, plus an ABI-independent source-level census (0 includers in `src/ lib/ variants/` while `protocol_constants.h`
+= 13 fires), plus a **cross-compiler probe TU** compiled with each env's real command line — rc=0, 0 warnings,
+non-empty objects on `arm-none-eabi-g++` 12.3.1 and `xtensa-esp32s3-elf-g++` **13.2.0** (`toolchain-xtensa-esp-elf`,
+*not* the 8.4.0 `toolchain-xtensa-esp32s3` that the obvious path finds) — so "zero board delta" reads as *no TU
+includes it*, never as *it would not compile if one did*.
+
+### B83 — the tracker's `late_ack` retention and its `awaiting`-DM case are bounded only by CALLER obligations · NEW 2026-08-04 · OPEN (UI-6/UI-7)
+Two deliberate non-fixes, recorded so they are not rediscovered as defects:
+1. **`late_ack` is released only by `close()`.** Spec §3.4.1 scopes the NO CONFIRM → DELIVERED upgrade to *"while the
+   sub-view is still showing"*, and that lifetime lives in `firmware_ui.cpp` ⇒ **UI-6/UI-7 must call `close()` when the
+   sub-view closes**, or the normal slot never returns to `idle()` and the UI can never send another DM. Deliberately
+   **not** a second timer inside the tracker: it cannot see the panel, and an invented window would disagree with the
+   real one. `close()` and the leak it prevents are both pinned by tests.
+2. **An `awaiting` DM.** `tick()` releases the slot and **invents no outcome**, so the model is left in
+   `DmState::submitting`. Unreachable from today's UI (spec §3.4 sends by `team_local_id`; only a HASH-addressed send
+   returns `queued` with `ctr == 0`), guarded for type-safety — emitting `channel_remote_mint` for a DM would be a type
+   error, and emitting `dm_failed(none)` would repeat exactly the B68 error of calling a possibly-delivered message
+   failed.
+3. **Offer order.** ⚠ **§B84: `match_channel_failed` IS DELETED — only `match_blocked` remains window-correlated**, so
+   the hazard is now single-sourced. Original wording kept below for the audit trail. `match_blocked` correlates by window rather than by `ctr`, so **UI-6 must
+   offer every push to the EMERGENCY tracker first**. Stated in the header; not testable with one slot.
 
 ## How to use this file
 

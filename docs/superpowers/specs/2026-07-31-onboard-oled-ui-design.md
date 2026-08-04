@@ -134,13 +134,19 @@ set_power_save(bool) · button_pressed() · battery_sample_mv()
 | `kind` | emergency · canned channel · DM |
 | `state` | `submitted` → `accepted` / `refused` → terminal |
 | `ctr` | the accepted send handle from `CmdResult`, the only reliable correlator |
-| `channel_id` / `peer_id` | scope check before a push may match |
+| ~~`channel_id`~~ / `peer_id` | ⛔ **§B81 (2026-08-04): the `channel_id` half is UNSATISFIABLE and is withdrawn.** Neither `channel_sent` nor `send_blocked` carries a channel id, so the tracker's `_chan` is written-never-read **by construction** — no implementation can honour this. `peer_id` stands and is load-bearing (it is half of the DM correlator, with `ctr`). ⓘ Restoring the channel half would need the core to put a channel id on those pushes — a core slice, and see **§B84**: the emergency path no longer depends on correlating a channel push at all. |
 | `accepted_ms` | opens a bounded outcome window |
 
 Rules, all of which must hold before a push may complete a UI transaction:
 
 1. `ui_perform_send()` returns a **typed result**, never a discarded `BufferSink`. A parser refusal or an immediate `CmdCode::err_*` is a terminal outcome shown on the panel — never an indefinite `SENDING...`.
-2. ★ **Accepted requires a NON-ZERO `ctr`.** `CmdCode::queued` alone is not proof of transmission — a blocked or seal-failed channel post returns `queued` with `ctr == 0` (B39). `next_ctr` never yields 0, so zero is the sentinel. A zero-ctr result means *nothing was sent*: no attempt is counted, and the tracker waits for the matching `send_blocked` / `send_failed` instead.
+2. ★ **Accepted requires a NON-ZERO `ctr`.** ⚠⚠ **CORRECTED §B84 (2026-08-04) — the reason is NOT what this section used
+   to say.** `ctr == 0` does **not** mean "nothing was transmitted", and **no matching `send_failed` is guaranteed to
+   arrive**. It means **NO LOCAL HANDLE EXISTS and the transmission status is UNKNOWN** — there are three producers and
+   the third is a delegated **SUCCESS** (`node.cpp:1565-1573`), while the post-mint seal failure pushes a reason that
+   the core itself documents as arriving *"asynchronously and correlat[ing] with nothing"* (`node_channel.cpp:~740`).
+   ⇒ **unattributable failures are IGNORED; expiry supplies `channel_remote_mint` and CONSUMES one bounded attempt**,
+   so three expiries end in sticky `NOT HEARD`. `CmdCode::queued` alone is not proof of transmission — a blocked or seal-failed channel post returns `queued` with `ctr == 0` (B39). `next_ctr` never yields 0, so zero is the sentinel. A zero-ctr result means *nothing was sent*: no attempt is counted, and the tracker waits for the matching `send_blocked` / `send_failed` instead.
 3. `channel_sent` completes an emergency **only** when its `ctr` matches the tracked handle (needs B40 for the full width).
 4. `send_blocked` must be `blocked_channel == true` **and** arrive inside the pending request's outcome window. It carries no `ctr`, so scope plus a bounded window is the only correlator available — weaker than exact matching, and labelled as such rather than described as exact attribution.
 5. `send_e2e_acked` / `send_failed` complete a **DM** only on a matching `ctr` **and** peer.
@@ -375,7 +381,15 @@ Emergency states override rule 2's throttle but **not** rule 1's idle check: sen
 - The board keeps a `panel_asleep` latch so repeated ticks are genuine no-ops.
 - A tick that pushes the final page must not start another display operation in the same pass.
 
-The panel blanks after `MR_UI_BLANK_MS` (build constant, proposed 15000) of no input. Any press wakes it and **the waking press is consumed** — except a long press, which wakes *and* arms (§4.2). Emergency states hold the panel on for at most 120 s, after which it blanks with state retained; the next press restores the emergency screen, not the cycle.
+★★ **B71 OWNER RULING 2026-08-04 — the emergency screen's EXIT, which §4/§5 left contradictory.** §4 said `double`
+*both* acknowledges sticky state *and* re-fires; it does neither, and nothing returned `_emg` to `idle`, so UI-6 had no
+exit condition. ⇒ **Once the emergency has been sent AND ITS RESULT SEEN, the next SHORT PRESS restores the normal
+cycle.** Sticky until then; **`long` re-fires; `double` gets no emergency job** (both its §4 duties are withdrawn).
+§5's *"the next press restores the emergency screen, not the cycle"* is **corrected**: the emergency screen when waking
+from blank, the cycle on the press after. ★ The consumed-waking-press rule immediately below is what makes this safe —
+the result is always displayed before any press can dismiss it. Full table: the plan's B71 block.
+
+The panel blanks after `MR_UI_BLANK_MS` (build constant, proposed 15000) of no input. Any press wakes it and **the waking press is consumed** — except a long press, which wakes *and* arms (§4.2). Emergency states hold the panel on for at most **`kEmgHoldMs`** (owner-re-ruled 2026-08-04: 120000 → **30000**; ★ read the CONSTANT — this clause said "120 s" and went stale the day it was re-ruled), after which it blanks with state retained; **the next press then restores the emergency screen, not the cycle** — ⓘ that half is the BLANKED case and stays correct under **B71**, whose ruling governs the *awake-with-an-outcome* case instead (next short press → back to the cycle).
 
 ## 6. Data sources
 
@@ -544,7 +558,9 @@ Both are pure and table-driven; no Arduino, no radio, no display.
 
 - a canned or console channel post completing while the emergency is `firing` **cannot** alter the emergency state
 - a blocked **DM** cannot put the emergency screen into `BLOCKED`
-- a parser refusal and `send_failed{unsealable}` both leave `SENDING...` and show an actionable failure
+- a parser refusal leaves `SENDING...` and shows an actionable failure. ⚠ **§B84: `send_failed{unsealable}` does NOT** —
+  it is unattributable (six non-channel operations emit `dst == 0`) and is therefore **ignored**; that path terminates
+  via bounded expiry in `NOT HEARD`, losing its precise reason (owner-accepted)
 - `next_ms == 0` neither deadlocks nor spins — the backoff applies and no attempt is consumed
 - exactly **three accepted transmissions** occur even when preceding requests were blocked
 - long gestures work from both compose sub-views and from a blanked panel
@@ -565,7 +581,8 @@ Both are pure and table-driven; no Arduino, no radio, no display.
 - an outstanding DM or canned channel transaction **cannot delay** emergency command execution — proven at the firmware integration boundary, not only in the pure model
 - delayed outcomes from an abandoned normal transaction cannot move the emergency
 - one frame redraws the scene **once per page** and performs one page transfer per MAC-idle tick
-- `PICKED UP` and a late reply obey the 120 s hold deadline across `millis()` wrap
+- `PICKED UP` and a late reply obey the **`kEmgHoldMs`** hold deadline across `millis()` wrap (owner-re-ruled
+  2026-08-04: 120000 → **30000**. ★ Read the CONSTANT — this line said "120 s" and went stale the day it was re-ruled)
 - `e2e_ack_timeout` shows `NO CONFIRM`, and a late ack upgrades it to `DELIVERED`
 - an unavailable battery reader is retried at 30 s cadence, not loop cadence
 - channel traffic during `arming`, `cancelled` or `failed` cannot become a distress `REPLY`
@@ -604,7 +621,7 @@ UI-1 through UI-4 are pure or near-pure and can start immediately. UI-5 is block
 | # | why Phase A cannot ship without it |
 |---|---|
 | **B38** | `channel_reoffer_confirm` returns on `rp.team` before `emit_channel_sent(true, …)`, and exhaustion emits `relayed=false`. ⇒ **`PICKED UP` is unreachable on the team plane**, and worse: §4's retry fires on `channel_no_relay`, so a distress call would always spend its full 3-attempt budget and always display `NOT HEARD` — *even when every teammate received it*. A safety feature reporting failure on success. |
-| **B39** | `CmdCode::queued` with `ctr == 0` means **not sent** (blocked, or seal failure). §4's "count on acceptance" rule is unimplementable until the result distinguishes accepted / blocked / refused. |
+| **B39** | ⚠ **SUPERSEDED by §B84:** `ctr == 0` means **no local handle exists / status UNKNOWN**, not "not sent" — the third producer is a delegated success. Historical text: `CmdCode::queued` with `ctr == 0` means **not sent** (blocked, or seal failure). §4's "count on acceptance" rule is unimplementable until the result distinguishes accepted / blocked / refused. |
 | **B40** | `channel_sent.ctr` carries only `id & 0xff` while the origination handle is the full 16-bit `next_ctr`. §2.1's exact-`ctr` correlation breaks permanently after 255 channel posts. |
 
 Until they land, §2.1's attribution degrades to "accepted with a non-zero ctr" and `PICKED UP` must not be claimed. **Do not implement the emergency outcome path against the current core contract.**

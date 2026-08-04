@@ -1,0 +1,1041 @@
+// MeshRoute — test_firmware_ui_model.cpp
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
+// NB: no DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN — test_airtime.cpp provides main().
+// NB: the native build is -fno-exceptions, so doctest's REQUIRE is a HARD COMPILE ERROR (measured: doctest.h:2824
+//     "static assertion failed: Exceptions are disabled!"). Every "REQUIRE" the plan wrote is a CHECK here, with an
+//     `if` guard wherever a later step depends on it.
+//
+// UI-2 (plan Task 2, spec §3.1/§3.2/§3.2.1/§5): the pure screen/cursor/compose model. Drives screens, the
+// list-aware cursor, the one modal and blanking with no radio, no Arduino and no g_node — which is the entire
+// reason firmware_ui_model.h is a pure header (reachable via `-I src`, platformio.ini:83).
+// UI-3 (plan Task 3, spec §4/§4.1-§4.4/§3.4.1) appends the emergency + DM outcome machines below the UI-2 block.
+// UI-3 QA fixes (§B72-§B75) are the LAST block: the retry deadline that collided with its own sentinel, the missing
+// `channel_failed` kind, `DmState::submitting` becoming reachable, and the async failure reason reaching the panel.
+//
+// ⚠ `take_send_request()` DRAINS. Never write `CHECK(take(..) == true); if (!take(..)) return;` — that is two calls,
+// the second is false, and the `return` silently aborts the case (measured: it cost the two most important emergency
+// cases all but one assertion each). One call, into a local, then CHECK the local and guard on the local.
+#include "doctest.h"
+#include "firmware_ui_model.h"
+#include <cstdint>
+#include <cstring>   // strlen/strncmp — the UI-3 reply-clamping case checks copy_clamped's exact result
+
+using namespace mrui;
+
+// A 3-member team, nothing in the inbox. `now_ms` is the only field the timing cases vary.
+static UiSnapshot snap(uint32_t now_ms = 1000) {
+    UiSnapshot s{};
+    s.now_ms = now_ms; s.team_shown = 3; s.team_total = 3; s.unread_dm = 2; s.unread_ch = 5; s.batt_mv = 3900;
+    for (uint8_t i = 0; i < 3; ++i) { s.team[i].id = uint8_t(10 + i); s.team[i].last_heard_s = 60; }
+    return s;
+}
+
+// Same, plus `n` inbox rows — the INBOX screen is list-aware exactly like TEAM (spec §12).
+static UiSnapshot snap_inbox(uint8_t n, uint32_t now_ms = 1000) {
+    UiSnapshot s = snap(now_ms);
+    s.inbox_shown = n; s.inbox_total = n;
+    for (uint8_t i = 0; i < n && i < kMaxInboxRows; ++i) { s.inbox[i].is_dm = (i % 2) == 0; s.inbox[i].rx_age_s = i; }
+    return s;
+}
+
+// ---------------------------------------------------------------- the plan's seven cases
+
+TEST_CASE("ui-model: short press is LIST-AWARE: it walks TEAM before leaving it") {
+    UiModel m; const auto s = snap();
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::team);   CHECK(m.state().cursor == 0);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::team);   CHECK(m.state().cursor == 1);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::team);   CHECK(m.state().cursor == 2);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::inbox);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::send);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::status);
+}
+
+TEST_CASE("ui-model: an empty TEAM list is passed through, not a dead end") {
+    UiModel m; auto s = snap(); s.team_shown = 0; s.team_total = 0;
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::team);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::inbox);
+}
+
+TEST_CASE("ui-model: double on TEAM opens the DM sub-view bound to the highlighted peer") {
+    UiModel m; const auto s = snap();
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);   // cursor 1
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().compose == Compose::dm);
+    CHECK(m.state().compose_peer == s.team[1].id);
+    CHECK(m.state().cursor == 0);
+}
+
+TEST_CASE("ui-model: sub-view: `back` leaves without sending") {
+    UiModel m; const auto s = snap(); SendReq req{};
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::double_press, s);
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);    // -> back
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().compose == Compose::none);
+    CHECK(m.state().screen  == Screen::team);
+    CHECK(m.take_send_request(req) == false);
+}
+
+TEST_CASE("ui-model: sub-view: double on a message emits a DM request for the bound peer") {
+    UiModel m; const auto s = snap(); SendReq req{};
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::double_press, s);
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.take_send_request(req) == true);            // plan wrote REQUIRE: unavailable (-fno-exceptions)
+    CHECK(req.kind == SendKind::dm); CHECK(req.peer_id == s.team[0].id); CHECK(req.text_index == 0);
+    CHECK(m.state().compose == Compose::none);
+}
+
+TEST_CASE("ui-model: sub-view auto-exits on inactivity WITHOUT sending") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::short_press, snap(1000)); m.on_gesture(Gesture::double_press, snap(1100));
+    m.on_tick(snap(1100 + kBlankMs + 1));
+    CHECK(m.state().compose == Compose::none);
+    CHECK(m.take_send_request(req) == false);
+}
+
+TEST_CASE("ui-model: panel blanks and the waking SHORT press is consumed") {
+    UiModel m;
+    m.on_tick(snap(1000)); m.on_tick(snap(1000 + kBlankMs + 1));
+    CHECK(m.state().blanked == true);
+    m.on_gesture(Gesture::short_press, snap(1000 + kBlankMs + 10));
+    CHECK(m.state().blanked == false);
+    CHECK(m.state().screen  == Screen::status);
+}
+
+// ---------------------------------------------------------------- coverage the plan's seven leave open
+
+// Spec §3.1: "On a non-team build the cycle is STATUS -> INBOX." The gate is a snapshot flag, so the same binary
+// is exercised both ways here — and TEAM/SEND must be unreachable, not merely unhelpful.
+TEST_CASE("ui-model: a non-team build cycles STATUS <-> INBOX and never reaches TEAM or SEND") {
+    UiModel m; auto s = snap(); s.team_build = false;
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::inbox);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::status);
+    for (int i = 0; i < 8; ++i) {
+        m.on_gesture(Gesture::short_press, s);
+        CHECK((m.state().screen == Screen::status || m.state().screen == Screen::inbox));
+    }
+}
+
+TEST_CASE("ui-model: a non-team build cannot open a compose modal") {
+    UiModel m; auto s = snap(); s.team_build = false; SendReq req{};
+    for (int i = 0; i < 6; ++i) {
+        m.on_gesture(Gesture::double_press, s);
+        CHECK(m.state().compose == Compose::none);
+        m.on_gesture(Gesture::short_press, s);
+    }
+    CHECK(m.take_send_request(req) == false);
+}
+
+// Spec §3.2: double on STATUS/INBOX means nothing. It must be a no-op, not a modal on an empty list.
+TEST_CASE("ui-model: double on STATUS and on INBOX activates nothing") {
+    UiModel m; const auto s = snap_inbox(3); SendReq req{};
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().screen == Screen::status); CHECK(m.state().compose == Compose::none);
+    m.on_gesture(Gesture::short_press, s);   // -> team
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::short_press, s);   // -> inbox
+    CHECK(m.state().screen == Screen::inbox);
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().compose == Compose::none); CHECK(m.state().screen == Screen::inbox);
+    CHECK(m.take_send_request(req) == false);
+}
+
+TEST_CASE("ui-model: INBOX is list-aware too — the cursor walks its rows before the screen moves") {
+    UiModel m; const auto s = snap_inbox(3);
+    for (int i = 0; i < 4; ++i) m.on_gesture(Gesture::short_press, s);   // status -> team(0,1,2) -> inbox
+    CHECK(m.state().screen == Screen::inbox); CHECK(m.state().cursor == 0);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::inbox); CHECK(m.state().cursor == 1);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::inbox); CHECK(m.state().cursor == 2);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::send);  CHECK(m.state().cursor == 0);
+}
+
+// The SEND screen is single-item, so `short` just moves on; `double` opens the CHANNEL list (spec §3.2.2), whose
+// rows are "Got your message" / "All good" / back — three, like the DM list, but a different SendKind.
+TEST_CASE("ui-model: SEND double opens the channel compose list and index 1 sends the second canned text") {
+    UiModel m; const auto s = snap(); SendReq req{};
+    for (int i = 0; i < 5; ++i) m.on_gesture(Gesture::short_press, s);   // -> send
+    CHECK(m.state().screen == Screen::send);
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().compose == Compose::channel);
+    CHECK(m.state().compose_peer == 0);          // a channel post has no peer
+    CHECK(m.state().cursor == 0);
+    m.on_gesture(Gesture::short_press, s);       // -> "All good"
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.take_send_request(req) == true);
+    CHECK(req.kind == SendKind::channel_canned);
+    CHECK(req.text_index == 1);
+    CHECK(req.peer_id == 0);
+    CHECK(m.state().compose == Compose::none);
+    CHECK(m.state().screen  == Screen::send);    // the modal returns to its PARENT, not to the cycle start
+}
+
+TEST_CASE("ui-model: the channel list's last row is `back` and sends nothing") {
+    UiModel m; const auto s = snap(); SendReq req{};
+    for (int i = 0; i < 5; ++i) m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::double_press, s);
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);   // -> back (index 2)
+    CHECK(m.state().cursor == 2);
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().compose == Compose::none);
+    CHECK(m.take_send_request(req) == false);
+}
+
+TEST_CASE("ui-model: the compose cursor wraps within the list, so `back` is always reachable") {
+    UiModel m; const auto s = snap();
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::double_press, s);   // DM list, cursor 0
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().cursor == 2);
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().cursor == 0);                // wrapped, still inside the list
+    CHECK(m.state().compose == Compose::dm);     // and the modal did NOT close on the wrap
+}
+
+// The peer is bound at ENTRY on purpose: the roster is rebuilt every tick and can reorder under an open modal,
+// which would silently retarget a DM the user already aimed.
+TEST_CASE("ui-model: the bound peer survives a roster REORDER under the open modal") {
+    UiModel m; auto s = snap(); SendReq req{};
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);   // TEAM cursor 1 -> id 11
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().compose_peer == 11);
+    s.team[0].id = 77; s.team[1].id = 88; s.team[2].id = 99;                        // roster churn
+    m.on_gesture(Gesture::double_press, s);                                         // send text 0
+    CHECK(m.take_send_request(req) == true);
+    CHECK(req.peer_id == 11);                                                       // NOT 88
+}
+
+// A shrinking roster must not index past team_shown. This pins the `% s.team_shown` guard as load-bearing —
+// see the UI2-F1 finding: it keeps the read in range but RETARGETS the DM, it does not refuse it.
+TEST_CASE("ui-model: a roster that shrinks between ticks cannot index out of range") {
+    UiModel m; auto s = snap();
+    for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);   // TEAM, cursor 2
+    CHECK(m.state().cursor == 2);
+    s.team_shown = 1; s.team_total = 1;
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().compose == Compose::dm);
+    CHECK(m.state().compose_peer == s.team[0].id);   // documented consequence: row 0, not row 2
+}
+
+TEST_CASE("ui-model: an empty TEAM list opens no modal on double") {
+    UiModel m; auto s = snap(); s.team_shown = 0; s.team_total = 0; SendReq req{};
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().screen == Screen::team);
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().compose == Compose::none);
+    CHECK(m.take_send_request(req) == false);
+}
+
+TEST_CASE("ui-model: a send request is drained exactly once") {
+    UiModel m; const auto s = snap(); SendReq req{};
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::double_press, s);
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.take_send_request(req) == true);
+    CHECK(m.take_send_request(req) == false);    // no duplicate send on the next service pass
+}
+
+TEST_CASE("ui-model: Gesture::none is inert — it neither navigates nor refreshes the blank timer") {
+    UiModel m; const auto s = snap();
+    m.clear_dirty();
+    m.on_gesture(Gesture::none, s);
+    CHECK(m.state().screen == Screen::status);
+    CHECK(m.state().dirty  == false);            // a no-op gesture must not force a repaint
+}
+
+// Spec §5 rule 2: paint only when the model reports dirty. A tick that changes nothing must not set it, or the
+// panel repaints at tick rate and the 25 ms I2C frame starts competing with the MAC.
+TEST_CASE("ui-model: dirty starts true, is cleared on demand, and an idle tick does not set it") {
+    UiModel m;
+    CHECK(m.state().dirty == true);               // the first frame must be drawn
+    m.clear_dirty(); CHECK(m.state().dirty == false);
+    m.on_tick(snap(1000));  CHECK(m.state().dirty == false);
+    m.on_tick(snap(2000));  CHECK(m.state().dirty == false);
+    m.on_gesture(Gesture::short_press, snap(2100));
+    CHECK(m.state().dirty == true);               // navigation is visible -> repaint
+}
+
+TEST_CASE("ui-model: the blank transition sets dirty exactly once") {
+    UiModel m;
+    m.on_tick(snap(1000)); m.clear_dirty();
+    m.on_tick(snap(1000 + kBlankMs + 1));
+    CHECK(m.state().blanked == true); CHECK(m.state().dirty == true);
+    m.clear_dirty();
+    m.on_tick(snap(1000 + kBlankMs + 5000));
+    CHECK(m.state().dirty == false);              // edge-triggered: no repeated blank work (spec §5)
+}
+
+TEST_CASE("ui-model: the modal does NOT auto-exit before the blank window elapses") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::short_press, snap(1000));
+    m.on_gesture(Gesture::double_press, snap(1100));
+    m.on_tick(snap(1100 + kBlankMs - 1));
+    CHECK(m.state().compose == Compose::dm);
+    m.on_tick(snap(1100 + kBlankMs));
+    CHECK(m.state().compose == Compose::none);
+    CHECK(m.take_send_request(req) == false);
+}
+
+TEST_CASE("ui-model: a gesture inside the modal refreshes its inactivity window") {
+    UiModel m;
+    m.on_gesture(Gesture::short_press, snap(1000));
+    m.on_gesture(Gesture::double_press, snap(1100));
+    m.on_gesture(Gesture::short_press, snap(1100 + kBlankMs - 100));   // still browsing the list
+    m.on_tick(snap(1100 + kBlankMs + 10));
+    CHECK(m.state().compose == Compose::dm);                           // window restarted, not expired
+}
+
+TEST_CASE("ui-model: blanking with a modal open closes the modal and the waking press shows the parent") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::short_press, snap(1000));
+    m.on_gesture(Gesture::double_press, snap(1100));
+    m.on_tick(snap(1100 + kBlankMs + 1));
+    CHECK(m.state().blanked == true);
+    CHECK(m.state().compose == Compose::none);
+    m.on_gesture(Gesture::short_press, snap(1100 + kBlankMs + 50));
+    CHECK(m.state().blanked == false);
+    CHECK(m.state().screen  == Screen::team);      // the parent screen, and the press was consumed
+    CHECK(m.state().compose == Compose::none);
+    CHECK(m.take_send_request(req) == false);
+}
+
+TEST_CASE("ui-model: a DOUBLE press also only wakes a blanked panel") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::short_press, snap(1000));            // -> TEAM
+    m.on_tick(snap(1000 + kBlankMs + 1));
+    CHECK(m.state().blanked == true);
+    m.on_gesture(Gesture::double_press, snap(1000 + kBlankMs + 10));
+    CHECK(m.state().blanked == false);
+    CHECK(m.state().compose == Compose::none);                 // did NOT open the DM modal
+    CHECK(m.take_send_request(req) == false);
+}
+
+TEST_CASE("ui-model: blanking is wrap-safe across millis() rollover") {
+    UiModel m;
+    m.on_gesture(Gesture::short_press, snap(0xFFFFF000u));     // last input just before the wrap
+    m.on_tick(snap(0x00000500u));                              // 5376 ms later in real time
+    CHECK(m.state().blanked == false);                          // NOT ~4.29e9 ms "elapsed"
+    m.on_tick(snap(0x00003000u));                              // 16 384 ms after the input
+    CHECK(m.state().blanked == true);
+}
+
+TEST_CASE("ui-model: the modal inactivity exit is wrap-safe too") {
+    UiModel m;
+    m.on_gesture(Gesture::short_press, snap(0xFFFFF000u));
+    m.on_gesture(Gesture::double_press, snap(0xFFFFF100u));
+    CHECK(m.state().compose == Compose::dm);
+    m.on_tick(snap(0x00000500u));
+    CHECK(m.state().compose == Compose::dm);                    // ~5 s elapsed, not a wrapped eternity
+    m.on_tick(snap(0x00003000u));
+    CHECK(m.state().compose == Compose::none);
+}
+
+// ★ UI-3 replaced UI-2's inert stubs here. Before UI-3 this case pinned "a long gesture queues NOTHING"; it now pins
+// the live contract, which is the same §4.2 ordering plus a real alarm: arming queues nothing, firing queues one.
+TEST_CASE("ui-model: a long gesture pre-empts blank-wake; ARM queues nothing, FIRE queues one alarm") {
+    UiModel m; SendReq req{};
+    m.on_tick(snap(1000)); m.on_tick(snap(1000 + kBlankMs + 1));
+    CHECK(m.state().blanked == true);
+    m.on_gesture(Gesture::long_arm, snap(1000 + kBlankMs + 10));
+    CHECK(m.state().blanked == false);               // §4.2: long gestures pre-empt blank-wake consumption
+    CHECK(m.emergency() == Emergency::arming);
+    CHECK(m.emergency_pending() == false);           // arming commits nothing to the air
+    CHECK(m.take_send_request(req) == false);
+    m.on_gesture(Gesture::long_fire, snap(1000 + kBlankMs + 20));
+    CHECK(m.emergency() == Emergency::firing);
+    CHECK(m.emergency_pending() == true);
+    const bool got = m.take_send_request(req);
+    CHECK(got == true);
+    if (got) CHECK(req.kind == SendKind::emergency);
+}
+
+TEST_CASE("ui-model: a long gesture is not swallowed by an open modal (spec 4.2 ordering)") {
+    UiModel m; const auto s = snap();
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().compose == Compose::dm);
+    m.clear_dirty();
+    m.on_gesture(Gesture::long_arm, s);
+    CHECK(m.state().dirty == true);                  // it reached the emergency branch, not compose_gesture
+    CHECK(m.state().cursor == 0);                    // and did NOT move the modal's highlight
+}
+
+// The bounds the renderer and the snapshot builder both depend on (spec §11: 8 rows, not 16).
+TEST_CASE("ui-model: the model's declared bounds are the ones the spec fixed") {
+    CHECK(kMaxTeamRows  == 8);
+    CHECK(kMaxInboxRows == 8);
+    CHECK(kBlankMs      == 15000u);
+    CHECK(kDmTextCount      == 3);                   // "Are you OK?", "I'm OK", back without sending
+    CHECK(kChannelTextCount == 3);                   // "Got your message", "All good", back without sending
+    CHECK(uint8_t(Screen::count) == 4);
+    UiSnapshot s{};
+    CHECK(s.batt_mv == -1);                          // <0 = unavailable -> render "--", never a guess
+    CHECK(s.team_build == true);
+    CHECK(sizeof(s.team) / sizeof(s.team[0]) == kMaxTeamRows);
+    CHECK(sizeof(s.inbox) / sizeof(s.inbox[0]) == kMaxInboxRows);
+}
+
+TEST_CASE("ui-model: a full team roster walks every one of the eight rows") {
+    UiModel m; UiSnapshot s{};
+    s.now_ms = 1000; s.team_shown = kMaxTeamRows; s.team_total = 12;   // truncated view, true total larger
+    for (uint8_t i = 0; i < kMaxTeamRows; ++i) s.team[i].id = uint8_t(20 + i);
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().screen == Screen::team);
+    for (uint8_t i = 1; i < kMaxTeamRows; ++i) {
+        m.on_gesture(Gesture::short_press, s);
+        CHECK(m.state().screen == Screen::team);
+        CHECK(m.state().cursor == i);
+    }
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().screen == Screen::inbox);
+    CHECK(m.state().cursor == 0);
+}
+
+// =================================================================================================== UI-3
+// Emergency + DM outcome machines (plan Task 3, spec §4/§4.1-§4.4 and §3.4.1). The model never sees a raw Push —
+// every outcome below is one the Task-4 tracker has already correlated by ctr/peer/channel (spec §2.1), which is
+// what makes a false PICKED UP structurally impossible.
+
+// ---------------------------------------------------------------- the plan's twelve cases
+
+TEST_CASE("ui-model: arm then cancel never emits a send") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm, snap(1000));   CHECK(m.emergency() == Emergency::arming);
+    m.on_gesture(Gesture::long_cancel, snap(2000));CHECK(m.emergency() == Emergency::cancelled);
+    CHECK(m.take_send_request(req) == false);
+}
+
+TEST_CASE("ui-model: cancelled auto-returns to idle after its window") {
+    UiModel m;
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_cancel, snap(2000));
+    m.on_tick(snap(2000 + kCancelledMs + 1));
+    CHECK(m.emergency() == Emergency::idle);
+}
+
+TEST_CASE("ui-model: arming countdown is visible and decreases") {
+    UiModel m;
+    m.on_gesture(Gesture::long_arm, snap(1000));
+    const uint8_t a = m.arming_secs_left(snap(1200));
+    const uint8_t b = m.arming_secs_left(snap(2400));
+    CHECK(b < a);
+}
+
+TEST_CASE("ui-model: attempts are counted on ACCEPTANCE, not on request") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    const bool got = m.take_send_request(req);           // ★ ONE call — it DRAINS; see the file header note
+    CHECK(got == true);
+    if (!got) return;
+    m.on_send_refused(SendKind::emergency, RefuseReason::parser, 4600);   // put nothing on air
+    CHECK(m.emergency() == Emergency::failed);
+    CHECK(m.attempts() == 0);                                          // no alarm consumed
+}
+
+TEST_CASE("ui-model: exactly THREE accepted transmissions, then sticky NOT HEARD") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    for (int i = 1; i <= 3; ++i) {
+        const bool got = m.take_send_request(req);       // ★ ONE call per attempt
+        CHECK(got == true);
+        if (!got) return;
+        m.on_send_accepted(SendKind::emergency, 5000u * uint32_t(i));
+        CHECK(m.attempts() == i);
+        m.on_outcome(SendOutcome::channel_no_relay(), 5000u * uint32_t(i) + 100);
+    }
+    CHECK(m.emergency() == Emergency::not_heard);
+    CHECK(m.take_send_request(req) == false);
+}
+
+TEST_CASE("ui-model: blocked computes the deadline from the OUTCOME time, not the gesture") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);
+    m.on_outcome(SendOutcome::blocked(10000), /*now_ms=*/60000);
+    CHECK(m.emergency() == Emergency::blocked);
+    CHECK(m.retry_at_ms() == 70000);                    // 60000 + 10000, NOT 4500 + 10000
+    m.on_tick(snap(69000)); CHECK(m.take_send_request(req) == false);
+    m.on_tick(snap(70001)); CHECK(m.take_send_request(req) == true);
+}
+
+TEST_CASE("ui-model: next_ms == 0 backs off instead of spinning, and consumes no attempt") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);
+    m.on_outcome(SendOutcome::blocked(0), 5100);
+    CHECK(m.emergency() == Emergency::blocked);
+    CHECK(m.retry_at_ms() == 5100 + kBlockedBackoffMinMs);
+    m.on_tick(snap(5100 + kBlockedBackoffMinMs - 1)); CHECK(m.take_send_request(req) == false);
+    m.on_tick(snap(5100 + kBlockedBackoffMinMs + 1)); CHECK(m.take_send_request(req) == true);
+    CHECK(m.attempts() == 1);                            // the block did not consume an alarm
+}
+
+TEST_CASE("ui-model: retry deadline is wrap-safe") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 0xFFFFF000u);
+    m.on_outcome(SendOutcome::blocked(0x2000), 0xFFFFF000u);   // deadline wraps past 2^32
+    m.on_tick(snap(0x00001001u));
+    CHECK(m.take_send_request(req) == true);
+}
+
+TEST_CASE("ui-model: long gestures work from inside a compose sub-view") {
+    UiModel m; const auto s = snap();
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().compose == Compose::dm);
+    m.on_gesture(Gesture::long_arm, s);
+    CHECK(m.emergency() == Emergency::arming);
+}
+
+TEST_CASE("ui-model: long gestures work from a blanked panel") {
+    UiModel m;
+    m.on_tick(snap(1000)); m.on_tick(snap(1000 + kBlankMs + 1));
+    CHECK(m.state().blanked == true);
+    m.on_gesture(Gesture::long_arm, snap(1000 + kBlankMs + 10));
+    CHECK(m.emergency() == Emergency::arming);
+    CHECK(m.state().blanked == false);
+}
+
+TEST_CASE("ui-model: a matching teammate reply becomes sticky human confirmation") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);
+    m.on_outcome(SendOutcome::channel_relayed(), 5100);
+    CHECK(m.emergency() == Emergency::picked_up);
+    m.on_reply("Ann", "on my way", 6000);
+    CHECK(m.emergency() == Emergency::reply);
+}
+
+TEST_CASE("ui-model: DM outcomes are independent of the emergency machine") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);
+    m.on_send_accepted(SendKind::dm, 5100);                       // a DM in flight alongside
+    m.on_outcome(SendOutcome::dm_no_key(), 5200);
+    CHECK(m.dm_state()  == DmState::no_key);
+    CHECK(m.emergency() == Emergency::firing);                    // UNTOUCHED
+    m.on_outcome(SendOutcome::channel_relayed(), 5300);
+    CHECK(m.emergency() == Emergency::picked_up);
+}
+
+// ---------------------------------------------------------------- coverage the plan's twelve leave open
+
+// ★ B65, RULED FIX (plan "Findings from Tasks 1-2"): the blank timer measures "time since the user last acted", and
+// before the first tick there is no such time. NV format-on-corrupt is a shipped path and delays boot by design, so a
+// first tick at millis() > kBlankMs is real — and with _last_input_ms = 0 it blanked a panel that never drew.
+TEST_CASE("ui-model: B65 — a FIRST tick long after boot must not blank the panel") {
+    UiModel m;
+    m.on_tick(snap(90000));                       // first ever tick, 90 s after boot (slow NV self-heal)
+    CHECK(m.state().blanked == false);             // the panel gets its full window from HERE
+    CHECK(m.state().dirty   == true);              // and the frame it owes is still pending
+    m.on_tick(snap(90000 + kBlankMs - 1));
+    CHECK(m.state().blanked == false);
+    m.on_tick(snap(90000 + kBlankMs));
+    CHECK(m.state().blanked == true);              // blanks a full window later, not immediately
+}
+
+TEST_CASE("ui-model: B65 — a gesture before the first tick still owns the blank timer") {
+    UiModel m;
+    m.on_gesture(Gesture::short_press, snap(1000));      // the user acted at 1000
+    m.on_tick(snap(30000));                              // first tick arrives 29 s later
+    CHECK(m.state().blanked == true);                    // 29 s of no input -> blank, NOT re-seeded to 30000
+}
+
+// Spec §4.3: mark dirty ONLY when the visible countdown digit changes, or the emergency repaints at tick rate.
+TEST_CASE("ui-model: the arming countdown marks dirty only when its DIGIT changes") {
+    UiModel m;
+    m.on_gesture(Gesture::long_arm, snap(1000));         // fire_at = 4500
+    m.on_tick(snap(1200)); m.clear_dirty();              // digit 4
+    m.on_tick(snap(1300));
+    CHECK(m.state().dirty == false);                     // still 4 -> no repaint
+    m.on_tick(snap(1600));
+    CHECK(m.state().dirty == true);                      // 3 -> repaint
+}
+
+// Spec §4.3 + §5: the hold is a DEADLINE. It must beat the kBlankMs blank, and it must expire at kEmgHoldMs.
+// ⚠ Every hold case below is written against `kEmgHoldMs`, never a literal — the owner re-ruled the value on
+// 2026-08-04 and a test carrying the old number would have pinned the wrong behaviour while still passing.
+TEST_CASE("ui-model: a firing emergency holds the panel past kBlankMs and blanks at kEmgHoldMs") {
+    UiModel m;
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    m.on_tick(snap(4500 + kBlankMs + 1));
+    CHECK(m.state().blanked == false);                   // held: sending is what the screen is about
+    m.on_tick(snap(4500 + kEmgHoldMs + 1));
+    CHECK(m.state().blanked == true);                    // one window, then blank with state RETAINED
+    CHECK(m.emergency() == Emergency::firing);
+}
+
+// ★ Spec §4.3's table: the hold is reset by long_fire AND by EVERY retained outcome — picked_up, not_heard, blocked,
+// reply. The plan's code block set it only on long_fire and on_reply; this case is what makes the difference visible.
+TEST_CASE("ui-model: PICKED UP refreshes the kEmgHoldMs hold from the outcome time") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);
+    m.on_outcome(SendOutcome::channel_relayed(), 60000);           // relay evidence 55 s after the fire
+    CHECK(m.emergency() == Emergency::picked_up);
+    m.on_tick(snap(4500 + kEmgHoldMs + 1));
+    CHECK(m.state().blanked == false);                             // the fire-anchored deadline has passed; refreshed
+    m.on_tick(snap(60000 + kEmgHoldMs + 1));
+    CHECK(m.state().blanked == true);
+}
+
+TEST_CASE("ui-model: NOT HEARD and BLOCKED refresh the hold too") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);
+    m.on_outcome(SendOutcome::blocked(10000), 50000);
+    CHECK(m.emergency() == Emergency::blocked);
+    m.on_tick(snap(4500 + kEmgHoldMs + 1));
+    CHECK(m.state().blanked == false);                              // blocked refreshed it
+    UiModel n; SendReq r2{};
+    n.on_gesture(Gesture::long_arm, snap(1000)); n.on_gesture(Gesture::long_fire, snap(4500));
+    for (int i = 1; i <= 3; ++i) {
+        const bool got = n.take_send_request(r2);
+        CHECK(got == true);
+        if (!got) return;
+        n.on_send_accepted(SendKind::emergency, 40000u + 1000u * uint32_t(i));
+        n.on_outcome(SendOutcome::channel_no_relay(), 40000u + 1000u * uint32_t(i) + 100u);
+    }
+    CHECK(n.emergency() == Emergency::not_heard);
+    n.on_tick(snap(4500 + kEmgHoldMs + 1));
+    CHECK(n.state().blanked == false);                              // not_heard refreshed it
+}
+
+TEST_CASE("ui-model: the emergency hold is wrap-safe") {
+    UiModel m;
+    m.on_gesture(Gesture::long_arm, snap(0xFFFFF000u));
+    m.on_gesture(Gesture::long_fire, snap(0xFFFFF000u + 3500u));   // hold deadline wraps past 2^32
+    m.on_tick(snap(0x00002000u));                                   // ~8 s past the wrap, inside kEmgHoldMs
+    CHECK(m.state().blanked == false);
+    CHECK(m.emergency() == Emergency::firing);
+}
+
+// Spec §4.4: only firing/blocked/picked_up/not_heard/reply may become REPLY, and only after a transmission was
+// ACCEPTED — otherwise coincident channel-0 chatter manufactures confirmation of a message never sent.
+TEST_CASE("ui-model: a reply during ARMING, CANCELLED, FAILED or IDLE is refused") {
+    UiModel idle; idle.on_reply("Ann", "hi", 1000);
+    CHECK(idle.emergency() == Emergency::idle);
+
+    UiModel arming; arming.on_gesture(Gesture::long_arm, snap(1000));
+    arming.on_reply("Ann", "hi", 1200);
+    CHECK(arming.emergency() == Emergency::arming);                 // the user has not even committed yet
+
+    UiModel canc; canc.on_gesture(Gesture::long_arm, snap(1000)); canc.on_gesture(Gesture::long_cancel, snap(2000));
+    canc.on_reply("Ann", "hi", 2100);
+    CHECK(canc.emergency() == Emergency::cancelled);
+
+    UiModel fail; SendReq req{};
+    fail.on_gesture(Gesture::long_arm, snap(1000)); fail.on_gesture(Gesture::long_fire, snap(4500));
+    fail.take_send_request(req); fail.on_send_refused(SendKind::emergency, RefuseReason::unsealable, 4600);
+    fail.on_reply("Ann", "hi", 5000);
+    CHECK(fail.emergency() == Emergency::failed);                   // nothing went out -> no confirmation
+}
+
+TEST_CASE("ui-model: a reply while FIRING with zero accepted attempts is refused") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    m.take_send_request(req);                                       // requested, never accepted
+    CHECK(m.attempts() == 0);
+    m.on_reply("Ann", "on my way", 5000);
+    CHECK(m.emergency() == Emergency::firing);                      // NOT reply
+}
+
+TEST_CASE("ui-model: a reply from NOT HEARD is accepted and is sticky") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    for (int i = 1; i <= 3; ++i) {
+        const bool got = m.take_send_request(req);
+        CHECK(got == true);
+        if (!got) return;
+        m.on_send_accepted(SendKind::emergency, 5000u * uint32_t(i));
+        m.on_outcome(SendOutcome::channel_no_relay(), 5000u * uint32_t(i) + 100);
+    }
+    CHECK(m.emergency() == Emergency::not_heard);
+    m.on_reply("Bob", "coming", 30000);
+    CHECK(m.emergency() == Emergency::reply);                        // a human answered after all
+    m.on_outcome(SendOutcome::channel_no_relay(), 31000);
+    CHECK(m.emergency() == Emergency::reply);                        // sticky: a late outcome cannot undo it
+}
+
+TEST_CASE("ui-model: reply text and sender are clamped and NUL-terminated") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);
+    m.on_reply("AnnabelleTheVeryLongName", "a reply far longer than the panel can ever show", 6000);
+    CHECK(m.emergency() == Emergency::reply);
+    CHECK(std::strlen(m.reply_who())  == kLabelCap);
+    CHECK(std::strlen(m.reply_text()) == 20);
+    CHECK(std::strncmp(m.reply_who(), "AnnabelleTheV", 13) == 0);
+    m.on_reply(nullptr, nullptr, 7000);                             // a missing label must not read off the end
+    CHECK(std::strlen(m.reply_who())  == 0);
+    CHECK(std::strlen(m.reply_text()) == 0);
+}
+
+// Spec §2.1: unrelated channel/DM traffic must never move the emergency. The tracker filters by ctr/peer, but the
+// model is the second line of defence — an outcome arriving in a non-live state is ignored.
+TEST_CASE("ui-model: a channel outcome cannot start, resurrect or alter a non-live emergency") {
+    UiModel idle; idle.on_outcome(SendOutcome::channel_relayed(), 1000);
+    CHECK(idle.emergency() == Emergency::idle);                      // never became picked_up
+
+    UiModel arming; arming.on_gesture(Gesture::long_arm, snap(1000));
+    arming.on_outcome(SendOutcome::channel_relayed(), 1200);
+    CHECK(arming.emergency() == Emergency::arming);
+    arming.on_outcome(SendOutcome::blocked(5000), 1300);
+    CHECK(arming.emergency() == Emergency::arming);                  // and a blocked DM cannot show BLOCKED
+
+    UiModel canc; canc.on_gesture(Gesture::long_arm, snap(1000)); canc.on_gesture(Gesture::long_cancel, snap(2000));
+    canc.on_outcome(SendOutcome::channel_relayed(), 2100);
+    CHECK(canc.emergency() == Emergency::cancelled);
+}
+
+TEST_CASE("ui-model: PICKED UP is sticky against a later no-relay outcome") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);
+    m.on_outcome(SendOutcome::channel_relayed(), 5100);
+    CHECK(m.emergency() == Emergency::picked_up);
+    m.on_outcome(SendOutcome::channel_no_relay(), 5200);
+    CHECK(m.emergency() == Emergency::picked_up);
+    CHECK(m.take_send_request(req) == false);                        // and it queued no retry
+}
+
+TEST_CASE("ui-model: the blocked backoff doubles and caps at kBlockedBackoffMaxMs, consuming no attempt") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);
+    uint32_t t = 5100, expect = kBlockedBackoffMinMs;
+    for (int i = 0; i < 6; ++i) {
+        m.on_outcome(SendOutcome::blocked(0), t);
+        CHECK(m.retry_at_ms() == t + expect);
+        m.on_tick(snap(t + expect + 1));                            // fires the retry, re-arms the slot
+        CHECK(m.take_send_request(req) == true);
+        t += expect + 10;
+        expect = (expect * 2 > kBlockedBackoffMaxMs) ? kBlockedBackoffMaxMs : expect * 2;
+    }
+    CHECK(expect == kBlockedBackoffMaxMs);
+    CHECK(m.attempts() == 1);                                       // six blocks, still one accepted transmission
+}
+
+TEST_CASE("ui-model: a fresh long_fire re-arms the alarm from a sticky NOT HEARD") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    for (int i = 1; i <= 3; ++i) {
+        const bool got = m.take_send_request(req);
+        CHECK(got == true);
+        if (!got) return;
+        m.on_send_accepted(SendKind::emergency, 5000u * uint32_t(i));
+        m.on_outcome(SendOutcome::channel_no_relay(), 5000u * uint32_t(i) + 100);
+    }
+    CHECK(m.emergency() == Emergency::not_heard);
+    m.on_gesture(Gesture::long_arm,  snap(40000));
+    m.on_gesture(Gesture::long_fire, snap(43500));
+    CHECK(m.emergency() == Emergency::firing);
+    CHECK(m.attempts() == 0);                                       // the budget resets with the new alarm
+    CHECK(m.take_send_request(req) == true);
+}
+
+TEST_CASE("ui-model: cancelled returns to idle and a later arm works normally") {
+    UiModel m;
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_cancel, snap(2000));
+    m.on_tick(snap(2000 + kCancelledMs + 1));
+    CHECK(m.emergency() == Emergency::idle);
+    m.on_gesture(Gesture::long_arm, snap(5000));
+    CHECK(m.emergency() == Emergency::arming);
+    CHECK(m.arming_secs_left(snap(5100)) > 0);
+}
+
+// ★ Spec §2.1's two slots: an emergency must never wait behind, or be overwritten by, normal UI work.
+TEST_CASE("ui-model: a queued alarm drains BEFORE a queued DM and neither is lost") {
+    UiModel m; const auto s = snap(); SendReq req{};
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::double_press, s);   // DM modal
+    m.on_gesture(Gesture::double_press, s);                                          // queue the canned DM
+    m.on_gesture(Gesture::long_arm,  s);
+    m.on_gesture(Gesture::long_fire, s);                                             // queue the alarm
+    const bool first = m.take_send_request(req);
+    CHECK(first == true);
+    if (first) CHECK(req.kind == SendKind::emergency);                                // ALARM FIRST
+    const bool second = m.take_send_request(req);
+    CHECK(second == true);
+    if (second) { CHECK(req.kind == SendKind::dm); CHECK(req.peer_id == s.team[0].id); }   // and the DM survived
+    CHECK(m.take_send_request(req) == false);
+}
+
+TEST_CASE("ui-model: a compose send cannot overwrite a queued alarm") {
+    UiModel m; const auto s = snap(); SendReq req{};
+    m.on_gesture(Gesture::long_arm,  s); m.on_gesture(Gesture::long_fire, s);
+    CHECK(m.emergency_pending() == true);
+    for (int i = 0; i < 5; ++i) m.on_gesture(Gesture::short_press, s);   // navigate to SEND
+    m.on_gesture(Gesture::double_press, s);                             // channel modal
+    m.on_gesture(Gesture::double_press, s);                             // queue a canned channel post
+    CHECK(m.emergency_pending() == true);                               // untouched
+    const bool got = m.take_send_request(req);
+    CHECK(got == true);
+    if (got) CHECK(req.kind == SendKind::emergency);
+}
+
+// ---- the DM outcome machine (spec §3.4.1)
+
+TEST_CASE("ui-model: the DM machine walks accepted -> waiting -> delivered") {
+    UiModel m;
+    CHECK(m.dm_state() == DmState::idle);
+    m.on_send_accepted(SendKind::dm, 1000);
+    CHECK(m.dm_state() == DmState::waiting_ack);
+    m.on_outcome(SendOutcome::dm_acked(), 2000);
+    CHECK(m.dm_state() == DmState::delivered);
+}
+
+TEST_CASE("ui-model: NO CONFIRM is reachable and a LATE ack upgrades it to DELIVERED") {
+    UiModel m;
+    m.on_send_accepted(SendKind::dm, 1000);
+    m.on_outcome(SendOutcome::dm_timeout(), 61000);
+    CHECK(m.dm_state() == DmState::not_confirmed);          // spec §3.4.1: e2e_ack_timeout -> NO CONFIRM
+    m.on_outcome(SendOutcome::dm_acked(), 65000);
+    CHECK(m.dm_state() == DmState::delivered);              // the core permits a late ack; truth beats tidiness
+}
+
+TEST_CASE("ui-model: a DM refusal and a DM failure are terminal and distinct from no_key") {
+    UiModel m;
+    m.on_send_refused(SendKind::dm, RefuseReason::parser, 1000);
+    CHECK(m.dm_state() == DmState::failed);
+    CHECK(m.refuse_reason() == RefuseReason::parser);
+    UiModel n;
+    n.on_send_accepted(SendKind::dm, 1000);
+    n.on_outcome(SendOutcome::dm_failed(FailReason::no_route), 2000);   // §B73: the reason is now REQUIRED
+    CHECK(n.dm_state() == DmState::failed);
+    UiModel o;
+    o.on_send_accepted(SendKind::dm, 1000);
+    o.on_outcome(SendOutcome::dm_no_key(), 2000);
+    CHECK(o.dm_state() == DmState::no_key);                 // the one failure the user cannot resolve on-device
+}
+
+TEST_CASE("ui-model: a DM outcome never touches a live emergency, in either direction") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);
+    m.on_outcome(SendOutcome::dm_acked(), 5100);
+    CHECK(m.emergency() == Emergency::firing);
+    m.on_outcome(SendOutcome::dm_timeout(), 5200);
+    CHECK(m.emergency() == Emergency::firing);
+    CHECK(m.take_send_request(req) == false);               // and no DM outcome queued an alarm retry
+    m.on_outcome(SendOutcome::blocked(5000), 5300);         // the emergency's own block still lands
+    CHECK(m.emergency() == Emergency::blocked);
+    CHECK(m.dm_state()  == DmState::not_confirmed);         // the DM's state is untouched by it
+}
+
+// §B68's eighth kind. It is a SUCCESS with no local handle, unreachable on the team-plane alarm path — see the
+// in-source note and register B69 for the render obligation it still lacks a carrier for.
+TEST_CASE("ui-model: channel_remote_mint is handled explicitly and never claims PICKED UP") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);
+    m.on_outcome(SendOutcome::channel_remote_mint(), 5100);
+    CHECK(m.emergency() != Emergency::picked_up);           // no relay evidence exists -> must not claim it
+    CHECK(m.emergency() == Emergency::firing);              // treated as unconfirmed: bounded retry continues
+    CHECK(m.attempts() == 1);
+    CHECK(m.take_send_request(req) == true);
+}
+
+// ---- the four UI-3 QA fixes (§B72-§B75). Each case below FAILS against the pre-fix header, which is the only
+// evidence that it tests the fix rather than the code.
+
+// ★★ §B74. `_retry_at_ms` was compared against a `0xFFFFFFFF` "no deadline" SENTINEL while being computed as an
+// UNBOUNDED `now_ms + next_ms` — so an ordinary block could produce exactly the reserved value and tick_emergency
+// then refused to examine the deadline at all: BLOCKED for ever, on the alarm path, with two of three alarms unspent.
+// Pre-fix this case reads `retried == false`.
+TEST_CASE("ui-model: a retry deadline of 0xFFFFFFFF is a DEADLINE, not 'no deadline'") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm,  snap(0xFFFFF000u - kArmToFireMs));
+    m.on_gesture(Gesture::long_fire, snap(0xFFFFF000u));
+    const bool got = m.take_send_request(req);
+    CHECK(got == true);
+    if (!got) return;
+    m.on_send_accepted(SendKind::emergency, 0xFFFFF000u);
+    m.on_outcome(SendOutcome::blocked(0xFFFu), 0xFFFFF000u);   // 0xFFFFF000 + 0xFFF == 0xFFFFFFFF, the old sentinel
+    CHECK(m.emergency()   == Emergency::blocked);
+    CHECK(m.retry_at_ms() == 0xFFFFFFFFu);                     // the value itself is legal and is kept verbatim
+    m.on_tick(snap(0xFFFFFFFEu));
+    CHECK(m.take_send_request(req) == false);                  // one tick early: still blocked
+    m.on_tick(snap(0xFFFFFFFFu));                              // now == deadline
+    const bool retried = m.take_send_request(req);
+    CHECK(retried == true);                                    // pre-fix: FALSE, and never true again
+    if (!retried) return;
+    CHECK(req.kind      == SendKind::emergency);
+    CHECK(m.emergency() == Emergency::firing);
+    CHECK(m.attempts()  == 1);                                 // the block consumed no alarm
+}
+
+// ★★ §B72. `channel_failed` did not exist, so a pre-enqueue SEAL failure had no representation: `match_channel_sent`
+// can never fire for a ctr==0 result, and the alarm sat on SENDING... for ever. Pre-fix this case does not COMPILE
+// (`'channel_failed' is not a member of 'mrui::SendOutcome'`), which is the strongest form of failing first.
+TEST_CASE("ui-model: a channel SEAL FAILURE is terminal and names its reason, never a stuck SENDING") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    const bool got = m.take_send_request(req);
+    CHECK(got == true);
+    if (!got) return;
+    m.on_send_accepted(SendKind::emergency, 5000);
+    m.on_outcome(SendOutcome::channel_failed(FailReason::unsealable), 5100);
+    CHECK(m.emergency()     == Emergency::failed);              // terminal + actionable
+    CHECK(m.refuse_reason() == RefuseReason::unsealable);       // "encrypt / grant the key", not a generic failure
+    CHECK(m.fail_reason()   == FailReason::unsealable);
+    CHECK(m.take_send_request(req) == false);                   // PERMANENT for this route -> must NOT retry
+    CHECK(m.attempts()      == 1);                              // and it consumed no further alarm
+}
+
+TEST_CASE("ui-model: a channel seal failure outside a live alarm is dropped whole") {
+    UiModel idle;
+    idle.on_outcome(SendOutcome::channel_failed(FailReason::unsealable), 1000);
+    CHECK(idle.emergency()     == Emergency::idle);              // spec 2.1: it cannot manufacture a FAILED alarm
+    CHECK(idle.fail_reason()   == FailReason::none);
+    CHECK(idle.refuse_reason() == RefuseReason::other);          // the construction default, untouched
+
+    UiModel picked; SendReq req{};                               // nor demote a sticky success
+    picked.on_gesture(Gesture::long_arm, snap(1000)); picked.on_gesture(Gesture::long_fire, snap(4500));
+    picked.take_send_request(req); picked.on_send_accepted(SendKind::emergency, 5000);
+    picked.on_outcome(SendOutcome::channel_relayed(), 5100);
+    CHECK(picked.emergency() == Emergency::picked_up);
+    picked.on_outcome(SendOutcome::channel_failed(FailReason::unsealable), 5200);
+    CHECK(picked.emergency() == Emergency::picked_up);
+}
+
+// ★ §B75. Spec 3.4.1 requires `submitting` while the command is in flight to dispatch. The enumerator existed and
+// NOTHING assigned it — and the header claimed it was "written-but-unread", which was false in both halves.
+// Pre-fix this case reads `idle` at the submitting CHECK.
+TEST_CASE("ui-model: draining a DM request enters SUBMITTING, and only a DM does") {
+    UiModel m; const auto s = snap(); SendReq req{};
+    m.on_gesture(Gesture::short_press,  s);                      // -> TEAM
+    m.on_gesture(Gesture::double_press, s);                      // -> DM modal, bound to row 0
+    m.on_gesture(Gesture::double_press, s);                      // queue "Are you OK?"
+    CHECK(m.dm_state() == DmState::idle);                        // QUEUED is not yet submitted
+    m.clear_dirty();                                             // so the repaint below is the DRAIN's, not the gesture's
+    const bool got = m.take_send_request(req);
+    CHECK(got == true);
+    if (!got) return;
+    CHECK(req.kind     == SendKind::dm);
+    CHECK(m.dm_state() == DmState::submitting);                  // spec 3.4.1 -> "SENDING..."
+    CHECK(m.state().dirty == true);                              // and the panel is asked to say so
+    m.on_send_accepted(SendKind::dm, 2000);
+    CHECK(m.dm_state() == DmState::waiting_ack);
+
+    UiModel e; SendReq er{};                                     // an ALARM drain must not touch the DM machine
+    e.on_gesture(Gesture::long_arm, snap(1000)); e.on_gesture(Gesture::long_fire, snap(4500));
+    const bool egot = e.take_send_request(er);
+    CHECK(egot == true);
+    if (!egot) return;
+    CHECK(er.kind      == SendKind::emergency);
+    CHECK(e.dm_state() == DmState::idle);
+}
+
+// ★★ §B73. `dm_failed()` carried no reason, so every async DM failure landed on `refuse_reason() == other` — spec
+// 2.1 rule 6 ("the FULL SendFailReason reaches the UI, not a boolean") unsatisfiable. Pre-fix the first block reads
+// `other` and there is no `fail_reason()` to read at all.
+TEST_CASE("ui-model: an async DM failure carries its reason instead of collapsing to 'other'") {
+    UiModel m;
+    m.on_send_accepted(SendKind::dm, 1000);
+    m.on_outcome(SendOutcome::dm_failed(FailReason::unsealable), 2000);
+    CHECK(m.dm_state()      == DmState::failed);
+    CHECK(m.refuse_reason() == RefuseReason::unsealable);        // pre-fix: RefuseReason::other
+    CHECK(m.fail_reason()   == FailReason::unsealable);
+
+    UiModel n;                                                   // a reason with no compact code still survives whole
+    n.on_send_accepted(SendKind::dm, 1000);
+    n.on_outcome(SendOutcome::dm_failed(FailReason::no_route), 2000);
+    CHECK(n.refuse_reason() == RefuseReason::other);             // ...the panel shows the generic line...
+    CHECK(n.fail_reason()   == FailReason::no_route);            // ...but UI-7 can still NAME it (spec 2.1 rule 6)
+}
+
+TEST_CASE("ui-model: the compact reason mapping is the three whose remedy differs, and nothing else") {
+    struct { FailReason in; RefuseReason out; } cases[] = {
+        { FailReason::unsealable,          RefuseReason::unsealable  },   // encrypt / obtain the team key
+        { FailReason::no_location,         RefuseReason::no_location },   // get a fix / cfg set lat,lon
+        { FailReason::queue_full,          RefuseReason::queue_full  },   // transient: retry
+        { FailReason::no_pubkey,           RefuseReason::other       },
+        { FailReason::e2e_ack_timeout,     RefuseReason::other       },
+        { FailReason::reprovisioned,       RefuseReason::other       },
+        { FailReason::gateway_unreachable, RefuseReason::other       },
+        { FailReason::none,                RefuseReason::other       },
+    };
+    for (const auto& c : cases) {
+        UiModel m;
+        m.on_send_accepted(SendKind::dm, 1000);
+        m.on_outcome(SendOutcome::dm_failed(c.in), 2000);
+        CHECK(m.refuse_reason() == c.out);
+        CHECK(m.fail_reason()   == c.in);                        // lossless in every one of the eight
+    }
+}
+
+// A SYNCHRONOUS refusal never became a core send, so it must not leave a stale core reason behind it.
+TEST_CASE("ui-model: a synchronous refusal clears the core reason it does not have") {
+    UiModel m;
+    m.on_send_accepted(SendKind::dm, 1000);
+    m.on_outcome(SendOutcome::dm_failed(FailReason::unsealable), 2000);
+    CHECK(m.fail_reason() == FailReason::unsealable);
+    m.on_send_accepted(SendKind::dm, 3000);                      // a second DM, refused by the parser this time
+    m.on_send_refused(SendKind::dm, RefuseReason::parser, 3100);
+    CHECK(m.dm_state()      == DmState::failed);
+    CHECK(m.refuse_reason() == RefuseReason::parser);
+    CHECK(m.fail_reason()   == FailReason::none);                // NOT the previous send's `unsealable`
+}
+
+// ---- §B78 (owner-ruled 2026-08-04): a TERMINAL `failed` alarm is retained and holds the panel like every other
+// emergency outcome. ⚠ All three cases are written against `kEmgHoldMs` and `kBlankMs`, never a literal.
+// ★ Each one also pins the ANCHOR: the failure timestamp is deliberately placed a full window PAST the gesture, so a
+// `retain()` that used `_last_input_ms` instead of the passed `now_ms` blanks the panel on the very first tick.
+
+// Pre-fix (`failed` absent from hold_active's set) the first CHECK reads `blanked == true`.
+TEST_CASE("ui-model: a synchronous emergency REFUSAL holds the panel for a full kEmgHoldMs window") {
+    UiModel m; SendReq req{};
+    const uint32_t refused_at = 4500 + kEmgHoldMs + 1000;        // the gesture-anchored window is already CLOSED
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    const bool got = m.take_send_request(req);
+    CHECK(got == true);
+    if (!got) return;
+    m.on_send_refused(SendKind::emergency, RefuseReason::parser, refused_at);
+    CHECK(m.emergency() == Emergency::failed);
+    m.on_tick(snap(refused_at + 1));
+    CHECK(m.state().blanked == false);          // held — and by the REFUSAL's deadline, the gesture's expired long ago
+    m.on_tick(snap(refused_at + kEmgHoldMs - 1));
+    CHECK(m.state().blanked == false);           // still inside its own window
+    m.on_tick(snap(refused_at + kEmgHoldMs + 1));
+    CHECK(m.state().blanked == true);            // and it DOES expire — bounded hold, not a stuck-on panel
+    CHECK(m.emergency() == Emergency::failed);   // with the state retained behind it (spec 5)
+}
+
+// Same contract on the ASYNCHRONOUS path. Pre-fix this case does not compile at all (no `channel_failed`).
+TEST_CASE("ui-model: a channel SEAL FAILURE holds the panel for a full kEmgHoldMs window too") {
+    UiModel m; SendReq req{};
+    const uint32_t failed_at = 4500 + kEmgHoldMs + 1000;
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    const bool got = m.take_send_request(req);
+    CHECK(got == true);
+    if (!got) return;
+    m.on_send_accepted(SendKind::emergency, 5000);
+    m.on_outcome(SendOutcome::channel_failed(FailReason::unsealable), failed_at);
+    CHECK(m.emergency() == Emergency::failed);
+    m.on_tick(snap(failed_at + 1));
+    CHECK(m.state().blanked == false);
+    m.on_tick(snap(failed_at + kEmgHoldMs - 1));
+    CHECK(m.state().blanked == false);
+    m.on_tick(snap(failed_at + kEmgHoldMs + 1));
+    CHECK(m.state().blanked == true);
+    CHECK(m.emergency()     == Emergency::failed);
+    CHECK(m.refuse_reason() == RefuseReason::unsealable);   // the reason survives the blank, so UI-6 can still show it
+}
+
+// ★ The other half of the ruling: only the EMERGENCY branch retains. A DM refusal arriving mid-alarm must not push the
+// alarm's deadline out — that would keep a resolved emergency screen alive on unrelated traffic.
+TEST_CASE("ui-model: a DM refusal does NOT extend the emergency hold") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);
+    m.on_outcome(SendOutcome::channel_relayed(), 5100);            // picked_up: hold anchored at 5100
+    m.on_send_refused(SendKind::dm, RefuseReason::parser, 5100 + kEmgHoldMs / 2);   // a DM refusal, mid-window
+    CHECK(m.emergency() == Emergency::picked_up);                  // the alarm state is untouched
+    CHECK(m.dm_state()  == DmState::failed);
+    m.on_tick(snap(5100 + kEmgHoldMs + 1));
+    CHECK(m.state().blanked == true);                              // the DM refusal did NOT refresh the alarm's window
+}
+
+TEST_CASE("ui-model: the UI-3 constants are the ones spec 4 fixed") {
+    CHECK(kEmgMaxTries         == 3);          // THREE TRANSMISSIONS, counted on acceptance
+    CHECK(kEmgHoldMs           == 30000u);   // ★ owner re-ruled 2026-08-04 (was 120000). The ONLY literal in the suite
+    CHECK(kCancelledMs         == 1000u);
+    CHECK(kBlockedBackoffMinMs == 2000u);
+    CHECK(kBlockedBackoffMaxMs == 30000u);
+    CHECK(kArmToFireMs         == 3500u);      // must match InputCfg::fire_ms or arm/fire disagree
+    CHECK(InputCfg{}.fire_ms   == kArmToFireMs);
+}
