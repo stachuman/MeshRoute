@@ -143,6 +143,61 @@ safety hole — but the channel path in UI-6/UI-7 must add a flag or a ninth sta
 ⓘ **Corrected while implementing (spec §3.2.2 + `kDmTextCount = 3`):** a compose list's last row is **ONE** row that is
 both `back` **and** don't-send — not two rows. The brief said two; the spec is right.
 
+### UI-5 rulings (2026-08-04)
+
+★★★ **B87 — RULED 2026-08-04 (re-done; my first version was wrong in BOTH dimensions).**
+
+⛔ **Error 1: I named TWO OLED envs. There are THREE.** `gateway_heltec` `extends = env:heltec_v3`, so it compiles
+`board_ui.cpp` and pulls U8g2 too. I reasoned about "the Heltec envs" from memory instead of **deriving** the set —
+the same sweep-scope class as the `_hal.tx` callers, third instance this arc.
+⛔ **Error 2: the pin was UNENFORCEABLE.** An incremental `pio run` recompiles nothing and therefore emits **no
+warnings at all**, so "a 130th warning fails" measured nothing. A count is a gate only if there is a repeatable way to
+produce it.
+
+⇒ **THE INSTRUMENT SHIPS WITH THE RULING: `tools/warning_census.sh`.** It derives the OLED set from `MR_FEAT_OLED` in
+each env's **resolved** config (never a typed list), deletes the object dirs (⚠ `touch` does NOT invalidate
+PlatformIO's content-signature cache), and **prints the object count beside every total** — a 0-object row is flagged
+as measuring nothing, which has happened in this project.
+
+**PINNED ABSOLUTE TOTALS — clean builds, 2026-08-04, `tools/warning_census.sh heltec_v3 heltec_mobile gateway_heltec`:**
+
+| env | objects | warnings | `-Wswitch` | RAM | Flash |
+|---|---|---|---|---|---|
+| `heltec_v3` | 324 | **178** | **0** | 211252 | 1244400 |
+| `heltec_mobile` | 324 | **178** | **0** | 210772 | 1237796 |
+| `gateway_heltec` | 324 | **174** | **0** | 236172 | 1213900 |
+
+★ **Two independent cross-checks, so these are measured rather than asserted:** `gateway_heltec` reproduces QA's own
+clean build **to the byte** (236172 / 1213900), and `heltec_v3`'s flash is exactly the pre-UI-5 reference plus the
+attributed delta (1209476 + 34924 = 1244400).
+
+**The ruling itself:** **ACCEPT these totals as the pinned baseline; a HIGHER count fails the gate.** Of the ~129 added,
+**127 are our own blanket `-fno-rtti` (`platformio.ini:49`, `[common] build_flags`) reaching U8g2's 127 C TUs**, where
+the flag is meaningless; 2 are U8g2's own, in a module `nm` proves is linked out. ⚠ **The obvious fix is NOT inert:**
+`platformio.ini:45-46` documents `build_src_flags` as the scoping recipe, but that covers **`src/` only**, so moving
+`-fno-rtti` there would **strip it from `lib/core`, `lib/console`, `lib/hal` and `variants/`**, changing our own
+codegen. ⇒ a genuine build-system slice, and **C1 forbids folding it into a feature task.** Pinning keeps the gate's
+power — it caught three enum bugs — bounded, and now measurable by one command.
+
+★★ **The probe harness MUST LAND IN THE REPO. A reconstruction recipe is not enough.** 34 checks with 7 negative
+controls, on a TU no native test and no simulator can reach, is **the only automated cover `board_ui.cpp` will ever
+have** — and ⚠ **this project has already lost a proven 33-assert scenario to a scratch directory.** `test/` being
+native-only is a reason it cannot be a `pio` env, **not** a reason it cannot be a committed script: land it as
+`tools/probe_board_ui.sh` (or equivalent) invoking the two cross-compilers directly. Session-dead scratch is not a
+storage location.
+
+ⓘ **B92 (spec §11 font names disagree with what landed) and B85/B86/B88–B91/B93 are recorded in the register.**
+
+★★★ **THE TASK-5 BLOCK BELOW STILL TEACHES THREE DEFECTS — two are HARD BUILD FAILURES (found by UI-5, fixed in the
+implementation, NOT yet in this text):**
+1. it **omits the three `mr_ui_*` hooks** `fw_main` calls unconditionally ⇒ **link failure**;
+2. it reads **`MR_UI_BTN_PIN`, which Task 6 defines** ⇒ **compile failure**;
+3. **nothing calls `board_init()`**, so Step 5's *"the panel lights"* is unreachable — and ★ **under `--gc-sections` the
+   entire canvas links out, which would have made the flash measurement a VACUOUS ZERO.** That third one is the
+   instructive one: the build would have been green and the number meaningless.
+⇒ As implemented: the hooks stay (marked TEMPORARY) and `mr_ui_init()` paints one frame through the real page loop.
+⚠ **The `-I variants/heltec_v3` is STILL DEAD at Task 5** — measured three ways; it becomes load-bearing at **Task 6**.
+
 ### Constants fixed by the owner
 
 - `MR_UI_TEAM_CHANNEL_ID` — build constant, **default 0**.
@@ -990,7 +1045,7 @@ with the private members `_emg`, `_dm`, `_refuse`, `_fail` (§B73), `_tries`, `_
   failure was downgrading `NO CONFIRM`); **`out.reason` set uniformly**; **`void close()`**, which UI-6/UI-7 must call
   to bound `late_ack` (§B83). ⚠ The test block needs **`#include <initializer_list>`** — the B40 case iterates a
   braced list (§B76's seventh error, missed by the scratch-TU probe).
-- Produces: `mrui::SendTracker` with `void submit(SendKind, uint8_t peer_id, uint8_t channel_id, uint32_t now_ms)`, `void accept(uint16_t ctr, uint32_t now_ms)`, `bool tick(uint32_t, SendOutcome&)`, `void close()`, `void refuse()`, `bool match_channel_sent(uint16_t ctr, bool relayed, SendOutcome& out)`, `bool match_blocked(bool blocked_channel, uint32_t next_ms, uint32_t now_ms, SendOutcome& out)`, `bool match_dm(uint16_t ctr, uint8_t dst, bool acked, bool no_pubkey, SendOutcome& out)`, `bool idle() const`.
+- Produces: `mrui::SendTracker` with `void submit(SendKind, uint8_t peer_id, uint8_t channel_id, uint32_t now_ms)`, `void accept(uint16_t ctr, uint32_t now_ms)`, `bool tick(uint32_t, SendOutcome&)`, `void close()`, `void refuse()`, `bool match_channel_sent(uint16_t ctr, bool relayed, SendOutcome& out)`, `bool match_blocked(bool blocked_channel, uint32_t next_ms, uint32_t now_ms, SendOutcome& out)`, `bool match_dm(uint16_t ctr, uint8_t dst, bool acked, FailReason r, SendOutcome& out)`, `bool idle() const`.
 
 ★ **This is the task that prevents a false safety confirmation.** Pushes are node-wide: a console post, a BLE post or a canned message all raise `channel_sent`. Without correlation, any of them completes an emergency that was never transmitted. Read spec §2.1.
 
@@ -1117,9 +1172,17 @@ public:
     // ★ B39, CORRECTED by §B84: `queued` with ctr==0 does NOT mean "not sent" — it means **NO LOCAL HANDLE EXISTS and
     //   transmission status is UNKNOWN** (three producers; the third is a delegated SUCCESS). Unattributable failures
     //   are ignored; expiry supplies `channel_remote_mint` and consumes one bounded attempt. next_ctr never yields 0, so zero is the
-    // sentinel. Caller must not call this with 0 — use awaiting_outcome() and let the matching push finish it.
-    void accept(uint16_t ctr, uint32_t now_ms) { _ctr = ctr; _accept_ms = now_ms; _state = State::accepted; }
-    // Accepted-shaped result with ctr==0: nothing is on the air, but a send_blocked / send_failed is still coming.
+    // sentinel. §B84: `accept(0)` is LEGAL and NORMALISES to `awaiting` (below) — callers need not pre-check. ⚠ This clause used to
+    // read "caller must not call this with 0", which contradicted the normalisation three lines down.
+    // §B84: `accept(0)` NORMALISES to `awaiting` — a `_ctr == 0` row in `accepted` would be matched exactly by an
+    // unrelated ctr-0 `channel_sent` and manufacture `PICKED UP`. Not a silent fallback (C2): there is only one
+    // state a zero handle can describe.
+    void accept(uint16_t ctr, uint32_t now_ms) {
+        if (ctr == 0) { awaiting_outcome(now_ms); return; }
+        _ctr = ctr; _accept_ms = now_ms; _state = State::accepted;
+    }
+    // §B84: accepted-shaped result with ctr==0 -> NO LOCAL HANDLE; transmission status UNKNOWN. A matching
+    // send_blocked/send_failed is NOT guaranteed, and an unattributable one is ignored -> bounded expiry closes it.
     void awaiting_outcome(uint32_t now_ms)     { _ctr = 0; _accept_ms = now_ms; _state = State::awaiting; }
     void refuse()                              { _state = State::idle; }
     void close()                               { _state = State::idle; }
@@ -1143,7 +1206,9 @@ public:
         out = SendOutcome::blocked(next_ms);
         _state = State::idle; return true;
     }
-    // A channel post that failed BEFORE enqueue (seal failure) — the ctr==0 case. Without this the emergency would sit
+    // ⛔ §B84: this introduced the DELETED matcher, and its premise was wrong twice over — the relevant failure is
+    // POST-MINT and ASYNCHRONOUS (a counter is already burned), not "before enqueue", and it correlates with nothing.
+    // Historical wording: a channel post that failed BEFORE enqueue (seal failure) — the ctr==0 case. Without this the emergency would sit
     // on SENDING... forever after a seal failure, because match_channel_sent can never fire for it.
     // ⛔⛔ §B84 — `match_channel_failed` IS DELETED (owner-ruled 2026-08-04). DO NOT REINTRODUCE IT.
     // §B80 gave it a `dst == 0` correlator; QA measured that **`dst == 0` does not mean "channel"** — six unrelated
@@ -1174,13 +1239,49 @@ public:
     bool match_dm(uint16_t ctr, uint8_t dst, bool acked, FailReason r, SendOutcome& out) {
         if ((_state != State::accepted && _state != State::late_ack) || _k != SendKind::dm) return false;
         if (ctr != _ctr || dst != _peer) return false;    // ★ ctr AND peer
+        // ★ In `late_ack` the ONLY thing that may still fire is the ack itself. The core deliberately permits
+        // `send_e2e_acked` after `e2e_ack_timeout` (command.h:254), so we retain identity to UPGRADE NO CONFIRM to
+        // DELIVERED (spec §3.4.1) — but letting a second, later `send_failed` through would DOWNGRADE an already
+        // reported `not_confirmed` to a generic `failed`, discarding exactly the distinction command.h insists on
+        // ("delivery was never CONFIRMED, NOT that it failed"). A repeat timeout is likewise not news.
+        if (_state == State::late_ack && !acked) return false;
         if (acked) { out = SendOutcome::dm_acked(); _state = State::idle; return true; }
         out = (r == FailReason::no_pubkey)       ? SendOutcome::dm_no_key()
             : (r == FailReason::e2e_ack_timeout) ? SendOutcome::dm_timeout()
-                                                                : SendOutcome::dm_failed(r);   // §B73: thread the reason
-        // A late ack may still arrive after e2e_ack_timeout (command.h:160) -> retain identity so it can upgrade
-        // NO CONFIRM to DELIVERED while the sub-view is still showing (spec §3.4.1).
+                                                 : SendOutcome::dm_failed(r);   // §B73: thread the reason
+        // ⓘ `dm_no_key` / `dm_timeout` carry the reason too (SendOutcome::reason defaults to `none`, so the two
+        // dedicated kinds would otherwise report `none` beside a state that IS its reason). Set it uniformly here so
+        // a renderer never has to know which kinds happen to carry it.
+        out.reason = r;
         _state = (r == FailReason::e2e_ack_timeout) ? State::late_ack : State::idle;
+        return true;
+    }
+
+    // ★★ §B79/§B84 — REQUIRED. Task 6 calls this; without it an `awaiting` slot is never closed.
+    // ★★★ THE CALLER OBLIGATION, AND IT IS SAFETY-CRITICAL — NOT A STYLE NOTE (owner-ruled 2026-08-04, register B84):
+    // ON THE EMERGENCY SLOT, `on_send_accepted(SendKind::emergency, now_ms)` MUST BE CALLED **BEFORE** THE
+    // `channel_remote_mint` IS PASSED TO `on_outcome`, SO THE EXPIRY CONSUMES ONE BOUNDED ATTEMPT.
+    // ⚠ The earlier claim that this path "fails safe to NOT HEARD" was FALSE, and the measurement is arithmetic:
+    // `UiModel::_tries` increments ONLY in `on_send_accepted` ("ACCEPTED transmissions, never requests"), and a
+    // `ctr == 0` send never reaches it. Without the consumption the cycle is
+    //     seal failure -> awaiting -> 8 s -> channel_remote_mint -> on_outcome -> re-queue -> awaiting -> 8 s -> …
+    // FOR EVER with `attempts() == 0`, because `_tries >= kEmgMaxTries` can never become true. That is UNBOUNDED
+    // AIRTIME on the distress path — in that one dimension worse than the permanent `SENDING...` it replaced.
+    // ⇒ With the consumption: three expiries spend the three-alarm budget and the third terminates in sticky
+    // `NOT HEARD` with no fourth request queued. If the missing push really was a failure, an attempt has been
+    // honestly spent. Pinned by the four integration cases in test_firmware_ui_send.cpp, which are the tripwire for
+    // the UI-6 glue that owes this call.
+    bool tick(uint32_t now_ms, SendOutcome& out) {
+        if (_state != State::awaiting) return false;                          // `accepted` never expires — see above
+        if (uint32_t(now_ms - _accept_ms) <= kOutcomeWindowMs) return false;
+        _state = State::idle;
+        // A DM reaches `awaiting` only via a HASH-addressed send parked behind an H resolve
+        // (node_hashlocate.cpp; "the ctr if sent immediately, else 0"), which the UI never issues — spec §3.4 sends
+        // by team_local_id. Guarded anyway: `channel_remote_mint` for a DM would be a type error, so release the slot
+        // and invent NOTHING. ⚠ The model is then left in `DmState::submitting`; that display residue is UI-7's, and
+        // it is registered rather than papered over with a fabricated reason.
+        if (_k == SendKind::dm) return false;
+        out = SendOutcome::channel_remote_mint();
         return true;
     }
 
@@ -1254,38 +1355,44 @@ int32_t battery_sample_mv();        // one sample; <0 = unavailable. Caller deci
 
 - [ ] **Step 4: Implement the board TU**
 
-```cpp
-#include "mr_features.h"
-#if MR_FEAT_OLED
-#include <U8g2lib.h>
-#include "board_ui.h"
+```text
+⛔⛔ THIS BLOCK IS SUPERSEDED — §B85 (QA, 2026-08-04). The code that stood here HAD THREE DEFECTS, TWO OF THEM HARD
+BUILD FAILURES, so copying it could not work:
+  1. it OMITTED the three `mr_ui_*` hooks that `fw_main` calls unconditionally      -> LINK failure
+  2. it read `MR_UI_BTN_PIN`, which Task 6 defines                                  -> COMPILE failure
+  3. NOTHING called `board_init()`, so Step 5's "the panel lights" was unreachable  -> and worse:
+     ★ under `--gc-sections` the ENTIRE canvas links out, which would have made the flash measurement a
+       VACUOUS ZERO on a GREEN build. That is the instructive one.
+  4. it never initialised Vext, leaving the panel power rail FLOATING (§B90 — not B91, which is the dead-panel
+     reporting item).
 
-static U8G2_SSD1306_128X64_NONAME_1_HW_I2C s_u8g2(U8G2_R0, /*reset=*/21, /*scl=*/18, /*sda=*/17);
-static bool s_painting = false, s_asleep = false;
+⇒ THE REFERENCE IMPLEMENTATION IS THE LANDED FILE: `variants/heltec_v3/board_ui.cpp`. It is in the repo, it is
+  gated, and it is covered by `tools/probe_board_ui/run.sh` (34 checks + 7 negative controls). Read it there.
+  ⓘ Deliberately NOT re-pasted here: this plan has been corrupted twice by lifting code BY LINE RANGE (a clipped
+  closing brace, a clipped anchor table). One authoritative copy, referenced — not two that can drift.
 
-namespace mrui {
-void board_init() { pinMode(MR_UI_BTN_PIN, INPUT_PULLUP); battery_init(); s_u8g2.begin(); set_font(Font::small); }
-void begin_frame()               { s_u8g2.firstPage(); s_painting = true; }
-bool next_page()                 { if (!s_painting) return false; if (s_u8g2.nextPage()) return true; s_painting = false; return false; }
-void set_font(Font f)            { s_u8g2.setFont(f == Font::large ? u8g2_font_10x20_tf : u8g2_font_6x10_tf); }
-void draw_text(int x,int y,const char* s) { s_u8g2.drawStr(x, y, s); }
-void draw_hline(int x,int y,int w)        { s_u8g2.drawHLine(x, y, w); }
-// ★ EDGE-triggered. An earlier draft called clearDisplay() every tick while blanked — that is a full-frame I2C
-// transfer, on every service pass, defeating the page-chunking rule entirely. setPowerSave keeps display RAM.
-void set_power_save(bool on) {
-    if (on == s_asleep) return;
-    s_u8g2.setPowerSave(on ? 1 : 0); s_asleep = on; if (on) s_painting = false;
-}
-bool button_pressed() { return digitalRead(MR_UI_BTN_PIN) == LOW; }
-}  // namespace mrui
-#endif
+WHAT THE LANDED FILE DOES THAT THIS BLOCK DID NOT:
+  • defines the three `mr_ui_*` hooks, marked TEMPORARY — ★ Task 6 MUST delete/move them when `firmware_ui.cpp`
+    takes ownership, or the link breaks on duplicate symbols. That hand-off is Task 6's first obligation.
+  • `mr_ui_init()` paints one frame through the REAL page loop, so `board_init()` runs and the canvas survives
+    `--gc-sections`.
+  • drives Vext to the MeshCore-proven LOW. ⚠ Whether the panel is actually on that rail is NOT established —
+    bench question 8.2, ahead of the reset pin.
+  • `MR_UI_BTN_PIN` is supplied by `[env:heltec_v3]` (`platformio.ini:227`), not by this task's source.
 ```
 
-The `mr_ui_*` hooks are **not** defined here — they live in `firmware_ui.cpp` (Task 6). `battery_init` / `battery_sample_mv` land in Task 9; until then provide `int32_t battery_sample_mv() { return -1; }` and an empty `battery_init()` so the TU links and the panel renders `--`.
+⛔ **§B85 CORRECTION: the `mr_ui_*` hooks ARE defined here, TEMPORARILY.** Without them `fw_main`'s unconditional
+calls do not link, so Task 5 could not build at all. ★★ **Task 6's FIRST obligation is to delete/move them** as
+`firmware_ui.cpp` takes ownership — leaving both is a duplicate-symbol link failure. Historical wording: they live in `firmware_ui.cpp` (Task 6). `battery_init` / `battery_sample_mv` land in Task 9; until then provide `int32_t battery_sample_mv() { return -1; }` and an empty `battery_init()` so the TU links and the panel renders `--`.
 
-- [ ] **Step 5: Build and flash; the panel lights**
+- [ ] **Step 5: Build and flash; the panel lights** — ⚠ §B85: only reachable because `mr_ui_init()` now paints one
+      frame through the real page loop. ⛔ **`-t upload` was NOT run in UI-5 (no board attached)**, so everything
+      metal-only is UNVERIFIED and sits in bench-script **Part 8** with its expected panel content.
 
-Run: `pio run -e heltec_v3 -t upload`. If the panel stays dark, suspect the reset pin (spec §14 Q1) before the driver.
+Run: `pio run -e heltec_v3 -t upload`. ⚠ **§B90 CORRECTION — the old advice here ("suspect the reset pin before the
+driver") is superseded and now contradicts the bench sequence.** Vext (GPIO 36) was **never driven by this tree**, so
+the panel rail was FLOATING; UI-5 now drives the MeshCore-proven LOW, but **whether the panel is on that rail is NOT
+established.** ⇒ **Vext FIRST, reset second** — bench-script Part 8 question **8.2** ahead of the reset pin.
 
 - [ ] **Step 6: Report ready — do NOT commit**
 
@@ -1300,7 +1407,9 @@ Run: `pio run -e heltec_v3 -t upload`. If the panel stays dark, suspect the rese
 - [ ] **Step 1: Add pins and constants**
 
 ```ini
-  -DMR_UI_BTN_PIN=0             ; Heltec V3/V4 user button. Active LOW, INPUT_PULLUP.
+  ; ✅ ALREADY LANDED IN UI-5 (`platformio.ini:227`) — do NOT add it again. Task 5 needed it to compile
+  ; (`board_ui.cpp` reads it), which is why it moved forward from this task.
+  ;   -DMR_UI_BTN_PIN=0          ; Heltec V3/V4 user button. Active LOW, INPUT_PULLUP.
                                 ; NB GPIO0 is the ESP32-S3 boot strap: held across a reset it enters download mode.
   -DMR_UI_TEAM_CHANNEL_ID=0     ; owner ruling: build constant, no cfg key / NV field / console verb
   -DMR_UI_ADC_CTRL=37
@@ -1540,8 +1649,9 @@ static void ui_perform_send(const mrui::SendReq& req, uint32_t now_ms) {
     }
     // ★ B39, CORRECTED by §B84: `queued` is NOT proof of transmission — but ctr==0 is NOT proof of failure either. It
     //   means no local handle exists and the status is UNKNOWN. A blocked or seal-failed channel post returns queued with ctr==0
-    // (node_channel.cpp `return 0` -> node.cpp wraps it). next_ctr never yields 0, so zero is the sentinel: nothing is
-    // on the air, NO attempt is counted, and we wait for the matching send_blocked / send_failed instead.
+    // (node_channel.cpp `return 0` -> node.cpp wraps it). next_ctr never yields 0, so zero is the sentinel — but §B84:
+    // it marks NO LOCAL HANDLE / status UNKNOWN, not "nothing was sent". We do NOT wait for a matching push (it may
+    // never come, or be unattributable); bounded expiry closes the slot and CONSUMES one attempt.
     if (r.result.ctr == 0) { tr.awaiting_outcome(now_ms); return; }
     tr.accept(r.result.ctr, now_ms);
     s_model.on_send_accepted(req.kind, now_ms);

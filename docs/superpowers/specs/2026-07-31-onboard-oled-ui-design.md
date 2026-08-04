@@ -146,7 +146,7 @@ Rules, all of which must hold before a push may complete a UI transaction:
    the third is a delegated **SUCCESS** (`node.cpp:1565-1573`), while the post-mint seal failure pushes a reason that
    the core itself documents as arriving *"asynchronously and correlat[ing] with nothing"* (`node_channel.cpp:~740`).
    ⇒ **unattributable failures are IGNORED; expiry supplies `channel_remote_mint` and CONSUMES one bounded attempt**,
-   so three expiries end in sticky `NOT HEARD`. `CmdCode::queued` alone is not proof of transmission — a blocked or seal-failed channel post returns `queued` with `ctr == 0` (B39). `next_ctr` never yields 0, so zero is the sentinel. A zero-ctr result means *nothing was sent*: no attempt is counted, and the tracker waits for the matching `send_blocked` / `send_failed` instead.
+   so three expiries end in sticky `NOT HEARD`. `CmdCode::queued` alone is not proof of transmission — a blocked or seal-failed channel post returns `queued` with `ctr == 0` (B39). `next_ctr` never yields 0, so zero is the sentinel. A zero-ctr result means **no LOCAL HANDLE exists and the transmission status is UNKNOWN** — it is *not* proof that nothing was sent (the third producer is a delegated **success**). The tracker therefore does **not** wait for a matching `send_blocked` / `send_failed`: an unattributable failure is **ignored**, and the slot is closed by **bounded expiry**, which supplies `channel_remote_mint` **and consumes one attempt** (§B84).
 3. `channel_sent` completes an emergency **only** when its `ctr` matches the tracked handle (needs B40 for the full width).
 4. `send_blocked` must be `blocked_channel == true` **and** arrive inside the pending request's outcome window. It carries no `ctr`, so scope plus a bounded window is the only correlator available — weaker than exact matching, and labelled as such rather than described as exact attribution.
 5. `send_e2e_acked` / `send_failed` complete a **DM** only on a matching `ctr` **and** peer.
@@ -530,7 +530,7 @@ Peer location exchange is the open dependency: distance needs teammates' coordin
 ## 11. Flash / RAM budget and D2
 
 - RAM: `UiSnapshot` + `UiState` + a teammate array capped at **`kMaxTeamRows = 8`** + a 128 B page buffer. Expected low hundreds of bytes; measure, don't estimate. **8, not 16** — a 3–10 member hiking group (§1) is the design target, each row carries a display label, and the TEAM screen must show a truncation marker rather than silently under-report when `rt_team_count()` exceeds the cap. The snapshot therefore carries both the shown count and the true total.
-- Flash: U8g2 with **two** fonts selected (6×8, 8×16). Do not link the full font set.
+- Flash: U8g2 with **two** fonts selected (6×10, 10×20). Do not link the full font set.
 - These units live in `src/`, not `lib/core`, so **`sizeof(Node)` is unchanged** and the `node.h:1976` assert is untouched. That is a deliberate architectural consequence: no UI state belongs in the protocol engine.
 - Per D2/the 3-env board rule, gate on `gateway` + `xiao_sx1262` + `xiao_esp32s3`, plus `heltec_v3` and `heltec_mobile` since those are the envs Phase A changes. Record the flash/RAM delta for the Heltec envs. ESP32-S3 flash is not the constraint here (V3 devkit part; V4 is 16 MB) — the reason to record it is the RadioLib-pinning lesson about baselines drifting unnoticed, not headroom anxiety.
 

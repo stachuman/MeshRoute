@@ -42,7 +42,7 @@ Legend:
 - [ ] **B56 — OPEN / CONTRACT DECISION:** stage-2 `reqpubkey` failure is not app-visible.
 - [ ] **B60 — OPEN / SPEC READY; ACK POLICY OPEN:** multi-gateway `send_layer` resolves the final hash on an intermediate layer instead of selecting the next gateway.
 - [x] **B61 — FIXED 2026-08-03 (own commit, UNCOMMITTED):** `board_name()`'s silent `#else → "native"` is now an `#error`; `MESHROUTE_NATIVE` gets its own explicit arm.
-- [ ] **B62 — OPEN / ONE LINE, DEFERRED BY DESIGN:** three in-source paths still say `src/board_ui.cpp` after §A0 moved the file to `variants/heltec_v3/` — including the file's own line-1 header. Fold into the Phase-A OLED slice.
+- [x] **B62 — ✅ CLOSED 2026-08-04 (UI-5, UNCOMMITTED):** the last open item — `board_ui.cpp:1`'s own path header — is fixed by the slice that rewrote the file, exactly where the entry said to fix it. A tree-wide `grep -rn 'src/board_ui' src/ lib/ variants/ platformio.ini` now returns **nothing**.
 - [ ] **B63 — RECORDED (gate methodology):** on xtensa, an object entering or leaving the link set moves `.flash.text` by up to ±200 B **even when it is zero bytes**; free on ARM. Retires the "+192 B = leaving `src/`" rule.
 - [ ] **B64 — OPEN / OLED UI-2:** a team roster that shrinks between ticks makes the compose modal send the canned DM to a **different teammate** than the highlighted one.
 - [ ] **B65 — OPEN / OLED UI-2:** the UI model can blank the panel on its **first tick** if `mr_ui_init()` runs more than `kBlankMs` after boot — a panel that never drew anything.
@@ -61,9 +61,18 @@ Legend:
 - [x] **B79 — FIXED 2026-08-04 (UI-4, UNCOMMITTED):** `SendOutcome::channel_remote_mint()` — §B68's whole point — had **no producer anywhere in the tree**, and the `awaiting` state it belongs to was **never closed**, so B39's producer (3) left the alarm on `SENDING...` for ever. `SendTracker::tick()` is the window's expiry and the kind's only producer.
 - [x] **B80 — ★ OWNER-RULED then RESOLVED BY DELETION 2026-08-04 (UI-4, UNCOMMITTED):** `match_channel_failed` had **no correlator at all**, so any DM's `send_failed` inside the 8 s window terminated an awaiting alarm as TERMINAL `Emergency::failed`. ⛔ **My first fix — a `dst == 0` discriminator — was a CONVERSE ERROR and is withdrawn:** *channel ⇒ dst 0* does not give *dst 0 ⇒ channel*, and **six unrelated operations emit that shape**. ⇒ **the matcher is DELETED and must not be reintroduced**; the path is covered by synchronous preflight refusals plus `tick()`'s bounded expiry (**B84**).
 - [x] **B84 — ★★ FIXED 2026-08-04 (UI-4, UNCOMMITTED):** the `tick()` expiry that closed B79 was an **INFINITE RETRY LOOP** — `_tries` moves only in `on_send_accepted`, which a `ctr == 0` send never reaches, so the alarm re-queued for ever with `attempts() == 0`. **An expired unattributable emergency now CONSUMES ONE BOUNDED ATTEMPT before its outcome is processed**; three expiries end in sticky `NOT HEARD`.
-- [x] **B81 — ✅ CORRECTED IN THE SPEC 2026-08-04** (the `channel_id` half is withdrawn as unsatisfiable; `peer_id` stands): spec §2.1's table promises a **`channel_id` scope check no outcome push can satisfy** — neither `channel_sent` nor `send_blocked` carries a channel id. Marked in-source; the spec line needs correcting.
+- [x] **B81 — ✅ CORRECTED IN THE SPEC 2026-08-04** (the `channel_id` half is withdrawn as unsatisfiable; `peer_id` stands): spec §2.1's table PROMISED a **`channel_id` scope check no outcome push can satisfy** — neither `channel_sent` nor `send_blocked` carries a channel id. Marked in-source; the spec line needs correcting.
 - [ ] **B82 — RECORDED (gate methodology), B77's class in a new disguise:** the **`.d`-file census does not exist in this project on ANY env** (SCons uses `.sconsign*.dblite`), and a relative-path `find` in an agent shell whose cwd resets reported a tidy `NA` five times for the wrong reason. **Every census needs a POSITIVE CONTROL printed beside it.**
 - [ ] **B83 — OPEN (UI-6/UI-7), obligation named:** the tracker's `late_ack` slot is bounded only by the caller calling `close()`, and an `awaiting` DM leaves the model in `DmState::submitting`. Both are unreachable from today's UI and both are deliberately not papered over inside the tracker.
+- [x] **B85 — ✅ WORKED AROUND 2026-08-04 (UI-5, UNCOMMITTED); THE PLAN STILL NEEDS THE OWNER'S EDIT:** the plan's Task-5 Step-4 code block **does not compile, does not link, and cannot meet its own Step 5** — it omits the three `mr_ui_*` hooks `fw_main` calls unconditionally, it reads a `MR_UI_BTN_PIN` that Task 6 defines, and nothing in it ever calls `board_init()`, so *"the panel lights"* is unreachable **and** `--gc-sections` links the whole canvas out. All three measured.
+- [ ] **B86 — RECORDED (gate methodology), a REFINEMENT of §A0's rule:** the ±32 B ARM literal-packing quantum fires between two builds **inside one session**, because the banner packs `__TIME__`, which changes every second. ⇒ **on ARM compare the SYMBOL MULTISET, not the flash total.**
+- [x] **B87 — ✅ RULED 2026-08-04: totals PINNED, instrument shipped.** ⚠ **THREE** OLED envs, not two (`gateway_heltec` `extends = env:heltec_v3`) — pinned clean-build totals `heltec_v3` 178 / `heltec_mobile` 178 / `gateway_heltec` 174 warnings, `-Wswitch` **0** on all three, reproducible via **`tools/warning_census.sh`** (an incremental `pio run` emits none, so the pin was unenforceable without it). A HIGHER count fails. Scoping `-fno-rtti` is its own build slice (C1): `build_src_flags` covers `src/` only and would strip it from `lib/` + `variants/`. Detail: **127 are our own blanket `-fno-rtti`** hitting U8g2's 127 C translation units and **2 are U8g2's own**, in a module that is linked out. `-Wswitch` stays 0. The standing rule is "no new warnings".
+- [ ] **B88 — RECORDED / TASK 6:** three of the nine canvas entry points (`set_power_save`, `button_pressed`, `battery_sample_mv`) are **garbage-collected out** of the UI-5 image ⇒ the slice's flash figure is a **lower bound**, and blanking and the button **cannot be bench-tested until Task 6**.
+- [ ] **B89 — RECORDED (budget attribution):** the display's ~35 KB flash cost is **~26 KB of I²C transport**, not the display library — U8g2 itself is 9 860 B and our canvas ~497 B. Switching display library would not recover it.
+- [ ] **B90 — OPEN / BENCH DECIDES:** the panel power rail (Vext, GPIO 36) was **never driven by this tree**; UI-5 now drives it to MeshCore's proven LOW, but whether the panel is on that rail at all is **not established** by the reference port.
+- [ ] **B91 — OPEN / TASK 6:** the canvas **cannot report a dead panel** — `board_init()` is `void` and U8g2's `begin()` always returns 1, so a wrong reset pin / address / dead panel is indistinguishable from success in software.
+- [ ] **B92 — OPEN / SPEC CORRECTION:** spec §11 names the fonts *"6×8, 8×16"*; the plan and the shipped code use `6x10` / `10x20`, now measured at **4 990 B of 9 860 B**. The spec should be corrected to what landed.
+- [ ] **B93 — OPEN / LATENT:** `lib/hal/mr_ui.h` forward-declares `namespace meshroute { struct Push; }` with a **hardcoded** namespace while `command.h` uses the overridable `MESHROUTE_NS`. Same class as the §UI-3-QA finding, one level up.
 - [x] **B78 — OWNER-RULED then FIXED 2026-08-04 (UI-3 QA, UNCOMMITTED):** `Emergency::failed` joins `hold_active()`'s retained set and holds for `kEmgHoldMs` from the failure's **own** arrival time (`on_send_refused` gained a `now_ms` parameter; `retain()` on both the synchronous and `channel_failed` paths). ⇒ **`kEmgHoldMs` re-ruled 120000 → 30000** in the same breath.
 
 ### Parked or trigger-gated
@@ -1801,7 +1810,7 @@ model for UI-3's synchronous shape; recorded, not removed).
 **four integration cases plus a deliberate NEGATIVE CONTROL** that asserts the defect shape, so "green suite" and
 "bounded" cannot be confused again. Probe **P13** (patched in the caller): 4 assertions red.
 
-### B81 — spec §2.1 promises a `channel_id` scope check that NO outcome push can satisfy · NEW 2026-08-04 · OPEN (documentation only)
+### B81 — spec §2.1 promised a `channel_id` scope check that NO outcome push can satisfy · NEW 2026-08-04 · ✅ FIXED 2026-08-04 (spec corrected: the `channel_id` half is WITHDRAWN as unsatisfiable; `peer_id` stands and is load-bearing)
 Spec §2.1's tracker table lists *"`channel_id` / `peer_id` — scope check before a push may match"*, and the plan's
 `submit()` duly records `channel_id`. **Measured: neither channel outcome push carries a channel id at all.**
 `Node::emit_channel_sent` sets only `relayed` + `ctr` (`node_channel.cpp:850-852`) and `Node::emit_send_blocked` sets
@@ -1809,7 +1818,7 @@ only `blocked_channel` / `reason` / `next_ms` (`:822-826`). ⇒ `SendTracker::_c
 construction**, which is now stated in-source beside the field ([[meshroute-mark-done-vs-missing-in-code]]) together
 with where the check would go if a push ever grows the field. ⓘ No behaviour is lost: on `channel_sent` the exact
 16-bit `ctr` match is strictly stronger, and on `send_blocked` there is nothing stronger available — which is why the
-header refuses to call that path "exact attribution". **Action: correct the spec line; do not add a check that cannot
+header refuses to call that path "exact attribution". **Action: ✅ DONE 2026-08-04 — the spec line is corrected; a check that cannot
 be evaluated.**
 
 ### B82 — RECORDED (gate methodology): the `.d`-file census does not exist here, and a relative path made its absence look like a clean result · NEW 2026-08-04
@@ -1846,6 +1855,90 @@ Two deliberate non-fixes, recorded so they are not rediscovered as defects:
 3. **Offer order.** ⚠ **§B84: `match_channel_failed` IS DELETED — only `match_blocked` remains window-correlated**, so
    the hazard is now single-sourced. Original wording kept below for the audit trail. `match_blocked` correlates by window rather than by `ctr`, so **UI-6 must
    offer every push to the EMERGENCY tracker first**. Stated in the header; not testable with one slot.
+
+### B85 — ★★ the plan's Task-5 code block did not compile, did not link, and could not meet its own Step 5 · ✅ FIXED 2026-08-04 (Step 4 now REFERENCES the landed `variants/heltec_v3/board_ui.cpp` — deliberately not re-pasted; this plan has been corrupted twice by line-range lifting) · NEW 2026-08-04 · ✅ worked around in UI-5; **the PLAN still needs the owner's edit**
+**MEASURED** (`simulation/BASELINE.md`, 2026-08-04 §UI-5). Three independent defects in one code block:
+
+| # | the block says | measured |
+|---|---|---|
+| ① | *"The `mr_ui_*` hooks are **not** defined here — they live in `firmware_ui.cpp` (Task 6)"*, and omits all three | ⛔ **link failure.** `fw_main.cpp:842/1145/1326` calls them unconditionally and `MR_FEAT_OLED=1` removes `mr_ui.h`'s inline stubs ⇒ `undefined reference` ×3. §A0's own control P-A0-1 used that exact failure as an instrument. **The hooks must stay in `board_ui.cpp` until `src/firmware_ui.cpp` exists** |
+| ② | `board_init()` / `button_pressed()` read `MR_UI_BTN_PIN` | ⛔ **compile failure.** The `-D` is in **Task 6** Step 1 (plan `:1349`), one task after the file that reads it |
+| ③ | Step 5 *"the panel lights"* | ⛔ **unreachable.** The only caller of `board_init()` is `mr_ui_init()`, which is Task 6's. Worse: `-Wl,--gc-sections` links an uncalled canvas OUT, so the slice's flash measurement would have been a vacuous zero |
+
+**Fix as landed (UI-5):** the three hooks stay in `board_ui.cpp`, marked TEMPORARY with the reason Task 6 must delete
+them; `-DMR_UI_BTN_PIN=0` moves into `[env:heltec_v3]`; `mr_ui_init()` brings the panel up and paints **one** frame
+through the real page loop, which is simultaneously Step 5's acceptance test and the reachability that makes the flash
+number real. ⇒ **The plan's Task-5 Step-4 block and Task-6 Step-1 list both need editing** (not done here — spec/plan
+edits were not authorised for this slice).
+
+### B86 — RECORDED (gate methodology): the ±32 B ARM literal-packing quantum fires WITHIN one session · NEW 2026-08-04
+**MEASURED** (§UI-5). §A0 concluded *"two builds of identical source within one session reproduce exactly."* Too weak:
+the version banner packs `__DATE__ " " __TIME__` (`fw_main.cpp:427`, `firmware_commands.cpp:364`) and `__TIME__` moves
+every **second**. `gateway` read **466884** at 16:05 and **466852** at 16:19 and again at 16:27, with a **0-line
+symbol-multiset diff** across the last two and **0** `mrui`/`u8g2` symbols in the image. ⇒ ★ **on ARM, compare the
+symbol multiset (name + size), not the flash total.** `xiao_sx1262` / `xiao_esp32s3` flash *did* reproduce to the byte,
+so the totals are still usable there — just not load-bearing on their own.
+
+### B87 — ⚠ THREE OLED envs (not two) gain warnings; 127 are OUR flag, 2 are U8g2's · NEW 2026-08-04 · ✅ RULED: totals PINNED at 178/178/174 with `-Wswitch` 0, gated by `tools/warning_census.sh` / OWNER CALL
+**MEASURED** (§UI-5). `heltec_v3` and `heltec_mobile` go 49 → **178**; `-Wswitch` stays **0** on all five envs.
+
+| class | Δ | attribution |
+|---|---|---|
+| `'-fno-rtti' is valid for C++/D/ObjC++ but not for C` | 30 → 157 (**+127**) | **ours** — `-fno-rtti` is in `[common].build_flags`, blanket by the same ruling that put `-Werror=switch` there, and U8g2 ships 127 **C** TUs |
+| `-Wunused-function` `mui.c:591` · `-Wunused-variable` `mui_u8g2.c:1256` | 0 → **2** | **U8g2's own**, in the MUI menu module — `nm` finds **0** `mui` symbols in the image, so it is compiled then linked out |
+
+**Candidate fixes:** (a) accept — recommended; (b) move `-fno-rtti` from `[common].build_flags` to `build_src_flags`,
+which removes it from **every third-party C++ TU on every env** (a codegen change, its own slice, and C1 forbids folding
+it into a feature). U8g2's two warnings are not fixable without editing a vendored file.
+
+### B88 — RECORDED: three canvas entry points are garbage-collected out of the UI-5 image · NEW 2026-08-04 · closes in TASK 6
+**MEASURED** (§UI-5). `nm` finds **0** occurrences of `mrui::set_power_save`, `mrui::button_pressed` and
+`mrui::battery_sample_mv` in the `heltec_v3` ELF. They compile (the object carries their `.text.*`/`.literal.*`
+sections) and `--gc-sections` drops them, because Task 5's boot frame calls only six of the nine. ⇒ **the +34 924 B is a
+LOWER BOUND**, and **blanking and the button cannot be bench-verified until Task 6 wires them** — which is why Part 8's
+entries for those are written as Task-6 checks. ⓘ A 0/N meaning *"linked out"*, not *"inert"*.
+
+### B89 — RECORDED (budget attribution): the display's flash cost is the I²C transport, not the display library · NEW 2026-08-04
+**MEASURED** (§UI-5) by an exact `nm` set-difference against a same-session BEFORE built in a throwaway worktree:
+Arduino/IDF **I²C driver stack 17 962 B** (92 symbols, pulled in by U8g2's HW-I2C `Wire` backend) · **U8g2 itself
+9 860 B** (incl. 4 990 B for the two named fonts and the 128 B page buffer) · FreeRTOS ring-buffer/clock helpers 909 B ·
+**ours ≈ 497 B**. Total image delta 35 572 B; ~6.5 KB is symbol-less padding and merged const pools. ⇒ recorded so
+*"the OLED cost 35 KB"* stays attributable, and so nobody expects a different display library to recover it — any
+`Wire`-based panel driver pulls the same transport. Flash sits at 37.2 % of 3.34 MB; this is attribution, not alarm.
+
+### B90 — the panel power rail (Vext, GPIO 36) was never driven by this tree · NEW 2026-08-04 · OPEN / BENCH DECIDES
+**FOUND while implementing UI-5** (§UI-5). The plan's Task-5 block never touches GPIO 36, and neither did anything else
+in this tree, so on an ESP32-S3 it comes up as an input with no pull and the rail's gate is indeterminate. MeshCore's
+working V3 port drives it to a definite level at board begin — `RefCountedDigitalPin::begin()` writes `!active` with
+`active` defaulting HIGH ⇒ **LOW** — and its SSD1306 works with the display holding **no claim** on the pin.
+**Landed:** `board_init()` reproduces that proven level via file-local `kVextPin` / `kVextOnLevel`.
+⚠ **Residual, and it is the honest part:** that port never claims the rail, so it does **not** establish that the panel
+is on it — this is *"reproduce the proven pin level"*, not *"Vext is active-low"*. If the bench shows a dark panel, flip
+`kVextOnLevel` to HIGH **before** suspecting the reset pin, which is where the plan's Step 5 hint points first and is
+the wrong first suspect on a rail that was floating until this slice. Bench: Part 8.
+
+### B91 — the canvas cannot REPORT a dead panel · NEW 2026-08-04 · OPEN (TASK 6 owns the report channel)
+**FOUND while implementing UI-5** (§UI-5). `mrui::board_init()` is `void`, and U8g2's `begin()` is
+`initDisplay(); clearDisplay(); setPowerSave(0); return 1;` — it performs **no I²C ack check**, so it cannot fail.
+MeshCore probes the address instead (`SSD1306Display::i2c_probe` → `Wire.endTransmission() == 0`). ⇒ a wrong reset pin,
+a wrong address or a dead panel is **indistinguishable from success in software**, which is exactly the misdiagnosis
+spec §14 Q1 warns about. Not fixed here: a failure channel needs a caller that can surface it, and the console sink is
+`firmware_ui.cpp`'s (Task 6). Marked in-source at the top of `board_ui.cpp`.
+
+### B92 — spec §11's font names disagree with the plan and with what landed · NEW 2026-08-04 · OPEN / SPEC CORRECTION
+**MEASURED** (§UI-5). Spec §11 says *"U8g2 with **two** fonts selected (6×8, 8×16)"*; the plan's Task-5 block and the
+shipped `set_font()` use `u8g2_font_6x10_tf` / `u8g2_font_10x20_tf`, matching `board_ui.h`'s `Font` comment. The plan is
+authoritative for this slice, so 6x10/10x20 landed. The two fonts measure **4 990 B of the 9 860 B U8g2 total**, i.e.
+half of it — a real budget line, not a cosmetic detail. **Correct §11 to the pair that landed** (or rule the other way
+and re-measure; 6×8/8×16 would be smaller).
+
+### B93 — `mr_ui.h` forward-declares `Push` in a HARDCODED namespace · NEW 2026-08-04 · OPEN / LATENT
+**FOUND while implementing UI-5** (§UI-5). `lib/hal/mr_ui.h:17` writes `namespace meshroute { struct Push; }` while
+`command.h:13-15` defines `Push` inside the build-overridable `MESHROUTE_NS` (`-DMESHROUTE_NS=meshroute_gw` is named in
+that very comment for the two-lib gateway variant). No env overrides it today, so both spellings are the same type and
+everything links — the same latent class the §UI-3-QA note found for `SendFailReason` one level up, where the fix was
+`using FailReason = MESHROUTE_NS::SendFailReason;`. The day a variant sets the macro, `mr_ui_on_push` takes a different
+(incomplete) type than the one being pushed. One line in a `lib/hal` header ⇒ **not** folded into a board slice (C1).
 
 ## How to use this file
 

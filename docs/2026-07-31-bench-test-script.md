@@ -492,6 +492,68 @@ bursts, beacons, and requests. Record an outcome only when the relevant conditio
   - Do: with `debug on`, watch a by-ID H query pass through.
   - Pass: trace contains `BY_ID id=<N> ... HARD`, not `hash=<N>`.
 
+## Part 8 — Heltec V3 OLED panel bring-up (slice UI-5)
+
+Rig: **one Heltec WiFi LoRa 32 V3**, `pio run -e heltec_v3 -t upload` (or `heltec_mobile`). Nothing else needs to be on
+air. These are here because **no native test and no simulator can reach the panel, the button or the ADC** (rule M2);
+the automated side of UI-5 is in `simulation/BASELINE.md` §UI-5.
+
+⚠ **UI-5 wires only the boot frame.** `set_power_save`, `button_pressed` and `battery_sample_mv` are compiled but
+**garbage-collected out of the UI-5 image** (register B88) — 8.4/8.5/8.6 below are therefore **Task 6 / Task 9** checks
+and cannot pass on a UI-5 build. Do not mark them from this firmware.
+
+- [ ] **8.1 — The panel lights, and shows exactly this**
+  - Do: flash, then watch the panel from power-on. The frame is painted once, at the end of `setup()`, right before the
+    console prints `  node      = up. Type 'help' for commands.`
+  - Pass: two lines of text with a horizontal rule between them —
+    - large (10×20): `MeshRoute`
+    - a full-width rule under it
+    - small (6×10): `OLED UI-5 ok`
+  - The frame is **static** and stays until power-off (UI-5 has no tick-side render; that is Task 6).
+  - ⛔ If the panel is **blank/dark**, do NOT start with the driver. Work the two board facts below in this order —
+    both are one-line edits in `variants/heltec_v3/board_ui.cpp`, and both are unresolved *hardware* questions, not code
+    defects (registers B90, B91; spec §14 Q1).
+
+- [ ] **8.2 — Vext polarity (register B90) — the FIRST suspect on a dark panel**
+  - Background: nothing in this tree drove GPIO 36 before UI-5. UI-5 drives it **LOW**, the level MeshCore's working V3
+    port leaves it at. Whether the panel is on that rail is *not* established by that port.
+  - Do: if 8.1 is dark, change `kVextOnLevel` from `LOW` to `HIGH`, reflash, repeat 8.1.
+  - Pass: record **which level lights the panel**. That answer closes B90; leave the winning level in place.
+
+- [ ] **8.3 — Panel reset pin 21 (spec §14 Q1) — the SECOND suspect**
+  - Background: 21 comes from MeshCore's `SSD1306Display.h` `PIN_OLED_RESET` default and from our own pre-A0 seam note;
+    MeshCore's V3 *variant* defines none, which is what left the question open.
+  - Do: only if 8.1 is still dark after 8.2, change `kOledRst` to `U8X8_PIN_NONE` (255) and reflash.
+  - Pass: record whether the panel needs the explicit reset. Either answer closes §14 Q1.
+  - ⚠ **A dead panel is silent** — `mrui::board_init()` is `void` and U8g2's `begin()` cannot fail (register B91), so
+    there is no console line to grep. The panel itself is the only instrument here.
+
+- [ ] **8.4 — TASK 6: blanking produces no repeated bus traffic**
+  - Do: on a Task-6 build, leave the node untouched past `MR_UI_BLANK_MS` and watch the I²C lines (scope or logic
+    analyser on SDA 17 / SCL 18).
+  - Pass: **one** short burst at the blank transition, then **silence** — not a repeating ~1 KB frame.
+  - This is the metal half of the edge-triggered-blanking probe; the host half is §UI-5's control C1.
+
+- [ ] **8.5 — TASK 6: user button on GPIO 0**
+  - Do: on a Task-6 build, press the user button.
+  - Pass: the UI reacts (pressed reads **LOW**, `INPUT_PULLUP`).
+  - ⚠ **GPIO 0 is the ESP32-S3 boot strap.** Separately confirm that holding the button **across a reset** enters
+    serial-download mode — expected hardware behaviour (spec §10.1), to be documented for users, not fixed in firmware.
+
+- [ ] **8.6 — TASK 9: battery reading against a multimeter**
+  - Do: on a Task-9 build, compare the reported millivolts with a meter on the cell.
+  - Pass: within ~50 mV. A consistent *ratio* error means this board revision's divider differs — record the measured
+    value, do not tune the constant to taste.
+  - Until Task 9, `battery_sample_mv()` returns `-1` and the panel must render `--`, never a number.
+
+- [ ] **8.7 — Paint versus radio (spec §5 rule 1; the check most likely to fail)**
+  - Do: on a Task-6 build, run a DM load while cycling screens continuously.
+  - Pass: no CTS-timeout regression versus the same load with the panel idle.
+  - Rationale, so the threshold is not guessed: a **full** frame is ~25 ms of blocking I²C at 400 kHz against
+    `cts_to_data_gap_ms = 5`. UI-5 links the **128 B page-buffer** mode (`nm firmware.elf | grep 'buf\$'` reads `128`,
+    not `1024`), so one page is ~3 ms — inside the RX window slop, but that is spec §14 Q4's open assumption and this
+    is the check that tests it.
+
 ## Current semantics and known gaps — not checklist items
 
 - **Transmitter-admitted is the synchronous boundary.** `queued` / `reqpubkey_sent` means accepted by the current TX
