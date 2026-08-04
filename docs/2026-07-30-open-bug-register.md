@@ -1932,6 +1932,32 @@ authoritative for this slice, so 6x10/10x20 landed. The two fonts measure **4 99
 half of it — a real budget line, not a cosmetic detail. **Correct §11 to the pair that landed** (or rule the other way
 and re-measure; 6×8/8×16 would be smaller).
 
+### B93b / B94 — ★★ `heltec_v3` FAILS TO BUILD ON WINDOWS: `'Wire' was not declared in this scope` · NEW 2026-08-04 · FIX APPLIED, **VERIFICATION OWED ON WINDOWS**
+Owner-reported: `U8x8lib.cpp:1338: error: 'Wire' was not declared in this scope`, with the same 127 `-fno-rtti` C
+warnings B87 pins. **Linux builds clean.**
+★★ **THE ASYMMETRY IS THE FINDING: Linux was the ACCIDENT, not Windows the anomaly.** `Wire` is **not** in
+`.pio/libdeps/heltec_v3/` on **either** host — it was never resolved as a library at all, only found off a framework
+include path. ⇒ the dependency was **never declared**, and every Heltec RAM/flash/warning figure was measured on that
+un-declared path. ⓘ This machine also has **two** `framework-arduinoespressif32` packages (the URL-pinned pioarduino
+fork **and** a stock one), i.e. a fallback the owner's host lacks.
+**Diagnosis, by elimination — measured, not guessed:**
+- U8g2 guards the `#include <Wire.h>` (`U8x8lib.cpp:48-52`) and the `Wire.write` call (`:1334`) under the **SAME**
+  `#ifdef U8X8_HAVE_HW_I2C`. The call compiled ⇒ the macro was defined ⇒ **the include was active.**
+- A missing header is **fatal**, so compilation could not have reached `:1338` had `Wire.h` been absent ⇒ **it resolved.**
+- Both framework copies declare `extern TwoWire Wire;` **unconditionally** (fork `:146`, stock `:162`) — no
+  `NO_GLOBAL_TWOWIRE`-style guard to blame.
+⇒ **the surviving explanation is that on Windows `<Wire.h>` resolved to a DIFFERENT file than the framework's** (another
+library's header on the include path, or a case-insensitivity collision).
+**Fix applied:** `Wire` named explicitly in `[env:heltec_v3]` `lib_deps`, so PlatformIO puts the framework's `Wire/src`
+on the include path rather than leaving it to LDF discovery. Not via `lib_ldf_mode` — this env documents that deeper
+modes try to compile framework WiFi/LittleFS from source on this fork and fail.
+⚠⚠ **MEASURED INERT ON LINUX and that is EXPECTED, not reassuring:** the gate reproduces **324 objects · 178 warnings ·
+RAM 211252 · Flash 1244400** — byte-identical. An explicit include path *should* be a no-op where the path was already
+right. ⇒ **it does NOT demonstrate the Windows fix works.** B87's pinned totals are unaffected.
+**OWED FROM THE OWNER (cannot be verified from Linux):** (1) re-run `pio run -e heltec_v3` on Windows; (2) if it still
+fails, **the FULL log** — the paste begins mid-stream and the lines *before* it would show which `Wire.h` was opened;
+(3) `pio run -e heltec_v3 -v` grep for `Wire` on the include path is the decisive datum.
+
 ### B93 — `mr_ui.h` forward-declares `Push` in a HARDCODED namespace · NEW 2026-08-04 · OPEN / LATENT
 **FOUND while implementing UI-5** (§UI-5). `lib/hal/mr_ui.h:17` writes `namespace meshroute { struct Push; }` while
 `command.h:13-15` defines `Push` inside the build-overridable `MESHROUTE_NS` (`-DMESHROUTE_NS=meshroute_gw` is named in
