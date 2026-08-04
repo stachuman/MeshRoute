@@ -1940,23 +1940,35 @@ warnings B87 pins. **Linux builds clean.**
 include path. ⇒ the dependency was **never declared**, and every Heltec RAM/flash/warning figure was measured on that
 un-declared path. ⓘ This machine also has **two** `framework-arduinoespressif32` packages (the URL-pinned pioarduino
 fork **and** a stock one), i.e. a fallback the owner's host lacks.
-**Diagnosis, by elimination — measured, not guessed:**
-- U8g2 guards the `#include <Wire.h>` (`U8x8lib.cpp:48-52`) and the `Wire.write` call (`:1334`) under the **SAME**
-  `#ifdef U8X8_HAVE_HW_I2C`. The call compiled ⇒ the macro was defined ⇒ **the include was active.**
-- A missing header is **fatal**, so compilation could not have reached `:1338` had `Wire.h` been absent ⇒ **it resolved.**
-- Both framework copies declare `extern TwoWire Wire;` **unconditionally** (fork `:146`, stock `:162`) — no
-  `NO_GLOBAL_TWOWIRE`-style guard to blame.
-⇒ **the surviving explanation is that on Windows `<Wire.h>` resolved to a DIFFERENT file than the framework's** (another
-library's header on the include path, or a case-insensitivity collision).
-**Fix applied:** `Wire` named explicitly in `[env:heltec_v3]` `lib_deps`, so PlatformIO puts the framework's `Wire/src`
-on the include path rather than leaving it to LDF discovery. Not via `lib_ldf_mode` — this env documents that deeper
-modes try to compile framework WiFi/LittleFS from source on this fork and fail.
-⚠⚠ **MEASURED INERT ON LINUX and that is EXPECTED, not reassuring:** the gate reproduces **324 objects · 178 warnings ·
-RAM 211252 · Flash 1244400** — byte-identical. An explicit include path *should* be a no-op where the path was already
-right. ⇒ **it does NOT demonstrate the Windows fix works.** B87's pinned totals are unaffected.
-**OWED FROM THE OWNER (cannot be verified from Linux):** (1) re-run `pio run -e heltec_v3` on Windows; (2) if it still
-fails, **the FULL log** — the paste begins mid-stream and the lines *before* it would show which `Wire.h` was opened;
-(3) `pio run -e heltec_v3 -v` grep for `Wire` on the include path is the decisive datum.
+**DIAGNOSIS — LOCATED 2026-08-04, and BOTH of my first two hypotheses were WRONG:**
+- ⛔ *"the include path / a shadowing `Wire.h`"* — **wrong.** ⛔ *"my `lib_deps = Wire` pulled a registry Wire that
+  shadows the framework's"* — **wrong**: the owner's `pio pkg list -e heltec_v3` shows **only RadioLib and U8g2**, so
+  that entry **resolved to nothing and was silently ignored** (no error, no package). Platform/framework/toolchain
+  versions are IDENTICAL on both hosts (`espressif32 53.3.13` · `framework-arduinoespressif32 3.1.3` ·
+  `toolchain-xtensa-esp-elf 13.2.0`), so it is not version drift either.
+- ★★ **MEASURED: Linux's LDF resolves, COMPILES and LINKS the framework-bundled Wire entirely on its own** — a build
+  into a controlled dir yields `lib8d9/libWire.a`, `Wire/Wire.cpp.o`, and **32 `TwoWire` symbols** in the ELF, from
+  nothing but U8g2's `#include <Wire.h>`. Windows's LDF does not: the owner's log compiles **no Wire at all**.
+- ⇒ **the fault is LDF RESOLUTION OF A FRAMEWORK LIBRARY, not the include path.** `U8X8_HAVE_HW_I2C` is defined
+  unconditionally (`U8x8lib.h:82-84`, *"Assumption: All Arduino Boards have Wire.h"*), so the include is always active;
+  the header simply never entered a build that was never told to compile Wire.
+**`lib_deps = Wire` REVERTED** — proven inert: with it removed, Linux still produces `libWire.a` + 32 `TwoWire` symbols.
+Leaving dead config in the variable set is worse than nothing.
+★ **MOST LIKELY CAUSE, and the fix to try first: a STALE LDF DEPENDENCY GRAPH on Windows.** That log is an
+**incremental** build (`Compiling .pio\build\heltec_v3\lib42d\U8g2\…`), and the LDF caches its graph per build dir.
+If that tree was first resolved **before** U8g2 joined `lib_deps`, the cache never learned U8g2 pulls Wire, and adding a
+library afterwards does not always force re-resolution. ⇒ **delete `.pio` (or `.pio\build\heltec_v3` +
+`.pio\libdeps\heltec_v3`) and rebuild.** Fits every observation: same versions, same source, same flags, different
+cached resolution state.
+**If a CLEAN rebuild still fails**, the LDF genuinely does not scan framework libraries on that host ⇒ name the
+framework Wire dir explicitly via `${platformio.packages_dir}` in `build_flags` and add `Wire.cpp` to the build.
+⚠ Deliberately NOT committed yet: it hardcodes framework layout, and it is unwarranted until the clean rebuild rules the
+cache out.
+⚠⚠ **PROCESS NOTE (mine): I argued the include-path theory at length while every `find`/`nm` I ran against
+`.pio/build/heltec_v3` was inspecting an EMPTY DIRECTORY** — my own rewritten `tools/warning_census.sh` builds into a
+temp dir, so the persistent tree holds nothing. Fourth vacuous-instrument failure of the session, and the first in a
+tool I had written hours earlier. **The evidence that settled it came from one build into a directory I controlled and
+then verified.**
 
 ### B93 — `mr_ui.h` forward-declares `Push` in a HARDCODED namespace · NEW 2026-08-04 · OPEN / LATENT
 **FOUND while implementing UI-5** (§UI-5). `lib/hal/mr_ui.h:17` writes `namespace meshroute { struct Push; }` while
