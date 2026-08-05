@@ -1,6 +1,23 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # Delivery baseline suite — the result-comparison gate
 
+## 2026-08-04 — B96 active-framework Wire resolution (uncommitted; Windows verification owed)
+
+`[env:heltec_v3]` no longer names `${platformio.packages_dir}/framework-arduinoespressif32/libraries`: that path can
+select an obsolete unsuffixed framework beside the URL-pinned `@src-...` package actually used by pioarduino.
+`pre:tools/wire_path.py` now calls `PioPlatform().get_package_dir("framework-arduinoespressif32")`, builds only that
+framework's `Wire/src`, and fails closed if the package or source directory cannot be resolved.
+
+Clean isolated `tools/warning_census.sh`: `heltec_v3` **325 objects / 178 warnings / 213308 RAM / 1244980 Flash**;
+`heltec_mobile` **325 / 178 / 212828 / 1238448**; `gateway_heltec` **325 / 174 / 238228 / 1214596**; `-Wswitch` **0**
+on all three. Warning pins stay **178 / 178 / 174**. Controlled B96 delta: RAM **−16 B**, Flash **+52 B**; absolute
+ESP32 flash remains subject to B86's banner-packing quantum. Linux blocker cleared; the original affected Windows host
+must still run at least `pio run -e heltec_v3` before B96 is closed.
+
+During the adjacent B95 check, its compile-out probe was corrected to select the exact `mrcon` symbol rather than
+GNU `nm`'s 8-byte `guard variable for mrcon`: **2088 B** at `MR_CONSOLE=1`, **8 B** at `MR_CONSOLE=0`; full B95 probe
+now exits 0 (52 behavioural, 11 structural, all 13 controls red).
+
 Replaces byte-identical s18 md5 as the gate for **behaviour-changing** work (routing-liveness, gateway/cross-layer, etc.). Gate on the **delivery breakdown**, not the byte stream.
 
 > ★★★ **RESUMING? READ `docs/2026-07-31-agent-handover.md` FIRST** — open topics (bug queue, address book,
@@ -53,6 +70,182 @@ the top**, and **the newest note naming a scenario is the authoritative anchor**
 - `s16` 71% and `s15` ≈90% are **post-fix** numbers (the old 15%/67% are superseded). Both still have headroom (s16 is a deliberate overload; s15's worst seed lands 13/21). The gate is **don't regress below these** + `leaks == 0`.
 - `s17_metro` cross-layer is **inert** on meshroute (untranslated source = single-layer gateways; *translating* it degrades the dense scenario — channels 101%→33%). So gate `s17` on **same-layer 26/30 + channels leaks 0 + scale**, not cross-layer. (Cross-layer coverage comes from s09/s10/s15/s16.) **Follow-up:** cross-layer-at-scale window tuning — separate from the baseline.
 - `s19_singlelayer_multihop_chain` is the suite's **multi-hop** coverage (s18/s17 same-layer are single-hop). Redundant 3-hop chain `A-{L,L2}-{R,R2}-B`, no A↔B direct link ⇒ every A↔B DM relays ≥2 hops (verified: A→L2→R2→B = 3 hops; routes converge at hops 2–4). Two disjoint paths ⇒ also the **liveness-reroute base** (kill one relay → reroute via the parallel path; the `t96` Phase-2 gate builds on this). Gate on **delivery 8/8** + the **mean_hops** column (A↔B **3.0**, A↔R **2.0**) — deterministic (seed 42, lossless links). (`dm_delivery_breakdown` counts hops via distinct `data_rx` receivers, which carry `origin`, rather than the origin-less relay `data_tx` — fixed 2026-06-17 so same-layer multi-hop is measured. Cross-layer hop-count is still uncounted — its records key on the gateway wire-dst; cross-layer *delivery* is measured by the `cross-layer DMs` line.)
+
+**★★★★★★★★★★★★ 2026-08-05 §UI-6 OLED FEATURE LAYER — the snapshot, ALL render policy, the tick, the battery cache and the push correlation (plan Task 6 = spec slice UI-6). ★ THE HEADLINE IS THAT THE FOUR "REQUIRED INTEGRATION REGRESSIONS" GUARDING THE DISTRESS PATH WERE STRUCTURALLY INCAPABLE OF FAILING — they hand-replicated the wiring they were written to guard (§B97). NEW: `src/firmware_ui.cpp`, `tools/probe_board_ui/fakes/Wire.h`. MODIFIED: `variants/heltec_v3/board_ui.{h,cpp}` (the TEMPORARY hooks DELETED + the §B91 ACK probe), `src/firmware_ui_model.h` (§B71's exit), `src/firmware_ui_send.h` (the UI-6 glue), `test/test_firmware_ui_{model,send}.cpp`, `platformio.ini` (`[env:heltec_v3]` ONLY), `tools/probe_board_ui/{run.sh,probe_main.cpp,negctl.py}`, `tools/warning_census.sh` (§B106 re-pin). DOCS: this file, the register, the bench script (Part 8: 8.1 retired, 8.8-8.10 new), the bench guide (H5-02 retired, H6-00/06/07/08 new). NOTHING ELSE — ⛔ no `lib/core`, no `lib/hal`, no scenario, and the SPEC and PLAN were NOT edited (findings reported here). ⛔ B95's uncommitted files (`src/console_sink.h`, `src/firmware_commands.*`, `src/fw_main.cpp`, `tools/probe_console_sink/`) were NOT touched — verified: zero UI-6 lines in their diffs, their `--stat` unchanged. UNCOMMITTED, on top of the §B95 note below:** native **1268 / 73247 / 0 → 1285 / 73359 / 0 failed** (+17 cases, +112 assertions), 60 test objects · s18 keystone **`1cd21235`/271629 EXACT** · **36/36 corpus identical, 0 movers, 0 assertion failures** (36 anchor rows extracted with the B77-safe `^### ` anchor; `lus` md5 **`8cb1f0f5` unchanged** and the recompilation control FIRED — `touch lib/core/node.cpp` recompiled both core libs and relinked) · board probe **38/38 + 8/8 structural, 8/8 controls red** · **3/3 standing envs rc=0** (`gateway` / `xiao_sx1262` / `xiao_esp32s3`, `-Wswitch` 0, link sets untouched — every `build_src_filter` is an explicit list, no glob) · OLED census **180 / 180 / 176 PASS at 326 objects** (§B106: **re-pinned from 178/178/174, and not one of the +2 is UI-6 code**) · `sizeof(Node)` untouched — **0 files changed under `lib/`, which is what makes s18 inert by construction rather than by luck.**
+
+★ **THE BOARD BUDGET, and RAM is the binding constraint. `gateway_heltec` is the tightest OLED env — reported explicitly as instructed:**
+
+| env | objects | warnings | `-Wswitch` | RAM | ΔRAM | Flash | ΔFlash |
+|---|---|---|---|---|---|---|---|
+| `heltec_v3` | 325 → **326** | 178 → **180** | **0** | 213308 → **214068** | **+760** | 1244980 → **1251204** | **+6224** |
+| `heltec_mobile` | 325 → **326** | 178 → **180** | **0** | 212828 → **213588** | **+760** | 1238448 → **1244648** | **+6200** |
+| `gateway_heltec` | 325 → **326** | 174 → **176** | **0** | 238228 → **238988** | **+760** | 1214596 → **1220416** | **+5820** |
+
+⚠ **BOTH ARMS WERE BUILT IN THIS SESSION** (§A0's rule: never diff against a recorded grid). The BEFORE arm reproduced
+B87's recorded table **to the byte** on all three envs, which is what makes the deltas attributable.
+★ **`gateway_heltec` RAM 238988 / 327680 = 72.9 %** — the tightest OLED env, +760 B, and the +760 is identical on all
+three because it is the same statics: `UiModel` + `InputFsm` + two `SendTracker`s + the frozen frame triple
+(`UiState` + `UiSnapshot` + `EmgView`) + the counters. `heltec_v3` sits at 65.3 %.
+ⓘ Flash +~6 KB is the render policy plus the `snprintf`/float formatting it pulls in; ESP32 flash is 37 % used.
+⚠ **§B86 observed again, within this session:** two clean builds of the SAME source read flash **+12 / +12 / +4 B**
+apart (the banner packs `__DATE__`/`__TIME__`). ⇒ the flash column is a BUDGET OBSERVATION, never a byte comparand;
+**RAM reproduced to the byte across every run** and is the number the gate should read.
+
+★★★ **THE PROBE MATRIX — `tools/probe_board_ui/run.sh`, and the shape of it CHANGED because Task 6 moved the subject:**
+
+| | before (UI-5) | after (UI-6) |
+|---|---|---|
+| behavioural checks | 34 | **38** |
+| negative controls | 7, all red | **8, all red** |
+| structural checks | — | **8, all green** |
+
+- **P5 rewritten.** It used to drive the page loop through `mr_ui_init()` **in the board TU**; that hook is gone, so the
+  probe drives its own loop and still pins the canvas contract (8 transfers, body runs 8×, 16 `drawStr` / 8 `drawHLine`).
+- **P9/P10 new** — §B91: the ACK probe is asked BOTH answers (ACK ⇒ present, NACK ⇒ absent) and a NACKed panel still
+  runs a well-formed 8-page loop, so a dead display cannot become a second failure mode.
+- **C4 replaced** (its old subject left the TU) with *"`begin_frame()` forgets `firstPage()`"* → 7 checks red.
+  **C8 new**: *"`board_init()` claims the panel is present without asking"* → 3 checks red, including the NACK case.
+- **S1 is the strongest new check and it is a symbol-table fact, not a grep:** `nm --defined-only board_ui.o` must find
+  **0** `mr_ui_*` symbols. **Positive control run:** re-adding two hooks to a COPY of the TU makes it read **2**.
+
+★★ **PREMISES THAT TURNED OUT WRONG — mine and the plan's. A report with none of these is worth questioning.**
+
+1. ⛔⛔ **"The four §B84 integration regressions cover the wiring."** They cover the RULE. They **hand-replicate** the
+   wiring, so a mis-wired `mr_ui_tick` — which the plan records getting wrong twice — moves **zero** assertions. Fixed by
+   making the wiring two pure functions the tests actually call (**§B97**, five reverts measured red).
+2. ⛔⛔ **MY OWN first version of the B84-blocker-2 case STAYED GREEN against the exact defect it names.** With `_tries`
+   1 of 3, routing the normal expiry into `on_outcome` re-enters `firing` and leaves `attempts()` at 1 — so asserting
+   *state* and *attempts* proved nothing. The harm is a **phantom queued alarm**. ⇒ **assert the SIDE EFFECT, not the
+   state** (**§B98**). Caught only because I ran the revert probe before writing the report.
+3. ⛔⛔ **The plan's Task-6 block cannot compile** — it calls `ui_perform_send()`, defined in **Task 7** and dependent on
+   `mrfw::exec_command`. UI-6 ships a loud-refusal stub instead of dropping the request (**§B99b**).
+4. ⛔ **The plan's Task-6 block tears the emergency overlay** — it freezes `UiState` + `UiSnapshot` and then reads
+   `s_model` LIVE for the overlay, on the one screen the feature exists for. Frozen `EmgView` added (**§B99a**).
+5. ⛔ **§B71's ruled exit set has five members; only FOUR exist.** *"final `blocked`"* is **vacuous** — `on_outcome`'s
+   blocked arm always arms a retry, so including it would fire the exit mid-retry, which the ruling's own first row
+   forbids (**§B100**, asserted in a test rather than judged).
+6. ⛔ **"No new warnings" was not achievable by care alone — and it was not the warnings I expected.** The first build
+   added **12**: 10 `-Wformat-truncation=` (mine — **fixed**, buffers sized to their provable widest expansion) and
+   **2 that no amount of UI-6 code style can remove**, because they are per-TU diagnostics from vendored headers reached
+   through `fw_context.h`. Re-pinned with a controlled A/B (**§B106**); the plan's §B87 table needs the owner's edit.
+7. ⛔ **My own two structural checks FAILED on first run for the §B77 reason** — a bare grep for `firmware_ui_model.h` in
+   `board_ui.h`, and for `U8g2`/`Wire` in `firmware_ui.cpp`, matched **the comments that forbid those names**. Both files
+   state their invariant in prose, so the check was reading its own documentation as a violation. Fixed by stripping
+   `//` comments first; **S4a positively controlled** (a real `#include` added to a copy turns it red).
+8. ⛔ **My own `platformio.ini` mutation anchor matched TWICE**, because the comment I had just written also contains
+   `+<firmware_ui.cpp>`. The assertion caught it; the A/B was re-run against `+<device_ota.cpp> +<firmware_ui.cpp>`.
+   ★ *A structural anchor is not structural if your own prose repeats it.*
+9. ⓘ **"`-I variants/heltec_v3` becomes load-bearing at Task 6"** — **CONFIRMED**, first time in this arc. `firmware_ui.cpp`
+   includes `board_ui.h` from `src/`, where the quoted-include-own-directory rule cannot reach it.
+
+★ **WHAT UI-6 DELIBERATELY DID NOT DO, stated so it is not read as done** (all in-source too):
+`ui_perform_send` is a stub (Task 7 owns `mrfw::exec_command`); `inbox_shown` stays 0 and the INBOX screen SAYS
+`rows: slice UI-7` rather than showing an empty list a user reads as "no mail"; the battery reader is Task 9 and the bar
+shows `--`; `MR_UI_ADC_CTRL`/`MR_UI_VBAT_READ` land with the reader, not ahead of it; **§B69 is still unpaid** —
+`channel_remote_mint` and `channel_no_relay` remain one `Emergency` state, so "render as SENT" still has no carrier, and
+it is now Task 7's.
+★ **§B104 — a coverage LOSS this slice created:** the once-per-page redraw obligation moved from a host-compilable board
+TU into `firmware_ui.cpp`, which pulls RadioLib. The canvas half is still measured; the CALLER half is now only
+structural. **§B105 names the one-line unblocker (`DeviceHal::radio()`) and explains why it was not taken.**
+
+**★★★★★★★★★★★★ 2026-08-04 §B95 CONSOLE RESPONSE LINE INTEGRITY — THE FIX LANDED, AND THE BRIEF'S CENTRAL INVARIANT IS REFUTED BY MEASUREMENT: "ONE `Serial.write()` PER LINE, ELSE DROP IT" WOULD HAVE DELIVERED 2 OF THE 8 `cfg` ROWS ON THE VERY BOARD B95 WAS FOUND ON. MODIFIED: `src/console_sink.h` (the line stage), `src/firmware_commands.cpp` (`hl()` DELETED, help through its sink, `print_sf_list` takes a sink), `src/firmware_commands.h`, `src/fw_main.cpp` (`mrcon.service()` per pass, 2 `print_sf_list` sites, the BLE `help` refusal). NEW: `tools/probe_console_sink/` (probe + 13 controls). DOCS: this file, `docs/2026-07-30-open-bug-register.md` (B95 closed + B96 opened), `docs/2026-07-31-bench-test-script.md`, `docs/2026-08-04-heltec-v3-oled-ui-bench-guide.md` (H5-06). NOTHING ELSE — no `lib/core`, no `test/`, no `platformio.ini`, no scenario, and the coder brief NOT edited (findings reported here). UNCOMMITTED, on top of the §UI-5 note below:** native **1268 / 73247 / 0 failed — EXACT**, 60 objects · s18 keystone **`1cd21235`/271629 EXACT** · **36/36 corpus identical, 0 movers, 0 assertion failures**, 36 anchor rows extracted with the B77-safe `^### ` anchor · `lus` md5 **`8cb1f0f5` unchanged**, recompilation control fired (5 build/link actions after a `touch lib/core/node.cpp`) · probe **52/52 + 11/11 structural, 13/13 controls red** · **6/6 board envs rc=0** (`production` included) · `sizeof(Node)` untouched (no `lib/core` file edited — s18 byte-identity is the proof) · **`-Wswitch` 0 by construction: `-Werror=switch` is blanket in `[common]`, so six green builds ARE the measurement** · OLED warning census **178 / 178 / 174 PASS**.
+
+★★★★★★ **THE HEADLINE IS A DISAGREEMENT WITH THE CODER BRIEF, AND IT IS ARITHMETIC, NOT OPINION.** Brief §4 invariant 2 requires *"a complete line including terminator, or zero bytes from that line"*, and §5.1 spells out the mechanism: *"buffers one line and submits it to the guarded console in ONE call."* Measured against the installed frameworks:
+
+| transport | `availableForWrite()` ceiling | measured where |
+|---|---|---|
+| ESP32-S3 — `heltec_v3` / `heltec_mobile` / `xiao_esp32s3` | ★ **128 B** | `Serial` is `Serial0` = UART0 (`ARDUINO_USB_CDC_ON_BOOT` unset ⇒ `HardwareSerial.h:364`), `_txBufferSize` defaults to **0** (`HardwareSerial.cpp:118`) ⇒ `uartAvailableForWrite` returns `uart_ll_get_txfifo_len` only, and `SOC_UART_FIFO_LEN` = **128** |
+| nRF52840 — `xiao_sx1262` / `gateway` | **256 B** | `CFG_TUD_CDC_TX_BUFSIZE` (`tusb_config_nrf.h:97`); ⚠ and `Adafruit_USBD_CDC::write()` **loops with `yield()`** when overfed (`Adafruit_USBD_CDC.cpp:246-254`) ⇒ a write must never exceed the ceiling |
+
+⇒ on the Heltec the `cfg` `proto :` row is **118 B**, `[cfg.layer0]` ~160 B, the `hashof` remedy line **~392 B**, and **8 of the 75 `help` lines exceed 128 B**. One-call-per-line makes every one of those **permanently undeliverable — with a perfectly healthy, idle host.** The probe measures it on the real generator: **strict-atomic delivers 2 of 8 `cfg` lines and drops 6**; the shipped sink delivers **8 of 8, byte-exact**. The brief's §5.6 assumes a **1700 B** line scratch, i.e. it expects lines up to 1700 B to be staged and admitted — which the transport can never do in one call. **The premise is the one thing in that brief that measurement does not support.**
+
+★★★★★ **SO THE GUARANTEE WAS RESTATED, NOT WEAKENED.** What ships: **a committed line reaches the wire as a contiguous, gap-free, in-order byte run including its terminator, or not at all; a line is discarded only BEFORE its first byte is written.** It may cross several `Serial.write()` calls — that is precisely what makes a >FIFO line deliverable — and it can never skip a byte, lose a terminator, or interleave with another line. Every *purpose* behind the nine invariants holds; invariant 2's literal *"one call"* is superseded by a strictly stronger no-gap rule. The three consequences, each load-bearing:
+
+1. ★★ **THE STAGE HAD TO GO *INSIDE* `mrcon`, NOT IN A WRAPPER IN FRONT OF IT** (brief §5.1-§5.2 puts it on the USB command path only). With an in-order drain, ANY second writer to `Serial` cuts into a half-drained line and re-creates the exact fusion being removed — async pushes, `!!` operator logs, debug traces and the boot banner all write to `mrcon`. **Single-writer discipline is a requirement of the drain, not a preference.** Bonus: `dispatch()`/`service_console()` call sites are untouched, so the brief's §5.2 enumeration (which I could have got wrong) does not have to be trusted.
+2. **Backpressure is the stage occupancy, and drops happen only at COMMIT time** (a line that has not started). Never mid-line: abandoning a half-drained line would leave an unterminated fragment = fusion. If the host never reads, the residue simply waits and everything else is dropped and counted.
+3. `!! CONSOLE_DROP lines=<N>` is written **directly**, never through the stage (no recursive counting), and only once the queue has drained. ⓘ **The `_out == _pend` guard on that is belt-and-braces and NOT independently testable** — `pump()` leaves either the queue empty or the FIFO full, so a report checked *after* the drain can never fit mid-queue. What is load-bearing is the **order**; control C5 reverts the order (not the guard) and P13 needed a drain wider than the FIFO before it could see it.
+
+★★★★ **THE PROBE — 52 behavioural checks on the REAL header, 11 structural, and 13 CONTROLS THAT EACH TURN IT RED.** `tools/probe_console_sink/` follows the `probe_board_ui` precedent (paths by argv · mutations on a COPY under a temp dir · the real sources' md5 ASSERTED unchanged at the end · controls run BY DEFAULT · the compiled header's md5 injected as `-DPROBE_SINK_MD5` and printed by the binary, so the run states which text it measured).
+
+★★ **The positive control is the whole point: the pre-fix sink, copied verbatim into the probe and run against the same generator, INDEPENDENTLY REPRODUCES THE BENCH CAPTURE.** Probe wire: `proto : duty=1.00% beacon_ms=900000 hop_cap=168 lbt=1 nav=1010` … `5 leaf=5000`. H5-06 wire: `proto : duty=1.00% beacon_ms=900000168010102layer=5 leaf=5000`. **`leaf=5000` is byte-identical in both** (`leaf=5` + three single-digit values whose labels were dropped), and `hop_cap=168` is `hop_cap=16` + `team_hop_cap`'s bare `8`. ★ The transport model was derived from the framework sources *before* the capture was re-read — and the corruption in it begins at cumulative byte ~130 of the response, i.e. **the bench evidence independently confirms the 128-byte ceiling.** The defect is stated formally rather than by transcript: *a received line that is a PROPER SUBSEQUENCE of a real line* (characters in order, bytes missing).
+
+| # | probe row | what it pins |
+|---|---|---|
+| P1 | legacy sink corrupts (5 of 7 lines bad, 215 of 532 B) + a gapped row exists | the harness can SEE the bug |
+| P2 | fixed sink: 532 B byte-exact, 0 corrupt, in order, 0 gapped, 0 dropped, 0 over-capacity writes, 0 flushes | brief test 2 |
+| P3 | ★ strict-atomic: **2 of 8 lines**, 6 dropped (asserted as `got < want`, so it cannot go vacuous) | the refutation |
+| P4 | full FIFO ⇒ **zero** bytes and `Serial.write` never called; after capacity returns, byte-exact | brief test 2 |
+| P5 | response A with NO terminator cannot fuse with B | brief test 3 |
+| P6 | one drop ⇒ next line exact + `!! CONSOLE_DROP lines=1` **once**, counter cleared, no repeat | brief test 4 |
+| P7 | no host: 0 writes, 0 flushes, 50 lines counted; after reconnect exact + `lines=50` | brief test 5 |
+| P8 | oversized line: not one byte leaks, neighbours intact, exactly 1 counted | brief test 6 |
+| P9 | 400 lines into a dead host: 0 over-capacity writes, 0 flushes, 0 bytes, 315 counted | the anti-wedge, measured |
+| P10 | **without `mrcon.service()` a >FIFO response cannot complete**; with it, exact | the one fw_main line |
+| P11 | `flush()` (reset/OTA path) delivers the queue AND terminates a dangling tail | the one blocking entry |
+| P12 | the nRF52 256-B ceiling: same guarantees | both transports |
+| P13 | a drop pending WHILE a long response is half-drained: every line intact, the report lands on a LINE BOUNDARY, response byte-exact | report vs queue ordering |
+
+| control (each mutates a COPY) | turns red at |
+|---|---|
+| C1 no staging (the pre-fix write pair) | 21 checks — P2a/b/c… |
+| C2 commit every fragment, not on the terminator | 17 checks |
+| C3 let an over-long line leak its prefix | 12 checks |
+| C4 stop counting drops | 6 checks |
+| C5 report BEFORE draining the queue | 20 checks |
+| C6 hand Serial more than `availableForWrite()` | P2e, P12b (over-capacity writes) |
+| C7 abandon the unsent residue when the stage fills | P9d |
+| C8 never terminate a partial at the boundary | P5a, P5b |
+| X1 reinstate the direct-`Serial` `hl()` | structural S1 |
+| X2 restore the global-writing `print_sf_list(bitmap)` | S5 + S7 |
+| X3 drop the BLE `console_only` refusal for `help` | S10 + S11 |
+| X4 remove the per-pass `mrcon.service()` | S9 |
+| X5 leave one help line unterminated | S4 |
+
+⚠⚠ **AND THE FIRST RUN OF THOSE CONTROLS WAS A LIE — CAUGHT ONLY BY READING THE FAILURE TEXT.** All eight sink controls reported *"COMPILE FAILS (the strongest failing-first form)"*, which reads like a pass. The real reason was `fatal error: console_sink.h: No such file or directory`: the mutated copies were written as `ctlN_console_sink.h`, so `#include "console_sink.h"` never resolved and **not one control measured anything**. Fixed two ways: a mutated file keeps its REAL basename inside its own directory, and a compile failure now counts as a control result **only if the diagnostic is in the mutated header** — anything else is reported as `!! INSTRUMENT FAILURE`. ★ Same session, three more instruments of mine were vacuous before they were right: `structural.py`'s brace matcher was truncated by **a lone `}` in a comment** (so it read a `service_console()` body that stopped 6 lines early and declared `mrcon.service()` missing), its Serial-call check fired on **a `Serial.` inside my own comment**, and `nm | awk '{strtonum(...)}'` printed an empty size under **mawk, which has no `strtonum`** and would have "verified" the compile-out against nothing.
+
+★★★ **BRIEF TESTS 7 AND 8 ARE STRUCTURAL, AND THAT IS SAID PLAINLY RATHER THAN DRESSED UP.** `dump_help`, `print_sf_list` and `ble_dispatch_line` live in TUs no host build can compile (g_node, NV, the JSON writers, RadioLib, board glue) and neither native nor the simulator compiles `src/`. So they are asserted against the source by `structural.py` — 11 checks, comment- and literal-neutralised, each with a control (X1–X5) that reinstates the old code in a copy and proves the check flips.
+
+★★★ **MR_CONSOLE=0 IS A TRUE COMPILE-OUT, MEASURED THREE WAYS — AND IT COSTS 7040 B OF FLASH THAT NOBODY WILL EXPECT.**
+- probe: `sizeof(mrcon)` **2088 B → 8 B**, 0 undefined `Serial`-type refs in either mode;
+- `production` (nRF52, `MR_CONSOLE=0`) **RAM 166012 → 166012 — IDENTICAL, the 2048-B stage does not exist**; `nm` shows `mrcon` at **8 B** (a vtable pointer);
+- ⚠ but `production` **Flash 501588 → 508628 (+7040)**, and the cause is measured, not inferred: `strings` finds **0** help lines in the BEFORE image and **3** probes' worth in the AFTER (incl. the whole `PROVISIONING (key=value, order-free; LIVE, no reboot)` line). `hl()`'s `#if MR_CONSOLE` → `(void)fs` left the 75 F() literals **unreferenced, so the linker garbage-collected all 6121 B**; routing help through `Print& out` (a reference of unknown dynamic type — not devirtualisable) references them again. ★ In a `production` image that text is now **unreachable dead weight**: there is no USB console, and BLE `help` is refused. **Owner decision, deliberately NOT taken here (C1):** `#if MR_CONSOLE` the body of `dump_help` with a bounded refusal, as its own slice. Flash 61.8% → 62.7%, so it is affordable either way.
+
+★★★ **PER-BOARD COST, BOTH ARMS BUILT IN THIS SESSION AND CALIBRATED.** The BEFORE arm reproduces the §UI-5 reference RAM/Flash **to the byte on all five envs**, which is what makes the deltas readable (B86).
+
+| env | RAM before → after | ΔRAM | Flash before → after | ΔFlash |
+|---|---|---|---|---|
+| `heltec_v3` | 211252 → **213324** | **+2072** | 1244400 → **1244892** | +492 |
+| `heltec_mobile` | 210772 → **212844** | **+2072** | 1237796 → **1238348** | +552 |
+| `xiao_esp32s3` | 211188 → **213260** | **+2072** | 1208204 → **1208744** | +540 |
+| `gateway` | 191964 → **194028** | **+2064** | 466852 → **470964** | **+4112** |
+| `xiao_sx1262` | 167044 → **169108** | **+2064** | 512020 → **516228** | **+4208** |
+| `production` (`MR_CONSOLE=0`) | 166012 → **166012** | **0** | 501588 → **508628** | **+7040** (the help text, above) |
+
+**RAM is exactly the stage:** 2048 + 16 B of bookkeeping = **+2064** on nRF52; +2072 on xtensa (8 B of section alignment). ⚠ `gateway` is the tight env: **81.5% → 82.4%** of 235520 B. `MR_CONSOLE_STAGE_BYTES` (default 2048) is the single lever, and the trade is documented in the header: a gateway `cfg` (~850 B), `status`, `whoami` and a 16-row `peers` (~1.4 KB) fit whole; **`help` is 6121 B / 75 lines and does NOT** — it delivers ~25 lines and reports the rest. A 6400-B stage would deliver all of `help` at +4.4 KB RAM per board.
+
+**Flash on nRF52, attributed by symbol multiset** (B86's rule — 2085 sized symbols in both arms, 5 new / 5 removed / 11 resized): `mesh_service_once()` **+2472** (159 `mrcon.print*` sites × ~15.5 B — the sink's new `write()` body is no longer a three-line guard at a devirtualisable call site), `GuardedConsole::flush()` +640, `write(buf,n)` +316, `write(uint8_t)` +276, new `stage()` +320, `dispatch()` +128, `ble_dispatch_line()` +60 (the help refusal), `print_sf_list` −4, `hl()` **−148 (gone)**. ⓘ The per-site 15.5 B is measured but not decomposed further.
+
+★★ **BOOT BANNER: MEASURED, AND IT FITS.** setup() + `print_identity` emit ~1318 B of F() literals across all branches (mutually exclusive ones included, so the real burst is less) ⇒ under the 2048-B stage. No boot output is lost, and `setup()`'s own `delay(2000)`/flash I/O drain the FIFO between commits.
+
+⛔⛔ **`heltec_v3`, `heltec_mobile` AND `gateway_heltec` DO NOT BUILD IN THIS TREE ON LINUX, AND IT IS NOT THIS SLICE — IT IS HEAD's OWN LAST COMMIT.** Registered **B96**. `45c9cc1` added to `[env:heltec_v3]`:
+`lib_extra_dirs = ${platformio.packages_dir}/framework-arduinoespressif32/libraries`, whose comment claims *"Inert where discovery already worked (Linux), load-bearing where it did not."* **That claim is false here.** This host has TWO framework packages — the plain `framework-arduinoespressif32` (espressif32@6.11.0 era) and pioarduino's `framework-arduinoespressif32@src-702d0f93023d86e22d8ef62aa333f0b7`, which is the one `[env:heltec_v3]`'s pinned platform actually uses. The hardcoded plain name puts the **old** package's `libraries/` on the LDF path, so the build compiles `SPI.cpp` and `WiFi.h` from framework A against core headers from framework B:
+`SPI.cpp:121: error: too many arguments to function 'bool spiDetachSCK(spi_t*)'` and `WiFi.h:29: fatal error: IPv6Address.h: No such file or directory`.
+**Three controls, so this is measured and not argued:** ① a **pristine `git worktree` at HEAD** with none of my changes (`console_sink.h` md5 `0c3d98b6`) fails with the byte-identical error set; ② the documented B94 cache remedy (`rm -rf .pio/build/heltec_v3 .pio/libdeps/heltec_v3`) does **not** help; ③ removing **only** those two `lib_extra_dirs` lines in that worktree builds `heltec_v3` green and reproduces §UI-5's reference **211252 / 1244400 exactly**. ⇒ ★ **the recommended fix is the owner's, in his own slice: resolve the framework dir through the platform API (`env.PioPlatform().get_package_dir("framework-arduinoespressif32")` in an `extra_script`) instead of hardcoding the un-suffixed package name** — the register's own B94 note predicted this cost ("it hardcodes framework layout"). ⓘ All five envs' numbers above were therefore measured in that worktree, with the two lines neutralised **identically in both arms** so they cancel; the main tree's `platformio.ini` was **never touched**. In the main tree, `gateway` / `xiao_sx1262` / `xiao_esp32s3` / `production` build green and `heltec_v3` / `heltec_mobile` fail for B96 alone.
+
+★★ **THE OTHER PREMISES I CHECKED, AND HOW THEY LANDED** (V1 — every one against the code, none from a doc):
+
+| premise | verdict |
+|---|---|
+| `console_sink.h:6` drops per `write()` chunk ⇒ later values survive after labels/newlines were dropped | ✅ **CONFIRMED** and reproduced byte-for-byte in the probe |
+| `hl()` writes directly to `Serial`, with its own loop and a conditional CRLF; `dump_help(Print&)` ignores `out` | ✅ **CONFIRMED** — and it was the **only** direct-`Serial` writer left in `src/`, which is why single-writer discipline was even available |
+| `print_sf_list(bitmap)` always hits global `mrcon`, including from `dump_cfg(Print& out)` | ✅ **CONFIRMED**, 4 call sites, all now pass a sink |
+| brief §4.2 "complete line in ONE call, or zero bytes" | ⛔ **REFUTED** — undeliverable above 128 B on the affected board (P3: 2 of 8 rows) |
+| brief §5.6 "the existing maximum is 1700 B for escaped inbox JSON… reuse a proven static scratch" | ⚠ **HALF WRONG, AND THE REUSE IS A TRAP.** `s_inbox_jb` is the buffer the JSON writers format **into** before writing it to `out`; if it were also the stage, `write(s_inbox_jb, n)` would `memmove` the buffer onto itself. A dedicated buffer is mandatory, and 1700 B was never admissible in one call anyway |
+| the task brief: "`lus` prints the assertion count to **stdout**" | ⛔ **WRONG — it prints to STDERR.** My first corpus sweep read stdout only and reported **0/36 with 36 "assertion failures"** while every md5 was already identical. A textbook "0/N means *cannot reach*" — caught only because the md5 comparison was printed beside the parsed field |
+| brief §7 "add a committed `tools/probe_console_sink/`… **or** extract the pure logic into a native-testable header" | ⓘ the second option is not available: the admission logic is inseparable from `Serial`'s capacity semantics, which is the thing under test. Probe it is |
+| brief §6 "if asynchronous rows later reproduce the same fusion, take that as a separately evidenced extension" | ⓘ **already covered, for free** — the stage lives in `mrcon`, so async pushes and `!!` logs are line-atomic too. No separate slice needed |
+| ⚠ NEW, and nobody's premise: `Adafruit_USBD_CDC::operator bool()` **calls `yield()` when the host is absent** | so the pre-fix sink already yielded **once per write call** with no host (~10× per row). The fix reduces that to ~2 per line. Invariant 1's "no yield" was already violated inside the core, invisibly from our source |
+| ⚠ NEW: `LineSink` (`src/dispatch_sink.h:40`) is a 1700-B **stack** object built inside `ble_dispatch_line`, which the loop task calls | pre-existing, untouched (C1), and worth an eye on the platform whose 4 KB loop stack once produced the jump-to-0x0 brick. Not registered as a bug — no measurement of actual headroom was taken |
 
 **★★★★★★★★★★★★ 2026-08-04 §UI-5 BOARD CANVAS PORT — THE FIRST PHASE-A SLICE WITH A FLASH COST, AND THE PLAN'S TASK-5 CODE BLOCK AS WRITTEN DOES NOT BUILD, DOES NOT LINK, AND CANNOT MEET ITS OWN STEP 5. NEW: `variants/heltec_v3/board_ui.h`. MODIFIED: `variants/heltec_v3/board_ui.cpp` (the empty seam filled), `platformio.ini` (`[env:heltec_v3]` only), this file, `docs/2026-07-30-open-bug-register.md`, `docs/2026-07-31-bench-test-script.md`. NOTHING ELSE — no `lib/core`, no `src/`, no `test/`, Tasks 1–4 untouched, spec and plan NOT edited (findings reported here). UNCOMMITTED, on top of the §UI-4-RULED note below:** native **1268 / 73247 / 0 failed — EXACT**, 60 objects / **32 test objects = 32 `test/*.cpp`**, warns 9, `-Wswitch` 0 · s18 keystone **`1cd21235`/271629 EXACT** · **36/36 corpus identical, 0 movers, 0 assertion failures**, **36 anchor rows extracted** · `lus` md5 **`8cb1f0f5` unchanged** with the recompilation control firing (**2 objects + 3 relinks**) · **5/5 board envs rc=0, `-Wswitch` 0 on every one** · `sizeof(Node)` untouched (no `lib/core` file edited).
 

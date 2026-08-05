@@ -28,9 +28,25 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
-# ---- PINNED EXPECTATIONS (clean builds, 2026-08-04). A HIGHER count fails; a LOWER one also fails, because it means
-#      the baseline moved and nobody re-pinned it. -Wswitch must be 0 everywhere, always. -------------------------
-declare -A EXPECT_WARN=( [heltec_v3]=178 [heltec_mobile]=178 [gateway_heltec]=174 )
+# ---- PINNED EXPECTATIONS (clean builds). A HIGHER count fails; a LOWER one also fails, because it means the baseline
+#      moved and nobody re-pinned it. -Wswitch must be 0 everywhere, always. -------------------------------------
+#
+# ★★ RE-PINNED 2026-08-05 by §UI-6: 178/178/174 -> 180/180/176. **+2 PER ENV, AND EVERY ONE OF THEM IS A PER-TU
+#    DIAGNOSTIC FROM A VENDORED HEADER — NOT ONE COMES FROM UI-6 CODE.** `src/firmware_ui.cpp` is the 326th object, and
+#    it must reach `g_node` / `g_hal` / `g_iradio`, which means `src/fw_context.h`, which pulls `<RadioLib.h>` and
+#    `lib/hal/device_radio.h`. Both emit once per INCLUDING TU:
+#      +1  -Wcpp      RadioLib.h:58  `#warning "God mode active…"`   (5 -> 6 TUs)
+#      +1  -Wvolatile device_radio.h `'++' of volatile-qualified type is deprecated`  (6 -> 7 TUs)
+#    ⇒ ATTRIBUTED BY CONTROLLED A/B, not inferred: dropping `+<firmware_ui.cpp>` from `[env:heltec_v3]`'s
+#    `build_src_filter` and rebuilding clean returns **325 objects / 178 warnings** exactly, and adds 6 `undefined
+#    reference` errors for the three `mr_ui_*` hooks — which independently proves the TU is the hooks' only definition.
+#    The `uniq -c` diff of the two logs is exactly the two lines above.
+# ⚠ UI-6's OWN warnings were fixed, not pinned: the first build added **10** `-Wformat-truncation=` on top of these two,
+#   and all ten are gone (the panel formatters' buffers are now sized to their provable widest expansion — see
+#   `kLineCap` in src/firmware_ui.cpp, which says so, so nobody shrinks them back).
+# ⚠ §B87's table in `docs/superpowers/plans/2026-07-31-onboard-oled-ui-phase-a.md` STILL SAYS 178/178/174 and needs the
+#   OWNER's edit — a UI-6 coder is instructed not to edit the plan. Reported, not silently diverged.
+declare -A EXPECT_WARN=( [heltec_v3]=180 [heltec_mobile]=180 [gateway_heltec]=176 )
 
 # ⚠ `pio project config --environment <e>` emits NOTHING greppable for build_flags — a v2 derivation built on it
 #   returned an empty set, and v1 only "worked" because I had passed the env names explicitly, so its

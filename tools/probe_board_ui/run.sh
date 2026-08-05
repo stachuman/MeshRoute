@@ -53,6 +53,58 @@ fi
 "$OUT/probe"; rc=$?
 echo "probe exit=$rc"
 
+# ---------------------------------------------------------------------------------------------------------------------
+# §UI-6 STRUCTURAL CHECKS. ⚠ WEAKER THAN THE PROBE, AND LABELLED AS SUCH: these read source/symbols instead of measuring
+# behaviour. They exist because Task 6 moved three things OUT of host-compilable reach (src/firmware_ui.cpp includes
+# fw_context.h, i.e. RadioLib and the whole device stack), and "no cover at all" is worse than a check that can at least
+# turn red when the property alone is reverted. S1 is the strongest — it is a symbol-table fact, not a grep.
+FW_UI="$ROOT/src/firmware_ui.cpp"
+BOARD_H="$BOARD/board_ui.h"
+s_pass=0; s_fail=0
+schk() {  # schk(label, expr-as-command)
+  if eval "$2" >/dev/null 2>&1; then s_pass=$((s_pass+1))
+  else s_fail=$((s_fail+1)); echo "  FAIL $1"; fi
+}
+echo
+echo "== §UI-6 structural checks (source/symbol level — weaker than the probe, deliberately) =="
+[ -f "$FW_UI" ] || { echo "  FAIL S0 src/firmware_ui.cpp is missing"; rc=1; }
+
+# S1 ★ THE DUPLICATE-SYMBOL TRIPWIRE. Task 6 took ownership of the three mr_ui_* hooks; UI-5 had defined them in the
+#    board TU as TEMPORARY. Defining them in BOTH is a link failure on three shipped envs, and this is what catches a
+#    re-add. Measured with nm on the real object, not by grepping for a comment.
+"$CXX" -std=gnu++20 -fno-exceptions -fno-rtti -Wall -Wextra -Werror \
+   -DMR_FEAT_OLED=1 -DMR_UI_BTN_PIN=0 \
+   -I"$HERE/fakes" -I"$BOARD" -I"$ROOT/lib/hal" -I"$ROOT/lib/core" -I"$ROOT/src" \
+   -c "$BOARD/board_ui.cpp" -o "$OUT/board_ui.o" 2>/dev/null
+if [ -f "$OUT/board_ui.o" ]; then
+  defined=$(nm --defined-only "$OUT/board_ui.o" 2>/dev/null | grep -c 'mr_ui_')
+  schk "S1 board_ui.o defines NO mr_ui_* symbol (got $defined)" "[ '$defined' -eq 0 ]"
+else
+  s_fail=$((s_fail+1)); echo "  FAIL S1 could not compile board_ui.cpp to an object"
+fi
+# S2 ...and the feature layer defines all three, so fw_main's unconditional calls still link.
+for h in mr_ui_init mr_ui_tick mr_ui_on_push; do
+  schk "S2 src/firmware_ui.cpp defines $h" "grep -qE '^void $h\\(' '$FW_UI'"
+done
+# S3 THE ONCE-PER-PAGE REDRAW, caller half. Two draw_frame() call sites in the tick: one at frame start, one in the
+#    page-continuation branch. Deleting either leaves 7 of 8 pages blank — the defect spec §5's corrected note names.
+schk "S3 draw_frame() is called from >=2 sites in the tick (got $(grep -c 'draw_frame(s_frame_state' "$FW_UI"))" \
+     "[ \"\$(grep -c 'draw_frame(s_frame_state' '$FW_UI')\" -ge 2 ]"
+# S4 THE HARD BOUNDARY, both directions. board_ui.h must not include the model; firmware_ui.cpp must not name the driver.
+# ⚠⚠ BOTH OF THESE FAILED ON THEIR FIRST WRITING, AND FOR THE §B77 REASON: a bare grep for the forbidden name also
+#    matches the COMMENT THAT FORBIDS IT — both files state the invariant in prose, so the check was reading its own
+#    documentation as a violation. ⇒ strip `//` comments first (`code_of`), then grep CODE. Same class as the anchor
+#    table that matched the sentence prescribing the anchor.
+code_of() { sed 's://.*::' "$1"; }
+schk "S4a board_ui.h #includes no firmware_ui_model.h" \
+     "! code_of '$BOARD_H' | grep -qE '^[[:space:]]*#[[:space:]]*include.*firmware_ui_model'"
+schk "S4b firmware_ui.cpp CODE names no U8g2/Wire/GPIO symbol" \
+     "! code_of '$FW_UI' | grep -qE 'U8g2|U8G2|\\bWire\\b|pinMode\\(|digitalRead\\(|analogRead\\('"
+# S5 §B91's report channel actually exists on the caller side (the probe cannot see it).
+schk "S5 firmware_ui.cpp surfaces a failed board_init()" "grep -q 'if (!mrui::board_init())' '$FW_UI'"
+echo "structural: $s_pass passed / $s_fail failed / $((s_pass+s_fail)) total"
+[ "$s_fail" -eq 0 ] || rc=1
+
 if [ "${1:-}" != "--no-neg" ]; then
   echo
   echo "== negative controls (each MUST fail) =="

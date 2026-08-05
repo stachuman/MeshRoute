@@ -501,8 +501,13 @@ the automated side of UI-5 is in `simulation/BASELINE.md` §UI-5.
 ⚠ **UI-5 wires only the boot frame.** `set_power_save`, `button_pressed` and `battery_sample_mv` are compiled but
 **garbage-collected out of the UI-5 image** (register B88) — 8.4/8.5/8.6 below are therefore **Task 6 / Task 9** checks
 and cannot pass on a UI-5 build. Do not mark them from this firmware.
+★★ **UI-6 (2026-08-05) CLOSES B88 and RETIRES 8.1.** All nine canvas entry points are now called by
+`src/firmware_ui.cpp`, so nothing is collected — **8.4 / 8.5 / 8.7 are live from a Task-6 build**, and **8.8–8.10 are
+new.** 8.1's static splash **no longer exists**: the boot frame was UI-5's `--gc-sections` anchor and the feature layer
+replaced it with the real page-chunked render. ⛔ Do not mark 8.1 from a UI-6 build.
 
-- [ ] **8.1 — The panel lights, and shows exactly this**
+- [ ] ~~**8.1 — The panel lights, and shows exactly this**~~ ⛔ **RETIRED BY UI-6 — the splash is deleted.** On a
+      Task-6 build the first thing on the panel is the **live STATUS screen** (see 8.8). Kept for the audit trail:
   - Do: flash, then watch the panel from power-on. The frame is painted once, at the end of `setup()`, right before the
     console prints `  node      = up. Type 'help' for commands.`
   - Pass: two lines of text with a horizontal rule between them —
@@ -525,8 +530,10 @@ and cannot pass on a UI-5 build. Do not mark them from this firmware.
     MeshCore's V3 *variant* defines none, which is what left the question open.
   - Do: only if 8.1 is still dark after 8.2, change `kOledRst` to `U8X8_PIN_NONE` (255) and reflash.
   - Pass: record whether the panel needs the explicit reset. Either answer closes §14 Q1.
-  - ⚠ **A dead panel is silent** — `mrui::board_init()` is `void` and U8g2's `begin()` cannot fail (register B91), so
-    there is no console line to grep. The panel itself is the only instrument here.
+  - ✅ **NO LONGER SILENT — UI-6 closed B91.** `mrui::board_init()` returns a bool from a real I²C address probe, and
+    `mr_ui_init()` prints the line in 8.8 when nothing ACKs. On a UI-6 build that line is the first instrument to read:
+    **line present ⇒ the panel is not answering at all** (rail / address / wiring), **line absent but panel dark ⇒ the
+    panel ACKs and the fault is downstream** (reset, contrast, render). That split is exactly what 8.2/8.3 lacked.
 
 - [ ] **8.4 — TASK 6: blanking produces no repeated bus traffic**
   - Do: on a Task-6 build, leave the node untouched past `MR_UI_BLANK_MS` and watch the I²C lines (scope or logic
@@ -553,6 +560,117 @@ and cannot pass on a UI-5 build. Do not mark them from this firmware.
     `cts_to_data_gap_ms = 5`. UI-5 links the **128 B page-buffer** mode (`nm firmware.elf | grep 'buf\$'` reads `128`,
     not `1024`), so one page is ~3 ms — inside the RX window slop, but that is spec §14 Q4's open assumption and this
     is the check that tests it.
+
+### UI-6 additions (2026-08-05) — the three metal-only behaviours the feature layer adds
+
+- [ ] **8.8 — TASK 6 / §B91: the panel-ACK line, and it must be ABSENT on a working board**
+  - Do: on a Task-6 build, watch the console from power-on.
+  - Pass on a **healthy** panel: the line below **does not appear**, and the panel shows the live STATUS screen —
+    status bar `DM0 CH0 T0/0 --` (a fresh node: no mail, no teammates heard, no battery reader until Task 9), then
+    `STATUS` / `me T<team_local_id>  team <8-hex team_id>` / `DM 0, newest --` / `CH 0, newest --` / `batt --`.
+  - Pass on a **dead** panel: exactly this line, **once**, at boot —
+    `!! OLED panel did not ACK (check Vext / addr 0x3C / wiring)`
+    — and the node **keeps meshing** (the report is not fatal; confirm beacons/DMs still work).
+  - ★ POSITIVE CONTROL, so the absence above is evidence and not just silence: unplug the panel's SDA (17) or SCL (18),
+    reflash/reboot, and confirm the line **does** appear. An absence you have never made appear proves nothing.
+  - ⛔ Fail if the line prints on a panel that is visibly rendering — that means the probe address is wrong, not the panel.
+
+- [ ] **8.9 — TASK 6: the send path is NOT BUILT, and it says so instead of hanging**
+  - Background: `ui_perform_send` is a deliberate loud-refusal stub — `mrfw::exec_command` is Task 7's, and C1 forbids
+    folding it in. This check exists so a bench operator never mistakes "not built" for "the radio failed".
+  - Do: long-press the user button (>3.5 s) and release.
+  - Pass, in order: panel shows large `RELEASE!` with `EMERGENCY IN 3..2..1` counting down while held → on release past
+    3.5 s, `SENDING...` → then large `FAILED` with small `no send path: UI-7`; and the console prints exactly
+    `!! UI send path not built (plan Task 7 / slice UI-7)`.
+  - ⛔ Fail if the panel sits on `SENDING...` — a stuck SENDING is the §B72/§B79 defect class and must not reappear.
+  - ⛔ Fail if **nothing is transmitted but the panel claims anything other than a failure.** No RF is expected here.
+
+- [ ] **8.10 — TASK 6 / §B71: the emergency screen's exit**
+  - Do: from 8.9's `FAILED` screen, press **short** once.
+  - Pass: the alarm screen clears and the normal cycle resumes (the next short press advances STATUS → TEAM → …).
+  - Do: long-press again to reach `SENDING...`, and press **short** while it is showing.
+  - Pass: **nothing happens** to the alarm screen — an outcome the user has not seen is sticky. (The screen underneath
+    may advance; the overlay must not clear.)
+  - Do: let the panel blank on a `FAILED`/`NOT HEARD` screen (past `MR_UI_BLANK_MS`, then past `kEmgHoldMs`), then press
+    short **twice**.
+  - Pass: the **first** press only wakes the panel and the outcome is **still displayed**; the **second** clears it.
+    ★ That consumed-waking-press is the whole reason a short press is safe here.
+  - Do: long-press from the sticky screen.
+  - Pass: it re-fires (a fresh three-transmission budget), from any screen and from a blanked panel.
+
+## Part 9 — console response line integrity (§B95)
+
+Rig: **one node with a USB serial monitor**, under normal radio traffic. These are here because **no automated gate can
+reach the bytes that leave the UART** (rule M2): `src/` is outside the native build and the simulator compiles only
+`lib/core`. The host half is `tools/probe_console_sink/` (52 checks + 13 negative controls) and
+`simulation/BASELINE.md` §B95.
+
+⚠ **Prefer `heltec_v3` — it is the board that produced the defect** (its `Serial` is UART0 with a **128-byte** hardware
+TX FIFO, the tightest transport we ship). ⛔ **Blocked by B96 today**: no Heltec env builds on the Linux host. Until that
+is fixed, run these on `xiao_sx1262` (256-B CDC FIFO) and note the board — the guarantee is the same, the pressure is
+lower, so a `heltec_v3` rerun is still owed.
+
+- [ ] **9.1 — `cfg` twenty times: every row structurally complete**
+  - Do: `cfg`, twenty times, while the node is beaconing.
+  - Pass: **every** received line is a whole row. Specifically **NOT** the H5-06 shapes:
+    - ⛔ `  proto : duty=1.00% beacon_ms=900000168010102layer=5 leaf=5000` (labels dropped, values fused)
+    - ⛔ `1Laye0000[route] dest=5 …` (a previous response's residue prefixed to the next)
+  - Pass shape (values will differ; the STRUCTURE is the check — every `key=` present, one row per line):
+    - `  proto : duty=1.00% beacon_ms=900000 hop_cap=16 team_hop_cap=8 lbt=1 nav=1 intra_relay=0 host_mobiles=1 nav_ignore=0`
+  - ★ A row may be **absent**; it may never be **wrong**. An absence must be accompanied by 9.4's drop line.
+
+- [ ] **9.2 — `routes` twenty times with a gateway schedule present**
+  - Do: `routes`, twenty times, on a node that has learned a gateway.
+  - Pass: the `[route]   gw_sched period=…ms heard_ms=…` line and each `[route] dest=…` line are separate, complete
+    lines. ⛔ Never `heard_ms=39214608526@]5@0125015-20[route] dest=5` (the H5-06 fusion).
+
+- [ ] **9.3 — `help` five times: no line without a line ending**
+  - Do: `help`, five times.
+  - Pass: every received help line ends with CRLF and **nothing follows it on the same physical line** — in particular
+    the next prompt/response never starts mid-line. (The old `hl()` emitted its CRLF only when two FIFO bytes happened
+    to be free; H5-06 recorded exactly that.)
+  - ⓘ **EXPECTED, NOT A DEFECT: `help` is 6121 B / 75 lines and does not fit the 2048-B console stage.** It delivers
+    roughly the first 25 lines and then reports the loss (9.4). What must never happen is a *garbled* or *unterminated*
+    line. If the whole text is wanted at the bench, raise `MR_CONSOLE_STAGE_BYTES` (see `src/console_sink.h`).
+
+- [ ] **9.4 — the deferred drop report, verbatim**
+  - Do: run `help` (which necessarily overflows the stage). Watch for the report after the delivered lines.
+  - Pass: exactly this line, on its own line, **once** per burst of loss:
+    ```
+    !! CONSOLE_DROP lines=51
+    ```
+    (the count varies; the text does not — `!! CONSOLE_DROP lines=<N>`, CRLF-terminated). It must appear **after** the
+    lines it refers to, never inside one, and must not repeat while nothing further is lost.
+
+- [ ] **9.5 — stop the host reading, then resume (the anti-wedge)**
+  - Do: with the monitor attached, suspend the reader (`Ctrl-S` in a terminal that honours it, or pause/detach the
+    monitor process — do **not** unplug), issue `cfg` a few times, then resume.
+  - Pass: **the node keeps working throughout** — beacons continue, a DM still ACKs, no reset, no watchdog, no wedge.
+    After resuming, output continues with **complete lines only** plus a `!! CONSOLE_DROP lines=<N>` for what was lost.
+  - ⛔ Fail if the console freezes the radio (missed beacons/ACK timeouts correlated with the pause), or if a partial
+    row appears after the resume.
+
+- [ ] **9.6 — boot banner intact**
+  - Do: reset the board with the monitor already attached; capture the boot log.
+  - Pass: every banner line complete, ending with `  node      = up. Type 'help' for commands.` Measured to be ~1.3 KB,
+    i.e. inside the stage, so **no banner line should be missing at all**.
+
+- [ ] **9.7 — `reboot` still prints before it resets**
+  - Do: `reboot`.
+  - Pass: `> rebooting` is received **before** the reset. (This is the one deliberately blocking path,
+    `GuardedConsole::flush()`; if the line is missing, the bounded drain is not working.)
+
+- [ ] **9.8 — BLE `help` is refused, not streamed**
+  - Do: from the companion/BLE console, send `help`.
+  - Pass: exactly one JSON line — `{"err":"help","msg":"console_only"}` — and **no** multi-kilobyte help stream over
+    NUS. (Before this fix a BLE `help` printed the text to *USB* instead; now help honours its sink, so the refusal is
+    what keeps 6 KB off a link that has wedged this node before.)
+
+- [ ] **9.9 — the `cfg` SF list appears in the response, not on another transport**
+  - Do: `cfg` over USB; then `rcmd <id> cfg`-style / companion `cfg` if reachable.
+  - Pass: `sf_list=6,7` (whatever the real list) is inside the `radio :` row of the response itself. ⛔ Fail if the SF
+    list appears on the USB console while missing from a captured/remote response — that was the
+    `print_sf_list(bitmap)` global-sink bypass.
 
 ## Current semantics and known gaps — not checklist items
 

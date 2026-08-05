@@ -41,7 +41,7 @@ uint16_t      peer_store_restore();                  // setup(): re-install the 
 bool dispatch(const char* line, size_t len, Print& out);            // the console verb-router
 void print_banner(Print& out);                                      // setup() + `version`
 void print_identity(const mrnv::IdBlob& idb);                       // setup()
-void print_sf_list(uint16_t bitmap);                                // setup() + mesh_service_once()
+void print_sf_list(Print& out, uint16_t bitmap);                    // §B95: takes its sink — setup() + mesh_service_once() pass mrcon, dump_cfg passes `out`
 const char* board_name();                                           // ble_dispatch_line `version`
 void handle_routes(Print& out);                                     // ble_dispatch_line `routes`
 // ★ §AB3: `peers` over BLE/companion — the BOUNDED (≤ cap_peer_keys) JSON address book, `peer`* then `peers_end`.

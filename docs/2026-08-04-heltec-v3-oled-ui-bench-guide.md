@@ -171,25 +171,30 @@ Keep the console log from boot onward. A `-dirty` version is acceptable for an u
 
 ### H5-01 — Preflight and boot identity
 
-- [ ] `./tools/probe_board_ui/run.sh` passes.
-- [ ] `pio run -e heltec_v3` succeeds.
-- [ ] Upload succeeds without holding GPIO 0.
-- [ ] The console reaches the normal MeshRoute prompt.
-- [ ] `version`, `whoami`, and `cfg` are captured.
-- [ ] No reset loop, watchdog reset, brownout, or bootloader loop occurs.
+- [x] `./tools/probe_board_ui/run.sh` passes.
+- [x] `pio run -e heltec_v3` succeeds.
+- [x] Upload succeeds without holding GPIO 0.
+- [x] The console reaches the normal MeshRoute prompt.
+- [x] `version`, `whoami`, and `cfg` are captured.
+- [x] No reset loop, watchdog reset, brownout, or bootloader loop occurs.
 
 Pass: normal firmware boot and stable console operation with the OLED-enabled binary.
 
 ### H5-02 — Static Task 5 frame
 
+⛔ **UI-6 DELETED THIS FRAME (2026-08-05). H5-02 and H5-03 are UI-5-ONLY and cannot pass on a Task-6 build** — the
+splash existed to make the canvas reachable under `--gc-sections` (§B88), and the feature layer replaced it with the real
+page-chunked render. On a Task-6 build the first thing on the panel is the live STATUS screen: go to **H6-01**.
+The boxes below are already ticked from the UI-5 run; leave them as the record.
+
 Observe the panel immediately after boot.
 
-- [ ] The panel powers on.
-- [ ] The first line reads `MeshRoute` in the large font.
-- [ ] A horizontal rule is visible below the title.
-- [ ] The second text line reads `OLED UI-5 ok`.
-- [ ] Text is upright, readable, and not clipped.
-- [ ] No obvious random pixels, page-wrap corruption, or persistent partial frame is visible.
+- [x] The panel powers on.
+- [x] The first line reads `MeshRoute` in the large font.
+- [x] A horizontal rule is visible below the title.
+- [x] The second text line reads `OLED UI-5 ok`.
+- [x] Text is upright, readable, and not clipped.
+- [x] No obvious random pixels, page-wrap corruption, or persistent partial frame is visible.
 
 Reference font intent:
 
@@ -202,10 +207,10 @@ Pass: the complete static frame is legible and stable.
 
 Leave the board running for at least five minutes while retaining the serial log.
 
-- [ ] The image remains visible and unchanged.
-- [ ] No periodic flicker or repeated clear/redraw is visible.
-- [ ] The board remains responsive to console commands.
-- [ ] No spontaneous reset appears in the log.
+- [x] The image remains visible and unchanged.
+- [x] No periodic flicker or repeated clear/redraw is visible.
+- [x] The board remains responsive to console commands.
+- [x] No spontaneous reset appears in the log.
 
 Optional instrument check: after the initial paint, SDA/SCL should not show a continuous redraw stream during this Task 5 static state.
 
@@ -241,10 +246,38 @@ If neither choice works, stop. Capture the serial boot log, clear photos, supply
 
 Use a second node if available. The purpose is not yet UI interaction; it is to catch a gross transport or timing regression caused by enabling the panel.
 
-- [ ] The Heltec continues to receive normal beacons.
-- [ ] A normal command or DM can be queued.
-- [ ] With a reachable peer, the transfer reaches the same ACK/receive outcome as the same topology normally produces.
-- [ ] No new reboot, watchdog, or persistent receive-decode failure begins after OLED initialisation.
+✅ **RADIO CRITERION: PASSED** (2026-08-04) — beacons, the reachable-peer transfer and the no-new-reset checks below are
+all ticked, and enabling the panel caused no transport or timing regression. **The console glitches recorded here were
+NOT an OLED or radio failure**: they were the USB console admitting individual `Print::write()` fragments, which is now
+**§B95** in `docs/2026-07-30-open-bug-register.md`.
+
+⇒ **§B95 IS FIXED (uncommitted, 2026-08-04)** — line-staged sink inside `mrcon`, the direct-`Serial` `hl()` help bypass
+deleted, `print_sf_list` given its sink, and losses reported as `!! CONSOLE_DROP lines=<N>`. Evidence:
+`simulation/BASELINE.md` §B95 + `tools/probe_console_sink/`.
+- [ ] **POST-FIX RERUN OWED HERE**: repeat the `cfg` / `routes` / `help` captures below and run
+  **`docs/2026-07-31-bench-test-script.md` Part 9** (9.1–9.9), which carries the exact expected console lines. Pass =
+  every received row structurally complete, no row fused into another, `help` never leaving output on the same physical
+  line, and any omission arriving as whole lines plus the `!! CONSOLE_DROP` report.
+- ⛔ **BLOCKED BY §B96**: `heltec_v3` / `heltec_mobile` / `gateway_heltec` do not build on the Linux host at HEAD
+  (`lib_extra_dirs` points the LDF at the wrong framework package). The rerun needs that fixed, or a Windows host.
+
+- [x] The Heltec continues to receive normal beacons.
+- [ ] A normal command or DM can be queued. -  notes - help messages - no correct lineend (minor), minor glitches in output:
+cfg
+    node_id=106
+      radio : freq=869.0000 routing_sf=7 sf_list=6,7 bw=125.00 kHz cr=5 tx_power=22
+      proto : duty=1.00% beacon_ms=900000168010102layer=5 leaf=5000
+routes
+    1Laye0000[route] dest=5 next=5 hops=1 score=208 pen=0 gw=1 leaf=5 age_ms=39214 cand=3
+
+routes
+    [route]   gw_sched period=15000ms heard_ms=39214608526@]5@0125015-20[route] dest=5 next=5 hops=1 score=208 pen=0 gw=1 leaf=5 age_ms=54969 cand=3
+routes
+    [route]   gw_sched period=15000ms heard_ms=54969533126@]5@837]013013[route] dest=5 next=5 hops=1 score=208 pen=0 gw=1 leaf=5 age_ms=59377 cand=3
+
+
+- [x] With a reachable peer, the transfer reaches the same ACK/receive outcome as the same topology normally produces.
+- [x] No new reboot, watchdog, or persistent receive-decode failure begins after OLED initialisation.
 
 Pass: ordinary radio and console operation remain viable with the static display active.
 
@@ -252,9 +285,9 @@ Pass: ordinary radio and console operation remain viable with the static display
 
 This is a board fact, not a Phase A UI pass condition.
 
-- [ ] Normal reset with the button released boots MeshRoute.
-- [ ] If deliberately tested, reset with the button held enters the expected loader/recovery behavior.
-- [ ] Releasing the button and resetting restores normal boot.
+- [x] Normal reset with the button released boots MeshRoute.
+- [x] If deliberately tested, reset with the button held enters the expected loader/recovery behavior.
+- [x] Releasing the button and resetting restores normal boot.
 
 Do not repeatedly use the loader case as part of ordinary UI testing.
 
@@ -262,11 +295,38 @@ Do not repeatedly use the loader case as part of ordinary UI testing.
 
 Build and flash `heltec_mobile`, then repeat the boot-identity and radio-sanity portions of H5-01/H5-06 with `heltec_mobile` substituted for `heltec_v3` before the following tests.
 
+### H6-00 — Panel-ACK report (§B91) — do this first, it is the new diagnostic
+
+`board_init()` now probes the panel's I²C address and `mr_ui_init()` reports the answer. That one line splits the two
+failure modes H5-04/H5-05 had to guess between.
+
+- [ ] On a healthy panel the console prints **nothing** about the OLED at boot.
+- [ ] ★ Positive control (do it once, so the absence is evidence): disconnect SDA (17) or SCL (18), reboot, and confirm
+      the console prints exactly `!! OLED panel did not ACK (check Vext / addr 0x3C / wiring)`.
+- [ ] With the panel disconnected the node still beacons and still answers the console — the report is not fatal.
+- [ ] Reconnect; the line disappears again.
+
+Reading the result: **line present** ⇒ nothing is answering (rail / address / wiring — work H5-04 then H5-05).
+**Line absent but the panel is dark** ⇒ the panel ACKs, so the fault is downstream (reset pin, contrast, or render).
+
 ### H6-01 — Initial status screen
 
+Exact expected content on a fresh node with no mail, no teammates heard, and Task 9 not landed:
+
+```
+DM0 CH0 T0/0 --          <- status bar, 6x10, with a full-width rule under it
+STATUS
+me T<team_local_id>  team <8 hex digits>
+DM 0, newest --
+CH 0, newest --
+batt --
+```
+
 - [ ] The live status screen replaces the Task 5 static proof frame.
-- [ ] Identity/network fields match `whoami` and `cfg`.
+- [ ] `me T…` matches `team` / `whoami`; the 8-hex `team …` matches `cfg`'s `team_id`.
 - [ ] Text remains within the 128×64 canvas.
+- [ ] Battery reads `--`, **never a number** — the V3 reader is Task 9 (`console_json.h:126` rule).
+- [ ] Ages read `--` until the first push arrives, then switch to `12s` / `5m` / `1h05` form.
 - [ ] Missing data uses the specified unknown/empty representation rather than stale values.
 
 ### H6-02 — Short-press screen navigation
@@ -308,6 +368,37 @@ Record comparable idle and active-radio logs. A single weak-link retry is not pr
 - [ ] Network or peer state changes appear on the next permitted refresh.
 - [ ] Unchanged state does not cause visible continuous redraw.
 - [ ] Values agree with the console representation of the same state.
+
+### H6-06 — The send path is deliberately NOT BUILT, and must say so
+
+★ This exists so `not built` is never mistaken for `the radio failed`. `ui_perform_send` is a loud-refusal stub;
+`mrfw::exec_command` is Task 7's, and C1 forbids folding it into this slice.
+
+- [ ] Long-press: the panel shows large `RELEASE!` with `EMERGENCY IN 3` … `2` … `1` counting down while held.
+- [ ] The countdown digit changes visibly, and the panel does **not** repaint between digit changes.
+- [ ] Release past 3.5 s: `SENDING...` appears, then large `FAILED` with small `no send path: UI-7`.
+- [ ] The console prints exactly `!! UI send path not built (plan Task 7 / slice UI-7)`.
+- [ ] ⛔ The panel never remains on `SENDING...` — a stuck SENDING is the §B72/§B79 defect class.
+- [ ] ⛔ Nothing is transmitted (confirm on the second node), and the panel claims nothing but a failure.
+- [ ] Release at ~3.0 s instead: `CANCELLED` shows briefly and auto-returns.
+
+### H6-07 — §B71: the emergency screen's exit
+
+- [ ] From the `FAILED` screen, one short press clears the alarm and the normal cycle resumes.
+- [ ] While `SENDING...` is showing, a short press does **not** clear the overlay (an unseen outcome is sticky).
+- [ ] Let the panel blank on the `FAILED` screen (past `MR_UI_BLANK_MS`, then past `kEmgHoldMs`): the **first** short
+      press only wakes it and the outcome is **still displayed**; the **second** clears it.
+- [ ] A long press from the sticky screen re-fires, from any screen and from a blanked panel.
+- [ ] A **double** press on the sticky screen does nothing to the alarm (both of spec §4's `double` duties are withdrawn).
+- [ ] Long-press from inside a compose sub-view still reaches the alarm, and the acknowledging short press acts on the
+      alarm rather than moving the compose cursor.
+
+### H6-08 — Battery cadence with an unavailable reader
+
+- [ ] `batt --` throughout (Task 9 has not landed; the reader answers "unavailable" by design).
+- [ ] Instrument or trace that a sample is **attempted** about every 30 s, not on every service pass — the cadence gates
+      on *attempted*, not on *succeeded*, precisely so an unavailable reader is not re-read for ever.
+- [ ] No sampling starts while the MAC is busy.
 
 ## 7. H7 — run after Task 7 lands
 

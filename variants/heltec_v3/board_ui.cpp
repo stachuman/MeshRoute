@@ -14,20 +14,22 @@
 //             polarity, mean of 8 samples, NO settling delay — is plan Task 9 / slice UI-9 (spec §7). Until then the
 //             status bar renders `--`, which is this project's rule for an unavailable reading (console_json.h:126),
 //             never a plausible wrong number.
-//   MISSING   this canvas cannot REPORT a dead panel: board_init() is void and U8g2's begin() always returns 1 (it
-//             performs no I2C ack check). MeshCore probes the address instead (SSD1306Display::i2c_probe). Giving the
-//             canvas a failure channel needs a caller that can surface it, which is Task 6 — registered as B91.
-//   TEMPORARY the three mr_ui_* hooks at the bottom of this file. See the block comment there before deleting them.
+//   DONE      §B91 (Task 6): board_init() now REPORTS whether the panel ACKed — an I2C address probe, the same
+//             mechanism MeshCore uses (SSD1306Display::i2c_probe), because U8g2's begin() always returns 1. The canvas
+//             still owns no report CHANNEL: src/firmware_ui.cpp turns the bool into a console line.
+//   GONE      the three TEMPORARY mr_ui_* hooks that used to sit at the bottom of this file. ★ Task 6 took ownership:
+//             they are DEFINED IN src/firmware_ui.cpp NOW, and defining them in both places is a duplicate-symbol
+//             link failure. A board file must never see a `Push` or decide when to paint (spec §2.1, §5; rule U3).
 #include "mr_features.h"
 
 #if MR_FEAT_OLED
 
 #include <Arduino.h>       // pinMode / digitalRead / digitalWrite + the LOW/HIGH/INPUT_PULLUP levels. U8g2 pulls this
                            // in transitively (U8x8lib.h:43), but this TU uses it directly, so it says so.
+#include <Wire.h>          // §B91: the panel-ACK probe. U8g2 already links Wire on this env (U8x8lib.cpp:52 includes
+                           // it unconditionally) and OWNS Wire.begin(), so this adds no dependency — only a use.
 #include <U8g2lib.h>
 #include "board_ui.h"
-#include "mr_ui.h"
-#include "command.h"       // meshroute::Push — only the (still-inert) push hook needs the type
 
 #ifndef MR_UI_BTN_PIN
 #  error "MR_UI_BTN_PIN is not defined — the board env must supply the user-button GPIO (platformio.ini, [env:heltec_v3])"
@@ -43,9 +45,10 @@
 //   panel addr  0x3C            — U8g2's ssd1306_128x64_noname descriptor already targets it
 // Identical on the V4 (spec §10.1), and the V4 gets its own variants/heltec_v4/board_ui.cpp regardless (spec §0), so
 // these stay file-local constants: nothing outside this TU reads them and there is nothing to override.
-static constexpr uint8_t kOledRst = 21;
-static constexpr uint8_t kOledScl = 18;
-static constexpr uint8_t kOledSda = 17;
+static constexpr uint8_t kOledRst  = 21;
+static constexpr uint8_t kOledScl  = 18;
+static constexpr uint8_t kOledSda  = 17;
+static constexpr uint8_t kOledAddr = 0x3C;   // §B91: the 7-bit address the ACK probe asks for (U8g2's own target)
 
 // ★ THE PANEL POWER RAIL — added against the plan's Task-5 code block, which does not touch it, and this is a
 //   dark-panel risk rather than a nicety. Vext (GPIO 36) is a switched peripheral rail on this board and NOTHING in
@@ -83,7 +86,7 @@ static void battery_init() {}
 
 namespace mrui {
 
-void board_init() {
+bool board_init() {
     // Panel power first: the rail must be settled before any I2C traffic reaches the panel.
     pinMode(kVextPin, OUTPUT);
     digitalWrite(kVextPin, kVextOnLevel);
@@ -99,6 +102,15 @@ void board_init() {
     s_asleep   = false;
     s_painting = false;
     set_font(Font::small);
+    // ★ §B91 — THE PANEL-PRESENCE ANSWER, and it is a MEASUREMENT, not an inference. U8g2's begin() returns 1
+    //   unconditionally (it never reads the bus), so before this the firmware could not tell a working panel from a
+    //   floating rail, a wrong address or a broken trace — and the UI-5 bench question "is the panel on Vext?" had no
+    //   instrument. A zero-byte transmission is the standard presence test and is exactly what MeshCore's
+    //   SSD1306Display::i2c_probe does. Run AFTER begin(), because U8g2 owns Wire.begin(sda, scl) and nothing else in
+    //   this firmware touches Wire, so the bus is configured only from here on.
+    //   endTransmission() == 0 means the device ACKed its address. Any other code = no answer.
+    Wire.beginTransmission(kOledAddr);
+    return Wire.endTransmission() == 0;
 }
 
 void begin_frame() {
@@ -145,41 +157,20 @@ int32_t battery_sample_mv() { return -1; }
 
 }  // namespace mrui
 
-// ---- the mr_ui_* seam — TEMPORARY. Task 6 moves these to src/firmware_ui.cpp and DELETES this whole block. --------
+// ---- ★★ THE mr_ui_* SEAM IS NO LONGER HERE — deleted by Task 6, deliberately, and this note replaces it. ----------
 //
-// They cannot simply be omitted here: fw_main calls all three unconditionally and MR_FEAT_OLED=1 removes mr_ui.h's
-// inline stubs, so a build without definitions does not link. The plan's Task-5 code block drops them and would not
-// have linked; see the slice report.
+// UI-5 defined `mr_ui_init` / `mr_ui_tick` / `mr_ui_on_push` in this file and marked them TEMPORARY. They existed for
+// exactly one reason: `fw_main` calls all three UNCONDITIONALLY and `MR_FEAT_OLED=1` removes `mr_ui.h`'s inline stubs,
+// so UI-5 could not link without SOMEBODY defining them. UI-6 is that somebody — `src/firmware_ui.cpp`.
 //
-// ★ mr_ui_init() also does Task 5's ONE piece of real work on metal, and it is load-bearing twice over:
-//   1. it is the slice's acceptance test — plan Step 5's "the panel lights". Nothing else in Task 5 ever calls the
-//      canvas, so without this the panel would stay dark and the step would be untestable.
-//   2. it is what makes the canvas REACHABLE. This platform links with -Wl,--gc-sections, so a canvas that nothing
-//      calls is garbage-collected and a Task 5 that wired nothing would have measured a flash delta of nothing.
-//   The frame is painted through the SAME page loop the feature layer will use, so it demonstrates the §5 contract on
-//   hardware: the WHOLE scene is re-drawn before EVERY next_page().
-void mr_ui_init() {
-    mrui::board_init();
-    mrui::begin_frame();
-    do {
-        mrui::set_font(mrui::Font::large);
-        mrui::draw_text(6, 26, "MeshRoute");
-        mrui::draw_hline(0, 32, 128);
-        mrui::set_font(mrui::Font::small);
-        mrui::draw_text(6, 46, "OLED UI-5 ok");
-    } while (mrui::next_page());
-}
-
-void mr_ui_tick(uint32_t /*now_ms*/) {
-    // Deliberately INERT. ALL render policy — the MAC-idle predicate, the <=2 Hz dirty throttle, page pacing, the
-    // blank timer and the battery cadence — is plan Task 6 / slice UI-6, in src/firmware_ui.cpp. Painting from here
-    // without that predicate is precisely the CTS->DATA-gap break spec §5 exists to prevent, and feature logic does
-    // not belong in a board file (U3).
-}
-
-void mr_ui_on_push(const meshroute::Push& /*pu*/) {
-    // Deliberately INERT. Push correlation is Task 4's SendTracker, driven from Task 6's firmware_ui.cpp. A board file
-    // must never see a Push — spec §2.1 keeps raw pushes away from the model for the same reason.
-}
+// ⛔ DO NOT RE-ADD THEM HERE. Two definitions of the same three externs is a duplicate-symbol link failure across the
+//    heltec_v3 / heltec_mobile / gateway_heltec images, and the render policy they would carry (the MAC-idle predicate,
+//    the <=2 Hz dirty throttle, page pacing, the blank timer, the battery cadence, push correlation) does not belong in
+//    a board file at all: rule U3, and spec §2.1 keeps raw `Push`es away from the model for a safety reason.
+//    That is also why `mr_ui.h` and `command.h` are no longer included above — this TU has no use for either.
+//
+// ⓘ The `--gc-sections` reachability that `mr_ui_init()` used to provide (§B88) now comes from the real caller:
+//    `firmware_ui.cpp` calls `board_init`, `begin_frame`, `next_page`, `set_font`, `draw_text`, `draw_hline`,
+//    `set_power_save`, `button_pressed` and `battery_sample_mv` — all nine canvas entry points, so none is collected.
 
 #endif  // MR_FEAT_OLED

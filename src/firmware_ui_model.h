@@ -16,6 +16,10 @@
 // `SendFailReason` all the way to the panel.
 // DONE here (§B78, owner-ruled 2026-08-04): a terminal `failed` alarm is RETAINED and holds the panel for a full
 // `kEmgHoldMs` window from the failure's OWN arrival time — both the synchronous refusal and the async seal failure.
+// DONE here (§B71, owner-ruled 2026-08-04, landed by UI-6): the emergency screen's EXIT — a SHORT press on a RETAINED
+// outcome returns `_emg` to `idle`. It lives in this pure unit and not in firmware_ui.cpp on purpose: it is gesture
+// SEMANTICS, the one thing this header owns, and putting it here is what makes it natively testable (the render layer
+// has no automated cover at all). `emg_outcome_retained()` is the derived predicate; see it for the vacuous fifth state.
 // NOT here yet (UI-4, [[meshroute-mark-done-vs-missing-in-code]]): NOTHING correlates outcomes. Every `on_outcome` /
 // `on_send_accepted` / `on_send_refused` call must come from the Task-4 send tracker, which matches ctr/peer/channel
 // FIRST — feeding this model a raw Push would let an unrelated channel post complete an emergency (spec §2.1).
@@ -155,6 +159,24 @@ public:
             _st.blanked = false; emergency_gesture(g, s); _st.dirty = true; return;
         }
         if (_st.blanked) { _st.blanked = false; _st.dirty = true; return; }   // the waking press is CONSUMED
+        // ★★★ §B71 (OWNER-RULED 2026-08-04, implemented by UI-6): once the alarm has been sent AND ITS RESULT SEEN,
+        // the next SHORT press acknowledges it and restores the normal cycle. Before this there was NO exit at all —
+        // `_emg` had no path back to `idle`, so a fired alarm owned the panel until reboot.
+        // ★ IT IS SAFE BECAUSE THREE RULES COMPOSE, and the ORDER of the two lines above is two of them:
+        //   1. long gestures are handled first, so `long` still re-fires from a sticky outcome;
+        //   2. a blanked panel consumes its waking press ABOVE, so a retained outcome is ALWAYS displayed before any
+        //      press can dismiss it — that is what makes a SHORT press (not a compound gesture) acceptable here;
+        //   3. only RETAINED outcomes qualify: an alarm still in flight (`arming`/`firing`/`blocked`-with-a-live-retry)
+        //      is sticky, because an outcome the hiker never saw is the failure SAFETY-FIRST exists to prevent.
+        // ★ It cannot trap the user: retries are BOUNDED, so the machine always terminates in a retained outcome.
+        // ⚠ It is placed BEFORE the compose branch on purpose. A long press fires from inside a compose sub-view
+        //   (spec §4.2) and does NOT close it, so the emergency overlay renders OVER an open modal — the press must act
+        //   on what the user is looking at, which is the alarm, not on the list underneath it.
+        // ⓘ `double` deliberately gets NO emergency job (spec §4's "double acknowledges" AND "double re-fires" are both
+        //   withdrawn — they were the contradiction B71 resolved), so it falls through to `activate()` as usual.
+        if (g == Gesture::short_press && emg_outcome_retained()) {
+            _emg = Emergency::idle; _st.dirty = true; return;
+        }
         if (_st.compose != Compose::none) { compose_gesture(g); return; }
         if (g == Gesture::short_press)  { advance_or_next(s); _st.dirty = true; }
         else if (g == Gesture::double_press) { activate(s);   _st.dirty = true; }
@@ -291,6 +313,18 @@ public:
     }
     const char* reply_who()  const { return _reply_who; }
     const char* reply_text() const { return _reply_text; }
+
+    // ★★ §B71's exit PREDICATE — "an alarm has reached a terminal, readable answer". DERIVED as a set, not named from
+    // the ruling's prose, and one member of that prose is VACUOUS: the ruling lists "final `blocked`", but `blocked` is
+    // never final in this model — `on_outcome`'s `K::blocked` arm ALWAYS sets `_retry_armed`, and `tick_emergency` always
+    // re-fires from it, so a `blocked` alarm is by construction still in flight. Including it would have made the exit
+    // fire mid-retry, which is precisely what the ruling's first row forbids. ⇒ four states, not five.
+    // ⓘ `cancelled` is excluded deliberately: nothing was sent, and it self-clears after kCancelledMs, so there is no
+    // outcome to acknowledge. `arming` / `firing` are the in-flight rows.
+    bool emg_outcome_retained() const {
+        return _emg == Emergency::picked_up || _emg == Emergency::not_heard ||
+               _emg == Emergency::reply     || _emg == Emergency::failed;
+    }
 
 protected:
     // Wrap-safe elapsed time. millis() wraps at ~49.7 days; `a >= b` would break across it, this does not.

@@ -38,28 +38,26 @@ MUT=[
   '    if (on) s_painting = false;', '    if (on) { /* control: latch removed */ }'),
  ('C3 drop next_page()\'s no-frame guard',
   '    if (!s_painting) return false;          // no frame open, or one abandoned by a blank -> touch NO bus\n', ''),
- ('C4 draw the scene ONCE per frame instead of once per page',
-  '''    mrui::begin_frame();
-    do {
-        mrui::set_font(mrui::Font::large);
-        mrui::draw_text(6, 26, "MeshRoute");
-        mrui::draw_hline(0, 32, 128);
-        mrui::set_font(mrui::Font::small);
-        mrui::draw_text(6, 46, "OLED UI-5 ok");
-    } while (mrui::next_page());''',
-  '''    mrui::begin_frame();
-    mrui::set_font(mrui::Font::large);
-    mrui::draw_text(6, 26, "MeshRoute");
-    mrui::draw_hline(0, 32, 128);
-    mrui::set_font(mrui::Font::small);
-    mrui::draw_text(6, 46, "OLED UI-5 ok");
-    while (mrui::next_page()) {}'''),
+ # ⚠⚠ §UI-6 REPLACED THE OLD C4, and the reason is a real coverage LOSS worth naming rather than papering over. C4 used
+ # to mutate `mr_ui_init()`'s boot page loop — "draw the scene ONCE per frame instead of once per page". Task 6 MOVED
+ # that loop out of this TU into src/firmware_ui.cpp, which cannot be host-compiled here (fw_context.h pulls RadioLib),
+ # so no mutation OF THIS FILE can revert it any more. The caller-side obligation is now covered only STRUCTURALLY, by
+ # run.sh, which is weaker; it is registered rather than assumed. What replaces it is a control with a real subject in
+ # this TU: the page loop cannot even START without firstPage().
+ ('C4 begin_frame() forgets firstPage() (no page loop is ever armed)',
+  '    s_u8g2.firstPage();     // clears the page buffer and rewinds to tile row 0 — composes only, touches NO bus',
+  '    /* control: firstPage() dropped */;'),
  ('C5 park Vext HIGH instead of the proven LOW',
   'static constexpr uint8_t kVextOnLevel = LOW;', 'static constexpr uint8_t kVextOnLevel = HIGH;'),
  ('C6 button compared against HIGH (wrong polarity)',
   'return digitalRead(MR_UI_BTN_PIN) == LOW;', 'return digitalRead(MR_UI_BTN_PIN) == HIGH;'),
  ('C7 battery stub returns a fabricated millivolt value',
   'int32_t battery_sample_mv() { return -1; }', 'int32_t battery_sample_mv() { return 3900; }'),
+ # §UI-6 / §B91: the presence test must be able to say NO. A board_init() that always reports "panel present" is exactly
+ # the instrument-that-cannot-fail this project keeps finding — and it is what UI-5 shipped, by having a void return.
+ ('C8 board_init() claims the panel is present without asking',
+  '    Wire.beginTransmission(kOledAddr);\n    return Wire.endTransmission() == 0;',
+  '    return true;'),
 ]
 rc_all = 0
 for idx, (label, find, repl) in enumerate(MUT):

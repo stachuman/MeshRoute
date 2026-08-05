@@ -347,10 +347,17 @@ TEST_CASE("ui-send: UI-4 — interleaved unrelated traffic cannot move the emerg
 // unattributable expiry that merely re-queues can never satisfy `_tries >= kEmgMaxTries`. ⇒ THE RULE: an expired
 // unattributable EMERGENCY consumes ONE bounded attempt BEFORE its `channel_remote_mint` is processed.
 
-// Drive `n` ctr-0 emergency expiries. `consume` selects the ruled order vs the defect, so the requirement and its
+// Drive `n` ctr-0 emergency expiries. `via_glue` selects the SHIPPED wiring vs the defect, so the requirement and its
 // negative control share one body and cannot drift apart.
-static void run_ctr0_expiries(UiModel& m, int n, bool consume) {
+//
+// ⚠⚠ §UI-6 CHANGED THIS HELPER, AND THE REASON IS THE POINT. v1 HAND-REPLICATED the wiring
+// (`emg.tick(); on_send_accepted(); on_outcome();`) — so it pinned the RULE while being STRUCTURALLY BLIND to the
+// shipped `mr_ui_tick`. A coder who wired the tick in the wrong order, which the plan records happening TWICE, would
+// have seen these four cases stay green. That is the "could this check have failed?" test, and v1 failed it.
+// ⇒ the ruled path now calls `mrui::ui_pump_trackers` — the ACTUAL function firmware_ui.cpp calls, and its only caller.
+static void run_ctr0_expiries(UiModel& m, int n, bool via_glue) {
     SendReq req{}; SendOutcome o{};
+    SendTracker normal;                                  // idle throughout — the glue must not need it to be live
     for (int i = 1; i <= n; ++i) {
         const bool got = m.take_send_request(req);      // §B70: ONE call — take_send_request DRAINS
         CHECK(got == true);
@@ -361,12 +368,16 @@ static void run_ctr0_expiries(UiModel& m, int n, bool consume) {
         emg.submit(SendKind::emergency, 0, 0, t_sub);
         emg.awaiting_outcome(t_sub);                     // on_command answered {queued, ctr = 0} — B39 producer (2)/(3)
         const uint32_t t_exp = t_sub + kOutcomeWindowMs + 1;
-        const bool expired = emg.tick(t_exp, o);
-        CHECK(expired == true);
-        if (!expired) return;
-        CHECK(o.kind == SendOutcome::Kind::channel_remote_mint);
-        if (consume) m.on_send_accepted(SendKind::emergency, t_exp);   // ★ THE RULE, and it must precede the outcome
-        m.on_outcome(o, t_exp);
+        if (via_glue) {
+            ui_pump_trackers(emg, normal, m, t_exp);     // ★ THE SHIPPED GLUE, verbatim
+            CHECK(emg.idle() == true);                   // the slot was released, not leaked
+        } else {
+            const bool expired = emg.tick(t_exp, o);     // the DEFECT: the expiry consumes no attempt
+            CHECK(expired == true);
+            if (!expired) return;
+            CHECK(o.kind == SendOutcome::Kind::channel_remote_mint);
+            m.on_outcome(o, t_exp);
+        }
     }
 }
 
@@ -382,7 +393,7 @@ static UiModel armed_and_fired() {
 TEST_CASE("ui-send: UI-4 int — each ctr==0 expiry consumes ONE attempt, three end in sticky NOT HEARD, no fourth") {
     UiModel m = armed_and_fired();
     SendReq req{};
-    run_ctr0_expiries(m, 3, /*consume=*/true);
+    run_ctr0_expiries(m, 3, /*via_glue=*/true);
     CHECK(m.attempts() == 3);                        // (2) 1, 2, 3 — NOT 0
     CHECK(m.emergency() == Emergency::not_heard);    // (3) terminal, and sticky
     CHECK(m.take_send_request(req) == false);        // (4) no fourth request is queued
@@ -399,7 +410,7 @@ TEST_CASE("ui-send: UI-4 int — each ctr==0 expiry consumes ONE attempt, three 
 TEST_CASE("ui-send: UI-4 int — NEGATIVE CONTROL: without the consumption the retry never terminates") {
     UiModel m = armed_and_fired();
     SendReq req{};
-    run_ctr0_expiries(m, 3, /*consume=*/false);
+    run_ctr0_expiries(m, 3, /*via_glue=*/false);
     CHECK(m.attempts() == 0);                       // the three-alarm budget was never touched
     CHECK(m.emergency() == Emergency::firing);      // still firing after 3 expiries...
     CHECK(m.take_send_request(req) == true);        // ...and a FOURTH request is queued: unbounded
@@ -435,4 +446,192 @@ TEST_CASE("ui-send: UI-4 int — a colliding send_layer {dst=0, unsealable} cann
     m.on_outcome(o, 5000 + kOutcomeWindowMs + 1);
     CHECK(m.attempts() == 1);
     CHECK(m.emergency() == Emergency::firing);      // one of three spent, still trying — never `failed`
+}
+
+// ============================================================ §UI-6 GLUE — the wiring itself, not a replica of it
+// ★★★ These drive `mrui::ui_pump_trackers` / `mrui::ui_route_send_push` — the ONLY two functions
+// `src/firmware_ui.cpp`'s `mr_ui_tick` / `mr_ui_on_push` call. Before UI-6 this wiring lived inline in a `.cpp` that
+// NEITHER the native suite nor the simulator compiles, so the three caller obligations the tracker documents at length
+// were prose. The plan records the wiring being got wrong TWICE. Now a revert turns this suite red.
+
+static MESHROUTE_NS::Push push_of(MESHROUTE_NS::PushKind k) {
+    MESHROUTE_NS::Push pu{}; pu.kind = k; return pu;
+}
+// A live alarm with one accepted transmission, its handle held by `emg`.
+static UiModel alarm_accepted(SendTracker& emg, uint16_t ctr) {
+    UiModel m; SendReq req{};
+    UiSnapshot s{}; s.now_ms = 1000; m.on_gesture(Gesture::long_arm, s);
+    s.now_ms = 4500; m.on_gesture(Gesture::long_fire, s);
+    const bool got = m.take_send_request(req);
+    CHECK(got == true);
+    emg.submit(SendKind::emergency, 0, 0, 4500);
+    emg.accept(ctr, 5000);
+    m.on_send_accepted(SendKind::emergency, 5000);
+    CHECK(m.emergency() == Emergency::firing);
+    return m;
+}
+
+// ★★★ §B84 BLOCKER 2, and it had NO test before UI-6. `SendTracker::tick()` yields a CHANNEL outcome, and
+// `on_outcome` lets a channel outcome move any LIVE alarm — so routing the NORMAL tracker's expiry into `on_outcome`
+// lets an abandoned canned post alter a live emergency. The glue must DRAIN that slot and route NOTHING.
+// ⚠⚠ THIS CASE FAILED ITS OWN NEGATIVE CONTROL ON FIRST WRITING, and the record matters more than the fix. v1 asserted
+//    only `emergency() == firing` and `attempts() == 1` — and routing the normal expiry into `on_outcome` (the exact
+//    defect B84 names) left BOTH of those true: with `_tries` 1 of 3, `on_outcome`'s channel arm re-enters `firing` and
+//    QUEUES ANOTHER ALARM. So the visible harm is a PHANTOM RE-TRANSMISSION of the distress call, triggered by an
+//    unrelated canned post — and v1 was blind to precisely that. ⇒ assert the QUEUE, and add the budget-spent variant
+//    where the same revert also fabricates a terminal NOT HEARD.
+TEST_CASE("ui-glue: the NORMAL tracker's expiry drains its slot and CANNOT touch a live alarm") {
+    SendTracker emg, normal;
+    UiModel m = alarm_accepted(emg, /*ctr=*/77);          // `accepted` NEVER expires — only `awaiting` does
+    normal.submit(SendKind::channel_canned, 0, 0, 5100);
+    normal.awaiting_outcome(5100);                        // a canned post with no local handle
+    const uint32_t t_exp = 5100 + kOutcomeWindowMs + 1;
+    ui_pump_trackers(emg, normal, m, t_exp);
+    CHECK(normal.idle()          == true);                // ★ drained: the slot does not leak (§B79)
+    CHECK(m.emergency()          == Emergency::firing);   // ★ and the alarm did NOT move
+    CHECK(m.attempts()           == 1);                   // ...nor did it spend one of its three transmissions
+    CHECK(emg.idle()             == false);               // the alarm still owns its handle, still waiting
+    // ★★ THE ASSERTION THAT ACTUALLY DISCRIMINATES: no phantom alarm was queued by somebody else's expiry.
+    CHECK(m.emergency_pending()  == false);
+    SendReq spurious{};
+    const bool queued = m.take_send_request(spurious);
+    CHECK(queued == false);
+}
+
+// The same revert, against an alarm whose three-transmission budget is ALREADY SPENT: `on_outcome` would then take the
+// `_tries >= kEmgMaxTries` arm and manufacture a TERMINAL `NOT HEARD` — telling the hiker the alarm was not heard on the
+// strength of an unrelated canned post's missing push.
+TEST_CASE("ui-glue: a canned expiry cannot fabricate a terminal NOT HEARD on a budget-spent alarm") {
+    SendTracker emg, normal;
+    UiModel m = alarm_accepted(emg, /*ctr=*/77);
+    m.on_send_accepted(SendKind::emergency, 5100);
+    m.on_send_accepted(SendKind::emergency, 5200);        // three accepted transmissions, still awaiting evidence
+    CHECK(m.attempts()  == kEmgMaxTries);
+    CHECK(m.emergency() == Emergency::firing);
+    normal.submit(SendKind::channel_canned, 0, 0, 5300);
+    normal.awaiting_outcome(5300);
+    ui_pump_trackers(emg, normal, m, 5300 + kOutcomeWindowMs + 1);
+    CHECK(normal.idle() == true);
+    CHECK(m.emergency() == Emergency::firing);            // ★ NOT not_heard: the alarm's own outcome has not arrived
+    CHECK(m.attempts()  == kEmgMaxTries);
+}
+
+// The other half: the EMERGENCY slot's own expiry DOES move the model, and consumes an attempt first.
+TEST_CASE("ui-glue: the EMERGENCY tracker's expiry consumes one attempt BEFORE its outcome lands") {
+    SendTracker emg, normal;
+    UiModel m; SendReq req{};
+    UiSnapshot s{}; s.now_ms = 1000; m.on_gesture(Gesture::long_arm, s);
+    s.now_ms = 4500; m.on_gesture(Gesture::long_fire, s);
+    const bool got = m.take_send_request(req);
+    CHECK(got == true);
+    emg.submit(SendKind::emergency, 0, 0, 4500);
+    emg.awaiting_outcome(5000);                           // {queued, ctr = 0}: no local handle
+    CHECK(m.attempts() == 0);
+    ui_pump_trackers(emg, normal, m, 5000 + kOutcomeWindowMs + 1);
+    CHECK(m.attempts()  == 1);                            // ★ the ordering: consumed, then the outcome re-queued
+    CHECK(emg.idle()    == true);
+    CHECK(m.emergency() == Emergency::firing);            // one of three spent, still trying — never `failed`
+    const bool requeued = m.take_send_request(req);
+    CHECK(requeued == true);
+}
+
+TEST_CASE("ui-glue: pumping idle trackers is inert") {
+    SendTracker emg, normal;
+    UiModel m; UiSnapshot s{}; s.now_ms = 1000;
+    for (uint32_t t = 1000; t < 200000; t += 5000) ui_pump_trackers(emg, normal, m, t);
+    CHECK(m.emergency() == Emergency::idle);
+    CHECK(m.attempts()  == 0);
+}
+
+// ★★ §B84's colliding shape, now through the REAL router rather than by calling each matcher by hand. Six unrelated
+// operations emit `send_failed{dst = 0, ctr = 0}`, and `dst == 0` does NOT mean "channel" — so the router must have no
+// path from this push to `Emergency::failed`. That guarantee is STRUCTURAL: no matcher accepts it.
+TEST_CASE("ui-glue: an unattributable send_failed{dst=0, unsealable} cannot end the alarm") {
+    SendTracker emg, normal;
+    UiModel m = alarm_accepted(emg, /*ctr=*/77);
+    MESHROUTE_NS::Push pu = push_of(MESHROUTE_NS::PushKind::send_failed);
+    pu.dst = 0; pu.ctr = 0; pu.reason = FailReason::unsealable;
+    const bool claimed = ui_route_send_push(emg, normal, m, pu, 5200);
+    CHECK(claimed       == false);                        // ignored, which is the whole point of the tracker
+    CHECK(m.emergency() == Emergency::firing);
+    CHECK(m.emergency() != Emergency::failed);
+    CHECK(emg.idle()    == false);                        // nothing consumed the alarm's slot
+}
+
+TEST_CASE("ui-glue: channel_sent routes by ctr — ours becomes PICKED UP, a stranger's is ignored") {
+    SendTracker emg_a, normal_a;
+    UiModel a = alarm_accepted(emg_a, /*ctr=*/77);
+    MESHROUTE_NS::Push other = push_of(MESHROUTE_NS::PushKind::channel_sent);
+    other.ctr = 12; other.relayed = true;                 // somebody else's post, and it claims a relay
+    CHECK(ui_route_send_push(emg_a, normal_a, a, other, 5200) == false);
+    CHECK(a.emergency() == Emergency::firing);            // ★ no FALSE PICKED UP
+    MESHROUTE_NS::Push mine = push_of(MESHROUTE_NS::PushKind::channel_sent);
+    mine.ctr = 77; mine.relayed = true;
+    CHECK(ui_route_send_push(emg_a, normal_a, a, mine, 5300) == true);
+    CHECK(a.emergency() == Emergency::picked_up);
+
+    // relayed=false is the §B38 case: no relay evidence ⇒ never PICKED UP, and the bounded retry re-queues.
+    SendTracker emg_b, normal_b;
+    UiModel b = alarm_accepted(emg_b, /*ctr=*/88);
+    MESHROUTE_NS::Push quiet = push_of(MESHROUTE_NS::PushKind::channel_sent);
+    quiet.ctr = 88; quiet.relayed = false;
+    CHECK(ui_route_send_push(emg_b, normal_b, b, quiet, 5300) == true);
+    CHECK(b.emergency() == Emergency::firing);            // attempt 1 of 3 answered; re-queued, not concluded
+}
+
+// ★ The abandoned canned post: its outcome must be CLAIMED by the normal slot (so it can never be offered to the alarm)
+//   and must NOT reach the model — there is no canned-only entry point yet, and `on_outcome` would move the alarm.
+TEST_CASE("ui-glue: a canned post's outcome is claimed by the normal slot and never routed to the model") {
+    SendTracker emg, normal;
+    UiModel m = alarm_accepted(emg, /*ctr=*/77);
+    normal.submit(SendKind::channel_canned, 0, 0, 5100);
+    normal.accept(/*ctr=*/500, 5100);
+    MESHROUTE_NS::Push canned = push_of(MESHROUTE_NS::PushKind::channel_sent);
+    canned.ctr = 500; canned.relayed = true;              // a REAL relay — of the canned post, not the alarm
+    CHECK(ui_route_send_push(emg, normal, m, canned, 5200) == true);
+    CHECK(normal.idle() == true);                         // claimed and closed
+    CHECK(m.emergency() == Emergency::firing);            // ★ and the alarm is untouched: no borrowed PICKED UP
+    CHECK(emg.idle()    == false);
+}
+
+// ★ OFFER ORDER. `match_blocked` correlates by WINDOW, not by ctr, so with both slots live the push would match EITHER.
+//   Offering the emergency slot first is the only thing that stops a canned post from stealing the alarm's outcome —
+//   and, conversely, the alarm's outcome from being spent on the canned post.
+TEST_CASE("ui-glue: with BOTH slots live, a send_blocked goes to the EMERGENCY slot") {
+    SendTracker emg, normal;
+    UiModel m = alarm_accepted(emg, /*ctr=*/77);
+    normal.submit(SendKind::channel_canned, 0, 0, 5100);
+    normal.accept(/*ctr=*/500, 5100);
+    MESHROUTE_NS::Push blk = push_of(MESHROUTE_NS::PushKind::send_blocked);
+    blk.blocked_channel = true; blk.next_ms = 7000;
+    CHECK(ui_route_send_push(emg, normal, m, blk, 5200) == true);
+    CHECK(m.emergency()   == Emergency::blocked);         // the ALARM took it...
+    CHECK(m.retry_at_ms() == 5200 + 7000u);               // ...with the deadline anchored on the OUTCOME's arrival
+    CHECK(emg.idle()      == true);
+    CHECK(normal.idle()   == false);                      // ...and the canned post kept its own transaction
+}
+
+// A DM ack is routed to the NORMAL slot; offering the emergency slot first is provably inert (`match_dm` refuses a
+// non-DM slot), which is why the glue offers it unconditionally rather than carrying a per-kind exception.
+TEST_CASE("ui-glue: a DM ack reaches the DM state and the emergency offer is inert") {
+    SendTracker emg, normal;
+    UiModel m = alarm_accepted(emg, /*ctr=*/77);
+    normal.submit(SendKind::dm, /*peer=*/174, 0, 5100);
+    normal.accept(/*ctr=*/900, 5100);
+    MESHROUTE_NS::Push ack = push_of(MESHROUTE_NS::PushKind::send_e2e_acked);
+    ack.ctr = 900; ack.dst = 174;
+    CHECK(ui_route_send_push(emg, normal, m, ack, 5200) == true);
+    CHECK(m.dm_state()  == DmState::delivered);
+    CHECK(m.emergency() == Emergency::firing);            // the alarm is a channel transaction; the ack is not its
+    CHECK(emg.idle()    == false);
+}
+
+// The kinds the router deliberately does not handle: firmware_ui.cpp owns those (counters + the §4.4 reply scope).
+TEST_CASE("ui-glue: the router claims nothing for the RX kinds") {
+    SendTracker emg, normal;
+    UiModel m = alarm_accepted(emg, /*ctr=*/77);
+    CHECK(ui_route_send_push(emg, normal, m, push_of(MESHROUTE_NS::PushKind::msg_recv),     5200) == false);
+    CHECK(ui_route_send_push(emg, normal, m, push_of(MESHROUTE_NS::PushKind::channel_recv), 5200) == false);
+    CHECK(ui_route_send_push(emg, normal, m, push_of(MESHROUTE_NS::PushKind::send_acked),   5200) == false);
+    CHECK(m.emergency() == Emergency::firing);
 }

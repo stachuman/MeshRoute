@@ -159,17 +159,34 @@ each env's **resolved** config (never a typed list), deletes the object dirs (�
 PlatformIO's content-signature cache), and **prints the object count beside every total** — a 0-object row is flagged
 as measuring nothing, which has happened in this project.
 
-**PINNED ABSOLUTE TOTALS — clean builds, 2026-08-04, `tools/warning_census.sh heltec_v3 heltec_mobile gateway_heltec`:**
+**CURRENT CLEAN-BUILD CENSUS — 2026-08-05 after UI-6 (B106 re-pin), `tools/warning_census.sh`:** warning totals and
+`-Wswitch` are the load-bearing pins; objects/RAM/Flash are non-vacuity and budget observations (ESP32 flash can
+move by the documented banner-packing quantum, B86).
 
 | env | objects | warnings | `-Wswitch` | RAM | Flash |
 |---|---|---|---|---|---|
-| `heltec_v3` | 324 | **178** | **0** | 211252 | 1244400 |
-| `heltec_mobile` | 324 | **178** | **0** | 210772 | 1237796 |
-| `gateway_heltec` | 324 | **174** | **0** | 236172 | 1213900 |
+| `heltec_v3` | 326 | **180** | **0** | 214068 | 1251204 |
+| `heltec_mobile` | 326 | **180** | **0** | 213588 | 1244648 |
+| `gateway_heltec` | 326 | **176** | **0** | 238988 | 1220416 |
 
-★ **Two independent cross-checks, so these are measured rather than asserted:** `gateway_heltec` reproduces QA's own
-clean build **to the byte** (236172 / 1213900), and `heltec_v3`'s flash is exactly the pre-UI-5 reference plus the
-attributed delta (1209476 + 34924 = 1244400).
+★ **QA-CONFIRMED 2026-08-05 by an independent census run** (separate build, separate reader): every figure above
+reproduced, and **RAM is +760 B on all three, identical** — `gateway_heltec` is the tightest OLED env at
+**238988 / 327680 = 72.9 %**. Flash +5.8…6.2 KB.
+★★ **B106 — WHY THE WARNING PINS ROSE 178/178/174 → 180/180/176, and it is +1 TU, not new warning-generating code.**
+`src/firmware_ui.cpp` is one new translation unit, and it must reach `g_node` / `g_hal` / `g_iradio`, so it includes
+`fw_context.h` → the radio HAL. That pulls **RadioLib's `#warning`** (`-Wcpp`) and **`device_radio.h`'s `inline volatile`
+globals** (`-Wvolatile`) — **each emitted once per including TU**. ⇒ **+2 per env, and not one of them is UI-6 code**;
+UI-6's own 551 lines add zero. Attribution was A/B-controlled by the coder and **independently re-derived structurally
+by QA** (the include chain above). The coder's own 10 `-Wformat-truncation` were **fixed, not pinned**.
+⚠ **The `-Wswitch` 0 and the raw counts are the independent evidence; the script's `PASS` verdict is NOT.** Once the
+coder owns `EXPECT_WARN`, a re-run compares the build against *the coder's* expectation — it is **self-referential by
+construction** and cannot contradict a wrong pin. What QA verified independently is the **raw 180/180/176**, the object
+count, the uniform +760, and the include-chain attribution. ⇒ read the verdict line as non-vacuity, never as assent.
+⇒ **B105 is the cure and is the owner's call:** one `DeviceHal::radio()` accessor lets the feature layer include only
+pure headers, which **removes both new warnings** and unlocks the `probe_firmware_ui` that **B104** records as missing.
+ⓘ Superseded history: the 2026-08-04 post-B95/B96 pins were 325 objects / **178 / 178 / 174** at RAM 213308 / 212828 /
+238228. B95 added the console stage's object + 2048 B; B96's controlled delta was RAM **−16 B** / Flash **+52 B** and
+**no warning**. The absolute flash values are observations, not byte-identity requirements across sessions (B86).
 
 **The ruling itself:** **ACCEPT these totals as the pinned baseline; a HIGHER count fails the gate.** Of the ~129 added,
 **127 are our own blanket `-fno-rtti` (`platformio.ini:49`, `[common] build_flags`) reaching U8g2's 127 C TUs**, where

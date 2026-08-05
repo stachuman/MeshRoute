@@ -521,6 +521,14 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
     // catches lines that previously returned "unknown_cmd" (team/mobile/gateway/faults/help/lookup/…). The BLE link is
     // the authenticated (MITM-passkey) admin transport. (reboot/regen/ota/factory_reset become reachable here too —
     // factory_reset still requires its `confirm` token; flag for review if the console should stay USB-only.)
+    // ★★ §B95 invariant 9: `help` / `?` is REFUSED here, BEFORE the text fallback below, and that refusal is
+    // load-bearing rather than cosmetic. The old `hl()` help wrote straight to `Serial`, so a BLE `help` returned
+    // NOTHING over BLE (it printed to USB instead) — an accident that happened to bound it. Now that help honours its
+    // sink, the fallback would stream 75 lines / 6121 B over BLE-NUS at ~20 B per notification: precisely the
+    // self-inflicted flood that has wedged this node before, and the reason `peers all` is refused two lines up (U3 —
+    // same shape, same reason). The remedy is named: the USB console. A bounded ONE-LINE answer, never a stream.
+    if ((len == 4 && !strncmp(line, "help", 4)) || (len == 1 && line[0] == '?'))
+        return write_err(out, cap, "help", "console_only");
     if (e == ParseErr::unknown_verb) {
         LineSink ls(ble_sink);
         if (dispatch(line, len, ls)) { ls.flush(); return 0; }
@@ -755,7 +763,7 @@ void setup() {
     mrcon.println(node_id == 0 ? F("  (UNPROVISIONED: cfg set node_id <1..254> + reboot, or join)") : F(""));
     mrcon.print(F("  control sf= ")); mrcon.print(cfg.routing_sf); mrcon.println(F("  (RTS/CTS/ACK + beacons)"));
     mrcon.print(F("  data sf   = "));
-    if (cfg.allowed_sf_bitmap) { print_sf_list(cfg.allowed_sf_bitmap); mrcon.println(F("  (receiver picks the fastest by SNR)")); }
+    if (cfg.allowed_sf_bitmap) { print_sf_list(mrcon, cfg.allowed_sf_bitmap); mrcon.println(F("  (receiver picks the fastest by SNR)")); }
     else                       { mrcon.println(F("(none — set sf_list; data send is REFUSED until configured)")); }
 
     mrcon.print(F("  tx power  = ")); mrcon.print((int)g_tx_power); mrcon.println(F(" dBm"));
@@ -922,6 +930,12 @@ static void service_console() {
             overflow = true;   // [5] mark + reject on '\n' — don't silently truncate (a cut multi-digit offset = a wrong-time fire)
         }
     }
+    // ★★ §B95: the console sink's ONCE-PER-LOOP-PASS service — OUTSIDE the input drain, so it runs on every pass even
+    // with no host byte waiting. It (a) terminates any line a writer left unterminated, so it can never fuse with the
+    // next response, (b) hands the TX FIFO as much of the pending queue as it will take right now (this is what
+    // delivers a response longer than the 128-B ESP32 FIFO — in order, gap-free, across passes), and (c) emits the
+    // deferred `!! CONSOLE_DROP lines=N` once the queue drains. It never waits, flushes, delays or yields.
+    mrcon.service();
 }
 #else
 static void service_console() {}   // production (MR_CONSOLE=0): NO USB console — diagnostics over the air (BLE-NUS + rcmd + the fault-log)
@@ -1065,7 +1079,7 @@ static void mesh_service_once() {
             mrcon.print(cur);                  mrcon.print(F(" leaf="));       mrcon.print(c.leaf_id);
             mrcon.print(F(" node_id="));       mrcon.print(g_node.node_id());
             mrcon.print(F(" routing_sf="));    mrcon.print(c.routing_sf);
-            mrcon.print(F(" data_sf="));       print_sf_list(c.allowed_sf_bitmap);
+            mrcon.print(F(" data_sf="));       print_sf_list(mrcon, c.allowed_sf_bitmap);
             mrcon.println();   // (was Serial.flush() — dropped Part 3: a loop-body flush only risks a stall; the USB task drains the FIFO)
         }
     }

@@ -67,11 +67,21 @@ Legend:
 - [x] **B85 — ✅ WORKED AROUND 2026-08-04 (UI-5, UNCOMMITTED); THE PLAN STILL NEEDS THE OWNER'S EDIT:** the plan's Task-5 Step-4 code block **does not compile, does not link, and cannot meet its own Step 5** — it omits the three `mr_ui_*` hooks `fw_main` calls unconditionally, it reads a `MR_UI_BTN_PIN` that Task 6 defines, and nothing in it ever calls `board_init()`, so *"the panel lights"* is unreachable **and** `--gc-sections` links the whole canvas out. All three measured.
 - [ ] **B86 — RECORDED (gate methodology), a REFINEMENT of §A0's rule:** the ±32 B ARM literal-packing quantum fires between two builds **inside one session**, because the banner packs `__TIME__`, which changes every second. ⇒ **on ARM compare the SYMBOL MULTISET, not the flash total.**
 - [x] **B87 — ✅ RULED 2026-08-04: totals PINNED, instrument shipped.** ⚠ **THREE** OLED envs, not two (`gateway_heltec` `extends = env:heltec_v3`) — pinned clean-build totals `heltec_v3` 178 / `heltec_mobile` 178 / `gateway_heltec` 174 warnings, `-Wswitch` **0** on all three, reproducible via **`tools/warning_census.sh`** (an incremental `pio run` emits none, so the pin was unenforceable without it). A HIGHER count fails. Scoping `-fno-rtti` is its own build slice (C1): `build_src_flags` covers `src/` only and would strip it from `lib/` + `variants/`. Detail: **127 are our own blanket `-fno-rtti`** hitting U8g2's 127 C translation units and **2 are U8g2's own**, in a module that is linked out. `-Wswitch` stays 0. The standing rule is "no new warnings".
-- [ ] **B88 — RECORDED / TASK 6:** three of the nine canvas entry points (`set_power_save`, `button_pressed`, `battery_sample_mv`) are **garbage-collected out** of the UI-5 image ⇒ the slice's flash figure is a **lower bound**, and blanking and the button **cannot be bench-tested until Task 6**.
+- [x] **B88 — ✅ CLOSED 2026-08-05 (UI-6, UNCOMMITTED):** `src/firmware_ui.cpp` calls **all nine** canvas entry points, so `--gc-sections` collects none and the UI-5 flash figure is no longer a lower bound. Blanking, the button and the battery stub are bench-reachable from a Task-6 build (bench script 8.4/8.5/8.8-8.10). Measured: the controlled A/B that drops `+<firmware_ui.cpp>` returns 325 objects and **6 `undefined reference`** errors for the three hooks.
 - [ ] **B89 — RECORDED (budget attribution):** the display's ~35 KB flash cost is **~26 KB of I²C transport**, not the display library — U8g2 itself is 9 860 B and our canvas ~497 B. Switching display library would not recover it.
-- [ ] **B90 — OPEN / BENCH DECIDES:** the panel power rail (Vext, GPIO 36) was **never driven by this tree**; UI-5 now drives it to MeshCore's proven LOW, but whether the panel is on that rail at all is **not established** by the reference port.
-- [ ] **B91 — OPEN / TASK 6:** the canvas **cannot report a dead panel** — `board_init()` is `void` and U8g2's `begin()` always returns 1, so a wrong reset pin / address / dead panel is indistinguishable from success in software.
+- [x] **B90 — ✅ CLOSED 2026-08-05 (owner: panel lit fine):** the panel power rail (Vext, GPIO 36) was **never driven by this tree**; UI-5 drives it to MeshCore's proven LOW and the bench confirms the panel works at that level. ⚠ A lit panel cannot distinguish *"LOW enables the rail"* from *"the panel isn't on the rail"* — so **rail-level power gating must measure the rail**, never cite this closure. Nothing today depends on it (spec §5 blanks over I²C).
+- [x] **B91 — ✅ CLOSED 2026-08-05 (UI-6, UNCOMMITTED):** `mrui::board_init()` now returns `bool` from a real I²C address probe (`Wire.beginTransmission(0x3C); endTransmission() == 0` — MeshCore's `i2c_probe` mechanism), and `mr_ui_init()` surfaces it as one boot line: `!! OLED panel did not ACK (check Vext / addr 0x3C / wiring)`. **Deliberately not fatal** — a node with a dead panel keeps meshing. The probe harness drives BOTH answers (P9a-d) and control **C8** (`board_init()` returns `true` without asking) turns it red, so the presence test can say *no*.
 - [ ] **B92 — OPEN / SPEC CORRECTION:** spec §11 names the fonts *"6×8, 8×16"*; the plan and the shipped code use `6x10` / `10x20`, now measured at **4 990 B of 9 860 B**. The spec should be corrected to what landed.
+- [x] **B97 — ★★ FIXED 2026-08-05 (UI-6, UNCOMMITTED): the four "REQUIRED INTEGRATION REGRESSIONS" that guard the DISTRESS PATH were structurally BLIND to the code they guard.** They existed, they were green, and they **hand-replicated** the tracker/model wiring — so a `mr_ui_tick` wired in the wrong order (which the plan records happening TWICE) would not have moved one assertion. ⇒ the wiring is now `mrui::ui_pump_trackers` / `mrui::ui_route_send_push`, PURE functions in `firmware_ui_send.h`, and the tests drive **them**. **Five reverts measured red:** B84 blocker 1 (2 cases), blocker 2 (2 cases), the offer order (1), the B71 exit (5), a re-added emergency `send_failed` arm (1).
+- [ ] **B98 — RECORDED (gate methodology), and it is B97's own lesson biting me mid-fix:** my first version of the *"a canned expiry cannot touch a live alarm"* case **stayed green against the exact defect it names.** With `_tries` 1 of 3, routing the normal tracker's expiry into `on_outcome` re-enters `firing` and leaves `attempts()` at 1 — so asserting *state* and *attempts* proved nothing; the visible harm is a **PHANTOM QUEUED ALARM**. ⇒ **when a state machine's arm is idempotent-looking, assert the SIDE EFFECT (the queue), not the state.** Both halves are now asserted, plus a budget-spent variant where the same revert fabricates a terminal `NOT HEARD`.
+- [ ] **B99 — RECORDED / THE PLAN'S TASK-6 BLOCK: its emergency overlay TEARS, and its tick cannot compile.** Two defects, both measured while implementing: **(a)** the block freezes `UiState` + `UiSnapshot` at `begin_frame()` — then has the overlay read `s_model` **LIVE**, so a state change mid-frame tears the image across page boundaries on the one screen where it matters most (fixed here by a frozen `EmgView`); **(b)** it calls `ui_perform_send()`, which is **Task 7 Step 1** and needs `mrfw::exec_command`, so Task 6 as written does not build. ⇒ UI-6 ships a **loud-refusal stub** (C2): the alarm reaches `FAILED` + `no send path: UI-7` and a console line, rather than sitting on `SENDING...` for ever. **The plan needs the owner's edit.**
+- [ ] **B100 — RECORDED / §B71's fifth state is VACUOUS, and the ruling should be trimmed.** The ruling's exit table lists *"final `blocked`"* — but `on_outcome`'s `K::blocked` arm **always** arms a retry and `tick_emergency` always re-fires from it, so a `blocked` alarm is by construction still in flight and including it would fire the exit **mid-retry**, which the ruling's own first row forbids. ⇒ implemented on **four** states (`picked_up` / `not_heard` / `reply` / `failed`), asserted vacuous in `emg_outcome_retained()` and in a test.
+- [ ] **B101 — OPEN / OWNER RULING WANTED (small): the §B71 exit leaves an OPEN COMPOSE MODAL underneath.** A long press fires from inside a compose sub-view and does not close it, so the alarm renders over the list; the acknowledging short press clears the alarm and reveals that list with its cursor where it was — and the **next double press would SEND** the highlighted canned text. Same class as B64/B66 (a mis-send, not a display glitch), but far milder: the modal self-closes on the `kBlankMs` no-input rule, and today's behaviour is **pinned by a test** so a ruling changes it deliberately. UI-6 implemented the ruling literally rather than inventing the extra clear.
+- [ ] **B102 — OPEN / RECORDED: a ~350 ms race can dismiss an emergency outcome the hiker never read.** `short_press` is emitted only after the double window (350 ms) closes, so a press *released* just before a retained outcome arrives is reported just *after* it — and B71 then acknowledges an outcome that was on screen for milliseconds. Narrow and requires near-simultaneity, so it is recorded rather than patched. ⓘ The cheap sound fix is available and was declined as unruled: latch "this outcome has been painted" off `clear_dirty()` (which the paint path calls only when the LAST page has gone out) and gate the exit on it.
+- [ ] **B103 — OPEN / SPEC QUESTION: §4.4's distress-REPLY scope is channel-id-only, not team-scoped.** UI-6 implements the spec as written — any post on `MR_UI_TEAM_CHANNEL_ID` can become `REPLY` — but our own alarm is posted `-t` (team plane), and `Push` carries `team_id` on `channel_recv`. A non-team channel-0 post from a stranger can therefore read as *"someone answered my distress call"*, which is the false-confirmation class §4.4 exists to close. Not tightened unilaterally: the failure direction of the tighter check is a **missed** reply, which is also bad for a hiker. Owner's call.
+- [ ] **B104 — RECORDED: a COVERAGE LOSS created by Task 6, stated rather than absorbed.** The board probe used to assert *"the scene is re-drawn once per page"* through `mr_ui_init()`, which lived in `board_ui.cpp`. Task 6 moved it into `src/firmware_ui.cpp`, which pulls `fw_context.h` ⇒ RadioLib ⇒ **not host-compilable**, so no mutation of the board TU can revert it any more. The canvas half is still measured (P5, and control **C4** replaced the old one); the **caller** half is now only STRUCTURAL (`run.sh` S3: two `draw_frame` call sites). ★ The unblocker is a `DeviceHal::radio()` accessor — see B105.
+- [ ] **B105 — OPEN / OWNER RULING WANTED: one `IRadio&` accessor on `DeviceHal` would make the whole feature layer host-testable AND remove 2 pinned warnings.** `firmware_ui.cpp` needs exactly three device reads — `g_node`, `g_hal.txq_depth()`, `g_iradio.tx_busy()`. The first two come from `node.h` and `device_hal.h`, both of which are **Arduino- and RadioLib-free by design** (`device_hal.h` says so). Only `tx_busy()` forces `fw_context.h`, i.e. `<RadioLib.h>` — which is the sole cause of B106's +2 warnings **and** of B104's coverage loss. `DeviceHal` already holds `IRadio& _radio` privately with no accessor. ⇒ adding `IRadio& radio() { return _radio; }` (header-only, zero codegen unless used, s18-inert) would let the feature layer include only pure headers and gain a real probe. **NOT taken:** the plan's "reuse, do not add — if a task needs anything beyond these, stop and ask" names four permitted new surfaces and this is not one of them.
+- [x] **B106 — ✅ CLOSED 2026-08-05: B87 RE-PINNED 178/178/174 → 180/180/176, plan table updated, QA-CONFIRMED independently.** An independent census run reproduced **326 objects / 180 / 180 / 176, `-Wswitch` 0**, and RAM **+760 B identical on all three** (`gateway_heltec` 238988 = **72.9 %**, the tightest OLED env). Attribution re-derived structurally: `firmware_ui.cpp` includes `fw_context.h` → the radio HAL, pulling RadioLib's `#warning` (`-Wcpp`) + `device_radio.h`'s `inline volatile` globals (`-Wvolatile`), **once per including TU** ⇒ **+2 per env is +1 TU, and none of it is UI-6 code**. ⚠ **The script's own `PASS` is self-referential** once the coder owns `EXPECT_WARN` — the raw counts and the include chain are the evidence, not the verdict line. ⇒ [[B105]] remains the cure (removes both warnings **and** unlocks [[B104]]'s missing probe) and is the owner's call. `tools/warning_census.sh` is updated; §B87's table in the plan needs the **owner's** edit (a UI-6 coder is instructed not to edit the plan). **Not one of the +2 is UI-6 code** — both are per-TU diagnostics from vendored headers reached through `fw_context.h`: `-Wcpp` (RadioLib's `#warning "God mode active…"`, 5→6 TUs) and `-Wvolatile` (`device_radio.h`'s `'++' of volatile-qualified type`, 6→7 TUs). **Attributed by controlled A/B, not inferred:** dropping the TU from `build_src_filter` returns exactly 325 objects / 178 warnings. ⓘ UI-6's OWN 10 `-Wformat-truncation=` warnings were **fixed, not pinned** (formatter buffers sized to their provable widest expansion). See B105 for the change that would take the +2 back to zero.
 - [ ] **B93 — OPEN / LATENT:** `lib/hal/mr_ui.h` forward-declares `namespace meshroute { struct Push; }` with a **hardcoded** namespace while `command.h` uses the overridable `MESHROUTE_NS`. Same class as the §UI-3-QA finding, one level up.
 - [x] **B78 — OWNER-RULED then FIXED 2026-08-04 (UI-3 QA, UNCOMMITTED):** `Emergency::failed` joins `hold_active()`'s retained set and holds for `kEmgHoldMs` from the failure's **own** arrival time (`on_send_refused` gained a `now_ms` parameter; `retain()` on both the synchronous and `channel_failed` paths). ⇒ **`kEmgHoldMs` re-ruled 120000 → 30000** in the same breath.
 
@@ -1891,7 +1901,7 @@ so the totals are still usable there — just not load-bearing on their own.
 which removes it from **every third-party C++ TU on every env** (a codegen change, its own slice, and C1 forbids folding
 it into a feature). U8g2's two warnings are not fixable without editing a vendored file.
 
-### B88 — RECORDED: three canvas entry points are garbage-collected out of the UI-5 image · NEW 2026-08-04 · closes in TASK 6
+### B88 — RECORDED: three canvas entry points are garbage-collected out of the UI-5 image · NEW 2026-08-04 · ✅ **CLOSED 2026-08-05 (UI-6, QA-VERIFIED)**
 **MEASURED** (§UI-5). `nm` finds **0** occurrences of `mrui::set_power_save`, `mrui::button_pressed` and
 `mrui::battery_sample_mv` in the `heltec_v3` ELF. They compile (the object carries their `.text.*`/`.literal.*`
 sections) and `--gc-sections` drops them, because Task 5's boot frame calls only six of the nine. ⇒ **the +34 924 B is a
@@ -1905,8 +1915,19 @@ Arduino/IDF **I²C driver stack 17 962 B** (92 symbols, pulled in by U8g2's HW-I
 **ours ≈ 497 B**. Total image delta 35 572 B; ~6.5 KB is symbol-less padding and merged const pools. ⇒ recorded so
 *"the OLED cost 35 KB"* stays attributable, and so nobody expects a different display library to recover it — any
 `Wire`-based panel driver pulls the same transport. Flash sits at 37.2 % of 3.34 MB; this is attribution, not alarm.
+✅ **CLOSED 2026-08-05 by UI-6 — QA-VERIFIED BY DERIVING THE SET, not by trusting the count.** `board_ui.h` declares
+**nine** entry points; each now has at least one live caller in `src/firmware_ui.cpp` (`draw_text` ×20, `set_font` ×3,
+`set_power_save` ×3, `begin_frame`/`next_page`/`board_init` ×2, `draw_hline`/`button_pressed` ×1, and
+`battery_sample_mv` at `firmware_ui.cpp:109`). **Zero uncalled ⇒ nothing for `--gc-sections` to drop**, so the UI-5
+figure is no longer a lower bound and blanking + the button are now bench-reachable (Part 8).
+⚠ **A QA instrument note, because it is this project's recurring defect and it bit me inside this very check:** my first
+sweep reported **eight** entry points, not nine. The regex classed the return type as `[a-z_]+`, which **excludes
+digits**, so `int32_t battery_sample_mv()` never matched — and `battery_sample_mv` is precisely one of the three
+symbols this entry was opened about. A narrower pattern would have "confirmed" the closure while silently omitting the
+member most at risk. ⇒ **match the declaration shape digit-safely (`[A-Za-z_][A-Za-z_0-9]*`), and cross-check the count
+against the entry's own prose ("six of the nine") rather than against the grep that produced it.**
 
-### B90 — the panel power rail (Vext, GPIO 36) was never driven by this tree · NEW 2026-08-04 · OPEN / BENCH DECIDES
+### B90 — the panel power rail (Vext, GPIO 36) was never driven by this tree · NEW 2026-08-04 · ✅ **CLOSED 2026-08-05 (owner: panel lit fine)**
 **FOUND while implementing UI-5** (§UI-5). The plan's Task-5 block never touches GPIO 36, and neither did anything else
 in this tree, so on an ESP32-S3 it comes up as an input with no pull and the rail's gate is indeterminate. MeshCore's
 working V3 port drives it to a definite level at board begin — `RefCountedDigitalPin::begin()` writes `!active` with
@@ -1916,14 +1937,45 @@ working V3 port drives it to a definite level at board begin — `RefCountedDigi
 is on it — this is *"reproduce the proven pin level"*, not *"Vext is active-low"*. If the bench shows a dark panel, flip
 `kVextOnLevel` to HIGH **before** suspecting the reset pin, which is where the plan's Step 5 hint points first and is
 the wrong first suspect on a rail that was floating until this slice. Bench: Part 8.
+✅ **CLOSED 2026-08-05 — owner ran the bench: the panel lit fine with the landed LOW drive.** The defect is gone: the
+pin is no longer indeterminate, it is driven to a definite level, and the panel works at that level on real hardware.
+⚠ **What this does NOT establish, and the distinction is load-bearing:** a lit panel is equally consistent with
+*"Vext gates the panel and LOW enables it"* and with *"the panel is not on that rail, so the write is inert."* The
+bench could not separate those two, because **both predict exactly the same observation** — so the residual above is
+narrowed, not answered. That is fine for correctness (the code is right for this board either way) and it is why this
+closes as a bug rather than as a finding.
+⇒ **The one place the unanswered half can still bite:** anyone later trying to cut idle current by **de-asserting Vext
+to blank the panel** would be assuming the control authority this bench never demonstrated. Spec §5 blanking uses
+`set_power_save()` (an I²C command to a powered panel), **not** the rail, so nothing today depends on it. If a future
+slice wants rail-level power gating, it must **measure the rail**, not cite this closure.
+★★ **UPDATE, SAME DAY — THE MISSING INSTRUMENT NOW EXISTS, AND IT CAME FROM [[B91]].** ⚠ This supersedes the sentence
+originally written here (*"the canvas still cannot report a dead panel, so a wrong guess would again be invisible in
+software"*) — **that was true when B90 was closed and was false a few hours later**; it is corrected rather than
+appended-to, per the standing rule that an entry must never assert a claim and its negation. B91's fix makes
+`board_init()` return a real I²C ACK (`Wire.endTransmission() == 0`), so the panel's presence is now **observable in
+software**. ⇒ **the residual above is answerable by one bench step, no longer only by a meter:** flip `kVextOnLevel` to
+HIGH and read the boot line. **Probe stops ACKing ⇒ the panel IS on the Vext rail** (LOW enables it, and rail-level
+power gating would work). **Probe still ACKs ⇒ the panel is NOT on that rail** and the write is inert. Either way the
+current code stays correct, so this is a curiosity to satisfy cheaply — **not** a reason to reopen B90.
 
-### B91 — the canvas cannot REPORT a dead panel · NEW 2026-08-04 · OPEN (TASK 6 owns the report channel)
+### B91 — the canvas cannot REPORT a dead panel · NEW 2026-08-04 · ✅ **CLOSED 2026-08-05 (UI-6, QA-VERIFIED — a real measurement)**
 **FOUND while implementing UI-5** (§UI-5). `mrui::board_init()` is `void`, and U8g2's `begin()` is
 `initDisplay(); clearDisplay(); setPowerSave(0); return 1;` — it performs **no I²C ack check**, so it cannot fail.
 MeshCore probes the address instead (`SSD1306Display::i2c_probe` → `Wire.endTransmission() == 0`). ⇒ a wrong reset pin,
 a wrong address or a dead panel is **indistinguishable from success in software**, which is exactly the misdiagnosis
 spec §14 Q1 warns about. Not fixed here: a failure channel needs a caller that can surface it, and the console sink is
 `firmware_ui.cpp`'s (Task 6). Marked in-source at the top of `board_ui.cpp`.
+✅ **CLOSED 2026-08-05 by UI-6, and QA read the body rather than the signature — because `bool` alone would have been
+exactly the "a success that isn't" shape this arc is named for.** `board_init()` is now `bool` (`board_ui.h:37`) and
+ends with a genuine zero-byte presence test: `Wire.beginTransmission(kOledAddr); return Wire.endTransmission() == 0;`
+— the same probe MeshCore's `SSD1306Display::i2c_probe` uses, so **an ACK, not an inference**. ★ Correctly ordered
+**after** `s_u8g2.begin()`, because U8g2 owns `Wire.begin(sda, scl)` and nothing else in this firmware touches `Wire`;
+run earlier it would have measured an unconfigured bus. `firmware_ui.cpp` surfaces the negative as one boot line
+through `mrcon` (the guarded sink — B95's drop-never-block contract, so a dead panel cannot wedge the console).
+★★ **AND IT RETROACTIVELY SUPPLIES THE INSTRUMENT [[B90]] LACKED** — see the cross-note there. B90 closed with an
+honest residual (*"a lit panel cannot distinguish 'LOW enables the rail' from 'the panel is not on the rail'"*) because
+both hypotheses predicted the same observation. This ACK probe **separates them**, which is the more valuable half of
+this fix and was not the reason it was written.
 
 ### B92 — spec §11's font names disagree with the plan and with what landed · NEW 2026-08-04 · OPEN / SPEC CORRECTION
 **MEASURED** (§UI-5). Spec §11 says *"U8g2 with **two** fonts selected (6×8, 8×16)"*; the plan's Task-5 block and the
@@ -1932,7 +1984,35 @@ authoritative for this slice, so 6x10/10x20 landed. The two fonts measure **4 99
 half of it — a real budget line, not a cosmetic detail. **Correct §11 to the pair that landed** (or rule the other way
 and re-measure; 6×8/8×16 would be smaller).
 
-### B93b / B94 — ★★ `heltec_v3` FAILS TO BUILD ON WINDOWS: `'Wire' was not declared in this scope` · NEW 2026-08-04 · FIX APPLIED, **VERIFICATION OWED ON WINDOWS**
+### B94 — `heltec_v3` failed to build on WINDOWS: `'Wire' was not declared in this scope` · NEW 2026-08-04 · ✅ **RESOLVED ON THE AFFECTED HOST (hardware tests ran)**
+⚠ **CORRECTION 2026-08-04 — B96 supersedes the environment-only ruling below.** A pristine HEAD fails on Linux too:
+the repository's unsuffixed `lib_extra_dirs` can select a stale framework sibling instead of the URL-pinned active
+package. The historical investigation is retained below as an audit trail; the host-independent remedy and current
+verification state are in B96.
+★★ **HISTORICAL WINDOWS FIX (replaced by B96):** `lib_extra_dirs = ${platformio.packages_dir}/framework-arduinoespressif32/libraries`
+in `[env:heltec_v3]`, which makes the framework's Wire resolvable instead of relying on LDF discovery. **Verified by the
+owner's Windows build and the H5 bench run.**
+⚠⚠ **AND THE PART WORTH KEEPING: THAT SAME CONFIG BREAKS A LINUX BOX WITH A STALE DUPLICATE FRAMEWORK PACKAGE.** The
+directory NAME is ambiguous. On the owner's Windows host `framework-arduinoespressif32/` **is** the live 3.1.3; on the QA
+Linux box it is a **stale 2.0.0 leftover** whose WiFi cannot compile (`IPv6Address.h: No such file`), while the live
+framework is `framework-arduinoespressif32@src-<hash>` (the URL-pinned install). ⇒ **symptom: `heltec_v3` fails on Linux
+with WiFi/SPI errors from a framework nobody is using. REMEDY: remove the stale leftover package — it is an ENVIRONMENT
+defect, not a repo defect.**
+ⓘ **A host-independent alternative exists and was MEASURED, then DELIBERATELY NOT ADOPTED:** `tools/wire_path.py`
+(a **`pre:`** script — `post:` fails with *"the main program is already constructed"*) asks
+`PioPlatform().get_package_dir()` which framework THIS build uses, so a stale sibling cannot be picked. It links (32
+`TwoWire` symbols, 178 warnings) **but moves the numbers: RAM 211252→211236, Flash 1244400→1244452 (+52 B, beyond the
+±32 B `__DATE__` floor)** because it compiles Wire as a build unit rather than an LDF archive. ⇒ adopting it costs a
+**re-pin of B87** and risks a working, bench-proven Windows state to fix one machine's stale install. **Take it only if a
+second host hits this**; then re-pin B87 in the same commit.
+★★★ **PROCESS — EIGHT of my hypotheses were wrong before the real cause landed, and the pattern is one thing:** a
+shadowing header · a registry `Wire` · version drift · a stale LDF cache · an `@src` suffix · a transitive dependency ·
+"the fix is actively harmful" (it was working on the host that mattered) · and ⛔ **`pio pkg list` output, which lists
+only RadioLib+U8g2 on BOTH hosts and is SILENT about framework built-ins.** ⇒ **every wrong turn came from reasoning over
+an instrument I had not confirmed could observe the thing asked about** — an empty build dir (my own gate had moved to
+temp dirs), a truncated dependency graph, a command that omits built-ins, and a Linux verification that **structurally
+cannot fail** because discovery finds Wire regardless. ★ **The decisive facts all came from the owner's host.** When a
+defect is host-specific, the remote instrument is the only one that counts.
 Owner-reported: `U8x8lib.cpp:1338: error: 'Wire' was not declared in this scope`, with the same 127 `-fno-rtti` C
 warnings B87 pins. **Linux builds clean.**
 ★★ **THE ASYMMETRY IS THE FINDING: Linux was the ACCIDENT, not Windows the anomaly.** `Wire` is **not** in
@@ -1977,6 +2057,161 @@ that very comment for the two-lib gateway variant). No env overrides it today, s
 everything links — the same latent class the §UI-3-QA note found for `SendFailReason` one level up, where the fix was
 `using FailReason = MESHROUTE_NS::SendFailReason;`. The day a variant sets the macro, `mr_ui_on_push` takes a different
 (incomplete) type than the one being pushed. One line in a `lib/hal` header ⇒ **not** folded into a board slice (C1).
+
+### B95 - USB command responses can fuse surviving `Print` fragments into syntactically false rows - NEW 2026-08-04 - ✅ **FIXED 2026-08-04 (uncommitted), WITH THE BRIEF'S CENTRAL INVARIANT REFUTED BY MEASUREMENT**
+**BENCH-FOUND in OLED H5-06, but NOT an OLED/radio failure.** The radio checks passed. Under console pressure, `cfg` and
+`routes` produced rows such as `beacon_ms=900000168010102layer=5 leaf=5000` and a gateway-schedule suffix fused directly
+into the next `[route]` row. `src/console_sink.h` admits/drops each individual `Print::write()` call, while those rows
+are assembled from tens of calls; the USB task can free capacity between calls, so later values survive after labels,
+spaces, punctuation, or the newline were dropped. The result is misleading syntax, not random RAM corruption.
+
+Two sink-contract bypasses are in the same causal slice: `dump_help(Print& out)` ignores `out` and its `hl()` writes
+directly to `Serial` with a per-line 40 ms loop plus a conditional CRLF; `print_sf_list(bitmap)` always writes to global
+`mrcon`, including from `dump_cfg(Print& out)`. A line-staging fix that misses either bypass is incomplete.
+
+**RULING FOR THE FIX:** preserve the anti-wedge contract. Never wait/flush/delay for USB. Submit USB command responses
+as complete lines; insufficient capacity drops a whole line, never fragments, and a deferred operator-critical
+`!! CONSOLE_DROP lines=N` reports the loss when capacity returns. Keep the maximum line scratch off the ESP32 loop-task
+stack; preserve `MR_CONSOLE=0` compile-out and BLE/remote structured formats. Do not accidentally stream the
+multi-kilobyte help text over BLE.
+
+Coder brief and acceptance matrix:
+`docs/superpowers/plans/2026-08-04-console-response-line-integrity.md`.
+
+✅ **FIXED 2026-08-04 — evidence in `simulation/BASELINE.md` §B95 (top note). UNCOMMITTED; metal rerun still owed (bench
+guide H5-06 + `docs/2026-07-31-bench-test-script.md` Part 9).** The line stage now lives **inside `mrcon`**
+(`src/console_sink.h`), `hl()` is deleted (help writes through its `Print& out`), `print_sf_list` takes its sink at all
+four call sites, `service_console()` calls `mrcon.service()` once per loop pass, and BLE refuses `help` with a bounded
+`{"err":"help","msg":"console_only"}` before the text fallback. Anti-wedge preserved: nothing waits, flushes, delays or
+yields; `flush()` is the one bounded blocking entry and only the reset/OTA path calls it.
+
+⛔ **THE BRIEF'S INVARIANT 2 ("a complete line in ONE `Serial.write()`, or zero bytes") IS REFUTED, MEASURED:**
+`availableForWrite()` tops out at **128 B** on ESP32-S3 (UART0 hardware FIFO — `Serial` is `Serial0`, `_txBufferSize`
+defaults to 0) and **256 B** on nRF52 (`CFG_TUD_CDC_TX_BUFSIZE`). The `cfg` `proto :` row is 118 B, `[cfg.layer0]`
+~160 B, the `hashof` remedy ~392 B, and 8 of 75 `help` lines exceed 128 B — one-call-per-line makes all of them
+**permanently undeliverable even to a healthy idle host** (the probe measures **2 of 8 `cfg` rows delivered**).
+⇒ shipped guarantee, strictly stronger where it matters: **a committed line reaches the wire as a contiguous, gap-free,
+in-order run including its terminator, or not at all; a line is discarded only before its first byte is written.**
+That is also why the stage sits inside `mrcon` rather than in a wrapper on the command path: with an in-order drain, any
+second `Serial` writer (async push, `!!` log, banner) would cut into a half-drained line and re-create the fusion.
+
+**Cover:** `tools/probe_console_sink/` — 52 behavioural checks against the real header + 11 structural + **13 negative
+controls, all red**. Its positive control (the pre-fix sink, copied verbatim) reproduces the H5-06 capture
+independently: `leaf=5000` byte-identical, `hop_cap=168` = `hop_cap=16` + `team_hop_cap`'s bare `8`. Brief tests 7 and 8
+are **structural** (grep) and labelled as such: `dump_help` / `print_sf_list` / `ble_dispatch_line` live in TUs no host
+build can compile. **Cost:** RAM **+2064 B** (nRF52) / +2072 (xtensa) — the 2048-B stage, lever
+`MR_CONSOLE_STAGE_BYTES`; flash +4.1-4.2 KB on nRF52, +0.5 KB on xtensa. `MR_CONSOLE=0` RAM is **unchanged (0 B)**.
+**QA correction:** the compile-out census originally selected GNU `nm`'s 8-byte `guard variable for mrcon` because
+it matched any line ending in `mrcon`. It now selects the exact object symbol: **2088 B** with `MR_CONSOLE=1`, **8 B**
+with `MR_CONSOLE=0`; the complete probe exits 0. This was a probe-only defect, not missing staging in firmware.
+⚠ **Two residues, both deliberately not fixed here (C1) and both needing an owner call:** (a) `production` flash
+**+7040 B** — `hl()`'s `(void)fs` no-op let the linker garbage-collect all 6121 B of help text, and routing it through
+`Print& out` references it again, in an image where it is now unreachable (no USB console, BLE `help` refused);
+`#if MR_CONSOLE`-gating `dump_help`'s body would reclaim it. (b) `help` (6121 B / 75 lines) exceeds the stage, so it
+delivers ~25 lines and reports `!! CONSOLE_DROP lines=N` — a deliberate trade against `hl()`'s old ~3 s of loop stall.
+
+### B96 — HEAD's `lib_extra_dirs` breaks EVERY Heltec env on LINUX (`SPI.cpp` / `WiFi.h` from the wrong framework package) · NEW 2026-08-04 · 🟡 FIX APPLIED / LINUX 3-ENV GATE GREEN / WINDOWS VERIFICATION OWED
+**FOUND while gating §B95 — not caused by it (proven, three controls).** `45c9cc1` added to `[env:heltec_v3]`:
+`lib_extra_dirs = ${platformio.packages_dir}/framework-arduinoespressif32/libraries`, with the comment *"Inert where
+discovery already worked (Linux), load-bearing where it did not."* **On this Linux host it is not inert — it is fatal.**
+Two framework packages are installed: the plain `framework-arduinoespressif32` (espressif32@6.11.0 era) and pioarduino's
+`framework-arduinoespressif32@src-702d0f93023d86e22d8ef62aa333f0b7`, which is the one `[env:heltec_v3]`'s **pinned**
+platform uses. The hardcoded un-suffixed name puts the OLD package's `libraries/` on the LDF path, so the build compiles
+library sources from framework A against core headers from framework B:
+```
+libraries/SPI/src/SPI.cpp:121: error: too many arguments to function 'bool spiDetachSCK(spi_t*)'
+libraries/WiFi/src/WiFi.h:29: fatal error: IPv6Address.h: No such file or directory
+```
+`heltec_v3`, `heltec_mobile` and `gateway_heltec` (both inherit via `extends`) all fail; `xiao_esp32s3` is unaffected
+(same platform, but it compiles neither `device_ota.cpp` nor U8g2, so nothing pulls `WiFi`/`SPI`).
+**Controls:** ① a pristine `git worktree` at HEAD with **zero** B95 changes fails with the byte-identical error set;
+② the documented B94 cache remedy (`rm -rf .pio/build/heltec_v3 .pio/libdeps/heltec_v3`) does not help; ③ removing
+**only** those two lines in that worktree builds `heltec_v3` green and reproduces §UI-5's reference **211252 / 1244400
+exactly**. ⇒ **Recommended fix (owner's slice, deliberately not made here):** resolve the framework directory through
+PlatformIO's API — `env.PioPlatform().get_package_dir("framework-arduinoespressif32")` inside an `extra_script` —
+instead of hardcoding the package name. B94's own note predicted this cost: *"it hardcodes framework layout."*
+★ At discovery, no Heltec env could be built or flashed from this host, so **every OLED bench item was blocked**.
+
+**FIX APPLIED 2026-08-04 (uncommitted):** `[env:heltec_v3]` now runs `pre:tools/wire_path.py`; the script asks the
+active platform for `framework-arduinoespressif32`, adds only that package's `Wire/src`, and fails the build if either
+the package or source directory is absent. Linux clean isolated gate: `heltec_v3` **325 objects / 178 warnings /
+213308 RAM / 1244980 Flash**, `heltec_mobile` **325 / 178 / 212828 / 1238448**, `gateway_heltec` **325 / 174 /
+238228 / 1214596**; `-Wswitch` **0** on all three. The warning pins do not move. Controlled B96 delta remains RAM
+**−16 B**, Flash **+52 B**. ⛔ Do not mark fully fixed until the owner reruns at least `pio run -e heltec_v3` on
+Windows: that is the host where explicit Wire discovery was originally load-bearing.
+
+### B97 — ★★ the four distress-path "integration regressions" could not fail · NEW 2026-08-05 · ✅ FIXED (UI-6, UNCOMMITTED)
+
+**MEASURED** (§UI-6). `test_firmware_ui_send.cpp` carried the four regressions §B84 demanded, all green. Their helper
+`run_ctr0_expiries` did this:
+
+```
+emg.tick(t, o);  m.on_send_accepted(SendKind::emergency, t);  m.on_outcome(o, t);
+```
+
+— i.e. it **re-typed the wiring** rather than executing it. `mr_ui_tick`'s copy lived in `src/firmware_ui.cpp`, which
+**neither the native suite nor the simulator compiles**, so the four cases pinned the *rule* while being blind to the
+*code*. The plan itself says of that wiring: *"I got this wrong twice, so copy it, don't improvise"* — the two most
+error-prone lines in the slice, with a green suite that could not see them.
+
+⇒ **FIX:** the wiring is now two `inline` functions in `src/firmware_ui_send.h` — `ui_pump_trackers` (the §B84
+ordering) and `ui_route_send_push` (the offer order + the deleted-arm guarantee) — and `firmware_ui.cpp` does nothing but
+call them. Board-free by construction, so the native suite drives the shipped code.
+
+★ **FIVE REVERT PROBES, each mutating the real header, rebuilding, then restoring (md5 re-checked, identical each time):**
+
+| revert | result |
+|---|---|
+| §B84 blocker 1 — drop `on_send_accepted` before the expiry's outcome | **2 cases / 5 assertions RED** |
+| §B84 blocker 2 — route the normal tracker's expiry into `on_outcome` | **2 cases / 3 assertions RED** (see B98) |
+| offer order — give the normal slot `send_blocked` first | **1 case / 4 assertions RED** |
+| re-add an emergency `send_failed` arm (§B80's deleted matcher shape) | **1 case / 3 assertions RED** |
+| §B71 — delete the exit from `UiModel::on_gesture` | **5 cases / 9 assertions RED** |
+
+### B99 — the plan's Task-6 block tears its emergency overlay, and its tick does not compile · NEW 2026-08-05 · ⚠ THE PLAN NEEDS THE OWNER'S EDIT
+
+**FOUND while implementing UI-6.** Two independent defects in the Step-4 code block:
+
+1. **The overlay tears.** The block correctly freezes `UiState` and `UiSnapshot` at `begin_frame()` — spec §5's rule,
+   because U8g2 re-clips the whole scene once per page and a frame spans several ticks — and then the emergency render
+   reads `s_model` **live**. A state change between page 1 and page 8 therefore splits the image on the one screen the
+   whole feature exists for. ⇒ UI-6 freezes a small `EmgView` POD alongside the other two.
+2. **It cannot build.** `mr_ui_tick` calls `ui_perform_send()`, which the plan defines in **Task 7 Step 1** and which
+   needs `mrfw::exec_command` — an addition to `src/firmware_commands.{h,cpp}` that C1 forbids folding into this task.
+
+⇒ UI-6 ships `ui_perform_send` as a **loud refusal** (C2), marked in-source and on the panel: `tr.refuse()` +
+`on_send_refused(kind, other, now)` + one console line. The alarm therefore terminates in `Emergency::failed`, which
+§B78 made *retained* and §B71 makes dismissable — so the state machine is honest and never traps the operator. The
+alternative (drop the request) reproduces the permanent `SENDING...` that §B72/§B79 were raised about.
+
+ⓘ **Also deferred deliberately:** the plan's Task-6 Step 1 lists `-DMR_UI_ADC_CTRL=37` / `-DMR_UI_VBAT_READ=1`. Nothing
+reads them until Task 9, and this project has already ruled that config landing ahead of its reader is **dead config**
+(§A0's `-I` prediction). They land with Task 9 — the same rule that pulled `MR_UI_BTN_PIN` forward into Task 5.
+
+ⓘ **One more ordering change, and it is an improvement rather than a deviation for its own sake:** the tick tests
+`blanked` **before** continuing an open page loop. `set_power_save(true)` abandons the board's loop, so the plan's order
+leaves `firmware_ui.cpp`'s `s_frame_open` describing a frame the board has already dropped. Both halves are now dropped
+together, and the probe's P4 already proves no page can reach a dark panel.
+
+### B105 — one `IRadio&` accessor would make the feature layer host-testable and remove the 2 new pinned warnings · NEW 2026-08-05 · OPEN / OWNER RULING WANTED
+
+**MEASURED** (§UI-6). `src/firmware_ui.cpp` makes exactly three device reads: `g_node` (`node.h`),
+`g_hal.txq_depth()` (`lib/hal/device_hal.h`) and `g_iradio.tx_busy()` (`lib/hal/device_radio.h`). The first two headers
+are Arduino- and RadioLib-free **by design** — `device_hal.h:11` states it. Only `tx_busy()` forces `fw_context.h`, and
+that single include is the whole cause of:
+
+- **B106's +2 warnings** — RadioLib's `#warning` and `device_radio.h`'s `-Wvolatile`, both once per including TU; and
+- **B104's coverage loss** — the feature layer cannot be host-compiled, so the once-per-page redraw obligation, the
+  MAC-idle gate, the 2 Hz throttle and the battery cadence have **no behavioural probe at all**, only structural greps.
+
+`DeviceHal` already holds `IRadio& _radio` privately and exposes no accessor. `IRadio& radio() { return _radio; }` is
+header-only, generates nothing unless called, touches no `lib/core` file (so s18 byte-identity is unaffected), and would
+let `firmware_ui.cpp` include only pure headers — at which point a `tools/probe_firmware_ui/` on the model of
+`tools/probe_board_ui/` becomes a small job instead of a RadioLib shim.
+
+**NOT TAKEN.** The plan's Global Constraints name four permitted new firmware surfaces (the UI TUs, U8g2, the V3 battery
+reader, `mrfw::exec_command`) and instruct: *"If a task appears to need anything beyond these — stop and ask."* This is
+beyond them. Recorded as the highest-leverage follow-up in this arc.
 
 ## How to use this file
 

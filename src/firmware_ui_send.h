@@ -9,12 +9,13 @@
 //
 // DONE here (UI-4): the typed correlation of all five outcome pushes; the `ctr == 0` "no local handle" state and its
 // three producers; the bounded outcome window for the ctr-less pushes AND its expiry; the late-ack retention.
-// NOT here, by unit boundary (UI-6/UI-7 own it, [[meshroute-mark-done-vs-missing-in-code]]):
-//   · WHICH tracker a push is offered to. There are TWO slots (an emergency one and a normal one, spec §2.1), and
-//     ★ the emergency slot MUST be offered every push FIRST — `match_blocked` correlates by window rather than by
-//     ctr, so offer-order is the only thing that keeps an abandoned canned post from claiming the alarm's outcome.
-//   · ★★ CONSUMING ONE ATTEMPT ON AN EXPIRED `awaiting` EMERGENCY — see `tick()`. Skipping it is an INFINITE RETRY
-//     LOOP on the distress path, not a cosmetic omission (register B84).
+// DONE here (UI-6, at the bottom of this file): the TWO-TRACKER GLUE — `ui_pump_trackers` and `ui_route_send_push`.
+//   ★★ The two bullets below used to say these were "NOT here, by unit boundary — UI-6 owns them". They MOVED, and the
+//   reason is the whole point: as caller obligations in `firmware_ui.cpp` they were unreachable by every automated gate
+//   this project has (neither the native suite nor the simulator compiles `src/*.cpp`), and the plan records that the
+//   wiring was got WRONG TWICE. As pure functions here they are natively tested and turn red on a revert. See the
+//   §UI-6 GLUE block for the two §B84 blockers.
+// NOT here, by unit boundary (UI-7 owns it, [[meshroute-mark-done-vs-missing-in-code]]):
 //   · CLOSING a `late_ack` slot. Spec §3.4.1 bounds the NO CONFIRM -> DELIVERED upgrade to "while the sub-view is
 //     still showing", and that lifetime lives in firmware_ui.cpp ⇒ it must call `close()` when the sub-view closes.
 //     Deliberately NOT a timer here: the tracker has no idea what is on the panel, and inventing a second window
@@ -176,6 +177,9 @@ public:
         return true;
     }
 
+    // Diagnostic read of the live slot, for the UI-6 glue's own tests. Never a decision input.
+    bool awaiting() const { return _state == State::awaiting; }
+
 private:
     enum class State : uint8_t { idle = 0, submitted, accepted, awaiting, late_ack };
     State    _state = State::idle;
@@ -195,5 +199,88 @@ private:
     uint32_t _submit_ms = 0;
     uint32_t _accept_ms = 0;
 };
+
+// ====================================================================================================== UI-6 GLUE
+// ★★★ THE TWO-TRACKER WIRING, AND IT LIVES HERE FOR ONE REASON: EVERYTHING ABOVE CALLED IT A "CALLER OBLIGATION", AND
+// A CALLER OBLIGATION IS NOT A GATE.
+//
+// The block above documents three obligations at length (offer the emergency slot FIRST; call `on_send_accepted`
+// BEFORE the expiry's outcome; never route the NORMAL tracker's expiry into the emergency-capable entry point) and the
+// plan says of them: *"I got this wrong twice, so copy it, don't improvise."* Twice-wrong, load-bearing on the distress
+// path, and — until now — living as prose in a `.cpp` that NEITHER the native suite NOR the simulator compiles.
+//
+// ⚠⚠ AND THE FOUR "REQUIRED INTEGRATION REGRESSIONS" DID NOT COVER IT. They exist (test_firmware_ui_send.cpp), they are
+//    green, and they pin the RULE — but they HAND-REPLICATE the wiring, so they could not have failed for a
+//    mis-wired `mr_ui_tick`. That is exactly the "ask whether the check COULD have failed" test, and it fails it.
+//    ⇒ these two functions ARE the shipped glue; `firmware_ui.cpp` does nothing but call them, and the tests now drive
+//    THEM. A revert of either rule turns the suite red.
+// ⓘ Pure by construction — `SendTracker`, `UiModel` and `MESHROUTE_NS::Push` are all board-free, so this compiles into
+//    the native suite unchanged. No Arduino, no g_node, no display: the same boundary rule as the rest of this header.
+
+// Drive BOTH trackers' bounded outcome window. Call it FIRST in the tick, before any paint decision.
+// ★★ §B79: without this an `awaiting` slot is never closed — the alarm sits on `SENDING...` for ever and the send slot
+//    leaks permanently. `tick()` is also `channel_remote_mint`'s ONLY producer anywhere in the tree.
+inline void ui_pump_trackers(SendTracker& emg, SendTracker& normal, UiModel& m, uint32_t now_ms) {
+    // ★★★ §B84 BLOCKER 1 — `on_send_accepted` MUST COME FIRST. `UiModel::_tries` moves ONLY there, and a `ctr == 0`
+    // send never reaches it, so an expiry that merely re-queues can NEVER satisfy `_tries >= kEmgMaxTries`:
+    //     seal failure -> awaiting -> window -> channel_remote_mint -> re-queue -> awaiting -> ... FOR EVER,
+    // with `attempts() == 0`. That is UNBOUNDED AIRTIME on the distress path — worse in that dimension than the
+    // permanent `SENDING...` it replaced. With the consumption, three expiries spend the budget and terminate in
+    // sticky NOT HEARD. The ordering is safety-critical, not stylistic.
+    SendOutcome emg_out{};
+    if (emg.tick(now_ms, emg_out)) {
+        m.on_send_accepted(SendKind::emergency, now_ms);   // consume ONE bounded attempt
+        m.on_outcome(emg_out, now_ms);
+    }
+    // ★★★ §B84 BLOCKER 2 — the NORMAL tracker's expiry must NEVER reach the emergency model. `tick()` yields a CHANNEL
+    // kind, and `on_outcome` lets a channel outcome move any LIVE alarm, so a canned post's expiry could alter a live
+    // emergency. DRAINING the slot is this call's whole job here (that is the leak fix); routing its outcome into the
+    // emergency-capable entry point is what was unsafe.
+    // ✖ MISSING, stated so it is not mistaken for done: the canned sub-view's own presentation update. There is NO
+    //   canned-only entry point on `UiModel` today — `on_outcome` is the only one — so TASK 7 owns adding it. Until
+    //   then the expiry is consumed and NOT routed. ⛔ Do not "fix" this by calling `on_outcome`.
+    SendOutcome normal_out{};
+    (void)normal.tick(now_ms, normal_out);
+}
+
+// Correlate ONE node-wide outcome push into the UI. Returns true if some slot claimed it (diagnostic; an unmatched push
+// being IGNORED is the entire point of the tracker).
+// ★ The emergency slot is offered EVERY push FIRST — `match_blocked` correlates by WINDOW rather than by ctr, so
+//   offer-order is the only thing that stops an abandoned canned post from claiming the alarm's outcome. On the two DM
+//   kinds the emergency offer is provably inert (`match_dm` requires `_k == dm`, and the emergency slot is only ever
+//   submitted as `SendKind::emergency`) — it is made anyway so there is no per-kind exception to remember.
+inline bool ui_route_send_push(SendTracker& emg, SendTracker& normal, UiModel& m,
+                              const MESHROUTE_NS::Push& pu, uint32_t now_ms) {
+    using PK = MESHROUTE_NS::PushKind;
+    SendOutcome o{};
+    switch (pu.kind) {
+        case PK::channel_sent:
+            if (emg.match_channel_sent(pu.ctr, pu.relayed, o))    { m.on_outcome(o, now_ms); return true; }
+            // A canned post's outcome: claimed, so it cannot then be offered to the alarm, but NOT routed — the model
+            // has no canned-only entry point (Task 7). `on_outcome` here would move a live alarm.
+            return normal.match_channel_sent(pu.ctr, pu.relayed, o);
+        case PK::send_blocked:
+            if (emg.match_blocked(pu.blocked_channel, pu.next_ms, now_ms, o)) { m.on_outcome(o, now_ms); return true; }
+            return normal.match_blocked(pu.blocked_channel, pu.next_ms, now_ms, o);
+        case PK::send_e2e_acked:
+            if (emg.match_dm(pu.ctr, pu.dst, /*acked=*/true, FailReason::none, o)) { m.on_outcome(o, now_ms); return true; }
+            if (normal.match_dm(pu.ctr, pu.dst, /*acked=*/true, FailReason::none, o)) { m.on_outcome(o, now_ms); return true; }
+            return false;
+        case PK::send_failed:
+            // ★★ §B84: THERE IS NO EMERGENCY ARM, and `match_channel_failed` must not be reintroduced. `dst == 0` does
+            // NOT mean "channel" — six unrelated operations emit exactly that shape — so an unattributable async
+            // failure is IGNORED and the bounded retry reaches NOT HEARD. Fails safe. The emergency's own preflight
+            // refusals arrive SYNCHRONOUSLY instead (exec_command -> on_send_refused -> Emergency::failed).
+            // ⓘ The emergency slot is still OFFERED here, and is still provably inert, for the no-exceptions reason
+            //   above: `match_dm` refuses a non-DM slot.
+            if (emg.match_dm(pu.ctr, pu.dst, /*acked=*/false, pu.reason, o)) { m.on_outcome(o, now_ms); return true; }
+            if (normal.match_dm(pu.ctr, pu.dst, /*acked=*/false, pu.reason, o)) { m.on_outcome(o, now_ms); return true; }
+            return false;
+        // ⓘ `default:` is correct here and is NOT §B72's -Wswitch hole: `PushKind` has 15 members on core's schedule
+        //    and this unit is interested in exactly four. The kinds the UI renders rather than correlates
+        //    (`msg_recv` / `channel_recv`) are handled by firmware_ui.cpp, which owns the counters they feed.
+        default: return false;
+    }
+}
 
 }  // namespace mrui

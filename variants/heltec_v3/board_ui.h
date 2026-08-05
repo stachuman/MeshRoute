@@ -28,7 +28,13 @@ namespace mrui {
 
 enum class Font : uint8_t { small = 0, large };   // 6x10 / 10x20
 
-void board_init();
+// ★ §B91 (Task 6): board_init() REPORTS. It used to be `void`, so a dead panel was indistinguishable from a live one
+//   — U8g2's own begin() always returns 1 (it performs no I2C ack check), which is exactly why the bench had no way to
+//   tell "the panel is not on this rail" from "the render policy never painted". true = the panel ACKed its address;
+//   false = nothing answered, and the CALLER (src/firmware_ui.cpp) is what turns that into a console line. The canvas
+//   still knows nothing about consoles.
+// ⚠ It is NOT a fatal error: a node with a dead panel must keep meshing. The UI keeps running blind.
+bool board_init();
 void begin_frame();                 // compose a new frame; does NOT touch the bus
 bool next_page();                   // push ONE page (~3 ms); true while pages remain
 void set_font(Font f);

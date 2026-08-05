@@ -243,11 +243,15 @@ static void dump_routes(Print& out) {
 }
 
 // allowed_sf_bitmap -> "7,12" CSV (SF index = bit position). 0 = unconfigured.
-void print_sf_list(uint16_t bitmap) {
+// ★ §B95: takes its SINK. It used to write to the global `mrcon` unconditionally, so `dump_cfg(Print& out)` sent the
+// whole row to `out` and the sf_list values to USB — the row lost its field on any other sink, and on USB the two
+// writers interleaved. A formatter must never reach past the sink it was given (invariant 5). No global-writing
+// overload is kept: the compiler must break every future call site that forgets the sink.
+void print_sf_list(Print& out, uint16_t bitmap) {
     bool first = true;
     for (uint8_t sf = 5; sf <= 12; ++sf)
-        if (bitmap & (1u << sf)) { if (!first) mrcon.print(','); mrcon.print(sf); first = false; }
-    if (first) mrcon.print('-');
+        if (bitmap & (1u << sf)) { if (!first) out.print(','); out.print(sf); first = false; }
+    if (first) out.print('-');
 }
 
 static void dump_cfg(Print& out) {
@@ -257,7 +261,7 @@ static void dump_cfg(Print& out) {
     const double show_freq = (c.is_mobile && c.layers[0].freq_mhz > 0.0) ? c.layers[0].freq_mhz : g_freq_mhz;   // §mobile: a retune stores the live freq in layers[0]; g_freq_mhz stays the boot/global
     out.print(F("  radio : freq="));    out.print(show_freq, 4);
     out.print(F(" routing_sf="));       out.print(c.routing_sf);
-    out.print(F(" sf_list="));          print_sf_list(c.allowed_sf_bitmap);
+    out.print(F(" sf_list="));          print_sf_list(out, c.allowed_sf_bitmap);
     out.print(F(" bw="));               out.print(g_node.active_bw_hz() / 1000.0, 2); out.print(F(" kHz"));   // W2b: kHz, matching `cfg set bw`. The ACTIVE leaf's BW (a gateway alternates per window; single-layer == the global)
     out.print(F(" cr="));               out.print((int)g_node.active_cr());
     out.print(F(" tx_power="));         out.println((int)g_tx_power);
@@ -325,7 +329,7 @@ static void dump_cfg(Print& out) {
             out.print(F("] node_id="));    out.print(L.node_id);
             out.print(F(" layer_id="));    out.print(L.layer_id);
             out.print(F(" routing_sf="));  out.print(L.routing_sf);
-            out.print(F(" sf_list="));     print_sf_list(L.allowed_sf_bitmap);
+            out.print(F(" sf_list="));     print_sf_list(out, L.allowed_sf_bitmap);
             out.print(F(" bw="));          out.print((L.bw_hz > 0 ? L.bw_hz : c.radio_bw_hz) / 1000.0, 2); out.print(F(" kHz"));   // W2b: kHz, matching `cfg set l1_bw`. Per-layer BW (0 = inherit -> the effective/global)
             out.print(F(" cr="));          out.print((int)(L.cr > 0 ? L.cr : c.radio_cr));
             out.print(F(" beacon_ms="));   out.print(L.beacon_period_ms);
@@ -756,110 +760,99 @@ static void handle_whoami(Print& out) {
 
 // handle_leave moved to firmware_config.{h,cpp} (cleanup 2026-07-14, Increment B); `using mrfw::handle_leave` above.
 
-// A DRAINED, CHUNKED console line for the multi-line dumps: emits the WHOLE line even when it doesn't fit the
-// current CDC TX FIFO free space — writing only what fits, then yielding to the async USB drainer, and repeating.
-// mrcon's whole-chunk write DROPS a line that doesn't fit (the `help` truncation: the two LONGEST lines were
-// discarded whole while shorter ones slipped through), so the bulk dumps write here instead. Per-line budget
-// (≤40 ms) => a stalled/absent host still never hangs loop(). NOT the radio hot path; bypasses mrcon deliberately.
-static void hl(const __FlashStringHelper* fs) {
-#if MR_CONSOLE
-    if (!Serial) return;
-    const char* s = reinterpret_cast<const char*>(fs);   // nRF52/ESP32: F() is memory-mapped flash — a direct read is fine (Print::println does the same)
-    const size_t len = strlen(s); size_t off = 0; const uint32_t t0 = millis();
-    while (off < len && Serial && (uint32_t)(millis() - t0) < 40) {
-        const int a = Serial.availableForWrite();
-        if (a > 0) { const size_t rem = len - off; const size_t chunk = (static_cast<size_t>(a) < rem) ? static_cast<size_t>(a) : rem;
-                     off += Serial.write(reinterpret_cast<const uint8_t*>(s) + off, chunk); }
-        yield();
-    }
-    if (Serial && Serial.availableForWrite() >= 2) Serial.write(reinterpret_cast<const uint8_t*>("\r\n"), 2);
-#else
-    (void)fs;
-#endif
-}
-
+// ★★ §B95 (2026-08-04): the `hl()` DIRECT-SERIAL HELP BYPASS IS GONE, deliberately and permanently.
+// It wrote straight to `Serial` — not through the `Print& out` it was handed, and not through `mrcon` — with its own
+// per-line drain loop (`yield()`, up to 40 ms EACH, so ~3 s of loop stall for the 75-line dump), and it emitted the
+// CRLF only `if (Serial.availableForWrite() >= 2)`, which is why bench H5-06 saw help lines with no line ending.
+// Three separate breaches in nine lines: it stalled the radio loop, it could omit a terminator (⇒ the next response
+// fused onto the same physical line), and it made `help` invisible to every non-USB sink while writing it to USB.
+// ⇒ help now writes through its supplied sink like every other dump. The sink (console_sink.h) is what guarantees
+// whole-line admission; a formatter must not second-guess the transport. Do NOT reintroduce a per-line drain here.
+//
 // `help` / `?` — the command + cfg-key reference for the live console session. Grouped with blank separators for
-// readability; a category label starts each group, continuation lines indent under it. (hl() writes per-line.)
+// readability; a category label starts each group, continuation lines indent under it.
+// ⓘ 75 lines / 6121 B: that is larger than the console stage (MR_CONSOLE_STAGE_BYTES), so under one `help` the tail
+//   is dropped as WHOLE LINES and reported as `!! CONSOLE_DROP lines=N` — loud, never garbled. See console_sink.h.
 static void dump_help(Print& out) {
-    hl(F("===== MeshRoute console ====="));
-    hl(F(""));
-    hl(F("MESSAGING"));
-    hl(F("  send <id|0xhash> \"<text>\" [-a] [-e] [-t] [-l] -a=ack  -e=encrypt(hash only)  -t=team plane; plain send=global/home (fails if no home)"));
-    hl(F("    -l = attach this node's position to THIS message. REFUSED unless the DM is SEALED (use -e, or `cfg set e2e_dm 1`),"));
-    hl(F("         refused if this node has no fix (set lat/lon), and refused as too_large if the +6 B no longer fits."));
-    hl(F("         Replaces the removed `cfg set loc_dm`, which aired coordinates in the clear."));
-    hl(F("  send_channel <ch> \"<text>\" [-t] [-g] [-e] [-l]   -t=team plane  -g=explicit global  `-t -g`=BOTH  plain=global"));
-    hl(F("    -e = seal the post to the TEAM content key. Valid ONLY as `-t -e`: a global channel has no key, and"));
-    hl(F("         `-t -g -e` is refused because the global copy would air the same text in the clear. With a key held,"));
-    hl(F("         `-t` seals by DEFAULT (`cfg set team_channel_crypt 0` opts out).  No -a on this verb."));
-    hl(F("    -l = attach this node's position INSIDE the seal. `-t -l -e` sends text AND position in one sealed post."));
-    hl(F("         REFUSED whenever the post would not actually be sealed (no team, no key, crypt off, or `-t -g`),"));
-    hl(F("         and refused `no_location` with no fix. Max text 173 B sealed, 167 B with -l."));
-    hl(F("  send_layer <0xhash> <l1,l2,…> \"<text>\" [-a] [-e]   explicit cross-layer destination path; -e=encrypt (sealed relay); -l is refused (cross-layer carries no position)"));
-    hl(F(""));
-    hl(F("IDENTITY / KEYS"));
-    hl(F("  whoami | lookup 0x<hash> | hashof <id> [-t|-s] | nameof 0x<hash> | resolve 0x<hash> [hard]   (hashes are 0x-prefixed; hashof prints 0x…)"));
-    hl(F("    hashof searches BOTH id planes (static node_id and team local id) and NAMES the one that matched;"));
-    hl(F("    -t/-s narrow it. One number can legitimately answer in both — then both lines print."));
-    hl(F("  peers | peers all    the address book: known peers (hash, name, static/team id, key confidence)."));
-    hl(F("    plain = the 16 rows we hold a key for (also the JSON book over BLE); `all` adds id-only rows (console only)."));
-    hl(F("  peerkey <ed_pub hex64> [\"<name>\"]   pin a scanned/QR pubkey (optional one-shot label, max 32)"));
-    hl(F("  peername 0x<hash> \"<name>\"  rename a CACHED peer (key + confidence untouched; works on a pinned peer)"));
-    hl(F("  reqpubkey <0xhash|id> [-t|-s]  request a peer's key on-air. A bare id searches BOTH planes (-t/-s force one)."));
-    hl(F("    If the id has no binding yet, it floods a BY-ID query (\"who owns id N?\"); the owner's answer is a CLAIM,"));
-    hl(F("    so run `reqpubkey <id>` once more afterwards to fetch the key itself. `hashof <id>` shows what landed."));
+    out.println(F("===== MeshRoute console ====="));
+    out.println(F(""));
+    out.println(F("MESSAGING"));
+    out.println(F("  send <id|0xhash> \"<text>\" [-a] [-e] [-t] [-l] -a=ack  -e=encrypt(hash only)  -t=team plane; plain send=global/home (fails if no home)"));
+    out.println(F("    -l = attach this node's position to THIS message. REFUSED unless the DM is SEALED (use -e, or `cfg set e2e_dm 1`),"));
+    out.println(F("         refused if this node has no fix (set lat/lon), and refused as too_large if the +6 B no longer fits."));
+    out.println(F("         Replaces the removed `cfg set loc_dm`, which aired coordinates in the clear."));
+    out.println(F("  send_channel <ch> \"<text>\" [-t] [-g] [-e] [-l]   -t=team plane  -g=explicit global  `-t -g`=BOTH  plain=global"));
+    out.println(F("    -e = seal the post to the TEAM content key. Valid ONLY as `-t -e`: a global channel has no key, and"));
+    out.println(F("         `-t -g -e` is refused because the global copy would air the same text in the clear. With a key held,"));
+    out.println(F("         `-t` seals by DEFAULT (`cfg set team_channel_crypt 0` opts out).  No -a on this verb."));
+    out.println(F("    -l = attach this node's position INSIDE the seal. `-t -l -e` sends text AND position in one sealed post."));
+    out.println(F("         REFUSED whenever the post would not actually be sealed (no team, no key, crypt off, or `-t -g`),"));
+    out.println(F("         and refused `no_location` with no fix. Max text 173 B sealed, 167 B with -l."));
+    out.println(F("  send_layer <0xhash> <l1,l2,…> \"<text>\" [-a] [-e]   explicit cross-layer destination path; -e=encrypt (sealed relay); -l is refused (cross-layer carries no position)"));
+    out.println(F(""));
+    out.println(F("IDENTITY / KEYS"));
+    out.println(F("  whoami | lookup 0x<hash> | hashof <id> [-t|-s] | nameof 0x<hash> | resolve 0x<hash> [hard]   (hashes are 0x-prefixed; hashof prints 0x…)"));
+    out.println(F("    hashof searches BOTH id planes (static node_id and team local id) and NAMES the one that matched;"));
+    out.println(F("    -t/-s narrow it. One number can legitimately answer in both — then both lines print."));
+    out.println(F("  peers | peers all    the address book: known peers (hash, name, static/team id, key confidence)."));
+    out.println(F("    plain = the 16 rows we hold a key for (also the JSON book over BLE); `all` adds id-only rows (console only)."));
+    out.println(F("  peerkey <ed_pub hex64> [\"<name>\"]   pin a scanned/QR pubkey (optional one-shot label, max 32)"));
+    out.println(F("  peername 0x<hash> \"<name>\"  rename a CACHED peer (key + confidence untouched; works on a pinned peer)"));
+    out.println(F("  reqpubkey <0xhash|id> [-t|-s]  request a peer's key on-air. A bare id searches BOTH planes (-t/-s force one)."));
+    out.println(F("    If the id has no binding yet, it floods a BY-ID query (\"who owns id N?\"); the owner's answer is a CLAIM,"));
+    out.println(F("    so run `reqpubkey <id>` once more afterwards to fetch the key itself. `hashof <id>` shows what landed."));
 #if MR_N_LAYERS < 2
-    hl(F(""));
-    hl(F("MOBILE / TEAM  (normal-node only)"));
-    hl(F("  mobile register [freq=<MHz> sf=<5-12> bw=<kHz> | scan]     arm registration: current PHY / a given PHY / scan known networks"));
-    hl(F("  mobile gateways            list learned gateways + networks"));
-    hl(F("  mobile query <gw>          pull a gateway's network directory"));
-    hl(F("  mobile status              registration + current PHY + autoregister"));
-    hl(F("  team new                   mint a team (become its creator) — ALWAYS also mints its X25519 channel key"));
-    hl(F("  team <id> | team 0         join an existing team / leave (a join mints NO key — receive it by grant or QR)"));
-    hl(F("    [tkpub=<64 hex> tkpriv=<64 hex>]   adopt an EXISTING team channel keypair instead of minting (QR onboarding)"));
-    hl(F("  team exportkey             print this team's channel keypair as JSON (the app's team QR) — \xe2\x9a\xa0 discloses a PRIVATE key"));
-    hl(F("  team grantkey <0xhash|team-id> [name=\"<text>\"] [-t]   send this team's channel key to a teammate in a SEALED DM"));
-    hl(F("                             needs a VERIFIED pubkey for the target (`reqpubkey <0xhash>` or a QR import) — never sent in the clear"));
+    out.println(F(""));
+    out.println(F("MOBILE / TEAM  (normal-node only)"));
+    out.println(F("  mobile register [freq=<MHz> sf=<5-12> bw=<kHz> | scan]     arm registration: current PHY / a given PHY / scan known networks"));
+    out.println(F("  mobile gateways            list learned gateways + networks"));
+    out.println(F("  mobile query <gw>          pull a gateway's network directory"));
+    out.println(F("  mobile status              registration + current PHY + autoregister"));
+    out.println(F("  team new                   mint a team (become its creator) — ALWAYS also mints its X25519 channel key"));
+    out.println(F("  team <id> | team 0         join an existing team / leave (a join mints NO key — receive it by grant or QR)"));
+    out.println(F("    [tkpub=<64 hex> tkpriv=<64 hex>]   adopt an EXISTING team channel keypair instead of minting (QR onboarding)"));
+    out.println(F("  team exportkey             print this team's channel keypair as JSON (the app's team QR) — \xe2\x9a\xa0 discloses a PRIVATE key"));
+    out.println(F("  team grantkey <0xhash|team-id> [name=\"<text>\"] [-t]   send this team's channel key to a teammate in a SEALED DM"));
+    out.println(F("                             needs a VERIFIED pubkey for the target (`reqpubkey <0xhash>` or a QR import) — never sent in the clear"));
 #endif
-    hl(F(""));
-    hl(F("INBOX"));
-    hl(F("  pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>       NDJSON out"));
-    hl(F(""));
-    hl(F("DIAGNOSTICS"));
-    hl(F("  routes | status | duty | limits | cfg | cfg set <k> <v>"));
-    hl(F("  sleep [on|off] | debug [on|off] | regen | reboot | ota"));
-    hl(F("  version            build/git/board + last reset (no reset)"));
-    hl(F("  faults             the flash fault ring"));
-    hl(F("  crashtest <hang|fault|reboot>      (needs `debug on`)"));
-    hl(F("  rcmd <dst> <verb>      remote command via DM. status/routes = OPEN (cleartext); everything else = SEALED (needs `unlock`)"));
-    hl(F("  prep-restart       clear routes+inbox, KEEP join, go DORMANT (run fleet-wide, then power-cycle)"));
+    out.println(F(""));
+    out.println(F("INBOX"));
+    out.println(F("  pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>       NDJSON out"));
+    out.println(F(""));
+    out.println(F("DIAGNOSTICS"));
+    out.println(F("  routes | status | duty | limits | cfg | cfg set <k> <v>"));
+    out.println(F("  sleep [on|off] | debug [on|off] | regen | reboot | ota"));
+    out.println(F("  version            build/git/board + last reset (no reset)"));
+    out.println(F("  faults             the flash fault ring"));
+    out.println(F("  crashtest <hang|fault|reboot>      (needs `debug on`)"));
+    out.println(F("  rcmd <dst> <verb>      remote command via DM. status/routes = OPEN (cleartext); everything else = SEALED (needs `unlock`)"));
+    out.println(F("  prep-restart       clear routes+inbox, KEEP join, go DORMANT (run fleet-wide, then power-cycle)"));
 #if MR_FEAT_REMOTE_MGMT
-    hl(F(""));
-    hl(F("REMOTE MANAGEMENT  (authenticated; static/gateway builds only)"));
-    hl(F("  password <pass>        LOCAL-only: pin the fleet admin pubkey (derive from the passphrase) — set on every node"));
-    hl(F("  unlock <pass> | lock   operator device: derive the admin key into RAM to sign `rcmd`s / wipe it"));
-    hl(F("    then: `rcmd <dst> reboot` (etc.) is sealed to <dst>; `reqpubkey 0x<hash>` first if the target's pubkey isn't cached"));
+    out.println(F(""));
+    out.println(F("REMOTE MANAGEMENT  (authenticated; static/gateway builds only)"));
+    out.println(F("  password <pass>        LOCAL-only: pin the fleet admin pubkey (derive from the passphrase) — set on every node"));
+    out.println(F("  unlock <pass> | lock   operator device: derive the admin key into RAM to sign `rcmd`s / wipe it"));
+    out.println(F("    then: `rcmd <dst> reboot` (etc.) is sealed to <dst>; `reqpubkey 0x<hash>` first if the target's pubkey isn't cached"));
 #endif
-    hl(F(""));
-    hl(F("TEST"));
-    hl(F("  route add <dest> <next_hop> <hops> [score_q4] | route del <dest>"));
-    hl(F("  testsend <dst> <run> [-a] [-e] -t ms1,ms2,… | testch <ch> <run> -t ms1,ms2,… | teststatus | testclear"));
-    hl(F("  factory_reset confirm      WIPE all flash (config+identity+peers+inbox) -> factory reboot"));
-    hl(F(""));
-    hl(F("PROVISIONING     (key=value, order-free; LIVE, no reboot)"));
-    hl(F("  create layer= freq= bw= sf= sf_list= duty= name=\"<n>\" [active_fraction=] [ch_min_ms=] [dm_min_ms=]"));
-    hl(F("  join layer= freq= bw= sf=      |  leave              layer=1..255 network id (leaf = layer & 0x0F)"));
-    hl(F("  gateway l0=<layer>:<node>:<ctrl_sf>:<data_sfs> l1=…  [period=] [win0=ms:off] [win1=] [beacon=] [freq0=] [freq1=] [bw0=] [bw1=] [cr0=] [cr1=] [gateway_only=]"));
-    hl(F("    dual-layer -> NV, reboot to apply.  e.g. gateway l0=1:1:8:7,9 l1=2:1:9:9,10"));
-    hl(F(""));
-    hl(F("CFG KEYS  (`cfg set <key> <val>`; bool keys take on|off / 1|0)"));
-    hl(F("  node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap team_hop_cap leaf_id"));
-    hl(F("  mobile mobile_autoregister host_mobiles intra_layer_relay gateway_only"));   // §team-id-cfg-removal: `team_id` REMOVED — a team is joined/left with the `team` verb (see below)
-    hl(F("  lat lon e2e_dm team_channel_crypt intro_attach ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack"));   // §loc-per-send: `loc_in_dm` REMOVED — use `send … -l` per message
-    hl(F("  active_fraction ch_min_ms dm_min_ms leaf_name"));
-    hl(F("    `name`=node identity · `leaf_name`=managed leaf (bumps epoch) · identity via `regen` · NO team_id key -> `team new`/`team <id>`/`team 0`"));
-    hl(F("  gateway-only keys: n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms l1_freq"));
+    out.println(F(""));
+    out.println(F("TEST"));
+    out.println(F("  route add <dest> <next_hop> <hops> [score_q4] | route del <dest>"));
+    out.println(F("  testsend <dst> <run> [-a] [-e] -t ms1,ms2,… | testch <ch> <run> -t ms1,ms2,… | teststatus | testclear"));
+    out.println(F("  factory_reset confirm      WIPE all flash (config+identity+peers+inbox) -> factory reboot"));
+    out.println(F(""));
+    out.println(F("PROVISIONING     (key=value, order-free; LIVE, no reboot)"));
+    out.println(F("  create layer= freq= bw= sf= sf_list= duty= name=\"<n>\" [active_fraction=] [ch_min_ms=] [dm_min_ms=]"));
+    out.println(F("  join layer= freq= bw= sf=      |  leave              layer=1..255 network id (leaf = layer & 0x0F)"));
+    out.println(F("  gateway l0=<layer>:<node>:<ctrl_sf>:<data_sfs> l1=…  [period=] [win0=ms:off] [win1=] [beacon=] [freq0=] [freq1=] [bw0=] [bw1=] [cr0=] [cr1=] [gateway_only=]"));
+    out.println(F("    dual-layer -> NV, reboot to apply.  e.g. gateway l0=1:1:8:7,9 l1=2:1:9:9,10"));
+    out.println(F(""));
+    out.println(F("CFG KEYS  (`cfg set <key> <val>`; bool keys take on|off / 1|0)"));
+    out.println(F("  node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap team_hop_cap leaf_id"));
+    out.println(F("  mobile mobile_autoregister host_mobiles intra_layer_relay gateway_only"));   // §team-id-cfg-removal: `team_id` REMOVED — a team is joined/left with the `team` verb (see below)
+    out.println(F("  lat lon e2e_dm team_channel_crypt intro_attach ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack"));   // §loc-per-send: `loc_in_dm` REMOVED — use `send … -l` per message
+    out.println(F("  active_fraction ch_min_ms dm_min_ms leaf_name"));
+    out.println(F("    `name`=node identity · `leaf_name`=managed leaf (bumps epoch) · identity via `regen` · NO team_id key -> `team new`/`team <id>`/`team 0`"));
+    out.println(F("  gateway-only keys: n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms l1_freq"));
 }
 
 // `limits` verb (USB): the companion anti-spam/headroom snapshot as one NDJSON line. Composed from limits_snapshot()

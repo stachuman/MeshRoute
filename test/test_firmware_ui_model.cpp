@@ -1039,3 +1039,162 @@ TEST_CASE("ui-model: the UI-3 constants are the ones spec 4 fixed") {
     CHECK(kArmToFireMs         == 3500u);      // must match InputCfg::fire_ms or arm/fire disagree
     CHECK(InputCfg{}.fire_ms   == kArmToFireMs);
 }
+
+// ============================================================================================ §B71 — UI-6's EXIT
+// ★★★ OWNER-RULED 2026-08-04, implemented by UI-6. Before it, `_emg` had NO path back to `idle`: a fired alarm owned
+// the panel until reboot, and spec §4's "double acknowledges" / "double re-fires" were a contradiction that did
+// neither. These cases pin the complete ruled table, including the two rows that say NOTHING happens.
+//
+// ⓘ The ruling's table lists a fifth exitable state, "final `blocked`". It is VACUOUS in this model and the assertion
+//   below is what makes that visible rather than a silent judgement call: `on_outcome`'s blocked arm ALWAYS arms a
+//   retry, so a `blocked` alarm is by construction still in flight. Four states exit, not five.
+
+// A fired alarm carried to a RETAINED outcome, with one accepted transmission behind it (so on_reply's whitelist and
+// the `_tries == 0` guard are both satisfied for the reply case).
+static UiModel fired_with_outcome(const SendOutcome& o, uint32_t at_ms) {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm,  snap(1000));
+    m.on_gesture(Gesture::long_fire, snap(4500));
+    const bool got = m.take_send_request(req);          // ⚠ DRAINS — one call, into a local
+    CHECK(got == true);
+    m.on_send_accepted(SendKind::emergency, 5000);
+    m.on_outcome(o, at_ms);
+    return m;
+}
+
+TEST_CASE("ui-model: B71 — a short press on PICKED UP acknowledges and restores the cycle") {
+    UiModel m = fired_with_outcome(SendOutcome::channel_relayed(), 5100);
+    CHECK(m.emergency() == Emergency::picked_up);
+    CHECK(m.emg_outcome_retained() == true);
+    const Screen before = m.state().screen;
+    m.on_gesture(Gesture::short_press, snap(6000));
+    CHECK(m.emergency()      == Emergency::idle);      // ★ the exit that did not previously exist
+    CHECK(m.state().screen   == before);               // the acknowledging press is SPENT on the alarm, not on the cycle
+    CHECK(m.state().dirty    == true);
+    // ...and the cycle is navigable again from the very next press.
+    m.on_gesture(Gesture::short_press, snap(6500));
+    CHECK(m.state().screen != before);
+}
+
+TEST_CASE("ui-model: B71 — NOT HEARD and FAILED are exitable too (the §B78 composition)") {
+    UiModel a = fired_with_outcome(SendOutcome::channel_no_relay(), 5100);
+    a.on_send_accepted(SendKind::emergency, 5200);
+    a.on_outcome(SendOutcome::channel_no_relay(), 5300);
+    a.on_send_accepted(SendKind::emergency, 5400);
+    a.on_outcome(SendOutcome::channel_no_relay(), 5500);   // third transmission -> sticky NOT HEARD
+    CHECK(a.emergency() == Emergency::not_heard);
+    a.on_gesture(Gesture::short_press, snap(6000));
+    CHECK(a.emergency() == Emergency::idle);
+
+    // §B78 put `failed` in the retained set precisely so the hiker is never trapped on a failure screen.
+    UiModel b = fired_with_outcome(SendOutcome::channel_failed(FailReason::unsealable), 5100);
+    CHECK(b.emergency() == Emergency::failed);
+    b.on_gesture(Gesture::short_press, snap(6000));
+    CHECK(b.emergency() == Emergency::idle);
+}
+
+TEST_CASE("ui-model: B71 — a REPLY is exitable, and the exit does not resurrect it") {
+    UiModel m = fired_with_outcome(SendOutcome::channel_relayed(), 5100);
+    m.on_reply("Ann", "on my way", 5200);
+    CHECK(m.emergency() == Emergency::reply);
+    m.on_gesture(Gesture::short_press, snap(6000));
+    CHECK(m.emergency() == Emergency::idle);
+    // ★ on_reply's whitelist excludes `idle`, so a LATER teammate post cannot re-open a dismissed alarm.
+    m.on_reply("Bob", "me too", 7000);
+    CHECK(m.emergency() == Emergency::idle);
+}
+
+// ⛔ THE STICKY ROWS. An outcome the hiker never saw is the failure SAFETY-FIRST exists to prevent, so an alarm still
+//    in flight must ignore a short press entirely.
+TEST_CASE("ui-model: B71 — an IN-FLIGHT alarm does not exit (firing / arming / blocked-with-a-retry)") {
+    UiModel f; SendReq req{};
+    f.on_gesture(Gesture::long_arm,  snap(1000));
+    CHECK(f.emergency() == Emergency::arming);
+    f.on_gesture(Gesture::short_press, snap(1500));
+    CHECK(f.emergency() == Emergency::arming);                 // arming is not an outcome
+    f.on_gesture(Gesture::long_fire, snap(4500));
+    const bool got = f.take_send_request(req);
+    CHECK(got == true);
+    f.on_send_accepted(SendKind::emergency, 5000);
+    CHECK(f.emergency() == Emergency::firing);
+    f.on_gesture(Gesture::short_press, snap(5500));
+    CHECK(f.emergency() == Emergency::firing);                 // ⛔ SENDING... is sticky
+    CHECK(f.emg_outcome_retained() == false);
+
+    // ★ THE VACUOUS FIFTH ROW, asserted: a `blocked` alarm always has a live retry, so it is never "final".
+    f.on_outcome(SendOutcome::blocked(5000), 5600);
+    CHECK(f.emergency() == Emergency::blocked);
+    CHECK(f.emg_outcome_retained() == false);                  // ⇒ "final blocked" does not exist in this model
+    f.on_gesture(Gesture::short_press, snap(5700));
+    CHECK(f.emergency() == Emergency::blocked);
+    f.on_tick(snap(5600 + 5000 + 1));                          // the deadline arrives and it re-fires by itself
+    CHECK(f.emergency() == Emergency::firing);
+}
+
+// ★ THE ROW THAT MAKES THE SHORT PRESS SAFE. A blanked panel consumes its waking press, so a retained outcome is
+//   ALWAYS displayed before any press can dismiss it — that is the whole basis of the owner's ruling.
+TEST_CASE("ui-model: B71 — from a BLANKED panel the first press only WAKES; the second acknowledges") {
+    UiModel m = fired_with_outcome(SendOutcome::channel_relayed(), 5100);
+    // The hold outranks the blank timer, so blanking can only happen after kEmgHoldMs — which is > kBlankMs.
+    m.on_tick(snap(5100 + kEmgHoldMs - 1));
+    CHECK(m.state().blanked == false);
+    m.on_tick(snap(5100 + kEmgHoldMs + 1));
+    CHECK(m.state().blanked == true);
+    CHECK(m.emergency()     == Emergency::picked_up);          // state RETAINED behind the dark panel
+    const uint32_t woke = 5100 + kEmgHoldMs + 2000;
+    m.on_gesture(Gesture::short_press, snap(woke));
+    CHECK(m.state().blanked == false);
+    CHECK(m.emergency()     == Emergency::picked_up);          // ★ CONSUMED: the outcome is now on screen, not dismissed
+    m.on_gesture(Gesture::short_press, snap(woke + 1000));
+    CHECK(m.emergency()     == Emergency::idle);               // the press AFTER it acknowledges
+}
+
+TEST_CASE("ui-model: B71 — `double` gets NO emergency job, and `long` still re-fires") {
+    UiModel d = fired_with_outcome(SendOutcome::channel_relayed(), 5100);
+    CHECK(d.state().screen == Screen::status);                 // where `activate()` does nothing
+    d.on_gesture(Gesture::double_press, snap(6000));
+    CHECK(d.emergency() == Emergency::picked_up);              // ⛔ double neither acknowledges nor re-fires
+
+    UiModel l = fired_with_outcome(SendOutcome::channel_no_relay(), 5100);
+    l.on_send_accepted(SendKind::emergency, 5200);
+    l.on_outcome(SendOutcome::channel_no_relay(), 5300);
+    l.on_send_accepted(SendKind::emergency, 5400);
+    l.on_outcome(SendOutcome::channel_no_relay(), 5500);
+    CHECK(l.emergency() == Emergency::not_heard);
+    SendReq req{};
+    l.on_gesture(Gesture::long_arm,  snap(6000));
+    l.on_gesture(Gesture::long_fire, snap(9600));
+    CHECK(l.emergency() == Emergency::firing);                 // a sticky NOT HEARD is always re-fireable
+    CHECK(l.attempts()  == 0);                                 // ...with a FRESH three-transmission budget
+    const bool requeued = l.take_send_request(req);
+    CHECK(requeued == true);
+}
+
+// ⚠ THE ORDERING THAT MATTERS: the exit is tested BEFORE the compose branch. A long press fires from inside a compose
+//   sub-view (spec §4.2) and does NOT close it, so the emergency overlay renders OVER an open modal — the press must act
+//   on the alarm the user is looking at, never on the list underneath it.
+// ⓘ REGISTERED OBSERVATION, not a silent choice: the modal is left OPEN by the exit (the ruling says only
+//   "restores the cycle"). It self-closes on the kBlankMs no-input rule, and the assertion below pins today's behaviour
+//   so a future ruling changes it deliberately.
+TEST_CASE("ui-model: B71 — the exit outranks an open compose modal") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::short_press,  snap(1000));           // status -> team
+    CHECK(m.state().screen == Screen::team);
+    m.on_gesture(Gesture::double_press, snap(1100));           // open the DM compose sub-view
+    CHECK(m.state().compose == Compose::dm);
+    m.on_gesture(Gesture::long_arm,  snap(1200));
+    m.on_gesture(Gesture::long_fire, snap(4800));
+    CHECK(m.state().compose == Compose::dm);                   // the alarm did not close the modal
+    const bool got = m.take_send_request(req);
+    CHECK(got == true);
+    CHECK(req.kind == SendKind::emergency);                    // ★ the alarm's own slot, not the modal's
+    m.on_send_accepted(SendKind::emergency, 5000);
+    m.on_outcome(SendOutcome::channel_relayed(), 5100);
+    const uint8_t cursor_before = m.state().cursor;
+    m.on_gesture(Gesture::short_press, snap(6000));
+    CHECK(m.emergency()     == Emergency::idle);               // the press acted on the ALARM...
+    CHECK(m.state().cursor  == cursor_before);                 // ...not on the compose list underneath
+    CHECK(m.state().compose == Compose::dm);                   // today's behaviour, pinned deliberately
+    m.on_tick(snap(6000 + kBlankMs + 1));
+    CHECK(m.state().compose == Compose::none);                 // ...and it never outlives the user's attention
+}
