@@ -26,6 +26,12 @@
 // frame, `mark_dirty()`, the retained-outcome PRESENTED latch behind B71's exit, and `long_fire` closing the compose
 // modal. ★ All five lived in `src/firmware_ui.cpp`, which neither the native suite nor the simulator compiles — which
 // is exactly why all five shipped green. See `FrameGate`'s own block for the argument.
+// DONE here (2026-08-05, the UI-7 QA fix slice — §B113 + §B64, the two behavioural blockers independent QA raised):
+// §B113 `on_send_accepted` gains its THIRD arm, so `ChanState::waiting` is no longer a state nothing could reach and an
+// accepted canned post finally reads `SENT, waiting` instead of a `SENDING...` that never resolved; §B64 (OWNER-RULED)
+// the TEAM cursor tracks the TEAMMATE by team-plane identity (`_team_sel_id` + `sync_team_cursor`/`note_team_cursor`),
+// and a teammate that has left the roster REFUSES the activation loudly (`UiState::team_pick_gone`) instead of
+// retargeting the DM to whatever row the stale index happened to land on.
 // DONE here (2026-08-05, the two OWNER RULINGS that closed UI-6's open decisions — §R1/§R2, register B109/B110):
 // §R1 an accepted REPLY un-blanks the panel (`on_reply`, one line, past both scope guards — it is a TRANSITION, and
 // the "not wake-on-any-push" half is the placement); §R2 the emergency overlay ABSORBS a `double` entirely
@@ -59,12 +65,25 @@ inline constexpr uint8_t  kLabelCap     = 14;   // display-clamped teammate labe
 enum class Screen  : uint8_t { status = 0, team, inbox, send, count };
 enum class Compose : uint8_t { none = 0, dm, channel };
 
-// ⚠ These counts MUST match the text tables firmware_ui.cpp renders (spec §3.2.2), because the LAST row is `back
-// without sending` and is identified positionally (cursor + 1 == n). A table that grows without its count here turns
-// `back` into a send. UI-6/UI-7 owns the strings: DM = "Are you OK?", "I'm OK", back — channel = "Got your message",
-// "All good", back.
-inline constexpr uint8_t kDmTextCount      = 3;   // "Are you OK?", "I'm OK", back
-inline constexpr uint8_t kChannelTextCount = 3;   // "Got your message", "All good", back
+// ★★ §B66 CLOSED HERE 2026-08-05 (UI-7) — THE COUNT IS NOW DERIVED FROM THE TABLE, so the two cannot disagree.
+// The LAST row of a compose list is `back, don't send` and the model identifies it POSITIONALLY (`cursor + 1 == n`),
+// so a table that grows without its count turns `back` into a SEND. UI-6 bound them with a `static_assert` across a TU
+// boundary — a build failure instead of a mis-send, which was the right interim but still TWO declarations. UI-7 needs
+// the strings in a PURE header anyway (`ui_compose_send_line` composes the console line and the native suite asserts
+// it byte-for-byte), so the tables moved here and the counts are `sizeof`-derived. ⇒ one declaration, no assert to
+// keep in step, and B66's own "durable cure: one table with the count derived from it" verbatim.
+// ★ Owner-fixed strings (plan §"Constants fixed by the owner"). ⛔ The emergency body is NOT a compose row — it has no
+//   list and no cursor — so it lives beside them rather than inside either table.
+inline const char* const kDmTexts[]      = { "Are you OK?",      "I'm OK",   "back, don't send" };
+inline const char* const kChannelTexts[] = { "Got your message", "All good", "back, don't send" };
+inline constexpr uint8_t kDmTextCount      = uint8_t(sizeof kDmTexts      / sizeof kDmTexts[0]);
+inline constexpr uint8_t kChannelTextCount = uint8_t(sizeof kChannelTexts / sizeof kChannelTexts[0]);
+// ★ The SENDABLE prefix of each table — everything but the trailing `back` row. Derived, never restated, for exactly
+//   the B66 reason: this is the bound `ui_compose_send_line` refuses on, so a hand-written `2` here would be the same
+//   positional coupling one level down. An index at or past it names `back` (or nothing) and must REFUSE, not clamp.
+inline constexpr uint8_t kDmSendableTexts      = uint8_t(kDmTextCount - 1);
+inline constexpr uint8_t kChannelSendableTexts = uint8_t(kChannelTextCount - 1);
+inline constexpr const char* kEmergencyText = "I'm in danger";
 
 // The model NEVER sends — it ASKS. firmware_ui.cpp drains the request, performs the send and feeds back a typed outcome.
 enum class SendKind : uint8_t { emergency = 0, dm, channel_canned };
@@ -136,6 +155,46 @@ struct UiInboxCounters {
     }
 };
 
+// ★★★ THE INBOX ROW BUDGET (UI-7, spec §6.1), AND IT IS PURE FOR ONE MEASURABLE REASON: `Inbox::pull()` visits the DM
+// block FIRST and the channel block SECOND, both oldest-first, with NO limit parameter of any kind (inbox.h:106-109
+// — the only flow control is returning false from the callback). So "keep the newest 8" over one shared pool lets a
+// chatty channel evict EVERY DM row, on a screen whose entire purpose is showing both. The spec calls that out and
+// the plan repeats it; it is also exactly the kind of rule that reads as obviously-satisfied and is not.
+// ⇒ TWO independent rings, `kMaxInboxRows / 2` each, filled newest-wins, and the whole thing is host-testable with a
+//   handful of pushes. `firmware_ui.cpp` owns only the `pull()` trampoline and the text clamping.
+// ⓘ The panel order stays BLOCK order (all DM rows, then all channel rows), never chronological: the two seq spaces
+//   are independent and there is no shared clock to interleave on — spec §6.1 says adopting interleaving needs a
+//   stated reboot/uptime rule first.
+inline constexpr uint8_t kInboxRowsPerKind = uint8_t(kMaxInboxRows / 2);
+class InboxRowBudget {
+public:
+    void reset() { _n_dm = 0; _n_ch = 0; }
+    // Newest-wins: `pull` hands rows oldest-first, so once a ring is full each further row displaces the OLDEST it
+    // holds. Shifting `kInboxRowsPerKind - 1` small structs is bounded and happens only past the cap.
+    void add(const InboxRow& r) {
+        InboxRow* buf = r.is_dm ? _dm : _ch;
+        uint8_t&  n   = r.is_dm ? _n_dm : _n_ch;
+        if (n < kInboxRowsPerKind) { buf[n++] = r; return; }
+        for (uint8_t i = 1; i < kInboxRowsPerKind; ++i) buf[i - 1] = buf[i];
+        buf[kInboxRowsPerKind - 1] = r;
+    }
+    // ★ THE ONE CONVERSION PATH into the snapshot (U2), like `UiInboxCounters::publish`. `total` is what `pull`
+    //   VISITED, so the screen can say the list is truncated instead of implying it is complete (spec §6.1).
+    void publish(UiSnapshot& s, uint16_t total) const {
+        uint8_t k = 0;
+        for (uint8_t i = 0; i < _n_dm && k < kMaxInboxRows; ++i) s.inbox[k++] = _dm[i];
+        for (uint8_t i = 0; i < _n_ch && k < kMaxInboxRows; ++i) s.inbox[k++] = _ch[i];
+        s.inbox_shown = k;
+        s.inbox_total = total;
+    }
+    uint8_t dm_count() const { return _n_dm; }
+    uint8_t ch_count() const { return _n_ch; }
+private:
+    InboxRow _dm[kInboxRowsPerKind] = {};
+    InboxRow _ch[kInboxRowsPerKind] = {};
+    uint8_t  _n_dm = 0, _n_ch = 0;
+};
+
 // ---------------------------------------------------------------------------------------------------- UI-3
 // ★★ OWNER RE-RULED 2026-08-04: 120000 -> 30000. ⚠ THIS LINE AND THE CONSTANTS TEST ARE THE ONLY TWO PLACES THE
 // NUMBER MAY APPEAR. Nothing else — no comment, no test, no doc line — restates it: the first §B78 write-up hardcoded
@@ -149,6 +208,48 @@ inline constexpr uint32_t kArmToFireMs          = 3500;   // MUST match InputCfg
 
 enum class Emergency : uint8_t { idle = 0, arming, firing, blocked, picked_up, not_heard, reply, cancelled, failed };
 enum class DmState   : uint8_t { idle = 0, submitting, waiting_ack, delivered, no_key, not_confirmed, failed };
+// ★★★ §B69's CARRIER, HALF ONE (UI-7) — THE CANNED-CHANNEL OUTCOME MACHINE, and it is the DmState of the channel path.
+// Until now the canned channel post had NO model state at all: `ui_pump_trackers` had to CONSUME the normal tracker's
+// expiry and throw it away, with `⛔ Do not "fix" this by calling on_outcome` beside it, because `on_outcome` is the
+// EMERGENCY entry point and a canned post's outcome would have moved a live alarm. This enum is the missing entry
+// point, and it is what lets B69's two kinds be told apart at the only place that can say them out loud.
+// ★ EVERY MEMBER IS REACHABLE ONLY FROM A PATH THAT ESTABLISHED IT — the §2.1 rule this whole arc exists for:
+//   `waiting`     — accepted with OUR ctr; the `channel_sent` verdict has not come back yet (it can take ~36 s).
+//   `no_relay`    — a `channel_sent` came back for our ctr with `relayed == false`: we transmitted and OVERHEARD NOTHING.
+//   `unconfirmed` — §B69: `ctr == 0`, so NO LOCAL HANDLE ever existed. We never listened, so we may not say "no relay";
+//                   we cannot establish transmission either, so we may not say SENT. See the ★★ correction below.
+//   `relayed`     — a neighbour was overheard re-flooding it. The only member that may say PICKED UP.
+enum class ChanState : uint8_t { idle = 0, submitting, waiting, relayed, no_relay, unconfirmed, blocked, failed };
+// ★★★ §B69's CARRIER, HALF TWO — THE EMERGENCY'S EVIDENCE, because the alarm's two channel outcomes collapse into ONE
+// `Emergency` state and the renderer cannot ask which happened. `on_outcome` maps `channel_no_relay` AND
+// `channel_remote_mint` down the SAME path (neither carries relay evidence ⇒ neither may claim PICKED UP ⇒ bounded
+// retry), and after the third attempt BOTH land in `Emergency::not_heard`.
+// ⇒ `NOT HEARD` is a CLAIM ABOUT A MEASUREMENT — "we transmitted and overheard no relay". An alarm that never held a
+//   handle never listened, so on that path the claim is unfounded and the DETAIL LINE must not make it.
+//
+// ★★★★ B69's PREMISE IS CORRECTED HERE, MEASURED IN SOURCE 2026-08-05, AND THE CORRECTION IS THE OPPOSITE OF THE
+//      OBLIGATION AS WRITTEN. B69 (and spec §2.1 rule 2, and this file's own §B68 block) rule the kind must render as
+//      **SENT**, on the strength of B39's producer (3): a registered mobile's DELEGATED GLOBAL post, where the HOME
+//      mints the ctr and a real MOBILE_SEND DM flies — a genuine SUCCESS. ⛔ **THAT PRODUCER IS STRUCTURALLY DEAD ON
+//      THE LINE THIS UI SENDS.** `node.cpp:1401` computes `want_global = c.u.channel.global || !c.u.channel.team`, and
+//      every UI channel post carries `-t` with no `-g` ⇒ `want_global == false` ⇒ the `do_send_channel_delegated`
+//      branch (`node.cpp:1591-1601`) is never entered. On `-t -e` exactly TWO producers of `queued`/`ctr == 0` remain,
+//      and NEITHER is a success: a pre-TX self-gate (`node_channel.cpp:650`, which also pushes `send_blocked`) and a
+//      post-mint SEAL FAILURE (`node_channel.cpp:744`). The first normally resolves through `match_blocked` inside the
+//      window; the second is the one that reaches expiry.
+// ⇒ **RENDERING IT AS "SENT" WOULD BE THE §2.1 FALSE CONFIRMATION THE OBLIGATION WAS WRITTEN TO PREVENT.** The kind
+//   stays a SUCCESS SHAPE inside the tracker — §B68's argument is untouched, "a delivered message called failed" is
+//   still the error to avoid, and the tracker is GENERIC (a future plain/`-g` UI post would revive producer 3). What
+//   changes is only what the PANEL says: **UNCONFIRMED**, never SENT and never "no relay". Reported to the owner as a
+//   design change, not edited into the plan.
+// ★ STICKY AND ORDERED, `local_tx` > `no_handle` > `none`, and the ordering is the correctness argument: ONE
+//   locally-originated attempt whose `channel_sent` came back makes "we listened and heard nothing" TRUE for the alarm
+//   as a whole, so a later handle-less attempt must not erase it. Reset only by a NEW alarm (`long_fire`), beside
+//   `_tries` — the budget and the evidence describe the same alarm and must start together.
+// ⓘ Deliberately NOT a ninth `Emergency` state: the distinction is orthogonal to the machine (it says what the
+//   evidence WAS, not where the alarm IS), and a ninth state would have to be threaded through `hold_active`,
+//   `emg_outcome_retained` and B71's exit set for no behavioural gain. A flag was B69's own first-named option.
+enum class EmgEvidence : uint8_t { none = 0, no_handle, local_tx };
 // The COMPACT panel reason. Deliberately NOT a mirror of SendFailReason: `parser` has no core equivalent (the line
 // never became a Command), and the three that do are the ones whose remedy differs — encrypt / get a fix / retry
 // later. Everything else is `other`, and §B73's `fail_reason()` carries the core reason verbatim beside it, so
@@ -199,6 +300,23 @@ struct UiState {
     uint8_t cursor = 0;
     Compose compose = Compose::none;
     uint8_t compose_peer = 0;   // bound at ENTRY: the roster can reorder under an open modal, which would retarget it
+    // ★★ UI-7: THE SUB-VIEW'S SECOND PHASE. Spec §3.2.1/§3.4.1 require the OUTCOME to replace the canned list *in the
+    //    sub-view* ("`SENDING...`", "`DELIVERED to <label>`", "`NO KEY`"), and UI-2 shipped `compose_gesture` CLOSING
+    //    the modal as it queued the send — so every state `DmState` can reach had no renderer at all and the one thing
+    //    `-a` buys over a channel post ("delivered to that PERSON") was invisible. ⇒ a send switches the same modal
+    //    from `list` to `result`; it does not close it.
+    // ⓘ A separate flag rather than two more `Compose` members: `Compose` says WHICH list (and therefore which peer and
+    //   which text table), and that stays true in the result phase — `draw_compose` still needs it for the header.
+    bool    compose_result = false;
+    // ★★★ §B64 (OWNER-RULED 2026-08-05): the teammate the TEAM cursor was on has LEFT the roster, so the activation was
+    //    REFUSED. It rides `UiState` — the frozen display struct — because it is a thing the panel must SAY (C2: the
+    //    refusal is loud, never silent) and because that puts it on the existing freeze path (U2), with no second
+    //    plumbing for the renderer to keep in step. The renderer also SUPPRESSES the `>` marker while it is set: a
+    //    highlight beside somebody the user did not pick is the same mis-send in display form.
+    // ⛔ NOT derived from `cursor >= team_shown`. That predicate happens to be equivalent today, and it is exactly the
+    //    positional coupling §B66 exists to warn about — one row added or one clamp changed and it silently means
+    //    something else. The flag says what it means.
+    bool    team_pick_gone = false;
     bool    blanked = false;
     bool    dirty   = true;
 };
@@ -256,7 +374,10 @@ public:
         //   hold deadline (§4.3) is what governs the overlay's panel time regardless.
         if (g == Gesture::double_press && _emg != Emergency::idle) return;
         if (_st.compose != Compose::none) { compose_gesture(g); return; }
-        if (g == Gesture::short_press)  { advance_or_next(s); _st.dirty = true; }
+        // ★★★ §B64: re-anchor the TEAM cursor onto the TEAMMATE it was placed on, BEFORE the gesture acts on it — the
+        //    roster is rebuilt every tick and can have reordered since the last one. See `sync_team_cursor`.
+        sync_team_cursor(s);
+        if (g == Gesture::short_press)  { advance_or_next(s); note_team_cursor(s); _st.dirty = true; }
         else if (g == Gesture::double_press) { activate(s);   _st.dirty = true; }
     }
 
@@ -269,8 +390,14 @@ public:
         if (!_seeded) { _last_input_ms = s.now_ms; _seeded = true; }
         tick_emergency(s);
         if (_st.compose != Compose::none && elapsed(s.now_ms, _last_input_ms) >= kBlankMs) {
-            _st.compose = Compose::none; _st.cursor = 0; _st.dirty = true;   // never outlive attention; sends nothing
+            close_compose();                                                 // never outlive attention; sends nothing
         }
+        // ★★★ §B64, AND THE PLACEMENT IS THE POINT: `FrameGate::step` FREEZES the state immediately after this call
+        //    (`mr_ui_tick`: on_gesture -> on_tick -> step), so the highlight must already name the remembered teammate
+        //    IN THIS SNAPSHOT. Re-anchoring only on a gesture would leave the panel showing `>` beside one teammate
+        //    while `activate()` addressed another — the mis-send this ruling closes, arriving from the other side.
+        //    ⓘ After the auto-exit above, deliberately: a modal that just closed gets its team cursor back the same tick.
+        sync_team_cursor(s);
         if (!_st.blanked && !hold_active(s.now_ms) &&
             elapsed(s.now_ms, _last_input_ms) >= kBlankMs) { _st.blanked = true; _st.dirty = true; }
     }
@@ -295,6 +422,10 @@ public:
         if (!_req_pending) return false;
         _req_pending = false; out = _req;
         if (out.kind == SendKind::dm) { _dm = DmState::submitting; _st.dirty = true; }
+        // ★ UI-7: the canned-channel twin, and it also CLEARS a previous transaction's terminal state. Without the
+        //   reset a second post would open its result phase still showing the FIRST one's verdict for the instant
+        //   before `ui_perform_send` returns — a stale outcome attributed to a message that has not been sent yet.
+        else if (out.kind == SendKind::channel_canned) { _chan = ChanState::submitting; _st.dirty = true; }
         return true;
     }
     bool emergency_pending() const { return _emg_req_pending; }
@@ -302,7 +433,15 @@ public:
     // ---------------------------------------------------------------------------------- UI-3: emergency + DM
     Emergency emergency() const { return _emg; }
     DmState   dm_state()  const { return _dm; }
+    ChanState chan_state() const { return _chan; }
+    // ★★ §B69: WHICH of the two collapsed channel outcomes the LIVE alarm actually got. Read it beside
+    //    `emergency()`; `not_heard` means two different things depending on it (see EmgEvidence).
+    EmgEvidence emg_evidence() const { return _emg_evidence; }
     uint8_t   attempts()  const { return _tries; }
+    // ★ The compose sub-view's lifetime, which UI-7 needs OUTSIDE the model: it is what bounds a `late_ack` tracker
+    //   slot (spec §3.4.1 upgrades NO CONFIRM -> DELIVERED only "while the sub-view is still showing") and, with it,
+    //   the ONE normal send slot. See `ui_pump_trackers` — the obligation is discharged there, as a gate, not here.
+    bool compose_open() const { return _st.compose != Compose::none; }
     // ⚠ Meaningful ONLY while `emergency() == Emergency::blocked`; after the retry fires the value is the spent
     // deadline. §B74: it is no longer sentinel-encoded, so there is no "no deadline" value to test for — the STATE is
     // the predicate. Any 32-bit value, `0xFFFFFFFF` included, is a legitimate deadline.
@@ -317,15 +456,33 @@ public:
     // why the tracker gives them their own `Kind` instead of a generic failure plus a reason.
     RefuseReason refuse_reason() const { return _refuse; }
     FailReason   fail_reason()   const { return _fail; }
+    // ★ UI-7: the SYNCHRONOUS refusal's `CmdCode`, verbatim. Meaningful only while `refuse_reason() != parser` — see
+    //   `on_send_refused`. It is the third alphabet beside the compact reason and §B73's core reason, and it exists
+    //   because `err_unsupported` covers five different walls that the panel must at least be able to NAME.
+    MESHROUTE_NS::CmdCode refuse_code() const { return _refuse_code; }
     uint8_t   arming_secs_left(const UiSnapshot& s) const {
         if (_emg != Emergency::arming) return 0;
         const uint32_t left = _arm_fire_at_ms - s.now_ms;
         return (left > 60000u) ? 0 : uint8_t((left + 999) / 1000);        // wrap-safe: a huge value means past-due
     }
 
+    // ★★★ §B113 (found by independent QA on UI-7, FIXED 2026-08-05) — THE THIRD ARM, AND WITHOUT IT
+    // `ChanState::waiting` WAS A DEAD STATE: assigned zero times in the whole tree, referenced once, by
+    // `firmware_ui.cpp`'s `"SENT, waiting"` arm. An ACCEPTED canned post therefore stayed on `submitting`, so the panel
+    // read `SENDING...` until either the `channel_sent` verdict (up to ~36 s on a team post) or — first, on the common
+    // path — the sub-view's own 15 s auto-exit. ⇒ a SUCCESSFUL send whose only feedback was a spinner that never
+    // resolved, contradicting the bench guide's required `SENDING... -> SENT, waiting` verbatim.
+    // ★ `waiting` MEANS WE HOLD A HANDLE, and that is the whole reason it may be reached only here: `ui_perform_send`
+    //   calls this ONLY after `tr.accept(r.ctr)` with a non-zero ctr (§B39 — a `ctr == 0` result is parked in
+    //   `awaiting` and never reaches acceptance), so the state cannot claim a transmission we do not own.
+    // ⚠ THE `else` IS THE THIRD ARM OF A THREE-MEMBER ENUM, matching `on_send_refused` line for line (U3) — the two
+    //   functions are the accept/refuse twins for the same three kinds and read as such. It must NOT become an
+    //   unconditional write: an alarm's acceptance would then relabel a coincident canned post `SENT, waiting`, which
+    //   is exactly the §2.1 crossover the two slots exist to prevent. A control pins that directly.
     void on_send_accepted(SendKind k, uint32_t now_ms) {
         if (k == SendKind::emergency) { ++_tries; _last_try_ms = now_ms; }
         else if (k == SendKind::dm)   { _dm = DmState::waiting_ack; }
+        else                          { _chan = ChanState::waiting; }   // §B113: the canned-channel twin of waiting_ack
         _st.dirty = true;
     }
     // The SYNCHRONOUS refusal path (a parser reject or an immediate `err_*`) — it never became a core send, so there
@@ -335,10 +492,62 @@ public:
     // after the gesture that caused it, and anchoring the window on the gesture is the same defect §4.3 was written to
     // kill (the outcome inherits a leftover window and the panel blanks seconds after the news). Only the EMERGENCY
     // branch retains — a DM refusal must not extend the alarm's window.
-    void on_send_refused(SendKind k, RefuseReason r, uint32_t now_ms) {
-        _refuse = r; _fail = FailReason::none;
+    // ★ UI-7: `code` is the SYNCHRONOUS `CmdCode` verbatim, and it is REQUIRED — no default (the §B73 precedent: a
+    //   caller that has a reason must not be able to drop it silently). It is here because `CmdCode` CANNOT be mapped
+    //   onto `RefuseReason` without inventing distinctions the core does not make: `no_key`, `no_identity`, `no_fix`,
+    //   `empty` and `unsealable` ALL return `err_unsupported` (node.cpp:1530/1543/1553/1568) and differ only in a
+    //   telemetry string the UI never sees. The plan's instruction is exact — "show the generic refusal AND THE CODE;
+    //   do not invent a specific reason" — so the compact reason stays generic and the code rides beside it, rendered
+    //   through `cmdcode_name` (U1: fw_main.cpp:905 already calls it "the ONE mapper, no second switch").
+    // ⚠ CONTRACT, like `retry_at_ms()`: `refuse_code()` is meaningful only while `refuse_reason() != parser`. A line
+    //   that never became a `Command` has no `CmdCode` at all, and `RefuseReason::parser` IS that predicate — no
+    //   arithmetic value is reserved to mean "none" (§B74's discipline).
+    void on_send_refused(SendKind k, RefuseReason r, MESHROUTE_NS::CmdCode code, uint32_t now_ms) {
+        _refuse = r; _refuse_code = code; _fail = FailReason::none;
         if (k == SendKind::emergency) { _emg = Emergency::failed; retain(now_ms); }   // terminal + actionable, never a stuck SENDING...
         else if (k == SendKind::dm)   { _dm  = DmState::failed; }
+        // ★ UI-7: the canned-channel arm was MISSING, and it was not a cosmetic gap — a refused canned post left
+        //   `_chan` on `submitting`, i.e. the sub-view sat on `SENDING...` for ever for a send that never happened.
+        //   That is §B72's defect on the non-alarm path, and the same C2 argument applies: fail LOUD, terminally.
+        else                          { _chan = ChanState::failed; }
+        _st.dirty = true;
+    }
+    // ★★★ THE CANNED-CHANNEL OUTCOME ENTRY POINT (UI-7), AND IT EXISTS BECAUSE `on_outcome` MUST NOT BE USED FOR THIS.
+    // `on_outcome` is the EMERGENCY-capable path: any channel kind it receives may move a LIVE alarm, so routing a
+    // canned post's outcome (or its expiry) through it lets an unrelated compose action alter a distress call — the
+    // §2.1 false-confirmation class, reached from the one direction the tracker cannot filter (both are channel kinds
+    // and both are correctly correlated; only the SLOT distinguishes them). `ui_pump_trackers` therefore had to drain
+    // the normal expiry and DISCARD it, with the gap named in-source as Task 7's. This is that entry point.
+    // ★ §B69 IS PAID HERE. `channel_no_relay` and `channel_remote_mint` land in DIFFERENT states, because they are
+    //   different claims: one is "we transmitted and overheard nothing", the other is "we never held a handle and
+    //   never listened". The renderer can finally distinguish them instead of printing one reading for both.
+    // ⚠⚠ CORRECTED 2026-08-05 (V1). This paragraph used to end *"can finally say SENT for the second without saying it
+    //   for the first"* — B69's obligation as written — AND THE CODE BELOW DELIBERATELY DOES NOT DO THAT. The comment
+    //   was the stale half: `channel_remote_mint` maps to `unconfirmed`, which renders `NOT CONFIRMED`, never SENT.
+    //   ★ THE MEASUREMENT THAT INVERTED THE OBLIGATION: B69 justified SENT with B39's producer (3), a registered
+    //   mobile's DELEGATED GLOBAL post — a genuine success. `node.cpp:1401` computes
+    //       want_global = c.u.channel.global || !c.u.channel.team
+    //   and every channel line this UI sends carries `-t` with no `-g` (`ui_compose_send_line`), so `want_global` is
+    //   FALSE and `do_send_channel_delegated` (node.cpp:1591-1601) is unreachable. On `-t -e` the only surviving
+    //   `ctr == 0` producers are a pre-TX self-gate (node_channel.cpp:650) and a post-mint SEAL FAILURE (:744) —
+    //   NEITHER a success. ⇒ SENT here would be the §2.1 false confirmation the obligation was written to prevent.
+    //   ⓘ The `SendOutcome` kind stays a SUCCESS SHAPE inside the tracker (§B68 is untouched) and the tracker is
+    //   generic, so a future plain/`-g` UI post would legitimately revive producer (3). Only the RENDERING differs.
+    // ⓘ The DM kinds are REFUSED here rather than handled: a DM outcome belongs to `on_outcome`'s DM arms, which are
+    //   already independent of the emergency. Two entry points writing `_dm` would be the fork U1 forbids.
+    void on_channel_outcome(const SendOutcome& o, uint32_t now_ms) {
+        using K = SendOutcome::Kind;
+        (void)now_ms;   // no deadline here: the sub-view's own kBlankMs auto-exit is the display window (spec §3.2.1)
+        switch (o.kind) {
+            case K::channel_relayed:     _chan = ChanState::relayed;     break;
+            case K::channel_no_relay:    _chan = ChanState::no_relay;    break;
+            case K::channel_remote_mint: _chan = ChanState::unconfirmed; break;   // ★ §B69: never "no relay", never SENT
+            case K::channel_failed:      _chan = ChanState::failed; note_failure(o.reason); break;
+            case K::blocked:             _chan = ChanState::blocked;    break;
+            // A DM outcome must never reach here — `_dm` has exactly one writer set (on_outcome). Listed explicitly,
+            // with no `default:`, so a tenth SendOutcome::Kind fails the build instead of landing silently (§B72).
+            case K::dm_acked: case K::dm_no_key: case K::dm_failed: case K::dm_timeout: return;
+        }
         _st.dirty = true;
     }
     void on_outcome(const SendOutcome& o, uint32_t now_ms) {
@@ -359,6 +568,16 @@ public:
         // resurrect an emergency (spec §2.1, second line of defence behind the tracker's ctr match). ⓘ That includes
         // channel_failed: a seal failure belonging to no live alarm is dropped whole, reason included.
         if (_emg != Emergency::firing && _emg != Emergency::blocked) return;
+        // ★★★ §B69's CARRIER, WRITTEN HERE AND ONLY HERE. It is recorded AFTER the live-alarm guard on purpose: an
+        // outcome that may not move the alarm may not describe its evidence either, or a coincident canned post's
+        // verdict would relabel a distress result it had no part in (§2.1, the same argument as the guard itself).
+        // ★ Monotone, never downgraded — `local_tx` is a fact about the alarm as a whole, and one locally-originated
+        //   attempt that came back is what makes "we listened and heard nothing" TRUE. See EmgEvidence.
+        if (o.kind == K::channel_relayed || o.kind == K::channel_no_relay) {
+            _emg_evidence = EmgEvidence::local_tx;
+        } else if (o.kind == K::channel_remote_mint && _emg_evidence == EmgEvidence::none) {
+            _emg_evidence = EmgEvidence::no_handle;
+        }
         if (o.kind == K::blocked) {
             _emg = Emergency::blocked;
             const uint32_t d = (o.next_ms > 0) ? o.next_ms : next_backoff();
@@ -471,8 +690,14 @@ protected:
     // value is reserved. Never reintroduce a magic deadline value here.
     Emergency    _emg    = Emergency::idle;
     DmState      _dm     = DmState::idle;
+    ChanState    _chan   = ChanState::idle;    // UI-7: the canned-channel twin of _dm; §B69's carrier for that path
     RefuseReason _refuse = RefuseReason::other;
     FailReason   _fail   = FailReason::none;   // §B73: the core reason, verbatim, beside the compact one
+    // UI-7: the SYNCHRONOUS refusal's CmdCode, verbatim. Read only while `_refuse != parser` — see on_send_refused.
+    MESHROUTE_NS::CmdCode _refuse_code = MESHROUTE_NS::CmdCode::queued;
+    // ★★ §B69: which of the two collapsed channel outcomes THIS alarm actually got. Sticky, monotone, reset by a new
+    //    alarm. It is what stops `NOT HEARD`'s detail line from claiming a measurement the alarm never took.
+    EmgEvidence  _emg_evidence = EmgEvidence::none;
     uint8_t  _tries = 0;                 // ACCEPTED transmissions, never requests (spec §4)
     bool     _retry_armed       = false; // §B74: the blocked-retry deadline is live (NOT encoded in _retry_at_ms)
     uint32_t _retry_at_ms       = 0;
@@ -483,6 +708,10 @@ protected:
     uint32_t _backoff_ms        = 0;     // the next_ms==0 UI backoff, doubling to kBlockedBackoffMaxMs
     uint8_t  _last_countdown    = 0;     // so ARMING repaints only when the visible digit changes (spec §4.3)
     uint32_t _emg_news = 0, _emg_seen = 0;   // §B102: retained-outcome news vs. what a COMPLETED frame presented
+    // ★★ §B64: the TEAM cursor's selection, held by team-plane IDENTITY rather than by row index. See
+    //    `sync_team_cursor` for the whole argument, the C3 plane note and why no arithmetic value is reserved.
+    uint8_t  _team_sel_id    = 0;
+    bool     _team_sel_valid = false;
     char     _reply_who[kLabelCap + 1] = {};
     char     _reply_text[21]           = {};
 
@@ -514,21 +743,105 @@ private:
         if (n > 1 && _st.cursor + 1 < n) { ++_st.cursor; return; }
         _st.screen = next_screen(_st.screen, s); _st.cursor = 0;
     }
+    // ★★★★ §B64 IS PAID HERE (OWNER-RULED 2026-08-05) — THE SEND TARGET IS THE REMEMBERED TEAMMATE, NEVER A ROW INDEX.
+    // ⛔ WHAT THIS LINE USED TO BE: `_st.compose_peer = s.team[_st.cursor % s.team_shown].id`. The modulo kept the read
+    //    in range when a later snapshot carried fewer rows than the cursor the previous tick left behind — but its
+    //    EFFECT was that a cursor on row 2 meeting a 2-row roster opened the DM modal bound to ROW 0. That is a
+    //    MIS-SEND, not a display glitch: "Are you OK?" went to a teammate the user never highlighted. Plan `:135`
+    //    deferred it to Tasks 6/7 with *"that is a MIS-SEND … it needs a ruling before Task 7 wires real sends"*, and
+    //    Task 7 wired them without resolving it.
+    // ★ THE RULING, VERBATIM: *preserve the selection by teammate IDENTITY across roster refreshes; the cursor tracks
+    //   the teammate, not the row index; if that teammate has disappeared from the roster, REFUSE activation and
+    //   repaint — never silently select another row.*
+    // ⛔ AND IT IS NOT A CLAMP. Clamping to `shown - 1` or to `0` is the tempting near-miss and it is the SAME class of
+    //   defect one index over: it still SENDS, just to a different wrong teammate. The refusal is what makes the
+    //   difference measurable — every clamp queues a request; the ruling queues nothing.
     void activate(const UiSnapshot& s) {
-        if (_st.screen == Screen::team && s.team_shown > 0) {
-            _st.compose = Compose::dm; _st.compose_peer = s.team[_st.cursor % s.team_shown].id; _st.cursor = 0;
+        if (_st.screen == Screen::team) {
+            if (!_team_sel_valid) {
+                // C2 — FAIL LOUD. `sync_team_cursor` has already announced a pick that vanished; announce it here too
+                // so the refusal is self-contained rather than relying on which call ran first.
+                // ⓘ An EMPTY roster is left alone: that screen already says "no teammates heard", which IS the reason.
+                if (s.team_shown > 0) _st.team_pick_gone = true;
+                _st.dirty = true;                        // "and repaint" — stated here, not inherited from the caller
+                return;                                  // ⇒ NOTHING is queued. That is the whole assertion.
+            }
+            _st.compose = Compose::dm; _st.compose_peer = _team_sel_id; _st.cursor = 0;
         } else if (_st.screen == Screen::send) {
             _st.compose = Compose::channel; _st.compose_peer = 0; _st.cursor = 0;
         }
     }
+    // ★★★★ §B64 — THE TEAMMATE THE CURSOR IS ON, HELD BY IDENTITY, AND RE-FOUND IN EVERY SNAPSHOT.
+    // ★ THE IDENTITY IS THE ROW'S OWN `id`, DERIVED AND NOT INVENTED (U1): it is the team-plane id the snapshot already
+    //   carries, the id `compose_peer` already stores, and the id `ui_compose_send_line` already puts on the wire
+    //   (`send <id> "<text>" -t -a`). ⇒ the thing tracked and the thing addressed are the SAME value, so they cannot
+    //   drift. No new snapshot field was added.
+    // ⛔ NOT the row's `label`. That is a DISPLAY string (a resolved name, else `0x<hash>`, else the bare id) and a
+    //   display-shaped field must never make an addressing decision — the same rule that killed B48.
+    // ⚠ C3, PLANE DISCIPLINE: `_team_sel_id` is a TEAM-plane local id. It is only ever COMPARED against a snapshot
+    //   row's `id` and copied into `compose_peer`; it indexes nothing and never reaches a static `node_id`-keyed array.
+    //   There is no write path here at all, and on a `!MR_FEAT_TEAM` build `team_build` is false, so `Screen::team` is
+    //   unreachable and every line below is inert.
+    // ⓘ NO ARITHMETIC VALUE IS RESERVED (§B74's discipline): `_team_sel_valid` is a separate flag, so id 0 — which
+    //   `Node::team_local_id()` documents as "not team-DAD'd" — needs no special case and can never be confused with
+    //   "nothing is selected".
+    void sync_team_cursor(const UiSnapshot& s) {
+        // The selection belongs to the TEAM list alone. ⚠ THE COMPOSE GUARD IS LOAD-BEARING: while the sub-view is open
+        // `_st.cursor` is the MODAL's list index, not a team row, so touching it here would walk the message selection
+        // under the user's fingers — turning "I'm OK" into "Are you OK?", or into `back`. A control pins it directly.
+        if (_st.screen != Screen::team || _st.compose != Compose::none) return;
+        if (!_team_sel_valid) return;                    // nothing picked yet, or a pick already lost (and announced)
+        for (uint8_t i = 0; i < s.team_shown; ++i) {
+            if (s.team[i].id != _team_sel_id) continue;
+            if (_st.cursor != i) { _st.cursor = i; _st.dirty = true; }   // the teammate MOVED -> the highlight follows
+            return;
+        }
+        // GONE. The cursor may not silently come to rest on somebody else, so the selection is DROPPED and the loss is
+        // announced. ★ EDGE-TRIGGERED (spec §5): clearing `_team_sel_valid` is what stops this from re-firing, and
+        // therefore from marking the frame dirty, on every subsequent tick.
+        _team_sel_valid = false; _st.team_pick_gone = true; _st.dirty = true;
+    }
+    // The WRITE side: whatever row the cursor has just come to rest on IS the new selection. Called after every cursor
+    // or screen move, so "the pick" is always something the user's last press actually pointed at.
+    void note_team_cursor(const UiSnapshot& s) {
+        if (_st.screen == Screen::team && _st.cursor < s.team_shown) {
+            _team_sel_id = s.team[_st.cursor].id; _team_sel_valid = true; _st.team_pick_gone = false;
+            return;
+        }
+        _team_sel_valid = false;                         // an empty roster, or a screen that has no teammates at all
+        if (_st.screen != Screen::team) _st.team_pick_gone = false;   // leaving the screen retires its message
+    }
     void compose_gesture(Gesture g) {
+        // ★★ UI-7: THE RESULT PHASE. Once a send has been issued the modal shows its OUTCOME instead of the list
+        //    (spec §3.2.1/§3.4.1), so there is nothing to walk and nothing to activate — the only thing either gesture
+        //    can mean is "I have read it".
+        // ★ `double` closes because the spec says so verbatim ("the sub-view closes to its parent on an explicit
+        //   `double`, or after a bounded display window" — the window is `on_tick`'s kBlankMs auto-exit).
+        // ★ `short` closes too, and that is DERIVED from the shipped gesture contract rather than invented: §3.2's
+        //   `short` is "advance within the current list; AT THE END, move to the next screen". The result phase has no
+        //   list, so every position is the end. ⛔ The alternative — ignore it — would let a user tapping `short`
+        //   hold a modal open indefinitely, since every gesture refreshes `_last_input_ms` and so postpones the very
+        //   auto-exit that is supposed to bound it. Neither choice can send: this branch queues nothing.
+        if (_st.compose_result) {
+            if (g == Gesture::short_press || g == Gesture::double_press) close_compose();
+            return;
+        }
         const uint8_t n = (_st.compose == Compose::dm) ? kDmTextCount : kChannelTextCount;
         if (g == Gesture::short_press) { _st.cursor = uint8_t((_st.cursor + 1) % n); _st.dirty = true; return; }
         if (g != Gesture::double_press) return;
-        if (_st.cursor + 1 == n) { _st.compose = Compose::none; _st.cursor = 0; _st.dirty = true; return; }  // `back`
+        if (_st.cursor + 1 == n) { close_compose(); return; }                                                // `back`
         queue(_st.compose == Compose::dm ? SendKind::dm : SendKind::channel_canned, _st.compose_peer, _st.cursor);
-        _st.compose = Compose::none; _st.cursor = 0; _st.dirty = true;
+        // ★★ UI-7: THE MODAL STAYS OPEN. UI-2 closed it here, which left every `DmState` the spec defines with NO
+        //    RENDERER — `DELIVERED to <label>` (the one thing `-a` buys that a channel post can never offer),
+        //    `NO KEY`, `NO CONFIRM` — all unreachable on the panel. The cursor is still reset, so a re-opened modal
+        //    starts on the first message (H7-02/H7-04), and `compose_peer` is untouched so the result can name who it
+        //    went to. ⓘ It cannot outlive attention: `on_tick`'s kBlankMs auto-exit applies to BOTH phases.
+        _st.compose_result = true; _st.cursor = 0; _st.dirty = true;
     }
+    // ★ ONE exit for the sub-view (U1/U2). Four call sites reach it — `back`, the result phase's acknowledgement,
+    //   `on_tick`'s auto-exit and §B101's `long_fire` — and the phase flag MUST be cleared with the modal or a
+    //   re-opened compose would render an outcome list against a stale result. It sends nothing, by construction.
+    void close_compose() { _st.compose = Compose::none; _st.compose_result = false; _st.cursor = 0; _st.dirty = true; }
     uint8_t list_len(const UiSnapshot& s) const {
         if (_st.screen == Screen::team)  return s.team_shown;
         if (_st.screen == Screen::inbox) return s.inbox_shown;
@@ -556,13 +869,17 @@ inline void UiModel::emergency_gesture(Gesture g, const UiSnapshot& s) {
     // NOT HEARD can always be re-fired by another long press. (§B74: clearing `_retry_armed` here is belt-and-braces —
     // `_emg` is `firing` from this line on, and only an `on_outcome` block can return it to `blocked`, which re-arms
     // the flag itself. It is written so the flag can never be read stale, not because a stale read is reachable.)
-    _emg = Emergency::firing; _tries = 0; _backoff_ms = 0; _retry_armed = false;
+    // ★ §B69: the EVIDENCE resets with the budget. `_tries` and `_emg_evidence` describe the SAME alarm — "three
+    //   attempts, and this is what came back" — so a new alarm inheriting the old one's evidence would let a previous
+    //   call's locally-heard transmission justify a `NOT HEARD` this one never measured.
+    _emg = Emergency::firing; _tries = 0; _backoff_ms = 0; _retry_armed = false; _emg_evidence = EmgEvidence::none;
     // ★★ §B101/F5: COMMITTING an alarm CLOSES the compose modal and resets its cursor. The overlay covers the body,
     //    so a canned message left selected underneath is invisible — and still armed: after the alarm is dismissed the
     //    next `double` sends whatever the cursor happened to be on. An avoidable later mis-send on a safety device.
     // ⓘ `long_arm` deliberately does NOT do this. Arming is cancellable, so destroying the user's list position for a
     //    press they may still cancel would be a second, smaller wrong.
-    _st.compose = Compose::none; _st.cursor = 0;
+    // ⓘ UI-7 routed it through `close_compose()` so the new RESULT phase is cleared with the modal (one exit, U1).
+    close_compose();
     retain(s.now_ms);
     queue(SendKind::emergency, 0, 0);
 }

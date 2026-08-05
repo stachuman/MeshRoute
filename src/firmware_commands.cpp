@@ -1083,4 +1083,20 @@ meshroute::console::CfgExtras make_cfg_extras() {
     return x;
 }
 
+// ★★ UI-7: the TYPED command executor (declared in firmware_commands.h — read the contract there). It is the exact
+// sequence `service_console` and `ble_dispatch_line` each open-code, with the human-readable rendering left out: the
+// board UI needs the `CmdResult`, not a string. Additive; neither existing caller is touched (C1).
+// ⓘ `parse_command` leaves `cmd.body` BORROWING into `line`, so `on_command` runs inside this function while `line` is
+//   still the caller's live buffer — never after a return.
+ExecResult exec_command(const char* line, size_t len) {
+    ExecResult r{};
+    if (!line || len == 0) { r.parse_err = meshroute::console::ParseErr::empty; return r; }
+    meshroute::Command cmd{};
+    r.parse_err = meshroute::console::parse_command(line, len, cmd);
+    if (r.parse_err != meshroute::console::ParseErr::ok) return r;
+    r.ok = true;
+    r.result = g_node.on_command(cmd);
+    return r;
+}
+
 }  // namespace mrfw

@@ -2,7 +2,7 @@
 
 *2026-07-31. From the owner's screen draft, refined in design dialogue. Fills the `mr_ui` seam that `2026-07-12-firmware-feature-split.md` slice 4 left empty.*
 
-*Status: DRAFT, not implemented. Line references verified against the working tree at time of writing; board pins recovered from MeshCore's working V3 and V4 ports.*
+*Status: DRAFT, partially implemented. Line references verified against the working tree at time of writing; board pins recovered from MeshCore's working V3 and V4 ports. The 2026-08-05 extension in §2.2/§3.2.2–3 adds configurable presets and Heltec companion BLE as new work after the original Phase A slices.*
 
 *Phased: **Phase A ships the UI on Heltec V3**; **Phase B ports to V4** and adds GPS. Phase B's radio port and GPS driver are named here but specified elsewhere — see §10.2, §10.3, §13.*
 
@@ -16,7 +16,7 @@ The device remains fully usable with the companion app — this UI adds a degrad
 
 ## 1. Scope
 
-**In:** screen framework, one-button gesture input, status bar, team roster, merged inbox, two canned non-emergency messages, the emergency send path, battery indicator (incl. a new ESP32-S3 battery reader), screen blanking.
+**In:** screen framework, one-button gesture input, status bar, team roster, merged inbox, configurable DM/channel/emergency presets, the emergency send path, battery indicator (incl. a new ESP32-S3 battery reader), screen blanking, and a secured companion BLE transport on the Heltec mobile.
 
 **Out (owner-scoped):**
 
@@ -163,6 +163,33 @@ Anything unmatched is ignored. Native tests must interleave unrelated channel an
 
 **How the UI issues a send.** ⚠ Not through `dispatch()` — that is a console *verb router* which returns `false` for `send` / `send_channel`; its callers (`service_console`, `ble_dispatch_line`) each open-code `parse_command` + `Node::on_command`. The UI uses a small typed helper, **`mrfw::exec_command(line, len) → ExecResult`** (owner-approved 2026-08-01), which runs that same sequence and returns the `CmdResult`. Composing a command *string* keeps the UI off the `Command` struct's field names, so flags like `-e` and `-l` needed no UI change when they landed; taking the result *typed* keeps a safety behaviour off a formatting detail. Scraping `BufferSink` text is explicitly rejected.
 
+### 2.2 Companion transport reality and the Heltec BLE extension (2026-08-05)
+
+**USB serial and BLE are not the same byte transport, but they must expose one command meaning.** USB reads a
+newline-delimited stream from `Serial`; BLE uses Nordic UART Service framing, MTU-sized notifications and a separate
+line accumulator. They converge only after a complete line exists: `service_console` and `ble_dispatch_line` reuse
+the command parser/handlers. New preset management therefore gets **one shared handler and one response schema**,
+called by both ingress paths. It must not grow a serial-only parser and a companion-only JSON mutation path.
+
+★★ **Current Heltec reality:** `device_ble.h` defines the real BLE-NUS implementation only for nRF52. On ESP32,
+`mrble::begin()` returns `false`, `connected()` is always false and every other method is inert. The existing
+persisted `ble_mode` field does **not** switch BLE on for Heltec V3; today it merely reaches `INIT FAILED` at boot.
+The Heltec extension therefore includes a real ESP32-S3 implementation behind the existing `mrble` API. Documentation
+and the companion must not claim Heltec BLE before that slice lands.
+
+The ESP32 transport contract is parity with the secured nRF52 path, not merely “a UART-like characteristic”:
+
+- the same NUS service/characteristic UUIDs and newline-delimited command stream, with MTU-aware output chunking;
+- `ble_mode = off | on | periodic`, the existing advertising window, and reboot-to-apply configuration semantics;
+- encrypted, bonded, MITM-passkey access using the persisted six-digit `ble_pin`; unauthenticated writes never reach the command handler;
+- non-blocking service from the main loop, bounded RX/TX buffers, loud overflow, and no waiting inside a radio-critical interval;
+- `mrble::connected()` becomes truthful so sleep policy and the OLED indicator can use the same source.
+
+**Build scope:** first enable the ESP32 BLE implementation on `heltec_mobile`, the Phase-A product target. Do not
+silently add its RAM/flash and coexistence risk to `gateway_heltec` or every ESP32 build. On an ESP target where the
+transport is compiled out, `cfg set ble_mode on|periodic` must refuse `unsupported` rather than persist a setting
+that can only boot into `INIT FAILED`.
+
 **Why two pure headers.** `[env:native]` sets `test_build_src = no` but adds `-I src` (`platformio.ini:83`), so a pure header in `src/` is reachable from native tests — the established precedent is `firmware_config_parse.h` driven by `test_firmware_config_parse.cpp`. Gesture timing and emergency-state transitions are miserable to debug on hardware and trivial to test on host; both belong on the right side of that line.
 
 `UiSnapshot` is plain data — unread counts, ages in ms, a bounded array of teammate rows, `batt_mv`, `ble_connected`, last send outcome. The model never sees `g_node`, so a native test can drive "3 teammates, one heard 4 h ago, emergency armed, `no_relay` returned" with no radio and no Arduino.
@@ -180,7 +207,7 @@ Anything unmatched is ignored. Native tests must interleave unrelated channel an
 
 On a non-team build the cycle is STATUS → INBOX.
 
-**Revised 2026-07-31 (owner).** An earlier draft gave every canned channel message its own slot to avoid a nested mode. Once the DM feature needed a compose step anyway, that reasoning inverted: **one compose sub-view, used by both send paths, is simpler than N slots** and keeps the cycle at four regardless of how many canned texts exist. Adding a fifth message now costs nothing instead of costing every user a press on every lap.
+**Revised 2026-08-05 (owner).** An earlier draft gave every canned channel message its own slot to avoid a nested mode. Once the DM feature needed a compose step anyway, that reasoning inverted: **one compose sub-view, used by both send paths, is simpler than N slots** and keeps the cycle at four regardless of how many preset texts are enabled. DM and channel presets are independent fixed-capacity catalogs (§3.2.2); enabling another preset adds a list row, not a cycle slot. Emergency remains one mandatory preset outside both lists.
 
 **"I'm in danger" appears in no list.** It is reachable only by long-press (§4). Two routes to the same dangerous action invite accidental alarms, and the navigational one would be the route nobody can use under stress.
 
@@ -210,18 +237,100 @@ Entered by `double` from TEAM (a DM to the highlighted peer) or from SEND (a tea
 ```
 
 - `short` moves the highlight; `double` sends the highlighted text, or leaves on **`back without sending`**.
-- The cursor starts on the **first message**, not on `back` — the peer was chosen deliberately one gesture ago, and these texts are benign.
+- When at least one preset is enabled, the cursor starts on the **first message**, not on `back` — the peer was chosen deliberately one gesture ago, and these texts are benign. If that catalog has no enabled presets, the view shows `no presets configured` plus `back without sending`, and the cursor starts on `back`.
 - **Auto-exit after `MR_UI_BLANK_MS` of no input**, returning to the parent screen **without sending**. A modal that can outlive the user's attention is a modal that eventually sends the wrong thing.
 - `long` still arms the emergency from inside it.
 
-### 3.2.2 Canned text lists
+### 3.2.2 Configurable preset catalog
 
-| sub-view | texts |
+The original hard-coded strings become **defaults**, not firmware policy. The first configurable version uses one
+mandatory emergency slot plus two independent fixed-capacity catalogs: **eight DM slots and eight channel slots**.
+The capacity is fixed for deterministic embedded storage; the visible count is not. A user may enable from zero to
+eight entries in each compose list without a dynamic allocator or an unbounded list. Raising either capacity later is
+an explicit catalog-format revision.
+
+| stable slots | compiled default | default state | UI reachability |
+|---|---|---|---|
+| `emergency` | `I'm in danger`, location on | enabled, mandatory | long press only; never appears in a compose list |
+| `dm1`, `dm2` | `Are you OK?`; `I'm OK`, location off | enabled | TEAM → DM compose |
+| `dm3` … `dm8` | empty, location off | disabled | TEAM → DM compose when configured |
+| `channel1`, `channel2` | `Got your message`; `All good`, location off | enabled | SEND → channel compose |
+| `channel3` … `channel8` | empty, location off | disabled | SEND → channel compose when configured |
+
+The OLED lists only enabled slots, in stable-slot order, and scrolls through all eight when necessary. Gaps are valid:
+for example `dm1`, `dm4` and `dm8` may be the three visible rows. Therefore every visible row carries its stable slot
+identifier; code must never derive `dmN` or `channelN` from the current row index. DM presets never appear in the
+channel list and channel presets never appear in the DM list.
+
+`back, don't send` is an **action**, not a message and not persisted. It remains the derived final row of each compose
+view, preserving B66's “one table/count authority” cure. DM and channel slots may be disabled. Emergency cannot be
+disabled, cleared or made empty. A catalog with zero enabled entries has no sendable row and shows the empty state
+defined in §3.2.1.
+
+Each persistent slot stores:
+
+- `enabled`: one explicit boolean for DM/channel slots. `set` makes it true and `clear` makes it false. Emergency is
+  implicitly always enabled.
+- `text`: when enabled, 1–18 printable ASCII bytes containing at least one non-space character; `"`, `\`, CR and LF are
+  rejected. Eighteen is a UI safety bound, not an on-air limit: with the selection marker and location marker the
+  full message remains visible in the panel's measured 21-column small font. The device must never send a hidden
+  suffix the wearer could not inspect.
+- `include_location`: one explicit boolean. The compose row shows `L` when set and `-` when clear; this is part of
+  what the user confirms before the double press.
+
+### 3.2.3 Location semantics, configuration verbs and persistence
+
+“Include location” has two deliberately different failure policies:
+
+| slot kind | location on |
 |---|---|
-| DM (from TEAM) | `Are you OK?` · `I'm OK` · `back without sending` |
-| channel (from SEND) | `Got your message` · `All good` · `back without sending` |
+| emergency | if a fix exists, issue `send_channel <ch> "<text>" -t -l -e`; without a fix, still send `-t -e`. An alarm is more important than its coordinates, preserving §4.1 |
+| channel | issue `send_channel <ch> "<text>" -t -l -e`. No fix/key/seal means a loud refusal; never silently strip `-l` |
+| DM | issue `send <team-id> "<text>" -t -a -l`. The existing core accepts `-l` on an id form but refuses unless the effective DM is sealed; therefore this requires `e2e_dm=1`, a usable key and a fix. Do not change addressing to hash or silently downgrade merely to make the preset send |
 
-`Delayed` was considered and left out of v1: it is a status broadcast, which is what the channel path is for, and every extra line costs a press for everyone on every visit. Adding it later is a one-line change precisely because the sub-view replaced per-message slots.
+Location off emits the existing command without `-l`. In every case the core remains the final privacy gate: a
+location-bearing message must be sealed.
+
+The shared administrative grammar is:
+
+```
+ui preset list
+ui preset set <emergency|dm1..dm8|channel1..channel8> loc=<on|off> "<text>"
+ui preset clear <dm1..dm8|channel1..channel8>
+ui preset reset <emergency|dm1..dm8|channel1..channel8|all>
+```
+
+USB serial and BLE return the same bounded NDJSON records:
+
+```json
+{"ev":"ui_preset","slot":"dm1","enabled":true,"text":"Are you OK?","location":false}
+{"ev":"ui_presets_end","capacity":17,"dm_active":2,"channel_active":2,"generation":7}
+{"ev":"ui_preset_err","reason":"bad_slot|bad_text|bad_location|mandatory|busy|store"}
+```
+
+`list` emits all 17 records in stable slot order, including disabled slots, followed by `ui_presets_end`; this lets
+the companion edit exact stable slots without inferring them from active-list positions. `set` validates the full
+record and enables that slot. `clear` disables a DM/channel slot and clears its body and location flag; attempting to
+clear `emergency` fails with `mandatory`. A single-slot `reset` restores its compiled default, which means slots 3–8
+return to disabled. `reset all` restores the complete compiled catalog. Mutating verbs return the resulting record,
+or the full list for `reset all`. The companion contract must add these events before the app exposes an editor.
+
+Persistence lives in a **separate versioned UI record** (suggested key/file `/mrui`) behind
+`mrnv::load_ui_presets` / `save_ui_presets`. Do not grow `mrnv::Blob`: its size/version mismatch deliberately
+reprovisions the whole node, and editing a phrase must never reset radio, identity, team or key configuration. A
+missing UI record uses the compiled defaults. A corrupt/unsupported record also falls back to those safe defaults
+but emits a visible boot/status warning; it is never silently accepted as valid. Save a fully validated temporary
+catalog first and replace the live catalog only after durable storage succeeds.
+
+The catalog carries a persisted, non-zero `generation`, incremented only with a successful durable update. Consumers
+compare it for equality rather than ordering, so uint32 wrap is harmless. A `SendReq` identifies both the enabled
+stable slot selected by the wearer and the generation they saw; it never stores only the compacted visible-row index.
+If the slot is disabled or the generation no longer matches at execution, refuse and repaint—never resolve the same row
+index to newly configured words. A preset update while a selection-phase compose modal is open closes that modal
+without sending. An outcome already being displayed may finish. Any preset write while an emergency is active
+returns `busy`; an alarm's retries must not change body or location policy halfway through the attempt series.
+Page-buffer painting likewise freezes one catalog generation for the whole frame so a BLE update between OLED pages
+cannot tear two versions into one image.
 
 ### 3.3 Layout
 
@@ -229,14 +338,17 @@ A persistent 8 px status bar on every screen, so "is anything wrong" never requi
 
 ```
 +---------------------------------------+
-| DM3 CH12  T4/5  3.9V                  |  <- 6x8, always
+| DM3 CH12 T4/5 B* 3.9V                 |  <- 6x8, always
 +---------------------------------------+
 |  screen body: 4 lines @ 6x8,          |
 |  or 2 lines @ 8x16 (emergency)        |
 +---------------------------------------+
 ```
 
-**No BLE indicator on V3.** `mrble::connected()` is `inline bool connected() { return false; }` on ESP32 (`device_ble.h:47`) — the whole module is nRF52-only. An indicator that is structurally always "disconnected" reads as a broken service rather than an absent one, so V3 omits it entirely. It returns in Phase B only if an ESP32 BLE transport exists by then.
+**BLE indicator is gated by the real transport.** Until UI-12 lands, V3 omits it because `mrble::connected()` is
+structurally false on ESP32. With the Heltec transport compiled in, the bar shows `B*` while connected and `B-`
+while enabled but disconnected; it remains absent when BLE is compiled out or configured off. The measured worst-case
+bar above is exactly 21 small-font columns.
 
 **Battery is shown as volts, not a percentage.** A percentage requires a chemistry and discharge-curve policy nobody has approved; `3.9V` is honest with zero assumptions. `--` when unavailable, per the `console_json.h:126` rule.
 
@@ -358,7 +470,7 @@ The exact invocation is `send_channel <ch> "I'm in danger" -t -l -e`.
 
 Both forms are explicitly `-e`, which also satisfies the "must actually be sealed" half of the O6 ruling without depending on `team_channel_crypt`'s default.
 
-**Phase A caveat, stated once and then accepted.** On V3 there is no GPS, so the only coordinate is whatever was typed via `cfg set lat`/`lon` — potentially hours stale for a walking hiker, and a stale position in a rescue context can send help to the wrong place. I raised this and the owner ruled to include it when available; the ruling stands and the design follows it. Phase B's live fix removes the concern entirely. The canned non-emergency messages ("Got your message", "All good") do **not** carry location — only the distress call does.
+**Phase A caveat, stated once and then accepted.** On V3 there is no GPS, so the only coordinate is whatever was typed via `cfg set lat`/`lon` — potentially hours stale for a walking hiker, and a stale position in a rescue context can send help to the wrong place. I raised this and the owner ruled to include it when available; the ruling stands and the design follows it. Phase B's live fix removes the concern entirely. The compiled defaults still attach location only to the distress call; §3.2.2–3 lets the owner change that per preset without weakening the sealed-or-refused privacy rule.
 
 ## 5. Paint and power policy
 
@@ -427,7 +539,7 @@ Every field, and where it comes from:
 | member label | `team_key_of_id` (`node.h:129`) → `peer_name_find(key_hash32, …)` (`node.h:622`); falls back to `0x<hash>` then the bare team id |
 | our own team local id | `team_local_id()` (`node.h:258`) |
 | configured team id | `g_node.config().team_id` |
-| BLE | **not shown on V3** — `mrble::connected()` is inert on ESP32 (`device_ble.h:47`). See §3.3 |
+| BLE | `mrble::connected()` after UI-12; until then V3 omits the indicator because the ESP32 implementation is inert. Enabled/off comes from the persisted `ble_mode`. See §2.2 and §3.3 |
 | battery | **new, and cached** — see §7 |
 | send outcomes | correlated by the tracker in `firmware_ui.cpp`, never fed raw to the model — see §2.1 |
 
@@ -490,6 +602,10 @@ The tree has **no display library** — `board_ui.cpp` is deliberately driver-fr
 - `MR_FEAT_OLED` (board capability) gates the UI TUs. Default 0 (`mr_features.h`); set to 1 on `heltec_v3` (`platformio.ini:215`), inherited by `heltec_mobile`.
 - `MR_FEAT_OLED && MR_FEAT_TEAM` gates the TEAM and SEND slots, both compose sub-views, and the team fields of the status bar. A non-team build cycles STATUS → INBOX only.
 
+- The preset catalog/serial verbs are gated with the OLED feature; the default catalog remains compile-time data when
+  no persistent record exists.
+- The first ESP32 BLE port is compiled for `heltec_mobile` only. A BLE setting must be rejected on ESP targets where
+  the transport is absent; a persisted-but-inert feature is not a valid gate.
 **Deviation from the owner's draft, approved 2026-07-31:** the draft said "gate it behind `MR_FEAT_TEAM`". Composing the two gates instead means a static OLED board still gets a status screen and an inbox rather than a blank panel, at no cost. `MR_FEAT_TEAM` alone would have conflated a board capability with a protocol plane.
 
 **Phase A target env: `heltec_mobile`** (`platformio.ini:372`) — `heltec_v3` plus `MR_PROFILE_MOBILE`, which sets `MR_FEAT_REMOTE_MGMT=0` and leaves `MR_FEAT_TEAM=1`. It already inherits `MR_FEAT_OLED=1` from `heltec_v3`, so no env change is needed to start.
@@ -610,6 +726,24 @@ Both are pure and table-driven; no Arduino, no radio, no display.
 - channel traffic during `arming`, `cancelled` or `failed` cannot become a distress `REPLY`
 - the bounded inbox retains labelled DM **and** CH rows — a chatty channel cannot evict every DM row
 
+**Configurable-preset/BLE extension acceptance:**
+
+- missing and corrupt UI storage select the documented 17-slot catalog: mandatory emergency plus two enabled defaults
+  in each DM/channel catalog and six disabled slots in each; corruption is visible, and neither case changes `/mrcfg`,
+  identity, team membership or keys
+- every stable slot round-trips byte-exact through set/clear/reset → list → reboot → list on both serial and
+  authenticated BLE; emergency rejects clear
+- zero-active, sparse (`1,4,8`) and full eight-entry DM and channel catalogs render, scroll and send the selected
+  stable slot; the empty catalog offers only the safe back action
+- malformed slot/text/location, storage failure and a write during an active emergency change nothing and fail loud
+- a catalog generation change cannot send a newly configured text from an already-open selection or tear an OLED frame
+- location-off, location-on-with-fix, normal-location-without-fix and emergency-location-without-fix issue the exact
+  command lines required by §3.2.3
+- unpaired BLE cannot read or write NUS; bonded BLE can run the same preset commands and receives complete NDJSON across
+  MTU splits
+- BLE advertising/connection plus continuous OLED interaction causes no repeatable CTS/DATA, beacon, sleep or watchdog
+  regression; RAM/flash and warning deltas are attributed for `heltec_mobile`
+
 **Gate:** the standing D1 gate applies — native, s18 md5 exact (this work is `src/`-only, so it is inert by construction and the md5 must not move), and the board envs per §11.
 
 ## 13. Slices
@@ -629,10 +763,17 @@ Slices are named `UI-n` deliberately: bare `U1`/`U3` would collide with the CLAU
 | UI-7 | TEAM peer list + compose sub-views + inbox adapter over `Inbox::pull()` (`MR_FEAT_TEAM`) | on-target (V3) |
 | UI-8 | emergency end-to-end on hardware incl. blocked/retry/reply | on-target |
 | UI-9 | V3 battery reader (auto-detected ADC_CTRL polarity, no delay) + the 30 s cache | on-target, multimeter-verified |
+| **UI-10** | versioned fixed-capacity preset catalog + separate `/mrui` persistence and defaults; no send behavior change yet | native + storage fault injection |
+| **UI-11** | shared serial/BLE preset verbs, independent sparse DM/channel OLED lists, generation-safe selection, and per-slot location command matrix; replaces UI-7's hard-coded tables/send builder | native + on-target (serial first) |
+| **UI-12** | secured, non-blocking ESP32-S3 BLE-NUS implementation for `heltec_mobile`, complete-output chunking, truthful connection indicator and coexistence soak | all builds + on-target BLE/LoRa |
 
 Renumbered after the 2026-08-01 review. **UI-4 is new and is the review's first ordering item**: without send attribution, UI-3's emergency machine can be completed by an unrelated push, so the tracker must exist before the emergency is trusted on hardware.
 
 UI-1 through UI-4 are pure or near-pure and can start immediately. UI-5 is blocked only on the display-library choice (§8). Every V3 pin UI-5/UI-6/UI-9 needs is known (§10.1) except the panel reset pin, which wants a hardware confirmation.
+
+**Extension order:** finish and qualify the original UI-8/UI-9 first, then land UI-10 → UI-11 → UI-12. This makes the
+preset behavior fully testable over serial before BLE is allowed to add a second transport and coexistence axis.
+UI-12 may be designed in parallel, but its implementation gate includes the already-working UI-11 command contract.
 
 **Prerequisites — one discharged, one OUTSTANDING.**
 
@@ -665,4 +806,4 @@ B-1 and B-2 must land before any V4 hardware is trusted on air. B-3 is small onc
 2. **§4 — is 3.5 s the right arm time?** Long enough to prevent pocket-fires, short enough not to feel broken. It is a guess and wants a bench opinion, not a code review.
 3. ~~Should the emergency message include location?~~ **RESOLVED 2026-07-31 by owner ruling: yes, when available** — see §4.1. I had recommended omitting it in Phase A on staleness grounds; the owner ruled otherwise and the design now follows that. The residual implementation risk is the conditional `-l` (§4.1): getting it wrong converts "no fix" into "no alarm", so it belongs in the Task 8 bench matrix, not in a code review.
 4. **§5 — is the idle-paint rule sufficient?** It prevents a paint from *starting* mid-exchange, but a paint already in progress when an RTS lands still holds the bus for one page (~3 ms). That should be inside the RX window slop, but it is an assumption a reviewer familiar with the metal RX path should confirm.
-5. **§3.2.2 — is the canned-text list right?** Largely moot now: the compose sub-view means an extra text costs one list row, not a cycle slot, so adding "moving on" or "waiting here" later is nearly free. The only real question is whether either DM list should differ per direction — currently both ends see the same two texts.
+5. ~~**§3.2.2 — is the canned-text list right?**~~ **RESOLVED 2026-08-05:** emergency is one mandatory configurable preset. DM and channel use separate fixed-capacity catalogs of eight stable slots each; users may configure zero to eight active choices per list. Raising the capacity remains deliberately out of scope for the first persistent format.

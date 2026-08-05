@@ -81,7 +81,14 @@ TEST_CASE("ui-model: sub-view: double on a message emits a DM request for the bo
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.take_send_request(req) == true);            // plan wrote REQUIRE: unavailable (-fno-exceptions)
     CHECK(req.kind == SendKind::dm); CHECK(req.peer_id == s.team[0].id); CHECK(req.text_index == 0);
-    CHECK(m.state().compose == Compose::none);
+    // ★★ REWRITTEN, NOT DELETED, BY UI-7 (the §B101 precedent). This line used to assert `compose == none` — i.e. it
+    //    PINNED the modal closing as it sent. Spec §3.2.1/§3.4.1 require the OUTCOME to replace the list *in the
+    //    sub-view* (`SENDING...` -> `DELIVERED to <label>` / `NO KEY` / `NO CONFIRM`), and with the modal closed on
+    //    send every one of those states had NO RENDERER AT ALL. ⇒ the modal stays open in its RESULT phase.
+    CHECK(m.state().compose == Compose::dm);            // still the DM modal: the header must still name the peer
+    CHECK(m.state().compose_result == true);            // ...but showing the outcome, not the canned list
+    CHECK(m.state().compose_peer == s.team[0].id);      // and still bound to who it went to
+    CHECK(m.dm_state() == DmState::submitting);         // §B75: draining the request IS the hand-off point
 }
 
 TEST_CASE("ui-model: sub-view auto-exits on inactivity WITHOUT sending") {
@@ -163,8 +170,17 @@ TEST_CASE("ui-model: SEND double opens the channel compose list and index 1 send
     CHECK(m.take_send_request(req) == true);
     CHECK(req.kind == SendKind::channel_canned);
     CHECK(req.text_index == 1);
+    // ★★ REWRITTEN BY UI-7, same reason as the DM case above: the modal now enters its RESULT phase instead of
+    //    closing, because the canned post's outcome (§B69's ChanState) has nowhere else to be shown.
+    CHECK(m.chan_state() == ChanState::submitting);
     CHECK(req.peer_id == 0);
+    CHECK(m.state().compose == Compose::channel);   // UI-7: RESULT phase, not closed — see the note above
+    CHECK(m.state().compose_result == true);
+    // ...and the parent underneath is unchanged, so acknowledging the result returns to SEND rather than to the
+    // cycle start. Asserted through the CLOSE, because that is the moment the claim is actually about.
+    m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().compose == Compose::none);
+    CHECK(m.state().compose_result == false);
     CHECK(m.state().screen  == Screen::send);    // the modal returns to its PARENT, not to the cycle start
 }
 
@@ -202,16 +218,135 @@ TEST_CASE("ui-model: the bound peer survives a roster REORDER under the open mod
     CHECK(req.peer_id == 11);                                                       // NOT 88
 }
 
-// A shrinking roster must not index past team_shown. This pins the `% s.team_shown` guard as load-bearing —
-// see the UI2-F1 finding: it keeps the read in range but RETARGETS the DM, it does not refuse it.
-TEST_CASE("ui-model: a roster that shrinks between ticks cannot index out of range") {
-    UiModel m; auto s = snap();
-    for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);   // TEAM, cursor 2
+// ★★★★ §B64 — REWRITTEN, NOT DELETED, BY THE UI-7 QA FIX SLICE (the §B101 precedent: a test that pinned a
+//      since-ruled-against behaviour is rewritten so the change is visible in the diff).
+// ⛔ WHAT THIS CASE USED TO PIN: `activate()` read `s.team[_st.cursor % s.team_shown]`, so a cursor on row 2 meeting a
+//    1-row roster opened the DM modal bound to ROW 0 — and the case asserted that outcome as a "documented
+//    consequence". It is a MIS-SEND: "Are you OK?" went to a teammate the user did not highlight.
+// ★★ OWNER RULING 2026-08-05: *preserve the selection by teammate IDENTITY across roster refreshes; the cursor tracks
+//    the teammate, not the row index; if that teammate has disappeared, REFUSE the activation and repaint — never
+//    silently select another row.*
+// ★★★ AND THE ASSERTION IS THE SIDE EFFECT, NOT A CURSOR ENUM: it is the QUEUED SEND REQUEST. That is what
+//     discriminates the ruling from every tempting near-miss, because all of them SEND SOMETHING:
+//       `% team_shown` -> id 10 · clamp to `shown - 1` -> id 11 · clamp to 0 -> id 10 · the ruling -> NOTHING AT ALL.
+//     ⚠ Two doubles, deliberately: the first is the activation, the second is what would actually SEND from a modal
+//       the first must never have opened. Asserting only `compose == none` would be green against a real mis-send the
+//       moment anything else opened the view (§B110's measurement).
+TEST_CASE("ui-model: B64 — a teammate that VANISHED from the roster REFUSES the activation and sends NOTHING") {
+    UiModel m; auto s = snap(); SendReq req{};
+    for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);   // TEAM, cursor 2 -> teammate id 12
     CHECK(m.state().cursor == 2);
-    s.team_shown = 1; s.team_total = 1;
+    CHECK(s.team[2].id == 12);
+    s.team_shown = 2; s.team_total = 2;                                  // teammate 12 is GONE; 10 and 11 remain
+    m.on_gesture(Gesture::double_press, s);                              // the would-be activation
+    CHECK(m.state().compose == Compose::none);                           // no modal opened...
+    m.on_gesture(Gesture::double_press, s);                              // ...so a second double cannot send from one
+    const bool queued = m.take_send_request(req);                        // ⚠ §B70: ONE call, into a local
+    CHECK(queued == false);                                              // ★ NOTHING was addressed to ANYBODY
+    // ...and the refusal is LOUD (C2) + repaints, which is the other half of the ruling.
+    CHECK(m.state().team_pick_gone == true);
+    CHECK(m.state().dirty          == true);
+}
+
+// ★★ THE REFUSAL IS ANNOUNCED BY A PLAIN TICK TOO, and it is EDGE-TRIGGERED (spec §5). The panel is repainted from the
+//    frozen state, so the loss must be recorded by whatever pass first observes it — not only by the press that would
+//    have sent. ⚠ And it must not re-dirty the frame on every subsequent tick, or the 2 Hz throttle repaints for ever.
+TEST_CASE("ui-model: B64 — a tick announces the lost pick, exactly once") {
+    UiModel m; auto s = snap();
+    for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);   // TEAM, cursor 2 -> teammate id 12
+    CHECK(m.state().team_pick_gone == false);
+    s.team_shown = 2; s.team_total = 2;                                  // teammate 12 leaves
+    m.clear_dirty();
+    m.on_tick(s);
+    CHECK(m.state().team_pick_gone == true);
+    CHECK(m.state().dirty          == true);                             // "and repaint"
+    m.clear_dirty();
+    m.on_tick(s);
+    CHECK(m.state().dirty          == false);                            // ★ edge-triggered: no per-tick repaint
+    CHECK(m.state().team_pick_gone == true);                             // ...and the message is still standing
+}
+
+// ★★★ THE OTHER HALF OF THE RULING, AND IT IS THE CASE THAT TELLS IDENTITY-TRACKING APART FROM CLAMPING. The roster
+//     REORDERS at the SAME size, and teammate 12 lands on row 1 — an index that no clamp can produce:
+//       `cursor % 3` = 2 -> id 13 · clamp to `shown - 1` = 2 -> id 13 · clamp to 0 -> id 11 · identity -> id 12.
+//     A control that cannot separate those is vacuous, which is exactly what the shrink-only case would have been.
+TEST_CASE("ui-model: B64 — a roster REORDER follows the TEAMMATE, so the send goes where the user pointed") {
+    UiModel m; auto s = snap(); SendReq req{};
+    for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);   // TEAM, cursor 2 -> teammate id 12
+    CHECK(s.team[2].id == 12);
+    s.team[0].id = 11; s.team[1].id = 12; s.team[2].id = 13;             // same size; 12 moved from row 2 to row 1
+    m.on_tick(s);                                                        // a PLAIN TICK re-anchors the highlight...
+    CHECK(m.state().cursor == 1);                                        // ★ ...so the FRAME the user sees cannot lie
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().compose == Compose::dm);
-    CHECK(m.state().compose_peer == s.team[0].id);   // documented consequence: row 0, not row 2
+    CHECK(m.state().compose_peer == 12);
+    m.on_gesture(Gesture::double_press, s);                              // send the first canned text
+    const bool queued = m.take_send_request(req);
+    CHECK(queued == true);
+    if (queued) CHECK(req.peer_id == 12);                                // ★ NOT 13 (the row) and NOT 11 (a clamp)
+}
+
+// ★★★ THE COMPOSE GUARD, and it is a control rather than a feature: while the sub-view is open `_st.cursor` is the
+//     MODAL's list index, not a team row, so a resync that forgot to check `compose` would silently walk the MESSAGE
+//     selection under the user's fingers. Asserted on the SENT request, never on the cursor alone.
+// ⚠⚠ THE ROSTER CHURN HERE MUST KEEP TEAMMATE 11 PRESENT — MEASURED, NOT STYLED. The first writing of this case
+//    replaced ALL THREE ids (77/88/99), and the mutation that drops the compose guard then went **0 / 0**: with the
+//    remembered teammate absent, the unguarded resync takes its VANISH arm, which does not touch the cursor at all.
+//    The control named the right scenario and could not fail — the §M6/§M10 class, for the third time in this arc.
+// ⇒ teammate 11 MOVES to row 2 instead. The unguarded resync then drags the modal's cursor from 1 to 2, and row 2 of a
+//   3-row canned list is `back, don't send` — so the harm it produces is that "I'm OK" SENDS NOTHING AT ALL, which the
+//   `queued` assertion catches directly.
+TEST_CASE("ui-model: B64 — the roster resync must NOT touch an open compose modal's cursor") {
+    UiModel m; auto s = snap(); SendReq req{};
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);   // TEAM cursor 1 -> id 11
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().compose_peer == 11);
+    m.on_gesture(Gesture::short_press, s);                               // the MODAL's cursor -> 1 ("I'm OK")
+    CHECK(m.state().cursor == 1);
+    s.team[0].id = 77; s.team[1].id = 88; s.team[2].id = 11;             // churn, and teammate 11 moves to ROW 2
+    m.on_tick(s);
+    CHECK(m.state().cursor == 1);                                        // ★ the modal's selection is untouched
+    m.on_gesture(Gesture::double_press, s);
+    const bool queued = m.take_send_request(req);
+    CHECK(queued == true);                                               // ★ it really SENT — not `back`
+    if (queued) {
+        CHECK(req.peer_id    == 11);                                     // still the ENTRY-bound peer
+        CHECK(req.text_index == 1);                                      // ★ and still the text the user chose
+    }
+}
+
+// ★ THE REFUSAL IS NOT A DEAD END: the user re-picks by walking, and the next activation works normally. Without this
+//   the ruling could have been implemented as a permanent lockout of the TEAM screen and still looked correct.
+TEST_CASE("ui-model: B64 — after a refusal the user re-picks by walking, and the next send targets that teammate") {
+    UiModel m; auto s = snap(); SendReq req{};
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);   // TEAM cursor 1 -> id 11
+    CHECK(m.state().cursor == 1);
+    s.team[0].id = 10; s.team[1].id = 12; s.team[2].id = 13;             // teammate 11 is GONE, still three rows
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().compose == Compose::none);                           // refused, as ruled
+    CHECK(m.state().team_pick_gone == true);
+    m.on_gesture(Gesture::short_press, s);                               // walk on: cursor 1 -> 2 -> teammate 13
+    CHECK(m.state().cursor == 2);
+    CHECK(m.state().team_pick_gone == false);                            // re-picking retires the message
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().compose == Compose::dm);
+    m.on_gesture(Gesture::double_press, s);
+    const bool queued = m.take_send_request(req);
+    CHECK(queued == true);
+    if (queued) CHECK(req.peer_id == 13);                                // the teammate now under the cursor
+}
+
+// ★ LEAVING THE SCREEN RETIRES THE MESSAGE TOO — otherwise a stale "TEAMMATE GONE, repick" would reappear the next time
+//   the cycle came back round to TEAM, describing a pick from minutes ago.
+TEST_CASE("ui-model: B64 — cycling off the TEAM screen retires the refusal message") {
+    UiModel m; auto s = snap();
+    for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);   // TEAM, cursor 2 -> teammate id 12
+    s.team_shown = 2; s.team_total = 2;
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().team_pick_gone == true);
+    m.on_gesture(Gesture::short_press, s);                               // cursor 2 is past the 2-row list -> INBOX
+    CHECK(m.state().screen == Screen::inbox);
+    CHECK(m.state().team_pick_gone == false);
 }
 
 TEST_CASE("ui-model: an empty TEAM list opens no modal on double") {
@@ -421,7 +556,7 @@ TEST_CASE("ui-model: attempts are counted on ACCEPTANCE, not on request") {
     const bool got = m.take_send_request(req);           // ★ ONE call — it DRAINS; see the file header note
     CHECK(got == true);
     if (!got) return;
-    m.on_send_refused(SendKind::emergency, RefuseReason::parser, 4600);   // put nothing on air
+    m.on_send_refused(SendKind::emergency, RefuseReason::parser, MESHROUTE_NS::CmdCode::err_unsupported, 4600);   // put nothing on air
     CHECK(m.emergency() == Emergency::failed);
     CHECK(m.attempts() == 0);                                          // no alarm consumed
 }
@@ -620,7 +755,7 @@ TEST_CASE("ui-model: a reply during ARMING, CANCELLED, FAILED or IDLE is refused
 
     UiModel fail; SendReq req{};
     fail.on_gesture(Gesture::long_arm, snap(1000)); fail.on_gesture(Gesture::long_fire, snap(4500));
-    fail.take_send_request(req); fail.on_send_refused(SendKind::emergency, RefuseReason::unsealable, 4600);
+    fail.take_send_request(req); fail.on_send_refused(SendKind::emergency, RefuseReason::unsealable, MESHROUTE_NS::CmdCode::err_unsupported, 4600);
     fail.on_reply("Ann", "hi", 5000);
     CHECK(fail.emergency() == Emergency::failed);                   // nothing went out -> no confirmation
 }
@@ -789,7 +924,7 @@ TEST_CASE("ui-model: NO CONFIRM is reachable and a LATE ack upgrades it to DELIV
 
 TEST_CASE("ui-model: a DM refusal and a DM failure are terminal and distinct from no_key") {
     UiModel m;
-    m.on_send_refused(SendKind::dm, RefuseReason::parser, 1000);
+    m.on_send_refused(SendKind::dm, RefuseReason::parser, MESHROUTE_NS::CmdCode::err_unsupported, 1000);
     CHECK(m.dm_state() == DmState::failed);
     CHECK(m.refuse_reason() == RefuseReason::parser);
     UiModel n;
@@ -965,7 +1100,7 @@ TEST_CASE("ui-model: a synchronous refusal clears the core reason it does not ha
     m.on_outcome(SendOutcome::dm_failed(FailReason::unsealable), 2000);
     CHECK(m.fail_reason() == FailReason::unsealable);
     m.on_send_accepted(SendKind::dm, 3000);                      // a second DM, refused by the parser this time
-    m.on_send_refused(SendKind::dm, RefuseReason::parser, 3100);
+    m.on_send_refused(SendKind::dm, RefuseReason::parser, MESHROUTE_NS::CmdCode::err_unsupported, 3100);
     CHECK(m.dm_state()      == DmState::failed);
     CHECK(m.refuse_reason() == RefuseReason::parser);
     CHECK(m.fail_reason()   == FailReason::none);                // NOT the previous send's `unsealable`
@@ -984,7 +1119,7 @@ TEST_CASE("ui-model: a synchronous emergency REFUSAL holds the panel for a full 
     const bool got = m.take_send_request(req);
     CHECK(got == true);
     if (!got) return;
-    m.on_send_refused(SendKind::emergency, RefuseReason::parser, refused_at);
+    m.on_send_refused(SendKind::emergency, RefuseReason::parser, MESHROUTE_NS::CmdCode::err_unsupported, refused_at);
     CHECK(m.emergency() == Emergency::failed);
     m.on_tick(snap(refused_at + 1));
     CHECK(m.state().blanked == false);          // held — and by the REFUSAL's deadline, the gesture's expired long ago
@@ -1023,7 +1158,7 @@ TEST_CASE("ui-model: a DM refusal does NOT extend the emergency hold") {
     m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
     m.take_send_request(req); m.on_send_accepted(SendKind::emergency, 5000);
     m.on_outcome(SendOutcome::channel_relayed(), 5100);            // picked_up: hold anchored at 5100
-    m.on_send_refused(SendKind::dm, RefuseReason::parser, 5100 + kEmgHoldMs / 2);   // a DM refusal, mid-window
+    m.on_send_refused(SendKind::dm, RefuseReason::parser, MESHROUTE_NS::CmdCode::err_unsupported, 5100 + kEmgHoldMs / 2);   // a DM refusal, mid-window
     CHECK(m.emergency() == Emergency::picked_up);                  // the alarm state is untouched
     CHECK(m.dm_state()  == DmState::failed);
     m.on_tick(snap(5100 + kEmgHoldMs + 1));
@@ -1471,4 +1606,257 @@ TEST_CASE("ui-frame: R2 vs F3 — the presented-latch gates SHORT only; a DOUBLE
     m.on_gesture(Gesture::short_press, s);
     CHECK(m.emergency()     == Emergency::idle);                // §B71's ruled exit is UNCHANGED by R2
     CHECK(m.state().screen  == Screen::team);                   // the acknowledging press is spent on the alarm
+}
+
+// ============================================================================================== UI-7 — B69's CARRIER
+// ★★★ B69: `channel_no_relay` and `channel_remote_mint` share `Emergency::not_heard`, and they are DIFFERENT CLAIMS.
+// `NOT HEARD`'s detail line — "no relay after N" — asserts a MEASUREMENT: we transmitted and overheard nothing. An
+// alarm whose attempts all came back `ctr == 0` never held a handle and never listened, so it never took that
+// measurement. The evidence flag is what lets the renderer stop making the claim.
+// ⚠ AND ITS PREMISE IS CORRECTED HERE, MEASURED: B69 rules the kind must render as **SENT**, on the strength of
+//   B39's producer (3) — a registered mobile's delegated GLOBAL post, a genuine success. That producer is
+//   STRUCTURALLY DEAD on the `-t` line this UI sends (`node.cpp:1401` makes `want_global` false whenever `-t` is set
+//   without `-g`, so `do_send_channel_delegated` is never entered). ⇒ "SENT" would be a FALSE CONFIRMATION, and the
+//   honest rendering is UNCONFIRMED. See firmware_ui_model.h's EmgEvidence block.
+
+static UiModel fired_and_taken() {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm, snap(1000));
+    m.on_gesture(Gesture::long_fire, snap(4500));
+    const bool got = m.take_send_request(req); CHECK(got == true);
+    m.on_send_accepted(SendKind::emergency, 5000);
+    return m;
+}
+
+TEST_CASE("ui7-B69: an alarm whose every attempt had NO LOCAL HANDLE reports `no_handle`, not a measurement") {
+    UiModel m = fired_and_taken();
+    CHECK(m.emg_evidence() == EmgEvidence::none);
+    m.on_outcome(SendOutcome::channel_remote_mint(), 5100);
+    CHECK(m.emg_evidence() == EmgEvidence::no_handle);
+    CHECK(m.emergency() == Emergency::firing);                 // unconfirmed ⇒ bounded retry, exactly as before
+}
+
+TEST_CASE("ui7-B69: ONE locally-heard transmission makes the measurement true, and it is STICKY") {
+    UiModel m = fired_and_taken();
+    m.on_outcome(SendOutcome::channel_no_relay(), 5100);       // we held the handle and it came back
+    CHECK(m.emg_evidence() == EmgEvidence::local_tx);
+    // a later handle-less attempt must NOT erase it — "we listened and heard nothing" stays true for this alarm
+    SendReq req{}; const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
+    m.on_send_accepted(SendKind::emergency, 6000);
+    m.on_outcome(SendOutcome::channel_remote_mint(), 6100);
+    CHECK(m.emg_evidence() == EmgEvidence::local_tx);          // ★ monotone
+}
+
+TEST_CASE("ui7-B69: a NEW alarm starts with NO evidence — it does not inherit the last one's") {
+    UiModel m = fired_and_taken();
+    m.on_outcome(SendOutcome::channel_no_relay(), 5100);
+    CHECK(m.emg_evidence() == EmgEvidence::local_tx);
+    m.on_gesture(Gesture::long_fire, snap(9000));               // re-fire: a NEW alarm, new budget
+    CHECK(m.attempts() == 0);
+    CHECK(m.emg_evidence() == EmgEvidence::none);               // ★ the budget and the evidence reset together
+}
+
+// ★★★ THE §2.1 CONTROL. An outcome that may not MOVE the alarm may not DESCRIBE it either — otherwise a coincident
+//     channel post relabels a distress result it had no part in. The evidence is written PAST the live-alarm guard.
+// ⚠⚠ THIS CASE WAS VACUOUS ON ITS FIRST WRITING AND ONLY A MUTATION CAUGHT IT — the same class as §R1's control, one
+//    slice later. v1 settled the alarm on PICKED UP first, which sets `local_tx`; the STICKY rule (`remote_mint`
+//    writes only while the evidence is still `none`) then masked the wrong placement completely, so moving the write
+//    ahead of the guard failed NOTHING. ⇒ every arm below starts from `EmgEvidence::none`, which is the only state
+//    in which a misplaced write is observable at all. An unrelated rule neutralising a wrong fix is an ACCIDENT OF
+//    RULE ORDER, never a safety property.
+TEST_CASE("ui7-B69: an outcome that cannot move the alarm cannot relabel its evidence either") {
+    // arm 1 — NO ALARM AT ALL. The strongest form: a channel post arriving on an idle model.
+    UiModel idle_m;
+    CHECK(idle_m.emg_evidence() == EmgEvidence::none);
+    idle_m.on_outcome(SendOutcome::channel_remote_mint(), 5200);
+    CHECK(idle_m.emergency() == Emergency::idle);
+    CHECK(idle_m.emg_evidence() == EmgEvidence::none);          // ★ nothing to describe, so nothing is described
+    idle_m.on_outcome(SendOutcome::channel_no_relay(), 5300);
+    CHECK(idle_m.emg_evidence() == EmgEvidence::none);
+    // arm 2 — a SETTLED alarm that never got any evidence: a synchronous refusal lands `failed` with evidence `none`,
+    // so a later unrelated post is the exact scenario the guard exists for and the sticky rule cannot hide it.
+    UiModel m = fired_and_taken();
+    m.on_send_refused(SendKind::emergency, RefuseReason::other, MESHROUTE_NS::CmdCode::err_no_binding, 5100);
+    CHECK(m.emergency() == Emergency::failed);
+    CHECK(m.emg_evidence() == EmgEvidence::none);
+    m.on_outcome(SendOutcome::channel_remote_mint(), 5200);     // an unrelated post, after the alarm settled
+    CHECK(m.emergency() == Emergency::failed);                  // the state is untouched (the shipped guard)...
+    CHECK(m.emg_evidence() == EmgEvidence::none);               // ★ ...and so is the evidence
+    // arm 3 — the sticky rule is still what the other case measures; assert it does NOT double as this guard.
+    UiModel picked = fired_and_taken();
+    picked.on_outcome(SendOutcome::channel_relayed(), 5100);
+    CHECK(picked.emergency() == Emergency::picked_up);
+    picked.on_outcome(SendOutcome::channel_remote_mint(), 5200);
+    CHECK(picked.emg_evidence() == EmgEvidence::local_tx);
+}
+
+TEST_CASE("ui7-B69: three handle-less attempts end in NOT HEARD carrying `no_handle`") {
+    UiModel m = fired_and_taken();
+    m.on_outcome(SendOutcome::channel_remote_mint(), 5100);
+    SendReq req{};
+    for (int i = 2; i <= 3; ++i) {
+        const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
+        m.on_send_accepted(SendKind::emergency, 5000u + 1000u * uint32_t(i));
+        m.on_outcome(SendOutcome::channel_remote_mint(), 5100u + 1000u * uint32_t(i));
+    }
+    CHECK(m.attempts() == 3);
+    CHECK(m.emergency() == Emergency::not_heard);
+    CHECK(m.emg_evidence() == EmgEvidence::no_handle);          // ★ so the panel says "unconfirmed", not "no relay"
+    CHECK(m.take_send_request(req) == false);                   // still bounded — B69 changes no airtime behaviour
+}
+
+// ---- the canned-channel outcome machine (§B69's other half) -----------------------------------------------------
+
+TEST_CASE("ui7-chan: a refused canned post is TERMINAL, not a permanent SENDING...") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::short_press, snap(1000));  // -> team
+    for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, snap(1000));   // walk team -> inbox -> send
+    m.on_gesture(Gesture::short_press, snap(1000));
+    m.on_gesture(Gesture::double_press, snap(1000));
+    CHECK(m.state().compose == Compose::channel);
+    m.on_gesture(Gesture::double_press, snap(1100));
+    const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
+    CHECK(m.chan_state() == ChanState::submitting);
+    m.on_send_refused(SendKind::channel_canned, RefuseReason::other, MESHROUTE_NS::CmdCode::err_no_binding, 1200);
+    CHECK(m.chan_state() == ChanState::failed);                 // ★ the arm that did not exist before UI-7
+    CHECK(m.refuse_code() == MESHROUTE_NS::CmdCode::err_no_binding);
+    CHECK(m.emergency() == Emergency::idle);                    // and a canned refusal never fabricates an alarm
+    CHECK(m.dm_state() == DmState::idle);                       // ...nor touches the DM machine
+}
+
+TEST_CASE("ui7-chan: a DM outcome offered to the canned entry point is REFUSED, not absorbed") {
+    UiModel m;
+    m.on_channel_outcome(SendOutcome::dm_acked(), 1000);
+    CHECK(m.chan_state() == ChanState::idle);                   // `_dm` has exactly one writer set
+    CHECK(m.dm_state() == DmState::idle);
+}
+
+// ============================================================================================== UI-7 — THE RESULT PHASE
+// ★★ Spec §3.2.1/§3.4.1: the OUTCOME replaces the canned list IN the sub-view. UI-2 closed the modal as it sent, so
+//    `DELIVERED to <label>` / `NO KEY` / `NO CONFIRM` had no renderer at all.
+
+static UiModel dm_sent() {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::short_press, snap(1000));             // -> TEAM
+    m.on_gesture(Gesture::double_press, snap(1000));            // -> DM compose for team[0]
+    m.on_gesture(Gesture::double_press, snap(1000));            // -> send "Are you OK?"
+    const bool got = m.take_send_request(req); CHECK(got == true);
+    return m;
+}
+
+TEST_CASE("ui7-result: a send switches the sub-view to its RESULT phase instead of closing it") {
+    UiModel m = dm_sent();
+    CHECK(m.state().compose == Compose::dm);
+    CHECK(m.state().compose_result == true);
+    CHECK(m.state().compose_peer == snap().team[0].id);         // still bound to who it went to, for the label
+    CHECK(m.dm_state() == DmState::submitting);
+}
+
+// ★★★ THE MIS-SEND CONTROL FOR THE NEW PHASE, and it asserts the QUEUED REQUEST rather than the enum (§B110's
+//     method): if the result phase fell through to the list logic, a second `double` would SEND AGAIN — from a view
+//     showing an outcome, with a cursor the user never moved.
+TEST_CASE("ui7-result: NEITHER gesture can queue a second send from the result phase") {
+    UiModel m = dm_sent(); SendReq req{};
+    m.on_gesture(Gesture::double_press, snap(1100));
+    CHECK(m.take_send_request(req) == false);                   // ★ nothing was queued
+    UiModel m2 = dm_sent(); SendReq req2{};
+    m2.on_gesture(Gesture::short_press, snap(1100));
+    CHECK(m2.take_send_request(req2) == false);                 // ★ nor by the other gesture
+}
+
+TEST_CASE("ui7-result: either press acknowledges and returns to the PARENT screen") {
+    UiModel m = dm_sent();
+    m.on_gesture(Gesture::double_press, snap(1100));
+    CHECK(m.state().compose == Compose::none);
+    CHECK(m.state().compose_result == false);
+    CHECK(m.state().screen == Screen::team);                    // the parent, not the cycle start
+    UiModel m2 = dm_sent();
+    m2.on_gesture(Gesture::short_press, snap(1100));
+    CHECK(m2.state().compose == Compose::none);                 // §3.2's "at the end of a list, move on" — the
+    CHECK(m2.state().compose_result == false);                  // result phase has no list, so every position is the end
+}
+
+// ★★ Without clearing the flag, a modal re-opened later would render an OUTCOME view against a stale result — the
+//    user would see the previous message's verdict over a list they have not sent yet.
+TEST_CASE("ui7-result: the kBlankMs auto-exit clears the result phase, so a re-opened modal shows its LIST") {
+    UiModel m = dm_sent();
+    m.on_tick(snap(1000 + kBlankMs + 1));
+    CHECK(m.state().compose == Compose::none);
+    CHECK(m.state().compose_result == false);
+    // ⓘ The same tick that auto-exits the modal also BLANKS the panel (both deadlines are kBlankMs from the last
+    //   input), and the waking press is CONSUMED (spec :378) — so re-opening takes two gestures here, not one. That
+    //   is the shipped blank contract, not an artefact of this case.
+    m.on_gesture(Gesture::double_press, snap(2000 + kBlankMs));  // wakes; consumed
+    CHECK(m.state().blanked == false);
+    m.on_gesture(Gesture::double_press, snap(2100 + kBlankMs));  // re-open from TEAM
+    CHECK(m.state().compose == Compose::dm);
+    CHECK(m.state().compose_result == false);                    // ★ the LIST, not a stale outcome
+    CHECK(m.state().cursor == 0);
+}
+
+TEST_CASE("ui7-result: §B101's alarm close-out clears the result phase too") {
+    UiModel m = dm_sent();
+    m.on_gesture(Gesture::long_fire, snap(1100));
+    CHECK(m.state().compose == Compose::none);
+    CHECK(m.state().compose_result == false);
+    CHECK(m.emergency() == Emergency::firing);
+}
+
+// ============================================================================================== UI-7 — THE INBOX BUDGET
+// ★★★ Spec §6.1's NAMED HAZARD, and it is the kind that reads as obviously-satisfied: `Inbox::pull()` visits the DM
+//     block FIRST and the channel block SECOND, with NO limit parameter of any kind. So "keep the newest 8" over one
+//     shared pool lets a chatty channel evict EVERY DM row — on the one screen whose purpose is showing both.
+
+static InboxRow row(bool dm, uint8_t ch, uint32_t age) {
+    InboxRow r{}; r.is_dm = dm; r.channel_id = ch; r.rx_age_s = age; return r;
+}
+
+TEST_CASE("ui7-inbox: a chatty channel CANNOT evict the DM rows — the budget is PER KIND") {
+    InboxRowBudget b; UiSnapshot s{};
+    for (uint8_t i = 0; i < 2; ++i) b.add(row(true, 0, i));       // 2 DMs arrive first, as pull() delivers them
+    for (uint8_t i = 0; i < 20; ++i) b.add(row(false, 7, i));     // then a flood of channel traffic
+    b.publish(s, 22);
+    CHECK(b.dm_count() == 2);                                     // ★ both DMs survive the flood
+    CHECK(b.ch_count() == kInboxRowsPerKind);
+    CHECK(s.inbox_shown == uint8_t(2 + kInboxRowsPerKind));
+    CHECK(s.inbox[0].is_dm == true);                              // block order: DM rows first
+    CHECK(s.inbox[1].is_dm == true);
+    CHECK(s.inbox[2].is_dm == false);
+}
+
+TEST_CASE("ui7-inbox: within a kind the NEWEST rows win, because pull() hands them oldest-first") {
+    InboxRowBudget b; UiSnapshot s{};
+    for (uint8_t i = 0; i < uint8_t(kInboxRowsPerKind + 3); ++i) b.add(row(true, 0, i));
+    b.publish(s, uint16_t(kInboxRowsPerKind + 3));
+    CHECK(s.inbox_shown == kInboxRowsPerKind);
+    CHECK(s.inbox[0].rx_age_s == 3u);                             // the three oldest were displaced
+    CHECK(s.inbox[kInboxRowsPerKind - 1].rx_age_s == uint32_t(kInboxRowsPerKind + 2));
+}
+
+TEST_CASE("ui7-inbox: truncation is VISIBLE — total is what pull visited, not what fitted") {
+    InboxRowBudget b; UiSnapshot s{};
+    for (uint8_t i = 0; i < 30; ++i) b.add(row(i % 2 == 0, 1, i));
+    b.publish(s, 30);
+    CHECK(s.inbox_shown == kMaxInboxRows);
+    CHECK(s.inbox_total == 30);                                   // ★ the cap is never presented as the mailbox
+}
+
+TEST_CASE("ui7-inbox: reset() really empties it, so a frame cannot inherit the previous pull's rows") {
+    InboxRowBudget b; UiSnapshot s{};
+    for (uint8_t i = 0; i < 6; ++i) b.add(row(true, 0, i));
+    b.reset();
+    b.publish(s, 0);
+    CHECK(b.dm_count() == 0); CHECK(b.ch_count() == 0);
+    CHECK(s.inbox_shown == 0); CHECK(s.inbox_total == 0);
+}
+
+// ★ §B66's durable closure, asserted rather than assumed: the counts are DERIVED from the tables, so they cannot
+//   drift. The `back` row is the LAST row of each, and it is one row, not two (spec §3.2.2).
+TEST_CASE("ui7-B66: the canned counts are derived from the tables and `back` is the last row of each") {
+    CHECK(kDmTextCount == uint8_t(sizeof kDmTexts / sizeof kDmTexts[0]));
+    CHECK(kChannelTextCount == uint8_t(sizeof kChannelTexts / sizeof kChannelTexts[0]));
+    CHECK(kDmSendableTexts == uint8_t(kDmTextCount - 1));
+    CHECK(kChannelSendableTexts == uint8_t(kChannelTextCount - 1));
+    CHECK(std::strcmp(kDmTexts[kDmTextCount - 1], "back, don't send") == 0);
+    CHECK(std::strcmp(kChannelTexts[kChannelTextCount - 1], "back, don't send") == 0);
 }

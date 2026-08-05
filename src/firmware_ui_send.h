@@ -17,15 +17,27 @@
 //   this project has (neither the native suite nor the simulator compiles `src/*.cpp`), and the plan records that the
 //   wiring was got WRONG TWICE. As pure functions here they are natively tested and turn red on a revert. See the
 //   §UI-6 GLUE block for the two §B84 blockers.
-// NOT here, by unit boundary (UI-7 owns it, [[meshroute-mark-done-vs-missing-in-code]]):
-//   · CLOSING a `late_ack` slot. Spec §3.4.1 bounds the NO CONFIRM -> DELIVERED upgrade to "while the sub-view is
-//     still showing", and that lifetime lives in firmware_ui.cpp ⇒ it must call `close()` when the sub-view closes.
-//     Deliberately NOT a timer here: the tracker has no idea what is on the panel, and inventing a second window
-//     would be a number that disagrees with the real one. `close()` is tested; the obligation is registered.
-//   · rendering. `channel_remote_mint` must read as SENT and not as PICKED UP, and no model state carries that
-//     distinction — register B69, still open, still UI-6/UI-7's.
+// DONE here (UI-7, the §UI-7 SEND block at the bottom): the SEND ITSELF — line composition (including §4.1's
+// conditional `-l`), the `CmdCode` -> panel-reason mapping, and the three-rule send driver that reads `ctr == 0` as
+// "no local handle" rather than as failure. `src/firmware_ui.cpp` supplies only an EXECUTOR, the fix bit and the
+// channel id; everything a wrong answer could hurt is here, under the native gate.
+//   · CLOSING a `late_ack` slot — the caller obligation this header used to record — is DISCHARGED in
+//     `ui_pump_trackers`: the compose sub-view's lifetime bounds the one normal slot, so an unconfirmed DM can no
+//     longer disable every later send. Still deliberately NOT a timer: the bound is the real display window, not a
+//     second number invented here to disagree with it.
+//   · §B69's rendering is CARRIED, and its premise is CORRECTED. `channel_remote_mint` now lands in its own model
+//     state (`ChanState::unconfirmed`) and its own alarm evidence (`EmgEvidence::no_handle`) — see
+//     firmware_ui_model.h, which also measures why "render it as SENT" would have been a FALSE CONFIRMATION on the
+//     `-t` line this UI actually sends.
+// NOT here, by unit boundary ([[meshroute-mark-done-vs-missing-in-code]]):
+//   · a DM that comes back `queued` with `ctr == 0`. `tick()` releases the slot and invents nothing (a
+//     `channel_remote_mint` for a DM would be a type error), so the model is left on `DmState::submitting` until the
+//     sub-view's own kBlankMs auto-exit closes it. Bounded and never a false claim, but it answers nothing —
+//     register B111, with the measurement that made it reachable at all.
 #pragma once
 #include <cstdint>
+#include <cstddef>   // std::size_t
+#include <cstdio>    // snprintf — UI-7 composes the console line HERE so the native suite can assert it byte-for-byte
 #include "firmware_ui_model.h"
 
 namespace mrui {
@@ -238,11 +250,28 @@ inline void ui_pump_trackers(SendTracker& emg, SendTracker& normal, UiModel& m, 
     // kind, and `on_outcome` lets a channel outcome move any LIVE alarm, so a canned post's expiry could alter a live
     // emergency. DRAINING the slot is this call's whole job here (that is the leak fix); routing its outcome into the
     // emergency-capable entry point is what was unsafe.
-    // ✖ MISSING, stated so it is not mistaken for done: the canned sub-view's own presentation update. There is NO
-    //   canned-only entry point on `UiModel` today — `on_outcome` is the only one — so TASK 7 owns adding it. Until
-    //   then the expiry is consumed and NOT routed. ⛔ Do not "fix" this by calling `on_outcome`.
+    // ✔ SUPPLIED BY UI-7, and the ⛔ above still stands verbatim: the canned outcome goes to `on_channel_outcome`,
+    //   the CANNED-ONLY entry point, never to `on_outcome`. `on_outcome` is emergency-capable — every channel kind it
+    //   receives may move a LIVE alarm — so routing a canned post's expiry through it is precisely the §2.1 crossover
+    //   that blocker 2 exists to prevent. Two entry points, one per slot; the tracker cannot tell them apart because
+    //   both carry channel kinds and both are correctly correlated. ⛔ Still do not call `on_outcome` here.
     SendOutcome normal_out{};
-    (void)normal.tick(now_ms, normal_out);
+    if (normal.tick(now_ms, normal_out)) m.on_channel_outcome(normal_out, now_ms);
+    // ★★ UI-7 — THE SUB-VIEW'S LIFETIME BOUNDS THE ONE NORMAL SLOT, and this discharges the `close()` obligation this
+    //    file has carried since UI-4 ("CLOSING a `late_ack` slot ... that lifetime lives in firmware_ui.cpp ⇒ it must
+    //    call `close()`"). It is here, not there, for the reason the block above argues: a caller obligation is not a
+    //    gate, and this one has a HARD failure mode. `match_dm` parks an `e2e_ack_timeout` DM in `late_ack`, which is
+    //    never `idle`, and `mr_ui_tick` only drains a new request when the normal slot IS idle ⇒ without this, ONE
+    //    unconfirmed DM disables every further canned post and DM on the device, permanently. (H7-06: "no slot
+    //    remains leaked".)
+    // ★ THE SUB-VIEW IS THE ONLY RENDERER of a normal outcome, so a slot outliving it can only leak: spec §3.4.1
+    //   bounds the NO CONFIRM -> DELIVERED upgrade to "while the sub-view is still showing", and once it is gone there
+    //   is nothing an arriving ack could update. ⚠ HONEST COST, stated rather than discovered: the modal auto-exits
+    //   after kBlankMs while a team `channel_sent` can take ~36 s and an e2e ack up to 60 s, so a late verdict is
+    //   ABANDONED rather than displayed. That is a display loss, never a false claim — and the alternative is a device
+    //   that cannot send again for a minute.
+    // ⓘ The EMERGENCY slot is deliberately untouched: an alarm has no modal and must never be closed by one.
+    if (!m.compose_open() && !normal.idle()) normal.close();
 }
 
 // Correlate ONE node-wide outcome push into the UI. Returns true if some slot claimed it (diagnostic; an unmatched push
@@ -258,12 +287,14 @@ inline bool ui_route_send_push(SendTracker& emg, SendTracker& normal, UiModel& m
     switch (pu.kind) {
         case PK::channel_sent:
             if (emg.match_channel_sent(pu.ctr, pu.relayed, o))    { m.on_outcome(o, now_ms); return true; }
-            // A canned post's outcome: claimed, so it cannot then be offered to the alarm, but NOT routed — the model
-            // has no canned-only entry point (Task 7). `on_outcome` here would move a live alarm.
-            return normal.match_channel_sent(pu.ctr, pu.relayed, o);
+            // ★ UI-7: a canned post's outcome now REACHES the sub-view, through the canned-only entry point. It is
+            //   still never `on_outcome` — that would let a canned post move a live alarm (§2.1).
+            if (normal.match_channel_sent(pu.ctr, pu.relayed, o)) { m.on_channel_outcome(o, now_ms); return true; }
+            return false;
         case PK::send_blocked:
             if (emg.match_blocked(pu.blocked_channel, pu.next_ms, now_ms, o)) { m.on_outcome(o, now_ms); return true; }
-            return normal.match_blocked(pu.blocked_channel, pu.next_ms, now_ms, o);
+            if (normal.match_blocked(pu.blocked_channel, pu.next_ms, now_ms, o)) { m.on_channel_outcome(o, now_ms); return true; }
+            return false;
         case PK::send_e2e_acked:
             if (emg.match_dm(pu.ctr, pu.dst, /*acked=*/true, FailReason::none, o)) { m.on_outcome(o, now_ms); return true; }
             if (normal.match_dm(pu.ctr, pu.dst, /*acked=*/true, FailReason::none, o)) { m.on_outcome(o, now_ms); return true; }
@@ -310,6 +341,135 @@ inline bool ui_route_send_push(SendTracker& emg, SendTracker& normal, UiModel& m
 //   mobile) the REPLY indication is now unreachable. Without a team there is no key and no membership, so there is
 //   nothing that could make a reply trustworthy — refusing to claim one is the point, not a regression.
 //
+// ================================================================================================= UI-7 — THE SEND
+// ★★★ THE SEND ITSELF, AND IT IS PURE FOR THE §UI-6 GLUE REASON RESTATED ONE LAST TIME: `ui_perform_send` shipped in
+// `src/firmware_ui.cpp` as a LOUD REFUSAL STUB precisely because that TU is compiled by neither the native suite nor
+// the simulator, and every safety rule the plan writes about this function — the conditional `-l`, the typed result,
+// the `ctr == 0` reading, `on_send_accepted`'s placement — would have been a caller obligation nobody could gate.
+// ⇒ everything here is board-free. The device supplies exactly THREE facts through the seam below: the command
+//   EXECUTOR, whether we hold a position fix, and the team channel id. A native test supplies a fake executor that
+//   RECORDS THE LINE, which is how "the right command was issued" becomes an assertion about a SIDE EFFECT rather
+//   than about a post-hoc enum (§B97/§B98/§B110: the shipped path closes its modal as it sends, so `compose == none`
+//   is green against a real mis-send — only the issued request discriminates).
+
+// The synchronous result of running ONE composed line, in the UI's own terms. It is `mrfw::ExecResult` minus the
+// things no UI decision reads: `mrfw` lives behind `<Arduino.h>`, so the seam is a 3-field POD and the device TU does
+// the 3-field copy. `ok == false` means the line never became a `Command` at all (a parser reject).
+struct SendExec {
+    bool                  ok   = false;
+    MESHROUTE_NS::CmdCode code = MESHROUTE_NS::CmdCode::queued;   // meaningful only when `ok`
+    uint16_t              ctr  = 0;                               // the origination handle; 0 = NO LOCAL HANDLE (§B39)
+};
+
+// The device's command executor. A raw function pointer, not a `std::function`: no heap, no RTTI, and a captureless
+// lambda decays to it — the same idiom `Inbox::pull`'s `PullCb` uses (U3).
+using SendExecFn = SendExec (*)(const char* line, std::size_t len, void* ctx);
+
+// ★ THE COMPACT PANEL REASON for a synchronous refusal. ⚠ IT IS DELIBERATELY ALMOST CONSTANT, and that is a MEASURED
+//   property of the core rather than laziness: on the two lines this UI sends, five different walls — `no_key`,
+//   `no_identity`, `no_fix`, `empty` and `unsealable` — all return `CmdCode::err_unsupported` (node.cpp:1530, :1543,
+//   :1553, :1568) and differ only in an `MR_EMIT` string the UI never sees. The plan's rule is explicit: *"show the
+//   generic refusal and the code; do not invent a specific reason"*, because `RefuseReason::unsealable` on a `no_fix`
+//   refusal would send the user to fix the wrong thing. ⇒ the CODE rides beside it (`UiModel::refuse_code()`).
+// ⓘ `unsealable` / `no_location` / `queue_full` stay reachable through §B73's ASYNC path (`note_failure`, which reads
+//   a real `SendFailReason`); they are simply not derivable from a `CmdCode`.
+// ⓘ NO `default:` — `CmdCode` is documented APPEND-ONLY in command.h, and a new code must fail the build here rather
+//   than land silently (§B72's lesson; -Wswitch is gate-blocking in this project).
+inline RefuseReason refuse_reason_of(const SendExec& r) {
+    using C = MESHROUTE_NS::CmdCode;
+    if (!r.ok) return RefuseReason::parser;
+    switch (r.code) {
+        case C::queued:                   return RefuseReason::other;   // not a refusal; callers never ask
+        case C::err_unknown_dst:          case C::err_too_large:
+        case C::err_no_gateway:           case C::err_priority_capped:
+        case C::err_no_binding:           case C::err_unsupported:
+        case C::err_unprovisioned:        case C::err_no_data_sf:
+        case C::err_ack_ring_full:        case C::err_ambiguous_plane:
+        case C::err_no_identity:          case C::err_tx_queue_full:
+        case C::err_resolve_pending_full: return RefuseReason::other;
+    }
+    return RefuseReason::other;   // -Wswitch covers the enum; this satisfies -Wreturn-type
+}
+
+// Wide enough for the longest line either verb can produce, with the widest `%u` GCC must assume for a promoted
+// `uint8_t` (10 digits) and the longest canned text. Measured worst case is `send_channel` at ~52 B; the excess is
+// deliberate slack against `-Wformat-truncation=`, exactly as `firmware_ui.cpp`'s kLineCap documents.
+inline constexpr std::size_t kSendLineCap = 96;
+
+// ★★ COMPOSE THE CONSOLE LINE. Returns its length, or 0 = REFUSE (C2 — never a truncated or partly-formed command).
+// ★ §3.4 — a DM is `send <team_local_id> "<text>" -t -a`. `-t` selects the TEAM plane; `-a` buys the ONE thing a
+//   channel post can never offer, a per-destination end-to-end ack. ⛔ NO `-e`: the parser gates it `allow_e=by_hash`
+//   and rejects it on an id target, so `crypt` stays `def` and follows the node's own `e2e_dm` setting. The UI must
+//   not force plaintext either — `CryptIntent::off` was deliberately removed from the console.
+// ★★★ §4.1 — `-l` IS CONDITIONAL, AND UNCONDITIONALLY SENDING IT WOULD TURN "NO FIX" INTO NO ALARM AT ALL.
+//   `node.cpp:1553` refuses `want_loc && lat_e7 == 0 && lon_e7 == 0` with `err_unsupported` BEFORE anything is
+//   enqueued. A distress call is worth more than the coordinates attached to it, so a node without a fix sends the
+//   alarm WITHOUT `-l` rather than not at all.
+// ⓘ The canned channel post carries no `-l`: it is not a distress message and §4.1's location ruling is about the
+//   alarm. It does carry `-e`, like the alarm, so both take the identical team-crypt path.
+inline int ui_compose_send_line(char* out, std::size_t cap, const SendReq& req,
+                                uint8_t team_channel_id, bool have_fix) {
+    if (!out || cap == 0) return 0;
+    out[0] = '\0';
+    int n = 0;
+    if (req.kind == SendKind::dm) {
+        if (req.text_index >= kDmSendableTexts) return 0;   // `back` (or past the table) is not a message — REFUSE
+        n = snprintf(out, cap, "send %u \"%s\" -t -a",
+                     unsigned(req.peer_id), kDmTexts[req.text_index]);
+    } else if (req.kind == SendKind::channel_canned) {
+        if (req.text_index >= kChannelSendableTexts) return 0;
+        n = snprintf(out, cap, "send_channel %u \"%s\" -t -e",
+                     unsigned(team_channel_id), kChannelTexts[req.text_index]);
+    } else {   // SendKind::emergency — one fixed body, no list, no cursor
+        n = have_fix ? snprintf(out, cap, "send_channel %u \"%s\" -t -l -e",
+                                unsigned(team_channel_id), kEmergencyText)
+                     : snprintf(out, cap, "send_channel %u \"%s\" -t -e",
+                                unsigned(team_channel_id), kEmergencyText);
+    }
+    if (n <= 0 || std::size_t(n) >= cap) { out[0] = '\0'; return 0; }   // truncation is a refusal, never a short send
+    return n;
+}
+
+// ★★★ THE WHOLE SEND DECISION, IN ONE PLACE THE NATIVE SUITE DRIVES.
+// ⚠⚠ THE THREE RULES THAT MAKE IT SAFE, ALL OF WHICH HAVE BEEN GOT WRONG IN THIS ARC:
+//  1. **The result reaches the model TYPED.** A discarded `BufferSink` (the rejected alternative) leaves a parser
+//     refusal or an immediate `err_*` on the panel as `SENDING...` FOR EVER — spec §2.1 rule 1.
+//  2. **`ctr == 0` IS NOT FAILURE** (§B39/§B84). It means NO LOCAL HANDLE EXISTS and the transmission status is not
+//     answerable synchronously. It is NOT accepted either ⇒ `on_send_accepted` is NOT called here, because `_tries`
+//     moves only there and the BOUNDED EXPIRY is what spends the attempt (`ui_pump_trackers`, §B84). Calling it in
+//     both places would spend two of the three alarms on one transmission.
+//  3. **`submit()` precedes the executor**, because `send_blocked` is emitted SYNCHRONOUSLY inside `Node::on_command`
+//     and a slot that is not open yet cannot claim it. (The push ring is drained on a later service pass, so this is
+//     ordering discipline rather than a reentrancy hazard — but the discipline is free and the hazard would not be.)
+// ⓘ It takes BOTH trackers and picks by kind, so a caller cannot hand an alarm to the normal slot. That choice was a
+//   caller obligation in the plan's listing; here it is one line inside the tested unit.
+inline void ui_perform_send(SendTracker& emg, SendTracker& normal, UiModel& m, const SendReq& req,
+                            uint8_t team_channel_id, bool have_fix,
+                            SendExecFn exec, void* ctx, uint32_t now_ms) {
+    SendTracker& tr = (req.kind == SendKind::emergency) ? emg : normal;
+    char line[kSendLineCap];
+    const int n = ui_compose_send_line(line, sizeof line, req, team_channel_id, have_fix);
+    // A line we refuse to compose never reaches the core, so there is no `CmdCode` for it — same shape as a parser
+    // reject, and `RefuseReason::parser` is the predicate that says "read no code" (see UiModel::refuse_code).
+    if (n == 0 || !exec) {
+        tr.refuse();
+        m.on_send_refused(req.kind, RefuseReason::parser, MESHROUTE_NS::CmdCode::queued, now_ms);
+        return;
+    }
+    tr.submit(req.kind, req.peer_id, (req.kind == SendKind::dm) ? uint8_t(0) : team_channel_id, now_ms);
+    const SendExec r = exec(line, std::size_t(n), ctx);
+    if (!r.ok || r.code != MESHROUTE_NS::CmdCode::queued) {
+        tr.refuse();
+        // §B78: `now_ms` is the REFUSAL's own time — a gesture-anchored deadline is already partly spent by the time
+        // a refusal lands, which is the defect spec §4.3 exists to kill.
+        m.on_send_refused(req.kind, refuse_reason_of(r), r.ok ? r.code : MESHROUTE_NS::CmdCode::queued, now_ms);
+        return;
+    }
+    if (r.ctr == 0) { tr.awaiting_outcome(now_ms); return; }   // ★ rule 2 — no handle, status UNKNOWN, no attempt spent
+    tr.accept(r.ctr, now_ms);
+    m.on_send_accepted(req.kind, now_ms);
+}
+
 // Returns true if this push was a RECEIVE this unit owns (diagnostic; the caller routes everything else to
 // `ui_route_send_push`). `who` is the caller's already-resolved display label — the ONE thing here that needs `Node`.
 inline bool ui_route_recv_push(UiInboxCounters& c, UiModel& m, const MESHROUTE_NS::Push& pu,

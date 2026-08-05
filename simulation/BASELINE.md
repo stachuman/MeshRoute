@@ -71,6 +71,237 @@ the top**, and **the newest note naming a scenario is the authoritative anchor**
 - `s17_metro` cross-layer is **inert** on meshroute (untranslated source = single-layer gateways; *translating* it degrades the dense scenario — channels 101%→33%). So gate `s17` on **same-layer 26/30 + channels leaks 0 + scale**, not cross-layer. (Cross-layer coverage comes from s09/s10/s15/s16.) **Follow-up:** cross-layer-at-scale window tuning — separate from the baseline.
 - `s19_singlelayer_multihop_chain` is the suite's **multi-hop** coverage (s18/s17 same-layer are single-hop). Redundant 3-hop chain `A-{L,L2}-{R,R2}-B`, no A↔B direct link ⇒ every A↔B DM relays ≥2 hops (verified: A→L2→R2→B = 3 hops; routes converge at hops 2–4). Two disjoint paths ⇒ also the **liveness-reroute base** (kill one relay → reroute via the parallel path; the `t96` Phase-2 gate builds on this). Gate on **delivery 8/8** + the **mean_hops** column (A↔B **3.0**, A↔R **2.0**) — deterministic (seed 42, lossless links). (`dm_delivery_breakdown` counts hops via distinct `data_rx` receivers, which carry `origin`, rather than the origin-less relay `data_tx` — fixed 2026-06-17 so same-layer multi-hop is measured. Cross-layer hop-count is still uncounted — its records key on the gateway wire-dst; cross-layer *delivery* is measured by the `cross-layer DMs` line.)
 
+**★★★★★★★★★★★★★★ 2026-08-05 §UI-7-FIX — THE TWO BEHAVIOURAL BLOCKERS INDEPENDENT QA RAISED AGAINST UI-7, BOTH FIXED. ★ THE HEADLINE IS THE SHAPE THEY SHARE: **BOTH WERE STATES THAT COULD NOT BE REACHED AND A RULING THAT WAS NOT APPLIED — NEITHER WAS A BUILD OR A GATE FAILURE, AND EVERY AUTOMATED GATE WAS GREEN OVER BOTH.** §B113: `ChanState::waiting` was assigned **zero** times in the whole tree and referenced **once**, by the renderer — a DEAD STATE, so an accepted canned post never left `SENDING...`. §B64: the owner's identity ruling, which plan `:135` names a PREREQUISITE for wiring real sends and Task 7 shipped without. ★★ Second finding, and it is now three slices running: **TWO of this slice's OWN negative controls were VACUOUS and only mutation caught them — one of them a "revert the fix" mutation that reverted only half of it and scored 0/0.** MODIFIED: `src/firmware_ui_model.h` (§B113's third `on_send_accepted` arm · §B64's identity cursor + the loud refusal · one stale §B69 comment corrected), `src/firmware_ui.cpp` (§B64's TEAM-screen half), `test/test_firmware_ui_{model,send}.cpp`, `tools/probe_board_ui/run.sh` (the new W9). DOCS: this file, `docs/2026-07-30-open-bug-register.md` (**B113 opened BEFORE the fix and then closed; B64 closed**), `docs/2026-07-31-bench-test-script.md` (8.21/8.22), `docs/2026-08-04-heltec-v3-oled-ui-bench-guide.md` (H7-09 new + H7-01's §B113 line), `docs/2026-08-04-oled-handover.md` (status only). NOTHING ELSE — ⛔ **0 files changed under `lib/`**, no scenario, no `platformio.ini`, `src/firmware_ui_send.h` untouched, and the SPEC and PLAN were NOT edited (owed items reported below). ⛔ B112, B111, B105, B38 and the REPLY-only wake deliberately untouched. UNCOMMITTED, on top of the §UI-7 note that follows.**
+
+## THE GATE (D1) — every number a build+run, not a reading
+
+| | |
+|---|---|
+| HEAD | **`cbbd69e`**, with **UI-7 uncommitted on top** — 13 modified / 1 untracked at start, exactly as the dispatch said. ⛔ Nothing reverted, restaged or cleaned; `src/firmware_commands.{h,cpp}` are UI-7's and were not touched. |
+| native | **1358 / 73899 / 0 → 1366 / 73956 / 0 failed** (+8 cases, +57 assertions), **60 objects / 32 test objects**, from a `rm -rf .pio/build/native` CLEAN build |
+| native `error:` | **0** — counted in the build log beside the doctest line, both arms (the stale-binary trap has fired on this file family) |
+| native warnings | **9**, byte-for-byte the pre-existing clean-build set measured on the baseline tree before any edit: 1 `cc1` note · `lib/core/node_hashlocate.cpp` 1 · `test/test_dual_layer.cpp` 2 · `test_node_channel` 1 · `test_node_hashlocate` 1 · `test_node_query` 1 · `test_node_r3` 2. **0 in any `firmware_ui*` TU** (attributed, not inferred). `-Wswitch` **0** |
+| s18 keystone | **`1cd21235` / 271629 EXACT**, 0 assertion failures |
+| corpus | **36/36 identical, 0 movers, 0 assertion failures in any of the 36** — **36 anchor rows extracted** (count printed beside the result, B77-safe `^### 36/36 corpus` anchor), machine-`diff`ed row by row; failure counts read with `2>&1` |
+| `lus` | md5 **`8cb1f0f5` unchanged**, and **the recompilation control FIRED** — `touch lib/core/node.cpp` produced **5** `Building CXX`/`Linking CXX` actions and the binary reproduced `8cb1f0f5` |
+| board envs | **5/5 rc=0 from DELETED object dirs**, serially: `gateway` 283 objs · `xiao_sx1262` 283 · `xiao_esp32s3` 193 · `heltec_v3` 326 · `heltec_mobile` 326. `error:` **0** and `-Wswitch` **0** on every one |
+| OLED census | **326 objects / 180 / 180 / 176, `-Wswitch` 0, PASS** — pins **UNMOVED, nothing re-pinned** |
+| board probe | **38/38 behavioural + 10/10 structural + 9/9 wiring (W1–W9; W9 is new), 8/8 controls red** |
+| `sizeof(Node)` | untouched — **0 files under `lib/`, so s18 is inert BY CONSTRUCTION, not by luck** (D2) |
+
+**RAM: +16 B UNIFORM on all three OLED envs** — `heltec_v3` 214380 → **214396** · `heltec_mobile` 213900 → **213916** ·
+`gateway_heltec` 239300 → **239316 = 73.03 %** (still the tightest OLED env; the percentage does not move to two places).
+Flash `heltec_v3` 1253488 → **1253748 = +260 B**.
+★ **The +16 and the +260 are a CONTROLLED A/B, not a subtraction from a remembered figure:** both arms built in an
+isolated `PLATFORMIO_BUILD_DIR` from the same tree, differing only in `src/firmware_ui_model.h` + `src/firmware_ui.cpp`
+being restored from a pre-slice snapshot — and **the "before" arm reproduced the §UI-7 reference RAM 214380 exactly**,
+which is what makes the delta trustworthy rather than merely plausible.
+★ **Accounted by controlled `sizeof` A/B on the native ABI** (same probe, two include paths): `UiState` 7 → **8**
+(+1, `team_pick_gone`) · `UiModel` 100 → **104** (+4: `_team_sel_id`, `_team_sel_valid`, and the embedded `UiState`) ·
+`UiSnapshot` **528**, `FrameGate` **28**, `InboxRowBudget` **260** — all three unchanged. ⇒ the board cost is the model
+plus its FROZEN copy (`s_frame_state`), rounded to alignment. §B113 costs **0 bytes**: it writes an existing enumerator.
+
+## ★★★ THE PER-BEHAVIOUR RED MEASUREMENTS — the test written FIRST, the fix reverted, the count MEASURED
+
+| behaviour | instrument | RED against the shipped tree |
+|---|---|---|
+| **§B113** an accepted canned post enters `waiting`, keeps its handle, moves neither DM nor alarm | `ui7-B113` + `ui7-B113: waiting means WE HOLD A HANDLE` | **2 cases / 4 assertions** |
+| **§B64** a vanished teammate REFUSES and sends nothing · a reorder follows the teammate · a tick re-anchors · the message retires | 5 cases in `test_firmware_ui_model.cpp` | **3 cases / 8 assertions** before the field existed; **5 / 15** once it did (full revert) |
+
+## ★★★ THE MUTATION BATTERY — 9 rows, every one APPLIED to the real tree, BUILT, RUN, RESTORED and md5-VERIFIED
+⚠ **`pio test`'s own summary is not the instrument** and it ABORTS at the first failing case (SIGHUP) — every count below
+comes from running `./.pio/build/native/program` directly, after `rm`-ing it.
+
+| # | mutation | models | result |
+|---|---|---|---|
+| **MB113-R** | the third `on_send_accepted` arm removed | the shipped defect: `ChanState::waiting` dead again | **2 cases / 4 assertions RED** |
+| **MB113-W** | `_chan` written UNCONDITIONALLY, for every `SendKind` | ★ the tempting wrong fix — an ALARM's or a DM's acceptance relabels a canned post `SENT, waiting` (§2.1 crossover) | **1 / 2 RED** |
+| **MB64-1 + 1full + 4** | `activate`'s modulo restored AND both `sync_team_cursor` calls removed | the shipped B64 defect, FULLY reverted | **5 / 15 RED** |
+| **MB64-2** | **CLAMP the index instead of tracking identity** | ★★ the exact wrong fix the dispatch names | **3 / 8 RED** |
+| **MB64-3** | the `compose != none` guard dropped from the resync | the resync walks the MODAL's message selection | **1 / 2 RED** ⚠ *0 / 0 on the first writing — see below* |
+| **MB64-4** | the `on_tick` resync removed | the FROZEN frame can highlight a teammate the model will not address | **2 / 4 RED** |
+| **MB64-5** | on a vanish, silently re-select row 0 | *exactly* what the ruling forbids | **4 / 12 RED** |
+| **MB64-6** | the vanish arm made LEVEL-triggered | a dirty frame every tick, for ever (spec §5) | **4 / 9 RED** |
+| **MB64-1 alone** | only `activate`'s target line reverted | — | **0 / 0** ⚠ *a VACUITY finding — see below* |
+
+★ **MB64-2 is the row that matters**, and it is non-vacuous only because of how the case is built: the discriminating
+scenario is a SAME-SIZE REORDER that puts the picked teammate on **row 1**, an index no near-miss can produce —
+`cursor % 3` → id 13, clamp to `shown - 1` → id 13, clamp to 0 → id 11, **identity → id 12**. On the vanish case every
+clamp SENDS SOMETHING and the ruling sends NOTHING, so the assertion is the QUEUED REQUEST, never a cursor enum.
+
+## ★★★ THE TWO VACUOUS CONTROLS — MEASURED, NOT REVIEWED, AND THIS IS THE THIRD SLICE RUNNING
+1. **MB64-3, the compose guard.** v1 churned **all three** roster ids (77/88/99), so the un-guarded resync could not
+   find the remembered teammate and took its **VANISH arm — which does not touch the cursor at all**. The control named
+   the right scenario, read correctly, and could not fail. ⇒ rewritten so teammate 11 **stays in the roster at a
+   different row**; the un-guarded resync then drags the modal's cursor from 1 to 2, and row 2 of a 3-row canned list is
+   `back, don't send` — so the harm it produces is that **"I'm OK" sends nothing at all**, which the `queued` assertion
+   catches directly. **Only then does MB64-3 go red (1 / 2).**
+2. **MB64-1, and this one is a NEW shape worth naming: a "revert the fix" mutation that reverted only PART of it.**
+   Replacing `activate`'s target line with the old `s.team[_st.cursor % s.team_shown].id` scored **0 / 0**, because the
+   refusal guard above it and the resync before it were still there and between them neutralised the modulo completely.
+   ⇒ **reverting a fix means reverting EVERY part of it** — the guard, the resync and the target line — and only the
+   three together reproduce the defect (5 / 15). A partial revert measures the parts you left in place.
+⇒ Restated, because it is now three slices in a row: **a negative control that names the right scenario is not a
+negative control, and neither is a revert that leaves half the fix standing.**
+
+## ★★ THE INSTRUMENT'S OWN LIMITS, MEASURED (and they explain §UI-7's premise 7)
+`pio test` prints `Building...` and **suppresses the per-file `Compiling`/`Linking` lines**, passing through only the
+compiler's own stderr. ⇒ **"the rebuild happened" CANNOT be proved by grepping the log for `Compiling`** — a mutation run
+shows 0 such lines while having definitely rebuilt. What proves it is the **changed test outcome** plus the binary's
+mtime after an explicit `rm`. The same suppression is why an INCREMENTAL log can honestly show 0 warnings while a clean
+one shows 9: nothing that warns was recompiled. Both arms here are `rm -rf .pio/build/native` clean.
+
+## ★★ PREMISES THAT TURNED OUT WRONG (D3 — recorded, not smoothed over)
+1. ⛔ **My own first §B113 regression was too weak** — it scored **1 assertion RED**, because the case called
+   `ui_perform_send` on a hand-built request and its follow-on `on_channel_outcome` assertion passed either way.
+   ⇒ rewritten to walk the REAL path (three shorts to SEND, `double`, `double`, `take_send_request`, then the send) and
+   joined by a discrimination case. **2 cases / 4 assertions**, and the transition is now asserted AS a transition.
+2. ⛔ **"a ctr-less canned post sits on `submitting`"** — it sits on `idle` when `ui_perform_send` is called directly,
+   because `submitting` is written by `take_send_request`, which that call bypasses. The claim that carries the meaning
+   is `!= waiting` (nothing was ACCEPTED, so nothing may say SENT), and that is what the case asserts.
+3. ⓘ QA's finding cited the renderer arm at `src/firmware_ui.cpp:478`; it is at **:481** (V2 — a `file:line` is
+   point-in-time). **The finding itself is exact**: 0 assignments, 1 reference, and `on_send_accepted` really did have
+   only two arms.
+4. ⓘ The dispatch's `src/firmware_ui_model.h:483` comment pointer is right about the block; the sentence claiming SENT
+   is the block's **last line**. Corrected in place with the `want_global = c.u.channel.global || !c.u.channel.team`
+   measurement, as instructed — **the implementation was right and the comment was the stale half.**
+
+## ★★ FINDINGS OWED TO THE OWNER (reported, NOT edited — the dispatch restricts spec/plan to fact-only corrections)
+- **The B64 ruling has no home in the spec.** §R1/§R2 set the precedent of recording an owner ruling in
+  `docs/superpowers/specs/2026-07-31-onboard-oled-ui-design.md` §5. This ruling is NOT there. It does not *contradict*
+  the spec — `:192`'s "activate the highlighted item" is still honoured, and with no highlight there is nothing to
+  activate — so it is a GAP the owner filled, not a drift to correct. ⇒ recording it is owed, and is one paragraph.
+- **Plan `:135` is now DISCHARGED, not contradicted.** It says B64 *"needs a ruling before Task 7 wires real sends"*;
+  the ruling exists and is implemented. The plan's Task-2/6/7 code listings still show the `% team_shown` line and are
+  already flagged superseded wholesale.
+- ⚠ **The plan's §B87 table and `tools/warning_census.sh`'s comment both still record RAM `214116 / 213636 / 239036`** —
+  the PRE-UI-7 figures. UI-7 moved them to 214380 / 213900 / 239300 without updating either; this slice moves them to
+  **214396 / 213916 / 239316**. The **warning** pins are the gate and are unmoved and correct; the RAM figures beside
+  them are informational and now two slices stale. Both files are outside this slice's scope.
+- **Still open and deliberately untouched:** **B112** (a `lib/core` slice), **B111** (a tenth `SendOutcome::Kind` + a
+  display ruling), the **REPLY-only wake** (ruling pending), **B105**, **B38**.
+
+## SCOPE / OWED
+- **M2 (metal-only):** bench guide **H7-09** (§B64, with every expected panel line and the reorder half) + H7-01's new
+  §B113 paragraph; bench script **8.21** (§B64) and **8.22** (§B113).
+- **W9 is the new last-mile wiring check** — `firmware_ui.cpp` must both SAY B64's refusal and SUPPRESS the `>` marker
+  while it stands. The suppression is the half with the safety weight (a highlight beside a target the model has already
+  refused is the mis-send in display form), so the revert targets exactly that, and the probe's vacuity guard confirmed
+  the sed changes something. No signature W1–W8 targets was touched, so none needed widening.
+
+**★★★★★★★★★★★★★ 2026-08-05 §UI-7 — THE REAL SEND PATH (plan Task 7). UI-6's LOUD REFUSAL STUB IS GONE. ★ THE HEADLINE IS NOT THE SEND: IT IS THAT **B69's OBLIGATION, MEASURED IN SOURCE, IS THE OPPOSITE OF WHAT IT SAYS** — "render `channel_remote_mint` as SENT" would have been a §2.1 FALSE CONFIRMATION on the line this UI actually sends, because the one producer that made it a success is structurally dead behind `-t`. ★ Second finding, same class as §R1's one slice earlier: **TWO of this slice's negative controls were VACUOUS and only the mutation battery caught them.** NEW SURFACE: `mrfw::exec_command` (the one firmware addition the plan approves). MODIFIED: `src/firmware_ui_model.h`, `src/firmware_ui_send.h`, `src/firmware_ui.cpp`, `src/firmware_commands.{h,cpp}`, `test/test_firmware_ui_{model,send}.cpp`, `tools/probe_board_ui/run.sh` (W7/W8). DOCS: this file, the register (B69/B66 closed, B111/B112 opened), the bench script, the bench guide, the handover status line. NOTHING ELSE — ⛔ **0 files changed under `lib/`**, no scenario, no `platformio.ini`, and the SPEC and PLAN were NOT edited (design changes reported here). UNCOMMITTED, on top of the §UI-6-RULINGS note that follows.**
+
+## THE GATE (D1) — every number a build+run, not a reading
+
+| | |
+|---|---|
+| HEAD | **`cbbd69e`** — ⚠ the dispatch said `abb83c4` with 14 modified / 2 untracked; the owner has since **COMMITTED** all of it. Tree was CLEAN at start. |
+| native | **1321 / 73703 / 0 → 1358 / 73899 / 0 failed** (+37 cases, +196 assertions), **60 test objects**, **0 `error:`** in the build log |
+| native warnings | **9**, and they are the PRE-EXISTING clean-build set — `lib/core/node_hashlocate.cpp:1365` + 8 in `test/test_{dual_layer,node_channel,node_hashlocate,node_query,node_r3}.cpp`. **0 in any `firmware_ui*` TU**, verified by attribution not by total. ⚠ The §UI-6-RULINGS note recorded "0 warnings": that was an INCREMENTAL log. A full `rm -rf .pio/build/native` exposes them — the same PlatformIO caching mechanism that note itself names as premise 4. **Not a regression; measured on the baseline tree before any edit.** |
+| s18 keystone | **`1cd21235` / 271629 EXACT**, 0 assertion failures |
+| corpus | **36/36 identical, 0 movers, 0 assertion failures in any of the 36** (anchor rows extracted with the B77-safe `^### ` anchor; failure counts read with `2>&1` — `lus` prints them to **stderr**) |
+| `lus` | md5 **`8cb1f0f5` unchanged**, and **the recompilation control FIRED** — `touch lib/core/node.cpp` produced **5** `Building CXX`/`Linking CXX` actions and the binary reproduced `8cb1f0f5` |
+| board envs | **5/5 rc=0 from DELETED object dirs**, serially: `gateway` 283 objs · `xiao_sx1262` 283 · `xiao_esp32s3` 193 · `heltec_v3` 326 · `heltec_mobile` 326. `-Wswitch` **0** and `error:` **0** on every one |
+| OLED census | **326 objects / 180 / 180 / 176, `-Wswitch` 0, PASS** — pins **UNMOVED**, nothing re-pinned |
+| board probe | **38/38 behavioural + 10/10 structural + 8/8 wiring (W1–W8; W7/W8 are new), 8/8 controls red** |
+| `sizeof(Node)` | untouched — **0 files under `lib/`, so s18 is inert BY CONSTRUCTION, not by luck** (D2) |
+
+**RAM: +264 B UNIFORM on all three OLED envs** — `heltec_v3` 214116 → **214380** · `heltec_mobile` 213636 → **213900** · `gateway_heltec` 239036 → **239300** = **73.03 %** (was 72.95 %; still the tightest OLED env). Flash `heltec_v3` **+2176** / `heltec_mobile` **+2244** / `gateway_heltec` **+2248**. `gateway` is unmoved at 82.4 % (no OLED).
+★ **Accounted by controlled `sizeof` A/B on the native ABI** (stash the slice, compile the same probe, restore): `UiModel` 96 → **100** (+4: `_chan`, `_refuse_code`, `_emg_evidence`, and `UiState` 6 → **7** for `compose_result`) · `UiSnapshot` **528 unchanged** · **NEW `InboxRowBudget` = 260 B**, one static (8 × 32 B `InboxRow` + two counters). ⇒ **260 + 4 + the frozen `OutcomeView`'s three new fields ≈ the +264 measured.** The dominant term is spec §6.1's PER-KIND row budget, and that is what it buys.
+
+## ★★★ THE MUTATION BATTERY — 15 reverts/wrong-fixes, every one BUILT, RUN, RESTORED and md5-VERIFIED
+Each row applied its edit to the real tree, ran `pio test -e native` **and the binary**, then restored both headers and
+checked their md5. ⚠ **`pio test`'s own summary is not the instrument** — the harness parses the binary's output.
+
+| # | mutation | models | result |
+|---|---|---|---|
+| **M1** | `-l` unconditional | §4.1: a fix-less node's alarm becomes NO alarm | **1 case / 2 assertions RED** |
+| **M2** | the composer CLAMPS a `back` index instead of refusing | §B66 one level down: `back` becomes a SEND | **2 / 7 RED** |
+| **M3** | `ctr == 0` also calls `on_send_accepted` | §B84 double-count: two of three alarms on one TX | **1 / 2 RED** |
+| **M4** | every send uses the NORMAL slot | the alarm loses its own slot (§2.1) | **2 / 5 RED** |
+| **M5** | **§B69 reverted** — `remote_mint` collapses onto `no_relay` | the shipped defect B69 names | **2 / 3 RED** |
+| **M6** | the evidence written BEFORE the live-alarm guard | the tempting wrong placement | **1 / 3 RED** ⚠ *0 / 0 on the first writing — see below* |
+| **M7** | a new alarm inherits the old evidence | a stale measurement justifying `NOT HEARD` | **1 / 1 RED** |
+| **M8** | the normal expiry routed into `on_outcome` | **§B84 blocker 2 re-armed** | **3 / 4 RED** |
+| **M9** | the normal slot closed UNCONDITIONALLY | the wrong fix: kills §3.4.1's late-ack upgrade | **1 / 3 RED** |
+| **M10** | the normal slot NEVER closed | the permanent `late_ack` leak | **1 / 1 RED** ⚠ *0 / 0 on the first writing — see below* |
+| **M11** | the result phase falls through to the list logic | a HIDDEN RE-SEND from a view showing an outcome | **3 / 7 RED** |
+| **M12** | `close_compose` keeps the result flag | a stale verdict over a list not yet sent | **4 / 6 RED** |
+| **M13** | ONE shared inbox pool | spec §6.1's named hazard: a chatty channel evicts every DM | **2 / 8 RED** |
+| **M14** | `on_send_refused` drops the `CmdCode` | the panel cannot name the wall | **2 / 2 RED** |
+| **M15** | `take_send_request` keeps `_chan` | the previous post's verdict on the next one | **2 / 2 RED** |
+
+## ★★★ THE TWO VACUOUS CONTROLS — MEASURED, NOT REVIEWED, AND THE MOST IMPORTANT FINDING IN THIS SLICE
+Both named the right scenario, read correctly, and **could not fail**. Neither was visible to inspection.
+
+1. **M6 — the §2.1 evidence guard.** v1 settled the alarm on `PICKED UP` first, which sets `local_tx`; the STICKY rule
+   (`remote_mint` writes only while the evidence is `none`) then masked the misplaced write completely. ⇒ rewritten
+   with **three arms that all start from `EmgEvidence::none`** — an idle model, a `failed` alarm, and the sticky case
+   kept separately so it cannot double as the guard. **Only then does M6 go red (1 / 3).**
+2. **M10 — the slot leak.** The case ended with a successful LATE ACK, and `match_dm` idles the slot itself on an
+   acked outcome (`if (acked) { _state = State::idle; }`) — so `CHECK(normal.idle())` was measuring `match_dm`, not
+   the close. ⇒ a **separate case whose late ack NEVER ARRIVES** (the normal case — `e2e_ack_timeout` means the peer
+   did not answer) is the one that can fail. **Only then does M10 go red (1 / 1).**
+
+⇒ Restated, because this is now twice in two slices: **a negative control that names the right scenario is not a
+negative control.** An unrelated rule neutralising a wrong fix is an accident of rule order, never a safety property.
+
+## ★★ THE PROBE'S OWN VACUITY GUARD FIRED, TOO
+`W8`'s first revert script targeted an anchor that lives in `firmware_ui_send.h`, not in the file `wchk` mutates —
+so the sed changed nothing and `run.sh` reported *"the revert changed NOTHING, so the check is vacuous"* rather than
+passing. That is the third dead revert script this guard has caught. **W7** is the new last-mile check that no native
+test can reach: the tick must reach `mrui::ui_perform_send` through `ui_have_fix()` **and** the real executor — a
+literal `true` there would compile, keep every native case green, and make a fix-less node send `-t -l`, which
+`node.cpp:1553` refuses outright. **W8** is negative space: this file must compose no `send`/`send_channel` line
+itself, or the byte-exact line assertions would be guarding a string nothing sends.
+
+## ★★ PREMISES THAT TURNED OUT WRONG (D3 — recorded, not smoothed over)
+1. ⛔⛔ **"`ctr == 0` has a producer that is a SUCCESS, so render it SENT" (B69, spec §2.1 rule 2, the plan).** Not on
+   this UI's line. `-t` without `-g` makes `want_global` false (`node.cpp:1401`), so `do_send_channel_delegated` is
+   unreachable and the two surviving producers are a pre-TX block and a SEAL FAILURE. **The obligation is inverted:
+   the carrier B69 asked for exists, and what it must carry is UNCONFIRMED.** Reported, not edited into the plan.
+2. ⛔ **"A DM can only reach `awaiting` via a hash-addressed send the UI never issues"** (`firmware_ui_send.h`, since
+   UI-4). `enqueue_data:56-61` also returns 0 for an un-synced managed joiner. ⇒ **register B111**.
+3. ⛔ **"`ctr != 0` ⇒ this node owns the handle, exact correlation is valid"** (spec §2.1 rule 2) — true on the
+   `send_channel` arm, **false on the DM arm**: four `enqueue_data` refusals return the minted ctr without enqueueing.
+   ⇒ **register B112**, a `lib/core` finding, not fixed here.
+4. ⛔ **"`no_fix` is the CmdCode"** (the plan's Task-7 listing). It is an `MR_EMIT` telemetry string; the code is
+   `err_unsupported`, shared with `no_key`, `no_identity`, `empty` and `unsealable`. ⇒ the compact `RefuseReason`
+   **cannot** name the wall, which is why `UiModel::refuse_code()` carries the `CmdCode` verbatim beside it and the
+   panel prints `cmdcode_name` (U1 — `fw_main.cpp:905` already calls that "the ONE mapper").
+5. ⛔ **"`RefuseReason::ack_ring_full`"** (the plan's `refuse_reason_of` sketch) — no such enumerator exists, and the
+   plan separately forbids conflating it with `queue_full`. The enum did **not** grow; the code rides beside it.
+6. ⛔ **"the tree carries 14 modified / 2 untracked uncommitted files"** (the dispatch). The owner committed them as
+   `cbbd69e`; the tree was clean at start. Nothing was reverted, restaged or cleaned.
+7. ⛔ **"0 warnings in the native build log"** (§UI-6-RULINGS). That was an incremental build. The honest clean-build
+   figure is **9**, all pre-existing, none in a UI TU — measured on the baseline tree *before* this slice.
+
+## ★★ DESIGN CHANGES MADE, REPORTED RATHER THAN WRITTEN INTO THE SPEC/PLAN
+- **The compose sub-view no longer CLOSES on send.** It enters a RESULT phase (`UiState::compose_result`). UI-2 closed
+  it, which left every `DmState` the spec defines — including `DELIVERED to <label>`, the one thing `-a` buys over a
+  channel post — with **no renderer at all**. Two shipped cases pinned the closing behaviour; they were **rewritten,
+  not deleted**, and say why in-source (the §B101 precedent). Gestures in the result phase: `double` closes (spec
+  §3.2.1 verbatim) and `short` closes too — DERIVED from §3.2's "at the end of a list, move on", since a result view
+  has no list. Neither can queue anything, and that is asserted on the **queued request** (§B110's method), never on
+  the `compose` enum.
+- **The compose sub-view's lifetime now bounds the ONE normal tracker slot** (`ui_pump_trackers`). This discharges the
+  `close()` caller obligation `firmware_ui_send.h` has carried since UI-4, and it has a HARD failure mode: `match_dm`
+  parks an `e2e_ack_timeout` DM in `late_ack`, which is never `idle`, and `mr_ui_tick` drains a new request only while
+  the normal slot IS idle ⇒ **one unconfirmed DM would disable every further send on the device, permanently.**
+  ⚠ Honest cost, stated: a team `channel_sent` can take ~36 s and an e2e ack up to 60 s, both longer than the modal's
+  `kBlankMs`, so a late verdict is ABANDONED rather than displayed. A display loss, never a false claim.
+- **`EmgView` renamed `OutcomeView`** in `firmware_ui.cpp` — it now holds the DM and canned-channel compose outcomes
+  as well, and the old name was exactly the comment drift V1 forbids. One TU, no behaviour.
+- **`RefuseReason` did NOT grow**; `UiModel::refuse_code()` carries the `CmdCode` verbatim instead (premise 4 above).
+
+## SCOPE / OWED
+- **M2 (metal-only):** bench guide **H7-01…H7-06** rewritten with exact expected panel text, plus **H7-07** (§B69) and
+  **H7-08** (the slot-lifetime fix); bench script **8.17–8.20**.
+- **Owed by the OWNER:** ⓘ **B69's inverted obligation above** — the panel now says `NOT CONFIRMED` / `unconfirmed xN`
+  where the plan said `SENT`; if the owner disagrees, the carrier is in place either way and only two strings move ·
+  **B112** (a `lib/core` slice) · **B111** (a tenth `SendOutcome::Kind`, a display ruling) · **B64** (still a behaviour
+  ruling) · everything §UI-6-RULINGS and the UI-6 notes already list, unchanged.
+
 **★★★★★★★★★★★★★ 2026-08-05 §UI-6-RULINGS — THE OWNER'S TWO RULINGS ON THE OPEN UI-6 DECISIONS, BOTH IMPLEMENTED. ★ THE HEADLINE IS NOT EITHER FIX — BOTH ARE ONE LINE — IT IS THAT **R1's NEGATIVE CONTROL WAS VACUOUS ON ITS FIRST WRITING AND MEASUREMENT CAUGHT IT**: a mutation implementing the tempting wrong fix (wake on ANY push) PASSED it, because an unrelated `on_tick` rule re-blanks the model before any paint pass runs. MODIFIED: `src/firmware_ui_model.h` (§R1's un-blank in `on_reply`, §R2's own gesture arm), `src/firmware_ui_send.h` (one comment: why the wake is NOT here), `test/test_firmware_ui_{model,send}.cpp`, `tools/probe_board_ui/run.sh` (the new W6). DOCS: this file, `docs/2026-07-30-open-bug-register.md` (B109/B110), `docs/2026-07-31-bench-test-script.md`, `docs/2026-08-04-heltec-v3-oled-ui-bench-guide.md`, `docs/superpowers/specs/2026-07-31-onboard-oled-ui-design.md` §5 (the two rulings recorded, in the §B71 precedent's form), `docs/2026-08-04-oled-handover.md` (status line only). NOTHING ELSE — ⛔ **0 files changed under `lib/`**, no scenario, no `platformio.ini`. UNCOMMITTED, on top of the §B108-ROUND-2 note that follows:** native **1312 / 73603 / 0 → 1321 / 73703 / 0 failed** (+9 cases, +100 assertions), **60 test objects**, **0 `error:` and 0 `warning:` in the build log** · s18 keystone **`1cd21235` / 271629 EXACT** · **36/36 corpus identical, 0 movers, 0 assertion failures in any of the 36** (anchor rows extracted with the B77-safe `^### ` anchor; failure counts read with `2>&1` because `lus` prints them to **stderr**) · `lus` md5 **`8cb1f0f5` unchanged** and **the recompilation control FIRED** — `touch lib/core/node.cpp` produced **5** `Building CXX`/`Linking CXX` actions and the binary reproduced `8cb1f0f5` · board probe **38/38 + 10/10 structural + 6/6 wiring (W1–W6, W6 is new), 8/8 controls red** · **5/5 board envs rc=0 from DELETED object dirs** (`gateway` 283 objs · `xiao_sx1262` 283 · `xiao_esp32s3` 193 · `heltec_v3` 326 · `heltec_mobile` 326; `-Wswitch` **0** and `error:` **0** on every one) · OLED census **326 objects / 180 / 180 / 176 PASS, `-Wswitch` 0** — pins **UNMOVED**, nothing re-pinned · `sizeof(Node)` untouched — **0 files under `lib/`, so s18 is inert BY CONSTRUCTION, not by luck** (D2).
 
 ## ★★★ THE PER-RULING RED MEASUREMENTS, AND THE TWO WRONG-FIX MUTATIONS BESIDE THEM

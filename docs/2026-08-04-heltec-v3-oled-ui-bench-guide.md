@@ -16,7 +16,10 @@ This is the focused hardware companion to `docs/2026-07-31-bench-test-script.md`
 | H8 | Task 8 — emergency integration | Prove long-press safety behavior, retries, pickup/reply feedback, isolation, and preemption |
 | H9 | Task 9 — battery reader | Prove the Heltec V3 battery measurement against a meter and under radio load |
 
-Start H5 now. Do not use a missing later-stage behavior as an H5 failure.
+**Current approved stopping point (2026-08-05): run H5, H6, and H7 through H7-09.** Task 7 and its B64/B113
+repair slice have passed QG. Do **not** start H8 yet: that is the Task 8 emergency end-to-end qualification gate.
+Do not start H9 until the Task 9 battery reader lands. Retired and conditional checks remain labelled in their own
+sections; do not turn an intentionally unavailable later-stage behavior into an earlier-stage failure.
 
 ## 2. Equipment and topology
 
@@ -92,6 +95,17 @@ Expected Task 5 baseline:
 phA5 board_ui probe: 34 passed / 0 failed / 34 total
 ```
 
+Expected on the currently approved Task 7 tree:
+
+```text
+phA5 board_ui probe: 38 passed / 0 failed / 38 total
+structural: 10 passed / 0 failed / 10 total
+wiring:      9 passed / 0 failed / 9 total
+```
+
+The wiring total includes W9, which pins B64's `TEAMMATE GONE, repick` rendering and suppressed highlight. The runner
+also executes the negative control for each wiring check.
+
 The runner also executes its compile-negative controls. Treat any non-zero exit as a failed preflight.
 
 ### 4.3 Make a clean board build
@@ -120,6 +134,17 @@ Verified 2026-08-04 build references for the current Task 5 tree:
 | `heltec_mobile` | 210772 B | 1237796 B |
 
 These are comparison references, not permanent protocol constants. Later tasks are expected to move them.
+
+Verified 2026-08-05 references for the approved Task 7 + B64/B113 repair tree:
+
+| Environment | RAM | Flash |
+|---|---:|---:|
+| `heltec_v3` | 214396 B | 1253732 B |
+| `heltec_mobile` | 213916 B | 1247280 B |
+
+The Task 7 hardware run should normally use `heltec_mobile`. Record the actual size printed by your build; small
+toolchain/link-order flash movement is not by itself a functional failure, while an unexplained RAM change requires
+review.
 
 ### 4.4 Find the serial port
 
@@ -369,7 +394,7 @@ Record comparable idle and active-radio logs. A single weak-link retry is not pr
 - [ ] Unchanged state does not cause visible continuous redraw.
 - [ ] Values agree with the console representation of the same state.
 
-### H6-06 — The send path is deliberately NOT BUILT, and must say so
+### H6-06 — RETIRED 2026-08-05 by UI-7 (the send path is BUILT; see H7). Kept for the audit trail only
 
 ★ This exists so `not built` is never mistaken for `the radio failed`. `ui_perform_send` is a loud-refusal stub;
 `mrfw::exec_command` is Task 7's, and C1 forbids folding it into this slice.
@@ -485,65 +510,135 @@ needs eyes on the panel and a second node watching the air.
 
 ## 7. H7 — run after Task 7 lands
 
-### H7-01 — Canned channel send
+★ **UI-7 landed 2026-08-05.** The UI-6 loud-refusal stub is gone: a send now really executes `send` / `send_channel`
+through `mrfw::exec_command`. ⚠ **H6-06 is RETIRED by this slice** — it checked for the panel line `no send path: UI-7`,
+which no longer exists; the `FAILED` screen now names the real refusal.
 
-- [ ] Use short presses to reach SEND.
-- [ ] Double-press on SEND to enter the channel compose sub-view.
-- [ ] Confirm the initial highlight is `Got your message`.
-- [ ] Use short press to move among `Got your message`, `All good`, and `back without sending`.
-- [ ] Double-press a message to send it.
-- [ ] Exactly one channel operation is queued.
-- [ ] The UI reaches the correct queued/sending outcome.
-- [ ] A receiving node observes the intended body and channel.
+⚠ **What the panel can show that no automated gate can:** the composed COMMAND is asserted byte-for-byte natively
+(`ui7-line:` cases), and the tracker/model transitions are natively driven. What only this bench can answer is whether
+the composed line reached the radio, what the OTHER node received, and what the 128x64 panel actually rendered.
 
-Repeat with an unavailable or blocked send path and verify the UI reaches the specified bounded failure outcome rather than remaining on `SENDING...` indefinitely.
+### H7-01 — Canned channel send (the happy path)
+
+- [ ] Short-press to **SEND**, then `double` → the compose list appears, headed `to: team ch 0`.
+- [ ] The initial highlight is `>Got your message`; `short` walks to `All good`, then `back, don't send`, then wraps.
+- [ ] With `Got your message` highlighted, `double`.
+- [ ] **Panel:** the list is REPLACED by the outcome, under the same `to: team ch 0` header. Expect
+      `SENDING...` for one frame, then **`SENT, waiting`**, and the bottom line **`press = back`**.
+      ★★ **THE `SENT, waiting` STEP IS §B113, AND IT WAS UNREACHABLE UNTIL 2026-08-05.** `ChanState::waiting` was
+      assigned nowhere in the tree, so an accepted canned post stayed on `SENDING...` until either the ~36 s verdict or
+      — first, on the common path — the 15 s auto-exit. ⇒ **if this step is missing and the panel sits on `SENDING...`
+      right up to the settle or the exit, B113 has regressed.** The DM twin (H7-03) always worked; only the channel
+      state machine was missing its acceptance arm.
+- [ ] **Console (USB, second node):** the receiver logs the channel message with body `Got your message`.
+- [ ] **Exactly ONE** channel operation is issued — check the sender's console shows one send, not two.
+- [ ] Within ~36 s the outcome settles to **`PICKED UP`** (a relay was overheard) or **`SENT, no relay`**.
+      ⚠ §B38: on a fully-1-hop pair `SENT, no relay` is CORRECT at 100 % delivery. Do not treat it as a failure.
+- [ ] ⚠ If the modal auto-exits (15 s of no input) before that verdict arrives, the late verdict is ABANDONED by
+      design — see H7-08. Press a button occasionally to keep it open if you want to observe the settle.
 
 ### H7-02 — Cancel a canned send
 
-- [ ] Double-press on SEND to enter the channel compose sub-view.
-- [ ] Short-press until `back without sending` is highlighted.
-- [ ] Double-press that row.
-- [ ] No radio operation is queued.
-- [ ] The UI returns to SEND.
-- [ ] Re-entering compose starts on the first message.
-- [ ] Leaving the sub-view idle for `MR_UI_BLANK_MS` also exits without sending.
+- [ ] `double` on SEND → compose list. `short` until `>back, don't send`. `double`.
+- [ ] **Panel:** returns to the **SEND** screen (its parent), not to STATUS.
+- [ ] **Console:** NO send line at all, on either node. This is the assertion — a quiet console is the result.
+- [ ] Re-enter compose: the highlight is back on `>Got your message` and there is **no outcome text**.
+- [ ] Leave the sub-view idle for 15 s instead: it exits by itself, again with **nothing sent**.
 
 ### H7-03 — DM compose and send
 
-- [ ] Use short presses to highlight a known peer on TEAM.
-- [ ] Double-press to enter the DM compose sub-view for that peer.
-- [ ] Confirm the initial highlight is `Are you OK?`.
-- [ ] Use short press to choose `Are you OK?` or `I'm OK`, then double-press to send.
-- [ ] Exactly one DM is queued for the selected peer.
-- [ ] A reachable peer receives the intended body.
-- [ ] ACK/no-confirm/failure presentation matches the actual console outcome.
-
-Repeat for an unknown/unresolved peer and verify the UI refuses safely with the designed reason; it must not silently send to a different peer or plane.
+- [ ] `short` to **TEAM**, walk to a known teammate, `double` → header reads `to: <label>` for THAT peer.
+- [ ] Highlight `>Are you OK?` and `double`.
+- [ ] **Console (sender):** the issued line is `send <id> "Are you OK?" -t -a`. ⚠ **No `-e`** — the parser rejects it
+      on an id target; encryption follows the node's own `e2e_dm` setting (spec §3.4).
+- [ ] **Panel:** `SENDING...` → **`SENT, waiting`** → **`DELIVERED to <label>`** once the end-to-end ack returns.
+      ★ `DELIVERED` appears in exactly one place in this design and this is it. A channel post can never say it.
+- [ ] **Second node:** receives the body `Are you OK?`.
+- [ ] Repeat with the peer POWERED OFF: the panel must reach **`NO CONFIRM`** (not `DELIVERED`, not a blank screen)
+      once the e2e-ack deadline expires. ⚠ This can take a full minute — leave it, or press a button to hold the modal.
+- [ ] Repeat on a node with `e2e_dm = 1` and NO stored pubkey for that peer: expect **`NO KEY`**.
+      ★ It is a genuine dead end on-device (the node may never auto-issue `reqpubkey`), which is why it is named.
 
 ### H7-04 — Cancel DM compose
 
-- [ ] Enter DM compose for a known peer.
-- [ ] Short-press until `back without sending` is highlighted.
-- [ ] Double-press that row.
-- [ ] No DM is queued.
-- [ ] The UI returns to TEAM without changing the selected recipient unexpectedly.
-- [ ] No stale partial message is sent on the next compose attempt.
+- [ ] Enter DM compose for a known peer, `short` to `>back, don't send`, `double`.
+- [ ] **Panel:** returns to **TEAM** with the same teammate highlighted.
+- [ ] **Console:** no `send` line. Nothing was transmitted.
+- [ ] Re-enter compose for the same peer: highlight on `>Are you OK?`, no stale outcome text.
 
 ### H7-05 — Inbox presentation
 
-- [ ] Receive at least one DM and one channel message.
-- [ ] Both appear in the merged inbox presentation with an unambiguous DM/channel marker.
-- [ ] Ordering agrees with the firmware inbox sequence.
-- [ ] Opening/reading an item updates unread state as designed.
-- [ ] Long bodies are clipped/wrapped predictably without corrupting adjacent UI state.
+- [ ] Receive at least one DM and one channel message on the device under test.
+- [ ] `short` to **INBOX**.
+- [ ] **Panel header:** `INBOX <shown>/<total>` — e.g. `INBOX 3/3`. ⚠ If more messages are stored than fit, `total`
+      must exceed `shown`. **The cap must never be presented as the mailbox size.**
+- [ ] Rows are tagged **`DM`** or **`CH<n>`**, followed by the clamped body and an age.
+- [ ] **All DM rows come first, then all channel rows.** ⚠ This is BLOCK order, not chronological — the two sequence
+      spaces are independent. Do not report it as a sorting bug.
+- [ ] `short` walks the rows and leaves for SEND at the end, like TEAM.
+- [ ] With NO durable inbox store installed the screen reads `no stored rows` **and still shows the live DM/CH
+      counters**. ⚠ It must NOT say "no messages" — the node cannot know that.
+- [ ] Send yourself a long message (>20 chars): the row is CLIPPED, and the rows above and below are undamaged.
 
 ### H7-06 — Send tracker closure
 
-- [ ] A normal acknowledged DM closes its tracker slot.
-- [ ] A channel send without a relay confirmation reaches its bounded `NOT HEARD`/equivalent result.
-- [ ] A late ACK can improve `NO CONFIRM` only where the design permits.
-- [ ] An unrelated asynchronous failure does not terminate the active send.
-- [ ] After each terminal result, another send can start; no slot remains leaked.
+- [ ] After a DELIVERED DM, immediately compose and send another: it goes out. No slot is stuck.
+- [ ] After a `NO CONFIRM` DM (H7-03's powered-off case), close the sub-view and send **any** other message.
+      ★★ **This is the one that would fail silently:** an unconfirmed DM used to hold the single normal slot for ever,
+      and every later send — canned post included — would simply never be issued. If the second message does not go
+      out, STOP and report; that is the leak UI-7 closed.
+- [ ] Fire the emergency (long press) while a canned post is outstanding: the alarm goes out immediately and does not
+      wait for the canned post's verdict.
+
+### H7-07 — §B69: an unconfirmed send must never read as SENT ★★ NEW, AND IT IS THE SLICE'S SAFETY POINT
+
+★ **Why it needs the bench:** the two `ctr == 0` producers on this path are a pre-TX self-gate and a channel SEAL
+FAILURE. Neither is reproducible from the console alone, and the panel is the only instrument for what the user is
+told. **Hard to provoke deliberately — record it opportunistically if it appears.**
+
+- [ ] Provoke a seal failure if you can (a node whose team channel key was removed after `create`/`join`), or simply
+      watch for the state during H8's alarm work.
+- [ ] **Panel (canned sub-view):** **`NOT CONFIRMED`** on the first line and **`no send handle`** on the second.
+- [ ] ⛔ It must NEVER read `SENT`, and it must NEVER read `SENT, no relay`. Both would be claims the node cannot make:
+      with no local handle it never listened, and on this `-t` line a zero ctr is a block or a seal failure, not a
+      delegated success. **If you see either wording, STOP and report — that is the §2.1 false confirmation.**
+- [ ] **Panel (emergency overlay), same condition:** headline **`NOT HEARD`**, detail **`unconfirmed x3`** —
+      NOT `no relay after 3`. The headline is deliberately the same as the measured case: the user's action is
+      identical (do not assume help is coming), only the claim about what was measured differs.
+
+### H7-08 — the sub-view's lifetime bounds the outcome, and that is DELIBERATE
+
+- [ ] Send a canned channel post and let the modal auto-exit (15 s, no presses).
+- [ ] The late `channel_sent` verdict (up to ~36 s) is **not** shown afterwards, and the panel does **not** pop back.
+      ★ That is the ruled trade-off: the sub-view is the only renderer of a normal outcome, so retaining the slot past
+      it can only leak. **Report it only if the panel shows something rather than nothing.**
+- [ ] Immediately send again: it works (this is H7-06's assertion from the other side).
+
+### H7-09 — §B64: a teammate that LEAVES the roster must never inherit your DM ★★ NEW, OWNER-RULED 2026-08-05
+
+★ **Why it needs the bench:** the model half is natively gated, but the *panel* half is not — and the panel half IS the
+safety property. `src/firmware_ui.cpp` is compiled by neither the native suite nor the simulator, so only this bench can
+confirm that the highlight really disappears and the reason really appears.
+★ **The ruling:** the cursor tracks the TEAMMATE, not the row. A teammate who has gone ⇒ **refuse and repaint**, never
+retarget. Before this, a cursor on row 2 meeting a shorter roster sent `"Are you OK?"` to **row 0** — a mis-send.
+
+- [ ] **Setup:** three same-team nodes in range so TEAM lists at least two teammates (`T2/2` or better in the bar).
+      Short-press to **TEAM** and walk the `>` marker onto the **LAST** teammate in the list.
+- [ ] **Now power that teammate down** and wait for it to drop out of the roster (the bar's `T<shown>/<total>` falls;
+      it follows `rt_team_count()`, so allow the routing aging interval).
+- [ ] **Panel, the moment the row goes:** the list redraws with **NO `>` marker anywhere**, and the LAST body line reads
+      exactly **`TEAMMATE GONE, repick`**.
+- [ ] `double` now. **Panel:** unchanged — **no compose sub-view opens at all**. **Console (both nodes): NOTHING is
+      sent.** ⛔ A `send <id> "Are you OK?" -t -a` appearing here is the B64 mis-send, live. **STOP and report.**
+- [ ] `short` once to walk on. The `>` marker reappears on the next teammate and **`TEAMMATE GONE, repick` disappears**.
+- [ ] `double`, then `double` again: the DM goes out, and the console line names **the teammate now under the marker** —
+      confirm the id matches that row, not the one that vanished.
+- [ ] **The REORDER half** (the case a clamp would get wrong): with three teammates listed, put the `>` on the middle
+      one and note its label. Leave it for a while so the roster re-sorts as scores/ages move (or power a *different*
+      teammate down and back up). **The `>` must stay on the teammate you chose, even if it changes row**, and the DM
+      must go to that teammate's id. ⚠ If the marker stays on a fixed ROW while the names shift under it, identity
+      tracking has regressed to index tracking.
+- [ ] Cycle off TEAM and back while the message is up: it must **not** still be showing (it is retired on leaving).
 
 ## 8. H8 — run after Task 8 lands
 

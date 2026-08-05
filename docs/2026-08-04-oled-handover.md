@@ -32,7 +32,107 @@ short* press; R2 is a **different arm** and must not be folded into it by reusin
 
 ---
 
-# ⛔⛔ ADDENDUM 2026-08-05 — READ THIS FIRST. TASK 6 LANDED AND IS **NOT APPROVED**.
+# ★★★ STATUS 2026-08-05 (LATEST) — TASK 7 WAS **REJECTED BY INDEPENDENT QA** ON TWO BEHAVIOURAL BLOCKERS; **BOTH ARE NOW FIXED, GATED AND UNCOMMITTED** (§UI-7-FIX)
+
+> **Read the `simulation/BASELINE.md` §UI-7-FIX note (top) for the evidence.** Compilation and every automated gate were
+> GREEN over both blockers — they were behaviour, not build.
+>
+> - **§B113 (NEW, registered BEFORE it was fixed):** `ChanState::waiting` was assigned **zero** times in the whole tree
+>   and referenced **once**, by the renderer — a **DEAD STATE**. An accepted canned channel post therefore stayed on
+>   `SENDING...` until either the ~36 s verdict or, first on the common path, the 15 s auto-exit — contradicting the
+>   bench guide's required `SENDING... → SENT, waiting` (`:502`) verbatim. Fix: `on_send_accepted` gains its third arm.
+>   ⓘ The DM twin always worked; only the channel machine was missing its acceptance. Same shape as §B75, one slice on.
+> - **§B64 (CLOSED, OWNER-RULED):** the TEAM cursor now tracks the **teammate by team-plane identity**, so a roster
+>   reorder moves the highlight WITH the teammate, and a teammate that has left the roster **REFUSES the activation**
+>   (`TEAMMATE GONE, repick`, `>` suppressed) instead of retargeting the DM to whatever row the stale index landed on.
+>   ⚠ It was a MIS-SEND, and plan `:135` named it a **prerequisite** for wiring real sends — Task 7 shipped without it.
+> - ⓘ One stale comment corrected (V1): `firmware_ui_model.h`'s §B69 block still claimed `channel_remote_mint` could
+>   render as **SENT**. **The implementation was right and the comment was wrong** — see the `want_global` measurement.
+>
+> Gate: native **1358 / 73899 / 0 → 1366 / 73956 / 0** at **60 objects**, 0 `error:`, 9 pre-existing warnings (0 in any
+> UI TU) · s18 `1cd21235`/271629 EXACT · corpus 36/36, 0 movers · census 326 / 180 / 180 / 176, pins unmoved · probe
+> 38/38 + 10/10 + **9/9 wiring (W9 new)**, 8/8 controls red · RAM **+16 B** uniform (`gateway_heltec` 239316 = 73.03 %).
+> **9-row mutation battery, every row built + run** — ⚠ **two of this slice's own controls were VACUOUS**, including a
+> "revert the fix" mutation that reverted only half of it and scored 0/0. The note says which and why.
+> ★ **Owed to the owner:** the B64 ruling is not recorded in the spec (§R1/§R2's precedent says it should be), and the
+> plan's §B87 RAM figures are now two slices stale. Both reported rather than edited.
+
+# ★★ STATUS 2026-08-05 — TASK 6 IS **APPROVED AND COMMITTED** (`cbbd69e`); **TASK 7 IS IMPLEMENTED, GATED, UNCOMMITTED**
+
+> ⚠ **The ADDENDUM below is HISTORY from here on.** Its five QA findings (F1–F5) all landed, the two owner rulings
+> R1/R2 landed, and the owner committed the lot. Read it for the METHOD, not for the state.
+>
+> **UI-7 (plan Task 7 — the real send path) is done and gated.** Evidence: the `simulation/BASELINE.md` **§UI-7** note
+> (top). Native **1358 / 73899 / 0** · s18 `1cd21235`/271629 EXACT · corpus 36/36 · census 180/180/176 @ 326 objects,
+> pins unmoved · probe 38/38 + 10/10 + **8/8 wiring (W7/W8 new)** · RAM **+264 B** uniform (`gateway_heltec` 73.03 %).
+> **15-mutation battery, every row built+run**; ⚠ **two of the slice's negative controls were VACUOUS and only the
+> mutations caught them** — the note says which and why.
+>
+> ★★ **THE ONE THING NEEDING THE OWNER'S EYE: B69's obligation is INVERTED by measurement.** "Render
+> `channel_remote_mint` as SENT" rests on B39's delegated-global producer, and that producer is **structurally dead
+> behind `-t`** (`node.cpp:1401`). On the line this UI sends, a zero ctr is a pre-TX block or a **seal failure** —
+> so SENT would be a §2.1 false confirmation. The panel says **`NOT CONFIRMED` / `unconfirmed xN`** instead. The
+> carrier B69 asked for exists either way; if the owner disagrees, only two strings move.
+> **New in the register: B111** (a DM `ctr == 0` has no outcome kind) and **B112** (`ctr != 0` does not imply the DM
+> was enqueued — a `lib/core` finding). **Closed: B69, B66.**
+> ⓘ **H6-06 is retired** by this slice (it checked for the `no send path: UI-7` line, which no longer exists).
+
+---
+
+# ✅✅ STATUS 2026-08-05 (LATEST) — TASK 6 **APPROVED**, TASK 7 **LANDED**. THE BLOCK BELOW IS HISTORY.
+
+★ **Read this first; the `⛔⛔ ADDENDUM` that follows is the AUDIT TRAIL of how Task 6 got here, not current state.**
+
+| | |
+|---|---|
+| HEAD | **`cbbd69e`** — the owner has committed UI-6 + the QA fixes + B109/B110; **13 modified, 0 untracked, UI-7 UNCOMMITTED** |
+| native | **1358 / 73899 / 0**, `grep -c "error:"` **0** — ★ QA re-measured independently |
+| s18 | **`1cd21235` / 271629 EXACT**, corpus **36/36** — **0 files under `lib/`** ⇒ inert by construction (D2) |
+| census | **326 objs · 180/180/176 · `-Wswitch` 0 · PASS, pins unmoved** — ★ QA re-measured |
+| RAM | **+264 B uniform** → `gateway_heltec` **239300 = 73.03 %** (tightest OLED env) |
+| probe | 38/38 + 10/10 structural + **8/8 wiring (W1–W8)**, 8 controls red |
+
+**Task 6 (UI-6): APPROVED** after **three** QA rejection rounds — F1–F5, the B108 cap-saturation repair, then owner
+rulings **B109** (reply wakes a blanked panel) / **B110** (double press under the overlay is ignored entirely).
+**Task 7 (UI-7): LANDED, gated, uncommitted.** `ui_perform_send` is real; UI-6's loud-refusal stub is gone. **B69 + B66
+closed. B111 + B112 opened.** Bench: **H7-01…H7-08** (H6-06 retired), script 8.17–8.20.
+
+## ★★★ B69 INVERTED ITS OWN OBLIGATION — the single most important result of this arc
+Spec §2.1 rule 2, the register's B69 entry, **and QA's own brief** all required `channel_remote_mint` to render as
+**SENT**, justified by B39's producer (3) — a mobile's *delegated global* post, a genuine success.
+⛔ **That producer is STRUCTURALLY DEAD on the line this UI sends.** `node.cpp:1401` computes
+`want_global = c.u.channel.global || !c.u.channel.team`; every UI post carries **`-t` without `-g`**, so
+`do_send_channel_delegated` is **never entered**. On `-t -e` exactly two `ctr == 0` producers survive — a pre-TX
+self-gate and a post-mint **seal failure** — and **neither is a success.** ⇒ **rendering SENT would have been the very
+§2.1 false confirmation the rule exists to prevent.** Panel now reads `NOT CONFIRMED`/`no send handle` and
+`NOT HEARD`/`unconfirmed x3`. **Zero `lib/` edits, no `wire_version` bump** — nothing was missing on the wire; only the
+UI lacked a state. ★ **A spec rule, a register entry and a QA brief were all wrong together, and only reading the send
+path caught it. Verify the producer, never the rule that cites it.**
+
+## ⚠⚠ B112 — OWED BEFORE UI-8 BUILDS ON IT, and it contradicts what QA briefed all arc
+**`ctr != 0` does NOT imply the DM was enqueued** (four `enqueue_data` paths; `enqueue_data` appears at **25 sites
+across 8 `lib/core` files**, `node_mac.cpp` alone holding 12). QA briefed `ctr != 0` as *"a local handle exists ⇒ exact
+correlation is valid"* in **every** UI-6/UI-7 dispatch. **That is too strong.** Not a UI bug — but it is the same shape
+as the three defects that got Task 6 rejected: **a success that isn't, one layer down.** ⇒ **scope it before UI-8.**
+
+## ★ THE METHOD LESSON THIS ARC ACTUALLY BOUGHT — four instances, none found by review
+**B97** (four "required regressions" structurally incapable of failing) · **B98** (a test green against the defect it
+named) · **R1's negative control** (the wake-on-any-push wrong fix *passed* it, because `on_tick` re-blanked before the
+assertion) · **UI-7's M6 and M10** (one masked by the sticky rule, the other actually measuring `match_dm`).
+⇒ **A control that names the right scenario is not a control. Mutation-check every negative control: implement the
+tempting WRONG fix and prove the control goes RED.** Standing requirement here now.
+⚠ Also: **QA's own "0 warnings in the native build log" was from an INCREMENTAL log** — a clean build shows **9**, all
+pre-existing, **0 in any `firmware_ui*` TU**. The caching mechanism was named in the note whose number QA then quoted.
+
+## Owner-owed queue
+**B105** (a `DeviceHal::radio()` accessor — needs `lib/hal`; root cause behind **three** rounds, and the reason this bug
+class is review-detectable rather than machine-detectable) · **B112** (above) · **the REPLY-only wake**
+(`blocked`/`picked_up`/`not_heard`/`failed` still arrive at a dark panel — reported spec gap, not a bug) ·
+**H5-02…H5-07** bench results · **B104** residue (battery cadence, snapshot builder, `draw_*`) · **Task 8** is next.
+
+---
+
+# ⛔⛔ ADDENDUM 2026-08-05 — HISTORY: HOW TASK 6 GOT REJECTED AND FIXED (was "READ THIS FIRST").
 
 ★ **Everything in §1 below is superseded by this block for the numbers, and by nothing for the method.** UI-6 (plan
 Task 6) is implemented, builds green on every gate, and was **REJECTED by independent QA** for five safety-relevant

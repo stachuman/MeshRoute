@@ -44,12 +44,15 @@ Legend:
 - [x] **B61 — FIXED 2026-08-03 (own commit, UNCOMMITTED):** `board_name()`'s silent `#else → "native"` is now an `#error`; `MESHROUTE_NATIVE` gets its own explicit arm.
 - [x] **B62 — ✅ CLOSED 2026-08-04 (UI-5, UNCOMMITTED):** the last open item — `board_ui.cpp:1`'s own path header — is fixed by the slice that rewrote the file, exactly where the entry said to fix it. A tree-wide `grep -rn 'src/board_ui' src/ lib/ variants/ platformio.ini` now returns **nothing**.
 - [ ] **B63 — RECORDED (gate methodology):** on xtensa, an object entering or leaving the link set moves `.flash.text` by up to ±200 B **even when it is zero bytes**; free on ARM. Retires the "+192 B = leaving `src/`" rule.
-- [ ] **B64 — OPEN / OLED UI-2:** a team roster that shrinks between ticks makes the compose modal send the canned DM to a **different teammate** than the highlighted one.
+- [x] **B64 — ✅ CLOSED 2026-08-05 (OWNER-RULED, fixed in the UI-7 QA fix slice, UNCOMMITTED):** the TEAM cursor now tracks the **teammate by team-plane identity**, not the row index — a roster reorder moves the highlight WITH the teammate, and a teammate that has left the roster **REFUSES the activation loudly** (`TEAMMATE GONE, repick`, highlight suppressed) instead of retargeting the DM. ⚠ It was a **MIS-SEND** and plan `:135` named it a prerequisite for wiring real sends; Task 7 wired them without resolving it.
+- [ ] **B111 — OPEN / NEW 2026-08-05 (UI-7, MEASURED):** a DM whose synchronous result is `queued` with **`ctr == 0`** has no handle to correlate and **no `SendOutcome` kind of its own**, so the sub-view sits on `SENDING...` until its own `kBlankMs` auto-exit. Bounded and never a false claim — but it answers nothing.
+- [ ] **B112 — OPEN / NEW 2026-08-05 (UI-7, MEASURED in `lib/core`):** on the id-addressed DM arm, **`ctr != 0` does NOT imply the frame was enqueued** — four `enqueue_data` refusals return a non-zero ctr without enqueueing. The UI's `accept()` therefore claims a handle for a send that never happened. ⛔ A `lib/core` finding; NOT fixed here.
+- [x] **B113 — ✅ FIXED 2026-08-05 (the UI-7 QA fix slice, UNCOMMITTED; OPENED by the same slice before the fix):** `ChanState::waiting` was a **DEAD STATE** — assigned **zero** times, referenced once, by the renderer — so an accepted canned channel post never left `SENDING...`. `UiModel::on_send_accepted` had arms for `emergency` and `dm` only.
 - [ ] **B65 — OPEN / OLED UI-2:** the UI model can blank the panel on its **first tick** if `mr_ui_init()` runs more than `kBlankMs` after boot — a panel that never drew anything.
-- [ ] **B66 — OPEN / OLED UI-2 DESIGN:** the compose modal's `back` row is identified **positionally**, with the count in the model and the strings in another TU.
+- [x] **B66 — ✅ CLOSED 2026-08-05 (UI-7):** the canned tables MOVED into `src/firmware_ui_model.h` and the counts are now `sizeof`-DERIVED from them, so `back`'s positional identity has a single declaration. This is B66's own named "durable cure", not the UI-6 `static_assert` interim it replaces.
 - [x] **B67 — FIXED IN THE PLAN 2026-08-03 (all nine sites):** `REQUIRE` is a **hard compile error** under `-fno-exceptions`. ⚠ Its fix introduced **B70** — read both.
 - [x] **B68 — FIXED IN THE PLAN 2026-08-03:** `SendOutcome` gained the eighth kind `channel_remote_mint`. ⚠ Its render obligation has no carrier — **B69**.
-- [ ] **B69 — OPEN / OLED UI-6-7:** `channel_remote_mint` must render as **SENT, never PICKED UP**, but the model has no state that distinguishes it from `channel_no_relay`.
+- [x] **B69 — ✅ CLOSED 2026-08-05 (UI-7), AND ITS OBLIGATION IS CORRECTED, NOT MERELY IMPLEMENTED:** the kind now has two carriers (`ChanState::unconfirmed` for the canned sub-view, `EmgEvidence::no_handle` for the alarm). ⚠ **"Render it as SENT" would have been a FALSE CONFIRMATION on the line this UI actually sends** — see the record.
 - [ ] **B70 — OPEN / PLAN DEFECT (measured, 9 of 11 assertions silently deleted):** the B67 fix guards a **draining** call by calling it **twice**, so the two most safety-critical emergency cases `return` early and report PASSED.
 - [x] **B71 — ✅ OWNER-RULED 2026-08-04, deferred to UI-6** (was: OPEN / SPEC GAP) — spec §4's `double` acknowledgement / re-fire is unimplemented, so a sticky emergency never returns to `idle` and UI-6's "emergency screen wins" policy has **no exit condition**.
 - [x] **B72 — FIXED 2026-08-04 (UI-3 QA, UNCOMMITTED):** `SendOutcome::channel_failed` — the **ninth** kind — now exists, is TERMINAL and carries its reason; a pre-enqueue seal failure can no longer leave the alarm on `SENDING...`. ⚠ **The entry was cited by the plan and had never been written here.**
@@ -1480,6 +1483,45 @@ the snapshot's roster changes** (Task 6, which builds the snapshot) or **refusin
 Severity is low — the canned DM texts are benign and `-a` reports where it actually went — but it is a mis-addressed
 message, so it wants a ruling rather than silence.
 
+### ~~B64~~ ✅ **CLOSED 2026-08-05** — OWNER-RULED, and it was a stated PREREQUISITE that Task 7 skipped
+★★ **THE RULING, VERBATIM:** *"Preserve selection by teammate IDENTITY across roster refreshes. The cursor tracks the
+teammate, not the row index. If that teammate has disappeared from the roster, REFUSE activation and repaint — never
+silently select another row."*
+⚠ **AND THE PROCESS FINDING BESIDE IT:** plan `:135` deferred B64 to Tasks 6/7 with *"that is a MIS-SEND, not a display
+glitch, so it needs a ruling before Task 7 wires real sends"* — and **Task 7 wired real sends without resolving it**,
+which is why independent QA returned it as a blocker rather than a backlog item.
+
+**What landed** (`src/firmware_ui_model.h`, `src/firmware_ui.cpp`):
+- `UiModel::_team_sel_id` + `_team_sel_valid` hold the selection **by team-plane id**. ★ **DERIVED, not invented (U1):**
+  that id is already in every `TeamRow`, is already what `compose_peer` stores, and is already what
+  `ui_compose_send_line` puts on the wire (`send <id> "<text>" -t -a`) — so the thing tracked and the thing addressed
+  are the SAME value and cannot drift. **No snapshot field was added.** ⛔ NOT the row's `label`: that is a display
+  string (name / `0x<hash>` / bare id), and a display-shaped field must never make an addressing decision (the B48 rule).
+- `sync_team_cursor(s)` re-finds that teammate in EVERY snapshot — called from `on_gesture` (before the gesture acts)
+  **and from `on_tick`**, because `FrameGate::step` freezes immediately after `on_tick`, so the highlight must already
+  name the remembered teammate or the panel and the send would disagree. A reorder therefore moves the `>` WITH the
+  teammate. ⚠ It is guarded on `compose == none`: while the sub-view is open `_st.cursor` is the MODAL's index.
+- **GONE ⇒ REFUSE.** `activate()` requires `_team_sel_valid`; otherwise it queues nothing, sets `UiState::team_pick_gone`
+  and marks the frame dirty. The renderer reserves one body row for **`TEAMMATE GONE, repick`** (21 chars = the panel
+  width exactly) **and suppresses the `>` marker** — a highlight beside a target the model has already refused to use
+  would be the same mis-send in display form.
+- ⚠ **C3, plane discipline:** `_team_sel_id` is a TEAM-plane local id. It is only ever COMPARED against a snapshot row's
+  `id` and copied into `compose_peer`; it indexes nothing, reaches no static `node_id`-keyed array, and adds no write
+  path. On a `!MR_FEAT_TEAM` build `team_build` is false ⇒ `Screen::team` is unreachable and all of it is inert.
+- ⓘ **No arithmetic value is reserved** (§B74's discipline): validity is its own flag, so id 0 — which
+  `Node::team_local_id()` documents as "not team-DAD'd" — needs no special case.
+
+**RED measured** (`simulation/BASELINE.md` §UI-7-FIX note): the shipped defect fully reverted = **5 cases / 15
+assertions**; ★ **the tempting WRONG fix (CLAMP the index instead of tracking identity) = 3 / 8** — the discriminating
+case is a same-size REORDER that puts the picked teammate on row 1, an index no clamp can produce (`cursor % 3` → 13,
+`shown - 1` → 13, `0` → 11, identity → **12**); the `on_tick` resync removed = 2 / 4; silently re-selecting row 0 on a
+vanish = 4 / 12; the vanish arm made level-triggered = 4 / 9; the compose guard dropped = 1 / 2.
+⚠ **TWO OF THIS SLICE'S OWN CONTROLS WERE VACUOUS AND ONLY MUTATION CAUGHT THEM** — the compose-guard control went
+**0 / 0** on its first writing, and a half-revert of the fix also went **0 / 0**. Both are recorded in the note.
+**The old test was REWRITTEN, not deleted** (the §B101 precedent): *"a roster that shrinks between ticks cannot index
+out of range"* used to assert the retarget-to-row-0 outcome as a documented consequence, and now asserts the refusal —
+so the ruling is visible in the diff.
+
 ### B65 — the UI model can blank the panel on its FIRST tick, having drawn nothing · NEW 2026-08-03 · OPEN (one line, but a behaviour change)
 **MEASURED / created by §UI-2.** `UiModel::on_tick` blanks when `elapsed(now_ms, _last_input_ms) >= kBlankMs`, and
 `_last_input_ms` is written **only** by `on_gesture` — it is `0` from construction. So if the first tick arrives more
@@ -1556,6 +1598,104 @@ not consult the emergency machine — acceptable, because the kind is **unreacha
 must be *known* rather than assumed. If a future slice wants the emergency screen to say `SENT`, the model needs either
 a flag or a ninth `Emergency` state. Marked in-source at both the type and the branch, and pinned by the test
 *"channel_remote_mint is handled explicitly and never claims PICKED UP"*.
+
+### ~~B69~~ ✅ **CLOSED 2026-08-05 (UI-7)** — the carrier exists, and **the obligation itself was wrong**
+★★ **B69 asked for a carrier so `channel_remote_mint` could render as SENT. It has one. It must not say SENT.**
+The carrier is two model states, one per surface, because the two transactions are independent by design (§2.1's
+two trackers) and a shared "last channel outcome" field would let an alarm's verdict overwrite a canned post's:
+- **the canned sub-view** — `mrui::ChanState` (`src/firmware_ui_model.h`), written by the NEW canned-only entry point
+  `UiModel::on_channel_outcome`. `channel_no_relay` -> `no_relay`, `channel_remote_mint` -> `unconfirmed`. ⓘ That
+  entry point is separately owed: `ui_pump_trackers` previously had to CONSUME the normal tracker's expiry and throw
+  it away, with `⛔ Do not "fix" this by calling on_outcome` beside it, precisely because no canned-only entry existed.
+- **the emergency overlay** — `mrui::EmgEvidence`, sticky and monotone (`local_tx` > `no_handle` > `none`), reset by a
+  new alarm beside `_tries`. `NOT HEARD`'s detail line was *"no relay after N"*, which asserts a **measurement**; an
+  alarm whose attempts all came back `ctr == 0` never held a handle and never listened, so it never took it.
+
+★★★ **THE PREMISE CORRECTION, MEASURED IN SOURCE — and it inverts the ruling.** B69, spec §2.1 rule 2 and
+`firmware_ui_send.h`'s §B68 block all justify "render as SENT" with **B39's producer (3)**: a registered mobile's
+DELEGATED GLOBAL post, where the HOME mints the channel ctr and a real `MOBILE_SEND` DM flies — a genuine success.
+⛔ **That producer is STRUCTURALLY DEAD on the line this UI sends.** `node.cpp:1401` computes
+`want_global = c.u.channel.global || !c.u.channel.team`; every UI channel post carries `-t` and no `-g`, so
+`want_global == false` and the `do_send_channel_delegated` branch (`node.cpp:1591-1601`) is never entered. On `-t -e`
+exactly **two** producers of `queued`/`ctr == 0` survive, and **neither is a success**: a pre-TX self-gate
+(`node_channel.cpp:650`, which also pushes `send_blocked`) and a post-mint **SEAL FAILURE** (`node_channel.cpp:744`).
+The first normally resolves through `match_blocked` inside the window; the second is what reaches expiry.
+⇒ **rendering it SENT would be the §2.1 false confirmation the obligation was written to prevent.** The panel says
+**`NOT CONFIRMED` / `no send handle`** (canned) and **`NOT HEARD` + `unconfirmed xN`** (alarm) — never SENT, never
+"no relay". ⓘ The `SendOutcome` kind stays a SUCCESS SHAPE inside the tracker: §B68's argument is untouched, and the
+tracker is generic, so a future plain/`-g` UI post would legitimately revive producer (3). Only the RENDER changed.
+⛔ Zero `lib/` edits; no `wire_version` bump; nothing on the wire was missing — the distinction was already carried by
+`ctr` and only the UI lacked a state for it. **The plan and spec were NOT edited; this is the report.**
+**RED measured:** `M5` (collapse `remote_mint` back onto `no_relay`) = **2 cases / 3 assertions**; `M7` (a new alarm
+inherits the old evidence) = **1 / 1**; `M6` (write the evidence before the live-alarm guard) = **1 / 3**.
+⚠ **M6's control was VACUOUS on its first writing and only the mutation caught it** — see the `simulation/BASELINE.md`
+§UI-7 note. Same class as §R1's one slice earlier.
+
+### B111 — a DM that comes back `queued` with `ctr == 0` has no outcome kind, so its sub-view answers nothing · NEW 2026-08-05 · OPEN
+**MEASURED in `lib/core`, and it disproves a claim `src/firmware_ui_send.h` has carried since UI-4.** That file states
+a DM reaches `awaiting` *"only via a HASH-addressed send parked behind an H resolve … which the UI never issues"*.
+`enqueue_data` (`lib/core/node_mac.cpp:56-61`) also returns 0 for `app_dm && !leaf_config_synced()` — an
+un-synced managed joiner (`lineage_id != 0 && config_epoch == 0`), which is a real state for a team mobile between
+`join` and its first config sync. So `send <id> "…" -t -a` **can** answer `queued`/`ctr == 0`.
+⇒ `SendTracker::tick()` correctly refuses to invent an outcome (a `channel_remote_mint` for a DM would be a type
+error) and releases the slot, so nothing is leaked and nothing is falsely claimed — but `_dm` is left on
+`DmState::submitting` and the panel shows `SENDING...` until the sub-view's own `kBlankMs` auto-exit closes it.
+⇒ **The cure is a DM-side "no local handle" outcome**, i.e. a tenth `SendOutcome::Kind` plus its `DmState`. **NOT taken
+here (C1):** UI-7 is already a feature slice, the harm is bounded and non-lying, and the naming ("unconfirmed" vs
+"not delivered") is a display ruling. Marked in-source at `firmware_ui_send.h`'s NOT-here list and in
+`firmware_ui.cpp`'s DONE/MISSING block.
+
+### B112 — on the DM arm, a NON-ZERO `ctr` does not mean the frame was enqueued · NEW 2026-08-05 · OPEN / `lib/core`
+**MEASURED.** Spec §2.1 rule 2 and the tracker are built on *"`ctr != 0` ⇒ this node originated the post and owns that
+handle — exact correlation is valid"*. That holds on the `send_channel` arm. On the id-addressed **DM** arm it does
+not: `enqueue_data` has **four** refusal sites that return the already-minted, non-zero ctr **without enqueueing**
+(`lib/core/node_mac.cpp:204` `location_refused`/unsealed, `:209` `no_fix`, `:228` and `:269` seal refusals).
+⇒ the UI calls `tr.accept(ctr)` and `on_send_accepted`, so the sub-view shows **`SENT, waiting`** for a DM that was
+never handed to the radio, and the state resolves only when the e2e-ack deadline expires into `NO CONFIRM`.
+⚠ It fails toward "we could not confirm", never toward a false DELIVERED — `send_e2e_acked` still requires a real ack —
+so it is a *wrong intermediate*, not a false safety claim. ⛔ **A `lib/core` finding and NOT fixed here**: the sound cure
+is for those four sites to return 0 (or push a synchronous failure the UI can correlate), which is a core slice with
+its own s18 exposure. ⓘ The UI-side mitigation that already exists: every one of the four pushes a `send_failed` with
+a real `SendFailReason`, and `match_dm` correlates it on ctr AND peer — so the panel does reach a named failure IF the
+push arrives before the sub-view closes.
+
+### B113 — `ChanState::waiting` is a DEAD STATE, so an accepted canned post never leaves `SENDING...` · NEW 2026-08-05 · found by independent QA on UI-7
+**FOUND BY INDEPENDENT QA, RE-MEASURED BEFORE THE FIX** (this entry was written first — M1: *a bug found and not
+registered is a bug found twice*). Three greps, on comment-stripped source so a comment cannot be counted as live code:
+
+| measurement | command | result |
+|---|---|---|
+| assignments of the state | `sed 's://.*::' src/firmware_ui_model.h \| grep -c 'ChanState::waiting'` | **0** |
+| references anywhere in the tree | `grep -rn 'ChanState::waiting' src/ test/ tools/ variants/ lib/` | **1** — `src/firmware_ui.cpp:481`, the renderer's `"SENT, waiting"` arm |
+| the arms `on_send_accepted` actually has | `src/firmware_ui_model.h:445-449` | `emergency` (`++_tries`) and `dm` (`waiting_ack`) — **no `channel_canned` arm at all** |
+
+⇒ `UiModel::_chan` has six writers (`take_send_request` → `submitting`, `on_send_refused` → `failed`, and
+`on_channel_outcome`'s five kinds) and **not one of them is the acceptance**. An accepted canned post therefore stays on
+`ChanState::submitting`, i.e. the panel reads **`SENDING...`** until either the `channel_sent` verdict arrives (up to
+**~36 s** — `channel_reoffer_team_max_retries`(3) × (`channel_reoffer_delay_ms` 10000 + `channel_reoffer_jitter_ms`
+2000), protocol_constants.h:449-464) or the sub-view's own `kBlankMs` (**15 s**) auto-exit closes it first. On the
+common path the modal is GONE before any verdict, so the user's only feedback for a successful send is a spinner that
+never resolves.
+⇒ It **contradicts the shipped bench requirement verbatim**: `docs/2026-08-04-heltec-v3-oled-ui-bench-guide.md:502`
+(H7-01) states *"Expect `SENDING...` for one frame, then **`SENT, waiting`**"*, and H7-03 states the same for the DM.
+The DM half WORKS (`on_send_accepted`'s `dm` arm writes `DmState::waiting_ack`, rendered at `firmware_ui.cpp:467`); the
+channel half is the twin that was never written. Spec §3.4.1's table is the source of the requirement — `waiting_ack` =
+*"accepted, `ctr` recorded"* → `SENT, waiting`.
+★★ **WHY NO GATE CAUGHT IT, and it is the arc's recurring shape rather than an accident:** the state is *reachable only
+from the renderer*, and `src/firmware_ui.cpp` is compiled by neither the native suite nor the simulator. Nothing in
+`test/` names `ChanState::waiting` either, so the suite was green against an enumerator that no code path could produce
+— the §B75 defect (`DmState::submitting` existed and nothing assigned it) one slice on, in the twin state machine.
+⚠ It is **not** a false safety claim in the §2.1 sense — `SENDING...` under-claims — but it is a **success reported as
+an unresolved attempt**, on the one screen whose whole job is telling the user whether their message went.
+
+### ~~B113~~ ✅ **FIXED 2026-08-05** (the UI-7 QA fix slice, UNCOMMITTED)
+`on_send_accepted` gains the third arm — `else { _chan = ChanState::waiting; }` — in the same `if/else if/else` shape
+`on_send_refused` already uses for the same three kinds (U3). One line; no new state, no new enumerator, no wire.
+**RED measured** (`simulation/BASELINE.md` §UI-7-FIX note): removing the transition = **2 cases / 6 assertions RED**;
+the tempting WRONG fix (write `_chan` unconditionally, for every `SendKind`) = **2 / 4 RED** against the slot-isolation
+control. The regression asserts all three things the fix must not break: ① the state moves, ② the normal tracker still
+holds its handle (`match_channel_sent` still matches the accepted ctr — UI-4's slot discipline), ③ neither `_dm`,
+`_emg` nor `attempts()` moves (§B84's ordering).
 
 ### B70 — the B67 fix guards a DRAINING call by calling it TWICE, silently voiding the two most safety-critical cases · NEW 2026-08-03 · OPEN (plan defect, 4 sites)
 **MEASURED, with the instrument's own numbers** (`simulation/BASELINE.md`, 2026-08-03 §UI-3 note). The

@@ -6,7 +6,8 @@ prepare each rig once, work through the checkboxes, and save full serial capture
 
 ## Current release state
 
-- All sections are committed and flashable.
+- Parts 0-7 describe the committed firmware gates. Part 8's OLED Task 7 tree is **QG-approved but uncommitted** on
+  top of `cbbd69e`; record the exact `version`/dirty state used for every OLED result.
 - B43's one-command by-ID `reqpubkey` flow landed at `2ff40dc`.
 - B30's freshest-authoritative team-ID selection landed at HEAD `ea1e324`.
 - Flash `ea1e324` or newer for the current gate.
@@ -47,6 +48,9 @@ Before each multi-node block:
 2. Two directly connected nodes: Parts 3–5.
 3. Team rig, including one keyless node: Part 6.
 4. Static, team, dual-plane, and saturation rigs: Part 7.
+5. Heltec V3 mobile UI: use the focused guide and run **H5, H6, then H7 through H7-09**. In this document, Part 8's
+   Task 6/7 checks are live except retired 8.1/8.9, conditional diagnostics, and Task-9-only 8.6. **Stop before H8**
+   in the focused guide; H8 and H9 are not yet released for execution.
 
 If Part 1 or Part 2 fails, stop and report before continuing.
 
@@ -106,7 +110,7 @@ Use `xiao_sx1262` or another 32-bit target. Check 1.2 exercises a width differen
   - Do: `team 0`, then `cfg set mobile 0`.
   - Pass: accepted.
 
-- [ ] **1.9 — Joining a team makes a static node mobile**
+- [x] **1.9 — Joining a team makes a static node mobile**
   - Do: on a static node, run `team 0x1234`, then `status`.
   - Pass: `role -> MOBILE` prints before the team line; status reports `is_mobile`.
 
@@ -492,7 +496,7 @@ bursts, beacons, and requests. Record an outcome only when the relevant conditio
   - Do: with `debug on`, watch a by-ID H query pass through.
   - Pass: trace contains `BY_ID id=<N> ... HARD`, not `hash=<N>`.
 
-## Part 8 — Heltec V3 OLED panel bring-up (slice UI-5)
+## Part 8 — Heltec V3 OLED panel bring-up (slices UI-5 through UI-7)
 
 Rig: **one Heltec WiFi LoRa 32 V3**, `pio run -e heltec_v3 -t upload` (or `heltec_mobile`). Nothing else needs to be on
 air. These are here because **no native test and no simulator can reach the panel, the button or the ADC** (rule M2);
@@ -505,6 +509,9 @@ and cannot pass on a UI-5 build. Do not mark them from this firmware.
 `src/firmware_ui.cpp`, so nothing is collected — **8.4 / 8.5 / 8.7 are live from a Task-6 build**, and **8.8–8.10 are
 new.** 8.1's static splash **no longer exists**: the boot frame was UI-5's `--gc-sections` anchor and the feature layer
 replaced it with the real page-chunked render. ⛔ Do not mark 8.1 from a UI-6 build.
+★★ **UI-7 (2026-08-05) RETIRES 8.9 and makes 8.17–8.22 live.** The send path is real. Run the detailed H7-01…H7-09
+procedures in `docs/2026-08-04-heltec-v3-oled-ui-bench-guide.md`; 8.17–8.22 are their compact acceptance residue.
+**8.6 remains Task-9-only.**
 
 - [ ] ~~**8.1 — The panel lights, and shows exactly this**~~ ⛔ **RETIRED BY UI-6 — the splash is deleted.** On a
       Task-6 build the first thing on the panel is the **live STATUS screen** (see 8.8). Kept for the audit trail:
@@ -575,18 +582,13 @@ replaced it with the real page-chunked render. ⛔ Do not mark 8.1 from a UI-6 b
     reflash/reboot, and confirm the line **does** appear. An absence you have never made appear proves nothing.
   - ⛔ Fail if the line prints on a panel that is visibly rendering — that means the probe address is wrong, not the panel.
 
-- [ ] **8.9 — TASK 6: the send path is NOT BUILT, and it says so instead of hanging**
-  - Background: `ui_perform_send` is a deliberate loud-refusal stub — `mrfw::exec_command` is Task 7's, and C1 forbids
-    folding it in. This check exists so a bench operator never mistakes "not built" for "the radio failed".
-  - Do: long-press the user button (>3.5 s) and release.
-  - Pass, in order: panel shows large `RELEASE!` with `EMERGENCY IN 3..2..1` counting down while held → on release past
-    3.5 s, `SENDING...` → then large `FAILED` with small `no send path: UI-7`; and the console prints exactly
-    `!! UI send path not built (plan Task 7 / slice UI-7)`.
-  - ⛔ Fail if the panel sits on `SENDING...` — a stuck SENDING is the §B72/§B79 defect class and must not reappear.
-  - ⛔ Fail if **nothing is transmitted but the panel claims anything other than a failure.** No RF is expected here.
+- [ ] ~~**8.9 — TASK 6: the send path is NOT BUILT**~~ ⛔ **RETIRED BY UI-7.** The loud-refusal stub and
+  `!! UI send path not built` line no longer exist. On the current tree, a send must reach the real executor; use
+  **8.17–8.22 / H7-01…H7-09**. Seeing the old line means the wrong firmware was flashed, not that this check passed.
 
 - [ ] **8.10 — TASK 6 / §B71: the emergency screen's exit**
-  - Do: from 8.9's `FAILED` screen, press **short** once.
+  - Do: drive the real alarm to a retained result (`PICKED UP`, `NOT HEARD`, `REPLY`, or a genuine `FAILED` refusal),
+    wait until the result has been fully drawn, then press **short** once.
   - Pass: the alarm screen clears and the normal cycle resumes (the next short press advances STATUS → TEAM → …).
   - Do: long-press again to reach `SENDING...`, and press **short** while it is showing.
   - Pass: **nothing happens** to the alarm screen — an outcome the user has not seen is sticky. (The screen underneath
@@ -760,6 +762,83 @@ the half that leaves the device.
    double-press once. ⛔ A DM leaving the node here is the same defect reached by a single press.
 5. The rest of the contract, unchanged: **long** re-fires from a sticky outcome, **short** exits once the result has
    been drawn (§B71/§B102). A double must never dismiss — even a fully presented outcome.
+
+### 8.17 — UI-7 the send path is REAL: the composed line is what the radio gets (2026-08-05)
+
+The composed COMMAND is asserted byte-for-byte by the native suite; what only metal can answer is whether it reached
+the radio and what the other node received.
+
+1. Node A (team mobile, teammate B visible on TEAM): `short` to SEND, `double`, `double` on `Got your message`.
+2. Expected on A's USB console: **one** send, answered `ack:queued ctr=<n>` — not two, not zero.
+3. Expected on B: the channel message with body **`Got your message`**.
+4. Expected on A's panel: `to: team ch 0` header, then `SENT, waiting`, bottom line `press = back`.
+5. Repeat for the DM: TEAM -> teammate -> `double` -> `double` on `Are you OK?`.
+   Expected console line executed: `send <id> "Are you OK?" -t -a` (⚠ **no `-e`** — the parser rejects it on an id
+   target). Expected panel end state: **`DELIVERED to <label>`**.
+
+### 8.18 — §4.1 the alarm carries `-l` ONLY with a fix, and goes out either way (2026-08-05)
+
+★ **The only instrument is the console**, because the difference is one flag on a line the panel never shows.
+`Node::on_command` REFUSES a located post outright when both coordinates are zero, so an unconditional `-l` would turn
+"no fix" into **no alarm at all**.
+
+1. On a node with `cfg set lat_e7 0` and `cfg set lon_e7 0`, long-press to fire.
+2. Expected: the executed line is `send_channel 0 "I'm in danger" -t -e` — **no `-l`** — and it is answered
+   `ack:queued`. ⛔ An `ack:err_unsupported` here means the flag went out unconditionally: STOP and report.
+3. Set a real position, fire again. Expected: `send_channel 0 "I'm in danger" -t -l -e`, also `queued`.
+4. Both runs: a second node in the team receives the alarm body.
+
+### 8.19 — §B69 an unconfirmed send must never read as SENT (2026-08-05) ★★ SAFETY
+
+Bench guide **H7-07** carries the full procedure. The one-line residue for this script: on a `ctr == 0` outcome the
+panel must read **`NOT CONFIRMED` / `no send handle`** (canned) or **`NOT HEARD` / `unconfirmed x3`** (alarm).
+⛔ **`SENT` or `SENT, no relay` in that state is a false confirmation — stop and report.** Hard to provoke on demand;
+record it opportunistically. The most reachable trigger is a node whose team channel key was removed after `create`.
+
+### 8.20 — UI-7 an unconfirmed DM must not brick the send path (2026-08-05)
+
+★ **No automated gate can reach this**: the slot gate lives in `mr_ui_tick`, in a TU neither the native suite nor the
+simulator compiles. The harm is *every later send silently never happening*, which looks like a dead radio.
+
+1. Node A sends a DM to a teammate that is POWERED OFF, from the panel.
+2. Wait for the panel to reach **`NO CONFIRM`** (the e2e-ack deadline; up to a minute).
+3. Let the sub-view close, or press to acknowledge it.
+4. Now send a canned channel post from the panel.
+5. Expected: it goes out — A's console shows the `send_channel` line and a second node receives it.
+   ⛔ **Nothing on the console is the defect**: the unconfirmed DM held the single normal slot and every later send was
+   never issued at all. Silent, and indistinguishable from a radio fault without this check.
+
+### 8.21 — §B64 a teammate that LEFT the roster must never inherit your DM (2026-08-05, OWNER-RULED) ★★ SAFETY
+
+★ **Why it is here and not only in the native suite:** the model's refusal IS natively gated, but the *panel* half is
+not — `src/firmware_ui.cpp` is compiled by neither the native suite nor the simulator. And the panel half is the safety
+property: a `>` marker left beside whatever now occupies that row would name a target the model has already refused.
+
+1. Three same-team nodes in range; on A, `short` to **TEAM** and put the `>` on the **LAST** teammate.
+2. Power that teammate down; wait for it to leave the roster (`T<shown>/<total>` in the bar falls).
+3. Expected panel: **no `>` marker anywhere**, and the last body line reads exactly **`TEAMMATE GONE, repick`**.
+4. Press `double`. Expected: **no compose sub-view opens**, and **A's console shows NOTHING sent.**
+   ⛔ A `send <id> "Are you OK?" -t -a` here is the B64 mis-send live — the DM went to a teammate the user never
+   highlighted. **STOP and report.**
+5. Press `short`: the marker reappears on another teammate and the message clears. `double`, `double` → the DM goes out,
+   and the console id matches the row now marked.
+6. **The reorder half:** put the `>` on the MIDDLE teammate and let the roster re-sort (scores/ages move, or bounce a
+   different teammate). The marker must stay on **that teammate** even as it changes ROW, and the DM must carry its id.
+   ⚠ A marker that stays on a fixed row while the names shift under it means identity tracking regressed to indexing.
+
+Full procedure with every expected line: bench guide **H7-09**.
+
+### 8.22 — §B113 an accepted canned post must reach `SENT, waiting` (2026-08-05)
+
+★ The state transition is natively gated; what only the panel can answer is whether the string is drawn. It is a
+one-line residue of bench guide **H7-01**.
+
+1. On A, `short` to SEND, `double`, `double` on `Got your message`.
+2. Expected panel: `SENDING...` for one frame, then **`SENT, waiting`**, then (within ~36 s) `PICKED UP` or
+   `SENT, no relay`.
+   ⛔ **Sitting on `SENDING...` all the way to the settle or the 15 s auto-exit is the B113 regression** — the accepted
+   post's acceptance never moved the channel state. The DM twin (`SENT, waiting` in 8.17 step 5) always worked; only the
+   channel arm was missing.
 
 ## Completion record
 

@@ -19,6 +19,8 @@
 #include <cstdint>     // uint16_t (print_sf_list)
 #include "device_nv.h" // mrnv::IdBlob (print_identity)
 #include "console_json.h" // meshroute::console::StatusFields / CfgExtras
+#include "console_parse.h" // meshroute::console::ParseErr — NAMED in ExecResult below, so it is included directly
+                           // rather than left to arrive transitively through an unrelated header (U3).
 
 namespace mrfw {
 
@@ -58,5 +60,26 @@ void print_reqpubkey_hint(Print& out, const meshroute::Command& cmd, const meshr
 meshroute::console::StatusFields make_status_fields();              // ble_dispatch_line `status`
 const char* node_state_str();                                       // ble_dispatch_line `status`
 meshroute::console::CfgExtras make_cfg_extras();                    // ble_dispatch_line `cfg`
+
+// ★★ UI-7 — THE ONE FIRMWARE SURFACE THIS PLAN ADDS (owner-approved 2026-08-01). Parse ONE command line and execute
+// it on the node, returning the TYPED result. No text output at all: the caller wants the `CmdResult`, not a human
+// string — and the board UI is the third consumer of this sequence and the FIRST that needs the result
+// programmatically. Scraping a `BufferSink` was explicitly rejected (spec §2.1): a safety behaviour must not hang off
+// a formatting detail, and a discarded sink leaves a refused send on `SENDING...` for ever.
+// ⚠ IT IS NOT A WRAPPER AROUND `dispatch()`. `dispatch` is a console VERB ROUTER and returns `false` for `send` /
+//   `send_channel`; the send path lives in its CALLERS, which open-code `parse_command` + `Node::on_command`
+//   (`fw_main.cpp:879-892` service_console, `:485-489` ble_dispatch_line). Routing a UI send through `dispatch` would
+//   have returned false and sent NOTHING.
+// ⚠ The two existing call sites are DELIBERATELY NOT retrofitted onto this helper. They use OPPOSITE orderings
+//   relative to `dispatch()`, so unifying them is a behaviour change on two working transports and needs its own
+//   slice and gate (C1). This is purely ADDITIVE: nothing that works today changes.
+// ⓘ `Command::body` BORROWS into `line` (console_parse.h:17-20), so `on_command` must run before `line` is reused —
+//   which is why the parse and the execute are one function and not two.
+struct ExecResult {
+    bool                         ok        = false;                                  // false => the line did not parse
+    meshroute::console::ParseErr parse_err = meshroute::console::ParseErr::ok;
+    meshroute::CmdResult         result{};                                           // valid only when `ok`
+};
+ExecResult exec_command(const char* line, size_t len);
 
 }  // namespace mrfw

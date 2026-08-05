@@ -184,6 +184,36 @@ w6() { code_flat "$1" | grep -qE 'FrameStep::blank:[[:space:]]*mrui::set_power_s
        return 0; }
 wchk "W6 the tick maps FrameStep onto the panel: blank->power_save(1), every awake arm->power_save(0)" \
      w6 's/mrui::set_power_save(false)/(void)0/g'
+# W7 §4.1 (UI-7) — THE LAST MILE OF THE CONDITIONAL `-l`, and it is the one step no native test can reach. The pure
+#    composer is driven natively and turns red if it stops honouring `have_fix`; what NO native case can see is
+#    whether this file computes that bit at all. Passing a literal `true` would compile, keep every native case green,
+#    and make a fix-less node send `-t -l` — which `node.cpp:1553` REFUSES OUTRIGHT, so the distress call becomes NO
+#    CALL. ⇒ the tick must reach the pure driver through the real predicate AND the real executor.
+w7() { code_flat "$1" | grep -qE 'mrui::ui_perform_send\([^;]*ui_have_fix\(\), ui_exec' && \
+       code_flat "$1" | grep -qE 'cfg\.lat_e7 != 0 \|\| cfg\.lon_e7 != 0'; }
+wchk "W7 the tick reaches mrui::ui_perform_send through ui_have_fix() and the real executor" \
+     w7 's/ui_have_fix(), ui_exec/true, ui_exec/'
+# W8 UI-7, NEGATIVE SPACE — the twin of W3/W4. Line COMPOSITION lives in `firmware_ui_send.h`, where the native suite
+#    asserts the issued command byte-for-byte. If this file ever builds a `send`/`send_channel` line itself, that
+#    assertion is guarding a string nothing sends, and the conditional `-l` / the `back`-row refusal are bypassed —
+#    with every native case still green. ⇒ the verbs must not appear in this file's CODE at all.
+w8() { ! code_flat "$1" | grep -qE '"send(_channel)? '; }
+wchk "W8 firmware_ui.cpp composes no send line itself (the pure composer owns the wire text)" \
+     w8 's|mrui::ui_perform_send(s_tracker_emg|char bad[64]; snprintf(bad, sizeof bad, "send_channel %u x", 0u); (void)bad; mrui::ui_perform_send(s_tracker_emg|'
+# W9 §B64 (owner-ruled 2026-08-05) — THE LAST MILE OF THE REFUSAL, and it is the one step no native test can reach. The
+#    model's half is natively driven: `activate` refuses and `UiState::team_pick_gone` records it. What happens next is
+#    HERE, and there are TWO obligations, not one:
+#      (a) the reason is SAYABLE (C2) — one body row is reserved and the string is drawn; and
+#      (b) the `>` HIGHLIGHT IS SUPPRESSED. Without (b) the panel names a target the model has already refused to use —
+#          the mis-send surviving one layer down in display form, with every native case still green. That is precisely
+#          the §B97 shape this whole W-block exists for.
+# ⚠ The revert targets (b) alone, because (b) is the half that is a SAFETY property rather than a message.
+w9() { code_flat "$1" | grep -qE 'st\.team_pick_gone \? uint8_t\(kBodyRows - 1\)' && \
+       code_flat "$1" | grep -qE '!st\.team_pick_gone && first \+ row == st\.cursor' && \
+       code_flat "$1" | grep -qF 'st.team_pick_gone) mrui::draw_text' && \
+       code_flat "$1" | grep -qF 'TEAMMATE GONE, repick'; }
+wchk "W9 the TEAM screen says B64's refusal AND suppresses the highlight while it stands" \
+     w9 's/!st\.team_pick_gone && first + row == st\.cursor/first + row == st.cursor/'
 echo "structural: $s_pass passed / $s_fail failed / $((s_pass+s_fail)) total"
 echo "wiring:     $w_pass passed / $w_fail failed / $((w_pass+w_fail)) total (each includes a negative control)"
 [ "$s_fail" -eq 0 ] || rc=1

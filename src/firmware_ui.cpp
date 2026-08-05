@@ -15,18 +15,27 @@
 //
 // ★ WHAT IS DONE AND WHAT IS NOT — in source, because docs rot and code is read
 //   ([[meshroute-mark-done-vs-missing-in-code]]):
-//   DONE      the snapshot builder, the DRAWING of STATUS / TEAM / INBOX / SEND / both compose lists / the emergency
-//             overlay, the battery cache, and §B91's dead-panel report line.
+//   DONE      the snapshot builder, the DRAWING of STATUS / TEAM / INBOX / SEND / both compose lists / both compose
+//             RESULT views / the emergency overlay, the battery cache, and §B91's dead-panel report line.
 //   ★ MOVED OUT 2026-08-05 (the UI-6 QA fix slice) — and this is the point, not a tidy-up. WHEN to paint (`FrameGate`),
 //             what an arriving push MEANS (`ui_route_recv_push`) and the unread counters all lived here, in a TU that
 //             NEITHER the native suite NOR the simulator compiles, and all four of §B101/§B102/§B107/§B108 shipped
 //             green because of it. They are now pure code in firmware_ui_model.h / firmware_ui_send.h, driven by the
 //             native suite, and `tools/probe_board_ui/run.sh`'s W1-W4 pin that this file still CALLS them.
-//   MISSING   THE SEND ITSELF. `ui_perform_send` is a LOUD REFUSAL stub — see it. Task 7 owns `mrfw::exec_command`,
-//             which is the one approved firmware addition this plan makes, and it is explicitly not this task's.
-//             ⇒ on this build a long-press reaches SENDING... and then FAILED, by construction and visibly.
-//   MISSING   inbox ROWS. `Inbox::pull()` adaptation is Task 7 (spec §6.1, with the per-kind row budget); the INBOX
-//             screen renders its live counts and says so, rather than showing an empty list that looks like "no mail".
+//   ★ DONE 2026-08-05 (UI-7) — THE SEND ITSELF, and UI-6's LOUD REFUSAL STUB is gone. The device half here is an
+//             EXECUTOR (`mrfw::exec_command`, the one approved new firmware surface) plus the §4.1 fix predicate;
+//             every decision a wrong answer could hurt — the composed line, the `CmdCode` mapping, the `ctr == 0`
+//             reading — is `mrui::ui_perform_send` in firmware_ui_send.h, under the native gate.
+//   ★ DONE 2026-08-05 (UI-7) — inbox ROWS, over `Inbox::pull()` directly (spec §6.1), with the per-kind newest-wins
+//             budget in `mrui::InboxRowBudget` so a chatty channel cannot evict every DM row.
+//   ★ DONE 2026-08-05 (the UI-7 QA fix slice, §B64) — the TEAM screen's half of the owner's identity ruling: while
+//             `UiState::team_pick_gone` stands, one body row is RESERVED for `TEAMMATE GONE, repick` and the `>` marker
+//             is SUPPRESSED. The suppression is the safety half — a highlight beside a target the model has already
+//             refused to use is the mis-send in display form. Pinned by the probe's W9 + its negative control, because
+//             no native test compiles this file.
+//   ⚠ NOT DONE, stated so it is not read as shipped: a DM whose synchronous result is `queued` with `ctr == 0` has no
+//             handle to correlate and no outcome kind of its own, so the sub-view shows `SENDING...` until its own
+//             kBlankMs auto-exit. Bounded and never a false claim, but it answers nothing — register B111.
 //   MISSING   a real battery reading. `mrui::battery_sample_mv()` is Task 9's; until then it answers "unavailable" and
 //             the status bar renders `--` (the console_json.h:126 rule), never a plausible wrong number.
 #include "mr_features.h"
@@ -41,6 +50,9 @@
 #include "mr_ui.h"           // the three hook DECLARATIONS we define below (fw_main calls them unconditionally)
 #include "fw_context.h"      // g_node / g_hal / g_iradio
 #include "console_sink.h"    // mrcon — the guarded sink; §B91's dead-panel line is the only thing this file prints
+#include "firmware_commands.h"  // ★ UI-7: mrfw::exec_command — the typed send path (the one approved new surface)
+#include "console_json.h"    // ★ UI-7: cmdcode_name — the ONE CmdCode->text mapper (U1; fw_main.cpp:905 says so)
+#include "inbox.h"           // ★ UI-7: meshroute::InboxEntry / InboxKind for the §6.1 pull adapter
 
 #ifndef MR_UI_TEAM_CHANNEL_ID
 // C2, fail loud: the channel the alarm and the canned posts go to is an OWNER-RULED BUILD CONSTANT with no cfg key, no
@@ -69,19 +81,25 @@ bool     s_batt_attempted = false;
 // ★ THE FRAME IS FROZEN AT begin_frame(). A frame spans several ticks and U8g2 re-clips the WHOLE scene once per page,
 //   so anything the renderer reads must be a COPY — live state changing mid-frame tears the image across page
 //   boundaries (spec §5). ⚠ The plan's Task-6 block froze `UiState` + `UiSnapshot` but then had the emergency overlay
-//   read `s_model` LIVE, which reintroduces exactly that tear on the one screen where it matters most. Hence EmgView.
-struct EmgView {
+//   read `s_model` LIVE, which reintroduces exactly that tear on the one screen where it matters most. Hence this view.
+// ⓘ RENAMED `EmgView` -> `OutcomeView` by UI-7, and it is the feature's own doing rather than a drive-by tidy (C1):
+//   the struct always carried `dm` "frozen here because the freeze point is this function", and UI-7 adds §B69's
+//   `chan` plus the refusal's `CmdCode`. Leaving it called *Emg*View while it holds the DM and canned-channel compose
+//   outcomes is exactly the comment drift V1 forbids.
+struct OutcomeView {
     mrui::Emergency    st         = mrui::Emergency::idle;
     mrui::RefuseReason refuse     = mrui::RefuseReason::other;
-    // ⚠ WRITTEN, NOT YET READ — and stated rather than left to be discovered, the same discipline
-    //   firmware_ui_send.h's `_chan` and UiModel's `_last_try_ms` get:
-    //     `dm`   — the DM outcome sub-view is TASK 7's render (spec §3.4.1's seven states). Frozen here because the
-    //              freeze point is this function and Task 7 must not have to re-plumb it to get a tear-free read.
-    //     `fail` — the CORE reason verbatim (spec §2.1 rule 6). The panel shows `refuse`'s compact code today; the
-    //              verbatim reason becomes renderable when Task 7's real send path can produce one that is not
-    //              `none`. ⛔ Do not "use" it by printing a raw enum number to make this comment go away.
+    // ★ THE THREE ALPHABETS OF A FAILURE, all frozen together (spec §2.1 rule 6): `refuse` is the compact panel code,
+    //   §B73's `fail` is the CORE `SendFailReason` verbatim for an ASYNC failure, and UI-7's `refuse_code` is the
+    //   SYNCHRONOUS `CmdCode` verbatim — needed because five different walls all return `err_unsupported` and the
+    //   compact reason therefore cannot name them (see UiModel::on_send_refused).
     mrui::DmState      dm         = mrui::DmState::idle;
+    mrui::ChanState    chan       = mrui::ChanState::idle;
     mrui::FailReason   fail       = mrui::FailReason::none;
+    MESHROUTE_NS::CmdCode refuse_code = MESHROUTE_NS::CmdCode::queued;
+    // ★★ §B69: WHICH channel outcome this alarm actually got. `Emergency::not_heard` alone cannot say, and the two
+    //    readings are different claims — see firmware_ui_model.h's EmgEvidence.
+    mrui::EmgEvidence  evidence   = mrui::EmgEvidence::none;
     uint8_t            arm_secs   = 0;
     uint8_t            tries      = 0;
     uint32_t           retry_in_s = 0;
@@ -90,7 +108,7 @@ struct EmgView {
 };
 mrui::UiState    s_frame_state{};
 mrui::UiSnapshot s_frame_snap{};
-EmgView          s_frame_emg{};
+OutcomeView      s_frame_out{};
 // ★ WHEN to paint (§B107). The frozen copies above are WHAT to paint; this owns the lifecycle that decides when they
 //   are refreshed — including the `dirty` consumption, which belongs to the FREEZE and not to the final page.
 mrui::FrameGate  s_gate;
@@ -158,27 +176,80 @@ const char* refuse_text(mrui::RefuseReason r) {
     return "REFUSED";   // -Wswitch covers the enum; this satisfies -Wreturn-type
 }
 
-// ---- the send path: NOT BUILT IN THIS TASK, and it refuses LOUDLY ------------------------------------------------
-// ★★ The plan's Task-6 tick calls `ui_perform_send()`, but that function is Task 7 Step 1 — it needs
-//    `mrfw::exec_command`, an ADDITION to src/firmware_commands.{h,cpp} that the plan approves for Task 7 and that C1
-//    forbids folding in here. So Task 6 cannot have a working send, and the only question is how it fails.
-// ⇒ It fails LOUD (C2). The alternative — drop the request on the floor — leaves the model in `firing`/`submitting`
-//   and the panel on `SENDING...` FOR EVER, which is the precise defect §B72/§B79 were raised about, and it would make
-//   the H6 bench group unable to distinguish "not built" from "the radio path is broken".
-// ⓘ `on_send_refused` lands the alarm in `Emergency::failed`, which §B78 made a RETAINED outcome and §B71 makes
-//   dismissable with one short press — so the bench operator is not trapped on the failure screen.
-constexpr bool kSendPathBuilt = false;   // ★ Task 7 flips this to true when ui_perform_send does real work.
+// ---- the send path (UI-7) — the DEVICE half, and it is deliberately three lines long -----------------------------
+// ★★ UI-6 shipped a LOUD REFUSAL STUB here (C2: render FAILED + "no send path: UI-7" rather than fake a success).
+//    UI-7 replaces it, and almost none of the replacement is in this file: line composition, the §4.1 conditional
+//    `-l`, the `CmdCode` -> panel-reason mapping and the whole `ctr == 0` reading are `mrui::ui_perform_send` in
+//    firmware_ui_send.h, where the native suite drives them. What genuinely needs the device is the EXECUTOR and the
+//    two facts below — so that is all that lives here.
+// ⓘ A captureless lambda decays to `mrui::SendExecFn`; the `void* ctx` is unused because the executor's only
+//    dependency, `g_node`, is a global. It is kept in the signature so a test can supply a recording fake (that is
+//    the whole point of the seam) without this side needing a different shape.
+mrui::SendExec ui_exec(const char* line, size_t len, void* /*ctx*/) {
+    const mrfw::ExecResult r = mrfw::exec_command(line, len);
+    // ★ ONE conversion, one place (U2). `ok` is "the line became a Command"; the rest is the typed result verbatim.
+    return mrui::SendExec{ r.ok, r.result.code, r.result.ctr };
+}
+
+// ★★★ §4.1: `-l` IS CONDITIONAL, and this predicate is the whole reason it can be. `Node::on_command` REFUSES a
+//    located post when both coordinates are zero (node.cpp:1553, `err_unsupported`) — BEFORE anything is enqueued —
+//    so sending `-l` unconditionally would turn "no fix" into NO ALARM AT ALL. A distress call is worth more than the
+//    coordinates attached to it.
+// ⚠ The `(0,0)` test is the CORE's own predicate, reused rather than re-derived (U1): it is what the refusal is
+//   keyed on, so any other definition of "have a fix" would disagree with the thing that actually rejects us.
+bool ui_have_fix() {
+    const MESHROUTE_NS::NodeConfig& cfg = g_node.config();
+    return cfg.lat_e7 != 0 || cfg.lon_e7 != 0;
+}
+
 void ui_perform_send(const mrui::SendReq& req, uint32_t now_ms) {
-    mrui::SendTracker& tr = (req.kind == mrui::SendKind::emergency) ? s_tracker_emg : s_tracker_normal;
-    tr.refuse();
-    // §B78: `now_ms` is REQUIRED and is the REFUSAL's own time — a gesture-anchored deadline is already partly spent
-    // by the time a refusal lands, which is the defect spec §4.3 exists to kill.
-    s_model.on_send_refused(req.kind, mrui::RefuseReason::other, now_ms);
-    mrcon.println(F("!! UI send path not built (plan Task 7 / slice UI-7)"));
+    mrui::ui_perform_send(s_tracker_emg, s_tracker_normal, s_model, req,
+                          uint8_t(MR_UI_TEAM_CHANNEL_ID), ui_have_fix(), ui_exec, nullptr, now_ms);
 }
 
 // ---- snapshot ----------------------------------------------------------------------------------------------------
 uint32_t age_s_from(uint32_t now_ms, uint32_t then_ms) { return uint32_t(now_ms - then_ms) / 1000u; }
+
+// ---- the INBOX adapter (UI-7, spec §6.1) -------------------------------------------------------------------------
+// ★ `Inbox::pull()` DIRECTLY — never a textual `pull_inbox` into a BufferSink: that NDJSON is unbounded and a 512 B
+//   sink would truncate it mid-record (spec §6.1). The visit is READ-ONLY: `pull` is `const` and touches no cursor,
+//   so browsing on the panel cannot desynchronise the companion app, which is the durable cursor's real owner.
+// ★ `since = 0` is "from the beginning" (seqs are 1-based, inbox.h:129) and we always want the newest tail, so the
+//   NEWEST-WINS budget in `mrui::InboxRowBudget` — pure and natively tested — does the selecting, PER KIND.
+// ⚠ `e.body` is NOT a C string: it points into the store's own record bytes, is `nullptr` when `body_len == 0`, and
+//   is valid only for the duration of this callback (inbox.h:23-24). ⇒ copy-and-terminate, here, every time.
+// ⓘ `now64` is sampled ONCE, in the caller, and carried in the context: every row of one frame must be aged against
+//   the SAME instant, or a long pull could show two rows a second apart that arrived together.
+struct InboxPullCtx { mrui::InboxRowBudget* budget; uint64_t now64; };
+bool inbox_row_cb(void* vctx, const MESHROUTE_NS::InboxEntry& e) {
+    InboxPullCtx* c = static_cast<InboxPullCtx*>(vctx);
+    mrui::InboxRow r{};
+    r.is_dm      = (e.kind == MESHROUTE_NS::InboxKind::dm);
+    r.channel_id = e.channel_id;
+    // `rx_time_ms` is 64-bit node uptime; the snapshot carries a 32-bit age. A record stamped in the future (a store
+    // that survived a reboot, since uptime restarts and the store does not) reads as UNKNOWN — `--`, never a
+    // fabricated age. Same rule as `batt_mv` and `console_json.h:126`: omit, do not guess.
+    r.rx_age_s = (e.rx_time_ms == 0 || c->now64 < e.rx_time_ms) ? UINT32_MAX
+                                                                : uint32_t((c->now64 - e.rx_time_ms) / 1000u);
+    const uint8_t cap = uint8_t(sizeof r.text - 1);
+    uint8_t n = (e.body_len < cap) ? e.body_len : cap;
+    if (!e.body) n = 0;                                   // an E2E-ack RECEIPT carries no body at all (body == nullptr)
+    for (uint8_t i = 0; i < n; ++i) {
+        const uint8_t ch = e.body[i];
+        r.text[i] = (ch >= 0x20 && ch < 0x7f) ? char(ch) : '.';   // one panel row; a raw control byte is not drawable
+    }
+    r.text[n] = '\0';
+    c->budget->add(r);
+    return true;                                          // never stop early — the budget decides what is KEPT
+}
+
+void fill_inbox_rows(mrui::UiSnapshot& s) {
+    static mrui::InboxRowBudget budget;                   // reused: 8 rows is ~200 B, not a per-tick stack allocation
+    budget.reset();
+    InboxPullCtx ctx{ &budget, g_hal.now() };
+    const uint16_t visited = g_node.inbox().pull(/*dm_since=*/0, /*chan_since=*/0, inbox_row_cb, &ctx);
+    budget.publish(s, visited);
+}
 
 mrui::UiSnapshot build_snapshot(uint32_t now_ms) {
     mrui::UiSnapshot s{};
@@ -218,17 +289,21 @@ mrui::UiSnapshot build_snapshot(uint32_t now_ms) {
     s.my_team_id = g_node.team_local_id();
     s.team_id    = g_node.config().team_id;
     s.batt_mv    = s_batt_mv;
-    // inbox_shown stays 0: the `Inbox::pull()` adapter is Task 7 (spec §6.1). The INBOX screen says so rather than
-    // rendering an empty list a user would read as "no messages".
+    fill_inbox_rows(s);
     return s;
 }
 
-EmgView freeze_emg(const mrui::UiSnapshot& s) {
-    EmgView v{};
+OutcomeView freeze_outcome(const mrui::UiSnapshot& s) {
+    OutcomeView v{};
     v.st       = s_model.emergency();
     v.dm       = s_model.dm_state();
+    v.chan     = s_model.chan_state();
     v.refuse   = s_model.refuse_reason();
     v.fail     = s_model.fail_reason();
+    // ⚠ CONTRACT (see UiModel::on_send_refused): the code is meaningful only when the reason is not `parser`. It is
+    //   frozen unconditionally because freezing is cheap and reading it conditionally is the renderer's job.
+    v.refuse_code = s_model.refuse_code();
+    v.evidence = s_model.emg_evidence();
     v.tries    = s_model.attempts();
     v.arm_secs = s_model.arming_secs_left(s);
     // ⚠ `retry_at_ms()` is meaningful ONLY while `blocked` (the STATE is the predicate — §B74 removed the sentinel),
@@ -264,6 +339,22 @@ constexpr int kEmgDetailY  = 52;   // 6x10 detail beneath it
 constexpr int kLineCap     = 48;
 
 int body_y(int row) { return kBodyY0 + row * kBodyDy; }
+
+// ★★ THE FAILURE DETAIL, in the two alphabets that exist (spec §2.1 rule 6). A refusal the user cannot act on is the
+//    thing C2 and §err-reason exist to prevent — but the honest limit is real: five different walls all come back as
+//    `err_unsupported` (no key / no identity / no fix / empty / unsealable), so the compact reason CANNOT name them
+//    and the plan rules "show the generic refusal AND THE CODE; do not invent a specific reason".
+// ★ `cmdcode_name` is the ONE mapper (U1) — `fw_main.cpp:905` already calls it that and refuses a second switch. A
+//   raw enum NUMBER would be exactly the "do not use it to make the comment go away" the frozen field warns about.
+// ⓘ A `parser` refusal has no `CmdCode` at all (the line never became a `Command`), and `RefuseReason::parser` IS
+//   that predicate — so the code line is suppressed there rather than printing a `queued` that means "not applicable".
+void draw_failure_lines(const OutcomeView& v) {
+    mrui::draw_text(0, body_y(1), refuse_text(v.refuse));
+    if (v.refuse == mrui::RefuseReason::parser) return;
+    char l[kLineCap];
+    snprintf(l, sizeof l, "%s", MESHROUTE_NS::console::cmdcode_name(v.refuse_code));
+    mrui::draw_text(0, body_y(2), l);
+}
 
 // Which slice of a longer list is on screen. A cursor may address up to kMaxTeamRows entries while only kBodyRows fit.
 uint8_t list_first(uint8_t cursor, uint8_t n, uint8_t rows) {
@@ -306,29 +397,59 @@ void draw_team_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
         mrui::draw_text(0, body_y(1), "no teammates heard");
         return;
     }
-    const uint8_t first = list_first(st.cursor, s.team_shown, kBodyRows);
-    for (uint8_t row = 0; row < kBodyRows && first + row < s.team_shown; ++row) {
+    // ★★★ §B64 (owner-ruled 2026-08-05) — THE LOUD HALF OF THE REFUSAL, AND THE SUPPRESSED HIGHLIGHT IS THE OTHER HALF.
+    //     The teammate the cursor was on has left the roster, so `UiModel::activate` refuses to send. C2 says a refusal
+    //     must be sayable, so one row is RESERVED for the reason — the same way `draw_inbox_screen` reserves its header
+    //     row — rather than overwriting a teammate.
+    // ★ AND THE `>` MARKER GOES AWAY. Leaving it beside whatever now occupies that row would be the mis-send in DISPLAY
+    //   form: the panel would name a target the model has already refused to use. The two must agree, always.
+    const uint8_t rows  = st.team_pick_gone ? uint8_t(kBodyRows - 1) : uint8_t(kBodyRows);
+    const uint8_t first = list_first(st.cursor, s.team_shown, rows);
+    for (uint8_t row = 0; row < rows && first + row < s.team_shown; ++row) {
         const mrui::TeamRow& t = s.team[first + row];
         char age[10]; fmt_age(age, sizeof age, t.last_heard_s);
         char l[kLineCap];
-        snprintf(l, sizeof l, "%c%-10s %4s %uh", (first + row == st.cursor) ? '>' : ' ', t.label, age,
-                 unsigned(t.hops));
+        snprintf(l, sizeof l, "%c%-10s %4s %uh",
+                 (!st.team_pick_gone && first + row == st.cursor) ? '>' : ' ', t.label, age, unsigned(t.hops));
         mrui::draw_text(0, body_y(row), l);
     }
+    // 21 characters exactly, so it cannot be clipped: the panel is 21 columns in Font::small (spec §3.3).
+    if (st.team_pick_gone) mrui::draw_text(0, body_y(kBodyRows - 1), "TEAMMATE GONE, repick");
 }
 
-void draw_inbox_screen(const mrui::UiSnapshot& s) {
+// ★ UI-7: the real rows (spec §6.1). BLOCK ORDER — every DM row, then every channel row — never chronological: the
+//   two seq spaces are independent and there is no shared clock to interleave on, so an interleaved list would be an
+//   ordering claim the data does not support.
+// ★ TRUNCATION IS STATED, never implied: `inbox_total` is what `pull` VISITED, so a screen showing 8 of 40 says so
+//   rather than presenting the cap as the whole mailbox (the same rule the TEAM screen's `T4/12` follows).
+void draw_inbox_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
     char l[kLineCap], age[10];
-    mrui::draw_text(0, body_y(0), "INBOX");
-    fmt_age(age, sizeof age, s.last_dm_age_s);
-    snprintf(l, sizeof l, "DM %u  newest %s", unsigned(s.unread_dm), age);
-    mrui::draw_text(0, body_y(1), l);
-    fmt_age(age, sizeof age, s.last_ch_age_s);
-    snprintf(l, sizeof l, "CH %u  newest %s", unsigned(s.unread_ch), age);
-    mrui::draw_text(0, body_y(2), l);
-    // Honest absence, not an empty list: `Inbox::pull()` rows are Task 7 (spec §6.1). A blank body here would read as
-    // "you have no messages", which is a different and wrong statement.
-    mrui::draw_text(0, body_y(4), "rows: slice UI-7");
+    if (s.inbox_shown == 0) {
+        mrui::draw_text(0, body_y(0), "INBOX");
+        // ⚠ NOT "no messages": an inbox with no durable store installed (`Inbox::enabled()` false ⇒ `pull` returns 0)
+        //   is indistinguishable here from an empty one, and the unread counters below are the honest thing we DO
+        //   know. Claiming emptiness would be a statement we cannot support.
+        fmt_age(age, sizeof age, s.last_dm_age_s);
+        snprintf(l, sizeof l, "DM %u  newest %s", unsigned(s.unread_dm), age);
+        mrui::draw_text(0, body_y(1), l);
+        fmt_age(age, sizeof age, s.last_ch_age_s);
+        snprintf(l, sizeof l, "CH %u  newest %s", unsigned(s.unread_ch), age);
+        mrui::draw_text(0, body_y(2), l);
+        mrui::draw_text(0, body_y(4), "no stored rows");
+        return;
+    }
+    snprintf(l, sizeof l, "INBOX %u/%u", unsigned(s.inbox_shown), unsigned(s.inbox_total));
+    mrui::draw_text(0, body_y(0), l);
+    const uint8_t first = list_first(st.cursor, s.inbox_shown, kBodyRows - 1);
+    for (uint8_t row = 0; row + 1 < kBodyRows && first + row < s.inbox_shown; ++row) {
+        const mrui::InboxRow& e = s.inbox[first + row];
+        char tag[6];
+        if (e.is_dm) snprintf(tag, sizeof tag, "DM");
+        else         snprintf(tag, sizeof tag, "CH%u", unsigned(e.channel_id));
+        fmt_age(age, sizeof age, e.rx_age_s);
+        snprintf(l, sizeof l, "%c%-3s %-9s %4s", (first + row == st.cursor) ? '>' : ' ', tag, e.text, age);
+        mrui::draw_text(0, body_y(row + 1), l);
+    }
 }
 
 void draw_send_screen() {
@@ -337,22 +458,61 @@ void draw_send_screen() {
     mrui::draw_text(0, body_y(3), "long   = EMERGENCY");
 }
 
-// ★ §B66 IS PAID HERE, and it is the reason these two tables sit beside a static_assert. `back` is identified
-//   POSITIONALLY by the model (`cursor + 1 == n`), with the COUNT in firmware_ui_model.h and the STRINGS here — so a
-//   text added in one place without the other silently turns "back without sending" into a SEND. Binding them with an
-//   assert makes that a BUILD failure instead of a mis-send. ⓘ The last row is ONE row that is both `back` and
-//   don't-send, not two (spec §3.2.2).
-const char* const kDmTexts[]      = { "Are you OK?",      "I'm OK",   "back, don't send" };
-const char* const kChannelTexts[] = { "Got your message", "All good", "back, don't send" };
-static_assert(sizeof kDmTexts / sizeof kDmTexts[0] == mrui::kDmTextCount,
-              "§B66: kDmTexts and mrui::kDmTextCount must agree, or `back` becomes a send");
-static_assert(sizeof kChannelTexts / sizeof kChannelTexts[0] == mrui::kChannelTextCount,
-              "§B66: kChannelTexts and mrui::kChannelTextCount must agree, or `back` becomes a send");
+// ★★ §B66 CLOSED 2026-08-05 (UI-7). The two tables and their counts USED TO LIVE APART — the strings here, the counts
+//    in firmware_ui_model.h — with `back` identified POSITIONALLY (`cursor + 1 == n`), so a text added in one place
+//    without the other silently turned "back, don't send" into a SEND. UI-6 bound them with a `static_assert`, a
+//    build failure instead of a mis-send. UI-7 needs the strings in a PURE header anyway (`ui_compose_send_line`
+//    composes the console line and the native suite asserts it byte-for-byte), so the tables MOVED and the counts are
+//    now `sizeof`-derived from them — B66's own "durable cure: one table with the count derived from it". ⇒ there is
+//    nothing left here to keep in step, which is why the asserts are gone rather than merely still passing.
 
-void draw_compose(const mrui::UiState& st, const mrui::UiSnapshot& s) {
+// ★ THE SUB-VIEW'S SECOND PHASE (spec §3.4.1). The outcome REPLACES the canned list — the states are the model's
+//   (`DmState` / §B69's `ChanState`), never re-derived here.
+// ★★ `DELIVERED` appears in exactly one place in this design and this is it: a DM's `send_e2e_acked` is a genuine
+//    end-to-end ack from that PERSON. A channel post can never say it — the strongest thing it has is PICKED UP,
+//    which only means a neighbour was overheard re-flooding it.
+void draw_compose_result(const mrui::UiState& st, const OutcomeView& v) {
+    char l[kLineCap];
+    if (st.compose == mrui::Compose::dm) {
+        char label[mrui::kLabelCap + 1]; label_for_team_id(st.compose_peer, label, uint8_t(sizeof label));
+        switch (v.dm) {
+            case mrui::DmState::idle:
+            case mrui::DmState::submitting:    mrui::draw_text(0, body_y(1), "SENDING..."); break;
+            case mrui::DmState::waiting_ack:   mrui::draw_text(0, body_y(1), "SENT, waiting"); break;
+            case mrui::DmState::delivered:
+                snprintf(l, sizeof l, "DELIVERED to %s", label); mrui::draw_text(0, body_y(1), l); break;
+            // §3.4 — a genuine dead end on-device: the 2026-07-29 ruling forbids the node auto-issuing `reqpubkey`,
+            // so this needs a QR ceremony or a typed command. Say so plainly instead of a generic failure.
+            case mrui::DmState::no_key:        mrui::draw_text(0, body_y(1), "NO KEY"); break;
+            // ⚠ NOT "failed": command.h insists the distinction is "delivery was never CONFIRMED, not that it failed".
+            case mrui::DmState::not_confirmed: mrui::draw_text(0, body_y(1), "NO CONFIRM"); break;
+            case mrui::DmState::failed:        draw_failure_lines(v); break;
+        }
+    } else {
+        switch (v.chan) {
+            case mrui::ChanState::idle:
+            case mrui::ChanState::submitting: mrui::draw_text(0, body_y(1), "SENDING..."); break;
+            case mrui::ChanState::waiting:    mrui::draw_text(0, body_y(1), "SENT, waiting"); break;
+            case mrui::ChanState::relayed:    mrui::draw_text(0, body_y(1), "PICKED UP"); break;
+            // §B38: `relayed` is FIRST RELAY ONLY, never coverage — on a fully-1-hop team this is the CORRECT reading
+            // at 100 % delivery. It reports what was MEASURED, not what it implies about delivery.
+            case mrui::ChanState::no_relay:   mrui::draw_text(0, body_y(1), "SENT, no relay"); break;
+            // ★★★ §B69. It is NOT "SENT" and it is NOT "no relay": with no local handle we never listened, and on the
+            //     `-t` line this UI sends the two surviving `ctr == 0` producers are a pre-TX block and a SEAL
+            //     FAILURE — neither of them a success (see firmware_ui_model.h's EmgEvidence block for the source
+            //     measurement). Saying SENT here would be the §2.1 false confirmation the obligation was written to
+            //     prevent. ⇒ report exactly what is known.
+            case mrui::ChanState::unconfirmed: mrui::draw_text(0, body_y(1), "NOT CONFIRMED");
+                                               mrui::draw_text(0, body_y(2), "no send handle"); break;
+            case mrui::ChanState::blocked:    mrui::draw_text(0, body_y(1), "BLOCKED"); break;
+            case mrui::ChanState::failed:     draw_failure_lines(v); break;
+        }
+    }
+    mrui::draw_text(0, body_y(4), "press = back");
+}
+
+void draw_compose(const mrui::UiState& st, const OutcomeView& v) {
     const bool dm = (st.compose == mrui::Compose::dm);
-    const char* const* texts = dm ? kDmTexts : kChannelTexts;
-    const uint8_t n = dm ? mrui::kDmTextCount : mrui::kChannelTextCount;
     char head[kLineCap];
     if (dm) {
         // The peer was bound at ENTRY (`compose_peer`), so a roster that reorders under an open modal cannot retarget
@@ -363,18 +523,20 @@ void draw_compose(const mrui::UiState& st, const mrui::UiSnapshot& s) {
         snprintf(head, sizeof head, "to: team ch %u", unsigned(MR_UI_TEAM_CHANNEL_ID));
     }
     mrui::draw_text(0, body_y(0), head);
+    if (st.compose_result) { draw_compose_result(st, v); return; }
+    const char* const* texts = dm ? mrui::kDmTexts : mrui::kChannelTexts;
+    const uint8_t n = dm ? mrui::kDmTextCount : mrui::kChannelTextCount;
     const uint8_t first = list_first(st.cursor, n, kBodyRows - 1);
     for (uint8_t row = 0; row + 1 < kBodyRows && first + row < n; ++row) {
         char l[kLineCap];
         snprintf(l, sizeof l, "%c%s", (first + row == st.cursor) ? '>' : ' ', texts[first + row]);
         mrui::draw_text(0, body_y(row + 1), l);
     }
-    (void)s;
 }
 
 // The emergency overlay REPLACES the body (never the status bar — spec §3.3 keeps that always). Font::large for the
 // headline, so it is readable at arm's length under stress; Font::small for the detail line.
-void draw_emergency(const EmgView& v) {
+void draw_emergency(const OutcomeView& v) {
     const char* head = "";
     char detail[kLineCap] = {};
     switch (v.st) {
@@ -400,9 +562,21 @@ void draw_emergency(const EmgView& v) {
         // ⚠ §B38 (owner-ruled): `relayed` means FIRST RELAY ONLY, never coverage — so on a fully-1-hop team this reads
         //   NOT HEARD at 100 % delivery. That is ACCEPTED BEHAVIOUR and must not be "fixed" in the renderer. The
         //   wording therefore says what was MEASURED (no relay overheard), not what it implies about delivery.
+        // ★★★ §B69 IS PAID HERE, AND IT IS THE DETAIL LINE THAT CARRIES IT. `Emergency::not_heard` is reached by two
+        //     outcomes that are DIFFERENT CLAIMS, and until now both printed "no relay after N":
+        //       `local_tx`  — we held the handle and its `channel_sent` came back: "no relay after N" is a MEASUREMENT.
+        //       `no_handle` — every attempt returned `ctr == 0`, so we never held a handle and NEVER LISTENED. Saying
+        //                     "no relay" there asserts a measurement that was never taken.
+        //     ⛔ And it must not say SENT either: on the `-t` line this UI sends, the only surviving `ctr == 0`
+        //     producers are a pre-TX block and a SEAL FAILURE (see firmware_ui_model.h's EmgEvidence block for the
+        //     source measurement that killed the delegated-success producer B69 assumed). ⇒ report the unknown.
+        //     ⓘ The HEADLINE stays `NOT HEARD` on both: the user's action is the same — do not assume help is coming.
         case mrui::Emergency::not_heard:
             head = "NOT HEARD";
-            snprintf(detail, sizeof detail, "no relay after %u", unsigned(v.tries));
+            if (v.evidence == mrui::EmgEvidence::no_handle)
+                snprintf(detail, sizeof detail, "unconfirmed x%u", unsigned(v.tries));
+            else
+                snprintf(detail, sizeof detail, "no relay after %u", unsigned(v.tries));
             break;
         case mrui::Emergency::reply:
             head = "REPLY";
@@ -411,11 +585,17 @@ void draw_emergency(const EmgView& v) {
         case mrui::Emergency::cancelled:
             head = "CANCELLED";
             break;
+        // ★ UI-7: the REAL reason at last. UI-6 printed a fixed "no send path: UI-7" here because there was no send
+        //   path to fail; that stub is gone, and the alarm's refusal now names the wall it hit.
         case mrui::Emergency::failed:
             head = "FAILED";
-            if (kSendPathBuilt) snprintf(detail, sizeof detail, "%s", refuse_text(v.refuse));
-            // Task 6 has no send path at all, so a bench operator must not read this as a radio/crypto failure.
-            else                snprintf(detail, sizeof detail, "no send path: UI-7");
+            // Two alphabets on one line — the compact reason plus, when there is one, the core's own code. §B73's
+            // `fail` is the ASYNC reason and is covered by `refuse_text` through `note_failure`.
+            if (v.refuse == mrui::RefuseReason::parser)
+                snprintf(detail, sizeof detail, "%s", refuse_text(v.refuse));
+            else
+                snprintf(detail, sizeof detail, "%s %s", refuse_text(v.refuse),
+                         MESHROUTE_NS::console::cmdcode_name(v.refuse_code));
             break;
     }
     mrui::set_font(mrui::Font::large);
@@ -426,15 +606,15 @@ void draw_emergency(const EmgView& v) {
 
 // ⚠ Called ONCE PER PAGE, on the FROZEN copies. It must be pure: no state written, nothing read that a later page
 //   could see differently, or the image tears across page boundaries (spec §5).
-void draw_frame(const mrui::UiState& st, const mrui::UiSnapshot& s, const EmgView& v) {
+void draw_frame(const mrui::UiState& st, const mrui::UiSnapshot& s, const OutcomeView& v) {
     mrui::set_font(mrui::Font::small);
     draw_status_bar(s);
     if (v.st != mrui::Emergency::idle) { draw_emergency(v); return; }   // the alarm owns the body, from any screen
-    if (st.compose != mrui::Compose::none) { draw_compose(st, s); return; }
+    if (st.compose != mrui::Compose::none) { draw_compose(st, v); return; }
     switch (st.screen) {
         case mrui::Screen::status: draw_status_screen(s);      break;
         case mrui::Screen::team:   draw_team_screen(st, s);    break;
-        case mrui::Screen::inbox:  draw_inbox_screen(s);       break;
+        case mrui::Screen::inbox:  draw_inbox_screen(st, s);   break;
         case mrui::Screen::send:   draw_send_screen();         break;
         case mrui::Screen::count:  break;                     // not a screen; listed so -Wswitch stays useful
     }
@@ -505,7 +685,7 @@ void mr_ui_tick(uint32_t now_ms) {
             //   eight page boundaries this frame will span (spec §5).
             s_frame_state = s_model.state();
             s_frame_snap  = s;
-            s_frame_emg   = freeze_emg(s);
+            s_frame_out   = freeze_outcome(s);
             mrui::begin_frame();
             break;
         case mrui::FrameStep::next_page:
@@ -515,7 +695,7 @@ void mr_ui_tick(uint32_t now_ms) {
     // ★ U8g2 page mode redraws the WHOLE scene per page — the draw calls are CLIPPED, not accumulated. Drawing once at
     //   frame start and then only advancing pages (an earlier draft) leaves seven of eight pages blank. `open` and
     //   `next_page` therefore share this tail, which is what makes "once per page" structural rather than a rule.
-    draw_frame(s_frame_state, s_frame_snap, s_frame_emg);       // the FROZEN copies, so the image cannot tear
+    draw_frame(s_frame_state, s_frame_snap, s_frame_out);       // the FROZEN copies, so the image cannot tear
     s_gate.on_page(mrui::next_page(), s_model, s_counters);
 }
 

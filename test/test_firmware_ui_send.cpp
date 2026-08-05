@@ -1220,3 +1220,408 @@ TEST_CASE("ui-recv: R1 — the wake inherits the retained-outcome hold; it inven
     //   argued in prose, so a later reader cannot "fix" it into a second window that then disagrees with the real one.
     static_assert(kEmgHoldMs > kBlankMs, "R1: the retained hold must outrank the blank timer, or a wake needs its own window");
 }
+
+// ====================================================================================================== UI-7 — THE SEND
+// ★★★ THESE ARE THE CASES UI-6 COULD NOT HAVE WRITTEN, AND THE REASON IS THE WHOLE ARGUMENT FOR THE SEAM.
+// `ui_perform_send` shipped in `src/firmware_ui.cpp` as a LOUD REFUSAL STUB — a TU neither the native suite nor the
+// simulator compiles — so every safety rule the plan states about it (the conditional `-l`, the typed result, the
+// `ctr == 0` reading, where `on_send_accepted` goes) was a caller obligation no gate could reach. It is now a pure
+// function taking an EXECUTOR, and the executor a test supplies RECORDS THE LINE.
+// ⇒ ★★ EVERY ASSERTION BELOW IS ABOUT A SIDE EFFECT — the command actually issued, or the call that was or was not
+//   made — never a post-hoc enum. §B110 measured why that matters: the shipped compose path CLOSES its modal as it
+//   sends, so `compose == none` is green against a real mis-send. `f.calls` and `f.line` cannot be.
+
+namespace {
+struct FakeExec {
+    char     line[160] = {};
+    int      calls     = 0;
+    SendExec reply{};                      // what `on_command` will answer
+};
+SendExec fake_exec(const char* line, std::size_t len, void* ctx) {
+    FakeExec* f = static_cast<FakeExec*>(ctx);
+    ++f->calls;
+    const std::size_t n = (len < sizeof f->line - 1) ? len : sizeof f->line - 1;
+    for (std::size_t i = 0; i < n; ++i) f->line[i] = line[i];
+    f->line[n] = '\0';
+    return f->reply;
+}
+UiSnapshot snap_at(uint32_t now_ms) { UiSnapshot s{}; s.now_ms = now_ms; return s; }
+SendExec ok_ctr(uint16_t c)  { return SendExec{ true, MESHROUTE_NS::CmdCode::queued, c }; }
+SendExec refused(MESHROUTE_NS::CmdCode c) { return SendExec{ true, c, 0 }; }
+}  // namespace
+
+// ---- the composed line: the one artefact the radio actually sees -----------------------------------------------
+
+TEST_CASE("ui7-line: a DM is `send <id> \"<text>\" -t -a` — the id, the plane and the ack, exactly") {
+    char b[kSendLineCap];
+    const int n = ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, /*peer=*/7, /*idx=*/0}, 0, false);
+    CHECK(n > 0);
+    // ⛔ NO `-e`: the parser gates it `allow_e=by_hash` and REJECTS it on an id target, so the line would not parse
+    //    at all. `crypt` stays `def` and follows the node's own e2e_dm setting (spec §3.4).
+    CHECK(std::strcmp(b, "send 7 \"Are you OK?\" -t -a") == 0);
+}
+
+TEST_CASE("ui7-line: the second DM text is the second table row, not an off-by-one") {
+    char b[kSendLineCap];
+    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 200, 1}, 0, false) > 0);
+    CHECK(std::strcmp(b, "send 200 \"I'm OK\" -t -a") == 0);
+}
+
+TEST_CASE("ui7-line: a canned channel post is `send_channel <ch> \"<text>\" -t -e`") {
+    char b[kSendLineCap];
+    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, 1}, /*ch=*/3, false) > 0);
+    CHECK(std::strcmp(b, "send_channel 3 \"All good\" -t -e") == 0);
+}
+
+// ★★★ THE SAFETY CASE OF THIS WHOLE STEP (spec §4.1). `Node::on_command` REFUSES a located post outright when both
+//     coordinates are zero (node.cpp:1553 -> `err_unsupported`, BEFORE anything is enqueued), so an unconditional
+//     `-l` turns "this node has no fix" into NO ALARM AT ALL. A distress call is worth more than the coordinates.
+TEST_CASE("ui7-line: the EMERGENCY carries -l only WITH a fix; without one it still goes out") {
+    char with_fix[kSendLineCap], no_fix[kSendLineCap];
+    CHECK(ui_compose_send_line(with_fix, sizeof with_fix, SendReq{SendKind::emergency, 0, 0}, 0, /*have_fix=*/true) > 0);
+    CHECK(std::strcmp(with_fix, "send_channel 0 \"I'm in danger\" -t -l -e") == 0);
+    CHECK(ui_compose_send_line(no_fix, sizeof no_fix, SendReq{SendKind::emergency, 0, 0}, 0, /*have_fix=*/false) > 0);
+    CHECK(std::strcmp(no_fix, "send_channel 0 \"I'm in danger\" -t -e") == 0);
+    // The alarm is not silently downgraded to nothing: the body is identical and only `-l` differs.
+    CHECK(std::strstr(no_fix, "\"I'm in danger\"") != nullptr);
+    CHECK(std::strstr(no_fix, " -l") == nullptr);
+}
+
+// ★★ §B66's positional `back` row, guarded one level DOWN. The model already refuses to queue it, but a composer that
+//    CLAMPED instead of refusing would turn "back, don't send" into a send the moment the two ever disagree.
+TEST_CASE("ui7-line: the `back` row index REFUSES to compose, for both tables, and leaves the buffer empty") {
+    char b[kSendLineCap];
+    b[0] = 'x';
+    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 7, uint8_t(kDmTextCount - 1)}, 0, false) == 0);
+    CHECK(b[0] == '\0');                                   // never a partly-formed command
+    b[0] = 'x';
+    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0,
+                                                    uint8_t(kChannelTextCount - 1)}, 0, false) == 0);
+    CHECK(b[0] == '\0');
+    // ...and anything past the table too.
+    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 7, 99}, 0, false) == 0);
+}
+
+TEST_CASE("ui7-line: truncation is a REFUSAL, never a short send (C2)") {
+    char tiny[12];
+    tiny[0] = 'x';
+    CHECK(ui_compose_send_line(tiny, sizeof tiny, SendReq{SendKind::dm, 7, 0}, 0, false) == 0);
+    CHECK(tiny[0] == '\0');
+}
+
+TEST_CASE("ui7-line: kSendLineCap fits every line either verb can produce, at the widest id and channel") {
+    char b[kSendLineCap];
+    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::dm, 255, 0}, 0, false) > 0);
+    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::channel_canned, 0, 0}, 255, false) > 0);
+    CHECK(ui_compose_send_line(b, sizeof b, SendReq{SendKind::emergency, 0, 0}, 255, true) > 0);
+}
+
+// ---- the send driver -------------------------------------------------------------------------------------------
+
+TEST_CASE("ui7-send: an ACCEPTED emergency spends exactly one attempt and holds its handle") {
+    UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(77);
+    const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
+    ui_perform_send(emg, normal, m, req, 0, true, fake_exec, &f, 6000);
+    CHECK(f.calls == 1);
+    CHECK(std::strcmp(f.line, "send_channel 0 \"I'm in danger\" -t -l -e") == 0);
+    CHECK(m.attempts() == 1);
+    CHECK(emg.idle() == false);
+    CHECK(normal.idle() == true);                          // ★ the alarm never touches the normal slot
+    SendOutcome o{};
+    CHECK(emg.match_channel_sent(77, /*relayed=*/true, o) == true);   // the handle really is held
+}
+
+// ★★★ §B39/§B84 — THE RULE THAT WAS A DEFECT TWICE. `ctr == 0` is NOT acceptance: `_tries` moves only in
+//     `on_send_accepted`, and the BOUNDED EXPIRY is what spends the attempt. Counting it here as well would burn two
+//     of the three alarms on one transmission.
+TEST_CASE("ui7-send: `queued` with ctr==0 spends NO attempt here — the bounded expiry does") {
+    UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(0);
+    const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
+    ui_perform_send(emg, normal, m, req, 0, false, fake_exec, &f, 6000);
+    CHECK(f.calls == 1);
+    CHECK(m.attempts() == 0);                              // ★ NOT 1 — this is the whole assertion
+    CHECK(emg.awaiting() == true);                         // parked, not accepted and not refused
+    CHECK(m.emergency() == Emergency::firing);             // and NOT reported as a failure either (§B68)
+    // ...and the expiry then spends exactly ONE, through the shipped glue.
+    ui_pump_trackers(emg, normal, m, 6000 + kOutcomeWindowMs + 1);
+    CHECK(m.attempts() == 1);
+    CHECK(emg.idle() == true);
+}
+
+// ★ Spec §2.1 rule 1: a synchronous refusal is a TERMINAL, NAMED outcome — never an indefinite `SENDING...`.
+TEST_CASE("ui7-send: an err_* result lands the alarm in FAILED and carries the CmdCode verbatim") {
+    UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal; FakeExec f;
+    f.reply = refused(MESHROUTE_NS::CmdCode::err_unsupported);
+    const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
+    ui_perform_send(emg, normal, m, req, 0, true, fake_exec, &f, 6000);
+    CHECK(m.emergency() == Emergency::failed);
+    CHECK(emg.idle() == true);                             // the slot is released, never leaked on a refusal
+    // ★★ THE CODE IS THE POINT. `no_key`, `no_identity`, `no_fix`, `empty` and `unsealable` ALL return
+    //    `err_unsupported`, so the compact reason cannot name the wall and the code is the only thing that can.
+    CHECK(m.refuse_reason() == RefuseReason::other);
+    CHECK(m.refuse_code() == MESHROUTE_NS::CmdCode::err_unsupported);
+}
+
+TEST_CASE("ui7-send: a line that never PARSED is `parser`, and no code is claimed for it") {
+    UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal; FakeExec f;
+    f.reply = SendExec{ /*ok=*/false, MESHROUTE_NS::CmdCode::queued, 0 };
+    const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
+    ui_perform_send(emg, normal, m, req, 0, true, fake_exec, &f, 6000);
+    CHECK(m.emergency() == Emergency::failed);
+    CHECK(m.refuse_reason() == RefuseReason::parser);       // the predicate that says "read no code"
+}
+
+// ★★★ THE MIS-SEND CONTROL, and it asserts the ONE thing that discriminates: whether the executor RAN. A composer
+//     that clamped a bad index instead of refusing would put a real command on the wire, and every state assertion
+//     downstream would still look correct.
+TEST_CASE("ui7-send: a request the composer refuses NEVER reaches the executor") {
+    UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(9);
+    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, 7, uint8_t(kDmTextCount - 1)}, 0, false,
+                    fake_exec, &f, 6000);
+    CHECK(f.calls == 0);                                   // ★ nothing was transmitted
+    CHECK(f.line[0] == '\0');
+    CHECK(m.dm_state() == DmState::failed);                // and it fails LOUD, not silently (C2)
+    CHECK(normal.idle() == true);
+}
+
+TEST_CASE("ui7-send: a DM goes to the NORMAL slot and reaches waiting_ack; the alarm slot stays untouched") {
+    UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(42);
+    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, 11, 0}, 0, false, fake_exec, &f, 6000);
+    CHECK(std::strcmp(f.line, "send 11 \"Are you OK?\" -t -a") == 0);
+    CHECK(normal.idle() == false);
+    CHECK(emg.idle() == true);                             // ★ a DM can never occupy the alarm's slot
+    CHECK(m.dm_state() == DmState::waiting_ack);
+    CHECK(m.attempts() == 0);                              // ...and never spends an alarm attempt
+}
+
+// ---- §B113: the CANNED-CHANNEL twin of the case above, and it did not exist ---------------------------------------
+// ★★★ B113 (found by independent QA on UI-7). `ChanState::waiting` was assigned ZERO times in the whole tree and
+//     referenced exactly ONCE, by `firmware_ui.cpp`'s `"SENT, waiting"` arm — a DEAD STATE. `on_send_accepted` had
+//     arms for `emergency` and `dm` only, so an ACCEPTED canned post stayed on `submitting` and the panel read
+//     `SENDING...` until either the ~36 s `channel_sent` verdict or the sub-view's own 15 s auto-exit — which on the
+//     common path arrives FIRST. ⇒ a successful send whose only feedback was a spinner that never resolved. The bench
+//     guide (H7-01, :502) states the required behaviour verbatim: `SENDING...` -> `SENT, waiting`.
+// ★ THREE THINGS ARE ASSERTED, and ② and ③ are what stop the one-line fix from breaking what already worked:
+//     ① the state MOVES on acceptance;
+//     ② the normal tracker STILL HOLDS ITS HANDLE — UI-4's slot discipline: the acceptance must not disturb the
+//        correlation, or the verdict this state is waiting FOR can never be matched;
+//     ③ neither the DM state, the alarm state nor the attempt budget moves — §B84's ordering, from the other side.
+// ⓘ Walked through the REAL path rather than calling `ui_perform_send` on a hand-built request: the claim is about an
+//   *accepted canned post*, so the request must come from the compose modal that produces one, and `take_send_request`
+//   must be the thing that leaves it on `submitting`. That is also the sequence `mr_ui_tick` runs.
+TEST_CASE("ui7-B113: an ACCEPTED canned post enters `waiting`, KEEPS its handle, and moves neither DM nor alarm") {
+    UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(31);
+    const UiSnapshot s = snap_at(6000);
+    for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);   // status -> team -> inbox -> SEND
+    CHECK(m.state().screen == Screen::send);
+    m.on_gesture(Gesture::double_press, s);                              // open the canned CHANNEL list
+    m.on_gesture(Gesture::double_press, s);                              // ...and send its first text
+    SendReq req{};
+    const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;   // ⚠ §B70: ONE call
+    CHECK(req.kind == SendKind::channel_canned);
+    CHECK(m.chan_state() == ChanState::submitting);                      // the hand-off, before the core answers
+    ui_perform_send(emg, normal, m, req, /*ch=*/0, false, fake_exec, &f, 6000);
+    // The SIDE EFFECT first (§B110): the command actually issued, not a post-hoc enum.
+    CHECK(f.calls == 1);
+    CHECK(std::strcmp(f.line, "send_channel 0 \"Got your message\" -t -e") == 0);
+    // ① — the whole point of the entry: `submitting` -> `waiting` on ACCEPTANCE.
+    CHECK(m.chan_state() == ChanState::waiting);
+    CHECK(m.chan_state() != ChanState::submitting);                      // ...it really MOVED, it did not merely differ
+    // ② THE HANDLE IS RETAINED. ⚠ `match_channel_sent` CONSUMES (§B70) — ONE call, into a local.
+    SendOutcome o{};
+    const bool matched = normal.match_channel_sent(31, /*relayed=*/true, o);
+    CHECK(matched == true);
+    if (matched) CHECK(o.kind == SendOutcome::Kind::channel_relayed);
+    // ③ — the other two machines are untouched, in BOTH directions (see the control below for the converse).
+    CHECK(m.dm_state()   == DmState::idle);
+    CHECK(m.emergency()  == Emergency::idle);
+    CHECK(m.attempts()   == 0);
+    CHECK(emg.idle()     == true);
+    // ...and `waiting` is not terminal: the verdict it was waiting for still lands.
+    if (matched) m.on_channel_outcome(o, 7000);
+    CHECK(m.chan_state() == ChanState::relayed);
+}
+
+// ★★★ THE NEGATIVE CONTROL FOR THE TEMPTING WRONG FIX — writing `_chan` UNCONDITIONALLY in `on_send_accepted` instead
+//     of on the `channel_canned` arm. That passes the case above completely, and it is exactly the §2.1 crossover the
+//     two slots exist to prevent: an ALARM's acceptance would then relabel a coincident canned post as `SENT, waiting`,
+//     and a DM's acceptance would do the same for a channel transaction that was never even submitted.
+// ⚠ Two independent models, so neither can hide the other's write behind a state the first one already moved (the §M6
+//   vacuity lesson: a control whose scenario has already set the field cannot measure who set it).
+TEST_CASE("ui7-B113 CONTROL: accepting a DM or an ALARM must never move the canned-channel state") {
+    UiModel dm_only; SendTracker emg_a, normal_a; FakeExec fa; fa.reply = ok_ctr(42);
+    ui_perform_send(emg_a, normal_a, dm_only, SendReq{SendKind::dm, 11, 0}, 0, false, fake_exec, &fa, 6000);
+    CHECK(dm_only.dm_state()   == DmState::waiting_ack);   // the DM really was accepted...
+    CHECK(dm_only.chan_state() == ChanState::idle);        // ★ ...and the channel state did NOT move
+
+    UiModel alarm = armed_and_fired(); SendReq req{}; SendTracker emg_b, normal_b; FakeExec fb; fb.reply = ok_ctr(77);
+    const bool got = alarm.take_send_request(req); CHECK(got == true); if (!got) return;
+    ui_perform_send(emg_b, normal_b, alarm, req, 0, true, fake_exec, &fb, 6000);
+    CHECK(alarm.attempts()   == 1);                        // the alarm really was accepted...
+    CHECK(alarm.chan_state() == ChanState::idle);          // ★ ...and it does not own `_chan`. The alarm's own
+                                                           //   evidence is `EmgEvidence`; `_chan` is the sub-view's.
+}
+
+// ★★ AND `waiting` MUST MEAN "WE HOLD A HANDLE" — otherwise B113's fix would only have replaced one wrong reading with
+//    another. §B39: `queued` with `ctr == 0` is NOT acceptance, so a handle-less canned post must NOT reach `waiting`;
+//    the bounded expiry owns it and it lands in §B69's `unconfirmed`. This is the discrimination the dead state made
+//    impossible: before the fix BOTH readings were `submitting`, so the panel could not tell a real send from a
+//    handle-less one at all.
+TEST_CASE("ui7-B113: `waiting` means WE HOLD A HANDLE — a ctr-less canned post must not reach it") {
+    UiModel held, handleless;
+    SendTracker emg_a, normal_a; FakeExec fa; fa.reply = ok_ctr(31);
+    ui_perform_send(emg_a, normal_a, held, SendReq{SendKind::channel_canned, 0, 0}, 0, false, fake_exec, &fa, 6000);
+    SendTracker emg_b, normal_b; FakeExec fb; fb.reply = ok_ctr(0);       // §B39: accepted-shaped, NO local handle
+    ui_perform_send(emg_b, normal_b, handleless, SendReq{SendKind::channel_canned, 0, 0}, 0, false,
+                    fake_exec, &fb, 6000);
+    CHECK(held.chan_state()       == ChanState::waiting);
+    CHECK(handleless.chan_state() != ChanState::waiting);      // nothing was ACCEPTED, so nothing may say SENT
+    CHECK(held.chan_state() != handleless.chan_state());       // ★ the two readings are finally distinguishable
+    CHECK(normal_b.awaiting() == true);                        // ...and the ctr-less one belongs to the bounded expiry
+    // ⇒ and it resolves to §B69's UNCONFIRMED, never to `waiting` and never to SENT.
+    ui_pump_trackers(emg_b, normal_b, handleless, 6000 + kOutcomeWindowMs + 1);
+    CHECK(handleless.chan_state() == ChanState::unconfirmed);
+}
+
+// ---- §B69: the canned-channel outcome REACHES the model, and the two collapsed kinds land apart ------------------
+
+// ★★★ B69 CLOSES HERE. `channel_no_relay` and `channel_remote_mint` were indistinguishable to every renderer because
+//     `on_outcome` maps them down one path. `on_channel_outcome` is the canned-only entry point and it separates them.
+TEST_CASE("ui7-B69: no_relay and remote_mint land in DIFFERENT ChanStates — the carrier B69 asked for") {
+    UiModel a, b;
+    a.on_channel_outcome(SendOutcome::channel_no_relay(), 1000);
+    b.on_channel_outcome(SendOutcome::channel_remote_mint(), 1000);
+    CHECK(a.chan_state() == ChanState::no_relay);
+    CHECK(b.chan_state() == ChanState::unconfirmed);
+    CHECK(a.chan_state() != b.chan_state());               // ★ the whole point: they are no longer the same state
+    // ...and neither of them may claim the relay evidence that only `channel_relayed` carries.
+    UiModel c; c.on_channel_outcome(SendOutcome::channel_relayed(), 1000);
+    CHECK(c.chan_state() == ChanState::relayed);
+    CHECK(c.chan_state() != a.chan_state());
+    CHECK(c.chan_state() != b.chan_state());
+}
+
+TEST_CASE("ui7-B69: a canned post's outcome NEVER moves a live alarm (§2.1), by either route") {
+    SendTracker emg;
+    UiModel m = alarm_accepted(emg, /*ctr=*/55);
+    SendTracker normal;
+    normal.submit(SendKind::channel_canned, 0, 0, 5000);
+    normal.accept(/*ctr=*/56, 5000);                       // a DIFFERENT handle — a coincident canned post
+    MESHROUTE_NS::Push pu = push_of(MESHROUTE_NS::PushKind::channel_sent);
+    pu.ctr = 56; pu.relayed = true;                        // it WAS relayed...
+    CHECK(ui_route_send_push(emg, normal, m, pu, 6000) == true);
+    CHECK(m.chan_state() == ChanState::relayed);           // ...so the SUB-VIEW says so...
+    CHECK(m.emergency() == Emergency::firing);             // ...and the ALARM is untouched. Never PICKED UP.
+    CHECK(m.attempts() == 1);
+}
+
+TEST_CASE("ui7-B69: the NORMAL tracker's expiry reaches the sub-view and still cannot touch the alarm (§B84 blk 2)") {
+    SendTracker emg;
+    UiModel m = alarm_accepted(emg, /*ctr=*/55);
+    SendTracker normal;
+    normal.submit(SendKind::channel_canned, 0, 0, 5000);
+    normal.awaiting_outcome(5000);                         // a canned post with NO local handle
+    ui_pump_trackers(emg, normal, m, 5000 + kOutcomeWindowMs + 1);
+    CHECK(m.chan_state() == ChanState::unconfirmed);       // ★ UI-7 supplies what the glue had to DISCARD
+    CHECK(m.emergency() == Emergency::firing);             // ★ §B84 blocker 2 still holds: the alarm did NOT move
+    CHECK(m.attempts() == 1);                              // ...and no attempt was spent on it
+    CHECK(normal.idle() == true);
+}
+
+TEST_CASE("ui7-B69: a canned send_blocked reaches the sub-view as BLOCKED, not the alarm") {
+    SendTracker emg;
+    UiModel m = alarm_accepted(emg, /*ctr=*/55);
+    SendTracker normal;
+    normal.submit(SendKind::channel_canned, 0, 0, 5000);
+    normal.accept(/*ctr=*/56, 5000);
+    MESHROUTE_NS::Push pu = push_of(MESHROUTE_NS::PushKind::send_blocked);
+    pu.blocked_channel = true; pu.next_ms = 4000;
+    // The EMERGENCY slot is offered first and is `accepted`, so it claims it — that is the shipped offer order and
+    // it is deliberate (`match_blocked` correlates by WINDOW, not by ctr). Drain the alarm first to reach the
+    // canned arm, which is what this case is about.
+    emg.close();
+    CHECK(ui_route_send_push(emg, normal, m, pu, 6000) == true);
+    CHECK(m.chan_state() == ChanState::blocked);
+    CHECK(m.emergency() == Emergency::firing);
+}
+
+// ---- the sub-view's lifetime bounds the ONE normal slot ---------------------------------------------------------
+
+// ★★★ WITHOUT THIS, ONE UNCONFIRMED DM DISABLES EVERY FURTHER SEND ON THE DEVICE, PERMANENTLY. `match_dm` parks an
+//     `e2e_ack_timeout` DM in `late_ack`, which is never `idle`, and `mr_ui_tick` only drains a new request while the
+//     normal slot IS idle. H7-06: "no slot remains leaked".
+TEST_CASE("ui7-slot: a late_ack slot is released once the sub-view has closed") {
+    UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(42);
+    UiSnapshot s{}; s.now_ms = 1000; s.team_shown = 1; s.team[0].id = 11;
+    m.on_gesture(Gesture::short_press, s);                 // -> TEAM
+    m.on_gesture(Gesture::double_press, s);                // -> DM compose
+    m.on_gesture(Gesture::double_press, s);                // -> send "Are you OK?"
+    SendReq req{}; const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
+    ui_perform_send(emg, normal, m, req, 0, false, fake_exec, &f, 1000);
+    SendOutcome o{};
+    CHECK(normal.match_dm(42, 11, /*acked=*/false, FailReason::e2e_ack_timeout, o) == true);
+    m.on_outcome(o, 2000);
+    CHECK(m.dm_state() == DmState::not_confirmed);
+    // While the sub-view is STILL SHOWING the slot is retained, so spec §3.4.1's late-ack UPGRADE still works.
+    CHECK(m.compose_open() == true);
+    ui_pump_trackers(emg, normal, m, 3000);
+    CHECK(normal.idle() == false);                         // ★ the negative half — do NOT close it early
+    SendOutcome late{};
+    CHECK(normal.match_dm(42, 11, /*acked=*/true, FailReason::none, late) == true);
+    m.on_outcome(late, 3100);
+    CHECK(m.dm_state() == DmState::delivered);             // NO CONFIRM -> DELIVERED, the upgrade the spec wants
+    // ⓘ NOT asserted here that the slot is then released: the successful late ack ALREADY idles it inside `match_dm`
+    //   (`if (acked) { _state = State::idle; }`), so a `normal.idle()` check at this point could not fail whatever
+    //   `ui_pump_trackers` does. MEASURED — a mutation that removed the close entirely left this case fully green.
+    //   The release is proved by the case below, which never receives its late ack.
+    m.on_tick(snap_at(3100 + kBlankMs + 1));
+    CHECK(m.compose_open() == false);
+}
+
+// ★★★ THE LEAK ITSELF, in the ONLY state that can exhibit it: a `late_ack` slot whose late ack NEVER ARRIVES — which
+//     is the normal case, since `e2e_ack_timeout` means the peer did not answer. Nothing else releases it, so without
+//     the compose-lifetime close the slot stays non-idle FOR EVER and `mr_ui_tick`'s
+//     `else if (s_tracker_normal.idle())` gate never opens again: one unconfirmed DM disables every further send on
+//     the device. (H7-06: "no slot remains leaked".)
+TEST_CASE("ui7-slot: an UNANSWERED late_ack slot is released once the sub-view has gone, or the device is bricked") {
+    UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(42);
+    UiSnapshot s{}; s.now_ms = 1000; s.team_shown = 1; s.team[0].id = 11;
+    m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::double_press, s);
+    m.on_gesture(Gesture::double_press, s);
+    SendReq req{}; const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
+    ui_perform_send(emg, normal, m, req, 0, false, fake_exec, &f, 1000);
+    SendOutcome o{};
+    CHECK(normal.match_dm(42, 11, /*acked=*/false, FailReason::e2e_ack_timeout, o) == true);
+    m.on_outcome(o, 2000);
+    CHECK(normal.idle() == false);                         // parked in late_ack, and NOTHING else will free it
+    // While the sub-view still shows, it is RETAINED — spec §3.4.1's upgrade window (the negative half).
+    ui_pump_trackers(emg, normal, m, 2100);
+    CHECK(normal.idle() == false);
+    // Once the sub-view has auto-exited, the slot is released and the device can send again.
+    m.on_tick(snap_at(1000 + kBlankMs + 1));
+    CHECK(m.compose_open() == false);
+    ui_pump_trackers(emg, normal, m, 1000 + kBlankMs + 2);
+    CHECK(normal.idle() == true);                          // ★ the gate `mr_ui_tick` reads before draining a request
+    // ⓘ HONEST SCOPE, stated rather than implied: the assertion above IS the discriminating one, because the gate it
+    //   feeds (`else if (s_tracker_normal.idle())`) lives in `firmware_ui.cpp`, which no native test compiles. The
+    //   second send below therefore DOCUMENTS reusability; it is not a second control — `ui_perform_send` does not
+    //   consult `idle()` itself, so it would succeed either way. That the tick really reads the gate is pinned by
+    //   the probe's wiring checks, the same division of labour §R1 used for W6.
+    FakeExec f2; f2.reply = ok_ctr(43);
+    ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, 0}, 0, false, fake_exec, &f2,
+                    1000 + kBlankMs + 3);
+    CHECK(f2.calls == 1);
+    CHECK(std::strcmp(f2.line, "send_channel 0 \"Got your message\" -t -e") == 0);
+}
+
+TEST_CASE("ui7-slot: the EMERGENCY slot is never closed by a compose modal") {
+    SendTracker emg;
+    UiModel m = alarm_accepted(emg, /*ctr=*/55);
+    SendTracker normal;
+    CHECK(m.compose_open() == false);                      // an alarm has no modal, and must not be bound to one
+    ui_pump_trackers(emg, normal, m, 6000);
+    CHECK(emg.idle() == false);                            // ★ still holding its handle
+    SendOutcome o{};
+    CHECK(emg.match_channel_sent(55, true, o) == true);
+}
