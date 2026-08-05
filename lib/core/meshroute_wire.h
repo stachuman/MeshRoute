@@ -1,4 +1,4 @@
-// MeshRoute — lib/core/wire.h
+// MeshRoute — lib/core/meshroute_wire.h
 // Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // C0: shared wire primitives for the §10 cmd-nibble frame format. Header-only,

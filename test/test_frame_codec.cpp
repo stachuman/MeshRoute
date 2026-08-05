@@ -14,7 +14,7 @@
 
 #include "frame_codec.h"
 #include "leaf_config.h"   // R6.1: leaf_config_hash golden + sensitivity
-#include "wire.h"
+#include "meshroute_wire.h"
 
 #include <array>
 #include <cstdint>

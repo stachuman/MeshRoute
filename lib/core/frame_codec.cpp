@@ -12,7 +12,7 @@
 
 #include "frame_codec.h"
 
-#include "wire.h"
+#include "meshroute_wire.h"
 #include "protocol_constants.h"   // bcn_ext_type_channel_digest + channel_dirty_max_per_bcn (channel-digest TLV)
 
 namespace MESHROUTE_NS {

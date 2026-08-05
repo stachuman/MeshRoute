@@ -18,7 +18,7 @@
 #include "identity.h"  // §P2-6: key_hash32_of (LE(ed_pub[:4]) derivation); §team-ch-key: team_channel_key_derive
 #include "monocypher.h"   // §team-ch-key: crypto_wipe — scrub the scalar/priv scratch on the mint/adopt paths
 #include "node_role.h"    // ★ B28/R2: role_enforce + kRoleHasMobilePlane — the role model's ONE definition (set_team_id below)
-#include "wire.h"
+#include "meshroute_wire.h"
 
 #include <cstdlib>     // atol — parse_gateway_cmd
 #include <cstring>     // strncmp — parse_gateway_cmd

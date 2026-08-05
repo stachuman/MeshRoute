@@ -19,7 +19,7 @@
 // Part of Node (declared in node.h).
 #include "node.h"
 #include "frame_codec.h"
-#include "wire.h"          // wire::cmd_byte / Cmd::CFG / flags_of — the C config frame header
+#include "meshroute_wire.h"          // wire::cmd_byte / Cmd::CFG / flags_of — the C config frame header
 #include "leaf_config.h"   // CConfig + pack/parse_c_config + leaf_config_hash + duty_to_bp/bp_to_duty
 
 namespace MESHROUTE_NS {

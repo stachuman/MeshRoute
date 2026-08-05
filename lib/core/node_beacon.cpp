@@ -10,7 +10,7 @@
 #include "leaf_config.h"   // R6.1: leaf_config_hash — the misconfig fingerprint
 
 #include "frame_codec.h"
-#include "wire.h"          // §7c: wire::cmd_of/flags_of for the pre-parse beacon version gate
+#include "meshroute_wire.h"          // §7c: wire::cmd_of/flags_of for the pre-parse beacon version gate
 
 #include <span>
 #include <cstring>    // strcmp — kind=="sync" full-table gate
