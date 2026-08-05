@@ -684,6 +684,83 @@ lower, so a `heltec_v3` rerun is still owed.
 - Multi-hop `team grantkey` and sealed send are not unlocked by a claimed binding. They require an authoritative
   binding; that trust boundary is intentional.
 
+### 8.11 — §B103 the distress REPLY is TEAM-scoped (2026-08-05, was a LIVE defect)
+
+Needs a second node that is **not** in the panel node's team. Nothing automated can reach this: the reply scope is
+decided in `src/firmware_ui.cpp`, which neither the native suite nor the simulator compiles.
+
+1. Panel node (team set): fire an alarm, leave it on a retained outcome.
+2. Stranger node, `team_id == 0`: `send_channel 0 "hello"`.
+3. Expected on the panel: the status bar `CH` count **increments**, and the emergency overlay is **unchanged**.
+   ⛔ `REPLY` appearing here is a regression of §B103 and invalidates every reply indication on the build.
+4. Teammate node, same `team_id`: `send_channel -t 0 "on my way"` ⇒ the panel **does** show `REPLY <name>: on my way`.
+
+### 8.12 — §B102 an unread outcome cannot be dismissed (2026-08-05)
+
+The panel is the only instrument; there is no console line.
+
+1. Put the node under load so the MAC-idle gate stretches the repaint (`send` something a beat earlier).
+2. Drive an alarm to a terminal outcome and press the button **immediately**.
+3. Expected: the outcome **stays on the panel**. Only a press after it is fully drawn clears it.
+
+### 8.13 — §B101 an alarm leaves no armed compose modal (2026-08-05)
+
+1. On TEAM, double-press to open the DM compose list, short-press once so a **real message** is highlighted.
+2. Long-press to fire the alarm; let it reach a retained outcome; short-press to acknowledge.
+3. Expected: the plain TEAM screen, **no list, no highlight**. Then double-press: the list re-opens at
+   `back, don't send`. ⛔ A message flying at step 3 is the §B101 mis-send.
+
+### 8.14 — §B108 round 2: the unread cap is a DISPLAY limit, and only the panel can say so (2026-08-05)
+
+The arithmetic is fully native-gated (`ui-frame: B108 round 2 — a mid-frame arrival survives AT the unread cap`). What
+no gate reaches is the **status bar itself**: the arrival serial is now uncapped and the clamp lives in exactly one
+place, `UiInboxCounters::publish`. If a future edit publishes the raw serial instead, every native case still passes
+and the bar silently grows a fourth digit that the 128-px line has no room for.
+
+1. From a second node, post more than `999` channel messages without visiting INBOX on the panel node (a scripted
+   burst; nothing else reaches four digits).
+2. Expected status bar, exactly — `CH999`, never `CH1000` and never a rolled-over small number:
+   `DM0 CH999 T0/0 --`
+3. Then walk to INBOX and let one full frame draw. Expected: `CH0`, and the bar layout is unchanged throughout.
+
+⛔ A four-digit count, a truncated `T<n>/<n>` field, or a count that *drops* while the burst is still arriving is a
+regression of this slice. ⓘ If the burst is not practical on the day, say so in the completion record rather than
+ticking it — the behavioural half is natively covered; only the **rendering** half is owed here.
+
+### 8.15 — §R1/B109 a REPLY lights a DARK panel; a stranger's post does not (2026-08-05, OWNER-RULED)
+
+Nothing automated reaches this. The model half is natively gated (and W6 pins the `FrameStep` → `set_power_save`
+mapping structurally), but **"the screen came on by itself"** has exactly one instrument: the panel.
+
+1. Panel node: fire an alarm, let it settle on a retained outcome, then **leave the button alone** until the panel is
+   fully dark (`kEmgHoldMs` + the blank timer).
+2. Teammate node, same `team_id`: `send_channel -t 0 "on my way"`.
+3. Expected, with **no button press**: the panel lights showing — exactly —
+   `REPLY` on the large line and `<name>: on my way` beneath it.
+   It must light **once**: any flicker or strobe means a per-tick `set_power_save` write, not an edge.
+4. Leave it: `kEmgHoldMs` after the **reply's own arrival** it blanks again, `REPLY` retained.
+5. ⛔ **The negative half.** Repeat from a stranger node (`team_id == 0`): `send_channel 0 "hello"`. The panel **stays
+   dark**. A panel that lights for a passer-by means the wake was wired to the arrival instead of to the reply — the
+   §2.1 false-confirmation class in power form, and a battery-drain vector on a rescue device.
+
+ⓘ Deliberate and not a bug: a `BLOCKED` / `PICKED UP` / `NOT HEARD` / `FAILED` outcome arriving at a dark panel does
+**not** light it. R1 rules on the REPLY only; widening it is an open owner question.
+
+### 8.16 — §R2/B110 a DOUBLE under the emergency overlay does nothing at all (2026-08-05, OWNER-RULED)
+
+The overlay covers the body, so the whole hazard is invisible by construction — a second node is the only way to see
+the half that leaves the device.
+
+1. On TEAM (at least one teammate listed), long-press to fire an alarm.
+2. Double-press **twice**, about a second apart.
+3. Expected: the overlay is unchanged, and a second node sees **nothing arrive on channel 0**.
+   ⛔ A message arriving is the hidden mis-send: two doubles used to open an invisible compose list and send from it.
+4. The one-press variant: on TEAM double-press to open the DM list, short-press onto a **real** message, then long-press
+   to **ARM** and release before it fires (`ARMING` keeps the modal open by design). While `RELEASE!` is up,
+   double-press once. ⛔ A DM leaving the node here is the same defect reached by a single press.
+5. The rest of the contract, unchanged: **long** re-fires from a sticky outcome, **short** exits once the result has
+   been drawn (§B71/§B102). A double must never dismiss — even a fully presented outcome.
+
 ## Completion record
 
 - Firmware revision tested: `________________`

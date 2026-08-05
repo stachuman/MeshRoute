@@ -20,6 +20,16 @@
 // outcome returns `_emg` to `idle`. It lives in this pure unit and not in firmware_ui.cpp on purpose: it is gesture
 // SEMANTICS, the one thing this header owns, and putting it here is what makes it natively testable (the render layer
 // has no automated cover at all). `emg_outcome_retained()` is the derived predicate; see it for the vacuous fifth state.
+// DONE here (2026-08-05, the UI-6 QA fix slice — §B101/§B102/§B107/§B108): `FrameGate` (the whole render-policy
+// lifecycle: the §5 MAC-idle gate, the blank, page continuation, the 2 Hz throttle and the emergency bypass), the
+// `dirty` consumption moved to the FREEZE, `UiInboxCounters` + the unread clear driven by a COMPLETE and VISIBLE Inbox
+// frame, `mark_dirty()`, the retained-outcome PRESENTED latch behind B71's exit, and `long_fire` closing the compose
+// modal. ★ All five lived in `src/firmware_ui.cpp`, which neither the native suite nor the simulator compiles — which
+// is exactly why all five shipped green. See `FrameGate`'s own block for the argument.
+// DONE here (2026-08-05, the two OWNER RULINGS that closed UI-6's open decisions — §R1/§R2, register B109/B110):
+// §R1 an accepted REPLY un-blanks the panel (`on_reply`, one line, past both scope guards — it is a TRANSITION, and
+// the "not wake-on-any-push" half is the placement); §R2 the emergency overlay ABSORBS a `double` entirely
+// (`on_gesture`, its OWN arm — see the ⚠⚠ there for why it must never be folded into §B102's latched short-press arm).
 // NOT here yet (UI-4, [[meshroute-mark-done-vs-missing-in-code]]): NOTHING correlates outcomes. Every `on_outcome` /
 // `on_send_accepted` / `on_send_refused` call must come from the Task-4 send tracker, which matches ctr/peer/channel
 // FIRST — feeding this model a raw Push would let an unrelated channel post complete an emergency (spec §2.1).
@@ -71,7 +81,12 @@ struct InboxRow {
 
 struct UiSnapshot {
     uint32_t now_ms = 0;
+    // ★★ §B108 round 2 — TWO THINGS, PUBLISHED TOGETHER, and that togetherness is the point. `unread_*` is the
+    // DISPLAY count, clamped to `kUnreadCap` because the bar has three digits; `arr_*` is the uncapped ARRIVAL SERIAL
+    // those digits were derived from. `UiInboxCounters::publish` writes all four in one call, so a frame can never
+    // freeze a serial that its own rendered number did not reflect. Never assign one without the other.
     uint16_t unread_dm = 0, unread_ch = 0;
+    uint32_t arr_dm = 0, arr_ch = 0;
     uint32_t last_dm_age_s = UINT32_MAX, last_ch_age_s = UINT32_MAX;
     uint8_t  team_shown = 0, team_total = 0;      // shown <= kMaxTeamRows; total = rt_team_count() (spec §3.3)
     TeamRow  team[kMaxTeamRows] = {};
@@ -80,6 +95,45 @@ struct UiSnapshot {
     uint8_t  my_team_id = 0; uint32_t team_id = 0;
     int32_t  batt_mv = -1;                        // <0 = unavailable -> render "--", never a guess
     bool     team_build = true;
+};
+
+// ★ THE UI-LOCAL UNREAD / RECENCY COUNTERS (spec §6). They were six file-static variables in firmware_ui.cpp, and
+// they moved here for the §UI-6 GLUE reason: BOTH things that move them — a push arriving (`ui_route_recv_push`) and
+// an Inbox frame actually reaching the panel (`FrameGate`) — are decided by code the native suite drives, and a
+// counter no test can reach is exactly where §B108 hid. `have_*` keeps "never received" distinct from "received at
+// t = 0"; without it a fresh boot renders "0s ago". Session-scoped by design: `Inbox` exposes no read cursor, and a
+// reboot resetting them reads, for a glanceable bar, as "since you last looked".
+inline constexpr uint16_t kUnreadCap = 999;   // the bar renders 3 digits — ★ A DISPLAY LIMIT ONLY, see below
+struct UiInboxCounters {
+    // ★★★ §B108 ROUND 2 — ARRIVAL IDENTITY IS SEPARATE FROM THE DISPLAY CAP, and conflating them re-created the very
+    // harm B108 exists to prevent. The first fix stored a CAPPED `unread_*` and had a completed frame SUBTRACT the
+    // count it had frozen. At saturation that loses a message: the frame freezes 999, an arrival during the eight
+    // paging ticks cannot raise 999 (`if (unread < kUnreadCap) ++unread`), and the completion subtracts 999 -> 0. The
+    // message is marked read having NEVER been on the panel. ⚠ The old code half-knew this — its clamp's own comment
+    // named the saturation case. A CLAMP HIDES IT; IT DOES NOT FIX IT.
+    // ⇒ `arr_*` counts EVERY arrival, monotonically and uncapped. `read_*` is a watermark that a COMPLETE and VISIBLE
+    //   Inbox frame advances to the serial that frame FROZE. `unread_* = arr_* - read_*`, and the cap is applied
+    //   nowhere but `publish`, on its way to the pixels.
+    // ★ WRAPAROUND, chosen rather than inherited: `uint32_t` with UNSIGNED MODULAR subtraction. Unsigned overflow is
+    //   defined in C++, so the serials themselves wrapping is harmless — the ONLY invariant is that the TRUE unread
+    //   count stays below 2^32 between two reads. `uint16_t` would have cost 8 B less and wrapped at 65 536: a device
+    //   left unattended for a week on a channel carrying one post per 10 s reaches ~60 000, the SAME ORDER, so it
+    //   would have been "probably fine" — the reasoning class that produced this bug. 2^32 is 136 years at one
+    //   arrival per second: unreachable, not merely unlikely.
+    uint32_t arr_dm  = 0, arr_ch  = 0;    // monotonic arrival serials — NEVER capped, NEVER reset
+    uint32_t read_dm = 0, read_ch = 0;    // read watermarks — moved ONLY by FrameGate::on_page
+    uint32_t last_dm_ms = 0, last_ch_ms = 0;
+    bool     have_dm = false, have_ch = false;
+
+    uint32_t unread_dm() const { return arr_dm - read_dm; }   // modular; see the wraparound note above
+    uint32_t unread_ch() const { return arr_ch - read_ch; }
+    static uint16_t capped(uint32_t n) { return n < uint32_t(kUnreadCap) ? uint16_t(n) : kUnreadCap; }
+    // ★ THE ONE CONVERSION PATH into a frame's snapshot (U2) — never rebuild these four at a call site, because the
+    //   whole correctness argument is that the display count and the serial come from the SAME instant.
+    void publish(UiSnapshot& s) const {
+        s.unread_dm = capped(unread_dm()); s.arr_dm = arr_dm;
+        s.unread_ch = capped(unread_ch()); s.arr_ch = arr_ch;
+    }
 };
 
 // ---------------------------------------------------------------------------------------------------- UI-3
@@ -169,14 +223,38 @@ public:
         //   3. only RETAINED outcomes qualify: an alarm still in flight (`arming`/`firing`/`blocked`-with-a-live-retry)
         //      is sticky, because an outcome the hiker never saw is the failure SAFETY-FIRST exists to prevent.
         // ★ It cannot trap the user: retries are BOUNDED, so the machine always terminates in a retained outcome.
-        // ⚠ It is placed BEFORE the compose branch on purpose. A long press fires from inside a compose sub-view
-        //   (spec §4.2) and does NOT close it, so the emergency overlay renders OVER an open modal — the press must act
-        //   on what the user is looking at, which is the alarm, not on the list underneath it.
+        // ⚠ It is placed BEFORE the compose branch on purpose: the press must act on what the user is LOOKING AT,
+        //   which is the alarm overlay, never the list underneath it.
+        // ⓘ CORRECTED 2026-08-05 by §B101/F5. This comment used to say a long press "does NOT close" the compose
+        //   sub-view, so the overlay rendered over a still-open modal. `long_fire` now closes it and resets the cursor
+        //   — see `emergency_gesture`. `long_arm` still does not, because arming is cancellable.
         // ⓘ `double` deliberately gets NO emergency job (spec §4's "double acknowledges" AND "double re-fires" are both
-        //   withdrawn — they were the contradiction B71 resolved), so it falls through to `activate()` as usual.
-        if (g == Gesture::short_press && emg_outcome_retained()) {
-            _emg = Emergency::idle; _st.dirty = true; return;
+        //   withdrawn — they were the contradiction B71 resolved). ⓘ CORRECTED 2026-08-05 by §R2: this line used to
+        //   end "so it falls through to `activate()` as usual", and that fall-through WAS the hidden-mis-send hazard.
+        //   The overlay now absorbs the double outright — see the R2 arm below.
+        // ★★ §B102/F3: while the overlay is up it OWNS the body (draw_frame returns straight after draw_emergency),
+        //    so a short press must NEVER operate the screen underneath — the user cannot see what they would change.
+        //    It is CONSUMED either way; it DISMISSES only once the outcome has actually been presented.
+        if (g == Gesture::short_press && _emg != Emergency::idle) {
+            if (emg_outcome_retained()) { _emg = Emergency::idle; _st.dirty = true; }
+            return;
         }
+        // ★★★ R2 (OWNER-RULED 2026-08-05) — THE OVERLAY ABSORBS A DOUBLE, ENTIRELY. No emergency action, no operation
+        // of the screen underneath, no dismiss, no re-fire. It is a `return`, and nothing else, on purpose.
+        // ★ THE HAZARD IT CLOSES IS A HIDDEN MIS-SEND DURING AN ALARM. The overlay OWNS the body (`draw_frame` returns
+        //   straight after `draw_emergency`), but a `double` used to fall through to `activate()` / `compose_gesture()`
+        //   below — so TWO doubles opened a compose view the user cannot see and then SENT from it, and with a modal
+        //   left open under ARMING (which §B101 deliberately does not close, because arming is cancellable) ONE was
+        //   enough. That completes what §B102/F3 did for the SHORT press: the overlay is now opaque to BOTH.
+        // ⚠⚠ IT IS ITS OWN ARM AND MUST STAY ONE — do NOT merge it into the branch above. That branch is gated on
+        //    §B102's presented-latch (`emg_outcome_retained()`), which is F3's answer to a PREMATURE SHORT press.
+        //    Sharing it would give `double` the latch, and a double would then DISMISS a presented outcome — the
+        //    duty §B71 explicitly WITHDREW ("double gets no emergency job"). A test distinguishes the two arms
+        //    directly (`ui-frame: R2 vs F3 …`); it is what fails if a later reader folds them.
+        // ⓘ Truthfully NOT "no effect at all": the press still refreshed `_last_input_ms` at the top of this function,
+        //   because the user genuinely did act. That is the input-liveness layer, not the gesture contract, and the
+        //   hold deadline (§4.3) is what governs the overlay's panel time regardless.
+        if (g == Gesture::double_press && _emg != Emergency::idle) return;
         if (_st.compose != Compose::none) { compose_gesture(g); return; }
         if (g == Gesture::short_press)  { advance_or_next(s); _st.dirty = true; }
         else if (g == Gesture::double_press) { activate(s);   _st.dirty = true; }
@@ -199,6 +277,10 @@ public:
 
     const UiState& state() const { return _st; }
     void clear_dirty() { _st.dirty = false; }
+    // ★★ §B108: AN ARRIVAL IS A REASON TO REPAINT. `mr_ui_on_push` moved the unread counters and the recency stamps
+    // and then asked for nothing, so a new message sat unshown until some UNRELATED gesture or timer happened to
+    // invalidate the panel. The counts ride the STATUS BAR, which every screen draws, so this is not Inbox-specific.
+    void mark_dirty() { _st.dirty = true; }
     // ★ TWO independent slots, emergency first. One shared slot would let a normal compose action OVERWRITE a queued
     // alarm, and (with the tick's in-flight gate) serialise the emergency behind a DM awaiting its e2e ack — which
     // defeats "long press fires from any screen". Normal work never touches the emergency slot. Spec §2.1.
@@ -310,6 +392,23 @@ public:
         copy_clamped(_reply_who,  who,  sizeof _reply_who);
         copy_clamped(_reply_text, text, sizeof _reply_text);
         _emg = Emergency::reply; retain(now_ms); _st.dirty = true;
+        // ★★★ R1 (OWNER-RULED 2026-08-05) — AN ARRIVING REPLY UN-BLANKS THE PANEL, and this line is the whole fix.
+        // Before it NOTHING un-blanked on an incoming push: `dirty` was set, but `blanked` stayed true, so
+        // `FrameGate::step` kept answering `blank` and the answer to a distress call waited behind a panel that is OFF
+        // until the hiker happened to press the button. `dirty` alone was never enough — the blank is tested FIRST.
+        // ★ IT IS HERE, PAST BOTH GUARDS, AND THAT PLACEMENT IS THE RULING'S "NOT WAKE-ON-ANY-PUSH" HALF:
+        //   ① the caller (`ui_route_recv_push`) has already applied §4.4's team scope — a stranger's channel-0 post
+        //      never reaches this function at all (§B103); and
+        //   ② the whitelist + `_tries == 0` above have already refused everything that is not an answer to an alarm we
+        //      actually transmitted. ⇒ what wakes the panel is a REPLY, not team chatter. Both are pinned by their own
+        //      controls in test_firmware_ui_send.cpp; without them this fix is indistinguishable from wake-on-any-push.
+        // ★ EDGE-TRIGGERED, still (spec §5): this is a STATE TRANSITION, not a per-tick write. The board latches
+        //   `set_power_save`, and the ONE resulting DISPLAYON is asserted as a command SEQUENCE, not as a flag.
+        // ⓘ NO SECOND TIMER (U1/C2): `retain()` on the line above already gives §4.3's kEmgHoldMs deadline, measured
+        //   from THIS reply's own arrival — so the woken panel stays lit for a full window and then blanks with the
+        //   state retained. `_last_input_ms` is deliberately untouched, and it is inert either way because
+        //   kEmgHoldMs > kBlankMs (asserted in the test, not argued here).
+        _st.blanked = false;
     }
     const char* reply_who()  const { return _reply_who; }
     const char* reply_text() const { return _reply_text; }
@@ -322,8 +421,25 @@ public:
     // ⓘ `cancelled` is excluded deliberately: nothing was sent, and it self-clears after kCancelledMs, so there is no
     // outcome to acknowledge. `arming` / `firing` are the in-flight rows.
     bool emg_outcome_retained() const {
-        return _emg == Emergency::picked_up || _emg == Emergency::not_heard ||
-               _emg == Emergency::reply     || _emg == Emergency::failed;
+        const bool terminal = _emg == Emergency::picked_up || _emg == Emergency::not_heard ||
+                              _emg == Emergency::reply     || _emg == Emergency::failed;
+        return terminal && _emg_seen == _emg_news;   // ★★ §B102: terminal AND ACTUALLY PRESENTED
+    }
+
+    // ★★★ §B102/F3 — "AN OUTCOME THE HIKER ACTUALLY SAW", made TRUE rather than ASSUMED.
+    // B71's ruling permits a SHORT press to acknowledge an alarm "once its result has been seen", and the argument for
+    // safety rested on "a retained outcome is ALWAYS displayed before any press can dismiss it". That was an
+    // assumption about TIMING: a frame takes eight ticks, `InputFsm` delivers a gesture that was already in progress,
+    // and the MAC-idle gate can hold every one of those ticks — so a press could dismiss a distress result before its
+    // FIRST page reached the panel. The user then sees the alarm vanish and never learns the answer.
+    // ⇒ `retain()` — which EVERY retained outcome goes through, and which a NEW reply re-enters with new text — bumps
+    //   `_emg_news`. `FrameGate` reports back the news value a COMPLETED frame actually put in front of the user. The
+    //   exit opens only when the two agree, so "seen" is a measurement.
+    // ⓘ NO ARITHMETIC VALUE IS RESERVED (§B74's discipline): both counters start at 0 and the FIRST `retain()` makes
+    //   `_emg_news` 1, while `terminal` is false for `idle` — so the initial 0 == 0 can never open the exit.
+    uint32_t emg_news() const { return _emg_news; }
+    void mark_outcome_presented(Emergency shown, uint32_t news) {
+        if (shown == _emg && news == _emg_news) _emg_seen = news;   // the frame must match the CURRENT news, not an older one
     }
 
 protected:
@@ -338,7 +454,7 @@ protected:
     // blocked / picked_up / not_heard / reply, and (§B78) `failed`. Anchoring it only at long_fire (an earlier draft)
     // meant an outcome or a reply arriving a whole window later inherited the leftover time and the panel blanked
     // seconds after the news arrived.
-    void retain(uint32_t now_ms) { _emg_hold_until_ms = now_ms + kEmgHoldMs; }
+    void retain(uint32_t now_ms) { _emg_hold_until_ms = now_ms + kEmgHoldMs; ++_emg_news; }
 
     UiState  _st{};
     uint32_t _last_input_ms = 0;
@@ -366,6 +482,7 @@ protected:
     uint32_t _emg_hold_until_ms = 0;
     uint32_t _backoff_ms        = 0;     // the next_ms==0 UI backoff, doubling to kBlockedBackoffMaxMs
     uint8_t  _last_countdown    = 0;     // so ARMING repaints only when the visible digit changes (spec §4.3)
+    uint32_t _emg_news = 0, _emg_seen = 0;   // §B102: retained-outcome news vs. what a COMPLETED frame presented
     char     _reply_who[kLabelCap + 1] = {};
     char     _reply_text[21]           = {};
 
@@ -440,6 +557,12 @@ inline void UiModel::emergency_gesture(Gesture g, const UiSnapshot& s) {
     // `_emg` is `firing` from this line on, and only an `on_outcome` block can return it to `blocked`, which re-arms
     // the flag itself. It is written so the flag can never be read stale, not because a stale read is reachable.)
     _emg = Emergency::firing; _tries = 0; _backoff_ms = 0; _retry_armed = false;
+    // ★★ §B101/F5: COMMITTING an alarm CLOSES the compose modal and resets its cursor. The overlay covers the body,
+    //    so a canned message left selected underneath is invisible — and still armed: after the alarm is dismissed the
+    //    next `double` sends whatever the cursor happened to be on. An avoidable later mis-send on a safety device.
+    // ⓘ `long_arm` deliberately does NOT do this. Arming is cancellable, so destroying the user's list position for a
+    //    press they may still cancel would be a second, smaller wrong.
+    _st.compose = Compose::none; _st.cursor = 0;
     retain(s.now_ms);
     queue(SendKind::emergency, 0, 0);
 }
@@ -474,5 +597,117 @@ inline bool UiModel::hold_active(uint32_t now_ms) const {
                            _emg == Emergency::failed);
     return retained && elapsed(_emg_hold_until_ms, now_ms) < (1u << 31);   // now < deadline, wrap-safe
 }
+
+// ================================================================================================ §B107 — the FRAME GATE
+// ★★★ THE RENDER-POLICY LIFECYCLE, AND IT LIVES HERE FOR THE §UI-6 GLUE REASON. It was six lines of `mr_ui_tick` in
+// `src/firmware_ui.cpp` — a TU neither the native suite nor the simulator compiles — and §B104 records the result:
+// render policy, the MAC-idle gate and the paint throttle had NO behavioural probe at all, which is why §B107 was
+// reachable only by human review. As a pure class it is driven by the native suite and turns red on a revert.
+//
+// ★ THE FRAME IS FROZEN WHEN IT OPENS. U8g2 page mode re-clips the WHOLE scene once per page, so a frame spans several
+//   ticks and everything the renderer reads must be a COPY — live state changing mid-frame tears the image across page
+//   boundaries (spec §5). This class owns WHEN; `firmware_ui.cpp` owns WHAT (it holds the frozen copies).
+//
+// ★★★ §B107 — THE DEFECT, AND IT IS THE ONE THIS CLASS EXISTS TO MAKE UNREPRESENTABLE. The shipped tick cleared
+//   `dirty` when the LAST PAGE went out (`if (!s_frame_open) s_model.clear_dirty();`). A frame takes eight ticks, and
+//   an outcome or a gesture landing DURING those eight ticks sets `dirty` — which the completing OLD frame then
+//   cleared unconditionally. The new state was never painted: PICKED UP / REPLY / FAILED could be lost outright, and
+//   on the emergency screen the arming countdown swallowed digits.
+// ⇒ `dirty` is CONSUMED AT THE FREEZE, because the freeze is the instant the frame stops tracking the model. Anything
+//   raised after it belongs to the NEXT frame. Final-page completion does PRESENTATION BOOKKEEPING ONLY.
+//
+// ⚠ THE BLANKED BRANCH CLEARED IT TOO, and it does not any more — but the honest measurement is that the second half
+//   was INERT: both writers of `blanked = false` (on_gesture's emergency pre-empt and its waking press) also set
+//   `dirty = true`, so no wake could observe the discarded invalidation. It is fixed because it is wrong by
+//   construction, not because a harm was reproduced.
+// ⓘ CORRECTED 2026-08-05 by §R1 (V1). This block used to end: "What IS real and is NOT this class's to fix: nothing
+//   un-blanks on an incoming push, so a REPLY arriving at a dark panel waits for a button press. That is a spec
+//   question." The owner has since ruled, and it is fixed — but NOT here, and the boundary is the point: the un-blank
+//   belongs to the event that decides a post IS a reply (`UiModel::on_reply`), not to the class that merely observes
+//   `blanked`. This class still clears nothing and wakes nothing; it reads the flag the model owns.
+enum class FrameStep : uint8_t {
+    mac_busy = 0,   // §5 rule 1: the MAC is mid-exchange — touch NOTHING, not even the power-save latch
+    blank,          // the panel is dark: set_power_save(true) and abandon any open page loop
+    idle,           // awake, nothing to paint this pass (not dirty, or inside the throttle)
+    next_page,      // draw the FROZEN copies again and push one more page
+    open            // freeze, begin_frame, draw, push page 0
+};
+
+// 2 Hz. An emergency BYPASSES it (but never the MAC-idle gate), and the model marks itself dirty only when the visible
+// countdown digit changes, so the alarm screen does not repaint at tick rate either.
+inline constexpr uint32_t kPaintThrottleMs = 500;
+
+class FrameGate {
+public:
+    // ★ ONE call that DECIDES and commits the state its decision implies, so there is no "remember to tell the gate
+    //   what you decided" obligation — the exact shape the §UI-6 GLUE block was created to kill. The single thing it
+    //   cannot know is how many pages the panel has left, hence `on_page`.
+    FrameStep step(UiModel& m, const UiSnapshot& s, bool mac_idle) {
+        if (!mac_idle) return FrameStep::mac_busy;
+        if (m.state().blanked) {
+            // ⚠ The blank is tested BEFORE the open-frame continuation, deliberately: `set_power_save(true)` abandons
+            //   the board's page loop, so holding `_open` across a blank would leave this half of the loop describing
+            //   a frame the board has already dropped. Dropping both together keeps the two halves in step.
+            _open = false;
+            return FrameStep::blank;   // ★ §B107: nothing is CLEARED here — an invalidation raised while dark survives
+        }
+        if (_open) return FrameStep::next_page;
+        if (!m.state().dirty) return FrameStep::idle;
+        const bool emg = m.emergency() != Emergency::idle;
+        if (!emg && elapsed(s.now_ms, _last_paint_ms) < kPaintThrottleMs) return FrameStep::idle;
+        m.clear_dirty();               // ★★ §B107: CONSUMED AT THE FREEZE, never at the final page
+        _last_paint_ms = s.now_ms;
+        // ★★ §B108 — WHAT THIS FRAME WILL ACTUALLY SHOW, frozen with everything else. "Visible" mirrors `draw_frame`'s
+        //   two early returns exactly: the emergency overlay REPLACES the body, and so does the compose modal — a
+        //   frame showing either has not shown the Inbox, whatever `screen` says underneath it.
+        const UiState& st = m.state();
+        _fr_inbox = (m.emergency() == Emergency::idle && st.compose == Compose::none && st.screen == Screen::inbox);
+        // ★★ THE SERIALS, not the counts (§B108 round 2). These come from the same `publish` that produced the
+        //   `unread_*` this frame will render, so "what the user saw" and "what we will mark read" cannot diverge.
+        _fr_arr_dm = s.arr_dm;
+        _fr_arr_ch = s.arr_ch;
+        _fr_emg   = m.emergency();      // §B102: which outcome these eight pages will put in front of the user...
+        _fr_news  = m.emg_news();       // ...and WHICH news it is, so a newer one is not credited to this frame
+        return FrameStep::open;
+    }
+
+    // The board's `next_page()` verdict: true = more pages to come, false = the frame is COMPLETE.
+    // ★★ §B108 — THE ONLY PLACE UNREAD COUNTS ARE MARKED READ. The shipped tick zeroed them on EVERY pass while
+    //   `screen == inbox`, ahead of the blanked check and before a single page had reached the panel — so messages
+    //   were discarded unseen while blanked, while the MAC was busy, under the emergency overlay, or simply because
+    //   the screen had been cycled to. ⇒ a COMPLETE and ACTUALLY VISIBLE Inbox frame is the event.
+    // ★ AND IT MARKS READ ONLY WHAT THE FRAME FROZE. A bare `= 0` here would still lose a message that arrived during
+    //   the eight ticks the frame took to page out: it was never on the panel, so it was never read.
+    void on_page(bool more, UiModel& m, UiInboxCounters& c) {
+        _open = more;
+        if (more) return;
+        // ★★ §B102: the frame is COMPLETE — this is the only moment anything may be called "seen".
+        m.mark_outcome_presented(_fr_emg, _fr_news);
+        if (!_fr_inbox) return;
+        // ★★★ §B108 ROUND 2 — ADVANCE THE WATERMARK; NEVER SUBTRACT A COUNT. Assignment is exact, so there is no
+        //   underflow to clamp — and the clamp is what used to hide the defect. The old form subtracted the frozen
+        //   COUNT, which at `kUnreadCap` was 999 both before and after a mid-frame arrival, so the arrival was marked
+        //   read having never been on the panel. A serial has no saturation, so the arithmetic simply cannot lose it.
+        // ⓘ Why the watermark goes to the FULL frozen serial even when the panel rendered a clamped "999": the Inbox
+        //   is a glanceable summary with no read cursor, so a complete visible frame means "the user looked" — the
+        //   three digits are a rendering limit, never a statement about how many messages were accounted for.
+        c.read_dm = _fr_arr_dm;
+        c.read_ch = _fr_arr_ch;
+        _fr_inbox = false;   // spent: a completed frame marks its OWN arrivals read exactly once
+    }
+
+    bool     frame_open()    const { return _open; }
+    uint32_t last_paint_ms() const { return _last_paint_ms; }   // diagnostic; the throttle's own state
+
+protected:
+    static uint32_t elapsed(uint32_t now, uint32_t then) { return now - then; }   // wrap-safe, like UiModel's
+    bool     _open          = false;
+    uint32_t _last_paint_ms = 0;
+    // The frozen frame DESCRIPTOR (§B108): what the pages now going out will actually put in front of the user.
+    bool      _fr_inbox = false;
+    uint32_t  _fr_arr_dm = 0, _fr_arr_ch = 0;   // ARRIVAL SERIALS, not counts — round 2; the cap is display-only
+    Emergency _fr_emg = Emergency::idle;
+    uint32_t  _fr_news = 0;
+};
 
 }  // namespace mrui

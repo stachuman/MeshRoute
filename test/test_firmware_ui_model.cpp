@@ -1062,9 +1062,16 @@ static UiModel fired_with_outcome(const SendOutcome& o, uint32_t at_ms) {
     return m;
 }
 
+// ★★ §B102/F3: B71's exit now requires the outcome to have been PRESENTED, not merely reached. `FrameGate` reports
+// that when a frame COMPLETES; these cases predate the latch and need the fact rather than eight simulated pages.
+// ⓘ The frame-driven version of the same rule is covered by the §B102 cases at the bottom of this file.
+static void present(UiModel& m) { m.mark_outcome_presented(m.emergency(), m.emg_news()); }
+
 TEST_CASE("ui-model: B71 — a short press on PICKED UP acknowledges and restores the cycle") {
     UiModel m = fired_with_outcome(SendOutcome::channel_relayed(), 5100);
     CHECK(m.emergency() == Emergency::picked_up);
+    CHECK(m.emg_outcome_retained() == false);          // §B102: terminal, but not yet SEEN
+    present(m);
     CHECK(m.emg_outcome_retained() == true);
     const Screen before = m.state().screen;
     m.on_gesture(Gesture::short_press, snap(6000));
@@ -1083,12 +1090,14 @@ TEST_CASE("ui-model: B71 — NOT HEARD and FAILED are exitable too (the §B78 co
     a.on_send_accepted(SendKind::emergency, 5400);
     a.on_outcome(SendOutcome::channel_no_relay(), 5500);   // third transmission -> sticky NOT HEARD
     CHECK(a.emergency() == Emergency::not_heard);
+    present(a);
     a.on_gesture(Gesture::short_press, snap(6000));
     CHECK(a.emergency() == Emergency::idle);
 
     // §B78 put `failed` in the retained set precisely so the hiker is never trapped on a failure screen.
     UiModel b = fired_with_outcome(SendOutcome::channel_failed(FailReason::unsealable), 5100);
     CHECK(b.emergency() == Emergency::failed);
+    present(b);
     b.on_gesture(Gesture::short_press, snap(6000));
     CHECK(b.emergency() == Emergency::idle);
 }
@@ -1097,6 +1106,7 @@ TEST_CASE("ui-model: B71 — a REPLY is exitable, and the exit does not resurrec
     UiModel m = fired_with_outcome(SendOutcome::channel_relayed(), 5100);
     m.on_reply("Ann", "on my way", 5200);
     CHECK(m.emergency() == Emergency::reply);
+    present(m);
     m.on_gesture(Gesture::short_press, snap(6000));
     CHECK(m.emergency() == Emergency::idle);
     // ★ on_reply's whitelist excludes `idle`, so a LATER teammate post cannot re-open a dismissed alarm.
@@ -1145,6 +1155,7 @@ TEST_CASE("ui-model: B71 — from a BLANKED panel the first press only WAKES; th
     m.on_gesture(Gesture::short_press, snap(woke));
     CHECK(m.state().blanked == false);
     CHECK(m.emergency()     == Emergency::picked_up);          // ★ CONSUMED: the outcome is now on screen, not dismissed
+    present(m);                                                // ...and §B102: a frame of it actually completed
     m.on_gesture(Gesture::short_press, snap(woke + 1000));
     CHECK(m.emergency()     == Emergency::idle);               // the press AFTER it acknowledges
 }
@@ -1170,31 +1181,294 @@ TEST_CASE("ui-model: B71 — `double` gets NO emergency job, and `long` still re
     CHECK(requeued == true);
 }
 
-// ⚠ THE ORDERING THAT MATTERS: the exit is tested BEFORE the compose branch. A long press fires from inside a compose
-//   sub-view (spec §4.2) and does NOT close it, so the emergency overlay renders OVER an open modal — the press must act
-//   on the alarm the user is looking at, never on the list underneath it.
-// ⓘ REGISTERED OBSERVATION, not a silent choice: the modal is left OPEN by the exit (the ruling says only
-//   "restores the cycle"). It self-closes on the kBlankMs no-input rule, and the assertion below pins today's behaviour
-//   so a future ruling changes it deliberately.
-TEST_CASE("ui-model: B71 — the exit outranks an open compose modal") {
+// ⚠ THE ORDERING THAT MATTERS: the exit is tested BEFORE the compose branch, so an acknowledging press acts on the
+//   ALARM the user is looking at and never on the list underneath it.
+// ★★ REWRITTEN 2026-08-05 by §B101/F5. This case used to PIN the opposite: `long_fire` left the compose sub-view open
+//    underneath the overlay, and the exit had to out-rank it. That was the defect — an invisible canned message stayed
+//    selected and armed, so the next `double` after the alarm was dismissed would have SENT it. Committing an alarm
+//    now closes the modal and resets the cursor, which removes the collision instead of arbitrating it.
+TEST_CASE("ui-model: B101 — committing an alarm CLOSES the compose modal and resets its cursor") {
     UiModel m; SendReq req{};
     m.on_gesture(Gesture::short_press,  snap(1000));           // status -> team
     CHECK(m.state().screen == Screen::team);
     m.on_gesture(Gesture::double_press, snap(1100));           // open the DM compose sub-view
     CHECK(m.state().compose == Compose::dm);
+    m.on_gesture(Gesture::short_press,  snap(1150));           // ...and move OFF the `back` row onto a real message
+    CHECK(m.state().cursor == 1);
     m.on_gesture(Gesture::long_arm,  snap(1200));
+    CHECK(m.state().compose == Compose::dm);                   // ARMING is cancellable, so it leaves the modal alone
     m.on_gesture(Gesture::long_fire, snap(4800));
-    CHECK(m.state().compose == Compose::dm);                   // the alarm did not close the modal
+    CHECK(m.state().compose == Compose::none);                 // ★ committing CLOSES it...
+    CHECK(m.state().cursor  == 0);                             // ★ ...and disarms the selection
     const bool got = m.take_send_request(req);
     CHECK(got == true);
     CHECK(req.kind == SendKind::emergency);                    // ★ the alarm's own slot, not the modal's
     m.on_send_accepted(SendKind::emergency, 5000);
     m.on_outcome(SendOutcome::channel_relayed(), 5100);
-    const uint8_t cursor_before = m.state().cursor;
+    present(m);
     m.on_gesture(Gesture::short_press, snap(6000));
-    CHECK(m.emergency()     == Emergency::idle);               // the press acted on the ALARM...
-    CHECK(m.state().cursor  == cursor_before);                 // ...not on the compose list underneath
-    CHECK(m.state().compose == Compose::dm);                   // today's behaviour, pinned deliberately
-    m.on_tick(snap(6000 + kBlankMs + 1));
-    CHECK(m.state().compose == Compose::none);                 // ...and it never outlives the user's attention
+    CHECK(m.emergency()     == Emergency::idle);               // the press acted on the ALARM
+    CHECK(m.state().compose == Compose::none);                 // ...and there is no armed modal left behind it
+    // ★ THE HARM THAT IS NOW UNREACHABLE: a `double` after the dismissal must not send the message that was selected
+    //   under the overlay. On the TEAM screen it re-opens the modal at the `back` row instead.
+    SendReq stale{};
+    m.on_gesture(Gesture::double_press, snap(6500));
+    CHECK(m.state().compose == Compose::dm);
+    CHECK(m.state().cursor  == 0);
+    CHECK(m.take_send_request(stale) == false);
+}
+
+// ================================================ §B107 / QA finding F1 — a newer UI state LOST during a paged frame
+// ★★★ THE DEFECT: the shipped tick cleared `dirty` when the LAST PAGE went out. A frame spans eight ticks, so an
+// outcome or a gesture landing DURING those eight ticks set `dirty` — and the completing OLD frame then cleared it
+// unconditionally. PICKED UP / REPLY / FAILED could be lost outright.
+// ⚠⚠ ASSERT THE SIDE EFFECT, NOT THE STATE. `m.emergency()` is `picked_up` either way — the harm is A FRAME THAT
+//    NEVER HAPPENS, so every case below asserts the PAINT SEQUENCE: does the next eligible pass return `open`?
+//    A post-hoc enum assertion passes against this bug, which is exactly how it shipped green (§B97/§B98).
+
+// Drive `n` page pushes of an already-open frame, answering `next_page()` as a real 8-page panel would.
+static void page_out(FrameGate& g, UiModel& m, UiSnapshot& s, UiInboxCounters& c, uint8_t pages_left) {
+    for (uint8_t i = 0; i < pages_left; ++i) {
+        const FrameStep st = g.step(m, s, /*mac_idle=*/true);
+        CHECK(st == FrameStep::next_page);
+        g.on_page(/*more=*/(i + 1) < pages_left, m, c);
+    }
+}
+
+TEST_CASE("ui-frame: F1 — an outcome arriving MID-FRAME is still painted after the frame completes") {
+    FrameGate g; UiModel m; UiInboxCounters c{}; UiSnapshot s = snap(10000);
+    // The alarm is live and awaiting evidence, and a frame for it opens.
+    m.on_gesture(Gesture::long_arm, s);
+    s.now_ms = 13500; m.on_gesture(Gesture::long_fire, s);
+    SendReq req{}; const bool got = m.take_send_request(req); CHECK(got == true);
+    m.on_send_accepted(SendKind::emergency, 13500);
+    const FrameStep first = g.step(m, s, true);
+    CHECK(first == FrameStep::open);
+    CHECK(m.state().dirty == false);          // ★ consumed AT THE FREEZE, not eight ticks later
+    g.on_page(true, m, c);   // page 0 of 8 is out; seven to go
+
+    // ...and NOW, mid-frame, the answer arrives. This is the moment the shipped code threw away.
+    m.on_outcome(SendOutcome::channel_relayed(), 13600);
+    CHECK(m.emergency()    == Emergency::picked_up);
+    CHECK(m.state().dirty  == true);
+    page_out(g, m, s, c, /*pages_left=*/7);      // the OLD frame — still SENDING... — finishes paging out
+    CHECK(g.frame_open() == false);
+
+    // ★★ THE ASSERTION THAT DISCRIMINATES: the very next eligible pass must OPEN a frame for PICKED UP.
+    //    Against the shipped code this is `idle` — the alarm's answer is never painted at all.
+    s.now_ms = 13700;                         // still inside the 500 ms throttle, but an emergency bypasses it
+    CHECK(g.step(m, s, true) == FrameStep::open);
+}
+
+TEST_CASE("ui-frame: F1 — a mid-frame GESTURE is not swallowed by the completing frame") {
+    FrameGate g; UiModel m; UiInboxCounters c{}; UiSnapshot s = snap(10000);
+    CHECK(g.step(m, s, true) == FrameStep::open);     // the boot frame (the model starts dirty)
+    g.on_page(true, m, c);
+    m.on_gesture(Gesture::short_press, s);            // the user advances to TEAM while page 1 of 8 is going out
+    CHECK(m.state().screen == Screen::team);
+    CHECK(m.state().dirty  == true);
+    page_out(g, m, s, c, 7);
+    s.now_ms = 10600;                                 // past the 2 Hz throttle
+    CHECK(g.step(m, s, true) == FrameStep::open);     // ← `idle` against the shipped code: TEAM is never drawn
+}
+
+TEST_CASE("ui-frame: F1 — the ARMING countdown does not swallow digits across a frame") {
+    FrameGate g; UiModel m; UiInboxCounters c{}; UiSnapshot s = snap(10000);
+    m.on_gesture(Gesture::long_arm, s);
+    CHECK(m.emergency() == Emergency::arming);
+    CHECK(g.step(m, s, true) == FrameStep::open);
+    g.on_page(true, m, c);
+    s.now_ms = 11000;  m.on_tick(s);                  // the visible digit ticks over mid-frame
+    CHECK(m.state().dirty == true);
+    page_out(g, m, s, c, 7);
+    CHECK(g.step(m, s, true) == FrameStep::open);     // ← `idle` against the shipped code: the digit is lost
+}
+
+TEST_CASE("ui-frame: F1 — a BLANK does not discard an invalidation raised while the panel is dark") {
+    FrameGate g; UiModel m; UiInboxCounters c{}; UiSnapshot s = snap(10000);
+    CHECK(g.step(m, s, true) == FrameStep::open);
+    g.on_page(false, m, c);                                  // a complete frame; nothing pending
+    m.on_tick(s);                                      // §B65: the FIRST tick only SEEDS the blank timer
+    s.now_ms = 10000 + kBlankMs; m.on_tick(s);
+    CHECK(m.state().blanked == true);
+    CHECK(g.step(m, s, true) == FrameStep::blank);
+    CHECK(g.frame_open()    == false);                 // the open page loop is abandoned with the panel
+    // ⓘ HONEST SCOPE: `blanked` is only ever cleared by a gesture, and BOTH writers also set `dirty` — so no wake can
+    //   observe a discarded invalidation today. This pins the property, not a reproduced harm. See §B107.
+    CHECK(m.state().dirty == true);                    // ← false against the shipped code
+}
+
+// The gate's OTHER three rules, which §B104 recorded as having no behavioural probe at all.
+TEST_CASE("ui-frame: the MAC-idle gate never starts OR continues a paint mid-exchange") {
+    FrameGate g; UiModel m; UiInboxCounters c{}; UiSnapshot s = snap(10000);
+    CHECK(g.step(m, s, /*mac_idle=*/false) == FrameStep::mac_busy);
+    CHECK(m.state().dirty == true);                    // ...and a refused pass consumes nothing
+    CHECK(g.step(m, s, true) == FrameStep::open);
+    g.on_page(true, m, c);
+    CHECK(g.step(m, s, false) == FrameStep::mac_busy); // an OPEN frame is held, not advanced
+    CHECK(g.frame_open()      == true);
+    CHECK(g.step(m, s, true)  == FrameStep::next_page);
+}
+
+TEST_CASE("ui-frame: the 2 Hz throttle holds a clean repaint, and an emergency bypasses it") {
+    FrameGate g; UiModel m; UiInboxCounters c{}; UiSnapshot s = snap(10000);
+    CHECK(g.step(m, s, true) == FrameStep::open);
+    g.on_page(false, m, c);
+    CHECK(g.step(m, s, true) == FrameStep::idle);      // nothing dirty
+    m.on_gesture(Gesture::short_press, s);             // dirty again, but only 0 ms since the last paint
+    CHECK(g.step(m, s, true) == FrameStep::idle);
+    s.now_ms = 10000 + kPaintThrottleMs - 1;
+    CHECK(g.step(m, s, true) == FrameStep::idle);
+    s.now_ms = 10000 + kPaintThrottleMs;
+    CHECK(g.step(m, s, true) == FrameStep::open);
+    g.on_page(false, m, c);
+    // The emergency bypass: dirty again, well inside the throttle.
+    s.now_ms += 10; m.on_gesture(Gesture::long_arm, s);
+    CHECK(m.emergency()      == Emergency::arming);
+    CHECK(g.step(m, s, true) == FrameStep::open);
+}
+
+TEST_CASE("ui-frame: a frame spans exactly the pages the panel reports, and only then reopens") {
+    FrameGate g; UiModel m; UiInboxCounters c{}; UiSnapshot s = snap(10000);
+    CHECK(g.step(m, s, true) == FrameStep::open);
+    g.on_page(true, m, c);
+    for (uint8_t i = 0; i < 7; ++i) {
+        CHECK(g.step(m, s, true) == FrameStep::next_page);
+        CHECK(g.frame_open()     == true);
+        g.on_page(i < 6, m, c);
+    }
+    CHECK(g.frame_open()     == false);
+    CHECK(g.step(m, s, true) == FrameStep::idle);      // clean and complete: nothing more to do
+}
+
+// ================================ §R2 (OWNER-RULED 2026-08-05) — A DOUBLE UNDER THE EMERGENCY OVERLAY IS ABSORBED
+// ★★★ THE HAZARD, and it is a HIDDEN MIS-SEND DURING AN ALARM. While the overlay is up it OWNS the body (`draw_frame`
+// returns straight after `draw_emergency`), but `on_gesture` let a `double` fall through to `activate()` /
+// `compose_gesture()`. So TWO doubles could open a compose view the user cannot see and then SEND from it — and with a
+// modal left open under ARMING (which §B101 deliberately does not close, because arming is cancellable) ONE was enough.
+// ⇒ OWNER RULING: the overlay ABSORBS the double. NO emergency action (consistent with §B71's "double gets no
+//   emergency job"), NO operation of the screen underneath, NO dismiss and NO re-fire. The complete gesture contract
+//   under the overlay: SHORT = §B71's exit once §B102's latch says the result was presented · LONG = re-fire ·
+//   DOUBLE = nothing.
+// ⚠⚠ IT IS ITS OWN ARM, NOT A REUSE OF §B102/F3's PRESENTED-LATCH. F3 consumes a PREMATURE SHORT press; folding the
+//    double into that arm would make `double` inherit the latch and DISMISS a presented outcome — which §B71
+//    withdrew. The last case in this block is the one that distinguishes them, and it fails against exactly that fold.
+// ⚠ ASSERT THE SIDE EFFECT — the message that is or is not QUEUED — never the `compose` enum alone: the shipped code
+//   CLOSES the modal on its way out, so a bare post-hoc `compose == none` is green against the very defect this names.
+// ⓘ Why the existing §B71 `double` case could not have caught any of this: it says so itself —
+//   `CHECK(d.state().screen == Screen::status); // where activate() does nothing`. These cases sit on TEAM instead.
+
+// A fired alarm carried to `o`, with the screen left on TEAM — the screen where `double` really does compose.
+static UiModel on_team_with_outcome(const SendOutcome& o, uint32_t at_ms) {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::short_press, snap(1000));             // status -> team
+    CHECK(m.state().screen == Screen::team);
+    m.on_gesture(Gesture::long_arm,  snap(1100));
+    m.on_gesture(Gesture::long_fire, snap(4700));
+    const bool got = m.take_send_request(req);                  // ⚠ DRAINS (§B70) — one call, into a local
+    CHECK(got == true);
+    m.on_send_accepted(SendKind::emergency, 5000);
+    m.on_outcome(o, at_ms);
+    return m;
+}
+
+TEST_CASE("ui-model: R2 — two DOUBLES under the overlay cannot open and then SEND an invisible compose view") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::short_press, snap(1000));             // status -> team
+    CHECK(m.state().screen == Screen::team);
+    m.on_gesture(Gesture::long_arm,  snap(1100));
+    m.on_gesture(Gesture::long_fire, snap(4700));
+    CHECK(m.emergency()     == Emergency::firing);              // SENDING... owns the body from here on
+    CHECK(m.state().compose == Compose::none);                  // §B101 closed the modal when the alarm committed
+    const bool alarm = m.take_send_request(req);
+    CHECK(alarm == true);
+    CHECK(req.kind == SendKind::emergency);
+
+    m.on_gesture(Gesture::double_press, snap(4800));
+    CHECK(m.state().compose == Compose::none);                  // ← `dm` against the shipped code: an INVISIBLE modal
+    m.on_gesture(Gesture::double_press, snap(4900));
+    // ★★ THE ASSERTION THAT DISCRIMINATES: nothing was QUEUED. `compose` is `none` after the second double either way,
+    //    because the shipped path closes the modal as it sends — so only the queued request separates the two.
+    SendReq mis{};
+    const bool queued = m.take_send_request(mis);
+    CHECK(queued == false);                                     // ← true, a real DM, against the shipped code
+    CHECK(m.emergency()    == Emergency::firing);               // ...and no emergency job either (§B71)
+    CHECK(m.state().screen == Screen::team);                    // ...and the screen underneath never moved
+}
+
+TEST_CASE("ui-model: R2 — a DOUBLE cannot SEND from a compose modal left open under ARMING") {
+    UiModel m;
+    m.on_gesture(Gesture::short_press,  snap(1000));            // status -> team
+    m.on_gesture(Gesture::double_press, snap(1100));            // open the DM compose modal
+    CHECK(m.state().compose == Compose::dm);
+    CHECK(m.state().cursor  == 0);
+    // ★ `long_arm` deliberately leaves the modal alone (§B101: arming is cancellable), so the modal is LIVE and
+    //   INVISIBLE beneath the RELEASE! overlay. That is the state in which ONE double was enough.
+    m.on_gesture(Gesture::long_arm, snap(1200));
+    CHECK(m.emergency()     == Emergency::arming);
+    CHECK(m.state().compose == Compose::dm);
+    m.on_gesture(Gesture::double_press, snap(1300));
+    SendReq mis{};
+    const bool queued = m.take_send_request(mis);
+    CHECK(queued == false);                                     // ← true, a real DM, against the shipped code
+    CHECK(m.emergency()     == Emergency::arming);              // no emergency job
+    CHECK(m.state().compose == Compose::dm);                    // ← `none` against the shipped code: it SENT and closed
+}
+
+TEST_CASE("ui-model: R2 — the overlay absorbs a DOUBLE in every non-idle emergency state") {
+    // BLOCKED — in flight, waiting on its retry deadline.
+    UiModel b = on_team_with_outcome(SendOutcome::blocked(5000), 5100);
+    CHECK(b.emergency() == Emergency::blocked);
+    b.on_gesture(Gesture::double_press, snap(5200));
+    CHECK(b.state().compose == Compose::none);                  // ← `dm` against the shipped code
+    CHECK(b.emergency()     == Emergency::blocked);
+
+    // FAILED — terminal (§B78 holds it on the panel, §B71 gives it a SHORT exit). Even PRESENTED, a double does nothing.
+    UiModel f = on_team_with_outcome(SendOutcome::channel_failed(FailReason::unsealable), 5100);
+    CHECK(f.emergency() == Emergency::failed);
+    present(f);
+    f.on_gesture(Gesture::double_press, snap(5200));
+    CHECK(f.state().compose == Compose::none);                  // ← `dm` against the shipped code
+    CHECK(f.emergency()     == Emergency::failed);              // ...and a double never dismisses (§B71)
+
+    // CANCELLED — the brief toast is still an overlay that owns the body.
+    UiModel x;
+    x.on_gesture(Gesture::short_press, snap(1000));
+    x.on_gesture(Gesture::long_arm,    snap(1100));
+    x.on_gesture(Gesture::long_cancel, snap(1200));
+    CHECK(x.emergency() == Emergency::cancelled);
+    x.on_gesture(Gesture::double_press, snap(1300));
+    CHECK(x.state().compose == Compose::none);                  // ← `dm` against the shipped code
+    CHECK(x.emergency()     == Emergency::cancelled);
+}
+
+// ★★★ THE ANTI-FOLD CONTROL the ruling explicitly asked for. It runs BOTH gestures against BOTH states of §B102's
+// presented-latch, so the two arms are separated by measurement rather than by argument.
+// ⓘ It is green against the SHIPPED tree by construction on its `picked_up`+`double` rows — it is a CONTROL, not one
+//   of the RED cases. What it fails against is the wrong FIX: fold R2 into F3's latched arm and the last-but-one row
+//   flips to `idle`.
+TEST_CASE("ui-frame: R2 vs F3 — the presented-latch gates SHORT only; a DOUBLE is absorbed either way") {
+    FrameGate g; UiInboxCounters c{};
+    UiModel m = on_team_with_outcome(SendOutcome::channel_relayed(), 5100);
+    UiSnapshot s = snap(5200);
+    CHECK(m.emergency() == Emergency::picked_up);
+    // UNPRESENTED: F3 consumes the short press, R2 absorbs the double. Same visible result, different mechanisms.
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.emergency()     == Emergency::picked_up);
+    CHECK(m.state().compose == Compose::none);                  // ← `dm` against the shipped code
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.emergency()     == Emergency::picked_up);           // §B102: not yet SEEN, so no exit
+    // ...and now a whole frame of PICKED UP actually reaches the panel.
+    CHECK(g.step(m, s, true) == FrameStep::open);
+    g.on_page(true, m, c);
+    page_out(g, m, s, c, /*pages_left=*/7);
+    CHECK(m.emg_outcome_retained() == true);                    // the latch is OPEN
+    s.now_ms = 6000;
+    // ★★ THE DISTINCTION: with the latch open, SHORT exits — DOUBLE still does nothing at all.
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.emergency()     == Emergency::picked_up);           // ← `idle` if R2 were folded into F3's latched arm
+    CHECK(m.state().compose == Compose::none);                  // ← `dm` against the shipped code
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.emergency()     == Emergency::idle);                // §B71's ruled exit is UNCHANGED by R2
+    CHECK(m.state().screen  == Screen::team);                   // the acknowledging press is spent on the alarm
 }

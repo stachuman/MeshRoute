@@ -7,6 +7,31 @@ earlier id→hash arc and is still the map for that.
 
 ---
 
+# ★★ OWNER RULINGS 2026-08-05 — BOTH OPEN UI-6 DECISIONS ARE NOW CLOSED. IMPLEMENT AS WRITTEN.
+
+> ✅ **BOTH IMPLEMENTED, GATED AND UNCOMMITTED 2026-08-05** — register **B109** (R1) / **B110** (R2); evidence in the
+> `simulation/BASELINE.md` §UI-6-RULINGS note (top). Native **1321 / 73703 / 0**; RED measured per ruling *and* against
+> the two wrong fixes the rulings warned about. ⚠ **One finding worth the owner's eye:** R1's negative control was
+> **vacuous on its first writing** and only a mutation caught it — see the note. ⚠ **One spec gap reported, not ruled:**
+> the wake is REPLY-only; `blocked`/`picked_up`/`not_heard`/`failed` still arrive at a dark panel.
+
+**R1 — A REPLY WAKES A BLANKED PANEL.** Today nothing un-blanks on an incoming push, so a distress REPLY arriving at a
+dark panel waits for a button press — found while disproving my "the blanked branch has the same defect" premise.
+⇒ **an incoming reply must un-blank.** ⚠ Blanking stays **EDGE-triggered** (spec §5): un-blank is a **transition**,
+`set_power_save(false)` once, **never a per-tick write**, and it must not become a wake-on-any-push (the reply
+predicate is the same team-scoped one F4 landed — a stranger's channel-0 post must **not** light the panel).
+
+**R2 — A DOUBLE PRESS UNDER THE EMERGENCY OVERLAY IS IGNORED ENTIRELY.** Owner ruled against both alternatives.
+The overlay **absorbs** it: **no** emergency action (consistent with B71's *"double gets no emergency job"*), **no**
+operation of the screen underneath, **no** dismiss and **no** re-fire. ⇒ closes QG's hidden-mis-send hazard, where
+**two doubles could open and activate a compose view the user cannot see, during an alarm.**
+★ The resulting gesture contract under the overlay, complete: **short** = the ruled exit *once the result has been seen*
+(B71 + F3's presented-latch) · **long** = re-fire · **double** = nothing.
+⚠ **Do not implement R2 as "consumed" in F3's sense without checking the call path** — F3 already consumes a *premature
+short* press; R2 is a **different arm** and must not be folded into it by reusing the same flag.
+
+---
+
 # ⛔⛔ ADDENDUM 2026-08-05 — READ THIS FIRST. TASK 6 LANDED AND IS **NOT APPROVED**.
 
 ★ **Everything in §1 below is superseded by this block for the numbers, and by nothing for the method.** UI-6 (plan

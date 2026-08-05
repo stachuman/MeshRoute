@@ -390,8 +390,16 @@ Record comparable idle and active-radio logs. A single weak-link retry is not pr
       press only wakes it and the outcome is **still displayed**; the **second** clears it.
 - [ ] A long press from the sticky screen re-fires, from any screen and from a blanked panel.
 - [ ] A **double** press on the sticky screen does nothing to the alarm (both of spec §4's `double` duties are withdrawn).
-- [ ] Long-press from inside a compose sub-view still reaches the alarm, and the acknowledging short press acts on the
-      alarm rather than moving the compose cursor.
+- [ ] **§B101 (2026-08-05, CHANGED BEHAVIOUR — this row used to say the opposite):** long-press from inside a compose
+      sub-view still reaches the alarm, and **the modal is now CLOSED by it**. After acknowledging the alarm you must be
+      on the plain screen, **not** on a canned list with a row highlighted. ⇒ press **double** once more: on TEAM it
+      must **re-open the list at `back, don't send`** and send nothing. If a message flies here, §B101 has regressed.
+- [ ] **§B102 (2026-08-05, THE ONE THAT NEEDS A STOPWATCH AND IS METAL-ONLY):** the acknowledging short press must not
+      work until the outcome has been **fully drawn**. Drive an alarm to a terminal outcome while the node is BUSY
+      (start a `send` from the console a beat before, so the MAC-idle gate holds the paint), and press the button
+      **immediately** — within the first frame. The outcome **must stay on the panel**; only a press after it is fully
+      rendered clears it. ⚠ Before the fix this dismissed a distress result the operator never read. There is no console
+      line for this: the panel is the entire instrument.
 
 ### H6-08 — Battery cadence with an unavailable reader
 
@@ -399,6 +407,81 @@ Record comparable idle and active-radio logs. A single weak-link retry is not pr
 - [ ] Instrument or trace that a sample is **attempted** about every 30 s, not on every service pass — the cadence gates
       on *attempted*, not on *succeeded*, precisely so an unavailable reader is not re-read for ever.
 - [ ] No sampling starts while the MAC is busy.
+
+### H6-09 — §B103: a distress REPLY must be TEAM-scoped ★★ THIS WAS A LIVE SAFETY DEFECT ON THIS BENCH
+
+⚠ Until 2026-08-05 **any node in radio range posting plaintext on channel 0 — no team membership, no key — rendered as
+"someone answered my distress call"**. This check is the proof it cannot any more, and it needs a SECOND node that is
+**not** in this node's team.
+
+- [ ] Node A (the panel, `team_id != 0`): long-press to fire an alarm and leave it on a retained outcome.
+- [ ] Node B, **no team** (`create` without a team / `team_id == 0`): `send_channel 0 "hello"` — a plain GLOBAL post.
+- [ ] Node A's console shows the post arriving (the `CH` unread count in the status bar increments by 1).
+- [ ] ★★ **The panel must NOT show `REPLY`.** The retained outcome is unchanged. **If `REPLY` appears with node B's
+      name, §B103 has regressed and no reply indication on this build can be trusted.**
+- [ ] Now from node C, **a real teammate of A** on the same `team_id`: `send_channel -t 0 "on my way"`.
+- [ ] The panel shows `REPLY` with C's name and the first 20 characters of the text. This half matters as much: the fix
+      must not have made the reply indication unreachable.
+- [ ] ⓘ On a node with `team_id == 0` the REPLY indication is unreachable **by design** — do not file that as a bug.
+
+### H6-10 — §B107/§B108: nothing is lost while a frame is painting
+
+Both are metal-only in the sense that matters: the LOGIC is now natively gated, but whether the **pixels** actually
+change is only observable here.
+
+- [ ] **§B107** — put the node under radio load (so frames take many ticks) and let an alarm outcome arrive during a
+      repaint. The panel **must** end up showing the new outcome. Before the fix `PICKED UP` / `REPLY` / `FAILED` could
+      be swallowed entirely and the panel kept the previous screen until something else invalidated it.
+- [ ] **§B107** — while `ARMING` counts down under radio load, the digits must not skip.
+- [ ] **§B108** — with unread mail, arrive on the INBOX screen and watch the `DM`/`CH` counts: they must stay up until
+      the screen is **actually drawn**, then drop to 0.
+- [ ] **§B108, the discriminating one** — while the INBOX frame is painting, have another node send one more message.
+      After the frame settles the count must read **1**, not 0. A `0` here means a message was marked read that was
+      never on the panel.
+- [ ] **§B108** — let the panel blank on the INBOX screen with unread mail, then wake it: the counts must still be
+      there. Before the fix they were zeroed into a dark panel.
+- [ ] **§B108 round 2 — the same discriminator AT THE CAP.** The first fix survived above `999`: a capped counter
+      cannot record an arrival, so the frame's completion marked it read anyway. The counts are now derived from an
+      **uncapped arrival serial**, and `999` is only what the bar draws. See bench script **8.14** for the exact
+      expected status-bar text and the >999 burst that reaches it.
+
+### H6-11 — §R1/B109: a distress REPLY must LIGHT A DARK PANEL, and a stranger's post must not
+
+⚠ Metal-only in the way that matters: the model half is natively gated, but **"did the screen actually come on"** has
+no instrument other than this panel. Needs a real teammate node and a stranger node (the same pair as H6-09).
+
+- [ ] Panel node: fire an alarm and let it reach a retained outcome (`PICKED UP` / `NOT HEARD`).
+- [ ] **Do not touch the button.** Wait out `kEmgHoldMs` **plus** the blank timer until the panel is fully DARK.
+- [ ] Teammate node, same `team_id`: `send_channel -t 0 "on my way"`.
+- [ ] ★★ **The panel must LIGHT BY ITSELF**, with no button press, showing `REPLY <name>: on my way`. Before this
+      ruling it stayed dark and the answer waited for a press — on a rescue device, the one message that must not wait.
+- [ ] It must light **once**: no flicker, no repeated on/off. The board latches `set_power_save`, so a per-tick write
+      would show as visible strobing.
+- [ ] Leave it alone again: after `kEmgHoldMs` from the **reply's** arrival it blanks again with `REPLY` retained (one
+      press then restores the emergency screen, per §5).
+- [ ] ★★ **THE NEGATIVE HALF, and it is the one that must not be skipped.** Repeat with the panel dark and a **stranger**
+      node (`team_id == 0`) posting `send_channel 0 "hello"`. The `CH` count moves when you next wake it, but the panel
+      **must stay dark**. ⛔ A panel lighting for a passer-by is both the §2.1 false-confirmation class in power form
+      and a battery-drain vector; it means the wake was wired to the arrival instead of to the reply.
+- [ ] ⓘ **Known and deliberate:** a `BLOCKED` / `PICKED UP` / `NOT HEARD` / `FAILED` outcome arriving at a dark panel
+      does **not** light it — R1 rules on the REPLY only. Do not file that as a bug; it is an open owner question.
+
+### H6-12 — §R2/B110: a DOUBLE under the emergency overlay must do NOTHING AT ALL
+
+The overlay covers the body, so everything this check is about is invisible by definition — which is exactly why it
+needs eyes on the panel and a second node watching the air.
+
+- [ ] On TEAM (with at least one teammate listed), long-press to fire an alarm. The overlay owns the panel.
+- [ ] **Double-press twice**, a second or so apart.
+- [ ] ★★ **Expected: nothing whatsoever.** The overlay is unchanged, no compose list appears when it is later
+      dismissed, and **no message is transmitted** — confirm on a second node that nothing arrived on channel 0.
+      ⛔ A message arriving is the hidden mis-send this ruling closes.
+- [ ] Repeat with the modal deliberately left open: on TEAM double-press to open the DM list, short-press once onto a
+      **real** message, then **long-press to ARM only** (release before it fires — `ARMING` keeps the modal open by
+      design). While `RELEASE!` is up, **double-press once**. ⛔ A DM flying here is the same defect via one press.
+- [ ] Now confirm the rest of the contract still works: **long** re-fires from a sticky outcome (H6-07), and a **short**
+      press still exits once the result has been drawn (H6-07 / §B71). ⓘ A double must never dismiss, even when the
+      outcome has been fully presented — that duty was withdrawn by §B71.
 
 ## 7. H7 — run after Task 7 lands
 

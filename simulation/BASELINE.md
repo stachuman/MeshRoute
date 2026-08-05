@@ -71,6 +71,173 @@ the top**, and **the newest note naming a scenario is the authoritative anchor**
 - `s17_metro` cross-layer is **inert** on meshroute (untranslated source = single-layer gateways; *translating* it degrades the dense scenario — channels 101%→33%). So gate `s17` on **same-layer 26/30 + channels leaks 0 + scale**, not cross-layer. (Cross-layer coverage comes from s09/s10/s15/s16.) **Follow-up:** cross-layer-at-scale window tuning — separate from the baseline.
 - `s19_singlelayer_multihop_chain` is the suite's **multi-hop** coverage (s18/s17 same-layer are single-hop). Redundant 3-hop chain `A-{L,L2}-{R,R2}-B`, no A↔B direct link ⇒ every A↔B DM relays ≥2 hops (verified: A→L2→R2→B = 3 hops; routes converge at hops 2–4). Two disjoint paths ⇒ also the **liveness-reroute base** (kill one relay → reroute via the parallel path; the `t96` Phase-2 gate builds on this). Gate on **delivery 8/8** + the **mean_hops** column (A↔B **3.0**, A↔R **2.0**) — deterministic (seed 42, lossless links). (`dm_delivery_breakdown` counts hops via distinct `data_rx` receivers, which carry `origin`, rather than the origin-less relay `data_tx` — fixed 2026-06-17 so same-layer multi-hop is measured. Cross-layer hop-count is still uncounted — its records key on the gateway wire-dst; cross-layer *delivery* is measured by the `cross-layer DMs` line.)
 
+**★★★★★★★★★★★★★ 2026-08-05 §UI-6-RULINGS — THE OWNER'S TWO RULINGS ON THE OPEN UI-6 DECISIONS, BOTH IMPLEMENTED. ★ THE HEADLINE IS NOT EITHER FIX — BOTH ARE ONE LINE — IT IS THAT **R1's NEGATIVE CONTROL WAS VACUOUS ON ITS FIRST WRITING AND MEASUREMENT CAUGHT IT**: a mutation implementing the tempting wrong fix (wake on ANY push) PASSED it, because an unrelated `on_tick` rule re-blanks the model before any paint pass runs. MODIFIED: `src/firmware_ui_model.h` (§R1's un-blank in `on_reply`, §R2's own gesture arm), `src/firmware_ui_send.h` (one comment: why the wake is NOT here), `test/test_firmware_ui_{model,send}.cpp`, `tools/probe_board_ui/run.sh` (the new W6). DOCS: this file, `docs/2026-07-30-open-bug-register.md` (B109/B110), `docs/2026-07-31-bench-test-script.md`, `docs/2026-08-04-heltec-v3-oled-ui-bench-guide.md`, `docs/superpowers/specs/2026-07-31-onboard-oled-ui-design.md` §5 (the two rulings recorded, in the §B71 precedent's form), `docs/2026-08-04-oled-handover.md` (status line only). NOTHING ELSE — ⛔ **0 files changed under `lib/`**, no scenario, no `platformio.ini`. UNCOMMITTED, on top of the §B108-ROUND-2 note that follows:** native **1312 / 73603 / 0 → 1321 / 73703 / 0 failed** (+9 cases, +100 assertions), **60 test objects**, **0 `error:` and 0 `warning:` in the build log** · s18 keystone **`1cd21235` / 271629 EXACT** · **36/36 corpus identical, 0 movers, 0 assertion failures in any of the 36** (anchor rows extracted with the B77-safe `^### ` anchor; failure counts read with `2>&1` because `lus` prints them to **stderr**) · `lus` md5 **`8cb1f0f5` unchanged** and **the recompilation control FIRED** — `touch lib/core/node.cpp` produced **5** `Building CXX`/`Linking CXX` actions and the binary reproduced `8cb1f0f5` · board probe **38/38 + 10/10 structural + 6/6 wiring (W1–W6, W6 is new), 8/8 controls red** · **5/5 board envs rc=0 from DELETED object dirs** (`gateway` 283 objs · `xiao_sx1262` 283 · `xiao_esp32s3` 193 · `heltec_v3` 326 · `heltec_mobile` 326; `-Wswitch` **0** and `error:` **0** on every one) · OLED census **326 objects / 180 / 180 / 176 PASS, `-Wswitch` 0** — pins **UNMOVED**, nothing re-pinned · `sizeof(Node)` untouched — **0 files under `lib/`, so s18 is inert BY CONSTRUCTION, not by luck** (D2).
+
+## ★★★ THE PER-RULING RED MEASUREMENTS, AND THE TWO WRONG-FIX MUTATIONS BESIDE THEM
+Every number below is a **build + run**, not a reading: each mutation was applied to the real tree, built with `pio test -e native`, run, and the sources restored and hash-verified. **Both rulings' tests were written FIRST and measured RED before either fix existed: 6 cases / 15 assertions.**
+
+| mutation | what it models | result |
+|---|---|---|
+| **M1 — R1 reverted** (drop `_st.blanked = false;`) | the shipped defect | **2 cases / 7 assertions RED** |
+| **M2 — R2 reverted** (the double falls through again) | the shipped defect | **4 cases / 8 assertions RED** |
+| **M3 — R2 FOLDED into F3's latched short-press arm** | the WRONG fix the ruling warned against | **2 cases / 2 assertions RED** |
+| **M4 — R1 as wake-on-any-push** | the WRONG fix the ruling warned against | **3 cases / 6 assertions RED** |
+
+★ **M3 and M4 are the point.** A test that only turns red on a *reverted* fix cannot tell a correct fix from a plausible wrong one, and both wrong fixes here are the ones a reasonable reader would reach for.
+
+## ★★★ THE VACUOUS CONTROL — MEASURED, NOT REVIEWED, AND THE MOST IMPORTANT FINDING IN THIS SLICE
+R1's first negative control asserted the panel-command sequence **after an `on_tick`**. Against **M4 (wake on any push) it passed**: with no live emergency hold, that very `on_tick` re-blanks the model before any paint pass can run, so an unrelated rule papered the wrong fix over and the control measured nothing. ⇒ rewritten in two ways, both load-bearing:
+1. **Assert `blanked` at the INSTANT OF DIVERGENCE** — immediately after `ui_route_recv_push` returns, before any tick can hide it. That is the routing call's own side effect, not a post-hoc end state.
+2. **A third case builds the state where the harm really reaches the bus** — a **live alarm HOLDING the panel** (§4.3), so `on_tick` has no re-blank to hide behind. Under M4 a passer-by's plaintext channel-0 post **LIGHTS a rescue device's screen**, measured as a DISPLAYON on the modelled I²C latch.
+
+⚠ **Recorded rather than quietly fixed:** *"the wrong fix is neutralised by `on_tick`"* is an **accident of rule order**, not a safety property. Nothing may be built on it.
+
+## ★★ HOW THE HARM IS ASSERTED (the §B97/§B98 discipline)
+R1's harm is **a panel that stays dark**, so the cases drive the same `FrameStep` → `set_power_save` mapping `mr_ui_tick` uses and record **only the commands that reach the SSD1306**, through a model of the board's own latch (`board_ui.cpp:143`). Four awake passes after a wake add **one** DISPLAYON and no more — the edge trigger asserted as a sequence, not as a flag. ⓘ **Honest scope, stated in the test:** that helper *hand-replicates* `firmware_ui.cpp`'s switch and so cannot fail for a mis-wired tick (§B97). What it measures is `FrameGate`'s **decisions**; that the tick really maps them onto the panel is pinned separately by **W6**.
+R2's harm is **a hidden screen that gets operated**, so the discriminating assertion is the **queued send request**, never the `compose` enum: the shipped path *closes* the modal as it sends, so a bare post-hoc `compose == none` is green against the very defect.
+
+## ★★ PREMISES THAT TURNED OUT WRONG (D3 — recorded, not smoothed over)
+1. ⛔ **"A negative control that names the right scenario is a negative control."** It is not. R1's stranger-post control named exactly the right scenario and still could not fail against the wrong fix. **Only M4 established that** — the vacuity was invisible to reading.
+2. ⛔ **"The wake needs a decision about the blank timer."** It does not, and the test says so instead of a comment: `static_assert(kEmgHoldMs > kBlankMs)` makes the hold the binding constraint, so "reset `_last_input_ms`" and "do not" blank at **exactly the same instant**. No ruling was invented for an inert choice.
+3. ⛔ **"`set_power_save(false)` is already a per-tick write, so R1 must add an edge."** Checked instead of assumed: `firmware_ui.cpp` does call it on every awake pass, but `board_ui.cpp:143` latches (`if (on == s_asleep) return;`), so the **bus** sees exactly one command per transition. Spec §5 is satisfied by the board, and R1 needed no new latch.
+4. ⛔ **"A pre-existing warning cannot appear in this slice's build log."** It can: PlatformIO caches objects, so a dead `UiSnapshot` in `test_firmware_ui_send.cpp` had been invisible until this slice touched that TU and it recompiled. Removed (it was never read), and named here so the mechanism is not mistaken for a new defect.
+
+## ★ WHAT R1 DELIBERATELY DOES **NOT** DO — a spec gap, reported not ruled
+Nothing un-blanks for a **`blocked` / `picked_up` / `not_heard` / `failed`** outcome either. R1 rules on the **REPLY** only, so those are untouched — and that exact state (a dark panel with a live, holding alarm behind it) is real, reachable, and is used as the fixture for R1's strongest control. **Widening the wake to the other retained outcomes is an owner call.**
+
+## RAM / FLASH — controlled A/B, not inferred
+Both rulings reverted, clean census, then restored: **ΔRAM = 0 B on all three OLED envs** (214116 / 213636 / 239036 unchanged; `gateway_heltec` still the tightest at **72.95 %**). **ΔFlash**: `heltec_v3` **+8 B** (1251312 → 1251320) · `heltec_mobile` **+8 B** (1244748 → 1244756) · `gateway_heltec` **+4 B** (1220540 → 1220544). Objects **326** and warnings **180/180/176** identical in both arms, so the delta is the two fixes and nothing else.
+
+## SCOPE / OWED
+- **M2 (metal-only):** bench guide **H6-11** / **H6-12**, bench script **8.15** / **8.16**. Both rulings are panel behaviour, and the panel is the only instrument for "did the screen come on" and "did a hidden list appear".
+- **Owed by the OWNER:** the spec gap above (widen the wake to the other retained outcomes?) · everything §B108-ROUND-2 and the UI-6 notes already list, unchanged.
+
+**★★★★★★★★★★★★★ 2026-08-05 §B108-ROUND-2 — THE B108 FIX WAS CORRECT BELOW THE UNREAD CAP AND WRONG AT IT; INDEPENDENT QA RETURNED NO-GO ON TASK 6 FOR IT, AND IT IS NOW REPAIRED, PLUS TWO SHIPPED-CODE DOC CONTRADICTIONS. UNCOMMITTED, ON TOP OF THE §UI-6-FIXES NOTE THAT FOLLOWS.**
+
+⛔ **THE DEFECT, and it is B108's own harm surviving one layer up.** `ui_route_recv_push` capped both counters
+(`if (c.unread_dm < kUnreadCap) ++c.unread_dm;`) and `FrameGate::on_page` subtracted the count the frame had frozen.
+**Exact sequence: a frame freezes 999 → a message arrives while it pages out (live stays 999 — the increment is a
+silent no-op) → the completion subtracts the frozen 999 → 0.** The arrival is marked read having **never been on the
+panel**. ★ The shipped code half-knew it: `on_page`'s comment said *"except at the shared `kUnreadCap` saturation"* and
+clamped. **A clamp turns 65535 into 0; it does not stop the message being lost.**
+
+★★ **THE REPAIR — arrival identity separated from the display cap.** `UiInboxCounters` holds a **monotonic, uncapped
+`uint32_t` arrival serial** per kind and a **read watermark**; `unread_* = arr_* - read_*`. `FrameGate::step` freezes
+the **serial**; `on_page` **advances the watermark to it** — an assignment, so there is no underflow left to clamp and
+no saturation left to hide. The cap now lives in exactly one place, `UiInboxCounters::publish`, on the way to the three
+digits the bar can draw. ★ `publish` writes the display counts **and** the serials in one call (U2), and that
+togetherness *is* the correctness argument: a frame cannot freeze a serial its own rendered number did not reflect.
+
+★ **WRAPAROUND — DECIDED, NOT INHERITED: `uint32_t` + unsigned modular subtraction.** Unsigned overflow is defined, so
+the serials wrapping is harmless; the only invariant is that the **true unread count** stays below 2^32 between two
+reads. `uint16_t` would have cost 8 B less and wrapped at **65 536** — a device left unattended for a week on a channel
+carrying one post per 10 s reaches **~60 000**, the *same order*, i.e. "probably fine", which is precisely the
+reasoning class that produced this bug. 2^32 is 136 years at one arrival per second: unreachable, not merely unlikely.
+
+★★★ **THE RED MEASUREMENT QA ASKED FOR BY NAME — the existing mid-frame test with the counter ALREADY SATURATED, the
+case the suite structurally could not reach. Written FIRST, in the OLD field API, against the pre-fix tree:**
+```
+test/test_firmware_ui_send.cpp:811: ERROR: CHECK( c.unread_ch == uint16_t(kUnreadCap + 1) ) is NOT correct!
+  values: CHECK( 999 == 1000 )                       <- the cap swallowed the mid-frame arrival
+test/test_firmware_ui_send.cpp:815: ERROR: CHECK( c.unread_ch == 1 ) is NOT correct!
+  values: CHECK( 0 == 1 )                            <- the completion marked it read, unseen
+[doctest] test cases:  1311 |  1310 passed | 1 failed | 0 skipped
+[doctest] assertions: 73589 | 73587 passed | 2 failed |
+```
+★ **A SECOND, INDEPENDENT RED proves the wraparound test is not decoration:** mutating `unread_dm()` to the tempting
+"defensive" non-modular form (`arr_dm < read_dm ? 0 : arr_dm - read_dm`) fails **1 case / 2 assertions**
+(`CHECK( 0 == 3 )` twice — the raw accessor and the published value). Both mutations were reverted and re-measured.
+
+| gate | before (the QA-fix slice) | after | note |
+|---|---|---|---|
+| native | 1310 / 73577 / 0 | **1312 / 73603 / 0 failed** | +2 cases, +26 assertions. ⚠ `pio test` printed its usual lie (*"2 test cases: 1 failed"*) — the number above is the RUNNER's. **`grep -c 'error:'` on the build log = 0**, so the stale-binary trap did not fire this time. |
+| s18 keystone | `1cd21235` / 271629 | **`1cd21235` / 271629 EXACT, 0 assertion failures** | ⛔ 0 files under `lib/` ⇒ inert by construction (D2), and re-run anyway |
+| corpus | 36/36 | **36/36, every md5 and event count byte-identical to the anchor table, 0 assertion failures in every one** | `diff` against §"36/36 corpus" is empty |
+| `lus` | `8cb1f0f5` | **`8cb1f0f5` unchanged** | ★ recompilation control **FIRED**: plain rebuild = 0 compiles; `touch lib/core/node.cpp` → **2 `Building CXX` / 3 `Linking CXX`** and the binary reproduced `8cb1f0f5`. ⚠ failure counts read with `2>&1` (they go to **stderr**). |
+| OLED census | 326 obj · 180/180/176 · `-Wswitch` 0 | **326 obj · 180/180/176 · `-Wswitch` 0 — PASS, never re-pinned** | clean isolated build |
+| RAM (OLED) | 214084 / 213604 / 239004 | **214116 / 213636 / 239036** | **+32 B uniform**; `gateway_heltec` **239036 / 327680 = 72.95 %**, still the tightest |
+| Flash (OLED) | — | 1251312 / 1244748 / 1220540 | +108 / +100 / +124 vs the plan's Task-6 table |
+| standing three | — | **`gateway` 283 obj / RAM 194028 / Flash 470964 · `xiao_sx1262` 283 / 169108 / 516228 · `xiao_esp32s3` 193 / 213260 / 1208744 — rc=0, 0 `error:`, `-Wswitch` 0** | ★ **structurally unaffected, measured not assumed:** all three build logs contain **0** references to `firmware_ui` and their build dirs hold **0** `firmware_ui*` objects — `src/firmware_ui.cpp` is in the OLED envs' `build_src_filter` only, and the two changed headers are included by it and by `test/` alone. Non-vacuity of that 0 is B106's already-attributed control (dropping the TU from `heltec_v3` returns 325 objects **and** 6 `undefined reference` link errors). ⇒ their RAM/Flash cannot have moved; the gate they satisfy is "still links, rc=0, 0 `error:`, `-Wswitch` 0". |
+| board probe | 38/38 + 10/10 + **W1–W4** | **38/38 + 10/10 structural + W1–W**5**, 8 controls red, exit 0** | W4 widened, W5 added — see below |
+
+ⓘ **Where the +32 B goes, by `sizeof` on the native ABI** (32-bit/4-aligned boards reproduce it): `UiInboxCounters`
+16 → **28** · `UiSnapshot` 520 → **528** · `FrameGate` 20 → **28**. One static instance of each ⇒ **+28 accounted,
++32 measured**; the residual 4 B is section alignment, not an unexplained object. The status bar still formats a
+3-digit `uint16_t`, which is why the census shows **no new `-Wformat-truncation`**.
+
+★★ **THE PROBE CHECK THAT HAD TO BE WIDENED, and why that matters more than the widening.** `W4` targeted
+`s_counters\.unread_(dm|ch) *=`. After this slice `unread_dm`/`unread_ch` are **derived accessors, not fields**, so
+that pattern could no longer match anything `firmware_ui.cpp` could plausibly write — **it would have kept passing
+while guarding nothing.** That is exactly the silent-vacuity failure the probe's `cmp` guard exists to surface, and it
+is the third time a revert script has stopped matching after a signature moved. `W4` now forbids the file from
+**naming** `unread_*`/`arr_*`/`read_*` at all (its only legitimate access is `publish`), and a new **`W5`** pins that
+single conversion path positively. Both carry their negative control; wiring checks **4 → 5**.
+
+⚠ **PREMISES THAT TURNED OUT WRONG, stated because the note is worth more than the slice:**
+1. **"The cap saturates, never wraps to 0 through 65535" was recorded as a PROPERTY and was in fact the DEFECT.** The
+   old test case asserted it by name. It was **rewritten, not deleted**, and now says in-source what it used to pin.
+2. **"`arrivals only ever INCREMENT between the freeze and the completion, so `unread_* >= _fr_*` holds`" was true and
+   irrelevant.** The invariant held; the arithmetic was still wrong, because at the cap the *left* side had stopped
+   moving. An invariant about the values you kept says nothing about the value you failed to record.
+3. **A clamp was described as "arithmetic hygiene, not a fallback (C2)".** It was neither — it was a **fallback that
+   silently produced the wrong answer** in the one case its own comment named. C2 would have had it refuse loudly or
+   not exist; the fix removes the need for it entirely.
+
+**DOCS CORRECTED (two shipped-code contradictions, under an explicit owner exception to "don't edit the spec/plan" —
+FACT only, no redesign, no new rulings):** ① `docs/superpowers/specs/2026-07-31-onboard-oled-ui-design.md` **§4.4** and
+its second-review bullet said the **channel id alone** qualified a distress reply; the shipped guard requires
+**same-team AND the configured channel** (§B103). ② `docs/superpowers/plans/2026-07-31-onboard-oled-ui-phase-a.md`
+Task-6 Step 4 still carried the **rejected** eager unread clear and the **rejected** final-page `clear_dirty()`; the
+sketch is kept verbatim as the audit trail under a **SUPERSEDED** banner naming what landed instead. ③ The same plan's
+**RAM table was 48 B below measurement** (16 B from the QA-fix slice + 32 B from this one) and is now **re-measured,
+not copied**. ④ `tools/warning_census.sh`'s note *"the plan STILL SAYS 178/178/174"* had gone stale and is corrected
+(V1). **MODIFIED BY THIS SLICE:** `src/firmware_ui_model.h`, `src/firmware_ui_send.h`, `src/firmware_ui.cpp`,
+`test/test_firmware_ui_send.cpp`, `tools/probe_board_ui/run.sh`, `tools/warning_census.sh`, plus this file, the
+register, the bench script (**8.14**) and the bench guide (**H6-10**), the spec and the plan. ⛔ **0 files under
+`lib/`.**
+
+**★★★★★★★★★★★★ 2026-08-05 §UI-6-FIXES — THE FIVE QA FINDINGS THAT REJECTED TASK 6, ALL FIVE FIXED, EACH WITH ITS TEST MEASURED RED FIRST. ★ THE STRUCTURAL HEADLINE: EVERY ONE OF THEM WAS A LIFECYCLE-ORDERING BUG IN `src/firmware_ui.cpp` — A TU NEITHER THE NATIVE SUITE NOR THE SIMULATOR COMPILES — SO THE FIX FOR ALL FIVE WAS THE SAME MOVE THE §UI-6 GLUE BLOCK ALREADY ARGUED FOR: PUT THE POLICY IN A PURE HEADER AND LET THE NATIVE SUITE DRIVE IT. MODIFIED: `src/firmware_ui_model.h` (`UiInboxCounters`, `FrameGate`, `mark_dirty`, the §B102 latch, §B101's modal close), `src/firmware_ui_send.h` (`ui_route_recv_push`), `src/firmware_ui.cpp` (now a thin caller), `test/test_firmware_ui_{model,send}.cpp`, `tools/probe_board_ui/run.sh` (S3 re-expressed + the new W1-W4 wiring checks). DOCS: this file, `docs/2026-07-30-open-bug-register.md`, `docs/2026-07-31-bench-test-script.md`, `docs/2026-08-04-heltec-v3-oled-ui-bench-guide.md`. NOTHING ELSE — ⛔ **0 files changed under `lib/`**, no scenario, no `platformio.ini`, and the SPEC and PLAN were NOT edited (findings reported below). UNCOMMITTED, on top of the §UI-6 note that follows:**
+
+| gate | before (the rejected Task 6) | after | note |
+|---|---|---|---|
+| native | 1285 / 73359 / 0 | **1310 / 73577 / 0 failed** | +25 cases, +218 assertions; 60 test objects (no new TU) |
+| s18 keystone | `1cd21235` / 271629 | **`1cd21235` / 271629 EXACT, 0 assertion failures** | ★ 0 `lib/` files touched ⇒ inert **by construction** (D2), and re-run anyway |
+| `lus` md5 | `8cb1f0f5` | **`8cb1f0f5` unchanged** | ★ recompilation control **FIRED**: `touch lib/core/node.cpp` rebuilt 8 objects across both core libs and relinked |
+| board probe | 38/38 + 8/8 structural, 8 controls red | **38/38 + 10/10 structural + 4/4 WIRING, 8 controls red** | the wiring checks are new — see below |
+| OLED census | 180/180/176 @ 326 objs | **180/180/176 @ 326 objs, `-Wswitch` 0** | ★ **no re-pin**: not one new warning |
+| RAM | 214068 / 213588 / 238988 | **214084 / 213604 / 239004** | **+16 B, uniform on all three** — declared and attributed below |
+| boards | 3/3 standing | **3/3 standing rc=0** (`gateway` 194028 · `xiao_sx1262` 169108 · `xiao_esp32s3` 213260 — all three EXACT, unchanged) | `firmware_ui.cpp` is `MR_FEAT_OLED`-only, so these are a link/ABI control |
+
+★ **RAM +16 B, attributed rather than waved through:** `FrameGate`'s frozen frame descriptor (`_fr_inbox` + `_fr_dm`/`_fr_ch` + `_fr_emg` + `_fr_news`) plus `UiModel::_emg_news`/`_emg_seen`, less the two function-local statics (`s_last_paint_ms`, `s_frame_open`) that `FrameGate` absorbed. `gateway_heltec` is the tightest OLED env at **72.9 %** and is unmoved in that digit.
+
+## ★★★ THE PER-FINDING RED MEASUREMENTS — the reason this slice exists at all
+**B97/B98 are why**: four of UI-6's "required integration regressions" were structurally incapable of failing, and one UI-6 test stayed green against the very defect it names. ⇒ every fix here was written test-first, **the fix reverted, and the suite measured RED**, asserting **paint/clear SEQUENCES and frozen-vs-live COUNTS** — never an end state, because a post-hoc enum assertion passes against all five.
+
+| finding | register | RED on revert | what the failing assertion actually shows |
+|---|---|---|---|
+| **F4** distress REPLY had no team scope | B103 closed | **2 cases / 6 assertions** | `emergency()` reached `reply` (6) instead of `firing` (2) and a **stranger's name** landed in `reply_who()` |
+| **F1** newer UI state lost during a paged frame | **B107** new+closed | **4 cases / 5 assertions** | the next eligible pass returns `idle` instead of `open` — the alarm's answer, a gesture, and the countdown digit are each never painted |
+| **F2** unread handling discards unseen mail | **B108** new+closed | **5 cases / 7 assertions** | counts hit 0 while blanked / MAC-busy / overlay-covered, and the mid-frame arrival vanishes |
+| **F3** a queued press dismisses an unseen result | B102 closed | **6 cases / 8 assertions** | the outcome is `idle` before its first page, and a consumed press **cycles the screen underneath the overlay** |
+| **F5** alarm leaves a live compose modal | B101 closed | **1 case / 5 assertions** | `take_send_request(stale) == false` FAILS ⇒ a real canned DM **is queued** — the mis-send measured, not argued |
+
+⚠ **One revert cycle produced a green "SUCCESS" from a STALE BINARY** (the compile failed, `pio test` reported the previous run). Caught because the `error:` grep printed two lines beside it. ⇒ **always read the compiler line and the doctest line together; `./.pio/build/native/program` happily re-runs yesterday's build.**
+
+## ★★ WHAT COVERS THE WIRING NOW — and it caught itself
+The fixes are pure functions, so their LOGIC turns red on a revert. What no native test can see is whether `firmware_ui.cpp` **calls** them — a fix wired to nothing passes every native case, which is §B97 exactly. ⇒ `tools/probe_board_ui/run.sh` gained **W1–W4, each run TWICE**: once on the real file (must PASS) and once on a copy with that one property reverted (must FAIL), plus a **vacuity guard** that fails if the revert `sed` changed nothing.
+★ **That guard fired for real**: after `on_page` gained a parameter, three revert scripts silently stopped matching and were reported as `CONTROL — the revert changed NOTHING, so the check is vacuous` rather than passing. A negative control that has drifted off its target is the exact failure this project keeps re-finding, and it was caught by the instrument instead of by a human.
+W1 = the `same_team` argument · W2 = the tick delegates to `FrameGate::step` and feeds `next_page()` back · **W3/W4 = negative space**: `clear_dirty` and `s_counters.unread_* =` must not appear in `firmware_ui.cpp` **at all**, because either one re-creates the shipped bug while every native case still passes.
+
+## ★★ PREMISES THAT TURNED OUT WRONG (D3 — recorded, not smoothed over)
+1. ⚠ **F1's "the blanked branch has the SAME defect — fix both, one bug" is HALF WRONG.** The clear is there and is wrong by construction, but it is **INERT**: `blanked = false` is written in exactly two places (`on_gesture`'s emergency pre-empt, and the waking press) and **both also set `dirty = true`**, so no wake can observe the discarded invalidation. Fixed anyway; the test pins the property and says in-source that it is not a reproduced harm. ⇒ the "panel can wake showing stale state" harm was **not reachable**.
+2. ★ **The REAL adjacent defect, found while disproving 1, and NOT fixed (spec question, reported not ruled):** *nothing un-blanks on an incoming push*. A distress **REPLY** arriving at a dark panel raises `dirty`, holds nothing, and **waits for a button press**. On a safety-first device that is arguably the more serious of the two. It needs a ruling (wake on reply? on any push? on the emergency plane only?), so it is registered rather than invented.
+3. ⚠ **B102's own recorded "cheap sound fix" was UNSOUND.** The old entry proposed latching "this outcome has been painted" off `clear_dirty()`, "which the paint path calls only when the LAST page has gone out". §B107 is precisely the finding that `clear_dirty()` was being called at the **wrong** point — so the proposed latch would have been built on the bug. The latch is its own news/seen counter pair instead.
+4. ⓘ **F4's "use the existing helper" is not merely a style win — the equivalence was verified, not trusted**: `same_team(t)` ⟺ `t != 0 && t == our_team` in both directions, so the two-clause helper IS the three-clause guard.
+5. ⓘ **The old S3 structural check was vacuous and is retired**, not weakened: ">= 2 `draw_frame` call sites" only measured that somebody had remembered to duplicate the call. One shared tail makes once-per-page structural.
+
+## SCOPE / OWED
+⛔ **Not fixed, deliberately, and each is reported rather than absorbed:** (a) the blanked-panel wake-on-push question above; (b) **`double_press` under the overlay** — F3 ruled only the SHORT press, and `double` still falls through to `activate()` on a screen the user cannot see. The same argument applies and it needs the same ruling; (c) **B104's residue** — the battery cadence, the snapshot builder and every `draw_*` still have no probe, and **B105 remains the cure**; (d) `docs/superpowers/{specs,plans}` were NOT edited — §4.4's channel-id-only wording and §4.2's "a long press does not close the compose sub-view" are both now contradicted by the code and need the **owner's** edit.
+
 **★★★★★★★★★★★★ 2026-08-05 §UI-6 OLED FEATURE LAYER — the snapshot, ALL render policy, the tick, the battery cache and the push correlation (plan Task 6 = spec slice UI-6). ★ THE HEADLINE IS THAT THE FOUR "REQUIRED INTEGRATION REGRESSIONS" GUARDING THE DISTRESS PATH WERE STRUCTURALLY INCAPABLE OF FAILING — they hand-replicated the wiring they were written to guard (§B97). NEW: `src/firmware_ui.cpp`, `tools/probe_board_ui/fakes/Wire.h`. MODIFIED: `variants/heltec_v3/board_ui.{h,cpp}` (the TEMPORARY hooks DELETED + the §B91 ACK probe), `src/firmware_ui_model.h` (§B71's exit), `src/firmware_ui_send.h` (the UI-6 glue), `test/test_firmware_ui_{model,send}.cpp`, `platformio.ini` (`[env:heltec_v3]` ONLY), `tools/probe_board_ui/{run.sh,probe_main.cpp,negctl.py}`, `tools/warning_census.sh` (§B106 re-pin). DOCS: this file, the register, the bench script (Part 8: 8.1 retired, 8.8-8.10 new), the bench guide (H5-02 retired, H6-00/06/07/08 new). NOTHING ELSE — ⛔ no `lib/core`, no `lib/hal`, no scenario, and the SPEC and PLAN were NOT edited (findings reported here). ⛔ B95's uncommitted files (`src/console_sink.h`, `src/firmware_commands.*`, `src/fw_main.cpp`, `tools/probe_console_sink/`) were NOT touched — verified: zero UI-6 lines in their diffs, their `--stat` unchanged. UNCOMMITTED, on top of the §B95 note below:** native **1268 / 73247 / 0 → 1285 / 73359 / 0 failed** (+17 cases, +112 assertions), 60 test objects · s18 keystone **`1cd21235`/271629 EXACT** · **36/36 corpus identical, 0 movers, 0 assertion failures** (36 anchor rows extracted with the B77-safe `^### ` anchor; `lus` md5 **`8cb1f0f5` unchanged** and the recompilation control FIRED — `touch lib/core/node.cpp` recompiled both core libs and relinked) · board probe **38/38 + 8/8 structural, 8/8 controls red** · **3/3 standing envs rc=0** (`gateway` / `xiao_sx1262` / `xiao_esp32s3`, `-Wswitch` 0, link sets untouched — every `build_src_filter` is an explicit list, no glob) · OLED census **180 / 180 / 176 PASS at 326 objects** (§B106: **re-pinned from 178/178/174, and not one of the +2 is UI-6 code**) · `sizeof(Node)` untouched — **0 files changed under `lib/`, which is what makes s18 inert by construction rather than by luck.**
 
 ★ **THE BOARD BUDGET, and RAM is the binding constraint. `gateway_heltec` is the tightest OLED env — reported explicitly as instructed:**

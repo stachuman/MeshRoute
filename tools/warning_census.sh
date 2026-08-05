@@ -44,8 +44,9 @@ cd "$(dirname "$0")/.." || exit 1
 # ⚠ UI-6's OWN warnings were fixed, not pinned: the first build added **10** `-Wformat-truncation=` on top of these two,
 #   and all ten are gone (the panel formatters' buffers are now sized to their provable widest expansion — see
 #   `kLineCap` in src/firmware_ui.cpp, which says so, so nobody shrinks them back).
-# ⚠ §B87's table in `docs/superpowers/plans/2026-07-31-onboard-oled-ui-phase-a.md` STILL SAYS 178/178/174 and needs the
-#   OWNER's edit — a UI-6 coder is instructed not to edit the plan. Reported, not silently diverged.
+# ⓘ §B87's table in `docs/superpowers/plans/2026-07-31-onboard-oled-ui-phase-a.md` IS NOW IN STEP (corrected 2026-08-05
+#   under an explicit owner exception): 326 objects / 180 / 180 / 176, `-Wswitch` 0, RAM 214116 / 213636 / 239036. The
+#   earlier note here — "the plan STILL SAYS 178/178/174" — was true when written and is no longer (V1).
 declare -A EXPECT_WARN=( [heltec_v3]=180 [heltec_mobile]=180 [gateway_heltec]=176 )
 
 # ⚠ `pio project config --environment <e>` emits NOTHING greppable for build_flags — a v2 derivation built on it

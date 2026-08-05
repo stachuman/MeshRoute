@@ -337,7 +337,9 @@ The model marks itself dirty **only when the visible countdown digit changes**, 
 
 `PICKED UP` is relay evidence. The only *human* confirmation is a teammate answering, so an inbound team channel post arriving while the emergency is live or sticky transitions to a sticky `reply` state carrying a bounded sender label and a display-clamped body.
 
-**Scope: only posts on `MR_UI_TEAM_CHANNEL_ID` qualify.** Accepting any team channel traffic would let unrelated chatter read as "someone answered my distress call", which is the same false-confirmation class as §2.1.
+**Scope: a post qualifies only if it is on `MR_UI_TEAM_CHANNEL_ID` *and* comes from OUR OWN TEAM.** Accepting any traffic on that channel would let unrelated chatter read as "someone answered my distress call", which is the same false-confirmation class as §2.1.
+
+> ⚠ **FACTUAL CORRECTION 2026-08-05 (§B103 / register B103 — shipped behaviour, narrow correction only, no redesign).** This paragraph originally said the channel id **alone** qualified a reply, and the code shipped that way. It was a live safety defect: `Node::ingest_channel_m` (`lib/core/node_channel.cpp:211-212`) drops a *foreign team's* post, but a normal leaf post (`team_id == 0`) **falls through and is ingested by everyone** — so with `MR_UI_TEAM_CHANNEL_ID == 0` any node in radio range posting plaintext on channel 0 rendered as a distress REPLY. The shipped guard is now `pu.channel_id == MR_UI_TEAM_CHANNEL_ID && g_node.same_team(pu.team_id)`, and the clause carrying the safety weight is `same_team`'s implicit `team_id != 0` — not the channel equality, which ingest already guarantees for team traffic. ⓘ Consequence, deliberate: on a node with **no** team the REPLY indication is unreachable, because without a team there is no key and no membership and so nothing that could make a reply trustworthy.
 
 ★ **And only after an alarm was actually transmitted.** The state whitelist is `firing` · `blocked` · `picked_up` · `not_heard` · `reply`, and **at least one emergency transmission must have been accepted**. `arming`, `cancelled` and `failed` are excluded: in all three, nothing went out, so a coincident channel-0 post becoming `REPLY` would manufacture a confirmation of a message that was never sent — including during the 3.5 s hold *before* the user has even committed.
 
@@ -390,6 +392,26 @@ from blank, the cycle on the press after. ★ The consumed-waking-press rule imm
 the result is always displayed before any press can dismiss it. Full table: the plan's B71 block.
 
 The panel blanks after `MR_UI_BLANK_MS` (build constant, proposed 15000) of no input. Any press wakes it and **the waking press is consumed** — except a long press, which wakes *and* arms (§4.2). Emergency states hold the panel on for at most **`kEmgHoldMs`** (owner-re-ruled 2026-08-04: 120000 → **30000**; ★ read the CONSTANT — this clause said "120 s" and went stale the day it was re-ruled), after which it blanks with state retained; **the next press then restores the emergency screen, not the cycle** — ⓘ that half is the BLANKED case and stays correct under **B71**, whose ruling governs the *awake-with-an-outcome* case instead (next short press → back to the cycle).
+
+★★ **R1 OWNER RULING 2026-08-05 — AN INCOMING REPLY UN-BLANKS THE PANEL.** §5 above says only that *"any press wakes
+it"*, and nothing else did: a distress **REPLY** arriving at a dark panel waited for a button press, which on a
+safety device loses the one message the feature exists to deliver. ⇒ **an accepted reply un-blanks.** ⚠ Blanking stays
+**edge-triggered**: the un-blank is a **transition**, `set_power_save(0)` once, never a per-tick write. ⚠ It is **not**
+wake-on-any-push — what wakes is a post §4.4 *accepts* as an answer to a transmitted alarm (its team scope plus its
+state whitelist), so **a stranger's channel-0 post must not light the panel**; that is the §2.1 false-confirmation
+class in power form, and a battery-drain vector besides. ⓘ The wake invents **no second window**: §4.3's
+`kEmgHoldMs` deadline is refreshed by the reply's own `retain()`, so the panel stays lit for a full window and then
+blanks with the state retained. ⓘ **Deliberately unruled and therefore unimplemented:** a `blocked` / `picked_up` /
+`not_heard` / `failed` outcome arriving at a dark panel does **not** wake it. Widening the wake to the other retained
+outcomes is an open owner question, not a coder's call.
+
+★★ **R2 OWNER RULING 2026-08-05 — A DOUBLE PRESS UNDER THE EMERGENCY OVERLAY IS IGNORED ENTIRELY.** The overlay
+**absorbs** it: **no** emergency action (consistent with B71's *"double gets no emergency job"*), **no** operation of
+the screen underneath, **no** dismiss, **no** re-fire. ⇒ this closes a hidden mis-send: the overlay owns the body, so
+two doubles could open and then send from a compose view the user cannot see — and with a modal left open under
+`arming` (which §4.2's cancellable arm deliberately preserves), one was enough.
+★ **The complete gesture contract under the overlay: `short` = B71's exit *once the result has actually been
+presented* · `long` = re-fire · `double` = nothing.**
 
 ## 6. Data sources
 
@@ -565,7 +587,7 @@ Both are pure and table-driven; no Arduino, no radio, no display.
 - exactly **three accepted transmissions** occur even when preceding requests were blocked
 - long gestures work from both compose sub-views and from a blanked panel
 - the arming countdown digit visibly changes; `CANCELLED` auto-returns to the parent
-- a matching teammate reply on `MR_UI_TEAM_CHANNEL_ID` becomes sticky confirmation; other team channel traffic does not
+- a matching **same-team** reply on `MR_UI_TEAM_CHANNEL_ID` becomes sticky confirmation; other traffic on that channel — including a `team_id == 0` leaf post from any node in range — does not (factual correction 2026-08-05, see §4.4)
 - a DM ack/failure is matched by `ctr` **and** peer; unrelated acks are ignored
 - the inbox shows bounded labelled rows via `Inbox::pull()`
 - a blanked panel produces **no repeated I²C traffic** (instrument or trace-count it)

@@ -19,6 +19,7 @@
 // is a 7th compile error its scratch-TU probe did not report — `error: deducing from brace-enclosed initializer list
 // requires '#include <initializer_list>'`. Neither doctest.h nor firmware_ui_model.h drags it in on this toolchain.
 #include <initializer_list>
+#include <cstring>   // strlen/strncmp — the §B103 recv cases check the exact clamped reply text
 
 using namespace mrui;
 
@@ -537,7 +538,10 @@ TEST_CASE("ui-glue: the EMERGENCY tracker's expiry consumes one attempt BEFORE i
 
 TEST_CASE("ui-glue: pumping idle trackers is inert") {
     SendTracker emg, normal;
-    UiModel m; UiSnapshot s{}; s.now_ms = 1000;
+    // ⓘ 2026-08-05: a dead `UiSnapshot s{}; s.now_ms = 1000;` lived here and drew `-Wunused-but-set-variable`. It was
+    //   invisible until the §R1 slice touched this TU and PlatformIO recompiled it — object caching is why a
+    //   pre-existing warning can surface on an unrelated change. `ui_pump_trackers` takes a raw `now_ms`, not a snapshot.
+    UiModel m;
     for (uint32_t t = 1000; t < 200000; t += 5000) ui_pump_trackers(emg, normal, m, t);
     CHECK(m.emergency() == Emergency::idle);
     CHECK(m.attempts()  == 0);
@@ -634,4 +638,585 @@ TEST_CASE("ui-glue: the router claims nothing for the RX kinds") {
     CHECK(ui_route_send_push(emg, normal, m, push_of(MESHROUTE_NS::PushKind::channel_recv), 5200) == false);
     CHECK(ui_route_send_push(emg, normal, m, push_of(MESHROUTE_NS::PushKind::send_acked),   5200) == false);
     CHECK(m.emergency() == Emergency::firing);
+}
+
+// ================================================ §B103 / QA finding F4 — the RECEIVE half and the FALSE distress REPLY
+// ★★★ THE DEFECT THESE MEASURE, and it was LIVE on bench hardware: `mr_ui_on_push` scoped the distress-reply
+// correlation with `pu.channel_id == MR_UI_TEAM_CHANNEL_ID` and nothing else. `Node::ingest_channel_m`
+// (node_channel.cpp:211-212) drops a foreign TEAM's post, so that equality looked sufficient — but its own comment
+// records that a normal leaf M (`team_id == 0`) "falls through -> ingested by everyone". With
+// `MR_UI_TEAM_CHANNEL_ID == 0`, ANY node in radio range posting plaintext on channel 0 — no team, no key, no crypto —
+// rendered as "someone answered my distress call".
+// ⚠ ASSERT THE SIDE EFFECT, not an end state reached some other way: the harm is the model MOVING to `reply` and
+//   naming a stranger, so these check the emergency state, `reply_who` and `reply_text` — the three things the panel
+//   actually shows.
+
+// A channel post as it arrives from `ingest_channel_m`. `team` is `Push::team_id` (node_channel.cpp:413).
+static MESHROUTE_NS::Push chan_post(uint8_t channel_id, uint32_t team, const char* text) {
+    MESHROUTE_NS::Push pu{};
+    pu.kind = MESHROUTE_NS::PushKind::channel_recv;
+    pu.channel_id = channel_id; pu.team_id = team; pu.origin = 42;
+    uint8_t n = 0; while (text[n] && n < 20) { pu.body[n] = uint8_t(text[n]); ++n; }
+    pu.body_len = n;
+    return pu;
+}
+
+TEST_CASE("ui-recv: F4 — a NON-team plaintext post on channel 0 CANNOT become a distress REPLY") {
+    SendTracker emg, normal; (void)normal;
+    UiModel m = alarm_accepted(emg, /*ctr=*/77);          // an alarm really did go out: _tries == 1
+    UiInboxCounters c{};
+    // `team_id == 0` is a plain LEAF post — the shape ingest lets through to everyone. `same_team(0)` is false.
+    MESHROUTE_NS::Push passerby = chan_post(/*channel_id=*/0, /*team=*/0, "hello everyone");
+    const bool owned = ui_route_recv_push(c, m, passerby, /*ui_team_channel_id=*/0,
+                                          /*same_team_post=*/false, "stranger", 6000);
+    CHECK(owned == true);                                 // the RECV half still owns it: the counter must move...
+    CHECK(c.unread_ch() == 1);
+    CHECK(c.have_ch   == true);
+    // ★★ ...but NOTHING about the alarm may move. These three are the panel's actual claim.
+    CHECK(m.emergency() != Emergency::reply);             // ← RED against the shipped guard
+    CHECK(m.emergency() == Emergency::firing);
+    CHECK(m.reply_who()[0]  == '\0');
+    CHECK(m.reply_text()[0] == '\0');
+}
+
+// The same push, from a node in a DIFFERENT team. Ingest drops this one today, so it is defence in depth — but the UI
+// must not be the layer that relies on that, and `same_team` is what makes it not rely on it.
+TEST_CASE("ui-recv: F4 — a FOREIGN team's post on our channel cannot become a REPLY either") {
+    SendTracker emg;
+    UiModel m = alarm_accepted(emg, /*ctr=*/77);
+    UiInboxCounters c{};
+    MESHROUTE_NS::Push foreign = chan_post(0, /*team=*/0xDEADBEEF, "we found him");
+    (void)ui_route_recv_push(c, m, foreign, 0, /*same_team_post=*/false, "other-team", 6000);
+    CHECK(m.emergency()     == Emergency::firing);        // ← RED against the shipped guard
+    CHECK(m.reply_text()[0] == '\0');
+}
+
+// The POSITIVE half, so the fix cannot be "never show a reply": our own team's post on our own channel still lands.
+TEST_CASE("ui-recv: F4 — OUR team's post on OUR channel is still a REPLY, with who and text") {
+    SendTracker emg;
+    UiModel m = alarm_accepted(emg, /*ctr=*/77);
+    UiInboxCounters c{};
+    MESHROUTE_NS::Push mate = chan_post(0, /*team=*/0x1234ABCD, "on my way");
+    (void)ui_route_recv_push(c, m, mate, 0, /*same_team_post=*/true, "Ana", 6000);
+    CHECK(m.emergency() == Emergency::reply);
+    CHECK(strncmp(m.reply_who(),  "Ana",       3)  == 0);
+    CHECK(strncmp(m.reply_text(), "on my way", 9)  == 0);
+    CHECK(c.unread_ch() == 1);
+}
+
+// The channel scope is still enforced independently: a teammate posting on a DIFFERENT channel is chatter, not a reply.
+TEST_CASE("ui-recv: F4 — a teammate's post on ANOTHER channel is counted but is not a REPLY") {
+    SendTracker emg;
+    UiModel m = alarm_accepted(emg, /*ctr=*/77);
+    UiInboxCounters c{};
+    MESHROUTE_NS::Push elsewhere = chan_post(/*channel_id=*/7, 0x1234ABCD, "chatter");
+    (void)ui_route_recv_push(c, m, elsewhere, /*ui_team_channel_id=*/0, /*same_team_post=*/true, "Ana", 6000);
+    CHECK(c.unread_ch()   == 1);                            // it IS a message...
+    CHECK(m.emergency() == Emergency::firing);            // ...but not an answer to the alarm
+}
+
+// ★★ REWRITTEN, NOT EXTENDED (§B108 round 2). The old case asserted `c.unread_dm == kUnreadCap` after 1200 arrivals
+// and called it "saturates, never wraps" — it PINNED the defect: a counter that stops counting cannot tell a frame
+// which arrivals it showed. The contract now under test is the split: the SERIAL keeps counting, and `kUnreadCap`
+// binds only the three digits `publish` hands to the bar.
+TEST_CASE("ui-recv: the counters, the stamps, and the cap that is DISPLAY-ONLY") {
+    UiModel m; UiInboxCounters c{};
+    CHECK(c.have_dm == false); CHECK(c.have_ch == false);
+    MESHROUTE_NS::Push dm = push_of(MESHROUTE_NS::PushKind::msg_recv);
+    CHECK(ui_route_recv_push(c, m, dm, 0, false, "x", 1000) == true);
+    CHECK(c.unread_dm() == 1); CHECK(c.have_dm == true); CHECK(c.last_dm_ms == 1000u);
+    CHECK(c.unread_ch() == 0); CHECK(c.have_ch == false);   // a DM never touches the channel counter
+    (void)ui_route_recv_push(c, m, chan_post(0, 0, "hi"), 0, false, "x", 2000);
+    CHECK(c.unread_ch() == 1); CHECK(c.last_ch_ms == 2000u);
+    CHECK(c.unread_dm() == 1);
+    for (uint16_t i = 0; i < 1200; ++i) (void)ui_route_recv_push(c, m, dm, 0, false, "x", 3000);
+    CHECK(c.unread_dm() == 1201u);                         // ★ the SERIAL kept counting straight through the cap...
+    UiSnapshot pub{}; c.publish(pub);
+    CHECK(pub.unread_dm == kUnreadCap);                    // ...and only the PUBLISHED digits saturate
+    CHECK(pub.arr_dm    == 1201u);                         // the serial rides along, uncapped, for the freeze
+    CHECK(pub.unread_ch == 1);                             // the other kind is untouched by the DM flood
+    // A push kind this unit does not own is refused outright, so the caller's `default:` arm keeps its work.
+    CHECK(ui_route_recv_push(c, m, push_of(MESHROUTE_NS::PushKind::channel_sent), 0, true, "x", 4000) == false);
+}
+
+// ★ THE WRAPAROUND IS A DECISION, so it gets a test rather than a comment. `uint32_t` + unsigned modular subtraction:
+// the serials wrapping is harmless, and the invariant is only that the TRUE unread count stays below 2^32 between two
+// reads. Driven at the boundary directly — 2^32 arrivals is not a thing a test can push through `ui_route_recv_push`.
+TEST_CASE("ui-recv: the arrival serial WRAPS without losing the unread count") {
+    UiInboxCounters c{};
+    c.arr_dm = 0xFFFFFFFEu; c.read_dm = 0xFFFFFFFEu;
+    CHECK(c.unread_dm() == 0);
+    ++c.arr_dm; ++c.arr_dm; ++c.arr_dm;                    // ...FE -> ...FF -> 0 -> 1: the serial wrapped
+    CHECK(c.arr_dm      == 1u);
+    CHECK(c.unread_dm() == 3u);                            // modular subtraction still yields the true count
+    UiSnapshot s{}; c.publish(s);
+    CHECK(s.unread_dm == 3);
+    FrameGate g; UiModel m; UiSnapshot fs{}; fs.now_ms = 10000; c.publish(fs);
+    m.on_gesture(Gesture::short_press, fs); m.on_gesture(Gesture::short_press, fs);
+    CHECK(m.state().screen == Screen::inbox);
+    CHECK(g.step(m, fs, true) == FrameStep::open);
+    g.on_page(false, m, c);
+    CHECK(c.read_dm     == 1u);                            // the watermark followed the serial across the wrap...
+    CHECK(c.unread_dm() == 0);                             // ...and the count is clean, not 4294967295
+}
+
+// `Push::body` is LENGTH-COUNTED, not NUL-terminated. A reply built by casting it to `const char*` reads past
+// `body_len` into whatever the ring left there — so the bytes after `body_len` must never reach the panel.
+TEST_CASE("ui-recv: the reply text is bounded by body_len, not by a NUL") {
+    SendTracker emg;
+    UiModel m = alarm_accepted(emg, /*ctr=*/77);
+    UiInboxCounters c{};
+    MESHROUTE_NS::Push pu = chan_post(0, 0x1234ABCD, "OK");
+    for (uint8_t i = pu.body_len; i < 40; ++i) pu.body[i] = uint8_t('X');   // stale ring bytes past the length
+    (void)ui_route_recv_push(c, m, pu, 0, true, "Ana", 6000);
+    CHECK(m.emergency() == Emergency::reply);
+    CHECK(strlen(m.reply_text()) == 2u);
+    CHECK(strncmp(m.reply_text(), "OK", 2) == 0);
+}
+
+// ============================================ §B108 / QA finding F2 — unread handling DISCARDS UNSEEN messages
+// ★★★ TWO DEFECTS, one lifecycle. ① `mr_ui_on_push` moved the unread counters and asked for NO repaint, so a new
+// message sat unshown until an unrelated gesture happened to invalidate the panel. ② the tick zeroed them on EVERY
+// pass while `screen == inbox` — ahead of the blanked check, before a single page had reached the panel, and
+// regardless of whether the emergency overlay or the compose modal was covering the body.
+// ⚠⚠ ASSERT FROZEN-VS-LIVE COUNTS. "The count is 0 afterwards" passes against BOTH the shipped bug and the tempting
+//    wrong fix (`= 0` once the frame completes). Only "the mid-frame arrival SURVIVED" separates the three.
+
+// The tick's own order: `firmware_ui.cpp` builds the snapshot FROM the counters, so the frame freezes what it renders.
+static UiSnapshot snap_from(const UiInboxCounters& c, uint32_t now_ms) {
+    UiSnapshot s{}; s.now_ms = now_ms; c.publish(s); return s;   // ★ §B108 round 2: ONE call, display + serials
+}
+// Two short presses walk status -> team -> inbox on a snapshot with no team rows (list_len 1 on both).
+static void goto_inbox(UiModel& m, UiSnapshot& s) {
+    m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().screen == Screen::inbox);
+}
+
+TEST_CASE("ui-recv: F2 — an ARRIVING message asks for a repaint") {
+    UiModel m; FrameGate g; UiInboxCounters c{};
+    UiSnapshot s = snap_from(c, 10000);
+    CHECK(g.step(m, s, true) == FrameStep::open);      // the boot frame
+    g.on_page(false, m, c);
+    CHECK(g.step(m, s, true) == FrameStep::idle);      // clean: nothing pending
+    (void)ui_route_recv_push(c, m, push_of(MESHROUTE_NS::PushKind::msg_recv), 0, false, "x", 10100);
+    CHECK(c.unread_dm() == 1);
+    s = snap_from(c, 10600);                           // past the 2 Hz throttle
+    // ★ Against the shipped code this is `idle`: the DM count changed and NOTHING ever asked the panel to say so.
+    CHECK(g.step(m, s, true) == FrameStep::open);
+}
+
+TEST_CASE("ui-frame: F2 — a COMPLETE Inbox frame reads only the counts it FROZE") {
+    UiModel m; FrameGate g; UiInboxCounters c{};
+    UiSnapshot s = snap_from(c, 10000);
+    (void)ui_route_recv_push(c, m, chan_post(0, 0, "one"), 0, false, "x", 10000);
+    (void)ui_route_recv_push(c, m, chan_post(0, 0, "two"), 0, false, "x", 10000);
+    CHECK(c.unread_ch() == 2);
+    goto_inbox(m, s);
+    s = snap_from(c, 10600);
+    CHECK(g.step(m, s, true) == FrameStep::open);
+    g.on_page(true, m, c);
+    CHECK(c.unread_ch() == 2);                           // ★ opening a frame reads NOTHING — the panel is still blank
+    // ...and NOW, while the frame pages out, a third message arrives. It is never on this frame.
+    (void)ui_route_recv_push(c, m, chan_post(0, 0, "three"), 0, false, "x", 10650);
+    CHECK(c.unread_ch() == 3);
+    for (uint8_t i = 0; i < 6; ++i) { CHECK(g.step(m, s, true) == FrameStep::next_page); g.on_page(true, m, c); }
+    CHECK(g.step(m, s, true) == FrameStep::next_page);
+    g.on_page(false, m, c);                               // the LAST page: the frame is now in front of the user
+    // ★★★ THE ASSERTION THAT SEPARATES ALL THREE BEHAVIOURS: shipped code -> 0 (zeroed every tick), a bare `= 0`
+    //     after the frame -> 0, correct -> 1. The message that arrived mid-frame was never shown, so it is unread.
+    CHECK(c.unread_ch() == 1);
+}
+
+// ★★★ §B108 ROUND 2 — THE CASE THE SUITE ABOVE STRUCTURALLY CANNOT REACH: the SAME mid-frame arrival, but with the
+// counter ALREADY SATURATED. The first fix survived above the cap in exactly the shape B108 exists to prevent —
+// `if (unread < kUnreadCap) ++unread` made the arrival a no-op, and the completion then subtracted the frozen 999 to
+// 0, marking a message read that had never been on the panel. The old `on_page` comment NAMED this case and clamped
+// it; a clamp changes 65535 into 0, which is the wrong answer rendered tidily.
+// ⚠ MEASURED RED against the pre-fix tree, in the OLD field API, before the fix existed:
+//     test_firmware_ui_send.cpp: CHECK( 999 == 1000 )   — the cap swallowed the arrival
+//     test_firmware_ui_send.cpp: CHECK( 0 == 1 )        — the completion marked it read
+//   1 case / 2 assertions failed out of 1311 / 73589.
+TEST_CASE("ui-frame: B108 round 2 — a mid-frame arrival survives AT the unread cap") {
+    UiModel m; FrameGate g; UiInboxCounters c{};
+    UiSnapshot s = snap_from(c, 10000);
+    for (uint16_t i = 0; i < kUnreadCap; ++i)
+        (void)ui_route_recv_push(c, m, chan_post(0, 0, "x"), 0, false, "x", 10000);
+    CHECK(c.unread_ch() == kUnreadCap);
+    goto_inbox(m, s);
+    s = snap_from(c, 10600);
+    CHECK(s.unread_ch == kUnreadCap);                     // the bar draws its three digits...
+    CHECK(s.arr_ch    == uint32_t(kUnreadCap));           // ...over a serial that is free to keep going
+    CHECK(g.step(m, s, true) == FrameStep::open);
+    g.on_page(true, m, c);
+    // ...and NOW the arrival the cap used to swallow whole.
+    (void)ui_route_recv_push(c, m, chan_post(0, 0, "the one that matters"), 0, false, "x", 10650);
+    CHECK(c.unread_ch() == kUnreadCap + 1u);              // ← 999 pre-fix: the increment was a silent no-op
+    for (uint8_t i = 0; i < 6; ++i) { CHECK(g.step(m, s, true) == FrameStep::next_page); g.on_page(true, m, c); }
+    CHECK(g.step(m, s, true) == FrameStep::next_page);
+    g.on_page(false, m, c);
+    CHECK(c.unread_ch() == 1);                            // ← 0 pre-fix: read without ever having been displayed
+    CHECK(c.read_ch     == uint32_t(kUnreadCap));         // the watermark stopped exactly at what the frame froze
+}
+
+TEST_CASE("ui-frame: F2 — an Inbox frame COVERED by the emergency overlay reads nothing") {
+    UiModel m; FrameGate g; UiInboxCounters c{};
+    UiSnapshot s = snap_from(c, 10000);
+    (void)ui_route_recv_push(c, m, chan_post(0, 0, "help?"), 0, false, "x", 10000);
+    goto_inbox(m, s);
+    s = snap_from(c, 10600);
+    m.on_gesture(Gesture::long_fire, s);               // the alarm takes the body from any screen (spec §4.2)
+    CHECK(m.emergency()    == Emergency::firing);
+    CHECK(m.state().screen == Screen::inbox);          // ...the screen UNDERNEATH is still Inbox
+    CHECK(g.step(m, s, true) == FrameStep::open);
+    g.on_page(false, m, c);
+    CHECK(c.unread_ch() == 1);                           // ← 0 against the shipped code: the user saw an ALARM, not mail
+}
+
+TEST_CASE("ui-frame: F2 — an Inbox frame under an open COMPOSE modal reads nothing") {
+    UiModel m; FrameGate g; UiInboxCounters c{};
+    UiSnapshot s = snap_from(c, 10000);
+    (void)ui_route_recv_push(c, m, chan_post(0, 0, "hi"), 0, false, "x", 10000);
+    m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::short_press, s);             // status -> team -> inbox -> send
+    CHECK(m.state().screen == Screen::send);
+    m.on_gesture(Gesture::double_press, s);            // open the canned-channel modal
+    CHECK(m.state().compose == Compose::channel);
+    s = snap_from(c, 10600);
+    CHECK(g.step(m, s, true) == FrameStep::open);
+    g.on_page(false, m, c);
+    CHECK(c.unread_ch() == 1);
+}
+
+TEST_CASE("ui-frame: F2 — a BLANKED panel on the Inbox screen reads nothing") {
+    UiModel m; FrameGate g; UiInboxCounters c{};
+    UiSnapshot s = snap_from(c, 10000);
+    (void)ui_route_recv_push(c, m, chan_post(0, 0, "hi"), 0, false, "x", 10000);
+    goto_inbox(m, s);
+    m.on_tick(s);                                      // §B65: the first tick only SEEDS the blank timer
+    s = snap_from(c, 10000 + kBlankMs); m.on_tick(s);
+    CHECK(m.state().blanked  == true);
+    CHECK(g.step(m, s, true) == FrameStep::blank);
+    CHECK(c.unread_ch() == 1);                           // ← 0 against the shipped code: cleared into a DARK panel
+}
+
+TEST_CASE("ui-frame: F2 — a MAC-busy pass on the Inbox screen reads nothing") {
+    UiModel m; FrameGate g; UiInboxCounters c{};
+    UiSnapshot s = snap_from(c, 10000);
+    (void)ui_route_recv_push(c, m, chan_post(0, 0, "hi"), 0, false, "x", 10000);
+    goto_inbox(m, s);
+    s = snap_from(c, 10600);
+    CHECK(g.step(m, s, /*mac_idle=*/false) == FrameStep::mac_busy);
+    CHECK(c.unread_ch() == 1);                           // ← 0 against the shipped code: cleared before the §5 gate
+}
+
+TEST_CASE("ui-frame: F2 — a NON-Inbox frame never reads the counters") {
+    UiModel m; FrameGate g; UiInboxCounters c{};
+    (void)ui_route_recv_push(c, m, chan_post(0, 0, "hi"), 0, false, "x", 10000);
+    (void)ui_route_recv_push(c, m, push_of(MESHROUTE_NS::PushKind::msg_recv), 0, false, "x", 10000);
+    UiSnapshot s = snap_from(c, 10600);
+    CHECK(m.state().screen == Screen::status);
+    CHECK(g.step(m, s, true) == FrameStep::open);
+    g.on_page(false, m, c);
+    CHECK(c.unread_ch() == 1);
+    CHECK(c.unread_dm() == 1);
+}
+
+// ============================== §B102 / QA finding F3 — a queued press acknowledging a result that was never SHOWN
+// ★★★ THE DEFECT: B71's exit tested `emg_outcome_retained()`, which answered "is this a terminal state" — and the
+// safety argument for allowing a bare SHORT press rested on "a retained outcome is ALWAYS displayed before any press
+// can dismiss it". That was an ASSUMPTION about timing. A frame is eight ticks; `InputFsm` delivers a gesture that
+// was already in progress; the MAC-idle gate can hold every one of those ticks. So the alarm's answer could be
+// dismissed before its FIRST page reached the panel, and the user would never learn it.
+// ⚠⚠ ASSERT THE SEQUENCE, not the state: `emergency() == idle` afterwards is what the SHIPPED code produces too.
+//    What discriminates is WHEN it becomes idle relative to the frame completing.
+
+static UiModel alarm_with_outcome(SendTracker& emg, SendOutcome o, uint32_t t) {
+    UiModel m = alarm_accepted(emg, /*ctr=*/77);
+    m.on_outcome(o, t);
+    return m;
+}
+// Page a whole frame out, answering next_page() as a real 8-page panel does.
+static void complete_frame(FrameGate& g, UiModel& m, UiInboxCounters& c, UiSnapshot& s) {
+    CHECK(g.step(m, s, true) == FrameStep::open);
+    g.on_page(true, m, c);
+    for (uint8_t i = 0; i < 7; ++i) {
+        CHECK(g.step(m, s, true) == FrameStep::next_page);
+        g.on_page(/*more=*/i < 6, m, c);
+    }
+    CHECK(g.frame_open() == false);
+}
+
+TEST_CASE("ui-frame: F3 — a press BEFORE the outcome's first page is consumed, and does NOT dismiss") {
+    SendTracker emg; UiInboxCounters c{}; FrameGate g;
+    UiModel m = alarm_with_outcome(emg, SendOutcome::channel_relayed(), 5100);
+    CHECK(m.emergency() == Emergency::picked_up);
+    UiSnapshot s{}; s.now_ms = 5200;
+    // The gesture arrives first — nothing has been painted at all yet.
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.emergency() == Emergency::picked_up);      // ← `idle` against the shipped code: the answer is GONE unseen
+    // ...and it must not have operated the screen underneath the overlay either.
+    CHECK(m.state().screen  == Screen::status);
+    CHECK(m.state().compose == Compose::none);
+    // Now the frame actually completes, and only then does the press work.
+    complete_frame(g, m, c, s);
+    CHECK(m.emergency() == Emergency::picked_up);      // still shown: a completed frame does not dismiss anything
+    s.now_ms = 6000;
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.emergency() == Emergency::idle);
+}
+
+TEST_CASE("ui-frame: F3 — a press DURING the outcome's frame is consumed; the frame must COMPLETE") {
+    SendTracker emg; UiInboxCounters c{}; FrameGate g;
+    UiModel m = alarm_with_outcome(emg, SendOutcome::channel_relayed(), 5100);
+    UiSnapshot s{}; s.now_ms = 5200;
+    CHECK(g.step(m, s, true) == FrameStep::open);
+    g.on_page(true, m, c);                             // page 0 of 8 only
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.emergency() == Emergency::picked_up);      // ← `idle` against the shipped code, one page in
+    for (uint8_t i = 0; i < 7; ++i) { CHECK(g.step(m, s, true) == FrameStep::next_page); g.on_page(i < 6, m, c); }
+    s.now_ms = 6000;
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.emergency() == Emergency::idle);
+}
+
+TEST_CASE("ui-frame: F3 — a frame that BLANKED before completing presents nothing") {
+    SendTracker emg; UiInboxCounters c{}; FrameGate g;
+    UiModel m = alarm_with_outcome(emg, SendOutcome::channel_relayed(), 5100);
+    UiSnapshot s{}; s.now_ms = 5200;
+    CHECK(g.step(m, s, true) == FrameStep::open);
+    g.on_page(true, m, c);
+    m.on_tick(s);                                      // §B65 seed
+    s.now_ms = 5200 + kEmgHoldMs + kBlankMs; m.on_tick(s);
+    CHECK(m.state().blanked  == true);
+    CHECK(g.step(m, s, true) == FrameStep::blank);     // the page loop is abandoned mid-frame
+    m.on_gesture(Gesture::short_press, s);             // the WAKING press is consumed by the blank rule
+    CHECK(m.state().blanked == false);
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.emergency() == Emergency::picked_up);      // ★ still not dismissed: no frame ever completed
+}
+
+// A NEWER outcome is NEW news: the frame that presented the older one must not license dismissing it.
+TEST_CASE("ui-frame: F3 — a second REPLY needs its own completed frame") {
+    SendTracker emg; UiInboxCounters c{}; FrameGate g;
+    UiModel m = alarm_with_outcome(emg, SendOutcome::channel_relayed(), 5100);
+    UiSnapshot s{}; s.now_ms = 5200;
+    complete_frame(g, m, c, s);
+    m.on_reply("Ana", "on my way", 5300);              // ...and now a real answer arrives
+    CHECK(m.emergency() == Emergency::reply);
+    s.now_ms = 5400;
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.emergency() == Emergency::reply);          // ★ the PICKED UP frame does not pay for the REPLY
+    complete_frame(g, m, c, s);
+    s.now_ms = 6000;
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.emergency() == Emergency::idle);
+}
+
+// The other half of F3: while the overlay is up, a consumed press must not drive the screen beneath it.
+TEST_CASE("ui-frame: F3 — a consumed press never operates the screen under the overlay") {
+    SendTracker emg; UiInboxCounters c{}; FrameGate g; (void)g; (void)c;
+    UiModel m; UiSnapshot s{}; s.now_ms = 1000;
+    m.on_gesture(Gesture::short_press, s);                  // status -> team
+    CHECK(m.state().screen == Screen::team);
+    m.on_gesture(Gesture::long_arm,  s);
+    s.now_ms = 4600; m.on_gesture(Gesture::long_fire, s);
+    CHECK(m.emergency() == Emergency::firing);              // SENDING... owns the body
+    const Screen under = m.state().screen;
+    for (uint8_t i = 0; i < 5; ++i) { s.now_ms += 100; m.on_gesture(Gesture::short_press, s); }
+    CHECK(m.emergency()    == Emergency::firing);           // sticky, as B71 requires
+    CHECK(m.state().screen == under);                       // ← the screen CYCLED against the shipped code
+    CHECK(m.state().compose == Compose::none);
+}
+
+// ================================ §R1 (OWNER-RULED 2026-08-05) — AN INCOMING REPLY UN-BLANKS A DARK PANEL
+// ★★★ THE DEFECT, found while disproving §B107's "the blanked branch has the same defect" premise, and REPORTED rather
+// than invented: NOTHING un-blanked on an incoming push. `on_reply` moved the model to `Emergency::reply` and set
+// `dirty`, but `UiState::blanked` stayed true — so `FrameGate::step` kept answering `blank` and the answer to a
+// distress call sat behind a panel that is OFF until the hiker happens to press the button. On a safety device that is
+// the one message the feature exists to deliver.
+// ⇒ OWNER RULING: an incoming REPLY un-blanks. ⚠ Blanking stays EDGE-TRIGGERED (spec §5): the un-blank is a
+//   TRANSITION — one `set_power_save(false)`, never a per-tick write — and it must NOT become wake-on-any-push.
+//
+// ★★ ASSERT THE SIDE EFFECT, WHICH IS "A PANEL THAT STAYS DARK" — never a post-hoc `blanked` enum, which is exactly the
+//    shape §B97/§B98 shipped green against. These cases therefore drive the same `FrameStep` -> `set_power_save`
+//    mapping `mr_ui_tick` uses and record ONLY what actually reaches the SSD1306, through the board's own latch.
+// ⓘ HONEST SCOPE, stated rather than implied: `PanelLog::apply` HAND-REPLICATES `firmware_ui.cpp`'s switch, and a
+//   hand-replicated wiring cannot fail for a mis-wired tick (§B97). What it measures is `FrameGate`'s DECISIONS. That
+//   the tick really maps those onto the two panel commands is pinned separately and structurally, by
+//   `tools/probe_board_ui/run.sh`'s W6 — which carries its own negative control.
+struct PanelLog {
+    bool    asleep  = false;    // the board's LATCH (variants/heltec_v3/board_ui.cpp:143 `if (on == s_asleep) return;`)
+    uint8_t cmds[8] = {};       // ONLY what reached the bus: 1 = SSD1306 DISPLAYOFF, 0 = DISPLAYON
+    uint8_t n       = 0;
+    void power_save(bool on) { if (on == asleep) return; asleep = on; if (n < 8) cmds[n++] = on ? 1 : 0; }
+    void apply(FrameStep st) {
+        switch (st) {
+            case FrameStep::mac_busy:  return;                  // touch NOTHING mid-exchange, not even the latch
+            case FrameStep::blank:     power_save(true);  return;
+            case FrameStep::idle:      power_save(false); return;
+            case FrameStep::open:      power_save(false); return;
+            case FrameStep::next_page: power_save(false); return;
+        }
+    }
+    // ⚠ NOT a bare `cmds[i]`: the array is zero-initialised and 0 IS "DISPLAYON", so an ABSENT wake would read as a
+    //   successful one — a test green against the defect it names (§B98). -1 makes absence distinguishable.
+    int cmd(uint8_t i) const { return (i < n) ? int(cmds[i]) : -1; }
+};
+
+// One service pass, in `mr_ui_tick`'s own order: decide, drive the panel, feed the page verdict back.
+static void ui_pass(FrameGate& g, UiModel& m, UiInboxCounters& c, UiSnapshot& s, PanelLog& p, bool more_pages) {
+    const FrameStep st = g.step(m, s, /*mac_idle=*/true);
+    p.apply(st);
+    if (st == FrameStep::open || st == FrameStep::next_page) g.on_page(more_pages, m, c);
+}
+
+// Carry a live alarm past its kEmgHoldMs window until the panel is DARK — the exact bench state R1 is about.
+// Returns the instant it went dark. ★ It also asserts the EDGE on the way in: four dark passes, ONE DISPLAYOFF.
+static uint32_t blank_the_panel(UiModel& m, FrameGate& g, UiInboxCounters& c, UiSnapshot& s, PanelLog& p) {
+    s.now_ms = 5000; m.on_tick(s);                                   // §B65: the first tick only SEEDS the timer
+    s.now_ms = 5000 + kEmgHoldMs + kBlankMs; m.on_tick(s);
+    CHECK(m.state().blanked == true);
+    for (uint8_t i = 0; i < 4; ++i) ui_pass(g, m, c, s, p, false);
+    CHECK(p.n      == 1);                                            // spec §5: the EDGE, never a per-tick write
+    CHECK(p.cmd(0) == 1);
+    return s.now_ms;
+}
+
+TEST_CASE("ui-recv: R1 — OUR team's REPLY wakes a dark panel, exactly once") {
+    SendTracker emg; UiInboxCounters c{}; FrameGate g; PanelLog p;
+    UiModel m = alarm_accepted(emg, /*ctr=*/77);           // an alarm really did go out: _tries == 1
+    UiSnapshot s{};
+    const uint32_t dark = blank_the_panel(m, g, c, s, p);
+    CHECK(m.emergency() == Emergency::firing);             // ...and it is still live behind the dark panel
+
+    const uint32_t t_reply = dark + 1000;
+    (void)ui_route_recv_push(c, m, chan_post(0, 0x1234ABCD, "on my way"), /*ui_team_channel_id=*/0,
+                             /*same_team_post=*/true, "Ana", t_reply);
+    CHECK(m.emergency() == Emergency::reply);              // the MODEL knows the answer arrived...
+    s.now_ms = t_reply; m.on_tick(s);
+    CHECK(m.state().blanked == false);                     // ← true against the shipped code
+    for (uint8_t i = 0; i < 4; ++i) ui_pass(g, m, c, s, p, false);
+    // ★★ THE SIDE EFFECT, and it is the whole case: against the shipped code `step` keeps answering `blank`, the latch
+    //    never flips, and the hiker's answer is on a panel that is OFF.
+    CHECK(p.n      == 2);
+    CHECK(p.cmd(1) == 0);                                  // DISPLAYON — the wake TRANSITION
+    CHECK(p.asleep == false);
+    // ...and EXACTLY once: four more awake passes must add no command at all (spec §5's edge trigger).
+    for (uint8_t i = 0; i < 4; ++i) ui_pass(g, m, c, s, p, false);
+    CHECK(p.n == 2);
+}
+
+// ★★★ THE NEGATIVE CONTROLS R1 CANNOT BE TRUSTED WITHOUT. Without them the case above passes equally against the
+// correct fix and against WAKE-ON-ANY-PUSH — the §2.1 false-confirmation class in POWER form, and a battery-drain
+// vector on a device whose whole job is to still be alive when it is needed.
+//
+// ⚠⚠ THE FIRST WRITING OF THESE CONTROLS WAS VACUOUS, AND IT WAS CAUGHT BY MEASUREMENT, NOT BY REVIEW. They asserted
+//    only the PANEL COMMANDS after an `on_tick`, and a mutation that un-blanked on EVERY arrival still passed them:
+//    with no live hold, that very next `on_tick` re-blanks the model before any paint pass can run, so the wrong fix
+//    is papered over by an unrelated rule. ⇒ two changes, and both are the point:
+//      ① assert `blanked` AT THE INSTANT OF DIVERGENCE — immediately after `ui_route_recv_push` returns, before any
+//         tick can hide it. That is the routing call's own side effect, not a post-hoc end state; and
+//      ② the third case builds the state where the harm really does reach the bus — a live alarm HOLDING the panel
+//         (§4.3), so `on_tick` has no re-blank to hide behind. That one measures pixels, not a flag.
+//    ⓘ Recorded rather than quietly fixed: "the wrong fix is neutralised by on_tick" is an ACCIDENT of rule order, not
+//      a safety property, and nothing may be built on it.
+TEST_CASE("ui-recv: R1 NEGATIVE CONTROL — a stranger's channel-0 post must NOT un-blank") {
+    SendTracker emg; UiInboxCounters c{}; FrameGate g; PanelLog p;
+    UiModel m = alarm_accepted(emg, /*ctr=*/77);
+    UiSnapshot s{};
+    const uint32_t dark = blank_the_panel(m, g, c, s, p);
+    // The §B103/F4 shape: a plain LEAF post (`team_id == 0`) on channel 0 from a node with no team and no key.
+    // `ingest_channel_m` lets it through to everyone, so it really does reach the UI.
+    const uint32_t t = dark + 1000;
+    const bool owned = ui_route_recv_push(c, m, chan_post(0, /*team=*/0, "hello everyone"), 0,
+                                          /*same_team_post=*/false, "stranger", t);
+    CHECK(owned == true);                                  // it IS a message: the counter moves...
+    CHECK(c.unread_ch() == 1);
+    // ★★ THE INSTANT OF DIVERGENCE. ← false under wake-on-any-push, and nothing has yet had a chance to hide it.
+    CHECK(m.state().blanked == true);
+    CHECK(m.emergency()     == Emergency::firing);         // and nothing became a REPLY either (§B103)
+    s.now_ms = t; m.on_tick(s);
+    for (uint8_t i = 0; i < 4; ++i) ui_pass(g, m, c, s, p, false);
+    CHECK(p.n      == 1);
+    CHECK(p.cmd(1) == -1);                                 // no second command reached the panel at all
+    CHECK(p.asleep == true);
+}
+
+// The SECOND control pins WHICH reading of the ruling was implemented. The ruling names F4's team-scoped predicate as
+// what qualifies a reply; §4.4 then adds a state whitelist plus "an alarm was actually transmitted". What wakes is a
+// REPLY — a post those together ACCEPT — not every post that merely clears the team scope. Ordinary team chatter must
+// not spend battery lighting a panel nobody is looking at.
+TEST_CASE("ui-recv: R1 CONTROL — an OUR-TEAM post with no alarm behind it is chatter, and chatter stays dark") {
+    UiModel m; UiInboxCounters c{}; FrameGate g; PanelLog p;
+    UiSnapshot s{}; s.now_ms = 1000; m.on_tick(s);
+    s.now_ms = 1000 + kBlankMs; m.on_tick(s);
+    CHECK(m.state().blanked == true);
+    for (uint8_t i = 0; i < 3; ++i) ui_pass(g, m, c, s, p, false);
+    CHECK(p.n == 1); CHECK(p.cmd(0) == 1);
+    // Our own team, our own channel — F4's predicate PASSES. But nothing was ever transmitted, so §4.4 refuses it and
+    // there is no REPLY to show.
+    const uint32_t t = s.now_ms + 1000;
+    (void)ui_route_recv_push(c, m, chan_post(0, 0x1234ABCD, "anyone about?"), 0, /*same_team_post=*/true, "Ana", t);
+    CHECK(m.emergency()     == Emergency::idle);
+    CHECK(m.state().blanked == true);                      // ★ at the instant of divergence
+    s.now_ms = t; m.on_tick(s);
+    for (uint8_t i = 0; i < 3; ++i) ui_pass(g, m, c, s, p, false);
+    CHECK(p.n      == 1);
+    CHECK(p.asleep == true);
+}
+
+// ★★★ THE CONTROL THAT REACHES THE PANEL. A blanked panel with a LIVE, HOLDING alarm behind it is an ordinary state:
+// the alarm blocks, `retain()` re-arms §4.3's deadline, and `on_tick` therefore has no re-blank left to hide a wrong
+// wake behind. Under wake-on-any-push a passer-by's plaintext post LIGHTS a rescue device's screen here — measured as
+// a DISPLAYON on the bus, not as a flag.
+// ⓘ OBSERVED AND REPORTED, NOT FIXED: nothing un-blanks for a `blocked` / `picked_up` / `not_heard` outcome either —
+//   R1 rules on the REPLY, and widening it is a ruling I do not have. The state below is exactly that gap, used here
+//   as a fixture.
+TEST_CASE("ui-recv: R1 NEGATIVE CONTROL — a stranger cannot LIGHT a panel a live alarm is holding dark") {
+    SendTracker emg; UiInboxCounters c{}; FrameGate g; PanelLog p;
+    UiModel m = alarm_accepted(emg, /*ctr=*/77);
+    UiSnapshot s{};
+    const uint32_t dark  = blank_the_panel(m, g, c, s, p);
+    const uint32_t t_blk = dark + 500;
+    m.on_outcome(SendOutcome::blocked(60000), t_blk);      // §4.3: the hold deadline is LIVE again...
+    CHECK(m.emergency() == Emergency::blocked);
+    s.now_ms = t_blk; m.on_tick(s);
+    CHECK(m.state().blanked == true);                      // ...but a blocked outcome is not a reply, so it stays dark
+    for (uint8_t i = 0; i < 3; ++i) ui_pass(g, m, c, s, p, false);
+    CHECK(p.n == 1);
+    const uint32_t t = t_blk + 100;
+    (void)ui_route_recv_push(c, m, chan_post(0, /*team=*/0, "hello everyone"), 0,
+                             /*same_team_post=*/false, "stranger", t);
+    CHECK(m.state().blanked == true);                      // ← false under wake-on-any-push
+    s.now_ms = t; m.on_tick(s);
+    CHECK(m.state().blanked == true);                      // ...and the live hold means on_tick cannot re-blank it
+    for (uint8_t i = 0; i < 3; ++i) ui_pass(g, m, c, s, p, false);
+    // ★★ THE PANEL ITSELF: one command in this test's whole life, and it was the DISPLAYOFF.
+    CHECK(p.n      == 1);                                  // ← 2 under wake-on-any-push: the screen LIT for a stranger
+    CHECK(p.asleep == true);
+}
+
+TEST_CASE("ui-recv: R1 — the wake inherits the retained-outcome hold; it invents no second window") {
+    SendTracker emg; UiInboxCounters c{}; FrameGate g; PanelLog p;
+    UiModel m = alarm_accepted(emg, /*ctr=*/77);
+    UiSnapshot s{};
+    const uint32_t dark    = blank_the_panel(m, g, c, s, p);
+    const uint32_t t_reply = dark + 1000;
+    (void)ui_route_recv_push(c, m, chan_post(0, 0x1234ABCD, "on my way"), 0, /*same_team_post=*/true, "Ana", t_reply);
+    s.now_ms = t_reply; m.on_tick(s);
+    CHECK(m.state().blanked == false);                     // ← true against the shipped code
+    // ★ NO SECOND TIMER (U1/C2): `on_reply` already calls `retain()`, so §4.3's kEmgHoldMs deadline — measured from the
+    //   REPLY's OWN arrival, which is exactly what §4.3 exists to guarantee — is what keeps the panel lit.
+    s.now_ms = t_reply + kEmgHoldMs - 1; m.on_tick(s);
+    CHECK(m.state().blanked == false);
+    s.now_ms = t_reply + kEmgHoldMs + 1; m.on_tick(s);
+    CHECK(m.state().blanked == true);                      // ...then dark again, with the REPLY state retained
+    CHECK(m.emergency()     == Emergency::reply);
+    // ⓘ THE DECISION THE RULING ASKED ME TO STATE — and it needed no ruling of its own, because it is INERT: the wake
+    //   deliberately does NOT touch `_last_input_ms`, and it could not matter if it did. kEmgHoldMs outranks kBlankMs,
+    //   so the hold is the binding constraint and BOTH readings blank at exactly this instant. ASSERTED rather than
+    //   argued in prose, so a later reader cannot "fix" it into a second window that then disagrees with the real one.
+    static_assert(kEmgHoldMs > kBlankMs, "R1: the retained hold must outrank the blank timer, or a wake needs its own window");
 }

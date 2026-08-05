@@ -159,19 +159,30 @@ each env's **resolved** config (never a typed list), deletes the object dirs (�
 PlatformIO's content-signature cache), and **prints the object count beside every total** — a 0-object row is flagged
 as measuring nothing, which has happened in this project.
 
-**CURRENT CLEAN-BUILD CENSUS — 2026-08-05 after UI-6 (B106 re-pin), `tools/warning_census.sh`:** warning totals and
-`-Wswitch` are the load-bearing pins; objects/RAM/Flash are non-vacuity and budget observations (ESP32 flash can
-move by the documented banner-packing quantum, B86).
+**CURRENT CLEAN-BUILD CENSUS — 2026-08-05 after the UI-6 QA-fix slice + §B108 round 2, `tools/warning_census.sh`:**
+warning totals and `-Wswitch` are the load-bearing pins; objects/RAM/Flash are non-vacuity and budget observations
+(ESP32 flash can move by the documented banner-packing quantum, B86).
 
 | env | objects | warnings | `-Wswitch` | RAM | Flash |
 |---|---|---|---|---|---|
-| `heltec_v3` | 326 | **180** | **0** | 214068 | 1251204 |
-| `heltec_mobile` | 326 | **180** | **0** | 213588 | 1244648 |
-| `gateway_heltec` | 326 | **176** | **0** | 238988 | 1220416 |
+| `heltec_v3` | 326 | **180** | **0** | 214116 | 1251312 |
+| `heltec_mobile` | 326 | **180** | **0** | 213636 | 1244748 |
+| `gateway_heltec` | 326 | **176** | **0** | 239036 | 1220540 |
 
-★ **QA-CONFIRMED 2026-08-05 by an independent census run** (separate build, separate reader): every figure above
-reproduced, and **RAM is +760 B on all three, identical** — `gateway_heltec` is the tightest OLED env at
-**238988 / 327680 = 72.9 %**. Flash +5.8…6.2 KB.
+★ **RAM CORRECTED 2026-08-05 — the table above was 48 B BELOW measurement and is now re-measured, not copied.** Two
+uncommitted slices had landed on top of it without moving it: the **QA-fix slice** (B101/B102/B103/B107/B108) added
+**+16 B uniform** → 214084 / 213604 / 239004, and **§B108 round 2** (the arrival-serial / read-watermark split that
+made the unread cap display-only) adds a further **+32 B uniform** → the figures now in the table. `gateway_heltec`
+remains the tightest OLED env: **239036 / 327680 = 72.95 %**.
+ⓘ **Where round 2's +32 B goes, by `sizeof` on the native ABI** (boards are 32-bit/4-aligned and reproduce it):
+`UiInboxCounters` 16 → **28** (+12, two `uint32_t` serials + two watermarks replace two `uint16_t` counts) ·
+`UiSnapshot` 520 → **528** (+8, the two published serials) · `FrameGate` 20 → **28** (+8, the frozen serials widen
+from `uint16_t` to `uint32_t`). One static instance of each ⇒ **+28 B accounted, +32 B measured**; the remaining 4 B is
+section alignment, not an unexplained object. The `uint32_t` width is a deliberate wraparound decision — see
+`UiInboxCounters`' own block and the `simulation/BASELINE.md` §B108-ROUND-2 note.
+★ **QA-CONFIRMED 2026-08-05 by an independent census run** of the *rejected* Task-6 state (separate build, separate
+reader): RAM was **+760 B identical on all three** at 214068 / 213588 / 238988, flash +5.8…6.2 KB. Those figures are
+kept here as the Task-6 reference point the two deltas above are measured from.
 ★★ **B106 — WHY THE WARNING PINS ROSE 178/178/174 → 180/180/176, and it is +1 TU, not new warning-generating code.**
 `src/firmware_ui.cpp` is one new translation unit, and it must reach `g_node` / `g_hal` / `g_iradio`, so it includes
 `fw_context.h` → the radio HAL. That pulls **RadioLib's `#warning`** (`-Wcpp`) and **`device_radio.h`'s `inline volatile`
@@ -1479,13 +1490,28 @@ static void battery_maybe_sample(uint32_t now_ms) {
 }
 ```
 
-`build_snapshot(now_ms)` fills `UiSnapshot` from: `s_unread_dm/ch`; `s_last_dm_ms/ch` for ages; `g_node.rt_team_count()` into `team_total` and the first `kMaxTeamRows` of `rt_team_at(i)` into `team[]` with `team_shown`; each row's label resolved `team_key_of_id()` → `peer_name_find()` → `0x<hash>` → bare id, clamped to `kLabelCap`; `g_node.team_local_id()`; `g_node.config().team_id`; `s_batt_mv`. **No BLE field** — `mrble::connected()` is inert on ESP32 (`device_ble.h:47`), so V3 shows nothing rather than a permanently-false indicator.
+`build_snapshot(now_ms)` fills `UiSnapshot` from: **`s_counters.publish(s)`** — ⚠ **NOT the removed `s_unread_dm/ch` statics this line used to name** (§B108 round 2). `UiInboxCounters` now holds an **uncapped monotonic `uint32_t` arrival serial** plus a **read watermark** per kind, and `unread = arrivals − watermark`; `publish()` is the ONE place `kUnreadCap` applies, and it emits the display counts **and** the serials together (U2) so a frame can never freeze a serial its rendered number did not reflect. **Do not reintroduce a capped counter** — capping the *arrival* is precisely the defect that lost a mid-frame message at saturation (999 frozen − 999 live = 0); `s_last_dm_ms/ch` for ages; `g_node.rt_team_count()` into `team_total` and the first `kMaxTeamRows` of `rt_team_at(i)` into `team[]` with `team_shown`; each row's label resolved `team_key_of_id()` → `peer_name_find()` → `0x<hash>` → bare id, clamped to `kLabelCap`; `g_node.team_local_id()`; `g_node.config().team_id`; `s_batt_mv`. **No BLE field** — `mrble::connected()` is inert on ESP32 (`device_ble.h:47`), so V3 shows nothing rather than a permanently-false indicator.
 
 - [ ] **Step 3: Write the render policy (in THIS file, not the board TU)**
 
 `draw_frame(const UiState&, const UiSnapshot&)` draws the status bar (`DM<n> CH<n> T<shown>/<total> <volts>`), then dispatches on `compose` first, then `screen`, then the emergency overlay when `emergency() != idle`. All text formatting lives here; only `mrui::draw_text` / `set_font` / `draw_hline` cross the boundary. Emergency states use `Font::large`; everything else `Font::small`. Battery renders `3.9V` or `--`, never a percentage.
 
 - [ ] **Step 4: Write the tick**
+
+> ⛔⛔ **THE SKETCH BELOW IS SUPERSEDED 2026-08-05 — two of its lines were REJECTED by QA and must not be copied.** It is
+> kept verbatim as the audit trail for what shipped and why it was wrong; the tracker/`§B84` ordering commentary in it is
+> still correct and still authoritative.
+>
+> | rejected line in the sketch | what LANDED instead |
+> |---|---|
+> | `if (s_model.state().screen == mrui::Screen::inbox) { s_unread_dm = 0; s_unread_ch = 0; }` — the **eager unread clear**, run on every pass ahead of the blanked check and before a single page reached the panel | **§B108.** Nothing in `firmware_ui.cpp` touches the counters. `mrui::FrameGate::on_page` marks arrivals read **once**, when a COMPLETE and actually-VISIBLE Inbox frame has gone out, by advancing a **read watermark** to the **arrival serial that frame FROZE**. §B108 round 2: the serial is monotonic and uncapped; `kUnreadCap` is a **display** limit applied only in `UiInboxCounters::publish`, because a capped counter cannot tell a frame which arrivals it showed. |
+> | `if (!s_frame_open) s_model.clear_dirty();` — the **final-page `clear_dirty()`** (and its twin in the blanked branch) | **§B107.** `dirty` is consumed **at the FREEZE**, inside `FrameGate::step`, the instant the frame stops tracking the model. Final-page completion does presentation bookkeeping only (`_last_paint_ms`, the §B102 presented-latch). Clearing it eight ticks later discarded any invalidation raised while the old frame paged out — PICKED UP / REPLY / FAILED could be lost outright. |
+>
+> ⇒ **The whole render lifecycle now lives in `mrui::FrameGate` (`src/firmware_ui_model.h`), not in this tick.** The tick's
+> paint section is a five-arm `switch` over `FrameStep` plus `s_gate.on_page(mrui::next_page(), s_model, s_counters)`.
+> The reason is the one this plan's §UI-6 GLUE block already argued: `src/firmware_ui.cpp` is compiled by neither the
+> native suite nor the simulator, so policy left here is unreachable by every automated gate — which is exactly how both
+> defects shipped green. See register **B107 / B108** and the `simulation/BASELINE.md` §UI-6-FIXES and §B108-ROUND-2 notes.
 
 ```cpp
 // TWO trackers: an alarm must never queue behind a DM waiting on its e2e ack (spec §2.1).

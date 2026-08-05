@@ -9,7 +9,9 @@
 //
 // DONE here (UI-4): the typed correlation of all five outcome pushes; the `ctr == 0` "no local handle" state and its
 // three producers; the bounded outcome window for the ctr-less pushes AND its expiry; the late-ack retention.
-// DONE here (UI-6, at the bottom of this file): the TWO-TRACKER GLUE — `ui_pump_trackers` and `ui_route_send_push`.
+// DONE here (UI-6, at the bottom of this file): the TWO-TRACKER GLUE — `ui_pump_trackers` and `ui_route_send_push`,
+// and (2026-08-05, §B103) the RECEIVE half `ui_route_recv_push` — the unread counters, the recency stamps and the one
+// decision with safety weight on it: whether an arriving channel post may be shown as an answer to our distress call.
 //   ★★ The two bullets below used to say these were "NOT here, by unit boundary — UI-6 owns them". They MOVED, and the
 //   reason is the whole point: as caller obligations in `firmware_ui.cpp` they were unreachable by every automated gate
 //   this project has (neither the native suite nor the simulator compiles `src/*.cpp`), and the plan records that the
@@ -281,6 +283,68 @@ inline bool ui_route_send_push(SendTracker& emg, SendTracker& normal, UiModel& m
         //    (`msg_recv` / `channel_recv`) are handled by firmware_ui.cpp, which owns the counters they feed.
         default: return false;
     }
+}
+
+// ★★★ THE RECEIVE HALF (§B103 / QA finding F4). `ui_route_send_push` above correlates what WE sent; this correlates
+// what ARRIVED — the unread counters, the recency stamps, and the one decision with safety weight on it: whether an
+// incoming channel post may be shown as an ANSWER TO OUR DISTRESS CALL.
+//
+// ⚠⚠ IT LIVES HERE, NOT IN `firmware_ui.cpp`, FOR THE REASON THE BLOCK ABOVE ALREADY ARGUES: as a caller obligation it
+//    was unreachable by every automated gate this project has, and it shipped WRONG — the guard was
+//    `pu.channel_id == MR_UI_TEAM_CHANNEL_ID` alone.
+//
+// ★★ WHY THAT WAS A LIVE SAFETY DEFECT, and the clause that fixes it is NOT the one it looks like:
+//    `Node::ingest_channel_m` (node_channel.cpp:211-212) DROPS a foreign TEAM's M — so the channel-id equality is
+//    already implied for team traffic and adds nothing. But its own comment records that **a normal leaf M
+//    (`team_id == 0`) falls through and is ingested by EVERYONE**. With `MR_UI_TEAM_CHANNEL_ID == 0`, any node in
+//    radio range posting plaintext on channel 0 — no team membership, no key, no crypto — rendered as
+//    "someone answered my distress call". That is precisely the §2.1 false-confirmation class.
+// ⇒ **THE CLAUSE CARRYING THE SAFETY WEIGHT IS `team_id != 0`**, i.e. "this post was scoped to a team AND that team is
+//    OURS". Stated here because it looks redundant beside the equality and a later reader would delete it.
+// ★ `same_team_post` is the caller's `g_node.same_team(pu.team_id)` (node.h:274 — `_cfg.team_id != 0 && their_team ==
+//   _cfg.team_id`), reused rather than re-derived (U1). It is passed IN because `Node` is not board-free enough to
+//   name here, and because the equivalence is worth stating: `same_team(t)` ⟺ `t != 0 && t == our_team` — forward,
+//   `t == our_team != 0` gives `t != 0`; backward, `t != 0 && t == our_team` gives `our_team != 0`. So the two-clause
+//   helper IS the three-clause guard, not an approximation of it.
+// ⓘ Consequence, deliberate and ruled: on a node with NO team (`team_id == 0`, every static leaf and every lone
+//   mobile) the REPLY indication is now unreachable. Without a team there is no key and no membership, so there is
+//   nothing that could make a reply trustworthy — refusing to claim one is the point, not a regression.
+//
+// Returns true if this push was a RECEIVE this unit owns (diagnostic; the caller routes everything else to
+// `ui_route_send_push`). `who` is the caller's already-resolved display label — the ONE thing here that needs `Node`.
+inline bool ui_route_recv_push(UiInboxCounters& c, UiModel& m, const MESHROUTE_NS::Push& pu,
+                               uint8_t ui_team_channel_id, bool same_team_post,
+                               const char* who, uint32_t now_ms) {
+    using PK = MESHROUTE_NS::PushKind;
+    if (pu.kind == PK::msg_recv) {
+        c.last_dm_ms = now_ms; c.have_dm = true;
+        // ★★ §B108 ROUND 2: THE SERIAL IS UNCAPPED. This used to read `if (c.unread_dm < kUnreadCap) ++c.unread_dm;`
+        //    — and at the cap that increment silently did NOTHING, so an arrival during a paging frame left no trace
+        //    at all and the frame's completion marked it read. `kUnreadCap` now applies only in `publish`, on the way
+        //    to the three digits the bar can draw. See `UiInboxCounters` for the wraparound argument.
+        ++c.arr_dm;
+        m.mark_dirty();                       // ★ §B108: the counts moved -> the STATUS BAR is stale on every screen
+        return true;
+    }
+    if (pu.kind != PK::channel_recv) return false;
+    c.last_ch_ms = now_ms; c.have_ch = true;
+    ++c.arr_ch;                               // ★★ §B108 round 2: uncapped, exactly as above
+    m.mark_dirty();
+    // Spec §4.4: ONLY a post on our own team's channel qualifies. The model applies the rest of the guard — a state
+    // whitelist plus "at least one alarm was actually transmitted" (`on_reply`).
+    // ★★ §R1 (OWNER-RULED 2026-08-05): an ACCEPTED reply also UN-BLANKS the panel, and that happens inside `on_reply`
+    //    rather than here — deliberately. Waking beside `mark_dirty()` above would wake on ANY arrival, including the
+    //    stranger's channel-0 post this very guard exists to reject; putting it past BOTH scopes is what makes the
+    //    wake mean "an answer to our distress call arrived", not "a packet arrived". ⛔ Do not hoist it up here.
+    if (pu.channel_id != ui_team_channel_id || !same_team_post) return true;
+    // ⚠ NOT a C string on the wire: `Push::body` is a length-counted byte buffer, so copy-and-terminate. Casting it to
+    //   `const char*` and handing it to `on_reply` (an earlier draft) reads past `body_len`.
+    char body[21];
+    const uint8_t n = (pu.body_len < uint8_t(sizeof body - 1)) ? pu.body_len : uint8_t(sizeof body - 1);
+    for (uint8_t i = 0; i < n; ++i) body[i] = char(pu.body[i]);
+    body[n] = '\0';
+    m.on_reply(who, body, now_ms);
+    return true;
 }
 
 }  // namespace mrui

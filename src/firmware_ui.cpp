@@ -15,9 +15,13 @@
 //
 // ★ WHAT IS DONE AND WHAT IS NOT — in source, because docs rot and code is read
 //   ([[meshroute-mark-done-vs-missing-in-code]]):
-//   DONE      the tick (§5's three paint rules + edge-triggered blanking), the snapshot builder, all render policy for
-//             STATUS / TEAM / INBOX / SEND / both compose lists / the emergency overlay, the battery cache, the unread
-//             counters and age stamps, push correlation, and §B91's dead-panel report line.
+//   DONE      the snapshot builder, the DRAWING of STATUS / TEAM / INBOX / SEND / both compose lists / the emergency
+//             overlay, the battery cache, and §B91's dead-panel report line.
+//   ★ MOVED OUT 2026-08-05 (the UI-6 QA fix slice) — and this is the point, not a tidy-up. WHEN to paint (`FrameGate`),
+//             what an arriving push MEANS (`ui_route_recv_push`) and the unread counters all lived here, in a TU that
+//             NEITHER the native suite NOR the simulator compiles, and all four of §B101/§B102/§B107/§B108 shipped
+//             green because of it. They are now pure code in firmware_ui_model.h / firmware_ui_send.h, driven by the
+//             native suite, and `tools/probe_board_ui/run.sh`'s W1-W4 pin that this file still CALLS them.
 //   MISSING   THE SEND ITSELF. `ui_perform_send` is a LOUD REFUSAL stub — see it. Task 7 owns `mrfw::exec_command`,
 //             which is the one approved firmware addition this plan makes, and it is explicitly not this task's.
 //             ⇒ on this build a long-press reaches SENDING... and then FAILED, by construction and visibly.
@@ -30,7 +34,6 @@
 #if MR_FEAT_OLED
 
 #include <cstdio>            // snprintf — every panel string is formatted here, never in the board TU
-#include <cstring>
 #include "firmware_ui_model.h"
 #include "firmware_ui_send.h"
 #include "board_ui.h"        // resolved by `-I variants/heltec_v3` — ★ THIS is the task that makes that flag
@@ -55,11 +58,9 @@ mrui::InputFsm    s_input;
 mrui::SendTracker s_tracker_emg, s_tracker_normal;
 
 // Unread counts + "newest received" stamps are UI-LOCAL and session-scoped (spec §6): `Inbox` exposes no read cursor,
-// and counting here needs no new core API. A reboot resets them, which for a glanceable bar reads as "since you last
-// looked". `_have_*` keeps "never received" distinct from "received at t=0" — without it a fresh boot reads "0s ago".
-uint16_t s_unread_dm = 0, s_unread_ch = 0;
-uint32_t s_last_dm_ms = 0, s_last_ch_ms = 0;
-bool     s_have_dm = false, s_have_ch = false;
+// and counting here needs no new core API. ★ The six loose statics they used to be MOVED into `mrui::UiInboxCounters`
+// so the two things that move them are natively driven — see firmware_ui_model.h and §B103/§B108.
+mrui::UiInboxCounters s_counters;
 
 int32_t  s_batt_mv        = -1;      // last GOOD reading; <0 = never had one -> render `--`
 uint32_t s_batt_next_ms   = 0;
@@ -90,6 +91,9 @@ struct EmgView {
 mrui::UiState    s_frame_state{};
 mrui::UiSnapshot s_frame_snap{};
 EmgView          s_frame_emg{};
+// ★ WHEN to paint (§B107). The frozen copies above are WHAT to paint; this owns the lifecycle that decides when they
+//   are refreshed — including the `dirty` consumption, which belongs to the FREEZE and not to the final page.
+mrui::FrameGate  s_gate;
 
 // ---- §5 rule 1: paint only when the MAC is idle ------------------------------------------------------------------
 // The SAME predicate fw_main.cpp:1406 uses to decide it may sleep (U1 — do not invent a second one). A full 1024 B
@@ -179,10 +183,12 @@ uint32_t age_s_from(uint32_t now_ms, uint32_t then_ms) { return uint32_t(now_ms 
 mrui::UiSnapshot build_snapshot(uint32_t now_ms) {
     mrui::UiSnapshot s{};
     s.now_ms       = now_ms;
-    s.unread_dm    = s_unread_dm;
-    s.unread_ch    = s_unread_ch;
-    s.last_dm_age_s = s_have_dm ? age_s_from(now_ms, s_last_dm_ms) : UINT32_MAX;
-    s.last_ch_age_s = s_have_ch ? age_s_from(now_ms, s_last_ch_ms) : UINT32_MAX;
+    // ★★ §B108 round 2: ONE call (U2), never two assignments — it publishes the CAPPED display counts and the
+    //    UNCAPPED arrival serials they were derived from together, which is what lets `FrameGate` freeze a serial
+    //    that provably matches the number this frame will draw.
+    s_counters.publish(s);
+    s.last_dm_age_s = s_counters.have_dm ? age_s_from(now_ms, s_counters.last_dm_ms) : UINT32_MAX;
+    s.last_ch_age_s = s_counters.have_ch ? age_s_from(now_ms, s_counters.last_ch_ms) : UINT32_MAX;
     // The TEAM/SEND slots are gated on MR_FEAT_OLED && MR_FEAT_TEAM (spec §9): `gateway_heltec` is a REAL build with
     // OLED=1 and TEAM=0, so this is not hypothetical. `team_build` is what makes the model's cycle skip those slots.
     s.team_build = (MR_FEAT_TEAM != 0);
@@ -458,14 +464,14 @@ void mr_ui_tick(uint32_t now_ms) {
     //    is what puts it under the native gate. It used to be inline here, where nothing could test it.
     mrui::ui_pump_trackers(s_tracker_emg, s_tracker_normal, s_model, now_ms);
 
-    static uint32_t s_last_paint_ms = 0;
-    static bool     s_frame_open    = false;
-
     battery_maybe_sample(now_ms);
     const mrui::UiSnapshot s = build_snapshot(now_ms);
     s_model.on_gesture(s_input.update(mrui::button_pressed(), now_ms), s);
     s_model.on_tick(s);
-    if (s_model.state().screen == mrui::Screen::inbox) { s_unread_dm = 0; s_unread_ch = 0; }
+    // ⓘ §B108: THE UNREAD CLEAR USED TO BE HERE, and that was the defect — `if (screen == inbox) { = 0; }` ran on
+    //   EVERY pass, ahead of the blanked check and before a single page had reached the panel. It now happens exactly
+    //   once, inside `FrameGate::on_page`, when a COMPLETE and VISIBLE Inbox frame has gone out, and it subtracts only
+    //   the counts that frame FROZE — so a message arriving while it paged out is still unread.
 
     // The emergency slot is checked FIRST and is NOT gated on the normal slot: an alarm must never wait on a DM that is
     // waiting on its e2e ack (spec §2.1). If a canned channel post is still outstanding when the alarm fires, ABANDON
@@ -480,66 +486,54 @@ void mr_ui_tick(uint32_t now_ms) {
         if (got_req) ui_perform_send(req, now_ms);
     }
 
-    if (!mac_idle()) return;                       // §5 rule 1: never start OR continue a paint mid-exchange
-
-    // ⚠ THE BLANK IS TESTED BEFORE THE OPEN-FRAME CONTINUATION, which is a deliberate change from the plan's block.
-    //   `set_power_save(true)` abandons the board's page loop, so continuing to hold `s_frame_open` across a blank
-    //   leaves this file's half of the loop describing a frame the board has already dropped. Dropping both together
-    //   keeps the two halves in step, and no page can be pushed into a dark panel.
-    if (s_model.state().blanked) {
-        mrui::set_power_save(true);                // EDGE-triggered: latched in the board, repeat calls are no-ops
-        s_frame_open = false;
-        s_model.clear_dirty();
-        return;
+    // ★★ ALL of the render POLICY — the §5 MAC-idle gate, the blank, the page continuation, the 2 Hz throttle and the
+    //    emergency bypass — is `mrui::FrameGate::step`, a PURE class in firmware_ui_model.h. It moved there for the
+    //    same reason `ui_pump_trackers` did: §B104 recorded that none of it had any behavioural probe, and §B107 (a
+    //    newer UI state LOST while a frame paged out) was reachable only by human review. This file keeps exactly what
+    //    genuinely needs the panel: the frozen copies and the four canvas calls.
+    switch (s_gate.step(s_model, s, mac_idle())) {
+        case mrui::FrameStep::mac_busy: return;                 // never start OR continue a paint mid-exchange
+        case mrui::FrameStep::blank:
+            mrui::set_power_save(true);                         // EDGE-triggered: latched in the board, repeats are no-ops
+            return;
+        case mrui::FrameStep::idle:
+            mrui::set_power_save(false);
+            return;
+        case mrui::FrameStep::open:
+            mrui::set_power_save(false);
+            // ★ THE FREEZE. Everything the renderer reads is a COPY from here on, so the image cannot tear across the
+            //   eight page boundaries this frame will span (spec §5).
+            s_frame_state = s_model.state();
+            s_frame_snap  = s;
+            s_frame_emg   = freeze_emg(s);
+            mrui::begin_frame();
+            break;
+        case mrui::FrameStep::next_page:
+            mrui::set_power_save(false);
+            break;
     }
-    mrui::set_power_save(false);
-
     // ★ U8g2 page mode redraws the WHOLE scene per page — the draw calls are CLIPPED, not accumulated. Drawing once at
-    //   frame start and then only advancing pages (an earlier draft) leaves seven of eight pages blank.
-    if (s_frame_open) {
-        draw_frame(s_frame_state, s_frame_snap, s_frame_emg);   // the FROZEN copies, so the image cannot tear
-        s_frame_open = mrui::next_page();
-        if (!s_frame_open) s_model.clear_dirty();               // dirty clears only when the LAST page has gone out
-        return;
-    }
-    // Emergency bypasses the 2 Hz throttle but NOT the MAC-idle gate, and the model marks itself dirty only when the
-    // countdown digit changes, so this does not repaint at tick rate. One page per eligible tick holds the bus ~3 ms.
-    const bool emg = s_model.emergency() != mrui::Emergency::idle;
-    if (s_model.state().dirty && (emg || uint32_t(now_ms - s_last_paint_ms) >= 500)) {
-        s_frame_state = s_model.state();
-        s_frame_snap  = s;
-        s_frame_emg   = freeze_emg(s);
-        mrui::begin_frame();
-        draw_frame(s_frame_state, s_frame_snap, s_frame_emg);
-        s_frame_open    = mrui::next_page();
-        s_last_paint_ms = now_ms;
-    }
+    //   frame start and then only advancing pages (an earlier draft) leaves seven of eight pages blank. `open` and
+    //   `next_page` therefore share this tail, which is what makes "once per page" structural rather than a rule.
+    draw_frame(s_frame_state, s_frame_snap, s_frame_emg);       // the FROZEN copies, so the image cannot tear
+    s_gate.on_page(mrui::next_page(), s_model, s_counters);
 }
 
 void mr_ui_on_push(const MESHROUTE_NS::Push& pu) {
     const uint32_t now = uint32_t(g_hal.now());
     switch (pu.kind) {
+        // ★★ §B103/F4: the RECEIVE half is `mrui::ui_route_recv_push` — counters, stamps, and the §4.4 reply scope.
+        //    ⚠ `g_node.same_team(pu.team_id)` (node.h:274) is the clause with the SAFETY weight on it, not the channel
+        //      equality: `ingest_channel_m` already drops a foreign TEAM's post, but lets a `team_id == 0` LEAF post
+        //      through to everyone — so on channel 0 any passer-by used to render as a distress REPLY. See the routing
+        //      function for the full argument and for why `same_team` IS the three-clause guard.
         case MESHROUTE_NS::PushKind::msg_recv:
-            s_last_dm_ms = now; s_have_dm = true;
-            if (s_unread_dm < 999) ++s_unread_dm;
+        case MESHROUTE_NS::PushKind::channel_recv: {
+            char who[mrui::kLabelCap + 1]; label_for_origin(pu, who, uint8_t(sizeof who));
+            (void)mrui::ui_route_recv_push(s_counters, s_model, pu, uint8_t(MR_UI_TEAM_CHANNEL_ID),
+                                           g_node.same_team(pu.team_id), who, now);
             break;
-        case MESHROUTE_NS::PushKind::channel_recv:
-            s_last_ch_ms = now; s_have_ch = true;
-            if (s_unread_ch < 999) ++s_unread_ch;
-            // ★ Spec §4.4: ONLY posts on our own channel qualify as a distress REPLY. Accepting any team channel
-            //   traffic would let unrelated chatter read as "someone answered my distress call" — the same
-            //   false-confirmation class §2.1 exists to prevent. The model applies the rest of the guard: a state
-            //   whitelist, plus "at least one alarm was actually transmitted".
-            if (pu.channel_id == MR_UI_TEAM_CHANNEL_ID) {
-                char who[mrui::kLabelCap + 1]; label_for_origin(pu, who, uint8_t(sizeof who));
-                char body[21];
-                const uint8_t n = (pu.body_len < uint8_t(sizeof body - 1)) ? pu.body_len : uint8_t(sizeof body - 1);
-                // ⚠ NOT a C string on the wire: `Push::body` is a length-counted byte buffer, so copy-and-terminate.
-                //   Casting it to `const char*` and handing it to on_reply (an earlier draft) reads past body_len.
-                memcpy(body, pu.body, n); body[n] = '\0';
-                s_model.on_reply(who, body, now);
-            }
-            break;
+        }
         // Every branch that can move the emergency goes through a tracker first — that is what makes a false PICKED UP
         // structurally impossible rather than merely unlikely (spec §2.1). The routing itself is pure and tested.
         default:
