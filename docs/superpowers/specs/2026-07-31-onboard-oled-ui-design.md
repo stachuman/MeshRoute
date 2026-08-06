@@ -2,7 +2,9 @@
 
 *2026-07-31. From the owner's screen draft, refined in design dialogue. Fills the `mr_ui` seam that `2026-07-12-firmware-feature-split.md` slice 4 left empty.*
 
-*Status: DRAFT, partially implemented. Line references verified against the working tree at time of writing; board pins recovered from MeshCore's working V3 and V4 ports. The 2026-08-05 extensions in §2.2/§3.2.2–3 and §3.5/§6.2 add configurable presets, Heltec companion BLE, and inbox detail/delete as new work after the original Phase A slices.*
+*Status: ACTIVE DESIGN, updated 2026-08-06. Phase A code through UI-7 and the UI-9 battery reader is landed;
+UI-8/UI-9 still have open metal acceptance. Sections marked 📝 are design only and must not be read as shipped behavior.
+The 2026-08-06 UI-13–UI-16 extension adds staged settings, direct provisioning and nearby-team onboarding.*
 
 > ★★ **FACT-ONLY CORRECTION PASS 2026-08-06 — register [[B130]]. Read this before trusting any instruction below.**
 > Every earlier slice was told *"⛔ do not edit the spec — report needed changes"*, and every slice obeyed. The
@@ -12,11 +14,41 @@
 > blocks, which are audit trail and **must never be read as guidance**. ⚠ **A grep of this file will therefore return
 > `NOT HEARD`, the bare-`INPUT` probe and restated digits — every one of those hits is inside a fence or a quotation.
 > Read the surrounding sentence; that trap has fired five times in this arc, twice on the QA-gate.**
-> ⛔ **Nothing here was redesigned and no ruling was added.** What is still genuinely open is listed in
+> ⛔ **The B130 correction pass itself redesigned nothing and added no ruling.** Its outstanding items remain in
 > `docs/2026-08-05-owner-rulings-ledger.md` §2 — notably **B118**'s authentication floor, the **REPLY-only wake**, and
-> **B123**'s pre-3.2 park residual, none of which this pass touched.
+> **B123**'s pre-3.2 park residual. The later owner-requested UI-13–UI-15 scope extension is separately marked 📝 and
+> has its own open decisions in §14.
 
-*Phased: **Phase A ships the UI on Heltec V3**; **Phase B ports to V4** and adds GPS. Phase B's radio port and GPS driver are named here but specified elsewhere — see §10.2, §10.3, §13.*
+*Phased: **Phase A targets Heltec V3**; **Phase B ports to V4** and adds GPS. Phase B's radio port and GPS driver are named here but specified elsewhere — see §10.2, §10.3, §13.*
+
+---
+
+## Implementation status map — authoritative
+
+Use this table before reading the historical narrative. A green build proves implementation, not completion of a
+manual hardware gate.
+
+| mark | meaning |
+|---|---|
+| ✅ | implemented in the landed tree; any remaining qualification is stated separately |
+| 🧪 | implementation exists, but named metal/acceptance checks remain open |
+| 📝 | specified only; no implementation may be inferred |
+| ⏸ | deliberately deferred or blocked |
+
+| area | status on 2026-08-06 | evidence / remaining work |
+|---|---|---|
+| A0 board-source placement | ✅ | landed; Heltec board UI lives under `variants/heltec_v3/` |
+| UI-1 … UI-7 | ✅ | gesture, model, attribution, canvas, feature layer, real sends, roster and inbox preview are implemented |
+| UI-8 emergency hardware qualification | 🧪 | all render/send arms exist; the H8 bench matrix is still the completion gate |
+| UI-9 V3 battery reader | 🧪 | code and probes landed; H9 meter, control-line and radio-load checks remain |
+| UI-7D inbox detail/delete | 📝 | §3.5/§6.2; current double press on INBOX intentionally does nothing |
+| UI-10/UI-11 configurable presets | 📝 | §3.2.2–3; current OLED still uses the landed fixed catalog |
+| UI-12 Heltec ESP32 BLE | 📝 | §2.2; persisted `ble_mode` does not provide BLE on V3 yet |
+| UI-13…UI-16 settings and provisioning | 📝 | §3.6; no SETTINGS screen, draft marker, team-create/static-join UI or nearby-team onboarding exists yet |
+| Heltec V4 UI/GPS | 📝 | Phase B; radio/RF work is owned by the separate V4 spec |
+
+Section headings below repeat a status only where the whole section has one clear state. Mixed sections defer to this
+table. Historical `⛔ SUPERSEDED` blocks are evidence only.
 
 ---
 
@@ -28,14 +60,18 @@ The device remains fully usable with the companion app — this UI adds a degrad
 
 ## 1. Scope
 
-**In:** screen framework, one-button gesture input, status bar, team roster, merged inbox, configurable DM/channel/emergency presets, the emergency send path, battery indicator (incl. a new ESP32-S3 battery reader), screen blanking, and a secured companion BLE transport on the Heltec mobile.
+**In:** screen framework, one-button gesture input, status bar, team roster, merged inbox, configurable DM/channel/emergency presets, the emergency send path, battery indicator, screen blanking, secured companion BLE, and the staged SETTINGS/provisioning extension: explicit save/discard, an unsaved marker, on-device team creation, nearby-team onboarding with explicit sealed-key approval, and profile-based static-network join.
 
 **Out (owner-scoped):**
 
 | deferred | why |
 |---|---|
-| Editable settings screen (BLE on/off, OTA, GPS enable) | the companion app and console already cover it; one-button editing is expensive to build and rarely used. Screen-off timeout becomes a build constant. |
+| Free-form one-button entry of arbitrary text or arbitrary RF numbers; OTA/GPS enable; screen-timeout editing | text remains a BLE/serial job; unconstrained numeric entry is unsafe and poor with one button. Screen-off timeout remains a build constant. |
 | Separate channel-message screen | merged with the DM inbox; two inbox screens double the cycle for the same interaction. |
+
+**Scope change, owner 2026-08-06:** the earlier blanket exclusion of an editable settings screen is withdrawn.
+Finite-choice settings and provisioning actions are now in scope under §3.6. This is a new feature, not a defect in
+UI-1…UI-9. A setting already documented as persistent but lost after reboot remains a separate firmware bug.
 
 **Phased by board (owner ruling 2026-07-31): Phase A targets Heltec V3, Phase B adds V4.** V3 first because its panel and button are identical to V4's while it has no front-end module, so the display and input work can land without the radio port §10.2 describes. See §13.
 
@@ -135,7 +171,7 @@ set_power_save(bool) · button_pressed() · battery_sample_mv()
 
 `board_ui.h` **must not include `firmware_ui_model.h`**. `firmware_ui.cpp` owns every decision about *what* is drawn; `board_ui.cpp` owns only *how pixels reach the panel*. That keeps U3 honest and is what makes the Phase B port a pin table rather than a rewrite — the V4 has the same panel, so a correct boundary means zero render changes.
 
-### 2.1 Send attribution — the contract that makes outcomes trustworthy
+### 2.1 Send attribution — the contract that makes outcomes trustworthy · ✅ implemented
 
 ★ **This section exists because the first plan draft could report a false `PICKED UP`.** Pushes are node-wide: `channel_sent` and `send_blocked` fire for *every* origination, including console, BLE, scheduled and canned sends. Routing them into the emergency machine unconditionally means an unrelated channel post can complete an emergency that was never transmitted — a false safety confirmation, which is the exact failure this feature must not have.
 
@@ -177,7 +213,7 @@ Anything unmatched is ignored. Native tests must interleave unrelated channel an
 
 **How the UI issues a send.** ⚠ Not through `dispatch()` — that is a console *verb router* which returns `false` for `send` / `send_channel`; its callers (`service_console`, `ble_dispatch_line`) each open-code `parse_command` + `Node::on_command`. The UI uses a small typed helper, **`mrfw::exec_command(line, len) → ExecResult`** (owner-approved 2026-08-01), which runs that same sequence and returns the `CmdResult`. Composing a command *string* keeps the UI off the `Command` struct's field names, so flags like `-e` and `-l` needed no UI change when they landed; taking the result *typed* keeps a safety behaviour off a formatting detail. Scraping `BufferSink` text is explicitly rejected.
 
-### 2.2 Companion transport reality and the Heltec BLE extension (2026-08-05)
+### 2.2 Companion transport reality and the Heltec BLE extension (2026-08-05) · 📝 not implemented
 
 **USB serial and BLE are not the same byte transport, but they must expose one command meaning.** USB reads a
 newline-delimited stream from `Serial`; BLE uses Nordic UART Service framing, MTU-sized notifications and a separate
@@ -210,32 +246,39 @@ that can only boot into `INIT FAILED`.
 
 ## 3. Screens and gestures
 
-### 3.1 Cycle
+### 3.1 Cycle · ✅ current cycle; 📝 SETTINGS extension
 
-| slot | screen | gate |
-|---|---|---|
-| 1 | STATUS | `MR_FEAT_OLED` |
-| 2 | TEAM (peer list) | `MR_FEAT_OLED && MR_FEAT_TEAM` |
-| 3 | INBOX (DM + CH merged) | `MR_FEAT_OLED` |
-| 4 | SEND (team channel) | `MR_FEAT_OLED && MR_FEAT_TEAM` |
+| slot | screen | gate | status |
+|---|---|---|---|
+| 1 | STATUS | `MR_FEAT_OLED` | ✅ |
+| 2 | TEAM (peer list) | `MR_FEAT_OLED && MR_FEAT_TEAM` | ✅ |
+| 3 | INBOX (DM + CH merged) | `MR_FEAT_OLED` | ✅ preview; detail/delete 📝 |
+| 4 | SEND (team channel) | `MR_FEAT_OLED && MR_FEAT_TEAM` | ✅ |
+| 5 | SETTINGS / PROVISION | `MR_FEAT_OLED` | 📝 UI-14/UI-15 |
 
-On a non-team build the cycle is STATUS → INBOX.
+The landed cycle is the first four rows; on a non-team build it is STATUS → INBOX. After UI-14 lands, SETTINGS is
+appended to either cycle: STATUS → TEAM → INBOX → SEND → SETTINGS, or STATUS → INBOX → SETTINGS.
 
-**Revised 2026-08-05 (owner).** An earlier draft gave every canned channel message its own slot to avoid a nested mode. Once the DM feature needed a compose step anyway, that reasoning inverted: **one compose sub-view, used by both send paths, is simpler than N slots** and keeps the cycle at four regardless of how many preset texts are enabled. DM and channel presets are independent fixed-capacity catalogs (§3.2.2); enabling another preset adds a list row, not a cycle slot. Emergency remains one mandatory preset outside both lists.
+**Revised 2026-08-05 (owner).** An earlier draft gave every canned channel message its own slot to avoid a nested mode.
+Once the DM feature needed a compose step anyway, that reasoning inverted: **one compose sub-view, used by both send
+paths, is simpler than N message slots**. Enabling a preset adds a list row, not a cycle slot. The later SETTINGS
+extension adds exactly one fixed slot, independent of preset count. Emergency remains outside every list.
 
 **"I'm in danger" appears in no list.** It is reachable only by long-press (§4). Two routes to the same dangerous action invite accidental alarms, and the navigational one would be the route nobody can use under stress.
 
-### 3.2 Gestures
+### 3.2 Gestures · ✅ current screens; 📝 SETTINGS actions
 
 | gesture | meaning |
 |---|---|
 | short | **advance within the current list; at the end, move to the next screen** |
-| double | activate the highlighted item — TEAM: open the DM compose sub-view for that peer · INBOX: open the selected message detail · SEND: open the channel compose sub-view · sub-view: send the highlighted text (or leave, on `back`) · STATUS: none |
+| double | activate the highlighted item — TEAM: open DM compose · INBOX: open detail (UI-7D) · SEND: open channel compose · SETTINGS: edit/activate the row (UI-14) · sub-view: confirm the highlighted action · STATUS: none |
 | long | arm emergency, from **any** screen, sub-views included |
 
-`short` is **list-aware**: on STATUS and SEND (single-item screens) it simply moves on, so the common case still reads as "next screen". On TEAM it walks the peer list and only leaves at the end. This is what frees `double` to mean "act on what is highlighted" everywhere, which is what makes peer selection possible with two gestures.
+`short` is **list-aware**: on STATUS and SEND it simply moves on; on TEAM, INBOX and SETTINGS it walks the list and
+leaves only at the end. This frees `double` to mean “act on what is highlighted” everywhere. The emergency `long`
+gesture retains priority inside every future editor; no settings interaction may consume or delay it.
 
-### 3.2.1 Compose sub-view
+### 3.2.1 Compose sub-view · ✅ implemented with the current fixed catalog
 
 Entered by `double` from TEAM (a DM to the highlighted peer) or from SEND (a team channel post). It is the one modal in the design, and it is safe because it always contains an explicit exit:
 
@@ -255,7 +298,7 @@ Entered by `double` from TEAM (a DM to the highlighted peer) or from SEND (a tea
 - **Auto-exit after `kBlankMs` of no input** (⛔ named `MR_UI_BLANK_MS` here until 2026-08-06; that macro exists nowhere in the tree — [[B130]]), returning to the parent screen **without sending**. A modal that can outlive the user's attention is a modal that eventually sends the wrong thing.
 - `long` still arms the emergency from inside it.
 
-### 3.2.2 Configurable preset catalog
+### 3.2.2 Configurable preset catalog · 📝 not implemented
 
 The original hard-coded strings become **defaults**, not firmware policy. The first configurable version uses one
 mandatory emergency slot plus two independent fixed-capacity catalogs: **eight DM slots and eight channel slots**.
@@ -292,7 +335,7 @@ Each persistent slot stores:
 - `include_location`: one explicit boolean. The compose row shows `L` when set and `-` when clear; this is part of
   what the user confirms before the double press.
 
-### 3.2.3 Location semantics, configuration verbs and persistence
+### 3.2.3 Location semantics, configuration verbs and persistence · 📝 not implemented
 
 “Include location” has two deliberately different failure policies:
 
@@ -346,7 +389,7 @@ returns `busy`; an alarm's retries must not change body or location policy halfw
 Page-buffer painting likewise freezes one catalog generation for the whole frame so a BLE update between OLED pages
 cannot tear two versions into one image.
 
-### 3.3 Layout
+### 3.3 Layout · ✅ current layout; 📝 unsaved-settings marker
 
 A persistent 8 px status bar on every screen, so "is anything wrong" never requires cycling:
 
@@ -368,9 +411,14 @@ bar above is exactly 21 small-font columns.
 
 STATUS becomes the detail view: ages spelled out ("DM 3, newest 1h05"), **our own team local id** (so the wearer can tell a teammate how to address them), the configured `team_id`, registration state, and battery mV.
 
+After UI-14, STATUS adds a literal `CFG* UNSAVED` row whenever an OLED draft differs from its persisted baseline;
+the SETTINGS title also carries `*`. The packed 21-column status bar is not silently shortened to make room.
+`CFG! RELOAD` denotes a conflict with a serial/BLE write, and `RESTART NEEDED` denotes a successful durable save whose
+effect is boot-only. These are configuration states, distinct from `UiState::dirty`, which means only “repaint owed”.
+
 TEAM shows one row per teammate: a display label resolved through `team_key_of_id()` → `peer_name_find()`, falling back to `0x<hash>` and then the bare team id; plus last-heard age, signal quality and hops. When `rt_team_count()` exceeds `kMaxTeamRows`, the screen shows the true total and a truncation marker (`3/12`) — it must never present the cap as the team size. **Phase B adds a distance column on V4**, rendered only when both our fix and the peer's location are known and fresh — omitted, never estimated (§10.3).
 
-### 3.4 Direct messages to a teammate
+### 3.4 Direct messages to a teammate · ✅ implemented
 
 Sent as `send <team_local_id> "<text>" -t -a`. Every part of that already exists — `console_parse.cpp:305-329`: a bare decimal ≤254 is an id, `-t` selects `Plane::TEAM`, and `-a` is accepted on the id form (`allow_a=true`). No new firmware surface.
 
@@ -388,7 +436,7 @@ Sent as `send <team_local_id> "<text>" -t -a`. Every part of that already exists
 
 The `no_pubkey` case is a genuine dead end on-device: the 2026-07-29 ruling forbids the node ever auto-issuing `reqpubkey`, so the user cannot resolve it from the panel — it needs a QR ceremony or a typed `reqpubkey`. The sub-view must therefore report that failure plainly (`NO KEY`) rather than showing a generic failure the user cannot act on.
 
-### 3.4.1 DM outcome states
+### 3.4.1 DM outcome states · ✅ implemented
 
 A DM needs its own small outcome machine — separate from the emergency one, correlated by `ctr` **and** peer per §2.1, and never advanced by an unrelated push:
 
@@ -408,7 +456,7 @@ The tracker must therefore carry the **whole `SendFailReason`** into the model, 
 
 The sub-view closes to its parent on an explicit `double`, or after a bounded display window. `delivered` is the one place in this design where the word **DELIVERED is accurate** — it is a genuine end-to-end ack, unlike a channel post's `PICKED UP`.
 
-### 3.5 Inbox message detail and delete (owner extension 2026-08-05)
+### 3.5 Inbox message detail and delete (owner extension 2026-08-05) · 📝 not implemented
 
 The landed UI-7 inbox is a bounded preview list: a double press has no inbox action and `InboxRow::text` retains only
 20 display characters. It does **not** yet satisfy this extension. A `double` on a highlighted DM or channel row opens
@@ -448,7 +496,148 @@ channel sequence spaces are independent, so `seq` alone is insufficient. The pre
 activation re-finds the exact record and copies it. If a refresh moves rows, the highlight follows the identity; if
 the record disappears, activation refuses with `MESSAGE GONE` rather than opening or deleting its replacement.
 
-## 4. Emergency state machine
+### 3.6 On-device settings and provisioning (owner extension 2026-08-06) · 📝 not implemented
+
+This extension changes the product scope: a Heltec mobile should be able to create a team without a phone, and should
+be able to join a static network from a prepared profile. It also introduces finite-choice settings on the panel.
+It does **not** retroactively make UI-1…UI-9 incomplete.
+
+#### 3.6.1 Persistence model: persisted, effective and draft are three different states
+
+The existing console contract is mixed by design: most `cfg set` keys write `/mrcfg` immediately, some are live-only
+and revert at reboot, identity fields write `/mrid`, and `join`/`create`/`team` are provisioning operations. A single
+boolean inferred from `NodeConfig` cannot describe “unsaved”. The OLED therefore owns an explicit `ConfigDraft`:
+
+- opening SETTINGS snapshots only the supported persisted fields and records a baseline fingerprint;
+- changing a row changes the RAM draft only—no radio retune, live mutation or flash write occurs;
+- `config_unsaved` is true iff the draft differs from that baseline. Do not call it `dirty`: `UiState::dirty` already
+  means “a repaint is owed”;
+- `SAVE` validates the whole candidate, writes it once, and only then applies live-capable fields. A save that needs a
+  reboot sets `reboot_required`; it is still durably saved and no longer unsaved;
+- `DISCARD` reloads the persisted values and clears the marker. `BACK` and blanking preserve the draft; silently
+  discarding because attention timed out is forbidden. A power loss intentionally loses an unsaved RAM draft;
+- a no-op save performs zero NV writes. A failed write keeps the old effective/persisted state, keeps the draft and
+  marker, and shows `SAVE FAILED`.
+
+Serial/BLE retain their existing immediate-write behavior for compatibility. If either changes a covered field while
+an OLED draft is open, the baseline fingerprint no longer matches: show `CFG! RELOAD`, refuse SAVE, and require
+`RELOAD` or `DISCARD`. Last-writer-wins would silently overwrite companion changes. Runtime changes such as routes,
+registration, battery and unread counts never set the marker.
+
+Implement this behind a typed configuration service shared by serial, BLE and OLED. The OLED must not loop through
+`handle_cfg_set` or manufacture command strings: that would apply/save fields one at a time, expose partial success,
+and make atomic validation impossible. Only fields already represented durably may appear in the first SETTINGS
+editor; promoting a live-only field requires its own NV-schema slice.
+
+#### 3.6.2 First SETTINGS menu
+
+Only finite-choice, recoverable values belong in the one-button editor:
+
+| row                          | values                           | commit behavior                                                                                                                               |
+| ---------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| BLE mode                     | `off` / `on`                     | persisted, reboot required; row absent when UI-12 transport is not compiled. note - periodic will be obsolete and to be removed from firmware |
+| DM encryption default        | off / on (`e2e_dm`)              | persisted and live                                                                                                                            |
+| first-contact key attachment | off / on (`intro_attach`)        | persisted and live                                                                                                                            |
+| mobile auto-registration     | off / on (`mobile_autoregister`) | persisted and live                                                                                                                            |
+| PROVISION                    | opens §3.6.3                     | immediate operation, never a draft field                                                                                                      |
+| SAVE / DISCARD / BACK        | actions                          | as §3.6.1                                                                                                                                     |
+
+`short` advances rows or cycles a finite value while editing; `double` enters/accepts the highlighted row. `BACK` is
+safe and preserves an unsaved draft; `DISCARD` is a separate deliberate action. The long gesture always leaves the
+editor and arms emergency. Arbitrary text, frequency digits, transmit power, duty, OTA/GPS controls, volatile debug
+knobs and privacy-unsafe `team_channel_crypt=off` are excluded from this first menu.
+
+Preset **text** remains configurable through authenticated BLE or serial (§3.2.2–3); the OLED selects configured text
+but does not type it. That boundary is why “configurable presets” and “SETTINGS screen” are separate slices.
+
+#### 3.6.3 Provisioning operations
+
+Provisioning is not part of SAVE/DISCARD because it changes identity/membership and begins network activity. If a
+settings draft is unsaved, PROVISION first requires SAVE or DISCARD.
+
+**Create team — primary path.** `CREATE NEW TEAM` opens a confirmation with `BACK` selected initially; reaching CREATE
+requires `short` then `double`. If already in a team, the screen says the current membership will be replaced. Generate
+the candidate team id and keys in temporary state, durably save the complete candidate, then apply it live. On NV
+failure the old team remains live and stored; “team is LIVE but NOT persisted” is unacceptable on this UI path.
+Success shows the full new team id plus the same short fingerprint used by nearby onboarding. The primary no-phone
+distribution path is the explicit nearby-member approval in §3.6.4. Authenticated BLE/serial export and the existing
+companion QR remain alternative provisioning paths; the first OLED version does not need to render a private-key QR.
+
+**Join static network — secondary path.** Free-form entry of `layer/freq/bw/sf` is not credible with one button, so the
+first version selects one of four fixed-capacity join profiles. Each profile contains the exact existing `join`
+inputs: full `layer` byte, frequency in kHz, bandwidth in Hz and routing SF. Profiles are configured and listed through
+one shared serial/BLE handler and stored in a separate versioned `/mrjoin` record; corruption cannot reset `/mrcfg`,
+identity, team keys or presets. OLED shows the complete values before confirmation, with BACK selected initially.
+
+After confirmation, use the existing join validation and DAD semantics: persist the join candidate before applying it
+live, then show `JOINING`, adopted/refused, and the resulting node id. B132—gateways must never host mobiles—is a
+prerequisite for trusting the resulting registration, not for rendering the screen. A completely fresh device with no
+profile can still create a team, but cannot join an arbitrary RF domain from the button alone; §14 asks whether a
+future numeric editor or QR/profile import is required.
+
+#### 3.6.4 Join a nearby team without typing its id
+
+**Owner ruling 2026-08-06:** the random 32-bit `team_id` remains the authoritative identity. It must not be derived
+from a human name. A name-derived id would make duplicate names and spelling changes identity operations, would make
+renaming unsafe, and still would not distribute the independent team content key. A team label is optional metadata;
+duplicate labels are allowed and changing one never changes membership, keys, routes or `team_id`.
+
+The primary no-phone join path is `PROVISION → JOIN TEAM → NEARBY`. Its first version reuses the team id already
+carried by team beacons and therefore adds no new team identity, routing rule or key format:
+
+1. On an existing member, `INVITE MEMBER` opens a bounded invitation window and displays the team label when one is
+   configured, plus a short fingerprint of the full random `team_id`. It does not transmit the content key.
+2. The joiner listens on its **current effective PHY**, collects recently observed non-zero team ids and shows a
+   de-duplicated list with the id fingerprint, signal strength and age. The observation path is read-only: scanning a
+   foreign team must not write team routes, peer bindings, membership, keys or NV. A label may be shown only if it came
+   from an authenticated local profile or a future specified invitation carrier; it must never be guessed from an id.
+3. `double` on a candidate opens `JOIN <fingerprint>?` with **BACK selected initially**. Confirmation selects the exact
+   full `team_id`, not the visible list index or truncated fingerprint, and uses the same role, PHY, team-DAD and
+   persistence validation as the existing guarded `team <id>` operation. The candidate is committed atomically before
+   live apply; failure leaves the previous membership and key intact.
+4. The joiner is now a **keyless team member**. The team id is already public in beacons and is not an access secret;
+   joining it must not imply possession of the team content key or the ability to read encrypted channel posts.
+5. Opening invitation mode snapshots the creator's currently known team-member identities. While it remains open, the
+   existing member lists candidates first observed after that snapshot by team-local id plus a short identity-hash
+   fingerprint. The current wire does **not** attest whether another member holds the team content key, so the creator
+   must call these `NEW MEMBER` candidates, never `KEYLESS`. The wearer selects `GRANT KEY` or `REJECT`, again with the
+   safe action selected by default. The fingerprint is a human selection aid, not cryptographic authentication and
+   never substitutes for a verified public key.
+6. `GRANT KEY` first resolves the selected member's authoritative public key, then reuses the existing sealed
+   `team grantkey` payload and send path. No private team key is broadcast or rendered. Until the public key is usable,
+   show `WAITING FOR KEY`; a timeout or resolution conflict grants nothing. The creator may honestly show `KEY SENT`
+   when the existing send contract accepts it, but must not claim `JOIN COMPLETE` without a receiver acknowledgement.
+   The joiner shows `TEAM KEY RECEIVED` only after durable adoption succeeds.
+
+Invitation mode expires automatically and emergency pre-empts it. Expiry closes the approval UI but does not expel an
+already joined keyless member; team-id membership is as public and permissive as the existing typed-id path. Closing or
+timing out an invitation never grants, revokes or rewrites a key. A newly seen member outside an active invitation must
+not produce an unsolicited one-button grant prompt.
+
+**PHY boundary:** the beacon-only first version discovers teams already audible on the current PHY. It must say
+`CURRENT PHY ONLY`, rather than claim a general radio scan. Cross-PHY onboarding uses an authenticated BLE/serial
+profile import until a separate bounded scan/invitation-carrier design exists. A future invitation carrier may add a
+team label, PHY profile, expiry and nonce, but it remains an onboarding envelope around the same random `team_id` and
+sealed key grant—not a replacement identity mechanism.
+
+For spoken/serial fallback, the UI may render a lossless Crockford-Base32 representation of the full random id plus a
+checksum. This is an encoding of `team_id`, not a shorter identity. Manual one-button character entry is not the
+primary flow and remains out of scope for the first version.
+
+#### 3.6.5 Interruption and safety
+
+- Emergency pre-empts SETTINGS, confirmation and provisioning-result screens. A draft survives; an unconfirmed
+  destructive action does not.
+- While a durable save/provision commit is executing, button input may update emergency intent but the storage call
+  must itself be bounded and outside a radio-critical interval. No screen may claim success before the save returns.
+- Reset/power-cut fault injection must leave either the complete old record or complete new record; never a half team,
+  half profile, or a live configuration that cannot survive reboot.
+- Team creation and join produce explicit success/failure states and are never triggered by the waking press.
+- Nearby scan, invitation expiry and candidate-list refresh never select, join or grant by themselves; every state-
+  changing action has an explicit confirmation with the safe action selected initially.
+- A saved-but-reboot-required state stays visible until reboot; it is not the same as an unsaved draft.
+
+## 4. Emergency state machine · ✅ implemented; 🧪 metal qualification in progress
 
 ★★ **DERIVED FROM THE SHIPPED CODE 2026-08-06 ([[B130]]), not from the earlier diagram** — the model
 (`src/firmware_ui_model.h`: `emergency_gesture` · `on_outcome` · `on_send_refused` · `on_reply` · `tick_emergency`)
@@ -589,7 +778,7 @@ Both forms are explicitly `-e`, which also satisfies the "must actually be seale
 
 **Phase A caveat, stated once and then accepted.** On V3 there is no GPS, so the only coordinate is whatever was typed via `cfg set lat`/`lon` — potentially hours stale for a walking hiker, and a stale position in a rescue context can send help to the wrong place. I raised this and the owner ruled to include it when available; the ruling stands and the design follows it. Phase B's live fix removes the concern entirely. The compiled defaults still attach location only to the distress call; §3.2.2–3 lets the owner change that per preset without weakening the sealed-or-refused privacy rule.
 
-## 5. Paint and power policy
+## 5. Paint and power policy · ✅ implemented
 
 **This is a correctness constraint, not a nicety.** A full 128×64 SSD1306 frame is 1024 bytes; at 400 kHz I²C that is roughly **25 ms of blocking bus time**. The MAC's CTS→DATA gap is `cts_to_data_gap_ms = 5` (`protocol_constants.h:127`) and measured turnarounds are ~5–8 ms (`protocol_constants.h:331-334`). A full-frame repaint is therefore long enough to break an in-flight RTS/CTS/DATA exchange.
 
@@ -642,7 +831,7 @@ two doubles could open and then send from a compose view the user cannot see —
 ★ **The complete gesture contract under the overlay: `short` = B71's exit *once the result has actually been
 presented* · `long` = re-fire · `double` = nothing.**
 
-## 6. Data sources
+## 6. Data sources · ✅ current sources; 📝 extension sources
 
 Every field, and where it comes from:
 
@@ -660,7 +849,7 @@ Every field, and where it comes from:
 | battery | **new, and cached** — see §7 |
 | send outcomes | correlated by the tracker in `firmware_ui.cpp`, never fed raw to the model — see §2.1 |
 
-### 6.1 Inbox adapter
+### 6.1 Inbox adapter · ✅ preview implemented
 
 No new inbox subsystem is needed for browsing; `Inbox::pull()` already visits both stores and every `InboxEntry` carries its `InboxKind`, sequence, sender/channel metadata and body. Single-record deletion is the separate prerequisite in §6.2.
 
@@ -675,7 +864,7 @@ The retained preview row gains `InboxKind kind` and `uint32_t seq`. Its 20-chara
 field, never an identity. Detail activation performs an exact pull lookup by `(kind, seq)` and copies the complete
 entry into a fixed buffer; no unbounded JSON intermediary and no heap allocation are introduced.
 
-### 6.2 Durable single-record deletion prerequisite
+### 6.2 Durable single-record deletion prerequisite · 📝 not implemented
 
 There is no single-record delete today. `InboxStore` exposes append, iteration, read-cursor update and whole-store
 `wipe()` only; `mark_read()` is not deletion. UI-7D therefore adds the platform-neutral operation
@@ -701,15 +890,19 @@ This action deletes the **device's durable copy only**. A companion that already
 history; the current inbox protocol has no delete-propagation event. Synchronised deletion across the companion is a
 different product contract and is not implied by this button action.
 
-## 7. Battery reader (new work)
+## 7. Battery reader · ✅ code landed; 🧪 H9 hardware qualification remains
 
-The only battery reader in the tree is nRF52-only: `#if defined(NRF52_PLATFORM) && defined(PIN_VBAT) && !defined(MR_NO_BATT)` (`firmware_commands.cpp:299-304`, method at `:709`). Both Heltec boards are ESP32-S3, so `batt_mv` is unavailable on either today, and `console_json.h:126` records the project rule: an unavailable reading is **omitted, never faked**. The status bar must render `--` rather than a plausible wrong percentage.
+Before UI-9, the only reader was nRF52-only. UI-9 has now landed the Heltec V3 implementation in
+`variants/heltec_v3/board_ui.cpp`; `--` now means no usable sample or the deliberate polarity-refusal path, not
+“ESP32 is unimplemented”. `console_json.h`'s rule still governs every board: unavailable is omitted/`--`, never faked.
 
 ★ **Sampling is cached and slow, not per-tick.** The board function performs one sample: a divider toggle plus eight `analogRead()` calls. `firmware_ui.cpp` calls it **at boot and then every `kBattPeriodMs`** (`src/firmware_ui.cpp` — the declaration is the only place the digits belong, [[B120]]), only under the §5 rule 1 MAC-idle predicate, and keeps the last good value between samples. An earlier draft sampled inside `build_snapshot()` on every service pass — ADC work on the radio hot path for a value that changes over minutes. Until the first successful sample the field is unavailable and renders `--`.
 
 ⚠ **The cadence must gate on "attempted", not on "succeeded".** A reader that returns the documented unavailable value (`<0`) on a board without a battery would otherwise be retried every idle pass forever — eight ADC reads per tick for a value that will never arrive. Advance the `kBattPeriodMs` deadline after **every** attempt; keep the last good value separately.
 
-Add an ESP32-S3 reader behind the same shape (a board-gated function returning millivolts, `<0` = unavailable). Both methods come from MeshCore — the same provenance `firmware_commands.cpp:709` used for the nRF52 reader ("the authoritative MeshCore XiaoNrf52Board method").
+The landed ESP32-S3 reader uses the same board-gated shape: millivolts, with `<0` meaning unavailable. Its starting
+point came from MeshCore—the same provenance used for the nRF52 reader—but the shipped V3 polarity handling is the
+reviewed implementation below, not a verbatim copy of the reference port.
 
 Pins are **identical** on V3 and V4: `ADC_CTRL` 37, `VBAT_READ` 1, 10-bit resolution, mean of 8 samples. The formula is
 `mv = kVbatAdcScale * (kAdcRefV / kAdcFullScale) * raw * 1000`. Two things differ:
@@ -788,23 +981,31 @@ digitalWrite(PIN_ADC_CTRL, LOW);
 
 Verify against a multimeter on the cell before trusting the constant on either board — the discipline the nRF52 comment demands. ⛔ **This sentence used to end *"and the divider is a per-revision property"*; that is the [[B126]] error restated** — `kVbatAdcScale` is not the divider, and the per-revision axis on V3 is the **ADC_CTRL polarity**, not the resistor network. Use the constant-vs-voltage-dependent split above to choose the suspect.
 
-## 8. Dependencies
+## 8. Dependencies · ✅ U8g2 choice landed
 
-The tree has **no display library** — `board_ui.cpp` is deliberately driver-free so the Heltec build links today. Phase A adds one, and V4 reuses it unchanged (same panel, same pins).
+UI-5 landed U8g2 in page-buffer mode for the Heltec targets. V4 is expected to reuse the same display dependency
+because the panel and I²C pins match; only the board port changes.
 
-**Recommended: U8g2 in page-buffer mode** (`U8G2_SSD1306_128X64_NONAME_1_HW_I2C`). Two reasons, both structural rather than aesthetic: the 1-page mode uses a **128 B** buffer instead of 1024 B, and its natural draw loop is exactly the 8-page chunking §5 rule 3 requires — the constraint and the library's grain agree. Alternative is Adafruit_SSD1306 + GFX + BusIO (three deps, full 1024 B buffer, no page mode).
+**Landed choice: U8g2 page-buffer mode** (`U8G2_SSD1306_128X64_NONAME_1_HW_I2C`). The 1-page mode uses a
+128 B buffer instead of 1024 B, and its picture loop matches §5's chunking rule. Adafruit_SSD1306/GFX/BusIO remains
+the rejected three-dependency, full-frame alternative.
 
 **Pin the version exactly, never a caret.** The RadioLib ruling (`platformio.ini:234` and its note, on this very env) exists because a caret let different checkouts resolve different versions and silently skewed board RAM/Flash baselines.
 
 ## 9. Feature gating
 
 - `MR_FEAT_OLED` (board capability) gates the UI TUs. Default 0 (`mr_features.h`); set to 1 on `heltec_v3` (`platformio.ini:215`), inherited by `heltec_mobile`.
-- `MR_FEAT_OLED && MR_FEAT_TEAM` gates the TEAM and SEND slots, both compose sub-views, and the team fields of the status bar. A non-team build cycles STATUS → INBOX only.
+- `MR_FEAT_OLED && MR_FEAT_TEAM` gates TEAM, SEND and on-device team creation. The current non-team cycle is
+  STATUS → INBOX; after UI-14 it is STATUS → INBOX → SETTINGS.
 
 - The preset catalog/serial verbs are gated with the OLED feature; the default catalog remains compile-time data when
   no persistent record exists.
 - The first ESP32 BLE port is compiled for `heltec_mobile` only. A BLE setting must be rejected on ESP targets where
   the transport is absent; a persisted-but-inert feature is not a valid gate.
+- SETTINGS is `MR_FEAT_OLED`-gated. Unsupported settings are absent, not inert; BLE mode is not editable until UI-12
+  is compiled for that target.
+- Static join profiles are available only on mobile-capable builds. Team creation additionally requires
+  `MR_FEAT_TEAM`; neither action appears on a gateway.
 **Deviation from the owner's draft, approved 2026-07-31:** the draft said "gate it behind `MR_FEAT_TEAM`". Composing the two gates instead means a static OLED board still gets a status screen and an inbox rather than a blank panel, at no cost. `MR_FEAT_TEAM` alone would have conflated a board capability with a protocol plane.
 
 **Phase A target env: `heltec_mobile`** (`platformio.ini:372`) — `heltec_v3` plus `MR_PROFILE_MOBILE`, which sets `MR_FEAT_REMOTE_MGMT=0` and leaves `MR_FEAT_TEAM=1`. It already inherits `MR_FEAT_OLED=1` from `heltec_v3`, so no env change is needed to start.
@@ -817,24 +1018,24 @@ All values recovered from MeshCore's working ports — `~/MeshCore/variants/helt
 
 ### 10.1 V3 vs V4
 
-| item | Heltec V3 (Phase A) | Heltec V4 (Phase B) | same? |
-|---|---|---|---|
-| MCU | ESP32-S3 (`esp32-s3-devkitc-1`) | ESP32-S3, 16 MB flash, 2 MB PSRAM | ~ |
-| panel | SSD1306 @ 0x3C, SDA **17**, SCL **18** | SSD1306 @ 0x3C, SDA **17**, SCL **18** | ✅ |
-| panel reset | **21** per our own `board_ui.cpp:14` note — MeshCore's V3 variant defines no `PIN_OLED_RESET`; **confirm on hardware** | **21** (`PIN_OLED_RESET`, explicit) | ✅ (pending V3 confirmation) |
-| **user button** | **GPIO 0** | **GPIO 0** | ✅ |
-| battery pins | `ADC_CTRL` **37**, `VBAT_READ` **1** | `ADC_CTRL` **37**, `VBAT_READ` **1** | ✅ |
-| battery formula | `kVbatAdcScale * (kAdcRefV/kAdcFullScale) * mean8(raw)` — ★ `kVbatAdcScale` is a **combined empirical ADC scale**, not the 4.9 physical divider ([[B126]]; §7) | identical | ✅ |
-| **battery ctrl polarity** | **detected at boot by a TWO-PULL probe** (`INPUT_PULLUP` then `INPUT_PULLDOWN`; agreement ⇒ polarity known, disagreement ⇒ floating ⇒ **REFUSE**, park `kAdcCtrlFailsafePark`) — boards >3.2 inverted the line. ⛔ **This cell used to prescribe the vendor's bare-`INPUT` one-shot probe and "nominal ACTIVE=LOW"; both are superseded — see §7 ([[B123]] round 2, [[B130]])** | **fixed ACTIVE=HIGH** | ❌ |
-| **battery settling delay** | none | **`delay(10)`** | ❌ |
-| peripheral power | `VEXT_EN` **36**, polarity implicit (default) | `VEXT_EN` **36**, explicitly **ACTIVE=HIGH** | ❌ |
-| LoRa SPI | NSS 8, DIO1 14, BUSY 13, SCLK 9, MISO 11, MOSI 10 | identical | ✅ |
-| **LoRa reset** | **`RADIOLIB_NC`** (matches our `platformio.ini:218`) | **GPIO 12** | ❌ |
-| TX LED | 35 | 35 | ✅ |
-| **front-end module** | **none** | **PA + LNA, switched every TX** | ❌ |
-| **`LORA_TX_POWER`** | **22** = 22 dBm at the SX1262 | **10** = **22 dBm output** | ❌ |
-| RX register patch | not set | `SX126X_REGISTER_PATCH=1` (reg 0x8B5) | ❌ |
-| GPS pins | RX 47, TX 48, EN 26 — defined, **GPS not enabled** | RX 38, TX 39, RESET 42, EN 34 — **`ENV_INCLUDE_GPS=1`** | ❌ |
+| item                       | Heltec V3 (Phase A)                                                                                                                                                                                                                                                                                                                                                            | Heltec V4 (Phase B)                                     | same?                       |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- | --------------------------- |
+| MCU                        | ESP32-S3 (`esp32-s3-devkitc-1`)                                                                                                                                                                                                                                                                                                                                                | ESP32-S3, 16 MB flash, 2 MB PSRAM                       | ~                           |
+| panel                      | SSD1306 @ 0x3C, SDA **17**, SCL **18**                                                                                                                                                                                                                                                                                                                                         | SSD1306 @ 0x3C, SDA **17**, SCL **18**                  | ✅                           |
+| panel reset                | **21** per our own `board_ui.cpp:14` note — MeshCore's V3 variant defines no `PIN_OLED_RESET`; **confirm on hardware**                                                                                                                                                                                                                                                         | **21** (`PIN_OLED_RESET`, explicit)                     | ✅ (pending V3 confirmation) |
+| **user button**            | **GPIO 0**                                                                                                                                                                                                                                                                                                                                                                     | **GPIO 0**                                              | ✅                           |
+| battery pins               | `ADC_CTRL` **37**, `VBAT_READ` **1**                                                                                                                                                                                                                                                                                                                                           | `ADC_CTRL` **37**, `VBAT_READ` **1**                    | ✅                           |
+| battery formula            | `kVbatAdcScale * (kAdcRefV/kAdcFullScale) * mean8(raw)` — ★ `kVbatAdcScale` is a **combined empirical ADC scale**, not the 4.9 physical divider ([[B126]]; §7)                                                                                                                                                                                                                 | identical                                               | ✅                           |
+| **battery ctrl polarity**  | **detected at boot by a TWO-PULL probe** (`INPUT_PULLUP` then `INPUT_PULLDOWN`; agreement ⇒ polarity known, disagreement ⇒ floating ⇒ **REFUSE**, park `kAdcCtrlFailsafePark`) — boards >3.2 inverted the line. ⛔ **This cell used to prescribe the vendor's bare-`INPUT` one-shot probe and "nominal ACTIVE=LOW"; both are superseded — see §7 ([[B123]] round 2, [[B130]])** | **fixed ACTIVE=HIGH**                                   | ❌                           |
+| **battery settling delay** | none                                                                                                                                                                                                                                                                                                                                                                           | **`delay(10)`**                                         | ❌                           |
+| peripheral power           | `VEXT_EN` **36**, polarity implicit (default)                                                                                                                                                                                                                                                                                                                                  | `VEXT_EN` **36**, explicitly **ACTIVE=HIGH**            | ❌                           |
+| LoRa SPI                   | NSS 8, DIO1 14, BUSY 13, SCLK 9, MISO 11, MOSI 10                                                                                                                                                                                                                                                                                                                              | identical                                               | ✅                           |
+| **LoRa reset**             | **`RADIOLIB_NC`** (matches our `platformio.ini:218`)                                                                                                                                                                                                                                                                                                                           | **GPIO 12**                                             | ❌                           |
+| TX LED                     | 35                                                                                                                                                                                                                                                                                                                                                                             | 35                                                      | ✅                           |
+| **front-end module**       | **none**                                                                                                                                                                                                                                                                                                                                                                       | **PA + LNA, switched every TX**                         | ❌                           |
+| **`LORA_TX_POWER`**        | **22** = 22 dBm at the SX1262                                                                                                                                                                                                                                                                                                                                                  | **10** = **22 dBm output**                              | ❌                           |
+| RX register patch          | not set                                                                                                                                                                                                                                                                                                                                                                        | `SX126X_REGISTER_PATCH=1` (reg 0x8B5)                   | ❌                           |
+| GPS pins                   | RX 47, TX 48, EN 26 — defined, **GPS not enabled**                                                                                                                                                                                                                                                                                                                             | RX 38, TX 39, RESET 42, EN 34 — **`ENV_INCLUDE_GPS=1`** | ❌                           |
 
 **What this means for the plan:** the panel, the button and the battery *pins and formula* are common to both boards, so the UI layer and its render/input code port unchanged. The differences are confined to two places — a handful of **board-port details** (battery control polarity and settling, Vext polarity) that live entirely inside `board_ui.cpp`, and the **radio domain** (FEM, reset pin, tx_power semantics, register patch), which the UI never touches. That is exactly why Phase A on V3 is cheap and Phase B is a real port: Phase B's cost is radio work, not UI work.
 
@@ -967,7 +1168,35 @@ an outstanding gate.
 - BLE advertising/connection plus continuous OLED interaction causes no repeatable CTS/DATA, beacon, sleep or watchdog
   regression; RAM/flash and warning deltas are attributed for `heltec_mobile`
 
-**Gate:** the standing D1 gate applies — native, s18 md5 exact (this work is `src/`-only, so it is inert by construction and the md5 must not move), and the board envs per §11.
+**Settings/provisioning extension acceptance:**
+
+- opening SETTINGS and changing a value performs zero NV writes and changes no live radio/core state; STATUS and the
+  SETTINGS title show the unsaved marker
+- no-op SAVE writes nothing; a multi-field SAVE performs one durable config write, then applies live fields, and
+  accurately reports reboot-required fields
+- DISCARD restores the persisted snapshot; BACK, blanking and emergency interruption preserve the draft
+- injected validation/NV failure leaves old live and durable state intact, retains the draft, and shows `SAVE FAILED`
+- a serial/BLE write during a draft produces `CFG! RELOAD`; SAVE cannot overwrite it
+- live-only keys are absent until they gain durable schema support; unsupported BLE is absent rather than persisted
+- team creation defaults to BACK, atomically saves before live apply, and cannot leave a volatile-only team on failure
+- nearby scan de-duplicates full team ids, expires stale observations and mutates no routes, bindings, membership, key
+  or NV state; the display says `CURRENT PHY ONLY` and selecting a truncated fingerprint applies the exact full id
+- joining nearby without an imported key produces a durable keyless membership that cannot decrypt encrypted channel
+  posts; invitation expiry or an unconfirmed/failed grant changes no key
+- invitation approval lists only identities first observed after the session snapshot, never claims their key state,
+  requires an authoritative public key, and routes the selected candidate through the existing sealed grant path
+- the creator distinguishes `KEY SENT` from receiver completion; only durable adoption lets the joiner display
+  `TEAM KEY RECEIVED`; no failure path renders or broadcasts the private team key
+- all four join profiles round-trip independently; exact profile values are shown before JOIN, and a corrupt profile
+  record affects neither node configuration nor team/preset storage
+- emergency from every settings/provisioning state reaches dispatch without saving, discarding or committing a hidden
+  action; a waking press commits nothing
+- power loss at every config/team/profile commit boundary recovers the complete old or complete new record only
+
+**Gate:** the standing D1 gate applies per slice: native tests, relevant board envs per §11, and the s18 corpus.
+Require exact s18 byte identity only for a slice proven outside the core/simulator behavior surface. A core/storage
+change such as UI-7D must instead attribute any corpus delta and add a non-vacuous behavioral control; do not demand
+or claim identity merely because this is an OLED-led feature.
 
 ## 13. Slices
 
@@ -975,33 +1204,38 @@ Slices are named `UI-n` deliberately: bare `U1`/`U3` would collide with the CLAU
 
 ### Phase A — Heltec V3 (this spec)
 
-| # | slice | gate |
-|---|---|---|
-| UI-1 | `firmware_ui_input.h` + native test | native |
-| UI-2 | `firmware_ui_model.h`: screens, list-aware cursor, compose modal + native test | native |
-| UI-3 | emergency + DM outcome machines in the model (§4, §3.4.1) + native test | native |
-| UI-4 | **send tracker + typed send result** (§2.1) — the attribution layer | native + on-target |
-| UI-5 | board canvas port: U8g2 behind `board_ui.h`, page-chunked paint, `set_power_save` blanking | on-target (V3) |
-| UI-6 | button GPIO 0 into the classifier; `firmware_ui.cpp` render policy; the cycle becomes live | on-target (V3) |
-| UI-7 | TEAM peer list + compose sub-views + inbox adapter over `Inbox::pull()` (`MR_FEAT_TEAM`) | on-target (V3) |
-| **UI-7D** | inbox detail modal, full-body paging, stable `(kind, seq)` selection and durable single-record delete (§3.5, §6.2) | native + storage power-cut/fault injection + on-target |
-| UI-8 | emergency end-to-end on hardware incl. blocked/retry/reply | on-target |
-| UI-9 | V3 battery reader (**two-pull** ADC_CTRL polarity probe + refuse-on-floating + `kAdcCtrlFailsafePark`, no delay in the burst — §7) + the `kBattPeriodMs` cache | on-target, multimeter-verified |
-| **UI-10** | versioned fixed-capacity preset catalog + separate `/mrui` persistence and defaults; no send behavior change yet | native + storage fault injection |
-| **UI-11** | shared serial/BLE preset verbs, independent sparse DM/channel OLED lists, generation-safe selection, and per-slot location command matrix; replaces UI-7's hard-coded tables/send builder | native + on-target (serial first) |
-| **UI-12** | secured, non-blocking ESP32-S3 BLE-NUS implementation for `heltec_mobile`, complete-output chunking, truthful connection indicator and coexistence soak | all builds + on-target BLE/LoRa |
+| # | status | slice | gate / completion evidence |
+|---|---|---|---|
+| UI-1 | ✅ | gesture classifier + native test | landed, native |
+| UI-2 | ✅ | screens, cursor and compose model | landed, native |
+| UI-3 | ✅ | emergency + DM outcome machines | landed, native |
+| UI-4 | ✅ | send tracker + typed result (§2.1) | landed, native + board |
+| UI-5 | ✅ | U8g2 board canvas and page paint | landed; board probe |
+| UI-6 | ✅ | button, snapshot/render policy and live cycle | landed; board probe |
+| UI-7 | ✅ | roster, fixed compose tables, real sends and inbox preview | landed; hardware acceptance partly recorded |
+| UI-7D | 📝 | inbox detail/delete (§3.5/§6.2) | storage fault/power-cut + native + target |
+| UI-8 | 🧪 | emergency end-to-end qualification | code exists; complete H8 |
+| UI-9 | 🧪 | V3 battery reader and cache (§7) | code exists; complete H9/multimeter |
+| UI-10 | 📝 | versioned configurable preset catalog | native + storage fault injection |
+| UI-11 | 📝 | preset verbs, sparse lists and per-slot location | native + target, serial first |
+| UI-12 | 📝 | secured ESP32-S3 BLE-NUS for `heltec_mobile` | builds + BLE/LoRa soak |
+| UI-13 | 📝 | typed staged-config service, conflict detection and one-write commit (§3.6.1) | native + NV fault/power-cut |
+| UI-14 | 📝 | SETTINGS screen, marker and save/discard/reboot states (§3.6.2) | native + board probe + target |
+| UI-15 | 📝 | atomic team creation and four-profile static join (§3.6.3) | native + NV fault/power-cut + multi-node metal |
+| UI-16 | 📝 | current-PHY nearby-team scan, explicit candidate approval and sealed key grant (§3.6.4) | native + RF isolation controls + multi-node metal |
 
-Renumbered after the 2026-08-01 review. **UI-4 is new and is the review's first ordering item**: without send attribution, UI-3's emergency machine can be completed by an unrelated push, so the tracker must exist before the emergency is trusted on hardware.
+UI-1…UI-7 and the UI-9 code are landed. UI-8 is a hardware gate, not missing firmware. UI-7D and UI-10…UI-16 are
+extensions and must not be reported as current behavior.
 
-UI-1 through UI-4 are pure or near-pure and can start immediately. UI-5 is blocked only on the display-library choice (§8). Every V3 pin UI-5/UI-6/UI-9 needs is known (§10.1) except the panel reset pin, which wants a hardware confirmation.
+**Recommended next order:** finish H8/H9 qualification; then UI-13 → UI-14 → UI-15 → UI-16 because direct team
+creation followed by no-phone member onboarding is the owner's primary new goal. UI-10 → UI-11 and UI-12 may
+proceed independently after their own dependencies; UI-12 is needed for convenient preset/profile editing and
+companion key export, but neither atomic team creation nor current-PHY nearby onboarding depends on BLE.
 
-**Extension order:** finish and qualify the original UI-8/UI-9 first, then land UI-10 → UI-11 → UI-12. This makes the
-preset behavior fully testable over serial before BLE is allowed to add a second transport and coexistence axis.
-UI-12 may be designed in parallel, but its implementation gate includes the already-working UI-11 command contract.
-
-UI-7D is a follow-up to the already-landed UI-7 and does not renumber the established slices. It may be designed in
-parallel, but its delete action is blocked on the §6.2 storage contract and power-cut gate. Until UI-7D lands, the
-current inbox double-press no-op is expected behavior, not a failed hardware test.
+UI-7D remains independent and blocked on §6.2's durable erase contract. Until it lands, inbox double press doing
+nothing is expected. UI-15's profile-based static join is honest about its boundary: a fresh device with no profile
+cannot enter arbitrary RF numbers from one button. UI-16 likewise discovers only teams audible on the current PHY;
+neither slice may imply a general cross-frequency scan.
 
 **Prerequisites — BOTH DISCHARGED** (this heading said *"one discharged, one OUTSTANDING"* until 2026-08-06, [[B130]]).
 
@@ -1051,3 +1285,10 @@ B-1 and B-2 must land before any V4 hardware is trusted on air. B-3 is small onc
 3. ~~Should the emergency message include location?~~ **RESOLVED 2026-07-31 by owner ruling: yes, when available** — see §4.1. I had recommended omitting it in Phase A on staleness grounds; the owner ruled otherwise and the design now follows that. The residual implementation risk is the conditional `-l` (§4.1): getting it wrong converts "no fix" into "no alarm", so it belongs in the Task 8 bench matrix, not in a code review.
 4. **§5 — is the idle-paint rule sufficient?** It prevents a paint from *starting* mid-exchange, but a paint already in progress when an RTS lands still holds the bus for one page (~3 ms). That should be inside the RX window slop, but it is an assumption a reviewer familiar with the metal RX path should confirm.
 5. ~~**§3.2.2 — is the canned-text list right?**~~ **RESOLVED 2026-08-05:** emergency is one mandatory configurable preset. DM and channel use separate fixed-capacity catalogs of eight stable slots each; users may configure zero to eight active choices per list. Raising the capacity remains deliberately out of scope for the first persistent format.
+6. **§3.6.3 — is profile-based static join sufficient for the first on-device version?** The proposed UI can join
+   without a phone once a profile exists, but cannot type an arbitrary RF domain on a fresh unit. A numeric editor or
+   QR/profile import is a separate interaction and storage decision.
+7. ~~**§3.6.3 — how is a newly created team's key distributed without a phone?**~~ **RESOLVED 2026-08-06:** keep
+   the random team id; `JOIN TEAM → NEARBY` selects an id observed on the current PHY, and an existing member must
+   explicitly approve the candidate before the existing sealed `team grantkey` path is used (§3.6.4). BLE/serial and
+   companion QR remain alternatives; an OLED private-key QR is not required for the first version.

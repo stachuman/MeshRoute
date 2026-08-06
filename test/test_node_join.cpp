@@ -984,3 +984,489 @@ TEST_CASE("§3-A.6 _notify_pending evicts the STALEST stash when full (not slot 
       host.on_recv(cl.data(), cn, meta); }
     CHECK(hal.count("presence_notify_tx") == 1);              // unchanged — h1's stash is gone
 }
+
+// ============================================================================
+// ★★ §B132 — A GATEWAY MUST NEVER BE ELIGIBLE AS A MOBILE HOME.
+//
+// THE DEFECT (owner-reported, METAL-CONFIRMED): a gateway time-multiplexes ONE radio across TWO leaves in
+// alternating windows, so for ~half of every cycle it is not listening on the mobile's leaf at all. A home owes its
+// mobile CONTINUOUS service — registration/presence, last-mile DATA, hash/pubkey proxy answers, reverse ACK and
+// delegation, home liveness — which a gateway can structurally only provide half the time. On the bench a gateway
+// serving leaves 6/5 in 7.5 s windows reported `hosted-mobiles n=1 / hash=0xF7C0F666 local_id=254 pubkey=yes`
+// while the mobile reported `REGISTERED home=5`.
+//
+// ★ A send that HAPPENS to align with the gateway's window still succeeds, and THAT is what let this hide. The
+// state even looked healthy (`hosting=1`, `pubkey=yes`). ⇒ these tests assert ELIGIBILITY, never a delivery rate.
+//
+// THE SITES that were wrong, all now consuming ONE accessor (Node::can_host_mobiles, node.h):
+//   (a) J DISCOVER->OFFER  — tested `is_mobile || !host_mobiles`; `host_mobiles` DEFAULTS TRUE, so a gateway heard
+//       the leaf-exempt mobile DISCOVER and offered a strong-SNR home;
+//   (b) CLAIM acceptance   — had NO eligibility test at all, only `chosen_host_id != _node_id`;
+//   (c) presence_ingest_probe — re-spelled (a) verbatim, and its comment asserted it was the "SAME gate" as (a).
+//       It was. Both were wrong, which is why the invariant is now defined exactly once (U1).
+//
+// ★★★ HOW THESE TESTS WERE BUILT, because the FIRST VERSION OF THEM COULD NOT FAIL AND THE MUTATION MATRIX SAID SO.
+// Reverting BOTH gateway clauses to the pre-fix expression left every one of them GREEN. Cause: on_init also forces
+// `host_mobiles = false` on a gateway (C3), so `host_mobiles &&` short-circuits FIRST and the clauses are never
+// reached. The two defences MASK EACH OTHER, and a test that exercises a gateway "normally" measures only the
+// force-off. ⇒ every gateway test below FORCES `host_mobiles` BACK ON after on_init, so the gateway clauses are the
+// ONLY remaining defence — and that is also exactly the property gate item 6 asks for ("`cfg set host_mobiles on`
+// cannot make a gateway eligible").
+//
+// ★★ AND `!is_gateway` vs `n_layers == 1` CANNOT BE SEPARATED BY A NORMALLY-INITED GATEWAY — on_init derives
+// `is_gateway = (n_layers == 2)`, so on the happy path either clause alone suffices and dropping ONE stays green.
+// Each is therefore measured in the state that ISOLATES it (§B132/6): `is_gateway` true with `n_layers == 1`, and
+// the REFUSED-on_init state (`n_layers == 2` with `is_gateway` false). See §B132/6 for why both states are real.
+// ============================================================================
+
+namespace {
+// A VALID dual-layer gateway config — it MUST pass on_init's §3.2 gate, otherwise these tests would be exercising
+// the config refusal instead of the eligibility invariant (the CHECK on on_init in each test enforces that).
+// Two details are load-bearing and BOTH were found by a premise CHECK failing, not by reasoning:
+//  (1) `layer_id = 16` (0x10) — validate_gateway_layers REFUSES layer_id 0, but activate_layer stamps
+//      `_cfg.leaf_id = layer_id & 0x0F`, so a nibble of 0 is what makes the active leaf 0. That matters because the
+//      J CLAIM is NOT leaf-exempt (only DISCOVER and the mobile-side OFFER are), so a claim built by the helpers
+//      above (leaf_id 0) would be dropped by the foreign-layer filter BEFORE reaching the gate under test — and
+//      §B132/2 would have passed for a reason with nothing to do with the fix. Layer 1 uses leaf 7, a DIFFERENT
+//      nibble, as §0.8 requires.
+//  (2) `node_id = 5` on BOTH layers — activate_layer stamps `_node_id = L.node_id`, so leaving it 0 would put the
+//      node behind the `_node_id == 0` mid-join suspend, which masks the eligibility gate entirely.
+// ⇒ the gateway ends up as reachable, and as provisioned, as the static host in the positive control; the ONLY
+//   difference between them is eligibility.
+NodeConfig gw_join_cfg() {
+    NodeConfig c = join_cfg();
+    c.n_layers = 2;
+    for (uint8_t i = 0; i < 2; ++i) {
+        c.layers[i].layer_id          = static_cast<uint8_t>(i == 0 ? 16 : 7);   // nibble 0 / nibble 7 — differ (§0.8)
+        c.layers[i].node_id           = 5;                                       // the bench's gateway identity
+        c.layers[i].routing_sf        = 7;
+        c.layers[i].allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+    }
+    return c;
+}
+// ★★ Init a gateway AND FORCE `host_mobiles` BACK ON. Without this the tests measure on_init's force-off instead of
+// the gateway clauses (proven: reverting both clauses left them green). Returns false if on_init refused.
+// ⓘ This is ALSO the realistic hostile case: `host_mobiles` is a LIVE console knob, so a running gateway can be
+// told `cfg set host_mobiles on` at any moment. The core must refuse regardless of what that byte says.
+bool init_gateway_hostile(Node& n) {
+    if (!n.on_init(gw_join_cfg())) return false;
+    if (n.config().host_mobiles) return false;              // C3: on_init must have forced it OFF first
+    n.mutable_config().host_mobiles = true;                  // ...now force it back ON — the clauses must still refuse
+    return n.config().host_mobiles && !n.can_host_mobiles(); // eligible-by-byte, INELIGIBLE by invariant
+}
+// ★★★ THE ONLY HONEST WITNESS FOR "AN OFFER WENT OUT" — THE PARSED FRAME ON THE WIRE.
+// `MR_EMIT("mobile_offer_tx", …)` is emitted in node_join.cpp immediately BEFORE `jtx_stash_arm`, and its own comment
+// says why ("the OFFER is committed"). The frame is transmitted 100..1000 ms LATER, from the
+// kMobileOfferBackoffTimerId handler. ⇒ THE EVENT MEANS *COMMITTED*, NOT *TRANSMITTED*, so counting it cannot
+// distinguish "an OFFER went out" from "an OFFER was staged and then correctly suppressed" — which is the entire
+// question §B132b asks. Every §B132b case below therefore asserts THIS, and the event only as a premise.
+int count_j_offer_mobile(const std::vector<std::vector<uint8_t>>& frames) {
+    int c = 0;
+    for (const auto& f : frames) { auto p = parse_j(std::span<const uint8_t>(f.data(), f.size()));
+        if (p && p->opcode == static_cast<uint8_t>(j_opcode::offer) && p->is_mobile) ++c; }
+    return c;
+}
+// STAGE (but do not transmit) a mobile OFFER on `host` by feeding it a mobile DISCOVER. Returns the COMMITTED-event
+// count so the caller can assert the commit really happened — without that premise a later "no frame" assertion is
+// vacuous (a build that stages nothing would pass it).
+int stage_mobile_offer(Node& host, TestHal& hal, uint32_t mobile_hash) {
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    std::array<uint8_t, 16> disc{};
+    const size_t dn = make_j_discover_mobile(mobile_hash, disc);
+    hal.events.clear(); hal.tx_frames.clear();
+    host.on_recv(disc.data(), dn, meta);
+    return hal.count("mobile_offer_tx");
+}
+}  // namespace
+
+// TEST 1 — the OFFER. A gateway hears the (leaf-exempt) mobile DISCOVER and must stay SILENT.
+// ★ Asserts the SIDE EFFECT (no OFFER frame emitted), never an internal flag.
+TEST_CASE("★ §B132/1 — a GATEWAY emits NO mobile OFFER even with host_mobiles forced ON") {
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    std::array<uint8_t, 16> disc{};
+    const size_t dn = make_j_discover_mobile(/*hash=*/0x0000D1D1u, disc);
+
+    TestHal hal; hal._now = 100000;
+    Node gw(hal, /*node_id=*/5, /*key_hash32=*/0x00000005u);          // identity 5 — the bench's gateway id
+    CHECK(init_gateway_hostile(gw));                                  // ★ valid gateway, host_mobiles forced back ON
+    // Premise checks — without these the test could pass for a reason unrelated to the fix:
+    CHECK(gw.config().is_gateway);                                    // DERIVED by on_init from n_layers==2
+    CHECK(gw.config().n_layers == 2);
+    CHECK(gw.config().host_mobiles);                                  // ★ the byte says YES, so it cannot be doing the work
+    CHECK(gw.node_id() != 0);                                         // ★ NOT the `_node_id == 0` suspend — that would mask this gate
+
+    hal.events.clear();
+    gw.on_recv(disc.data(), dn, meta);
+    CHECK(hal.count("mobile_offer_tx") == 0);                         // ★ THE DEFECT: was 1 — a strong-SNR gateway offered and won
+
+    // ⓘ THE OTHER LEAF is asserted in test_dual_layer.cpp ("§B132/1b"), which owns DualLayerTestAccess and can
+    // therefore really swap the active leaf. It is NOT asserted here by a fake swap. ★ And note WHY it is a
+    // separate concern rather than a formality: a mobile DISCOVER is LEAF-EXEMPT on the host side (node_join
+    // handle_j `mobile_exempt`), so it reaches this decision REGARDLESS of which leaf is active — which is how a
+    // gateway came to answer a DISCOVER from a leaf it was not even serving.
+}
+
+// TEST 2 — the CLAIM. A CLAIM addressed AT the gateway (stale, or forged with no preceding OFFER) must be IGNORED.
+// ★ This is the leg the tempting half-fix ("just gate the OFFER") leaves wide open, and it is the leg that makes the
+// invalid home LOAD-BEARING: the registry entry is what makes the gateway start proxying for the mobile.
+// (Mutation-confirmed: removing this gate alone turns this test RED and nothing else.)
+TEST_CASE("★ §B132/2 — a stale/forged mobile CLAIM addressed at a GATEWAY is IGNORED (no registry entry)") {
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    TestHal hal; hal._now = 100000;
+    Node gw(hal, /*node_id=*/5, /*key_hash32=*/0x00000005u);
+    CHECK(init_gateway_hostile(gw));
+    CHECK(gw.mobile_reg_count() == 0);
+
+    std::array<uint8_t, 16> cl{};
+    const size_t cn = make_j_claim_mobile(/*host=*/5, /*local=*/254, /*hash=*/0xF7C0F666u, cl);   // the bench's hash, ADDRESSED at the gateway
+    hal.events.clear();
+    gw.on_recv(cl.data(), cn, meta);
+    CHECK(gw.mobile_reg_count() == 0);                                // ★ THE DEFECT: was 1 — recorded without ever asking whether we may host
+
+    gw.on_recv(cl.data(), cn, meta);                                  // a REFRESH must not sneak in either (same gate)
+    CHECK(gw.mobile_reg_count() == 0);
+}
+
+// TEST 3 — the presence PROBE + ROSTER, exercised through the ROLE TRANSITION, which is the only way to put a live
+// registry entry on a gateway now that the CLAIM path refuses one. The register requires exactly this: "a transition
+// into gateway role must clear any hosted-mobile and pending-host runtime state".
+// ★★ WHY THE TRANSITION IS THE ONLY HONEST STIMULUS: on a gateway with an EMPTY registry, presence_ingest_probe
+// finds no entry and presence_emit_roster returns at its `_mobile_reg_n == 0` early-out — so both would emit
+// nothing WITH OR WITHOUT the fix. Mutation-confirmed: the first version of this test stayed GREEN when the probe
+// gate AND the roster gate were both deleted. A REAL hosted entry is what makes the two gates load-bearing.
+TEST_CASE("★ §B132/3 — a node that BECOMES a gateway with a live hosted mobile answers NO probe and emits NO roster") {
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    TestHal hal; hal._now = 100000;
+    const uint32_t M = 0xF7C0F666u;                                   // the bench's mobile hash
+
+    // (1) start as an ORDINARY STATIC host and really host the mobile — so the registry entry is genuine.
+    Node n(hal, /*node_id=*/5, /*key_hash32=*/0x00000005u);
+    CHECK(n.on_init(join_cfg()));
+    std::array<uint8_t, 16> cl{};
+    const size_t cn = make_j_claim_mobile(/*host=*/5, /*local=*/254, M, cl);
+    n.on_recv(cl.data(), cn, meta);
+    CHECK(n.mobile_reg_count() == 1);                                 // ★ the entry EXISTS — the early-out is out of the way
+    CHECK(n.can_host_mobiles());                                      // and it was legitimately eligible at this point
+
+    // (2) it is reprovisioned into a gateway THROUGH REAL `on_init` — and that config is REFUSED.
+    // ★★ WHY THE REFUSED PATH RATHER THAN A SUCCESSFUL INIT (and rather than the two `mutable_config()` pokes this
+    // test used in round 1, which exercised only the PREDICATE and never any implemented cleanup): a SUCCESSFUL
+    // gateway `on_init` now CLEARS the hosted registry (§B132b/5), which would put `presence_emit_roster` back behind
+    // its own `_mobile_reg_n == 0` early-out and make (4) below vacuous AGAIN — the exact round-1 defect. The REFUSED
+    // path is the one state that is BOTH real and registry-preserving: `_cfg = cfg` is assigned BEFORE
+    // `validate_gateway_layers`' early return while every clear is AFTER it, and `src/fw_main.cpp` merely prints
+    // "config = REFUSED" and keeps the node running (see §B132/6b). ⇒ real code runs, the hosted entry survives, and
+    // the two gates under test are the only thing left that can suppress the probe answer and the roster.
+    NodeConfig bad = gw_join_cfg();
+    bad.layers[1].layer_id = 0;                                       // §3.2 REQUIRED field missing -> validate refuses
+    CHECK_FALSE(n.on_init(bad));                                      // ★ REAL on_init, and it REFUSED
+    CHECK(n.config().n_layers == 2);                                  // ★ the dual-layer count SURVIVED the refusal
+    CHECK(n.config().host_mobiles);                                   // ★ the byte still says YES — not what refuses
+    CHECK_FALSE(n.can_host_mobiles());                                // ★ the invariant now refuses (via `n_layers == 1`)
+    CHECK(n.mobile_reg_count() == 1);                                 // ★ the entry is STILL PHYSICALLY PRESENT (every clear is after the early return)
+
+    // (3) the mobile's check probe naming this node as home must NOT be answered...
+    std::array<uint8_t, 48> pr{};
+    const size_t pn = make_p_probe(M, /*home=*/5, /*layer=*/0, /*epoch=*/1, pr);
+    hal.events.clear();
+    n.on_recv(pr.data(), pn, meta);
+    CHECK(hal.count("presence_probe_rx") == 0);                       // ★ an ineligible node serves no presence
+
+    // (4) ...and NO roster may be emitted, even though a hosted entry is sitting right there.
+    n.on_timer(79);                                                   // kPresenceRosterTimerId
+    CHECK(hal.count("presence_roster_tx") == 0);                      // ★ no "I am your home" advertisement
+}
+
+// TEST 4 — ★★ THE POSITIVE CONTROL. The SAME stimuli on an ORDINARY STATIC node must all still work.
+// Without this, tests 1-3 are satisfied by a node that hosts nobody — including by hard-wiring the invariant false.
+// (Mutation-confirmed and COUNTED: hard-wiring `can_host_mobiles()` to false fails 17 cases — 4 §B132 and
+// 13 PRE-EXISTING hosting cases. That corroboration is why this control is trustworthy rather than self-referential.)
+TEST_CASE("★★ §B132/4 POSITIVE CONTROL — an ordinary STATIC node still OFFERs, RECORDS and ROSTERS; mobile + opt-out still refuse") {
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    TestHal hal; hal._now = 100000;
+    Node host(hal, /*node_id=*/42, /*key_hash32=*/0x00004242u);
+    CHECK(host.on_init(join_cfg()));                                  // single-layer, host_mobiles defaults TRUE
+    CHECK(host.can_host_mobiles());                                   // the invariant holds for the node that SHOULD host
+    CHECK(host.config().host_mobiles);                                // ★ on_init's gateway force-off did NOT touch a static node
+    CHECK(host.config().n_layers == 1);
+    CHECK_FALSE(host.config().is_gateway);
+
+    // (a) it OFFERs
+    std::array<uint8_t, 16> disc{};
+    const size_t dn = make_j_discover_mobile(/*hash=*/0x0000D1D1u, disc);
+    hal.events.clear();
+    host.on_recv(disc.data(), dn, meta);
+    CHECK(hal.count("mobile_offer_tx") == 1);                         // ★ the fix did NOT break ordinary hosting
+
+    // (b) it RECORDS a CLAIM
+    const uint32_t M = 0x0000D1D1u;
+    std::array<uint8_t, 16> cl{};
+    const size_t cn = make_j_claim_mobile(/*host=*/42, /*local=*/254, M, cl);
+    host.on_recv(cl.data(), cn, meta);
+    CHECK(host.mobile_reg_count() == 1);                              // ★
+
+    // (c) it answers a probe AND emits a roster
+    std::array<uint8_t, 48> pr{};
+    const size_t pn = make_p_probe(M, /*home=*/42, /*layer=*/0, /*epoch=*/1, pr);
+    hal.events.clear();
+    host.on_recv(pr.data(), pn, meta);
+    CHECK(hal.count("presence_probe_rx") == 1);                       // ★ the probe answer the gateway must never give
+    host.on_timer(79);                                                // kPresenceRosterTimerId
+    CHECK(hal.count("presence_roster_tx") == 1);                      // ★ the roster the gateway must never send
+
+    // (d) the DELIBERATE opt-out (B3) still works — host_mobiles=false on a plain static node
+    {
+        TestHal h2; h2._now = 100000;
+        Node opted(h2, /*node_id=*/43, /*key_hash32=*/0x00004343u);
+        NodeConfig oc = join_cfg(); oc.host_mobiles = false;
+        CHECK(opted.on_init(oc));
+        CHECK_FALSE(opted.can_host_mobiles());
+        opted.on_recv(disc.data(), dn, meta);
+        CHECK(h2.count("mobile_offer_tx") == 0);                      // B3 opt-out preserved by the shared invariant
+    }
+    // (e) ★ A MOBILE NEVER HOSTS — the invariant's `!is_mobile` clause. Added because the mutation matrix showed
+    // NOTHING in the whole suite went red when that clause was dropped: a pre-existing coverage hole, not a new one.
+    {
+        TestHal h3; h3._now = 100000;
+        Node mob(h3, /*node_id=*/44, /*key_hash32=*/0x00004444u);
+        NodeConfig mc = join_cfg(); mc.is_mobile = true; mc.host_mobiles = true;   // host_mobiles ON, so it is is_mobile that must refuse
+        CHECK(mob.on_init(mc));
+        CHECK(mob.config().host_mobiles);
+        CHECK_FALSE(mob.can_host_mobiles());
+        h3.events.clear();
+        mob.on_recv(disc.data(), dn, meta);
+        CHECK(h3.count("mobile_offer_tx") == 0);                      // ★ a mobile registers to a home; it is not one
+    }
+}
+
+// TEST 5 — the BENCH TOPOLOGY, reproduced. A gateway and a static host BOTH audible to one mobile: only the static
+// host may offer. This is the scenario the owner measured, and the one a per-site fix could still get wrong (if the
+// gateway refused at CLAIM but still OFFERed, it would waste airtime AND advertise an invalid home the mobile may
+// select over the valid one).
+TEST_CASE("★ §B132/5 — gateway + static host both audible: ONLY the static host offers") {
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    std::array<uint8_t, 16> disc{};
+    const size_t dn = make_j_discover_mobile(/*hash=*/0xF7C0F666u, disc);
+
+    TestHal hgw; hgw._now = 100000;
+    Node gw(hgw, /*node_id=*/5, /*key_hash32=*/0x00000005u);          // the bench's gateway identity 5
+    CHECK(init_gateway_hostile(gw));                                  // host_mobiles forced ON — the clauses must carry it
+
+    TestHal hst; hst._now = 100000;
+    Node stat(hst, /*node_id=*/42, /*key_hash32=*/0x00004242u);       // the always-on static node the mobile SHOULD pick
+    CHECK(stat.on_init(join_cfg()));
+
+    hgw.events.clear(); hst.events.clear();
+    gw.on_recv(disc.data(), dn, meta);                                // same DISCOVER, same SNR, both hear it
+    stat.on_recv(disc.data(), dn, meta);
+
+    CHECK(hgw.count("mobile_offer_tx") == 0);                         // ★ the gateway is silent
+    CHECK(hst.count("mobile_offer_tx") == 1);                         // ★ the static host answers
+    // ★ the DISCRIMINATION stated as an assertion rather than left to the reader: the two nodes received
+    // BYTE-IDENTICAL stimuli at identical SNR and both had `host_mobiles` true, so any difference in outcome is
+    // eligibility and nothing else.
+    CHECK(hgw.count("mobile_offer_tx") != hst.count("mobile_offer_tx"));
+}
+
+// TEST 6 — ★★ THE TWO CLAUSES, EACH MEASURED IN THE STATE THAT ISOLATES IT.
+// `!is_gateway` and `n_layers == 1` LOOK redundant because on_init derives `is_gateway = (n_layers == 2)`, so on any
+// normally-inited node either one alone suffices and dropping ONE stays green (mutation-confirmed: MUT-A and MUT-B
+// were both green before this test existed). They are NOT redundant, because the identity holds only AFTER A
+// SUCCESSFUL on_init — and each half below is a state a real device can actually be in.
+TEST_CASE("★★ §B132/6 — !is_gateway and n_layers==1 are each LOAD-BEARING (measured in the states that separate them)") {
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    std::array<uint8_t, 16> disc{};
+    const size_t dn = make_j_discover_mobile(/*hash=*/0x0000D1D1u, disc);
+
+    // (a) `is_gateway` TRUE with `n_layers == 1` — isolates `!is_gateway`.
+    // REAL PROVENANCE: on the device `is_gateway` and `n_layers` are SEPARATELY-PERSISTED NV bytes
+    // (src/fw_main.cpp: `cfg.is_gateway = nv.is_gateway` and `cfg.n_layers` from `nv.n_layers`), and
+    // `host_mobiles` is a live console knob — so a stale/partial NV blob or a live poke reaches this state.
+    {
+        TestHal hal; hal._now = 100000;
+        Node n(hal, /*node_id=*/5, /*key_hash32=*/0x00000005u);
+        CHECK(n.on_init(join_cfg()));                                 // single-layer: on_init derives is_gateway = false
+        n.mutable_config().is_gateway = true;                         // ...now assert the gateway role on a 1-layer node
+        CHECK(n.config().n_layers == 1);                              // ★ so `n_layers == 1` PASSES and cannot be refusing
+        CHECK(n.config().host_mobiles);                               // ★ and the byte says YES
+        CHECK_FALSE(n.can_host_mobiles());                            // ⇒ only `!is_gateway` can be doing the work
+        hal.events.clear();
+        n.on_recv(disc.data(), dn, meta);
+        CHECK(hal.count("mobile_offer_tx") == 0);                     // ★ RED if `!is_gateway` is dropped
+    }
+
+    // (b) `n_layers == 2` with `is_gateway` FALSE — isolates `n_layers == 1`. ★ THE REFUSED-on_init STATE, and it is
+    // REACHABLE AND NON-FATAL: node.cpp assigns `_cfg = cfg` BEFORE validate_gateway_layers' early return, while the
+    // `is_gateway` derivation is AFTER it, and src/fw_main.cpp only PRINTS "config = REFUSED" and keeps the node
+    // running. So a dual-layer config that fails validation leaves n_layers == 2 with is_gateway carrying whatever
+    // the caller/NV supplied — which can legitimately be false. Here that is reproduced through on_init ITSELF (an
+    // invalid gateway config), not by hand, so it is the real path and not a hypothetical.
+    {
+        TestHal hal; hal._now = 100000;
+        Node n(hal, /*node_id=*/5, /*key_hash32=*/0x00000005u);
+        NodeConfig bad = gw_join_cfg();
+        bad.layers[1].layer_id = 0;                                   // §3.2 REQUIRED field missing -> validate refuses
+        CHECK_FALSE(n.on_init(bad));                                  // ★ on_init REFUSED — and the node keeps running
+        CHECK(n.config().n_layers == 2);                              // ★ the dual-layer count SURVIVED the refusal
+        CHECK_FALSE(n.config().is_gateway);                           // ★ and the derivation never ran ⇒ the identity is BROKEN here
+        CHECK(n.config().host_mobiles);                               // ★ the force-off never ran either (it is after the return)
+        CHECK_FALSE(n.can_host_mobiles());                            // ⇒ only `n_layers == 1` can be doing the work
+        hal.events.clear();
+        n.on_recv(disc.data(), dn, meta);
+        CHECK(hal.count("mobile_offer_tx") == 0);                     // ★ RED if `n_layers == 1` is dropped
+    }
+}
+
+// ============================================================================
+// ★★★ §B132b — THE DELAYED-TRANSMISSION HOLE, AND WHY ROUND 1's TESTS COULD NOT SEE IT.
+//
+// ⛔ THE HOLE. The OFFER is not transmitted where it is decided. `handle_j`'s DISCOVER responder builds it, emits
+// `mobile_offer_tx`, and hands it to `jtx_stash_arm` (the §S6/QA-3b de-storm), which arms
+// kMobileOfferBackoffTimerId for a jitter of 100..1000 ms. The timer handler in `node.cpp` then transmitted it
+// UNCONDITIONALLY. ⇒ eligibility was checked at the moment of DECISION and never at the moment the frame LEFT.
+//
+// ★★ AND IT IS REACHABLE WITHOUT A REBOOT — two of the ways are LIVE console knobs (`src/firmware_config.cpp`):
+//   • `cfg set mobile 1` — LIVE (`lc.is_mobile = …`, `live` left true). `role_set_refusal`'s O2 clause refuses a
+//     promotion only while `mobile_reg_count() != 0`, and A STAGED OFFER IS NOT A HOSTED MOBILE, so the guard does
+//     not see it. A node can therefore become a MOBILE inside the jitter window and then advertise itself as a home.
+//   • `cfg set host_mobiles off` — LIVE (`persist = false`), i.e. the B3 opt-out has the same window.
+//   ⓘ HONEST SCOPE, MEASURED: the *gateway* transition of the register's own wording is NOT reachable this way —
+//     `is_gateway` is derived in `on_init` only and `cfg set n_layers` is `live = false` ("reboot to apply"), so on a
+//     device becoming a gateway means a REBOOT and hence a fresh, empty LayerState. The `on_init` cleanup is
+//     therefore DEFENCE IN DEPTH (it covers a re-init and any inconsistent runtime state); the boundary re-check is
+//     what closes the live, reachable window. Both shipped; each is attributed by its own case below.
+//
+// ★★★ AND THE DEFECT-CLASS: ROUND 1 ASSERTED `mobile_offer_tx` AS PROOF OF TRANSMISSION. It is not — it fires
+// BEFORE the stash, and its own source comment says so ("the EMIT stays here (the OFFER is committed)"). A test that
+// counts it cannot tell "an OFFER went out" from "an OFFER was staged and then correctly suppressed". That is the
+// FOURTH instance in this project of one shape: A CONTRACT EVENT ASSERTING A PHYSICAL ACT, REACHABLE FROM A PATH
+// THAT TRANSMITTED NOTHING (after `emit_hash_query`, `tx_initiating`, `tx_with_retry`/`DeviceHal::tx`).
+// ⇒ every case below asserts the PARSED J OFFER FRAME in `hal.tx_frames`; the event appears only as a premise.
+// ⚠ AND NOT `hal.cancel`: TestHalBase::cancel() is a NO-OP, so the cancels in `mobile_host_pending_clear()` cannot
+// carry any assertion here. Each case FIRES timer 80 and reads the wire.
+// ============================================================================
+
+// TEST 7 — ★★ THE DISTINCTION ITSELF, PINNED. Then the regression: transition, fire, nothing on the wire.
+TEST_CASE("★★★ §B132b/1 — `mobile_offer_tx` means COMMITTED, not TRANSMITTED; a gateway transition kills the staged OFFER") {
+    TestHal hal; hal._now = 100000;
+    Node n(hal, /*node_id=*/42, /*key_hash32=*/0x00004242u);
+    CHECK(n.on_init(join_cfg()));                                     // an ordinary, legitimately eligible static host
+    CHECK(n.can_host_mobiles());
+
+    // (1) ★★ THE DEFECT-CLASS ASSERTION: the event fires, and NOTHING IS ON THE WIRE YET.
+    CHECK(stage_mobile_offer(n, hal, /*mobile_hash=*/0x0000D1D1u) == 1);   // committed...
+    CHECK(count_j_offer_mobile(hal.tx_frames) == 0);                       // ★ ...and NOT transmitted. This is why counting the event proves nothing about the wire.
+
+    // (2) inside the jitter window the node becomes a GATEWAY, through REAL on_init with a VALID gateway config.
+    CHECK(init_gateway_hostile(n));                                   // ★ real on_init + host_mobiles forced back ON (so it cannot be the byte doing the work)
+    CHECK(n.config().is_gateway);
+    CHECK(n.config().host_mobiles);
+    CHECK_FALSE(n.can_host_mobiles());
+
+    // (3) the backoff timer fires. ★ THE FRAME MUST NOT LEAVE.
+    hal.tx_frames.clear();
+    n.on_timer(80);                                                   // kMobileOfferBackoffTimerId
+    CHECK(count_j_offer_mobile(hal.tx_frames) == 0);                  // ★★ THE DEFECT: the OFFER went out FROM THE GATEWAY, advertising exactly the invalid home §B132 exists to prevent
+    CHECK(hal.tx_frames.empty());                                     // and nothing else was substituted for it either
+
+    // (4) a re-fire must stay silent too (the stash is gone, not merely skipped once).
+    n.on_timer(80);
+    CHECK(count_j_offer_mobile(hal.tx_frames) == 0);
+}
+
+// TEST 8 — ★★ THE POSITIVE CONTROL FOR THE WHOLE §B132b GROUP. Without it, every "no OFFER frame" assertion above is
+// satisfied by a build that never transmits an OFFER at all — including one where timer 80 does nothing.
+TEST_CASE("★★ §B132b/2 POSITIVE CONTROL — without the transition, firing timer 80 DOES transmit the staged OFFER") {
+    TestHal hal; hal._now = 100000;
+    Node n(hal, /*node_id=*/42, /*key_hash32=*/0x00004242u);
+    CHECK(n.on_init(join_cfg()));
+    CHECK(stage_mobile_offer(n, hal, /*mobile_hash=*/0x0000D1D1u) == 1);
+    CHECK(count_j_offer_mobile(hal.tx_frames) == 0);                  // staged only
+
+    hal.tx_frames.clear();
+    n.on_timer(80);                                                   // kMobileOfferBackoffTimerId
+    CHECK(count_j_offer_mobile(hal.tx_frames) == 1);                  // ★ the frame really is on the wire — the harness CAN see a transmission
+    // ...and the transmitted frame is addressed at the discovering mobile and names US as the home (so it is the
+    // OFFER under discussion and not some other J frame that happened to be emitted).
+    {
+        int checked = 0;
+        for (const auto& f : hal.tx_frames) {
+            auto p = parse_j(std::span<const uint8_t>(f.data(), f.size()));
+            if (!p || p->opcode != static_cast<uint8_t>(j_opcode::offer)) continue;
+            CHECK(p->target_key_hash32 == 0x0000D1D1u);               // ★ §S6: addressed AT the discovering mobile
+            CHECK(p->responder_node_id == 42);                        // ★ and it advertises THIS node as the home
+            ++checked;
+        }
+        CHECK(checked == 1);
+    }
+    n.on_timer(80);                                                   // the slot is consumed -> a re-fire must not duplicate
+    CHECK(count_j_offer_mobile(hal.tx_frames) == 1);
+}
+
+// TEST 9 — ★★ ATTRIBUTION FOR THE BOUNDARY RE-CHECK ALONE. The REFUSED-`on_init` path returns BEFORE the cleanup, so
+// the stash is provably still armed here and `mobile_host_pending_clear()` has demonstrably not run. ⇒ this case is
+// RED iff the timer-boundary `can_host_mobiles()` re-check is removed, whether or not the cleanup exists.
+// (This is the masking cure the brief demanded: the two defences cannot both cover this state.)
+TEST_CASE("★★ §B132b/3 — the REFUSED-on_init state (cleanup never ran) still transmits NO staged OFFER") {
+    TestHal hal; hal._now = 100000;
+    Node n(hal, /*node_id=*/42, /*key_hash32=*/0x00004242u);
+    CHECK(n.on_init(join_cfg()));
+    CHECK(stage_mobile_offer(n, hal, /*mobile_hash=*/0x0000D1D1u) == 1);   // ★ armed, and the commit is proven
+
+    NodeConfig bad = gw_join_cfg();
+    bad.layers[1].layer_id = 0;                                       // §3.2 REQUIRED field missing -> validate refuses
+    CHECK_FALSE(n.on_init(bad));                                      // ★ REFUSED — returns before the force-off AND before the cleanup
+    CHECK(n.config().n_layers == 2);                                  // ★ the state the `n_layers == 1` clause exists for
+    CHECK_FALSE(n.config().is_gateway);                               // ★ the derivation never ran
+    CHECK(n.config().host_mobiles);                                   // ★ the force-off never ran ⇒ the byte still says YES
+    CHECK_FALSE(n.can_host_mobiles());
+
+    hal.tx_frames.clear();
+    n.on_timer(80);                                                   // kMobileOfferBackoffTimerId
+    CHECK(count_j_offer_mobile(hal.tx_frames) == 0);                  // ★ ONLY the transmission-boundary re-check can produce this zero
+}
+
+// TEST 10 — ★★ ATTRIBUTION FOR THE `on_init` CLEANUP ALONE. Here the node is ELIGIBLE AGAIN at fire time, so the
+// boundary re-check PASSES and cannot suppress anything: the only thing that can keep the stale OFFER off the wire is
+// that the gateway init DROPPED it. ⇒ RED iff `mobile_host_pending_clear()` is removed from `on_init`.
+// ⓘ The second `on_init` is a TEST INSTRUMENT, not a claimed device path (a device role change is reboot-to-apply,
+// see the group header). It exists to isolate the cleanup, and it is honest about what it isolates.
+TEST_CASE("★★ §B132b/4 — a gateway init DROPS the staged OFFER, so it cannot fire even once the node is eligible again") {
+    TestHal hal; hal._now = 100000;
+    Node n(hal, /*node_id=*/42, /*key_hash32=*/0x00004242u);
+    CHECK(n.on_init(join_cfg()));
+    CHECK(stage_mobile_offer(n, hal, /*mobile_hash=*/0x0000D1D1u) == 1);   // ★ armed as a legitimate host
+
+    CHECK(init_gateway_hostile(n));                                   // becomes a gateway -> the cleanup runs
+    CHECK(n.on_init(join_cfg()));                                     // ...and back to an ordinary single-layer host
+    CHECK(n.can_host_mobiles());                                      // ★ ELIGIBLE at fire time ⇒ the boundary re-check PASSES and is inert here
+
+    hal.tx_frames.clear();
+    n.on_timer(80);                                                   // kMobileOfferBackoffTimerId
+    CHECK(count_j_offer_mobile(hal.tx_frames) == 0);                   // ★ ONLY the on_init cleanup can produce this zero
+}
+
+// TEST 11 — the register's gate item 6 half the round-1 tests never executed: the transition cleanup itself, driven
+// through REAL `on_init` with a VALID gateway config (round 1's transition poked two config fields and deliberately
+// left the registry in place, so the implemented cleanup had never run in any test).
+TEST_CASE("★★ §B132b/5 — a SUCCESSFUL gateway on_init CLEARS the hosted-mobile registry (real on_init, not a poke)") {
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    TestHal hal; hal._now = 100000;
+    Node n(hal, /*node_id=*/5, /*key_hash32=*/0x00000005u);
+    CHECK(n.on_init(join_cfg()));
+
+    std::array<uint8_t, 16> cl{};
+    const size_t cn = make_j_claim_mobile(/*host=*/5, /*local=*/254, /*hash=*/0xF7C0F666u, cl);   // the bench's hash
+    n.on_recv(cl.data(), cn, meta);
+    CHECK(n.mobile_reg_count() == 1);                                 // ★ a GENUINE hosted entry, recorded while eligible
+
+    CHECK(init_gateway_hostile(n));                                   // ★ REAL on_init with a valid gateway config
+    CHECK(n.mobile_reg_count() == 0);                                 // ★ the registry is GONE — `routes` can no longer print `hosted-mobiles n=1` on a gateway
+    CHECK_FALSE(n.can_host_mobiles());
+
+    // and the roster path is doubly dead now: no entry to advertise AND the emit-side gate refuses.
+    hal.events.clear(); hal.tx_frames.clear();
+    n.on_timer(79);                                                   // kPresenceRosterTimerId
+    CHECK(hal.count("presence_roster_tx") == 0);
+    CHECK(hal.tx_frames.empty());
+}

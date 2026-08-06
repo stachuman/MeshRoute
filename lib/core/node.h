@@ -452,6 +452,35 @@ public:
         const auto& e = _active->_mobile_reg[i]; key_hash = e.key_hash32; local_id = e.mobile_local_id; has_pubkey = e.has_pubkey; return true; }
     // §mobile console: user/app-driven network control (fw_main handle_mobile reuses the FSM + the pull; NO new wire).
     bool              mobile_autoregister_on() const { return _cfg.mobile_autoregister; }
+    // ★★ §B132: THE ONE mobile-hosting eligibility predicate. Every host-side decision consults THIS — the J
+    // DISCOVER->OFFER responder (node_join handle_j), the CLAIM acceptance, presence_ingest_probe and
+    // presence_emit_roster — and `cfg set host_mobiles` refuses against it. ⚠ NEVER re-spell it inline: the OFFER
+    // and the probe each independently spelled `_cfg.is_mobile || !_cfg.host_mobiles` and BOTH were missing the
+    // gateway clause, so the SAME defect shipped twice and the probe's comment even asserted the two were the
+    // "SAME gate" (they were — both wrong). Four copies is how they drifted; one accessor is why they cannot again (U1).
+    //
+    // WHY A GATEWAY MUST NEVER BE A HOME (the bench defect): a gateway time-multiplexes ONE radio across two leaves,
+    // so for ~half its schedule it is not listening on the mobile's leaf at all. A home owes its mobile last-mile
+    // delivery, presence service, hash proxying and home liveness CONTINUOUSLY; a gateway can only owe them half the
+    // time. ★ It may still SUCCEED whenever the schedule happens to align — which is exactly what let this hide on the
+    // bench (a Heltec registered to gateway identity 5 on leaf 5, then lost it to leaf 6 for half of every period).
+    // Intermittent success does not make the home valid.
+    //
+    // ★★ WHY BOTH `!is_gateway` AND `n_layers == 1` — they look redundant and they are NOT. node.cpp's on_init has
+    // the single authoritative derivation `_cfg.is_gateway = (_cfg.n_layers == 2)`, so the identity holds after a
+    // SUCCESSFUL on_init. It does NOT hold on the REFUSED path, which is reachable AND NON-FATAL: `_cfg = cfg` lands
+    // BEFORE on_init's `validate_gateway_layers` early-return, while the derivation lands AFTER it, and
+    // src/fw_main.cpp only PRINTS "config = REFUSED" and keeps running the node. A dual-layer config that fails
+    // validation therefore leaves `_cfg.n_layers == 2` with `_cfg.is_gateway` still carrying the value the CALLER
+    // passed — on the device a SEPARATELY-persisted NV byte (`cfg.is_gateway = nv.is_gateway`, distinct from
+    // `nv.n_layers`), so it can legitimately be false. In that state `!is_gateway` PASSES and only `n_layers == 1`
+    // refuses. ⇒ `n_layers == 1` is the strictly stronger, load-bearing clause; `!is_gateway` is kept because it is
+    // the field every other gateway site reads, so deleting it would hide the intent. DELETE NEITHER.
+    // ⚠ AND IT MUST BE `_cfg.n_layers`, NOT the runtime `_n_layers`: on that same refused path `_n_layers` is never
+    // assigned (its write is also after the early return) so it reads 1 and would WRONGLY pass.
+    bool              can_host_mobiles() const {
+        return _cfg.host_mobiles && !_cfg.is_mobile && !_cfg.is_gateway && _cfg.n_layers == 1;
+    }
 #if MR_FEAT_MOBILE
     uint8_t           mobile_home_id() const { return _my_mobile_reg.active ? _my_mobile_reg.home_id : 0; }   // §mobile 2b: our host (0 = unregistered)
     bool              mobile_registered()      const { return _my_mobile_reg.active; }
@@ -1158,6 +1187,7 @@ private:
     void    presence_schedule_roster();                        // arm the coalesce timer (rate-limit floored)
     void    presence_mark_deleg_fail(uint32_t mobile_hash);    // §B2: a delegated send for this hosted mobile failed loud -> set the roster deleg_fail bit + schedule a roster
     void    presence_emit_roster();                            // build + LBT-broadcast the roster from _mobile_reg + tiers + has_key + dir_epoch
+    void    mobile_host_pending_clear();                       // ★★ §B132b: drop EVERY leaf's PENDING mobile-host transmission (the staged J OFFER + the roster coalesce/echo state) and cancel their timers. Shared by on_init's gateway force-off (hygiene) and by the OFFER timer's own eligibility re-check (the guarantee), so the two can never disagree.
     void    presence_notify_old_home(uint32_t mobile_hash, uint8_t new_local_id, uint16_t new_epoch);  // §S6.4-D: NEW home originates the redirect breadcrumb to the stashed last_home
     uint8_t presence_compute_dir_epoch() const;               // §S6/D6: XOR aggregate of known gateway dir_epochs (a gateway derives its own layer-set epoch)
     // §mobile 6.4: team-DAD — a team member self-assigns a persistent _team_local_id on the team plane (no static host).

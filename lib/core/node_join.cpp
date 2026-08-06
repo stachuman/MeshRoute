@@ -217,6 +217,7 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 
     if (j.opcode == static_cast<uint8_t>(j_opcode::claim)) {
         if (j.is_mobile) {                                            // §mobile 2a: a mobile CLAIM = claim-stands (record/refresh — NO reply)
+            if (!can_host_mobiles()) return;                          // ★ §B132: RE-CHECK eligibility on the ACCEPT path, not just on the OFFER. This gate was ABSENT: the only test was `chosen_host_id != _node_id`, so a stale CLAIM (from a mobile that adopted us before we became a gateway) or a forged one ADDRESSED at a gateway was recorded as a hosted mobile without ever asking whether we may host. Gating only the OFFER is the tempting HALF-fix — the registry entry is what makes the invalid home load-bearing.
             if (j.chosen_host_id != _node_id) return;                 // §mobile: only the host the mobile CHOSE records it — a flood-hearer (relay) is NOT a host (else it proxies for a mobile it doesn't serve)
             // §6.4 S6: a CLAIM whose local id collides a DIFFERENTLY-keyed hosted mobile (the concurrent-OFFER race —
             // find_free_mobile_id reserves nothing until CLAIM, so two mobiles can be offered the same free id). Do NOT
@@ -320,7 +321,7 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     }
     if (j.opcode == static_cast<uint8_t>(j_opcode::discover)) {       // §mobile 2a: host side of mobile registration
         if (!j.is_mobile) return;                                     // a static node never DISCOVERs -> ignore (still deferred)
-        if (_cfg.is_mobile || !_cfg.host_mobiles) return;             // a mobile never hosts; a static node can opt OUT (B3)
+        if (!can_host_mobiles()) return;                              // §B132: the ONE eligibility invariant (node.h) — a mobile never hosts, a static node can opt OUT (B3), and a GATEWAY is never a home (half its schedule is on the other leaf). Was `is_mobile || !host_mobiles`, which let a strong-SNR gateway win the home.
         if (_node_id == 0) return;                                    // §clean-join: no host OFFER while unprovisioned/mid-DAD (reset_join_for_reprovision set_identity(0)'d us; adopt restores the id right before _joined). NOT `!_joined`: an operator-pinned host (`cfg set node_id` -> b.joined=0, "won't auto-yield") has _joined==false FOREVER and must keep hosting. Bonus: kills the absurd responder_node_id=0 OFFER.
         const uint8_t local = find_free_mobile_id(j.key_hash32);
         if (local == 0) return;                                       // pool full -> stay silent (the mobile picks another host)
@@ -551,7 +552,7 @@ void Node::mobile_reg_touch(uint8_t slot, int16_t snr_q4) {
 // coalesced roster. Answers ONLY for a mobile we CURRENTLY host (a `lost` probe from a hosted mobile = the
 // one-way-deaf recovery). A probe from a non-hosted mobile is ignored (registration is the J plane's job, D8).
 void Node::presence_ingest_probe(const uint8_t* frame, size_t len, const RxMeta& meta) {
-    if (_cfg.is_mobile || !_cfg.host_mobiles) return;                // §S6/QA-2: only a HOST answers probes — SAME gate as the J DISCOVER->OFFER host side (a mobile never hosts; host_mobiles=0 opts out)
+    if (!can_host_mobiles()) return;                                 // §S6/QA-2 + ★§B132: only an ELIGIBLE HOST answers probes — the SAME invariant as the J DISCOVER->OFFER + CLAIM sides, now shared as ONE accessor (node.h) instead of re-spelled. ⚠ The prior text here asserted it was the "SAME gate" as the OFFER and it WAS — both spelled `is_mobile || !host_mobiles` and both omitted the gateway clause, so the identical defect existed at two sites.
     if (_node_id == 0) return;                                       // §S6/QA-1: mid-join/unprovisioned (reset_join_for_reprovision set_identity(0)) — do NOT re-accept registry state mid-transition. SAME predicate as the mobile-OFFER suspend (node_join DISCOVER), NOT _joined (a pinned host keeps _joined==false forever).
     auto p = parse_p_probe(std::span<const uint8_t>(frame, len));
     if (!p) return;
@@ -595,6 +596,31 @@ void Node::presence_ingest_probe(const uint8_t* frame, size_t len, const RxMeta&
     // a check probe for a hash we don't host -> ignore
 }
 
+// ★★ §B132b — the ONE cleanup for "this node must not act as a mobile HOME": drop every leaf's PENDING host
+// transmission and cancel the timer that would fire it. Two callers, deliberately: `on_init`'s gateway force-off
+// (C3 hygiene) and the OFFER timer's own eligibility re-check (the guarantee) — one spelling so they cannot drift.
+//
+// ⚠ PER-LEAF, NOT `_active`: the OFFER stash and the roster coalesce/echo state live in LayerState and a GATEWAY OWNS
+// TWO of them, so a frame staged while the other leaf was active would otherwise survive and be fired later (jtx_fire
+// reads `_active->_pending_offer`, and which leaf is active at fire time is a scheduling accident).
+//
+// ⓘ WHAT IS *NOT* HERE, and why: `_mobile_reg` / `_notify_pending` / `_mobile_snr_q4` are cleared by `on_init` itself
+// (that is registry state, not a pending transmission), and the roster has no equivalent of the OFFER's boundary hole —
+// `presence_emit_roster()` already re-checks `can_host_mobiles()` AT THE EMIT, which IS its transmission boundary, so
+// clearing `_roster_coalesce_pending` here is hygiene (a stale window flag) and never the thing that suppresses a
+// roster. The OFFER had no such check, which is exactly the difference this function exists for.
+void Node::mobile_host_pending_clear() {
+    for (uint8_t li = 0; li < MR_N_LAYERS; ++li) {
+        _layers[li]._pending_offer_len       = 0;   // the jtx "armed" flag IS the length -> 0 makes a later jtx_fire a no-op
+        _layers[li]._roster_coalesce_pending = false;
+        _layers[li]._roster_echo_pending     = false;
+    }
+    // Idempotent per the Hal contract (hal.h). ⚠ NOT load-bearing for a test: TestHal::cancel() is a NO-OP, so a
+    // native case must FIRE the timer and assert the absent frame on the wire rather than trust the cancel.
+    _hal.cancel(kMobileOfferBackoffTimerId);
+    _hal.cancel(kPresenceRosterTimerId);
+}
+
 // Arm the coalesce timer so a burst of probes -> ONE roster; obey the rate-limit floor (spoof/burst).
 void Node::presence_schedule_roster() {
     if (_active->_roster_coalesce_pending) return;                            // one window already open
@@ -624,6 +650,7 @@ void Node::presence_mark_deleg_fail(uint32_t mobile_hash) {
 }
 
 void Node::presence_emit_roster() {
+    if (!can_host_mobiles()) return;                                 // ★ §B132: a roster ADVERTISES "I am the home of these mobiles" — an ineligible node must never emit one. Gated HERE because this is the single choke point for all SIX schedule paths (evict_aliased_hosted_mobile, the CLAIM record, the two presence_ingest_probe answers, presence_mark_deleg_fail, presence_roster_fire), so no future caller can route around the invariant. Inert for an eligible host by construction.
     if (_node_id == 0) return;                                       // §S6/QA-1: never broadcast a roster with home_id=0 garbage while mid-join/unprovisioned (SAME suspend as the OFFER gate)
     if (_active->_mobile_reg_n == 0 && !_active->_roster_echo_pending) return;   // §S6 rev2: an EMPTY home still answers a searching-probe canvass (echo only)
     PRosterEntry ents[protocol::cap_host_mobiles];

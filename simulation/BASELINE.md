@@ -1,6 +1,177 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # Delivery baseline suite — the result-comparison gate
 
+**★★★★★★★★★★★★★★★★★★★★★★ 2026-08-06 §B132b — THE §B132 SLICE BELOW WAS RIGHT ABOUT THE PREDICATE AND WRONG ABOUT WHERE THE FRAME LEAVES. ★★★ THE HEADLINE: THE OFFER IS **NOT TRANSMITTED WHERE IT IS DECIDED** — `jtx_stash_arm` holds it for a 100..1000 ms de-storm jitter and `kMobileOfferBackoffTimerId` fired it **with no eligibility re-check**, so a staged OFFER survived the ineligibility and went out. ⛔⛔ AND THE SECOND HEADLINE IS WORSE THAN THE FIRST: **`MR_EMIT("mobile_offer_tx")` IS EMITTED *BEFORE* THE STASH — ITS OWN COMMENT SAYS "the OFFER is committed" — SO EVERY ONE OF MY SEVEN §B132 CASES ASSERTED *COMMITTED* AND READ IT AS *TRANSMITTED*. Not one fired timer 80 or looked at `hal.tx_frames`, so not one could tell "an OFFER went out" from "an OFFER was staged and then correctly suppressed" — the entire question. THAT IS THE FOURTH INSTANCE IN THIS PROJECT OF ONE SHAPE: A CONTRACT EVENT ASSERTING A PHYSICAL ACT, REACHABLE FROM A PATH THAT TRANSMITTED NOTHING** (after `emit_hash_query`, `tx_initiating`, `tx_with_retry`/`DeviceHal::tx`). ⇒ **thirteenth and fourteenth instruments in this arc that could not have failed, and this time the twelfth's own author wrote them.**
+
+### WHAT LANDED (§B132b) — one boundary re-check, one shared cleanup, five cases that assert the WIRE
+
+**MODIFIED (3 source, 1 test):** `lib/core/node.cpp` (the `kMobileOfferBackoffTimerId` arm re-checks `can_host_mobiles()` and DROPS the stash; `on_init`'s gateway block calls the new cleanup), `lib/core/node_join.cpp` (+`Node::mobile_host_pending_clear()`), `lib/core/node.h` (its declaration), `test/test_node_join.cpp` (+5 cases, +2 helpers, and **`§B132/3` REWRITTEN** to reach its state through a real REFUSED `on_init` instead of two `mutable_config()` pokes). **DOCS:** this file, `docs/2026-07-30-open-bug-register.md` (**B132 REOPENED AND RE-CLOSED IN PLACE — one entry, not two, per M1**), `docs/2026-07-31-bench-test-script.md` (Part 10's header note only — see the M2 disposition below). ⛔ **NOTHING ELSE** — no `platformio.ini`, no scenario, no `variants/`, no probe logic, no `src/`, no spec, no plan, no `CLAUDE.md`, and the owner's own bench ticks in `docs/2026-08-04-heltec-v3-oled-ui-bench-guide.md` were **not touched**. **UNCOMMITTED (D4).**
+
+```
+case kMobileOfferBackoffTimerId:
+    if (!can_host_mobiles()) { mobile_host_pending_clear(); break; }   // ★ the TRANSMISSION boundary is a DECISION SITE
+    jtx_fire(_active->_pending_offer, _active->_pending_offer_len);
+```
+
+★★ **THE IRONY WORTH KEEPING:** `node.cpp`'s own cleanup comment already read *"NOT a substitute for `can_host_mobiles()` at the decision sites"*. The author (me) understood per-site re-checking and **did not count the TIMER FIRE as a decision site.** It is one — it is the moment the frame actually leaves. ⇒ **enumerate decision sites by asking "where does the frame leave?", not "where is the frame built?".**
+
+**`mobile_host_pending_clear()` (U1, one spelling, two callers).** Every leaf's `_pending_offer_len`, `_roster_coalesce_pending`, `_roster_echo_pending`, plus `cancel()` on timers 79 and 80. ⚠ **PER-LEAF, NOT `_active`** — the stash lives in `LayerState`, **a gateway owns two**, and `jtx_fire` reads whichever leaf happens to be active at fire time. ⇒ **the `on_init` cleanup is HYGIENE; the boundary re-check is the GUARANTEE.** ⚠ **`Hal::cancel` can carry NO assertion here: `TestHalBase::cancel()` is a NO-OP.** Every case fires the timer and reads the wire instead.
+
+ⓘ **THE ROSTER NEEDS NO EQUIVALENT — VERIFIED, NOT ASSUMED** (the brief asked): `presence_emit_roster()` **already** calls `can_host_mobiles()` **at the emit**, and for the roster the emit *is* the transmission boundary (`presence_roster_fire` → `presence_emit_roster` → `tx`). The OFFER had no such check — that asymmetry is precisely what this half repairs. Clearing the two roster flags is therefore hygiene and is never what suppresses a roster.
+
+### ★★ REACHABILITY — I CORRECTED THE BRIEF, AND MY OWN FIRST READING, BY MEASUREMENT
+
+⛔ **The gateway transition as worded ("become a gateway during the jitter interval") is NOT reachable on a device.** `is_gateway` is derived in `on_init` **only**, and `cfg set n_layers` is `live = false` — `src/firmware_config.cpp:352`, reply *"ok (reboot to apply)"*. ⇒ becoming a gateway means a **REBOOT**, hence a fresh Node with an already-empty `LayerState`. **What IS reachable with no reboot are two LIVE knobs:**
+- **`cfg set mobile 1`** — live (`lc.is_mobile = …`, `live` left true). `role_set_refusal`'s O2 clause refuses a promotion only while `mobile_reg_count() != 0`, and **a STAGED OFFER IS NOT A HOSTED MOBILE**, so the guard does not see it.
+- **`cfg set host_mobiles off`** — the B3 opt-out, `persist = false`, live.
+
+Either flips eligibility inside the 100..1000 ms window, after which the node advertises itself as a home it no longer is. ⇒ **the hole is live and real; the `on_init` cleanup is defence-in-depth** (a re-init, or any inconsistent runtime state) **and is credited as such, not as the fix.** ★ Both halves are attributed **separately** below rather than banked together — which is the whole cure for the masking the §B132 note beneath this one confesses to.
+
+### ★★★ THE MUTATION MATRIX — 4 MUTATIONS, AND **NEITHER DEFENCE MASKS THE OTHER**
+
+Applied by exact unique string replacement (the harness **aborts** if a replacement matched 0 or >1 sites, so a mutation can never silently be a no-op); full rebuild + run each, then reverted. ★ **Each defence is measured RED with the OTHER ONE STILL IN PLACE** — stronger than the brief's "measure with the other disabled", and it is what proves the pair is not a green vacuous couple.
+
+| mutation | result | which case, and why only that one |
+|---|---|---|
+| **M1** remove the **timer-boundary re-check** (cleanup KEPT) | **RED 1 case / 1 assert** | `§B132b/3` — the **refused-`on_init`** state: `on_init` returns before every clear, so the stash is provably still armed and the cleanup demonstrably did not run ⇒ only the boundary re-check can produce the zero |
+| **M2** remove the **`on_init` cleanup** (boundary re-check KEPT) | **RED 1 case / 1 assert** | `§B132b/4` — the node is **eligible again** at fire time, so the re-check *passes* and is inert ⇒ only the cleanup can produce the zero |
+| **M3** remove **BOTH** (the pre-§B132b state) | **RED 3 cases / 5 asserts** | `§B132b/1`, `/3`, `/4` |
+| **M4** boundary re-check **always** suppresses (vacuity control) | **RED 1 case / 3 asserts** | `§B132b/2` **POSITIVE CONTROL** — proves timer 80 really does put a parsed J OFFER on the wire, so every "0 offers" assertion above is a measurement and not a build that transmits nothing |
+
+⛔ **EVERY NEW CASE ASSERTS THE PARSED J OFFER IN `hal.tx_frames`; the event appears only as a premise** — and `§B132b/1` pins the distinction itself, asserting `mobile_offer_tx == 1` **and** `count_j_offer_mobile(tx_frames) == 0` **in the same breath**, so the staging-vs-transmission gap is now a permanent, named test rather than a lesson in a doc.
+
+⚠ **`§B132/3` WAS REWRITTEN, NOT DELETED, AND THE REASON IS A TRAP:** the brief's item 6 asked that the transition test call the real `on_init`. A **successful** one now **clears the registry** — which would put `presence_emit_roster` back behind its own `_mobile_reg_n == 0` early-out and **re-create round 1's exact vacuity**. So `/3` now reaches its live-hosted-entry state through a real **REFUSED** `on_init` (registry-preserving, and the state the `n_layers == 1` clause exists for), and the **successful** path's cleanup is asserted by its own case, `§B132b/5` (`mobile_reg_count() == 0` after a real gateway init). ⇒ **the two properties are mutually exclusive in one node; they need two cases, and item 6 is satisfied by the pair.**
+
+### THE GATE (D1) — every number a build+run on a STABLE tree, with object counts
+
+| check | result |
+|---|---|
+| `pio test -e native` + **RUN the binary** | **1385 / 74126 / 0 failed** (baseline 1380 / 74084 ⇒ **+5 cases, +42 assertions**), `grep -c "error:"` = **0**, no new warnings ⚠ the wrapper's *"0 test cases"* is the known lie; the binary is the only truth |
+| **s18 keystone** | ★ **`1cd21235` / 271629 EXACT**, 0 assertion failures — the static-plane inertness proof HELD (both changes are no-ops for an eligible host **by construction**, and the boundary re-check adds **no `rand_range` draw**, so the sim's shared-RNG draw order is untouched) |
+| **36/36 corpus** | ★ **byte-identical, 0 movers, 0 assertion failures in any of the 36** — machine-compared row by row against this file's `^### 36/36 corpus` anchor table (36 rows vs 36 rows); failure counts read with `2>&1` because `lus` prints them to **stderr** |
+| `lus` recompiled? | ★ **CONTROL FIRED: 34 `Building CXX`/`Linking CXX` actions**, md5 **`1ef0b153` → `f8100ee5`** ⇒ the fix really is in the binary that produced the 36 identical streams |
+| `sizeof(Node)` | **221088 UNMOVED** — no member added, so `node.h`'s `static_assert` is the proof (native compiled clean ⇒ it held). **RAM confirms it independently.** D2's full treatment is **not owed and is not claimed** |
+| board envs (from **DELETED** object dirs) | **5/5 rc=0**: `gateway` **283** objs · `xiao_sx1262` **283** · `xiao_esp32s3` **193** · `heltec_v3` **326** · `heltec_mobile` **326**; `error:` **0** and `-Wswitch` **0** on every one |
+| `tools/warning_census.sh` | **PASS rc=0** — `gateway_heltec` **174/174**, `heltec_mobile` **178/178**, `heltec_v3` **178/178**, all at **326 objects**, `-Wswitch` **0**. ★ **pins UNMOVED; nothing re-pinned** |
+| `probe_board_ui` | **68 / 13 structural / 13 wiring**, 0 failed; **23 controls run, 19 verified RED**; "real source verified UNCHANGED" |
+| `probe_firmware_ui` | **31 / 0 failed**; **17 controls verified, 0 unusable**; coverage 26 of 31; PASS |
+
+**RAM — BYTE-EXACT on all six, i.e. the fix costs ZERO state:** `gateway` **194028** · `xiao_sx1262` **169108** · `xiao_esp32s3` **213260** · `heltec_v3` **214668** · `heltec_mobile` **214188** · `gateway_heltec` **239588** (census). ★ Every one reproduces the §B132 note's figures to the byte — an independent corroboration of `sizeof(Node)` 221088.
+
+**FLASH — small and uniformly positive, unlike §B132's split-by-architecture result:** `gateway` 470836 → **470948 (+112 B)** · `xiao_sx1262` 516196 → **516292 (+96 B)** · `xiao_esp32s3` 1209188 → **1209292 (+104 B)** · `heltec_v3` 1263560 → **1263664 (+104 B)** · `heltec_mobile` 1257136 → **1257240 (+104 B)** · `gateway_heltec` 1233028 → **1233168 (+140 B)** (census). ⇒ one out-of-line function plus two comparisons; **nothing re-pinned.**
+
+### ⛔⛔ THE CORPUS IS STILL BLIND — RE-MEASURED THIS ROUND, NOT QUOTED
+
+The §B132 note established this by argument from byte-identity. I re-measured it from **this round's** streams: in `s27` — still the only scenario pairing a gateway with mobiles — the gateway **G1 (sim index 5, `"is_gateway": true`) emits 0 `mobile_offer_tx` and 0 `presence_roster_tx`**, while **nine** single-layer nodes emit **11** and **33** (sim indices 0/2/3/4/6/9/10/11/16; the two totals sum exactly). **And no scenario can change a node's eligibility between stage and fire at all** — the sim has no console, so neither live knob exists in it, and `on_init` runs once per node. ⇒ **`36/36, 0 movers` is the CORRECT result and green corpus is NOT evidence for this class; the native regression is.** The scenario owed by §B132 (a gateway that is the strongest audible candidate for a mobile) is **still owed**, and ⚠ **it would still not cover the delayed-transmission half** — that needs a mid-jitter eligibility flip the sim cannot express.
+
+### M2 DISPOSITION — NO NEW BENCH STEP IS OWED, AND THAT IS A MEASUREMENT NOT A SHRUG
+
+Both changes are **pure `lib/core`** and are fully covered natively (five cases, four mutations). The two *reachable* triggers are LIVE console knobs whose **refusals are already bench-checked at Part 10.1**, and the window itself is a **100..1000 ms race no hand-typed bench procedure can reliably hit** — writing a step that cannot be executed would add a check that cannot fail, which is the exact defect this whole arc is about. ⇒ Part 10's header note is corrected in place (its case list said "six"; the group is now **12**) and **no new numbered entry was invented.**
+
+### PREMISES THAT TURNED OUT WRONG THIS ROUND — MINE AND THE BRIEF'S
+
+1. ⛔ **The brief's central scenario is not device-reachable as worded** (gateway transition = reboot ⇒ empty state). The hole is real but its live triggers are `cfg set mobile 1` / `cfg set host_mobiles off`. **The fix is unchanged; the attribution is not.**
+2. ⛔ **The brief expected the two defences to mask each other again** ("with cleanup in place, the boundary guard has nothing to suppress"). **Measured false:** the refused-`on_init` state defeats the cleanup and the eligible-again state defeats the re-check, so each is RED with the other **present**. Building those two states was the work.
+3. ⛔ **The brief's item 6 ("make the transition-cleanup test call real `on_init`") would have RE-BROKEN `§B132/3`** — a successful init clears the registry and restores the `_mobile_reg_n == 0` vacuity. Split into two cases instead.
+4. ⚠ **My own §B132 note called the corpus blindness the "second headline" and treated `0 movers` as fully explained.** It was — for the *predicate*. It said nothing about a **timer-delayed** transmission, which no scenario can express at all. The blindness is deeper than I recorded.
+
+---
+
+**★★★★★★★★★★★★★★★★★★★★ 2026-08-06 §B132 — A TIME-MULTIPLEXED GATEWAY COULD BECOME A MOBILE HOME. FIXED IN `lib/core` AS ONE SHARED PREDICATE AT FOUR SITES. ★★ THE HEADLINE IS NOT THE FIX — IT IS ONE LINE — IT IS THAT **MY FIRST VERSION OF THE SIX TESTS COULD NOT FAIL, AND THE MUTATION MATRIX IS THE ONLY REASON I KNOW THAT**: reverting BOTH gateway clauses to the pre-fix expression left EVERY gateway test GREEN, because `on_init` also forces `host_mobiles` off for a gateway, so `host_mobiles &&` short-circuits before the clauses are ever reached. ⇒ **THE TWO DEFENCES MASKED EACH OTHER.** That is the twelfth instrument in this arc that could not have failed, and the first one where the masking agent was *my own other fix*. ⛔ SECOND HEADLINE: **THE CORPUS IS STRUCTURALLY BLIND TO THIS DEFECT — measured, not assumed** — so `36/36 byte-identical, 0 movers` is the CORRECT result rather than luck, and a scenario that would regress it is now OWED.**
+
+### WHAT LANDED — one invariant, four consumers, and the C3 half
+
+**MODIFIED (4 source, 2 test):** `lib/core/node.h` (the accessor `can_host_mobiles()` + its rationale), `lib/core/node_join.cpp` (the OFFER gate replaced, **the CLAIM gate ADDED**, the probe gate replaced, **the roster-emit gate ADDED**), `lib/core/node.cpp` (`on_init`: force the effective `host_mobiles` off + clear hosted-mobile state on every leaf for an `is_gateway` node), `src/firmware_config.cpp` (`cfg set host_mobiles on` refuses on a gateway / on a mobile), `test/test_node_join.cpp` (+6 cases), `test/test_dual_layer.cpp` (+1 case). **DOCS:** this file, `docs/2026-07-30-open-bug-register.md` (**B132 CLOSED in place**), `docs/2026-07-31-bench-test-script.md` (**Part 10**, two entries). ⛔ **NOTHING ELSE** — no `platformio.ini`, no scenario, no `variants/`, no probe logic, no spec, no plan, no `CLAUDE.md`. **UNCOMMITTED (D4).**
+
+```
+can_host_mobiles() = _cfg.host_mobiles && !_cfg.is_mobile && !_cfg.is_gateway && _cfg.n_layers == 1
+```
+
+Consumed at **four** sites and never re-spelled (U1): `handle_j`'s DISCOVER→OFFER responder · **CLAIM acceptance, which previously had NO eligibility test at all** (only `chosen_host_id != _node_id`) · `presence_ingest_probe` · **`presence_emit_roster`**. The roster gate sits at the *emit*, not at each caller, because that one function is the choke point for **all six** roster-scheduling paths (`evict_aliased_hosted_mobile`, the CLAIM record, both `presence_ingest_probe` answers, `presence_mark_deleg_fail`, `presence_roster_fire`) — so no future caller can route around the invariant.
+
+### ★★ THE `is_gateway` / `n_layers` REDUNDANCY QUESTION — ANSWERED BY MEASUREMENT. BOTH CLAUSES KEPT; **THE BRIEF'S STATED REASON WAS WRONG**
+
+The brief and QA both flagged `!is_gateway` and `n_layers == 1` as near-redundant, and asked me to verify the identity in code rather than trust `node.h`'s comment. Verified (V1) — and the answer is more interesting than either party expected:
+
+1. **The identity is REAL but CONDITIONAL.** `lib/core/node.cpp` holds the single authoritative derivation `_cfg.is_gateway = (_cfg.n_layers == 2)`. It holds **after a SUCCESSFUL `on_init`** — and there **either clause alone suffices**, which is exactly why dropping just one stayed green (MUT-A/MUT-B below).
+2. ⛔ **THE BRIEF'S REASON FOR PREFERRING `n_layers == 1` IS FALSE.** It argued the clause "also excludes any `n_layers > 2`". It cannot: `on_init` **refuses** `cfg.n_layers > MR_N_LAYERS` outright, and `MR_N_LAYERS` is **only ever 1 or 2 anywhere in the tree** (`protocol_constants.h` defaults it to 1; `platformio.ini` sets 2 for `[env:native]` and `[gateway_flags]`). `n_layers > 2` is unreachable, so it is not what makes the clause load-bearing.
+3. ★★ **THE REAL REASON — THE REFUSED `on_init` PATH, WHICH IS REACHABLE *AND NON-FATAL*.** `_cfg = cfg` is assigned **before** `validate_gateway_layers`' early return, while the `is_gateway` derivation **and** the new force-off are **after** it. And `src/fw_main.cpp` merely prints `config = REFUSED (invalid layer config — node NOT operational)` **and keeps running the node** — the message asserts "NOT operational" but nothing stops the receive path. So a dual-layer config that fails validation sits at **`n_layers == 2` with `is_gateway` carrying whatever the caller supplied** — on the device a **separately persisted NV byte** (`cfg.is_gateway = nv.is_gateway`, distinct from `nv.n_layers`), hence legitimately `false`. **In that state `!is_gateway` PASSES and only `n_layers == 1` refuses.**
+4. ⇒ **`n_layers == 1` is the strictly stronger, load-bearing clause. `!is_gateway` is kept because it is the field every other gateway site reads.** Both are documented at the accessor, and **§B132/6 asserts each in the state that ISOLATES it**, so neither can later be deleted as dead weight (F4's `team_id != 0` lesson).
+5. ⚠ **AND IT MUST READ `_cfg.n_layers`, NOT THE RUNTIME `_n_layers`** — the latter's write (`_n_layers = _cfg.n_layers`) is *also* after the early return, so on the refused path it reads **1** and would **wrongly pass**. Getting this wrong would have reintroduced the defect in the one state the clause exists for.
+
+### ★★★ THE MUTATION MATRIX — 12 MUTATIONS, EVERY CLAUSE AND EVERY SITE RED. ROUND 1 IS REPORTED BECAUSE IT IS THE FINDING
+
+Applied by exact unique string replacement (the harness **aborts** if a replacement matched 0 or >1 sites, so a mutation can never silently be a no-op), full rebuild + run each, then reverted.
+
+| mutation | ROUND 1 (first test version) | ROUND 2 (shipped tests) |
+|---|---|---|
+| **A** drop `!is_gateway` | ⛔ **GREEN — could not fail** | **RED** §B132/6 |
+| **B** drop `n_layers == 1` | ⛔ **GREEN — could not fail** | **RED** §B132/6 |
+| **C** drop BOTH (= the pre-fix expression) | ⛔ **GREEN — could not fail** | **RED** 5 cases / 15 assertions (§B132/1,2,3,5,6) |
+| **D** drop `host_mobiles` (B3 opt-out) | RED §B132/4 | **RED** §B132/4 |
+| **E** drop `!is_mobile` | ⛔ **GREEN — a PRE-EXISTING hole** | **RED** §B132/4(e) |
+| **F** hard-wire `false` (vacuity check) | RED 3 | **RED 17 cases = 4 §B132 + 13 PRE-EXISTING hosting cases** |
+| **G** hard-wire `true` | RED 5 | **RED all 7 §B132 cases** |
+| **H** remove the CLAIM gate ← *tempting wrong fix #1* | RED §B132/2 | **RED §B132/2 only** |
+| **I** remove the OFFER gate ← *tempting wrong fix #2* | RED 4 | **RED 5 cases** |
+| **J** remove the presence-probe gate | ⛔ **GREEN — could not fail** | **RED** §B132/3 |
+| **K** remove the roster-emit gate | ⛔ **GREEN — could not fail** | **RED** §B132/3 |
+| **L** remove the `on_init` force-off + clear (C3) | RED 2 | **RED 4 cases** |
+
+**WHY ROUND 1 WAS VACUOUS, and the two distinct causes — both worth carrying forward:**
+- **A/B/C:** `on_init` forces `host_mobiles = false` on a gateway, so `host_mobiles &&` short-circuits and the gateway clauses are dead code in any "normally initialised gateway" test. **CURE:** every gateway test now FORCES `host_mobiles` back **on** after `on_init` (`init_gateway_hostile()`), making the clauses the only remaining defence — which is *also* the register's gate item 6 ("`cfg set host_mobiles on` cannot make a gateway eligible"), so the cure and a required property are the same test.
+- **J/K:** with an EMPTY registry, `presence_ingest_probe` finds no entry and `presence_emit_roster` returns at its own `_mobile_reg_n == 0` early-out — **both emit nothing with or without the fix.** Asserting a zero there measures nothing. **CURE:** §B132/3 drives a **role transition** (host the mobile as a legitimate static node, *then* become a gateway), which leaves a **genuine hosted entry** in place so the two gates are the only thing suppressing the probe answer and the roster. ⓘ That is also precisely the register's "a transition into gateway role must clear any hosted-mobile runtime state".
+- **A/B additionally cannot be separated by ANY normally-inited gateway** (see the redundancy section) ⇒ §B132/6 constructs the two isolating states, one of them **through `on_init` itself** (an invalid gateway config), so it is the real refused path and not a hand-built fiction.
+
+### THE GATE (D1) — every number a build+run on a STABLE tree, with object counts
+
+| check | result |
+|---|---|
+| `pio test -e native` + **RUN the binary** | **1380 / 74084 / 0 failed** (baseline 1373 / 74023 ⇒ **+7 cases, +61 assertions**), **60 objects / 32 test objects**, `grep -c "error:"` = **0** ⚠ the wrapper's *"0 test cases"* is the known lie; the binary is the only truth |
+| **s18 keystone** | ★ **`1cd21235` / 271629 EXACT**, 0 assertion failures — **the static-plane inertness proof HELD** |
+| **36/36 corpus** | ★ **byte-identical, 0 movers, 0 assertion failures in any of the 36** (failure counts read with `2>&1` — `lus` prints them to **stderr**). Baseline captured EMPIRICALLY before the change and **reproduced this file's own 36-row table exactly**, so the comparison is against a measurement, not a quotation |
+| `lus` recompiled? | ★ **CONTROL FIRED: 34 `Building CXX`/`Linking CXX` actions**, md5 **`8cb1f0f5` → `1ef0b153`** ⇒ the fix really is in the simulator binary that produced the 36 identical streams |
+| board envs (from **DELETED** object dirs — `touch` is a no-op for PlatformIO) | **5/5 rc=0**: `gateway` **283** objs · `xiao_sx1262` **283** · `xiao_esp32s3` **193** · `heltec_v3` **326** · `heltec_mobile` **326**; `error:` **0** and `-Wswitch` **0** on every one |
+| `tools/warning_census.sh` | **PASS rc=0** — `gateway_heltec` **174/174**, `heltec_mobile` **178/178**, `heltec_v3` **178/178**, all at **326 objects**, `-Wswitch` **0**. ★ **pins UNMOVED; nothing re-pinned** |
+| `probe_board_ui` | **68 / 13 structural / 13 wiring**, 0 failed; **23 controls run, 19 verified RED**; "real source verified UNCHANGED" |
+| `probe_firmware_ui` | **31 / 0 failed**; **17 controls verified, 0 unusable**; PASS |
+| `sizeof(Node)` | **221088 UNMOVED** — no member added, so the existing `static_assert` in `node.h` is the proof: native compiled clean ⇒ it held. **RAM confirms it independently (below).** D2's full treatment (`-Wreorder`, ten envs, per-board RAM diff) is therefore **not owed, and is not claimed** |
+
+**RAM — EXACT on all five, i.e. the invariant costs ZERO state:** `gateway` **194028** · `xiao_sx1262` **169108** · `xiao_esp32s3` **213260** · `heltec_v3` **214668** · `heltec_mobile` **214188** · `gateway_heltec` **239588** (census). ★ Every one reproduces this file's recorded reference **to the byte**. ⓘ The brief's three RAM pins `214668 / 214188 / 239588` are `heltec_v3` / `heltec_mobile` / **`gateway_heltec`** — the third is a *census* env, not one of the five board builds; all six matched.
+
+**FLASH — and it moves in OPPOSITE DIRECTIONS by architecture, measured not reasoned:** `gateway` 470964 → **470836 (−128 B)** · `xiao_sx1262` 516228 → **516196 (−32 B)** · `xiao_esp32s3` 1208744 → **1209188 (+444 B)** · `heltec_v3` 1263132 → **1263560 (+428 B)** · `heltec_mobile` 1256700 → **1257136 (+436 B)** · `gateway_heltec` 1232524 → **1233028 (+504 B)**. ⇒ the two **nRF52/ARM** builds SHRANK and the four **ESP32/Xtensa** builds grew. ★ The `xiao_sx1262` delta is a **marker-verified A/B on this exact tree** (fix present: `can_host_mobiles` ×4 in `node_join.cpp` + ×1 in `node.h` → 516196; stashed away: ×0/×0 → 516228), and arm B **reproduces this file's recorded reference exactly**, which is what licenses reading the other four envs' deltas off the recorded references.
+
+### ⛔⛔ THE CORPUS IS BLIND TO THIS DEFECT — MEASURED. THE 0-MOVER RESULT IS CORRECT, NOT LUCK
+
+The brief expected the mobile/gateway scenarios to move and told me to name and explain every mover. **Nothing moved, so the obligation becomes explaining the zero — and the zero is a finding, not an absence of one.**
+
+- **Derived digit-safely across all 37 scenario files, not assumed: `s27_cross_layer_mobiles_meshroute` is the ONLY scenario that pairs a gateway with mobiles.** Every other is gateway-only (`s09`/`s09_metal`/`s10`/`s15`/`s15_metal`/`s16`/`s31`/`s32`/`s33` — no mobile exists, nothing to host) or mobile-only (`s07`/`s21`/`s22`/`s23`/`s24`/`s25`/`s26`/`s28`/`s29`/`s30`/`s34`/`s35a`/`s37`/`s38` — no gateway exists, so the two new clauses are provable no-ops) or neither.
+- **In s27 the gateway G1 emits 0 `mobile_offer_tx` and 0 `presence_roster_tx`**, while the nine single-layer static/team nodes emit **11** and **33**. ★ **Because all 36 streams are byte-identical across this fix, that count IS the pre-fix count** — the stream identity is itself the proof, so no pre-fix rebuild was needed to establish it.
+- **G1 is NOT an inert node** — 436 events; it beacons, bridges (`xl_bridge` ×10), carries DATA, and *does* serve the mobile plane (`mobile_layer_answer` ×5, `mobile_home_cached` ×6, `xl_mobile_resolved` ×7). ⇒ the scenario simply never lets a gateway win a home. ⓘ 11 `mobile_no_host` events show DISCOVERs going unanswered, i.e. the topology/duty-window shape is what keeps G1 out of the running; **I did not isolate which of those two it is, and do not claim to.**
+- ⇒ **This defect was NEVER reachable by any simulator run, which is why it took the owner's bench to find it.** ★ **OWED, and explicitly not fixed here (C1 — a new scenario is not this slice):** a corpus scenario in which a **gateway is the strongest audible candidate** for a mobile. Until one exists, **no simulator run can regress B132** and the seven native cases are the only automated defence.
+
+### ⛔ PREMISES THAT TURNED OUT WRONG — nine, and FOUR are the dispatch brief's own
+
+1. ⛔ **The brief: "Register as B132 (verify the next free id)."** **B132 was ALREADY OPEN** in the register for exactly this defect — owner-filed, with the metal evidence (`hosted-mobiles n=1`, `hash=0xF7C0F666 local_id=254 pubkey=yes`, mobile `REGISTERED home=5`), a five-row site table and a **seven**-item required gate. ⇒ the correct action was to **CLOSE it in place, not open a duplicate**. **Verifying the id is what caught this**; taking "next free id" at face value would have produced a second entry for one bug.
+2. ⛔ **The brief: HEAD `1fdcfc4`.** The tree is at **`7f05ce9` "task 8 and 9"** — `1fdcfc4` is an ancestor (verified with `merge-base --is-ancestor`). The Tasks 8/9 work the brief described as *uncommitted* had been **committed by the owner** before I started.
+3. ⛔ **The brief's reason for `n_layers == 1` being stronger ("it also excludes any `n_layers > 2`") is FALSE** — `n_layers > MR_N_LAYERS` is refused by `on_init` and `MR_N_LAYERS ∈ {1,2}` tree-wide. The clause *is* stronger, for an entirely different and much more interesting reason (the refused-`on_init` path). **Right conclusion, wrong mechanism** — and the wrong mechanism would have justified deleting the clause the moment someone noticed `> 2` was unreachable.
+4. ⛔ **The brief: "five tests are yours, the sixth is the owner's."** The register specifies **seven** items, and its item 6 (`cfg set host_mobiles on` must not make a gateway eligible) **has no automated coverage available at all**: `src/firmware_config.cpp` is **not in the native build** (`[env:native]` uses `build_src_filter = +<sim_main.cpp> -<fw_main.cpp>` and never compiles `src/`). ⇒ it became **bench entry 10.1**, and its *core* half became native case **§B132/6** plus the forced-on premise in every gateway test. I shipped **7** native cases, not 5.
+5. ⛔ **MINE, and the worst one: my first six tests could not fail.** Documented in full above. Reverting the entire fix left them green.
+6. ⛔ **MINE: I predicted s27 would move** and said so before measuring. It did not, for the measured reason above.
+7. ⛔ **MINE: my own mutation harness's column labels were wrong** — one column reported failed **cases**, the other failed **assertions** (`\| [0-9]+ failed` matched the assertions line because the cases line is double-spaced). It surfaced as an unexplained "15 failures vs 5 tests". **Investigated rather than reported**: all 15 were B132 *assertions*; **zero pre-existing cases** ever failed under MUT-C. ★ A number I could not explain was the signal.
+8. ⛔ **MINE: one board-measurement set was invalidated mid-flight and I nearly reported it.** The first 5-env build was running in the background while I applied MUT-C/MUT-F to `node.h` for the failing-case analysis ⇒ some envs compiled against a **mutated** header. Caught by a 32-byte flash disagreement on `xiao_sx1262` between two supposedly identical builds. **Every board number above is from a full re-run on a stable tree with nothing touching `lib/` during it.** A second stray reading (516228 immediately after `git stash pop`, i.e. the *pre-fix* value from a post-fix tree) is discounted as a PlatformIO mtime/staleness artefact — which is exactly why the final delta is a **marker-verified** A/B rather than two bare numbers.
+9. ⛔ **`MR_FEAT_MOBILE_HOST` is still `1` on gateway builds** (`mr_features.h`: *"flips to 0 in slice 3, once its boundary exists"* — deferred). So the mobile-host code **is** compiled into gateway firmware and **C3 inertness had to be achieved at RUNTIME** (the forced-off effective value + the per-site invariant), not by the compile-time strip the phrasing might suggest. Compiling it out remains a separate memory/architecture slice, as the register already states.
+
+### M2 — THE BENCH HALF (the two items no automated gate can reach)
+
+`docs/2026-07-31-bench-test-script.md` **Part 10**, and it states up front what the host gate already covers so it stays residue rather than a re-test of the corpus:
+- **10.1 — a gateway refuses `cfg set host_mobiles on`.** The only check that exists for a file with **zero** automated coverage. Exact expected refusal line, `host_mobiles=0` before and after, **four distinct failure shapes** (incl. the dangerous one: `> cfg ok` with the core still refusing ⇒ the dump lies), and a **negative control on a single-layer static node** (`off`→ok→`on`→ok) so the entry cannot pass on a node that refuses everything.
+- **10.2 — the owner's case: the mobile detects home loss and re-registers with an always-on static node.** ★ Must be run on a mobile **already registered to the gateway from the pre-fix firmware**, with the before-state recorded verbatim. Expects gateway `hosted-mobiles n=0` forever, mobile `REGISTERED home=<static id>` (not 5), the static node holding the **same hash**, and then **5 by-hash DMs at ~30 s spacing** — ★★ **because the pre-fix gateway home already worked whenever a send happened to align with its 7.5 s window, so a single success proves nothing and 5-of-5 through a continuously-present home is the actual property.** Five distinct failure shapes, including the one that means the fix failed (`hosted-mobiles n=1` reappearing) and two that are explicitly **rig faults, not this defect**.
+
+### ⚠ TREE OVERLAP — REPORTED, NOT RESOLVED (per instruction)
+
+`docs/2026-08-04-heltec-v3-oled-ui-bench-guide.md` became modified **during** this session by work that is not mine: five `H6-03` checkboxes flipped `[ ]` → `[x]` (blank/wake bench results). That is the **owner's parallel bench activity**. ⛔ **I did not touch it, did not revert it, and did not incorporate it.** `docs/2026-07-31-bench-test-script.md` was already modified at session start; my Part 10 is a pure **append before `## Completion record`** — **insert, never reflow**. ⛔ No `git add`, no `git commit`, and `git checkout --` never used (D4).
+
 **★★★★★★★★★★★★★★★★★★★★ 2026-08-06 §B130 — THE AUTHORITATIVE DESIGN SPEC WAS THE ONE ARTEFACT THE WHOLE ARC'S CORRECTIONS NEVER REACHED, AND THE INSTRUCTION *"⛔ DO NOT EDIT THE SPEC — REPORT NEEDED CHANGES"* IS WHAT ALLOWED IT. EVERY SLICE OBEYED CORRECTLY ⇒ THE FIXES LANDED IN THE CODE, THE REGISTER, THE PLAN, THE BENCH GUIDE AND THE LEDGER — EVERYWHERE EXCEPT THE DOCUMENT THAT OUTRANKS THEM ALL. ★ THE RULE THIS MUST BECOME: THE SLICE THAT *MEASURES* A SPEC'S DRIFT CORRECTS IT FACT-ONLY, IN PLACE, IN THE SAME SLICE — "report it" IS NOT A CORRECTION, BECAUSE A READER ACTS ON THE INSTRUCTION, NOT ON THE REPORT.**
 
 ### DOCUMENTATION-ONLY. NO BUILD GATE IS OWED, AND NONE WAS INVENTED

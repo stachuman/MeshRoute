@@ -6393,3 +6393,53 @@ TEST_CASE("§AB4 retained location is NODE-GLOBAL: both leaves see one position 
     //   cache gives the OPPOSITE answer. Without this the test would also pass if activate() were a no-op.
     CHECK(node.peer_key_count() == 0);
 }
+
+// ============================================================================
+// ★ §B132/1b — A GATEWAY OFFERS NO MOBILE HOME ON *EITHER* LEAF.
+// The companion of test_node_join.cpp's §B132/1: this file owns DualLayerTestAccess, so it can perform the REAL
+// leaf swap instead of asserting the single-leaf case twice. THE POINT: a mobile DISCOVER is LEAF-EXEMPT on the
+// host side (node_join handle_j `mobile_exempt`), so it reaches the OFFER decision no matter which leaf is
+// active — which is how a gateway came to offer a home on a leaf it was not even serving at the time. Eligibility
+// is a NODE property (Node::can_host_mobiles), and this proves it holds on both halves of the schedule.
+// ============================================================================
+TEST_CASE("★ §B132/1b — a GATEWAY emits NO mobile OFFER with EITHER leaf active (real leaf swap)") {
+    StubHal hal;
+    Node gw(hal, /*id=*/5, /*key=*/0x0005u);                     // the bench's gateway identity 5
+    NodeConfig cfg;
+    cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(/*layer_id*/ 4, /*sf*/ 8);        // leaf 4 — the mobile's leaf
+    cfg.layers[1] = good_layer(/*layer_id*/ 7, /*sf*/ 8);        // leaf 7 — where it vanishes for half the period
+    // ★ node_id on BOTH layers, or activate_layer stamps _node_id = 0 and the `_node_id == 0` mid-join suspend
+    // masks the eligibility gate — i.e. the test would pass without the fix. Found by the premise CHECK below.
+    cfg.layers[0].node_id = 5; cfg.layers[1].node_id = 5;
+    CHECK(gw.on_init(cfg));
+    // Premises, so a pass cannot come from the wrong cause:
+    CHECK(gw.config().is_gateway);                               // DERIVED from n_layers==2 by on_init
+    CHECK(gw.config().n_layers == 2);
+    CHECK_FALSE(gw.config().host_mobiles);                       // ★ C3: forced OFF at init, so `cfg` reports the truth
+    CHECK_FALSE(gw.can_host_mobiles());
+    CHECK(gw.node_id() != 0);                                    // NOT the `_node_id == 0` suspend
+
+    // The mobile DISCOVER, on the mobile's leaf (4).
+    j_discover_in d{}; d.leaf_id = 4; d.is_mobile = true; d.key_hash32 = 0xD1D1u;
+    uint8_t db[13]; const size_t dn = pack_j_discover(d, db);
+
+    for (uint8_t leaf = 0; leaf < 2; ++leaf) {
+        DualLayerTestAccess::set_active(gw, leaf);
+        hal.emits.clear();
+        gw.on_recv(db, dn, RxMeta{9.0f, -70.0f, 0, static_cast<int8_t>(-1)});
+        CHECK_FALSE(hal.saw_emit("mobile_offer_tx"));            // ★ silent on leaf 4 AND on leaf 7
+    }
+
+    // ★ THE POSITIVE CONTROL IN THIS FILE TOO — otherwise the loop above would pass on a node that cannot
+    // receive the frame at all (a wrong leaf filter, a bad DISCOVER encoding, a dead on_recv path). A
+    // SINGLE-LAYER node on leaf 4 given the BYTE-IDENTICAL frame must answer.
+    {
+        StubHal h2; Node stat(h2, /*id=*/42, /*key=*/0x4242u);
+        NodeConfig sc; sc.routing_sf = 8; sc.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); sc.leaf_id = 4;
+        CHECK(stat.on_init(sc));
+        CHECK(stat.can_host_mobiles());
+        stat.on_recv(db, dn, RxMeta{9.0f, -70.0f, 0, static_cast<int8_t>(-1)});
+        CHECK(h2.saw_emit("mobile_offer_tx"));                   // ★ the frame IS well-formed and the path IS live
+    }
+}

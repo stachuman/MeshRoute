@@ -129,6 +129,7 @@ Legend:
 - [x] **B129 — ✅ FIXED 2026-08-06 (independent QA):** the plan's **Task 9 Step 1** still carried, as a plain implementable listing, the **bare-`INPUT` battery reader that [[B123]] replaced** — including the single-expression park that is [[B123]] round 2's defect, and with no plausibility window. ⚠ **Leaving an unsafe listing in a plan is how it gets reimplemented, and here it already had been.** ⇒ Step 1 now points at the shipped file as the specification, lists the four ways it differs and why, and fences the sketch as `⛔ SUPERSEDED — DO NOT IMPLEMENT` with the defect annotated on the offending lines. Detail: [[B129]].
 - [x] **B130 — ✅ OPENED AND CLOSED 2026-08-06 (independent QA, docs-only slice): the AUTHORITATIVE DESIGN SPEC was the one artefact the whole arc's corrections never reached.** `docs/superpowers/specs/2026-07-31-onboard-oled-ui-design.md` still presented, **as live guidance**: the unsafe bare-`INPUT` polarity probe ([[B123]] round 2) in §7 *and* in §10.1's board table; `5.42` as a **divider / per-revision property** ([[B126]]); a §4 state diagram mapping failure to **`NOT HEARD`**, accepting a `REPLY` from *"any state"*, exiting on **`double`** (withdrawn by **B71**) and **missing the whole `failed` arm**; an on-target checklist with **`NOT HEARD` and hard-coded timings** ([[B120]] one document up); and a `⛔ **B38/B39/B40 must land first** … do not implement the emergency outcome path` gate for **three bugs that all landed 2026-08-01** ([[B121]]'s shape). ★★ **ROOT CAUSE, recorded so the next arc does not repeat it: every prior slice was instructed *"⛔ do not edit the spec — report needed changes"*, and every slice OBEYED.** The instruction written to prevent drift **caused** it — corrections landed in the code, this register, the plan, the bench guide and the ledger, everywhere except the document that outranks them all. ⇒ **a spec must be corrected fact-only in place by the slice that measures the drift; "report it" is not a correction.** ⛔ Also fixed: the spec **asserted something untrue about itself** — *"every `NOT HEARD` elsewhere names the model STATE"* when **six of nine occurrences were live display-form guidance**. Fix method throughout: **operational text rewritten from the code, superseded content fenced `⛔ SUPERSEDED`** ([[B128]]'s cure). Detail: [[B130]].
 - [ ] **B131 — OPEN / NEW 2026-08-06 (measured; docs-only, OUT OF SCOPE of the [[B130]] slice that found it):** `MR_UI_BLANK_MS` **exists nowhere in the tree** — grepped **9 hits, all in documentation, 0 in code**; the shipped constant is `src/firmware_ui_model.h`'s **`kBlankMs`**. [[B130]] fixed the **2 spec sites**; **7 remain: the plan (3 — `:126`, `:1850`, `:1867`), the bench guide (2 — `:414`, `:844`) and the bench script (2 — `:560`, `:668`)**. ⚠ **Registered rather than mentioned (M1):** a bench entry naming a non-existent macro sends a tester to `platformio.ini` for a value that lives in a header, and it reads as an env knob the operator can change. ⛔ Not fixed here — the finding slice was scoped spec-only and must not edit plan or bench files.
+- [x] **B132 — ✅ FIXED 2026-08-06 (`lib/core`; owner-reported, METAL-CONFIRMED) — a dual-layer gateway could OFFER and accept mobile hosting despite time-multiplexing its PHY.** A gateway serving layers 6/5 in alternating 7.5 s windows reported `hosting=1` and `[hosted-mobile] hash=0xF7C0F666 local_id=254 pubkey=yes`; that mobile consequently registered `home=5`, although the gateway is absent from that PHY for half of every cycle. **OWNER RULING: gateways must never host mobiles.** ✅ **SHIPPED as ONE shared predicate, `Node::can_host_mobiles()` (`lib/core/node.h`) = `host_mobiles && !is_mobile && !is_gateway && n_layers == 1`, consumed at FOUR sites** — the J DISCOVER→OFFER responder, **CLAIM acceptance (which had no eligibility test at all)**, `presence_ingest_probe` and `presence_emit_roster` (the single choke point for all six roster paths) — plus **C3 inertness**: `on_init` forces the effective `host_mobiles` OFF and clears the hosted-mobile registry for any `is_gateway` node, and `cfg set host_mobiles on` now REFUSES on a gateway. ★★ **The two clauses `!is_gateway` and `n_layers == 1` are NOT redundant and both were KEPT: the identity `is_gateway ≡ n_layers==2` holds only after a SUCCESSFUL `on_init`, and the REFUSED path (reachable and NON-FATAL — `src/fw_main.cpp` only prints `config = REFUSED`) leaves `n_layers == 2` with `is_gateway` false, where `n_layers == 1` is the only clause that refuses.** Gate: **7 new test cases, every clause and every site mutation-verified RED**; s18 keystone EXACT; **36/36 corpus byte-identical, 0 movers**. ⛔ **REOPENED AND RE-CLOSED THE SAME DAY (§B132b, independent QA): the predicate was sound but the OFFER is NOT TRANSMITTED WHERE IT IS DECIDED** — `jtx_stash_arm` holds it for a 100..1000 ms jitter and `kMobileOfferBackoffTimerId` fired it with **no eligibility re-check**, so a staged OFFER survived the ineligibility and went out; **and `mobile_offer_tx` is emitted BEFORE the stash, so every round-1 case asserted COMMITTED and called it TRANSMITTED — the FOURTH instance of "a contract event asserting a physical act, reachable from a path that transmitted nothing"**. Fixed by a `can_host_mobiles()` re-check **at the transmission boundary** + one shared per-leaf `mobile_host_pending_clear()`; **+5 cases (1385 / 74126), each asserting the PARSED FRAME**, and the two defences **mutation-attributed independently** so neither masks the other. Detail: [[B132]].
 - [ ] **B93 — OPEN / LATENT:** `lib/hal/mr_ui.h` forward-declares `namespace meshroute { struct Push; }` with a **hardcoded** namespace while `command.h` uses the overridable `MESHROUTE_NS`. Same class as the §UI-3-QA finding, one level up.
 - [x] **B78 — OWNER-RULED then FIXED 2026-08-04 (UI-3 QA, UNCOMMITTED):** `Emergency::failed` joins `hold_active()`'s retained set and holds for `kEmgHoldMs` from the failure's **own** arrival time (`on_send_refused` gained a `now_ms` parameter; `retain()` on both the synchronous and `channel_failed` paths). ⇒ **`kEmgHoldMs` re-ruled 120000 → 30000** in the same breath.
 
@@ -2390,6 +2391,193 @@ three stacked `STATUS` headers, `CLAUDE.md`. ⛔ **No design decision was taken 
 correction would have needed one (B118's matcher, the REPLY-only wake, B123's pre-3.2 residual), the spec now points at
 the ledger's §2 instead of resolving it. **Gate:** documentation-only ⇒ **no build gate is owed.** Tripwire only:
 `pio test -e native` + the binary → **1373 / 74023 / 0**, unchanged.
+
+### B132 — a time-multiplexed gateway can become a mobile home · NEW 2026-08-06 · **✅ FIXED 2026-08-06 (`lib/core`) — METAL-CONFIRMED; OWNER RULED GATEWAYS NEVER HOST**
+
+**Metal evidence.** A dual-layer gateway identifies as node 6 on layer 6 and node 5 on layer 5, switching between
+7.5 s receive windows. While listening on layer 5 its `routes` output nevertheless showed:
+
+```
+hosted-mobiles n=1
+[hosted-mobile] hash=0xF7C0F666 local_id=254 pubkey=yes
+```
+
+The mobile with that hash reported `REGISTERED home=5`. This explains the failed by-hash lookup: the gateway had the
+correct hosted-mobile record, but a time-multiplexed gateway is not continuously available on the mobile's PHY. A send
+that happens to align with its window does not make it a valid home.
+
+**Measured mechanism — this is not only an OFFER-side omission.**
+
+| path | site | missing condition |
+|---|---|---|
+| DISCOVER → OFFER | `lib/core/node_join.cpp:321-324` | rejects mobile nodes and `!host_mobiles`, but not gateways |
+| CLAIM acceptance | `lib/core/node_join.cpp:218-246` | checks the selected host id, then records `_mobile_reg` without rechecking host eligibility |
+| presence / hosted-mobile response | `lib/core/node_join.cpp:554` | repeats the incomplete mobile / `host_mobiles` gate |
+| live configuration | `src/firmware_config.cpp:194` | permits `cfg set host_mobiles on` for any role |
+| gateway role | `lib/core/node.cpp:468-470` | derives `_cfg.is_gateway` from `n_layers == 2`; this is the authoritative role test |
+
+Mobile discovery is leaf-exempt, so a gateway can hear the DISCOVER on its current PHY, offer with strong RSSI, and be
+selected. Fixing only that offer would still let a delayed, stale or forged CLAIM addressed to the gateway install the
+same invalid state.
+
+**Impact.** The advertised home contract becomes intermittent: registration/presence, last-mile DATA, hash/pubkey proxy
+answers and reverse ACK/delegation can all miss the gateway's other-layer window. The state looks healthy (`hosting=1`,
+`pubkey=yes`) and therefore hides the actual reachability defect.
+
+**Required invariant.** Define one shared predicate, equivalent to:
+
+```
+can_host_mobiles = host_mobiles && !is_mobile && !is_gateway && n_layers == 1
+```
+
+Use it for OFFER emission, CLAIM acceptance and presence/roster responses. A gateway must also refuse or make ineffective
+`cfg set host_mobiles on`, and a transition into gateway role must clear any hosted-mobile and pending-host runtime state.
+Compiling all mobile-host support out of gateway builds is a separate memory/architecture slice, not part of this
+correctness fix.
+
+**Required gate.** Pin all of the following:
+
+1. A gateway hears DISCOVER on each served leaf and emits zero OFFERs.
+2. A CLAIM naming the gateway, including a stale/forged one without a preceding offer, creates no hosted-mobile record.
+3. A gateway does not answer the hosted-mobile presence/roster path.
+4. A normal single-layer static node still offers, accepts, proxies and answers presence.
+5. With a gateway and a static host both audible, only the static node offers and the mobile registers there.
+6. `cfg set host_mobiles on` cannot make a gateway eligible, including after reboot or role transition.
+7. Metal: after flashing the gateway, it shows no `hosting`; the previous mobile detects home loss, re-registers with an
+   always-on static host, and by-hash delivery works through that host.
+
+**✅ WHAT SHIPPED (2026-08-06).** ONE predicate, `Node::can_host_mobiles()` in `lib/core/node.h`, exactly as prescribed:
+`host_mobiles && !is_mobile && !is_gateway && n_layers == 1`. Consumed at **four** sites, never re-spelled (U1) —
+`handle_j`'s DISCOVER→OFFER responder, **CLAIM acceptance** (which previously had *no* eligibility test, only
+`chosen_host_id != _node_id`), `presence_ingest_probe`, and **`presence_emit_roster`**. The roster gate sits at the
+emit rather than at each caller because that one function is the choke point for **all six** roster-scheduling paths
+(`evict_aliased_hosted_mobile`, the CLAIM record, both `presence_ingest_probe` answers, `presence_mark_deleg_fail`,
+`presence_roster_fire`), so a future caller cannot route around the invariant. **C3 inertness:** `on_init` forces the
+effective `host_mobiles` to `false` and clears `_mobile_reg_n` / `_notify_pending_n` / `_mobile_snr_q4` on **every**
+leaf for any `is_gateway` node, so `cfg` reports the truth instead of a stale yes. **Console:** `cfg set host_mobiles on`
+now refuses on a gateway (and on a mobile, with its own message); turning it *off* is always allowed.
+
+★★ **THE `!is_gateway` vs `n_layers == 1` QUESTION — ANSWERED BY MEASUREMENT, AND BOTH CLAUSES WERE KEPT.** They are
+**near**-redundant, not redundant. `node.cpp` holds the single authoritative derivation `_cfg.is_gateway = (_cfg.n_layers == 2)`,
+so the identity holds **after a SUCCESSFUL `on_init`** — and there either clause alone suffices. It does **not** hold on
+the **REFUSED** path, which is **reachable and NON-FATAL**: `_cfg = cfg` is assigned *before* `validate_gateway_layers`'
+early return, the derivation and the force-off are *after* it, and `src/fw_main.cpp` merely prints
+`config = REFUSED (invalid layer config — node NOT operational)` and **keeps running the node**. A dual-layer config that
+fails validation therefore sits at `n_layers == 2` with `is_gateway` carrying whatever the caller supplied — on the
+device a **separately-persisted NV byte** (`cfg.is_gateway = nv.is_gateway`, distinct from `nv.n_layers`), so it can
+legitimately be `false`. In that state `!is_gateway` **passes** and only `n_layers == 1` refuses. ⇒ **`n_layers == 1` is
+the strictly stronger, load-bearing clause**; `!is_gateway` is kept because it is the field every other gateway site
+reads. ⚠ And it must read **`_cfg.n_layers`, not the runtime `_n_layers`** — the latter's write is also after the early
+return, so it reads `1` there and would wrongly pass. Both facts are documented at the accessor, and **§B132/6 asserts
+each clause in the state that isolates it**, so neither can be deleted as dead weight.
+
+**GATE — 7 new cases, and the first version of them COULD NOT FAIL.** Reverting *both* gateway clauses left every
+gateway test green, because `on_init`'s force-off short-circuits `host_mobiles &&` before the clauses are reached: **the
+two defences masked each other.** Fixed by having every gateway test force `host_mobiles` back **on** after `on_init`
+(which is also gate item 6's property), and by exercising the probe/roster gates through a **role transition** that
+leaves a genuine hosted entry in place — without one, `presence_emit_roster`'s `_mobile_reg_n == 0` early-out makes the
+assertion vacuous. **Full mutation matrix, every clause and every site RED:** drop `!is_gateway` → §B132/6 ·
+drop `n_layers == 1` → §B132/6 · drop both → 5 cases / 15 assertions · drop `host_mobiles` → §B132/4 ·
+drop `!is_mobile` → §B132/4 (a **pre-existing** coverage hole this slice closed) · remove the CLAIM gate (*tempting
+wrong fix #1*) → §B132/2 only · remove the OFFER gate (*tempting wrong fix #2*) → 5 cases · remove the probe gate →
+§B132/3 · remove the roster gate → §B132/3 · remove the `on_init` force-off → 4 cases · hard-wire the invariant
+`false` → **17 cases (4 §B132 + 13 PRE-EXISTING hosting cases)**, which is what makes the positive control credible
+rather than self-referential.
+
+⛔ **THE CORPUS WAS BLIND TO THIS DEFECT, MEASURED — the 0-mover result is CORRECT, not luck.** Across all 37 scenario
+files **`s27_cross_layer_mobiles_meshroute` is the only one pairing a gateway with mobiles** (every other is
+gateway-only ⇒ nothing to host, or mobile-only ⇒ the new clauses are no-ops). In s27 the gateway **G1** emits
+**0 `mobile_offer_tx` and 0 `presence_roster_tx`**, while the nine single-layer nodes emit **11** and **33** — and
+because all 36 streams are **byte-identical** across this fix, that count *is* the pre-fix count. G1 is fully live
+(436 events; it bridges, beacons, and does answer mobile-plane frames — `mobile_layer_answer` ×5,
+`xl_mobile_resolved` ×7), so this is not an inert node: **the scenario simply never lets a gateway win a home**, which
+is precisely why this needed a bench to find. ⓘ **Owed, not claimed fixed here:** a corpus scenario in which a gateway
+is the strongest audible candidate for a mobile. Without one, no simulator run can ever regress this.
+
+**Residual metal half (M2).** Gate items 6 and 7 are bench-only and are now written up as **Part 10** of
+`docs/2026-07-31-bench-test-script.md` (10.1 the console refusal — ★ note `src/firmware_config.cpp` is **not in the
+native build**, `[env:native]` never compiles `src/`, so it has **no** automated coverage; 10.2 the home-loss and
+re-home case, with **5 sends of 30 s spacing** because a single success is exactly what the intermittent gateway home
+already produced). Both entries carry explicit failure shapes and a negative control.
+
+#### ⛔ §B132b — REOPENED AND RE-CLOSED 2026-08-06 (same day, independent QA): **THE OFFER IS NOT TRANSMITTED WHERE IT IS DECIDED, AND THE TESTS THAT "PROVED" THE FIX ASSERTED THE WRONG EVENT**
+
+Independent QA accepted the shared predicate as SOUND but refused the slice on two counts. Both were verified line by
+line against the source and both held. ⇒ **fixed here, in place; B132 is one entry, not two.**
+
+**⛔ HOLE — a STAGED OFFER survived the ineligibility and was transmitted.** The DISCOVER responder does not transmit
+the OFFER: `node_join.cpp:~377` hands it to `jtx_stash_arm` (the §S6/QA-3b de-storm), which arms
+`kMobileOfferBackoffTimerId` for a jitter of **100..1000 ms** (`protocol::join_offer_backoff_{min,max}_ms`). The timer
+handler in `node.cpp` then fired it **unconditionally** — `jtx_fire(_active->_pending_offer, …)`, no eligibility
+re-check. And `on_init`'s gateway cleanup cleared `_mobile_reg_n` / `_notify_pending_n` / `_mobile_snr_q4` but **not**
+`_pending_offer_len`, its timer, or the roster coalesce/echo flags. ⇒ **eligibility was checked at the moment of
+DECISION and never at the moment the frame LEFT.**
+★★ **The irony, recorded because the lesson is the general one:** `node.cpp`'s own cleanup comment already said the
+force-off *"is NOT a substitute for `can_host_mobiles()` at the decision sites"*. The author understood per-site
+re-checking and simply **did not count the TIMER FIRE as a decision site.** It is one — it is the moment the frame
+actually leaves.
+
+**⛔⛔ AND THE FOURTH INSTANCE OF ONE DEFECT CLASS: A CONTRACT EVENT ASSERTING A PHYSICAL ACT, REACHABLE FROM A PATH
+THAT TRANSMITTED NOTHING.** `MR_EMIT("mobile_offer_tx", …)` fires at `node_join.cpp:~372`, **immediately BEFORE**
+`jtx_stash_arm`, and its own comment says why (*"The EMIT stays here (the OFFER is committed)"*). ⇒ **the event means
+COMMITTED, not TRANSMITTED.** Every round-1 case counted that event and **none fired timer 80 or looked at
+`hal.tx_frames`**, so not one of them could distinguish *"an OFFER went out"* from *"an OFFER was staged and then
+correctly suppressed"* — the entire question. **Prior instances: `emit_hash_query` · `tx_initiating` ·
+`tx_with_retry`/`DeviceHal::tx`.** ⇒ **the standing rule, fourth confirmation: assert the SIDE EFFECT — the parsed
+frame on the wire — never an event or a flag.** ⚠ Nor `Hal::cancel`: `TestHalBase::cancel()` is a **no-op**, so a
+cancel can never carry a native assertion either; the case must FIRE the timer and read the wire.
+
+**⛔ AND round 1's claimed role-transition test never executed the implemented cleanup.** `§B132/3` mutated
+`n_layers`/`is_gateway` through `mutable_config()` and deliberately left the registry present ⇒ it tested the
+**predicate**, not `on_init`. **The cleanup had never run in any test.**
+
+**✅ WHAT SHIPPED (§B132b).** ★ **A `can_host_mobiles()` re-check at the OFFER's TRANSMISSION BOUNDARY** — the
+`kMobileOfferBackoffTimerId` arm in `node.cpp` — which **drops the stash** instead of transmitting; plus **one shared
+cleanup, `Node::mobile_host_pending_clear()`** (`node_join.cpp`, U1): every leaf's `_pending_offer_len`,
+`_roster_coalesce_pending` and `_roster_echo_pending`, and `cancel()` on both timers. Called from the boundary
+re-check **and** from `on_init`'s gateway block, so the two can never drift. ⚠ **PER-LEAF, not `_active`** — the stash
+lives in `LayerState` and a gateway owns **two**, while `jtx_fire` reads whichever leaf is active at fire time.
+⇒ **the cleanup is HYGIENE; the boundary re-check is the GUARANTEE**, and it is the only defence on the
+**refused-`on_init`** path (which returns before every clear with `n_layers == 2` intact).
+ⓘ **THE ROSTER NEEDS NO EQUIVALENT, verified rather than assumed:** `presence_emit_roster()` already calls
+`can_host_mobiles()` **at the emit**, which *is* its transmission boundary (`presence_roster_fire` → `emit`). The
+OFFER had no such check — that asymmetry is exactly what this half fixes. Clearing the roster flags is therefore
+hygiene and is never what suppresses a roster.
+
+**★★ REACHABILITY — CORRECTED, AND THE QA BRIEF'S FRAMING WAS PARTLY WRONG (measured, `src/firmware_config.cpp` + the
+`cfg` liveness flags).** The *gateway* transition as worded ("become a gateway during the jitter interval") is **NOT
+reachable on a device**: `is_gateway` is derived in `on_init` only and `cfg set n_layers` is `live = false`
+("reboot to apply") ⇒ becoming a gateway means a **reboot**, hence a fresh, already-empty `LayerState`. **What IS
+reachable, with no reboot, are two LIVE knobs:** `cfg set mobile 1` (live; `role_set_refusal`'s O2 clause refuses only
+while `mobile_reg_count() != 0`, and **a staged OFFER is not a hosted mobile**, so the guard does not see it) and
+`cfg set host_mobiles off` (B3 opt-out, `persist = false`, live). Either flips eligibility inside the 100..1000 ms
+window and the node then advertises itself as a home it is not. ⇒ **the hole is real and live; the `on_init` cleanup is
+defence-in-depth** (a re-init, or any inconsistent runtime state), **and both halves are attributed separately by the
+mutation matrix below rather than credited together.**
+
+**GATE.** Native **1385 / 74126 / 0** (from 1380 / 74084 ⇒ **+5 cases, +42 assertions**), `error:` **0**; s18
+**`1cd21235` / 271629 EXACT**; **36/36 corpus byte-identical, 0 movers**; `sizeof(Node)` **221088 unmoved** and **RAM
+byte-exact on all six board/census envs** ⇒ zero new state; 5 board envs + `warning_census.sh` **174/178/178 @ 326**
+unmoved; both probes green with controls red. **★ FOUR MUTATIONS, AND THE TWO DEFENCES ARE ATTRIBUTED INDEPENDENTLY —
+NEITHER MASKS THE OTHER** (the trap round 1 fell into): remove the **boundary re-check** with the cleanup still in
+place → **RED, `§B132b/3`** (the refused-`on_init` state, where the cleanup provably never ran) · remove the **`on_init`
+cleanup** with the boundary re-check still in place → **RED, `§B132b/4`** (the node is eligible again at fire time, so
+the re-check passes and cannot suppress anything) · remove **both** → **RED ×3** (`/1`, `/3`, `/4`) · make the
+boundary re-check **always** suppress → **RED, `§B132b/2`**, the positive control that proves timer 80 really does put
+a parsed J OFFER on the wire. ⛔ **Every one of the five new cases asserts the PARSED FRAME in `hal.tx_frames`; the
+event appears only as a premise** — and `§B132b/1` pins the distinction itself (`mobile_offer_tx == 1` **and**
+`count_j_offer_mobile(tx_frames) == 0` in the same breath).
+⚠ **`§B132/3` was REWRITTEN, not deleted:** it now reaches its live-hosted-entry state through a **real, REFUSED
+`on_init`** instead of two config pokes. It could not use a *successful* one — that now clears the registry
+(`§B132b/5`), which would put `presence_emit_roster` back behind its `_mobile_reg_n == 0` early-out and re-create
+round 1's vacuity. The successful path's cleanup is asserted by its own case instead.
+
+⛔ **THE CORPUS REMAINS BLIND, RE-MEASURED THIS ROUND (not quoted):** in `s27` — still the only scenario pairing a
+gateway with mobiles — the gateway **G1 (sim index 5) emits 0 `mobile_offer_tx` and 0 `presence_roster_tx`**, while
+nine single-layer nodes emit **11** and **33**. And no scenario can change a node's eligibility between stage and fire
+at all (there is no console in the sim). ⇒ **0 movers is the CORRECT result; green corpus is not evidence for this
+class.** The owed scenario (a gateway that is the strongest audible candidate for a mobile) is **still owed** and
+would still not cover the delayed-transmission half.
 
 ### B119 — `Push::enc`'s comment says the channel path is always cleartext; the code sets it · NEW 2026-08-06 · **OPEN — comment-only defect, deliberately NOT fixed by the finding slice**
 

@@ -196,6 +196,9 @@ Use two nodes that hear each other.
   - Do: `peername 0x<hash> "Alice"`, reboot, then `nameof 0x<hash>`.
   - Pass: `Alice` is returned.
 
+- [ ] Other observed defects - cfg set freq does not survive reboot
+
+
 Observe without treating it as a binary pass: a busy mesh should not visibly churn NVS pages, and post-boot trial
 decryption with a full 16-key store should remain responsive.
 
@@ -1025,6 +1028,83 @@ is dark **when the user acts**. Nothing automated reaches it: the wake is a phys
 7. ⓘ **Deliberate and not a bug, so it is not a failure shape:** the four LOCAL outcomes (`BLOCKED` / `PICKED UP` /
    `NOT RELAYED` / `FAILED`) arriving at a panel that has since gone dark do **not** light it — see 8.15's closing
    note. Widening that is an **open owner item**, not a defect to file from this run.
+
+## Part 10 — §B132 a gateway is never a mobile home (2026-08-06)
+
+★ **What the host gate already covers, stated so this Part stays residue and not a re-test of the corpus (M2):** the
+whole eligibility invariant is natively gated — `Node::can_host_mobiles()` and **twelve** test cases (`§B132/1` OFFER,
+`/1b` both leaves, `/2` stale-or-forged CLAIM, `/3` the refused-`on_init` state with a live hosted entry, `/4` the
+positive control, `/5` the two-host bench topology, `/6` each clause isolated; then **§B132b** — `/1` the staged OFFER
+killed by a gateway transition **and** the committed-vs-transmitted distinction itself, `/2` the positive control that
+timer 80 does transmit, `/3` the boundary re-check alone, `/4` the `on_init` cleanup alone, `/5` a real gateway
+`on_init` clearing the hosted registry), every one of them mutation-verified to go RED when its clause is reverted.
+⓵ **§B132b adds NO entry here, deliberately:** it is pure `lib/core`, its five cases assert the **parsed frame on the
+wire**, and its two live triggers (`cfg set mobile 1` / `cfg set host_mobiles off` inside the OFFER's **100..1000 ms**
+de-storm jitter) are a race no hand-typed procedure can reliably hit — a step that cannot be executed is a check that
+cannot fail. The knobs' **refusals** are already covered by 10.1 below.
+**What NO host gate can reach:** (a) `src/firmware_config.cpp` is **not in the native
+build** (`[env:native]` uses `build_src_filter = +<sim_main.cpp> -<fw_main.cpp>` and never compiles `src/`), so the
+console refusal has **no automated coverage at all**; and (b) a real mobile deciding its home is gone and
+re-registering elsewhere is radio timing plus NV, which neither native nor the simulator reproduces.
+
+### 10.1 — a GATEWAY refuses `cfg set host_mobiles on` (the only check for an untested source file)
+
+1. On the dual-layer gateway: `cfg get`. Record the role fields — expected `gateway=1` and `n_layers` **2**.
+2. Expected on the same dump: **`host_mobiles=0`**.
+   ⓘ This is the **derived** value, not a stored one: `on_init` forces it off for any `is_gateway` node. A gateway
+   showing `host_mobiles=1` means the force-off did not run — report it, and continue to step 3 anyway.
+3. `cfg set host_mobiles on`
+4. Expected, one line, and it must be a **refusal**:
+   `> cfg err refused (host_mobiles: a GATEWAY is never a mobile home — one radio split across two leaves cannot serve last-mile/presence/liveness continuously. Set `cfg set n_layers 1` + reboot first)`
+5. `cfg get` again → **`host_mobiles=0` still**.
+6. ⛔ **FAILURE SHAPES, distinct — record which:**
+   - `> cfg ok` and `host_mobiles=1` ⇒ the refusal is missing; the knob now lies (the core still refuses, so hosting
+     will not actually happen — which is exactly what makes this the dangerous shape: the dump disagrees with reality);
+   - `> cfg ok` and `host_mobiles=0` ⇒ accepted-then-ignored: no refusal printed, so the operator has no signal;
+   - a refusal naming **`a MOBILE never hosts`** on a gateway ⇒ the two arms of the message are swapped;
+   - any `cfg err bad_value` / `bad_args` ⇒ the key stopped parsing; that breaks the opt-out path too, so check 10.2.
+7. **The negative control, so this entry cannot pass on a node that refuses everything** — on an ordinary
+   **single-layer static** node: `cfg set host_mobiles off` → `> cfg ok`, `cfg get` → `host_mobiles=0`; then
+   `cfg set host_mobiles on` → `> cfg ok`, `cfg get` → `host_mobiles=1`. ⛔ If the static node also refuses, the
+   condition is testing the wrong thing (a role test that matches every role).
+
+### 10.2 — a mobile whose home WAS the gateway detects the loss and re-homes to a static node ★★ the owner's case
+
+⚠ **Rig:** the gateway from 10.1, an **always-on single-layer static** node on the mobile's leaf, and the mobile
+(the Heltec). The static node must show `host_mobiles=1` (10.1 step 7). ★ **Do this on a mobile that is ALREADY
+registered to the gateway from the pre-fix firmware** — that is the whole point; a fresh mobile never had the bad
+home and would pass trivially.
+
+1. **Before flashing**, on the mobile: record `mobile` (or the registration line) → expected `REGISTERED home=5`
+   (the gateway's identity on the mobile's leaf), and on the gateway `routes` → `hosted-mobiles n=1` with the
+   mobile's `hash=` and `local_id=`. ★ **Record both verbatim — this is the defect's evidence and the only
+   before-state you get.**
+2. Flash the gateway **and** the mobile with this firmware. Power both, plus the static node.
+3. Expected on the **gateway**, after boot: `routes` → **`hosted-mobiles n=0`** and no `[hosted-mobile]` line, ever.
+   ⓘ Two independent things produce this and both are intended: `on_init` clears the registry for an `is_gateway`
+   node, and the CLAIM path now refuses to record a new one.
+4. Expected on the **mobile**: it detects the home is gone and re-registers. It must end at
+   **`REGISTERED home=<static node id>`** — *not* 5. Allow it the home-loss interval before judging; if
+   `mobile_autoregister` is off it will not re-home on its own, so check that first (`cfg get`).
+5. Expected on the **static node**: `routes` → `hosted-mobiles n=1` carrying the **same `hash=`** recorded in step 1.
+   ★ Compare the hash, not the count — a count of 1 could be some other mobile.
+6. Confirm the home is actually *serving*: from a third node, send a by-hash DM to the mobile and see it delivered
+   **through the static node**. Then repeat it 5 times with ~30 s between sends.
+   ★★ **WHY THE REPETITION IS THE MEASUREMENT AND A SINGLE SUCCESS IS NOT:** the pre-fix gateway home worked
+   *whenever a send happened to align with its 7.5 s window*. One success proves nothing; **5 of 5** through a
+   continuously-present home is the property. ⛔ If any of the 5 misses, the home may still be the gateway (re-check
+   step 4) — record the ratio either way.
+7. ⛔ **FAILURE SHAPES, distinct — record which:**
+   - the mobile still reports `home=5` after the home-loss interval ⇒ it never detected the loss (re-flash check:
+     did the MOBILE get the new firmware? the fix is on the HOST side, so a stale mobile is not the cause here);
+   - the gateway shows `hosted-mobiles n=1` again at any point ⇒ a CLAIM was recorded; capture the console around it,
+     this is the defect reopening and it is the one shape that means the fix failed;
+   - the mobile reports `REGISTERED` but with `home=0`/no id ⇒ it lost the home and found no replacement: the static
+     node was not audible or has `host_mobiles=0` (10.1 step 7), which is a **rig** fault, not this defect;
+   - the mobile oscillates between homes across the 5 sends ⇒ report with both ids; that is home selection, a
+     separate concern from eligibility;
+   - fewer than 5 of 5 deliveries with a stable static home ⇒ **not this bug** — record it and treat it as a
+     separate last-mile finding.
 
 ## Completion record
 

@@ -191,7 +191,21 @@ void handle_cfg_set(const char* args, Print& out) {
     // --- nav/hop tuning: LIVE-only (good defaults; reboot reverts) ---
     else if (!strcmp(key, "nav"))        { lc.nav_enabled    = atoi(val) != 0; persist = false; }
     else if (!strcmp(key, "intra_layer_relay")) { lc.intra_layer_relay = (atoi(val) != 0 || !strcmp(val, "on")); persist = false; }   // §gateway: LIVE-only (default OFF is the fix)
-    else if (!strcmp(key, "host_mobiles"))     { lc.host_mobiles   = (atoi(val) != 0 || !strcmp(val, "on")); persist = false; }   // §mobile 2a: accept/host mobiles? LIVE-only (default ON; reverts on reboot — a mobile itself never hosts)
+    else if (!strcmp(key, "host_mobiles"))     { const bool want_host = (atoi(val) != 0 || !strcmp(val, "on"));   // §mobile 2a: accept/host mobiles? LIVE-only (default ON; reverts on reboot — a mobile itself never hosts)
+                                           // ★ §B132: REFUSE turning it on for a node that can never be a home. A gateway
+                                           // time-multiplexes one radio across two leaves, so it cannot meet a home's
+                                           // CONTINUOUS obligations (last-mile delivery, presence, hash proxying, liveness);
+                                           // a mobile never hosts at all. Accepting the write would have set a config byte
+                                           // that every decision site then ignores — a knob that lies. Turning it OFF is
+                                           // always allowed (it is already the effective state). ⚠ REFUSED, and the core's
+                                           // can_host_mobiles() still re-checks per site: this is the operator-facing half.
+                                           if (want_host && (lc.is_gateway || lc.n_layers != 1 || lc.is_mobile)) {
+                                               out.println(lc.is_mobile
+                                                   ? F("> cfg err refused (host_mobiles: a MOBILE never hosts — it registers to a home, it is not one)")
+                                                   : F("> cfg err refused (host_mobiles: a GATEWAY is never a mobile home — one radio split across two leaves cannot serve last-mile/presence/liveness continuously. Set `cfg set n_layers 1` + reboot first)"));
+                                               return;
+                                           }
+                                           lc.host_mobiles = want_host; persist = false; }
     else if (!strcmp(key, "nav_ignore")) { lc.nav_ignore_rts = atoi(val) != 0; persist = false; }
     else if (!strcmp(key, "hop_cap"))    { const int v = atoi(val);   // §3-A.2: protocol domain 1..16 — dv_hop_cap is the F RREQ TTL (codec: "config caps ttl <= 16") + the DV merge cap; flood_hop_max=16 clamps every flood horizon; 0 would kill ALL route learning
                                            if (!valid_hop_cap(v)) { out.println(F("> cfg err bad_value (hop_cap 1..16)")); return; }

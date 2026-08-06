@@ -468,6 +468,27 @@ bool Node::on_init(const NodeConfig& cfg) {
     // is_gateway is DERIVED, NOT configurable: a gateway IS a dual-layer node (n_layers==2). Single authoritative point
     // (overrides any cfg/NV value) — so self_gateway / J gateway_capable reliably mean "dual-layer gateway".
     _cfg.is_gateway = (_cfg.n_layers == 2);
+    // ★ §B132 (C3 — a gateway build comes out INERT, not merely refusing): a gateway must never be a mobile HOME
+    // (it time-multiplexes one radio across two leaves, so it can only serve a home's continuous obligations —
+    // last-mile delivery, presence, hash proxying, liveness — for half of every schedule period). `host_mobiles`
+    // DEFAULTS TRUE and is persisted, so a node reprovisioned into a gateway would otherwise keep carrying an
+    // effective "yes". Force the EFFECTIVE value off at the single point where `is_gateway` becomes known, so
+    // `config()`/`cfg` REPORT the truth rather than a stale yes, and clear any hosted-mobile runtime state a
+    // pre-gateway life may have accumulated. ⚠ Deliberately AFTER the derivation above and NOT a substitute for
+    // can_host_mobiles() at the decision sites: this cannot cover the REFUSED on_init path (which returns before
+    // this line with `_cfg.n_layers == 2` intact) — that path is exactly why the invariant is re-checked per site.
+    if (_cfg.is_gateway) {
+        _cfg.host_mobiles = false;
+        for (uint8_t li = 0; li < MR_N_LAYERS; ++li) {                // every leaf, not just _active — a gateway owns two
+            _layers[li]._mobile_reg_n    = 0;
+            _layers[li]._notify_pending_n = 0;
+            for (uint8_t k = 0; k < protocol::cap_host_mobiles; ++k) _layers[li]._mobile_snr_q4[k] = 0;
+        }
+        // ★★ §B132b: the REGISTRY clear above is not the whole state — a mobile-host transmission can be STAGED and
+        // PENDING (the jittered J OFFER stash + the roster coalesce window). Drop those and cancel their timers on
+        // every leaf too, or a frame committed one moment before this init is still fired afterwards, BY THE GATEWAY.
+        mobile_host_pending_clear();
+    }
     // Lua: (SF_DEMOD_THRESHOLD[routing_sf] or -240) + sf_margin_q4 (dv_dual_sf.lua:8386).
     // The out-of-range fallback is the literal -240 (SF10), NOT table[12].
     const int16_t demod = (_cfg.routing_sf >= 5 && _cfg.routing_sf <= 12)
@@ -1198,6 +1219,14 @@ void Node::on_timer(uint32_t timer_id) {
 #endif
     case kPresenceRosterTimerId:  presence_roster_fire(); break;   // §S6: home coalesced-roster emit (always compiled — a home is a static)
     case kMobileOfferBackoffTimerId:                              // §S6/QA-3b: fire the de-stormed (jittered) mobile OFFER
+        // ★★ §B132b — THE TRANSMISSION BOUNDARY IS A DECISION SITE. The OFFER is *committed* at DISCOVER time (that is
+        // where `mobile_offer_tx` is emitted) but it is *transmitted* HERE, 100..1000 ms later. Eligibility can flip
+        // inside that window, and two of the ways are LIVE console knobs needing no reboot: `cfg set mobile 1` (allowed
+        // while the registry is empty — a staged OFFER is not a hosted mobile, so role_set_refusal's O2 clause does not
+        // see it) and `cfg set host_mobiles off` (B3, `persist = false`, live). Without this re-check the node advertises
+        // itself as a home it may no longer be. ⇒ the `on_init` cleanup is HYGIENE; this is the GUARANTEE — it is also
+        // the only defence on the REFUSED-`on_init` path, which returns before that cleanup with `n_layers == 2` intact.
+        if (!can_host_mobiles()) { mobile_host_pending_clear(); break; }   // ineligible -> DROP the stash, transmit NOTHING
         jtx_fire(_active->_pending_offer, _active->_pending_offer_len);
         break;
     case kTeamDadGuardTimerId:     team_dad_guard_fire();     break;   // §mobile 6.4: team-DAD guard window close -> confirm _team_local_id

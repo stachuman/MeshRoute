@@ -367,11 +367,11 @@ batt --
 
 ### H6-03 — Blank and wake
 
-- [ ] The display blanks after the configured inactivity interval.
-- [ ] The transition to blank occurs once; it is not continuously repainted.
-- [ ] The first short press wakes the display without also advancing the screen.
-- [ ] A later short press advances normally.
-- [ ] Radio reception continues while the display is blank.
+- [x] The display blanks after the configured inactivity interval.
+- [x] The transition to blank occurs once; it is not continuously repainted.
+- [x] The first short press wakes the display without also advancing the screen.
+- [x] A later short press advances normally.
+- [x] Radio reception continues while the display is blank.
 
 Optional instrument criterion: after blanking, SDA/SCL show the one transition burst and then remain quiet until a real UI change.
 
