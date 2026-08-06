@@ -22,8 +22,7 @@
 #include "protocol_constants.h"   // meshroute::protocol::max_payload_bytes_hard_cap (g_rxbuf bound)
 #include "iclock.h"               // meshroute::ArduinoClock
 #include "device_radio.h"         // meshroute::Sx1262Radio
-#include "device_hal.h"           // meshroute::DeviceHal
-#include "node.h"                 // meshroute::Node
+#include "fw_context_pure.h"      // §B105: DeviceHal + Node, AND the `g_hal` / `g_node` externs — the ONE declaration
 #include "identity.h"             // meshroute::Identity
 #include "device_inbox_store.h"   // mrinbox::DeviceInboxStore (nRF52 QSPIFLASH=1 => the LIVE QSPI/LittleFS backend)
 #include "fixed_inbox_store.h"    // meshroute::FixedInboxStore (the ESP32 RAM-ring fallback)
@@ -44,8 +43,9 @@ extern Module                  g_mod;
 extern CustomSX1262            g_radio;
 extern meshroute::ArduinoClock g_clock;
 extern meshroute::Sx1262Radio  g_iradio;
-extern meshroute::DeviceHal    g_hal;
-extern meshroute::Node         g_node;
+// ⓘ `g_hal` and `g_node` are declared in `fw_context_pure.h` (included above) — §B105. They are NOT missing from the
+//   1:1 rule and they are NOT declared twice: that header IS their declaration, so a feature TU can reach them
+//   without `<RadioLib.h>`. Their definitions still live in fw_main.cpp beside the rest of this block.
 
 // Inbox stores — guard MUST match the fw_main.cpp definitions: the durable QSPI/LittleFS DeviceInboxStore backend
 // (nRF52, QSPIFLASH=1 => MRINBOX_QSPI_READY, the LIVE backend there) vs the FixedInboxStore RAM ring (ESP32 fallback).

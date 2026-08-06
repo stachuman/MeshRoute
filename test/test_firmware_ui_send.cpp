@@ -1625,3 +1625,172 @@ TEST_CASE("ui7-slot: the EMERGENCY slot is never closed by a compose modal") {
     SendOutcome o{};
     CHECK(emg.match_channel_sent(55, true, o) == true);
 }
+
+// ================================================================================================== §B115
+// ★★★ THE ATTEMPT COUNTER THE PANEL SHOWS — MEASURED WRONG ON METAL, AND THE FIRST READING IS THE DIAGNOSTIC ONE.
+// Three emergency posts went out (`45F66601/02/03`, ctr 769-771) and the panel read `2 of 3` -> `3 of 3` -> `4 of 3`.
+// The owner confirmed **`1 of 3` was NEVER displayed**, which is what makes the defect a UNIFORM `+1` present from the
+// first attempt rather than one extra increment at the end: the renderer emitted `attempts() + 1` unconditionally.
+// ⚠⚠ THE FIRST TWO READINGS ARE INDIVIDUALLY PLAUSIBLE. A check asking "does it say `N of 3`?" passes on the bug, and a
+//    check keyed on the final `4 of 3` is satisfied by a CLAMP that would leave `2 -> 3 -> 3` — still wrong on every
+//    attempt, now permanently invisible ([[B108]]'s rejected pattern). ⇒ these cases assert the EXACT BYTES of the
+//    FIRST line, through the two shipped units: the model's ordinal and the one formatter.
+// ★ THE AIRTIME BOUND IS NOT UNDER TEST HERE AND MUST NOT MOVE: it held on metal (exactly three `M` ids), `_tries` is
+//   its single source of truth, and §B84's whole argument is that `_tries` moves ONLY in `on_send_accepted`. What was
+//   wrong is the DISPLAY, so the display gets its own number — see the two-numbers block in firmware_ui_model.h.
+
+namespace {
+// The exact panel text for the alarm's CURRENT attempt, built the way `firmware_ui.cpp` builds it — the model's
+// ordinal into the one formatter. Nothing here re-derives the number, so a test cannot agree with itself.
+void emg_line_now(const UiModel& m, char* out, std::size_t cap) {
+    emg_attempt_line(out, cap, m.emg_attempt_ordinal());
+}
+}  // namespace
+
+// ★★★ THE BUG, END TO END, ON THE ACCEPTED PATH. Every one of the three lines is asserted, and the FIRST one is the
+//     assertion that fails on the shipped code.
+TEST_CASE("ui7-b115: the accepted alarm's VISIBLE line steps `1 of 3` -> `2 of 3` -> `3 of 3`") {
+    UiModel m = armed_and_fired(); SendTracker emg, normal;
+    char l[48];
+
+    // ---- attempt 1. Queued but not yet handed to the core: the attempt IS in flight, `_tries` has not counted it.
+    emg_line_now(m, l, sizeof l);
+    CHECK(std::strcmp(l, "attempt 1 of 3") == 0);           // ★★★ THE READING METAL NEVER SHOWED
+    SendReq r1{}; const bool got1 = m.take_send_request(r1); CHECK(got1 == true); if (!got1) return;
+    CHECK(r1.kind == SendKind::emergency);
+    FakeExec f1; f1.reply = ok_ctr(769);
+    ui_perform_send(emg, normal, m, r1, 0, /*have_fix=*/true, fake_exec, &f1, 6000);
+    CHECK(f1.calls == 1);
+    CHECK(m.attempts() == 1);
+    emg_line_now(m, l, sizeof l);
+    CHECK(std::strcmp(l, "attempt 1 of 3") == 0);           // ★★★ ACCEPTANCE DOES NOT ADVANCE THE ORDINAL — same attempt
+    SendOutcome o1{}; const bool s1 = emg.match_channel_sent(769, /*relayed=*/false, o1);
+    CHECK(s1 == true); if (!s1) return;
+    m.on_outcome(o1, 7000);
+    CHECK(m.emergency() == Emergency::firing);              // bounded retry, not terminal yet
+
+    // ---- attempt 2
+    emg_line_now(m, l, sizeof l);
+    CHECK(std::strcmp(l, "attempt 2 of 3") == 0);
+    SendReq r2{}; const bool got2 = m.take_send_request(r2); CHECK(got2 == true); if (!got2) return;
+    FakeExec f2; f2.reply = ok_ctr(770);
+    ui_perform_send(emg, normal, m, r2, 0, true, fake_exec, &f2, 8000);
+    CHECK(m.attempts() == 2);
+    emg_line_now(m, l, sizeof l);
+    CHECK(std::strcmp(l, "attempt 2 of 3") == 0);
+    SendOutcome o2{}; const bool s2 = emg.match_channel_sent(770, false, o2);
+    CHECK(s2 == true); if (!s2) return;
+    m.on_outcome(o2, 9000);
+
+    // ---- attempt 3, the last one the budget allows
+    emg_line_now(m, l, sizeof l);
+    CHECK(std::strcmp(l, "attempt 3 of 3") == 0);
+    SendReq r3{}; const bool got3 = m.take_send_request(r3); CHECK(got3 == true); if (!got3) return;
+    FakeExec f3; f3.reply = ok_ctr(771);
+    ui_perform_send(emg, normal, m, r3, 0, true, fake_exec, &f3, 10000);
+    CHECK(m.attempts() == 3);
+    emg_line_now(m, l, sizeof l);
+    CHECK(std::strcmp(l, "attempt 3 of 3") == 0);           // ⛔ NEVER `4 of 3`
+    SendOutcome o3{}; const bool s3 = emg.match_channel_sent(771, false, o3);
+    CHECK(s3 == true); if (!s3) return;
+    m.on_outcome(o3, 11000);
+
+    // ★ AND THE BOUND IS UNTOUCHED — the reassuring fact from the bench run, restated as a test so a display fix can
+    //   never be mistaken for a send-path change: three transmissions, terminal, and NO fourth request.
+    CHECK(m.emergency() == Emergency::not_heard);
+    CHECK(m.attempts() == kEmgMaxTries);
+    SendReq r4{};
+    CHECK(m.take_send_request(r4) == false);
+}
+
+// ★★★ THE `ctr == 0` HALF, AND IT IS WHY THE FIX IS NOT "DELETE THE `+1`". Such an attempt is IN FLIGHT and
+//     deliberately UNCOUNTED (spec §2.1 rule 2 — the §B84 expiry spends it later), so `_tries` is still 0 while the
+//     first alarm is on the air. An unconditional `+0` would print `attempt 0 of 3` there: a distress panel claiming
+//     nothing has been tried while the radio is transmitting.
+TEST_CASE("ui7-b115: a ctr==0 attempt still reads `1 of 3`, never `0 of 3`") {
+    UiModel m = armed_and_fired(); SendTracker emg, normal;
+    char l[48];
+    SendReq req{}; const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
+    FakeExec f; f.reply = ok_ctr(0);
+    ui_perform_send(emg, normal, m, req, 0, /*have_fix=*/false, fake_exec, &f, 6000);
+    CHECK(f.calls == 1);
+    CHECK(emg.awaiting() == true);                          // parked: no handle, status unknown
+    CHECK(m.attempts() == 0);                               // ★ and the LIMIT's counter has genuinely not moved
+    emg_line_now(m, l, sizeof l);
+    CHECK(std::strcmp(l, "attempt 1 of 3") == 0);           // ★★★ the display still names the attempt that IS flying
+    // The bounded expiry then counts it — the SAME attempt, so the SAME line.
+    ui_pump_trackers(emg, normal, m, 6000 + kOutcomeWindowMs + 1);
+    CHECK(m.attempts() == 1);
+    emg_line_now(m, l, sizeof l);
+    CHECK(std::strcmp(l, "attempt 2 of 3") == 0);           // ...and `on_outcome` has already opened attempt 2
+    CHECK(m.emergency() == Emergency::firing);
+}
+
+// ★★★ THE MUTATION CONTROL INDEPENDENT QA NAMED, AS TWO RELATIONS RATHER THAN TWO STRINGS — this is the pair that makes
+//     BOTH tempting wrong fixes red, and neither relation can be satisfied by the other's mutation:
+//       `ordinal == attempts()`     once the attempt is ACCEPTED   -> RED under an unconditional `+1` (the shipped bug)
+//       `ordinal == attempts() + 1` while the attempt is UNCOUNTED  -> RED under an unconditional `+0`
+// ⚠ Deliberately expressed against `attempts()` and not against literals: a literal pair would still pass if BOTH the
+//   counter and the ordinal drifted together, which is precisely the "display and bound read different state" lead the
+//   register recorded. This pins the RELATION between them.
+TEST_CASE("ui7-b115: the ordinal is a DIFFERENT number from `attempts()`, and by exactly one attempt") {
+    UiModel m = armed_and_fired(); SendTracker emg, normal;
+    // Queued, nothing accepted: uncounted.
+    CHECK(m.emg_attempt_ordinal() == uint8_t(m.attempts() + 1));
+    SendReq r1{}; const bool got1 = m.take_send_request(r1); CHECK(got1 == true); if (!got1) return;
+    FakeExec f1; f1.reply = ok_ctr(769);
+    ui_perform_send(emg, normal, m, r1, 0, true, fake_exec, &f1, 6000);
+    CHECK(m.emg_attempt_ordinal() == m.attempts());          // ★ accepted: counted, so NO `+1`
+    SendOutcome o1{}; const bool s1 = emg.match_channel_sent(769, false, o1);
+    CHECK(s1 == true); if (!s1) return;
+    m.on_outcome(o1, 7000);
+    CHECK(m.emg_attempt_ordinal() == uint8_t(m.attempts() + 1));   // the retry re-opens an uncounted attempt
+    // ...and the `ctr == 0` arm reaches the uncounted relation from the other direction.
+    SendReq r2{}; const bool got2 = m.take_send_request(r2); CHECK(got2 == true); if (!got2) return;
+    FakeExec f2; f2.reply = ok_ctr(0);
+    ui_perform_send(emg, normal, m, r2, 0, false, fake_exec, &f2, 8000);
+    CHECK(m.emg_attempt_ordinal() == uint8_t(m.attempts() + 1));
+}
+
+// ★★ A PRE-TX BLOCK CONSUMES NO ATTEMPT (spec §4), SO IT MUST NOT ADVANCE THE DISPLAY EITHER. The panel would
+//    otherwise count down the hiker's three alarms while nothing had been transmitted at all — the same class of false
+//    statement as B115 itself, arriving from the retry path.
+TEST_CASE("ui7-b115: a blocked-then-retried alarm still reads `1 of 3` — a block spends nothing") {
+    UiModel m = armed_and_fired(); SendTracker emg, normal;
+    char l[48];
+    SendReq r1{}; const bool got1 = m.take_send_request(r1); CHECK(got1 == true); if (!got1) return;
+    FakeExec f1; f1.reply = ok_ctr(0);                       // a pre-TX self-gate returns queued with no handle
+    ui_perform_send(emg, normal, m, r1, 0, false, fake_exec, &f1, 6000);
+    SendOutcome ob{}; const bool blocked = emg.match_blocked(/*blocked_channel=*/true, /*next_ms=*/3000, 6500, ob);
+    CHECK(blocked == true); if (!blocked) return;
+    m.on_outcome(ob, 6500);
+    CHECK(m.emergency() == Emergency::blocked);
+    CHECK(m.attempts() == 0);
+    // The retry deadline fires and re-queues the SAME first attempt.
+    m.on_tick(snap_at(6500 + 3000 + 1));
+    CHECK(m.emergency() == Emergency::firing);
+    emg_line_now(m, l, sizeof l);
+    CHECK(std::strcmp(l, "attempt 1 of 3") == 0);            // ⛔ not `2 of 3` — nothing was ever transmitted
+    SendReq r2{}; const bool got2 = m.take_send_request(r2); CHECK(got2 == true); if (!got2) return;
+    FakeExec f2; f2.reply = ok_ctr(769);
+    ui_perform_send(emg, normal, m, r2, 0, true, fake_exec, &f2, 10000);
+    CHECK(m.attempts() == 1);
+    emg_line_now(m, l, sizeof l);
+    CHECK(std::strcmp(l, "attempt 1 of 3") == 0);
+}
+
+// ★ A NEW ALARM RESTARTS THE DISPLAY, because it restarts the budget (`long_fire` resets `_tries`). A sticky NOT HEARD
+//   re-fired must not open at `4 of 3`.
+TEST_CASE("ui7-b115: re-firing a sticky NOT HEARD opens at `1 of 3` again") {
+    UiModel m = armed_and_fired();
+    char l[48];
+    run_ctr0_expiries(m, kEmgMaxTries, /*via_glue=*/true);
+    CHECK(m.emergency() == Emergency::not_heard);
+    CHECK(m.attempts() == kEmgMaxTries);
+    UiSnapshot s{}; s.now_ms = 200000;
+    m.on_gesture(Gesture::long_fire, s);
+    CHECK(m.emergency() == Emergency::firing);
+    CHECK(m.attempts() == 0);
+    emg_line_now(m, l, sizeof l);
+    CHECK(std::strcmp(l, "attempt 1 of 3") == 0);
+}

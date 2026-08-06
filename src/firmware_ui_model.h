@@ -42,11 +42,19 @@
 // ⚠ `_last_try_ms` (UI-4's outcome window) is the ONE field still written-but-unread here. §B75: the claim that
 // `DmState::submitting` was also written-but-unread was FALSE — nothing assigned it at all; `take_send_request` does
 // now, and `dm_state()` reads it.
-// NOT here at all, by unit boundary: what a screen looks like, the canned message TEXTS and the send itself all live
-// in src/firmware_ui.cpp (UI-6/UI-7); the model only ever emits an index and asks.
+// NOT here at all, by unit boundary: what a screen LOOKS like and the send itself live in src/firmware_ui.cpp
+// (UI-6/UI-7); the model only ever emits an index and asks. ⓘ V1 comment repair 2026-08-05: this line also claimed the
+// canned message TEXTS were over there — they are not, and have not been since §B66 moved `kDmTexts`/`kChannelTexts`
+// HERE (lines 80-89) so `back`'s positional identity has a single `sizeof`-derived declaration.
+// DONE here (2026-08-05, §B115): the emergency DISPLAY ORDINAL and the one string that renders it
+// (`emg_attempt_ordinal` / `emg_attempt_line`) — presentation split cleanly from `_tries`, which stays the limit's only
+// truth. The string is formatted in this pure unit precisely so a native test can assert the VISIBLE bytes.
 #pragma once
 #include <cstddef>   // std::size_t (UI-3's copy_clamped) — do NOT rely on <cstdint> to drag it in transitively
 #include <cstdint>
+#include <cstdio>    // snprintf — §B115: the ONE panel string this pure unit formats, so the native suite can assert
+                     // the VISIBLE BYTES (see `emg_attempt_line`). Free: every TU that includes this header already
+                     // pulls <cstdio> through firmware_ui_send.h or firmware_ui.cpp.
 // ★ §B73: the ONE lib/core dependency, and it is deliberate. Spec §2.1 rule 6 requires the WHOLE `SendFailReason` to
 // reach the UI ("others -> a compact reason"), so the alternative was a parallel 18-value UI mirror of a core enum
 // that command.h documents as APPEND-ONLY — the exact fork U1 forbids. `command.h` is the app seam: typed PODs, no
@@ -205,6 +213,36 @@ inline constexpr uint8_t  kEmgMaxTries          = 3;      // THREE TRANSMISSIONS
 inline constexpr uint32_t kBlockedBackoffMinMs  = 2000;   // next_ms==0 policy: 2s, doubling, capped
 inline constexpr uint32_t kBlockedBackoffMaxMs  = 30000;
 inline constexpr uint32_t kArmToFireMs          = 3500;   // MUST match InputCfg::fire_ms (pinned by a test)
+
+// ★★★ §B115 — THE TWO NUMBERS THE ALARM CARRIES, AND WHICH ONE IS THE TRUTH. Stated here because the shipped defect
+// was EXACTLY a drift between them: the panel rendered `attempts() + 1` UNCONDITIONALLY while the airtime bound read
+// `_tries`, so three posts on the wire displayed `2 of 3` -> `3 of 3` -> `4 of 3` and **`1 of 3` was NEVER SHOWN**
+// (owner-measured on metal; the bound itself HELD — exactly three `M` ids went out, which is correct).
+//   `_tries` — ★ THE SINGLE SOURCE OF TRUTH FOR THE LIMIT. It counts ACCEPTED transmissions, moves ONLY in
+//              `on_send_accepted` (§B84's unbounded-airtime argument rests on that), and it is the ONLY value
+//              `>= kEmgMaxTries` may ever be evaluated on. It is also what `NOT HEARD`'s detail line reports, because
+//              there the number IS the measurement ("we transmitted three times and overheard nothing").
+//   the ORDINAL (`UiModel::emg_attempt_ordinal`) — ★ PRESENTATION ONLY, and it may NEVER gate a send. It answers
+//              "which of the three attempts is in flight right now", which is NOT `_tries`: an attempt that came back
+//              `ctr == 0` IS in flight and is DELIBERATELY uncounted (spec §2.1 rule 2 — the bounded expiry spends it
+//              later), so the in-flight ordinal is `_tries + 1` there and plain `_tries` once the attempt has been
+//              ACCEPTED. An unconditional `+1` is the shipped bug; an unconditional `+0` prints `0 of 3` on the
+//              `ctr == 0` first attempt. Both wrong answers have their own native control.
+// ⚠ DELIBERATELY NOT CLAMPED to `kEmgMaxTries`. The raw render is the ONLY reason this defect was ever visible; a
+//   clamp would have shown `2 -> 3 -> 3` — still wrong on every attempt — and hidden it permanently ([[B108]]'s
+//   rejected "clamp instead of fix"). The ordinal is bounded by CONSTRUCTION instead: `on_outcome` refuses to queue a
+//   fourth attempt once `_tries >= kEmgMaxTries`. ⇒ a number above `kEmgMaxTries` on the panel is a REAL accounting
+//   defect and must stay visible.
+//
+// ★ THE ONE PLACE THE FIRING DETAIL LINE IS FORMATTED (U1), and it lives in this pure header rather than in the
+// renderer for the §UI-6-GLUE reason: `src/firmware_ui.cpp` includes `fw_context.h` (RadioLib, the whole device
+// stack), so NOTHING in it is host-compilable and no automated gate can read a string it builds. Here the native
+// suite asserts the VISIBLE BYTES. ⚠ That matters specifically for §B115: its first two readings — `2 of 3` and
+// `3 of 3` — are individually PLAUSIBLE, so a check asking "does it say N of 3" passes on the bug. The test asserts
+// the exact text of the FIRST attempt. `firmware_ui.cpp` must CALL this; `tools/probe_board_ui/run.sh`'s W10 pins it.
+inline void emg_attempt_line(char* out, std::size_t cap, uint8_t ordinal) {
+    snprintf(out, cap, "attempt %u of %u", unsigned(ordinal), unsigned(kEmgMaxTries));
+}
 
 enum class Emergency : uint8_t { idle = 0, arming, firing, blocked, picked_up, not_heard, reply, cancelled, failed };
 enum class DmState   : uint8_t { idle = 0, submitting, waiting_ack, delivered, no_key, not_confirmed, failed };
@@ -438,6 +476,14 @@ public:
     //    `emergency()`; `not_heard` means two different things depending on it (see EmgEvidence).
     EmgEvidence emg_evidence() const { return _emg_evidence; }
     uint8_t   attempts()  const { return _tries; }
+    // ★★★ §B115's DISPLAY ORDINAL — "which of the three attempts is in flight" — and it is PRESENTATION ONLY. See the
+    // two-numbers block above `kEmgMaxTries` for the whole argument; the short form is: `_tries` is the LIMIT's single
+    // source of truth and this is not a second copy of it, it is a different question. ⛔ Never test it against
+    // `kEmgMaxTries`, and never clamp it.
+    // ⚠ CONTRACT, the same discipline as `retry_at_ms()`: meaningful only while `emergency() == Emergency::firing`. It
+    //   describes an attempt IN FLIGHT, and in every other state there is none — no arithmetic value is reserved to
+    //   say so (§B74), the STATE is the predicate.
+    uint8_t   emg_attempt_ordinal() const { return uint8_t(_tries + (_emg_attempt_counted ? 0 : 1)); }
     // ★ The compose sub-view's lifetime, which UI-7 needs OUTSIDE the model: it is what bounds a `late_ack` tracker
     //   slot (spec §3.4.1 upgrades NO CONFIRM -> DELIVERED only "while the sub-view is still showing") and, with it,
     //   the ONE normal send slot. See `ui_pump_trackers` — the obligation is discharged there, as a gate, not here.
@@ -480,7 +526,14 @@ public:
     //   unconditional write: an alarm's acceptance would then relabel a coincident canned post `SENT, waiting`, which
     //   is exactly the §2.1 crossover the two slots exist to prevent. A control pins that directly.
     void on_send_accepted(SendKind k, uint32_t now_ms) {
-        if (k == SendKind::emergency) { ++_tries; _last_try_ms = now_ms; }
+        // ★ §B115: `++_tries` COUNTS the attempt now in flight, so the flag is SET here (`= true`) and the display
+        //   ordinal stops adding one for an attempt `_tries` already includes. This is the only place the flag is SET,
+        //   exactly as `queue()` is the only place it is CLEARED (a freshly requested attempt is not yet counted) —
+        //   one accept, one request, and the ordinal can never drift from the attempt it names.
+        // ⚠ THE SEPARATION IS THE WHOLE FIX, so keep it: `_tries` stays THE LIMIT'S SINGLE SOURCE OF TRUTH and this
+        //   remains its ONLY writer (§B84's unbounded-airtime argument rests on that single writer), while the ordinal
+        //   is PRESENTATION ONLY and may never gate a send. Full argument: the two-numbers block above `kEmgMaxTries`.
+        if (k == SendKind::emergency) { ++_tries; _last_try_ms = now_ms; _emg_attempt_counted = true; }
         else if (k == SendKind::dm)   { _dm = DmState::waiting_ack; }
         else                          { _chan = ChanState::waiting; }   // §B113: the canned-channel twin of waiting_ack
         _st.dirty = true;
@@ -633,10 +686,15 @@ public:
     const char* reply_text() const { return _reply_text; }
 
     // ★★ §B71's exit PREDICATE — "an alarm has reached a terminal, readable answer". DERIVED as a set, not named from
-    // the ruling's prose, and one member of that prose is VACUOUS: the ruling lists "final `blocked`", but `blocked` is
-    // never final in this model — `on_outcome`'s `K::blocked` arm ALWAYS sets `_retry_armed`, and `tick_emergency` always
-    // re-fires from it, so a `blocked` alarm is by construction still in flight. Including it would have made the exit
-    // fire mid-retry, which is precisely what the ruling's first row forbids. ⇒ four states, not five.
+    // the ruling's prose, and one member of that prose WAS VACUOUS: the ruling as first recorded listed "final
+    // `blocked`", but `blocked` is never final in this model — `on_outcome`'s `K::blocked` arm ALWAYS sets
+    // `_retry_armed`, and `tick_emergency` always re-fires from it, so a `blocked` alarm is by construction still in
+    // flight. Including it would have made the exit fire mid-retry, which is precisely what the ruling's first row
+    // forbids. ⇒ four states, not five.
+    // ✅ §B100, OWNER-AGREED 2026-08-05: the phantom member is now TRIMMED FROM THE RULING ITSELF (the plan's B71
+    // table), so document and code finally enumerate the same four. ⛔ Nothing here changed — the trim removed a phantom
+    // obligation from a doc, never a behaviour from this predicate; the vacuity stays ASSERTED by the "an IN-FLIGHT
+    // alarm does not exit" test, which drives a real `blocked` outcome and checks this returns false.
     // ⓘ `cancelled` is excluded deliberately: nothing was sent, and it self-clears after kCancelledMs, so there is no
     // outcome to acknowledge. `arming` / `firing` are the in-flight rows.
     bool emg_outcome_retained() const {
@@ -665,7 +723,13 @@ protected:
     // Wrap-safe elapsed time. millis() wraps at ~49.7 days; `a >= b` would break across it, this does not.
     static uint32_t elapsed(uint32_t now, uint32_t then) { return now - then; }
     void queue(SendKind k, uint8_t peer, uint8_t idx) {
-        if (k == SendKind::emergency) { _emg_req_pending = true; return; }   // its own slot; never overwritten
+        // ★★ §B115: THE ORDINAL'S ONE WRITE POINT ON THE REQUEST SIDE, and `queue()` is chosen because it is the ONE
+        // choke point all three alarm requests go through — `long_fire`, `on_outcome`'s bounded retry and
+        // `tick_emergency`'s blocked retry. A new attempt is requested and `_tries` has not counted it yet, so the
+        // ordinal is `_tries + 1` from here until `on_send_accepted` (or the §B84 expiry that stands in for it) counts
+        // it. ⛔ Do not also reset it in `long_fire`: `long_fire` ends by calling this, and a second writer is how the
+        // two numbers drift apart again.
+        if (k == SendKind::emergency) { _emg_req_pending = true; _emg_attempt_counted = false; return; }   // its own slot; never overwritten
         _req = {k, peer, idx}; _req_pending = true;
     }
 
@@ -698,7 +762,11 @@ protected:
     // ★★ §B69: which of the two collapsed channel outcomes THIS alarm actually got. Sticky, monotone, reset by a new
     //    alarm. It is what stops `NOT HEARD`'s detail line from claiming a measurement the alarm never took.
     EmgEvidence  _emg_evidence = EmgEvidence::none;
-    uint8_t  _tries = 0;                 // ACCEPTED transmissions, never requests (spec §4)
+    uint8_t  _tries = 0;                 // ACCEPTED transmissions, never requests (spec §4) — ★ THE LIMIT'S ONLY TRUTH
+    // ★★ §B115: has `_tries` counted the attempt CURRENTLY IN FLIGHT? Set false by `queue()` (a new attempt is asked
+    // for), true by `on_send_accepted` (it has been counted). Read ONLY by `emg_attempt_ordinal()`, i.e. by the panel —
+    // ⛔ it is not an input to any airtime, retry or terminal decision, and must never become one.
+    bool     _emg_attempt_counted = false;
     bool     _retry_armed       = false; // §B74: the blocked-retry deadline is live (NOT encoded in _retry_at_ms)
     uint32_t _retry_at_ms       = 0;
     uint32_t _last_try_ms       = 0;     // UI-4's outcome window; written here, unread until then

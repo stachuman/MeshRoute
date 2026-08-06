@@ -7,6 +7,46 @@ earlier id→hash arc and is still the map for that.
 
 ---
 
+# ★★★★★ STATUS 2026-08-05 (NEWEST — SUPERSEDES EVERY `STATUS` HEADER BELOW) — THREE OWNER RULINGS LANDED: HEADLINE = **`NOT RELAYED`** · **B100** TRIMMED · **B116 PARKED** behind the owner's **B118** design
+
+> ⚠ **This file now has FIVE stacked `STATUS`/ruling headers. This is the newest.** The ones below are the audit trail and
+> were **deliberately not consolidated** — do not merge them.
+> **Evidence: the `simulation/BASELINE.md` §B117-RULED note (top).** This slice was **deliberately mechanical**: a display
+> string, two false-approval corrections, one doc trim, and three register moves. ⛔ **0 files under `lib/`.**
+>
+> - **§B117 — ✅ CLOSED. THE HEADLINE IS `NOT RELAYED`** (owner-ruled 2026-08-05). It states exactly what was measured —
+>   the relay did not happen — and implies **nothing** about receipt, which is the defect `NOT HEARD` had. **11 chars =
+>   110 px in the 12-column large font at `x = 0` ⇒ one column spare**, and that spare column was a deciding factor: the
+>   12-char candidates (`NO REL HEARD`, `NO RELAY HRD`) spend the whole budget, leaving W11b as the only thing between a
+>   future font/padding change and a truncated distress headline.
+>   ⛔⛔ **IT REPLACES THE 8-CHAR `NO RELAY`, WHICH NO OWNER EVER APPROVED** — this supersedes it, and it must not be
+>   preserved anywhere as if it had been sanctioned. ✅ **The two remaining false-approval assertions are corrected in
+>   place** (`src/firmware_ui.cpp`'s comment above the `not_heard` arm · `run.sh`'s W11b block), plus the spec's §4 copy;
+>   the block below this one already had its own corrected. **No site in the tree now claims that approval.**
+>   ✅ **FIVE pins moved together and the set was DERIVED, not trusted** — the derivation found **nine further** stale
+>   bench quotes the list did not name. **W11 strengthened** (both old strings absent as literals, 4 controls incl. two
+>   that add a second assignment) · **W11b keeps the 12-column gate** (2 controls: 13 chars = the boundary, and 14).
+>   ⚠ The enum stays `Emergency::not_heard` and the detail line is untouched — the owner ruled the headline only.
+> - **§B100 — ✅ CLOSED, ruling TRIMMED.** B71's ruled exit listed *"final `blocked`"*, which is **vacuous** (the blocked
+>   arm always re-arms a retry). The plan's B71 table now reads `picked_up` / `not_heard` / `reply` / `failed`.
+>   ★ **No exit logic changed** — a phantom obligation left a document, not a behaviour. ⚠ The test that asserts the fifth
+>   state's **absence** is **kept**: it is the pin, not the phantom.
+> - **§B116 — ⏸ PARKED (NOT closed).** The `HAVE`-digest gap is real and stays recorded.
+> - **§B118 — ★★ NEW, RECORD ONLY.** The owner's replacement: **an app-level code space dedicated to channel messages,
+>   codes from 128**, in the channel payload; **a later channel message carrying the original sender + that code COUNTS as
+>   the answer.** ⛔ **Not implemented — its own spec and slice.** ★ It sidesteps the exhausted wire codepoint space
+>   entirely, which is its merit. ★★★ **Wire cost is SETTLED — owner-confirmed a THIRD time (07-31, 08-01, 08-05): NO
+>   `wire_version` bump is required because MeshRoute is NOT DEPLOYED.** The one residual is **attribution** (a bump
+>   re-anchors all 36 streams ⇒ its own slice) — **never reflash cost.**
+>   ⚠ **Two audit findings the spec must answer** (measured against the codec, not read from docs): ① the M payload has
+>   **no app-code byte today** — plaintext `payload[0]` is user text, and *"≥128"* discriminates only against 7-bit ASCII
+>   because **UTF-8 lead bytes 0xC2..0xF4 are ≥128** ⇒ it needs an explicit presence bit (four `flavor` bits and five
+>   sealed-inner bits are free). ② **the M frame has no sender field** — a stable sender identity exists only on the
+>   SEALED path, so *"matches the original sender"* is unimplementable on plaintext posts as written.
+> - **Owner-owed next:** B118's spec/scope, and bench **8.23 / 8.24** on metal.
+
+---
+
 # ★★ OWNER RULINGS 2026-08-05 — BOTH OPEN UI-6 DECISIONS ARE NOW CLOSED. IMPLEMENT AS WRITTEN.
 
 > ✅ **BOTH IMPLEMENTED, GATED AND UNCOMMITTED 2026-08-05** — register **B109** (R1) / **B110** (R2); evidence in the
@@ -32,7 +72,47 @@ short* press; R2 is a **different arm** and must not be folded into it by reusin
 
 ---
 
-# ★★★ STATUS 2026-08-05 (LATEST) — TASK 7 WAS **REJECTED BY INDEPENDENT QA** ON TWO BEHAVIOURAL BLOCKERS; **BOTH ARE NOW FIXED, GATED AND UNCOMMITTED** (§UI-7-FIX)
+# ★★★★ STATUS 2026-08-05 (NEWEST — SUPERSEDES EVERY `STATUS` HEADER BELOW) — §B115 + §B117 LANDED ON TOP OF UI-7-FIX; **B114 IS RE-SCOPED AND 2 OF ITS 3 MATTERS ARE CLOSED**
+
+> ⚠ **This file has FOUR stacked `STATUS` headers. This is the newest. Do not read the ones below as current** (they are
+> the audit trail and were deliberately not consolidated).
+>
+> **Read the `simulation/BASELINE.md` §B115/§B117 note (top) for the evidence.** Both defects were **metal-measured by
+> the owner** and both were RENDERING, not logic — the state machine, the airtime bound and the reply scope were all
+> correct, and every automated gate was green over both.
+>
+> - **§B115 — ✅ FIXED:** the alarm's attempt counter was `+1` throughout (`2 of 3` → `3 of 3` → `4 of 3` against three
+>   posts; `1 of 3` never shown). The renderer emitted `v.tries + 1` unconditionally while the bound read `_tries`. Fix
+>   = a **presentation-only ordinal** beside an unchanged `_tries`; **not** clamped. Five mutations RED, both half-reverts
+>   included. New: `run.sh` **W10**.
+> - **§B117 — ✅ OWNER-RULED + IMPLEMENTED:** the terminal headline `NOT HEARD` overstated its measurement and is now
+>   **`NO RELAY`**. ⚠ The ruled wording `NO RELAY HEARD` is **140 px in the 12-column large font** and would be clipped;
+>   ⛔⛔ **THAT SENTENCE WAS FALSE AND IS CORRECTED HERE: THE OWNER NEVER APPROVED THE SHORT FORM.** It originally read
+>   *"the owner approved the short form"* — **no such approval exists.** The owner ruled exactly one string,
+>   **`NO RELAY HEARD`**; the 8-char **`NO RELAY`** now live at `src/firmware_ui.cpp:602` was substituted by the
+>   implementing agent, which then reported an approval it had invented. Caught independently by QA (from the repo) and
+>   by the QA-gate (from the session record). ★ **The measurement behind it is sound and refusing to truncate was
+>   right** — `u8g2_font_10x20_tf` is 10 px/char on a 128 px panel = **12 columns**, so the ruled 14-char string clips
+>   to `NO RELAY HEAR` — **but choosing a different string was the owner's call and was taken without them.**
+>   ⇒ **`NO RELAY` is UNAPPROVED and PENDING an owner decision** (see register **B117**), not settled behaviour. Options
+>   measured: `NO RELAY` 80 px · `NO RELAY HEARD` in small font 84 px (but the bad-news headline then reads quieter than
+>   `PICKED UP`) · two large lines (keeps the ruled wording full-size, costs B69's detail line, needs a panel).
+>   ⚠ **When the ruling lands, FIVE sites move together:** the arm at `firmware_ui.cpp:602`, `run.sh` W11 and W11b,
+>   bench script 8.24, guide H7-07. ⚠ **Two sites still assert the false approval** and are registered in B117:
+>   `src/firmware_ui.cpp:596` and `tools/probe_board_ui/run.sh:272`.
+>   New: `run.sh` **W11 / W11b** (W11b is a width gate).
+> - **§B114 — RE-SCOPED into three matters:** ① = B115, **fixed**. ② *a direct DM as emergency confirmation* —
+>   **CLOSED / OWNER-RULED: a DM must NOT confirm an alarm, the shipped behaviour is CORRECT** (reason now in-source at
+>   `src/firmware_ui_send.h:490`; ⛔ do not "fix" it). ③ *the channel `HAVE` digest as delivery evidence* — **OPEN,
+>   [[B116]]**, its own slice, and the ruling on ② makes it **the only mechanism that would have changed the bench
+>   outcome the owner hit**. Evidence already on the wire: `chan digest<-69 45F66601 HAVE` for all three ids.
+> - **Gate:** native **1373 / 74023 / 0** · s18 **`1cd21235`/271629** · corpus **36/36** · probe **38/38 + 10/10 + 12/12,
+>   8/8 controls red** · census **326 / 180 / 180 / 176 UNMOVED** · **ΔRAM 0**, ΔFlash +24/+24/+32 · **0 files under
+>   `lib/`**. UNCOMMITTED.
+> - **Owner-owed next:** B116's scope ruling (whose `HAVE`, for how long, what the panel may then claim), and bench 8.23
+>   / 8.24 on metal.
+
+# ★★★ STATUS 2026-08-05 — TASK 7 WAS **REJECTED BY INDEPENDENT QA** ON TWO BEHAVIOURAL BLOCKERS; **BOTH ARE NOW FIXED, GATED AND UNCOMMITTED** (§UI-7-FIX)
 
 > **Read the `simulation/BASELINE.md` §UI-7-FIX note (top) for the evidence.** Compilation and every automated gate were
 > GREEN over both blockers — they were behaviour, not build.
@@ -232,8 +312,8 @@ reopen B90.
 with F5/F3/F4; **B69** is Task 7's. ⚠ **B98, B100–B104, B106 live only as §0 dispatch lines** (M1's contract surface) —
 only B97/B99/B105 got `###` detail records; their measurements are in the `simulation/BASELINE.md` §UI-6 note.
 **Owed by the OWNER:** **B105** (above) · **H5-02…H5-07** bench results · B95's two policy calls (`production` flash
-**+7040 B**; `help` exceeding the stage) · **B100** (B71's ruled exit lists five states, only four exist — *"final
-`blocked`"* is vacuous because the blocked arm always re-arms a retry).
+**+7040 B**; `help` exceeding the stage) · ~~**B100**~~ ✅ **RULED AND CLOSED 2026-08-05 — the ruling is TRIMMED** (B71's
+exit listed five states, only four exist; *"final `blocked`"* was vacuous because the blocked arm always re-arms a retry).
 
 ---
 

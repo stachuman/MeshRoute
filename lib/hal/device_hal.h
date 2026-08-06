@@ -68,6 +68,15 @@ public:
     void     service_tx();
     uint32_t txq_drops() const { return _txq_drops; }     // # frames dropped on outbound-queue overflow (status diagnostic)
     uint8_t  txq_depth() const { return _txq_count; }     // current outbound-queue depth (status diagnostic)
+    // ★★ §B105 — THE ONE REASON THIS ACCESSOR EXISTS, and it is not tidiness. A feature TU that needs "is a TX on air?"
+    //    used to have to name the CONCRETE radio (`g_iradio`, i.e. `device_radio.h` -> `<RadioLib.h>`), which drags a
+    //    vendored `#warning` and a `-Wvolatile` diagnostic into every including TU (§B106) and — the real cost — makes
+    //    that TU impossible to host-compile, so its render policy/throttle/cadence had no behavioural probe at all
+    //    (§B104). Through this accessor the feature layer reaches the radio via the PURE `iradio.h` seam instead.
+    // ⚠ IT RETURNS THE INSTANCE, NEVER A COPY OR A WRAPPER. `Sx1262Radio` carries an ISR-driven `volatile` contract
+    //   (device_radio.h's `g_dio1_fired` / `g_isr_count` / `g_rxbad_count`) and there is exactly ONE radio per device;
+    //   a by-value or caching accessor here would break both. Same object as `g_iradio`, bound at construction.
+    IRadio&  radio() { return _radio; }
     uint32_t tx_timeouts() const { return _tx_timeouts; } // # in-flight TXs force-recovered by the watchdog (should stay 0)
     void     seed_rng(uint32_t seed) { _rng = seed ? seed : 0xA5A5A5A5u; }
     int      short_id() const { return _short_id; }

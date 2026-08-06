@@ -98,8 +98,19 @@ a hiker under stress must not need a compound gesture to leave the alarm screen.
 |---|---|---|
 | emergency in flight — arming / sending / blocked / retrying, **no retained outcome yet** | ⛔ **does NOT exit.** Screen stays sticky | §4's stickiness: an outcome the hiker never saw is the failure SAFETY-FIRST exists to prevent |
 | panel **blanked**, emergency outcome waiting behind it | ⛔ **does not exit — it WAKES, and the waking press is CONSUMED** (spec `:378`) | ★ this is what makes the ruling safe: the result is *always* displayed before any press can dismiss it |
-| emergency screen awake, **a retained outcome showing** (`picked_up` / `not_heard` / final `blocked` / `reply`) | ✅ **acknowledges and restores the cycle** — `_emg → idle` | the owner's ruling; UI-6's exit condition, which did not previously exist |
+| emergency screen awake, **a retained outcome showing** (`picked_up` / `not_heard` / `reply` / `failed`) | ✅ **acknowledges and restores the cycle** — `_emg → idle` | the owner's ruling; UI-6's exit condition, which did not previously exist |
 | **long press**, from anywhere including blanked | re-fires the alarm | already built and pinned; unchanged |
+
+⛔ **THE RULING IS TRIMMED, OWNER-AGREED 2026-08-05 (register [[B100]]) — the row above USED TO READ
+`picked_up` / `not_heard` / final `blocked` / `reply`, and *"final `blocked`"* was VACUOUS.** `on_outcome`'s `K::blocked`
+arm **always** arms a retry and `tick_emergency` always re-fires from it, so a `blocked` alarm is by construction still
+in flight; including it would have fired the exit **mid-retry**, which this table's own first row forbids. Counting it
+alongside §B78's `failed` made the ruled set read as **five** states when only **four** are reachable. ⇒ the phantom
+member is removed and `failed` (added by §B78, below) is named, so the ruling now enumerates exactly what
+`emg_outcome_retained()` implements. ★ **No exit logic changed — this removes a phantom obligation from the document, not
+a behaviour from the code**, and the vacuity is *asserted* rather than argued: `test_firmware_ui_model.cpp`'s
+*"an IN-FLIGHT alarm does not exit"* case drives a real `blocked` outcome and checks `emg_outcome_retained() == false`.
+⚠ That test asserts the fifth state's **absence** and therefore stays exactly as it is — it is the pin, not the phantom.
 
 ⇒ ★ **`double` gets NO emergency-specific job at all.** Spec §4's *"double acknowledges sticky state"* **and** *"double
 re-fires NOT HEARD"* are **both withdrawn** — they were the contradiction. And §5's *"the next press restores the
@@ -165,15 +176,20 @@ warning totals and `-Wswitch` are the load-bearing pins; objects/RAM/Flash are n
 
 | env | objects | warnings | `-Wswitch` | RAM | Flash |
 |---|---|---|---|---|---|
-| `heltec_v3` | 326 | **180** | **0** | 214116 | 1251312 |
-| `heltec_mobile` | 326 | **180** | **0** | 213636 | 1244748 |
-| `gateway_heltec` | 326 | **176** | **0** | 239036 | 1220540 |
+| `heltec_v3` | 326 | **180** | **0** | 214396 | 1253772 |
+| `heltec_mobile` | 326 | **180** | **0** | 213916 | 1247304 |
+| `gateway_heltec` | 326 | **176** | **0** | 239316 | 1223112 |
 
 ★ **RAM CORRECTED 2026-08-05 — the table above was 48 B BELOW measurement and is now re-measured, not copied.** Two
 uncommitted slices had landed on top of it without moving it: the **QA-fix slice** (B101/B102/B103/B107/B108) added
 **+16 B uniform** → 214084 / 213604 / 239004, and **§B108 round 2** (the arrival-serial / read-watermark split that
 made the unread cap display-only) adds a further **+32 B uniform** → the figures now in the table. `gateway_heltec`
-remains the tightest OLED env: **239036 / 327680 = 72.95 %**.
+remains the tightest OLED env: **239316 / 327680 = 73.03 %**.
+
+> ⚠ **V1 FACT CORRECTION 2026-08-05 (§B115/§B117 slice).** The RAM/Flash figures above had gone stale by three
+> slices (they read 214116 / 213636 / 239036 and the §UI-6-era flash) and `simulation/BASELINE.md` had already
+> flagged them. They are now the values measured in this slice's clean isolated census, both arms of a controlled
+> A/B. **The WARNING pins — 180 / 180 / 176 at 326 objects — are the gate and are unmoved.**
 ⓘ **Where round 2's +32 B goes, by `sizeof` on the native ABI** (boards are 32-bit/4-aligned and reproduce it):
 `UiInboxCounters` 16 → **28** (+12, two `uint32_t` serials + two watermarks replace two `uint16_t` counts) ·
 `UiSnapshot` 520 → **528** (+8, the two published serials) · `FrameGate` 20 → **28** (+8, the frozen serials widen
@@ -195,6 +211,17 @@ construction** and cannot contradict a wrong pin. What QA verified independently
 count, the uniform +760, and the include-chain attribution. ⇒ read the verdict line as non-vacuity, never as assent.
 ⇒ **B105 is the cure and is the owner's call:** one `DeviceHal::radio()` accessor lets the feature layer include only
 pure headers, which **removes both new warnings** and unlocks the `probe_firmware_ui` that **B104** records as missing.
+> ✅✅ **DONE 2026-08-06 — B105 LANDED, AND THE PINS COME BACK DOWN: 180 / 180 / 176 → `178 / 178 / 174`, at 326
+> objects, `-Wswitch` 0.** ⚠ **THIS IS A DECLARED RE-PIN, not a silent one**, and it is B106 played backwards: the
+> attribution was re-measured by a **controlled A/B on `heltec_v3`** (two clean isolated builds, the second with
+> `#include "fw_context.h"` restored on the live file and the file `md5`-verified restored afterwards). The `uniq -c`
+> diff of the two logs is **exactly two lines and nothing else**: `-Wcpp` **6 → 5** and `-Wvolatile` **7 → 6** —
+> i.e. one fewer including TU, precisely the two diagnostics B106 attributed. `EXPECT_WARN` in
+> `tools/warning_census.sh` is updated to match, and this note is the second of the two places its header requires.
+> ⓘ **RAM is unchanged to the byte on all three** (214396 / 213916 / 239316; `gateway_heltec` still 73.03 %).
+> **Flash is +16 B on each** — the one real codegen delta: `mac_idle()` now calls `tx_busy()` through the pure
+> `IRadio&` seam (a virtual dispatch) where it used to name the concrete `g_iradio` (devirtualizable). Same object,
+> same ISR-driven volatile state, same predicate — **measured**, not estimated: arm A 1253788 vs arm B 1253772.
 ⓘ Superseded history: the 2026-08-04 post-B95/B96 pins were 325 objects / **178 / 178 / 174** at RAM 213308 / 212828 /
 238228. B95 added the console stage's object + 2048 B; B96's controlled delta was RAM **−16 B** / Flash **+52 B** and
 **no warning**. The absolute flash values are observations, not byte-identity requirements across sessions (B86).

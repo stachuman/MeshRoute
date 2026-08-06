@@ -2,7 +2,7 @@
 
 *2026-07-31. From the owner's screen draft, refined in design dialogue. Fills the `mr_ui` seam that `2026-07-12-firmware-feature-split.md` slice 4 left empty.*
 
-*Status: DRAFT, partially implemented. Line references verified against the working tree at time of writing; board pins recovered from MeshCore's working V3 and V4 ports. The 2026-08-05 extension in §2.2/§3.2.2–3 adds configurable presets and Heltec companion BLE as new work after the original Phase A slices.*
+*Status: DRAFT, partially implemented. Line references verified against the working tree at time of writing; board pins recovered from MeshCore's working V3 and V4 ports. The 2026-08-05 extensions in §2.2/§3.2.2–3 and §3.5/§6.2 add configurable presets, Heltec companion BLE, and inbox detail/delete as new work after the original Phase A slices.*
 
 *Phased: **Phase A ships the UI on Heltec V3**; **Phase B ports to V4** and adds GPS. Phase B's radio port and GPS driver are named here but specified elsewhere — see §10.2, §10.3, §13.*
 
@@ -216,7 +216,7 @@ On a non-team build the cycle is STATUS → INBOX.
 | gesture | meaning |
 |---|---|
 | short | **advance within the current list; at the end, move to the next screen** |
-| double | activate the highlighted item — TEAM: open the DM compose sub-view for that peer · SEND: open the channel compose sub-view · sub-view: send the highlighted text (or leave, on `back`) · STATUS/INBOX: none |
+| double | activate the highlighted item — TEAM: open the DM compose sub-view for that peer · INBOX: open the selected message detail · SEND: open the channel compose sub-view · sub-view: send the highlighted text (or leave, on `back`) · STATUS: none |
 | long | arm emergency, from **any** screen, sub-views included |
 
 `short` is **list-aware**: on STATUS and SEND (single-item screens) it simply moves on, so the common case still reads as "next screen". On TEAM it walks the peer list and only leaves at the end. This is what frees `double` to mean "act on what is highlighted" everywhere, which is what makes peer selection possible with two gestures.
@@ -394,6 +394,46 @@ The tracker must therefore carry the **whole `SendFailReason`** into the model, 
 
 The sub-view closes to its parent on an explicit `double`, or after a bounded display window. `delivered` is the one place in this design where the word **DELIVERED is accurate** — it is a genuine end-to-end ack, unlike a channel post's `PICKED UP`.
 
+### 3.5 Inbox message detail and delete (owner extension 2026-08-05)
+
+The landed UI-7 inbox is a bounded preview list: a double press has no inbox action and `InboxRow::text` retains only
+20 display characters. It does **not** yet satisfy this extension. A `double` on a highlighted DM or channel row opens
+one detail modal containing the complete stored body and exactly two selectable actions:
+
+```
++---------------------------------------+
+| DM from 48                     1/6    |
+| first wrapped body line               |
+| second wrapped body line              |
+| > back                                |
+|   delete                              |
++---------------------------------------+
+```
+
+For a channel row the header is `CH<n> from <origin>`. The body is copied from the selected `InboxEntry`, wrapped
+without dropping bytes, and held in a fixed `inbox_max_body + 1` buffer for the modal's lifetime; it must never render
+or dereference the callback-owned `InboxEntry::body` after `pull()` returns. Unsupported display bytes are replaced
+visibly, never treated as control characters.
+
+Two body rows expose 42 characters per page, so the maximum 241-byte inbox body needs at most six pages. Long bodies
+advance automatically every 2 s and cycle while the modal remains open. A page change marks the model dirty but does
+not reset the user-inactivity deadline, and every resulting repaint still obeys §5's MAC-idle/page-buffer gate. Short
+press toggles the action selection; double activates it. `back` is selected initially, so deletion requires the
+deliberate sequence **short → double** after opening the message.
+
+- `back`: close the modal and return to INBOX without changing storage.
+- `delete`: request durable deletion of this exact record. On success close the modal, rebuild the list and preserve
+  the neighbouring selection where possible. On `not_found`, show `MESSAGE GONE`—the bounded store may have evicted
+  it meanwhile—and never affect another row. On storage failure stay in the modal and show `DELETE FAILED`; a visual
+  disappearance without durable success is forbidden.
+- long press closes the detail modal before arming emergency; the hidden Delete action cannot survive underneath an
+  emergency overlay. Ordinary modal timeout returns to INBOX without deleting.
+
+Selection identity is **`(InboxKind, seq)`**, not the visible row index, origin, message counter or body. DM and
+channel sequence spaces are independent, so `seq` alone is insufficient. The preview snapshot must carry this pair;
+activation re-finds the exact record and copies it. If a refresh moves rows, the highlight follows the identity; if
+the record disappears, activation refuses with `MESSAGE GONE` rather than opening or deleting its replacement.
+
 ## 4. Emergency state machine
 
 ```
@@ -419,6 +459,28 @@ Two constraints the draft could not have anticipated, both verified:
 ★ **"3" means three *transmissions*, not three retries after the first.** Both readings appeared in an earlier draft; this is the binding one and the native tests pin it.
 
 ★★ **An attempt is counted on ACCEPTANCE, never on request.** A parser refusal or a pre-TX `send_blocked` puts nothing on the air, so it must not consume one of the three alarms. The counter increments when `CmdResult` comes back accepted with a `ctr`.
+
+> ⚠ **FACTUAL CORRECTIONS 2026-08-05 (two owner rulings + one measured defect; shipped behaviour, no redesign).**
+> ① **The terminal panel headline is `NOT RELAYED`, not `NOT HEARD`** (register B117, owner-ruled 2026-08-05).
+> `NOT HEARD` overstated its evidence: what is measured is that no relay transmission was overheard, but a user in
+> distress reads it as "nobody received it", and on the B114 bench run those readings diverged and the misleading one was
+> wrong. `NOT RELAYED` states the measurement and implies nothing about receipt. ⓘ **Width, measured:** `Font::large` is
+> `u8g2_font_10x20_tf` = 10 px/char on a 128 px panel = **12 columns**; `NOT RELAYED` is 11 chars = 110 px, one column
+> spare. The FIRST ruled wording was `NO RELAY HEARD` — 14 chars = **140 px** — and would have been clipped to
+> `NO RELAY HEAR`, so it was not shipped. ⛔⛔ **CORRECTED IN PLACE 2026-08-05: this paragraph used to end "so the owner
+> approved the shorter form". THAT APPROVAL DID NOT EXIST** — the 8-char `NO RELAY` that briefly shipped was substituted
+> by the implementing slice, which reported an approval it had invented; refusing to truncate was right, choosing a
+> different string was the owner's call and was taken without them. `NO RELAY` is superseded and was never sanctioned.
+> **Every `NOT HEARD` elsewhere in this spec names the model STATE (`Emergency::not_heard`), which is unchanged** — only
+> the rendered string moved.
+> ② **The counter above is displayed through a SEPARATE presentation ordinal** (register B115, measured on metal). The
+> counted value `_tries` — the single source of truth for this bound, still moved only on acceptance — is *not* what the
+> panel shows: a `ctr == 0` attempt is in flight while deliberately uncounted (§2.1 rule 2), so the panel's "attempt N
+> of 3" is `_tries` once accepted and `_tries + 1` while uncounted. The shipped renderer added `+1` unconditionally and
+> displayed `2 of 3` → `3 of 3` → `4 of 3` against three posts. ⛔ The ordinal must never gate a send.
+> ③ **A direct DM does NOT confirm an alarm** (register B114 matter ②, owner-ruled). §4.4's channel scope is the ruled
+> design, not a gap: widening it would re-open the surface §4.4's own §B103 correction narrowed, and a DM's `team_id` is
+> not the channel-post team tag. The `HAVE`-digest evidence source is register B116, unimplemented.
 
 **Retry timing, corrected after review:**
 
@@ -545,7 +607,7 @@ Every field, and where it comes from:
 
 ### 6.1 Inbox adapter
 
-No new inbox subsystem is needed; `Inbox::pull()` already visits both stores and every `InboxEntry` carries its `InboxKind`, sender/channel metadata and body.
+No new inbox subsystem is needed for browsing; `Inbox::pull()` already visits both stores and every `InboxEntry` carries its `InboxKind`, sequence, sender/channel metadata and body. Single-record deletion is the separate prerequisite in §6.2.
 
 - Call `g_node.inbox().pull()` **directly**. Do **not** dispatch a textual `pull_inbox` into the 512 B `BufferSink` — the NDJSON is unbounded and would truncate.
 - `pull()` returns the **DM block oldest-first, then the channel block oldest-first** (`inbox.h:107-109`) — the two seq spaces are independent and there is no interleaved chronological stream.
@@ -553,6 +615,36 @@ No new inbox subsystem is needed; `Inbox::pull()` already visits both stores and
 - Retain only the bounded number of rows the panel can browse; clamp sender and body text to the display width. ⚠ **Allocate the bound PER KIND** (e.g. 4 DM + 4 channel), not as one shared pool filled in visit order — `pull()` visits the channel block second, so a shared "keep the newest N" would let a chatty channel evict every DM row, on a screen whose whole point is showing both.
 - `short` walks the retained rows and leaves at the end, like TEAM. When more rows exist than are retained, show that rather than implying the list is complete.
 - Viewing on the panel does **not** advance the durable `mark_read` cursor. The UI's unread counters stay session-local (§6 above); moving the durable cursor from a button press would desynchronise the companion app, which is the cursor's real owner.
+
+The retained preview row gains `InboxKind kind` and `uint32_t seq`. Its 20-character preview remains a rendering
+field, never an identity. Detail activation performs an exact pull lookup by `(kind, seq)` and copies the complete
+entry into a fixed buffer; no unbounded JSON intermediary and no heap allocation are introduced.
+
+### 6.2 Durable single-record deletion prerequisite
+
+There is no single-record delete today. `InboxStore` exposes append, iteration, read-cursor update and whole-store
+`wipe()` only; `mark_read()` is not deletion. UI-7D therefore adds the platform-neutral operation
+`Inbox::erase(InboxKind, seq)` over a store result with three meaningful outcomes: `erased`, `not_found`, and
+`io_error` (an unavailable inbox reports `io_error`, never success). Every backend—fixed/RAM, segmented and device—
+must implement the same contract.
+
+The durable backend is an append-only segmented ring, so this is storage work rather than a `vector.erase` hidden in
+the UI. The storage implementation may use an atomic segment rewrite or a bounded tombstone/compaction design, but it
+must prove all of the following before UI-7D is complete:
+
+- after power loss at any mutation point, the target record is either still present or absent; every other previously
+  valid record remains readable and in its original order;
+- successful deletion survives reboot, creates only a hole in that kind's sequence space, and never reuses a sequence;
+- `next_seq`, read cursor and storage epoch keep their meanings. A one-record delete is not a store wipe and must not
+  make the companion reset both cursors;
+- `pull_inbox` and OLED browsing omit the deleted record; a failed delete omits nothing;
+- deleting a record already evicted by the bounded ring returns `not_found` and cannot select a newer replacement;
+- stack/RAM, flash wear and worst-case blocking time are measured. No segment rewrite may run in a radio-critical
+  interval.
+
+This action deletes the **device's durable copy only**. A companion that already imported the record keeps its own
+history; the current inbox protocol has no delete-propagation event. Synchronised deletion across the companion is a
+different product contract and is not implied by this button action.
 
 ## 7. Battery reader (new work)
 
@@ -726,6 +818,14 @@ Both are pure and table-driven; no Arduino, no radio, no display.
 - channel traffic during `arming`, `cancelled` or `failed` cannot become a distress `REPLY`
 - the bounded inbox retains labelled DM **and** CH rows — a chatty channel cannot evict every DM row
 
+**Inbox-detail/delete extension acceptance:**
+
+- double opens the exact highlighted `(kind, seq)` for DM and channel rows; reordered or evicted rows cannot substitute
+- bodies of 0, 42, 43 and 241 bytes render without an out-of-bounds read or hidden suffix; automatic pages do not postpone blanking
+- initial double plus double again takes safe `back`; deletion requires short → double and survives reboot
+- `not_found`, injected write failure and power loss never remove another record or visually claim deletion
+- successful deletion leaves sequence high-water, read cursors, storage epoch, companion history and every other record unchanged
+
 **Configurable-preset/BLE extension acceptance:**
 
 - missing and corrupt UI storage select the documented 17-slot catalog: mandatory emergency plus two enabled defaults
@@ -761,6 +861,7 @@ Slices are named `UI-n` deliberately: bare `U1`/`U3` would collide with the CLAU
 | UI-5 | board canvas port: U8g2 behind `board_ui.h`, page-chunked paint, `set_power_save` blanking | on-target (V3) |
 | UI-6 | button GPIO 0 into the classifier; `firmware_ui.cpp` render policy; the cycle becomes live | on-target (V3) |
 | UI-7 | TEAM peer list + compose sub-views + inbox adapter over `Inbox::pull()` (`MR_FEAT_TEAM`) | on-target (V3) |
+| **UI-7D** | inbox detail modal, full-body paging, stable `(kind, seq)` selection and durable single-record delete (§3.5, §6.2) | native + storage power-cut/fault injection + on-target |
 | UI-8 | emergency end-to-end on hardware incl. blocked/retry/reply | on-target |
 | UI-9 | V3 battery reader (auto-detected ADC_CTRL polarity, no delay) + the 30 s cache | on-target, multimeter-verified |
 | **UI-10** | versioned fixed-capacity preset catalog + separate `/mrui` persistence and defaults; no send behavior change yet | native + storage fault injection |
@@ -774,6 +875,10 @@ UI-1 through UI-4 are pure or near-pure and can start immediately. UI-5 is block
 **Extension order:** finish and qualify the original UI-8/UI-9 first, then land UI-10 → UI-11 → UI-12. This makes the
 preset behavior fully testable over serial before BLE is allowed to add a second transport and coexistence axis.
 UI-12 may be designed in parallel, but its implementation gate includes the already-working UI-11 command contract.
+
+UI-7D is a follow-up to the already-landed UI-7 and does not renumber the established slices. It may be designed in
+parallel, but its delete action is blocked on the §6.2 storage contract and power-cut gate. Until UI-7D lands, the
+current inbox double-press no-op is expected behavior, not a failed hardware test.
 
 **Prerequisites — one discharged, one OUTSTANDING.**
 

@@ -255,7 +255,7 @@ plaintext.
   - Do: `send_channel 7 "x" -t -g -l -e`.
   - Pass: `unsealable`.
 
-- [ ] **6.6 — Empty encrypted post without location is refused**
+- [x] **6.6 — Empty encrypted post without location is refused**
   - Do: `send_channel 7 "" -t -e`.
   - Pass: synchronous empty-post error; no `FAILED` push is expected.
 
@@ -325,8 +325,12 @@ did not install the key. That is historical failure evidence, not a pass on fixe
 
 Expected but easy to misread:
 
-- On a one-hop co-located team, `NOT HEARD` / `relayed:false` may be truthful even when all members received the post:
-  no relay had to rebroadcast it. Use a 2+ hop recipient to test relay confirmation.
+- On a one-hop co-located team, `NOT RELAYED` / `relayed:false` may be truthful even when all members received the post:
+  no relay had to rebroadcast it. Use a 2+ hop recipient to test relay confirmation. ⚠ **It is acceptable ONLY WHEN NO
+  REPLY WAS RECEIVED** — the earlier unconditional wording masked [[B114]], a bench run where the team received all
+  three distress posts *and answered* while the panel reported no relay. A **channel** reply must lift the panel to
+  `REPLY` (a failure to do so is a live defect); a **DM** reply legitimately does not (owner-ruled 2026-08-05) and
+  belongs on B116, not ticked off here.
 - `team_channel_crypt` is live-only and returns to its privacy-safe default after reboot.
 - A keyholder with `team_channel_crypt=0` may intentionally send plaintext and emits `channel_crypt_skipped`.
 
@@ -512,6 +516,11 @@ replaced it with the real page-chunked render. ⛔ Do not mark 8.1 from a UI-6 b
 ★★ **UI-7 (2026-08-05) RETIRES 8.9 and makes 8.17–8.22 live.** The send path is real. Run the detailed H7-01…H7-09
 procedures in `docs/2026-08-04-heltec-v3-oled-ui-bench-guide.md`; 8.17–8.22 are their compact acceptance residue.
 **8.6 remains Task-9-only.**
+★★ **§B115/§B117 (2026-08-05) ADD 8.23 and 8.24, and both are FIRST-READING checks.** 8.23 reads the alarm's attempt
+counter on the **first** post (the shipped defect was invisible on the last two); 8.24 pins the owner-ruled terminal
+headline. ⚠ **RE-RULED 2026-08-05: the headline is `NOT RELAYED`.** Every earlier line in this script that quoted
+`NOT HEARD` — and then, briefly, the never-approved `NO RELAY` — as expected panel text has been moved to `NOT RELAYED`
+in the same slice; a stale quote would fail H7 on correct firmware.
 
 - [ ] ~~**8.1 — The panel lights, and shows exactly this**~~ ⛔ **RETIRED BY UI-6 — the splash is deleted.** On a
       Task-6 build the first thing on the panel is the **live STATUS screen** (see 8.8). Kept for the audit trail:
@@ -587,13 +596,13 @@ procedures in `docs/2026-08-04-heltec-v3-oled-ui-bench-guide.md`; 8.17–8.22 ar
   **8.17–8.22 / H7-01…H7-09**. Seeing the old line means the wrong firmware was flashed, not that this check passed.
 
 - [ ] **8.10 — TASK 6 / §B71: the emergency screen's exit**
-  - Do: drive the real alarm to a retained result (`PICKED UP`, `NOT HEARD`, `REPLY`, or a genuine `FAILED` refusal),
+  - Do: drive the real alarm to a retained result (`PICKED UP`, `NOT RELAYED`, `REPLY`, or a genuine `FAILED` refusal),
     wait until the result has been fully drawn, then press **short** once.
   - Pass: the alarm screen clears and the normal cycle resumes (the next short press advances STATUS → TEAM → …).
   - Do: long-press again to reach `SENDING...`, and press **short** while it is showing.
   - Pass: **nothing happens** to the alarm screen — an outcome the user has not seen is sticky. (The screen underneath
     may advance; the overlay must not clear.)
-  - Do: let the panel blank on a `FAILED`/`NOT HEARD` screen (past `MR_UI_BLANK_MS`, then past `kEmgHoldMs`), then press
+  - Do: let the panel blank on a `FAILED`/`NOT RELAYED` screen (past `MR_UI_BLANK_MS`, then past `kEmgHoldMs`), then press
     short **twice**.
   - Pass: the **first** press only wakes the panel and the outcome is **still displayed**; the **second** clears it.
     ★ That consumed-waking-press is the whole reason a short press is safe here.
@@ -745,7 +754,7 @@ mapping structurally), but **"the screen came on by itself"** has exactly one in
    dark**. A panel that lights for a passer-by means the wake was wired to the arrival instead of to the reply — the
    §2.1 false-confirmation class in power form, and a battery-drain vector on a rescue device.
 
-ⓘ Deliberate and not a bug: a `BLOCKED` / `PICKED UP` / `NOT HEARD` / `FAILED` outcome arriving at a dark panel does
+ⓘ Deliberate and not a bug: a `BLOCKED` / `PICKED UP` / `NOT RELAYED` / `FAILED` outcome arriving at a dark panel does
 **not** light it. R1 rules on the REPLY only; widening it is an open owner question.
 
 ### 8.16 — §R2/B110 a DOUBLE under the emergency overlay does nothing at all (2026-08-05, OWNER-RULED)
@@ -791,7 +800,7 @@ the radio and what the other node received.
 ### 8.19 — §B69 an unconfirmed send must never read as SENT (2026-08-05) ★★ SAFETY
 
 Bench guide **H7-07** carries the full procedure. The one-line residue for this script: on a `ctr == 0` outcome the
-panel must read **`NOT CONFIRMED` / `no send handle`** (canned) or **`NOT HEARD` / `unconfirmed x3`** (alarm).
+panel must read **`NOT CONFIRMED` / `no send handle`** (canned) or **`NOT RELAYED` / `unconfirmed x3`** (alarm).
 ⛔ **`SENT` or `SENT, no relay` in that state is a false confirmation — stop and report.** Hard to provoke on demand;
 record it opportunistically. The most reachable trigger is a node whose team channel key was removed after `create`.
 
@@ -839,6 +848,40 @@ one-line residue of bench guide **H7-01**.
    ⛔ **Sitting on `SENDING...` all the way to the settle or the 15 s auto-exit is the B113 regression** — the accepted
    post's acceptance never moved the channel state. The DM twin (`SENT, waiting` in 8.17 step 5) always worked; only the
    channel arm was missing.
+
+### 8.23 — §B115 the alarm's attempt counter must START at `1 of 3` (2026-08-05) ★★ MEASURED WRONG ON METAL
+
+★★★ **READ THE FIRST NUMBER, NOT THE LAST.** The shipped panel stepped `2 of 3` -> `3 of 3` -> `4 of 3` against exactly
+three posts on the wire, and the owner confirmed **`1 of 3` was never displayed** — a uniform `+1`, present from the
+first attempt. ⚠ **`2 of 3` and `3 of 3` are individually PLAUSIBLE**, so a check asking *"does it say N of 3?"* passes
+on the bug. Only the FIRST reading discriminates.
+
+1. Long-press to fire an alarm and watch the overlay **from the first frame it appears**.
+2. Expected detail line, in order, one per accepted transmission: **`attempt 1 of 3`**, then `attempt 2 of 3`, then
+   `attempt 3 of 3`. The headline is `SENDING...` throughout.
+3. ⛔ **`attempt 2 of 3` on the FIRST post is the B115 regression.** So is anything above `3 of 3`.
+4. Cross-check against the console on the same node: the number of distinct `»tx M` ids must equal the highest ordinal
+   the panel showed. Three ids and a panel reading `4 of 3` is the exact shipped defect.
+5. ⓘ The counter is deliberately **not clamped** — that rawness is the only reason the defect was ever visible. If you
+   ever see `4 of 3`, report it; do not treat it as cosmetic.
+
+### 8.24 — §B117 the terminal alarm headline is `NOT RELAYED` (2026-08-05, OWNER-RULED) ★★ SAFETY WORDING
+
+The old headline `NOT HEARD` overstated what was measured. What the node measures is that **no relay transmission was
+overheard**; what a user in distress reads is *"nobody received it"*. On the B114 bench run those two readings diverged
+and the misleading one was wrong — the team had received all three posts and had replied. **`NOT RELAYED` states exactly
+what was measured and implies nothing about receipt.**
+
+1. Drive an alarm to its terminal no-relay result (isolate the relay path, or run on a one-hop team).
+2. Expected: headline **`NOT RELAYED`** (11 chars, one column spare in the 12-column large font), detail
+   `no relay after 3` (or `unconfirmed x3` on the handle-less path, per 8.19).
+3. ⛔ **`NOT HEARD` means pre-ruling firmware was flashed. `NO RELAY` means the intermediate build was flashed** — that
+   8-char string was substituted by an implementing slice and **never approved by anyone**; it is superseded, not a
+   fallback, and it must not be treated as an acceptable reading.
+4. ⛔ A **clipped** headline (`NO RELAY HEAR`) means the first ruled wording `NO RELAY HEARD` was used: 14 chars = 140 px
+   in the 10x20 font on a 128 px panel, and it does not fit. Report it — a truncated distress string is worse than the
+   old wording. ★ Read the LAST character: `NOT RELAYE` (10 chars shown) would mean the panel is clipping at a narrower
+   budget than 12 columns, which W11b cannot see because W11b only counts characters.
 
 ## Completion record
 

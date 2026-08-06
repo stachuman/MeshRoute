@@ -31,6 +31,9 @@ cd "$(dirname "$0")/.." || exit 1
 # ---- PINNED EXPECTATIONS (clean builds). A HIGHER count fails; a LOWER one also fails, because it means the baseline
 #      moved and nobody re-pinned it. -Wswitch must be 0 everywhere, always. -------------------------------------
 #
+# ⛔ SUPERSEDED 2026-08-06 BY §B105 — the block immediately below is HISTORY, kept because it is the derivation the
+#    new pin reverses. Its +2 was real and correctly attributed; B105 removed the cause. Read the §B105 block that
+#    follows it for the LIVE numbers, and do not read "180/180/176" here as the current pin.
 # ★★ RE-PINNED 2026-08-05 by §UI-6: 178/178/174 -> 180/180/176. **+2 PER ENV, AND EVERY ONE OF THEM IS A PER-TU
 #    DIAGNOSTIC FROM A VENDORED HEADER — NOT ONE COMES FROM UI-6 CODE.** `src/firmware_ui.cpp` is the 326th object, and
 #    it must reach `g_node` / `g_hal` / `g_iradio`, which means `src/fw_context.h`, which pulls `<RadioLib.h>` and
@@ -45,9 +48,24 @@ cd "$(dirname "$0")/.." || exit 1
 #   and all ten are gone (the panel formatters' buffers are now sized to their provable widest expansion — see
 #   `kLineCap` in src/firmware_ui.cpp, which says so, so nobody shrinks them back).
 # ⓘ §B87's table in `docs/superpowers/plans/2026-07-31-onboard-oled-ui-phase-a.md` IS NOW IN STEP (corrected 2026-08-05
-#   under an explicit owner exception): 326 objects / 180 / 180 / 176, `-Wswitch` 0, RAM 214116 / 213636 / 239036. The
+#   under an explicit owner exception): 326 objects / 180 / 180 / 176, `-Wswitch` 0. ★ V1 2026-08-05 (§B115/§B117): the
+#   RAM figures that used to be quoted here — 214116 / 213636 / 239036 — WENT STALE two slices ago and are now
+#   **214396 / 213916 / 239316** (`gateway_heltec` = 73.03 %), re-measured to the byte in a controlled A/B. The
 #   earlier note here — "the plan STILL SAYS 178/178/174" — was true when written and is no longer (V1).
-declare -A EXPECT_WARN=( [heltec_v3]=180 [heltec_mobile]=180 [gateway_heltec]=176 )
+# ★★★ RE-PINNED 2026-08-06 by §B105: 180/180/176 -> **178/178/174**. THIS IS B106 PLAYED BACKWARDS AND IT IS DECLARED,
+#     NOT SILENT. `src/firmware_ui.cpp` no longer includes `fw_context.h`; it includes the new pure `fw_context_pure.h`
+#     and reaches the radio through `DeviceHal::radio()` (an `IRadio&`, `lib/hal/device_hal.h`). The two per-TU
+#     diagnostics the heavy include dragged in are therefore emitted by ONE FEWER TU each:
+#       -1  -Wcpp      RadioLib.h  `#warning "God mode active…"`                    (6 -> 5 TUs)
+#       -1  -Wvolatile device_radio.h `'++' of volatile-qualified type`             (7 -> 6 TUs)
+#     ⇒ ATTRIBUTED BY CONTROLLED A/B, not inferred: two clean isolated `heltec_v3` builds, the second with
+#     `#include "fw_context.h"` restored on the live file (then `md5`-verified restored). Totals 178 vs 180, and the
+#     `uniq -c` diff of the two logs is EXACTLY the two lines above — nothing else moved.
+# ⓘ Object count is UNCHANGED at 326 (no TU was added or removed) and `-Wswitch` stays 0.
+# ⓘ RAM unchanged to the byte: 214396 / 213916 / 239316 (`gateway_heltec` = 73.03 %). Flash **+16 B on each** — the one
+#   codegen delta, and it is expected: `mac_idle()` now dispatches `tx_busy()` virtually through `IRadio&` instead of
+#   naming the concrete `g_iradio`. Same instance, same volatile contract, same predicate.
+declare -A EXPECT_WARN=( [heltec_v3]=178 [heltec_mobile]=178 [gateway_heltec]=174 )
 
 # ⚠ `pio project config --environment <e>` emits NOTHING greppable for build_flags — a v2 derivation built on it
 #   returned an empty set, and v1 only "worked" because I had passed the env names explicitly, so its

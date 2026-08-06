@@ -116,21 +116,33 @@ schk "S5 firmware_ui.cpp surfaces a failed board_init()" "grep -q 'if (!mrui::bo
 # driven by the native suite and turns red on a revert. What no native test can see is whether `firmware_ui.cpp`
 # actually CALLS them — a fix wired to nothing passes every native case. That gap is exactly §B97 (four "required
 # integration regressions" that hand-replicated the wiring they guarded and so could not have failed).
-# ⇒ every check below is run TWICE: once on the real file, where it must PASS, and once on a copy with that single
-#   property reverted, where it must FAIL. A structural check without its control measures nothing.
+# ⇒ every check below is run on the real file, where it must PASS, and then once PER CONTROL on a copy with that single
+#   property reverted, where it must FAIL. A structural check without its control measures nothing — and §B115's NO-GO
+#   added the corollary: a check whose only control is a DELETION measures half the property, because a
+#   plausible-but-wrong REPLACEMENT still passes it. See W10b, which is that lesson.
 code_flat() { sed 's://.*::' "$1" | tr '\n' ' '; }   # §B77: strip comments first — a bare grep matches the comment
                                                      # that FORBIDS the thing, and both S4 checks failed that way once.
-w_pass=0; w_fail=0
-wchk() {  # wchk(label, predicate-fn, sed-script-that-reverts-the-property)
-  local label=$1 pred=$2 revert=$3
+w_pass=0; w_fail=0; w_ctl=0
+# ★★ MORE THAN ONE CONTROL PER CHECK IS ALLOWED, AND §B115's LAST MILE PROVED WHY IT IS NEEDED (independent QA,
+#    2026-08-05). A single control almost always mutates by DELETION, and a check that only sees a deletion is exactly
+#    how the population line at `freeze_outcome` stayed unguarded while W10 was green: replacing it with a
+#    plausible-but-wrong value satisfied every clause the harness had. ⇒ pass as many sed scripts as the property has
+#    wrong answers; EVERY one must be non-vacuous AND must turn the predicate red, and the count is reported.
+wchk() {  # wchk(label, predicate-fn, sed-script-that-reverts-the-property [, further sed scripts ...])
+  local label=$1 pred=$2; shift 2
   if ! "$pred" "$FW_UI"; then w_fail=$((w_fail+1)); echo "  FAIL $label (not wired in firmware_ui.cpp)"; return; fi
-  sed "$revert" "$FW_UI" > "$OUT/fw_ui_revert.cpp"
-  if cmp -s "$FW_UI" "$OUT/fw_ui_revert.cpp"; then
-    w_fail=$((w_fail+1)); echo "  FAIL $label CONTROL — the revert changed NOTHING, so the check is vacuous"; return
-  fi
-  if "$pred" "$OUT/fw_ui_revert.cpp"; then
-    w_fail=$((w_fail+1)); echo "  FAIL $label CONTROL — the check still passes against the reverted copy"; return
-  fi
+  local n=0 revert
+  for revert in "$@"; do
+    n=$((n+1))
+    sed "$revert" "$FW_UI" > "$OUT/fw_ui_revert.cpp"
+    if cmp -s "$FW_UI" "$OUT/fw_ui_revert.cpp"; then
+      w_fail=$((w_fail+1)); echo "  FAIL $label CONTROL $n — the revert changed NOTHING, so the check is vacuous"; return
+    fi
+    if "$pred" "$OUT/fw_ui_revert.cpp"; then
+      w_fail=$((w_fail+1)); echo "  FAIL $label CONTROL $n — the check still passes against the reverted copy"; return
+    fi
+    w_ctl=$((w_ctl+1))
+  done
   w_pass=$((w_pass+1))
 }
 echo
@@ -214,8 +226,82 @@ w9() { code_flat "$1" | grep -qE 'st\.team_pick_gone \? uint8_t\(kBodyRows - 1\)
        code_flat "$1" | grep -qF 'TEAMMATE GONE, repick'; }
 wchk "W9 the TEAM screen says B64's refusal AND suppresses the highlight while it stands" \
      w9 's/!st\.team_pick_gone && first + row == st\.cursor/first + row == st.cursor/'
+# W10 §B115 (owner-MEASURED on metal 2026-08-05) — THE LAST MILE OF THE ATTEMPT COUNTER, and it is the one step no
+#     native test can reach. The model's ordinal and the one formatter are both natively driven (`ui7-b115: …` cases,
+#     the whole `1 of 3` -> `2 of 3` -> `3 of 3` sequence asserted as BYTES). What happens next is HERE, and this file
+#     is where the defect actually lived: the FIRING arm rendered `v.tries + 1` — an UNCONDITIONAL `+1` on a counter
+#     that had already counted the in-flight attempt — so three posts on the wire displayed `2 of 3` / `3 of 3` /
+#     `4 of 3` and `1 of 3` was NEVER shown. Every native case was green over it, because none of them compile this file.
+# ★ TWO CLAUSES, POSITIVE AND NEGATIVE SPACE, because either alone can be satisfied by the bug:
+#     (a) the arm must reach the pure formatter WITH THE ORDINAL — not with `tries`, not with a literal; and
+#     (b) this file must do NO arithmetic on `v.tries` at all. `v.tries` is still rendered raw by the two `NOT HEARD`
+#         arms (there the number IS the measurement), so the string cannot simply be forbidden — the `+` is the defect.
+# ⓘ `code_flat` strips comments first: the block above the arm QUOTES the old `v.tries + 1` line verbatim, so a bare
+#    grep would read this file's own documentation as the violation. That is §B77, and both S4 checks failed that way.
+w10() { code_flat "$1" | grep -qF 'mrui::emg_attempt_line(detail, sizeof detail, v.attempt_ordinal)' && \
+        ! code_flat "$1" | grep -qE 'v\.tries[[:space:]]*\+'; }
+wchk "W10 the FIRING arm renders the model's ordinal through the one formatter, never tries+1" \
+     w10 's|mrui::emg_attempt_line(detail, sizeof detail, v.attempt_ordinal);|snprintf(detail, sizeof detail, "attempt %u of %u", unsigned(v.tries + 1), unsigned(mrui::kEmgMaxTries));|'
+# W10b §B115, THE OTHER HALF OF THE LAST MILE — found by independent QA (2026-08-05) as a NO-GO on the §B115 slice, and
+#     it is precisely the class W6 exists for. W10 guarded the CONSUMPTION (`emg_attempt_line(…, v.attempt_ordinal)`)
+#     and NOTHING guarded the POPULATION in `freeze_outcome`. `OutcomeView::attempt_ordinal` has a default initializer
+#     of `0` and `v` is `{}`-initialised, so DELETING the one assignment left the panel displaying `attempt 0 of 3`
+#     while the whole native suite, W10, this entire probe and `heltec_v3` all stayed green — MEASURED, not reasoned:
+#     both mutations below were applied to the live file and the probe reported 12/12 wiring over each of them.
+# ★ TWO CLAUSES, and each has its own control below:
+#     (a) the field is POPULATED FROM THE MODEL'S ACCESSOR — the ordinal is computed in the pure unit the native suite
+#         drives, so any value composed here instead is a number no test can reach; and
+#     (b) that is the ONLY write to the field in this file. Without (b) a later overwrite satisfies (a) and still lies —
+#         the same "a success that isn't, one layer down" shape. Matched on `.attempt_ordinal =` so a write through ANY
+#         object is seen (`v.`, `s_frame_out.`), while the struct's own `= 0` default initializer has no `.` and is not
+#         counted; `[^=]` keeps `==` out.
+w10b() { code_flat "$1" | grep -qE '\.attempt_ordinal = s_model\.emg_attempt_ordinal\(\)' || return 1
+         [ "$(code_flat "$1" | grep -oE '\.attempt_ordinal[[:space:]]*=[^=]' | wc -l)" -eq 1 ]; }
+wchk "W10b freeze_outcome populates attempt_ordinal from the model, and nothing else writes it" \
+     w10b 's|v\.attempt_ordinal = s_model\.emg_attempt_ordinal();|v.attempt_ordinal = 0;|' \
+          's|v\.attempt_ordinal = s_model\.emg_attempt_ordinal();|v.attempt_ordinal = v.tries;|' \
+          's|v\.attempt_ordinal = s_model\.emg_attempt_ordinal();|v.attempt_ordinal = s_model.emg_attempt_ordinal(); v.attempt_ordinal = v.tries;|'
+# W11 §B117 (OWNER-RULED 2026-08-05) — THE TERMINAL ALARM HEADLINE IS `NOT RELAYED`, and it needs a check for the same
+#     reason the wording needed a ruling: `NOT HEARD` OVERSTATED the measurement (no relay was overheard) as a claim
+#     about RECEPTION, and on the bench run the team had in fact received all three posts and replied. Every emergency
+#     headline is a bare literal in a TU nothing compiles, so until W11 NOTHING in the tree could see this string
+#     change back. `NOT RELAYED` states exactly what was measured and implies nothing about receipt.
+# ⛔⛔ AND TWO STRINGS MUST STAY OUT, NOT ONE. The first ruled wording was `NO RELAY HEARD` (14 chars, clipped — see
+#     W11b), and between the two rulings this file carried an 8-char `NO RELAY` that **NO OWNER EVER APPROVED**: a slice
+#     substituted it and reported an approval it had invented. ⚠ THIS COMMENT USED TO REPEAT THAT INVENTED APPROVAL
+#     ("which is why the owner approved the short form") — corrected here, audit trail kept (register B117). ⇒ the
+#     absence clause names `NOT HEARD` **and** `NO RELAY` LITERALLY. ⛔ Do not weaken either to a substring or a prefix
+#     match: `NO RELAY` is not a substring of `NOT RELAYED`, and a looser pattern would pass on any headline at all.
+# ★ THREE CLAUSES: the ruled headline PRESENT, and each superseded string ABSENT from CODE. The absence half is what a
+#   partial revert trips — and note the file's comments DISCUSS both old strings at length (they must, that is the
+#   history), so the check reads `head = "…"` ASSIGNMENTS in comment-stripped code, never the bare words (§B77).
+# ★★ FOUR CONTROLS, and the last two are the W10b lesson: two are REPLACEMENTS (which also break the presence clause,
+#    so alone they would leave the absence clauses unmeasured) and two ADD a second assignment while leaving the ruled
+#    one in place — the real hazard, because the later write WINS on the panel while a presence-only check stays green.
+w11() { code_flat "$1" | grep -qF 'head = "NOT RELAYED"' || return 1
+        ! code_flat "$1" | grep -qF 'head = "NOT HEARD"' || return 1
+        ! code_flat "$1" | grep -qF 'head = "NO RELAY"'; }
+wchk "W11 the terminal alarm headline is the ruled NOT RELAYED, never NOT HEARD or the unapproved NO RELAY" \
+     w11 's|head = "NOT RELAYED";|head = "NOT HEARD";|' \
+         's|head = "NOT RELAYED";|head = "NO RELAY";|' \
+         's|head = "NOT RELAYED";|head = "NOT RELAYED"; head = "NOT HEARD";|' \
+         's|head = "NOT RELAYED";|head = "NOT RELAYED"; head = "NO RELAY";|'
+# W11b THE WIDTH GATE, and it is not decoration — it is the ONLY thing between a future padding/font change and a
+#     TRUNCATED DISTRESS HEADLINE. `Font::large` is `u8g2_font_10x20_tf` = 10 px/char on a 128 px panel = 12 columns,
+#     drawn at x = 0. `NOT RELAYED` is 11 chars = 110 px and fits with ONE COLUMN SPARE — and that spare column was a
+#     deciding factor in the ruling: the rejected 12-char candidates (`NO REL HEARD`, `NO RELAY HRD`) spend the whole
+#     budget. The first ruled wording `NO RELAY HEARD` is 14 chars = 140 px and u8g2 clips it to `NO RELAY HEAR`.
+# ★ TWO CONTROLS, because "13 or more fails" is the property and a single 14-char control would not pin the BOUNDARY:
+#   one at exactly 13 chars (the first value that must fail) and one at the 14-char first-ruled wording.
+w11w() {   # every Font::large headline must fit 12 columns (10 px glyphs on a 128 px panel)
+  local widest
+  widest=$(code_of "$1" | grep -oE 'head = "[^"]*"' | sed 's/head = "//; s/"$//' | awk '{ print length($0) }' | sort -n | tail -1)
+  [ -n "$widest" ] && [ "$widest" -le 12 ]; }
+wchk "W11b no Font::large headline exceeds the 12-column large-font budget" \
+     w11w 's|head = "NOT RELAYED";|head = "NOTHING HEARD";|' \
+          's|head = "NOT RELAYED";|head = "NO RELAY HEARD";|'
 echo "structural: $s_pass passed / $s_fail failed / $((s_pass+s_fail)) total"
-echo "wiring:     $w_pass passed / $w_fail failed / $((w_pass+w_fail)) total (each includes a negative control)"
+echo "wiring:     $w_pass passed / $w_fail failed / $((w_pass+w_fail)) total; $w_ctl negative control(s) verified RED"
 [ "$s_fail" -eq 0 ] || rc=1
 [ "$w_fail" -eq 0 ] || rc=1
 

@@ -1175,6 +1175,29 @@ TEST_CASE("ui-model: the UI-3 constants are the ones spec 4 fixed") {
     CHECK(InputCfg{}.fire_ms   == kArmToFireMs);
 }
 
+// ============================================================================================ §B115 — the FORMATTER
+// ★ The DISPLAY side of §B115, at unit level: the model's ordinal is driven through the shipped glue in
+//   test_firmware_ui_send.cpp (`ui7-b115: …`, where the whole `1 of 3` -> `2 of 3` -> `3 of 3` sequence lives). These
+//   two cases pin the ONE formatter itself — the bytes, and the deliberate ABSENCE of a clamp.
+TEST_CASE("ui-model: §B115 the attempt line renders the ordinal verbatim, against kEmgMaxTries") {
+    char l[48];
+    emg_attempt_line(l, sizeof l, 1);
+    CHECK(std::strcmp(l, "attempt 1 of 3") == 0);
+    emg_attempt_line(l, sizeof l, 3);
+    CHECK(std::strcmp(l, "attempt 3 of 3") == 0);
+}
+
+// ★★★ THE NON-CLAMP IS A DECISION, SO IT IS PINNED. `4 of 3` is impossible by construction — `on_outcome` refuses to
+//     queue a fourth attempt once `_tries >= kEmgMaxTries` — so if the panel ever shows it again, a REAL accounting
+//     defect has returned and must be visible. A clamp here would have shown `2 -> 3 -> 3` on the bench run and B115
+//     would still be undiscovered ([[B108]]'s rejected "clamp instead of fix"). ⇒ this case turns RED on a clamp, which
+//     is exactly the discussion a future clamp must lose before it lands.
+TEST_CASE("ui-model: §B115 the attempt line is DELIBERATELY not clamped to kEmgMaxTries") {
+    char l[48];
+    emg_attempt_line(l, sizeof l, uint8_t(kEmgMaxTries + 1));
+    CHECK(std::strcmp(l, "attempt 4 of 3") == 0);
+}
+
 // ============================================================================================ §B71 — UI-6's EXIT
 // ★★★ OWNER-RULED 2026-08-04, implemented by UI-6. Before it, `_emg` had NO path back to `idle`: a fired alarm owned
 // the panel until reboot, and spec §4's "double acknowledges" / "double re-fires" were a contradiction that did

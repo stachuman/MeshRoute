@@ -476,6 +476,17 @@ inline bool ui_route_recv_push(UiInboxCounters& c, UiModel& m, const MESHROUTE_N
                                uint8_t ui_team_channel_id, bool same_team_post,
                                const char* who, uint32_t now_ms) {
     using PK = MESHROUTE_NS::PushKind;
+    // ★★★ A DM IS COUNTED AND NOTHING ELSE — IT IS **RULED** NOT TO BE EMERGENCY CONFIRMATION (owner, 2026-08-05,
+    //     register B114). This arm returns before `on_reply` can be reached, so a teammate answering a distress call by
+    //     DIRECT MESSAGE does NOT move the alarm off `NOT HEARD`. ⚠ THAT IS THE DESIGN, NOT AN OVERSIGHT — recorded
+    //     here because it was measured on metal as a suspected defect (the team heard the call, replied by DM, and the
+    //     panel still said NOT HEARD) and the owner ruled the shipped behaviour CORRECT.
+    // ⛔ DO NOT "FIX" IT BY WIDENING THE ROUTER TO `msg_recv`. Two reasons, both structural:
+    //     ① it re-opens exactly the surface §F4/§B103 deliberately narrowed — a reply must be provably from OUR TEAM;
+    //     ② a DM's `pu.team_id` is NOT the channel-post team tag, so `same_team(pu.team_id)` cannot scope it safely.
+    //        Any widening therefore needs its own scope guard, i.e. its own slice and its own ruling.
+    // ⓘ What the panel MAY yet learn from is a teammate's reply on the TEAM CHANNEL (below, the `channel_recv` path) or
+    //   — not implemented, its own protocol/UI slice — the channel `HAVE` digest as delivery evidence (register B116).
     if (pu.kind == PK::msg_recv) {
         c.last_dm_ms = now_ms; c.have_dm = true;
         // ★★ §B108 ROUND 2: THE SERIAL IS UNCAPPED. This used to read `if (c.unread_dm < kUnreadCap) ++c.unread_dm;`

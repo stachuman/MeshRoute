@@ -475,7 +475,7 @@ change is only observable here.
 ⚠ Metal-only in the way that matters: the model half is natively gated, but **"did the screen actually come on"** has
 no instrument other than this panel. Needs a real teammate node and a stranger node (the same pair as H6-09).
 
-- [ ] Panel node: fire an alarm and let it reach a retained outcome (`PICKED UP` / `NOT HEARD`).
+- [ ] Panel node: fire an alarm and let it reach a retained outcome (`PICKED UP` / `NOT RELAYED`).
 - [ ] **Do not touch the button.** Wait out `kEmgHoldMs` **plus** the blank timer until the panel is fully DARK.
 - [ ] Teammate node, same `team_id`: `send_channel -t 0 "on my way"`.
 - [ ] ★★ **The panel must LIGHT BY ITSELF**, with no button press, showing `REPLY <name>: on my way`. Before this
@@ -488,7 +488,7 @@ no instrument other than this panel. Needs a real teammate node and a stranger n
       node (`team_id == 0`) posting `send_channel 0 "hello"`. The `CH` count moves when you next wake it, but the panel
       **must stay dark**. ⛔ A panel lighting for a passer-by is both the §2.1 false-confirmation class in power form
       and a battery-drain vector; it means the wake was wired to the arrival instead of to the reply.
-- [ ] ⓘ **Known and deliberate:** a `BLOCKED` / `PICKED UP` / `NOT HEARD` / `FAILED` outcome arriving at a dark panel
+- [ ] ⓘ **Known and deliberate:** a `BLOCKED` / `PICKED UP` / `NOT RELAYED` / `FAILED` outcome arriving at a dark panel
       does **not** light it — R1 rules on the REPLY only. Do not file that as a bug; it is an open owner question.
 
 ### H6-12 — §R2/B110: a DOUBLE under the emergency overlay must do NOTHING AT ALL
@@ -602,9 +602,15 @@ told. **Hard to provoke deliberately — record it opportunistically if it appea
 - [ ] ⛔ It must NEVER read `SENT`, and it must NEVER read `SENT, no relay`. Both would be claims the node cannot make:
       with no local handle it never listened, and on this `-t` line a zero ctr is a block or a seal failure, not a
       delegated success. **If you see either wording, STOP and report — that is the §2.1 false confirmation.**
-- [ ] **Panel (emergency overlay), same condition:** headline **`NOT HEARD`**, detail **`unconfirmed x3`** —
+- [ ] **Panel (emergency overlay), same condition:** headline **`NOT RELAYED`**, detail **`unconfirmed x3`** —
       NOT `no relay after 3`. The headline is deliberately the same as the measured case: the user's action is
       identical (do not assume help is coming), only the claim about what was measured differs.
+      ⚠ **The headline is `NOT RELAYED`** — owner-ruled 2026-08-05 (register B117), 11 chars with one column spare in
+      the 12-column large font. It says exactly what was measured (the relay did not happen) and nothing about receipt.
+      ⛔ **Three wrong readings, and none of them is acceptable:** `NOT HEARD` is pre-ruling firmware · `NO RELAY` is the
+      intermediate build carrying an 8-char string **no owner ever approved** (substituted by an implementing slice,
+      superseded — not a fallback) · a CLIPPED `NO RELAY HEAR` is the first ruled 14-char wording, which is 140 px on a
+      128 px panel. Report whichever you see rather than accepting it.
 
 ### H7-08 — the sub-view's lifetime bounds the outcome, and that is DELIBERATE
 
@@ -663,7 +669,7 @@ Power off or isolate the intended receiving side.
 - [ ] The UI shows the initial emergency transmission.
 - [ ] The bounded retry schedule is followed.
 - [ ] Exactly three accepted transmissions are consumed.
-- [ ] The final state is `NOT HEARD`.
+- [ ] The final state is `NOT RELAYED` (the panel string; the model state is still `Emergency::not_heard`).
 - [ ] No infinite retry or permanent `SENDING...` state occurs.
 - [ ] No fourth emergency request is queued.
 - [ ] A later new emergency can be started.
@@ -677,7 +683,13 @@ With the receiving side available and the post actually relayed:
 - [ ] A valid reply on channel 0 moves the sender to `REPLY` and displays the intended sender/text.
 - [ ] Duplicate radio frames do not generate duplicate user-visible emergencies.
 
-Control: repeat on a fully one-hop team. Receipt with `relayed=false` may end as `NOT HEARD`; record it as the accepted first-relay semantics, not as lost delivery.
+Control: repeat on a fully one-hop team. Receipt with `relayed=false` may end as `NOT RELAYED`, and that is **acceptable
+ONLY WHEN NO REPLY WAS RECEIVED** — the earlier wording ("record it as the accepted first-relay semantics") MASKED
+[[B114]], a live bench run in which the team received all three posts *and answered* while the panel reported no relay.
+⇒ if ANY reply arrived, do **not** tick this line. Record which kind it was:
+- a reply on the **team CHANNEL** must lift the panel to `REPLY`. It not doing so is a LIVE DEFECT — stop and report.
+- a reply by **DM** legitimately does **not** lift it (owner-ruled 2026-08-05, B114 matter ②: a direct DM is not
+  emergency confirmation). Record it against B116 (`HAVE`-digest evidence), which is the open work, not as a pass here.
 
 ### H8-04 — Temporary block/backpressure
 

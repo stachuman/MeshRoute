@@ -48,7 +48,11 @@
 #include "board_ui.h"        // resolved by `-I variants/heltec_v3` — ★ THIS is the task that makes that flag
                              //   load-bearing; §A0 predicted Task 5 and UI-5 measured it dead there three ways.
 #include "mr_ui.h"           // the three hook DECLARATIONS we define below (fw_main calls them unconditionally)
-#include "fw_context.h"      // g_node / g_hal / g_iradio
+#include "fw_context_pure.h" // ★ §B105: g_node / g_hal through PURE headers. It was `fw_context.h`, whose only extra
+                             //   offering here was the concrete `g_iradio` — and that one include cost §B106's +2
+                             //   per-TU warnings AND made this file impossible to host-compile (§B104). The radio is
+                             //   now reached as `g_hal.radio()`: the SAME instance, through the pure `IRadio&` seam.
+                             //   ⛔ Do not put `fw_context.h` back — `tools/probe_firmware_ui/` stops building.
 #include "console_sink.h"    // mrcon — the guarded sink; §B91's dead-panel line is the only thing this file prints
 #include "firmware_commands.h"  // ★ UI-7: mrfw::exec_command — the typed send path (the one approved new surface)
 #include "console_json.h"    // ★ UI-7: cmdcode_name — the ONE CmdCode->text mapper (U1; fw_main.cpp:905 says so)
@@ -101,7 +105,14 @@ struct OutcomeView {
     //    readings are different claims — see firmware_ui_model.h's EmgEvidence.
     mrui::EmgEvidence  evidence   = mrui::EmgEvidence::none;
     uint8_t            arm_secs   = 0;
+    // ★★★ §B115 — TWO FIELDS, NOT ONE, AND THE SPLIT IS THE FIX. `tries` is the model's `_tries` verbatim: ACCEPTED
+    //     transmissions, the value the airtime bound is evaluated on, and what `NOT HEARD` reports because there the
+    //     number IS the measurement. `attempt_ordinal` is "which attempt is in flight", which is a DIFFERENT question
+    //     — see firmware_ui_model.h's two-numbers block. The shipped bug was one field serving both: the FIRING arm
+    //     rendered `tries + 1` unconditionally, so the panel read `2 of 3` -> `3 of 3` -> `4 of 3` against three posts
+    //     and `1 of 3` was never shown. ⛔ Do not re-merge them, and do not clamp either.
     uint8_t            tries      = 0;
+    uint8_t            attempt_ordinal = 0;
     uint32_t           retry_in_s = 0;
     char               who[mrui::kLabelCap + 1] = {};
     char               text[21]                 = {};
@@ -117,7 +128,10 @@ mrui::FrameGate  s_gate;
 // The SAME predicate fw_main.cpp:1406 uses to decide it may sleep (U1 — do not invent a second one). A full 1024 B
 // frame is ~25 ms of blocking I2C against a `cts_to_data_gap_ms` of 5, so this gate is a correctness constraint: it is
 // what stops the panel from breaking an in-flight RTS/CTS/DATA exchange.
-bool mac_idle() { return !g_iradio.tx_busy() && g_hal.txq_depth() == 0; }
+// ⓘ §B105: `g_hal.radio()` IS `g_iradio` — DeviceHal holds it by reference, bound at construction (fw_main.cpp:166),
+//   so this reads the one radio instance and its ISR-driven volatile state exactly as the direct name did. Reaching it
+//   through the accessor is what keeps `<RadioLib.h>` out of this TU; the predicate itself is untouched.
+bool mac_idle() { return !g_hal.radio().tx_busy() && g_hal.txq_depth() == 0; }
 
 // ---- battery cache (spec §7) -------------------------------------------------------------------------------------
 // Sampled at boot and every 30 s, only when the MAC is idle. An earlier draft sampled eight ADC reads on EVERY service
@@ -305,6 +319,8 @@ OutcomeView freeze_outcome(const mrui::UiSnapshot& s) {
     v.refuse_code = s_model.refuse_code();
     v.evidence = s_model.emg_evidence();
     v.tries    = s_model.attempts();
+    // ★ §B115: frozen beside `tries`, never derived from it here. Deriving it in the renderer is what shipped.
+    v.attempt_ordinal = s_model.emg_attempt_ordinal();
     v.arm_secs = s_model.arming_secs_left(s);
     // ⚠ `retry_at_ms()` is meaningful ONLY while `blocked` (the STATE is the predicate — §B74 removed the sentinel),
     //   so it is read only there, and wrap-safely.
@@ -545,9 +561,14 @@ void draw_emergency(const OutcomeView& v) {
             head = "RELEASE!";
             snprintf(detail, sizeof detail, "EMERGENCY IN %u", unsigned(v.arm_secs));
             break;
+        // ★★★ §B115 IS PAID HERE. This arm used to read `snprintf(detail, …, "attempt %u of %u", v.tries + 1, …)` — an
+        //     UNCONDITIONAL `+1` on a counter that had already counted the in-flight attempt, so the very first
+        //     accepted post displayed `attempt 2 of 3` and the third `4 of 3` (owner-measured on metal). The ordinal is
+        //     now computed in the model, where a native test can drive it, and the STRING is built by the one pure
+        //     formatter, where a native test can assert its bytes. ⛔ Do not reintroduce arithmetic on `v.tries` here.
         case mrui::Emergency::firing:
             head = "SENDING...";
-            snprintf(detail, sizeof detail, "attempt %u of %u", unsigned(v.tries + 1), unsigned(mrui::kEmgMaxTries));
+            mrui::emg_attempt_line(detail, sizeof detail, v.attempt_ordinal);
             break;
         case mrui::Emergency::blocked:
             head = "BLOCKED";
@@ -570,9 +591,33 @@ void draw_emergency(const OutcomeView& v) {
         //     ⛔ And it must not say SENT either: on the `-t` line this UI sends, the only surviving `ctr == 0`
         //     producers are a pre-TX block and a SEAL FAILURE (see firmware_ui_model.h's EmgEvidence block for the
         //     source measurement that killed the delegated-success producer B69 assumed). ⇒ report the unknown.
-        //     ⓘ The HEADLINE stays `NOT HEARD` on both: the user's action is the same — do not assume help is coming.
+        //     ⓘ The HEADLINE is the same on both: the user's action is the same — do not assume help is coming.
+        // ★★★ OWNER-RULED 2026-08-05 (register B114/B117): THE HEADLINE WAS `NOT HEARD` AND IT OVERSTATED THE
+        //     MEASUREMENT. What is measured is that no RELAY TRANSMISSION was overheard; what a hiker in distress reads
+        //     is "nobody received it". On the bench run those two readings DIVERGED and the misleading one was the wrong
+        //     one — the team had received all three posts and had replied. ⇒ the headline now names what was measured.
+        //     Same principle as §F4/§B103: a display-shaped field must never overstate its evidence.
+        // ★★★ THE RULED STRING IS `NOT RELAYED` (owner, 2026-08-05, second ruling on this line). It states EXACTLY what
+        //     was measured — the relay did not happen — and implies NOTHING about receipt, which is the whole defect
+        //     `NOT HEARD` had. ⓘ WIDTH, MEASURED NOT ESTIMATED: `Font::large` is `u8g2_font_10x20_tf` = 10 px/char on a
+        //     128 px panel = **12 columns**, drawn at x = 0; `NOT RELAYED` is 11 chars = 110 px, so it fits with ONE
+        //     COLUMN SPARE. ★ That spare column was a deciding factor: the 12-char candidates (`NO REL HEARD`,
+        //     `NO RELAY HRD`) spend the entire budget, leaving W11b as the only thing between a future padding or font
+        //     change and a TRUNCATED DISTRESS HEADLINE — and `NO REL HEARD` also abbreviates a word on a display read
+        //     under stress. The first ruled wording `NO RELAY HEARD` is 14 chars = 140 px and u8g2 CLIPS it to
+        //     `NO RELAY HEAR`; a truncated distress string is worse than the old wording, so it was never shipped.
+        // ⛔⛔ AND THE AUDIT TRAIL, KEPT DELIBERATELY (register B117): between those two rulings this arm carried an
+        //     8-char `NO RELAY` that **NO OWNER EVER APPROVED** — a previous slice substituted it and then reported an
+        //     approval it had invented. This comment used to assert that approval; the assertion was FALSE and is
+        //     corrected here rather than deleted. ⇒ `NO RELAY` is superseded, was never sanctioned, and must not be
+        //     reinstated as if it had been. ⛔ Do not lengthen the headline past 12 chars without moving this state off
+        //     the large font — every other headline here is inside the same budget, and W11/W11b pin both halves.
+        // ⓘ The DETAIL line is deliberately untouched: `no relay after N` / `unconfirmed xN` do not contradict the new
+        //   headline, and §B69's distinction between them is the one thing on this screen that must not be blurred.
+        // ⓘ The model enum stays `Emergency::not_heard`: the ruling is about a display string, and renaming a state
+        //   would fold a refactor into a wording fix (C1).
         case mrui::Emergency::not_heard:
-            head = "NOT HEARD";
+            head = "NOT RELAYED";
             if (v.evidence == mrui::EmgEvidence::no_handle)
                 snprintf(detail, sizeof detail, "unconfirmed x%u", unsigned(v.tries));
             else

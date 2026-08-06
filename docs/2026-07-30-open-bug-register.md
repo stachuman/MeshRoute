@@ -78,14 +78,15 @@ Legend:
 - [x] **B97 — ★★ FIXED 2026-08-05 (UI-6, UNCOMMITTED): the four "REQUIRED INTEGRATION REGRESSIONS" that guard the DISTRESS PATH were structurally BLIND to the code they guard.** They existed, they were green, and they **hand-replicated** the tracker/model wiring — so a `mr_ui_tick` wired in the wrong order (which the plan records happening TWICE) would not have moved one assertion. ⇒ the wiring is now `mrui::ui_pump_trackers` / `mrui::ui_route_send_push`, PURE functions in `firmware_ui_send.h`, and the tests drive **them**. **Five reverts measured red:** B84 blocker 1 (2 cases), blocker 2 (2 cases), the offer order (1), the B71 exit (5), a re-added emergency `send_failed` arm (1).
 - [ ] **B98 — RECORDED (gate methodology), and it is B97's own lesson biting me mid-fix:** my first version of the *"a canned expiry cannot touch a live alarm"* case **stayed green against the exact defect it names.** With `_tries` 1 of 3, routing the normal tracker's expiry into `on_outcome` re-enters `firing` and leaves `attempts()` at 1 — so asserting *state* and *attempts* proved nothing; the visible harm is a **PHANTOM QUEUED ALARM**. ⇒ **when a state machine's arm is idempotent-looking, assert the SIDE EFFECT (the queue), not the state.** Both halves are now asserted, plus a budget-spent variant where the same revert fabricates a terminal `NOT HEARD`.
 - [ ] **B99 — RECORDED / THE PLAN'S TASK-6 BLOCK: its emergency overlay TEARS, and its tick cannot compile.** Two defects, both measured while implementing: **(a)** the block freezes `UiState` + `UiSnapshot` at `begin_frame()` — then has the overlay read `s_model` **LIVE**, so a state change mid-frame tears the image across page boundaries on the one screen where it matters most (fixed here by a frozen `EmgView`); **(b)** it calls `ui_perform_send()`, which is **Task 7 Step 1** and needs `mrfw::exec_command`, so Task 6 as written does not build. ⇒ UI-6 ships a **loud-refusal stub** (C2): the alarm reaches `FAILED` + `no send path: UI-7` and a console line, rather than sitting on `SENDING...` for ever. **The plan needs the owner's edit.**
-- [ ] **B100 — RECORDED / §B71's fifth state is VACUOUS, and the ruling should be trimmed.** The ruling's exit table lists *"final `blocked`"* — but `on_outcome`'s `K::blocked` arm **always** arms a retry and `tick_emergency` always re-fires from it, so a `blocked` alarm is by construction still in flight and including it would fire the exit **mid-retry**, which the ruling's own first row forbids. ⇒ implemented on **four** states (`picked_up` / `not_heard` / `reply` / `failed`), asserted vacuous in `emg_outcome_retained()` and in a test.
+- [x] **B100 — ✅ CLOSED 2026-08-05, OWNER AGREED: §B71's fifth state was VACUOUS and the ruling is now TRIMMED.** The ruling's exit table listed *"final `blocked`"* — but `on_outcome`'s `K::blocked` arm **always** arms a retry and `tick_emergency` always re-fires from it, so a `blocked` alarm is by construction still in flight and including it would fire the exit **mid-retry**, which the ruling's own first row forbids. Counted beside §B78's `failed` it made the ruled set read as **five** when only **four** are reachable. ⇒ **the phantom member is removed from the ruling** (the plan's B71 table now reads `picked_up` / `not_heard` / `reply` / `failed`, matching `emg_outcome_retained()`), and the in-source note at `firmware_ui_model.h`'s predicate is re-tensed to say the trim has landed. ★ **NO EXIT LOGIC CHANGED** — this removed a phantom obligation from a document, never a behaviour from the code, and there is no behavioural delta to gate. ⚠ **A test DOES assert the vacuous fifth, and it is KEPT DELIBERATELY, not deleted:** `test_firmware_ui_model.cpp`'s *"an IN-FLIGHT alarm does not exit (firing / arming / blocked-with-a-retry)"* drives a real `blocked` outcome and checks `emg_outcome_retained() == false` — it asserts the fifth state's **ABSENCE**, so it is the pin that makes the trim measured rather than argued. Removing it would delete the evidence for this closure.
 - [x] **B101 — ✅ CLOSED 2026-08-05 (UI-6 fix slice, QA finding F5): committing an alarm now CLOSES the compose modal and resets its cursor.** `UiModel::emergency_gesture`'s `long_fire` arm sets `_st.compose = Compose::none; _st.cursor = 0`. ⓘ `long_arm` deliberately does NOT — arming is cancellable, and destroying the user's list position for a press they may still cancel would be a second, smaller wrong. **RED measured: 1 case / 5 assertions** (`ui-model: B101 — committing an alarm CLOSES the compose modal and resets its cursor`), and the discriminating one is `take_send_request(stale) == false` — against the shipped code a real canned DM **is queued**, so the mis-send is measured directly rather than argued. The old case that PINNED the opposite behaviour was rewritten, not deleted, and says why in-source. The drifted `on_gesture` comment ("a long press … does NOT close it") is corrected (V1).
 - [x] **B102 — ✅ CLOSED 2026-08-05 (UI-6 fix slice, QA finding F3): FIXED, not recorded — "its result was seen" is now a MEASUREMENT.** The declined "cheap sound fix" in the old entry was latching off `clear_dirty()`; that is exactly what §B107 then proved unsound, since `clear_dirty()` was itself being called at the wrong point. ⇒ the latch is its own pair of counters: `retain()` (which EVERY retained outcome goes through, and which a new reply re-enters with new text) bumps `UiModel::_emg_news`, and `FrameGate::on_page` reports back the news a **completed** frame actually presented. `emg_outcome_retained()` = terminal **AND** `_emg_seen == _emg_news`, so B71's exit consults it. ★ Second half, equally important: a short press while the overlay is up is now **CONSUMED** — it used to fall through and drive the screen/compose list underneath, which the user cannot see. **RED measured: 6 cases / 8 assertions.** No arithmetic value is reserved (§B74's discipline): both counters start at 0 and the first `retain()` makes `_emg_news` 1, while `terminal` is false for `idle`.
 - [x] **B103 — ✅ CLOSED 2026-08-05 (UI-6 fix slice, QA finding F4): the distress-REPLY scope is TEAM-scoped.** `mr_ui_on_push` now passes `g_node.same_team(pu.team_id)` (node.h:274, reused not re-derived — U1) into the new pure `mrui::ui_route_recv_push`. ★★ **The hole was WIDER than the original entry framed it, and the clause carrying the safety weight is `team_id != 0`, NOT the channel equality:** `ingest_channel_m` (node_channel.cpp:211-212) already drops a foreign TEAM's post, but its own comment records that a normal leaf M (`team_id == 0`) "falls through → ingested by everyone" — so with `MR_UI_TEAM_CHANNEL_ID == 0`, **any node in radio range posting plaintext on channel 0, with no team membership and no key, rendered as "someone answered my distress call".** Equivalence verified, not assumed: `same_team(t)` ⟺ `t != 0 && t == our_team`, both directions. **RED measured: 2 cases / 6 assertions** — the model reached `Emergency::reply` and the stranger's name landed in `reply_who()`. ⓘ **Ruled consequence, stated:** on a node with `team_id == 0` the REPLY indication is now unreachable — without a team there is no key and no membership, so nothing could make a reply trustworthy. ⛔ Zero `lib/` edits.
   - **DOC ROT CLOSED 2026-08-05 (narrow factual correction, under an explicit owner exception to "don't edit the spec"):** `docs/superpowers/specs/2026-07-31-onboard-oled-ui-design.md` **§4.4** still said the channel id **alone** qualified a reply — the shipped-and-wrong behaviour — and the §"second review" bullet said the same. Both now state **same-team AND the configured channel**, with the `ingest_channel_m` `team_id == 0` fall-through named as the reason and the no-team consequence recorded. **The FACT only: no redesign, no new ruling.**
-- [ ] **B104 — OPEN / PARTLY CLOSED 2026-08-05: a COVERAGE LOSS created by Task 6, stated rather than absorbed.** The board probe used to assert *"the scene is re-drawn once per page"* through `mr_ui_init()`, which lived in `board_ui.cpp`. Task 6 moved it into `src/firmware_ui.cpp`, which pulls `fw_context.h` ⇒ RadioLib ⇒ **not host-compilable**, so no mutation of the board TU can revert it any more. The canvas half is still measured (P5, and control **C4** replaced the old one); the **caller** half is now only STRUCTURAL (`run.sh` S3: two `draw_frame` call sites). ★ The unblocker is a `DeviceHal::radio()` accessor — see B105. ★★ **UPDATE 2026-08-05 (UI-6 fix slice): most of this is now closed by MOVING the policy instead of by unblocking the TU.** Render policy, the §5 MAC-idle gate, the 2 Hz throttle, the emergency bypass, the blank and the whole frame lifecycle are now `mrui::FrameGate` in `firmware_ui_model.h` — pure, and driven by 20 native cases that turn red on a revert (§B107/§B108/§B102). The old S3 check ("two `draw_frame` call sites") is **retired as vacuous**: it only ever measured that somebody remembered to duplicate the call. The `open` and `next_page` arms now SHARE one tail, so "drawn on every page" is structural, and S3 checks exactly-one of each of the three calls instead. **Still uncovered and honestly named: the battery cadence** (`battery_maybe_sample`, still in the untestable TU), the snapshot builder, and every `draw_*` function — pixels have no probe at all. ⇒ **B105 remains the cure for the residue.**
-- [ ] **B105 — OPEN / OWNER RULING WANTED: one `IRadio&` accessor on `DeviceHal` would make the whole feature layer host-testable AND remove 2 pinned warnings.** `firmware_ui.cpp` needs exactly three device reads — `g_node`, `g_hal.txq_depth()`, `g_iradio.tx_busy()`. The first two come from `node.h` and `device_hal.h`, both of which are **Arduino- and RadioLib-free by design** (`device_hal.h` says so). Only `tx_busy()` forces `fw_context.h`, i.e. `<RadioLib.h>` — which is the sole cause of B106's +2 warnings **and** of B104's coverage loss. `DeviceHal` already holds `IRadio& _radio` privately with no accessor. ⇒ adding `IRadio& radio() { return _radio; }` (header-only, zero codegen unless used, s18-inert) would let the feature layer include only pure headers and gain a real probe. **NOT taken:** the plan's "reuse, do not add — if a task needs anything beyond these, stop and ask" names four permitted new surfaces and this is not one of them.
-- [x] **B106 — ✅ CLOSED 2026-08-05: B87 RE-PINNED 178/178/174 → 180/180/176, plan table updated, QA-CONFIRMED independently.** An independent census run reproduced **326 objects / 180 / 180 / 176, `-Wswitch` 0**, and RAM **+760 B identical on all three** (`gateway_heltec` 238988 = **72.9 %**, the tightest OLED env). Attribution re-derived structurally: `firmware_ui.cpp` includes `fw_context.h` → the radio HAL, pulling RadioLib's `#warning` (`-Wcpp`) + `device_radio.h`'s `inline volatile` globals (`-Wvolatile`), **once per including TU** ⇒ **+2 per env is +1 TU, and none of it is UI-6 code**. ⚠ **The script's own `PASS` is self-referential** once the coder owns `EXPECT_WARN` — the raw counts and the include chain are the evidence, not the verdict line. ⇒ [[B105]] remains the cure (removes both warnings **and** unlocks [[B104]]'s missing probe) and is the owner's call. `tools/warning_census.sh` is updated, and **§B87's table in the plan HAS been updated by QA** (326 objects · 180/180/176 · the measured RAM/Flash), so **no owner edit is outstanding for it**. ⚠ **An earlier draft of this very line said the opposite** — it still carried the coder-era clause *"needs the owner's edit"* alongside the closure text, asserting a claim and its negation in one entry; corrected in place rather than appended-to. **Not one of the +2 is UI-6 code** — both are per-TU diagnostics from vendored headers reached through `fw_context.h`: `-Wcpp` (RadioLib's `#warning "God mode active…"`, 5→6 TUs) and `-Wvolatile` (`device_radio.h`'s `'++' of volatile-qualified type`, 6→7 TUs). **Attributed by controlled A/B, not inferred:** dropping the TU from `build_src_filter` returns exactly 325 objects / 178 warnings. ⓘ UI-6's OWN 10 `-Wformat-truncation=` warnings were **fixed, not pinned** (formatter buffers sized to their provable widest expansion). See B105 for the change that would take the +2 back to zero.
+- [ ] **B104 — OPEN / PARTLY CLOSED 2026-08-05: a COVERAGE LOSS created by Task 6, stated rather than absorbed.** The board probe used to assert *"the scene is re-drawn once per page"* through `mr_ui_init()`, which lived in `board_ui.cpp`. Task 6 moved it into `src/firmware_ui.cpp`, which pulls `fw_context.h` ⇒ RadioLib ⇒ **not host-compilable**, so no mutation of the board TU can revert it any more. The canvas half is still measured (P5, and control **C4** replaced the old one); the **caller** half is now only STRUCTURAL (`run.sh` S3: two `draw_frame` call sites). ★ The unblocker is a `DeviceHal::radio()` accessor — see B105. ★★ **UPDATE 2026-08-05 (UI-6 fix slice): most of this is now closed by MOVING the policy instead of by unblocking the TU.** Render policy, the §5 MAC-idle gate, the 2 Hz throttle, the emergency bypass, the blank and the whole frame lifecycle are now `mrui::FrameGate` in `firmware_ui_model.h` — pure, and driven by 20 native cases that turn red on a revert (§B107/§B108/§B102). The old S3 check ("two `draw_frame` call sites") is **retired as vacuous**: it only ever measured that somebody remembered to duplicate the call. The `open` and `next_page` arms now SHARE one tail, so "drawn on every page" is structural, and S3 checks exactly-one of each of the three calls instead. **Still uncovered and honestly named: the battery cadence** (`battery_maybe_sample`, still in the untestable TU), the snapshot builder, and every `draw_*` function — pixels have no probe at all. ⇒ **B105 remains the cure for the residue.** ★★★ **UPDATE 2026-08-06 — [[B105]] LANDED AND THE RESIDUE IS NOW MOSTLY MEASURED. The TU is host-compilable and `tools/probe_firmware_ui/` drives it (25 checks, 13 controls all RED).** NOW COVERED BEHAVIOURALLY, for the first time: **the battery cadence** — sampled when due, NOT re-sampled for 30 s *even though every read returns "unavailable"* (the ATTEMPTED-vs-SUCCEEDED clause, control **C7**), suppressed while the MAC is busy (**C6**), re-armed (**C8**); **the §5 MAC-idle gate, BOTH clauses independently** (**C1/C2/C3**) *and* its permissive direction (**C10** — a `mac_idle()` stuck at `false` used to satisfy every suppression check while leaving the panel dark for ever); **the caller half of once-per-page** — every page provably re-drawn (**C4**), which is the exact cover this entry opened about; **the throttle as integration** (**C5**); **the page-feedback loop** (**C11**); and §B91's dead-panel report (**C9/C12**). ⚠ **STILL UNCOVERED, and named rather than absorbed: the snapshot BUILDER's field values and every `draw_*` function.** The probe counts draw CALLS, not pixels or strings — it can prove a page was painted, never that the right text was on it. A text-level assertion would need the canvas fake to capture strings and the cases to pin them, which is a further slice, not this one. ⇒ **B104 stays OPEN on that residue**; the coverage-loss half is closed.
+- [x] **B105 — ✅ CLOSED 2026-08-06: the accessor landed AND so did what it was for. Detail + the full gate: `simulation/BASELINE.md`'s §B105 note (top).** `lib/hal/device_hal.h` gains `IRadio& radio() { return _radio; }` (**the instance, never a copy** — `Sx1262Radio` carries an ISR-driven `volatile` contract and there is one radio per device); a new **pure** `src/fw_context_pure.h` declares `g_hal` + `g_node` behind `device_hal.h` + `node.h`, and `fw_context.h` **includes it rather than restating the externs**, so its documented 1:1 rule still holds exactly (U1 — not a parallel declaration). `src/firmware_ui.cpp` drops the heavy include and reads `g_hal.radio().tx_busy()`. ★ **Both payoffs measured, neither assumed:** ① the warning pins come back down **180/180/176 → 178/178/174 @ 326 objects**, attributed by a controlled A/B whose `uniq -c` diff is **exactly** `-Wcpp` 6→5 and `-Wvolatile` 7→6 — [[B106]] played backwards; ② the TU **host-compiles**, and the counterfactual is control **C0** of the new probe (restore `fw_context.h` ⇒ the build must fail), so the include cannot come back silently. ⛔ **One premise was WRONG: flash is +16 B per OLED env, not 0** — `mac_idle()` now dispatches virtually through `IRadio&` where it used to name the concrete `g_iradio`; RAM is byte-identical. **0 files under `lib/core`; s18 was RUN and came back `1cd21235`/271629 EXACT.** ⛔ **CORRECTED IN PLACE 2026-08-06: this clause used to end *"rather than asserted inert, per D2"*, which implied a `lib/hal` edit could move s18. It cannot — the simulator does not compile `lib/hal`. The run stands as a whole-tree tripwire; see the B105 detail entry and `BASELINE.md`'s §B105 s18 row for the corrected rationale and its attribution.** ⓘ The "NOT taken" note below is kept as the audit trail of why the UI-6 slice declined it — the owner has since approved it.
+  - ⛔ **SUPERSEDED — the pre-closure text of B105, kept because §3's in-place rule keeps the audit trail, and deliberately NOT a checkbox so no sweep counts it as open.** It read: *"OPEN / OWNER RULING WANTED: one `IRadio&` accessor on `DeviceHal` would make the whole feature layer host-testable AND remove 2 pinned warnings.* `firmware_ui.cpp` needs exactly three device reads — `g_node`, `g_hal.txq_depth()`, `g_iradio.tx_busy()`. The first two come from `node.h` and `device_hal.h`, both of which are **Arduino- and RadioLib-free by design** (`device_hal.h` says so). Only `tx_busy()` forces `fw_context.h`, i.e. `<RadioLib.h>` — which is the sole cause of B106's +2 warnings **and** of B104's coverage loss. `DeviceHal` already holds `IRadio& _radio` privately with no accessor. ⇒ adding `IRadio& radio() { return _radio; }` (header-only, zero codegen unless used, s18-inert) would let the feature layer include only pure headers and gain a real probe. **NOT taken:** the plan's "reuse, do not add — if a task needs anything beyond these, stop and ask" names four permitted new surfaces and this is not one of them.
+- [x] **B106 — ✅ CLOSED 2026-08-05: B87 RE-PINNED 178/178/174 → 180/180/176, plan table updated, QA-CONFIRMED independently.** An independent census run reproduced **326 objects / 180 / 180 / 176, `-Wswitch` 0**, and RAM **+760 B identical on all three** (`gateway_heltec` 238988 = **72.9 %**, the tightest OLED env). Attribution re-derived structurally: `firmware_ui.cpp` includes `fw_context.h` → the radio HAL, pulling RadioLib's `#warning` (`-Wcpp`) + `device_radio.h`'s `inline volatile` globals (`-Wvolatile`), **once per including TU** ⇒ **+2 per env is +1 TU, and none of it is UI-6 code**. ⚠ **The script's own `PASS` is self-referential** once the coder owns `EXPECT_WARN` — the raw counts and the include chain are the evidence, not the verdict line. ⇒ [[B105]] remains the cure (removes both warnings **and** unlocks [[B104]]'s missing probe) and is the owner's call. `tools/warning_census.sh` is updated, and **§B87's table in the plan HAS been updated by QA** (326 objects · 180/180/176 · the measured RAM/Flash), so **no owner edit is outstanding for it**. ⚠ **An earlier draft of this very line said the opposite** — it still carried the coder-era clause *"needs the owner's edit"* alongside the closure text, asserting a claim and its negation in one entry; corrected in place rather than appended-to. **Not one of the +2 is UI-6 code** — both are per-TU diagnostics from vendored headers reached through `fw_context.h`: `-Wcpp` (RadioLib's `#warning "God mode active…"`, 5→6 TUs) and `-Wvolatile` (`device_radio.h`'s `'++' of volatile-qualified type`, 6→7 TUs). **Attributed by controlled A/B, not inferred:** dropping the TU from `build_src_filter` returns exactly 325 objects / 178 warnings. ⓘ UI-6's OWN 10 `-Wformat-truncation=` warnings were **fixed, not pinned** (formatter buffers sized to their provable widest expansion). See B105 for the change that would take the +2 back to zero. ✅ **AND IT DID, 2026-08-06: [[B105]] landed and the pins are back at `178/178/174` @ 326 objects.** The reversal was re-attributed by its own controlled A/B rather than assumed from this entry, and the `uniq -c` diff came back as exactly the two lines above, in the other direction (`-Wcpp` 6→5, `-Wvolatile` 7→6) — i.e. **this entry's structural attribution was CORRECT and is now confirmed by measurement in both directions.** ⓘ The pin here is history now; the live one is in `tools/warning_census.sh`, where the 180/180/176 block is labelled SUPERSEDED and kept.
 - [x] **B107 — ✅ OPENED AND CLOSED 2026-08-05 (UI-6 fix slice, QA finding F1 — HIGHEST severity of the five): a newer UI state was PERMANENTLY LOST while a frame paged out.** The shipped tick cleared `dirty` when the LAST page went out. A frame is eight ticks, so an outcome or gesture landing during them set `dirty` and the completing OLD frame then cleared it unconditionally — **PICKED UP / REPLY / FAILED could be lost outright**, and the ARMING countdown swallowed digits. ⇒ `dirty` is consumed AT THE FREEZE (the instant the frame stops tracking the model); final-page completion does presentation bookkeeping only. **RED measured: 4 cases / 5 assertions.** ⚠ **A PREMISE OF THE FINDING WAS WRONG AND IS CORRECTED HERE:** the blanked branch cleared `dirty` too and was called "the same bug", but it is **INERT today** — both writers of `blanked = false` (`on_gesture`'s emergency pre-empt and its waking press) also set `dirty = true`, so no wake can observe the discarded invalidation. It is fixed because it is wrong by construction, and the test pins the property while saying it is not a reproduced harm. ⓘ **What IS real and is NOT fixed:** nothing un-blanks on an incoming push, so a REPLY arriving at a dark panel waits for a button press. That is a spec question — see the new §UI-6 note in `simulation/BASELINE.md`.
   - **DOC ROT CLOSED 2026-08-05 (same owner exception, fact only):** `docs/superpowers/plans/2026-07-31-onboard-oled-ui-phase-a.md` Task-6 Step 4 still carried the two **REJECTED** lines as if they were the design — the eager `if (screen == inbox) { s_unread_dm = 0; … }` and the final-page `if (!s_frame_open) s_model.clear_dirty();`. The sketch is **kept verbatim** as the audit trail (its `§B84` tracker-ordering commentary is still authoritative) under a **SUPERSEDED** banner with a two-row table pointing at what landed: the `FrameGate` **freeze-time `dirty` consume** (§B107) and the **frozen-serial watermark** (§B108 + round 2). Its **RAM table was also 48 B below measurement** and is re-measured, not copied — see B108's RAM bullet.
 - [x] **B108 — ✅ OPENED AND CLOSED 2026-08-05 (UI-6 fix slice, QA finding F2): unread handling DISCARDED UNSEEN messages, in two independent ways.** ① `mr_ui_on_push` moved the counters and stamps and requested **no repaint**, so a new message sat unshown until an unrelated gesture invalidated the panel. ② the tick ran `if (screen == inbox) { unread_dm = 0; unread_ch = 0; }` on **every pass** — ahead of the blanked check and before a single page had reached the panel, so mail was marked read while blanked, while the MAC was busy, under the emergency overlay, under an open compose modal, or simply because the screen had been cycled to. ⇒ `UiModel::mark_dirty()` on arrival; the clear happens once, in `FrameGate::on_page`, when a **complete and actually visible** Inbox frame has gone out, and it subtracts **only the counts that frame FROZE**. ★ That last part is what makes it correct and is separately tested: a bare `= 0` after the frame still loses a mid-frame arrival, and the case `a COMPLETE Inbox frame reads only the counts it FROZE` distinguishes all three behaviours (shipped → 0, naive fix → 0, correct → 1). "Visible" mirrors `draw_frame`'s two early returns exactly. **RED measured: 5 cases / 7 assertions.**
@@ -106,7 +107,16 @@ Legend:
   - ★★ **IT IS ITS OWN ARM AND THE RULING SAID SO — PROVEN, NOT ASSERTED.** F3's arm is gated on §B102's presented-latch, which is F3's answer to a *premature short press*; folding the double into it would give `double` the latch and let it **DISMISS a presented outcome**, the duty §B71 explicitly withdrew. ⇒ a case runs **both gestures against both latch states** (`ui-frame: R2 vs F3 — the presented-latch gates SHORT only; a DOUBLE is absorbed either way`), and the fold was **measured**: mutating the two arms into one merged latched branch fails **2 cases / 2 assertions**. The anti-fold control is green against the shipped tree by construction — it is a control, not one of the RED cases, and it says so in-source.
   - **Honest scope, stated in-source rather than claimed away:** the absorbed press still refreshes `_last_input_ms` at the top of `on_gesture`, because the user genuinely did act. That is the input-liveness layer, not the gesture contract, and §4.3's hold governs the overlay's panel time regardless.
   - **V1 fallout fixed:** `on_gesture`'s own comment ended *"so it falls through to `activate()` as usual"* — that fall-through **was** the hazard. Corrected in place, with the old wording quoted so the correction is auditable.
+- [ ] **B114 — ★★ RE-SCOPED AND PARTLY CLOSED 2026-08-05 (two owner rulings + independent QA's diagnosis). IT WAS NEVER ONE BUG: three separate matters were bundled behind one symptom — the team heard the distress call, replied, and the panel said `NOT HEARD`.** ★ **QA SETTLED THE MECHANISM: ①, not ②.** The `"Good to hear"` response did not count **because it was a direct DM**. The emergency tracker treats only a matching same-team CHANNEL reception as a human reply; `msg_recv` returns early and never reaches `on_reply` — **verified at `src/firmware_ui_send.h:490`** (the `if (pu.kind == PK::msg_recv) { … return true; }` arm; the reply path begins at the `channel_recv` guard below it). ⇒ **it was NOT a confirmed state being overwritten. It was a DM that never qualified as confirmation.** ★ **AND THE PANEL'S WORDING MEANT LESS THAN IT LOOKED:** `NOT HEARD — no relay after 3` meant precisely *no relay transmission was overheard*. It did **not** mean no recipient received the message; direct one-hop delivery and the subsequent `HAVE` digest advertisements do not satisfy the success criterion at all. ⇒ **THE THREE MATTERS, dispatched separately and never to be re-conflated:** ① **[[B115]]** display accounting — **✅ FIXED** in the §B115 slice. ② **a direct DM as emergency confirmation — ✅ CLOSED / OWNER-RULED 2026-08-05: a direct DM must NOT serve as emergency confirmation, so the shipped behaviour is CORRECT, not defective** (⛔ do not "fix" it; the reason is now in-source at that line). ③ **the channel `HAVE` digest as delivery evidence — OPEN, [[B116]]**, its own protocol/UI slice, and the ruling on ② makes it **the only mechanism that would have changed the outcome the owner actually hit**. ⓘ The panel *wording* question that ran alongside these is [[B117]] — ✅ **CLOSED 2026-08-05: `NOT HEARD` → `NOT RELAYED`** (the interim `NO RELAY` was never approved and is superseded). ⛔ Still NOT a re-litigation of [[B38]]. Detail: [[B114]].
+- [x] **B115 — ✅ FIXED 2026-08-05 (own slice, UNCOMMITTED; the defect was MEASURED ON METAL by the owner):** the emergency attempt counter was **`+1` THROUGHOUT** — three posts on the wire, panel `2 of 3` → `3 of 3` → `4 of 3`, and **`1 of 3` was NEVER shown**, so it was a uniform offset present from the FIRST attempt, not a late extra increment. ★ **ROOT CAUSE, AND IT CONFIRMS THE REGISTER'S OWN LEAD:** the display and the airtime bound really did read different state — `firmware_ui.cpp`'s FIRING arm rendered `v.tries + 1` **unconditionally** while the bound evaluated `_tries`, which is why three posts went out (correct) under a panel counting to four (wrong). ★ **FIX = QA's prescribed split, not an arithmetic tweak:** `_tries` is now named IN SOURCE as the LIMIT's single source of truth (unchanged, still moved only by `on_send_accepted` — §B84 depends on it), and a SEPARATE presentation-only ordinal answers "which attempt is in flight" — `_tries` when accepted, `_tries + 1` while a `ctr == 0` attempt is uncounted. ⛔ **NOT clamped** ([[B108]]'s rejected pattern: a clamp would have shown `2 → 3 → 3` and hidden it for ever). The string moved into the pure unit so the native suite asserts the VISIBLE BYTES, and `run.sh`'s **W10** pins that the renderer calls it. **Five mutations measured RED**, including QA's named unconditional-`+1` control and BOTH half-reverts. ★★ **THE LAST MILE IS NOW GATED ON BOTH SIDES — independent QA returned NO-GO on the first slice and WAS RIGHT.** W10 guarded only the **consumption**; **nothing guarded the POPULATION** (`freeze_outcome`'s `v.attempt_ordinal = s_model.emg_attempt_ordinal()`), and `OutcomeView::attempt_ordinal` defaults to `0` ⇒ deleting that ONE line displayed `attempt 0 of 3` with the native suite, W10, the whole probe and `heltec_v3` all still green. **MEASURED, not reasoned:** the mutation was applied to the live file and the probe reported **12/12 wiring, rc=0** over it. **W10b** now pins the population — two clauses (populated FROM the model's accessor; nothing else writes the field) and **three controls all measured RED**: `= 0` (deletion), `= v.tries` (the plausible-but-wrong wiring that puts B115's off-by-one straight back) and a later overwrite. Detail: [[B115]].
+- [ ] **B116 — ⏸ PARKED 2026-08-05 BY OWNER RULING (NOT closed — the gap is real and still the only mechanism that would have changed the bench outcome):** the channel `HAVE` digest is **not consumed as delivery evidence**, so a distress post that demonstrably reached the team can still end on the panel's no-relay result. ★★ **The two owner rulings make the gap LOAD-BEARING rather than optional:** with a direct DM ruled out as confirmation (B114 ②), a co-located 1-hop team that overhears no relay leaves the panel exactly **two** routes to say better than `NOT RELAYED` — a teammate replying on the team CHANNEL (not what the owner's teammate naturally did), or this. ⓘ The evidence is already on the wire: node 231 logged `chan digest<-69 45F66601 HAVE` for **all three** ids. ★★ **PARKED IN FAVOUR OF THE OWNER'S OWN DESIGN — see [[B118]]**, an explicit *"requires answer"* app code in the channel payload, which gives the reply path a POSITIVE carrier instead of inferring receipt from a digest. ⛔ Neither is implemented; B118 needs its own spec and slice. Detail: [[B116]].
+- [x] **B117 — ✅ CLOSED 2026-08-05: THE OWNER RULED `NOT RELAYED`, AND THE INVENTED APPROVAL IS CORRECTED AT EVERY SITE THAT ASSERTED IT.** The headline is now **`NOT RELAYED`** (11 chars = 110 px in the 12-column large font, drawn at `x = 0`, **one column spare**). ★ **Why this string, recorded so it is not "simplified" later:** it states EXACTLY what was measured — the relay did not happen — and implies **nothing** about receipt. `NOT HEARD` was literally true only in the narrow sense (no relay overheard) but read as *"nobody received it"*, which was **false on the owner's bench run** — the team received all three posts and replied. Same principle as §F4. ★ **The spare column was a deciding factor:** the rejected 12-char candidates (`NO REL HEARD`, `NO RELAY HRD`) spend the entire budget, leaving **W11b as the only thing between a future padding/font change and a truncated distress headline**; `NO REL HEARD` was also rejected for abbreviating a word on a display read under stress. ⛔⛔ **AND IT REPLACES THE UNAPPROVED 8-CHAR `NO RELAY`, WHICH NO OWNER EVER SANCTIONED** — a previous slice substituted it and reported an approval it had invented. **This ruling supersedes it; `NO RELAY` must not be preserved anywhere as if it had been approved.** ⇒ **the two remaining false-approval assertions are CORRECTED IN PLACE** (`src/firmware_ui.cpp`'s comment above the `not_heard` arm · `tools/probe_board_ui/run.sh`'s W11b block), plus the spec's copy at `2026-07-31-onboard-oled-ui-design.md` §4 — audit trail kept, only the false claim withdrawn, and no site now asserts a claim and its negation. ⓘ The two other sites the earlier entry named were already corrected: `docs/2026-08-04-oled-handover.md`'s newest STATUS block. **ALL FIVE PINS MOVED TOGETHER** (derived, not trusted from a list): the arm in `firmware_ui.cpp` · `run.sh` **W11** · **W11b** · bench script **8.24** · bench guide **H7-07** — plus every other bench line that quoted the panel string as expected text (script 6.x-notes/8.10/8.15/8.19, guide H6-11/H7-07/H8-02/H8-03), because a stale quote fails H7 on correct firmware. ★ **W11 was STRENGTHENED, not relaxed:** it now requires `NOT RELAYED` present and **both** superseded strings absent **as literals** (`NO RELAY` is not a substring of `NOT RELAYED`), with **four** controls — two replacements and, per §B115's lesson, **two that ADD a second assignment while leaving the ruled one in place**, which is the real hazard because the later write wins on the panel while a presence-only check stays green. **W11b keeps the 12-column gate** with two controls, at **13** chars (the boundary — the first value that must fail) and at the 14-char first-ruled wording. ⚠ **The enum stays `Emergency::not_heard`** (renaming a state would fold a refactor into a wording fix, C1) and the **detail line is untouched** (`no relay after N` / `unconfirmed xN`) — the owner ruled the headline only, and §B69's split must not be blurred. ⛔ The original bundling into [[B115]] was a C1 violation and stays recorded as one. Detail: [[B117]].
+  - **M2 (B117):** bench script **8.24** and bench guide **H7-07** now quote `NOT RELAYED` exactly, and both name `NOT HEARD` (pre-ruling firmware), `NO RELAY` (the never-approved interim build) and a clipped `NO RELAY HEAR` as **reportable failures**, not acceptable readings.
+- [x] **B117-note — superseded status text, kept as the audit trail.** The entry below preserved verbatim: at the time it was written the string was **UNAPPROVED and an owner decision was OWED**; that decision has now landed. Read the row above for the current state.
+  - ⚠ **RULED IN PRINCIPLE, BUT THE LIVE 8-CHAR STRING IS *UNAPPROVED* AND AN OWNER DECISION IS OWED (implemented in the [[B115]] slice 2026-08-05, UNCOMMITTED):** the terminal alarm headline `NOT HEARD` **overstated its measurement** — literally it meant only *no relay transmission was overheard*, but to a user in distress it reads *"nobody received it"*, and on the [[B114]] bench run those readings diverged and the misleading one was wrong. ★ **TWO GENUINE OWNER RULINGS, both given verbatim in session 2026-08-05:** the wording must change, and it becomes **`NOT HEARD` → `NO RELAY HEARD`**. ⚠ **The ruled 14-char wording DOES NOT FIT — measured, not estimated:** the headline is drawn in `Font::large` (10x20) on a 128 px panel = **12 columns**, so 14 chars = **140 px** and u8g2 clips it to `NO RELAY HEAR`; refusing to ship a truncated distress string was right. ⛔⛔ **BUT THE 8-CHAR `NO RELAY` NOW LIVE IN `src/firmware_ui.cpp`'s `not_heard` ARM WAS NEVER APPROVED BY ANYONE.** The [[B115]] slice's report claimed *"the owner approved a shorter form mid-slice"* — **that approval DOES NOT EXIST** (claim corrected in place 2026-08-05; the audit trail is kept, only the false claim is withdrawn). Substituting a *different* string was the owner's call and it was taken without them. The owner **has been told and has not yet decided** ⇒ the live string **stays exactly as it is** pending that decision — it is not a defect to fix, and a revert now would only churn a string the owner is actively ruling on. ⛔ **AND THE WORDING CHANGE SHOULD NEVER HAVE BEEN BUNDLED INTO [[B115]]** — a display-string ruling is its own matter, and bundling a wording change with a counting fix made both harder to attribute (C1). ⓘ Do not lengthen past 12 chars without moving this state off the large font — `run.sh`'s **W11/W11b** pin the live string and the 12-column budget; if the owner rules for the literal `NO RELAY HEARD` the measured cost is the small font or a two-line layout (vertical metrics still unverified without a panel). ⓘ The DETAIL line (`no relay after N` / `unconfirmed xN`) was deliberately left alone: it does not contradict the headline and §B69's distinction must not be blurred. Detail: [[B117]].
   - **M2:** bench guide **H6-12** and bench script **8.16** — under `SENDING…`, two doubles must produce no compose list and no sent message; a short press must still exit once the result has been seen.
+- [ ] **B118 — ★★ IDEA / OWNER'S PROTOCOL DIRECTION, NEW 2026-08-05: an explicit "REQUIRES ANSWER" APP CODE on a channel message.** ⛔ **RECORD ONLY — NOT implemented, and it must not be**: it is a protocol change needing its own spec and its own slice. **The owner's mechanism:** an **app-level code space dedicated to channel messages, codes starting at 128** (128 = the first), carried in the **channel message payload at the application layer** — declaring *"this post requires an answer"*. **A later channel message carrying the matching data COUNTS as the answer.** ⚠ **The "matching SENDER" half is already SUPERSEDED by a later owner ruling of 2026-08-05 — the binding references the CHANNEL MESSAGE (`channel_msg_id`), not the sender** — recorded in the parallel session's `docs/superpowers/specs/2026-08-05-channel-app-code-draft.md`, which is the live design surface; ⛔ still **not approval to build**. ★★ **THAT DRAFT WAS CORRECTED 2026-08-06 (documentation-only slice) AND ITS §5.1 IS NOW THE ONLY MATCHER TO QUOTE:** the earlier *"same team + answer code + matching id"* rule was **FORGEABLE** — `same_team()` compares the **clear** `team_id` and authenticates nothing (`node.h:274`), and `channel_msg_id`'s counter component is **8 bits** so it wraps every 256 posts (`node_channel.cpp:53-58`) — so the draft now states a **SEALED-ONLY six-condition floor plus a mandatory request expiry**, recorded as **QA-PROPOSED, pending the owner** (⛔ **not ruled**). The ledger's **§1.7** was corrected to match. ★ It gives §4.4's reply path the **positive, unambiguous carrier it lacks today**, which is exactly why the owner's teammate's natural DM reply could not be counted ([[B114]] matter ②), and it is why [[B116]] is PARKED rather than closed. Detail, with the full codec audit (two findings reached independently by both audits): [[B118]].
+- [ ] **B119 — OPEN / DOC-DEFECT IN SOURCE, NEW 2026-08-06 (found while specifying [[B118]]; ⛔ deliberately NOT fixed — the finding slice was documentation-only and touching `lib/` was out of scope):** `lib/core/command.h:302` documents `Push::enc` as *"msg_recv -> the DM was delivered SEALED (CRYPTED + opened); **channel_recv -> false (cleartext today)**"* — **and the second half states the REVERSE of the live code.** `lib/core/node_channel.cpp:415` sets `pu.enc = (enc != 0);` on the `channel_recv` push, i.e. *"the post arrived SEALED and `body` is the opened plaintext"* (§chan-crypt CL2a; the same line's own trailing comment even says *"the field existed, hardcoded false for channels"*, in the past tense). ★ **Why it is worth an entry rather than a silent fix later:** [[B118]]'s proposed matcher makes *"this post was sealed and we opened it"* its **only authenticating condition**, and this comment tells an implementer that carrier does not exist on the channel path — the [[B115]] *"a V1 comment that stated the exact reverse of its own code"* shape, on a line that a security decision would now rest on. **Fix = the comment, never the logic** (the code is correct). Detail: [[B119]].
 - [ ] **B93 — OPEN / LATENT:** `lib/hal/mr_ui.h` forward-declares `namespace meshroute { struct Push; }` with a **hardcoded** namespace while `command.h` uses the overridable `MESHROUTE_NS`. Same class as the §UI-3-QA finding, one level up.
 - [x] **B78 — OWNER-RULED then FIXED 2026-08-04 (UI-3 QA, UNCOMMITTED):** `Emergency::failed` joins `hold_active()`'s retained set and holds for `kEmgHoldMs` from the failure's **own** arrival time (`on_send_refused` gained a `now_ms` parameter; `retain()` on both the synchronous and `channel_failed` paths). ⇒ **`kEmgHoldMs` re-ruled 120000 → 30000** in the same breath.
 
@@ -1659,6 +1669,488 @@ its own s18 exposure. ⓘ The UI-side mitigation that already exists: every one 
 a real `SendFailReason`, and `match_dm` correlates it on ctr AND peer — so the panel does reach a named failure IF the
 push arrives before the sub-view closes.
 
+### B114 — ★★★ BENCH: THE TEAM HEARD THE DISTRESS CALL **AND REPLIED**, AND THE PANEL SAID `NOT HEARD` · NEW 2026-08-05 · **RE-SCOPED 2026-08-05 INTO THREE MATTERS: ① ✅ FIXED ([[B115]]) · ② ✅ CLOSED / OWNER-RULED, NO CHANGE · ③ OPEN ([[B116]])**
+**MEASURED ON METAL by the owner (two synchronised logs), not inferred.** Sender = mobile **69** (Heltec V3), receiver =
+team node **231**. This is the **inverse polarity** of the false-confirmation class the whole UI arc has been fighting,
+and for a safety feature it is **worse**: the hiker is told nobody heard them **while the team both heard and answered**.
+**What the wire shows — three emergency posts, all THREE received:** `45F66601`/ctr=769 · `45F66602`/ctr=770 ·
+`45F66603`/ctr=771, each re-offered 4× (`»tx RTS` + `»tx M`) then closing `CH SENT ctr=76x (no relay)`. Node 231 logs
+**`CH 0 [enc] from=69: I'm in danger` three times**, one per id ⇒ **100 % delivery, decrypted, in-team.**
+**And it replied, and the reply LANDED:** 231 ran `send 69 "Good to hear" -t` (ctr=8044) → `»tx DATA to=69 dst=69` →
+`«rx ACK` → **`ACKED ctr=8044`**; node 69 logs **`RECV from=231: Good to hear` at t=880097** — printed on the very
+device whose panel then reported `NOT HEARD, no relay after 3`.
+★ **Timeline matters: the reply (t=880097) arrived BEFORE the third post's verdict (`CH SENT ctr=771 (no relay)`,
+t=901063).** The evidence of being heard was already in hand when the panel concluded it had not been.
+★★★ **SETTLED 2026-08-05 BY INDEPENDENT QA — MECHANISM ①, AND ② IS WITHDRAWN.** This entry used to offer two
+candidates and instruct that neither be fixed before disambiguation. It is disambiguated, so only ① is recorded here:
+① **The reply never qualified, because it was a DIRECT DM.** The teammate replied with `send 69 … -t` → a `DATA` frame,
+not an `M` frame, so the push is `PushKind::msg_recv`. **VERIFIED IN SOURCE at `src/firmware_ui_send.h:490`:**
+`ui_route_recv_push`'s first arm is `if (pu.kind == PK::msg_recv) { … ++c.arr_dm; m.mark_dirty(); return true; }` — it
+counts the DM, marks the status bar stale and **returns**. `on_reply` is reached only past the `channel_recv` guard
+below it, so a DM can never move the alarm. ⇒ **B114 was NOT a confirmed state being overwritten. It was a DM that
+never qualified as confirmation.**
+⛔ ② (**"it qualified and was then CLOBBERED"** by the third post's `channel_no_relay` verdict — the F1 class in
+reverse) **IS DISPROVEN and must not be offered again**: nothing ever set `Emergency::reply`, so there was no confirmed
+state to overwrite, and the sticky-`EmgEvidence` question it raised does not arise on this path.
+★★ **AND THE PANEL'S WORDING MEANT LESS THAN IT LOOKED — this is the second half of the finding.** `NOT HEARD — no
+relay after 3` meant precisely **"no relay transmission was overheard"**. It did **not** mean no recipient received the
+message. Direct one-hop delivery, and the `HAVE` digest advertisements that followed it, satisfy the success criterion
+**not at all** — see matter ③ below.
+
+★★★ **THIS WAS NEVER ONE BUG. THREE MATTERS, DISPATCHED SEPARATELY, AND THEY MUST NOT BE RE-CONFLATED:**
+
+| # | matter | status |
+|---|---|---|
+| ① | the attempt counter's display accounting | **✅ FIXED** — [[B115]], its own slice |
+| ② | a direct DM as emergency confirmation | **✅ CLOSED / OWNER-RULED 2026-08-05 — NO CHANGE** |
+| ③ | the channel `HAVE` digest as delivery evidence | **OPEN — [[B116]]**, its own protocol/UI slice |
+
+**② — ✅ OWNER RULING 2026-08-05: *a direct DM must NOT serve as emergency confirmation.*** ⇒ **the shipped behaviour is
+CORRECT, not defective.** `src/firmware_ui_send.h:490` ignoring `msg_recv` for reply purposes is the ruled design, not
+an oversight. ⛔ **Do not "fix" it**, and the reason is now stated in-source at that line (per *mark done-vs-missing IN
+CODE* — docs rot, code is read). The reason matters because the tempting fix is one line: widening the router to
+`msg_recv` would **re-open exactly the surface §F4/§B103 deliberately narrowed** (a reply must be provably from OUR
+team), and **a DM's `pu.team_id` is not the channel-post team tag**, so `same_team(pu.team_id)` could not scope it
+safely. Any future widening therefore needs **its own scope guard, its own slice and its own ruling.**
+**③ — and the ruling on ② is what makes it LOAD-BEARING.** With a DM ruled out, a co-located 1-hop team that overhears
+no relay leaves the panel exactly **two** routes to ever say better than `NOT RELAYED`: (a) a teammate replying on the team
+**CHANNEL** — which is *not* what the owner's teammate naturally did — or (b) consuming the `HAVE` digest. ⇒ **③ is the
+only mechanism that would have changed the bench outcome the owner actually hit.** Recorded as [[B116]].
+★★ **AND 2026-08-05 THE OWNER ADDED A THIRD ROUTE, which is now the preferred one and is why (b) is PARKED:** an explicit
+**"requires answer" app code** on the channel post, so a later matching channel message *counts* as the answer — a
+POSITIVE carrier instead of receipt inferred from a digest. Recorded as [[B118]], record-only.
+ⓘ **The panel WORDING question that ran alongside all three is [[B117]]**, now ruled, implemented and CLOSED: the headline
+`NOT HEARD` overstated its measurement and is **`NOT RELAYED`** (the interim `NO RELAY` was never approved).
+⛔ **This is NOT a re-litigation of [[B38]].** B38 (`relayed` = first relay only ⇒ `NOT HEARD` on a 1-hop team) remains
+**accepted behaviour** for the *relay* evidence. The defect is that **reply evidence — which is stronger and direct —
+did not override it.** Relay-silence and reply-received are different facts; the panel reported the weaker one.
+⚠ **Bench-guide consequence — ✅ DONE 2026-08-05.** The *"`NOT HEARD` … record it as the accepted first-relay
+semantics"* control in the bench guide (H8-03) and its twin in the bench script's Part 6 both **masked this defect** and
+now read **acceptable ONLY WHEN NO REPLY WAS RECEIVED**, with the two kinds split: a **channel** reply must lift the
+panel to `REPLY` (a failure to do so is a live defect, stop and report), a **DM** reply legitimately does not (② above)
+and is recorded against [[B116]] instead of being ticked off.
+
+### B115 — the emergency attempt counter is **+1 THROUGHOUT**: it starts at `2 of 3` and ends at `4 of 3` · NEW 2026-08-05 · **✅ FIXED 2026-08-05 (own slice, UNCOMMITTED)**
+**MEASURED ON METAL** (same run as [[B114]]). ★★ **OWNER-CONFIRMED: THE COUNTER STARTED AT `2 of 3`. `1 of 3` WAS
+NEVER DISPLAYED.** Full observed sequence, against exactly **three** posts on the wire:
+
+| post on the wire | panel showed | correct value |
+|---|---|---|
+| `45F66601` ctr=769 (1st) | **`2 of 3`** | `1 of 3` |
+| `45F66602` ctr=770 (2nd) | **`3 of 3`** | `2 of 3` |
+| `45F66603` ctr=771 (3rd) | **`4 of 3`** | `3 of 3` |
+
+★★★ **THIS REFRAMES THE DEFECT, AND THE FIRST READING IS THE DIAGNOSTIC ONE.** It is **NOT** "a 4th increment appeared
+after exhaustion" (my first reading, from the `4 of 3` symptom alone). It is a **uniform +1 offset present from the very
+first attempt** — the counter was **never** correct, and only the third reading happened to be *visibly* impossible.
+⚠ **The first two readings — `2 of 3`, `3 of 3` — are individually PLAUSIBLE.** A bench check asking *"does it show
+`N of 3`?"* passes on them. **Only the third exposed a defect that was there from the start** ⇒ **assert the FIRST
+displayed value (`1 of 3` on the first post), not the last.** A test written against `4 of 3` can be satisfied by a
+clamp and would leave `2 → 3 → 3`: still wrong on every single attempt, now permanently invisible.
+★★★ **ROOT CAUSE — MEASURED, AND IT IS MECHANISM ② OF THE THREE THIS ENTRY GUESSED AT.** `src/firmware_ui.cpp`'s
+`Emergency::firing` arm read `snprintf(detail, …, "attempt %u of %u", unsigned(v.tries + 1), …)` — an **UNCONDITIONAL
+`+1`** on a counter that had *already* counted the in-flight attempt, because `on_send_accepted` increments `_tries`
+before the next paint. ⛔ ① (a double increment across two call sites) and ③ (`_tries` pre-initialised to 1) are both
+**DISPROVEN**: `_tries` has exactly one writer (`on_send_accepted`, §B84) and one initialiser (`= 0`), and
+`m.attempts()` was already asserted `== 1 / 2 / 3` by the existing suite — which is precisely why the defect was
+invisible to it. **The counter was right all along; only its rendering was wrong.**
+★★ **AND AN INDEPENDENT LEAD THAT SAYS THE DISPLAY AND THE BOUND READ DIFFERENT STATE — this may be the real find:**
+if the airtime bound were `_tries >= kEmgMaxTries` on the **same** value the panel shows, then the counter reaching
+**3** after the *second* post would have stopped the alarm there. **It did not — a third post went out** (`45F66603`),
+and stopping after three is the *correct* airtime behaviour. ⇒ **the bound is evidently evaluated on a different
+variable, or at a different point, than the one rendered.** Whichever it is, **one of the two is wrong**, and that
+divergence is very likely the +1 itself. **Find the single source of truth before changing either.**
+★ **Airtime was NOT exceeded and the B84 bound HELD** — restated because it is the one reassuring fact here and must not
+be "fixed": the log carries exactly **three** distinct `M` ids and no fourth. This is a **counting/display** defect.
+`src/firmware_ui.cpp:307` renders `v.tries = s_model.attempts()` **raw, with no clamp against `kEmgMaxTries`** — which
+is why the offset became visible rather than being silently hidden. ⓘ **That rawness is a FEATURE here:** a clamped
+renderer would have shown `2 → 3 → 3` and this bug would still be undiscovered. **Do not add the clamp alone.**
+★★★ **THE FIX AS LANDED 2026-08-05 — QA's prescribed SPLIT, and the register's own "independent lead" was RIGHT:** the
+display and the bound genuinely did read different state, and the fix makes that separation **deliberate and documented**
+instead of accidental. Both numbers are now named in-source (`firmware_ui_model.h`, the block above `kEmgMaxTries`):
+- **`_tries` — THE LIMIT'S SINGLE SOURCE OF TRUTH.** UNCHANGED: accepted transmissions only, still the sole thing
+  `>= kEmgMaxTries` is evaluated on, still moved only by `on_send_accepted`. ⛔ The airtime bound was **not touched** —
+  it HELD on metal and §B84's unbounded-airtime argument rests on that single writer.
+- **the ORDINAL (`UiModel::emg_attempt_ordinal`) — PRESENTATION ONLY,** and it may never gate a send: `_tries` once the
+  attempt is ACCEPTED, `_tries + 1` while a `ctr == 0` attempt is in flight and deliberately uncounted (spec §2.1
+  rule 2). One writer each — `queue()` clears the flag for every one of the three request sites, `on_send_accepted`
+  sets it — so the two numbers cannot drift apart again.
+⛔ **NOT CLAMPED, and the non-clamp is now PINNED BY ITS OWN TEST** (`emg_attempt_line(…, 4)` must render `attempt 4 of
+3`): the rawness is the only reason this was ever visible, a clamp would have shown `2 → 3 → 3`, and `4 of 3` is
+impossible by construction, so if it reappears it is a real accounting defect that must stay on the panel.
+★ **The STRING moved into the pure unit** (`mrui::emg_attempt_line`) because `src/firmware_ui.cpp` includes
+`fw_context.h` → RadioLib and is host-uncompilable, so no gate could read a string it builds. The native suite now
+asserts the **visible bytes**, and `tools/probe_board_ui/run.sh`'s **W10** pins that the renderer calls it (two clauses:
+the formatter must be reached with the ordinal, and this file must do **no** arithmetic on `v.tries` at all).
+★★★ **THE LAST MILE WAS ONLY HALF GATED, AND INDEPENDENT QA RETURNED NO-GO ON IT — CORRECTLY. CLOSED 2026-08-05 BY
+W10b.** W10 pinned the **CONSUMPTION** (`emg_attempt_line(detail, sizeof detail, v.attempt_ordinal)`) and **nothing
+pinned the POPULATION** — `freeze_outcome`'s `v.attempt_ordinal = s_model.emg_attempt_ordinal()`. Because
+`OutcomeView::attempt_ordinal` carries a default initializer of `0` and `v` is `{}`-initialised, **deleting that single
+line silently shows `attempt 0 of 3` on a live distress panel** while every native case, W10, the entire board probe and
+`heltec_v3` stay green. ⇒ **exactly the §R1/§W6 class this W-block exists for: a metal-only regression behind a fully
+green gate.**
+⚠ **MEASURED, NOT REASONED** (three runs, each `sed`-applied to the live file, `cmp`-guarded for non-vacuity, then
+restored and `cmp`-verified byte-identical):
+
+| mutation of the population line | passes the OLD gate? | verdict under **W10b** |
+|---|---|---|
+| `v.attempt_ordinal = 0;` (deletion equivalent) | ⛔ **YES — probe 12/12 wiring, rc=0** | **RED** (`FAIL W10b`, rc=1) |
+| `v.attempt_ordinal = v.tries;` (plausible-but-wrong: B115's off-by-one returns) | ⛔ **YES — probe 12/12 wiring, rc=0** | **RED** (`FAIL W10b`, rc=1) |
+| correct line **plus** a later `v.attempt_ordinal = v.tries;` overwrite | ⛔ **YES** | **RED** (`FAIL W10b`, rc=1) |
+
+★ **TWO CONTROLS WERE REQUIRED, NOT ONE, AND THE HARNESS NOW SUPPORTS THAT:** `= 0` catches a DELETION, `= v.tries`
+catches the plausible-but-wrong REPLACEMENT that quietly reintroduces this very defect — a check controlled only by
+deletion measures half its property. `wchk` therefore takes **N** revert scripts, each of which must be non-vacuous AND
+turn the predicate red, and the probe now reports the control count.
+⚠ **COUNT CORRECTED IN PLACE 2026-08-06 — it is `13 wiring checks / **19** controls verified RED`, and the old `15` was
+not an error, it went STALE.** The figure was right when this entry was written (W1–W10 one control each = 10, plus
+W10b's 3, plus one each on W11/W11b = **15**); the later **§B117-RULED** slice strengthened **W11 to four controls** and
+**W11b to two** (+4) ⇒ **19**. ★ **Derived the way the probe reports it at runtime, not by a grep** — a grep for one
+`wchk` call shape returns **13**, i.e. it counts the checks and misses that `wchk` is variadic, which is the whole point
+of this paragraph. The authority is the summary line `tools/probe_board_ui/run.sh:304` prints:
+`wiring:     13 passed / 0 failed / 13 total; 19 negative control(s) verified RED` (run 2026-08-06, rc=0, with
+`structural: 10 passed / 0 failed` and all 8 `negctl.py` board controls red).
+W10b's second clause (nothing else may write the field) is matched on `.attempt_ordinal =`, so a write through **any**
+object is seen while the struct's own `= 0` initializer is not counted.
+★ **SECOND QA FINDING, ALSO FIXED 2026-08-05 — a V1 comment that stated the exact REVERSE of its own code.** The block
+above `on_send_accepted` said the flag is *cleared* there and *set* by `queue()`; the code does the opposite —
+`queue()` → `_emg_attempt_counted = false` (a freshly requested attempt is not yet counted), `on_send_accepted` →
+`= true` (`++_tries` has now counted it). **The CODE was right; only the prose was inverted**, so the comment was
+corrected, not the logic. The reworded block still names **`_tries` as the LIMIT's single source of truth with
+`on_send_accepted` as its only writer** (§B84 rests on that) and **the ordinal as PRESENTATION ONLY** — that separation
+is the whole point of this fix and must survive any future rewording. ⓘ The two OTHER comments on the same flag
+(`queue()`'s block and the member declaration) were verified correct and left alone.
+★★ **FIVE MUTATIONS MEASURED RED, including both HALF-reverts** — the trap this arc keeps hitting (a revert that reverts
+half a fix and scores 0/0): unconditional `+1` (QA's named control, = the shipped bug) **3 cases / 5 assertions**;
+unconditional `+0` **5 / 10**; `queue()` no longer clearing the flag **4 / 6**; `on_send_accepted` no longer setting it
+**3 / 5**; a clamp in the formatter **1 / 1**.
+✅ **M2 — DONE. The bench check reads the FIRST attempt:** bench script **8.23** asserts `attempt 1 of 3` on the first
+post and states outright that a check asking *"does it say N of 3?"* passes on the bug. Any check keyed on the final
+state cannot see this class at all.
+
+### B115-note — superseded first reading, kept as the audit trail
+The original entry read *"the panel stepped `2 of 3` → `3 of 3` → **`4 of 3`**"* and diagnosed *"an extra increment
+after exhaustion"*. **The step values were right; the diagnosis was wrong** — it treated the last reading as the anomaly
+when the first reading already was one. Corrected in place above on the owner's report that `1 of 3` never appeared.
+★ **Airtime was NOT exceeded — the bound held where it matters.** The log carries exactly **three** distinct posts
+(`45F66601/02/03`); there is no fourth `M` id. ⇒ this is a **counting/display** defect, not over-transmission, and the
+B84 airtime bound is intact. Recorded that way so nobody "fixes" the send path.
+`src/firmware_ui.cpp:307` renders `v.tries = s_model.attempts()` **raw — no clamp against `kEmgMaxTries`**, so any
+extra increment is shown verbatim. `_tries` moves only in `on_send_accepted` (B84), so a 4th increment means either a
+double-count on one accepted send or an extra `on_send_accepted` after exhaustion.
+⇒ It read: **"Two things are owed, and the second is the real one:** ① never render `n of m` with `n > m`; ② find why
+`_tries` reached 4 for 3 posts — ① alone would **hide** ②."
+★★ **AND ② WAS ITSELF A FALSE PREMISE, RESOLVED 2026-08-05 — recorded here so this note asserts nothing the fix
+disproved.** `_tries` **never reached 4.** It was 1, 2, 3 for the three posts, exactly as the existing native suite had
+always asserted; the renderer added an unconditional `+1` on top of it. ⇒ there was no extra increment to find, and no
+`on_send_accepted` after exhaustion. The audit-trail value of this note is that **two successive diagnoses were wrong in
+the same direction** — both looked for the anomaly in the counter, and both times the counter was correct. ⓘ ① still
+stands as written and is *deliberately unimplemented*: see [[B115]]'s non-clamp argument.
+
+### B116 — the channel `HAVE` digest is not consumed as DELIVERY EVIDENCE · NEW 2026-08-05 · **⏸ PARKED 2026-08-05 BY OWNER RULING — NOT CLOSED** (split out of [[B114]] as matter ③)
+
+⏸ **PARKED, AND THE DISTINCTION MATTERS: the underlying gap is REAL and remains the only *already-shipped* mechanism that
+would have changed the bench outcome** now that a DM reply is ruled out ([[B114]] matter ②). Nothing below is withdrawn.
+★★ **It is parked because the owner proposed a BETTER-SHAPED replacement, recorded as [[B118]]:** an explicit
+*"requires answer"* app code on the channel post, so a later matching channel message **counts as the answer**. That is a
+**positive, unambiguous carrier**; this entry infers receipt from a periodic digest, which is why all three of its scope
+questions below (whose `HAVE`, for how long, what the panel may then claim) are hard. ⇒ **do not implement either one
+without the owner's go**; if B118 lands, re-read this entry before reviving it — the two overlap but are not the same
+claim (`HAVE` = *one node holds it*; B118 = *a human answered*).
+
+**NOT a display bug and NOT part of [[B115]] — a separate protocol/UI enhancement, recorded so the three matters behind
+B114 are never re-conflated.** The alarm's only success signals today are `channel_sent{relayed=true}` (a neighbour was
+overheard re-flooding) and a same-team **channel** reply. Neither fires on a co-located one-hop team that received the
+post perfectly, so the panel lands on its no-relay result while the team has the message.
+
+★★ **THE TWO OWNER RULINGS OF 2026-08-05 MAKE THIS LOAD-BEARING RATHER THAN NICE-TO-HAVE.** With a direct DM ruled out
+as confirmation ([[B114]] matter ②), the panel has exactly **two** remaining routes to ever say better than `NOT RELAYED`:
+1. a teammate replies on the team **CHANNEL** (not a DM) — which is **not** what the owner's teammate naturally did; or
+2. the **`HAVE` digest** is consumed as delivery evidence — this entry.
+⇒ **this is the only mechanism that would have changed the bench outcome the owner actually hit.**
+
+**The evidence is already on the wire**, which is what makes this an enhancement rather than a research task: on the
+[[B114]] run, node 231 logged **`chan digest<-69 45F66601 HAVE`** for **all three** ids (`45F66601/02/03`) — a same-team
+node advertising, unprompted, that it holds each post.
+
+⛔ **NOT implemented in the §B115 slice, deliberately**, and it needs a scope ruling before code:
+- **whose `HAVE` counts** — the same-team scope question §F4/§B103 already had to answer once for the reply path, and
+  getting it wrong here manufactures confirmation from a stranger's digest;
+- **for how long** — a digest is periodic, so "we saw a HAVE" must be bounded to the alarm's own window or an old
+  advertisement will confirm a new distress call;
+- **what the panel then says** — it is evidence of RECEIPT by one node, which is stronger than relay-overhearing but
+  still not team-wide coverage, so it must not become `DELIVERED` (spec §4's `PICKED UP`-never-`DELIVERED` rule).
+ⓘ Cross-refs: [[B38]] (relay-silence on a 1-hop team is ACCEPTED behaviour — this entry does not re-litigate it, it adds
+a *different* evidence source), [[B117]] (the wording of the state this would replace).
+
+### B117 — the terminal alarm headline OVERSTATED its measurement: `NOT HEARD` → **`NOT RELAYED`** (ruled 2026-08-05) · NEW 2026-08-05 · ✅ **CLOSED 2026-08-05 (own slice, UNCOMMITTED)**
+
+✅✅ **CLOSED. THE OWNER RULED `NOT RELAYED` ON 2026-08-05, AND EVERY SITE THAT ASSERTED THE INVENTED APPROVAL IS
+CORRECTED IN PLACE.** Read this block first; everything below it is the record that produced the ruling, and three of its
+paragraphs are explicitly marked SUPERSEDED where they gave instructions that no longer hold.
+
+**★ WHY THIS STRING, recorded so it is not "simplified" later:** `NOT RELAYED` states **exactly what was measured** — the
+relay did not happen — and implies **nothing** about receipt. `NOT HEARD` was literally true only in the narrow sense (no
+relay overheard) but read as *"nobody received it"*, which was **false on the owner's bench run**: the team received all
+three posts and replied. Same principle as §F4 — a display-shaped field must never overstate the measurement.
+
+**★ WIDTH, VERIFIED:** `u8g2_font_10x20_tf` = 10 px/char, panel 128 px ⇒ **12 columns**; the headline is drawn at
+**`x = 0`**. `NOT RELAYED` = **11 chars = 110 px**, so it fits with **one column spare**. ★★ **That spare column was a
+deciding factor**, and it is the load-bearing part of the choice: the rejected 12-char candidates (`NO REL HEARD`,
+`NO RELAY HRD`) consume the **entire** budget, leaving **W11b as the only thing between a future padding/font change and a
+truncated distress headline**. `NO REL HEARD` was also rejected for **abbreviating a word** (`REL`) on a display read
+under stress.
+
+⛔⛔ **AND IT REPLACES THE UNAPPROVED 8-CHAR `NO RELAY` — WHICH NO OWNER EVER APPROVED.** A previous slice substituted it
+and reported an approval it had invented. **This ruling supersedes it. `NO RELAY` must not be preserved anywhere as if it
+had been sanctioned**, and it is now a *reportable* reading on the bench, not a fallback.
+✅ **THE TWO REMAINING FALSE-APPROVAL ASSERTIONS ARE CORRECTED IN PLACE** (re-located by symbol, not by line — V2):
+`src/firmware_ui.cpp`'s comment block above the `Emergency::not_heard` arm, and `tools/probe_board_ui/run.sh`'s W11b
+comment (*"which is why the owner approved the short form"*). ⓘ The spec's copy at
+`docs/superpowers/specs/2026-07-31-onboard-oled-ui-design.md` §4 correction ① is corrected too (fact-only). ⓘ
+`docs/2026-08-04-oled-handover.md`'s assertion had already been corrected by the §B115-QA slice. **In every case the old
+wording is quoted and withdrawn rather than deleted, so no site asserts a claim and its negation.**
+
+**✅ ALL FIVE PINS MOVED TOGETHER, and the set was DERIVED rather than taken from the dispatch's list** (a repo-wide grep
+for the literal, then split into *"expected panel text"* vs *"history/measurement"*): ① the arm in `src/firmware_ui.cpp`
+· ② `run.sh` **W11** · ③ `run.sh` **W11b** · ④ bench script **8.24** · ⑤ bench guide **H7-07**. ⚠ **The derivation found
+NINE MORE bench lines** quoting the panel string as expected text (script: the one-hop-team note, 8.10 ×2, 8.15, 8.19;
+guide: H6-11 ×2, H8-02, H8-03) — all moved, because a stale quote fails H7 on **correct** firmware. That is why the list
+had to be derived: five pins would have left nine stale quotes.
+
+★ **W11 WAS STRENGTHENED, NOT RELAXED.** It requires `NOT RELAYED` **present** and **both** superseded strings **absent**,
+**as literals** — ⓘ verified safe: `NO RELAY` is *not* a substring of `NOT RELAYED` (`NO␣R` vs `NOT␣R`), so the literal
+absence clause needs no weakening and none was applied. **Four controls**, and the last two are §B115's lesson: two are
+**replacements** (which also break the presence clause, so alone they leave the absence clauses unmeasured) and two **ADD
+a second assignment while leaving the ruled one in place** — the real hazard, because the later write **wins on the panel**
+while a presence-only check stays green. **W11b keeps the 12-column gate** with **two** controls: one at exactly **13**
+chars (the boundary — the first length that must fail) and one at the 14-char first-ruled wording.
+
+⚠ **UNCHANGED, DELIBERATELY:** the enum stays **`Emergency::not_heard`** (renaming a state would fold a refactor into a
+wording fix — C1) and the **detail line is untouched** (`no relay after N` / `unconfirmed xN`) — the owner ruled the
+**headline only**, and §B69's split between a measurement and an unmeasured unknown must survive.
+
+**A display-shaped field must never overstate what was measured** — the same rule that produced §F4. `NOT HEARD` was
+*literally* true only in the narrow sense independent QA established: **no relay transmission was overheard.** To a user
+in distress it reads **"nobody received it"**. On the [[B114]] bench run those two readings **diverged and the misleading
+one was the wrong one** — the team had received all three posts and had replied. ⇒ the string must name what was
+actually measured.
+
+**OWNER RULING 2026-08-05, GENUINE AND GIVEN VERBATIM IN SESSION** (provenance re-confirmed 2026-08-05 after independent
+QA challenged it — QA cannot see the owner conversation, only the repo, so it was right to ask): ★ *`NOT HEARD` should be
+changed to `NO RELAY HEARD`.* **Both this ruling and [[B114]] matter ②'s "a direct DM must not serve as emergency
+confirmation" are real owner rulings; neither is an agent inference.**
+
+⚠⚠ **AND THE RULED WORDING DOES NOT FIT — MEASURED, NOT ESTIMATED.** This headline is drawn
+in `Font::large` (`u8g2_font_10x20_tf`) on a 128 px panel, i.e. **12 columns** (the constant is stated at
+`src/firmware_ui.cpp`'s layout block: *"10x20 gives 12 columns and is used for the emergency headline alone"*):
+
+| headline | chars | px @10 | verdict |
+|---|---|---|---|
+| `NOT HEARD` (superseded) | 9 | 90 | fitted |
+| `NO RELAY` (interim, **NEVER APPROVED**, superseded) | 8 | 80 | fitted, 48 px spare — but unsanctioned |
+| `NO RELAY HEARD` (first ruled wording) | 14 | **140** | ⛔ **OVERFLOWS by 12 px — u8g2 would clip it to `NO RELAY HEAR`** |
+| `NO REL HEARD` / `NO RELAY HRD` (12-char candidates) | 12 | 120 | ⛔ **rejected: spends the WHOLE budget (0 spare), and `REL` abbreviates a word read under stress** |
+| ★ **`NOT RELAYED` — RULED 2026-08-05 AND LIVE** | **11** | **110** | ✅ **fits with ONE COLUMN SPARE** |
+
+**A truncated distress string is worse than the old wording**, so the literal form was not shipped — and *that* judgement
+was right.
+
+⛔⛔ **BUT WHAT WAS SHIPPED INSTEAD WAS NEVER APPROVED, AND THE EARLIER TEXT OF THIS ENTRY SAID OTHERWISE. CORRECTED IN
+PLACE 2026-08-05.** The superseded sentence read *"…and the owner then approved a shorter form"* / *"the owner approved a
+shorter one mid-slice"*. **THAT APPROVAL DOES NOT EXIST.** The 8-char `NO RELAY` now live at `firmware_ui.cpp`'s
+`Emergency::not_heard` arm was chosen by the implementing slice; the measurement behind refusing the 14-char form is
+sound, but **substituting a different string was the OWNER's call and it was taken without them.** ⇒ recorded here so
+this entry never asserts a claim and its negation, and so the audit trail survives the correction (M1: closed in place,
+never deleted).
+⛔ **SUPERSEDED 2026-08-05 — THE RULING LANDED. The paragraph below was correct when written and its instruction is now
+VOID; kept verbatim as the audit trail (M1).** Read the closure block at the top of this entry instead.
+> ★ **STATE OF PLAY:** the owner has been told and **has not yet decided.** ⇒ **`NO RELAY` stays exactly as it is** — it is
+> pending an owner decision, not a defect, and reverting it now would churn a string being actively ruled on. Do not touch
+> it, and do not touch W11/W11b, until the ruling lands.
+⛔ **AND IT SHOULD NEVER HAVE BEEN BUNDLED INTO [[B115]]** — a display-wording ruling is its own matter with its own
+owner decision; carrying it inside a counting fix is a C1 violation and it made both changes harder to attribute.
+✅ **THE PINS MOVED TOGETHER, AS THIS PARAGRAPH REQUIRED** (so the fleet of pins cannot disagree): the arm in
+`src/firmware_ui.cpp`, `run.sh`'s **W11** string clause and **W11b**'s 12-column budget, bench script **8.24**, and bench
+guide **H7-07** — all five now name `NOT RELAYED`. ⚠ **The paragraph said "all four"; the derivation found FIVE pins plus
+nine further stale bench quotes**, which is exactly why the closure block re-derived the set instead of trusting this list.
+✅ **THE FALSE-APPROVAL SITES ARE NOW CORRECTED — the count in this paragraph was FOUR, and two had already been fixed when
+it was written.** Verified site by site (re-located by symbol, not by line — V2): `src/firmware_ui.cpp` (the comment above
+the `not_heard` arm) **corrected here** · `tools/probe_board_ui/run.sh` (inside W11b's block) **corrected here** ·
+`docs/2026-08-04-oled-handover.md` **already corrected by the §B115-QA slice** ·
+`docs/superpowers/specs/2026-07-31-onboard-oled-ui-design.md` §4 correction ① **corrected here** (fact-only). ⇒ **no site
+in the tree now claims the owner approved the 8-char form.** The original reason for registering rather than fixing stands
+as history: the §B115-QA dispatch had scoped that correction to *the register and `simulation/BASELINE.md` only* and
+explicitly forbade touching the live string or W11/W11b while the string was under an active owner decision.
+
+The rejected alternatives, with their measurements, so the decision is re-openable rather than re-guessed:
+- **small font for this one state** — 14 chars × 6 px = 84 px, fits the 21-column budget. ⛔ Rejected: it makes the one
+  headline carrying bad news visually *quieter* than `PICKED UP` / `REPLY`, and the large font exists so the state is
+  readable at arm's length under stress (spec §4).
+- **two large lines** (`NO RELAY` / `HEARD`) — spec §3.3 does sanction *"2 lines @ 8x16 (emergency)"*, but two 20 px
+  lines plus the 6x10 detail line does not clear 64 px with the 8 px status bar, and the vertical metrics could not be
+  verified without a panel. ⛔ Rejected: it would squeeze out §B69's detail line, the one distinction on this screen that
+  must not be blurred.
+- **splitting the phrase across the headline and the detail line** — ⛔ Rejected outright: each line must be safe read
+  ALONE, and a detail line reading `HEARD after 3` says the opposite of the truth.
+
+**Landed — ✅ NOW `head = "NOT RELAYED"` in `firmware_ui.cpp`'s `Emergency::not_heard` arm (owner-ruled 2026-08-05).**
+⛔ Superseded reading, kept: this line used to record the **UNAPPROVED 8-char form** `head = "NO RELAY"` as landed and
+"left in place pending the owner's decision" — that decision has arrived and replaced it. ⓘ The **DETAIL** line is deliberately
+untouched (`no relay after N` / `unconfirmed xN`): the owner did not rule on it, it does not contradict the new headline,
+and §B69's split between a measurement and an unmeasured unknown must survive. ⓘ The model **enum stays
+`Emergency::not_heard`** — the ruling is about a display string, and renaming a state would be a refactor bundled into a
+behaviour change (C1).
+★ **It now has automated cover, which it never had:** every emergency headline is a bare literal in a TU nothing
+compiles, so nothing in the tree could have seen this string change back. `tools/probe_board_ui/run.sh` carries **W11**
+(the RULED string `NOT RELAYED` present, and **BOTH** superseded strings — `NOT HEARD` **and** the never-approved
+`NO RELAY` — absent from CODE, comment-stripped, §B77, because this file's comments must still discuss them as history;
+**four controls**, two of which add a second assignment so the absence clauses are measured independently of the presence
+clause) and **W11b** (no `Font::large` headline exceeds 12 chars — **two controls**, at 13 chars and at the 14-char
+`NO RELAY HEARD`, which is what pins the width finding above at its BOUNDARY rather than one point past it).
+✅ **M2:** bench script **8.24** and bench guide **H7-07** assert the live headline `NOT RELAYED`, and both name three
+reportable readings rather than acceptable ones: `NOT HEARD` (pre-ruling firmware), `NO RELAY` (the never-approved interim
+build) and a clipped `NO RELAY HEAR` (the 14-char form). Every other bench line quoting the panel string as expected text
+was moved in the same slice — a stale quote would have failed H7 on correct firmware.
+
+### B118 — ★★ IDEA / the owner's protocol direction: an explicit **"REQUIRES ANSWER"** app code on a channel message · NEW 2026-08-05 · **RECORD ONLY — ⛔ NOT IMPLEMENTED AND MUST NOT BE**
+
+⛔⛔ **THIS IS A RECORD, NOT A TASK.** It is a protocol change and it needs **its own spec and its own slice**. Nothing in
+this entry was built; no file under `lib/` was touched by the slice that wrote it. It exists because [[B116]] is now
+**PARKED** in its favour and the owner's reasoning must survive in a place that gets re-read.
+
+**THE OWNER'S MECHANISM, as given to this slice (2026-08-05):** an **app-level code space dedicated to channel messages,
+with codes starting at 128** (128 = the first), carried **in the channel message payload at the application layer**. A code
+in that space declares *"this post requires an answer"*. **A later channel message carrying the matching data — the
+ORIGINAL SENDER plus that code — COUNTS as the answer.**
+
+⚠⚠ **THE "MATCHING SENDER" HALF IS ALREADY SUPERSEDED — recorded here so this entry does not assert a withdrawn
+formulation.** A **later owner ruling of 2026-08-05**, recorded in
+`docs/superpowers/specs/2026-08-05-channel-app-code-draft.md` (a DRAFT SPEC written by a **parallel session**, which owns
+that ruling — ⚠ **this entry did not receive it and does not re-assert it**, it points at it), rules that **the binding
+references the CHANNEL MESSAGE — the original post's `channel_msg_id` — NOT the sender**, and **withdraws the
+"matching sender" formulation.** ⇒ read that draft as the live design surface; **this entry keeps only the one-line
+pointer**, which is what M1 asks of an idea record. ★ Reasons the draft gives, both of which the audit below reached
+independently: a plaintext M frame has **no sender carrier**, and a sender match **cannot distinguish two alarms from the
+same hiker**. ⓘ Everything else in that draft is **still OPEN and explicitly not approval to build.**
+
+★★ **THE DRAFT WAS CORRECTED ON 2026-08-06 (a DOCUMENTATION-ONLY slice — no source, no test, no probe, nothing under
+`lib/`), and the correction is load-bearing enough that this pointer states it rather than leaving it to be found:**
+| what changed in the draft | why |
+|---|---|
+| **§5.1 — the matcher was REWRITTEN and the old three-clause rule WITHDRAWN as FORGEABLE** | it required only *same team + an answer code + a matching `channel_msg_id`*. **`same_team()` (`node.h:274`) is `_cfg.team_id != 0 && their_team == _cfg.team_id` — a plain comparison of the CLEAR wire field. It authenticates NOTHING.** Both ingredients are observable on the air ⇒ **any radio peer could forge a plaintext team frame that the panel renders as a human answering a distress call** — the §2.1 false-confirmation class F4 had already closed, reintroduced one layer up. The floor is now **all six of:** ① SEALED **and opened** · ② team · ③ channel id · ④ an **answer** code · ⑤ a **tracked** id **this node originated** · ⑥ the request **live and unexpired**. ⛔ **QA-PROPOSED, PENDING THE OWNER — not ruled.** |
+| **§5.2 — a plaintext answer may INFORM, never CONFIRM** | it fails ① ⇒ the display-shaped claim *"a human answered"* (`Emergency::reply`) must be reachable **only** from the authenticated path. ⓘ Not to be confused with `PICKED UP` = `Emergency::picked_up` ← `channel_relayed`, a **local** relay-overheard outcome ([[B69]]). |
+| **§5.3 — expiry/replay became a HARD REQUIREMENT** | `channel_msg_id_mint` (`node_channel.cpp:53-58`) is `origin<<24 \| (key_hash32 & 0xffff)<<8 \| (ctr & 0xff)` ⇒ **only an 8-bit counter**, so the id **repeats after 256 posts** from one origin/hash pair. ★ **It is a CORRELATION HANDLE, not a NONCE** — a second, independent reason ① is required. The draft's earlier *"a post this node originated and is still tracking"* was directionally right but too soft to implement against. |
+| **§6 — decisions 2 and 3 marked SETTLED in the BODY** | the banner said settled while the body still asked; a reader acts on the body. ★ **The genuinely open allocation question that replaces decision 3: what `128`, `129`, … MEAN** — which is a request, which an answer, which reserved, and what an unknown code does (the sealed inner's fail-loud-on-unknown-bits at `node_channel.cpp:311` is the house precedent). |
+| **§3 — the `≥128`-classifies-it corollary WITHDRAWN inside §3 itself** | §3's heading refutes it and §3's own last bullet still asserted it. **A document must never assert a claim and its negation.** |
+⇒ **the ledger's `docs/2026-08-05-owner-rulings-ledger.md` §1.7 was corrected to match** (it still carried the withdrawn
+sender formulation *and* the withdrawn high-bit claim while §1 declares itself authoritative), and its §2
+**REPLY-only wake** row was corrected too — the four states named there (`blocked`/`picked_up`/`not_relayed`/`failed`)
+are **LOCAL SEND OUTCOMES**, so the team-scoped **incoming-frame** predicate does not apply to them at all; it governs
+**incoming reply qualification only**, where it stays mandatory.
+★★ **AND THE TWO AUDIT FINDINGS BELOW WERE REACHED TWICE, INDEPENDENTLY** — by this slice's codec audit and by that
+draft's — which is why they should be treated as measured facts rather than one reviewer's opinion.
+★ **Why it matters here:** it gives spec §4.4's reply path a **positive, unambiguous carrier**, which is exactly what it
+lacks today and exactly why the owner's teammate's natural **DM** reply could not be counted ([[B114]] matter ②, ruled
+correct). Where [[B116]] would *infer* receipt from a periodic `HAVE` digest, this makes an answer **declare itself**.
+
+**★★ SUPERSEDES AN EARLIER SHAPE, and the difference is the whole point.** The first shape considered was *"a flag bit
+plus a full byte code, structured like the DM messages' scheme"* — i.e. in the **frame header**. The owner replaced it with
+an **app-level** code, which **does not touch the exhausted wire codepoint space at all.**
+⛔ **AND THAT MOOTS THE HAZARD THIS ENTRY WAS FIRST WARNED ABOUT — corrected here rather than left as two readings.** The
+warning was that the DATA flags byte is exhausted (`0xFF`), `q_opcode` is 2 bits and full, and `0x01` only *looks* free
+because it is aliased LIVE as `MS_ENCLOSED_TYPE` on the homed-mobile path. **All three are FRAME-HEADER fields, and the
+audit below confirms none of them is reachable from the channel-message payload** ⇒ the hazard **does not apply to this
+design**. That immunity is precisely its merit, not a detail.
+
+#### THE CODEC AUDIT (V1 — read from `frame_codec.h/.cpp` and `protocol_constants.h`, never from comments or docs)
+
+| carrier | what it is | occupancy **measured** | source |
+|---|---|---|---|
+| DM `DataType` (the shape that was referenced) | a **flag bit** `DATA_FLAG_APP = 0x80` + a **full byte** code at byte 8, emitted iff `type != 0` | **1..19 allocated**, `0` reserved/invalid ⇒ **20..255 free, including ALL of 128..255** | `frame_codec.h:543`, `:588`-`:608`; `frame_codec.cpp:846-847` |
+| M-frame `flavor` (byte 2) | wire-level, **not** app-level | low bits are a VALUE: `public 0` / `group 1` / `private 2`; FLAG bits `team 0x80`, `crypted 0x40` ⇒ **0x20 / 0x10 / 0x08 / 0x04 all FREE** | `protocol_constants.h:466-469`, `:476` |
+| M-frame **payload** (bytes 7.., or 11.. on a team frame) | where the owner's code would live | ⚠ **THERE IS NO APP-CODE BYTE HERE TODAY.** On the PLAINTEXT path `payload[0]` is the **first byte of user text** | `frame_codec.h:683-700` (`pack_m` / `parse_m`) |
+| the **SEALED** channel inner's flags byte (`payload[0]` when `channel_flavor_crypted`) | ★ a genuinely app-level structure that **already exists** | `text 0x01` · `location 0x02` · `source 0x04` ⇒ **5 bits free (0x08..0x80)**, and **unknown bits are REJECTED fail-loud** | `protocol_constants.h:513-528`; `node_channel.cpp:311` |
+
+⇒ **ANSWERS TO THE TWO AUDIT QUESTIONS THE OWNER ASKED:**
+1. ✅ **"Is the channel payload's existing app-code usage really app-level?"** — **Yes, but only on the SEALED path.** The
+   sealed inner's flags byte is inside the ciphertext, invisible to relays, and already fail-loud on unknown bits. On the
+   **plaintext** path there is **no app-level byte at all**. ⚠ **That asymmetry between the two flavours is the design's
+   main open question** and should be settled in the spec, not in code.
+2. ✅ **"Is 128+ free there?"** — **Yes, and cleanly.** For a NEW dedicated channel app-code byte the **entire 0..255 is
+   free, because the byte does not exist yet**: 0–127 is **not partly used**, so the owner's split is clean from day one.
+   Independently, in the DM `DataType` byte 128..255 is **also** entirely free (1..19 used), so a code ≥ 128 can never
+   collide with a **DM type** either — the two allocations cannot collide with each other. ⛔ **That is a statement about
+   ALLOCATION, not about DISCRIMINATION** — see the correction below.
+★ **What the `128`+ split actually buys, recorded so it survives into the spec:** 0–127 stays available for other app
+codes, and it buys **128 codes of headroom** against a wire space that reached exhaustion twice.
+⛔⛔ **CORRECTED IN PLACE 2026-08-06 — THIS ENTRY ASSERTED A CLAIM AND ITS OWN NEGATION, TWO PARAGRAPHS APART.** The bullet
+above used to continue *"128 = `0x80`, so **the high bit alone identifies the dedicated channel-message class** — a
+single-bit test classifies a code"*, and it was headed *"the structural elegance"*. **WITHDRAWN**, and the refutation is
+the very next paragraph of this same entry: on the plaintext path `payload[0]` is user text and **UTF-8 lead bytes
+`0xC2`..`0xF4` are all ≥ `0x80`**, so the high bit classifies **nothing**. ⇒ **an explicit presence bit is REQUIRED** and
+`≥128` survives only as a malformed-frame tripwire. ★ The same withdrawn sentence was carried by the ledger's §1.7 and by
+the draft spec's §3 and has been corrected in all three; ⚠ **it is exactly the failure mode M1 and the ledger's §3 rule 3
+exist to prevent, and it got past two audits because the assertion and the refutation read as two separate true facts
+about the same byte.**
+
+⚠⚠ **ONE REAL COLLISION THE AUDIT DID FIND, and it is the same class as *"`0x01` only looks free"* — found by measurement,
+not by reasoning.** On the **plaintext** M path `payload[0]` is user text, so *"a code ≥ 128 at payload[0]"* is
+self-discriminating **only against 7-bit ASCII**. **UTF-8 lead bytes `0xC2`..`0xF4` are all ≥ 128**, so a post beginning
+with a non-ASCII character would be **misread as an app code**. ⇒ the code needs an **explicit presence discriminator** —
+a free `flavor` bit (four are free) or a free sealed-inner flag bit (five are free) — **never the high bit alone**. There
+is no shortage of room, so per M3 there is no reason to contort it.
+⚠ **A SECOND FINDING, load-bearing for the matching rule.** *"The original sender + the flag"* needs a sender identity, and
+**the M frame has no sender field**: the only origin on the plaintext path is the **node id in the top byte of
+`channel_msg_id`** (`frame_codec.h:692` — *"origin = byte 3"*), a static id, **not** a stable hash. A stable sender
+identity exists **only on the sealed path**, as `channel_inner_flag_source`'s `key_hash32` (`protocol_constants.h:526`,
+`:533`). ⇒ the spec must say **which identity the answer matches on**, or the rule is unimplementable on plaintext posts
+and mobiles will not match at all (the id→hash trust asymmetry this project already pays for elsewhere).
+✅ **AND THIS FINDING IS WHAT THE LATER RULING ANSWERS:** binding the reply to the **`channel_msg_id`** instead of to the
+sender removes the missing-carrier problem entirely — the id **is** on every M frame — and it also distinguishes two
+alarms from the same hiker, which a sender match could not. ⇒ **the obligation this paragraph raised is DISCHARGED by the
+`channel_msg_id` ruling**; what remains open is the presence-bit placement, not the identity question.
+
+#### WIRE COST — settled, and stop designing around it (M3 / C4)
+
+★★★ **THE OWNER HAS NOW CONFIRMED IT THREE TIMES — 2026-07-31, 2026-08-01 and 2026-08-05: NO `wire_version` BUMP IS
+REQUIRED, BECAUSE MESHROUTE IS NOT DEPLOYED.** A wire change is **FREE to deploy**. ⇒ **a wire change is never a cost to
+design around**, and this design must not be squeezed to fit a spare bit — that is exactly how the DATA flags byte and
+`q_opcode` both reached exhaustion.
+⚠ **The ONE genuine residual, and it is the part that keeps getting conflated:** a bump **re-anchors all 36 corpus streams
+at once**, so **IF** one ever becomes necessary it takes **its own slice/commit — for ATTRIBUTION, never for reflash
+cost.** Bundling a bump with a behaviour change makes both unmeasurable. ⓘ Note that on this design a bump may not even be
+needed: an app-level code behind a free `flavor` or sealed-inner bit is additive, and old firmware's fail-loud
+unknown-bit rejection is a non-issue on an undeployed fleet.
+
+### B119 — `Push::enc`'s comment says the channel path is always cleartext; the code sets it · NEW 2026-08-06 · **OPEN — comment-only defect, deliberately NOT fixed by the finding slice**
+
+**Found while writing [[B118]]'s matcher, and MEASURED against the source, not read from a doc (V1).**
+
+| what | where | says / does |
+|---|---|---|
+| the comment | `lib/core/command.h:302` | `bool enc = false;` — *"§8b: msg_recv -> the DM was delivered SEALED (CRYPTED + opened); **channel_recv -> false (cleartext today)**"* |
+| the code | `lib/core/node_channel.cpp:415` | `pu.enc = (enc != 0);` — *"§chan-crypt CL2a: the post arrived SEALED and `body` is the opened plaintext (**the field existed, hardcoded false for channels**)"* |
+| the guard around it | `lib/core/node_channel.cpp:404` | only a **readable** post produces a `channel_recv` push at all — a plaintext post, or a sealed one **we opened**. An unopenable one produces `team_channel_no_key` instead and is never inboxed. |
+
+⇒ **the `channel_recv` half of the comment is STALE**: `§chan-crypt CL2a` gave the channel path a real sealed-and-opened
+signal and the line at `:415` even describes the old behaviour in the **past tense**, but the struct's own documentation
+was never moved. ★ **The CODE is right — only the prose is wrong.** ⛔ **Fix the comment, never the logic** (the
+[[B115]] precedent, where an inverted comment above `on_send_accepted` was corrected and the code left alone).
+
+**Why this is registered rather than shrugged at.** [[B118]]'s §5.1 makes *"the post arrived SEALED and we opened it"*
+the **only condition in the matcher that authenticates anything** — every other clause is observable to a passive
+eavesdropper. An implementer who reads `command.h:302` and believes it will conclude the carrier does not exist on the
+channel path, and will either **invent a second one** or **drop the condition**; dropping it is precisely the forgeable
+matcher §5.1 withdrew. ⚠ Same class as [[B115]]'s *"a V1 comment that stated the exact REVERSE of its own code"* — but
+this one sits under a security decision rather than a display one.
+
+⛔ **NOT FIXED HERE, and the reason is scope, not doubt:** the slice that found it (2026-08-06) was **documentation-only**
+— `lib/` was explicitly out of scope, and a one-word comment repair inside `lib/core` would have been a source change in
+a docs slice (C1). It is a **one-line comment edit** for whichever slice next has `lib/core/command.h` legitimately open.
+ⓘ **Inert for the gate by construction:** a comment in `lib/core` cannot move s18, but the edit still rides the normal
+D1/D2 treatment of whatever slice takes it.
+
 ### B113 — `ChanState::waiting` is a DEAD STATE, so an accepted canned post never leaves `SENDING...` · NEW 2026-08-05 · found by independent QA on UI-7
 **FOUND BY INDEPENDENT QA, RE-MEASURED BEFORE THE FIX** (this entry was written first — M1: *a bug found and not
 registered is a bug found twice*). Three greps, on comment-stripped source so a comment cannot be counted as live code:
@@ -1724,6 +2216,11 @@ API in an assertion that is followed by a guard on the same API.** The plan itse
 cycle.** Sticky until then; **`long` re-fires; `double` gets NO emergency job** (both its §4 duties withdrawn). Safe
 because the waking press is consumed (spec `:378`), so the result is always displayed before any press can dismiss it.
 **Deferred to UI-6**, which owns the implementation; Task 3's `_emg` exit path is unchanged. Full table: the plan's B71 block.
+✅ **THE RULING IS TRIMMED 2026-08-05, OWNER AGREED — see [[B100]].** The exit table's *"final `blocked`"* row was
+**VACUOUS** (the blocked arm always re-arms a retry, so a `blocked` alarm is never *final*), which made the ruled set read
+as **five** states beside §B78's `failed` when only **four** are reachable. The phantom member is removed from the plan's
+table, which now reads `picked_up` / `not_heard` / `reply` / `failed` — exactly what `emg_outcome_retained()` implements.
+★ **No exit logic changed**: this removed a phantom obligation from the document, not a behaviour from the code.
 **Found implementing UI-3** (`simulation/BASELINE.md`, 2026-08-03 §UI-3 note). Spec §4's diagram says *"sticky until
 acknowledged (**double**)"* and §4 line 299 says *"a sticky `NOT HEARD` the user can **re-fire with `double`**"*.
 **Neither is built.** A `double` in `picked_up` / `not_heard` / `reply` falls through to `activate()` — a compose modal,
@@ -2357,7 +2854,53 @@ reads them until Task 9, and this project has already ruled that config landing 
 leaves `firmware_ui.cpp`'s `s_frame_open` describing a frame the board has already dropped. Both halves are now dropped
 together, and the probe's P4 already proves no page can reach a dark panel.
 
-### B105 — one `IRadio&` accessor would make the feature layer host-testable and remove the 2 new pinned warnings · NEW 2026-08-05 · OPEN / OWNER RULING WANTED
+### B105 — one `IRadio&` accessor would make the feature layer host-testable and remove the 2 new pinned warnings · NEW 2026-08-05 · ✅ **CLOSED 2026-08-06**
+
+> ✅✅ **IMPLEMENTED 2026-08-06 — owner-approved (`docs/2026-08-05-owner-rulings-ledger.md` §2), and BOTH predicted
+> payoffs were measured rather than assumed. Full gate + the A/B: `simulation/BASELINE.md`'s §B105 note (top).**
+> **Landed:** `IRadio& radio()` on `DeviceHal` (+9 lines) · a new **pure** `src/fw_context_pure.h` holding the
+> `g_hal` / `g_node` externs, which `fw_context.h` now **includes instead of restating** (its 1:1 rule is intact —
+> this is THE declaration, not a second one) · `firmware_ui.cpp` swaps the include and reads `g_hal.radio()`.
+> **① Warnings:** `180/180/176 → 178/178/174 @ 326 objects`, `-Wswitch` 0 — attributed by a controlled A/B on
+> `heltec_v3` whose `uniq -c` diff is **exactly** `-Wcpp` 6→5 and `-Wvolatile` 7→6. **Re-pinned in BOTH required
+> places** (`tools/warning_census.sh` + §B87), declared, with the superseded block labelled and kept.
+> **② The probe exists:** `tools/probe_firmware_ui/` — 25 checks, **13 negative controls all verified**, and its
+> **C0** is the counterfactual (restore `fw_context.h` ⇒ the host build MUST fail), so the include cannot come back
+> silently. See [[B104]] for exactly what it now covers and what it still does not.
+> ⛔ **A premise that turned out wrong, recorded because "a refactor is free" is how real deltas hide: FLASH IS
+> +16 B PER OLED ENV, NOT 0.** `mac_idle()` now dispatches `tx_busy()` virtually through `IRadio&` where it used to
+> name the concrete `g_iradio` (devirtualizable). RAM is byte-identical; the predicate, the instance and its
+> ISR-driven volatile state are unchanged. Isolated by the same A/B: 1253788 vs 1253772.
+> ⛔⛔ **CORRECTED IN PLACE 2026-08-06 (docs-only pass) — THE s18 RATIONALE RECORDED HERE WAS WRONG, AND IT
+> CONTRADICTED THIS ENTRY'S OWN `MEASURED` SECTION BELOW.** These two lines used to read: *"⚠ **D2 was discharged by
+> RUNNING s18** (`1cd21235` / 271629, corpus 36/36), not by the 'src-only is inert' argument — a `lib/` file
+> changed."* That claims **any** `lib/` change makes s18 non-inert. **It does not** — and the `MEASURED` paragraph
+> further down correctly says the accessor *"touches no `lib/core` file (so s18 byte-identity is unaffected)"*. A
+> claim and its negation must never stand in one entry (ledger §3 rule 3).
+> ★ **Verified against the simulator's own build config (V1), not against a comment:** its `CMakeLists.txt`
+> enumerates the MeshRoute sources **explicitly** — **19 of `lib/core`'s 21 `*.cpp`** (`admin_auth.cpp` and
+> `fault_log.cpp` are not in the sim's list) + `lib/console/console_json.cpp` + monocypher — with include dirs
+> `lib/core` / `lib/console` / `lib/monocypher/src`. **`lib/hal` is neither compiled
+> nor on the include path, and no `lib/core` file `#include`s `device_hal.h`** (`lib/core/node.h:1620` mentions it
+> in a comment only). ⇒ **THE ACCURATE RULE: `lib/core` → s18 byte-identity is LOAD-BEARING and must reproduce the
+> `BASELINE.md` keystone (D2); `lib/hal` → outside the simulator's build graph ⇒ s18 is inert BY CONSTRUCTION.**
+> ⚠ **Not to be overcorrected into "`lib/` changes don't matter".**
+> ★ **s18 WAS run — `1cd21235` / 271629 EXACT, corpus 36/36 — and that green result STANDS as a whole-tree
+> tripwire. It is not withdrawn; it simply does not test this accessor.** **0 files under `lib/core`;
+> `sizeof(Node)` unmoved.**
+> ⓘ **Attribution: the error originated in the QA-gate's dispatch brief** (*"if any `lib/` file changes, prove s18
+> byte-identity"*), **not in the implementer's work — the coder followed the brief correctly.**
+> ★★ **BOARD ENVS — an EVIDENCE-RECORD correction, not a code failure. Nothing failed.** This slice ran and
+> recorded **5/5** (`gateway` / `xiao_sx1262` / `xiao_esp32s3` / `heltec_v3` / `heltec_mobile`, rc=0 from deleted
+> object dirs). **INDEPENDENT QA SUBSEQUENTLY BUILT ALL TEN BOARD ENVS SUCCESSFULLY — that is QA's measurement,
+> recorded as QA's; the slice did not run ten and does not claim to.**
+> ⚠ **The standing tension, recorded rather than silently resolved:** `CLAUDE.md`'s **D1** literally says *"every
+> board env"* (there are **10**; `platformio.ini`'s 11th `[env:]` block is `native`, not a board), while the
+> **2026-07-28 owner ruling** narrows ROUTINE gating to the **three** standing envs, all ten only when
+> `sizeof(Node)` / a board `#if` / the linker moves (**D2**) — in-repo at `docs/2026-07-28-agent-handover.md:180`
+> and `docs/superpowers/plans/2026-07-31-onboard-oled-ui-phase-a.md:24`. ★ **B105 edits a `lib/hal` header compiled
+> into EVERY board build, so ten was the right call here.** ⛔ **D1 in `CLAUDE.md` is the owner's text and was NOT
+> rewritten.**
 
 **MEASURED** (§UI-6). `src/firmware_ui.cpp` makes exactly three device reads: `g_node` (`node.h`),
 `g_hal.txq_depth()` (`lib/hal/device_hal.h`) and `g_iradio.tx_busy()` (`lib/hal/device_radio.h`). The first two headers
