@@ -4,6 +4,18 @@
 
 *Status: DRAFT, partially implemented. Line references verified against the working tree at time of writing; board pins recovered from MeshCore's working V3 and V4 ports. The 2026-08-05 extensions in §2.2/§3.2.2–3 and §3.5/§6.2 add configurable presets, Heltec companion BLE, and inbox detail/delete as new work after the original Phase A slices.*
 
+> ★★ **FACT-ONLY CORRECTION PASS 2026-08-06 — register [[B130]]. Read this before trusting any instruction below.**
+> Every earlier slice was told *"⛔ do not edit the spec — report needed changes"*, and every slice obeyed. The
+> corrections therefore landed in the code, the bug register, the plan, the bench guide and the owner-rulings ledger —
+> **everywhere except the authoritative document**, which became the most drifted artefact in the arc. This pass
+> corrected the **operational text itself**; superseded content survives only inside clearly fenced `⛔ SUPERSEDED`
+> blocks, which are audit trail and **must never be read as guidance**. ⚠ **A grep of this file will therefore return
+> `NOT HEARD`, the bare-`INPUT` probe and restated digits — every one of those hits is inside a fence or a quotation.
+> Read the surrounding sentence; that trap has fired five times in this arc, twice on the QA-gate.**
+> ⛔ **Nothing here was redesigned and no ruling was added.** What is still genuinely open is listed in
+> `docs/2026-08-05-owner-rulings-ledger.md` §2 — notably **B118**'s authentication floor, the **REPLY-only wake**, and
+> **B123**'s pre-3.2 park residual, none of which this pass touched.
+
 *Phased: **Phase A ships the UI on Heltec V3**; **Phase B ports to V4** and adds GPS. Phase B's radio port and GPS driver are named here but specified elsewhere — see §10.2, §10.3, §13.*
 
 ---
@@ -146,8 +158,10 @@ Rules, all of which must hold before a push may complete a UI transaction:
    the third is a delegated **SUCCESS** (`node.cpp:1565-1573`), while the post-mint seal failure pushes a reason that
    the core itself documents as arriving *"asynchronously and correlat[ing] with nothing"* (`node_channel.cpp:~740`).
    ⇒ **unattributable failures are IGNORED; expiry supplies `channel_remote_mint` and CONSUMES one bounded attempt**,
-   so three expiries end in sticky `NOT HEARD`. `CmdCode::queued` alone is not proof of transmission — a blocked or seal-failed channel post returns `queued` with `ctr == 0` (B39). `next_ctr` never yields 0, so zero is the sentinel. A zero-ctr result means **no LOCAL HANDLE exists and the transmission status is UNKNOWN** — it is *not* proof that nothing was sent (the third producer is a delegated **success**). The tracker therefore does **not** wait for a matching `send_blocked` / `send_failed`: an unattributable failure is **ignored**, and the slot is closed by **bounded expiry**, which supplies `channel_remote_mint` **and consumes one attempt** (§B84).
-3. `channel_sent` completes an emergency **only** when its `ctr` matches the tracked handle (needs B40 for the full width).
+   so `kEmgMaxTries` expiries end in the sticky **`not_heard`** state — panel headline **`NOT RELAYED`** (B117;
+   ⛔ this clause used to restate the bound as "three" and spell the state `NOT HEARD`, [[B130]]).
+   `CmdCode::queued` alone is not proof of transmission — a blocked or seal-failed channel post returns `queued` with `ctr == 0` (B39). `next_ctr` never yields 0, so zero is the sentinel. A zero-ctr result means **no LOCAL HANDLE exists and the transmission status is UNKNOWN** — it is *not* proof that nothing was sent (the third producer is a delegated **success**). The tracker therefore does **not** wait for a matching `send_blocked` / `send_failed`: an unattributable failure is **ignored**, and the slot is closed by **bounded expiry**, which supplies `channel_remote_mint` **and consumes one attempt** (§B84).
+3. `channel_sent` completes an emergency **only** when its `ctr` matches the tracked handle (full 16-bit width since **B40, ✅ landed 2026-08-01**; ⚠ it is a **LOCAL** handle — never match it against a *received* id).
 4. `send_blocked` must be `blocked_channel == true` **and** arrive inside the pending request's outcome window. It carries no `ctr`, so scope plus a bounded window is the only correlator available — weaker than exact matching, and labelled as such rather than described as exact attribution.
 5. `send_e2e_acked` / `send_failed` complete a **DM** only on a matching `ctr` **and** peer.
 6. **The full `SendFailReason` reaches the UI**, not a boolean: `no_pubkey` → `NO KEY`, `e2e_ack_timeout` → `NO CONFIRM`, others → a compact reason. Collapsing them makes `NO CONFIRM` unreachable and discards the one thing that tells the user what to do next.
@@ -238,7 +252,7 @@ Entered by `double` from TEAM (a DM to the highlighted peer) or from SEND (a tea
 
 - `short` moves the highlight; `double` sends the highlighted text, or leaves on **`back without sending`**.
 - When at least one preset is enabled, the cursor starts on the **first message**, not on `back` — the peer was chosen deliberately one gesture ago, and these texts are benign. If that catalog has no enabled presets, the view shows `no presets configured` plus `back without sending`, and the cursor starts on `back`.
-- **Auto-exit after `MR_UI_BLANK_MS` of no input**, returning to the parent screen **without sending**. A modal that can outlive the user's attention is a modal that eventually sends the wrong thing.
+- **Auto-exit after `kBlankMs` of no input** (⛔ named `MR_UI_BLANK_MS` here until 2026-08-06; that macro exists nowhere in the tree — [[B130]]), returning to the parent screen **without sending**. A modal that can outlive the user's attention is a modal that eventually sends the wrong thing.
 - `long` still arms the emergency from inside it.
 
 ### 3.2.2 Configurable preset catalog
@@ -436,27 +450,59 @@ the record disappears, activation refuses with `MESSAGE GONE` rather than openin
 
 ## 4. Emergency state machine
 
+★★ **DERIVED FROM THE SHIPPED CODE 2026-08-06 ([[B130]]), not from the earlier diagram** — the model
+(`src/firmware_ui_model.h`: `emergency_gesture` · `on_outcome` · `on_send_refused` · `on_reply` · `tick_emergency`)
+and the headlines (`src/firmware_ui.cpp`'s `draw_emergency`, all eight non-`idle` arms). ⚠ **Every threshold is
+NAMED, never restated** — the constants' own declarations are the only place the digits belong ([[B120]], §B78).
+
 ```
-IDLE --hold 800ms--> ARMING
-  ARMING: "RELEASE TO CANCEL / EMERGENCY IN 3..2..1" drawn while held
-    release < 3.5s ------> CANCELLED (brief toast) -> IDLE
-    held through 3.5s ---> FIRING
-FIRING: post the encrypted team channel message "I'm in danger" (+ location if a fix exists)
-    send_blocked{next_ms}          -> BLOCKED   (show "retry in Ns", auto-retry at next_ms)
-    channel_sent{relayed=true}     -> PICKED UP
-    channel_sent{relayed=false}    -> NOT HEARD (auto-retry x3 w/ backoff) -> NOT HEARD (sticky)
-any state: inbound channel msg from a teammate -> REPLY: <name> <text>
-sticky until acknowledged (double)
+idle --long_arm (InputCfg::arm_ms)--> arming        panel: "RELEASE!"  + "EMERGENCY IN <n>"
+  arming: release before kArmToFireMs   -> cancelled  "CANCELLED"     -> idle after kCancelledMs
+          held through kArmToFireMs     -> firing     (long_fire: budget, backoff and evidence all RESET)
+firing: send_channel <MR_UI_TEAM_CHANNEL_ID> "<emergency preset>" -t -e [-l only when a fix exists — §4.1]
+    synchronous refusal (parser / err_*) -> failed     "FAILED"      + compact reason [+ CmdCode]   [terminal, retained]
+    blocked{next_ms}                     -> blocked    "BLOCKED"     + "retry in <n>s"   [re-fires; consumes NO attempt]
+    channel_relayed                      -> picked_up  "PICKED UP"   + "a relay heard it"          [sticky]
+    channel_failed{reason}               -> failed     "FAILED"      + the reason        [terminal, NEVER retried]
+    channel_no_relay | channel_remote_mint:
+        _tries <  kEmgMaxTries           -> firing     (the next attempt)
+        _tries >= kEmgMaxTries           -> not_heard  "NOT RELAYED" + "no relay after <n>"  (evidence local_tx)
+                                                                     / "unconfirmed x<n>"    (evidence no_handle)
+                                                                                               [sticky]
+blocked: at retry_at_ms                  -> firing
+reply — ⛔ NOT "any state". Only from firing · blocked · picked_up · not_heard · reply, AND only with at least one
+        ACCEPTED transmission (`_tries != 0`), AND only for a post that passes §4.4's team scope
+                                         -> reply      "REPLY"       + "<who>: <text>"   [sticky; UN-BLANKS, §R1]
+exit: sticky until a SHORT press, and only once the outcome has actually been PRESENTED (B71 + §B102);
+      `long` re-fires a NEW alarm; `double` does NOTHING (R2).
 ```
+
+> ⛔ **SUPERSEDED — the original diagram, kept as audit trail (§3 rule 3 of the rulings ledger), NOT as guidance.**
+> Four things in it were wrong by the time it was read, and [[B130]] is that it stood as live instruction for a day:
+> `NOT HEARD` is no longer the headline (**`NOT RELAYED`**, B117/ledger §1.2); a reply is **not** accepted from "any
+> state"; the sticky exit is a **short** press, not `double` (B71); and `failed` — a whole terminal arm — was missing.
+> ```
+> IDLE --hold 800ms--> ARMING
+>   ARMING: "RELEASE TO CANCEL / EMERGENCY IN 3..2..1" drawn while held
+>     release < 3.5s ------> CANCELLED (brief toast) -> IDLE
+>     held through 3.5s ---> FIRING
+> FIRING: post the encrypted team channel message "I'm in danger" (+ location if a fix exists)
+>     send_blocked{next_ms}          -> BLOCKED   (show "retry in Ns", auto-retry at next_ms)
+>     channel_sent{relayed=true}     -> PICKED UP
+>     channel_sent{relayed=false}    -> NOT HEARD (auto-retry x3 w/ backoff) -> NOT HEARD (sticky)
+> any state: inbound channel msg from a teammate -> REPLY: <name> <text>
+> sticky until acknowledged (double)
+> ```
 
 Two constraints the draft could not have anticipated, both verified:
 
-- **`send_blocked` must be handled.** `channel_min_interval_ms = 10000` (`protocol_constants.h:377`) means a second emergency post inside 10 s is refused **pre-TX** with `send_blocked{min_interval, next_ms}` (`command.h:103, 177-180`). A safety UI that displayed "sent" there would be lying. Show the countdown; auto-retry at `next_ms`.
+- **`send_blocked` must be handled.** `channel_min_interval_ms` (`lib/core/protocol_constants.h`, declaration only — ⚠ **do not restate its value here**, [[B120]]) means a second emergency post inside that floor is refused **pre-TX** with `send_blocked{min_interval, next_ms}` (`command.h:103, 177-180`). A safety UI that displayed "sent" there would be lying. Show the countdown; auto-retry at `next_ms`.
 - **Delivery evidence is weaker than "delivered", and the wording must say so.** Team channel messages carry no end-to-end ack — there is no `DATA_FLAG_E2E_ACK_REQ` anywhere in `node_channel.cpp`. The only signal is `PushKind::channel_sent` (`command.h:105`, `node_channel.cpp:403-416`): `relayed=true` means a neighbour was overheard re-flooding the post. Render that as **`PICKED UP`**, never `DELIVERED`. True human confirmation arrives only as a teammate's reply — which is precisely why "Got your message" earns slot 4.
 
-**Auto-retry bound: exactly 3 accepted transmissions**, then a sticky `NOT HEARD` the user can re-fire with `double`. Unbounded retry is not acceptable — it would burn the duty budget the rest of the team needs to answer.
+**Auto-retry bound: exactly `kEmgMaxTries` accepted transmissions**, then the sticky `not_heard` state — headline **`NOT RELAYED`** — which the user re-fires with a **`long`** press. Unbounded retry is not acceptable — it would burn the duty budget the rest of the team needs to answer.
+⛔ **This sentence used to say "3 … a sticky `NOT HEARD` … re-fire with `double`" and all three halves were wrong as live guidance** ([[B130]]): the bound is the named constant, the headline is `NOT RELAYED` (B117), and B71 **withdrew both of `double`'s emergency duties** — under the overlay `double` does nothing at all (R2).
 
-★ **"3" means three *transmissions*, not three retries after the first.** Both readings appeared in an earlier draft; this is the binding one and the native tests pin it.
+★ **`kEmgMaxTries` counts *transmissions*, not retries after the first.** Both readings appeared in an earlier draft; this is the binding one and the native tests pin it. ⓘ The constant's declaration (`src/firmware_ui_model.h`) is the only place its value belongs ([[B120]]).
 
 ★★ **An attempt is counted on ACCEPTANCE, never on request.** A parser refusal or a pre-TX `send_blocked` puts nothing on the air, so it must not consume one of the three alarms. The counter increments when `CmdResult` comes back accepted with a `ctr`.
 
@@ -471,8 +517,17 @@ Two constraints the draft could not have anticipated, both verified:
 > approved the shorter form". THAT APPROVAL DID NOT EXIST** — the 8-char `NO RELAY` that briefly shipped was substituted
 > by the implementing slice, which reported an approval it had invented; refusing to truncate was right, choosing a
 > different string was the owner's call and was taken without them. `NO RELAY` is superseded and was never sanctioned.
-> **Every `NOT HEARD` elsewhere in this spec names the model STATE (`Emergency::not_heard`), which is unchanged** — only
-> the rendered string moved.
+> ⛔⛔ **CORRECTED IN PLACE 2026-08-06 ([[B130]]) — THIS PARAGRAPH USED TO CLAIM SOMETHING UNTRUE ABOUT ITS OWN
+> DOCUMENT.** It said: *"Every `NOT HEARD` elsewhere in this spec names the model STATE (`Emergency::not_heard`), which
+> is unchanged — only the rendered string moved."* **That claim was FALSE and was never verified.** Counted at the time
+> of the correction, the spec carried **nine** occurrences of the display-form string `NOT HEARD`: three inside this
+> correction block (legitimate — they name the superseded string in order to supersede it) and **six in live guidance**
+> — §2.1 rule 2, the §4 state diagram, the §4 retry-bound sentence, the §12 on-target checklist, the §12 `unsealable`
+> acceptance case and the §13 **B38** prerequisite row — **not one of which spelled the enum.** All six are now either
+> the enum `not_heard` (where the model state is meant) or **`NOT RELAYED`** (where the panel headline is meant).
+> ★ The correct statement, which is the one this note should always have made: **the RENDERED headline is
+> `NOT RELAYED`; the MODEL STATE is `Emergency::not_heard` and is unchanged** — so a sentence about the panel must
+> never spell it `NOT HEARD`, and a sentence about the machine must never spell it in display case at all.
 > ② **The counter above is displayed through a SEPARATE presentation ordinal** (register B115, measured on metal). The
 > counted value `_tries` — the single source of truth for this bound, still moved only on acceptance — is *not* what the
 > panel shows: a `ctr == 0` attempt is in flight while deliberately uncounted (§2.1 rule 2), so the panel's "attempt N
@@ -486,7 +541,7 @@ Two constraints the draft could not have anticipated, both verified:
 
 - The deadline is `now_ms + next_ms`, computed from **the moment the block outcome arrived** — not from the originating gesture. An earlier draft based it on the gesture timestamp, which is stale by the time an automatic retry blocks.
 - Comparisons are wrap-safe unsigned (`now - deadline` sign trick), not `now >= deadline`.
-- **`next_ms == 0` is legal and means "the floor has passed but a cap or duty limit still blocks"** (`command.h:203`). It must not be treated as "retry immediately": doing so spins the retry every tick and burns all three alarms in milliseconds. Phase A policy: a UI-side recheck backoff starting at 2 s, doubling, capped at 30 s, staying in `BLOCKED` and **consuming no attempt** until a send is actually accepted.
+- **`next_ms == 0` is legal and means "the floor has passed but a cap or duty limit still blocks"** (`command.h:203`). It must not be treated as "retry immediately": doing so spins the retry every tick and burns the whole `kEmgMaxTries` budget in milliseconds. Phase A policy: a UI-side recheck backoff starting at `kBlockedBackoffMinMs`, doubling, capped at `kBlockedBackoffMaxMs`, staying in `blocked` and **consuming no attempt** until a send is actually accepted. (⛔ the digits used to be restated here — [[B120]]; `src/firmware_ui_model.h` owns them.)
 
 ### 4.2 Emergency gestures pre-empt everything
 
@@ -503,7 +558,7 @@ Every timed transition is a field, so the renderer never computes deadlines and 
 | `emergency_hold_until_ms` | the capped panel-on window (§5) | `long_fire`, and **every retained outcome** — `picked_up`, `not_heard`, `blocked`, `reply` |
 | `retry_at_ms` | the blocked-retry deadline | a `blocked` outcome |
 
-★ **`emergency_hold_until_ms` must actually be READ by the blanking rule.** It is a deadline, not a duration: the panel stays on until `now >= emergency_hold_until_ms`, compared wrap-safely like the retry deadline. An earlier plan draft wrote the field on fire and on reply but then measured the hold from *last input* instead — so a reply that arrived while the user's hands were elsewhere never extended the window it had just set, and `picked_up` fell back to the ordinary 15 s blanking.
+★ **`emergency_hold_until_ms` must actually be READ by the blanking rule.** It is a deadline, not a duration: the panel stays on until `now >= emergency_hold_until_ms`, compared wrap-safely like the retry deadline. An earlier plan draft wrote the field on fire and on reply but then measured the hold from *last input* instead — so a reply that arrived while the user's hands were elsewhere never extended the window it had just set, and `picked_up` fell back to the ordinary `kBlankMs` blanking.
 
 The model marks itself dirty **only when the visible countdown digit changes**, not every tick — otherwise the emergency repaints at the full tick rate for no visual difference.
 
@@ -515,7 +570,7 @@ The model marks itself dirty **only when the visible countdown digit changes**, 
 
 > ⚠ **FACTUAL CORRECTION 2026-08-05 (§B103 / register B103 — shipped behaviour, narrow correction only, no redesign).** This paragraph originally said the channel id **alone** qualified a reply, and the code shipped that way. It was a live safety defect: `Node::ingest_channel_m` (`lib/core/node_channel.cpp:211-212`) drops a *foreign team's* post, but a normal leaf post (`team_id == 0`) **falls through and is ingested by everyone** — so with `MR_UI_TEAM_CHANNEL_ID == 0` any node in radio range posting plaintext on channel 0 rendered as a distress REPLY. The shipped guard is now `pu.channel_id == MR_UI_TEAM_CHANNEL_ID && g_node.same_team(pu.team_id)`, and the clause carrying the safety weight is `same_team`'s implicit `team_id != 0` — not the channel equality, which ingest already guarantees for team traffic. ⓘ Consequence, deliberate: on a node with **no** team the REPLY indication is unreachable, because without a team there is no key and no membership and so nothing that could make a reply trustworthy.
 
-★ **And only after an alarm was actually transmitted.** The state whitelist is `firing` · `blocked` · `picked_up` · `not_heard` · `reply`, and **at least one emergency transmission must have been accepted**. `arming`, `cancelled` and `failed` are excluded: in all three, nothing went out, so a coincident channel-0 post becoming `REPLY` would manufacture a confirmation of a message that was never sent — including during the 3.5 s hold *before* the user has even committed.
+★ **And only after an alarm was actually transmitted.** The state whitelist is `firing` · `blocked` · `picked_up` · `not_heard` · `reply`, and **at least one emergency transmission must have been accepted**. `arming`, `cancelled` and `failed` are excluded: in all three, nothing went out, so a coincident channel-0 post becoming `REPLY` would manufacture a confirmation of a message that was never sent — including during the `kArmToFireMs` hold *before* the user has even committed.
 
 ### 4.1 ★ Location on the distress call (owner ruling 2026-07-31)
 
@@ -565,7 +620,7 @@ cycle.** Sticky until then; **`long` re-fires; `double` gets no emergency job** 
 from blank, the cycle on the press after. ★ The consumed-waking-press rule immediately below is what makes this safe —
 the result is always displayed before any press can dismiss it. Full table: the plan's B71 block.
 
-The panel blanks after `MR_UI_BLANK_MS` (build constant, proposed 15000) of no input. Any press wakes it and **the waking press is consumed** — except a long press, which wakes *and* arms (§4.2). Emergency states hold the panel on for at most **`kEmgHoldMs`** (owner-re-ruled 2026-08-04: 120000 → **30000**; ★ read the CONSTANT — this clause said "120 s" and went stale the day it was re-ruled), after which it blanks with state retained; **the next press then restores the emergency screen, not the cycle** — ⓘ that half is the BLANKED case and stays correct under **B71**, whose ruling governs the *awake-with-an-outcome* case instead (next short press → back to the cycle).
+The panel blanks after **`kBlankMs`** of no input (⛔ **corrected 2026-08-06, [[B130]]: this clause named `MR_UI_BLANK_MS`, which EXISTS NOWHERE IN THE TREE** — it was proposed as an env constant and shipped as `src/firmware_ui_model.h`'s `kBlankMs`; the restated `15000` is likewise gone, [[B120]]). Any press wakes it and **the waking press is consumed** — except a long press, which wakes *and* arms (§4.2). Emergency states hold the panel on for at most **`kEmgHoldMs`** (owner-re-ruled 2026-08-04; ★ read the CONSTANT — this clause said "120 s", went stale the day it was re-ruled, and the correction then restated the *new* digits, which is the same violation over again), after which it blanks with state retained; **the next press then restores the emergency screen, not the cycle** — ⓘ that half is the BLANKED case and stays correct under **B71**, whose ruling governs the *awake-with-an-outcome* case instead (next short press → back to the cycle).
 
 ★★ **R1 OWNER RULING 2026-08-05 — AN INCOMING REPLY UN-BLANKS THE PANEL.** §5 above says only that *"any press wakes
 it"*, and nothing else did: a distress **REPLY** arriving at a dark panel waited for a button press, which on a
@@ -650,23 +705,75 @@ different product contract and is not implied by this button action.
 
 The only battery reader in the tree is nRF52-only: `#if defined(NRF52_PLATFORM) && defined(PIN_VBAT) && !defined(MR_NO_BATT)` (`firmware_commands.cpp:299-304`, method at `:709`). Both Heltec boards are ESP32-S3, so `batt_mv` is unavailable on either today, and `console_json.h:126` records the project rule: an unavailable reading is **omitted, never faked**. The status bar must render `--` rather than a plausible wrong percentage.
 
-★ **Sampling is cached and slow, not per-tick.** The board function performs one sample: a divider toggle plus eight `analogRead()` calls. `firmware_ui.cpp` calls it **at boot and then every 30 s**, only under the §5 rule 1 MAC-idle predicate, and keeps the last good value between samples. An earlier draft sampled inside `build_snapshot()` on every service pass — ADC work on the radio hot path for a value that changes over minutes. Until the first successful sample the field is unavailable and renders `--`.
+★ **Sampling is cached and slow, not per-tick.** The board function performs one sample: a divider toggle plus eight `analogRead()` calls. `firmware_ui.cpp` calls it **at boot and then every `kBattPeriodMs`** (`src/firmware_ui.cpp` — the declaration is the only place the digits belong, [[B120]]), only under the §5 rule 1 MAC-idle predicate, and keeps the last good value between samples. An earlier draft sampled inside `build_snapshot()` on every service pass — ADC work on the radio hot path for a value that changes over minutes. Until the first successful sample the field is unavailable and renders `--`.
 
-⚠ **The cadence must gate on "attempted", not on "succeeded".** A reader that returns the documented unavailable value (`<0`) on a board without a battery would otherwise be retried every idle pass forever — eight ADC reads per tick for a value that will never arrive. Advance the 30 s deadline after **every** attempt; keep the last good value separately.
+⚠ **The cadence must gate on "attempted", not on "succeeded".** A reader that returns the documented unavailable value (`<0`) on a board without a battery would otherwise be retried every idle pass forever — eight ADC reads per tick for a value that will never arrive. Advance the `kBattPeriodMs` deadline after **every** attempt; keep the last good value separately.
 
 Add an ESP32-S3 reader behind the same shape (a board-gated function returning millivolts, `<0` = unavailable). Both methods come from MeshCore — the same provenance `firmware_commands.cpp:709` used for the nRF52 reader ("the authoritative MeshCore XiaoNrf52Board method").
 
-Pins and formula are **identical** on V3 and V4: `ADC_CTRL` 37, `VBAT_READ` 1, 10-bit resolution, mean of 8 samples, `mv = 5.42 * (3.3/1024.0) * raw * 1000`. Two things differ:
+Pins are **identical** on V3 and V4: `ADC_CTRL` 37, `VBAT_READ` 1, 10-bit resolution, mean of 8 samples. The formula is
+`mv = kVbatAdcScale * (kAdcRefV / kAdcFullScale) * raw * 1000`. Two things differ:
 
-**V3 — polarity is auto-detected** (`HeltecV3Board::begin()`), because boards past rev 3.2 inverted it:
+★★ **`kVbatAdcScale` (5.42) IS A COMBINED EMPIRICAL ADC SCALE, NOT A DIVIDER RATIO AND NOT A PER-REVISION PROPERTY**
+([[B126]], fixed in `variants/heltec_v3/board_ui.cpp`; ⛔ this section used to present the number as the divider and
+§10.1's own row called it "a per-revision property"). **Measured against the documented network:** the V3 battery
+divider is **VBAT — 390 kΩ — GPIO1 — 100 kΩ — GND**, a *physical* ratio of `(390 + 100) / 100` = **4.9**. The reference
+port's 5.42 is `4.9 × ≈1.106` ⇒ **roughly 10.6 % of the constant is not the resistors at all** — it absorbs the
+ESP32-S3 ADC's attenuation / full-scale error against the nominal `kAdcRefV / kAdcFullScale` this formula assumes.
+★ **The diagnostic split the bench now uses (guide H9-02 / script 8.6):** a **constant proportional** error ⇒ suspect
+the **scale**; a **voltage-dependent** error or a **fixed mV offset** ⇒ suspect the **ADC** — a resistor network can
+produce neither of those two shapes. A meter disagreement is an ADC-calibration suspect at least as much as a
+resistor-tolerance one. ⓘ Provenance at the level it is known and no higher: the 390 k/100 k network is documented by
+the V3 community and by `ropg/heltec_esp32_lora_v3`'s README, read off the schematic — Heltec's own HTIT-WB32LA_V3.2
+PDF is not machine-readable — so it is third-party-from-schematic, **not** a vendor spec sheet. ⛔ The **value** is
+unchanged and still comes from the working reference port; do not retune it from one voltage point.
 
-```
-pinMode(PIN_ADC_CTRL, INPUT);
-adc_active_state = !digitalRead(PIN_ADC_CTRL);   // probe the idle level, then invert
-pinMode(PIN_ADC_CTRL, OUTPUT);
-digitalWrite(PIN_ADC_CTRL, !adc_active_state);   // park inactive
-```
-Read: drive `adc_active_state`, sample, drive `!adc_active_state`. **No settling delay.** Do not hardcode LOW — the auto-detect exists because the hardware genuinely varies within "V3".
+**V3 — the ADC_CTRL polarity is PROBED, never hardcoded** (boards past rev 3.2 inverted the line while keeping the
+"V3" name) — **but the reference port's one-shot probe is UNSAFE and must not be reproduced.** ★★ **THE SPECIFICATION
+IS THE SHIPPED FILE, `variants/heltec_v3/board_ui.cpp`'s `battery_init()` / `battery_sample_mv()`** ([[B123]] round 2;
+the B129 precedent — a copyable unsafe listing in a document is how the defect gets reimplemented, and here it already
+had been). It differs from the vendor port in four ways, each of which came out of review:
+
+1. **Two pulls, not one.** Probe with `INPUT_PULLUP`, then with `INPUT_PULLDOWN`, with a µs-scale settle between them.
+   `INPUT` alone selects **no pull**, so on a line nothing drives the read is **indeterminate** — and nothing in this
+   tree or in the vendor sources documents a pull-up, a pull-down or an idle level for GPIO 37.
+2. **Agreement is the licence to believe the reading.** Both reads equal ⇒ something *external* holds the line, the
+   idle level is real, and polarity is its inverse (`s_adc_active_high`). Disagreement ⇒ the line is **FLOATING**.
+3. **Floating ⇒ REFUSE (C2), never guess.** `s_adc_polarity_known` stays false and `battery_sample_mv()` returns `-1`
+   for the life of the boot, so the panel shows `--` — this project's rule for an unavailable reading
+   (`console_json.h`) — and never a number derived from a coin flip.
+4. ★★ **A fail-safe park on the unknown path: `kAdcCtrlFailsafePark = LOW`.** Heltec's V3.2 hardware update log states
+   verbatim *"Modified voltage detection circuit, now need to pull up the ADC_Ctrl(GPIO 37)"* ⇒ **HIGH = MEASURING**,
+   so the single expression `digitalWrite(CTRL, s_adc_active_high ? LOW : HIGH)` parks the divider **ENABLED** on
+   exactly the refusal path written to prevent a standing drain on a battery-powered safety device.
+
+⛔⛔ **`kAdcCtrlFailsafePark` IS NOT THE HARDCODED POLARITY THIS SECTION FORBIDS, and a reader must not "restore" the
+single expression as a spec violation — that is the defect, not the rule.** The **measurement** polarity is still
+detected: when the two-pull probe succeeds, both the enable level and the park come from `s_adc_active_high`, and
+board-probe checks **P6f** (an idle-HIGH board parks HIGH) and **P8o** (an idle-LOW board parks LOW) go red the moment
+that stops being true. The constant is consulted **only** where detection has **already failed** and there is no
+detected polarity to consult.
+
+⚠⚠ **The residual, recorded and NOT claimed away:** LOW is documented-inactive for **V3.2 and later only**. A
+**pre-3.2** V3 inverts it (`ropg/heltec_esp32_lora_v3`: *"if GPIO37 is pulled low, the battery voltage appears on
+GPIO1"*), so there this fallback would be wrong again. ⓘ Why it is still the better bet than a re-flipped coin: a
+revision that **biases** the gate at all is one the two-pull probe **detects**, and the fallback then never runs — it
+runs only when nothing biases the line. ⛔ **No claim is made that this is provably safe on all revisions. Only the
+bench closes it: guide `H9-05` part C, script `8.31`.**
+
+Read sequence: drive the detected ACTIVE level, sample, drive the detected INACTIVE level. **No settling delay in the
+burst** (the µs-scale settle belongs to the boot-time probe, where the pull is deliberately changed between reads).
+
+> ⛔ **SUPERSEDED — DO NOT IMPLEMENT.** The vendor listing this section used to prescribe as live guidance, kept only
+> as audit trail ([[B130]]; ⚠ the section already knew about the 3.2 change and *still* prescribed the unsafe probe):
+> ```
+> pinMode(PIN_ADC_CTRL, INPUT);                    // ⛔ NO PULL -> indeterminate on a floating line
+> adc_active_state = !digitalRead(PIN_ADC_CTRL);   // ⛔ a coin flip when nothing drives the pin
+> pinMode(PIN_ADC_CTRL, OUTPUT);
+> digitalWrite(PIN_ADC_CTRL, !adc_active_state);   // ⛔ "park inactive" — parks the MEASURING level on V3.2+
+> ```
+> ⓘ MeshCore runs this on `heltec_v3` **and** `rak3112`; its own **V4** board drops the probe entirely and hardcodes
+> ACTIVE=HIGH (`HeltecV4Board.cpp:7-8`). Reproducing it verbatim would claim knowledge the tree does not have.
 
 **V4 — fixed ACTIVE=HIGH, plus a settling delay:**
 
@@ -679,7 +786,7 @@ digitalWrite(PIN_ADC_CTRL, LOW);
 
 ⚠ **V4's `delay(10)` is the same hazard class as a full-frame repaint.** Ten milliseconds of blocking wait against `cts_to_data_gap_ms = 5` will break an in-flight exchange. The Phase B port must not copy it verbatim: either sample only under the §5 rule 1 MAC-idle predicate, or restructure as a small state machine across ticks (enable → return; sample on a later tick → disable). Battery is a once-per-N-seconds reading; there is no reason for it to ever block. Phase A (V3) has no delay to remove, which is one more reason it lands first.
 
-Verify against a multimeter on the cell before trusting the constant on either board — the discipline the nRF52 comment demands, and the divider is a per-revision property.
+Verify against a multimeter on the cell before trusting the constant on either board — the discipline the nRF52 comment demands. ⛔ **This sentence used to end *"and the divider is a per-revision property"*; that is the [[B126]] error restated** — `kVbatAdcScale` is not the divider, and the per-revision axis on V3 is the **ADC_CTRL polarity**, not the resistor network. Use the constant-vs-voltage-dependent split above to choose the suspect.
 
 ## 8. Dependencies
 
@@ -717,8 +824,8 @@ All values recovered from MeshCore's working ports — `~/MeshCore/variants/helt
 | panel reset | **21** per our own `board_ui.cpp:14` note — MeshCore's V3 variant defines no `PIN_OLED_RESET`; **confirm on hardware** | **21** (`PIN_OLED_RESET`, explicit) | ✅ (pending V3 confirmation) |
 | **user button** | **GPIO 0** | **GPIO 0** | ✅ |
 | battery pins | `ADC_CTRL` **37**, `VBAT_READ` **1** | `ADC_CTRL` **37**, `VBAT_READ` **1** | ✅ |
-| battery formula | `5.42 * (3.3/1024) * mean8(raw)` | identical | ✅ |
-| **battery ctrl polarity** | **auto-detected at boot** (`adc_active_state = !digitalRead(pin)` as INPUT) — boards >3.2 differ; nominal ACTIVE=LOW | **fixed ACTIVE=HIGH** | ❌ |
+| battery formula | `kVbatAdcScale * (kAdcRefV/kAdcFullScale) * mean8(raw)` — ★ `kVbatAdcScale` is a **combined empirical ADC scale**, not the 4.9 physical divider ([[B126]]; §7) | identical | ✅ |
+| **battery ctrl polarity** | **detected at boot by a TWO-PULL probe** (`INPUT_PULLUP` then `INPUT_PULLDOWN`; agreement ⇒ polarity known, disagreement ⇒ floating ⇒ **REFUSE**, park `kAdcCtrlFailsafePark`) — boards >3.2 inverted the line. ⛔ **This cell used to prescribe the vendor's bare-`INPUT` one-shot probe and "nominal ACTIVE=LOW"; both are superseded — see §7 ([[B123]] round 2, [[B130]])** | **fixed ACTIVE=HIGH** | ❌ |
 | **battery settling delay** | none | **`delay(10)`** | ❌ |
 | peripheral power | `VEXT_EN` **36**, polarity implicit (default) | `VEXT_EN` **36**, explicitly **ACTIVE=HIGH** | ❌ |
 | LoRa SPI | NSS 8, DIO1 14, BUSY 13, SCLK 9, MISO 11, MOSI 10 | identical | ✅ |
@@ -771,16 +878,27 @@ Peer location exchange is the open dependency: distance needs teammates' coordin
 | test | drives |
 |---|---|
 | `test_firmware_ui_input.cpp` | gesture classifier: short vs double window, double vs two shorts, long-arm progress ticks, release-before-fire cancel, bounce rejection, the consumed wake press |
-| `test_firmware_ui_model.cpp` | screen cycle incl. the non-team compile-out, cursor advance and wrap on TEAM/INBOX, the full emergency machine (arm → cancel, arm → fire → `blocked` → retry-at-`next_ms` → `picked up`; and → `no_relay` → 3 retries → sticky), dirty-flag correctness, blanking and emergency-hold timing |
+| `test_firmware_ui_model.cpp` | screen cycle incl. the non-team compile-out, cursor advance and wrap on TEAM/INBOX, the full emergency machine (arm → cancel, arm → fire → `blocked` → retry-at-`next_ms` → `picked up`; and → `no_relay` → `kEmgMaxTries` accepted transmissions → sticky `not_heard`), dirty-flag correctness, blanking and emergency-hold timing |
 
 Both are pure and table-driven; no Arduino, no radio, no display.
 
 **On-target checklist** (Phase A: `heltec_mobile` = Heltec **V3**, bench):
 
-1. Emergency from each screen, in the dark, with gloves — reaches FIRING without reading the panel.
-2. Release at 3.0 s cancels; release at 3.6 s fires.
-3. Two nodes: fire with the second powered off → `NOT HEARD` after 3 retries. Power the second on → fire again → `PICKED UP`. Reply from the second → `REPLY` shown.
-4. Fire twice inside 10 s → second shows `BLOCKED` with a live countdown, then auto-fires.
+⚠⚠ **CORRECTED 2026-08-06 ([[B130]]): every threshold below is NAMED, never restated, and the headline is the
+owner-ruled one.** This list previously read *"Release at 3.0 s cancels; release at 3.6 s fires"*, *"`NOT HEARD` after
+3 retries"* and *"Fire twice inside 10 s"*. [[B120]] was the **third** violation of the name-don't-restate rule and it
+survived review **because the restated value was correct at the time** — a restated timing in the authoritative spec is
+strictly worse, because every downstream document copies from here. ⓘ The executable procedure lives in
+`docs/2026-08-04-heltec-v3-oled-ui-bench-guide.md` / `docs/2026-07-31-bench-test-script.md` (M2); this list is the
+spec's acceptance intent, not a second copy of the bench.
+
+1. Emergency from each screen, in the dark, with gloves — reaches `firing` without reading the panel.
+2. Release **before** `kArmToFireMs` cancels; release **after** it fires (`InputCfg::fire_ms` must equal
+   `kArmToFireMs` — pinned by a native test, so the bench never needs the digits).
+3. Two nodes: fire with the second powered off → **`NOT RELAYED`** after `kEmgMaxTries` **accepted transmissions**
+   (⚠ *transmissions*, not "retries after the first" — §4's binding reading, and the previous wording contradicted it).
+   Power the second on → fire again → `PICKED UP`. Reply from the second → `REPLY` shown.
+4. Fire twice inside `channel_min_interval_ms` → the second shows `BLOCKED` with a live countdown, then auto-fires.
 5. **Paint-vs-radio:** run the s18-style DM load while cycling screens continuously; confirm no CTS timeout regression. This is the check that §5 rule 1 exists for, and the one most likely to fail.
 6. Blank/wake: waking press does not change screen.
 
@@ -790,9 +908,9 @@ Both are pure and table-driven; no Arduino, no radio, no display.
 - a blocked **DM** cannot put the emergency screen into `BLOCKED`
 - a parser refusal leaves `SENDING...` and shows an actionable failure. ⚠ **§B84: `send_failed{unsealable}` does NOT** —
   it is unattributable (six non-channel operations emit `dst == 0`) and is therefore **ignored**; that path terminates
-  via bounded expiry in `NOT HEARD`, losing its precise reason (owner-accepted)
+  via bounded expiry in **`not_heard`** (headline **`NOT RELAYED`**), losing its precise reason (owner-accepted)
 - `next_ms == 0` neither deadlocks nor spins — the backoff applies and no attempt is consumed
-- exactly **three accepted transmissions** occur even when preceding requests were blocked
+- exactly **`kEmgMaxTries` accepted transmissions** occur even when preceding requests were blocked
 - long gestures work from both compose sub-views and from a blanked panel
 - the arming countdown digit visibly changes; `CANCELLED` auto-returns to the parent
 - a matching **same-team** reply on `MR_UI_TEAM_CHANNEL_ID` becomes sticky confirmation; other traffic on that channel — including a `team_id == 0` leaf post from any node in range — does not (factual correction 2026-08-05, see §4.4)
@@ -804,17 +922,22 @@ Both are pure and table-driven; no Arduino, no radio, no display.
 
 **Added by the second review (2026-08-01), all adopted:**
 
-- a team relay produces exactly one truthful `channel_sent{relayed=true}` while coverage retries remain valid *(needs B38)*
-- a blocked emergency returns **no** accepted counter and consumes none of the three transmissions *(needs B39)*
+ⓘ **The three `(needs Bnn)` markers below are HISTORICAL: B38, B39 and B40 all landed 2026-08-01** ([[B130]]; B39 as an
+interim whose ambiguity is still live — §2.1 rule 2 / §B84). They name the prerequisite each case was written for, not
+an outstanding gate.
+
+- a team relay produces exactly one truthful `channel_sent{relayed=true}` while coverage retries remain valid *(B38 ✅)*
+- a blocked emergency returns **no** accepted counter and consumes none of the `kEmgMaxTries` transmissions *(B39 ✅ interim)*
 - a channel seal failure leaves `SENDING...` and shows its exact reason
-- channel counters **255 · 256 · 257 · 65535→1** correlate correctly, with a low-byte-colliding unrelated outcome interleaved *(needs B40)*
+- channel counters **255 · 256 · 257 · 65535→1** correlate correctly, with a low-byte-colliding unrelated outcome interleaved *(B40 ✅)*
 - an outstanding DM or canned channel transaction **cannot delay** emergency command execution — proven at the firmware integration boundary, not only in the pure model
 - delayed outcomes from an abandoned normal transaction cannot move the emergency
 - one frame redraws the scene **once per page** and performs one page transfer per MAC-idle tick
 - `PICKED UP` and a late reply obey the **`kEmgHoldMs`** hold deadline across `millis()` wrap (owner-re-ruled
-  2026-08-04: 120000 → **30000**. ★ Read the CONSTANT — this line said "120 s" and went stale the day it was re-ruled)
+  2026-08-04. ★ Read the CONSTANT — this line said "120 s", went stale the day it was re-ruled, and its own correction
+  then restated the new digits, which is the [[B120]] violation over again; they are now gone)
 - `e2e_ack_timeout` shows `NO CONFIRM`, and a late ack upgrades it to `DELIVERED`
-- an unavailable battery reader is retried at 30 s cadence, not loop cadence
+- an unavailable battery reader is retried at the `kBattPeriodMs` cadence, not loop cadence
 - channel traffic during `arming`, `cancelled` or `failed` cannot become a distress `REPLY`
 - the bounded inbox retains labelled DM **and** CH rows — a chatty channel cannot evict every DM row
 
@@ -863,7 +986,7 @@ Slices are named `UI-n` deliberately: bare `U1`/`U3` would collide with the CLAU
 | UI-7 | TEAM peer list + compose sub-views + inbox adapter over `Inbox::pull()` (`MR_FEAT_TEAM`) | on-target (V3) |
 | **UI-7D** | inbox detail modal, full-body paging, stable `(kind, seq)` selection and durable single-record delete (§3.5, §6.2) | native + storage power-cut/fault injection + on-target |
 | UI-8 | emergency end-to-end on hardware incl. blocked/retry/reply | on-target |
-| UI-9 | V3 battery reader (auto-detected ADC_CTRL polarity, no delay) + the 30 s cache | on-target, multimeter-verified |
+| UI-9 | V3 battery reader (**two-pull** ADC_CTRL polarity probe + refuse-on-floating + `kAdcCtrlFailsafePark`, no delay in the burst — §7) + the `kBattPeriodMs` cache | on-target, multimeter-verified |
 | **UI-10** | versioned fixed-capacity preset catalog + separate `/mrui` persistence and defaults; no send behavior change yet | native + storage fault injection |
 | **UI-11** | shared serial/BLE preset verbs, independent sparse DM/channel OLED lists, generation-safe selection, and per-slot location command matrix; replaces UI-7's hard-coded tables/send builder | native + on-target (serial first) |
 | **UI-12** | secured, non-blocking ESP32-S3 BLE-NUS implementation for `heltec_mobile`, complete-output chunking, truthful connection indicator and coexistence soak | all builds + on-target BLE/LoRa |
@@ -880,19 +1003,35 @@ UI-7D is a follow-up to the already-landed UI-7 and does not renumber the establ
 parallel, but its delete action is blocked on the §6.2 storage contract and power-cut gate. Until UI-7D lands, the
 current inbox double-press no-op is expected behavior, not a failed hardware test.
 
-**Prerequisites — one discharged, one OUTSTANDING.**
+**Prerequisites — BOTH DISCHARGED** (this heading said *"one discharged, one OUTSTANDING"* until 2026-08-06, [[B130]]).
 
 ✅ `send_channel … -t -l -e` is built and honoured — the parser accepts `-e`/`-l` (`console_parse.cpp:250,267`) and `on_command` enforces the refusal matrix including `no_fix` (`node.cpp:1402-1526`), with `team_channel_crypt` defaulting true (`node_carriers.h:184`).
 
-⛔ **`B38` / `B39` / `B40` must land first** (`docs/2026-07-30-open-bug-register.md`, registered 2026-08-01 from the second review). An earlier revision of this spec claimed no core prerequisite remained; **that was wrong** — the claim was made without checking the channel-origination outcome contract:
+✅✅ **CORRECTED 2026-08-06 ([[B130]]): `B38` / `B39` / `B40` ALL LANDED 2026-08-01 and are `[x]` in the register's
+status checklist.** ⛔ **This block used to read *"`B38`/`B39`/`B40` must land first"* and to close with *"Do not
+implement the emergency outcome path against the current core contract"* — a live prohibition on work that has since
+shipped and is bench-ready.** That is the [[B121]] shape one document over: **a `⛔ Gated on …` banner is the
+highest-authority sentence in a document and the least likely to be revisited**, while the bugs it names get fixed
+elsewhere. **Re-verify a gate before obeying it (V1/V2).**
 
-| # | why Phase A cannot ship without it |
+⚠ **One residual is real and is NOT discharged: [[B39]] closed as an INTERIM (comments plus an invariant test), and the
+ambiguity it names is still live** — see §2.1 rule 2 and §B84, which is the design the UI actually ships against.
+⇒ the rows below are kept as **the record of what each prerequisite was**, not as a gate:
+
+| # | what it was — ✅ all three FIXED 2026-08-01 |
 |---|---|
-| **B38** | `channel_reoffer_confirm` returns on `rp.team` before `emit_channel_sent(true, …)`, and exhaustion emits `relayed=false`. ⇒ **`PICKED UP` is unreachable on the team plane**, and worse: §4's retry fires on `channel_no_relay`, so a distress call would always spend its full 3-attempt budget and always display `NOT HEARD` — *even when every teammate received it*. A safety feature reporting failure on success. |
+| **B38** | `channel_reoffer_confirm` returns on `rp.team` before `emit_channel_sent(true, …)`, and exhaustion emits `relayed=false`. ⇒ **`PICKED UP` is unreachable on the team plane**, and worse: §4's retry fires on `channel_no_relay`, so a distress call would always spend its full `kEmgMaxTries` budget and always display the failure headline (**`NOT RELAYED`** since B117; this row said `NOT HEARD`) — *even when every teammate received it*. A safety feature reporting failure on success. |
 | **B39** | ⚠ **SUPERSEDED by §B84:** `ctr == 0` means **no local handle exists / status UNKNOWN**, not "not sent" — the third producer is a delegated success. Historical text: `CmdCode::queued` with `ctr == 0` means **not sent** (blocked, or seal failure). §4's "count on acceptance" rule is unimplementable until the result distinguishes accepted / blocked / refused. |
 | **B40** | `channel_sent.ctr` carries only `id & 0xff` while the origination handle is the full 16-bit `next_ctr`. §2.1's exact-`ctr` correlation breaks permanently after 255 channel posts. |
 
-Until they land, §2.1's attribution degrades to "accepted with a non-zero ctr" and `PICKED UP` must not be claimed. **Do not implement the emergency outcome path against the current core contract.**
+> ⛔ **SUPERSEDED — kept as audit trail, NOT as instruction:** *"Until they land, §2.1's attribution degrades to
+> 'accepted with a non-zero ctr' and `PICKED UP` must not be claimed. Do not implement the emergency outcome path
+> against the current core contract."* **All three landed 2026-08-01; the outcome path is implemented and
+> `PICKED UP` is reachable on the team plane.** ⚠ Carry the owner ruling that came with B38: **`relayed` means FIRST
+> RELAY ONLY, never coverage — on a fully-1-hop team it reads `false` at 100 % delivery**, so a `NOT RELAYED` headline
+> on a small co-located team is *accepted behaviour* and must not be "fixed" (ledger §1.9). ⚠ And B40's handle is a
+> **LOCAL correlation handle only** — no peer echoes more than 8 bits, so it must never be matched against a
+> *received* id.
 
 ### Phase B — Heltec V4 (separate specs, not this one)
 
@@ -908,7 +1047,7 @@ B-1 and B-2 must land before any V4 hardware is trusted on air. B-3 is small onc
 ## 14. Open questions for the reviewer
 
 1. ~~Which board is the real target?~~ **Resolved 2026-07-31.** Pins for both boards recovered from MeshCore (§10.1). **Phase A on V3, Phase B on V4**, with the V4 radio port and GPS as separate specs (§10.2, §10.3). Residual, small: the **V3 panel reset pin** is 21 per our own `board_ui.cpp:14` note, but MeshCore's V3 variant defines no `PIN_OLED_RESET` — worth one hardware confirmation before UI-3, since a wrong reset pin shows up as a dead panel and is easy to misdiagnose as a driver problem.
-2. **§4 — is 3.5 s the right arm time?** Long enough to prevent pocket-fires, short enough not to feel broken. It is a guess and wants a bench opinion, not a code review.
+2. **§4 — is `kArmToFireMs` (with `InputCfg::fire_ms`, which must equal it) the right arm time?** Long enough to prevent pocket-fires, short enough not to feel broken. It is a guess and wants a bench opinion, not a code review. ⓘ The value lives at its declaration in `src/firmware_ui_model.h` and is deliberately not restated here.
 3. ~~Should the emergency message include location?~~ **RESOLVED 2026-07-31 by owner ruling: yes, when available** — see §4.1. I had recommended omitting it in Phase A on staleness grounds; the owner ruled otherwise and the design now follows that. The residual implementation risk is the conditional `-l` (§4.1): getting it wrong converts "no fix" into "no alarm", so it belongs in the Task 8 bench matrix, not in a code review.
 4. **§5 — is the idle-paint rule sufficient?** It prevents a paint from *starting* mid-exchange, but a paint already in progress when an RTS lands still holds the bus for one page (~3 ms). That should be inside the RX window slop, but it is an assumption a reviewer familiar with the metal RX path should confirm.
 5. ~~**§3.2.2 — is the canned-text list right?**~~ **RESOLVED 2026-08-05:** emergency is one mandatory configurable preset. DM and channel use separate fixed-capacity catalogs of eight stable slots each; users may configure zero to eight active choices per list. Raising the capacity remains deliberately out of scope for the first persistent format.

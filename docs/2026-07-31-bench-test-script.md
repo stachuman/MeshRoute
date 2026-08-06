@@ -521,6 +521,11 @@ counter on the **first** post (the shipped defect was invisible on the last two)
 headline. ⚠ **RE-RULED 2026-08-05: the headline is `NOT RELAYED`.** Every earlier line in this script that quoted
 `NOT HEARD` — and then, briefly, the never-approved `NO RELAY` — as expected panel text has been moved to `NOT RELAYED`
 in the same slice; a stale quote would fail H7 on correct firmware.
+★★ **TASK 8 (2026-08-06) ADDS 8.25 / 8.26 / 8.27 and closes the last three gaps against the owner's nine validation
+cases.** Task 8 needed **no new firmware** — its Step-1 render landed with Tasks 1–7 and the §B115/§B117 slices — so
+the whole of Task 8 is this bench matrix. **The nine cases map: 1 → 8.23 · 2 → 8.23 · 3 → 8.24 · 4 → 8.25 · 5 → 8.27
+(fire from dark) + 8.15 (reply wakes) · 6 → 8.26 · 7 → 8.18 · 8 → 8.10 · 9 → 8.4.** The detailed procedures are
+`docs/2026-08-04-heltec-v3-oled-ui-bench-guide.md` **H8-01…H8-10**; the 8.x lines are their compact acceptance residue.
 
 - [ ] ~~**8.1 — The panel lights, and shows exactly this**~~ ⛔ **RETIRED BY UI-6 — the splash is deleted.** On a
       Task-6 build the first thing on the panel is the **live STATUS screen** (see 8.8). Kept for the audit trail:
@@ -564,10 +569,68 @@ in the same slice; a stale quote would fail H7 on correct firmware.
     serial-download mode — expected hardware behaviour (spec §10.1), to be documented for users, not fixed in firmware.
 
 - [ ] **8.6 — TASK 9: battery reading against a multimeter**
-  - Do: on a Task-9 build, compare the reported millivolts with a meter on the cell.
-  - Pass: within ~50 mV. A consistent *ratio* error means this board revision's divider differs — record the measured
-    value, do not tune the constant to taste.
-  - Until Task 9, `battery_sample_mv()` returns `-1` and the panel must render `--`, never a number.
+  - ⛔ **CORRECTED IN PLACE 2026-08-06:** this entry used to end *"Until Task 9, `battery_sample_mv()` returns `-1`…"*.
+    **Task 9 has landed** — the reader is real (`variants/heltec_v3/board_ui.cpp`), so that sentence is withdrawn.
+  - Do: battery-powered, **USB detached**, compare the panel reading with a meter on the cell.
+  - Pass: `panel <= meter` and `meter - panel < 0.150 V`. ⓘ The window is one-sided because `fmt_volts` **truncates**
+    to one decimal (up to −99 mV by construction) on top of the ±50 mV analogue budget. A panel reading **above** the
+    meter cannot come from truncation and means the ratio is wrong.
+  - Fail: a **constant ratio** error, holding at **both** voltage points ⇒ **`kVbatAdcScale`** is wrong for this board —
+    record the measured ratio at both points, **do not** tune the constant from one voltage point.
+  - Fail: an error that **varies with voltage**, or a fixed mV **offset** ⇒ **ADC calibration**, not the divider.
+  - ⛔ **CORRECTED 2026-08-06 ([[B126]]):** the constant was called `kVbatDivider` and read as a resistor ratio. It is
+    not — the physical network is **390 kΩ / 100 kΩ = 4.9** and the shipped value is **4.9 × ≈1.106**, the extra being an
+    empirical ADC full-scale correction. ⇒ **do not report a proportional error as "resistor tolerance"** without the
+    second voltage point and the ADC-node reading (guide H9-05 part A).
+  - ⇒ Full procedure, both failure shapes and the second voltage point: guide **H9-02**.
+
+- [ ] **8.28 — TASK 9: the divider must not be CONDUCTING between samples** ★★ SAFETY / BATTERY LIFE
+  - ★ Why: `MR_UI_ADC_CTRL` gates the divider. Heltec inverted it past rev 3.2, so the firmware **probes** the polarity
+    — and ⛔ **nothing in this tree or the vendor port establishes that the line has a defined idle level.** A wrong
+    park does not show a wrong voltage; it leaves the divider **on for ever** ([[B90]]'s Vext problem restated).
+  - ⛔ **REWRITTEN 2026-08-06 ([[B123]] round 2): the previous form could not fail.** It asked the tester to read
+    `s_adc_active_high` — a file-static in `variants/heltec_v3/board_ui.cpp`, **not reachable from the bench** — leaving
+    only *"the line toggles"*, which a divider parked ON also satisfies.
+  - Do: battery-powered and idle, meter in DC volts on the **ADC input** (`MR_UI_VBAT_READ`) to ground, watched
+    **between** samples; record `MR_UI_ADC_CTRL`'s level and the **board revision** alongside.
+  - Pass: the ADC node reads **~0 V between samples** and rises to roughly **VBAT ÷ 4.9** only during the burst, once
+    per **`kBattPeriodMs`**.
+  - Fail: the ADC node sits at **VBAT ÷ 4.9 continuously** ⇒ the divider is permanently enabled. **Stop and report** —
+    a permanent drain, invisible on the panel.
+  - ⇒ Plus the power-off resistance check that says whether the idle level exists at all: guide **H9-05 part B**.
+
+- [ ] **8.31 — TASK 9: when the reader REFUSES, the FAIL-SAFE PARK must still leave the divider off** ★★ SAFETY
+  - ★ Why: on a floating control line there is no detected polarity, so the park comes from
+    **`kAdcCtrlFailsafePark`** — documented-inactive for **V3.2 and later only**, and ⛔ **not claimed safe on a pre-3.2
+    board.** The shipped code parked the V3.2 *measuring* level on exactly this path ([[B123]] round 2).
+  - Do: run this **whenever the panel shows a permanent `--`**. Meter in DC volts on `MR_UI_VBAT_READ` to ground for at
+    least two **`kBattPeriodMs`**; record `MR_UI_ADC_CTRL`'s level and the board revision.
+  - Pass: the ADC node reads **~0 V and never moves** — no burst at all, because a refusal takes no conversion.
+  - Fail: the ADC node sits at **VBAT ÷ 4.9** ⇒ the refusal path parked the divider ENABLED. **Stop and report** with the
+    revision — the fail-safe constant is wrong for this board.
+  - Fail: periodic bursts while the panel says `--` ⇒ the refusal is not honoured (host cover: `probe_board_ui` P8w, so
+    a red here means the flashed build and the probed source have diverged).
+  - ⇒ Full procedure and the residual this does NOT close: guide **H9-05 part C**.
+
+- [ ] **8.29 — TASK 9: an unmeasurable battery renders `--`, never a number**
+  - Do: watch the status bar from boot, before the first successful sample.
+  - Pass: the bar's last field is exactly `--`; the STATUS body reads exactly `batt --`; **no** text anywhere matches
+    `<digit>.<digit>V`; no percentage anywhere.
+  - Fail: `0.0V` / `batt 0mV` (the plausibility window **`kBattMinMv`**/**`kBattMaxMv`** is not being applied, or a
+    raw-0 read is rendered) · a plausible voltage appearing instantly at boot (a fabricated default) · a percentage
+    (ruled out — plan Task 9 Step 3, spec §3.3).
+  - ⓘ A `--` **with a healthy cell on the meter** is most likely the polarity refusal, not the scale ⇒ run **8.31**
+    (the refusal's fail-safe park) and then 8.28.
+
+- [ ] **8.30 — TASK 9: the ADC burst must not disturb the MAC**
+  - Do: sustained DM load while the reader is live; compare CTS timeouts against the same load on a build with the
+    reader inert.
+  - Pass: no CTS-timeout or delivery regression attributable to the burst; a sample is deferred while the radio is busy
+    and appears promptly once it is idle.
+  - Fail: a regression that appears **only** with the battery-capable build ⇒ the burst is landing inside an exchange.
+    ★ The relevant threshold is `cts_to_data_gap_ms` (config) — read it, do not quote it here.
+  - ⓘ The cadence and the MAC-idle gate themselves are host-gated (`tools/probe_firmware_ui/` C6–C8); only the **real
+    timing** is metal-only. This entry is the residue, not a re-test of the corpus.
 
 - [ ] **8.7 — Paint versus radio (spec §5 rule 1; the check most likely to fail)**
   - Do: on a Task-6 build, run a DM load while cycling screens continuously.
@@ -757,6 +820,12 @@ mapping structurally), but **"the screen came on by itself"** has exactly one in
 ⓘ Deliberate and not a bug: a `BLOCKED` / `PICKED UP` / `NOT RELAYED` / `FAILED` outcome arriving at a dark panel does
 **not** light it. R1 rules on the REPLY only; widening it is an open owner question.
 
+⚠ **PROVISIONAL — step 3 is not validation of the reply PATH.** *That the panel wakes* is owner-ruled and is a real
+pass/fail. *That the post was a reply* is an **INFERENCE**: any same-team channel post arriving while an alarm is live
+qualifies, because nothing on the wire marks a post as an answer. **[[B118]]** — the owner's app-code design, bound to
+the original post's `channel_msg_id` — will replace that inference; it is **not built** and its authentication floor is
+**unruled**. ⛔ Do not report step 3's pass as *"the reply path is validated"*. Full note: bench guide **H8-03**.
+
 ### 8.16 — §R2/B110 a DOUBLE under the emergency overlay does nothing at all (2026-08-05, OWNER-RULED)
 
 The overlay covers the body, so the whole hazard is invisible by construction — a second node is the only way to see
@@ -882,6 +951,80 @@ what was measured and implies nothing about receipt.**
    in the 10x20 font on a 128 px panel, and it does not fit. Report it — a truncated distress string is worse than the
    old wording. ★ Read the LAST character: `NOT RELAYE` (10 chars shown) would mean the panel is clipping at a narrower
    budget than 12 columns, which W11b cannot see because W11b only counts characters.
+
+### 8.25 — Task 8 case 4: the `BLOCKED` countdown is LIVE and the retry is AUTOMATIC (2026-08-06)
+
+★ **What a host gate already covers, stated so this stays residue and not a re-test of the corpus (M2):** the
+`blocked` → armed-retry → `firing` transition is natively gated (`tick_emergency` re-fires from `_retry_armed`; the
+deadline comes from the outcome time, §B74), and the strings are structural. **What NO host gate can reach:** that the
+digit on the panel actually *decrements*, and that the re-fire happens with **no button press** on real radio timing.
+
+1. `cfg get` on the panel node and record `ch_min_ms` (default **10000**). Every deadline below is read against it.
+2. Long-press to fire an alarm; let it be accepted (`SENDING...` appears).
+3. **Inside** `ch_min_ms`, long-press again.
+4. Expected on the console, one line: `BLOCKED channel reason=min_interval — retry in <N> ms`.
+   ⓘ The synchronous answer to the post is still `ack:queued` with **`ctr=0`** — nothing aired. That is the documented
+   channel self-gate (`fw_main.cpp:1131`), **not** a second failure to report.
+5. Expected on the panel: headline **`BLOCKED`** (large), detail **`retry in Ns`** (small) where `N` **counts down**,
+   changing at least once per second of wall time. ⛔ A frozen digit means the countdown is rendered from a stored
+   duration instead of the live deadline — report it.
+6. Expected next, **with the button untouched**: the panel returns to **`SENDING...`** at approximately the deadline
+   the console printed, and the second node receives the alarm body.
+7. ⛔ **FAILURE SHAPES, each distinct — record which one you saw:**
+   - the panel stays on `BLOCKED` past the deadline and never re-fires ⇒ the retry was never armed;
+   - `retry in 0s` sits there indefinitely ⇒ the deadline fired but `tick_emergency` did not re-queue;
+   - it only resumes **after** you press the button ⇒ the retry is input-driven, which defeats the whole point on a
+     device the user has already put down;
+   - the panel jumps straight to a terminal headline (`NOT RELAYED` / `FAILED`) without a second `SENDING...` ⇒ the
+     block was treated as an attempt outcome instead of a deferral.
+8. **Budget cross-check** (do not assert a fixed ordinal — derive it): per 8.23, the highest `attempt N of 3` the panel
+   ever shows must equal the number of **distinct `»tx M` ids** in this node's console for this alarm. A block that
+   aired nothing must not have consumed one.
+
+### 8.26 — Task 8 case 6: the emergency PRE-EMPTS an outstanding DM or canned channel send (2026-08-06)
+
+★ **Host coverage:** the model's request slot is separate (`queue()` gives `SendKind::emergency` **its own slot, never
+overwritten**) and that is natively gated. **What only metal answers:** whether the alarm reaches `Node::on_command` in
+the **same service pass** rather than waiting behind the DM's ack or its deadline — a scheduling property of the real
+loop, which neither the native suite nor `probe_firmware_ui` runs.
+
+**Half A — an outstanding acknowledged DM.**
+1. From TEAM, compose and send a DM with `-a` (per 8.17) so the panel sits on `SENDING...`/`waiting`.
+2. **While it is still awaiting its ack**, long-press past the fire threshold.
+3. Expected: the emergency overlay takes the body immediately, and the alarm's `send_channel 0 "I'm in danger" -t …`
+   line appears on the console **before** the DM's `ACK`/timeout line — timestamps, not impression.
+4. Expected: the DM is **not** duplicated on the receiving node (exactly one copy).
+5. Expected after the alarm terminates: a short press (once the outcome has been drawn, §B71) returns to the normal
+   cycle — the abandoned DM must not leave the UI stuck.
+
+**Half B — an outstanding canned channel post.**
+6. Issue a canned channel post from the panel (8.22), then long-press while it still reads `SENT, waiting`.
+7. Expected: the alarm proceeds; the canned post's UI tracking is abandoned.
+8. Expected: when the abandoned post's own late outcome arrives, the **emergency state does not move** — no headline
+   change, no ordinal change. Cross-check with 8.19's attribution rule.
+9. ⛔ **FAILURE SHAPES:** the long press does nothing until the DM resolves ⇒ the alarm is queued behind ordinary
+   traffic, the defect this case exists for · a second copy of the DM on the receiver ⇒ the pre-emption re-submitted it
+   · the abandoned post's late outcome flipping the alarm to `PICKED UP` / `NOT RELAYED` ⇒ a false confirmation from an
+   unrelated send (§2.1), **stop and report**.
+
+### 8.27 — Task 8 case 5: an emergency fires from a FULLY BLANKED panel (2026-08-06)
+
+★ 8.15 covers the other half of case 5 (an incoming **reply** lighting a dark panel). This is the half where the panel
+is dark **when the user acts**. Nothing automated reaches it: the wake is a physical `set_power_save` transition.
+
+1. Leave the node untouched until the panel is **fully dark** (no alarm outstanding: just past the blank timer).
+2. Long-press past the fire threshold **in the dark**, without a preparatory wake press.
+3. Expected: the panel lights and the alarm arms and fires — headline `RELEASE!` with detail `EMERGENCY IN <n>` while
+   held, then **`SENDING...`** with `attempt 1 of 3` on release past the threshold (8.23 governs the ordinal).
+4. Expected: the safety hold is **not shortened** by having been dark — time it from the serial log, not by feel.
+5. Expected on a second same-team node: the alarm body arrives.
+6. ⛔ **FAILURE SHAPES:** the first long press only wakes the panel and the alarm needs a **second** press ⇒ the waking
+   press was consumed, which spec §5 exempts a long press from — on a rescue device that is a lost alarm · the panel
+   stays dark while the console shows the send ⇒ the fire path does not un-blank · the alarm fires on a hold visibly
+   shorter than from a lit panel ⇒ the arm timer started before the wake.
+7. ⓘ **Deliberate and not a bug, so it is not a failure shape:** the four LOCAL outcomes (`BLOCKED` / `PICKED UP` /
+   `NOT RELAYED` / `FAILED`) arriving at a panel that has since gone dark do **not** light it — see 8.15's closing
+   note. Widening that is an **open owner item**, not a defect to file from this run.
 
 ## Completion record
 

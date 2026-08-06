@@ -11,13 +11,35 @@
 #include <cstring>
 
 static constexpr uint8_t LOW = 0, HIGH = 1;
-static constexpr uint8_t INPUT = 0x01, OUTPUT = 0x03, INPUT_PULLUP = 0x05;
+// ⓘ The values mirror arduino-esp32's `esp32-hal-gpio.h` bit flags; only their DISTINCTNESS is load-bearing here.
+static constexpr uint8_t INPUT = 0x01, OUTPUT = 0x03, INPUT_PULLUP = 0x05, INPUT_PULLDOWN = 0x09;
 
 struct ProbeGpio {
     int  pinmode_calls = 0, write_calls = 0, read_calls = 0;
     int  mode[64];        // per-pin last pinMode
     int  level[64];       // per-pin last digitalWrite
-    int  read_returns = HIGH;   // what digitalRead() answers
+    int  read_returns = HIGH;   // what digitalRead() answers when the pin's mode has no scripted answer
+    // ★ §UI-9 POLARITY PROBE. board_init() reads the CONTROL line twice, once under INPUT_PULLUP and once under
+    //   INPUT_PULLDOWN, and treats a DISAGREEMENT as "the line is floating, refuse to guess". Modelling that needs a
+    //   shim that can answer DIFFERENTLY PER PULL — with one global answer the floating case is unreachable and the
+    //   whole guard would be untestable (the instrument-that-cannot-fail shape this project keeps finding).
+    //   -1 = "not scripted, fall back to read_returns", which is what every pre-UI-9 case relies on.
+    int  read_under_pullup   = -1;
+    int  read_under_pulldown = -1;
+    // Which pull the CODE asked for, per pin. Explicit booleans rather than an OR of the mode bits: the check that
+    // matters is "never a BARE INPUT on the control line", and bit arithmetic over arduino-esp32's flag values would
+    // make that assertion depend on those values instead of on the intent.
+    bool saw_pullup[64] = {}, saw_pulldown[64] = {}, saw_bare_input[64] = {};
+    // ---- §UI-9 (plan Task 9): the battery ADC ---------------------------------------------------------------------
+    // `analog_returns` is the raw count analogRead() hands back; `analog_calls` / `analog_pin` count and identify the
+    // burst; `analog_res_bits` records analogReadResolution's argument.
+    // ★ `ctrl_pin` + the two per-read tallies are the ONLY way to prove the divider was live AROUND the conversions
+    //   rather than merely toggled somewhere inside the function — an enable/disable pair placed after the burst would
+    //   satisfy every "the line was driven" check while every sample read a dead divider.
+    int  analog_calls = 0, analog_pin = -1, analog_res_bits = -1, analog_returns = 0;
+    int  ctrl_pin = -1;               // which pin to snapshot at each conversion; -1 = snapshot nothing
+    int  ctrl_low_during_read = 0;    // conversions taken while the watched pin was LOW
+    int  ctrl_high_during_read = 0;   // ... and while it was HIGH
     ProbeGpio() { for (int i = 0; i < 64; ++i) { mode[i] = -1; level[i] = -1; } }
 };
 extern ProbeGpio g_gpio;
@@ -27,6 +49,7 @@ void digitalWrite(uint8_t pin, uint8_t level);
 int  digitalRead(uint8_t pin);
 void analogReadResolution(uint8_t bits);
 int  analogRead(uint8_t pin);
+void delayMicroseconds(uint32_t us);   // §UI-9: the polarity probe's settle between two opposite internal pulls
 
 // ==================================================================================================================
 // §B105 ADDITIONS — needed only by `tools/probe_firmware_ui/`. All `inline`, so no TU has to define them and the

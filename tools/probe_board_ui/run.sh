@@ -37,11 +37,16 @@ CXX=${CXX:-g++}
 OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
 
-# ⚠ These two -D MUST mirror `[env:heltec_v3]` (`platformio.ini:221`/`:227`). If they drift, the probe measures a
-#   configuration the board never builds — which is the same vacuous-instrument failure the controls exist to catch.
+# ⚠ These -D MUST mirror the `[env:heltec_v3]` SECTION of platformio.ini (addressed by section, never by line number:
+#   the old form cited `:221`/`:227` and those had already drifted). If they drift, the probe measures a configuration
+#   the board never builds — the same vacuous-instrument failure the controls exist to catch.
+# ★ §UI-9 added MR_UI_ADC_CTRL / MR_UI_VBAT_READ. They are not decoration here: board_ui.cpp `#error`s without them
+#   (C2), so a drift in EITHER direction — dropped from the env, or dropped from here — is a hard build failure rather
+#   than a silently different measurement. THE DEFINED SET IS ALSO ASSERTED AGAINST platformio.ini by check S6 below.
+BOARD_DEFS=(-DMR_FEAT_OLED=1 -DMR_UI_BTN_PIN=0 -DMR_UI_ADC_CTRL=37 -DMR_UI_VBAT_READ=1)
 build() {   # build($1 = board_ui.cpp path, $2 = output binary)
   "$CXX" -std=gnu++20 -fno-exceptions -fno-rtti -Wall -Wextra -Werror \
-     -DMR_FEAT_OLED=1 -DMR_UI_BTN_PIN=0 \
+     "${BOARD_DEFS[@]}" \
      -I"$HERE/fakes" -I"$BOARD" -I"$ROOT/lib/hal" -I"$ROOT/lib/core" -I"$ROOT/src" \
      "$HERE/probe_main.cpp" "$1" -o "$2" 2>&1
 }
@@ -73,7 +78,7 @@ echo "== §UI-6 structural checks (source/symbol level — weaker than the probe
 #    board TU as TEMPORARY. Defining them in BOTH is a link failure on three shipped envs, and this is what catches a
 #    re-add. Measured with nm on the real object, not by grepping for a comment.
 "$CXX" -std=gnu++20 -fno-exceptions -fno-rtti -Wall -Wextra -Werror \
-   -DMR_FEAT_OLED=1 -DMR_UI_BTN_PIN=0 \
+   "${BOARD_DEFS[@]}" \
    -I"$HERE/fakes" -I"$BOARD" -I"$ROOT/lib/hal" -I"$ROOT/lib/core" -I"$ROOT/src" \
    -c "$BOARD/board_ui.cpp" -o "$OUT/board_ui.o" 2>/dev/null
 if [ -f "$OUT/board_ui.o" ]; then
@@ -109,6 +114,25 @@ schk "S4b firmware_ui.cpp CODE names no U8g2/Wire/GPIO symbol" \
      "! code_of '$FW_UI' | grep -qE 'U8g2|U8G2|\\bWire\\b|pinMode\\(|digitalRead\\(|analogRead\\('"
 # S5 §B91's report channel actually exists on the caller side (the probe cannot see it).
 schk "S5 firmware_ui.cpp surfaces a failed board_init()" "grep -q 'if (!mrui::board_init())' '$FW_UI'"
+
+# S6 ★★ §UI-9 — THE PROBE'S -D SET IS ASSERTED AGAINST THE ENV IT CLAIMS TO MIRROR, instead of a comment asking the
+#    next reader to keep them in step. The header of `build()` has carried that request since UI-5 and its line
+#    references had ALREADY drifted. A probe configured differently from the board measures a build nobody ships.
+# ⚠ Addressed by SECTION, never by line number, and `;` comments are stripped FIRST — platformio.ini documents these
+#   very macros in prose right beside them, which is the §B77 trap (a grep counting the comment that names the thing).
+# ⚠ The count is required to be exactly 1 and is PRINTED: a pattern that matched nothing would otherwise compare
+#   empty-to-empty and pass, which is the vacuous-comparison failure this file keeps finding.
+env_defs() {   # the LIVE -DNAME=VALUE tokens of [env:heltec_v3]
+  awk '/^\[env:heltec_v3\]/{on=1;next} /^\[/{on=0} on' "$ROOT/platformio.ini" \
+    | sed 's/;.*//' | grep -oE '\-D[A-Za-z_][A-Za-z_0-9]*=[^[:space:]]+'
+}
+for nm in MR_UI_BTN_PIN MR_UI_ADC_CTRL MR_UI_VBAT_READ; do
+  n_env=$(env_defs | grep -cE "^-D${nm}=")
+  v_env=$(env_defs | grep -E "^-D${nm}=" | sed "s/^-D${nm}=//")
+  v_prb=$(printf '%s\n' "${BOARD_DEFS[@]}" | grep -E "^-D${nm}=" | sed "s/^-D${nm}=//")
+  schk "S6 -D${nm} mirrors [env:heltec_v3] (env x$n_env='${v_env:-<none>}' probe='${v_prb:-<none>}')" \
+       "[ '$n_env' -eq 1 ] && [ -n '$v_prb' ] && [ '$v_env' = '$v_prb' ]"
+done
 
 # ---------------------------------------------------------------------------------------------------------------------
 # ★★ THE WIRING CHECKS, AND EACH ONE CARRIES ITS OWN NEGATIVE CONTROL.
@@ -312,7 +336,7 @@ if [ "${1:-}" != "--no-neg" ]; then
   # ★ Pass the paths AND the compiler config, so the controls cannot drift from the probe they are controlling.
   python3 "$HERE/negctl.py" "$BOARD/board_ui.cpp" "$OUT" "$CXX" \
      -std=gnu++20 -fno-exceptions -fno-rtti -Wall -Wextra -Werror \
-     -DMR_FEAT_OLED=1 -DMR_UI_BTN_PIN=0 \
+     "${BOARD_DEFS[@]}" \
      -I"$HERE/fakes" -I"$BOARD" -I"$ROOT/lib/hal" -I"$ROOT/lib/core" -I"$ROOT/src" || rc=1
 fi
 exit $rc

@@ -96,6 +96,11 @@ if ! build_variant "$FW_UI" "$OUT/probe" -Werror; then
 fi
 "$OUT/probe"; rc=$?
 echo "probe exit=$rc"
+# ★ THE DENOMINATOR FOR THE COVERAGE ROLL-UP AT THE BOTTOM, taken from the probe itself. `PROBE_LIST=1` makes every
+#   CHK print its label whether it passed or not, so "N of M checks are reddened by a control" is MEASURED here rather
+#   than maintained by hand in a comment — which is exactly how the header's "20 of 25" went stale in one slice.
+PROBE_LIST=1 "$OUT/probe" 2>/dev/null | sed -n 's/^  CHECK //p' | sort -u > "$OUT/all_checks.txt"
+: > "$OUT/reddened.txt"
 
 # ---------------------------------------------------------------------------------------------------------------
 # NEGATIVE CONTROLS
@@ -125,6 +130,8 @@ ctl() {
     n_bad=$((n_bad+1)); echo "  FAIL $label — the probe still PASSES against the mutant (the check measures nothing)"
   else
     n_ctl=$((n_ctl+1)); echo "  ok   $label -> RED ($(grep -c '^  FAIL' "$OUT/mutant.out") check(s) failed)"
+    # record WHICH checks this control reddened, for the roll-up (the CHK format is "  FAIL <label padded to 64>  <expr>")
+    sed -n 's/^  FAIL \(.\{1,64\}\)  .*$/\1/p' "$OUT/mutant.out" | sed 's/[[:space:]]*$//' >> "$OUT/reddened.txt"
   fi
 }
 
@@ -193,6 +200,19 @@ if [ "${1:-}" != "--no-neg" ]; then
   #     something no mutation could take away — and an unbreakable check is not a check.
   ctl "C12 mr_ui_init no longer brings the panel up" yes \
       's|    if (!mrui::board_init()) mrcon.println(F("!! OLED panel did not ACK (check Vext / addr 0x3C / wiring)"));|    ;|'
+
+  # C13-C16 ★★ §UI-9 — WHAT THE CADENCE PUTS ON THE PANEL. C6-C8 pin WHEN the ADC is read; these pin what the reading
+  #   becomes. All four are plausible edits that leave every native case and every C1-C12 control green.
+  #   ⓘ C15 is the RULED render policy, not a preference: `3.9V` or `--`, never a percentage (plan Task 9 Step 3,
+  #     spec §3.3). It is a control rather than a comment so the ruling cannot be undone quietly.
+  ctl "C13 an unavailable read ERASES the last good value" yes \
+      's|    if (mv >= 0) s_batt_mv = mv;|    s_batt_mv = mv;|'
+  ctl "C14 the unavailable render invents a plausible voltage instead of --" yes \
+      's|    if (mv < 0) { snprintf(out, cap, "--"); return; }|    if (mv < 0) { snprintf(out, cap, "3.9V"); return; }|'
+  ctl "C15 the bar renders a PERCENTAGE instead of volts (ruled out)" yes \
+      's|    snprintf(out, cap, "%u.%uV", unsigned(mv / 1000), unsigned((mv % 1000) / 100));|    snprintf(out, cap, "%u%%", unsigned(mv / 42));|'
+  ctl "C16 the bar hardcodes a voltage instead of reading the model" yes \
+      's|    char volts\[12\]; fmt_volts(volts, sizeof volts, s.batt_mv);|    char volts[12]; fmt_volts(volts, sizeof volts, 3900);|'
 fi
 
 # ---- the tree must be exactly as we found it -------------------------------------------------------------------
@@ -203,6 +223,19 @@ if [ "$MD5_BEFORE" != "$MD5_AFTER" ]; then
 else
   echo
   echo "sources unchanged: md5 $MD5_AFTER"
+fi
+
+# ---- ★★ THE COVERAGE ROLL-UP: which checks can a control actually break? ----------------------------------------
+# A green probe with green controls still says nothing about the checks NO control touches. This prints the ratio and
+# NAMES the exceptions, so an un-reddened check has to be justified in the source rather than assumed covered.
+if [ -s "$OUT/all_checks.txt" ] && [ "${1:-}" != "--no-neg" ]; then
+  sort -u "$OUT/reddened.txt" > "$OUT/reddened_u.txt"
+  n_all=$(grep -c . "$OUT/all_checks.txt"); n_red=$(grep -c . "$OUT/reddened_u.txt")
+  echo
+  echo "coverage: $n_red of $n_all checks are reddened by at least one control"
+  comm -23 "$OUT/all_checks.txt" "$OUT/reddened_u.txt" | sed 's/^/  (no control reddens) /'
+elif [ "${1:-}" != "--no-neg" ]; then
+  echo "  FAIL the check roll-up produced 0 labels — PROBE_LIST is not wired, so the ratio would be vacuous"; rc=1
 fi
 
 echo "controls: $n_ctl verified / $n_bad unusable"

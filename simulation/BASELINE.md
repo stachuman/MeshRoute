@@ -1,6 +1,366 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # Delivery baseline suite — the result-comparison gate
 
+**★★★★★★★★★★★★★★★★★★★★ 2026-08-06 §B130 — THE AUTHORITATIVE DESIGN SPEC WAS THE ONE ARTEFACT THE WHOLE ARC'S CORRECTIONS NEVER REACHED, AND THE INSTRUCTION *"⛔ DO NOT EDIT THE SPEC — REPORT NEEDED CHANGES"* IS WHAT ALLOWED IT. EVERY SLICE OBEYED CORRECTLY ⇒ THE FIXES LANDED IN THE CODE, THE REGISTER, THE PLAN, THE BENCH GUIDE AND THE LEDGER — EVERYWHERE EXCEPT THE DOCUMENT THAT OUTRANKS THEM ALL. ★ THE RULE THIS MUST BECOME: THE SLICE THAT *MEASURES* A SPEC'S DRIFT CORRECTS IT FACT-ONLY, IN PLACE, IN THE SAME SLICE — "report it" IS NOT A CORRECTION, BECAUSE A READER ACTS ON THE INSTRUCTION, NOT ON THE REPORT.**
+
+### DOCUMENTATION-ONLY. NO BUILD GATE IS OWED, AND NONE WAS INVENTED
+
+**Tripwire only, to prove nothing was disturbed:** `pio test -e native` (exit 0) **and the binary RUN** —
+`./.pio/build/native/program` → **1373 test cases / 74023 assertions / 0 failed**, unchanged. ⚠ The wrapper's *"0 test
+cases"* is the known lie; the binary is the only truth. `git status`: **3 files touched, all `.md`** —
+`docs/superpowers/specs/2026-07-31-onboard-oled-ui-design.md`, `docs/2026-07-30-open-bug-register.md`, this file.
+⛔ **0 source / test / probe / bench / plan / `platformio.ini` files.** ⛔ **UNTOUCHED as instructed:** B112, B118, B119,
+the REPLY-only wake, the handover's stacked `STATUS` headers, `CLAUDE.md`.
+
+### WHAT WAS CORRECTED — the four commissioned defects, all verified against the code (V1), not against the brief
+
+| # | § | still-live instruction | shipped |
+|---|---|---|---|
+| **①** | §7 **and** §10.1's table | the vendor **bare-`INPUT`** polarity probe as live guidance — ⚠ the section already knew about the 3.2 inversion and **still prescribed it**; the table also said *"nominal ACTIVE=LOW"* | the **two-pull** probe, **floating ⇒ REFUSE** (`-1` / panel `--`), fail-safe park `kAdcCtrlFailsafePark = LOW` ([[B123]] r2). ★ Stated in the body that this is **NOT** the hardcoded polarity §7 forbids (detection is unchanged; **P6f/P8o** pin it), and the **pre-3.2 residual** is carried, not claimed away — guide `H9-05` part C, script `8.31` |
+| **②** | §7 **and** §10.1's table | `5.42` as a **divider / per-revision property** | `kVbatAdcScale` — a combined **empirical ADC scale**: physical divider 390 k/100 k ⇒ **4.9**; 5.42 = 4.9 × ≈1.106 ⇒ ~10.6 % is ADC calibration ([[B126]]). The bench diagnostic split is carried: **constant** ratio error ⇒ scale · **voltage-dependent or offset** ⇒ ADC |
+| **③** | §4 diagram | failure → **`NOT HEARD`**; `REPLY` from ***"any state"***; exit on **`double`**; **`failed` arm missing entirely** | rewritten from `src/firmware_ui_model.h` + `draw_emergency`: headline **`NOT RELAYED`** (enum still `not_heard`), whitelist `firing·blocked·picked_up·not_heard·reply` **and `_tries != 0`** **and** §4.4 team scope, exit = **short** press once **presented** (B71 + §B102), **`double` = nothing** (R2), `failed` present |
+| **④** | §12 checklist | **`NOT HEARD`** + hard-coded `3.0 s`/`3.6 s`/`10 s`/*"3 retries"* | named constants only — and *"3 retries"* **contradicted §4's own binding reading** ("three *transmissions*") |
+
+⇒ **Method throughout: the OPERATIONAL text was rewritten; superseded content survives only inside fenced
+`⛔ SUPERSEDED` blocks with the reason** ([[B128]]'s cure). A correction note beside a live instruction is not a
+correction. ⚠ **A grep of the spec still returns `NOT HEARD`, the bare-`INPUT` listing and restated digits — every hit
+is inside a fence or a quotation. Read the sentence, not the match; that trap has fired five times in this arc.**
+
+### ⛔ THE SPEC ALSO ASSERTED SOMETHING UNTRUE ABOUT ITSELF — and the brief asked me to verify it, so this is measured
+
+[[B117]]'s correction block claimed *"Every `NOT HEARD` elsewhere in this spec names the model STATE."*
+**Counted before editing: 9 occurrences — 3 inside that block (legitimate) and SIX IN LIVE GUIDANCE**
+(§2.1 rule 2 · §4 diagram · §4 retry bound · §12 checklist · §12 `unsealable` case · §13's **B38** row).
+**Not one of the six spelled the enum.** After the pass: **0 live**, all remaining hits fenced or quoted.
+
+### ★ THE SWEEP — derived, not taken from the brief. FOUR findings the brief did not name
+
+1. ⛔⛔ **A STALE `⛔ GATED` BANNER — the document's highest-authority sentence was a prohibition on shipped work.**
+   §13 said *"`B38`/`B39`/`B40` **must land first**"* and *"**Do not implement the emergency outcome path**."*
+   **All three are `[x]`, landed 2026-08-01**; the path is implemented and bench-ready. [[B121]]'s shape one document
+   over, plus four stale `(needs Bnn)` markers in §12. **B39's still-live residual (closed as an INTERIM only) is now
+   stated explicitly** instead of smoothed away.
+2. **`MR_UI_BLANK_MS` NAMES A CONSTANT THAT EXISTS NOWHERE IN THE TREE** — grepped **9 hits, all docs, 0 code**; the
+   shipped one is `kBlankMs`. Spec's 2 sites fixed; the other **7 (plan ×3, guide ×2, script ×2) are OUT OF SCOPE and
+   now REGISTERED as [[B131]]** rather than mentioned (M1).
+3. **Six further restated timings**, each replaced by its constant: `kBlockedBackoffMinMs`/`MaxMs`, `kArmToFireMs`,
+   `kBlankMs`, `kEmgHoldMs`, `kBattPeriodMs`, `channel_min_interval_ms`. ★ **`kEmgHoldMs` is the [[B120]] trap exactly:
+   the earlier correction of the stale *"120 s"* restated the NEW digits beside the constant.**
+4. **§13's UI-9 slice row still described the superseded reader** — defect ① surviving *inside the same document* after
+   §7 was fixed. The [[B128]] shape recurring within one file.
+
+### ⛔ PREMISES THAT TURNED OUT WRONG — including the dispatch brief's own
+
+- **The brief's diagnosis of ③ was incomplete.** It named only the `NOT HEARD` mapping; **three further defects were in
+  the same ten lines** (*"any state"*, the `double` exit withdrawn by **B71**, the missing `failed` arm). **Deriving the
+  arms from `draw_emergency` — rather than patching the string the brief named — is what surfaced them.**
+- **The brief's self-referential claim in ③ was indeed FALSE**, and the 6-of-9 count above is the measurement.
+- **The brief's line numbers held this time** (`:659`/`:661`/`:447`/`:778`), but each was re-derived; the two files it
+  pointed at were mid-edit from Tasks 8/9, so every edit here was an **insert, never a reflow**.
+- ⓘ **The `⛔ no plan / no bench` boundary held** — which is precisely why finding 2's four non-spec sites are **owed**.
+
+### WHAT IS STILL OWED — no design decision was taken and no ruling was invented
+
+**B112 · B118 (authentication floor UNRULED) · B119 · the REPLY-only wake · [[B131]] · the handover's stacked headers.**
+Where a correction would have required a decision, the spec now **points at the ledger's §2** instead of resolving it.
+
+---
+
+**★★★★★★★★★★★★★★★★★★★★ 2026-08-06 §UI-9-FIX ([[B123]] ROUND 2) — THE §UI-9 NOTE DIRECTLY BELOW CLAIMED THE POLARITY DEFECT WAS FIXED. HALF OF IT WAS. ★★★ DETECTION WAS RIGHT; THE **PARK** WAS INVERTED — ON A FLOATING LINE `battery_init()` PARKED GPIO 37 **HIGH**, WHICH HELTEC'S OWN V3.2 HARDWARE UPDATE LOG DOCUMENTS AS THE **MEASURING** LEVEL ⇒ THE *REFUSAL* PATH LEFT THE DIVIDER **ENABLED INDEFINITELY** ON A BATTERY-POWERED SAFETY DEVICE. THE SLICE'S OWN STATED INTENT, INVERTED — AND ITS 65-CHECK / 20-CONTROL PROBE SET WAS GREEN OVER IT. Found by independent QA; fixed, measured, and the residual is NOT claimed away.**
+
+### WHAT LANDED — five defects, one of them SAFETY
+
+| # | file(s) | what |
+|---|---|---|
+| **1** ⛔ SAFETY | `variants/heltec_v3/board_ui.cpp` | the **fail-safe park**. `!s_adc_polarity_known` ⇒ park `kAdcCtrlFailsafePark` = **LOW**, the documented-inactive level, instead of the detected-inactive expression that yields HIGH on a floating line. ⛔ **NOT the "hardcode the polarity" spec §7 / plan Task 9 forbid** — the *measurement* polarity is still detected; the constant is consulted **only** where detection already failed, and the source says so in capitals so a later reader cannot "restore" the bug as a spec violation |
+| **2** | `variants/heltec_v3/board_ui.cpp` | `kVbatDivider` → **`kVbatAdcScale`** ([[B126]]). It was never a resistor ratio |
+| **3** | bench guide **H9-05**, script **8.28** (+ new **8.31**) | the instrument that **could not fail** ([[B127]]) — rewritten to measure the **ADC node**, every entry given a FAILURE shape, the disproven *"never a leak"* sentence removed |
+| **4** | plan Task 8 | the correction note over an unchanged operational body ([[B128]]) — the render table rewritten **from the code**, every threshold named not restated |
+| **5** | plan Task 9 | the unsafe bare-`INPUT` listing ([[B129]]) — fenced `⛔ SUPERSEDED — DO NOT IMPLEMENT` |
+| controls | `tools/probe_board_ui/` (3 files) | **65 → 68 checks · 20 → 23 controls**, all RED |
+
+⛔ **0 files under `src/`, `lib/`, `test/`, `simulation/*.json`, `platformio.ini`.** FIX 1 did not require any of them.
+⛔ **UNTOUCHED as instructed:** B112, B118, B119, the REPLY-only wake, the handover's stacked headers, `CLAUDE.md`.
+
+### ⛔⛔ THE SAFETY DEFECT, AND THE EVIDENCE — VERIFIED AGAINST THE VENDOR, NOT REASONED
+
+The shipped `battery_init()` ended with **one** expression on **every** path:
+```
+s_adc_polarity_known = (with_pullup == with_pulldown);   // floating -> false   ✓ detection is CORRECT
+s_adc_active_high    = (with_pullup == LOW);             // floating -> HIGH==LOW -> false
+digitalWrite(MR_UI_ADC_CTRL, s_adc_active_high ? LOW : HIGH);   // -> parks HIGH   ⛔
+```
+**Heltec's hardware update log, V3.2 section, verbatim:** *"Modified voltage detection circuit, now need to pull up the
+ADC_Ctrl(GPIO 37)."*
+(`wiki.heltec.org/docs/devices/open-source-hardware/esp32-series/lora-32/wifi-lora-32-v3/hardware-update-log`; mirrored
+in `HelTecAutomation/HeltecDocs`.) **Corroborated inside the vendored reference tree** rather than taken on one source:
+V4 and T190 both write `digitalWrite(PIN_ADC_CTRL, LOW) // Initially inactive` and drive **HIGH** around the
+measurement (`HeltecV4Board.cpp:8,66,74`; `HeltecT190Board.cpp:7,52,60`). ⇒ **HIGH = MEASURING = divider ENABLED.**
+★ The in-source comment read *"park INACTIVE — the divider must not idle on"* — **the opposite of what the code did, in
+exactly the case it was written for.**
+
+### ⚠⚠ THE EXACT RESIDUAL I AM **NOT** CLAIMING
+
+**`kAdcCtrlFailsafePark = LOW` is documented-inactive for V3.2 AND LATER ONLY.** On a **pre-3.2** V3 the sense is
+reversed (`ropg/heltec_esp32_lora_v3`, read off the schematic: *"if GPIO37 is pulled low, the battery voltage appears on
+GPIO1"*), and on such a board **this fallback would be wrong again**.
+ⓘ Why it is still the better bet rather than the coin flip re-flipped, stated as an argument and not as proof: a
+revision that **biases** the gate at all is one the two-pull probe **detects**, and then the fallback never runs — it
+runs only when nothing biases the line.
+⛔ **I do NOT claim this is provably safe on all revisions. Only the bench can tell** — guide **H9-05 part C**, script
+**8.31**, both new, both stated in terms a tester can actually measure.
+⛔ **Neither is the owner's alternative taken** (a build constant carrying the measured value, the `kVextOnLevel` /
+`LORA_TX_POWER` precedent). It stays **OWED**, exactly as the §UI-9 note below recorded it.
+
+### ★★★ THE CONTROL THAT PROVES FIX 1 — AND THE MUTATION-CHECK OF THE TEMPTING WRONG FIXES
+
+`P8y` used to read `== HIGH` under the label *"the boot park is still DETERMINISTIC"*. **Deterministic was never the
+property.** A stable park at the ACTIVE level *is* the harm — which is precisely why 20 green controls said nothing.
+
+| new/changed check | what it pins |
+|---|---|
+| **P8y** (changed `HIGH` → `LOW`) | the floating park is the **documented-INACTIVE** level |
+| **P8z** ★NEW | ...on a pin that is still a **driven OUTPUT**, never left floating |
+| **P8aa / P8ab** ★NEW | a **mirrored** floating world (⚠ labelled in-source as **shim-only** — an internal pull-up cannot read LOW on a truly floating line) proving the fallback is a **constant**, not a function of two meaningless reads |
+
+| new control | the tempting wrong fix | measured |
+|---|---|---|
+| **C7n** | *"park the DETECTED level even when detection failed"* — **the shipped expression restored verbatim** | **RED**, and it reddens **P8y alone** — i.e. P8y is exactly the assertion the finding turns on |
+| **C7o** | the fail-safe constant inverted to HIGH | **RED** (P8y + P8aa) |
+| **C7p** | the park hardcoded to the fail-safe on **every** path — detection dropped | **RED via P6f**, which is what makes *"this is not hardcoding the polarity"* a **measurement** rather than a claim in a comment |
+
+⓵ **C7g** follows the rename (`kVbatAdcScale`); every pre-existing control stayed RED.
+
+### THE GATE (D1)
+
+| step | result |
+|---|---|
+| native | `pio test -e native` from a **deleted** `.pio/build/native`, then **RUNNING `./.pio/build/native/program`** — the wrapper again reported the false *"0 test cases"* — **1373 test cases / 74023 assertions / 0 failed**, `grep -c "error:"` = **0**. ⓘ **UNCHANGED, and that is correct**: nothing host-reachable was added — the board TU is not host-compilable by the native suite, only by `probe_board_ui` |
+| s18 keystone | **`1cd21235` / 271629 EXACT**, 0 assertion failures |
+| corpus | **36/36 byte-identical to the recorded anchors, 0 assertion failures in all 36.** Rows extracted by the `^### 36/36 corpus` heading anchor, whitespace-normalised, machine-`diff`ed — **36 rows on each side, both printed** — and **positively controlled** (a poisoned s18 row made the diff FIRE) |
+| `lus` | md5 **`8cb1f0f5` unchanged**; a plain rebuild produced **0** compile actions — correct and itself the check: the sim compiles `lib/core` + `lib/console` and this slice touches neither. ★ `lib/hal` is **not** in the sim's build graph either, so **no claim is made that s18 tests any of this** — it is a whole-tree tripwire |
+| boards | **5/5 green from DELETED object dirs** (⚠ `touch` is a no-op for PlatformIO), 0 `error:` in every log |
+| warning census | **PASS. PINS UNCHANGED — `178 / 178 / 174` @ **326 objects**, `-Wswitch` 0, nothing re-pinned** |
+| board probe | **68/68 behavioural · 13/13 structural · 13/13 wiring · 19 wiring controls RED · 23/23 board controls RED**, rc=0, real source verified **UNCHANGED** by the run |
+| feature probe | **31/31 checks · 17/17 controls verified · coverage 26 of 31 (measured and printed)**, rc=0, sources md5-verified unchanged |
+
+**BOARD ENVS — object counts beside the sizes:**
+
+| env | objs | warn | `error:` | RAM | Δ | Flash | Δ |
+|---|---|---|---|---|---|---|---|
+| `gateway` | 283 | 18627 | 0 | 194028 | 0 | 470964 | 0 |
+| `xiao_sx1262` | 283 | 18632 | 0 | 169108 | 0 | 516228 | 0 |
+| `xiao_esp32s3` | 193 | 54 | 0 | 213260 | 0 | 1208744 | 0 |
+| `heltec_v3` | 326 | 178 | 0 | **214668** | **0** | **1263132** | **+12 B** |
+| `heltec_mobile` | 326 | 178 | 0 | **214188** | **0** | **1256700** | **+12 B** |
+| `gateway_heltec` (census) | 326 | 174 | 0 | **239588** | **0** | **1232524** | **0** |
+
+★ **THE +12 B IS ATTRIBUTED BY A CONTROLLED A/B, NOT INFERRED.** Arm B = the live tree with **only** the park
+expression reverted to the shipped single-ternary form, built into a temporary `PLATFORMIO_BUILD_DIR` (shared state
+untouched), then the file **restored and md5-verified identical** (`de0dcb91…` before and after). Arm B reads
+**1263120 / RAM 214668** — *exactly* the previously recorded `heltec_v3` figure ⇒ **the whole +12 B is the fail-safe
+park's extra branch, and the rename + all comments are inert.** ⓘ `gateway_heltec` shows **0**; I am **not** claiming
+the padding rule, only that its reported total does not move.
+
+### ★ PREMISES THAT TURNED OUT WRONG — mine and the tree's
+
+1. ⛔ **"Nothing in this tree or in the vendor port establishes GPIO 37's polarity."** The §UI-9 note asserts this and
+   the register repeats it. It is **too strong**: the vendor tree's **V4** and **T190** boards state the modern
+   convention explicitly (LOW inactive / HIGH to measure), and **Heltec publishes the V3.2 change in prose.** What is
+   genuinely unestablished is only *"this particular board has an external bias on the line"* — a much narrower claim,
+   and part B of H9-05 is still the falsification for it.
+2. ⛔ **"5.42 is a per-revision divider ratio."** It is **4.9 × ≈1.106** — a physical divider **times an empirical ADC
+   correction** — so a proportional meter error is at least as likely to be ADC calibration ([[B126]]).
+3. ⛔ **"P8y proves the park is safe."** It proved the park was *stable*. Stable at the ACTIVE level is the defect.
+4. ⛔ **"H9-05 falsifies the polarity premise."** It asked the tester to read a **file-static** ([[B127]]).
+5. ⓘ **One premise of the QA brief itself needed narrowing, and it is recorded rather than smoothed over:** *"LOW is
+   documented-inactive on this board"* holds for **V3.2+**; for a pre-3.2 V3 the documented sense is the opposite. The
+   fix is unchanged — the brief called for exactly this park — but the justification is revision-scoped, and the source,
+   the register and this note all say so.
+
+⚠ **Tasks 8 and 9 remain INTERLEAVED in the uncommitted docs.** Edits were **inserted**, never reflowed; no attempt was
+made to separate them. **D4: nothing is committed. No owner or QA approval is claimed, and no bench measurement has
+been made** — every hardware statement above is either a vendor document or a vendored-source reading, both cited.
+
+---
+
+**★★★★★★★★★★★★★★★★★★★ 2026-08-06 §UI-9 (plan Task 9) — THE HELTEC V3 BATTERY READER IS REAL, AND THE HEADLINE IS NOT THE READER. ★★ IT IS THAT THE POLARITY AUTO-DETECT EVERY SOURCE OF AUTHORITY TOLD ME TO COPY — spec §7, plan Task 9's own code block, and the vendor's working port — IS A COIN FLIP WHOSE LOSING SIDE PARKS THE BATTERY DIVIDER **ENABLED FOR EVER** ([[B123]]). Caught in review, fixed in the same slice, and the fix is explicitly NOT claimed to be proof.**
+
+### WHAT LANDED
+
+| file | what |
+|---|---|
+| `variants/heltec_v3/board_ui.cpp` | the reader: `#error` guards on both pins (C2), the named formula constants, a **two-pull** polarity probe with a floating-line refusal, `enable → sample → disable` with no residue, and the 1S-LiPo plausibility window that makes `<0` reachable on hardware |
+| `variants/heltec_v3/board_ui.h` | the `battery_sample_mv()` contract now states that `<0` covers *implausible* as well as *absent*, and that the CALLER owns the cadence |
+| `platformio.ini` | `-DMR_UI_ADC_CTRL=37` + `-DMR_UI_VBAT_READ=1` in `[env:heltec_v3]`, **and the comment that said they were deliberately withheld is corrected in place** — it would otherwise have contradicted the flags directly beneath it (V1) |
+| `tools/probe_board_ui/` (4 files) | 59 → **65** behavioural checks, 10 → **13** structural, 8 → **20** board controls |
+| `tools/probe_firmware_ui/` (2 files) | 25 → **31** checks, 13 → **17** controls, plus a **measured and printed** control-coverage ratio |
+
+⛔ **0 files under `src/`, `lib/`, `test/`.** The cadence, the MAC-idle gate and the render policy were already correct in `src/firmware_ui.cpp`; this slice made the thing they call return a number.
+
+### ⛔⛔ THE POLARITY QUESTION — WHAT WAS ASSUMED, WHAT WAS CHECKED, AND WHAT IS STILL OWED
+
+**The defect.** The reference form is `pinMode(PIN, INPUT); active = !digitalRead(PIN);`. **`INPUT` selects no pull.** If nothing external holds GPIO 37, that read is indeterminate — and the cost is not a wrong voltage, it is **the park**: whichever way it lands, the level then written as "inactive" is the ACTIVE one half the time. ★ **[[B90]]'s Vext problem restated**, and B90 closed cleanly only because *"reproduce the proven level"* was kept distinct from *"we know the rail."*
+
+**What the tree can establish, checked rather than assumed (V1).** ⛔ **Nothing.** The vendor defines `PIN_ADC_CTRL_ACTIVE/INACTIVE` and then runs the bare-`INPUT` probe on **two** boards (`heltec_v3`, `rak3112`), documenting **no** pull-up, pull-down or idle level anywhere; and its own **V4** board deletes the probe and hardcodes `ACTIVE=HIGH`. ⇒ *"the line has a defined idle level"* is **not supported by this tree or by the port it is copied from.** Reproducing the probe verbatim would have been claiming knowledge nobody has.
+
+**What I did, and why that option.** Three were available: ① establish the idle level from the sources — **refused, the evidence is not there**; ② replace detection with a build constant carrying the measured value (the `kVextOnLevel` / `LORA_TX_POWER` precedent) — **not taken, because spec §7 AND plan Task 9 both say "do not hardcode", and substituting my own ruling for a written design decision is precisely the §3 provenance failure**; ③ keep detection, make the indeterminate case detected and loud. **③.** The line is probed **twice, under opposite internal pulls**: agreement ⇒ something external holds it and the detection means what the reference intends; disagreement ⇒ **floating ⇒ refuse (C2)** — `s_adc_polarity_known` stays false, `battery_sample_mv()` answers `-1`, the panel shows `--`, and **not one conversion is taken**.
+
+⚠⚠ **WHAT THIS DOES NOT DO, stated because the temptation is to let it read as a fix.** It **cannot make the park provably safe** — when the line floats, no level is known-inactive, so the pin is still driven somewhere. It is **deterministic and declared** instead of random, and the refusal is **detectable**. That is an improvement, not proof. ⇒ ★ **OPTION ② IS OWED TO THE OWNER** and is recorded as owed, not implemented.
+
+**THE THREE ASSUMPTIONS, each with the bench check that falsifies it:**
+| assumed | falsified by |
+|---|---|
+| an external pull, if present, is **stronger** than the ESP32-S3's internal ~45 kΩ (a weaker one reads as "floating" and the panel shows `--` on a working board) | **H9-05 part B** — power-off resistance, GPIO 37 to 3V3 and to GND |
+| the level a *held* line presents **is** the INACTIVE one (the reference port's premise, retained) | **H9-05 part A** — DC on GPIO 37 between samples; resting at ACTIVE = the divider is permanently on |
+| the sampling burst needs **no settle** (reproduced from the working port; only its V4 inserts `delay(10)`, which spec §7 forbids) | **H9-03** — a first-sample outlier, or a CTS regression only on a battery-capable build |
+
+ⓘ The µs-scale settle between the two *probe* reads is a different thing and is required: we deliberately change the pull between them.
+
+### THE GATE (D1)
+
+| step | result |
+|---|---|
+| native | `pio test -e native` then **RUNNING `./.pio/build/native/program`** — the wrapper again reported the false *"0 test cases"* — **1373 test cases / 74023 assertions / 0 failed**, `grep -c "error:"` = **0** |
+| s18 keystone | **`1cd21235` / 271629 EXACT**, 0 assertion failures — **RUN TWICE**, before and after the polarity fix |
+| corpus | **36/36 byte-identical to the recorded anchors, 0 assertion failures in all 36.** Rows extracted by the `^### 36/36 corpus` heading anchor, whitespace-normalised, machine-`diff`ed — **36 rows on each side, both printed** — and the comparison was **positively controlled** (a poisoned row made it fire) |
+| `lus` | md5 **`8cb1f0f5` unchanged**; a plain rebuild produced **0** compile actions, which is correct and is itself the check: the sim compiles `lib/core` + `lib/console`, and this slice touches neither |
+| boards | **5/5 green from DELETED object dirs**, 0 `error:` in every log (⚠ `touch` is a no-op for PlatformIO's content signature) — see the table below |
+| warning census | **PASS. PINS UNCHANGED — `178 / 178 / 174` @ **326 objects**, `-Wswitch` 0. ★ NOTHING WAS RE-PINNED and nothing needed to be**, despite a new include path and a new code path: the ADC calls introduce no new diagnostic |
+| board probe | **65/65 behavioural · 13/13 structural · 13/13 wiring · 19 wiring controls RED · 20/20 board controls RED**, rc=0, real source verified **UNCHANGED** by the run |
+| feature probe | **31/31 checks · 17/17 controls verified** (C0 build-fails as required) · **coverage 26 of 31, MEASURED AND PRINTED**, rc=0, sources md5-verified unchanged |
+
+**BOARD ENVS — clean builds, object counts beside the sizes:**
+
+| env | objs | warn | `error:` | RAM | Flash |
+|---|---|---|---|---|---|
+| `gateway` | 283 | 18627 | 0 | 194028 | 470964 |
+| `xiao_sx1262` | 283 | 18632 | 0 | 169108 | 516228 |
+| `xiao_esp32s3` | 193 | 54 | 0 | 213260 | 1208744 |
+| `heltec_v3` | 326 | 178 | 0 | **214668** | **1263120** |
+| `heltec_mobile` | 326 | 178 | 0 | **214188** | **1256688** |
+| `gateway_heltec` (census) | 326 | 174 | 0 | **239588** | **1232524** |
+
+ⓘ The nRF52 envs' five-figure warning counts are the vendored SDK's and are pre-existing; the census pins only the OLED envs, which is where the project's warning rule bites.
+
+### ⛔ THE FLASH COST IS **+9.3 KB**, NOT A ROUNDING ERROR — AND IT IS ATTRIBUTED, NOT ABSORBED
+
+Deltas against the figures §B105 recorded for this same HEAD (Task 8 changed no code, `git status` confirms):
+
+| env | RAM | Δ | Flash | Δ |
+|---|---|---|---|---|
+| `heltec_v3` | 214396 → **214668** | **+272 B** | 1253788 → **1263120** | **+9332 B** |
+| `heltec_mobile` | 213916 → **214188** | **+272 B** | 1247320 → **1256688** | **+9368 B** |
+| `gateway_heltec` | 239316 → **239588** | **+272 B** | 1223128 → **1232524** | **+9396 B** |
+
+★ **The cause is measured, not inferred:** `analogRead` / `analogReadResolution` pull arduino-esp32's `esp32-hal-adc` → ESP-IDF `adc_oneshot` / `adc_hal` into the image **for the first time** — this firmware had no ADC on any ESP32 target before. `nm --print-size` on `heltec_v3/firmware.elf` finds **95 genuine ADC/analog symbols totalling 6480 B** of text, the rest being driver rodata/tables that size-sorting does not attribute, plus **+272 B of RAM** for the driver's state, identical on all three envs. ⚠ **A bare `grep -i adc` also matched 12 `bro**ADC**ast` symbols (1075 B) — excluded explicitly.** ⓘ `gateway_heltec` is the tightest OLED env at **239588 / 327680 = 73.12 %** RAM (was 73.03 %); flash is 37 % of 3342336 on `heltec_v3`, so the +9 KB is not a budget question — it is reported because *"a reader is a few hundred bytes"* is the assumption that hides real deltas.
+
+### EVERY MUTATION RESULT — 37 CONTROLS, ALL RED (or build-failing where that IS the check)
+
+**`tools/probe_board_ui/negctl.py` — 20 controls. The old single C7 (*"the battery STUB returns a fabricated 3900"*) had a one-line subject; a real reader has many more wrong answers, so it became C7a–C7m:**
+
+| control | the tempting wrong fix | result |
+|---|---|---|
+| C1 / C2 / C3 / C4 / C5 / C6 / C8 | (unchanged: blanking latch · page-loop abandon · no-frame guard · `firstPage()` · Vext level · button polarity · unasked panel probe) | RED (3 / 7 / 9 / 7 / 1 / 2 / 3) |
+| **C7a** | the divider is never DISABLED after the burst — **a standing drain** | RED (4) |
+| **C7b** | the divider is never ENABLED — every conversion reads a dead net | RED (5) |
+| **C7c** | polarity hardcoded instead of detected — wrong on every board past rev 3.2 | RED (4) |
+| **C7d** | the plausibility guard dropped — a dead divider then renders `0.0V` | RED (3) |
+| **C7e** | an implausible read substitutes a plausible default voltage | RED (3) |
+| **C7f** | one sample instead of the mean of `kAdcSamples` | RED (3) |
+| **C7g** | the divider ratio dropped from the formula | RED (3) |
+| **C7h** | the ADC resolution the divisor assumes is never set | RED (1) |
+| **C7i** | the burst samples the **CONTROL** line instead of the ADC input — the confusion the pin names invite | RED (1) |
+| **C7j** | the control line is driven without ever being made an OUTPUT | RED (1) |
+| **C7k ★** | **the probe reverts to ONE read under a bare `INPUT`** — i.e. the reference port's own form, [[B123]] put back | RED (5) |
+| **C7l ★** | a floating line is treated as KNOWN (the coin flip is taken) | RED (3) |
+| **C7m ★** | the reader ignores the unknown-polarity refusal | RED (3) |
+
+**`tools/probe_firmware_ui/run.sh` — 17 controls.** C0 (restoring `fw_context.h`) must and does **fail to build**; C1–C12 unchanged and RED. New: **C13** an unavailable read ERASES the last good value → RED (1) · **C14** the unavailable render invents a plausible voltage instead of `--` → RED (2) · **C15** the bar renders a **percentage** instead of volts, the ruled-out policy → RED (3) · **C16** the bar hardcodes a voltage instead of reading the model → RED (2).
+
+★ **Two checks are named as reddened by NOTHING, in-source, rather than left looking covered:** `P8s` (a vacuity guard on the probe itself — the raw count reaches the formula identically in both polarity worlds) and `P6g` (negative space: boot takes no conversion; reddening it needs a mutation that ADDS a call, which no `sed` of the file expresses cleanly).
+
+### ★★ THE INSTRUMENTS WERE FIXED WHERE THEY COULD NOT HAVE FAILED
+
+1. **`run.sh` asked the reader to keep its `-D` in step with `platformio.ini:221`/`:227` — and those line references had ALREADY drifted.** Replaced by **S6**, which extracts the live `-D` set from the `[env:heltec_v3]` **section** (never a line number), strips `;` comments first (§B77: the file documents these very macros in prose beside them), requires **exactly one** match per name and **prints the count**, so a pattern matching nothing fails instead of comparing empty-to-empty. **Mutation-checked**: drifting the probe's `-DMR_UI_ADC_CTRL` to 36 turned S6 red (and P6c too).
+2. **`probe_firmware_ui`'s header claimed "20 of the 25 checks are reddened by at least one of run.sh's 13 controls".** A hand-maintained coverage ratio in a comment — **[[B120]]'s defect class in source instead of a bench doc** — and it went stale the moment six checks were added. It is now **measured**: `PROBE_LIST=1` makes every `CHK` announce itself, supplying the denominator, and `run.sh` prints `coverage: N of M` and **names every exception**. At §UI-9: **26 of 31**.
+3. **`probe_board_ui`'s P9 counted Wire traffic forward from P6's `board_init()`.** P8's polarity worlds each re-run `board_init()`, so P9 would have read 3–4 transmissions and failed for a harness reason. Made self-contained.
+
+### ⛔ PREMISES THAT TURNED OUT WRONG — SEVEN, AND THREE CAME FROM THE DISPATCH BRIEF
+
+1. ⛔ **"Baseline 1373 / 74023 / 0; expect a RISE."** **FALSE, and no rise is owed.** `git status` shows **0 files under `src/`, `lib/` or `test/`**. `variants/heltec_v3/board_ui.cpp` is not in the native suite's build graph (it needs `Arduino.h`), and both probes are standalone binaries. Native is **unchanged and that is correct** — the probes are this code's instrument, which is the whole reason they exist.
+2. ⛔ **"The tempting wrong fixes are … **cache the last good value across an unavailable read**."** **FALSE — that is the RULED behaviour**, spec §7 (*"keeps the last good value between samples"*) and the shipped `if (mv >= 0) s_batt_mv = mv;`. ⇒ the slice implemented and **measured the spec** (P5(c), control **C13** pins that an unavailable read must not erase it) and registered the tension as **[[B125]]** rather than silently picking a side. ★ The consequence the owner may not have intended is named there: once a number has been shown, a reader that dies leaves it on the panel indefinitely.
+3. ⛔ **Plan Task 9's Step-1 code block.** It is the vendor's probe transcribed verbatim, so **it carries [[B123]]**. A plan is a design authority; its code listing is not automatically a verified one.
+4. ⛔ **The implicit "a battery reader costs a few hundred bytes."** **+9332 B of flash on `heltec_v3`** — the first ADC in any ESP32 image here. Attributed above.
+5. ⛔ **`xiao_sx1262` read Flash 516244 on this session's first clean build and 516228 on three later ones**, while compiling nothing this slice touches. **Resolved, not hand-waved: `BASELINE.md`'s own recorded figure is 516228**, and `git status` confirms 0 modified files under `src/`/`lib/` ⇒ the **first** measurement was the outlier, not the change.
+6. ⛔ **"`multimeter` already appears in the guide, so H9 is partly written."** The H9 entries existed but had **no exact expected text and no failure shapes**, and H9-02's *"within ~50 mV"* ignored that `fmt_volts` **truncates** to one decimal — a correct panel could miss a naive ±50 mV window by construction. The window is now **one-sided and derived**: `panel <= meter` and `meter - panel < 0.150 V` (99 mV of truncation + the 50 mV analogue budget).
+7. ⛔ **B104 "narrowed" would mean the residue is nearly gone.** It is not. One field of one line (the status bar's volts) now has a **text-level** assertion; the snapshot builder and every other `draw_*` are still call counts. **B104 is NOT closed** and its entry says so explicitly.
+
+### M2 — THE BENCH HALF
+
+**Guide:** **H9-01** (`--` and never a number, with three failure shapes) · **H9-02** (the meter comparison, with the derived agreement window and what a ratio error means) · **H9-03** (cadence + MAC safety on real timing) · **H9-04** (USB/battery transitions) · **H9-05 ★NEW** — *the ADC control line: is its idle level real, and is the divider parked off?*, in two parts: a DC measurement between samples, and a **power-off resistance check to 3V3 and to GND** which is the direct falsification of [[B123]]'s premise and the first evidence anyone here will have had for this pin. **H8-09** and **H6-11**'s stale *"Task 9 has not landed"* framings corrected in place.
+**Script:** **8.6** updated (its *"until Task 9 …"* clause withdrawn; the one-sided window added) · **8.28 ★NEW** the parked-divider current check · **8.29 ★NEW** `--` never a number · **8.30 ★NEW** the burst must not disturb the MAC.
+⚠⚠ **B120's rule applied throughout: constants are NAMED, never restated.** Verified — `grep` over both bench documents returns **0** for `30000`, `30 seconds`, `2000 mV`, `4500 mV` and `5.42`, and **21** references to `kBattPeriodMs` / `kVbatDivider` / `kBattMinMv` / `kBattMaxMv` / `kAdcSamples` / `s_adc_active_high`. ★ One **pre-existing** violation was found and fixed en route: guide `:432` restated the cadence as *"about every 30 s"*. ⛔ **CORRECTED IN PLACE 2026-08-06 (§UI-9-FIX above): this sentence counted `s_adc_active_high` as a virtue. It was a DEFECT — a file-static a tester cannot read, and it was the only stated failure condition in H9-05/8.28 ([[B127]]). ⇒ naming a constant is necessary, not sufficient: the named thing must also be OBSERVABLE from where the reader stands. `kVbatDivider` in that list is now `kVbatAdcScale` ([[B126]]).**
+
+### FILES MODIFIED BY THIS SLICE (13), AND THE TASK-8 OVERLAP
+
+**Code/config (3):** `platformio.ini` · `variants/heltec_v3/board_ui.cpp` · `variants/heltec_v3/board_ui.h`.
+**Instruments (6):** `tools/probe_board_ui/{run.sh, probe_main.cpp, negctl.py, fakes/Arduino.h}` · `tools/probe_firmware_ui/{run.sh, probe_main.cpp}`.
+**Docs (4):** this file · `docs/2026-08-04-heltec-v3-oled-ui-bench-guide.md` · `docs/2026-07-31-bench-test-script.md` · `docs/2026-07-30-open-bug-register.md` (**[[B123]] opened+closed · [[B124]] and [[B125]] opened · [[B104]] narrowed, NOT closed**).
+⚠ **OVERLAP WITH TASK 8, REPORTED RATHER THAN RESOLVED:** four of those docs (this file, the guide, the script, the register) were **already modified in the working tree by the Task-8 slice** when this one started. My additions are **appended/inserted**, and Task 8's text is **untouched** — but the two slices' changes are interleaved in one uncommitted diff and cannot be separated by file. ⛔ **I did not resolve, reorder or squash anything.**
+⛔⛔ **NOT TOUCHED:** **0 files under `src/`, `lib/`, `test/`** · `CLAUDE.md` · `docs/2026-08-05-owner-rulings-ledger.md` and `docs/superpowers/plans/…-phase-a.md` (**both carry Task 8's uncommitted edits and neither was opened by me**) · `tools/warning_census.sh` (**nothing re-pinned**) · no scenario · the handover's stacked `STATUS` headers · **B112 · B118 · B119 · B116 · the REPLY-only wake** — all out of scope and all untouched.
+
+**UNCOMMITTED (D4 — the owner commits), on top of the §TASK-8 note that follows.**
+
+**★★★★★★★★★★★★★★★★★★ 2026-08-06 §TASK-8 — DOCUMENTATION ONLY. ZERO CODE, ZERO TESTS, ZERO PROBE LOGIC. ★★ THE HEADLINE IS WHAT TASK 8 TURNED OUT TO BE: IT HAS **NO IMPLEMENTATION COMPONENT LEFT**. Its Step-1 render (all eight `Emergency` arms) already landed with Tasks 1–7 and the §B115/§B117 slices — verified arm-by-arm against `src/firmware_ui.cpp`'s `draw_emergency` (V1, not against the plan) — so **Task 8 IS its bench matrix, and the matrix is now written and executable without further preparation.** ⛔ NO FIRMWARE CHANGE WAS OWED AND NONE WAS MADE.**
+
+★ **CASE → ENTRY COVERAGE MAP, and the three that had NO entry before this slice are named rather than smoothed over.** Derived by walking the owner's nine cases against both documents — **not** read off any list, **including the dispatch brief's, which was itself wrong** (see PREMISES below):
+
+| # | owner's validation case | guide entry | script entry | before this slice |
+|---|---|---|---|---|
+| 1 | the **first** visible counter is `attempt 1 of 3` | **H8-10 ★NEW** | 8.23 | ⛔ **NO GUIDE ENTRY** — script only |
+| 2 | the sequence ends at `attempt 3 of 3` | **H8-10 ★NEW** | 8.23 | ⛔ **NO GUIDE ENTRY** — script only |
+| 3 | the terminal headline is `NOT RELAYED` | H8-02 *(+4 failure readings)* | 8.24 | covered |
+| 4 | blocked countdown and automatic retry | H8-04 *(+exact text)* | **8.25 ★NEW** | ⛔ **NO SCRIPT ENTRY** |
+| 5 | blanked-panel emergency **+** outcome wake | **H8-01 step 6 ★NEW** · H6-11 | **8.27 ★NEW** · 8.15 | ⛔ **fire-from-dark was one clause, no expected text** |
+| 6 | emergency pre-empts an outstanding DM/channel send | H8-06 | **8.26 ★NEW** | ⛔ **NO SCRIPT ENTRY** |
+| 7 | location included only when available | H8-07 | 8.18 | covered |
+| 8 | the retained outcome holds for **`kEmgHoldMs`** | H8-08 *(§B78 fixed)* | 8.10 | covered **but restating the value** |
+| 9 | no repeated I²C while blanked | H8-08 *(+method)* | 8.4 | covered, no method |
+
+⇒ **three cases had NO entry in one of the two documents (1, 2 in the guide; 4, 6 in the script) and case 5's first half was a clause, not a check.** Every entry now carries **exact panel and console text** and an explicit **what a FAILURE looks like** block — an entry that says only what success looks like cannot distinguish *"passed"* from *"not reached"*, which is how [[B114]] survived a green bench.
+
+★ **THE §B78 VIOLATION FOUND EN ROUTE, and it is the third repeat of the same rule ([[B120]]):** guide **H8-08** restated `kEmgHoldMs`'s **value twice in prose**. It was **correct for today's value** — which is exactly why it would have survived to the next re-rule and then pinned the wrong behaviour on a **distress** screen with every host gate green. Both copies now name the constant, with its one declaration site on the line. ⓘ `grep -c 30000` over both bench documents = **0**.
+
+★ **M2 APPLIED IN BOTH DIRECTIONS, not just the additive one.** **H8-09** (battery cadence with an unavailable reader) is now reachable by `tools/probe_firmware_ui/` controls C6/C7/C8 *including* the attempted-vs-succeeded clause ⇒ marked **OPTIONAL**, not kept as a bench re-test of a host gate. ⛔ **Not deleted** — the ADC pin is still untouched by any gate and Task 9 makes that the point. Each new entry also **states what the host already covers** before saying what only metal reaches (the ordinal is model-computed and natively byte-asserted; the *panel painting it* is B104 residue — `probe_firmware_ui` counts draw **calls**, never their text).
+
+⚠ **THE PROVISIONAL MARKING IS LANDED IN THREE PLACES, and it says what the brief asked plus why:** guide **H8-03** (the full note), guide **H6-11**, script **8.15**. What the firmware does today is an **INFERENCE** — `ui_route_recv_push` lifts the alarm to `REPLY` on **any** same-team `channel_recv` while an alarm is live, because nothing on the wire marks a post as an answer ⇒ *"on my way"* and unrelated team chatter are indistinguishable to the panel. **[[B118]]** replaces it with a positive carrier bound to the original `channel_msg_id`; it is **unbuilt** and its authentication floor is **QA-proposed, unruled**. ⇒ a tester may **not** read that check's pass as validation of the reply path. ★ The *wake* half of H6-11 stays a real pass/fail — it is owner-ruled (§1.3).
+
+⚠ **CASE 5 IS HALF RULED AND HALF OPEN, and both halves are now stated at the top of H8:** a **REPLY** waking a dark panel **must** work; the four **LOCAL** outcomes (`BLOCKED`/`PICKED UP`/`NOT RELAYED`/`FAILED`) **do not wake it today, as shipped**, and widening that is the ledger §2 open item. ⛔ **Out of scope here and explicitly flagged NOT-A-DEFECT for the run**, so the bench cannot generate a false bug report against work the owner has not ruled on.
+
+### ⛔ PREMISES THAT TURNED OUT WRONG — four, and two of them came from the dispatch brief
+
+1. ⛔ **"HEAD is `a02a8ad`, 17 modified / 4 untracked."** **FALSE.** HEAD is **`1fdcfc4`** (*"heltec progress"*, with `a02a8ad` its parent) and the tree was **completely clean** — `git status --porcelain` returned **nothing**. **The owner committed the whole uncommitted arc between sessions.** ⇒ there was no uncommitted-file overlap to report, and every change in this note is this slice's alone.
+2. ⛔ **"Bench 8.23 / 8.24 are already owed."** **FALSE — both already existed** (`docs/2026-07-31-bench-test-script.md:863` and `:879`), landed by the §B117-RULED slice. Had they been written again the script would have carried **two** first-reading counter checks with different wording. ★ **This is exactly why the brief said *derive, do not trust any list — including this one*, and the instruction earned itself twice.**
+3. ⛔ **The plan's Task-8 banner — *"Gated on B38/B39/B40 … `PICKED UP` is unreachable … always ends `NOT HEARD`"*.** **STALE ([[B121]]):** B38 was fixed **2026-08-01** — the plan's *own* B38 row eleven hundred lines above says so — and the headline is the ruled `NOT RELAYED`. **Task 8 was never blocked.** Fact-only corrected, superseded text kept as a fenced `⛔ SUPERSEDED` quote, and the original warning's surviving principle (*never adjust the expectations to match observed behaviour*) restated rather than dropped. ★ **The pattern worth keeping: a `⛔ Gated on …` line is a plan's highest-authority sentence and its least-maintained one.**
+4. ⛔ **The plan's Step-1 prose vs the shipped strings.** It prescribes `RELEASE TO CANCEL` (**17 chars — it would clip** at the 12-column large-font budget, the same wall that killed `NO RELAY HEARD`) and `REPLY <who>`; the code renders **`RELEASE!`** + detail `EMERGENCY IN <n>`, and **`REPLY`** with the name on the **detail** line. The **verified string table is now in guide H8-01** and the plan is marked stale beside it.
+
+⚠ **AND ONE TRAP FIRED ON ME, exactly as the brief predicted.** My first `grep` for the headline string used `head -40` and **hit the limit** — `src/firmware_ui.cpp` was **absent from the output**, which would have read as *"`NOT RELAYED` is not implemented"*. Re-run scoped, it is live at `firmware_ui.cpp:620` under W11/W11b. ★ **A truncated grep is indistinguishable from a negative result. Print the count, or scope the search.**
+
+### THE GATE (D1) — ⛔ DOCS-ONLY: NO GATE IS OWED AND NONE IS CLAIMED
+
+**This slice changed six Markdown files and nothing else** — `git status --porcelain` shows **0** files under `src/`, `lib/`, `test/`, `tools/`, `variants/`, and no `platformio.ini`. ⛔ **No s18 run, no corpus claim, no board env, no warning census is asserted here**: prose cannot move them, and asserting a number nobody re-measured is the failure mode this file exists to prevent. **Three tripwires were RUN to prove nothing was disturbed:**
+
+| tripwire | result |
+|---|---|
+| native | `pio test -e native` + **RUNNING `./.pio/build/native/program`** — the wrapper again reported *"0 test cases"*; the binary is the only truth = **1373 test cases / 74023 assertions / 0 failed — UNCHANGED** |
+| feature probe | `tools/probe_firmware_ui/run.sh` = **25/25 checks, 13/13 controls verified, rc=0, PASS**, real sources **md5-verified unchanged by the run** (`11259f55…`) |
+| board probe | `tools/probe_board_ui/run.sh` = **38/38 behavioural · 10/10 structural · 13/13 wiring · 19 wiring controls RED · 8/8 board controls red**, rc=0, real source verified **UNCHANGED** |
+
+**FILES MODIFIED (six, and nothing else):** **this file** (the note above) · `docs/2026-07-31-bench-test-script.md` (**8.25 / 8.26 / 8.27 new**, the Part-8 header's case→entry map, 8.15's provisional note) · `docs/2026-08-04-heltec-v3-oled-ui-bench-guide.md` (**H8-10 new**, the H8 preamble + coverage table, H8-01's verified string table + fire-from-dark check, H8-02's failure readings, H8-03's provisional note, H8-04's exact text, **H8-08's §B78 fix** + case-9 method, H8-09 marked optional, H6-11's provisional note) · `docs/2026-07-30-open-bug-register.md` (**[[B120]] [[B121]] [[B122]] opened and all three closed in the same pass**, index + detail) · `docs/2026-08-05-owner-rulings-ledger.md` (**§2's `Task 8 | next` row corrected in place**) · `docs/superpowers/plans/2026-07-31-onboard-oled-ui-phase-a.md` (**fact-only**: the stale gate banner + the Step-1 string drift).
+
+⛔⛔ **NOT TOUCHED, and the list is load-bearing:** **0 source files · 0 test files · 0 files under `lib/` · 0 under `src/` · 0 under `tools/` · 0 under `variants/`** · `CLAUDE.md` · no scenario · no `platformio.ini` · `simulation/` beyond this note · **the handover's five stacked `STATUS` headers were NOT consolidated** (per instruction) · **Task 9** and its `-DMR_UI_ADC_CTRL` / `-DMR_UI_VBAT_READ` config (the standing *no config before its reader* rule) · **B112 · B118 · B119 · B116 · B38 · the REPLY-only wake widening** — all untouched. **UNCOMMITTED (D4 — the owner commits), on top of the §B105-DOC note that follows.**
+
 **★★★★★★★★★★★★★★★★★ 2026-08-06 §B105-DOC — DOCUMENTATION ONLY. ZERO CODE, ZERO TESTS, ZERO PROBE LOGIC. ★ THE HEADLINE IS THAT §B105's s18 RATIONALE WAS WRONG AND SELF-CONTRADICTORY, AND THE ERROR WAS THE QA-GATE'S DISPATCH BRIEF, NOT THE IMPLEMENTER.** ① **The wrong claim:** the §B105 note (its *"`lib/core`: ZERO files"* line and the s18 row of THE GATE) and `docs/2026-07-30-open-bug-register.md`'s B105 entry all recorded that **any** `lib/` change makes s18 non-inert — while the *same* register entry's `MEASURED` paragraph correctly said the accessor *"touches no `lib/core` file (so s18 byte-identity is unaffected)"*. **A claim and its negation in one document; this project has shipped that three times.** ★ **Verified against the simulator's own `CMakeLists.txt` (V1, never a comment): it enumerates its MeshRoute sources EXPLICITLY — **19 of `lib/core`'s 21 `*.cpp`** + `lib/console/console_json.cpp` + monocypher, include dirs `lib/core` / `lib/console` / `lib/monocypher/src`. `lib/hal` is neither compiled nor on the include path, and NO `lib/core` file `#include`s `device_hal.h`** (`lib/core/node.h:1620` mentions it in a comment only; the only includers are `lib/hal/device_hal.cpp`, `test/test_device_hal.cpp`, `src/fw_context_pure.h`, `src/fw_main.cpp`). ⇒ **THE ACCURATE RULE, now written in both places: `lib/core` → s18 byte-identity is LOAD-BEARING (D2); `lib/hal` → outside the simulator's build graph ⇒ s18 inert BY CONSTRUCTION.** ⚠ **NOT overcorrected into "`lib/` changes don't matter", and §B105's s18 run is NOT withdrawn** — `1cd21235` / 271629 EXACT stands as a **whole-tree tripwire**; it simply does not test this accessor. ⓘ **Attribution: the brief said *"if any `lib/` file changes, prove s18 byte-identity"*. The coder followed it correctly.** ② **The board-env evidence record was INCOMPLETE, not failing:** §B105 recorded **5/5**; **independent QA subsequently built ALL TEN board envs successfully — recorded as QA's measurement, because this slice did not run ten and neither did §B105.** The standing **D1 ("every board env") vs the 2026-07-28 three-env ruling** tension is now stated beside it, with which applied and why (a `lib/hal` header compiles into every board build ⇒ ten was right). ⛔ **`CLAUDE.md` NOT touched — D1 is the owner's text.** ③ **`tools/probe_firmware_ui/run.sh:15` asserted "IT IS COMMITTED".** It is **untracked**, and under **D4** the owner makes every commit ⇒ nothing in this slice is committed. Reworded to the obligation (*"must remain in the repository and be committed with this slice"*) with the false state withdrawn in place — same class as the ledger §3 invented-approval incident. **FILES MODIFIED (three, and nothing else): this file · `docs/2026-07-30-open-bug-register.md` (B105's entry: the corrected s18 rationale + the ten-env attribution, in the Tier index line AND the detail entry) · `tools/probe_firmware_ui/run.sh` (THE `:15` COMMENT ONLY — no logic, no control, no flag).** ⛔⛔ **NOT TOUCHED: 0 source files · 0 test files · 0 files under `lib/` · 0 under `src/` · `CLAUDE.md` · the handover's stacked `STATUS` headers · [[B119]] · B118's draft · `docs/2026-08-05-owner-rulings-ledger.md` · no scenario · no `platformio.ini` · `variants/` · `tools/probe_board_ui/`.** UNCOMMITTED, on top of the §B105 note that follows.
 
 ★ **NO BUILD GATE IS OWED AND NONE IS CLAIMED — this pass changed prose only (two Markdown files and one shell COMMENT block), and no compiled artefact.** ⛔ No s18 run, no corpus claim, no board env, no warning census is asserted here: a docs edit cannot move them, and asserting a number nobody re-measured is the failure mode this file exists to prevent. **Two tripwires were run to prove nothing was disturbed:** `pio test -e native` + **RUNNING the binary** (the wrapper again reported *"0 test cases"* — the binary is the only truth) = **1373 test cases / 74023 assertions / 0 failed — UNCHANGED** · `tools/probe_firmware_ui/run.sh` = **25/25 checks, 13/13 controls verified (C0 build-fails as required), rc=0, PASS**, real sources md5-verified unchanged by the run — **proving the `:15` comment edit did not disturb the probe.** ⓘ `git status` confirms no source or test file was modified by this pass.

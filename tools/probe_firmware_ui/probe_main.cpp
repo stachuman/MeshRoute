@@ -3,7 +3,7 @@
 //
 // §B105 PROBE — host-compiles the REAL `src/firmware_ui.cpp` and MEASURES the four behaviours [[B104]] named as having
 // no behavioural cover at all: RENDER POLICY (the caller half of once-per-page), the §5 MAC-IDLE GATE, the 2 Hz
-// THROTTLE, and the BATTERY CADENCE.
+// THROTTLE, and the BATTERY CADENCE — plus, since §UI-9, what the cadence PUTS ON THE PANEL (P5: `--` vs volts).
 //
 // ★★ WHY IT COULD NOT EXIST BEFORE, in one line: `firmware_ui.cpp` included `fw_context.h` -> `<RadioLib.h>` -> not
 //    host-compilable. [[B105]] replaced that with `fw_context_pure.h` + `DeviceHal::radio()`, and this file is the
@@ -15,21 +15,28 @@
 //     FAKED  the CANVAS (`board_ui.h`'s nine entry points) — counting stand-ins, so a page loop and a battery sample
 //            are observable; the RADIO (`IRadio`) — scriptable, so `tx_busy()` can be driven; and `mrfw::exec_command`.
 //   ⓘ The canvas is faked rather than linked from `variants/heltec_v3/board_ui.cpp` DELIBERATELY: that TU already has
-//     its own probe (`tools/probe_board_ui/`), which measures the panel side. Faking it here keeps this probe pointed
-//     at the FEATURE layer and lets `battery_sample_mv()` answer differently per case — the real one is hardcoded `-1`
-//     until Task 9, so a linked board TU could not exercise the "a GOOD reading arrives" arm at all.
+//     its own probe (`tools/probe_board_ui/`), which measures the panel side — including, since §UI-9, the real ADC
+//     reader's polarity/enable/disable/plausibility behaviour. Faking it here keeps this probe pointed at the FEATURE
+//     layer and lets `battery_sample_mv()` answer differently per case, which is what makes the "a GOOD reading
+//     arrives, then the reader goes unavailable" arm reachable at all.
+//     ⛔ CORRECTED IN PLACE 2026-08-06: this note used to say the real reader "is hardcoded `-1` until Task 9". Task 9
+//        has landed; the real one now reads hardware and can answer either way.
 //
 // ★★★ EVERY CHECK MUST BE ABLE TO FAIL. `run.sh` re-runs this binary against mutated COPIES of `firmware_ui.cpp` (the
 //     tempting WRONG fixes, not just deletions) and requires each to turn it RED. A check no mutation can break is
 //     recorded as vacuous, not as a pass — this arc has already shipped seven instruments that could not fail.
-//   ⓘ MEASURED, 2026-08-06: 20 of the 25 checks below are reddened by at least one of run.sh's 13 controls. The
-//     OTHER FIVE are named rather than hidden — they are all in P2b, they are HARNESS PRECONDITIONS, and they assert
-//     `DeviceHal`/`IRadio` behaviour, not `firmware_ui.cpp`'s: "the frame was accepted", "the queue is non-empty",
-//     "the radio is still idle", "the queue drained", "the frame really went to the radio". No mutation of the file
-//     under test can move them, and that is correct — their job is to fail if the QUEUE ever stops being non-empty
-//     at the moment P2b measures suppression, because then P2b's real check would be passing over an empty queue.
-//     They are this probe's own vacuity guard, in the W10b sense, and they can fail: a `DeviceHal::tx` that sent
-//     immediately instead of enqueuing would trip them.
+//   ★ THE RATIO IS NO LONGER WRITTEN DOWN HERE. It used to read "20 of the 25 checks are reddened by … 13 controls",
+//     and it went stale the moment a slice added checks — a hand-maintained coverage claim in a comment is the same
+//     defect class as a bench doc restating a constant's value ([[B120]]). `run.sh` now MEASURES it and prints
+//     `coverage: N of M checks are reddened by at least one control`, NAMING every exception (`PROBE_LIST=1` makes
+//     each CHK announce itself, which supplies the denominator).
+//   ⓘ The standing exceptions are the five P2b lines, and they are exceptions ON PURPOSE: they are HARNESS
+//     PRECONDITIONS asserting `DeviceHal`/`IRadio` behaviour, not `firmware_ui.cpp`'s — "the frame was accepted",
+//     "the queue is non-empty", "the radio is still idle", "the queue drained", "the frame really went to the radio".
+//     No mutation of the file under test can move them, and that is correct: their job is to fail if the QUEUE ever
+//     stops being non-empty at the moment P2b measures suppression, because then P2b's real check would be passing
+//     over an empty queue. They are this probe's own vacuity guard, in the W10b sense, and they can fail: a
+//     `DeviceHal::tx` that sent immediately instead of enqueuing would trip them.
 
 #include "mr_features.h"
 #include "board_ui.h"          // the mrui:: canvas contract — IMPLEMENTED below as counting fakes
@@ -42,6 +49,8 @@
 #include <Arduino.h>           // the shim: millis / Print / F() / Serial  (tools/probe_board_ui/fakes)
 #include <cstdio>
 #include <cstring>
+#include <cctype>
+#include <cstdlib>          // getenv — PROBE_LIST, the coverage roll-up switch
 
 // ==================================================================================================================
 // the scriptable device under the feature layer
@@ -73,6 +82,15 @@ struct Canvas {
     int  draws_at_page_start = 0;         // draw_text count when the current page began
     int  min_draws_per_page = 1 << 30;    // the SMALLEST scene any page of the last frame got
     int  pages_this_frame = 0;
+    // ---- §UI-9: WHAT THE TEXT ACTUALLY SAYS, not just how many draws happened ---------------------------------
+    // ★ [[B104]]'s standing residue is that this probe counts draw CALLS, so it can prove a page was painted and
+    //   never that the right text was on it. These two fields dent that for ONE field and no more: `first_text` is
+    //   the STATUS BAR (draw_frame draws it first, on EVERY screen and even under the emergency overlay), and
+    //   `page_text` is everything the frame drew. ⛔ The snapshot BUILDER and every other `draw_*` stay uncovered.
+    char first_text[64] = {};             // the first string of the CURRENT frame = the status bar
+    bool have_first = false;
+    char page_text[2048] = {};            // every string of the current frame, '|'-separated
+    size_t n_page_text = 0;
     bool init_answer  = true;             // what board_init() reports (§B91)
     bool button_down  = false;
     int32_t batt_answer = -1;             // what battery_sample_mv() hands back; <0 = unavailable (the real V3 today)
@@ -96,7 +114,11 @@ ExecLog g_exec;
 namespace mrui {
 bool board_init()  { ++g_c.init; return g_c.init_answer; }
 void begin_frame() { ++g_c.begin_frame; g_c.pages_left = 8; g_c.pages_this_frame = 0;
-                     g_c.min_draws_per_page = 1 << 30; g_c.draws_at_page_start = g_c.draw_text; }
+                     g_c.min_draws_per_page = 1 << 30; g_c.draws_at_page_start = g_c.draw_text;
+                     // a new frame's text replaces the old one — never accumulates across frames, or a stale value
+                     // from an earlier frame would satisfy a "the panel says X" check for ever.
+                     g_c.have_first = false; g_c.first_text[0] = '\0';
+                     g_c.n_page_text = 0;    g_c.page_text[0]  = '\0'; }
 bool next_page()   {
     ++g_c.next_page;
     // The scene drawn since the last page boundary is this page's content. A caller that draws only at frame start
@@ -109,7 +131,17 @@ bool next_page()   {
     return g_c.pages_left > 0;
 }
 void set_font(Font)                    { ++g_c.set_font; }
-void draw_text(int, int, const char*)  { ++g_c.draw_text; }
+void draw_text(int, int, const char* s) {
+    ++g_c.draw_text;
+    if (!s) return;
+    if (!g_c.have_first) { snprintf(g_c.first_text, sizeof g_c.first_text, "%s", s); g_c.have_first = true; }
+    const size_t n = strlen(s);
+    if (g_c.n_page_text + n + 2 < sizeof g_c.page_text) {
+        memcpy(g_c.page_text + g_c.n_page_text, s, n); g_c.n_page_text += n;
+        g_c.page_text[g_c.n_page_text++] = '|';
+        g_c.page_text[g_c.n_page_text]   = '\0';
+    }
+}
 void draw_hline(int, int, int)         { ++g_c.draw_hline; }
 void set_power_save(bool on)           { ++g_c.power_save; g_c.last_power_save = on ? 1 : 0; }
 bool button_pressed()                  { ++g_c.button; return g_c.button_down; }
@@ -140,10 +172,28 @@ meshroute::Node      g_node(g_hal, /*node_id=*/1, /*key_hash32=*/0x11223344u, "p
 // ==================================================================================================================
 namespace {
 int g_pass = 0, g_fail = 0;
+// PROBE_LIST=1 makes every check announce itself whether it passed or not. `run.sh` uses that as the DENOMINATOR of
+// its "N of M checks are reddened by a control" roll-up, so the ratio is measured instead of restated in a comment —
+// the header of this file carried a hand-maintained "20 of 25" that went stale the moment six checks were added.
+const bool g_list = std::getenv("PROBE_LIST") != nullptr;
 #define CHK(label, expr) do {                                                              \
     const bool ok_ = (expr);                                                               \
     if (ok_) ++g_pass; else { ++g_fail; printf("  FAIL %-64s  %s\n", (label), #expr); }    \
+    if (g_list) printf("  CHECK %s\n", (label));                                           \
 } while (0)
+
+// §UI-9 text predicates. `has_voltage` looks for the shape `fmt_volts` emits for a REAL reading — digit '.' digit 'V'
+// — so it can say "no voltage was invented" without knowing which one would have been. ⚠ It must not match the
+// STATUS body's `batt %ldmV` (digits then "mV"), and it does not: that has no '.' before the 'V'.
+bool has_voltage(const char* s) {
+    for (const char* p = s; p[0] && p[1] && p[2] && p[3]; ++p)
+        if (isdigit((unsigned char)p[0]) && p[1] == '.' && isdigit((unsigned char)p[2]) && p[3] == 'V') return true;
+    return false;
+}
+bool ends_with(const char* s, const char* suffix) {
+    const size_t n = strlen(s), m = strlen(suffix);
+    return m <= n && strcmp(s + (n - m), suffix) == 0;
+}
 
 void set_now(uint32_t ms) { g_probe_millis = ms; }
 void tick(uint32_t ms)    { set_now(ms); mr_ui_tick(ms); }
@@ -293,6 +343,47 @@ int main() {
     g_probe_radio.busy_tx = false;
     run_ticks(t + 95000, 2, 10);
     CHK("P4 ...and taken as soon as the MAC goes idle",      g_c.battery == before + 1);
+
+    // ============================================================================================================ P5
+    // ★★ WHAT THE CADENCE PUTS ON THE PANEL (plan Task 9 / slice UI-9). P4 proves the ADC is READ at the right
+    //    moments; it says nothing about what the operator sees, and [[B104]]'s residue is exactly that — this probe
+    //    counts draw CALLS. These checks read the STATUS BAR's TEXT, which `draw_frame` emits first on every screen.
+    // ★ THE RULED RENDER POLICY (plan Task 9 Step 3, spec §3.3): `3.9V` or `--`, NEVER a percentage. A percentage
+    //   needs a chemistry and a discharge curve nobody has approved.
+    // ⚠ ONLY the bar is asserted, deliberately: `settle()` delivers a real short press, which CYCLES the screen, so
+    //   which BODY is drawn is not deterministic here. The bar is drawn on every screen and under the overlay.
+    // ⛔ This closes ONE field of B104's residue. The snapshot BUILDER and every other `draw_*` remain uncovered.
+
+    // (a) THE READER HAS NEVER SUCCEEDED -> `--`, and nothing may be invented in its place.
+    g_c.batt_answer = -1;
+    t = settle(t + 100000);
+    dirty_the_model(t);
+    run_ticks(t, 8, 10);
+    CHK("P5 an unavailable reading renders the bar's `--`",  ends_with(g_c.first_text, "--"));
+    CHK("P5 ... and NO voltage is invented anywhere",        !has_voltage(g_c.page_text));
+
+    // (b) ONE GOOD READING REACHES THE PANEL — as volts, to one decimal, never a percentage.
+    g_c.batt_answer = 3912;                                  // 3.912 V
+    t += 31000; run_ticks(t, 2, 10);                         // the 30 s period has elapsed -> one (successful) sample
+    t = settle(t + 1000);
+    dirty_the_model(t);
+    run_ticks(t, 8, 10);
+    CHK("P5 a successful reading renders as volts",          ends_with(g_c.first_text, "3.9V"));
+    CHK("P5 ... and never as a percentage",                  strchr(g_c.first_text, '%') == nullptr);
+
+    // (c) ★ SPEC §7's LAST-GOOD RULE, MEASURED. A later UNAVAILABLE read must NOT erase the value already displayed
+    //     (`if (mv >= 0) s_batt_mv = mv;`). ⚠ THE CONSEQUENCE IS REAL AND IS REPORTED RATHER THAN SMOOTHED: after one
+    //     good sample, a reader that dies keeps a STALE voltage on the panel indefinitely. That is what §7 says
+    //     ("keeps the last good value") and what the shipped code does; whether it should is the owner's call, not
+    //     this slice's. Until the FIRST success the field is `--`, which (a) pins.
+    g_c.batt_answer = -1;
+    const int b4 = g_c.battery;
+    t += 31000; run_ticks(t, 2, 10);
+    CHK("P5 the cadence DID re-attempt after the good one",  g_c.battery > b4);
+    t = settle(t + 1000);
+    dirty_the_model(t);
+    run_ticks(t, 8, 10);
+    CHK("P5 an unavailable read does not erase the last good value", ends_with(g_c.first_text, "3.9V"));
 
     printf("\n%d passed / %d failed / %d total\n", g_pass, g_fail, g_pass + g_fail);
     return g_fail == 0 ? 0 : 1;

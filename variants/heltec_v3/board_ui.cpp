@@ -10,10 +10,16 @@
 // ★ WHAT IS DONE AND WHAT IS NOT — stated here because docs rot and code is read:
 //   DONE      the display-independent canvas of board_ui.h — panel bring-up, page-chunked paint, edge-triggered
 //             blanking, the user button. Nothing above this file may see U8g2, and nothing here may see a "screen".
-//   MISSING   battery_sample_mv() is an honest `unavailable` (-1) STUB. The real reader — auto-detected ADC_CTRL
-//             polarity, mean of 8 samples, NO settling delay — is plan Task 9 / slice UI-9 (spec §7). Until then the
-//             status bar renders `--`, which is this project's rule for an unavailable reading (console_json.h:126),
-//             never a plausible wrong number.
+//   DONE      battery_sample_mv() is REAL as of plan Task 9 / slice UI-9 (spec §7): auto-detected ADC_CTRL polarity,
+//             divider enabled only around the burst, mean of 8 samples, NO settling delay. It still answers `-1` when
+//             the reading is not a battery (see the plausibility window), because `--` is this project's rule for an
+//             unavailable reading (console_json.h:137), never a plausible wrong number.
+//   NOT DONE  nothing in this TU can prove the ADC SCALE or the detected POLARITY are right for the board in the
+//             operator's hand — both are reproduced from a working port, and only a multimeter closes that
+//             (docs/2026-07-31-bench-test-script.md Part 9; guide H8-09/H9-01).
+//   NOT DONE  the FAIL-SAFE PARK for a floating control line (kAdcCtrlFailsafePark) is documented-inactive for
+//             **V3.2 and later only**. It is NOT proven safe on a pre-3.2 board, and this file does not claim it is;
+//             guide H9-05 / script 8.28 are the falsification. See [[B123]] round 2 at the constant.
 //   DONE      §B91 (Task 6): board_init() now REPORTS whether the panel ACKed — an I2C address probe, the same
 //             mechanism MeshCore uses (SSD1306Display::i2c_probe), because U8g2's begin() always returns 1. The canvas
 //             still owns no report CHANNEL: src/firmware_ui.cpp turns the bool into a console line.
@@ -33,6 +39,15 @@
 
 #ifndef MR_UI_BTN_PIN
 #  error "MR_UI_BTN_PIN is not defined — the board env must supply the user-button GPIO (platformio.ini, [env:heltec_v3])"
+#endif
+// §UI-9 (plan Task 9): the battery pins arrive WITH the reader, by the standing "no config before its reader" rule.
+// C2 — fail loud rather than defaulting: a wrong ADC pin silently reads a different net, and a defaulted control pin
+// would leave a divider enabled for ever (a standing current draw on a safety device).
+#ifndef MR_UI_ADC_CTRL
+#  error "MR_UI_ADC_CTRL is not defined — the board env must supply the battery-divider CONTROL GPIO (platformio.ini, [env:heltec_v3])"
+#endif
+#ifndef MR_UI_VBAT_READ
+#  error "MR_UI_VBAT_READ is not defined — the board env must supply the battery ADC input GPIO (platformio.ini, [env:heltec_v3])"
 #endif
 
 // ---- board table -------------------------------------------------------------------------------------------------
@@ -79,10 +94,141 @@ static U8G2_SSD1306_128X64_NONAME_1_HW_I2C s_u8g2(U8G2_R0, kOledRst, kOledScl, k
 static bool s_painting = false;   // a page loop is open — next_page() still has pages to push
 static bool s_asleep   = false;   // ★ the blanking LATCH; see set_power_save()
 
-// Battery: an empty stub so this TU links and the panel renders `--`. Plan Task 9 / slice UI-9 replaces both halves
-// (this and mrui::battery_sample_mv below) in place; it is deliberately at file scope, outside namespace mrui, so
-// Task 9's block drops straight in.
-static void battery_init() {}
+// ---- battery divider (spec §7; plan Task 9 = slice UI-9) -----------------------------------------------------------
+// Provenance rule (spec §10, and the same one the Vext block above obeys): every value here is recovered from
+// MeshCore's WORKING Heltec V3 port — ~/MeshCore/variants/heltec_v3/HeltecV3Board.h, `begin()` :31-36 and
+// `getBattMilliVolts()` :79-92 — not from datasheet reading. V3 and V4 share the pins and the formula (spec §10.1);
+// only the polarity handling and the settle differ, and V4 gets its own variants/heltec_v4/board_ui.cpp anyway.
+static constexpr uint8_t  kAdcBits      = 10;      // analogReadResolution(10) — the resolution the divisor assumes
+static constexpr float    kAdcFullScale = 1024.0f; // 2^kAdcBits; MeshCore's formula divides by exactly this
+static constexpr float    kAdcRefV      = 3.3f;    // full-scale volts at the ADC pin
+// ★★ THIS IS AN EMPIRICAL COMBINED ADC SCALE, NOT A RESISTOR RATIO — and the old name (`kVbatDivider`, "VBAT / V(ADC)
+//    — a PER-REVISION property") ASSERTED THAT IT WAS ONE. Renamed rather than annotated, because the name is what a
+//    bench reader acts on ([[B126]], independent QA 2026-08-06). MEASURED AGAINST THE DOCUMENTED NETWORK:
+//      · Heltec's V3 battery divider is **VBAT — 390 kΩ — GPIO1 — 100 kΩ — GND** ⇒ a PHYSICAL ratio of
+//        (390 + 100) / 100 = **4.9**.
+//      · The reference port's 5.42 is 4.9 × **1.106** ⇒ roughly **10.6 % of this number is not the resistors at all**.
+//        It absorbs the ESP32-S3 ADC's attenuation / full-scale error against the nominal `kAdcRefV / kAdcFullScale`
+//        this formula assumes.
+//    ⇒ ★ A METER DISAGREEMENT IS AN **ADC-CALIBRATION** SUSPECT AT LEAST AS MUCH AS A RESISTOR-TOLERANCE ONE. As
+//      `kVbatDivider` the bench entries pointed the tester at the resistors alone, which is the wrong first suspect;
+//      guide H9-02 and script 8.6 now say both.
+// ⓘ PROVENANCE AT THE LEVEL IT IS ACTUALLY KNOWN, not rounded up: the 390 k / 100 k network is documented by the V3
+//   community and by `ropg/heltec_esp32_lora_v3`'s README, read off the schematic — Heltec's own HTIT-WB32LA_V3.2 PDF
+//   was fetched and is not machine-readable, so this is third-party-from-schematic, NOT a vendor spec sheet.
+// ⛔ The VALUE is unchanged and still comes from the WORKING reference port. Do not retune it from one voltage point.
+static constexpr float    kVbatAdcScale = 5.42f;   // mv = kVbatAdcScale * (kAdcRefV / kAdcFullScale) * raw * 1000
+static constexpr uint8_t  kAdcSamples   = 8;       // mean of 8, as the reference port does
+// ★ THE PLAUSIBILITY WINDOW IS NOT A NEW POLICY — it is this tree's EXISTING answer for an ADC battery reader (U1):
+//   src/firmware_commands.cpp's read_batt_mv() ends `return (mv > 2000 && mv < 4500) ? mv : -1;` with the comment
+//   "1S-LiPo plausible range; else omit". Both boards carry a 1S cell, so the window is the same one.
+//   ⇒ this reader can genuinely answer "unavailable", which is what keeps board_ui.h's `<0` contract and the panel's
+//     `--` alive on hardware. Without it a disconnected divider reads raw 0 and the panel would claim `0.0V` — a
+//     display-shaped field overstating the measurement, the exact class of F4 / §B117 / the `NOT RELAYED` ruling.
+//   ⚠ DUPLICATION, STATED RATHER THAN HIDDEN: the same two numbers now exist in two TUs. Hoisting them into a shared
+//     header means editing a working nRF52 path from inside a Heltec feature slice (C1: refactor XOR feature), so it
+//     is registered as a follow-up instead of done here.
+static constexpr int32_t  kBattMinMv    = 2000;
+static constexpr int32_t  kBattMaxMv    = 4500;
+
+// ★★ POLARITY IS PROBED, NEVER HARDCODED — AND THE PROBE IS CHECKED, BECAUSE THE OBVIOUS FORM OF IT IS A COIN FLIP.
+//    `MR_UI_ADC_CTRL` (GPIO 37) is a CONTROL line, not the ADC input: it gates the VBAT divider, so it must be driven
+//    ACTIVE only around the burst and parked INACTIVE the rest of the time or the divider leaks CONTINUOUSLY.
+//    Boards past rev 3.2 INVERTED that line while keeping the "V3" name, which is why the reference port auto-detects
+//    instead of defining a level (`begin()` :31-33) and why spec §7 / plan Task 9 forbid hardcoding LOW here.
+//
+// ⚠⚠ THE DEFECT IN THE REFERENCE PORT'S PROBE, AND WHY THIS ONE DIFFERS. MeshCore does:
+//        pinMode(PIN_ADC_CTRL, INPUT); adc_active_state = !digitalRead(PIN_ADC_CTRL);
+//    `INPUT` selects NO PULL. If nothing external defines GPIO 37's level, that read is INDETERMINATE — and the
+//    failure is not a wrong voltage, it is the PARK: whichever way an indeterminate read lands, the level then written
+//    as "inactive" is the ACTIVE one half the time, leaving the divider ENABLED for ever on a battery-powered safety
+//    device. ★ This is [[B90]]'s Vext problem restated: a pin nothing drives, read as if its level meant something.
+//    ⛔ WHAT THE TREE CAN AND CANNOT ESTABLISH, checked rather than assumed (V1): the vendor sources define
+//      `PIN_ADC_CTRL_ACTIVE/INACTIVE` (HeltecV3Board.h:14-15) and run the bare-`INPUT` probe on heltec_v3 AND
+//      rak3112 — and NOWHERE do they document a pull-up, a pull-down or an idle level. Their own **V4** board drops
+//      the probe entirely and hardcodes ACTIVE=HIGH (HeltecV4Board.cpp:7-8). ⇒ **"the line has a defined idle level"
+//      is NOT established by anything in this tree or in the vendor port.** Reproducing the probe verbatim would be
+//      claiming knowledge we do not have — the exact "reproduce the proven level" vs "we know the rail" line B90 drew.
+//
+// ★ WHAT THIS PORT DOES INSTEAD (and it is the honest minimum, not a cleverness): probe the line TWICE, once against
+//   an internal pull-up and once against an internal pull-down.
+//     · both reads AGREE  -> something EXTERNAL is holding the line, the idle level is real, and the detection means
+//                            what the reference port intends. Polarity = the inverse of that level.
+//     · they DISAGREE     -> the line is FLOATING. The detection is meaningless, so it is REFUSED rather than
+//                            guessed (C2): `s_adc_polarity_known` stays false and battery_sample_mv() answers
+//                            UNAVAILABLE for the life of the boot, so the panel shows `--` and never a number
+//                            derived from a coin flip.
+// ⚠⚠ WHAT THIS STILL DOES NOT DO, stated plainly because it matters: it CANNOT make the park provably safe. When the
+//    line floats there is no level that is known-inactive on EVERY revision, so the pin is still driven somewhere —
+//    deterministically and declared, instead of randomly. Detected-and-loud is an improvement over silent-and-random;
+//    it is not proof. ⇒ **THE OWNER MAY PREFER THE OTHER ANSWER** — replacing detection with a build constant
+//    carrying the measured value (the `kVextOnLevel` / `LORA_TX_POWER` precedent). That would CONTRADICT spec §7 and
+//    plan Task 9, both of which say "do not hardcode", so it is reported as owed rather than taken here. Neither
+//    option is implemented on the owner's behalf.
+//
+// ★★★ THE FAIL-SAFE PARK — AND IT IS THE HALF THAT SHIPPED **INVERTED** ([[B123]] round 2, independent QA 2026-08-06).
+//    The first cut of this file wrote ONE expression on EVERY path: `digitalWrite(CTRL, s_adc_active_high ? LOW : HIGH)`.
+//    On a floating line `s_adc_active_high` is `(with_pullup == LOW)` = `(HIGH == LOW)` = **false**, so that expression
+//    parked GPIO 37 **HIGH** — and Heltec's own hardware update log for **V3.2** reads, verbatim:
+//        "Modified voltage detection circuit, now need to pull up the ADC_Ctrl(GPIO 37)."
+//        — wiki.heltec.org/docs/devices/open-source-hardware/esp32-series/lora-32/wifi-lora-32-v3/hardware-update-log
+//          (V3.2 section; mirrored in HelTecAutomation/HeltecDocs)
+//    ⇒ on V3.2 and later, **HIGH IS THE MEASURING (ACTIVE) LEVEL** ⇒ the REFUSAL path — the one written precisely to
+//    avoid a standing drain — left the divider **ENABLED INDEFINITELY** on a battery-powered safety device. The
+//    comment above it said *"park INACTIVE — the divider must not idle on"*, which was the OPPOSITE of what it did in
+//    exactly the case it was written for. ⛔ Detection was right; the fallback was wrong.
+// ⇒ when the polarity is UNKNOWN the park is `kAdcCtrlFailsafePark` = **LOW**, the level Heltec DOCUMENTS as
+//   non-measuring on the revisions this line was inverted for.
+//
+// ⛔⛔ THIS IS **NOT** THE "HARDCODE THE POLARITY" THAT SPEC §7 AND PLAN TASK 9 FORBID, and the distinction is why this
+//    is a named constant instead of a literal in the `digitalWrite`. The **MEASUREMENT** polarity is still DETECTED and
+//    nothing here changes it: when the two-pull probe SUCCEEDS, both the enable level and the park still come from
+//    `s_adc_active_high`, and probe checks P6f (an idle-HIGH board parks HIGH) and P8o (an idle-LOW board parks LOW)
+//    turn RED the moment that stops being true. `kAdcCtrlFailsafePark` is consulted ONLY where detection has ALREADY
+//    FAILED and there is no detected polarity to consult. ★ A later reader must not "restore" the single expression as
+//    a spec violation — that is the defect, not the rule.
+// ⚠⚠ THE RESIDUAL, AND IT IS **NOT** CLAIMED AWAY: LOW is documented-inactive for **V3.2 and later** (and it matches
+//    the vendor's own V4 and T190 boards, which drop the probe and hardcode LOW-inactive / HIGH-to-measure —
+//    `HeltecV4Board.cpp:8,66,74`, `HeltecT190Board.cpp:7,52,60`). On a **pre-3.2** V3 the sense is the other way round
+//    (`ropg/heltec_esp32_lora_v3`: *"if GPIO37 is pulled low, the battery voltage appears on GPIO1"*), so THERE this
+//    fallback would be wrong again. ⓘ Why it is still the better bet rather than the coin flip re-flipped: a revision
+//    that BIASES the gate at all is a revision the two-pull probe DETECTS, and then the fallback never runs — the
+//    fallback runs only when NOTHING biases the line. ⛔ **This is not "provably safe on all revisions", and no such
+//    claim is made.** Only the bench closes it: guide **H9-05 part C**, script **8.31**.
+static constexpr uint8_t kAdcCtrlFailsafePark = LOW;
+// ⓘ FALSE-NEGATIVE DIRECTION: an external pull WEAKER than the ESP32-S3's internal (~45 kΩ) would read as "floating"
+//   and the panel would show `--` on a board that actually works. That is a refusal, not a wrong number, and the bench
+//   entries distinguish it (guide H9-01 / H9-05 part B).
+// ⛔ CORRECTED IN PLACE 2026-08-06: this note used to end *"...not a wrong number AND NOT A LEAK"*. **That was FALSE
+//   and it is the sentence [[B123]] round 2 disproved** — on this very path the park was the MEASURING level, so the
+//   "safe" direction WAS the leak. It is leak-free only BECAUSE of `kAdcCtrlFailsafePark` above, and only on the
+//   revisions that constant is documented for. ⇒ the claim now depends on a measurement, and script **8.31** /
+//   guide **H9-05 part C** are that measurement. Do not restore the unconditional form.
+// ⓘ SETTLE: the two probe reads take a µs-scale settle because we deliberately CHANGE the pull between them; that is
+//   different from the sampling burst, which takes NONE. The reference V3 port samples immediately after driving the
+//   line and only its V4 port inserts `delay(10)`, which spec §7 forbids importing — 10 ms of blocking wait against a
+//   `cts_to_data_gap_ms` of 5 is the same hazard class as a full-frame repaint.
+static constexpr uint32_t kPullSettleUs = 50;   // pull change -> stable read; µs-scale, boot-only, never in the burst
+static bool s_adc_active_high    = false;
+static bool s_adc_polarity_known = false;       // false => the probe found the line FLOATING => refuse to read
+
+static void battery_init() {
+    pinMode(MR_UI_ADC_CTRL, INPUT_PULLUP);
+    delayMicroseconds(kPullSettleUs);
+    const int with_pullup = digitalRead(MR_UI_ADC_CTRL);
+    pinMode(MR_UI_ADC_CTRL, INPUT_PULLDOWN);
+    delayMicroseconds(kPullSettleUs);
+    const int with_pulldown = digitalRead(MR_UI_ADC_CTRL);
+
+    s_adc_polarity_known = (with_pullup == with_pulldown);           // disagreement == nothing external holds the line
+    s_adc_active_high    = (with_pullup == LOW);                     // idle level probed, then inverted
+    pinMode(MR_UI_ADC_CTRL, OUTPUT);
+    // ★ PARK INACTIVE — FROM TWO SOURCES, NEVER ONE. The DETECTED inactive level when the probe succeeded; the
+    //   DOCUMENTED-inactive fail-safe when it did not. A single `s_adc_active_high ? LOW : HIGH` here parks the V3.2
+    //   ACTIVE level on exactly the refusal path that exists to prevent a standing drain ([[B123]] round 2, above).
+    digitalWrite(MR_UI_ADC_CTRL, s_adc_polarity_known ? (s_adc_active_high ? LOW : HIGH)
+                                                      : kAdcCtrlFailsafePark);
+}
 
 namespace mrui {
 
@@ -151,9 +297,26 @@ void set_power_save(bool on) {
 
 bool button_pressed() { return digitalRead(MR_UI_BTN_PIN) == LOW; }   // INPUT_PULLUP -> pressed reads LOW
 
-// MISSING by design — plan Task 9 / slice UI-9. <0 is the documented "unavailable" answer of board_ui.h's contract,
-// so the status bar shows `--`. Do NOT make this return a guess.
-int32_t battery_sample_mv() { return -1; }
+// ★ ONE SAMPLE. The CALLER decides when (spec §7: boot, then every ~30 s, and only under the §5 MAC-idle predicate —
+//   src/firmware_ui.cpp's battery_maybe_sample). This function owns no cadence and no policy; it must not acquire one.
+// ★ ENABLE -> SAMPLE -> DISABLE, with NO per-tick residue — the same edge/latch discipline set_power_save() follows.
+//   The divider is live for the duration of eight analogRead()s and is parked inactive again on every exit path.
+// ⚠ <0 means UNAVAILABLE and the panel renders `--`. Never substitute a plausible default voltage.
+int32_t battery_sample_mv() {
+    // ★ C2 — REFUSE rather than guess. If battery_init()'s two-pull probe found GPIO 37 floating, the polarity is a
+    //   coin flip; driving the line then has a 50 % chance of sampling a dead divider AND of parking it enabled. The
+    //   panel gets `--`, which is true ("we cannot measure this"), and the divider is left where boot parked it —
+    //   which since [[B123]] round 2 is `kAdcCtrlFailsafePark`, the documented-inactive level, not the detected one.
+    if (!s_adc_polarity_known) return -1;
+    analogReadResolution(kAdcBits);
+    digitalWrite(MR_UI_ADC_CTRL, s_adc_active_high ? HIGH : LOW);    // ENABLE the divider
+    uint32_t raw = 0;
+    for (uint8_t i = 0; i < kAdcSamples; ++i) raw += uint32_t(analogRead(MR_UI_VBAT_READ));
+    raw /= kAdcSamples;
+    digitalWrite(MR_UI_ADC_CTRL, s_adc_active_high ? LOW : HIGH);    // DISABLE — no standing leak between samples
+    const int32_t mv = int32_t(kVbatAdcScale * (kAdcRefV / kAdcFullScale) * float(raw) * 1000.0f);
+    return (mv > kBattMinMv && mv < kBattMaxMv) ? mv : -1;
+}
 
 }  // namespace mrui
 

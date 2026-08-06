@@ -27,11 +27,38 @@ const u8g2_cb_t u8g2_cb_r0{0};
 const uint8_t u8g2_font_6x10_tf[1]  = {0};
 const uint8_t u8g2_font_10x20_tf[1] = {0};
 
-void pinMode(uint8_t pin, uint8_t mode)      { g_gpio.pinmode_calls++; if (pin < 64) g_gpio.mode[pin] = mode; }
+void pinMode(uint8_t pin, uint8_t mode) {
+    g_gpio.pinmode_calls++;
+    if (pin >= 64) return;
+    g_gpio.mode[pin] = mode;
+    if (mode == INPUT_PULLUP)   g_gpio.saw_pullup[pin]     = true;
+    if (mode == INPUT_PULLDOWN) g_gpio.saw_pulldown[pin]   = true;
+    if (mode == INPUT)          g_gpio.saw_bare_input[pin] = true;   // no pull => an indeterminate read (§UI-9)
+}
 void digitalWrite(uint8_t pin, uint8_t lvl)  { g_gpio.write_calls++;   if (pin < 64) g_gpio.level[pin] = lvl; }
-int  digitalRead(uint8_t)                    { g_gpio.read_calls++;    return g_gpio.read_returns; }
-void analogReadResolution(uint8_t)           {}
-int  analogRead(uint8_t)                     { return 0; }
+// ★ §UI-9: the answer depends on the pin's CURRENT MODE, so the two-pull polarity probe can be driven — including the
+//   FLOATING case, where a pull-up read and a pull-down read disagree. Unscripted modes fall through to `read_returns`,
+//   which is what every pre-UI-9 case (P7's button polarity, P6's idle-HIGH board) relies on.
+int  digitalRead(uint8_t pin) {
+    g_gpio.read_calls++;
+    const int mode = (pin < 64) ? g_gpio.mode[pin] : -1;
+    if (mode == (int)INPUT_PULLUP   && g_gpio.read_under_pullup   >= 0) return g_gpio.read_under_pullup;
+    if (mode == (int)INPUT_PULLDOWN && g_gpio.read_under_pulldown >= 0) return g_gpio.read_under_pulldown;
+    return g_gpio.read_returns;
+}
+void delayMicroseconds(uint32_t) {}   // the polarity probe's µs settle; nothing here measures wall time
+void analogReadResolution(uint8_t bits)      { g_gpio.analog_res_bits = bits; }
+// ★ §UI-9: every conversion SNAPSHOTS the control line. That is what turns "the divider is enabled around the burst"
+//   from a claim about source order into a measurement — see the ProbeGpio note in fakes/Arduino.h.
+int  analogRead(uint8_t pin) {
+    ++g_gpio.analog_calls;
+    g_gpio.analog_pin = pin;
+    if (g_gpio.ctrl_pin >= 0 && g_gpio.ctrl_pin < 64) {
+        if      (g_gpio.level[g_gpio.ctrl_pin] == (int)HIGH) ++g_gpio.ctrl_high_during_read;
+        else if (g_gpio.level[g_gpio.ctrl_pin] == (int)LOW)  ++g_gpio.ctrl_low_during_read;
+    }
+    return g_gpio.analog_returns;
+}
 
 // ---- tiny harness ------------------------------------------------------------------------------------------------
 static int g_pass = 0, g_fail = 0;
@@ -116,12 +143,18 @@ int main() {
 
     // ================================================================================================ P6
     // BOARD WIRING, as board_init() actually programs it. Re-run it so the counters cover THIS call.
-    reset_counters();
-    const bool init_ack = mrui::board_init();
+    reset_counters();                                 // fresh ProbeGpio -> read_returns is HIGH again
+    (void)mrui::board_init();
     CHK("P6a button pin is INPUT_PULLUP",              g_gpio.mode[MR_UI_BTN_PIN] == (int)INPUT_PULLUP);
     CHK("P6b Vext (36) driven OUTPUT",                 g_gpio.mode[36] == (int)OUTPUT);
     CHK("P6c Vext driven to the proven level (LOW)",    g_gpio.level[36] == (int)LOW);
     CHK("P6d panel brought up exactly once",           g_u8.begin == 1);
+    // §UI-9: the battery CONTROL line is board wiring too, and its boot state is the half that costs current if it is
+    // wrong. The idle level here is HIGH (the shim's default), so the auto-detect must resolve active = LOW and PARK
+    // the line HIGH. A line left floating, or parked active, drains the cell between samples for ever.
+    CHK("P6e ADC_CTRL (37) ends board_init() as an OUTPUT", g_gpio.mode[MR_UI_ADC_CTRL] == (int)OUTPUT);
+    CHK("P6f ... parked INACTIVE for an idle-HIGH board",   g_gpio.level[MR_UI_ADC_CTRL] == (int)HIGH);
+    CHK("P6g ... and no conversion happened at boot",       g_gpio.analog_calls == 0);
 
     // ================================================================================================ P7
     // BUTTON POLARITY — INPUT_PULLUP, so pressed == LOW.
@@ -129,13 +162,136 @@ int main() {
     g_gpio.read_returns = HIGH;  CHK("P7b HIGH -> not pressed",  mrui::button_pressed() == false);
 
     // ================================================================================================ P8
-    // BATTERY IS AN HONEST `unavailable` STUB until Task 9 — never a fabricated millivolt value.
-    CHK("P8a battery_sample_mv() < 0 (unavailable)",   mrui::battery_sample_mv() < 0);
+    // ★★ THE BATTERY READER (plan Task 9 / slice UI-9, spec §7). Until this slice `battery_sample_mv()` was a
+    //    hardcoded `-1` and the only check here was "it is still -1". Now it reads hardware, so what has to be
+    //    measured is the SHAPE of the read, not just its answer:
+    //      · the divider is ENABLED for the burst and DISABLED after it, with no per-tick residue;
+    //      · the polarity is the AUTO-DETECTED one, in BOTH worlds — Heltec inverted the line past rev 3.2 while
+    //        keeping the "V3" name, so a hardcoded level is wrong on half the boards;
+    //      · an implausible reading answers UNAVAILABLE (<0 -> the panel's `--`), never a fabricated voltage.
+    // ⓘ WHAT THIS PROBE STILL CANNOT SEE, stated rather than implied: whether the COMBINED ADC SCALE and the DETECTED
+    //   POLARITY are right for the board in the operator's hand. The shim invents the raw counts. Only a multimeter
+    //   closes that, which is why Task 9 owes a bench entry and not just this file.
+    //
+    // ★ THE EXPECTED MILLIVOLTS ARE DERIVED FROM THE REFERENCE PORT, NOT COPIED FROM THE FILE UNDER TEST — otherwise
+    //   the check would restate the implementation and pass by construction. Source: MeshCore's working V3 port,
+    //   ~/MeshCore/variants/heltec_v3/HeltecV3Board.h `getBattMilliVolts()` :79-92 —
+    //       analogReadResolution(10); mv = (5.42 * (3.3 / 1024.0) * mean_of_8_raw) * 1000
+    //   evaluated here in DOUBLE while the firmware uses float, hence the ±1 mV tolerance (measured: the two agree
+    //   exactly at every raw tried below; the tolerance is for the boundary cases nobody has enumerated).
+    const double kRefMvPerCount = 5.42 * (3.3 / 1024.0) * 1000.0;
+    auto ref_mv = [&](int raw) { return int32_t(kRefMvPerCount * double(raw)); };
+    auto near1  = [](int32_t a, int32_t b) { return a - b <= 1 && b - a <= 1; };
+
+    // ---- polarity world A: the pin idles HIGH under BOTH pulls -> externally held -> ACTIVE is LOW (pre-3.2) -------
+    g_gpio = ProbeGpio();                                  // read_returns = HIGH under every mode
+    g_gpio.read_under_pullup = HIGH; g_gpio.read_under_pulldown = HIGH;
+    (void)mrui::board_init();
+    // ★★ THE POLARITY PROBE ITSELF, and this is the QA finding that produced it: `pinMode(pin, INPUT)` selects NO
+    //    PULL, so on a line nothing external holds, the read is INDETERMINATE and the "inactive" park becomes a coin
+    //    flip that leaves the divider ENABLED half the time. Two opposite pulls make the floating case DETECTABLE.
+    CHK("P8t the polarity probe asked for BOTH internal pulls",
+        g_gpio.saw_pullup[MR_UI_ADC_CTRL] && g_gpio.saw_pulldown[MR_UI_ADC_CTRL]);
+    CHK("P8u ... and never a bare INPUT (no pull = indeterminate)", !g_gpio.saw_bare_input[MR_UI_ADC_CTRL]);
+    g_gpio.ctrl_pin       = MR_UI_ADC_CTRL;                // snapshot the control line at every conversion
+    g_gpio.analog_returns = 223;                           // a plausible cell: ~3.9 V through the 5.42 ADC scale
+    const int writes_before = g_gpio.write_calls;
+    const int32_t mv_a = mrui::battery_sample_mv();
+    CHK("P8a resolution set to the 10 bits the divisor assumes", g_gpio.analog_res_bits == 10);
+    CHK("P8b exactly 8 conversions (the mean of 8)",       g_gpio.analog_calls == 8);
+    CHK("P8c ... all on the VBAT ADC input",               g_gpio.analog_pin == MR_UI_VBAT_READ);
+    CHK("P8d the divider was ACTIVE (LOW) for every one",  g_gpio.ctrl_low_during_read == 8);
+    CHK("P8e ... and never sampled while it was inactive", g_gpio.ctrl_high_during_read == 0);
+    CHK("P8f exactly two control writes: enable + disable", g_gpio.write_calls - writes_before == 2);
+    CHK("P8g the line is parked INACTIVE afterwards",      g_gpio.level[MR_UI_ADC_CTRL] == (int)HIGH);
+    CHK("P8h a plausible raw yields the reference mV",     near1(mv_a, ref_mv(223)));
+
+    // ---- the `--` contract: an implausible reading is UNAVAILABLE, never a number ----------------------------------
+    // The window is this tree's existing 1S-LiPo one (src/firmware_commands.cpp's read_batt_mv), so the four edges are
+    // checked from OUTSIDE the file under test: 114 -> 1991 mV (reject), 115 -> 2008 (accept), 257 -> 4488 (accept),
+    // 258 -> 4506 (reject). raw 0 is the disconnected-divider case, and `0.0V` on a safety panel is the defect.
+    g_gpio.analog_returns = 0;    CHK("P8i raw 0 (dead divider) -> UNAVAILABLE, not 0.0V", mrui::battery_sample_mv() < 0);
+    g_gpio.analog_returns = 114;  CHK("P8j just below the 1S window -> UNAVAILABLE",       mrui::battery_sample_mv() < 0);
+    g_gpio.analog_returns = 115;  CHK("P8k the bottom of the window -> a reading",         near1(mrui::battery_sample_mv(), ref_mv(115)));
+    g_gpio.analog_returns = 257;  CHK("P8l the top of the window -> a reading",            near1(mrui::battery_sample_mv(), ref_mv(257)));
+    g_gpio.analog_returns = 258;  CHK("P8m just above the window -> UNAVAILABLE",          mrui::battery_sample_mv() < 0);
+    CHK("P8n an UNAVAILABLE read still parks the line",    g_gpio.level[MR_UI_ADC_CTRL] == (int)HIGH);
+
+    // ---- polarity world B: the pin idles LOW under BOTH pulls -> ACTIVE is HIGH (boards past rev 3.2) -------------
+    // This is the half a hardcoded level gets wrong, and the reason the reference port probes instead of defining a
+    // constant. ⓘ `read_returns = LOW` alone reproduces it (both pulls fall through to the same answer).
+    g_gpio = ProbeGpio();
+    g_gpio.read_returns = LOW;
+    (void)mrui::board_init();
+    CHK("P8o idle-LOW board: parked INACTIVE means LOW",   g_gpio.level[MR_UI_ADC_CTRL] == (int)LOW);
+    g_gpio.ctrl_pin       = MR_UI_ADC_CTRL;
+    g_gpio.analog_returns = 223;
+    const int32_t mv_b = mrui::battery_sample_mv();
+    CHK("P8p ... the divider was ACTIVE (HIGH) for every conversion", g_gpio.ctrl_high_during_read == 8);
+    CHK("P8q ... and never sampled while it was inactive",            g_gpio.ctrl_low_during_read == 0);
+    CHK("P8r ... parked back to LOW afterwards",                      g_gpio.level[MR_UI_ADC_CTRL] == (int)LOW);
+    // ⚠ P8s AND P6g ARE NAMED HERE AS THE TWO P8-ERA CHECKS NO CONTROL REDDENS, rather than left to look covered.
+    //   P8s is a VACUITY GUARD on this probe, not a property of board_ui.cpp: it says the shim's raw count reaches the
+    //   formula the same way in both polarity worlds, so P8h is comparing something real in each. P6g is NEGATIVE
+    //   SPACE (boot takes no conversion); reddening it needs a mutation that ADDS a call, which no sed of this file
+    //   can express cleanly. Both are cheap and honest; neither may be counted as measured coverage.
+    CHK("P8s ... and the VALUE is polarity-independent",              mv_b == mv_a);
+
+    // ---- polarity world C: the line FLOATS — the two pulls DISAGREE. THE CASE THE GUARD EXISTS FOR. ---------------
+    // ★★ Nothing in this tree or in the vendor port establishes that GPIO 37 has a defined idle level: the reference
+    //    port reads it under a BARE `INPUT` on two different boards and documents no pull, and its own V4 board drops
+    //    the probe and hardcodes the level. ⇒ a floating line is a REAL possibility, and the wrong answer is not a bad
+    //    voltage — it is parking the divider ENABLED for ever on a battery-powered safety device ([[B90]] restated).
+    // ⇒ C2: REFUSE. The reader answers UNAVAILABLE (panel `--`) and takes NO conversion at all, rather than driving a
+    //   line whose polarity is a coin flip. ⛔ This does NOT make the park provably safe — no level is known-inactive
+    //   on EVERY revision when the line floats — it makes the refusal detectable and the park documented. The residual
+    //   is owed to the owner and is stated at `kAdcCtrlFailsafePark`.
+    g_gpio = ProbeGpio();
+    g_gpio.read_under_pullup = HIGH; g_gpio.read_under_pulldown = LOW;   // pulls win => nothing external holds it
+    (void)mrui::board_init();
+    g_gpio.ctrl_pin       = MR_UI_ADC_CTRL;
+    g_gpio.analog_returns = 223;                           // a raw that WOULD be a plausible cell, to prove refusal
+    const int w_before_float = g_gpio.write_calls;
+    CHK("P8v a FLOATING control line -> UNAVAILABLE, never a guessed voltage", mrui::battery_sample_mv() < 0);
+    CHK("P8w ... and not one conversion is taken",         g_gpio.analog_calls == 0);
+    CHK("P8x ... and the line is not driven at all",       g_gpio.write_calls == w_before_float);
+    // ★★★ P8y IS THE ASSERTION THIS WHOLE FINDING TURNS ON, AND UNTIL 2026-08-06 IT ASSERTED THE DEFECT.
+    //    It used to read `== HIGH` and was labelled *"the boot park is still DETERMINISTIC"* — which was true and
+    //    beside the point. HIGH is the level Heltec's V3.2 hardware update log documents as the MEASURING one
+    //    (*"now need to pull up the ADC_Ctrl(GPIO 37)"*), so the refusal path parked the divider **ENABLED** and the
+    //    probe agreed with it. ⇒ the property is not "deterministic", it is **documented-INACTIVE**: LOW.
+    //    ⛔ The whole shipped 20-control set passed straight over this. A control that only proves the park is stable
+    //       cannot separate a safe park from an unsafe one — that is the instrument-that-cannot-fail shape again.
+    CHK("P8y ... and the boot park is the DOCUMENTED-INACTIVE level (LOW), not the coin flip",
+        g_gpio.level[MR_UI_ADC_CTRL] == (int)LOW);
+    CHK("P8z ... on a pin that is still a driven OUTPUT, never left floating",
+        g_gpio.mode[MR_UI_ADC_CTRL] == (int)OUTPUT);
+
+    // ---- polarity world C', THE MIRROR: the fallback must not be a FUNCTION OF THE READS AT ALL. -----------------
+    // ⚠ HONEST ABOUT WHAT THIS WORLD IS: an internal pull-up cannot read LOW on a genuinely floating line, so this is
+    //   a SHIM-ONLY input, not a board state. Its job is to separate the fix from the tempting wrong one — "park the
+    //   DETECTED level even though detection failed". That expression yields HIGH in world C and LOW here, so a single
+    //   world could be satisfied by it half the time; asserting the SAME park in both pins the fallback as a constant.
+    g_gpio = ProbeGpio();
+    g_gpio.read_under_pullup = LOW; g_gpio.read_under_pulldown = HIGH;
+    (void)mrui::board_init();
+    CHK("P8aa the floating fallback ignores the (meaningless) reads: still LOW",
+        g_gpio.level[MR_UI_ADC_CTRL] == (int)LOW);
+    g_gpio.ctrl_pin       = MR_UI_ADC_CTRL;
+    g_gpio.analog_returns = 223;
+    CHK("P8ab ... and the refusal still holds in the mirrored world", mrui::battery_sample_mv() < 0);
+
+    g_gpio = ProbeGpio();                                  // leave the shim as the later cases expect (read_returns HIGH)
 
     // ================================================================================================ P9
     // ★ §B91 — THE PANEL-ACK REPORT, and the point is that it can say NO. Before UI-6, `board_init()` was void and
     // U8g2's own begin() returns 1 unconditionally (it never reads the bus), so a dead panel and a live one were
     // indistinguishable to the firmware. board_init() must probe the address and pass the answer up truthfully.
+    // ⚠ SELF-CONTAINED SINCE §UI-9: this used to count Wire traffic from P6's board_init() and read `init_ack` from
+    //   there. P8's two polarity worlds each re-run board_init(), so a probe that carried P6's counters forward would
+    //   have read 3 or 4 transmissions and failed for a harness reason. Re-arm here instead of counting across cases.
+    reset_counters();
+    const bool init_ack = mrui::board_init();
     CHK("P9a board_init() probed one address",         g_wire.begin_tx == 1 && g_wire.end_tx == 1);
     CHK("P9b ... and it was the SSD1306's 0x3C",       g_wire.last_addr == 0x3C);
     CHK("P9c ACK (0) is reported as present",          init_ack == true);

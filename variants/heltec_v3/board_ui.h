@@ -42,6 +42,10 @@ void draw_text(int x, int y, const char* s);
 void draw_hline(int x, int y, int w);
 void set_power_save(bool on);       // panel off/on WITHOUT clearing display RAM; latched, repeat calls are no-ops
 bool button_pressed();
-int32_t battery_sample_mv();        // one sample; <0 = unavailable. Caller decides WHEN (spec §7)
+// One sample, taken now: enable the divider, read, disable it. <0 = UNAVAILABLE — no reader, or a reading outside the
+// 1S-LiPo plausible window — and the caller renders `--` for it, never a substituted default (spec §7).
+// ★ The CALLER decides WHEN: spec §7's boot + ~30 s cadence under the §5 MAC-idle predicate. This canvas owns no
+//   cadence; a board file that acquired one would be deciding policy (spec §2.1, rule U3).
+int32_t battery_sample_mv();
 
 }  // namespace mrui

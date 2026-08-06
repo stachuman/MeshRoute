@@ -428,9 +428,12 @@ Record comparable idle and active-radio logs. A single weak-link retry is not pr
 
 ### H6-08 — Battery cadence with an unavailable reader
 
-- [ ] `batt --` throughout (Task 9 has not landed; the reader answers "unavailable" by design).
-- [ ] Instrument or trace that a sample is **attempted** about every 30 s, not on every service pass — the cadence gates
-      on *attempted*, not on *succeeded*, precisely so an unavailable reader is not re-read for ever.
+- [ ] `batt --` throughout. ⛔ **CORRECTED IN PLACE 2026-08-06:** this used to read *"(Task 9 has not landed; the
+      reader answers 'unavailable' by design)"*. **Task 9 has landed.** On a healthy cell the expected reading here is
+      now a **voltage**, and a `--` means either no measurable cell or the §UI-9 polarity refusal ⇒ guide **H9-05**.
+- [ ] Instrument or trace that a sample is **attempted** once per **`kBattPeriodMs`** (`src/firmware_ui.cpp` — ★ read
+      the value there; [[B120]] is what a restated one becomes), not on every service pass. The cadence gates on
+      *attempted*, not on *succeeded*, precisely so an unavailable reader is not re-read for ever.
 - [ ] No sampling starts while the MAC is busy.
 
 ### H6-09 — §B103: a distress REPLY must be TEAM-scoped ★★ THIS WAS A LIVE SAFETY DEFECT ON THIS BENCH
@@ -490,6 +493,10 @@ no instrument other than this panel. Needs a real teammate node and a stranger n
       and a battery-drain vector; it means the wake was wired to the arrival instead of to the reply.
 - [ ] ⓘ **Known and deliberate:** a `BLOCKED` / `PICKED UP` / `NOT RELAYED` / `FAILED` outcome arriving at a dark panel
       does **not** light it — R1 rules on the REPLY only. Do not file that as a bug; it is an open owner question.
+- [ ] ⚠ **PROVISIONAL, same caveat as H8-03:** *what wakes the panel* is owner-ruled and must work, but *what counts as
+      a reply* is an **inference** — any same-team channel post while an alarm is live qualifies, because the post
+      carries no marker saying it is an answer. [[B118]] will replace that with a positive carrier. **The wake half is
+      a real pass/fail; the "this post was a reply" half is not, until B118 lands.**
 
 ### H6-12 — §R2/B110: a DOUBLE under the emergency overlay must do NOTHING AT ALL
 
@@ -650,6 +657,32 @@ retarget. Before this, a cursor on row 2 meeting a shorter roster sent `"Are you
 
 Use two same-team nodes plus one deliberately unreachable case. A third node or a topology that actually relays the channel post is needed to prove `PICKED UP`: `relayed` means first relay, not coverage, and it can legitimately remain false on a fully one-hop team even when every nearby node receives the emergency. Retain serial logs from all active nodes.
 
+★★ **TASK 8 NEEDED NO FIRMWARE — this group IS Task 8.** The plan's Task-8 Step 1 (render the eight emergency states)
+landed with Tasks 1–7 and the §B115/§B117 slices; the shipped strings were verified against `src/firmware_ui.cpp`'s
+`draw_emergency` on 2026-08-06, not against the plan. ⇒ **run this group and Task 8 is complete.**
+
+★ **THE OWNER'S NINE VALIDATION CASES → THIS GUIDE.** Run these ten entries and all nine are covered:
+
+| # | owner's case | entry |
+|---|---|---|
+| 1 | the **first** visible counter is `attempt 1 of 3` | **H8-10** (script 8.23) |
+| 2 | the sequence ends at `attempt 3 of 3` | **H8-10** (script 8.23) |
+| 3 | the terminal headline is `NOT RELAYED` | **H8-02** (script 8.24) |
+| 4 | blocked countdown and automatic retry | **H8-04** (script 8.25) |
+| 5 | blanked-panel emergency, and outcome wake | **H8-01** step 6 + **H6-11** (script 8.27 + 8.15) |
+| 6 | emergency pre-empts an outstanding DM/channel send | **H8-06** (script 8.26) |
+| 7 | location included only when available | **H8-07** (script 8.18) |
+| 8 | the retained outcome holds for `kEmgHoldMs` | **H8-08** (script 8.10) |
+| 9 | no repeated I²C while blanked | **H8-08** last group + script **8.4** |
+
+⚠⚠ **CASE 5 IS HALF RULED AND HALF OPEN, AND THE TESTER MUST NOT CONFLATE THEM.** An incoming **REPLY** waking a dark
+panel is owner-ruled and **must work** (H6-11). The four **LOCAL** outcomes — `BLOCKED` / `PICKED UP` / `NOT RELAYED` /
+`FAILED` — arriving at a dark panel **do not wake it today, by design as shipped**, and widening that is an *open owner
+item*. ⛔ **Do not file the second half as a defect from this run**, and do not tick H6-11 on the strength of a local
+outcome lighting the panel.
+
+⚠ **AND EVERY `REPLY` READING IN THIS GROUP RESTS ON AN INFERENCE — see the PROVISIONAL note in H8-03.**
+
 ### H8-01 — Long-press threshold and cancellation
 
 Test from each allowed UI state: status, inbox, team, send, both compose sub-views, and blank.
@@ -662,6 +695,31 @@ Test from each allowed UI state: status, inbox, team, send, both compose sub-vie
 
 Use timestamps from the serial log; visual impression alone is not sufficient for threshold acceptance.
 
+**Exact panel text, verified against `draw_emergency` (`src/firmware_ui.cpp`) 2026-08-06:**
+
+| state | headline (`Font::large`) | detail (`Font::small`) |
+|---|---|---|
+| arming | `RELEASE!` | `EMERGENCY IN <n>` — `<n>` counts down |
+| firing | `SENDING...` | `attempt <k> of 3` |
+| blocked | `BLOCKED` | `retry in <n>s` |
+| picked up | `PICKED UP` | `a relay heard it` |
+| terminal, no relay | `NOT RELAYED` | `no relay after <k>` — or `unconfirmed x<k>` on the handle-less path |
+| reply | `REPLY` | `<who>: <text>` |
+| cancelled | `CANCELLED` | *(none)* |
+| refused | `FAILED` | `BAD CMD` · `NO CRYPTO` · `NO FIX` · `QUEUE FULL` · `REFUSED`, plus the core's `CmdCode` name |
+
+⚠ **The plan's Task-8 Step 1 prose is STALE where it disagrees with this table** — it says `RELEASE TO CANCEL` (17
+chars; it would clip at the 12-column budget) and `REPLY <who>` (the name is on the *detail* line, not the headline).
+**The table above is derived from the code; the plan is not.** Do not report a mismatch against the plan as a defect.
+
+- [ ] **★ Case 5, first half — FIRE FROM A FULLY DARK PANEL.** Leave the node untouched until the panel is dark with
+      no alarm outstanding, then long-press **in the dark** with no preparatory wake press. The panel must light, arm
+      (`RELEASE!`) and fire (`SENDING...`) on that **one** gesture, the second node must receive the body, and the hold
+      duration must match a lit-panel hold on the log timestamps.
+      ⛔ **FAILURE:** a first long press that only wakes and needs a **second** press to fire — spec §5 exempts a long
+      press from the consumed-waking-press rule precisely so a dark panel cannot swallow an alarm. Also failing: the
+      console shows the send while the panel stays dark, or the hold is visibly shorter than from a lit panel.
+
 ### H8-02 — Recipient unavailable
 
 Power off or isolate the intended receiving side.
@@ -670,9 +728,18 @@ Power off or isolate the intended receiving side.
 - [ ] The bounded retry schedule is followed.
 - [ ] Exactly three accepted transmissions are consumed.
 - [ ] The final state is `NOT RELAYED` (the panel string; the model state is still `Emergency::not_heard`).
+- [ ] The detail line beneath it reads `no relay after 3` — or `unconfirmed x3` if every attempt came back with
+      `ctr == 0` (the handle-less path, H7-07). The two are **different claims** and must not be conflated.
 - [ ] No infinite retry or permanent `SENDING...` state occurs.
 - [ ] No fourth emergency request is queued.
 - [ ] A later new emergency can be started.
+
+⛔ **FAILURE READINGS FOR THE HEADLINE — each names a different cause, so record which one you saw** (full rationale in
+bench script 8.24): `NOT HEARD` ⇒ pre-ruling firmware was flashed · `NO RELAY` ⇒ the intermediate build was flashed,
+and that 8-char string was **never approved by anyone** — it is superseded, not an acceptable fallback · a clipped
+`NO RELAY HEAR` ⇒ the first ruled 14-char wording was used and does not fit the 12-column large font · `NOT RELAYE`
+(ten characters shown) ⇒ the panel is clipping at a **narrower** budget than 12 columns, which the host probe's W11b
+cannot see because W11b only counts characters.
 
 ### H8-03 — Pickup and reply
 
@@ -680,8 +747,19 @@ With the receiving side available and the post actually relayed:
 
 - [ ] The receiver sees the emergency.
 - [ ] The relay event moves the sender to `PICKED UP`; the label is not `DELIVERED` because this proves a first relay, not team-wide coverage.
-- [ ] A valid reply on channel 0 moves the sender to `REPLY` and displays the intended sender/text.
+- [ ] A valid reply on channel 0 moves the sender to `REPLY` and displays the intended sender/text — headline `REPLY`,
+      detail `<who>: <text>` (the name is on the **detail** line, not the headline).
 - [ ] Duplicate radio frames do not generate duplicate user-visible emergencies.
+
+⚠⚠ **THIS `REPLY` CHECK IS PROVISIONAL, AND ITS PASS IS NOT VALIDATION OF THE REPLY PATH.** What the firmware does
+today is an **INFERENCE, not a confirmation**: `ui_route_recv_push` (`src/firmware_ui_send.h`) lifts the alarm to
+`REPLY` for **any** `channel_recv` on our team's channel while an alarm is live — the post carries **no marker saying
+it is an answer**, so *"on my way"*, *"anyone got a spare battery"* and a stray automated post are indistinguishable to
+the panel. ⇒ **an ordinary channel post becoming `REPLY` is the current behaviour, not proof the mechanism works.**
+[[B118]] — the owner's app-code design, which gives the answer a **positive carrier** bound to the original post's
+`channel_msg_id` — is what will replace the inference. It is **not built** and its authentication floor is **unruled**.
+⛔ **Do not harden this line into a pass/fail acceptance criterion, and do not report its pass as "the reply path is
+validated."** Record what you posted verbatim, so a later run against B118 firmware can be compared against it.
 
 Control: repeat on a fully one-hop team. Receipt with `relayed=false` may end as `NOT RELAYED`, and that is **acceptable
 ONLY WHEN NO REPLY WAS RECEIVED** — the earlier wording ("record it as the accepted first-relay semantics") MASKED
@@ -693,13 +771,28 @@ ONLY WHEN NO REPLY WAS RECEIVED** — the earlier wording ("record it as the acc
 
 ### H8-04 — Temporary block/backpressure
 
-Fire twice inside the configured 10-second channel minimum interval.
+Read `ch_min_ms` with `cfg get` first (default **10000**) — every deadline below is judged against that value, not
+against the number in this sentence. Fire twice inside it.
 
-- [ ] The UI displays `BLOCKED` with a live countdown.
-- [ ] The countdown follows the reported retry deadline.
-- [ ] It fires automatically when the bounded delay expires.
-- [ ] Attempts are neither lost silently nor multiplied.
+- [ ] The UI displays headline **`BLOCKED`** with detail **`retry in <n>s`**, and `<n>` **decrements** — at least one
+      visible change per second of wall time. ⛔ A frozen digit means the countdown is drawn from a stored duration
+      instead of the live deadline.
+- [ ] The console prints exactly `BLOCKED channel reason=min_interval — retry in <N> ms`, and the panel's countdown
+      agrees with that `<N>`.
+- [ ] ⓘ The synchronous answer to the blocked post is still `ack:queued` with **`ctr=0`** and nothing airs. That is the
+      documented channel self-gate (`src/fw_main.cpp:1131`), **not** a second failure to report.
+- [ ] It fires automatically when the bounded delay expires — the panel returns to **`SENDING...`** **with the button
+      untouched**, and the second node receives the body.
+- [ ] Attempts are neither lost silently nor multiplied. **Derive, do not assume:** the highest `attempt <k> of 3` the
+      panel ever showed must equal the number of distinct `»tx M` ids in this node's console for this alarm. A block
+      that aired nothing must not have spent one.
 - [ ] Permanent refusal ends safely and leaves the UI reusable.
+
+⛔ **FAILURE SHAPES, each a different cause:** stuck on `BLOCKED` past the deadline ⇒ the retry was never armed ·
+`retry in 0s` sitting indefinitely ⇒ the deadline passed but nothing re-queued · resuming only after you press the
+button ⇒ the retry is input-driven, which defeats the point on a device already put down · jumping straight to
+`NOT RELAYED` / `FAILED` with no second `SENDING...` ⇒ the block was consumed as an attempt outcome instead of a
+deferral.
 
 ### H8-05 — Outcome isolation
 
@@ -740,56 +833,271 @@ Run both halves; neither is optional.
 
 - [ ] The complete emergency scene renders, not only the top eighth of the panel.
 - [ ] An instrumented frame consists of eight page transfers.
-- [ ] A blanked emergency state produces no repeated I²C traffic.
-- [ ] On `PICKED UP`, the panel remains on for the current `kEmgHoldMs` of 30000 ms rather than the ordinary blanking interval.
-- [ ] A reply arriving late restarts that 30000 ms hold window.
+- [ ] **★ Case 9 — a blanked emergency state produces no repeated I²C traffic.** Method, because "it looked idle" is
+      not a measurement: put a scope or logic analyser on **SDA 17 / SCL 18**, let the panel blank, and watch for at
+      least a minute. **Pass = one short burst at the blank transition, then silence.** ⛔ **FAILURE = a repeating
+      burst** at the tick rate — that is `set_power_save` being written every pass instead of on the edge (spec §5),
+      and on a rescue device it is a battery-drain vector, not a cosmetic issue. ⓘ The **decision** to blank edge-wise
+      is already gated on the host (§UI-5 control C1, and the feature probe's MAC-idle/page checks); **only the bus
+      itself is metal-only**, which is why this line is here and not a re-test of the corpus. Same check as bench
+      script 8.4 — run it once, tick both.
+- [ ] On `PICKED UP`, the panel remains on for **`kEmgHoldMs`** rather than the ordinary `MR_UI_BLANK_MS` blanking interval.
+- [ ] A reply arriving late restarts that `kEmgHoldMs` hold window, measured from the **reply's own** arrival.
+      ⚠ **READ THE CONSTANT, DO NOT RESTATE IT.** `kEmgHoldMs` is declared once, at `src/firmware_ui_model.h:210`, and
+      that line plus one constants tripwire case are the **only** two places in the tree the digits may appear (§B78).
+      The owner re-ruled this value once already and every prose copy of it went stale the same day — the two copies
+      that used to sit on these very lines were among them. Look the value up before the run; do not write it back in.
 - [ ] After the retained emergency blanks, the first press wakes and restores the emergency result; it does not dismiss it.
 - [ ] Once awake with the result seen, the next short press returns to the normal cycle.
 
-### H8-09 — Unavailable battery-reader cadence
+### H8-09 — Unavailable battery-reader cadence — ⛔ SUPERSEDED BY §9 (Task 9 has landed)
 
-Before Task 9 replaces the unavailable reader, instrument the sample attempts if needed.
+⛔ **CORRECTED IN PLACE 2026-08-06.** This entry opened *"Before Task 9 replaces the unavailable reader…"*. **Task 9
+has landed** (`variants/heltec_v3/board_ui.cpp`'s `battery_sample_mv`), so that framing is no longer true and the
+cadence questions now have a REAL reader behind them. The cadence itself is unchanged and the host gate still covers it.
 
-- [ ] A reader returning `<0` is attempted approximately every 30 seconds.
+- [ ] A reader returning `<0` is attempted once per **`kBattPeriodMs`** (`src/firmware_ui.cpp`) — ★ read the value from
+      the constant; **do not** copy it into this document ([[B120]]: a restated value that is correct today is exactly
+      what rots).
 - [ ] Failure does not cause an ADC attempt every service pass.
 - [ ] Attempts are deferred while the MAC is busy.
 
-## 9. H9 — run after Task 9 lands
+ⓘ **All three are covered by a HOST gate** — `tools/probe_firmware_ui/` measures the cadence including the
+*attempted-vs-succeeded* clause, the MAC-idle suppression **and** its permissive direction (controls C6/C7/C8), and
+since §UI-9 also what the cadence PUTS ON THE PANEL (P5, controls C13–C16). Per M2 the bench holds only what no
+automated gate can reach ⇒ **this entry stays OPTIONAL.**
+⇒ ★ **The part no host gate can reach is now §9 below**, and it is no longer hypothetical: the ADC pin, the divider
+ratio, and — the one added by Task 9 — **whether GPIO 37's idle level exists at all**. Run **H9-01 … H9-05**.
 
-### H9-01 — Pre-reader behavior
+### H8-10 — ★★ The alarm's attempt counter: READ THE FIRST NUMBER (owner cases 1 and 2)
 
-Before a valid sample is available:
+★★★ **THIS IS THE ENTRY THAT CATCHES THE BUG THE LAST BENCH RUN MISSED.** The shipped panel stepped `attempt 2 of 3`
+→ `3 of 3` → `4 of 3` against exactly three posts on the wire, and the owner confirmed **`1 of 3` was never shown**
+(§B115). ⚠ **`2 of 3` and `3 of 3` are each individually plausible**, so a check that asks *"does it say N of 3?"*
+**passes on the bug**. Only the **first** reading discriminates — do not start watching at the second attempt.
 
-- [ ] The UI shows `--` or the specified unknown battery representation.
-- [ ] It does not display a fabricated zero or stale compile-time value.
+★ **Host coverage, so this stays residue:** the ordinal is computed in the model and the string is built by one pure
+formatter, both natively asserted down to the visible bytes. **What no host gate reaches:** whether those bytes are
+what the *panel* actually paints — `probe_firmware_ui` counts draw **calls**, never their text (register B104).
 
-### H9-02 — Meter comparison
+1. Isolate or power off the receiving side so the alarm runs its full budget (the H8-02 rig).
+2. Long-press to fire, and watch the overlay **from the very first frame it appears**. Film it if the panel is small —
+      a missed first frame is an unrun test, not a pass.
+3. **Expected, in order, one per accepted transmission, headline `SENDING...` throughout:**
+   **`attempt 1 of 3`** → `attempt 2 of 3` → `attempt 3 of 3`, then the terminal screen of H8-02.
+4. Cross-check on the same node's console: the number of **distinct `»tx M` ids** for this alarm must equal the
+   **highest ordinal** the panel showed.
+5. ⛔ **FAILURE SHAPES:** `attempt 2 of 3` on the **first** post ⇒ the §B115 uniform `+1` is back · anything above
+   `3 of 3` (`4 of 3`) ⇒ the same defect seen from the other end · three ids on the console but four ordinals on the
+   panel ⇒ the counter is counting requests instead of accepted transmissions · a counter that **stalls** on one value
+   across three console `»tx M` ids ⇒ the ordinal stopped tracking `_tries`.
+6. ⓘ The counter is deliberately **not clamped** — that rawness is the only reason the original defect was ever
+   visible. If you see `4 of 3`, **report it**; do not write it off as cosmetic.
+7. ⓘ Re-fire from the sticky terminal screen (a fresh long press) and confirm it opens at **`attempt 1 of 3`** again —
+   a new alarm resets the budget.
 
-1. Power from a battery in a stable, safe state.
-2. Measure battery voltage with the multimeter.
-3. Wait for a firmware battery sample.
-4. Record both readings and their timestamps.
+## 9. H9 — run after Task 9 lands · ★★ TASK 9 HAS LANDED, SO THIS SECTION IS NOW THE ACCEPTANCE RESIDUE
 
-- [ ] Displayed/console voltage is within approximately 50 mV of the meter under stable conditions.
-- [ ] Repeated samples are plausible and do not jump wildly at idle.
-- [ ] The conversion remains plausible near both a fuller and a lower safe battery voltage, if available.
+★★ **WHY THIS SECTION IS THE WHOLE POINT OF TASK 9's BENCH DEBT.** The host gates measure the cadence, the MAC-idle
+suppression, the enable→sample→disable ordering, both polarity worlds, the plausibility window and the `--` rendering
+(`tools/probe_board_ui/` P6e–P6g + P8a–P8ab, controls C7a–C7p; `tools/probe_firmware_ui/` P4/P5, controls C6–C8/C13–C16).
+**Four things they structurally cannot reach, because the shim invents the raw counts and the pin levels:**
 
-If the result differs by a near-constant ratio, suspect divider/attenuation assumptions. Do not tune a compensation factor from one voltage point.
+| # | only metal can answer | entry |
+|---|---|---|
+| 1 | is the combined ADC scale (`kVbatAdcScale`) right for *this* board revision, and how much of any error is ADC calibration rather than the resistors? | **H9-02** |
+| 2 | does the control line have a DEFINED IDLE LEVEL at all, and is the divider actually parked OFF while a reading is being taken? | **H9-05 A/B** |
+| 3 | when the firmware **REFUSES** (permanent `--`), is the divider off? — the **fail-safe park**, whose level is documented-inactive for **V3.2+ only** | **H9-05 C** ★NEW |
+| 4 | does the sampling burst disturb the radio in the real timing? | **H9-03** |
 
-### H9-03 — Sampling cadence and MAC safety
+⚠⚠ **NAME THE CONSTANTS, NEVER RESTATE THEIR VALUES.** Every number below is read from source at run time:
+`kBattPeriodMs` (`src/firmware_ui.cpp`) · `kVbatAdcScale` / `kAdcRefV` / `kAdcFullScale` / `kAdcBits` / `kAdcSamples` /
+`kBattMinMv` / `kBattMaxMv` / `kAdcCtrlFailsafePark` (`variants/heltec_v3/board_ui.cpp`). [[B120]] was the **third**
+violation of this rule and it survived review because the restated value was correct *on the day*.
+ⓘ **`kVbatDivider` was RENAMED to `kVbatAdcScale` 2026-08-06** ([[B126]]) — it was never a resistor ratio; see H9-02.
 
-- [ ] Sampling occurs at the designed slow cadence, approximately 30 seconds unless the final design says otherwise.
-- [ ] It does not continuously poll the ADC.
-- [ ] A sample is deferred while the MAC/radio is busy where required.
-- [ ] Sustained radio traffic does not cause a reboot or obvious receive collapse.
-- [ ] Once the radio becomes idle, a valid sample eventually appears.
+### H9-01 — Nothing measured yet must read as `--`, never as a number
+
+**Do:** flash a Task-9 build and watch the status bar before the first successful sample completes.
+
+**Expected — exact text.** The status bar's last field is `--`. On the STATUS screen the body line reads exactly
+`batt --`. **Nothing anywhere on the panel matches the shape `<digit>.<digit>V`.**
+
+**What a FAILURE looks like:**
+- `0.0V` in the bar, or `batt 0mV` in the body → the plausibility window (`kBattMinMv`/`kBattMaxMv`) is not being
+  applied, or a raw-0 read is being rendered. **This is the defect class the window exists for** — a display-shaped
+  field asserting a measurement it does not have.
+- Any plausible-looking voltage appearing *instantly* at boot before a sample is due → a fabricated default.
+- The bar shows a **percentage** → ruled out (plan Task 9 Step 3, spec §3.3): volts or `--`, never a percentage.
+
+### H9-02 — Meter comparison ★ THE CHECK THAT VALIDATES `kVbatAdcScale`, AND THE ONLY ONE THAT CAN
+
+⛔ **CORRECTED 2026-08-06 ([[B126]]) — WHAT THIS ENTRY IS COMPARING AGAINST.** The constant used to be called
+`kVbatDivider` and was documented as *"VBAT / V(ADC) — a PER-REVISION property"*, which sent the tester after **resistor
+tolerance**. It is not a resistor ratio: the V3 network is **VBAT — 390 kΩ — GPIO1 — 100 kΩ — GND**, a physical ratio of
+**4.9**, and the shipped constant is **4.9 × ≈1.106** — the extra ~10.6 % is an **empirical ADC attenuation /
+full-scale correction** against the nominal `kAdcRefV / kAdcFullScale` the formula assumes.
+⇒ ★ **A meter discrepancy is an ADC-CALIBRATION suspect at least as much as a divider-tolerance one**, and the two are
+told apart by shape, not by size — see the failure list below. ⓘ Provenance of the 390 k/100 k figure is
+third-party-from-schematic (the V3 community and `ropg/heltec_esp32_lora_v3`), **not** a Heltec spec sheet; the
+HTIT-WB32LA_V3.2 PDF was fetched and is not machine-readable.
+
+1. Power the node from a **battery** in a stable, safe state, **USB detached** (USB changes what the divider sees —
+   see H9-04).
+2. Measure the cell terminal voltage with the multimeter. Record it.
+3. Wait for one firmware battery sample (at most one **`kBattPeriodMs`** period plus an idle window).
+4. Record the panel reading and the meter reading with timestamps.
+
+**Expected — the agreement window, stated exactly.** The panel renders **one decimal** (`fmt_volts` is `%u.%uV`,
+truncating), so the comparison must be made against that resolution and not against a fiction of precision:
+
+- **PASS:** `panel_volts <= meter_volts` **and** `meter_volts - panel_volts < 0.150 V`.
+  ⓘ Derivation, so the number is not taken on faith: the display truncates to 100 mV (up to **−99 mV** by
+  construction), and Task 9's own budget for the analogue chain — divider tolerance, ADC INL/offset, and the mean of
+  **`kAdcSamples`** — is **±50 mV**, the figure plan Task 9 Step 2 and script 8.6 already state. 99 + 50 ⇒ **150 mV**,
+  one-sided low. ⚠ The panel reading **above** the meter is NOT within tolerance in either direction: truncation cannot
+  produce it, so it means the ratio is wrong.
+- **PASS:** repeated samples at idle stay within **one display step** (0.1 V) of each other.
+- **PASS (if a second safe voltage is reachable):** the agreement holds at a fuller **and** a lower cell voltage.
+
+**What a FAILURE looks like, and what each shape means:**
+- A **near-constant RATIO** error (e.g. every reading ≈ 0.82× or ≈ 1.22× the meter), holding at **both** voltage points
+  → the combined `kVbatAdcScale` is wrong for this board. ⛔ **Record the measured ratio at BOTH points; do NOT tune the
+  constant from one voltage point.** ⚠ **Do NOT report this as "the resistors are out of tolerance"** — a proportional
+  error is equally consistent with ADC full-scale/attenuation error, and 10 % of the shipped constant already *is* that
+  correction. The discriminator is the next bullet.
+- An error that **grows or shrinks with voltage** (a ratio that is not constant across the two points), or a fixed
+  **offset** in mV rather than a ratio → **ADC calibration / INL / offset**, not the divider. A resistor network cannot
+  produce either shape. ⓘ To separate them further you need the ADC node itself: measure `MR_UI_VBAT_READ` to ground
+  during a burst and compare it with meter\_VBAT ÷ 4.9. **Node matches the physical divider but the panel does not ⇒ the
+  fault is downstream, in the ADC or the constant, not in the resistors.** That measurement is H9-05 part A's rig.
+- The panel shows `--` while the meter reads a healthy cell → **go to H9-05 first.** The most likely cause is the
+  polarity/floating refusal, not the scale.
+- Readings jump by more than one display step at idle → the sampling burst is picking up switching noise; note whether
+  they correlate with radio activity and cross-check H9-03.
+
+### H9-03 — Sampling cadence and MAC safety, on the real timing
+
+**Do:** with a serial log running, observe for at least three cadence periods; then repeat under a sustained DM load.
+
+**Expected:**
+- [ ] A sample is taken about once per **`kBattPeriodMs`** — not per service pass.
+- [ ] Under sustained TX the sample is **deferred**, and one appears promptly once the radio goes idle.
+- [ ] No CTS-timeout regression versus the same radio load with the reader disabled.
+
+**What a FAILURE looks like:** a CTS-timeout or delivery regression that appears **only** with a battery-capable build
+⇒ the burst is landing inside an exchange. ★ The relevant number is `cts_to_data_gap_ms` (config), not a figure quoted
+here. ⓘ Task 9 deliberately imports **no settle delay** into the burst (spec §7 forbids V4's `delay(10)`); a regression
+here would mean the burst itself is too long, which is a design question, not a tuning one.
 
 ### H9-04 — USB and battery transitions
 
-- [ ] Battery-only boot reports a plausible battery voltage.
-- [ ] Attaching USB does not cause an impossible voltage reading or reset loop.
+- [ ] Battery-only boot reports a plausible voltage (and H9-02's window still holds).
+- [ ] Attaching USB does not produce an impossible reading or a reset loop. ⓘ A reading that moves on USB is expected —
+      the charger drives the cell node — and is **not** a firmware defect; record it, do not "fix" it.
 - [ ] Removing USB with a charged battery does not corrupt the UI state.
-- [ ] Any board-specific charging behavior is recorded separately from the firmware reading.
+- [ ] Any board-specific charging behaviour is recorded **separately** from the firmware reading.
+
+### H9-05 — ★★ THE ADC CONTROL LINE: IS ITS IDLE LEVEL REAL, AND IS THE DIVIDER PARKED OFF? (★NEW, Task 9)
+
+★★ **WHY THIS ENTRY EXISTS, and it is the one bench check Task 9 genuinely added.** `MR_UI_ADC_CTRL` (GPIO 37) is a
+CONTROL line, not the ADC input. The firmware resolves its polarity by **probing** the idle level, because Heltec
+inverted it past rev 3.2 while keeping the "V3" name. ⛔ **Nothing in this tree or in the vendor port establishes that
+the line HAS a defined idle level** — the reference port reads it under a bare `INPUT` (no pull) on two different
+boards and documents no pull, and its own V4 board drops the probe and hardcodes the level. If the line floats, a
+naive probe is a **coin flip**, and the losing side does not show a wrong voltage — **it parks the divider ENABLED, a
+continuous drain on a battery-powered safety device.** ★ This is [[B90]]'s Vext problem restated, and B90 closed
+cleanly only because *"reproduce the proven level"* was kept distinct from *"we know the rail."*
+
+⇒ Task 9 probes the line **twice, under opposite internal pulls**, and treats a disagreement as *floating ⇒ refuse*
+(`s_adc_polarity_known` stays false, the reader answers unavailable, the panel shows `--`). **This entry is what
+falsifies that**, and it is cheap.
+
+⛔⛔ **REWRITTEN 2026-08-06 — THE PREVIOUS VERSION OF THIS ENTRY COULD NOT FAIL, and its central assertion was false.**
+Kept here as the audit trail, not as instructions:
+> ⛔ **SUPERSEDED (A):** *"FAILURE — the important one: the line sits at the level the firmware treats as ACTIVE. Read
+> `s_adc_active_high` for the build under test."* — **`s_adc_active_high` is a file-static in
+> `variants/heltec_v3/board_ui.cpp`. It is not printed, not a console field and not reachable by a tester**, so the
+> only stated failure condition was unreadable. What remained was *"the line toggles"*, which **does not distinguish a
+> divider parked OFF from one parked ON** — both toggle.
+> ⛔ **SUPERSEDED (B):** *"This direction fails SAFE (a refusal, never a wrong number **and never a leak**)."* —
+> **DISPROVEN.** The refusal path parked GPIO 37 at the **V3.2 MEASURING** level, so the "safe" direction was itself
+> the leak ([[B123]] round 2). The fail-safe park now targets the documented-inactive level, and **part C below is what
+> falsifies THAT.**
+
+★★ **THE MEASUREMENT THIS ENTRY NOW TURNS ON IS THE ADC NODE, NOT THE CONTROL PIN.** Whether GPIO 37 is HIGH or LOW
+tells you nothing until you know the revision's convention; whether the **divider is conducting** is directly
+observable and revision-independent. ⓘ Read both pin numbers out of `[env:heltec_v3]` in `platformio.ini`
+(`MR_UI_ADC_CTRL`, `MR_UI_VBAT_READ`) rather than assuming them.
+
+**Before any of A/B/C: record the board revision** from the silkscreen, and the convention it implies —
+**pre-3.2: LOW measures · V3.2 and later: HIGH measures** (Heltec hardware update log, V3.2: *"Modified voltage
+detection circuit, now need to pull up the ADC_Ctrl(GPIO 37)"*). Everything below is read against that line.
+
+**A — is the divider conducting between samples? (the direct test; do this one first).**
+1. Battery-powered, USB detached, node booted and idle, panel showing a **battery reading** (a number, not `--` — if it
+   is `--`, this build refused and you are in part **C**, not A).
+2. Meter in **DC volts** on the **ADC input** (`MR_UI_VBAT_READ`) to ground, watched **between** samples — i.e. most of
+   the time; a burst is one `kBattPeriodMs` apart.
+3. Meter in **DC volts** on `MR_UI_ADC_CTRL` to ground, same window. Record **both** levels and which is which.
+
+- [ ] **PASS:** between samples the ADC node sits at **~0 V** (the divider's low leg with no source above it), and rises
+      to roughly **VBAT ÷ 4.9** — a fraction of a volt, neither rail — only during the once-per-cadence burst. The
+      control pin rests at the **non-measuring** level for the recorded revision and flips for the burst.
+- ⛔ **FAILURE — THE ONE THIS ENTRY EXISTS FOR:** the ADC node sits at **VBAT ÷ 4.9 continuously**, between samples as
+  well as during them ⇒ **the divider is permanently enabled** and the cell is draining through it. Cross-check: the
+  control pin will be resting at the **measuring** level for the recorded revision. ⛔ **Stop and report** — a
+  battery-life defect, invisible on the panel.
+- **FAILURE:** the ADC node never rises ⇒ no sample is happening, or the divider is never enabled (cross-check H9-03
+  and H9-01: a panel reading with a dead node would mean the number is not coming from this net at all).
+- **FAILURE:** the control pin never flips ⇒ no sample is happening (cross-check H9-03).
+- **FAILURE:** the control pin rests at the measuring level **and** the ADC node still reads 0 V ⇒ the two do not agree;
+  the recorded revision convention is wrong for this board, or the control drives something else. **Report both
+  readings** — do not pick whichever supports the firmware.
+- ⓘ **If a µA-capable meter in series with the cell is available**, the same fault reads as a **standing** current of
+  roughly VBAT ÷ 490 kΩ (single-digit µA) that does **not** disappear between samples. That is a confirmation, not a
+  substitute: it is small against the node's own draw, and the ADC-node reading is the discriminating one.
+
+**B — is the idle level externally defined? (the falsification of the probe's premise).**
+1. Power the node down completely (battery out, USB out).
+2. Meter in **resistance** mode: measure `MR_UI_ADC_CTRL` to **3V3** and to **GND**.
+
+- [ ] **PASS:** one of the two reads a finite resistance (a pull resistor is present) and the other reads open. **Record
+      which side and the value** — that is the first direct evidence anyone in this project will have had for this pin,
+      and it retires the assumption. ⓘ Cross-check it against A: a pull to **3V3** should pair with a firmware that
+      resolved ACTIVE = LOW; a pull to **GND**, with ACTIVE = HIGH.
+- **FAILURE / INCONCLUSIVE:** both sides read open ⇒ **the line genuinely floats and the probe's premise is false.**
+  Expected firmware behaviour is then the refusal (panel `--` for ever, **no** conversion taken) **and** the fail-safe
+  park of part C. ⛔ **Report it — do not work around it.** The owner's alternative (a build constant carrying the
+  measured value, the `kVextOnLevel` / `LORA_TX_POWER` precedent) is recorded as owed in `simulation/BASELINE.md`'s
+  §UI-9 note and is **not** implemented, because spec §7 and plan Task 9 both say "do not hardcode".
+- **FAILURE:** *both* sides read a finite resistance ⇒ the meter is reading through the powered-down SoC, not a pull.
+  **The board is not fully de-energised** — remove the cell and re-check before recording anything from B.
+
+**C — ★★ THE FAIL-SAFE PARK: when the firmware REFUSES, is the divider actually off?** ([[B123]] round 2 — this is the
+part that did not exist, and the defect it catches shipped.)
+
+★ **Run this whenever the panel shows a permanent `--`** — that is the refusal, i.e. the two-pull probe found the line
+floating and `kAdcCtrlFailsafePark` (`variants/heltec_v3/board_ui.cpp`) chose the park. **This is exactly the path with
+no detected polarity to fall back on, so it is the one that must be measured rather than reasoned about.**
+
+1. Battery-powered, USB detached, panel showing `--` and never a number.
+2. Meter in **DC volts** on the **ADC input** (`MR_UI_VBAT_READ`) to ground. Watch for at least two `kBattPeriodMs`.
+3. Meter in **DC volts** on `MR_UI_ADC_CTRL` to ground.
+
+- [ ] **PASS:** the ADC node reads **~0 V and never moves** (no burst at all — the refusal takes no conversion), and the
+      control pin sits at the **non-measuring** level for the recorded revision.
+- ⛔ **FAILURE — THE SHIPPED DEFECT:** the ADC node sits at **VBAT ÷ 4.9** continuously ⇒ the refusal path parked the
+  divider **ENABLED**. Record the control pin's level and the board revision. ⛔ **Stop and report:** the fail-safe
+  constant is wrong for this revision, and the file says so may happen — it targets **V3.2 and later** and is **not**
+  claimed safe on a pre-3.2 board.
+- **FAILURE:** the ADC node shows periodic bursts while the panel says `--` ⇒ the refusal is not being honoured; the
+  reader is sampling anyway (host cover for this is `probe_board_ui` P8w, so a red here means the board build and the
+  probed source have diverged).
+- ⚠ **NOT a failure of C:** a permanent `--` on a board whose cell the meter says is healthy. That is the **weak-pull
+  false negative** of part B — an external pull weaker than the ESP32-S3's internal ~45 kΩ reads as "floating". It costs
+  a reading, not a leak **provided C passes**; ⛔ it is **not** self-evidently leak-free, which is precisely what the
+  superseded text above got wrong. **Run C, do not assume it.**
 
 ## 10. Evidence template
 
