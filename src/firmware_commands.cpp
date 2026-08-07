@@ -13,7 +13,7 @@
 #include <cstdlib>             // strtol/strtoul (route/testsched/lookup parsing)
 #include "firmware_config.h"   // dispatch re-fans-out to mrfw:: config verbs (gateway/join/create/team/mobile/leave/cfg_set)
 #include "firmware_remote.h"   // dispatch: rcmd + (MR_FEAT_REMOTE_MGMT) password/unlock/lock
-#include "firmware_inbox.h"    // dispatch/ble: pull_inbox / mark_read
+#include "firmware_inbox.h"    // dispatch/ble: pull_inbox / mark_read / del_msg
 #include "console_sink.h"      // mrcon (inline, ODR-merged) — do_regen + handlers print through it
 #include "console_json.h"      // write_status/write_cfg/write_limits/write_route + StatusFields/CfgExtras
 #include "frame_trace.h"       // g_mr_trace_on (handle_debug)
@@ -818,6 +818,7 @@ static void dump_help(Print& out) {
     out.println(F(""));
     out.println(F("INBOX"));
     out.println(F("  pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>       NDJSON out"));
+    out.println(F("  del_msg <dm|chan> <seq>                     delete one record (erased|not_found|io_error)"));
     out.println(F(""));
     out.println(F("DIAGNOSTICS"));
     out.println(F("  routes | status | duty | limits | cfg | cfg set <k> <v>"));
@@ -998,6 +999,7 @@ bool dispatch(const char* line, size_t len, Print& out) {   // §command-sink-co
     if ((len == 6 || (len > 6 && line[6] == ' ')) && !strncmp(line, "hashof", 6)) { handle_hashof(line + 6, len - 6, out); return true; }
     if ((len == 10 || (len > 10 && line[10] == ' ')) && !strncmp(line, "pull_inbox", 10)) { handle_pull_inbox(line + 10, out); return true; }
     if ((len ==  9 || (len >  9 && line[9]  == ' ')) && !strncmp(line, "mark_read",   9)) { handle_mark_read(line + 9,  out); return true; }
+    if ((len ==  7 || (len >  7 && line[7]  == ' ')) && !strncmp(line, "del_msg",     7)) { handle_del_msg(line + 7,   out); return true; }   // §3.5 durable single-record delete
 #if MR_FEAT_REMOTE_MGMT
     if (len > 9 && !strncmp(line, "password ", 9)) { handle_password(line + 9, out); return true; }   // §remote-mgmt: LOCAL-only admin credential set
     if (len > 7 && !strncmp(line, "unlock ", 7))   { handle_unlock(line + 7, out);   return true; }   // admin-issue: derive the admin key into RAM

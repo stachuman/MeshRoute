@@ -297,3 +297,196 @@ TEST_CASE("inbox: a FAILED set_next_seq keeps the batch so the next append retri
     rec_dm(ib, 1, 9, "m", 0);                                     // next append RETRIES (batch was kept, not reset)
     CHECK(dm.persisted_next_seq() == 10);                         // 9 records -> next 10, now persisted
 }
+
+// ===================================================================================================
+// §3.5 / §6.2 — DURABLE SINGLE-RECORD DELETE (owner ruling 2026-08-06: an appended TOMBSTONE; no rewrite,
+// no segment erase). ★ Every case asserts the SIDE EFFECT — the record's ABSENCE from a real pull sweep —
+// never the return code alone. A delete that returns `erased` and leaves the record readable is exactly the
+// "a contract event asserting a physical act" defect this arc has now hit four times.
+// ===================================================================================================
+namespace {
+
+// Does a full pull still yield a record with this (kind, seq)?
+bool pull_has(Inbox& ib, InboxKind kind, uint32_t seq) {
+    Collector c; ib.pull(0, 0, collect_cb, &c);
+    for (const auto& it : c.items) if (it.kind == kind && it.seq == seq) return true;
+    return false;
+}
+// Bodies of the DM block, in pull order (proves the survivors keep their original order).
+std::vector<std::string> pull_bodies(Inbox& ib, InboxKind kind) {
+    Collector c; ib.pull(0, 0, collect_cb, &c);
+    std::vector<std::string> v;
+    for (const auto& it : c.items) if (it.kind == kind) v.push_back(it.body);
+    return v;
+}
+// RAW store sweep — bypasses Inbox entirely, so it sees the tombstone records the pull filter hides.
+// `type` sits at byte 25 of the record header (4+1+1+1+4+4+8+1+1); the target seq is the msg_id at byte 7.
+struct RawScan { uint16_t records = 0; uint16_t tombs = 0; uint32_t last_tomb_target = 0; bool tomb_was_last = false; };
+bool raw_scan_cb(void* ctx, uint32_t, const uint8_t* rec, uint16_t len) {
+    auto* r = static_cast<RawScan*>(ctx);
+    ++r->records;
+    const bool is_tomb = (len > 25 && rec[25] == inbox_rec_type_tombstone);
+    r->tomb_was_last = is_tomb;                                   // overwritten each record -> true iff the LAST one is a tombstone
+    if (is_tomb) { ++r->tombs; r->last_tomb_target = uint32_t(rec[7]) | (uint32_t(rec[8]) << 8) | (uint32_t(rec[9]) << 16) | (uint32_t(rec[10]) << 24); }
+    return true;
+}
+RawScan raw_scan(const InboxStore& s) { RawScan r; s.read_since(0, raw_scan_cb, &r); return r; }
+
+}  // namespace
+
+// §3.5/1 — the happy path, asserted as a SIDE EFFECT: the record vanishes from pull, the survivors keep their
+// order, and the tombstone record itself is never emitted as a message.
+TEST_CASE("inbox §3.5/1: erase(dm, seq) removes THAT record from pull; survivors keep order; no tombstone leaks") {
+    RamInboxStore dm(protocol::inbox_dm_store_bytes), ch(protocol::inbox_chan_store_bytes);
+    Inbox ib; ib.on_init(&dm, &ch);
+    rec_dm(ib, 2, 1, "alpha", 100);  rec_dm(ib, 2, 2, "bravo", 200);  rec_dm(ib, 2, 3, "charlie", 300);
+    CHECK(pull_has(ib, InboxKind::dm, 2));                        // premise: bravo IS readable before the delete
+    CHECK(ib.erase(InboxKind::dm, 2) == InboxEraseResult::erased);
+    CHECK(!pull_has(ib, InboxKind::dm, 2));                       // ★ THE SIDE EFFECT, not the return code
+    const std::vector<std::string> b = pull_bodies(ib, InboxKind::dm);
+    CHECK(b.size() == 2);
+    if (b.size() == 2) { CHECK(b[0] == "alpha"); CHECK(b[1] == "charlie"); }   // order preserved, nothing else touched
+    Collector c; const uint16_t visited = ib.pull(0, 0, collect_cb, &c);
+    CHECK(visited == 2);                                          // the count excludes BOTH the deleted record and the marker
+    for (const auto& it : c.items) CHECK(it.type != inbox_rec_type_tombstone);
+    // ...and the marker really is in the store: the pull filter is what hides it, not its absence.
+    const RawScan r = raw_scan(dm);
+    CHECK(r.records == 4);                                        // 3 messages + 1 tombstone
+    CHECK(r.tombs == 1);
+    CHECK(r.last_tomb_target == 2);
+}
+
+// §3.5/2 — ★★ HAZARD 1, THE ORDERING TRAP, PINNED DIRECTLY. The tombstone is appended AFTER its target, so a
+// single-pass streaming reader cannot filter a marker it has not seen yet. This case proves the marker is
+// physically LAST in the log and the target is STILL not emitted.
+TEST_CASE("inbox §3.5/2: the tombstone is the LAST record in the log and the target is still filtered (ordering)") {
+    RamInboxStore dm(protocol::inbox_dm_store_bytes), ch(protocol::inbox_chan_store_bytes);
+    Inbox ib; ib.on_init(&dm, &ch);
+    rec_dm(ib, 2, 1, "keep-me", 100);
+    rec_dm(ib, 2, 2, "delete-me", 200);
+    CHECK(ib.erase(InboxKind::dm, 2) == InboxEraseResult::erased);
+    const RawScan r = raw_scan(dm);
+    CHECK(r.tomb_was_last);                                       // premise: the marker follows its target in the log
+    CHECK(r.last_tomb_target == 2);
+    CHECK(!pull_has(ib, InboxKind::dm, 2));                       // ...and the pre-pass still caught it
+    CHECK(pull_has(ib, InboxKind::dm, 1));
+    // Same guarantee when the cursor sits just below the deleted record (the pre-pass uses the SAME `since`).
+    Collector c; ib.pull(/*dm_since*/ 1, 0, collect_cb, &c);
+    CHECK(c.items.empty());
+}
+
+// §3.5/3 — ★★ IDENTITY IS THE PAIR. Both stores hold a seq 2; erasing the DM one must not touch the channel one.
+// ⚠ This is the case that must go RED if (kind, seq) is ever collapsed to seq alone.
+TEST_CASE("inbox §3.5/3: identity is (kind, seq) — the two seq spaces are independent") {
+    RamInboxStore dm(protocol::inbox_dm_store_bytes), ch(protocol::inbox_chan_store_bytes);
+    Inbox ib; ib.on_init(&dm, &ch);
+    rec_dm(ib, 2, 1, "dm-one", 100);   rec_dm(ib, 2, 2, "dm-two", 200);       // DM   seq 1, 2
+    rec_ch(ib, 5, 9, 1, "ch-one", 300); rec_ch(ib, 5, 9, 2, "ch-two", 400);   // CHAN seq 1, 2 (independent space)
+    CHECK(pull_has(ib, InboxKind::dm, 2));  CHECK(pull_has(ib, InboxKind::channel, 2));
+    CHECK(ib.erase(InboxKind::dm, 2) == InboxEraseResult::erased);
+    CHECK(!pull_has(ib, InboxKind::dm, 2));                       // the DM went
+    CHECK(pull_has(ib, InboxKind::channel, 2));                   // ★ the SAME-numbered channel record did NOT
+    CHECK(raw_scan(ch).tombs == 0);                               // and no marker was written into the wrong store
+    CHECK(ib.erase(InboxKind::channel, 2) == InboxEraseResult::erased);
+    CHECK(!pull_has(ib, InboxKind::channel, 2));
+    CHECK(pull_has(ib, InboxKind::channel, 1));                   // its neighbour survived
+    CHECK(pull_has(ib, InboxKind::dm, 1));
+}
+
+// §3.5/4 — ★★ THE DELETE SURVIVES A REBOOT (re-on_init over the SAME store objects = the persisted state), and
+// the seq high-water does not regress: the next message gets a NEW seq, never a reused one.
+TEST_CASE("inbox §3.5/4: a delete survives a reboot; the record never reappears; no seq is reused") {
+    RamInboxStore dm(protocol::inbox_dm_store_bytes), ch(protocol::inbox_chan_store_bytes);
+    {
+        Inbox ib; ib.on_init(&dm, &ch);
+        rec_dm(ib, 2, 1, "alpha", 100);  rec_dm(ib, 2, 2, "bravo", 200);
+        CHECK(ib.erase(InboxKind::dm, 2) == InboxEraseResult::erased);
+        CHECK(ib.dm_newest_seq() == 3);                           // the tombstone consumed seq 3 (a HOLE, not a rewind)
+    }
+    Inbox ib2; ib2.on_init(&dm, &ch);                             // ---- reboot ----
+    CHECK(!pull_has(ib2, InboxKind::dm, 2));                      // ★ still gone after the restore
+    CHECK(pull_has(ib2, InboxKind::dm, 1));
+    rec_dm(ib2, 2, 9, "post-reboot", 500);
+    CHECK(ib2.dm_newest_seq() == 4);                              // 4, never a reuse of 2 or 3
+    CHECK(pull_has(ib2, InboxKind::dm, 4));
+    CHECK(!pull_has(ib2, InboxKind::dm, 2));                      // and the new record did not resurrect the old one
+    CHECK(ib2.erase(InboxKind::dm, 2) == InboxEraseResult::not_found);   // a second delete after reboot: GONE, not failed
+}
+
+// §3.5/5 — `not_found` is its own outcome (MESSAGE GONE), distinct from success and from failure, in all three
+// ways it arises: never existed, evicted by the bounded ring, already deleted. None of them removes anything.
+TEST_CASE("inbox §3.5/5: not_found — never existed / evicted / already deleted, and nothing else is touched") {
+    // A 40-B body -> a 72-B record, 74 framed; a 300-B cap therefore holds FOUR, so six appends evict seq 1 and 2.
+    RamInboxStore dm(/*cap*/ 300), ch(protocol::inbox_chan_store_bytes);   // tiny cap -> drop-oldest evicts
+    Inbox ib; ib.on_init(&dm, &ch);
+    CHECK(ib.erase(InboxKind::dm, 7) == InboxEraseResult::not_found);      // empty store, no such seq
+    CHECK(ib.erase(InboxKind::dm, 0) == InboxEraseResult::not_found);      // seq 0 is a cursor, never a record
+    for (uint16_t i = 1; i <= 6; ++i) rec_dm(ib, 2, i, "0123456789012345678901234567890123456789", 100 + i);
+    CHECK(!pull_has(ib, InboxKind::dm, 1));                                // premise: seq 1 was EVICTED by the cap
+    CHECK(ib.erase(InboxKind::dm, 1) == InboxEraseResult::not_found);      // ...so deleting it is GONE, not a failure
+    CHECK(raw_scan(dm).tombs == 0);                                        // ★ and no marker was written for it
+    const uint32_t newest = ib.dm_newest_seq();
+    CHECK(pull_has(ib, InboxKind::dm, newest));
+    CHECK(ib.erase(InboxKind::dm, newest) == InboxEraseResult::erased);
+    CHECK(!pull_has(ib, InboxKind::dm, newest));
+    CHECK(ib.erase(InboxKind::dm, newest) == InboxEraseResult::not_found); // a REPEAT delete: gone, not an error
+    CHECK(raw_scan(dm).tombs == 1);                                        // ...and it did NOT write a second marker
+}
+
+// §3.5/6 — a storage failure is `io_error` and DELETES NOTHING. ⛔ "a visual disappearance without durable
+// success is forbidden" (§3.5) — so the record must still be readable after a failed erase.
+TEST_CASE("inbox §3.5/6: io_error on a failed append — a failed delete omits nothing") {
+    RamInboxStore dm(protocol::inbox_dm_store_bytes), ch(protocol::inbox_chan_store_bytes);
+    Inbox ib; ib.on_init(&dm, &ch);
+    rec_dm(ib, 2, 1, "survivor", 100);
+    dm.fail_append = true;                                        // flash write dies
+    CHECK(ib.erase(InboxKind::dm, 1) == InboxEraseResult::io_error);
+    CHECK(dm.failed_append_calls == 1);                           // the append WAS attempted (not short-circuited)
+    dm.fail_append = false;
+    CHECK(pull_has(ib, InboxKind::dm, 1));                        // ★ STILL THERE — no visual disappearance
+    CHECK(raw_scan(dm).tombs == 0);
+    CHECK(ib.erase(InboxKind::dm, 1) == InboxEraseResult::erased); // and it can be retried once flash recovers
+    CHECK(!pull_has(ib, InboxKind::dm, 1));
+}
+
+// §3.5/7 — an UNWIRED inbox reports io_error, never success (§6.2, verbatim).
+TEST_CASE("inbox §3.5/7: a disabled inbox reports io_error, never erased") {
+    Inbox off;
+    CHECK(off.erase(InboxKind::dm, 1) == InboxEraseResult::io_error);
+    CHECK(off.erase(InboxKind::channel, 1) == InboxEraseResult::io_error);
+}
+
+// §3.5/8 — ★★ HAZARD 2, THE TOMBSTONE BOUND. The read pre-pass holds inbox_max_tombstones targets; erase refuses
+// the one that would overflow it. The refusal is io_error (a loud DELETE FAILED), and — the point of the case —
+// every one of the capped deletes is STILL filtered, so nothing resurrects for want of array space.
+TEST_CASE("inbox §3.5/8: the tombstone cap is enforced at the WRITER, and no capped delete ever resurrects") {
+    RamInboxStore dm(protocol::inbox_dm_store_bytes), ch(protocol::inbox_chan_store_bytes);
+    Inbox ib; ib.on_init(&dm, &ch);
+    const uint16_t n = protocol::inbox_max_tombstones;
+    std::vector<uint32_t> victims;
+    for (uint16_t i = 0; i < n + 1; ++i) victims.push_back(ib.record_dm(2, 0, i, 0, reinterpret_cast<const uint8_t*>("x"), 1, 1000 + i));
+    for (uint16_t i = 0; i < n; ++i) CHECK(ib.erase(InboxKind::dm, victims[i]) == InboxEraseResult::erased);
+    CHECK(raw_scan(dm).tombs == n);
+    const InboxEraseResult over = ib.erase(InboxKind::dm, victims[n]);
+    CHECK(over == InboxEraseResult::io_error);                    // the (n+1)-th: refused LOUD
+    // ★ The outcome and what the reader SEES must agree, whatever the outcome is. Drop the writer's cap and this
+    // is the assert that fires: erase reports `erased` while the pre-pass array has no room for the (n+1)-th
+    // marker, so the record is still emitted — a deleted message resurrected for want of space.
+    CHECK(pull_has(ib, InboxKind::dm, victims[n]) == (over != InboxEraseResult::erased));
+    for (uint16_t i = 0; i < n; ++i) CHECK(!pull_has(ib, InboxKind::dm, victims[i]));   // ★ all n stay deleted
+    Collector c; CHECK(ib.pull(0, 0, collect_cb, &c) == 1);       // exactly the one that refused to delete
+}
+
+// §3.5/9 — a one-record delete is NOT a store wipe: next_seq, the read cursor and the storage epoch keep their
+// meanings, so the companion must not be pushed into resetting both cursors (§6.2).
+TEST_CASE("inbox §3.5/9: a delete is not a wipe — read cursor and storage epoch are untouched") {
+    RamInboxStore dm(protocol::inbox_dm_store_bytes), ch(protocol::inbox_chan_store_bytes);
+    dm.epoch = 5;
+    Inbox ib; ib.on_init(&dm, &ch);
+    rec_dm(ib, 2, 1, "alpha", 100);  rec_dm(ib, 2, 2, "bravo", 200);
+    ib.mark_read(InboxKind::dm, 2);
+    CHECK(ib.erase(InboxKind::dm, 1) == InboxEraseResult::erased);
+    CHECK(dm.read_cursor() == 2);                                 // cursor unmoved by the delete
+    CHECK(ib.storage_epoch() == 5);                               // epoch unmoved (this is not a wipe)
+    CHECK(ch.count() == 0);                                       // the other store was never opened
+}

@@ -41,7 +41,7 @@ manual hardware gate.
 | UI-1 … UI-7 | ✅ | gesture, model, attribution, canvas, feature layer, real sends, roster and inbox preview are implemented |
 | UI-8 emergency hardware qualification | 🧪 | all render/send arms exist; the H8 bench matrix is still the completion gate |
 | UI-9 V3 battery reader | 🧪 | code and probes landed; H9 meter, control-line and radio-load checks remain |
-| UI-7D inbox detail/delete | 📝 | §3.5/§6.2; current double press on INBOX intentionally does nothing |
+| UI-7D inbox detail/delete | 📝 UI · ✅ **storage** | **slice A LANDED 2026-08-06, QA-REJECTED the same day, RE-CLOSED 2026-08-07** — §6.2's `Inbox::erase(InboxKind, seq)` exists (tombstone; three outcomes; console `del_msg`); its two blockers were the durable store's **mid-frame tear** ([[B135]], pre-existing) and the verb's **target parsing** ([[B136]]), both fixed. §3.5's modal is **slice B** and is not built: the double press on INBOX still intentionally does nothing |
 | UI-10/UI-11 configurable presets | 📝 | §3.2.2–3; current OLED still uses the landed fixed catalog |
 | UI-12 Heltec ESP32 BLE | 📝 | §2.2; persisted `ble_mode` does not provide BLE on V3 yet |
 | UI-13…UI-16 settings and provisioning | 📝 | §3.6; no SETTINGS screen, draft marker, team-create/static-join UI or nearby-team onboarding exists yet |
@@ -864,7 +864,33 @@ The retained preview row gains `InboxKind kind` and `uint32_t seq`. Its 20-chara
 field, never an identity. Detail activation performs an exact pull lookup by `(kind, seq)` and copies the complete
 entry into a fixed buffer; no unbounded JSON intermediary and no heap allocation are introduced.
 
-### 6.2 Durable single-record deletion prerequisite · 📝 not implemented
+### 6.2 Durable single-record deletion prerequisite · ✅ implemented 2026-08-06 (UI-7D slice A)
+
+> **AS BUILT — slice A, `lib/core/inbox.{h,cpp}`. This is the contract §3.5's modal calls; the paragraphs below are
+> the requirement it was built against and are kept as written.**
+> ```cpp
+> enum class InboxEraseResult : uint8_t { erased = 0, not_found = 1, io_error = 2 };
+> InboxEraseResult Inbox::erase(InboxKind kind, uint32_t seq);   // identity = the PAIR (kind, seq)
+> ```
+> `erased` → close the modal and rebuild · `not_found` → **`MESSAGE GONE`** (evicted, already deleted, or `seq == 0`)
+> · `io_error` → **`DELETE FAILED`**, nothing was deleted. An unwired inbox is `io_error`, never success.
+> **Owner ruling 2026-08-06: the mechanism is an appended TOMBSTONE — no rewrite, no segment erase.** `pull()` runs a
+> bounded pre-pass (a marker is appended *after* its target, so a single streaming pass cannot filter it) and skips
+> both the marker and the record it names; markers live in the same bounded ring, are always evicted after their
+> target, and the writer caps them at `protocol::inbox_max_tombstones` (32) so the reader's fixed array cannot
+> overflow. Cost: 128 B of stack, **0 bytes of RAM on every env**, two store scans per pull. ★ **No virtual was added
+> to `InboxStore`** — `erase()` is composed from `read_since` + `append`, so no backend can be missed or silently
+> default to a no-op. The record format is **unchanged** (the marker is `type = 0xFE`, not a `DataType`), so **no
+> store-format version bump was taken**. Console: `del_msg <dm|chan> <seq>`. Register [[B133]].
+> ⚠ **[[B134]]:** on every ESP32 target — `heltec_v3` included — the inbox is a **volatile RAM ring**, so on the
+> panel's own board the delete is durable only until the next power cycle. Slice B must not imply otherwise.
+
+
+> ⛔ **SUPERSEDED 2026-08-07 — the paragraph immediately below is the ORIGINAL REQUIREMENT text and its present
+> tense is now false.** It says *"there is no single-record delete today"*; `Inbox::erase(InboxKind, seq)` shipped
+> 2026-08-06 (the AS-BUILT block above) and its durable prerequisite closed 2026-08-07. **Read it as the
+> requirement this was built against, never as a statement of current behaviour.** The five bullets that follow it
+> are the acceptance criteria and they are DISCHARGED — see the AS-BUILT block above and the checklist below it.
 
 There is no single-record delete today. `InboxStore` exposes append, iteration, read-cursor update and whole-store
 `wipe()` only; `mark_read()` is not deletion. UI-7D therefore adds the platform-neutral operation
@@ -885,6 +911,21 @@ must prove all of the following before UI-7D is complete:
 - deleting a record already evicted by the bounded ring returns `not_found` and cannot select a newer replacement;
 - stack/RAM, flash wear and worst-case blocking time are measured. No segment rewrite may run in a radio-critical
   interval.
+
+> **AS BUILT — how the five criteria above were discharged (2026-08-07, closing the QA rejection §B133b).**
+> ★ Criterion 1 (*power loss at any mutation point*) **failed on first review and is the reason this section was
+> re-opened.** The durable store frames a record as `[u16 framed_len][u32 seq][rec]` and wrote header and body as
+> **two** appends, so a tear left a header claiming bytes that were not there — and the **next** append landed
+> behind it and was consumed as its body, making a stored record unreachable. ⇒ a retried tombstone could report
+> `erased` with the message still visible. **That hole predates UI-7D by two months** (`git blame` → 2026-06-12) and
+> affects **ordinary message appends**, so it carries its own register id, [[B135]], and was fixed there:
+> a torn segment is **sealed** and the next append **rolls to a fresh one**, with the seal re-derived at `begin()`
+> because a power cut also loses the RAM flag. ⛔ **Rotation is not transactional** — a roll on a full ring evicts
+> the oldest segment before the write is attempted — so the honest guarantee is *"no previously readable record is
+> corrupted or made unreachable"*, **not** *"nothing else is mutated"*; there is also **no per-record CRC**, so
+> **short** frames are detected and **corrupt** ones are not. Criteria 2–5 are pinned by the native cases
+> (`§3.5/1…/9`, `§B135/1…/6`), which assert **absence from a real `pull()`**, never a return code.
+> ⚠ The console verb's own target parsing was a second blocker — [[B136]].
 
 This action deletes the **device's durable copy only**. A companion that already imported the record keeps its own
 history; the current inbox protocol has no delete-propagation event. Synchronised deletion across the companion is a
@@ -1213,7 +1254,7 @@ Slices are named `UI-n` deliberately: bare `U1`/`U3` would collide with the CLAU
 | UI-5 | ✅ | U8g2 board canvas and page paint | landed; board probe |
 | UI-6 | ✅ | button, snapshot/render policy and live cycle | landed; board probe |
 | UI-7 | ✅ | roster, fixed compose tables, real sends and inbox preview | landed; hardware acceptance partly recorded |
-| UI-7D | 📝 | inbox detail/delete (§3.5/§6.2) | storage fault/power-cut + native + target |
+| UI-7D | 📝 UI · ✅ storage | inbox detail/delete (§3.5/§6.2) | ✅ storage: `Inbox::erase` + `del_msg` + durable-append recovery ([[B135]]) + strict target parsing ([[B136]]); **storage fault/power-cut injection DONE natively** (`§B135/1…/6`, mid-frame injector) · 📝 UI: the §3.5 modal (slice B) + bench Part 11 on target |
 | UI-8 | 🧪 | emergency end-to-end qualification | code exists; complete H8 |
 | UI-9 | 🧪 | V3 battery reader and cache (§7) | code exists; complete H9/multimeter |
 | UI-10 | 📝 | versioned configurable preset catalog | native + storage fault injection |
@@ -1232,8 +1273,13 @@ creation followed by no-phone member onboarding is the owner's primary new goal.
 proceed independently after their own dependencies; UI-12 is needed for convenient preset/profile editing and
 companion key export, but neither atomic team creation nor current-PHY nearby onboarding depends on BLE.
 
-UI-7D remains independent and blocked on §6.2's durable erase contract. Until it lands, inbox double press doing
-nothing is expected. UI-15's profile-based static join is honest about its boundary: a fresh device with no profile
+UI-7D's **storage half is LANDED** (§6.2 AS-BUILT; `Inbox::erase`, console `del_msg`, durable-append recovery
+[[B135]], target parsing [[B136]]). What remains is **slice B, the §3.5 modal itself**, which is independent of
+every other UI item. Until slice B lands, inbox double press doing nothing is expected.
+⛔ **SUPERSEDED 2026-08-07 — this paragraph read: *"UI-7D remains independent and blocked on §6.2's durable erase
+contract. Until it lands, inbox double press doing nothing is expected."* The erase contract is no longer the
+blocker; only the UI is.** ⚠ On `heltec_v3` the store is a volatile RAM ring ([[B134]]), so slice B must not imply
+a permanence the board does not provide. UI-15's profile-based static join is honest about its boundary: a fresh device with no profile
 cannot enter arbitrary RF numbers from one button. UI-16 likewise discovers only teams audible on the current PHY;
 neither slice may imply a general cross-frequency scan.
 

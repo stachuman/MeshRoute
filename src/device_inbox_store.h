@@ -77,7 +77,7 @@ public:
     uint32_t storage_epoch() const override { return _meta.epoch; }
     // factory_reset (§5): drop EVERY record segment (the QSPI records). The InternalFS meta is removed by
     // mrnv::factory_erase(); together they leave the inbox truly empty. Best-effort (idempotent erase).
-    void wipe() override { for (uint16_t i = 0; i < ring_segs(); ++i) qspi_seg_erase(i); }
+    void wipe() override { for (uint16_t i = 0; i < ring_segs(); ++i) qspi_seg_erase(i); _head_sealed = false; }   // §B135: the tear went with the segments
 
 private:
     // ---- meta (InternalFS) ----
@@ -103,6 +103,15 @@ private:
                                      //   not count; not decremented on drop). The Inbox uses pull, never count().
     uint32_t    _total = 0;          // live bytes across the ring
     bool        _ok = false;         // begin() succeeded (mount + meta consistent)
+    bool        _head_sealed = false;   // §B135: the head segment ends in a TORN frame -> the next append MUST roll away
+                                        //   from it first. Re-derived at begin() — the power cut that tears a frame also
+                                        //   loses this RAM flag. ⚠ THIS FILE IS A HAND-MAINTAINED TWIN of
+                                        //   lib/core/segmented_inbox_store.h (same logic, qspi_*/ifs_* seams instead of
+                                        //   injected interfaces); the §B135 rationale + the "does NOT cover" list live
+                                        //   there, host-tested, and any change here must be mirrored there.
+    // ---- §B135 torn-tail recovery (twin of SegmentedInboxStore's; see that file for the design) ----
+    bool head_tail_torn() const;
+    bool note_torn_append(uint32_t head_sz_before);
 };
 
 // ---- the segmented-log logic (platform-neutral; uses the seams above) -------------------------------------
@@ -147,17 +156,39 @@ inline bool DeviceInboxStore::begin() {
         if (qspi_seg_size(i, &sz)) _total += sz;               // bytes drive the cap; _count is NOT rebuilt here (diag-only, see count())
         if (i == _meta.head_seg) break;
     }
+    _head_sealed = head_tail_torn();                           // ★ §B135 REBOOT ARM (twin of SegmentedInboxStore::begin)
     _ok = true;
     return true;
+}
+
+// §B135 — the head segment's frame chain must consume the segment EXACTLY; anything left over is a torn frame.
+inline bool DeviceInboxStore::head_tail_torn() const {
+    const uint32_t n = qspi_seg_read(_meta.head_seg, kSegScratch, _seg);
+    uint32_t off = 0;
+    while (off + 6 <= n) {
+        const uint16_t fl = static_cast<uint16_t>(kSegScratch[off] | (kSegScratch[off + 1] << 8));
+        if (fl < 6 || off + fl > n) return true;               // a frame that runs past the bytes present = torn
+        off += fl;
+    }
+    return off != n;                                            // <6 trailing bytes = a torn HEADER
+}
+
+// §B135 — a failed append may have left a PARTIAL frame. Charge the landed bytes to _total and SEAL, so the next
+// append rolls to a fresh segment instead of writing behind the tear (which would make the reader mis-parse).
+inline bool DeviceInboxStore::note_torn_append(uint32_t head_sz_before) {
+    uint32_t now = 0;
+    if (!qspi_seg_size(_meta.head_seg, &now)) now = 0;
+    if (now > head_sz_before) { _total += (now - head_sz_before); _head_sealed = true; }
+    return false;
 }
 
 inline bool DeviceInboxStore::append(uint32_t seq, const uint8_t* rec, uint16_t len) {
     if (!_ok) return false;
     const uint16_t framed = static_cast<uint16_t>(2 + 4 + len);  // [u16 framed_len][u32 seq][rec]
     if (framed > _seg) return false;                            // a single record bigger than a segment (never: header+body << seg)
-    // Roll to a new head segment if this record won't fit the current one.
+    // Roll to a new head segment if this record won't fit the current one — or if the head is SEALED (§B135).
     uint32_t head_sz = 0; qspi_seg_size(_meta.head_seg, &head_sz);
-    if (head_sz + framed > _seg) {
+    if (_head_sealed || head_sz + framed > _seg) {
         const uint16_t next_head = static_cast<uint16_t>((_meta.head_seg + 1) % _meta.seg_count);
         if (next_head == _meta.tail_seg) {                     // ring full -> drop the oldest segment
             uint32_t tsz = 0; qspi_seg_size(_meta.tail_seg, &tsz);
@@ -167,13 +198,15 @@ inline bool DeviceInboxStore::append(uint32_t seq, const uint8_t* rec, uint16_t 
         }
         qspi_seg_erase(next_head);                             // the new head starts empty (it may hold stale lapped bytes)
         _meta.head_seg = next_head;
+        _head_sealed = false;                                  // §B135: the tear is behind us, in a segment never appended to again
+        head_sz = 0;                                           //   and the fresh head is empty
         save_meta();                                           // persist the ring move (infrequent; not per-append)
     }
     uint8_t hdr[6] = { static_cast<uint8_t>(framed), static_cast<uint8_t>(framed >> 8),
                        static_cast<uint8_t>(seq), static_cast<uint8_t>(seq >> 8),
                        static_cast<uint8_t>(seq >> 16), static_cast<uint8_t>(seq >> 24) };
-    if (!qspi_seg_append(_meta.head_seg, hdr, 6)) return false;
-    if (len && !qspi_seg_append(_meta.head_seg, rec, len)) return false;
+    if (!qspi_seg_append(_meta.head_seg, hdr, 6))          return note_torn_append(head_sz);   // §B135
+    if (len && !qspi_seg_append(_meta.head_seg, rec, len)) return note_torn_append(head_sz);   // §B135 — the dangerous half
     _total += framed; _count++;
     // Drop-oldest if the WHOLE store is over the byte cap (a roll already handled the per-segment fill).
     while (_total > _cap && _meta.tail_seg != _meta.head_seg) {

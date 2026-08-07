@@ -22,4 +22,8 @@ void handle_pull_inbox(const char* args, Print& out);
 // `mark_read <dm|chan> <seq>` — advance the per-store read cursor.
 void handle_mark_read(const char* args, Print& out);
 
+// `del_msg <dm|chan> <seq>` — §3.5 durable single-record delete (a tombstone append; no rewrite, no segment erase).
+// Acks `{"ack":"del_msg","kind":…,"seq":N,"result":"erased|not_found|io_error"}` — THREE outcomes, never a bool.
+void handle_del_msg(const char* args, Print& out);
+
 }  // namespace mrfw

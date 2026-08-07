@@ -80,6 +80,9 @@ private:
 
     uint16_t ring_segs() const { return static_cast<uint16_t>(_cap / _seg + 1); }
     bool save_meta() { return _meta_io->save(&_meta, sizeof _meta); }
+    // ---- §B135 torn-tail recovery (see the block comment above append()) ----
+    bool head_tail_torn() const;                 // does the HEAD segment's frame chain end exactly at its last byte?
+    bool note_torn_append(uint32_t head_sz_before);   // always returns false; seals + fixes _total IFF bytes landed
     // S2 flash-validation rule: range-check a flash-loaded struct BEFORE its fields index / divide / bound a loop.
     // A torn /mri_* meta with seg_count==0 hard-faults the `% seg_count` below (DBZ), and head_seg>=seg_count makes
     // the `i == head_seg` ring walk never terminate (infinite boot loop). Reject those -> begin() re-inits fresh meta.
@@ -100,6 +103,9 @@ private:
                                       //   (an upper bound). The Inbox uses pull/read_since for logic, never count().
     uint32_t       _total = 0;        // live bytes across the ring
     bool           _ok = false;
+    bool           _head_sealed = false;   // §B135: the head segment ends in a TORN frame -> the next append MUST roll
+                                           //   away from it first. Re-derived at begin() (see head_tail_torn()) because
+                                           //   the power cut that tears a frame also loses this RAM flag.
     inline static uint8_t s_scratch[kScratchBytes];
 };
 
@@ -147,17 +153,70 @@ inline bool SegmentedInboxStore::begin() {
         if (_records->seg_size(i, &sz)) _total += sz;          // bytes drive the cap; _count is NOT rebuilt here (it's diag-only, see count())
         if (i == _meta.head_seg) break;
     }
+    // ★ §B135 REBOOT ARM. The in-RAM seal below is lost by the very power cut that tears a frame, so the torn tail
+    // must be re-detected here — otherwise the FIRST append after the reboot lands behind the torn frame and the
+    // reader mis-parses from there on (a record that is physically present becomes unreachable). One segment read.
+    _head_sealed = head_tail_torn();
     _ok = true;
     return true;
 }
 
+// Walk the HEAD segment's frame chain exactly as read_since does. The chain must consume the segment EXACTLY:
+// anything left over is a torn frame (a body that never arrived, a header that did not finish, a length that runs
+// past the data). Only the head can acquire a fresh tear — appends go nowhere else — and a segment that was sealed
+// while it was head is never appended to again, so its tear stays permanently at its end where the reader stops.
+inline bool SegmentedInboxStore::head_tail_torn() const {
+    const uint32_t n = _records->seg_read(_meta.head_seg, s_scratch, _seg);
+    uint32_t off = 0;
+    while (off + 6 <= n) {
+        const uint16_t fl = static_cast<uint16_t>(s_scratch[off] | (s_scratch[off + 1] << 8));
+        if (fl < 6 || off + fl > n) return true;               // a frame that runs past the bytes present = torn
+        off += fl;
+    }
+    return off != n;                                            // <6 trailing bytes = a torn HEADER
+}
+
+// A failed append may have left a PARTIAL frame on the medium. Detect that by size (the only medium-neutral way —
+// seg_append is not required to be all-or-nothing) and, if bytes landed: charge them to _total (they occupy the
+// ring, so the byte cap must see them) and SEAL the segment. If nothing landed there is nothing to recover from,
+// and sealing would burn the rest of a 4 KB segment for free — so it is deliberately conditional.
+inline bool SegmentedInboxStore::note_torn_append(uint32_t head_sz_before) {
+    uint32_t now = 0;
+    if (!_records->seg_size(_meta.head_seg, &now)) now = 0;
+    if (now > head_sz_before) { _total += (now - head_sz_before); _head_sealed = true; }
+    return false;
+}
+
+// ★★ §B135 — TORN-FRAME RECOVERY (pre-existing hole, found by QA on the [[B133]] delete slice 2026-08-06).
+// The header and the body are TWO seg_append calls, so a power cut / write failure between them leaves a header
+// claiming `framed_len` bytes with fewer present. read_since already stops at such a frame (`off + fl > n`), so a
+// torn tail alone is harmless. THE DEFECT IS THE NEXT APPEND: it lands its bytes immediately behind the torn header,
+// which now measures long enough to "contain" them, so the reader consumes the new frame AS the torn one's body and
+// then resumes at a bogus offset — every record after the tear becomes unreachable while physically present.
+// ⇒ ordinary inbox messages could silently vanish, and a [[B133]] tombstone written as a RETRY after a torn write
+// could report `erased` while the target stays visible ("a success that isn't", the fifth instance in this project).
+// FIX = SEAL-AND-ROLL: a torn segment is never appended to again; the next append rolls to a fresh head, so the
+// tear stays permanently at a segment's end where the reader's existing stop is correct. Chosen over TRUNCATION
+// because ISegmentStore has no truncate and adding one is a new virtual on a HAL with a device implementation
+// (the hazard [[B133]] deliberately avoided), and because append-only media cannot un-write bytes at all.
+// ⛔ WHAT SEAL-AND-ROLL DOES NOT COVER — stated, not implied:
+//   (a) NO INTEGRITY CHECK. There is no per-record CRC, so a tear that leaves a PLAUSIBLE header plus plausible
+//       bytes (corrupt rather than short) still parses. Sealing detects SHORT frames, not corrupt ones.
+//   (b) Damage to records EARLIER in the segment (a flash page rewritten under a brown-out) is not detected.
+//   (c) The torn frame's bytes and the rest of its segment (up to seg_bytes) are LOST/wasted until the ring laps.
+//   (d) A `save_meta()` failure is still ignored (pre-existing, unchanged here).
+//   (e) ★ ROTATION IS NOT TRANSACTIONAL: if this append had to roll, the roll may already have erased the OLDEST
+//       segment before the write failed. Obtaining a free segment in a full ring IS the eviction, so it cannot be
+//       undone — but it is the ring's ordinary drop-oldest and it would have happened on the next successful
+//       append anyway. This is why the contract says "no previously readable record is corrupted or misparsed"
+//       and NOT "nothing else is mutated" (inbox.h's erase() note was corrected to match).
 inline bool SegmentedInboxStore::append(uint32_t seq, const uint8_t* rec, uint16_t len) {
     if (!_ok) return false;
     const uint16_t framed = static_cast<uint16_t>(2 + 4 + len);  // [u16 framed_len][u32 seq][rec]
     if (framed > _seg) return false;                            // a single record bigger than a segment (never: header+body << seg)
-    // Roll to a new head segment if this record won't fit the current one.
+    // Roll to a new head segment if this record won't fit the current one — or if the head is SEALED (§B135).
     uint32_t head_sz = 0; _records->seg_size(_meta.head_seg, &head_sz);
-    if (head_sz + framed > _seg) {
+    if (_head_sealed || head_sz + framed > _seg) {
         const uint16_t next_head = static_cast<uint16_t>((_meta.head_seg + 1) % _meta.seg_count);
         if (next_head == _meta.tail_seg) {                     // ring full -> drop the oldest segment
             uint32_t tsz = 0; _records->seg_size(_meta.tail_seg, &tsz);
@@ -167,13 +226,15 @@ inline bool SegmentedInboxStore::append(uint32_t seq, const uint8_t* rec, uint16
         }
         _records->seg_erase(next_head);                        // the new head starts empty (it may hold stale lapped bytes)
         _meta.head_seg = next_head;
+        _head_sealed = false;                                  // §B135: the tear (if any) is behind us, in a segment we never append to again
+        head_sz = 0;                                           //   and the fresh head is empty — the torn-detect below measures from 0
         save_meta();                                           // persist the ring move (infrequent; not per-append)
     }
     const uint8_t hdr[6] = { static_cast<uint8_t>(framed), static_cast<uint8_t>(framed >> 8),
                              static_cast<uint8_t>(seq), static_cast<uint8_t>(seq >> 8),
                              static_cast<uint8_t>(seq >> 16), static_cast<uint8_t>(seq >> 24) };
-    if (!_records->seg_append(_meta.head_seg, hdr, 6)) return false;
-    if (len && !_records->seg_append(_meta.head_seg, rec, len)) return false;
+    if (!_records->seg_append(_meta.head_seg, hdr, 6))          return note_torn_append(head_sz);   // §B135
+    if (len && !_records->seg_append(_meta.head_seg, rec, len)) return note_torn_append(head_sz);   // §B135 — the dangerous half
     _total += framed; _count++;
     // Drop-oldest if the WHOLE store is over the byte cap (a roll already handled the per-segment fill).
     while (_total > _cap && _meta.tail_seg != _meta.head_seg) {

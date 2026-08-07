@@ -376,6 +376,45 @@ inline bool parse_team_target(const char* s, uint32_t& out_id, const char*& out_
     return true;
 }
 
+// ★★ §B136 (BUG FIX 2026-08-07, found by QA on the [[B133]] delete slice) — A DESTRUCTIVE VERB ACCEPTED MALFORMED
+// TARGETS. `del_msg <dm|chan> <seq>` read its target with a bare `strtoul(args, nullptr, 10)`, i.e. NO endptr check
+// and no range check, so `del_msg dm 1oops`, `del_msg dm 1 extra`, `del_msg dm +1` and `del_msg dm 0x1` ALL DELETED
+// SEQUENCE 1 — a typo silently destroyed a message the operator never named. Same family as §team-target above,
+// arriving through a delete instead of a leave, which is why the clause discipline is REUSED rather than reinvented
+// (U1): a second, laxer integer parser sitting next to `parse_team_target` is exactly the fork that rots.
+//
+// THE RULE — the whole remaining ARGUMENT must be exactly ONE unsigned DECIMAL token:
+//   (1) a leading digit is mandatory  -> refuses "", "  ", "+1", "-1", "abc", and (with (2)) "0x1"
+//   (2) strtoul must consume characters, and every character it did not consume must be trailing WHITESPACE
+//                                     -> refuses "1oops", "1 extra", "0x1" (base 10 stops at the 'x'), "1.5"
+//   (3a) errno == ERANGE               -> the 32-bit boards' SATURATION to 0xFFFFFFFF (a real, deletable seq!)
+//   (3b) ul > UINT32_MAX               -> the 64-bit host/sim TRUNCATION ("4294967296" -> 0, and 0 is the seq the
+//                                         inbox never issues, so a truncation would read as an honest not_found and
+//                                         hide the typo instead of reporting it)
+//   ⚠ BOTH range arms are kept for the SAME ABI reason spelled out at parse_team_target (3a)/(3b): on each ABI one
+//     arm is inert and it is a DIFFERENT arm on each, so neither can be shown necessary by testing one ABI alone.
+// FAIL-CLOSED: `out` is untouched on false, so a refused token cannot half-write the seq the caller is about to
+// delete. Base 10 ONLY, deliberately: a seq is printed in decimal everywhere (`pull_inbox`, the §3.5 modal), and
+// base 0 would make the leading-zero form `010` mean 8 — a DIFFERENT MESSAGE, silently.
+// ⓘ SCOPE, stated rather than implied: `mark_read` still uses the lax `strtoul` and is deliberately NOT changed
+//   here — it is non-destructive (a cursor move the app re-issues constantly) and tightening a verb the companion
+//   already speaks is a behaviour change that belongs in its own slice, not folded into a delete fix (C1).
+inline bool parse_seq_arg(const char* s, uint32_t& out) {
+    if (!s) return false;
+    while (*s == ' ') ++s;                                             // the kind parser leaves the separating space
+    if (*s < '0' || *s > '9') return false;                            // (1) no leading digit => not a seq
+    char* endp = nullptr;
+    errno = 0;                                                         // (3a) ERANGE is only readable if cleared FIRST
+    const unsigned long ul = strtoul(s, &endp, 10);                    // (2) DECIMAL only — `010` must not mean 8
+    if (endp == s) return false;                                       // consumed nothing (unreachable given (1); kept as the parser's own invariant)
+    while (*endp == ' ' || *endp == '\t' || *endp == '\r' || *endp == '\n') ++endp;
+    if (*endp != '\0') return false;                                   // (2) trailing junk or a SECOND token
+    if (errno == ERANGE) return false;                                 // (3a) boards: saturation to 0xFFFFFFFF
+    if (ul > static_cast<unsigned long>(UINT32_MAX)) return false;     // (3b) host/sim: truncation
+    out = static_cast<uint32_t>(ul);                                   // committed only after the WHOLE argument was accepted
+    return true;
+}
+
 // FNV-1a/32 over the 8 little-endian bytes of (a ‖ b). Used to MINT a fresh team_id = hash(our key ‖ HW-RNG nonce).
 inline uint32_t team_fnv1a32(uint32_t a, uint32_t b) {
     uint32_t h = 2166136261u;

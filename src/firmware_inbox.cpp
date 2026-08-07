@@ -7,6 +7,7 @@
 #include "firmware_inbox.h"
 #include "fw_context.h"       // g_node, g_hal, s_inbox_jb (shared NDJSON scratch)
 #include "console_json.h"     // meshroute::console::write_inbox_dm/channel/end/marked/err
+#include "firmware_config_parse.h"   // mrfw::parse_seq_arg — the §B136 strict destructive-target parser (pure, native-tested)
 #include <cstdlib>            // strtoul
 #include <cstring>            // strncmp
 
@@ -46,18 +47,58 @@ void handle_pull_inbox(const char* args, Print& out) {
     if (n) out.write(s_inbox_jb, n);
 }
 
-void handle_mark_read(const char* args, Print& out) {
+// ★ U1: ONE spelling of the kind gate. `mark_read` and `del_msg` both take `<dm|chan> <seq>`, and the word-boundary
+// trap below is exactly the kind of check that rots when it is written twice. Advances `args` past the keyword.
+// The kind must be EXACTLY "dm" or "chan" (word boundary = next char is space or end). Without the boundary check,
+// "dm5"/"dme" match strncmp("dm",2) and "channel" matches strncmp("chan",4) -> wrong/zero seq parsed.
+static bool parse_inbox_kind(const char*& args, meshroute::InboxKind& kind, const char*& kstr) {
     while (*args == ' ') ++args;
-    // The kind must be EXACTLY "dm" or "chan" (word boundary = next char is space or end). Without the boundary
-    // check, "dm5"/"dme" match strncmp("dm",2) and "channel" matches strncmp("chan",4) -> wrong/zero seq parsed.
+    if      (!strncmp(args, "dm", 2)   && (args[2] == ' ' || args[2] == '\0')) { kind = meshroute::InboxKind::dm;      kstr = "dm";   args += 2; return true; }
+    else if (!strncmp(args, "chan", 4) && (args[4] == ' ' || args[4] == '\0')) { kind = meshroute::InboxKind::channel; kstr = "chan"; args += 4; return true; }
+    return false;
+}
+
+void handle_mark_read(const char* args, Print& out) {
     meshroute::InboxKind kind; const char* kstr;
-    if      (!strncmp(args, "dm", 2)   && (args[2] == ' ' || args[2] == '\0')) { kind = meshroute::InboxKind::dm;      kstr = "dm";   args += 2; }
-    else if (!strncmp(args, "chan", 4) && (args[4] == ' ' || args[4] == '\0')) { kind = meshroute::InboxKind::channel; kstr = "chan"; args += 4; }
-    else { char eb[64]; const size_t n = meshroute::console::write_err(eb, sizeof eb, "mark_read", "kind must be dm|chan");
-           if (n) out.write(eb, n); return; }             // fail loud on a bad kind
+    if (!parse_inbox_kind(args, kind, kstr)) {
+        char eb[64]; const size_t n = meshroute::console::write_err(eb, sizeof eb, "mark_read", "kind must be dm|chan");
+        if (n) out.write(eb, n); return;                  // fail loud on a bad kind
+    }
     const uint32_t seq = strtoul(args, nullptr, 10);
     g_node.inbox().mark_read(kind, seq);
     char ab[64]; const size_t n = meshroute::console::write_inbox_marked(ab, sizeof ab, kstr, seq);
+    if (n) out.write(ab, n);
+}
+
+// §3.5 / §6.2 durable single-record delete. `del_msg <dm|chan> <seq>` — the identity is the PAIR (kind, seq); the two
+// seq spaces are independent, so the kind is mandatory, never inferred. Reports the erase's THREE outcomes verbatim
+// (erased | not_found | io_error): the companion and the bench must be able to tell "evicted already" from "the
+// write failed", and neither of those from success. This is also the only operator-reachable delete until the §3.5
+// OLED modal (slice B) lands, which is what makes the reboot-persistence bench check executable at all (M2).
+void handle_del_msg(const char* args, Print& out) {
+    meshroute::InboxKind kind; const char* kstr;
+    if (!parse_inbox_kind(args, kind, kstr)) {
+        char eb[64]; const size_t n = meshroute::console::write_err(eb, sizeof eb, "del_msg", "kind must be dm|chan");
+        if (n) out.write(eb, n);
+        return;                                           // fail loud on a bad kind
+    }
+    // ★ §B136 (QA 2026-08-07): a DESTRUCTIVE target is parsed STRICTLY — exactly one unsigned decimal token, no
+    // sign, no trailing junk, no second token, no overflow. The bare `strtoul(args, nullptr, 10)` this replaces
+    // deleted seq 1 for `del_msg dm 1oops`, `del_msg dm 1 extra` and `del_msg dm +1` alike. Fail LOUD (C2): a typo
+    // must produce an error, never a deletion of whatever the prefix happened to evaluate to. The predicate is
+    // shared with the config parsers (firmware_config_parse.h) so the native suite can reach it — src/*.cpp is
+    // outside the native build, a pure header is not (U1/U3, the firmware_config_parse.h pattern).
+    uint32_t seq = 0;
+    if (!parse_seq_arg(args, seq)) {
+        char eb[96]; const size_t n = meshroute::console::write_err(eb, sizeof eb, "del_msg", "seq must be one unsigned decimal number");
+        if (n) out.write(eb, n);
+        return;
+    }
+    const meshroute::InboxEraseResult r = g_node.inbox().erase(kind, seq);
+    const char* res = (r == meshroute::InboxEraseResult::erased)    ? "erased"
+                    : (r == meshroute::InboxEraseResult::not_found) ? "not_found"
+                                                                    : "io_error";
+    char ab[80]; const size_t n = meshroute::console::write_inbox_deleted(ab, sizeof ab, kstr, seq, res);
     if (n) out.write(ab, n);
 }
 

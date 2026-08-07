@@ -30,6 +30,15 @@ bool got_cb(void* ctx, uint32_t seq, const uint8_t* rec, uint16_t len) {
 void put(SegmentedInboxStore& s, uint32_t seq, const char* body) {
     s.append(seq, reinterpret_cast<const uint8_t*>(body), static_cast<uint16_t>(std::strlen(body)));
 }
+// §B135/6 collector — a REAL Inbox::pull over two durable stores (the store-level got_cb above sees raw records,
+// which cannot tell a filtered tombstone from a visible message).
+struct PullSeqs { std::vector<uint32_t> seqs; std::vector<std::string> bodies; };
+bool pull_seq_cb(void* ctx, const InboxEntry& e) {
+    auto* p = static_cast<PullSeqs*>(ctx);
+    p->seqs.push_back(e.seq);
+    p->bodies.emplace_back(reinterpret_cast<const char*>(e.body ? e.body : reinterpret_cast<const uint8_t*>("")), e.body_len);
+    return true;
+}
 }  // namespace
 
 TEST_CASE("SegmentedInboxStore: append + read_since oldest-first + since-filter; bodies intact") {
@@ -202,6 +211,138 @@ TEST_CASE("SegmentedInboxStore: M2 — a torn meta (seg_count==0 / head_seg>=seg
         CHECK(s2.begin());
         CHECK(s2.persisted_next_seq() == 1);
     }
+}
+
+// ============================================================================================================
+// ★★ §B135 — TORN-FRAME RECOVERY. The pre-existing hole QA found on the [[B133]] delete slice: the frame header
+// and the body are two seg_append calls, so a failure between them leaves a header claiming more bytes than are
+// present. A torn tail ALONE is harmless (read_since stops at it) — the defect is THE NEXT APPEND, which lands
+// behind the tear and is then consumed AS the torn frame's body, making a physically-present record unreachable.
+// ⚠ WHY THE OLD SUITE COULD NOT SEE IT, recorded so the instrument is never trusted again: the case above
+// ("a torn record at a segment tail is skipped") hand-writes a torn tail and NEVER RETRIES AFTER IT, and
+// RamInboxStore's `fail_append` fails before writing anything, so it cannot produce a tear at all.
+// Every case below asserts the OBSERVABLE side effect — what a later read/pull can still reach — never a
+// return code alone.
+// ============================================================================================================
+
+TEST_CASE("SegmentedInboxStore: §B135/1 — header written, body FAILED -> the tear is sealed, the retry stays reachable") {
+    FakeSegmentStore recs; FakeMetaStore meta;
+    SegmentedInboxStore s(recs, meta, /*cap*/4096, /*seg*/256);
+    CHECK(s.begin());
+    put(s, 1, "a"); put(s, 2, "b");
+    recs.fail_mid_frame(/*nth*/1, /*partial*/0);              // #0 = the 6-B header lands; #1 = the body fails outright
+    CHECK_FALSE(s.append(3, reinterpret_cast<const uint8_t*>("c"), 1));   // the tear
+    CHECK_FALSE(recs.fault_armed());                          // ★ the injector really FIRED (never assume a fault test faulted)
+    // ⑤ THE RETRY. Without the seal this record lands behind the torn header and becomes unreachable.
+    put(s, 4, "d");
+    Got g; const uint16_t n = s.read_since(0, got_cb, &g);
+    CHECK(n == 3);
+    CHECK(g.seqs == std::vector<uint32_t>{1, 2, 4});          // ★ 1 and 2 survive, 4 is READABLE, the torn 3 is not invented
+    CHECK(g.bodies[2] == "d");                                // and its body is its OWN, not the next frame's header bytes
+}
+
+TEST_CASE("SegmentedInboxStore: §B135/2 — a PARTIAL body is sealed too (a short frame is still a torn frame)") {
+    FakeSegmentStore recs; FakeMetaStore meta;
+    SegmentedInboxStore s(recs, meta, 4096, 256);
+    CHECK(s.begin());
+    put(s, 1, "a");
+    recs.fail_mid_frame(/*nth*/1, /*partial*/3);              // 3 of the 8 body bytes land, then the write dies
+    CHECK_FALSE(s.append(2, reinterpret_cast<const uint8_t*>("bbbbbbbb"), 8));
+    CHECK_FALSE(recs.fault_armed());
+    put(s, 3, "c");
+    Got g; CHECK(s.read_since(0, got_cb, &g) == 2);
+    CHECK(g.seqs == std::vector<uint32_t>{1, 3});
+    CHECK(g.bodies[1] == "c");
+}
+
+TEST_CASE("SegmentedInboxStore: §B135/3 — a failure IMMEDIATELY AFTER a rotation leaves the older segments readable") {
+    FakeSegmentStore recs; FakeMetaStore meta;
+    SegmentedInboxStore s(recs, meta, /*cap*/4096, /*seg*/24);   // tiny segments -> every couple of records rolls
+    CHECK(s.begin());
+    for (uint32_t i = 1; i <= 6; ++i) { char b[8]; std::snprintf(b, sizeof b, "r%u", i); put(s, i, b); }
+    Got before; const uint16_t n_before = s.read_since(0, got_cb, &before);
+    CHECK(n_before == 6);
+    recs.fail_mid_frame(/*nth*/0, /*partial*/2);              // the roll happens, then the HEADER itself tears in the fresh head
+    CHECK_FALSE(s.append(7, reinterpret_cast<const uint8_t*>("r7"), 2));
+    CHECK_FALSE(recs.fault_armed());
+    Got after; CHECK(s.read_since(0, got_cb, &after) == 6);   // ★ nothing previously readable was lost or reordered
+    CHECK(after.seqs == before.seqs);
+    put(s, 8, "r8");                                          // and the store keeps working
+    Got g; CHECK(s.read_since(7, got_cb, &g) == 1);
+    CHECK(g.seqs == std::vector<uint32_t>{8});
+}
+
+TEST_CASE("SegmentedInboxStore: §B135/4 — a REBOOT between the two writes re-arms the seal (the RAM flag is not the truth)") {
+    FakeSegmentStore recs; FakeMetaStore meta;
+    {
+        SegmentedInboxStore s(recs, meta, 4096, 256);
+        CHECK(s.begin());
+        put(s, 1, "a"); put(s, 2, "b");
+        recs.fail_mid_frame(1, 0);
+        CHECK_FALSE(s.append(3, reinterpret_cast<const uint8_t*>("c"), 1));
+        CHECK(s.set_next_seq(4));
+        CHECK_FALSE(recs.fault_armed());
+    }                                                          // POWER CUT — `_head_sealed` dies with the object
+    SegmentedInboxStore s2(recs, meta, 4096, 256);             // the same "flash", a fresh store
+    CHECK(s2.begin());
+    CHECK(s2.storage_epoch() == 1);                            // a tear is NOT a wipe: no epoch bump, no re-pull storm
+    CHECK(s2.persisted_next_seq() == 4);
+    put(s2, 4, "d");                                           // ★ the first post-reboot append MUST NOT land behind the tear
+    Got g; CHECK(s2.read_since(0, got_cb, &g) == 3);
+    CHECK(g.seqs == std::vector<uint32_t>{1, 2, 4});
+    CHECK(g.bodies[2] == "d");
+}
+
+TEST_CASE("SegmentedInboxStore: §B135/5 — a CLEAN store is never sealed (the recovery must not cost a segment per boot)") {
+    // The vacuity control for the two arms above: if `head_tail_torn()` reported true on a healthy log, every
+    // case here would still pass (records stay readable) while the ring burned a segment on every single boot.
+    FakeSegmentStore recs; FakeMetaStore meta;
+    {
+        SegmentedInboxStore s(recs, meta, 4096, 256);
+        CHECK(s.begin());
+        put(s, 1, "a"); put(s, 2, "b");
+    }
+    const size_t bytes_before = recs.seg_bytes(0);
+    CHECK(bytes_before > 0);
+    SegmentedInboxStore s2(recs, meta, 4096, 256);
+    CHECK(s2.begin());
+    put(s2, 3, "c");
+    CHECK(recs.live_segments() == 1);                          // ★ still ONE segment — the clean reboot did not roll
+    CHECK(recs.seg_bytes(0) > bytes_before);                   // and record 3 went into it
+    Got g; CHECK(s2.read_since(0, got_cb, &g) == 3);
+}
+
+TEST_CASE("SegmentedInboxStore: §B135/6 ★ a tombstone reports `erased` ONLY when a real pull() hides the target") {
+    // ★★ THE CASE THAT CLOSES THE CLASS. [[B133]]'s `erase()` is composed from read_since + append, so a torn
+    // append is a torn DELETE: the failure mode is `erased` returned while the message is still readable — the
+    // fifth "contract event asserting a physical act" in this project. Asserted here on the DURABLE store and by
+    // OBSERVABLE ABSENCE from a real pull(), never by the return code alone.
+    FakeSegmentStore drecs, crecs; FakeMetaStore dmeta, cmeta;
+    SegmentedInboxStore dm(drecs, dmeta, 4096, 256), ch(crecs, cmeta, 4096, 256);
+    Inbox ib; ib.on_init(&dm, &ch);
+    CHECK(ib.enabled());
+    const uint32_t s1 = ib.record_dm(2, 0xABCD, 7, 0, reinterpret_cast<const uint8_t*>("keep"),   4, 1000);
+    const uint32_t s2 = ib.record_dm(2, 0xABCD, 8, 0, reinterpret_cast<const uint8_t*>("delete"), 6, 1001);
+    CHECK(s1 == 1); CHECK(s2 == 2);
+
+    // ARM 1 — the tombstone's own write TEARS. The verdict must be io_error AND the target must still be there.
+    drecs.fail_mid_frame(/*nth*/1, /*partial*/0);
+    CHECK(ib.erase(InboxKind::dm, s2) == InboxEraseResult::io_error);
+    CHECK_FALSE(drecs.fault_armed());
+    PullSeqs p1; ib.pull(0, 0, pull_seq_cb, &p1);
+    CHECK(p1.seqs == std::vector<uint32_t>{1, 2});             // ★ a FAILED delete hides NOTHING
+
+    // ARM 2 — the retry, over the sealed tail. Now `erased` must mean the record is really gone from pull().
+    CHECK(ib.erase(InboxKind::dm, s2) == InboxEraseResult::erased);
+    PullSeqs p2; ib.pull(0, 0, pull_seq_cb, &p2);
+    CHECK(p2.seqs == std::vector<uint32_t>{1});                // ★ target gone, the OTHER record untouched
+    CHECK(p2.bodies.size() == 1);
+    if (p2.bodies.size() == 1) CHECK(p2.bodies[0] == "keep");
+
+    // ARM 3 — and it stays gone across a reboot (a tombstone that only lives in RAM would pass arm 2 and fail here).
+    Inbox ib2; ib2.on_init(&dm, &ch);
+    PullSeqs p3; ib2.pull(0, 0, pull_seq_cb, &p3);
+    CHECK(p3.seqs == std::vector<uint32_t>{1});
 }
 
 TEST_CASE("SegmentedInboxStore: begin() FAILS LOUD if seg_bytes exceeds the read scratch (no silent truncation)") {

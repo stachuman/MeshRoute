@@ -29,7 +29,20 @@ public:
         *size = static_cast<uint32_t>(it->second.size());
         return true;
     }
+    // ★★ §B135 MID-FRAME FAULT INJECTION — the reason the [[B133]] torn-write hole survived its own test suite.
+    // `RamInboxStore::fail_append` fails BEFORE writing anything, so it can never produce a TORN TAIL, and a fault
+    // injector that cannot produce the fault is not a fault test. This one fails a chosen seg_append call AFTER
+    // letting `partial_bytes` of it land — which is exactly a power cut between the frame header and its body
+    // (append() issues two calls per record: #0 = the 6-byte header, #1 = the body).
     bool seg_append(uint16_t idx, const uint8_t* b, uint16_t n) override {
+        const bool fail = (_fail_at >= 0 && _appends_seen == _fail_at);
+        ++_appends_seen;
+        if (fail) {
+            const uint16_t k = _partial < n ? _partial : n;
+            if (k) { auto& s = _segs[idx]; s.insert(s.end(), b, b + k); }   // don't CREATE a file for a 0-byte tear
+            _fail_at = -1;                                         // one-shot: the retry must be able to succeed
+            return false;
+        }
         auto& s = _segs[idx];                                      // operator[] creates the file on first append
         s.insert(s.end(), b, b + n);
         return true;
@@ -50,10 +63,18 @@ public:
     // --- test knobs ---
     void wipe(bool report_formatted = true) { _segs.clear(); _formatted_once = report_formatted; }  // simulate a records-store format/wipe
     size_t live_segments() const { size_t n = 0; for (const auto& kv : _segs) if (!kv.second.empty()) ++n; return n; }
+    size_t seg_bytes(uint16_t idx) const { auto it = _segs.find(idx); return it == _segs.end() ? 0 : it->second.size(); }
+    // §B135: arm a one-shot mid-frame failure. `nth` counts seg_append calls from NOW (0 = the very next one, i.e.
+    // a record's HEADER; 1 = its BODY). `partial` bytes of the failing call still land on the "flash".
+    void fail_mid_frame(int nth, uint16_t partial) { _fail_at = nth; _partial = partial; _appends_seen = 0; }
+    bool fault_armed() const { return _fail_at >= 0; }             // false => the injector actually FIRED (never assume it did)
 
 private:
     std::map<uint16_t, std::vector<uint8_t>> _segs;
     bool _formatted_once = false;     // mount() reports this once (a fresh format) then clears it
+    int      _fail_at = -1;           // §B135 injector: -1 = disarmed
+    uint16_t _partial = 0;
+    int      _appends_seen = 0;
 };
 
 // A tiny persistent meta blob. Survives a FakeSegmentStore.wipe() (it's a separate object) — the whole point

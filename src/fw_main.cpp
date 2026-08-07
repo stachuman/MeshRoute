@@ -46,6 +46,7 @@ using mrfw::team_fnv1a32;
 #include "firmware_inbox.h"          // §cleanup 2026-07-14: inbox/companion-sync cluster (pull_inbox / mark_read)
 using mrfw::handle_pull_inbox;       // dispatch + ble_dispatch_line verbs; call sites unchanged
 using mrfw::handle_mark_read;
+using mrfw::handle_del_msg;           // §3.5 durable single-record delete
 #include "firmware_commands.h"       // §cleanup 2026-07-15: console command cluster (dispatch + diagnostics) — moved in batches
 using mrfw::handle_peerkey;          // §3 export; call sites (service_console + ble_dispatch_line) unchanged
 using mrfw::handle_peername;         // §AB2 export; same two call sites, same shape as handle_peerkey
@@ -481,6 +482,7 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
     // Inbox sync (companion-only): stream the reply via mrble::tx_line and return 0 (no buffered single-line ack).
     if ((len == 10 || (len > 10 && line[10] == ' ')) && !strncmp(line, "pull_inbox", 10)) { LineSink ls(ble_sink); handle_pull_inbox(line + 10, ls); ls.flush(); return 0; }
     if ((len ==  9 || (len >  9 && line[9]  == ' ')) && !strncmp(line, "mark_read",   9)) { LineSink ls(ble_sink); handle_mark_read(line + 9,  ls); ls.flush(); return 0; }
+    if ((len ==  7 || (len >  7 && line[7]  == ' ')) && !strncmp(line, "del_msg",     7)) { LineSink ls(ble_sink); handle_del_msg(line + 7,   ls); ls.flush(); return 0; }   // §3.5 delete
     meshroute::Command cmd{};
     const ParseErr e = parse_command(line, len, cmd);
     if (e == ParseErr::ok) {

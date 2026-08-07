@@ -20,6 +20,7 @@ public:
     explicit RamInboxStore(uint32_t cap_bytes) : _cap(cap_bytes) {}
     bool begin() override { return true; }   // RAM: nothing to mount
     bool append(uint32_t seq, const uint8_t* rec, uint16_t len) override {
+        if (fail_append) { ++failed_append_calls; return false; } // test knob: model a flash write failure (§3.5 io_error)
         const uint32_t framed = static_cast<uint32_t>(len) + 2;   // [u16 total_len] + record (flash framing)
         if (framed > _cap) return false;                          // a single record bigger than the whole store
         while (_total + framed > _cap && !_recs.empty()) {        // drop-oldest until it fits
@@ -45,6 +46,8 @@ public:
         if (fail_set_next) { ++failed_set_next_calls; return false; }
         _persisted_next = next; return true;
     }
+    bool     fail_append = false;            // test knob: make every append fail (a full/dead flash)
+    uint16_t failed_append_calls = 0;
     bool     fail_set_next = false;          // test knob: make every set_next_seq fail
     uint16_t failed_set_next_calls = 0;
     uint16_t set_next_calls = 0;             // total set_next_seq invocations (success + fail)

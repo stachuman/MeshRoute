@@ -295,6 +295,10 @@ size_t write_inbox_channel(char* buf, size_t cap, uint32_t seq, uint8_t origin, 
 size_t write_inbox_end    (char* buf, size_t cap, uint32_t dm_seq, uint32_t chan_seq, uint32_t epoch, uint32_t count,
                            uint64_t now_ms);
 size_t write_inbox_marked (char* buf, size_t cap, const char* kind, uint32_t seq);
+// §3.5 durable single-record delete ack. `result` is the InboxEraseResult name — "erased" | "not_found" | "io_error"
+// — spelled by the CALLER (this file stays free of inbox.h). ★ THREE outcomes, never a boolean: the UI shows a
+// different thing for each, and `not_found` is neither a success nor a storage failure.
+size_t write_inbox_deleted(char* buf, size_t cap, const char* kind, uint32_t seq, const char* result);
 
 const char* cmdcode_name(CmdCode c);
 // ★ §id-hash S1 (spec §3-D9): CmdResult::plane / ResolveCmd::plane -> "team" (1) | "static" (anything else). Takes the

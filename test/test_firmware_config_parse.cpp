@@ -552,3 +552,50 @@ TEST_CASE("★★ §team-target-range — an OUT-OF-RANGE target is REFUSED and 
     id = 0; CHECK(mrfw::parse_team_target("42", id, tail));
     CHECK(id == 42u);
 }
+
+// ============================================================================================================
+// ★★ §B136 — `parse_seq_arg`: the STRICT target parser for the DESTRUCTIVE `del_msg <dm|chan> <seq>` verb.
+// The bare `strtoul(args, nullptr, 10)` it replaces deleted sequence 1 for `1oops`, `1 extra` and `+1` alike.
+// FAIL-CLOSED is the property that protects the operator, so every refusal case below seeds `out` with a
+// sentinel and asserts the SENTINEL SURVIVED — an error return with a half-written target is the same class of
+// defect as the one this fixes.
+// ============================================================================================================
+TEST_CASE("§B136 parse_seq_arg: only ONE unsigned decimal token is accepted for a DESTRUCTIVE target") {
+    uint32_t v = 0;
+    // ---- ACCEPTED: the forms the operator and the §3.5 modal actually produce ----
+    v = 0; CHECK(mrfw::parse_seq_arg("1", v));            CHECK(v == 1u);
+    v = 0; CHECK(mrfw::parse_seq_arg(" 7", v));           CHECK(v == 7u);       // the kind parser leaves the separating space
+    v = 0; CHECK(mrfw::parse_seq_arg("  12  ", v));       CHECK(v == 12u);      // trailing whitespace only
+    v = 0; CHECK(mrfw::parse_seq_arg("42\r\n", v));       CHECK(v == 42u);      // a CRLF console line
+    v = 1; CHECK(mrfw::parse_seq_arg("0", v));            CHECK(v == 0u);       // 0 is SYNTACTICALLY fine — the inbox never issues it, so erase() answers not_found
+    v = 0; CHECK(mrfw::parse_seq_arg("4294967295", v));   CHECK(v == 0xFFFFFFFFu);  // UINT32_MAX exactly, in range
+    v = 0; CHECK(mrfw::parse_seq_arg("010", v));          CHECK(v == 10u);      // ★ base 10, NOT octal — `010` must not silently mean message 8
+
+    // ---- REFUSED, and `out` must SURVIVE UNTOUCHED every time (fail-closed) ----
+    const uint32_t kSentinel = 0xDEADBEEFu;
+    const char* refuse[] = {
+        "",  " ", "   ",                 // empty / whitespace-only: no target named at all
+        "abc", "dm", "-", "+",           // junk
+        "+1", "-1", "-0",                // ★ signs: strtoul ACCEPTS both and "-1" becomes 0xFFFFFFFF
+        "1oops", "1 extra", "1,2",       // ★ junk suffix / a SECOND token / a list
+        "1.5", "1e3", "0x1", "0X10",     // a non-integer or a hex spelling (base 10 stops at the 'x')
+        " 1 2 ",                         // two tokens with the same shape as one
+        "4294967296",                    // ★ (3b) does not fit 32 bits — truncates to 0 on the 64-bit host
+        "99999999999999999999999",       // ★ (3a) ERANGE even on the host -> would saturate to 0xFFFFFFFF
+        "12345678901234567890123456789012345678901234567890",
+    };
+    for (const char* s : refuse) {
+        uint32_t out = kSentinel;
+        const bool ok = mrfw::parse_seq_arg(s, out);
+        CHECK_FALSE(ok);
+        CHECK(out == kSentinel);                          // ★ nothing was half-written for the delete to act on
+    }
+    uint32_t nul = kSentinel; CHECK_FALSE(mrfw::parse_seq_arg(nullptr, nul)); CHECK(nul == kSentinel);
+
+    // ★ errno HYGIENE (same rule as parse_team_target): a stale ERANGE from earlier code must not refuse a good seq.
+    errno = ERANGE;
+    v = 0; CHECK(mrfw::parse_seq_arg("5", v)); CHECK(v == 5u);
+    // ★ THE ABI SPLIT, pinned rather than argued: exactly as at parse_team_target (3a)/(3b), only ONE of the two
+    // range arms does the work on a given ABI, so neither can be shown necessary by testing this ABI alone.
+    CHECK((static_cast<unsigned long>(UINT32_MAX) < ULONG_MAX) == (sizeof(unsigned long) > 4));
+}

@@ -82,13 +82,46 @@ uint32_t restore_next(InboxStore* s) {
     // boot-epoch that bumps on wipe so the companion detects the reset + re-syncs. Flagged for Phase 2.
 }
 
+// ---- §3.5 tombstones: the bounded pre-pass that defeats the ORDERING hazard ----
+// A tombstone is appended AFTER the record it cancels, so a single streaming pass over the store learns of the
+// deletion too late — it would already have emitted the deleted record. Every read therefore does a PRE-PASS that
+// collects the tombstone targets first. The array is fixed (no heap, stack-local) and cannot overflow, because
+// Inbox::erase refuses to append the (inbox_max_tombstones+1)-th tombstone into the same store.
+struct TombSet {
+    uint32_t seq[protocol::inbox_max_tombstones];
+    uint8_t  n = 0;
+    bool     overflowed = false;   // structurally unreachable (erase caps the writer) — asserted by a test, not assumed
+    bool contains(uint32_t s) const { for (uint8_t i = 0; i < n; ++i) if (seq[i] == s) return true; return false; }
+    void add(uint32_t s) { if (n < protocol::inbox_max_tombstones) seq[n++] = s; else overflowed = true; }
+    void clear() { n = 0; overflowed = false; }
+};
+// Collect the targets of every tombstone in `store` whose target is > `since` (a target at or below the cursor is
+// never streamed anyway, so it needs no slot). Uses the SAME `since` as the streaming pass: a tombstone's own seq is
+// always GREATER than its target's, so a tombstone that matters is always inside read_since(since).
+struct TombScan { TombSet* set; };
+bool tomb_scan_cb(void* p, uint32_t seq, const uint8_t* rec, uint16_t len) {
+    auto* t = static_cast<TombScan*>(p);
+    InboxEntry e{};
+    if (!deserialize(rec, len, e)) return true;                   // torn record -> skip, keep scanning
+    (void)seq;
+    if (e.type == inbox_rec_type_tombstone) t->set->add(e.msg_id);   // msg_id = the DELETED record's seq
+    return true;
+}
+void collect_tombstones(const InboxStore* store, uint32_t since, TombSet& out) {
+    out.clear();
+    TombScan s{ &out };
+    store->read_since(since, tomb_scan_cb, &s);
+}
+
 // ---- pull: deserialize each raw record + hand the decoded entry to the user's cb ----
-struct PullTramp { Inbox::PullCb cb; void* ctx; uint16_t count; bool stop; };
+struct PullTramp { Inbox::PullCb cb; void* ctx; uint16_t count; bool stop; const TombSet* tombs; };
 bool pull_cb(void* p, uint32_t seq, const uint8_t* rec, uint16_t len) {
     auto* t = static_cast<PullTramp*>(p);
     InboxEntry e{};
     if (!deserialize(rec, len, e)) return true;                   // skip a torn record, keep visiting
     e.seq = seq;                                                  // the store's seq is authoritative (== record seq)
+    if (e.type == inbox_rec_type_tombstone) return true;          // §3.5: the marker itself is never a message
+    if (t->tombs && t->tombs->contains(e.seq)) return true;       // §3.5: this record was deleted (the pre-pass saw its marker)
     ++t->count;
     if (!t->cb(t->ctx, e)) { t->stop = true; return false; }      // user asked to stop
     return true;
@@ -111,12 +144,13 @@ void Inbox::on_init(InboxStore* dm, InboxStore* chan) {
 }
 
 uint32_t Inbox::record(InboxStore* store, uint32_t& next, uint8_t& unpersisted, InboxKind kind, uint8_t origin,
-                       uint8_t channel_id, uint32_t msg_id, uint32_t sender_hash, uint8_t layer_id, const uint8_t* body, uint8_t len, uint64_t now_ms, uint8_t enc, uint8_t type, uint32_t team_id, uint8_t origin_layer) {
+                       uint8_t channel_id, uint32_t msg_id, uint32_t sender_hash, uint8_t layer_id, const uint8_t* body, uint8_t len, uint64_t now_ms, uint8_t enc, uint8_t type, uint32_t team_id, uint8_t origin_layer, bool* appended) {
     if (len > protocol::inbox_max_body) len = protocol::inbox_max_body;   // callers already bound the body; defensive
     uint8_t buf[inbox_record_max_bytes];
     const uint32_t seq = next++;                                  // monotonic; assign-then-advance
     const uint16_t n = serialize(buf, seq, kind, origin, channel_id, msg_id, sender_hash, now_ms, layer_id, enc, type, team_id, origin_layer, body, len);
-    (void)store->append(seq, buf, n);                             // drop-oldest within; a flash failure drops THIS record (seq still advances — monotonic, not gapless)
+    const bool ok = store->append(seq, buf, n);                   // drop-oldest within; a flash failure drops THIS record (seq still advances — monotonic, not gapless)
+    if (appended) *appended = ok;                                 // only erase() cares (a lost tombstone must NOT read as success)
     // Batched persist (§6): reset the batch ONLY on a SUCCESSFUL set_next_seq — a failed flash write keeps
     // `unpersisted` high so the next append RETRIES, instead of swallowing the failure + skipping a batch.
     if (++unpersisted >= kSeqPersistBatch && store->set_next_seq(next)) unpersisted = 0;
@@ -145,10 +179,63 @@ uint32_t Inbox::record_ack(uint8_t from_origin, uint16_t acked_ctr, uint8_t laye
 
 uint16_t Inbox::pull(uint32_t dm_since, uint32_t chan_since, PullCb cb, void* ctx) const {
     if (!enabled() || !cb) return 0;
-    PullTramp t{ cb, ctx, 0, false };
+    TombSet tombs;                                                // ONE instance reused for both stores (128 B of stack, not 256)
+    PullTramp t{ cb, ctx, 0, false, &tombs };
+    collect_tombstones(_dm, dm_since, tombs);                     // §3.5 pre-pass FIRST — a tombstone follows its target
     _dm->read_since(dm_since, pull_cb, &t);                       // DM block, oldest-first
-    if (!t.stop) _chan->read_since(chan_since, pull_cb, &t);      // then channel block, oldest-first
+    if (!t.stop) {
+        collect_tombstones(_chan, chan_since, tombs);             // the channel store's own tombstones (separate seq space)
+        _chan->read_since(chan_since, pull_cb, &t);               // then channel block, oldest-first
+    }
     return t.count;
+}
+
+// ---- §3.5 / §6.2 durable single-record delete (the ONE entry point; see inbox.h for the contract) ----
+namespace {
+// One ordered scan answers all three questions erase() must settle before it writes anything.
+struct EraseScan {
+    uint32_t target;
+    bool     live       = false;   // a NON-tombstone record with seq == target is present
+    bool     tombstoned = false;   // a tombstone for `target` already exists (a repeat delete)
+    uint16_t tombs      = 0;       // tombstones in this store (the write-side cap that keeps pull's array safe)
+};
+bool erase_scan_cb(void* p, uint32_t seq, const uint8_t* rec, uint16_t len) {
+    auto* s = static_cast<EraseScan*>(p);
+    InboxEntry e{};
+    if (!deserialize(rec, len, e)) return true;                   // torn record -> skip, keep scanning
+    if (e.type == inbox_rec_type_tombstone) {
+        ++s->tombs;
+        if (e.msg_id == s->target) s->tombstoned = true;
+    } else if (seq == s->target) {
+        s->live = true;
+    }
+    return true;                                                  // ALWAYS visit all: the tombstone count needs the whole store
+}
+}  // namespace
+
+InboxEraseResult Inbox::erase(InboxKind kind, uint32_t seq) {
+    if (!enabled()) return InboxEraseResult::io_error;            // an unwired inbox reports io_error, NEVER success (§6.2)
+    if (seq == 0)   return InboxEraseResult::not_found;           // seq 0 is the "before everything" cursor, never a record
+    // ★ The identity is the PAIR — the kind SELECTS THE STORE. The two seq spaces are independent, so the same
+    // number names a different message in each; resolving on seq alone would delete the wrong message.
+    InboxStore*  store = (kind == InboxKind::dm) ? _dm : _chan;
+    uint32_t&    next  = (kind == InboxKind::dm) ? _dm_next : _chan_next;
+    uint8_t&     unpst = (kind == InboxKind::dm) ? _dm_unpersisted : _chan_unpersisted;
+
+    EraseScan s{ seq };
+    store->read_since(0, erase_scan_cb, &s);                      // whole store: liveness + double-delete + tombstone count
+    // Evicted by the bounded ring, or already deleted -> MESSAGE GONE. Sequences are never reused, so this can
+    // never resolve to a newer replacement record (§6.2).
+    if (!s.live || s.tombstoned) return InboxEraseResult::not_found;
+    // The cap that makes pull()'s pre-pass array overflow-proof. Refuse LOUD (C2) rather than write a tombstone the
+    // reader might not be able to hold — that would resurrect a deleted message, the one outcome §3.5 forbids.
+    if (s.tombs >= protocol::inbox_max_tombstones) return InboxEraseResult::io_error;
+
+    bool appended = false;
+    record(store, next, unpst, kind, /*origin*/ 0, /*channel_id*/ 0, /*msg_id*/ seq, /*sender_hash*/ 0,
+           /*layer_id*/ 0, /*body*/ nullptr, /*len*/ 0, /*now_ms*/ 0, /*enc*/ 0, inbox_rec_type_tombstone,
+           /*team_id*/ 0, /*origin_layer*/ 0, &appended);
+    return appended ? InboxEraseResult::erased : InboxEraseResult::io_error;
 }
 
 void Inbox::mark_read(InboxKind kind, uint32_t seq) {

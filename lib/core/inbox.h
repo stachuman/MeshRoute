@@ -32,7 +32,7 @@ struct InboxEntry {
     uint32_t       sender_hash;  // DM: the sender's key_hash32 (the STABLE identity, when SOURCE_HASH was set); 0 if absent / channel
     uint8_t        layer_id;     // §2/Q13: the FULL 8-bit receiving layer id — disambiguates `origin` across a gateway's two leaves
     uint8_t        enc;          // §8b: 1 = this DM was delivered SEALED (DATA_FLAG_CRYPTED + a successful e2e_open); 0 = plaintext / channel
-    uint8_t        type;         // the frame DATA_TYPE: 0 = a normal app DM / channel; DATA_TYPE_E2E_ACK = an E2E-ack RECEIPT (no body, origin = the dest that confirmed, msg_id = the acked ctr). Room for H_ANSWER etc. later.
+    uint8_t        type;         // the frame DATA_TYPE: 0 = a normal app DM / channel; DATA_TYPE_E2E_ACK = an E2E-ack RECEIPT (no body, origin = the dest that confirmed, msg_id = the acked ctr). Room for H_ANSWER etc. later. ★ inbox_rec_type_tombstone (0xFE) is NOT a DataType — it marks a §3.5 DELETION marker (msg_id = the deleted record's seq, body_len 0); pull() never emits one.
     uint32_t       team_id;      // §S5: a channel message's team scoping (0 = a plain leaf channel / DM). Carries the ACTUAL id (not a flag) so post-team-switch history stays correctly labelled.
     uint8_t        origin_layer; // §GapA durable: the cross-layer SENDER's layer (layer_ids[0] of the preserved XL path; 0 = same-layer / non-XL). Durable twin of Push.origin_layer so a pulled record still yields the (layer_path, hash) reply address.
     uint64_t       rx_time_ms;
@@ -47,7 +47,30 @@ struct InboxEntry {
 // §8b: +enc 2026-06-16; +type 2026-06-23 (E2E-ack receipts); §S5: +team_id 2026-07-16; §GapA-durable: +origin_layer 2026-07-19 —
 // each bumps the device store version so old records are rejected.)
 inline constexpr uint16_t inbox_record_header_bytes = 4 + 1 + 1 + 1 + 4 + 4 + 8 + 1 + 1 + 1 + 4 + 1 + 1; // = 32
-inline constexpr uint16_t inbox_record_max_bytes    = inbox_record_header_bytes + protocol::inbox_max_body;  // 272 (31 + 241)
+inline constexpr uint16_t inbox_record_max_bytes    = inbox_record_header_bytes + protocol::inbox_max_body;  // 273 (32 + 241)
+
+// ---- §3.5/§6.2 durable single-record delete: the TOMBSTONE record type -----------------------------
+// A deletion is an APPENDED marker, never a rewrite or a segment erase (owner ruling 2026-08-06). The marker is an
+// ORDINARY record — same 32-B header, same store, its OWN seq off the same monotonic counter — discriminated by the
+// `type` byte. `msg_id` carries the TARGET record's seq; `body_len` is 0. Inbox::pull() filters both the tombstone
+// and its target, so no reader (companion pull_inbox, the OLED list) ever sees either.
+//   Why the `type` byte and not a new header field: the record layout is UNCHANGED, so every already-stored record
+//   stays parseable and NO store-format version bump is needed. That is not contorting the encoding to dodge a bump
+//   (M3 — a bump would be free); it is that a bump here would WIPE the on-node history to buy nothing.
+//   Why 0xFE and not 0xFF: `type` holds a frame DataType (frame_codec.h:574 — 1..19 allocated, sequentially, from 1),
+//   so the top of the space is the farthest from that allocator; 0xFF is skipped because it is the ERASED-FLASH byte
+//   and a value that a blank region could decode into is a bad discriminator, even though the segment framing
+//   ([u16 framed_len], rejected when < 6 or past the segment) already stops a blank region from parsing at all.
+inline constexpr uint8_t inbox_rec_type_tombstone = 0xFE;
+
+// Inbox::erase outcome — THREE distinguishable states, because §3.5 renders each differently and a bool cannot say
+// which happened. ⛔ `not_found` must never be reported as success and never as failure: the UI shows MESSAGE GONE
+// for one and DELETE FAILED for the other, and a visual disappearance without durable success is forbidden.
+enum class InboxEraseResult : uint8_t {
+    erased    = 0,   // the tombstone was APPENDED (durable); the record is gone from every future pull
+    not_found = 1,   // no such live record in that kind's store — evicted by the bounded ring, or already deleted
+    io_error  = 2,   // the store could not persist the tombstone (append failed / inbox disabled / tombstone cap full)
+};
 
 // ---- the storage HAL: a bounded, crash-safe append + iterate + drop-oldest record log -------------
 // One instance per store (DM, channel). "Dumb bytes + bookkeeping": the store owns the bytes, the
@@ -106,7 +129,33 @@ public:
     // Companion pull: stream DM records (seq > dm_since), THEN channel records (seq > chan_since), each
     // oldest-first, via cb. Returns the total entries visited. DM-block-then-channel-block (the two seq
     // spaces are independent; there is no shared clock to interleave on — the app advances each cursor).
+    // ★ §3.5 DELETE FILTER — and the ORDERING hazard it exists to defeat: a tombstone is appended AFTER the record
+    // it cancels, so a single streaming pass would emit the deleted record and only LEARN of the deletion later.
+    // pull() therefore runs a bounded PRE-PASS per store (read_since with the same `since`, collecting tombstone
+    // targets into a stack array of protocol::inbox_max_tombstones u32 = 128 B), then streams, skipping both the
+    // tombstones themselves and every targeted record. Overflow is impossible by construction: erase() refuses at
+    // the same cap. Cost = the store is scanned TWICE per pull; pull is a console/UI operation, never a MAC path.
     uint16_t pull(uint32_t dm_since, uint32_t chan_since, PullCb cb, void* ctx) const;
+
+    // §3.5 / §6.2 DURABLE SINGLE-RECORD DELETE — the ONE entry point (U1); there is deliberately no per-store
+    // delete virtual, so no InboxStore implementer can be missed or silently default to a no-op: erase() is built
+    // from the two operations every store already has (append + read_since), which is also why the crash-safety
+    // argument is the append's own — the tombstone either lands or it does not.
+    // ⛔ SUPERSEDED 2026-08-07 ([[B135]], QA): this note used to end *"and nothing else is mutated"*. THAT WAS NOT
+    // TRUE OF THE STORE and it is not what the durable append guarantees. The honest contract is: on a failed
+    // append **no previously readable record is corrupted or made unreachable** — a torn frame is sealed off and
+    // the next append rolls to a fresh segment (segmented_inbox_store.h, §B135). What a failure CAN still mutate:
+    // the append may have had to ROLL first, and a roll on a full ring evicts the oldest segment before the write
+    // is attempted (drop-oldest that the next successful append would have done anyway). Nothing about the TARGET
+    // record changes on `io_error`, which is the property §3.5 renders.
+    // ★ IDENTITY IS THE PAIR (kind, seq): the DM and channel seq spaces are INDEPENDENT, so `seq` alone names two
+    // different messages. Sequences are never reused, so a seq whose record was evicted resolves to not_found and
+    // can never select a newer replacement.
+    // Costs: one full read_since scan of that store (to prove the target is live, reject a double delete and count
+    // the tombstones) + one append. No rewrite, no segment erase, no heap. Deleting consumes a seq of its own —
+    // history keeps a HOLE, monotonicity is preserved, and the read cursor / next_seq / storage epoch keep their
+    // meanings (a one-record delete is NOT a wipe and must not make the companion reset its cursors).
+    InboxEraseResult erase(InboxKind kind, uint32_t seq);
 
     uint32_t dm_newest_seq()   const { return _dm_next   > 1 ? _dm_next   - 1 : 0; }
     uint32_t chan_newest_seq() const { return _chan_next > 1 ? _chan_next - 1 : 0; }
@@ -121,8 +170,12 @@ public:
     void     flush();
 
 private:
+    // `appended` (optional out): did store->append() actually succeed? The record_* paths deliberately ignore a
+    // failed append (the seq still advances — monotonic, not gapless), but erase() MUST NOT: a tombstone that did
+    // not reach flash is exactly the "visual disappearance without durable success" §3.5 forbids, so it needs the
+    // append's real verdict. ONE serialization path serves both (U2) — the flag is the only difference.
     uint32_t record(InboxStore* store, uint32_t& next, uint8_t& unpersisted, InboxKind kind, uint8_t origin,
-                    uint8_t channel_id, uint32_t msg_id, uint32_t sender_hash, uint8_t layer_id, const uint8_t* body, uint8_t len, uint64_t now_ms, uint8_t enc, uint8_t type, uint32_t team_id, uint8_t origin_layer);
+                    uint8_t channel_id, uint32_t msg_id, uint32_t sender_hash, uint8_t layer_id, const uint8_t* body, uint8_t len, uint64_t now_ms, uint8_t enc, uint8_t type, uint32_t team_id, uint8_t origin_layer, bool* appended = nullptr);
 
     InboxStore* _dm   = nullptr;
     InboxStore* _chan = nullptr;

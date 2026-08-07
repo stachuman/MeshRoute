@@ -1106,6 +1106,121 @@ home and would pass trivially.
    - fewer than 5 of 5 deliveries with a stable static home ⇒ **not this bug** — record it and treat it as a
      separate last-mile finding.
 
+## Part 11 — §3.5 durable single-record inbox delete (UI-7D slice A, 2026-08-06)
+
+★ **What the host gate already covers, so this Part stays residue (M2):** the whole tombstone mechanism is natively
+gated — `Inbox::erase(InboxKind, uint32_t)` with nine cases (`§3.5/1` the record leaves `pull` and the survivors keep
+their order, `/2` the ORDERING hazard (the marker is physically last in the log and the target is still filtered),
+`/3` identity is the pair `(kind, seq)` across the two independent seq spaces, `/4` the delete survives a simulated
+reboot and no seq is reused, `/5` the three shapes of `not_found`, `/6` `io_error` deletes nothing, `/7` a disabled
+inbox is `io_error`, `/8` the tombstone cap is enforced at the writer, `/9` a delete is not a wipe) and **nine
+mutations**, every one measured RED.
+**What NO host gate can reach:** (a) real flash — the native cases run against a `std::deque` fake, so *"the marker
+reached the medium"* is untested; (b) `src/firmware_inbox.cpp` is **not in the native build** (`[env:native]` never
+compiles `src/`), so the `del_msg` verb, its parser and its three-way ack have **no automated coverage at all**.
+⚠ **ADDED 2026-08-07 after independent QA rejected slice A (§B133b).** Two blockers were fixed and each brought a
+metal-only residue: **11.3b** covers the strict destructive-target parser's *glue* ([[B136]]; the pure predicate is
+natively gated by 30 assertions) and **11.5** covers **torn-write recovery on a real QSPI flash across a real
+reset** ([[B135]] — pre-existing since 2026-06-12, natively gated by 6 cases against a RAM fake with a **mid-frame**
+fault injector, but *"the seal survived actual flash"* is unreachable from any host gate).
+
+⛔⛔ **11.1 MUST BE RUN ON AN nRF52 (QSPI) NODE — `xiao_sx1262`, `gateway` or `production`. RUNNING IT ON A HELTEC /
+ESP32 NODE PASSES FOR THE WRONG REASON.** `src/fw_main.cpp:168-179`: only `QSPIFLASH=1` wires the durable
+`DeviceInboxStore`; every ESP32 target uses the **volatile** `FixedInboxStore<32>` RAM ring, which loses the *entire*
+inbox at reboot. *"The deleted message is gone after a reboot"* is therefore **vacuously true** on a Heltec, and would
+prove nothing about the tombstone. 11.4 is the control that catches this being run on the wrong board.
+
+### 11.1 — a delete SURVIVES A REBOOT ★★ the whole point of the slice (nRF52 / QSPI only)
+
+1. On the QSPI node, receive **three** DMs from a peer (any content; note them in order).
+2. `pull_inbox 0 0` → three `{"ev":"inbox_dm",…}` lines. **Record the `seq` of the MIDDLE one** — call it `S`.
+3. `del_msg dm S`
+4. Expected, exactly one line: `{"ack":"del_msg","kind":"dm","seq":S,"result":"erased"}`
+5. `pull_inbox 0 0` → **two** lines; neither carries `"seq":S`; the other two are in their original order.
+   ⓘ `{"ev":"inbox_end",…}`'s `dm_seq` is the store's high-water and **may be larger than before** — the marker
+   consumed a sequence of its own. That is correct: history keeps a hole, sequences are never reused.
+6. **Power-cycle the node** (a full reset, not a soft reboot).
+7. `pull_inbox 0 0` → still **two** lines, still no `"seq":S`, and `"epoch"` in `inbox_end` is **unchanged from
+   step 5** (a one-record delete is not a wipe; a bumped epoch means the store was formatted and this check is void).
+8. ⛔ **FAILURE SHAPES, distinct — record which:**
+   - `"seq":S` is back after the power cycle ⇒ the marker never reached flash — the `erased` in step 4 was a lie;
+   - step 5 already still shows `"seq":S` ⇒ the read filter is not wired (the marker may still be durable);
+   - **more than one** record vanished ⇒ the identity resolved to the wrong record; capture the whole dump;
+   - `"epoch"` changed at step 7 ⇒ the store was wiped, not edited — this is a **worse** defect than a failed delete
+     and must be reported even though `"seq":S` is (trivially) absent.
+
+### 11.2 — a deleted record never reappears under new traffic
+
+1. Continuing from 11.1 step 7: receive **two more** DMs.
+2. `pull_inbox 0 0` → four lines, none with `"seq":S`, and none reusing the value `S` as a *new* record's seq.
+3. ⛔ Failure: any line carrying `"seq":S` — either the old record resurfaced, or a sequence was reused (both are
+   corruption of the companion's dedup identity, not merely a UI annoyance).
+
+### 11.3 — the three outcomes are distinguishable at the console (the whole reason the API is not a bool)
+
+1. `del_msg dm S` **again** → `{"ack":"del_msg","kind":"dm","seq":S,"result":"not_found"}` (already deleted).
+2. `del_msg dm 999999` → `…"result":"not_found"` (never existed / evicted). ★ The panel will render both of these as
+   `MESSAGE GONE`; neither may say `erased`.
+3. `del_msg chan S` → `…"kind":"chan","seq":S,…` and **whatever it reports must match what `pull_inbox` shows for the
+   channel block** — the two sequence spaces are independent, so this must NOT delete the DM again.
+4. `del_msg banana 1` → `{"ev":"err","code":"del_msg","msg":"kind must be dm|chan"}` — a bad kind is refused loudly,
+   never defaulted to `dm`.
+5. ⛔ Failure shapes: a bare `ok` / `err` with no `result` field ⇒ the three outcomes collapsed; `"result":"erased"`
+   for step 1 or 2 ⇒ success is being reported for a record that is not there, which is what makes the panel's
+   `MESSAGE GONE` state unreachable.
+
+### 11.3b — a malformed DELETE TARGET is refused, never acted on ([[B136]], added 2026-08-07)
+
+`src/firmware_inbox.cpp` is outside the native build, so the **glue** that calls the parser is metal-only (the
+parser itself is natively gated by 30 assertions). On any node, with at least the DM whose seq is `1` present:
+
+1. `del_msg dm 1oops` → `{"ev":"err","code":"del_msg","msg":"seq must be one unsigned decimal number"}`
+2. `del_msg dm 1 extra` → the **same** error line.
+3. `del_msg dm +1` → the same error line.
+4. `pull_inbox 0 0` → the record with `"seq":1` is **still there** after all three.
+5. `del_msg dm 1` → `…"result":"erased"` — the strict parser did not break the legitimate form.
+6. ⛔ **FAILURE SHAPE, and it is the whole point of this check:** any of steps 1–3 answering
+   `{"ack":"del_msg",…,"result":"erased"}`, or step 4 showing `"seq":1` gone. That means a **typo deleted a message
+   the operator never named** — report it as a destructive-input regression, not a cosmetic parser issue.
+
+### 11.5 — a TORN durable write is recovered, and the next record is still readable ★★ ([[B135]], added 2026-08-07) — **nRF52 / QSPI ONLY**
+
+⛔ **Same board restriction as 11.1, and for the same reason: on an ESP32 the RAM ring has no framing to tear, so
+this passes vacuously.** ⚠ This is the one check no host gate can reach — the native cases run against a RAM fake,
+so *"the seal survived a real flash and a real reset"* is untested until it is done here.
+
+★ **What is being provoked:** the store writes a record as `[u16 framed_len][u32 seq][body]` in **two** flash
+writes. A reset between them leaves a header claiming bytes that are not there. Before [[B135]] the **next** record
+landed behind that header and was swallowed by it — physically stored and permanently unreachable.
+
+1. On the QSPI node, receive **two** DMs. `pull_inbox 0 0` → two lines; note both `seq` values.
+2. Arrange a reset **during** a record write. Two ways, in preference order:
+   **(a)** start a burst of DMs from a peer (e.g. `testsend`-driven traffic at a fast cadence) and **pull power**
+   mid-burst — repeat up to 5 times; **(b)** if (a) never lands inside a write, drive the burst and press RESET
+   repeatedly. ⓘ This step is **probabilistic** — record how many attempts were made and whether step 4 ever showed
+   a gap; "no tear was ever produced" is an honest, reportable outcome, and it is NOT a pass.
+3. Power the node back up. Receive **one more** DM (call its expected seq `N`).
+4. `pull_inbox 0 0` → **expected:** every record that was complete before the reset, in order, **plus a line with
+   `"seq":N` carrying the correct body**. At most **one** record (the interrupted one) may be missing.
+5. Repeat step 3–4 once more: a second post-tear record must also appear.
+6. ⛔ **FAILURE SHAPES, distinct — record which:**
+   - `"seq":N` **never appears** although the node acknowledged the DM ⇒ the new record landed behind the torn
+     header and is unreachable — **this is exactly the [[B135]] defect and means the seal is not working on metal**;
+   - a line appears with a seq that was **never sent**, or with a garbled/truncated body ⇒ a **phantom record** is
+     being decoded out of the torn frame plus the next one;
+   - **more than one** pre-reset record is missing ⇒ more than the tail frame was damaged (page-level corruption —
+     outside what [[B135]] covers, and worth its own entry);
+   - `"epoch"` in `inbox_end` **changed** ⇒ the store was formatted rather than recovered; the check is void and
+     the format-on-dirty path is what needs investigating.
+
+### 11.4 — the board control, so 11.1 cannot pass on the wrong hardware
+
+On a **Heltec / ESP32** node: receive two DMs, `pull_inbox 0 0` (two lines), power-cycle, `pull_inbox 0 0`.
+**Expected: ZERO lines** and a **changed `epoch`** — the RAM ring is volatile by design.
+⛔ If the ESP32 node still shows its messages after a power cycle, then either the durable store is now wired on
+ESP32 (a real change — say so) or the node did not actually reset; **either way 11.1's result on any board is void
+until this control behaves.**
+
 ## Completion record
 
 - Firmware revision tested: `________________`

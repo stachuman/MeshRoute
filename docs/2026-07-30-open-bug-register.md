@@ -130,6 +130,10 @@ Legend:
 - [x] **B130 — ✅ OPENED AND CLOSED 2026-08-06 (independent QA, docs-only slice): the AUTHORITATIVE DESIGN SPEC was the one artefact the whole arc's corrections never reached.** `docs/superpowers/specs/2026-07-31-onboard-oled-ui-design.md` still presented, **as live guidance**: the unsafe bare-`INPUT` polarity probe ([[B123]] round 2) in §7 *and* in §10.1's board table; `5.42` as a **divider / per-revision property** ([[B126]]); a §4 state diagram mapping failure to **`NOT HEARD`**, accepting a `REPLY` from *"any state"*, exiting on **`double`** (withdrawn by **B71**) and **missing the whole `failed` arm**; an on-target checklist with **`NOT HEARD` and hard-coded timings** ([[B120]] one document up); and a `⛔ **B38/B39/B40 must land first** … do not implement the emergency outcome path` gate for **three bugs that all landed 2026-08-01** ([[B121]]'s shape). ★★ **ROOT CAUSE, recorded so the next arc does not repeat it: every prior slice was instructed *"⛔ do not edit the spec — report needed changes"*, and every slice OBEYED.** The instruction written to prevent drift **caused** it — corrections landed in the code, this register, the plan, the bench guide and the ledger, everywhere except the document that outranks them all. ⇒ **a spec must be corrected fact-only in place by the slice that measures the drift; "report it" is not a correction.** ⛔ Also fixed: the spec **asserted something untrue about itself** — *"every `NOT HEARD` elsewhere names the model STATE"* when **six of nine occurrences were live display-form guidance**. Fix method throughout: **operational text rewritten from the code, superseded content fenced `⛔ SUPERSEDED`** ([[B128]]'s cure). Detail: [[B130]].
 - [ ] **B131 — OPEN / NEW 2026-08-06 (measured; docs-only, OUT OF SCOPE of the [[B130]] slice that found it):** `MR_UI_BLANK_MS` **exists nowhere in the tree** — grepped **9 hits, all in documentation, 0 in code**; the shipped constant is `src/firmware_ui_model.h`'s **`kBlankMs`**. [[B130]] fixed the **2 spec sites**; **7 remain: the plan (3 — `:126`, `:1850`, `:1867`), the bench guide (2 — `:414`, `:844`) and the bench script (2 — `:560`, `:668`)**. ⚠ **Registered rather than mentioned (M1):** a bench entry naming a non-existent macro sends a tester to `platformio.ini` for a value that lives in a header, and it reads as an env knob the operator can change. ⛔ Not fixed here — the finding slice was scoped spec-only and must not edit plan or bench files.
 - [x] **B132 — ✅ FIXED 2026-08-06 (`lib/core`; owner-reported, METAL-CONFIRMED) — a dual-layer gateway could OFFER and accept mobile hosting despite time-multiplexing its PHY.** A gateway serving layers 6/5 in alternating 7.5 s windows reported `hosting=1` and `[hosted-mobile] hash=0xF7C0F666 local_id=254 pubkey=yes`; that mobile consequently registered `home=5`, although the gateway is absent from that PHY for half of every cycle. **OWNER RULING: gateways must never host mobiles.** ✅ **SHIPPED as ONE shared predicate, `Node::can_host_mobiles()` (`lib/core/node.h`) = `host_mobiles && !is_mobile && !is_gateway && n_layers == 1`, consumed at FOUR sites** — the J DISCOVER→OFFER responder, **CLAIM acceptance (which had no eligibility test at all)**, `presence_ingest_probe` and `presence_emit_roster` (the single choke point for all six roster paths) — plus **C3 inertness**: `on_init` forces the effective `host_mobiles` OFF and clears the hosted-mobile registry for any `is_gateway` node, and `cfg set host_mobiles on` now REFUSES on a gateway. ★★ **The two clauses `!is_gateway` and `n_layers == 1` are NOT redundant and both were KEPT: the identity `is_gateway ≡ n_layers==2` holds only after a SUCCESSFUL `on_init`, and the REFUSED path (reachable and NON-FATAL — `src/fw_main.cpp` only prints `config = REFUSED`) leaves `n_layers == 2` with `is_gateway` false, where `n_layers == 1` is the only clause that refuses.** Gate: **7 new test cases, every clause and every site mutation-verified RED**; s18 keystone EXACT; **36/36 corpus byte-identical, 0 movers**. ⛔ **REOPENED AND RE-CLOSED THE SAME DAY (§B132b, independent QA): the predicate was sound but the OFFER is NOT TRANSMITTED WHERE IT IS DECIDED** — `jtx_stash_arm` holds it for a 100..1000 ms jitter and `kMobileOfferBackoffTimerId` fired it with **no eligibility re-check**, so a staged OFFER survived the ineligibility and went out; **and `mobile_offer_tx` is emitted BEFORE the stash, so every round-1 case asserted COMMITTED and called it TRANSMITTED — the FOURTH instance of "a contract event asserting a physical act, reachable from a path that transmitted nothing"**. Fixed by a `can_host_mobiles()` re-check **at the transmission boundary** + one shared per-leaf `mobile_host_pending_clear()`; **+5 cases (1385 / 74126), each asserting the PARSED FRAME**, and the two defences **mutation-attributed independently** so neither masks the other. Detail: [[B132]].
+- [x] **B133 — ✅ LANDED 2026-08-06 (`lib/core`, UI-7D **slice A**, UNCOMMITTED) — the inbox gained a DURABLE SINGLE-RECORD DELETE, spec §6.2's prerequisite for the §3.5 detail modal.** ★ **Owner ruling 2026-08-06: the mechanism is a TOMBSTONE** — a deletion marker is APPENDED, `pull()` filters the records it names; no rewrite, no segment erase. **API (this is what slice B consumes, and it needs no re-derivation): `InboxEraseResult Inbox::erase(InboxKind kind, uint32_t seq)` → `erased` | `not_found` | `io_error`.** Identity is the PAIR `(InboxKind, seq)` — never the row index, origin, message counter or body — because the DM and channel sequence spaces are independent. ★★ **NO virtual was added to `InboxStore`**: `erase()` is built from the two operations every store already has (`read_since` + `append`), so **no implementer can be missed and none can silently default to a no-op delete** — which is precisely the *"visual disappearance without durable success"* §3.5 forbids. The three hazards are answered in the note: **ORDERING** (a marker is appended AFTER its target, so `pull()` runs a bounded PRE-PASS — 128 B of stack, **RAM +0 on all six envs**), **LIFETIME** (markers live in the same bounded ring, are always evicted after their target, and the writer caps them at `inbox_max_tombstones` = 32 so the reader's array can never overflow), **ENCODING** (`type = 0xFE`, verified against `frame_codec.h`'s `DataType` 1..19 — **no store-format bump taken, and the reason is stated: the record layout is unchanged, so a bump would wipe on-node history to buy nothing**). Also shipped: the console verb **`del_msg <dm|chan> <seq>`** (the only operator-reachable delete until slice B, and what makes the reboot-persistence bench check executable). Gate: **9 cases (1385 → 1394 / 74126 → 74252), 9 mutations every one RED**, s18 `1cd21235` EXACT, **36/36 byte-identical**, `sizeof(Node)` unmoved. ⓘ Two drifted comments fixed in passing (V1): `inbox_record_max_bytes` read *"272 (31 + 241)"* and `protocol_constants.h` said *"a 31-B header"* — the header has been **32 B / 273 B** since §GapA-durable. Detail: [[B133]]. ⛔⛔ **REJECTED BY INDEPENDENT QA 2026-08-06 AND RE-CLOSED 2026-08-07 — read §B133b below before trusting the sentence above.** Two correctness blockers: **①** the durable store's framed append is **not power-failure safe**, so `erase()` could return **`erased` with the record still readable** — ★ **PRE-EXISTING (2026-06-12), therefore given its OWN id [[B135]]** rather than folded into the delete feature (C1), and **fixed there**; the mechanism above is sound but it stood on a store that was not. **②** the console verb accepted **malformed destructive targets** — [[B136]]. ⚠ **The claim *"crash-safety is the append's own … nothing else is mutated"* in the block below was FALSE when written**; it is corrected in `inbox.h` and in §B133b. ⇒ B133 is closed **only because [[B135]] and [[B136]] closed with it**; it is not independently landed.
+- [x] **B135 — ✅ FIXED 2026-08-07 (`lib/core` + `src/`; PRE-EXISTING since 2026-06-12, found by independent QA reviewing [[B133]]) — the durable segmented log could TEAR MID-FRAME, and the NEXT APPEND then made a physically-present record unreachable.** `append()` writes `[u16 framed_len][u32 seq]` and the body as **two separate `seg_append` calls** (`lib/core/segmented_inbox_store.h`, twinned in `src/device_inbox_store.h`), so a power cut or write failure between them leaves a header claiming more bytes than are present. A torn tail **alone** is harmless — `read_since` already stops at `off + fl > n`. ★★ **THE DEFECT IS THE NEXT APPEND:** its bytes land immediately behind the torn header, which now measures long enough to "contain" them, so the reader consumes the new frame **as the torn one's body**, emits a PHANTOM record and then resumes at a bogus offset — everything after the tear is unreachable while physically stored. ⇒ ordinary inbox messages silently vanish, **and** a [[B133]] tombstone written as a retry after a tear returns `erased` while its target stays visible: the **fifth** *"a contract event/return asserting a physical act reachable from a path that did not perform it"* in this project (`emit_hash_query` → `tx_initiating` → `tx_with_retry`/`DeviceHal::tx` → `mobile_offer_tx` → `erase()==erased`). ★ **ATTRIBUTION, checked not assumed: PRE-EXISTING.** `git blame` puts both `seg_append` calls and both bare `return false`s at **`c1dd1934`, 2026-06-12** — nearly two months before [[B133]] existed — and `src/device_inbox_store.h` carried the same shape earlier still. **B133 did not create it; it made it reachable in a newly dangerous way** (a *destructive* op reporting success), which is why this is its own entry and not folded into the delete feature (C1). ✅ **FIX = SEAL-AND-ROLL** (chosen over truncation, with the reasons and the **five things it does NOT cover** stated at the code): a torn segment is never appended to again, so the tear stays permanently at a segment's end where the reader's existing stop is correct; the seal is **re-derived at `begin()`** because the power cut that tears a frame also loses the RAM flag. ⛔ **The "nothing else is mutated" clause in `inbox.h`'s `erase()` note was FALSE and is fenced `⛔ SUPERSEDED` in place** — a rotation on a full ring evicts the oldest segment *before* the write is attempted, and that cannot be undone. Gate: **6 new cases (1394 → 1401 / 74252 → 74360)**, a **mid-frame fault injector** (the old `fail_append` failed *before writing* and so could never produce a tear — the instrument was incapable of reaching the defect), the exact **pre-fix code reddens 5 of the 6**, s18 `1cd21235` EXACT, 36/36 byte-identical, RAM **+0 on all six envs**. Detail: [[B135]].
+- [x] **B136 — ✅ FIXED 2026-08-07 (`src/`, found by independent QA reviewing [[B133]]) — `del_msg` accepted MALFORMED targets and DELETED WHATEVER THE PREFIX EVALUATED TO.** `src/firmware_inbox.cpp`'s new delete verb read its target with a bare `strtoul(args, nullptr, 10)` — **no endptr check, no range check** — so `del_msg dm 1oops`, `del_msg dm 1 extra`, `del_msg dm +1` and `del_msg dm 0x1` **all deleted sequence 1**, and `del_msg dm 4294967296` silently became seq 0 on the host / `0xFFFFFFFF` on a board. Same family as **§team-target / [[B1]] / [[B17]]** (`team <garbage>` LEFT THE TEAM), arriving through a delete instead of a leave. ✅ **FIX: `mrfw::parse_seq_arg` in `src/firmware_config_parse.h`** — one unsigned **decimal** token, leading digit mandatory, whole-argument consumption (trailing whitespace only), both ABI range clauses **reused verbatim from `parse_team_target` rather than forked** (U1), **fail-closed** (`out` untouched on refusal). Base 10 deliberately, not base 0: `010` must not silently mean message 8. ⚠ **`src/*.cpp` is outside the native build, which is exactly how this shipped untested** — the predicate is therefore a **pure header** the native suite reaches through `[env:native]`'s `-I src` (the `firmware_config_parse.h` / `firmware_ui_send.h` pattern, U3). ⓘ **Scope stated, not implied: `mark_read` keeps the lax parse** — non-destructive, and tightening a verb the companion already speaks is its own slice (C1). Gate: **1 new case, 30 assertions** (7 accepted forms, 21 refused forms each asserting the sentinel survived, plus errno hygiene and the ABI-split pin); **3 mutations RED (16 / 4 / 6 assertions)**. Detail: [[B136]].
+- [ ] **B134 — OPEN / NEW 2026-08-06 (measured, and it is a PRODUCT question, not a code defect):** on **every ESP32 target — including `heltec_v3`, the board the §3.5 delete UI is being built for — the inbox is a VOLATILE RAM ring and the whole history dies at every reboot.** `src/fw_main.cpp:168-179`: `MRINBOX_QSPI_READY` (i.e. `QSPIFLASH=1`, nRF52 only) selects the durable `DeviceInboxStore`; otherwise it is `FixedInboxStore<MR_RAM_INBOX_SLOTS=32>`. ⇒ ★ **on the Heltec the §3.5 `delete` button is durable only until the next power cycle, and "durable delete" is a promise the hardware does not keep there.** ⚠ Two consequences a reviewer must not miss: **(a)** a bench check *"the deleted message is gone after a reboot"* passes **vacuously** on a Heltec (everything is gone) — hence the mandatory board control at bench **11.4**; **(b)** slice B's modal must not imply permanence the store cannot provide. ⛔ Not fixed here: wiring a durable store on ESP32 is a storage port (flash partition + a LittleFS/NVS backend for `ISegmentStore`/`IMetaStore`), a separate slice and an owner call.
 - [ ] **B93 — OPEN / LATENT:** `lib/hal/mr_ui.h` forward-declares `namespace meshroute { struct Push; }` with a **hardcoded** namespace while `command.h` uses the overridable `MESHROUTE_NS`. Same class as the §UI-3-QA finding, one level up.
 - [x] **B78 — OWNER-RULED then FIXED 2026-08-04 (UI-3 QA, UNCOMMITTED):** `Emergency::failed` joins `hold_active()`'s retained set and holds for `kEmgHoldMs` from the failure's **own** arrival time (`on_send_refused` gained a `now_ms` parameter; `retain()` on both the synchronous and `channel_failed` paths). ⇒ **`kEmgHoldMs` re-ruled 120000 → 30000** in the same breath.
 
@@ -2818,6 +2822,281 @@ note). That was right about the mechanics and wrong about the scope: the cure is
 counter-argument was that a refused
 send never went out. **One line either way (`failed` into the retained set, plus `retain()` at both sites, or a
 sentence in §4.3 saying 15 s is intended). Owner/spec ruling wanted; UI-6 is the natural home.**
+
+### B133 — durable single-record inbox delete (spec §6.2) · NEW 2026-08-06 · **✅ LANDED (`lib/core` + one console verb; UI-7D slice A, UNCOMMITTED)**
+
+**THE CONTRACT SLICE B CONSUMES — copy it, do not re-derive it.**
+
+```cpp
+// lib/core/inbox.h
+enum class InboxEraseResult : uint8_t { erased = 0, not_found = 1, io_error = 2 };
+InboxEraseResult Inbox::erase(InboxKind kind, uint32_t seq);   // identity = the PAIR
+```
+
+| outcome | when | what §3.5 renders |
+|---|---|---|
+| `erased` | the tombstone was APPENDED and is durable; the record is gone from every future `pull()` | close the modal, rebuild the list |
+| `not_found` | no such live record in that kind's store — evicted by the bounded ring, `seq == 0`, or already deleted | **`MESSAGE GONE`** — and it must never affect another row |
+| `io_error` | the append failed, the inbox is unwired, or the tombstone cap is full | **`DELETE FAILED`** — stay in the modal; nothing was deleted |
+
+⛔ **A bool cannot express this**, which is why the API does not return one, and why the console verb reports
+`"result":"erased|not_found|io_error"` verbatim rather than an `ok`/`err`.
+
+**THE THREE HAZARDS, ANSWERED.**
+
+1. **ORDERING — a single streaming pass cannot filter a marker it has not seen yet.** A tombstone is appended
+   **after** its target, so `pull()` runs a bounded **PRE-PASS** per store (`read_since` with the *same* `since`,
+   collecting tombstone targets), then streams. Cost: the store is scanned **twice per pull** (a console/UI
+   operation, never a MAC path) and **128 B of stack** (`inbox_max_tombstones` = 32 × `uint32_t`, one array reused
+   for both stores). **RAM +0 bytes on all six envs, measured** — nothing in `.bss`, nothing in `Node`.
+   Pinned by `§3.5/2`, which asserts the marker is physically the **last** record in the log and the target is still
+   filtered; reverting either the pre-pass or the filter reddens **7 cases / 44 assertions**.
+2. **LIFETIME — markers are bounded twice over.** They are ordinary records in the same drop-oldest ring, and since
+   a marker is always appended after its target it is always **evicted after** it: garbage cannot outlive the ring.
+   On top of that the **writer** refuses the (n+1)-th tombstone with `io_error`, which is what makes the reader's
+   fixed array **overflow-proof by construction**. 32 is not arbitrary: `MR_RAM_INBOX_SLOTS` is 32, so on the
+   `FixedInboxStore` (every ESP32 target — see [[B134]]) the cap can never bind before the ring evicts; on the
+   512 KB QSPI store it is a real, declared product limit.
+3. **ENCODING — the record's `type` byte, value `0xFE`, and NO store-format bump.** Verified against
+   `lib/core/frame_codec.h`'s `DataType` (V1, at the codec, not the comments): **1..19 allocated, sequentially from
+   1** — so unlike the DATA flags byte and `q_opcode`, this space is **not** under pressure and the top of it is
+   free. `0xFF` was deliberately **not** used: it is the erased-flash byte, and a value a blank region could decode
+   into is a poor discriminator (the segment framing already stops that, but the value should not depend on it).
+   ★ **No bump was taken and the reason is stated rather than dodged (M3):** the record layout is **unchanged**, so
+   every already-stored record stays parseable — a bump would wipe on-node history to buy nothing.
+
+**WHY THERE IS NO NEW `InboxStore` VIRTUAL.** The brief's hazard — *"adding a virtual changes EVERY implementer; a
+missed one is a build break, a wrongly-defaulted one is a silent no-op delete"* — is answered by **adding none**.
+`erase()` is composed from `read_since` + `append`, the two operations **all four implementers** already provide
+(`FixedInboxStore`, `SegmentedInboxStore`, `DeviceInboxStore`, `RamInboxStore` — the set derived by grepping for `: public InboxStore`, not typed), so
+§6.2's *"every backend must implement the same contract"* is satisfied **above** them rather than five times over
+(U1). Crash-safety is then the append's own: the marker either lands or it does not, and nothing else is mutated.
+
+**A DELETE IS NOT A WIPE.** The marker consumes a sequence of its own, so history keeps a **hole**, `next_seq` never
+regresses and a sequence is never reused; the read cursor and the storage epoch are untouched, so the companion is
+never pushed into resetting both cursors (§6.2, pinned by `§3.5/9`).
+
+**MUTATION MATRIX — 9 mutations, applied by exact unique string replacement (the harness aborts if a replacement
+matches 0 or >1 sites), full rebuild + run each, then reverted; `lib/core/inbox.cpp` md5-verified restored.**
+
+| mutation | RED |
+|---|---|
+| **M1** target filter removed (marker still hidden) | 7 cases / 44 asserts |
+| **M2** the marker itself leaks as a message | 3 / 5 |
+| **M3** the pre-pass collects nothing (the ORDERING machinery dead) | 7 / 44 |
+| **M4** `erase` reports `erased` and writes no tombstone | 7 / 60 |
+| **M5** identity collapsed to `seq` alone | **1 / 2 — `§3.5/3` only**, the cross-kind case |
+| **M6** `not_found` conflated with `io_error` | 2 / 4 |
+| **M7** the writer's tombstone cap removed | 1 / 2 — `§3.5/8`, the resurrection assert |
+| **M8** the append's verdict ignored | 1 / 1 — `§3.5/6` |
+| **M9 CONTROL** the filter suppresses everything | 4 / 5 **pre-existing** cases ⇒ the suite really can see records |
+
+★ **Every case asserts the SIDE EFFECT — the record's absence from a real `pull()` sweep, including across a
+simulated reboot (`on_init` re-run over the same store objects) — never a return code alone.** A delete that returns
+`erased` and leaves the record readable is exactly the *"contract event asserting a physical act"* class this arc has
+now hit four times, and **M4 is that defect made concrete**: it reddens 7 cases.
+
+**M2 (metal-only) — bench Part 11**, because neither native nor the simulator compiles `src/`, and the native cases
+run against a `std::deque` fake so *"the marker reached the medium"* is untested. 11.1 delete-survives-reboot,
+11.2 never-reappears, 11.3 the three outcomes at the console, **11.4 the board control** — which exists because of
+[[B134]]: on a Heltec, *"gone after a reboot"* is vacuously true.
+
+#### ⛔ §B133b — REJECTED BY INDEPENDENT QA 2026-08-06, RE-CLOSED 2026-08-07: **THE MECHANISM WAS SOUND AND THE STORE UNDER IT WAS NOT**
+
+Two correctness blockers were raised against the block above. Both are real; both were verified against the source
+before being acted on, and **one of my premises above turned out to be false**.
+
+**① THE DURABLE APPEND IS NOT POWER-FAILURE SAFE ⇒ `erase()` COULD REPORT `erased` WITH THE MESSAGE STILL VISIBLE.**
+Header and body are two `seg_append` calls; a retry after a torn tail is consumed *as* the torn frame's body and its
+tombstone becomes unreachable. ★ **PRE-EXISTING since 2026-06-12 (`git blame`), so it is registered separately as
+[[B135]] and fixed there** — it affects **ordinary message appends**, not only tombstones, and folding a store
+durability bug into a delete feature would misattribute both (C1). B133's mechanism needed no redesign; it needed a
+store that keeps its word.
+
+⛔ **MY FALSE PREMISE, quoted from the block above:** *"crash-safety is then the append's own: the marker either
+lands or it does not, and nothing else is mutated."* The **first** clause is right; the **second** was never true —
+a rotation on a full ring evicts the oldest segment before the write is attempted. The sentence is fenced
+`⛔ SUPERSEDED` in `lib/core/inbox.h` and replaced with what the code actually guarantees. **This is the sixth
+occurrence in this arc of a correction living beside live instructions instead of replacing them** — so the
+operational text was rewritten, not annotated.
+
+**② THE CONSOLE VERB ACCEPTED MALFORMED DESTRUCTIVE TARGETS** — `del_msg dm 1oops` deleted seq 1. [[B136]].
+
+⚠ **AND THE THIRD FINDING IS ABOUT THE INSTRUMENTS, which is the one worth keeping:** B133's mutation matrix was
+genuinely strong (9 mutations, all RED, with a vacuity control) **and it could not have caught either blocker**,
+because the only fault knob available (`RamInboxStore::fail_append`) fails *before writing anything* and the
+`src/` verb is not in the native build at all. ★★ **Before trusting a check, ask whether it COULD have failed.**
+
+### B134 — the §3.5 delete is durable only on nRF52; every ESP32 inbox is a volatile RAM ring · NEW 2026-08-06 · **OPEN / PRODUCT QUESTION**
+
+Measured at `src/fw_main.cpp:168-179`. `MRINBOX_QSPI_READY` (`QSPIFLASH=1`, nRF52 only) selects the durable
+`DeviceInboxStore`; every other target — **including `heltec_v3`, `heltec_mobile` and `gateway_heltec`, the boards
+the §3.5 modal is being built for** — gets `FixedInboxStore<MR_RAM_INBOX_SLOTS = 32>`, whose own header says
+*"VOLATILE: history is lost on reboot"* and whose `set_epoch` exists to make the companion re-pull after every boot.
+
+⇒ **On the UI's own target the delete is durable only until the next power cycle.** The [[B133]] mechanism is
+correct on both stores; what differs is what the medium promises. Two consequences:
+
+- a bench step *"the deleted message is gone after a reboot"* passes **vacuously** on a Heltec ⇒ bench **11.1 is
+  restricted to a QSPI board** and **11.4** is the control that catches it being run on the wrong one;
+- slice B's modal must not imply a permanence the store cannot provide on that board.
+
+⛔ **Not fixed here.** Wiring a durable store on ESP32 is a storage port (a flash partition plus LittleFS/NVS
+backends for `ISegmentStore` / `IMetaStore` — `SegmentedInboxStore` is already platform-neutral and would host it),
+which is its own slice and an owner call.
+
+### B135 — the durable segmented log tears MID-FRAME, and the next append makes a stored record unreachable · **PRE-EXISTING since 2026-06-12** · found 2026-08-06 by independent QA on [[B133]] · **✅ FIXED 2026-08-07 (`lib/core` + `src/`)**
+
+**THE MECHANISM, verified in source (V1) and not from the comments.** `SegmentedInboxStore::append()` frames a
+record as `[u16 framed_len][u32 seq][rec]` and writes it as **two calls**:
+
+```cpp
+if (!_records->seg_append(_meta.head_seg, hdr, 6)) return false;            // <- the header lands
+if (len && !_records->seg_append(_meta.head_seg, rec, len)) return false;   // <- the body does NOT
+```
+
+`src/device_inbox_store.h` — the **live nRF52/QSPI backend**, a hand-maintained twin of the same logic — is
+byte-for-byte the same shape. `read_since` already refuses a short frame (`if (fl < 6 || off + fl > n) break;`), so
+**a torn tail on its own loses one record and nothing else.**
+
+★★ **THE DEFECT IS THE NEXT APPEND.** Its bytes land immediately behind the torn header, which now measures long
+enough to "contain" them. Worked example, measured by the new `§B135/1` case (records `a`, `b`, a torn 7-byte frame
+for seq 3, then a retry `d` for seq 4): the reader emits seq 1, seq 2, then a **PHANTOM seq 3 whose body is the
+retry's own length byte**, then reads `fl = 1024` out of the middle of the retry's header and stops. **Record 4 is
+physically on the flash and permanently unreachable.** ⇒ ordinary inbox **messages** disappear, and:
+
+⛔⛔ **THE [[B133]] CONSEQUENCE — A SUCCESS THAT ISN'T, THE FIFTH IN THIS PROJECT.** `erase()` is composed from
+`read_since + append`, so a torn append is a torn *delete*. Header lands / body fails ⇒ `erase()` correctly returns
+`io_error`, **but the retry** appends after the torn tail, the reader can no longer reach the retry's tombstone, and
+`erase()` reports **`erased` while the message is still visible**. That is exactly the class this arc keeps hitting:
+`emit_hash_query` → `tx_initiating` → `tx_with_retry`/`DeviceHal::tx` → `mobile_offer_tx` → **`erase() == erased`**.
+★ **The pattern IS the finding: a return value or event that asserts a physical act, reachable from a path that did
+not perform it.** Five instances, five different subsystems, one shape.
+
+**★ ATTRIBUTION — PRE-EXISTING, and this was checked rather than assumed.** `git blame -L 154,190` on
+`lib/core/segmented_inbox_store.h` puts the two `seg_append` calls and both bare `return false`s at **`c1dd1934`,
+2026-06-12**; `src/device_inbox_store.h` (from which the lib/core file was ported) carried the shape earlier still.
+⇒ **[[B133]] did not create this hole. It made it reachable in a newly dangerous way** — a *destructive* operation
+reporting success — which is why it is registered here with its own id instead of being folded into the delete
+feature (C1), and why the fix is stated plainly as affecting **ordinary appends, not only tombstones**.
+
+**✅ THE FIX — SEAL-AND-ROLL, and the alternative that was rejected.** On a failed append the store measures the
+head segment: if bytes actually landed it charges them to `_total` and **SEALS** the segment; the next `append()`
+treats a sealed head exactly like a full one and **rolls to a fresh segment**. A torn segment is therefore never
+appended to again, so the tear stays permanently at a segment's end — where `read_since`'s existing stop is
+*correct* rather than a trap. ★ **The seal is re-derived at `begin()` by walking the head segment's frame chain**
+(`head_tail_torn()`: the chain must consume the segment EXACTLY), because the power cut that tears a frame also
+loses the RAM flag — the reboot arm is the whole reason a RAM-only seal would have been theatre.
+
+⛔ **TRUNCATION WAS REJECTED, with reasons:** `ISegmentStore` has no truncate, and adding one is **a new virtual on
+a HAL with a device implementation** — the exact hazard [[B133]] deliberately designed around; and append-only media
+cannot un-write bytes at all, so a truncate-based design would be LittleFS-specific in a deliberately
+medium-neutral interface.
+
+⛔ **WHAT SEAL-AND-ROLL DOES NOT COVER — stated, because a recovery mechanism that implies more than it does is the
+next bug:**
+
+1. **No integrity check.** There is no per-record CRC. Sealing detects **short** frames, never **corrupt** ones: a
+   tear that leaves a plausible `framed_len` followed by plausible bytes still parses.
+2. **Damage to earlier records** in the same segment (a flash page rewritten under a brown-out) is not detected.
+3. **The torn frame's bytes and the remainder of its segment (up to `inbox_segment_bytes` = 4 KiB) are wasted**
+   until the ring laps.
+4. **`save_meta()`'s return is still ignored** (pre-existing; deliberately not changed in this slice).
+5. ★ **Rotation is NOT transactional.** If the append had to roll first, the roll may already have erased the
+   OLDEST segment before the write failed. Obtaining a free segment in a full ring **is** the eviction, so it cannot
+   be undone. ⇒ ⛔ **the documented guarantee was WRONG and is corrected, not re-worded away:** `inbox.h`'s
+   `erase()` note said *"the tombstone either lands or it does not, and nothing else is mutated"*. The clause is
+   fenced **⛔ SUPERSEDED** in place and replaced by what the code actually provides — **"on a failed append no
+   previously readable record is corrupted or made unreachable"**, plus the explicit statement that a roll may have
+   evicted the oldest segment (drop-oldest the next successful append would have done anyway). Nothing about the
+   **target** record changes on `io_error`, which is the property §3.5 renders.
+
+⚠⚠ **WHY THE EXISTING TESTS COULD NOT SEE IT — the arc's recurring shape, now at FIFTEEN:**
+
+- `RamInboxStore::fail_append` fails **before writing anything**, so it can never produce a torn tail. ★ **A fault
+  injector that cannot produce the fault is not a fault test.**
+- the pre-existing `"a torn record at a segment tail is skipped"` case hand-writes a torn tail and **never retries
+  after it** — it pins the harmless half of the behaviour and is blind to the dangerous half.
+
+**✅ THE NEW INSTRUMENT: a MID-FRAME fault injector** (`test/fake_inbox_storage.h`) that fails a chosen `seg_append`
+call **after letting `partial_bytes` of it land** — i.e. a real power cut between the header and the body (call #0 =
+the 6-byte header, #1 = the body). It also exposes `fault_armed()` so every case **asserts the injector actually
+FIRED** rather than assuming it did.
+
+**SIX NEW CASES, and every one asserts the OBSERVABLE side effect — what a later read/`pull()` can still reach —
+never a return code:**
+
+| case | what it pins |
+|---|---|
+| `§B135/1` | header written, body failed ⇒ the tear is sealed and **the retry stays readable** (`{1,2,4}`, body `d` its own) |
+| `§B135/2` | a **partial body** is sealed too — a short frame is still a torn frame |
+| `§B135/3` | a failure **immediately after a rotation**: every previously readable record survives, in order, and the store keeps working |
+| `§B135/4` | a **REBOOT between the two writes** — the object is destroyed, `begin()` re-arms the seal from the medium; also asserts a tear is **not** a wipe (no epoch bump) |
+| `§B135/5` | ★ **VACUITY CONTROL** — a CLEAN store is never sealed (one segment, no roll). Without it, `head_tail_torn() == true` always would pass 1–4 while burning a segment per boot |
+| `§B135/6` | ★★ **the case that closes the class** — a real `Inbox` over two durable stores: a torn tombstone returns `io_error` **and the target is still in `pull()`**; the retry returns `erased` **and the target is gone from `pull()` while the other record survives**; and it is still gone after a reboot |
+
+**MUTATION MATRIX — exact unique string replacement (the harness aborts on 0 or >1 matches), full rebuild + run
+each, reverted, md5 verified restored (`segmented_inbox_store.h` `c9820c79`, `firmware_config_parse.h` `62583a14`):**
+
+| mutation | RED |
+|---|---|
+| **MA** the seal is never set (`_head_sealed = true` removed) | **4 cases / 8 asserts** — `/1 /2 /3 /6` |
+| **MB** a sealed head does not force a roll | **5 / 10** — `/1 /2 /3 /4 /6` |
+| **MC** `begin()` does not re-arm the seal | **1 / 2** — `/4` only, precisely the reboot arm |
+| **MD CONTROL** `head_tail_torn()` always returns true | **1 / 3** — **`/5` ONLY**, which is what makes `/1`–`/4` non-vacuous |
+| **PRE-FIX** the exact 2026-06-12 code restored (both bare `return false`, no seal, no roll, no re-arm) | ★ **5 / 10** — `/1 /2 /3 /4 /6`, i.e. **the shipped bug is measured, not argued** |
+
+★ **MA and MB are the two halves of the defence and each is RED with the other INTACT** — neither masks the other
+(the B132b standard). **MD is the mutation that proves `/5` is doing work**: it is the only one it reddens.
+
+⚠ **DUPLICATION, recorded not silently accepted:** `src/device_inbox_store.h` is a hand-maintained twin of
+`lib/core/segmented_inbox_store.h` (same logic, `qspi_*`/`ifs_*` seams instead of injected interfaces) and **it is
+the live nRF52 backend**, so the fix had to land in both. A header comment now says so at the new member. ⛔ **The
+dedup is NOT done here** — collapsing the twin onto `SegmentedInboxStore` is a refactor and C1 forbids folding it
+into a fix. It is the obvious follow-up.
+
+### B136 — `del_msg` accepted malformed DESTRUCTIVE targets · NEW 2026-08-06 (independent QA on [[B133]]) · **✅ FIXED 2026-08-07 (`src/`)**
+
+**MEASURED at `src/firmware_inbox.cpp`'s `handle_del_msg`:** `const uint32_t seq = strtoul(args, nullptr, 10);` —
+**no endptr check, no range check.** `strtoul` converts a leading prefix and silently ignores everything after it,
+so **every one of these deleted sequence 1**: `del_msg dm 1oops` · `del_msg dm 1 extra` · `del_msg dm +1` ·
+`del_msg dm 1.5` · `del_msg dm 1,2`. And `del_msg dm 0x1` deleted seq 0 → `not_found` (base 10 stops at the `x`,
+so the operator's hex spelling silently names a message that cannot exist), while `del_msg dm 4294967296`
+truncated to **0** on the 64-bit host/sim and saturated to **`0xFFFFFFFF`** on every 32-bit board.
+
+★ **THIS IS THE §team-target FAMILY** ([[B1]], [[B17]] — `team <garbage>` silently LEFT THE TEAM), arriving through
+a **delete** instead of a leave. The register already held the fix pattern; the new verb did not use it.
+
+**✅ SHIPPED: `mrfw::parse_seq_arg(const char* s, uint32_t& out)` in `src/firmware_config_parse.h`,** next to
+`parse_team_target` and reusing its clause discipline verbatim rather than forking a second, laxer integer parser
+(U1 — a fork is exactly what rots):
+
+1. a **leading digit** is mandatory ⇒ refuses `""`, whitespace-only, `+1`, `-1`, `abc`;
+2. `strtoul` must consume characters and **everything it did not consume must be trailing whitespace** ⇒ refuses
+   `1oops`, `1 extra`, `1,2`, `1.5`, `0x1`, `1e3`, and a second token;
+3. **(3a) `errno == ERANGE`** (the 32-bit boards' saturation to `0xFFFFFFFF`, which is a *deletable* seq) **and
+   (3b) `ul > UINT32_MAX`** (the 64-bit host's truncation). ⚠ Both arms are kept for the reason spelled out at
+   `parse_team_target`: **on each ABI one arm is inert and it is a DIFFERENT arm on each**, so neither can be shown
+   necessary by testing one ABI alone.
+
+**FAIL-CLOSED:** `out` is untouched on refusal, so a rejected token cannot half-write the seq the delete is about to
+act on — pinned by seeding a `0xDEADBEEF` sentinel in every refusal case and asserting it **survived**. **Base 10
+only, deliberately:** a seq is printed in decimal everywhere, and base 0 would make `010` mean **message 8** —
+a different message, silently. On refusal the verb emits a loud `err` line (C2), never a deletion.
+
+⚠ **HOW `src/` WAS COVERED, since it is outside the native build** (`[env:native]` sets `test_build_src = no`): the
+predicate is a **pure header**, which the native suite reaches through the env's `-I src` — the same pattern
+`firmware_config_parse.h` and `firmware_ui_send.h` already use (U3). The `handle_del_msg` glue that calls it stays
+uncovered natively and is exercised at bench **11.3b**.
+
+ⓘ **SCOPE, stated rather than implied: `mark_read` still uses the lax `strtoul` and was deliberately left alone.**
+It is non-destructive (a cursor move the companion re-issues constantly) and tightening a verb the app already
+speaks is a behaviour change that belongs in its own slice, not folded into a delete fix (C1).
+
+**GATE: 1 new case / 30 assertions** — 7 accepted forms (including `0`, `4294967295`, `010`→10 and a CRLF console
+line), **21 refused forms each asserting the sentinel survived**, errno hygiene, and the ABI-split pin.
+**Mutations, each RED:** drop the trailing-input check → **16 assertions**; drop the leading-digit rule → **4**;
+drop both range clauses → **6**.
 
 ---
 

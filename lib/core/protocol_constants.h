@@ -771,8 +771,9 @@ inline constexpr uint16_t reserve_est_payload_bytes = max_payload_bytes_hard_cap
 // ---- Persistent inbox (DM + channel durable history; 2026-06-10 spec) -------
 // Two independent flash stores: DMs are large + durable, channels persisted but freely evicted.
 // Both drop-oldest at the byte cap. The store is a segmented append-log (delete-oldest-segment, no
-// rewrite); segment <= store cap. A record = a 31-B header (inbox_record_header_bytes) + body, body <= inbox_max_body, so a
+// rewrite); segment <= store cap. A record = a 32-B header (inbox_record_header_bytes) + body, body <= inbox_max_body, so a
 // single record always fits a segment (the "record > segment" path is a defensive guard, never hit).
+// (V1 2026-08-06: the header has read 32 B since §GapA-durable added origin_layer; the "31-B" text here was drift.)
 inline constexpr uint32_t inbox_dm_store_bytes     = 512u * 1024;   // ~thousands of short DMs
 inline constexpr uint32_t inbox_chan_store_bytes   = 128u * 1024;   // freer (channels evict sooner)
 // The segment (delete-oldest granularity) = the read-scratch size: read_since loads a WHOLE segment into a
@@ -781,6 +782,16 @@ inline constexpr uint32_t inbox_chan_store_bytes   = 128u * 1024;   // freer (ch
 // wired — they'd have overrun the 4 KB scratch; reconciled to the real, scratch-bounded size.)
 inline constexpr uint32_t inbox_segment_bytes      = 4u * 1024;     // 4 KiB; == the store read-scratch
 inline constexpr uint8_t  inbox_max_body           = max_payload_bytes_hard_cap;  // 241 (record body cap)
+// §3.5/§6.2 single-record delete = an appended TOMBSTONE (owner ruling 2026-08-06: no rewrite, no segment erase).
+// Inbox::pull() must know the tombstones BEFORE it streams the records they cancel (a tombstone is always appended
+// AFTER its target), so it runs a bounded pre-pass that collects tombstone targets into a fixed array. This is that
+// array's size, and therefore ALSO the hard cap Inbox::erase() enforces on the number of tombstones a single store
+// may hold at once: with the write side capped at the same value, the read side's array can NEVER overflow, so a
+// deleted record can never be emitted for want of space. Cost = 4*32 = 128 B of STACK inside pull() (nothing in .bss,
+// nothing in Node). 32 is not arbitrary: MR_RAM_INBOX_SLOTS is 32, so on the FixedInboxStore (the Heltec/ESP32 UI
+// target) the cap can never bind before the ring itself evicts. On the big QSPI store it is a real product limit —
+// the 33rd delete with 32 tombstones still un-evicted returns io_error ("DELETE FAILED"), never a silent no-op.
+inline constexpr uint8_t  inbox_max_tombstones     = 32;
 
 // ---- SF demod thresholds (Q4 dB, mirrors SF_DEMOD_THRESHOLD in Lua) -------
 // SF5 = -2.5 dB → -40 Q4; SF12 = -20.0 dB → -320 Q4.
