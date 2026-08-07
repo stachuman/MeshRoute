@@ -54,8 +54,8 @@
    "command": "send_channel 5 tx-chan-after-homeloss -t"
   },
   {
-   "_c": "S7 send-side: plain = GLOBAL from a homed mobile (delegated); wrapper verb TBD by the coder (send_channel_g?)",
-   "at_ms": 660000,
+   "_c": "S7 send-side: plain = GLOBAL from a homed mobile (delegated); wrapper verb TBD by the coder (send_channel_g?). ★★ MOVED 660k→620k 2026-08-07 (§MH-S1b) — SCENARIO AUTHORING, NOT A MECHANISM CHANGE. It was scheduled at EXACTLY the same at_ms (660000) as the XO4 o2h team DM above, i.e. the same collision class that already forced that DM 620k→660k on 2026-07-20 — the fix simply re-used the slot the DM had vacated. ⚠ MEASURED MECHANISM, not guessed: this post is DELEGATED to home S1, whose SF9 repair DATA to S2 is dropped `drop_sf_mismatch` because S2's `channel_overhear_armed` guard (571 ms) expires while S1's OWN back-to-back TX blocks the frame (`data_tx_blocked`/`rts_tx_blocked` at 673217/673699), after which `channel_reoffer_tx retries_left:0` is spent and ch6 reaches nobody. At 620000 the same repair lands first try (S2 `pull_target` @632292, S3 `overheard` @634858) and the scenario is GREEN. ⚠ 620k is also the LAST comfortable slot: S1 `dies_at_ms` 700000, so a delegated global needs its ~15 s repair to finish well before that — measured, at_ms ≥ 645000 fails for that reason instead. ⚠ THE ASSERTION IS TIMING-FRAGILE ACROSS THE WHOLE 605k-670k RANGE (green only at 610k/620k/635k, identically before and after this slice's code change) — registered as [[B141]]; it is NOT re-tuned per slice.",
+   "at_ms": 620000,
    "node": "XH1",
    "command": "send_channel_g 6 global-from-mobile"
   },

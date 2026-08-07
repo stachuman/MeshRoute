@@ -1157,10 +1157,20 @@ bool Node::gateway_announce_has_headroom() const {
 // self-contained (its leaf_id / team scope is packed in), so it tx's at routing_sf as a flood regardless
 // of the currently-active layer. `len` is the slot's "armed" flag — cleared AFTER the tx, as every hand-
 // rolled copy did, so a re-entrant fire on the same slot is a no-op rather than a duplicate transmission.
-void Node::jtx_fire(uint8_t* buf, uint8_t& len) {
-    if (len == 0) return;
-    tx_initiating(buf, len, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
+// §MH-S1 §6.2: it RETURNS the transmitter admission now (see the node.h contract). `len == 0` (nothing
+// armed / already fired) is `false` too — there is no frame, so there is nothing to call admitted; the one
+// caller that reads the answer checks `len` first so it can never confuse the two.
+// §MH-S1b: `kind` selects the LBT kind (default `flood` = the two §F-XL rings, unchanged). The mobile-OFFER
+// slot passes `mobile_offer` so the frame is attributable at BOTH ends of a defer — `lbt_complete` raises the
+// honest `mobile_offer_tx` on handoff, and node.cpp's deferred-loss arm raises `mobile_offer_dropped` on a
+// late HAL refusal instead of only the generic `tx_deferred_lost`.
+bool Node::jtx_fire(uint8_t* buf, uint8_t& len, LbtKind kind, TxAdmission* out) {
+    if (len == 0) return false;
+    // [[B142]]: `completion_gen` = 0 — the two §F-XL flood rings and the mobile-OFFER slot carry NO transaction
+    // identity and are never staleness-tested (node.h's contract). Giving the OFFER slot one is [[B137]]/S2's.
+    const bool admitted = tx_initiating(buf, len, static_cast<int16_t>(_cfg.routing_sf), kind, 0, out);
     len = 0;
+    return admitted;
 }
 
 // ---- dispatch (timer ids -> subsystem handlers; RX cmd-nibble -> handlers) --
@@ -1220,14 +1230,24 @@ void Node::on_timer(uint32_t timer_id) {
     case kPresenceRosterTimerId:  presence_roster_fire(); break;   // §S6: home coalesced-roster emit (always compiled — a home is a static)
     case kMobileOfferBackoffTimerId:                              // §S6/QA-3b: fire the de-stormed (jittered) mobile OFFER
         // ★★ §B132b — THE TRANSMISSION BOUNDARY IS A DECISION SITE. The OFFER is *committed* at DISCOVER time (that is
-        // where `mobile_offer_tx` is emitted) but it is *transmitted* HERE, 100..1000 ms later. Eligibility can flip
+        // where `mobile_offer_scheduled` is emitted) but it is *transmitted* HERE, 100..1000 ms later — and `mobile_offer_tx`
+        // is emitted at THAT handoff, in `lbt_complete` (§MH-S1b renamed the staging emit for exactly this reason). Eligibility can flip
         // inside that window, and two of the ways are LIVE console knobs needing no reboot: `cfg set mobile 1` (allowed
         // while the registry is empty — a staged OFFER is not a hosted mobile, so role_set_refusal's O2 clause does not
         // see it) and `cfg set host_mobiles off` (B3, `persist = false`, live). Without this re-check the node advertises
         // itself as a home it may no longer be. ⇒ the `on_init` cleanup is HYGIENE; this is the GUARANTEE — it is also
         // the only defence on the REFUSED-`on_init` path, which returns before that cleanup with `n_layers == 2` intact.
         if (!can_host_mobiles()) { mobile_host_pending_clear(); break; }   // ineligible -> DROP the stash, transmit NOTHING
-        jtx_fire(_active->_pending_offer, _active->_pending_offer_len);
+        // ★ §MH-S1 §6.2 — THE ADMISSION RESULT DECIDES THE ENTRY'S FATE. `jtx_fire`'s answer used to be
+        // discarded, so a staged OFFER that the transmitter definitively refused vanished in silence while
+        // `mobile_offer_tx` (then emitted a jitter-window earlier, at DISCOVER time) still claimed it was sent —
+        // which is why §MH-S1b also renamed that staging emit to `mobile_offer_scheduled` (§10).
+        // The `len != 0` test is what lets `false` mean REJECTED rather than "nothing was armed".
+        if (_active->_pending_offer_len != 0) {
+            TxAdmission adm = TxAdmission::admitted;
+            if (!jtx_fire(_active->_pending_offer, _active->_pending_offer_len, LbtKind::mobile_offer, &adm))
+                mobile_offer_admission_rejected(adm);   // adm ∈ {defer_full, tx_rejected} — tx_initiating writes it on every path
+        }
         break;
     case kTeamDadGuardTimerId:     team_dad_guard_fire();     break;   // §mobile 6.4: team-DAD guard window close -> confirm _team_local_id
     case kMBcastClearTimerId:                                       // M-broadcast fire-and-forget: clear the flight (no ACK)
@@ -1284,11 +1304,47 @@ void Node::on_timer(uint32_t timer_id) {
                 // §TX3: for a beacon, `lbt_complete` true ⇔ DeviceHal answered ok (a slot<0 frame cannot duty-defer),
                 // which IS the owner's admission boundary — so THIS is where a deferred beacon's digest commits.
                 // A rejection leaves the ad_count and the dirty flag untouched.
-                const bool admitted = lbt_complete(d.buf, d.len, d.sf, static_cast<LbtKind>(d.kind), d.rts_flight_gen);
+                const bool admitted = lbt_complete(d.buf, d.len, d.sf, static_cast<LbtKind>(d.kind), d.completion_gen);
                 if (admitted) commit_channel_digest_advertised(d.digest_ids, kDeferDigestIds);
                 if (!admitted) {
                     MR_EMIT("tx_deferred_lost", EF_I("kind", d.kind), EF_I("len", d.len));
                     _hal.log("!! deferred TX dropped at the radio queue — a request reported as accepted never aired");
+#if MR_FEAT_MOBILE
+                    // ★ §MH-S1 §6.1 — THE DEFERRED DISCOVER'S OWN RESIDUAL. A DISCOVER accepted into this ring
+                    // reported `true` to `mobile_discover_fire`, so nothing was scheduled for it; if the HAL has
+                    // filled up during the wait it dies right here, `lbt_complete` never arms the guard, and the
+                    // mobile would sit with NO window, NO retry and NO recorded reason. Gate 6 requires a bounded
+                    // retry for a rejected DISCOVER on EVERY path, not just the synchronous one.
+                    if (static_cast<LbtKind>(d.kind) == LbtKind::mobile_discover)
+                        mobile_admission_rejected(TxAdmission::tx_rejected, "discover_deferred");
+                    // ★★ §MH-S1b §6.3 — AND THE DEFERRED CLAIM'S, WHICH ROUND 1 MISSED AND QA FOUND. This arm
+                    // recognised ONLY `mobile_discover`, so a CLAIM that died here was anonymous — while the
+                    // mobile had ALREADY adopted on `tx_initiating`'s `true` (the defer path returns true), i.e.
+                    // it sat FALSELY REGISTERED at a home that was never sent anything, with no retry. The adopt
+                    // now happens in `lbt_complete` (which is NOT reached on this branch), so reaching here means
+                    // no registration was created; all that is owed is the same bounded local retry as DISCOVER.
+                    // ⚠ Clear the stage too: without it a later `mobile_claim_adopt` could still consume it.
+                    // ★★★ [[B142]] 2026-08-07 — AND THAT CLEAR IS ONLY SAFE BECAUSE THIS ARM IS NOW
+                    // TRANSACTION-SCOPED (the same holds for the `mobile_discover` arm directly above, whose
+                    // `mobile_admission_rejected` would otherwise report a superseded attempt's death as the
+                    // CURRENT one's). A STALE deferred DISCOVER/CLAIM never reaches here at all: `lbt_complete`
+                    // cancels it on `completion_gen != _mobile_attach_gen` and answers TRUE, so `admitted` is
+                    // true and this whole block is skipped. Before the token, a stale slot firing after the
+                    // operator re-registered ran these two lines against the CURRENT transaction — clearing a
+                    // stage it did not own and arming a retry for an attempt that no longer existed, which is
+                    // why "the rejected path is as destructive as the accepted one" is the defect's shape.
+                    // ⇒ reaching here means the CLAIM was OURS and really died: clearing our own stage is right.
+                    if (static_cast<LbtKind>(d.kind) == LbtKind::mobile_claim) {
+                        _mobile_claim_pending = false;
+                        mobile_admission_rejected(TxAdmission::tx_rejected, "claim_deferred");
+                    }
+#endif
+                    // ★ §MH-S1b §6.2 — the HOST half. A staged OFFER accepted into this ring and then refused by
+                    // the HAL was likewise anonymous; `mobile_offer` makes it attributable, so the source mobile
+                    // sees an explicit `mobile_offer_dropped` (its own retry is the backstop) rather than only
+                    // the generic line above. NOT `#if MR_FEAT_MOBILE`: a home is a STATIC node.
+                    if (static_cast<LbtKind>(d.kind) == LbtKind::mobile_offer)
+                        mobile_offer_admission_rejected(TxAdmission::tx_rejected);
                 } }
         } else if (timer_id >= kRadioBusyRetryTimerId && timer_id < kRadioBusyRetryTimerId + kRetrySlots) {
             retry_stashed(static_cast<uint8_t>(timer_id - kRadioBusyRetryTimerId));   // R4.5b stash re-issue

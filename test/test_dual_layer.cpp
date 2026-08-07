@@ -5550,7 +5550,7 @@ TEST_CASE("§S6/D10 — the NEW home originates the old-home notify: a re-home D
     // a mobile DISCOVERs at this (new) home carrying last_home=30 (same layer 4) -> the home OFFERs + STASHES the notify.
     j_discover_in d{}; d.leaf_id=4; d.is_mobile=true; d.key_hash32=0xB0B1u; d.last_home_id=30; d.last_home_layer=4; d.last_reg_epoch=3; d.last_home_key_hash32=0x3030u;
     uint8_t db[13]; size_t dn = pack_j_discover(d, db); home.on_recv(db, dn, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});   // §B4: a re-home DISCOVER is 13 B (carries the old-home hash)
-    CHECK(hal.saw_emit("mobile_offer_tx"));
+    CHECK(hal.saw_emit("mobile_offer_scheduled"));
     // the mobile CLAIMs the offered id at this host -> record -> the NEW home fires the breadcrumb to 30.
     hal.emits.clear();
     j_claim_in c{}; c.leaf_id=4; c.is_mobile=true; c.key_hash32=0xB0B1u; c.proposed_node_id=21; c.claim_epoch=4; c.chosen_host_id=40;
@@ -6428,7 +6428,7 @@ TEST_CASE("★ §B132/1b — a GATEWAY emits NO mobile OFFER with EITHER leaf ac
         DualLayerTestAccess::set_active(gw, leaf);
         hal.emits.clear();
         gw.on_recv(db, dn, RxMeta{9.0f, -70.0f, 0, static_cast<int8_t>(-1)});
-        CHECK_FALSE(hal.saw_emit("mobile_offer_tx"));            // ★ silent on leaf 4 AND on leaf 7
+        CHECK_FALSE(hal.saw_emit("mobile_offer_scheduled"));            // ★ silent on leaf 4 AND on leaf 7
     }
 
     // ★ THE POSITIVE CONTROL IN THIS FILE TOO — otherwise the loop above would pass on a node that cannot
@@ -6440,6 +6440,6 @@ TEST_CASE("★ §B132/1b — a GATEWAY emits NO mobile OFFER with EITHER leaf ac
         CHECK(stat.on_init(sc));
         CHECK(stat.can_host_mobiles());
         stat.on_recv(db, dn, RxMeta{9.0f, -70.0f, 0, static_cast<int8_t>(-1)});
-        CHECK(h2.saw_emit("mobile_offer_tx"));                   // ★ the frame IS well-formed and the path IS live
+        CHECK(h2.saw_emit("mobile_offer_scheduled"));                   // ★ the frame IS well-formed and the path IS live
     }
 }

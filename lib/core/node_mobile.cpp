@@ -42,6 +42,21 @@ void Node::mobile_discover_fire() {
     if (!registration_armed()) return;
     _mobile_arm_once = false;
     _mobile_offers_n = 0;
+    // §MH-S1b §6.3: a new DISCOVER supersedes any CLAIM still waiting in the LBT defer ring — its staged
+    // candidate lives in `_mobile_offers[0]`, which the line above has just invalidated. Clearing the flag
+    // makes `mobile_claim_adopt` a NO-OP if that stale slot ever fires, instead of adopting a clobbered
+    // OFFER. (Byte-inert on every non-deferring path: the flag is already false there.)
+    _mobile_claim_pending = false;
+    // ★★★ [[B142]] 2026-08-07 — AND THIS IS WHERE THE NEW ATTACHMENT TRANSACTION BEGINS. The three statements
+    // above invalidate everything the previous transaction staged; this bump is what makes that invalidation
+    // OBSERVABLE TO A COMPLETION THAT HAS ALREADY BEEN SCHEDULED. Clearing the bool was not enough: it has no
+    // attempt identity, so a stale deferred CLAIM could consume the NEW transaction's stage (accepted) or
+    // destroy it (rejected). The token rides `tx_initiating` -> `DeferredLbt::completion_gen`; `lbt_complete`
+    // cancels any completion whose token no longer matches. ⚠ The CLAIM does NOT bump — it inherits, because a
+    // DISCOVER and the CLAIM it leads to are ONE transaction (node.h's `completion_gen` contract).
+    // ⓘ Bumped here rather than at the pack/send below deliberately: the P2-1 PHY-mismatch arm returns without
+    //   sending, and a transaction that never puts a frame on the air must still have superseded the old one.
+    ++_mobile_attach_gen;
     // §mobile 5a: retune to the CURRENT scan-set PHY, then DISCOVER on ITS control SF. Only when >1 candidate — a
     // single-entry scan-set stays on the mobile's own PHY (phy == layers[0], phy.routing_sf == _cfg.routing_sf) = 2b.
     const LayerConfig& phy = scan_phy(_mobile_scan_idx);
@@ -85,11 +100,40 @@ void Node::mobile_discover_fire() {
     if (_my_mobile_reg.home_id != 0) { d.last_home_id = _my_mobile_reg.home_id; d.last_home_layer = _my_mobile_reg.home_leaf_id;
                                        d.last_reg_epoch = static_cast<uint8_t>(_my_mobile_reg.epoch); d.last_home_key_hash32 = _my_mobile_reg.home_key_hash32; }
     uint8_t buf[13]; const size_t n = pack_j_discover(d, std::span<uint8_t>(buf, sizeof buf));
-    if (n) {
-        MR_EMIT("mobile_discover_tx", EF_I("key", static_cast<int64_t>(_key_hash32)));
-        tx_initiating(buf, n, static_cast<int16_t>(phy.routing_sf), LbtKind::flood, 0);
-    }
-    (void)_hal.after(protocol::mobile_offer_window_ms, kMobileClaimGuardTimerId);   // collect, then decide
+    // ★★ §MH-S1 §6.1 — THE COLLECT-OFFERs WINDOW IS NO LONGER ARMED HERE.
+    // It used to be armed unconditionally on the line after this call — i.e. measured from a REQUEST TO
+    // SEND. A NAV/LBT defer longer than the 2 s window therefore closed the collector, reported
+    // `mobile_no_host` and doubled the backoff, all before the DISCOVER had left the radio (§S0-3).
+    // ⇒ the arm now lives at the handoff, in `lbt_complete`, reached by `LbtKind::mobile_discover` — on the
+    //   immediate path AND when the LBT defer slot later fires. See node.h's LbtKind comment for why
+    //   testing this call's `bool` instead would NOT have worked (a successful defer returns TRUE).
+    // ⛔ Draw-free: no jitter is introduced here or in `mobile_admission_rejected`; S3 owns the RNG.
+    if (n == 0) { mobile_admission_rejected(TxAdmission::tx_rejected, "discover_pack"); return; }   // C2: unreachable (pack_j_discover gives 13 into a 13-B span) but never silent
+    MR_EMIT("mobile_discover_tx", EF_I("key", static_cast<int64_t>(_key_hash32)));
+    TxAdmission adm = TxAdmission::admitted;
+    // [[B142]]: the 5th argument is `completion_gen` — THIS transaction's identity, so a completion that
+    // arrives after a newer DISCOVER has superseded us is cancelled instead of acted on (node.h's contract).
+    if (!tx_initiating(buf, n, static_cast<int16_t>(phy.routing_sf), LbtKind::mobile_discover, _mobile_attach_gen, &adm))
+        mobile_admission_rejected(adm, "discover");   // ⛔ NOT mobile_no_host: nobody was ever asked
+}
+
+// ★★ §MH-S1 §6.1/§6.3/§6.4 — one handler, both mobile-side admission sites. Contract + the reasoning for
+// each of its three steps are in node.h beside the declaration; keep the two in sync if either changes.
+void Node::mobile_admission_rejected(TxAdmission why, const char* site) {
+    _mobile_last_result = (why == TxAdmission::defer_full) ? MobileAttemptResult::defer_full
+                                                           : MobileAttemptResult::tx_rejected;
+    MR_EMIT("mobile_tx_rejected", EF_S("site", site),
+            EF_S("result", why == TxAdmission::defer_full ? "defer_full" : "tx_rejected"));
+    // §3-A.1 twin: MR_EMIT is device-stripped, so the only way this reaches metal is a log line. Trace-gated
+    // (NOT the `!!` operator-critical prefix): it is self-healing within seconds and must not spam a console.
+    _hal.log("mobile attach attempt refused by OUR OWN transmitter — retrying; the home is NOT implicated");
+    _mobile_arm_once = true;                                       // the attempt never happened -> don't eat a manual arm
+    // Bounded retry (gate 6). ⛔ A FIXED delay, deliberately: jittering it needs a draw and S3 is the only
+    // planned RNG re-anchor in this arc. Reuses the existing mid-cycle spacing constant (U1) rather than
+    // introducing a second one. ⚠ Unconditional on `mobile_autoregister` — unlike the no-host backoff below
+    // — because step 2 has just restored the arm, so this retry is servicing an authorised attempt that our
+    // own radio dropped, not autonomous behaviour the operator switched off.
+    (void)_hal.after(protocol::mobile_offer_window_ms, kMobileDiscoverTimerId);
 }
 
 // Window close: pick the strongest OFFER, CLAIM its local-id, and adopt (claim-stands). No host -> exp-backoff.
@@ -107,6 +151,10 @@ void Node::mobile_claim_guard_fire() {
             delay = protocol::mobile_offer_window_ms;
         }
         if (_cfg.mobile_autoregister) (void)_hal.after(delay, kMobileDiscoverTimerId);   // §console: backoff retry-DISCOVER (autonomy)
+        // §MH-S1 §10: THIS is the only place `no_offer` may be recorded — the window genuinely opened (the
+        // DISCOVER crossed the handoff, §6.1) and genuinely nobody answered. An admission failure records
+        // `tx_rejected`/`defer_full` instead and never reaches this branch at all.
+        _mobile_last_result = MobileAttemptResult::no_offer;
         MR_EMIT("mobile_no_host", EF_I("backoff_ms", static_cast<int64_t>(delay)));
         // §mobile 6.4: no static host -> ensure the TEAM plane comes up regardless (a team member self-DADs a _team_local_id
         // so an off-grid team routes among itself). Independent of the static registration; fires once (guarded on !pending && ==0).
@@ -125,7 +173,51 @@ void Node::mobile_claim_guard_fire() {
     c.proposed_node_id = o.proposed_local_id; c.claim_epoch = static_cast<uint8_t>(++_my_mobile_reg.epoch);
     c.chosen_host_id = o.responder_id;   // §mobile: address the CLAIM at the host we CHOSE (was a random nonce) -> only that host records us, not every flood-hearer
     uint8_t buf[11]; const size_t n = pack_j_claim(c, std::span<uint8_t>(buf, sizeof buf));
-    if (n) tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
+    // ★★ §MH-S1 §6.3 — A CLAIM THAT NEVER CROSSED THE ADMISSION BOUNDARY MUST NOT PRODUCE A REGISTRATION.
+    // Adopting here means `set_identity`, `_joined = true`, a `mobile_reg{registered:true}` push and a
+    // triggered beacon — i.e. the app is told it is registered at a home that was never sent a CLAIM.
+    // Gate 6: "a rejected DISCOVER/OFFER/CLAIM is NOT reported as a successful send and has a bounded
+    // retry". ★ And the classification is the point (§6.3): this is a LOCAL retry condition — it is NOT
+    // evidence that the home rejected the registration, so it records `tx_rejected`/`defer_full` and
+    // touches NO home-link state (gate 20).
+    // ⓘ `_my_mobile_reg.epoch` was already incremented for the pack and is deliberately NOT rolled back:
+    //   the retry's CLAIM then carries a strictly fresher epoch, which is what the home's claim-stands
+    //   handling wants. Rolling back would re-use an epoch this node may already have put on the air.
+    // ⛔ NOT the confirmed-CLAIM FSM: a CLAIM that IS admitted still claim-stands exactly as before.
+    //   Confirming an ADMITTED-but-lost CLAIM against the home's roster is §7.1 and belongs to S4 (§S0-4
+    //   still characterizes that defect and is deliberately left green by this slice).
+    // ★★ §MH-S1b §6.3 (QA round 2) — AND THE ADOPT IS NOW ANCHORED TO THE HANDOFF, NOT TO THIS CALL.
+    // Round 1 stopped a DEFINITIVELY-REFUSED CLAIM from registering but still adopted on `tx_initiating`'s
+    // `true` — which is ALSO returned for a frame merely accepted into the LBT defer ring (node_mac.cpp).
+    // A deferred CLAIM therefore still produced an immediate false registration, and if the HAL refused it
+    // when the slot fired, `node.cpp`'s deferred-loss arm recognised only `mobile_discover` ⇒ the mobile sat
+    // FALSELY REGISTERED with no CLAIM retry at all. ⇒ the chosen OFFER is STAGED here and `lbt_complete`
+    // calls `mobile_claim_adopt()` at the accepted handoff (immediate or deferred), and the deferred-loss arm
+    // now recognises `mobile_claim` and routes it into the same bounded local retry.
+    // ⓘ The stage compacts the chosen candidate into slot 0 (U2: one carrier, no duplicate 20-byte member).
+    // ★★★ [[B142]] 2026-08-07 — THE STAGE IS NOW TRANSACTION-IDENTIFIED. `_mobile_claim_pending` is kept (it
+    // still answers "is there anything staged at all?") but it is NO LONGER the only correlator: the CLAIM
+    // carries `_mobile_attach_gen` — INHERITED from the DISCOVER that opened this window, never bumped here —
+    // so a completion that fires after a newer DISCOVER has restaged slot 0 is cancelled in `lbt_complete`
+    // instead of adopting, or destroying, the newer candidate. The bool alone could not tell the two apart,
+    // which is precisely what made the ABA possible.
+    _mobile_offers[0] = o; _mobile_offers_n = 1; _mobile_claim_pending = true;
+    TxAdmission adm = TxAdmission::admitted;
+    if (n == 0 || !tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::mobile_claim, _mobile_attach_gen, &adm)) {
+        _mobile_claim_pending = false;                           // definitive refusal -> nothing will adopt this CLAIM
+        mobile_admission_rejected(n == 0 ? TxAdmission::tx_rejected : adm, "claim");
+        return;
+    }
+}
+
+// ★★ §MH-S1b §6.3 — the CLAIM crossed the accepted LBT/HAL handoff (or a deferred slot fired and did), so
+// claim-stands may now run. Split VERBATIM out of `mobile_claim_guard_fire` (only the `o` binding is new:
+// it reads the staged slot instead of a local), so the adopt semantics are unchanged and only its ANCHOR
+// moved. Called from `lbt_complete`; see node.h for why that is the RTS discipline and not a second one.
+void Node::mobile_claim_adopt() {
+    if (!_mobile_claim_pending) return;                          // abandoned (a fresh DISCOVER cleared the stage) — never adopt from a clobbered slot
+    _mobile_claim_pending = false;
+    const OfferCand o = _mobile_offers[0];                       // the candidate `mobile_claim_guard_fire` chose and staged
     // claim-stands: adopt now (no DENY-listen for v1 — the host recorded us on the CLAIM, Slice 2a).
     const uint8_t old_home = _my_mobile_reg.home_id;             // §mobile 4b: capture BEFORE the overwrite (0 = first registration -> no old home)
     LayerConfig phy = scan_phy(_mobile_scan_idx);               // BY VALUE (mutated below) — freq/bw/routing_sf from the scanned PHY (already tuned here)

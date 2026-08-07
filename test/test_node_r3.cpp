@@ -6504,13 +6504,13 @@ TEST_CASE("§mobile 2a — host accepts a mobile (DISCOVER->OFFER, CLAIM registe
     std::array<uint8_t, 9> db{};   // §S6: mobile DISCOVER = 9 B (last-home block)
     size_t dn = pack_j_discover({ /*leaf_id=*/7, /*gw=*/false, /*is_mobile=*/true, /*key=*/0xB0B1u }, db);
     hal._now = 1000; host.on_recv(db.data(), dn, meta);
-    CHECK(hal.count("mobile_offer_tx") == 1);                 // leaf-exempt worked (a foreign-leaf mobile DISCOVER is accepted)
+    CHECK(hal.count("mobile_offer_scheduled") == 1);                 // leaf-exempt worked (a foreign-leaf mobile DISCOVER is accepted)
 
     // (2) a NON-mobile DISCOVER on a foreign leaf -> leaf filter still applies -> NO offer (static path byte-unchanged)
     std::array<uint8_t, 6> db2{};
     size_t dn2 = pack_j_discover({ 7, false, /*is_mobile=*/false, 0xBEEFu }, db2);
     hal._now = 2000; host.on_recv(db2.data(), dn2, meta);
-    CHECK(hal.count("mobile_offer_tx") == 1);                 // unchanged -> the non-mobile foreign DISCOVER was leaf-filtered
+    CHECK(hal.count("mobile_offer_scheduled") == 1);                 // unchanged -> the non-mobile foreign DISCOVER was leaf-filtered
 
     // (3) a mobile CLAIM -> claim-stands: registered, NO reply; idempotent re-CLAIM keeps ONE slot
     std::array<uint8_t, 11> cb{};

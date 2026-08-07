@@ -1221,6 +1221,85 @@ On a **Heltec / ESP32** node: receive two DMs, `pull_inbox 0 0` (two lines), pow
 ESP32 (a real change — say so) or the node did not actually reset; **either way 11.1's result on any board is void
 until this control behaves.**
 
+## Part 12 — §MH-S1 the mobile-attachment ADMISSION boundary (2026-08-07)
+
+⛔⛔ **RE-SCOPED IN PLACE 2026-08-07 (§MH-S1b, QA round 2) — THE PREVIOUS SCOPE WAS TOO BIG, AND THE REASON IS
+WORTH MORE THAN THE CHECKS.** This part used to open: *"no automated gate anywhere can produce a real
+`DeviceHal::tx` refusal … only metal can show `tx_rejected`."* **THAT WAS A STATEMENT ABOUT THE HARNESS, NOT
+ABOUT REACHABILITY.** `TestHal::tx` answered `ok` unconditionally — and it was **ONE FIELD** away from being
+able to refuse. `TestHal::tx_answer` now exists, and the whole `tx_rejected` half of §6.1/§6.2/§6.3 is covered
+natively, **immediate AND deferred, for all three frames**, by the three `§MH-S1b` cases in
+`test/test_node_join.cpp` (each mutation-proven, including a harness-vacuity control that reddens exactly
+those three). ★ **THE RULE THIS SLICE EARNED: before writing a metal-only check, ask what ONE parameter would
+make it testable.** M2 says this document holds only what **no automated gate can reach** — and "cannot reach"
+must mean the gate is *incapable*, not that today's fake happens not to.
+
+★ **WHAT GENUINELY REMAINS, and it is now a PLUMBING check, not a behaviour re-test.** The core's *reaction* to
+a refusal is native-covered. Two things still are not, and both are outside `lib/core`:
+1. **that the real `DeviceHal::tx` produces the refusal at all** — its 8-entry outbound ring answering `busy`,
+   bumping `txq_drops`, retaining nothing. `lib/hal/device_hal.cpp` is a **different ABI and a file neither
+   native nor the simulator compiles**, so no gate links it;
+2. **that the two report lines actually reach a console** — `fw_main`'s sink gates ordinary `_hal.log` on
+   `g_mr_trace_on`, and both §MH-S1 lines are trace-gated, not `!!`. A line that is emitted but never printed
+   is precisely the 2026-08-01 QA-P2 defect, and only hardware can show it.
+⇒ **12.1/12.2 below are ONE bench run each** and their verdict is: *the real refusal happened (`txdrop` moved)
+AND the exact line appeared*. ⛔ Do not re-test the branch logic here — the gate owns it.
+
+### 12.1 — a mobile whose OWN radio refuses the CLAIM must NOT report itself registered ★★ SAFETY
+
+The pre-S1 defect: the CLAIM was handed to `tx_initiating`, the result discarded, and the mobile adopted
+unconditionally — `mobile status` said registered at a home that had never been sent anything.
+
+1. On the **mobile**, `debug on` (the S1 report is trace-gated, not `!!`).
+2. Drive the outbound queue to overflow while a registration is in flight — the reliable bench lever is the
+   scheduled-send workload: `testsend <dst> 200 @sendms 20` (a send every 20 ms saturates the 8-entry ring), then
+   immediately `mobile register`.
+3. Watch the console.
+
+**Expected — the exact line, and it must appear instead of a registration:**
+
+```
+mobile attach attempt refused by OUR OWN transmitter — retrying; the home is NOT implicated
+```
+
+then, within ~2 s, an automatic retry (a second DISCOVER), and `mobile status` **still `"registered":false`**.
+
+⛔ **FAILURE SHAPES, and they are different bugs:**
+- `mobile status` shows `"registered":true` while no home lists the mobile in its roster ⇒ **the §6.3 fix is not
+  live on this build** — the CLAIM's admission result is being discarded again. This is the safety failure.
+- the line appears but **no** second DISCOVER follows within ~2 s ⇒ the bounded retry (gate 6) is missing; check
+  that `_mobile_arm_once` is being restored (with `mobile_autoregister=false` the retry is a no-op without it).
+- `mobile_no_host` / a "no host found" report appears instead ⇒ **§6.1 is violated**: a local transmitter refusal
+  is being blamed on the home.
+- **`txdrop` > 0 but NO line at all** ⇒ this is now the *primary* thing 12.1 exists to catch (§MH-S1b): the
+  branch itself is gate-proven, so a real refusal with no console output means the **sink** is swallowing it —
+  the trace gate, not the protocol. Re-check `debug on` first, then `fw_main`'s log sink.
+- nothing at all appears **and `txdrop` == 0** ⇒ the queue never actually overflowed. Confirm with `status`
+  that **`txdrop` > 0** before reading any result here; without that the check is void.
+
+### 12.2 — a host whose OWN radio refuses the OFFER says so
+
+On an eligible **static home** with `debug on`, saturate its TX queue as in 12.1 and have a mobile DISCOVER at it.
+
+**Expected line:**
+
+```
+mobile OFFER dropped at our own transmitter — not sent; the mobile's own retry is the backstop
+```
+
+and the mobile re-DISCOVERs and attaches on a later round.
+
+⛔ **FAILURE SHAPES:** silence on the host while the mobile never attaches ⇒ the §6.2 report is not live and the
+OFFER is vanishing exactly as it did pre-S1 · the host logs the line but the mobile **never** retries ⇒ the backstop
+this branch depends on is broken, and §6.2's *reschedule* alternative (S2/S3) is needed after all.
+
+⚠ **NOT A CHECK OF THE DEFER PATH.** A merely *deferred* OFFER or DISCOVER is admitted, prints nothing here, and is
+correct — 12.1/12.2 fail only on a definitive refusal. `status`'s `txdrop` is the witness that one occurred.
+⛔ **AND NOT A CHECK OF THE DEFERRED-THEN-REFUSED PATH EITHER (§MH-S1b).** "Deferred into the LBT ring, then
+refused by the HAL when the slot fires" — for DISCOVER, CLAIM *and* OFFER — is fully covered by the native
+`§MH-S1b` cases, including the one that matters most: a deferred CLAIM must not register the mobile until the
+handoff. ⇒ **it was deliberately NOT added here.** Two checks, not five, is the whole point of the re-scope.
+
 ## Completion record
 
 - Firmware revision tested: `________________`

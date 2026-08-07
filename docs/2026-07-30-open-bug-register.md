@@ -133,6 +133,13 @@ Legend:
 - [x] **B133 — ✅ LANDED 2026-08-06 (`lib/core`, UI-7D **slice A**, UNCOMMITTED) — the inbox gained a DURABLE SINGLE-RECORD DELETE, spec §6.2's prerequisite for the §3.5 detail modal.** ★ **Owner ruling 2026-08-06: the mechanism is a TOMBSTONE** — a deletion marker is APPENDED, `pull()` filters the records it names; no rewrite, no segment erase. **API (this is what slice B consumes, and it needs no re-derivation): `InboxEraseResult Inbox::erase(InboxKind kind, uint32_t seq)` → `erased` | `not_found` | `io_error`.** Identity is the PAIR `(InboxKind, seq)` — never the row index, origin, message counter or body — because the DM and channel sequence spaces are independent. ★★ **NO virtual was added to `InboxStore`**: `erase()` is built from the two operations every store already has (`read_since` + `append`), so **no implementer can be missed and none can silently default to a no-op delete** — which is precisely the *"visual disappearance without durable success"* §3.5 forbids. The three hazards are answered in the note: **ORDERING** (a marker is appended AFTER its target, so `pull()` runs a bounded PRE-PASS — 128 B of stack, **RAM +0 on all six envs**), **LIFETIME** (markers live in the same bounded ring, are always evicted after their target, and the writer caps them at `inbox_max_tombstones` = 32 so the reader's array can never overflow), **ENCODING** (`type = 0xFE`, verified against `frame_codec.h`'s `DataType` 1..19 — **no store-format bump taken, and the reason is stated: the record layout is unchanged, so a bump would wipe on-node history to buy nothing**). Also shipped: the console verb **`del_msg <dm|chan> <seq>`** (the only operator-reachable delete until slice B, and what makes the reboot-persistence bench check executable). Gate: **9 cases (1385 → 1394 / 74126 → 74252), 9 mutations every one RED**, s18 `1cd21235` EXACT, **36/36 byte-identical**, `sizeof(Node)` unmoved. ⓘ Two drifted comments fixed in passing (V1): `inbox_record_max_bytes` read *"272 (31 + 241)"* and `protocol_constants.h` said *"a 31-B header"* — the header has been **32 B / 273 B** since §GapA-durable. Detail: [[B133]]. ⛔⛔ **REJECTED BY INDEPENDENT QA 2026-08-06 AND RE-CLOSED 2026-08-07 — read §B133b below before trusting the sentence above.** Two correctness blockers: **①** the durable store's framed append is **not power-failure safe**, so `erase()` could return **`erased` with the record still readable** — ★ **PRE-EXISTING (2026-06-12), therefore given its OWN id [[B135]]** rather than folded into the delete feature (C1), and **fixed there**; the mechanism above is sound but it stood on a store that was not. **②** the console verb accepted **malformed destructive targets** — [[B136]]. ⚠ **The claim *"crash-safety is the append's own … nothing else is mutated"* in the block below was FALSE when written**; it is corrected in `inbox.h` and in §B133b. ⇒ B133 is closed **only because [[B135]] and [[B136]] closed with it**; it is not independently landed.
 - [x] **B135 — ✅ FIXED 2026-08-07 (`lib/core` + `src/`; PRE-EXISTING since 2026-06-12, found by independent QA reviewing [[B133]]) — the durable segmented log could TEAR MID-FRAME, and the NEXT APPEND then made a physically-present record unreachable.** `append()` writes `[u16 framed_len][u32 seq]` and the body as **two separate `seg_append` calls** (`lib/core/segmented_inbox_store.h`, twinned in `src/device_inbox_store.h`), so a power cut or write failure between them leaves a header claiming more bytes than are present. A torn tail **alone** is harmless — `read_since` already stops at `off + fl > n`. ★★ **THE DEFECT IS THE NEXT APPEND:** its bytes land immediately behind the torn header, which now measures long enough to "contain" them, so the reader consumes the new frame **as the torn one's body**, emits a PHANTOM record and then resumes at a bogus offset — everything after the tear is unreachable while physically stored. ⇒ ordinary inbox messages silently vanish, **and** a [[B133]] tombstone written as a retry after a tear returns `erased` while its target stays visible: the **fifth** *"a contract event/return asserting a physical act reachable from a path that did not perform it"* in this project (`emit_hash_query` → `tx_initiating` → `tx_with_retry`/`DeviceHal::tx` → `mobile_offer_tx` → `erase()==erased`). ★ **ATTRIBUTION, checked not assumed: PRE-EXISTING.** `git blame` puts both `seg_append` calls and both bare `return false`s at **`c1dd1934`, 2026-06-12** — nearly two months before [[B133]] existed — and `src/device_inbox_store.h` carried the same shape earlier still. **B133 did not create it; it made it reachable in a newly dangerous way** (a *destructive* op reporting success), which is why this is its own entry and not folded into the delete feature (C1). ✅ **FIX = SEAL-AND-ROLL** (chosen over truncation, with the reasons and the **five things it does NOT cover** stated at the code): a torn segment is never appended to again, so the tear stays permanently at a segment's end where the reader's existing stop is correct; the seal is **re-derived at `begin()`** because the power cut that tears a frame also loses the RAM flag. ⛔ **The "nothing else is mutated" clause in `inbox.h`'s `erase()` note was FALSE and is fenced `⛔ SUPERSEDED` in place** — a rotation on a full ring evicts the oldest segment *before* the write is attempted, and that cannot be undone. Gate: **6 new cases (1394 → 1401 / 74252 → 74360)**, a **mid-frame fault injector** (the old `fail_append` failed *before writing* and so could never produce a tear — the instrument was incapable of reaching the defect), the exact **pre-fix code reddens 5 of the 6**, s18 `1cd21235` EXACT, 36/36 byte-identical, RAM **+0 on all six envs**. Detail: [[B135]].
 - [x] **B136 — ✅ FIXED 2026-08-07 (`src/`, found by independent QA reviewing [[B133]]) — `del_msg` accepted MALFORMED targets and DELETED WHATEVER THE PREFIX EVALUATED TO.** `src/firmware_inbox.cpp`'s new delete verb read its target with a bare `strtoul(args, nullptr, 10)` — **no endptr check, no range check** — so `del_msg dm 1oops`, `del_msg dm 1 extra`, `del_msg dm +1` and `del_msg dm 0x1` **all deleted sequence 1**, and `del_msg dm 4294967296` silently became seq 0 on the host / `0xFFFFFFFF` on a board. Same family as **§team-target / [[B1]] / [[B17]]** (`team <garbage>` LEFT THE TEAM), arriving through a delete instead of a leave. ✅ **FIX: `mrfw::parse_seq_arg` in `src/firmware_config_parse.h`** — one unsigned **decimal** token, leading digit mandatory, whole-argument consumption (trailing whitespace only), both ABI range clauses **reused verbatim from `parse_team_target` rather than forked** (U1), **fail-closed** (`out` untouched on refusal). Base 10 deliberately, not base 0: `010` must not silently mean message 8. ⚠ **`src/*.cpp` is outside the native build, which is exactly how this shipped untested** — the predicate is therefore a **pure header** the native suite reaches through `[env:native]`'s `-I src` (the `firmware_config_parse.h` / `firmware_ui_send.h` pattern, U3). ⓘ **Scope stated, not implied: `mark_read` keeps the lax parse** — non-destructive, and tightening a verb the companion already speaks is its own slice (C1). Gate: **1 new case, 30 assertions** (7 accepted forms, 21 refused forms each asserting the sentinel survived, plus errno hygiene and the ABI-split pin); **3 mutations RED (16 / 4 / 6 assertions)**. Detail: [[B136]].
+- [ ] **B137 — OPEN / NEW 2026-08-07 (MEASURED during the mobile-home §S0 reproductions; a LATENT defect that [[B132]]'s single-slot OFFER currently MASKS):** `find_free_mobile_id` (`lib/core/node_join.cpp:73`) scans only `_mobile_reg`, and a **staged OFFER is not a registry row** ⇒ **N mobiles discovering concurrently are all offered the SAME local id** (measured: 254 for both of two concurrent DISCOVERs, `test/test_node_join.cpp` §S0-1). It is invisible today only because the one `_pending_offer` slot means **just one of those OFFERs is ever transmitted** (spec §2.2, "last DISCOVER wins"). ⇒ ★ **the mobile-attachment spec's S2 keyed OFFER ring REMOVES the mask**: four concurrent mobiles will receive four OFFERs proposing one id, and four CLAIMs for it. ★★ **OWNER/QA RULED 2026-08-07: S2 MUST implement PENDING-ID RESERVATION** (reserve at OFFER admission until CLAIM or bounded expiry; `find_free_mobile_id()` excludes reservations; a duplicate DISCOVER keeps its reservation; timer 80 expires them) ⇒ **four concurrent OFFERs propose four UNIQUE ids, one discovery round instead of four.** ⛔ **The DENY-only option is DROPPED** — CLAIM-collision DENYs would serialize four mobiles into four discovery rounds and waste airtime; the targeted DENY (`node_join.cpp:225-233`, spec §9.4 step 5) **remains a race backstop only**. ⚠ B137 and the single-OFFER slot mask each other and **S2 removes the mask**, so S2's four-mobile gate must **DRIVE** the id allocation, not assume it. ⛔ **Not fixed: §S0 is reproductions only, and this is S2's ground.**
+- [ ] **B138 — OPEN / NEW 2026-08-07 (MEASURED during the §MH-S0 QA round-2 gate; a defect in THE GATE, not in the firmware):** **board flash figures are NOT REPRODUCIBLE.** The `gateway` env builds to **474212 or 474228 (+16) from an identical source tree**, decided by nothing but the wall clock. ★ **ROOT CAUSE PROVEN:** `__DATE__ " " __TIME__` is compiled into **two** TUs (`src/fw_main.cpp:428`, `src/firmware_commands.cpp:368`); compiled within the same second the literals are identical and the linker **merges** them (**474212**, exactly **1** timestamp string in the ELF), across a second boundary they differ, cannot merge, and cost **+16** (**474228**, **2** strings). Forced deterministically: from a 1-literal 474212 build, `touch src/firmware_commands.cpp` + relink ⇒ two literals (`09:53:07`/`09:53:08`) and **474228**. ⚠ **CONSEQUENCE: any "flash byte-identical" gate claim on this env can report a FALSE +16 mover or MASK a real +16 change** — and the §MH-S0 round-1 note recorded 474212 while round 2 first measured 474228 on a tree touching no firmware input at all. ⇒ ★ **474212 is the canonical merged figure.** Fix options (owner call, not taken here): hoist the banner timestamp into **one** TU behind an `extern const char*`, or drop `__TIME__` and keep `GIT_REV` (which is already the accurate provenance). ⛔ **Not fixed: it is `src/` and outside §S0's reproductions-only scope.**
+- [ ] **B139 — OPEN / NEW 2026-08-07 (MEASURED by inspection during §MH-S1; the FOURTH admission site, and the only one that touches the HOME-LINK plane):** `presence_probe_fire` (`lib/core/node_mobile.cpp`, the steady `check` arm) calls `tx_initiating(P probe)` and then does `++_presence_miss` **unconditionally, discarding the result**. ⇒ a probe our OWN transmitter refused (full LBT defer ring / a `DeviceHal::tx` rejection) counts as *"the home did not answer"*, and `presence_probe_k_miss + 1` such refusals reach `presence_home_lost` → `mobile_reset_registration` → a full re-DISCOVER cycle. ★ **That is exactly what spec §6.4 forbids and what gate item 20 asserts** — *"a local TX-admission failure does not set the home link to `lost` (nor to `checking`)"* — at a site §6.4's own text does not enumerate, because §6.4 names only DISCOVER / OFFER / CLAIM. ⛔ **Deliberately NOT fixed by §MH-S1**, and the reason is scope AND gate risk: the three named sites are pre-attachment and touch no home-link state, so S1 satisfies §6.4 as written; the probe is the home-link plane itself, which **S4 owns** (§4.1 makes the plane observable and §7.2 writes its confidence rules). Suppressing the increment is also **not corpus-inert** — the probe defers in the same hot LBT branch [[B140]] measured, so it would move mobile scenarios under the wrong slice. ⇒ **S4 must fix it and must carry the gate-20 test.** ⓘ The searching-probe arm above it is unaffected (it does not increment).
+- [ ] **B140 — OPEN / OWNER CALL / NEW 2026-08-07, UPDATED IN PLACE 2026-08-07 by §MH-S1b (QA round 2):** **spec §11 S1's constraint *"s18 and ALL corpus scenarios byte-identical — if anything moves, the slice is wrong"* IS NOT SATISFIABLE by a correct S1, and the slice is not wrong.** ★ **s18 stays EXACT (`1cd21235` / 271629) through both rounds.** ⛔⛔ **ROUND 2 RESOLVES ITEM (2) — THE s28 FAILURES WERE SCENARIO AUTHORING, AND THE SCENARIO IS NOW GREEN.** QA identified that `send_channel_g 6` (`simulation/s28_mixed_team_channels_meshroute.json:58`) was scheduled at **exactly the same `at_ms` 660000** as the XO4 o2h team DM at `:44` — the same collision class that already forced that DM 620k→660k on 2026-07-20; the S7 addition then re-used the slot the DM had vacated. ★ **MECHANISM MEASURED, not guessed:** the ch6 post is DELEGATED to home S1, and S1's SF9 repair DATA to S2 is dropped `drop_sf_mismatch` because S2's `channel_overhear_armed` guard (**571 ms**) expires while S1's OWN back-to-back TX blocks the frame (`data_tx_blocked` @673217, `rts_tx_blocked` @673699, DATA landing @673944 = **+724 ms** after the arm); `channel_reoffer_tx retries_left:0` is then spent and ch6 reaches nobody. ⇒ **ch6 MOVED 660k → 620k**, where the same repair lands first try (S2 `pull_target` @632292, S3 `overheard` @634858). **s28 = `9bfce3b4` / 3991 events / 0 assertion failures.** ⛔ **S1 was NOT re-ordered after S3** (option 3 is withdrawn: it would only hide attribution) and **no `lib/core` behaviour was tuned to make s28 pass** — the only s28 change is one `at_ms` and its `_c`. ★ **ROUND 2 ALSO CHANGES THE MOVER LIST, and every mover is now attributed by bisection:** **8 of 36 move, all mobile-plane, 0 assertion failures in all 36.** `s07` `c17952b7`→**`c2eedd26`** (109562→106889) · `s21_mobile_dm_milestone` `1a0c92b2`→**`aed21c0b`** (657→660) · `s22_mobile_team` `808f7abf`→**`8ef0fa0a`** (1804→1805) · `s24_static_and_team_multihop` `6e92f8fd`→**`616889c8`** (1574→1578) · `s27_cross_layer_mobiles` `e1fd5937`→**`da202903`** (9277→9288) · `s28` `dd96c809`→**`9bfce3b4`** (4018→3991) · `s29_mixed_leaf_team` `2e81833c`→**`df305413`** (1943→1946) · `s37_team_homed_origin` `7c517dcf`→**`05a01c1f`** (768→770). ★★ **THE CAUSES, SEPARATED BY A BISECTION WITH ASSERTED MATCH COUNTS (not guessed):** **(a) the §6.1 DISCOVER admission boundary** (round 1) — reverting it alone restored s07/s28/s29 exactly; **(b) §10's OFFER event split** — reverting the rename + the handoff emit alone restored **7 of the 8** rows to their round-1 values, and the per-row event delta equals the transmitted-OFFER count EXACTLY (s07 +119, s27 +11, s28 +12, s24 +4, s21 +3, s29 +2, s37 +2, s22 +1); **(c) §6.3's adopt-at-handoff** — the one row the (b) revert did NOT restore, `s27`: **3 events (`id_bind_set`/`mobile_adopted`/`push`) move from t=10000 to t=10171** for one mobile whose CLAIM was LBT-deferred by 171 ms. That 171 ms IS the fix. ⛔ **NO RNG DRAW IN EITHER ROUND** (`git diff -- lib/core | grep '^+' | grep -E 'rand_range|rand\(|random'` = 2 hits, both comments; 1 removed, also a comment) and **static scenarios are byte-identical**, so nothing leaked into the static plane (C3). ⛔ **NOTHING RE-ANCHORED — the `^### 36/36 corpus` table in `BASELINE.md` is UNTOUCHED.** ★ **WHAT THE OWNER STILL MUST RULE (item 2 is now answered; 1 and 3 are not):** (1) accept the 8 movers and re-anchor them **to S1**, amending §12.2's *"mobile scenarios may move only in S2 and S3"* attribution plan; (3) whether §11 S1's byte-identity sentence should be corrected in the spec itself — **the spec was NOT edited**, since that sentence is the owner's to change. ⓘ **THE PREMISE CAME FROM A DRIFTED COMMENT** (`node_mac.cpp`'s `tx_initiating` header claimed *"lbt_enabled=false (every gate) → byte-identical, NO draw"*, false since the 2026-07-24b LBT-energy re-anchor). **That comment is CORRECTED IN PLACE, carrying the measurement.**
+- [ ] **B141 — OPEN / NEW 2026-08-07 (MEASURED while resolving [[B140]]'s s28 item; TWO findings in one, and the second may be a real firmware defect):** **(a) s28's channel-6 assertion is TIMING-FRAGILE ACROSS ITS WHOLE USABLE WINDOW, not merely at the 660000 collision.** Sweeping `send_channel_g 6`'s `at_ms` in 5 s steps over 605000..670000 gives **0 assertion failures at only 610k / 620k / 635k** and 1-2 failures everywhere else — **the same green/red pattern before and after §MH-S1b's `lib/core` change**, i.e. it is a property of the scenario, not of the slice. Two structural reasons, both measured: the post is a **delegated global** whose holder is home **S1, which `dies_at_ms` 700000**, so it needs its ~15 s digest-repair to finish well before that (every `at_ms` ≥ 645000 fails for that reason alone); and inside the surviving window it competes with the team DMs at 600000/660000. ⇒ **620000 was chosen and is recorded with its measurement in the scenario's own `_c`.** ⛔ **This is NOT to be re-tuned slice by slice** — a scenario that has to be re-timed for every `lib/core` change is a gate that reports noise. It wants either a later `dies_at_ms`, or its own uncontended 60 s slot, or the assertion re-expressed as "eventually delivered" — **an owner call, not taken here.** ⓘ Precedent: the 2026-07-23 Slice-C fallout verdict already ruled the remaining s22/s23/s27/s28/s30 reds to be scenario authoring (id/home/timing), not mechanism; this is the same class, now quantified. **(b) ★ THE CANDIDATE FIRMWARE DEFECT UNDERNEATH IT: a channel-overhear guard is armed from the CTS but is not extended when the SENDER's own transmitter blocks the DATA.** Measured in the failing s28 stream: S2 emits `channel_overhear_armed{chosen_data_sf:9, guard_ms:571}` at t=673220 and retunes its RX to SF9 for 571 ms; S1 then hits `data_tx_blocked` (673217) and `rts_tx_blocked` (673699) on its OWN in-flight TX and the DATA finally airs at 673467, landing **673944 — 153 ms after the guard expired** ⇒ `drop_sf_mismatch` at a receiver that had done everything right. The guard budget appears to assume the sender transmits promptly after the CTS; a self-TX block silently spends it. ⇒ **candidate fixes (none taken): extend the guard by the sender's own measured block, or re-announce the chosen SF on the retry, or make the receiver fall back to the control SF when the guard lapses without a frame.** ⛔ **NOT FIXED HERE:** it is the channel plane, it is outside §MH-S1b's admission-boundary scope, and it is NOT corpus-inert (it would move channel scenarios under the wrong slice). **Registered per M1 so it is not found a third time** — it is the mechanism behind an s28 red that has now been re-diagnosed twice.
+- [x] **B142 — ✅ OPENED AND FIXED 2026-08-07 (`lib/core`, §MH-S1c, UNCOMMITTED; found by independent QA on §MH-S1b):** ★★★ **an ABA — a STALE deferred completion consumed, or DESTROYED, the NEWER attachment transaction.** `_mobile_claim_pending` is ONE GLOBAL BOOLEAN with no attempt identity, and `lbt_complete` correlated a deferred completion **by `LbtKind` ALONE**. CLAIM A defers → the operator re-registers → CLAIM B is staged in the same slot behind the same bool → **slot A fires first**: ACCEPTED ⇒ A's bytes air while **candidate B is adopted** (a home sent nothing); REJECTED ⇒ the deferred-loss arm **clears B's stage and arms a retry for a dead attempt**, so slot B can never complete. The deferred DISCOVER had the same shape. **FIX:** a monotonic `_mobile_attach_gen`, bumped by `mobile_discover_fire`, **INHERITED by the CLAIM**, carried through `tx_initiating` → `DeferredLbt::completion_gen` → `lbt_complete`, and tested **before `tx_with_retry`** so a stale completion does **all five nothings** (no transmit, no guard, no adopt, no clear, no retry) and returns `true`. The carrier was **RENAMED `rts_flight_gen` → `completion_gen`** with a named-producer contract, never silently widened. **GATE: native 1416/74740/0 · s18 `1cd21235`/271629 EXACT · 36/36 with ZERO new movers · `sizeof(Node)` 221088 unmoved, delta 0 on all four MOBILE-enabled ABIs · 7-mutation matrix, every anchor match==1.** ⚠ Residual: **[[B143]]**.
+- [ ] **B143 — OPEN / MEASURED / NEW 2026-08-07 (found while fixing [[B142]]):** the **TIMER twin** — `kMobileClaimGuardTimerId` is armed at every DISCOVER handoff with **no cancel**, so a superseded transaction's collect-OFFERs guard still fires and closes the NEWER transaction's window. Measured: after a re-register at t=100500, **two guards are armed**; A's fires at t=102000 while B's window is open until 102500 with zero OFFERs collected, emitting `mobile_no_host`, setting B's `last_result = no_offer` **500 ms early**, and arming a **5000 ms** backoff DISCOVER against a live window. [[B142]]'s token cannot reach it (a timer carries no payload). ⛔ **NOT fixed: unlike the [[B142]] token it would change CLEAR-CHANNEL behaviour and therefore re-anchor mobile corpus rows, destroying the attribution of the 8 movers awaiting the owner's decision ⇒ its own slice, owner's call.**
 - [ ] **B134 — OPEN / NEW 2026-08-06 (measured, and it is a PRODUCT question, not a code defect):** on **every ESP32 target — including `heltec_v3`, the board the §3.5 delete UI is being built for — the inbox is a VOLATILE RAM ring and the whole history dies at every reboot.** `src/fw_main.cpp:168-179`: `MRINBOX_QSPI_READY` (i.e. `QSPIFLASH=1`, nRF52 only) selects the durable `DeviceInboxStore`; otherwise it is `FixedInboxStore<MR_RAM_INBOX_SLOTS=32>`. ⇒ ★ **on the Heltec the §3.5 `delete` button is durable only until the next power cycle, and "durable delete" is a promise the hardware does not keep there.** ⚠ Two consequences a reviewer must not miss: **(a)** a bench check *"the deleted message is gone after a reboot"* passes **vacuously** on a Heltec (everything is gone) — hence the mandatory board control at bench **11.4**; **(b)** slice B's modal must not imply permanence the store cannot provide. ⛔ Not fixed here: wiring a durable store on ESP32 is a storage port (flash partition + a LittleFS/NVS backend for `ISegmentStore`/`IMetaStore`), a separate slice and an owner call.
 - [ ] **B93 — OPEN / LATENT:** `lib/hal/mr_ui.h` forward-declares `namespace meshroute { struct Push; }` with a **hardcoded** namespace while `command.h` uses the overridable `MESHROUTE_NS`. Same class as the §UI-3-QA finding, one level up.
 - [x] **B78 — OWNER-RULED then FIXED 2026-08-04 (UI-3 QA, UNCOMMITTED):** `Emergency::failed` joins `hold_active()`'s retained set and holds for `kEmgHoldMs` from the failure's **own** arrival time (`on_send_refused` gained a `now_ms` parameter; `retain()` on both the synchronous and `channel_failed` paths). ⇒ **`kEmgHoldMs` re-ruled 120000 → 30000** in the same breath.
@@ -3663,3 +3670,199 @@ beyond them. Recorded as the highest-leverage follow-up in this arc.
 3. **Re-locate every symbol.** See the warning at the top.
 4. **Close the entry here in the same commit as the fix**, or this file becomes the next thing that rots — which
    is precisely what it exists to prevent.
+
+---
+
+### B137 — concurrently discovering mobiles are all offered the SAME local id · NEW 2026-08-07 (mobile-home §S0) · **OPEN / LATENT — masked today by the single-slot OFFER**
+
+**MEASURED, not reasoned.** `test/test_node_join.cpp` §S0-1 stages two mobile DISCOVERs (hashes `0x0000AA11`,
+`0x0000BB22`) at one eligible static host inside the 100..1000 ms OFFER jitter and asserts the transmitted OFFER's
+`proposed_mobile_id == 254`. Re-running the same stage for either mobile ALONE yields 254 as well.
+
+**WHY.** `Node::find_free_mobile_id` (`lib/core/node_join.cpp:73`) returns an existing row's id for a known hash and
+otherwise walks 254 → 17 rejecting ids that are taken *by `_mobile_reg`, `_id_bind`, `_rt` or our own id*. A staged
+OFFER lives in `LayerRuntime::_pending_offer` (`node.h:2442`) and in **none** of those, so the allocator has no memory
+of an id it has already promised. Nothing reserves it between OFFER and CLAIM.
+
+⚠ **THE REASON THIS HAS NEVER BITTEN IS ITSELF A DEFECT.** `_pending_offer` is one slot, so the second DISCOVER
+overwrites the first (spec §2.2) and **only one OFFER is ever transmitted** — one mobile, one id, no collision. The two
+defects mask each other, which is the same shape [[B132]]/§B132b hit twice.
+
+⇒ ★ **THE CONSEQUENCE FOR S2.** The spec's keyed pending-OFFER ring (§5.3.2, gate items 1/17) makes four concurrent
+mobiles receive four *correctly targeted* OFFERs — **all proposing the same local id**, and therefore four CLAIMs for
+it. The existing targeted CLAIM-collision DENY (`node_join.cpp:225-233`, spec §9.4 step 5) is designed for exactly
+this, but it is **not exercised on this path today**.
+
+### ★★ OWNER/QA RULING 2026-08-07 — PENDING-ID RESERVATION IS REQUIRED; THE DENY-ONLY OPTION IS DROPPED
+
+This entry previously offered two options — (1) drive the CLAIM-collision DENY, or (2) reserve the id at admission.
+⛔ **They are not equally acceptable, and option (1) alone is now RULED OUT: relying on CLAIM-collision DENYs would
+serialize four mobiles into FOUR DISCOVERY ROUNDS and waste airtime.** ⇒ **S2 MUST implement PENDING-ID RESERVATION:**
+
+- reserve the proposed local id **from OFFER admission** until a matching CLAIM arrives or a **bounded expiry**;
+- **`find_free_mobile_id()` excludes live reservations** as well as `_mobile_reg` rows;
+- a **duplicate DISCOVER retains the same reservation** (no re-draw, no second slot);
+- **timer 80's deadline scan also expires reservations**, so an id cannot leak when a mobile never CLAIMs;
+- ⇒ **four concurrent OFFERs propose four UNIQUE ids**;
+- the **targeted DENY remains only a race backstop** — never the allocator.
+
+★ **WHY:** the reservation makes four concurrent attachments cost **ONE** discovery round instead of four.
+
+⚠ **B137 and the single-OFFER slot MASK EACH OTHER, and S2 removes the mask** ⇒ **S2's four-mobile gate must DRIVE the
+id allocation, not assume it**: assert four DISTINCT proposed ids on the wire, a duplicate DISCOVER keeping its id, a
+reservation expiring when its mobile never CLAIMs, and **no DENY emitted on the happy path** (a DENY there is a gate
+failure). ⓘ The reservation is extra state and is folded into §5.3.3's memory go/no-go, which S2 runs first anyway.
+
+★ Recorded in the spec: §5.3.2 (the ruling + required mechanism), §5.3.3 (timer-80 scan expires reservations),
+§9.4 steps 4-5 ("free" = no row *and* no reservation; DENY demoted to backstop), §11 S2, §12.1 gate 1.
+
+⛔ **Deliberately not fixed here.** §S0 is reproductions only; this is S2's ground and a fix now would make S2's
+corpus movement unattributable (C1/C4). Registered per M1 so it is not found a second time.
+
+**Evidence:** `simulation/BASELINE.md` §MH-S0 · `test/test_node_join.cpp` §S0-1 (the `proposed_mobile_id == 254`
+assertion and the note beside it).
+
+### B141 — s28's channel-6 assertion is timing-fragile, and the mechanism under it is a channel-overhear guard that a sender's own TX block can silently spend · NEW 2026-08-07 (§MH-S1b, while resolving [[B140]]) · **OPEN**
+
+**(a) THE SCENARIO HALF — measured, 5 s sweep of `send_channel_g 6`'s `at_ms`, everything else fixed:**
+
+| `at_ms` | 605k | 610k | 615k | 620k | 625k | 630k | 635k | 640k | 645k | 650k | 655k | 660k | 670k |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| assertion failures | 2 | **0** | 2 | **0** | 2 | 2 | **0** | 1 | 2 | 2 | 2 | 2 | 2 |
+
+★ **The same green/red pattern was measured BEFORE and AFTER this slice's `lib/core` change** ⇒ it is a property
+of the scenario, not of the slice. Two structural causes, both measured:
+- the post is a **delegated global** whose holder is home **S1**, and `dies_at_ms` is **700000** — the digest
+  repair takes ~11-15 s and must finish well before that. Every `at_ms` ≥ 645000 fails for this reason alone;
+- inside the surviving window it contends with the team DMs at 600000 and 660000. 660000 was an exact tie with
+  the XO4 o2h DM — the same collision that already forced *that* DM 620k→660k on 2026-07-20.
+
+⇒ **620000 chosen** (recorded with its measurement in the scenario's own `_c`). ⛔ **Do not re-tune it per
+slice.** A gate row that must be re-timed for every `lib/core` change reports noise, not regressions. The honest
+repairs are an owner call: a later `dies_at_ms`, an uncontended 60 s slot of its own, or an "eventually
+delivered" form of the assertion.
+
+**(b) ★ THE CANDIDATE FIRMWARE DEFECT — verbatim from the failing stream:**
+
+```
+673220  S2  channel_overhear_armed {chosen_data_sf:9, guard_ms:571, sender:101, target:102}
+673217  S1  data_tx_blocked {ctr:1, next:102}     <- S1's OWN tx in flight
+673467  S1  tx DATA sf=9 airtime=477
+673699  S1  rts_tx_blocked  {ctr:1, next:255}     <- and again
+673944  drop_sf_mismatch  from S1 to S2  packet_sf=9 rx_sf=8
+```
+
+S2 did everything right: it read the CTS, learned `chosen_data_sf = 9`, and retuned for 571 ms. S1's own
+back-to-back transmissions pushed the DATA out to **+724 ms**, i.e. **153 ms past the guard**, and the frame was
+dropped at a receiver that was listening on the wrong SF *because the guard had already lapsed*. The guard budget
+appears to assume the sender transmits promptly after the CTS; a self-TX block spends it with no compensation and
+no re-announcement.
+
+**Candidate fixes (none taken, none costed):** extend the guard by the sender's own measured block; or
+re-announce the chosen SF on the retry; or have the receiver fall back to the control SF when a guard lapses with
+no frame.
+
+⛔ **Deliberately not fixed here.** It is the channel plane, outside §MH-S1b's admission-boundary scope, and it is
+**not corpus-inert** — a change here would move channel scenarios under the wrong slice (C1/C4). Registered per M1:
+this mechanism is the reason behind an s28 red that has now been re-diagnosed **twice**.
+
+**Evidence:** `simulation/BASELINE.md` §MH-S1b · `simulation/s28_mixed_team_channels_meshroute.json` (the ch6 `_c`).
+
+
+### B142 — ★★★ ABA: a STALE deferred completion CONSUMES (or DESTROYS) the NEWER attachment transaction · NEW 2026-08-07 (independent QA on §MH-S1b) · **✅ OPENED AND FIXED 2026-08-07 (`lib/core`, §MH-S1c, UNCOMMITTED)**
+
+**THE TWO LOAD-BEARING SITES, verified at the source (V1), not from the design note:**
+
+- `lib/core/node_mobile.cpp` — `mobile_claim_guard_fire` stages the chosen OFFER with
+  `_mobile_offers[0] = o; _mobile_offers_n = 1; _mobile_claim_pending = true;` ⇒ **one global boolean, one shared
+  slot, NO attempt identity.**
+- `lib/core/node_mac.cpp` — `lbt_complete` ran
+  `if (kind == LbtKind::mobile_claim && r != TxHandOff::rejected) mobile_claim_adopt();` ⇒ it **correlated a
+  deferred completion by `LbtKind` ALONE**, with no frame and no generation passed down.
+- a fresh DISCOVER clears the bool (`mobile_discover_fire`); a **stale rejected CLAIM cleared the same bool
+  unconditionally** in `node.cpp`'s deferred-loss arm.
+
+**THE SEQUENCE.** CLAIM A enters defer slot A → the operator runs `mobile register` again → DISCOVER B picks
+another host and CLAIM B is staged in the SAME slot behind the SAME bool → **slot A fires first**:
+
+- **ACCEPTED** ⇒ the firmware **transmits CLAIM A** (host 30 / id 211) while **adopting candidate B** (host 31 /
+  id 212): `set_identity`, `_joined = true`, a `mobile_reg{registered:true}` push and a triggered beacon, for a
+  home that was never sent anything.
+- **REJECTED** ⇒ the deferred-loss arm **clears B's stage** and **arms a retry for an attempt that no longer
+  exists** ⇒ **slot B can no longer complete correctly** — it airs a CLAIM that registers nothing.
+
+⚠ **The deferred DISCOVER has the same shape:** a stale completion could open a collect-OFFERs window, or report
+a rejection, **for a newer transaction**.
+
+★★ **THE MEASUREMENT.** Four native cases in `test/test_node_join.cpp` (`[[B142]]/1..4`), accepted **and** rejected
+for **both** frames. Against the pre-fix tree the mutation **M-B142-1** (the generation check deleted) reddens all
+four at **28 assertions**; the assertion list contains, verbatim, `mobile_home_id() == 0` failing with **31** and
+`mobile_local_id() == 0` failing with **212** — i.e. the wrong candidate really is adopted — plus
+`hal.tx_calls - calls_before == 0` failing in all four, i.e. the stale frame really is transmitted.
+
+**THE FIX (§MH-S1c).** A monotonic **attachment-transaction generation**, `_mobile_attach_gen`:
+
+1. bumped in `mobile_discover_fire`, in the statement group that clears `_mobile_offers_n` /
+   `_mobile_claim_pending` (and **before** the P2-1 PHY-mismatch early-return);
+2. the CLAIM **INHERITS** it — one transaction, one identity;
+3. carried through `tx_initiating` → `schedule_lbt_defer` → `DeferredLbt` → `lbt_complete`;
+4. tested in `lbt_complete` **before `tx_with_retry`**, so a stale completion **does not transmit, does not arm a
+   guard, does not adopt, does not clear current state and does not schedule a retry** — all five;
+5. it **returns `true`** (a CANCEL, like the RTS stale-flight one directly above it): returning `false` would send
+   the deferred-loss arm straight back into the defect.
+
+★ **THE CARRIER WAS RENAMED, NOT SILENTLY WIDENED.** `rts_flight_gen` → **`completion_gen`** in `tx_initiating`,
+`schedule_lbt_defer`, `lbt_complete` and `DeferredLbt`, with a **named-producer contract block** above
+`tx_initiating` listing both uses (`rts` → `PendingTx::flight_gen`; `mobile_discover`/`mobile_claim` →
+`_mobile_attach_gen`; everything else 0 = no identity) and requiring a third producer to be added there. A field
+called `rts_*` carrying attachment identity is the drifted-name class this project keeps paying for. ⛔
+`mobile_offer` is deliberately excluded — the host's single staging slot is [[B137]]/S2's.
+
+**COST:** `sizeof(Node)` **221088 UNMOVED** — the `uint32_t` lands in the 7 pad bytes between `_presence_cand_n`
+and the 8-aligned `_join_denied[]`; **delta 0 on all four MOBILE-enabled ABIs** by compile-time reveal, and
+per-board RAM identical to §MH-S1b on all five envs. **Corpus: 36/36, ZERO new movers** —
+`mobile_tx_cancelled_stale` fires 0 times in all 36 streams, because the ABA needs an overlap a clear channel
+never produces.
+
+**Evidence:** `simulation/BASELINE.md` §MH-S1c (token design, the four cases, the 7-mutation matrix with match
+counts, the re-measured 36 rows) · `lib/core/node.h` (`completion_gen` contract + `_mobile_attach_gen`) ·
+`lib/core/node_mac.cpp` (the cancel) · `lib/core/node_mobile.cpp` (the bump + the two passes) · `lib/core/node.cpp`
+(why the deferred-loss arm's clear is now safe).
+
+⚠ **RESIDUAL, NOT COVERED BY THIS FIX: [[B143]].**
+
+### B143 — the stale collect-OFFERs GUARD TIMER: the TIMER twin of [[B142]], reported for a newer transaction · NEW 2026-08-07 (found while fixing [[B142]]) · **OPEN — MEASURED, deliberately NOT fixed**
+
+`kMobileClaimGuardTimerId` is armed at every DISCOVER **handoff** (`lbt_complete`) and there is no cancel, so a
+superseded transaction's collect-OFFERs guard stays pending and still fires. [[B142]]'s token cannot reach it: the
+timer carries **no payload**, so it is a different mechanism from the `DeferredLbt` completion.
+
+**MEASURED** with a throwaway native probe (added, run, removed — `grep` verified 0 occurrences in the tree
+afterwards), LBT off, single mobile:
+
+```
+t=100000  DISCOVER A airs, guard A armed            -> guards armed: 1
+t=100500  operator `mobile register`; DISCOVER B airs, guard B armed -> guards armed: 2   <-- both pending
+t=102000  guard A fires while B's window is open until 102500 and has collected NOTHING:
+            mobile_no_host           = 1            <-- reported against transaction B
+            last_result              = no_offer     <-- B's attempt result, 500 ms early
+            kMobileDiscoverTimerId armed, delay 5000 ms  <-- an exp-backoff DISCOVER against a LIVE window
+```
+
+⇒ a superseded guard **closes the newer transaction's window early**, blames a home nobody asked, advances
+`_mobile_scan_idx`, and schedules a backoff DISCOVER that will then wipe B's collected OFFERs.
+
+⛔ **NOT FIXED HERE, AND THE REASON IS ATTRIBUTION, NOT DIFFICULTY.** The required §MH-S1c correction named the
+deferred ring specifically; and unlike the [[B142]] token — which is inert on a clear channel by construction — a
+generation gate on the guard timer **changes behaviour on a clear channel** (a re-DISCOVER mid-window is reachable
+without any defer), so it would move mobile corpus rows and destroy the attribution of the 8 movers already
+awaiting the owner's re-anchor decision. ⇒ **its own slice, and the owner's call** (recorded in
+`simulation/BASELINE.md` §MH-S1c's "what the owner must still rule", item 4).
+
+**Candidate shapes (none taken, none costed):** stamp the open window with the generation that armed it and make
+`mobile_claim_guard_fire` a no-op for a stale one; or give `Hal::cancel` a real implementation on this timer (⚠
+`TestHalBase::cancel()` is a NO-OP, so no native case could assert it today — the same trap recorded at
+`mobile_host_pending_clear`).
+
+**Evidence:** `lib/core/node_mac.cpp` (the guard arm at the DISCOVER handoff) · `lib/core/node_mobile.cpp`
+(`mobile_claim_guard_fire`'s no-OFFER branch) · `simulation/BASELINE.md` §MH-S1c.

@@ -509,9 +509,40 @@ public:
         uint8_t q = 0; (void)enqueue_data(gw, &q, 0, DATA_FLAG_SOURCE_HASH, "mobile_layer_query", false, DATA_TYPE_MOBILE_LAYER_QUERY, CryptIntent::off);
     }
     uint8_t           mobile_offers_n() const { return _mobile_offers_n; }                        // §mobile 2b: OFFERs collected this window (test/diag)
+    // ★ §MH-S1 §10 "last result" — the outcome of the mobile's most recent attachment attempt.
+    // ⛔ IT IS NOT A LINK STATE. §6.4: a `tx_rejected`/`defer_full` here is a statement about OUR OWN
+    // transmitter and must NEVER be rendered as, or promoted into, a home-link verdict (gate 20).
+    // ★ MARK DONE-VS-MISSING IN CODE: S1 sets `no_offer`, `tx_rejected` and `defer_full`. The remaining
+    // three codes are declared, NOT dead-stripped, and are set by later slices — `claim_unconfirmed` and
+    // `confirmed` by S4 (the confirmed-attachment FSM, §7.1), `denied` by S4's DENY handling. A reader
+    // must be able to see what the surface will carry, and that it is not carried yet.
+    enum class MobileAttemptResult : uint8_t {
+        none = 0,          // no attempt has completed since boot
+        no_offer,          // S1: the collect-OFFERs window closed with zero OFFERs (the old `mobile_no_host`)
+        tx_rejected,       // S1: OUR radio refused the frame (HAL) — says nothing about any home
+        defer_full,        // S1: OUR 4-slot LBT defer ring was full — says nothing about any home
+        claim_unconfirmed, // S4 (§7.1): CLAIM sent, no matching roster within the confirmation budget
+        denied,            // S4: the chosen home DENIED the claimed local id
+        confirmed          // S4 (§7.1): the chosen home's roster carried our (hash, local id, epoch)
+    };
+    MobileAttemptResult mobile_last_result() const { return _mobile_last_result; }
 #else
     uint8_t           mobile_offers_n() const { return 0; }
 #endif
+    // ★ §MH-S1 §6.1/§6.4 — WHY a rejection reason and not just `tx_initiating`'s bool. That bool fuses two
+    // distinct local-transmitter outcomes, and §10 asks for them separately as the mobile's last attempt
+    // result: a FULL LBT defer ring (`defer_full`) and a HAL refusal (`tx_rejected`). Both are statements
+    // about OUR OWN radio; neither says anything about any home (§6.4). It is threaded as an OPTIONAL
+    // out-param, so the ~22 best-effort `tx_initiating` callers are untouched and byte-identical.
+    // ⓘ Declared here, in the public block, only because C++ needs it defined before the first member
+    //   function that names it (the host-side OFFER handler, ~700 lines below); its readers are all
+    //   internal plus the §MH-S1 native cases. It is a value type, not a surface.
+    enum class TxAdmission : uint8_t {
+        admitted = 0,   // handed to the radio now (or a deliberate RTS-only cancel/duty defer — see lbt_complete)
+        deferred,       // accepted INTO the LBT defer ring; it flies when its slot timer fires
+        defer_full,     // REFUSED: the 4-slot defer ring was full -> dropped, nothing will retry it
+        tx_rejected     // REFUSED: the HAL refused it (full outbound ring / too_long / radio error)
+    };
     const RtEntry&    rt_at(uint8_t i) const { return _active->_rt[i]; }   // 0..rt_count()-1; candidates[0] is the primary
 #if MR_FEAT_TEAM
     uint8_t           rt_team_count()  const { return _active->_rt_team_count; }   // §mobile 6.2: the TEAM plane (test/diag)
@@ -1187,6 +1218,15 @@ private:
     void    presence_schedule_roster();                        // arm the coalesce timer (rate-limit floored)
     void    presence_mark_deleg_fail(uint32_t mobile_hash);    // §B2: a delegated send for this hosted mobile failed loud -> set the roster deleg_fail bit + schedule a roster
     void    presence_emit_roster();                            // build + LBT-broadcast the roster from _mobile_reg + tiers + has_key + dir_epoch
+    // ★ §MH-S1 §6.2: the host's staged OFFER reached its jitter deadline and the TRANSMITTER refused it
+    // (full defer ring / HAL refusal). ⚠ NOT `#if MR_FEAT_MOBILE`-gated, deliberately: a HOME IS A STATIC
+    // NODE, so this path is compiled on every build that can host (the timer-80 arm beside it is likewise
+    // outside that guard). Spec §6.2 offers two fates for a definitively-rejected entry — reschedule with
+    // a bounded new deadline, or REPORT AN EXPLICIT DROP so the source mobile's own retry is the backstop.
+    // ⛔ S1 takes the SECOND, because the first needs a fresh bounded-jitter draw and **S3 is the only
+    // planned RNG re-anchor in this arc**; a draw here would destroy that attribution. The reschedule is
+    // therefore owed to S2/S3, which own the keyed ring the new deadline would live in.
+    void    mobile_offer_admission_rejected(TxAdmission why);
     void    mobile_host_pending_clear();                       // ★★ §B132b: drop EVERY leaf's PENDING mobile-host transmission (the staged J OFFER + the roster coalesce/echo state) and cancel their timers. Shared by on_init's gateway force-off (hygiene) and by the OFFER timer's own eligibility re-check (the guarantee), so the two can never disagree.
     void    presence_notify_old_home(uint32_t mobile_hash, uint8_t new_local_id, uint16_t new_epoch);  // §S6.4-D: NEW home originates the redirect breadcrumb to the stashed last_home
     uint8_t presence_compute_dir_epoch() const;               // §S6/D6: XOR aggregate of known gateway dir_epochs (a gateway derives its own layer-set epoch)
@@ -1212,6 +1252,35 @@ private:
     // still works per F-PS-1, and team-DAD runs regardless as it rides the FSM tick BEFORE this gate).
     bool    registration_armed() const { return _cfg.mobile_autoregister || _mobile_arm_once; }
     void    mobile_reset_registration(const char* reason);     // drop registration -> re-enter discovery
+    // ★★ §MH-S1 §6.1/§6.3/§6.4 — the ONE handler for "OUR transmitter refused an attachment frame",
+    // shared by the DISCOVER and the CLAIM site (U1: one discipline, not two). It does exactly three
+    // things and deliberately no more:
+    //   1. records `why` as the last attempt result (§10) — ⛔ NEVER `mobile_no_host`, which would blame
+    //      a home that was never asked, and ⛔ never a home-link state (gate 20: `_my_mobile_reg` and
+    //      `_presence_*` are not touched here, by construction);
+    //   2. re-arms `_mobile_arm_once`, because the attempt NEVER HAPPENED — consuming a manual
+    //      `mobile register` one-shot on a frame that never left the radio would silently discard the
+    //      operator's request (autoregister=false makes the retry in 3 a no-op without this);
+    //   3. arms a BOUNDED retry (gate 6) on kMobileDiscoverTimerId.
+    // ⛔ DRAW-FREE BY CONSTRUCTION: the retry delay is the existing `mobile_offer_window_ms` constant,
+    //    not `rand_range`. S3 is the only planned RNG re-anchor in this arc; a draw here would destroy
+    //    that attribution. Jittering this retry is S3's, and is marked so at the call site.
+    void    mobile_admission_rejected(TxAdmission why, const char* site);
+    // ★★ §MH-S1b §6.3 — THE ADOPT HALF OF THE CLAIM ADMISSION BOUNDARY. Split out of
+    // `mobile_claim_guard_fire` verbatim so it can be called from `lbt_complete` at the accepted handoff
+    // instead of at the request. On a clear channel that is the SAME instant (lbt_complete is entered
+    // synchronously from tx_initiating, and the adopt used to run on the statement after it returned), so
+    // the immediate path's Hal-call sequence is unchanged; on an LBT defer it is seconds later, which is
+    // exactly the "success that isn't" being closed — the mobile no longer registers at a home whose CLAIM
+    // is still sitting in the defer ring and may yet be refused by the HAL.
+    // ⚠ It reads `_mobile_offers[0]` and is a NO-OP unless `_mobile_claim_pending` — a fresh DISCOVER
+    //   clears both, which abandons a stale deferred CLAIM rather than adopting from a clobbered slot.
+    // ★★★ [[B142]] 2026-08-07 — AND THAT BOOL IS NO LONGER THE CORRELATOR, because it never could be: it is
+    //   GLOBAL and carries no attempt identity, so once a fresh DISCOVER had RE-staged slot 0 the flag was
+    //   true again and a stale deferred CLAIM adopted the NEW candidate. The reach here is now gated one
+    //   level up, in `lbt_complete`, by `completion_gen != _mobile_attach_gen` — i.e. by transaction identity.
+    //   The bool remains as the "is anything staged at all" test it always honestly was.
+    void    mobile_claim_adopt();
     // §mobile 5a: the scan-set = [the mobile's own/bootstrap PHY] ∪ [the LEARNED layer directory]. On boot (nothing learned)
     // that's just layers[0] -> single-PHY = 2b-identical; neighbours appear only after a successful directory pull.
     uint8_t scan_set_count() const { return static_cast<uint8_t>(1 + _learned_layers_n); }
@@ -1592,7 +1661,33 @@ private:
     // R4.5 listen-before-talk. tx_initiating wraps an INITIATING TX (RTS/handle_rts NACK) — LBT pre-check,
     // defer at busy_until + rand(0,lbt_backoff+1) (dv:3680); tx_flood wraps a beacon (LBT + max-defer DROP +
     // duty pre-check, dv:3765); lbt_complete runs the deferred TX (+ the RTS staleness check + start_rts_timeout).
-    enum class LbtKind : uint8_t { rts = 0, nack = 1, flood = 2 };
+    // ★★ §MH-S1 §6.1 — `mobile_discover` IS THE COMPLETION TOKEN, and it exists because the obvious
+    // alternative was MEASURED NOT TO WORK. The spec's §2.3 framing ("mobile_discover_fire ignores
+    // tx_initiating's return value") UNDERSTATES the defect: checking the bool would NOT have helped,
+    // because `tx_initiating` returns `schedule_lbt_defer(...)` on the defer path (node_mac.cpp) — i.e.
+    // TRUE for a frame that is merely queued. §S0's M3 mutation gated the claim-guard arm on
+    // `!tx_initiating(...)`, matched its anchor exactly once, and reddened NOTHING.
+    // ⇒ the response window needs a signal raised WHERE THE HANDOFF HAPPENS, not where it was requested.
+    // ★ U1 — THIS IS THE RTS DISCIPLINE, NOT A SECOND ONE. `LbtKind::rts` already names an initiating
+    // frame whose response timeout (`start_rts_timeout`, the Lua `on_handed`) is armed by `lbt_complete`
+    // AFTER `tx_with_retry`, on BOTH the immediate and the LBT-deferred entry (and by
+    // `rts_duty_defer_fire` on the third). `mobile_discover` reuses that exact seam for the
+    // collect-OFFERs window; see the arm in `lbt_complete`.
+    // ⓘ It maps to `FrameTag::beacon` in `lbt_complete`'s tag ternary, exactly as `flood` does — so a
+    //   DISCOVER's stash/retry/labelling behaviour is unchanged; the kind carries nothing but the arm.
+    // ★★ §MH-S1b (QA round 2) — `mobile_claim` and `mobile_offer` EXIST FOR THE SAME REASON, AND THE REASON
+    // IS THAT THE FIRST ROUND FIXED ONE OF THREE SIBLINGS. A frame accepted into the LBT defer ring reports
+    // `true` upward; if the HAL later refuses it at defer-fire time, `node.cpp`'s deferred-loss arm is the
+    // ONLY place that can attribute the loss — and it can only attribute what the kind names. With only
+    // `mobile_discover` named there, a deferred CLAIM died anonymously while the mobile had ALREADY adopted
+    // on the strength of that `true` (the fourth "success that isn't"), and a deferred OFFER died with only
+    // the generic `tx_deferred_lost` line. ⇒ all three attachment frames now carry their own kind:
+    //   · `mobile_discover` arms the collect-OFFERs window at the handoff (§6.1);
+    //   · `mobile_claim`    ADOPTS at the handoff — never before it (§6.3);
+    //   · `mobile_offer`    emits the honest `mobile_offer_tx` at the handoff (§6.2/§10).
+    // All three map to `FrameTag::beacon` below, exactly as `flood` did, so stash/retry/labelling is
+    // unchanged and a clear-channel path is byte-identical to the pre-slice ordering.
+    enum class LbtKind : uint8_t { rts = 0, nack = 1, flood = 2, mobile_discover = 3, mobile_claim = 4, mobile_offer = 5 };
     // R4.5b frame-type tag (echoed by the sim in on_radio_busy; identifies a blocked TX heap-free).
     enum class FrameTag : uint16_t { rts = 0, cts = 1, data = 2, ack = 3, nack = 4, beacon = 5 };
     // ★ §id-hash S1c/S1d: returns FALSE iff the frame was DROPPED — a full LBT defer ring, or a HAL rejection. A
@@ -1601,12 +1696,43 @@ private:
     // NOT `[[nodiscard]]` — the ~22
     // best-effort callers legitimately ignore it; only `emit_hash_query` reads it, because only it feeds a contract
     // event that ASSERTS a frame left. See the definition for why lbt_complete's RTS-only bails are excluded.
-    bool     tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen);
+    // §MH-S1: `out` (optional) discriminates the two `false` outcomes and the two `true` ones; see TxAdmission.
+    // ★★★ [[B142]] 2026-08-07 — THE `completion_gen` CONTRACT (renamed from `rts_flight_gen`; read this before
+    // passing anything but 0). It is the identity of the TRANSACTION a deferred completion belongs to, and it
+    // has exactly TWO named producers. A completion whose stored token differs from the producer's CURRENT
+    // token is STALE and must do nothing at all:
+    //   · `LbtKind::rts`                             ⇒ `PendingTx::flight_gen` (`_flight_gen`, bumped per flight
+    //     in `issue_send`). The original use; `lbt_complete` cancels a deferred RTS whose flight was replaced.
+    //   · `LbtKind::mobile_discover` / `mobile_claim` ⇒ `_mobile_attach_gen`, the mobile ATTACHMENT-transaction
+    //     generation (bumped in `mobile_discover_fire`; the CLAIM INHERITS its DISCOVER's value, it does not
+    //     bump). This is [[B142]]: without it the deferred ring correlated a completion by `LbtKind` ALONE, so a
+    //     stale DISCOVER/CLAIM slot firing after the operator re-registered would transmit the OLD frame while
+    //     consuming the NEW transaction's staged candidate — and on the REJECTED path would clear that
+    //     candidate and arm a retry for an attempt that no longer existed.
+    //   · every other kind (`nack` / `flood` / `mobile_offer`) passes 0 = NO transaction identity, and is never
+    //     tested for staleness. ⚠ `mobile_offer` is deliberately excluded: it is the HOST side, whose staging is
+    //     a single slot owned by [[B137]]/S2 — giving it an identity is that slice's, not this one's.
+    // ⛔ RENAMED, NOT SILENTLY WIDENED: a carrier called `rts_*` that also carries attachment identity is the
+    //    drifted-name defect class this codebase keeps paying for. If a third producer appears, add it HERE.
+    bool     tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t completion_gen,
+                           TxAdmission* out = nullptr);
     // §3-B.5 de-storm fire, shared by ALL THREE jittered_tx_stash.h members (§F-XL-1 H-forward ring,
     // §F-XL-2 RREQ-forward ring, §S6/QA-3b mobile-OFFER slot): tx the stashed frame at routing_sf as a
     // flood, then clear the slot so a re-entry can't double-send. The tx itself cannot live in the header
     // (it needs tx_initiating + _cfg), so this is the one Node-side half of the discipline.
-    void     jtx_fire(uint8_t* buf, uint8_t& len);
+    // §MH-S1 §6.2: it now RETURNS the transmitter admission (it used to discard it), because "the generic
+    // jitter fire path must return/propagate transmitter admission and the admission result decides the
+    // entry's fate". TRUE = handed to the radio OR accepted into the defer ring — i.e. another structure
+    // now owns the frame, so releasing the slot is correct. FALSE = a DEFINITIVE rejection: nothing owns
+    // it and nothing will retry it. ⚠ The slot is cleared either way (a re-entrant fire must not double-
+    // send); the OFFER caller turns a `false` into an explicit, counted DROP report so the drop is not
+    // silent — see `mobile_offer_admission_rejected`. The two §F-XL ring callers ignore the value: their
+    // frames are best-effort flood FORWARDS whose originator re-floods, which is the same backstop.
+    // §MH-S1b: `kind` defaults to `flood`, so the two §F-XL ring callers are byte-identical; the mobile-OFFER
+    // slot passes `LbtKind::mobile_offer` so (a) the honest `mobile_offer_tx` is emitted at the HANDOFF, and
+    // (b) a DEFERRED OFFER's later HAL refusal is attributable in node.cpp's deferred-loss arm instead of
+    // dying as a generic `tx_deferred_lost`.
+    bool     jtx_fire(uint8_t* buf, uint8_t& len, LbtKind kind = LbtKind::flood, TxAdmission* out = nullptr);
     void     rts_duty_defer_fire();                                // cleanup #A redo: re-check duty + hand the deferred RTS (or re-defer / drop-if-stale)
     // ★ §tx-admission TX2: false = the frame was DROPPED or SKIPPED — duty pre-check, busy-too-long, a FULL LBT
     // defer ring, or a HAL rejection. TRUE = ADMITTED (handed to the radio, or accepted into the defer ring and
@@ -1619,13 +1745,16 @@ private:
     // dropped (duty / busy-too-long / ring full / HAL reject) -> NO commit, the entry stays dirty.
     bool     tx_flood(const uint8_t* bytes, size_t len, int16_t sf,
                       const uint32_t* digest_ids = nullptr, uint8_t digest_n = 0);
-    // §tx-admission TX1: FALSE iff the HAL REJECTED the frame (a definitive drop). The two RTS-only early-outs
-    // return true — a stale-flight CANCEL abandons a flight that is already gone, and the duty defer re-arms
-    // kRtsDutyDeferTimerId — so neither is a loss to report. Unreachable from the one reader anyway: emit_hash_query
-    // always passes LbtKind::flood.
-    bool     lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen);
+    // §tx-admission TX1: FALSE iff the HAL REJECTED the frame (a definitive drop). THREE early-outs return true —
+    // the two RTS-only ones (a stale-flight CANCEL abandons a flight that is already gone; the duty defer re-arms
+    // kRtsDutyDeferTimerId) and, since [[B142]], the STALE-ATTACHMENT cancel (a `mobile_discover`/`mobile_claim`
+    // whose `completion_gen` no longer matches `_mobile_attach_gen`). None is a loss to report: in every one the
+    // transaction that owned the frame is already gone, so reporting a loss would make the deferred-loss arm
+    // destroy the CURRENT transaction's state — which is the [[B142]] defect itself, not its fix.
+    // Unreachable from the one reader anyway: emit_hash_query always passes LbtKind::flood.
+    bool     lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t completion_gen);
     bool     schedule_lbt_defer(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind,   // free-slot stash
-                                uint32_t rts_flight_gen, uint32_t delay,
+                                uint32_t completion_gen, uint32_t delay,
                                 const uint32_t* digest_ids = nullptr, uint8_t digest_n = 0);   // false = ring full (dropped)
     // NAV (virtual carrier sense, nav_enabled): an overheard unicast RTS/CTS reserves the medium for the rest
     // of that exchange; the node defers its own unsolicited TX (tx_initiating/tx_flood) until it clears. The
@@ -1815,7 +1944,13 @@ private:
     //   into the high byte), and `channel_buffer_find(0)` therefore misses — so no count byte is needed.
     static constexpr uint8_t kDeferDigestIds = 3;   // == the digest select cap (emit_beacon picks <= 3)
     struct DeferredLbt { bool pending = false; uint8_t kind = 0; uint8_t len = 0; int16_t sf = 0;
-                         uint32_t rts_flight_gen = 0;   // RTS staleness key (flight_gen, not the old 4-bit ctr_lo proxy)
+                         // ★★★ [[B142]] 2026-08-07 — RENAMED FROM `rts_flight_gen`, BECAUSE IT NO LONGER CARRIES
+                         // ONLY AN RTS FLIGHT, AND A SILENT OVERLOAD IS EXACTLY THE DRIFT THIS PROJECT KEEPS
+                         // FIXING. ONE FIELD, ONE CONTRACT, TWO NAMED PRODUCERS — see the `completion_gen`
+                         // contract block above `tx_initiating`. The staleness TEST is identical for both
+                         // (`stored != current` ⇒ the transaction this completion belongs to is gone), which is
+                         // why generalising the carrier is U1 and not a second mechanism.
+                         uint32_t completion_gen = 0;   // 0 = no transaction identity (flood/nack/mobile_offer: never stale)
                          uint32_t digest_ids[kDeferDigestIds] = {};   // §TX3: beacon only; 0 = unused
                          uint8_t buf[protocol::beacon_max_bytes] = {}; };
     DeferredLbt _deferred_lbt[kLbtSlots];
@@ -2131,6 +2266,22 @@ private:
                        uint8_t leaf_id; uint8_t data_sf_bitmap; };   // §mobile: the HOST's leaf (from the OFFER) — adopted on registration. data_sf_bitmap is ADVISORY (F-SF-1): the mobile keeps its OWN configured sf_list; this byte only feeds the `mobile_sf_list_mismatch` diagnostic
     OfferCand _mobile_offers[protocol::cap_mobile_offers] = {};   // OFFERs collected during a DISCOVER window
     uint8_t   _mobile_offers_n = 0;
+    // ★ §MH-S1b §6.3 — "a CLAIM is staged, awaiting the transmitter's answer", and `_mobile_offers[0]` holds
+    // the chosen OFFER while it waits. `mobile_claim_guard_fire` sets it, `mobile_claim_adopt` (called from
+    // `lbt_complete` at the accepted handoff) CONSUMES it, and a definitive refusal / a fresh DISCOVER clears
+    // it. It is what makes "adopt only after successful handoff" possible across an LBT defer, which can put
+    // seconds between the CLAIM being staged and the frame actually crossing to the radio.
+    // ⛔ NOT a second copy of the offer: the chosen candidate is compacted into slot 0 rather than duplicated
+    //    into a new 20-byte member (U2 — one carrier), which is also why sizeof(Node) does not move.
+    // ★★★ [[B142]] 2026-08-07 — ⛔ THIS FLAG IS NOT AN ATTEMPT IDENTITY AND MUST NEVER BE USED AS ONE. It is
+    //    global: after a fresh DISCOVER re-stages slot 0 it is true again, for a DIFFERENT candidate. Any
+    //    deferred completion must be correlated by `_mobile_attach_gen` (the `completion_gen` token that rides
+    //    `DeferredLbt`), never by this bool — reading it as "my CLAIM is still pending" is the ABA.
+    // ⓘ PLACEMENT: `_mobile_offers_n` (u8) sits before the 4-aligned `_mobile_backoff_ms`, so THREE pad bytes
+    //   were already being wasted here; this bool takes one of them. sizeof(Node) is therefore unchanged —
+    //   ASSERTED by the tripwire at the end of this header, and MEASURED per-ABI, not inferred. Tenth
+    //   application of the radio_freq_mhz / team_hop_cap / _channel_seal_ctr padding-placement rule.
+    bool      _mobile_claim_pending = false;
     uint32_t  _mobile_backoff_ms = 0;                             // exp-backoff when no host answers (0 = first try)
     uint8_t   _mobile_scan_idx = 0;                              // §mobile 5a: which scan-set PHY the home-lost mobile is currently DISCOVERing on
     LayerRecord _learned_layers[protocol::cap_learned_layers] = {};   // §mobile 5a: neighbouring layers pulled from a gateway (candidate cross-layer PHYs, dedup by composite id)
@@ -2147,6 +2298,13 @@ private:
     bool      _presence_key_confirmed = false;                  // §S6 A.4: home confirmed our key (roster has_key=1) -> stop attaching ed_pub to probes
     bool      _presence_reg_confirmed = false;                  // §S6: home confirmed our REGISTRATION (our hash seen in ITS roster) — else a lost CLAIM is re-sent (replaces the retired reclaim keepalive's heal role)
     bool      _mobile_arm_once = false;                         // §autoregister ruling (2026-07-21): one-shot manual `mobile register` arm — consumed by the DISCOVER half when mobile_autoregister is OFF (fits the existing bool-run padding; sizeof(Node) unchanged)
+    // §MH-S1 §10: the last attachment-attempt outcome (see MobileAttemptResult). Placed at the END of the
+    // bool run above and BEFORE the 8-aligned `_last_adopt_ms`: that run is `_presence_my_tier`(u8) +
+    // `_presence_dir_epoch`(u8) + five bools = 7 bytes on an 8-byte boundary, so ONE pad byte was already
+    // being wasted there and this member takes it. sizeof(Node) is therefore unchanged — ASSERTED by the
+    // tripwire at the end of this header (221088), not inferred. Ninth application of the
+    // radio_freq_mhz / team_hop_cap / _channel_seal_ctr padding-placement rule.
+    MobileAttemptResult _mobile_last_result = MobileAttemptResult::none;
     uint64_t  _last_adopt_ms     = 0;                           // §S6.4-C dwell anchor (last (re)adopt)
     uint64_t  _presence_last_pull_ms = 0;                       // D6 safety-pull clock
     int16_t   _presence_home_rx_q4 = 0;                         // §S6/D14: my RX EWMA (Q4) of my HOME's frames (home->me direction; paired with _presence_my_tier = me->home)
@@ -2154,6 +2312,26 @@ private:
     struct PresenceCand { uint8_t home_id; uint8_t home_layer; int16_t snr_q4; uint8_t echo_tier; uint64_t first_seen_ms; uint64_t last_seen_ms; bool incompatible = false; };  // §D16: incompatible = heard a wrong-wire_version roster from this home -> never DISCOVER at it
     PresenceCand _presence_cand[protocol::cap_presence_candidates] = {};   // §S6.4-C overheard candidate homes (strongest-sustained wins)
     uint8_t   _presence_cand_n   = 0;
+    // ★★★ [[B142]] 2026-08-07 — THE ATTACHMENT-TRANSACTION GENERATION. Monotonic, bumped by
+    // `mobile_discover_fire` at the instant a new registration transaction supersedes everything before it
+    // (the same statement group that clears `_mobile_offers_n` and `_mobile_claim_pending`). The CLAIM
+    // INHERITS its DISCOVER's value — a CLAIM is the second half of one transaction, not a new one — and it
+    // rides `tx_initiating` -> `DeferredLbt::completion_gen` so a completion can be matched to the
+    // transaction that produced it. See the `completion_gen` contract block above `tx_initiating`.
+    // ⛔ WHY A TOKEN AND NOT THE BOOL: `_mobile_claim_pending` is a single global flag with NO attempt
+    //    identity, and `lbt_complete` correlated a deferred completion by `LbtKind` alone. An ABA followed:
+    //    CLAIM A defers, the operator re-registers, DISCOVER B picks a different host and CLAIM B is staged,
+    //    then slot A fires — transmitting A's bytes while adopting B's candidate, or (rejected) clearing B's
+    //    stage and arming a retry for an attempt that no longer exists. The flag cannot distinguish them
+    //    because it is the same flag; only a per-transaction identity can.
+    // ⓘ PLACEMENT (measured, not inferred): `_presence_cand_n` (u8) is followed by the 8-ALIGNED
+    //   `DeniedId _join_denied[]` (u8 + u64), so SEVEN pad bytes already sat here; this u32 takes four of
+    //   them and the hole shrinks to three. sizeof(Node) is therefore unchanged — ASSERTED by the tripwire
+    //   at the end of this header and MEASURED per-ABI on all five real toolchains, never inferred. Its
+    //   SEMANTIC home is beside `_mobile_claim_pending`, where it costs 8 bytes (only 2 pad bytes are left
+    //   before the 4-aligned `_mobile_backoff_ms`); it lives here for that reason and no other. Eleventh
+    //   application of the radio_freq_mhz / team_hop_cap / _channel_seal_ctr padding-placement rule.
+    uint32_t  _mobile_attach_gen = 0;
 #endif
     struct DeniedId { uint8_t id; uint64_t t_ms;                 // a slot that lost a claim/heal (§13: 1-day TTL)
                       bool same_key(const DeniedId& o) const { return id == o.id; } };

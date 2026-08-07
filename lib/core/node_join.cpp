@@ -354,7 +354,15 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             // §3-B.5: the single-slot member of the jittered_tx_stash.h family (the two §F-XL rings are the ring-shaped
             // ones). Inherits the fit guard the hand-rolled version lacked — unreachable here (pack_j_offer returns 0 or
             // exactly 13 into a 13-B span, and n==0 is already excluded above), so it is defence, not a behaviour change.
-            MR_EMIT("mobile_offer_tx", EF_I("to_key", static_cast<int64_t>(j.key_hash32)), EF_I("local_id", local));
+            // ★★ §MH-S1b §6.2/§10 — RENAMED FROM `mobile_offer_tx`, WHICH IS THE POINT. §10: *"an event named
+            // `mobile_offer_tx` must not continue to mean only 'copied into a stash'"*, and this site IS the
+            // stash — the frame does not reach the radio for another 100..1000 ms and may never reach it at
+            // all. `mobile_offer_scheduled` says what actually happened here; the honest `mobile_offer_tx` is
+            // now raised in `lbt_complete` at the accepted handoff, and `mobile_offer_dropped` on a refusal.
+            // Those three ARE §10's required "scheduled / transmitter-admitted / confirmed" distinction (the
+            // third is S4's). ⚠ THE COMMIT ORDER IS UNCHANGED — the emit still precedes the stash — so this is
+            // a rename, not a move: every existing reader that meant "the OFFER was committed" stays correct.
+            MR_EMIT("mobile_offer_scheduled", EF_I("to_key", static_cast<int64_t>(j.key_hash32)), EF_I("local_id", local));
             jtx_stash_arm(_hal, _active->_pending_offer, sizeof _active->_pending_offer, _active->_pending_offer_len,
                           buf, n, protocol::join_offer_backoff_min_ms, protocol::join_offer_backoff_max_ms,
                           kMobileOfferBackoffTimerId);
@@ -594,6 +602,31 @@ void Node::presence_ingest_probe(const uint8_t* frame, size_t len, const RxMeta&
         return;
     }
     // a check probe for a hash we don't host -> ignore
+}
+
+// ★ §MH-S1 §6.2 — the staged OFFER reached its jitter deadline and OUR OWN TRANSMITTER definitively refused
+// it. Before this slice `jtx_fire`'s answer was discarded, so the frame simply vanished while
+// `mobile_offer_tx` — emitted 100..1000 ms earlier at DISCOVER time, i.e. meaning only *staged* — was the
+// last word on the subject (§10: "an event named `mobile_offer_tx` must not continue to mean only 'copied
+// into a stash'"). ★ §MH-S1b closed the naming half too: that staging emit is now `mobile_offer_scheduled`
+// and `mobile_offer_tx` is raised in `lbt_complete` at the accepted handoff, so this drop report and it are
+// mutually exclusive by construction — exactly one of the two fires per staged OFFER.
+//
+// ⛔ WHY THIS REPORTS A DROP AND DOES NOT RESCHEDULE. §6.2 permits either. Rescheduling needs a bounded NEW
+// deadline, i.e. a fresh jitter draw, and **S3 is the only planned RNG re-anchor in this arc** — a draw here
+// would re-anchor all 36 corpus streams under the wrong slice and destroy the attribution the whole slice
+// ordering exists to protect. The reschedule is therefore owed to S2 (which introduces the keyed ring the new
+// deadline would be scanned from) / S3 (which owns the draw). ⇒ **the source mobile's own retry is the
+// backstop**, exactly as §6.2 says it must be when the drop branch is taken.
+//
+// ⓘ "A rejection must never disturb any other mobile's armed entry" is satisfied VACUOUSLY today — there is
+// one single-slot `_pending_offer` and the entry being reported is the one that just fired. It becomes a real
+// obligation in S2, alongside the ring-overflow counter §10 asks for.
+void Node::mobile_offer_admission_rejected(TxAdmission why) {
+    MR_EMIT("mobile_offer_dropped", EF_S("result", why == TxAdmission::defer_full ? "defer_full" : "tx_rejected"));
+    // §3-A.1 twin: MR_EMIT is device-stripped. The host has just failed to answer a mobile that is waiting on
+    // a 2 s window, so this one IS operator-visible — but trace-gated, not `!!`: the mobile re-DISCOVERs.
+    _hal.log("mobile OFFER dropped at our own transmitter — not sent; the mobile's own retry is the backstop");
 }
 
 // ★★ §B132b — the ONE cleanup for "this node must not act as a mobile HOME": drop every leaf's PENDING host

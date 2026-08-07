@@ -1090,8 +1090,15 @@ void Node::tx_rts_retry() {
 }
 
 // R4.5 LBT: hand an INITIATING frame to the radio, but if the channel is busy (and lbt_enabled) defer the real
-// TX past busy_until + rand(0,lbt_backoff+1) — the ONE LBT draw, ONLY when busy (dv:3693-3706). lbt_enabled=false
-// (every gate) -> straight to lbt_complete -> byte-identical, NO draw.
+// TX past busy_until + rand(0,lbt_backoff+1) — the ONE LBT draw, ONLY when busy (dv:3693-3706).
+// ⛔⛔ CORRECTED IN PLACE 2026-08-07 (§MH-S1, V1 — this line MISLED A SLICE PLAN). It used to read
+// *"lbt_enabled=false (every gate) -> straight to lbt_complete -> byte-identical, NO draw."* **THAT IS FALSE AND
+// HAS BEEN SINCE THE 2026-07-24b LBT-ENERGY RE-ANCHOR**, which gave the simulator a default `lbt_model:"energy"`
+// carrier sense. MEASURED on the current corpus, by counting the `tx_lbt_defer{kind:"initiating"}` that
+// immediately follows a `mobile_discover_tx` from the same node: **s28 defers 18 of its 70 DISCOVERs, s29 2 of
+// 15, s07 1 of 56** (longest 1732 ms). ⇒ the deferred branch is HOT in the gate, it DOES draw, and any change to
+// what happens on it moves those scenarios. §MH-S1's "byte-identical" premise was written on the strength of this
+// sentence and did not survive contact with the measurement — see `simulation/BASELINE.md`.
 // ★★★ §id-hash S1c + §tx-admission TX1 (2026-08-01): it RETURNS. `false` = the frame was DROPPED — not sent, not
 // scheduled, and NOTHING will retry it. TWO things produce that, one per branch, and they were found one review
 // apart:
@@ -1110,7 +1117,10 @@ void Node::tx_rts_retry() {
 //   Unreachable from the one reader regardless: `emit_hash_query` always passes `LbtKind::flood`.
 // ⓘ U3: `tx_flood` in this same file has returned `bool` on exactly this "did the frame survive the gates" question
 //   since R4.5, so this is the sibling shape, not a new convention.
-bool Node::tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen) {
+// §MH-S1: `out` (optional) splits the two `false` outcomes apart — see the TxAdmission comment in node.h.
+// It is written on EVERY path, so a caller that passes it never reads a stale/default value.
+bool Node::tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t completion_gen,
+                         TxAdmission* out) {
     const uint64_t now = _hal.now();
     uint64_t busy_until = 0;
     if (_cfg.lbt_enabled) { const uint64_t b = _hal.channel_busy_until(); if (b > busy_until) busy_until = b; }  // physical carrier sense (LBT)
@@ -1120,9 +1130,13 @@ bool Node::tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind k
         const uint32_t delay = wait + static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(_lbt_backoff_ms) + 1));   // shared backoff jitter -> NAV-released TX de-syncs
         MR_EMIT("tx_lbt_defer", EF_S("kind", "initiating"), EF_I("defer_ms", delay),
                 EF_I("busy_until_ms", busy_until));
-        return schedule_lbt_defer(bytes, len, sf, kind, rts_flight_gen, delay);   // false ⇒ ring full ⇒ DROPPED
+        const bool queued = schedule_lbt_defer(bytes, len, sf, kind, completion_gen, delay);   // false ⇒ ring full ⇒ DROPPED
+        if (out) *out = queued ? TxAdmission::deferred : TxAdmission::defer_full;
+        return queued;
     }
-    return lbt_complete(bytes, len, sf, kind, rts_flight_gen);        // §tx-admission TX1: false ⇒ the HAL REJECTED it
+    const bool handed = lbt_complete(bytes, len, sf, kind, completion_gen);   // §tx-admission TX1: false ⇒ the HAL REJECTED it
+    if (out) *out = handed ? TxAdmission::admitted : TxAdmission::tx_rejected;
+    return handed;
 }
 
 // NAV (virtual carrier sense) duration helpers — pure, native-testable. Conservative: an overheard RTS
@@ -1233,12 +1247,12 @@ bool Node::reserve_yield(uint32_t reserve_ms) {
 // Stash a busy-channel deferred TX in a free ring slot + arm its own timer (kLbtDeferTimerId + slot), so
 // concurrent defers each fire independently (Lua per-closure semantics). false = ring full (rare; >4 defers).
 bool Node::schedule_lbt_defer(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind,
-                              uint32_t rts_flight_gen, uint32_t delay,
+                              uint32_t completion_gen, uint32_t delay,
                               const uint32_t* digest_ids, uint8_t digest_n) {
     for (uint8_t s = 0; s < kLbtSlots; ++s) {
         if (_deferred_lbt[s].pending) continue;
         DeferredLbt& d = _deferred_lbt[s];
-        d.pending = true; d.kind = static_cast<uint8_t>(kind); d.sf = sf; d.rts_flight_gen = rts_flight_gen;
+        d.pending = true; d.kind = static_cast<uint8_t>(kind); d.sf = sf; d.completion_gen = completion_gen;
         // §TX3: carry the advertised digest ids (beacon only). ALWAYS rewritten — a recycled slot must not inherit a
         // previous beacon's ids and commit them for an unrelated frame.
         for (uint8_t k = 0; k < kDeferDigestIds; ++k)
@@ -1255,9 +1269,9 @@ bool Node::schedule_lbt_defer(const uint8_t* bytes, size_t len, int16_t sf, LbtK
 // The actual TX (immediate clear-channel path OR the kLbtDeferTimerId re-fire). RTS: the flight-gen staleness check
 // (cancel a stale deferred RTS, dv:3708/3712) + the #A duty pre-check (defer over-budget) + start_rts_timeout (the
 // after_tx). NACK/flood: just TX.
-bool Node::lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen) {
+bool Node::lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t completion_gen) {
     if (kind == LbtKind::rts) {
-        if (!_active->_pending_tx || _active->_pending_tx->flight_gen != rts_flight_gen) {  // flight changed while we waited (flight_gen = object-identity, not the 4-bit ctr_lo)
+        if (!_active->_pending_tx || _active->_pending_tx->flight_gen != completion_gen) {  // flight changed while we waited (flight_gen = object-identity, not the 4-bit ctr_lo)
             MR_EMIT("rts_tx_cancelled_stale", EF_S("reason", "pending_tx_changed"));
             return true;                                              // §TX1: a deliberate CANCEL of a dead flight — nothing was rejected, nothing to report
         }
@@ -1269,17 +1283,93 @@ bool Node::lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind ki
         if (duty_over_budget(len, sf, &wait)) {
             MR_EMIT("duty_cycle_blocked", EF_S("label", "RTS"), EF_I("wait_ms", wait), EF_S("source", "lbt_complete"));
             RtsDutyDefer& d = _rts_duty_defer;
-            d.pending = true; d.sf = sf; d.flight_gen = rts_flight_gen;
+            d.pending = true; d.sf = sf; d.flight_gen = completion_gen;
             d.len = static_cast<uint16_t>(len < sizeof(d.buf) ? len : sizeof(d.buf));
             for (uint16_t i = 0; i < d.len; ++i) d.buf[i] = bytes[i];
             (void)_hal.after(wait, kRtsDutyDeferTimerId);
             return true;                                              // §TX1: deferred, kRtsDutyDeferTimerId will re-run it — not a loss
         }
     }
+#if MR_FEAT_MOBILE
+    // ★★★ [[B142]] 2026-08-07 — THE STALE-ATTACHMENT CANCEL, AND IT IS THE RTS DISCIPLINE ABOVE, WEARING TWO
+    // MORE KINDS (U1). Everything below this line — the TX itself, the collect-OFFERs arm, the adopt — used to
+    // be reached by a deferred completion correlated by `LbtKind` ALONE. `_mobile_claim_pending` is ONE GLOBAL
+    // BOOLEAN with no attempt identity, so an ABA was possible and it destroyed the NEWER transaction:
+    //     CLAIM A enters defer slot A -> the operator runs `mobile register` again -> DISCOVER B picks another
+    //     host and CLAIM B is staged in the same `_mobile_offers[0]` behind the same bool -> slot A fires first
+    //     -> ACCEPTED: A's bytes go on the air and candidate **B** is adopted (a home that was sent nothing);
+    //        REJECTED: node.cpp's deferred-loss arm clears **B's** stage and arms a retry for an attempt that no
+    //        longer exists, so slot B can never complete correctly.
+    // ★★ THE REJECTED PATH IS AS DESTRUCTIVE AS THE ACCEPTED ONE — that is the whole shape of the defect — so
+    //    the cancel is placed HERE, BEFORE `tx_with_retry`, and a stale completion does ALL FIVE nothings:
+    //    it does not transmit, does not arm the guard, does not adopt, does not clear any current state, and
+    //    does not schedule a retry. Returning TRUE is what buys the last two: `false` would send node.cpp's
+    //    defer arm into `mobile_admission_rejected`, i.e. straight back into the defect (see the TX1 contract
+    //    in node.h — this is the third early-out that answers true, for the same "the owner is already gone"
+    //    reason as the RTS one directly above).
+    // ⓘ Draw-free and clear-channel-inert BY CONSTRUCTION: on the immediate path `lbt_complete` is entered
+    //   synchronously from `tx_initiating` with the token just read from `_mobile_attach_gen`, so the test can
+    //   only ever compare a value against itself. Only a DEFER can put a bump in between.
+    // ⛔ NOT `mobile_offer`: that is the HOST side, whose single staging slot is [[B137]]/S2's to give an
+    //   identity to. Its `completion_gen` is 0 and it is never tested here.
+    if ((kind == LbtKind::mobile_discover || kind == LbtKind::mobile_claim) && completion_gen != _mobile_attach_gen) {
+        MR_EMIT("mobile_tx_cancelled_stale", EF_S("kind", kind == LbtKind::mobile_claim ? "claim" : "discover"),
+                EF_I("gen", static_cast<int64_t>(completion_gen)),
+                EF_I("current_gen", static_cast<int64_t>(_mobile_attach_gen)));
+        return true;   // a superseded transaction's frame — CANCELLED, not lost: nothing happens, nothing is reported
+    }
+#endif
     const FrameTag tag = (kind == LbtKind::rts)  ? FrameTag::rts
                        : (kind == LbtKind::nack) ? FrameTag::nack : FrameTag::beacon;
     const TxHandOff r = tx_with_retry(bytes, len, sf, tag);           // R4.5b: stash (NACK) + tag the frame
     if (kind == LbtKind::rts) start_rts_timeout();                     // after_tx: CTS-wait starts when the RTS is on air
+#if MR_FEAT_MOBILE
+    // ★★ §MH-S1 §6.1 — THE ADMISSION BOUNDARY FOR THE COLLECT-OFFERs WINDOW, and it is the RTS line above
+    // wearing a different kind (U1). `mobile_discover_fire` no longer arms kMobileClaimGuardTimerId; the
+    // window opens HERE, where the DISCOVER actually crosses the accepted LBT/HAL handoff — which is also
+    // why the "successfully LBT-deferred DISCOVER starts the guard when the defer fires" requirement is
+    // satisfied for free: node.cpp's defer arm re-enters this same function with the stored kind.
+    // ⛔ NO DRAW, and the ORDERING IS PRESERVED: the old code armed the guard immediately after
+    // `tx_initiating` returned, i.e. immediately after this very `tx_with_retry` — so on a clear channel
+    // the sequence of hal calls is unchanged and the corpus is byte-identical by construction.
+    if (kind == LbtKind::mobile_discover && r != TxHandOff::rejected)
+        (void)_hal.after(protocol::mobile_offer_window_ms, kMobileClaimGuardTimerId);   // collect, then decide
+    // ★★ §MH-S1b §6.3 — AND THE CLAIM ADOPTS HERE, FOR THE SAME REASON AND ON THE SAME LINE. QA round 2:
+    // arming the DISCOVER window at the handoff while leaving the CLAIM adopting at the REQUEST fixed one of
+    // three siblings. `tx_initiating` answers `true` for a frame merely accepted into the LBT defer ring, so
+    // `mobile_claim_guard_fire` was still declaring the mobile REGISTERED — `set_identity`, `_joined`, the
+    // app-facing `mobile_reg{registered:true}` push — for a CLAIM the HAL had not seen and might yet refuse
+    // (node.cpp's deferred-loss arm). ⇒ the adopt is now anchored to the SAME accepted handoff.
+    // ⛔ ORDER-PRESERVING ON A CLEAR CHANNEL: `lbt_complete` is entered synchronously from `tx_initiating`,
+    //    and the adopt used to run on the statement immediately after that call returned — with nothing in
+    //    between but the two `kind`-gated lines above. So the Hal-call sequence of a non-deferred CLAIM is
+    //    unchanged, which is what keeps the non-deferring corpus rows byte-identical.
+    if (kind == LbtKind::mobile_claim && r != TxHandOff::rejected) mobile_claim_adopt();
+#endif
+    // ★ §MH-S1b §6.2/§10 — `mobile_offer_tx` NOW MEANS TRANSMITTED. It used to be emitted at DISCOVER time,
+    // beside the stash, i.e. it meant only "copied into a stash" — the very thing §10 forbids by name, and
+    // the arc's fourth "success that isn't". The staging emit is renamed `mobile_offer_scheduled` (its honest
+    // meaning) in node_join.cpp and THIS is the transmitted one, raised where the frame actually crosses the
+    // accepted handoff — immediate or LBT-deferred alike. Together with `mobile_offer_dropped` that is §10's
+    // required triple of scheduled / transmitter-admitted / (S4) confirmed.
+    // ⓘ The fields are READ BACK OUT OF THE FRAME rather than passed down, deliberately: the event then
+    //   reports what is on the wire instead of what the caller believed it staged, and the OFFER slot is a
+    //   single 13-byte buffer that a re-arm can have overwritten between staging and firing. NOT
+    //   `#if MR_FEAT_MOBILE` — a HOME IS A STATIC NODE (twin of `mobile_offer_admission_rejected`).
+    // ⚠ WRAPPED IN `MR_TELEMETRY`, NOT JUST `MR_EMIT`: the parse exists ONLY to fill the event, so on a
+    //   `MESHROUTE_NO_TELEMETRY` board build the read-back must vanish with it — otherwise metal pays for a
+    //   `parse_j` per OFFER and `j` is a set-but-unused variable (MEASURED: it was, and it broke the
+    //   warning census on all three OLED envs at 179 vs the pinned 178). This block is pure telemetry, so
+    //   it is exactly what MR_TELEMETRY's contract says may be wrapped — no state, no return, no TX.
+    // ⓘ RESIDUAL, stated rather than hidden: §10 also asks the DEVICE log to distinguish the three states.
+    //   The refusal half does that (`mobile_offer_admission_rejected` logs). The SUCCESS half deliberately
+    //   does not — one console line per OFFER on a busy home is noise, and §10's own answer is the pair of
+    //   COUNTERS it asks for beside S2's ring. Owed there, not faked here.
+    MR_TELEMETRY( if (kind == LbtKind::mobile_offer && r != TxHandOff::rejected) {
+                      const auto j = parse_j(std::span<const uint8_t>(bytes, len));
+                      MR_EMIT("mobile_offer_tx", EF_I("to_key", j ? static_cast<int64_t>(j->target_key_hash32) : 0),
+                              EF_I("local_id", j ? j->proposed_mobile_id : 0));
+                  } );
     return r != TxHandOff::rejected;                                  // §tx-admission TX1: the HAL's answer, propagated
 }
 
