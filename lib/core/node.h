@@ -481,12 +481,92 @@ public:
     bool              can_host_mobiles() const {
         return _cfg.host_mobiles && !_cfg.is_mobile && !_cfg.is_gateway && _cfg.n_layers == 1;
     }
+    // ★★★ §MH-S4 §4.1 — THREE INDEPENDENT PLANES, NOT ONE `registered` BIT. Two of them are state machines
+    // and they are ORTHOGONAL: a node can be `attached` with its link `checking`, and it must render as such.
+    // The third plane (MESH SERVICE — "can the home reach destination X?") is deliberately NOT a member: its
+    // only authority is the result of that specific route/send, so representing it as retained state would be
+    // the display-shaped-field defect this arc keeps finding. ⛔ No surface may state or imply that a P roster
+    // proves general mesh connectivity (§4.1 / §10).
+    enum class MobileAttachState : uint8_t {   // "WHICH static node believes it is our home?"  Authority: a matching chosen-home P roster.
+        dormant = 0,   // no home attachment is requested (auto OFF and no `mobile register` yet, or after `mobile unregister`)
+        seeking,       // DISCOVER cycles are active; no chosen home; NO previous attachment to recover
+        claiming,      // a home/local id was CHOSEN and the CLAIM crossed the admission boundary — roster confirmation PENDING
+        attached,      // the chosen home's roster confirmed our (hash, local id, epoch) — the ONLY state the app may read as registered
+        recovering     // a PREVIOUSLY ATTACHED home was lost; re-attachment is active (distinct from `seeking` so a surface can say "reconnecting", not "never had a home")
+    };
+    enum class MobileHomeLink : uint8_t {      // "can this mobile and that home currently communicate, BOTH ways?"  Authority: a recent correlated bidirectional exchange.
+        unknown = 0,   // no confirmation yet, or the home-service state is dormant
+        confirmed,     // a recent correlated bidirectional exchange with the SELECTED home succeeded
+        checking,      // a confirmation is due (a probe went out unanswered), or a genuine home-path failure was attributed to the home
+        lost           // the bounded run of presence misses (presence_probe_k_miss) failed
+    };
+    // ★ ONE enum->string map per plane, and both are `switch` WITH NO `default:` ON PURPOSE. A future enumerator
+    // then breaks the build under -Wswitch (gate-blocking per the 2026-07-25 ruling) instead of silently rendering
+    // as an empty string — the exact defect class that produced three enum->string bugs the byte-identity gate was
+    // structurally blind to. ⛔ Never rewrite these as if-chains: -Wswitch cannot see those.
+    // ⛔ AND NOTE WHAT IS ABSENT FROM `home_link_name`: the word "connected", in any spelling. §10 forbids it on
+    //    every surface — it claims the MESH plane on the strength of a HOME-plane measurement.
+    static const char* attach_state_name(MobileAttachState s) {
+        switch (s) {
+            case MobileAttachState::dormant:    return "dormant";
+            case MobileAttachState::seeking:    return "seeking";
+            case MobileAttachState::claiming:   return "claiming";
+            case MobileAttachState::attached:   return "attached";
+            case MobileAttachState::recovering: return "recovering";
+        }
+        return "dormant";                                          // C2: unreachable for a valid enumerator; never a silent empty string
+    }
+    static const char* home_link_name(MobileHomeLink l) {
+        switch (l) {
+            case MobileHomeLink::unknown:   return "unknown";
+            case MobileHomeLink::confirmed: return "confirmed";
+            case MobileHomeLink::checking:  return "checking";
+            case MobileHomeLink::lost:      return "lost";
+        }
+        return "unknown";
+    }
 #if MR_FEAT_MOBILE
     uint8_t           mobile_home_id() const { return _my_mobile_reg.active ? _my_mobile_reg.home_id : 0; }   // §mobile 2b: our host (0 = unregistered)
+    // ⛔⛔ §MH-S4 §4.1 — `mobile_registered()` IS NOT THE APP-FACING TRUTH AND MUST NOT BE RENDERED AS ONE.
+    // It answers a LINK-LAYER question — *"do we hold an adopted host local id, provisionally or confirmed?"* —
+    // and that is exactly what its ~10 in-core readers need: the leaf next-hop-via-home rule
+    // (`node_mac.cpp`), the flood/pull-response ingest gates (`node_mac_rx.cpp`), the hash-locate
+    // own-hash/proxy rules (`node_hashlocate.cpp`) and the origin stamp. §7.1 step 1 says the offered PHY and
+    // local id are adopted **PROVISIONALLY** at CLAIM time, so all of those must keep behaving as they do
+    // during `claiming` — promoting this accessor to "attached only" would silently change ROUTING for the
+    // duration of the confirmation window, which §MH-S4 does not ask for and which no gate covers.
+    // ⇒ THE APP-FACING TRUTH IS `mobile_attached()`, and the plane pair below is what a surface renders.
     bool              mobile_registered()      const { return _my_mobile_reg.active; }
     uint8_t           mobile_local_id()        const { return _my_mobile_reg.my_local_id; }
     uint16_t          mobile_reg_epoch()       const { return _my_mobile_reg.epoch; }
     uint8_t           mobile_home_layer()      const { return _my_mobile_reg.home_leaf_id; }
+    // ★★★ §MH-S4 §4.1/§7.1 — THE ONE ACCESSOR AN APP, A CONSOLE OR AN OLED MAY READ AS "registered".
+    // True ONLY after a chosen-home roster carried our (hash, local id, epoch) — never on the strength of a
+    // CLAIM having been transmitted. This is the §S0-4 defect's fix expressed as a type: the surface can no
+    // longer accidentally read the provisional flag, because the provisional flag is a different function.
+    bool              mobile_attached()        const { return _mobile_attach_state == MobileAttachState::attached; }
+    MobileAttachState mobile_attach_state()    const { return _mobile_attach_state; }
+    MobileHomeLink    mobile_home_link()       const { return _mobile_home_link; }
+    bool              mobile_home_desired()    const { return _mobile_home_desired; }   // §4.2: the VOLATILE home-service request an explicit `mobile register` sets and `mobile unregister` clears
+    uint8_t           mobile_claim_retries()   const { return _mobile_claim_retries; }   // §7.1 steps 5-6: same-epoch re-CLAIMs spent on THIS attachment
+    // ★ §MH-S4b §7.1 step 3 / §10 — the SOLICITATION substate of `claiming`: true = the searching solicitation
+    // probe is out and its roster deadline is running ("we asked and are waiting"); false = the next confirmation
+    // deadline will ASK. ⛔ Meaningless outside `claiming`, and a surface must render it only alongside
+    // `attachment == "claiming"`.
+    bool              mobile_claim_solicited() const { return _mobile_claim_solicited; }
+    // §10: the CURRENT no-host retry WINDOW (§5.2's `min(5 s · 2^attempt, 120 s)` accumulator). 0 = the next
+    // DISCOVER is a first try. ⛔ NOT the remaining delay to that attempt — see the §10 field ledger in the spec.
+    uint32_t          mobile_retry_window_ms() const { return _mobile_backoff_ms; }
+    // ★ §MH-S4 §4.1 — ALWAYS EXPOSE THE AGE OF THE LATEST CONFIRMATION. A confirmation is a point-in-time
+    // measurement and the honest display of a point-in-time measurement is its timestamp: prefer
+    // "Home confirmed 7 min ago" to an unconditional green "Connected". ⛔ Never claim continuous
+    // connectivity during silence. `_ever` is separate from the age so a surface can OMIT the field when
+    // nothing was ever confirmed, instead of rendering a 0 that reads as "confirmed just now".
+    bool              mobile_home_confirmed_ever() const { return _mobile_home_confirmed_ms != 0; }
+    uint64_t          mobile_home_confirm_age_ms() const {
+        const uint64_t now = _hal.now();
+        return (_mobile_home_confirmed_ms == 0 || now < _mobile_home_confirmed_ms) ? 0 : now - _mobile_home_confirmed_ms;
+    }
     uint8_t           learned_layers_count()   const { return _learned_layers_n; }
     const LayerRecord& learned_layer(uint8_t i) const { return _learned_layers[i]; }
 #else
@@ -495,20 +575,42 @@ public:
     uint8_t           mobile_local_id()        const { return 0; }
     uint16_t          mobile_reg_epoch()       const { return 0; }
     uint8_t           mobile_home_layer()      const { return 0; }
+    bool              mobile_attached()        const { return false; }
+    MobileAttachState mobile_attach_state()    const { return MobileAttachState::dormant; }
+    MobileHomeLink    mobile_home_link()       const { return MobileHomeLink::unknown; }
+    bool              mobile_home_desired()    const { return false; }
+    uint8_t           mobile_claim_retries()   const { return 0; }
+    bool              mobile_claim_solicited() const { return false; }
+    uint32_t          mobile_retry_window_ms() const { return 0; }
+    bool              mobile_home_confirmed_ever() const { return false; }
+    uint64_t          mobile_home_confirm_age_ms() const { return 0; }
     uint8_t           learned_layers_count()   const { return 0; }
 #endif
     uint8_t           bridged_layer_cap()      const { return protocol::cap_bridged_layers; }
     const BridgedLayer& bridged_layer(uint8_t i) const { return _bridged_layers[i]; }
 #if MR_FEAT_MOBILE
     // §autoregister ruling (2026-07-21): with mobile_autoregister=false the FSM emits NO DISCOVERs on its own — the app
-    // ARMS one here. _mobile_arm_once is the one-shot the DISCOVER half consumes (registration_armed()); team-DAD is unaffected.
-    void              mobile_register_current() { _mobile_arm_once = true; (void)_hal.after(0, kMobileDiscoverTimerId); }             // DISCOVER on the current PHY now
-    void              mobile_register_phy(const LayerConfig& phy) { adopt_mobile_phy(phy); _mobile_arm_once = true; (void)_hal.after(0, kMobileDiscoverTimerId); }  // retune + DISCOVER
-    void              mobile_register_scan()    { _mobile_scan_idx = 0; _mobile_arm_once = true; (void)_hal.after(0, kMobileDiscoverTimerId); }  // cycle [current] ∪ learned
+    // ARMS one here; team-DAD is unaffected.
+    // ★★★ §MH-S4 §4.2 — THE ONE-SHOT ARM IS GONE. It was the defect §4.2 names by hand: *"an explicit manual
+    // request must not get one unconfirmed RF attempt and silently stop"*. `_mobile_arm_once` was CONSUMED by
+    // the first `mobile_discover_fire` (and had to be laboriously RESTORED by `mobile_admission_rejected` for
+    // the "the attempt never happened" case), so with autoregister OFF an operator's `mobile register` that
+    // met a busy channel, a lost OFFER or a lost CLAIM stopped for good. It is replaced by the VOLATILE
+    // home-service-desired state `_mobile_home_desired`: set here, cleared ONLY by `mobile_unregister()` (or a
+    // reboot — §4.2's deliberate manual policy: a device that must restore attachment across reboots uses the
+    // flag ON). ⇒ MANUAL AND AUTOMATIC STARTS NOW SHARE ONE FSM, differing only in WHO enters `seeking`.
+    // ⓘ `mobile_autoregister`'s field and JSON key are untouched (§4.2 compatibility requirement).
+    void              mobile_register_current() { mobile_request_home_service(); (void)_hal.after(0, kMobileDiscoverTimerId); }             // DISCOVER on the current PHY now
+    void              mobile_register_phy(const LayerConfig& phy) { adopt_mobile_phy(phy); mobile_request_home_service(); (void)_hal.after(0, kMobileDiscoverTimerId); }  // retune + DISCOVER
+    void              mobile_register_scan()    { _mobile_scan_idx = 0; mobile_request_home_service(); (void)_hal.after(0, kMobileDiscoverTimerId); }  // cycle [current] ∪ learned
+    void              mobile_unregister();      // §MH-S4 §4.2/§4.3: clear home-service desired, cancel the FSM timers, drop the attachment -> `dormant`
     void              mobile_send_layer_query(uint8_t gw) {                                                  // manual pull: MOBILE_LAYER_QUERY -> gw
         uint8_t q = 0; (void)enqueue_data(gw, &q, 0, DATA_FLAG_SOURCE_HASH, "mobile_layer_query", false, DATA_TYPE_MOBILE_LAYER_QUERY, CryptIntent::off);
     }
     uint8_t           mobile_offers_n() const { return _mobile_offers_n; }                        // §mobile 2b: OFFERs collected this window (test/diag)
+    uint8_t           mobile_scan_idx()   const { return _mobile_scan_idx; }                      // §MH-S4 §10: current scan index / count
+    uint8_t           mobile_scan_count() const { return scan_set_count(); }
+    uint8_t           mobile_candidate_count() const { return _presence_cand_n; }                 // §MH-S4 §10: candidate homes collected passively (the VERIFIED-candidate count is S5's and is deliberately not faked here)
     // ★ §MH-S1 §10 "last result" — the outcome of the mobile's most recent attachment attempt.
     // ⛔ IT IS NOT A LINK STATE. §6.4: a `tx_rejected`/`defer_full` here is a statement about OUR OWN
     // transmitter and must NEVER be rendered as, or promoted into, a home-link verdict (gate 20).
@@ -526,8 +628,25 @@ public:
         confirmed          // S4 (§7.1): the chosen home's roster carried our (hash, local id, epoch)
     };
     MobileAttemptResult mobile_last_result() const { return _mobile_last_result; }
+    // §MH-S4 §10 "last result" as a surface string. Same no-`default:` discipline as the two plane namers above.
+    // ⛔ `tx_rejected`/`defer_full` are OUR OWN transmitter (§6.4) and must never be rendered as a home-link state.
+    static const char* attempt_result_name(MobileAttemptResult r) {
+        switch (r) {
+            case MobileAttemptResult::none:              return "none";
+            case MobileAttemptResult::no_offer:          return "no_offer";
+            case MobileAttemptResult::tx_rejected:       return "tx_rejected";
+            case MobileAttemptResult::defer_full:        return "defer_full";
+            case MobileAttemptResult::claim_unconfirmed: return "claim_unconfirmed";
+            case MobileAttemptResult::denied:            return "denied";
+            case MobileAttemptResult::confirmed:         return "confirmed";
+        }
+        return "none";
+    }
 #else
     uint8_t           mobile_offers_n() const { return 0; }
+    uint8_t           mobile_scan_idx()   const { return 0; }
+    uint8_t           mobile_scan_count() const { return 0; }
+    uint8_t           mobile_candidate_count() const { return 0; }
 #endif
     // ★ §MH-S1 §6.1/§6.4 — WHY a rejection reason and not just `tx_initiating`'s bool. That bool fuses two
     // distinct local-transmitter outcomes, and §10 asks for them separately as the mobile's last attempt
@@ -543,6 +662,25 @@ public:
         defer_full,     // REFUSED: the 4-slot defer ring was full -> dropped, nothing will retry it
         tx_rejected     // REFUSED: the HAL refused it (full outbound ring / too_long / radio error)
     };
+    // ★★ §MH-S2 §5.3.2 item 5 — the pending-OFFER ring's ADMISSION answer. Four outcomes, and the caller's response
+    // differs for each, which is exactly why this is not a bool. ⛔ Do NOT confuse it with `TxAdmission` above: that
+    // one is our RADIO's answer at the transmission boundary; this one is our SCHEDULER's answer at the DISCOVER.
+    // Declared in the public block for the same reason as its neighbour (defined before its first user) plus one
+    // more: the §MH-S2 native gate asserts on it directly.
+    enum class MobileOfferAdmit : uint8_t {
+        armed = 0,   // a free slot took the frame; its jitter deadline is set and the id is RESERVED ([[B137]])
+        duplicate,   // this mobile already has an ARMED entry -> coalesced: no new slot, deadline UNMOVED, id RETAINED
+        full,        // every slot is in use -> refused explicitly; ⛔ NOTHING armed is evicted or re-timed
+        invalid      // the frame is empty or does not fit a slot (the jtx fit-before-draw invariant) -> no draw, no slot
+    };
+    uint16_t          mobile_offer_ring_full_count() const { return _mobile_offer_ring_full_n; }   // §10 counter: admissions refused `full`
+    uint16_t          mobile_offer_reject_count()    const { return _mobile_offer_reject_n; }      // §10 counter: OFFERs our own transmitter refused
+    uint8_t           mobile_offers_pending_n() const {                                            // slots IN USE (armed and/or reserved) right now
+        uint8_t n = 0;
+        for (uint8_t i = 0; i < cap_pending_mobile_offers; ++i)
+            if (_pending_mobile_offers[i].reserve_until_ms != 0) ++n;
+        return n;
+    }
     const RtEntry&    rt_at(uint8_t i) const { return _active->_rt[i]; }   // 0..rt_count()-1; candidates[0] is the primary
 #if MR_FEAT_TEAM
     uint8_t           rt_team_count()  const { return _active->_rt_team_count; }   // §mobile 6.2: the TEAM plane (test/diag)
@@ -1187,8 +1325,16 @@ private:
     void    l2c_mark_redirected(uint32_t want_hash);
     // node_id auto-assignment (DAD + heal) — node_join.cpp.
     int     join_choose_candidate_id();                          // prefer previous id, else a random free slot (-1 = leaf full)
-    uint8_t find_free_mobile_id(uint32_t key_hash32);            // §mobile 2a: host-assign a free LOCAL id, TOP-DOWN 254..17 (0 = pool full; idempotent for a known key); §S0 excludes id_bind/_rt statics
+    uint8_t find_free_mobile_id(uint32_t key_hash32);            // §mobile 2a: host-assign a free LOCAL id, TOP-DOWN 254..17 (0 = pool full; idempotent for a known key); §S0 excludes id_bind/_rt statics; §MH-S2 [[B137]] also excludes LIVE PENDING RESERVATIONS
     void    evict_aliased_hosted_mobile(uint8_t node_id, uint32_t static_key_hash32);   // §S0(b): an authoritative static binding lands for a hosted mobile's local id -> evict the mobile (it re-registers)
+    // ★★ §MH-S2 — the keyed pending-OFFER ring's own verbs (node_join.cpp, beside the DISCOVER handler that feeds it).
+    // `mobile_offer_admit` PACKS NOTHING: the caller owns the frame (that is where `pack_j_offer`'s inputs live) and
+    // hands it the already-packed bytes plus the id it drew, so the ring stays a scheduler and not a second codec.
+    MobileOfferAdmit mobile_offer_admit(uint32_t target_key_hash32, const uint8_t* frame, size_t n, uint8_t proposed_id);
+    void    mobile_offer_arm_timer();                            // §5.3.3: (re)arm kMobileOfferBackoffTimerId to the EARLIEST pending deadline — armed OFFER or reservation bound (cancel if none). park_reflood_arm / e2e_ack_deadline_arm_timer idiom (U1)
+    void    mobile_offer_fire();                                 // §5.3.3: expire elapsed reservations, transmit AT MOST ONE due OFFER, re-arm
+    void    mobile_offer_release(uint32_t target_key_hash32);    // [[B137]]: the matching CLAIM arrived (or was refused) -> free the slot + its reservation, re-arm
+    int     mobile_offer_slot_of(uint32_t target_key_hash32) const;   // the IN-USE slot keyed by hash, or -1. ⛔ hash, never index (§5.3.2 item 2)
     bool    join_start_claim(const char* reason);                // pick a candidate, bump epoch, broadcast J_CLAIM, arm the guard
     void    join_claim_guard_fire();                             // kJoinClaimGuardTimerId: adopt (no objection) or deny+retry
     void    join_adopt(uint8_t node_id);                         // set_identity + joined + self-bind + beacon
@@ -1226,6 +1372,9 @@ private:
     // ⛔ S1 takes the SECOND, because the first needs a fresh bounded-jitter draw and **S3 is the only
     // planned RNG re-anchor in this arc**; a draw here would destroy that attribution. The reschedule is
     // therefore owed to S2/S3, which own the keyed ring the new deadline would live in.
+    // ★★ §MH-S3: NOT OWED AFTER ALL — the two fates are ALTERNATIVES in §6.2's own wording, and the drop
+    // branch is now taken in full (event + [[B146]] counter + [[B137]] reservation retained). S3 declined
+    // to spend a draw here; the ruling and its reasoning are at the function in `node_join.cpp`.
     void    mobile_offer_admission_rejected(TxAdmission why);
     void    mobile_host_pending_clear();                       // ★★ §B132b: drop EVERY leaf's PENDING mobile-host transmission (the staged J OFFER + the roster coalesce/echo state) and cancel their timers. Shared by on_init's gateway force-off (hygiene) and by the OFFER timer's own eligibility re-check (the guarantee), so the two can never disagree.
     void    presence_notify_old_home(uint32_t mobile_hash, uint8_t new_local_id, uint16_t new_epoch);  // §S6.4-D: NEW home originates the redirect breadcrumb to the stashed last_home
@@ -1247,25 +1396,104 @@ public:
 private:
 #if MR_FEAT_MOBILE
     // §autoregister ruling (2026-07-21): the SINGLE gate on the DISCOVER/registration half of the FSM. autoregister ON =
-    // autonomous (today). OFF = the app drives every registration attempt via `mobile register` (a one-shot _mobile_arm_once);
-    // absent a manual arm the mobile NEVER DISCOVERs/registers — after a home-loss it stays off-grid-quiet (the team plane
-    // still works per F-PS-1, and team-DAD runs regardless as it rides the FSM tick BEFORE this gate).
-    bool    registration_armed() const { return _cfg.mobile_autoregister || _mobile_arm_once; }
+    // autonomous. OFF = the app drives attachment via `mobile register`; absent a request the mobile NEVER
+    // DISCOVERs/registers — after a home-loss it stays off-grid-quiet (the team plane still works per F-PS-1, and
+    // team-DAD runs regardless as it rides the FSM tick BEFORE this gate).
+    // ★★ §MH-S4 §4.2 — `registration_armed()` AND `mobile_service_desired()` ARE THE SAME PREDICATE, and they
+    // are two names on purpose, because they read two different sentences at their call sites:
+    //   · `registration_armed()`      — "may the DISCOVER/registration half run at all?" (the one FSM entry gate)
+    //   · `mobile_service_desired()`  — "does this node want a home service AT ALL?", the §4.2 rule that
+    //     confirmation, presence checks, candidate monitoring, proactive re-home and home-loss recovery
+    //     continue INDEPENDENTLY OF THE INITIAL-AUTO FLAG once a session was explicitly started. Every site
+    //     that used to arm a follow-up timer on `_cfg.mobile_autoregister` ALONE now asks this instead —
+    //     otherwise a manually-attached mobile got no presence plane at all, and gate 10 ("presence monitoring
+    //     and weak-home candidate canvass run after a manual attach with auto OFF") could not pass.
+    // ⛔ NOT consumed, unlike the retired `_mobile_arm_once`: a durable request is the whole point (§4.2).
+    // ★★★★ §MH-S4b — **`_mobile_home_desired` IS THE EFFECTIVE SESSION STATE, AND IT IS THE WHOLE PREDICATE.**
+    // §MH-S4 wrote these two as `_cfg.mobile_autoregister || _mobile_home_desired`, which made `mobile unregister`
+    // INTERNALLY CONTRADICTORY on the only kind of device most fleets ship: with `mobile_autoregister` ON the verb
+    // set the attachment plane to `dormant` while BOTH predicates stayed TRUE, so §4.3's stated post-condition
+    // ("end the current volatile attachment session and return to `dormant`") was true of one member and false of
+    // the machine. Nothing scheduled a replacement DISCOVER either, so the device was neither dormant nor seeking —
+    // it was inert until something else happened to arm a timer, and §MH-S4's own test had to INJECT the timer the
+    // verb had just cancelled in order to observe autonomy resume. ⚠ A test that injects the very timer production
+    // would have to schedule is a harness modelling something that does not exist ([[B145]]'s hand-pumped callbacks,
+    // [[B143]]'s call-history-as-state).
+    // ⇒ ONE state answers "is a home-service session live?", it is INITIALISED FROM `mobile_autoregister` at
+    //   `on_init` (§4.2: "`true`: boot enters `seeking` automatically"), and both predicates read it DIRECTLY.
+    //   `mobile unregister` therefore suppresses attachment until a manual `mobile register` or a reboot — which is
+    //   §4.2's sentence, now expressible.
+    // ⓘ `mobile_autoregister` keeps its field, its JSON key and its meaning (§4.2 compatibility): it is the BOOT
+    //   POLICY, read once. ⛔ It is deliberately NOT re-read afterwards — §4.2: "once an attachment session was
+    //   explicitly started, … continue INDEPENDENTLY of this initial-auto flag." Turning the flag OFF at runtime
+    //   must not end a live session; only `mobile unregister` does. (Turning it ON at runtime is an explicit
+    //   request for home service and `cfg set` routes it through `mobile_register_current()` — src-side, so the
+    //   corpus cannot reach it.)
+    // ⓘ CORPUS-INERT BY CONSTRUCTION, and the reason CHANGED with the shape, so it is restated rather than
+    //   inherited: `_mobile_home_desired` is now seeded from `_cfg.mobile_autoregister` at `on_init` and is
+    //   written afterwards ONLY by the `mobile register`/`unregister` console entries, which the simulation
+    //   harness cannot drive (s29's own `_desc` records this) ⇒ in every corpus scenario this predicate holds
+    //   `_cfg.mobile_autoregister`'s value from `on_init` to the end of the run, bit for bit.
+    bool    registration_armed()     const { return _mobile_home_desired; }
+    bool    mobile_service_desired() const { return _mobile_home_desired; }
+    void    mobile_request_home_service();                     // §4.2/§4.3: set home-service desired + enter `seeking` (idempotent while already seeking/claiming)
     void    mobile_reset_registration(const char* reason);     // drop registration -> re-enter discovery
+    // ★★★ §MH-S4 §7.1 steps 5-6 — THE SAME-EPOCH RE-CLAIM. `presence_claim_max_retries` had ZERO consumers
+    // before this slice (measured by grep, and by the §S0-4 characterization case observing that no second
+    // CLAIM ever reached the air). These two functions are its consumers:
+    //   · `mobile_reclaim_send()`      re-sends THE SAME CLAIM — same chosen host, same local id, SAME EPOCH —
+    //     rebuilt from the retained `_mobile_offers[0]` stage (U2: one carrier, no second copy of the offer).
+    //   · `presence_claim_unconfirmed()` is the ONE decision point for both §7.1 triggers, because §7.1 step 6
+    //     says silence follows THE SAME BOUNDED COUNT as a roster that omits us: spend a retry if the budget
+    //     allows, else RESET AND RETURN TO `seeking` rather than remaining falsely registered.
+    // ★★★★ §MH-S4b — IT RETURNS **WHETHER THE FRAME WAS ADMITTED BY OUR OWN TRANSMITTER**, and that return value
+    // is the only thing allowed to spend a re-CLAIM. §MH-S4 incremented `_mobile_claim_retries` on the line BEFORE
+    // this call, so a mobile whose radio refused all three retries reported `claim_unconfirmed` with NOT ONE
+    // re-CLAIM ever on the air — the fifth appearance in this arc of one rule: ★ **A BUDGET IS SPENT BY THE
+    // PHYSICAL ACT, NEVER BY THE REQUEST** ([[B84]]'s `_tries`, [[B145]]/[[B146]]'s OFFER counters, [[B139]]'s
+    // `_presence_miss`, now this).
+    // ⛔ THE BOUNDARY, AND IT IS THE SAME ONE [[B139]] HAD TO GET RIGHT: `tx_initiating` answers **true** for a
+    //    frame merely ACCEPTED INTO the LBT defer ring (`node_mac.cpp` sets `*out = deferred` and returns queued).
+    //    A deferred re-CLAIM legitimately IS in flight and MUST be counted. Only a DEFINITIVE refusal — a full
+    //    defer ring or a HAL rejection, i.e. `false` here — is excluded. The one remaining case is a frame that was
+    //    deferred (counted) and then refused by the HAL when the defer fired: it never reached the air, so it is
+    //    REFUNDED, by `mobile_reclaim_deferred_rejected()` below and nowhere else.
+    bool    mobile_reclaim_send();
+    void    presence_claim_unconfirmed(const char* why);
+    // ★★★ §MH-S4b — the DEFERRED half of the rule above. Called from node.cpp's `tx_deferred_lost` arm for
+    // `LbtKind::mobile_claim`. Answers TRUE iff the dead frame was a RE-CLAIM, in which case it refunds the
+    // retry and the caller must NOT fall into `mobile_admission_rejected` (that is the PRE-attachment FSM's
+    // backoff, and a `claiming` mobile is past it). ⓘ It identifies the transaction BEFORE acting on it
+    // ([[B147]]): a FIRST CLAIM still holds `_mobile_claim_pending` — only `mobile_claim_adopt` clears it and
+    // this frame never reached it — while a re-CLAIM is sent with the flag deliberately FALSE from an already
+    // provisionally-attached, `claiming` node.
+    bool    mobile_reclaim_deferred_rejected();
     // ★★ §MH-S1 §6.1/§6.3/§6.4 — the ONE handler for "OUR transmitter refused an attachment frame",
     // shared by the DISCOVER and the CLAIM site (U1: one discipline, not two). It does exactly three
     // things and deliberately no more:
     //   1. records `why` as the last attempt result (§10) — ⛔ NEVER `mobile_no_host`, which would blame
     //      a home that was never asked, and ⛔ never a home-link state (gate 20: `_my_mobile_reg` and
     //      `_presence_*` are not touched here, by construction);
-    //   2. re-arms `_mobile_arm_once`, because the attempt NEVER HAPPENED — consuming a manual
-    //      `mobile register` one-shot on a frame that never left the radio would silently discard the
-    //      operator's request (autoregister=false makes the retry in 3 a no-op without this);
+    //   2. ⚠ §MH-S4 §4.2 — STEP 2 IS GONE, and its DISAPPEARANCE is the fix, not a regression. It used to
+    //      re-arm `_mobile_arm_once` "because the attempt never happened", i.e. it patched up a one-shot the
+    //      FSM had already eaten. `_mobile_home_desired` is DURABLE, so there is nothing to restore: the
+    //      retry in 3 is authorised for as long as the operator's request stands. The old restore is also why
+    //      the retry below had to be documented as "unconditional on mobile_autoregister"; it now simply
+    //      services `mobile_service_desired()`, which is the honest condition;
     //   3. arms a BOUNDED retry (gate 6) on kMobileDiscoverTimerId.
-    // ⛔ DRAW-FREE BY CONSTRUCTION: the retry delay is the existing `mobile_offer_window_ms` constant,
-    //    not `rand_range`. S3 is the only planned RNG re-anchor in this arc; a draw here would destroy
-    //    that attribution. Jittering this retry is S3's, and is marked so at the call site.
+    // ★★ §MH-S3 §5.2 — STEP 3 NOW DRAWS, and this note is the record of S1's marker being HONOURED rather
+    //    than left to rot. S1 wrote here "⛔ DRAW-FREE BY CONSTRUCTION: the retry delay is the existing
+    //    `mobile_offer_window_ms` constant, not `rand_range` … jittering this retry is S3's, and is marked
+    //    so at the call site." S3 is that slice: the delay is now `mobile_equal_jitter(mobile_offer_window_ms)`
+    //    = rand(1000, 2001). ★ IT IS THE SAME FAILURE MODE §5.2 NAMES: a fleet whose transmitters all refuse
+    //    on one busy channel used to retry in lockstep at exactly 2000 ms and storm the channel again.
     void    mobile_admission_rejected(TxAdmission why, const char* site);
+    // ★★ §MH-S3 §5.2 — THE ONE MOBILE-SIDE EQUAL-JITTER DRAW SITE (U1: three callers, one discipline, one
+    // place to read the contract). Consumes EXACTLY ONE `rand_range` and returns a delay in
+    // [window/2, window]. The bounds themselves are the pure `protocol::equal_jitter_*` pair, so they are
+    // unit-testable without a Hal. ⛔ Every caller must be a MOBILE-plane path — this is the draw whose
+    // absence keeps the static plane byte-identical (C3), and it is why s18 is S3's inertness proof.
+    uint32_t mobile_equal_jitter(uint32_t window);
     // ★★ §MH-S1b §6.3 — THE ADOPT HALF OF THE CLAIM ADMISSION BOUNDARY. Split out of
     // `mobile_claim_guard_fire` verbatim so it can be called from `lbt_complete` at the accepted handoff
     // instead of at the request. On a clear channel that is the SAME instant (lbt_complete is entered
@@ -2166,6 +2394,67 @@ private:
     static_assert(offsetof(PendingIdPubkey, id) == 8, "node.h: PendingIdPubkey::id left the tail pad after deadline_ms");
     static constexpr uint8_t cap_pending_id_pubkey = protocol::cap_pending_id_pubkey;
     PendingIdPubkey _pending_id_pubkey[cap_pending_id_pubkey] = {};
+    // ★★★ §MH-S2 §5.3.2/§5.3.3 — THE KEYED PENDING-OFFER RING, and the [[B137]] PENDING-ID RESERVATION IT CARRIES.
+    // It REPLACES `LayerRuntime::_pending_offer`, the single 13-byte slot whose "last DISCOVER wins" overwrite §S0-1
+    // reproduced: a second mobile's DISCOVER arriving inside the host's 100..1000 ms OFFER jitter destroyed the first
+    // mobile's targeted OFFER outright, and that mobile was never answered at all.
+    //
+    // ★ NODE-GLOBAL, NOT PER-LAYER, AND THE REASON IS A SEMANTIC ONE, NOT A RAM ONE. `can_host_mobiles()` is
+    // `host_mobiles && !is_mobile && !is_gateway && n_layers == 1`, so **a legal home is necessarily a single-layer
+    // non-gateway node**. Sizing the ring `x MR_N_LAYERS` would buy no capacity whatsoever — it would only double the
+    // RAM on a node that can never reach the second dimension. (Its predecessor lived in LayerRuntime, which is why
+    // `mobile_host_pending_clear` had to loop over both leaves; that loop is now unnecessary FOR THE OFFER and the
+    // function says so at its site.)
+    //
+    // TWO INDEPENDENT LIFETIMES PER SLOT, and confusing them is the mistake this comment exists to prevent:
+    //   • ARMED   — `len != 0`: a packed OFFER waiting for `due_ms`. Cleared by `jtx_fire` at the transmission.
+    //   • RESERVED — `reserve_until_ms != 0`: [[B137]]'s promise that `proposed_id` belongs to `target_key_hash32`.
+    //     It OUTLIVES the transmission (that is the whole point — the CLAIM has not arrived yet) and is released by
+    //     the matching CLAIM or by `mobile_offer_fire`'s deadline scan at `mobile_offer_reservation_ms`.
+    // ⇒ the slot is IN USE while EITHER holds. `reserve_until_ms` is the occupancy flag, because every armed entry
+    //   also holds a reservation but not every reservation is still armed.
+    //
+    // ★★★ §MH-S2b — AND THE ONE CONSEQUENCE THE DOCS KEPT BLURRING, WRITTEN OUT HERE ONCE. "A duplicate DISCOVER
+    // coalesces" and "a re-DISCOVER retains its reserved id" are TWO DIFFERENT BEHAVIOURS on the SAME slot, and
+    // which one you get is decided by `len`, i.e. by whether the OFFER has flown yet:
+    //   • DUPLICATE, entry still ARMED (`len != 0`) -> **COALESCE**. An answer is already on its way inside the
+    //     100..1000 ms jitter window. Nothing is scheduled, no slot is consumed, **no RNG draw is made, and the
+    //     deadline is NOT moved** (moving it would let a retry-happy mobile postpone its own OFFER forever).
+    //     `mobile_offer_admit` returns `duplicate`; the caller emits `mobile_offer_coalesced`, which deliberately is
+    //     NOT `mobile_offer_scheduled` — nothing was scheduled.
+    //   • RE-DISCOVER, entry already TRANSMITTED (`len == 0`, reservation still live) -> **RE-ARM THE SAME SLOT,
+    //     KEEPING THE SAME RESERVED ID.** The mobile did not hear the OFFER, so the correct answer is a NEW OFFER —
+    //     a fresh frame, a fresh deadline and therefore a fresh draw, into the slot it already owns. The id is
+    //     unchanged because `find_free_mobile_id` returns a live reservation's own id to its own key, so the caller
+    //     has already handed us the same `proposed_id`. `mobile_offer_admit` returns `armed`.
+    // ⛔ Reading the second case as a "duplicate" would answer every re-DISCOVER with SILENCE for the whole 10 s
+    //    reservation; reading the first as a re-arm reintroduces the deadline-shifting the coalesce exists to stop.
+    //    ⓘ Both are exercised natively (`§MH-S2 (spec §5.3.3)`), and both are corpus-inert — `mobile_offer_coalesced`
+    //    occurs 0 times in all 36 streams, so the native gate is the ONLY thing standing over this distinction.
+    struct PendingMobileOffer {
+        uint64_t due_ms            = 0;   // §5.3.3: this entry's OWN jitter deadline (valid while len != 0)
+        uint64_t reserve_until_ms  = 0;   // [[B137]]: reservation bound; 0 = slot FREE
+        uint32_t target_key_hash32 = 0;   // §5.3.2 item 1: THE KEY. Coalescing is by hash — ⛔ never by slot index
+        uint8_t  buf[13]           = {};  // the packed j_offer (pack_j_offer emits exactly 13 B)
+        uint8_t  len               = 0;   // jtx "armed" flag: 0 = nothing to transmit (fired, or reservation-only)
+        uint8_t  proposed_id       = 0;   // the RESERVED local id this OFFER proposes
+    };
+    // ⚠ MEASURED, NOT INFERRED (D2), on native + all four board toolchains: 40 B/slot, alignof 8 — the two 8-aligned
+    // deadlines first, the u32 key, then buf+len+proposed_id (15 B) in the 4+16 that follows, 5 B of tail pad. The
+    // ring is therefore 8 x 40 = 320 B and, being a multiple of 8, opens NO hole at its insertion point (immediately
+    // after the 8-aligned end of `_pending_id_pubkey` — `_peer_loc`'s own precedent at the same seam).
+    static_assert(sizeof(PendingMobileOffer) == 40 && alignof(PendingMobileOffer) == 8,
+                  "node.h: PendingMobileOffer moved — x cap_pending_mobile_offers, and sizeof(Node) has moved");
+    static_assert(offsetof(PendingMobileOffer, buf) == 20 && offsetof(PendingMobileOffer, proposed_id) == 34,
+                  "node.h: PendingMobileOffer's tail left the pad the two u64 deadlines already force");
+    static constexpr uint8_t cap_pending_mobile_offers = protocol::cap_pending_mobile_offers;
+    PendingMobileOffer _pending_mobile_offers[cap_pending_mobile_offers] = {};
+    // §5.3.2 item 8 — the two counters §10 asks for beside the ring. MEASURED to cost ZERO: both land in the padding
+    // that already sat between the 8-aligned ring end and the members after it (probed by removal — sizeof(Node)
+    // identical with and without them). Monotonic, never reset; a uint16 wraps at 65535 on a host that refused that
+    // many OFFERs, which is a diagnostic, not a ledger.
+    uint16_t _mobile_offer_ring_full_n = 0;   // admissions refused because every slot was in use (§5.3.2 item 5 `full`)
+    uint16_t _mobile_offer_reject_n    = 0;   // armed OFFERs our OWN transmitter definitively refused at the fire (§6.2)
     // ★★★ §AB4 — RETAINED PEER LOCATION (address-book spec 2026-07-29 §2.7/§2.7.1, owner-ruled 2026-07-31).
     // key_hash32 -> that peer's last known position, so `peers` / `nameof` can show it. Node-GLOBAL (not LayerRuntime,
     // unlike its _peer_keys/_id_bind/_team_keys neighbours): a key_hash32 is a layer-INDEPENDENT identity, so a
@@ -2296,8 +2585,25 @@ private:
     bool      _presence_dir_epoch_seen = false;                 // have we seen ANY roster dir_epoch yet
     bool      _presence_prescan  = false;                       // weak/critical -> collect candidate homes from beacons/rosters
     bool      _presence_key_confirmed = false;                  // §S6 A.4: home confirmed our key (roster has_key=1) -> stop attaching ed_pub to probes
-    bool      _presence_reg_confirmed = false;                  // §S6: home confirmed our REGISTRATION (our hash seen in ITS roster) — else a lost CLAIM is re-sent (replaces the retired reclaim keepalive's heal role)
-    bool      _mobile_arm_once = false;                         // §autoregister ruling (2026-07-21): one-shot manual `mobile register` arm — consumed by the DISCOVER half when mobile_autoregister is OFF (fits the existing bool-run padding; sizeof(Node) unchanged)
+    // ★★★ §MH-S4 §4.1 — NOW LOAD-BEARING. Before this slice it had TWO WRITES AND ZERO READS (measured by
+    // grep across lib/core + src, and proven observably by the §S0-4 characterization case: no second CLAIM
+    // ever reached the air). It answers exactly one question — *"has the chosen home ever shown our row in
+    // ITS OWN roster?"* — and TWO decisions now read it:
+    //   1. the ONCE-ONLY promotion in `presence_ingest_roster`: the `claiming` -> `attached` transition, the
+    //      `mobile_reg{registered:true}` push and the confirmation stamp fire on the FIRST matching roster and
+    //      never again for the same attachment (a home rosters every ~T; the app must not be re-notified);
+    //   2. the roster-ABSENT fork: absent-and-never-confirmed means THE CLAIM WAS NEVER RECORDED (§7.1 step 5
+    //      — re-send the same CLAIM), while absent-after-confirmed means THE HOME DROPPED US (reboot/eviction
+    //      — the pre-existing staggered re-register). ★ The two arms are different actions on IDENTICAL wire
+    //      evidence, so a flag that distinguishes them is not redundant with the FSM state; it is what makes
+    //      the FSM state derivable at all.
+    bool      _presence_reg_confirmed = false;                  // §MH-S4 §7.1: the chosen home confirmed our REGISTRATION (our hash+local id+epoch in ITS roster)
+    // ★ §MH-S4 §4.2 — the VOLATILE home-service request. Replaces the consumed one-shot `_mobile_arm_once`
+    // AT THE SAME BYTE (same type, same position in the bool run) so this member costs NOTHING; only its
+    // LIFETIME changed, from "consumed by the first DISCOVER" to "held until `mobile unregister` or reboot".
+    // ⛔ Deliberately NOT persisted to NV: §4.2 rules that a device with `mobile_autoregister` OFF is dormant
+    //    again after reboot, and that a device needing attachment restored across reboots uses the flag ON.
+    bool      _mobile_home_desired = false;
     // §MH-S1 §10: the last attachment-attempt outcome (see MobileAttemptResult). Placed at the END of the
     // bool run above and BEFORE the 8-aligned `_last_adopt_ms`: that run is `_presence_my_tier`(u8) +
     // `_presence_dir_epoch`(u8) + five bools = 7 bytes on an 8-byte boundary, so ONE pad byte was already
@@ -2308,6 +2614,26 @@ private:
     uint64_t  _last_adopt_ms     = 0;                           // §S6.4-C dwell anchor (last (re)adopt)
     uint64_t  _presence_last_pull_ms = 0;                       // D6 safety-pull clock
     int16_t   _presence_home_rx_q4 = 0;                         // §S6/D14: my RX EWMA (Q4) of my HOME's frames (home->me direction; paired with _presence_my_tier = me->home)
+    // ★★★★ §MH-S4b §7.1 step 3 — **THE SOLICITATION SUBSTATE, AND IT IS WHAT MAKES SILENCE DISTINGUISHABLE FROM
+    // REFUSAL.** While `claiming`, one deadline id (`kPresenceProbeTimerId`) has to mean two different things in
+    // alternation, and §7.1 describes them as two steps with a WAIT between:
+    //   false ⇒ "we have not asked yet" — the next fire SENDS the short SEARCHING solicitation probe (step 3) and
+    //           then waits `presence_claim_confirm_ms` for a roster. It spends NO budget.
+    //   true  ⇒ "we asked and are waiting" — the next fire means the roster deadline EXPIRED with no answer
+    //           (step 6's silence), which is the only event entitled to spend a re-CLAIM.
+    // ⛔ §MH-S4 had no such distinction, so the probe and the verdict happened in ONE callback: the budget was
+    //    spent before the answer could physically arrive, and a home that had missed the CLAIM was asked with a
+    //    SELECTED probe it is required to IGNORE (`node_join.cpp` `presence_ingest_probe`: "a check probe for a
+    //    hash we don't host -> ignore"). The one mechanism meant to detect the miss could not.
+    // ⛔ NOT a sixth `MobileAttachState`: §4.1 fixes that enum's five values as the app-facing contract, and this
+    //    is a substate OF `claiming`, not a peer of it. It is surfaced separately as `claim_solicited` (§10).
+    // ⓘ PLACEMENT — MEASURED on the tripwire, not inferred: `_presence_home_rx_q4` (i16) is followed by SIX bytes
+    //   of pure alignment pad before the 8-ALIGNED `PresenceCand[]` (this is the very hole the DECLINED u32
+    //   confirmation-stamp variant would have used — see `_mobile_home_confirmed_ms` below), so this bool takes
+    //   one of them and the hole shrinks to five. `sizeof(Node)` is UNCHANGED. FOURTEENTH application of the
+    //   radio_freq_mhz / team_hop_cap / _channel_seal_ctr padding-placement rule.
+    // ⚠ Its SEMANTIC home is beside `_mobile_claim_retries`; it lives here for the padding reason and no other.
+    bool      _mobile_claim_solicited = false;
     // §S6.4-C candidate home. D14 bidirectional: snr_q4 = my RX of its roster/beacon (cand->me); echo_tier = its echo of MY probe (me->cand), 0xFF = unknown. Selection ranks by the WORSE of the two.
     struct PresenceCand { uint8_t home_id; uint8_t home_layer; int16_t snr_q4; uint8_t echo_tier; uint64_t first_seen_ms; uint64_t last_seen_ms; bool incompatible = false; };  // §D16: incompatible = heard a wrong-wire_version roster from this home -> never DISCOVER at it
     PresenceCand _presence_cand[protocol::cap_presence_candidates] = {};   // §S6.4-C overheard candidate homes (strongest-sustained wins)
@@ -2331,7 +2657,46 @@ private:
     //   SEMANTIC home is beside `_mobile_claim_pending`, where it costs 8 bytes (only 2 pad bytes are left
     //   before the 4-aligned `_mobile_backoff_ms`); it lives here for that reason and no other. Eleventh
     //   application of the radio_freq_mhz / team_hop_cap / _channel_seal_ctr padding-placement rule.
+    // ★★★ §MH-S4 §4.1 — THE TWO INDEPENDENT PLANES + THE RE-CLAIM BUDGET, AND ALL THREE COST ZERO BYTES.
+    // ⛔ THE TWO STATES ARE NEVER DERIVED FROM EACH OTHER. §4.1: "the two are orthogonal — a node can be
+    //    `attached` with the link `checking`, and it must render as such." Any code that computes one from the
+    //    other has re-created the single `registered` bit this slice exists to split.
+    // ⓘ PLACEMENT — MEASURED BY BISECTION ON THE TRIPWIRE, AND THE FIRST PREMISE WAS WRONG. [[B142]]'s note
+    //   below records that `_presence_cand_n` (u8) was followed by SEVEN bytes of pure alignment pad before the
+    //   8-ALIGNED `DeniedId _join_denied[]`, that its own u32 took FOUR of them, and that "the hole shrinks to
+    //   THREE". ★ THOSE THREE BYTES SIT **BEFORE** `_mobile_attach_gen`, NOT AFTER IT — the u32 needs 4-alignment,
+    //   so it lands at the END of the run and closes the boundary exactly. Declaring this trio AFTER the u32
+    //   therefore MEASURED +8 (221376 -> 221384 with the trio alone); moved HERE, ahead of the u32, it measures
+    //   **+0**. That is the whole reason these three lines precede `_mobile_attach_gen` and it is why the note
+    //   says "measured": the plausible-sounding version of the padding argument was off by one member.
+    //   THIRTEENTH application of the radio_freq_mhz / team_hop_cap / _channel_seal_ctr padding-placement rule.
+    // ⚠ Their SEMANTIC home is beside `_my_mobile_reg`; they live here for the padding reason and no other.
+    MobileAttachState _mobile_attach_state = MobileAttachState::dormant;   // §4.1 attachment plane (authority: a matching chosen-home P roster)
+    MobileHomeLink    _mobile_home_link    = MobileHomeLink::unknown;      // §4.1 home-link plane (authority: a recent correlated bidirectional exchange)
+    uint8_t   _mobile_claim_retries = 0;                        // §7.1 steps 5-6: same-epoch re-CLAIMs spent on THIS attachment (cap = protocol::presence_claim_max_retries)
     uint32_t  _mobile_attach_gen = 0;
+    // ★ §MH-S4 §4.1 — THE CONFIRMATION TIMESTAMP, so every surface can render the AGE rather than an
+    // unconditional "Connected". 0 = never confirmed (distinguished from "confirmed at t=0" by
+    // `mobile_home_confirmed_ever()`; `_hal.now()` is never 0 at a real confirmation because a roster must
+    // have been received first).
+    // ⓘ COST: 8 bytes, and it is a genuine cost, NOT a padding win — this is the 8-aligned u64 run
+    //   (`_last_adopt_ms` / `_presence_last_pull_ms`), which has no hole. ⇒ THE WHOLE §MH-S4 STATE COST IS
+    //   THIS ONE MEMBER: 221376 -> 221384, +8, native.
+    // ⚠ A +0 ALTERNATIVE EXISTS, WAS MEASURED, AND WAS DECLINED — recorded here so the choice is visible rather
+    //   than looking like an oversight. Narrowing this to `uint32_t` and placing it after `_presence_home_rx_q4`
+    //   (an i16 followed by 6 bytes of pad before the 8-aligned `PresenceCand[]`) measures **221376, +0 exactly**.
+    //   ⛔ DECLINED under M3's "pick the RIGHT shape, never contort a design to fit a spare bit": a u32 ms stamp
+    //   costs a truncating cast, wrap-relative age arithmetic, a 49.7-day validity ceiling and a once-per-49.7-days
+    //   collision between "confirmed at this instant" and the 0 sentinel — real reasoning debt, traded for 8 bytes
+    //   on a node whose tightest board sits at 73.2 % RAM. The u64 is also the idiom of every stamp beside it
+    //   (`_last_adopt_ms`, `_presence_last_pull_ms`, `last_heard_home_ms`) — U3.
+    // ⛔ NOT folded into `_my_mobile_reg.last_heard_home_ms`, which was the other tempting zero-byte reuse and is
+    //   WRONG on MEANING, not on cost: that field has FOUR writers (node_beacon.cpp:676, node_mac_rx.cpp:52 and
+    //   :431, and the roster site), three of which are ONE-WAY hints — a heard beacon, a received frame. §7.2
+    //   rules that inbound beacons alone are NOT bidirectional confirmation, so reusing that stamp would have made
+    //   this age field claim a bidirectional confirmation on the strength of one-way evidence: the exact
+    //   display-shaped-field defect. Gate 22 is the test that catches it.
+    uint64_t  _mobile_home_confirmed_ms = 0;
 #endif
     struct DeniedId { uint8_t id; uint64_t t_ms;                 // a slot that lost a claim/heal (§13: 1-day TTL)
                       bool same_key(const DeniedId& o) const { return id == o.id; } };
@@ -2560,7 +2925,10 @@ private:
         // dedup maps.
         std::map<uint8_t, uint16_t>  _peer_send_counter;   // next_ctr per dst
         uint16_t     _peer_ctr_floor = 0;                  // D7: per-peer next_ctr floor (persisted high-water; resumes DM ctrs above the pre-reboot value)
-        std::map<uint32_t, LastAcked> _last_acked_from;    // key (src<<24|dst<<16|ctr_lo<<8|len)
+        // ⛔ §B153 (2026-08-08): `_last_acked_from` (the RTS-time `already_received` cache) is GONE, and with it
+        // `struct LastAcked`. A 7-B RTS cannot prove message identity, so no terminal dedup answer may be built
+        // from one — the DATA-level `_seen_origins` below is the sole authority. See frame_codec.h's
+        // `already_received` note for the argument. ⛔ Do not reintroduce it.
         std::map<uint64_t, uint64_t>  _seen_origins;       // §1b TYPE-NAMESPACED flight key -> expiry_ms. PLAINTEXT =
                                                            // (origin<<24|dst<<16|ctr) in [0,2^32); CRYPTED = the full
                                                            // 8-B nonce-seed | (1<<63) in [2^63,2^64) — disjoint, can't alias.
@@ -2611,14 +2979,11 @@ private:
         uint32_t        _roster_echo_hash = 0;
         uint8_t         _roster_echo_q = 0;
         bool            _roster_echo_pending = false;
-        // §S6/QA-3b OFFER de-storm: a jittered mobile OFFER (stashed, fired by kMobileOfferBackoffTimerId) so co-located
-        // hosts don't answer one DISCOVER at the SAME ms (the collision that let a mobile adopt the WEAK home). Single-slot
-        // (last DISCOVER wins) — a v1 limitation; concurrent multi-mobile DISCOVERs at one host are rare.
-        // The single-slot member of the jittered_tx_stash.h family (jtx_stash_arm + jtx_fire); the two
-        // §F-XL rings are the ring-shaped members. Bare array + len rather than a struct, which is why
-        // the single-slot entry point takes the buffer, its capacity and the length separately.
-        uint8_t         _pending_offer[13] = {};
-        uint8_t         _pending_offer_len = 0;
+        // ⓘ §MH-S2: the OFFER de-storm stash USED to live here — `uint8_t _pending_offer[13]` + `_pending_offer_len`,
+        // ONE slot per leaf, "last DISCOVER wins". It is GONE, replaced by the node-global keyed ring
+        // `Node::_pending_mobile_offers` (see its note above for why node-global is the SEMANTICALLY correct scope and
+        // not merely the cheaper one). Recorded here rather than silently deleted so a reader of the per-leaf state
+        // does not go looking for it.
         // §per-layer discovery (2026-07-05): a GATEWAY bootstraps each leaf INDEPENDENTLY — the boot leaf must not trip
         // the OTHER leaf out of fast-cadence discovery (node-global discovery starved leaf 1 -> the 3h heartbeat). A
         // single-layer node has ONE leaf, so _active is always &_layers[0] => per-leaf ≡ the old node-global state
@@ -2701,7 +3066,7 @@ private:
 // pointer/enum/alignment). Purpose: the node.h legibility reorder (2026-07-15 by-concern member reorder) must not
 // change Node's layout. If this fires after a *deliberate* member add/remove/type change, update the baseline
 // consciously — it is a tripwire, not a frozen contract. The real nRF52 RAM check is the firmware.map .bss/.data diff.
-static_assert(sizeof(Node) == 221088, "node.h: Node native layout changed — if intentional, update the baseline");   // 221024 -> 221088 (+64 §id-hash S4b — the `resolve-id-for-pubkey` intent ring, MEASURED by offsetof + the assert pair beside the struct, not inferred: sizeof(PendingIdPubkey) = 16 (offsetof(id) = 8, i.e. both bytes sit in the tail pad the 8-aligned `deadline_ms` already forces) x cap_pending_id_pubkey(4) = 64. Inserted immediately after `_pending_e2e_acks`, which ends 8-ALIGNED (PendingE2eAck[8] x 24) — §AB4's `_peer_loc` precedent at the same seam — and 64 is a multiple of 8, so every later member shifts by exactly 64 and NO hole opens anywhere. ⚠ NOT team-gated and deliberately so: a by-id `reqpubkey` on the STATIC plane is the bench defect this arc opened with (spec §0), so a gateway build carries the ring too. Per-board RAM deltas in the slice report.). 220976 -> 221024 (+48 §tx-admission TX3 — the OWNER-RULED transmitter-admission boundary for the channel digest: DeferredLbt gains `uint32_t digest_ids[3]`, MEASURED by offsetof not inferred: sizeof(DeferredLbt) 164 -> 176 (+12), offsetof(digest_ids)=12 and offsetof(buf) 12 -> 24, i.e. it lands in the 4-aligned run before `buf` and opens NO new hole; x kLbtSlots(4) = +48. ⚠ The BRIEFED estimate was +64 (3 ids + a count byte); the count byte was removed by making `digest_ids[0] == 0` the terminator — a live channel id can never be 0 (channel_msg_id_mint packs origin >= 1 into the high byte) — which is what bought the 16 bytes back. Per-board RAM deltas in the slice report.). 220968 -> 220976 (+8 §chan-crypt CL2a, and BOTH new members are measured by offsetof + a template-reveal, not inferred. TWO members were added and only ONE of them costs anything. (a) `_team_ch_nokey_push_ms`, a uint64_t, is appended to the EXISTING 8-aligned run of own-origin ms stamps (_ack_warn_until / _last_channel_origin_ms / _last_dm_origin_ms) and the member after that run is the 4-aligned `_nack_wait_flight_gen`, so it opens NO hole anywhere and costs exactly its own 8 bytes. (b) `_channel_seal_ctr`, a uint16_t, costs ZERO — and where it sits is the whole reason. Its SEMANTIC home is beside `_relay_seal_ctr` (native offset 186), and MEASURED there it costs EIGHT: at 188 it pushes _admin_pubkey 188->190, which pushes the 4-aligned _admin_counter_floor 220->224 (two new pad bytes) and then the 8-aligned _cfg 472->480 (six more). Placed instead immediately after `_remote_inbound` it lands at 470, inside the 2-byte pad that already sat before the 8-aligned _cfg, and sizeof is unchanged by it. EIGHTH application of the padding-placement rule below. (c) NodeConfig::team_channel_crypt costs ZERO TOO and is NOT part of this +8: sizeof(NodeConfig) 256 -> 256, because the bool takes native byte 95 — the one pad byte still left in the dv_hop_cap@93 / team_hop_cap@94 / radio_freq_mhz@96 hole that team_hop_cap's own note describes. SEVENTH application. ⚠ this line is native-ONLY, so the per-target proof is the compile-only sizeof reveal on the REAL toolchains with the REAL per-env flag sets, recorded in the §chan-crypt CL2a slice report — and NOW INLINE, because omitting them left the newest per-target numbers in this ledger reading as AB4's and therefore STALE BY +8, which §b39 caught: xiao_sx1262 / xiao_esp32s3 117048 -> **117056**, gateway / gateway_esp32s3 147664 -> **147672**, both *_mobile 117016 -> **117024**.). 220648 -> 220968 (+320 §AB4 — the retained-peer-location ring, and BOTH halves of the number are measured, not inferred. THE RECORD: sizeof(PeerLoc) = 20, alignof 4, offsetof(src) = 16 — i.e. §2.7.1's briefed `{u32 hash; i32 lat; i32 lon; u32 t_s}` really is 16 B with no padding (that premise HELD, measured), but the RESCOPE that added `loc_src` pushed it to 20 with a 3-byte tail hole, so the spec's "16 B exactly, x16 = 256 B" and its own loc_src requirement cannot both be true — 320 B is the honest figure. Those 3 bytes are declared as a NAMED `reserved[3]` member: identical size, but IMPLICIT tail padding is INDETERMINATE after `PeerLoc{}`, which would make any memcmp-style comparison over the record unsound (AB1's lesson, which briefed 70 B and measured 72). THE PLACEMENT, by offsetof native and cross-checked on ARM: `_peer_loc[16]` is inserted immediately after `_pending_e2e_acks` and before `_parked_sends_n`. `_pending_e2e_acks` is PendingE2eAck[8] x 24 B ending on an 8-ALIGNED boundary (native 5208+192 = 5400; ARM 5192+192 = 5384), and PeerLoc needs only 4, so the array opens NO hole and its 320 B (= 8x40, itself a multiple of the 8-alignment downstream) shifts every later member by exactly 320: native `_l2c_redirect` 5408 -> 5728, ARM 5392 -> 5712. ★ AND THE COUNT BYTE `_peer_loc_n` COSTS ZERO: `_parked_sends_n` (a uint8_t) was already followed by SEVEN bytes of pure alignment pad before the 8-aligned `_l2c_redirect` (native 5401..5407, ARM 5385..5391); `_peer_loc_n` takes one of them and the hole shrinks to SIX (native 5722..5727, ARM 5706..5711). SIXTH application of the radio_freq_mhz / team_hop_cap / HashQuerySeen.team_scoped / T5-PeerLiveness / T-K1-_team_ch_key_present padding-placement rule. ⚠ this line is native-ONLY, so the per-target proof is a compile-only sizeof reveal on the REAL toolchains with the REAL per-env flag sets, whose PRE column reproduces this ledger's §loc-per-send figures EXACTLY (that is what calibrates it): xiao_sx1262 116728->117048, gateway 147344->147664, xiao_mobile 116696->117016, xiao_esp32s3 116728->117048, gateway_esp32s3 147344->147664, xiao_esp32s3_mobile 116696->117016 — ★ +320 UNIFORMLY ON ALL SIX ABI x member-set cells, no cell disagreeing and no hole opening anywhere, INCLUDING the two MR_FEAT_TEAM 0 gateways: the ring is deliberately NOT team-gated, because its live source is a sealed DM and a static-only build receives one exactly as a team member does. ⇒ the six-env LINK grid was NOT run and did not need to be: the grid exists to find a per-target padding difference, and the six-cell probe measured that there is none — so the RAM/flash figures come from the standard three envs (T-K1's recorded precedent).). 220656 -> 220648 (−8 §loc-per-send, and this one is worth reading because it is the FIRST entry in this ledger that REMOVES a member — a single `bool`, and it paid back EIGHT bytes, not one. Arithmetic, MEASURED by offsetof + a template-reveal on all six board flag-sets, not inferred: NodeConfig's tail ran lat_e7 @164, lon_e7 @168, then the four bools loc_in_dm @172 / loc_in_m @173 / e2e_dm @174 / intro_attach @175, then n_layers @176, SEVEN bytes of pure alignment pad (177..183), and the 8-ALIGNED `LayerConfig layers[2]` (40 B each) @184, ending at 264 with no trailing pad. Deleting `loc_in_dm` slides the three surviving bools and n_layers down one, so n_layers lands at 175 — the LAST byte before the 8-byte boundary — and `layers` moves back to 176, ending at 256. ⇒ sizeof(NodeConfig) 264 -> 256. The byte was therefore NOT sitting in a hole (the padding-placement rule's usual case, five prior applications below): it sat exactly ON the boundary, so it was costing a FULL 8-byte quantum and its removal reclaims all of it, while the 7-byte hole after n_layers shrinks to 0. Node embeds one 8-aligned `_cfg` (native offset 472, unchanged because everything before it is untouched), so Node loses exactly what NodeConfig loses: -8, uniformly. ⚠ this line is native-ONLY, so the per-target proof is the compile-only reveal recorded in the §loc-per-send slice report: sizeof(Node) -8 on ALL SIX flag-sets (xiao_sx1262 116736->116728, gateway 147352->147344, xiao_esp32s3 116736->116728, xiao_mobile 116704->116696, gateway_esp32s3 147352->147344, xiao_esp32s3_mobile 116704->116696) with sizeof(NodeConfig) 264->256 on every one — i.e. it moved on every ABI × member-set cell, which is what FORCED the six-env D2 grid for this slice rather than the usual three.). 220592 -> 220656 (+64, NOT +65 and NOT +72 — §team-ch-key T-K1 adds 65 B of state and pays for 64. Arithmetic, measured by template-reveal on all six board flag-sets, not inferred: (a) _team_ch_pub[32] + _team_ch_priv[32] are inserted immediately after _ed_pub, i.e. between _ed_pub and _crypto_ready. 64 is a multiple of 8, so EVERY downstream member keeps its alignment and NO new hole opens anywhere: native _crypto_ready 121->185 (still odd, so the 2-aligned _relay_seal_ctr still needs no pad), _admin_pubkey 124->188, the 4-aligned _admin_counter_floor 156->220 (still 4-aligned), _remote_inbound 161->225 ending 406->470, and the 8-aligned _cfg 408->472 with its pre-existing 2-byte pad UNCHANGED. The arrays therefore cost exactly their own 64 B. (b) the has-key flag `_team_ch_key_present` costs ZERO: it is placed at native offset 19, in the alignment pad that already sat between _team_dad_pending (18) and the 4-aligned _key_hash32 (20) — the SAME hole node.h:1242's note keeps _team_local_id/_team_dad_pending here to exploit. Placing it beside the keys instead would have made the insert 65 B, flipping _crypto_ready to an EVEN offset (186) so _relay_seal_ctr needs a pad byte, and pushing _admin_counter_floor off its 4-alignment for two more — measured +72, i.e. the flag would have cost 8. FIFTH application of the radio_freq_mhz / team_hop_cap / HashQuerySeen.team_scoped / T5-PeerLiveness padding-placement rule. ⚠ this line is native-ONLY and unverifiable on a board ABI, so the per-target proof is the compile-only sizeof probe recorded in the T-K1 slice report: +64 on ARM-full, Xtensa-full and both *_mobile (MR_FEAT_REMOTE_MGMT 0), and +0 on both gateway_* (MR_FEAT_TEAM 0 strips all three members)). 220592 -> 220592 (+0 §team-parity T6/B, and the SLICE BRIEF EXPECTED THIS TO MOVE — it does not, measured by template-reveal not by the assert alone. Arithmetic, per ledger: (1) HashQuerySeen gains `bool team_scoped` and stays 24 B — origin(1)+pad(3)+key_hash32(4)+t_ms(8) then hard+want_pubkey+team_scoped(3)+pad(5); the third bool lands in the 6 bytes of tail padding the previous two already shared, so the ×cap_hash_query_seen(64) ×MR_N_LAYERS array is unchanged. (2) _per_origin_channel's key widens uint8_t -> uint16_t, and sizeof(std::map) does not depend on its key type (the key lives in heap-allocated nodes), so 0 B. (3) _seen_origins takes a bit in an EXISTING uint64_t key — no member added. (4) _mediated_recent was AUDITED AND DELIBERATELY LEFT ALONE: its two writers' key sets are provably disjoint on b.is_mobile (see the §P2-7 note), and MediatedRecent measures 16 B, so a plane byte would have made it 24 B ×cap_mediated_recent(32) = +256 B of nRF52840 RAM for an empty set. THAT is the +256 this line does not carry). 220592 -> 220592 (+0 §team-parity T0: NodeConfig.team_hop_cap, a uint8_t placed immediately after dv_hop_cap. Arithmetic: dv_hop_cap sits at native offset 93 and the next member (the 8-byte-aligned `double radio_freq_mhz`) at 96, so bytes 94-95 were pure alignment pad; the new member takes byte 94 and the hole shrinks to one byte. sizeof(NodeConfig) 264 -> 264 and sizeof(Node) 264-worth-of-config unchanged => the member costs literally nothing. This is the radio_freq_mhz placement rule below applied a second time, and it is why the value on this line did NOT move). 220584 -> 220592 (+8 §layer-freq: NodeConfig.radio_freq_mhz, a `double` placed between dv_hop_cap and the existing `double duty_cycle` so it fills the 8-byte-alignment padding slot already there — measured sizeof(NodeConfig) 256 -> 264, i.e. the member costs its own 8 B and opens NO new hole; the same slot after `radio_cr` would have cost 16). 220392 -> 220584 (+192 shelf-item-(i): PendingE2eAck[cap_pending_e2e_acks=8], 24 B each = the E2E-ack deadline ring, Node-global). 220384 -> 220392 (+8 Wave-4: NodeConfig.gw_schedule_readvert_ms u32 + alignment; the gateway schedule re-advertisement cadence). …218872 (§S6) -> 219000 (§GapA) -> 219312 (+312 §F-XL-1: HForwardStash[4] = 4×(77+1) de-storm ring; _h_forward_rr fits existing padding) -> 219568 (+256 §S3 part2: HostMobileEntry.last_key_fwd_hash32 = 4 B + 4 B align, ×16 ×2 layers) -> 219760 (+192 batch B: §B2 HostMobileEntry.deleg_fail packs into existing tail padding; §B4 PendingNotify.last_home_hash 4 B ×16 ×2 layers = +128; §D16 PresenceCand.incompatible +8 align ×cap = +64) -> 219952 (+192 batch A: §F-XL-2 RreqForwardStash[4] = 4×(16+1) de-storm ring + _rreq_forward_rr; §F-SL-1 ParkedSend += reflood state (bool/bool/Plane/u8 + u64 reflood_at_ms, 8-align) ×cap_parked_sends=8) -> 220384 (+432 §3-A.6 evict-STALEST timestamps: _learned_layers_seen_ms u64×4 = +32; PendingNotify.stash_ms u64 -> 12->24 B ×16 ×2 layers = +384 (+16 align); MINUS the dead _presence_claim_retries u8 (absorbed by padding))
+static_assert(sizeof(Node) == 221288, "node.h: Node native layout changed — if intentional, update the baseline");   // 221384 -> 221288 (★ **−96 §B153, and this is the first entry in this ledger that makes the node SMALLER for a behaviour fix rather than paying for one.** The whole of it is the DELETION of `LayerRuntime::_last_acked_from`, the per-hop `already_received` cache retired with the RTS-time dedup gate (see the argument at `already_received` in frame_codec.h: a 7-B RTS cannot prove message identity, so no terminal verdict may be built from one). ARITHMETIC, MEASURED by a template-reveal on the real native flag set (`-DMESHROUTE_NATIVE=1 -DMR_N_LAYERS=2`), not inferred: `sizeof(std::map<...>)` is **48** on this libstdc++ and the member is PER-LAYER, so 48 x MR_N_LAYERS(2) = 96. ⚠ THE RECLAIM IS THEREFORE PER-ABI AND NOT UNIFORM: a SINGLE-layer board reclaims **48**, a 2-layer build **96** — the mirror of §MH-S2's per-layer credit, and the reason this line is native-ONLY. `sizeof(PendingRx)` is **32, UNCHANGED** — the `flight_id`/`team_plane` members the refuted first attempt added there are gone with it. Per-board RAM deltas are the warning-census figures in `simulation/BASELINE.md` §B153.). 221376 -> 221384 (+8 §MH-S4 — the confirmed-attachment FSM, and the number is MEASURED BY BISECTION ON THIS TRIPWIRE, not inferred; the whole cost is ONE member. FOUR members were added and THREE of them cost ZERO: `_mobile_attach_state` (u8 enum), `_mobile_home_link` (u8 enum) and `_mobile_claim_retries` (u8) go into the THREE bytes of pure alignment pad that [[B142]]'s own note records as still sitting beside `_presence_cand_n` — ★ but BEFORE `_mobile_attach_gen`, not after it, because that u32 needs 4-alignment and therefore lands at the END of the run and closes the boundary. Declaring the trio AFTER the u32 MEASURED +8 for the trio alone (221376 -> 221384) and the full state at 221392; moved ahead of it, the trio measures +0 and the state lands at 221384. THIRTEENTH application of the padding-placement rule, and the first time the plausible reading of an existing note was off by one member. The remaining +8 is `_mobile_home_confirmed_ms` (u64), a GENUINE cost in the 8-aligned ms-stamp run (`_last_adopt_ms` / `_presence_last_pull_ms`), which has no hole. ⚠ A +0 VARIANT WAS MEASURED AND DECLINED: narrowing that stamp to u32 and placing it after `_presence_home_rx_q4` measures 221376 EXACTLY, i.e. the entire slice for free — declined under M3 ('pick the RIGHT shape, never contort a design to fit a spare bit') because a u32 ms stamp buys 8 bytes with a truncating cast, wrap-relative age arithmetic, a 49.7-day ceiling and a periodic collision with its own 0 sentinel. ⛔ `TimerWheel::kCap` is UNCHANGED at 91 and NO new timer id is allocated — the re-CLAIM and the confirmation deadline both ride the EXISTING kPresenceProbeTimerId. This line is native-ONLY; the per-ABI proof is the compile-only reveal recorded in §MH-S4.). 221088 -> 221376 (+288 §MH-S2 — the keyed pending-OFFER ring, and the number is a NET of two measured halves, neither inferred. (a) COST +320: `PendingMobileOffer` measures 40 B / alignof 8 (two u64 deadlines, a u32 key, then buf[13]+len+proposed_id in the 4+16 that follows, 5 B tail pad — asserted beside the struct by sizeof + TWO offsetofs, not by this line) x cap_pending_mobile_offers(8) = 320, inserted immediately after `_pending_id_pubkey` which ends 8-ALIGNED (`_peer_loc`'s own precedent at the same seam); 320 is a multiple of 8 so every later member shifts by exactly 320 and NO hole opens. ★ AND THE TWO uint16 COUNTERS COST ZERO — measured by REMOVAL, not by the padding argument: sizeof(Node) is 221408 with and without them on the same tree. TWELFTH application of the padding-placement rule. (b) CREDIT -32: `LayerRuntime::_pending_offer[13]` + `_pending_offer_len` are DELETED (the ring replaces them), and 14 B of members returned 16 B per LayerRuntime after re-alignment x MR_N_LAYERS(2 native) = 32. ⇒ 320 - 32 = 288. ⚠ THE CREDIT IS PER-LAYER AND THE COST IS NOT, so the net differs by ABI: a SINGLE-layer board pays 320 - 16 = +304 while native/gateway (2 layers) pay +288. This line is native-ONLY; the per-target proof is the compile-only reveal recorded in the §MH-S2 slice report, run on all five REAL toolchains. ⛔ `TimerWheel::kCap` is UNCHANGED at 91 — the ring runs on the EXISTING kMobileOfferBackoffTimerId as a deadline scan, and no timer id was allocated.). 221024 -> 221088 (+64 §id-hash S4b — the `resolve-id-for-pubkey` intent ring, MEASURED by offsetof + the assert pair beside the struct, not inferred: sizeof(PendingIdPubkey) = 16 (offsetof(id) = 8, i.e. both bytes sit in the tail pad the 8-aligned `deadline_ms` already forces) x cap_pending_id_pubkey(4) = 64. Inserted immediately after `_pending_e2e_acks`, which ends 8-ALIGNED (PendingE2eAck[8] x 24) — §AB4's `_peer_loc` precedent at the same seam — and 64 is a multiple of 8, so every later member shifts by exactly 64 and NO hole opens anywhere. ⚠ NOT team-gated and deliberately so: a by-id `reqpubkey` on the STATIC plane is the bench defect this arc opened with (spec §0), so a gateway build carries the ring too. Per-board RAM deltas in the slice report.). 220976 -> 221024 (+48 §tx-admission TX3 — the OWNER-RULED transmitter-admission boundary for the channel digest: DeferredLbt gains `uint32_t digest_ids[3]`, MEASURED by offsetof not inferred: sizeof(DeferredLbt) 164 -> 176 (+12), offsetof(digest_ids)=12 and offsetof(buf) 12 -> 24, i.e. it lands in the 4-aligned run before `buf` and opens NO new hole; x kLbtSlots(4) = +48. ⚠ The BRIEFED estimate was +64 (3 ids + a count byte); the count byte was removed by making `digest_ids[0] == 0` the terminator — a live channel id can never be 0 (channel_msg_id_mint packs origin >= 1 into the high byte) — which is what bought the 16 bytes back. Per-board RAM deltas in the slice report.). 220968 -> 220976 (+8 §chan-crypt CL2a, and BOTH new members are measured by offsetof + a template-reveal, not inferred. TWO members were added and only ONE of them costs anything. (a) `_team_ch_nokey_push_ms`, a uint64_t, is appended to the EXISTING 8-aligned run of own-origin ms stamps (_ack_warn_until / _last_channel_origin_ms / _last_dm_origin_ms) and the member after that run is the 4-aligned `_nack_wait_flight_gen`, so it opens NO hole anywhere and costs exactly its own 8 bytes. (b) `_channel_seal_ctr`, a uint16_t, costs ZERO — and where it sits is the whole reason. Its SEMANTIC home is beside `_relay_seal_ctr` (native offset 186), and MEASURED there it costs EIGHT: at 188 it pushes _admin_pubkey 188->190, which pushes the 4-aligned _admin_counter_floor 220->224 (two new pad bytes) and then the 8-aligned _cfg 472->480 (six more). Placed instead immediately after `_remote_inbound` it lands at 470, inside the 2-byte pad that already sat before the 8-aligned _cfg, and sizeof is unchanged by it. EIGHTH application of the padding-placement rule below. (c) NodeConfig::team_channel_crypt costs ZERO TOO and is NOT part of this +8: sizeof(NodeConfig) 256 -> 256, because the bool takes native byte 95 — the one pad byte still left in the dv_hop_cap@93 / team_hop_cap@94 / radio_freq_mhz@96 hole that team_hop_cap's own note describes. SEVENTH application. ⚠ this line is native-ONLY, so the per-target proof is the compile-only sizeof reveal on the REAL toolchains with the REAL per-env flag sets, recorded in the §chan-crypt CL2a slice report — and NOW INLINE, because omitting them left the newest per-target numbers in this ledger reading as AB4's and therefore STALE BY +8, which §b39 caught: xiao_sx1262 / xiao_esp32s3 117048 -> **117056**, gateway / gateway_esp32s3 147664 -> **147672**, both *_mobile 117016 -> **117024**.). 220648 -> 220968 (+320 §AB4 — the retained-peer-location ring, and BOTH halves of the number are measured, not inferred. THE RECORD: sizeof(PeerLoc) = 20, alignof 4, offsetof(src) = 16 — i.e. §2.7.1's briefed `{u32 hash; i32 lat; i32 lon; u32 t_s}` really is 16 B with no padding (that premise HELD, measured), but the RESCOPE that added `loc_src` pushed it to 20 with a 3-byte tail hole, so the spec's "16 B exactly, x16 = 256 B" and its own loc_src requirement cannot both be true — 320 B is the honest figure. Those 3 bytes are declared as a NAMED `reserved[3]` member: identical size, but IMPLICIT tail padding is INDETERMINATE after `PeerLoc{}`, which would make any memcmp-style comparison over the record unsound (AB1's lesson, which briefed 70 B and measured 72). THE PLACEMENT, by offsetof native and cross-checked on ARM: `_peer_loc[16]` is inserted immediately after `_pending_e2e_acks` and before `_parked_sends_n`. `_pending_e2e_acks` is PendingE2eAck[8] x 24 B ending on an 8-ALIGNED boundary (native 5208+192 = 5400; ARM 5192+192 = 5384), and PeerLoc needs only 4, so the array opens NO hole and its 320 B (= 8x40, itself a multiple of the 8-alignment downstream) shifts every later member by exactly 320: native `_l2c_redirect` 5408 -> 5728, ARM 5392 -> 5712. ★ AND THE COUNT BYTE `_peer_loc_n` COSTS ZERO: `_parked_sends_n` (a uint8_t) was already followed by SEVEN bytes of pure alignment pad before the 8-aligned `_l2c_redirect` (native 5401..5407, ARM 5385..5391); `_peer_loc_n` takes one of them and the hole shrinks to SIX (native 5722..5727, ARM 5706..5711). SIXTH application of the radio_freq_mhz / team_hop_cap / HashQuerySeen.team_scoped / T5-PeerLiveness / T-K1-_team_ch_key_present padding-placement rule. ⚠ this line is native-ONLY, so the per-target proof is a compile-only sizeof reveal on the REAL toolchains with the REAL per-env flag sets, whose PRE column reproduces this ledger's §loc-per-send figures EXACTLY (that is what calibrates it): xiao_sx1262 116728->117048, gateway 147344->147664, xiao_mobile 116696->117016, xiao_esp32s3 116728->117048, gateway_esp32s3 147344->147664, xiao_esp32s3_mobile 116696->117016 — ★ +320 UNIFORMLY ON ALL SIX ABI x member-set cells, no cell disagreeing and no hole opening anywhere, INCLUDING the two MR_FEAT_TEAM 0 gateways: the ring is deliberately NOT team-gated, because its live source is a sealed DM and a static-only build receives one exactly as a team member does. ⇒ the six-env LINK grid was NOT run and did not need to be: the grid exists to find a per-target padding difference, and the six-cell probe measured that there is none — so the RAM/flash figures come from the standard three envs (T-K1's recorded precedent).). 220656 -> 220648 (−8 §loc-per-send, and this one is worth reading because it is the FIRST entry in this ledger that REMOVES a member — a single `bool`, and it paid back EIGHT bytes, not one. Arithmetic, MEASURED by offsetof + a template-reveal on all six board flag-sets, not inferred: NodeConfig's tail ran lat_e7 @164, lon_e7 @168, then the four bools loc_in_dm @172 / loc_in_m @173 / e2e_dm @174 / intro_attach @175, then n_layers @176, SEVEN bytes of pure alignment pad (177..183), and the 8-ALIGNED `LayerConfig layers[2]` (40 B each) @184, ending at 264 with no trailing pad. Deleting `loc_in_dm` slides the three surviving bools and n_layers down one, so n_layers lands at 175 — the LAST byte before the 8-byte boundary — and `layers` moves back to 176, ending at 256. ⇒ sizeof(NodeConfig) 264 -> 256. The byte was therefore NOT sitting in a hole (the padding-placement rule's usual case, five prior applications below): it sat exactly ON the boundary, so it was costing a FULL 8-byte quantum and its removal reclaims all of it, while the 7-byte hole after n_layers shrinks to 0. Node embeds one 8-aligned `_cfg` (native offset 472, unchanged because everything before it is untouched), so Node loses exactly what NodeConfig loses: -8, uniformly. ⚠ this line is native-ONLY, so the per-target proof is the compile-only reveal recorded in the §loc-per-send slice report: sizeof(Node) -8 on ALL SIX flag-sets (xiao_sx1262 116736->116728, gateway 147352->147344, xiao_esp32s3 116736->116728, xiao_mobile 116704->116696, gateway_esp32s3 147352->147344, xiao_esp32s3_mobile 116704->116696) with sizeof(NodeConfig) 264->256 on every one — i.e. it moved on every ABI × member-set cell, which is what FORCED the six-env D2 grid for this slice rather than the usual three.). 220592 -> 220656 (+64, NOT +65 and NOT +72 — §team-ch-key T-K1 adds 65 B of state and pays for 64. Arithmetic, measured by template-reveal on all six board flag-sets, not inferred: (a) _team_ch_pub[32] + _team_ch_priv[32] are inserted immediately after _ed_pub, i.e. between _ed_pub and _crypto_ready. 64 is a multiple of 8, so EVERY downstream member keeps its alignment and NO new hole opens anywhere: native _crypto_ready 121->185 (still odd, so the 2-aligned _relay_seal_ctr still needs no pad), _admin_pubkey 124->188, the 4-aligned _admin_counter_floor 156->220 (still 4-aligned), _remote_inbound 161->225 ending 406->470, and the 8-aligned _cfg 408->472 with its pre-existing 2-byte pad UNCHANGED. The arrays therefore cost exactly their own 64 B. (b) the has-key flag `_team_ch_key_present` costs ZERO: it is placed at native offset 19, in the alignment pad that already sat between _team_dad_pending (18) and the 4-aligned _key_hash32 (20) — the SAME hole node.h:1242's note keeps _team_local_id/_team_dad_pending here to exploit. Placing it beside the keys instead would have made the insert 65 B, flipping _crypto_ready to an EVEN offset (186) so _relay_seal_ctr needs a pad byte, and pushing _admin_counter_floor off its 4-alignment for two more — measured +72, i.e. the flag would have cost 8. FIFTH application of the radio_freq_mhz / team_hop_cap / HashQuerySeen.team_scoped / T5-PeerLiveness padding-placement rule. ⚠ this line is native-ONLY and unverifiable on a board ABI, so the per-target proof is the compile-only sizeof probe recorded in the T-K1 slice report: +64 on ARM-full, Xtensa-full and both *_mobile (MR_FEAT_REMOTE_MGMT 0), and +0 on both gateway_* (MR_FEAT_TEAM 0 strips all three members)). 220592 -> 220592 (+0 §team-parity T6/B, and the SLICE BRIEF EXPECTED THIS TO MOVE — it does not, measured by template-reveal not by the assert alone. Arithmetic, per ledger: (1) HashQuerySeen gains `bool team_scoped` and stays 24 B — origin(1)+pad(3)+key_hash32(4)+t_ms(8) then hard+want_pubkey+team_scoped(3)+pad(5); the third bool lands in the 6 bytes of tail padding the previous two already shared, so the ×cap_hash_query_seen(64) ×MR_N_LAYERS array is unchanged. (2) _per_origin_channel's key widens uint8_t -> uint16_t, and sizeof(std::map) does not depend on its key type (the key lives in heap-allocated nodes), so 0 B. (3) _seen_origins takes a bit in an EXISTING uint64_t key — no member added. (4) _mediated_recent was AUDITED AND DELIBERATELY LEFT ALONE: its two writers' key sets are provably disjoint on b.is_mobile (see the §P2-7 note), and MediatedRecent measures 16 B, so a plane byte would have made it 24 B ×cap_mediated_recent(32) = +256 B of nRF52840 RAM for an empty set. THAT is the +256 this line does not carry). 220592 -> 220592 (+0 §team-parity T0: NodeConfig.team_hop_cap, a uint8_t placed immediately after dv_hop_cap. Arithmetic: dv_hop_cap sits at native offset 93 and the next member (the 8-byte-aligned `double radio_freq_mhz`) at 96, so bytes 94-95 were pure alignment pad; the new member takes byte 94 and the hole shrinks to one byte. sizeof(NodeConfig) 264 -> 264 and sizeof(Node) 264-worth-of-config unchanged => the member costs literally nothing. This is the radio_freq_mhz placement rule below applied a second time, and it is why the value on this line did NOT move). 220584 -> 220592 (+8 §layer-freq: NodeConfig.radio_freq_mhz, a `double` placed between dv_hop_cap and the existing `double duty_cycle` so it fills the 8-byte-alignment padding slot already there — measured sizeof(NodeConfig) 256 -> 264, i.e. the member costs its own 8 B and opens NO new hole; the same slot after `radio_cr` would have cost 16). 220392 -> 220584 (+192 shelf-item-(i): PendingE2eAck[cap_pending_e2e_acks=8], 24 B each = the E2E-ack deadline ring, Node-global). 220384 -> 220392 (+8 Wave-4: NodeConfig.gw_schedule_readvert_ms u32 + alignment; the gateway schedule re-advertisement cadence). …218872 (§S6) -> 219000 (§GapA) -> 219312 (+312 §F-XL-1: HForwardStash[4] = 4×(77+1) de-storm ring; _h_forward_rr fits existing padding) -> 219568 (+256 §S3 part2: HostMobileEntry.last_key_fwd_hash32 = 4 B + 4 B align, ×16 ×2 layers) -> 219760 (+192 batch B: §B2 HostMobileEntry.deleg_fail packs into existing tail padding; §B4 PendingNotify.last_home_hash 4 B ×16 ×2 layers = +128; §D16 PresenceCand.incompatible +8 align ×cap = +64) -> 219952 (+192 batch A: §F-XL-2 RreqForwardStash[4] = 4×(16+1) de-storm ring + _rreq_forward_rr; §F-SL-1 ParkedSend += reflood state (bool/bool/Plane/u8 + u64 reflood_at_ms, 8-align) ×cap_parked_sends=8) -> 220384 (+432 §3-A.6 evict-STALEST timestamps: _learned_layers_seen_ms u64×4 = +32; PendingNotify.stash_ms u64 -> 12->24 B ×16 ×2 layers = +384 (+16 align); MINUS the dead _presence_claim_retries u8 (absorbed by padding))
 #endif
 
 }  // namespace meshroute

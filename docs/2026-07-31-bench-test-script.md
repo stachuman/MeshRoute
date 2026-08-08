@@ -1300,6 +1300,276 @@ refused by the HAL when the slot fires" — for DISCOVER, CLAIM *and* OFFER — 
 `§MH-S1b` cases, including the one that matters most: a deferred CLAIM must not register the mobile until the
 handoff. ⇒ **it was deliberately NOT added here.** Two checks, not five, is the whole point of the re-scope.
 
+## Part 13 — §MH-S4 the CONFIRMED-attachment FSM and the two planes (2026-08-08)
+
+★ **WHY ANYTHING IS OWED HERE AT ALL, stated before the checks (M2).** §MH-S4 is almost entirely native-covered:
+the FSM, the triple match, the bounded re-CLAIM, the [[B139]] admission gate and the two planes each carry a
+mutation-proven case in `test/test_node_join.cpp`. Following Part 12's own rule — *"before writing a metal-only
+check, ask what ONE parameter would make it testable"* — the behaviour is **not** re-tested here. What remains is
+**console-visible surface**, and it is owed because §10 makes wording part of the contract and because the
+`registered:true` push MOVED, which no automated gate can observe on a real companion link:
+
+1. **`mobile status` gained a three-plane block** (`attachment`, `home_link`, `home_confirm_age_ms`, `last_result`,
+   `home_desired`, `claim_retries`/`claim_retry_max`, `offers`, `scan_idx`/`scan_count`, `candidates`). The JSON
+   writer is native-pinned byte-for-byte; what is NOT is that `src/firmware_config.cpp` fills it from the right
+   accessors on a real node — a different ABI and a file neither native nor the simulator compiles.
+2. **`mobile unregister` is a new console verb** whose whole contract is that it transmits NOTHING.
+3. ⛔ **The word "connected" must appear on no surface** (§10). The native gate asserts that for the JSON writer;
+   only a bench run can confirm the plain-text lines a human reads.
+4. ★ **§MH-S4b added four more (13.4–13.7):** the solicitation substate + retry window (`claim_solicited`,
+   `retry_window_ms`), the **64-bit** confirmation age (the `uint32_t` cast that wrapped it at ~49.7 days lived in
+   `src/`, which neither native nor the simulator compiles), the two `status` OFFER admission counters
+   (`offerfull=` / `offerrej=`), and the two metal-only log lines — §10's **CONFIRMED** log plus the
+   `mobile unregister` dormancy check whose `autoregister=1` arm §MH-S4 got backwards.
+
+### 13.1 — `mobile status` reports `claiming` BEFORE it reports `registered` ★★ SAFETY / the §S0-4 surface
+
+The pre-S4 defect: a CLAIM lost to an RX collision left the mobile reporting `"registered":true` to the app for
+≈135 s while the home held no row at all. Post-S4 the app-facing field is the CONFIRMED attachment only.
+
+1. Provision one ordinary static home (`cfg set host_mobiles on`) and one mobile, in range, same PHY.
+2. On the mobile: `mobile status`.
+3. Watch the field values across the attach.
+
+**Expected — while the CLAIM is outstanding (poll fast, or attenuate the home so the first CLAIM is lost):**
+
+```
+{"ev":"mobile_status","mobile":true,"registered":false,...,"attachment":"claiming","home_link":"unknown","last_result":"none",...,"claim_retries":0,"claim_retry_max":3,...}
+```
+
+**Expected — once the home's roster carries our (hash, local id, epoch):**
+
+```
+{"ev":"mobile_status","mobile":true,"registered":true,...,"attachment":"attached","home_link":"confirmed","last_result":"confirmed","home_desired":false,"home_confirm_age_ms":<small and GROWING between polls>,"claim_retries":0,...}
+```
+
+★ **The two must be SEPARATE fields in every sample** — `attachment` and `home_link` are orthogonal planes (§4.1),
+and a build that folded them would print only one.
+★ **`home_confirm_age_ms` must GROW between two polls taken a minute apart, and must be ABSENT (not `0`) before
+the first confirmation.** An age that is always 0, or present-and-zero on a never-confirmed node, is the
+display-shaped-field defect this plane exists to prevent.
+
+⛔ **FAILURE SHAPE:** `"registered":true` appearing while `"attachment":"claiming"` — that is the §S0-4 defect
+reaching metal, i.e. the app-facing field was wired to the provisional flag again. Equally a failure:
+`home_confirm_age_ms` present with value `0` on a mobile that has never attached, or the literal string
+`connected` anywhere in the object.
+
+### 13.2 — `mobile unregister` ends the session and puts NOTHING on the air
+
+1. With the mobile `attached` from 13.1, start a receive capture on a third node (or watch the home's console).
+2. On the mobile: `mobile unregister`.
+
+**Expected, exactly:**
+
+```
+> mobile unregister: home-service request cleared — attachment dormant, timers cancelled (no wire message; the old home ages the row out)
+```
+
+3. `mobile status` immediately after.
+
+**Expected:** `"registered":false`, `"attachment":"dormant"`, `"home_link":"unknown"`, `"home_desired":false`,
+and **no** `home_confirm_age_ms` field.
+
+4. ★ **The capture must show ZERO frames originated by the mobile as a result of the verb** — §4.3 adds no
+   deregistration wire message; the home ages the row out under §9.
+
+⛔ **FAILURE SHAPE:** any J or P frame from the mobile within the verb's turnaround, or `attachment` reading
+`recovering`/`seeking` straight after the verb on a `mobile_autoregister=0` node.
+
+⚠ **On a node with `mobile_autoregister=1` this is EXPECTED to be transient**: the verb returns the node to
+`dormant`, and the autonomy licence (§4.2 — "recovery may continue indefinitely") then legitimately re-enters
+`seeking` on the next FSM tick, which will emit a DISCOVER. Run 13.2 on a mobile with `mobile_autoregister=0`,
+which is §4.2's own use case for the verb; both arms are asserted natively.
+
+### 13.3 — a busy channel must NOT deregister a healthy mobile ([[B139]]) — the ONE behaviour check, and why
+
+★ This is the only behaviour re-test in Part 13, and it is here for a reason Part 12's rule allows: the native
+case drives the refusal through `TestHal::tx_answer`, which proves the CORE's reaction. What it cannot prove is
+that a **real** congested channel produces refusals of the *presence probe* specifically — the probe rides
+`LbtKind::flood` through the real LBT/duty path, and B139's own record notes it defers in that hot branch.
+
+1. Bring a mobile to `attachment:"attached"`, `home_link:"confirmed"`.
+2. Generate heavy channel traffic from two other nodes so the mobile's own LBT/defer ring saturates (the same
+   NAV traffic Part 12 uses). Leave the home powered and in range and otherwise healthy.
+3. Poll `mobile status` for at least `presence_check_max_ms` plus the retry ladder.
+
+**Expected:** `attachment` stays `attached` throughout. `home_link` may read `checking` (a real probe went out
+unanswered) and must return to `confirmed`. `last_result` may read `tx_rejected` or `defer_full`.
+
+⛔ **FAILURE SHAPE:** `home_link":"lost"` or `attachment":"recovering"` while the home was healthy and in range —
+that is B139 back, at a fourth admission site §6.4's own text does not enumerate. With `trace on`, the
+diagnostic line for the refusal is exactly:
+
+```
+presence probe refused by OUR OWN transmitter — the home link is NOT implicated
+```
+
+⚠ That line is trace-gated (not `!!`), so it prints only with `trace on` — Part 12's own caveat applies.
+
+### 13.4 — §MH-S4b: `mobile status` reports the SOLICITATION substate and the retry window
+
+Added because §7.1 step 3 is now **two** deadlines with a substate between them, and the substate is what makes
+"we asked and are waiting" distinguishable from "we asked and were answered". The JSON writer is native-pinned; what
+is not is that `src/firmware_config.cpp` fills the two new fields from the right accessors on a real node.
+
+1. Bring up one host and one mobile as in 13.1. Attenuate or power-cycle the home so the first CLAIM is lost.
+2. Poll `mobile status` **fast** (a second or two apart) across the attach.
+
+**Expected — during `claiming`, BEFORE the solicitation probe goes out (~3 s window):**
+
+```
+..."attachment":"claiming","home_link":"unknown","last_result":"none","home_desired":true,"claim_retries":0,"claim_retry_max":3,"claim_solicited":false,"retry_window_ms":0,...
+```
+
+**Expected — after the solicitation probe, while its ~12 s roster window runs:**
+
+```
+..."attachment":"claiming",...,"claim_retries":0,...,"claim_solicited":true,"retry_window_ms":0,...
+```
+
+**Expected — after the window expires with no roster (one re-CLAIM spent, next ask armed):**
+
+```
+..."attachment":"claiming",...,"claim_retries":1,"claim_retry_max":3,"claim_solicited":false,...
+```
+
+★ **`claim_solicited` must be ABSENT once `attachment` is `attached`** — it is a substate of `claiming` only.
+★ `retry_window_ms` is the **no-host DISCOVER backoff** (§5.2), so it reads `0` on a first try and grows
+`5000 → 10000 → 20000 …` only while `attachment` is `seeking` with no host answering. ⛔ It is **not** a countdown
+to the next attempt; that field is owed by S5 ([[B154]]) and must not appear yet.
+
+⛔ **FAILURE SHAPES:** `claim_solicited` never reading `true` (the ask is not happening, or the substate is not
+wired) · `claim_retries` incrementing in the same poll interval as the probe (the verdict is being spent before the
+answer can arrive — the §MH-S4 defect back) · `claim_solicited` present on an `attached` node.
+
+### 13.5 — §MH-S4b: the confirmation AGE must not wrap, and it is only visible on metal
+
+`Node::mobile_home_confirm_age_ms()` is 64-bit and was being cast to `uint32_t` in `src/firmware_config.cpp`, so the
+displayed age wrapped at **~49.7 days** and a months-stale confirmation rendered as a fresh one. The cast is gone
+and the field is 64-bit end to end, but the only place the whole chain exists is a device.
+
+1. Attach a mobile and confirm it (`home_link":"confirmed"`).
+2. Note `home_confirm_age_ms`, then poll again several minutes later.
+3. ★ **The long check, which is the point:** leave the node running (or resume a long-lived node) and poll again
+   after **more than 49.7 days of uptime since the confirmation**, or reproduce it by holding the mobile attached
+   while its home is silent for that long.
+
+**Expected:** `home_confirm_age_ms` increases MONOTONICALLY, in milliseconds, with no reset. Past
+**4 294 967 295** it must keep counting — e.g. `"home_confirm_age_ms":5000000000`.
+
+⛔ **FAILURE SHAPE:** the value dropping back near zero, or reading ≈`705032704` where ≈`5000000000` is expected —
+that is the u32 truncation, and it renders a two-month-old confirmation as an eight-day-old one.
+⚠ A 50-day bench run is impractical; the practical substitute is to confirm the field is **not clamped and not
+truncated at 32 bits** by checking that it passes `4294967295` on any node kept alive that long, and otherwise to
+accept the native pins (a serializer case above `UINT32_MAX`, a `static_assert` on the field type, and a core
+accessor case). ★ Record which of the two you did — do not tick this as a full pass on the short check alone.
+
+### 13.6 — §MH-S4b: `status` exposes the two OFFER admission counters
+
+§10 asks for an OFFER-ring overflow counter and a transmitter-rejection counter beside `txdrop`. Both existed only
+as native accessors. They are HOST-side, so run this on the node that hosts mobiles.
+
+1. On a host with `cfg set host_mobiles on`: `status`.
+
+**Expected — the two fields ride immediately after `txdrop`, and are ALWAYS present (a `0` is a reading):**
+
+```
+… txq=0 txdrop=0 offerfull=0 offerrej=0 txto=0 …
+```
+
+and over BLE/JSON: `…"txq":0,"txdrop":0,"offer_full":0,"offer_reject":0,"rx":…`
+
+2. Make them move: bring **more than `cap_pending_mobile_offers` (8)** mobiles into range at once so the pending
+   ring refuses an admission (`offerfull` rises), and generate heavy channel traffic during a DISCOVER burst so the
+   host's own transmitter refuses an armed OFFER (`offerrej` rises).
+
+⛔ **FAILURE SHAPES:** either field missing from the line · either field OMITTED when zero (that makes "never
+counted" indistinguishable from "counted zero") · `offerrej` staying 0 while `mobile_offer_dropped` events occur —
+[[B146]] required those two to be equal by construction.
+
+### 13.7 — §MH-S4b: the CONFIRMED device log, and `mobile unregister` really stays dormant
+
+Two lines, both metal-only.
+
+1. With `trace on`, attach a mobile. **Expected, exactly:**
+
+```
+mobile ATTACHMENT CONFIRMED by the home roster
+```
+
+and, when the attachment needed a re-CLAIM to land (attenuate the home so the first CLAIM is lost), exactly:
+
+```
+mobile ATTACHMENT CONFIRMED by the home roster (healed by a re-CLAIM)
+```
+
+★ This is the **CONFIRMED** third of §10's scheduled / transmitter-admitted / confirmed log triple; before §MH-S4b
+it had no metal surface at all (`MR_EMIT` is device-stripped). ⛔ **FAILURE SHAPE:** neither line ever printing, or
+the `(healed…)` variant printing on a clean first-time attach.
+
+2. ★★ **The `autoregister` ON arm, which is the one that was wrong:** on a mobile with
+   `cfg set mobile_autoregister 1`, attach it, then `mobile unregister`, then **wait at least 20 minutes** without
+   touching the console.
+
+**Expected:** `mobile status` reads `"attachment":"dormant","home_desired":false` and **stays** there. ⛔ **NOT ONE
+frame** on the air from the mobile FSM — no DISCOVER, no presence probe. Then `mobile register` and it must attach
+again within one normal discovery cycle.
+
+⛔ **FAILURE SHAPE:** the node re-entering `seeking`, or airing a DISCOVER, on its own after the verb. That is the
+§MH-S4 contradiction (the verb reported `dormant` while `mobile_autoregister` still armed the FSM).
+⚠ A `cfg set mobile_autoregister 0` after the verb is **not** required and must not be needed — the flag is the BOOT
+policy only. Conversely, `cfg set mobile_autoregister 1` on a dormant mobile **is** expected to start a session
+immediately (it routes through the same path as `mobile register`).
+
+## Part 14 — §B153/§B157 the retired RTS-derived terminal decisions (2026-08-08)
+
+⚠ **Why this part exists at all (M2), and why it is short.** ⛔ **The wire did NOT change** (the unicast RTS is
+still 7 B, no `wire_version` bump, no mixed-firmware hazard), and the behaviour change is fully covered by the
+corpus (36/36 green) plus six native regressions with a mutation battery. **Exactly one thing is beyond every
+automated gate: the extra airtime of the new recovery path on a real radio, and the recovery path itself under
+real packet loss.** The simulator models loss it was told to model; a bench radio loses frames its own way.
+
+### 14.1 — ★★ A LOST ACK MUST STILL DELIVER EXACTLY ONCE (the behaviour the slice turns on)
+
+The retired short-circuits meant a retried exchange ended at the CTS. Now the duplicate DATA really flies, and
+the receiver must ACK it and **not** deliver it again.
+
+1. Two boards, A and B, in radio range. On B: `log level` up (or `trace on` if built with the decoded trace).
+2. From A: `send <B> hello-once`.
+3. Confirm B shows the message **once** and A reports `SEND-ACKED`.
+4. Now force the failure the slice is about — easiest reliable way on a bench: put B where it can hear A but A
+   can only marginally hear B (move B to the edge of range, or attenuate A's RX), so B's **ACK** is the frame
+   that gets lost while the DATA still arrives. Send again: `send <B> hello-twice`.
+
+**Expected:** A retries the whole exchange (a second `rts_tx`/DATA is visible in its log), B logs a **second
+DATA reception**, and — ★ the assertion — **B's application shows `hello-twice` EXACTLY ONCE**. A ends
+`SEND-ACKED`, not `SEND-FAILED`.
+⛔ **FAILURE SHAPES, both reportable:** the message appearing **twice** on B (the DATA-level dedup is not holding
+— that is the duplicate-delivery risk this design accepts responsibility for), or A ending `SEND-FAILED` while B
+has the message (the duplicate was refused rather than ACKed).
+ⓘ A `CTS` with the `RCVD` marker must **never** appear in a trace from new firmware — `already_received` is
+reserved and never emitted. Seeing it means the peer is running pre-§B153 firmware.
+
+### 14.2 — the recovery path costs more airtime now; record what the radio says
+
+Same two boards. `cfg set sf 12` (or the highest routing SF you bench at), repeat 14.1's lost-ACK case, and read
+the duty/airtime accounting (`status`, or `duty`) before and after.
+
+**Expected:** one lost-ACK recovery costs roughly **+3.3 s at SF12 / 125 kHz / CR4/5** (a 20-byte body: 2342 ms
+→ 5667 ms) and **+130 ms at SF7** (83 → 212 ms) versus the retired path, because the duplicate DATA and its ACK
+now fly. ⓘ This is a **recording, not a pass/fail** — write down what the device's own accounting shows so the
+model and the radio can be compared once. ⛔ Successful traffic must show **no** change at all: the RTS is still
+7 bytes.
+
+### 14.3 — the flight the implicit ACK used to cancel must now complete on its own
+
+Only runnable with three boards in a line (A → B → C) so A can overhear B forwarding onward.
+
+Send A→C. **Expected:** the DM completes. ⛔ **FAILURE SHAPE:** A reporting neither delivery nor failure — that
+would be the silent discard [[B157]] produced when an overheard forward was credited to the wrong flight.
+ⓘ A will now wait out its ACK timeout and retry in some cases where it used to stop early; that is the accepted
+cost, and it is visible as an extra `rts_tx` in A's log, not as a failure.
+
 ## Completion record
 
 - Firmware revision tested: `________________`

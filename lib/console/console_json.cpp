@@ -592,6 +592,11 @@ size_t write_status(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeC
     j.lit(",\"duty_ms\":");   j.u32(s.duty_ms);
     j.lit(",\"txq\":");       j.u32(s.txq);
     j.lit(",\"txdrop\":");    j.u32(s.txdrop);
+    // ★★★ §MH-S4b §10 — appended immediately after `txdrop`, the counter §10 names as their precedent, and
+    // UNCONDITIONALLY (never omit-when-0): a diagnostic counter's `0` is the reading that says "this did not happen",
+    // and suppressing it makes "not counted" indistinguishable from "counted zero".
+    j.lit(",\"offer_full\":");   j.u32(s.offer_full);
+    j.lit(",\"offer_reject\":"); j.u32(s.offer_reject);
     j.lit(",\"rx\":");        j.u32(s.rx);
     j.lit(",\"tx\":");        j.u32(s.tx);
     j.lit(",\"routes\":");    j.u32(s.routes);
@@ -719,6 +724,30 @@ size_t write_mobile_status(char* buf, size_t cap, const MobileStatusFields& m) {
     j.lit(",\"sf\":");       j.u32(m.sf);
     j.lit(",\"bw_hz\":");    j.u32(m.bw_hz);
     j.lit(",\"nets\":");     j.u32(m.nets);           // learned-networks count (rows come from `mobile gateways`)
+    // ---- ★★★ §MH-S4 §10: the three-plane block, APPENDED so every pre-existing field keeps its position ----
+    // ⛔ `attachment` and `home_link` are two fields, never one: §10 says "reported separately, never folded into
+    //    the line above". ⛔ And neither is ever rendered as "connected" — see the contract in console_json.h.
+    j.lit(",\"attachment\":\"");  j.lit(m.attachment ? m.attachment : "dormant"); j.ch('"');
+    j.lit(",\"home_link\":\"");   j.lit(m.home_link  ? m.home_link  : "unknown"); j.ch('"');
+    j.lit(",\"last_result\":\""); j.lit(m.last_result ? m.last_result : "none");  j.ch('"');
+    j.lit(",\"home_desired\":");  j.lit(m.home_desired ? "true" : "false");
+    // ★ §4.1: the AGE of the latest confirmation, always present once there IS one and never suppressed when
+    // healthy. OMITTED (not 0) when nothing was ever confirmed — a 0 age reads as "confirmed just now", which is
+    // the display-shaped lie this whole plane exists to prevent.
+    // ⚠ §MH-S4b: `i64`, NOT `u32`. This value is a 64-bit ms age and a `u32` cast made it WRAP at ~49.7 days,
+    // re-rendering a months-stale confirmation as a fresh one (see the field's contract in console_json.h).
+    if (m.home_confirmed) { j.lit(",\"home_confirm_age_ms\":"); j.i64(static_cast<int64_t>(m.home_confirm_age_ms)); }
+    j.lit(",\"claim_retries\":");   j.u32(m.claim_retries);
+    j.lit(",\"claim_retry_max\":"); j.u32(m.claim_retry_max);
+    // ★ §MH-S4b §7.1 step 3 / §10 — the solicitation substate, emitted ONLY while `claiming`. Omitted rather than
+    // rendered `false` elsewhere: outside `claiming` the field has no meaning, and a hard `false` would invite a
+    // surface to read it as "we never asked" for an `attached` node that asked and was answered.
+    if (m.attachment && !strcmp(m.attachment, "claiming")) { j.lit(",\"claim_solicited\":"); j.lit(m.claim_solicited ? "true" : "false"); }
+    j.lit(",\"retry_window_ms\":"); j.u32(m.retry_window_ms);
+    j.lit(",\"offers\":");          j.u32(m.offers);
+    j.lit(",\"scan_idx\":");        j.u32(m.scan_idx);
+    j.lit(",\"scan_count\":");      j.u32(m.scan_count);
+    j.lit(",\"candidates\":");      j.u32(m.candidates);
     j.ch('}');
     return j.finish();
 }

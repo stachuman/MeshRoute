@@ -314,19 +314,20 @@
    "value": "\"next_hop\":241"
   },
   {
-   "_c": "T5 #9 — STATIC-PLANE INVARIANCE, pinned as an exact count: T5 adds ZERO static bidi events. These two numbers are pre-T5 values and have nothing to do with T5 — that is the point; they are the tightest available statement that the slice did not touch the static plane. If a future slice legitimately changes static beacon timing, s22 re-anchors anyway and these move with it.",
+   "_c": "T5 #9 — STATIC-PLANE INVARIANCE, pinned as an exact count: T5 adds ZERO static bidi events. These two numbers are pre-T5 values and have nothing to do with T5 — that is the point; they are the tightest available statement that the slice did not touch the static plane. If a future slice legitimately changes static beacon timing, s22 re-anchors anyway and these move with it. ★★ RE-ANCHORED 2026-08-07 FROM 5/6 TO 4/7 (§MH-S3-QA item 1) — the escape clause above being exercised, exactly once, by the owner's ruling on §MH-S3's RNG re-anchor. §MH-S3's mobile boot-jitter + CLAIM-de-synchronization draws shifted static beacon/probe timing, and ONE confirmation moved from S1 to S2. ⛔ THIS IS AN INSTRUCTION, NOT A CODER'S JUDGEMENT: every prior slice in this arc was told 'do not re-anchor — the owner rules'; the owner ruled on 2026-08-07 (relayed with the independent-QA round on S1+S2+S3) that the counts re-anchor to 4/7 because the total is unchanged and the structural protections pass. ★★★ THE TOTAL-11 INVARIANT IS WHAT MAKES 4/7 SAFE RATHER THAN ARBITRARY, and it is pinned HERE: 4 + 7 = 11 = 5 + 6. The two exact equalities below are a CONJUNCTION, so they pin the sum at exactly 11 as tightly as a sum assertion would — and a sum assertion is not available: the expect engine's event_count takes ONE node name and has no cross-node accumulator (ExpectRunner.cpp:110-150, nodeMatches does an exact single-name match), and dropping the node scope counts all six nodes (MEASURED 52: S1 4, S2 7, TeamA 13, TeamB 11, TeamC 15, M1 2), which is a different and far more fragile quantity. ⇒ if a future slice moves the TOTAL rather than merely repartitioning it, BOTH lines below go red at once, which is the signal this pair exists to give. ★ THE STRUCTURAL PROTECTION IS NOT THESE COUNTS — it is T5 #7 and #8 above (no 'plane':'team' and no team local id 143/241/224 on either static), and those were re-measured GREEN on the post-S3 stream: all 11 static rows carry NO plane tag, and all 39 team-plane rows belong to TeamA/TeamB/TeamC.",
    "type": "event_count",
    "event_type": "script_emit",
    "emit_type": "link_bidi_confirm",
    "node": "S1",
-   "count": 5
+   "count": 4
   },
   {
+   "_c": "the second half of the total-11 conjunction above — 4 (S1) + 7 (S2) = 11, the pre-S3 partition having been 5 + 6. Re-anchored 2026-08-07 with its pair; never move one of these two without re-checking the sum.",
    "type": "event_count",
    "event_type": "script_emit",
    "emit_type": "link_bidi_confirm",
    "node": "S2",
-   "count": 6
+   "count": 7
   }
  ],
  "nodes": [

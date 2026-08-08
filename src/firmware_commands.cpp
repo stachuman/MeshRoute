@@ -380,6 +380,12 @@ static void dump_status(Print& out) {
     out.print(F(" rxarm="));              out.print(g_iradio.rx_arm_failures());  // L5: startReceive() re-arm failures — non-zero = an SPI glitch left RX transiently un-armed (was silent before)
     out.print(F(" txq="));                out.print(g_hal.txq_depth());      // async-TX queue depth (should idle at 0)
     out.print(F(" txdrop="));             out.print(g_hal.txq_drops());      // outbound-queue overflow drops (should stay 0)
+    // ★★★ §MH-S4b §10 — the two HOST-side OFFER admission counters, beside `txdrop` because §10 names it as their
+    // precedent. Both existed since §MH-S2/[[B146]] as native-only accessors; the debt of making them device-visible
+    // was explicitly assigned to S4 by the earlier slices and is discharged here. ⓘ Unconditional: a `0` is the
+    // reading "this never happened", and omitting it makes that indistinguishable from "never counted".
+    out.print(F(" offerfull="));          out.print(g_node.mobile_offer_ring_full_count());   // pending-OFFER ring admissions refused `full` (§5.3.2) — non-zero = mobiles are colliding on the ring
+    out.print(F(" offerrej="));           out.print(g_node.mobile_offer_reject_count());      // armed OFFERs OUR OWN transmitter refused (defer ring full / HAL rejection) — a LOCAL fact, never a mobile's fault
     out.print(F(" txto="));               out.print(g_hal.tx_timeouts());    // TX-watchdog recoveries — a missed TxDone (should stay 0)
     out.print(F(" slept="));              out.print(g_sleep_count);          // idle light-sleep entries — climbs = the gate fires (0 = never sleeps)
     out.print(F(" sleep="));              out.print(g_force_sleep ? F("forced") : (g_host_present ? F("off-host") : F("auto"))); // policy: auto=headless→sleeps, off-host=awake (host seen), forced=`sleep` cmd
@@ -807,7 +813,8 @@ static void dump_help(Print& out) {
     out.println(F("  mobile register [freq=<MHz> sf=<5-12> bw=<kHz> | scan]     arm registration: current PHY / a given PHY / scan known networks"));
     out.println(F("  mobile gateways            list learned gateways + networks"));
     out.println(F("  mobile query <gw>          pull a gateway's network directory"));
-    out.println(F("  mobile status              registration + current PHY + autoregister"));
+    out.println(F("  mobile status              attachment + home link + confirmation age + PHY"));
+    out.println(F("  mobile unregister          end the attachment session -> dormant (no wire message)"));
     out.println(F("  team new                   mint a team (become its creator) — ALWAYS also mints its X25519 channel key"));
     out.println(F("  team <id> | team 0         join an existing team / leave (a join mints NO key — receive it by grant or QR)"));
     out.println(F("    [tkpub=<64 hex> tkpriv=<64 hex>]   adopt an EXISTING team channel keypair instead of minting (QR onboarding)"));
@@ -1041,6 +1048,8 @@ meshroute::console::StatusFields make_status_fields() {
     s.duty_ms   = static_cast<uint32_t>(g_hal.airtime_used_ms(3600000));
     s.txq       = static_cast<uint16_t>(g_hal.txq_depth());
     s.txdrop    = static_cast<uint16_t>(g_hal.txq_drops());
+    s.offer_full   = g_node.mobile_offer_ring_full_count();   // §MH-S4b §10: the two host-side OFFER admission counters (see StatusFields)
+    s.offer_reject = g_node.mobile_offer_reject_count();
     s.rx        = g_rx_count;
     s.tx        = g_iradio.tx_count();
     s.routes    = g_node.rt_count();

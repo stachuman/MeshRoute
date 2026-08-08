@@ -318,8 +318,14 @@ TEST_CASE("R3 receiver — RTS -> CTS -> DATA -> delivered (we are the destinati
     if (dlv) { CHECK(dlv->has_payload); CHECK(dlv->payload == "hi"); }
 }
 
-// Inbox integration (persistent-inbox spec §12): a delivered DM lands in the DM store AND the push ring,
-// with consistent fields (both are written from the same post-ACK state in do_post_ack).
+// Collect every `delivered` payload in order, so a duplicate can be distinguished from a second delivery
+// rather than merely counted. ⛔ §B153's regressions assert THESE, never a counter or a flag.
+static std::vector<std::string> delivered_payloads(const TestHal& hal) {
+    std::vector<std::string> v;
+    for (const auto& e : hal.events) if (e.type == "delivered" && e.has_payload) v.push_back(e.payload);
+    return v;
+}
+
 TEST_CASE("inbox integration — a delivered DM is recorded durably + pushed, fields consistent") {
     TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
@@ -357,32 +363,235 @@ TEST_CASE("inbox integration — a delivered DM is recorded durably + pushed, fi
                CHECK(g.body == std::string(reinterpret_cast<const char*>(pu.body), pu.body_len)); }
 }
 
-TEST_CASE("R3 dedup — retried RTS within last_acked TTL -> already_received CTS; past TTL -> fresh CTS") {
-    TestHal hal; Node node(hal, 2, 0xABCD);
+// =============================================================================
+// ★★★★ [[B153]] — THE RTS-TIME `already_received` GATE IS RETIRED. Six regressions (QA-specified).
+//
+// ★★★ THE ARGUMENT, because these tests only make sense against it: **a 7-byte RTS cannot distinguish a RETRY
+// of message A from the FIRST ATTEMPT of message B sharing the same `(hop src, dst, ctr_lo, payload_len)` —
+// those frames are BYTE-IDENTICAL.** No receiver algorithm can return a safe TERMINAL `already_received` from
+// one. ⇒ **RTS AUTHORIZES RECEPTION; ONLY DATA PROVES MESSAGE IDENTITY.** A free receiver always CTSes and
+// waits for the DATA; `handle_data`'s `_seen_origins` (full `(origin,dst,ctr)` / the whole 8-B nonce-seed) is
+// the sole authority.
+//
+// ⓘ REPLACES the former case "R3 dedup — retried RTS within last_acked TTL -> already_received CTS; past TTL
+// -> fresh CTS", which PINNED THE RETIRED BEHAVIOUR. It is not deleted quietly: test 2 below is the same
+// scenario asserting the NEW contract (normal CTS, duplicate DATA, ONE delivery).
+// ⛔ Assertions are on OBSERVABLE side effects — delivered payloads, parsed ACK/NACK frames on the wire —
+// never a bare flag. Test 6 is the anti-vacuity control and proves 2 and 3 can fail.
+// =============================================================================
+
+// The ACKs this node actually put on the air, parsed back off the wire (never a counter).
+static std::vector<ack_out> acks_on_wire(const TestHal& hal) {
+    std::vector<ack_out> v;
+    for (const auto& f : hal.tx_frames)
+        if (!f.bytes.empty() && (f.bytes[0] >> 4) == 0x4)
+            if (auto a = parse_ack(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()))) v.push_back(*a);
+    return v;
+}
+// ★★ THE CTSes THIS NODE ACTUALLY PUT ON THE AIR, parsed back off the wire.
+// ⛔ DO NOT assert `Ev::dup` for this: the fresh-CTS site emits only ("to","sf") — it carries NO `dup` field —
+// so `CHECK_FALSE(ev->dup)` is VACUOUSLY TRUE and stays true even if the wire bit is set. That is not a
+// hypothetical: mutation M-B153B-5 (re-emitting `already_received = true` on the normal CTS) left every one of
+// these cases GREEN until they were re-pointed at the wire. Assert the BIT, never the telemetry field.
+static std::vector<cts_out> ctses_on_wire(const TestHal& hal) {
+    std::vector<cts_out> v;
+    for (const auto& f : hal.tx_frames)
+        if (!f.bytes.empty() && (f.bytes[0] >> 4) == 0x2)
+            if (auto c = parse_cts(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()))) v.push_back(*c);
+    return v;
+}
+static std::vector<nack_out> nacks_on_wire(const TestHal& hal) {
+    std::vector<nack_out> v;
+    for (const auto& f : hal.tx_frames)
+        if (!f.bytes.empty() && (f.bytes[0] >> 4) == 0x5)
+            if (auto n = parse_nack(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()))) v.push_back(*n);
+    return v;
+}
+
+// ---- 1. THE EXACT s27 [[B153]] COLLISION: two ORIGINS, one relay, identical old-RTS tuple -> BOTH deliver ---
+TEST_CASE("[[B153]]/1 the s27 collision — two DIFFERENT ORIGINS relayed by one node with an identical "
+          "(src,dst,ctr_lo,payload_len) both DELIVER, and no CTS claims already_received") {
+    TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
+    node.on_init(cfg);
+    RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };          // the RELAY (gateway) is node 1
+
+    // s27 measured *"two XL handoffs with identical (dst=101, ctr=2) and DIFFERENT origins (114 and 111)"* — so
+    // the counters are IDENTICAL, not merely congruent mod 16, and the ORIGIN is the only separating field.
+    // Two hosted mobiles' independent counters colliding is the ordinary case: every peer counter starts alike.
+    struct F { uint8_t origin; uint16_t ctr; const char* body; };
+    const F f1{114, 0x0022, "re-m1"}, f2{111, 0x0022, "re-m3"};
+    CHECK(f1.ctr == f2.ctr);                                         // premises asserted, not assumed
+    CHECK(f1.origin != f2.origin);
+
+    uint64_t t = 1000;
+    for (const F& f : {f1, f2}) {
+        std::array<uint8_t, 16> rb{};                                // src=1 (the RELAY), same dst/ctr_lo/plen
+        const size_t rn = mk_rts(/*src=*/1, /*next=*/2, /*dst=*/2, uint8_t(f.ctr & 0x0F), /*plen=*/15, rb);
+        CHECK(rn == 7);                                              // ⛔ the RTS is still SEVEN bytes
+        hal._now = t; node.on_recv(rb.data(), rn, meta);
+        std::array<uint8_t, 64> db{};
+        const size_t dn = mk_data(/*next=*/2, /*dst=*/2, f.ctr, f.origin, f.body, db);
+        hal._now = t + 500; node.on_recv(db.data(), dn, meta);
+        node.on_timer(kPostAckTimerId);
+        t += 2000;                                                   // inside the OLD 10 s last_acked window
+    }
+    CHECK(hal._now < 1000 + protocol::last_acked_ttl_ms);            // the retired gate WOULD have been live here
+
+    // ⛔ ON THE WIRE: two CTSes, and NEITHER carries `already_received`. Read the BIT (see ctses_on_wire).
+    const std::vector<cts_out> ctses = ctses_on_wire(hal);
+    CHECK(ctses.size() == 2);
+    for (const auto& c : ctses) CHECK_FALSE(c.already_received);
+    const std::vector<std::string> got = delivered_payloads(hal);
+    CHECK(got.size() == 2);
+    if (got.size() == 2) { CHECK(got[0] == "re-m1"); CHECK(got[1] == "re-m3"); }
+}
+
+// ---- 2. PLAINTEXT ACK LOSS: DATA twice at MAC, delivery exactly once, the sender is ACKed --------------------
+TEST_CASE("[[B153]]/2 plaintext lost-ACK recovery — the DATA arrives TWICE, the application is delivered "
+          "EXACTLY ONCE, and the retry is ACKed on the wire so the sender completes") {
+    TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
     node.on_init(cfg);
     RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
     std::array<uint8_t, 16> rb{}; std::array<uint8_t, 64> db{};
-    const size_t rn = mk_rts(1, 2, 2, 5, 15, rb);
-    const size_t dn = mk_data(2, 2, 0x0005, 0, "hi", db);
+    const size_t rn = mk_rts(1, 2, 2, /*ctr_lo=*/5, 15, rb);
+    const size_t dn = mk_data(2, 2, /*ctr=*/0x0005, /*origin=*/1, "hi", db);
 
-    hal._now = 1000; node.on_recv(rb.data(), rn, meta);      // RTS -> CTS, pending_rx
-    hal._now = 1500; node.on_recv(db.data(), dn, meta);      // DATA -> delivered + last_acked cached @1500
+    hal._now = 1000; node.on_recv(rb.data(), rn, meta);
+    hal._now = 1500; node.on_recv(db.data(), dn, meta);
     node.on_timer(kPostAckTimerId);
-    const int cts_before = hal.count("cts_tx");
+    CHECK(delivered_payloads(hal).size() == 1);
 
-    // retried RTS @ +5s (within the 10s last_acked TTL) -> already_received CTS (dup).
+    // Our ACK was lost -> the sender retries the WHOLE exchange 5 s later (inside the retired gate's window).
     hal._now = 6500; node.on_recv(rb.data(), rn, meta);
-    CHECK(hal.count("cts_tx") == cts_before + 1);
-    const Ev* dup = hal.last("cts_tx");
-    CHECK(dup != nullptr);
-    if (dup) CHECK(dup->dup);
+    { const std::vector<cts_out> c = ctses_on_wire(hal);
+      CHECK(c.size() == 2);                      // a SECOND, fresh CTS went out...
+      for (const auto& x : c) CHECK_FALSE(x.already_received); }   // ★ ...and NEITHER claims prior receipt
+    hal._now = 7000; node.on_recv(db.data(), dn, meta);
+    node.on_timer(kPostAckTimerId);
 
-    // retried RTS @ +20s (past the 10s TTL) -> fresh accept, NORMAL CTS (not dup).
-    hal._now = 21500; node.on_recv(rb.data(), rn, meta);
-    const Ev* fresh = hal.last("cts_tx");
-    CHECK(fresh != nullptr);
-    if (fresh) CHECK_FALSE(fresh->dup);
+    CHECK(hal.count("data_rx") == 2);            // the DATA was received TWICE at the MAC
+    // ★ ...and delivered ONCE. This is the assertion the whole design rests on.
+    const std::vector<std::string> got = delivered_payloads(hal);
+    CHECK(got.size() == 1);
+    if (got.size() == 1) CHECK(got[0] == "hi");
+    // ★ the sender is ACKed BOTH times (that is what lets it complete): two ACKs on the wire, to 1, ctr_lo 5.
+    const std::vector<ack_out> acks = acks_on_wire(hal);
+    CHECK(acks.size() == 2);
+    for (const auto& a : acks) { CHECK(a.to == 1); CHECK(a.ctr_lo == 5); }
+    CHECK(nacks_on_wire(hal).empty());           // a same-prev-hop duplicate is NOT a loop
+}
+
+// ---- 3. ENCRYPTED ACK LOSS: the duplicate is recognised by the FULL NONCE-SEED identity ----------------------
+TEST_CASE("[[B153]]/3 CRYPTED lost-ACK recovery — the duplicate is recognised by the FULL 8-B NONCE-SEED, so "
+          "the post-ACK open runs EXACTLY ONCE; a different seed is a different message") {
+    TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
+    node.on_init(cfg);
+    RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
+    const uint8_t S1[8] = { 0x11,0x22,0x33,0x44, 0x55,0x66,0x77,0x88 };
+    const uint8_t S2[8] = { 0x11,0x22,0x33,0x44, 0x55,0x66,0x77,0x89 };   // ONE bit different, in the last byte
+    std::array<uint8_t, 16> rb{}; const size_t rn = mk_rts(1, 2, 2, /*ctr_lo=*/5, 20, rb);
+    std::array<uint8_t, 64> d1{}, d2{};
+    // dst_hash = OUR OWN hash, so the frame is for us and the post-ACK path attempts the open. ⓘ A hand-built
+    // seal cannot decrypt, so the post-ACK ACTION observable is `e2e_open_no_key` — which is reached ONLY
+    // through `_post_ack`, i.e. only when the dedup did NOT short-circuit. That is exactly what must happen once.
+    const size_t n1 = mk_data_crypted(2, 2, /*ctr=*/0x0005, /*origin=*/1, node.key_hash32(), S1, "hi", d1);
+    const size_t n2 = mk_data_crypted(2, 2, /*ctr=*/0x0005, /*origin=*/1, node.key_hash32(), S2, "hi", d2);
+
+    hal._now = 1000; node.on_recv(rb.data(), rn, meta);
+    hal._now = 1500; node.on_recv(d1.data(), n1, meta);
+    node.on_timer(kPostAckTimerId);
+    CHECK(hal.count("e2e_open_no_key") == 1);                  // the post-ACK open ran once
+
+    // ACK lost -> the sender re-flies the SAME sealed message: same ctr AND the same nonce-seed (preserved
+    // verbatim across a requeue — that is what makes the seed a message identity).
+    hal._now = 6500; node.on_recv(rb.data(), rn, meta);
+    { const std::vector<cts_out> c = ctses_on_wire(hal);
+      CHECK(c.size() == 2);
+      for (const auto& x : c) CHECK_FALSE(x.already_received); }
+    hal._now = 7000; node.on_recv(d1.data(), n1, meta);
+    node.on_timer(kPostAckTimerId);
+    CHECK(hal.count("data_rx") == 2);                          // received twice at the MAC...
+    CHECK(hal.count("e2e_open_no_key") == 1);                  // ★ ...opened ONCE. No second delivery attempt.
+    { const std::vector<ack_out> acks = acks_on_wire(hal);
+      CHECK(acks.size() == 2);                                 // and the retry IS ACKed, so the sender completes
+      for (const auto& a : acks) { CHECK(a.to == 1); CHECK(a.ctr_lo == 5); } }
+
+    // ★★ THE DIFFERENTIAL CONTROL that makes the above mean "the SEED is the identity" rather than "anything
+    // repeated is suppressed": same origin, same dst, same ctr — ONE different seed byte -> a DIFFERENT message.
+    hal._now = 8000; node.on_recv(rb.data(), rn, meta);
+    hal._now = 8500; node.on_recv(d2.data(), n2, meta);
+    node.on_timer(kPostAckTimerId);
+    CHECK(hal.count("e2e_open_no_key") == 2);                  // it is NOT deduped -> the open runs again
+}
+
+// ---- 4. TWO DIFFERENT MESSAGES WITH IDENTICAL OLD RTS TUPLES: the ctr_lo-WRAP shape ------------------------
+TEST_CASE("[[B153]]/4 one origin whose 4-bit ctr_lo has WRAPPED — two different messages with an IDENTICAL old "
+          "RTS tuple both deliver (the half 'just add the origin to the key' would still have lost)") {
+    TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
+    node.on_init(cfg);
+    RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
+    const uint8_t kOrigin = 114;
+    const uint16_t c1 = 0x0002, c2 = 0x0012;                   // 2 and 18 -> the SAME 4-bit ctr_lo
+    CHECK((c1 & 0x0F) == (c2 & 0x0F));
+    CHECK(c1 != c2);
+
+    uint64_t t = 1000;
+    const char* bodies[2] = { "wrap-a", "wrap-b" };             // equal length -> equal payload_len
+    for (int k = 0; k < 2; ++k) {
+        const uint16_t c = k ? c2 : c1;
+        std::array<uint8_t, 16> rb{};
+        const size_t rn = mk_rts(1, 2, 2, uint8_t(c & 0x0F), /*plen=*/16, rb);
+        hal._now = t; node.on_recv(rb.data(), rn, meta);
+        std::array<uint8_t, 64> db{};
+        const size_t dn = mk_data(2, 2, c, kOrigin, bodies[k], db);
+        hal._now = t + 500; node.on_recv(db.data(), dn, meta);
+        node.on_timer(kPostAckTimerId);
+        t += 2000;
+    }
+    CHECK(hal._now < 1000 + protocol::last_acked_ttl_ms);
+    const std::vector<cts_out> ctses = ctses_on_wire(hal);           // the BIT, not the emit field
+    CHECK(ctses.size() == 2);
+    for (const auto& c : ctses) CHECK_FALSE(c.already_received);
+    const std::vector<std::string> got = delivered_payloads(hal);
+    CHECK(got.size() == 2);
+    if (got.size() == 2) { CHECK(got[0] == "wrap-a"); CHECK(got[1] == "wrap-b"); }
+}
+
+// ---- 5. A DIFFERENT-PREV-HOP duplicate is still a LOOP, and still NACKed rather than ACKed ------------------
+TEST_CASE("[[B153]]/5 the SAME message arriving via a DIFFERENT prev-hop still produces a LOOP_DUP NACK on the "
+          "wire — not an ACK, and not a delivery") {
+    TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
+    node.on_init(cfg);
+    RxMeta from1{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
+    RxMeta from4{ 8.0f, -80.0f, 0, static_cast<int8_t>(4) };
+    std::array<uint8_t, 64> db{};
+    const size_t dn = mk_data(2, 2, /*ctr=*/0x0005, /*origin=*/9, "hi", db);   // ONE message, origin 9
+
+    { std::array<uint8_t, 16> rb{}; const size_t rn = mk_rts(/*src=*/1, 2, 2, 5, 15, rb);
+      hal._now = 1000; node.on_recv(rb.data(), rn, from1); }
+    hal._now = 1500; node.on_recv(db.data(), dn, from1);
+    node.on_timer(kPostAckTimerId);
+    CHECK(delivered_payloads(hal).size() == 1);
+    const size_t acks_after_first = acks_on_wire(hal).size();
+    CHECK(acks_after_first == 1);
+
+    // the identical flight arrives again, relayed by a DIFFERENT neighbour (4) -> a mesh loop
+    { std::array<uint8_t, 16> rb{}; const size_t rn = mk_rts(/*src=*/4, 2, 2, 5, 15, rb);
+      hal._now = 2000; node.on_recv(rb.data(), rn, from4); }
+    hal._now = 2500; node.on_recv(db.data(), dn, from4);
+    node.on_timer(kPostAckTimerId);
+
+    const std::vector<nack_out> nacks = nacks_on_wire(hal);
+    CHECK(nacks.size() == 1);
+    if (nacks.size() == 1) { CHECK(nacks[0].reason == protocol::nack_reason_loop_dup);
+                             CHECK(nacks[0].to == 4); CHECK(nacks[0].ctr_lo == 5); }
+    CHECK(acks_on_wire(hal).size() == acks_after_first);        // ⛔ NO ACK for the looped copy
+    CHECK(delivered_payloads(hal).size() == 1);                 // ...and no second delivery
 }
 
 // WI-4 (R3.x) concurrency micro-gate. The half-duplex single-flight invariant:
@@ -1916,7 +2125,7 @@ TEST_CASE("§mobile 6.4 / §18 — a DUAL team member answers a team RTS with a 
     node.set_team_local_id(238);                             // our team id 238, node_id 17
     RxMeta meta{12.0f,-70.0f,0,static_cast<int8_t>(93)};
     rts_in r{}; r.leaf_id=0; r.src=93; r.next=238; r.ctr_lo=5; r.dst=238; r.sf_index=3; r.payload_len=7; r.mobile_src=true; r.addr_len=1;  // team RTS to our team id
-    uint8_t rb[9]; size_t rn = pack_rts(r, std::span<uint8_t>(rb, sizeof rb));
+    uint8_t rb[11]; size_t rn = pack_rts(r, std::span<uint8_t>(rb, sizeof rb));
     hal.tx_frames.clear();
     node.on_recv(rb, rn, meta);
     bool got_cts=false;
@@ -3119,7 +3328,7 @@ TEST_CASE("§mobile — a receiver ACKs a mobile_src originator with mobile_to=1
     NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; CHECK(R.on_init(cfg));
     RxMeta meta{8.0f,-80.0f,0,static_cast<int8_t>(20)};      // originator = a mobile/team member with LOCAL id 20
     rts_in r{}; r.leaf_id=0; r.src=20; r.next=2; r.ctr_lo=5; r.dst=2; r.sf_index=0; r.payload_len=6; r.mobile_src=true;  // ★ mobile_src RTS
-    uint8_t rb[9]; size_t rn = pack_rts(r, std::span<uint8_t>(rb, sizeof rb));
+    uint8_t rb[11]; size_t rn = pack_rts(r, std::span<uint8_t>(rb, sizeof rb));
     hal._now=1000; R.on_recv(rb, rn, meta);
     CHECK(hal.count("rts_rx") == 1);
     std::array<uint8_t,64> db{}; size_t dn = mk_data(/*next=*/2, /*dst=*/2, /*ctr=*/0x0005, /*origin=*/20, "hi", db);
@@ -3179,11 +3388,17 @@ TEST_CASE("§18 — a TEAM flight's LOCAL-id next-hop timing out does NOT suspec
     delete stat;
 }
 
-TEST_CASE("② implicit-ACK — overhearing the next-hop forward our DATA cancels the pending flight (dv:9863)") {
+// ⛔⛔ ② THE IMPLICIT-ACK CASE IS REPLACED, NOT DELETED QUIETLY. It used to assert that an overheard
+// forward-RTS matching `next/dst/ctr_lo + payload_len` CANCELS our pending flight. That behaviour is GONE
+// (§B153/[[B157]]): it was a TERMINAL decision derived from an RTS, which cannot prove message identity, and
+// `s27` measured it discarding a real message (t=363718 — the gateway credited origin-114's forward to the
+// still-unsent origin-111 flight). The case now asserts the NEW contract in the SAME scenario, so the change
+// of behaviour is pinned rather than merely un-tested.
+TEST_CASE("[[B157]] an overheard forward-RTS must NOT cancel our pending flight — the optimization is gone, and "
+          "the flight survives to be retried (RTS authorizes reception; only DATA proves identity)") {
     TestHal hal;
     Node* node = mk_sender_with_routes(hal, {{2,1,14},{3,2,14}});   // dest 5 via 2 (primary) + 3 (alt)
     send_cmd(*node, 5, "hi");                                       // RTS to via 2
-    // capture our in-flight RTS's ctr_lo + payload_len (== inner_len + MAC — what a forward must match)
     uint8_t our_ctr_lo = 0, our_plen = 0; bool got = false;
     for (auto& f : hal.tx_frames) { auto pr = parse_rts(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
         if (pr && pr->src == 1) { our_ctr_lo = pr->ctr_lo; our_plen = pr->payload_len; got = true; } }
@@ -3194,20 +3409,20 @@ TEST_CASE("② implicit-ACK — overhearing the next-hop forward our DATA cancel
     node->on_timer(kCtsToDataGapTimerId);                          // -> DATA tx (awaiting_ack)
     CHECK(node->has_pending_tx());
 
-    // (1) a NON-matching overheard forward (wrong ctr_lo) does NOT cancel
-    std::array<uint8_t, 16> nb{}; const size_t nn = mk_rts(/*src=*/2, /*next=*/9, /*dst=*/5, static_cast<uint8_t>(our_ctr_lo ^ 0x0F), our_plen, nb);
-    node->on_recv(nb.data(), nn, m2);
-    CHECK(hal.count("implicit_ack_from_forward") == 0);
-    CHECK(node->has_pending_tx());                                 // flight survives a non-match
-
-    // (2) the MATCHING forward (next-hop 2 forwarding OUR ctr_lo/len to dst 5, on to 9) = implicit ACK
-    const int rts_before = hal.count("rts_tx");
+    // The forward that used to be read as an implicit ACK: our next-hop (2) relaying to 9, agreeing on
+    // dst/ctr_lo AND payload_len — i.e. EVERY field the retired match used.
     std::array<uint8_t, 16> fb{}; const size_t fn = mk_rts(/*src=*/2, /*next=*/9, /*dst=*/5, our_ctr_lo, our_plen, fb);
     node->on_recv(fb.data(), fn, m2);
-    CHECK(hal.count("implicit_ack_from_forward") == 1);
-    CHECK_FALSE(node->has_pending_tx());                           // flight cleared
-    node->on_timer(kAckTimeoutTimerId);                           // the ACK timer was cancelled -> NO redundant retry
-    CHECK(hal.count("rts_tx") == rts_before);
+    CHECK(hal.count("implicit_ack_from_forward") == 0);             // ⛔ the emit no longer exists at all
+    // ★ THE ASSERTION THAT MATTERS: our flight is STILL OURS. Nothing terminal was inferred from that frame,
+    // so the message cannot have been silently discarded — which is the whole defect.
+    CHECK(node->has_pending_tx());
+    // ...and the ACK timeout it is still waiting on genuinely fires and drives the RECOVERY path (a backoff-armed
+    // re-RTS) rather than a silent drop. ⓘ The re-RTS is deferred through kRetryBackoffTimerId, so drive both.
+    const int rts_before = hal.count("rts_tx");
+    node->on_timer(kAckTimeoutTimerId);
+    node->on_timer(kRetryBackoffTimerId);
+    CHECK(hal.count("rts_tx") > rts_before);                       // a real retry — the recovery path, not a drop
     delete node;
 }
 
@@ -6513,8 +6728,21 @@ TEST_CASE("§mobile 2a — host accepts a mobile (DISCOVER->OFFER, CLAIM registe
     CHECK(hal.count("mobile_offer_scheduled") == 1);                 // unchanged -> the non-mobile foreign DISCOVER was leaf-filtered
 
     // (3) a mobile CLAIM -> claim-stands: registered, NO reply; idempotent re-CLAIM keeps ONE slot
+    // ★★★ [[B147]] §MH-S2b — REWRITTEN IN PLACE (B101), AND THE REWRITE MAKES THE CASE STRONGER. It used to
+    // CLAIM a HAND-PICKED local id (40) that the host had never proposed. Since [[B137]] the staged OFFER holds
+    // a live RESERVATION for this mobile at the id the allocator really chose, and a CLAIM must now match that
+    // promise on BOTH hash and id — so a self-invented id is refused as a stale echo (`mobile_claim_stale_id`).
+    // ⇒ the case now does what a real mobile does: it TRANSMITS the staged OFFER, reads the proposed id OFF THE
+    // WIRE, and claims THAT. It no longer assumes the allocation, which is the point.
+    host.on_timer(80 /*kMobileOfferBackoffTimerId*/);          // the staged OFFER's jitter deadline (due at 1100, now 2000)
+    uint8_t offered = 0;
+    for (const auto& f : hal.tx_frames) {
+        auto p = parse_j(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+        if (p && p->opcode == static_cast<uint8_t>(j_opcode::offer) && p->is_mobile) offered = p->proposed_mobile_id;
+    }
+    CHECK(offered >= protocol::normal_node_id_min);            // PREMISE: the OFFER really flew and named an id
     std::array<uint8_t, 11> cb{};
-    size_t cn = pack_j_claim({ /*leaf_id=*/4, false, /*is_mobile=*/true, /*key=*/0xB0B1u, /*proposed=*/40, /*lease=*/0, /*epoch=*/1, /*nonce=*/0, /*chosen_host=*/20 }, cb);
+    size_t cn = pack_j_claim({ /*leaf_id=*/4, false, /*is_mobile=*/true, /*key=*/0xB0B1u, /*proposed=*/offered, /*lease=*/0, /*epoch=*/1, /*nonce=*/0, /*chosen_host=*/20 }, cb);
     hal._now = 3000; host.on_recv(cb.data(), cn, meta);
     CHECK(hal.count("mobile_registered") == 1);
     CHECK(host.mobile_reg_count() == 1);
@@ -6763,7 +6991,7 @@ TEST_CASE("§mobile 3b A1 — a mobile_src RTS's local-id stays OUT of the globa
     auto feed_rts = [&](uint8_t src, bool mobile_src) {
         rts_in r{}; r.leaf_id=4; r.src=src; r.next=99; r.ctr_lo=1; r.dst=99; r.sf_index=0; r.rts_flags=0; r.payload_len=1;
         r.mobile_src=mobile_src;
-        uint8_t b[9]; size_t n = pack_rts(r, b); node.on_recv(b, n, meta);
+        uint8_t b[11]; size_t n = pack_rts(r, b); node.on_recv(b, n, meta);
     };
     // a NORMAL RTS from src 50 -> learned as a 1-hop neighbour (rt grows)
     const uint8_t rc0 = node.rt_count();

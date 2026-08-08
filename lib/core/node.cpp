@@ -547,7 +547,43 @@ bool Node::on_init(const NodeConfig& cfg) {
                                                                  : steady_beacon_period_ms());
         (void)_hal.after(static_cast<uint32_t>(_hal.rand_range(0, first_period)), kBeaconTimerId);
     }
-    if (_cfg.is_mobile && (_cfg.mobile_autoregister || _cfg.team_id != 0)) (void)_hal.after(0, kMobileDiscoverTimerId);   // §mobile 2b/console: kick the FSM. §6.4: a TEAM member ALSO kicks it regardless of the toggle so team-DAD runs. §autoregister ruling (2026-07-21): the kick still fires, but the FSM's DISCOVER/registration half is now gated on registration_armed() (autoregister ON, or a manual `mobile register` arm) — a team member with autoregister=false thus runs team-DAD but emits ZERO DISCOVERs; a persisted _team_local_id makes team-DAD a no-op.
+    // ★★★ §MH-S3 §5.2 — THE AUTOMATIC BOOT ATTEMPT DRAWS A STARTUP JITTER; A MANUAL ONE STAYS IMMEDIATE.
+    // This kick used to be `after(0, ...)` unconditionally, so a fleet powered from one switch put every
+    // mobile's first DISCOVER on the air in the same millisecond — the alignment §5.2 exists to break, and
+    // the one LBT cannot help with (they all sense a clear channel at the same instant).
+    // ★ THE DRAW IS GATED ON `mobile_autoregister`, NOT on the kick, and the two are NOT the same condition:
+    //   a team-only mobile (autoregister OFF, team_id set) is kicked purely so `team_dad_fire` runs, and
+    //   `registration_armed()` then returns before any DISCOVER — there is no automatic attempt to stagger,
+    //   so it draws NOTHING and keeps its `after(0, ...)`. Neither is `mobile_register_*` (node.h), which is
+    //   §5.2's "the manual first attempt is immediate" and is deliberately left at zero.
+    // ★ §MH-S4 §4.1/§4.2 — THE BOOT STATE OF THE ATTACHMENT PLANE, stated rather than left at the member's
+    // default. `mobile_autoregister` ON means an automatic session starts now, so the plane is `seeking` from
+    // this instant — before the jittered first DISCOVER fires, which is exactly the window in which a companion
+    // app connects and asks. OFF means `dormant` (§4.2: "boot remains dormant; the user/app/Heltec starts
+    // attachment with `mobile register`") — INCLUDING for a team-only mobile, whose kick below exists solely to
+    // run team-DAD and which emits no DISCOVER at all.
+    // ⛔ The HOME-LINK plane stays `unknown` and is not named here: nothing has been measured yet, which is its
+    //    definition. A non-mobile node leaves both members at their `dormant`/`unknown` defaults.
+    // ★★★★ §MH-S4b §4.2 — AND THE SESSION STATE IS SEEDED FROM THE FLAG **HERE, ONCE**. `mobile_autoregister` is
+    // the BOOT POLICY ("`true`: boot enters `seeking` automatically"); `_mobile_home_desired` is the live session,
+    // and it is now the WHOLE of `registration_armed()`/`mobile_service_desired()` (node.h documents why). Seeding
+    // it here is what makes `mobile unregister` mean something on an `autoregister=1` device: before this, the verb
+    // cleared a member that the predicates OR-ed away, so the node reported `dormant` while still being armed.
+    // ⛔ Read ONCE and never re-read: §4.2 rules that an explicitly-started session continues independently of the
+    //    initial-auto flag, so a later `cfg set mobile_autoregister 0` must not end a live session.
+    // ⓘ CORPUS-INERT: the seeded value IS `_cfg.mobile_autoregister`, and no scenario can reach the console verbs
+    //   that later change it ⇒ both predicates hold exactly the value they held before this slice, for the whole run.
+#if MR_FEAT_MOBILE
+    if (_cfg.is_mobile) {
+        _mobile_home_desired = _cfg.mobile_autoregister;
+        _mobile_attach_state = _cfg.mobile_autoregister ? MobileAttachState::seeking : MobileAttachState::dormant;
+    }
+#endif
+    if (_cfg.is_mobile && (_cfg.mobile_autoregister || _cfg.team_id != 0))
+        (void)_hal.after(_cfg.mobile_autoregister
+                             ? static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(protocol::mobile_boot_jitter_ms) + 1))
+                             : 0u,
+                         kMobileDiscoverTimerId);   // §mobile 2b/console: kick the FSM. §6.4: a TEAM member ALSO kicks it regardless of the toggle so team-DAD runs. §autoregister ruling (2026-07-21): the kick still fires, but the FSM's DISCOVER/registration half is now gated on registration_armed() (autoregister ON, or a manual `mobile register` arm) — a team member with autoregister=false thus runs team-DAD but emits ZERO DISCOVERs; a persisted _team_local_id makes team-DAD a no-op.
     // Periodic route-aging sweep (dv_dual_sf.lua:9080-9086).
     (void)_hal.after(_cfg.rt_aging_check_period_ms, kAgingTimerId);
     // REQ_SYNC bootstrap (dv_dual_sf.lua:9166-9175): after a listen window, broadcast a REQ_SYNC Q
@@ -714,8 +750,27 @@ void Node::clear_routing_state() {
     // FIRST (active-guarded → registered:false shape, S2) so a `leave`/re-`join` doesn't leave the companion chip's
     // registration state stale forever; then reset. Plain struct reset — NOT mobile_reset_registration() (whose
     // re-DISCOVER/set_identity side-effects don't belong on a verb reprovision; the join's own re-DAD drives rediscovery).
-    if (_my_mobile_reg.active) { Push pu{}; pu.kind = PushKind::mobile_reg; enqueue_push(pu); }   // registered:false (relayed defaults false)
+    // ★ §MH-S4 §4.1 — GATED ON THE ATTACHMENT PLANE, NOT ON `active`, for the same symmetry reason as
+    // `mobile_reset_registration`: with the `registered:true` push moved to roster confirmation, a `registered:false`
+    // for an attachment the app was never told about would be an event with no counterpart.
+    if (_mobile_attach_state == MobileAttachState::attached) { Push pu{}; pu.kind = PushKind::mobile_reg; enqueue_push(pu); }   // registered:false (relayed defaults false)
     _my_mobile_reg = MyMobileReg{};
+    // A verb reprovision drops the attachment session with everything else it drops: both planes return to their
+    // boot state and the volatile home-service request is cleared (the join's own re-DAD drives rediscovery).
+    _mobile_attach_state      = MobileAttachState::dormant;
+    _mobile_home_link         = MobileHomeLink::unknown;
+    // ★★ §MH-S4b — RE-SEEDED FROM THE BOOT POLICY, **not** cleared, and that is BEHAVIOUR-PRESERVING at this site
+    // rather than a new decision. §MH-S4 wrote `= false` here, which was harmless only because both predicates
+    // still OR-ed in `_cfg.mobile_autoregister`; now that `_mobile_home_desired` IS the whole predicate (node.h),
+    // a bare clear would leave an `autoregister=1` mobile PERMANENTLY unable to re-register after a `join`/`create`/
+    // `leave` — an autonomy regression this line exists to not have. A verb reprovision is a fresh start on a new
+    // network, so it re-applies the same rule `on_init` applies: the flag is the boot policy.
+    // ⛔ It is NOT a general licence to re-read the flag: §4.2 forbids that mid-session (see node.h). Only the two
+    //    fresh-start sites — `on_init` and this reprovision — evaluate it.
+    _mobile_home_desired      = _cfg.mobile_autoregister;
+    _mobile_home_confirmed_ms = 0;
+    _presence_reg_confirmed   = false;
+    _mobile_claim_retries     = 0;
 #endif
 }
 
@@ -738,7 +793,7 @@ void Node::clear_learned_state() {
         // (§clean-join R4: the channel-plane cluster — buffer/per-origin ledger/pull-pending/pull-recent/flood — MOVED
         //  to clear_routing_state so the reprovision verbs wipe it too; clear_routing_state runs first here, so
         //  prep-restart still clears it.)
-        L._peer_send_counter.clear(); L._last_acked_from.clear();
+        L._peer_send_counter.clear();   // §B153: _last_acked_from is gone (see node.h)
         L._seen_origins.clear(); L._seen_origin_from.clear(); L._blind_until.clear();
         L._neighbor_budget_tier.clear(); L._neighbor_budget_tier_set_at.clear();
         L._per_sender_originator.clear();
@@ -1228,26 +1283,13 @@ void Node::on_timer(uint32_t timer_id) {
     case kPresenceProbeTimerId:   presence_probe_fire();  break;   // §S6: mobile presence check/probe/retry (REPLACES the re-CLAIM tick)
 #endif
     case kPresenceRosterTimerId:  presence_roster_fire(); break;   // §S6: home coalesced-roster emit (always compiled — a home is a static)
-    case kMobileOfferBackoffTimerId:                              // §S6/QA-3b: fire the de-stormed (jittered) mobile OFFER
-        // ★★ §B132b — THE TRANSMISSION BOUNDARY IS A DECISION SITE. The OFFER is *committed* at DISCOVER time (that is
-        // where `mobile_offer_scheduled` is emitted) but it is *transmitted* HERE, 100..1000 ms later — and `mobile_offer_tx`
-        // is emitted at THAT handoff, in `lbt_complete` (§MH-S1b renamed the staging emit for exactly this reason). Eligibility can flip
-        // inside that window, and two of the ways are LIVE console knobs needing no reboot: `cfg set mobile 1` (allowed
-        // while the registry is empty — a staged OFFER is not a hosted mobile, so role_set_refusal's O2 clause does not
-        // see it) and `cfg set host_mobiles off` (B3, `persist = false`, live). Without this re-check the node advertises
-        // itself as a home it may no longer be. ⇒ the `on_init` cleanup is HYGIENE; this is the GUARANTEE — it is also
-        // the only defence on the REFUSED-`on_init` path, which returns before that cleanup with `n_layers == 2` intact.
-        if (!can_host_mobiles()) { mobile_host_pending_clear(); break; }   // ineligible -> DROP the stash, transmit NOTHING
-        // ★ §MH-S1 §6.2 — THE ADMISSION RESULT DECIDES THE ENTRY'S FATE. `jtx_fire`'s answer used to be
-        // discarded, so a staged OFFER that the transmitter definitively refused vanished in silence while
-        // `mobile_offer_tx` (then emitted a jitter-window earlier, at DISCOVER time) still claimed it was sent —
-        // which is why §MH-S1b also renamed that staging emit to `mobile_offer_scheduled` (§10).
-        // The `len != 0` test is what lets `false` mean REJECTED rather than "nothing was armed".
-        if (_active->_pending_offer_len != 0) {
-            TxAdmission adm = TxAdmission::admitted;
-            if (!jtx_fire(_active->_pending_offer, _active->_pending_offer_len, LbtKind::mobile_offer, &adm))
-                mobile_offer_admission_rejected(adm);   // adm ∈ {defer_full, tx_rejected} — tx_initiating writes it on every path
-        }
+    case kMobileOfferBackoffTimerId:                              // §S6/QA-3b + ★ §MH-S2 §5.3.3: the pending-OFFER ring's DEADLINE SCAN
+        // ★★ §MH-S2 — ONE TIMER, MANY ENTRIES. This was a single-slot fire; it is now a scan that expires elapsed
+        // [[B137]] id reservations, transmits AT MOST ONE due OFFER and re-arms for the next earliest deadline. The
+        // whole body (including the §B132b eligibility re-check at the transmission boundary and the §MH-S1 §6.2
+        // admission-result handling) lives in `mobile_offer_fire` (node_join.cpp), beside the ring it serves —
+        // ⛔ `kCap` is UNCHANGED at 91: no timer id was allocated for this, by design.
+        mobile_offer_fire();
         break;
     case kTeamDadGuardTimerId:     team_dad_guard_fire();     break;   // §mobile 6.4: team-DAD guard window close -> confirm _team_local_id
     case kMBcastClearTimerId:                                       // M-broadcast fire-and-forget: clear the flight (no ACK)
@@ -1334,7 +1376,17 @@ void Node::on_timer(uint32_t timer_id) {
                     // stage it did not own and arming a retry for an attempt that no longer existed, which is
                     // why "the rejected path is as destructive as the accepted one" is the defect's shape.
                     // ⇒ reaching here means the CLAIM was OURS and really died: clearing our own stage is right.
-                    if (static_cast<LbtKind>(d.kind) == LbtKind::mobile_claim) {
+                    // ★★★★ §MH-S4b — AND A **RE-CLAIM** THAT DIES HERE IS A DIFFERENT FRAME WITH A DIFFERENT OWED
+                    // ACTION, so it is identified BEFORE either branch acts ([[B147]]'s ordering rule). §7.1's
+                    // re-CLAIM is sent by an already provisionally-attached `claiming` node; it counted against the
+                    // bounded budget the moment `tx_initiating` answered true for the defer (which is correct — a
+                    // deferred frame IS in flight), and now it turns out it never reached the air ⇒ **REFUND**.
+                    // ⛔ It must NOT reach `mobile_admission_rejected`: that is the PRE-attachment FSM's backoff +
+                    //    retry-DISCOVER, and a `claiming` node already has a home, a local id and an armed
+                    //    confirmation deadline that will try again. Routing it there would throw the attachment away
+                    //    for a local radio hiccup — [[B139]]'s defect, one plane over.
+                    if (static_cast<LbtKind>(d.kind) == LbtKind::mobile_claim
+                        && !mobile_reclaim_deferred_rejected()) {
                         _mobile_claim_pending = false;
                         mobile_admission_rejected(TxAdmission::tx_rejected, "claim_deferred");
                     }

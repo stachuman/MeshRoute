@@ -145,6 +145,27 @@ inline constexpr uint8_t  retry_backoff_max_shift = 0;
 inline constexpr uint32_t retry_backoff_window(uint32_t base, uint8_t attempt, uint8_t max_shift) {
     return base << (attempt < max_shift ? attempt : max_shift);
 }
+// ★★ §MH-S3 §5.2 — EQUAL JITTER, the SECOND member of the retry-backoff family. Given a capped backoff
+// WINDOW it yields the half-open draw bounds for `Hal::rand_range(lo, hi)`:
+//
+//     delay = rand( window/2 , window + 1 )        // inclusive upper bound through the half-open API
+//
+// ★ WHY BOTH HALVES MATTER, and neither is decoration: the NON-ZERO lower half stops a fleet that failed
+// together from storming again immediately (a plain `rand(0, window)` lets a whole fleet draw near-zero on
+// the same round), and the RANDOM upper half breaks the PERMANENT phase alignment a fixed deadline creates
+// (§2.2: mobiles powered together collided in the same OFFER window round after round, forever).
+//
+// ⚠ WHY `retry_backoff_window()` ABOVE IS NOT REUSED TO PRODUCE THE WINDOW, verified not assumed (V1):
+// §5.2's window is `min(base * 2^attempt, ceiling)` — a VALUE clamp — while that function is a SHIFT clamp,
+// and no shift of 5000 equals 120000. Its `retry_backoff_max_shift` is also globally **0** (measured, six
+// lines up), i.e. it currently produces no growth at all. The mobile ladder therefore keeps its own
+// in-place `min(2*prev, max)` accumulator (`_mobile_backoff_ms`), which IS §5.2's formula exactly; only the
+// jitter is shared. ⛔ Do not "unify" the two — they clamp different things.
+//
+// ⓘ `hi_excl` is `window + 1` so the top of the window is REACHABLE; `lo` is a truncating halve, so a
+//   window of 1 gives rand(0, 2) — still a legal, non-degenerate draw.
+inline constexpr uint32_t equal_jitter_lo(uint32_t window)      { return window / 2; }
+inline constexpr uint32_t equal_jitter_hi_excl(uint32_t window) { return window + 1; }
 
 // ---- Beacon plane ----------------------------------------------------------
 inline constexpr uint32_t discovery_beacon_period_ms     = 5000;
@@ -671,11 +692,109 @@ inline constexpr uint8_t  unjoined_node_id     = 0;           // 0 = unprovision
 inline constexpr uint8_t  gateway_node_id_max  = 16;          // 1..16 reserved for gateways
 inline constexpr uint8_t  normal_node_id_min   = 17;          // normal nodes pick from 17..254
 inline constexpr uint8_t  cap_host_mobiles     = 16;          // §mobile 2a: per-leaf host registry capacity (mobiles accepted by this host)
+// ★★ §MH-S2 §5.3.1 — THE **HOST** SIDE OF THE OFFER HANDSHAKE. Read the next two lines together with
+// `cap_mobile_offers` five lines below, and then never conflate them again:
+//   • `cap_pending_mobile_offers` (HERE, host)  = how many mobiles ONE HOME may owe an armed, targeted OFFER at once.
+//   • `cap_mobile_offers`      (below, mobile)  = how many OFFERs ONE MOBILE may weigh inside one DISCOVER window.
+// ⛔ NEVER derive, alias, `= cap_mobile_offers`, or default one from the other, and never describe them as "the same
+// 8". They answer different questions, they are sized by different pressures (host RAM + cap_host_mobiles here; RF
+// diversity there), and EITHER MAY BE RETUNED ALONE. The equal starting value is a coincidence, not a relationship.
+// RAM cost, MEASURED not inferred (§MH-S2 go/no-go): sizeof(Node::PendingMobileOffer) = 40 B on all five real ABIs
+// x 8 = 320 B node-global (NOT x MR_N_LAYERS — see the ring's own note in node.h).
+inline constexpr uint8_t  cap_pending_mobile_offers      = 8;        // HOST: concurrently ARMED targeted OFFERs awaiting their jitter fire
+// ★★ [[B137]] — the PENDING-ID RESERVATION bound (§5.3.2 owner ruling). A local id proposed in an OFFER is reserved
+// from ADMISSION until the matching CLAIM arrives or this elapses, so four concurrent mobiles are offered four
+// DISTINCT ids instead of four copies of the same one. Sized from the handshake it must span, not picked round:
+// the host's own OFFER jitter (join_offer_backoff_max_ms = 1000) + the mobile's collect-OFFERs window
+// (mobile_offer_window_ms = 2000) + its FIRST no-host retry (mobile_discover_backoff_min_ms = 5000, which
+// re-DISCOVERs and re-uses the SAME reservation idempotently) = 8000, plus 2 s of air/LBT slop.
+// ⚠ RE-CHECKED AT §MH-S3 (V1, against the code and not against this note), because that slice widened one
+// of the terms: the collect window is now `mobile_offer_window_ms + rand(0, mobile_claim_jitter_ms + 1)` =
+// 2000..3000 (§5.4). ★ AND THE RE-CHECK CORRECTED THE NOTE'S OWN ARITHMETIC: the `+ 5000 first retry` term
+// above is CONSERVATIVE TO THE POINT OF BEING WRONG — `mobile_offer_admit`'s re-arm arm re-stamps
+// `reserve_until_ms = now + this` on every re-DISCOVER, so a retry RESTARTS the budget rather than
+// consuming it. The span this constant actually has to cover is ONE round, measured from admission:
+// the mobile's own window+jitter, i.e. 3000 worst case (the host's OFFER jitter runs INSIDE it, not before
+// it — both clocks start at the same DISCOVER). ⇒ ~7 s of margin, and `mobile_claim_jitter_ms` could rise
+// to ~7000 before this would have to move. See its own note.
+// ⚠ It is an UPPER BOUND on a leak, not a schedule: the normal path releases the reservation at the CLAIM, long
+// before this. Raising it costs ring occupancy (8 slots), never correctness; lowering it below ~3 s would expire a
+// reservation while the mobile is still inside its own collect window.
+inline constexpr uint32_t mobile_offer_reservation_ms    = 10000;    // HOST: [[B137]] pending-id reservation lifetime
+// ★★★ [[B145]] §MH-S2b — THE RE-SPACE FLOOR, and it exists because "at most ONE due OFFER per callback" was NOT the
+// same statement as "at most one OFFER per millisecond". `mobile_offer_fire` transmits one entry and re-arms for the
+// next; when that next entry is ALREADY OVERDUE the re-arm computed a delay of **zero**, and the production pump
+// (`src/fw_main.cpp`, `for (int id; (id = g_hal.pop_due_timer()) >= 0; )`) drains every due timer against a clock it
+// re-reads but which need not have advanced. `TimerWheel::pop_due` fires on `_due <= now`, so a zero-delay re-arm is
+// due IMMEDIATELY and the same drain pass fires the callback again — four overdue entries become four OFFERs in one
+// millisecond, which is exactly the burst the 100..1000 ms jitter exists to prevent.
+// ⛔ NOT A JITTER, AND DELIBERATELY NOT AN RNG DRAW: S3 is this arc's only planned RNG re-anchor, so this is a
+// CONSTANT. It is only ever substituted for a delay that would otherwise be 0 — a positive computed delay is passed
+// through untouched, so the ordinary path is byte-identical.
+// ⚠ ⛔ NOT AN ALIAS OF `join_offer_backoff_min_ms`, which happens to hold the same 100 today: that one is the LOW
+// BOUND OF A RANDOM WINDOW (retune it and the OFFER jitter changes), this one is the MINIMUM SPACING BETWEEN TWO
+// CONSECUTIVE OFFER TRANSMISSIONS from one home (retune it and only the overdue-drain changes). Same value, different
+// question — the `cap_pending_mobile_offers` / `cap_mobile_offers` rule twelve lines up, applied again.
+// SIZING: any value >= 1 breaks the same-pump re-entry (`pop_due` needs `_due <= now`), so 1 would be *correct* and
+// useless — it would hand the radio a second frame in the next millisecond. 100 is the smallest value that is also a
+// real inter-frame gap: it matches the de-storm window's own floor, and **in the normal fully-overdue drain** 8 slots
+// drain in 700 ms, well inside both `mobile_offer_window_ms` (2000) and `mobile_offer_reservation_ms` (10000).
+// ⚠ THAT IS THE DRAIN CALCULATION AND NOTHING MORE. An earlier revision of this line claimed "so no entry can be
+// re-spaced past its own reservation" — **WITHDRAWN, it overclaims**: the 700 ms is measured from the moment the
+// drain starts, so a timer first serviced close to an entry's expiry CAN still be re-spaced past that entry's
+// reservation. The reservation sweep is what handles it (the entry expires and its id is released); re-spacing is
+// not a guarantee about reservation lifetime, and no caller may assume one.
+inline constexpr uint32_t mobile_offer_respace_ms        = 100;      // HOST: [[B145]] floor for an OVERDUE re-arm (never a draw)
 // §mobile 2b (mobile-side registration FSM):
-inline constexpr uint8_t  cap_mobile_offers              = 8;        // OFFERs collected in one DISCOVER window
+inline constexpr uint8_t  cap_mobile_offers              = 8;        // OFFERs collected in one DISCOVER window (MOBILE side — ⛔ NOT the host ring above)
 inline constexpr uint32_t mobile_discover_backoff_min_ms = 5000;     // exp-backoff floor when no host answers (B3)
 inline constexpr uint32_t mobile_discover_backoff_max_ms = 120000;   //   ceiling
 inline constexpr uint32_t mobile_offer_window_ms         = 2000;     // collect-OFFERs window before deciding (≈ B4)
+// ★★ §MH-S3 §5.2 — THE AUTOMATIC-BOOT STARTUP JITTER. `on_init` kicks the registration FSM with
+// `after(0, kMobileDiscoverTimerId)`; a fleet powered from one switch therefore DISCOVERed at t=0 to the
+// millisecond, so every mobile's first frame collided with every other mobile's first frame before LBT
+// could help. 0..this is drawn ONCE, at boot, and ONLY when the kick is AUTOMATIC (`mobile_autoregister`):
+// ⛔ a MANUAL `mobile register` stays IMMEDIATE (§5.2: "the manual first attempt is immediate"), and a
+// team-only mobile (autoregister off, team_id set) whose kick exists solely to run team-DAD draws NOTHING.
+// SIZING: one collect-OFFERs window. Large enough that N mobiles' DISCOVERs land in distinct milliseconds
+// on any realistic fleet; small enough that boot-to-attach is not visibly slowed (the host answers inside
+// its own 100..1000 ms OFFER jitter either way). ⛔ NOT an alias of `mobile_offer_window_ms` despite the
+// equal value — that one is how long a mobile LISTENS, this one is how long it WAITS before speaking;
+// retune either alone (the `cap_pending_mobile_offers` / `cap_mobile_offers` rule, applied again).
+inline constexpr uint32_t mobile_boot_jitter_ms          = 2000;     // MOBILE: 0..this before the AUTOMATIC boot DISCOVER
+// ★★ §MH-S3 §5.4 — CLAIM DE-SYNCHRONIZATION. The collect-OFFERs window is a MINIMUM, not a deadline: the
+// claim guard is armed at `mobile_offer_window_ms + rand(0, this + 1)`, so mobiles that opened their
+// windows in the same millisecond do not all close them — and CLAIM — in the same millisecond.
+// ★ THE SELECTION RULE IS UNCHANGED: the chosen OFFER is still the STRONGEST received before this mobile's
+// own deadline. The jitter moves the deadline; it does not touch the compare (`mobile_claim_guard_fire`).
+// SIZING, against the reservation budget it must fit inside (`mobile_offer_reservation_ms` = 10000): host
+// OFFER jitter (join_offer_backoff_max_ms 1000) + collect window (2000) + THIS (1000) = 4000 worst case,
+// i.e. a CLAIM always arrives with ~6 s of reservation left. Anything up to ~7000 would still fit.
+// ⛔⛔ THE OLD JUSTIFICATION FOR 1000 WAS FALSE TWICE OVER AND IS RETRACTED (§MH-S3-QA item 5, 2026-08-07).
+// It read: *"1000 is chosen because it already spreads a full ring of 8 mobiles by ~125 ms each, which is
+// more than a CLAIM's airtime"*. Both halves are wrong, and both are now MEASURED rather than asserted:
+//   ① ⛔ A RANDOM DRAW GUARANTEES NO SPACING AT ALL. 1000/8 = 125 is the MEAN gap of an even comb, not
+//      anything 8 independent uniform draws produce. Measured (2e6 Monte-Carlo trials, 8 draws on
+//      [0,1000]): P(all seven adjacent gaps >= 125 ms) = **5.0e-7** — closed form (1 - 7*125/1000)^7 =
+//      4.77e-7 — and the EXPECTED MINIMUM gap is **15.9 ms**, not 125.
+//   ② ⛔ "MORE THAN A CLAIM'S AIRTIME" IS FALSE ON MOST SUPPORTED PHYs. An 11-byte J CLAIM
+//      (`pack_j_claim`, whole on-air frame) at CR 4/5 and `preamble_sym` = 16, computed with THIS repo's
+//      own `airtime_ms()` model: **BW 125 kHz — SF7 49 ms · SF8 98 ms · SF9 177 ms · SF10 354 ms ·
+//      SF11 708 ms · SF12 1417 ms**. So 125 ms exceeds a CLAIM only at SF7/SF8 on 125 kHz; at SF12 one
+//      CLAIM is 1417 ms — **longer than the entire 1000 ms jitter window**. (BW 250 kHz: 24/49/88/177/
+//      313/708 ms. BW 500 kHz: 12/24/44/88/156/313 ms.)
+//   ⇒ Even at the FASTEST 125 kHz PHY the measured P(some pair of the 8 lands within one 49 ms CLAIM
+//      airtime) is **0.965**; at SF9's 177 ms it is **1.000**.
+// ★ SO WHY 1000, HONESTLY: it is a TUNING CHOICE, not a separation guarantee, and the mechanism it buys is
+//   INDEPENDENCE, not spacing. Un-jittered, a fleet that opened its windows in the same millisecond
+//   collides on EVERY round, for ever — probability 1, permanently correlated. Jittered, each retry is a
+//   fresh independent draw, so a colliding pair separates on a subsequent round instead of never; that is
+//   the §5.4 property, and it does not require the draws to be spread. 1000 is then bounded ABOVE by the
+//   reservation budget arithmetic on the two lines above (4000 of 10000 worst case) and by attach latency,
+//   and bounded BELOW by wanting the window to be many CLAIM airtimes wide on the PHYs we actually fly.
+//   ⚠ It is deliberately NOT sized to exceed a CLAIM's airtime on the slow PHYs — doing so would need
+//   >1400 ms for SF12 alone, and no measurement says that buys anything. Retune it with a measurement.
+inline constexpr uint32_t mobile_claim_jitter_ms         = 1000;     // MOBILE: 0..this ADDED to the collect window
 inline constexpr uint32_t mobile_home_lost_ms            = 90000;    // no BCN from home -> re-register
 inline constexpr uint32_t mobile_reclaim_ms              = 600000;   // 10-min periodic re-CLAIM (self-heal + refresh)
 inline constexpr uint32_t mobile_liveness_ms            = 1500000;  // §mobile hash-locate: the home proxies for a mobile ONLY if heard within 25 min (≈2.5× re-CLAIM) — kills the long-term black hole; a just-died mobile is proxied ≤~25 min then goes silent
@@ -693,11 +812,38 @@ inline constexpr uint32_t presence_check_max_ms        = 480000;   // T clamp: s
 inline constexpr uint32_t presence_probe_jitter_ms     = 8000;     // 0..this drawn per probe — desynchronizes the fleet
 inline constexpr uint32_t presence_probe_retry_ms      = 5000;     // unanswered-probe retry spacing
 inline constexpr uint8_t  presence_probe_k_miss        = 2;        // retries before HOME LOST (detection ≈ T + k·retry)
-inline constexpr uint8_t  presence_claim_max_retries   = 3;        // §S6: same-home re-CLAIMs when the roster never confirms registration (heals a CLAIM lost to an RX collision — the retired reclaim keepalive's job), before a full re-DISCOVER
+// ★★ §MH-S4 §7.1 steps 5-6 — LIVE SINCE 2026-08-08, AND IT HAD **ZERO CONSUMERS** BEFORE THAT (measured by grep,
+// and proven observably by the §S0-4 characterization case, which watched a full 135 000 ms presence cycle without
+// one re-CLAIM reaching the air). Its TWO consumers are now `Node::presence_claim_unconfirmed` (the budget test and
+// the exhaustion path) and `Node::mobile_reclaim_send` (the same-epoch retransmit). ⇒ the count bounds BOTH §7.1
+// triggers, deliberately as ONE budget: a chosen-home roster that omits our hash (step 5) and silence at the
+// confirmation deadline (step 6) are the same failure — "the CLAIM was not recorded" — so they must not each get
+// three tries. Exhaustion returns the mobile to `seeking`, never to a false `registered`.
+inline constexpr uint8_t  presence_claim_max_retries   = 3;        // §MH-S4 §7.1: same-epoch, same-local-id re-CLAIMs at the SAME home before a full re-DISCOVER (heals a CLAIM lost to an RX collision)
+// ★★★★ §MH-S4b §7.1 step 3 — THE **SOLICITATION** PAIR. §MH-S4 armed the confirmation deadline at the STEADY
+// check period (`presence_check_base_ms`, 120 000 ms) and then, in the same callback that sent the probe, spent a
+// re-CLAIM. Two things were wrong with that and BOTH are timing constants, so they are named here:
+//   1. §7.1 step 3 asks for a **SHORT** probe, not one T away — the whole point is to confirm within seconds of the
+//      CLAIM rather than to sit provisionally attached for two minutes;
+//   2. the re-CLAIM was spent BEFORE the probe could possibly be answered, so the probe was decorative. §7.1's
+//      steps 3-4 are two events with a WAIT between them, and a budget may only be spent once that wait expires.
+// ⓘ BOTH are handed to `presence_arm_check`, so each still costs the ONE pre-existing `presence_probe_jitter_ms`
+//   draw that function has always made — no new draw SITE (the number of deadlines does change, and that is the
+//   behaviour under change).
+// ⓘ The two values themselves are declared BELOW `presence_roster_min_interval_ms`, because the confirmation
+//   deadline is SIZED FROM it and the `static_assert` that pins that relationship must see both.
 inline constexpr uint32_t presence_roster_coalesce_min_ms = 500;   // home: collect probes this long, then answer ONCE
 inline constexpr uint32_t presence_roster_coalesce_max_ms = 1500;
 inline constexpr uint32_t presence_roster_min_interval_ms = 10000; // home: roster rate-limit floor (spoof/burst)
 inline constexpr uint32_t presence_reregister_stagger_ms  = 5000;  // 0..this after a roster-absent (home reboot) so N mobiles don't DISCOVER in lockstep
+inline constexpr uint32_t presence_claim_solicit_ms    = 3000;      // §MH-S4b §7.1 step 3: CLAIM (or re-CLAIM) -> the SHORT searching solicitation probe. Sized ABOVE presence_roster_coalesce_max_ms (1500) so the home's OWN registry-change roster — scheduled when it records the CLAIM — normally confirms us before we even ask.
+// ★ SIZED AGAINST THE HOME'S OWN RATE LIMIT, not guessed: a home that has just rostered (e.g. on recording our
+// CLAIM) cannot roster again for `presence_roster_min_interval_ms` = 10 000 ms, and then adds up to
+// `presence_roster_coalesce_max_ms` = 1500 ms of coalescing. A deadline shorter than the sum would declare
+// "silence" while the answer was still legally queued at the home — a self-inflicted false negative.
+inline constexpr uint32_t presence_claim_confirm_ms    = 12000;     // §MH-S4b §7.1 steps 4-6: the solicitation's ROSTER DEADLINE. Only when THIS expires is a re-CLAIM spent.
+static_assert(presence_claim_confirm_ms >= presence_roster_min_interval_ms + presence_roster_coalesce_max_ms,
+              "presence_claim_confirm_ms must outlast the home's roster rate-limit floor + max coalesce, or 'silence' can be declared while the answer is still queued at the home");
 inline constexpr uint32_t presence_rehome_dwell_ms     = 300000;   // anti-flap: min time (since last adopt) before a VOLUNTARY re-home
 inline constexpr uint32_t presence_candidate_hold_ms   = 60000;    // §S6.4-C: a better candidate must be sustained this long before re-homing
 inline constexpr uint32_t presence_safety_pull_ms      = 21600000; // D6: 6-h layer-directory safety pull (else purely dir_epoch-driven)

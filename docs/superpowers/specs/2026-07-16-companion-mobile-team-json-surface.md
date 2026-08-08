@@ -122,6 +122,102 @@ Add both to `pushkind_name` + a `write_push` arm + native goldens.
 `registered:false` ⇒ "searching for home…" (the FSM auto-rediscovers when `mobile_autoregister=1`);
 a changed `home` with `registered:true` ⇒ a roam, not an error.
 
+
+---
+
+## ★★★★ 3a / 4a — §MH-S4 AMENDMENT (2026-08-08): `registered` NARROWS, and TWO NEW PLANES APPEAR
+
+⛔⛔ **THIS IS A COMPANION-VISIBLE CONTRACT CHANGE. Read it before trusting §3 or §4 above; where they
+disagree, this section wins.** Driven by
+`docs/superpowers/specs/2026-08-07-mobile-home-attachment-reliability-design.md` §4.1 / §7.1 / §10, slice S4.
+MeshRoute is UNSHIPPED (test hardware only), so the change is deployed by reflashing; no compatibility shim
+exists and none is wanted.
+
+### What changed, in one sentence
+
+`registered:true` used to mean **"a CLAIM was transmitted"**. It now means **"the chosen home's own P roster
+carried our (hash, local id, epoch)"** — and nothing weaker.
+
+### Why (the defect this fixes)
+
+§3's firing site 1 above — *"Adopt / re-home: beside `MR_EMIT("mobile_adopted", …)`"* — fired the push at the
+moment the mobile transmitted its CLAIM and adopted the offered local id. A CLAIM lost to an RX collision
+therefore produced `mobile_reg{registered:true}` while the home held **no row for the mobile at all**, and
+nothing healed it for ≈135 000 ms (measured; the `§S0-4` native case). The app's connectivity chip showed a
+home that had never heard of it.
+
+### The push: same event, same fields, NEW timing
+
+```json
+{"ev":"mobile_reg","home":222,"local":17,"home_layer":4,"epoch":6,"registered":true}
+```
+
+**Field-for-field unchanged** (`origin`=home, `dst`=local, `layer_id`=home_layer, `ctr`=epoch,
+`relayed`=registered), so a parser needs no change. What moved is **when it fires**:
+
+1. ⛔ **NOT at adopt any more.** §3's firing site 1 is **superseded**.
+2. ★ **At the FIRST chosen-home roster whose entry matches all three of (hash, local id, epoch)** — once per
+   attachment. A healthy home re-rosters every 60–480 s and those repeats emit **nothing**, so the app is not
+   re-notified of a registration that never changed.
+3. `registered:false` still fires on home loss / deregistration — but now **only for an attachment the app was
+   told about**, so the pair is symmetric: exactly one `true` and at most one `false` per confirmed attachment.
+   ⚠ An attachment that never confirmed produces **neither** event.
+
+**App rule (replaces §3's):** on `registered:true` show connected-to-home; on `registered:false` show
+"searching for home…"; **and for the interval in between, read `mobile status`** — a mobile can now sit in
+`claiming` for seconds with no push at all, which is correct and must not render as either state.
+
+### `mobile status`: ADDITIVE, and the new fields are the interesting ones
+
+Every pre-existing field keeps its **name, type and position**; the block below is appended.
+
+```json
+{"ev":"mobile_status","mobile":true,"registered":true,"home":222,"local":17,"epoch":6,
+ "home_layer":4,"autoregister":true,"layer":4,"freq_khz":869525,"sf":9,"bw_hz":125000,"nets":2,
+ "attachment":"attached","home_link":"confirmed","last_result":"confirmed",
+ "home_desired":true,"home_confirm_age_ms":420000,
+ "claim_retries":0,"claim_retry_max":3,"offers":1,"scan_idx":0,"scan_count":1,"candidates":2}
+```
+
+| field | values | meaning |
+|---|---|---|
+| `registered` | bool | ★ **NARROWED** — now `attachment == "attached"`, i.e. roster-confirmed. Never a transmitted CLAIM. |
+| `attachment` | `dormant` · `seeking` · `claiming` · `attached` · `recovering` | *Which static node believes it is our home?* Authority: a matching chosen-home P roster. |
+| `home_link` | `unknown` · `confirmed` · `checking` · `lost` | *Can this mobile and that home currently communicate, BOTH ways?* Authority: a recent correlated bidirectional exchange. |
+| `home_confirm_age_ms` | u32, **OMITTED when nothing was ever confirmed** | Age of the LATEST chosen-home confirmation. ★ Always present once there is one — never suppressed when "healthy". |
+| `last_result` | `none` · `no_offer` · `tx_rejected` · `defer_full` · `claim_unconfirmed` · `denied` · `confirmed` | Outcome of the most recent attempt. |
+| `home_desired` | bool | The volatile home-service request: `mobile register` sets it, `mobile unregister` clears it. Distinct from `autoregister`, which is the boot/autonomy flag and is **unchanged**. |
+| `claim_retries` / `claim_retry_max` | u8 / u8 | Same-epoch re-CLAIMs spent / the budget, so the app need not hardcode 3. |
+| `offers` · `scan_idx` · `scan_count` · `candidates` | u8 | Diagnostics (§10). ⚠ `candidates` is the PASSIVE hint count; the *verified*-candidate count is slice S5's and is deliberately **absent rather than faked as 0**. |
+
+### ⛔⛔ THREE RULES THE UI MUST FOLLOW (§4.1 / §10) — these are contract, not styling
+
+1. **`attachment` and `home_link` are rendered SEPARATELY.** They are orthogonal: `attached` + `checking` is a
+   legitimate, common state and must display as such. ⛔ Never fold one into the other, and never derive one
+   from the other.
+2. ★ **Render the AGE, not a green light.** Prefer **"Home confirmed 7 min ago"** to an unconditional
+   **Connected**. A confirmation is a point-in-time measurement and the honest display of one is its timestamp.
+   ⛔ Do not claim continuous connectivity during silence. A stale confirmation renders as its **age** — not as
+   a failure and not as a success.
+3. ⛔⛔ **The word "connected" must not appear, qualified or not** — and neither may "network connected".
+   The vocabulary is **home link**. A P roster proves attachment and a live link *to that home*; it says
+   **nothing** about whether the mesh beyond that home can carry a given DM. That third question (mesh service)
+   is answered only by the result of a specific send, i.e. by `send_failed` / delivery, and has no field here.
+4. ⛔ **A `last_result` of `tx_rejected` / `defer_full` is OUR OWN transmitter** — a busy channel, a full defer
+   ring. It must **never** be rendered as a home-link or connectivity verdict. It belongs beside "last attempt",
+   nowhere else.
+
+### New command
+
+`mobile unregister` — ends the current attachment session and returns to `dormant`. Local only: it puts **no
+frame on the air**; the old home ages its row out. On a node with `mobile_autoregister=1` the autonomy licence
+legitimately re-enters `seeking` afterwards, so the verb is primarily for `mobile_autoregister=0` devices.
+
+### `ready`
+
+`mobile_registered` in the `ready` object follows the same narrowing (it is now `mobile_attached()`), because
+`ready` is app-facing and fires on every connect. Field name and position unchanged.
+
 ## 4. S3 — `mobile status` + `mobile gateways` answer JSON
 
 Convert the two read verbs (`firmware_config.cpp:629-644` / `:603-621`) from human text to JSON

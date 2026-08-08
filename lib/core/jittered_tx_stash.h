@@ -6,13 +6,22 @@
 // up for in the SAME millisecond is not transmitted where it is built — it is copied into a stash and
 // a one-shot timer fires it after a uniform jitter draw, so the existing LBT defers the later sibling.
 //
-// Three members today, all previously hand-rolled:
+// Two members today, both previously hand-rolled:
 //   • §F-XL-1  H-forward     — ring of 4, node_hashlocate.cpp     (sibling relays of one hash-locate flood)
 //   • §F-XL-2  RREQ-forward  — ring of 4, node_route_discovery.cpp (sibling relays of one AODV RREQ flood)
-//   • §S6/QA-3b mobile OFFER — SINGLE slot, node_join.cpp          (co-located hosts answering one DISCOVER)
-// A RING is used where concurrent floods for DIFFERENT keys must not clobber one another; the OFFER is
-// deliberately single-slot (last DISCOVER wins). Both shapes are the same ritual, which is why the ring
-// entry point is written in terms of the single-slot one rather than beside it.
+// A RING is used where concurrent floods for DIFFERENT keys must not clobber one another, and the ring entry
+// point is written in terms of the single-slot one rather than beside it.
+//
+// ★★ §MH-S2 (2026-08-07) — THE THIRD MEMBER LEFT, and a reader should know why rather than assume it was an
+// oversight. The mobile OFFER was the SINGLE-SLOT member here ("last DISCOVER wins"), and that property was the
+// §S0-1 defect: a second mobile's DISCOVER inside the jitter window destroyed the first mobile's targeted OFFER.
+// It now owns a KEYED ring in node_join.cpp (`Node::_pending_mobile_offers` / `mobile_offer_admit`), which this
+// header cannot serve: that ring coalesces by `target_key_hash32` rather than advancing a round-robin cursor,
+// prefers a free slot to any eviction, carries a per-entry deadline plus an id RESERVATION, and runs all of it on
+// ONE timer id (`kMobileOfferBackoffTimerId`) because `TimerWheel::kCap` has zero free ids — whereas `jtx_ring_arm`
+// pairs slot `i` with timer `timer_base + i` by construction. What it DID keep from here is named at its site:
+// invariant 1 (fit-before-draw, refuse whole), invariant 2 (consume nothing until accepted) and invariant 4 (the
+// jitter stays a shared-RNG `rand_range` draw). `jtx_fire` still fires it, so `len` is still the armed flag.
 //
 // ★ WHY NON-OWNING (free functions over `Slot(&)[Cap]` + `uint8_t& rr`, not a `Stash<Cap>` member type):
 // these are Node members and `node.h` carries `static_assert(sizeof(Node) == …)`. The two rings are in

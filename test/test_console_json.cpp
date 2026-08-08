@@ -261,10 +261,14 @@ TEST_CASE("write_err / write_log / write_ready / write_status") {
     meshroute::console::StatusFields sf;
     sf.uptime_ms = 123456; sf.duty_ms = 42; sf.txq = 0; sf.txdrop = 0; sf.rx = 7; sf.tx = 3;
     sf.routes = 2; sf.pending = false; sf.lbt = true; sf.batt_mv = -1;   // no battery -> omitted
+    // ★★★ §MH-S4b §10 — `offer_full` / `offer_reject` ride immediately after `txdrop`, ALWAYS PRESENT (a diagnostic
+    // counter's 0 is a reading, not an absence). Non-zero values are used here on purpose: a pair of 0s would pass
+    // against a serializer that had hardcoded them.
+    sf.offer_full = 3; sf.offer_reject = 5;
     n = write_status(b, sizeof b, 3, 0xa1b2c3d4u, c, "operating", sf);
     CHECK(std::string(b, n) ==
       "{\"ev\":\"status\",\"id\":3,\"key\":\"a1b2c3d4\",\"state\":\"operating\",\"leaf_id\":0,\"gateway\":false,\"routing_sf\":7,"
-      "\"uptime_ms\":123456,\"duty_ms\":42,\"txq\":0,\"txdrop\":0,\"rx\":7,\"tx\":3,\"routes\":2,\"pending\":false,\"lbt\":true}\n");
+      "\"uptime_ms\":123456,\"duty_ms\":42,\"txq\":0,\"txdrop\":0,\"offer_full\":3,\"offer_reject\":5,\"rx\":7,\"tx\":3,\"routes\":2,\"pending\":false,\"lbt\":true}\n");
     sf.batt_mv = 4100;                                                   // battery present -> field appears
     n = write_status(b, sizeof b, 3, 0xa1b2c3d4u, c, "operating", sf);
     CHECK(std::string(b, n).find("\"batt_mv\":4100") != std::string::npos);
@@ -611,18 +615,69 @@ TEST_CASE("write_join_started — join vs create verb-ack shape (integer freq/bw
 
 // §S3 — mobile_status / mobile_gw stream / mobile_err; §S6 — peer_name; §S5 — inbox_channel team_id.
 TEST_CASE("write_mobile_* / write_peer_name / inbox_channel team_id — §S3/S5/S6") {
-    char b[256];
+    char b[512];   // §MH-S4 §10: the three-plane block pushed the attached-mobile object past 256 B
     meshroute::console::MobileStatusFields m{};
     m.registered = true; m.home = 222; m.local = 17; m.epoch = 6; m.home_layer = 4;
     m.autoregister = true; m.layer = 4; m.freq_khz = 869525; m.sf = 9; m.bw_hz = 125000; m.nets = 2;
+    // ★ §MH-S4 §10 — the ADDITIVE three-plane block, pinned EXACTLY (name, order and value), not by substring:
+    // `attachment` and `home_link` are two separate fields, `home_confirm_age_ms` is present because something WAS
+    // confirmed, and the whole pre-existing prefix is byte-identical to what it was before this slice.
+    m.attachment = "attached"; m.home_link = "confirmed"; m.last_result = "confirmed";
+    m.home_desired = true; m.home_confirmed = true; m.home_confirm_age_ms = 420000;
+    m.claim_retries = 0; m.claim_retry_max = 3; m.offers = 1; m.scan_idx = 0; m.scan_count = 1; m.candidates = 2;
+    m.retry_window_ms = 20000;   // ★ §MH-S4b §10 "current retry window" — a NON-DEFAULT value, so a serializer that dropped the field cannot pass
     size_t n = write_mobile_status(b, sizeof b, m);
     CHECK(std::string(b, n) == "{\"ev\":\"mobile_status\",\"mobile\":true,\"registered\":true,\"home\":222,\"local\":17,"
                                "\"epoch\":6,\"home_layer\":4,\"autoregister\":true,\"layer\":4,\"freq_khz\":869525,"
-                               "\"sf\":9,\"bw_hz\":125000,\"nets\":2}\n");
+                               "\"sf\":9,\"bw_hz\":125000,\"nets\":2,"
+                               "\"attachment\":\"attached\",\"home_link\":\"confirmed\",\"last_result\":\"confirmed\","
+                               "\"home_desired\":true,\"home_confirm_age_ms\":420000,"
+                               "\"claim_retries\":0,\"claim_retry_max\":3,\"retry_window_ms\":20000,\"offers\":1,"
+                               "\"scan_idx\":0,\"scan_count\":1,\"candidates\":2}\n");
+    // ★★★★ §MH-S4b — **THE 64-BIT CONFIRMATION AGE, PINNED WHERE IT WAS TRUNCATED.** `MobileStatusFields`'s field
+    // was `uint32_t` and `src/firmware_config.cpp` cast the node's `uint64_t` accessor down to it, so the rendered
+    // age WRAPPED at ~49.7 days — a months-stale confirmation displayed as a fresh one, which is the exact
+    // display-shaped lie §4.1's "render the age, never an unconditional Connected" exists to prevent.
+    // ★ ABOVE UINT32_MAX ON PURPOSE: 5 000 000 000 ms ≈ 57.9 days. A u32 field would render its low 32 bits,
+    //   705 032 704 (≈ 8.2 days), so the assertion below cannot pass on a narrowed field or a `u32` serializer.
+    { MobileStatusFields big = m; big.home_confirm_age_ms = 5000000000ull;
+      const size_t nb = write_mobile_status(b, sizeof b, big);
+      CHECK(std::string(b, nb).find("\"home_confirm_age_ms\":5000000000,") != std::string::npos);
+      CHECK(std::string(b, nb).find("705032704") == std::string::npos);   // ★ the u32 truncation, named — it must NOT appear
+      // and the boundary itself: UINT32_MAX + 1 must not render as 0
+      MobileStatusFields edge = m; edge.home_confirm_age_ms = 4294967296ull;
+      const size_t ne = write_mobile_status(b, sizeof b, edge);
+      CHECK(std::string(b, ne).find("\"home_confirm_age_ms\":4294967296,") != std::string::npos); }
+    // ★ AND THE TYPE ITSELF IS PINNED, because the truncation was a TYPE decision, not a formatting one: a future
+    //   re-narrowing of this member would silently reintroduce the wrap, and no value assertion above would notice
+    //   (they would simply be given a pre-truncated value by the caller).
+    static_assert(sizeof(MobileStatusFields::home_confirm_age_ms) == 8,
+                  "§MH-S4b: the confirmation age must stay 64-bit end to end — a u32 wraps at ~49.7 days");
+    // ★★ §MH-S4b §7.1 step 3 — `claim_solicited` is emitted ONLY while `claiming`: it is a substate OF that state
+    // and has no meaning beside `attached`/`seeking`/`dormant`. Both arms asserted, so neither can drift.
+    CHECK(std::string(b, n).find("claim_solicited") == std::string::npos);   // ★ attached -> OMITTED
+    { MobileStatusFields cl = m; cl.attachment = "claiming"; cl.registered = false; cl.claim_solicited = true;
+      cl.claim_retries = 2;
+      const size_t nc = write_mobile_status(b, sizeof b, cl);
+      CHECK(std::string(b, nc).find("\"claim_retries\":2,\"claim_retry_max\":3,\"claim_solicited\":true,") != std::string::npos);
+      cl.claim_solicited = false;
+      const size_t nd = write_mobile_status(b, sizeof b, cl);
+      CHECK(std::string(b, nd).find("\"claim_solicited\":false,") != std::string::npos); }
     meshroute::console::MobileStatusFields un{}; un.autoregister = false; un.layer = 0; un.freq_khz = 868000; un.sf = 7; un.bw_hz = 125000;
     n = write_mobile_status(b, sizeof b, un);
     CHECK(std::string(b, n).find("\"registered\":false,\"home\":0,\"local\":0,\"epoch\":0,\"autoregister\":false") != std::string::npos);
     CHECK(std::string(b, n).find("home_layer") == std::string::npos);
+    // ★★ §MH-S4 §10 — the DEFAULTS of the new block, and the ONE OMISSION that matters: a mobile that never
+    // confirmed anything must NOT render `home_confirm_age_ms` at all. A 0 there reads as "confirmed just now",
+    // which is the display-shaped lie the whole home-link plane exists to prevent.
+    CHECK(std::string(b, n).find("\"attachment\":\"dormant\",\"home_link\":\"unknown\",\"last_result\":\"none\","
+                                 "\"home_desired\":false,\"claim_retries\":0") != std::string::npos);
+    CHECK(std::string(b, n).find("home_confirm_age_ms") == std::string::npos);   // ★ OMITTED, not zero
+    // ⛔ §10: the word "connected" must not appear on this surface in any spelling — it claims the MESH plane on
+    //    the strength of a HOME-plane measurement. Asserted on BOTH objects, so neither branch can reintroduce it.
+    CHECK(std::string(b, n).find("connected") == std::string::npos);
+    { const size_t na = write_mobile_status(b, sizeof b, m);
+      CHECK(std::string(b, na).find("connected") == std::string::npos); }
     n = write_mobile_err(b, sizeof b, "not_mobile");
     CHECK(std::string(b, n) == "{\"ev\":\"mobile_err\",\"reason\":\"not_mobile\"}\n");
     n = write_mobile_gw(b, sizeof b, 3, 4);

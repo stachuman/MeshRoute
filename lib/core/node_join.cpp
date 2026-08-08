@@ -70,13 +70,33 @@ void Node::age_out_mediated() {
 // backstops make this self-healing: (b) a LATER static binding for an id we already gave a mobile EVICTS the mobile
 // (evict_aliased_hosted_mobile at id_bind_set) -> it re-registers onto a fresh top id via the presence plane; and
 // route_uses_mobile_as_transit's static carve stops false-rejecting a route THROUGH such an aliased static meanwhile.
+//
+// ★★★ §MH-S2 / [[B137]] — AND THE THIRD SOURCE OF TRUTH THIS PICKER NOW CONSULTS: LIVE PENDING RESERVATIONS.
+// Before this slice the picker scanned `_mobile_reg` (plus the static evidence above) and **a staged OFFER is not a
+// registry row**, so every concurrently discovering mobile was offered the SAME id — measured at 254 for both in
+// §S0-1. It was invisible only because the single-slot `_pending_offer` meant one OFFER ever flew: the two defects
+// masked each other, and S2's ring removes the mask. ⇒ an id promised in an armed-or-recently-transmitted OFFER is
+// TAKEN until its CLAIM lands or `mobile_offer_reservation_ms` elapses.
+// ★ The reservation check is written against `now` (`reserve_until_ms > now`), NOT against a "was it swept yet" flag,
+//   so an ELAPSED reservation stops blocking its id the instant it expires — even if `mobile_offer_fire`'s scan has
+//   not run yet (a dropped/failed `_hal.after` must never be able to leak an id permanently).
 uint8_t Node::find_free_mobile_id(uint32_t key_hash32) {
     for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
         if (_active->_mobile_reg[i].key_hash32 == key_hash32) return _active->_mobile_reg[i].mobile_local_id;
+    const uint64_t now = _hal.now();
+    // IDEMPOTENT FOR A KEY WE ALREADY PROMISED: a re-DISCOVER from a mobile that holds a live reservation gets ITS
+    // OWN id back, exactly as a registered mobile gets its row's id back one loop above. This is what makes §5.3.2's
+    // "a duplicate DISCOVER retains its reservation" true even on the path where the entry already fired.
+    for (uint8_t i = 0; i < protocol::cap_pending_mobile_offers; ++i) {
+        const PendingMobileOffer& e = _pending_mobile_offers[i];
+        if (e.reserve_until_ms > now && e.target_key_hash32 == key_hash32) return e.proposed_id;
+    }
     auto id_taken = [&](uint8_t id) -> bool {
         if (id == _node_id) return true;
         if (join_id_denied(id)) return true;                                                                    // an id under active DAD denial (a static conflict) — mirror the static picker
         for (uint8_t  i = 0; i < _active->_mobile_reg_n; ++i) if (_active->_mobile_reg[i].mobile_local_id == id) return true;
+        for (uint8_t  i = 0; i < protocol::cap_pending_mobile_offers; ++i)                                                     // [[B137]]: an id PROMISED to another mobile mid-handshake
+            if (_pending_mobile_offers[i].reserve_until_ms > now && _pending_mobile_offers[i].proposed_id == id) return true;
         for (uint16_t i = 0; i < _active->_id_bind_n;    ++i) if (_active->_id_bind[i].node_id == id)            return true;   // a known static (direct/heard) binding
         for (uint8_t  i = 0; i < _active->_rt_count;     ++i) if (_active->_rt[i].dest == id)                    return true;   // a DV-reachable static within dv_hop_cap
         return false;
@@ -219,19 +239,94 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         if (j.is_mobile) {                                            // §mobile 2a: a mobile CLAIM = claim-stands (record/refresh — NO reply)
             if (!can_host_mobiles()) return;                          // ★ §B132: RE-CHECK eligibility on the ACCEPT path, not just on the OFFER. This gate was ABSENT: the only test was `chosen_host_id != _node_id`, so a stale CLAIM (from a mobile that adopted us before we became a gateway) or a forged one ADDRESSED at a gateway was recorded as a hosted mobile without ever asking whether we may host. Gating only the OFFER is the tempting HALF-fix — the registry entry is what makes the invalid home load-bearing.
             if (j.chosen_host_id != _node_id) return;                 // §mobile: only the host the mobile CHOSE records it — a flood-hearer (relay) is NOT a host (else it proxies for a mobile it doesn't serve)
-            // §6.4 S6: a CLAIM whose local id collides a DIFFERENTLY-keyed hosted mobile (the concurrent-OFFER race —
-            // find_free_mobile_id reserves nothing until CLAIM, so two mobiles can be offered the same free id). Do NOT
+            // ★★★ [[B147]] §MH-S2b — THE RESERVATION PLANE IS READ BEFORE ANYTHING ELSE, BECAUSE THE REGISTERED-ROW
+            // COLLISION LOOP BELOW ONLY SEES REGISTERED ROWS. §MH-S2 made the OFFER reserve its proposed id ([[B137]])
+            // but left the CLAIM correlating on HASH ALONE: it recorded whatever `proposed_node_id` the frame carried
+            // and then released "the claimant's" slot by hash. A live reservation is a PROMISE about a (hash, id)
+            // PAIR, and half of it was never read. ⇒ A is offered X and lets its reservation lapse · X is re-promised
+            // to B · A's delayed CLAIM for X arrives · no REGISTERED row holds X yet, so A is recorded on B's reserved
+            // id — and B's own CLAIM then walks into the collision-DENY recovery that [[B137]] exists to make
+            // unnecessary.
+            // ★ THE SHAPE, FOR THE RECORD: correlating on hash alone is the same category error as `LbtKind` alone
+            //   ([[B142]]) and `seq` without `InboxKind` ([[B133]]/M5). The identity is the PAIR.
+            // ⓘ `reserve_until_ms > now` (not `!= 0`) deliberately: an ELAPSED-but-unswept entry is NOT a live
+            //   promise, exactly as `find_free_mobile_id` reads it — a dropped `_hal.after` must never be able to
+            //   reject a legitimate CLAIM forever.
+            const uint64_t claim_now = _hal.now();
+            int own = -1, foreign = -1;
+            for (uint8_t i = 0; i < protocol::cap_pending_mobile_offers; ++i) {
+                const PendingMobileOffer& e = _pending_mobile_offers[i];
+                if (e.reserve_until_ms <= claim_now) continue;                     // absent or elapsed -> not a promise
+                if (e.target_key_hash32 == j.key_hash32)              own     = static_cast<int>(i);
+                else if (e.proposed_id == j.proposed_node_id)         foreign = static_cast<int>(i);
+            }
+            // ★★★★ [[B147]] §MH-S2c — **THE STALENESS TEST RUNS FIRST, BEFORE ANY BRANCH ACTS ON THE FRAME'S
+            // CONTENTS.** THE PRINCIPLE, STATED WHERE IT IS ENFORCED: *a stale frame must be identified as stale
+            // before any branch acts on what it carries* — otherwise a check on its contents CONSUMES STATE THAT
+            // BELONGS TO A NEWER TRANSACTION. Same family as [[B142]] (a stale completion consuming the newer
+            // attempt's stage) and as [[B147]]'s own hash-vs-(hash,id) lesson: the ORDER of the tests is part of the
+            // correlation, not an implementation detail.
+            // ⛔ THE ORDERING DEFECT THIS FIXES (the §MH-S2b arrangement ran the registered-row loop first): A held
+            //    id X · X is now REGISTERED to B · A re-DISCOVERs and is promised Y · A's DELAYED CLAIM for X arrives
+            //    ⇒ the registered-row branch DENIED A **and released Y**, so A threw away the id we are currently
+            //    promising it and the drop/retain policy below was never reached. The CLAIM was stale the whole time;
+            //    only the order of the tests decided whether anyone noticed.
+            // ⓘ A mismatching `own` short-circuits EVERY downstream branch — registered-row collision included —
+            //   because none of them can be reasoning about the current transaction if the frame is not from it.
+            if (own >= 0 && _pending_mobile_offers[own].proposed_id != j.proposed_node_id) {
+                // We hold a LIVE promise to THIS mobile for a DIFFERENT id — i.e. it has already re-DISCOVERed and
+                // been re-offered — so this CLAIM is a stale echo of an earlier round. ⛔ DROP, do not DENY, and
+                // ⛔ RETAIN the reservation: a DENY would make it re-register and throw away the id we are currently
+                // promising it. Its CLAIM for the promised id is still to come, and `find_free_mobile_id`'s
+                // idempotence guarantees it is the same id.
+                MR_EMIT("mobile_claim_stale_id", EF_I("claimed", j.proposed_node_id),
+                        EF_I("reserved", _pending_mobile_offers[own].proposed_id),
+                        EF_I("key", static_cast<int64_t>(j.key_hash32)));
+                return;
+            }
+            // §6.4 S6: a CLAIM whose local id collides a DIFFERENTLY-keyed hosted mobile. ⚠ THE LEGACY
+            // CONCURRENT-CLAIM COMPATIBILITY PATH — it is NO LONGER the primary defence, and its old rationale is
+            // WITHDRAWN: that comment said "find_free_mobile_id reserves nothing until CLAIM, so two mobiles can be
+            // offered the same free id", which [[B137]] made FALSE — an id is now reserved from OFFER ADMISSION and
+            // `find_free_mobile_id` EXCLUDES live reservations, so four concurrent OFFERs propose four unique ids.
+            // ⇒ this branch survives as the RACE BACKSTOP the owner ruled it to be (a CLAIM with no live claimant
+            // reservation — aged out, or from a peer that never took one). Do NOT
             // last-write-wins (two hosted mobiles sharing one id -> the home last-miles ambiguously) and do NOT record the
             // colliding claim. TARGETED DENY the LOSER (claimant_key_hash32 = its hash) so ONLY it yields + re-registers
             // (re-DISCOVER -> a fresh id, now excluding the taken one); the RECORDED mobile ignores the DENY (hash mismatch).
             // This makes the mobile-home path recover like static/team DAD (collision -> the loser re-picks) instead of the
             // old broadcast re-OFFER, which the recorded mobile would ALSO adopt (it isn't addressed). See node_join DENY handler.
+            // ⓘ Reached only for a CLAIM that is NOT stale (above): either the claimant holds no live promise, or it
+            //   holds one for THIS very id — in both cases the frame really is about the id it names.
             for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
                 if (_active->_mobile_reg[i].mobile_local_id == j.proposed_node_id && _active->_mobile_reg[i].key_hash32 != j.key_hash32) {
                     addr_conflict_send_deny(j.proposed_node_id, _active->_mobile_reg[i].key_hash32, j.key_hash32, J_DENY_CONFLICT);
                     MR_EMIT("mobile_id_collision_deny", EF_I("id", j.proposed_node_id), EF_I("loser", static_cast<int64_t>(j.key_hash32)));
+                    // ★ §MH-S2 [[B137]]: the loser's reservation (if it still holds one) is RELEASED here, not left to
+                    // age out. Its re-DISCOVER must be free to draw a DIFFERENT id, and `find_free_mobile_id` is
+                    // idempotent per key — a retained reservation would hand it the SAME losing id forever.
+                    // ⓘ SAFE ONLY BECAUSE OF THE ORDER ABOVE: the slot released here can no longer belong to a newer
+                    //   transaction — a promise for a DIFFERENT id already returned.
+                    mobile_offer_release(j.key_hash32);
                     return;   // do NOT record the colliding claim; the targeted DENY re-registers the loser
                 }
+            if (own < 0 && foreign >= 0) {
+                // The claimed id is PROMISED TO SOMEBODY ELSE and this claimant holds no promise of its own.
+                // Recording it would manufacture the very collision the reservation prevents, one CLAIM later.
+                // ⇒ the SAME targeted-DENY backstop the registered-row branch uses (U1), with the reservation
+                // HOLDER as the owner, so only the late claimant yields and re-DISCOVERs onto a fresh id.
+                addr_conflict_send_deny(j.proposed_node_id, _pending_mobile_offers[foreign].target_key_hash32,
+                                        j.key_hash32, J_DENY_CONFLICT);
+                MR_EMIT("mobile_claim_reserved_elsewhere", EF_I("id", j.proposed_node_id),
+                        EF_I("holder", static_cast<int64_t>(_pending_mobile_offers[foreign].target_key_hash32)),
+                        EF_I("loser", static_cast<int64_t>(j.key_hash32)));
+                mobile_offer_release(j.key_hash32);   // idempotent: frees an ELAPSED slot this key may still occupy
+                return;
+            }
+            // Remaining cases both record: (a) `own >= 0` AND the ids MATCH — the normal handshake, the promise
+            // kept; (b) `own < 0 && foreign < 0` — a late CLAIM whose reservation has aged out, against an id
+            // nobody else is promised. (b) is the pre-[[B137]] compatibility path and is deliberately retained:
+            // the reservation is an upper bound on a leak, not a licence to reject a mobile that took its time.
             int slot = -1;
             for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
                 if (_active->_mobile_reg[i].key_hash32 == j.key_hash32) { slot = static_cast<int>(i); break; }
@@ -242,6 +337,13 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             _active->_mobile_snr_q4[static_cast<uint8_t>(slot)] = protocol::db_to_q4(meta.snr_db);   // §S6: seed the per-mobile SNR EWMA from the CLAIM
             MR_EMIT("mobile_registered", EF_I("key", static_cast<int64_t>(j.key_hash32)),
                     EF_I("local_id", j.proposed_node_id), EF_I("epoch", j.claim_epoch));
+            // ★ §MH-S2 [[B137]]: THE MATCHING CLAIM — the reservation has done its job and is released NOW rather than
+            // waiting out `mobile_offer_reservation_ms`. The registry row takes over as the thing that holds the id
+            // (`find_free_mobile_id`'s first loop), so the promise is never dropped, only handed on. Releasing also
+            // frees the ring slot for the next discovering mobile, which is what keeps 8 slots serving 16 hosted
+            // mobiles. ⓘ Keyed by HASH, matching whatever slot this mobile holds — ⛔ never by the claimed id, which
+            // a race backstop may have already reassigned.
+            mobile_offer_release(j.key_hash32);
             presence_notify_old_home(j.key_hash32, j.proposed_node_id, j.claim_epoch);   // §S6.4-D: NEW home -> old-home redirect breadcrumb (D10; stashed at OFFER time)
             presence_schedule_roster();                               // §S6: roster on a registry change (coalesced)
             return;                                                   // do NOT fall into the static DAD tie-break
@@ -304,6 +406,12 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         // tiebreak (which would forced_rejoin onto the STATIC DAD plane — wrong for a host-registered mobile).
         if (_cfg.is_mobile && _my_mobile_reg.active && j.denied_node_id == _node_id && j.claimant_key_hash32 == _key_hash32) {
             MR_EMIT("mobile_id_denied", EF_I("id", _node_id), EF_I("home", _my_mobile_reg.home_id));
+            // ★ §MH-S4 §7.1 step 7 — "a targeted collision DENY still immediately abandons the provisional id and
+            // re-enters discovery": the pre-existing behaviour, UNCHANGED, and it deliberately does NOT spend a
+            // re-CLAIM retry — a DENY is the home speaking, not silence. `MobileAttemptResult::denied` was declared
+            // by §MH-S1 as "set by S4"; this is its one and only writer, so the code no longer promises a surface
+            // it cannot fill (MARK DONE-VS-MISSING IN CODE).
+            _mobile_last_result = MobileAttemptResult::denied;
             mobile_reset_registration("mobile_id_collision");
             (void)_hal.after(0, kMobileDiscoverTimerId);          // re-DISCOVER now -> a fresh id (find_free_mobile_id excludes the id the recorded mobile holds)
             return;
@@ -350,22 +458,37 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         if (n) {
             // §S6/QA-3b: DE-STORM the OFFER — stash it + fire after a random backoff so two co-located hosts don't answer
             // this DISCOVER at the SAME ms (the same-ms PHY collision that made a mobile adopt the WEAKER home). Reuses the
-            // join OFFER-backoff window. Single-slot (last DISCOVER wins). The EMIT stays here (the OFFER is committed).
-            // §3-B.5: the single-slot member of the jittered_tx_stash.h family (the two §F-XL rings are the ring-shaped
-            // ones). Inherits the fit guard the hand-rolled version lacked — unreachable here (pack_j_offer returns 0 or
-            // exactly 13 into a 13-B span, and n==0 is already excluded above), so it is defence, not a behaviour change.
+            // join OFFER-backoff window.
+            // ★★ §MH-S2 §5.3.2 — NO LONGER A SINGLE SLOT. `mobile_offer_admit` owns the keyed ring, the coalesce, the
+            // fit-before-draw guard, the id reservation and the deadline re-arm; the EMIT stays HERE and stays BEFORE
+            // it, so its "the OFFER is committed" meaning is unchanged for every existing reader — but it is now
+            // emitted only when a slot is actually taken, because a `full` or `duplicate` admission commits nothing.
             // ★★ §MH-S1b §6.2/§10 — RENAMED FROM `mobile_offer_tx`, WHICH IS THE POINT. §10: *"an event named
             // `mobile_offer_tx` must not continue to mean only 'copied into a stash'"*, and this site IS the
             // stash — the frame does not reach the radio for another 100..1000 ms and may never reach it at
             // all. `mobile_offer_scheduled` says what actually happened here; the honest `mobile_offer_tx` is
             // now raised in `lbt_complete` at the accepted handoff, and `mobile_offer_dropped` on a refusal.
             // Those three ARE §10's required "scheduled / transmitter-admitted / confirmed" distinction (the
-            // third is S4's). ⚠ THE COMMIT ORDER IS UNCHANGED — the emit still precedes the stash — so this is
-            // a rename, not a move: every existing reader that meant "the OFFER was committed" stays correct.
-            MR_EMIT("mobile_offer_scheduled", EF_I("to_key", static_cast<int64_t>(j.key_hash32)), EF_I("local_id", local));
-            jtx_stash_arm(_hal, _active->_pending_offer, sizeof _active->_pending_offer, _active->_pending_offer_len,
-                          buf, n, protocol::join_offer_backoff_min_ms, protocol::join_offer_backoff_max_ms,
-                          kMobileOfferBackoffTimerId);
+            // third is S4's).
+            //
+            // ⚠ THE ORDER BELOW IS LOAD-BEARING FOR THE RNG STREAM, not a style choice. With ONE discovering mobile
+            // the sequence is still exactly: pick id (no draw) -> pack -> emit -> ONE `rand_range` inside the admit ->
+            // ONE `_hal.after`. Identical count, identical position ⇒ the single-mobile mobile plane does not
+            // re-anchor here (S3 is the arc's only planned re-anchor). A `duplicate` or `full` admission draws
+            // NOTHING, which is the other half of that promise.
+            const MobileOfferAdmit r = mobile_offer_admit(j.key_hash32, buf, n, local);
+            if (r == MobileOfferAdmit::armed) {
+                MR_EMIT("mobile_offer_scheduled", EF_I("to_key", static_cast<int64_t>(j.key_hash32)), EF_I("local_id", local));
+            } else if (r == MobileOfferAdmit::duplicate) {
+                // §5.3.3: this mobile already has an ARMED OFFER. Coalesce — no second slot, deadline UNMOVED, id
+                // RETAINED. It is a distinct event from `mobile_offer_scheduled` on purpose: nothing was scheduled.
+                MR_EMIT("mobile_offer_coalesced", EF_I("to_key", static_cast<int64_t>(j.key_hash32)), EF_I("local_id", local));
+            } else if (r == MobileOfferAdmit::full) {
+                // §5.3.2 item 5 / gate 19: refuse EXPLICITLY and disturb nothing. The mobile's own DISCOVER retry is
+                // the backstop — ⛔ evicting another mobile's armed entry to make room is exactly the §S0-1 defect.
+                MR_EMIT("mobile_offer_ring_full", EF_I("to_key", static_cast<int64_t>(j.key_hash32)),
+                        EF_I("pending", mobile_offers_pending_n()));
+            }
         }
         return;
     }
@@ -604,6 +727,189 @@ void Node::presence_ingest_probe(const uint8_t* frame, size_t len, const RxMeta&
     // a check probe for a hash we don't host -> ignore
 }
 
+// ============================================================================================================
+// ★★★ §MH-S2 §5.3.2/§5.3.3 — THE KEYED PENDING-OFFER RING + [[B137]]'s PENDING-ID RESERVATION.
+//
+// WHAT IT REPLACES: one 13-byte `LayerRuntime::_pending_offer` slot armed through `jtx_stash_arm`, i.e. "last
+// DISCOVER wins" — a second mobile's DISCOVER inside the 100..1000 ms jitter destroyed the first mobile's targeted
+// OFFER (§S0-1 reproduces it, and this slice rewrites that case in place per B101).
+//
+// ★ THE PRECEDENT IT FOLLOWS (U1, and it is deliberately the THIRD user of the idiom, not a new one):
+// `park_reflood_arm`/`park_reflood_fire` (node_hashlocate.cpp) and `e2e_ack_deadline_arm_timer`/
+// `e2e_ack_deadline_fire` (node_mac.cpp) each serve a whole multi-entry ring from ONE one-shot timer re-armed to
+// the EARLIEST pending deadline. That is exactly what is needed here, and it is why `TimerWheel::kCap` STAYS 91:
+// the highest allocated id is 90 and there are zero free ids, so a per-slot timer band was never available.
+// ⛔ NOT `jtx_ring_arm`: that helper's ring is ROUND-ROBIN by cursor and its slot index IS its timer id
+// (`timer_base + slot`) — both properties are precisely what this ring must not have. It must key by hash (so a
+// duplicate coalesces), must prefer a genuinely free slot over any eviction, and must live on ONE timer id. The
+// pieces of `jittered_tx_stash.h` that DO generalise are reused verbatim in spirit and named where they appear:
+// the fit-before-draw refusal, the draw-only-on-accept rule, and `len` as the armed flag (`jtx_fire` clears it).
+//
+// ONE DIVERGENCE FROM BOTH PRECEDENTS, and it is required by §5.3.3: the fire transmits AT MOST ONE due entry per
+// callback and re-arms for the next earliest (the other two drain everything due). Reason: this ring's payload is a
+// RADIO FRAME, and firing four in one callback would put four OFFERs into the same millisecond — the exact same-ms
+// collision the jitter exists to prevent.
+// ============================================================================================================
+
+// The IN-USE slot holding `target_key_hash32`, or -1. ⛔ Keyed by HASH, never by slot index — coalescing by index is
+// the tempting wrong fix that would make two mobiles share an entry the moment the ring wrapped.
+// "In use" is `reserve_until_ms != 0`: every armed entry also holds a reservation, but a transmitted entry keeps its
+// reservation after `len` goes to 0, and that residual IS [[B137]].
+int Node::mobile_offer_slot_of(uint32_t target_key_hash32) const {
+    for (uint8_t i = 0; i < protocol::cap_pending_mobile_offers; ++i)
+        if (_pending_mobile_offers[i].reserve_until_ms != 0 && _pending_mobile_offers[i].target_key_hash32 == target_key_hash32)
+            return static_cast<int>(i);
+    return -1;
+}
+
+// [[B137]]: the promise is discharged (the matching CLAIM landed, or it was refused by the race backstop) -> free the
+// slot AND its reservation, then re-arm. Idempotent: a mobile with no entry is a no-op, which is the normal case for
+// a CLAIM that arrives after its reservation already expired.
+void Node::mobile_offer_release(uint32_t target_key_hash32) {
+    const int s = mobile_offer_slot_of(target_key_hash32);
+    if (s < 0) return;
+    _pending_mobile_offers[s] = PendingMobileOffer{};
+    mobile_offer_arm_timer();
+}
+
+// §5.3.2 — ADMISSION. Returns which of the four things happened; the caller (the DISCOVER handler) decides what to
+// say about it. ★ The order of the tests below is the contract:
+//   1. FIT FIRST, before anything is consumed — `jittered_tx_stash.h` invariant 1, inherited not re-invented: a frame
+//      that does not fit is refused WHOLE, with no copy, no slot, no reservation and NO RNG DRAW.
+//   2. DUPLICATE next, so a coalesce can never consume a slot or move a deadline (§5.3.3).
+//   3. Then a genuinely FREE slot — §5.3.2 item 3. ⛔ There is no eviction branch at all: `full` is a refusal, and
+//      "the ring overwrites on full" is the §S0-1 defect wearing a ring's clothes.
+//   4. Only then the draw + the arm — invariant 2's "the cursor advances only for an ACCEPTED frame", restated for a
+//      ring that has no cursor: NOTHING is consumed until the entry is certain.
+Node::MobileOfferAdmit Node::mobile_offer_admit(uint32_t target_key_hash32, const uint8_t* frame, size_t n,
+                                                uint8_t proposed_id) {
+    if (n == 0 || n > sizeof(_pending_mobile_offers[0].buf) || proposed_id == 0) return MobileOfferAdmit::invalid;
+    const uint64_t now = _hal.now();
+
+    // (2) DUPLICATE — but ONLY while the entry is still ARMED. §5.3.3's "a duplicate DISCOVER coalesces and does not
+    // move the deadline" is about a second DISCOVER arriving *inside the jitter window*, when an answer is already on
+    // its way. Once the OFFER has been TRANSMITTED (`len == 0`, reservation still live) a fresh DISCOVER means the
+    // mobile did not hear it, and the correct answer is a NEW OFFER — re-armed into the SAME slot, keeping the SAME
+    // reserved id (that is `find_free_mobile_id`'s reservation-idempotence, so the caller already handed us the same
+    // `proposed_id`). Treating that as a duplicate would answer a re-DISCOVER with silence forever.
+    const int existing = mobile_offer_slot_of(target_key_hash32);
+    if (existing >= 0 && _pending_mobile_offers[existing].len != 0) return MobileOfferAdmit::duplicate;
+
+    // (3) a genuinely free slot — the mobile's own re-arm slot if it has one, else the first slot whose reservation
+    // is absent or ELAPSED. Reading `reserve_until_ms <= now` as free (rather than requiring the scan to have swept
+    // it) is what keeps the ring self-healing if an `_hal.after` was ever dropped.
+    int slot = existing;
+    if (slot < 0)
+        for (uint8_t i = 0; i < protocol::cap_pending_mobile_offers; ++i)
+            if (_pending_mobile_offers[i].reserve_until_ms <= now) { slot = static_cast<int>(i); break; }
+    if (slot < 0) { ++_mobile_offer_ring_full_n; return MobileOfferAdmit::full; }   // ⛔ nothing armed is touched
+
+    // (4) accepted: ONE draw, in the same position in the stream that `jtx_stash_arm` occupied, so a single-mobile
+    // DISCOVER consumes exactly the draws it always did (§11 S2 — S3 is the arc's only planned RNG re-anchor).
+    PendingMobileOffer& e = _pending_mobile_offers[slot];
+    e = PendingMobileOffer{};
+    for (size_t i = 0; i < n; ++i) e.buf[i] = frame[i];
+    e.len               = static_cast<uint8_t>(n);
+    e.target_key_hash32 = target_key_hash32;
+    e.proposed_id       = proposed_id;
+    const uint32_t jit  = static_cast<uint32_t>(_hal.rand_range(protocol::join_offer_backoff_min_ms,
+                                                                protocol::join_offer_backoff_max_ms + 1));
+    e.due_ms            = now + jit;
+    e.reserve_until_ms  = now + protocol::mobile_offer_reservation_ms;   // [[B137]]: the id is PROMISED from here
+    mobile_offer_arm_timer();
+    return MobileOfferAdmit::armed;
+}
+
+// §5.3.3 — (re)arm the ONE timer to the EARLIEST pending deadline of EITHER kind: an armed OFFER's `due_ms` or a
+// reservation's `reserve_until_ms`. Nothing pending -> cancel (idempotent per the Hal contract).
+// ⚠ It must always take the MINIMUM, never "the one that just changed": `Hal::after` holds one deadline per timer
+// id, so arming a LATER deadline would silently displace an EARLIER one and strand that mobile's OFFER.
+//
+// ★★★ [[B145]] §MH-S2b — AND AN ALREADY-ELAPSED MINIMUM IS RE-ARMED AT A POSITIVE FLOOR, NEVER AT ZERO. This line
+// used to read `earliest > now ? earliest - now : 0`, and that `0` was the whole defect: `TimerWheel::pop_due` fires
+// on `_due <= now`, and the production pump (`src/fw_main.cpp` `for (int id; (id = g_hal.pop_due_timer()) >= 0; )`)
+// keeps draining at a clock that need not have moved ⇒ the callback re-entered inside the SAME pump and
+// `mobile_offer_fire`'s "at most ONE due OFFER per callback" bought nothing: four overdue entries still reached the
+// radio in one millisecond. ⛔ THE OLD TEST COULD NOT SEE IT — it invoked `on_timer(80)` by hand, one call at a time,
+// modelling a pump that does not exist; the regression beside it now drives a REAL `TimerWheel` at a FIXED timestamp.
+// ⓘ Only a delay that would be ZERO is substituted. A positive computed delay passes through untouched, so every
+//   non-overdue path — which is every path in a mesh where the timer is not starved — is byte-identical.
+// ⛔ `protocol::mobile_offer_respace_ms` is a CONSTANT, not a draw (S3 owns jitter); its sizing note is at the
+//   constant, and it is deliberately NOT `join_offer_backoff_min_ms` despite sharing its value today.
+void Node::mobile_offer_arm_timer() {
+    uint64_t earliest = ~0ull;
+    for (uint8_t i = 0; i < protocol::cap_pending_mobile_offers; ++i) {
+        const PendingMobileOffer& e = _pending_mobile_offers[i];
+        if (e.len != 0            && e.due_ms           < earliest) earliest = e.due_ms;
+        if (e.reserve_until_ms != 0 && e.reserve_until_ms < earliest) earliest = e.reserve_until_ms;
+    }
+    if (earliest == ~0ull) { _hal.cancel(kMobileOfferBackoffTimerId); return; }
+    const uint64_t now   = _hal.now();
+    const uint64_t delay = earliest > now ? earliest - now : 0;
+    (void)_hal.after(delay != 0 ? static_cast<uint32_t>(delay) : protocol::mobile_offer_respace_ms,
+                     kMobileOfferBackoffTimerId);
+}
+
+// §5.3.3 — the deadline scan. Three jobs, in this order, then a re-arm.
+//
+// ★★ §B132b — THE TRANSMISSION BOUNDARY IS A DECISION SITE, and it is re-checked HERE as well as at admission. The
+// OFFER is committed at DISCOVER time but transmitted 100..1000 ms later, and eligibility can flip inside that window
+// through two LIVE console knobs needing no reboot (`cfg set mobile 1` while the registry is empty, and
+// `cfg set host_mobiles off`). Without this re-check the node advertises itself as a home it may no longer be. It is
+// also the only defence on the REFUSED-`on_init` path, which returns before that cleanup with `n_layers == 2` intact.
+void Node::mobile_offer_fire() {
+    if (!can_host_mobiles()) { mobile_host_pending_clear(); return; }   // ineligible -> DROP the ring, transmit NOTHING
+    const uint64_t now = _hal.now();
+
+    // (1) [[B137]]: expire elapsed reservations, so a mobile that is offered an id and never CLAIMs cannot leak it.
+    // ⓘ An entry can only be here with `len != 0` if its OFFER never got a fire opportunity inside the whole
+    // reservation window (jitter max 1000 ms vs 10 000 ms) — a starved timer. Dropping it with the reservation is
+    // right: the frame is 10 s stale and the mobile's own retry is the backstop.
+    for (uint8_t i = 0; i < protocol::cap_pending_mobile_offers; ++i) {
+        PendingMobileOffer& e = _pending_mobile_offers[i];
+        if (e.reserve_until_ms == 0 || e.reserve_until_ms > now) continue;
+        MR_EMIT("mobile_offer_reservation_expired", EF_I("to_key", static_cast<int64_t>(e.target_key_hash32)),
+                EF_I("local_id", e.proposed_id), EF_I("unsent", e.len != 0 ? 1 : 0));
+        e = PendingMobileOffer{};
+    }
+
+    // (2) AT MOST ONE due OFFER per callback (§5.3.3), the earliest — one frame per callback keeps the host off a
+    // same-millisecond burst, which is the entire reason the jitter exists.
+    int due = -1;
+    for (uint8_t i = 0; i < protocol::cap_pending_mobile_offers; ++i) {
+        const PendingMobileOffer& e = _pending_mobile_offers[i];
+        if (e.len == 0 || e.due_ms > now) continue;
+        if (due < 0 || e.due_ms < _pending_mobile_offers[due].due_ms) due = static_cast<int>(i);
+    }
+    if (due >= 0) {
+        PendingMobileOffer& e = _pending_mobile_offers[due];
+        // ★ §MH-S1 §6.2 — THE ADMISSION RESULT DECIDES THE ENTRY'S FATE. `jtx_fire` clears `len` either way (so a
+        // re-entrant fire is a no-op rather than a duplicate transmission) and returns whether the transmitter
+        // accepted it. ⛔ A rejection must NOT disturb any other mobile's entry — vacuous under the old single slot,
+        // a real obligation now, and satisfied structurally: only `e` is touched.
+        // ★ THE RESERVATION IS RETAINED ON A REJECTION (§5.3.2 item 9's "retains or reschedules"). The frame is
+        // dropped, but the mobile's id stays promised, so its own re-DISCOVER is answered with the SAME id rather
+        // than a fresh one. That is strictly better than the drop-everything S1 had to do.
+        // ★★ §MH-S3 RULED, so this is no longer a deferral: RETAIN IS THE FINAL SHAPE. §6.2 and item 9 both offer
+        // reschedule **OR** report-an-explicit-drop as ALTERNATIVES, not as a sequence — and S2 took the second
+        // one COMPLETELY (explicit `mobile_offer_dropped`, [[B146]]'s counter, and the reservation kept). S3 owns
+        // the draw the reschedule would have needed and has DECLINED to spend it here: a reschedule would put a
+        // second OFFER for the same mobile on a channel our own transmitter has just said it cannot use, while
+        // §6.2's stated backstop — the source mobile's own retry, which S3 has just jittered — already covers it.
+        TxAdmission adm = TxAdmission::admitted;
+        if (!jtx_fire(e.buf, e.len, LbtKind::mobile_offer, &adm)) {
+            // ★ [[B146]] §MH-S2b — THE COUNTER LIVES IN `mobile_offer_admission_rejected`, NOT HERE. It used to be
+            // incremented at this ONE call site, so the DEFERRED rejection (node.cpp's `tx_deferred_lost` arm, the
+            // other caller) reported the drop and left `mobile_offer_reject_count()` reading zero. One reporter, one
+            // counter, one place — see the note at the function.
+            mobile_offer_admission_rejected(adm);   // adm ∈ {defer_full, tx_rejected} — tx_initiating writes it on every path
+        }
+    }
+
+    // (3) re-arm for whatever is left — the next due OFFER or the next reservation bound (park_reflood_fire's tail).
+    mobile_offer_arm_timer();
+}
+
 // ★ §MH-S1 §6.2 — the staged OFFER reached its jitter deadline and OUR OWN TRANSMITTER definitively refused
 // it. Before this slice `jtx_fire`'s answer was discarded, so the frame simply vanished while
 // `mobile_offer_tx` — emitted 100..1000 ms earlier at DISCOVER time, i.e. meaning only *staged* — was the
@@ -618,11 +924,36 @@ void Node::presence_ingest_probe(const uint8_t* frame, size_t len, const RxMeta&
 // ordering exists to protect. The reschedule is therefore owed to S2 (which introduces the keyed ring the new
 // deadline would be scanned from) / S3 (which owns the draw). ⇒ **the source mobile's own retry is the
 // backstop**, exactly as §6.2 says it must be when the drop branch is taken.
+// ★★★ §MH-S3 CLOSED THIS, BY RULING RATHER THAN BY BUILDING IT — read the two paragraphs above as HISTORY.
+// S3 re-read §6.2 and §5.3.2 item 9 against the source (V1) and found the obligation is a DISJUNCTION —
+// "**reschedule** it … **or** **report an explicit drop** and bump the transmitter-rejection counter, so the
+// source mobile's own retry remains the backstop" — with item 9 phrased identically ("retains **or**
+// reschedules"). The drop branch is taken IN FULL here: explicit event, [[B146]]'s single-reporter counter,
+// no other mobile's entry touched, and (§MH-S2) the [[B137]] reservation RETAINED so the retry is answered
+// with the same id. ⇒ **NOTHING IS OWED.** S3 spent its draws on the three §5.2/§5.4 sites and deliberately
+// not here: a reschedule would re-offer onto a channel this node's own transmitter has just refused, and
+// §6.2's named backstop — the source mobile's retry — is precisely what S3 jittered. ⛔ Do not resurrect
+// this as a "leftover"; it is a closed decision, not a gap.
 //
-// ⓘ "A rejection must never disturb any other mobile's armed entry" is satisfied VACUOUSLY today — there is
-// one single-slot `_pending_offer` and the entry being reported is the one that just fired. It becomes a real
-// obligation in S2, alongside the ring-overflow counter §10 asks for.
+// ★ §MH-S2 CLOSED THE TWO THINGS THIS NOTE OWED. (a) "A rejection must never disturb any other mobile's armed
+// entry" was satisfied VACUOUSLY under the single slot — the entry reported was necessarily the one that just
+// fired. It is now a REAL obligation and is met structurally: `mobile_offer_fire` picks exactly one due entry and
+// touches only that one. (b) The ring-overflow counter §10 asked for exists (`_mobile_offer_ring_full_n`), and its
+// twin `_mobile_offer_reject_n` is incremented HERE (see [[B146]] below). ⓘ STILL OWED: §6.2's *reschedule*
+// alternative, which needs a bounded new jitter draw ⇒ S3. What S2 could do without a draw, it did — the entry's
+// [[B137]] id RESERVATION is retained across the drop, so the mobile's own retry is answered with the same id.
+// ⛔ "STILL OWED" IS WITHDRAWN by §MH-S3 — see the ruling paragraph above; the alternative was chosen, not skipped.
+//
+// ★★★ [[B146]] §MH-S2b — THE COUNTER IS INCREMENTED HERE, WHERE THE DROP IS REPORTED, AND NOWHERE ELSE. §MH-S2 put
+// `++_mobile_offer_reject_n` at the `mobile_offer_fire` call site, which is only ONE of this function's TWO callers:
+// an OFFER accepted into the LBT defer ring and then refused by the HAL arrives from `node.cpp`'s `tx_deferred_lost`
+// arm instead, so it emitted `mobile_offer_dropped` while `mobile_offer_reject_count()` stayed at zero — a counter
+// that under-reports exactly the failure it exists to count. ★ AND THE TEST COULD NOT SEE IT: the deferred case
+// asserted the EVENT, never the counter. ⇒ ONE reporter owns the count. Every caller must therefore reach here
+// exactly once per definitively-refused OFFER (no caller may increment as well), which is what makes
+// `mobile_offer_reject_count()` == `mobile_offer_dropped` count, by construction.
 void Node::mobile_offer_admission_rejected(TxAdmission why) {
+    ++_mobile_offer_reject_n;
     MR_EMIT("mobile_offer_dropped", EF_S("result", why == TxAdmission::defer_full ? "defer_full" : "tx_rejected"));
     // §3-A.1 twin: MR_EMIT is device-stripped. The host has just failed to answer a mobile that is waiting on
     // a 2 s window, so this one IS operator-visible — but trace-gated, not `!!`: the mobile re-DISCOVERs.
@@ -633,9 +964,13 @@ void Node::mobile_offer_admission_rejected(TxAdmission why) {
 // transmission and cancel the timer that would fire it. Two callers, deliberately: `on_init`'s gateway force-off
 // (C3 hygiene) and the OFFER timer's own eligibility re-check (the guarantee) — one spelling so they cannot drift.
 //
-// ⚠ PER-LEAF, NOT `_active`: the OFFER stash and the roster coalesce/echo state live in LayerState and a GATEWAY OWNS
-// TWO of them, so a frame staged while the other leaf was active would otherwise survive and be fired later (jtx_fire
-// reads `_active->_pending_offer`, and which leaf is active at fire time is a scheduling accident).
+// ⚠ PER-LEAF, NOT `_active`, FOR THE ROSTER HALF: the roster coalesce/echo state lives in LayerState and a GATEWAY
+// OWNS TWO of them, so a window opened while the other leaf was active would otherwise survive a swap.
+// ★ §MH-S2: the OFFER half is no longer per-leaf — the ring is node-global (node.h), so ONE clear covers it. That is
+// a simplification the node-global scope buys, not a behaviour change: the old loop existed precisely because a frame
+// staged on the inactive leaf was invisible to `_active`, and a node-global ring has no inactive copy to hide in.
+// ⚠ The clear wipes RESERVATIONS as well as armed frames, deliberately: a node that must not act as a home must not
+// be holding local ids promised to mobiles either.
 //
 // ⓘ WHAT IS *NOT* HERE, and why: `_mobile_reg` / `_notify_pending` / `_mobile_snr_q4` are cleared by `on_init` itself
 // (that is registry state, not a pending transmission), and the roster has no equivalent of the OFFER's boundary hole —
@@ -643,8 +978,8 @@ void Node::mobile_offer_admission_rejected(TxAdmission why) {
 // clearing `_roster_coalesce_pending` here is hygiene (a stale window flag) and never the thing that suppresses a
 // roster. The OFFER had no such check, which is exactly the difference this function exists for.
 void Node::mobile_host_pending_clear() {
+    for (uint8_t i = 0; i < protocol::cap_pending_mobile_offers; ++i) _pending_mobile_offers[i] = PendingMobileOffer{};
     for (uint8_t li = 0; li < MR_N_LAYERS; ++li) {
-        _layers[li]._pending_offer_len       = 0;   // the jtx "armed" flag IS the length -> 0 makes a later jtx_fire a no-op
         _layers[li]._roster_coalesce_pending = false;
         _layers[li]._roster_echo_pending     = false;
     }

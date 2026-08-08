@@ -112,26 +112,34 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     else if (r.mobile_src && is_team_peer(r.src)                                       // §T2 row 1 — refresh a KNOWN teammate
              && learn_direct_neighbor(r.src, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/true)) schedule_triggered_beacon();
 #endif
-    // ② implicit-ACK from an overheard forward-RTS (Lua dv:9863-9893): if we have a flight in progress and overhear
-    // OUR next-hop forwarding the SAME DATA onward (its relay RTS), the hop decoded -> cancel our pending timeout
-    // instead of waiting out the ACK timer + firing a redundant retry that collides with its downstream DATA. Match
-    // next/dst/ctr_lo (strong) + payload_len (disambiguates a 4-bit ctr_lo wrap). payload_len is the end-to-end
-    // inner+MAC length (forwarded unchanged across hops) so it equals what our pending DATA implies (the same
-    // rin.payload_len = inner_len + data_mac_len(flags) we packed at node_mac.cpp:558).
-    if (_active->_pending_tx
-        && r.src     == _active->_pending_tx->next
-        && r.dst     == _active->_pending_tx->dst
-        && r.ctr_lo  == _active->_pending_tx->ctr_lo
-        && r.payload_len == static_cast<uint8_t>(_active->_pending_tx->inner_len + data_mac_len(_active->_pending_tx->flags))) {
-        _hal.cancel(kRtsTimeoutTimerId);
-        _hal.cancel(kAckTimeoutTimerId);
-        _hal.cancel(kRetryBackoffTimerId);                 // parity with handle_ack: drop a stale retry armed by a just-fired timeout
-        MR_EMIT("implicit_ack_from_forward", EF_I("from", r.src), EF_I("dst", _active->_pending_tx->dst), EF_I("ctr_lo", r.ctr_lo),
-                EF_I("forward_next", r.next));
-        _active->_pending_tx.reset();
-        become_free();
-        return;
-    }
+    // ⛔⛔ ② THE IMPLICIT-ACK FROM AN OVERHEARD FORWARD-RTS (Lua dv:9863-9893) IS **DELETED** — §B153/[[B157]],
+    // 2026-08-08. It used to cancel our in-flight timers and `_pending_tx.reset()` when we overheard our own
+    // next-hop forwarding "the same" DATA onward, on the theory that the hop had demonstrably decoded.
+    //
+    // ★★★ IT IS THE SECOND TERMINAL DECISION DERIVED FROM AN RTS, AND QA's ARGUMENT CONDEMNS IT VERBATIM.
+    // The match was `next/dst/ctr_lo` + `payload_len`, and its own comment credited `payload_len` with
+    // *"disambiguates a 4-bit ctr_lo wrap"* — it never did: it is a LENGTH. So an overheard forward of a
+    // DIFFERENT message with the same destination and the same size satisfied it, and `_pending_tx.reset()`
+    // then discarded OUR message with no `data_tx`, no emit and **no `send_failed`** — the identical silent
+    // loss as the retired `already_received` gate, from the identical class of missing evidence.
+    // ⇒ **RTS AUTHORIZES RECEPTION; ONLY DATA PROVES MESSAGE IDENTITY** applies here too, and no key can rescue
+    // it: the frame does not carry the message's identity, so the optimization is not implementable safely.
+    //
+    // ⛔ MEASURED, NOT ARGUED — this is what forced the deletion. With the RTS-time gate removed, `s27` STAYED
+    // RED with the same five expectations, and the cause was here: at t=362768 gateway G1 has both hosted
+    // mobiles' replies queued to home 101 (origins 114 and 111, both `ctr` 2, both `payload_len` 57); the
+    // origin-114 flight completes at t=362768, the origin-111 flight airs its RTS and gets no CTS (103 is busy
+    // relaying the first), and at **t=363718** G1 overhears 103 forwarding the **114** message to 102 and
+    // credits it to the **111** flight — which had never transmitted a DATA at all. `re-m3` lost in silence.
+    //
+    // WHAT REPLACES IT: nothing. The sender waits out its ACK timeout and retries — and that retry is now SAFE
+    // by the same mechanism the whole slice rests on: the receiver ACKs the duplicate DATA and the DATA-level
+    // `_seen_origins` dedup returns before `_post_ack`, so there is no second delivery and no second forward.
+    // COST: one redundant DATA on a path where an ACK was already lost or an overhear already happened —
+    // exactly the trade the retired CTS gate's removal accepts, for exactly the same reason.
+    // ⚠ PRICE, STATED HONESTLY: this fired **61 times across 8 corpus scenarios** (10 of them in `s18`), so it
+    // was a real airtime saving on a real path — and removing it MOVES those streams. It is removed anyway,
+    // because a saving that silently destroys a message is not a saving.
     // No data SF configured (empty sf_list) -> this node is data-incapable: it can't pick a DATA SF, so it does
     // NOT CTS / retune / arm NAV (no silent fallback). The sender's DM just fails — fail loud. Control plane
     // (neighbour-learn above, beacons, routing) still runs; only data participation is refused.
@@ -290,26 +298,52 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (_cfg.nav_enabled && _cfg.nav_ignore_rts && _hal.now() < _nav_until_ms) return;
     MR_EMIT("rts_rx", EF_I("from", r.src), EF_I("dst", r.dst));
 
-    // last_acked dedup: a retried RTS after we already delivered -> CTS already_received, no re-deliver.
-    const uint32_t lakey = (uint32_t(r.src) << 24) | (uint32_t(r.dst) << 16) |
-                           (uint32_t(r.ctr_lo) << 8) | r.payload_len;
-    auto la = _active->_last_acked_from.find(lakey);
-    if (la != _active->_last_acked_from.end() && (_hal.now() - la->second.t_ms) < protocol::last_acked_ttl_ms) {
-        // Fresh within the 10s TTL (dv_dual_sf.lua:9861) — the TTL gate is what stops a
-        // stale 4-bit ctr_lo alias from false-positiving on slow sustained traffic.
-        cts_in cin{}; cin.chosen_data_sf = la->second.chosen_data_sf;
-        cin.already_received = true; cin.tx_id = for_team_rts ? team_local_id() : _node_id; cin.rx_id = r.src;
-        cin.payload_len = _cfg.nav_enabled ? r.payload_len : 0;   // NAV: size the overhearer's DATA reservation
-        cin.cr_adv      = r.cr_adv;   // §cts-len6-cr2: forward the RTS sender's advertised CR into byte 3's cr2 half
-        uint8_t cbuf[4]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, sizeof cbuf));
-        tx_with_retry(cbuf, cl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::cts);   // R4.5b
-        MR_EMIT("cts_tx", EF_I("to", r.src), EF_B("dup", true));
-        return;
-    }
+    // ★★★★ §B153 (2026-08-08) — THE RTS-TIME `already_received` SHORT-CIRCUIT IS GONE, AND IT IS NOT COMING BACK.
+    // What stood here looked up `_last_acked_from` and, on a hit inside a 10 s TTL, answered
+    // `CTS already_received = 1`. `handle_cts` treats that as DELIVERED: `_pending_tx.reset(); become_free();
+    // return;` — no DATA, no emit, no `send_failed`. So a wrong answer here DISCARDS A MESSAGE IN SILENCE.
+    //
+    // ★★★ WHY NO KEY CAN FIX IT — THE ARGUMENT IS INFORMATION-THEORETIC, NOT A TUNING MATTER.
+    // **A 7-byte RTS cannot distinguish (a) a RETRY of message A from (b) the FIRST ATTEMPT of message B that
+    // shares the same `(hop src, dst, ctr_lo, payload_len)`. Those two frames are BYTE-IDENTICAL.** ⇒ no amount
+    // of receiver state and no cleverer matching can return a safe TERMINAL verdict from that frame, because the
+    // information simply is not in it. ⛔ The first fix attempt widened the RTS with a 4-B `flight_id` tail; that
+    // "works" only by changing the frame — and the frame never needed to carry it, because the DATA already does.
+    // ★★ **THE PRINCIPLE, STATED HERE BECAUSE IT IS THE DURABLE LESSON: RTS AUTHORIZES RECEPTION; ONLY DATA
+    // PROVES MESSAGE IDENTITY.** It is the sharp form of this arc's recurring error — [[B142]], [[B133]],
+    // [[B147]], [[B153]] — *a terminal decision made from evidence that could not support it*.
+    // ⇒ A FREE RECEIVER NOW ALWAYS: creates `PendingRx`, returns a normal CTS, and waits for the DATA.
+    //
+    // WHERE THE AUTHORITY LIVES INSTEAD (and it was already there, doing the real work): `handle_data`'s
+    // `_seen_origins` dedup, keyed on the CANONICAL identity — the full `(origin, dst, ctr)` with all 16 bits of
+    // `ctr`, or the whole 8-B cleartext nonce-seed for a CRYPTED flight. Fresh DATA -> ACK + deliver/forward +
+    // record. Same message, SAME prev-hop (the real lost-ACK case) -> ACK only, and it RETURNS BEFORE
+    // `_post_ack` is set, so there is no second delivery and no second forward. Same message, DIFFERENT
+    // prev-hop -> the existing LOOP_DUP NACK. ⓘ Its TTL is `seen_origin_ttl_ms` = 30 s, THREE TIMES the 10 s
+    // window this gate had, so the replacement is strictly MORE durable, not less.
+    // ⓘ COST, so nobody re-adds the bit as an "optimization": successful traffic is UNCHANGED
+    // (RTS -> CTS -> DATA -> ACK, 7-B RTS). Only lost-ACK recovery pays, and it pays ONE redundant DATA —
+    // after an ACK was actually lost — instead of every hop of every message risking a wrong terminal answer.
+    // ⛔ `cts_in::already_received` is RESERVED in the codec and NEVER SET by this firmware (frame_codec.h).
+    //   An INBOUND one is still honoured at `handle_cts`, so a heterogeneous fleet stays interoperable and NO
+    //   `wire_version` bump is needed (owner-confirmed 2026-08-08: MeshRoute is not deployed).
     // A retried RTS for the SAME flight while we still await its DATA -> re-CTS + restart
     // the expiry (dv_dual_sf.lua:218 CTS-dup) so the sender's retry gets a fresh CTS.
+    // ★ §B153 — THIS BRANCH IS DELIBERATELY KEPT, AND WHAT MAKES THAT LEGITIMATE IS THAT IT IS **NOT TERMINAL**.
+    // It only reissues a CTS (`already_received = false`) and restarts the DATA-wait: the sender must still send
+    // the DATA, and the DATA-level dedup still adjudicates identity. So the worst case of a WRONG match here is a
+    // re-CTS carrying the other flight's `chosen_data_sf` plus a restarted expiry — costing a retry, never a
+    // message — whereas the block deleted above could destroy one. That asymmetry is the whole distinction.
+    // ⇒ `payload_len` IS INCLUDED in the match: it is the end-to-end inner+MAC length, forwarded unchanged, so it
+    // cheaply separates most colliding `ctr_lo` values. ⛔ It is NOT an identity check and must never be
+    // described as one — it cannot be (see the argument above); it is a cheap filter on a non-terminal fast path.
+    // ✖ THE CONSERVATIVE ALTERNATIVE WAS CONSIDERED AND REJECTED, not overlooked: drop the branch and let the
+    // "busy with a DIFFERENT flight" BUSY_RX NACK below answer every retried RTS. Strictly worse here — a NORMAL
+    // lost-CTS retry (exactly the case this branch exists for) would be answered with a CONGESTION verdict,
+    // pushing the sender into backoff/cascade against a receiver that is in fact holding its own reception for
+    // it. Keeping a non-terminal fast path costs nothing that can lose data.
     if (_active->_pending_rx && _active->_pending_rx->from == r.src && _active->_pending_rx->dst == r.dst &&
-        _active->_pending_rx->ctr_lo == r.ctr_lo) {
+        _active->_pending_rx->ctr_lo == r.ctr_lo && _active->_pending_rx->payload_len == r.payload_len) {
         cts_in cin{}; cin.chosen_data_sf = _active->_pending_rx->chosen_data_sf;
         cin.already_received = false; cin.tx_id = for_team_rts ? team_local_id() : _node_id; cin.rx_id = r.src;
         cin.payload_len = _cfg.nav_enabled ? r.payload_len : 0;   // NAV: size the overhearer's DATA reservation
@@ -703,19 +737,13 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         learn_route_via(origin, _active->_pending_rx->from, static_cast<uint8_t>(d.committed_hops + 1),
                         protocol::db_to_q4(meta.snr_db), /*team_plane=*/true);
 #endif
-    const uint8_t rx_sf = _active->_pending_rx->chosen_data_sf;
-    const uint8_t pl    = _active->_pending_rx->payload_len;
     _hal.cancel(kPendingRxExpiryTimerId);
     _hal.set_rx_sf(_cfg.routing_sf);                     // receiver retunes back
     _active->_pending_rx.reset();
-    // last_acked cache: a retried RTS gets CTS already_received=1 instead of re-delivery.
-    const uint32_t lakey = (uint32_t(from) << 24) | (uint32_t(d.dst) << 16) |
-                           (uint32_t(d.ctr_lo4) << 8) | pl;
+    // §B153: the per-hop last-acked CACHE THAT WAS WRITTEN HERE IS GONE, along with the RTS-time gate it fed and
+    // the two locals (`rx_sf`, `pl`) that existed only to feed it. `_seen_origins` below is now the ONLY dedup —
+    // and it is the one holding the evidence (see the argument at handle_rts). Nothing replaces this write.
     const uint64_t nowm = _hal.now();
-    for (auto it = _active->_last_acked_from.begin(); it != _active->_last_acked_from.end(); )   // prune expired (10s TTL)
-        { if ((nowm - it->second.t_ms) >= protocol::last_acked_ttl_ms) it = _active->_last_acked_from.erase(it); else ++it; }
-    if (_active->_last_acked_from.size() < protocol::cap_seen_origins)                  // bounded (reuse the 256 cap)
-        _active->_last_acked_from[lakey] = LastAcked{ rx_sf, nowm };
     // §1b sealed-sender dedup key — TYPE-NAMESPACED into one 64-bit space so PLAINTEXT and CRYPTED can NEVER alias.
     // PLAINTEXT = (origin<<24|dst<<16|ctr), naturally in [0,2^32) — same VALUE as before, just widened (s18 invariant).
     // CRYPTED = the FULL 8-B cleartext nonce-seed loaded LE, top bit forced => [2^63,2^64). The seed is globally unique

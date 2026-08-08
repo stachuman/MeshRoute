@@ -134,7 +134,6 @@ struct DualLayerTestAccess {
     static void  set_active(Node& n, uint8_t i)  { n._active = &n._layers[i]; }
     static auto& seen(Node& n, uint8_t i)        { return n._layers[i]._seen_origins; }
     static auto& seen_from(Node& n, uint8_t i)   { return n._layers[i]._seen_origin_from; }   // LOOP_DUP prev-hop
-    static auto& last_acked(Node& n, uint8_t i)  { return n._layers[i]._last_acked_from; }
     // Q REQ_SYNC plane (the methods are private; reach them via the friend).
     static void  mark_q(Node& n, uint8_t op, uint8_t src, uint8_t dst)   { n.mark_q_responded(op, src, dst); }
     static bool  q_recent(Node& n, uint8_t op, uint8_t src, uint8_t dst) { return n.q_responded_recently(op, src, dst); }
@@ -245,10 +244,28 @@ struct DualLayerTestAccess {
         return n.send_by_hash(h, body, len, flags, CryptIntent::off, reply_to_hash, mobile_ctr, Plane::AUTO, type);
     }
     static const PendingTx* pending(Node& n) { return n._active->_pending_tx ? &*n._active->_pending_tx : nullptr; }  // §mobile 3a: the in-flight item (after become_free issues the forward)
+    // ★★ §MH-S4 §4.1 — this helper means "a FULLY REGISTERED mobile", so it must now also place the two §4.1
+    // planes in their CONFIRMED state. Before S4 `_my_mobile_reg.active` was the whole truth; it no longer is, and a
+    // helper that set only `active` would produce a mobile stuck in `dormant`/unconfirmed — which routes every
+    // §7.1-aware branch (roster-absent, the confirmation deadline, the deregistration push) down its
+    // *unconfirmed* arm and would silently invalidate ~a dozen callers that mean "already registered".
+    // ⓘ `_presence_reg_confirmed` is set too, because the roster-absent fork reads it (node.h read #2).
     static void     make_registered_mobile(Node& n, uint8_t local_id, uint8_t home_id, uint32_t home_hash) {   // §mobile 3b: a mobile that has adopted a local-id + homed
         n._cfg.is_mobile = true; n.set_identity(local_id, n._key_hash32); n._joined = true;
         n._my_mobile_reg = { true, home_id, local_id, home_hash, n._cfg.leaf_id, 0, n._hal.now() };
+        n._mobile_attach_state      = Node::MobileAttachState::attached;
+        n._mobile_home_link         = Node::MobileHomeLink::confirmed;
+        n._presence_reg_confirmed   = true;
+        n._mobile_home_confirmed_ms = n._hal.now() ? n._hal.now() : 1;   // never 0 (0 == "never confirmed")
     }
+    // §MH-S4 §4.1/§10 white-box readers for the two planes + the re-CLAIM budget (the public accessors exist too;
+    // these are for the cases that need to SET a state or read it on a node whose config is faked).
+    static Node::MobileAttachState attach_state(Node& n) { return n._mobile_attach_state; }
+    static Node::MobileHomeLink    home_link(Node& n)    { return n._mobile_home_link; }
+    static uint8_t  claim_retries(Node& n)        { return n._mobile_claim_retries; }
+    static bool     reg_confirmed(Node& n)        { return n._presence_reg_confirmed; }
+    static void     set_attach_state(Node& n, Node::MobileAttachState s) { n._mobile_attach_state = s; }
+    static void     set_home_link(Node& n, Node::MobileHomeLink l)       { n._mobile_home_link = l; }
     static uint16_t do_send(Node& n, uint8_t dst, const uint8_t* body, uint8_t body_len) { return n.do_send(dst, body, body_len, 0); }  // §mobile 3b: originate a plaintext DM
     static uint16_t do_send_ack(Node& n, uint8_t dst, const uint8_t* body, uint8_t body_len) { return n.do_send(dst, body, body_len, DATA_FLAG_E2E_ACK_REQ); }  // §mobile: a reply-expecting (E2E_ACK) DM
     static uint16_t do_send_override(Node& n, uint8_t dst, const uint8_t* body, uint8_t len, uint32_t oh) { return n.do_send(dst, body, len, 0, CryptIntent::def, oh); }  // §mobile 3c: DM with override_dst_hash
@@ -1263,16 +1280,12 @@ TEST_CASE("dual-layer dedup: the same (origin,dst,ctr) key on two leaves does NO
     { auto& sf = DualLayerTestAccess::seen_from(node, 0);                    // ... leaf 0 KEEPS its own prev-hop 7
       auto it = sf.find(K); CHECK((it != sf.end() && it->second == 7)); }   // (not aliased/overwritten by leaf 1's 8)
 
-    // Structural: the per-leaf dedup maps are DISTINCT objects (seen_origins + _seen_origin_from + last_acked_from).
+    // Structural: the per-leaf dedup maps are DISTINCT objects (seen_origins + _seen_origin_from).
+    // ⓘ §B153: `_last_acked_from` was a THIRD per-leaf map checked here; it is DELETED (the RTS-time
+    // `already_received` gate it fed is retired — see node_mac_rx.cpp's handle_rts note), so its two
+    // non-aliasing assertions are gone with it rather than being weakened.
     CHECK(&DualLayerTestAccess::seen(node, 0)       != &DualLayerTestAccess::seen(node, 1));
     CHECK(&DualLayerTestAccess::seen_from(node, 0)  != &DualLayerTestAccess::seen_from(node, 1));
-    CHECK(&DualLayerTestAccess::last_acked(node, 0) != &DualLayerTestAccess::last_acked(node, 1));
-
-    // last_acked_from non-aliasing: an entry on leaf 0 is absent on leaf 1 (default-construct via operator[]).
-    const uint32_t LA = (uint32_t(7) << 24) | (uint32_t(9) << 16) | (uint32_t(3) << 8) | 12u;
-    DualLayerTestAccess::last_acked(node, 0)[LA];
-    CHECK(DualLayerTestAccess::last_acked(node, 0).count(LA) == 1);
-    CHECK(DualLayerTestAccess::last_acked(node, 1).count(LA) == 0);
 }
 
 TEST_CASE("dual-layer dedup: the Q REQ_SYNC plane (_q_responded / _sync_pending) is per-layer too (Slice 2b)") {
@@ -5551,9 +5564,21 @@ TEST_CASE("§S6/D10 — the NEW home originates the old-home notify: a re-home D
     j_discover_in d{}; d.leaf_id=4; d.is_mobile=true; d.key_hash32=0xB0B1u; d.last_home_id=30; d.last_home_layer=4; d.last_reg_epoch=3; d.last_home_key_hash32=0x3030u;
     uint8_t db[13]; size_t dn = pack_j_discover(d, db); home.on_recv(db, dn, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});   // §B4: a re-home DISCOVER is 13 B (carries the old-home hash)
     CHECK(hal.saw_emit("mobile_offer_scheduled"));
+    // ★★★ [[B147]] §MH-S2b — REWRITTEN IN PLACE (B101). The CLAIM used to carry a HAND-PICKED id (21) the host
+    // never proposed. Since [[B137]] the staged OFFER reserves the id the allocator really chose, and a CLAIM
+    // must match that promise on BOTH hash and id, so an invented id is now refused as a stale echo. ⇒ transmit
+    // the staged OFFER, read the proposed id OFF THE WIRE, and claim THAT — what a real mobile does. The case's
+    // subject (D10's new-home breadcrumb) is untouched; it simply no longer assumes the allocation.
+    hal._now = 5000;                                          // past the OFFER's 100..1000 ms jitter, inside its 10 s reservation
+    home.on_timer(80 /*kMobileOfferBackoffTimerId*/);
+    auto ofr = parse_j(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len));
+    CHECK(ofr.has_value());
+    CHECK((ofr && ofr->opcode == static_cast<uint8_t>(j_opcode::offer) && ofr->is_mobile));
+    const uint8_t offered_id = ofr ? ofr->proposed_mobile_id : 0;
+    CHECK(offered_id >= protocol::normal_node_id_min);        // PREMISE: a real id was proposed on the wire
     // the mobile CLAIMs the offered id at this host -> record -> the NEW home fires the breadcrumb to 30.
     hal.emits.clear();
-    j_claim_in c{}; c.leaf_id=4; c.is_mobile=true; c.key_hash32=0xB0B1u; c.proposed_node_id=21; c.claim_epoch=4; c.chosen_host_id=40;
+    j_claim_in c{}; c.leaf_id=4; c.is_mobile=true; c.key_hash32=0xB0B1u; c.proposed_node_id=offered_id; c.claim_epoch=4; c.chosen_host_id=40;
     uint8_t cb[11]; size_t cn = pack_j_claim(c, cb); home.on_recv(cb, cn, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
     CHECK(hal.saw_emit("presence_notify_tx"));               // ★ NEW home -> old-home (30) redirect breadcrumb (D10)
     DualLayerTestAccess::pump(home);

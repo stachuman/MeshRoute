@@ -1332,8 +1332,23 @@ bool Node::lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind ki
     // ⛔ NO DRAW, and the ORDERING IS PRESERVED: the old code armed the guard immediately after
     // `tx_initiating` returned, i.e. immediately after this very `tx_with_retry` — so on a clear channel
     // the sequence of hal calls is unchanged and the corpus is byte-identical by construction.
+    // ★★★ §MH-S3 §5.4 — AND THE "NO DRAW" ABOVE IS NOW SUPERSEDED, DELIBERATELY, BY THE ARC'S ONE PLANNED
+    // RNG RE-ANCHOR. `mobile_offer_window_ms` is a MINIMUM COLLECTION INTERVAL, not a deadline: mobiles that
+    // opened their windows in the same millisecond used to close them — and CLAIM — in the same millisecond,
+    // which is the collision §5.4 exists to remove. The guard is therefore armed at the minimum PLUS a
+    // bounded per-mobile jitter, drawn ONCE here, at the same point in the Hal-call sequence the fixed
+    // `after` occupied. The ordering argument above still holds; only the VALUE is now drawn.
+    // ★★ THE SELECTION RULE IS UNTOUCHED — jitter moves the DEADLINE, it must not change WHICH OFFER wins.
+    //    `mobile_claim_guard_fire` still picks the strongest `_mobile_offers[]` entry collected before the
+    //    fire, which is exactly §5.4's "the strongest received before that mobile's individual deadline".
+    //    A late-arriving stronger OFFER inside the extra jitter is therefore eligible, by design.
+    // ⛔ MOBILE-PLANE ONLY: `LbtKind::mobile_discover` is emitted by `mobile_discover_fire`, which hard-guards
+    //    on `_cfg.is_mobile`. A static/gateway node never reaches this line ⇒ the static corpus (and s18)
+    //    is inert by construction, which is the property that makes this slice's re-anchor attributable.
     if (kind == LbtKind::mobile_discover && r != TxHandOff::rejected)
-        (void)_hal.after(protocol::mobile_offer_window_ms, kMobileClaimGuardTimerId);   // collect, then decide
+        (void)_hal.after(protocol::mobile_offer_window_ms
+                             + static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(protocol::mobile_claim_jitter_ms) + 1)),
+                         kMobileClaimGuardTimerId);   // collect for AT LEAST the window, then decide
     // ★★ §MH-S1b §6.3 — AND THE CLAIM ADOPTS HERE, FOR THE SAME REASON AND ON THE SAME LINE. QA round 2:
     // arming the DISCOVER window at the handoff while leaving the CLAIM adopting at the REQUEST fixed one of
     // three siblings. `tx_initiating` answers `true` for a frame merely accepted into the LBT defer ring, so

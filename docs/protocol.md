@@ -29,6 +29,42 @@ Single-slot stop-and-wait: **RTS→CTS→DATA→ACK** (NACK to refuse), each hop
 talk (LBT) + NAV virtual carrier sense gate the TX; a rolling duty-cycle budget tier throttles under load; failed
 next-hops cascade to alternates / hop-budget reroute.
 
+**★★★ Terminal decisions may not be derived from an RTS — the retired `already_received` short-circuit and the
+retired implicit ACK (2026-08-08, `§B153`/`§B157`).** Two mechanisms used to end a sender's flight on the strength
+of an RTS. (1) A relay that had recently delivered a message answered a *retried* RTS with
+`CTS already_received = 1`, and the sender dropped its pending flight as delivered. (2) A sender that overheard
+**its own next-hop forwarding "the same" message onward** cancelled its flight (the *implicit ACK*), on the theory
+that the hop had demonstrably decoded. Both were keyed on `(hop src, dst, ctr_lo, payload_len)`: `src` is the
+sender **of that hop** — a gateway when it relays — `ctr_lo` is **4 bits**, and `payload_len` is a length. So two
+different messages with the same destination and the same size collided, and the loser was discarded with **no
+DATA, no emit and no `send_failed`**.
+
+★★ **The refutation is information-theoretic, not a tuning matter, and it is the durable part.** A 7-byte RTS
+**cannot distinguish a RETRY of message A from the FIRST ATTEMPT of message B** sharing that tuple — the two
+frames are byte-identical. ⇒ **no receiver state and no cleverer matching can produce a safe terminal verdict from
+an RTS**, because the information is not in the frame. A first fix appended a 4-byte `flight_id` to the unicast
+RTS; that "works" only by changing the frame, and the frame never needed to carry it — the DATA already does.
+**⇒ RTS AUTHORIZES RECEPTION; ONLY DATA PROVES MESSAGE IDENTITY.** It is the sharp form of a recurring defect
+shape in this codebase: *a terminal decision made from evidence that could not support it.*
+
+⇒ **A free receiver now always creates a `PendingRx`, returns a normal CTS, and waits for the DATA**, and the
+DATA-level dedup is the sole authority: keyed on the canonical `(origin, dst, ctr)` — all 16 bits of `ctr` — or on
+the whole 8-byte cleartext nonce-seed for a `CRYPTED` flight, with a **30 s** TTL against the retired gate's 10 s.
+Fresh DATA → ACK, deliver/forward, record. Same message, same prev-hop (the real lost-ACK case) → **ACK only**,
+returning before the deliver/forward step. Same message, different prev-hop → the existing `LOOP_DUP` NACK.
+**Duplicate suppression is narrowed, never disabled** — that is what stops a lost ACK from delivering twice.
+The `CTS already_received` bit stays **reserved and is never emitted**; an inbound one is still honoured, so a
+mixed fleet interoperates and **no `wire_version` bump is required** (the wire did not change).
+
+**The airtime trade, in numbers.** Successful traffic is **unchanged**: 7-byte RTS → CTS → DATA → ACK, so there is
+**no cost on any hop of any message**. Only recovery pays, and only after an ACK was actually lost or a forward
+actually overheard: the exchange becomes `retry RTS → CTS → duplicate DATA → ACK` instead of
+`retry RTS → already_received CTS`. At 125 kHz / CR4/5 / preamble 16 with a 20-byte body that is 83 ms → 212 ms at
+SF7 and 2342 ms → 5667 ms at SF12 (≈2.4–2.6×); with a 200-byte body, 83 → 473 ms and 2342 → 11565 ms. ⇒ the price
+is **one redundant DATA on a failure path**, in exchange for never silently destroying a message on a success path.
+⚠ Retiring the implicit ACK is the larger cost of the two: it fired 61 times across 8 corpus scenarios and its
+removal raises `s18`'s event count by ~10 %.
+
 **Sender-CR advertisement — sizing the receiver's DATA wait (2026-07-27).** After CTSing an RTS the receiver arms
 a DATA-wait window (`start_pending_rx_expiry`) and abandons the flight when it expires. That window is
 `CTS airtime + cts_to_data_gap + DATA airtime + margin`, and the DATA airtime depends on the **sender's** coding
@@ -303,8 +339,58 @@ key custody) and the home's coalesced **P-roster** (its hosted list + per-mobile
 re-register now; probe naming ANOTHER home ⇒ that registry prunes instantly; unanswered probes ⇒ home lost in
 minutes (not the old 30); weak quality ⇒ pre-scan and **proactively re-home** (bottleneck-direction ranking,
 dwell + hysteresis) while both homes are alive — the new home then notifies the old (§10 staleness).
+
+### 14.1 Attachment is CONFIRMED, and the three planes are separate (§MH-S4, 2026-08-08)
+
+⛔ **Registration is not one-dimensional.** Three different questions have three different authorities, and no
+answer may be substituted for another:
+
+| Plane | Question | The only authority |
+|---|---|---|
+| **Attachment** | *Which static node believes it is our home?* | a matching chosen-home **P roster** carrying our **(hash, local id, reg_epoch)** |
+| **Home link** | *Can this mobile and that home currently communicate, both ways?* | a recent **correlated bidirectional exchange** with that home |
+| **Mesh service** | *Can that home reach a particular destination?* | the **result of that specific route/send** |
+
+★ Presence can establish attachment and home-link confidence. It **cannot** assert general mesh connectivity: a
+roster proves the home holds our row and answered us, and nothing beyond that home.
+
+**Attachment states:** `dormant` (no attachment requested) · `seeking` (DISCOVER cycles, no chosen home, no
+prior attachment) · `claiming` (a home/local id was chosen and the CLAIM crossed the admission boundary;
+confirmation pending) · `attached` (the chosen home's roster confirmed the triple) · `recovering` (a previously
+attached home was lost).
+
+**Home-link states, independent of the above:** `unknown` · `confirmed` · `checking` · `lost`. The two are
+**orthogonal** — `attached` + `checking` is normal and must render as such.
+
+**Confirmation without a new wire message (no frame or field was added).** J CLAIM stays idempotent and
+claim-stands on the home; P already carries the proof. After choosing an OFFER the mobile adopts the offered PHY
+and local id **provisionally** and enters `claiming`; only the first chosen-home roster matching all three of
+`(hash, local_id, reg_epoch)` promotes it to `attached`, sets the home link to `confirmed`, stamps the
+confirmation age and emits the app-facing registration event. ⛔ A **two-of-three** match never confirms: a
+wrong epoch or a wrong local id is a fail-loud re-register, not a confirmation.
+
+**A lost CLAIM heals itself.** A chosen-home roster that omits our hash while we were never confirmed, or
+silence at the confirmation deadline, re-sends **the same CLAIM — same chosen host, same local id, same epoch** —
+up to `presence_claim_max_retries` (one shared budget for both triggers, because both mean "the CLAIM was not
+recorded"). After exhaustion the mobile returns to `seeking`; it never remains falsely registered. ⓘ A home
+**ignores** a check probe for a hash it does not host, so with an empty home the *silence* trigger is the only
+one available — which is why the budget is shared rather than per-trigger.
+
+**Home-link confidence rides the existing adaptive P cadence — no new periodic protocol and no new steady-state
+airtime.** A matching roster confirms both planes at once. An admitted-but-unanswered probe moves the link to
+`checking`; `presence_probe_k_miss` of them reach `lost`. ⛔ Inbound **beacons alone are one-way hints** and
+never confirm a link. ⛔⛔ A local **TX-admission** failure — an LBT deferral, a full defer ring, a HAL refusal —
+or an unrelated route failure moves **nothing**: it is a statement about this node's own transmitter, reported
+as the last attempt result only ([[B139]] was exactly this leak at the probe site). ★ The accepted consequence:
+a mobile that walks away from a **strong** home right after a confirmation and then generates no traffic can take
+≈8 minutes plus jitter and retries to notice — the deliberate price of not adding a keepalive to a duty-cycled
+link, not a defect.
+
+★ **Every surface therefore says "home link" and renders the AGE of the latest confirmation** — "Home confirmed
+7 min ago", never an unqualified "connected".
+
 - **Source:** `node_mobile.cpp` (`presence_probe_fire`, `presence_ingest_roster`, `presence_maybe_rehome`) · `node_join.cpp` (`presence_ingest_probe`, `presence_emit_roster`) · `frame_codec.cpp` (`pack/parse_p_*`)
-- **Spec:** `docs/superpowers/specs/2026-07-17-cross-layer-mobile-first-contact-design.md` §S6 (wire = `frames.md` §P)
+- **Spec:** `docs/superpowers/specs/2026-07-17-cross-layer-mobile-first-contact-design.md` §S6 · `2026-08-07-mobile-home-attachment-reliability-design.md` §4.1/§7 (§MH-S4) (wire = `frames.md` §P)
 
 ---
 

@@ -146,6 +146,15 @@ struct StatusFields {
     bool     pending   = false; // a flight in progress
     bool     lbt       = false; // listen-before-talk enabled
     int32_t  batt_mv   = -1;    // battery millivolts; <0 = unavailable (omit)
+    // ★★★ §MH-S4b §10 — THE TWO HOST-SIDE ADMISSION COUNTERS, NOW DEVICE-VISIBLE. §10: "`status` already exposes
+    // `txdrop`; add an OFFER-ring overflow counter and a transmitter-rejection counter if they cannot share an
+    // existing admission counter." They cannot (`txdrop` is the async-TX queue, a different resource), and both had
+    // existed since §MH-S2/[[B146]] as NATIVE-ONLY accessors — asserted by tests, invisible on metal, with the debt
+    // explicitly assigned to S4 by the earlier slices. A counter nobody on the bench can read is not a diagnostic.
+    // ⓘ HOST-side, not mobile-side: they count what THIS node did as a home. A pure mobile reports 0 for both, and
+    //   that is the honest value, not a placeholder.
+    uint16_t offer_full   = 0;  // Node::mobile_offer_ring_full_count() — pending-OFFER ring admissions refused `full` (§5.3.2)
+    uint16_t offer_reject = 0;  // Node::mobile_offer_reject_count()    — armed OFFERs OUR OWN transmitter refused ([[B146]]: one reporter owns this count)
 };
 size_t write_status(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeConfig& c, const char* state,
                     const StatusFields& s);
@@ -249,8 +258,17 @@ size_t write_team_key_err   (char* buf, size_t cap, const char* reason);
 size_t write_team_key_grant (char* buf, size_t cap, uint32_t target_hash, uint16_t ctr);
 
 // §S3: `mobile status` + `mobile gateways` JSON (PODs in; src/ calls these from handle_mobile — no node.h dep here).
+// ★★★ §MH-S4 §4.1/§10 — THE THREE-PLANE SURFACE. `registered` is RETAINED at its position and its name for
+// compatibility, but its MEANING is narrowed: it is now `mobile_attached()`, i.e. true only once the chosen home's
+// roster carried our (hash, local id, epoch). ⛔ It is NOT `mobile_registered()` any more — a mobile in `claiming`
+// reports `registered:false` with `attachment:"claiming"`, which is the §S0-4 fix as the app sees it.
+// ★ `attachment` and `home_link` are REPORTED SEPARATELY and must never be folded into one another (§10): the two
+//   planes are orthogonal, so a node can legitimately render "attached, checking".
+// ⛔ THE WORD "connected" MUST NOT APPEAR ON ANY SURFACE, qualified or not (§10): it claims the MESH plane on the
+//    strength of a HOME-plane measurement. The field is called `home_link`, and `home_confirm_age_ms` rides beside
+//    it precisely so a UI renders "Home confirmed 7 min ago" rather than an unconditional green light.
 struct MobileStatusFields {
-    bool     registered   = false;
+    bool     registered   = false;  // ★ §MH-S4: mobile_attached() — CONFIRMED attachment only, never a transmitted CLAIM
     uint8_t  home         = 0, local = 0;
     uint16_t epoch        = 0;
     uint8_t  home_layer   = 0;      // omitted unless registered
@@ -260,6 +278,28 @@ struct MobileStatusFields {
     uint8_t  sf           = 0;
     uint32_t bw_hz        = 0;
     uint8_t  nets         = 0;      // learned-networks count
+    // ---- §MH-S4 §10 additions (ADDITIVE — every existing field keeps its name, type and position) ----
+    const char* attachment   = "dormant";    // dormant | seeking | claiming | attached | recovering (§4.1 attachment plane)
+    const char* home_link    = "unknown";    // unknown | confirmed | checking | lost          (§4.1 home-link plane, REPORTED SEPARATELY)
+    const char* last_result  = "none";       // none | no_offer | tx_rejected | defer_full | claim_unconfirmed | denied | confirmed (§10; ⛔ a tx_rejected/defer_full here is OUR transmitter, never a home-link verdict — §6.4)
+    bool     home_desired    = false;        // §4.2: the volatile home-service request (`mobile register` sets, `mobile unregister` clears)
+    bool     home_confirmed  = false;        // false ⇒ `home_confirm_age_ms` is OMITTED rather than rendered as a 0 that reads "just now"
+    // ★★★★ §MH-S4b — **`uint64_t`, AND THE NARROWING WAS THE DEFECT.** `Node::mobile_home_confirm_age_ms()`
+    // correctly returns `uint64_t` (its backing stamp is a u64 for exactly this reason — the u32 variant was measured
+    // and DECLINED under M3), and `src/firmware_config.cpp` then cast it to `uint32_t` to fit this field: the rendered
+    // age WRAPPED at ~49.7 days, which is precisely the failure the 64-bit state was chosen to prevent. A stale
+    // confirmation must render as its age (§4.1/§10); an age that silently restarts near zero renders as a FRESH
+    // confirmation, which is the display-shaped lie this whole plane exists to prevent.
+    // ⚠ Serialized by `JsonBuf::i64` (hand-rolled digits — newlib-nano's printf has no long-long support and would
+    //   emit the literal "ld" on metal), NOT by `u32`.
+    uint64_t home_confirm_age_ms = 0;        // ★ §4.1: ALWAYS present once anything was confirmed — never suppressed when "healthy"
+    uint8_t  claim_retries   = 0;            // §7.1: same-epoch re-CLAIMs spent on this attachment
+    uint8_t  claim_retry_max = 0;            // protocol::presence_claim_max_retries — the budget, so the app need not hardcode it
+    bool     claim_solicited = false;        // ★ §MH-S4b §7.1 step 3: the searching solicitation probe is out and its roster deadline is running ("asked, waiting"). Emitted ONLY while attachment == "claiming" — meaningless otherwise.
+    uint32_t retry_window_ms = 0;            // §10 "current retry window": §5.2's no-host backoff accumulator (0 = the next DISCOVER is a first try). ⛔ NOT the remaining delay to it — see the §10 field ledger in the design spec.
+    uint8_t  offers          = 0;            // OFFERs collected in the current transaction (§10)
+    uint8_t  scan_idx        = 0, scan_count = 0;   // current scan index / count (§10)
+    uint8_t  candidates      = 0;            // §10 candidate count (verified-candidate count is S5's — deliberately absent, not zero-faked)
 };
 size_t write_mobile_status(char* buf, size_t cap, const MobileStatusFields& m);
 size_t write_mobile_err   (char* buf, size_t cap, const char* reason);   // {"ev":"mobile_err","reason":"…"}

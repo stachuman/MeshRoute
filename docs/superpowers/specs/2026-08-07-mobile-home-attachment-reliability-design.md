@@ -257,14 +257,31 @@ capability bit is required.
 
 ### 5.2 Jittered retry
 
-Retain capped exponential growth but make every no-host retry draw a delay. Use the existing
-`retry_backoff_window()` family for the capped window and the canonical `Hal::rand_range(lo, hi)` contract.
-Use **equal jitter** rather than an exact deadline:
+Retain capped exponential growth but make every no-host retry draw a delay. Use **equal jitter** rather than
+an exact deadline:
 
 ```text
-window = min(5 s * 2^attempt, 120 s)
+window = min(5 s * 2^attempt, 120 s)      // the EXISTING mobile ladder, retained verbatim
 delay  = rand(window/2, window + 1)       // inclusive upper bound through half-open Hal API
 ```
+
+**The window and the jitter come from different places, and this is the operational instruction, not a
+caveat.** The `window` line is the mobile plane's **own existing** in-place accumulator
+(`_mobile_backoff_ms = min(2 * prev, mobile_discover_backoff_max_ms)`, `node_mobile.cpp`) — **retain it
+as-is; do not refactor it and do not route it through `retry_backoff_window()`.** Only the **equal-jitter
+bounds** join the shared retry-backoff family, as the pure `protocol::equal_jitter_lo` /
+`equal_jitter_hi_excl` pair declared beside `retry_backoff_window()`. The canonical
+`Hal::rand_range(lo, hi)` half-open contract still applies to the draw itself.
+
+> ⛔ **CORRECTED 2026-08-07 (§MH-S3-QA item 3).** This section used to read *"use the existing
+> `retry_backoff_window()` family for the capped window"*. **That instruction cannot be followed**, verified
+> in source before S3 wrote a line and re-verified here (V1, `lib/core/protocol_constants.h:143-147`):
+> `retry_backoff_window(base, attempt, max_shift)` returns `base << min(attempt, max_shift)` — a **SHIFT**
+> clamp — whereas the ladder above is `min(base * 2^attempt, ceiling)`, a **VALUE** clamp, and no shift of
+> 5000 ms equals 120000 ms. Worse, `retry_backoff_max_shift` is globally **0** (shipped at 0 after the
+> 24-seed `twin_9node_dm` BEB A/B refuted the hypothesis), so the function currently produces **no growth at
+> all** — an implementer who followed the old sentence literally would have shipped a flat 5 s retry while
+> believing they had built the ladder. ⛔ **Do not "unify" the two functions; they clamp different things.**
 
 The non-zero lower half prevents a failed fleet from immediately storming again; the random upper half
 breaks permanent phase alignment. The manual first attempt is immediate. An automatic boot attempt draws
@@ -300,13 +317,31 @@ Replace the one `LayerRuntime::_pending_offer` slot with a bounded keyed ring of
 implementing another private copy (U1). The generalized admission must:
 
 1. key an OFFER by `target_key_hash32`;
-2. coalesce a duplicate DISCOVER for the same target without consuming another slot or moving its deadline;
+2. ★★ answer a **repeat** DISCOVER for the same target on **one** slot — but the answer is **TWO DIFFERENT
+   BEHAVIOURS**, selected by whether that slot's OFFER has already flown. ⛔ **This item used to read simply
+   *"coalesce a duplicate DISCOVER"*, and that single sentence was wrong for half the cases** (corrected
+   2026-08-07 §MH-S2b/§MH-S2c against the implementation in `node.h`'s `PendingMobileOffer` comment):
+   - **duplicate while the OFFER is still ARMED** (the entry holds packed bytes) → **COALESCE.** No extra
+     slot, **no RNG draw, and the deadline is NOT moved** — an answer is already on its way inside the
+     100..1000 ms window, and moving the deadline would let a retry-happy mobile postpone its own OFFER
+     forever. Admission returns `duplicate`; the caller emits `mobile_offer_coalesced`, deliberately **not**
+     `mobile_offer_scheduled`, because nothing was scheduled.
+   - **re-DISCOVER AFTER the OFFER was transmitted** (the slot is reservation-only) → **RE-ARM THE SAME
+     SLOT, RETAINING THE RESERVED ID.** The mobile did not hear the OFFER, so the correct answer is a new
+     OFFER: a fresh frame, a fresh deadline, a fresh draw — into the slot it already owns. Admission
+     returns `armed`. ⛔ Treating this as a "duplicate" would answer every re-DISCOVER with **silence for
+     the whole reservation lifetime**; treating the first case as a re-arm reintroduces the deadline-shifting
+     the coalesce exists to stop.
 3. choose a genuinely free slot before any round-robin eviction;
 4. never overwrite an armed OFFER for a different mobile;
 5. return `armed`, `duplicate`, `full`, or `invalid` to the caller;
 6. preserve the fit-before-draw and accepted-only cursor rules already owned by the helper;
 7. retain B132's `can_host_mobiles()` check both at admission and at fire;
-8. expose **ring-full** and **transmitter-rejection** counters;
+8. expose **ring-full** and **transmitter-rejection** counters. ⚠ **CLARIFIED 2026-08-07 ([[B146]]): the
+   increment belongs to the ONE function that REPORTS the rejection, never to a call site** — the
+   rejection has **two** callers (the immediate admission arm and the deferred-LBT loss arm), and a
+   call-site increment silently under-reported the deferred one to **zero** while still emitting the drop
+   event. The counter and the event must be equal by construction;
 9. drive the transmitter-rejection response from the admission result: a rejection **retains or reschedules**
    the entry (§6.2) — it never silently drops it and never evicts a different mobile's entry;
 10. ★★ **RESERVE the proposed local id at admission** — see the ruling immediately below. This is **required
@@ -327,12 +362,49 @@ pending-id reservation:**
 - the proposed local id is **reserved from OFFER admission** until a matching CLAIM arrives or a **bounded
   expiry** elapses;
 - **`find_free_mobile_id()` excludes live reservations** as well as registry rows;
-- a **duplicate DISCOVER retains the same reservation** (it coalesces with the entry, per item 2 — it must
-  not consume or re-draw an id);
+- a **repeat DISCOVER retains the same reservation** — under **both** arms of item 2 (coalesce *and*
+  re-arm). It must never consume a second slot or re-draw an id; `find_free_mobile_id()` returns a live
+  reservation's own id to its own key, which is what makes the re-arm arm keep it;
 - **timer 80's deadline scan also expires reservations**, so a mobile that never CLAIMs cannot leak an id;
 - ⇒ **four concurrent OFFERs propose four UNIQUE ids**;
 - the targeted CLAIM-collision DENY (`node_join.cpp:225-233`, §9.4 step 5) **remains, as a race backstop
   only** — never as the primary allocator.
+
+##### ★★★ A CLAIM IS MATCHED ON THE PAIR `(key_hash32, proposed_node_id)` — [[B147]], added 2026-08-07 §MH-S2b
+
+⛔ **The ruling above specified the reservation but not how a CLAIM is correlated against it, and the first
+implementation correlated on HASH ALONE** — it recorded whatever `proposed_node_id` the frame carried and
+released "the claimant's" slot by hash. **A reservation is a promise about a PAIR, and half of it was never
+read.** ⇒ A is offered X and lets the promise lapse · X is re-promised to B · A's *delayed* CLAIM for X
+arrives · no registry row holds X yet, so A is recorded on **B's** reserved id, and B's own CLAIM then walks
+into the very collision-DENY recovery this reservation exists to make unnecessary. The mobile CLAIM handler
+therefore resolves, in this order:
+
+1. **the claimant's OWN live reservation, FIRST.** If one exists and its `proposed_id` **differs** from the
+   CLAIM's, the CLAIM is a **stale echo of an earlier round**: emit `mobile_claim_stale_id`, **DROP it,
+   RETAIN the reservation, and return** — ⛔ do **not** DENY, because a DENY would make the mobile
+   re-register and throw away the id the home is currently promising it, and do not fall through, for the
+   reason in the ordering rule below;
+2. the **registered-row** collision check (a differently-keyed hosted mobile already holds the id) →
+   targeted DENY, release the loser's reservation;
+3. the **reserved-elsewhere** check (the id is promised to another hash and the claimant holds no promise of
+   its own) → the same targeted DENY, naming the **reservation holder** as owner;
+4. otherwise **RECORD** — either the promise kept (`own` matches) or a late CLAIM whose reservation aged out
+   against an id nobody else is promised. ⓘ The latter is the pre-reservation compatibility path and is
+   **deliberately retained**: the reservation is an upper bound on a leak, not a licence to reject a mobile
+   that took its time.
+
+⚠ Liveness is `reserve_until_ms > now`, **never** *"has the sweep run"* — a dropped `_hal.after` must not be
+able to reject a legitimate CLAIM forever. This is `find_free_mobile_id()`'s own stated invariant, inherited.
+
+★★★ **THE ORDERING RULE, AND IT IS A DESIGN CONSTRAINT, NOT AN IMPLEMENTATION DETAIL (§MH-S2c):
+A STALE FRAME MUST BE IDENTIFIED AS STALE BEFORE ANY BRANCH ACTS ON ITS CONTENTS.** Step 1 precedes step 2
+for a measured reason: with the checks in the other order, the sequence *"A held X · X is now REGISTERED to
+B · A re-DISCOVERs and is promised Y · A's delayed CLAIM for X arrives"* made the registered-row branch DENY
+A **and release Y**, so a collision check on a stale frame **consumed state belonging to a newer
+transaction** and step 1 was never reached. ⓘ Same family as [[B142]] (a stale LBT completion consuming the
+newer attempt's stage). ⛔ **"Check the reservation but still fall through" is NOT the fix** — the
+fall-through releases the reservation on its way out; the early return is load-bearing.
 
 ★ **Why:** the reservation makes four concurrent attachments cost **ONE** discovery round instead of four.
 
@@ -358,11 +430,24 @@ The contract:
 
 - each ring entry carries its **own** due time (its individually drawn 100..1000 ms host jitter);
 - timer 80 is armed for the **earliest** due entry only;
-- on fire, transmit **at most one** due OFFER per callback, then **re-arm for the next earliest**
-  (one frame per callback keeps the host off a same-millisecond burst and mirrors the precedent);
+- on fire, transmit **at most one** due OFFER per callback, then **re-arm for the next earliest**;
+- ★★ **the re-arm delay must be STRICTLY POSITIVE** — ⛔ **corrected 2026-08-07 §MH-S2b ([[B145]]); the
+  sentence that used to stand here, *"one frame per callback keeps the host off a same-millisecond burst"*,
+  was FALSE AS WRITTEN.** "At most one per callback" bought nothing on its own: an already-**overdue**
+  remainder re-armed with delay **0**, `TimerWheel::pop_due` fires on `_due <= now`, and the device pump
+  (`src/fw_main.cpp`) keeps popping against a clock it re-reads but which need not have advanced ⇒ the
+  callback **re-entered inside the same pump pass** and four overdue OFFERs reached the radio in **one
+  millisecond**. The floor is `protocol::mobile_offer_respace_ms`, substituted **only** where the computed
+  delay would be 0 (a positive computed delay passes through untouched).
+  ⓘ **`mobile_offer_respace_ms = 100` IS AN OWNER-OWED CHOICE, NOT A CORRECTNESS BOUND — state it as a
+  tunable.** Measured: **any positive value, including a 1 ms floor, also stops the burst** (mutation
+  M-B145-2). 100 ms is a *spacing* decision — it exceeds a short-SF J-frame's airtime — and it is
+  deliberately **not** an alias of `join_offer_backoff_min_ms` despite sharing the value: that is a random
+  window's lower bound, this is the minimum spacing between two OFFER transmissions.
 - inserting an entry whose deadline is **earlier** than the current arming **re-arms** timer 80;
-- a duplicate DISCOVER for the same `target_key_hash32` **coalesces** and does **not** move the deadline
-  (**and retains its existing id reservation** — §5.3.2's B137 ruling);
+- a repeat DISCOVER for the same `target_key_hash32` follows **§5.3.2 item 2's two arms** — **coalesce**
+  (deadline NOT moved, no draw) while the entry is still armed, **re-arm the same slot** once the OFFER has
+  been transmitted — and **retains its existing id reservation in both** (§5.3.2's B137 ruling);
 - an armed entry belonging to **another** mobile is **never** overwritten — a full ring returns `full`;
 - the scan **also expires pending-id reservations** whose bound has elapsed (B137 ruling), so a mobile that
   is offered an id and never CLAIMs cannot leak it;
@@ -440,6 +525,40 @@ the chosen home's roster contains `(mobile_hash, local_id, reg_epoch)`.
 6. Silence follows the same bounded re-CLAIM count. After exhaustion, reset and return to `seeking` rather
    than remaining falsely registered.
 7. A targeted collision DENY still immediately abandons the provisional id and re-enters discovery.
+
+#### ★★★★ §MH-S4b — STEP 3 IS **TWO** DEADLINES AND A SUBSTATE, AND SAYING SO IS THE POINT (2026-08-08)
+
+Steps 3-6 above are correct but under-specified, and §MH-S4 implemented them in a way that was self-defeating.
+Both defects are recorded here in the OPERATIVE text, not in a note beside it (the eighth-time rule from
+[[B151]]):
+
+- **The probe must be `searching` (`selected_home_id = 0`), and step 3 already says so — it was implemented as
+  a SELECTED probe.** A home that MISSED the CLAIM has no row for us and `presence_ingest_probe` ends with
+  *"a check probe for a hash we don't host → ignore"*, so the one mechanism meant to detect the miss could not:
+  the only remaining signal was our own timeout. A searching probe is answered by every eligible home, so the
+  chosen home either rosters our triple (→ step 4) or rosters WITHOUT us (→ step 5, positive evidence).
+- **"Schedule … then" is a WAIT, and a re-CLAIM may only be spent when that wait expires.** §MH-S4 sent the
+  probe and spent a retry in the SAME callback, so the answer could not physically arrive first. The claiming
+  deadline is therefore split in two, alternating on one timer id:
+
+| substate | the deadline means | action | budget |
+|---|---|---|---|
+| not solicited | "we have not asked yet" | send the **searching** solicitation probe (`presence_claim_solicit_ms` after the CLAIM) | spends **nothing** |
+| solicited | "we asked and are waiting" | the roster window expired in silence → step 5/6 | spends **one** re-CLAIM |
+
+- ★ **`presence_claim_confirm_ms` MUST outlast the home's own roster rate limit** — `presence_roster_min_interval_ms`
+  (10 s) + `presence_roster_coalesce_max_ms` (1.5 s) — or "silence" is declared while the answer is still
+  legally queued at the home. A `static_assert` in `protocol_constants.h` pins the relationship.
+- ★ **"Short" is short:** §MH-S4 armed `presence_check_base_ms` (120 s), so a mobile whose CLAIM was lost sat
+  provisionally attached for two minutes before anything asked. The first ask is now ~3 s after the CLAIM, and
+  in a live network the home's own registry-change roster usually confirms before that.
+- ⓘ The substate is **not** a sixth `MobileAttachState`: §4.1's five values are the app-facing contract. It is
+  surfaced separately as `claim_solicited` (§10), rendered only while `attachment == "claiming"`.
+- ⛔ **A budget is spent by the physical act, never by the request.** Only a re-CLAIM our own transmitter
+  ADMITTED counts. `tx_initiating` answers **true** for a frame accepted into the LBT defer ring — a deferred
+  re-CLAIM legitimately IS in flight and counts — so the only refund case is a deferred frame the HAL later
+  refuses, which never reached the air. (Fifth appearance of this rule in the arc: [[B84]], [[B145]]/[[B146]],
+  [[B139]], here.)
 
 The current immediate `mobile_reg{registered:true}` at OFFER-window close moves to step 4. `mobile status`
 must expose `claiming` so the user does not see a false registration during confirmation.
@@ -651,9 +770,13 @@ The resolution needs **no new mechanism** — it is the existing pieces, in orde
    ★ "free" meaning **neither a registry row nor a live pending-id reservation** (the B137 ruling, §5.3.2),
    so a returning mobile cannot be handed an id already promised to a mobile mid-handshake;
 5. **residual race backstop only:** if two mobiles still converge on the same id — which the reservation
-   makes a narrow race rather than the normal case — the **existing CLAIM collision check**
-   (`node_join.cpp:225-233`) fires and issues a **targeted DENY** to the loser only, keyed on its hash, so
-   the recorded mobile is untouched. ⛔ **The DENY is never the allocator** (§5.3.2);
+   makes a narrow race rather than the normal case — the CLAIM collision check fires and issues a
+   **targeted DENY** to the loser only, keyed on its hash, so the recorded mobile is untouched.
+   ⛔ **The DENY is never the allocator** (§5.3.2). ⚠ **UPDATED 2026-08-07 ([[B147]]): this is now TWO
+   checks over two planes, run in a FIXED ORDER, not the single registered-row scan the line reference
+   above described** — the claimant's **own** reservation is resolved first (a mismatching id ⇒ stale ⇒
+   drop, retain, **no DENY**), then the registered-row collision, then the reserved-elsewhere collision.
+   See §5.3.2's `(hash, proposed_id)` ruling for the full order and the reason it is an order;
 6. the denied mobile **retries with another id**;
 7. throughout, ★ **the mobile's cryptographic hash identity never changes** — the local id is a routing
    convenience, the hash is the identity.
@@ -702,6 +825,32 @@ age, not as a failure and not as success.
 The host `routes`/hosting section should print each row as direct or redirect plus its age. `status` already
 exposes `txdrop`; add an OFFER-ring overflow counter and a transmitter-rejection counter if they cannot share
 an existing admission counter.
+
+#### ★★★★ §10 FIELD LEDGER — WHAT IS DEVICE-VISIBLE, AND WHO OWNS EACH REMAINDER (§MH-S4b, 2026-08-08)
+
+⛔ **This table exists because two slices had already quietly inherited the same §10 debt.** Every field above is
+listed exactly once, with the slice that landed it or the slice that OWNS it. A field with no owner named here is
+a bug in this table, not an implicit "later".
+
+| §10 field | state | where |
+|---|---|---|
+| `attachment` | ✅ landed S4 | `mobile status` JSON |
+| `home_link` (separate field, never folded) | ✅ landed S4 | ″ |
+| `home_desired` | ✅ landed S4 | ″ |
+| current retry **attempt** | ✅ landed S4 | `claim_retries` + `claim_retry_max` |
+| current retry **window** | ✅ landed **S4b** | `retry_window_ms` = §5.2's no-host backoff accumulator |
+| **next-attempt delay (remaining ms)** | ⛔ **REASSIGNED TO S5** | needs either a `Hal` accessor for a pending timer's REMAINING time (an interface change across `DeviceHal`, the sim wrapper and every test fake) or a stored deadline member. ⛔ Deliberately NOT faked from a nominal constant: while `claiming` the ask/wait phase is instead reported honestly by `claim_solicited` + the two constants, and printing a nominal as if it were a remaining time is the display-shaped-field error this whole plane exists to prevent |
+| current scan index/count | ✅ landed S4 | `scan_idx` / `scan_count` |
+| offers collected | ✅ landed S4 | `offers` |
+| candidate count | ✅ landed S4 | `candidates` |
+| **verified**-candidate count | ⛔ **S5** (candidates + lifecycle) — absent, not zero-faked | — |
+| last result | ✅ landed S4 | `last_result` |
+| age of last chosen-home confirmation | ✅ landed S4, **64-bit end to end in S4b** | `home_confirm_age_ms` — the u32 cast that wrapped it at ~49.7 days is gone |
+| solicitation substate | ✅ added **S4b** | `claim_solicited` (only while `claiming`) |
+| OFFER-ring overflow counter | ✅ landed **S4b** | `status` text `offerfull=` + JSON `offer_full` |
+| transmitter-rejection counter | ✅ landed **S4b** | `status` text `offerrej=` + JSON `offer_reject` |
+| host `routes`/hosting rows as direct-or-redirect **plus age** | ⛔ **REASSIGNED TO S5** | today `status` prints only `hosting=<n>`; the per-row view belongs with §9's row-lifetime work, which S5 owns |
+| device logs distinguish scheduled / transmitter-admitted / **confirmed** | ✅ completed **S4b** | scheduled+admitted landed in S1b (`mobile_offer_scheduled` / `mobile_offer_tx`); the CONFIRMED third had NO metal surface (`MR_EMIT` is device-stripped) and is now a `_hal.log` at the roster confirmation, naming the re-CLAIM count |
 
 Device logs must distinguish **scheduled**, **transmitter-admitted**, and **confirmed**. An event named
 `mobile_offer_tx` must not continue to mean only "copied into a stash."
@@ -825,7 +974,10 @@ scenario means a mobile draw leaked into the static plane (C3) and blocks the sl
 ### 12.1 Native/core
 
 1. Four concurrent DISCOVERs at one host produce four correctly targeted OFFERs; no armed entry is
-   overwritten. A same-mobile duplicate coalesces.
+   overwritten. A same-mobile duplicate coalesces **while its OFFER is still armed**; a same-mobile
+   **re-DISCOVER after transmission re-arms the same slot and keeps the same id** (§5.3.2 item 2 — ⛔ the
+   original wording of this gate said only "coalesces" and would have passed a build that answered every
+   re-DISCOVER with silence).
    ★★ **AND THE GATE MUST DRIVE THE ID ALLOCATION, NOT ASSUME IT (B137, §5.3.2).** Until S2, B137 and the
    single-OFFER slot **mask each other** — S2 removes the mask, so this gate is the first thing that ever
    exercises the path. It must assert, on the wire: the four OFFERs propose **four DISTINCT local ids**;
@@ -854,8 +1006,10 @@ Added by the 2026-08-07 rulings (these are additional, not replacements):
 16. **`TimerWheel::kCap` is exactly 91** — asserted, not inspected. No new timer id is allocated.
 17. **Four concurrent mobiles receive four correctly targeted OFFERs**, with no armed entry overwritten by
     any other mobile's admission.
-18. **A duplicate DISCOVER for the same hash consumes no extra slot** and does not move the existing
-    deadline.
+18. **A repeat DISCOVER for the same hash consumes no extra slot**, and **both** arms are asserted
+    separately (§5.3.2 item 2): while the OFFER is **armed** it coalesces and **does not move the existing
+    deadline**; **after transmission** it **re-arms the same slot and re-proposes the SAME reserved id**.
+
 19. **A full ring refuses explicitly** (`full`) and **leaves every armed entry unchanged** — no eviction, no
     deadline movement, and the ring-full counter increments.
 20. **A local TX-admission failure does not set the home link to `lost`** (nor to `checking`) — it appears
@@ -879,6 +1033,28 @@ Added by the 2026-08-07 rulings (these are additional, not replacements):
     ruling it is (§7.2).
 29. **The expired-id return test follows §9.4** — all eight of its steps, ending with "stale traffic is not
     delivered to B as A".
+
+Added by the 2026-08-07 §MH-S2b / §MH-S2c independent-QA rounds (additional, not replacements):
+
+30. **An overdue OFFER re-arm uses a strictly positive delay** — driven through a **real `TimerWheel` with
+    the production multi-fire drain** at a fixed timestamp, so *"at most one frame per callback"* is
+    measured against the pump that actually exists, not against a fixture that invokes one callback per
+    call ([[B145]], §5.3.3).
+31. **The OFFER-rejection counter is incremented by the reporter, not by one call site** — asserted at
+    **exactly one** increment on all three refusal paths (immediate `defer_full`, immediate HAL rejection,
+    **deferred** HAL rejection) and **zero** on both success arms ([[B146]], §6.2).
+32. **A CLAIM is matched on the PAIR `(key_hash32, proposed_node_id)`** ([[B147]], §5.3.2): a live
+    reservation for a **different** id ⇒ dropped as stale, reservation **retained**, **no DENY**; an id
+    reserved for another hash with no promise of the claimant's own ⇒ targeted DENY naming the reservation
+    holder; no live reservation at all ⇒ still recorded; an **elapsed-but-unswept** reservation blocks
+    nothing.
+33. ★★ **The staleness test runs BEFORE the registered-row collision check** (§MH-S2c). The gate must
+    construct the one arrangement in which the two branches disagree — the stale id sitting in a
+    **REGISTERED ROW** while the claimant holds a live reservation for a **different** id — and assert:
+    **no DENY**, the existing registration **unaltered**, the newer reservation **RETAINED**, and the
+    claimant's subsequent CLAIM for *that* id **accepted**. ⓘ The retained-reservation assertion is the one
+    that separates the correct early return from the tempting half-fix that reads the reservation and then
+    falls through anyway.
 
 Every positive must have a nearby negative or mutation control that proves the asserted branch executed.
 ★ For each **S0 characterization** test the control is the inverse and is run **at S0 time**: applying the

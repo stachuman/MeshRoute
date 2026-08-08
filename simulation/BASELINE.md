@@ -1,6 +1,2468 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # Delivery baseline suite — the result-comparison gate
 
+**★★★★★★★★★★★★★★★★★★★★★★ 2026-08-08 §B153-DIAG2 IS THE NEWEST NOTE — it sits at the HEAD of §B153-DIAG directly below and is MEASUREMENT ONLY: ⛔ nothing was implemented, changed or fixed, every arm was a SCRATCH COPY, and the real tree is proven byte-unchanged (whole-tree digest `047adb1b` before and after; all 10 per-file md5s reproduce §B153-DIAG's). It answers the ONE question §B153-DIAG left open — WHY the adopted slice costs 24 corpus deliveries — with a FOUR-ARM ladder, a per-payload trace, a terminal-reason classification and three targeted mutations. ★★★★ **THE VERDICT IS TUNABLE, NOT UNAVOIDABLE, AND THE MECHANISM IS MEASURED: the direct cost of the two retirements is SMALL — (a) alone −4 corpus deliveries, (c) alone −1 — and 19 of the 24 (79 %) is a NON-ADDITIVE INTERACTION in which the ROUTING plane consumes a MAC-layer retry as a LINK-QUALITY verdict.** ★★★ **`s06` is 71 % ROUTE LOSS, not congestion: 15 of its 21 lost flights die because every next-hop candidate has been DEMOTED (`send_no_route` ×10), the path has become 8–9 hops instead of 3 (`hop_budget_exceeded` ×2) or it LOOPS (×3) — only 4 are retry exhaustion, 1 is pending-slot contention, and duty exhaustion / collision / bare timeout are ALL MEASURED AT ZERO.** ★★ **THE TUNABLE IS NAMED: `protocol_constants.h:220` `peer_suspect_rts_timeouts = 1` — ONE unanswered RTS budget demotes a next hop. Setting it inert recovers +12 of `s06`'s 19 and +11 of the corpus 24 and CUTS the airtime cost from +9.14 % to +4.95 %; the DEADLINE knob recovers +1 (so it is NOT a deadline problem); the retry-budget knob recovers +14 on `s06`.** ⛔ **NEITHER UNSAFE RTS INFERENCE IS RESTORED OR RECOMMENDED — the fix is entirely in the routing plane's reading of a timeout.** ⚠ **THREE PREMISES CORRECTED, one of them the brief's and one §B153-DIAG's own** (`s06` is 20 lost payloads + 1 gained, not 19 missing; the duplicate-delivery worsening is NOT (a)'s doing — (a) alone leaves it at 12; the aggressive demotion threshold ALREADY costs 6 corpus deliveries BEFORE B153). ⛔ **The `^### 36/36 corpus` anchor table is NOT edited.** ⛔ **native ran (1440 / 75531 / 0, `error:` 0); BOARD BUILDS AND THE CENSUS DID NOT RUN — owner instruction, and NOTHING here implies they passed.** ⛔ UNCOMMITTED (D4). ⛔ NO OWNER OR QA APPROVAL IS CLAIMED.**
+
+**★★★★★★★★★★★★★★★★★★★★★★ 2026-08-08 §B153-DIAG IS THE NEWEST NOTE — it sits at the HEAD of §B153 directly below and is MEASUREMENT ONLY: ⛔ nothing was implemented, changed or fixed, every arm was a SCRATCH COPY and the real tree is proven byte-unchanged (a rebuild of `lus` from it returns the same `0a770cd6`). It answers the two open questions and CORRECTS §B153 in three places. ★★ **`s18`'s move is ACCEPTABLE-AND-ATTRIBUTED AS TO CAUSE: a residual of the refuted `flight_id` design is RULED OUT BY BINARY IDENTITY** — undoing exactly (a)+(b)+(c) on the CURRENT tree rebuilds §MH-S4b's `lus` **byte-for-byte** and returns `s18` to `1cd21235`/271629 with all 36 rows identical. ⛔⛔ **BUT THE RECORDED ATTRIBUTION IS WRONG: isolated, (a) is +3631 and (c) is +3939 — NEITHER dominates, and 74.9 % of the +30108 is an INTERACTION term** (with the CTS gate gone the implicit ACK fires 29× in `s18`, not 10×, absorbing (a)'s recoveries). ⚠ **Two unrecorded costs: corpus deliveries 732 → 708 (−24) and duplicate app deliveries 12 → 21** — the latter refutes the note's "strictly MORE durable" defence and is registered PRE-EXISTING as [[B159]]. ★★★ **[[B157]]: the credit's premise held in AT MOST 7 OF 61 FIRINGS (46 of 61 cancelled a flight whose DATA had never been transmitted), the whole upside of any hint machinery is ≤2.5 s of airtime corpus-wide, and deleting it costs −1 delivery and +0.63 % DM airtime ⇒ THE NUMBER SUPPORTS DELETE.** ⛔ My own "a round trip on every forwarded hop" claim is MEASURED FALSE (1.10 % of DATA hops fire; 0.13 % are eligible). ⛔ The `^### 36/36 corpus` anchor table is NOT edited. ⛔ UNCOMMITTED (D4). ⛔ NO OWNER OR QA APPROVAL IS CLAIMED.**
+
+**★★★★★★★★★★★★★★★★★★★★★★ 2026-08-08 §B153 IS THE NEWEST NOTE — it sits at the HEAD of §MH-S4b directly below. It closes [[B153]] AND [[B157]] by **RETIRING BOTH TERMINAL DECISIONS THAT WERE DERIVED FROM AN RTS** — the `CTS already_received` short-circuit and the overheard-forward implicit ACK. ⛔⛔ **A FIRST DESIGN (a 4-B `flight_id` tail on the unicast RTS) WAS BUILT, MEASURED, AND THEN REFUTED BY INDEPENDENT QA ON INFORMATION-THEORETIC GROUNDS; it is fenced below as the REFUTED approach and is NOT in the tree.** ★ **THE WIRE IS UNCHANGED (unicast RTS still 7 B) and NO `wire_version` bump is required** (owner-confirmed: MeshRoute is not deployed). ★★ **ALL 36 ROWS HAVE 0 ASSERTION FAILURES — `s27` 5 → 0 — and 21 of 36 are BYTE-IDENTICAL.** ⛔ **BUT `s18` MOVED: `1cd21235`/271629 → `8687f6a0`/301737, and the prediction that it would return EXACT is FALSIFIED — the reason is measured and attributed below.** ★ The node gets **SMALLER**: `sizeof(Node)` −96 B native, RAM −48/−24/−24 B on the three census envs. ⛔ The `^### 36/36 corpus` anchor table is NOT edited. ⛔ UNCOMMITTED (D4). ⛔ NO OWNER OR QA APPROVAL IS CLAIMED.**
+
+**★★★★★★★★★★★★★★★★★★★★★★ 2026-08-08 §MH-S4b IS THE NEWEST NOTE — it sits at the HEAD of §MH-S4 directly below and SUPERSEDES it where they disagree. It fixes the six independent-QA findings (the missing SHORT SEARCHING solicitation probe + its substate, the budget spent by the request, `mobile unregister`'s contradiction, the truncated 64-bit age, §10's unfinished diagnostics, the always-zero `reclaims`), costs **+0 bytes on all five ABIs**, keeps **s18 `1cd21235`/271629 EXACT** with every static row byte-identical, and moves the SAME EIGHT mobile rows. ⛔⛔ **NOT APPROVABLE AS-IS: `s27` is RED (5 assertion failures) and the cause is a PRE-EXISTING origin-blind relay dedup — [[B153]] — needing an owner call.** ⛔ UNCOMMITTED (D4); the `^### 36/36 corpus` anchor table is NOT edited. ⛔ NO OWNER OR QA APPROVAL IS CLAIMED.**
+
+**★★★★★★★★★★★★★★★★★★★★★★ 2026-08-08 §MH-S4 — the confirmed-attachment FSM, the two independent planes, [[B139]] closed. It moves the SAME EIGHT mobile rows §MH-S3 moved (s18 + every static row byte-identical), adds NO RNG draw, and costs +8 B of `Node`. ⛔ UNCOMMITTED (D4); the `^### 36/36 corpus` anchor table is NOT edited and one owner ruling is pending. ⛔ NO OWNER OR QA APPROVAL IS CLAIMED.**
+
+**★★★★★★★★★★★★★★★★★★★★★★ 2026-08-07 §MH-S3 — THE ARC'S ONE PLANNED RNG RE-ANCHOR: JITTERED NO-HOST RETRY, BOOT STARTUP JITTER, CLAIM DE-SYNCHRONIZATION. ⛔ UNCOMMITTED (D4). ⚠⚠ THIS HEADER IS SUPERSEDED IN TWO PLACES BY §MH-S3-QA IMMEDIATELY BELOW — READ IT FIRST: (a) the `^### 36/36 corpus` ANCHOR TABLE IS NO LONGER UNTOUCHED — **the owner ruled on 2026-08-07 and its 8 moved rows are now WRITTEN**; (b) the suspended board sweep's "OWED BEFORE APPROVAL" framing is **withdrawn** — independent QA reports it complete and the QA-gate will re-measure locally. ⛔ NO OWNER OR QA APPROVAL IS CLAIMED FOR THE SLICE ITSELF.**
+
+---
+
+## ★★★★★★★★★★★★★★★★★★★★★★ 2026-08-08 §B153 — TERMINAL DECISIONS MAY NOT BE DERIVED FROM AN RTS. ⛔ UNCOMMITTED (D4). ⛔ NO OWNER OR QA APPROVAL IS CLAIMED.
+
+Closes [[B153]] and [[B157]]. ⛔ **The `^### 36/36 corpus` anchor table is NOT edited** and nothing below is
+offered as a new baseline.
+
+### ★★★★★★★ §B153-DIAG2 (2026-08-08) — **WHY THE ADOPTED SLICE COSTS 24 CORPUS DELIVERIES, AND `s06`'s 19 IN PARTICULAR. VERDICT: TUNABLE, NOT UNAVOIDABLE.** ⛔ MEASUREMENT ONLY — NOTHING WAS IMPLEMENTED, CHANGED OR FIXED; ALL NINE ARMS ARE SCRATCH COPIES AND THE REAL TREE IS PROVEN BYTE-UNCHANGED. ⛔ NO OWNER OR QA APPROVAL IS CLAIMED.
+
+§B153-DIAG established the −24 and refused to accept it on the strength of *"four silent versus 24 loud"*, correctly:
+**B153 prevents an entire CLASS of silent loss while the corpus happened to expose four instances.** This pass answers
+the question that ruling depends on — **what is the MECHANISM of the −24** — with a four-arm single-change ladder, a
+per-payload divergence trace, a terminal-reason classification, real airtime, the node-death discriminator and three
+targeted mutations. ⛔ **No fix is applied and none is offered as approved.**
+
+#### ★★★★ §B153-DIAG2 (1) — THE FOUR-ARM DELIVERY TABLE, WITH ARM ① CALIBRATED AGAINST `c792e696`
+
+★ **ARM ① REPRODUCED, BYTE-FOR-BYTE.** The pre-slice tree was reconstructed forward from the CURRENT tree by undoing
+exactly (a)+(b)+(c) and its `lus` rebuilt: **`c792e696`** — identical to §MH-S4b's recorded pre-slice binary — with
+`s18` back at **`1cd21235`/271629**. The adopted arm rebuilt from a scratch copy of the real tree returns
+**`0a770cd6`**, likewise identical, which also proves the binary is **path-independent** (Release ⇒ `NDEBUG`, and
+`lib/core`/`lib/console` contain **zero** `__FILE__`/`__LINE__` uses — grepped, 0 hits).
+
+⚠⚠ **THE CALIBRATION EARNED ITS KEEP ON THE FIRST TRY, AND THIS IS THE METHOD LESSON OF THE PASS.** My first
+reconstruction produced **`c5fc5e8c`**, not `c792e696`. The binary check — not review, not reading the diff — found the
+reason: **change (a) has FOUR sites, not the three §B153's table and FILES list describe.** The fourth is
+`lib/core/node.cpp:796`, where the per-layer reset `L._peer_send_counter.clear(); L._last_acked_from.clear();` lost its
+second call. ⇒ ★ **a reconstruction that "looks complete" is not one; only the binary can say so.** (Recorded, not
+fixed: `node.cpp` *is* in §B153's FILES list, but bare, with no note that it carries a (a) site.)
+
+| arm | what it is | `lus` md5 | `s18` md5 / events | corpus unique app deliveries | `send_failed` | corpus DM airtime |
+|---|---|---|---|---|---|---|
+| **①** | **base — pre-B153** (reconstruction) | ★ **`c792e696`** | ★ **`1cd21235` / 271629** | ★ **732** | 216 | 5 883 686 ms |
+| **②** | base **+ (a)** — the CTS `already_received` gate retired, ALONE | `dfe965da` | ★ **`3418b8b9` / 275260** | **728 (−4)** | **209 (−7)** | **5 787 499 (−1.63 %)** |
+| **③** | base **+ (c)** — the [[B157]] implicit ACK deleted, ALONE | `a0bd50e3` | ★ **`e6a1632d` / 275568** | **731 (−1)** | 218 (+2) | **5 920 798 (+0.63 %)** |
+| **④** | **both — the REAL TREE as adopted** (a)+(b)+(c) | ★ **`0a770cd6`** | ★ **`8687f6a0` / 301737** | **708 (−24)** | 238 (+22) | **6 421 497 (+9.14 %)** |
+
+★★ **EVERY ONE OF THE FOUR `s18` VALUES REPRODUCES §B153-DIAG's INDEPENDENTLY-MEASURED ARM MATRIX EXACTLY**, and so do
+its airtime figures for arms ① and ③ (5 883 686 / 5 920 798, plus BEACON 10 492 491 and all-frames 16 376 177 to the
+millisecond). ⇒ the two passes are cross-validated on different code paths, which is what makes the NEW numbers
+readable. ⓘ Arm ④ carries the corpus-INERT (b); §B153-DIAG proved (b) inert twice (single-change arm `s18` EXACT, and
+a 36-row byte comparison at 0 differing), and arm ④'s `s18` reproducing arm (a)+(c)'s recorded `8687f6a0` confirms it a
+third time.
+
+★★★★ **THE DELIVERY LOSS IS 79 % INTERACTION. −4 + −1 = −5, yet together −24 ⇒ THE INTERACTION TERM IS −19.**
+Same shape on `s06`: **(a) alone is +2** (it *improves* `s06`), **(c) alone is −7**, together **−19** ⇒ interaction
+**−14**. And on airtime: (a) alone **−96 187 ms**, (c) alone **+37 112 ms**, together **+537 811 ms** ⇒ the interaction
+is **+596 886 ms, LARGER THAN THE WHOLE MEASURED DELTA.** ⇒ ⛔ **no statement of the form "removing X costs N
+deliveries" is true of either removal; the cost belongs to the PAIR.**
+
+| scenario | ① base | ② (a) | ③ (c) | ④ adopted | Δ④ | | scenario | ① | ② | ③ | ④ | Δ④ |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `s06_seattle_lifecycle` | **104** | **106** | 97 | **85** | ★ **−19** | | `s20_random_mesh` | 118 | 119 | 120 | 119 | +1 |
+| `s07_seattle_mobile` | 85 | 88 | 91 | 82 | −3 | | `s15_three_layer_metal` | 52 | 51 | 54 | 54 | +2 |
+| `s18_meshroute` | 104 | 102 | 102 | 100 | −4 | | `s15_three_layer` | 54 | 53 | 54 | 54 | 0 |
+| `twin_9node_dm` | 21 | **15** | 19 | 17 | −4 | | `s17_metro` | 30 | 30 | 30 | 29 | −1 |
+| `s27_cross_layer_mobiles` | 11 | 11 | 11 | **15** | ★ **+4** | | **the other 27 rows** | — | — | — | — | **0** |
+| **TOTAL** | **732** | **728** | **731** | **708** | **−24** | | **duplicate app deliveries** | 12 | 12 | 13 | **21** | +9 |
+
+#### ★★★★★ §B153-DIAG2 (2) — `s06`: EVERY MISSING PAYLOAD, AND ITS FIRST DIVERGENT EVENT
+
+⚠ **THE BRIEF'S COUNT IS CORRECTED, and the correction matters for the ruling.** `s06` is not "19 missing payloads".
+Keyed on the payload it is **20 LOST and 1 GAINED** (net −19); keyed on the flight `(origin,dst,ctr)` it is **21 lost
+and 2 gained**, and **one of the 21 is a pure `ctr` SHIFT, not a loss** — `O27→D7` is delivered under `ctr 2` instead
+of `ctr 1`, the identical payload `j3 repeather->University_District`. ⇒ **19 distinct messages are genuinely lost and
+one that the base never delivered arrives.** The 21 flights are traced individually below.
+
+★ **METHOD, stated because a loose key would have invented findings.** A flight is identified ONLY by events carrying
+`origin`+`dst`+`ctr` together (`tx_enqueue`/`data_rx`/`ack_rx`/`delivered`/`dup_drop`/`path_cascade`/`tx_loop_alt`/
+`hop_budget_exceeded`), plus `dst`+`ctr` events restricted to the ORIGIN node. ⚠ `ack_tx` carries only `to`+`ctr` and
+`send_no_route` carries only `dst` — **my first pass admitted both and produced 12 spurious "silent" verdicts**; the
+counts below are from the tightened key. ⚠ Residual limitation, stated: for **5 of the 21** the earliest divergence
+lands on a same-`(dst,ctr)` frame the origin node was RELAYING for a *different* origin, which no available field can
+separate — those 5 are reported as "other", not forced into a class.
+
+**FIRST DIVERGENT EVENT, all 21 — and the answer is that the ROUTE IS ALREADY DIFFERENT BEFORE THE FLIGHT STARTS:**
+
+| flight | base first-divergent | adopted first-divergent | reading |
+|---|---|---|---|
+| `O1→D14 c1` | t=2906122 n0 `rts_tx next=9` | t=2905693 n0 `rts_tx next=20` | ★ DIFFERENT next hop |
+| `O11→D14 c2` | t=2449924 n10 `rts_tx next=33` | t=2449594 n10 `rts_tx next=17` | ★ DIFFERENT next hop |
+| `O24→D9 c2` | t=2467279 n23 `rts_tx next=9` — **the DESTINATION, 1 hop** | t=2467217 n23 `rts_tx next=6` | ★★ DIFFERENT next hop — **a direct 1-hop delivery is re-routed via a relay that then has NO ROUTE** |
+| `O29→D6 c1` | t=2268833 n28 `rts_tx next=11` | t=2269146 n28 `rts_tx next=18` | ★ DIFFERENT next hop |
+| `O30→D28 c1` | t=1734675 n29 `rts_tx next=26` | t=1734779 n29 `rts_tx next=17` | ★ DIFFERENT next hop |
+| `O31→D32 c1` | t=2528996 n30 `rts_tx next=24` | t=2529326 n30 `rts_tx next=25` | ★ DIFFERENT next hop |
+| `O32→D3 c1` | t=2078191 n31 `rts_tx next=5` | t=2078400 n31 `rts_tx next=9` | ★ DIFFERENT next hop |
+| `O32→D10 c1` | t=1672514 n31 `rts_tx next=5` | t=1672096 n31 `rts_tx next=9` | ★ DIFFERENT next hop |
+| `O5→D1 c1` · `O5→D13 c1` · `O15→D33 c1` · `O16→D33 c1` · `O21→D4 c1` · `O23→D31 c1` · `O31→D8 c1` · `O33→D19 c1` | `rts_tx next=13/13/1/17/7/18/18/14` | **the SAME `next`**, 34–4269 ms earlier/later | 8 × timing only |
+| `O5→D21 c1` | t=2812349 n29 `data_rx` | t=2819332 n12 `path_cascade next=6` — a mid-flight re-route | other |
+| `O14→D32 c1` · `O23→D16 c1` · `O24→D32 c1` · `O27→D7 c1` | (relay-frame ambiguity, see METHOD) | — | other ×4 |
+
+⇒ ★★ **8 of the 16 cleanly-attributable flights diverge at the origin's VERY FIRST RTS, naming a DIFFERENT next hop —
+i.e. the routing table had already moved before the message existed.** The other 8 keep the same next hop and differ
+only in timing; those are the ones that then fail downstream.
+
+#### ★★★★★ §B153-DIAG2 (3) — THE TERMINAL-REASON CLASSIFICATION. **71 % IS ROUTE LOSS. IT IS NOT CONGESTION.**
+
+| terminal reason | count | evidence at the failing hop |
+|---|---|---|
+| ★★ **route loss — NO ONWARD ROUTE at the relay** | **10 / 21** | `send_no_route{dst}` at the frontier: the relay ACKs the DATA and then has **no usable next hop at all** |
+| **retry exhaustion — RTS cascade giveup** | **4 / 21** | `cascade_requeue` ×3 → `path_cascade_exhausted` + `rts_giveup` |
+| **route loss — LOOP, killed by the DATA dedup** | **3 / 21** | the flight returns to a node that already forwarded it → `dup_drop` / `tx_loop_alt` / `LOOP_DUP` NACK |
+| **route loss — HOP BUDGET exceeded** | **2 / 21** | the path is **8–9 hops** where the base took **3** → `hop_budget_exceeded` |
+| **pending-slot contention — `send_defer` TTL giveup** | **1 / 21** | `send_deferred` at 1 Hz for **30 s** → `send_deferred_giveup` |
+| SILENT / unattributed | 1 / 21 | `O30→D28`, a 6-hop loop **through its own origin** with no terminal emit |
+| ⓘ **duty exhaustion** | **0** | `duty_cycle_blocked` 0 → 1 corpus-wide; no flight terminates on it |
+| ⓘ **collision as a terminal** | **0** | collisions rise (1411 → 2005) but every one is retried; none is a flight's terminal |
+| ⓘ **bare timeout as a terminal** | **0** | `send_failed{e2e_ack_timeout}` is always a *downstream REPORT* of one of the classes above, never the cause |
+| **⇒ ROUTE LOSS TOTAL** | ★★ **15 / 21 = 71 %** | |
+
+★★★★ **THE MECHANISM, TRACED TO THE EVENT AND NOT INFERRED.** Three `send_no_route` cases were opened up in full;
+all three read identically, and the pattern generalises to the other seven:
+
+```
+2286958  node 27  nack_rx {from: 19, reason: 1, reranked: 0, tier: 2}          <- a BUSY_RX / congestion NACK
+2286958  node 27  neighbor_budget_mark {node: 19, source: "nack_budget", tier: 2}   <- the next hop is DEMOTED
+2286958  node 27  cascade_requeue {ctr: 1, dst: 6, requeue_count: 1}
+2291958  node 27  send_no_route {dst: 6}                                        <- 5 s later: NOTHING is left to route to
+```
+and the immediate shape, at three different relays, is the same 157 ms every time:
+```
+2467787  node 6   data_rx {origin: 24, dst: 9, ctr: 2}      2467787  node 6  ack_tx {to: 24}
+2467944  node 6   send_no_route {dst: 9}                    <- ACKed the DATA, then could not forward it
+```
+⇒ ★★★ **A CONGESTION SIGNAL IS BEING CONSUMED BY THE ROUTING PLANE AS A LINK-QUALITY VERDICT.** The routing-plane
+counters say so directly, and the interaction column is the point:
+
+| signal (`s06`) | ① base | ② (a) | ③ (c) | ④ adopted | Δ④ | interaction |
+|---|---|---|---|---|---|---|
+| `rt_penalty_rerank` **total** | 3385 | 3036 | 3279 | **4470** | **+1085** | **+1540** |
+| …`reason=nack_budget` — a **congestion NACK** re-ranks routes | 852 | 821 | 957 | **1319** | **+467** | +393 |
+| …`reason=rts_timeout` — a **timeout** re-ranks routes | 554 | 582 | 487 | **881** | **+327** | +366 |
+| `rts_drop_pending_tx` — the receiver refused, holding **its own** pending TX | 31 | 59 | 69 | **127** | **+96 (+310 %)** | +30 |
+| `nack_rx` | 107 | 108 | 139 | **177** | +70 | +37 |
+| `nack_tx{reason=3}` = LOOP_DUP | 14 | 23 | 29 | **65** | +51 | +27 |
+| `send_no_route` | 19 | 16 | 14 | **35** | **+16** | **+24** |
+| `hop_budget_exceeded` | 10 | 12 | 15 | **17** | +7 | 0 |
+| `tx_loop_alt` | 9 | 16 | 22 | **42** | +33 | +13 |
+| `rt_update{slot=alt}` — the **alternate** becomes primary | 4224 | 4246 | 4281 | **4741** | **+517** | +438 |
+| `implicit_ack_from_forward` | 8 | ★ **24** | 0 | 0 | −8 | — |
+| `delivered` events | 105 | 106 | 98 | 89 | −16 | — |
+| TOTAL events | 67009 | 65899 | 70094 | **77155** | **+10146** | **+8171 (80.5 %)** |
+
+★★ **§B153-DIAG's PREDICTED COUPLING IS CONFIRMED IN `s06` INDEPENDENTLY: with the CTS gate removed
+`implicit_ack_from_forward` fires 8 → 24 (3.0×, against `s18`'s 10 → 29 = 2.9×).** The two retirements really do
+absorb each other's work, and that is the whole reason the pair behaves nothing like the sum.
+
+**THE CAUSAL CHAIN, each link a measured number:** the two retirements mean a lost ACK or an overheard forward no
+longer terminates a flight → the sender **times out and retries** → those timeouts and the receiver's BUSY_RX NACKs
+are fed to the link-quality machinery, which demotes the next hop at a threshold of **ONE**
+(`protocol_constants.h:220` `peer_suspect_rts_timeouts = 1`; `apply_timeout_tier` → `mark_peer_suspect` →
+`resort_routes_for_neighbor_penalty`, `node_routing.cpp:777`) and at `nack_budget` re-ranks **16–17 destinations at a
+stroke** → routes lengthen (3 hops → 8–9), loop, or vanish entirely → `send_no_route` / `hop_budget_exceeded` /
+`LOOP_DUP` → the extra traffic raises congestion further (`collision` +594, `radio_busy` +135, `tx_lbt_defer` +288,
+`rts_drop_pending_tx` +96) → **more timeouts.** ★ **It is positive feedback, and that is precisely why 80 % of the
+event delta and 79 % of the delivery loss live in the interaction term rather than in either change.**
+
+#### ★★★★ §B153-DIAG2 (4) — THE **AIRTIME**, VIA THE REPO'S `airtime_ms()`. ⛔ NOT EVENT DIVERGENCE.
+
+★ **CONTROL FIRST, because an uncontrolled airtime figure is worthless.** A probe built directly on
+`lib/core/airtime.cpp` was fed the `(sf, bw_hz, cr, preamble_sym=16, len)` of **every one of the 5049 `tx` events** in
+the adopted `s06` stream: **5049 / 5049 MATCH, 0 mismatch.** ★ **NEGATIVE CONTROL:** with `len+1` on every frame the
+probe **disagrees on 620 / 5049** — so the agreement is a real reproduction, not a vacuous one. ⚠ **`s06`'s PHY is NOT
+`s18`'s**: routing **SF8 / BW 62 500 / CR 4:5**, DATA **SF7** ⇒ RTS 7 B = **177 ms**, CTS/NACK 4 B and ACK 3 B =
+**156 ms**, DATA 45 B = **201 ms** — *not* §B153-DIAG's 88/78 ms, which are `s18`'s at BW 125 k.
+
+| frame | ① base | ② (a) | ③ (c) | ④ adopted | Δ④ | Δ% | frames ①→④ |
+|---|---|---|---|---|---|---|---|
+| **`s06`** RTS | 215 763 | 211 869 | 225 675 | **258 420** | **+42 657** | **+19.77 %** | 1219 → 1460 |
+| **`s06`** DATA | 150 013 | 143 996 | 143 797 | **170 116** | **+20 103** | +13.40 % | 769 → 850 |
+| **`s06`** CTS | 129 324 | 121 992 | 128 856 | **138 684** | +9 360 | +7.24 % | 829 → 889 |
+| **`s06`** ACK | 108 420 | 106 392 | 105 612 | **111 384** | **+2 964** | ★ **+2.73 %** | 695 → 714 |
+| **`s06`** NACK | 20 748 | 21 684 | 28 548 | **41 652** | +20 904 | ★ **+100.75 %** | 133 → 267 |
+| **`s06` DM total** | 624 268 | 605 933 | 632 488 | **720 256** | **+95 988** | **+15.38 %** | |
+| **CORPUS DM total** | 5 883 686 | **5 787 499** | 5 920 798 | **6 421 497** | **+537 811** | **+9.14 %** | 24 105 → 27 730 |
+| **CORPUS all frames** | 16 376 177 | 16 314 324 | 16 502 930 | **17 063 597** | **+687 420** | ★ **+4.20 %** | 72 404 → 76 478 |
+
+⇒ ★★ **THE HONEST COST, IN AIRTIME AND NOT IN EVENTS: +9.14 % of DM airtime and +4.20 % of ALL airtime corpus-wide.**
+The event delta reads ~+11 % on `s18` and +15 % on `s06`; the airtime is **less than half that**, exactly as
+§B153-DIAG warned. ★ **AND THE PER-CHANGE SIGNS DIFFER FROM THE PAIR'S: (a) ALONE REDUCES corpus DM airtime by
+96 187 ms (−1.63 %)** — retiring the CTS gate is airtime-POSITIVE on its own — **while (c) alone costs +37 112 ms
+(+0.63 %), reproducing §B153-DIAG's figure to the millisecond.** ★ **`ACK` airtime rises only +2.73 % on `s06`** —
+i.e. the cost is NOT "an ACK per hop": it is **RTS retries (+19.8 %) and NACKs (+100.8 %)**, which is the routing/
+congestion feedback, not the lost-ACK recovery the slice was designed to pay for.
+
+#### ★★★★★ §B153-DIAG2 (5) — THE NODE-DEATH DISCRIMINATOR. **THE ANSWER IS BOTH, AND THE SPLIT IS 12 / 9.**
+
+`s06` kills five nodes: t = 2 133 683 · 2 212 363 · 2 289 945 · 2 320 560 · 2 432 182 (of a 3 592 988 ms run).
+★ **The workload is IDENTICAL in both arms — 94 originations before the first death, 54 after — so the denominators
+are not in question.**
+
+| era | originations | ① base delivered | ④ adopted delivered | base rate | adopted rate | Δ |
+|---|---|---|---|---|---|---|
+| **PRE the first death** (t < 2 133 683) | 94 | **90** | **86** | **95.7 %** | **91.5 %** | **−4 (−4.2 pts)** |
+| **POST the first death** | 54 | **15** | **3** | ★ **27.8 %** | ★ **5.6 %** | **−12 (−22.2 pts)** |
+
+and by the era in which the lost delivery *used to happen*: **9 of the 21 in the healthy era (9 of 90 = 10.0 %), 12 in
+the post-death era (12 of 15 = 80.0 %)** — an **8× higher failure rate** after the deaths. Proximity confirms it:
+within ±60 s of a death, **7 of the 21 losses** against only **8 base deliveries** in those same windows.
+
+⇒ ★★★ **THE DISCRIMINATOR CUTS BOTH WAYS AND NEITHER DEFENCE SURVIVES ALONE.** *"The scenario was already marginal
+there"* is **63 % true**: 12 of the 19 net losses are in a period the base itself delivered only **27.8 %** of — a mesh
+that has lost 5 of 33 nodes and is barely functioning; the change takes it to 5.6 %. But *"it only hurts marginal
+periods"* is **FALSE**: the healthy pre-death era loses 4 deliveries and drops 95.7 % → **91.5 %**. ⇒ **the change
+DOES degrade healthy operation, by ~4 points — and it nearly finishes off an already-collapsing one.**
+
+#### ★★★★★ §B153-DIAG2 (6) — THE THREE TARGETED MUTATIONS. **EACH MATCH COUNT ASSERTED == 1, EACH PROVEN NON-INERT.**
+
+Three orthogonal knobs, one per hypothesis, each applied to a **scratch copy of the real tree** with the pattern's
+occurrence count asserted `== 1` before the edit, each built and run on all 36 rows **sequentially**. ★ **Every
+mutation is shown NON-INERT by its stream moving** — the test that separates a real negative from a coverage gap.
+
+| mutation | hypothesis | knob (match count) | `lus` | `s06` stream | corpus | `s06` | `s18` | inert? |
+|---|---|---|---|---|---|---|---|---|
+| — | (the adopted tree) | — | `0a770cd6` | `4db46952`/77155 | 708 | 85 | 100 | — |
+| ★★ **M-S06-1** | **routing penalties** | `protocol_constants.h:220` `peer_suspect_rts_timeouts` **1 → 255** (**1**) | `b628645f` | `a2013ff0`/**70278** | ★ **719 (+11)** | ★ **97 (+12)** | ★ **106 (+6)** | **NO** |
+| ⛔ **M-S06-2** | **deadline timing** | `cascade_requeue_total_max_ms` **60 000 → 600 000** (**1**) | `79282422` | `f9ad71c2`/76740 | **709 (+1)** | **86 (+1)** | 100 (+0) | **NO** — live, and **nearly ineffective** |
+| ★★ **M-S06-3** | **retry congestion** | `cascade_requeue_max` **3 → 1** (**1**) | `e4d8e53e` | `5a7db366`/**68801** | **702 (−6)** | ★★ **99 (+14)** | 99 (−1) | **NO** |
+
+★★★★ **AND THE CONTROL THAT KEEPS ME HONEST — EACH KNOB WAS ALSO RUN ON THE BASE ARM**, because "recovers +11" is
+worthless if the knob simply helps every tree. It does help both, and **the differential-of-differential is the number
+that actually belongs to the interaction:**
+
+| | corpus: base → adopted | `s06`: base → adopted | corpus DM airtime |
+|---|---|---|---|
+| **at the CURRENT tuning** | 732 → 708 = **−24** | 104 → 85 = **−19** | +9.14 % |
+| **with M-S06-1 applied to BOTH** (`ccac0b29` / `b628645f`) | **738 → 719 = −19** | **109 → 97 = −12** | **+6.95 %** |
+| **with M-S06-3 applied to BOTH** (`53ce12e9` / `e4d8e53e`) | 725 → 702 = **−23** | **104 → 99 = −5** | — |
+
+⇒ ★★★ **THE THREE HYPOTHESES ARE SEPARATED:**
+- **ROUTING PENALTIES — CONFIRMED, and they are the dominant amplifier.** Making the single-timeout demotion inert
+  recovers **+11 corpus / +12 `s06` / +6 `s18`** on the adopted tree, cuts its event churn by **6877** and its airtime
+  cost from **+9.14 % to +4.95 %**. Of the −24 the penalty interaction *owns* **5** (−24 → −19) and of `s06`'s −19 it
+  owns **7** (−19 → −12) — the rest of the +11 is the knob's general benefit, which is itself a finding (below).
+- ⛔ **DEADLINE TIMING — REFUTED.** A **10× longer** cascade deadline buys **+1 corpus / +1 `s06` / +0 `s18`**, and it
+  is demonstrably live (77 155 → 76 740 events). ⇒ **the flights are not running out of TIME; they are running out of
+  ROUTE.** This is the mutation that rules out the comfortable "just be more patient" answer.
+- ★★ **RETRY CONGESTION — CONFIRMED, LOCALLY.** Cutting the retry budget from 3 to 1 recovers **+14 on `s06`**
+  (−19 → −5 against an unchanged base) yet **costs 6 corpus-wide**. ⇒ the retries genuinely congest a collapsing
+  33-node mesh while remaining load-bearing elsewhere — **the signature of a mistuned constant, not of an
+  unavoidable cost.**
+
+★★ **AN UNPLANNED FINDING FROM THE CONTROL, AND IT IS PRE-EXISTING:** `base + M-S06-1` = **738**, the highest of all
+nine arms, **+6 above the pre-slice base**. ⇒ **`peer_suspect_rts_timeouts = 1` was ALREADY costing ~6 corpus
+deliveries and 1.87 % of DM airtime BEFORE B153 ever landed.** Its own comment records it was lowered from 2 to fix a
+*dead-route* case; B153 does not create the defect, it **doubles the amount the defect costs.**
+
+#### ★★★ §B153-DIAG2 (7) — `s18`'s −4 AND `twin`'s −4 (covered, as asked)
+
+Both were cheap and both are the SAME mechanism, so they are reported rather than deferred.
+- **`s18` −4.** 13 flights lost / 9 gained. ⚠ **Four of the 13 are pure `ctr` shifts, not losses** —
+  `O17→D65` loses `ctr 3/5/7/9` and gains `ctr 4/6/8/10` carrying the *identical* payloads. Of the real losses,
+  **4 end in `hop_budget_exceeded` at 10, 11, 11 and 16 hops** (`O34→D61`, `O61→D10`, `O138→D135`, `O138→D136`), one in
+  a `dup_drop` loop, the rest silent at a frontier. ⇒ **path inflation, exactly as in `s06`**, and M-S06-1 recovers
+  `s18` to **106 — above the base's 104.**
+- **`twin` −4.** 11 lost / 7 gained. Here the dominant terminal is **`path_cascade_exhausted` + `rts_giveup` (7 of
+  11)** with 1 loop; `twin` is a 9-node DM twin with no path diversity to re-rank onto, so the same penalty machinery
+  expresses itself as retry exhaustion instead of route loss. ⚠ **`twin` is also the one row where (a) ALONE is the
+  worst arm: 21 → 15 (−6), worse than the pair's 17.**
+
+#### ★★★ §B153-DIAG2 (8) — THE [[B159]] COUPLING CHECK, AND A CORRECTION TO §B153-DIAG's ATTRIBUTION
+
+**ASKED:** does any of `s06`'s losses involve dedup expiry or a re-delivery? **ANSWER: NO, and the two are provably
+disjoint.** The intersection of {flights re-delivered to the application} with {the 21 lost flights} is **EMPTY**.
+⇒ **[[B159]] and the −19 are independent defects; fixing one cannot fix or worsen the other.** ⓘ The three `dup_drop`
+terminals among the 21 are the dedup working *correctly* on a LOOPED copy — the opposite failure to B159's.
+
+★★ **BUT THE CHECK STRENGTHENED B159 SUBSTANTIALLY, from one traced instance to a universal:** keyed on the flight
+`(node, origin, dst, ctr)`, duplicate application deliveries are **12 → 21** (reproducing §B153-DIAG exactly), and
+**EVERY SINGLE ONE, IN EVERY ARM, HAS AN INTER-DELIVERY GAP EXCEEDING `seen_origin_ttl_ms` = 30 000**: base **12 of
+12**, (a) **12 of 12**, (c) **13 of 13**, adopted **21 of 21**. `s06`'s four adopted gaps are **47.0 s, 45.0 s, 33.5 s
+and 31.6 s**; its single base duplicate is **37.8 s**. ⇒ **TTL expiry accounts for 100 % of duplicate application
+deliveries in the corpus — not merely for the one frame §B153-DIAG traced.** That is the strongest available support
+for QA's preferred sliding-expiry shape. ⛔ **Not implemented — out of scope.**
+
+⛔⛔ **AND IT CORRECTS §B153-DIAG's OWN ATTRIBUTION OF THE WORSENING.** §B153-DIAG states *"change (a) makes the
+duplicate DATA real and therefore worsens it by ~75 %."* **Measured: (a) ALONE LEAVES THE CORPUS TOTAL AT 12,
+UNCHANGED** (it merely moves one from `s06`/`s07` to `s18`/`twin`), and (c) alone is 13. ⇒ **8 of the +9 is once again
+an INTERACTION term, not (a)'s doing.** ⓘ On `s06`, (a) alone has **ZERO** duplicates against the base's one.
+
+#### ★★★★★★ §B153-DIAG2 (9) — **THE VERDICT: TUNABLE. AND WHAT TO TUNE.**
+
+★★★★ **THE −24 IS NOT THE UNAVOIDABLE COST OF CORRECTING LOST-ACK RECOVERY, AND THE EVIDENCE IS THREE INDEPENDENT
+MEASUREMENTS, NOT AN ARGUMENT:**
+1. **The direct cost of each correction is small and is measured in isolation: −4 (a) and −1 (c), and (a) alone is
+   airtime-NEGATIVE at −1.63 %.** The lost-ACK recovery the slice pays for shows up as **+2.73 % ACK airtime on
+   `s06`** — trivially affordable.
+2. **79 % of the corpus loss and 74 % of `s06`'s is a non-additive INTERACTION**, and the interaction's mechanism is
+   not lost-ACK recovery at all: it is the routing plane re-ranking on a MAC retry. **15 of `s06`'s 21 terminals are
+   ROUTE LOSS; 0 are duty, 0 are collision, 0 are a bare timeout.**
+3. **Two orthogonal tunings each undo most of it and a third refutes the alternative explanation.** +12 (`s06`) from
+   the penalty threshold, +14 from the retry budget, **+1 from a 10× deadline.**
+
+★★★ **WHAT TO TUNE — named at the line, in priority order. ⛔ NONE of it restores any RTS-derived terminal inference.**
+- ★★★ **(T1) SEPARATE "the link is bad" FROM "the receiver is busy". `lib/core/protocol_constants.h:220`
+  `peer_suspect_rts_timeouts = 1`** — **ONE** unanswered RTS budget demotes a next hop, via
+  `apply_timeout_tier` → `mark_peer_suspect(…, "rts_timeout")` → `resort_routes_for_neighbor_penalty`
+  (`node_routing.cpp:773-777`). That threshold was tuned for a **DEAD ROUTE**; after B153 an RTS giveup is just as
+  likely to mean **the receiver is holding its own `_pending_rx`/`_pending_tx`** — `rts_drop_pending_tx` **31 → 127,
+  +310 %**, which is a BUSY signal and not a link fault. ⇒ **do not feed a giveup into the link-quality penalty when
+  the evidence is a BUSY_RX NACK or a `rts_drop_pending_tx`-shaped silence, and when other traffic from that peer is
+  still being heard.** ⓘ **Restoring the threshold to its historical 2 is the cheap floor** and should be measured
+  first: as an upper bound, making it fully inert is worth **+11 corpus / +12 `s06` / +6 `s18`** and **−4.19 points of
+  DM airtime.**
+- ★★ **(T2) A CONGESTION NACK MUST THROTTLE, NOT RE-ROUTE.** `lib/core/node_mac_rx.cpp:1668`
+  `mark_neighbor_budget_tier(pt.next, tier, "nack_budget", /*local_only=*/false)` is the **largest single re-rank
+  contributor (+467)** and it re-ranks **16–17 destinations at a stroke** off one NACK. A budget/congestion tier
+  should back-pressure the sender's *rate*; demoting the next hop for every destination converts transient congestion
+  into permanent topology damage, and `send_no_route` (+16) is what that damage looks like from the application.
+- ★ **(T3) MAKE THE CASCADE BUDGET ADAPTIVE ON THE OBSERVED FAILURE MODE, not just on queue depth.**
+  `cascade_requeue_max = 3` (`:272`) with the depth-only `cascade_requeue_load_threshold` (`:280`); M-S06-3 shows 3→1
+  is **+14 on `s06` and −6 corpus-wide**, so it is not a constant to lower globally — it is a constant that should
+  shrink when NACK/timeout rate rises and hold when it does not.
+- ⛔ **NOT the deadlines.** `cascade_requeue_total_max_ms` at 10× buys +1. Do not spend effort there.
+
+⛔⛔ **AND THE PART THAT IS NOT TUNABLE, STATED SO THE OWNER RULES ON THE RIGHT NUMBER: with the amplifier removed on
+both sides the change still costs −19 corpus deliveries (738 → 719) and +6.95 % DM airtime.** A residue exists. But
+**−19-with-a-known-cause-still-to-fix is a different decision from −24-of-unknown-mechanism**, and the mechanism is
+now named, located at three lines, and each candidate fix is measurable before it is believed.
+
+⛔⛔ **NO RTS-DERIVED TERMINAL INFERENCE IS RECOMMENDED, IN ANY FORM.** Both `already_received` and the
+overheard-forward credit stay retired; §B153-DIAG's own numbers (the credit's premise held in ≤7 of 61 firings) and
+the byte-identical-frames refutation are untouched by anything measured here. ★ Every recovery above comes from the
+**routing plane's reading of a timeout** — a layer that has all the information it needs and is currently
+misinterpreting it.
+
+#### §B153-DIAG2 — THE GATE, AND WHAT DID NOT RUN
+
+| gate | result |
+|---|---|
+| **native (D1)** | ★ **1440 cases / 75531 assertions / 0 failed** on the real tree (`pio test -e native` rc=0, then the binary run). **`grep -c "error:"` on the build = 0.** This is what identifies the tree that was measured |
+| **board builds** | ⛔ **NOT RUN — BY EXPLICIT OWNER INSTRUCTION** ("`lus` is the instrument for this phase; do NOT build firmware; no `pio run -e <board>` at all"). ⛔ **NOTHING HERE IMPLIES THEY PASSED. An unrun gate is unrun.** ⓘ Sound rather than a shortcut because **nothing in the real tree changed**, so no board RAM/flash/warning figure *can* have moved; the firmware sweep is owed once at the end of the B157/B159/cleanup arc |
+| **`tools/warning_census.sh`** | ⛔ **NOT RUN** — same instruction, same reasoning. **No census claim is made** |
+| **arms** | **NINE scratch copies** under the `s06-` prefix, nine own build dirs, **every build run SEQUENTIALLY** — never two at once (the recorded `xiao_mobile rc=1` trap) |
+| ★★ **real-tree integrity** | **Whole-tree md5-of-md5s over `lib/`+`src/`+`test/` = `047adb1bb9ed223e5c04801b3764a6a9` BEFORE any work and AFTER all of it — identical.** `git diff HEAD --stat -- lib/core src test` = **18 files / 4264 insertions / 421 deletions**, matching §B153-DIAG's fingerprint. **Zero untracked files** under `lib/ src/ test/ simulation/`; **no `s06-*` path anywhere in the repo**. Per-file md5s, all reproducing §B153-DIAG's: `node_mac_rx.cpp` **`f5f225bf`** · `node_mac.cpp` `6f6bd442` · `node.h` `c9cec978` · `node.cpp` `18539ad4` · `node_carriers.h` `6b19397b` · `frame_codec.h` `cc492127` · `frame_codec.cpp` `767aabe9` · `protocol_constants.h` `b3ea763d` · `test_node_r3.cpp` `9290d208` · `test_dual_layer.cpp` `62fb1002`. ★ **And the adopted arm rebuilt from a scratch copy returns `0a770cd6`** — the same binary — which is the strongest available proof no `lib/` source moved. ⓘ The sim repo (`~/lora-universal-simulator`) is likewise **unmodified** (`git status --porcelain` empty); every arm used `-DMESHROUTE_DIR=<scratch>` and its own build dir, and the repo's own `build/` was never written |
+
+#### ⚠ §B153-DIAG2 — EVERY PREMISE THAT TURNED OUT WRONG, INCLUDING MINE, THE BRIEF'S AND QA's
+
+1. ⛔ **MINE, AND THE CALIBRATION CAUGHT IT BEFORE IT COULD POISON EVERYTHING.** My first pre-slice reconstruction was
+   **incomplete** and produced `c5fc5e8c`. Change (a) has **FOUR** sites, not the three §B153's table describes; the
+   fourth is `lib/core/node.cpp:796`'s per-layer `L._last_acked_from.clear()`. ⇒ ★ **the arm-① binary calibration is
+   not ceremony — without it every number in this note would have been measured against a wrong base.**
+2. ⛔ **MINE — my first flight-identification key was too loose** (`ack_tx` carries only `to`+`ctr`; `send_no_route`
+   carries only `dst`). It produced **12 spurious "SILENT / unattributed"** verdicts and a plausible-looking first-
+   divergence table that was mostly `ack_tx` noise. Fixed by restricting to `origin`+`dst`+`ctr` events plus
+   origin-node-only `dst`+`ctr` events. ⇒ **a permissive key manufactures findings; the count changed from 12 silent
+   to 1.**
+3. ⛔ **THE BRIEF'S "`s06`'s 19 missing payloads".** It is **20 lost payloads and 1 gained** (net −19); at flight
+   granularity **21 lost / 2 gained**, and **one of the 21 is a pure `ctr` shift of a payload that IS delivered**.
+4. ⛔ **THE BRIEF'S AND QA's FRAMING that the −24 are "LOUD CONGESTION failures".** They are **ROUTING** failures:
+   **15 of 21 = 71 % route loss**, and **duty exhaustion, collision and bare timeout are all measured at ZERO**. The
+   `send_failed` (+22) that made them look loud is an end-to-end *report* emitted 60 s later at the origin, never the
+   cause. ⓘ The "loud vs silent" contrast still holds as a *visibility* argument; it does not hold as a diagnosis.
+5. ⛔ **§B153-DIAG's "(a) makes the duplicate DATA real and therefore worsens [B159] by ~75 %."** **(a) alone leaves
+   the corpus duplicate total at 12, unchanged**; 8 of the +9 is an interaction term.
+6. ⚠ **MY OWN WORKING HYPOTHESIS, HALF WRONG.** I expected the losses to be dominated by **retry congestion at the
+   origin**. Retry congestion is real (M-S06-3 = +14 on `s06`) but it is **second**: the dominant amplifier is the
+   **routing penalty**, and 8 of 16 cleanly-traced flights had already been re-routed **before their first RTS**.
+7. ⚠ **A DEADLINE EXPLANATION WAS PLAUSIBLE AND IS REFUTED** — 10× the cascade deadline buys **+1**. Worth recording
+   because it is the intuitive first guess and it is wrong.
+8. ⚠ **ANY ASSUMPTION THAT `s06` PAYS `s18`'s AIRTIME.** `s06` runs **BW 62 500**, so RTS = **177 ms** and CTS/ACK =
+   **156 ms**, roughly **2× §B153-DIAG's 88/78 ms**. Per-scenario PHY must be read from the stream, never carried over.
+9. ✔ **HELD — §B153-DIAG's ENTIRE ARM MATRIX AND AIRTIME LEDGER**, reproduced independently: all four `s18`
+   md5/event pairs, and 5 883 686 / 5 920 798 / 10 492 491 / 16 376 177 ms to the millisecond.
+10. ✔ **HELD — the predicted `implicit_ack_from_forward` coupling**, confirmed in `s06` at **8 → 24 (3.0×)** against
+    `s18`'s 2.9×.
+11. ✔ **HELD — (b) is corpus-inert**, now confirmed a third way (arm ④ carries it and reproduces the (a)+(c) arm's
+    recorded `8687f6a0`).
+12. ★ **NEW, PRE-EXISTING, AND NOT B153's FAULT: `peer_suspect_rts_timeouts = 1` already costs ~6 corpus deliveries
+    and 1.87 % of DM airtime on the PRE-SLICE tree** (base 732 → 738 with it inert). B153 does not create that
+    defect; it roughly doubles what the defect costs.
+
+#### §B153-DIAG2 — FILES
+
+`simulation/BASELINE.md` (this note + the head banner) · `docs/2026-07-30-open-bug-register.md` ([[B153]] updated in
+place per M1). ⛔ **NOTHING ELSE. No `lib/`, no `src/`, no `test/`, no scenario, no `platformio.ini`, no
+`^### 36/36 corpus` anchor table, and no new register entry** — the amplifier is a **pre-existing tuning defect
+already inside [[B153]]'s scope**, so M1 says update it, not open a duplicate.
+
+### ★★★★★★ §B153-DIAG (2026-08-08) — THE INDEPENDENT DIAGNOSIS OF THE `s18` MOVE AND OF [[B157]]'s COST. ⛔ NOTHING WAS IMPLEMENTED, CHANGED OR FIXED; EVERY ARM IS A SCRATCH COPY AND THE REAL TREE IS BYTE-UNCHANGED. ⛔ NO OWNER OR QA APPROVAL IS CLAIMED.
+
+A measurement-only pass over the slice above, commissioned because **the `s18` prediction failed and the recorded
+attribution was a CUMULATIVE arm matrix rather than a per-change one.** It answers two questions, corrects three
+claims in §B153 (one of them the attribution's headline), corrects one claim of my own that QA had already refused,
+and registers one pre-existing defect it uncovered ([[B159]]). ⛔ **No fix is proposed or applied here.**
+
+#### ★★★ §B153-DIAG Q1 — WHY `s18` MOVED. **VERDICT: ACCEPTABLE-AND-ATTRIBUTED AS TO CAUSE — but the re-anchor is not free, and two of its costs were unrecorded.**
+
+★★★★ **CLASSIFICATION (a) — "a residual of the reverted `flight_id` work" — IS RULED OUT, BY BINARY IDENTITY AND
+NOT BY ARGUMENT.** The method was to reconstruct the pre-slice tree **forward from the CURRENT tree** by undoing
+exactly the three changes §B153 claims to have made — nothing else — and then to ask whether it comes back:
+
+| what was checked | result |
+|---|---|
+| the reconstruction's `lus` binary | ★★ **`c792e696` — BYTE-IDENTICAL to §MH-S4b's recorded pre-slice `lus`** |
+| its `s18` | ★★ **`1cd21235` / 271629 — EXACT** |
+| its whole 36-row corpus | ★★ **byte-identical to the recorded pre-slice corpus, 36 of 36, 0 differing** |
+
+⇒ **if ANY residual of the refuted design were still in the tree it would still be in the reconstruction, and the
+binary could not be identical.** Three independent static confirmations agree: `lib/core/frame_codec.cpp` **does not
+appear in `git diff HEAD` at all** (the RTS codec is pristine — `pack_rts`/`parse_rts` are HEAD's, 7 B);
+`lib/core/node_mac.cpp`'s diff vs HEAD is **§MH-S3 only**, with no B153 content; `lib/core/frame_codec.h`'s diff is
+**comment-only** plus one blank line. ⓘ `lib/core/node_mac_rx.cpp` at HEAD is **byte-identical to its pre-slice
+state** (§MH-S3/S4/S4b never touched that file), so the whole of its 120-line diff is B153's and nothing else's.
+
+★★ **CLASSIFICATION (b)/(c) IS THE ANSWER: a legitimate consequence of retiring two mechanisms that FIRE on the
+static plane.** ⓘ **NOT a plane leak** — measured, not assumed: both retired blocks sit at **preprocessor depth 0**
+in `handle_rts`, outside every `MR_FEAT_TEAM` / `MR_FEAT_MOBILE` region and behind no `is_mobile` guard, so a static
+node executes both. s18's move is correctly located.
+
+★★★★ **BUT THE PER-CHANGE ISOLATION OVERTURNS THE RECORDED ATTRIBUTION.** §B153's matrix is cumulative; this one
+changes **one coherent piece at a time from a single common base**, six arms, each a build:
+
+| arm (from the common pre-slice base) | `s18` md5 / events | Δ vs pre-slice |
+|---|---|---|
+| pre-slice reconstruction (calibration) | `1cd21235` / **271629** | — |
+| **(b) alone** — `payload_len` added to the pending-RX re-CTS match | `1cd21235` / **271629** | ★ **+0 — INERT** |
+| **(a) alone** — the RTS-time `already_received` gate + the `_last_acked_from` cache | `3418b8b9` / **275260** | **+3631** |
+| **(c) alone** — the overheard-forward implicit ACK deleted | `e6a1632d` / **275568** | **+3939** |
+| **(a)+(c)** | `8687f6a0` / **301737** | **+30108** |
+| the REAL TREE, rebuilt and re-run here | `8687f6a0` / **301737** | **+30108** |
+
+★★★ **THE CHANGES ARE STRONGLY NON-ADDITIVE: 3631 + 3939 = 7570, yet together they cost +30108. The INTERACTION
+TERM IS +22538 — 74.9 % of the whole delta — and belongs to NEITHER change alone.** ⇒ ⛔ **§B153's headline
+attribution ("(c), retiring the implicit ACK, is the dominant mover, +26477, ~+10 % of `s18`'s events") is wrong as
+an attribution.** +26477 is the distance between two cumulative arms, not (c)'s cost; **(c) alone is +3939 and (a)
+alone is +3631 — neither dominates.**
+★★ **THE MECHANISM OF THE INTERACTION, MEASURED not argued:** with the CTS gate removed, `implicit_ack_from_forward`
+fires **29 times in `s18` instead of 10**. (a)'s new lost-ACK recoveries were being **absorbed** by (c) — the very
+mechanism (c) removes. Delete only one and the other pays for it; delete both and every such recovery costs a full
+retry exchange. That is the whole of the +22538, and it is why no single-change measurement could have predicted it.
+
+★★ **THE +30108, ACCOUNTED BY EVENT KIND** (pre-slice → adopted; the listed deltas sum to **exactly 30108**, 15
+kinds unchanged):
+
+| kind | pre | adopted | Δ | | kind | pre | adopted | Δ |
+|---|---|---|---|---|---|---|---|---|
+| `rx` | 45162 | 55253 | **+10091** | | `rts_rx` | 1303 | 1802 | +499 |
+| `rt_penalty_rerank` | 7736 | 11005 | +3269 | | `data_tx` | 1168 | 1554 | +386 |
+| `drop_sf_mismatch` | 7374 | 9856 | +2482 | | `cts_tx` | 1258 | 1628 | +370 |
+| `tx` | 7746 | 9579 | +1833 | | `data_rx` | 1114 | 1470 | +356 |
+| `rt_update` | 115231 | 116749 | +1518 | | `cts_rx` | 1201 | 1554 | +353 |
+| `link_bidi_confirm` | 11906 | 13046 | +1140 | | `ack_tx` | 1077 | 1271 | +194 |
+| `collision` | 4154 | 5202 | +1048 | | `ack_rx` | 1028 | 1194 | +166 |
+| `beacon_rx` | 17046 | 18008 | +962 | | `nack_tx` | 37 | 199 | +162 |
+| `rts_tx` | 2467 | 3298 | **+831** | | `implicit_ack_from_forward` | 10 | **0** | **−10** |
+
+★★★ **THE READING THAT MATTERS: only about 2 400 of the 30 108 are DM protocol frames.** The bulk is per-listener
+`rx` multiplicity (+10091 — one event per airing per hearer, so one extra frame inflates by the neighbour count) and
+routing/link-plane churn (`rt_penalty_rerank`, `drop_sf_mismatch`, `rt_update`, `link_bidi_confirm`, `beacon_rx`).
+⇒ ⚠ **AN EVENT COUNT IS A DIVERGENCE MEASURE, NOT A COST MEASURE.** Once two streams diverge, the count difference
+is dominated by observer multiplicity and scheduling churn; ~11 % more events is **not** ~11 % more traffic. The
+cost measures are airtime and deliveries, below — and they are far smaller than the event delta suggests.
+
+⚠⚠ **TWO COSTS §B153 DOES NOT RECORD, both measured on the recorded pre-slice and adopted corpora (cross-validated
+byte-for-byte against my own arms before use):**
+
+**(i) THE DELIVERY LEDGER — corpus-wide unique application deliveries `732 → 708` (−24, −3.3 %), `send_failed`
+216 → 238 (+22).** Counted by unique `(node, origin, dst, payload)` so a shifted `ctr` cannot be mistaken for a
+lost message:
+
+| scenario | PRE | ADOPTED | Δ | | scenario | PRE | ADOPTED | Δ |
+|---|---|---|---|---|---|---|---|---|
+| `s06_seattle_lifecycle` | 104 | 85 | **−19** | | `s20_random_mesh` | 118 | 119 | +1 |
+| `s07_seattle_mobile` | 85 | 82 | −3 | | `s15_three_layer_metal` | 52 | 54 | +2 |
+| `s18_meshroute` | 104 | 100 | **−4** | | `s27_cross_layer_mobiles` | 11 | **15** | ★ **+4** |
+| `twin_9node_dm` | 21 | 17 | −4 | | `s17_metro` | 30 | 29 | −1 |
+
+ⓘ **The honest framing of the trade, for the owner's ruling:** the +4 on `s27` closes a class of **SILENT** loss
+(no `data_tx`, no emit, no `send_failed`), while the −24 elsewhere are **LOUD** congestion failures that report
+`send_failed` (+22, which very nearly accounts for them). A loud failure is visible to the application; a silent one
+is not. **That may well still be the right trade — but it is a −24-delivery trade, and §B153 states it nowhere.**
+
+**(ii) DUPLICATE APPLICATION DELIVERIES `12 → 21` corpus-wide** (`s18` **0 → 2**, `s17` 0 → 2, `s06` 1 → 4,
+`s07` 2 → 4, `s16_dense_gateway` 8 → 8, `s27` 1 → 1). ★★ **TRACED TO THE FRAME, in `s18` at node_id 68:** the same
+`(origin 138, dst 68, ctr 2)` is delivered to the application at **t=1841771** and **AGAIN at t=1889938 — 48.2 s
+later** — with a *correct* `dup_drop` in between at t=1869723 (28.0 s). `seen_origin_ttl_ms` is **30 000**
+(`protocol_constants.h:312`) and **a duplicate hit does not refresh the entry**, so it aged out at +30 s and the
+third copy was adjudicated FRESH. ⇒ ⛔ **§B153's defence "its TTL is 30 s against the retired gate's 10 s ⇒ the
+replacement is strictly MORE durable" is REFUTED as an absolute, and so is `docs/protocol.md`'s "Duplicate
+suppression is narrowed, never disabled — that is what stops a lost ACK from delivering twice."** The retry horizon
+(48.2 s observed) **exceeds** the TTL. ⓘ **PRE-EXISTING — 12 duplicates before the slice — so this is not a defect
+of B153**; change (a) makes the duplicate DATA real and therefore worsens it by ~75 %. Registered as **[[B159]]**.
+⚠ The slice's own regression 2 ("the application delivered exactly once") cannot catch it: it retries immediately,
+inside the TTL. **That is a coverage horizon, not a coverage gap.**
+
+★ **VERDICT ON Q1: the `s18` move is ACCEPTABLE-AND-ATTRIBUTED as to CAUSE — no residual, no plane leak, both
+movers legitimate — but the re-anchor carries a −24-delivery corpus cost and a 12 → 21 duplicate-delivery
+worsening that the note does not record. THE OWNER RULES on the re-anchor with those two numbers in hand.**
+
+#### ★★★★ §B153-DIAG Q2 — [[B157]]'s COST, MEASURED. **THE NUMBER SUPPORTS DELETE, AND IT IS NOT CLOSE.**
+
+★★ **THE PROBE IS PROVABLY NON-PERTURBING**, which is what makes everything below readable: it writes to **stderr**,
+not `MR_EMIT`, so the ndjson cannot move — and **all 36 of the credit-ACTIVE arm's streams are BYTE-IDENTICAL to the
+recorded pre-slice corpus (36 compared, 0 differing).** The credit-DISABLED arm is the same probe with the action
+removed — the cheapest faithful stand-in for deletion.
+
+★ **THE DOCUMENTED FIRING COUNT IS INDEPENDENTLY CONFIRMED: exactly 61, with exactly 10 in `s18`.** ⚠ Across **NINE**
+scenarios, not eight: `s06` 8, `s07` 24, `s15_three_layer` 4, `s15_three_layer_metal` 3, `s17` 3, `s18` 10, `s20` 3,
+`sim_9node_base` 1, `twin_9node_dm` 5. ⓘ With the credit **disabled** the same match fires **80** times, because a
+flight that is not cancelled stays pending and can match a second overheard forward.
+
+★★★★ **THE DECIDING NUMBER — THE STATE OF THE PENDING TX AT THE INSTANT THE CREDIT FIRES:**
+
+| pending-TX state at the firing | firings | what the credit did |
+|---|---|---|
+| `awaiting_cts` — ⛔ **the DATA had NEVER been transmitted** | ★★ **46 / 61 (75.4 %)** | cancelled a flight that had aired no DATA — **the `s27` shape, and the MAJORITY case** |
+| neither flag | 8 / 61 (13.1 %) | the DATA was not confirmed either |
+| `awaiting_ack` — the DATA was sent, an ACK outstanding | ★ **7 / 61 (11.5 %)** | **the ONLY state in which the premise "my next hop decoded MY DATA" can be true** |
+
+⇒ ★★★ **THE OPTIMISATION'S PREMISE HELD IN AT MOST 7 OF 61 FIRINGS.** In 46 of 61 it was not an optimisation at all
+— it was a misattribution that discarded a message which had never left the node. ⓘ 25 of the 61 firings are
+nonetheless followed by a successful delivery of that message, because the cancelled node was one of several relays;
+25 firings' messages were never delivered at all in the pre-slice run.
+
+★★ **WHAT REMOVAL ACTUALLY COSTS, per firing, for the 7 eligible ones** (traced in the credit-disabled arm, ndjson
+node index = `node_id − 1`, verified): **all 7 issue one further RTS immediately** — at **+13 … +195 ms**, because
+the ACK deadline was only **21–25 ms** away when the credit fired. Across the 7: **19 further RTS, 3 further DATA**;
+2 flights eventually ACKed, 1 gave up, 4 continued in congestion. So: *a retry, promptly, and only there.*
+
+★ **AIRTIME VIA `airtime_ms()`, AT THE SFs THOSE FLIGHTS ACTUALLY USED — measured from the stream, not assumed:
+routing frames fly at SF8 and DATA at SF7 in `s18`** (⚠ §B153's airtime table costs routing at SF7/SF12, which is
+**not** what `s18` pays). ★ CONTROL: the repo's `airtime_ms()` reproduces the simulator's PHY exactly — RTS 7 B @SF8
+= **88 ms**, CTS 4 B = **78 ms**, ACK 3 B = **78 ms**, matching the `tx` events byte for byte.
+
+| inner | retry RTS alone | full retry exchange (RTS+CTS+DATA+ACK) |
+|---|---|---|
+| 21 B | **88 ms** | **334 ms** |
+| 27 B | 88 ms | 344 ms |
+| 37 B | 88 ms | **359 ms** |
+| SF12 worst case, 21 / 37 B | 1253 ms | 5667 / 6158 ms |
+
+⇒ ★★ **THE ENTIRE UPSIDE OF KEEPING ANY FORM OF THIS OPTIMISATION IS BOUNDED AT 7 × ≤359 ms ≈ ≤2.5 SECONDS OF
+AIRTIME ACROSS THE WHOLE 36-ROW CORPUS.**
+
+★★ **AND THE MEASURED CORPUS-WIDE COST OF DELETING IT, IN ISOLATION** (change (c) alone, credit-active vs
+credit-disabled, 36 rows each side):
+
+| measure | credit ACTIVE | credit DELETED | Δ |
+|---|---|---|---|
+| unique application deliveries | 732 | **731** | ★ **−1** |
+| `send_failed` | 216 | 218 | +2 |
+| total network airtime | 16 376 177 ms | 16 502 930 ms | **+126 753 ms = +0.77 %** |
+| … of which **BEACONS** | 10 492 491 | 10 582 132 | ⚠ **+89 641 (71 % of the delta — divergence, NOT recovery)** |
+| … the DM frames (RTS/CTS/DATA/ACK/NACK) | 5 883 686 | 5 920 798 | ★ **+37 112 ms = +0.63 %** |
+| duplicate app deliveries | 12 | 13 | +1 |
+
+⛔⛔ **MY OWN CLAIM, WHICH QA CORRECTLY REFUSED, IS NOW MEASURED AND REFUTED.** I asserted that removal *"costs a
+round trip on every forwarded hop."* **It does not:** the credit fires on **61 of 5563 DATA hops = 1.10 %**, and only
+**7 of 5563 = 0.13 %** are in a state where a round trip is actually saved. Explicit ACK already carries every hop.
+
+★★★ **WHICH SHAPE THE NUMBER SUPPORTS — DELETE, with the reasoning explicit:**
+- **DELETE** costs a measured **−1 net delivery** and **+0.63 % DM airtime** corpus-wide, adds **no state**, and has
+  **nothing to get subtly wrong**. It is what the tree already does, so it is zero further work.
+- **THE NON-TERMINAL HINT** can recover **at most ≤2.5 s of airtime over 7 events in 36 scenarios**, because 54 of
+  the 61 firings are not savings at all. It buys that with new per-flight deadline state, a re-arm path, and a new
+  failure mode: a false match extends the flight's hold on the node's **single** `pending_tx` slot, so the "bounded
+  delay" is paid in head-of-line blocking, not just latency.
+- ⇒ **the ratio is ≤2.5 s of upside against new state on the MAC's most safety-critical path.** ⛔ **This is the
+  number and both costs; it is NOT a constraint and NOT an approval. The owner rules.**
+
+#### §B153-DIAG — THE FOUR RESIDUE CHECKS (read-only; ⛔ nothing was fixed)
+
+1. **`flight_id` in the docs — BOTH references are FENCED HISTORY, not live documentation**, and there is exactly
+   ONE of each. `docs/frames.md:98`: *"⛔⛔ §B153 … THE RTS IS STILL 7 BYTES, AND A 4-B `flight_id` TAIL WAS PROPOSED
+   AND REFUTED. … **It is NOT in the wire and must not be re-added.**"* `docs/protocol.md:45`: *"A first fix appended
+   a 4-byte `flight_id` to the unicast RTS; that 'works' only by changing the frame, and the frame never needed to
+   carry it — the DATA already does."* ⇒ ★ **the B157 plan's cleanup item 5 ("3 sites in `frames.md`,
+   `protocol.md:~49`") is ALREADY SATISFIED** and there is **no stale 11-byte RTS text** (`docs/frames.md:356`'s
+   "11 B" is the mobile **CLAIM** frame, unrelated). ⚠ ONE doc line is now WRONG for a different reason:
+   `docs/protocol.md` §2's *"Duplicate suppression is narrowed, never disabled — that is what stops a lost ACK from
+   delivering twice"* is refuted by [[B159]] (21 duplicate deliveries corpus-wide).
+2. **`last_acked_ttl_ms` IS DEAD IN PRODUCTION — CONFIRMED.** Its only references anywhere are its own definition
+   (`lib/core/protocol_constants.h:311`, `= 10000`) plus **exactly two in `test/`** (`test_node_r3.cpp:439` and
+   `:555`, both of the form `CHECK(hal._now < 1000 + protocol::last_acked_ttl_ms)`). **Zero in `lib/` outside the
+   definition, zero in `src/`.** A test wanting the historical 10 s window should use a **test-local named
+   constant**. ⚠ Worth one line when it is removed: the constant carries **no deprecation marker** and sits inside
+   the live NACK-constant run, so a reader cannot tell it is retired — the "mark done-vs-missing IN CODE" rule.
+3. **`test/test_node_r3.cpp:307`'s `CHECK_FALSE(cts->dup)` IS VACUOUS — PROVEN BY MUTATION AT MATCH COUNT 1, not
+   deduced.** With the FRESH CTS forced to emit `already_received = true` on the wire, **5 test cases / 10 assertions
+   go RED** (the mutation is live and the B153 regressions catch it) **but that case still passes 11 / 11.** The
+   three enabling facts, each verified at its line: `struct Ev { … bool dup = false; … }` (`test_node_r3.cpp:~40`);
+   `dup` is assigned **only** when the emit carries the key `"dup"` (`:74`); and the fresh-CTS emit site
+   (`lib/core/node_mac_rx.cpp:451`) carries only `("to","sf")`. ⇒ **not "wrong" and not merely "mislabelled" — it
+   CANNOT FAIL.** ⓘ And at the *other* `cts_tx` site (`:353`) the field is actively misleading: it emits
+   `dup: true` while `:348` sets the wire bit **false**.
+4. **ZERO live producers of `already_received = true` — CONFIRMED.** The only two assignments in `lib/` + `src/` are
+   `node_mac_rx.cpp:348` and `:442`, **both `= false`**. ★ The pre-loaded trap is real and was checked: the
+   `frame_codec.h:177` hit **is prose inside the refutation comment**, not code. The codec still round-trips the bit
+   (`frame_codec.cpp:347/348/368/371`) and `frame_trace.h:71` still *prints* it. ⚠ **One live path still ACTS
+   TERMINALLY on an INBOUND bit:** `node_mac_rx.cpp:560` — `if (c.already_received) { _pending_tx.reset();
+   become_free(); return; }` — with no emit and **no `send_failed`**. Unreachable in a homogeneous fleet (nothing
+   sets it) and deliberate, per §B153, "so a mixed fleet interoperates" — but it is precisely the silent-loss shape
+   B153 condemned, kept live, and it TRUSTS a peer that makes the unsound inference. Recorded, not fixed.
+
+#### §B153-DIAG — THE GATE, AND WHAT WAS DELIBERATELY NOT RUN
+
+| gate | result |
+|---|---|
+| **native** | ★ **1440 cases / 75531 assertions / 0 failed** on the real tree (`pio test -e native`, then the binary run — the wrapper's "0 test cases" is its usual lie). `grep -c "error:"` on the build = **0** |
+| **boards / census** | ⛔ **NOT RUN, AND NOTHING HERE IMPLIES THEY PASSED.** Nothing was changed, so no board build or `warning_census.sh` was executed. ⛔ The 10-env sweep remains UNRUN |
+| **arms** | **8 SCRATCH COPIES** under the `diag-` prefix, each with its own build dir, built and run **sequentially** (never two builds at once) |
+| ★★ **real-tree integrity** | **`git diff HEAD --stat -- lib/core src test` = 18 files / 4264 insertions / 421 deletions — identical to the fingerprint taken before any work.** `lib/core/node_mac_rx.cpp` md5 **`f5f225bf102b5c6f2d3d112f53e75966`**, identical to the value recorded before the diagnosis. ★★★ **And a rebuild of `lus` from the real tree returns `0a770cd6` — the same binary as before — which is the strongest available proof that no `lib/` source moved.** md5s for the record: `node_mac.cpp` `6f6bd442` · `node.h` `c9cec978` · `node.cpp` `18539ad4` · `node_carriers.h` `6b19397b` · `frame_codec.h` `cc492127` · `frame_codec.cpp` `767aabe9` · `protocol_constants.h` `b3ea763d` · `test_node_r3.cpp` `9290d208` · `test_dual_layer.cpp` `62fb1002` |
+
+#### ⚠ §B153-DIAG — EVERY PREMISE THAT TURNED OUT WRONG, INCLUDING MINE
+
+1. ⛔ **§B153's HEADLINE ATTRIBUTION — "(c), retiring the implicit ACK, is the DOMINANT mover (+26477, ~+10 % of
+   `s18`'s events)."** **Wrong as an attribution.** +26477 is the gap between two *cumulative* arms. Isolated,
+   **(c) is +3939 and (a) is +3631**; **74.9 % of the +30108 is a JOINT term belonging to neither.** ⇒ **a cumulative
+   arm difference is not a per-change cost, and a 4-arm ladder cannot tell you so — only single-change arms can.**
+2. ⛔ **§B153's "the replacement is strictly MORE durable (30 s vs the retired gate's 10 s)."** Refuted: duplicate
+   application deliveries **12 → 21** corpus-wide, because the observed retry horizon (**48.2 s**) exceeds the 30 s
+   `_seen_origins` TTL and **a duplicate hit does not refresh the entry**. A longer receiver TTL is not equivalent to
+   never emitting the duplicate DATA at all. ⇒ [[B159]].
+3. ⛔ **MINE, AND QA REFUSED IT CORRECTLY: removal "costs a round trip on every forwarded hop."** Measured: it fires
+   on **1.10 %** of DATA hops and only **0.13 %** are eligible. ⇒ **the claim was not just unquantified, it was the
+   wrong order of magnitude.**
+4. ⛔ **THE BRIEF'S `s18` PREDICTION** (already recorded as falsified in §B153) — now *attributed* rather than
+   merely conceded: wire-identity was never the relevant invariant, and the mover is an INTERACTION between two
+   independently-cheap removals.
+5. ⚠ **"61 firings across 8 corpus scenarios"** — the 61 is **exact**; the scenario count is **9**, not 8.
+6. ⚠ **§B153's airtime table** costs the routing frames at SF7/SF12. `s18` flies routing at **SF8** and DATA at
+   **SF7**; the table's conclusion survives, its numbers are not the ones `s18` pays.
+7. ⚠ **"~+11 % more events" reads as "~11 % more traffic."** It is not: measured airtime for the whole slice is far
+   smaller than the event delta implies, because `rx` multiplicity and routing churn dominate the count.
+8. ✔ **HELD — change (b) is CORPUS-INERT.** Confirmed twice over: as a single-change arm on `s18` (`1cd21235`
+   EXACT) and by a 36-row byte comparison of the adopted corpus against adopted-minus-(b) (**0 differing**).
+9. ✔ **HELD — the documented 61 / 10-in-`s18` firing counts**, reproduced exactly by a probe proven non-perturbing
+   on all 36 rows.
+10. ✔ **HELD — `s27` really is the fix's beneficiary:** +4 unique deliveries, the only scenario that gains more than 2.
+
+### ⛔⛔ §B153 — FENCED: THE REFUTED FIRST DESIGN (a 4-B `flight_id` on the unicast RTS). **NOT IN THE TREE.**
+
+A first implementation appended a 4-byte flight discriminator to the unicast RTS (7 B → 11 B; PLAINTEXT
+`(origin<<16)|ctr`, CRYPTED the nonce-seed folded to 32 bits) and keyed the dedup by it. It was **built, gated and
+measured** — native 1439/75977/0, `s27` 5 → 0, all 36 rows moved, `s18` `504785b9`/277266, RAM Δ0 — and then
+**REFUTED by independent QA, with the owner endorsing the replacement.** ⛔ **Do not resurrect it.** It is recorded
+here because the *argument* against it is the most reusable thing this slice produced:
+
+★★★ **THE REFUTATION, WHICH IS INFORMATION-THEORETIC AND NOT A TUNING JUDGEMENT.**
+> **A 7-byte RTS cannot distinguish (a) a RETRY of message A from (b) the FIRST ATTEMPT of message B sharing the
+> same `(hop src, dst, ctr_lo, payload_len)`. Those two RTS frames are BYTE-IDENTICAL.**
+⇒ **No receiver algorithm can safely return a terminal `already_received = true` from that RTS alone.** More
+receiver state and cleverer matching **cannot recover information that is absent from the frame.** Adding bytes
+"solves" it only by *changing the frame* — and the frame never needed to carry the identity, **because the DATA
+already does.** The refuted design was therefore a correct fix to the wrong problem: it made the RTS able to
+answer a question the RTS should never have been asked.
+
+★★ **THE PRINCIPLE, and it is now stated IN-SOURCE at both sites: `RTS AUTHORIZES RECEPTION; ONLY DATA PROVES
+MESSAGE IDENTITY.`** It is the sharp form of this arc's recurring error — [[B142]] (`LbtKind` alone), [[B133]]
+(`seq` without `InboxKind`), [[B147]] (a hash without the proposed id), [[B153]], [[B157]] — *a terminal decision
+made from evidence that could not support it.* ⓘ The earlier framing ("identity is the tuple; the key omitted a
+field") was **true but shallow**: it invites a wider key, which is exactly the wrong lesson.
+
+### ★★★ §B153 — WHAT ACTUALLY LANDED: TWO RETIREMENTS AND ONE NON-TERMINAL FAST PATH KEPT
+
+| # | change | terminal? | disposition |
+|---|---|---|---|
+| **(a)** | the **`_last_acked_from` lookup in `handle_rts`** answering `CTS already_received = 1`. `handle_cts` treats that as delivered (`_pending_tx.reset(); become_free(); return;`) — **no DATA, no emit, no `send_failed`** | ⛔ YES | **REMOVED.** `already_received` is now **never produced**; the bit is RESERVED in the codec and an INBOUND one is still honoured, so a mixed fleet interoperates and **no `wire_version` bump is needed** |
+| **(b)** | the **pending-RX duplicate-RTS re-CTS** fast path | ✔ NO — it only reissues a CTS (`already_received = false`) and restarts the DATA-wait; the sender must still send the DATA | **KEPT, with `payload_len` added to its match** (QA's condition). ✖ The conservative alternative — drop it and let the BUSY_RX NACK answer every retried RTS — was **considered and rejected**: a NORMAL lost-CTS retry would be answered with a *congestion* verdict, pushing the sender into backoff/cascade against a receiver that is in fact holding its reception for it. Worst case of a wrong match here is a retry, never a lost message |
+| **(c)** | the **implicit ACK from an overheard forward-RTS** (`_pending_tx.reset()` on `next/dst/ctr_lo + payload_len`) | ⛔ YES | **DELETED — and this was NOT in the brief.** See the next section: it is the *second* RTS-derived terminal decision, and `s27` proved the slice cannot be green without it |
+| — | **the DATA-level `_seen_origins` dedup** — canonical `(origin, dst, ctr)` (all 16 bits) or the whole 8-B nonce-seed; fresh → ACK+deliver/forward+record, same-prev-hop dup → **ACK only, returning before `_post_ack`**, different-prev-hop → `LOOP_DUP` NACK | — | **UNTOUCHED — now the sole authority.** ⓘ Verified at the code (V1), not taken on trust: `handle_data`'s `live_dup` early return sits **before** `_post_ack` is set. Its TTL is `seen_origin_ttl_ms` = **30 s** against the retired gate's 10 s ⇒ the replacement is strictly MORE durable. ⛔⛔ **REFUTED BY §B153-DIAG ABOVE: duplicate app deliveries 12 → 21 corpus-wide, because the observed retry horizon (48.2 s) EXCEEDS the 30 s TTL and a duplicate hit does not refresh the entry ⇒ [[B159]]** |
+
+### ★★★★ §B153 — [[B157]]: THE BRIEF ADDRESSED ONE SITE; THE ARGUMENT CONDEMNS **TWO**, AND THE CORPUS PROVED IT
+
+⛔ **Removing the CTS gate alone did NOT make `s27` green.** With (a)+(b) in place, `s27` still had **the same five
+expectations failing**, and the cause was `handle_rts`'s **implicit ACK** — the same wrong tuple, the same terminal
+`_pending_tx.reset()`, the same silent loss, 165 lines earlier in the same function. Its in-source comment credited
+`payload_len` with *"disambiguates a 4-bit ctr_lo wrap"*; it is a **length** and never did.
+
+**MEASURED, frame by frame, in the (a)+(b) run:** at t=361993 gateway G1 drains **both** hosted mobiles' replies to
+home 101 — origins **114** and **111**, both `ctr` 2, both `payload_len` **57**. The origin-114 flight completes
+(`data_tx` 362339, `ack_rx` 362768, `send_acked`). The origin-111 flight airs its RTS at 362768, retries at 363356
+with no CTS (node 103 is busy relaying the first), and at **t=363718** G1 overhears 103 forwarding the **114**
+message to 102 and **credits it to the 111 flight**, which had never transmitted a DATA at all. `re-m3` lost in
+silence. ⇒ **deleted.** Nothing replaces it: the sender waits out its ACK timeout and retries, and that retry is
+safe by the very mechanism this slice rests on.
+⚠ **THE PRICE, STATED PLAINLY:** it fired **61 times across 8 corpus scenarios** (10 in `s18`) — a real saving on a
+real path. ⛔ **CORRECTED BY §B153-DIAG ABOVE: it is NINE scenarios, and "a real saving" holds for AT MOST 7 of the 61 firings — in 46 of 61 the pending flight had never transmitted its DATA, so the credit was a misattribution, not a saving.** Removed anyway, because a saving that silently destroys a message is not a saving.
+
+### ⛔⛔ §B153 — THE `s18` PREDICTION IS **FALSIFIED**, AND HERE IS THE ATTRIBUTION
+
+The brief predicted: *"with RTS back at 7 bytes, the wire is UNCHANGED ⇒ s18 should return to `1cd21235` / 271629
+EXACT."* ⛔ **IT DOES NOT. `s18` is `8687f6a0` / 301737.** The prediction conflated *wire* with *behaviour*: the
+wire really is unchanged, but **removing two mechanisms that FIRED in the corpus necessarily changes the streams.**
+Each retirement replaces a short-circuit with a real exchange, which is more frames, not the same frames.
+
+**A 4-ARM ATTRIBUTION, measured — each arm a build, not an argument** (arms built in **scratch COPIES** against
+`-DMESHROUTE_DIR`, own build dirs, real tree untouched):
+
+| arm | `s18` md5 / events | Δ events | what it isolates |
+|---|---|---|---|
+| pre-slice (S1–S4b) | `1cd21235` / **271629** | — | the baseline the prediction expected to return |
+| **(a)+(b)** — CTS gate removed, `payload_len` added | `3418b8b9` / **275260** | **+3631** | ⇒ **(a) alone costs +3631 events**: every lost-ACK recovery now flies a real duplicate DATA + ACK |
+| **(a)+(c)** — same, but `payload_len` NOT added | `8687f6a0` / **301737** | — | ★★ **identical to the adopted tree on ALL 36 ROWS** ⇒ **change (b) is CORPUS-INERT, 0 of 36** |
+| **(a)+(b)+(c)** = ADOPTED | `8687f6a0` / **301737** | **+26477** vs (a)+(b) | ⛔⛔ **THIS ATTRIBUTION IS CORRECTED BY §B153-DIAG ABOVE — DO NOT QUOTE IT.** +26477 is a CUMULATIVE arm gap, not (c)'s cost: isolated, **(c) is +3939 and (a) is +3631**, and **74.9 % of the +30108 is an INTERACTION term** belonging to neither |
+
+★ **The (a)+(c) arm's corpus diff against the adopted tree is EMPTY on all 36 rows, and that comparison is
+POSITIVELY CONTROLLED** (a poisoned `s18` md5 made it fire). ★ A scratch-copy arm built with **no** modification
+reproduced the live tree's `s18` **byte-for-byte** — the calibration that makes the other arms readable.
+
+### ★★★ §B153 — THE CORPUS: **36/36 AT 0 ASSERTION FAILURES · 21 OF 36 BYTE-IDENTICAL · `s27` 5 → 0**
+
+| scenario | PRE-SLICE md5 / events / fails | ADOPTED md5 / events / fails | moved |
+|---|---|---|---|
+| `s06_seattle_lifecycle` | `c74e0608` / 67009 | `4db46952` / 77155 | **moved** |
+| `s07_seattle_mobile_meshroute` | `81a99cd1` / 112830 | `c351c691` / 114997 | **moved** |
+| `s09_two_layer_gateway` | `f171652c` / 2266 | `f171652c` / 2266 | — |
+| `s09_two_layer_gateway_metal` | `d626eefc` / 2345 | `d626eefc` / 2345 | — |
+| `s10_two_layer_separation` | `0f81a374` / 2266 | `0f81a374` / 2266 | — |
+| `s15_three_layer` | `3dae1b82` / 52488 | `fdb7357f` / 54024 | **moved** |
+| `s15_three_layer_metal` | `f4ef243e` / 52386 | `842b1887` / 53622 | **moved** |
+| `s16_dense_gateway` | `b6d5dfc6` / 26267 | `2ca3ad82` / 26515 | **moved** |
+| `s17_metro` | `b56ab583` / 1181343 | `1eac8411` / 1222039 | **moved** |
+| `s18_meshroute` ★★★ | `1cd21235` / 271629 | `8687f6a0` / 301737 | **moved** |
+| `s19_singlelayer_multihop_chain` | `29a3b1f5` / 1065 | `29a3b1f5` / 1065 | — |
+| `s20_random_mesh` | `a267e553` / 40079 | `03eae11c` / 45235 | **moved** |
+| `s21_leaf_config_divergence` | `172b8646` / 390 | `ffd62fca` / 403 | **moved** |
+| `s21_mobile_dm_milestone_meshroute` | `ec470294` / 680 | `ec470294` / 680 | — |
+| `s22_leaf_config_join` | `69010f6f` / 215 | `806eef38` / 226 | **moved** |
+| `s22_mobile_team_meshroute` | `c6da7f8e` / 1822 | `c6da7f8e` / 1822 | — |
+| `s23_leaf_config_epoch_write` | `20e3f95b` / 219 | `20e3f95b` / 219 | — |
+| `s23_mobile_team_multihop_meshroute` | `c789cfad` / 924 | `c789cfad` / 924 | — |
+| `s24_static_and_team_multihop_meshroute` | `999edd59` / 1583 | `999edd59` / 1583 | — |
+| `s25_two_team_separation_meshroute` | `00813e38` / 792 | `00813e38` / 792 | — |
+| `s26_team_reroute_meshroute` | `110269a7` / 1045 | `54601544` / 1055 | **moved** |
+| `s27_cross_layer_mobiles_meshroute` | `235784e3` / 8510 ⛔5 | `9b65d6a8` / 9230 | **moved** |
+| `s28_mixed_team_channels_meshroute` | `676f44d5` / 3856 | `5906791b` / 3876 | **moved** |
+| `s29_mixed_leaf_team_meshroute` | `1d638865` / 2020 | `1d638865` / 2020 | — |
+| `s30_team_dad_mediation_meshroute` | `db8cdb9b` / 1034 | `db8cdb9b` / 1034 | — |
+| `s31_dual_carrier_gateway` | `da5448a0` / 2300 | `da5448a0` / 2300 | — |
+| `s32_dual_cr_gateway` | `dad00d6c` / 2266 | `dad00d6c` / 2266 | — |
+| `s33_mixed_cr_channel_overhear` | `2e70c4f5` / 2845 | `2e70c4f5` / 2845 | — |
+| `s34_team_switch_clears_plane` | `59310b6b` / 921 | `59310b6b` / 921 | — |
+| `s35a_cochannel_isolation_meshroute` | `585b9cc8` / 2388 | `585b9cc8` / 2388 | — |
+| `s35b_cochannel_isolation_control_meshroute` | `4f49e969` / 1063 | `4f49e969` / 1063 | — |
+| `s36_reprovision_purges_carriers` | `fd11c9a4` / 472 | `fd11c9a4` / 472 | — |
+| `s37_team_homed_origin_meshroute` | `ca80c8b5` / 750 | `ca80c8b5` / 750 | — |
+| `s38_team_origin_learn_meshroute` | `a16ec83c` / 526 | `a16ec83c` / 526 | — |
+| `sim_9node_base` | `04dc4ca0` / 4959 | `98aef0b7` / 5071 | **moved** |
+| `twin_9node_dm` | `cdba2942` / 13837 | `a6cfc5a3` / 13272 | **moved** |
+
+⚠ **The PRE-SLICE column is THIS TREE, measured, not quoted** — it reproduces §MH-S4b's recorded `s27`
+(`235784e3` / 8510 / **5 failures**) and `s18` (`1cd21235` / 271629) EXACTLY, and reproduces §MH-S4b's **8 mobile
+movers** against the `^### 36/36 corpus` anchor table and nothing else. **Those 8 rows remain the owner's separate
+pending ruling** and are now subsumed by this larger one.
+★ **`lus` REBUILD PROVEN:** `c792e696` (§MH-S4b) → **`0a770cd6`**, via `f7e267d7` (the (a)+(b) arm) — 38 then 5
+`Building CXX`/`Linking CXX` actions. ★ **POSITIVELY CONTROLLED + DETERMINISTIC** (see the attribution table).
+
+### ★★★ §B153 — THE RAM RECLAIM. **THIS SLICE MAKES THE NODE SMALLER.**
+
+`_last_acked_from` and `struct LastAcked` are **deleted**, and nothing replaces them — the DATA-level dedup needs no
+per-hop cache. Worth stating on its own because every prior entry in the `sizeof(Node)` ledger *paid* for a fix:
+
+| target | before | after | Δ | why |
+|---|---|---|---|---|
+| **`sizeof(Node)` native** (`MR_N_LAYERS=2`) | 221384 | **221288** | **−96** | measured by template-reveal on the real native flag set: `sizeof(std::map<...>)` is **48** on this libstdc++ and the member is **per-layer** ⇒ 48 × 2 |
+| `sizeof(PendingRx)` | 32 | **32** | 0 | the refuted design's `flight_id`/`team_plane` members went with it |
+| RAM `gateway_heltec` (2 layers) | 239876 | **239828** | **−48** | ⇒ `sizeof(std::map)` is **24** on that toolchain × 2 layers |
+| RAM `heltec_mobile` (1 layer) | 214500 | **214476** | **−24** | 24 × 1 |
+| RAM `heltec_v3` (1 layer) | 214980 | **214956** | **−24** | 24 × 1 |
+| Flash `heltec_v3` | 1270024 | **1268960** | **−1064** | the map, its prune/store loop, and the implicit-ACK block all gone |
+
+⚠ **THE RECLAIM IS PER-LAYER AND THEREFORE PER-ABI, NOT UNIFORM** — a single-layer board reclaims one map, a
+2-layer build two. The `static_assert` in `node.h` is updated with that arithmetic inline.
+
+### ★★ §B153 — THE AIRTIME TRADE, WITH NUMBERS
+
+⛔ **Successful traffic is UNCHANGED — the RTS is still 7 B and CTS/DATA/ACK are untouched ⇒ ZERO cost on every hop
+of every message.** Only recovery pays, and only after an ACK was actually lost (or a forward actually overheard).
+Computed with this repo's `airtime_ms()` at the parameters the path really uses (**verified, V1**:
+`airtime_routing_ms` → `airtime_ms(routing_sf, active_bw_hz(), active_cr(), preamble_sym=16, len)`;
+`platformio.ini` `-DLORA_BW=125.0` kHz, `-DLORA_CR=5`; DATA = `18 + inner_len`, the expression
+`start_ack_timeout` itself uses):
+
+| SF | body | OLD recovery `retryRTS + already_received CTS` | NEW recovery `retryRTS + CTS + dup DATA + ACK` | Δ | ratio |
+|---|---|---|---|---|---|
+| 7 | 20 B | 83 ms | **212 ms** | +129 ms | 2.55× |
+| 7 | 60 B | 83 ms | **268 ms** | +185 ms | 3.23× |
+| 7 | 200 B | 83 ms | **473 ms** | +390 ms | 5.70× |
+| 12 | 20 B | 2342 ms | **5667 ms** | +3325 ms | 2.42× |
+| 12 | 60 B | 2342 ms | **6978 ms** | +4636 ms | 2.98× |
+| 12 | 200 B | 2342 ms | **11565 ms** | +9223 ms | 4.94× |
+
+⇒ **the price is ONE redundant DATA on a failure path**, in exchange for never silently destroying a message on a
+success path. ⓘ Retiring the implicit ACK (c) is the larger of the two costs — see the attribution table.
+
+### ★★★★ §B153 — THE SIX REQUIRED REGRESSIONS, AND THE ANTI-VACUITY BATTERY THAT MAKES THEM MEAN SOMETHING
+
+All in `test/test_node_r3.cpp`. ⛔ Every one asserts an **observable side effect** — delivered payloads collected in
+order, or ACK/CTS/NACK frames **parsed back off the wire** — never a bare counter or flag.
+
+| # | case | what it pins |
+|---|---|---|
+| **1** | the exact `s27` collision: two **different origins**, one relay, **identical** `src`/`dst`/`ctr_lo`/**full `ctr`**/`payload_len` | **both** bodies delivered (`re-m1`, `re-m3`); **no CTS on the wire carries `already_received`** |
+| **2** | **plaintext ACK loss** | `data_rx` **twice** at the MAC · the application delivered **exactly once** (`"hi"`) · **two ACKs on the wire** to the sender at the right `ctr_lo` so it completes · zero NACKs |
+| **3** | **CRYPTED ACK loss** | the duplicate recognised by the **full 8-B nonce-seed**: received twice, the post-ACK open runs **once**, retry ACKed — **plus a differential control**: one seed byte changed (same origin/dst/ctr) is a DIFFERENT message and opens again |
+| **4** | one origin whose **4-bit `ctr_lo` has WRAPPED** (`ctr` 2 vs 18) — identical OLD RTS tuple | both delivered (`wrap-a`, `wrap-b`); no `already_received` on the wire. This is the half *"just add the origin"* would still have lost |
+| **5** | the same message via a **DIFFERENT prev-hop** | a **`LOOP_DUP` NACK parsed off the wire** (reason 3, to the right peer) · **no ACK** for the looped copy · no second delivery |
+| **6** | ★★ **the anti-vacuity battery** — 5 mutations, each asserted at **MATCH COUNT == 1**, applied in place, restored in a `finally`, md5 re-verified | below |
+
+| mutation | 1 | 2 | 3 | 4 | 5 | what it establishes |
+|---|---|---|---|---|---|---|
+| **M-B153B-1** the DATA dedup **verdict** defeated (`live_dup` forced false) | green | **RED** | **RED** | green | **RED** | the verdict is load-bearing |
+| **M-B153B-2 ★** the dedup's **early RETURN** removed (verdict computed, not acted on) | green | **RED** | **RED** | green | green | ★★ **QA's required control: 2 and 3 CANNOT be passing because the duplicate is never reached** |
+| **M-B153B-3 ★** the CRYPTED key **ignores the nonce-seed** | green | green | **RED** | green | green | ★★ test 3 really tests **seed identity**, not generic dedup |
+| **M-B153B-4** the different-prev-hop (loop) discriminator defeated | green | green | green | green | **RED** | the `LOOP_DUP` branch is live, not dead code |
+| **M-B153B-5 ★** the retired **`already_received` re-emitted** on the normal CTS | **RED** | **RED** | **RED** | **RED** | green | the "no CTS claims prior receipt" assertions are live |
+
+★ **RESTORATION CONTROL FIRED:** `node_mac_rx.cpp` md5 `b5363972` before and after the battery, and a post-restore
+rebuild returned all five cases to 0 failures.
+★★★ **M-B153B-5 CAUGHT A COVERAGE GAP IN MY OWN TESTS, and it is worth recording because it is a trap in this
+harness:** the four cases originally asserted `Ev::dup` from the `cts_tx` telemetry — but **the fresh-CTS emit site
+carries only `("to","sf")` and no `dup` field at all**, so `CHECK_FALSE(ev->dup)` was **VACUOUSLY TRUE** and stayed
+true with the bit set on the wire. All five mutations ran green until the cases were re-pointed at
+`parse_cts(...)->already_received`. ⇒ **assert the BIT, never the telemetry field.** That distinction — *inert*
+versus *coverage gap* — is exactly what the battery exists to separate, and here it was a coverage gap.
+
+### §B153 — THE GATE (D1). WHAT RAN, AND WHAT DID NOT
+
+| gate | result |
+|---|---|
+| **native** | ★ **1440 cases / 75531 assertions / 0 failed** (pre-slice baseline **1436 / 75488 / 0**) ⇒ **+4 cases, +43 assertions**. ⓘ The assertion count is only slightly up because this slice **removes** tests too: the case that PINNED `already_received` and the two `_last_acked_from` per-leaf non-aliasing checks in `test_dual_layer.cpp` are gone with the mechanism (replaced, not dropped silently — see below). `grep -c "error:"` on the build = **0** |
+| **corpus** | ★★ **36/36 run. ALL 36 AT 0 ASSERTION FAILURES (`s27` 5 → 0). 21 of 36 BYTE-IDENTICAL, 15 movers.** ⛔ **`s18` moved and the prediction is falsified** — attributed above by a 4-arm build matrix. Machine-compared name+md5+event-count, 36 rows each side; **positively controlled**; PRE-SLICE arm **calibrated** against §MH-S4b's recorded state |
+| **`lus`** | `c792e696` → **`0a770cd6`** (38 then 5 build actions, rebuild PROVEN) |
+| **`sizeof(Node)`** | ★ **221384 → 221288 (−96)**, tripwire updated with the per-layer arithmetic inline. `sizeof(PendingRx)` **32, unchanged** |
+| **`TimerWheel::kCap`** | **91, UNCHANGED**; highest timer id still **90**. `lib/hal/` is not in the diff |
+| **boards** | ⛔ **`tools/warning_census.sh` ONLY (3 envs), per owner instruction — the other SEVEN full links were NOT run and nothing here implies they passed; the 10-env sweep is UNRUN.** ★ **PASS: 174 / 178 / 178 @ 326 objects, `-Wswitch` 0 ×3 — exactly the pinned baseline, nothing re-pinned.** ★ **RAM RECLAIMED on every env** (−48 / −24 / −24; table above), flash `heltec_v3` **−1064** |
+| **probes** | **both re-run, rc=0, identical to §MH-S4b:** `probe_board_ui` **68 passed / 0 failed / 68 total + structural 13/13 + wiring 13/13, 19 negative controls RED, 23 controls run**, real source md5-verified unchanged · `probe_firmware_ui` **31 checks, 26 of 31 reddened by a control, 17 controls verified / 0 unusable, PASS** |
+| **M2** | **Part 14 REWRITTEN** in `docs/2026-07-31-bench-test-script.md`. ⓘ The wire did NOT change, so the mixed-firmware entry the refuted design needed is **gone**; what remains is only what no gate can reach — 14.1 a real lost ACK must still deliver exactly once, 14.2 the recovery airtime on a real radio, 14.3 the three-board flight the implicit ACK used to cancel |
+| **docs** | `docs/frames.md` (RTS back to 7 B; the refuted tail fenced; CTS `already_received` marked reserved/never-emitted) · `docs/protocol.md` §2 (rewritten around the principle + the airtime trade) |
+
+### ⚠ §B153 — EVERY PREMISE THAT TURNED OUT WRONG, MINE AND THE BRIEF'S
+
+1. ⛔ **MINE — the whole first design.** I built a 4-B `flight_id` RTS tail, gated it, and reported it as the fix.
+   It was a correct fix to the wrong problem: the RTS should never have been asked the question. **The lesson I
+   missed is that "the key omits a distinguishing field" invites a WIDER KEY, when the right response was to
+   notice the frame cannot carry the answer at all.**
+2. ⛔ **THE BRIEF'S `s18` PREDICTION** — *"the wire is UNCHANGED ⇒ s18 should return to `1cd21235`/271629 EXACT."*
+   **Falsified: `8687f6a0`/301737.** Wire ≠ behaviour; retiring two mechanisms that FIRED in the corpus must move
+   the streams. Attributed by a 4-arm matrix rather than explained away.
+3. ⛔ **THE BRIEF'S SCOPE — one site, not two.** Items 1–8 addressed the CTS gate only. `s27` stayed RED with the
+   **same five expectations** until the **implicit ACK** was deleted, because it is the *second* terminal decision
+   derived from an RTS. **A slice that had stopped at item 8 would have shipped the argument and a red keystone
+   scenario.**
+4. ⛔ **MINE — `Ev::dup` was a vacuous assertion** in four cases; only the mutation battery found it (see above).
+5. ⛔ **MINE, PROCEDURAL AND IT COST REAL WORK:** deleting the old regression block with an unbounded
+   `str.index(next TEST_CASE)` matched ~3000 lines later and **destroyed most of `test_node_r3.cpp`**. It was
+   recoverable only because an earlier scratch `rsync` snapshot existed — ⛔ `git checkout` was NOT available,
+   the file carries uncommitted §MH-S4b work. **Bound every delete range, and never trust `index()` to find "the
+   next" anything.**
+6. ⚠ **"Removing the gate is a pure revert."** It is not — it is a **behaviour change** (a short-circuit becomes a
+   real exchange). That is why (a) alone costs +3631 `s18` events.
+7. ✔ **The brief's item 5 was ACCURATE and verified at the code (V1)**, not taken on trust: `handle_data` keys on
+   `(origin, dst, ctr)` / the nonce-seed, and the `live_dup` early return really does sit **before** `_post_ack`.
+   ⓘ Its TTL is **30 s**, three times the retired gate's 10 s — the replacement is more durable, which the brief
+   did not claim and which is worth knowing.
+8. ⚠ **Change (b) (`payload_len` in the pending-RX match) is CORPUS-INERT — 0 of 36 rows.** It is kept on
+   correctness grounds, not measured benefit; the honest statement is that nothing in the corpus exercises it.
+
+### §B153 — FILES
+
+`lib/core/frame_codec.h` (RTS back to 7 B; the `already_received` retirement + its argument) ·
+`lib/core/frame_codec.cpp` (`pack_rts`/`parse_rts` reverted) · `lib/core/node_mac.cpp` (`buf[9]`, no stamping) ·
+`lib/core/node_mac_rx.cpp` (the RTS gate REMOVED, the implicit ACK DELETED, the pending-RX match + `payload_len`,
+the DATA-time store removed) · `lib/core/node_carriers.h` (`struct LastAcked` deleted; `PendingRx` back to 32 B) ·
+`lib/core/node.h` (`_last_acked_from` deleted, `rts_flight_key` gone, `sizeof(Node)` tripwire) · `lib/core/node.cpp` ·
+`test/test_node_r3.cpp` (six regressions; two retired cases replaced) · `test/test_dual_layer.cpp` ·
+`test/test_frame_codec.cpp` · `test/test_node_channel.cpp` · `docs/frames.md` · `docs/protocol.md` ·
+`docs/2026-07-31-bench-test-script.md` · `docs/2026-07-30-open-bug-register.md` · this file.
+
+---
+
+## ★★★★★★★★★★★★★★★★★★★★★★ 2026-08-08 §MH-S4 — THE CONFIRMED-ATTACHMENT FSM + THE TWO INDEPENDENT PLANES. ⛔ UNCOMMITTED (D4). ⛔ NO OWNER OR QA APPROVAL IS CLAIMED.
+
+Slice S4 of `docs/superpowers/specs/2026-08-07-mobile-home-attachment-reliability-design.md` (§4.1 · §4.2 · §6.4 ·
+§7 · §10 · §11 S4 · §12.1). ⛔ **The `^### 36/36 corpus` ANCHOR TABLE IS NOT EDITED** — re-anchoring is the owner's
+ruling; the new picture is reported below for a single decision.
+
+---
+
+### ★★★★★★ §MH-S4b (2026-08-08) — THE SIX QA FINDINGS, FIXED IN PLACE. ⛔ **NOT APPROVABLE AS-IS: `s27` IS RED AND NEEDS AN OWNER CALL ([[B153]]).** ⛔ UNCOMMITTED (D4). ⛔ NO OWNER OR QA APPROVAL IS CLAIMED.
+
+Independent QA returned five blocking contract defects plus one smaller one against the §MH-S4 body below. **All
+six landed.** This sub-note is inserted at the head of §MH-S4 and **supersedes it wherever they disagree**; §MH-S4's
+body is left as the audit trail (B101). ⛔ **Nothing below claims an owner or QA approval, and no measurement is
+quoted that was not made in this pass.**
+
+#### THE SIX FIXES
+
+| # | finding | what landed |
+|---|---|---|
+| **1** | the required SHORT SEARCHING confirmation probe was missing — `presence_on_adopt` armed the **120 s** steady period and the fire sent a **SELECTED** probe (which a home that missed the CLAIM is required to IGNORE) and spent a re-CLAIM **in the same callback** | §7.1 step 3 is now **two deadlines and a substate**. `presence_claim_solicit_ms` **3000** → a **SEARCHING** probe (`selected_home_id = 0`) → `_mobile_claim_solicited = true` → `presence_claim_confirm_ms` **12000** → *only then* a re-CLAIM. New `bool _mobile_claim_solicited` (**+0 bytes, measured**), accessor `mobile_claim_solicited()`, surfaced as `claim_solicited`. `presence_claim_confirm_ms` is **sized against the home's own roster rate limit** and a `static_assert` pins `>= presence_roster_min_interval_ms + presence_roster_coalesce_max_ms` |
+| **2** | local transmitter refusals consumed the re-CLAIM budget ⇒ `claim_unconfirmed` with **no re-CLAIM ever on the air** | `mobile_reclaim_send()` now **returns whether our transmitter admitted it**, and `presence_claim_unconfirmed` reads `if (mobile_reclaim_send()) ++_mobile_claim_retries;`. ★ The boundary is stated and was CHECKED, not assumed: `tx_initiating` answers **true** for a frame accepted into the LBT defer ring, so a **deferred** re-CLAIM legitimately counts; the one refund case is a deferred frame the HAL later refuses, handled by the new `mobile_reclaim_deferred_rejected()`, which ⛔ also keeps it OUT of `mobile_admission_rejected` (the pre-attachment backoff). Its discriminator is `_mobile_claim_pending` + `active` + `claiming` — the [[B147]] rule of identifying the transaction before acting on it |
+| **3** | `mobile unregister` was internally contradictory: `dormant` was **forced** while both predicates stayed true on any `autoregister=1` device, nothing scheduled a replacement, and the test **injected the timer production had just cancelled** | **`_mobile_home_desired` IS the effective session state**, seeded from `mobile_autoregister` at `on_init`, and `registration_armed()`/`mobile_service_desired()` read it **directly**. The `dormant` override in `mobile_unregister` is **DELETED** — the derivation is now correct on its own, which is the proof the predicate was fixed. `cfg set mobile_autoregister 1` bridges OFF→ON through `mobile_register_current()` (src-side, corpus-unreachable); ON→OFF deliberately does nothing (§4.2). `clear_routing_state` **re-seeds from the flag** instead of clearing — behaviour-preserving at that site, and without it an `autoregister=1` mobile could never re-register after a `join`/`create`/`leave` |
+| **4** | the 64-bit confirmation age was cast to `uint32_t` in `src/firmware_config.cpp` ⇒ the displayed age **wrapped at ~49.7 days** | `MobileStatusFields::home_confirm_age_ms` is **`uint64_t`**, serialized with `JsonBuf::i64` (device-safe hand-rolled digits — `u32` was the bug and newlib-nano has no `%lld`), and the cast is gone. 64 bits **end to end**, pinned three ways: a serializer case above `UINT32_MAX` that also asserts the truncated value `705032704` does **not** appear, a `static_assert` on the field's size, and a core case driving the accessor 5 000 000 000 ms past its stamp |
+| **5** | §10 diagnostics still incomplete — the OFFER counters were **native-only accessors** with the debt explicitly assigned to S4 | **Both are now device-visible**: `status` text `offerfull=` / `offerrej=` and JSON `offer_full` / `offer_reject` (unconditional — a diagnostic `0` is a reading, not an absence). `retry_window_ms` added. The **CONFIRMED** third of §10's scheduled/admitted/confirmed log triple had **no metal surface at all** (`MR_EMIT` is device-stripped) and is now a `_hal.log` naming the re-CLAIM count. ★ The two remaining fields are **REASSIGNED BY NAME IN THE OPERATIVE SPEC** (new **§10 FIELD LEDGER**) and registered as [[B154]]: *next-attempt remaining delay* → **S5** (needs a `Hal` pending-timer accessor across device/sim/fakes, and is ⛔ deliberately not faked from a nominal), *host `routes` rows as direct-or-redirect plus age* → **S5** (§9's row-lifetime work) |
+| **6** | `mobile_attach_confirmed.reclaims` was **structurally always 0** (the counter was cleared on the line above the emit) | snapshotted into `reclaims_spent` **before** the clear, and gate 7 now asserts a **NON-ZERO** value (`== 1`) on the healed path — the value, not the presence of the field |
+
+#### THE STATE COST: **+0 BYTES, MEASURED ON ALL FIVE ABIs**
+
+`sizeof(Node)` native **221384 → 221384** — the existing tripwire never moved, so the build itself is the proof.
+`_mobile_claim_solicited` takes one of the **six** bytes of alignment pad after `_presence_home_rx_q4` (the very hole
+§MH-S4's DECLINED `uint32_t` stamp variant would have used); the hole shrinks to five. **Fourteenth** application of
+the padding-placement rule.
+
+★ **THE PER-ABI COMPILE-ONLY REVEAL — and it is CALIBRATED, because every cell reproduces §MH-S4's AFTER column
+exactly:**
+
+| env | toolchain | profile | §MH-S4 | §MH-S4b | Δ |
+|---|---|---|---|---|---|
+| `xiao_sx1262` | arm-none-eabi | full | 117480 | **117480** | **+0** |
+| `xiao_esp32s3` | xtensa-esp32s3 | full | 117480 | **117480** | **+0** |
+| `xiao_mobile` | arm-none-eabi | `MR_PROFILE_MOBILE` | 117448 | **117448** | **+0** |
+| `xiao_esp32s3_mobile` | xtensa-esp32s3 | `MR_PROFILE_MOBILE` | 117448 | **117448** | **+0** |
+| `gateway` | arm-none-eabi | `MR_PROFILE_GATEWAY` | 148072 | **148072** | **+0** (`MR_FEAT_MOBILE 0`) |
+
+⚠ The `gateway` cell is trivially unmoved; **the evidence is the four mobile-enabled ABIs.**
+⚠⚠ **AND THE FIRST TWO ATTEMPTS AT THIS REVEAL MEASURED NOTHING — reported because it happened (D3).** (a) `pio run`
+after a `node.h` edit is a **5-second no-op** in this tree (scons did not recompile `lib/core` from the header
+touch), so the per-env object had to be **deleted** first. (b) The reveal was then placed beside the `sizeof(Node)`
+tripwire — which lives inside **`#ifdef MESHROUTE_NATIVE`**, so it was compiled OUT on every board and printed
+*"NOT FOUND"* five times. ★ **An instrument that reports nothing is not a passing gate**; both were fixed and the
+numbers above come from a reveal that provably fired.
+
+#### THE GATES THAT RAN, AND THE ONES THAT DID NOT
+
+★ **RUN:**
+
+- **native:** `pio test -e native` then **RUNNING the binary** (the wrapper's *"0 test cases"* is false):
+  ★ **1436 / 75488 / 0** (baseline **1433 / 75309 / 0** ⇒ **+3 cases, +179 assertions**, a RISE as expected).
+  **`grep -c "error:"` = 0**, counted beside it.
+- **`tools/warning_census.sh`: PASS — 174 / 178 / 178 @ 326 objects, `-Wswitch` 0**, identical to the pinned
+  baseline. ⛔ Nothing re-pinned.
+  ⚠ **IT CAUGHT A REAL NEW WARNING FIRST, and that is reported rather than smoothed over:** the first run read
+  `gateway_heltec` **175 vs 174** — a `-Wunused-but-set-variable` on the `cfg set mobile_autoregister` transition
+  capture, which is unused when `MR_FEAT_MOBILE` is 0. Fixed with an explicit `(void)` in the `#else` arm; the
+  re-run returns exactly 174. **Warnings are gate-blocking, and this is the measurement that shows the gate works.**
+
+| env | RAM | Δ vs the brief's baseline | Flash | Δ |
+|---|---|---|---|---|
+| `gateway_heltec` | **239876** (73.20 %, tightest) | **+0** | 1235672 | +72 vs 1235600 |
+| `heltec_mobile` | **214500** | **+0** | 1263584 | +724 vs 1262860 |
+| `heltec_v3` | **214980** | **+0** | 1270024 | **+736** vs 1269288 |
+
+★ **RAM +0 on all three, including the tightest board** — which agrees with the per-ABI `sizeof(Node)` reveal and is
+what calibrates it. ⓘ **The flash growth is fully attributable and is `src/`-ONLY**: findings 4 and 5 add
+device-visible code and strings — the two `status` counters (text + JSON), `retry_window_ms`, `claim_solicited`,
+`i64` in place of `u32` for the age, and three `_hal.log` literals. `gateway_heltec`'s +72 is the `status` half
+alone (`MR_FEAT_MOBILE 0` strips the mobile-status half), which is exactly the expected shape.
+⚠ Some of these deltas are within [[B138]]'s deterministic `__TIME__` noise band (±8/16) and are **not** claimed to
+be exact to the byte; the +736 / +724 / +72 pattern is far outside it and is the real figure.
+
+- **s18 keystone `1cd21235` / 271629 — EXACT.** ★ **EVERY STATIC ROW BYTE-IDENTICAL** (28 of 36) — a static mover
+  would be a leak; there is none.
+- **`kCap` 91, top timer id 90, NO new timer id** — the solicitation and the confirmation deadline both ride the
+  EXISTING `kPresenceProbeTimerId`. Already asserted by `test/test_timer_wheel.cpp:81-82`, green in the suite.
+- **`lus` rebuilt `634c7b35` → `c792e696`, rebuild PROVEN not assumed: 40 `Building CXX`/`Linking CXX` actions.**
+  ★ **RESTORATION CONTROL FIRED** — after the BEFORE arm, a rebuild of the restored tree reproduced **`c792e696`**.
+- **both probes re-run, `rc=0`, identical to §MH-S4:** `probe_board_ui` **68 passed / 0 failed / 68 total**, +
+  structural **13/13**, wiring **13/13**, **19 negative controls verified RED**, 23 controls run, real source
+  md5-verified unchanged by the run · `probe_firmware_ui` **PASS**, 26 of 31 checks reddened by at least one
+  control, **17 controls verified / 0 unusable**.
+
+⛔ **SKIPPED BY OWNER INSTRUCTION — and NOT claimed as passing:** the other **seven** envs' full link builds
+(`xiao_sx1262`, `xiao_esp32s3`, `gateway`, `gateway_esp32s3`, `production`, `xiao_mobile`, `xiao_esp32s3_mobile`).
+The owner reduced the board gate to the per-ABI compile-only reveal + the census. ⓘ Four of those seven were
+nevertheless **compiled** (not linked) by the reveal, and `xiao_sx1262` additionally linked clean as a by-product
+(`rc=0`, RAM 169420 / 71.9 %). ★ **Nothing in the census or the reveal moved that I cannot attribute**, so the
+10-env sweep is **not** flagged as owed on those grounds — the RAM figures are +0 across the board and the flash
+figures are accounted for line by line above.
+
+#### ★★★★ THE CORPUS: **s18 EXACT · 28 ROWS BYTE-IDENTICAL · 8 MOBILE MOVERS · ⚠ `s27` NOW RED (5 assertion failures)**
+
+**36/36 run.** Machine-compared name + md5 + event count, 36 rows each side.
+
+★★★★ **THE BEFORE ARM IS PERFECTLY CALIBRATED, WHICH IS WHAT MAKES THE ATTRIBUTION A MEASUREMENT:** fourteen
+targeted reverts of every §MH-S4b change that can touch a stream (**each anchor asserted at exactly one match**),
+`lus` rebuilt from it to a provably different `26dafcf0`. ⇒ **that arm reproduces ALL 36 ROWS of §MH-S4's own
+reported state byte-exactly** — its eight movers (`6981a954`/109418 · `176621ed`/684 · `5945fdf7`/1821 ·
+`d5ea28b2`/1557 · `7c99862e`/9977 · `cde63f9a`/3854 · `9013ea86`/2036 · `4fd09d95`/749) **and** the 28 anchor-table
+rows, s18 included. **0 mismatches.** Nothing was left over.
+
+⚠ **THE 14th REVERT IS THE ONE WORTH READING: `_hal.log` IS SIM-VISIBLE.** The device log added for §10's CONFIRMED
+state surfaces as a `script_log` event (s27: 1 → 9). A slice that had called it "device-only, therefore
+corpus-inert" would have been wrong and the calibration would not have closed — the same trap §MH-S4 hit with the
+`push` move.
+
+| scenario | BEFORE (= §MH-S4) | §MH-S4b | Δ events |
+|---|---|---|---|
+| `s07_seattle_mobile_meshroute` | `6981a954` / 109418 | **`81a99cd1` / 112830** | +3412 |
+| `s21_mobile_dm_milestone_meshroute` | `176621ed` / 684 | **`ec470294` / 680** | −4 |
+| `s22_mobile_team_meshroute` | `5945fdf7` / 1821 | **`c6da7f8e` / 1822** | +1 |
+| `s24_static_and_team_multihop_meshroute` | `d5ea28b2` / 1557 | **`999edd59` / 1583** | +26 |
+| `s27_cross_layer_mobiles_meshroute` | `7c99862e` / 9977 | **`235784e3` / 8510** ⚠ **5 assertion failures** | −1467 |
+| `s28_mixed_team_channels_meshroute` | `cde63f9a` / 3854 | **`676f44d5` / 3856** | +2 |
+| `s29_mixed_leaf_team_meshroute` | `9013ea86` / 2036 | **`1d638865` / 2020** | −16 |
+| `s37_team_homed_origin_meshroute` | `4fd09d95` / 749 | **`ca80c8b5` / 750** | +1 |
+
+⚠ **THE SAME EIGHT ROWS S1/S2/S3/S4 ALL MOVED** — every mobile-plane scenario, and no other. **35 of 36 rows have
+0 assertion failures**; `s27` is the exception and it is [[B153]], below.
+
+**EVERY MOVER ATTRIBUTED TO A BEHAVIOUR, and none of them is a new draw SITE:**
+
+| # | mechanism | kind |
+|---|---|---|
+| 1 | the claiming probe is **SEARCHING**, so every eligible home answers it (finding 1) | **BEHAVIOUR** — different rosters on the air |
+| 2 | the confirmation deadline is **3 s + 12 s**, not 120 s, and is **two** fires (finding 1) | **BEHAVIOUR** — the whole mobile schedule re-phases; this is the dominant term |
+| 3 | a re-CLAIM is spent only when **admitted** (finding 2) | **BEHAVIOUR** — fewer/other J CLAIM frames |
+| 4 | `_mobile_home_desired` seeded at `on_init` and read directly (finding 3) | ⛔ **VALUE-IDENTICAL in the corpus** — the seed IS `_cfg.mobile_autoregister` and no scenario can reach the console verbs, so the predicate holds the same value at every point. It is in the arm only to keep the arm complete |
+| 5 | the CONFIRMED `_hal.log` (finding 5) | **telemetry**, and sim-visible (`script_log`) |
+| 6 | `presence_probe_tx`'s `searching` field now reports `1` while claiming | telemetry |
+| 7 | `reclaims` is no longer structurally 0 (finding 6) | telemetry |
+
+⛔ **NO NEW RNG DRAW SITE — and the honest statement of what DID change.** All timing still comes from the ONE
+pre-existing `rand_range` in `presence_arm_check`, and `test_node_join.cpp`'s draw-inventory case (section **E**,
+extended in place) now pins **three** per-fire figures at exactly one draw each: the solicitation fire, the
+confirmation fire and the attached steady-state fire. ★ **What changed is the NUMBER OF DEADLINES**: a claiming
+round spends **two** draws where §MH-S4 spent one, and that is asserted as a number (`rand_calls == 2` per round)
+rather than left to be discovered. A slice that had claimed "the same number of draws" would have been wrong.
+
+#### ⚠⚠ `s27` IS RED, THE CAUSE IS **PRE-EXISTING**, AND IT NEEDS AN OWNER CALL — [[B153]]
+
+⛔ **This is why §MH-S4b is reported as NOT APPROVABLE AS-IS.** All **five** of s27's script-expectation failures
+trace to **ONE lost frame**, and the loss mechanism is proven at the code, not inferred:
+
+- at **t=361993** G1 drains **two** XL handoffs with **identical `(dst=101, ctr=2)` and DIFFERENT origins (114 and
+  111)**. The first is sent and ACKed (`origin 114`, t=362768). The second gets its `rts_tx`, gets a `cts_rx` at
+  t=363117, and then **nothing** — no `data_tx`, no emit, no `send_failed`. M3's `re-m3` is never delivered.
+- **the code:** `node_mac_rx.cpp`'s last-acked dedup key is `(rts_src << 24) | (dst << 16) | (ctr_lo << 8) |
+  payload_len` — **no origin**. Inside `last_acked_ttl_ms` the receiver answers `CTS already_received = 1` and
+  `handle_cts` does `_pending_tx.reset(); become_free(); return;`. ★ A **gateway creates this case by design**:
+  two hosted mobiles' delegated XL DMs share the relay, the destination home, a 4-bit `ctr_lo` and a payload length.
+- **a machine scan of every `xl_handoff_drained`** shows the cross-origin collision in the §MH-S4b run and **not**
+  in the calibrated BEFORE run (where the two DMs happened to carry `ctr` 2 and 4). ⇒ **§MH-S4b changed the timing
+  that exposed it; it did not create it.**
+- the other four failures are **knock-ons of that one**: M1 never caches M3's pubkey (it arrived with `re-m3`), so
+  `sealed-to-m3`, `sealed-re-m3` and `post-m3` cannot complete.
+
+⛔ **NOT FIXED HERE — and it is not a local fix.** The RTS carries **no origin and no full `ctr`**, so a relay
+cannot distinguish the two flights from the frame it is answering. Closing it needs a design/wire decision
+(M3: wire changes are FREE), its own slice, and it is squarely outside S4's plane (C1). Registered as **[[B153]]**
+with the frame-level evidence and three candidate shapes for the ruling.
+
+★ **THE SHAPE: the identity is the TUPLE** — the fourth appearance in this arc ([[B147]] hash without proposed id,
+[[B133]] `seq` without `InboxKind`, [[B142]] `LbtKind` alone) and the **first on the MAC plane**. ⓘ The code's own
+comment reasoned about the wrong axis: *"the TTL gate is what stops a stale 4-bit `ctr_lo` alias from
+false-positiving on slow sustained traffic"* — aliasing over TIME, not two ORIGINS inside one window.
+
+#### THE MUTATION BATTERY — **13 MUTATIONS, EVERY ANCHOR ASSERTED AT EXACTLY ONE MATCH, ALL 13 RED**
+
+A 0-match replacement silently no-ops and then reads as *"the test is vacuous"* — backwards. The harness **refuses**
+to apply unless the count is 1, and prints it.
+
+| # | mutation | matches | RED |
+|---|---|---|---|
+| M-S4b-1 | adopt arms the STEADY period again (§MH-S4's 120 s) | 1 | 2 cases / 2 assertions |
+| M-S4b-2 | ★ the claiming probe is **SELECTED** again (finding 1's core) | 1 | 2 cases / **9** assertions |
+| M-S4b-3 | the solicitation arm spends a re-CLAIM instead of waiting | 1 | 4 cases / 44 assertions |
+| M-S4b-4 | ★ the budget is spent by the **REQUEST** again (finding 2) | 1 | **the refusal case ONLY** / 13 assertions |
+| M-S4b-5 | the deferred refund is removed (`--` deleted) | 1 | the deferred case ONLY / 1 assertion |
+| M-S4b-6 | `mobile_reclaim_deferred_rejected()` always answers false | 1 | the deferred case ONLY / 3 assertions |
+| M-S4b-7 | ★ the OR-ed predicates restored (finding 3's defect) | 1 | `mobile unregister` ONLY / 3 assertions |
+| M-S4b-8 | ★ `reclaims` reads the cleared counter again (finding 6) | 1 | gate 7 ONLY / 1 assertion |
+| M-S4b-9 | ★ the `u32` cast restored in the serializer (finding 4) | 1 | `write_mobile_*` ONLY / 3 assertions |
+| M-S4b-10 | the two `status` OFFER counters dropped (finding 5) | 1 | `write_status` ONLY / 1 assertion |
+| M-S4b-11 | the `on_init` session seed deleted | 1 | **11** cases / 103 assertions |
+| M-S4b-12 | the confirmation-deadline fork removed | 1 | 4 cases / 51 assertions |
+| M-S4b-13 | ★ the age accessor narrowed to `uint32_t` | 1 | the UINT32_MAX case ONLY / 2 assertions |
+
+★ **RESTORATION CONTROL FIRED on every one** (md5 re-verified after each), and the restored tree re-ran to
+**1436 / 75488 / 0**. ⛔ **No mutation reddened nothing** — there is no inert mutation and no coverage gap this
+round.
+
+#### TESTS REWRITTEN IN PLACE (B101 — nothing deleted, nothing disabled)
+
+- **§S0-4** — SIDE C rebuilt around the ask/wait pair: the probe is read off the WIRE and asserted `searching()`,
+  the ask is shown to spend **no** budget, and the give-up window **moves from 135 000 ms to 60 000 ms**
+  (4 × (3 000 + 12 000), asserted both as the formula and as the literal). ★ §MH-S4 kept 135 s deliberately and
+  said so; §MH-S4b moves it because the reason it was 135 s was itself the defect. **The figure that matters is the
+  FIRST one, not the last: the first ask is now ~3 s, where §MH-S4 asked nothing for 120 s.**
+- **`mobile unregister`, arm (b)** — ⛔ **both its assertion and its METHOD were wrong.** It concluded that an
+  `autoregister=1` device "re-seeks by licence" and demonstrated that by hand-firing the timer the verb had just
+  cancelled. It now drives a **REAL `meshroute::TimerWheel`** through the production drain: after the verb the
+  wheel holds none of the three mobile-FSM timer ids, a 20-minute drain fires none of them and airs neither a
+  DISCOVER nor a probe, and autonomy is then shown resuming **from a production path only** — `mobile register`,
+  whose own `after(0, …)` the same drain picks up.
+- **section (E)** of the draw-inventory case, **gate 7** (now also asserting `reclaims == 1`), the
+  budget-cannot-reset-itself case, and both `test_console_json.cpp` shape cases.
+- **THREE NEW CASES:** the immediate-refusal case (with a negative control proving the roster-absent trigger
+  really does exhaust the budget when the radio works), the deferred-refund case (with a control proving a FIRST
+  CLAIM still takes the pre-attachment path), and the `UINT32_MAX` age case.
+
+#### ★★ EVERY PREMISE OF MINE THAT TURNED OUT WRONG
+
+1. ⛔ **"A `pio run` after a `node.h` edit recompiles `lib/core`."** WRONG, measured: a 5-second no-op. The
+   per-env object had to be deleted for the reveal to compile at all.
+2. ⛔ **"The reveal can sit beside the `sizeof(Node)` tripwire."** WRONG — that tripwire is inside
+   `#ifdef MESHROUTE_NATIVE`, so the reveal was compiled OUT on all five boards and reported *"NOT FOUND"*.
+3. ⛔ **"A device `_hal.log` is metal-only, therefore corpus-inert."** WRONG — it surfaces as `script_log` and the
+   BEFORE-arm calibration would not have closed without reverting it.
+4. ⛔ **"Switching the claiming probe to SEARCHING delays §S6 A.4 key custody."** Worried about, then CHECKED and
+   found harmless: the home ingests `ed_pub` only on the `!searching` branch, but the first STEADY probe after
+   confirmation is still SELECTED and still carries it, and it lands at ~T after the confirmation — where before
+   it landed at ~T after the ADOPT, seconds earlier. Materially unchanged, and now stated at the site.
+5. ⛔ **"`clear_routing_state` can keep clearing `_mobile_home_desired`."** WRONG once the predicate stopped
+   OR-ing the flag: it would have left an `autoregister=1` mobile permanently unable to re-register after a
+   `join`/`create`/`leave`. It re-seeds from the flag instead — behaviour-preserving at that site.
+6. ⛔ **"No new warning."** WRONG, and the census caught it: `gateway_heltec` 175 vs 174, a
+   `-Wunused-but-set-variable` under `MR_FEAT_MOBILE 0`.
+7. ⛔ **"The finding-4 defect is natively testable end to end."** Only partly: the `uint32_t` cast lived in
+   `src/firmware_config.cpp`, which the native build does not compile. It is pinned by the serializer case, a
+   `static_assert` on the field type, the core accessor case and an M2 bench entry — four instruments, none of
+   which is the cast itself.
+
+#### RESIDUALS, STATED RATHER THAN HIDDEN
+
+- ⚠ A solicitation our own transmitter refuses retries every `presence_probe_retry_ms` and spends **no** budget
+  (§6.4's rule), so a permanently blocked radio keeps a mobile `claiming` **without a wall-clock bound**. It
+  consumes zero airtime and zero budget; §7.1 bounds the number of re-CLAIM FRAMES, which is what it can bound. A
+  wall-clock attachment timeout would be a new mechanism the spec does not ask for.
+- ⚠ [[B151]] (§12.2's simulation scenarios) and [[B152]] (§7.2's two permissive refreshers) are **still open and
+  still owed** — §MH-S4b adds nothing to either and claims nothing about them.
+- ⚠ **[[B155]]: the register uses the id `B151` TWICE** (two different findings). Recorded, not renumbered — live
+  citations exist. Next new id is **B156**.
+- **M2:** `docs/2026-07-31-bench-test-script.md` **Part 13 EXTENDED** (13.4–13.7) — findings 4 and 5 are
+  console-visible and no automated gate reaches a real console.
+
+---
+
+### §MH-S4 — WHAT LANDED
+
+1. **`claiming` is now distinct from `attached`.** Two orthogonal `uint8_t` enums (`MobileAttachState`,
+   `MobileHomeLink`) replace the single `registered` bit as the app-facing truth. `_my_mobile_reg.active` is
+   **retained unchanged** as the LINK-LAYER/provisional flag (§7.1 step 1's provisional adoption) — see the
+   *premises* section for why promoting `mobile_registered()` itself would have been a silent routing change.
+2. **`_presence_reg_confirmed` is load-bearing** (was **2 writes / 0 reads**, verified). It now gates **two**
+   decisions: the once-per-attachment promotion+push, and the roster-ABSENT fork (never-confirmed ⇒ re-CLAIM;
+   previously-confirmed ⇒ the pre-existing staggered re-register). Two different correct actions on **identical**
+   wire evidence, which is what makes the flag non-redundant with the FSM state.
+3. **`presence_claim_max_retries` is live** (was **defined / 0 consumers**, verified). §7.1 steps 5-6 share ONE
+   budget across both triggers; exhaustion returns to `seeking`, never to a false registration.
+4. ★ **The app-facing `mobile_reg{registered:true}` push MOVED** from `mobile_claim_adopt` to the first matching
+   chosen-home roster (§7.1 step 4). Field-for-field identical; only the timing changed. `registered:false` is now
+   gated on the **attachment** plane too, so the pair is symmetric by construction.
+5. ★★ **Identity is the TRIPLE `(hash, local_id, reg_epoch)`.** The `local_id` arm is new; all three two-of-three
+   combinations are driven natively and none confirms.
+6. ★★★★ **[[B139]] FIXED and CLOSED** — `presence_probe_fire`'s `++_presence_miss` is gated on transmitter
+   admission, so a probe our own radio refused no longer walks the home-link plane toward `presence_home_lost`.
+7. **Manual and automatic starts share ONE FSM** (§4.2): the consumed one-shot `_mobile_arm_once` is replaced by
+   the durable volatile `_mobile_home_desired` **at the same byte**, and every follow-up arm that was gated on
+   `_cfg.mobile_autoregister` alone now asks `mobile_service_desired()`. `mobile_autoregister`'s field and JSON key
+   are untouched. **`mobile unregister` added** (§11 S4 lists it, so it is in scope — checked).
+8. **§10 diagnostics**: `mobile status` gained an additive three-plane block; the companion contract is updated.
+
+### ⛔ §MH-S4 — WHAT IS **NOT** DONE, STATED PLAINLY
+
+- **§12.2's new SIMULATION scenarios were NOT written** — the 4-mobile late-home scenario and the auto-OFF
+  scenario. They are owed by the arc and remain owed; nothing here substitutes for them, and no scenario file was
+  added or edited by this slice.
+- **§7.2's "attributable home-path send failure ⇒ immediate check"** is deliberately NOT wired: no such signal
+  exists without new plumbing, and §7.2's wording is permissive ("may"). The **negative** half (gate 23 — a mesh
+  no-route must NOT move the plane) IS implemented and tested. Marked done-vs-missing in source.
+- **"any correlated successful exchange may refresh link confidence"**: only the ROSTER is wired. A completed MAC
+  exchange is not, for the same reason — permissive wording, and it would need a new hook plus corpus movement
+  under the wrong slice. Stated in source, not silently skipped.
+- **Verified-candidate count** (§10) is absent rather than faked as 0 — it is S5's.
+
+### §MH-S4 — THE STATE COST: **+8 BYTES, AND ITS PLACEMENT IS MEASURED, NOT INFERRED**
+
+`sizeof(Node)` native **221376 → 221384**. Four members were added and **three cost ZERO**.
+
+| member | type | cost | why |
+|---|---|---|---|
+| `_mobile_attach_state` | u8 enum | 0 | into the 3-byte alignment hole beside `_presence_cand_n` |
+| `_mobile_home_link` | u8 enum | 0 | ″ |
+| `_mobile_claim_retries` | u8 | 0 | ″ |
+| `_mobile_home_desired` | bool | 0 | **replaces** `_mobile_arm_once` at the same byte (same type, same position) |
+| `_mobile_home_confirmed_ms` | u64 | **+8** | the 8-aligned ms-stamp run has no hole — a genuine cost |
+
+★★ **THE PADDING PREMISE WAS WRONG THE FIRST TIME, and this is the record of it.** [[B142]]'s own note says the
+hole beside `_presence_cand_n` "shrinks to THREE" after its u32. I read that as *three bytes after
+`_mobile_attach_gen`* and declared the trio free. **MEASURED by bisection on the tripwire: declaring the trio
+AFTER the u32 costs +8** (trio alone 221376 → 221384; full state 221392) — because a u32 needs 4-alignment and
+therefore lands at the **END** of the run, closing the boundary. Moved **ahead** of the u32 the trio measures
+**+0**. Thirteenth application of the padding-placement rule, and the first time the plausible reading of an
+existing note was off by one member.
+
+⚠ **A +0 VARIANT EXISTS, WAS MEASURED, AND WAS DECLINED.** Narrowing the stamp to `uint32_t` and placing it after
+`_presence_home_rx_q4` measures **221376 exactly** — the entire slice for free. **Declined under M3** ("pick the
+RIGHT shape, never contort a design to fit a spare bit"): it buys 8 bytes with a truncating cast, wrap-relative
+age arithmetic, a 49.7-day ceiling and a periodic collision with its own `0` sentinel, on a node whose tightest
+board sits at 73.2 % RAM. Recorded so the choice is visible rather than looking like an oversight.
+
+⛔ **`TimerWheel::kCap` is UNCHANGED at 91 and NO new timer id was allocated** — the re-CLAIM and the confirmation
+deadline both ride the EXISTING `kPresenceProbeTimerId`. Top timer id **90**. Both already asserted by
+`test/test_timer_wheel.cpp:81-82`.
+
+#### THE PER-ABI REVEAL — compile-only, on the REAL toolchains with the REAL per-env flag sets
+
+⚠ The `gateway` cell is `MR_FEAT_MOBILE 0`, so it is **trivially 0** and is NOT the evidence; **the evidence is the
+four mobile-enabled ABI × member-set cells**, and it is uniform.
+
+| env | toolchain | profile | BEFORE | AFTER | Δ |
+|---|---|---|---|---|---|
+| `xiao_sx1262` | arm-none-eabi | full | 117472 | **117480** | **+8** |
+| `xiao_esp32s3` | xtensa-esp32s3 | full | 117472 | **117480** | **+8** |
+| `xiao_mobile` | arm-none-eabi | `MR_PROFILE_MOBILE` | 117440 | **117448** | **+8** |
+| `xiao_esp32s3_mobile` | xtensa-esp32s3 | `MR_PROFILE_MOBILE` | 117440 | **117448** | **+8** |
+| `gateway` | arm-none-eabi | `MR_PROFILE_GATEWAY` | 148072 | **148072** | **+0** (all four members compile out) |
+
+★ **+8 on every mobile-enabled cell, no cell disagreeing, no hole opening on any ABI** — and it agrees with the
+board RAM deltas below (`heltec_v3` +8, `heltec_mobile` +8, `gateway_heltec` **+0**), which is what calibrates it.
+ⓘ The BEFORE column was **measured**, not quoted: a 17-anchor `node.h`-only synthesis (each anchor asserted at
+exactly one match) restoring the pre-S4 member set, then `md5sum -c` clean on restore.
+
+### §MH-S4 — THE 10-ENV BOARD SWEEP + CENSUS. **RUN. NOT SUSPENDED.**
+
+`error:` **0** across all ten · `-Wswitch` **0** · all ten `rc=0`.
+
+| env | RAM | % | Δ RAM vs baseline | Flash | Δ Flash |
+|---|---|---|---|---|---|
+| `xiao_sx1262` | 169420 | 71.9 % | — (no prior pin) | 526884 | — |
+| `heltec_v3` | **214980** | 65.6 % | **+8** (214972) | 1269288 | +2496 (1266792) |
+| `xiao_esp32s3` | 213572 | 65.2 % | — | 1214852 | — |
+| `gateway` | 194316 | **82.5 %** | — | 478356 | — |
+| `gateway_heltec` | **239876** | **73.20 %** ← tightest | **+0** (239876) | 1235600 | — |
+| `gateway_esp32s3` | 238468 | 72.8 % | — | 1181304 | — |
+| `production` | 166324 | 70.6 % | — | 519300 | — |
+| `xiao_mobile` | 168940 | 71.7 % | — | 519492 | — |
+| `heltec_mobile` | **214500** | 65.5 % | **+8** (214492) | 1262860 | — |
+| `xiao_esp32s3_mobile` | 213092 | 65.0 % | — | 1208436 | — |
+
+★ **The three baselines the brief supplied all reproduce their expected delta exactly**: `gateway_heltec` **+0**
+(`MR_FEAT_MOBILE 0`), `heltec_mobile` **+8**, `heltec_v3` **+8**. The tightest board did not move at all.
+
+**Census (`tools/warning_census.sh`): PASS — 178 / 178 / 174 @ 326 objects, `-Wswitch` 0, IDENTICAL to the pinned
+baseline. ⛔ Nothing re-pinned.**
+
+```
+env                   objs      warn    expect  -Wswitch        RAM      Flash  verdict
+gateway_heltec         326       174       174         0     239876    1235600  ok
+heltec_mobile          326       178       178         0     214500    1262860  ok
+heltec_v3              326       178       178         0     214980    1269296  ok
+```
+
+⚠ **[[B138]] SEEN TWICE AND CALLED WHAT IT IS, NOT A MOVER:** `heltec_v3` flash reads 1269288 in the sweep and
+1269296 in the census (**+8**), and `xiao_mobile` read 519476 then 519492 (**+16**) across two clean builds of the
+**same** source. That is the deterministic `__TIME__` artefact B138 records. ⚠ It is **not** gateway-only.
+⚠ **Telemetry stayed inside `MR_TELEMETRY`**: no new read-back or parse was added outside it, and the census's
+178/178/174 is the proof (the `parse_j` escape once pushed it to 179).
+
+⚠ **ONE HARNESS FAILURE, REPORTED BECAUSE IT HAPPENED (D3):** the first sweep attempt was truncated by a tool
+timeout and left a detached child running; starting a second sweep concurrently made both contend for the shared
+`libRadioLib.a` build dir and `xiao_mobile` failed `rc=1` with
+`*** [.pio/build/xiao_mobile/lib0cf/libRadioLib.a] Error 1`. **A clean rebuild from a DELETED object dir gives
+`rc=0`, `error:` 0.** It was a concurrency artefact of my own driving, not a code defect — but an unrun gate is
+unrun, so the re-run is the measurement that counts.
+
+### §MH-S4 — NATIVE
+
+**`pio test -e native` then RUNNING the binary** (the wrapper prints its usual false *"0 test cases"*):
+★ **1433 test cases / 75309 assertions / 0 failed** (baseline **1424 / 75060 / 0** ⇒ **+9 cases, +249 assertions**,
+a RISE as expected). **`grep -c "error:"` = 0**, counted beside the doctest line.
+
+New/rewritten cases: the **§S0-4 rewrite** (below) · gate 7 (lost CLAIM healed end-to-end against a real home) ·
+the identity-TRIPLE case (all three two-of-three combinations) · the already-confirmed roster-absent fork ·
+**gate 20 / [[B139]]** · gate 22 (beacons cannot confirm) · gate 23 (mesh no-route does not leak) · gates 9+10
+(auto OFF: silent at boot, durable manual session, full presence plane) · the budget-cannot-reset-itself case ·
+`mobile unregister` (both `autoregister` arms) · plus section **(E)** appended to the existing §MH-S3 draw pin.
+
+### ★★★ §MH-S4 — §S0-4 REWRITTEN IN PLACE (B101), AND THE REWRITE IS MUTATION-CHECKED
+
+⛔ **Not deleted, not disabled.** The case that asserted the defect now asserts the fix, at the same site, so the
+change is visible in the diff. It previously pinned `mobile_registered()` true after a dropped CLAIM,
+`reg_true == 1`, *"NOT ONE re-CLAIM"* four times over, and the 135 000 ms window. It now pins: `claiming` +
+`mobile_attached()` false + **zero** `registered:true` pushes; **three same-epoch re-CLAIMs**, each read back off
+the wire with `chosen_host_id` / `proposed_node_id` / `claim_epoch` / `key_hash32` asserted; exhaustion → `seeking`
+with `last_result == claim_unconfirmed` and `presence_home_lost == 0`; and the home-link plane never leaving
+`unknown` (nothing about the home was measured).
+
+★ **ONE NUMBER DELIBERATELY DID NOT CHANGE, and pretending otherwise would have been the interesting lie:** the
+give-up boundary is **still 135 000 ms** (T=120 s + 3 × 5 s). That was never the defect. The defect was that those
+135 seconds contained a false `registered:true` and **zero** re-CLAIMs; they now contain three re-CLAIMs — any of
+which heals it — and no app-facing registration at all. The assertion is retained and re-labelled.
+
+**Other characterization cases: §S0-1, §S0-2, §S0-3 and §S0-5 are UNTOUCHED and still green** — S4 owns only S0-4.
+§S0-2 does go red under three of the mutations below, which is coverage overlap, not ownership.
+
+**Two NON-characterization cases were also rewritten in place**, because they asserted the retired one-shot as
+their entire point (§4.2 overturns that sentence by name):
+- *"§autoregister — OFF: … a manual arm drives exactly ONE (one-shot)"* → now asserts the DURABLE request
+  (1 → 2 → 3 DISCOVERs) with `mobile unregister` as the negative control that stops it dead at exactly 3;
+- *"§autoregister — OFF team member: a failed manual arm does NOT auto-retry"* → now asserts that it DOES retry,
+  and that the no-host backoff timer is armed at all (pre-S4 it was never scheduled with auto OFF).
+
+**One case was EXTENDED, not rewritten** — `clean-join R2` now earns a real roster confirmation before asserting
+its single deregistration push, and gained an arm **(a2)** proving an unconfirmed `claiming` mobile's clear pushes
+**nothing** (no unpaired `registered:false`). **One shared test helper changed**: `make_registered_mobile` must now
+place both planes in their confirmed state, because "registered" is no longer `active` alone.
+
+#### THE MUTATION BATTERY — 11 MUTATIONS, EVERY ANCHOR ASSERTED AT **EXACTLY ONE MATCH**
+
+A 0-match replacement silently no-ops and then reads as *"the test is vacuous"* — backwards. The harness
+**refuses** to apply unless the count is 1, and prints it.
+
+| # | mutation | matches | RED |
+|---|---|---|---|
+| M-S4-1 | adopt promotes straight to `attached` (the §S0-4 defect restored) | 1 | 4 cases / 36 assertions |
+| M-S4-2 | **[[B139]]** reverted: `if (admitted)` → `if (true)` | 1 | **gate 20 ONLY** / 10 assertions |
+| M-S4-3 | the `local_id` arm of the triple removed | 1 | the TRIPLE case only / 6 assertions |
+| M-S4-4 | the re-CLAIM carries a FRESH epoch (`++`) | 1 | 4 cases / 9 assertions |
+| M-S4-5 | the re-CLAIM is never sent (budget spent, nothing transmitted) | 1 | 3 cases / 9 assertions |
+| M-S4-6 | `presence_arm_check` gate reverted to `_cfg.mobile_autoregister` | 1 | gates 9+10 only / 1 assertion |
+| M-S4-7 | `registration_armed()` reverted to autoregister-only | 1 | 4 cases / 10 assertions |
+| M-S4-8 | the once-only push guard removed (`if (!was_confirmed)` → `if (true)`) | 1 | gate 7 only / 2 assertions |
+| M-S4-9 | the re-CLAIM re-adopts (`_mobile_claim_pending = true`) | 1 | 4 cases / 20 assertions |
+| M-S4-10 | the claiming branch leaks `checking` into the home-link plane | 1 | §S0-4 only / 3 assertions |
+| M-S4-11 | the dereg push gated on `home_id != 0` instead of the attachment plane | 1 | §S0-4 only / 1 assertion |
+
+★ **RESTORATION CONTROL FIRED:** `md5sum -c` clean on all four mutated `lib/core` files afterwards, and the
+restored tree re-ran to **1433 / 75309 / 0**.
+
+### ★★★★ §MH-S4 — THE CORPUS: **s18 EXACT · 28 ROWS BYTE-IDENTICAL · 8 MOBILE MOVERS, EVERY ONE ATTRIBUTED TO A BEHAVIOUR**
+
+**36/36 run. 0 assertion failures on all 36 rows.** `lus` rebuilt **`3b897ce1` → `634c7b35`** (rebuild PROVEN:
+**40** `Building CXX`/`Linking CXX` actions), machine-`diff`ed name+md5+event-count, 36 rows each side.
+
+★ **s18 keystone `1cd21235` / 271629 — EXACT.** ★ **EVERY STATIC ROW IS BYTE-IDENTICAL** (a static mover would be
+a leak, not a re-anchor; there is none).
+★ **POSITIVELY CONTROLLED, twice:** poisoning the measured s18 **md5** made the `diff` fire (2 lines), and
+poisoning its **event count** fired independently — while the unpoisoned row compared identical in the same pass.
+
+| scenario | ANCHOR | MEASURED | Δ events |
+|---|---|---|---|
+| `s07_seattle_mobile_meshroute` | `e679bd5b` / 109391 | **`6981a954` / 109418** | +27 |
+| `s21_mobile_dm_milestone_meshroute` | `d2952649` / 680 | **`176621ed` / 684** | +4 |
+| `s22_mobile_team_meshroute` | `90bf4727` / 1820 | **`5945fdf7` / 1821** | +1 |
+| `s24_static_and_team_multihop_meshroute` | `7cac1b63` / 1556 | **`d5ea28b2` / 1557** | +1 |
+| `s27_cross_layer_mobiles_meshroute` | `c7496c45` / 9758 | **`7c99862e` / 9977** | +219 |
+| `s28_mixed_team_channels_meshroute` | `77386aba` / 3852 | **`cde63f9a` / 3854** | +2 |
+| `s29_mixed_leaf_team_meshroute` | `d8a5beb9` / 2031 | **`9013ea86` / 2036** | +5 |
+| `s37_team_homed_origin_meshroute` | `46d3b916` / 748 | **`4fd09d95` / 749** | +1 |
+
+⚠ **These are the SAME EIGHT ROWS §MH-S3 moved** — every mobile-plane scenario in the corpus, and no other.
+
+#### ★★★★ THE ATTRIBUTION IS BYTE-EXACT, NOT ARITHMETIC — A CALIBRATED BEFORE ARM
+
+Histogram arithmetic was tried first and **did not close**: s27's +219 events contain only 15 new-in-S4 emits, and
+s29's +5 contains **6**, i.e. a pre-existing event *disappeared*. So a real BEFORE arm was built: **five targeted
+reverts of S4's five stream-affecting changes** (each anchor asserted at exactly one match), `lus` rebuilt from it.
+
+⇒ ★★★ **THAT ARM REPRODUCES ALL EIGHT ANCHOR md5s AND EVENT COUNTS BYTE-EXACTLY — and s18 with them.** Nothing was
+left over and nothing was waived. **100 % of the movement is these five mechanisms, and NONE is an RNG draw:**
+
+| # | mechanism | kind |
+|---|---|---|
+| 1 | **[[B139]]**: the miss increment is gated on transmitter admission | **BEHAVIOUR** — the home-lost ladder now advances on different ticks |
+| 2 | §7.1: adopt enters `claiming`, so the confirmation deadline drives a **same-epoch re-CLAIM** | **BEHAVIOUR** — new J CLAIM frames on the air, with their `tx_deferred`/`radio_busy` cascade |
+| 3 | §7.1 step 4: the `mobile_reg{registered:true}` **push MOVED** from adopt to roster confirmation | **BEHAVIOUR (app-facing)** — ★ `push` IS a sim-visible event, so its POSITION is part of the stream |
+| 4 | `mobile_attach_confirmed` — new emit at the confirmation | telemetry |
+| 5 | `presence_roster_absent` gains a `confirmed` field | telemetry |
+
+★ Mechanism 3 is the one that makes this note worth reading: a **4**-revert arm (1, 2, 4, 5) matched **six of eight
+event COUNTS exactly** yet **no** md5. Only adding the push revert closed it. A slice that had claimed "the push
+move is app-only, therefore corpus-inert" would have been wrong and would have had no way to notice.
+
+#### ⛔ NO NEW RNG DRAW — PROVEN THREE WAYS
+
+① **Binary-level:** the BEFORE arm keeps **all** of S4's draw code (its five reverts touch no `rand_range`) and it
+reproduces every anchor byte-exactly. Had S4 added or removed a draw, that arm could not have reproduced them.
+② **Grep, comment-stripped so a comment can never be counted as live code** (`gcc -fpreprocessed -dD -E -P`):
+`node_mobile.cpp` **8 total / 5 live**, `node.h` **2 / 0**, `node.cpp` **8 / 7**, `node_join.cpp` **5 / 4**. The one
+S4-touched line containing `rand_range` is the dir-epoch pull, where only the **gate** changed
+(`_cfg.mobile_autoregister` → `mobile_service_desired()`); the call is pre-existing and untouched.
+③ **The native draw pin was EXTENDED, not forked** — new section **(E)** in the §MH-S3 case measures, on ONE node
+as a differential, that a **claiming** deadline (probe + re-CLAIM) and an **attached** steady-state deadline spend
+**the same single draw**. The re-CLAIM rides the `presence_arm_check` jitter the deadline was already going to
+spend; it did not add one.
+ⓘ **Corpus-inertness of `mobile_service_desired()`** is structural: `_mobile_home_desired` is written only by the
+three `mobile register` console verbs, and the harness cannot drive them (s29's own `_desc` records this), so the
+predicate equals `_cfg.mobile_autoregister` bit-for-bit throughout the corpus.
+
+### ★★★★ §MH-S4 — THE TOTAL RE-ANCHOR NOW PENDING, SO THE OWNER RULES ONCE
+
+**8 rows, all mobile-plane, listed with their new md5 in the table above. `s18` and every static row are
+byte-identical and need no ruling.** The 8 are the same rows §MH-S3 moved. ⛔ The `^### 36/36 corpus` anchor table
+is **NOT edited** by this slice.
+
+⚠ Two of the eight (`s07`, `s27`) also carry the largest event growth, and in both cases the growth is a
+**success**: mobiles that previously reached `presence_home_lost` after a dropped CLAIM now heal via a re-CLAIM and
+stay attached, so they go on to exchange traffic the old run never reached (`s27`: `mobile_attach_confirmed` 9,
+`mobile_reclaim_tx` 5, and `presence_home_lost` down to 3).
+
+### §MH-S4 — PROBES
+
+Both re-run, `rc=0`, identical to §MH-S3: `probe_board_ui` **68 passed / 0 failed / 68 total + structural 13/13 +
+wiring 13/13, 19 negative controls verified RED, 23 controls run**, real source md5-verified unchanged by the run ·
+`probe_firmware_ui` **PASS, 26 of 31 checks reddened by at least one control, 17 controls verified / 0 unusable**.
+
+### §MH-S4 — M2 (metal-only residue): **Part 13 ADDED to `docs/2026-07-31-bench-test-script.md`**
+
+Owed because §10 makes **wording** part of the contract and because the `registered:true` push moved — neither is
+observable on a real companion link by any gate. Three checks, each with its exact expected console text and a
+named failure shape: **13.1** `mobile status` reports `claiming` before `registered` (and
+`home_confirm_age_ms` must GROW between polls, and be **ABSENT** — not `0` — before the first confirmation);
+**13.2** `mobile unregister` is silent on the air; **13.3** a busy channel must not deregister a healthy mobile
+([[B139]] on real congestion, the one behaviour re-test, with its reasoning stated). Following Part 12's own rule,
+the FSM behaviour is **not** re-tested there — the native gate owns it.
+
+### ★★ §MH-S4 — EVERY PREMISE THAT TURNED OUT WRONG
+
+1. ⛔ **"The three u8 fit in the hole after `_mobile_attach_gen`."** WRONG, measured +8. The hole is **before** the
+   u32. Moving them ahead of it made them free. (Full arithmetic above.)
+2. ⛔ **"The u64 confirmation stamp is the only option."** WRONG — a `uint32_t` variant measures **+0**. Declined
+   on M3 grounds, but it existed and is now recorded.
+3. ⛔ **"`_my_mobile_reg.last_heard_home_ms` can be reused as the confirmation stamp (zero bytes)."** WRONG on
+   MEANING, not cost: it has **four** writers and three are ONE-WAY hints (a heard beacon, a received frame).
+   Reusing it would have made the age field claim bidirectional confirmation from one-way evidence — gate 22 is
+   the test that would have caught it, and it now exists.
+4. ⛔⛔ **"The push move is app-facing, therefore corpus-inert."** WRONG. `push` IS a sim-visible event; the move
+   changed 8 md5s while leaving 6 event counts identical. Found only because the 4-revert calibration arm failed
+   to reproduce the anchors.
+5. ⛔ **"The claiming deadline should skip the probe and just re-CLAIM."** WRONG — it broke the §S6 A.4 ed_pub
+   custody case (`test_dual_layer.cpp:4211`). The probe is §7.1 step 3's solicitation and carries key custody, so
+   it still goes out; only the deadline's MEANING changed. ★ And the reason silence is the only available signal
+   was verified in the home's code, not assumed: `node_join.cpp` ends `presence_ingest_probe` with *"a check probe
+   for a hash we don't host -> ignore"*, so a home holding no row will not answer and will not roster.
+6. ⛔ **"`mobile unregister` derives `dormant` from `mobile_service_desired()`."** WRONG on an `autoregister=1`
+   node — the derivation yields `recovering`. §4.3's wording is explicit, so the post-condition is now set
+   explicitly, and BOTH `autoregister` arms are asserted (auto ON legitimately re-seeks afterwards by §4.2's
+   autonomy licence).
+7. ⛔ **"`mobile_registered()` should become 'attached only'."** REJECTED after checking its readers: ~10 in-core
+   sites (leaf next-hop-via-home, flood/pull-response ingest gates, hash-locate own-hash/proxy, the origin stamp)
+   depend on the PROVISIONAL flag, which §7.1 step 1 requires. Promoting it would have silently changed ROUTING
+   for the confirmation window — a change the spec does not ask for and no gate covers. `mobile_attached()` is the
+   new app-facing accessor instead, and the distinction is documented at both declarations.
+8. ⓘ The ledger's own tail records *"MINUS the dead `_presence_claim_retries` u8"* being removed by §3-A.6 as
+   dead. **This slice re-introduces a member of that name — and it is now live**, with two consumers.
+
+---
+
+## ★★★★★★★★★★★★★★★★★★★★★★ 2026-08-07 §MH-S3-QA — THE SIX REQUIRED FIXES BEFORE S3 APPROVAL. ⛔ UNCOMMITTED (D4). ⛔ NO OWNER OR QA APPROVAL IS CLAIMED FOR THIS PASS EITHER.
+
+**Independent QA returned six required fixes, relayed and endorsed by the owner. All six landed. This note is
+inserted at the head of §MH-S3 and supersedes it where they disagree; §MH-S3's body is left as the audit trail.**
+
+### ★★★★ 1+2 — THE RE-ANCHOR IS THE OWNER'S RULING, AND IT ARRIVED AS AN INSTRUCTION
+
+⛔⛔ **RECORD THIS AS ATTRIBUTION, NOT AS A CODER'S JUDGEMENT.** S1, S2 and S3 were each told *"do not
+re-anchor — the owner rules."* **The owner ruled on 2026-08-07**, relayed and endorsed with the independent-QA
+round, and what it settles is **S1's, S2's and S3's movers — the same 8 rows in all three slices**. The
+`^### 36/36 corpus` table is therefore **written**, for the first time in this arc, **by instruction**.
+
+**The 8 rows now in the table — and ONLY these 8. The other 28 were not touched, and that is proven, not
+asserted:** a machine `diff` of the anchor table against the freshly measured 36 rows showed **exactly 8
+differences before the edit and 0 after**, so precisely those 8 lines moved.
+
+```
+s07_seattle_mobile_meshroute                   c17952b7/109562 -> e679bd5b/109391
+s21_mobile_dm_milestone_meshroute              1a0c92b2/657    -> d2952649/680
+s22_mobile_team_meshroute                      808f7abf/1804   -> 90bf4727/1820     [[B148]]
+s24_static_and_team_multihop_meshroute         6e92f8fd/1574   -> 7cac1b63/1556
+s27_cross_layer_mobiles_meshroute              e1fd5937/9277   -> c7496c45/9758
+s28_mixed_team_channels_meshroute              dd96c809/4018   -> 77386aba/3852
+s29_mixed_leaf_team_meshroute                  2e81833c/1943   -> d8a5beb9/2031
+s37_team_homed_origin_meshroute                7c517dcf/768    -> 46d3b916/748      [[B149]]
+```
+
+★★ **ALL 36 ROWS NOW CARRY 0 ASSERTION FAILURES** — the table's own heading is true again.
+★★ **s18 `1cd21235` / 271629 EXACT**, and it has still never moved.
+
+#### 1 — s22: `link_bidi_confirm` 5/6 → 4/7, with the total-11 invariant made EXPLICIT
+
+The owner's words: *"Total confirmations remain 11 and the structural team-plane protections pass."*
+`simulation/s22_mobile_team_meshroute.json`'s two T5 #9 `event_count`s now read **S1 == 4** and **S2 == 7**.
+
+★ **The total-11 invariant is what makes 4/7 safe rather than arbitrary, and it is now stated in the file:**
+4 + 7 = 11 = 5 + 6, and the two exact equalities are a **CONJUNCTION** — they pin the sum exactly.
+⚠ **HONEST LIMIT, reported rather than glossed over: a single cross-node SUM assertion does not exist.**
+`event_count` takes ONE node name and `nodeMatches` (`ExpectRunner.cpp:110-150`, read in source) does an exact
+single-name match; there is no accumulator and no OR. Dropping the node scope counts **all six** nodes —
+**measured 52** (S1 4 · S2 7 · TeamA 13 · TeamB 11 · TeamC 15 · M1 2) — a different and far more fragile
+quantity. ⇒ the conjunction is the tightest available form and is **exactly equivalent** to the sum, and the
+`_c` now says so, including the measured 52, so nobody re-derives it.
+
+★ **The structural protection was never these counts and was re-measured GREEN:** T5 #7/#8 (no `"plane":"team"`
+and no team local id 143/241/224 on either static) hold — all **11** static rows carry no plane tag, and all
+**39** team-plane rows belong to TeamA/TeamB/TeamC.
+
+#### 2 — s37: the assertion is REPLACED, not removed — and the replacement is mutation-checked RED
+
+The owner's words: *"The scenario itself admits that learning the legitimate static route is allowed. Existing
+direct-path and team-origin assertions already protect the real invariant."*
+
+★★ **QA'S SECOND SENTENCE WAS VERIFIED BEFORE BEING RELIED ON (V1), AND IT IS ONLY PARTLY TRUE.** The **P-T6A**
+probe was rebuilt from a **scratch copy** of `lib/core` (the real tree never mutated) with `stamp_origin`'s team
+arm disabled at `node.h:1373` — one match, asserted — in its own CMake build dir, giving a **provably different**
+`lus` (**`683adbce`** vs `3b897ce1`, 64 build actions). Measured: **12 assertions fail**, and among them
+**25 (`H1 e2e_ack_rx == 0`, actual **1**) and 26 (`H1 data_rx == 0`, actual **1**) DO fire**, as do the five
+team-origin assertions 5-9. ⇒ **the PATH invariant is genuinely covered by the existing assertions.**
+⛔ **But assert 28's own subject is the ROUTE-TABLE invariant (spec A2 — a static node id must never enter
+`_rt_team`), and NOTHING else in the file covers that.** ⇒ **REPLACE was the correct call; a REMOVE would have
+deleted real coverage.** (⚠ assert 27, `S2 data_rx == 0`, does **not** fire under P-T6A — consistent with its
+own `_c`, and reported so the 12 are not read as "everything catches it".)
+
+**What replaced it.** The discriminator is the **NEXT HOP**, measured not argued: TO has exactly two neighbours —
+`102` (S2, a **static**; a route to 101 via 102 is ordinary DV and **legitimate**) and `210` (TH's **team**
+local id; a route to 101 via 210 is the A2 breach).
+
+| | value | catches |
+|---|---|---|
+| **28** (rewritten) | `"dest":101,"hops":1,"next":210` | the DIRECT `learn_route_via` off the acked frame |
+| **28b** (new) | `"dest":101,"hops":2,"next":210` | the BEACON-DV arrival (`node_beacon.cpp:948-956`), which emits slot `primary` and is invisible to any slot-keyed guard |
+
+⚠ **`hops` is in the substring only because the engine forces it:** `script_emit_not_contains` matches ONE
+**contiguous** substring of the alphabetically-sorted `data` dump (`ExpectRunner.cpp:227`; dump order
+`dest,hops,next,score,slot`), so `hops` cannot be skipped between `dest` and `next`. `{1,2}` is **exhaustive for
+this 4-node topology** — 210 is TO's only team-plane neighbour and TH is ONE static hop from H1.
+⚠ **HONEST GAP, stated in-file rather than papered over:** an arrival at hops ≥ 3 (TH's own route to 101
+degraded) is not covered; asserts 20/25/26 remain the path-level backstop, and 25/26 are measured to fire.
+ⓘ **`slot` was again rejected as the key and the reason re-verified in source:** `node_beacon.cpp:955/959` — the
+beacon-DV merge, the lines the older note called 876/879 — emit `primary`/`alt` **regardless of which table was
+merged**; only `learn_route_via` (`:74`) labels `team` honestly.
+
+★★★ **THE MUTATION CHECK, because a replacement guard that cannot fail is worse than the one it replaced:**
+
+| arm | result |
+|---|---|
+| **new 28 vs the REAL defect (P-T6A)** | ★★ **RED, and on the RIGHT ROW:** `LEAKED_data={"dest":101,"hops":1,"next":210,"score":10.5,"slot":"team"}` at **t=200510**. ⛔ The OLD bare-`dest:101` form fired inside the same probe on the **LEGITIMATE** row (`hops:2,next:102`) — i.e. it was **wrong, not merely fragile** |
+| **new 28 + 28b in the clean run** | **GREEN** — TO's only dest-101 row is the legal `hops:2,next:102` at t=15710 |
+| **28b** | ⚠ **WIRING-controlled, NOT defect-controlled, and labelled so in-file.** No probe here constructs a beacon-DV A2 leak; it was proven capable of firing by pointing its value at a row that IS in the stream (`dest:101,hops:2,next:102`) → **RED, 1 failure** — then restored, **md5 verified identical**. ⛔ **Do not cite 28b as a reproduced defect** |
+
+⇒ **[[B148]] and [[B149]] are CLOSED IN PLACE** in `docs/2026-07-30-open-bug-register.md`, with the ruling, its
+date and its attribution recorded on each.
+
+### 3 — spec §5.2 no longer directs implementers to `retry_backoff_window()`
+
+⛔ **Fixed in the OPERATIONAL TEXT, not in a note beside it — this defect class has now hit EIGHT times in this
+arc.** §5.2's code block now labels the ladder *"the EXISTING mobile ladder, retained verbatim"*, and the
+paragraph under it is the instruction: the `window` line is the mobile plane's **own existing** in-place
+accumulator (`_mobile_backoff_ms`), **retained as-is, not refactored and not routed through
+`retry_backoff_window()`**; only the **equal-jitter bounds** join the shared family. The old sentence is quoted
+and explicitly retracted beneath, with the source facts (V1, `protocol_constants.h:143-147`): shift clamp vs
+value clamp, and `retry_backoff_max_shift` globally **0** ⇒ an implementer who followed it literally would have
+shipped a **flat 5 s retry** while believing they had built the 5 s → 120 s ladder.
+
+### 4 — the stale draw-free comment, and the sweep of the other three sites (COUNTS, not "clean")
+
+`lib/core/node_mobile.cpp:120` read *"Draw-free: no jitter is introduced here or in
+`mobile_admission_rejected`; S3 owns the RNG."* **First clause still true; second one false** — S3's **site D**
+draws at `:149`. **Corrected in place.**
+
+| §MH-S3 draw site | where | stale? |
+|---|---|---|
+| **A** boot startup jitter | `node.cpp:550-563` | **no** |
+| **B** CLAIM de-synchronization | `node_mac.cpp:1332-1351` | **no** — `:1332`'s "⛔ NO DRAW" is explicitly superseded at `:1335` |
+| **C** no-host retry | `node_mobile.cpp:157-187` | **no** — `:159`'s "no draw anywhere on the path" is *"Before:"* narration |
+| **D** admission-rejection retry | `node_mobile.cpp:120` (the remote note) | ⛔ **YES — the one defect, fixed** |
+
+⚠⚠ **THREE FURTHER GREP HITS ARE QUOTED-AND-WITHDRAWN TEXT, NOT LIVE CLAIMS, AND WERE DELIBERATELY NOT COUNTED**
+— the exact trap the brief named, and it fired three times in one sweep: **`node.h:1296`** quotes S1's
+superseded marker inside a paragraph whose own first line reads *"STEP 3 NOW DRAWS"*; **`node_mac.cpp:1332`** is
+superseded three lines later; **`node_join.cpp:937`**'s *"STILL OWED … ⇒ S3"* is withdrawn at **`:939`**.
+**SWEEP TOTAL: 4 sites examined · 1 stale · 3 clean · 3 withdrawn-text false positives rejected.**
+
+### 5 — the unsupported timing claim, replaced by MEASUREMENTS (not by another claim)
+
+`lib/core/protocol_constants.h`'s `mobile_claim_jitter_ms` note justified 1000 ms by *"it already spreads a full
+ring of 8 mobiles by ~125 ms each, which is more than a CLAIM's airtime"*. **Both halves are false.**
+
+1. ⛔ **A random draw guarantees no spacing.** 2e6 Monte-Carlo trials, 8 independent uniform draws on [0,1000]:
+   **P(all seven adjacent gaps ≥ 125 ms) = 5.0e-7** (closed form `(1 - 7·125/1000)^7` = 4.77e-7); **expected
+   minimum adjacent gap = 15.9 ms**. 125 is the mean gap of an even *comb*, which a draw does not produce.
+2. ⛔ **"More than a CLAIM's airtime" is false on most supported PHYs.** ★ **Computed with THIS repo's own
+   `airtime_ms()` model** on the **11-byte** `pack_j_claim` frame (whole on-air frame), **CR 4/5**,
+   `preamble_sym` **= 16** — the SF/BW are stated because the number is meaningless without them:
+
+   | BW | SF7 | SF8 | SF9 | SF10 | SF11 | SF12 |
+   |---|---|---|---|---|---|---|
+   | **125 kHz** | 49 | 98 | **177** | **354** | **708** | **1417** |
+   | 250 kHz | 24 | 49 | 88 | 177 | 313 | 708 |
+   | 500 kHz | 12 | 24 | 44 | 88 | 156 | 313 |
+
+   ⇒ 125 ms exceeds a CLAIM only at **SF7/SF8 on 125 kHz**; at **SF12 one CLAIM is 1417 ms — longer than the
+   entire 1000 ms jitter window.** Measured P(some pair of the 8 lands within one **49 ms** SF7 airtime) =
+   **0.965**; within SF9's 177 ms = **1.000**.
+
+⇒ The note is rewritten as an honest **tuning choice** and names the property the jitter actually buys:
+**INDEPENDENCE, not separation.** Un-jittered, a co-booted fleet collides every round with probability 1 for
+ever; jittered, each retry is a fresh draw, so a colliding pair separates on a later round. Bounded above by the
+reservation arithmetic (4000 of 10000 worst case) and by attach latency. ⛔ **No unmeasured claim was
+substituted for the old one**, and the note states explicitly that the constant is **not** sized to exceed a
+CLAIM on the slow PHYs.
+
+### ⛔⛔ 6 — THE BOARD SWEEP: WHAT IS TRUE TODAY, AND THE NUMBERS ARE NOT HERE YET
+
+★ **The history stays on the record:** S3's five board envs + `tools/warning_census.sh` were **SUSPENDED during
+the slice by owner instruction** (~1 h), and §MH-S3's gate table recorded them as unrun.
+
+★ **Independent QA reports a COMPLETED 10/10 board gate and a completed `warning_census.sh`, and reports them
+clean. That is recorded here BY ATTRIBUTION TO QA.**
+⛔⛔ **QA'S NUMERIC RESULTS WERE NOT RELAYED TO THIS SESSION. No object count, warning total, `-Wswitch` count,
+RAM or flash figure from QA's run appears anywhere in this note, and none is implied.**
+
+⇒ ★ **The owner has since authorised the QA-gate to run the sweep locally. It has NOT been run yet**, and the
+"OWED BEFORE APPROVAL" framing is **withdrawn** in favour of a scheduled local measurement:
+
+> ### ✅ MEASURED LOCALLY 2026-08-07 BY THE QA-GATE — the placeholder is DISCHARGED with real figures.
+>
+> ★ Run on the **settled post-items-1-5 tree**, all ten envs from **deleted object dirs**, plus `warning_census.sh`.
+> **10/10 rc=0 · `error:` 0 on every env · `-Wswitch` 0 on every env · census PASS, pins UNMOVED.**
+> ⓘ Independent QA separately reports its own completed 10/10 + census; **its figures were never relayed here, so
+> none are quoted from it.** The table below is *this* session's measurement and nothing else.
+>
+> | env | objects | `warning:` total | `-Wswitch` | `error:` | RAM | flash |
+> |---|---|---|---|---|---|---|
+> | `gateway` | **283** | see census | **0** | **0** | **194316** | **478356** |
+> | `xiao_sx1262` | **283** | see census | **0** | **0** | **169412** | **523332** |
+> | `xiao_esp32s3` | **193** | see census | **0** | **0** | **213564** | **1212316** |
+> | `heltec_v3` | **326** | see census | **0** | **0** | **214972** | **1266792** |
+> | `heltec_mobile` | **326** | see census | **0** | **0** | **214492** | **1260344** |
+> | `gateway_heltec` | **326** | **174** | **0** | **0** | **239876** | **1235600** |
+> | `gateway_esp32s3` | **193** | — | **0** | **0** | **238468** | **1181304** |
+> | `production` | **283** | — | **0** | **0** | **166316** | **515732** |
+> | `xiao_mobile` | **283** | — | **0** | **0** | **168932** | **515940** |
+> | `xiao_esp32s3_mobile` | **193** | — | **0** | **0** | **213084** | **1205804** |
+> | **`warning_census.sh`** | **326 objs** | **`heltec_v3` 178 · `heltec_mobile` 178 · `gateway_heltec` 174** — **MEASURED == PINNED, verdict PASS, nothing re-pinned** |
+>
+> ★★ **THE PREDICTION HELD, AND ONE RESULT IS STRONGER THAN PREDICTED.** The pins are unmoved and `-Wswitch` is 0 everywhere ⇒ items 1-5's comment-only claim is confirmed against the boards, not just against the preprocessor.
+> ⇒ ★ **AND THIS IS THE FIRST BOARD MEASUREMENT OF §MH-S3's OWN JITTER CODE** (the sweep was suspended during the slice, so S3's four draw sites had never been built for a board): **RAM is IDENTICAL to §MH-S2's figures on all three OLED envs** (`gateway_heltec` 239876 = 73.20 %, `heltec_mobile` 214492, `heltec_v3` 214972) ⇒ **the jitter costs ZERO RAM**; flash grows ~1 KB (`heltec_v3` 1265776 → 1266792, **+1016 B**) for the helper and the four sites. ⚠ Recorded as a first measurement, **not** as a delta against a pre-S3 board baseline that was never taken. ⏳ | — | — | — |
+>
+> ⚠ **SEQUENCING, AND IT IS NOT PEDANTRY:** these figures will be measured **AFTER** items 1-5 have landed,
+> because a sweep run against a tree that is being edited measures nothing. **This project has already had one
+> board-number report invalidated exactly that way — a 32-byte flash disagreement traced to building while
+> mutating.**
+>
+> ★★ **THE PREDICTION THAT MAKES THAT RUN A CHECK RATHER THAN A FRESH PIN — recorded BEFORE the measurement, so
+> it can be wrong:** items 1-5 touched **nothing that can move a board figure**. Two scenario JSONs, one spec,
+> one register, this file, and **two `lib/core` files in COMMENTS ONLY**. ⇒ **RAM, flash, object counts and
+> warning totals must be BYTE-IDENTICAL to the pre-fix tree, and any delta is a FINDING, not a new baseline.**
+> **The comment-only claim is PROVEN, not asserted** — see the inertness proofs in the gate table below.
+
+### ⛔ §MH-S3-QA — WHICH GATES RAN, AND WHICH DID NOT
+
+| gate | result |
+|---|---|
+| **native** | **`pio test -e native` from a DELETED `.pio/build/native`, then RUNNING the binary** (the wrapper printed its usual false *"0 test cases"*) = ★ **1424 test cases / 75060 assertions / 0 failed — IDENTICAL to §MH-S3's baseline**, as a comment/scenario/doc pass must be. **`grep -c "error:"` = 0**, counted beside the doctest line. ⓘ `grep -c "warning:"` = **9**, and **all nine are pre-existing** — `node_hashlocate.cpp:1365` and eight in `test/` — **none is in a file this pass touched** |
+| **s18 keystone** | ★★ **`1cd21235` / 271629 EXACT. 0 assertion failures** |
+| **corpus** | ★★ **36/36 run, and ALL 36 NOW HAVE 0 ASSERTION FAILURES** (was 34). Machine-`diff`ed name+md5+event-count, 36 rows each side, against the anchor table **before** the edit (**exactly 8 differences**) and **after** (**0**) — which is what proves only the 8 moved rows were written. ★ **POSITIVELY CONTROLLED:** a poisoned s18 md5 injected into the measured set made the `diff` FIRE, and the unpoisoned row was verified identical in the same pass. ★★ **s22 and s37 reproduced their PRE-FIX md5 and event count EXACTLY** (`90bf4727`/1820 and `46d3b916`/748) — the scenario edits changed assertion outcomes and **not one byte of either event stream** |
+| **⛔ NO NEW RNG DRAWS — PROVEN THREE WAYS, not asserted** | ① the two `lib/core` edits are **comment-only**, proven by comparing **comment-stripped** (`gcc -fpreprocessed -dD -E -P`) output before vs after: **identical for both files** — and the check is **positively controlled** (poisoning `mobile_claim_jitter_ms` 1000 → 1001 changed the hash, and the stripped output is 350 non-trivial lines). ② `lus` **rebuilt from scratch mtimes — 40 `Building CXX`/`Linking CXX` actions — and reproduced `3b897ce1` BYTE-IDENTICALLY**, a binary-level inertness proof. ③ the 28 unmoved corpus rows are byte-identical and **s18 is EXACT** |
+| **`lus`** | **`3b897ce1` UNCHANGED** (40 rebuild actions, proven not assumed). ⓘ The P-T6A probe binary is a **provably different** `683adbce`, built from a **scratch copy** in its own build dir — **the real tree was never mutated for the probe** |
+| **`sizeof(Node)`** | ★ **221376 — UNMOVED.** `node.h:2801`'s `static_assert` compiles green and was not touched. ⛔ **No state of any kind was added by this pass** |
+| **`TimerWheel::kCap`** | ★ **91, top timer id 90 (`kE2eAckDeadlineTimerId`) — UNCHANGED.** No timer id allocated |
+| **probes** | **both re-run, rc=0, identical to §MH-S3:** `probe_board_ui` **68 passed / 0 failed / 68 total + structural 13/13 + wiring 13/13, 19 negative controls RED, 23 controls run**, real source md5-verified unchanged by the run · `probe_firmware_ui` **PASS, 26 of 31 checks reddened by at least one control, 17 controls verified / 0 unusable** |
+
+⛔ **NOT RUN BY THE §MH-S3-FIX CODING PASS** (it correctly stated so; an unrun gate is unrun): the board envs and
+`tools/warning_census.sh`. ✅ **SUBSEQUENTLY RUN LOCALLY BY THE QA-GATE, 2026-08-07, on the settled tree — 10/10
+rc=0, `error:` 0 and `-Wswitch` 0 on every env, census PASS with the pins UNMOVED. The measured table is above.**
+
+### §MH-S3-QA — M2 (metal-only residue): **NOTHING IS METAL-VISIBLE. PLAINLY.**
+
+This pass changed **two scenario JSONs, one spec, one register, this file, and two `lib/core` files in COMMENTS
+ONLY** — proven comment-only by a comment-stripped comparison **and** by `lus` reproducing its md5 byte-for-byte
+after a real 40-action rebuild. **No console verb, push, JSON field, NV record, ABI, log line or behaviour of
+any kind changed**, so there is no console text a bench operator could look for.
+⇒ **`docs/2026-07-31-bench-test-script.md` is UNTOUCHED, and nothing is owed to it by this pass.** ⓘ §MH-S3's own
+M2 finding is unaffected and its obligation stays named against **S4/§12.3**, exactly where it left it.
+
+### ⚠ §MH-S3-QA — EVERY PREMISE THAT TURNED OUT WRONG
+
+1. ⛔ **THE BRIEF'S SUGGESTION THAT REMOVING s37's ASSERTION MIGHT BE ACCEPTABLE BECAUSE "existing direct-path
+   and team-origin assertions already protect the real invariant".** Verified against P-T6A rather than
+   accepted: **the PATH invariant is covered (25 and 26 both fire, measured 1 each), but the ROUTE-TABLE (A2)
+   invariant is covered by NOTHING else.** A REMOVE would have silently deleted real coverage — which is
+   exactly why the brief's own "prefer REPLACE" instruction was right, and why it needed checking to know that.
+2. ⛔ **MY OWN FIRST ANCHOR-TABLE EDIT TARGETED THE WRONG BLOCK, AND ONLY A FAIL-LOUD HARNESS CAUGHT IT.** A
+   plain `index('### 36/36 corpus')` landed in **§MH-S3's own prose**, which cites the table as
+   `` `^### 36/36 corpus` `` — so the script began rewriting §MH-S3's *proposal* listing instead of the anchor
+   table, and aborted only because it asserts **exactly one match per row** and s22 gave zero. **The B77-safe
+   `^### ` line anchor is not a style preference; it is load-bearing, and this is the second time it has
+   mattered.** ⓘ Nothing was written on the bad pass — the assert fires before the file is opened for writing.
+3. ⛔ **"PRESERVE THE TOTAL-11 INVARIANT AS AN EXPLICIT ASSERTION" ASSUMES THE ENGINE CAN EXPRESS IT. IT
+   CANNOT.** Read in source (`ExpectRunner.cpp:110-150`): `event_count` filters by ONE node name via
+   `nodeMatches`, which does an exact single-name match with no OR and no accumulator; an unscoped count sums
+   all six nodes (**measured 52**). ⇒ delivered as the **conjunction** of two exact equalities — which is
+   mathematically equivalent — with the limitation written into the `_c` rather than left implicit.
+4. ⚠ **THE `hops` FIELD IN ITEM 2's REPLACEMENT IS AN ENGINE ARTEFACT, NOT A DESIGN CHOICE**, and I expected to
+   be able to key on `dest` + `next` alone. The matcher takes **one contiguous substring** of an
+   **alphabetically sorted** dump, so `hops` sits between them and cannot be skipped. The enumeration `{1,2}`
+   is exhaustive **for this topology only**, and that limit is now stated in-file instead of being quietly
+   relied upon.
+5. ⚠ **I EXPECTED THE OLD s37 ASSERTION TO BE MERELY "FRAGILE". IT WAS WRONG.** Under P-T6A — the arm where a
+   real breach IS present — the old bare-`dest:101` form reported the **legitimate** static row (`hops:2,
+   next:102`, t=15710) because it comes first in the stream, and never named the actual breach at t=200510.
+   ⇒ it was not just red on a legal row in the clean arm; **it also mis-identified the defect in the arm that
+   had one.**
+
+### §MH-S3-QA — FILES
+
+**`simulation/s22_mobile_team_meshroute.json`** (T5 #9's two counts + the rewritten `_c`) ·
+**`simulation/s37_team_homed_origin_meshroute.json`** (assert 28 rewritten, 28b added, the `_desc` ASSERT-LABELS
+line annotated) · **`docs/superpowers/specs/2026-08-07-mobile-home-attachment-reliability-design.md`** (§5.2
+operational text) · **`lib/core/node_mobile.cpp`** (COMMENT ONLY) ·
+**`lib/core/protocol_constants.h`** (COMMENT ONLY) · **`docs/2026-07-30-open-bug-register.md`** ([[B148]] and
+[[B149]] closed in place; [[B151]] new+closed) · **this file** (the 8 anchor rows + this note).
+
+⛔ **NOT TOUCHED:** any other `simulation/*.json` · the other **28** anchor rows · `test/` · `src/` ·
+`variants/` · `platformio.ini` · `lib/hal/` · `tools/warning_census.sh` · `tools/probe_*` ·
+`docs/2026-07-31-bench-test-script.md` · `CLAUDE.md` · [[B139]] (S4) · [[B140]] items 1/3 · [[B141]] ·
+[[B144]] · [[B148]]/[[B149]] *as behaviour* (only their assertions and register entries) · [[B150]] ·
+[[B138]] · [[B143]] · B112 / B118 / B119 / B131 · the REPLY-only wake · **S4–S6**.
+⛔ **NO `lib/core` BEHAVIOUR WAS CHANGED AT ALL THIS PASS** — the two `lib/core` files are comment-only, proven.
+⛔ **NO COMMIT AND NO `git add` (D4).** ⛔ **No owner or QA approval is claimed for anything here.**
+
+---
+
+> ### ★★★★ THE HEADLINE, AS A MEASUREMENT
+>
+> **`moved ⟺ the scenario contains at least one AUTOREGISTERING mobile`. 8 of 8, and 28 of 28, with ZERO
+> disagreements.** That single predictor is simultaneously the attribution and the inertness proof:
+>
+> - **s18 `1cd21235` / 271629 EXACT** — in the BEFORE arm, in the AFTER arm, and in every one of the four
+>   single-draw attribution builds.
+> - **21 mobile-FREE scenarios: all byte-identical. 0 moved.** The static plane drew nothing new (C3).
+> - **7 further scenarios that DO carry mobiles but whose every mobile has `mobile_autoregister = false`:
+>   also byte-identical.** ★ That is the sharper half of the zero-draw proof and it was PREDICTED by the
+>   design before it was measured: with autoregister off the boot kick is explicitly gated draw-free, and
+>   `registration_armed()` then returns before any DISCOVER, so neither the CLAIM-deadline draw nor the
+>   no-host draw is ever reached. **Measured: `s23_mobile_team_multihop` · `s25_two_team_separation` ·
+>   `s26_team_reroute` · `s30_team_dad_mediation` · `s34_team_switch_clears_plane` ·
+>   `s35a_cochannel_isolation` · `s38_team_origin_learn` — 7/7 unmoved.**
+> - **8 movers, every one attributed to a NAMED draw by a per-draw rebuild** (table below), not by argument.
+
+## §MH-S3 — THE COMPLETE DRAW INVENTORY (site, count, order)
+
+★ §5.2: *"The draw and its order are part of the simulation contract."* This is that contract. **Four sites.
+Every one consumes EXACTLY ONE `rand_range` per occurrence.**
+
+| # | site (by structure) | when | count | order within its event |
+|---|---|---|---|---|
+| **A** | `Node::on_init`, the mobile-FSM kick — `lib/core/node.cpp` | **once, at boot**, and ONLY when `_cfg.mobile_autoregister` | 1 | after the first-beacon jitter draw, immediately before `after(…, kMobileDiscoverTimerId)` |
+| **B** | `Node::lbt_complete`, `kind == LbtKind::mobile_discover` — `lib/core/node_mac.cpp` | at every DISCOVER **handoff** (immediate or deferred) | 1 | exactly where the fixed `after(mobile_offer_window_ms, kMobileClaimGuardTimerId)` stood — the Hal-call sequence is otherwise unchanged |
+| **C** | `Node::mobile_claim_guard_fire`, the `_mobile_offers_n == 0` arm — `lib/core/node_mobile.cpp` | at every no-host window close, **both** arms (full-cycle backoff **and** mid-cycle inter-PHY gap) | 1 | after the window is computed, before the `mobile_no_host` emit that reports it |
+| **D** | `Node::mobile_admission_rejected` — `lib/core/node_mobile.cpp` | when OUR OWN transmitter definitively refuses a DISCOVER or CLAIM | 1 | after the state writes, at the bounded-retry arm |
+
+**A** draws `rand(0, mobile_boot_jitter_ms + 1)` = 0..2000. **B** draws
+`rand(0, mobile_claim_jitter_ms + 1)` = 0..1000, ADDED to the `mobile_offer_window_ms` minimum. **C** and **D**
+both draw **EQUAL JITTER** through the one shared helper `Node::mobile_equal_jitter(window)` =
+`rand(protocol::equal_jitter_lo(window), protocol::equal_jitter_hi_excl(window))` = `rand(window/2, window+1)`
+— **C** over the retained capped ladder `min(5 s · 2ⁿ, 120 s)`, **D** over `mobile_offer_window_ms`.
+
+★ **C's draw is UNCONDITIONAL ON `mobile_autoregister` while its ARM is not** — deliberate: `mobile_no_host`
+reports `backoff_ms`, and a reported delay that was never computed would be a display-shaped lie. It costs
+nothing in the corpus, because an autoregister-off mobile never reaches that branch at all (the 7 unmoved
+mobile scenarios above are the measurement).
+
+⛔ **THREE SITES DELIBERATELY DID *NOT* GET A DRAW**, and each is marked in-source so the next reader does not
+re-derive it: `mobile_offer_respace_ms` (a spacing FLOOR, [[B145]]); the host OFFER de-storm jitter (that is
+§MH-S2's draw and it is **unchanged** — pinned by a retained cross-check in the §S0-2 case: 100 / 107 with the
+two biased streams, exactly as before); and **§6.2's deferred-OFFER reschedule** — see the ruling below.
+
+## ★★ §MH-S3 — §6.2's DEFERRED-OFFER RE-ARM: CHECKED, AND **NOT OWED**. THE ALTERNATIVE WAS CHOSEN, NOT SKIPPED.
+
+S1 wrote *"the reschedule is therefore owed to S2/S3"* and S2 repeated *"STILL OWED … ⇒ S3"*. **Re-read against
+the spec (V1): §6.2 and §5.3.2 item 9 are DISJUNCTIONS, not sequences** — *"**reschedule** it with a bounded
+new deadline … **or** **report an explicit drop** and bump the transmitter-rejection counter, so the source
+mobile's own retry remains the backstop"*, and item 9's *"a rejection **retains or reschedules** the entry"*.
+The drop branch is taken **in full**: explicit `mobile_offer_dropped`, [[B146]]'s single-reporter counter, no
+other mobile's entry touched, and (§MH-S2) the [[B137]] reservation **RETAINED** so the mobile's own retry is
+answered with the same id. ⇒ **NOTHING IS OWED.** S3 declined to spend a draw there on the merits: a reschedule
+would re-offer onto a channel this node's own transmitter has just refused, while §6.2's named backstop — the
+source mobile's retry — is precisely what S3 has now jittered (site **D**). **All three stale "owed to S3"
+comments are corrected in place** (`node.h` ×1, `node_join.cpp` ×2).
+
+## ⚠ §MH-S3 — A FOURTH DRAW SITE THAT THE BRIEF DID NOT LIST, AND WHY IT IS IN SCOPE
+
+Site **D** (the admission-rejection retry) is not in §5.2's text. It is here because **S1 left an explicit
+in-source marker handing it to S3** — *"⛔ A FIXED delay, deliberately: jittering it needs a draw and S3 is the
+only planned RNG re-anchor in this arc … Jittering this retry is S3's, and is marked so at the call site"* —
+and because it is **§5.2's own failure mode**: a channel busy enough to refuse one mobile's DISCOVER refuses
+the fleet's, and a fixed 2000 ms retry marched them all back onto it together, for ever. S3 is the last
+opportunity in the arc to spend that draw under a legible attribution. ★ **It is also the cheapest possible
+addition: measured 0/36 corpus movement** ([[B150]]).
+
+## §MH-S3 — THE 8 MOVERS, EACH ATTRIBUTED TO A NAMED DRAW BY A PER-DRAW REBUILD
+
+Method: the pre-S3 tree was reconstructed in a scratch COPY by reverting **only** the four S3 hunks (each
+substitution asserted at **exactly one match**, the harness aborting otherwise), then each hunk was re-applied
+**alone**, rebuilt, and the full 36-scenario corpus re-run. Four extra builds, four extra corpus passes.
+
+⚠ **BE PRECISE ABOUT WHAT THE BEFORE ARM IS.** The copy was taken **after** the slice's inert edits (the two
+`constexpr` constants, the `equal_jitter_*` pair, the `mobile_equal_jitter` declaration/definition, the
+corrected comments, and `test/` — none of which the simulator's behaviour can see, and `test/` it does not even
+compile); only the **four behavioural hunks** were reverted. ⇒ **it is not literally the S1+S2 tree, and its
+behavioural equivalence to it is EARNED BY THE CALIBRATION, not assumed**: it reproduced §MH-S2b/c's eight
+recorded rows to the md5 and the event count, and every other row to the anchor table.
+
+| scenario | ANCHOR table | pre-S3 (= S1+S2) | **AFTER S3** | Δevents | A boot | B claim | C no-host | D adm |
+|---|---|---|---|---|:-:|:-:|:-:|:-:|
+| `s07_seattle_mobile_meshroute` | `c17952b7`/109562 | `270489af`/106995 | **`e679bd5b`/109391** | +2396 | MOVE | MOVE | MOVE | . |
+| `s21_mobile_dm_milestone_meshroute` | `1a0c92b2`/657 | `0c0f15c9`/662 | **`d2952649`/680** | +18 | MOVE | MOVE | MOVE | . |
+| `s22_mobile_team_meshroute` | `808f7abf`/1804 | `8ef0fa0a`/1805 | **`90bf4727`/1820** | +15 | MOVE | MOVE | . | . |
+| `s24_static_and_team_multihop_meshroute` | `6e92f8fd`/1574 | `bf34785f`/1581 | **`7cac1b63`/1556** | −25 | MOVE | MOVE | MOVE | . |
+| `s27_cross_layer_mobiles_meshroute` | `e1fd5937`/9277 | `7a7c8b6d`/9290 | **`c7496c45`/9758** | +468 | MOVE | MOVE | MOVE | . |
+| `s28_mixed_team_channels_meshroute` | `dd96c809`/4018 | `4d9c69d3`/4001 | **`77386aba`/3852** | −149 | MOVE | MOVE | MOVE | . |
+| `s29_mixed_leaf_team_meshroute` | `2e81833c`/1943 | `df305413`/1946 | **`d8a5beb9`/2031** | +85 | MOVE | MOVE | MOVE | . |
+| `s37_team_homed_origin_meshroute` | `7c517dcf`/768 | `0ee0275e`/771 | **`46d3b916`/748** | −23 | MOVE | MOVE | MOVE | . |
+
+**Per-draw totals: A boot = 8 rows · B claim = 8 rows · C no-host = 7 rows · D admission = 0 rows.**
+⛔ **No single-draw arm moves a row the full slice does not, and s18 is `1cd21235`/271629 in all four.**
+
+★ **The one asymmetry is explained by measurement, not by hand-waving:** `s22_mobile_team` does not move under
+**C** because it emits **`mobile_no_host` ZERO times** — its single autoregistering mobile M1 is answered on
+its first DISCOVER, so the no-host branch is never entered. Counted in both NDJSON streams.
+
+★ **`D` moving 0 rows is a coverage finding, registered as [[B150]]** — the corpus never drives a definitive
+transmitter refusal on the mobile attach path, so the four `§MH-S1`/`§MH-S1b` native cases are its **entire**
+detector.
+
+## ⛔⛔ §MH-S3 — TWO SCENARIOS ARE RED, AND NEITHER IS A MECHANISM FAILURE. THE NUMBERS, NOT A REASSURANCE.
+
+**`s22_mobile_team`: 2 assertion failures · `s37_team_homed_origin`: 1.** 34 of 36 have 0. Registered as
+**[[B148]]** and **[[B149]]**. ⛔ **Neither scenario file was edited** — both belong to the same re-anchor the
+owner is being asked to rule on, and making a gate green by an edit of mine is not making it green.
+
+1. **s22 — `link_bidi_confirm` on S1 expected 5, got 4; on S2 expected 6, got 7.** ★ The **total is 11 in both
+   arms**; one confirmation moves between the two statics as beacon/probe timing shifts. ★★ **The invariants
+   those counts sit beside are GREEN and were measured directly: of the 11 static rows, `0` carry
+   `"plane":"team"` and `0` carry any of this scenario's team local ids (143/241/224).** The scenario's own
+   `_c` says: *"If a future slice legitimately changes static beacon timing, s22 re-anchors anyway and these
+   move with it."*
+2. **s37 — TO now emits `rt_update{dest:101,hops:2,next:102}` at t=15710**, tripping a `not_contains`. `101`
+   is H1 and `102` is S2, **both statics**: an ordinary static DV route, not a plane leak. The scenario's own
+   `_desc` names this exact acquisition and ends *"do not rely on the absence being structural."* ★★ **The
+   load-bearing R3 gate is untouched and measured: `emit_type == "r_tx"` occurs 0 times in BOTH arms**, i.e.
+   a team-plane message still generates no static frame (T6 holds). The DISCOVER schedule moved
+   1000/8000/20000 → 2532/9138, which is enough to make S2 beacon inside the run window.
+
+⚠ **AND THE SINGLE-DRAW ARMS CORROBORATE THE "FRAGILE, NOT BROKEN" READING RATHER THAN MY SAYING SO:** each arm
+reddens a **different** set — A boot ⇒ s28(2) + s37(1); B claim ⇒ **s27(5)** + s37(1); C no-host ⇒ s28(1) +
+s37(1) — and `s27`, which is red under B alone, is **GREEN under the full slice**. A mechanism defect does not
+behave like that; a timing-fragile exact-count expectation does.
+
+## ⛔⛔ §MH-S3 — WHICH GATES RAN AND WHICH DID NOT. AN UNRUN GATE IS UNRUN.
+
+★ **RUN, every number a build+run on this tree:**
+
+| gate | result |
+|---|---|
+| **native** | **`pio test -e native` from a DELETED `.pio/build/native`, then RUNNING the binary** (the wrapper printed its usual false *"0 test cases"*) = ★ **1424 test cases / 75060 assertions / 0 failed**, vs the pre-slice **1424 / 75019 / 0** ⇒ **+0 cases, +41 assertions**. The case count is *correctly* flat: §S0-2 was **rewritten in place** (B101), not added. **`grep -c "error:"` = 0**, counted beside the doctest line. ⓘ The **1424 / 75019 / 0** baseline was **re-measured on this tree before a line was edited**, not quoted, and matched exactly |
+| **s18 keystone** | ★★ **`1cd21235` / 271629 EXACT**, in the BEFORE arm, the AFTER arm and all four single-draw arms. **0 assertion failures** |
+| **corpus** | **36/36 run. 28 rows byte-identical, 8 movers (table above), 34 rows with 0 assertion failures, 2 rows red ([[B148]]/[[B149]])**. Machine-`diff`ed name+md5+event-count, 36 rows each side. ★ **POSITIVELY CONTROLLED** — a poisoned s18 md5 injected into the measured set made the `diff` FIRE, and the unpoisoned row was verified identical in the same pass. ★ **CALIBRATED, not quoted:** the BEFORE arm reproduced §MH-S2b/c's recorded state **exactly, all eight rows** (s07 `270489af`/106995 · s21_mobile `0c0f15c9`/662 · s22_mobile `8ef0fa0a`/1805 · s24 `bf34785f`/1581 · s27 `7a7c8b6d`/9290 · s28 `4d9c69d3`/4001 · s29 `df305413`/1946 · s37 `0ee0275e`/771), with every other row equal to the `^### 36/36 corpus` anchor table |
+| **`lus`** | **`b49c1319` (§MH-S2c) → `3b897ce1`**, rebuild PROVEN not assumed — **40** `Building CXX`/`Linking CXX` actions. ★ **RESTORATION CONTROL FIRED:** after the 7-mutation native battery, a rebuild reproduced **`3b897ce1` unchanged (0 actions)** and `md5sum -c` was clean on all seven touched files. ⓘ The BEFORE arm is a **provably different binary** built from a scratch copy (`8f50e414`, 64 actions, its own build dir) |
+| **`sizeof(Node)`** | ★ **221376 — UNMOVED.** The native `static_assert` compiles green and was **not touched**. ⛔ **No member, no array, no state of any kind was added**; the slice adds two `constexpr` functions, two `constexpr` constants and one member *function* |
+| **`TimerWheel::kCap`** | ★ **91, top timer id 90 — UNCHANGED.** No timer id was allocated; every draw feeds an **existing** `after()` |
+| **probes** | **both re-run, rc=0, identical to §MH-S2b/c:** `probe_board_ui` **68 passed / 0 failed / 68 total + structural 13/13 + wiring 13/13, 19 negative controls RED, 23 controls run**, real source md5-verified unchanged by the run · `probe_firmware_ui` **31 checks, 26 of 31 reddened by a control, 17 controls verified / 0 unusable, PASS** |
+
+⛔ **SUSPENDED BY OWNER INSTRUCTION DURING THE SLICE** — ⚠⚠ **THE *"OWED BEFORE APPROVAL"* FRAMING THAT STOOD HERE IS WITHDRAWN, 2026-08-07 (§MH-S3-QA item 6): independent QA reports a COMPLETED 10/10 board gate and census and reports them clean (attributed to QA — ⛔ **its figures were NOT relayed and none is quoted or implied anywhere in this file**), and the owner has authorised the QA-gate to re-run the sweep locally on the settled post-fix tree. See §MH-S3-QA's ⏳ PENDING LOCAL MEASUREMENT placeholder for exactly which numbers are owed and where they go. ⛔ Nothing here states or implies the sweep passed on this tree.** The suspended items were:
+
+- **the five board envs** (`gateway`, `xiao_sx1262`, `xiao_esp32s3`, `heltec_v3`, `heltec_mobile`) and
+- **`tools/warning_census.sh`**.
+
+★ **THE SUSPENSION'S OWN ESCAPE CLAUSE APPLIES HERE, SO THIS IS NOT A JUDGEMENT CALL:** the instruction lifts
+the suspension for *"code reachable only under an `MR_FEAT_*` gate"*, and **three of the four new draw sites
+are inside `#if MR_FEAT_MOBILE`** (`node_mobile.cpp` ×2, `node_mac.cpp` ×1). A native-green build is
+structurally blind to that class — the precedent is the census catching a `parse_j` left outside
+`MR_TELEMETRY`. ⇒ **the sweep is OWED.** ⛔ **Nothing here states or implies that it passed.** ⓘ Expected to be
+cheap: no state, no new `switch`, no new narrowing conversion beyond two explicit `static_cast<int>` on
+`constexpr uint32_t` values, no `printf`-family format, and `sizeof(Node)` unmoved ⇒ **no per-board RAM grid is
+owed by D2**; but "expected" is not "measured".
+
+## ★★★ §MH-S3 — §S0-2 REWRITTEN IN PLACE (B101), AND THE REWRITE IS MUTATION-CHECKED
+
+★ **`test/test_node_join.cpp`'s `§S0-2` characterization case is REWRITTEN, not deleted and not disabled.** It
+went RED for real when the slice landed — **measured, not predicted: `137500 == 175000`** — and it now asserts
+the inverse of what it used to. It is deliberately still **ONE case** covering all four draws, because §5.2
+makes them one contract and U1 says extend the pin rather than fork it. What it now pins:
+
+- **(0)** a `is_mobile == false` node draws exactly what it always did — measured as a **differential** against
+  an otherwise identical mobile, so it cannot rot when an unrelated boot draw changes;
+- **(A)** the automatic boot kick costs **exactly one** draw and staggers (`0` vs `7` on the two biased
+  streams) — **and a team-only mobile with autoregister OFF draws NOTHING and arms at ZERO**, which is §5.2's
+  *"the manual first attempt is immediate"* as a negative control;
+- **(B)** the CLAIM deadline is `mobile_offer_window_ms + draw`, **one** draw per DISCOVER handoff;
+- **(C)** **one** draw per no-host close, four rounds of the retained ladder, with the capped doubling itself
+  asserted so a jitter that also flattened the ladder cannot pass;
+- **the phase result inverted**: the old case asserted `phase1 == phase2` after four rounds; it now asserts
+  `phase1 != phase2` and pins the gap at **exactly 4 × 2 × 7 = 56 ms** (two draws per round);
+- **(D)** the interval is **exactly `[window/2, window]`**, both ends **forced through `_rand_ret` and read
+  back** — this is what says *equal* jitter rather than merely *some* jitter;
+- **a retained cross-check** that §MH-S2's host-side OFFER de-storm draw is **unchanged** (100 / 107).
+
+### §MH-S3 — THE MUTATION BATTERY: 7 MUTATIONS, EVERY ANCHOR ASSERTED AT **EXACTLY ONE MATCH**
+
+The harness aborts on 0 or >1 matches, restores the file in a `finally`, and re-verifies the md5.
+
+| mutation | what it breaks | matches | RED |
+|---|---|---|---|
+| **M-S3-1** | ★ **the S0-2 defect restored** — the no-host retry jitter reverted to `delay = window` | 1 | **1 case / 24 assertions** |
+| **M-S3-2** | the boot startup jitter reverted to `after(0, …)` | 1 | **1 case / 3 assertions** |
+| **M-S3-3** | the CLAIM de-synchronization reverted to the fixed window | 1 | **1 case / 13 assertions** |
+| **M-S3-4** | the admission-rejection retry jitter reverted | 1 | **4 cases / 6 assertions** — ★ exactly the six rewritten §MH-S1/§MH-S1b delay lines, and nothing else |
+| **M-S3-5** | ⚠ **equal jitter → plain `rand(0, window+1)`** (`equal_jitter_lo` → 0): the NON-ZERO lower half removed | 1 | **1 case / 10 assertions** |
+| **M-S3-6** | the inclusive upper bound removed (`window + 1` → `window`): the top of the window becomes unreachable | 1 | **1 case / EXACTLY 1 assertion** — ★ the (D) high-extreme line, which exists for precisely this and nothing else |
+| **M-S3-7** | ⚠ the boot jitter drawn **unconditionally** (the `mobile_autoregister` gate deleted): the manual/team-only immediate arm broken | 1 | **1 case / 2 assertions** — the negative control's `last_armed == 0` and its draw-count |
+
+⚠ **No mutation reddened nothing**, so there is no inert-vs-coverage-gap call to make this round. ★ **M-S3-5
+and M-S3-6 are the two that matter**: without them "the delay is jittered" would be asserted and "it is EQUAL
+jitter over `[window/2, window]`" would not.
+
+⚠ **Restoration proof:** `md5sum -c` clean on all seven touched files, then `pio test -e native` from a
+**deleted** object dir gives **1424 / 75060 / 0** with `grep -c "error:"` = 0, and `lus` rebuilt to
+**`3b897ce1`** — the same binary that produced the measured 36 rows.
+
+## §MH-S3 — M2 (metal-only residue): **NOTHING IS OWED, AND HERE IS THE REASONING RATHER THAN THE CONCLUSION**
+
+The behaviour **is** metal-visible in effect — a fleet powered from one switch now attaches instead of
+colliding. But M2 requires *"the exact expected console line"*, and **there is none to write**: no console
+verb, push, JSON field, NV record or ABI was added; the four draws feed existing `after()` calls; `MR_EMIT` is
+device-stripped; `mobile_last_result()` is a public accessor read only by the native gate; and the one operator
+log line on this path (`mobile OFFER dropped at our own transmitter…`) is §MH-S1's and unchanged.
+**Verified by grep over `src/` + `lib/console/` for `backoff|no_host|MobileAttemptResult|mobile_last_result`:
+9 hits, and ALL NINE are `src/firmware_ui_model.h`'s own OLED send-retry backoff — an unrelated mechanism.
+Zero hits touch the mobile attach FSM.** ⇒ a bench item today could only say *"put a sniffer on it"*, which is
+padding.
+★ **Where it genuinely belongs is §12.3 items 1–4** (power four mobiles, capture J DISCOVER/OFFER/CLAIM, read
+attachment + home link), and those need the observable surface **S4** builds. ⇒ `docs/2026-07-31-bench-test-script.md`
+is **UNTOUCHED**, and the obligation is named against S4 rather than dropped.
+
+## ⚠ §MH-S3 — EVERY PREMISE THAT TURNED OUT WRONG
+
+1. ⛔ **THE BRIEF'S (AND THE SPEC'S) *"use the existing `retry_backoff_window()` family for the capped
+   window"* — the function cannot express §5.2's window, verified in source before anything was written.**
+   §5.2 wants `min(base · 2ⁿ, ceiling)`, a **value** clamp; `retry_backoff_window` is `base << min(n, shift)`,
+   a **shift** clamp, and no shift of 5000 equals 120000. Worse, its `retry_backoff_max_shift` is globally
+   **0** (`protocol_constants.h`, shipped at 0 after the 24-seed BEB A/B refuted it), so it currently produces
+   **no growth at all**. ⇒ the mobile ladder keeps its existing in-place `min(2·prev, max)` accumulator —
+   which already *is* §5.2's formula, verbatim — and only the **jitter** was added to the family, as the pure
+   `equal_jitter_lo` / `equal_jitter_hi_excl` pair beside it. **Zero refactor of the ladder (C1).**
+2. ⛔ **THE BRIEF'S *"§6.2's deferred-OFFER re-arm was explicitly deferred to S3 … pick it up here"*, and the
+   two in-source comments that said the same.** It is an **alternative**, not a deferral; S2 took the other
+   branch completely. See the ruling above. **The three stale comments are corrected in place.**
+3. ⛔ **MY OWN first zero-draw measurement was VACUOUS and printed counts caught it.** I read `is_mobile` at
+   the top level of each scenario JSON; the key lives under `node["config"]`, so the probe reported **0
+   mobiles in all 36** and would have "proved" the static plane inert by measuring nothing. The correct read
+   also has to honour `NodeConfig`'s **default `mobile_autoregister = true`** — counting only the explicit
+   `true` mis-classified `s07`, whose mobiles simply omit the key. Both errors were only visible because the
+   per-row numbers were printed rather than a pass/fail.
+4. ⛔ **MY EXPECTATION that the reservation budget note needed widening.** `mobile_offer_reservation_ms`'s
+   comment adds a `+ 5000 first retry` term; re-reading the code shows `mobile_offer_admit`'s re-arm arm
+   **re-stamps `reserve_until_ms` on every re-DISCOVER**, so a retry RESTARTS the budget instead of consuming
+   it. The real span is one round — now ≤3000 against 10000. **The note is corrected rather than extended.**
+5. ⚠ **"Corpus movement is expected in this slice" is true but was nearly useless as a checking tool.** The
+   thing that made the movement *attributable* was not the expectation — it was the 4-build per-draw matrix
+   plus the `moved ⟺ autoregistering-mobile` predictor. A slice that had merely observed 8 movers and said
+   "S3 is the re-anchor" would have shipped the same numbers with none of the evidence.
+
+## §MH-S3 — FILES
+
+**`lib/core/protocol_constants.h`** (the `equal_jitter_*` pair beside `retry_backoff_window`;
+`mobile_boot_jitter_ms` = 2000 and `mobile_claim_jitter_ms` = 1000 with their sizing notes; the
+`mobile_offer_reservation_ms` budget note corrected) · **`lib/core/node.h`** (`mobile_equal_jitter` declared +
+its contract; the §6.2 and admission-retry notes corrected in place) · **`lib/core/node.cpp`** (draw **A**) ·
+**`lib/core/node_mac.cpp`** (draw **B**) · **`lib/core/node_mobile.cpp`** (the helper; draws **C** and **D**) ·
+**`lib/core/node_join.cpp`** (comments only — the §6.2 ruling) · **`test/test_node_join.cpp`** (§S0-2 rewritten
+in place; six §MH-S1/§MH-S1b delay assertions rewritten; two §S0-3 claim-guard assertions annotated) ·
+**`docs/2026-07-30-open-bug-register.md`** ([[B148]] / [[B149]] / [[B150]]) · **this file**.
+
+⛔ **NOT TOUCHED:** `lib/hal/timer_wheel.{h,cpp}` (`kCap` **91**, highest id **90**) · `src/` · `variants/` ·
+`platformio.ini` · **any `simulation/*.json`** · the `^### 36/36 corpus` anchor table ·
+`tools/warning_census.sh` · `docs/2026-07-31-bench-test-script.md` · `CLAUDE.md` · the design spec ·
+[[B138]] · [[B139]] (S4) · [[B140]] / [[B141]] / [[B144]] (owner calls) · [[B143]] (disproven) ·
+B112 / B118 / B119 / B131 · the REPLY-only wake · **S4–S6**. ⛔ **No `lib/core` behaviour was tuned for any
+scenario, and no scenario was tuned for `lib/core`.**
+
+## ★★★★ §MH-S3 — WHAT THE OWNER MUST RULE, ONCE, ACROSS S1 + S2 + S3
+
+**The whole point of the slice ordering was to make this a single decision. It now is.**
+
+1. ✅ **RULED 2026-08-07 — DONE. The 8 rows are WRITTEN into the `^### 36/36 corpus` table** (§MH-S3-QA items 1+2). Original text: ★★ **THE RE-ANCHOR: 8 rows, and they are the SAME 8 rows in all three slices.** Nothing else in the corpus
+   has moved since the anchor table was written. **s18 has never moved.** The final values to write into the
+   `^### 36/36 corpus` table, if accepted:
+
+```
+s07_seattle_mobile_meshroute                   e679bd5b lus: 109391 events emitted, 0 assertion failure(s)
+s21_mobile_dm_milestone_meshroute              d2952649 lus: 680 events emitted, 0 assertion failure(s)
+s22_mobile_team_meshroute                      90bf4727 lus: 1820 events emitted, 2 assertion failure(s)   <- [[B148]]
+s24_static_and_team_multihop_meshroute         7cac1b63 lus: 1556 events emitted, 0 assertion failure(s)
+s27_cross_layer_mobiles_meshroute              c7496c45 lus: 9758 events emitted, 0 assertion failure(s)
+s28_mixed_team_channels_meshroute              77386aba lus: 3852 events emitted, 0 assertion failure(s)
+s29_mixed_leaf_team_meshroute                  d8a5beb9 lus: 2031 events emitted, 0 assertion failure(s)
+s37_team_homed_origin_meshroute                46d3b916 lus: 748 events emitted, 1 assertion failure(s)    <- [[B149]]
+```
+
+   ⛔ **I have NOT written these into the table.** Attribution, per slice: **S1** produced the first movement
+   on all 8; **S2** refined 6 of them ([[B140]]'s and §MH-S2's records); **S3** moved all 8 again, each
+   attributed to a named draw above.
+2. ✅ **RULED 2026-08-07 — re-anchored with the table; [[B148]] CLOSED.** Original text: **[[B148]] — s22's `link_bidi_confirm` 5/6 → 4/7.** Re-anchor with the table, or declare the row fragile.
+3. ✅ **RULED 2026-08-07 — the assertion was REPLACED (not removed) and mutation-checked RED; [[B149]] CLOSED.** ⓘ The ruling's suggested `r_tx == 0` re-expression was **NOT** what landed: `r_tx == 0` is assert 20 and already exists, and it does not cover assert 28's route-TABLE (A2) subject — see §MH-S3-QA item 2. Original text: **[[B149]] — s37's `not_contains dest:101`.** Re-express the assertion as what it means (`r_tx == 0`,
+   already green), or keep it as a known-fragile row.
+4. ~~⛔ **THE SUSPENDED BOARD SWEEP + `warning_census.sh` — OWED BEFORE APPROVAL**~~ ⚠ **SETTLED 2026-08-07 (§MH-S3-QA item 6) — no longer an owner call: QA reports it complete (figures not relayed) and the QA-gate will re-measure locally; see the ⏳ placeholder.** Original text: (see the gate table for why
+   the suspension's own escape clause applies).
+5. Still outstanding from earlier rounds and **not** re-litigated here: [[B140]] items 1 and 3 (accept the S1
+   movers; whether §11 S1's byte-identity sentence should be corrected in the spec), [[B141]], [[B144]].
+
+
+**★★★★★★★★★★★★★★★★★★★★★★ 2026-08-07 §MH-S2b (+ §MH-S2c) — THE INDEPENDENT-QA ROUNDS ON §MH-S2: THREE CORRECTNESS FIXES, ONE ORDERING FIX, ONE REGISTER ENTRY DISPROVEN, THE DESIGN SPEC RECONCILED. ⛔ UNCOMMITTED (D4). ⛔ NOTHING RE-ANCHORED — the `^### 36/36 corpus` table is UNTOUCHED and the owner rules. ⛔ NO OWNER OR QA APPROVAL IS CLAIMED FOR ANYTHING HERE.**
+
+> ### ★★★★ §MH-S2c — THE SECOND QA PASS ON [[B147]]: THE FIX WAS RIGHT AND ITS **POSITION** WAS WRONG
+>
+> ⛔ **[[B147]] WAS REOPENED AND RE-CLOSED.** §MH-S2b added the reservation-plane check **after** the registered-row
+> collision loop, and that one ordering left a hole its own four arms could not reach. **The sequence:** A held id
+> **X** · **X is now REGISTERED to B** · A re-DISCOVERs and is promised **Y** · **A's delayed CLAIM for X arrives**
+> ⇒ the registered-row branch **DENIED A and called `mobile_offer_release(A)`, destroying the live promise of Y**;
+> `mobile_claim_stale_id`'s drop/retain policy was **never reached**. A then re-registered and threw away an id the
+> home was still holding for it — the [[B137]] recovery churn, re-entered through the other door.
+>
+> ★★★ **THE PRINCIPLE, NOW STATED IN-SOURCE AT THE SITE AND IN THE SPEC: A STALE FRAME MUST BE IDENTIFIED AS STALE
+> BEFORE ANY BRANCH ACTS ON ITS CONTENTS** — otherwise a check on those contents **consumes state belonging to a
+> newer transaction**. Same family as [[B142]] (a stale LBT completion consuming the newer attempt's stage) and as
+> [[B147]]'s own hash-vs-(hash,id) lesson: **the ORDER of the tests is part of the correlation, not an
+> implementation detail.**
+>
+> **THE FIX IS ORDERING ONLY.** The reservation scan (pure) is hoisted above the registered-row loop and the
+> claimant's-own-reservation mismatch returns early — emit `mobile_claim_stale_id`, **RETAIN the reservation**, no
+> DENY. The registered-row and reserved-elsewhere branches are **byte-identical text, moved**. ⛔ **No state was
+> added: `sizeof(Node)` 221376 unmoved** (native `static_assert`, untouched), no new member, no new constant, no new
+> `switch`, no new variable that is not read on every path.
+>
+> **THE REGRESSION — `test/test_node_join.cpp`, ARM 5 of the existing `★★★ [[B147]]` case** (⛔ appended in place;
+> arms 1-4 are **unchanged and still green**). It builds the one arrangement in which the two branches disagree —
+> the stale id in a **REGISTERED ROW**, the claimant holding a live reservation for a different id — and asserts:
+> ① **no DENY** (`deny` frames 0 **and** `mobile_id_collision_deny` 0, with `mobile_claim_stale_id` == 1 proving the
+> policy was reached) · ② **B's registration unaltered** (count, key **and** local id re-read off `mobile_reg_at`) ·
+> ③ ★ **Y RETAINED** (`mobile_offers_pending_n() == 1`) · ④ **A's subsequent CLAIM for Y succeeds** (registered,
+> no DENY, both mobiles hosted, the promise handed to the row).
+>
+> ★★ **MUTATION-CONTROLLED, EXACT UNIQUE REPLACEMENT, HARNESS ABORTS ON 0 OR >1 MATCHES:**
+>
+> | mutation | what it restores/breaks | matches | RED |
+> |---|---|---|---|
+> | **M-B147-4** | ★ **the exact §MH-S2b ORDER** — the staleness early-return moved back below the registered-row loop (the scan stays, being pure, so this is the behavioural defect and nothing else) | **1 remove + 1 reinsert, 1 each** | **1 case / EXACTLY 4 assertions** — ①(×2), the `mobile_claim_stale_id` == 1, and ③. **That 4-assertion red IS the defect.** ⓘ ② and ④ stay **GREEN** and are reported as such: a DENY does not alter B's row, and A's later CLAIM still lands via the aged-out compatibility path. **The discriminating assertions are ① and ③** |
+> | **M-B147-5** | ⚠ **THE TEMPTING WRONG FIX** the brief named: read the reservation, emit the stale event, **but fall through** to the registered-row branch (the `return;` deleted) | **1** | **1 case / 4 assertions** — ARM 2's `mobile_reg_count()==0`, ①(×2) and ③. ★★ **`mobile_claim_stale_id` == 1 stays GREEN**, which is exactly the point: the half-fix *reports* staleness correctly and still destroys Y. **③ is the assertion that separates the two, and it is measured doing so** |
+>
+> ⚠ **A mutation that reddens nothing was neither seen nor tolerated this round** — both fired, both at match count 1.
+>
+> **⛔⛔ WHICH GATES RAN AND WHICH DID NOT — AN UNRUN GATE IS UNRUN.**
+>
+> ★ **RUN, every number a build+run on this tree:**
+> - **native from a DELETED `.pio/build/native`, then RUNNING the binary** (the wrapper again printed the false
+>   *"0 test cases"*) = ★ **1424 test cases / 75019 assertions / 0 failed**, vs §MH-S2b's **1424 / 74988 / 0** ⇒
+>   **+0 cases, +31 assertions** (ARM 5 joins an existing case, so the case count is *correctly* flat).
+>   **`grep -c "error:"` = 0**, counted beside the doctest line; **9 warnings, and all 9 are pre-existing** in files
+>   this round did not touch (`node_hashlocate.cpp`, `test_node_{r3,hashlocate,channel,query}.cpp`,
+>   `test_dual_layer.cpp`, plus the `-fno-rtti`-on-C note) — **0 from `node_join.cpp` or `test_node_join.cpp`.**
+> - ★ **s18 keystone `1cd21235` / 271629 EXACT**, 0 assertion failures.
+> - ★★ **36/36 corpus BYTE-IDENTICAL — ZERO MOVERS, 0 assertion failures in all 36.** Machine-`diff`ed
+>   name+md5+event-count, 36 rows each side, `diff` **EMPTY**. **CALIBRATED, not quoted:** the BEFORE arm is
+>   **M-B147-4 itself** (the §MH-S2b order restored), built and run as its own corpus pass — and it reproduces
+>   §MH-S2b's state exactly, six movers and all (s07 `270489af`/106995 · s21_mobile `0c0f15c9`/662 ·
+>   s24 `bf34785f`/1581 · s27 `7a7c8b6d`/9290 · s28 `4d9c69d3`/4001 · s37 `0ee0275e`/771, plus
+>   s22 `8ef0fa0a`/1805 · s29 `df305413`/1946); every other row equals the `^### 36/36 corpus` anchor table.
+>   ★ **POSITIVELY CONTROLLED** (a poisoned s18 md5 injected into the measured set made the `diff` FIRE).
+>   ⓘ **The two arms are provably different binaries:** `lus` **`54cabd55`** (BEFORE / M-B147-4) vs **`b49c1319`**
+>   (AFTER), 5 `Building CXX`/`Linking CXX` actions each — so the zero-mover result is not a stale-binary artefact.
+>   ⚠ **AS PREDICTED, AND THE PREDICTION IS NOT THE EVIDENCE — the measurement is.** An ordering change on a
+>   stale-CLAIM path moves nothing because **`mobile_claim_stale_id` and `mobile_claim_reserved_elsewhere` occur 0
+>   times in all 36 streams** (measured at §MH-S2b): the corpus never constructs a delayed CLAIM at all.
+> - ★ **`sizeof(Node)` 221376 — the native `static_assert` compiles green and was not touched.** ⛔ **No RNG draw
+>   was added or removed:** the change is a code motion plus one early `return`; `_rng`/draw sites in `node_join.cpp`
+>   are untouched, and the byte-identical corpus over 36 independent streams is the measurement that says so
+>   (**S3 remains the arc's only planned re-anchor**).
+> - **`TimerWheel::kCap` 91, top timer id 90** — `lib/hal/timer_wheel.{h,cpp}` are **absent from `git diff`**.
+> - **Both probes re-run, rc=0, identical to §MH-S2b:** `probe_board_ui` **68 passed / 0 failed / 68 total**,
+>   structural **13/13**, wiring **13/13**, **19 negative controls RED, 23 controls run**, real source md5-verified
+>   unchanged by the run · `probe_firmware_ui` **PASS**, **26 of 31 checks reddened by a control, 17 controls
+>   verified / 0 unusable**, sources md5 `6fafcc38…` unchanged.
+> - **RESTORATION PROOF:** after the battery, `node_join.cpp` md5 is **`497910aa`** = its pre-mutation value; a
+>   from-deleted native rebuild gives **1424 / 75019 / 0** with `error:` 0; `lus` rebuilt to **`b49c1319`**, the same
+>   binary that produced the 36 measured AFTER rows; `git diff --stat` lists **only** the intended files.
+>
+> ✅ **DISCHARGED 2026-08-07 — INDEPENDENT QA RAN THE SUSPENDED SWEEP AND REPORTS IT CLEAN.** ⚠ **The numeric results
+> were NOT relayed to this record**, so no figures are quoted here: this line records **that QA ran it and passed it**,
+> attributed to QA, and **nothing more**. ⛔ **Do not infer specific object counts, warning totals or RAM/flash values
+> from this discharge** — if they are wanted in the ledger, paste QA's figures and they will be recorded verbatim.
+> (Owner call #5 is closed by this and removed from the outstanding list.)
+>
+> ⓘ Historical, kept as the audit trail — the state during §MH-S2c itself:
+> ⛔⛔ **SUSPENDED BY OWNER INSTRUCTION FOR THIS ROUND ONLY — NOT RUN, AND NOTHING BELOW MAY BE READ AS PASSING:**
+> the **five board-environment builds from deleted object dirs**; **`tools/warning_census.sh`** (the 178/178/174
+> @ 326 pins and `gateway_heltec` RAM 239876 = 73.20 %); the **per-ABI `sizeof(Node)` reveal on the board
+> toolchains**. The instruction's rationale was proportionality — this slice is an ordering change among existing
+> checks plus documentation.
+> ★ **AND THE CONDITION WAS CHECKED, ITEM BY ITEM, RATHER THAN ASSUMED:** ① **no member or state added** (no `Node`
+> field, no constant, no array — `sizeof(Node)` 221376 by the untouched native assert); ② **no new warning class
+> under board flags** — no new `switch`, no narrowing conversion, no `printf`-family format, and the three hoisted
+> locals (`claim_now`, `own`, `foreign`) are **read on every path**, including with `MR_EMIT` compiled out, because
+> they appear in the `if` conditions and in `addr_conflict_send_deny`'s arguments, not only inside emits (⚠ this is
+> precisely the class the census caught two rounds ago with `parse_j` left outside `MR_TELEMETRY`, so it was checked
+> deliberately and not waved past); ③ **nothing touched outside `lib/core/node_join.cpp`, `test/`, and the docs**
+> (`git diff --stat` confirms); ④ **the change is exactly the reordering plus the stale-CLAIM early return** — the
+> two moved branches are byte-identical text. ⇒ **on the evidence I have, the suspension looks safe — but I did not
+> measure it, so the board sweep + census was OWED, not waived — and ✅ **independent QA subsequently RAN it and reported it clean (2026-08-07)**, which discharges it. ⚠ QA's figures were not relayed here, so none are quoted.**
+>
+> ⚠ **§MH-S2c — PREMISES THAT TURNED OUT WRONG (this pass):**
+> 1. ⛔ **§MH-S2b's own claim that [[B147]] was closed.** It was closed against the four arms it had, and those four
+>    arms all placed the stale id in a **reservation** or nowhere. **Not one of them put it in a REGISTERED ROW** —
+>    the single arrangement where the two branches disagree. The fix was correct and **incompletely positioned**,
+>    and the test set could not tell the difference. ⓘ Fourth null-or-blind-coverage finding of this arc.
+> 2. ⛔ **My expectation that M-B147-4 would redden all four numbered assertions of the regression.** It reddens
+>    **① and ③ only** (four `CHECK`s); ② and ④ survive the defect. Recorded because it changes what the regression
+>    is *for*: ② and ④ are **framing** assertions, ① and ③ are the **discriminating** ones — and M-B147-5 confirms
+>    it from the other side by leaving `mobile_claim_stale_id` green while still destroying Y.
+> 3. ⓘ **"The spec is one sentence out of date."** The sweep found **eight** live contradicted sites, not one — see
+>    the spec section below.
+>
+> ## §MH-S2c — THE SPEC SWEEP (`docs/superpowers/specs/2026-08-07-mobile-home-attachment-reliability-design.md`)
+>
+> ⚠ **METHOD NOTE FIRST, because the brief warned about it: the spec contains ZERO `~~`-fenced or otherwise
+> superseded blocks** (`grep -c '~~'` = **0**, before and after) — so no grep in this sweep could count dead text as
+> live. My corrections are **inline and explicitly marked** (`⛔ corrected 2026-08-07`, `⚠ UPDATED`, `used to
+> read…`), and every count below excludes those markers by name rather than by hope.
+>
+> **DERIVED SET: 8 LIVE CONTRADICTED SITES, ALL CORRECTED IN THE OPERATIONAL TEXT (⛔ not as a note beside it):**
+>
+> | # | § | what it said | what it says now |
+> |---|---|---|---|
+> | 1 | 5.3.2 item 2 | *"coalesce a duplicate DISCOVER … without consuming another slot or moving its deadline"* — ONE behaviour | **two arms, selected by whether the OFFER has flown:** ARMED ⇒ **coalesce** (no slot, no draw, deadline unmoved); TRANSMITTED ⇒ **re-arm the SAME slot, RETAINING the reserved id** |
+> | 2 | 5.3.2 B137 ruling | *"a duplicate DISCOVER retains the same reservation (it coalesces…)"* | *"a **repeat** DISCOVER retains the same reservation — under **both** arms"* |
+> | 3 | 5.3.2 item 8 | *"expose ring-full and transmitter-rejection counters"* — silent on ownership | **[[B146]]:** the increment belongs to the one function that **reports**, never to a call site; two callers exist and one reported **zero** |
+> | 4 | 5.3.3 fire contract | ⛔ *"one frame per callback keeps the host off a same-millisecond burst"* — **FALSE AS WRITTEN** ([[B145]]) | the re-arm delay must be **strictly positive**; `protocol::mobile_offer_respace_ms` substituted **only** for a delay that would be 0 |
+> | 5 | 5.3.3 duplicate bullet | coalesce only | both arms, reservation retained in each |
+> | 6 | 9.4 step 5 | *"the **existing CLAIM collision check** (`node_join.cpp:225-233`)"* — one scan, one plane | **two planes in a FIXED ORDER**, pointing at §5.3.2's new ruling |
+> | 7 | 12.1 gate 1 | *"A same-mobile duplicate coalesces."* | both arms — and says plainly that the old wording *"would have passed a build that answered every re-DISCOVER with silence"* |
+> | 8 | 12.1 gate 18 | *"A duplicate DISCOVER … does not move the existing deadline."* | both arms asserted **separately** |
+>
+> **ALSO RECORDED IN THE SPEC (new, not corrections):** §5.3.2 gains the ruling **★★★ *a CLAIM is matched on the
+> pair `(key_hash32, proposed_node_id)`*** — the four-step resolution order, the `reserve_until_ms > now` liveness
+> rule, and **the ordering constraint with its measured justification and the explicit note that "check the
+> reservation but still fall through" is NOT the fix**. §12.1 gains gates **30-33** ([[B145]] positive delay through
+> a real wheel · [[B146]] one reporter owns the count · [[B147]] pair matching · **§MH-S2c staleness-before-collision
+> with the four assertions named**).
+>
+> ⓘ **`mobile_offer_respace_ms` = 100 ms is recorded in the spec as a TUNABLE, not a correctness bound** — the text
+> says in as many words that **a 1 ms floor also stops the burst** (measured, M-B145-2) and that 100 is an
+> owner-owed **spacing** choice. It remains owner call #4 below.
+>
+> ⛔ **CHECKED AND DELIBERATELY LEFT ALONE (5 sites):** §2.2 line 54, §5.3.2's *"the two defects mask each other"*,
+> §11's *"last DISCOVER wins"* task line and §13's *"stale source comments … 'deliberately single-slot'"* — all four
+> are **problem-statement / task history describing the PRE-S2 code** and are accurate as such; plus §8's home
+> **roster** coalescing, an unrelated mechanism the word "coalesce" merely shares.
+>
+> **§MH-S2c FILES:** `lib/core/node_join.cpp` (ordering + the in-source principle) · `test/test_node_join.cpp`
+> (ARM 5 appended; arms 1-4 untouched) · the **spec** (⚠ **no longer in §MH-S2b's NOT-TOUCHED list** — see the
+> correction there) · `docs/2026-07-30-open-bug-register.md` ([[B147]] reopened→re-closed in place) · this file.
+> ⛔ **NOT TOUCHED by §MH-S2c:** `lib/core/node.h` · `protocol_constants.h` · `src/` · `variants/` ·
+> `platformio.ini` · **any scenario** · the `^### 36/36 corpus` anchor table · `tools/warning_census.sh` ·
+> `docs/2026-07-31-bench-test-script.md` · `CLAUDE.md` · `lib/hal/` · **S3–S6** · [[B138]] / [[B139]] / [[B140]] /
+> [[B141]] / B112 / B118 / B119 / B131 · the REPLY-only wake.
+>
+> **§MH-S2c — M2, plainly: NOTHING IS METAL-VISIBLE.** No console verb, push, JSON field, NV record, ABI or
+> operator-facing line changed; the only new behaviour is which of two existing branches runs first, and both
+> `mobile_claim_stale_id` and `mobile_claim_reserved_elsewhere` are `MR_EMIT` (device-stripped). The path **is**
+> natively covered end to end, and the corpus cannot reach it at all. ⇒ `docs/2026-07-31-bench-test-script.md` is
+> **UNTOUCHED, and that is a conclusion with a reason, not padding.**
+>
+> ⛔ **§MH-S2c ADDS ONE ITEM TO THE OWNER'S LIST (below): the SUSPENDED board sweep + warning census is OWED before
+> approval.** It adds **no new movers** and **no re-anchor decision**.
+
+★★★ **THE HEADLINE: ALL THREE FIXES ARE CORPUS-INERT, AND EVERY ONE OF THOSE THREE INERTNESS CLAIMS IS A MEASUREMENT RATHER THAN AN ARGUMENT.** **36/36 rows BYTE-IDENTICAL to the §MH-S2 tree** — zero movers, s18 **`1cd21235` / 271629 EXACT**, 0 assertion failures in every scenario — with the comparison **positively controlled** (a poisoned s18 md5 injected into the measured set made the `diff` FIRE) and the BEFORE run **calibrated, not quoted**: it reproduced §MH-S2's six movers and s22/s29 to the md5 and the event count before a line was edited.
+
+★★★ **AND THE SECOND HEADLINE IS ABOUT THE HARNESS, NOT THE FIRMWARE. Two of this round's four findings are the SAME instrument error, one file apart:** [[B145]] existed because a fixture that invokes **one callback per call** modelled a pump that does not exist, and [[B143]] was **raised** because a fixture that **appends to a call log** was read as a model of live timer state. ⇒ **a harness that records CALLS is not a model of STATE, and a harness whose control flow differs from production in the dimension under test cannot fail.** Both are now driven through the **real `meshroute::TimerWheel`**.
+
+## §MH-S2b — WHAT LANDED
+
+| # | finding | disposition |
+|---|---|---|
+| **[[B145]]** | ★★★ **"at most ONE due OFFER per callback" was true and bought nothing.** `mobile_offer_arm_timer` re-armed an already-overdue remainder with delay **ZERO**; `TimerWheel::pop_due` fires on `_due <= now` and `src/fw_main.cpp:1069` drains at a clock that need not have advanced ⇒ the callback re-entered in the **same pump pass** and four overdue OFFERs reached the radio in **one millisecond** | **FIXED** — a positive floor `protocol::mobile_offer_respace_ms` = **100 ms**, substituted **only** for a delay that would be 0 |
+| **[[B146]]** | the reject counter lived at ONE of `mobile_offer_admission_rejected`'s TWO call sites, so a **deferred** HAL rejection reported `mobile_offer_dropped` while `mobile_offer_reject_count()` read **zero** — and the deferred test asserted the **event**, never the counter | **FIXED** — one reporter owns the count; the increment moved into the function |
+| **[[B147]]** | ★★★ **[[B137]]'s hole, different door: a CLAIM need not match its reservation.** Registered rows were checked; the **reservation plane was not**, and the release was **by hash alone** ⇒ A's delayed CLAIM could take an id already re-promised to B, sending B into the collision-DENY recovery [[B137]] exists to avoid | **FIXED** — a live reservation must match **hash AND id**; mismatch → drop as stale, id reserved elsewhere → targeted DENY, no reservation at all → still recorded |
+| **[[B143]]** | the "stale collect-OFFERs guard timer" | ⛔ **DISPROVEN.** `Hal::after` **REPLACES** a deadline (`lib/hal/timer_wheel.cpp:8`); *"two guards are armed"* counted `TestHal` **call history**. **Closed-not-fixed, corrected in place, removed from the owner calls** |
+| **doc** | "a duplicate DISCOVER coalesces" vs "a re-DISCOVER retains its id" were **two behaviours under one sentence** | **CLARIFIED IN SOURCE** at `node.h`'s `PendingMobileOffer` comment (and in [[B137]]'s register entries): `len != 0` ⇒ **coalesce** (no slot, no draw, deadline unmoved); `len == 0` ⇒ **re-arm the same slot, keep the reserved id** |
+
+## §MH-S2b — THE GATE (D1), every number a build+run
+
+| check | result |
+|---|---|
+| native | **`pio test -e native` from a DELETED `.pio/build/native`, then RUNNING the binary** (the wrapper's false *"0 test cases"* again) = ★ **1424 test cases / 74988 assertions / 0 failed**, up from §MH-S2's **1421 / 74871 / 0** (**+3 cases, +117 assertions**). **`grep -c "error:"` = 0**, counted beside the doctest line. ⓘ The **1421 / 74871 / 0** baseline was **re-measured on this tree before any edit**, not quoted, and matched exactly |
+| **s18 keystone** | ★ **`1cd21235` / 271629 EXACT**, 0 assertion failures |
+| corpus | ★★ **36/36 BYTE-IDENTICAL to the §MH-S2 tree — ZERO movers, 0 assertion failures in all 36.** Machine-`diff`ed name+md5+event-count, 36 rows on each side, `diff` EMPTY. ★ **POSITIVELY CONTROLLED** (poisoned s18 md5 ⇒ `diff` FIRED). ★ **CALIBRATED**: the BEFORE run reproduced §MH-S2's six movers exactly (s07 `270489af`/106995 · s21 `0c0f15c9`/662 · s24 `bf34785f`/1581 · s27 `7a7c8b6d`/9290 · s28 `4d9c69d3`/4001 · s37 `0ee0275e`/771) plus s22 `8ef0fa0a` / s29 `df305413` |
+| `lus` | **`44318a16` (§MH-S2) → `afa19357`**, rebuild PROVEN not assumed — **40** `Building CXX`/`Linking CXX` actions — and the **restoration control FIRED TWICE**: after the 8-run mutation battery a rebuild reproduced **`afa19357` unchanged** (5 actions, the battery having touched mtimes), and after the corpus-inertness probe was removed it reproduced **`afa19357`** again |
+| `sizeof(Node)` | ★ **221376 — UNMOVED. No state was added by any of the three fixes** (a constant, a branch, a scan over the existing ring, and one moved `++`). The in-source `static_assert` is the proof and it was not touched. ⇒ **no D2 per-ABI grid was owed, and the RAM grid below independently confirms it: +0 on all five ABIs** |
+| board envs | ★ **5/5 rc=0 from DELETED object dirs**, serially: `gateway` 283 objs · `xiao_sx1262` 283 · `xiao_esp32s3` 193 · `heltec_v3` 326 · `heltec_mobile` 326 — **identical object counts to §MH-S2**. **`error:` 0 and `-Wswitch` 0 on every one** |
+| warning census | **`tools/warning_census.sh` PASS, rc=0, NOTHING RE-PINNED**: `gateway_heltec` 174/174 · `heltec_mobile` 178/178 · `heltec_v3` 178/178, **326 objects each, `-Wswitch` 0** |
+| ⛔ `TimerWheel::kCap` | **91, UNCHANGED**; highest timer id still **90** (`kE2eAckDeadlineTimerId`). `lib/hal/timer_wheel.h` is untouched and `lib/hal/timer_wheel.cpp` is **not in the diff** (it was mutated by M-B143-1 and restored, md5 `e7a67f2e`) |
+| probes | **both re-run:** `probe_board_ui` **68 passed / 0 failed / 68 total + structural 13/13 + wiring 13/13, 19 negative controls RED, 23 controls run, rc=0**, real source md5-verified unchanged by the run · `probe_firmware_ui` **31 checks, 26 of 31 reddened by a control, 17 controls verified / 0 unusable, rc=0, PASS**. **Identical to §MH-S2** |
+| M2 | ★ **NOTHING BECAME METAL-VISIBLE — `docs/2026-07-31-bench-test-script.md` is UNTOUCHED, and the reasoning is given rather than the conclusion asserted. See the M2 section below** |
+
+**PER-BOARD RAM/FLASH — clean builds from deleted object dirs, every figure a build not a reading:**
+
+| env | RAM (§MH-S2) | RAM now | Δ RAM | flash (§MH-S2) | flash now | Δ flash |
+|---|---|---|---|---|---|---|
+| `gateway` | 194316 | **194316** | **+0** | 477764 | 478276 | +512 |
+| `xiao_sx1262` | 169412 | **169412** | **+0** | 523044 / 523076 | 523556 | +480 / +512 |
+| `xiao_esp32s3` | 213564 | **213564** | **+0** | 1212056 | 1212260 | +204 |
+| `heltec_v3` | 214972 | **214972** | **+0** | 1266556 | 1266740 | +184 |
+| `heltec_mobile` | 214492 | **214492** | **+0** | 1260100 | 1260288 | +188 |
+| ★ `gateway_heltec` (census, **the tightest**) | 239876 | **239876** | **+0** | 1235440 | 1235612 | +172 |
+
+★ **RAM REPRODUCED TO THE BYTE ON ALL SIX CELLS**, which is what "no state was added" means when it is measured instead of asserted; `gateway_heltec` stays at **73.20 %** of 327680. ⚠ The flash deltas (+172..+512) are all **far beyond the [[B138]] ±16/±32 B `__TIME__`/`__DATE__` quantum**, so they are genuine — the CLAIM-path reservation scan, its two emits, and the respace branch — **not** the artefact.
+
+## ⛔ §MH-S2b — THE DRAW-COUNT PROOF (S3 is still the arc's only planned RNG re-anchor)
+
+1. **The site grep.** `mobile_offer_arm_timer`, the new CLAIM reservation block and `mobile_offer_admission_rejected` contain **0** occurrences of `rand`. The only `rand_range` on the OFFER path is still the ONE jitter draw in `mobile_offer_admit` (`node_join.cpp:787`), untouched — the file's three real call sites (`:168` nonce, `:787` OFFER jitter, `:952` roster coalesce) are unchanged in number and position.
+2. **The floor is a CONSTANT, stated at its definition and enforced by a test.** `protocol::mobile_offer_respace_ms` is `inline constexpr uint32_t = 100`. M-B145-2 (floor hardcoded to `1u`) reddens the one assertion that pins the value, so "it is this constant" is asserted, not assumed.
+3. ★★ **THE DECISIVE ONE — THE CORPUS.** All 36 streams are byte-identical. A changed draw count or order could not produce that; it would diverge whole streams.
+
+## ★★ §MH-S2b — WHY [[B145]] MOVED NOTHING, **MEASURED** (the brief predicted it would move mobile rows)
+
+⚠ **This is the round's biggest wrong premise and it is stated rather than quietly absorbed.** The brief said *"FIX 1's positive delay WILL likely move mobile rows — name every new mover and its mechanism."* **It moved zero rows**, and "the branch is just rare" would be an argument, not evidence. So it was measured:
+
+- A temporary `MR_EMIT` was placed **on the respace branch itself** (`if (delay == 0) …`), `lus` rebuilt (5 actions), and the **full 36-scenario corpus** run: **0 occurrences in all 36 streams.**
+- ⛔ **A probe that cannot fire proves nothing**, so a second, **UNCONDITIONAL** control emit was added at the same site and s07 re-run: **256 occurrences** — the site compiles, executes and emits in the sim.
+- ★ **AND THE CONTROL GAVE THE MECHANISM FOR FREE: the MINIMUM computed delay across those 256 arms is 1 ms, never 0.** That 1 ms is **[[B144]]** — the simulator's per-node clock rounding makes timer 80 fire ~1 ms **early**, so `earliest > now` always holds there. ⇒ **the respace branch is structurally unreachable in the sim and reachable on metal**, which is exactly the shape of defect a byte-identity gate is blind to.
+- Both probe emits removed; `node_join.cpp` md5 verified back to `e2f31ea1`, `grep -c "PROBE\|CONTROL"` = **0**, `lus` rebuilt to **`afa19357`**.
+
+★ **[[B147]] is corpus-inert BY NON-OCCURRENCE, also measured:** `mobile_claim_stale_id` and `mobile_claim_reserved_elsewhere` appear **0 times in all 36 streams** — in the corpus every mobile claims the id it was actually offered, which is what a correct mobile does. ⇒ **both new branches are covered by the native gate ALONE**, which is precisely why the native gate has to drive them.
+
+## ★★★ §MH-S2b — THE MUTATION BATTERY: 8 MUTATIONS, EVERY ANCHOR ASSERTED AT **EXACTLY ONE MATCH**
+
+Exact unique string replacement — the harness **ABORTS** if a replacement matched 0 or >1 sites, so a mutation can never silently be a no-op; full clean rebuild + run each; reverted and md5-verified after every one.
+
+| mutation | what it breaks | file | RED |
+|---|---|---|---|
+| **M-B145-1** | the respace floor reverted to the pre-fix `0` | `node_join.cpp` | **1 case / 8 assertions** — `[[B145]]` reads **`4 == 1`** frames from one drain, and `due_at(80) > now` fails |
+| **M-B145-2** | the floor hardcoded to `1u` instead of the constant | `node_join.cpp` | **1 case / 1 assertion** — only the exact-value pin. ⓘ **HONEST FINDING: a 1 ms floor ALSO stops the burst.** Any value ≥ 1 breaks the same-pump re-entry; **100 is a design choice about inter-frame spacing, not a correctness minimum**, and this mutation is what proves the distinction is asserted rather than assumed |
+| **M-B145-3** | the test pump crippled to one fire per pass (a **harness** mutation) | `test_node_join.cpp` | **2 cases / 16 assertions** — including the `[[B145]]` **negative control**, so "the pump really is a multi-fire drain" is measured, not asserted |
+| **M-B146-1** | ★ the **exact pre-fix state**: increment removed from the function, restored at the `mobile_offer_fire` call site | `node_join.cpp` (2 sites, 1 match each) | **1 case / EXACTLY 1 assertion — the DEFERRED one**, the two immediate arms staying green. That single red IS [[B146]] |
+| **M-B146-2** | the counter incremented twice | `node_join.cpp` | **2 cases / 3 assertions** — all three `== 1`, so "exactly one" is asserted, not "at least one" |
+| **M-B147-1** | the reserved-elsewhere refusal removed (`if (false)`) | `node_join.cpp` | **1 case / 8 assertions** — and 3 of them are the **consequence**: B's later CLAIM emits `mobile_id_collision_deny`, i.e. the defect reproduced end to end |
+| **M-B147-2** | the stale-id drop removed (`if (false)`) | `node_join.cpp` | **1 case / 2 assertions** |
+| **M-B147-3** | reservation liveness weakened `<= now` → `== 0` | `node_join.cpp` | ⚠ **REDDENED NOTHING ON THE FIRST PASS — and it was a COVERAGE GAP, not an inert mutation** (distinguished explicitly). Every arm swept the ring before claiming, so no ELAPSED-BUT-UNSWEPT entry ever existed. **ARM 4 was added** (two promises aged out with the scan deliberately not run) ⇒ **1 case / 4 assertions RED** |
+| **M-B143-1** | `TimerWheel::after` made **not** to replace an active id — i.e. the world [[B143]] assumed | `lib/hal/timer_wheel.cpp` | **2 cases / 7 assertions** — it reproduces B143's reported symptom exactly (guard fires early at 102000 with `mobile_no_host`) **and** reddens the pre-existing `test_timer_wheel.cpp:60` replace-semantics case. ⇒ **the symptom REQUIRES a non-replacing `after()`, which MeshRoute does not have** |
+
+⚠ **Restoration proof:** after the battery, `pio test -e native` from a deleted object dir gives **1424 / 74988 / 0** with `grep -c "error:"` = 0; **every mutated file's md5 matches its pre-mutation value** (`node_join.cpp` `e2f31ea1`, `protocol_constants.h` `aaba5ddb`, `timer_wheel.cpp` `e7a67f2e`); `git diff --stat` lists **only** the intended files and **`lib/hal/timer_wheel.cpp` is absent from it**; and `lus` rebuilt to **`afa19357`** — the same binary that produced the 36 measured rows.
+
+## ⛔⛔ §MH-S2b — [[B143]] IS DISPROVEN
+
+**`Hal::after(delay, id)` REPLACES the pending deadline for that id.** `TimerWheel` is a flat array indexed by timer id and `after()` is a single store (`lib/hal/timer_wheel.cpp:8-9`); `test/test_timer_wheel.cpp:60` has pinned that since H1. ⇒ **two arm calls on one id are ONE live timer holding the NEWER deadline** — the newer transaction's own window, closing on time. A superseded guard cannot fire because it does not exist.
+
+★★ **THE INSTRUMENT ERROR: the probe counted CALL HISTORY.** `TestHal::after()` appends to a `std::vector`; `count_armed()` walks it; `TestHalBase::cancel()` is a **no-op**. *"Guards armed: 2"* was **two `after()` calls** — exactly what correct replace-by-id produces.
+
+★ **VERIFIED IN SOURCE FIRST (V1), THEN MEASURED.** `test/test_node_join.cpp` now carries `★★★ [[B143]] DISPROVEN §MH-S2b`, running B143's own scenario to the millisecond through a **real `TimerWheel`** and the production drain: at t=100500 the **call log reads 2** and the **wheel reads 1 timer due at 102500**; the drain at **t=102000 fires the guard 0 times** and emits **`mobile_no_host` 0 times**; B's window closes **exactly once at 102500**. Both readings are asserted **side by side** so the disproof is legible, and **M-B143-1 controls it**.
+
+⇒ **[[B143]] is CLOSED-NOT-FIXED and REMOVED from the outstanding owner calls** (§MH-S1c item 4 and §MH-S2 item 3 are struck in place below). ⚠ **Nothing else leaned on it** — no fix, test or design decision was predicated on it; [[B142]]'s "⚠ Residual" pointer is corrected in the register. ⓘ What remains true and is **not** a defect: the guard has no explicit cancel — correct *because* arming replaces.
+
+## ⚠ §MH-S2b — EVERY PREMISE THAT TURNED OUT WRONG
+
+1. ⛔ **The brief: *"FIX 1's positive delay WILL likely move mobile rows."*** **It moved zero.** Measured, not argued — see the probe section above; the reason is [[B144]]'s 1 ms rounding, which keeps the sim's computed delay ≥ 1 ms.
+2. ⛔ **My own premise that 100 ms was the *correctness* floor.** M-B145-2 shows **1 ms also fixes the burst**. 100 is a spacing choice (it exceeds a short-SF J-frame's airtime and matches the de-storm window's own floor); the correctness minimum is **any positive value**. Recorded because the constant's note would otherwise overstate its own necessity.
+3. ⛔ **The brief's [[B147]] scope did not anticipate the blast radius.** Requiring a CLAIM to match its reservation on hash **and** id reddened **two pre-existing tests** that CLAIMed hand-picked ids the host had never proposed — `test_node_r3.cpp` §mobile 2a and `test_dual_layer.cpp` §S6/D10. Both were **REWRITTEN IN PLACE (B101), not deleted, not disabled, not renamed**: they now transmit the staged OFFER, read the proposed id **off the wire** and claim that — what a real mobile does, and stronger for it. ⓘ Every §S0 / §B132 / §B132b / §MH-S1 / §MH-S2 characterization case is **UNCHANGED and still green**, deliberately.
+4. ⛔ **"Mutation-check every new test" is not the same as "every mutation reddens something."** **M-B147-3 reddened nothing** and had to be diagnosed rather than dismissed: it was a **coverage gap** (the elapsed-but-unswept reservation was never constructed), closed by ARM 4. Third time this arc that a null mutation was a gap.
+5. ⓘ **[[B143]] itself is the fifth wrong premise**, and it was mine-adjacent: it was written into the register as MEASURED. It was measured — with the wrong instrument.
+
+## §MH-S2b — M2 (metal-only residue)
+
+★ **NOTHING BECAME METAL-VISIBLE, and here is the reasoning rather than the conclusion.** No console verb, no push, no JSON field, no NV record, no ABI and no new operator-facing line were added; `mobile_offer_reject_count()` remains a **public accessor** read by the native gate, and the two new [[B147]] events are `MR_EMIT`, which is **device-stripped**. The one operator log line on this path (`mobile OFFER dropped at our own transmitter…`) is §MH-S1's and unchanged.
+
+⚠ **THE ONE THING WORTH SAYING PLAINLY, because it is the interesting case:** [[B145]] **was** a metal-only *behaviour* — it is unreachable in the simulator (measured: 0 respace-branch hits in 36 scenarios) and reachable on the device pump. It nonetheless owes **no** bench entry, because the fix is now covered **natively** by driving the real `TimerWheel` with the production drain loop. That is the better outcome than a bench line: the check is automated, deterministic, and cannot be forgotten. ⇒ `docs/2026-07-31-bench-test-script.md` is **UNTOUCHED**, deliberately, and not because there was nothing to say.
+
+## §MH-S2b — FILES
+
+**MODIFIED (7, none created):** `lib/core/node_join.cpp` (the arm-timer floor · the CLAIM reservation check · the counter move) · `lib/core/protocol_constants.h` (`mobile_offer_respace_ms`) · `lib/core/node.h` (**comment only** — the coalesce-vs-re-arm clarification) · `test/test_node_join.cpp` · `test/test_node_r3.cpp` · `test/test_dual_layer.cpp` · plus this file and `docs/2026-07-30-open-bug-register.md`.
+
+⛔ **NOT TOUCHED:** `lib/hal/timer_wheel.{h,cpp}` (`kCap` stays **91**, highest id **90**) · `src/` · `variants/` · `platformio.ini` · **any scenario** · the `^### 36/36 corpus` anchor table · `tools/warning_census.sh` (nothing re-pinned) · `docs/2026-07-31-bench-test-script.md` · `CLAUDE.md` · ~~**the spec**~~ ⛔ **CORRECTED 2026-08-07 by §MH-S2c: the spec IS now modified** — leaving it untouched was itself the defect §MH-S2c was sent to fix (the seventh occurrence of this class in the arc), and its eight contradicted sites are corrected in the operational text; see the §MH-S2c spec-sweep table above · [[B138]] · [[B139]] (S4) · [[B140]] / [[B141]] (owner calls) · B112 / B118 / B119 / B131 · the REPLY-only wake · **S3–S6**. ⛔ **No `lib/core` behaviour was tuned for any scenario.**
+
+**STILL OWED, unchanged by this round:** §6.2's *reschedule* alternative for a refused OFFER (**S3**, needs a bounded new jitter draw) · §10's **device-visible** counter surface (**S4**) · the confirmed-attachment FSM (**S4**) · **[[B139]]** · jitter (**S3**). ⛔ **[[B143]] is NO LONGER OWED — it is disproven.**
+
+**⛔ WHAT THE OWNER MUST RULE (I did not, and must not):**
+1. Whether §MH-S2's **six movers** are accepted and re-anchored — the anchor table is still **UNTOUCHED**, and §MH-S2b adds **no new movers to rule on**. ⓘ This compounds with S1's eight, still awaiting a ruling.
+2. Whether **[[B144]]** (the 1 ms clock-rounding re-arm) is left as recorded. ★ **§MH-S2b makes this slightly more interesting than it was:** the same rounding is what renders [[B145]]'s branch unreachable in the sim, i.e. the drift model is actively hiding a real device path.
+3. ~~Whether **[[B143]]** is repaired now or deferred.~~ ⛔ **WITHDRAWN — [[B143]] is DISPROVEN, not deferred.**
+4. Whether **`mobile_offer_respace_ms` = 100 ms** is the right spacing. Correctness needs only ≥ 1 ms (measured, M-B145-2); 100 is the de-storm window's own floor. **A tuning call, and it is the owner's.** ⓘ §MH-S2c has now written this into the spec **as a tunable rather than a bound**, so the choice is recorded as open rather than silently naturalised.
+5. ✅ **CLOSED 2026-08-07 — §MH-S2c's suspended board sweep + `warning_census.sh` + the per-ABI `sizeof(Node)` reveal were RUN BY INDEPENDENT QA and reported clean.** ⚠ QA's numeric results were **not relayed into this ledger**, so none are quoted; this records the discharge and its attribution only. ⛔ Infer no object/warning/RAM figures from it. **No longer an owner call.**
+
+---
+
+**★★★★★★★★★★★★★★★★★★★★★★ 2026-08-07 §MH-S2 — THE KEYED PENDING-OFFER RING AND [[B137]]'s PENDING-ID RESERVATION. ⛔ UNCOMMITTED (D4). ⛔ NOTHING RE-ANCHORED — the `^### 36/36 corpus` table is UNTOUCHED and the owner rules. ⛔ NO OWNER OR QA APPROVAL IS CLAIMED FOR ANYTHING HERE.**
+
+★★★ **THE HEADLINE IS THAT THE WHOLE CORPUS DELTA IS ONE NEW TELEMETRY EVENT PLUS A SINGLE CHANGED FIELD.** Six of the 36 rows move against the S1 tree; **strip the one new event `mobile_offer_reservation_expired` and four of the six become BYTE-IDENTICAL to S1**. Of the two that remain, the entire residue is **thirteen lines shifted by +1 ms** (a clock-rounding artefact registered as [[B144]], not this ring's) and **ONE field**: `s07` node 16 offers local id **250 where it used to offer 251**, because 251 was still promised to a mobile mid-handshake. ★ **That single field IS [[B137]] fixed, visible in the corpus and not only in a fixture.**
+
+## ⛔⛔ STEP ZERO — THE MEMORY GO/NO-GO, MEASURED BEFORE THE SCHEDULER WAS WRITTEN
+
+The spec makes this a go/no-go at the START of S2. It was run first, as a **probe on `node.h` alone** (the ring member + the two counters, nothing else — no logic, so the header still compiles on every toolchain), and `node.h` was then restored and **md5-verified** (`0133aaed`) before implementation began.
+
+| measurement | value | how |
+|---|---|---|
+| record size | **`sizeof(Node::PendingMobileOffer)` = 40 B, `alignof` = 8** | compile-time reveal on **native + all four board toolchains — 40 on every one.** Layout: the two 8-aligned `uint64_t` deadlines, the `uint32_t` key, then `buf[13]`+`len`+`proposed_id` (15 B) and 5 B of tail pad. Asserted in-source by `sizeof` **plus two `offsetof`s**, so a field reorder cannot silently change it |
+| ring cost | **8 x 40 = 320 B**, node-global | `cap_pending_mobile_offers` = 8 |
+| placement | immediately after `_pending_id_pubkey[4]`, which ends **8-ALIGNED** (`_peer_loc`'s own precedent at the same seam). 320 is a multiple of 8 ⇒ every later member shifts by exactly 320 and **NO hole opens** | measured by the reveal, not argued |
+| the two `uint16_t` counters | ★ **ZERO BYTES — measured BY REMOVAL, not by the padding argument:** `sizeof(Node)` is **221408 with and without them** on the same tree. Twelfth application of the padding-placement rule | probe run twice |
+| ⛔ `TimerWheel::kCap` | **91, UNCHANGED.** No timer id was allocated — the ring is a deadline scan on the EXISTING `kMobileOfferBackoffTimerId` (80) | `timer_wheel.h` untouched; `git diff` empty for it |
+
+**PER-ABI `sizeof(Node)` — the compile-time reveal (`static_assert(sizeof(Node) == 1)` at namespace scope, read from GCC's *"the comparison reduces to (N == 1)"*), run BEFORE and AFTER on all five real toolchains. ★ The BEFORE column was re-measured, not quoted, and it reproduces the recorded ledger EXACTLY — that is what calibrates the AFTER column:**
+
+| env | BEFORE | ring-probe only | FINAL (ring in, `_pending_offer` out) | net |
+|---|---|---|---|---|
+| `gateway` (MR_N_LAYERS 2) | 147784 | 148104 | **148072** | **+288** |
+| `xiao_sx1262` | 117168 | 117488 | **117472** | **+304** |
+| `xiao_esp32s3` | 117168 | 117488 | **117472** | **+304** |
+| `heltec_v3` | 117168 | 117488 | **117472** | **+304** |
+| `heltec_mobile` | 117136 | 117456 | **117440** | **+304** |
+| native (MR_N_LAYERS 2) | 221088 | 221408 | **221376** | **+288** |
+
+★ **THE NET IS TWO MEASURED HALVES, and the difference between the two rows is the point:** the ring costs **+320 node-global** and the deleted `LayerRuntime::_pending_offer[13]` + `_pending_offer_len` refund **16 B PER LAYER** (14 B of members, re-aligned). ⇒ **a 2-layer build nets +288 and a single-layer build +304** — the credit is per-layer and the cost is not. The `node.h` ledger line carries that arithmetic.
+
+⚠ **A CORRECTION TO THE BRIEF, STATED RATHER THAN QUIETLY ABSORBED: `gateway`'s cell is NOT trivially zero here.** The brief expected it to be, on the `MR_FEAT_MOBILE 0` grounds that applied to §MH-S1c's `_mobile_attach_gen`. It does not apply: this is the **HOST** side of the handshake, its predecessor `_pending_offer` was never `MR_FEAT_MOBILE`-gated either, and `MR_FEAT_MOBILE_HOST` is 1 on every profile. **A gateway pays the full 320 and refunds 32.** All five cells are therefore real evidence, not four.
+
+**FULL PER-BOARD RAM GRID — CLEAN BUILDS, and every figure a build not a reading. The predicted +288 / +304 split was written into the ledger BEFORE these ran and matched TO THE BYTE on all six:**
+
+| env | RAM before | RAM after | Δ | % after | flash before | flash after | Δ |
+|---|---|---|---|---|---|---|---|
+| `gateway` | 194028 | **194316** | **+288** | 82.5 % | 474500 | 477764 | +3264 |
+| `xiao_sx1262` | 169108 | **169412** | **+304** | 71.9 % | 520132 | 523044 / **523076** | +2912 / +2944 |
+| `xiao_esp32s3` | 213260 | **213564** | **+304** | 65.2 % | 1211384 | 1212056 | +672 |
+| `heltec_v3` | 214668 | **214972** | **+304** | 65.6 % | 1265836 | 1266556 | +720 |
+| `heltec_mobile` | 214188 | **214492** | **+304** | 65.5 % | 1259416 | 1260100 | +684 |
+| ★ `gateway_heltec` (census, **the tightest**) | 239588 | **239876** | **+288** | **73.20 %** of 327680 (was 73.12 %) | 1232524 | 1235440 | +2916 |
+
+★ **THE VERDICT: ACCEPTABLE, and the number that decides it is the tightest env's +0.08 pp.** `gateway_heltec` goes 73.12 % → 73.20 %; the tightest *percentage*, `gateway`, goes 82.4 % → 82.5 %. The cost is the same order as §AB4's `_peer_loc` ring (+320) which was accepted at this seam before. ⓘ Flash is not a budget question here (`heltec_v3` sits at 37 % of 3.3 MB), but it is reported because *"a ring is a few hundred bytes"* is the assumption that hides real deltas. ⚠ `gateway`'s **+3264** is far beyond the [[B138]] ±16 B `__TIME__` quantum, so it is a genuine mover, not the artefact. ★ **AND THE NOISE FLOOR FIRED, LIVE, IN THIS SLICE'S OWN MEASUREMENT — both readings are printed rather than the convenient one:** the five envs were rebuilt from deleted object dirs a SECOND time on the byte-identical tree (`lib/core` md5s verified equal) and **RAM reproduced exactly on all five**, while `xiao_sx1262` flash read **523044 then 523076, +32 apart with no source change** — the same `__DATE__`/`__TIME__` quantum this file already records for that env (468884 → 468916). ⇒ a flash delta of a few tens of bytes on an nRF52 env means nothing here.
+
+## THE GATE (D1) — every number a build+run, not a reading
+
+| check | result |
+|---|---|
+| native | **`pio test -e native` from a DELETED `.pio/build/native`, then RUNNING the binary** (the wrapper printed the false *"0 test cases"* again) = **1421 test cases / 74871 assertions / 0 failed**, up from S1's **1416 / 74740 / 0** (**+5 cases, +131 assertions**). **`grep -c "error:"` = 0**, counted beside the doctest line. ⓘ The S1 baseline **1416 / 74740 / 0** was re-measured on this tree before any edit, not quoted |
+| **s18 keystone** | ★ **`1cd21235` / 271629 EXACT**, 0 assertion failures |
+| corpus | **36/36, 0 assertion failures in every one.** **Six rows move against the S1 tree** (all mobile-plane), **28 static/non-mobile rows byte-identical**, and **s22 + s29 — themselves S1 movers — are byte-identical to S1**. ★ **CALIBRATED, NOT QUOTED:** the BEFORE run was made on the stashed tree and **reproduced all eight of S1's recorded movers to the md5 and the event count**, which is what makes this round's deltas attributable to *this* round |
+| `lus` | **`6bb13c5b` (S1) → `44318a16`**, rebuild PROVEN not assumed — **40** `Building CXX`/`Linking CXX` actions — and the **restoration control FIRED**: after the 14-run mutation battery a rebuild reproduced **`44318a16` unchanged**, and every measured row reproduced its md5 |
+| `sizeof(Node)` | native **221088 → 221376**; the per-ABI grid above. The `static_assert` baseline in `node.h` was updated **deliberately, as a stated decision with its arithmetic**, not as a test-fix |
+| board envs | **5/5 rc=0 from DELETED object dirs**, serially: `gateway` 283 objs · `xiao_sx1262` 283 · `xiao_esp32s3` 193 · `heltec_v3` 326 · `heltec_mobile` 326 — **identical object counts to S1**. **`error:` 0 and `-Wswitch` 0 on every one** |
+| warning census | **`tools/warning_census.sh` PASS, rc=0, NOTHING RE-PINNED**: `gateway_heltec` 174/174 · `heltec_mobile` 178/178 · `heltec_v3` 178/178, **326 objects each, `-Wswitch` 0** |
+| probes | **both re-run:** `probe_board_ui` **68/68 + 13/13 structural + 13/13 wiring, 19 negative controls RED, 23 controls run, rc=0**, real source md5-verified unchanged by the run · `probe_firmware_ui` **31 checks, 17 controls verified / 0 unusable, rc=0, PASS** |
+| M2 | ★ **NOTHING IS METAL-ONLY THIS SLICE, AND THAT IS STATED RATHER THAN PADDING PART 12 — see the M2 section below** |
+
+## ⛔ THE DRAW-COUNT PROOF — MEASURED THREE WAYS, BECAUSE "NO RNG CHANGE" IS THE SLICE'S HARDEST CONSTRAINT
+
+S3 is the arc's only planned RNG re-anchor, so a single added, removed or reordered draw here would re-anchor the whole mobile plane under the wrong slice.
+
+1. **The grep.** `git diff -- lib/core | grep '^+' | grep -E 'rand_range|rand\(|random'` = **3 hits: two comments and ONE real `rand_range`** — the jitter draw, which **MOVED** from inside `jtx_stash_arm` (the helper, untouched) to inline in `mobile_offer_admit`. Same call, same bounds, same position in the sequence: pick id (no draw) → pack → **one draw** → one `_hal.after`.
+2. **The native pin, asserted not assumed.** The coalesce case measures `hal.rand_calls` across one DISCOVER and asserts **exactly ONE draw** — the same count `jtx_stash_arm` made. It further asserts that a **coalesced duplicate draws ZERO** and a **ring-full refusal draws ZERO**.
+3. ★★ **THE DECISIVE ONE — THE CORPUS ITSELF.** Four of the six movers are **byte-identical to S1 once the one new event is removed**, and 28 static rows plus s18 never moved at all. A changed draw count or order could not produce that: it would diverge whole streams, not one telemetry line.
+
+## ⛔⛔ THE SIX MOVERS — MEASURED, ATTRIBUTED BY DECOMPOSITION, AND **NOT** RE-ANCHORED
+
+⚠ Read the "vs anchor table" column only as context: those anchors are **pre-S1**. The column that attributes *this* slice is **vs S1**.
+
+| scenario | anchor (pre-S1) | S1 measured | **S2 measured** | events S1 → S2 | asserts |
+|---|---|---|---|---|---|
+| `s18_meshroute` (keystone) | `1cd21235` | `1cd21235` | ★ **`1cd21235` EXACT** | 271629 → 271629 | 0 |
+| 28 static / non-mobile rows | — | byte-identical | ★ **byte-identical** | — | 0 |
+| `s22_mobile_team_meshroute` | `808f7abf` | `8ef0fa0a` | ★ **`8ef0fa0a` — UNMOVED BY S2** | 1805 → 1805 | 0 |
+| `s29_mixed_leaf_team_meshroute` | `2e81833c` | `df305413` | ★ **`df305413` — UNMOVED BY S2** | 1946 → 1946 | 0 |
+| `s07_seattle_mobile_meshroute` | `c17952b7` | `c2eedd26` | **`270489af`** | 106889 → **106995** (+106) | 0 |
+| `s21_mobile_dm_milestone_meshroute` | `1a0c92b2` | `aed21c0b` | **`0c0f15c9`** | 660 → **662** (+2) | 0 |
+| `s24_static_and_team_multihop_meshroute` | `6e92f8fd` | `616889c8` | **`bf34785f`** | 1578 → **1581** (+3) | 0 |
+| `s27_cross_layer_mobiles_meshroute` | `e1fd5937` | `da202903` | **`7a7c8b6d`** | 9288 → **9290** (+2) | 0 |
+| `s28_mixed_team_channels_meshroute` | `dd96c809` | `9bfce3b4` | **`4d9c69d3`** | 3991 → **4001** (+10) | 0 |
+| `s37_team_homed_origin_meshroute` | `7c517dcf` | `05a01c1f` | **`0ee0275e`** | 770 → **771** (+1) | 0 |
+
+★★ **THE ATTRIBUTION IS A DECOMPOSITION WITH AN ASSERTED RESIDUAL, NOT AN ARGUMENT. Three causes, and they partition the delta EXACTLY:**
+
+| cause | rows | proof |
+|---|---|---|
+| **(a) the new `mobile_offer_reservation_expired` event** — a host that OFFERed a mobile which then CLAIMed elsewhere holds the id for 10 s and reports the release | **all 6** | the per-scenario event delta **equals the new event's count, exactly**: s07 **+106**, s28 **+10**, s24 **+3**, s21 **+2**, s27 **+2**, s37 **+1**. ★ And the strip test is the residual proof: deleting those lines from the S2 stream makes **s21, s24, s28 and s37 BYTE-IDENTICAL to S1** (same line counts, same md5s) |
+| **(b) [[B144]] — a +1 ms clock-rounding re-arm** (registered, NOT this ring's defect: `simNow()` rounds `wall x (1+ppm)` while `simAfter` rounds `delay / (1+ppm)`, so a node's clock can be 1 ms short of an absolute `due_ms` at the fire; the scan re-arms for the residual) | **s07, s27 only** | after the strip, the whole remaining diff is **9 lines in s07 and 4 in s27**, and a paired line-by-line comparison shows **every one of them is a pure `time_ms` shift of exactly +1** with identical content (one `mobile_offer_tx`, its `tx`, the `rx`s it causes, and derived `collision`/`radio_busy` lines) |
+| **(c) ★ [[B137]] ITSELF — one field** | **s07 only** | the sole content difference in either stream: node 16 at t=3161603 emits `mobile_offer_scheduled{local_id: 251}` before and **`{local_id: 250}` after**, plus the matching `mobile_offer_tx`. 251 was still RESERVED for a mobile mid-handshake, so the allocator stepped down. ⓘ s27's one content line (`beacon_skipped_busy since_rx_ms 580 → 579`) is derived from (b), not a third cause |
+
+★ **THE TWO NEW COUNTERS AND TWO OF THE THREE NEW EVENTS ARE CORPUS-INERT, MEASURED:** `mobile_offer_ring_full` and `mobile_offer_coalesced` appear **0 times in all 36 streams** — no host ever ran out of ring slots and no duplicate DISCOVER ever landed inside a jitter window in the corpus. ⇒ those paths are covered by the native gate alone, which is exactly why the native gate has to drive them.
+
+## ★★★ THE MUTATION BATTERY — 11 MUTATIONS, EVERY ANCHOR ASSERTED AT **EXACTLY ONE MATCH**, EVERY FILE RESTORED AND md5-VERIFIED
+
+⚠ The harness **ABORTS on anything but exactly 1 match** — a 0-match no-ops silently and then reads as *"the test is vacuous"*, backwards — rebuilds native from a deleted object dir, runs the binary, and re-verifies the restore byte-for-byte.
+
+| mutation (the fix, reverted / the tempting wrong fix) | file | RED (cases / assertions) |
+|---|---|---|
+| **M-S2-1** `find_free_mobile_id` ignores live reservations — ⇒ *"reserve only at the CLAIM"*, the too-late variant | `node_join.cpp` | **3 cases / 14 assertions** (the four-mobile gate, the reservation case, the full-ring case) |
+| **M-S2-2** the reservation is not idempotent per key: a re-DISCOVER re-draws a different id | `node_join.cpp` | **1 case / 1 assertion** ⚠ *0/0 on the first pass — a coverage gap, see below* |
+| **M-S2-3** coalesce by **slot index** instead of `target_key_hash32` | `node_join.cpp` | **5 cases / 48 assertions** |
+| **M-S2-4** the ring **overwrites on full** instead of refusing | `node_join.cpp` | **1 case / 6 assertions** |
+| **M-S2-5** the fire drains **every** due OFFER in one callback (the same-ms burst) | `node_join.cpp` | **1 case / 2 assertions** ⚠ *0/0 on the first pass — a coverage gap, see below* |
+| **M-S2-6** the matching CLAIM does **not** release the reservation | `node_join.cpp` | **2 cases / 2 assertions** |
+| **M-S2-7** timer 80's scan does **not** expire reservations (an unclaimed id leaks) | `node_join.cpp` | **1 case / 3 assertions** |
+| **M-S2-8** `arm_timer` takes the **last** armed deadline instead of the **earliest** | `node_join.cpp` | **1 case / 1 assertion** ⚠ *0/0 on the first pass — a coverage gap, see below* |
+| **M-S2-9** a duplicate DISCOVER **re-arms** instead of coalescing (deadline moved, fresh draw) | `node_join.cpp` | **1 case / 5 assertions** |
+| **M-S2-10** §B132 eligibility is **not** re-checked at the transmission boundary | `node_join.cpp` | **2 cases / 3 assertions** — the new whole-ring case **and** the pre-existing `§B132b/3` |
+| **M-S2-11** ★ **HARNESS VACUITY CONTROL** — the fire helper stops advancing the clock to the deadline | `test_node_join.cpp` | **10 cases / 62 assertions** ⇒ the deadline really is load-bearing and the new cases are not vacuous |
+
+### ★★★ THE THREE MUTATIONS THAT REDDENED NOTHING — INVESTIGATED, AND ALL THREE WERE **COVERAGE GAPS, NOT INERT MUTATIONS**
+
+This is the single most useful thing the battery produced, and the method rule is why it was found: *a mutation that reddens nothing must be investigated, never reported as a vacuous test.*
+
+1. **M-S2-2 (0/0 first pass).** The idempotence loop only matters for a re-DISCOVER arriving **after** the OFFER was transmitted but **before** the reservation expires — and the only duplicate under test was the still-**armed** one, which returns `duplicate` before the id is ever consulted. ⇒ a new block was added: transmit, re-DISCOVER, assert the **same** id on the wire and **no third slot**. The mutation then reddens 1 case / 1 assertion.
+2. **M-S2-5 (0/0 first pass).** The four-mobile case staggers its deadlines 1 ms apart, so only one entry is ever due at any fire — "drain everything due" and "transmit exactly one" are indistinguishable there. ⇒ a new block stages four mobiles, jumps the clock **past all four deadlines**, and asserts **one** frame per callback. The mutation then reddens 1 case / 2 assertions.
+3. **M-S2-8 (0/0 first pass).** With the fixture advancing to whatever was **last** armed, arming the earliest and arming the latest produce the same frames in the same order — only the **delay** distinguishes them. ⇒ the case now asserts `last_armed(80) == 90` (A's deadline minus B's admission instant; B's own would be 100). The mutation then reddens 1 case / 1 assertion.
+
+⚠ **Restoration proof:** after the battery `pio test -e native` from a deleted object dir gives **1421 / 74871 / 0** with `grep -c "error:"` = 0, every mutated file's md5 matches its pre-mutation value, and `lus` rebuilt to **`44318a16`** — the same binary that produced the measured 36 rows.
+
+## THE S0 / §MH-S1 CASES — WHICH CHANGED, WHICH DELIBERATELY DID NOT (B101 requires the answer either way)
+
+| case | outcome |
+|---|---|
+| ★★ **§S0-1** "a second DISCOVER DESTROYS the first mobile's pending OFFER" | **REWRITTEN IN PLACE — this slice owns it, and it went RED FOR REAL FIRST.** Measured on the pre-rewrite tree: `CHECK(count_j_offer_mobile == 1)` read **`2 == 1`** and `CHECK(target_key_hash32 == kMobB)` read **`43537 == 47906`** — i.e. mobile **A** was answered instead of being destroyed. The case is now `§S0-1 -> §MH-S2` and its header keeps the old defect's words, its old assertions and their measured failure, so the diff reads as a behaviour change. ⛔ NOT deleted, NOT disabled, NOT renamed away from its origin |
+| **§S0-2** un-jittered retry · **§S0-3** guard before admission · **§S0-4** lost CLAIM ⇒ false registration · **§S0-5** host row survives 25 min | ★ **ALL FOUR UNCHANGED BEHAVIOURALLY AND STILL GREEN, and that is stated because B101 requires it.** §S0-4 and §S0-5 take the fixture's clock-advance helper (below) and nothing else; §S0-2 and §S0-3 were not touched at all. Their defects are S3's and S5's, not S2's |
+| **§B132 / §B132b (all seven)** | **UNCHANGED and still green**, reddened by **M-S2-10** — the boundary re-check survived the move from the timer case into `mobile_offer_fire`. §B132b/2's positive control takes the clock-advance helper |
+| **§MH-S1 / §MH-S1b / §MH-S1c (all ten)** | **UNCHANGED and still green.** Three of them take the clock-advance helper |
+| **FIVE NEW CASES** | `§S0-1 -> §MH-S2` (the rewrite: four mobiles, four ids, four CLAIMs, zero DENYs, one-per-callback) · `§MH-S2 §5.3.3` (duplicate coalesce: one slot, one deadline, one id, no draw, earliest-deadline arming, and the re-DISCOVER-after-TX path) · `§MH-S2 §5.3.2` (full ring refuses, eight unique ids) · `§MH-S2 [[B137]]` (a reservation blocks its id, then expires and releases it) · `§MH-S2 [[B137]]` (the CLAIM releases and the ROW inherits) · `§MH-S2 §B132` (a live `host_mobiles` flip drops the WHOLE ring) |
+
+### ★ THE ONE FIXTURE CHANGE, AND WHY IT IS THE FIXTURE CATCHING UP WITH REALITY
+
+The old stash had **no stored deadline** — the timer firing *was* the deadline — so a frozen-clock fixture could fire timer 80 and see the frame. The ring's entries each carry their own `due_ms`, so the scan transmits only what is genuinely due, and a frozen-clock fire (correctly) transmits nothing. **17 call sites** now go through one helper, `fire_mobile_offer_timer`, which advances the clock **by the delay the timer was actually armed for** and then fires — exactly what `Hal::after` does on metal and in the sim. ⛔ The tempting `lib/core` "fix" — fire the earliest armed entry whenever the timer fires, regardless of its due time — is **wrong and is fenced in-source**: timer 80 also fires for reservation expiry, so that would transmit an OFFER before its jitter elapsed, which is the same-millisecond collision the jitter exists to prevent (C2). **M-S2-11 proves the helper is load-bearing** (10 cases / 62 assertions RED without it).
+
+## ★★ EVERY PREMISE THAT TURNED OUT WRONG — including the brief's and my own
+
+1. ⛔ **THE BRIEF'S: "`gateway` is `MR_FEAT_MOBILE 0`, so its cell may be trivially 0; the evidence is the four mobile-enabled ABIs."** **FALSE for this member.** The ring is the **HOST** half of the handshake, its predecessor `_pending_offer` was never `MR_FEAT_MOBILE`-gated, and `MR_FEAT_MOBILE_HOST` is 1 on every profile — so `gateway` carries the ring and pays **+288**. All five cells are evidence.
+2. ⛔ **MINE: "the ring is +320 everywhere."** **FALSE, and the correction is structural, not arithmetic.** The cost is node-global but the credit (`_pending_offer` deleted from `LayerRuntime`) is **per-layer**, so the net is **+288 on a 2-layer build and +304 on a single-layer one**. Predicted from that reasoning before the boards were built, and matched to the byte on all six.
+3. ⛔ **MINE: "the reservation expiry timer would be corpus-visible only as an event."** Half true. It is additive telemetry in four rows — but in `s07`/`s27` the *deadline arithmetic* also surfaced **[[B144]]**, a 1 ms clock-rounding re-arm that no previous slice's deadlines were short enough to expose. Registered rather than absorbed.
+4. ⛔ **MINE (twice, and the battery caught both): "a mutation that reddens nothing is telling me the code is inert."** **NO — all three 0/0 cells were COVERAGE GAPS**, and each one closed into a real RED. Recorded above, per case.
+5. ⓘ **§5.3.3's "a duplicate DISCOVER coalesces" needed a distinction the spec does not draw, and it is documented in-source rather than assumed:** coalescing applies while the entry is **ARMED**. Once the OFFER has been **transmitted** and only the reservation remains, a fresh DISCOVER means the mobile did not hear it, and the correct answer is a **new OFFER re-armed into the same slot with the same reserved id** — treating that as a duplicate would answer a re-DISCOVER with silence forever. ★ Reported, not ruled; the spec was **NOT** edited.
+
+## M2 — **NO BENCH ENTRY IS OWED, AND THAT IS STATED RATHER THAN INVENTED**
+
+The brief asks: *if the ring's counters become console-visible, they owe a bench entry with exact text and a failure shape; if nothing is metal-visible, say so.* ⇒ **Nothing is metal-visible this slice, so `docs/2026-07-31-bench-test-script.md` is UNTOUCHED.** The two counters are exposed as **public accessors** (`mobile_offer_ring_full_count()`, `mobile_offer_reject_count()`, `mobile_offers_pending_n()`) read by the native gate, plus **`MR_EMIT`, which is device-stripped**. No console verb, no push, no JSON field, no NV record and no new ABI were added; the only operator-facing line on this path (`mobile OFFER dropped at our own transmitter…`) is **S1's and unchanged**. Everything the ring does is reachable natively and in the sim. ⓘ §10's device-visible surface for these counters remains **owed to the diagnostics work (S4/§10)**, exactly where §MH-S1's note left it.
+
+## SCOPE / OWED
+
+**FILES MODIFIED — SEVEN, and none created:** `lib/core/protocol_constants.h` (two new constants + the §5.3.1 anti-conflation note) · `lib/core/node.h` (the ring, its two `static_assert`s, the `MobileOfferAdmit` enum, three accessors, five method declarations, the deleted `LayerRuntime` slot, the updated layout ledger) · `lib/core/node_join.cpp` (reservation-aware `find_free_mobile_id`, the admit/arm/fire/release/slot_of quintet, the DISCOVER and CLAIM call sites, `mobile_host_pending_clear`) · `lib/core/node.cpp` (timer 80 → `mobile_offer_fire()`) · `lib/core/jittered_tx_stash.h` (**comment only** — the third member left, and why the header cannot serve the ring) · `lib/core/node_channel.cpp` (**comment only** — a V1 drift fix: the leaf-swap audit listed `_pending_offer` as per-leaf state) · `test/test_node_join.cpp`. **PLUS** this file and `docs/2026-07-30-open-bug-register.md` ([[B137]] **CLOSED**, [[B144]] **OPENED**).
+
+⛔ **NOT TOUCHED:** `src/` · `variants/` · `platformio.ini` · **any scenario** · the `^### 36/36 corpus` anchor table · `tools/warning_census.sh` (nothing re-pinned) · `docs/2026-07-31-bench-test-script.md` · `CLAUDE.md` · **the spec** · `lib/hal/timer_wheel.h` (`kCap` stays 91) · [[B138]] · [[B139]] · [[B140]] / [[B141]] (owner calls) · ~~**[[B143]]**~~ (⛔ **DISPROVEN 2026-08-07 by §MH-S2b** — the premise that a superseded guard survives was an artefact of counting `TestHal` call history) · B112 / B118 / B119 / B131 · the REPLY-only wake · S3–S6. ⚠ The worktree's other uncommitted work (the OLED/bench docs, `tools/probe_*`, `variants/heltec_v3`, `platformio.ini`, the spec) is **pre-existing** — it was committed as `23181dd` before this slice began, and `git status` was **clean** at the start.
+
+**STILL OWED, unchanged by this slice:** §6.2's *reschedule* alternative for a refused OFFER (needs a bounded new jitter draw ⇒ **S3**; what S2 could do without a draw it did — the refused entry **retains** its [[B137]] reservation, so the mobile's own retry is answered with the same id) · §10's **device-visible** counter surface (S4) · ~~**[[B143]]**~~ ⛔ **(DISPROVEN 2026-08-07 by §MH-S2b — no longer owed)** · the confirmed-attachment FSM (S4) · **[[B139]]** · jitter (S3).
+
+**⛔ WHAT THE OWNER MUST RULE (I did not, and must not):**
+1. Whether the **six S2 movers** are accepted and re-anchored — **the anchor table was NOT edited**. Note this compounds with S1's eight, which are also still awaiting a ruling: the table is now **two slices stale** for those rows.
+2. Whether **[[B144]]** (the 1 ms clock-rounding re-arm) is left as recorded, or whether the sim's drift model should be considered when a deadline is short.
+3. ~~Whether **[[B143]]** is repaired now or deferred — unchanged from S1's item 4.~~ ⛔ **WITHDRAWN 2026-08-07 by §MH-S2b: [[B143]] is DISPROVEN** — `Hal::after` REPLACES a deadline, so the "two guards" reading counted `TestHal` CALL HISTORY, not live timers. Nothing to rule on.
+
+---
+
 **★★★★★★★★★★★★★★★★★★★★★★ 2026-08-07 §MH-S1 — THE MOBILE-ATTACHMENT ADMISSION BOUNDARY. ⛔⛔ THIS NOTE IS CORRECTED IN PLACE BY QA ROUNDS 2 (§MH-S1b) AND 3 (§MH-S1c), NOT APPENDED TO — ONE NOTE, NOT THREE. ROUND 2 WAS ALSO *NOT APPROVED*: independent QA rejected it on ONE new correctness blocker, **[[B142]] — an ABA in which a stale deferred completion consumes NEWER state** — registered, fixed and gated below (§MH-S1c). Round 2's four earlier findings stand fixed and were NOT redone. ROUND 1 WAS *NOT APPROVED*: it fixed ONE of three siblings, left the OFFER contract it was written to close explicitly intact, shipped a RED s28, and declared a capability metal-only that was ONE FIELD from being testable. All four are fixed below. ⛔ UNCOMMITTED (D4). NOTHING RE-ANCHORED — the `^### 36/36 corpus` table is UNTOUCHED and the owner rules.**
 
 ★★★ **THE HEADLINE IS THE SHAPE OF ROUND 1'S ERROR, NOT ANY ONE FIX: EVERY DEFECT ROUND 2 FOUND WAS A *PARTIAL APPLICATION OF ROUND 1'S OWN INSIGHT.*** Round 1 established that `tx_initiating` returns **true** for a frame merely accepted into the LBT defer ring, and anchored the DISCOVER's response window to the real handoff instead. It then left the **CLAIM adopting on that same `true`** (so a deferred CLAIM registered the mobile at a home that had been sent nothing, and a later HAL refusal was unattributable — the mobile sat falsely registered with **no retry**), left the **OFFER's deferred refusal anonymous**, and left **`mobile_offer_tx` still meaning "copied into a stash"** — the very sentence §10 forbids by name, and the arc's *fourth* "success that isn't", preserved while its three siblings were being fixed.
@@ -110,6 +2572,8 @@ the same binary that produced the 36 identical streams.
 
 #### ★ THE RESIDUAL THIS FIX DOES **NOT** COVER — registered as [[B143]], measured, deliberately NOT fixed
 
+> ⛔ **CORRECTION 2026-08-07 (§MH-S2b): [[B143]] IS DISPROVEN — there is no residual here.** `Hal::after(delay, id)` REPLACES the pending deadline for that id (`lib/hal/timer_wheel.cpp:8`, pinned since H1 by `test_timer_wheel.cpp:60`), so two DISCOVER handoffs leave **ONE** live guard holding the **NEWER** deadline. The *"two guards are armed"* measurement below counted `TestHal` **call history**, not live timers. Measured and mutation-controlled through a real `TimerWheel` — see §MH-S2b at the top of this file. The text below is preserved as the audit trail.
+
 The **timer** twin: `kMobileClaimGuardTimerId` is armed per DISCOVER handoff and there is no cancel, so a superseded
 transaction's collect-OFFERs guard is **still pending** and still fires. MEASURED with a throwaway probe (added, run,
 removed — `grep` verified 0 occurrences afterwards): after a re-register at t=100500, **two** guards are armed; A's
@@ -195,9 +2659,9 @@ The handoff emit's first form read the frame back with a bare `parse_j` beside `
 1. Accept the **8 movers** and re-anchor them **to S1**, amending §12.2's *"mobile scenarios may move only in S2 and S3"* attribution plan.
 2. ~~adjudicate s28's two failures~~ — **ANSWERED: scenario authoring, fixed, s28 GREEN** (`9bfce3b4`, 0 failures). The 2026-07-23 Slice-C fallout verdict's reading held.
 3. Whether **§11 S1's byte-identity sentence** should be corrected in the spec itself (mine to report, not to edit), and whether **[[B141]]**'s s28 fragility gets a structural repair or stays a known-fragile row.
-4. ★ **ROUND 3: whether [[B143]]** (the stale collect-OFFERs GUARD TIMER — the timer twin of [[B142]], measured and registered, deliberately unfixed) is repaired now or deferred. ⚠ It is the one place where a fix **would** change clear-channel behaviour and therefore **would** re-anchor mobile rows, so it wants its own slice — the owner's call, not mine.
+4. ~~★ **ROUND 3: whether [[B143]]** (the stale collect-OFFERs GUARD TIMER — the timer twin of [[B142]], measured and registered, deliberately unfixed) is repaired now or deferred.~~ ⛔ **WITHDRAWN 2026-08-07 by §MH-S2b — [[B143]] IS DISPROVEN, not deferred.** `Hal::after(delay, id)` REPLACES the pending deadline (`lib/hal/timer_wheel.cpp:8`, pinned by `test_timer_wheel.cpp:60`), so two DISCOVER handoffs leave ONE guard at the NEWER deadline. The *"two guards are armed"* measurement counted `TestHal` CALL HISTORY, not live timers. Measured + mutation-controlled through a real `TimerWheel`; there is no clear-channel behaviour change to fear and nothing for the owner to rule on.
 
-⛔ **STILL OWED, and marked in-source:** **[[B143]]** the stale collect-OFFERs guard timer (measured, registered, NOT fixed — see above) · §6.2's *reschedule* alternative for a refused OFFER (needs a bounded new jitter draw ⇒ **S3**) · §10's transmitter-rejection / ring-overflow **counters** and the device-visible success half (beside **S2**'s ring) · the pending-OFFER ring ([[B137]], S2) · jitter (S3) · the confirmed-attachment FSM (S4) · **[[B139]]** the `presence_probe_fire` admission site (S4's plane — **still registered-not-fixed**: FIX 1 did not make it unavoidable, because the CLAIM path touches no home-link state and the probe path is the home-link plane itself).
+⛔ **STILL OWED, and marked in-source:** ~~**[[B143]]** the stale collect-OFFERs guard timer (measured, registered, NOT fixed — see above)~~ ⛔ **DISPROVEN 2026-08-07 by §MH-S2b, no longer owed** · §6.2's *reschedule* alternative for a refused OFFER (needs a bounded new jitter draw ⇒ **S3**) · §10's transmitter-rejection / ring-overflow **counters** and the device-visible success half (beside **S2**'s ring) · the pending-OFFER ring ([[B137]], S2) · jitter (S3) · the confirmed-attachment FSM (S4) · **[[B139]]** the `presence_probe_fire` admission site (S4's plane — **still registered-not-fixed**: FIX 1 did not make it unavoidable, because the CLAIM path touches no home-link state and the probe path is the home-link plane itself).
 
 **FILES MODIFIED — ROUND 3 touched FIVE of them and created none:** `lib/core/node.h` · `lib/core/node.cpp` · `lib/core/node_mac.cpp` · `lib/core/node_mobile.cpp` · `test/test_node_join.cpp` · plus this file and `docs/2026-07-30-open-bug-register.md` ([[B142]] opened+closed, [[B143]] opened). ⛔ **Round 3 did NOT touch:** `lib/core/node_join.cpp` · `test/test_dual_layer.cpp` · `test/test_node_r3.cpp` · `simulation/s28_mixed_team_channels_meshroute.json` · `docs/2026-07-31-bench-test-script.md` (nothing new is metal-visible — see the M2 row) · `src/` · `variants/` · `platformio.ini` · any scenario · the `^### 36/36 corpus` anchor table · `tools/warning_census.sh` · `CLAUDE.md` · the spec.
 
@@ -2583,7 +5047,7 @@ Step 0.1 is *"`git mv` only — no content edits"*. Measured against the tree, *
 
 ```
 s06_seattle_lifecycle                          c74e0608 lus: 67009 events emitted, 0 assertion failure(s)
-s07_seattle_mobile_meshroute                   c17952b7 lus: 109562 events emitted, 0 assertion failure(s)
+s07_seattle_mobile_meshroute                   e679bd5b lus: 109391 events emitted, 0 assertion failure(s)
 s09_two_layer_gateway                          f171652c lus: 2266 events emitted, 0 assertion failure(s)
 s09_two_layer_gateway_metal                    d626eefc lus: 2345 events emitted, 0 assertion failure(s)
 s10_two_layer_separation                       0f81a374 lus: 2266 events emitted, 0 assertion failure(s)
@@ -2595,17 +5059,17 @@ s18_meshroute                                  1cd21235 lus: 271629 events emitt
 s19_singlelayer_multihop_chain                 29a3b1f5 lus: 1065 events emitted, 0 assertion failure(s)
 s20_random_mesh                                a267e553 lus: 40079 events emitted, 0 assertion failure(s)
 s21_leaf_config_divergence                     172b8646 lus: 390 events emitted, 0 assertion failure(s)
-s21_mobile_dm_milestone_meshroute              1a0c92b2 lus: 657 events emitted, 0 assertion failure(s)
+s21_mobile_dm_milestone_meshroute              d2952649 lus: 680 events emitted, 0 assertion failure(s)
 s22_leaf_config_join                           69010f6f lus: 215 events emitted, 0 assertion failure(s)
-s22_mobile_team_meshroute                      808f7abf lus: 1804 events emitted, 0 assertion failure(s)
+s22_mobile_team_meshroute                      90bf4727 lus: 1820 events emitted, 0 assertion failure(s)
 s23_leaf_config_epoch_write                    20e3f95b lus: 219 events emitted, 0 assertion failure(s)
 s23_mobile_team_multihop_meshroute             c789cfad lus: 924 events emitted, 0 assertion failure(s)
-s24_static_and_team_multihop_meshroute         6e92f8fd lus: 1574 events emitted, 0 assertion failure(s)
+s24_static_and_team_multihop_meshroute         7cac1b63 lus: 1556 events emitted, 0 assertion failure(s)
 s25_two_team_separation_meshroute              00813e38 lus: 792 events emitted, 0 assertion failure(s)
 s26_team_reroute_meshroute                     110269a7 lus: 1045 events emitted, 0 assertion failure(s)
-s27_cross_layer_mobiles_meshroute              e1fd5937 lus: 9277 events emitted, 0 assertion failure(s)
-s28_mixed_team_channels_meshroute              dd96c809 lus: 4018 events emitted, 0 assertion failure(s)
-s29_mixed_leaf_team_meshroute                  2e81833c lus: 1943 events emitted, 0 assertion failure(s)
+s27_cross_layer_mobiles_meshroute              c7496c45 lus: 9758 events emitted, 0 assertion failure(s)
+s28_mixed_team_channels_meshroute              77386aba lus: 3852 events emitted, 0 assertion failure(s)
+s29_mixed_leaf_team_meshroute                  d8a5beb9 lus: 2031 events emitted, 0 assertion failure(s)
 s30_team_dad_mediation_meshroute               db8cdb9b lus: 1034 events emitted, 0 assertion failure(s)
 s31_dual_carrier_gateway                       da5448a0 lus: 2300 events emitted, 0 assertion failure(s)
 s32_dual_cr_gateway                            dad00d6c lus: 2266 events emitted, 0 assertion failure(s)
@@ -2614,7 +5078,7 @@ s34_team_switch_clears_plane                   59310b6b lus: 921 events emitted,
 s35a_cochannel_isolation_meshroute             585b9cc8 lus: 2388 events emitted, 0 assertion failure(s)
 s35b_cochannel_isolation_control_meshroute     4f49e969 lus: 1063 events emitted, 0 assertion failure(s)
 s36_reprovision_purges_carriers                fd11c9a4 lus: 472 events emitted, 0 assertion failure(s)
-s37_team_homed_origin_meshroute                7c517dcf lus: 768 events emitted, 0 assertion failure(s)
+s37_team_homed_origin_meshroute                46d3b916 lus: 748 events emitted, 0 assertion failure(s)
 s38_team_origin_learn_meshroute                a16ec83c lus: 526 events emitted, 0 assertion failure(s)
 sim_9node_base                                 04dc4ca0 lus: 4959 events emitted, 0 assertion failure(s)
 twin_9node_dm                                  cdba2942 lus: 13837 events emitted, 0 assertion failure(s)

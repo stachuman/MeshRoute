@@ -164,8 +164,28 @@ uint8_t parse_suspect_tlv(std::span<const uint8_t> ext, SuspectEntry* out, uint8
 // ctr_lo DROPPED vs the legacy CTS: tx_id+rx_id pin the flight under single-slot
 // stop-and-wait, and tx_id (not ctr_lo) disambiguates cascade alts; tx_id also makes
 // the CTS addressable/attributable on metal (no PHY-sender god-view). The Lua mirror is
-// 4 B (literal 'C' tag); the cmd-nibble packs cmd+flags into byte 0. sf in 5..12;
-// already_received short-circuits a resend whose ACK was lost.
+// 4 B (literal 'C' tag); the cmd-nibble packs cmd+flags into byte 0. sf in 5..12.
+//
+// ⛔⛔ §B153 (2026-08-08) — `already_received` IS RESERVED AND IS **NEVER EMITTED** BY THIS FIRMWARE. The bit
+// still exists in the codec (pack/parse round-trip it, and `handle_cts` still honours an inbound one) so the
+// wire stays compatible and no `wire_version` bump is needed — but **no code path sets it any more**, and
+// nothing may start doing so. It used to short-circuit a resend whose ACK was lost.
+//
+// ★★★ WHY IT WAS RETIRED — AN INFORMATION-THEORETIC ARGUMENT, NOT A TUNING CHOICE. **A 7-byte RTS cannot
+// distinguish (a) a RETRY of message A from (b) the FIRST ATTEMPT of message B that happens to share the same
+// `(hop src, dst, ctr_lo, payload_len)`. Those two RTS frames are BYTE-IDENTICAL.** ⇒ **no receiver algorithm
+// can safely return a TERMINAL `already_received = true` from that RTS alone** — more receiver state or
+// cleverer matching cannot recover information that is not in the frame. Answering it anyway made the sender
+// drop a *different* message with no DATA, no emit and no `send_failed` ([[B153]], measured on `s27`: 5
+// expectations off one lost frame; the pre-fix key aliased in 4 of 5 different-origin cases).
+// ★ **THE PRINCIPLE, WHICH IS THE DURABLE PART: RTS AUTHORIZES RECEPTION; ONLY DATA PROVES MESSAGE IDENTITY.**
+// A free receiver therefore ALWAYS creates a `PendingRx`, returns a normal CTS, and waits for the DATA — and
+// the DATA-level dedup (`_seen_origins`, keyed on the FULL `(origin, dst, ctr)` or the whole 8-B nonce-seed,
+// `node_mac_rx.cpp` `handle_data`) is the sole authority on "have I already had this message?". It has the
+// evidence the RTS never had, and a 30 s TTL against the RTS gate's 10 s.
+// ⓘ The trade, stated so nobody re-adds the bit as an "optimization": SUCCESSFUL traffic is UNCHANGED
+// (RTS→CTS→DATA→ACK). The only extra cost is on lost-ACK recovery — one redundant DATA, and only after an ACK
+// was really lost — instead of a wrong answer on every hop of every message.
 //
 // ★ §cts-len6-cr2 (2026-07-27) — byte 3 was a flat 8-bit payload_len; it now splits into a 6-bit QUANTIZED
 // length + the 2-bit CR of the DATA being cleared. Motive: the overhearer's NAV must size a THIRD PARTY's
@@ -286,6 +306,7 @@ constexpr uint8_t RTS_FLAG_E2E_ACK     = 0x08;   // originator hint: the pending
 //     this codec merely mask/wraps it into 2 bits. Out of scope for this slice; recorded, not fixed.
 constexpr uint8_t rts_cr_encode(uint8_t cr)   { return static_cast<uint8_t>((cr - 5) & 0x03); }   // 5..8 -> 0..3
 constexpr uint8_t rts_cr_decode(uint8_t code) { return static_cast<uint8_t>((code & 0x03) + 5); } // 0..3 -> 5..8
+
 struct rts_in {
     uint8_t  leaf_id; uint8_t src; uint8_t next; uint8_t ctr_lo;
     uint8_t  dst; uint8_t sf_index; uint8_t rts_flags; uint8_t payload_len;

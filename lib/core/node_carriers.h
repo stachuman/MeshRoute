@@ -2,7 +2,7 @@
 // Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // The Node's shared VALUE-CARRIER types — LayerConfig/NodeConfig/RtCandidate/RtEntry/TxItem/PendingTx/DeferredSend/
-// PendingRx/PostAck/LastAcked/GatewaySchedule/BridgedLayer/XlHandoff + the enums (LinkBidi/Plane/GwValErr/GwParseErr).
+// PendingRx/PostAck/GatewaySchedule/BridgedLayer/XlHandoff + the enums (LinkBidi/Plane/GwValErr/GwParseErr).
 // Extracted VERBATIM from node.h (cleanup 2026-07-15, node-legibility Slice 2): shared across all 13 node_*.cpp TUs and
 // tied to no single member, so they get a coherent home here instead of ~370 lines of scroll-past clutter above class
 // Node. The member-SPECIFIC nested structs stay nested in node.h (def-next-to-member co-location = their legibility).
@@ -472,7 +472,11 @@ struct PostAck {                     // deferred deliver/forward after the ACK a
     uint8_t  fwd_remaining = 0;
     uint8_t  fwd_committed = 0;
 };
-struct LastAcked { uint8_t chosen_data_sf = 0; uint64_t t_ms = 0; };
+// ⛔ §B153 (2026-08-08): `struct LastAcked` and the per-layer `_last_acked_from` map it populated are DELETED.
+// They backed the RTS-time `already_received` short-circuit, which is retired for the information-theoretic
+// reason recorded at `already_received` in frame_codec.h: a 7-B RTS cannot prove message identity, so no
+// terminal answer may be derived from one. The DATA-level `_seen_origins` dedup is the sole authority and
+// needs no per-hop cache. ⛔ Do not reintroduce either.
 // Slice 3e.2: a learned gateway window schedule (from a heard gateway beacon's schedule_record block). The sender
 // times its RTS to the gateway with gateway_schedule_defer_ms: visit_start = heard_ms + rec.offset_ms (NO shared
 // wall clock — anchored to the heard instant); phase = (now - visit_start) mod period.

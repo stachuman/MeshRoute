@@ -13,6 +13,12 @@
 #include "node.h"
 #include "frame_codec.h"
 #include "support/test_hal.h"
+// ★★★ [[B145]] §MH-S2b — THE REAL DEVICE TIMER WHEEL, deliberately, not a second in-test model of one.
+// `test_timer_wheel.cpp` already includes it exactly like this. The [[B145]] case below needs the PRODUCTION
+// pump semantics (`pop_due(now)` fires everything with `_due <= now`, and `after()` REPLACES a deadline rather
+// than stacking one), and re-implementing those in the fixture would reproduce the very mistake the case
+// exists to catch: a harness whose control flow differs from production in the dimension under test.
+#include "timer_wheel.h"
 
 #include <array>
 #include <cstring>
@@ -37,6 +43,11 @@ struct Ev { std::string type; int64_t node = -1; int64_t proposed = -1; int64_t 
             // handoff) carry these two. Captured so a case can assert WHICH OFFER the event describes —
             // "an event of the right name fired" is not evidence that it described the right frame.
             int64_t to_key = -1; int64_t local_id = -1;
+            // ★★ §MH-S4b — `mobile_attach_confirmed.reclaims`. It was STRUCTURALLY ALWAYS 0 (the counter was
+            // cleared on the line above the emit), i.e. an instrument that could not fail, and no case captured
+            // the field to notice. Captured here so the HEALED case can assert a NON-ZERO value — the presence
+            // of a field is not evidence that it reports anything ([[B115]]'s lesson).
+            int64_t reclaims = -1;
             bool i_win = false; bool has_iwin = false; std::string reason; };
 
 class TestHal : public mrtest::TestHalBase {
@@ -68,7 +79,20 @@ public:
     // _channel already carry (U1: the shape is copied, not invented). Additive + returns the same `true`, so every
     // pre-existing case in this file is byte-identical — they simply never look.
     std::vector<std::pair<uint32_t, uint32_t>> armed;     // (delay_ms, timer_id), in call order
-    bool     after(uint32_t delay, uint32_t id) override { armed.emplace_back(delay, id); return true; }
+    // ★★★ [[B145]] §MH-S2b — OPT-IN REAL TIMER WHEEL, default OFF. `armed` is a CALL LOG, and a call log is not a
+    // model of state: it cannot express that `Hal::after` REPLACES a deadline, and it cannot be DRAINED the way
+    // `src/fw_main.cpp` drains one. Both of this round's findings came from that gap — [[B145]] (the same-pump
+    // re-entry a one-callback-at-a-time fixture cannot see) and the [[B143]] disproof (`count_armed` counted
+    // history and was read as "two guards are live"). Point `wheel` at a `TimerWheel` and this fixture becomes
+    // the production pump; leave it null and every pre-existing case is byte-identical (`cancel` was already a
+    // no-op and `after` already returned `true`).
+    meshroute::TimerWheel* wheel = nullptr;
+    bool     after(uint32_t delay, uint32_t id) override {
+        armed.emplace_back(delay, id);
+        if (wheel) (void)wheel->after(delay, id, _now);
+        return true;
+    }
+    void     cancel(uint32_t id) override { if (wheel) wheel->cancel(id); }
     // The LAST delay armed for `id`, or -1 if that timer was never armed. (A deadline is a number, not a bool.)
     int64_t  last_armed(uint32_t id) const {
         int64_t d = -1; for (const auto& a : armed) if (a.second == id) d = static_cast<int64_t>(a.first); return d;
@@ -90,6 +114,7 @@ public:
                 else if (!std::strcmp(fl.key, "snr_q4"))           e.snr_q4 = fl.i;
                 else if (!std::strcmp(fl.key, "to_key"))           e.to_key = fl.i;
                 else if (!std::strcmp(fl.key, "local_id"))         e.local_id = fl.i;
+                else if (!std::strcmp(fl.key, "reclaims"))         e.reclaims = fl.i;   // §MH-S4b: how many re-CLAIMs healed this attachment
             } else if (fl.type == EventField::T::boolean) {
                 if (!std::strcmp(fl.key, "i_win")) { e.i_win = fl.b; e.has_iwin = true; }
             } else if (fl.type == EventField::T::str) {
@@ -146,6 +171,28 @@ size_t make_j_offer_mobile(uint8_t responder_id, uint32_t responder_hash, uint8_
     in.responder_node_id = responder_id; in.responder_key_hash32 = responder_hash; in.data_sf_bitmap = (1u << 7);
     in.proposed_mobile_id = local_id; in.target_key_hash32 = target_hash;
     return pack_j_offer(in, std::span<uint8_t>(buf.data(), buf.size()));
+}
+
+// ★★★ §MH-S4 §7.1 step 4 — DRIVE A REAL CONFIRMATION. Post-S4 a mobile becomes `attached` (and app-facing
+// `registered`) ONLY when its CHOSEN HOME's roster carries its (hash, local id, epoch). This builds exactly that
+// roster and hands it to `on_recv`, so every case that means "a fully registered mobile" now reaches that state
+// through the same wire evidence the protocol uses, parsed by the production parser.
+// ⛔ Deliberately NOT a white-box state poke: the whole point of the slice is that the TRIPLE on the wire is what
+//    confirms, so a helper that set the flag directly would bypass the mechanism under test.
+// ⓘ `home_layer` must be the mobile's live layer, or the roster is treated as ANOTHER home's (a candidate hint).
+size_t make_p_roster_one(uint8_t home_id, uint8_t home_layer, uint32_t mobile_hash, uint8_t local_id,
+                         uint8_t epoch, std::array<uint8_t, 64>& buf, uint8_t quality = protocol::presence_q_ok) {
+    PRosterEntry e[1] = {{ mobile_hash, local_id, epoch, quality, /*has_key=*/false, /*deleg_fail=*/false }};
+    p_roster_in ri{}; ri.home_id = home_id; ri.home_layer = home_layer;
+    ri.wire_version = protocol::wire_version; ri.entries = e; ri.count = 1;
+    return pack_p_roster(ri, std::span<uint8_t>(buf.data(), buf.size()));
+}
+void confirm_mobile_via_roster(Node& mob, TestHal& hal, uint8_t home_id, uint8_t home_layer,
+                               uint32_t mobile_hash, uint8_t local_id, uint8_t epoch, const RxMeta& meta) {
+    std::array<uint8_t, 64> rb{};
+    const size_t rn = make_p_roster_one(home_id, home_layer, mobile_hash, local_id, epoch, rb);
+    (void)hal;
+    mob.on_recv(rb.data(), rn, meta);
 }
 
 }  // namespace
@@ -614,8 +661,17 @@ TEST_CASE("clean-join R2 — a registered node's clear pushes one mobile_reg der
         std::array<uint8_t, 16> off{};
         const size_t on = make_j_offer_mobile(/*responder=*/30, /*resp_hash=*/0x0000C0C0u, /*local=*/201, /*target=*/0x0000B7B7u, off);
         node.on_recv(off.data(), on, meta);                   // collect the OFFER
-        node.on_timer(kMobileClaimGuardTimerId);              // window close -> CLAIM + adopt
-        CHECK(node.mobile_registered());
+        node.on_timer(kMobileClaimGuardTimerId);              // window close -> CLAIM + PROVISIONAL adopt
+        CHECK(node.mobile_registered());                      // the LINK-LAYER/provisional flag (§7.1 step 1)
+        // ★★ §MH-S4 §7.1 — AND THAT IS NOT YET A REGISTRATION. The deregistration push R2 is about is now paired
+        // with the CONFIRMED attachment (`mobile_reset_registration` gates it on the attachment plane, so the
+        // registered:true / registered:false pair is symmetric by construction). A `claiming` node therefore has
+        // nothing to deregister — asserted explicitly below — so this case must first earn a real confirmation.
+        CHECK(node.mobile_attach_state() == Node::MobileAttachState::claiming);
+        CHECK_FALSE(node.mobile_attached());
+        confirm_mobile_via_roster(node, hal, /*home=*/30, /*home_layer=*/node.config().layers[0].layer_id,
+                                  /*hash=*/0x0000B7B7u, /*local=*/201, /*epoch=*/1, meta);
+        CHECK(node.mobile_attached());                        // ★ §7.1 step 4: the roster triple confirmed it
         Push p{}; while (node.next_push(p)) {}                // drain the registration push(es)
 
         node.clear_routing_state();
@@ -624,6 +680,31 @@ TEST_CASE("clean-join R2 — a registered node's clear pushes one mobile_reg der
         CHECK(dereg == 1);                                    // ★ R2: exactly one registered:false push
         CHECK(reg == 0);
         CHECK_FALSE(node.mobile_registered());
+        CHECK_FALSE(node.mobile_attached());
+        CHECK(node.mobile_attach_state() == Node::MobileAttachState::dormant);   // §MH-S4: a verb reprovision drops the session
+    }
+    // (a2) ★★ §MH-S4 §7.1 — THE NEGATIVE CONTROL FOR (a), AND IT IS THE §S0-4 DEFECT AS A ONE-LINER: an
+    // UNCONFIRMED (`claiming`) mobile's clear pushes NOTHING, because the app was never told it was registered.
+    // This is what makes (a)'s `dereg == 1` a measurement of the confirmation rather than of `active`.
+    {
+        TestHal hal;
+        Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000B7B8u);
+        NodeConfig mcfg = join_cfg(); mcfg.is_mobile = true;
+        node.on_init(mcfg);
+        node.on_timer(kMobileDiscoverTimerId);
+        std::array<uint8_t, 16> off{};
+        const size_t on = make_j_offer_mobile(/*responder=*/30, /*resp_hash=*/0x0000C0C0u, /*local=*/202, /*target=*/0x0000B7B8u, off);
+        node.on_recv(off.data(), on, meta);
+        node.on_timer(kMobileClaimGuardTimerId);              // CLAIM + provisional adopt, NO roster ever arrives
+        CHECK(node.mobile_registered());
+        CHECK(node.mobile_attach_state() == Node::MobileAttachState::claiming);
+        Push p{}; int reg_true = 0;
+        while (node.next_push(p)) if (p.kind == PushKind::mobile_reg && p.relayed) ++reg_true;
+        CHECK(reg_true == 0);                                 // ★★ no `registered:true` for an unconfirmed CLAIM
+        node.clear_routing_state();
+        int dereg = 0;
+        while (node.next_push(p)) if (p.kind == PushKind::mobile_reg && !p.relayed) ++dereg;
+        CHECK(dereg == 0);                                    // ★★ and therefore no unpaired `registered:false`
     }
     // (b) a static node that never registered -> no mobile_reg push
     {
@@ -912,21 +993,43 @@ TEST_CASE("§3-A.1 sf_list mismatch on mobile adopt — join_refused{sf_list_mis
 }
 
 // §autoregister ruling (2026-07-21): mobile_autoregister=false MUST mean NO DISCOVERs ever — the DISCOVER/registration
-// half of the FSM is gated on registration_armed() (autoregister ON, or a one-shot manual `mobile register` arm). Team-DAD
-// rides the SAME FSM tick BEFORE the gate, so a team member self-bootstraps its team id regardless of the toggle.
-TEST_CASE("§autoregister — OFF: a lone mobile emits NO autonomous DISCOVER; a manual arm drives exactly ONE (one-shot)") {
+// half of the FSM is gated on registration_armed(). Team-DAD rides the SAME FSM tick BEFORE the gate, so a team member
+// self-bootstraps its team id regardless of the toggle.
+// ★★★ REWRITTEN IN PLACE BY §MH-S4 §4.2 (B101 — never deleted). This case previously asserted, as its whole point,
+// that a manual `mobile register` was a ONE-SHOT: "still one — the arm is a ONE-SHOT, no auto re-DISCOVER". §4.2
+// overturns exactly that sentence — *"an explicit manual request must not get one unconfirmed RF attempt and silently
+// stop… it remains seeking/recovering until success or `mobile unregister`"* — so the assertions are inverted and the
+// title now names the durable behaviour. What is UNCHANGED and still asserted is the half the ruling keeps: with
+// autoregister OFF and NO request, the mobile is silent and `dormant`.
+TEST_CASE("§autoregister — OFF: a lone mobile emits NO autonomous DISCOVER; a manual request is DURABLE (§MH-S4 §4.2)") {
     TestHal hal; hal._now = 100000;
     Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000B0B0u);
     NodeConfig mcfg = join_cfg(); mcfg.is_mobile = true; mcfg.mobile_autoregister = false;
     node.on_init(mcfg);
     Push p{}; while (node.next_push(p)) {}
+    CHECK(node.mobile_attach_state() == Node::MobileAttachState::dormant);   // ★ §4.2: auto OFF -> boot is DORMANT
+    CHECK_FALSE(node.mobile_home_desired());
     node.on_timer(kMobileDiscoverTimerId);                    // the autonomous FSM kick — GATED
-    CHECK(hal.count("mobile_discover_tx") == 0);              // ★ nothing on air (autoregister OFF, no arm)
-    node.mobile_register_current();                           // the app arms ONE registration
+    CHECK(hal.count("mobile_discover_tx") == 0);              // ★ nothing on air (autoregister OFF, no request)
+    CHECK(node.mobile_attach_state() == Node::MobileAttachState::dormant);   // ★ and the gated tick did NOT invent a `seeking`
+    node.mobile_register_current();                           // the app REQUESTS home service (durable, not a one-shot)
+    CHECK(node.mobile_home_desired());
+    CHECK(node.mobile_attach_state() == Node::MobileAttachState::seeking);   // ★ §4.2: the request is who enters `seeking`
     node.on_timer(kMobileDiscoverTimerId);
-    CHECK(hal.count("mobile_discover_tx") == 1);              // ★ exactly one DISCOVER
-    node.on_timer(kMobileDiscoverTimerId);                    // a later autonomous kick (e.g. a post-reset re-DISCOVER)
-    CHECK(hal.count("mobile_discover_tx") == 1);              // ★ still one — the arm is a ONE-SHOT, no auto re-DISCOVER
+    CHECK(hal.count("mobile_discover_tx") == 1);              // ★ the first DISCOVER
+    node.on_timer(kMobileDiscoverTimerId);                    // a later kick (the jittered no-host retry the FSM armed)
+    CHECK(hal.count("mobile_discover_tx") == 2);              // ★★ §MH-S4 §4.2: TWO — the request is DURABLE (was pinned at 1 = the retired one-shot)
+    node.on_timer(kMobileDiscoverTimerId);
+    CHECK(hal.count("mobile_discover_tx") == 3);              // ★ and it keeps going: "until success or `mobile unregister`"
+    // ★★ AND `mobile unregister` IS THE THING THAT STOPS IT — the other half of §4.2, which the one-shot made
+    // impossible to express. This is also the NEGATIVE CONTROL for the three DISCOVERs above: it proves they came
+    // from the durable request and not from some ungated path that would keep firing regardless.
+    node.mobile_unregister();
+    CHECK_FALSE(node.mobile_home_desired());
+    CHECK(node.mobile_attach_state() == Node::MobileAttachState::dormant);
+    CHECK(node.mobile_home_link() == Node::MobileHomeLink::unknown);         // §4.1: "unknown — ... or the home-service state is dormant"
+    node.on_timer(kMobileDiscoverTimerId);
+    CHECK(hal.count("mobile_discover_tx") == 3);              // ★★ silent again — exactly 3, no fourth
 }
 
 TEST_CASE("§autoregister — OFF team member: team-DAD runs (ungated), but ZERO DISCOVERs to any host") {
@@ -941,23 +1044,39 @@ TEST_CASE("§autoregister — OFF team member: team-DAD runs (ungated), but ZERO
     CHECK(hal.count("mobile_discover_tx") == 0);              // ★ but NOT a single host-registration DISCOVER
 }
 
-TEST_CASE("§autoregister — OFF team member: a failed manual arm does NOT auto-retry; team plane stays alive") {
+// ★★★ REWRITTEN IN PLACE BY §MH-S4 §4.2 (B101 — never deleted). The old title and its pinned `== 1` asserted "a
+// failed manual arm does NOT auto-retry". That IS the §4.2 defect: a no-host round is exactly the failure a durable
+// request must survive, and under the one-shot an operator's `mobile register` that met an empty room stopped for
+// good. Both halves the ruling KEEPS are still asserted here, unchanged: the retry arms the DISCOVER timer (so the
+// no-host backoff is now serviced), and the TEAM plane is untouched throughout (F-PS-1).
+TEST_CASE("§autoregister — OFF team member: a failed manual request DOES retry (§MH-S4 §4.2); team plane stays alive") {
     TestHal hal; hal._now = 100000;
     Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000B2B2u);
     NodeConfig mcfg = join_cfg(); mcfg.is_mobile = true; mcfg.team_id = 0x7EA30000u; mcfg.mobile_autoregister = false;
     node.on_init(mcfg);
     Push p{}; while (node.next_push(p)) {}
-    node.mobile_register_current();                           // arm ONE attempt
-    node.on_timer(kMobileDiscoverTimerId);                    // team-DAD + one DISCOVER
+    node.mobile_register_current();                           // REQUEST home service (durable)
+    node.on_timer(kMobileDiscoverTimerId);                    // team-DAD + the first DISCOVER
     const uint8_t tid = node.team_local_id();
     CHECK(tid != 0);
     CHECK(hal.count("mobile_discover_tx") == 1);
+    hal.armed.clear();                                        // ★ so the arm counted below can only be the no-host retry
     node.on_timer(kMobileClaimGuardTimerId);                  // window closes with NO offer -> no host
     CHECK(hal.count("mobile_no_host") == 1);
-    node.on_timer(kMobileDiscoverTimerId);                    // the (now unarmed) backoff/autonomous re-DISCOVER
-    CHECK(hal.count("mobile_discover_tx") == 1);              // ★ off-grid-QUIET: no second DISCOVER without a fresh arm
+    // ★★ §MH-S4 §4.2 — THE NO-HOST BACKOFF IS NOW ARMED FOR A MANUALLY-REQUESTED SESSION. Pre-S4 this arm was
+    // gated on `_cfg.mobile_autoregister` alone, so with auto OFF the retry timer was never scheduled at all.
+    CHECK(hal.count_armed(kMobileDiscoverTimerId) == 1);      // ★ the retry EXISTS (was 0 — nothing was ever armed)
+    node.on_timer(kMobileDiscoverTimerId);                    // that armed backoff re-DISCOVER
+    CHECK(hal.count("mobile_discover_tx") == 2);              // ★★ a SECOND DISCOVER (was pinned at 1 = the retired one-shot)
     CHECK_FALSE(node.mobile_registered());                    //   still unregistered on the host plane
+    CHECK(node.mobile_attach_state() == Node::MobileAttachState::seeking);   // ★ still `seeking`, never a false attach
     CHECK(node.team_local_id() == tid);                       // ★ team plane intact (F-PS-1) — the team id survives
+    // NEGATIVE CONTROL for the retry: `mobile unregister` must stop it dead, proving the second DISCOVER above was
+    // the durable request's and not an ungated autonomous path.
+    node.mobile_unregister();
+    node.on_timer(kMobileDiscoverTimerId);
+    CHECK(hal.count("mobile_discover_tx") == 2);              // ★ exactly two — no third
+    CHECK(node.team_local_id() == tid);                       // ★★ and `mobile unregister` does NOT touch the team plane
 }
 
 TEST_CASE("§3-D beacon feeds the hosted-mobile SNR EWMA — CLAIM seeds, beacon steps, probe steps (one shared path)") {
@@ -1113,6 +1232,55 @@ int stage_mobile_offer(Node& host, TestHal& hal, uint32_t mobile_hash) {
     hal.events.clear(); hal.tx_frames.clear();
     host.on_recv(disc.data(), dn, meta);
     return hal.count("mobile_offer_scheduled");
+}
+
+constexpr uint32_t kMobileOfferBackoffTimerIdT = 80;   // mirrors Node's private host OFFER de-storm / ring-scan timer
+
+// ★★ §MH-S2 — ADVANCE THE CLOCK TO THE DEADLINE TIMER 80 WAS ARMED FOR, THEN FIRE IT. Read this before "fixing" any
+// case back to a bare `on_timer(80)`.
+//
+// The OFFER stash used to be a single slot with no stored deadline: the timer firing WAS the deadline, so a fixture
+// with a frozen clock could fire it and see the frame. §MH-S2 replaces it with a keyed ring whose entries each carry
+// their OWN `due_ms`, served by ONE timer re-armed to the earliest — the `park_reflood` / `e2e_ack_deadline` idiom —
+// so the scan transmits an entry only when that entry's own time has come. ⇒ a frozen-clock fire now (correctly)
+// transmits nothing.
+//
+// ★ THIS IS THE FIXTURE CATCHING UP WITH REALITY, NOT A WORKAROUND: `Hal::after(delay, id)` fires the timer AT
+// `now + delay` on metal and in the sim, which is exactly what advancing by the last armed delay reproduces. The
+// cases are STRONGER for it — a deadline is now a number they pass through rather than an assumption.
+// ⛔ Do NOT "fix" this in `lib/core` by firing the earliest armed entry whenever the timer fires regardless of its
+//    due time: the timer also fires for RESERVATION expiry, so that would transmit an OFFER before its jitter
+//    elapsed — the same-millisecond collision the jitter exists to prevent (C2: no unagreed fallback).
+void fire_mobile_offer_timer(Node& host, TestHal& hal) {
+    const int64_t d = hal.last_armed(kMobileOfferBackoffTimerIdT);
+    if (d > 0) hal._now += static_cast<uint64_t>(d);
+    host.on_timer(kMobileOfferBackoffTimerIdT);
+}
+
+// ★★★ [[B145]] §MH-S2b — THE PRODUCTION TIMER PUMP, COPIED FROM `src/fw_main.cpp:1069` AND NOT PARAPHRASED:
+//     for (int id; (id = g_hal.pop_due_timer()) >= 0; ) { g_node.on_timer((uint32_t)id); … }
+// with `DeviceHal::pop_due_timer()` being `_wheel.pop_due(_clock.now_ms())` (`lib/hal/device_hal.h:64`).
+// ⚠ THE CLOCK IS NOT ADVANCED BY THIS LOOP, and that is the whole point: on metal `millis()` need not tick
+// between two iterations, so a handler that re-arms its own timer with delay 0 is due again IMMEDIATELY
+// (`pop_due` fires on `_due <= now_ms`) and runs again inside the same pass. `fire_mobile_offer_timer` above
+// cannot express that — it invokes ONE callback per call, which models a pump that does not exist.
+// ⓘ `cap` bounds a runaway rather than hiding one: the caller asserts the OBSERVABLE (frames on the wire), so a
+//   build that spins here fails on the frame count, not by hanging the suite.
+int pump_due_timers(Node& n, TestHal& hal, meshroute::TimerWheel& w,
+                    std::vector<int>* fired_ids = nullptr, int cap = 64) {
+    int fired = 0;
+    while (fired < cap) {
+        const int id = w.pop_due(hal._now);
+        if (id < 0) break;
+        if (fired_ids) fired_ids->push_back(id);
+        n.on_timer(static_cast<uint32_t>(id));
+        ++fired;
+    }
+    return fired;
+}
+// How many times `id` fired in a recorded pump.
+int fired_count(const std::vector<int>& ids, uint32_t id) {
+    int c = 0; for (int v : ids) if (v == static_cast<int>(id)) ++c; return c;
 }
 }  // namespace
 
@@ -1407,12 +1575,12 @@ TEST_CASE("★★★ §B132b/1 — `mobile_offer_scheduled` means COMMITTED, not
 
     // (3) the backoff timer fires. ★ THE FRAME MUST NOT LEAVE.
     hal.tx_frames.clear();
-    n.on_timer(80);                                                   // kMobileOfferBackoffTimerId
+    fire_mobile_offer_timer(n, hal);                                  // kMobileOfferBackoffTimerId (§MH-S2: at its deadline)
     CHECK(count_j_offer_mobile(hal.tx_frames) == 0);                  // ★★ THE DEFECT: the OFFER went out FROM THE GATEWAY, advertising exactly the invalid home §B132 exists to prevent
     CHECK(hal.tx_frames.empty());                                     // and nothing else was substituted for it either
 
     // (4) a re-fire must stay silent too (the stash is gone, not merely skipped once).
-    n.on_timer(80);
+    fire_mobile_offer_timer(n, hal);
     CHECK(count_j_offer_mobile(hal.tx_frames) == 0);
 }
 
@@ -1426,7 +1594,7 @@ TEST_CASE("★★ §B132b/2 POSITIVE CONTROL — without the transition, firing 
     CHECK(count_j_offer_mobile(hal.tx_frames) == 0);                  // staged only
 
     hal.tx_frames.clear();
-    n.on_timer(80);                                                   // kMobileOfferBackoffTimerId
+    fire_mobile_offer_timer(n, hal);                                  // kMobileOfferBackoffTimerId (§MH-S2: at its deadline)
     CHECK(count_j_offer_mobile(hal.tx_frames) == 1);                  // ★ the frame really is on the wire — the harness CAN see a transmission
     // ...and the transmitted frame is addressed at the discovering mobile and names US as the home (so it is the
     // OFFER under discussion and not some other J frame that happened to be emitted).
@@ -1441,7 +1609,7 @@ TEST_CASE("★★ §B132b/2 POSITIVE CONTROL — without the transition, firing 
         }
         CHECK(checked == 1);
     }
-    n.on_timer(80);                                                   // the slot is consumed -> a re-fire must not duplicate
+    fire_mobile_offer_timer(n, hal);                                  // the entry is consumed -> a re-fire must not duplicate
     CHECK(count_j_offer_mobile(hal.tx_frames) == 1);
 }
 
@@ -1464,7 +1632,7 @@ TEST_CASE("★★ §B132b/3 — the REFUSED-on_init state (cleanup never ran) st
     CHECK_FALSE(n.can_host_mobiles());
 
     hal.tx_frames.clear();
-    n.on_timer(80);                                                   // kMobileOfferBackoffTimerId
+    fire_mobile_offer_timer(n, hal);                                  // kMobileOfferBackoffTimerId (§MH-S2: at its deadline)
     CHECK(count_j_offer_mobile(hal.tx_frames) == 0);                  // ★ ONLY the transmission-boundary re-check can produce this zero
 }
 
@@ -1484,7 +1652,7 @@ TEST_CASE("★★ §B132b/4 — a gateway init DROPS the staged OFFER, so it can
     CHECK(n.can_host_mobiles());                                      // ★ ELIGIBLE at fire time ⇒ the boundary re-check PASSES and is inert here
 
     hal.tx_frames.clear();
-    n.on_timer(80);                                                   // kMobileOfferBackoffTimerId
+    fire_mobile_offer_timer(n, hal);                                  // kMobileOfferBackoffTimerId (§MH-S2: at its deadline)
     CHECK(count_j_offer_mobile(hal.tx_frames) == 0);                   // ★ ONLY the on_init cleanup can produce this zero
 }
 
@@ -1563,6 +1731,15 @@ std::optional<j_out> first_j(const std::vector<std::vector<uint8_t>>& frames, j_
         if (p && p->opcode == static_cast<uint8_t>(op)) return p; }
     return std::nullopt;
 }
+// The LAST J frame of `op` among captured TX — the §MH-S4 re-CLAIM twin of `first_j`. A case that drives several
+// deadlines must assert the MOST RECENT frame's fields, not the first: `first_j` would keep re-reading the original
+// CLAIM and would pass even if every re-CLAIM carried a fresh epoch, which is exactly the property under test.
+std::optional<j_out> last_j(const std::vector<std::vector<uint8_t>>& frames, j_opcode op) {
+    std::optional<j_out> found;
+    for (const auto& f : frames) { auto p = parse_j(std::span<const uint8_t>(f.data(), f.size()));
+        if (p && p->opcode == static_cast<uint8_t>(op)) found = p; }
+    return found;
+}
 // An H (hash-locate) query from `origin` for `key_hash32`. Mirrors `make_h` in test_node_hashlocate.cpp;
 // per-TU frame builders are this suite's existing convention (`make_beacon` is likewise duplicated there).
 size_t make_h_query(uint8_t origin, uint32_t key_hash32, uint8_t ttl, std::array<uint8_t, 16>& buf) {
@@ -1592,6 +1769,18 @@ int count_p_rosters(const std::vector<std::vector<uint8_t>>& frames) {
     int c = 0; for (const auto& f : frames) if (parse_p_roster(std::span<const uint8_t>(f.data(), f.size()))) ++c;
     return c;
 }
+// ★ §MH-S4b §7.1 step 3 — the LAST P PROBE on the wire, PARSED. The `searching` bit is the whole substance of the
+// finding (a SELECTED probe is required to be IGNORED by a home holding no row for us — `presence_ingest_probe`),
+// so it must be read off the FRAME, never off an emit field the producer chose.
+std::optional<p_probe_out> last_p_probe(const std::vector<std::vector<uint8_t>>& frames) {
+    std::optional<p_probe_out> last;
+    for (const auto& f : frames) if (auto p = parse_p_probe(std::span<const uint8_t>(f.data(), f.size()))) last = p;
+    return last;
+}
+int count_p_probes(const std::vector<std::vector<uint8_t>>& frames) {
+    int c = 0; for (const auto& f : frames) if (parse_p_probe(std::span<const uint8_t>(f.data(), f.size()))) ++c;
+    return c;
+}
 // A mobile leaf config (single PHY, LBT off) — the §S0 mobile-side twin of `join_cfg()`.
 NodeConfig s0_mobile_cfg() { NodeConfig c = join_cfg(); c.is_mobile = true; return c; }
 
@@ -1603,179 +1792,1035 @@ constexpr uint32_t kLbtDeferTimerId           = 15;   // mirrors Node's private 
 }  // namespace
 
 // ---------------------------------------------------------------------------
-// §S0-1 — ONE PENDING OFFER OVERWRITES ANOTHER ("last DISCOVER wins").  Spec §2.2 / §5.3.
+// §S0-1 — REWRITTEN IN PLACE BY §MH-S2 (B101: a characterization test is rewritten by its owning fix, NEVER
+// deleted or disabled, so the behaviour change is visible in the diff).
 //
-// DEFECT PINNED HERE: `LayerRuntime::_pending_offer` (node.h:2442) is ONE 13-byte slot and
-// `kMobileOfferBackoffTimerId` is ONE timer. A second mobile's DISCOVER arriving inside the host's
-// 100..1000 ms OFFER jitter overwrites the first mobile's targeted OFFER outright — `jtx_stash_arm`
-// copies over the buffer and re-arms the same timer (jittered_tx_stash.h). The first mobile is never
-// answered at all and must wait out its own ≈122 s retry.
+// WHAT IT USED TO PIN (spec §2.2, and the words are kept so the diff reads as a behaviour change): the host's
+// OFFER stash was ONE 13-byte `LayerRuntime::_pending_offer` slot armed through `jtx_stash_arm`, and
+// `kMobileOfferBackoffTimerId` was ONE timer with ONE deadline. A second mobile's DISCOVER arriving inside the
+// host's 100..1000 ms OFFER jitter OVERWROTE the first mobile's targeted OFFER outright: exactly one OFFER left,
+// it belonged to the LAST DISCOVER, and the first mobile was never answered at all. The case asserted
+// `count_j_offer_mobile(...) == 1` and `target_key_hash32 == kMobB`, and it went RED when this slice landed —
+// measured, not predicted: `2 == 1` and `43537 == 47906` on the pre-rewrite tree.
 //
-// CORRECT BEHAVIOUR (spec §5.3.2, gate items 1/17/18/19), to be asserted by the S2 rewrite: a keyed
-// ring of `cap_pending_mobile_offers` entries; TWO DISCOVERs from two mobiles ⇒ TWO targeted OFFERs on
-// the wire, neither overwritten; a duplicate DISCOVER for the same hash coalesces; a full ring answers
-// `full` and disturbs nothing.
-// ⇒ ★ WHEN S2 LANDS THIS CASE GOES RED (it will see 2 OFFERs where it asserts 1). REWRITE IT, don't delete it.
+// ★★ AND IT PINNED A SECOND DEFECT IT COULD ONLY OBSERVE, NOT SEPARATE — [[B137]]. The surviving OFFER proposed
+// local id 254 and so did the one it destroyed, because `find_free_mobile_id` scanned `_mobile_reg` only and a
+// staged OFFER is not a registry row. THE TWO DEFECTS MASKED EACH OTHER: with one OFFER ever flying, "everyone is
+// offered the same id" is unobservable. S2 removes the mask, so this rewrite is the FIRST thing that ever
+// exercises the concurrent-id path — which is why it must DRIVE the allocation (four real CLAIMs on the wire)
+// rather than assume it.
+//
+// WHAT IT PINS NOW (spec §5.3.2/§5.3.3, gate items 1/17/18/19 + the [[B137]] ruling):
+//   • FOUR concurrent DISCOVERs ⇒ FOUR targeted OFFERs, one per mobile, no armed entry overwritten;
+//   • the four proposed local ids are DISTINCT — and the four CLAIMs that follow are all accepted with NOT ONE
+//     DENY, because the targeted CLAIM-collision DENY is a race backstop and never the allocator;
+//   • at most ONE OFFER per timer callback (the de-storm survives the ring);
+//   • a duplicate DISCOVER coalesces, a full ring refuses, a reservation expires — the three cases below it.
 // ---------------------------------------------------------------------------
-TEST_CASE("★★★ §S0-1 CHARACTERIZATION (spec §2.2) — a second DISCOVER DESTROYS the first mobile's pending OFFER") {
+TEST_CASE("★★★ §S0-1 -> §MH-S2 (spec §5.3.2) — FOUR concurrent DISCOVERs get FOUR OFFERs with FOUR DISTINCT ids, and NO DENY") {
     constexpr uint32_t kMobA = 0x0000AA11u;
     constexpr uint32_t kMobB = 0x0000BB22u;
+    constexpr uint32_t kMobC = 0x0000CC33u;
+    constexpr uint32_t kMobD = 0x0000DD44u;
+    constexpr uint8_t  kHostId = 42;
 
-    // ---- POSITIVE CONTROL FIRST. Without it, "mobile A's OFFER never appears" is satisfied by a build
-    // that transmits no OFFER at all, or by a harness that cannot see one. A alone MUST be answered.
+    // ---- POSITIVE CONTROL FIRST, KEPT VERBATIM IN SPIRIT FROM THE CHARACTERIZATION. Without it, every
+    // "N OFFERs appeared" below is satisfiable by a harness that cannot see an OFFER at all. A alone MUST be
+    // answered, and its id must be the top-down 254 the allocator has always produced.
     {
         TestHal hal; hal._now = 100000;
-        Node host(hal, /*node_id=*/42, /*key_hash32=*/0x00004242u);
+        Node host(hal, kHostId, /*key_hash32=*/0x00004242u);
         CHECK(host.on_init(join_cfg()));
         CHECK(host.can_host_mobiles());
         CHECK(stage_mobile_offer(host, hal, kMobA) == 1);
+        CHECK(host.mobile_offers_pending_n() == 1);                 // ★ one slot in use, one reservation live
         hal.tx_frames.clear();
-        host.on_timer(kMobileOfferBackoffTimerId);
+        fire_mobile_offer_timer(host, hal);
         CHECK(count_j_offer_mobile(hal.tx_frames) == 1);            // ★ the harness CAN see A's OFFER...
         auto o = first_j(hal.tx_frames, j_opcode::offer);
         CHECK(o.has_value());
-        if (o) CHECK(o->target_key_hash32 == kMobA);                // ★ ...addressed at A
+        if (o) { CHECK(o->target_key_hash32 == kMobA);              // ★ ...addressed at A...
+                 CHECK(o->proposed_mobile_id == 254); }             // ★ ...with the unchanged top-down id
+        // ★ AND THE RESERVATION OUTLIVES THE TRANSMISSION — that residual IS [[B137]]. The slot is still in use
+        // after the frame has flown, because the CLAIM has not arrived yet.
+        CHECK(host.mobile_offers_pending_n() == 1);
     }
 
-    // ---- THE DEFECT.
+    // ---- THE FIX, DRIVEN END TO END.
+    TestHal hal; hal._now = 100000;
+    Node host(hal, kHostId, /*key_hash32=*/0x00004242u);
+    CHECK(host.on_init(join_cfg()));
+    CHECK(host.can_host_mobiles());
+
+    // PREMISE — all four DISCOVERs were RECEIVED and all four OFFERs were COMMITTED, measured as a TRANSITION
+    // interleaved with the staging exactly as the characterization did it. A single count at the end cannot tell
+    // "four armed" from "one armed four times", and the overwrite was the defect, so the accumulation is the point.
+    // (`stage_mobile_offer` clears `events`/`tx_frames` but deliberately NOT `armed`.)
+    // ⚠ The clock steps 1 ms per DISCOVER so the four jitter deadlines are DISTINCT — `TestHal` returns the window
+    //   floor for every draw, so without this they would tie and the "earliest first" ordering would be arbitrary.
+    const uint32_t kMobs[4] = { kMobA, kMobB, kMobC, kMobD };
+    hal.armed.clear();
+    CHECK(hal.count_armed(kMobileOfferBackoffTimerId) == 0);        // baseline: nothing has armed 80 yet
+    for (int i = 0; i < 4; ++i) {
+        hal._now = 100000 + static_cast<uint64_t>(i);
+        CHECK(stage_mobile_offer(host, hal, kMobs[i]) == 1);        // committed...
+        CHECK(hal.count_armed(kMobileOfferBackoffTimerId) == i + 1);// ...and each one armed the ONE timer
+        CHECK(host.mobile_offers_pending_n() == i + 1);             // ★★ AND TOOK ITS OWN SLOT — the old build
+                                                                    //    would have overwritten the previous one
+    }
+    CHECK(host.mobile_offer_ring_full_count() == 0);                // ★ four of eight: nothing was refused
+
+    // ★★ THE FIX, ON THE WIRE — and the "at most ONE due OFFER per callback" contract (§5.3.3) is asserted as a
+    // TRANSITION too, not as a total: four callbacks, one frame each. A build that flushed the whole ring in one
+    // callback would satisfy a final count of 4 and would put four OFFERs into the same millisecond, which is
+    // precisely what the jitter exists to prevent.
+    hal.tx_frames.clear();
+    for (int i = 0; i < 4; ++i) {
+        fire_mobile_offer_timer(host, hal);
+        CHECK(count_j_offer_mobile(hal.tx_frames) == i + 1);
+    }
+    // ...and the ring is spent: further callbacks add nothing (no duplicate transmission on a re-fire).
+    fire_mobile_offer_timer(host, hal);
+    fire_mobile_offer_timer(host, hal);
+    CHECK(count_j_offer_mobile(hal.tx_frames) == 4);
+
+    // ★★★ THE VERDICT IS THE PARSED FRAMES, NEVER A COUNTER: each of the four mobiles is addressed exactly once,
+    // and the four PROPOSED IDS ARE DISTINCT. The scan asserts its own match count, so a loop that inspected
+    // nothing cannot satisfy "no duplicates" vacuously.
+    int    inspected = 0;
+    int    seen_target[4] = {0, 0, 0, 0};
+    uint8_t offered_id[4] = {0, 0, 0, 0};
+    for (const auto& f : hal.tx_frames) {
+        auto p = parse_j(std::span<const uint8_t>(f.data(), f.size()));
+        if (!p || p->opcode != static_cast<uint8_t>(j_opcode::offer)) continue;
+        ++inspected;
+        CHECK(p->responder_node_id == kHostId);
+        for (int i = 0; i < 4; ++i)
+            if (p->target_key_hash32 == kMobs[i]) { ++seen_target[i]; offered_id[i] = p->proposed_mobile_id; }
+    }
+    CHECK(inspected == 4);                                          // ★ the scan's MATCH COUNT
+    for (int i = 0; i < 4; ++i) CHECK(seen_target[i] == 1);         // ★ every mobile answered EXACTLY once
+    for (int i = 0; i < 4; ++i) CHECK(offered_id[i] >= protocol::normal_node_id_min);
+    for (int i = 0; i < 4; ++i)
+        for (int k = i + 1; k < 4; ++k)
+            CHECK(offered_id[i] != offered_id[k]);                  // ★★★ [[B137]]: FOUR UNIQUE IDS. The old build
+                                                                    //     offered 254 to all four.
+
+    // ★★★ "AT MOST ONE PER CALLBACK" WITH EVERY DEADLINE ALREADY ELAPSED — and this block exists BECAUSE THE
+    // MUTATION BATTERY SAID SO. The staggered loop above cannot detect a fire that drains the whole ring: with
+    // deadlines 1 ms apart, only one entry is ever due at the instant the timer fires, so "drain everything due"
+    // and "transmit exactly one" are indistinguishable there (measured — M-S2-5 reddened nothing until this).
+    // ⇒ four fresh mobiles, then the clock jumped PAST all four deadlines, then ONE callback.
+    //
+    // ⛔⛔ AND HERE IS WHAT THIS BLOCK STILL CANNOT SEE, STATED IN PLACE RATHER THAN DISCOVERED AGAIN — [[B145]].
+    // It invokes `on_timer(80)` BY HAND, ONE CALL AT A TIME, so "one OFFER per callback" is all it can measure.
+    // Production does not call `on_timer` one at a time: `src/fw_main.cpp:1069` DRAINS every due timer against a
+    // clock that need not have advanced, and a handler re-arming itself with delay 0 is due again immediately.
+    // ⇒ this block stayed GREEN on a build that put all four OFFERs into one millisecond. It is kept (it is a true
+    // statement about the callback, and it is what M-S2-5 needs) and the missing dimension is covered by the
+    // REAL-`TimerWheel` case that follows this one. ⛔ Do NOT delete either in favour of the other.
+    {
+        TestHal h2; h2._now = 500000;
+        Node h(h2, kHostId, /*key_hash32=*/0x00004242u);
+        CHECK(h.on_init(join_cfg()));
+        const uint32_t late[4] = { 0x00051111u, 0x00052222u, 0x00053333u, 0x00054444u };
+        for (int i = 0; i < 4; ++i) {
+            h2._now = 500000 + static_cast<uint64_t>(i);
+            CHECK(stage_mobile_offer(h, h2, late[i]) == 1);
+        }
+        CHECK(h.mobile_offers_pending_n() == 4);                    // PREMISE: four armed entries
+        h2._now = 500000 + protocol::join_offer_backoff_max_ms + 50;// ★ every one of the four is now OVERDUE
+        h2.tx_frames.clear();
+        h.on_timer(kMobileOfferBackoffTimerId);
+        CHECK(count_j_offer_mobile(h2.tx_frames) == 1);             // ★★★ still exactly ONE — the de-storm holds
+        h.on_timer(kMobileOfferBackoffTimerId);
+        CHECK(count_j_offer_mobile(h2.tx_frames) == 2);             // ★ and the next callback takes the next one
+    }
+
+    // ★★★ AND THE GATE DRIVES THE ALLOCATION RATHER THAN ASSUMING IT (spec §12.1 gate 1): all four mobiles now
+    // CLAIM the ids they were offered. Every one must be RECORDED, and ⛔ NOT ONE DENY MAY BE EMITTED — a DENY
+    // here would mean the reservation failed and the race backstop was doing the allocator's job, which the owner
+    // ruling forbids. This is the assertion that "four unique ids" cannot be faked past.
+    hal.events.clear(); hal.tx_frames.clear();
+    RxMeta cmeta{8.0f, -80.0f, 0, -1};
+    for (int i = 0; i < 4; ++i) {
+        std::array<uint8_t, 16> cl{};
+        const size_t cn = make_j_claim_mobile(kHostId, offered_id[i], kMobs[i], cl);
+        host.on_recv(cl.data(), cn, cmeta);
+    }
+    CHECK(hal.count("mobile_registered") == 4);                     // ★★ all four hosted
+    CHECK(hal.count("mobile_id_collision_deny") == 0);              // ★★★ zero collisions...
+    CHECK(hal.count("join_deny_sent") == 0);                        // ★★★ ...and zero DENY frames built
+    CHECK(count_j_opcode(hal.tx_frames, j_opcode::deny) == 0);      // ★★★ ...and none on the wire either
+    CHECK(host.mobile_reg_count() == 4);                           // ★ four distinct rows, not one overwritten row
+    // ★ THE CLAIM RELEASES THE RESERVATION (it does not wait out `mobile_offer_reservation_ms`): the registry row
+    // takes over as the thing that holds the id, and the ring is empty again for the next four mobiles.
+    CHECK(host.mobile_offers_pending_n() == 0);
+}
+
+// ---------------------------------------------------------------------------
+// ★★★ [[B145]] §MH-S2b — THE SAME-MILLISECOND OFFER BURST, MEASURED THROUGH THE **REAL** TIMER WHEEL.
+//
+// ⛔ THE DEFECT. `mobile_offer_fire` transmits at most one due entry and then calls `mobile_offer_arm_timer`,
+// which re-armed a still-overdue remainder with a delay of **ZERO**. `TimerWheel::pop_due` fires on
+// `_due <= now`, and the production pump (`src/fw_main.cpp:1069`) keeps popping at a clock it re-reads but
+// which need not have moved ⇒ the callback re-entered inside the SAME pass and four overdue entries reached
+// the radio in one millisecond — precisely the burst the 100..1000 ms jitter exists to prevent. The
+// one-per-callback rule was true and bought nothing.
+//
+// ⛔⛔ WHY NO EXISTING CASE COULD FAIL. Every §MH-S2 case drives `on_timer(80)` by hand, one call at a time,
+// through a fixture whose `after()` only APPENDS TO A CALL LOG. That models a pump that does not exist, in
+// exactly the dimension under test. ⇒ this case attaches a REAL `meshroute::TimerWheel` (the production type,
+// not a re-implementation) and runs the production drain loop verbatim at a FIXED timestamp.
+//
+// ★ THE ASSERTIONS ARE THE WIRE AND THE WHEEL, never a counter or a flag: how many OFFER frames a full drain
+// produced, and whether timer 80's deadline afterwards is STRICTLY IN THE FUTURE. The second is the fix stated
+// as a property — a deadline at `now` IS the defect, whatever the frame count happened to be.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★ [[B145]] §MH-S2b — a REAL TimerWheel drain at ONE fixed timestamp emits exactly ONE OFFER") {
+    constexpr uint8_t kHostId = 42;
+    const uint32_t kMobs[4] = { 0x00061111u, 0x00062222u, 0x00063333u, 0x00064444u };
+
+    meshroute::TimerWheel wheel;
+    TestHal hal; hal._now = 500000; hal.wheel = &wheel;               // ★ the fixture IS the device pump now
+    Node host(hal, kHostId, /*key_hash32=*/0x00004242u);
+    CHECK(host.on_init(join_cfg()));
+    CHECK(host.can_host_mobiles());
+
+    for (int i = 0; i < 4; ++i) {
+        hal._now = 500000 + static_cast<uint64_t>(i);                 // distinct deadlines, as the case above
+        CHECK(stage_mobile_offer(host, hal, kMobs[i]) == 1);
+    }
+    CHECK(host.mobile_offers_pending_n() == 4);                       // PREMISE: four armed entries
+    CHECK(wheel.active(kMobileOfferBackoffTimerId));                  // PREMISE: the WHEEL really holds timer 80
+
+    // ★ Every one of the four deadlines is now in the past, and the clock will NOT move during the drain.
+    hal._now = 500000 + protocol::join_offer_backoff_max_ms + 50;
+    hal.tx_frames.clear();
+    std::vector<int> ids;
+    const int fired = pump_due_timers(host, hal, wheel, &ids);
+
+    CHECK(fired >= 1);                                                // PREMISE: the pump is not inert
+    // ★★★ THE VERDICT. A full production drain at ONE timestamp put exactly ONE OFFER on the air, and timer 80
+    // was entered exactly ONCE. The pre-fix build read `4 == 1` on both — four frames, one millisecond.
+    CHECK(count_j_offer_mobile(hal.tx_frames) == 1);
+    CHECK(fired_count(ids, kMobileOfferBackoffTimerId) == 1);
+    // ★★★ AND THE MECHANISM, ASSERTED SEPARATELY SO THE COUNT CANNOT BE SATISFIED BY ACCIDENT: the remainder
+    // is re-armed STRICTLY IN THE FUTURE. A zero-delay re-arm leaves `due_at == now`, which `pop_due` treats
+    // as due — that equality IS [[B145]].
+    CHECK(wheel.active(kMobileOfferBackoffTimerId));
+    CHECK(wheel.due_at(kMobileOfferBackoffTimerId) > hal._now);
+    CHECK(wheel.due_at(kMobileOfferBackoffTimerId)
+          == hal._now + protocol::mobile_offer_respace_ms);           // ★ the CONSTANT, not a draw
+    CHECK(host.mobile_offers_pending_n() == 4);                       // ★ nothing was dropped — 3 armed + 4 reservations
+
+    // ★★ AND TIME RELEASES THEM ONE AT A TIME, not in a clump: each respace tick yields exactly one more OFFER.
+    for (int i = 2; i <= 4; ++i) {
+        hal._now += protocol::mobile_offer_respace_ms;
+        CHECK(pump_due_timers(host, hal, wheel) >= 1);
+        CHECK(count_j_offer_mobile(hal.tx_frames) == i);
+    }
+    // ★ ...and the four went to four DIFFERENT mobiles with four DISTINCT ids — the respace re-orders nothing.
+    int inspected = 0, seen[4] = {0, 0, 0, 0};
+    uint8_t got[4] = {0, 0, 0, 0};
+    for (const auto& f : hal.tx_frames) {
+        auto p = parse_j(std::span<const uint8_t>(f.data(), f.size()));
+        if (!p || p->opcode != static_cast<uint8_t>(j_opcode::offer) || !p->is_mobile) continue;
+        ++inspected;
+        for (int i = 0; i < 4; ++i)
+            if (p->target_key_hash32 == kMobs[i]) { ++seen[i]; got[i] = p->proposed_mobile_id; }
+    }
+    CHECK(inspected == 4);                                            // ★ the scan's MATCH COUNT
+    for (int i = 0; i < 4; ++i) CHECK(seen[i] == 1);
+    for (int i = 0; i < 4; ++i)
+        for (int k = i + 1; k < 4; ++k) CHECK(got[i] != got[k]);
+
+    // ---- ⛔ NEGATIVE CONTROL — THE PUMP CAN FIRE MORE THAN ONCE IN A PASS, so the `== 1` above is a real
+    // constraint and not an artefact of a drain that only ever pops once. Two UNRELATED timers armed for the
+    // same instant are both drained by the identical loop.
+    {
+        meshroute::TimerWheel w2;
+        TestHal h2; h2._now = 1000; h2.wheel = &w2;
+        Node n2(h2, /*node_id=*/43, /*key_hash32=*/0x00004343u);
+        CHECK(n2.on_init(join_cfg()));
+        w2.after(0, kMobileOfferBackoffTimerId, h2._now);
+        w2.after(0, kPresenceRosterTimerId,     h2._now);
+        std::vector<int> nids;
+        (void)pump_due_timers(n2, h2, w2, &nids);
+        CHECK(fired_count(nids, kMobileOfferBackoffTimerId) == 1);    // ★ BOTH ran in ONE pass at ONE clock —
+        CHECK(fired_count(nids, kPresenceRosterTimerId)     == 1);    //   the pump is genuinely a multi-fire drain
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ★★★ [[B147]] §MH-S2b — A CLAIM MUST MATCH ITS RESERVATION ON **BOTH** HASH AND ID.
+//
+// ⛔ THE DEFECT. The mobile CLAIM handler checked the claimed id against REGISTERED rows only, then recorded
+// whatever `proposed_node_id` the frame carried and released "the claimant's" reservation BY HASH ALONE. A
+// reservation is a promise about a (hash, id) PAIR and half of it was never read ⇒ A is offered X and lets its
+// reservation lapse · X is re-promised to B · A's DELAYED CLAIM for X arrives · no registered row holds X yet,
+// so A is recorded on B's reserved id — and B's own CLAIM then walks straight into the collision-DENY recovery
+// that [[B137]] exists to make unnecessary. Same category error as `LbtKind` alone ([[B142]]).
+//
+// ★ Each arm asserts an OBSERVABLE: the registry contents, the DENY (or its absence) parsed off the wire, and
+// whether B's later CLAIM is clean. ⛔ Not one assertion reads the ring's internals.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★ [[B147]] §MH-S2b — a delayed CLAIM cannot take an id RESERVED for another mobile") {
+    constexpr uint8_t  kHostId = 42;
+    constexpr uint32_t kMobA   = 0x0000A101u;
+    constexpr uint32_t kMobB   = 0x0000B202u;
+    RxMeta cmeta{8.0f, -80.0f, 0, -1};
+
+    // Offer `mob` an id and TRANSMIT it; returns the proposed local id read off the wire.
+    auto offer_and_read_id = [&](Node& h, TestHal& hl, uint32_t mob) -> uint8_t {
+        CHECK(stage_mobile_offer(h, hl, mob) == 1);
+        hl.tx_frames.clear();
+        fire_mobile_offer_timer(h, hl);
+        auto o = first_j(hl.tx_frames, j_opcode::offer);
+        CHECK(o.has_value());
+        return o ? o->proposed_mobile_id : 0;
+    };
+
+    // ---- ARM 1 — THE HEADLINE: A's reservation LAPSES, the id is re-promised to B, A's delayed CLAIM arrives.
+    {
+        TestHal hal; hal._now = 100000;
+        Node host(hal, kHostId, /*key_hash32=*/0x00004242u);
+        CHECK(host.on_init(join_cfg()));
+        CHECK(host.can_host_mobiles());
+
+        const uint8_t idA = offer_and_read_id(host, hal, kMobA);
+        CHECK(idA >= protocol::normal_node_id_min);
+        // A never CLAIMs. Run the clock past the reservation and let the scan expire it.
+        hal._now += protocol::mobile_offer_reservation_ms + 1;
+        host.on_timer(kMobileOfferBackoffTimerId);
+        CHECK(host.mobile_offers_pending_n() == 0);                   // PREMISE: A's promise is gone
+
+        const uint8_t idB = offer_and_read_id(host, hal, kMobB);
+        CHECK(idB == idA);                                            // ★★ PREMISE: the SAME id was re-promised, to B
+        CHECK(host.mobile_offers_pending_n() == 1);                   // ★ and it is a LIVE promise
+
+        // ★ A's DELAYED CLAIM for the id it was offered a reservation-lifetime ago.
+        hal.events.clear(); hal.tx_frames.clear();
+        std::array<uint8_t, 16> cl{};
+        const size_t cn = make_j_claim_mobile(kHostId, idA, kMobA, cl);
+        host.on_recv(cl.data(), cn, cmeta);
+
+        // ★★★ THE VERDICT: A is NOT recorded on B's reserved id...
+        CHECK(host.mobile_reg_count() == 0);
+        CHECK(hal.count("mobile_registered") == 0);
+        // ...it is REPORTED rather than silently dropped...
+        CHECK(hal.count("mobile_claim_reserved_elsewhere") == 1);
+        // ...and it is TARGETED-DENIED so it re-DISCOVERs onto a fresh id (the same backstop shape the
+        // registered-row collision uses), with the RESERVATION HOLDER named as the owner.
+        CHECK(count_j_opcode(hal.tx_frames, j_opcode::deny) == 1);
+        auto d = first_j(hal.tx_frames, j_opcode::deny);
+        CHECK(d.has_value());
+        if (d) {
+            CHECK(d->denied_node_id       == idA);
+            CHECK(d->claimant_key_hash32  == kMobA);                  // ★ only A yields...
+            CHECK(d->owner_key_hash32     == kMobB);                  // ★ ...and B is named the owner
+        }
+
+        // ★★★ AND THE POINT OF THE WHOLE FIX: B's own CLAIM now lands CLEAN — no collision, no DENY. On the
+        // pre-fix build A held the row, so this CLAIM produced `mobile_id_collision_deny` and B had to
+        // re-register: exactly the recovery [[B137]] exists to avoid.
+        hal.events.clear(); hal.tx_frames.clear();
+        std::array<uint8_t, 16> cb{};
+        const size_t bn = make_j_claim_mobile(kHostId, idB, kMobB, cb);
+        host.on_recv(cb.data(), bn, cmeta);
+        CHECK(hal.count("mobile_registered") == 1);
+        CHECK(hal.count("mobile_id_collision_deny") == 0);
+        CHECK(count_j_opcode(hal.tx_frames, j_opcode::deny) == 0);
+        CHECK(host.mobile_reg_count() == 1);
+        CHECK(host.mobile_offers_pending_n() == 0);                   // ★ the CLAIM handed the promise to the row
+    }
+
+    // ---- ARM 2 — THE OTHER HALF OF THE PAIR: the claimant DOES hold a live reservation, for a DIFFERENT id.
+    // Its old CLAIM is a stale echo. ⛔ DROP, do NOT deny: a DENY would throw away the id we are currently
+    // promising it.
+    {
+        TestHal hal; hal._now = 100000;
+        Node host(hal, kHostId, /*key_hash32=*/0x00004242u);
+        CHECK(host.on_init(join_cfg()));
+
+        const uint8_t idA1 = offer_and_read_id(host, hal, kMobA);     // A's FIRST offer
+        hal._now += protocol::mobile_offer_reservation_ms + 1;
+        host.on_timer(kMobileOfferBackoffTimerId);                    // A's reservation lapses
+        const uint8_t idB = offer_and_read_id(host, hal, kMobB);      // B takes that id
+        CHECK(idB == idA1);                                           // PREMISE
+        const uint8_t idA2 = offer_and_read_id(host, hal, kMobA);     // A re-DISCOVERs -> a DIFFERENT id
+        CHECK(idA2 != idA1);                                          // ★ PREMISE: A now holds a promise for idA2
+
+        hal.events.clear(); hal.tx_frames.clear();
+        std::array<uint8_t, 16> cl{};
+        const size_t cn = make_j_claim_mobile(kHostId, idA1, kMobA, cl);   // A's STALE round-1 CLAIM
+        host.on_recv(cl.data(), cn, cmeta);
+        CHECK(host.mobile_reg_count() == 0);                          // ★★ not recorded...
+        CHECK(hal.count("mobile_claim_stale_id") == 1);               // ★★ ...reported as stale...
+        CHECK(count_j_opcode(hal.tx_frames, j_opcode::deny) == 0);    // ★★★ ...and NOT denied
+
+        // ★ A's CURRENT CLAIM, for the id actually promised to it, is still accepted.
+        hal.events.clear(); hal.tx_frames.clear();
+        std::array<uint8_t, 16> c2{};
+        const size_t n2 = make_j_claim_mobile(kHostId, idA2, kMobA, c2);
+        host.on_recv(c2.data(), n2, cmeta);
+        CHECK(hal.count("mobile_registered") == 1);
+        CHECK(host.mobile_reg_count() == 1);
+    }
+
+    // ---- ARM 3 — POSITIVE CONTROL / COMPATIBILITY: a LATE CLAIM whose reservation has aged out, against an id
+    // NOBODY else is promised, is still RECORDED. The reservation is an upper bound on a leak, not a licence to
+    // reject a mobile that took its time — and without this arm, arms 1 and 2 are satisfiable by a build that
+    // rejects every unreserved CLAIM.
+    {
+        TestHal hal; hal._now = 100000;
+        Node host(hal, kHostId, /*key_hash32=*/0x00004242u);
+        CHECK(host.on_init(join_cfg()));
+
+        const uint8_t idA = offer_and_read_id(host, hal, kMobA);
+        hal._now += protocol::mobile_offer_reservation_ms + 1;
+        host.on_timer(kMobileOfferBackoffTimerId);
+        CHECK(host.mobile_offers_pending_n() == 0);                   // PREMISE: no live promise anywhere
+
+        hal.events.clear(); hal.tx_frames.clear();
+        std::array<uint8_t, 16> cl{};
+        const size_t cn = make_j_claim_mobile(kHostId, idA, kMobA, cl);
+        host.on_recv(cl.data(), cn, cmeta);
+        CHECK(hal.count("mobile_registered") == 1);                   // ★★ recorded, exactly as before the fix
+        CHECK(hal.count("mobile_claim_reserved_elsewhere") == 0);
+        CHECK(hal.count("mobile_claim_stale_id") == 0);
+        CHECK(count_j_opcode(hal.tx_frames, j_opcode::deny) == 0);
+        CHECK(host.mobile_reg_count() == 1);
+    }
+
+    // ---- ARM 4 — AN **ELAPSED** RESERVATION BLOCKS NOTHING, EVEN BEFORE THE SWEEP HAS RUN. This arm exists
+    // BECAUSE THE MUTATION BATTERY SAID SO: M-B147-3 (`reserve_until_ms <= now` weakened to `== 0`, i.e. "in use
+    // until the scan clears it") reddened NOTHING against arms 1-3, because every one of them fires timer 80 to
+    // expire the reservation before the CLAIM and so never holds an ELAPSED-BUT-UNSWEPT entry. That is the exact
+    // invariant `find_free_mobile_id` states for itself — *"a dropped/failed `_hal.after` must never be able to
+    // leak an id permanently"* — and the CLAIM path inherits it, so it must be pinned here too.
+    // ⇒ two promises are left to age out with the scan DELIBERATELY not run, and a third mobile claims one of the
+    //   dead ids. It must be RECORDED, not refused.
+    {
+        constexpr uint32_t kMobC = 0x0000C303u;
+        TestHal hal; hal._now = 100000;
+        Node host(hal, kHostId, /*key_hash32=*/0x00004242u);
+        CHECK(host.on_init(join_cfg()));
+
+        const uint8_t idA = offer_and_read_id(host, hal, kMobA);
+        const uint8_t idB = offer_and_read_id(host, hal, kMobB);
+        CHECK(idA != idB);
+        CHECK(host.mobile_offers_pending_n() == 2);                   // PREMISE: two live promises
+
+        hal._now += protocol::mobile_offer_reservation_ms + 1;        // ⛔ and NO `on_timer(80)` — the scan is skipped
+        CHECK(host.mobile_offers_pending_n() == 2);                   // ★ PREMISE: the slots are still OCCUPIED...
+
+        hal.events.clear(); hal.tx_frames.clear();
+        std::array<uint8_t, 16> cl{};
+        const size_t cn = make_j_claim_mobile(kHostId, idA, kMobC, cl);
+        host.on_recv(cl.data(), cn, cmeta);
+        CHECK(hal.count("mobile_registered") == 1);                   // ★★★ ...and yet the DEAD promise blocks nothing
+        CHECK(hal.count("mobile_claim_reserved_elsewhere") == 0);
+        CHECK(count_j_opcode(hal.tx_frames, j_opcode::deny) == 0);
+        CHECK(host.mobile_reg_count() == 1);
+    }
+
+    // ---- ARM 5 — ★★★★ §MH-S2c, THE ORDERING HOLE: A STALE CLAIM MUST BE IDENTIFIED AS STALE **BEFORE** THE
+    // REGISTERED-ROW COLLISION CHECK ACTS ON ITS CONTENTS.
+    // ⛔ THE DEFECT §MH-S2b LEFT BEHIND. Arms 1-4 all exercise a stale CLAIM against an id that is RESERVED
+    //    elsewhere or free. They never put the stale id in a REGISTERED ROW — and that is the one arrangement in
+    //    which the two branches disagree. With the registered-row loop running first: A held X · X is now
+    //    REGISTERED to B · A re-DISCOVERs and is promised Y · A's DELAYED CLAIM for X arrives ⇒ the collision loop
+    //    DENIED A **and called `mobile_offer_release(A)`, destroying the live promise of Y**. `mobile_claim_stale_id`
+    //    was never reached. A then re-registered and threw away an id the host was still holding for it — the exact
+    //    [[B137]] recovery-churn this whole mechanism exists to prevent, re-entered through the other door.
+    // ★ THE PRINCIPLE: a stale frame must be identified as stale before ANY branch acts on its contents, or a check
+    //   on those contents consumes state belonging to a NEWER transaction. Same family as [[B142]].
+    // ⚠ THE TEMPTING WRONG FIX is *"read the reservation, but still fall through to the registered-row branch"* —
+    //   it satisfies "no DENY" only if the fall-through is also suppressed. Assertion ③ (Y RETAINED) is what
+    //   separates the two: a fall-through still releases Y on its way out.
+    {
+        TestHal hal; hal._now = 100000;
+        Node host(hal, kHostId, /*key_hash32=*/0x00004242u);
+        CHECK(host.on_init(join_cfg()));
+
+        // 1) A is offered X and lets the promise lapse.
+        const uint8_t idX = offer_and_read_id(host, hal, kMobA);
+        hal._now += protocol::mobile_offer_reservation_ms + 1;
+        host.on_timer(kMobileOfferBackoffTimerId);
+        CHECK(host.mobile_offers_pending_n() == 0);                   // PREMISE: A holds nothing
+
+        // 2) X is re-offered to B, and B CLAIMs it — so X is now a REGISTERED ROW, not merely a reservation.
+        CHECK(offer_and_read_id(host, hal, kMobB) == idX);            // ★ PREMISE: the same id, re-promised to B
+        std::array<uint8_t, 16> cb{};
+        const size_t bn = make_j_claim_mobile(kHostId, idX, kMobB, cb);
+        host.on_recv(cb.data(), bn, cmeta);
+        CHECK(host.mobile_reg_count() == 1);                          // ★★ PREMISE: X is REGISTERED to B
+        {
+            uint32_t k = 0; uint8_t lid = 0; bool hp = false;
+            CHECK(host.mobile_reg_at(0, k, lid, hp));
+            CHECK(k == kMobB);
+            CHECK(lid == idX);
+        }
+
+        // 3) A re-DISCOVERs and is promised a DIFFERENT id, Y.
+        const uint8_t idY = offer_and_read_id(host, hal, kMobA);
+        CHECK(idY != idX);                                            // ★ PREMISE: a genuinely different promise...
+        CHECK(host.mobile_offers_pending_n() == 1);                   // ★ ...and it is LIVE
+
+        // 4) A's DELAYED CLAIM for X arrives — stale, and aimed straight at B's registered row.
+        hal.events.clear(); hal.tx_frames.clear();
+        std::array<uint8_t, 16> ca{};
+        const size_t an = make_j_claim_mobile(kHostId, idX, kMobA, ca);
+        host.on_recv(ca.data(), an, cmeta);
+
+        // ① NO DENY — the stale echo is dropped, not answered. (Pre-fix: one `mobile_id_collision_deny`.)
+        CHECK(count_j_opcode(hal.tx_frames, j_opcode::deny) == 0);
+        CHECK(hal.count("mobile_id_collision_deny") == 0);
+        CHECK(hal.count("mobile_claim_stale_id") == 1);               // ★ and the drop/retain policy IS reached
+        // ② B'S REGISTRATION IS UNALTERED — same count, same key, same local id.
+        CHECK(host.mobile_reg_count() == 1);
+        CHECK(hal.count("mobile_registered") == 0);
+        {
+            uint32_t k = 0; uint8_t lid = 0; bool hp = false;
+            CHECK(host.mobile_reg_at(0, k, lid, hp));
+            CHECK(k == kMobB);
+            CHECK(lid == idX);
+        }
+        // ③ ★★★ Y IS RETAINED. This is the assertion the ordering bug fails and the half-fix fails with it.
+        CHECK(host.mobile_offers_pending_n() == 1);
+
+        // ④ A's SUBSEQUENT CLAIM FOR Y SUCCEEDS — the promise survived the stale frame and was honoured.
+        hal.events.clear(); hal.tx_frames.clear();
+        std::array<uint8_t, 16> cy{};
+        const size_t yn = make_j_claim_mobile(kHostId, idY, kMobA, cy);
+        host.on_recv(cy.data(), yn, cmeta);
+        CHECK(hal.count("mobile_registered") == 1);
+        CHECK(count_j_opcode(hal.tx_frames, j_opcode::deny) == 0);
+        CHECK(host.mobile_reg_count() == 2);                          // ★ B on X, A on Y — both hosted, no churn
+        CHECK(host.mobile_offers_pending_n() == 0);                   // ★ the CLAIM handed the promise to the row
+        {
+            uint32_t k = 0; uint8_t lid = 0; bool hp = false;
+            CHECK(host.mobile_reg_at(1, k, lid, hp));
+            CHECK(k == kMobA);
+            CHECK(lid == idY);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ★★★ [[B143]] DISPROVEN §MH-S2b — "a superseded collect-OFFERs GUARD still fires and closes the NEWER
+// transaction's window early". IT DOES NOT, AND THIS CASE IS THE MEASUREMENT THAT SAYS SO.
+//
+// ⛔ THE INSTRUMENT ERROR. [[B143]] was raised from a throwaway probe that reported *"guards armed: 2"*. That
+// number came from a fixture whose `after()` APPENDS TO A CALL LOG (`TestHal::count_armed` — history, not
+// state). `Hal::after(delay, id)` REPLACES the pending deadline for that id: `TimerWheel` is a flat array
+// indexed by timer id (`lib/hal/timer_wheel.cpp:8`, `_active[timer_id] = true; _due[timer_id] = …`) and
+// `test_timer_wheel.cpp:60` already pins exactly that. ⇒ TWO ARM CALLS ON ONE ID ARE ONE LIVE TIMER, AND IT
+// HOLDS THE **NEWER** DEADLINE — which is the newer transaction's own window, closing on time.
+// ★★ THE LESSON, RECORDED WHERE IT HAPPENED: a harness that records CALLS is not a model of STATE. Same class
+//    as [[B145]] one case above, where a fixture that invokes one callback per call modelled a pump that does
+//    not exist. Both were found in the same round, in the same file, for the same reason.
+// ⓘ This case asserts BOTH readings side by side — the call log's 2 and the wheel's 1 — so the disproof is
+//   legible rather than merely stated, and so a future re-derivation of [[B143]] fails here first.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★ [[B143]] DISPROVEN §MH-S2b — two DISCOVER handoffs leave ONE live guard, at the NEWER deadline") {
+    meshroute::TimerWheel wheel;
+    TestHal hal; hal._now = 100000; hal.wheel = &wheel;
+    Node m(hal, /*node_id=*/0, /*key_hash32=*/0x00007B7Bu);
+    CHECK(m.on_init(s0_mobile_cfg()));                                // is_mobile, LBT off -> the DISCOVER hands off
+
+    // ---- transaction A: the operator arms one registration; the wheel fires the DISCOVER; the guard opens.
+    m.mobile_register_current();
+    std::vector<int> ids;
+    (void)pump_due_timers(m, hal, wheel, &ids);
+    CHECK(fired_count(ids, kMobileDiscoverTimerId) == 1);             // PREMISE: DISCOVER A really aired
+    CHECK(hal.count_armed(kMobileClaimGuardTimerId) == 1);
+    CHECK(wheel.active(kMobileClaimGuardTimerId));
+    CHECK(wheel.due_at(kMobileClaimGuardTimerId) == 100000 + protocol::mobile_offer_window_ms);   // A's window: 102000
+
+    // ---- transaction B, 500 ms later — B143's own scenario, to the millisecond.
+    hal._now = 100500;
+    m.mobile_register_current();
+    ids.clear();
+    (void)pump_due_timers(m, hal, wheel, &ids);
+    CHECK(fired_count(ids, kMobileDiscoverTimerId) == 1);             // PREMISE: DISCOVER B really aired too
+    // ★★★ THE TWO READINGS, SIDE BY SIDE. The call log says TWO — this is the exact number the [[B143]] probe
+    // reported as "two guards are armed". The WHEEL says ONE, and it holds B's deadline, not A's.
+    CHECK(hal.count_armed(kMobileClaimGuardTimerId) == 2);            // ← history
+    CHECK(wheel.active(kMobileClaimGuardTimerId));                    // ← state
+    CHECK(wheel.due_at(kMobileClaimGuardTimerId) == 100500 + protocol::mobile_offer_window_ms);   // 102500, B's
+
+    // ---- at A's supposed deadline: NOTHING. [[B143]] predicted `mobile_no_host` here, 500 ms early, against B.
+    hal._now = 102000;
+    hal.events.clear();
+    ids.clear();
+    (void)pump_due_timers(m, hal, wheel, &ids);
+    CHECK(fired_count(ids, kMobileClaimGuardTimerId) == 0);           // ★★★ the superseded guard does not exist
+    CHECK(hal.count("mobile_no_host") == 0);                          // ★★★ ...so B's window is not closed early
+
+    // ---- and B's own window closes exactly ONCE, at its own deadline. (No OFFER was collected, so the
+    // no-host branch is the correct outcome — reported against B, on time, which is the whole point.)
+    hal._now = 102500;
+    ids.clear();
+    (void)pump_due_timers(m, hal, wheel, &ids);
+    CHECK(fired_count(ids, kMobileClaimGuardTimerId) == 1);           // ★★ exactly one close, at 102500
+    CHECK(hal.count("mobile_no_host") == 1);
+}
+
+// ---------------------------------------------------------------------------
+// §MH-S2 §5.3.3 (gate item 18) — A DUPLICATE DISCOVER COALESCES: no second slot, no re-draw, deadline UNMOVED,
+// and the SAME reserved id. Every one of those four is a separate way to get it wrong.
+// ⛔ The tempting wrong fix this excludes: coalescing by SLOT INDEX instead of by `target_key_hash32`.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★ §MH-S2 (spec §5.3.3) — a duplicate DISCOVER coalesces: one slot, one deadline, one id, no draw") {
+    constexpr uint32_t kMobA = 0x0000AA11u;
+    constexpr uint32_t kMobB = 0x0000BB22u;
+
     TestHal hal; hal._now = 100000;
     Node host(hal, /*node_id=*/42, /*key_hash32=*/0x00004242u);
     CHECK(host.on_init(join_cfg()));
     CHECK(host.can_host_mobiles());
 
-    // PREMISE — both DISCOVERs were RECEIVED and both OFFERs were COMMITTED. Without this the case could
-    // pass because the second DISCOVER was dropped somewhere upstream (a reproduction that never reaches
-    // the code under test is worse than none).
-    // ★★ THE ARM COUNT IS MEASURED AS A TRANSITION, INTERLEAVED WITH THE STAGING. A single `>= 1` after
-    // both DISCOVERs cannot tell "A armed, then B OVERWROTE it" from "A never armed and only B did" — and
-    // the overwrite IS the defect, so proving A armed FIRST is the whole point. `mobile_offer_scheduled` is no
-    // help either: it fires BEFORE the stash operation (the §B132b finding above), so the commit event
-    // does not witness the arm. Only 0 -> 1 -> 2 on the ONE timer does. (`stage_mobile_offer` clears
-    // `events`/`tx_frames` but deliberately NOT `armed`, so the count accumulates across both calls.)
     hal.armed.clear();
-    CHECK(hal.count_armed(kMobileOfferBackoffTimerId) == 0);        // baseline: nothing has armed 80 yet
-    CHECK(stage_mobile_offer(host, hal, kMobA) == 1);               // A committed...
-    CHECK(hal.count_armed(kMobileOfferBackoffTimerId) == 1);        // ★ ...and A armed timer 80. A WAS FIRST.
-    CHECK(stage_mobile_offer(host, hal, kMobB) == 1);               // B committed, INSIDE A's jitter window...
-    CHECK(hal.count_armed(kMobileOfferBackoffTimerId) == 2);        // ★★ ...and B RE-ARMED THE SAME timer.
-    // Two arms, one single-slot stash, one deadline: that re-arm IS the mechanism — there is no second
-    // deadline left for A to be served on.
+    const int draws_at_start = hal.rand_calls;
+    CHECK(stage_mobile_offer(host, hal, kMobA) == 1);               // A: armed
+    CHECK(host.mobile_offers_pending_n() == 1);
+    const int  arms_after_first  = hal.count_armed(kMobileOfferBackoffTimerId);
+    const int  draws_after_first = hal.rand_calls;
+    CHECK(arms_after_first == 1);                                   // PREMISE: exactly one deadline exists
+    // ★★ THE DRAW-COUNT PIN (§11 S2 — "preserve the existing single-mobile draw behaviour"). ONE DISCOVER MUST
+    // CONSUME EXACTLY ONE `rand_range`, which is what `jtx_stash_arm` consumed before the ring existed (one call,
+    // jittered_tx_stash.h). S3 is the arc's only planned RNG re-anchor, so a second draw here would re-anchor the
+    // whole mobile plane under the wrong slice. Measured, not assumed.
+    CHECK(draws_after_first - draws_at_start == 1);
 
+    // ---- THE DUPLICATE, INSIDE A's JITTER WINDOW.
+    hal._now += 10;                                                 // time moved; the deadline must NOT
+    CHECK(stage_mobile_offer(host, hal, kMobA) == 0);               // ★ NOTHING was scheduled...
+    CHECK(hal.count("mobile_offer_coalesced") == 1);                // ★ ...it coalesced, and says so
+    CHECK(host.mobile_offers_pending_n() == 1);                     // ★★ no second slot consumed
+    CHECK(hal.count_armed(kMobileOfferBackoffTimerId) == arms_after_first);   // ★★ the deadline was NOT moved
+    CHECK(hal.rand_calls == draws_after_first);                     // ★★ and NO jitter was drawn
+
+    // ---- NEGATIVE CONTROL: a DIFFERENT hash is not a duplicate. Without it, "no second slot" is satisfied by a
+    // build whose ring never admits anything after the first entry.
+    CHECK(stage_mobile_offer(host, hal, kMobB) == 1);
+    CHECK(host.mobile_offers_pending_n() == 2);
+    CHECK(hal.rand_calls == draws_after_first + 1);                 // ★ a real admission DOES draw
+
+    // ★★★ AND THE TIMER IS ARMED FOR THE **EARLIEST** DEADLINE, NOT THE MOST RECENT ONE — asserted as the ARMED
+    // DELAY, which is the only way to see it. A's deadline is `t0 + 100`; B was admitted 10 ms later so B's is
+    // `t0 + 110`. `Hal::after` holds ONE deadline per timer id, so arming B's would silently displace A's and
+    // strand A's OFFER. ⚠ THIS ASSERTION EXISTS BECAUSE THE MUTATION BATTERY DEMANDED IT: with the fire helper
+    // advancing to whatever was last armed, "earliest" and "latest" produce the same frames in the same order
+    // (measured — M-S2-8 reddened nothing until this line), so only the DELAY distinguishes them.
+    CHECK(hal.last_armed(kMobileOfferBackoffTimerId) == 90);        // = (t0 + 100) - (t0 + 10). B's would be 100.
+
+    // ---- ON THE WIRE: A is answered ONCE, with ONE id. A duplicate that had re-drawn an id would show two
+    // different ids across two frames; one that had consumed a slot would show two frames for A.
     hal.tx_frames.clear();
-    host.on_timer(kMobileOfferBackoffTimerId);
-
-    // ★★ THE DEFECT, ON THE WIRE: exactly ONE OFFER leaves, and it belongs to the LAST DISCOVER.
-    CHECK(count_j_offer_mobile(hal.tx_frames) == 1);                // ← S2 must make this 2
-    auto o = first_j(hal.tx_frames, j_opcode::offer);
-    CHECK(o.has_value());
-    if (o) { CHECK(o->target_key_hash32 == kMobB);                  // ★ B won
-             CHECK(o->responder_node_id == 42); }
-    // ...and A's OFFER is GONE, not merely later: re-firing the (now spent) timer produces nothing.
-    host.on_timer(kMobileOfferBackoffTimerId);
-    host.on_timer(kMobileOfferBackoffTimerId);
-    CHECK(count_j_offer_mobile(hal.tx_frames) == 1);                // ★ still one — A is never answered
-    int offers_inspected = 0;                                       // ★ and not one frame on the wire names A
+    // ⚠ EXACTLY TWO callbacks — one per armed entry. A third would advance the clock to the next armed deadline,
+    // which after both have fired is the 10 s RESERVATION BOUND, and the re-DISCOVER block below needs the
+    // reservations still LIVE. (Measured: a 4-iteration loop expired them and read `pending_n == 0`.)
+    for (int i = 0; i < 2; ++i) fire_mobile_offer_timer(host, hal);
+    int for_a = 0, for_b = 0; uint8_t id_a = 0;
     for (const auto& f : hal.tx_frames) {
         auto p = parse_j(std::span<const uint8_t>(f.data(), f.size()));
-        if (p && p->opcode == static_cast<uint8_t>(j_opcode::offer)) {
-            ++offers_inspected;
-            CHECK(p->target_key_hash32 != kMobA);
-        }
+        if (!p || p->opcode != static_cast<uint8_t>(j_opcode::offer)) continue;
+        if (p->target_key_hash32 == kMobA) { ++for_a; id_a = p->proposed_mobile_id; }
+        if (p->target_key_hash32 == kMobB) ++for_b;
     }
-    CHECK(offers_inspected == 1);   // ★★ the scan's MATCH COUNT. A loop that inspected zero frames would
-                                    // satisfy "no frame names A" vacuously — the wrong reading of a 0.
+    CHECK(for_a == 1);                                              // ★★ ONE OFFER for A despite TWO DISCOVERs
+    CHECK(for_b == 1);                                              // ★ and the control mobile still got its own
+    CHECK(id_a == 254);                                             // ★ the first-drawn id, retained across the duplicate
 
-    // ⓘ SECOND OBSERVATION, REGISTERED WHILE REPRODUCING (bug register, not fixed here): the OFFER that
-    // survives proposes local id 254 — and so did the one it overwrote. `find_free_mobile_id`
-    // (node_join.cpp:73) scans only `_mobile_reg`, and a STAGED OFFER is not a registry row, so N
-    // concurrently discovering mobiles are all offered the SAME id. Today the overwrite hides it (only one
-    // OFFER ever flies). S2's ring REMOVES that accident.
-    // ★★ OWNER/QA RULING (recorded in the spec, §5.3.2): S2 MUST solve this with PENDING-ID RESERVATION —
-    // reserve the proposed local id from OFFER admission until a matching CLAIM or bounded expiry;
-    // `find_free_mobile_id()` excludes live reservations; a duplicate DISCOVER retains its reservation;
-    // timer 80 expires them; four concurrent OFFERs therefore propose FOUR UNIQUE ids.
-    // ⛔ The earlier "hand the collision to the CLAIM-collision check + targeted DENY" proposal is WITHDRAWN
-    //    as the primary mechanism: it would SERIALIZE four mobiles into four discovery rounds and waste
-    //    airtime. The targeted DENY (node_join.cpp:225-233) remains ONLY a race backstop.
-    // ⇒ S2's four-concurrent-mobile gate must DRIVE the id allocation and prove four unique ids, not assume it.
-    if (o) CHECK(o->proposed_mobile_id == 254);
+    // ★★★ THE OTHER HALF OF "A DUPLICATE RETAINS ITS RESERVATION", AND IT IS A DIFFERENT PATH: a re-DISCOVER
+    // arriving AFTER the OFFER was transmitted (the mobile did not hear it). ⛔ That one must NOT coalesce into
+    // silence — the mobile is still waiting — so the entry is RE-ARMED. What it must not do is re-draw the id:
+    // `find_free_mobile_id` is idempotent against a LIVE RESERVATION exactly as it is against a registry row.
+    // ⚠ THIS BLOCK EXISTS BECAUSE THE MUTATION BATTERY DEMANDED IT: deleting that idempotence loop reddened
+    // NOTHING (M-S2-2) while the only duplicate under test was the still-armed one — a coverage gap, not an
+    // inert mutation.
+    CHECK(host.mobile_offers_pending_n() == 2);                     // PREMISE: both entries fired but stay RESERVED
+    hal.tx_frames.clear();
+    CHECK(stage_mobile_offer(host, hal, kMobA) == 1);               // ★ re-DISCOVER: a NEW OFFER is scheduled...
+    CHECK(host.mobile_offers_pending_n() == 2);                     // ★★ ...into A's OWN slot — no third slot
+    fire_mobile_offer_timer(host, hal);
+    auto again = first_j(hal.tx_frames, j_opcode::offer);
+    CHECK(again.has_value());
+    if (again) { CHECK(again->target_key_hash32 == kMobA);
+                 CHECK(again->proposed_mobile_id == id_a); }        // ★★★ the SAME id — the reservation held
 }
 
 // ---------------------------------------------------------------------------
-// §S0-2 — SYNCHRONIZED MOBILES REMAIN SYNCHRONIZED.  Spec §2.2 / §5.2.
-//
-// DEFECT PINNED HERE: `mobile_claim_guard_fire()`'s no-host arm (node_mobile.cpp:98-116) computes
-// `delay = _mobile_backoff_ms` — a pure doubling 5 s → 120 s with NO random draw anywhere on the path.
-// Mobiles powered together therefore stay phase-aligned for as long as they run, and with one late home
-// they collide in the same OFFER window round after round (spec §2.2: "a several-minute attach time is
-// an expected result of the current design").
-//
-// CORRECT BEHAVIOUR (spec §5.2, gate item 4), to be asserted by the S3 rewrite: equal jitter —
-// `delay = rand(window/2, window + 1)` — so two mobiles with the same boot time draw DIFFERENT deadlines.
-// ⇒ ★ WHEN S3 LANDS THIS CASE GOES RED (the two deadlines stop being equal, and `rand_calls` stops being 0).
-//   REWRITE IT to assert the draw and the divergence; don't delete it.
-//
-// ★★ HOW THIS IS MADE NON-VACUOUS. The two mobiles are given DIFFERENT key hashes AND DIFFERENT RNG
-// streams (`_rand_lo_bias`). Any jitter drawn from either Hal would then produce different delays. The
-// delays coming out IDENTICAL is therefore a measurement that the delay is independent of the RNG — not
-// merely that two identical objects behaved identically. `rand_calls` around the arm is the direct twin
-// measurement: exactly zero draws.
+// §MH-S2 §5.3.2 (gate item 19) — A FULL RING REFUSES EXPLICITLY AND DISTURBS NOTHING: no eviction, no deadline
+// movement, the counter increments, and every previously armed OFFER still flies.
+// ⛔ The tempting wrong fix this excludes: "the ring overwrites on full" — the §S0-1 defect wearing a ring's clothes.
 // ---------------------------------------------------------------------------
-TEST_CASE("★★★ §S0-2 CHARACTERIZATION (spec §2.2) — the no-host retry is UN-JITTERED, so a fleet stays phase-aligned") {
+TEST_CASE("★★★ §MH-S2 (spec §5.3.2) — a FULL pending-OFFER ring refuses, and every armed entry survives intact") {
+    TestHal hal; hal._now = 100000;
+    Node host(hal, /*node_id=*/42, /*key_hash32=*/0x00004242u);
+    CHECK(host.on_init(join_cfg()));
+    CHECK(host.can_host_mobiles());
+
+    constexpr uint8_t kCap = protocol::cap_pending_mobile_offers;
+    CHECK(kCap == 8);                                               // ★ the constant this case is written against
+    // ⛔ AND IT IS ITS OWN CONSTANT (§5.3.1): asserting the two are equal would be exactly the conflation the spec
+    // forbids, so this asserts only that they are INDEPENDENTLY declared and may be retuned apart.
+    CHECK(protocol::cap_mobile_offers == 8);                        // the mobile-side collection cap — a coincidence
+
+    for (uint8_t i = 0; i < kCap; ++i) {
+        hal._now = 100000 + i;
+        CHECK(stage_mobile_offer(host, hal, /*mobile_hash=*/0x00010000u + i) == 1);
+    }
+    CHECK(host.mobile_offers_pending_n() == kCap);                  // PREMISE: the ring really is full
+    CHECK(host.mobile_offer_ring_full_count() == 0);                // PREMISE: nothing refused yet
+
+    // ---- THE OVERFLOW.
+    const int arms_before  = hal.count_armed(kMobileOfferBackoffTimerId);
+    const int draws_before = hal.rand_calls;
+    CHECK(stage_mobile_offer(host, hal, /*mobile_hash=*/0x0000FFFFu) == 0);   // ★ nothing scheduled
+    CHECK(hal.count("mobile_offer_ring_full") == 1);                // ★ refused EXPLICITLY, and says so
+    CHECK(host.mobile_offer_ring_full_count() == 1);                // ★ the §10 counter
+    CHECK(host.mobile_offers_pending_n() == kCap);                  // ★★ no eviction: still exactly kCap in use
+    CHECK(hal.count_armed(kMobileOfferBackoffTimerId) == arms_before);   // ★★ no deadline was moved
+    CHECK(hal.rand_calls == draws_before);                          // ★★ and no draw was consumed
+
+    // ---- ON THE WIRE: all kCap originals fly, with kCap DISTINCT ids, and the refused mobile is never addressed.
+    hal.tx_frames.clear();
+    for (int i = 0; i < kCap + 2; ++i) fire_mobile_offer_timer(host, hal);
+    int inspected = 0, refused_seen = 0;
+    bool id_used[256] = {};
+    int  dup_ids = 0;
+    for (const auto& f : hal.tx_frames) {
+        auto p = parse_j(std::span<const uint8_t>(f.data(), f.size()));
+        if (!p || p->opcode != static_cast<uint8_t>(j_opcode::offer)) continue;
+        ++inspected;
+        if (p->target_key_hash32 == 0x0000FFFFu) ++refused_seen;
+        if (id_used[p->proposed_mobile_id]) ++dup_ids;
+        id_used[p->proposed_mobile_id] = true;
+    }
+    CHECK(inspected == kCap);                                       // ★★ every armed entry survived and flew
+    CHECK(refused_seen == 0);                                       // ★ the refused mobile was never answered
+    CHECK(dup_ids == 0);                                            // ★★ eight concurrent OFFERs, eight unique ids
+}
+
+// ---------------------------------------------------------------------------
+// §MH-S2 [[B137]] (gate item 1, last clause) — A RESERVATION EXPIRES IF ITS MOBILE NEVER CLAIMS, and the id
+// becomes offerable again. This is the bound that stops a silent mobile leaking an id forever.
+// ⛔ The tempting wrong fix this excludes: reserving only AT THE CLAIM. The race is between the OFFER and the
+//    CLAIM, so a CLAIM-time reservation is measurably too late — the middle block below is exactly that window.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★ §MH-S2 [[B137]] (spec §5.3.2) — a reservation blocks its id, then EXPIRES and releases it") {
+    constexpr uint32_t kMobA = 0x0000AA11u;
+    constexpr uint32_t kMobB = 0x0000BB22u;
+    constexpr uint32_t kMobC = 0x0000CC33u;
+
+    TestHal hal; hal._now = 100000;
+    Node host(hal, /*node_id=*/42, /*key_hash32=*/0x00004242u);
+    CHECK(host.on_init(join_cfg()));
+    CHECK(host.can_host_mobiles());
+
+    // ---- A is offered an id and TRANSMITTED. It then goes silent — no CLAIM ever arrives.
+    CHECK(stage_mobile_offer(host, hal, kMobA) == 1);
+    hal.tx_frames.clear();
+    fire_mobile_offer_timer(host, hal);
+    auto oa = first_j(hal.tx_frames, j_opcode::offer);
+    CHECK(oa.has_value());
+    const uint8_t id_a = oa ? oa->proposed_mobile_id : 0;
+    CHECK(id_a == 254);
+    CHECK(host.mobile_offers_pending_n() == 1);                     // ★ the reservation survives the transmission
+
+    // ---- THE WINDOW THE RESERVATION EXISTS FOR: B discovers while A's promise is live and MUST NOT be offered
+    // A's id. This is the assertion that a CLAIM-time reservation would fail — there is no CLAIM yet.
+    CHECK(stage_mobile_offer(host, hal, kMobB) == 1);
+    hal.tx_frames.clear();
+    fire_mobile_offer_timer(host, hal);
+    auto ob = first_j(hal.tx_frames, j_opcode::offer);
+    CHECK(ob.has_value());
+    if (ob) { CHECK(ob->target_key_hash32 == kMobB);
+              CHECK(ob->proposed_mobile_id != id_a); }              // ★★★ [[B137]]: A's promised id is TAKEN
+    const uint8_t id_b = ob ? ob->proposed_mobile_id : 0;
+    CHECK(id_b == 253);                                             // ★ and the allocator simply stepped down
+
+    // ---- NOW LET BOTH RESERVATIONS ELAPSE. The scan (timer 80) expires them.
+    hal._now += protocol::mobile_offer_reservation_ms;
+    hal.events.clear(); hal.tx_frames.clear();
+    host.on_timer(kMobileOfferBackoffTimerId);                      // fire AT the reservation bound, no OFFER due
+    CHECK(hal.count("mobile_offer_reservation_expired") == 2);      // ★ both, and reported
+    CHECK(host.mobile_offers_pending_n() == 0);                     // ★★ the ring is empty again
+    CHECK(count_j_offer_mobile(hal.tx_frames) == 0);                // ★ and expiry transmits NOTHING
+
+    // ---- ...AND THE ID IS OFFERABLE AGAIN. C is a third mobile: it gets 254 back, which is only possible if the
+    // reservation really was released (a leaked one would push C to 252).
+    CHECK(stage_mobile_offer(host, hal, kMobC) == 1);
+    hal.tx_frames.clear();
+    fire_mobile_offer_timer(host, hal);
+    auto oc = first_j(hal.tx_frames, j_opcode::offer);
+    CHECK(oc.has_value());
+    if (oc) { CHECK(oc->target_key_hash32 == kMobC);
+              CHECK(oc->proposed_mobile_id == id_a); }              // ★★ 254, reclaimed
+}
+
+// ---------------------------------------------------------------------------
+// §MH-S2 [[B137]] — A MATCHING CLAIM RELEASES THE RESERVATION AND THE REGISTRY ROW TAKES OVER THE ID, so the
+// promise is handed on rather than dropped. The negative half is the point: the id stays unavailable AFTERWARDS.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★ §MH-S2 [[B137]] (spec §5.3.2) — the CLAIM releases the reservation and the ROW inherits the id") {
+    constexpr uint32_t kMobA = 0x0000AA11u;
+    constexpr uint32_t kMobB = 0x0000BB22u;
+    constexpr uint8_t  kHostId = 42;
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+
+    TestHal hal; hal._now = 100000;
+    Node host(hal, kHostId, /*key_hash32=*/0x00004242u);
+    CHECK(host.on_init(join_cfg()));
+    CHECK(host.can_host_mobiles());
+
+    CHECK(stage_mobile_offer(host, hal, kMobA) == 1);
+    hal.tx_frames.clear();
+    fire_mobile_offer_timer(host, hal);
+    auto oa = first_j(hal.tx_frames, j_opcode::offer);
+    CHECK(oa.has_value());
+    const uint8_t id_a = oa ? oa->proposed_mobile_id : 0;
+    CHECK(id_a == 254);
+    CHECK(host.mobile_offers_pending_n() == 1);                     // PREMISE: reserved, not yet claimed
+
+    std::array<uint8_t, 16> cl{};
+    const size_t cn = make_j_claim_mobile(kHostId, id_a, kMobA, cl);
+    hal.events.clear();
+    host.on_recv(cl.data(), cn, meta);
+    CHECK(hal.count("mobile_registered") == 1);                     // PREMISE: recorded
+    CHECK(host.mobile_offers_pending_n() == 0);                     // ★★ released IMMEDIATELY, not at the bound
+
+    // ★★ AND THE PROMISE WAS HANDED ON, NOT DROPPED: B still cannot have 254, because the registry row holds it
+    // now. Without this the release could be "correct" and still hand the same id to the next mobile.
+    hal.tx_frames.clear();
+    CHECK(stage_mobile_offer(host, hal, kMobB) == 1);
+    fire_mobile_offer_timer(host, hal);
+    auto ob = first_j(hal.tx_frames, j_opcode::offer);
+    CHECK(ob.has_value());
+    if (ob) { CHECK(ob->target_key_hash32 == kMobB);
+              CHECK(ob->proposed_mobile_id == 253); }               // ★ stepped down past the recorded row
+}
+
+// ---------------------------------------------------------------------------
+// §MH-S2 §B132 (gate item 3) — ELIGIBILITY IS RE-CHECKED AT THE FIRE, AND IT NOW HAS TO CLEAR A WHOLE RING.
+// The §B132b cases above already prove the boundary re-check for ONE staged OFFER; this is the obligation the
+// ring ADDS — several armed entries plus their id reservations, all of which must go, on ONE flip.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★ §MH-S2 §B132 — `host_mobiles` off between staging and fire drops the WHOLE ring, not one entry") {
+    TestHal hal; hal._now = 100000;
+    Node host(hal, /*node_id=*/42, /*key_hash32=*/0x00004242u);
+    CHECK(host.on_init(join_cfg()));
+    CHECK(host.can_host_mobiles());
+
+    for (int i = 0; i < 3; ++i) {
+        hal._now = 100000 + static_cast<uint64_t>(i);
+        CHECK(stage_mobile_offer(host, hal, /*mobile_hash=*/0x00020000u + static_cast<uint32_t>(i)) == 1);
+    }
+    CHECK(host.mobile_offers_pending_n() == 3);                     // PREMISE: three armed entries + reservations
+
+    // ---- POSITIVE CONTROL FIRST: still eligible ⇒ the first one really would fly. Without it the zero below is
+    // satisfied by a build that transmits nothing at all.
+    {
+        TestHal h2; h2._now = 100000;
+        Node ok(h2, /*node_id=*/43, /*key_hash32=*/0x00004343u);
+        CHECK(ok.on_init(join_cfg()));
+        CHECK(stage_mobile_offer(ok, h2, /*mobile_hash=*/0x00020000u) == 1);
+        h2.tx_frames.clear();
+        fire_mobile_offer_timer(ok, h2);
+        CHECK(count_j_offer_mobile(h2.tx_frames) == 1);
+    }
+
+    host.mutable_config().host_mobiles = false;                     // B3: a LIVE console knob, no reboot
+    CHECK_FALSE(host.can_host_mobiles());
+    hal.tx_frames.clear();
+    for (int i = 0; i < 4; ++i) fire_mobile_offer_timer(host, hal);
+    CHECK(count_j_offer_mobile(hal.tx_frames) == 0);                // ★★ NOTHING transmitted, on any callback
+    CHECK(host.mobile_offers_pending_n() == 0);                     // ★★ and the reservations went with the frames —
+                                                                    //    an ineligible node holds no promised ids
+}
+
+// ---------------------------------------------------------------------------
+// §S0-2 — REWRITTEN IN PLACE BY §MH-S3 (2026-08-07).  Spec §2.2 → §5.2 / §5.4.
+//
+// ⛔⛔ THIS CASE WAS A CHARACTERIZATION REPRODUCTION AND IS NOW A FIX ASSERTION. Same case, same site,
+// REWRITTEN rather than replaced, so the behaviour change is visible in the diff (B101; spec §11 S0 rule 3).
+// ⛔ It was NOT deleted and NOT disabled.
+//
+// WHAT IT USED TO PIN (the defect, now fixed): `mobile_claim_guard_fire()`'s no-host arm computed
+// `delay = _mobile_backoff_ms` — a pure capped doubling 5 s → 120 s with NO random draw anywhere on the
+// path — and `on_init` kicked the FSM with `after(0, …)`. Mobiles powered together therefore stayed
+// phase-aligned for as long as they ran and collided in the same OFFER window round after round (§2.2: "a
+// several-minute attach time is an expected result of the current design"). The old assertions read:
+//     CHECK(d1 == static_cast<int64_t>(expect[round]));   // 5000/10000/20000/40000, exactly
+//     CHECK(d1 == d2);                                    // two mobiles, two RNG streams, ONE deadline
+//     CHECK(r1_after - r1_before == 0);                   // the retry arm drew NOTHING
+//     CHECK(phase1 == phase2);                            // permanently aligned after four rounds
+// They went RED when S3 landed — MEASURED, not predicted: `137500 == 175000` on the pre-rewrite tree.
+//
+// WHAT IT PINS NOW — and it is deliberately ONE case rather than three, because the three draws are ONE
+// contract (§5.2: "the draw and its order are part of the simulation contract") and U1 says extend the pin
+// rather than fork it. The complete MOBILE-PLANE DRAW INVENTORY of §MH-S3, in the order a mobile spends it:
+//
+//   (0) a NON-mobile node draws exactly what it always did — the static-plane inertness proof, differential;
+//   (A) §5.2 the AUTOMATIC boot kick draws 0..`mobile_boot_jitter_ms`  — ONE draw, in `on_init`;
+//       …and a MANUAL/team-only kick draws NOTHING and stays immediate;
+//   (B) §5.4 the CLAIM deadline draws 0..`mobile_claim_jitter_ms` on top of the MINIMUM collect window —
+//       ONE draw, at the DISCOVER handoff (`lbt_complete`);
+//   (C) §5.2 every no-host retry draws EQUAL JITTER over the capped window — ONE draw, per window close;
+//   (D) the interval is exactly [window/2, window] — both ends forced and read back, so "equal jitter" is
+//       measured rather than described. This is what separates it from a plain `rand(0, window)`.
+//
+// ★★ HOW THIS IS MADE NON-VACUOUS, and the mechanism is inherited from the characterization version: the
+// two mobiles are given DIFFERENT key hashes AND DIFFERENT RNG streams (`_rand_lo_bias` 0 vs 7). Every
+// asserted delay is therefore a value that CANNOT be produced without consuming the intended draw from the
+// intended stream, and the divergence is exactly the bias — not "some difference".
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★ §S0-2 → §MH-S3 FIXED (spec §5.2/§5.4) — boot, CLAIM deadline and no-host retry all DRAW, so a fleet DE-synchronizes") {
+    // ================================================================================================
+    // (0) THE STATIC PLANE DRAWS NOTHING NEW — measured as a DIFFERENTIAL, not asserted as a number.
+    // A bare `rand_calls == k` would rot the moment any unrelated boot draw changed; the difference
+    // between an is_mobile=false node and an is_mobile=true node on the SAME config cannot.
+    // ================================================================================================
+    TestHal hs; hs._now = 100000;
+    Node st(hs, /*node_id=*/42, /*key_hash32=*/0x00004242u);
+    CHECK(st.on_init(join_cfg()));                                   // ★ the SAME config, is_mobile = FALSE
+    const int static_init_draws = hs.rand_calls;
+    CHECK(hs.count_armed(kMobileDiscoverTimerId) == 0);              // PREMISE: a static node has no mobile FSM
+
+    // ================================================================================================
+    // (A) §5.2 — THE AUTOMATIC BOOT KICK DRAWS A STARTUP JITTER.
+    // ================================================================================================
     TestHal h1; h1._now = 100000; h1._rand_lo_bias = 0;
-    TestHal h2; h2._now = 100000; h2._rand_lo_bias = 7;              // ★ a DIFFERENT RNG stream — any draw would show
+    TestHal h2; h2._now = 100000; h2._rand_lo_bias = 7;              // ★ a DIFFERENT RNG stream
     Node m1(h1, /*node_id=*/0, /*key_hash32=*/0x00001111u);
     Node m2(h2, /*node_id=*/0, /*key_hash32=*/0x00002222u);          // ★ a DIFFERENT identity too
     CHECK(m1.on_init(s0_mobile_cfg()));
     CHECK(m2.on_init(s0_mobile_cfg()));
+    // ★★ EXACTLY ONE new draw versus the static node — the boot jitter and nothing else.
+    CHECK(h1.rand_calls - static_init_draws == 1);
+    CHECK(h2.rand_calls - static_init_draws == 1);
+    CHECK(h1.count_armed(kMobileDiscoverTimerId) == 1);
+    CHECK(h2.count_armed(kMobileDiscoverTimerId) == 1);
+    // ★★ AND THE KICK IS STAGGERED. h1 draws `lo` = 0 (indistinguishable from the old `after(0,…)`, which is
+    // why h2 carries the discriminating value): h2 draws lo + 7 and is therefore SEVEN MILLISECONDS LATE.
+    CHECK(h1.last_armed(kMobileDiscoverTimerId) == 0);
+    CHECK(h2.last_armed(kMobileDiscoverTimerId) == 7);
 
-    // The documented capped-doubling ladder (protocol_constants.h:676-677: min 5 s, max 120 s).
-    const uint32_t expect[4] = { 5000u, 10000u, 20000u, 40000u };
+    // ---- NEGATIVE CONTROL, and it is a REQUIREMENT not a nicety (§5.2: "the manual first attempt is
+    // immediate"): a team-only mobile with autoregister OFF is kicked purely so team-DAD runs. There is no
+    // automatic attempt to stagger ⇒ it must draw NOTHING and arm at ZERO.
+    {
+        TestHal ht; ht._now = 100000; ht._rand_lo_bias = 7;          // the same biased stream — a draw WOULD show
+        NodeConfig tc = s0_mobile_cfg(); tc.mobile_autoregister = false; tc.team_id = 0x77;
+        Node mt(ht, /*node_id=*/0, /*key_hash32=*/0x00003333u);
+        CHECK(mt.on_init(tc));
+        CHECK(ht.count_armed(kMobileDiscoverTimerId) == 1);          // PREMISE: the kick still happens (§6.4)
+        CHECK(ht.last_armed(kMobileDiscoverTimerId) == 0);           // ★ …IMMEDIATE
+        CHECK(ht.rand_calls - static_init_draws == 0);               // ★★ …and draw-free
+    }
+
+    // ================================================================================================
+    // (B) + (C) — the CLAIM deadline and the no-host retry, four rounds of the capped ladder.
+    // ================================================================================================
+    // The documented capped-doubling ladder is RETAINED (§5.2 "retain capped exponential growth"):
+    // `window = min(5 s * 2^attempt, 120 s)`. What changed is that the window is now the input to a draw
+    // instead of being the delay itself.
+    const uint32_t window[4] = { 5000u, 10000u, 20000u, 40000u };
     uint64_t phase1 = h1._now, phase2 = h2._now;                     // absolute ms of each mobile's next DISCOVER
 
     for (int round = 0; round < 4; ++round) {
-        // --- mobile 1
+        // ---- mobile 1: DISCOVER, then the window close
         h1.events.clear(); h1.armed.clear();
+        const int r1_discover_before = h1.rand_calls;
         m1.on_timer(kMobileDiscoverTimerId);
         CHECK(h1.count("mobile_discover_tx") == 1);                  // PREMISE: the DISCOVER really went out...
+        // ★★ (B) §5.4: ONE draw at the handoff, and the guard is armed at the MINIMUM window PLUS it.
+        CHECK(h1.rand_calls - r1_discover_before == 1);
+        const int64_t g1 = h1.last_armed(kMobileClaimGuardTimerId);
+        CHECK(g1 == static_cast<int64_t>(protocol::mobile_offer_window_ms) + 0);   // bias 0 ⇒ the minimum
+
         const int r1_before = h1.rand_calls;
         m1.on_timer(kMobileClaimGuardTimerId);                       // ...and the window really closed with no host
         CHECK(h1.count("mobile_no_host") == 1);                      // PREMISE: the no-host arm is the branch under test
         const int64_t d1 = h1.last_armed(kMobileDiscoverTimerId);
-        const int r1_after = h1.rand_calls;
+        CHECK(h1.rand_calls - r1_before == 1);                       // ★★ (C) EXACTLY ONE draw per window close
 
-        // --- mobile 2, same wall clock
+        // ---- mobile 2, same wall clock, different stream
         h2.events.clear(); h2.armed.clear();
+        const int r2_discover_before = h2.rand_calls;
         m2.on_timer(kMobileDiscoverTimerId);
         CHECK(h2.count("mobile_discover_tx") == 1);
+        CHECK(h2.rand_calls - r2_discover_before == 1);
+        const int64_t g2 = h2.last_armed(kMobileClaimGuardTimerId);
+        CHECK(g2 == static_cast<int64_t>(protocol::mobile_offer_window_ms) + 7);   // ★ bias 7 ⇒ SEVEN ms later
+
         const int r2_before = h2.rand_calls;
         m2.on_timer(kMobileClaimGuardTimerId);
         CHECK(h2.count("mobile_no_host") == 1);
         const int64_t d2 = h2.last_armed(kMobileDiscoverTimerId);
-        const int r2_after = h2.rand_calls;
+        CHECK(h2.rand_calls - r2_before == 1);
 
-        // ★★ THE DEFECT: the retry deadline is DETERMINISTIC and IDENTICAL across the fleet.
-        CHECK(d1 == static_cast<int64_t>(expect[round]));            // ← S3 must make this a RANGE, not a value
-        CHECK(d2 == static_cast<int64_t>(expect[round]));
-        CHECK(d1 == d2);                                             // ★ two different mobiles, two different RNG
-                                                                     //   streams, the SAME deadline to the millisecond
-        // ★ the direct twin measurement: the retry arm draws NOTHING.
-        CHECK(r1_after - r1_before == 0);                            // ← S3 must make this 1
-        CHECK(r2_after - r2_before == 0);
+        // ★★ THE FIX: the retry deadline is DRAWN, from the LOWER HALF of the retained capped window.
+        CHECK(d1 == static_cast<int64_t>(window[round] / 2));        // ← was `window[round]`, un-jittered
+        CHECK(d2 == static_cast<int64_t>(window[round] / 2) + 7);
+        CHECK(d1 != d2);                                             // ★ two mobiles, two streams, TWO deadlines
+        // ★ and the growth itself survived the change — a jitter that also flattened the ladder would be a
+        //   regression this case would otherwise wave through.
+        CHECK(window[round] == (round == 0 ? protocol::mobile_discover_backoff_min_ms : 2u * window[round - 1]));
 
-        // advance both clocks to their (identical) next attempt
-        phase1 += static_cast<uint64_t>(d1); h1._now = phase1;
-        phase2 += static_cast<uint64_t>(d2); h2._now = phase2;
+        // advance both clocks to their OWN next attempt (window close + retry delay)
+        phase1 += static_cast<uint64_t>(g1) + static_cast<uint64_t>(d1); h1._now = phase1;
+        phase2 += static_cast<uint64_t>(g2) + static_cast<uint64_t>(d2); h2._now = phase2;
     }
-    // ★ QUANTIFIED PHASE ALIGNMENT: after four rounds the two mobiles are still due at the SAME absolute
-    // millisecond — the alignment is permanent, not a first-round coincidence.
-    CHECK(phase1 == phase2);
-    CHECK(phase1 == 100000ull + 5000ull + 10000ull + 20000ull + 40000ull);
+    // ★ QUANTIFIED PHASE DIVERGENCE — the exact inverse of the assertion this case used to carry. Two draws
+    // per round × 4 rounds × 7 ms of stream difference = 56 ms apart, and the gap is CUMULATIVE.
+    CHECK(phase1 != phase2);
+    CHECK(phase1 == 100000ull + 4ull * protocol::mobile_offer_window_ms + (2500ull + 5000ull + 10000ull + 20000ull));
+    CHECK(phase2 - phase1 == 4ull * 2ull * 7ull);
 
-    // ---- POSITIVE CONTROL: the harness CAN see a jittered arm, and CAN see two RNG streams diverge.
-    // The host-side OFFER de-storm (jtx_stash_arm, 100..1000 ms) is a real jittered arm in this same
-    // codebase, read through this same seam. Without this, "the delays were equal" could mean the seam
-    // was blind rather than the code un-jittered.
+    // ================================================================================================
+    // (D) THE INTERVAL IS [window/2, window] — BOTH ENDS FORCED AND READ BACK.
+    // This is the assertion that says EQUAL jitter rather than merely "some jitter": a `rand(0, window)`
+    // would give 0 at the low end, and a `rand(window/2, window)` would never reach `window` at the high
+    // end. `_rand_ret` is clamped into [lo, hi) by the harness, so the two extremes below read the real
+    // bounds the production code passed to `rand_range`, not values the test chose.
+    // ================================================================================================
+    {
+        TestHal lo; lo._now = 100000; lo._rand_ret = 0;              // ★ ask for ZERO…
+        Node ml(lo, /*node_id=*/0, /*key_hash32=*/0x00005151u);
+        CHECK(ml.on_init(s0_mobile_cfg()));
+        ml.on_timer(kMobileDiscoverTimerId);
+        lo.armed.clear();
+        ml.on_timer(kMobileClaimGuardTimerId);
+        CHECK(lo.count("mobile_no_host") == 1);                      // PREMISE: the right branch ran
+        CHECK(lo.last_armed(kMobileDiscoverTimerId) == 2500);        // ★★ …and got window/2. The NON-ZERO
+                                                                     //    lower half is what stops a failed
+                                                                     //    fleet storming again immediately.
+        CHECK(lo.last_armed(kMobileDiscoverTimerId)
+                  == static_cast<int64_t>(protocol::equal_jitter_lo(protocol::mobile_discover_backoff_min_ms)));
+
+        TestHal hi; hi._now = 100000; hi._rand_ret = 1000000;        // ★ ask for a huge value…
+        Node mh(hi, /*node_id=*/0, /*key_hash32=*/0x00005252u);
+        CHECK(mh.on_init(s0_mobile_cfg()));
+        mh.on_timer(kMobileDiscoverTimerId);
+        hi.armed.clear();
+        mh.on_timer(kMobileClaimGuardTimerId);
+        CHECK(hi.count("mobile_no_host") == 1);
+        CHECK(hi.last_armed(kMobileDiscoverTimerId) == 5000);        // ★★ …and the TOP of the window is
+                                                                     //    REACHABLE — `window + 1` as the
+                                                                     //    half-open upper bound, not `window`.
+        CHECK(hi.last_armed(kMobileDiscoverTimerId)
+                  == static_cast<int64_t>(protocol::equal_jitter_hi_excl(protocol::mobile_discover_backoff_min_ms)) - 1);
+    }
+
+    // ---- CROSS-CHECK, RETAINED FROM THE CHARACTERIZATION VERSION AND RE-PURPOSED: the HOST-side OFFER
+    // de-storm jitter (`jtx_stash_arm`, 100..1000 ms) is §MH-S2's draw, and S3 MUST NOT have moved it. It
+    // used to be here as proof that the seam could see a jittered arm at all; now that the mobile side
+    // draws visibly, its job is the opposite one — an unchanged-neighbour control on the host plane.
     {
         TestHal g1; g1._now = 100000; g1._rand_lo_bias = 0;
         TestHal g2; g2._now = 100000; g2._rand_lo_bias = 7;
@@ -1787,9 +2832,79 @@ TEST_CASE("★★★ §S0-2 CHARACTERIZATION (spec §2.2) — the no-host retry 
         CHECK(stage_mobile_offer(hb, g2, 0x0000D1D1u) == 1);
         const int64_t ja = g1.last_armed(kMobileOfferBackoffTimerId);
         const int64_t jb = g2.last_armed(kMobileOfferBackoffTimerId);
-        CHECK(ja == 100);                                            // lo of [100, 1001) with bias 0
-        CHECK(jb == 107);                                            // lo + 7 — the streams DO diverge here
-        CHECK(ja != jb);                                             // ★ so an un-jittered pair above is a real finding
+        CHECK(ja == 100);                                            // lo of [100, 1001) with bias 0 — UNCHANGED
+        CHECK(jb == 107);                                            // lo + 7 — UNCHANGED
+        CHECK(ja != jb);
+    }
+
+    // ================================================================================================
+    // ★★★★ (E) §MH-S4 / §MH-S4b ADD **NO NEW DRAW SITE** — pinned here rather than in a separate case, because the
+    // inventory above IS the contract (U1: extend the pin, don't fork it) and "S3 was the arc's only planned
+    // re-anchor" is a claim about THIS list. S4 introduces the re-CLAIM, the confirmation deadline and two
+    // state planes; none of them may spend randomness.
+    //   · `mobile_reclaim_send()`      — `pack_j_claim` + `tx_initiating`, both draw-free;
+    //   · `presence_claim_unconfirmed` — spends the ONE `presence_arm_check` draw its own deadline makes.
+    // ★★★★ §MH-S4b — AND THE HONEST STATEMENT OF WHAT DID CHANGE, because "no new draw" would otherwise be read
+    // as "the same number of draws". §7.1 step 3's solicitation SPLITS the claiming round into TWO deadlines
+    // (ask, then wait), so a claiming round now spends **TWO** draws where §MH-S4 spent one. That is a NEW
+    // DEADLINE, not a new draw SITE: both come from the single pre-existing `rand_range` in
+    // `presence_arm_check`, and each individual fire still spends exactly one. Pinned BOTH ways below — per-fire
+    // and per-round — so neither reading can rot silently.
+    // ★ MEASURED AS A DIFFERENTIAL against the same node's own steady-state probe, so the pin cannot rot when
+    //   an unrelated boot draw changes.
+    // ================================================================================================
+    {
+        RxMeta meta{8.0f, -80.0f, 0, -1};
+        TestHal hd; hd._now = 100000;
+        Node md(hd, /*node_id=*/0, /*key_hash32=*/0x0000D4D4u);
+        CHECK(md.on_init(s0_mobile_cfg()));
+        md.on_timer(kMobileDiscoverTimerId);
+        std::array<uint8_t, 16> off{};
+        const size_t on = make_j_offer_mobile(/*responder=*/44, 0x00004444u, /*local=*/250, /*target=*/0x0000D4D4u, off);
+        md.on_recv(off.data(), on, meta);
+        md.on_timer(kMobileClaimGuardTimerId);                       // CLAIM + provisional adopt -> `claiming`
+        CHECK(md.mobile_attach_state() == Node::MobileAttachState::claiming);   // PREMISE: the branch under test
+        // ★★ §MH-S4b §7.1 step 3: the FIRST deadline is SHORT and it is a SOLICITATION, not the steady T.
+        CHECK(hd.last_armed(kPresenceProbeTimerId) == static_cast<int64_t>(protocol::presence_claim_solicit_ms));
+        CHECK_FALSE(md.mobile_claim_solicited());                    // "we have not asked yet"
+
+        // ---- (E1) the SOLICITATION deadline: a searching probe, NO re-CLAIM, exactly ONE draw.
+        const int before_solicit  = hd.rand_calls;
+        const int claims_before   = count_j_opcode(hd.tx_frames, j_opcode::claim);
+        hd._now += protocol::presence_claim_solicit_ms;
+        md.on_timer(kPresenceProbeTimerId);
+        CHECK(count_j_opcode(hd.tx_frames, j_opcode::claim) == claims_before);       // ★★ NO re-CLAIM yet — the ask precedes the verdict
+        CHECK(md.mobile_claim_retries() == 0);                                       // ★★ …and NO budget spent
+        CHECK(md.mobile_claim_solicited());                                          // ★ "we asked and are waiting"
+        CHECK(hd.last_armed(kPresenceProbeTimerId) == static_cast<int64_t>(protocol::presence_claim_confirm_ms));
+        CHECK(hd.rand_calls - before_solicit == 1);                  // ★★★ ONE draw: the confirmation-deadline jitter, nothing else
+
+        // ---- (E2) the CONFIRMATION deadline: no probe, ONE re-CLAIM, exactly ONE draw.
+        const int before_claiming = hd.rand_calls;
+        hd._now += protocol::presence_claim_confirm_ms;
+        md.on_timer(kPresenceProbeTimerId);
+        CHECK(count_j_opcode(hd.tx_frames, j_opcode::claim) == claims_before + 1);   // PREMISE: a re-CLAIM really went out
+        CHECK(md.mobile_claim_retries() == 1);                       // PREMISE: the budget really moved
+        CHECK_FALSE(md.mobile_claim_solicited());                    // …and the next round will ASK again
+        CHECK(hd.rand_calls - before_claiming == 1);                 // ★★★ ONE draw here too
+        // ⇒ the per-ROUND figure, stated as a number rather than left implicit:
+        CHECK(hd.rand_calls - before_solicit == 2);                  // ★★ TWO deadlines, TWO draws, ONE draw site
+
+        // ---- the ATTACHED steady-state deadline, on the SAME node, as the differential baseline. Confirm it
+        //      first (a real roster), then fire one ordinary probe.
+        confirm_mobile_via_roster(md, hd, /*home=*/44, md.config().layers[0].layer_id,
+                                  /*hash=*/0x0000D4D4u, /*local=*/250, /*epoch=*/1, meta);
+        CHECK(md.mobile_attached());                                 // PREMISE: now on the steady path
+        const int before_steady = hd.rand_calls;
+        const int claims_steady = count_j_opcode(hd.tx_frames, j_opcode::claim);
+        hd._now += protocol::presence_check_base_ms;
+        md.on_timer(kPresenceProbeTimerId);
+        CHECK(hd.count("presence_probe_tx") >= 1);                   // PREMISE: a probe really fired
+        CHECK(hd.rand_calls - before_steady == 1);                   // ★★ the steady probe draws ONE too...
+        CHECK(count_j_opcode(hd.tx_frames, j_opcode::claim) == claims_steady);   // ★ ...and sends NO CLAIM
+        // ⇒ ★★★★ THE PIN: EVERY deadline fire — solicitation, confirmation, and attached steady-state — spends
+        //   EXACTLY ONE draw, from the one pre-existing `presence_arm_check` site. §MH-S4b's extra draw per
+        //   claiming round is an extra DEADLINE, and the three equal per-fire figures above are what prove that.
     }
 }
 
@@ -1861,7 +2976,11 @@ TEST_CASE("★★★ §S0-3 → §MH-S1 FIXED (spec §6.1) — a 5 s LBT defer D
     m.test_fire_lbt_defer(/*slot=*/0);
     CHECK(count_j_opcode(hal.tx_frames, j_opcode::discover) == 1);   // ★ the frame is on the air...
     CHECK(hal.count_armed(kMobileClaimGuardTimerId) == 1);           // ★★ ...and NOW the window is armed
-    CHECK(hal.last_armed(kMobileClaimGuardTimerId) == static_cast<int64_t>(protocol::mobile_offer_window_ms));
+    // ★ §MH-S3 §5.4: the arm is now `mobile_offer_window_ms + rand(0, mobile_claim_jitter_ms + 1)`. This
+    //   TestHal draws `lo` = 0, so the VALUE is unchanged — spelled out rather than left implicit, because
+    //   a reader comparing this line to the code would otherwise think one of the two had drifted.
+    CHECK(hal.last_armed(kMobileClaimGuardTimerId)
+              == static_cast<int64_t>(protocol::mobile_offer_window_ms) + 0);   // + the drawn 0
     // ★★ AND IT IS THE FULL WINDOW, MEASURED FROM TWO CODE-DERIVED NUMBERS. Under the old behaviour the
     // window had been shut for `defer_due - mobile_offer_window_ms` = 3000 ms by this point; now that same
     // subtraction is merely how long the mobile waited before its INTACT 2 s window opened. The arithmetic
@@ -1880,7 +2999,8 @@ TEST_CASE("★★★ §S0-3 → §MH-S1 FIXED (spec §6.1) — a 5 s LBT defer D
         CHECK(c.count("tx_lbt_defer") == 0);
         CHECK(count_j_opcode(c.tx_frames, j_opcode::discover) == 1); // ★ immediate handoff, seen by this harness
         CHECK(c.count_armed(kMobileClaimGuardTimerId) == 1);         // ★ armed exactly once, at that handoff
-        CHECK(c.last_armed(kMobileClaimGuardTimerId) == static_cast<int64_t>(protocol::mobile_offer_window_ms));
+        CHECK(c.last_armed(kMobileClaimGuardTimerId)
+                  == static_cast<int64_t>(protocol::mobile_offer_window_ms) + 0);   // §MH-S3 §5.4: + the drawn 0
     }
 }
 
@@ -1934,7 +3054,8 @@ TEST_CASE("★★★ §MH-S1 (spec §6.1) — a DISCOVER refused by our OWN tran
     CHECK(m.mobile_home_id() == 0);                                  // the home-link plane is untouched
     // ★★ AND THE BOUNDED RETRY IS ARMED (gate 6) — the deadline read back from the harness, exactly once.
     CHECK(hal.count_armed(kMobileDiscoverTimerId) == 1);
-    CHECK(hal.last_armed(kMobileDiscoverTimerId) == static_cast<int64_t>(protocol::mobile_offer_window_ms));
+    CHECK(hal.last_armed(kMobileDiscoverTimerId)                     // ★ §MH-S3 §5.2: EQUAL-JITTERED (was the flat window)
+              == static_cast<int64_t>(protocol::equal_jitter_lo(protocol::mobile_offer_window_ms)));   // rand(1000, 2001); this TestHal draws `lo`
 
     // ---- NEGATIVE CONTROL: the SAME node, the SAME code path, with one ring slot freed, is ACCEPTED —
     // so the assertions above measure the refusal and not a build that has stopped DISCOVERing entirely.
@@ -1997,7 +3118,8 @@ TEST_CASE("★★★ §MH-S1 (spec §6.3) — a CLAIM refused by our OWN transmi
     // ★★ CLASSIFIED AS A LOCAL TRANSMITTER FACT (§6.3), with a bounded retry (gate 6).
     CHECK(m.mobile_last_result() == Node::MobileAttemptResult::defer_full);
     CHECK(hal.count_armed(kMobileDiscoverTimerId) == 1);
-    CHECK(hal.last_armed(kMobileDiscoverTimerId) == static_cast<int64_t>(protocol::mobile_offer_window_ms));
+    CHECK(hal.last_armed(kMobileDiscoverTimerId)                     // ★ §MH-S3 §5.2: EQUAL-JITTERED (was the flat window)
+              == static_cast<int64_t>(protocol::equal_jitter_lo(protocol::mobile_offer_window_ms)));   // rand(1000, 2001); this TestHal draws `lo`
 
     // ---- POSITIVE CONTROL: the SAME node, the SAME OFFER, an ACCEPTED CLAIM ⇒ it still claim-stands and
     // adopts, exactly as before S1. Without this, "does not register" would be satisfied by a build that
@@ -2067,13 +3189,18 @@ TEST_CASE("★★★ §MH-S1 (spec §6.2) — a staged OFFER refused by the host
     CHECK(hal.count("tx_lbt_defer_dropped") == 0);
 
     hal.events.clear(); hal.tx_frames.clear();
-    host.on_timer(kMobileOfferBackoffTimerId);
+    CHECK(host.mobile_offer_reject_count() == 0);                    // PREMISE: the counter starts at zero
+    fire_mobile_offer_timer(host, hal);
 
     // ★★ THE FIX: the refusal is REPORTED, and the frame is provably not on the wire.
     CHECK(hal.count("tx_lbt_defer_dropped") == 1);                   // PREMISE: the ring refused the OFFER
     CHECK(count_j_offer_mobile(hal.tx_frames) == 0);                 // ★ nothing transmitted...
     CHECK(hal.count("mobile_offer_dropped") == 1);                   // ★★ ...and it did NOT vanish silently
     CHECK(hal.count("mobile_offer_tx") == 0);                        // ★★ ...and NOTHING claimed it was sent
+    // ★★★ [[B146]] §MH-S2b — AND THE COUNTER MOVED BY EXACTLY ONE. This is the IMMEDIATE `defer_full` arm; the
+    // two HAL-rejection arms (immediate + DEFERRED) assert the same thing in the case below, and the deferred
+    // one is the reading that used to be zero.
+    CHECK(host.mobile_offer_reject_count() == 1);
 
     // ---- POSITIVE CONTROL: the SAME host, the SAME staging, an ACCEPTED transmission ⇒ the OFFER flies
     // and NO drop is reported. Without it, "a drop was reported" could be satisfied by a build that reports
@@ -2086,9 +3213,10 @@ TEST_CASE("★★★ §MH-S1 (spec §6.2) — a staged OFFER refused by the host
         CHECK(stage_mobile_offer(h2, c, /*mobile_hash=*/0x0000D6D6u) == 1);
         CHECK(c.count("mobile_offer_tx") == 0);                      // ★ still nothing claims a transmission
         c.events.clear(); c.tx_frames.clear();
-        h2.on_timer(kMobileOfferBackoffTimerId);
+        fire_mobile_offer_timer(h2, c);
         CHECK(count_j_offer_mobile(c.tx_frames) == 1);               // ★ transmitted
         CHECK(c.count("mobile_offer_dropped") == 0);                 // ★ and no drop reported
+        CHECK(h2.mobile_offer_reject_count() == 0);                  // ★★ [[B146]]: an ACCEPTED OFFER counts ZERO
         // ★★ §10, HALF 2 — AND THE HONEST EVENT FIRES HERE, AT THE HANDOFF, EXACTLY ONCE. Paired with the
         // `== 0` above (same host, same OFFER, the two instants), so neither reading is available to a
         // build that emits it in the wrong place.
@@ -2159,7 +3287,8 @@ TEST_CASE("★★★ §MH-S1b (spec §6.1) — a DISCOVER the HAL REFUSES report
         CHECK(m.mobile_home_id() == 0);
         // ★★ AND THE BOUNDED RETRY IS ARMED (gate 6), at the deadline the code chose.
         CHECK(hal.count_armed(kMobileDiscoverTimerId) == 1);
-        CHECK(hal.last_armed(kMobileDiscoverTimerId) == static_cast<int64_t>(protocol::mobile_offer_window_ms));
+        CHECK(hal.last_armed(kMobileDiscoverTimerId)                     // ★ §MH-S3 §5.2: EQUAL-JITTERED (was the flat window)
+              == static_cast<int64_t>(protocol::equal_jitter_lo(protocol::mobile_offer_window_ms)));   // rand(1000, 2001); this TestHal draws `lo`
 
         // ---- NEGATIVE CONTROL, SAME NODE: let the HAL answer `ok` and the identical call succeeds. Without
         // it, every assertion above is satisfied by a build that has stopped DISCOVERing altogether.
@@ -2204,7 +3333,8 @@ TEST_CASE("★★★ §MH-S1b (spec §6.1) — a DISCOVER the HAL REFUSES report
         CHECK(hal.count_armed(kMobileClaimGuardTimerId) == 0);
         CHECK(m.mobile_last_result() == Node::MobileAttemptResult::tx_rejected);
         CHECK(hal.count_armed(kMobileDiscoverTimerId) == 1);
-        CHECK(hal.last_armed(kMobileDiscoverTimerId) == static_cast<int64_t>(protocol::mobile_offer_window_ms));
+        CHECK(hal.last_armed(kMobileDiscoverTimerId)                     // ★ §MH-S3 §5.2: EQUAL-JITTERED (was the flat window)
+              == static_cast<int64_t>(protocol::equal_jitter_lo(protocol::mobile_offer_window_ms)));   // rand(1000, 2001); this TestHal draws `lo`
         CHECK(hal.count("mobile_no_host") == 0);
         CHECK_FALSE(m.mobile_registered());
     }
@@ -2290,7 +3420,8 @@ TEST_CASE("★★★ §MH-S1b (spec §6.3) — a DEFERRED CLAIM does not registe
         // ★★ CLASSIFIED AS OUR OWN TRANSMITTER (§6.3/§6.4, gate 20) WITH A BOUNDED RETRY (gate 6).
         CHECK(m.mobile_last_result() == Node::MobileAttemptResult::tx_rejected);
         CHECK(hal.count_armed(kMobileDiscoverTimerId) == 1);
-        CHECK(hal.last_armed(kMobileDiscoverTimerId) == static_cast<int64_t>(protocol::mobile_offer_window_ms));
+        CHECK(hal.last_armed(kMobileDiscoverTimerId)                     // ★ §MH-S3 §5.2: EQUAL-JITTERED (was the flat window)
+              == static_cast<int64_t>(protocol::equal_jitter_lo(protocol::mobile_offer_window_ms)));   // rand(1000, 2001); this TestHal draws `lo`
     }
 
     // ---- ARM C: IMMEDIATE HAL refusal of the CLAIM (clear channel) ⇒ the same verdict by the other path.
@@ -2322,7 +3453,8 @@ TEST_CASE("★★★ §MH-S1b (spec §6.3) — a DEFERRED CLAIM does not registe
         CHECK(hal.count("mobile_adopted") == 0);
         CHECK(m.mobile_last_result() == Node::MobileAttemptResult::tx_rejected);
         CHECK(hal.count_armed(kMobileDiscoverTimerId) == 1);
-        CHECK(hal.last_armed(kMobileDiscoverTimerId) == static_cast<int64_t>(protocol::mobile_offer_window_ms));
+        CHECK(hal.last_armed(kMobileDiscoverTimerId)                     // ★ §MH-S3 §5.2: EQUAL-JITTERED (was the flat window)
+              == static_cast<int64_t>(protocol::equal_jitter_lo(protocol::mobile_offer_window_ms)));   // rand(1000, 2001); this TestHal draws `lo`
     }
 }
 
@@ -2342,13 +3474,14 @@ TEST_CASE("★★★ §MH-S1b (spec §6.2) — an OFFER the HAL REFUSES is repor
         hal.tx_answer = TxResult::busy;
         hal.events.clear(); hal.tx_frames.clear();
         const int calls_before = hal.tx_calls;
-        host.on_timer(kMobileOfferBackoffTimerId);
+        fire_mobile_offer_timer(host, hal);
 
         CHECK(hal.tx_calls - calls_before == 1);                     // PREMISE: offered to the HAL
         CHECK(hal.count("tx_hal_rejected") == 1);                    // PREMISE: refused
         CHECK(count_j_offer_mobile(hal.tx_frames) == 0);             // ★ nothing on the wire
         CHECK(hal.count("mobile_offer_dropped") == 1);               // ★★ reported, not vanished
         CHECK(hal.count("mobile_offer_tx") == 0);                    // ★★ and NOTHING claimed a transmission
+        CHECK(host.mobile_offer_reject_count() == 1);                // ★★ [[B146]]: exactly ONE increment
     }
 
     // ---- ARM B: the OFFER is DEFERRED at timer 80 and the HAL refuses when the slot fires. Round 1 could
@@ -2363,12 +3496,13 @@ TEST_CASE("★★★ §MH-S1b (spec §6.2) — an OFFER the HAL REFUSES is repor
 
         hal._busy_until = hal._now + 5000;                           // now reserve the medium: the fire DEFERS
         hal.events.clear(); hal.tx_frames.clear();
-        host.on_timer(kMobileOfferBackoffTimerId);
+        fire_mobile_offer_timer(host, hal);
         CHECK(hal.count("tx_lbt_defer") == 1);                       // PREMISE: deferred and ACCEPTED
         CHECK(hal.count("tx_lbt_defer_dropped") == 0);
         CHECK(hal.count("mobile_offer_dropped") == 0);               // ★ nothing reported yet — correctly
         CHECK(hal.count("mobile_offer_tx") == 0);                    // ★ and nothing claimed sent yet either
         CHECK(count_j_offer_mobile(hal.tx_frames) == 0);
+        CHECK(host.mobile_offer_reject_count() == 0);                // ★ ...and nothing counted yet either
 
         hal._now = 100000 + 5000;
         hal.tx_answer = TxResult::busy;
@@ -2379,6 +3513,11 @@ TEST_CASE("★★★ §MH-S1b (spec §6.2) — an OFFER the HAL REFUSES is repor
         CHECK(count_j_offer_mobile(hal.tx_frames) == 0);             // ★ never reached the air
         CHECK(hal.count("mobile_offer_dropped") == 1);               // ★★ ATTRIBUTED to the OFFER
         CHECK(hal.count("mobile_offer_tx") == 0);                    // ★★ and never claimed sent
+        // ★★★ [[B146]] §MH-S2b — THE READING THAT USED TO BE ZERO. This arm reached
+        // `mobile_offer_admission_rejected` from `node.cpp`'s deferred-loss arm, which never touched the
+        // counter, so the event fired and `mobile_offer_reject_count()` disagreed with it. The case asserted
+        // the EVENT only, which is exactly why it could not see that.
+        CHECK(host.mobile_offer_reject_count() == 1);
 
         // ---- POSITIVE CONTROL for this arm: the SAME deferred path with a working HAL emits the honest
         // `mobile_offer_tx` AT THE DEFER FIRE and no drop — so ARM B measures the refusal, not the defer.
@@ -2388,7 +3527,7 @@ TEST_CASE("★★★ §MH-S1b (spec §6.2) — an OFFER the HAL REFUSES is repor
         h2._busy_until = 0;
         CHECK(stage_mobile_offer(host2, h2, /*mobile_hash=*/0x0000DA03u) == 1);
         h2._busy_until = h2._now + 5000;
-        host2.on_timer(kMobileOfferBackoffTimerId);
+        fire_mobile_offer_timer(host2, h2);
         CHECK(h2.count("tx_lbt_defer") == 1);
         h2._now = 100000 + 5000;
         h2.events.clear(); h2.tx_frames.clear();
@@ -2396,6 +3535,7 @@ TEST_CASE("★★★ §MH-S1b (spec §6.2) — an OFFER the HAL REFUSES is repor
         CHECK(count_j_offer_mobile(h2.tx_frames) == 1);              // ★ on the wire at the defer fire...
         CHECK(h2.count("mobile_offer_tx") == 1);                     // ★★ ...and the honest event fires THERE
         CHECK(h2.count("mobile_offer_dropped") == 0);
+        CHECK(host2.mobile_offer_reject_count() == 0);               // ★★ [[B146]]: an ACCEPTED deferred OFFER counts ZERO
     }
 }
 
@@ -2665,29 +3805,42 @@ TEST_CASE("★★★ [[B142]]/4 REJECTED — a STALE deferred CLAIM the HAL woul
 }
 
 // ---------------------------------------------------------------------------
-// §S0-4 — A LOST CLAIM CREATES A FALSE REGISTRATION.  Spec §2.4 / §7.1.
+// ★★★★ §S0-4 — REWRITTEN IN PLACE BY §MH-S4 (2026-08-08). Spec §2.4 / §7.1, gate items 7 and 8.
 //
-// DEFECT PINNED HERE: `mobile_claim_guard_fire()` (node_mobile.cpp:127-167) transmits the CLAIM and
-// then adopts unconditionally — `_my_mobile_reg = { true, ... }`, `_joined = true`, and an app-facing
-// `mobile_reg{registered:true}` push — WITHOUT any confirmation that the home recorded the row. A CLAIM
-// lost to an RX collision therefore leaves the mobile reporting REGISTERED to a home that has no row
-// for it. The two mechanisms that were supposed to heal this are both inert, VERIFIED BY GREP (V1):
-//   • `_presence_reg_confirmed` — declared node.h:2148, written node_mobile.cpp:329 (false) and :395
-//     (true). ★ TWO WRITES, ZERO READS across lib/core and src. It cannot affect any decision.
-//   • `presence_claim_max_retries` — defined protocol_constants.h:696. ★ ZERO CONSUMERS. No re-CLAIM
-//     path exists; the old periodic re-CLAIM keepalive was retired.
-// This case proves the inertness OBSERVABLY (no second CLAIM ever reaches the air) rather than by
-// citing the grep.
+// ⛔ NOT DELETED AND NOT DISABLED (B101). This case was committed GREEN by §S0 asserting TODAY'S DEFECTIVE
+// BEHAVIOUR, and §MH-S4 is the slice that owned its rewrite. The diff of this block IS the behaviour change.
 //
-// CORRECT BEHAVIOUR (spec §7.1, gate items 7/8), to be asserted by the S4 rewrite: CLAIM enters
-// `claiming`; only a chosen-home roster carrying (hash, local id, epoch) promotes to `attached` and
-// emits `registered:true`; a roster that omits us re-sends the same CLAIM up to
-// `presence_claim_max_retries`; exhaustion returns to `seeking` — the app NEVER sees a false
-// `registered:true`.
-// ⇒ ★ WHEN S4 LANDS THIS CASE GOES RED (`mobile_registered()` must be false right after the CLAIM, and a
-//   re-CLAIM must appear). REWRITE IT; don't delete it.
+// WHAT IT USED TO ASSERT, verbatim in intent, so the change is readable without `git log`:
+//   · `CHECK(mob.mobile_registered())` right after a DROPPED CLAIM — the mobile believed it was registered;
+//   · `CHECK(reg_true == 1)` — the app-facing `mobile_reg{registered:true}` push, emitted unconfirmed;
+//   · `CHECK(count_j_opcode(..., claim) == claims_at_adopt)` FOUR TIMES across a full presence cycle — "NOT ONE
+//     re-CLAIM", because `presence_claim_max_retries` had zero consumers and `_presence_reg_confirmed` had zero
+//     readers, so neither could heal a CLAIM lost to an RX collision;
+//   · `CHECK(elapsed == 135000ull)` — the quantified window of false `registered:true`, ended not by a re-CLAIM
+//     but by HOME LOST plus a full re-DISCOVER.
+//
+// WHAT IT ASSERTS NOW (§7.1 steps 1-6):
+//   · the CLAIM is transmitted and the offered id is adopted PROVISIONALLY — state `claiming`, NOT `attached`;
+//   · ⛔ the app is told NOTHING: zero `registered:true` pushes, and `mobile_attached()` is false throughout;
+//   · every confirmation deadline re-sends THE SAME CLAIM — same chosen host, same local id, SAME EPOCH — up to
+//     `presence_claim_max_retries` (3), so the dropped CLAIM has three chances to heal that it never had;
+//   · exhaustion returns the FSM to `seeking` with `last_result = claim_unconfirmed`, never to a false
+//     registration and NOT via `presence_home_lost`;
+//   · the HOME-LINK plane is never moved to `confirmed` (nor, while claiming, to `checking`/`lost`) — nothing
+//     about the home was ever measured (§4.1/§6.4).
+//
+// ★ ONE NUMBER DELIBERATELY DID NOT CHANGE IN §MH-S4, because pretending otherwise would have been the
+//   interesting lie: the give-up boundary stayed 135 000 ms (T=120 s + 3 x 5 s). That was never the defect.
+//
+// ★★★★ EXTENDED IN PLACE AGAIN BY §MH-S4b (2026-08-08), and THIS time the boundary moves — to 60 000 ms — because
+// the reason it was 135 s was itself a defect. §MH-S4 armed the STEADY check period as the confirmation deadline and
+// then spent a re-CLAIM in the same callback that sent the probe, so (a) nothing asked for 120 s and (b) the ask
+// could not be answered before the verdict. §7.1 step 3 asks for a SHORT SEARCHING probe followed by time for its
+// roster; that is now what happens, in TWO deadlines per round, and the substate `claim_solicited` is what tells
+// "we asked and are waiting" from "we asked and were answered". SIDE C is rewritten around that pair; ⛔ nothing
+// was deleted, and the §MH-S4 assertions that still hold are kept verbatim.
 // ---------------------------------------------------------------------------
-TEST_CASE("★★★ §S0-4 CHARACTERIZATION (spec §2.4) — a DROPPED CLAIM leaves the mobile 'registered' at a home with no row") {
+TEST_CASE("★★★ §S0-4 REWRITTEN (§MH-S4 §7.1, EXTENDED §MH-S4b) — a DROPPED CLAIM yields `claiming`, a SHORT SEARCHING solicitation, three same-epoch re-CLAIMs, then `seeking` — never a false registration") {
     constexpr uint32_t kMob  = 0x0000B7B7u;
     constexpr uint32_t kHome = 0x00004242u;
     constexpr uint8_t  kHomeId = 42;
@@ -2700,6 +3853,9 @@ TEST_CASE("★★★ §S0-4 CHARACTERIZATION (spec §2.4) — a DROPPED CLAIM le
     CHECK(mob.on_init(s0_mobile_cfg()));
     CHECK(home.on_init(join_cfg()));
     CHECK(home.can_host_mobiles());
+    CHECK(mob.mobile_attach_state() == Node::MobileAttachState::seeking);   // §MH-S4 §4.1: autoregister ON -> `seeking` from boot
+    CHECK(mob.mobile_home_link() == Node::MobileHomeLink::unknown);
+    CHECK_FALSE(mob.mobile_home_confirmed_ever());
 
     // --- a REAL handshake, driven frame by frame, so the CLAIM under test is the genuine article.
     mob.on_timer(kMobileDiscoverTimerId);
@@ -2707,7 +3863,7 @@ TEST_CASE("★★★ §S0-4 CHARACTERIZATION (spec §2.4) — a DROPPED CLAIM le
     CHECK(disc.has_value());                                         // PREMISE: the mobile really DISCOVERed
     home.on_recv(hm.tx_frames.back().data(), hm.tx_frames.back().size(), meta);
     hh.tx_frames.clear();
-    home.on_timer(kMobileOfferBackoffTimerId);
+    fire_mobile_offer_timer(home, hh);
     CHECK(count_j_offer_mobile(hh.tx_frames) == 1);                  // PREMISE: the home really OFFERed
     auto off = first_j(hh.tx_frames, j_opcode::offer);
     CHECK(off.has_value());
@@ -2720,66 +3876,147 @@ TEST_CASE("★★★ §S0-4 CHARACTERIZATION (spec §2.4) — a DROPPED CLAIM le
     mob.on_recv(hh.tx_frames.back().data(), hh.tx_frames.back().size(), meta);
 
     hm.tx_frames.clear();
-    mob.on_timer(kMobileClaimGuardTimerId);                          // window close -> CLAIM + (defective) adopt
+    mob.on_timer(kMobileClaimGuardTimerId);                          // window close -> CLAIM + PROVISIONAL adopt
 
-    // PREMISE — the mobile really transmitted a well-formed CLAIM aimed at THIS home. The defect is that
-    // the CLAIM was LOST, so the frame must demonstrably exist before we drop it.
+    // PREMISE — the mobile really transmitted a well-formed CLAIM aimed at THIS home. The defect being fixed is
+    // that the CLAIM was LOST, so the frame must demonstrably exist before we drop it.
     auto claim = first_j(hm.tx_frames, j_opcode::claim);
     CHECK(claim.has_value());
     if (claim) { CHECK(claim->chosen_host_id == kHomeId);
                  CHECK(claim->proposed_node_id == offered_id);
                  CHECK(claim->key_hash32 == kMob); }
-    const int claims_at_adopt = count_j_opcode(hm.tx_frames, j_opcode::claim);
-    CHECK(claims_at_adopt == 1);
+    CHECK(count_j_opcode(hm.tx_frames, j_opcode::claim) == 1);
+    const uint8_t claim_epoch = claim ? claim->claim_epoch : uint8_t(0xFF);
+    CHECK(claim_epoch == 1);                                         // PINNED: the first CLAIM of a fresh mobile carries epoch 1
 
     // ⛔ THE DROP: the CLAIM is never delivered to `home` (an RX collision on real air).
 
-    // ★★ THE DEFECT, side A — THE MOBILE BELIEVES IT IS REGISTERED, AND TELLS THE APP SO.
-    CHECK(mob.mobile_registered());                                  // ← S4 must make this FALSE (state `claiming`)
+    // ★★★★ SIDE A — THE FIX. The mobile is `claiming`, and THE APP IS TOLD NOTHING.
+    CHECK(mob.mobile_attach_state() == Node::MobileAttachState::claiming);   // ← was: mobile_registered() read as a registration
+    CHECK_FALSE(mob.mobile_attached());                              // ★★ the app-facing truth: NOT registered
+    CHECK(mob.mobile_home_link() == Node::MobileHomeLink::unknown);   // ★ nothing about the home has been measured
+    CHECK_FALSE(mob.mobile_home_confirmed_ever());                   // ★ so there is no confirmation age to render
+    CHECK(mob.mobile_claim_retries() == 0);                          // the budget is untouched so far
+    // ⓘ The PROVISIONAL adoption is intended and is asserted, not glossed over (§7.1 step 1): the mobile really
+    //   does operate under the offered local id — that is what lets a home answer it at all — and
+    //   `mobile_registered()` is the LINK-LAYER flag that says so. What changed is that this flag is no longer
+    //   what any surface reads.
+    CHECK(mob.mobile_registered());
     CHECK(mob.mobile_home_id() == kHomeId);
-    CHECK(mob.node_id() == offered_id);                              // it even adopted the offered local id
+    CHECK(mob.node_id() == offered_id);
     {
         int reg_true = 0;
         Push p{}; while (mob.next_push(p)) if (p.kind == PushKind::mobile_reg && p.relayed) ++reg_true;
-        CHECK(reg_true == 1);                                        // ★ the app-facing `registered:true` push, unconfirmed
+        CHECK(reg_true == 0);                                        // ★★★ was `== 1`: the unconfirmed app-facing push is GONE
     }
 
-    // ★★ THE DEFECT, side B — THE HOME HAS NO ROW, AND SAYS SO ON THE WIRE.
+    // SIDE B — the home still has no row and says so on the wire (unchanged premise: the CLAIM really was lost).
     CHECK(home.mobile_reg_count() == 0);
     hh.tx_frames.clear();
     home.on_timer(kPresenceRosterTimerId);
     CHECK(count_p_rosters(hh.tx_frames) == 0);                       // an empty registry emits no roster at all
-    CHECK_FALSE(roster_entry_for(hh.tx_frames, kMob).has_value());   // ★ the mobile is in NO roster anywhere
+    CHECK_FALSE(roster_entry_for(hh.tx_frames, kMob).has_value());
 
-    // ★★ THE DEFECT, side C — NOTHING HEALS IT. Drive the whole presence cycle the mobile armed at adopt
-    // (T = presence_check_base_ms, then presence_probe_k_miss retries at presence_probe_retry_ms) and show
-    // that ZERO further CLAIMs are transmitted: `presence_claim_max_retries` has no consumer and
-    // `_presence_reg_confirmed` has no reader, so neither can turn a lost CLAIM into a re-CLAIM.
-    CHECK(hm.last_armed(kPresenceProbeTimerId) == static_cast<int64_t>(protocol::presence_check_base_ms));
+    // ★★★★ SIDE C — AND NOW IT HEALS ITSELF. Drive the confirmation deadlines the mobile armed at adopt and show
+    // that EACH ONE re-sends THE SAME CLAIM (§7.1 steps 5-6), which is the exact opposite of what this case
+    // previously proved. ⚠ The home is deliberately still deaf, so the re-CLAIMs go unanswered — this measures the
+    // RETRY MACHINERY, not the healing (the healing has its own case below).
+    // ★★★★ §MH-S4b §7.1 step 3 — THE DEADLINE IS NOW **SHORT** AND A CLAIMING ROUND IS **TWO** FIRES, NOT ONE.
+    // §MH-S4 armed the STEADY check period here (`presence_check_base_ms`, 120 000 ms) and then, in the very
+    // callback that sent the probe, spent a re-CLAIM — so the probe could not possibly be answered first and, worse,
+    // it was a SELECTED probe, which a home that missed the CLAIM is required to IGNORE. Both halves are fixed:
+    // the ask is a SHORT SEARCHING probe, and the verdict waits for its own deadline.
+    CHECK(hm.last_armed(kPresenceProbeTimerId) == static_cast<int64_t>(protocol::presence_claim_solicit_ms));
+    CHECK_FALSE(mob.mobile_claim_solicited());
     uint64_t elapsed = 0;
     int probes = 0;
-    for (int i = 0; i < static_cast<int>(protocol::presence_probe_k_miss) + 1; ++i) {
-        const uint32_t step = (i == 0) ? protocol::presence_check_base_ms : protocol::presence_probe_retry_ms;
-        hm._now += step; elapsed += step;
+    // ---- the SOLICITATION half, factored so the loop below and the exhaustion round below share ONE definition of
+    //      "ask and wait" (U1). It asserts the two things that make the ask real: a probe on the wire, SEARCHING.
+    auto solicit_round = [&](int expect_claims) {
+        hm._now += protocol::presence_claim_solicit_ms; elapsed += protocol::presence_claim_solicit_ms;
         hm.events.clear();
+        const int probes_before = count_p_probes(hm.tx_frames);
         mob.on_timer(kPresenceProbeTimerId);
         probes += hm.count("presence_probe_tx");
-        CHECK(mob.mobile_registered());                              // ★ still falsely registered, the whole time
-        CHECK(count_j_opcode(hm.tx_frames, j_opcode::claim) == claims_at_adopt);   // ★★ NOT ONE re-CLAIM
+        CHECK(count_p_probes(hm.tx_frames) == probes_before + 1);     // PREMISE: a probe really went on the wire
+        auto pr = last_p_probe(hm.tx_frames);
+        CHECK(pr.has_value());
+        if (pr) {
+            CHECK(pr->searching());                                  // ★★★★ §7.1 step 3: SEARCHING — was SELECTED, which the
+            CHECK(pr->selected_home_id == 0);                        //      home that missed the CLAIM must IGNORE
+            CHECK(pr->key_hash32 == kMob);                           // ★ …but it is still OUR probe
+        }
+        CHECK(mob.mobile_claim_solicited());                         // ★★ "we asked and are waiting" — the substate
+        CHECK(hm.last_armed(kPresenceProbeTimerId) == static_cast<int64_t>(protocol::presence_claim_confirm_ms));
+        CHECK(count_j_opcode(hm.tx_frames, j_opcode::claim) == expect_claims);   // ★★★ the ask spends NO re-CLAIM
+    };
+    for (int i = 0; i < static_cast<int>(protocol::presence_claim_max_retries); ++i) {
+        solicit_round(/*expect_claims=*/i + 1);                      // ask (1 original + i re-CLAIMs so far)
+        CHECK(mob.mobile_claim_retries() == i);                       // ★★ …and the budget is STILL untouched by the ask
+        // ---- the CONFIRMATION half: the roster window expired in silence, so ONE re-CLAIM is spent.
+        hm._now += protocol::presence_claim_confirm_ms; elapsed += protocol::presence_claim_confirm_ms;
+        hm.events.clear();
+        const int probes_before = count_p_probes(hm.tx_frames);
+        mob.on_timer(kPresenceProbeTimerId);
+        CHECK(count_p_probes(hm.tx_frames) == probes_before);        // ★★ NO second probe: the verdict does not re-ask
+        // ★★ THE RE-CLAIM, ASSERTED ON THE WIRE — not on a counter, and not on the emit.
+        CHECK(count_j_opcode(hm.tx_frames, j_opcode::claim) == i + 2);            // 1 original + (i+1) re-CLAIMs
+        auto rc = last_j(hm.tx_frames, j_opcode::claim);
+        CHECK(rc.has_value());
+        if (rc) {
+            CHECK(rc->chosen_host_id    == kHomeId);                 // ★ THE SAME chosen host
+            CHECK(rc->proposed_node_id  == offered_id);              // ★ THE SAME local id — no re-draw
+            CHECK(rc->claim_epoch       == claim_epoch);             // ★★ THE SAME EPOCH — this is what makes it "the same CLAIM"
+            CHECK(rc->key_hash32        == kMob);
+        }
+        CHECK(mob.mobile_claim_retries() == i + 1);                   // the budget is spent by the TRANSMISSION
+        CHECK_FALSE(mob.mobile_claim_solicited());                    // ★ the next round asks again
+        CHECK(hm.last_armed(kPresenceProbeTimerId) == static_cast<int64_t>(protocol::presence_claim_solicit_ms));
+        CHECK(mob.mobile_attach_state() == Node::MobileAttachState::claiming);
+        CHECK_FALSE(mob.mobile_attached());                          // ★ still never registered, the whole time
+        CHECK(hm.count("presence_home_lost") == 0);                  // ★★ and NOT via the home-lost ladder
+        CHECK(mob.mobile_home_link() == Node::MobileHomeLink::unknown);   // ★ nothing measured about the home -> plane unmoved
     }
-    CHECK(probes == static_cast<int>(protocol::presence_probe_k_miss) + 1);        // PREMISE: the probes really fired
-    // The next tick finally gives up — via HOME LOST + a full re-DISCOVER, not via the documented same-home
-    // re-CLAIM. Quantified: that is the spec's ≈135 s of false `registered:true` (§2.4).
-    hm._now += protocol::presence_probe_retry_ms; elapsed += protocol::presence_probe_retry_ms;
+    CHECK(probes == static_cast<int>(protocol::presence_claim_max_retries));      // PREMISE: the probes really fired too
+    CHECK(count_j_opcode(hm.tx_frames, j_opcode::claim) == 1 + protocol::presence_claim_max_retries);
+    // ★★★ EXHAUSTION — "reset and return to `seeking` rather than remaining falsely registered" (§7.1 step 6).
+    // ⓘ It takes a FULL round: the budget is exhausted, but the mobile still ASKS one last time before declaring
+    //   silence — which is right, because a roster arriving in that window would still confirm it.
+    solicit_round(/*expect_claims=*/1 + protocol::presence_claim_max_retries);   // the fourth and last ask (probes -> 4)
+    CHECK(probes == static_cast<int>(protocol::presence_claim_max_retries) + 1);
+    hm._now += protocol::presence_claim_confirm_ms; elapsed += protocol::presence_claim_confirm_ms;
     hm.events.clear();
     mob.on_timer(kPresenceProbeTimerId);
-    CHECK(hm.count("presence_home_lost") == 1);
+    CHECK(hm.count("mobile_claim_exhausted") == 1);                  // PREMISE: the exhaustion branch, not some other reset
+    CHECK(hm.count("presence_home_lost") == 0);                      // ★★ was the ONLY way out before; it is no longer used
+    CHECK(mob.mobile_attach_state() == Node::MobileAttachState::seeking);   // ★★★ `seeking`, NOT `recovering` — there was never an attachment to recover
+    CHECK_FALSE(mob.mobile_attached());
     CHECK_FALSE(mob.mobile_registered());
-    CHECK(count_j_opcode(hm.tx_frames, j_opcode::claim) == claims_at_adopt);       // ★ still never a re-CLAIM
-    CHECK(elapsed == 135000ull);            // ★ 120 s (T) + 3 x 5 s (retries) = the spec's ≈135 s of false REGISTERED
+    CHECK(mob.mobile_last_result() == Node::MobileAttemptResult::claim_unconfirmed);   // §10's code, now actually reachable
+    CHECK(mob.mobile_claim_retries() == 0);                          // budget released for the next attachment
+    CHECK(count_j_opcode(hm.tx_frames, j_opcode::claim) == 1 + protocol::presence_claim_max_retries);   // ★ exhaustion does NOT send a 5th
+    CHECK(hm.count_armed(kMobileDiscoverTimerId) >= 1);              // ★ a FULL re-DISCOVER is armed (fresh id, fresh epoch)
+    CHECK_FALSE(mob.mobile_claim_solicited());                       // ★ the session is over — no ask is outstanding
+    // ★★★★ §MH-S4b — **AND THE WINDOW HAS NOW CHANGED, HAVING DELIBERATELY NOT CHANGED IN §MH-S4.** §MH-S4 kept the
+    // pre-existing 135 000 ms (T = 120 s + 3 × 5 s) and said so, because the boundary was never the defect. §MH-S4b
+    // moves it, and the arithmetic is stated rather than merely re-pinned: FOUR rounds of
+    // (`presence_claim_solicit_ms` 3 000 + `presence_claim_confirm_ms` 12 000) = 60 000 ms.
+    // ★ THE FIGURE THAT ACTUALLY MATTERS IS THE FIRST ONE, NOT THE LAST: the FIRST confirmation opportunity is now
+    //   at ~3 s (and in a live network usually earlier still — the home schedules a roster when it RECORDS the
+    //   CLAIM), where §MH-S4 asked nothing at all for 120 s. Faster give-up is a side effect; a fast ASK is the fix.
+    CHECK(elapsed == 4ull * (protocol::presence_claim_solicit_ms + protocol::presence_claim_confirm_ms));
+    CHECK(elapsed == 60000ull);                                      // ★ spelled out too, so the constants cannot drift unnoticed
+    {   // ★★★ THE HEADLINE, RE-STATED AS THE APP SEES IT: across the entire 135 s the companion received not one
+        // `registered:true`. This is the assertion the whole slice exists for.
+        int reg_true = 0, reg_false = 0;
+        Push p{}; while (mob.next_push(p)) if (p.kind == PushKind::mobile_reg) { if (p.relayed) ++reg_true; else ++reg_false; }
+        CHECK(reg_true == 0);
+        CHECK(reg_false == 0);                                       // ★ and no unpaired `registered:false` either (symmetry)
+    }
 
-    // ---- POSITIVE CONTROL: had the CLAIM landed, the home WOULD hold the row and WOULD roster it. This is
-    // what makes "the home has no row" a measurement of the loss rather than of a harness that cannot register.
+    // ---- POSITIVE CONTROL (RETAINED VERBATIM): had the CLAIM landed, the home WOULD hold the row and WOULD
+    // roster it. This is what makes "the home has no row" a measurement of the loss rather than of a harness that
+    // cannot register.
     {
         TestHal hc; hc._now = 100000;
         Node h2(hc, /*node_id=*/kHomeId, kHome);
@@ -2793,6 +4030,818 @@ TEST_CASE("★★★ §S0-4 CHARACTERIZATION (spec §2.4) — a DROPPED CLAIM le
         auto e = roster_entry_for(hc.tx_frames, kMob);
         CHECK(e.has_value());                                        // ★ a REAL registration is visible on the wire
         if (e) CHECK(e->local_id == offered_id);
+    }
+}
+
+
+// ============================================================================
+// ★★★★ §MH-S4 — THE CONFIRMED-ATTACHMENT FSM AND THE TWO INDEPENDENT PLANES.
+// Spec §4.1 (three planes) · §4.2 (mobile_autoregister policy) · §6.4 + [[B139]] (admission is a LOCAL plane)
+// · §7.1 (confirmation without a new wire message) · §7.2 (link-confidence rules) · §10 (diagnostics).
+// Gate items 7, 8, 9, 10, 20, 21, 22, 23, plus the identity-is-the-TRIPLE requirement.
+//
+// ★ WHAT EVERY CASE BELOW ASSERTS: the OBSERVABLE SIDE EFFECT — the parsed frame on the wire, the emitted
+// push, the rendered state — never an internal flag alone and never two constants the case itself assigned.
+// Events appear as PREMISES ("the branch under test was really reached"), never as the verdict.
+// ============================================================================
+namespace {
+
+// Bring a fresh mobile all the way to CONFIRMED `attached` through the real handshake: DISCOVER -> OFFER ->
+// CLAIM -> chosen-home roster carrying the triple. Returns the offered/adopted local id.
+// ⓘ The OFFER is synthesized (`make_j_offer_mobile`) rather than driven from a second Node, deliberately: these
+//   cases are about the MOBILE's FSM, and a synthetic OFFER lets each one pin the local id it wants to test with.
+//   The §S0-4 rewrite above drives a REAL home end-to-end, which is where that coverage lives.
+uint8_t attach_mobile_confirmed(Node& mob, TestHal& hal, uint8_t home_id, uint32_t home_hash,
+                                uint8_t local_id, uint32_t mob_hash, const RxMeta& meta) {
+    mob.on_timer(kMobileDiscoverTimerId);
+    std::array<uint8_t, 16> off{};
+    const size_t on = make_j_offer_mobile(home_id, home_hash, local_id, mob_hash, off);
+    mob.on_recv(off.data(), on, meta);
+    mob.on_timer(kMobileClaimGuardTimerId);                          // CLAIM + provisional adopt -> `claiming`
+    confirm_mobile_via_roster(mob, hal, home_id, mob.config().layers[0].layer_id,
+                              mob_hash, local_id, /*epoch=*/1, meta);
+    return local_id;
+}
+
+}  // namespace
+
+// ---------------------------------------------------------------------------
+// GATE 7 — "a lost first CLAIM is healed by same-epoch re-CLAIM and roster confirmation."
+// The §S0-4 rewrite proves the retry machinery against a permanently deaf home; THIS case closes the loop with
+// a REAL home that hears the SECOND CLAIM, and asserts the healing on the home's own wire output.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★ §MH-S4 gate 7 (§7.1) — a LOST first CLAIM is healed by the same-epoch re-CLAIM: the home records it and the roster confirms") {
+    constexpr uint32_t kMob = 0x0000C7C7u, kHome = 0x00004242u;
+    constexpr uint8_t  kHomeId = 42;
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    TestHal hm; hm._now = 100000;
+    TestHal hh; hh._now = 100000;
+    Node mob (hm, /*node_id=*/0,       kMob);
+    Node home(hh, /*node_id=*/kHomeId, kHome);
+    CHECK(mob.on_init(s0_mobile_cfg()));
+    CHECK(home.on_init(join_cfg()));
+
+    mob.on_timer(kMobileDiscoverTimerId);
+    home.on_recv(hm.tx_frames.back().data(), hm.tx_frames.back().size(), meta);
+    hh.tx_frames.clear();
+    fire_mobile_offer_timer(home, hh);
+    auto off = first_j(hh.tx_frames, j_opcode::offer);
+    CHECK(off.has_value());                                          // PREMISE: a real OFFER
+    const uint8_t offered = off ? off->proposed_mobile_id : uint8_t(0);
+    mob.on_recv(hh.tx_frames.back().data(), hh.tx_frames.back().size(), meta);
+    hm.tx_frames.clear();
+    mob.on_timer(kMobileClaimGuardTimerId);                          // CLAIM #1 — DROPPED (never handed to `home`)
+    CHECK(count_j_opcode(hm.tx_frames, j_opcode::claim) == 1);        // PREMISE: CLAIM #1 really existed
+    CHECK(home.mobile_reg_count() == 0);                             // PREMISE: and really was lost
+    CHECK(mob.mobile_attach_state() == Node::MobileAttachState::claiming);
+    CHECK_FALSE(mob.mobile_attached());
+    Push p{}; while (mob.next_push(p)) {}                            // drain (there is nothing to drain — asserted in §S0-4)
+
+    // ---- ★★★★ §MH-S4b §7.1 step 3: the SOLICITATION deadline first (short, SEARCHING, spends nothing), THEN the
+    //      confirmation deadline -> the SAME CLAIM again, and THIS one is delivered.
+    hm._now += protocol::presence_claim_solicit_ms;
+    mob.on_timer(kPresenceProbeTimerId);
+    { auto pr = last_p_probe(hm.tx_frames);
+      CHECK(pr.has_value());
+      if (pr) CHECK(pr->searching());                                // ★★ the ask a claim-less home will actually ANSWER
+      CHECK(mob.mobile_claim_solicited());
+      CHECK(count_j_opcode(hm.tx_frames, j_opcode::claim) == 1); }    // ★ still just CLAIM #1 — the ask is not the retry
+    hm._now += protocol::presence_claim_confirm_ms;
+    mob.on_timer(kPresenceProbeTimerId);
+    auto rc = last_j(hm.tx_frames, j_opcode::claim);
+    CHECK(rc.has_value());
+    CHECK(count_j_opcode(hm.tx_frames, j_opcode::claim) == 2);
+    if (rc) { CHECK(rc->proposed_node_id == offered); CHECK(rc->claim_epoch == 1); }   // ★ same id, same epoch
+    home.on_recv(hm.tx_frames.back().data(), hm.tx_frames.back().size(), meta);        // ★ the re-CLAIM LANDS
+    CHECK(home.mobile_reg_count() == 1);                             // ★★ the home now holds the row
+
+    // ---- the home rosters (the CLAIM scheduled it) and the mobile confirms.
+    hh.tx_frames.clear();
+    home.on_timer(kPresenceRosterTimerId);
+    auto e = roster_entry_for(hh.tx_frames, kMob);
+    CHECK(e.has_value());                                            // PREMISE: the row is on the wire
+    if (e) { CHECK(e->local_id == offered); CHECK(e->reg_epoch == 1); }
+    hm._now += 500;
+    mob.on_recv(hh.tx_frames.back().data(), hh.tx_frames.back().size(), meta);
+
+    // ★★★★ THE HEALING, ON EVERY SURFACE AT ONCE.
+    CHECK(mob.mobile_attach_state() == Node::MobileAttachState::attached);
+    CHECK(mob.mobile_attached());
+    CHECK(mob.mobile_local_id() == offered);
+    CHECK(mob.mobile_last_result() == Node::MobileAttemptResult::confirmed);
+    CHECK(mob.mobile_claim_retries() == 0);                          // budget released on confirmation
+    CHECK_FALSE(mob.mobile_claim_solicited());                       // ★ §MH-S4b: the ask was ANSWERED — not still outstanding
+    CHECK(hm.count("mobile_attach_confirmed") == 1);                 // PREMISE: the promotion branch, exactly once
+    // ★★★★ §MH-S4b — **`reclaims` REPORTS A NON-ZERO COUNT, AND THAT IS THE WHOLE ASSERTION.** §MH-S4 cleared
+    // `_mobile_claim_retries` on the line ABOVE this emit, so the field was structurally always 0: an instrument
+    // that cannot fail, on the one event whose job is to say "this attachment was HEALED rather than clean". This
+    // case is the healed one — exactly ONE re-CLAIM landed it — so the honest reading is 1.
+    // ⛔ NOT "the field is present": that is what let the zero survive. The VALUE is asserted.
+    { const Ev* c = hm.find("mobile_attach_confirmed");
+      CHECK(c != nullptr);
+      if (c) { CHECK(c->reclaims == 1);                              // ★★★ was structurally 0
+               CHECK(c->local_id == offered); } }
+    {   // ★★ GATE 8's positive half: the app is told NOW — and only now — exactly once.
+        int reg_true = 0; Push q{};
+        while (mob.next_push(q)) if (q.kind == PushKind::mobile_reg && q.relayed) {
+            ++reg_true; CHECK(q.origin == kHomeId); CHECK(q.dst == offered); CHECK(q.ctr == 1);
+        }
+        CHECK(reg_true == 1);
+    }
+    // ★★ GATE 21 — A MATCHING ROSTER CONFIRMS **BOTH** PLANES, with the confirmation age stamped.
+    CHECK(mob.mobile_home_link() == Node::MobileHomeLink::confirmed);
+    CHECK(mob.mobile_home_confirmed_ever());
+    CHECK(mob.mobile_home_confirm_age_ms() == 0);                    // stamped at `now` — age zero AT the confirmation
+    hm._now += 420000;                                               // ...and it AGES (7 minutes)
+    CHECK(mob.mobile_home_confirm_age_ms() == 420000);               // ★★ "Home confirmed 7 min ago", measured
+
+    // ★★★ ONCE-ONLY: a healthy home rosters every T. A second matching roster must NOT re-push.
+    hh.tx_frames.clear();
+    home.on_timer(kPresenceRosterTimerId);
+    if (!hh.tx_frames.empty()) mob.on_recv(hh.tx_frames.back().data(), hh.tx_frames.back().size(), meta);
+    { int reg_true = 0; Push q{}; while (mob.next_push(q)) if (q.kind == PushKind::mobile_reg && q.relayed) ++reg_true;
+      CHECK(reg_true == 0); }                                        // ★★ no duplicate registration event
+    CHECK(hm.count("mobile_attach_confirmed") == 1);                 // ★ still exactly one promotion
+    CHECK(mob.mobile_home_confirm_age_ms() == 0);                    // ★ but the AGE was refreshed by the new evidence
+}
+
+// ---------------------------------------------------------------------------
+// ★★★ IDENTITY IS THE **TRIPLE** `(mobile_hash, local_id, reg_epoch)` (§4.1/§7.1) — this arc's recurring
+// category error, one layer down (hash alone -> [[B147]]; `seq` without `InboxKind` -> [[B133]]; `LbtKind`
+// alone -> [[B142]]). All THREE two-of-three combinations are driven, and each must FAIL to confirm.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★ §MH-S4 §7.1 — only the FULL (hash, local_id, epoch) triple confirms: every two-of-three match is refused") {
+    constexpr uint32_t kMob = 0x0000AB01u, kHomeHash = 0x00005050u;
+    constexpr uint8_t  kHomeId = 50, kLocal = 231;
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+
+    // (a) hash ✓ + epoch ✓ + local_id ✗  -> REFUSED (the arm this slice added)
+    {
+        TestHal hal; hal._now = 100000;
+        Node mob(hal, /*node_id=*/0, kMob);
+        CHECK(mob.on_init(s0_mobile_cfg()));
+        mob.on_timer(kMobileDiscoverTimerId);
+        std::array<uint8_t, 16> off{};
+        const size_t on = make_j_offer_mobile(kHomeId, kHomeHash, kLocal, kMob, off);
+        mob.on_recv(off.data(), on, meta);
+        mob.on_timer(kMobileClaimGuardTimerId);
+        CHECK(mob.mobile_attach_state() == Node::MobileAttachState::claiming);   // PREMISE
+        hal.events.clear();
+        confirm_mobile_via_roster(mob, hal, kHomeId, mob.config().layers[0].layer_id,
+                                  kMob, /*local=*/static_cast<uint8_t>(kLocal - 1), /*epoch=*/1, meta);   // ★ WRONG id
+        CHECK(hal.count("presence_local_id_mismatch") == 1);         // PREMISE: the new arm, not some other branch
+        CHECK_FALSE(mob.mobile_attached());                          // ★★ DID NOT CONFIRM
+        CHECK(mob.mobile_home_link() != Node::MobileHomeLink::confirmed);
+        CHECK_FALSE(mob.mobile_home_confirmed_ever());               // ★ and stamped no age
+        CHECK(hal.count("mobile_attach_confirmed") == 0);
+        int reg_true = 0; Push p{};
+        while (mob.next_push(p)) if (p.kind == PushKind::mobile_reg && p.relayed) ++reg_true;
+        CHECK(reg_true == 0);                                        // ★★ the app was NOT told
+    }
+    // (b) hash ✓ + local_id ✓ + epoch ✗  -> REFUSED (the pre-existing epoch arm, re-asserted so the triple is complete)
+    {
+        TestHal hal; hal._now = 100000;
+        Node mob(hal, /*node_id=*/0, kMob);
+        CHECK(mob.on_init(s0_mobile_cfg()));
+        mob.on_timer(kMobileDiscoverTimerId);
+        std::array<uint8_t, 16> off{};
+        const size_t on = make_j_offer_mobile(kHomeId, kHomeHash, kLocal, kMob, off);
+        mob.on_recv(off.data(), on, meta);
+        mob.on_timer(kMobileClaimGuardTimerId);
+        hal.events.clear();
+        confirm_mobile_via_roster(mob, hal, kHomeId, mob.config().layers[0].layer_id,
+                                  kMob, kLocal, /*epoch=*/9, meta);  // ★ WRONG epoch
+        CHECK(hal.count("presence_epoch_mismatch") == 1);            // PREMISE
+        CHECK_FALSE(mob.mobile_attached());                          // ★★ DID NOT CONFIRM
+        CHECK_FALSE(mob.mobile_home_confirmed_ever());
+        CHECK(hal.count("mobile_attach_confirmed") == 0);
+    }
+    // (c) local_id ✓ + epoch ✓ + hash ✗  -> REFUSED, and it takes the ROSTER-ABSENT path (our hash is simply
+    //     not in the roster), which for an UNCONFIRMED mobile means a bounded re-CLAIM — asserted on the wire.
+    {
+        TestHal hal; hal._now = 100000;
+        Node mob(hal, /*node_id=*/0, kMob);
+        CHECK(mob.on_init(s0_mobile_cfg()));
+        mob.on_timer(kMobileDiscoverTimerId);
+        std::array<uint8_t, 16> off{};
+        const size_t on = make_j_offer_mobile(kHomeId, kHomeHash, kLocal, kMob, off);
+        mob.on_recv(off.data(), on, meta);
+        mob.on_timer(kMobileClaimGuardTimerId);
+        const int claims = count_j_opcode(hal.tx_frames, j_opcode::claim);
+        hal.events.clear();
+        confirm_mobile_via_roster(mob, hal, kHomeId, mob.config().layers[0].layer_id,
+                                  /*hash=*/0x0000BAD0u, kLocal, /*epoch=*/1, meta);   // ★ SOMEBODY ELSE's hash
+        CHECK(hal.count("presence_roster_absent") == 1);             // PREMISE
+        CHECK_FALSE(mob.mobile_attached());                          // ★★ DID NOT CONFIRM
+        CHECK_FALSE(mob.mobile_home_confirmed_ever());
+        CHECK(hal.count("mobile_attach_confirmed") == 0);
+        // ★★ §7.1 step 5: never-confirmed + absent => THE SAME CLAIM again (not a re-DISCOVER)
+        CHECK(count_j_opcode(hal.tx_frames, j_opcode::claim) == claims + 1);
+        auto rc = last_j(hal.tx_frames, j_opcode::claim);
+        CHECK(rc.has_value());
+        if (rc) { CHECK(rc->proposed_node_id == kLocal); CHECK(rc->claim_epoch == 1); }
+        CHECK(mob.mobile_claim_retries() == 1);
+        CHECK(mob.mobile_attach_state() == Node::MobileAttachState::claiming);
+    }
+    // (d) POSITIVE CONTROL — all three match => confirms. Without this, (a)-(c) could be passing because the
+    //     harness cannot confirm at all.
+    {
+        TestHal hal; hal._now = 100000;
+        Node mob(hal, /*node_id=*/0, kMob);
+        CHECK(mob.on_init(s0_mobile_cfg()));
+        const uint8_t id = attach_mobile_confirmed(mob, hal, kHomeId, kHomeHash, kLocal, kMob, meta);
+        CHECK(id == kLocal);
+        CHECK(mob.mobile_attached());                                // ★★ the harness CAN confirm
+        CHECK(mob.mobile_home_link() == Node::MobileHomeLink::confirmed);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ★★★ §7.1 step 5 — THE ROSTER-ABSENT FORK, AND THE FLAG THAT SEPARATES ITS TWO ARMS. Same wire evidence,
+// two different correct actions; `_presence_reg_confirmed` (node.h read #2) is what decides. The
+// never-confirmed arm is covered above (c); THIS case is the ALREADY-CONFIRMED arm, which must NOT re-CLAIM.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★ §MH-S4 §7.1 — a roster that omits an ALREADY-CONFIRMED mobile re-DISCOVERs (never a re-CLAIM)") {
+    constexpr uint32_t kMob = 0x0000AC02u, kHomeHash = 0x00005151u;
+    constexpr uint8_t  kHomeId = 51, kLocal = 230;
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    TestHal hal; hal._now = 100000;
+    Node mob(hal, /*node_id=*/0, kMob);
+    CHECK(mob.on_init(s0_mobile_cfg()));
+    CHECK(attach_mobile_confirmed(mob, hal, kHomeId, kHomeHash, kLocal, kMob, meta) == kLocal);
+    CHECK(mob.mobile_attached());                                    // PREMISE: confirmed first
+    Push p{}; while (mob.next_push(p)) {}
+    const int claims = count_j_opcode(hal.tx_frames, j_opcode::claim);
+    hal.events.clear(); hal.armed.clear();
+
+    // the home reboots/evicts: it rosters SOMEBODY ELSE and our hash is gone
+    confirm_mobile_via_roster(mob, hal, kHomeId, mob.config().layers[0].layer_id,
+                              /*hash=*/0x0000BAD1u, /*local=*/229, /*epoch=*/1, meta);
+    CHECK(hal.count("presence_roster_absent") == 1);                 // PREMISE
+    CHECK(hal.count("mobile_reset") == 1);                           // PREMISE: the RESET arm, not the re-CLAIM arm
+    CHECK(count_j_opcode(hal.tx_frames, j_opcode::claim) == claims); // ★★ NOT ONE re-CLAIM — the id/epoch are dead
+    CHECK_FALSE(mob.mobile_registered());
+    CHECK_FALSE(mob.mobile_attached());
+    CHECK(mob.mobile_attach_state() == Node::MobileAttachState::recovering);   // ★★ `recovering`, not `seeking`: there WAS an attachment
+    CHECK(hal.count_armed(kMobileDiscoverTimerId) == 1);             // ★ a staggered re-DISCOVER
+    { int reg_false = 0; Push q{};
+      while (mob.next_push(q)) if (q.kind == PushKind::mobile_reg && !q.relayed) ++reg_false;
+      CHECK(reg_false == 1); }                                       // ★ the app IS told, because it was told `true` earlier
+    // ★ THE AGE SURVIVES THE LOSS AND IS STILL RENDERABLE — §4.1 asks for the age of the LATEST confirmation,
+    //   which is exactly what a "Home confirmed 7 min ago" panel must show while recovering.
+    CHECK(mob.mobile_home_confirmed_ever());
+}
+
+// ---------------------------------------------------------------------------
+// ★★★★ GATE 20 + [[B139]] — A LOCAL TX-ADMISSION FAILURE MUST NOT MOVE THE HOME-LINK PLANE.
+// THE DEFECT (registered as B139, MEASURED by inspection during §MH-S1): `presence_probe_fire` did
+// `++_presence_miss` UNCONDITIONALLY, discarding `tx_initiating`'s result — so `presence_probe_k_miss + 1`
+// probes OUR OWN RADIO REFUSED reached `presence_home_lost` -> `mobile_reset_registration` -> a full
+// re-DISCOVER. A busy channel could deregister a mobile from a home that was working perfectly.
+// ★ THE ONE PARAMETER THAT MAKES IT TESTABLE is `TestHal::tx_answer` — the lesson this arc keeps re-learning.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★★ §MH-S4 gate 20 / [[B139]] — probes OUR OWN transmitter refuses NEVER walk the home link to checking or lost") {
+    constexpr uint32_t kMob = 0x0000B139u, kHomeHash = 0x00005252u;
+    constexpr uint8_t  kHomeId = 52, kLocal = 228;
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    TestHal hal; hal._now = 100000;
+    Node mob(hal, /*node_id=*/0, kMob);
+    CHECK(mob.on_init(s0_mobile_cfg()));
+    CHECK(attach_mobile_confirmed(mob, hal, kHomeId, kHomeHash, kLocal, kMob, meta) == kLocal);
+    CHECK(mob.mobile_attached());                                    // PREMISE: a healthy CONFIRMED attachment
+    CHECK(mob.mobile_home_link() == Node::MobileHomeLink::confirmed);
+    Push p{}; while (mob.next_push(p)) {}
+
+    // ⛔ OUR RADIO NOW REFUSES EVERYTHING. Nothing about the home has changed.
+    hal.tx_answer = TxResult::busy;
+    const int tx_before = static_cast<int>(hal.tx_frames.size());
+    // Drive TWO MORE than the k_miss ladder needs: pre-fix, k_miss+1 refusals were enough to reach home-lost.
+    for (int i = 0; i < static_cast<int>(protocol::presence_probe_k_miss) + 3; ++i) {
+        hal._now += protocol::presence_probe_retry_ms;
+        mob.on_timer(kPresenceProbeTimerId);
+    }
+    CHECK(static_cast<int>(hal.tx_frames.size()) == tx_before);      // PREMISE: not one frame left the radio
+    CHECK(hal.count("presence_probe_refused") == static_cast<int>(protocol::presence_probe_k_miss) + 3);  // PREMISE: every refusal was seen
+
+    // ★★★★ THE FIX, ON ALL THREE PLANES.
+    CHECK(hal.count("presence_home_lost") == 0);                     // ★★★ was k_miss+1 refusals -> HOME LOST
+    CHECK(mob.mobile_home_link() == Node::MobileHomeLink::confirmed); // ★★★ NOT `lost` AND NOT `checking` (gate 20 asserts both)
+    CHECK(mob.mobile_attached());                                    // ★★ the attachment survived intact
+    CHECK(mob.mobile_attach_state() == Node::MobileAttachState::attached);
+    CHECK(mob.mobile_home_id() == kHomeId);
+    CHECK(mob.mobile_local_id() == kLocal);
+    // ★ AND IT IS REPORTED — in `last result`, which is where §6.4/§10 say a local transmitter failure belongs.
+    CHECK(mob.mobile_last_result() == Node::MobileAttemptResult::tx_rejected);
+    { int any = 0; Push q{}; while (mob.next_push(q)) if (q.kind == PushKind::mobile_reg) ++any;
+      CHECK(any == 0); }                                             // ★★ the app was NOT told the registration changed
+    CHECK(hal.count_armed(kPresenceProbeTimerId) >= 1);              // ★ and the check keeps being re-armed (self-healing)
+
+    // ★★★★ THE NEGATIVE CONTROL, AND IT IS THE ONE THAT MAKES THE WHOLE CASE NON-VACUOUS: with the radio
+    // WORKING, the same number of unanswered probes DOES reach `lost`. Without this, "the link stayed
+    // confirmed" could equally mean the ladder is broken outright.
+    hal.tx_answer = TxResult::ok;
+    hal.events.clear();
+    bool saw_checking = false;
+    for (int i = 0; i < static_cast<int>(protocol::presence_probe_k_miss) + 2; ++i) {
+        hal._now += protocol::presence_probe_retry_ms;
+        mob.on_timer(kPresenceProbeTimerId);
+        if (mob.mobile_home_link() == Node::MobileHomeLink::checking) saw_checking = true;
+    }
+    CHECK(saw_checking);                                             // ★★ an ADMITTED unanswered probe DOES say `checking`
+    CHECK(hal.count("presence_home_lost") == 1);                     // ★★★ ...and the ladder DOES reach HOME LOST
+    CHECK(mob.mobile_home_link() == Node::MobileHomeLink::lost);
+    CHECK_FALSE(mob.mobile_attached());
+    CHECK(mob.mobile_attach_state() == Node::MobileAttachState::recovering);
+}
+
+// ---------------------------------------------------------------------------
+// GATE 22 — "a home beacon alone cannot confirm the link": receiving the home's beacons while probes go
+// unanswered still walks the link to `lost`. §7.2: inbound beacons are ONE-WAY hints — hearing the home
+// proves only that we hear the home. ⚠ This is the case that would have caught the tempting zero-byte reuse
+// of `_my_mobile_reg.last_heard_home_ms` as the confirmation stamp (see node.h).
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★ §MH-S4 gate 22 (§7.2) — the home's BEACONS cannot confirm the link; unanswered probes still reach `lost`") {
+    constexpr uint32_t kMob = 0x0000BC22u, kHomeHash = 0x00005353u;
+    constexpr uint8_t  kHomeId = 53, kLocal = 227;
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    TestHal hal; hal._now = 100000;
+    Node mob(hal, /*node_id=*/0, kMob);
+    CHECK(mob.on_init(s0_mobile_cfg()));
+    CHECK(attach_mobile_confirmed(mob, hal, kHomeId, kHomeHash, kLocal, kMob, meta) == kLocal);
+    CHECK(mob.mobile_home_link() == Node::MobileHomeLink::confirmed); // PREMISE
+    const uint64_t confirmed_at = hal._now;
+
+    // the home keeps beaconing loudly, but never answers a probe
+    for (int i = 0; i < static_cast<int>(protocol::presence_probe_k_miss) + 2; ++i) {
+        std::array<uint8_t, 64> bcn{};
+        const size_t bn = make_beacon(/*src=*/kHomeId, /*key=*/kHomeHash, bcn);
+        hal._now += protocol::presence_probe_retry_ms;
+        mob.on_recv(bcn.data(), bn, meta);                           // ★ a HEARD home — a one-way hint
+        mob.on_timer(kPresenceProbeTimerId);
+    }
+    CHECK(hal.count("presence_probe_tx") >= static_cast<int>(protocol::presence_probe_k_miss) + 2);  // PREMISE: probes really went out
+    CHECK(hal.count("presence_home_lost") == 1);                     // ★★★ the beacons did NOT rescue the link
+    CHECK(mob.mobile_home_link() == Node::MobileHomeLink::lost);
+    // ★★ AND THE CONFIRMATION AGE IS STILL THE OLD ONE — the beacons did not refresh it. This is the
+    //    display-shaped-field assertion: a heard beacon must never make the panel say "confirmed just now".
+    CHECK(mob.mobile_home_confirmed_ever());
+    CHECK(mob.mobile_home_confirm_age_ms() == hal._now - confirmed_at);
+    CHECK(mob.mobile_home_confirm_age_ms() > 0);
+}
+
+// ---------------------------------------------------------------------------
+// GATE 23 — "a mesh no-route result does not mean the home link is lost." §4.1's third plane (MESH SERVICE)
+// is answered by the result of that specific send and by nothing else; an unroutable destination leaves the
+// home link `confirmed` while its own evidence is fresh.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★ §MH-S4 gate 23 (§4.1) — an unroutable DESTINATION leaves the HOME LINK confirmed") {
+    constexpr uint32_t kMob = 0x0000BD23u, kHomeHash = 0x00005454u;
+    constexpr uint8_t  kHomeId = 54, kLocal = 226;
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    TestHal hal; hal._now = 100000;
+    Node mob(hal, /*node_id=*/0, kMob);
+    CHECK(mob.on_init(s0_mobile_cfg()));
+    CHECK(attach_mobile_confirmed(mob, hal, kHomeId, kHomeHash, kLocal, kMob, meta) == kLocal);
+    CHECK(mob.mobile_home_link() == Node::MobileHomeLink::confirmed); // PREMISE
+    Push p{}; while (mob.next_push(p)) {}
+    hal.events.clear();
+
+    // ★ a send to a hash NOBODY can resolve, through the PUBLIC app seam (`on_command`), so this is the same
+    //   path a companion takes. The mesh plane's own outcome is §8/S5's business; what matters here is leakage.
+    const uint8_t body[] = { 0x01, 0x02, 0x03 };
+    Command c{}; c.kind = CmdKind::send; c.body = body; c.body_len = sizeof body;
+    c.u.send.dst_hash = 0x0000FEEDu;
+    const CmdResult r = mob.on_command(c);
+    CHECK(r.code != CmdCode::err_unprovisioned);                     // PREMISE: the send really was accepted for routing
+    int pushes = 0; Push q{};
+    while (mob.next_push(q)) ++pushes;
+
+    // ★★★ WHATEVER the mesh plane reported, the HOME-LINK plane is untouched — that is the entire gate.
+    CHECK(mob.mobile_home_link() == Node::MobileHomeLink::confirmed);
+    CHECK(mob.mobile_attached());
+    CHECK(mob.mobile_attach_state() == Node::MobileAttachState::attached);
+    CHECK(hal.count("presence_home_lost") == 0);
+    CHECK(mob.mobile_home_confirm_age_ms() == 0);                    // ★ and the age was not disturbed either
+    (void)pushes;   // the mesh-plane outcome is S5/§8's business; this case pins only that it did not LEAK into the home-link plane
+}
+
+// ---------------------------------------------------------------------------
+// GATES 9 + 10 — "auto OFF emits nothing at boot; manual register keeps retrying and then confirms when a
+// home appears" and "presence monitoring and weak-home candidate canvass run after a manual attach with auto
+// OFF". §4.2's whole point: manual and automatic starts share ONE FSM.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★ §MH-S4 gates 9+10 (§4.2) — auto OFF: silent at boot, then a MANUAL session retries, confirms, and gets a full presence plane") {
+    constexpr uint32_t kMob = 0x0000B910u, kHomeHash = 0x00005555u;
+    constexpr uint8_t  kHomeId = 55, kLocal = 225;
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    TestHal hal; hal._now = 100000;
+    Node mob(hal, /*node_id=*/0, kMob);
+    NodeConfig mc = s0_mobile_cfg(); mc.mobile_autoregister = false;
+    CHECK(mob.on_init(mc));
+
+    // ★ GATE 9a — NOTHING at boot.
+    CHECK(hal.tx_frames.empty());
+    CHECK(hal.count_armed(kMobileDiscoverTimerId) == 0);             // not even a kick was armed
+    CHECK(mob.mobile_attach_state() == Node::MobileAttachState::dormant);
+    mob.on_timer(kMobileDiscoverTimerId);                            // even if something fires it, the gate holds
+    CHECK(count_j_opcode(hal.tx_frames, j_opcode::discover) == 0);
+
+    // ★ GATE 9b — a MANUAL session keeps retrying while no home answers.
+    mob.mobile_register_current();
+    mob.on_timer(kMobileDiscoverTimerId);
+    CHECK(count_j_opcode(hal.tx_frames, j_opcode::discover) == 1);
+    mob.on_timer(kMobileClaimGuardTimerId);                          // no OFFER -> no host
+    CHECK(hal.count("mobile_no_host") == 1);                         // PREMISE
+    CHECK(hal.count_armed(kMobileDiscoverTimerId) >= 1);             // ★ a retry was armed even with auto OFF
+    mob.on_timer(kMobileDiscoverTimerId);
+    CHECK(count_j_opcode(hal.tx_frames, j_opcode::discover) == 2);   // ★★ it really retried
+
+    // ★ GATE 9c — ...and CONFIRMS when a home finally appears.
+    std::array<uint8_t, 16> off{};
+    const size_t on = make_j_offer_mobile(kHomeId, kHomeHash, kLocal, kMob, off);
+    mob.on_recv(off.data(), on, meta);
+    mob.on_timer(kMobileClaimGuardTimerId);
+    CHECK(mob.mobile_attach_state() == Node::MobileAttachState::claiming);
+    CHECK_FALSE(mob.mobile_attached());                              // ★ still not a registration
+    confirm_mobile_via_roster(mob, hal, kHomeId, mob.config().layers[0].layer_id, kMob, kLocal, /*epoch=*/1, meta);
+    CHECK(mob.mobile_attached());                                    // ★★★ confirmed under auto OFF
+    CHECK(mob.mobile_home_link() == Node::MobileHomeLink::confirmed);
+    CHECK(mob.config().mobile_autoregister == false);                // ★ the flag was never touched (§4.2 compatibility)
+
+    // ★★★ GATE 10 — THE PRESENCE PLANE REALLY RUNS. Pre-S4 `presence_arm_check` returned immediately unless
+    // `_cfg.mobile_autoregister`, so a manually-attached mobile had NO confirmation deadline, NO home-loss
+    // detection and NO candidate canvass at all. Asserted as an ARMED TIMER and then as a real probe on the wire.
+    CHECK(hal.count_armed(kPresenceProbeTimerId) >= 1);              // ★★ the check timer EXISTS (was 0)
+    hal.events.clear();
+    hal._now += protocol::presence_check_base_ms;
+    mob.on_timer(kPresenceProbeTimerId);
+    CHECK(hal.count("presence_probe_tx") == 1);                      // ★★ a real probe, from a manually-attached mobile
+    CHECK(mob.mobile_home_link() == Node::MobileHomeLink::checking);  // ★ and the plane moves as it should
+    // ...and home-loss detection works too (the ladder is live, not merely armed once)
+    for (int i = 0; i < static_cast<int>(protocol::presence_probe_k_miss) + 2; ++i) {
+        hal._now += protocol::presence_probe_retry_ms;
+        mob.on_timer(kPresenceProbeTimerId);
+    }
+    CHECK(hal.count("presence_home_lost") == 1);                     // ★★ full recovery machinery under auto OFF
+    CHECK(mob.mobile_attach_state() == Node::MobileAttachState::recovering);
+    CHECK(mob.mobile_home_desired());                                // ★★ and the session is STILL desired -> it will re-attach
+}
+
+// ---------------------------------------------------------------------------
+// ★★★ §7.1's BOUNDED BUDGET CANNOT BE RESET BY ITS OWN RETRY. The re-CLAIM deliberately does NOT go through
+// `mobile_claim_adopt` (which calls `presence_on_adopt`, which zeroes `_mobile_claim_retries`) — if it did,
+// the bounded retry of §7.1 would become an UNBOUNDED loop and `presence_claim_max_retries` would be
+// decorative again. node.h documents the reasoning; this case measures it.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★ §MH-S4 §7.1 — a re-CLAIM does NOT re-adopt, so the bounded retry budget cannot reset itself") {
+    constexpr uint32_t kMob = 0x0000BE11u, kHomeHash = 0x00005656u;
+    constexpr uint8_t  kHomeId = 56, kLocal = 224;
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    TestHal hal; hal._now = 100000;
+    Node mob(hal, /*node_id=*/0, kMob);
+    CHECK(mob.on_init(s0_mobile_cfg()));
+    mob.on_timer(kMobileDiscoverTimerId);
+    std::array<uint8_t, 16> off{};
+    const size_t on = make_j_offer_mobile(kHomeId, kHomeHash, kLocal, kMob, off);
+    mob.on_recv(off.data(), on, meta);
+    mob.on_timer(kMobileClaimGuardTimerId);
+    CHECK(hal.count("mobile_adopted") == 1);                         // PREMISE: exactly one adopt so far
+
+    // ⓘ §MH-S4b: each round is TWO deadline fires — the short SEARCHING solicitation (§7.1 step 3), then the
+    //   confirmation deadline that actually spends the retry. The re-adopt question is unchanged; only the number
+    //   of fires is, so the loop is updated in place rather than the assertion.
+    for (int i = 0; i < static_cast<int>(protocol::presence_claim_max_retries); ++i) {
+        hal._now += protocol::presence_claim_solicit_ms;
+        mob.on_timer(kPresenceProbeTimerId);                         // ask
+        CHECK(mob.mobile_claim_retries() == i);                      // ★ the ask spends nothing
+        hal._now += protocol::presence_claim_confirm_ms;
+        mob.on_timer(kPresenceProbeTimerId);                         // silence -> one re-CLAIM
+        CHECK(mob.mobile_claim_retries() == i + 1);                  // ★★ MONOTONIC — never reset by the retry itself
+        CHECK(hal.count("mobile_adopted") == 1);                     // ★★★ and STILL exactly one adopt: no re-adopt
+    }
+    // ★ THE BUDGET IS THEREFORE REACHABLE, which is the whole point: a self-resetting counter would loop forever.
+    hal._now += protocol::presence_claim_solicit_ms;
+    mob.on_timer(kPresenceProbeTimerId);
+    hal._now += protocol::presence_claim_confirm_ms;
+    mob.on_timer(kPresenceProbeTimerId);
+    CHECK(hal.count("mobile_claim_exhausted") == 1);
+    CHECK(mob.mobile_attach_state() == Node::MobileAttachState::seeking);
+    CHECK(hal.count("mobile_adopted") == 1);                         // ★ never re-adopted, all the way to exhaustion
+}
+
+// ---------------------------------------------------------------------------
+// ★★★★ §MH-S4b — **THE RE-CLAIM BUDGET IS SPENT BY THE TRANSMISSION, NOT BY THE DECISION TO TRANSMIT.**
+// §MH-S4 incremented `_mobile_claim_retries` on the line BEFORE `mobile_reclaim_send()`, so a mobile whose own
+// radio refused all three retries reported `claim_unconfirmed` and re-DISCOVERed with **NOT ONE re-CLAIM ever on
+// the air** — the failure the budget exists to bound, reached without using the resource it bounds. Fifth
+// appearance of the rule in this arc: [[B84]]'s `_tries`, [[B145]]/[[B146]]'s OFFER counters, [[B139]]'s
+// `_presence_miss`, this.
+// ★ THE TRIGGER IS §7.1 STEP 5, DRIVEN OFF THE WIRE (a chosen-home roster that rosters SOMEBODY ELSE), not the
+//   silence timer — deliberately, because with the HAL refusing everything the solicitation PROBE is refused too
+//   and the silence deadline is never reached. Using the RX-side trigger isolates the CLAIM's admission.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★★ §MH-S4b — a re-CLAIM OUR OWN TRANSMITTER REFUSES spends NO budget: the mobile stays `claiming`, never `claim_unconfirmed` with nothing sent") {
+    constexpr uint32_t kMob = 0x0000B201u, kHomeHash = 0x00005858u, kOther = 0x0000A1A2u;
+    constexpr uint8_t  kHomeId = 58, kLocal = 219;
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+
+    // ---- the SUBJECT: the transmitter refuses every re-CLAIM.
+    TestHal hal; hal._now = 100000;
+    Node mob(hal, /*node_id=*/0, kMob);
+    CHECK(mob.on_init(s0_mobile_cfg()));
+    mob.on_timer(kMobileDiscoverTimerId);
+    std::array<uint8_t, 16> off{};
+    const size_t on = make_j_offer_mobile(kHomeId, kHomeHash, kLocal, kMob, off);
+    mob.on_recv(off.data(), on, meta);
+    mob.on_timer(kMobileClaimGuardTimerId);                          // CLAIM #1 + provisional adopt
+    CHECK(mob.mobile_attach_state() == Node::MobileAttachState::claiming);   // PREMISE
+    const int claims_at_adopt = count_j_opcode(hal.tx_frames, j_opcode::claim);
+    CHECK(claims_at_adopt == 1);                                     // PREMISE: CLAIM #1 really aired
+    const uint8_t layer = mob.config().layers[0].layer_id;
+
+    hal.tx_answer = TxResult::busy;                                  // ⛔ OUR OWN radio now refuses everything
+    // MORE ROUNDS THAN THE BUDGET: if the request spent the budget, round 4 would exhaust it.
+    for (int i = 0; i < static_cast<int>(protocol::presence_claim_max_retries) + 2; ++i) {
+        hal.events.clear();
+        std::array<uint8_t, 64> rb{};
+        const size_t rn = make_p_roster_one(kHomeId, layer, /*mobile_hash=*/kOther, /*local=*/200, /*epoch=*/1, rb);
+        mob.on_recv(rb.data(), rn, meta);
+        CHECK(hal.count("presence_roster_absent") == 1);             // PREMISE: §7.1 step 5's branch really ran
+        CHECK(hal.count("mobile_tx_rejected") == 1);                 // PREMISE: …and the transmitter really refused
+        CHECK(count_j_opcode(hal.tx_frames, j_opcode::claim) == claims_at_adopt);   // ★★★ NOTHING reached the air
+        CHECK(mob.mobile_claim_retries() == 0);                      // ★★★★ …so NOTHING was spent
+        CHECK(mob.mobile_attach_state() == Node::MobileAttachState::claiming);      // ★★ still claiming, round after round
+        CHECK(hal.count("mobile_claim_exhausted") == 0);             // ★★★ never "unconfirmed" on refusals alone
+        CHECK(mob.mobile_last_result() == Node::MobileAttemptResult::tx_rejected);  // §6.4/§10: OUR transmitter…
+        CHECK(mob.mobile_home_link() == Node::MobileHomeLink::unknown);             // ⛔ …and the home is not blamed
+    }
+    // ---- THE RADIO RECOVERS: the SAME trigger now airs a frame and spends EXACTLY one retry.
+    hal.tx_answer = TxResult::ok;
+    hal.events.clear();
+    { std::array<uint8_t, 64> rb{};
+      const size_t rn = make_p_roster_one(kHomeId, layer, kOther, 200, 1, rb);
+      mob.on_recv(rb.data(), rn, meta); }
+    CHECK(count_j_opcode(hal.tx_frames, j_opcode::claim) == claims_at_adopt + 1);   // ★★ NOW it is on the air…
+    CHECK(mob.mobile_claim_retries() == 1);                                        // ★★ …and NOW it costs one
+    { auto rc = last_j(hal.tx_frames, j_opcode::claim);
+      CHECK(rc.has_value());
+      if (rc) { CHECK(rc->proposed_node_id == kLocal); CHECK(rc->claim_epoch == 1); } }   // ★ still THE SAME CLAIM
+
+    // ---- ★★★ NEGATIVE CONTROL — the roster-absent trigger really does reach the budget and really does exhaust
+    //      it, so the subject above cannot be passing because the trigger is broken.
+    {
+        TestHal hc; hc._now = 100000;
+        Node mc(hc, /*node_id=*/0, kMob);
+        CHECK(mc.on_init(s0_mobile_cfg()));
+        mc.on_timer(kMobileDiscoverTimerId);
+        std::array<uint8_t, 16> o2{};
+        const size_t n2 = make_j_offer_mobile(kHomeId, kHomeHash, kLocal, kMob, o2);
+        mc.on_recv(o2.data(), n2, meta);
+        mc.on_timer(kMobileClaimGuardTimerId);
+        const uint8_t l2 = mc.config().layers[0].layer_id;
+        for (int i = 0; i < static_cast<int>(protocol::presence_claim_max_retries); ++i) {
+            std::array<uint8_t, 64> rb{};
+            const size_t rn = make_p_roster_one(kHomeId, l2, kOther, 200, 1, rb);
+            mc.on_recv(rb.data(), rn, meta);
+            CHECK(mc.mobile_claim_retries() == i + 1);               // ★ a WORKING transmitter DOES spend it
+        }
+        hc.events.clear();
+        std::array<uint8_t, 64> rb{};
+        const size_t rn = make_p_roster_one(kHomeId, l2, kOther, 200, 1, rb);
+        mc.on_recv(rb.data(), rn, meta);
+        CHECK(hc.count("mobile_claim_exhausted") == 1);              // ★★ and DOES exhaust
+        CHECK(mc.mobile_attach_state() == Node::MobileAttachState::seeking);
+        CHECK(mc.mobile_last_result() == Node::MobileAttemptResult::claim_unconfirmed);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ★★★ §MH-S4b §4.1/§10 — THE CONFIRMATION AGE IS 64-BIT **AT THE SOURCE TOO**, not only in the serializer.
+// `src/firmware_config.cpp` cast this accessor to `uint32_t` to fit a u32 status field, so the rendered age wrapped
+// at ~49.7 days and a months-stale confirmation displayed as a fresh one. The serializer half is pinned in
+// `test_console_json.cpp`; THIS is the core half — the accessor itself must carry an age past UINT32_MAX.
+// ⓘ Why it matters at all: a `uint32_t` version of the backing stamp was MEASURED at +0 bytes and DECLINED under
+//   M3 precisely to avoid this arithmetic. The cast reintroduced it downstream for free.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★ §MH-S4b §4.1 — the home-confirmation AGE survives past UINT32_MAX (a u32 would wrap at ~49.7 days)") {
+    constexpr uint32_t kMob = 0x0000B204u, kHomeHash = 0x00005A5Au;
+    constexpr uint8_t  kHomeId = 90, kLocal = 216;
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    TestHal hal; hal._now = 100000;
+    Node mob(hal, /*node_id=*/0, kMob);
+    CHECK(mob.on_init(s0_mobile_cfg()));
+    CHECK(attach_mobile_confirmed(mob, hal, kHomeId, kHomeHash, kLocal, kMob, meta) == kLocal);
+    CHECK(mob.mobile_attached());                                    // PREMISE: a real confirmation exists
+    CHECK(mob.mobile_home_confirmed_ever());
+    CHECK(mob.mobile_home_confirm_age_ms() == 0);                    // PREMISE: stamped at `now`
+
+    // ---- 57.9 days later. A u32 age would read 705 032 704 ms (≈ 8.2 days) — "confirmed last week".
+    hal._now += 5000000000ull;
+    const uint64_t age = mob.mobile_home_confirm_age_ms();
+    CHECK(age == 5000000000ull);                                     // ★★★ the full 64-bit age
+    CHECK(age > static_cast<uint64_t>(UINT32_MAX));                  // ★★ …explicitly past the wrap point
+    CHECK(static_cast<uint32_t>(age) == 705032704u);                  // ★ and the truncation this names is REAL: it is
+                                                                     //   what the cast used to render
+    CHECK(mob.mobile_home_confirmed_ever());                         // ★ still "ever confirmed" — the age is stale, not absent
+    // ⓘ Nothing about the home was re-measured, so the plane is unchanged: the AGE is the honest rendering of a
+    //   point-in-time confirmation, which is §4.1's whole rule.
+    CHECK(mob.mobile_home_link() == Node::MobileHomeLink::confirmed);
+}
+
+// ---------------------------------------------------------------------------
+// ★★★★ §MH-S4b — **THE DEFERRED HALF, AND THE BOUNDARY IS THE ONE [[B139]] HAD TO GET RIGHT TOO.**
+// `tx_initiating` answers TRUE for a frame merely ACCEPTED INTO the LBT defer ring, so a DEFERRED re-CLAIM
+// legitimately IS in flight and MUST be counted — only a DEFINITIVE refusal may be free. The remaining case is a
+// frame that deferred (counted) and was then refused by the HAL when the defer fired: it never reached the air, so
+// the retry is REFUNDED.
+// ⛔ AND IT MUST NOT REACH `mobile_admission_rejected`: that is the PRE-attachment FSM's backoff, which arms
+//    `kMobileDiscoverTimerId` and would throw a live provisional attachment away for a local radio hiccup. The
+//    discriminator is `_mobile_claim_pending` (a FIRST CLAIM still holds it; a re-CLAIM never sets it) — the
+//    [[B147]] rule of identifying the transaction BEFORE acting on it.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★★ §MH-S4b — a DEFERRED re-CLAIM the HAL later refuses REFUNDS its retry and does NOT enter the pre-attachment backoff") {
+    constexpr uint32_t kMob = 0x0000B202u, kHomeHash = 0x00005959u, kOther = 0x0000A1A3u;
+    constexpr uint8_t  kHomeId = 59, kLocal = 218;
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    TestHal hal; hal._now = 100000;
+    NodeConfig cfg = s0_mobile_cfg(); cfg.lbt_enabled = true;        // ★ required: only LBT can DEFER
+    Node mob(hal, /*node_id=*/0, kMob);
+    CHECK(mob.on_init(cfg));
+
+    hal._busy_until = 0;                                             // clear channel: CLAIM #1 goes out immediately
+    mob.on_timer(kMobileDiscoverTimerId);
+    std::array<uint8_t, 16> off{};
+    const size_t on = make_j_offer_mobile(kHomeId, kHomeHash, kLocal, kMob, off);
+    mob.on_recv(off.data(), on, meta);
+    mob.on_timer(kMobileClaimGuardTimerId);
+    CHECK(mob.mobile_attach_state() == Node::MobileAttachState::claiming);   // PREMISE
+    const int claims_at_adopt = count_j_opcode(hal.tx_frames, j_opcode::claim);
+    CHECK(claims_at_adopt == 1);
+    const uint8_t layer = mob.config().layers[0].layer_id;
+
+    // ---- the channel goes busy, so the re-CLAIM DEFERS. It is in flight ⇒ it COUNTS.
+    hal._busy_until = hal._now + 5000;
+    hal.armed.clear(); hal.events.clear();
+    const int discover_arms_before = hal.count_armed(kMobileDiscoverTimerId);
+    { std::array<uint8_t, 64> rb{};
+      const size_t rn = make_p_roster_one(kHomeId, layer, kOther, 200, 1, rb);
+      mob.on_recv(rb.data(), rn, meta); }
+    CHECK(hal.count("presence_roster_absent") == 1);                 // PREMISE: §7.1 step 5 ran
+    CHECK(count_j_opcode(hal.tx_frames, j_opcode::claim) == claims_at_adopt);   // PREMISE: nothing aired — it DEFERRED
+    CHECK(hal.count("mobile_tx_rejected") == 0);                     // PREMISE: and it was NOT a refusal
+    CHECK(mob.mobile_claim_retries() == 1);                          // ★★★ a DEFERRED re-CLAIM COUNTS — it is in flight
+
+    // ---- ⛔ THE DEFER NOW DIES AT THE RADIO QUEUE.
+    hal._now += 6000;
+    hal.tx_answer = TxResult::busy;
+    hal.armed.clear(); hal.events.clear();
+    mob.test_fire_lbt_defer(/*slot=*/0);
+    CHECK(hal.count("tx_deferred_lost") == 1);                       // PREMISE: the late-refusal arm really ran
+    CHECK(hal.count("mobile_reclaim_refunded") == 1);                // PREMISE: …and it was recognised as a RE-CLAIM
+    CHECK(mob.mobile_claim_retries() == 0);                          // ★★★★ REFUNDED — the frame never aired
+    CHECK(count_j_opcode(hal.tx_frames, j_opcode::claim) == claims_at_adopt);   // ★ …which is the fact being refunded for
+    CHECK(mob.mobile_attach_state() == Node::MobileAttachState::claiming);      // ★★ the attachment SURVIVES
+    CHECK(mob.mobile_registered());                                  // ★ the provisional adoption is untouched
+    CHECK(mob.mobile_home_id() == kHomeId);
+    CHECK(mob.mobile_last_result() == Node::MobileAttemptResult::tx_rejected);  // §6.4/§10: OUR transmitter
+    CHECK(mob.mobile_home_link() == Node::MobileHomeLink::unknown);             // ⛔ the home is not implicated
+    // ★★★ AND THE PRE-ATTACHMENT BACKOFF DID **NOT** RUN — this is the assertion that separates the two arms:
+    //     `mobile_admission_rejected` would have armed `kMobileDiscoverTimerId` (and spent a jitter draw on it).
+    CHECK(hal.count_armed(kMobileDiscoverTimerId) == discover_arms_before);
+    CHECK(hal.count("mobile_no_host") == 0);
+
+    // ---- ★★★ CONTROL: a FIRST CLAIM dying on the same arm STILL takes the pre-attachment path, so the
+    //      discriminator is doing work rather than disabling the branch for everyone.
+    {
+        TestHal hc; hc._now = 100000;
+        NodeConfig c2 = s0_mobile_cfg(); c2.lbt_enabled = true;
+        Node mc(hc, /*node_id=*/0, /*key_hash32=*/0x0000B203u);
+        CHECK(mc.on_init(c2));
+        stage_claim_deferred(hc, mc, kHomeId, kHomeHash, /*local_id=*/217, /*self=*/0x0000B203u);
+        CHECK_FALSE(mc.mobile_registered());                         // PREMISE: the FIRST CLAIM has not adopted
+        hc._now += 6000;
+        hc.tx_answer = TxResult::busy;
+        hc.armed.clear(); hc.events.clear();
+        mc.test_fire_lbt_defer(/*slot=*/0);
+        CHECK(hc.count("tx_deferred_lost") == 1);                    // PREMISE: same arm
+        CHECK(hc.count("mobile_reclaim_refunded") == 0);             // ★★ NOT treated as a re-CLAIM…
+        CHECK(hc.count("mobile_tx_rejected") == 1);                  // ★★ …it took `mobile_admission_rejected`…
+        CHECK(hc.count_armed(kMobileDiscoverTimerId) == 1);          // ★★★ …and got its bounded retry-DISCOVER
+    }
+}
+
+// ---------------------------------------------------------------------------
+// §4.2/§4.3 — `mobile unregister`: end the session, return to `dormant`, ⛔ and put NOTHING on the air.
+//
+// ⛔⛔ ARM (b) IS REWRITTEN IN PLACE BY §MH-S4b (B101 — not deleted), AND BOTH ITS ASSERTION AND ITS METHOD WERE
+// WRONG. §MH-S4 concluded that on an `autoregister=1` device the verb ends the session and "the autonomous FSM
+// then re-enters `seeking` on its own", and it demonstrated that by calling `on_timer(kMobileDiscoverTimerId)`
+// BY HAND — the very timer `mobile_unregister()` had just cancelled, and one that production schedules no
+// replacement for. ⚠ **A test that injects the timer production would have to schedule is a harness modelling
+// something that does not exist** — the same class as [[B145]]'s hand-pumped callbacks and [[B143]]'s
+// call-history-as-state. What it actually measured was that the FSM entry gate `registration_armed()` was still
+// TRUE, i.e. THE DEFECT: §4.3's post-condition ("return to `dormant`") held for one member while the machine
+// stayed armed, so the device was neither dormant nor seeking.
+// ⇒ §MH-S4b makes `_mobile_home_desired` the effective session state, so `dormant` is now the answer for BOTH
+//   `autoregister` values, and this arm proves it **through a REAL `meshroute::TimerWheel` driven by the
+//   production drain** (`pump_due_timers`) rather than by hand: after the verb, a full drain fires NOTHING.
+//   Autonomy is then shown resuming from a PRODUCTION path only — an explicit `mobile register`, whose own
+//   `after(0, …)` the same drain picks up.
+// ⛔ Neither arm may put a frame on the air: §4.3 adds no deregistration wire message.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★ §MH-S4 §4.3 (REWRITTEN §MH-S4b) — `mobile unregister` ends the session silently and BOTH `autoregister` arms stay dormant until a manual re-register") {
+    constexpr uint32_t kMob = 0x0000BF43u, kHomeHash = 0x00005757u;
+    constexpr uint8_t  kHomeId = 57, kLocal = 223;
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    // ================= (a) AUTO OFF — the verb's product case: dormant, and it STAYS dormant =================
+    {
+        TestHal hal; hal._now = 100000;
+        Node mob(hal, /*node_id=*/0, kMob);
+        NodeConfig mc = s0_mobile_cfg(); mc.mobile_autoregister = false;
+        CHECK(mob.on_init(mc));
+        mob.mobile_register_current();                               // the operator asks for home service
+        CHECK(attach_mobile_confirmed(mob, hal, kHomeId, kHomeHash, kLocal, kMob, meta) == kLocal);
+        CHECK(mob.mobile_attached());                                // PREMISE
+        Push p{}; while (mob.next_push(p)) {}
+        const size_t frames_before = hal.tx_frames.size();
+        hal.events.clear();
+
+        mob.mobile_unregister();
+
+        CHECK(hal.tx_frames.size() == frames_before);                // ★★★ §4.3: NO deregistration wire message
+        CHECK(mob.mobile_attach_state() == Node::MobileAttachState::dormant);
+        CHECK_FALSE(mob.mobile_attached());
+        CHECK_FALSE(mob.mobile_registered());
+        CHECK_FALSE(mob.mobile_home_desired());
+        CHECK(mob.mobile_home_link() == Node::MobileHomeLink::unknown);   // §4.1: dormant => unknown
+        CHECK_FALSE(mob.mobile_home_confirmed_ever());               // ★ no session, no age to render
+        CHECK(mob.mobile_last_result() == Node::MobileAttemptResult::none);
+        { int reg_false = 0; Push q{};
+          while (mob.next_push(q)) if (q.kind == PushKind::mobile_reg && !q.relayed) ++reg_false;
+          CHECK(reg_false == 1); }                                   // ★ the app IS told the registration ended
+        // ★★ AND IT STAYS QUIET — no autonomous re-attachment, no probe, not one frame.
+        mob.on_timer(kMobileDiscoverTimerId);
+        CHECK(hal.tx_frames.size() == frames_before);
+        mob.on_timer(kPresenceProbeTimerId);
+        CHECK(hal.tx_frames.size() == frames_before);
+        CHECK(mob.mobile_attach_state() == Node::MobileAttachState::dormant);
+    }
+    // ====== (b) AUTO ON — ★★★★ §MH-S4b: IT STAYS DORMANT TOO, AND THE PROOF USES THE PRODUCTION PUMP ======
+    {
+        meshroute::TimerWheel wheel;
+        TestHal hal; hal._now = 100000; hal.wheel = &wheel;          // ★ the fixture IS the device pump: `after` arms the
+                                                                     //   real wheel and `cancel` really cancels
+        Node mob(hal, /*node_id=*/0, kMob);
+        CHECK(mob.on_init(s0_mobile_cfg()));                         // autoregister ON
+        CHECK(mob.mobile_home_desired());                            // ★★ §MH-S4b: the session state is SEEDED from the flag at on_init
+        CHECK(mob.mobile_attach_state() == Node::MobileAttachState::seeking);
+        hal._now += protocol::mobile_boot_jitter_ms + 1;              // let the jittered boot kick come due
+        CHECK(pump_due_timers(mob, hal, wheel) >= 1);                 // PREMISE: the AUTOMATIC session really is running
+        CHECK(count_j_opcode(hal.tx_frames, j_opcode::discover) >= 1);
+        CHECK(attach_mobile_confirmed(mob, hal, kHomeId, kHomeHash, kLocal, kMob, meta) == kLocal);
+        CHECK(mob.mobile_attached());                                // PREMISE
+        Push p{}; while (mob.next_push(p)) {}
+        const size_t frames_before  = hal.tx_frames.size();
+        const int    discovers_before = count_j_opcode(hal.tx_frames, j_opcode::discover);
+
+        mob.mobile_unregister();
+
+        CHECK(hal.tx_frames.size() == frames_before);                // ★★★ still SILENT — the verb never transmits
+        CHECK(mob.mobile_attach_state() == Node::MobileAttachState::dormant);   // ★ the session really did end...
+        CHECK_FALSE(mob.mobile_attached());
+        CHECK_FALSE(mob.mobile_registered());
+        CHECK_FALSE(mob.mobile_home_desired());                      // ★★ …and the effective session state is CLEARED
+        CHECK(mob.mobile_home_link() == Node::MobileHomeLink::unknown);
+        { int reg_false = 0; Push q{};
+          while (mob.next_push(q)) if (q.kind == PushKind::mobile_reg && !q.relayed) ++reg_false;
+          CHECK(reg_false == 1); }
+        // ★★★★ AND NOW THE ASSERTION §MH-S4 GOT BACKWARDS, MEASURED THE HONEST WAY: advance the clock well past
+        // every period the FSM could plausibly use and run the PRODUCTION DRAIN. It must fire NOTHING, because the
+        // verb cancelled the timers and production schedules no replacement. ⛔ No `on_timer` is called by hand
+        // here — that is exactly the harness error being corrected.
+        CHECK_FALSE(wheel.active(kMobileDiscoverTimerId));           // ★ the wheel itself says the timer is gone
+        CHECK_FALSE(wheel.active(kPresenceProbeTimerId));
+        CHECK_FALSE(wheel.active(kMobileClaimGuardTimerId));
+        const int probes_before = count_p_probes(hal.tx_frames);
+        hal._now += 10ull * protocol::presence_check_base_ms;        // 20 minutes of wall clock
+        std::vector<int> ids;
+        // ⓘ The pump legitimately fires the NODE's own periodic timers (beacon / route aging / REQ_SYNC) — a dormant
+        //   mobile is still a radio node, and §4.3 ends the ATTACHMENT session, not the node. So the assertion is on
+        //   the three MOBILE-FSM timer ids and on the mobile-plane FRAMES, never on a bare total.
+        (void)pump_due_timers(mob, hal, wheel, &ids);
+        CHECK(fired_count(ids, kMobileDiscoverTimerId)   == 0);      // ★★★ the FSM entry point never runs again
+        CHECK(fired_count(ids, kPresenceProbeTimerId)    == 0);      // ★★ no presence plane either
+        CHECK(fired_count(ids, kMobileClaimGuardTimerId) == 0);
+        CHECK(count_j_opcode(hal.tx_frames, j_opcode::discover) == discovers_before);   // ★★ not one DISCOVER in 20 minutes
+        CHECK(count_p_probes(hal.tx_frames) == probes_before);       // ★★ …and not one probe
+        CHECK(mob.mobile_attach_state() == Node::MobileAttachState::dormant);
+        // ★★★ AUTONOMY RESUMES FROM A PRODUCTION PATH ONLY — the operator's `mobile register`, whose own
+        // `after(0, kMobileDiscoverTimerId)` the SAME drain then picks up. No injected timer, no re-read of the flag.
+        mob.mobile_register_current();
+        CHECK(mob.mobile_home_desired());
+        CHECK(mob.mobile_attach_state() == Node::MobileAttachState::seeking);
+        CHECK(pump_due_timers(mob, hal, wheel) >= 1);                // ★ production armed it; the pump found it
+        CHECK(count_j_opcode(hal.tx_frames, j_opcode::discover) == discovers_before + 1);
     }
 }
 
@@ -2885,7 +4934,7 @@ TEST_CASE("★★★ §S0-5 CHARACTERIZATION (spec §2.6) — past mobile_livene
     {
         CHECK(stage_mobile_offer(home, hal, /*mobile_hash=*/0x0000E5E5u) == 1);
         hal.tx_frames.clear();
-        home.on_timer(kMobileOfferBackoffTimerId);
+        fire_mobile_offer_timer(home, hal);
         auto o = first_j(hal.tx_frames, j_opcode::offer);
         CHECK(o.has_value());
         if (o) { CHECK(o->target_key_hash32 == 0x0000E5E5u);

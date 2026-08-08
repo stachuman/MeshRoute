@@ -322,7 +322,22 @@ void handle_cfg_set(const char* args, Print& out) {
     //     2026-07-31): `Node::set_team_id` promotes to mobile on a non-zero team, fw_main's NV restore normalises the same
     //     implication at boot (NV still persists the two fields independently — that path is the backstop, not a leak),
     //     and `cfg set mobile` below refuses the transitions that would break it. ---
-    else if (!strcmp(key, "mobile_autoregister")) { lc.mobile_autoregister = (atoi(val)!=0 || !strcmp(val,"true")); b.mobile_autoregister = lc.mobile_autoregister?1:0; }   // §mobile console: autonomy toggle (LIVE + persist)
+    // ★★★ §MH-S4b §4.2 — `mobile_autoregister` IS THE BOOT POLICY, read once at `on_init` into the live session state
+    // `_mobile_home_desired`. So a runtime write of this key needs an explicit bridge, and only in ONE direction:
+    //   · OFF -> ON  = an explicit request for home service ⇒ route it through `mobile_register_current()`, which is
+    //     the same verb the operator would have typed. ⚠ Before this it armed the OLD OR-ed predicate and scheduled
+    //     NOTHING, so the mobile did not actually DISCOVER until some other event happened to arm a timer.
+    //   · ON -> OFF  = ⛔ DELIBERATELY NOTHING. §4.2: "once an attachment session was explicitly started, …
+    //     continue INDEPENDENTLY of this initial-auto flag." Only `mobile unregister` ends a live session; the flag
+    //     change takes effect at the next boot, which is exactly what "boot policy" means.
+    else if (!strcmp(key, "mobile_autoregister")) { const bool was = lc.mobile_autoregister;
+                                                   lc.mobile_autoregister = (atoi(val)!=0 || !strcmp(val,"true")); b.mobile_autoregister = lc.mobile_autoregister?1:0;   // §mobile console: autonomy toggle (LIVE + persist)
+#if MR_FEAT_MOBILE
+                                                   if (!was && lc.mobile_autoregister && lc.is_mobile) g_node.mobile_register_current();
+#else
+                                                   (void)was;   // ⚠ MR_FEAT_MOBILE 0 (gateway): the transition test compiles out, so the capture is unused — MEASURED as a NEW `-Wunused-but-set-variable` on `gateway_heltec` (census 175 vs the pinned 174) before this line existed. Warnings are gate-blocking.
+#endif
+                                                 }
     // --- BLE companion policy: PERSISTED, reboot-to-apply (the stack inits at boot from these). Invalid input
     //     is REJECTED (fail loud), never silently defaulted. ---
     else if (!strcmp(key, "ble_mode")) {
@@ -1131,6 +1146,15 @@ void handle_mobile(const char* args, Print& out) {
         }
         return;
     }
+    // ★ §MH-S4 §4.3 — `mobile unregister`: end the current volatile attachment session and return to `dormant`.
+    // ⛔ Adds NO deregistration wire message (§4.3): the old home ages the row out under §9. ⚠ Tested BEFORE
+    //    "register" would be reached is unnecessary (strncmp("register",8) cannot match "unregister"), but it is
+    //    placed as its own verb rather than as `register off` so the grammar reads as the spec writes it.
+    if (!strcmp(args, "unregister")) {
+        g_node.mobile_unregister();
+        out.println(F("> mobile unregister: home-service request cleared — attachment dormant, timers cancelled (no wire message; the old home ages the row out)"));
+        return;
+    }
     if (!strcmp(args, "gateways")) {   // §S3: streamed JSON — mobile_gw* then mobile_net* then mobile_gw_end (routes/routes_end pattern)
         uint8_t gws = 0;
         for (uint8_t i = 0; i < g_node.bridged_layer_cap(); ++i) {
@@ -1159,12 +1183,37 @@ void handle_mobile(const char* args, Print& out) {
     }
     if (!strcmp(args, "status")) {   // §S3: JSON status (integer kHz/Hz PHY block)
         meshroute::console::MobileStatusFields m{};
-        m.registered = g_node.mobile_registered();
-        if (m.registered) {
+        // ★★★ §MH-S4 §4.1/§10 — `registered` IS NOW `mobile_attached()`, NOT `mobile_registered()`. A mobile whose
+        // CLAIM is still unconfirmed reports `registered:false` + `attachment:"claiming"`, so a user can never see
+        // a false registration during confirmation (§7.1's closing requirement). The home/local/epoch block below is
+        // still filled from the PROVISIONAL attachment whenever one exists, because those are the values the node is
+        // actually operating under and hiding them during `claiming` would make the state unreadable.
+        m.registered = g_node.mobile_attached();
+        if (g_node.mobile_registered()) {
             m.home = g_node.mobile_home_id(); m.local = g_node.mobile_local_id();
             m.epoch = g_node.mobile_reg_epoch(); m.home_layer = g_node.mobile_home_layer();
         }
         m.autoregister = c.mobile_autoregister;
+        // ---- §MH-S4 §10: the two planes, REPORTED SEPARATELY, plus the confirmation age and the diagnostics ----
+        m.attachment      = meshroute::Node::attach_state_name(g_node.mobile_attach_state());
+        m.home_link       = meshroute::Node::home_link_name(g_node.mobile_home_link());
+        m.last_result     = meshroute::Node::attempt_result_name(g_node.mobile_last_result());
+        m.home_desired    = g_node.mobile_home_desired();
+        m.home_confirmed  = g_node.mobile_home_confirmed_ever();
+        // ★★★★ §MH-S4b — THE `static_cast<uint32_t>` IS GONE. `mobile_home_confirm_age_ms()` returns `uint64_t`
+        // deliberately (the +0 u32 variant of its backing stamp was measured and DECLINED under M3), and this cast
+        // threw those bits away one line before they were printed: the displayed age WRAPPED at ~49.7 days, which is
+        // exactly the failure the 64-bit state was chosen to prevent. `MobileStatusFields::home_confirm_age_ms` is
+        // now u64 too and `write_mobile_status` serializes it with `i64`, so the value is 64 bits end to end.
+        m.home_confirm_age_ms = g_node.mobile_home_confirm_age_ms();
+        m.claim_retries   = g_node.mobile_claim_retries();
+        m.claim_retry_max = meshroute::protocol::presence_claim_max_retries;
+        m.claim_solicited = g_node.mobile_claim_solicited();   // §MH-S4b §7.1 step 3: "asked, waiting" vs "will ask" (rendered only while `claiming`)
+        m.retry_window_ms = g_node.mobile_retry_window_ms();   // §10 current retry window (§5.2's backoff accumulator)
+        m.offers          = g_node.mobile_offers_n();
+        m.scan_idx        = g_node.mobile_scan_idx();
+        m.scan_count      = g_node.mobile_scan_count();
+        m.candidates      = g_node.mobile_candidate_count();
         m.layer   = c.layers[0].layer_id;
         const double pf = c.layers[0].freq_mhz > 0.0 ? c.layers[0].freq_mhz : g_freq_mhz;   // §mobile: live layer freq (fallback to boot/global if not yet adopted)
         m.freq_khz = meshroute::protocol::mhz_to_khz(pf);   // MHz double -> integer kHz (rounded; no float on the wire)
@@ -1175,7 +1224,7 @@ void handle_mobile(const char* args, Print& out) {
         if (mm) out.write(s_inbox_jb, mm);
         return;
     }
-    out.println(F("> mobile err usage: register [freq= sf= bw= | scan] | gateways | query <gw> | status"));
+    out.println(F("> mobile err usage: register [freq= sf= bw= | scan] | unregister | gateways | query <gw> | status"));
 }
 #endif   // MR_FEAT_MOBILE (handle_mobile)
 #endif   // MR_N_LAYERS < 2 — handle_join / handle_create (normal-node provisioning)

@@ -408,7 +408,7 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
         meshroute::console::MobileReadyFields mob{};   // §S1: mobile/team snapshot (all omit-when-inactive -> a static node's ready is byte-identical)
         const meshroute::NodeConfig& rc = g_node.config();
         mob.is_mobile  = rc.is_mobile;
-        mob.registered = g_node.mobile_registered();
+        mob.registered = g_node.mobile_attached();   // ★ §MH-S4 §4.1/§7.1: CONFIRMED attachment only — `ready` is app-facing, so it must not report a transmitted-but-unconfirmed CLAIM as registered (the §S0-4 defect). `mobile_registered()` is the LINK-LAYER/provisional flag and is deliberately not used here.
         mob.home       = g_node.mobile_home_id();
         mob.local      = g_node.mobile_local_id();
         mob.home_layer = g_node.mobile_home_layer();

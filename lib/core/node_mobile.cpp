@@ -20,6 +20,16 @@ namespace MESHROUTE_NS {
 // A team member IS a mobile, so MR_FEAT_TEAM implies MR_FEAT_MOBILE — the inner `#if MR_FEAT_TEAM` blocks stay valid.
 #if MR_FEAT_MOBILE
 
+// ★★ §MH-S3 §5.2 — EQUAL JITTER, the single mobile-side draw site. Contract + the reasoning live in node.h
+// beside the declaration; the pure bounds live in protocol_constants.h beside `retry_backoff_window`.
+// EXACTLY ONE `rand_range` per call, and that count is pinned by a native test — it is the whole
+// attribution story of this slice, not an implementation detail (§5.2: "the draw and its order are part of
+// the simulation contract").
+uint32_t Node::mobile_equal_jitter(uint32_t window) {
+    return static_cast<uint32_t>(_hal.rand_range(static_cast<int>(protocol::equal_jitter_lo(window)),
+                                                 static_cast<int>(protocol::equal_jitter_hi_excl(window))));
+}
+
 // DISCOVER on our PHY + open the collect-OFFERs window. Also the periodic-refresh tick: if still homed
 // (a recent BCN from home), just re-arm the refresh; else (home lost / never registered) re-enter discovery.
 void Node::mobile_discover_fire() {
@@ -40,7 +50,17 @@ void Node::mobile_discover_fire() {
     // team member still self-bootstraps + defends its team id and stays team-reachable (F-PS-1) — it just goes off-grid-QUIET
     // on the static/host plane. The manual arm is a ONE-SHOT: consume it so a later autonomous kick can't ride it.
     if (!registration_armed()) return;
-    _mobile_arm_once = false;
+    // ★★★ §MH-S4 §4.2 — THE ONE-SHOT CONSUMPTION IS GONE (`_mobile_arm_once = false` stood here). A manual
+    // `mobile register` is now a DURABLE volatile request, so the FSM below is entered identically whether the
+    // operator or `mobile_autoregister` asked for it: MANUAL AND AUTOMATIC STARTS SHARE ONE FSM, differing only
+    // in who enters `seeking`. See `registration_armed()` / `mobile_request_home_service()` in node.h.
+    // ★ §MH-S4 §4.1 — AND THIS IS WHERE `seeking` IS ENTERED. `recovering` is NOT overwritten: it means "a
+    // PREVIOUSLY ATTACHED home was lost", which stays true across every DISCOVER round of the recovery, and a
+    // surface that says "reconnecting to your home" must not silently degrade to "searching" on the second try.
+    // ⓘ `claiming` cannot be observed here: this function returns above on `_my_mobile_reg.active`, which the
+    //   provisional adopt sets, so the only reachable states at this line are `dormant`, `seeking` and
+    //   `recovering` — and `dormant` is reachable only with autoregister ON (the OFF case returned at the gate).
+    if (_mobile_attach_state != MobileAttachState::recovering) _mobile_attach_state = MobileAttachState::seeking;
     _mobile_offers_n = 0;
     // §MH-S1b §6.3: a new DISCOVER supersedes any CLAIM still waiting in the LBT defer ring — its staged
     // candidate lives in `_mobile_offers[0]`, which the line above has just invalidated. Clearing the flag
@@ -79,7 +99,7 @@ void Node::mobile_discover_fire() {
             pu.layer_id = phy.layer_id; pu.dst = phy.routing_sf; enqueue_push(pu);
         }
         _mobile_scan_idx = static_cast<uint8_t>((_mobile_scan_idx + 1) % scan_set_count());   // skip to the next candidate
-        if (_cfg.mobile_autoregister) (void)_hal.after(protocol::mobile_offer_window_ms, kMobileDiscoverTimerId);
+        if (mobile_service_desired()) (void)_hal.after(protocol::mobile_offer_window_ms, kMobileDiscoverTimerId);   // §MH-S4 §4.2: an explicitly-requested session keeps sweeping too (was mobile_autoregister only)
         return;                                                    // never DISCOVER on a mismatched PHY
     }
 #endif
@@ -107,7 +127,12 @@ void Node::mobile_discover_fire() {
     // ⇒ the arm now lives at the handoff, in `lbt_complete`, reached by `LbtKind::mobile_discover` — on the
     //   immediate path AND when the LBT defer slot later fires. See node.h's LbtKind comment for why
     //   testing this call's `bool` instead would NOT have worked (a successful defer returns TRUE).
-    // ⛔ Draw-free: no jitter is introduced here or in `mobile_admission_rejected`; S3 owns the RNG.
+    // ⛔ Draw-free HERE: `mobile_discover_send` itself introduces no jitter — the DISCOVER goes out at the
+    // instant its caller decided on. ⚠ CORRECTED 2026-08-07 (§MH-S3-QA item 4): this line used to add "…or in
+    // `mobile_admission_rejected`; S3 owns the RNG", and that second clause is NO LONGER TRUE. S3 took
+    // ownership and spent the draw: `mobile_admission_rejected` (:132, the handler both `return`s below reach)
+    // now draws ONE `mobile_equal_jitter(mobile_offer_window_ms)` at :149 — site D of §MH-S3's four-site draw
+    // inventory. The retry this function's two rejection paths arm is therefore JITTERED, not fixed at 2000 ms.
     if (n == 0) { mobile_admission_rejected(TxAdmission::tx_rejected, "discover_pack"); return; }   // C2: unreachable (pack_j_discover gives 13 into a 13-B span) but never silent
     MR_EMIT("mobile_discover_tx", EF_I("key", static_cast<int64_t>(_key_hash32)));
     TxAdmission adm = TxAdmission::admitted;
@@ -127,13 +152,21 @@ void Node::mobile_admission_rejected(TxAdmission why, const char* site) {
     // §3-A.1 twin: MR_EMIT is device-stripped, so the only way this reaches metal is a log line. Trace-gated
     // (NOT the `!!` operator-critical prefix): it is self-healing within seconds and must not spam a console.
     _hal.log("mobile attach attempt refused by OUR OWN transmitter — retrying; the home is NOT implicated");
-    _mobile_arm_once = true;                                       // the attempt never happened -> don't eat a manual arm
-    // Bounded retry (gate 6). ⛔ A FIXED delay, deliberately: jittering it needs a draw and S3 is the only
-    // planned RNG re-anchor in this arc. Reuses the existing mid-cycle spacing constant (U1) rather than
-    // introducing a second one. ⚠ Unconditional on `mobile_autoregister` — unlike the no-host backoff below
-    // — because step 2 has just restored the arm, so this retry is servicing an authorised attempt that our
-    // own radio dropped, not autonomous behaviour the operator switched off.
-    (void)_hal.after(protocol::mobile_offer_window_ms, kMobileDiscoverTimerId);
+    // ⚠ §MH-S4 §4.2 — `_mobile_arm_once = true` STOOD HERE ("the attempt never happened -> don't eat a manual
+    // arm") and is DELETED, not moved: `_mobile_home_desired` is durable, so there is no one-shot left to
+    // restore. See step 2 of the contract block in node.h.
+    // ⛔ §6.4 — AND NOTHING HERE TOUCHES THE HOME-LINK PLANE, still by construction: an admission failure is a
+    //    statement about OUR OWN transmitter (gate 20). `_mobile_home_link` is not named in this function.
+    // Bounded retry (gate 6). ★★ §MH-S3 §5.2 — NOW JITTERED, honouring the marker S1 left here ("a FIXED
+    // delay, deliberately: jittering it needs a draw and S3 is the only planned RNG re-anchor in this arc").
+    // Equal jitter over the existing mid-cycle spacing constant (U1 — no second constant): rand(1000, 2001).
+    // ★ THE FAILURE MODE IS §5.2'S OWN: a channel busy enough to refuse one mobile's DISCOVER refuses the
+    // whole fleet's, and a FIXED 2000 ms retry marched them all back onto that channel together, forever.
+    // ⚠ Unconditional on `mobile_autoregister` — unlike the no-host backoff below — because this retry is
+    // servicing an authorised attempt that our own radio dropped, not autonomous behaviour the operator
+    // switched off. (§MH-S4: it is reached only from the two attach sites, both of which ran
+    // `registration_armed()` first, so `mobile_service_desired()` is already known true here.)
+    (void)_hal.after(mobile_equal_jitter(protocol::mobile_offer_window_ms), kMobileDiscoverTimerId);
 }
 
 // Window close: pick the strongest OFFER, CLAIM its local-id, and adopt (claim-stands). No host -> exp-backoff.
@@ -141,16 +174,35 @@ void Node::mobile_claim_guard_fire() {
     if (!_cfg.is_mobile || _my_mobile_reg.active) return;
     if (_mobile_offers_n == 0) {                                   // no host on THIS PHY -> §mobile 5a: advance the scan-set; exp-backoff only after a FULL cycle
         _mobile_scan_idx = static_cast<uint8_t>((_mobile_scan_idx + 1) % scan_set_count());
-        uint32_t delay;
+        // ★★★ §MH-S3 §5.2 — EVERY NO-HOST RETRY DRAWS. THIS IS THE ARC'S ONE PLANNED RNG RE-ANCHOR.
+        // Before: `delay = _mobile_backoff_ms` (or the flat mid-cycle constant) — a pure capped doubling
+        // 5 s -> 120 s with no draw anywhere on the path, so mobiles powered together stayed phase-aligned
+        // for as long as they ran and collided in the same OFFER window round after round (§2.2, pinned by
+        // the §S0-2 characterization test). Now: the capped exponential growth is RETAINED — it still
+        // computes §5.2's `window = min(5 s * 2^attempt, 120 s)` verbatim, and `_mobile_backoff_ms` is that
+        // WINDOW, not the delay — and the delay is EQUAL JITTER over it: `rand(window/2, window + 1)`.
+        // ★ BOTH ARMS DRAW, and that uniformity is deliberate: §5.2 says "every no-host retry", and the
+        //   mid-cycle inter-PHY gap IS a no-host retry (it re-DISCOVERs, just on the next scan PHY). It
+        //   jitters over its own window (`mobile_offer_window_ms`) rather than the backoff ladder, which it
+        //   was never part of. ⇒ the branch's draw count is ONE, whichever arm runs — a far easier contract
+        //   to pin than "one, unless the scan set has more than one entry".
+        // ★ THE DRAW IS UNCONDITIONAL ON `mobile_autoregister`, while the ARM below is not. Deliberate: the
+        //   `mobile_no_host` emit reports `backoff_ms`, and a reported delay that was never computed would
+        //   be a display-shaped lie. It also makes the draw count independent of a config flag.
+        uint32_t window;
         if (_mobile_scan_idx == 0) {                               // full cycle (or single-entry) with no host anywhere -> exp-backoff (B3)
             _mobile_backoff_ms = _mobile_backoff_ms
                 ? std::min(2u * _mobile_backoff_ms, protocol::mobile_discover_backoff_max_ms)
                 : protocol::mobile_discover_backoff_min_ms;
-            delay = _mobile_backoff_ms;
+            window = _mobile_backoff_ms;
         } else {                                                   // mid-cycle -> a short inter-PHY gap so the scan sweeps promptly
-            delay = protocol::mobile_offer_window_ms;
+            window = protocol::mobile_offer_window_ms;
         }
-        if (_cfg.mobile_autoregister) (void)_hal.after(delay, kMobileDiscoverTimerId);   // §console: backoff retry-DISCOVER (autonomy)
+        const uint32_t delay = mobile_equal_jitter(window);
+        // §MH-S4 §4.2: an explicitly-requested attachment session keeps retrying too — "it remains
+        // seeking/recovering until success or `mobile unregister`". Was `_cfg.mobile_autoregister` alone, which
+        // gave a manual `mobile register` exactly ONE no-host round and then silence.
+        if (mobile_service_desired()) (void)_hal.after(delay, kMobileDiscoverTimerId);   // §console: backoff retry-DISCOVER
         // §MH-S1 §10: THIS is the only place `no_offer` may be recorded — the window genuinely opened (the
         // DISCOVER crossed the handoff, §6.1) and genuinely nobody answered. An admission failure records
         // `tx_rejected`/`defer_full` instead and never reaches this branch at all.
@@ -255,11 +307,128 @@ void Node::mobile_claim_adopt() {
     (void)old_home;
     MR_EMIT("mobile_adopted", EF_I("home", o.responder_id), EF_I("local_id", o.proposed_local_id),
             EF_I("epoch", _my_mobile_reg.epoch));
-    { Push pu{}; pu.kind = PushKind::mobile_reg; pu.origin = o.responder_id; pu.dst = o.proposed_local_id;   // §S2: registered (also a roam -> a changed home)
-      pu.layer_id = _my_mobile_reg.home_leaf_id; pu.ctr = _my_mobile_reg.epoch; pu.relayed = true; enqueue_push(pu); }
+    // ★★★★ §MH-S4 §7.1 — THIS IS `claiming`, NOT `attached`, AND THE APP-FACING PUSH HAS MOVED AWAY FROM HERE.
+    // The `mobile_reg{registered:true}` push that stood on the next line is now emitted in
+    // `presence_ingest_roster`, at §7.1 STEP 4 — the FIRST chosen-home roster carrying our (hash, local id,
+    // epoch). ⛔ THAT IS THE ENTIRE §S0-4 DEFECT: a CLAIM lost to an RX collision reached exactly this line and
+    // told the app it was registered at a home that had no row for it, for ≈135 000 ms, with no re-CLAIM.
+    // ★ What still happens here is §7.1 step 1's PROVISIONAL adoption — `set_identity`, `_joined`, the offered
+    //   PHY — because the mobile really does have to operate under the offered local id to be answered at all.
+    //   The distinction the spec draws is between OPERATING provisionally and TELLING THE APP it is registered.
+    // ⓘ The stage `_mobile_offers[0]` is deliberately LEFT INTACT (`_mobile_offers_n` stays 1): it is the
+    //   carrier `mobile_reclaim_send()` rebuilds the same-epoch re-CLAIM from (U2 — no second copy).
+    _mobile_attach_state = MobileAttachState::claiming;
     schedule_triggered_beacon();                                  // announce the adopted id (peers re-bind on it)
     presence_on_adopt();                                          // §S6: seed the presence clocks + arm the FIRST check probe (REPLACES the re-CLAIM tick)
-    if (_cfg.mobile_autoregister) (void)_hal.after(0, kMobileLayerQueryTimerId);   // §S6: first-registration layer-directory pull (the PERIODIC re-arm is retired; pull now rides dir_epoch changes + the 6-h safety pull)
+    if (mobile_service_desired()) (void)_hal.after(0, kMobileLayerQueryTimerId);   // §S6: first-registration layer-directory pull (the PERIODIC re-arm is retired; pull now rides dir_epoch changes + the 6-h safety pull). §MH-S4 §4.2: also for a manually-requested session.
+}
+
+// ★★★ §MH-S4 §7.1 step 5 — RE-SEND THE SAME CLAIM: same chosen host, same proposed local id, SAME EPOCH.
+// "Same" is the whole requirement, and it is why this is not a call back into `mobile_claim_guard_fire()`:
+// that function re-picks the strongest OFFER and INCREMENTS `_my_mobile_reg.epoch` (`++` inside the pack), so
+// routing a retry through it would produce a DIFFERENT claim and defeat the home's idempotent claim-stands.
+// ⓘ The frame is rebuilt from the retained stage `_mobile_offers[0]` plus the already-adopted
+//   `_my_mobile_reg.epoch` — one carrier, no duplicated candidate (U2).
+// ⛔ IT MUST NOT RE-ADOPT. `lbt_complete` calls `mobile_claim_adopt()` for every admitted `LbtKind::mobile_claim`,
+//    and `mobile_claim_adopt` early-returns on `!_mobile_claim_pending` — which is exactly the state after the
+//    first adopt CONSUMED the flag. So the flag is left FALSE here, deliberately and not by accident: a re-adopt
+//    would call `presence_on_adopt()`, which RESETS `_mobile_claim_retries` to 0 and would turn the bounded
+//    retry budget of §7.1 into an unbounded loop. This is asserted by a native case, not trusted.
+// ⛔ NO NEW RNG DRAW: `pack_j_claim` + `tx_initiating` are draw-free, and the confirmation deadline is armed by
+//    `presence_arm_check`, whose single `rand_range` this path was already going to spend on its next probe.
+// ★★★★ §MH-S4b — IT NOW ANSWERS **"DID OUR OWN TRANSMITTER ADMIT IT?"**, because that is the only fact allowed to
+// spend a re-CLAIM (see the contract at the declaration in node.h). `false` = a DEFINITIVE local refusal: nothing on
+// the air, nothing spent. `true` = admitted OR accepted into the LBT defer ring — in flight either way.
+bool Node::mobile_reclaim_send() {
+    if (!_cfg.is_mobile || !_my_mobile_reg.active || _mobile_offers_n == 0) return false;   // C2: no stage -> nothing to re-send (never fabricate a CLAIM), and nothing to charge for
+    const OfferCand& o = _mobile_offers[0];
+    j_claim_in c{}; c.leaf_id = o.leaf_id; c.gateway_capable = false; c.is_mobile = true; c.key_hash32 = _key_hash32;
+    c.proposed_node_id = o.proposed_local_id;
+    c.claim_epoch = static_cast<uint8_t>(_my_mobile_reg.epoch);    // ★ SAME epoch — NOT `++` (that is what makes it the same CLAIM)
+    c.chosen_host_id = o.responder_id;
+    uint8_t buf[11]; const size_t n = pack_j_claim(c, std::span<uint8_t>(buf, sizeof buf));
+    MR_EMIT("mobile_reclaim_tx", EF_I("home", o.responder_id), EF_I("local_id", o.proposed_local_id),
+            EF_I("epoch", _my_mobile_reg.epoch), EF_I("attempt", _mobile_claim_retries));
+    TxAdmission adm = TxAdmission::admitted;
+    if (n == 0 || !tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::mobile_claim, _mobile_attach_gen, &adm)) {
+        // §6.3/§6.4: OUR transmitter refused the retry. That is a LOCAL fact — record it as the last attempt
+        // result and let the next confirmation deadline try again. ⛔ It does NOT move the home-link plane, and
+        // ★★ §MH-S4b: it now consumes NO retry AT ALL. The caller used to increment before calling, so three
+        //    local refusals exhausted the budget with zero frames transmitted and the node reported
+        //    `claim_unconfirmed` for a home that was never asked a second time.
+        _mobile_last_result = (adm == TxAdmission::defer_full) ? MobileAttemptResult::defer_full
+                                                              : MobileAttemptResult::tx_rejected;
+        MR_EMIT("mobile_tx_rejected", EF_S("site", "reclaim"),
+                EF_S("result", adm == TxAdmission::defer_full ? "defer_full" : "tx_rejected"));
+        // §3-A.1 twin of the probe-refusal line: MR_EMIT is device-stripped, so a log is the only way this reaches
+        // metal — and §10 requires the local-transmitter reason to be readable there, never as a home-link verdict.
+        _hal.log("re-CLAIM refused by OUR OWN transmitter — no retry consumed, the home link is NOT implicated");
+        return false;
+    }
+    return true;
+}
+
+// ★★★★ §MH-S4b — THE DEFERRED HALF OF "A BUDGET IS SPENT BY THE ACT". See the contract at the declaration.
+// Returns TRUE iff this dead deferred frame was a RE-CLAIM (⇒ handled here; the caller must not fall into the
+// pre-attachment `mobile_admission_rejected` backoff).
+bool Node::mobile_reclaim_deferred_rejected() {
+    if (!_cfg.is_mobile) return false;
+    // ★ IDENTIFY THE TRANSACTION BEFORE ACTING ON ITS CONTENTS ([[B147]]). Three facts distinguish a re-CLAIM from
+    // a FIRST CLAIM, and all three are structural rather than heuristic:
+    //   · `_mobile_claim_pending` is still TRUE for a first CLAIM — its ONLY clearer is `mobile_claim_adopt()`,
+    //     which lives in `lbt_complete` and is NOT reached on this branch — while `mobile_reclaim_send()`
+    //     deliberately never sets it (a re-adopt would reset the budget: node_mobile.cpp's own note);
+    //   · a re-CLAIM only exists for an already provisionally-adopted node ⇒ `_my_mobile_reg.active`;
+    //   · …and only while the attachment plane is `claiming`.
+    // ⓘ A STALE re-CLAIM cannot reach here at all: `lbt_complete` cancels a frame whose `completion_gen` no longer
+    //   matches `_mobile_attach_gen` and answers TRUE, so `admitted` is true and this whole arm is skipped ([[B142]]).
+    if (_mobile_claim_pending || !_my_mobile_reg.active
+        || _mobile_attach_state != MobileAttachState::claiming) return false;
+    // ⛔ REFUND, not "don't count": `tx_initiating` answered TRUE for the defer, so the retry WAS charged — correctly,
+    //    because a deferred frame is in flight. Only this definitive late refusal proves it never aired.
+    if (_mobile_claim_retries > 0) --_mobile_claim_retries;
+    _mobile_last_result = MobileAttemptResult::tx_rejected;   // §6.4/§10: OUR transmitter. ⛔ NOT a home-link state.
+    MR_EMIT("mobile_reclaim_refunded", EF_I("home", _my_mobile_reg.home_id),
+            EF_I("retries", _mobile_claim_retries));
+    _hal.log("deferred re-CLAIM dropped at the radio queue — the retry budget is REFUNDED, the home link is NOT implicated");
+    // ⛔ NO RE-ARM: `presence_claim_unconfirmed` already armed the next solicitation deadline when it sent this
+    //    frame, so the round repeats on its own. Arming again would double the timer and double the jitter draw.
+    return true;
+}
+
+// ★★★ §MH-S4 §7.1 steps 5-6 — THE ONE DECISION POINT FOR AN UNCONFIRMED CLAIM, shared by BOTH triggers §7.1
+// gives, because step 6 says silence follows THE SAME BOUNDED COUNT as a roster that omits us:
+//   · `why = "roster_absent"` — the chosen home rostered somebody, and not us (step 5);
+//   · `why = "silence"`       — the confirmation deadline passed with no roster at all (step 6).
+// Budget exhausted ⇒ RESET AND RETURN TO `seeking`, "rather than remaining falsely registered" — which is the
+// sentence §S0-4 was written to make measurable.
+void Node::presence_claim_unconfirmed(const char* why) {
+    if (!_cfg.is_mobile) return;
+    if (_mobile_claim_retries >= protocol::presence_claim_max_retries) {
+        _mobile_last_result = MobileAttemptResult::claim_unconfirmed;
+        MR_EMIT("mobile_claim_exhausted", EF_S("why", why), EF_I("home", _my_mobile_reg.home_id),
+                EF_I("retries", _mobile_claim_retries));
+        _hal.log("!! mobile CLAIM never confirmed by the home roster — returning to seeking");
+        // ⛔ THE ATTACHMENT WAS NEVER CONFIRMED, so this is a return to `seeking`, NOT to `recovering`:
+        //    `recovering` means "a previously ATTACHED home was lost" (§4.1) and would be a false claim of a
+        //    history this node does not have. `mobile_reset_registration` derives exactly that from the
+        //    `attached` state it is leaving (here: `claiming`), so no override is needed.
+        mobile_reset_registration("claim_unconfirmed");
+        _mobile_claim_solicited = false;                           // the session is over; the next attachment asks afresh
+        (void)_hal.after(0, kMobileDiscoverTimerId);               // a FULL re-DISCOVER: a fresh OFFER round, a fresh id, a fresh epoch
+        return;
+    }
+    // ★★★★ §MH-S4b — **THE BUDGET IS SPENT BY THE TRANSMISSION, NOT BY THE DECISION TO TRANSMIT.** The increment
+    // stood on the line ABOVE this call, so a mobile whose radio refused every retry burned all three and reported
+    // `claim_unconfirmed` with NOT ONE re-CLAIM on the air — the failure mode the budget exists to bound, reached
+    // without using the resource it bounds. Fifth appearance of the rule in this arc ([[B84]], [[B145]]/[[B146]],
+    // [[B139]], here). ⓘ A DEFERRED re-CLAIM counts (it is in flight); its late death refunds, in
+    // `mobile_reclaim_deferred_rejected()`.
+    if (mobile_reclaim_send()) ++_mobile_claim_retries;
+    // ★★ §7.1 step 3 — AND THE NEXT DEADLINE IS A **SOLICITATION**, NOT A VERDICT. Clearing the substate is what
+    // makes the following fire send the searching probe and then WAIT, instead of spending the next retry blind.
+    _mobile_claim_solicited = false;
+    presence_arm_check(protocol::presence_claim_solicit_ms);       // the next solicitation deadline (the ONE draw on this path)
 }
 
 // §mobile 6.4 — team-DAD: a team member self-assigns a persistent id on the team plane (no static host), so an
@@ -324,7 +493,14 @@ void Node::team_dad_guard_fire() {
 // semantics (set_identity(unjoined)), mobile-gated.
 void Node::mobile_reset_registration([[maybe_unused]] const char* reason) {
     if (!_cfg.is_mobile) return;
-    const bool was_active = _my_mobile_reg.active;               // §S2: only push the deregistration on a REAL transition (no spurious repeat)
+    // ★★★ §MH-S4 §4.1 — THE DEREGISTRATION PUSH IS NOW GATED ON THE **ATTACHMENT** PLANE, NOT ON `active`.
+    // `was_active` used to drive it, and with the §7.1 push moved to roster confirmation that would have been a
+    // "success that isn't" in reverse: a mobile whose CLAIM was never confirmed never emitted `registered:true`,
+    // so emitting `registered:false` when its provisional attachment collapses would tell the app a
+    // registration ENDED that the app was never told had begun. ⇒ the pair is now symmetric by construction:
+    // exactly one `registered:true` per confirmed attachment (guarded by `_presence_reg_confirmed`), and exactly
+    // one `registered:false` per confirmed attachment that ends.
+    const bool was_attached = (_mobile_attach_state == MobileAttachState::attached);
     _my_mobile_reg.active = false;
     _joined = false;
 #if MR_FEAT_TEAM
@@ -340,8 +516,75 @@ void Node::mobile_reset_registration([[maybe_unused]] const char* reason) {
     else
 #endif
     set_identity(protocol::unjoined_node_id, _key_hash32);        // 0 = unprovisioned (transient; a re-CLAIM follows)
+    // ★★★ §MH-S4 §4.1 — THE ATTACHMENT PLANE'S NEXT STATE, DERIVED FROM WHAT WE ARE LEAVING AND FROM NOTHING ELSE:
+    //   · no home service desired at all  -> `dormant`     (honest: `registration_armed()` is false, so NO
+    //                                                       DISCOVER will run; calling it "seeking" would render
+    //                                                       a search that physically cannot happen);
+    //   · we were CONFIRMED `attached`    -> `recovering`  (§4.1: "a previously attached home is lost");
+    //   · otherwise                       -> `seeking`      (a provisional/unconfirmed attempt collapsed — there
+    //                                                       is no attachment history to recover).
+    // ⛔ THE HOME-LINK PLANE IS DELIBERATELY NOT TOUCHED HERE. It is ORTHOGONAL (§4.1) and its callers own it:
+    //    `presence_probe_fire` sets `lost` BEFORE calling us (so the surface can say "home lost" with the age of
+    //    the last confirmation still readable), `mobile_unregister` sets `unknown` (its definition includes "the
+    //    home-service state is dormant"), and a roster confirmation sets `confirmed`. Clearing it here would
+    //    erase the very evidence the §4.1 display rule asks to be rendered.
+    _mobile_attach_state = !mobile_service_desired() ? MobileAttachState::dormant
+                         : was_attached              ? MobileAttachState::recovering
+                                                     : MobileAttachState::seeking;
+    _presence_reg_confirmed = false;                              // §7.1: this attachment's confirmation is void — the next one must earn its own push
+    _mobile_claim_retries   = 0;                                  // §7.1: a fresh attachment gets a fresh bounded budget
+    _mobile_claim_solicited = false;                              // §MH-S4b §7.1 step 3: no solicitation is outstanding for an attachment that no longer exists
     MR_EMIT("mobile_reset", EF_S("reason", reason ? reason : ""));
-    if (was_active) { Push pu{}; pu.kind = PushKind::mobile_reg; pu.relayed = false; enqueue_push(pu); }   // §S2: home lost / dereg -> home=0,local=0,registered:false
+    if (was_attached) { Push pu{}; pu.kind = PushKind::mobile_reg; pu.relayed = false; enqueue_push(pu); }   // §S2: home lost / dereg -> home=0,local=0,registered:false
+}
+
+// ★ §MH-S4 §4.2/§4.3 — `mobile register` (all three spellings): set the VOLATILE home-service request and enter
+// `seeking`. Idempotent while already seeking/recovering — §4.3: "repeating it while already seeking is
+// idempotent except that it may select another scan mode/PHY and trigger one immediate attempt" (the PHY/scan
+// selection and the immediate attempt are the callers' job in node.h; this is the state half).
+// ⓘ An `attached`/`claiming` node keeps its state here: §4.3 rules that repeating the verb while attached is "a
+//   controlled re-evaluation, not a second parallel transaction", and the immediate `kMobileDiscoverTimerId`
+//   the caller arms returns at the `_my_mobile_reg.active` guard — so the live attachment is not torn down by a
+//   redundant command. `mobile unregister` is the verb that ends a session.
+void Node::mobile_request_home_service() {
+    if (!_cfg.is_mobile) return;
+    _mobile_home_desired = true;
+    if (_mobile_attach_state == MobileAttachState::dormant) _mobile_attach_state = MobileAttachState::seeking;
+}
+
+// ★ §MH-S4 §4.2/§4.3 — `mobile unregister`: end the current volatile attachment session and return to `dormant`.
+// ⛔ NO DEREGISTRATION WIRE MESSAGE, deliberately (§4.3): the old home ages the row out under §9. This verb is
+//    LOCAL — it must not put a frame on the air, so nothing here transmits.
+// ⓘ The timers are CANCELLED rather than left to fire into a guard, because "cancel registration/presence
+//   timers" is the verb's stated contract: a dormant node must be QUIET, and a pending probe/DISCOVER slot that
+//   merely no-ops on entry still costs a wakeup on a battery-powered mobile.
+void Node::mobile_unregister() {
+    if (!_cfg.is_mobile) return;
+    _mobile_home_desired = false;                                 // cleared FIRST so mobile_reset_registration derives `dormant`
+    _hal.cancel(kMobileDiscoverTimerId);
+    _hal.cancel(kMobileClaimGuardTimerId);
+    _hal.cancel(kPresenceProbeTimerId);
+    _hal.cancel(kMobileLayerQueryTimerId);
+    _mobile_claim_pending = false;                                // drop any staged CLAIM (a deferred completion is cancelled by the gen bump below)
+    _mobile_offers_n      = 0;
+    ++_mobile_attach_gen;                                         // [[B142]]: supersede every in-flight attach completion — an unregister is a new (empty) transaction
+    _mobile_home_link       = MobileHomeLink::unknown;             // §4.1: "unknown — ... or the home-service state is dormant"
+    _mobile_home_confirmed_ms = 0;                                // no session, no confirmation age to render
+    _mobile_last_result     = MobileAttemptResult::none;
+    MR_EMIT("mobile_unregistered", EF_I("home", _my_mobile_reg.home_id));
+    mobile_reset_registration("mobile_unregister");                // drops the attachment + the registered:false push iff we were attached
+    // ★★★★ §MH-S4b — **THE `dormant` OVERRIDE IS GONE, AND ITS REMOVAL IS THE PROOF THE CONTRADICTION IS FIXED.**
+    // §MH-S4 had to force `_mobile_attach_state = MobileAttachState::dormant` on the next line, because
+    // `mobile_reset_registration` derives the state from `mobile_service_desired()` and that predicate was
+    // `_cfg.mobile_autoregister || _mobile_home_desired` — STILL TRUE on an `autoregister=1` device, which is most
+    // of them. So the verb reported `dormant` while the machine stayed armed: §4.3's post-condition held for one
+    // member and for nothing else, no replacement DISCOVER was ever scheduled, and §MH-S4's own test had to INJECT
+    // the timer this verb had just cancelled in order to watch "autonomy resume".
+    // ⇒ With `_mobile_home_desired` as the effective session state (node.h), the DERIVATION is now correct on its
+    //   own: the request is cleared above, `mobile_service_desired()` is false, and `mobile_reset_registration`
+    //   yields `dormant` for BOTH `autoregister` values. The override is therefore not merely redundant — keeping it
+    //   would hide whether the predicate was fixed at all. It is deleted, and a `mobile register` (or a reboot,
+    //   §4.2's deliberate manual policy) is the only way back to `seeking`.
 }
 
 // §mobile 5a: pull the neighbouring-layer directory from a gateway (a DM query; the gateway answers with its bridged
@@ -358,7 +601,7 @@ void Node::mobile_layer_query_fire() {
     _presence_last_pull_ms = _hal.now();
     // §S6/D6: the 10-min periodic poll is RETIRED — the directory is pulled on a dir_epoch CHANGE (presence_ingest_roster)
     // plus this slow 6-h SAFETY re-arm (catches a missed epoch bump). No dir_epoch churn ⇒ ~one pull per 6 h, not per 10 min.
-    if (_cfg.mobile_autoregister) (void)_hal.after(protocol::presence_safety_pull_ms, kMobileLayerQueryTimerId);
+    if (mobile_service_desired()) (void)_hal.after(protocol::presence_safety_pull_ms, kMobileLayerQueryTimerId);   // §MH-S4 §4.2: also for a manually-requested session
 }
 
 // §mobile 5a: a bridging gateway we can ROUTE to, from the learned type-4 TLV (gw_id -> dest_leaf). -1 = none known yet.
@@ -419,14 +662,38 @@ void Node::presence_on_adopt() {
     _presence_prescan = false;
     _presence_key_confirmed = false;
     _presence_reg_confirmed = false;
+    // ★ §MH-S4 §4.1/§7.1 — a FRESH attachment has no confirmation of any kind yet, so BOTH planes start honest:
+    // the attachment plane is set to `claiming` by our caller (`mobile_claim_adopt`), and the home link is
+    // `unknown` — §4.1's own definition, "no confirmation yet". ⛔ NOT `checking`: nothing has been measured and
+    // then found wanting; a first CLAIM is not a failed check. ⛔ And the confirmation AGE is reset with it, so a
+    // re-attachment can never render the PREVIOUS home's confirmation age as if it belonged to the new one.
+    _mobile_home_link         = MobileHomeLink::unknown;
+    _mobile_home_confirmed_ms = 0;
+    _mobile_claim_retries     = 0;                                 // §7.1: a fresh attachment gets the full bounded re-CLAIM budget
+    _mobile_claim_solicited   = false;                             // §7.1 step 3: we have not asked yet — the next deadline SENDS the solicitation
     _last_adopt_ms = _hal.now();
     _presence_cand_n = 0;                                          // a fresh home -> forget stale candidates
-    presence_arm_check(_presence_T_ms);
+    // ★★★★ §MH-S4b §7.1 step 3 — **THE CONFIRMATION DEADLINE IS SHORT, AND IT IS NOT THE STEADY CHECK PERIOD.**
+    // §MH-S4 armed `_presence_T_ms` here (120 000 ms at the `ok` tier), so a mobile whose CLAIM was lost sat
+    // provisionally attached for two minutes before anything asked, and §7.1 step 3's "short jittered searching
+    // P-probe" was not implemented at all. `presence_claim_solicit_ms` is that probe's delay; `_presence_T_ms` keeps
+    // its `ok` seeding above and takes over the moment a roster confirms us (`presence_ingest_roster` re-arms with it).
+    // ⓘ SAME DRAW: `presence_arm_check` makes the one pre-existing `presence_probe_jitter_ms` draw either way.
+    presence_arm_check(protocol::presence_claim_solicit_ms);
 }
 
 // (Re)arm the check timer at now + delay + jitter (LBT desync).
+// ★ §MH-S4 §4.2 — GATED ON `mobile_service_desired()`, NOT on `_cfg.mobile_autoregister`. The old comment
+// ("app-driven mode: the companion arms probes") described a policy §4.2 overturns by name: "once an attachment
+// session was explicitly started, confirmation, presence checks, candidate monitoring, proactive re-home and
+// home-loss recovery continue independently of this initial-auto flag". With the old gate a manually-attached
+// mobile got NO presence plane at all — no confirmation deadline (so §7.1 could never time out), no home-loss
+// detection, no candidate canvass — which is what gate items 9/10 test for.
+// ⓘ CORPUS-INERT: `_mobile_home_desired` is only ever set by the `mobile register` console verbs, which no
+//   scenario can drive, so the predicate equals `_cfg.mobile_autoregister` throughout the corpus and the
+//   `rand_range` below is drawn on exactly the same occasions as before.
 void Node::presence_arm_check(uint32_t delay_ms) {
-    if (!_cfg.is_mobile || !_cfg.mobile_autoregister) return;      // app-driven mode: the companion arms probes
+    if (!_cfg.is_mobile || !mobile_service_desired()) return;
     const uint32_t jitter = static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(protocol::presence_probe_jitter_ms) + 1));
     (void)_hal.after(delay_ms + jitter, kPresenceProbeTimerId);
 }
@@ -434,7 +701,45 @@ void Node::presence_arm_check(uint32_t delay_ms) {
 // The check timer fired: send a probe (unless a fresh roster already refreshed us), else escalate toward HOME LOST.
 void Node::presence_probe_fire() {
     if (!_cfg.is_mobile || !_my_mobile_reg.active) return;         // unregistered -> the DISCOVER FSM owns it
-    if (_presence_miss > protocol::presence_probe_k_miss) {        // k_miss+1 unanswered probes -> HOME LOST (spec §S6.4-B)
+    // ★★★★ §MH-S4 §7.1 step 6 — A `claiming` MOBILE'S DEADLINE IS A **CONFIRMATION** DEADLINE, NOT A LIVENESS MISS.
+    // "Silence follows the same bounded re-CLAIM count." The distinction is decided HERE, once, and it changes only
+    // what the deadline MEANS — the probe below still goes out either way (see the fork after the send).
+    // ⛔ AND THE ORDER MATTERS (the [[B147]] lesson: identify the situation before any branch acts on it). The
+    //    `_presence_miss` ladder is skipped entirely while claiming: reached first, it would consume the claiming
+    //    mobile's deadlines and declare `presence_home_lost` after ≈135 s — a full re-DISCOVER for a defect that
+    //    ONE same-epoch re-CLAIM heals, which is precisely the §S0-4 measurement.
+    // ★ WHY A *SELECTED* PROBE CANNOT CONFIRM, AND WHAT REPLACED IT — verified in the home's own code rather
+    //   than assumed (V1, `node_join.cpp:728`): a home ends `presence_ingest_probe` with *"a check probe for a hash
+    //   we don't host -> ignore"*. So when our CLAIM was lost the home has NO row and will neither answer a
+    //   SELECTED probe nor schedule a roster.
+    //   ⛔ **AN EARLIER REVISION OF THIS BLOCK CONCLUDED FROM THAT: "silence is the only signal available here".
+    //      THAT IS WITHDRAWN — it was true only while this path sent a SELECTED probe.** §MH-S4b makes the first
+    //      ask a **SEARCHING** probe (`selected_home_id = 0`, `presence_claim_solicit_ms`), which *every* eligible
+    //      home answers — including one that hosts nobody. ⇒ a lost CLAIM is now detected by a POSITIVE roster
+    //      response arriving (or provably not arriving) inside `presence_claim_confirm_ms`, not by silence alone.
+    //      See the solicitation fork below for the live rule; do not re-derive the retired one from this paragraph.
+    //   ⓘ §7.1's step 5 (a roster that OMITS us) can still only fire at a home hosting SOMEBODY ELSE, and step 6
+    //   covers the empty-home case. Sharing ONE budget between them is therefore not an optimisation: it is what
+    //   stops the two triggers from each spending three retries on the same lost CLAIM.
+    const bool claiming = (_mobile_attach_state == MobileAttachState::claiming);
+    // ★★★★ §MH-S4b §7.1 steps 3+6 — **THE CONFIRMATION DEADLINE, i.e. "we asked and nobody answered".** This arm is
+    // reached only when the solicitation probe below already went out and its roster window has now expired, and it
+    // is the ONLY event entitled to spend a re-CLAIM. §MH-S4 sent the probe and spent the retry in ONE callback, so
+    // the answer could not physically arrive first and the probe was decorative; splitting the deadline in two is
+    // the fix, and `_mobile_claim_solicited` is what tells the two apart (node.h documents the substate).
+    // ⛔ NO PROBE IS SENT HERE. The solicitation was the ask; asking twice per round would double the airtime of the
+    //    one phase §7.1 keeps bounded, and would make "silence" unattributable to any single ask.
+    // ⛔ NO `_presence_miss`, NO home-link move: nothing about this home has been measured — it may never have held
+    //    a row for us — so the link stays `unknown` (§4.1) until a roster confirms it.
+    // ⓘ `presence_claim_unconfirmed` OWNS the re-arm on both of its arms (retry -> the next solicitation deadline;
+    //   exhaustion -> the DISCOVER), which is why this returns instead of falling through to the shared
+    //   `presence_arm_check` at the bottom — arming twice would double the draw and double the timer.
+    if (claiming && _mobile_claim_solicited) {
+        presence_claim_unconfirmed("silence");
+        return;
+    }
+    if (!claiming && _presence_miss > protocol::presence_probe_k_miss) {   // k_miss+1 unanswered probes -> HOME LOST (spec §S6.4-B)
+        _mobile_home_link = MobileHomeLink::lost;                  // §MH-S4 §4.1: "the bounded run of presence misses failed". Set BEFORE the reset, which deliberately does not touch this plane.
         const uint8_t old_home = _my_mobile_reg.home_id;
         const uint8_t old_layer = _my_mobile_reg.home_leaf_id;
         const uint8_t old_epoch = static_cast<uint8_t>(_my_mobile_reg.epoch);
@@ -450,12 +755,87 @@ void Node::presence_probe_fire() {
         return;
     }
     // steady `check` probe: selected = MY home (rev2 — only the selected home answers; a stale second home prunes). Attach the key until the home confirms custody (§S6 A.4).
-    p_probe_in cp{}; cp.selected_home_id = _my_mobile_reg.home_id; cp.selected_home_layer = _my_mobile_reg.home_leaf_id;
+    // ★★★★ §MH-S4b §7.1 step 3 — **WHILE `claiming` THE PROBE IS `SEARCHING` (selected = 0), AND THAT IS THE WHOLE
+    // POINT OF STEP 3.** §MH-S4 sent a SELECTED probe here, which a home that MISSED THE CLAIM IS REQUIRED TO IGNORE
+    // (V1, `node_join.cpp` `presence_ingest_probe`: an entry-less `!searching` probe falls through to *"a check probe
+    // for a hash we don't host -> ignore"*) ⇒ the one mechanism meant to detect the miss could not detect it, and the
+    // only remaining signal was our own timeout. A SEARCHING probe is answered by EVERY eligible home, so:
+    //   · the chosen home that DID record our CLAIM rosters our (hash, local id, epoch)  -> step 4 CONFIRMS;
+    //   · the chosen home that did NOT rosters WITHOUT us                                -> step 5, positive
+    //     evidence of the miss instead of a 12-second silence;
+    //   · other audible homes echo, which is §8's candidate canvass for free (zero extra transmissions).
+    // §7.1 step 3 states exactly this: "Every eligible home may answer, while the chosen home's roster either proves
+    // the row or proves absence."
+    // ⓘ KEY CUSTODY IS NOT DELAYED BY THIS, checked rather than assumed: the home ingests `ed_pub` only on the
+    //   `!searching` branch, so the solicitation's block is not stored — but the FIRST STEADY probe after
+    //   confirmation is still SELECTED and still carries it, and `presence_ingest_roster` re-arms that probe at
+    //   `_presence_T_ms` from the confirmation. Pre-§MH-S4b the first selected probe was at T after ADOPT; it is now
+    //   at T after CONFIRMATION, seconds later. §S6 A.4's custody timing is therefore materially unchanged.
+    p_probe_in cp{};
+    if (!claiming) { cp.selected_home_id = _my_mobile_reg.home_id; cp.selected_home_layer = _my_mobile_reg.home_leaf_id; }
     cp.key_hash32 = _key_hash32; cp.reg_epoch = static_cast<uint8_t>(_my_mobile_reg.epoch);
     if (_crypto_ready && !_presence_key_confirmed) { cp.has_pubkey = true; for (int i = 0; i < 32; ++i) cp.ed_pub[i] = _ed_pub[i]; }
     uint8_t buf[42]; const size_t n = pack_p_probe(cp, std::span<uint8_t>(buf, sizeof buf));
-    if (n) { MR_EMIT("presence_probe_tx", EF_I("searching", 0)); tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0); }
-    ++_presence_miss;
+    // ★★★★ [[B139]] FIXED HERE — §MH-S4 §6.4 / gate 20. THE DEFECT, exactly: `++_presence_miss` stood
+    // UNCONDITIONALLY on the line after this send, DISCARDING `tx_initiating`'s result. So a probe that OUR OWN
+    // TRANSMITTER refused — a full 4-slot LBT defer ring (`defer_full`) or a `DeviceHal::tx` rejection — was
+    // counted as *"the home did not answer"*, and `presence_probe_k_miss + 1` such refusals walked the home-link
+    // plane all the way to `presence_home_lost` -> `mobile_reset_registration` -> a full re-DISCOVER cycle. A busy
+    // channel could therefore deregister a mobile from a home that was working perfectly.
+    // ★ IT IS THE FOURTH ADMISSION SITE, AND THE ONLY ONE §6.4's OWN TEXT DOES NOT ENUMERATE (§6.4 names
+    //   DISCOVER / OFFER / CLAIM — all three pre-attachment and touching no home-link state). This one IS the
+    //   home-link plane, which is why S1 deliberately left it to S4 and why it is registered as B139.
+    // ⛔ GATING ON THE BOOL IS EXACTLY RIGHT AND WAS CHECKED, NOT ASSUMED: `tx_initiating` returns TRUE for a
+    //    frame merely ACCEPTED INTO the LBT defer ring (node_mac.cpp) — that probe WILL be transmitted, so it is
+    //    a genuine unanswered probe and must still count. It returns FALSE only when the frame was DEFINITIVELY
+    //    refused by our own radio, which is precisely the set §6.4 says must move nothing.
+    // ⓘ THE EMIT IS DELIBERATELY LEFT WHERE IT WAS, before the send, and this is an attribution decision rather
+    //   than an oversight: `presence_probe_tx` still means "asked". Moving it after `tx_initiating` would reorder
+    //   the event stream relative to the events `tx_initiating` itself raises on EVERY probe, and would therefore
+    //   move corpus rows on nodes where no probe was ever refused — destroying the property that every mover in
+    //   this slice is attributable to the BEHAVIOUR change. §10's scheduled-vs-admitted distinction is instead
+    //   carried by the PAIR (`presence_probe_tx` + `presence_probe_refused`), the same shape §MH-S1b gave the
+    //   host OFFER with `mobile_offer_scheduled` / `mobile_offer_tx`. Stated as a residual, not hidden.
+    TxAdmission adm = TxAdmission::admitted;
+    bool admitted = false;
+    if (n) { MR_EMIT("presence_probe_tx", EF_I("searching", claiming ? 1 : 0));
+             admitted = tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0, &adm); }
+    if (admitted && claiming) {
+        // ★★★★ §MH-S4b §7.1 step 3 — **THE SOLICITATION IS OUT; NOW WAIT FOR ITS ANSWER.** This is the half
+        // §MH-S4 was missing: it spent a re-CLAIM on this very line, in the same callback as the probe, so the
+        // roster could not arrive first. The budget is untouched here — the verdict belongs to the CONFIRMATION
+        // deadline armed below, which lands in the `_mobile_claim_solicited` arm at the top of this function.
+        // ⛔ NO `++_presence_miss` AND NO HOME-LINK MOVE: nothing about this home has been measured yet — it may
+        //    never have had a row for us at all — so calling the link `checking`/`lost` would attribute our own
+        //    lost CLAIM to the radio path. The home link stays `unknown` (§4.1) until a roster confirms it.
+        // ⓘ A REFUSED solicitation deliberately does NOT set the substate: it falls through to the shared
+        //   `presence_arm_check(presence_probe_retry_ms)` below and ASKS AGAIN in 5 s, spending no budget — §6.4's
+        //   rule that a local transmitter fact costs the attachment nothing. ⚠ RESIDUAL, stated: that retry is
+        //   unbounded in TIME (a permanently blocked radio keeps a mobile `claiming` for ever) but consumes ZERO
+        //   airtime and ZERO budget. §7.1 bounds the number of re-CLAIM FRAMES, which is what it can bound; a
+        //   wall-clock attachment timeout would be a new mechanism the spec does not ask for.
+        // ⛔ `presence_maybe_rehome()` is deliberately NOT reached while claiming: it is guarded on
+        //    `_presence_prescan`, which only a ROSTER can set, so it could not fire here anyway — but stating it
+        //    keeps the "one action per deadline" reading true rather than accidentally true.
+        _mobile_claim_solicited = true;
+        presence_arm_check(protocol::presence_claim_confirm_ms);
+        return;
+    }
+    if (admitted) {
+        ++_presence_miss;
+        _mobile_home_link = MobileHomeLink::checking;               // §4.1: a confirmation is now DUE — an outstanding probe, not a failure
+    } else {
+        // §6.4/§10: OUR transmitter, not the home. It belongs in `last result` and NOWHERE ELSE — ⛔ the miss
+        // counter is untouched, so the plane cannot walk toward `checking`/`lost`, and the plane assignment above
+        // is deliberately inside the `admitted` arm rather than before the branch.
+        _mobile_last_result = (adm == TxAdmission::defer_full) ? MobileAttemptResult::defer_full
+                                                              : MobileAttemptResult::tx_rejected;
+        MR_EMIT("presence_probe_refused", EF_S("result", adm == TxAdmission::defer_full ? "defer_full" : "tx_rejected"),
+                EF_I("home", _my_mobile_reg.home_id), EF_I("miss", _presence_miss));
+        // §3-A.1 twin of `mobile_admission_rejected`'s line: MR_EMIT is device-stripped, so a log line is the only
+        // way this reaches metal. Not `!!`-prefixed — it is self-healing on the next check period.
+        _hal.log("presence probe refused by OUR OWN transmitter — the home link is NOT implicated");
+    }
     presence_arm_check(protocol::presence_probe_retry_ms);         // retry spacing until a roster resets us
     presence_maybe_rehome();                                       // §S6.4-C: evaluate a proactive re-home each tick
 }
@@ -481,10 +861,66 @@ void Node::presence_ingest_roster(const uint8_t* frame, size_t len, const RxMeta
                     MR_EMIT("presence_epoch_mismatch", EF_I("home", r->home_id));
                     mobile_reset_registration("presence_epoch_mismatch"); (void)_hal.after(0, kMobileDiscoverTimerId); return;
                 }
-                // hash + epoch match -> liveness refreshed BOTH directions
+                // ★★★★ §MH-S4 §7.1 — IDENTITY IS THE **TRIPLE** `(mobile_hash, local_id, reg_epoch)`, NOT ONE FIELD.
+                // The local-id arm is NEW in this slice and it closes this arc's most persistent category error
+                // (hash alone -> [[B147]]; `seq` without `InboxKind` -> [[B133]]; `LbtKind` alone -> [[B142]]).
+                // §4.1 names all three as the authority for the attachment plane, so a two-of-three match MUST NOT
+                // confirm — and a native case proves each of the three two-of-three combinations does not.
+                // ⓘ WHY IT CAN DISAGREE AT ALL: the home is the authority for the local id. If our CLAIM was lost
+                //   and the home later recorded us under a different id (a race the S2 reservation narrows but the
+                //   DENY backstop can still resolve differently), a roster carrying our hash+epoch under ANOTHER id
+                //   is evidence that our adopted id is WRONG — not evidence that we are attached. Confirming it
+                //   would leave us routing under an id the home does not associate with us: the exact
+                //   "a success that isn't" shape, one layer down.
+                // ⇒ FAIL LOUD (C2) and re-register, the same shape the epoch arm above already uses.
+                if (e->local_id != _my_mobile_reg.my_local_id) {
+                    MR_EMIT("presence_local_id_mismatch", EF_I("home", r->home_id),
+                            EF_I("rostered", e->local_id), EF_I("mine", _my_mobile_reg.my_local_id));
+                    _hal.log("!! home roster carries our hash under a DIFFERENT local id — re-registering");
+                    mobile_reset_registration("presence_local_id_mismatch"); (void)_hal.after(0, kMobileDiscoverTimerId); return;
+                }
+                // hash + local id + epoch match -> liveness refreshed BOTH directions
                 _my_mobile_reg.last_heard_home_ms = _hal.now();
                 _presence_miss = 0;
-                _presence_reg_confirmed = true;                                            // the home HAS us (our hash in its roster) -> a CLAIM landed
+                // ★★★★ §MH-S4 §7.1 step 4 — THE ONE PLACE ATTACHMENT IS CONFIRMED, AND THE ONE PLACE THE APP IS
+                // TOLD. A matching roster confirms BOTH planes at once (§7.1's closing paragraph, gate 21): it is
+                // authoritative ATTACHMENT evidence (the triple) *and* a correlated bidirectional exchange (the
+                // home answered our probe, so each direction is proven), so it also sets the HOME LINK to
+                // `confirmed` and stamps the age §4.1 requires every surface to render.
+                const bool was_confirmed  = _presence_reg_confirmed;       // ★ READ #1 of the two that make the flag load-bearing (see node.h)
+                // ★★★ §MH-S4b — SNAPSHOT THE RE-CLAIM COUNT **BEFORE** RELEASING IT. §MH-S4 cleared
+                // `_mobile_claim_retries` on the line above its own `mobile_attach_confirmed` emit, so the event's
+                // `reclaims` field was STRUCTURALLY ALWAYS 0 — an instrument that cannot fail, and therefore cannot
+                // report the one thing it exists to report: that this attachment was HEALED by a re-CLAIM rather than
+                // confirmed first time. (Same family as [[B115]]'s display reading different state from the bound.)
+                const uint8_t reclaims_spent = _mobile_claim_retries;
+                _presence_reg_confirmed   = true;
+                _mobile_home_link         = MobileHomeLink::confirmed;
+                _mobile_home_confirmed_ms = _hal.now();
+                _mobile_claim_retries     = 0;                                             // §7.1: the CLAIM landed — release the retry budget
+                _mobile_claim_solicited   = false;                                         // §MH-S4b: the solicitation was ANSWERED — the substate's whole purpose (answered vs still waiting)
+                // ⛔ ONCE PER ATTACHMENT. A healthy home rosters every T (60-480 s); promoting and pushing on
+                //    every one of those would spam the companion with a registration event that never changed.
+                //    `_presence_reg_confirmed`'s PREVIOUS value is the guard — this is read #1 of the two that
+                //    make it load-bearing (node.h documents both).
+                if (!was_confirmed) {
+                    _mobile_attach_state = MobileAttachState::attached;
+                    _mobile_last_result  = MobileAttemptResult::confirmed;
+                    MR_EMIT("mobile_attach_confirmed", EF_I("home", r->home_id), EF_I("local_id", e->local_id),
+                            EF_I("epoch", e->reg_epoch), EF_I("reclaims", reclaims_spent));
+                    // ★ §MH-S4b §10 — "Device logs must distinguish scheduled, transmitter-admitted, and
+                    // CONFIRMED." MR_EMIT is device-stripped, so the CONFIRMED third of that triple had no metal
+                    // surface at all; this line is it, and it names the re-CLAIM count so a bench operator can see
+                    // a healed attachment ("reclaims=2") as distinct from a clean one ("reclaims=0").
+                    _hal.log(reclaims_spent ? "mobile ATTACHMENT CONFIRMED by the home roster (healed by a re-CLAIM)"
+                                            : "mobile ATTACHMENT CONFIRMED by the home roster");
+                    // ★ THE APP-FACING PUSH, MOVED HERE FROM `mobile_claim_adopt` (§7.1: "The current immediate
+                    //   `mobile_reg{registered:true}` at OFFER-window close moves to step 4"). Field-for-field the
+                    //   same event the companion already parses — home/local/home_layer/epoch — so the app needs no
+                    //   change to keep working; what changed is WHEN it is true.
+                    Push pu{}; pu.kind = PushKind::mobile_reg; pu.origin = _my_mobile_reg.home_id; pu.dst = _my_mobile_reg.my_local_id;
+                    pu.layer_id = _my_mobile_reg.home_leaf_id; pu.ctr = _my_mobile_reg.epoch; pu.relayed = true; enqueue_push(pu);
+                }
                 _presence_my_tier = e->quality;                                            // D14: me->home direction (the home's report of me)
                 _presence_home_rx_q4 = protocol::snr_ewma_update(_presence_home_rx_q4, snr_q4);  // D14: home->me direction (seed-if-zero EWMA of my RX of the home's rosters)
                 if (e->has_key) _presence_key_confirmed = true;
@@ -502,15 +938,29 @@ void Node::presence_ingest_roster(const uint8_t* frame, size_t len, const RxMeta
                 // dir_epoch change -> jittered layer-directory pull (D6)
                 if (!_presence_dir_epoch_seen || r->dir_epoch != _presence_dir_epoch) {
                     _presence_dir_epoch = r->dir_epoch; _presence_dir_epoch_seen = true;
-                    if (_cfg.mobile_autoregister) (void)_hal.after(static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(protocol::presence_probe_jitter_ms) + 1)), kMobileLayerQueryTimerId);
+                    if (mobile_service_desired()) (void)_hal.after(static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(protocol::presence_probe_jitter_ms) + 1)), kMobileLayerQueryTimerId);   // §MH-S4 §4.2: also for a manually-requested session
                 }
                 presence_arm_check(_presence_T_ms);                                        // one probe from ANY mobile refreshed us (suppression)
                 if (_presence_prescan) presence_maybe_rehome();
                 break;
             }
         }
-        if (mine < 0) {                                                                     // hash ABSENT -> home dropped us (reboot/eviction) -> re-register (staggered)
-            MR_EMIT("presence_roster_absent", EF_I("home", r->home_id));
+        if (mine < 0) {
+            // ★★★★ §MH-S4 §7.1 step 5 — THE SAME WIRE EVIDENCE, TWO DIFFERENT ACTIONS, AND `_presence_reg_confirmed`
+            // IS WHAT SEPARATES THEM. This is read #2 of the two that make the flag load-bearing (node.h).
+            //   · NEVER CONFIRMED  ⇒ the CLAIM WAS NOT RECORDED. The chosen home is alive and rostering — it just
+            //     has no row for us. §7.1: "re-send the same CLAIM, with the same local id and epoch, up to
+            //     `presence_claim_max_retries`." ⛔ NOT a re-DISCOVER: our OFFER is still valid, the home is still
+            //     the right home, and a fresh discovery round would throw away a working choice (and, pre-S2,
+            //     collide with the id reservation the home is still holding for us).
+            //   · PREVIOUSLY CONFIRMED ⇒ THE HOME DROPPED US (reboot / eviction). Its registry no longer holds the
+            //     row it once advertised, so our local id and epoch are dead — the pre-existing staggered
+            //     re-register is correct and is retained VERBATIM.
+            // ⓘ ORDERING (the [[B147]] lesson): this fork is reached only AFTER the wire_version wall, the
+            //   home_id/home_layer selection test and the full entry scan — i.e. the frame is fully identified as
+            //   OUR CHOSEN HOME'S CURRENT roster before either branch acts on its contents.
+            MR_EMIT("presence_roster_absent", EF_I("home", r->home_id), EF_I("confirmed", _presence_reg_confirmed ? 1 : 0));
+            if (!_presence_reg_confirmed) { presence_claim_unconfirmed("roster_absent"); return; }
             mobile_reset_registration("presence_roster_absent");
             (void)_hal.after(static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(protocol::presence_reregister_stagger_ms) + 1)), kMobileDiscoverTimerId);
         }

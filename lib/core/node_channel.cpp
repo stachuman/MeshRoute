@@ -1384,8 +1384,11 @@ void Node::channel_reoffer_confirm(uint32_t id) {
 //   • _tx_stash[4] (CTS/DATA/ACK/NACK) retry_stashed() calls _hal.tx UNCONDITIONALLY (only the ack-RE-ARM is
 //       flight_gen-guarded), so a busy/duty re-issue DOES re-transmit. A DATA frame carries no leaf nibble at all, but
 //       it also needs a peer holding a matching _pending_rx, so it dies unheard.
-//   • _pending_offer / _h_forward[4] / _rreq_forward[4] (jittered_tx_stash.h)  packed J-OFFER / H / F frames; all three
-//       frame types ARE leaf-gated at RX -> rejected on the new leaf.
+//   • _h_forward[4] / _rreq_forward[4] (jittered_tx_stash.h)  packed H / F frames; both ARE leaf-gated at RX ->
+//       rejected on the new leaf. ⓘ §MH-S2: the packed J-OFFER used to be listed here as the per-leaf
+//       `_pending_offer`; it is now the NODE-GLOBAL `_pending_mobile_offers` ring, so it is not LayerRuntime state
+//       this audit covers at all — and a node that can host mobiles is single-layer by `can_host_mobiles()`, so it
+//       can never reach a leaf swap in the first place.
 //   MISSING-AND-WHY (do not "complete" without a ruling): purging them is a strictly separate axis (node-GLOBAL state,
 //   not a LayerRuntime carrier) whose failure direction is airtime, not mis-delivery — C1 keeps it out of this slice.
 //   • _parked_sends[8] (H-resolution-parked DMs)  NOT purged, and NOT the same class: a parked send re-enters the LIVE
