@@ -237,12 +237,28 @@ behavior delta cannot be assigned to the new codec.
 
 - native + real binary;
 - s18 and all 36 scenarios, with S2 delta versus S1 attributed;
-- `sizeof(Node)`, `sizeof(LayerRuntime)`, `sizeof(PendingRx)`, `-Wreorder`, per-board RAM and flash;
-- zero local producers of `already_received=true` remains true at the end of S2.
+- `sizeof(Node)`, `sizeof(LayerRuntime)`, `sizeof(PendingRx)`, `-Wreorder`, per-board RAM and flash.
+
+### ★ THE LANDED BOUNDARY (2026-08-09) — **S2 AND S3 SHIPPED TOGETHER; THIS SECTION DESCRIBES WHAT IS IN THE TREE**
+
+**S2 as landed INCLUDES the whole of S3 below.** The plan as written above ended S2 with *"zero local producers of
+`already_received=true`"* and left S3 to restore the terminal CTS separately; the implementation combined them,
+because the completed-flight cache S2 builds has no observable effect until something reads it, and the terminal CTS
+is the only reader. Combining is therefore sound — but the two slices are **one commit and one measurement**, and no
+arm exists that has S2's cache without S3's terminal answer.
+
+⇒ **The consequences for anyone reading this plan as a checklist:**
+- the S2 gate item *"zero local producers of `already_received=true` remains true at the end of S2"* **does NOT hold
+  and must not be asserted** — the landed slice deliberately produces them (202 terminal CTS frames in the corpus at
+  the S2 measurement, 188 after the S2b NAV fix below);
+- the S2-vs-S1 corpus delta (+37 deliveries on the notes' metric) is the delta of **S2+S3 combined**, and cannot be
+  split between them after the fact;
+- **S2b (2026-08-09)** is a follow-up correcting two ordering/behaviour defects in the landed combination — see
+  `simulation/BASELINE.md` §HYBRID-RTS-S2 for what it changed and what it cost.
 
 ---
 
-## S3 — restore exact `already_received` CTS
+## S3 — restore exact `already_received` CTS — ★ **LANDED AS PART OF S2, NOT SEPARATELY** (see the boundary note above)
 
 ### Production changes
 

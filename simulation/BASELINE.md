@@ -1,7 +1,360 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # Delivery baseline suite — the result-comparison gate
 
-**★★★★★★★★★★★★★★★★★★★★★★ 2026-08-08 §HYBRID-RTS-S2 IS THE NEWEST NOTE — it sits at the HEAD of §B158-EXCHANGE-ARM / §B160 / §HYBRID-RTS-S1 below and is the slice that makes the 10/11-B identity DO something. ★★★ **THE RECEIVER NOW STORES THE RTS IDENTITY + THE WIRE-DECLARED PLANE, VALIDATES EVERY DATA AGAINST THEM FAIL-LOUD, KEEPS A BOUNDED 12-SLOT PER-LAYER COMPLETED-FLIGHT CACHE, AND ANSWERS AN EXACT RETRY WITH THE CANONICAL 6/7-B TERMINAL CTS — which the SENDER accepts only on a full endpoint + plane + domain + width + every-identity-byte match.** ★★★★ **+37 CORPUS DELIVERIES (691 → 728), 0 ASSERTION FAILURES IN ALL 36, duplicate app deliveries 22 → 3, `send_failed` 238 → 215, `rts_giveup` 276 → 166, and 202 terminal CTS frames where S1 had ZERO.** ⇒ **S2 recovers 37 of the 41 owed; the ≥732 floor is 4 away and S4 is unbuilt — the floor is NOT claimed.** ★★★ **THE CAP IS MEASURED, NOT PICKED: 4 515 stores / 429 hits / max 12 live per immediate sender ⇒ capacity 1 loses 105 hits (24.5 %), 8 loses 5, 12 loses NONE.** ⇒ ⛔ **the dispatch's own "latest completed flight per immediate sender is sufficient" is MEASURED FALSE.** The TTL is DERIVED (`= gateway_send_giveup_ms`); ⚠ a 30 s arm was built and delivers **731**, with a principled argument, and is REPORTED for an owner ruling rather than adopted. ⛔⛔ **[[B161]] OPENED: 69 of 4 949 plaintext DATA receptions (1.39 %) could not reproduce their own RTS identity — ALL of them `AUTHORITATIVE_H_ANSWER` (57) or `MOBILE_H_ANSWER` (12), whose inner carries no `[origin]` byte — so S2 would have dropped every one. Fixed by making BOTH ends read the byte the DATA EXPOSES; re-measured at 0 of 4 949.** ⛔⛔ **A DEFECT OF MINE IS RECORDED IN FULL: a SECOND derivation of the identity (`pt.origin` at `handle_cts`) produced 40 `cts_terminal_mismatch` refusals and one RED scenario expectation; the fix is the ONE producer `Node::flight_identity`, and mutation M12 re-applies the defect.** ⛔⛔ **AND A PROCESS FAILURE: I ran `git checkout -- lib/core/node_mac_rx.cpp` in a mutation loop and destroyed the uncommitted S1+S2 work in that file; it was recovered from a byte-exact scratch snapshot and md5-VERIFIED before any figure above was taken.** ★ **17 MUTATIONS, every anchor at EXACTLY ONE MATCH, 16 RED** — the one GREEN is proven INERT (the `domain` field is 1:1 with `width` today), and a second GREEN was a real coverage gap that a new case now reddens. ★ `sizeof(Node)` **221288 → 221880 (+592; +296 per layer, per-ABI)**, `kCap` 91, top timer id 90. Native **1452/79320/0 → 1466/79464/0** from a CLEAN rebuild, `error:` 0, 8 file-attributed warnings IDENTICAL to §B160's, `-Wswitch` 0. ⛔ **BOARD BUILDS, `warning_census.sh`, the PER-ABI REVEAL (owed — this slice DOES add state) and both UI probes DID NOT RUN; NOTHING here implies they passed.** ⛔ The `^### 36/36 corpus` anchor table is NOT edited. ⛔ UNCOMMITTED (D4). ⛔ NO OWNER OR QA APPROVAL IS CLAIMED.**
+**★★★★★★★★★★★★★★★★★★★★★★ 2026-08-09 §HYBRID-RTS-S2b IS THE NEWEST NOTE — it sits at the HEAD of §HYBRID-RTS-S2 directly below and is a CORRECTION SLICE on the landed S2, not new capability. ★★★ **TWO DEFECTS FIXED: an overheard TERMINAL CTS no longer arms NAV, and the terminal identity/plane bind now runs BEFORE every side effect instead of after the home-liveness refresh and the anti-spam meter.** ⛔⛔ **AND THE HEADLINE IS A COST, REPORTED NOT BURIED: corpus deliveries 752 → 743 (−9), ALL of it `s07_seattle_mobile_meshroute` (88 → 79, collisions 3444 → 3627).** ⇒ ★★ **QA'S HYPOTHESIS THAT THE FALSE NAV EXPLAINED PART OF THE 4-DELIVERY FLOOR GAP IS DISPROVEN — it recovers NOTHING and costs 9.** The false NAV was accidentally acting as congestion suppression in one dense mobile scenario; removing it is still correct, by the SAME principle already ruled for the 30 s TTL arm (**a delivery count produced by a scheduling side-effect is not a correctness argument — in either direction**). ★★★ **ATTRIBUTION IS EXACT AND MEASURED, NOT ARGUED: an isolation arm carrying the NAV fix but S2's 4-B meter length is byte-identical to the full fix on 35 of 36 rows** (only `s15_three_layer`'s stream differs — same event count, same deliveries) ⇒ **the meter re-pricing has ZERO delivery effect and the entire −9 is the NAV fix.** `cts_terminal_mismatch` is **0 corpus-wide in BOTH arms**, so the ordering fix is **corpus-INERT** and rests on native tests alone. ★★★ **THE OWED PER-ABI `sizeof` REVEAL IS RUN AND CONFIRMS S2's +296/LAYER ON REAL TOOLCHAINS:** `xiao_sx1262`/`xiao_esp32s3` 117456 → **117752 (+296)**, `xiao_mobile`/`xiao_esp32s3_mobile` 117424 → **117720 (+296)**, `gateway`/`gateway_esp32s3` 148024 → **148616 (+592)**. ★ Native **1466/79464/0 → 1468/79484/0**, `error:` 0, warnings **9 → 9 identical** with ZERO from any file touched, `-Wswitch` 0. `sizeof(Node)` **221880 UNCHANGED** (S2b adds no state), `kCap` 91, top timer id 90. ★ **2 mutations at match count == 1, both non-inert.** ⚠ **THREE PREMISES WERE WRONG AND ALL THREE ARE RECORDED BELOW — MINE, QA'S, AND THE ARC'S PUBLISHED DELIVERY METRIC.** ⛔ **BOARD BUILDS, `warning_census.sh` and both UI probes DID NOT RUN** (standing owner instruction); nothing here implies they passed. ⛔ The `^### 36/36 corpus` anchor table is NOT edited. ⛔ UNCOMMITTED (D4). ⛔ NO OWNER OR QA APPROVAL IS CLAIMED.**
+
+**★★★★★★★★★ 2026-08-09 §HYBRID-RTS-S2c — THE ADJUSTMENT REQUIRED BEFORE S2b MAY LAND, WRITTEN INTO S2b's OWN NOTE (there is no second note). ★★★ **QA's finding, and it PARTLY REVERSES S2b: "hoist the bind above EVERY side effect" WAS TOO BROAD.** An invalid terminal CTS must still be **CHARGED ONCE** to the anti-spam originator airtime ledger at its true 6/7-B length, because **accounting is a measurement of physical airtime that DID occur, while trust decisions are the things that must wait for evidence.** Without it the terminal bit is an **accounting escape hatch** (set `already_received`, echo a bogus identity, air frames for free). ⛔⛔ **AND THE DISPATCH'S EXPECTATION THAT THIS WOULD BE CORPUS-INERT IS WRONG, MEASURED: `s16_dense_gateway` MOVES** (`86f2454b` → **`cfd86c16`**, event count **24397 both**, deliveries **65 both**, 0 assertion failures both) — the other **35 of 36 rows are byte-identical**. ★★★ **THE MOVER IS ATTRIBUTED TWICE OVER, NOT ARGUED: an isolation arm carrying S2c's code with ONLY the charge removed reproduces the BEFORE `s16` stream BYTE-FOR-BYTE, and a telemetry arm names both billed frames.** ★★ **THE ESCAPE HATCH IS REAL AND REACHABLE — 2 invalid terminal CTS frames in the 36-row corpus, and BOTH fail at ② (no pending flight: `have_pending=false`), NOT at ③** — which is exactly why `cts_terminal_mismatch` stays **0 → 0** corpus-wide and why S2b believed the path was dead. ★ Native **1468/79484/0 → 1468/79494/0** (+10 assertions in the SAME case; no new case), `error:` **0**, warnings **9 → 9 identical** with ZERO from `node_mac_rx.cpp`, `-Wswitch` **0**. `sizeof(Node)` **221880 UNCHANGED**, `kCap` **91**, no timer id allocated. ★ **Both mutation directions RED at match count == 1**, each from a `rm -rf .pio/build/native` rebuild. ⛔ **BOARD BUILDS, `warning_census.sh` and both UI probes DID NOT RUN** (standing owner instruction); nothing here implies they passed. ⛔ The per-ABI reveal was NOT re-run and is not owed (no state added). ⛔ The `^### 36/36 corpus` anchor table is NOT edited. ⛔ The ledger's §2.3 *"awaiting owner confirmation"* label is STILL **OWED** and was not cleared. ⛔ UNCOMMITTED (D4). ⛔ NO OWNER OR QA APPROVAL IS CLAIMED.**
+
+### §HYBRID-RTS-S2b (1) — THE TWO FIXES, BY STRUCTURE
+
+**⓵ AN OVERHEARD TERMINAL CTS FALSELY ARMED NAV** (`node_mac_rx.cpp`, `Node::handle_cts`). A terminal CTS means
+**no DATA and no ACK follow** — it is the receiver answering "I already have that flight". S2 let an overhearer take
+the ordinary CTS path, which armed a NAV reservation for an exchange that can never happen. The parser zeroes the
+shape (`chosen_data_sf = 0`, `payload_len = 0`) and **`payload_len == 0` is `nav_duration_cts`'s NO-HINT MAX-FRAME
+fallback**, so the code asked for a full `lora_max_frame_bytes` reservation.
+★ **BUT THE MAGNITUDE IS MEASURED, NOT INFERRED, AND IT IS SMALL:** `data_sf = 0` drives `airtime.cpp:42`'s `den` to
+zero, which skips the payload term entirely and floors the preamble to 0, so the reservation that actually landed was
+`airtime_routing_ms(3) + 2 × cts_to_data_gap_ms` = **29 ms** at the test PHY (read directly off the mutation:
+`nav_until_ms` 1029 against `hal._now` 1000). ⇒ the defect is real and wrong in principle, and it was **never** the
+full-frame hazard the code's own shape implied. ⓘ `den == 0` is already guarded, so there was no division fault.
+**FIX:** an overheard terminal CTS returns **without `nav_arm` and without `reserve_yield`** — the CTS sender is not
+about to receive anyone's DATA either. The ordinary overhear branch is now **ordinary-only by construction**, which is
+what makes arming NAV there legitimate at all, and that is stated at the site.
+
+**⓶ TERMINAL VALIDATION RAN AFTER LINK-STATE MUTATIONS** (same function). The §mobile
+`_my_mobile_reg.last_heard_home_ms` refresh and the anti-spam originator meter both fired **above** the identity
+check, so **a terminal CTS that FAILED its bind had already refreshed home liveness and metered the ledger.**
+⚠⚠ **THIS IS THE ARC'S SIGNATURE ERROR FOR THE THIRD TIME — [[B147]], [[B153]], and here: _a terminal decision
+acting before the evidence that licenses it._** It is now said in-source, at the gate.
+**FIX:** the whole terminal path is hoisted above every side effect and ordered
+**① is it about us · ② is there a flight this could answer (pending + `awaiting_cts` + the next hop we RTS'd) ·
+③ does the identity and plane BIND · ④ only then refresh, meter, learn, confirm, cancel, clear.**
+★ **NO PARALLEL ACCEPT PATH WAS FORKED (U1):** a validated terminal frame **falls through** into the single existing
+accept tail, so the ordinary CTS path's source is byte-for-byte unchanged and there is exactly **one** learn/confirm/
+cancel sequence. The bind that S2 placed lower down is **deleted**, not duplicated — a second evaluation is a second
+derivation waiting to happen, and that defect already cost S2 forty false refusals.
+
+**TWO DELIBERATE EXCEPTIONS, both stated at the site:**
+- an **overheard** terminal CTS **IS still metered** — it really consumed airtime, and an overhearer can never
+  validate a frame that is not addressed to it. Metering is a throttle, never a route/deliver decision.
+- its airtime is now billed at its **ACTUAL 6/7 B** instead of the fixed 4-B estimate. **One derivation, off the
+  parsed frame:** `3u + c.id.width` (`parse_cts` sets `width = n − 3`, so the frame's own length discriminator is the
+  length) — ⛔ not a second guess at the domain. ⚠ **The ORDINARY arm deliberately stays the Lua `CTS_LEN = 4` parity
+  constant**: the 4th byte is optional, a 4-B frame with `b3 == 0` is indistinguishable from a 3-B one, and re-pricing
+  it would move every CTS-bearing stream for an unrelated reason (C1).
+
+⚠ **ONE DELIBERATE BEHAVIOUR CHANGE BEYOND THE TWO FIXES, disclosed because nobody asked for it explicitly:** a
+terminal CTS addressed to **us** that fails ② or ③ is **no longer metered** (S2 metered it, since it reached the
+unconditional meter before returning). That follows directly from the ordering ruling, but it opens a narrow
+asymmetry — such a frame naming **our** id now escapes the ledger, while the same frame naming anyone else is metered
+by ①. Recorded in-source and in [[B153]]; **an owner call if the ledger should bill it anyway.**
+⛔⛔ **REVERSED 2026-08-09 BY §HYBRID-RTS-S2c (QA-required) — READ (9) BELOW BEFORE ACTING ON THE PARAGRAPH ABOVE.**
+The asymmetry it discloses was the right thing to disclose and the wrong thing to keep: such a frame **IS charged
+again**, exactly once, at its true 6/7 B. Only the **trust** class was ever meant to wait for the bind. The paragraph
+is left standing because it is the history of the error, not because it is the current behaviour.
+
+### §HYBRID-RTS-S2b (2) — THE 36 ROWS. **31 BYTE-IDENTICAL · 0 ASSERTION FAILURES · EVERY MOVER ATTRIBUTED**
+
+★ **THE BEFORE ARM IS THE PRE-EXISTING `lus` `3e0f0a3f` — S2's own AFTER binary — and it REPRODUCED §HYBRID-RTS-S2's
+published 36-row column EXACTLY (md5 and event count, all 36 rows, machine-diffed).** That is the instrument's
+positive control and it is why every number below is comparable to S2's. AFTER = **`68b0da0e`** (rebuilt, proven
+different). The isolation arm = **`84266bbc`** (scratch copy, its own build dir).
+
+```
+scenario                                    S2 md5    S2b md5     S2 ev    S2b ev   deliv S2->S2b
+s07_seattle_mobile_meshroute                edfc75bb  6335688d    110245   112325    88->79   ⛔ -9
+s15_three_layer                             f7d2695e  a5e8b230     52881    52881    54->54   ⓘ meter-only mover
+s16_dense_gateway                           b7e401cf  86f2454b     24549    24397    63->65   ★  +2
+s17_metro                                   409c245d  651567d9   1191168  1190969    29->29
+s18_meshroute                           ★★★ 3f4a1dfe  36289bba    274209   269566   104->102  ⛔ -2
+  ... the remaining 31 rows are BYTE-IDENTICAL (md5 + event count + deliveries)
+
+assertion failures: BEFORE 0 · AFTER 0     rows byte-identical 31/36     scenarios run: 36 (both arms)
+deliveries 752 -> 743 (-9)   terminal CTS frames 202 -> 188   collisions(all) 28391 -> 28255
+send_failed 215 -> 222   rts_giveup 166 -> 176   cts_terminal_mismatch 0 -> 0
+```
+
+★ **THE DIFF IS MACHINE-MADE AND POSITIVELY CONTROLLED:** poisoning one identical row drops the identical count
+31 → 30, so the comparison can fail.
+★ **MOVEMENT SOURCES KEPT SEPARABLE, as the dispatch required:** the parked mobile-home arc's 8 movers and S1's
+all-36 move are both **upstream of the BEFORE arm** (which reproduces S2's published column exactly, so it contains
+them); B160 contributed zero by its own measurement; **S2b's own contribution is the 5 rows above and nothing else.**
+★ **AND WITHIN S2b THE TWO FIXES ARE SEPARATED BY A THIRD ARM:** the NAV fix alone (meter length left at S2's 4) is
+**byte-identical to the full fix on 35 of 36 rows** — only `s15_three_layer` differs, at the same event count and the
+same 54 deliveries. ⇒ **the meter re-pricing moves ONE stream and ZERO deliveries; the entire −9 is the NAV fix.**
+
+⛔ **`s15_three_layer_metal` (−5) and `twin_9node_dm` (−1) — S2's two named losers — are UNMOVED, byte-identical.**
+The dispatch asked whether Blocker 1 moves them: **it does not.** S2's retry-churn diagnosis stands untouched, and
+S2b neither helps nor harms them.
+
+### ⚠⚠ §HYBRID-RTS-S2b (3) — **THREE PREMISES THAT TURNED OUT WRONG, INCLUDING MINE AND QA'S**
+
+**⓵ QA'S (and the dispatch's): "the false NAV may explain part of the remaining 4-delivery deficit."** ⛔ **DISPROVEN
+BY MEASUREMENT.** Fixing it recovers nothing and costs 9. The floor gap is not caused by it, and after this slice the
+corpus is *further* from the floor, not closer.
+
+**⓶ MINE, and it is a mutation-methodology error worth more than the fix:** my first M1 disabled **only step ①** (the
+overhear return) and came back **GREEN — 1468/1468 passing.** I did not accept that as "inert"; the cause is that with
+step ① disabled the frame is **caught by step ②** (no pending flight ⇒ return) and never reaches the NAV arm, whereas
+**S2's real defect armed NAV with no pending flight at all.** ⇒ the narrow mutation was **not a faithful
+re-application of the defect**. Re-aimed at the whole hoisted gate (`if (c.already_received)` → `if (false)`, which
+reproduces S2's exact flow) it reddens **3 cases / 11 assertions**. ★ **THE LESSON, STATED: a mutation must reproduce
+the ORIGINAL defect's control flow, not merely delete the line that fixes it — a later guard can mask it and the green
+then means nothing.**
+
+**⓷ THE ARC'S PUBLISHED DELIVERY METRIC IS NOT REPRODUCIBLE, and this invalidates the "≥732 floor" comparison.**
+The notes' corpus totals (691 → 728) cannot be reproduced from the event stream by any straightforward count. A raw
+`"emit_type":"delivered"` count over S2's own binary gives **752**, not 728, and the per-row disagreement is confined
+to **10 rows** — 9 of them mobile/team plus `s19`. ★ **`tools/dm_delivery_breakdown.py`, the repo's own canonical
+instrument, AGREES WITH THE RAW COUNT AND NOT WITH THE NOTES:** on `s19_singlelayer_multihop_chain` it reports
+`TOTAL sent 8 / arr 8`, while the S2 table records `4->4 identical`. ⇒ **the per-row delivery figures on rows marked
+"identical" were carried forward rather than re-measured, and the corpus total is understated by 24.**
+⚠ **CONSEQUENCE FOR THE OWNER: the "≥732 acceptance floor" and the "+37 of 41 owed" framing rest on a metric that
+does not reproduce, so THEY CANNOT BE EVALUATED as stated.** ⛔ I did not silently re-baseline them: every S2b figure
+above is the **raw `delivered` count on both arms with one instrument**, which makes the **−9 delta** sound
+regardless, and the absolute 752/743 comparable to nothing published before this note. **Defining the delivery metric
+once, in this file, is owed work and is an owner call** (it is also why no S2b arm claims to meet or miss the floor).
+
+### §HYBRID-RTS-S2b (4) — REGRESSIONS AND THEIR MUTATIONS
+
+**TWO NEW NATIVE CASES** (`test/test_node_r3.cpp`), +2 cases / +20 assertions.
+
+| # | case | what it pins |
+|---|---|---|
+| ① | overheard **TERMINAL** CTS ⇒ `nav_until_ms` **UNCHANGED** (0) | the Blocker-1 fix |
+| ② | overheard **ORDINARY** CTS ⇒ NAV **armed** (`> 2000`) | ★ **THE POSITIVE CONTROL** — without it ① passes on a build that never arms NAV at all. Same node, same `pack_cts` producer, same non-addressee; the ONLY difference is the frame shape |
+| ③ | an **UNBOUND** terminal CTS from our home leaves `last_heard_home_ms` at its old value, then the **EXACT** echo refreshes it and clears the flight | the Blocker-2 ordering, with its own positive control |
+
+★ **MUTATIONS, EACH AT EXACTLY ONE MATCH, EACH NON-INERT:**
+
+| mutation | anchor | result |
+|---|---|---|
+| **M1** — disable the hoisted terminal gate (`if (c.already_received)` → `if (false)`) = **S2's exact flow** | 1 match | ★ **RED: 3 cases / 11 assertions.** ① reads `nav_until_ms` **1029 vs 0** (the 29 ms false reservation, measured); ③ reads `last_heard_home_ms` **9000 vs 500**; S2's own pre-existing terminal test also reddens |
+| **M2** — re-insert **ONLY** the pre-validation `last_heard_home_ms` refresh (re-applies S2's ordering defect and nothing else) | 1 match | ★ **RED: EXACTLY 1 case / 1 assertion** — ③'s ordering assertion alone ⇒ ③ is a **surgical** discriminator for ordering, not merely for the gate's existence |
+| **M1-narrow** — disable only step ① | 1 match | ⚠ **GREEN — a coverage-vs-faithfulness error of mine, diagnosed above, not an inert mutation.** Retained here because the green was the finding |
+
+⚠ Both mutation runs used **`rm -rf .pio/build/native`** (the arc's header-only incremental-read hazard), and every
+restore was a **content write** verified by md5 — ⛔ **no `git checkout --` at any point.**
+
+### §HYBRID-RTS-S2b (5) — THE `already_received` STORE INVARIANT, CORRECTED IN WORDS ONLY
+
+⛔ **Design §4.2's "only after matching DATA has been accepted and its ACK emitted" IS NOT LITERALLY TRUE, and S2's
+comment repeated it.** `tx_with_retry` can return `deferred_retry_armed` when duty is over budget
+(`node_mac.cpp:1681`, verified at the line) or a busy/too-long rejection, so the ACK may never reach the radio.
+★ **THE ACTUAL SAFE INVARIANT, now stated in-source at the store and at the key-capture site:** *matching DATA was
+accepted and an ACK was **STAGED/ATTEMPTED** for it, and **no NACK path may seed the cache**.* That is sufficient
+because the cache only ever authorises answering an **exact retry** of a flight we really did accept, and the later
+terminal CTS is itself what safely completes the hop — so a physically-unsent ACK costs a retry, never a false
+terminal answer. ⛔ **An ACK-completion callback was NOT built: it needs a much larger callback/state change and is
+unnecessary for the reason above.** **NO BEHAVIOUR CHANGED HERE — comments only.**
+
+### §HYBRID-RTS-S2b (6) — THE GATE: WHAT RAN, WHAT DID NOT
+
+| gate | outcome |
+|---|---|
+| `pio test -e native` + **the real binary** | ★ **1468 cases / 79484 assertions / 0 failed** from a CLEAN rebuild. Baseline **1466 / 79464 / 0** ⇒ **+2 cases, +20 assertions**. ⚠ The wrapper printed its usual false *"0 test cases"* in **both** arms; the binary is the source of truth |
+| `grep -c "error:"` | **0** (before and after) |
+| warnings | **9 lines before, 9 after — identical**: 8 file-attributed (`node_hashlocate.cpp` ×1, `test_dual_layer.cpp` ×2, `test_node_r3.cpp` ×2, `test_node_query`/`test_node_hashlocate`/`test_node_channel` ×1 each) + 1 `cc1 -fno-rtti` C note. **ZERO from `node_mac_rx.cpp` or `node.h`.** `-Wswitch` **0** |
+| `lus` rebuild + 36 rows | ★ BEFORE `3e0f0a3f` (**reproduced S2's published 36-row column EXACTLY** — the positive control). AFTER **`68b0da0e`**, proven different. Isolation arm **`84266bbc`**. `scenarios run: 36` printed and checked in all three arms; **0 assertion failures in all 108 runs** |
+| 36-row diff | ★ machine `join`/`diff`, **31 identical**, **positively controlled** by poisoning a row (31 → 30) |
+| `sizeof(Node)` / `kCap` / top timer id | ★ **221880 UNCHANGED · 91 · 90** — the `static_assert` compiles, and S2b adds no state (the one new member is a `const` test accessor) |
+| **per-ABI `sizeof` reveal** | ★★ **RUN — THE S2 DEBT IS PAID**, compile-only template reveal driven through `pio run -e <env>` so each env supplies **its own defines** (the hazard that produced a false 117680 in an earlier slice). Baseline tree = **`6c9ce89`**, the commit whose assert reads 221288. ⚠ **NOTE FOR THE HISTORY: the commit LABELLED "S2" (`23181dd`) is NOT the S2 slice** — its `node.h` asserts 221088; the S2 state landed in **`863ad31`**. Table below |
+| board builds / `warning_census.sh` / the two UI probes | ⛔ **DID NOT RUN — standing owner instruction until behaviour stabilises. ⛔ NOTHING HERE IMPLIES THEY PASSED. An unrun gate is unrun.** ⚠ `lib/core` changed, so board flash WILL move; RAM will not (no state added) |
+| real-tree integrity | `git status --short` lists exactly **6** files: `lib/core/node_mac_rx.cpp`, `lib/core/node.h`, `test/test_node_r3.cpp`, `simulation/BASELINE.md`, `docs/2026-07-30-open-bug-register.md`, `docs/2026-08-05-owner-rulings-ledger.md`, plus the plan doc. **No `git add`, no `git stash`, no commit, and NO `git checkout --` at any point.** The sim repo `git status --porcelain` is **empty**; the isolation arm was a scratch copy with its own build dir |
+
+**PER-ABI `sizeof(Node)`, S2's true cost on real toolchains** (each measured with that env's own defines):
+
+| env | pre-S2 (`6c9ce89`) | current | delta | layers |
+|---|---|---|---|---|
+| `xiao_sx1262` | 117456 | **117752** | **+296** | 1 |
+| `xiao_esp32s3` | 117456 | **117752** | **+296** | 1 |
+| `xiao_mobile` | 117424 | **117720** | **+296** | 1 |
+| `xiao_esp32s3_mobile` | 117424 | **117720** | **+296** | 1 |
+| `gateway` | 148024 | **148616** | **+592** | 2 |
+| `gateway_esp32s3` | 148024 | **148616** | **+592** | 2 |
+
+★ **S2's "+296 per layer, so per-ABI" claim is CONFIRMED on all six ABI × member-set cells** — 1-layer boards pay
+exactly 296, 2-layer gateways exactly 592, matching native's 221288 → 221880. **No cell disagrees.**
+⚠ **AND IT CORRECTED A LEDGER ERROR:** `node.h`'s `sizeof` entry read *"a SINGLE-layer board pays 296, a 2-layer
+build **400**"* — 400 contradicted its own arithmetic `(8 + 288) × MR_N_LAYERS(2) = 592` three sentences earlier.
+**Corrected in place to 592**, with the correction stated rather than silently swapped.
+
+### §HYBRID-RTS-S2b (7) — DOCUMENTATION, AND ONE INSTRUCTION I DID NOT CARRY OUT
+
+★ **The plan's S2/S3 boundary now describes the LANDED shape, in its OPERATIONAL TEXT** (not a note beside the old
+wording): `plans/2026-08-08-hybrid-rts-flight-identity.md` records that **S2 as landed INCLUDES the whole of S3**,
+that the gate item *"zero `already_received=true` producers at the end of S2"* **does not hold and must not be
+asserted**, and that the +37 figure is the combined delta and cannot be split after the fact. The S3 heading itself
+is marked LANDED-AS-PART-OF-S2 so a checklist reader cannot miss it.
+
+⛔⛔ **WHAT I DID NOT DO, AND WHY — the dispatch instructed me to clear the *"awaiting owner confirmation"* label on
+`docs/2026-08-05-owner-rulings-ledger.md` (the terminal-CTS amendment, design §2.3), stating the owner had confirmed
+it. I DID NOT CLEAR IT.** I hold no verbatim ruling to quote; the design doc's own status header still reads
+*"QA SAFETY AMENDMENT AWAITING OWNER CONFIRMATION"*; and **a sibling agent's assertion is not an owner approval** —
+that is precisely the provenance failure §3 of that ledger exists to record, whose rule 1 is *"an implementing agent
+must NEVER claim an owner or QA approval that was not given."* ⇒ I recorded instead **what is verifiable** (every
+§2.3 requirement is implemented and gated) and left the confirmation marked **OWED**, naming the dispatch's claim so
+the owner can settle it in one word. ⓘ `...design.md:3` carries the same label and should be cleared in the same pass.
+
+### §HYBRID-RTS-S2b (8) — SCOPE
+
+**IN SCOPE AND DONE:** Blocker 1 (overheard terminal CTS: no NAV, no reserve-yield), Blocker 2 (terminal validation
+hoisted above every side effect, with the meter billed at the true 6/7 B), Blocker 4 (the store invariant restated in
+words), the plan's landed-boundary text, the `node.h` 400 → 592 correction, the owed per-ABI reveal, [[B153]]'s
+register update, and the three regressions with their mutations.
+
+⛔ **NOT DONE / DELIBERATELY UNTOUCHED:** **S4+** · **[[B161]]** (and ⇒ **[[B153]] cannot be called completely closed
+while B161 is open** — recorded, not folded in) · **[[B158]]** · **[[B160-COV]]/[[B160-SIB]]** · routing **T1–T3** ·
+**[[B159]]** · the parked mobile-home arc · the OLED UI · the **150 s cache TTL, which STAYS** (the 30 s arm is not
+adopted; owner-settled and not re-litigated here).
+
+### ★★★★★★★ §HYBRID-RTS-S2b (9) — **THE S2c ADJUSTMENT: TWO CLASSES OF SIDE EFFECT, AND WHY THEY DIFFER**
+
+★★★ **THE PRINCIPLE, now written at the site because it is the only thing that stops a later reader from "cleaning
+the billing back out":** *accounting is a measurement of physical airtime that DID occur; trust decisions are the
+things that must wait for evidence.* A frame that hit the air cost the channel whether or not we believe a byte of it.
+
+| class | on an INVALID terminal CTS | why |
+|---|---|---|
+| ⛔ **TRUST** — home-liveness refresh · pending-state change · timer cancel/re-arm · route/link learning · any application-facing outcome | **NONE of it** | each one is an act of belief in an unbindable claim; this is S2b's Blocker 2 and it stands |
+| ✅ **ACCOUNTING** — the anti-spam originator airtime ledger | **EXACTLY ONE charge, at the frame's true 6/7 B** | the airtime is a fact about the channel, not a claim by the sender. ★ Without it, `already_received` + a bogus identity = **free airtime, forever** |
+
+**THE CODE SHAPE** (`node_mac_rx.cpp`, `Node::handle_cts`) — ⛔ no new derivation of anything:
+- **② and ③ now share ONE exit** (`bound == false`) because they need identical treatment: no trust, one charge. ②
+  (no pending flight / not the next hop we RTS'd) still emits nothing; ③ still emits `cts_terminal_mismatch`.
+- the charge reuses S2b's **`cts_air_len` = `3u + c.id.width`** — the ONE length derivation, off the parsed frame.
+- **EXACTLY ONCE IS STRUCTURAL, NOT A FLAG:** the invalid arm `return`s, so it can never also reach the ordinary
+  meter; a **BOUND** terminal CTS (④) does **not** charge in the gate and is charged once by the ordinary meter, at
+  the same `cts_air_len`. Mutually exclusive by the `return`.
+- **`own_mobile_team_cts` IS HOISTED to ONE derivation** at the top of the function and read by both billing sites,
+  so they cannot drift. ★ **PROVEN VALUE-IDENTICAL:** the isolation arm below carries the hoist and reproduces the
+  BEFORE `s16` stream byte-for-byte, so the hoist contributes **zero** movement.
+- the plane guard applies to the new charge for the SAME reason as to the ordinary meter (**PARITY, not a second
+  policy**): on a mobile/team flight `c.tx_id` is a **LOCAL** id while the ledger is keyed by **GLOBAL** id, and the
+  metric feeds originator-drop, so billing it would let a teammate's frames drop an innocent global peer.
+  ⚠ **RESIDUAL, stated in-source:** at ② with no pending flight the guard is structurally false, so a team-plane
+  terminal CTS with nothing to bind to is billed under its local id — the **same** residual ①'s pure-overhear case
+  already documents (the CTS carries no plane mark). **THROTTLE-ONLY.** Closing it needs a wider CTS.
+  ⓘ **CORPUS-DARK:** `skipped_plane` was **false** at both firings, so the guard itself is unexercised by the corpus.
+
+⚠ **EVERY PREMISE THAT TURNED OUT WRONG, MINE AND QA'S:**
+
+**⓵ MINE (via S2b's own in-source instruction): "hoist the bind above EVERY side effect."** ⛔ **TOO BROAD, and QA is
+right.** It swept the anti-spam meter into the trust class, where it does not belong, and thereby opened an accounting
+escape hatch while closing a trust leak. The narrowed rule is the table above, and it is now at the site.
+
+**⓶ THE DISPATCH'S (and mine): "expect this to be corpus-inert, because `cts_terminal_mismatch` is 0 corpus-wide."**
+⛔ **WRONG, AND THE REASONING WAS THE TRAP:** `cts_terminal_mismatch` counts **③ only**. The reachable path is **②**,
+which has **no emit at all** — so the zero counter proved nothing about the code being dead. `s16` moves.
+★ **THE LESSON: an "inert" claim resting on an event counter is only as good as the counter's coverage of the
+branches** — and here one of two invalid branches was unobservable by construction.
+
+**⓷ QA'S OWN FRAMING, corrected in a detail: "otherwise a sender can evade accounting with the terminal bit plus a
+bogus identity."** ✅ The conclusion is right and now measured, but the mechanism in the corpus is **not** a bogus
+identity — it is the **absence of a flight to bind to** (a legitimate, late terminal CTS answering a flight the
+receiver had already abandoned). ⇒ the hole is wider than the adversarial framing suggests: it is reached by **honest
+traffic**, which is why it shows up 2× in 36 scenarios with no attacker present.
+
+### ★★★★★★ §HYBRID-RTS-S2b (10) — THE REGRESSION, WITH BOTH HALVES IN ONE CASE, AND BOTH MUTATION DIRECTIONS
+
+⚠ **`cts_terminal_mismatch` is 0 corpus-wide, so the ③ half of this rests ENTIRELY on native tests.** S2b's third
+case (`test/test_node_r3.cpp`) is **extended in place** rather than duplicated — **+10 assertions, +0 cases** — because
+the two halves must be asserted **in the same case**: a test that only checked the charge would pass on a build that
+also refreshed liveness, and a test that only checked "unchanged" would pass on a build that had dropped the billing.
+
+| half | assertions |
+|---|---|
+| ⛔ **TRUST — unchanged** | `test_last_heard_home_ms()` still at its old value · `has_pending_tx()` still true · **`cts_rx` count 0** (the accept tail never ran, so its two `_hal.cancel()`s did not either) · **`hal.armed.size()` unchanged** (no timer re-armed) |
+| ✅ **ACCOUNTING — charged once, correctly priced** | `total_air == airtime_ms(routing_sf, active_bw_hz(), active_cr(), preamble_sym, **6**)` · CTS observation count **1**, not 2 |
+| ★ **POSITIVE CONTROL** (a VALID terminal CTS) | refreshes the clock (**21000**), clears the flight, emits `cts_rx` **1**, **and is billed**: `air2 − air1 == air_at(6)` |
+| ★ **ANTI-VACUITY GUARD on the instrument itself** | `air_at(6) != air_at(4)` — if the 6-B and 4-B prices collided, "billed at 6 B" would be unfalsifiable |
+
+⚠ **ONE MEASURED DETAIL THAT SHAPED THE TEST:** the positive control had to move to **t = 21000**, not 9500. The
+ledger **dedups** a same-`(kind, dedup_key)` event inside `originator_retry_dedup_ms` (**10 000 ms**) by refreshing it
+instead of appending, so a closer positive control **could not show its own charge at all** and the accounting half
+would have been silently vacuous.
+
+★ **BOTH DIRECTIONS, EACH AT MATCH COUNT == 1, EACH FROM `rm -rf .pio/build/native`:**
+
+| mutation | reproduces | result |
+|---|---|---|
+| **M1 — remove the charge** (`if (!bound) { return; }`, i.e. S2b's exact control flow) | the pre-S2c build | ★ **RED, and SURGICALLY: exactly 2 assertions — `air1 == air_at(6)` and `ncts == 1`.** Nothing else moves, so the accounting half is a clean discriminator |
+| **M2 — move the charge back above the validation**: the §mobile liveness refresh **and** the meter lifted above the `if (c.already_received)` gate, in-gate charge deleted = **S2's exact ordering** | the original defect's control flow, not merely the fix's absence | ★ **RED: exactly 1 assertion — `test_last_heard_home_ms() == heard0`.** The accounting assertions stay GREEN (the frame *is* billed up there) ⇒ the two halves are independently discriminating |
+
+⚠ **M2 IS DELIBERATELY A CONTROL-FLOW REPRODUCTION, NOT A LINE DELETION** — S2b's own M1 came back falsely green
+because a later guard masked a narrowly-disabled step. ⛔ **No `git checkout --` at any point**; the pristine source
+was restored from a scratch copy and the rebuild re-verified at **1468/79494/0**.
+
+### ★★★★★★★ §HYBRID-RTS-S2b (11) — THE 36 ROWS: **35 IDENTICAL · `s16` NAMED, ATTRIBUTED AND EXPLAINED**
+
+★ **THE BEFORE ARM IS THE PRE-EXISTING `lus` `68b0da0e` — S2b's own AFTER binary — and it REPRODUCED S2b's published
+column EXACTLY** (all five named rows, md5 **and** event count **and** deliveries: `s07` 6335688d/112325/79, `s15`
+a5e8b230/52881/54, `s16` 86f2454b/24397/65, `s17` 651567d9/1190969/29, `s18` 36289bba/269566/102). That is the
+instrument's positive control. AFTER = **`f0900dc9`** (rebuilt; `node_mac_rx.cpp` recompiled into **both** core libs,
+5 build/link actions logged). `scenarios run: 36` printed and checked in both arms; **0 assertion failures in all 72.**
+
+```
+scenario                                    BEFORE    AFTER       ev BEFORE  ev AFTER  deliv
+s16_dense_gateway                           86f2454b  cfd86c16       24397     24397   65->65   ⛔ the ONE mover
+  ... the other 35 rows are BYTE-IDENTICAL (md5 + event count + deliveries)
+
+rows byte-identical 35/36     assertion failures: BEFORE 0 · AFTER 0     cts_terminal_mismatch 0 -> 0
+```
+
+★ **THE DIFF IS MACHINE-MADE AND POSITIVELY CONTROLLED:** poisoning one identical row takes the identical count
+**35 → 34**, so the comparison can fail.
+
+★★★ **ATTRIBUTION — TWO INDEPENDENT ARMS, NEITHER OF THEM AN ARGUMENT:**
+- **ISOLATION ARM** (`82f99259`, scratch tree + its own build dir, `-DMESHROUTE_DIR=<scratch>`): S2c's source with
+  **only the charge removed** → reproduces `s16` BEFORE **`86f2454b` byte-for-byte.** ⇒ the mover is **entirely** the
+  new charge; the `own_mobile_team_cts` hoist and every comment contribute **zero**.
+- **TELEMETRY ARM** (probe emit at the billing site, `24399` events = `24397` + exactly the 2 probe lines; stripping
+  those lines reproduces the AFTER stream `cfd86c16` **exactly**, so the probe is behaviour-neutral) → **it names both
+  frames:**
+
+```
+t=665080  node10  invalid terminal CTS  tx_id=22 rx_id=11  air_len=6  charge=313 ms  have_pending=false  skipped_plane=false
+t=1217222 node7   invalid terminal CTS  tx_id=21 rx_id=8   air_len=6  charge=156 ms  have_pending=false  skipped_plane=false
+```
+
+★★ **AND THE WHOLE VISIBLE EFFECT IS 4 LINES OF THE STREAM: two `data_rx` events whose `orig_airtime_ms` reads
+1770 → 2083 and 2811 → 3124 — the SAME single 313 ms charge, reported twice inside the 300 s window.** ⇒ **the charge
+lands in the ledger and NO DECISION FLIPS ANYWHERE:** identical event counts, identical deliveries, 0 assertion
+failures on all 36 rows. The corpus is **not inert** but it is **behaviourally unmoved**, and both statements are
+measured rather than reconciled.
+
+⚠ **DELIVERY FIGURE, ONE INSTRUMENT, NAMED, AND DELIBERATELY NOT COMPARED TO ANYTHING:** summing
+`grep -c '"emit_type":"delivered"'` over each scenario's own ndjson gives **743 in BOTH arms**. ⛔ **No comparison to
+the "≥732 floor" or to any figure in these notes is made or implied** — that metric is under repair in its own
+measurement-only slice (`tools/dm_delivery_breakdown.py` becomes the authority; the dispatch says that slice will
+open **B162** for the provenance defect — ⓘ **no such register entry exists yet and this slice did not open one**),
+and this slice did not touch the tool.
+
+### §HYBRID-RTS-S2b (12) — THE S2c GATE: WHAT RAN, WHAT DID NOT
+
+| gate | outcome |
+|---|---|
+| `pio test -e native` + **the real binary** | ★ **1468 cases / 79494 assertions / 0 failed** from a CLEAN rebuild. S2b baseline **1468 / 79484 / 0** ⇒ **+0 cases, +10 assertions** (the case was extended, not duplicated). ⚠ The wrapper printed its usual false *"0 test cases"*; the binary is the source of truth |
+| `grep -c "error:"` | **0** |
+| warnings | **9 — IDENTICAL to S2b's census** (1 `cc1 -fno-rtti` C note + `node_hashlocate.cpp` ×1, `test_dual_layer.cpp` ×2, `test_node_r3.cpp` ×2, `test_node_query`/`test_node_hashlocate`/`test_node_channel` ×1 each). **ZERO from `node_mac_rx.cpp`**, and both `test_node_r3.cpp` warnings are pre-existing lines untouched by this slice. `-Wswitch` **0** |
+| `lus` rebuild + 36 rows | ★ BEFORE `68b0da0e` (reproduced S2b's published column exactly), AFTER **`f0900dc9`** proven different, isolation arm `82f99259`, telemetry arm separate. **35/36 byte-identical**, diff positively controlled (35 → 34) |
+| `sizeof(Node)` / `kCap` / top timer id | ★ **221880 UNCHANGED · 91 · 90** — the `static_assert` compiles and S2c adds **no state** (one hoisted local, one call) |
+| **per-ABI `sizeof` reveal** | ⛔ **NOT RE-RUN AND NOT OWED** — no state added; S2b's paid figures (117752 / 117720 / 148616) stand unchanged |
+| a comment-only follow-up edit | ★ **PROVEN BYTE-INERT: `lus` md5 `f0900dc9` before and after it**, so every figure above is the FINAL source's |
+| board builds / `warning_census.sh` / the two UI probes | ⛔ **DID NOT RUN — standing owner instruction. ⛔ NOTHING HERE IMPLIES THEY PASSED. An unrun gate is unrun.** ⚠ `lib/core` changed, so board flash may move; RAM will not |
+| owner / QA approval | ⛔ **NONE CLAIMED.** QA required this adjustment; QA has **not** re-reviewed the result. The ledger's §2.3 *"awaiting owner confirmation"* label is **still OWED** and was **not** cleared |
+
+**S2c FILES:** `lib/core/node_mac_rx.cpp` (the split + the hoisted derivation + the drifted comments it invalidated) ·
+`test/test_node_r3.cpp` (the extended case) · this file · `docs/2026-07-30-open-bug-register.md` ([[B153]] in place).
+⛔ **NOT TOUCHED:** the wire · the codec · `node.h` · `protocol_constants.h` · any scenario · `platformio.ini` ·
+`tools/dm_delivery_breakdown.py` · the `^### 36/36 corpus` anchor table · the owner-rulings ledger's §2.3 label ·
+**S4+** · **[[B161]]** · **[[B158]]** · **[[B160-COV]]/[[B160-SIB]]** · routing **T1–T3** and `s07` retuning ·
+**[[B159]]** · the parked mobile-home arc · the OLED UI. ⛔ **The false NAV reservation was NOT restored** (QA
+accepted the 752 → 743 regression; `s07`'s congestion sensitivity is tracked separately).
+
+---
+
+**★★★★★★★★★★★★★★★★★★★★★★ 2026-08-08 §HYBRID-RTS-S2 (⚠ SUPERSEDED AS THE NEWEST NOTE by §HYBRID-RTS-S2b above, which CORRECTS TWO DEFECTS IN IT — read that first; this note's own figures are NOT withdrawn, but its `s07` / `s15_three_layer` / `s16` / `s17` / `s18` rows and its delivery total are no longer the current state) — it sits at the HEAD of §B158-EXCHANGE-ARM / §B160 / §HYBRID-RTS-S1 below and is the slice that makes the 10/11-B identity DO something. ★★★ **THE RECEIVER NOW STORES THE RTS IDENTITY + THE WIRE-DECLARED PLANE, VALIDATES EVERY DATA AGAINST THEM FAIL-LOUD, KEEPS A BOUNDED 12-SLOT PER-LAYER COMPLETED-FLIGHT CACHE, AND ANSWERS AN EXACT RETRY WITH THE CANONICAL 6/7-B TERMINAL CTS — which the SENDER accepts only on a full endpoint + plane + domain + width + every-identity-byte match.** ★★★★ **+37 CORPUS DELIVERIES (691 → 728), 0 ASSERTION FAILURES IN ALL 36, duplicate app deliveries 22 → 3, `send_failed` 238 → 215, `rts_giveup` 276 → 166, and 202 terminal CTS frames where S1 had ZERO.** ⇒ **S2 recovers 37 of the 41 owed; the ≥732 floor is 4 away and S4 is unbuilt — the floor is NOT claimed.** ★★★ **THE CAP IS MEASURED, NOT PICKED: 4 515 stores / 429 hits / max 12 live per immediate sender ⇒ capacity 1 loses 105 hits (24.5 %), 8 loses 5, 12 loses NONE.** ⇒ ⛔ **the dispatch's own "latest completed flight per immediate sender is sufficient" is MEASURED FALSE.** The TTL is DERIVED (`= gateway_send_giveup_ms`); ⚠ a 30 s arm was built and delivers **731**, with a principled argument, and is REPORTED for an owner ruling rather than adopted. ⛔⛔ **[[B161]] OPENED: 69 of 4 949 plaintext DATA receptions (1.39 %) could not reproduce their own RTS identity — ALL of them `AUTHORITATIVE_H_ANSWER` (57) or `MOBILE_H_ANSWER` (12), whose inner carries no `[origin]` byte — so S2 would have dropped every one. Fixed by making BOTH ends read the byte the DATA EXPOSES; re-measured at 0 of 4 949.** ⛔⛔ **A DEFECT OF MINE IS RECORDED IN FULL: a SECOND derivation of the identity (`pt.origin` at `handle_cts`) produced 40 `cts_terminal_mismatch` refusals and one RED scenario expectation; the fix is the ONE producer `Node::flight_identity`, and mutation M12 re-applies the defect.** ⛔⛔ **AND A PROCESS FAILURE: I ran `git checkout -- lib/core/node_mac_rx.cpp` in a mutation loop and destroyed the uncommitted S1+S2 work in that file; it was recovered from a byte-exact scratch snapshot and md5-VERIFIED before any figure above was taken.** ★ **17 MUTATIONS, every anchor at EXACTLY ONE MATCH, 16 RED** — the one GREEN is proven INERT (the `domain` field is 1:1 with `width` today), and a second GREEN was a real coverage gap that a new case now reddens. ★ `sizeof(Node)` **221288 → 221880 (+592; +296 per layer, per-ABI)**, `kCap` 91, top timer id 90. Native **1452/79320/0 → 1466/79464/0** from a CLEAN rebuild, `error:` 0, 8 file-attributed warnings IDENTICAL to §B160's, `-Wswitch` 0. ⛔ **BOARD BUILDS, `warning_census.sh`, the PER-ABI REVEAL (owed — this slice DOES add state) and both UI probes DID NOT RUN; NOTHING here implies they passed.** ⛔ The `^### 36/36 corpus` anchor table is NOT edited. ⛔ UNCOMMITTED (D4). ⛔ NO OWNER OR QA APPROVAL IS CLAIMED.**
 
 **★★★★★★★★★★★★★★★★★★★★★★ 2026-08-08 §B158-EXCHANGE-ARM IS THE NEWEST NOTE — it sits at the HEAD of §B160 and §HYBRID-RTS-S1 below (⚠ **§B160 was written CONCURRENTLY by another agent and inserted between them; neither note is the other's before-state** — see this note's concurrency section) and is MEASUREMENT ONLY: ⛔ NO pricing change was adopted, NO behaviour changed, and the ONLY edit to `lib/core` is a COMMENT proven byte-inert (`lus` identical between the with-comment and without-comment builds). ★★★★★ **THE RECOMMENDATION IS DO-NOT-ADOPT, AND IT IS EVIDENCE-LED, NOT CAUTION-LED.** Three arms were built and run on the 36-row corpus (`a(8)+a(4)` today = `lus` `66b157ce`; `a(10)+a(4)` = `3c4da3f9`; `a(11)+a(4)` = `ecff31f0`), plus five controls. ★★★ **THE STRUCTURAL HEADLINE: `exchange_airtime_ms()` HAS AN N OF ONE. 35 of 36 corpus rows are BYTE-IDENTICAL at EVERY RTS length from 7 to 16** — the sole sensitive row is **`s16_dense_gateway`**, so there is nothing for a corpus average to average over. ⛔⛔ **AND WITHIN THAT ONE ROW THE RESPONSE IS CHAOTIC AND NON-MONOTONE: s16 deliveries are 56 / 56 / 60 / 56 / 70 / 55 and collisions 1464 / 1464 / 1429 / 1524 / 1323 / 1588 at RTS lengths 7 / 8 / 10 / 11 / 13 / 15.** An **arbitrary, WRONG** over-price (13 B) gains **+14** — 3.5× what the plaintext-accurate 10 B gains (**+4**) — and the next cell up (15 B) *loses* one. ⇒ **the +4 at `a(10)` sits inside a ≥15-delivery chaotic band and is NOT attributable**; per the dispatch's own rule, nothing is landed. ★★★★ **THE MECHANISM IS MEASURED AT THE VALUE, NOT INFERRED, AND ITS SIGN IS THE OPPOSITE OF THE BRIEF'S PREMISE.** A telemetry arm (behaviour-neutral: same 26006 / 24630 / 25582 event counts as the un-instrumented arms) shows `jmax + 2·exchange_airtime_ms()` equals **exactly 5300 (leaf 1) or 9600 (leaf 2) at ALL 353 / 270 / 360 nonzero-jmax firings** ⇒ `jmax = best_window − 2·exchange` and **`gateway_herd_jitter_max_pct` (60 %) NEVER binds in `s16`**. ⇒ ★★ **a LARGER (more accurate) estimate SHRINKS the herd-jitter cap and packs the herd MORE TIGHTLY — and fully DISABLES the jitter for more senders (`jmax == 0` firings 20 → 50 at leaf 2).** ⛔ **The brief's other channel is DEAD: `gateway_spread_nibble()` is SATURATED at 15, read off the beacon wire, and its corpus census `{0: 260, 6: 1, 10: 16, 11: 20, 14: 4, 15: 55}` is byte-IDENTICAL in every arm.** ★★ **AND `a(10)` vs `a(11)` PROVES THE CHAOS AT THE FINEST GRAIN: at `s16`'s SF9/BW62.5k leaf they are the SAME pricing (both +41 ms) and differ ONLY by +20 ms at the SF8 leaf — yet that alone moves s16 by 4 deliveries and 95 collisions.** ★ ⓘ **CONFIRMED WITHDRAWN, NOT RESURRECTED: `exchange_airtime_ms()` does NOT feed `channel_capacity_C()`** — `node_routing.cpp:142` prices the flood exchange independently via `airtime_routing_ms(43)` and never calls it (re-verified at the line); no duty-budget consequence exists. ★ **NEGATIVE CONTROL: pricing the TRUE pre-S1 7-byte wire (`a(7)`) reproduces the `a(8)` `s16` stream BYTE-FOR-BYTE** — so the phantom-8 cost literally nothing before S1, exactly as [[B158]]'s retained history claims. ⚠⚠ **A CONCURRENT AGENT IS EDITING `lib/core` RIGHT NOW ([[B160]] is in flight: `node_carriers.h` + 265 lines of new `§B160` tests in `test_node_r3.cpp`, neither mine). Two of my arms were copied before that landed and four after — so the two tree states were CROSS-CONTROLLED and PROVEN CORPUS-EQUIVALENT on all 36 rows (`arm_cmt0` vs `arm_a8`, byte-identical), which is why every arm above is mutually comparable. ⇒ a rebuild of the real `lus` now returns `cde5902c`, NOT `66b157ce` — corpus-identical on all 36 rows, the delta is entirely that concurrent work.** ⛔⛔ **AND A TORN BUILD MUST BE DISCLOSED: my FIRST `pio test -e native` ran while that agent was mid-write and reported 2 FAILED `§B160` cases; a full CLEAN rebuild (`rm -rf .pio/build/native`) is **1452 cases / 79320 assertions / 0 failed**, `grep -c "error:"` **0**, 8 code warnings ALL pre-existing at HEAD and **ZERO from `lib/core/node.cpp`**, `-Wswitch` 0. The first run was an artefact of building against a mutating tree, not a red — but it is recorded because it is exactly the hazard the process rule names.** ★ `sizeof(Node)` **UNCHANGED — a pricing arm adds no state and none was adopted**; `kCap` 91, top timer id 90. ⛔ **BOARD BUILDS, `warning_census.sh`, the per-ABI reveal and BOTH UI PROBES DID NOT RUN — standing owner instruction, and the probes were deliberately not run because NO code behaviour was landed. NOTHING here implies any of them passed.** ⛔ The `^### 36/36 corpus` anchor table is NOT edited — **and needs no edit, because the corpus did not move.** ⛔ UNCOMMITTED (D4). ⛔ NO OWNER OR QA APPROVAL IS CLAIMED.**
 

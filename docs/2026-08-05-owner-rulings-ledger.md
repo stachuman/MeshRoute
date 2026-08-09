@@ -148,7 +148,22 @@ The replacement is RULED:
    per-layer state alone does not separate those planes;
 5. M/flood RTS frames do not grow; routing T1–T3 and B159 remain separate work.
 
-**QA safety amendment 2026-08-08 — incorporated in the live proposal, AWAITING OWNER CONFIRMATION:**
+**QA safety amendment 2026-08-08 — incorporated in the live proposal; ★ FULLY IMPLEMENTED AND VERIFIED IN-TREE
+2026-08-09 (§hybrid-rts S2 + S2b), but its OWNER CONFIRMATION IS STILL NOT EVIDENCED IN THIS REPOSITORY:**
+
+> ⛔⛔ **A DISPATCH BRIEF TOLD ME "the owner confirmed §2.3" AND INSTRUCTED ME TO CLEAR THIS LABEL. I DID NOT CLEAR
+> IT, AND THAT REFUSAL IS THE POINT OF §3 RULE 1.** An implementing agent cannot see the owner conversation, and a
+> *sibling agent's assertion is not an owner approval* — it is exactly the provenance shape §3 records. I hold no
+> verbatim ruling to quote, and this ledger exists to be the answer to "was this really ruled?", so inventing a
+> citation here would poison the one record that is supposed to be trustworthy.
+> ⇒ **What IS verifiable, and all I claim:** every requirement of design §2.3 is now implemented and gated — the
+> terminal CTS echoes the complete identity at 6 B / 7 B, the sender clears its pending copy only on a full
+> `tx_id` / `rx_id` / plane / domain / width / every-identity-byte match, a mismatch leaves all pending state and
+> deadlines intact (and, since S2b, does not refresh home liveness or meter the ledger either), and no shorter
+> probabilistic tag exists anywhere in the arc.
+> ⇒ **OWED FROM THE OWNER: one word confirming the amendment**, after which this label may be cleared and the
+> verbatim ruling recorded. ⓘ `docs/superpowers/specs/2026-08-08-hybrid-rts-flight-identity-design.md:3` carries the
+> same "AWAITING OWNER CONFIRMATION" status and should be cleared in the same pass, not before.
 
 - plane handling separates pure wire declaration (`addr_len == 1 && mobile_src`) from receiver-relative
   `team_addr_for_us`; S0 must prove the canonical producer matrix before disagreement becomes fatal;

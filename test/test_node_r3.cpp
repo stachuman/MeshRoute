@@ -8221,6 +8221,124 @@ TEST_CASE("§hybrid-rts S2 — the SENDER refuses a terminal CTS whose echo name
     CHECK_FALSE(node.has_pending_tx());                            // ★ B completed on its OWN terminal answer
 }
 
+TEST_CASE("§hybrid-rts S2b — an OVERHEARD TERMINAL CTS must NOT arm NAV (no DATA follows it), while an "
+          "overheard ORDINARY CTS still must (the positive control)") {
+    // ★★★ THE BUG S2 SHIPPED. A terminal CTS means "I ALREADY HAVE THAT FLIGHT" ⇒ **no DATA and no ACK follow**.
+    // S2 let an overhearer take the ordinary CTS path, which armed a NAV reservation for an exchange that will
+    // never happen. `parse_cts` zeroes the shape (`chosen_data_sf = 0`, `payload_len = 0`) and `payload_len == 0`
+    // is `nav_duration_cts`'s NO-HINT MAX-FRAME fallback, so the code ASKED for a full-frame reservation.
+    // ⓘ Measured detail worth keeping: `data_sf = 0` drives `airtime.cpp`'s `den` to 0, which zeroes the payload
+    //   term, so the reservation that actually landed was only `airtime_routing_ms(3) + 2*gap` — SMALL, but held
+    //   against nothing at all. The assertion below is on `nav_until_ms`, so it catches the defect either way.
+    // ⚠ THE TWO ARMS SHARE ONE NODE AND ONE `pack_cts` PRODUCER; the ONLY difference is the frame SHAPE.
+    TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
+    cfg.nav_enabled = true;                        // ⚠ without this the whole test is vacuous
+    CHECK(node.on_init(cfg));
+    RxMeta from20{ 12.0f, -70.0f, 0, static_cast<int8_t>(20) };
+    // Both frames are addressed to node 7 — NOT us (id 1) and not our team id ⇒ the OVERHEAR path.
+    CHECK_FALSE(node.for_me_dst(7));
+    // ⛔ ARM 1 — the TERMINAL shape, overheard. NAV must be UNTOUCHED.
+    CHECK(node.nav_until_ms() == 0);               // precondition: nothing armed yet
+    { cts_in c{}; c.already_received = true; c.tx_id = 20; c.rx_id = 7; c.team_plane = false;
+      c.id = rts_flight_identity_plain(/*origin=*/9, /*ctr=*/0x0031);
+      std::array<uint8_t, 8> b{};
+      const size_t n = pack_cts(c, std::span<uint8_t>(b.data(), b.size()));
+      CHECK(n == 6);                                                    // the canonical plaintext terminal wire
+      hal._now = 1000; node.on_recv(b.data(), n, from20); }
+    CHECK(node.nav_until_ms() == 0);               // ★★ THE ASSERTION: a terminal CTS reserves NOTHING
+    // ★ ARM 2 — THE POSITIVE CONTROL. Without it, ARM 1 would pass on a build that never arms NAV at all.
+    //   The SAME overhear path, the SAME non-addressee, an ORDINARY CTS ⇒ NAV MUST be armed.
+    { cts_in c{}; c.already_received = false; c.tx_id = 20; c.rx_id = 7; c.chosen_data_sf = 12;
+      c.payload_len = 40; c.cr_adv = 0;
+      std::array<uint8_t, 8> b{};
+      const size_t n = pack_cts(c, std::span<uint8_t>(b.data(), b.size()));
+      CHECK(n == 4);
+      hal._now = 2000; node.on_recv(b.data(), n, from20); }
+    CHECK(node.nav_until_ms() > 2000);             // ★★ armed, and into the future — the instrument works
+}
+
+TEST_CASE("§hybrid-rts S2c — an UNBOUND terminal CTS refreshes/learns/clears NOTHING but IS still billed ONCE "
+          "at its true 6-B airtime (the two classes of side effect, in one case)") {
+    // ★★★ BLOCKER 2 (S2b) + THE S2c ADJUSTMENT (QA, 2026-08-09), asserted TOGETHER because either half alone is
+    // a false pass: a test that only checked the charge would go green on a build that ALSO refreshed liveness,
+    // and a test that only checked "unchanged" would go green on a build that had silently dropped the billing.
+    //   ⛔ TRUST class — must wait for the bind: home-liveness refresh, pending state, timers, learns, emits.
+    //   ✅ ACCOUNTING class — must NOT wait: the frame really did occupy the channel. Exactly ONE charge, at the
+    //      terminal shape's TRUE 6/7-B length, or the terminal bit becomes an anti-spam escape hatch.
+    // ⓘ S2b's original blocker: the §mobile `last_heard_home_ms` refresh and the meter both ran ABOVE the identity
+    //   check, so a terminal CTS that FAILED its bind had already refreshed liveness (a TRUST leak — the shape of
+    //   [[B147]]/[[B153]]). S2b then hoisted the bind above BOTH, which fixed the leak and opened the escape hatch;
+    //   S2c splits them.
+    TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
+    cfg.is_mobile = true; cfg.nav_enabled = true; CHECK(node.on_init(cfg));
+    hal._now = 500;
+    node.test_set_my_mobile_reg(/*home_id=*/20, /*local_id=*/33);       // stamps last_heard_home_ms = 500
+    const uint64_t heard0 = node.test_last_heard_home_ms();
+    CHECK(heard0 == 500);
+    node.route_inject(/*dest=*/20, /*next_hop=*/20, /*hops=*/1, /*score=*/100);
+    const uint8_t body[2] = { 'h', 'i' };
+    hal._now = 1000;
+    const uint16_t ctr = node.test_do_send_typed(/*dst=*/20, body, sizeof body, CryptIntent::def,
+                                                /*override_dst_hash=*/0, /*type=*/0);
+    CHECK(ctr != 0);
+    const auto* rts = hal.last_tx("RTS"); CHECK(rts != nullptr);
+    RtsFlightIdentity mine{};
+    if (rts) { auto pr = parse_rts(std::span<const uint8_t>(rts->bytes.data(), rts->bytes.size()));
+               CHECK(pr.has_value()); if (pr) mine = pr->id; }
+    CHECK(rts_flight_identity_valid(mine));
+    // THE EXPECTED CHARGE — the anti-spam ledger bills `airtime_routing_ms(len)`, i.e. the frame's airtime at OUR
+    // routing SF / active BW / active CR (node_mac.cpp:43). `len` is the ONLY variable under test, so read the
+    // other three off the node rather than restating them: the assertion is about the LENGTH, not the PHY.
+    auto air_at = [&](uint16_t len) {
+        return static_cast<uint32_t>(airtime_ms(cfg.routing_sf, node.active_bw_hz(), node.active_cr(),
+                                                protocol::preamble_sym, len));
+    };
+    CHECK(air_at(6) != air_at(4));       // ⚠ the instrument must be able to TELL a terminal frame from an ordinary
+                                         //   one; if these collided, "billed at 6 B" would be unfalsifiable.
+    int app = 0; uint8_t nrts = 0, ncts = 0; uint32_t air0 = 0;
+    node.compute_originator_metric(/*sender=*/20, app, air0, nrts, ncts);
+    CHECK(air0 == 0u); CHECK(ncts == 0);                                 // precondition: home 20 owes nothing yet
+    const size_t armed0 = hal.armed.size();                              // every after() this node has armed so far
+    // ⛔ A terminal CTS from our HOME (tx_id = 20), addressed to US, but echoing a DIFFERENT flight.
+    RtsFlightIdentity other = mine; other.bytes[1] ^= 0x01;
+    { cts_in c{}; c.already_received = true; c.tx_id = 20; c.rx_id = 1; c.id = other; c.team_plane = false;
+      std::array<uint8_t, 8> b{};
+      const size_t n = pack_cts(c, std::span<uint8_t>(b.data(), b.size()));
+      CHECK(n == 6);                                                     // the plaintext terminal wire = 3 + width 3
+      RxMeta m{ 8.0f, -80.0f, 0, static_cast<int8_t>(20) };
+      hal._now = 9000; node.on_recv(b.data(), n, m); }
+    CHECK(hal.count("cts_terminal_mismatch") == 1);                      // it WAS refused...
+    // ---- ⛔ THE TRUST CLASS: nothing at all moved.
+    CHECK(node.test_last_heard_home_ms() == heard0);                      // ★★ no home-liveness refresh
+    CHECK(node.has_pending_tx());                                         // the flight is untouched...
+    CHECK(hal.count("cts_rx") == 0);                                      // ...and the accept tail never ran, so the
+                                                                          //   two _hal.cancel()s just above it didn't
+    CHECK(hal.armed.size() == armed0);                                    // ★ no timer re-armed either
+    // ---- ✅ THE ACCOUNTING CLASS: charged EXACTLY once, at the TRUE 6-B length.
+    uint32_t air1 = 0; node.compute_originator_metric(20, app, air1, nrts, ncts);
+    CHECK(air1 == air_at(6));                                             // ★★ once, and priced as the 6-B frame it
+                                                                          //   was — not as a 4-B ordinary CTS
+    CHECK(ncts == 1);                                                     // one CTS observation, not two
+    // ★ THE POSITIVE CONTROL: the EXACT echo from the same home DOES refresh the clock, DOES clear the flight — and
+    //   is ALSO billed, which is what stops the accounting assertion above from passing on a never-bills build.
+    // ⚠ t=21000, not 9500: the ledger DEDUPS a same-(kind,rx_id) event inside originator_retry_dedup_ms (10 s) by
+    //   refreshing it instead of appending, so a closer positive control could not show its own charge at all.
+    { cts_in c{}; c.already_received = true; c.tx_id = 20; c.rx_id = 1; c.id = mine; c.team_plane = false;
+      std::array<uint8_t, 8> b{};
+      const size_t n = pack_cts(c, std::span<uint8_t>(b.data(), b.size()));
+      CHECK(n == 6);
+      RxMeta m{ 8.0f, -80.0f, 0, static_cast<int8_t>(20) };
+      hal._now = 21000; node.on_recv(b.data(), n, m); }
+    CHECK(hal.count("cts_terminal_mismatch") == 1);                       // no second refusal
+    CHECK(node.test_last_heard_home_ms() == 21000);                       // ★★ a BOUND answer DOES refresh it
+    CHECK_FALSE(node.has_pending_tx());                                   // and completes the flight
+    CHECK(hal.count("cts_rx") == 1);                                      // the accept tail DID run this time
+    uint32_t air2 = 0; node.compute_originator_metric(20, app, air2, nrts, ncts);
+    CHECK(air2 - air1 == air_at(6));                                      // ★★ billed too, and exactly once
+}
+
 TEST_CASE("§hybrid-rts S2 — a `(1,0)` frame naming a STATIC team member's team id is OVERHEARD, not admitted "
           "(the wire plane is what decides, and the pre-S2 OR-admission got this wrong)") {
     // ★★ THE OTHER HALF OF THE §18 NUMERIC COLLISION, and the case that makes the discriminator load-bearing.

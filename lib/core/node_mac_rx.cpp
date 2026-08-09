@@ -521,6 +521,113 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     auto pc = parse_cts(std::span<const uint8_t>(bytes, len));
     if (!pc) return;
     const cts_out& c = *pc;
+    // ★ §hybrid-rts S2b (2026-08-09) — THE LEDGER BILLS THE CTS **FRAME ITSELF**, so its length must be the shape
+    // that was actually aired. `id.width` IS the frame's own length discriminator (`parse_cts` sets width = n - 3),
+    // so this is ONE derivation off the parsed frame — NOT a second guess at the domain (the S2 second-derivation
+    // defect). ⚠ THE ORDINARY ARM DELIBERATELY STAYS the Lua CTS_LEN=4 timing constant, unchanged: it is a
+    // parity constant, the 4th byte is optional and a 4-B frame with b3==0 is indistinguishable from a 3-B one,
+    // and re-pricing it would move every CTS-bearing stream for a reason unrelated to this slice (C1).
+    const uint16_t cts_air_len = c.already_received ? static_cast<uint16_t>(3u + c.id.width) : 4u;
+    // ★★ §hybrid-rts S2c (2026-08-09) — THE PLANE GUARD ON THE METER, **HOISTED SO THERE IS ONE DERIVATION OF IT**
+    // and both billing sites (the invalid-terminal arm inside the gate below, and the ordinary meter further down)
+    // read the SAME value. Pure reads of state that nothing between here and the meter mutates (the terminal gate
+    // writes nothing, and the §mobile refresh touches `_my_mobile_reg`, not `_pending_tx`) ⇒ value-identical to
+    // computing it at the meter, which is where it used to live. Its MEANING is unchanged and is spelled out at
+    // the meter: on a mobile/team flight `c.tx_id` is a LOCAL id and the ledger is keyed by GLOBAL id.
+    const bool own_mobile_team_cts = for_me_dst(c.rx_id) && _active->_pending_tx
+        && (next_is_local_id(_active->_pending_tx->addr_len, _active->_pending_tx->next));
+    // ★★★★★ §hybrid-rts S2b (2026-08-09) — **THE TERMINAL SHAPE IS GATED HERE, BEFORE EVERY SIDE EFFECT.**
+    // S2 landed the identity check but left it BELOW the home-liveness refresh and the anti-spam meter, so a
+    // terminal CTS that FAILED its identity check had already refreshed home liveness and metered the ledger.
+    // ⚠⚠ THAT IS THIS ARC'S SIGNATURE ERROR FOR THE THIRD TIME — [[B147]], [[B153]], and now here: **a terminal
+    // decision acting before the evidence that licenses it.** The ordering below is the fix and it is the point of
+    // this block: ① is it about us · ② is there a flight this could possibly answer (pending + awaiting + the
+    // next hop we RTS'd) · ③ does the identity and plane BIND · ④ only then may anything be refreshed,
+    // learned, cancelled or cleared — which is the untouched tail further down that a validated frame falls into.
+    // ⛔ DO NOT "simplify" this by moving any of ①②③ back below the refresh/learn.
+    // ⚠⚠ §hybrid-rts S2c (2026-08-09) NARROWS S2b's own instruction: "hoist the bind above EVERY side effect" was
+    // TOO BROAD. **The anti-spam AIRTIME METER is not a side effect of believing the frame** — see the ⚖ note at
+    // ②③ below, which is where that distinction is stated and where an invalid terminal CTS is charged once.
+    if (c.already_received) {
+        // ① ★★ AN OVERHEARD TERMINAL CTS MUST NOT ARM NAV. A terminal CTS means **NO DATA FOLLOWS** — it is the
+        //    receiver saying "I already have that flight". S2 let it take the ordinary overhear path, which armed
+        //    NAV for a DATA+ACK exchange that will never exist. Worse than a small over-reserve: `parse_cts`
+        //    zeroes the shape (`chosen_data_sf = 0`, `payload_len = 0`), and `payload_len == 0` is
+        //    `nav_duration_cts`'s NO-HINT MAX-FRAME fallback ⇒ it asked for a full `lora_max_frame_bytes`
+        //    reservation. (In practice `data_sf = 0` makes `airtime.cpp`'s `den` zero, which zeroes the payload
+        //    term and floors the preamble to 0, so the false reservation that actually landed was
+        //    `airtime_routing_ms(3) + 2*cts_to_data_gap_ms` — small, but reserved against nothing at all.)
+        //    ⇒ no `nav_arm`, and no `reserve_yield` either: the CTS sender is NOT about to receive anyone's DATA.
+        // ⓘ STILL METERED (design §2.3; §hybrid-rts S2c makes this the RULE for every terminal CTS, not an
+        //    exception): it really did consume airtime, and an overhearer can never validate it — the frame is
+        //    not addressed to us, so there is no flight of ours to bind it to. Metering is a THROTTLE, never a
+        //    route/deliver decision. See the ⚖ note at ②③ for why accounting and trust part company here.
+        if (!for_me_dst(c.rx_id)) {
+            track_originator_observation(c.tx_id, /*kind=cts*/1, /*dedup_key=*/c.rx_id,
+                                         static_cast<uint32_t>(airtime_routing_ms(cts_air_len)));
+            return;
+        }
+        // ② A terminal answer with no flight to answer, or from a node that is not the next hop we RTS'd, is
+        //    unbindable — and ③ THE BIND ITSELF is full-width and total, exactly as S2 built it (that part was
+        //    sound): the identity's DOMAIN, its WIDTH, EVERY identity byte (`rts_flight_identity_equal` — the ONE
+        //    comparator) and the wire-declared PLANE. The identity is RECOMPUTED from the pending flight's own
+        //    canonical fields by `Node::flight_identity`, the ONE producer that `tx_rts_retry` also uses — no
+        //    cached tag, and ⛔ never a second derivation (that defect cost 40 false refusals in S2).
+        // ★ WHY AN ENDPOINT MATCH IS NOT ENOUGH (the whole reason the terminal shape carries 3-4 extra bytes):
+        //   a CTS is retry/duty-stash eligible and that stash has NO flight-generation guard, so a delayed
+        //   terminal answer to flight A can arrive while flight B — same next hop, same endpoints — is awaiting
+        //   its CTS. With only `tx_id`/`rx_id`/`awaiting_cts` (all of which B satisfies) it would TERMINALLY
+        //   clear B, with no DATA, no emit and no `send_failed`: [[B153]]'s silent loss from the other side.
+        // ⓘ ② and ③ share ONE exit (`bound == false`) because they need the SAME treatment: no trust, one charge.
+        bool bound = false;
+        if (_active->_pending_tx && _active->_pending_tx->awaiting_cts
+            && c.tx_id == _active->_pending_tx->next) {
+            const PendingTx&        pt   = *_active->_pending_tx;
+            const RtsFlightIdentity mine = flight_identity(pt);   // the ONE producer — identical to the RTS's
+            const RtsWireMarks      mk   = rts_wire_marks(pt);    // the ONE producer of the marks we AIRED
+            const bool my_team = rts_wire_team_plane(mk.addr_len, mk.mobile_src);
+            bound = rts_flight_identity_equal(c.id, mine) && (c.team_plane == my_team);
+            if (!bound)                                          // only reportable when there WAS a flight to name
+                MR_EMIT("cts_terminal_mismatch", EF_I("from", c.tx_id), EF_I("ctr", pt.ctr),
+                        EF_I("echo_width", c.id.width), EF_I("my_width", mine.width),
+                        EF_B("echo_team", c.team_plane), EF_B("my_team", my_team));
+        }
+        // ⚖⚖⚖ THE TWO CLASSES OF SIDE EFFECT — §hybrid-rts S2c (2026-08-09), QA-required. This is the ONE place
+        //   the distinction is written down, and it exists so a later reader does not "clean up" the charge below.
+        //     ⛔ A TRUST decision must wait for the evidence that licenses it: home-liveness refresh, pending-state
+        //        change, timer cancel/re-arm, route/link learning, any application-facing outcome. An unbindable
+        //        terminal claim gets NONE of those — that is what the `return` here protects.
+        //     ✅ ACCOUNTING IS NOT A TRUST DECISION. It is a MEASUREMENT OF PHYSICAL AIRTIME THAT DID OCCUR: the
+        //        frame hit the channel and cost it, whether or not we believe a single byte of the frame. So an
+        //        invalid terminal CTS IS charged — EXACTLY ONCE, at its true 6/7-B `cts_air_len`.
+        //   ★ WITHOUT THIS CHARGE THE TERMINAL BIT IS AN ACCOUNTING ESCAPE HATCH: set `already_received`, echo a
+        //     bogus identity, and every frame you air is invisible to the anti-spam ledger. S2b briefly had that
+        //     hole (it hoisted the bind above the meter along with everything else); this narrows the hoist to the
+        //     trust class only. ⛔ Do NOT re-remove the charge on the grounds that the frame was rejected.
+        //   ⓘ EXACTLY ONCE, structurally: this arm RETURNS, so it can never also reach the ordinary meter below;
+        //     and the BOUND arm ④ does NOT charge here — it falls through and is charged there once, at the same
+        //     `cts_air_len`. Mutually exclusive by the `return`, not by a flag.
+        //   ⓘ `own_mobile_team_cts` gates it for the SAME reason as the ordinary meter, off the SAME hoisted
+        //     derivation: on a mobile/team flight `c.tx_id` is a LOCAL id while the ledger is keyed by GLOBAL id,
+        //     so charging it bills an UNRELATED global node — and the metric feeds originator-drop, so
+        //     mis-attribution can drop an innocent peer's traffic. The terminal bit opens no NEW escape there:
+        //     the ordinary shape is not billed on that path either, so this is PARITY, not a second policy.
+        //   ⚠ RESIDUAL, stated because the guard cannot cover it: at ② with NO pending flight at all the guard is
+        //     structurally false, so a team/mobile-plane terminal CTS arriving with nothing to bind to is billed
+        //     under its LOCAL id. That is the SAME residual ①'s pure-overhear case already documents (the CTS
+        //     carries no plane mark — flags nibble full, frames.md CTS-by-context — so there is nothing to read),
+        //     and it is THROTTLE-ONLY. Closing it needs a WIDER CTS, not a cleverer guard.
+        if (!bound) {
+            if (!own_mobile_team_cts)
+                track_originator_observation(c.tx_id, /*kind=cts*/1, /*dedup_key=*/c.rx_id,
+                                             static_cast<uint32_t>(airtime_routing_ms(cts_air_len)));
+            return;
+        }
+        // ④ BOUND. Fall through into the ONE accept tail below (refresh, meter, learn, confirm, cancel, clear).
+        //   ⓘ It re-tests ② on the way through; that is a cheap re-read of state nothing in between mutates,
+        //   and it keeps the ordinary path's source byte-for-byte unchanged rather than forking a parallel
+        //   accept path (U1).
+    }
     // §mobile: a CTS from our HOME clearing OUR flight (c.tx_id=home, c.rx_id=us) proves the home is alive -> refresh the
     // home-lost clock. The mobile routes all its DMs via the home, so this fires FAR more often than the home's (possibly
     // 15-min) beacon — the beacon-only refresh (node_beacon.cpp:551) is what let a live-but-slow-beaconing home be
@@ -532,7 +639,9 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // R4.4 anti-spam: track this CTS in the CTS sender's (c.tx_id) window (overheard, addressed to us or
     // not). CTS is the forwarder fingerprint — a legit forwarder emits ~1 CTS per inbound flight (dv:10149).
     // Unconditional now: tx_id is on the wire (no PHY-sender god-view). Dedup key is rx_id (the cleared
-    // requester), not the dropped ctr_lo. Timing uses Lua CTS_LEN=4, not the 3-B C++ wire.
+    // requester), not the dropped ctr_lo. ★ §hybrid-rts S2b: timing is now `cts_air_len` — the Lua CTS_LEN=4
+    // parity constant for the ORDINARY shape (unchanged), but the TERMINAL shape's ACTUAL 6/7 B (it is not a 4-B
+    // frame and must not be billed as one). See the derivation at the top of this function.
     // §mobile: skip the track when this CTS clears one of OUR mobile/team flights (c.tx_id is then a LOCAL id — the home
     // or teammate we are sending to). RESIDUAL (documented): a PURE-OVERHEAR mobile/team CTS (c.rx_id != us) still meters
     // a local id here — the CTS carries no mark (flags nibble full, frames.md CTS-by-context) so an overhearer can't tell.
@@ -545,12 +654,18 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // now full, so closing this needs a WIDER CTS. Bounded and unchanged: a fixed 4-B frame on the routing SF
     // (single-digit ms) against a DATA term of hundreds, erring the same way (under-billing heavier peers).
     // The RTS and DATA halves of this ledger ARE billed at the sender's advertised CR.
-    const bool own_mobile_team_cts = for_me_dst(c.rx_id) && _active->_pending_tx
-        && (next_is_local_id(_active->_pending_tx->addr_len, _active->_pending_tx->next));
+    // ★ §hybrid-rts S2c: `own_mobile_team_cts` is now DERIVED ONCE at the top of this function (value-identical —
+    // nothing between there and here mutates `_pending_tx`) so the invalid-terminal charge inside the gate and this
+    // ordinary meter cannot drift apart. ⛔ Do not re-declare it here.
+    // ⓘ REACHED BY: every ordinary CTS, and a BOUND terminal CTS (④) — which is charged HERE, exactly once, and
+    //   never also inside the gate (that arm returns).
     if (!own_mobile_team_cts)
         track_originator_observation(c.tx_id, /*kind=cts*/1, /*dedup_key=*/c.rx_id,
-                                     static_cast<uint32_t>(airtime_routing_ms(4)));
+                                     static_cast<uint32_t>(airtime_routing_ms(cts_air_len)));
     if (!for_me_dst(c.rx_id)) {                           // overheard CTS (not clearing EITHER of our plane ids: node_id or team_local_id)
+        // ★★ §hybrid-rts S2b: **ORDINARY-ONLY BY CONSTRUCTION.** An overheard TERMINAL CTS returned at ① in the
+        // gate at the top of this function, so `c.already_received` is provably false here — which is what makes
+        // arming NAV legitimate: an ordinary CTS is the one shape that really does authorize a DATA+ACK.
         // NAV: reserve the medium for the DATA+ACK this CTS just authorized (covers the hidden node near the
         // receiver that didn't hear the RTS). chosen_data_sf is exact; the length is byte 3's 4-B-quantized hint.
         // ✔ §cts-len6-cr2 (2026-07-27) — CLOSED. This was the ONE wrong-CR site that failed in the DANGEROUS
@@ -582,34 +697,17 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // next-hop we RTS'd. Wire-backed (no PHY-sender god-view) — this is what distinguishes the primary
     // next-hop's CTS from an alt's when both answer the same RTS (cascade-to-alt). dv:10195.
     if (c.tx_id != _active->_pending_tx->next) return;
-    // ★★★★ §hybrid-rts S2 (2026-08-08) — A TERMINAL CTS IS BOUND TO **THIS** FLIGHT BEFORE IT MAY DO ANYTHING.
-    // This block sits BEFORE every side effect below on purpose: the neighbour/bidi learns, the two timer cancels,
-    // `awaiting_cts = false`, the `cts_rx` emit and `_pending_tx.reset()` are ALL state changes, and design §2.3
-    // requires the echo comparison to precede "cancelling timers, learning/confirming a link, clearing state, or
-    // emitting any success-shaped telemetry".
-    // ★ WHY AN ENDPOINT MATCH IS NOT ENOUGH (this is the whole reason the terminal shape carries 3-4 extra bytes):
-    //   a CTS is retry/duty-stash eligible and that stash has NO flight-generation guard, so a delayed terminal
-    //   answer to flight A can arrive while flight B — same next hop, same endpoints — is awaiting its CTS. With
-    //   only `tx_id`/`rx_id`/`awaiting_cts` (all of which B satisfies) it would TERMINALLY clear B, with no DATA,
-    //   no emit and no `send_failed`: [[B153]]'s silent loss reintroduced from the other side of the exchange.
-    // ⇒ THE COMPARISON IS FULL-WIDTH AND TOTAL: the identity's DOMAIN, its WIDTH, EVERY identity byte
-    //   (`rts_flight_identity_equal` — the ONE comparator) and the wire-declared PLANE. ⛔ A shorter or
-    //   probabilistic tag is not acceptable here at any point in this arc (owner ruling 2026-08-08).
-    // ⓘ The identity is RECOMPUTED from the pending flight's own canonical fields, exactly as `tx_rts_retry`
-    //   computes it for the RTS — one producer, no cached tag to go stale across a requeue.
-    if (c.already_received) {
-        const PendingTx&        pt   = *_active->_pending_tx;
-        const RtsFlightIdentity mine = flight_identity(pt);       // the ONE producer — identical to the RTS's
-        const RtsWireMarks      mk   = rts_wire_marks(pt);        // the ONE producer of the marks we AIRED
-        const bool my_team = rts_wire_team_plane(mk.addr_len, mk.mobile_src);
-        if (!rts_flight_identity_equal(c.id, mine) || c.team_plane != my_team) {
-            // NON-TERMINAL: no deadline, no pending state, no route state, no app outcome changes. Just report it.
-            MR_EMIT("cts_terminal_mismatch", EF_I("from", c.tx_id), EF_I("ctr", pt.ctr),
-                    EF_I("echo_width", c.id.width), EF_I("my_width", mine.width),
-                    EF_B("echo_team", c.team_plane), EF_B("my_team", my_team));
-            return;
-        }
-    }
+    // ★★★★ §hybrid-rts S2b (2026-08-09) — **THE TERMINAL BIND USED TO LIVE HERE AND HAS MOVED UP**, to the gate at
+    // the top of this function. S2 put it here, which was ALREADY below the §mobile home-liveness refresh and the
+    // anti-spam meter ⇒ a terminal CTS that failed its identity check had refreshed home liveness and metered the
+    // ledger before being rejected. Reaching this line with `already_received` set therefore PROVES the echo
+    // matched (endpoints, plane, domain, width and every identity byte) — the check is simply earlier now, and a
+    // mismatch returned before touching any TRUST state: no liveness refresh, no timer, no learn, no emit but the
+    // refusal itself. ⚠ §hybrid-rts S2c: it IS still charged to the anti-spam ledger up there (accounting is a
+    // measurement of airtime that occurred, not a trust decision — see the ⚖ note in the gate), which is why the
+    // ordinary meter below can be reached by a BOUND terminal CTS only: exactly one charge either way.
+    // ⛔ DO NOT re-add a bind here: a second evaluation is a second derivation waiting to happen (S2's 40 false
+    //    refusals came from exactly that), and it would restore the wrong ordering by making this the real gate.
     // Learn the CTS sender (= our next-hop) as a 1-hop neighbour (Lua learn_rx_source / cts_frame).
     // §mobile: our next-hop on a mobile last-mile (addr_len=1) or a team DM (is_team_peer) is a LOCAL id, not a global
     // identity -> keep it OUT of the static _rt (mirror the ACK-learn guard below). Inert on s18/static (both false).
@@ -650,11 +748,12 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     _active->_pending_tx->awaiting_cts = false;
     _active->_pending_tx->chosen_data_sf = c.chosen_data_sf;
     MR_EMIT("cts_rx", EF_I("from", _active->_pending_tx->next), EF_I("sf", c.chosen_data_sf));  // CTS is from our next-hop (src_hint=-1 on metal)
-    // ✔ §hybrid-rts S2 (2026-08-08) — the ✖ MISSING marker S1 left here is CLOSED: reaching this line with
-    // `already_received` set now PROVES the echo matched (endpoints, plane, domain, width and every identity byte),
-    // because the comparison is the guarded block near the top of this function and a mismatch returned there
-    // WITHOUT touching a timer, a learn, `awaiting_cts` or any emit. So the terminal credit below is bound to THIS
-    // flight, which is what makes it legitimate at all.
+    // ✔ §hybrid-rts S2 (2026-08-08), ordering corrected by S2b (2026-08-09) — the ✖ MISSING marker S1 left here is
+    // CLOSED: reaching this line with `already_received` set PROVES the echo matched (endpoints, plane, domain,
+    // width and every identity byte), because the comparison is the GATE AT THE TOP of this function and a mismatch
+    // returned there without touching a timer, a learn, `awaiting_cts`, any emit — and, since S2b, without touching
+    // the §mobile home-liveness refresh either (S2c keeps the anti-spam CHARGE, which is accounting, not trust).
+    // So the terminal credit below is bound to THIS flight, which is what makes it legitimate at all.
     // ⓘ It deliberately clears the flight WITHOUT synthesizing an app outcome: `_pending_tx.reset()` + `become_free()`
     //   is the historical behaviour and no `send_acked`/`send_e2e_acked`/`send_failed` is invented (design §5.2's
     //   rule for the sibling optimisation applies here too — a hop's "I already have it" is progress evidence, not
@@ -929,9 +1028,9 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                         protocol::db_to_q4(meta.snr_db), /*team_plane=*/true);
 #endif
     // ★★★ §hybrid-rts S2 — capture the VALIDATED flight's cache key BEFORE the reservation is dropped. The store
-    // itself happens only after the ACK has been emitted (design §4.2: "only after matching DATA has been accepted
-    // and its ACK emitted"), and every early return between here and there (HOP_BUDGET, LOOP_DUP) leaves the cache
-    // untouched — correctly, because neither of those ACKs.
+    // itself happens only after an ACK has been STAGED for it (⚠ NOT "emitted" — see the corrected invariant at the
+    // store site; `tx_with_retry` can defer or reject), and every early return between here and there (HOP_BUDGET,
+    // LOOP_DUP) leaves the cache untouched — correctly, because neither of those ACKs.
     const RtsFlightIdentity done_id   = _active->_pending_rx->id;
     const uint8_t           done_from = _active->_pending_rx->from;         // ON-AIR immediate sender, never src_hint
     const bool              done_team = _active->_pending_rx->wire_team_plane;
@@ -1049,11 +1148,20 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     uint8_t abuf[3]; const size_t al = pack_ack(ain, std::span<uint8_t>(abuf, 3));
     tx_with_retry(abuf, al, static_cast<int16_t>(_cfg.routing_sf), FrameTag::ack);   // R4.5b: stash + tag the ACK
     MR_EMIT("ack_tx", EF_I("to", from), EF_I("ctr", d.ctr), EF_I("airtime_warn", ain.warn ? 1 : 0));
-    // ★★★ §hybrid-rts S2 — THE COMPLETED-FLIGHT STORE, and its position is the contract: it is BELOW the ACK
-    // (design §4.2 permits the store only "after matching DATA has been accepted and its ACK emitted") and ABOVE
-    // the `live_dup` return, so a lost-ACK RETRY — the case the whole optimisation exists for — refreshes the
+    // ★★★ §hybrid-rts S2 — THE COMPLETED-FLIGHT STORE, and its position is the contract: it is BELOW the ACK and
+    // ABOVE the `live_dup` return, so a lost-ACK RETRY — the case the whole optimisation exists for — refreshes the
     // entry it is about to need again. The two NACK paths above return without ACKing and therefore without
-    // storing. ⛔ `done_from` is the RTS's own `src`, captured before the reservation was dropped — NEVER
+    // storing.
+    // ★★ §hybrid-rts S2b (2026-08-09) — **THE INVARIANT IS STATED EXACTLY, BECAUSE "ITS ACK EMITTED" IS NOT
+    // LITERALLY TRUE.** Design §4.2's phrasing (and S2's comment here) claimed the store happens after the ACK was
+    // *emitted*. It cannot claim that: `tx_with_retry` above may return `deferred_retry_armed` (duty over budget,
+    // `node_mac.cpp:1681`) or a busy/too-long rejection, so the ACK may never reach the radio at all.
+    // ⇒ THE ACTUAL SAFE INVARIANT THIS STORE RESTS ON: **matching DATA was accepted and an ACK was STAGED/ATTEMPTED
+    //   for it, and no NACK path may seed the cache.** That is sufficient, because the cache only ever authorises
+    //   answering an EXACT retry of a flight we really did accept — and the later terminal CTS is itself what
+    //   safely completes the hop, so a physically-unsent ACK costs a retry, never a false terminal answer.
+    // ⛔ DO NOT "fix" this by threading an ACK-completion callback back to here: it needs a much larger
+    //   callback/state change, and QA ruled it UNNECESSARY for exactly the reason above. ⛔ `done_from` is the RTS's own `src`, captured before the reservation was dropped — NEVER
     // `meta.src_hint` (the sim oracle; [[B156]]'s sim/metal divergence), and NEVER the local `from` above, which
     // PREFERS `src_hint` and is therefore the wrong identity for a link-keyed store.
     completed_flight_store(done_from, d.dst, done_team, done_id, nowm);
