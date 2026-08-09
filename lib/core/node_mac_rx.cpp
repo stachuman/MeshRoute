@@ -265,7 +265,26 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 #else
     const bool for_team_rts   = false;   // §featuresplit
 #endif
-    if (!for_static_rts && !for_team_rts) {   // else overheard
+    // ★★★★ §hybrid-rts S2 (2026-08-08) — THE WIRE DECLARATION SELECTS WHICH RECEIVER-RELATIVE TARGET MUST HOLD.
+    // `rts_wire_team_plane(r)` = `(addr_len == 1 && mobile_src)` is what the SENDER said this flight's plane is
+    // (frame_codec.h). The two predicates above are receiver-relative ADDRESS admission and say nothing about the
+    // plane. Design §4.3: wire TEAM ⇒ `team_addr_for_us` must be true; wire STATIC/GLOBAL ⇒ `for_static_rts` must
+    // be true. Anything else is not addressed to us and takes the ordinary OVERHEAR path below (NAV-armed, no CTS,
+    // no PendingRx) — ⛔ NOT a malformed-frame drop: "an overheard frame is not malformed merely because
+    // `team_addr_for_us` is false; the receiver is not its addressee."
+    // ★★ THE CASE THIS EXISTS FOR, and it is a REAL frame, not a hypothetical: a host's `(1, 0)` last-mile to a
+    // hosted mobile satisfies BOTH targets at a team-member mobile whose hosted local id equals its
+    // `_team_local_id` (the §18 one-numeric-space collision). The pre-S2 OR-admission then let the TEAM reading
+    // win the CTS's `tx_id` and would have let it into the stored plane. The wire says STATIC, and the wire is the
+    // only party that knows: `team_addr_for_us` never consults `mobile_src`.
+    // ⇒ STATIC REDUCTION, so the immovability is checkable rather than asserted: with `team_id == 0` (every static
+    //   node) and on the three `MR_FEAT_TEAM 0` gateway envs, `for_team_rts` is CONSTANT FALSE, so
+    //   `addressed_for_us == (wire_team ? false : for_static_rts)`. A `wire_team` frame was therefore never
+    //   admitted on those builds either (`for_static_rts` needs `(addr_len==1) == is_mobile`, and a static node is
+    //   not mobile), so this predicate is byte-identical there.
+    const bool wire_team        = rts_wire_team_plane(r);
+    const bool addressed_for_us = wire_team ? for_team_rts : for_static_rts;
+    if (!addressed_for_us) {   // else overheard
         // NAV (virtual carrier sense): an overheard UNICAST RTS reserves the medium for the rest of the
         // exchange (CTS+DATA+ACK) — M_BROADCAST already returned above, so this is unicast. Defer own
         // unsolicited TX until then (tx_initiating/tx_flood) so we don't step on the CTS in the silent gap.
@@ -324,9 +343,37 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // ⓘ COST, so nobody re-adds the bit as an "optimization": successful traffic is UNCHANGED
     // (RTS -> CTS -> DATA -> ACK, 7-B RTS). Only lost-ACK recovery pays, and it pays ONE redundant DATA —
     // after an ACK was actually lost — instead of every hop of every message risking a wrong terminal answer.
-    // ⛔ `cts_in::already_received` is RESERVED in the codec and NEVER SET by this firmware (frame_codec.h).
-    //   An INBOUND one is still honoured at `handle_cts`, so a heterogeneous fleet stays interoperable and NO
-    //   `wire_version` bump is needed (owner-confirmed 2026-08-08: MeshRoute is not deployed).
+    //
+    // ⚠⚠ SUPERSEDED IN PART BY §hybrid-rts S2 (2026-08-08), AND THE ARGUMENT ABOVE IS STILL EXACTLY RIGHT ABOUT
+    // THE FRAME IT WAS WRITTEN ABOUT. What changed is the PREMISE, not the reasoning: the unicast RTS is no longer
+    // 7 bytes. It is 10 B (plaintext `origin|ctr_hi|ctr_lo`) or 11 B (crypted `BLAKE2b-512(...)[:4]`) and CARRIES
+    // the canonical flight identity, so "a retry of A" and "a first attempt of B" are no longer byte-identical
+    // frames. The gate restored immediately below is therefore keyed on evidence the old frame did not contain.
+    // ⛔ WHAT IS **NOT** RESTORED, ever: a terminal answer derived from `(src, dst, ctr_lo, payload_len)`. The
+    //    cache key is the FULL identity + domain + the wire plane + the immediate sender + dst, and `payload_len`
+    //    is deliberately absent from it (it is a NAV/consistency field — design §2.4).
+    // ★ AND THE TERMINAL ANSWER IS NOW BINDABLE AT THE SENDER: it echoes the complete identity + plane (6 B
+    //   plaintext / 7 B crypted), and `handle_cts` refuses to act on one whose echo does not match its CURRENT
+    //   flight — so a delayed/stashed terminal CTS for flight A can no longer clear a newer flight B (design §2.3).
+    if (const CompletedFlight* cf = completed_flight_find(r.src, r.dst, wire_team, r.id, _hal.now())) {
+        cts_in cin{};
+        cin.already_received = true;              // TERMINAL: no DATA follows, no PendingRx is allocated
+        cin.id               = cf->id;            // the COMPLETE echo — the sender binds on this, not on endpoints
+        cin.team_plane       = cf->team_plane;    // the WIRE plane we stored, echoed back
+        cin.tx_id            = wire_team ? team_local_id() : _node_id;
+        cin.rx_id            = r.src;
+        cin.payload_len      = 0;                 // pack_cts REFUSES a NAV hint on this shape (nothing follows)
+        cin.chosen_data_sf   = 0;                 // no SF exists on the terminal shape (parse_cts returns 0)
+        uint8_t cbuf[7]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, sizeof cbuf));
+        if (cl != 0) {
+            tx_with_retry(cbuf, cl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::cts);
+            MR_EMIT("cts_tx", EF_I("to", r.src), EF_B("already_received", true),
+                    EF_I("id_width", cf->id.width), EF_B("team_plane", cf->team_plane));
+            return;
+        }
+        // pack refused -> fall through to ordinary admission rather than answer nothing (fail loud, not silent).
+        MR_EMIT("cts_terminal_pack_failed", EF_I("to", r.src), EF_I("id_width", cf->id.width));
+    }
     // A retried RTS for the SAME flight while we still await its DATA -> re-CTS + restart
     // the expiry (dv_dual_sf.lua:218 CTS-dup) so the sender's retry gets a fresh CTS.
     // ★ §B153 — THIS BRANCH IS DELIBERATELY KEPT, AND WHAT MAKES THAT LEGITIMATE IS THAT IT IS **NOT TERMINAL**.
@@ -342,10 +389,24 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // lost-CTS retry (exactly the case this branch exists for) would be answered with a CONGESTION verdict,
     // pushing the sender into backoff/cascade against a receiver that is in fact holding its own reception for
     // it. Keeping a non-terminal fast path costs nothing that can lose data.
+    // ★★★★ §hybrid-rts S2 — THE MATCH IS UNCHANGED AND THE STORED IDENTITY IS **REFRESHED FROM THIS RTS**, and
+    // that refresh is LOAD-BEARING, not tidiness. Without it S2 would convert this branch's documented worst case
+    // ("costing a retry, never a message") into a LOST MESSAGE, which is the exact class this arc exists to remove:
+    // a sender is single-slot stop-and-wait, so it can only RTS for flight B after flight A's own attempt died at
+    // its end. If B's RTS lands here (same `from`/`dst`/`ctr_lo`/`payload_len`, DIFFERENT identity) we restart the
+    // DATA-wait for B — so the identity we then VALIDATE B's DATA against must be B's. Keeping A's would drop B at
+    // `handle_data`, un-ACKed, for as long as A's stale reservation lived.
+    // ⇒ THE INVARIANT THIS PRESERVES: the reservation always awaits the identity most recently advertised on it.
+    // ⚠ RESIDUAL, STATED NOT HIDDEN: `chosen_data_sf`, `payload_len`, `mobile_from` and `sender_cr` are still NOT
+    //   refreshed here. That is PRE-EXISTING (the branch has always answered with the first flight's chosen SF) and
+    //   is left alone under C1 — it costs a retry, never a message, which is the property this branch is allowed to
+    //   have. The identity is different: it is the one field a stale value turns into a DROP.
     if (_active->_pending_rx && _active->_pending_rx->from == r.src && _active->_pending_rx->dst == r.dst &&
         _active->_pending_rx->ctr_lo == r.ctr_lo && _active->_pending_rx->payload_len == r.payload_len) {
+        _active->_pending_rx->id              = r.id;        // await the identity THIS RTS advertised (see above)
+        _active->_pending_rx->wire_team_plane = wire_team;   // ... and the plane it declared, or DATA validation would contradict it
         cts_in cin{}; cin.chosen_data_sf = _active->_pending_rx->chosen_data_sf;
-        cin.already_received = false; cin.tx_id = for_team_rts ? team_local_id() : _node_id; cin.rx_id = r.src;
+        cin.already_received = false; cin.tx_id = wire_team ? team_local_id() : _node_id; cin.rx_id = r.src;
         cin.payload_len = _cfg.nav_enabled ? r.payload_len : 0;   // NAV: size the overhearer's DATA reservation
         cin.cr_adv      = r.cr_adv;   // §cts-len6-cr2: forward the RTS sender's advertised CR into byte 3's cr2 half
         uint8_t cbuf[4]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, sizeof cbuf));
@@ -437,9 +498,13 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     prx.claimed_e2e_ack = (r.rts_flags & RTS_FLAG_E2E_ACK) != 0;   // carried to DATA-time for the anti-spoof verify
     prx.mobile_from = r.mobile_src;                               // §mobile: carry the mobile-src mark -> DATA-time learn skips a mobile local id (mirror the RTS learn guard :47)
     prx.sender_cr = rts_cr_decode(r.cr_adv);                      // §rts-cr: the SENDER's CR -> start_pending_rx_expiry sizes the DATA wait for the frame actually coming, not for our own CR
+    // ★★★ §hybrid-rts S2 — the reservation records WHAT IT IS WAITING FOR. `r.id` is mandatory on an admitted
+    // unicast RTS (parse_rts cannot produce one without it) and `wire_team` is the plane the SENDER declared, NOT
+    // whichever of `for_static_rts`/`for_team_rts` matched — see the discriminator's note above.
+    prx.id = r.id; prx.wire_team_plane = wire_team;
     _active->_pending_rx = prx;
     start_pending_rx_expiry(r.payload_len);
-    cts_in cin{}; cin.chosen_data_sf = sf; cin.already_received = false; cin.tx_id = for_team_rts ? team_local_id() : _node_id; cin.rx_id = r.src;
+    cts_in cin{}; cin.chosen_data_sf = sf; cin.already_received = false; cin.tx_id = wire_team ? team_local_id() : _node_id; cin.rx_id = r.src;
     cin.payload_len = _cfg.nav_enabled ? r.payload_len : 0;   // NAV: size the overhearer's DATA reservation
     // ✔ §cts-len6-cr2 — PURE FORWARDING of a datum already in hand: §rts-cr put the sender's CR in the RTS and
     // we are holding that parsed RTS, so the CTS can hand it to overhearers who never heard the RTS at all.
@@ -517,6 +582,34 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // next-hop we RTS'd. Wire-backed (no PHY-sender god-view) — this is what distinguishes the primary
     // next-hop's CTS from an alt's when both answer the same RTS (cascade-to-alt). dv:10195.
     if (c.tx_id != _active->_pending_tx->next) return;
+    // ★★★★ §hybrid-rts S2 (2026-08-08) — A TERMINAL CTS IS BOUND TO **THIS** FLIGHT BEFORE IT MAY DO ANYTHING.
+    // This block sits BEFORE every side effect below on purpose: the neighbour/bidi learns, the two timer cancels,
+    // `awaiting_cts = false`, the `cts_rx` emit and `_pending_tx.reset()` are ALL state changes, and design §2.3
+    // requires the echo comparison to precede "cancelling timers, learning/confirming a link, clearing state, or
+    // emitting any success-shaped telemetry".
+    // ★ WHY AN ENDPOINT MATCH IS NOT ENOUGH (this is the whole reason the terminal shape carries 3-4 extra bytes):
+    //   a CTS is retry/duty-stash eligible and that stash has NO flight-generation guard, so a delayed terminal
+    //   answer to flight A can arrive while flight B — same next hop, same endpoints — is awaiting its CTS. With
+    //   only `tx_id`/`rx_id`/`awaiting_cts` (all of which B satisfies) it would TERMINALLY clear B, with no DATA,
+    //   no emit and no `send_failed`: [[B153]]'s silent loss reintroduced from the other side of the exchange.
+    // ⇒ THE COMPARISON IS FULL-WIDTH AND TOTAL: the identity's DOMAIN, its WIDTH, EVERY identity byte
+    //   (`rts_flight_identity_equal` — the ONE comparator) and the wire-declared PLANE. ⛔ A shorter or
+    //   probabilistic tag is not acceptable here at any point in this arc (owner ruling 2026-08-08).
+    // ⓘ The identity is RECOMPUTED from the pending flight's own canonical fields, exactly as `tx_rts_retry`
+    //   computes it for the RTS — one producer, no cached tag to go stale across a requeue.
+    if (c.already_received) {
+        const PendingTx&        pt   = *_active->_pending_tx;
+        const RtsFlightIdentity mine = flight_identity(pt);       // the ONE producer — identical to the RTS's
+        const RtsWireMarks      mk   = rts_wire_marks(pt);        // the ONE producer of the marks we AIRED
+        const bool my_team = rts_wire_team_plane(mk.addr_len, mk.mobile_src);
+        if (!rts_flight_identity_equal(c.id, mine) || c.team_plane != my_team) {
+            // NON-TERMINAL: no deadline, no pending state, no route state, no app outcome changes. Just report it.
+            MR_EMIT("cts_terminal_mismatch", EF_I("from", c.tx_id), EF_I("ctr", pt.ctr),
+                    EF_I("echo_width", c.id.width), EF_I("my_width", mine.width),
+                    EF_B("echo_team", c.team_plane), EF_B("my_team", my_team));
+            return;
+        }
+    }
     // Learn the CTS sender (= our next-hop) as a 1-hop neighbour (Lua learn_rx_source / cts_frame).
     // §mobile: our next-hop on a mobile last-mile (addr_len=1) or a team DM (is_team_peer) is a LOCAL id, not a global
     // identity -> keep it OUT of the static _rt (mirror the ACK-learn guard below). Inert on s18/static (both false).
@@ -557,7 +650,16 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     _active->_pending_tx->awaiting_cts = false;
     _active->_pending_tx->chosen_data_sf = c.chosen_data_sf;
     MR_EMIT("cts_rx", EF_I("from", _active->_pending_tx->next), EF_I("sf", c.chosen_data_sf));  // CTS is from our next-hop (src_hint=-1 on metal)
-    if (c.already_received) { _active->_pending_tx.reset(); become_free(); return; }   // already delivered upstream
+    // ✔ §hybrid-rts S2 (2026-08-08) — the ✖ MISSING marker S1 left here is CLOSED: reaching this line with
+    // `already_received` set now PROVES the echo matched (endpoints, plane, domain, width and every identity byte),
+    // because the comparison is the guarded block near the top of this function and a mismatch returned there
+    // WITHOUT touching a timer, a learn, `awaiting_cts` or any emit. So the terminal credit below is bound to THIS
+    // flight, which is what makes it legitimate at all.
+    // ⓘ It deliberately clears the flight WITHOUT synthesizing an app outcome: `_pending_tx.reset()` + `become_free()`
+    //   is the historical behaviour and no `send_acked`/`send_e2e_acked`/`send_failed` is invented (design §5.2's
+    //   rule for the sibling optimisation applies here too — a hop's "I already have it" is progress evidence, not
+    //   an end-to-end delivery receipt; any independently armed E2E-ack wait is left running).
+    if (c.already_received) { _active->_pending_tx.reset(); become_free(); return; }   // already delivered downstream (echo-verified above)
     (void)_hal.after(protocol::cts_to_data_gap_ms, kCtsToDataGapTimerId);     // fixed 5ms gap (NOT rand)
 }
 
@@ -593,6 +695,48 @@ void Node::record_seen_origin(uint64_t sokey, uint8_t from, uint64_t now_ms) {
     _active->_seen_origin_from[sokey] = from;
 }
 
+// ★★★ §hybrid-rts S2 (2026-08-08) — THE COMPLETED-FLIGHT CACHE (design §4.3). A FIXED per-layer array, so there
+// is no heap, no per-peer dynamic structure and no way for it to grow: `cap_completed_flights` slots, an empty
+// slot is `expiry_ms == 0`. Eviction policy is `record_seen_origin`'s VERBATIM (U1): prune expired, refresh an
+// existing key in place, and only when every slot is LIVE evict the min-expiry one.
+// ⛔ THE MATCH IS THE COMPLETE TUPLE AND NOTHING MAY BE DROPPED FROM IT: immediate sender | dst | wire plane |
+//    identity domain | full identity. The domain is compared by `rts_flight_identity_equal`, which also refuses
+//    "absent == absent" — so a width-0 identity can never match anything, and an M/flood frame (which has none)
+//    cannot reach a hit even if some future caller passed one in.
+const CompletedFlight* Node::completed_flight_find(uint8_t from, uint8_t dst, bool team_plane,
+                                                   const RtsFlightIdentity& id, uint64_t now_ms) const {
+    for (const CompletedFlight& e : _active->_completed_flights) {
+        if (e.expiry_ms <= now_ms) continue;                       // empty (0) or expired
+        if (e.from != from || e.dst != dst || e.team_plane != team_plane) continue;
+        if (!rts_flight_identity_equal(e.id, id)) continue;        // THE one comparator: full width + domain
+        return &e;
+    }
+    return nullptr;
+}
+void Node::completed_flight_store(uint8_t from, uint8_t dst, bool team_plane,
+                                  const RtsFlightIdentity& id, uint64_t now_ms) {
+    if (!rts_flight_identity_valid(id)) return;                    // a flight with no identity is not storable
+    const uint64_t expiry = now_ms + protocol::completed_flight_cache_ttl_ms;   // DERIVED from gateway_send_giveup_ms
+    CompletedFlight* victim = nullptr;
+    for (CompletedFlight& e : _active->_completed_flights) {
+        if (e.expiry_ms != 0 && e.expiry_ms <= now_ms) e = CompletedFlight{};   // prune expired -> free slot
+        if (e.expiry_ms != 0 && e.from == from && e.dst == dst && e.team_plane == team_plane
+            && rts_flight_identity_equal(e.id, id)) { e.expiry_ms = expiry; return; }   // refresh in place
+        if (e.expiry_ms == 0 && victim == nullptr) victim = &e;                 // first free slot
+    }
+    if (victim == nullptr) {                                       // every slot LIVE -> evict the min-expiry one
+        victim = &_active->_completed_flights[0];
+        for (CompletedFlight& e : _active->_completed_flights) if (e.expiry_ms < victim->expiry_ms) victim = &e;
+    }
+    victim->expiry_ms = expiry; victim->id = id;
+    victim->from = from; victim->dst = dst; victim->team_plane = team_plane;
+}
+size_t Node::completed_flight_live_count(uint64_t now_ms) const {
+    size_t n = 0;
+    for (const CompletedFlight& e : _active->_completed_flights) if (e.expiry_ms > now_ms) ++n;
+    return n;
+}
+
 void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     auto pd = parse_data(std::span<const uint8_t>(bytes, len));
     if (!pd) return;
@@ -608,6 +752,64 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 #endif
     if (!for_static_data && !for_team_data) return;
     if (!_active->_pending_rx || _active->_pending_rx->ctr_lo != d.ctr_lo4) return;
+    // ★★★★★ §hybrid-rts S2 (2026-08-08) — **DATA VALIDATION AGAINST THE RESERVATION. MANDATORY, FAIL-LOUD, AND
+    // FIRST.** The RTS only AUTHORIZED a reception; this is where the message's identity is actually proved. It is
+    // placed here — above the anti-spoof flag, the anti-spam ledger, every neighbour/route learn, the ACK and the
+    // dedup — so that a frame which is not the one we cleared teaches this node NOTHING.
+    // ⓘ The three reads below are PURE (`data_inner`/`parse_unicast_inner`/`data_nonce_seed` only look at `bytes`)
+    //   and were HOISTED from further down verbatim; no MR_EMIT moved, so a stream can only change if a mismatch
+    //   actually fires.
+    // The DATA's link sender = whoever we CTS'd (_active->_pending_rx->from, set in handle_rts).
+    // src_hint is the SIM oracle (real LoRa carries no PHY source; the device sets -1), so use it only when
+    // present, else fall back to our pending-RX contract — else from=0xFF on metal -> the ACK + HOP_BUDGET/LOOP_DUP
+    // NACKs target node 255 and the dedup/loop keys are corrupt, so the DM never completes.
+    const uint8_t from = (meta.src_hint >= 0) ? static_cast<uint8_t>(meta.src_hint)
+                                              : _active->_pending_rx->from;
+    // Parse the inner up-front so data_rx carries the (origin, ctr) message key — telemetry parity with the Lua
+    // data_rx (dv:10911), which the analysis tools key delivery on. origin is also needed below (BEFORE the ACK)
+    // so HOP_BUDGET/LOOP_DUP can NACK instead of re-ACKing.
+    auto inner = data_inner(std::span<const uint8_t>(bytes, len), d);
+    auto ui = parse_unicast_inner(inner, d.flags);
+    const uint8_t origin = ui ? ui->origin : from;
+    // §1b: the CRYPTED flight's 8-B cleartext nonce seed (an EMPTY span on a plaintext frame -> stays zero).
+    uint8_t nseed[8] = {0};
+    if (d.crypted) { auto sd = data_nonce_seed(std::span<const uint8_t>(bytes, len), d);
+                     for (uint8_t i = 0; i < 8 && i < sd.size(); ++i) nseed[i] = sd[i]; }
+    {
+        // PLANE first (design §4.3): DATA carries no `mobile_src`, so its plane cannot be re-read off the wire —
+        // it is validated against the plane the RTS DECLARED and we stored. Stored TEAM requires `for_team_data`;
+        // stored STATIC/GLOBAL requires `for_static_data`. A contradiction is the same fail-loud path as an
+        // identity mismatch, because "the RTS said team and the DATA is addressed to my static id" is not a frame
+        // whose plane we may pick.
+        const bool plane_ok = _active->_pending_rx->wire_team_plane ? for_team_data : for_static_data;
+        // IDENTITY: recomputed from CANONICAL DATA fields through the ONE producer, then compared with the ONE
+        // comparator (full width + domain — never a prefix). Plaintext uses `origin | ctr`; crypted uses the
+        // clear `nonce_seed | ctr | dst`, which is exactly what the sender bound and is preserved verbatim across
+        // forwards. ⛔ `payload_len` is NOT part of this and never may be.
+        // ⛔⛔ NOTE WHICH ORIGIN THIS IS, because it is NOT the `origin` local three lines up: the identity uses
+        //    `ui ? ui->origin : 0`, i.e. STRICTLY what the frame exposes. The `origin` local falls back to `from`,
+        //    which prefers `meta.src_hint` (the simulator's PHY oracle, -1 on hardware) — feeding that into an
+        //    identity would make the comparison sim/metal-divergent, which is [[B156]]'s defect class. The sender
+        //    computes the same `ui ? ui->origin : 0` from its own carrier (see `tx_rts_retry`), so the two agree
+        //    for EVERY frame shape including the raw-inner typed answers of [[B161]].
+        const RtsFlightIdentity did = rts_flight_identity(d.crypted, ui ? ui->origin : 0, d.ctr, d.dst, nseed);
+        if (!plane_ok || !rts_flight_identity_equal(did, _active->_pending_rx->id)) {
+            // ⛔ ALL FOUR PROHIBITIONS, and they are enforced by RETURNING HERE rather than by four separate
+            // guards further down: no delivery, no ACK, no completed-flight cache seed/refresh, no route-success
+            // credit. The reservation is CLEARED (mirroring `pending_rx_expiry_fire`) so the receiver is free for
+            // the next flight, and the sender falls back on its EXISTING bounded timeout/retry — there is
+            // deliberately NO fallback that accepts a mismatch.
+            MR_EMIT("rts_flight_id_mismatch", EF_I("from", _active->_pending_rx->from), EF_I("dst", d.dst),
+                    EF_I("ctr", d.ctr), EF_I("origin", origin), EF_B("crypted", d.crypted),
+                    EF_B("plane_ok", plane_ok), EF_B("stored_team", _active->_pending_rx->wire_team_plane),
+                    EF_I("rts_width", _active->_pending_rx->id.width), EF_I("data_width", did.width));
+            _hal.cancel(kPendingRxExpiryTimerId);
+            _hal.set_rx_sf(_cfg.routing_sf);
+            _active->_pending_rx.reset();
+            become_free();
+            return;
+        }
+    }
     // e2e-ack backstop exemption ANTI-SPOOF verify (2026-07-02): the RTS claimed RTS_FLAG_E2E_ACK (so its DROP was
     // exempted at handle_rts), but the DATA that arrived is NOT a DATA_TYPE_E2E_ACK -> the sender lied to bypass the
     // backstop. Flag it: while flagged, its RTS_FLAG_E2E_ACK is ignored (the backstop re-applies). Keyed on the PHYSICAL
@@ -636,19 +838,8 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     int oa_app_; uint32_t orig_air; uint8_t oa_rts_, oa_cts_;   // sender's windowed airtime AFTER this DATA (calibration)
     compute_originator_metric(_active->_pending_rx->from, oa_app_, orig_air, oa_rts_, oa_cts_);
     (void)oa_app_; (void)oa_rts_; (void)oa_cts_;
-    // The DATA's link sender = whoever we CTS'd (_active->_pending_rx->from, set in handle_rts).
-    // src_hint is the SIM oracle (real LoRa carries no PHY source; the device sets -1),
-    // so use it only when present, else fall back to our pending-RX contract — else
-    // from=0xFF on metal -> the ACK + HOP_BUDGET/LOOP_DUP NACKs target node 255 and the
-    // dedup/loop keys are corrupt, so the DM never completes.
-    const uint8_t from = (meta.src_hint >= 0) ? static_cast<uint8_t>(meta.src_hint)
-                                              : _active->_pending_rx->from;
-    // Parse the inner up-front so data_rx carries the (origin, ctr) message key — telemetry
-    // parity with the Lua data_rx (dv:10911), which the analysis tools key delivery on. origin
-    // is also needed below (BEFORE the ACK) so HOP_BUDGET/LOOP_DUP can NACK instead of re-ACKing.
-    auto inner = data_inner(std::span<const uint8_t>(bytes, len), d);
-    auto ui = parse_unicast_inner(inner, d.flags);
-    const uint8_t origin = ui ? ui->origin : from;
+    // ⓘ §hybrid-rts S2: `from`, `inner`, `ui` and `origin` are computed at the TOP of this function now — the
+    // DATA-identity validation needs them before anything else may happen. Their derivations moved verbatim.
     MR_EMIT("data_rx", EF_I("origin", origin), EF_I("ctr", d.ctr), EF_I("ctr_lo", d.ctr_lo4), EF_I("from", from), EF_I("dst", d.dst),
             EF_I("orig_airtime_ms", static_cast<int64_t>(orig_air)));
     // Learn the DATA prev-hop as a 1-hop neighbour (Lua learn_rx_source / data_frame).
@@ -737,12 +928,24 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         learn_route_via(origin, _active->_pending_rx->from, static_cast<uint8_t>(d.committed_hops + 1),
                         protocol::db_to_q4(meta.snr_db), /*team_plane=*/true);
 #endif
+    // ★★★ §hybrid-rts S2 — capture the VALIDATED flight's cache key BEFORE the reservation is dropped. The store
+    // itself happens only after the ACK has been emitted (design §4.2: "only after matching DATA has been accepted
+    // and its ACK emitted"), and every early return between here and there (HOP_BUDGET, LOOP_DUP) leaves the cache
+    // untouched — correctly, because neither of those ACKs.
+    const RtsFlightIdentity done_id   = _active->_pending_rx->id;
+    const uint8_t           done_from = _active->_pending_rx->from;         // ON-AIR immediate sender, never src_hint
+    const bool              done_team = _active->_pending_rx->wire_team_plane;
     _hal.cancel(kPendingRxExpiryTimerId);
     _hal.set_rx_sf(_cfg.routing_sf);                     // receiver retunes back
     _active->_pending_rx.reset();
     // §B153: the per-hop last-acked CACHE THAT WAS WRITTEN HERE IS GONE, along with the RTS-time gate it fed and
     // the two locals (`rx_sf`, `pl`) that existed only to feed it. `_seen_origins` below is now the ONLY dedup —
-    // and it is the one holding the evidence (see the argument at handle_rts). Nothing replaces this write.
+    // and it is the one holding the evidence (see the argument at handle_rts).
+    // ⚠ §hybrid-rts S2 (2026-08-08): "Nothing replaces this write" is no longer true, and the difference is the
+    // KEY, not the mechanism. A completed-flight record IS written again — but AFTER the ACK, not here, and keyed
+    // by the full wire identity instead of `(src, dst, ctr_lo, len)`. `_seen_origins` remains the sole DELIVERY
+    // dedup; the new cache only answers a repeat RTS, and it can only be consulted with evidence the old 7-B frame
+    // never carried. See `completed_flight_store` below the ACK.
     const uint64_t nowm = _hal.now();
     // §1b sealed-sender dedup key — TYPE-NAMESPACED into one 64-bit space so PLAINTEXT and CRYPTED can NEVER alias.
     // PLAINTEXT = (origin<<24|dst<<16|ctr), naturally in [0,2^32) — same VALUE as before, just widened (s18 invariant).
@@ -753,9 +956,8 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // probability. Extract the seed HERE, before the sokey: PLAINTEXT data_nonce_seed() returns an EMPTY span
     // (frame_codec:717), so nseed stays zero and is never read on that path. origin is still read BEFORE the ACK so
     // HOP_BUDGET/LOOP_DUP can NACK instead of re-ACKing.
-    uint8_t nseed[8] = {0};
-    if (d.crypted) { auto sd = data_nonce_seed(std::span<const uint8_t>(bytes, len), d);
-                     for (uint8_t i = 0; i < 8 && i < sd.size(); ++i) nseed[i] = sd[i]; }
+    // ⓘ §hybrid-rts S2: `nseed` is extracted at the TOP of this function now (the crypted identity is derived from
+    // it), so only the LE load remains here. Same bytes, same span, same guard — the extraction moved verbatim.
     uint64_t seed_u64 = 0; for (int i = 0; i < 8; ++i) seed_u64 |= uint64_t(nseed[i]) << (8 * i);   // LE load (zero for plaintext)
     const uint64_t sokey = d.crypted
         ? (seed_u64 | (uint64_t(1) << 63))                                                          // CRYPTED namespace: >= 2^63
@@ -847,6 +1049,14 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     uint8_t abuf[3]; const size_t al = pack_ack(ain, std::span<uint8_t>(abuf, 3));
     tx_with_retry(abuf, al, static_cast<int16_t>(_cfg.routing_sf), FrameTag::ack);   // R4.5b: stash + tag the ACK
     MR_EMIT("ack_tx", EF_I("to", from), EF_I("ctr", d.ctr), EF_I("airtime_warn", ain.warn ? 1 : 0));
+    // ★★★ §hybrid-rts S2 — THE COMPLETED-FLIGHT STORE, and its position is the contract: it is BELOW the ACK
+    // (design §4.2 permits the store only "after matching DATA has been accepted and its ACK emitted") and ABOVE
+    // the `live_dup` return, so a lost-ACK RETRY — the case the whole optimisation exists for — refreshes the
+    // entry it is about to need again. The two NACK paths above return without ACKing and therefore without
+    // storing. ⛔ `done_from` is the RTS's own `src`, captured before the reservation was dropped — NEVER
+    // `meta.src_hint` (the sim oracle; [[B156]]'s sim/metal divergence), and NEVER the local `from` above, which
+    // PREFERS `src_hint` and is therefore the wrong identity for a link-keyed store.
+    completed_flight_store(done_from, d.dst, done_team, done_id, nowm);
     if (live_dup) { become_free(); return; }                                        // same prev-hop dup -> ACK only
     record_seen_origin(sokey, from, nowm);                                          // record + roll-evict-oldest if full
     // defer deliver/forward by the ACK airtime so it doesn't share a sim step with the ACK.

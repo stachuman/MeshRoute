@@ -31,6 +31,7 @@
 #include <optional>
 #include <span>
 #include "protocol_constants.h"   // gw_env_max_hops (the cross-layer layer-path bound, Slice 4b)
+#include "dm_crypto.h"            // §hybrid-rts S1: RtsFlightIdentity (the POD only — this codec calls NO crypto)
 
 namespace MESHROUTE_NS {
 
@@ -151,9 +152,12 @@ size_t  pack_liveness_state_tlv(const SuspectEntry* e, uint8_t n, std::span<uint
 uint8_t parse_suspect_tlv(std::span<const uint8_t> ext, SuspectEntry* out, uint8_t max);        // scans BOTH type 1 (state=1) + type 2 (state from wire); entries found (0 if neither)
 
 // -----------------------------------------------------------------------------
-// CTS — clear-to-send (cmd-nibble 0x2, 3 B; +1 B if payload_len != 0) — ROADMAP §10.3
+// CTS — clear-to-send (cmd-nibble 0x2) — ROADMAP §10.3
+//   ORDINARY  (already_received = 0): 3 B, or 4 B with the NAV hint — UNCHANGED, byte-identical
+//   TERMINAL  (already_received = 1): 6 B plaintext / 7 B crypted — §hybrid-rts S1, see below
 // -----------------------------------------------------------------------------
 //   byte 0 : cmd=0x2(4 hi) | (sf-5)(3) | already_received(1)   [flags in the low nibble]
+//            ⚠ on the TERMINAL shape the (sf-5) 3 bits are NOT an SF — see §hybrid-rts below
 //   byte 1 : tx_id(8) — CTS sender (the forwarder clearing the requester)
 //   byte 2 : rx_id(8) — intended requester id (the RTS sender being cleared)
 //   byte 3 : len6(7..2) | cr2(1..0) — OPTIONAL NAV hint. Present iff non-zero (the CTS sender adds it only
@@ -166,10 +170,42 @@ uint8_t parse_suspect_tlv(std::span<const uint8_t> ext, SuspectEntry* out, uint8
 // the CTS addressable/attributable on metal (no PHY-sender god-view). The Lua mirror is
 // 4 B (literal 'C' tag); the cmd-nibble packs cmd+flags into byte 0. sf in 5..12.
 //
+// ★★★ §hybrid-rts S1 (2026-08-08) — THE TERMINAL CTS SHAPE. **CODEC ONLY IN S1: STILL NO PRODUCER.**
+// Design §2.3; plan S1 item 5. Owner-ruled core = the 10/11-B RTS; this conditional echo is the QA safety
+// amendment that makes a terminal answer bindable to the flight that earned it.
+//   TERMINAL layout (already_received = 1):
+//     byte 0 : cmd=0x2(4 hi) | plane(bit 3) | rsv(bits 2..1, MUST be 0) | already_received=1(bit 0)
+//     byte 1 : tx_id · byte 2 : rx_id
+//     bytes 3.. : the FULL flight identity — 3 B plaintext (=> 6 B frame) / 4 B crypted (=> 7 B frame)
+//   ⛔ NO NAV byte: a terminal CTS authorizes no DATA, so there is nothing to reserve for. `pack_cts`
+//      REFUSES a terminal `cts_in` that carries `payload_len != 0` rather than silently dropping the hint.
+//   ⛔ NO chosen SF: nothing follows, so the 3 bits that carry (sf-5) on the ordinary shape are reused for
+//      one team/static PLANE bit + two RESERVED-ZERO bits. `parse_cts` sets `chosen_data_sf = 0` on this
+//      shape and REJECTS a non-canonical reserved pair — the sender must ignore SF here (design §2.3).
+//   ★ FRAME LENGTH IS THE DOMAIN DISCRIMINATOR, exactly as on the RTS: 6 B means plaintext, 7 B crypted.
+//     No new flag bit is consumed anywhere.
+//   ★ WHY THE ECHO IS MANDATORY AND NOT AN OPTIMISATION: a CTS is retry/duty-stash eligible and that stash
+//     has NO flight-generation guard, so a delayed terminal response to flight A can land while flight B to
+//     the same next hop is awaiting CTS. Without the echo it silently clears B — the same silent-loss class
+//     [[B153]] was opened for, one layer down. A shorter 8/16-bit tag is REFUSED: it would reintroduce a
+//     probabilistic terminal decision after this design paid RTS bytes to remove precisely that.
+//   ⛔ REJECT MATRIX (all four directions, `parse_cts`): a 3/4-B frame with the bit SET · a 6/7-B frame with
+//      the bit CLEAR · non-zero reserved bits · any other length. And on `pack_cts`: a terminal `cts_in`
+//      without a valid identity, or an ordinary one carrying one.
+//   ⓘ S1 SCOPE: `already_received` still has **ZERO producers** in this firmware (see §B153 below); S3
+//      restores the emitter and the sender-side echo comparison. An inbound terminal CTS is still honoured
+//      at `handle_cts`, but S1 does NOT yet compare the echo — do not read this codec as the restored
+//      optimisation.
+//
 // ⛔⛔ §B153 (2026-08-08) — `already_received` IS RESERVED AND IS **NEVER EMITTED** BY THIS FIRMWARE. The bit
 // still exists in the codec (pack/parse round-trip it, and `handle_cts` still honours an inbound one) so the
 // wire stays compatible and no `wire_version` bump is needed — but **no code path sets it any more**, and
 // nothing may start doing so. It used to short-circuit a resend whose ACK was lost.
+// ⚠ SUPERSEDED IN PART BY §hybrid-rts S1 ABOVE, and read the amendment before reusing the argument: the
+//   information-theoretic proof below is about a **7-byte** RTS, and it is still exactly right about one. What
+//   changed is the premise — the unicast RTS is now 10/11 B and CARRIES the canonical identity, so the
+//   evidence the old frame lacked is present. The retirement of the *un-keyed* gate stands permanently; S3
+//   restores an *identity-keyed* one. The bit is still un-emitted as of S1.
 //
 // ★★★ WHY IT WAS RETIRED — AN INFORMATION-THEORETIC ARGUMENT, NOT A TUNING CHOICE. **A 7-byte RTS cannot
 // distinguish (a) a RETRY of message A from (b) the FIRST ATTEMPT of message B that happens to share the same
@@ -216,17 +252,31 @@ constexpr uint8_t cts_len6_encode(uint8_t payload_len) {
 // cr_adv on BOTH structs is the same 2-bit code the RTS carries — encode/decode with rts_cr_encode /
 // rts_cr_decode (below; named for the RTS that introduced them, now shared by both wires). 0 == cr5, NOT
 // "unknown": the ONE validity predicate for the whole byte-3 hint is `payload_len != 0`.
+// §hybrid-rts S1 — byte-0 low-nibble bit meanings ON THE TERMINAL SHAPE ONLY (already_received = 1). On the
+// ordinary shape those same three bits are (sf-5) and these masks must not be applied to it.
+inline constexpr uint8_t CTS_TERM_PLANE_BIT = 0x08;   // 1 = TEAM plane, 0 = STATIC/GLOBAL (the WIRE-declared plane)
+inline constexpr uint8_t CTS_TERM_RSV_MASK  = 0x06;   // MUST be zero — parse_cts rejects a non-canonical pair
 struct cts_in  { uint8_t chosen_data_sf; bool already_received; uint8_t tx_id; uint8_t rx_id;
                  uint8_t payload_len = 0;   // EXACT inner+MAC (0 = emit a 3-B CTS, no hint); pack_cts quantizes it
-                 uint8_t cr_adv = 0; };     // §cts-len6-cr2: rts_cr_encode(the cleared DATA sender's CR)
+                 uint8_t cr_adv = 0;        // §cts-len6-cr2: rts_cr_encode(the cleared DATA sender's CR)
+                 // §hybrid-rts S1 fields APPENDED at struct END so every existing positional aggregate-init
+                 // (cts_in{sf, ar, tx, rx, ...}) keeps its meaning and cannot silently shift.
+                 RtsFlightIdentity id{};    // TERMINAL only: the echo. MUST be absent when already_received = 0
+                 bool team_plane = false; };// TERMINAL only: byte-0 bit 3 (the wire-declared plane)
 struct cts_out { uint8_t chosen_data_sf; bool already_received; uint8_t tx_id; uint8_t rx_id;
                  uint8_t payload_len = 0;   // ⚠ QUANTIZED-UP inner+MAC (multiple of CTS_LEN_QUANTUM), NOT the
                                             // exact value packed in — 0 = no hint. Never use it where an exact
                                             // byte count is required; it exists to size a NAV reservation.
-                 uint8_t cr_adv = 0; };     // §cts-len6-cr2: 2-bit CR code; MEANINGLESS unless payload_len != 0
-// Returns 3 (or 4 if in.payload_len != 0) on success; 0 on bad input (sf outside 5..12) or out span too small.
+                 uint8_t cr_adv = 0;        // §cts-len6-cr2: 2-bit CR code; MEANINGLESS unless payload_len != 0
+                 RtsFlightIdentity id{};    // §hybrid-rts S1: the echo (width 0 on an ordinary CTS)
+                 bool team_plane = false; };// §hybrid-rts S1: MEANINGLESS unless already_received (no such bit exists there)
+// ORDINARY (already_received = 0): returns 3, or 4 if in.payload_len != 0 — byte-identical to pre-S1.
+// TERMINAL (already_received = 1): returns terminal_cts_wire_len() = 6 plaintext / 7 crypted.
+// 0 on: sf outside 5..12 (ordinary only) · out span too small · a terminal without a valid identity · a
+// terminal carrying a NAV payload_len · an ordinary carrying an identity (§hybrid-rts cross-shape refusal).
 size_t pack_cts(const cts_in& in, std::span<uint8_t> out);
-// nullopt on wrong cmd nibble or len not in {3,4}. payload_len/cr_adv = byte 3 decoded (both 0 if a 3-B CTS).
+// nullopt on wrong cmd nibble, a length not in {3,4,6,7}, or any §hybrid-rts cross-shape pairing (3/4 B with
+// the terminal bit set, 6/7 B without it, non-canonical terminal reserved bits, truncated identity tail).
 std::optional<cts_out> parse_cts(std::span<const uint8_t> frame);
 
 // -----------------------------------------------------------------------------
@@ -245,7 +295,15 @@ size_t pack_ack(const ack_in& in, std::span<uint8_t> out);
 std::optional<ack_out> parse_ack(std::span<const uint8_t> frame);
 
 // -----------------------------------------------------------------------------
-// RTS — request-to-send (cmd-nibble 0x1, 7 B; +2 B if M_BROADCAST) — ROADMAP §10.3
+// RTS — request-to-send (cmd-nibble 0x1) — ROADMAP §10.3
+//   UNICAST DM : 10 B plaintext / 11 B crypted   (7-B base + the §hybrid-rts S1 identity tail)
+//   M_BROADCAST:  9 B  (7-B base + id_lo16)      — UNCHANGED, byte-identical
+//   FLOOD      : 43 B  (7-B base + id + bitmap)  — UNCHANGED, byte-identical
+// ⓘ THE 9/43 LABELS ARE THE CODE'S AND THE DESIGN DOCS NOW AGREE WITH THEM. ⛔ An earlier revision of this
+//   comment warned that "design §2 and plan S1.4 both state M 43 B / flood 9 B and they are SWAPPED" — that
+//   WAS true and was FIXED on 2026-08-08: design §2's table and plan S1.4 now read M 9 B / flood 43 B.
+//   The code is the authority either way: `pack_rts` computes `need = flood ? 43 : (m_bcast ? 9 : ...)`, and
+//   the corpus measures 544 FLOOD frames at exactly 43 B against 304 M_BROADCAST at exactly 9 B.
 // -----------------------------------------------------------------------------
 //   byte 0 : cmd=0x1(7..4) | leaf_id(3..0)
 //   byte 1 : src
@@ -257,6 +315,10 @@ std::optional<ack_out> parse_ack(std::span<const uint8_t> frame);
 //            within byte 5, M_BROADCAST -> bit 2 (0x04), RELAY -> bit 3 (0x08).
 //            rts_flags nibble values: 0x01=M_BROADCAST, 0x02=RELAY, 0x04=FLOOD, 0x08=E2E_ACK.
 //   byte 6 : payload_len                                   [wraps mod-256 via uint8_t]
+//   bytes 7-9  : ★ §hybrid-rts S1 UNICAST identity tail — `origin | ctr_hi | ctr_lo`  (=> 10-B frame)
+//   bytes 7-10 : ★ §hybrid-rts S1 UNICAST identity tail — BLAKE2b-512(0xE1|seed8|ctr_hi|ctr_lo|dst)[:4]
+//                (=> 11-B frame). MUTUALLY EXCLUSIVE with the plaintext tail; the FRAME LENGTH is the
+//                canonical domain discriminator (design §2.4), so no new flag bit is spent.
 //   bytes 7-8 : id_lo16 (BE)  — present iff (rts_flags & RTS_FLAG_M_BROADCAST) without FLOOD
 // sf_index: 0..2 = singleton into allowed_data_sfs; 3 = ANY (receiver picks by SNR).
 // cr_adv: the SENDER's coding rate, 2 bits split across the last two reserved bits (byte 3 b0 = HIGH,
@@ -270,6 +332,29 @@ std::optional<ack_out> parse_ack(std::span<const uint8_t> frame);
 //   byte 4  : hop_left     (TTL safety cap; reuses the `dst` slot, decremented each forward)
 //   bytes 7-10  : channel_msg_id (4 B, BIG-ENDIAN)            — IMMUTABLE
 //   bytes 11-42 : coverage bitmap (32 B = 256 bits, bit i = node id i in this leaf) — MUTABLE
+// ★★★ §hybrid-rts S1 (2026-08-08) — WHY THE UNICAST RTS GREW, AND WHAT MAY NOT BE INFERRED FROM IT.
+// Design: docs/superpowers/specs/2026-08-08-hybrid-rts-flight-identity-design.md; the producer, the digest
+// convention and the ONE comparator live in dm_crypto.h (`RtsFlightIdentity`) — this codec only PACKS bytes
+// that are already computed and MUST NOT call crypto (design §3).
+// ★ MEASURED MOTIVE: the 7-B frame identified a flight by `(immediate src, dst, ctr_lo[4], payload_len)`.
+//   Corpus census over 4 137 completed-flight stores: 66 at-risk pairs, 4 real aliases (6.1 %), and **4 of 5
+//   (80 %) in the gateway/different-origin design case** because peer counters are correlated. That is an
+//   ordinary topology, not bad luck.
+// ★ THE TAIL IS MANDATORY ON A UNICAST RTS AND FORBIDDEN ON M/FLOOD, and both codecs enforce the pairing
+//   (`pack_rts` returns 0, `parse_rts` returns nullopt) — design §2.4's "reject every cross-shape pairing".
+// ⛔ LEGACY 7-B UNICAST RTS IS REJECTED OUTRIGHT. There is deliberately NO ambiguous compatibility parser:
+//   MeshRoute is not deployed (owner-confirmed), mixed old/new firmware is unsupported, and a length-guessing
+//   parser is exactly how a domain discriminator stops discriminating. Reflash every node in a bench topology.
+// ⛔ `payload_len` IS NOT PART OF IDENTITY and never was — it is a frame-consistency/NAV field. Do not add it
+//   to any identity comparison "for extra safety": the comparison is the full width or nothing.
+// ⓘ S1 SCOPE: the wire and the codec, plus the CTS-wait correction that the grown frame forces
+//   (`start_rts_timeout`). The receiver does NOT yet store or validate the identity, and neither retired
+//   optimisation is back — S2/S3/S4 do that. `parse_rts` merely EXPOSES `rts_out::id` to the receiver.
+// ⓘ THE WIRE-DECLARED PLANE, for the S2 receiver that will consume it, stated here because this is where the
+//   bits are: it is `(addr_len == 1 && mobile_src)` — receiver-INDEPENDENT and the only plane evidence an
+//   overhearer has. It is NOT `team_addr_for_us(next, addr_len)`, which is receiver-relative ADDRESS admission
+//   and is true/false about *this* node, not about the frame. S0 proved the four-row canonical mark matrix
+//   across every reachable producer (there is exactly one: `Node::tx_rts_retry`).
 constexpr uint8_t RTS_FLAG_M_BROADCAST = 0x01;
 constexpr uint8_t RTS_FLAG_RELAY       = 0x02;
 constexpr uint8_t RTS_FLAG_FLOOD       = 0x04;   // channel flood: extended 43-B RTS-M tail (id + bitmap)
@@ -317,6 +402,9 @@ struct rts_in {
     uint8_t  addr_len = 0;                 // 0=normal, 1=mobile-next (`next` is a local id); 2..7 reserved (hierarchy)
     bool     mobile_src = false;           // MOBILE mark — src is a mobile local-id / mobile-originated (byte-5 b1)
     uint8_t  cr_adv = 0;                   // §rts-cr: rts_cr_encode(sender's active_cr()); 0 == cr5 (NOT "unknown")
+    // §hybrid-rts S1 — APPENDED at struct END for the same reason: a positional aggregate-init cannot shift
+    // into it. MANDATORY for a unicast RTS (pack refuses without it), FORBIDDEN on M_BROADCAST/FLOOD.
+    RtsFlightIdentity id{};
 };
 struct rts_out {
     uint8_t  leaf_id; uint8_t src; uint8_t next; uint8_t ctr_lo; uint8_t addr_len;
@@ -327,9 +415,41 @@ struct rts_out {
     uint32_t flood_channel_msg_id = 0;     // bytes 7-10 (BE) when flood
     size_t   flood_bitmap_off = 0;         // offset of the 32-B bitmap when flood (use rts_flood_bitmap)
     uint8_t  cr_adv = 0;                   // §rts-cr: the sender's CR as a 2-bit code — decode with rts_cr_decode
+    // §hybrid-rts S1: the parsed identity tail. width 0 == an M_BROADCAST/FLOOD frame (no tail exists);
+    // a UNICAST frame always yields width 3 (plaintext, 10 B) or 4 (crypted, 11 B) or the parse failed.
+    RtsFlightIdentity id{};
 };
-size_t pack_rts(const rts_in& in, std::span<uint8_t> out);          // 7 / 9 / 43; 0 on short buf or FLOOD bitmap != 32 B
-std::optional<rts_out> parse_rts(std::span<const uint8_t> frame);   // nullopt: len<7 (or <43 if FLOOD) / cmd / addr_len!=0
+// ★★★ §hybrid-rts S2 (2026-08-08) — THE WIRE-DECLARED PLANE, AS A PURE FUNCTION OF THE FRAME'S OWN BITS.
+// `(addr_len == 1 && mobile_src)` is what the SENDER declared this flight's addressing plane to be. It is
+// RECEIVER-INDEPENDENT: an overhearer, the addressee and a third party all read the same answer, which is why
+// it — and only it — may be STORED as the plane of a flight and ECHOED on a terminal CTS.
+// ⛔ IT IS NOT `team_addr_for_us(next, addr_len)`. That predicate is receiver-relative ADDRESS ADMISSION ("this
+//    frame names *me* through my team-local id"); it never consults `mobile_src` and says nothing about the
+//    frame's plane. The two DISAGREE on a real frame: a host's `(1, 0)` last-mile to a hosted mobile satisfies
+//    `team_addr_for_us` at any team member whose `_team_local_id` equals that mobile's local id (the §18 numeric
+//    collision), while the wire says STATIC — and the wire is right. ⇒ S2 stores THIS, never whichever predicate
+//    happened to match. ⛔ And never `is_team_peer(src)`: that is our own state, not the frame's declaration.
+// ⓘ THE FOUR-ROW CANONICAL MATRIX (design §4.3, proven by §HYBRID-RTS-S0 across every reachable producer — there
+//   is exactly one, `Node::tx_rts_retry`): (0,0) ordinary static/global · (0,1) registered-mobile-originated
+//   static/global · (1,0) host-to-mobile last-mile static/global · (1,1) TEAM. The out-of-matrix `(1,1)`-without-
+//   a-team-plane cell is UNREACHABLE BY CONFIG (hosted-mobile state and mobile-origin state are mutually
+//   exclusive, including across the runtime role flip), which is what lets this be a FATAL validator.
+constexpr bool rts_wire_team_plane(uint8_t addr_len, bool mobile_src) { return addr_len == 1 && mobile_src; }
+constexpr bool rts_wire_team_plane(const rts_out& r) { return rts_wire_team_plane(r.addr_len, r.mobile_src); }
+constexpr bool rts_wire_team_plane(const rts_in&  r) { return rts_wire_team_plane(r.addr_len, r.mobile_src); }
+
+// ★ §hybrid-rts S1 — SEMANTIC wire lengths for the UNICAST DM exchange. Use these where the quantity meant is
+// "the DM RTS I am actually about to send" / "the terminal CTS that might come back" — above all in
+// `start_rts_timeout`. ⛔ DO NOT fold the global RTS_LEN/CTS_LEN constants into these: M_BROADCAST (9),
+// FLOOD (43) and the Lua-parity timing constants mean DIFFERENT things and must stay separate (design §6).
+constexpr size_t unicast_rts_wire_len(bool crypted) {
+    return 7u + (crypted ? RTS_ID_CRYPTED_LEN : RTS_ID_PLAIN_LEN);      // 10 / 11
+}
+constexpr size_t terminal_cts_wire_len(bool crypted) {
+    return 3u + (crypted ? RTS_ID_CRYPTED_LEN : RTS_ID_PLAIN_LEN);      // 6 / 7
+}
+size_t pack_rts(const rts_in& in, std::span<uint8_t> out);          // 10/11 unicast · 9 M · 43 FLOOD; 0 on short buf, FLOOD bitmap != 32 B, or an identity/kind mismatch
+std::optional<rts_out> parse_rts(std::span<const uint8_t> frame);   // nullopt: cmd · addr_len>1 · len not EXACTLY 10/11 (unicast) / 9 (M) / 43 (FLOOD)
 std::span<const uint8_t> rts_flood_bitmap(std::span<const uint8_t> frame, const rts_out& o);  // 32 B; empty unless flood
 
 // -----------------------------------------------------------------------------

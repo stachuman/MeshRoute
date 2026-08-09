@@ -631,10 +631,16 @@ struct DualLayerTestAccess {
     static uint8_t        pending_dst(Node& n)              { return n._active->_pending_tx ? n._active->_pending_tx->dst : 0; }
     static uint8_t        pending_flags(Node& n)            { return n._active->_pending_tx ? n._active->_pending_tx->flags : 0xFF; }
     static bool           parked_cross_layer(Node& n, uint8_t i) { return n._parked_sends[i].cross_layer; }
-    static void           set_pending_rx(Node& n, uint8_t from, uint8_t ctr_lo, uint8_t sf, uint8_t payload_len) {  // simulate a prior RTS/CTS so handle_data accepts the DATA
+    static void           set_pending_rx(Node& n, uint8_t from, uint8_t ctr_lo, uint8_t sf, uint8_t payload_len,
+                                        int origin = -1, int ctr = -1, bool team_plane = false) {  // simulate a prior RTS/CTS so handle_data accepts the DATA
         PendingRx pr{}; pr.from = from; pr.ctr_lo = ctr_lo; pr.chosen_data_sf = sf; pr.payload_len = payload_len;
         pr.sender_cr = n.active_cr();   // §rts-cr: no RTS was parsed here, so pin the pre-slice sizing (our own CR) explicitly
         pr.set_at_ms = n._hal.now(); pr.expiry_ms = n._hal.now() + 100000;
+        // ★ §hybrid-rts S2: the reservation records the identity + WIRE plane it awaits, and `handle_data` refuses a
+        // DATA that does not reproduce them. A synthetic reservation must therefore name the flight it is for.
+        if (origin >= 0 && ctr >= 0)
+            pr.id = rts_flight_identity_plain(static_cast<uint8_t>(origin), static_cast<uint16_t>(ctr));
+        pr.wire_team_plane = team_plane;
         n._active->_pending_rx = pr;
     }
     // Slice 4 gateway-exemption verification (test infra only): originate an OWN e2e-ack + peek the last-enqueued item.
@@ -702,8 +708,9 @@ TEST_CASE("§rts-cr: the DATA-wait is armed for the SENDER's advertised CR, not 
         rts_in r{}; r.leaf_id = 4; r.src = 50; r.next = 20; r.ctr_lo = 1; r.dst = 20;
         r.sf_index = 3 /*ANY*/; r.rts_flags = 0; r.payload_len = kPayload;
         r.cr_adv = rts_cr_encode(sender_cr);
-        uint8_t b[9]; const size_t n = pack_rts(r, b);
-        CHECK(n == 7u);                                              // ★ the advert costs NO wire bytes
+        r.id = rts_flight_identity_plain(50, 1);   // §hybrid-rts S1: a unicast RTS carries the flight identity
+        uint8_t b[11]; const size_t n = pack_rts(r, b);
+        CHECK(n == 10u);                                             // ★ the CR advert still costs NO wire bytes; the 3 extra are §hybrid-rts S1's identity
         node.on_recv(b, n, meta);
         CHECK(DualLayerTestAccess::has_pending_rx(node));            // the RTS was accepted, so the delay is meaningful
         return hal.last_delay[kPendingRxExpiryTimerId];
@@ -863,7 +870,10 @@ TEST_CASE("§rts-cr-overhear: the anti-spam ledger BILLS an inbound DATA at the 
         const uint8_t payload_len = static_cast<uint8_t>(sizeof inner + 4 /*plain 4-B MAC trailer*/);
         rts_in r{}; r.leaf_id = kLeaf; r.src = kPeer; r.next = 30; r.ctr_lo = 5; r.dst = 30;
         r.sf_index = 3 /*ANY*/; r.payload_len = payload_len; r.cr_adv = rts_cr_encode(sender_cr);
-        uint8_t rb[9]; const size_t rn = pack_rts(r, rb);
+        // §hybrid-rts S2: the identity must be the one the DATA below reproduces. That DATA's inner is 24 zero
+        // bytes, so `parse_unicast_inner` reads origin = inner[0] = 0 — NOT kPeer, which is the HOP, not the origin.
+        r.id = rts_flight_identity_plain(/*origin=*/0, /*ctr=*/5);
+        uint8_t rb[11]; const size_t rn = pack_rts(r, rb);
         node.on_recv(rb, rn, meta);
         CHECK(DualLayerTestAccess::has_pending_rx(node));
         int app; uint32_t air_after_rts, air_after_data; uint8_t nr, nc;
@@ -935,7 +945,8 @@ TEST_CASE("§rts-cr-overhear: the NAV reservation from an overheard RTS uses the
         rts_in r{}; r.leaf_id = kLeaf; r.src = 90; r.next = 91 /*NOT us -> overheard*/; r.ctr_lo = 6;
         r.dst = 91; r.sf_index = 3 /*ANY -> the conservative max_data_sf() branch*/; r.payload_len = kPayload;
         r.cr_adv = rts_cr_encode(sender_cr);
-        uint8_t b[9]; const size_t n = pack_rts(r, b);
+        r.id = rts_flight_identity_plain(90, 6);   // §hybrid-rts S1
+        uint8_t b[11]; const size_t n = pack_rts(r, b);
         node.on_recv(b, n, meta);
         const uint64_t now = hal.now();
         CHECK(node.nav_until_ms() > now);                          // NAV really armed
@@ -2793,7 +2804,8 @@ TEST_CASE("dual-layer bridge: the DELIVER-branch fork routes a cross-layer TRANS
     const size_t fl = pack_data(din, std::span<uint8_t>(frame, sizeof frame));
     CHECK(fl > 0);
     // simulate the prior RTS/CTS (handle_data requires a matching _pending_rx; ctr 42 -> ctr_lo4 = 0x0A).
-    DualLayerTestAccess::set_pending_rx(gw, /*from*/ 7, /*ctr_lo*/ 0x0A, /*sf*/ 8, /*payload_len*/ static_cast<uint8_t>(il + 4));
+    DualLayerTestAccess::set_pending_rx(gw, /*from*/ 7, /*ctr_lo*/ 0x0A, /*sf*/ 8, /*payload_len*/ static_cast<uint8_t>(il + 4),
+                                        /*origin=*/7, /*ctr=*/42);   // §hybrid-rts S2: the flight the DATA carries
     RxMeta meta{}; meta.snr_db = 9.0f; meta.rssi_dbm = -70.0f; meta.recv_ms = hal._now; meta.src_hint = -1;
     gw.on_recv(frame, fl, meta);                 // handle_data -> ACK + arm the post-ack
     gw.on_timer(9 /*kPostAckTimerId*/);          // do_post_ack -> the deliver-branch CROSS_LAYER fork -> bridge
@@ -3471,7 +3483,8 @@ TEST_CASE("§mobile 3b receive — the mark disambiguates a colliding id: a mobi
         node.on_init(cfg);
         RxMeta meta{ 9.0f, -70.0f, 0, static_cast<int8_t>(-1) };
         rts_in r{}; r.leaf_id=4; r.src=50; r.next=20; r.ctr_lo=1; r.dst=20; r.sf_index=0; r.rts_flags=0; r.payload_len=1; r.addr_len=addr_len;
-        uint8_t b[9]; size_t n = pack_rts(r, b); node.on_recv(b, n, meta);
+        r.id = rts_flight_identity_plain(50, 1);   // §hybrid-rts S1
+        uint8_t b[11]; size_t n = pack_rts(r, b); node.on_recv(b, n, meta);
         return DualLayerTestAccess::has_pending_rx(node);   // a receiver flight opened => ADDRESSED (accepted)
     };
     CHECK(accepts(/*is_mobile*/ true,  /*addr_len*/ 1));       // ★ the mobile accepts the marked last-mile RTS
@@ -3550,7 +3563,8 @@ TEST_CASE("§mobile Fix 5 (§18) — E2E-ACK when the origin's GLOBAL id == the 
     NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
     RxMeta meta{9.0f,-70.0f,0,static_cast<int8_t>(-1)};
     rts_in r{}; r.leaf_id=4; r.src=20; r.next=30; r.ctr_lo=4; r.dst=20; r.sf_index=0; r.rts_flags=RTS_FLAG_E2E_ACK; r.payload_len=2; r.mobile_src=true;
-    uint8_t b[9]; size_t n=pack_rts(r,b);
+    r.id = rts_flight_identity_plain(20, 4);   // §hybrid-rts S1
+    uint8_t b[11]; size_t n=pack_rts(r,b);
     const uint8_t rc0 = home.rt_count();
     home.on_recv(b, n, meta);
     CHECK(home.rt_count() == rc0);            // ★ A1: the home did NOT learn the mobile's local-20 -> the ack forwards to GLOBAL-20, no loop
@@ -4437,12 +4451,14 @@ TEST_CASE("§mobile 6.4 — a team RTS addressed to our team-local id reverse-le
     CHECK_FALSE(DualLayerTestAccess::is_team_peer(b, peer));  // not known yet
     RxMeta meta{9.0f,-70.0f,0,static_cast<int8_t>(-1)};
     rts_in r{}; r.leaf_id=4; r.src=peer; r.next=tid; r.dst=tid; r.ctr_lo=3; r.sf_index=0; r.rts_flags=0; r.payload_len=10; r.addr_len=1; r.mobile_src=true;
-    uint8_t buf[9]; size_t n = pack_rts(r, buf);
+    r.id = rts_flight_identity_plain(peer, 3);   // §hybrid-rts S1
+    uint8_t buf[11]; size_t n = pack_rts(r, buf);
     b.on_recv(buf, n, meta);
     CHECK(DualLayerTestAccess::is_team_peer(b, peer));        // ★ learned into _rt_team -> B can now route a reply to A
     // control: a STATIC RTS (mobile_src=0, addr_len=0) to our id learns into the static _rt, NOT _rt_team
     rts_in r2{}; r2.leaf_id=4; r2.src=50; r2.next=tid; r2.dst=tid; r2.ctr_lo=4; r2.sf_index=0; r2.rts_flags=0; r2.payload_len=10; r2.addr_len=0; r2.mobile_src=false;
-    uint8_t buf2[9]; size_t n2 = pack_rts(r2, buf2);
+    r2.id = rts_flight_identity_plain(50, 4);   // §hybrid-rts S1
+    uint8_t buf2[11]; size_t n2 = pack_rts(r2, buf2);
     b.on_recv(buf2, n2, meta);
     CHECK_FALSE(DualLayerTestAccess::is_team_peer(b, 50));    // ★ a static-marked RTS never becomes a team peer
 }
@@ -4504,7 +4520,12 @@ TEST_CASE("★★ §hashbind-plane — a TEAM-plane H_ANSWER delivered over the 
         CHECK(b.id_bind_find_by_hash(0xCCCC0003u) == -1);
         uint8_t frame[64]; const size_t fl = make_answer(tid, /*addr_len=*/1, frame, sizeof frame);
         CHECK(fl > 0);
-        DualLayerTestAccess::set_pending_rx(b, /*from*/44, /*ctr_lo*/0x0A, /*sf*/8, /*payload_len*/static_cast<uint8_t>(il + 4));
+        // ★★ §hybrid-rts S2 AND THE FINDING THIS CASE EXPOSES: this DATA's inner is a BARE `hash_bind_inner` with
+        //    NO `[origin]` prefix, so the origin `parse_unicast_inner` reads is `hbb[0]` — a hash-bind payload byte.
+        //    That is what the plaintext identity is derived from at BOTH ends. Registered as [[B161]].
+        //    The plane is TEAM here (addr_len=1 to our team_local_id), so the reservation must say so.
+        DualLayerTestAccess::set_pending_rx(b, /*from*/44, /*ctr_lo*/0x0A, /*sf*/8, /*payload_len*/static_cast<uint8_t>(il + 4),
+                                           /*origin=*/hbb[0], /*ctr=*/42, /*team_plane=*/true);
         RxMeta meta{9.0f,-70.0f,hal._now,static_cast<int8_t>(-1)};
         b.on_recv(frame, fl, meta);
         b.on_timer(9 /*kPostAckTimerId*/);
@@ -4517,7 +4538,8 @@ TEST_CASE("★★ §hashbind-plane — a TEAM-plane H_ANSWER delivered over the 
         CHECK(s.id_bind_find_by_hash(0xCCCC0003u) == -1);
         uint8_t frame[64]; const size_t fl = make_answer(/*next=*/9, /*addr_len=*/0, frame, sizeof frame);
         CHECK(fl > 0);
-        DualLayerTestAccess::set_pending_rx(s, /*from*/44, /*ctr_lo*/0x0A, /*sf*/8, /*payload_len*/static_cast<uint8_t>(il + 4));
+        DualLayerTestAccess::set_pending_rx(s, /*from*/44, /*ctr_lo*/0x0A, /*sf*/8, /*payload_len*/static_cast<uint8_t>(il + 4),
+                                           /*origin=*/hbb[0], /*ctr=*/42, /*team_plane=*/false);   // §hybrid-rts S2: STATIC arm
         RxMeta meta{9.0f,-70.0f,hal._now,static_cast<int8_t>(-1)};
         s.on_recv(frame, fl, meta);
         s.on_timer(9 /*kPostAckTimerId*/);
@@ -4538,7 +4560,8 @@ TEST_CASE("§mobile 6.4 — a team RTS from a DIFFERENT leaf is accepted (a mixe
     RxMeta meta{9.0f,-70.0f,0,static_cast<int8_t>(-1)};
     // an off-grid teammate on leaf=0 sends a team RTS to our team_local_id (addr_len=1)
     rts_in r{}; r.leaf_id=0; r.src=251; r.next=tid; r.dst=tid; r.ctr_lo=0; r.sf_index=0; r.rts_flags=0; r.payload_len=1; r.addr_len=1; r.mobile_src=true;
-    uint8_t b[9]; size_t n = pack_rts(r, b);
+    r.id = rts_flight_identity_plain(251, 0);   // §hybrid-rts S1
+    uint8_t b[11]; size_t n = pack_rts(r, b);
     rcv.on_recv(b, n, meta);
     CHECK(DualLayerTestAccess::has_pending_rx(rcv));          // ★ accepted despite leaf 0 != 5 (opens a receiver flight -> will CTS)
 }

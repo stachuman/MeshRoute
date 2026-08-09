@@ -132,6 +132,38 @@ is ever needed it takes its **own slice/commit**. **Do not conflate these two** 
   that cites it.**
 - **D4 — the owner makes every commit.** Green work is left uncommitted. **Never file "not committed" as a defect.**
 
+### 1.10 **B153/B157: strengthen unicast RTS identity and restore both optimisations**
+**Ruled by the owner 2026-08-08 after the B153-DIAG2 interaction measurement.** The no-growth deletion of receiver
+`already_received` and sender `implicit_ack_from_forward` is **WITHDRAWN AS THE FINAL DESIGN**, not because either
+deletion was locally unsafe, but because removing both changed the retry/routing system non-linearly: unique corpus
+deliveries moved **732 → 708** and DM airtime **+9.14%**, while 19 of the 24 delivery losses were an interaction term.
+
+The replacement is RULED:
+
+1. plaintext unicast RTS grows **7 → 10 B** and carries exact `(origin, ctr16)`;
+2. encrypted unicast RTS grows **7 → 11 B** and carries a domain-separated 32-bit digest of its clear nonce seed and
+   flight context, without exposing origin;
+3. DATA must reproduce and validate that identity before the receiver stores completion;
+4. restore both `already_received` and implicit-forward credit, keyed by full identity and explicit team/static plane;
+   per-layer state alone does not separate those planes;
+5. M/flood RTS frames do not grow; routing T1–T3 and B159 remain separate work.
+
+**QA safety amendment 2026-08-08 — incorporated in the live proposal, AWAITING OWNER CONFIRMATION:**
+
+- plane handling separates pure wire declaration (`addr_len == 1 && mobile_src`) from receiver-relative
+  `team_addr_for_us`; S0 must prove the canonical producer matrix before disagreement becomes fatal;
+- because `already_received` is terminal, its CTS conditionally echoes the complete identity and plane (6 B plaintext /
+  7 B encrypted); ordinary non-terminal CTS remains byte-identical at 3/4 B;
+- implicit-forward credit has two named bases — `local_data` and `alternate_path` — and may clear only the redundant
+  local copy; it must not fabricate an app ACK/delivery/failure outcome;
+- derive the bounded completed-flight-cache TTL from measured live retry horizons; do not resurrect the historical
+  10-second value without evidence.
+
+⇒ The live design and dispatch surface is
+`docs/superpowers/specs/2026-08-08-hybrid-rts-flight-identity-design.md` plus
+`docs/superpowers/plans/2026-08-08-hybrid-rts-flight-identity.md`. The earlier B157 deletion plan is superseded.
+Per §1.8, no wire-version bump is required for this homogeneous test fleet; all bench nodes must run the same build.
+
 ---
 ## §2 — GENUINELY OPEN. These are fair review targets.
 

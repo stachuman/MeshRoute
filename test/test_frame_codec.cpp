@@ -15,6 +15,8 @@
 #include "frame_codec.h"
 #include "leaf_config.h"   // R6.1: leaf_config_hash golden + sensitivity
 #include "meshroute_wire.h"
+#include "dm_crypto.h"     // §hybrid-rts S1: the flight-identity producer under test
+#include "monocypher.h"    // §hybrid-rts S1: the INDEPENDENT recomputation of the crypted KAT
 
 #include <array>
 #include <cstdint>
@@ -55,31 +57,42 @@ TEST_CASE("wire — Writer/Reader LE/BE round-trip + bounds") {
     CHECK_FALSE(r2.ok());                                          // read-past-end flagged
 }
 
-TEST_CASE("CTS — round-trip across the field ranges") {
+// ⛔ REWRITTEN IN PLACE 2026-08-08 (§hybrid-rts S1, B101 — nothing deleted, nothing disabled): this case used
+// to sweep `ar` over {false, true} and assert 3 B for BOTH. `already_received = true` is now a DIFFERENT FRAME
+// SHAPE (6/7 B, identity echo, no SF) — see frame_codec.h §hybrid-rts. The ORDINARY sweep below is unchanged
+// in every byte it asserts; the terminal shape has its own cases further down.
+TEST_CASE("CTS — round-trip across the field ranges (ORDINARY shape, already_received = 0)") {
     for (uint8_t sf : {5, 7, 8, 12})
-        for (bool ar : {false, true})
-            for (uint8_t tx : {0, 3, 254})
-                for (uint8_t rx : {0, 1, 255}) {
-                    std::array<uint8_t, 3> buf{};
-                    cts_in in{sf, ar, tx, rx};
-                    CHECK(pack_cts(in, buf) == 3);
-                    auto out = parse_cts(buf);
-                    CHECK(out.has_value());
-                    if (out) {
-                        CHECK(out->chosen_data_sf == sf);
-                        CHECK(out->already_received == ar);
-                        CHECK(out->tx_id == tx);
-                        CHECK(out->rx_id == rx);
-                    }
+        for (uint8_t tx : {0, 3, 254})
+            for (uint8_t rx : {0, 1, 255}) {
+                std::array<uint8_t, 3> buf{};
+                cts_in in{sf, false, tx, rx};
+                CHECK(pack_cts(in, buf) == 3);
+                auto out = parse_cts(buf);
+                CHECK(out.has_value());
+                if (out) {
+                    CHECK(out->chosen_data_sf == sf);
+                    CHECK_FALSE(out->already_received);
+                    CHECK(out->tx_id == tx);
+                    CHECK(out->rx_id == rx);
+                    CHECK(out->id.width == 0);          // §hybrid-rts: no echo on the ordinary shape
+                    CHECK_FALSE(out->team_plane);
                 }
+            }
 }
 
-TEST_CASE("CTS — golden hex (§10.3)") {
+// ★ THE ORDINARY 3-B GOLDEN IS THE BYTE-IDENTITY ANCHOR for §hybrid-rts S1: if this moves, the slice broke a
+// frame it promised not to touch. ⛔ The `{8, true, …} == 3` golden that used to sit here is GONE ON PURPOSE —
+// that exact frame (`0x27 0x11 0x2A`) is now REJECTED by parse_cts, and the refusal is asserted below.
+TEST_CASE("CTS — golden hex (§10.3) — ORDINARY shape unchanged by §hybrid-rts S1") {
     std::array<uint8_t, 3> buf{};
-    CHECK(pack_cts({8, true, 0x11, 0x2A}, buf) == 3);   // sf=8 -> sf3=3; flags=(3<<1)|1=0x7
-    CHECK(buf[0] == 0x27);  CHECK(buf[1] == 0x11);  CHECK(buf[2] == 0x2A);
     CHECK(pack_cts({5, false, 0x00, 0xFF}, buf) == 3);  // sf=5 -> sf3=0; flags=0
     CHECK(buf[0] == 0x20);  CHECK(buf[1] == 0x00);  CHECK(buf[2] == 0xFF);
+    CHECK(pack_cts({8, false, 0x11, 0x2A}, buf) == 3);  // sf=8 -> sf3=3; flags=(3<<1)|0=0x6
+    CHECK(buf[0] == 0x26);  CHECK(buf[1] == 0x11);  CHECK(buf[2] == 0x2A);
+    // the retired 3-B terminal form: identical bytes with bit 0 set — REFUSED on parse (§hybrid-rts §2.4)
+    const std::array<uint8_t, 3> retired{0x27, 0x11, 0x2A};
+    CHECK_FALSE(parse_cts(retired).has_value());
 }
 
 TEST_CASE("ACK — round-trip across the field ranges") {
@@ -244,66 +257,342 @@ TEST_CASE("§cts-len6-cr2 — airtime-neutral: a uniform-CR mesh's reservation m
     }
 }
 
-TEST_CASE("CTS — field isolation: already_received toggles only byte0 bit 0") {
-    std::array<uint8_t, 3> a{}, b{};
+// ⛔ REWRITTEN IN PLACE 2026-08-08 (§hybrid-rts S1, B101). THE OLD CLAIM IS NOW FALSE BY DESIGN: flipping
+// `already_received` no longer toggles one bit of a 3-B frame — it selects a different frame SHAPE (6/7 B,
+// identity echo, no chosen SF, no NAV byte). The replacement pins what is actually invariant across the two
+// shapes (tx_id/rx_id keep their byte positions) and what deliberately is not (the SF bits are reused).
+TEST_CASE("CTS — §hybrid-rts S1: the terminal bit selects a SHAPE, and only tx_id/rx_id survive unchanged") {
+    std::array<uint8_t, 8> a{}, b{};
     CHECK(pack_cts({8, false, 0x11, 0x2A}, a) == 3);
-    CHECK(pack_cts({8, true,  0x11, 0x2A}, b) == 3);
-    CHECK((a[0] ^ b[0]) == 0x01);   // already_received is bit 0 of the flags nibble
-    CHECK(a[1] == b[1]);            // tx_id unchanged
-    CHECK(a[2] == b[2]);            // rx_id unchanged
+    cts_in term{}; term.already_received = true; term.tx_id = 0x11; term.rx_id = 0x2A;
+    term.chosen_data_sf = 8;                                   // ★ IGNORED on this shape — proven by the bytes below
+    term.id = rts_flight_identity_plain(0x07, 0x1234);
+    CHECK(pack_cts(term, b) == 6);
+    CHECK(a[1] == b[1]);                                       // tx_id keeps byte 1
+    CHECK(a[2] == b[2]);                                       // rx_id keeps byte 2
+    CHECK(b[0] == 0x21);                                       // cmd C | plane 0 | rsv 0 | ar 1 — NO (sf-5) bits
+    CHECK((a[0] & 0x0E) == 0x06);                              // ordinary: (8-5)<<1 = 0x06 IS there
+    // the SF the caller passed is provably absent from the terminal frame: changing it changes nothing
+    cts_in term12 = term; term12.chosen_data_sf = 12;
+    std::array<uint8_t, 8> c{};
+    CHECK(pack_cts(term12, c) == 6);
+    for (int i = 0; i < 6; ++i) CHECK(b[i] == c[i]);
+    // and the parse says so out loud
+    auto po = parse_cts(std::span<const uint8_t>(b.data(), 6));
+    CHECK(po.has_value());
+    if (po) { CHECK(po->already_received); CHECK(po->chosen_data_sf == 0); CHECK(po->payload_len == 0); }
+}
+
+// =============================================================================
+// ★★★ §hybrid-rts S1 — THE TERMINAL CTS SHAPE. Golden vectors + the full cross-shape reject matrix.
+// Design §2.3/§2.4; plan S1 item 5. ⓘ NO PRODUCER EXISTS IN S1 — this is the codec only.
+// =============================================================================
+TEST_CASE("§hybrid-rts S1 CTS — TERMINAL golden vectors: 6 B plaintext / 7 B crypted, exact bytes") {
+    std::array<uint8_t, 16> buf{};
+    // --- plaintext, STATIC plane -------------------------------------------------------------------
+    cts_in p{}; p.already_received = true; p.tx_id = 0x11; p.rx_id = 0x2A;
+    p.id = rts_flight_identity_plain(0x07, 0x1234);
+    CHECK(pack_cts(p, buf) == 6);
+    { const uint8_t ex[] = {0x21, 0x11, 0x2A, 0x07, 0x12, 0x34};      // ar=1, plane=0, rsv=0 | id = origin|ctr_hi|ctr_lo
+      for (int i = 0; i < 6; ++i) CHECK(buf[i] == ex[i]); }
+    // --- plaintext, TEAM plane (byte-0 bit 3) -----------------------------------------------------
+    cts_in t = p; t.team_plane = true;
+    CHECK(pack_cts(t, buf) == 6);
+    { const uint8_t ex[] = {0x29, 0x11, 0x2A, 0x07, 0x12, 0x34};      // +CTS_TERM_PLANE_BIT
+      for (int i = 0; i < 6; ++i) CHECK(buf[i] == ex[i]); }
+    auto to = parse_cts(std::span<const uint8_t>(buf.data(), 6));
+    CHECK(to.has_value());
+    if (to) { CHECK(to->already_received); CHECK(to->team_plane);
+              CHECK(to->id.domain == RtsIdDomain::plaintext); CHECK(to->id.width == 3);
+              CHECK(rts_flight_identity_equal(to->id, p.id)); }
+    // --- crypted: 7 B, the 4 digest bytes verbatim -------------------------------------------------
+    const uint8_t seed[8] = {0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08};
+    cts_in c{}; c.already_received = true; c.tx_id = 9; c.rx_id = 4;
+    c.id = rts_flight_identity_crypted(seed, 0x1234, 0x2A);
+    CHECK(pack_cts(c, buf) == 7);
+    CHECK(buf[0] == 0x21); CHECK(buf[1] == 9); CHECK(buf[2] == 4);
+    for (int i = 0; i < 4; ++i) CHECK(buf[3 + i] == c.id.bytes[i]);   // digest ORDER on the wire
+    auto co = parse_cts(std::span<const uint8_t>(buf.data(), 7));
+    CHECK(co.has_value());
+    if (co) { CHECK(co->id.domain == RtsIdDomain::crypted); CHECK(co->id.width == 4);
+              CHECK(rts_flight_identity_equal(co->id, c.id));
+              CHECK_FALSE(co->team_plane); }
+    // ★ a plaintext echo and a crypted echo NEVER compare equal, even if the bytes overlapped
+    CHECK_FALSE(rts_flight_identity_equal(p.id, c.id));
+}
+
+TEST_CASE("§hybrid-rts S1 CTS — the cross-shape reject matrix, in BOTH directions") {
+    std::array<uint8_t, 16> buf{};
+    // ---- pack refusals ---------------------------------------------------------------------------
+    { cts_in x{}; x.already_received = true; x.tx_id = 1; x.rx_id = 2;                 // terminal, NO identity
+      CHECK(pack_cts(x, buf) == 0); }
+    { cts_in x{}; x.already_received = true; x.tx_id = 1; x.rx_id = 2;
+      x.id = rts_flight_identity_plain(1, 2); x.payload_len = 30;                      // terminal + a NAV hint
+      CHECK(pack_cts(x, buf) == 0); }
+    { cts_in x{}; x.chosen_data_sf = 8; x.tx_id = 1; x.rx_id = 2;
+      x.id = rts_flight_identity_plain(1, 2);                                          // ORDINARY carrying an echo
+      CHECK(pack_cts(x, buf) == 0); }
+    { cts_in x{}; x.already_received = true; x.tx_id = 1; x.rx_id = 2;
+      x.id = rts_flight_identity_plain(1, 2);
+      std::array<uint8_t, 5> tiny{};
+      CHECK(pack_cts(x, tiny) == 0); }                                                 // out span < 6
+    // a width/domain pair that cannot exist is refused too (the valid() predicate, not just the width)
+    { cts_in x{}; x.already_received = true; x.tx_id = 1; x.rx_id = 2;
+      x.id.width = 4; x.id.domain = RtsIdDomain::plaintext;                            // 4-B "plaintext" — impossible
+      CHECK(pack_cts(x, buf) == 0);
+      x.id.width = 3; x.id.domain = RtsIdDomain::crypted;                              // 3-B "crypted"  — impossible
+      CHECK(pack_cts(x, buf) == 0); }
+    // ---- parse refusals --------------------------------------------------------------------------
+    // build a VALID 6-B terminal, then break exactly one thing at a time (match count == 1 each)
+    cts_in good{}; good.already_received = true; good.tx_id = 0x11; good.rx_id = 0x2A;
+    good.id = rts_flight_identity_plain(0x07, 0x1234);
+    CHECK(pack_cts(good, buf) == 6);
+    CHECK(parse_cts(std::span<const uint8_t>(buf.data(), 6)).has_value());              // ★ positive control
+    { auto f = buf; f[0] = static_cast<uint8_t>(f[0] & ~0x01u);                         // 6 B, terminal bit CLEAR
+      CHECK_FALSE(parse_cts(std::span<const uint8_t>(f.data(), 6)).has_value()); }
+    { auto f = buf; f[0] = static_cast<uint8_t>(f[0] | 0x02u);                          // reserved bit 1 set
+      CHECK_FALSE(parse_cts(std::span<const uint8_t>(f.data(), 6)).has_value()); }
+    { auto f = buf; f[0] = static_cast<uint8_t>(f[0] | 0x04u);                          // reserved bit 2 set
+      CHECK_FALSE(parse_cts(std::span<const uint8_t>(f.data(), 6)).has_value()); }
+    CHECK_FALSE(parse_cts(std::span<const uint8_t>(buf.data(), 5)).has_value());        // 5 B: no such shape
+    CHECK_FALSE(parse_cts(std::span<const uint8_t>(buf.data(), 4)).has_value());        // 4 B WITH the bit set
+    CHECK_FALSE(parse_cts(std::span<const uint8_t>(buf.data(), 3)).has_value());        // 3 B WITH the bit set
+    { std::array<uint8_t, 8> f{}; for (size_t i = 0; i < 8; ++i) f[i] = buf[i % 6];
+      f[0] = buf[0];
+      CHECK_FALSE(parse_cts(std::span<const uint8_t>(f.data(), 8)).has_value()); }      // 8 B: no such shape
+    // an ORDINARY 4-B CTS with the terminal bit forced on is refused (the retired form, WITH a NAV byte)
+    { std::array<uint8_t, 4> f{}; CHECK(pack_cts({7, false, 1, 2, 30, rts_cr_encode(7)}, f) == 4);
+      CHECK(parse_cts(f).has_value());                                                  // ★ positive control
+      f[0] = static_cast<uint8_t>(f[0] | 0x01u);
+      CHECK_FALSE(parse_cts(f).has_value()); }
+    // wrong cmd nibble at a terminal length
+    { auto f = buf; f[0] = static_cast<uint8_t>((f[0] & 0x0F) | 0x40);                   // ACK nibble
+      CHECK_FALSE(parse_cts(std::span<const uint8_t>(f.data(), 6)).has_value()); }
 }
 
 // ===== C2: RTS / NACK / Q (§10 cmd-nibble; RTS byte-5 reading A) =============
 
-TEST_CASE("RTS — round-trip (no M_BROADCAST = 7 B, M_BROADCAST = 9 B)") {
+// ⛔ REWRITTEN IN PLACE 2026-08-08 (§hybrid-rts S1, B101): the unicast arm asserted 7 B; it is now 10 B
+// plaintext / 11 B crypted. The M_BROADCAST arm is UNCHANGED at 9 B and is the byte-identity anchor.
+// ⚠ NOTE THE HELPER `uid()`: a unicast rts_in without an identity no longer packs at all (pack_rts returns 0,
+// by design — C2 fail-loud), so every unicast construction in this file names its identity explicitly.
+static RtsFlightIdentity uid_plain(uint8_t origin = 0x0A, uint16_t ctr = 0x0105) {
+    return rts_flight_identity_plain(origin, ctr);
+}
+TEST_CASE("RTS — round-trip (unicast = 10/11 B §hybrid-rts S1, M_BROADCAST = 9 B unchanged)") {
     for (uint8_t leaf : {0, 2, 15})
         for (uint8_t ctr : {0, 5, 15})
             for (uint8_t sf : {0, 1, 2, 3})
                 for (uint8_t flags : {uint8_t(0), RTS_FLAG_M_BROADCAST, RTS_FLAG_RELAY,
                                       uint8_t(RTS_FLAG_M_BROADCAST | RTS_FLAG_RELAY)})
-                    for (uint8_t dst : {0, 1, 255}) {
-                        std::array<uint8_t, 9> buf{};
-                        rts_in in{leaf, 0x0A, 0x0B, ctr, dst, sf, flags, 20, 0x5678};
-                        const bool m = (flags & RTS_FLAG_M_BROADCAST) != 0;
-                        CHECK(pack_rts(in, buf) == (m ? 9u : 7u));
-                        auto o = parse_rts(buf);
-                        CHECK(o.has_value());
-                        if (o) {
-                            CHECK(o->leaf_id == leaf);
-                            CHECK(o->src == 0x0A);   CHECK(o->next == 0x0B);
-                            CHECK(o->ctr_lo == ctr); CHECK(o->addr_len == 0);
-                            CHECK(o->dst == dst);    CHECK(o->sf_index == sf);
-                            CHECK(o->rts_flags == flags);
-                            CHECK(o->payload_len == 20);
-                            CHECK(o->m_broadcast == m);
-                            CHECK(o->m_payload_id_lo16 == (m ? 0x5678 : 0x0000));
+                    for (uint8_t dst : {0, 1, 255})
+                        for (bool crypted : {false, true}) {
+                            std::array<uint8_t, 11> buf{};
+                            const bool m = (flags & RTS_FLAG_M_BROADCAST) != 0;
+                            if (m && crypted) continue;                 // an M frame has no identity domain
+                            rts_in in{leaf, 0x0A, 0x0B, ctr, dst, sf, flags, 20, 0x5678};
+                            const uint8_t seed[8] = {9,8,7,6,5,4,3,2};
+                            if (!m) in.id = crypted ? rts_flight_identity_crypted(seed, 0x0105, dst)
+                                                    : uid_plain();
+                            const size_t want = m ? 9u : unicast_rts_wire_len(crypted);
+                            CHECK(pack_rts(in, buf) == want);
+                            auto o = parse_rts(std::span<const uint8_t>(buf.data(), want));
+                            CHECK(o.has_value());
+                            if (o) {
+                                CHECK(o->leaf_id == leaf);
+                                CHECK(o->src == 0x0A);   CHECK(o->next == 0x0B);
+                                CHECK(o->ctr_lo == ctr); CHECK(o->addr_len == 0);
+                                CHECK(o->dst == dst);    CHECK(o->sf_index == sf);
+                                CHECK(o->rts_flags == flags);
+                                CHECK(o->payload_len == 20);
+                                CHECK(o->m_broadcast == m);
+                                CHECK(o->m_payload_id_lo16 == (m ? 0x5678 : 0x0000));
+                                if (m) { CHECK(o->id.width == 0); CHECK(o->id.domain == RtsIdDomain::none); }
+                                else   { CHECK(rts_flight_identity_equal(o->id, in.id)); }
+                            }
                         }
-                    }
 }
 
-TEST_CASE("RTS — golden hex (§10.3, byte-5 reading A)") {
-    std::array<uint8_t, 9> buf{};
-    CHECK(pack_rts({2, 0x0A, 0x0B, 5, 0x0C, 3, 0, 20, 0}, buf) == 7);
-    const uint8_t ex1[] = {0x12, 0x0A, 0x0B, 0x50, 0x0C, 0xC0, 0x14};
-    for (int i = 0; i < 7; ++i) CHECK(buf[i] == ex1[i]);
+TEST_CASE("RTS — golden hex (§10.3, byte-5 reading A) + the §hybrid-rts S1 identity tail") {
+    std::array<uint8_t, 11> buf{};
+    // ★ UNICAST, PLAINTEXT — 10 B. The first 7 bytes are the pre-S1 golden VERBATIM; only the tail is new,
+    //   which is what proves the identity is purely APPENDED and disturbs no existing field.
+    { rts_in in{2, 0x0A, 0x0B, 5, 0x0C, 3, 0, 20, 0};
+      in.id = rts_flight_identity_plain(0x2C, 0x0405);
+      CHECK(pack_rts(in, buf) == 10);
+      const uint8_t ex[] = {0x12, 0x0A, 0x0B, 0x50, 0x0C, 0xC0, 0x14, /*id*/ 0x2C, 0x04, 0x05};
+      for (int i = 0; i < 10; ++i) CHECK(buf[i] == ex[i]); }
 
+    // M_BROADCAST — 9 B, BYTE-IDENTICAL to pre-S1
     CHECK(pack_rts({1, 0x07, 0x09, 0xF, 0xFF, 2, RTS_FLAG_M_BROADCAST, 0xC8, 0x5678}, buf) == 9);
     const uint8_t ex2[] = {0x11, 0x07, 0x09, 0xF0, 0xFF, 0x84, 0xC8, 0x56, 0x78};
     for (int i = 0; i < 9; ++i) CHECK(buf[i] == ex2[i]);
 
-    // both flags; payload_len 0 (= 256 wrapped by uint8_t, NOT clamped)
+    // both flags; payload_len 0 (= 256 wrapped by uint8_t, NOT clamped) — also byte-identical
     CHECK(pack_rts({0, 0x14, 0x15, 0, 0x16, 0,
                     uint8_t(RTS_FLAG_M_BROADCAST | RTS_FLAG_RELAY), 0, 0x00FF}, buf) == 9);
     const uint8_t ex3[] = {0x10, 0x14, 0x15, 0x00, 0x16, 0x0C, 0x00, 0x00, 0xFF};
     for (int i = 0; i < 9; ++i) CHECK(buf[i] == ex3[i]);
 }
 
+// ⛔ REWRITTEN IN PLACE 2026-08-08 (§hybrid-rts S1, B101) — AND THIS ONE WOULD HAVE GONE VACUOUS IF LEFT
+// ALONE, which is exactly the trap this arc keeps hitting. The old case crafted a 7-BYTE frame with
+// addr_len = 2. A 7-B unicast frame is now rejected for its LENGTH, so the case would still have passed while
+// testing nothing about addr_len. The frame is therefore rebuilt at a VALID unicast length (10 B), and the
+// positive control (the same frame with addr_len = 1) is asserted to PARSE.
 TEST_CASE("RTS — rejects addr_len > 1 and wrong cmd / short frame") {
-    std::array<uint8_t, 7> f{0x12, 0x0A, 0x0B, uint8_t(0x50 | (2 << 1)), 0x0C, 0xC0, 0x14};
+    std::array<uint8_t, 10> f{0x12, 0x0A, 0x0B, uint8_t(0x50 | (1 << 1)), 0x0C, 0xC0, 0x14, 0x0A, 0x01, 0x05};
+    CHECK(parse_rts(f).has_value());                       // ★ POSITIVE CONTROL: addr_len = 1 at 10 B parses
+    f[3] = uint8_t(0x50 | (2 << 1));
     CHECK_FALSE(parse_rts(f).has_value());                 // addr_len = 2 (0/1 valid §mobile Slice 1; 2..7 hierarchy-deferred)
+    f[3] = uint8_t(0x50 | (7 << 1));
+    CHECK_FALSE(parse_rts(f).has_value());                 // addr_len = 7 (top of the 3-bit field)
+    f[3] = uint8_t(0x50 | (1 << 1)); f[0] = 0x42;           // ACK cmd nibble at a valid RTS length
+    CHECK_FALSE(parse_rts(f).has_value());
     std::array<uint8_t, 4> nack{};
     CHECK(pack_nack({0, 0, 0, 0}, nack) == 4);
     CHECK_FALSE(parse_rts(nack).has_value());              // len < 7 (and wrong cmd)
+}
+
+// =============================================================================
+// ★★★ §hybrid-rts S1 — THE IDENTITY PRODUCER + THE CANONICAL RTS LENGTH MATRIX.
+// Design §2.1/§2.2/§2.4; plan S1 items 1-4 and the "Tests" list.
+// =============================================================================
+TEST_CASE("§hybrid-rts S1 — PLAINTEXT identity: exact bytes, and the counter HIGH byte is carried") {
+    const auto a = rts_flight_identity_plain(0x07, 0x1234);
+    CHECK(a.domain == RtsIdDomain::plaintext);
+    CHECK(a.width == 3);
+    CHECK(a.bytes[0] == 0x07);   // origin
+    CHECK(a.bytes[1] == 0x12);   // ctr_hi
+    CHECK(a.bytes[2] == 0x34);   // ctr_lo
+    // ★ THE DEFECT THE 3 BYTES EXIST FOR: 0x0002 vs 0x1002 share every bit the old 4-bit RTS ctr_lo carried
+    //   (and the same origin, dst and payload_len) — the old frames were BYTE-IDENTICAL. They must differ now.
+    const auto lo = rts_flight_identity_plain(0x07, 0x0002);
+    const auto hi = rts_flight_identity_plain(0x07, 0x1002);
+    CHECK(lo.bytes[2] == hi.bytes[2]);                     // ... the low nibble really is equal
+    CHECK_FALSE(rts_flight_identity_equal(lo, hi));        // ... and the identities really are not
+    // a different origin, same counter -> different (the gateway/different-origin design case)
+    CHECK_FALSE(rts_flight_identity_equal(rts_flight_identity_plain(0x07, 0x1234),
+                                          rts_flight_identity_plain(0x08, 0x1234)));
+    // exact retry stability: the pure function reproduces itself
+    CHECK(rts_flight_identity_equal(a, rts_flight_identity_plain(0x07, 0x1234)));
+}
+
+TEST_CASE("§hybrid-rts S1 — CRYPTED identity: BLAKE2b-512-then-truncate KNOWN ANSWER, pinned independently") {
+    // KAT: BLAKE2b-512(0xE1 | 01..08 | 0x12 | 0x34 | 0x2A) truncated to 4 bytes.
+    // ★ The expected bytes are NOT taken from this implementation's output — they are the first four bytes of
+    //   the 64-byte digest of that exact 12-byte message, and the test that follows PROVES it is the 512-bit
+    //   digest prefix and not a parameterized 32-bit BLAKE2b (which would give a completely different value).
+    const uint8_t seed[8] = {0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08};
+    const auto id = rts_flight_identity_crypted(seed, 0x1234, 0x2A);
+    CHECK(id.domain == RtsIdDomain::crypted);
+    CHECK(id.width == 4);
+    // ★ THE FIXED KNOWN ANSWER. Pinned as literal bytes as well as recomputed below, deliberately: the
+    //   recomputation proves the CONVENTION (64-then-truncate, this exact 12-byte message), but it would move
+    //   in lockstep with the library if monocypher's BLAKE2b ever changed. The literal cannot.
+    { const uint8_t kat[4] = {0x34, 0x43, 0xCD, 0xA3};
+      for (int i = 0; i < 4; ++i) CHECK(id.bytes[i] == kat[i]); }
+    {   // independent recomputation through the project's convention, spelled out byte by byte
+        uint8_t msg[12];
+        msg[0] = 0xE1;
+        for (int i = 0; i < 8; ++i) msg[1 + i] = seed[i];
+        msg[9] = 0x12; msg[10] = 0x34; msg[11] = 0x2A;
+        uint8_t full[64];
+        crypto_blake2b(full, 64, msg, sizeof msg);
+        for (int i = 0; i < 4; ++i) CHECK(id.bytes[i] == full[i]);
+        // ⛔ AND THE WRONG DIGEST IS PROVEN WRONG: the parameterized 4-byte output differs. BLAKE2b's output
+        //    length is an input to its IV, so `crypto_blake2b(out, 4, …)` is NOT the 64-byte digest's prefix.
+        uint8_t four[4];
+        crypto_blake2b(four, 4, msg, sizeof msg);
+        bool same = true; for (int i = 0; i < 4; ++i) if (four[i] != full[i]) same = false;
+        CHECK_FALSE(same);
+    }
+    // exact retry stability
+    CHECK(rts_flight_identity_equal(id, rts_flight_identity_crypted(seed, 0x1234, 0x2A)));
+    // ★ ONE BIT OF EACH CONTEXT INPUT CHANGES THE DIGEST (avalanche over all three bound quantities)
+    { uint8_t s2[8]; for (int i = 0; i < 8; ++i) s2[i] = seed[i]; s2[7] ^= 0x01;
+      CHECK_FALSE(rts_flight_identity_equal(id, rts_flight_identity_crypted(s2, 0x1234, 0x2A))); }
+    CHECK_FALSE(rts_flight_identity_equal(id, rts_flight_identity_crypted(seed, 0x1235, 0x2A)));  // ctr_lo
+    CHECK_FALSE(rts_flight_identity_equal(id, rts_flight_identity_crypted(seed, 0x1334, 0x2A)));  // ctr_hi
+    CHECK_FALSE(rts_flight_identity_equal(id, rts_flight_identity_crypted(seed, 0x1234, 0x2B)));  // dst
+    // ★ THE ENCRYPTED TAIL MUST NOT EXPOSE `origin`: it is not an input at all, so it cannot leak. The
+    //   dispatcher proves that structurally — the origin argument is IGNORED on the crypted arm.
+    CHECK(rts_flight_identity_equal(rts_flight_identity(true, 0x07, 0x1234, 0x2A, seed),
+                                    rts_flight_identity(true, 0xF3, 0x1234, 0x2A, seed)));
+    // ... while on the plaintext arm it is load-bearing
+    const uint8_t z[8] = {0,0,0,0,0,0,0,0};
+    CHECK_FALSE(rts_flight_identity_equal(rts_flight_identity(false, 0x07, 0x1234, 0x2A, z),
+                                          rts_flight_identity(false, 0xF3, 0x1234, 0x2A, z)));
+    // ⛔ plaintext and crypted NEVER cross-match, and the domain is what forbids it (not the bytes)
+    RtsFlightIdentity fake{}; fake.width = 4; fake.domain = RtsIdDomain::plaintext;
+    for (int i = 0; i < 4; ++i) fake.bytes[i] = id.bytes[i];
+    CHECK_FALSE(rts_flight_identity_equal(fake, id));
+    // and "absent == absent" is not a match either (an M/flood frame must never satisfy a comparator)
+    CHECK_FALSE(rts_flight_identity_equal(RtsFlightIdentity{}, RtsFlightIdentity{}));
+}
+
+TEST_CASE("§hybrid-rts S1 — the semantic wire-length helpers, and they are NOT the global RTS/CTS constants") {
+    CHECK(unicast_rts_wire_len(false) == 10);
+    CHECK(unicast_rts_wire_len(true)  == 11);
+    CHECK(terminal_cts_wire_len(false) == 6);
+    CHECK(terminal_cts_wire_len(true)  == 7);
+    // the two broadcast lengths they must NOT be confused with (design §2 has these two SWAPPED — the code is
+    // authority: `need = flood ? 43 : (m_bcast ? 9 : ...)`)
+    std::array<uint8_t, 43> buf{}; std::array<uint8_t, 32> bm{}; bm[0] = 1;
+    { rts_in m{}; m.rts_flags = RTS_FLAG_M_BROADCAST; m.sf_index = 1; m.m_payload_id_lo16 = 0xBEEF;
+      CHECK(pack_rts(m, buf) == 9); }
+    { rts_in f{}; f.rts_flags = uint8_t(RTS_FLAG_M_BROADCAST | RTS_FLAG_FLOOD); f.next = 0xFF;
+      f.flood_channel_msg_id = 1; f.flood_bitmap = std::span<const uint8_t>(bm.data(), 32);
+      CHECK(pack_rts(f, buf) == 43); }
+}
+
+TEST_CASE("§hybrid-rts S1 — the CANONICAL RTS length matrix: 10/11 accepted, 7/8/9/12 refused, cross-kind refused") {
+    std::array<uint8_t, 16> buf{};
+    rts_in in{}; in.leaf_id = 2; in.src = 0x0A; in.next = 0x0B; in.ctr_lo = 5; in.dst = 0x0C;
+    in.sf_index = 3; in.payload_len = 20; in.id = uid_plain();
+    CHECK(pack_rts(in, buf) == 10);
+    CHECK(parse_rts(std::span<const uint8_t>(buf.data(), 10)).has_value());     // ★ positive control
+    // ⛔ LEGACY 7-B UNICAST: the SAME first seven bytes, refused. No compatibility parser exists.
+    CHECK_FALSE(parse_rts(std::span<const uint8_t>(buf.data(), 7)).has_value());
+    CHECK_FALSE(parse_rts(std::span<const uint8_t>(buf.data(), 8)).has_value());
+    CHECK_FALSE(parse_rts(std::span<const uint8_t>(buf.data(), 9)).has_value());   // 9 B WITHOUT the M flag
+    CHECK_FALSE(parse_rts(std::span<const uint8_t>(buf.data(), 6)).has_value());
+    { std::array<uint8_t, 16> f = buf; f[10] = 0x77;                               // 12 B unicast: no such shape
+      CHECK_FALSE(parse_rts(std::span<const uint8_t>(f.data(), 12)).has_value()); }
+    // crypted: exactly 11
+    const uint8_t seed[8] = {1,2,3,4,5,6,7,8};
+    rts_in ic = in; ic.id = rts_flight_identity_crypted(seed, 0x0105, 0x0C);
+    CHECK(pack_rts(ic, buf) == 11);
+    CHECK(parse_rts(std::span<const uint8_t>(buf.data(), 11)).has_value());     // ★ positive control
+    // ★ AND THE DISCRIMINATOR IS THE LENGTH, not a flag: the SAME bytes truncated to 10 parse as PLAINTEXT,
+    //   with a 3-byte identity that is NOT the crypted one. That is why the length must be exact everywhere.
+    { auto trunc = parse_rts(std::span<const uint8_t>(buf.data(), 10));
+      CHECK(trunc.has_value());
+      if (trunc) { CHECK(trunc->id.domain == RtsIdDomain::plaintext);
+                   CHECK_FALSE(rts_flight_identity_equal(trunc->id, ic.id)); } }
+    // ---- pack-side cross-kind refusals -----------------------------------------------------------
+    { rts_in x = in; x.id = RtsFlightIdentity{};                                   // unicast with NO identity
+      CHECK(pack_rts(x, buf) == 0); }
+    { rts_in x = in; x.id.width = 2; x.id.domain = RtsIdDomain::plaintext;         // impossible width
+      CHECK(pack_rts(x, buf) == 0); }
+    { rts_in x{}; x.rts_flags = RTS_FLAG_M_BROADCAST; x.sf_index = 1; x.id = uid_plain();   // M + identity
+      CHECK(pack_rts(x, buf) == 0); }
+    { std::array<uint8_t, 32> bm{}; bm[0] = 1;
+      rts_in x{}; x.rts_flags = uint8_t(RTS_FLAG_M_BROADCAST | RTS_FLAG_FLOOD); x.next = 0xFF;
+      x.flood_channel_msg_id = 1; x.flood_bitmap = std::span<const uint8_t>(bm.data(), 32);
+      x.id = uid_plain();                                                          // FLOOD + identity
+      std::array<uint8_t, 43> big{};
+      CHECK(pack_rts(x, big) == 0);
+      x.id = RtsFlightIdentity{};
+      CHECK(pack_rts(x, big) == 43); }                                             // ★ positive control
+    { rts_in x = in; std::array<uint8_t, 9> tiny{};                                 // out span 9 < 10
+      CHECK(pack_rts(x, tiny) == 0); }
+    // ---- parse-side exactness for the two broadcast kinds ----------------------------------------
+    { rts_in m{}; m.rts_flags = RTS_FLAG_M_BROADCAST; m.sf_index = 1; m.m_payload_id_lo16 = 0xBEEF;
+      CHECK(pack_rts(m, buf) == 9);
+      CHECK(parse_rts(std::span<const uint8_t>(buf.data(), 9)).has_value());        // ★ positive control
+      CHECK_FALSE(parse_rts(std::span<const uint8_t>(buf.data(), 7)).has_value());  // M truncated to 7 (used to parse with id 0)
+      CHECK_FALSE(parse_rts(std::span<const uint8_t>(buf.data(), 10)).has_value()); }// M over-long
 }
 
 // ---- §rts-cr (2026-07-27): the sender's coding rate rides the RTS's last two reserved bits --------------
@@ -327,11 +616,20 @@ TEST_CASE("§rts-cr — cr_adv round-trips through pack/parse at every RTS lengt
     std::array<uint8_t, 32> bm{}; bm[0] = 0x01;                     // a legal (non-zero) flood bitmap
     for (uint8_t cr = 5; cr <= 8; ++cr) {
         const uint8_t code = rts_cr_encode(cr);
-        // 7 B (plain DM RTS)
+        // 10 B (plain DM RTS — 7 B pre-§hybrid-rts S1)
+        { rts_in in{}; in.leaf_id=2; in.src=0x0A; in.next=0x0B; in.ctr_lo=5; in.dst=0x0C;
+          in.sf_index=3; in.payload_len=20; in.cr_adv=code; in.id=uid_plain();
+          CHECK(pack_rts(in, buf) == 10u);
+          auto o = parse_rts(std::span<const uint8_t>(buf.data(), 10));
+          CHECK(o.has_value());
+          if (o) { CHECK(o->cr_adv == code); CHECK(rts_cr_decode(o->cr_adv) == cr); } }
+        // 11 B (CRYPTED DM RTS — the cr bits must survive the wider tail too)
         { rts_in in{}; in.leaf_id=2; in.src=0x0A; in.next=0x0B; in.ctr_lo=5; in.dst=0x0C;
           in.sf_index=3; in.payload_len=20; in.cr_adv=code;
-          CHECK(pack_rts(in, buf) == 7u);
-          auto o = parse_rts(std::span<const uint8_t>(buf.data(), 7));
+          const uint8_t seed[8]={1,2,3,4,5,6,7,8};
+          in.id=rts_flight_identity_crypted(seed, 0x0105, 0x0C);
+          CHECK(pack_rts(in, buf) == 11u);
+          auto o = parse_rts(std::span<const uint8_t>(buf.data(), 11));
           CHECK(o.has_value());
           if (o) { CHECK(o->cr_adv == code); CHECK(rts_cr_decode(o->cr_adv) == cr); } }
         // 9 B (M_BROADCAST)
@@ -354,18 +652,20 @@ TEST_CASE("§rts-cr — cr_adv round-trips through pack/parse at every RTS lengt
 }
 
 TEST_CASE("§rts-cr — the code lands on EXACTLY byte-3 b0 (high) + byte-5 b0 (low), disturbing nothing else") {
-    std::array<uint8_t, 9> buf{};
-    // Baseline = the existing golden frame (cr5 => code 0 => both bits clear => byte-identical to pre-slice).
+    std::array<uint8_t, 10> buf{};
+    // Baseline = the existing golden frame (cr5 => code 0 => both bits clear => bytes 0..6 identical to
+    // pre-slice) + the §hybrid-rts S1 identity tail, which must ALSO stay put while cr_adv moves.
     rts_in base{2, 0x0A, 0x0B, 5, 0x0C, 3, 0, 20, 0};
-    CHECK(pack_rts(base, buf) == 7);
-    const uint8_t gold[] = {0x12, 0x0A, 0x0B, 0x50, 0x0C, 0xC0, 0x14};
-    for (int i = 0; i < 7; ++i) CHECK(buf[i] == gold[i]);
+    base.id = rts_flight_identity_plain(0x2C, 0x0405);
+    CHECK(pack_rts(base, buf) == 10);
+    const uint8_t gold[] = {0x12, 0x0A, 0x0B, 0x50, 0x0C, 0xC0, 0x14, 0x2C, 0x04, 0x05};
+    for (int i = 0; i < 10; ++i) CHECK(buf[i] == gold[i]);
 
     struct { uint8_t cr, b3_or, b5_or; } cases[] = { {5,0x00,0x00}, {6,0x00,0x01}, {7,0x01,0x00}, {8,0x01,0x01} };
     for (auto& c : cases) {
         rts_in in = base; in.cr_adv = rts_cr_encode(c.cr);
-        CHECK(pack_rts(in, buf) == 7);
-        for (int i = 0; i < 7; ++i) {
+        CHECK(pack_rts(in, buf) == 10);
+        for (int i = 0; i < 10; ++i) {
             const uint8_t want = (i == 3) ? uint8_t(gold[3] | c.b3_or)
                                : (i == 5) ? uint8_t(gold[5] | c.b5_or) : gold[i];
             CHECK(buf[i] == want);                       // only bytes 3 and 5 move, and only their bit 0
@@ -387,9 +687,11 @@ TEST_CASE("§rts-cr — the code lands on EXACTLY byte-3 b0 (high) + byte-5 b0 (
         CHECK(o->rts_flags == 0x0F); CHECK(o->mobile_src == true); CHECK(o->payload_len == 0xFF);
         CHECK(o->cr_adv == 3);
     }
-    // A legacy-shaped frame (both reserved bits clear on the wire) decodes as cr5 — the corpus-wide case.
-    std::array<uint8_t, 7> legacy{0x12, 0x0A, 0x0B, 0x50, 0x0C, 0xC0, 0x14};
-    auto lo = parse_rts(legacy);
+    // A frame with both reserved bits clear on the wire decodes as cr5 — the corpus-wide case.
+    // ⓘ §hybrid-rts S1: this frame is now 10 B. The 7-B form is no longer a parseable RTS at all (see the
+    //   canonical length matrix), so it can no longer serve as the "legacy shape" here.
+    std::array<uint8_t, 10> plain_cr5{0x12, 0x0A, 0x0B, 0x50, 0x0C, 0xC0, 0x14, 0x2C, 0x04, 0x05};
+    auto lo = parse_rts(plain_cr5);
     CHECK(lo.has_value());
     if (lo) { CHECK(lo->cr_adv == 0); CHECK(rts_cr_decode(lo->cr_adv) == 5); }
 }
@@ -868,8 +1170,9 @@ TEST_CASE("J — header flag/opcode isolation + strict-length + wrong-cmd reject
     std::array<uint8_t, 11> cl{};
     CHECK(pack_j_claim({3, false, false, 0, 0, 0, 0, 0}, cl) == 11);
     CHECK((a[1] ^ cl[1]) == 0x10);                         // opcode 0 vs 1 → bits 5..4
-    std::array<uint8_t, 7> rts{};
-    CHECK(pack_rts({2, 0x0A, 0x0B, 5, 0x0C, 3, 0, 20, 0}, rts) == 7);
+    std::array<uint8_t, 10> rts{};
+    { rts_in ri{2, 0x0A, 0x0B, 5, 0x0C, 3, 0, 20, 0}; ri.id = uid_plain();   // §hybrid-rts S1: 7 B -> 10 B
+      CHECK(pack_rts(ri, rts) == 10); }
     CHECK_FALSE(parse_j(rts).has_value());                 // wrong cmd
     std::array<uint8_t, 7> bad{0x93, 0xC0, 0x44, 0x33, 0x22, 0x11, 0x00};
     CHECK_FALSE(parse_j(bad).has_value());                 // op 0 (DISCOVER) but 7 B ≠ 6
@@ -1704,6 +2007,10 @@ TEST_CASE("RTS — FLOOD RTS-M round-trip (43 B: channel_msg_id BE + 32-B bitmap
       CHECK(pack_rts(bad, std::span<uint8_t>(buf.data(), buf.size())) == 0); }
     // reject: a FLOOD frame truncated below 43 B -> parse nullopt
     CHECK_FALSE(parse_rts(std::span<const uint8_t>(buf.data(), 20)).has_value());
+    // §hybrid-rts S1: and now an OVER-LONG one too — the FLOOD length is exact, not a floor
+    { std::array<uint8_t, 64> over{}; for (size_t i = 0; i < 44; ++i) over[i] = buf[i % 43];
+      for (int i = 0; i < 43; ++i) over[i] = buf[i];
+      CHECK_FALSE(parse_rts(std::span<const uint8_t>(over.data(), 44)).has_value()); }
     // a non-FLOOD M_BROADCAST still packs 9 B with the id_lo16 tail (unchanged)
     { rts_in mb{}; mb.leaf_id = 0; mb.src = 1; mb.next = 2; mb.ctr_lo = 3; mb.dst = 4; mb.sf_index = 1;
       mb.rts_flags = RTS_FLAG_M_BROADCAST; mb.payload_len = 10; mb.m_payload_id_lo16 = 0xBEEF;
@@ -2188,26 +2495,32 @@ TEST_CASE("mobile marks — RTS/DATA addr_len + RTS/ACK MOBILE round-trip (Slice
     // RTS: addr_len=1 (mobile-next) + mobile_src round-trips
     rts_in ri{}; ri.leaf_id=4; ri.src=17; ri.next=42; ri.ctr_lo=3;
     ri.dst=42; ri.sf_index=0; ri.rts_flags=0; ri.payload_len=10;
-    ri.addr_len=1; ri.mobile_src=true;
-    size_t n = pack_rts(ri, buf); CHECK(n == 7);
+    ri.addr_len=1; ri.mobile_src=true; ri.id=uid_plain(17, 0x0103);   // §hybrid-rts S1: 7 B -> 10 B
+    size_t n = pack_rts(ri, buf); CHECK(n == 10);
     auto ro = parse_rts({buf, n});
     CHECK(ro.has_value());
     if (ro) { CHECK(ro->addr_len == 1); CHECK(ro->mobile_src == true);
-              CHECK(ro->src == 17); CHECK(ro->next == 42); }
+              CHECK(ro->src == 17); CHECK(ro->next == 42);
+              CHECK(rts_flight_identity_equal(ro->id, ri.id)); }
 
     // RTS marks default clear (backward-compat)
     rts_in ri0{}; ri0.leaf_id=4; ri0.src=17; ri0.next=42; ri0.ctr_lo=3; ri0.dst=42; ri0.payload_len=1;
-    n = pack_rts(ri0, buf); CHECK(n == 7);
+    ri0.id=uid_plain(17, 0x0103);
+    n = pack_rts(ri0, buf); CHECK(n == 10);
     auto ro0 = parse_rts({buf, n});
     CHECK(ro0.has_value());
     if (ro0) { CHECK(ro0->addr_len == 0); CHECK(ro0->mobile_src == false); }
 
-    // addr_len=2 rejected: craft byte-3 with addr_len=2 in an otherwise-valid RTS -> parse nullopt
+    // addr_len=2 rejected: craft byte-3 with addr_len=2 in an otherwise-valid RTS -> parse nullopt.
+    // §hybrid-rts S1: the frame must be a VALID LENGTH (10 B) or the case would pass on the length alone.
     buf[0] = wire::cmd_byte(wire::Cmd::R, 4);
     buf[1] = 17; buf[2] = 42;
-    buf[3] = static_cast<uint8_t>((3u << 4) | (2u << 1));   // ctr_lo=3 | addr_len=2
+    buf[3] = static_cast<uint8_t>((3u << 4) | (1u << 1));   // ctr_lo=3 | addr_len=1
     buf[4] = 42; buf[5] = 0; buf[6] = 1;
-    CHECK_FALSE(parse_rts({buf, 7}).has_value());
+    buf[7] = 17; buf[8] = 0x01; buf[9] = 0x03;
+    CHECK(parse_rts({buf, 10}).has_value());               // ★ POSITIVE CONTROL
+    buf[3] = static_cast<uint8_t>((3u << 4) | (2u << 1));   // ctr_lo=3 | addr_len=2
+    CHECK_FALSE(parse_rts({buf, 10}).has_value());
 
     // ACK: mobile_to round-trips, and warn stays independent
     ack_in ai{}; ai.ctr_lo=3; ai.budget_hint=1; ai.snr_bucket=2; ai.to=42; ai.warn=true; ai.mobile_to=true;

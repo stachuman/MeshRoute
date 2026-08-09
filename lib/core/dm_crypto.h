@@ -49,4 +49,85 @@ void dm_seal(uint8_t* ct, uint8_t tag[DM_TAG_LEN], const uint8_t key[32], const 
                            const uint8_t* aad, size_t aad_len,
                            const uint8_t* ct, size_t ct_len, const uint8_t tag[DM_TAG_LEN]);
 
+// =============================================================================
+// ★★★ §hybrid-rts S1 (2026-08-08) — THE ONE UNICAST-RTS FLIGHT IDENTITY PRODUCER.
+// Design: docs/superpowers/specs/2026-08-08-hybrid-rts-flight-identity-design.md §2/§3.
+// =============================================================================
+// WHY IT LIVES HERE AND NOT IN frame_codec.cpp: the encrypted half is a BLAKE2b digest, and
+// **the codec must not own crypto** (design §3). This TU already owns the project's ONE
+// hash-then-truncate convention (`dm_kdf`, `dm_nonce` above), so the encrypted identity is
+// colocated with the canonical nonce derivation whose seed it consumes — one convention, one
+// TU, no second `crypto_blake2b` call site to drift. The plaintext half rides along because
+// "one producer per identity, one comparator" (§3) is worth more than a purity split that
+// would put two halves of one wire tail in two files. `frame_codec.h` includes this header
+// for the POD only; `frame_codec.cpp` calls NO function from it — it copies `bytes[0..width)`.
+//
+// ★ THE PROBLEM IT SOLVES, measured (design §1): the old 7-B unicast RTS identified a flight
+// only by `(immediate src, dst, ctr_lo[4], payload_len)`. Across the 36-stream corpus that
+// aliased 4 of 5 gateway/different-origin pairs (80 %) and 6.1 % overall, because peer send
+// counters are CORRELATED, not independent. Two different messages produced BYTE-IDENTICAL
+// RTS frames, so any TERMINAL decision built on one could credit the wrong flight.
+//
+// ⛔ DO NOT "simplify" the encrypted half to an XOR/fold of the seed: that restores exactly
+//    the correlated-alias failure under a new name (design §2.2).
+// ⛔ DO NOT switch to a parameterized 4-byte BLAKE2b output. `crypto_blake2b(out, 4, ...)` is a
+//    DIFFERENT digest from `crypto_blake2b(full, 64, ...)` then prefix — BLAKE2b's output length
+//    is a parameter of its IV. The project's convention is 64-then-truncate (see dm_kdf/dm_nonce
+//    above and identity.cpp's x_secret derivation); the KAT vector in test_frame_codec.cpp pins it.
+// ⛔ DO NOT serialize the identity through a host-endian integer. The bytes go on the wire in
+//    DIGEST ORDER; that is why this is a byte array and not the `uint32_t value` the spec sketched.
+inline constexpr size_t  RTS_ID_PLAIN_LEN      = 3;      // origin | ctr_hi | ctr_lo (exact, collision-free)
+inline constexpr size_t  RTS_ID_CRYPTED_LEN    = 4;      // BLAKE2b-512(...)[:4]    (~1/2^32 conditional)
+inline constexpr size_t  RTS_ID_MAX_LEN        = 4;
+inline constexpr uint8_t RTS_ID_DOMAIN_CRYPTED = 0xE1;   // domain-separation prefix (design §2.2)
+
+// The domain is a SEPARATE field from the width even though today they are 1:1, so that a
+// plaintext and an encrypted identity can never compare equal by numeric accident, and so a
+// future third domain cannot be introduced by silently reusing a width.
+enum class RtsIdDomain : uint8_t { none = 0, plaintext = 1, crypted = 2 };
+
+struct RtsFlightIdentity {
+    uint8_t     bytes[RTS_ID_MAX_LEN] = {};   // WIRE ORDER (== digest order for `crypted`)
+    uint8_t     width  = 0;                   // 0 (absent: M/flood) · 3 (plaintext) · 4 (crypted)
+    RtsIdDomain domain = RtsIdDomain::none;
+};
+// A unicast RTS/terminal CTS REQUIRES a valid identity; an M/flood RTS and an ordinary CTS
+// REQUIRE an absent one. Both codecs enforce that pairing and fail loud (return 0 / nullopt).
+constexpr bool rts_flight_identity_valid(const RtsFlightIdentity& id) {
+    return (id.domain == RtsIdDomain::plaintext && id.width == RTS_ID_PLAIN_LEN)
+        || (id.domain == RtsIdDomain::crypted   && id.width == RTS_ID_CRYPTED_LEN);
+}
+constexpr bool rts_flight_identity_absent(const RtsFlightIdentity& id) {
+    return id.domain == RtsIdDomain::none && id.width == 0;
+}
+// THE ONE COMPARATOR (design §3). FULL width + domain — never a prefix, never a truncated tag:
+// a shorter comparison would reintroduce the probabilistic silent-loss class this design paid
+// three RTS bytes to remove (design §2.3).
+constexpr bool rts_flight_identity_equal(const RtsFlightIdentity& a, const RtsFlightIdentity& b) {
+    if (a.domain != b.domain || a.width != b.width) return false;
+    if (a.domain == RtsIdDomain::none) return false;          // "absent == absent" is NOT a match
+    for (uint8_t i = 0; i < a.width; ++i) if (a.bytes[i] != b.bytes[i]) return false;
+    return true;
+}
+
+// PLAINTEXT: the exact canonical DATA identity a relay already has. Plaintext DATA carries
+// `origin` in the clear, so the RTS reveals nothing the following DATA does not.
+RtsFlightIdentity rts_flight_identity_plain(uint8_t origin, uint16_t ctr);
+
+// ENCRYPTED: first 4 bytes of BLAKE2b-512(0xE1 | nonce_seed[8] | ctr_hi | ctr_lo | dst).
+// ★ It must NOT expose `origin` — a CRYPTED DATA seals the origin, so leaking it on the RTS
+//   would undo sealed-sender at RTS time. The nonce seed is ALREADY carried clear by the DATA
+//   trailer (`data_nonce_seed`), so both endpoints can recompute this from the frame itself.
+// ★ `ctr` + `dst` are bound so the tail cannot be replayed outside its exact flight context.
+// ⓘ `ctr` is serialized BIG-endian here (hi then lo) — deliberately matching the plaintext
+//   tail's wire order, NOT dm_nonce's little-endian `ctr`. Two different derivations, two
+//   different byte orders, both pinned by known-answer tests.
+RtsFlightIdentity rts_flight_identity_crypted(const uint8_t nonce_seed[DM_NONCE_SEED_LEN],
+                                              uint16_t ctr, uint8_t dst);
+
+// THE SINGLE ENTRY POINT the producer calls, so no call site chooses the domain by hand.
+// `crypted` is `(flags & DATA_FLAG_CRYPTED) != 0` at the one unicast RTS producer.
+RtsFlightIdentity rts_flight_identity(bool crypted, uint8_t origin, uint16_t ctr, uint8_t dst,
+                                      const uint8_t nonce_seed[DM_NONCE_SEED_LEN]);
+
 }  // namespace MESHROUTE_NS

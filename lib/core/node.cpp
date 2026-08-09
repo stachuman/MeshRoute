@@ -1133,6 +1133,22 @@ uint8_t Node::count_direct_neighbors() const {
 // RTS/CTS/ACK fly on the routing SF (lengths 8/4/4, Lua timing); DATA flies on the most-robust data SF (max_data_sf)
 // and includes the cts_to_data_gap (the SF-retune delay between CTS and DATA). DATA payload = the rolling mean of what
 // we pass (_dm_payload_mean), bootstrapped to gateway_herd_assumed_payload_bytes until the first DATA sample lands.
+//
+// ✖ KNOWN UNDER-ESTIMATE, DELIBERATELY LEFT — [[B158]] site 2, MEASURED 2026-08-08 (§B158-EXCHANGE-ARM):
+// the RTS term below prices a PHANTOM 8-byte RTS against a live 10-B plaintext / 11-B crypted unicast wire
+// (§HYBRID-RTS-S1). It is NOT fixed here, and the reason is measurement, not oversight:
+//   · Only ONE consumer can ever act on it — the herd-jitter cap in gateway_schedule_base_defer_ms(), which is
+//     jmax = best_window - 2*exchange_airtime_ms() whenever that binds before gateway_herd_jitter_max_pct.
+//     The OTHER consumer, gateway_spread_nibble() below, is SATURATED at 15 in every corpus scenario that has a
+//     herd at all (measured off the beacon wire), so a larger estimate cannot move it.
+//   · ⇒ the sign is INVERTED from intuition: a LARGER (more accurate) estimate SHRINKS the jitter cap and packs
+//     the herd MORE tightly, it does not spread it wider.
+//   · 35 of the 36 corpus scenarios are BYTE-IDENTICAL for every RTS length from 7 to 16; the sole sensitive row
+//     is s16_dense_gateway, and there the response is CHAOTIC and NON-MONOTONE (deliveries 56/56/60/56/70/55 at
+//     lengths 7/8/10/11/13/15). No pricing is attributable, so none was adopted (C2's sibling: do not "fix" a
+//     constant when the measurement cannot tell the fix from the noise).
+// ⇒ if this is ever retuned, it must be retuned as a herd-spread DESIGN decision with s16 as the instrument, not
+// as a byte-count correction. Full evidence: simulation/BASELINE.md §B158-EXCHANGE-ARM.
 uint32_t Node::exchange_airtime_ms() const {
     const uint8_t  dsf     = max_data_sf() ? max_data_sf() : _cfg.routing_sf;   // no data SF -> routing as a fallback
     const uint16_t payload = _dm_payload_mean ? _dm_payload_mean : protocol::gateway_herd_assumed_payload_bytes;

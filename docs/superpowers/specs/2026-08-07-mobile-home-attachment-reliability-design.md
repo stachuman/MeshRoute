@@ -4,7 +4,72 @@
 6.2–6.4, 7.1–7.2, 8, 9.1, 9.4, 10, 11, 12, 13 rewritten in place — the superseded formulations are gone, not
 annotated)
 
-**Status:** proposed design; no implementation is claimed  
+**Status: ⏸ PARKED 2026-08-08 BY OWNER INSTRUCTION, PARTLY IMPLEMENTED — S0–S4b LANDED (uncommitted), S5–S6 NOT
+STARTED.** ⛔ *"proposed design; no implementation is claimed"* — the original status line — **is WITHDRAWN as of
+2026-08-08; it is false.** Work moved to
+[`2026-08-08-hybrid-rts-flight-identity-design.md`](2026-08-08-hybrid-rts-flight-identity-design.md).
+
+> ## ⏸ PARKING RECORD — what is DONE, what is NOT, and what is OWED
+>
+> ⚠⚠ **ALL OF IT IS UNCOMMITTED AND INTERLEAVED IN THE WORKING TREE WITH THE B153/hybrid-RTS work.** HEAD is
+> `23181dd`. **Nothing below is committed** (D4 — the owner commits). ⇒ **A future session must not assume a clean
+> tree, and must not "restore" any of this from HEAD** — it is not there.
+>
+> ### ✅ LANDED (each gated: native + s18/corpus + probes; board sweeps per the owner's per-slice rulings)
+> - **S0 — red reproductions.** Five characterization tests pinning the five defects, **each mutation-proven capable
+>   of failing** (a green suite would otherwise have proved nothing). ★ Method precedent: they are labelled as pinning
+>   a defect and **must be rewritten in place, never deleted** (B101), by the slice that fixes each one.
+> - **S1 — admission boundary.** DISCOVER/OFFER/CLAIM response timing anchored to **accepted transmitter handoff**
+>   (`LbtKind::mobile_discover` / `mobile_claim` / `mobile_offer`), `mobile_offer_tx` split into
+>   **`mobile_offer_scheduled`** (staged) + **`mobile_offer_tx`** (admitted) + **`mobile_offer_dropped`**, and **B142's
+>   monotonic `_mobile_attach_gen`** closing an ABA hole where a stale completion consumed newer state.
+>   ★ Key measured fact: **`tx_initiating` returns `true` for a DEFERRED frame** — a return-value test cannot detect
+>   admission failure. **QA-approved.**
+> - **S2 — keyed pending-OFFER scheduler.** `cap_pending_mobile_offers = 8` (⛔ **never aliased to
+>   `cap_mobile_offers`**, which stays mobile-side), a **node-global** ring, **timer 80 as a deadline scan** with
+>   **`kCap` still 91** (zero free timer ids), and **B137's pending-id reservation** so four concurrent OFFERs propose
+>   four unique ids. Plus **B145** (same-millisecond OFFER burst), **B146** (deferred rejection uncounted),
+>   **B147** (a CLAIM taking another mobile's reserved id, and its ordering hole). **QA-cleared.**
+> - **S3 — the jitter-only re-anchor.** Four draw sites, one shared helper: boot jitter (autoregister only), §5.4 CLAIM
+>   de-sync, §5.2 equal jitter on the no-host retry, and the admission-rejected retry. ★ **Measured invariant:
+>   `moved ⟺ the scenario has ≥1 autoregistering mobile`, 8/8 and 28/28** — including **7 rows that carry mobiles with
+>   `autoregister=false` and did NOT move**, which is the sharp half of the zero-draw proof.
+> - **S4 + S4b — the confirmed attachment FSM.** The **three planes** (attachment · **home link** · mesh service) with
+>   independent link states and a **confirmation age**; `_presence_reg_confirmed` and `presence_claim_max_retries` made
+>   load-bearing (they were 2-writes/0-reads and 0-consumers); **`registered:true` moved to a matching chosen-home
+>   roster** (a companion-contract change, documented); the **short SEARCHING solicitation probe** (first ask ~120 s →
+>   **~3 s**; a claim-less home is *required* to ignore a SELECTED probe, which is why the old path could not detect a
+>   lost CLAIM); **B139** fixed; `mobile unregister`; the 64-bit confirmation age; §10 diagnostics.
+>   ⚠ **QA accepted S4b's LOGIC but blocked its INTEGRATION GATE on B153** — which is why the work parks here.
+>
+> ### ⛔ NOT STARTED
+> - **S5** — candidate monitoring and lifecycle: passive collection, degraded/lost-only searching, freshness +
+>   bidirectional verification, **"adequate before optimal"** switching, direct **and redirect** physical expiry at
+>   `mobile_liveness_ms`, and the **returning-mobile / local-id-reuse** recovery (§9.4's eight-step native test).
+> - **S6** — product integration: fresh-config default, companion status, Heltec states/commands, simulations, docs.
+>
+> ### ⚠ OWED WHEN THIS UNPARKS — do not rediscover these
+> - ★★ **The owner's single re-anchor ruling on the 8 mobile movers** (the same 8 rows throughout S1–S4b; **`s18` never
+>   moved for them**). The `^### 36/36 corpus` anchor table was deliberately **left unedited**. ⚠ **The hybrid-RTS work
+>   will move `s18` and much more**, so the two re-anchors must stay **causally separable** — attribute the mobile-plane
+>   8 to S1–S4b, never absorb them into the RTS re-anchor.
+> - **B151** — §12.2's simulation scenarios were **never written** (the 4-mobile late-home scenario and the auto-OFF
+>   scenario). Natively covered by gates 7/9/10, but ⚠ **these are the integration scenarios that would have caught the
+>   original bench failure**, so the gap is the important kind.
+> - **B152** — §7.2's two permissively-worded link refreshers are unwired (the negative half, gate 23, is implemented).
+> - **B154** — §10's remaining two diagnostic fields, reassigned by name to **S5** in the operative §10 FIELD LEDGER.
+> - **B150** — draw site D is corpus-dark. **B144** — a sim clock-rounding artefact that makes a respace branch
+>   **structurally unreachable in simulation and reachable on metal**; the drift model hides a real device path.
+> - **B155** — the register used id **B151 twice** for two different findings; recorded, deliberately not renumbered
+>   (live citations exist).
+>
+> ### ⛔ DELIBERATELY OUTSIDE THIS SPEC (do not fold in when unparking)
+> **B159** (sliding DATA-dedup expiry — its 30 s horizon expires inside a live retry sequence) and the routing
+> **T1–T3** tuning (`peer_suspect_rts_timeouts = 1` lets one unanswered retry budget condemn a link, costing ~6
+> deliveries **before** B153 existed). Both are real, both are separately actionable, and **neither is a mobile-home
+> concern.**
+
+**Original status line (historical):** proposed design; no implementation is claimed  
 **Scope:** the mobile↔static-home attachment FSM, host OFFER scheduling, presence confirmation,
 candidate-home monitoring, hosted-row expiry, and safe return after host-side expiry. The J and P wire
 formats remain unchanged.

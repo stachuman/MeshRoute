@@ -1570,6 +1570,110 @@ would be the silent discard [[B157]] produced when an overheard forward was cred
 ⓘ A will now wait out its ACK timeout and retry in some cases where it used to stop early; that is the accepted
 cost, and it is visible as an extra `rts_tx` in A's log, not as a failure.
 
+## Part 15 — §HYBRID-RTS-S1 the 10/11-byte unicast RTS (2026-08-08)
+
+⚠⚠ **WHY THIS PART EXISTS (M2), AND IT IS THE FIRST HARD FLAG-DAY THIS BENCH SCRIPT HAS EVER CARRIED.**
+Part 14 above could say *"the wire did NOT change … no mixed-firmware hazard"*. **That sentence is now FALSE for
+anything built after §HYBRID-RTS-S1.** The unicast DM RTS is **10 bytes (plaintext) / 11 bytes (encrypted)** and
+the old **7-byte form is REJECTED OUTRIGHT — there is deliberately NO compatibility parser** (design §2.4;
+MeshRoute is not deployed, so the owner ruled a clean break over an ambiguous one). ⇒ **no automated gate can
+reach this: the simulator runs ONE build of the firmware, so a mixed fleet is structurally invisible to it.**
+⛔ No `wire_version` bump was taken, so a mixed pair does **not** refuse to join — it joins and then silently
+fails to move DMs, which is the worst of the two failure shapes and the reason this check is here.
+
+### 15.1 — ★★★ REFLASH EVERY BOARD IN THE TOPOLOGY TOGETHER — the precondition, not a test
+
+Before any bench session on post-S1 firmware: **flash every node you intend to use, and confirm each reports the
+same build.** `status` (or `ver`) on each board; write the revision into the Completion record below.
+⛔ **A single un-reflashed node is not a degraded node — it is a node whose DMs cannot be authorized at all.**
+
+### 15.2 — ★★ A MIXED PAIR FAILS IN THE PREDICTED PLACE (run ONCE, deliberately, then reflash)
+
+Worth doing exactly once so the failure signature is known to the tester rather than discovered mid-session.
+1. Board A: post-S1 firmware. Board B: pre-S1 firmware (keep one old `.uf2`/`.bin` for this).
+2. From A: `send <B> mixed-fleet-probe`.
+
+**Expected — and the point is WHICH side is silent:** B **never CTSes** (its parser sees a 10-byte frame where it
+demands 7 and returns nothing at all — no NACK, no log line), so **A retries to exhaustion and reports
+`SEND-FAILED`**. In A's log: repeated `rts_tx`, **zero** `cts_rx`.
+3. Now reverse it — from B: `send <A> reverse-probe`. **Expected:** A never CTSes (its parser rejects B's 7-byte
+   RTS), B reports `SEND-FAILED`.
+⛔ **FAILURE SHAPE THAT MATTERS MORE THAN THE ABOVE:** if either side *does* complete the DM, the compatibility
+parser this design forbids exists somewhere — report it, because it means frame length has stopped being the
+plaintext/encrypted discriminator.
+★ Then reflash B and confirm 14.1 passes again. **Beacons, joins, channel floods and M-broadcasts are UNAFFECTED**
+(9 B and 43 B are byte-identical), so the two boards will still see each other in `peers` — that is exactly the
+trap: **presence is not evidence of compatibility on this wire.**
+
+### 15.3 — the RTS really is 10 bytes on the air, and 11 when the DM is sealed
+
+Needs a board built with the decoded frame trace (`trace on`), or a third board as a passive listener.
+1. Two post-S1 boards. `trace on` on the listener/receiver.
+2. `send <B> plain` → the RTS line must show a **10-byte** frame.
+3. With keys exchanged (`reqpubkey`, then `cfg set e2e_dm on` or `send <B> sealed -e`) → the RTS must show an
+   **11-byte** frame.
+**Expected:** exactly those two lengths, never 7, never 8, never 12. ⓘ **This is the ONE check that exercises the
+encrypted 11-byte arm against a real radio: the simulator corpus produces only TWO 11-byte RTS frames in all 36
+scenarios, so metal is effectively its primary evidence.**
+
+### 15.4 — the CTS-wait grew, and only the NO-RESPONSE path should feel it
+
+`cfg set sf 12` (or your highest routing SF) and `cfg set bw 62500` if available — the PHY where the correction is
+largest. Send to an **absent** destination id that has a stale route, so the RTS goes unanswered.
+**Expected:** the retry cadence is measurably SLOWER than pre-S1 by roughly the per-PHY figure — **+1049 ms per
+attempt at SF12/BW62.5 k/CR4/8 for a sealed DM, +20 ms at SF8/BW125 k, and +0 ms at several PHYs where the extra
+bytes fall in the same LoRa symbol bucket.** ⓘ **A recording, not a pass/fail** — write down the observed gap.
+⛔ A SUCCESSFUL exchange must show **no** change: an ordinary CTS cancels the wait the moment it arrives.
+
+### 15.5 — ⛔⛔ SUPERSEDED BY §HYBRID-RTS-S2 (2026-08-08): the terminal `RCVD` CTS is now PRODUCED
+
+⚠ **Read Part 16 instead.** S2 restored the emitter, so a `CTS` carrying `RCVD` is now EXPECTED on an exact
+retry of a completed flight and is no longer evidence of a stale build. The paragraph below is retained because
+it is the ONLY record of what the marker meant between §B153 and §S2, and because its length note still holds:
+a terminal CTS is exactly 6 B (plaintext) or 7 B (encrypted) and carries no NAV byte.
+
+### 15.5 (historical) — the terminal `RCVD` CTS must still NEVER appear
+
+★ Unchanged from 14.1's note and re-stated because the codec now *can* build one: `already_received` has **zero
+producers** in S1. A `CTS` carrying the `RCVD` marker — at ANY length — means either a pre-§B153 peer or that S3
+has landed. **Report it either way.**
+
+## Part 16 — §HYBRID-RTS-S2 the FIRST 6/7-byte frame ever to fly (2026-08-08)
+
+⚠ **WHY THIS PART EXISTS (M2), stated narrowly so it does not become a re-test of the corpus.** The simulator
+already proves the *behaviour* (36/36 green, 202 terminal CTS frames, 691 → 728 deliveries), so none of that
+belongs here. What NO automated gate can reach is the **radio**: §HYBRID-RTS-S1 built the terminal CTS codec but
+gave it ZERO producers, so **until S2 no MeshRoute node had ever transmitted a 6- or 7-byte frame.** Every other
+control frame this firmware airs is 3, 4, 9, 10, 11 or 43 bytes. A LoRa PHY can behave differently at a new short
+length (preamble/CRC/implicit-header interactions, and the SX1262 FIFO/IRQ path at a length nothing has exercised),
+and the simulator models none of that.
+
+### 16.1 — ★★ A LOST-ACK RETRY COMPLETES ON A 6-BYTE CTS, WITH NO SECOND DATA
+
+1. Two boards, A and B, both post-S2, one hop apart, `nav` ON (the default).
+2. From A: `send <B> terminal-cts-probe`. Confirm normal delivery on B.
+3. Force the ACK loss: the cheapest reliable way is to power B's radio down for ~1 s **immediately after** B logs
+   `data_rx` (or simply repeat the send while B is momentarily shielded). A must time out and retry the RTS.
+
+**Expected on A:** a second `rts_tx` followed by `cts_rx`, then **NO `data_tx` for that ctr** and the send
+completes. **Expected on B:** a `cts_tx` carrying `already_received` and **no second `data_rx`, no second
+`delivered`** — the payload reaches the app exactly once.
+⛔ **The failure that matters is not "it didn't optimise" — it is A sending the DATA again and B DELIVERING IT
+TWICE.** Record the app-side count, not just the log lines.
+
+### 16.2 — ★ THE ENCRYPTED ARM, BECAUSE IT IS THE ONE THE CORPUS CANNOT SEE
+
+The 7-byte terminal CTS is **corpus-dark**: all 429 measured cache hits are plaintext (§HYBRID-RTS-S2 (3)).
+Repeat 16.1 with a sealed DM (`send -e`, both boards holding each other's authoritative pubkey). Expect the same
+shape, and confirm the CTS on A is **7 bytes** rather than 6 if you have a frame length in the log.
+
+### 16.3 — ⓘ WHAT IS **NOT** OWED HERE, so nobody adds it
+
+- The mixed-fleet flag day is **Part 15's**, unchanged: S2 alters no frame FORMAT, only which frames get produced.
+- RAM: `sizeof(Node)` grows **+296 bytes per layer** (a 12-slot completed-flight cache plus 8 bytes of `PendingRx`).
+  That is a **build** figure, not a bench check — but the board sweep is still OWED and no board RAM number has
+  been measured, so watch for an allocation failure at boot on the tightest env until it has been.
+
 ## Completion record
 
 - Firmware revision tested: `________________`

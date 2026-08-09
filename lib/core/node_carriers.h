@@ -13,6 +13,9 @@
 #endif
 #include <cstdint>
 #include "protocol_constants.h"
+// §hybrid-rts S2: the flight-identity POD only (`RtsFlightIdentity` + its ONE comparator). dm_crypto.h itself
+// depends on nothing but <cstdint>/<cstddef>, so this keeps the header's "no Node/frame_codec deps" property.
+#include "dm_crypto.h"
 
 namespace MESHROUTE_NS {
 
@@ -395,8 +398,28 @@ struct PendingTx {                   // the in-flight sender state (one per node
 // enqueue_time_ms, next_attempt_ms) is applied by the caller AFTER. When you add a shared field to
 // BOTH TxItem and PendingTx, add its copy HERE (the single update point).
 //   Shared core copied: origin, dst, ctr_lo, ctr, flags, type, inner[+inner_len], nonce_seed[8],
-//   is_forward(<-has_previous_hop)/previous_hop, is_gw_relay, fwd_remaining, fwd_committed.
+//   is_forward(<-has_previous_hop)/previous_hop, is_gw_relay, fwd_remaining, fwd_committed,
+//   addr_len, mobile_src, plane.
 //   NOT copied (site meta, set by the caller): requeue_count, enqueue_time_ms, next_attempt_ms.
+// ★★ §B160 (2026-08-08) — HOW A FIELD WAS FORGOTTEN ANYWAY, AND WHY THE COMMENT ABOVE IS PART OF THE CAUSE.
+// `plane` was added to BOTH carriers by Wave 2 and copied at the OTHER end of the round trip (issue_send,
+// node_mac.cpp:937 `pt.plane = item.plane`) — but never here. So every requeue resurrected the flight as
+// `Plane::AUTO`, and AUTO dispatches by `is_team_peer(dst)` (node.h:308): a GLOBAL flight whose dst numerically
+// collides a teammate's team id came back as a TEAM flight — routed on `_rt_team`, and aired by tx_rts_retry
+// (node_mac.cpp:1078) with `addr_len=1 / mobile_src=1 / src=team_local_id()`. That is EXACTLY the §team-parity
+// T8 class (a static-plane flight wearing team-plane wire marks, breaching A2/I2), re-entering through the
+// requeue door after T8 closed the origination door.
+// ★ U2 IS A PROMISE, AND A PROMISE NOT KEPT IS WORSE THAN NO PROMISE. This header's own claim to be "the single
+// update point" is what stopped anyone re-deriving the field list: a reader who trusts the claim audits the
+// PROSE, not the struct. ⇒ when you add a shared field, DERIVE the set from `struct TxItem` / `struct PendingTx`
+// and diff it against the assignments below — never against this comment. Three shared-by-name fields are STILL
+// not copied here on purpose or by open defect, and only the struct diff will tell you which is which:
+//   requeue_count, enqueue_time_ms  — site meta, deliberate (every caller sets them; see the list above).
+//   flood / hop_left / flood_bitmap, and the semantic twin is_channel_m <- m_broadcast — OPEN, registered as
+//     §B160-SIB in the bug register. Left alone here under C1 (this slice is the `plane` fix, not a second
+//     behaviour change): an M/FLOOD flight sets awaiting_cts=awaiting_ack=false (node_mac.cpp:861) so it cannot
+//     reach the two timeout requeue sites at all, and the third (the long-busy NACK arm) is reachable only via
+//     a ctr_lo-aliased NACK on metal. Do NOT "just add them" without the test that proves the path.
 static inline TxItem txitem_from_pending(const PendingTx& pt) {
     TxItem it{};
     it.origin = pt.origin; it.dst = pt.dst; it.ctr_lo = pt.ctr_lo; it.ctr = pt.ctr;
@@ -408,6 +431,9 @@ static inline TxItem txitem_from_pending(const PendingTx& pt) {
     it.is_gw_relay = pt.is_gw_relay;                                     // a requeued cross-layer relay keeps RTS_FLAG_RELAY
     it.fwd_remaining = pt.fwd_remaining; it.fwd_committed = pt.fwd_committed;   // carry the hop budget across the requeue
     it.addr_len = pt.addr_len; it.mobile_src = pt.mobile_src;            // §mobile 3a: a requeued last-mile forward keeps the mobile marks
+    it.plane = pt.plane;                                                 // ★★ §B160: the addressing PLANE — without it a requeue resurrects
+                                                                         // the flight as AUTO, so a GLOBAL flight to a team-colliding dst
+                                                                         // comes back a TEAM flight (the T8 class via the requeue door)
     return it;
 }
 // §clean-join-carriers (2026-07-27, owner ruling) — THE ONE definition of "dropping this carrier strands an app
@@ -444,6 +470,20 @@ struct PendingRx {                   // the receiver state awaiting DATA (one pe
                                      // if the DATA is NOT a DATA_TYPE_E2E_ACK the sender lied -> flag it (e2e_ack_spoof).
     bool     mobile_from = false;    // §mobile: the RTS was mobile_src -> `from` is a home-assigned LOCAL id, NOT a global
                                      // identity -> the DATA-time learn (node_mac_rx.cpp) MUST NOT install it in the static _rt.
+    // ★★★ §hybrid-rts S2 (2026-08-08) — the plane the RTS DECLARED ON THE WIRE, `rts_wire_team_plane(r)`
+    // (frame_codec.h) = `(addr_len == 1 && mobile_src)`. ⛔ NOT `team_addr_for_us(...)`, which is receiver-relative
+    // ADDRESS admission and can be TRUE at the same time as `for_static_rts` on a host's `(1,0)` last-mile to a
+    // hosted mobile whose local id collides with a team member's `_team_local_id`. Storing whichever predicate
+    // matched would make the stored plane depend on WHO is listening; the wire declaration does not.
+    // Consumed at DATA time (stored TEAM requires `for_team_data`, stored STATIC/GLOBAL requires `for_static_data`)
+    // and echoed on the terminal CTS. Placed with the other two bools so it lands in the SAME run.
+    bool     wire_team_plane = false;
+    // ★★★ §hybrid-rts S2 — THE FLIGHT IDENTITY THE RTS CARRIED (dm_crypto.h; 3 B plaintext / 4 B crypted + its
+    // domain). MANDATORY on every admitted unicast RTS — `parse_rts` cannot return a unicast frame without one.
+    // The DATA that follows is validated against it (`handle_data`), and only a MATCH may deliver, ACK or seed the
+    // completed-flight cache. ⛔ Never compared by prefix: `rts_flight_identity_equal` is the ONE comparator and
+    // it is full-width + domain.
+    RtsFlightIdentity id{};
 };
 struct PostAck {                     // deferred deliver/forward after the ACK airtime
     bool     pending = false;
@@ -477,6 +517,25 @@ struct PostAck {                     // deferred deliver/forward after the ACK a
 // reason recorded at `already_received` in frame_codec.h: a 7-B RTS cannot prove message identity, so no
 // terminal answer may be derived from one. The DATA-level `_seen_origins` dedup is the sole authority and
 // needs no per-hop cache. ⛔ Do not reintroduce either.
+// ⚠ SUPERSEDED IN PART BY §hybrid-rts S2 (2026-08-08), and the distinction is the whole point: `CompletedFlight`
+//   below is NOT `LastAcked` restored. LastAcked was keyed `(src<<24|dst<<16|ctr_lo<<8|len)` — a 4-bit counter and
+//   a LENGTH, which is precisely the key that could not tell a retry of A from a first attempt of B. The new
+//   record is keyed by the FULL wire identity the 10/11-B RTS now carries, plus the wire-declared plane and the
+//   identity's DOMAIN. Its TTL is derived (`completed_flight_cache_ttl_ms`), not the retired 10 s literal.
+// ★★★ §hybrid-rts S2 — ONE COMPLETED FLIGHT, i.e. "I have already received, ACKed and adjudicated this exact
+// message from this exact immediate sender". The cache match is the COMPLETE tuple (design §4.3):
+//     immediate sender | dst | team/static plane | plaintext/encrypted domain | full identity
+// ⛔ `from` is the ON-AIR immediate sender — the RTS's own `src`, carried through `PendingRx::from`. It is NEVER
+//    `meta.src_hint`: that is the simulator's PHY oracle (-1 on hardware) and keying state from it was [[B156]]'s
+//    sim/metal divergence. ⛔ `payload_len` is deliberately ABSENT: it is a frame-consistency/NAV field and was
+//    never identity (design §2.4). Adding it back "for safety" would re-create a length-shaped identity.
+struct CompletedFlight {
+    uint64_t          expiry_ms = 0;      // absolute; 0 == EMPTY slot (a live entry always has expiry > 0)
+    RtsFlightIdentity id{};               // domain + width + bytes — compared ONLY via rts_flight_identity_equal
+    uint8_t           from = 0;           // the on-air immediate sender (RTS src)
+    uint8_t           dst  = 0;
+    bool              team_plane = false; // the WIRE-declared plane (rts_wire_team_plane), never a receiver predicate
+};
 // Slice 3e.2: a learned gateway window schedule (from a heard gateway beacon's schedule_record block). The sender
 // times its RTS to the gateway with gateway_schedule_defer_ms: visit_start = heard_ms + rec.offset_ms (NO shared
 // wall clock — anchored to the heard instant); phase = (now - visit_start) mod period.

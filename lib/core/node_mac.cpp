@@ -899,7 +899,13 @@ void Node::tx_m_broadcast_rts() {
     }
     rin.next = pt.next; rin.dst = pt.dst; rin.rts_flags = RTS_FLAG_M_BROADCAST;
     rin.m_payload_id_lo16 = static_cast<uint16_t>((pt.inner[2] << 8) | pt.inner[3]);   // low-16 of the BE id
-    uint8_t buf[11];                                            // RTS(8) + id_lo16(2)
+    uint8_t buf[11];                                            // ⓘ 9 B is written (RTS base 7 + id_lo16 2); the
+                                                                // buffer is deliberately oversized. ⛔ CORRECTED
+                                                                // 2026-08-08 (§hybrid-rts S1, V1): this comment
+                                                                // read "RTS(8) + id_lo16(2)" — the SAME phantom
+                                                                // 8-byte RTS that start_rts_timeout priced. The
+                                                                // M-broadcast RTS base is 7 B, and pack_rts
+                                                                // writes exactly 9.
     const size_t l = pack_rts(rin, std::span<uint8_t>(buf, sizeof(buf)));
     if (l == 0) { _hal.log("M-broadcast RTS pack failed"); return; }
     MR_EMIT("rts_tx", EF_I("dst", pt.dst), EF_I("next", pt.next), EF_I("ctr", pt.ctr));
@@ -1067,26 +1073,93 @@ void Node::tx_rts_retry() {
     // legitimate team relay. MEASURED reachable, seam-free, before the fix: `_rt[55].next = 238` (a plain non-mobile
     // beacon) + `_team_peer[238]` (a later team beacon from the same id — the §18/I9 collision, or a live is_mobile /
     // team_id config change) => a GLOBAL `send 55` aired `RTS src=93 next=238 dst=55 addr_len=1` with inner origin 17.
-    const bool team_next = (pt.addr_len == 0 && is_team_peer(pt.next)
-                            && flight_is_team_plane(pt.plane, pt.dst));   // §6.4: routing/forwarding to a team peer -> OUR src is a team LOCAL id
-    rin.addr_len   = team_next ? 1 : pt.addr_len;
+    // ★ §hybrid-rts S2 — the three marks now come from the ONE producer `rts_wire_marks` (node_mac.cpp, below this
+    // function). The expression it holds is the §team-parity T8 predicate VERBATIM; the second consumer is the
+    // sender-side terminal-CTS echo comparison in `handle_cts`, which must compare the plane this RTS DECLARED.
+    const RtsWireMarks marks = rts_wire_marks(pt);
+    const bool team_next = marks.team_src;
+    rin.addr_len   = marks.addr_len;
     // §6.4: mark the src a LOCAL id when it is one — a registered mobile (pt.mobile_src) OR a team-plane send (team_next; an
     // off-grid team member's node_id IS its team local id). Team DMs previously carried mobile_src=0 (only addr_len=1), so the
     // mobile_src-keyed guards (learn/anti-spam node_mac_rx :40/:47, the receiver's mobile_from, the ACK's mobile_to) MISSED
     // them -> a team local id leaked into the static _rt/ledger. This closes it uniformly. Non-team/static flight -> 0 -> identical wire.
-    rin.mobile_src = pt.mobile_src || team_next;
+    rin.mobile_src = marks.mobile_src;
     if (team_next) rin.src = team_local_id();   // §6.4: team-plane RTS src = OUR team local id, NOT _node_id (a static node_id may collide across teammates; off-grid team_local_id==node_id -> no-op)
     // e2e-ack backstop exemption (2026-07-02): mark the RTS so the 1st-hop backstop skips its DROP for this ack (an ack
     // must never be throttled — a throttled ack -> re-send -> more traffic). Verified at DATA-time (anti-spoof). Duty still binds.
     if (pt.type == DATA_TYPE_E2E_ACK) rin.rts_flags |= RTS_FLAG_E2E_ACK;
     rin.payload_len = static_cast<uint8_t>(pt.inner_len + data_mac_len(pt.flags)); rin.m_payload_id_lo16 = 0;  // +8 under CRYPTED (nonce-seed)
-    uint8_t buf[9];
+    // ★★★ §hybrid-rts S1 — THE ONE PLACE A UNICAST RTS IDENTITY IS PRODUCED, because this is the ONE unicast
+    // RTS producer (S0 proved it: every origin, relay, last-mile, requeue and cross-layer reinject path reaches
+    // the wire through here, via `issue_send`). RECOMPUTED from the flight's own canonical DATA fields on every
+    // attempt rather than cached in a carrier — that is design §3's "prefer recomputing over copying a
+    // redundant tag through every carrier", and it makes retry stability true BY CONSTRUCTION: the inputs
+    // (`origin`/`ctr`/`dst`/`nonce_seed`) are exactly the fields `txitem_from_pending` already preserves across
+    // a requeue, so a retried or requeued flight reproduces identical bytes with nothing to forget.
+    // ⚠ NO CARRIER CHANGE WAS NEEDED and none was made: all four inputs are already members of BOTH TxItem and
+    //   PendingTx and are already copied by the single conversion (U2).
+    // ★★★★ §hybrid-rts S2 (2026-08-08) — **THE PLAINTEXT IDENTITY'S `origin` IS THE BYTE THE DATA WILL EXPOSE,
+    // NOT `pt.origin`, AND THIS CORRECTION WAS FORCED BY MEASUREMENT.** S1 fed `pt.origin` here. The receiver can
+    // only recompute from what the frame carries — `parse_unicast_inner(inner, flags)->origin` — and for the TYPED
+    // frames that build a RAW inner (`DATA_TYPE_AUTHORITATIVE_H_ANSWER` and `DATA_TYPE_MOBILE_H_ANSWER`, whose inner
+    // is a bare `hash_bind_inner` with NO `[origin]` prefix) those two are DIFFERENT: the originator's carrier says
+    // `_node_id` while the frame's first inner byte is `target_layer`. Measured on the corpus with the validation in
+    // census-only mode: **69 of 4 949 plaintext DATA receptions (1.39 %) disagreed, and every single one was type 2
+    // (57) or type 8 (12)** — no other type, and ZERO plane disagreements. With `pt.origin` here, S2's fail-loud
+    // path would have dropped all 69 hash-bind answers. Registered as [[B161]].
+    // ⇒ BOTH ENDS NOW READ THE SAME FIELD, so the identity is FRAME-DERIVED and symmetric by construction.
+    // ⛔ AND THE FALLBACK IS `0`, DELIBERATELY, NOT the RTS `src`: `handle_data`'s `origin` local falls back to
+    //    `from`, which PREFERS `meta.src_hint` — the simulator's PHY oracle, which carries a homed teammate's STATIC
+    //    id rather than the `team_local_id` the frame aired. Binding the identity to that would be a [[B156]]-class
+    //    sim/metal divergence. A frame whose inner exposes no origin (an empty typed inner) therefore identifies as
+    //    `(0, ctr)` on both sides — still bound to the full 16-bit ctr and to the cache's (sender, dst, plane) key.
+    // ⓘ A relay is unaffected either way: it already copies the DATA-exposed origin into its own carrier
+    //    (`_post_ack.origin` -> `TxItem::origin`), so only the ORIGINATOR of a raw-inner typed frame ever diverged.
+    rin.id = flight_identity(pt);   // ⇐ the ONE producer (below) — never inline this derivation again
+    uint8_t buf[11];                                     // §hybrid-rts S1: 10 B plaintext / 11 B crypted
     const size_t l = pack_rts(rin, std::span<uint8_t>(buf, sizeof(buf)));
     if (l == 0) { _hal.log("RTS pack failed"); return; }
     MR_EMIT("rts_tx", EF_I("dst", pt.dst), EF_I("next", pt.next), EF_I("ctr", pt.ctr));   // emit at the call site (before the LBT defer, dv-faithful)
     // R4.5: the actual TX + start_rts_timeout go through the LBT wrapper (defer if the channel is busy). RX stays
     // on routing_sf. lbt_enabled=false (every gate) -> straight TX + timeout, byte-identical.
     tx_initiating(buf, l, static_cast<int16_t>(_cfg.routing_sf), LbtKind::rts, pt.flight_gen);
+}
+
+// ★★★ §hybrid-rts S2 (2026-08-08) — THE ONE PRODUCER OF A UNICAST RTS's WIRE ADDRESSING MARKS.
+// Extracted VERBATIM from `tx_rts_retry` above (the `team_next` / `addr_len` / `mobile_src` triple, whose long
+// §team-parity T8 argument stays there beside the pack). It exists because S2 added a SECOND consumer:
+// `handle_cts`'s terminal-CTS echo must compare the PLANE THIS SENDER DECLARED ON THE WIRE, and that plane is
+// `rts_wire_team_plane(marks.addr_len, marks.mobile_src)` — not `is_team_peer(next)`, not the flight's `Plane`
+// enum, and not anything receiver-relative. Re-deriving `team_next` at that site would have forked the T8
+// predicate into two copies that can drift (U1); this keeps ONE.
+// ⚠ It reads LIVE node state (`is_team_peer`, `flight_is_team_plane`), so a role/peer change between the RTS and
+//   its CTS re-derives the CURRENT answer — which is exactly what a retry of the same flight would air anyway.
+// ★★★★★ §hybrid-rts S2 (2026-08-08) — THE ONE PLACE A PENDING FLIGHT'S IDENTITY IS DERIVED, and it exists
+// because the FIRST draft of S2 did NOT have it and the corpus caught the consequence within one run.
+// ⛔ THE DEFECT THIS CLOSES, recorded because it is the arc's own recurring shape: `tx_rts_retry` derived the
+//    plaintext origin from the flight's INNER (see below) while `handle_cts`'s terminal-echo comparison derived
+//    it from `pt.origin`. Those two disagree for exactly the frames [[B161]] is about — and the corpus showed it
+//    as **40 `cts_terminal_mismatch` refusals** across `s15`/`s15_metal`/`s27`, a retry deadlock in which the
+//    receiver kept answering terminally and the sender kept refusing its OWN flight's echo. Two derivations of
+//    one identity is exactly the U1 failure the design's "one producer, one comparator" rule names.
+// ★ THE RULE: the plaintext identity's `origin` is **the byte the DATA will EXPOSE** — `parse_unicast_inner`'s
+//   `origin` over this flight's own inner, which is byte-for-byte what the receiver parses (`do_data_tx` airs
+//   `pt.inner` verbatim). `pt.origin` is the CARRIER's notion and is NOT always the same byte: the typed
+//   raw-inner answers (`AUTHORITATIVE_H_ANSWER`, `MOBILE_H_ANSWER`) pack no `[origin]` prefix at all.
+// ⛔ The fallback is `0` and NOT the aired `src` — see the argument at `tx_rts_retry`'s call site ([[B156]]).
+RtsFlightIdentity Node::flight_identity(const PendingTx& pt) const {
+    const auto ui = parse_unicast_inner(std::span<const uint8_t>(pt.inner, pt.inner_len), pt.flags);
+    return rts_flight_identity((pt.flags & DATA_FLAG_CRYPTED) != 0,
+                               ui ? ui->origin : 0, pt.ctr, pt.dst, pt.nonce_seed);
+}
+
+Node::RtsWireMarks Node::rts_wire_marks(const PendingTx& pt) const {
+    RtsWireMarks m{};
+    m.team_src   = (pt.addr_len == 0 && is_team_peer(pt.next)
+                    && flight_is_team_plane(pt.plane, pt.dst));   // §6.4/§T8 — see tx_rts_retry for the full argument
+    m.addr_len   = m.team_src ? 1 : pt.addr_len;
+    m.mobile_src = pt.mobile_src || m.team_src;
+    return m;
 }
 
 // R4.5 LBT: hand an INITIATING frame to the radio, but if the channel is busy (and lbt_enabled) defer the real
@@ -1788,7 +1861,30 @@ void Node::start_rts_timeout() {
         (void)_hal.after(gap, kCtsToDataGapTimerId);                       // RTS->DATA gap fires do_data_tx (no CTS)
         return;
     }
-    const uint32_t base = airtime_routing_ms(8) + airtime_routing_ms(4);   // Lua RTS_LEN=8 + CTS_LEN=4 (timing matches Lua)
+    // ★★★ §hybrid-rts S1 item 8 / [[B158]] — THE CTS-WAIT NOW PRICES THE FRAMES THAT ACTUALLY FLY.
+    // ⛔ WHAT WAS HERE: `airtime_routing_ms(8) + airtime_routing_ms(4)` with the comment "Lua RTS_LEN=8 +
+    //    CTS_LEN=4". That priced a **phantom 8-byte RTS** for a live 7-byte wire — one byte of unearned margin,
+    //    not zero as the design supposed — and a 4-byte CTS. §hybrid-rts S1 makes the unicast RTS 10/11 B, which
+    //    overruns that at most PHYs, so leaving it would create an intermediate UNDER-TIMED protocol: the wait
+    //    could expire while the request was still on the air.
+    // ★ WHAT IT PRICES NOW: the ACTIVE request (10 B plaintext / 11 B crypted) plus the LONGEST possible
+    //   response (the 6/7-B terminal CTS), because the sender cannot know whether the receiver's completed-flight
+    //   cache will hit. An ordinary 3/4-B CTS is shorter and cancels the timer the moment it arrives
+    //   (`handle_cts` -> `_hal.cancel(kRtsTimeoutTimerId)`), so a SUCCESSFUL exchange pays nothing for this —
+    //   only the NO-RESPONSE/retry boundary moves.
+    // ⓘ PER-PHY, measured (§HYBRID-RTS-S0's 128-cell grid): +20 ms on s18's SF8/BW125k/CR5, +41 ms on s06's
+    //   SF8/BW62.5k/CR5, **+0 ms** at BW62.5k/CR5/SF10, and **+1049 ms** at the BW62.5k/CR8/SF12 worst case.
+    //   "The extra bytes fall in the same symbol bucket" is TRUE at some PHYs and FALSE at others, and the sign
+    //   is not monotone in SF — never quote one figure for the cost of three bytes.
+    // ⓘ The domain is read from the flight, so a plaintext flight is priced at 10+6 and only a CRYPTED one pays
+    //   11+7. Guarded like the `attempt` term below: no pending flight (a torn-down flight's late re-arm) prices
+    //   the CRYPTED worst case, which over-waits and therefore fails safe.
+    // ⛔ M_BROADCAST/FLOOD returned above and are UNTOUCHED; the Lua-parity RTS_LEN/CTS_LEN constants elsewhere
+    //   mean different things and are NOT folded into these helpers (design §6). S5 audits the remaining sites.
+    const bool crypted_flight = _active->_pending_tx
+                                ? (_active->_pending_tx->flags & DATA_FLAG_CRYPTED) != 0 : true;
+    const uint32_t base = airtime_routing_ms(static_cast<uint16_t>(unicast_rts_wire_len(crypted_flight)))
+                        + airtime_routing_ms(static_cast<uint16_t>(terminal_cts_wire_len(crypted_flight)));
     const uint8_t  attempt = static_cast<uint8_t>(protocol::rts_max_retries -
                               (_active->_pending_tx ? _active->_pending_tx->retries_left : 0));
     const uint32_t shift = attempt < 2 ? attempt : 2;                       // x2 backoff, cap x4

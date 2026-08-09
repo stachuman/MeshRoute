@@ -621,6 +621,33 @@ inline constexpr uint32_t gateway_layer_busy_retry_ms = 1000;
 inline constexpr uint32_t gateway_send_giveup_ms           = 150000;
 inline constexpr uint32_t gateway_doorstep_retry_jitter_ms = 2000;
 
+// ★★★ §hybrid-rts S2 (2026-08-08) — THE COMPLETED-FLIGHT CACHE'S RETENTION HORIZON, DERIVED NOT PICKED.
+// It answers "how long can the SAME flight, with the SAME identity, come back to THIS hop?" — which is not a
+// dedup question but a RETRY question, so it is bounded by the longest live requeue patience, and that is the
+// gateway doorstep hold declared immediately above.
+// ★ MEASURED (§HYBRID-RTS-S0, re-read not re-derived): `gateway_hold_requeue.age_ms` reaches **149 134 ms**
+//   over 1 175 firings and ONE flight was traced re-arriving at ONE hop **147 658 ms** after its earlier
+//   completion. The DIRECTLY measurable exact-retry set only reached 18 971 ms, and the RETIRED
+//   `last_acked_ttl_ms` (10 s, still declared above but referenced by nothing) covered just 73 of 74 of those.
+// ⛔ DO NOT re-spell this as a bare 150000: it must MOVE WITH its base. `gateway_send_giveup_ms` is the bound at
+//    which the flight is GIVEN UP rather than requeued, so nothing can legitimately re-arrive after it. A
+//    `send_giveup.age_ms` observed beyond 150 s is a LATE CALLBACK, not another requeue, and grants no extension.
+inline constexpr uint32_t completed_flight_cache_ttl_ms = gateway_send_giveup_ms;   // 150 000 ms
+// ★★★ THE ENTRY CAP, AND IT IS **MEASURED, NOT PICKED** — a FIXED PER-LAYER ARRAY (no heap, no per-peer dynamic
+// structure); a full table prunes the expired entries first and then evicts the OLDEST (min-expiry) —
+// `record_seen_origin`'s policy verbatim (U1).
+// The census ran on the S1 wire arm with the cap raised to 64 (unbounded for this corpus) and every would-be hit
+// tagged with its recency rank, so capacity k is evaluated without rebuilding once per k:
+//     4 515 stores · 429 hits · max live entries 23 globally and 12 for ONE immediate sender
+//     capacity  1 -> 324/429 hits (75.5 %)   ⛔ "one latest flight per immediate sender" is PROVEN INSUFFICIENT
+//     capacity  2 -> 393 (91.6 %) · 4 -> 418 (97.4 %) · 8 -> 424 (98.8 %)
+//     capacity 12 -> ★ 429/429 (100 %), and so is every larger capacity
+// ⇒ 12 is the SMALLEST capacity that loses no measured hit, and it exactly meets the measured per-sender maximum.
+// ⚠ AT A 150-SECOND RETENTION THE CAP IS THE BINDING CONSTRAINT, NOT THE TTL — but the TTL is load-bearing too, and
+//   that is measured on the same arm: a 10-second window keeps only 246/429 hits, 30 s keeps 349, 60 s keeps 416.
+//   Neither number may be "simplified" toward the other.
+inline constexpr uint8_t  cap_completed_flights = 12;
+
 // ★ P-BUDGET (2026-07-24, shelf item (i) — the E2E-ack DEADLINE). An app DM with DATA_FLAG_E2E_ACK_REQ is a POSITIVE-ONLY
 // receipt today: the send_e2e_acked push fires when the DATA_TYPE_E2E_ACK returns, and NOTHING fires when it never does
 // (no awaiting-ack state existed). A fixed no-heap pending-ack ring (cap_pending_e2e_acks) ARMS silently when such a send

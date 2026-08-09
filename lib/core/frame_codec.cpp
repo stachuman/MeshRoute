@@ -339,6 +339,23 @@ uint8_t parse_suspect_tlv(std::span<const uint8_t> ext, SuspectEntry* out, uint8
 // CTS — cmd=0x2, 3 B (ROADMAP §10.3)
 // -----------------------------------------------------------------------------
 size_t pack_cts(const cts_in& in, std::span<uint8_t> out) {
+    // ★★★ §hybrid-rts S1 — THE TERMINAL SHAPE (already_received = 1): 6 B plaintext / 7 B crypted, the 3-B
+    // base plus the FULL identity echo. It is a SEPARATE frame shape, not the ordinary one with a bit flipped:
+    // no NAV byte (nothing follows to reserve for) and no chosen SF (the 3 bits carry plane + reserved zeros).
+    // Every refusal below is deliberate and fail-loud (C2) — see the §hybrid-rts block in frame_codec.h.
+    if (in.already_received) {
+        if (!rts_flight_identity_valid(in.id)) return 0;   // a terminal answer MUST carry the identity it credits
+        if (in.payload_len != 0)               return 0;   // a NAV hint on a terminal CTS is a caller bug, not a value to drop
+        const size_t need = terminal_cts_wire_len(in.id.domain == RtsIdDomain::crypted);
+        if (out.size() < need) return 0;
+        wire::Writer w(out);
+        w.u8(wire::cmd_byte(wire::Cmd::C, static_cast<uint8_t>((in.team_plane ? CTS_TERM_PLANE_BIT : 0u) | 0x01u)));
+        w.u8(in.tx_id);
+        w.u8(in.rx_id);
+        for (uint8_t i = 0; i < in.id.width; ++i) w.u8(in.id.bytes[i]);   // wire == digest order; no int round-trip
+        return w.ok() ? w.size() : 0;
+    }
+    if (!rts_flight_identity_absent(in.id)) return 0;      // cross-shape: an ORDINARY CTS carries no echo
     if (in.chosen_data_sf < 5 || in.chosen_data_sf > 12) return 0;
     const bool with_pl = in.payload_len != 0;          // NAV: optional 4th byte (sender adds it iff nav_enabled)
     if (out.size() < (with_pl ? 4u : 3u)) return 0;
@@ -357,18 +374,41 @@ size_t pack_cts(const cts_in& in, std::span<uint8_t> out) {
 }
 
 std::optional<cts_out> parse_cts(std::span<const uint8_t> frame) {
-    if (frame.size() != 3 && frame.size() != 4) return std::nullopt;
+    const size_t n = frame.size();
+    // §hybrid-rts S1: {3,4} = ORDINARY (unchanged), {6,7} = TERMINAL. Everything else is malformed.
+    if (n != 3 && n != 4 && n != 6 && n != 7) return std::nullopt;
     wire::Reader r(frame);
     const uint8_t b0 = r.u8();
     if (wire::cmd_of(b0) != wire::Cmd::C) return std::nullopt;
     const uint8_t tx_id = r.u8();
     const uint8_t rx_id = r.u8();
-    const uint8_t b3 = (frame.size() == 4) ? r.u8() : 0;   // §cts-len6-cr2 NAV hint: optional 4th byte (0 => absent)
+    const uint8_t flags = wire::flags_of(b0);          // ORDINARY: (sf-5)(3) | ar(1) · TERMINAL: plane(1)|rsv(2)|ar(1)
+    const bool    ar    = (flags & 0x01) != 0;
+    // ★ THE CROSS-SHAPE REJECT MATRIX (design §2.4). LENGTH and the terminal BIT must agree, in BOTH
+    // directions: an old 3/4-B frame claiming prior receipt is refused (it cannot carry the echo that makes
+    // the claim bindable), and a 6/7-B frame that does NOT claim it is refused (its tail would be unexplained).
+    if (n >= 6) {
+        if (!ar) return std::nullopt;                              // 6/7 B without the terminal bit
+        if ((flags & CTS_TERM_RSV_MASK) != 0) return std::nullopt;  // non-canonical reserved bits
+        cts_out t{};
+        t.tx_id = tx_id; t.rx_id = rx_id;
+        t.already_received = true;
+        t.team_plane       = (flags & CTS_TERM_PLANE_BIT) != 0;
+        t.chosen_data_sf   = 0;        // ⚠ NO SF EXISTS on this shape — the sender must ignore it (design §2.3)
+        t.payload_len      = 0;        // and no NAV hint: nothing follows
+        t.cr_adv           = 0;
+        t.id.width  = static_cast<uint8_t>(n - 3);                 // FRAME LENGTH is the domain discriminator
+        t.id.domain = (t.id.width == RTS_ID_CRYPTED_LEN) ? RtsIdDomain::crypted : RtsIdDomain::plaintext;
+        for (uint8_t i = 0; i < t.id.width; ++i) t.id.bytes[i] = r.u8();
+        if (!r.ok()) return std::nullopt;
+        return t;
+    }
+    if (ar) return std::nullopt;                                   // 3/4 B WITH the terminal bit — the retired form
+    const uint8_t b3 = (n == 4) ? r.u8() : 0;              // §cts-len6-cr2 NAV hint: optional 4th byte (0 => absent)
     if (!r.ok()) return std::nullopt;
-    const uint8_t flags = wire::flags_of(b0);          // (sf-5)(3) | already_received(1)
     cts_out o{};
     o.chosen_data_sf   = static_cast<uint8_t>(((flags >> 1) & 0x07) + 5);
-    o.already_received = (flags & 0x01) != 0;
+    o.already_received = false;
     o.tx_id            = tx_id;
     o.rx_id            = rx_id;
     // §cts-len6-cr2: len6 back to a QUANTIZED-UP inner+MAC byte count (<= 63*4 = 252, fits u8); cr2 stays the
@@ -420,7 +460,13 @@ size_t pack_rts(const rts_in& in, std::span<uint8_t> out) {
     const bool flood   = (in.rts_flags & RTS_FLAG_FLOOD) != 0;     // FLOOD wins the tail (it also sets M_BROADCAST)
     const bool m_bcast = (in.rts_flags & RTS_FLAG_M_BROADCAST) != 0;
     if (flood && in.flood_bitmap.size() != 32) return 0;          // no-fallback: the 32-B bitmap must be exactly 32 B
-    const size_t need = flood ? 43 : (m_bcast ? 9 : 7);
+    // ★★★ §hybrid-rts S1 — the identity tail is UNICAST-ONLY and MANDATORY there. Both directions refuse
+    // (C2, design §2.4): a unicast RTS with no identity would be the retired 7-B ambiguous frame, and an
+    // M/FLOOD RTS carrying one would be a cross-kind shape whose length no longer discriminates anything.
+    const bool unicast = !flood && !m_bcast;
+    if (unicast  && !rts_flight_identity_valid(in.id))  return 0;
+    if (!unicast && !rts_flight_identity_absent(in.id)) return 0;
+    const size_t need = flood ? 43 : (m_bcast ? 9 : (7u + in.id.width));   // 43 · 9 · 10/11
     if (out.size() < need) return 0;
     if (in.addr_len > 1) return 0;                                 // §mobile Slice 1: 0=normal, 1=mobile-next; 2..7 hierarchy-deferred (keep the pack honest)
     wire::Writer w(out);
@@ -437,6 +483,7 @@ size_t pack_rts(const rts_in& in, std::span<uint8_t> out) {
     w.u8(in.payload_len);                                          // mod-256 enforced by uint8_t
     if (flood) { w.u32_be(in.flood_channel_msg_id); for (uint8_t b : in.flood_bitmap) w.u8(b); }  // 4 B id + 32 B bitmap
     else if (m_bcast) w.u16_be(in.m_payload_id_lo16);
+    else for (uint8_t i = 0; i < in.id.width; ++i) w.u8(in.id.bytes[i]);   // §hybrid-rts S1: wire == digest order
     return w.ok() ? w.size() : 0;
 }
 
@@ -464,12 +511,25 @@ std::optional<rts_out> parse_rts(std::span<const uint8_t> frame) {
     o.m_broadcast = (o.rts_flags & RTS_FLAG_M_BROADCAST) != 0;
     o.flood       = (o.rts_flags & RTS_FLAG_FLOOD) != 0;
     o.m_payload_id_lo16 = 0;
+    // ★★★ §hybrid-rts S1 — the length matrix is now EXACT in all three kinds, and that exactness is what makes
+    // frame length a usable domain discriminator (design §2.4). The two broadcast bounds were `< 43` / `>= 9`
+    // (tolerant of over-long and, for M, of a truncated frame that silently parsed with id 0); they are now
+    // equalities. Measured safe: the corpus census found 0 FLOOD off 43 B and 0 M off 9 B in 19 129 frames.
     if (o.flood) {                                                // FLOOD tail REPLACES the id_lo16 tail
-        if (frame.size() < 43) return std::nullopt;              // need the full 4-B id + 32-B bitmap
+        if (frame.size() != 43) return std::nullopt;             // need the full 4-B id + 32-B bitmap, exactly
         o.flood_channel_msg_id = r.u32_be();                     // bytes 7-10
         o.flood_bitmap_off     = 11;                             // bytes 11-42 (exposed via rts_flood_bitmap)
-    } else if (o.m_broadcast && frame.size() >= 9) {
+    } else if (o.m_broadcast) {
+        if (frame.size() != 9) return std::nullopt;              // 7-B base + id_lo16, exactly
         o.m_payload_id_lo16 = r.u16_be();
+    } else {
+        // UNICAST DM: 10 B => plaintext identity, 11 B => crypted digest. ⛔ A 7-B legacy frame lands HERE and
+        // is REJECTED — there is no compatibility parser (see the §hybrid-rts block in frame_codec.h).
+        if      (frame.size() == unicast_rts_wire_len(false)) { o.id.width = RTS_ID_PLAIN_LEN;   o.id.domain = RtsIdDomain::plaintext; }
+        else if (frame.size() == unicast_rts_wire_len(true))  { o.id.width = RTS_ID_CRYPTED_LEN; o.id.domain = RtsIdDomain::crypted;   }
+        else return std::nullopt;
+        for (uint8_t i = 0; i < o.id.width; ++i) o.id.bytes[i] = r.u8();
+        if (!r.ok()) return std::nullopt;
     }
     return o;
 }

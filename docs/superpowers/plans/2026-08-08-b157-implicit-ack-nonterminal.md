@@ -1,8 +1,11 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # B157 — the implicit-ACK terminal inference · dispatch brief · 2026-08-08
 
-**Status: QA-analysed, owner-relayed, NOT started.** ⛔ Written while another session was finishing **B153**; nothing
-here was applied. **D4: the owner commits.**
+**Status: ⛔ SUPERSEDED 2026-08-08. DO NOT IMPLEMENT THIS PLAN.** Its deletion/hint recommendation was locally safe,
+but the later four-arm system measurement found a non-additive delivery and airtime cost when both RTS optimisations
+were removed. The owner ruled to strengthen RTS identity and restore both optimisations. The live plan is
+[`2026-08-08-hybrid-rts-flight-identity.md`](2026-08-08-hybrid-rts-flight-identity.md). The text below is retained as
+the investigation record only. **D4: the owner commits.**
 
 ⚠ **Do not start this until B153's cleanup and its exact gate are complete** (QA's sequencing, §5 below).
 

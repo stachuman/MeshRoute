@@ -1995,10 +1995,15 @@ namespace {
 constexpr uint32_t kPostAckTimerId = 9;   // Node::kPostAckTimerId (private) — the receiver's deliver-after-ACK fire
 // A unicast RTS reserving `plen` bytes for the following DATA (mirrors test_node_r3.cpp's mk_rts).
 static size_t mk_unicast_rts(uint8_t src, uint8_t next, uint8_t dst, uint8_t ctr_lo, uint8_t plen,
-                             std::array<uint8_t, 16>& b, uint8_t addr_len = 0, bool mobile_src = false) {
+                             std::array<uint8_t, 16>& b, uint8_t addr_len = 0, bool mobile_src = false,
+                             const RtsFlightIdentity* id = nullptr) {
     rts_in in{}; in.leaf_id = 0; in.src = src; in.next = next; in.ctr_lo = ctr_lo; in.dst = dst;
     in.sf_index = 3; in.rts_flags = 0; in.payload_len = plen; in.m_payload_id_lo16 = 0;
     in.addr_len = addr_len; in.mobile_src = mobile_src;
+    // §hybrid-rts S1: a unicast RTS is 10 B and carries the flight identity; pack refuses without one.
+    // ★ §hybrid-rts S2: the receiver now VALIDATES that identity against the DATA, so a case that sends a DATA
+    //   must pass the flight's REAL identity here; the placeholder is only for RTS-only / overhear cases.
+    in.id = id ? *id : rts_flight_identity_plain(src, ctr_lo);
     return pack_rts(in, std::span<uint8_t>(b.data(), b.size()));
 }
 // The RTS reserves the END-TO-END inner+MAC length (node_mac.cpp tx_rts), i.e. frame_len - DATA_HDR_LEN - 1 for an
@@ -2300,7 +2305,9 @@ TEST_CASE("§T-K3 WIRE — the acceptance story: A seals a TYPE-19 grant, B rece
 
     RxMeta from1{ 12.0f, -70.0f, 0, static_cast<int8_t>(1) };
     std::array<uint8_t, 16> rb{};
-    halB._now = 1000; B.on_recv(rb.data(), mk_unicast_rts(1, /*next=*/2, /*dst=*/2, 5, rts_plen(fl), rb, 0, false), from1);
+    // §hybrid-rts S2: a CRYPTED flight's identity is BLAKE2b(0xE1|seed|ctr|dst)[:4] — the seal's own seed.
+    const RtsFlightIdentity gid = rts_flight_identity_crypted(seed, 0x0005, /*dst=*/2);
+    halB._now = 1000; B.on_recv(rb.data(), mk_unicast_rts(1, /*next=*/2, /*dst=*/2, 5, rts_plen(fl), rb, 0, false, &gid), from1);
     CHECK(halB.count("cts_tx") == 1);                                 // the exchange really happened (not a silent overhear)
     halB._now = 2000; B.on_recv(frame, fl, from1);
     B.on_timer(kPostAckTimerId);
@@ -2346,7 +2353,8 @@ TEST_CASE("§T-K3 WIRE — the TEAM-PLANE grant: addressed to the joiner's team_
     RxMeta from40{ 12.0f, -70.0f, 0, static_cast<int8_t>(40) };
     std::array<uint8_t, 16> rb{};
     halB._now = 1000;
-    B.on_recv(rb.data(), mk_unicast_rts(40, /*next=*/50, /*dst=*/50, 5, rts_plen(fl), rb, /*addr_len=*/1, /*mobile_src=*/true), from40);
+    const RtsFlightIdentity gid = rts_flight_identity_crypted(seed, 0x0005, /*dst=*/50);   // §hybrid-rts S2
+    B.on_recv(rb.data(), mk_unicast_rts(40, /*next=*/50, /*dst=*/50, 5, rts_plen(fl), rb, /*addr_len=*/1, /*mobile_src=*/true, &gid), from40);
     CHECK(halB.count("cts_tx") == 1);
     halB._now = 2000; B.on_recv(frame, fl, from40);
     B.on_timer(kPostAckTimerId);
