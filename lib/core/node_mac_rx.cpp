@@ -528,14 +528,41 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // parity constant, the 4th byte is optional and a 4-B frame with b3==0 is indistinguishable from a 3-B one,
     // and re-pricing it would move every CTS-bearing stream for a reason unrelated to this slice (C1).
     const uint16_t cts_air_len = c.already_received ? static_cast<uint16_t>(3u + c.id.width) : 4u;
-    // ★★ §hybrid-rts S2c (2026-08-09) — THE PLANE GUARD ON THE METER, **HOISTED SO THERE IS ONE DERIVATION OF IT**
-    // and both billing sites (the invalid-terminal arm inside the gate below, and the ordinary meter further down)
-    // read the SAME value. Pure reads of state that nothing between here and the meter mutates (the terminal gate
-    // writes nothing, and the §mobile refresh touches `_my_mobile_reg`, not `_pending_tx`) ⇒ value-identical to
-    // computing it at the meter, which is where it used to live. Its MEANING is unchanged and is spelled out at
-    // the meter: on a mobile/team flight `c.tx_id` is a LOCAL id and the ledger is keyed by GLOBAL id.
-    const bool own_mobile_team_cts = for_me_dst(c.rx_id) && _active->_pending_tx
-        && (next_is_local_id(_active->_pending_tx->addr_len, _active->_pending_tx->next));
+    // ★★ §hybrid-rts S2c/S2d — THE PLANE GUARD ON THE METER, **HOISTED SO THERE IS ONE DERIVATION OF IT** and read
+    // by ALL THREE billing sites (the pure-overhear terminal arm ①, the invalid-terminal arm at ③, and the ordinary
+    // meter further down). WHAT IT ANSWERS, and the only thing it answers: **is `c.tx_id` a LOCAL id?** The ledger is
+    // keyed by GLOBAL id, so billing a local id charges an unrelated global node — and the metric feeds
+    // originator-drop, so mis-attribution can drop an innocent peer's traffic. Not a trust decision (see the ⚖ note
+    // in the gate below); purely "is this id in the ledger's namespace".
+    //
+    // ★★★ §hybrid-rts S2d (2026-08-09) — **THE TWO ARMS DIFFER BECAUSE THE TWO FRAME SHAPES DIFFER: ONE STATES ITS
+    // PLANE ON THE WIRE, THE OTHER DOES NOT.** ⛔ Do not collapse them.
+    //   • TERMINAL (`already_received`): the frame CARRIES its plane — `CTS_TERM_PLANE_BIT`, byte-0 bit 3, set by
+    //     `pack_cts` from `cin.team_plane` and recovered by `parse_cts` into `c.team_plane`. At the producer
+    //     (handle_rts, the `completed_flight_find` branch above) `cin.tx_id = wire_team ? team_local_id() : _node_id`
+    //     while `cin.team_plane = cf->team_plane`, and `completed_flight_find` matched on `wire_team` ⇒
+    //     `cf->team_plane == wire_team`. So on this shape `c.team_plane == 1` **IFF** `c.tx_id` is a team-local id:
+    //     the bit IS the answer to this question, exactly, stated by the node that chose the id. ⇒ READ IT.
+    //   • ORDINARY: those same three bits are (sf-5). There is NO plane bit on that shape (frames.md, CTS-by-context)
+    //     ⇒ local pending state is the only evidence in existence, so it must be inferred. Retained verbatim.
+    //
+    // ⚠⚠ WHY THIS IS THE FIX AND NOT A TIDY-UP — S2c used the pending-state inference for BOTH shapes and was wrong
+    // three ways on the terminal one: it billed a team-local id as a global peer whenever **no flight was pending**
+    // (the REACHABLE case — both corpus-billed terminal frames have no pending flight); it SKIPPED billing a static
+    // terminal CTS merely because an unrelated TEAM flight happened to be pending; and its comment claimed the frame
+    // carries no plane mark, which is false for this shape and is corrected here and at ① below.
+    // ★★★ THE LINEAGE, because this is the arc's signature error and the reusable part: **inferring from local state
+    // what the wire already declares** — [[B142]] (`LbtKind` alone), [[B147]] (hash alone), [[B153]]/[[B157]] (a
+    // terminal verdict from ambiguous bytes), S2's own "store the WIRE plane, never whichever predicate matched",
+    // and now the meter. When a frame states a fact, READ THE FRAME.
+    //
+    // ⓘ HOIST SAFETY (unchanged from S2c): pure reads of state nothing between here and the meter mutates — the
+    // terminal gate writes nothing, and the §mobile refresh touches `_my_mobile_reg`, not `_pending_tx` ⇒
+    // value-identical to computing it at each site.
+    const bool cts_tx_id_is_local = c.already_received
+        ? c.team_plane                                            // the WIRE says so — one bit, one meaning
+        : (for_me_dst(c.rx_id) && _active->_pending_tx
+           && next_is_local_id(_active->_pending_tx->addr_len, _active->_pending_tx->next));
     // ★★★★★ §hybrid-rts S2b (2026-08-09) — **THE TERMINAL SHAPE IS GATED HERE, BEFORE EVERY SIDE EFFECT.**
     // S2 landed the identity check but left it BELOW the home-liveness refresh and the anti-spam meter, so a
     // terminal CTS that FAILED its identity check had already refreshed home liveness and metered the ledger.
@@ -562,9 +589,16 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         //    exception): it really did consume airtime, and an overhearer can never validate it — the frame is
         //    not addressed to us, so there is no flight of ours to bind it to. Metering is a THROTTLE, never a
         //    route/deliver decision. See the ⚖ note at ②③ for why accounting and trust part company here.
+        // ★★ §hybrid-rts S2d (2026-08-09) — **AND IT IS BILLED PER THE PLANE THE FRAME DECLARES.** S2c's comment
+        //    here recorded this as an unclosable residual on the grounds that "the CTS carries no mark" — TRUE of
+        //    the ordinary shape, **FALSE of this one**: the terminal shape spends byte-0 bit 3 on exactly that mark.
+        //    So an overhearer CAN tell, without any flight of its own, whether `c.tx_id` is a team-local id, and
+        //    `cts_tx_id_is_local` (hoisted above) reads it. Unbindable ≠ unattributable: we still refuse to BELIEVE
+        //    the frame, we merely decline to bill a local id into a global-keyed ledger.
         if (!for_me_dst(c.rx_id)) {
-            track_originator_observation(c.tx_id, /*kind=cts*/1, /*dedup_key=*/c.rx_id,
-                                         static_cast<uint32_t>(airtime_routing_ms(cts_air_len)));
+            if (!cts_tx_id_is_local)
+                track_originator_observation(c.tx_id, /*kind=cts*/1, /*dedup_key=*/c.rx_id,
+                                             static_cast<uint32_t>(airtime_routing_ms(cts_air_len)));
             return;
         }
         // ② A terminal answer with no flight to answer, or from a node that is not the next hop we RTS'd, is
@@ -607,18 +641,21 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         //   ⓘ EXACTLY ONCE, structurally: this arm RETURNS, so it can never also reach the ordinary meter below;
         //     and the BOUND arm ④ does NOT charge here — it falls through and is charged there once, at the same
         //     `cts_air_len`. Mutually exclusive by the `return`, not by a flag.
-        //   ⓘ `own_mobile_team_cts` gates it for the SAME reason as the ordinary meter, off the SAME hoisted
-        //     derivation: on a mobile/team flight `c.tx_id` is a LOCAL id while the ledger is keyed by GLOBAL id,
-        //     so charging it bills an UNRELATED global node — and the metric feeds originator-drop, so
-        //     mis-attribution can drop an innocent peer's traffic. The terminal bit opens no NEW escape there:
-        //     the ordinary shape is not billed on that path either, so this is PARITY, not a second policy.
-        //   ⚠ RESIDUAL, stated because the guard cannot cover it: at ② with NO pending flight at all the guard is
-        //     structurally false, so a team/mobile-plane terminal CTS arriving with nothing to bind to is billed
-        //     under its LOCAL id. That is the SAME residual ①'s pure-overhear case already documents (the CTS
-        //     carries no plane mark — flags nibble full, frames.md CTS-by-context — so there is nothing to read),
-        //     and it is THROTTLE-ONLY. Closing it needs a WIDER CTS, not a cleverer guard.
+        //   ⓘ `cts_tx_id_is_local` gates it for the SAME reason as the ordinary meter, off the SAME hoisted
+        //     derivation: a team-local `c.tx_id` is not in the ledger's global namespace, so charging it bills an
+        //     UNRELATED global node — and the metric feeds originator-drop, so mis-attribution can drop an innocent
+        //     peer's traffic. The terminal bit opens no NEW escape there: the ordinary shape is not billed on that
+        //     path either, so this is PARITY, not a second policy.
+        //   ★★ §hybrid-rts S2d (2026-08-09) — **S2c's "RESIDUAL" HERE WAS NOT A RESIDUAL, IT WAS THE BUG, and it was
+        //     the REACHABLE case.** S2c wrote that with NO pending flight the guard is "structurally false" so a
+        //     team-plane terminal CTS is billed under its local id, and filed that as unclosable because "the CTS
+        //     carries no plane mark". ⛔ WRONG for this shape — the terminal CTS carries `CTS_TERM_PLANE_BIT`, and it
+        //     is precisely the no-pending-flight case that dominates in the corpus. `cts_tx_id_is_local` now reads
+        //     the bit, so no pending flight is needed to attribute the frame correctly, and (the mirror error) an
+        //     unrelated TEAM flight being pending no longer suppresses the charge for a STATIC terminal CTS.
+        //     Closing it needed the bit we already spend, not a wider CTS.
         if (!bound) {
-            if (!own_mobile_team_cts)
+            if (!cts_tx_id_is_local)
                 track_originator_observation(c.tx_id, /*kind=cts*/1, /*dedup_key=*/c.rx_id,
                                              static_cast<uint32_t>(airtime_routing_ms(cts_air_len)));
             return;
@@ -642,11 +679,16 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // requester), not the dropped ctr_lo. ★ §hybrid-rts S2b: timing is now `cts_air_len` — the Lua CTS_LEN=4
     // parity constant for the ORDINARY shape (unchanged), but the TERMINAL shape's ACTUAL 6/7 B (it is not a 4-B
     // frame and must not be billed as one). See the derivation at the top of this function.
-    // §mobile: skip the track when this CTS clears one of OUR mobile/team flights (c.tx_id is then a LOCAL id — the home
-    // or teammate we are sending to). RESIDUAL (documented): a PURE-OVERHEAR mobile/team CTS (c.rx_id != us) still meters
-    // a local id here — the CTS carries no mark (flags nibble full, frames.md CTS-by-context) so an overhearer can't tell.
-    // THROTTLE-ONLY (a stale window entry), never a route/deliver decision -> no misroute/misdeliver; a full fix needs a
-    // CTS wire bit (a flag-day, not worth it for a throttle). own_mobile_team_cts is false on s18 -> byte-identical.
+    // §mobile: skip the track when `c.tx_id` is a LOCAL id (the home or teammate we are sending to) rather than a
+    // global one the ledger can key. ★ §hybrid-rts S2d: WHICH EVIDENCE ANSWERS THAT depends on the SHAPE, and the
+    // hoisted `cts_tx_id_is_local` is where the two arms and their justification live — ORDINARY (which is all that
+    // reaches this line except a BOUND terminal falling through ④) has no plane bit on the wire, so it infers from
+    // pending state; a TERMINAL one reads the bit it actually carries.
+    // ⚠ RESIDUAL, ORDINARY-SHAPE ONLY (the terminal shape's version of it is CLOSED by S2d): a PURE-OVERHEAR
+    // mobile/team ORDINARY CTS (c.rx_id != us) still meters a local id here — that shape carries no mark (its 3 flag
+    // bits are (sf-5), frames.md CTS-by-context) so an overhearer genuinely cannot tell. THROTTLE-ONLY (a stale
+    // window entry), never a route/deliver decision -> no misroute/misdeliver; closing THAT needs a wider ordinary
+    // CTS (a flag-day, not worth it for a throttle). cts_tx_id_is_local is false on s18 -> byte-identical.
     // ⚠ §rts-cr-overhear STILL MISSING HERE, and §cts-len6-cr2 does NOT close it — the reason CHANGED, so read
     // this and don't "finish the job" by grabbing c.cr_adv. The ledger's third term bills the CTS FRAME ITSELF,
     // whose sender is c.tx_id. Byte 3's cr2 is the CR of c.rx_id (the cleared node's upcoming DATA) — the WRONG
@@ -654,12 +696,12 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // now full, so closing this needs a WIDER CTS. Bounded and unchanged: a fixed 4-B frame on the routing SF
     // (single-digit ms) against a DATA term of hundreds, erring the same way (under-billing heavier peers).
     // The RTS and DATA halves of this ledger ARE billed at the sender's advertised CR.
-    // ★ §hybrid-rts S2c: `own_mobile_team_cts` is now DERIVED ONCE at the top of this function (value-identical —
-    // nothing between there and here mutates `_pending_tx`) so the invalid-terminal charge inside the gate and this
-    // ordinary meter cannot drift apart. ⛔ Do not re-declare it here.
+    // ★ §hybrid-rts S2c: `cts_tx_id_is_local` is DERIVED ONCE at the top of this function (value-identical —
+    // nothing between there and here mutates `_pending_tx`) so all three charge sites cannot drift apart.
+    // ⛔ Do not re-declare it here, and ⛔ do not "simplify" its terminal arm away (§hybrid-rts S2d).
     // ⓘ REACHED BY: every ordinary CTS, and a BOUND terminal CTS (④) — which is charged HERE, exactly once, and
     //   never also inside the gate (that arm returns).
-    if (!own_mobile_team_cts)
+    if (!cts_tx_id_is_local)
         track_originator_observation(c.tx_id, /*kind=cts*/1, /*dedup_key=*/c.rx_id,
                                      static_cast<uint32_t>(airtime_routing_ms(cts_air_len)));
     if (!for_me_dst(c.rx_id)) {                           // overheard CTS (not clearing EITHER of our plane ids: node_id or team_local_id)

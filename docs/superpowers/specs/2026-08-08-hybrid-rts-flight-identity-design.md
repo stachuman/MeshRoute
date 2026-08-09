@@ -1,7 +1,10 @@
 # Hybrid RTS flight identity — design specification · 2026-08-08
 
-**Status: OWNER-RULED CORE; QA SAFETY AMENDMENT AWAITING OWNER CONFIRMATION.** The 10/11-B RTS ruling stands.
-Coding must not start until the owner accepts or replaces §2.3 conditional terminal-CTS correlation. This
+**Status: FULLY OWNER-RULED — the 10/11-B RTS core AND §2.3's terminal-CTS amendment.** ✅ **§2.3 was CONFIRMED by the owner 2026-08-09**, verbatim in `docs/2026-08-05-owner-rulings-ledger.md` **§1.10**; ⛔ the former status line (*"QA SAFETY AMENDMENT AWAITING OWNER CONFIRMATION"*) is WITHDRAWN. ⚠ The ruling's second half is easy to lose: **a mismatch MAY be billed as physical airtime but must change nothing else** — no liveness, timer, routing, pending-state or app-facing effect.
+⛔ **The sentence that stood here — *"Coding must not start until the owner accepts or replaces §2.3 conditional
+terminal-CTS correlation"* — is WITHDRAWN as of 2026-08-09: that acceptance ARRIVED** (ledger §1.10, verbatim), so
+the sentence contradicted the status line directly above it. ✅ **Coding is unblocked and S1/S2/S2b/S2c/S2d have
+landed.** This
 supersedes the no-growth conclusion recorded by B153/B157. It does not erase that investigation: the deletion was locally safe, but its
 system-level interaction cost was measured later and changed the decision.
 

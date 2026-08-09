@@ -8339,6 +8339,171 @@ TEST_CASE("§hybrid-rts S2c — an UNBOUND terminal CTS refreshes/learns/clears 
     CHECK(air2 - air1 == air_at(6));                                      // ★★ billed too, and exactly once
 }
 
+// =============================================================================
+// §hybrid-rts S2d (2026-08-09) — THE METER'S PLANE GUARD READS THE WIRE ON A TERMINAL CTS.
+//
+// S2c derived meter eligibility for BOTH CTS shapes from LOCAL PENDING STATE
+// (`for_me_dst && _pending_tx && next_is_local_id`). For the TERMINAL shape that is
+// inference where the frame STATES the fact: `CTS_TERM_PLANE_BIT` (byte-0 bit 3) is the
+// wire-declared plane, and at the producer `cin.tx_id = wire_team ? team_local_id() :
+// _node_id` with `cin.team_plane = cf->team_plane == wire_team` ⇒ the bit is EXACTLY
+// "`c.tx_id` is a team-local id", said by the node that chose the id.
+// The inference was wrong two ways, both asserted below:
+//   ① no pending flight at all ⇒ guard structurally false ⇒ a TEAM-plane terminal CTS
+//      billed under its LOCAL id into the GLOBAL-keyed ledger (and the metric feeds
+//      originator-drop, so mis-attribution can throttle an innocent peer). ⚠ THIS IS THE
+//      REACHABLE CASE, not a corner — both terminal frames the corpus bills have no
+//      pending flight.
+//   ② an unrelated TEAM flight pending ⇒ guard true ⇒ a STATIC terminal CTS NOT billed,
+//      an accounting escape hatch keyed on our own unrelated state.
+// ★★★ LINEAGE — this is the arc's signature error: inferring from local state what the
+// wire declares. [[B142]] (`LbtKind` alone), [[B147]] (hash alone), [[B153]]/[[B157]]
+// (a terminal verdict from ambiguous bytes), S2's "store the WIRE plane, never whichever
+// predicate matched" — and now the meter.
+// ⚠ THE DISCRIMINATING MUTATION for ① and ② is to RESTORE S2c's control flow (collapse the
+// hoisted derivation back to the pending-state inference for both shapes), NOT to delete the
+// fix; a second mutation restores S2c's UNCONDITIONAL charge at the pure-overhear arm ①.
+// =============================================================================
+namespace {
+// A team-capable node with a team_local_id and NO pending flight — the ① substrate.
+// Deliberately NOT b160_collision_node: no route is injected, because ① is about a frame
+// that has nothing of ours to bind to at all.
+void s2d_team_node(Node& n, TestHal& hal) {
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
+    cfg.is_mobile = true; cfg.team_id = 0xABCD1234u; cfg.nav_enabled = true;
+    CHECK(n.on_init(cfg));
+    n.set_team_local_id(93);
+    CHECK(n.node_id() == 30); CHECK(n.team_local_id() == 93);
+    (void)hal;
+}
+// Air a terminal CTS at `now` and return nothing — the assertions read the ledger.
+void s2d_rx_terminal(Node& n, TestHal& hal, uint8_t tx_id, uint8_t rx_id, bool team_plane,
+                     const RtsFlightIdentity& id, uint64_t now) {
+    cts_in c{}; c.already_received = true; c.tx_id = tx_id; c.rx_id = rx_id; c.team_plane = team_plane;
+    c.id = id;
+    std::array<uint8_t, 8> b{};
+    const size_t n_b = pack_cts(c, std::span<uint8_t>(b.data(), b.size()));
+    CHECK(n_b == 6);                          // the canonical plaintext terminal wire (3 + width 3)
+    RxMeta m{ 8.0f, -80.0f, 0, static_cast<int8_t>(tx_id) };
+    hal._now = now; n.on_recv(b.data(), n_b, m);
+}
+uint32_t s2d_air_of(Node& n, uint8_t sender) {
+    int app = 0; uint8_t nrts = 0, ncts = 0; uint32_t air = 0;
+    n.compute_originator_metric(sender, app, air, nrts, ncts);
+    return air;
+}
+uint8_t s2d_ncts_of(Node& n, uint8_t sender) {
+    int app = 0; uint8_t nrts = 0, ncts = 0; uint32_t air = 0;
+    n.compute_originator_metric(sender, app, air, nrts, ncts);
+    return ncts;
+}
+}  // namespace
+
+TEST_CASE("§hybrid-rts S2d ① — an UNBOUND terminal CTS (no pending flight) is billed per the plane the FRAME "
+          "DECLARES: a TEAM one is not charged to a global peer, a STATIC one is") {
+    // ⚠ THE REACHABLE CASE. S2c filed this as an unclosable residual on the grounds that "the CTS carries no
+    // plane mark" — true of the ORDINARY shape, FALSE of this one. With no pending flight the S2c guard is
+    // structurally false, so EVERY team-plane terminal CTS was billed under its team-local id.
+    TestHal hal; Node node(hal, /*id=*/30, /*key=*/0x3030u);
+    s2d_team_node(node, hal);
+    CHECK_FALSE(node.has_pending_tx());                    // ★ the precondition that made S2c's guard false
+    CHECK_FALSE(node.for_me_dst(7));                       // 7 is neither our node_id (30) nor our team id (93)
+    CHECK(node.for_me_dst(30));                            // ...and 30 is, so the two arms below are distinct paths
+    auto air_at = [&](uint16_t len) {
+        return static_cast<uint32_t>(airtime_ms(7, node.active_bw_hz(), node.active_cr(),
+                                               protocol::preamble_sym, len));
+    };
+    CHECK(air_at(6) != air_at(4));   // ⚠ ANTI-VACUITY: the instrument must be able to TELL a 6-B terminal frame
+                                     //   from a 4-B ordinary one, or "billed at 6 B" is unfalsifiable.
+    const RtsFlightIdentity id = rts_flight_identity_plain(/*origin=*/9, /*ctr=*/0x0031);
+    // ⛔ (a) PURE OVERHEAR, TEAM plane (arm ① in handle_cts): tx_id 44 is a team-LOCAL id.
+    s2d_rx_terminal(node, hal, /*tx_id=*/44, /*rx_id=*/7,  /*team_plane=*/true,  id, /*now=*/1000);
+    CHECK(s2d_air_of(node, 44) == 0u);                     // ★★ NOT charged to global node 44
+    CHECK(s2d_ncts_of(node, 44) == 0);
+    // ⛔ (b) ADDRESSED TO US but with NOTHING to bind to (arm ③, `bound == false`), TEAM plane.
+    //     ⓘ This branch emits NOTHING — `cts_terminal_mismatch` fires only when a flight existed to name — which
+    //       is why a telemetry counter could not have measured this case. (S2c's inertness prediction did exactly
+    //       that and was wrong.)
+    s2d_rx_terminal(node, hal, /*tx_id=*/45, /*rx_id=*/30, /*team_plane=*/true,  id, /*now=*/3000);
+    CHECK(hal.count("cts_terminal_mismatch") == 0);        // ★ no flight ⇒ no emit: the counter is blind here
+    CHECK(s2d_air_of(node, 45) == 0u);                     // ★★ NOT charged to global node 45
+    // ★ THE POSITIVE CONTROLS, one per arm. Without them (a)/(b) would pass on a build that bills NOTHING.
+    //   Same shape, same absence of a pending flight, the only difference is the WIRE PLANE BIT.
+    s2d_rx_terminal(node, hal, /*tx_id=*/46, /*rx_id=*/7,  /*team_plane=*/false, id, /*now=*/5000);
+    CHECK(s2d_air_of(node, 46) == air_at(6));              // ★★ a STATIC overheard terminal CTS IS billed, at 6 B
+    CHECK(s2d_ncts_of(node, 46) == 1);
+    s2d_rx_terminal(node, hal, /*tx_id=*/47, /*rx_id=*/30, /*team_plane=*/false, id, /*now=*/7000);
+    CHECK(s2d_air_of(node, 47) == air_at(6));              // ★★ and so is an unbindable STATIC one addressed to us
+    CHECK(s2d_ncts_of(node, 47) == 1);
+}
+
+TEST_CASE("§hybrid-rts S2d ② — a mismatched STATIC terminal CTS is STILL BILLED while an unrelated TEAM flight "
+          "is pending (S2c's guard skipped it: our own state silenced somebody else's frame)") {
+    // THE MIRROR ERROR of ①. `next_is_local_id(pt.addr_len, pt.next)` is true for a TEAM flight (is_team_peer),
+    // so S2c's guard suppressed the charge for ANY terminal CTS reaching the meter — including a STATIC one from
+    // an unrelated node. That is an accounting escape hatch keyed on OUR pending state, not on the frame.
+    TestHal hal; Node node(hal, /*id=*/30, /*key=*/0x3030u);
+    b160_collision_node(node, hal);                        // team peer 50 known; _rt_team 50 -> 50
+    hal._now = 1000;
+    CHECK(b160_send(node, /*dst=*/50, Plane::TEAM).code == CmdCode::queued);
+    { rts_out r{}; CHECK(b160_last_rts(hal, r));
+      CHECK(r.next == 50); CHECK(r.addr_len == 1); CHECK(r.mobile_src); }   // ★ a genuine TEAM flight is in flight
+    CHECK(node.has_pending_tx());
+    CHECK(node.is_team_peer(50));                          // ⇒ next_is_local_id(0, 50) is TRUE: S2c's guard fires
+    auto air_at = [&](uint16_t len) {
+        return static_cast<uint32_t>(airtime_ms(7, node.active_bw_hz(), node.active_cr(),
+                                               protocol::preamble_sym, len));
+    };
+    CHECK(air_at(6) != air_at(4));                         // ⚠ anti-vacuity, as in ①
+    CHECK(s2d_air_of(node, 44) == 0u);                     // precondition: node 44 owes nothing
+    // ⛔ A STATIC terminal CTS from an UNRELATED node 44 (not our next hop 50), addressed to our node_id.
+    //    `c.tx_id != pt.next` ⇒ `bound` stays false with NO emit — the same emit-less branch ①(b) uses.
+    s2d_rx_terminal(node, hal, /*tx_id=*/44, /*rx_id=*/30, /*team_plane=*/false,
+                    rts_flight_identity_plain(/*origin=*/9, /*ctr=*/0x0031), /*now=*/9000);
+    CHECK(hal.count("cts_terminal_mismatch") == 0);        // not our next hop ⇒ no emit (counter blind again)
+    CHECK(node.has_pending_tx());                          // ★ TRUST class untouched: our team flight survives
+    CHECK(hal.count("cts_rx") == 0);                       // the accept tail never ran
+    CHECK(s2d_air_of(node, 44) == air_at(6));              // ★★ THE ASSERTION: billed anyway, at its true 6 B
+    CHECK(s2d_ncts_of(node, 44) == 1);                     // exactly once
+}
+
+TEST_CASE("§hybrid-rts S2d ③ — a VALID terminal CTS still does its legitimate work on BOTH planes, and is "
+          "accounted per the plane it declares (STATIC billed; TEAM correctly not, its tx_id is a local id)") {
+    // ★ THE INVARIANCE CONTROL: the fix must not disturb a bound terminal answer. It is deliberately GREEN under
+    //   both mutations below — its job is to prove ①/② were not bought by breaking the accept path.
+    // ⚠ A BRIEF PREMISE THAT DOES NOT SURVIVE THE CODE: "billed on BOTH planes" is not achievable and not wanted.
+    //   On a bound TEAM flight `c.tx_id == pt.next` IS a team-local id, so charging it is precisely the
+    //   mis-attribution ① removes. "Billed per its declared plane" is the property; for TEAM that means NOT billed.
+    //   The STATIC half of ③ is covered end-to-end by the S2c case above (bind + refresh + clear + charge); this
+    //   case adds the TEAM half, which had no coverage at all.
+    TestHal hal; Node node(hal, /*id=*/30, /*key=*/0x3030u);
+    b160_collision_node(node, hal);
+    hal._now = 1000;
+    CHECK(b160_send(node, /*dst=*/50, Plane::TEAM).code == CmdCode::queued);
+    rts_out aired{}; CHECK(b160_last_rts(hal, aired));
+    CHECK(aired.next == 50); CHECK(aired.src == 93);       // the TEAM wire marks the echo must match
+    CHECK(rts_flight_identity_valid(aired.id));
+    CHECK(node.has_pending_tx());
+    CHECK(s2d_air_of(node, 50) == 0u);                     // precondition
+    // ✅ THE EXACT echo from our next hop 50, on the TEAM plane, addressed to our TEAM id 93.
+    s2d_rx_terminal(node, hal, /*tx_id=*/50, /*rx_id=*/93, /*team_plane=*/true, aired.id, /*now=*/9000);
+    CHECK(hal.count("cts_terminal_mismatch") == 0);        // ★★ it BOUND (identity + width + domain + plane)
+    CHECK(hal.count("cts_rx") == 1);                       // ★★ and the accept tail RAN — the legitimate work
+    CHECK_FALSE(node.has_pending_tx());                    // ★★ the flight is terminally cleared, as designed
+    CHECK(s2d_air_of(node, 50) == 0u);                     // ★★ and NOT billed: 50 here is a team-LOCAL id
+    // ★ POSITIVE CONTROL for the accounting half, so "== 0" above is not a never-bills tautology: the SAME node
+    //   id, a STATIC terminal CTS, IS charged. t = 21000 because the ledger dedups a same-(kind, rx_id) event
+    //   inside originator_retry_dedup_ms (10 s) by REFRESHING it — a closer control could not show its own charge.
+    auto air_at = [&](uint16_t len) {
+        return static_cast<uint32_t>(airtime_ms(7, node.active_bw_hz(), node.active_cr(),
+                                               protocol::preamble_sym, len));
+    };
+    CHECK(air_at(6) != air_at(4));                         // ⚠ anti-vacuity
+    s2d_rx_terminal(node, hal, /*tx_id=*/50, /*rx_id=*/7, /*team_plane=*/false,
+                    rts_flight_identity_plain(/*origin=*/9, /*ctr=*/0x0031), /*now=*/21000);
+    CHECK(s2d_air_of(node, 50) == air_at(6));              // ★★ the instrument does bill this sender when told to
+}
+
 TEST_CASE("§hybrid-rts S2 — a `(1,0)` frame naming a STATIC team member's team id is OVERHEARD, not admitted "
           "(the wire plane is what decides, and the pre-S2 OR-admission got this wrong)") {
     // ★★ THE OTHER HALF OF THE §18 NUMERIC COLLISION, and the case that makes the discriminator load-bearing.

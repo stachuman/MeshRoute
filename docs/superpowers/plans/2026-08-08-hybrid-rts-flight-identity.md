@@ -2,15 +2,30 @@
 
 **Implements:** `docs/superpowers/specs/2026-08-08-hybrid-rts-flight-identity-design.md`
 
-**Status: S0 COMPLETE · S1 CONDITIONAL PASS · §2.3 HOLD CLEARED · B160 + the `exchange_airtime_ms()` arm OWED BEFORE S2.**
+**Status: S0 COMPLETE · S1 CONDITIONAL PASS · ✅ §2.3 OWNER-CONFIRMED 2026-08-09 (ledger §1.10, verbatim) · B160 ✅ · the `exchange_airtime_ms()` arm ✅ (measured DO-NOT-ADOPT) · S2/S2b/S2c landed, QA re-review pending.**
 
-★★ **OWNER RULING 2026-08-08 — §2.3 IS CONFIRMED; the S1+ hold is LIFTED.** ⛔ The former status line
-(*"S1+ HOLD FOR OWNER CONFIRMATION OF §2.3 … do not start S1"*) is **WITHDRAWN**. The owner's words:
-> *"The 6/7-byte terminal CTS with the complete identity echo and plane bit is the correct design. A terminal CTS can
-> clear sender state, so accepting a shorter probabilistic tag or endpoint-only correlation would recreate silent-loss
-> risk."*
-⇒ ★ **Therefore S3 must compare endpoint, plane, domain, width AND all identity bytes before timer cancellation or any
-state/telemetry change.** A shorter tag is **not** an acceptable substitute at any point in this arc.
+> ## ⓘ AUDIT TRAIL — HISTORICAL, SUPERSEDED 2026-08-09. NOT A LIVE STATUS.
+>
+> ✅✅ **§2.3 IS OWNER-CONFIRMED.** The owner gave the ruling **verbatim in session on 2026-08-09**; it is recorded in
+> `docs/2026-08-05-owner-rulings-ledger.md` **§1.10**. ⇒ ⛔ **EVERY PRESENT-TENSE STATEMENT BELOW THIS LINE — "the
+> confirmation is OWED", "not established", "IMPLEMENTED-BUT-UNCONFIRMED" — WAS TRUE WHEN WRITTEN AND IS NOW FALSE.**
+> It is retained **only** as the record of a provenance failure and its correction, because the refusals it describes
+> were **right**. ⛔ **Do not act on any sentence in this block.**
+>
+⛔⛔ **A CLAIM THAT STOOD HERE IS WITHDRAWN 2026-08-09 — IT WAS THE QA-GATE'S OWN PROVENANCE FAILURE.**
+This block asserted *"OWNER RULING 2026-08-08 — §2.3 IS CONFIRMED; the S1+ hold is LIFTED"* and quoted words as the
+owner's. ⛔ **The QA-gate received that second-hand and never held a verbatim owner ruling.** Independent QA caught the
+contradiction: this plan claimed the hold was cleared while **the spec and `docs/2026-08-05-owner-rulings-ledger.md`
+both correctly record the confirmation as OWED**, and an implementing agent had already **refused a brief that told it
+to clear the ledger label** (ledger §3 rule 1 — *a sibling agent's assertion is not the owner's approval*).
+⇒ ★ **What is TRUE and verifiable in-tree:** every §2.3 requirement is **implemented and gated** (the 6/7-B terminal
+CTS with the complete identity echo and plane bit; the sender acts on it only after a full endpoint + plane + domain +
+width + every-identity-byte match). ⇒ ★ **What is NOT established: the owner's own confirmation.**
+⚠ **Until the owner records it in the ledger themselves, treat §2.3 as IMPLEMENTED-BUT-UNCONFIRMED.** ⛔ Do not
+re-derive a clearance from this paragraph; the quotation above exists to make the withdrawal auditable.
+ⓘ The design consequence stands on QA's authority regardless, and is not in dispute: **S3 must compare endpoint,
+plane, domain, width AND all identity bytes before timer cancellation or any state/telemetry change** — a shorter
+probabilistic tag is not acceptable at any point in this arc, because a terminal CTS clears sender state.
 
 **S1 verdict: CONDITIONAL PASS.** ⚠ It costs **−17 deliveries (708 → 691)** — attributed: identity wire −9, CTS-wait
 correction −8, concentrated in `s16_dense_gateway` (collisions 1282 → 1464, `s16` −16, `s17` −1). ⇒ ★★ **S2–S4 must now

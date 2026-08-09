@@ -5,6 +5,13 @@
 
 **★★★★★★★★★ 2026-08-09 §HYBRID-RTS-S2c — THE ADJUSTMENT REQUIRED BEFORE S2b MAY LAND, WRITTEN INTO S2b's OWN NOTE (there is no second note). ★★★ **QA's finding, and it PARTLY REVERSES S2b: "hoist the bind above EVERY side effect" WAS TOO BROAD.** An invalid terminal CTS must still be **CHARGED ONCE** to the anti-spam originator airtime ledger at its true 6/7-B length, because **accounting is a measurement of physical airtime that DID occur, while trust decisions are the things that must wait for evidence.** Without it the terminal bit is an **accounting escape hatch** (set `already_received`, echo a bogus identity, air frames for free). ⛔⛔ **AND THE DISPATCH'S EXPECTATION THAT THIS WOULD BE CORPUS-INERT IS WRONG, MEASURED: `s16_dense_gateway` MOVES** (`86f2454b` → **`cfd86c16`**, event count **24397 both**, deliveries **65 both**, 0 assertion failures both) — the other **35 of 36 rows are byte-identical**. ★★★ **THE MOVER IS ATTRIBUTED TWICE OVER, NOT ARGUED: an isolation arm carrying S2c's code with ONLY the charge removed reproduces the BEFORE `s16` stream BYTE-FOR-BYTE, and a telemetry arm names both billed frames.** ★★ **THE ESCAPE HATCH IS REAL AND REACHABLE — 2 invalid terminal CTS frames in the 36-row corpus, and BOTH fail at ② (no pending flight: `have_pending=false`), NOT at ③** — which is exactly why `cts_terminal_mismatch` stays **0 → 0** corpus-wide and why S2b believed the path was dead. ★ Native **1468/79484/0 → 1468/79494/0** (+10 assertions in the SAME case; no new case), `error:` **0**, warnings **9 → 9 identical** with ZERO from `node_mac_rx.cpp`, `-Wswitch` **0**. `sizeof(Node)` **221880 UNCHANGED**, `kCap` **91**, no timer id allocated. ★ **Both mutation directions RED at match count == 1**, each from a `rm -rf .pio/build/native` rebuild. ⛔ **BOARD BUILDS, `warning_census.sh` and both UI probes DID NOT RUN** (standing owner instruction); nothing here implies they passed. ⛔ The per-ABI reveal was NOT re-run and is not owed (no state added). ⛔ The `^### 36/36 corpus` anchor table is NOT edited. ⛔ The ledger's §2.3 *"awaiting owner confirmation"* label is STILL **OWED** and was not cleared. ⛔ UNCOMMITTED (D4). ⛔ NO OWNER OR QA APPROVAL IS CLAIMED.**
 
+> ✅✅ **RESOLVED 2026-08-09 — §2.3 IS OWNER-CONFIRMED. Every "OWED / awaiting / unconfirmed" statement about §2.3 anywhere BELOW this line is SUPERSEDED and is retained only as audit trail.** The owner gave the ruling **verbatim in session**, and it is recorded in `docs/2026-08-05-owner-rulings-ledger.md` **§1.10**:
+> > *CONFIRMED. I approve §2.3: a terminal CTS may clear sender state only after complete endpoint, plane, domain, width and identity-byte correlation. A mismatch may be billed as physical airtime, but must not refresh liveness or alter timers, routing, pending state, or application outcomes.*
+> ⓘ **Why the conflict existed, and why it was CORRECT behaviour:** the §S2d agent's dispatch brief predated the confirmation, so from its position the new §1.10 looked like an unauthorised clearance. **It disclosed the conflict, touched none of the three documents, and claimed nothing either way.** ⇒ That is ledger §3 rule 1 working — and it had already worked twice against QA-gate briefs that asserted this same confirmation second-hand. **The label cleared only when the owner's own words arrived.**
+> ⚠ **The ruling's SECOND half is the one that gets lost:** a mismatch **may be billed as physical airtime** but must change **nothing** else. ⇒ *Accounting measures airtime that DID occur; trust decisions wait for evidence.*
+
+**★★★★★★★★★ 2026-08-09 §HYBRID-RTS-S2d — THE METER'S PLANE GUARD NOW READS THE WIRE ON A TERMINAL CTS. WRITTEN INTO S2b/S2c's OWN NOTE (there is no second note); sections (13)–(16) below. ★★★ **ONE BLOCKER, ONE DERIVATION: S2c decided meter eligibility for BOTH CTS shapes from LOCAL PENDING STATE, but a TERMINAL CTS CARRIES ITS PLANE ON THE WIRE** (`CTS_TERM_PLANE_BIT`, byte-0 bit 3 — the very bit S2's own store-the-wire-plane rule put there). ⇒ `cts_tx_id_is_local` is now **two-armed**: TERMINAL reads `c.team_plane`, ORDINARY keeps the inference **verbatim** because that shape genuinely has no such bit (its 3 flag bits are `(sf-5)`). ★★ **THE INFERENCE WAS WRONG TWO WAYS AND BOTH ARE FIXED: with NO pending flight the guard was structurally false ⇒ a TEAM-plane terminal CTS was billed under its team-LOCAL id into the GLOBAL-keyed ledger; and with an UNRELATED team flight pending the guard was true ⇒ a STATIC terminal CTS was NOT billed at all — our own state silencing somebody else's frame.** ★★★★ **THE LINEAGE, which is the reusable part: this is the arc's signature error — INFERRING FROM LOCAL STATE WHAT THE WIRE DECLARES.** Same family as [[B142]] (`LbtKind` alone), [[B147]] (hash alone), [[B153]]/[[B157]] (a terminal verdict from ambiguous bytes) and S2's own *"store the WIRE plane, never whichever predicate matched"*. **When a frame states a fact, READ THE FRAME.** ★★★★★ **THE CORPUS IS BYTE-IDENTICAL ON ALL 36 ROWS — AND THAT ZERO IS *NOT* INERTNESS, IT IS MEASURED SUB-THRESHOLD: a behaviour-neutral telemetry arm finds THREE REAL DIVERGENCES** (`s07_seattle_mobile_meshroute` ×1, `s27_cross_layer_mobiles_meshroute` ×2), **every one of them the ② class** (`plane:false`, `s2c_skip:true` — a static terminal CTS from node 254 that S2c suppressed). ⇒ **the ledger DOES change in three measured places; none crossed an originator-drop threshold in these 36 runs. `track_originator_observation` emits nothing, so a byte-identical stream could never have proven otherwise.** ★★★ **AND THE ① CLASS IS CORPUS-DARK, MEASURED NOT ASSUMED: of 188 terminal CTS frames corpus-wide, 187 declare STATIC and exactly ONE declares TEAM** (`s26`, node 3, t=355092, `2937b7530001`) — **and that frame was received by exactly ONE node, its addressee, with ZERO overhearers** (traced by packet id), which is the only path on which S2c and S2d could have differed for it. ★ Native **1468/79494/0 → 1471/79553/0** (+3 cases, +59 assertions), `error:` **0**. `sizeof(Node)` **221880 UNCHANGED** (the `static_assert` compiles; S2d adds no state), `kCap` **91**, top timer id **90**, no timer allocated. ★ **THREE MUTATIONS at match count == 1, each discriminating a different control**: M1 restores S2c's control flow (① + ② RED, ③ green), M2 restores S2c's unconditional charge at the overhear arm (① only, 2 assertions), M3 inverts the wire read (①+②+③ **and** the pre-existing S2c case RED — so ③ is proven non-inert). ⓘ Raw delivery figure from ONE named instrument (`grep -c '"emit_type":"delivered"'` over the AFTER arm's 36 NDJSONs): **743**. ⛔ **It is compared to NOTHING — the ≥732 metric is under repair (`tools/dm_delivery_breakdown.py:100` still hard-codes RTS=8/CTS=3; [[B162]] is a separate slice and was not touched).** ⛔ **BOARD BUILDS, `warning_census.sh`, the per-ABI reveal and both UI probes DID NOT RUN** — standing owner instruction / no state added; **nothing here implies they passed.** ⛔ The `^### 36/36 corpus` anchor table is NOT edited. ⛔⛔ **§2.3 IS NOT CLEARED BY THIS SLICE AND I DID NOT TOUCH ITS LABEL** — see (16), which discloses a CONCURRENT edit to the owner-rulings ledger that contradicts this. ⛔ UNCOMMITTED (D4). ⛔ NO OWNER OR QA APPROVAL IS CLAIMED.**
+
 ### §HYBRID-RTS-S2b (1) — THE TWO FIXES, BY STRUCTURE
 
 **⓵ AN OVERHEARD TERMINAL CTS FALSELY ARMED NAV** (`node_mac_rx.cpp`, `Node::handle_cts`). A terminal CTS means
@@ -351,6 +358,145 @@ and this slice did not touch the tool.
 **S4+** · **[[B161]]** · **[[B158]]** · **[[B160-COV]]/[[B160-SIB]]** · routing **T1–T3** and `s07` retuning ·
 **[[B159]]** · the parked mobile-home arc · the OLED UI. ⛔ **The false NAV reservation was NOT restored** (QA
 accepted the 752 → 743 regression; `s07`'s congestion sensitivity is tracked separately).
+
+### ★★★★★★★ §HYBRID-RTS-S2b (13) — **THE S2d BLOCKER: THE TWO GUARD ARMS, AND WHY THEY DIFFER**
+
+**THE ONE QUESTION THE GUARD ANSWERS** (and the only one): **is `c.tx_id` a LOCAL id?** The anti-spam originator
+ledger is keyed by GLOBAL id, so billing a local id charges an unrelated global node — and the metric feeds
+originator-drop, so mis-attribution can throttle an innocent peer. It is not a trust decision (§(9)'s ⚖ split); it is
+purely *"is this id in the ledger's namespace"*.
+
+**S2c ANSWERED IT THE SAME WAY FOR BOTH CTS SHAPES** — `for_me_dst(c.rx_id) && _pending_tx && next_is_local_id(…)`.
+For the terminal shape that is **inference where the frame STATES the fact**:
+
+| shape | is the plane on the wire? | ⇒ the arm |
+|---|---|---|
+| **TERMINAL** (`already_received`) | ★ **YES** — `CTS_TERM_PLANE_BIT` (byte-0 bit 3), packed by `pack_cts` from `cin.team_plane`, recovered by `parse_cts` into `c.team_plane` | ★ **READ IT.** At the producer (`handle_rts`, the `completed_flight_find` branch) `cin.tx_id = wire_team ? team_local_id() : _node_id` while `cin.team_plane = cf->team_plane`, and `completed_flight_find` matched on `wire_team` ⇒ `cf->team_plane == wire_team`. **So on this shape `c.team_plane == 1` IFF `c.tx_id` is a team-local id — the bit IS the answer, stated by the node that chose the id.** |
+| **ORDINARY** | ⛔ **NO** — those same 3 bits are `(sf-5)`; there is no plane bit anywhere on the shape | ⛔ **INFER.** Local pending state is the only evidence in existence. **Retained VERBATIM** — the ordinary path's source is unchanged, which is why every ordinary-CTS stream is untouched by construction |
+
+**THE THREE DEFECTS IN THE ONE-ARM VERSION, all now covered by a control:**
+1. ⛔ **no pending flight ⇒ guard structurally false ⇒ a TEAM-plane terminal CTS billed under its LOCAL id.** ⚠ **This
+   was THE REACHABLE CASE, not a corner** — §(11) already measured that *both* corpus-billed terminal frames have
+   `have_pending = false`.
+2. ⛔ **an unrelated TEAM flight pending ⇒ guard true ⇒ a STATIC terminal CTS not billed** — an accounting escape
+   hatch keyed on **our own** state rather than on the frame. **This is the class all three corpus divergences fall in.**
+3. ⛔ **the comment was wrong and is corrected in three places.** S2c filed the team-plane residual as unclosable
+   *"the CTS carries no plane mark — flags nibble full"*. **True of the ORDINARY shape, FALSE of the terminal one.**
+   The residual note now says so, and the surviving ordinary-shape residual is labelled ORDINARY-ONLY.
+
+★★★ **THE LINEAGE, IN ONE LINE, because it is the reusable part and this is its fifth appearance in this arc:**
+**inferring from local state what the wire declares** — [[B142]] (`LbtKind` alone), [[B147]] (hash alone),
+[[B153]]/[[B157]] (a terminal verdict from ambiguous bytes), S2's own *"store the WIRE plane, never whichever
+predicate matched"*, and now the meter. **When a frame states a fact, read the frame.**
+
+ⓘ **ONE DERIVATION, THREE SITES.** `own_mobile_team_cts` is renamed `cts_tx_id_is_local` (the name now states what it
+answers) and is read by **all three** billing sites: the pure-overhear terminal arm ①, the unbindable arm ③, and the
+ordinary meter. ⚠ **Site ① previously had NO guard at all** (S2c billed unconditionally there); it has one now, which
+is defect 1's overhear half.
+
+### ★★★★★★ §HYBRID-RTS-S2b (14) — THE THREE CONTROLS AND THEIR MUTATIONS, EACH AT MATCH COUNT == 1
+
+| control | asserts | reddened by |
+|---|---|---|
+| **① UNBOUND terminal CTS, NO pending flight** — 4 arms: TEAM overheard (tx 44), TEAM addressed-to-us (tx 45), then the two STATIC positive controls (tx 46/47) | a TEAM one is **not** charged to a global peer; a STATIC one **is**, at `air_at(6)`. ⓘ Also asserts `cts_terminal_mismatch == 0` on the addressed-to-us arm — **that branch emits NOTHING**, which is exactly why a counter could not have measured this case | **M1** (S2c's derivation restored: RED) · **M2** (S2c's unconditional ① charge restored: RED, **2 assertions, the overhear pair only**) · **M3** (wire read inverted: RED) |
+| **② mismatched STATIC terminal CTS while an unrelated TEAM flight is pending** (genuine TEAM flight to team peer 50 in flight, terminal CTS from unrelated node 44) | **STILL BILLED** at `air_at(6)`, exactly once — and the TRUST class untouched (`has_pending_tx()` survives, `cts_rx == 0`) | **M1** (RED) · **M3** (RED) · ⓘ **M2 green — correct, not a gap**: M2 only touches the overhear arm, which ② does not use |
+| **③ VALID terminal CTS, BOTH planes** — TEAM half is new (it had NO coverage); STATIC half is §(10)'s existing case end-to-end | it **binds** (`cts_terminal_mismatch == 0`), **the accept tail RUNS** (`cts_rx == 1`), the flight is **terminally cleared** — and is accounted per its declared plane | ★ **M3 only** (RED) ⇒ **③ is proven non-inert.** ⓘ **Green under M1 and M2 — deliberately: ③'s job is to prove ① and ② were not bought by breaking the accept path** |
+
+⚠ **A BRIEF PREMISE THAT DOES NOT SURVIVE THE CODE, RECORDED AS WRONG:** the dispatch asked for ③ *"billed on BOTH
+planes"*. **Not achievable and not wanted.** On a **bound** TEAM flight `c.tx_id == pt.next` **is** a team-local id, so
+charging it is precisely the mis-attribution ① removes. The property is *"billed per its declared plane"*, and for
+TEAM that means **NOT billed**. ③ asserts a positive control on the accounting half instead (the same node id, a
+STATIC terminal CTS, **is** charged) so the `== 0` cannot pass as a never-bills tautology.
+
+⚠ **ANTI-VACUITY, asserted in all three:** `air_at(6) != air_at(4)` — the instrument must be able to tell a 6-B
+terminal frame from a 4-B ordinary one, or *"billed at 6 B"* is unfalsifiable. ⚠ **AND THE 10 s DEDUP TRAP IS
+RESPECTED:** the ledger refreshes a same-`(kind, rx_id)` event inside `originator_retry_dedup_ms` instead of
+appending, so ③'s positive control sits at **t = 21000** (§(10)'s own hard-won correction) and ①'s four arms use
+**distinct `tx_id`s** — separate ledger rows, so no arm can silently absorb another's charge.
+
+### ★★★★★★★ §HYBRID-RTS-S2b (15) — THE 36 ROWS: **ALL 36 BYTE-IDENTICAL — AND THAT ZERO IS MEASURED SUB-THRESHOLD, NOT INERTNESS**
+
+★ **THE BEFORE ARM IS THE PRE-EXISTING BINARY, RE-MEASURED LOCALLY, AND IT IS POSITIVELY CONTROLLED:** `lus`
+**`f0900dc9`** reproduces §(11)'s published S2c column — `s16_dense_gateway` **`cfd86c16`** / 24397 —
+so the instrument is calibrated against a figure this note already owns. **No row below is quoted from another note.**
+
+★★ **THE AFTER ARM: `lus` `f0900dc9` → `15a3967d`**, rebuild **PROVEN** (11 build actions, both
+`meshroute_core_normal` and `meshroute_core_gw` recompiling `node_mac_rx.cpp`, then a relink; `error:` **0**).
+★ **RESTORE CONTROL: after the telemetry arm was removed, a rebuild returned `15a3967d` BYTE-FOR-BYTE**, and a second
+36-row run reproduced the AFTER table exactly — so no row can have come from a stale binary. The sim repo's
+`git status --porcelain` is **empty** throughout.
+
+★★★★ **RESULT: `diff` of the two 36-row tables is EMPTY. 36 of 36 identical in md5 AND event count. 0 assertion
+failures in all 72 runs. `scenarios run: 36` printed and checked in both arms** (the 37th JSON is `topo_9node.json`,
+a topology). ★ **POSITIVE CONTROL ON THE DIFF ITSELF:** poisoning `s18`'s event count `269566 → 269567` makes `diff`
+exit non-zero, name the row, and drop the identical-row count **36 → 35**.
+
+⛔⛔ **AND HERE IS THE PART THAT MATTERS, BECAUSE THE DISPATCH FORBADE PREDICTING INERTNESS AND WAS RIGHT TO:
+BYTE-IDENTICAL ROWS DO NOT MEAN THE FIX CHANGED NOTHING.** A behaviour-neutral telemetry arm (`lus` `126e39de`,
+emitting only where S2c and S2d disagree, at the same three sites) finds **THREE REAL DIVERGENCES:**
+
+```
+s07_seattle_mobile_meshroute  node 32  t=1534828  from=254 to=49   plane=false  s2c_skip=true
+s27_cross_layer_mobiles       node  4  t=1072441  from=254 to=105  plane=false  s2c_skip=true
+s27_cross_layer_mobiles       node 16  t=1183558  from=254 to=106  plane=false  s2c_skip=true
+```
+
+★★★ **ALL THREE ARE THE ② CLASS — a STATIC terminal CTS (`plane=false`) that S2c suppressed (`s2c_skip=true`)
+because the receiving mobile had an unrelated local-id flight pending. S2d bills them.** ⇒ **THE FIX IS
+CORPUS-REACHABLE AND CONTROL ② IS NOT A HYPOTHETICAL.** The telemetry arm's event counts differ from the AFTER arm on
+**exactly and only those two rows**, by **exactly +1 and +2** — the instrument's own control: the emit is the only
+added event and it appears precisely where a divergence was found, and its **non-zero** count proves it is not a dead
+probe. ⇒ **the ① count of ZERO is a genuine zero, not a broken instrument** (it fired at the sibling site in the
+same block).
+
+★★ **WHY THE STREAM IS NEVERTHELESS BYTE-IDENTICAL, STATED HONESTLY: `track_originator_observation` EMITS NOTHING.**
+A ledger difference becomes observable only if it changes a **decision** (an originator drop). Three extra charges of
+`airtime_routing_ms(6)` on the routing SF crossed no drop threshold in these 36 runs. ⇒ ⛔ **"all 36 identical" is
+NOT a claim that the fix is behaviourally inert — it is the claim that no ledger difference reached a decision here.
+Those are different statements and only the second is measured.**
+
+★★★ **AND THE ① CLASS IS CORPUS-DARK, MEASURED:** a census of every terminal CTS the corpus produces is **188 frames,
+187 declaring STATIC and exactly ONE declaring TEAM** — `s26_team_reroute_meshroute`, node 3, t=355092, wire
+`2937b7530001` (byte-0 `0x29` = plane bit + terminal bit; tx_id 55, rx_id 183). **Traced by packet id, that frame was
+received by exactly ONE node — its addressee — with ZERO overhearers**, and at the addressee both guards agree (it
+holds a pending team flight to 55, so S2c's `next_is_local_id` is true and S2d's wire bit is true). ⇒ **the one
+divergent path available to it was never taken.** ⚠ **REGISTERED AS A COVERAGE FACT, not waved away: the team-plane
+terminal-CTS arm has an n of 1 in 36 scenarios and its overhear sub-case has an n of 0. Native control ① is the only
+evidence for that arm and must stay.**
+
+### ⚠ §HYBRID-RTS-S2b (16) — THE S2d GATE, AND A CONCURRENCY DISCLOSURE
+
+| gate | outcome |
+|---|---|
+| `pio test -e native` + **the real binary** | ★ **1471 cases / 79553 assertions / 0 failed** from a CLEAN rebuild (`rm -rf .pio/build/native`). S2c baseline **1468 / 79494 / 0** ⇒ **+3 cases, +59 assertions.** ⚠ The wrapper printed its usual false *"0 test cases"*; the binary is the source of truth |
+| `grep -c "error:"` | **0** |
+| mutations | ★ **3, each asserted at EXACTLY ONE MATCH, each from its own `rm -rf .pio/build/native` rebuild, all `error:` 0.** M1 → 2 cases / 5 assertions RED (① ②). M2 → 1 case / 2 assertions RED (① only). M3 → 4 cases / 13 assertions RED (① ② ③ **and §(10)'s pre-existing S2c case**, which asserts a STATIC terminal charge). ⛔ **M1 REPRODUCES S2c's CONTROL FLOW rather than deleting the fix** — that is the discriminating direction the dispatch required |
+| `lus` rebuild + 36 rows | ★ BEFORE `f0900dc9` (**reproduced §(11)'s published S2c column exactly** — the positive control). AFTER **`15a3967d`**, 11 build actions, rebuild proven. Telemetry arm `126e39de`, separate. **36/36 byte-identical**, diff positively controlled (36 → 35). **RESTORE CONTROL: rebuild returned `15a3967d` byte-for-byte and re-ran the table identically** |
+| `sizeof(Node)` / `kCap` / top timer id | ★ **221880 UNCHANGED · 91 · 90** — the `static_assert(sizeof(Node) == 221880)` compiles, and S2d adds **no state** (one local's arms, one rename). `test_timer_wheel.cpp`'s id-90-valid / id-91-rejected pair passed |
+| **per-ABI `sizeof` reveal** | ⛔ **NOT RE-RUN AND NOT OWED** — no state added; S2b's paid figures (117752 / 117720 / 148616) stand |
+| delivery figure | ⓘ **743**, raw, from ONE named instrument: `grep -c '"emit_type":"delivered"'` over the AFTER arm's 36 NDJSONs. ⛔ **COMPARED TO NOTHING.** The ≥732 metric is under repair — `tools/dm_delivery_breakdown.py:100` still hard-codes RTS=8/CTS=3, so its airtime cannot evaluate the current wire; **[[B162]] is a separate slice and `tools/dm_delivery_breakdown.py` was NOT touched** |
+| board builds / `warning_census.sh` / the two UI probes | ⛔ **DID NOT RUN — standing owner instruction. ⛔ NOTHING HERE IMPLIES THEY PASSED. An unrun gate is unrun.** ⚠ `lib/core` changed, so board flash may move; RAM will not |
+| owner / QA approval | ⛔ **NONE CLAIMED.** QA required this fix; QA has **not** re-reviewed the result |
+
+⛔⛔ **§2.3 AND A CONCURRENCY DISCLOSURE, because it directly contradicts my dispatch and I will not silently absorb
+it.** My dispatch stated that the plan's *"§2.3 HOLD CLEARED"* provenance claim is **WITHDRAWN**, that all three
+documents agree **§2.3 is IMPLEMENTED-BUT-UNCONFIRMED with the owner's confirmation OWED**, and that I must clear no
+§2.3 label. **I cleared none, and I edited neither the spec nor the plan nor the owner-rulings ledger.** ⚠ **BUT
+DURING THIS SLICE another session wrote into `docs/2026-08-05-owner-rulings-ledger.md` a new §1.10 headed
+*"✅ OWNER-CONFIRMED 2026-08-09"* with a verbatim quoted ruling.** At my session start `git status` listed **only**
+the plan doc as modified; the ledger, the plan and the spec were all modified by something other than me before I
+finished. ⇒ ★ **I make NO claim either way about whether that confirmation exists.** I did not undo the edit (it is
+not my slice, and ⛔ no `git checkout --` was run at any point), and **nothing in S2d depends on §2.3 being confirmed**
+— the fix is an accounting-attribution correction, not a change to the terminal-CTS trust rule §2.3 governs.
+⚠ **The owner should be aware that §(12) above and that new §1.10 are in direct conflict about the same label.**
+
+**S2d FILES:** `lib/core/node_mac_rx.cpp` (the two-armed derivation, its rename, the third billing site's guard, and
+the three drifted comments it invalidated) · `test/test_node_r3.cpp` (3 new cases) · this file ·
+`docs/2026-07-30-open-bug-register.md` ([[B153]] in place). ⛔ **NOT TOUCHED:** the wire · the codec · `node.h` ·
+`protocol_constants.h` · any scenario · `platformio.ini` · **`tools/dm_delivery_breakdown.py`** · the
+`^### 36/36 corpus` anchor table · the owner-rulings ledger · the spec · the plan · **S4+** · **[[B162]]** ·
+**[[B161]]** · **[[B158]]** · **[[B160-COV]]/[[B160-SIB]]** · routing **T1–T3** and `s07`/`s16` retuning ·
+**[[B159]]** · the parked mobile-home arc · the OLED UI.
 
 ---
 

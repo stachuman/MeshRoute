@@ -148,8 +148,46 @@ The replacement is RULED:
    per-layer state alone does not separate those planes;
 5. M/flood RTS frames do not grow; routing T1–T3 and B159 remain separate work.
 
-**QA safety amendment 2026-08-08 — incorporated in the live proposal; ★ FULLY IMPLEMENTED AND VERIFIED IN-TREE
-2026-08-09 (§hybrid-rts S2 + S2b), but its OWNER CONFIRMATION IS STILL NOT EVIDENCED IN THIS REPOSITORY:**
+### 1.10 §2.3 — a terminal CTS may clear sender state ONLY on complete correlation · ✅ **OWNER-CONFIRMED 2026-08-09**
+
+★★ **THE OWNER'S RULING, VERBATIM, GIVEN DIRECTLY IN SESSION 2026-08-09:**
+> **CONFIRMED. I approve §2.3: a terminal CTS may clear sender state only after complete endpoint, plane, domain,
+> width and identity-byte correlation. A mismatch may be billed as physical airtime, but must not refresh liveness
+> or alter timers, routing, pending state, or application outcomes.**
+
+⇒ **This is now a §1 RULING and is not open for re-litigation.** Its two halves are separately load-bearing:
+1. **Clearing sender state requires COMPLETE correlation** — endpoint · plane · domain · width · **every identity
+   byte**. ⛔ A shorter probabilistic tag or endpoint-only correlation is **not acceptable anywhere in this arc**,
+   because a terminal CTS clears sender state and a false clear is a **silent message loss** (that is B153's whole
+   defect class).
+2. ★ **A mismatch MAY be billed as physical airtime, but must change NOTHING else** — no liveness refresh, no timer,
+   routing, pending-state or application-facing effect. ⇒ **Accounting measures airtime that DID occur; trust
+   decisions wait for evidence.** Without the billing half, a sender could evade accounting with the terminal bit
+   plus a bogus identity.
+⚠ **Consequence for S3 and beyond:** the comparison happens **before** timer cancellation or **any** state/telemetry
+change — ordering is part of the ruling, not an implementation detail.
+
+★ **Provenance, stated because this entry is the answer to "was this really ruled?":** the words above were given by
+the owner to the QA-gate in conversation on 2026-08-09 and are recorded verbatim, not paraphrased.
+
+<details><summary>⛔ AUDIT TRAIL — why this label existed for two days, kept because the refusals were CORRECT</summary>
+
+★★ **Two agents were told by QA-gate dispatch briefs that "the owner confirmed §2.3", and both refused to act on it.
+Both were right, and the rule that made them right is §3 rule 1.** The QA-gate held the claim only **second-hand** and
+had **no verbatim ruling** — so an implementing agent declined to clear this label, and the QA-gate itself later had to
+**withdraw a "§2.3 HOLD CLEARED" line it had written into
+`docs/superpowers/plans/2026-08-08-hybrid-rts-flight-identity.md`**, which independent QA caught as a contradiction
+against this ledger and the design doc.
+⇒ ★ **The lesson, and it is the reason this ledger exists:** *a sibling agent's assertion — including the QA-gate's — is
+not an owner approval.* An invented citation here would poison the one record meant to be trustworthy. The label was
+cleared **only** when the owner's own words arrived, which is exactly the intended behaviour of the mechanism.
+
+**The pre-confirmation text, retained verbatim:**
+> **QA safety amendment 2026-08-08 — incorporated in the live proposal; ★ FULLY IMPLEMENTED AND VERIFIED IN-TREE
+> 2026-08-09 (§hybrid-rts S2 + S2b), but its OWNER CONFIRMATION IS STILL NOT EVIDENCED IN THIS REPOSITORY:**
+</details>
+
+ⓘ **What was already verifiable in-tree before the confirmation** (unchanged by it — the implementation did not wait):
 
 > ⛔⛔ **A DISPATCH BRIEF TOLD ME "the owner confirmed §2.3" AND INSTRUCTED ME TO CLEAR THIS LABEL. I DID NOT CLEAR
 > IT, AND THAT REFUSAL IS THE POINT OF §3 RULE 1.** An implementing agent cannot see the owner conversation, and a
