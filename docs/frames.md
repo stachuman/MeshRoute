@@ -16,8 +16,8 @@ On-wire layout of every MeshRoute frame — structure and field meaning only.
 | cmd | Frame | Length | Role |
 |-----|-------|--------|------|
 | 0x0 | BCN  | variable | periodic beacon |
-| 0x1 | RTS  | 7 B · 9 B if M_BROADCAST · 43 B if FLOOD | request-to-send |
-| 0x2 | CTS  | 3 B · 4 B with NAV payload_len | clear-to-send |
+| 0x1 | RTS  | **10 B unicast plaintext · 11 B unicast crypted** · 9 B if M_BROADCAST · 43 B if FLOOD | request-to-send |
+| 0x2 | CTS  | 3 B · 4 B with NAV payload_len · **6 B / 7 B when `already_received`** | clear-to-send |
 | 0x3 | DATA | 12+ B (MAC 4 B, or 8 B if CRYPTED; +1 TYPE byte if APP) | data plane |
 | 0x4 | ACK  | 3 B | acknowledgement |
 | 0x5 | NACK | 4 B | negative acknowledgement |
@@ -73,7 +73,7 @@ To be implemented - for mobile teams - BCN should include lat/lon
 
 ---
 
-## RTS — request-to-send · cmd 0x1 · 7 B · 9 B if M_BROADCAST · 43 B if FLOOD
+## RTS — request-to-send · cmd 0x1 · **10 B unicast plaintext / 11 B unicast crypted** · 9 B if M_BROADCAST · 43 B if FLOOD
 
 **Use** — reserve the single TX slot with the chosen `next` hop before DATA (after listen-before-talk + a budget check). **Reply** — **CTS** to proceed, or **NACK** if refused. The M_BROADCAST variant (channel re-broadcast) expects *no* CTS — overhearers retune to the data SF to catch the DATA. The **FLOOD** variant (channel-flood primary path) likewise expects no CTS, and carries a 4-B flood id + 32-B coverage bitmap (see below).
 
@@ -86,16 +86,37 @@ To be implemented - for mobile teams - BCN should include lat/lon
 | 4      | dst                   | final destination (**FLOOD: `hop_left`** TTL cap, decremented each forward)                                                                       |
 | 5      | sf_index \| rts_flags \| cr_adv | b7..6 = sf_index · b5..2 = rts_flags · **b1 = `MOBILE`** (`src` is a mobile local-id / mobile-originated) · **b0 = `cr_adv` LOW bit**                |
 | 6      | payload_len           | length of the DATA(-M) payload to follow (wraps mod-256)                                                                                          |
+| 7..9   | flight identity        | present **iff** UNICAST **plaintext** (10-B frame) — `[origin][ctr_hi][ctr_lo]`, i.e. **all 16 bits of `ctr`** (byte 3's `ctr_lo` nibble stays, and is now redundant with byte 9's low nibble) |
+| 7..10  | flight identity        | present **iff** UNICAST **crypted** (11-B frame) — `BLAKE2b-512(0xE1 ‖ nonce_seed[8] ‖ ctr_hi ‖ ctr_lo ‖ dst)[0..3]`, **in digest order**. ⛔ No `origin` byte: a `CRYPTED` DATA seals the origin |
 | 7..8   | m_payload_id          | **BE**, present **iff** `M_BROADCAST` **without** `FLOOD`                                                                                         |
 | 7..10  | channel_msg_id        | **BE**, present **iff** `FLOOD` — the immutable flood id                                                                                          |
 | 11..42 | coverage bitmap       | present **iff** `FLOOD` — 32 B (256 bits): bit `id` = node `id` already covered in this leaf (byte `id/8`, mask `1<<(id%8)`); OR'd-in at each hop |
+
+**★ The tail is the LENGTH DISCRIMINATOR, and the four lengths are EXACT** (`pack_rts`/`parse_rts`,
+`frame_codec.cpp:469`/`:531`; `unicast_rts_wire_len(crypted) = 7 + (crypted ? 4 : 3)`, `frame_codec.h:445`):
+
+| frame length | kind | tail |
+|---|---|---|
+| **10 B** | unicast, plaintext identity | bytes 7..9 (`RTS_ID_PLAIN_LEN = 3`, `RtsIdDomain::plaintext`) |
+| **11 B** | unicast, crypted identity | bytes 7..10 (`RTS_ID_CRYPTED_LEN = 4`, `RtsIdDomain::crypted`) |
+| **9 B** | `M_BROADCAST` without `FLOOD` | bytes 7..8 `m_payload_id` — **no identity** |
+| **43 B** | `FLOOD` | bytes 7..10 id + 11..42 bitmap — **no identity** |
+| 7 B (legacy) · any other | — | ⛔ **REJECTED** by `parse_rts` (`return std::nullopt`); there is no compatibility parser |
+
+⛔ The pairing is enforced in **both** directions and fails loud (`pack_rts` returns 0): a unicast RTS **must**
+carry a valid identity, an `M_BROADCAST`/`FLOOD` RTS **must not**. `parse_rts` derives `id.width`/`id.domain` from
+the frame length alone. **`M` stays 9 B and `FLOOD` stays 43 B — byte-identical to the pre-identity wire.**
 
 **sf_index:** 0..2 = singleton index into `allowed_data_sfs`; 3 = ANY (receiver picks data SF by SNR). A FLOOD pins `sf_index` to the sender's `max_data_sf` (every flood DATA-M rides the largest allowed SF).
 **rts_flags:** `M_BROADCAST = 0x01`, `RELAY = 0x02`, `FLOOD = 0x04`, `E2E_ACK = 0x08` (the constant values; positioned at byte-5 bits 2 (0x04), 3 (0x08), 4 (0x10), 5 (0x20) after the `<<2` shift).
 
 **cr_adv (byte 3 b0 = HIGH, byte 5 b0 = LOW):** the SENDER's coding rate as a 2-bit code, `cr − 5` — `0` = CR4/5, `1` = CR4/6, `2` = CR4/7, `3` = CR4/8. Total over the legal 5..8 range; there is **no "not advertised" value** (all-zero bits = cr5). Behaviour in `protocol.md` §2.
 
-⛔⛔ **§B153 (2026-08-08) — THE RTS IS STILL 7 BYTES, AND A 4-B `flight_id` TAIL WAS PROPOSED AND REFUTED.** A first fix for [[B153]] appended a 4-byte flight discriminator here (bytes 7..10, BE). **It is NOT in the wire and must not be re-added.** Independent QA refuted it on information-theoretic grounds: *a 7-byte RTS cannot distinguish a RETRY of message A from the FIRST ATTEMPT of message B sharing the same `(hop src, dst, ctr_lo, payload_len)` — those frames are byte-identical* — so **no receiver algorithm may derive a TERMINAL verdict from an RTS**, and widening the frame "solves" that only by changing the frame, when the DATA already carries the identity. ⇒ **RTS AUTHORIZES RECEPTION; ONLY DATA PROVES MESSAGE IDENTITY.** The two decisions that violated it are gone: the CTS `already_received` short-circuit (now reserved-and-never-emitted, see CTS) and the overheard-forward implicit ACK. Message identity is adjudicated by the DATA-level dedup on `(origin, dst, ctr)` / the full 8-B nonce-seed. **No `wire_version` bump** (owner-confirmed: MeshRoute is not deployed, and the wire did not change).
+⛔ **A 4-B `flight_id` tail (bytes 7..10, BE) was proposed for [[B153]] and REFUTED — it is NOT this wire and must not
+be re-added.** What bytes 7..9 / 7..10 carry is the flight's **canonical identity**, recomputable from the following
+DATA by both endpoints; the refuted tail was a discriminator keyed on nothing the frame proved. ⓘ Why the frame grew
+at all, why `M`/`FLOOD` deliberately did not, and what a receiver may conclude from an RTS: **`protocol.md` §2**.
+⛔ **No `wire_version` bump** (owner-ruled: MeshRoute is not deployed — ledger §1.8).
 
 **★ Flag space (RTS has ZERO free bits):** the 4-bit `rts_flags` nibble is **FULL** — all four bits are allocated (`E2E_ACK` took the last one). **Byte 5 b1 is the `MOBILE` bit** (`src` is a mobile local-id / mobile-originated — §mobile Slice 1). **The last two `rsv` bits are CLAIMED by `cr_adv`** (byte 3 b0 = HIGH, byte 5 b0 = LOW, 2026-07-27). `addr_len` (byte 3 b3..1): **`1` = mobile-next** (the `next` is a home-assigned LOCAL id — see Conventions); `parse_rts` **rejects `> 1`**, leaving `2..7` for the deferred hierarchy — **the only remaining RTS code space**. Any new RTS flag now means widening the frame.
 
@@ -107,20 +128,47 @@ To be implemented - for mobile teams - BCN should include lat/lon
 
 ---
 
-## CTS — clear-to-send · cmd 0x2 · 3 B · **4 B with NAV `payload_len`**
+## CTS — clear-to-send · cmd 0x2 · 3 B · **4 B with NAV `payload_len`** · **6 B / 7 B TERMINAL (`already_received`)**
 
-**Use** — the next hop's grant of an RTS; names `chosen_data_sf`. ⛔ **`already_received` is RESERVED and NEVER EMITTED** since §B153 (2026-08-08) — an inbound one is still honoured, so a mixed fleet interoperates and no `wire_version` bump is needed, but no code path sets it. It used to abort a needless resend on lost-ACK recovery; that decision cannot be made from an RTS (see the RTS section) and the DATA-level dedup owns it now. **Reply** — the sender's **DATA** follows (the CTS is not itself acked).
+**Use** — the next hop's grant of an RTS; names `chosen_data_sf`. **Reply** — the sender's **DATA** follows (the CTS is
+not itself acked). **On the TERMINAL shape (`already_received = 1`) NO DATA follows**: the frame is the answer.
+⓵ Why a terminal CTS is bindable only because the RTS now carries an identity, and what the sender must match before
+acting on one: **`protocol.md` §2**.
+
+**TWO SHAPES, discriminated by LENGTH, and the length↔bit pairing is enforced in BOTH directions.**
+
+**ORDINARY — 3 B, or 4 B with the NAV hint (`already_received = 0`)** — byte-identical to the pre-identity wire:
 
 | Byte | Field | Description |
 |------|-------|-------------|
-| 0 | cmd \| flags | bits 7..4 = `0x2`; b3..1 = `(chosen_data_sf − 5)`; b0 = `already_received` |
+| 0 | cmd \| flags | bits 7..4 = `0x2`; b3..1 = `(chosen_data_sf − 5)`; **b0 = `already_received` = 0** |
 | 1 | tx_id | CTS sender (the forwarder clearing the requester) |
 | 2 | rx_id | intended requester id (the RTS sender being cleared) |
 | 3 | len6 \| cr2 | **optional NAV hint** — present iff the CTS sender attaches one. b7..2 = `len6` = `ceil((inner+MAC)/4)` (4-B units, **rounded UP**, clamped 63); b1..0 = `cr2` = the cleared sender's CR as `(cr − 5)`. An overhearer decodes `bytes = min(255, len6·4 + 9)` (9 = the widest cleartext DATA header) **and the peer's real CR** |
 
-`chosen_data_sf` in 5..12. `already_received` short-circuits a resend whose ACK was lost. No `ctr_lo`: `tx_id + rx_id` pin the flight under single-slot stop-and-wait, and `tx_id` disambiguates cascade alternates. The 4th byte is omitted (3-B CTS) when NAV is off or no length is attached; `parse_cts` accepts 3 **or** 4 bytes.
+**TERMINAL — 6 B plaintext / 7 B crypted (`already_received = 1`)** — `terminal_cts_wire_len(crypted) = 3 + (crypted
+? 4 : 3)` (`frame_codec.h:448`); packed/parsed at `frame_codec.cpp`'s `pack_cts`/`parse_cts`:
 
-**★ The CTS has NO spare bits ANYWHERE (as of `§cts-len6-cr2`, 2026-07-27):** byte 0's low nibble is `(sf−5)` + `already_received`, and **byte 3 is now `len6`+`cr2`**. A further CTS field means widening the frame — accepted deliberately. Rounding `len6` UP is load-bearing (it keeps every residual length error in the over-reserve direction), and the 63-clamp is what stops a forged `payload_len` aliasing the `byte3 == 0` "no hint" sentinel. Cost of the change: **nothing** — `payload_len` counts inner+MAC only, so the pre-2026-07-27 consumer's flat `+13` already over-reserved by 4–5 B; quantization spends exactly that slack. Behaviour in `protocol.md` §2.
+| Byte | Field | Description |
+|------|-------|-------------|
+| 0 | cmd \| flags | bits 7..4 = `0x2`; **b3 = `CTS_TERM_PLANE_BIT`** (`0x08`; `1` = TEAM plane, `0` = STATIC/GLOBAL — the **wire-declared** plane, `rts_wire_team_plane`); **b2..1 = `CTS_TERM_RSV_MASK`** (`0x06`) **MUST be zero**; **b0 = `already_received` = 1**. ⛔ There is **no `chosen_data_sf` on this shape** — `parse_cts` yields `0` and the sender must ignore it |
+| 1 | tx_id | CTS sender (the node that already completed the flight) |
+| 2 | rx_id | intended requester id (the RTS sender being answered) |
+| 3..5 | flight identity echo | present **iff** 6-B frame — the **complete** 3-B plaintext identity, wire order as on the RTS |
+| 3..6 | flight identity echo | present **iff** 7-B frame — the **complete** 4-B crypted digest, digest order as on the RTS |
+
+⛔ **NO NAV byte on the terminal shape** (nothing follows to reserve for) — `pack_cts` returns 0 if a caller passes
+`payload_len != 0`, and 0 if the identity is absent. **THE CROSS-SHAPE REJECT MATRIX** (`parse_cts`): lengths
+`{3, 4, 6, 7}` only; a 3/4-B frame **with** the terminal bit is **rejected** (the retired form — it cannot carry the
+echo that makes the claim bindable); a 6/7-B frame **without** it is **rejected** (its tail would be unexplained);
+non-canonical `b2..1` is **rejected**. The width alone selects the domain (`width = n − 3`).
+
+`chosen_data_sf` in 5..12. On the ORDINARY shape there is no `ctr_lo`: `tx_id + rx_id` pin the flight under single-slot
+stop-and-wait, and `tx_id` disambiguates cascade alternates. The 4th byte is omitted (3-B CTS) when NAV is off or no
+length is attached. **The TERMINAL shape does carry a flight discriminator — the complete identity echo — which is why
+it, and only it, may end a sender's flight.**
+
+**★ The ORDINARY CTS has NO spare bits ANYWHERE (as of `§cts-len6-cr2`, 2026-07-27):** byte 0's low nibble is `(sf−5)` + `already_received`, and **byte 3 is now `len6`+`cr2`**. A further ORDINARY CTS field means widening the frame — accepted deliberately. ⓘ On the TERMINAL shape the same nibble is re-read as `plane | rsv2 | already_received`, which is what freed the 3 bits for the plane bit without widening byte 0. Rounding `len6` UP is load-bearing (it keeps every residual length error in the over-reserve direction), and the 63-clamp is what stops a forged `payload_len` aliasing the `byte3 == 0` "no hint" sentinel. Cost of the change: **nothing** — `payload_len` counts inner+MAC only, so the pre-2026-07-27 consumer's flat `+13` already over-reserved by 4–5 B; quantization spends exactly that slack. Behaviour in `protocol.md` §2.
 
 **Mobile last-mile — no mark, by design.** The CTS flags nibble is **full** (`(sf−5)` + `already_received`), so a CTS whose `rx_id` is a mobile's LOCAL id carries **no** mobile mark. It doesn't need one: the only node that could mis-fire on it is a home_node neighbour with a live flight, which almost always heard the **marked RTS** (`addr_len=1`) that opened the exchange and so knows local-id X is a mobile; the residual (a *hidden* colliding node with a coincident pending TX) costs at most a collision + retry, **never a mis-delivery**. See Conventions.
 

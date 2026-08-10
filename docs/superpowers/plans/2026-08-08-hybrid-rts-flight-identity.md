@@ -404,6 +404,21 @@ arm exists that has S2's cache without S3's terminal answer.
 The exact CTS-wait correction lands with S1 because the grown frame cannot be left temporarily under-timed. This
 slice audits the remaining timing meanings and closes B158 with full PHY evidence; it is not optional cleanup.
 
+⛔⛔ **STATUS CORRECTION 2026-08-10 — THIS SECTION'S HEADING PROMISE (*"closes B158"*) IS WITHDRAWN. S5 DELIVERED THE
+EVIDENCE — the 128-cell ledger, the semantic-owner table and the `+1 ms`-at-every-cell margin result — BUT [[B158]] IS
+NOT CLOSED AND ITS SCOPE IS NOW LARGER THAN THIS SLICE.** The owner ruled the same day: **Lua parity is not a final
+MeshRoute jitter requirement, and B158 stays open until MeshRoute-native jitter is independently measured and
+selected** (ledger **§1.13**). The real defect is that **one helper — `Node::retry_jitter_ms()` — controls FOUR
+unrelated policies** (DM origination spreading · same-hop RTS/ACK retry spreading · BUSY_RX release spreading · and the
+**LBT release backoff**, which is a `÷2` derivative), so retuning any one silently retunes the rest.
+⇒ **What is owed is a NEW arc, not a line in S5:** a behaviour-identical split into four semantic helpers, a defined
+`rts_contention_quantum_ms` (11-B RTS airtime — **the scale, not the window**), and a **`K = 1,2,3,4,6` sweep** with a
+**flat** window, measured on the corpus **plus** the 24-seed twin **plus** metal. ⛔ **Multiplier 3 is a candidate, not
+a conclusion.** ✅ Only the `exchange_airtime_ms()` half is settled (**`MEASURED-AND-LEFT`**).
+⇒ **The register entry's header is the single authority for B158's status; this section is an evidence record only.**
+⚠ **S5 also found a SEPARATE defect that is NOT B158's and is NOT closed — [[B166]]** (`nav_duration_rts`
+under-reserves NAV for an ordinary unicast exchange).
+
 ### Production changes
 
 1. Audit every production use of `RTS_LEN`, `airtime_routing_ms(8)`, RTS retry jitter, NAV/reservation, Lua parity,
@@ -482,7 +497,13 @@ Produce one table for BASE, DELETE, prior uniform-4B control, and final HYBRID:
 - bug register:
   - B153 closed by strong flight identity + restored receiver optimisation, preserving the deletion history;
   - B157 closed by exact identity + restored implicit ACK, preserving the deletion history;
-  - B158 reopened then closed by measured actual-length timing;
+  - ⛔ **B158 is OPEN and OUT OF THIS ARC'S SCOPE** (owner-ruled 2026-08-10, ledger §1.13): S5 delivered its PHY
+    evidence and only the `exchange_airtime_ms()` half is settled (`MEASURED-AND-LEFT`). The remainder became a
+    **MeshRoute-native jitter design arc** — the four-policy coupling through `retry_jitter_ms()`, the
+    `rts_contention_quantum_ms` scale, and a `K = 1,2,3,4,6` flat-window sweep on corpus + 24-seed twin + metal.
+    ⛔ **Do not mark B158 closed in S6**; the register header is the authority;
+  - ⛔ **[[B166]] is OPEN and independent** — `nav_duration_rts` under-reserves NAV for an ordinary unicast exchange
+    (found by S5, own slice, must not be folded into a B158 closure);
   - B156 remains closed only if `src_hint` cannot enter the restored cache key;
   - B159 remains open and explicitly independent;
   - B160 closed only after all three requeue paths preserve explicit Plane through the shared helper;

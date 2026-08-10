@@ -1,6 +1,12 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # Delivery baseline suite — the result-comparison gate
 
+**★★★★★★★★★★★★★★★★★★★★★★★★★★★★★★ 2026-08-10 §HYBRID-RTS-S6-B169 IS THE NEWEST NOTE AND IT SUPERSEDES THE S6 HEADLINE DIRECTLY BELOW IN ITS ONE FAILING CELL. ✅ THE BOARD GATE NOW PASSES: `tools/warning_census.sh` EXITS 0 (`gateway_heltec` 175→174 · `heltec_mobile` 179→178 · `heltec_v3` 179→178, all AT their pins, `-Wswitch` 0), and [[B169]] IS CLOSED by the one-line QA-recommended `[[maybe_unused]]` at `lib/core/node_mac_rx.cpp:267` (grep the declaration text; the line moves). ⛔⛔ SO EVERY SENTENCE BELOW SAYING *"`warning_census.sh` EXITS 1"*, *"[[B169]] OPENED, NOT FIXED"* or *"NOT FIXED (its own slice)"* IS HISTORICAL AND FALSE AS PRESENT TENSE — it describes the tree as measured BEFORE the fix. ★ Native stayed 1487/80613/0, `lus` stayed BYTE-IDENTICAL at `9150ad1a` (so no corpus re-run was needed), all ten envs rebuild, and flash/RAM are BYTE-FOR-BYTE IDENTICAL to the S6 table on all ten ⇒ NOTHING WAS RE-PINNED. ⛔ ALSO SUPERSEDED BELOW: the *"CONDITIONS-MET/BLOCKED"* wording for [[B157]] — its current status is *"implementation complete; universal safety remains blocked by [[B161]]"*. Detail: §HYBRID-RTS-S6-B169.**
+
+**★★★★★★★★★★★★★★★★★★★★★★★★★★★★ 2026-08-10 §HYBRID-RTS-S6 IS THE NEWEST NOTE (detail immediately below, before §HYBRID-RTS-S5 (1)) — the arc's CUMULATIVE DECISION GATE: the four-arm comparison table, the OWNER-GATED re-anchor PROPOSAL, and the full D1/D2 gate that had been deferred for ~10 slices.** ★★★★★★★ **THE PARETO GATE IS CLEARED FOR THE FIRST TIME IN THE ARC: 734 unique deliveries / `s06` 110 / `s27` ZERO assertion failures — BASE gave 733/104 with `s27` RED, DELETE gave `s27` clean but only 707/85, and HYBRID gives both halves at once.** Duplicates **12 (BASE) → 21 (DELETE) → 2**, i.e. **10 BELOW the pre-B153 count**; total PHY airtime **−9.20 % vs DELETE and −0.90 % vs BASE** while delivering more; **0 frames at the legacy 7 B**, `M` 9 B and `FLOOD` 43 B byte-unchanged; the old `(src, dst, ctr_lo[4], payload_len)` tuple is measured carrying **more than one distinct flight on 162 of 4 151 tuples (3.90 %, N = 8 030 RTS frames)** while the new plaintext identity has **zero aliases by construction**. ★★★★ **BASE and DELETE were NOT REBUILT: their §B162 stream sets were RE-ANALYSED with ONE tool revision, and the re-analysis reproduces §B162's ladder EXACTLY (733/765/5 883 686 and 707/750/6 421 497) — every cell in the table is labelled `RE-MEASURED` / `RE-MEAS(arch-stream)` / `ARCHIVAL` / `NOT MEASURED`, and the uniform-4B control is NOT MEASURED because the arm is the REFUTED design and is not in the tree.** ★★★★★★★★ **THE RE-ANCHOR PROPOSAL: ALL 36 ROWS HAVE MOVED FROM THE `^### 36/36 corpus` TABLE (16 with a changed event count, 20 byte-only) AND ALL 36 ARE ATTRIBUTED — the per-slice event-count chain lands on the independently re-measured value on 36/36 rows with ZERO discontinuities, and every row's final md5 equals a named slice's published AFTER value (S1 → 16 · S2(+S3) → 10 · S2c → 1 · S4c → 9 = 36).** ⛔⛔ **THE ANCHOR TABLE IS *NOT* EDITED — §(3b) is a clearly-labelled PROPOSAL awaiting the owner's single ruling, and hitting that gate is the EXPECTED stop.** ⛔⛔ **AND THE DISPATCH'S OWN FIVE MOVEMENT SOURCES ARE INCOMPLETE: it omits [[B153]]'s 15 movers and the §MH-S4b pass, whose event terms are the LARGEST in the decomposition (`s17` +40 696, `s18` +30 108) — a proposal built on the five listed causes could not have closed.** ★★★ **THE MOBILE-HOME 8 ARE NOT ABSORBED, and it is now MEASURED: the archived BASE streams differ from the anchor table on EXACTLY the 8 mobile-plane rows and no other, so the anchor table IS the pre-mobile-arc state.** ⛔⛔⛔ **THE BOARD GATE FAILS, AND IT FAILS ON EXACTLY WHAT A DEFERRED BOARD GATE EXISTS TO CATCH: `tools/warning_census.sh` EXITS 1 (175/179/179 vs pinned 174/178/178) because `lib/core/node_mac_rx.cpp` emits `-Wunused-variable: 'local_admitted'` on EVERY ONE OF THE TEN ENVS — the variable's only consumer is an `MR_EMIT`, which `MESHROUTE_NO_TELEMETRY` strips on device, so it is invisible to native AND to the corpus and visible only to a board build. It entered at §HYBRID-RTS-S4 and survived four slices because board builds were skipped by standing instruction. ⇒ [[B169]] OPENED, ⛔ NOT FIXED (it is a `lib/core` edit that would invalidate all 20 builds measured here — its own slice, C1), and ⛔ NOTHING WAS RE-PINNED.** ★★★★★ **10/10 ENVS BUILT IN BOTH TREES (20 clean builds, the baseline in a SEPARATE WORKTREE at `6c9ce89` — this tree was never checked out and `git checkout --` was never used): ΔRAM is EXACTLY +296 on every single-layer env and EXACTLY +592 on every dual-layer env across three toolchains with no cell disagreeing, which is precisely `node.h:3110`'s per-layer arithmetic MEASURED rather than accepted; ΔFlash +1712…+3744; `-Wswitch` 0 ×10; `-Wreorder` clean in project-owned code (the 3 nRF52 hits are vendored `CustomLFS`, identical in both trees); 22 `sizeof`/`offsetof` static_asserts pass. ⚠ `gateway` at 82.7 % RAM is the tightest env in the fleet and one of the three paying +592 — it LINKS clean, and a link is not a boot.** ★★★★★★ **NATIVE 1487 / 80613 / 0 from a deleted build dir with the BINARY RUN, `error:` 0; `lus` `9150ad1a` reproduced BYTE-FOR-BYTE from a FROM-SCRATCH build directory and AGAIN after the mutation battery (40 build actions, so the recompile is proven); 36 scenarios, 0 assertion failures.** ⛔⛔ **8 CODEC MUTATION PROBES AT MATCH COUNT == 1, SEVEN RED — AND M5 CAME OUT GREEN ON AN ASSERTION THAT ALREADY EXISTED AND COULD NOT FAIL: the 5-B CTS rejection was built from a TERMINAL frame, so the terminal-bit branch refused it before the length gate was ever reached, and widening `parse_cts` to accept `n == 5` left all 1487 cases green. Closed by an added ORDINARY-shape case (+6 assertions) with the vacuous line KEPT AND EXPLAINED; M5 re-run is RED on exactly the intended case.** ★★★ **DOCUMENTATION: `docs/frames.md` gains the 10/11-B RTS identity offsets and the 6/7-B terminal-CTS byte table ([[B167]]'s owed half, every offset cited to the codec and now mutation-pinned) with ~20 lines of S5 prose MIGRATED OUT to `protocol.md` §2.1, which is rewritten and audited (0 `RTS_LEN` hits; two live inaccuracies fixed, incl. an unfenced [[B166]] site).** ⛔ **[[B153]] and [[B157]] are NOT CLOSED — [[B161]] is open, and B157's conditions ARE met but it is half of B153's one mechanism, so it is recorded CONDITIONS-MET/BLOCKED rather than closed (a stated deviation from the dispatch).** ⛔ **[[B156]] stays closed, verified STRUCTURALLY by the call graph (`prx.from = r.src`, `node_mac_rx.cpp:619`); [[B160]] stays closed; [[B158]] NOT TOUCHED (owner-reopened, own arc — `retry_jitter_ms`/`airtime_routing_ms`/`test_airtime.cpp` were not modified); [[B159]]/[[B161]]/[[B163]]/[[B164]]-airing/[[B165]]/[[B166]]/[[B168]]/[[B160-COV]]/[[B160-SIB]] ALL STAY OPEN.** ⚠⚠ **`≥733` REMAINS CONDITIONAL ON [[B163]] and the margin is ONE delivery — but `s07` is NOT where it comes from, and that is measured: excluding `s07` entirely the arc is 654 vs BASE's 656.** ⛔ **The crypted 11-B arm is CORPUS-DARK at N = 2 and the 7-B terminal CTS has ZERO corpus instances — a zero from an unstated N is not a measurement, so the N is stated.** ⛔ **THE TWO UI PROBES AND THE PER-ABI `sizeof` REVEAL DID NOT RUN — not owed on the merits, stated rather than implied. AN UNRUN GATE IS UNRUN.** ⛔ **UNCOMMITTED (D4). ⛔ NO OWNER OR QA APPROVAL IS CLAIMED FOR ANY FIGURE HERE.**
+
+**★★★★★★★★★★★★★★★★★★★★★★★★★★ 2026-08-10 §HYBRID-RTS-S5 IS THE NEWEST NOTE (detail immediately below, before §HYBRID-RTS-S4 (1)) — the remaining RTS/CTS TIMING AUDIT for [[B158]] plus the 128-cell PHY LEDGER. ⛔⛔ **AUDIT + TEST ONLY: NO BEHAVIOUR CHANGED, NO CONSTANT NORMALISED, NO WIRE OR CODEC CHANGE — and the proof is the strongest form available: `lus` is BYTE-IDENTICAL at `9150ad1a` before and after, with both edited `lib/core` files provably recompiled into both core libs.** ★★★★★ **THE GATE'S OWN DEMAND IS MET AND IT IS A STRUCTURAL FACT, NOT LUCK: `start_rts_timeout`'s signed margin is `+1 ms` at ALL 128 supported PHY cells in BOTH domains — the site's own `+ 1u` literal — because the armed price runs through the same `unicast_rts_wire_len`/`terminal_cts_wire_len` helpers the packers use; the no-flight re-arm over-waits at every cell; and the retired `a(8)+a(4)` formula is separated at 102/128 cells plaintext (max +525 ms) and 124/128 crypted (max +1049 ms).** ⛔⛔⛔ **BUT THE BRIEF'S HYPOTHESIS ON `nav_duration_rts` IS REFUTED — AND THE CHANNEL IT NAMED IS THE ONE THAT IS FINE. The TERMINAL direction over-reserves at every cell (worst +14 ms); the ORDINARY direction UNDER-reserves by up to −131 ms (−66 ms even fully homogeneous), because the site prices the responder's CTS at 3 B while the LONGEST LEGAL ordinary CTS is 4 B. ⛔⛔ **CORRECTED 2026-08-10 BY REVIEW — this headline previously said the frame *"flies whenever NAV is on"*, which CONFLATED TWO DIFFERENT NODES' CONFIG and is WITHDRAWN** (`node_mac_rx.cpp:414` is the OVERHEARER's `nav_enabled`; `:533` is the RESPONDER's). ★ **THE INVARIANT IS UNCONDITIONAL — a "Conservative" reservation must always allow 4 B because the observer CANNOT KNOW the responder's setting — but the ACTUAL under-reservation occurs ONLY when that responder does emit a 4-B CTS** — and the corpus CTS census is `{4: 4709, 6: 172}`, i.e. NOT ONE 3-B CTS EXISTS. Reachable as shipped at TWO of the eleven routing PHY cells the corpus uses: −41 ms at SF9/BW62.5k and −20 ms at SF9/BW125k. UNDER-reservation releases NAV EARLY = the DANGEROUS direction. ⇒ [[B166]] OPENED; NOT fixed here (pre-existing, not unicast-RTS airtime, and a re-price moves every NAV-bearing stream).** ★★★★ **`cts_air_len` IS SETTLED BY DERIVATION: it is a BILLING term ONLY — all three consumers are `track_originator_observation`'s `air` argument feeding the originator-throttle decision, NO timer anywhere — and the measured over-charge is ZERO because no 3-B CTS exists in the corpus.** ★★★★ **`start_pending_rx_expiry` IS CLEARED ON BOTH QUESTIONS: `a(4) >= a(3)` at all 128 cells (worst margin 0 ms), and a 6/7-B TERMINAL CTS is STRUCTURALLY unable to reach it — proven from the call graph (two callers, both `already_received = false` into a `uint8_t cbuf[4]`; the sole terminal producer RETURNS before any `PendingRx` exists), not from the comment. The −524 ms stake is pinned as an assertion so a future call-graph change fails loudly.** ★★★ **[[B165]]'s REACHABILITY MEASURED AND POSITIVELY CONTROLLED: 11 `duty_cycle_blocked{label=RTS}` firings corpus-wide (so the branch is LIVE, not dead code), ALL in `s07`, ALL 10-B unicast, ZERO with a flood pending, ZERO unresolved — against 737 `rts_tx{flood:true}` emits the same correlator parses. ⇒ THE CORPUS CANNOT REACH THE TRUNCATION, and what would is named: a flood-bearing scenario at `s07`'s density (three tight-duty scenarios DO air floods but are too small to trip the budget). ⛔ B165 NOT fixed (D2).** ★★★ **`retry_jitter_ms` is **UNCHANGED BY S5 AS THE CURRENT PRE-[[B158]] BASELINE — ⛔⛔ NO LONGER ACCEPTED AS THE FINAL DESIGN** (this headline said *"STAYS as the owner-ruled Lua-parity constant"*; **WITHDRAWN 2026-08-10** — the owner reopened B158 and ruled that Lua parity is **not** a final MeshRoute jitter requirement, so a **MeshRoute-native jitter arc** is owed: four semantic helpers, an 11-B RTS-airtime quantum as the **scale**, and a flat-window `K = 1,2,3,4,6` sweep. Ledger §1.13), now with its cost in-source: worst −789 ms at SF11/BW62.5k/CR4/8, differs at 66/128 cells, +0 ms at BOTH dominant corpus cells and −123 ms at SF9/BW62.5k.** ★★ **THE TEST: 4 new cases in `test_airtime.cpp`, +846 assertions, native 1483/79761/0 → 1487/80607/0 from a CLEAN rebuild, `error:` 0, 8 pre-existing warnings and ZERO from any file touched, `-Wswitch` 0. 6 MUTATIONS, each at EXACTLY ONE textual match, ALL RED — ⚠ and M5 came out GREEN first, a REAL coverage gap in my own case, closed by an added assertion and recorded not deleted.** ⛔⛔ **A DEFECT OF MINE IS RECORDED: the mutation harness lost its `cd` and ran a STALE BINARY, reporting M2's result with M1's failures; caught by cross-reading the assertion names, and every mutation was re-run with a proven rebuild.** ★★★ **CORPUS: ALL 36 ROWS BYTE-IDENTICAL (md5 + event count), 0 assertion failures in all 72 runs, row-diff POSITIVELY CONTROLLED. Deliveries 734 / `s06` 110 in both arms (tables `diff`-identical) ⇒ the ≥733/≥104 floor is met with ZERO movement to attribute. PHY airtime 5 830 644 ms in both arms.** ⛔ **`docs/frames.md` WAS TWO SLICES STALE — it still said "RTS 7 B" and "`already_received` is RESERVED and NEVER EMITTED" (refuted by 172 measured terminal CTS frames); the length statements and both false claims are CORRECTED, the byte-offset tables are deliberately left to §S6.** ⛔ **BOARD BUILDS, `warning_census.sh`, the UI probes and the per-ABI reveal DID NOT RUN — standing owner instruction; NOTHING here implies they passed.** ⛔ The `^### 36/36 corpus` anchor table is NOT edited. ⛔ **`s07`/[[B163]] diagnosed separately and DID NOT MOVE — it stays OPEN.** ⛔ UNCOMMITTED (D4). ⛔ NO OWNER OR QA APPROVAL IS CLAIMED.**
+
 **★★★★★★★★★★★★★★★★★★★★★★★★★★ 2026-08-10 §HYBRID-RTS-S4d IS THE NEWEST NOTE (detail immediately after §HYBRID-RTS-S4c (8)) — it CLOSES ONE NARROW BLOCKER §HYBRID-RTS-S4c LEFT OPEN and every other figure S4/S4b/S4c published still stands.** ★★★★★★ **S4d IN ONE LINE: S4c made the flag's `true` side honest by renaming it; its **`false`** side was still dishonest, because the only writer sat at ONE CALLER's exit — so the single write MOVES to the ONE CROSSING POINT every admission passes (`tx_with_retry`, immediately after `_hal.tx()` returns `ok`), the `do_data_tx` writer is DELETED, and `basis=alternate_path`'s CATEGORICAL claim becomes true. ⛔ ZERO behaviour change, ⛔ NO per-path assignment added.** ★★★★★ **THE BLOCKER, VERIFIED AT ALL FOUR CITED SITES (V1): the only writer was `node_mac.cpp` `do_data_tx`'s `if (disp == TxHandOff::handed) pt.data_ever_admitted = true;` (the INITIAL path); a duty-deferred DATA can LATER be admitted at `duty_defer_fire`'s `tx_with_retry(...) != deferred_retry_armed` re-run, which **re-runs the send and never touched the flag**; the consumer maps `false` **CATEGORICALLY** to `basis=alternate_path` (`node_mac_rx.cpp`); and the spec defines that as *"no DATA has been admitted locally"* (design §5.2 item 2). ⇒ `true` meant "admission observed" but **`false` did NOT prove "alternate path"**.** ★★★★★★ **THE FIX IS A TOPOLOGY, AND IT IS [[B162]]'s REFUSAL-BANNER LESSON IN A SECOND SHAPE — *a guarantee made at one of several exits is not made at all*: EVERY admission (initial AND duty-deferred-retry) necessarily crosses `_hal.tx()` inside `tx_with_retry`, so establishing the fact THERE makes it EXACT rather than best-effort **and makes a future call path unable to bypass it**. ★ `retry_stashed` deliberately gets NO writer and the reasoning is IN-SOURCE: it is reachable only via `kRadioBusyRetryTimerId + slot` (`node.cpp:1417-1418`) armed only inside `on_radio_busy` (`node.cpp:2220`), which for the DATA slot can only report a frame the HAL had ALREADY taken ⇒ a prior successful admission at the crossing point is a PRECONDITION; and it only ever re-sends the STASHED bytes of that same frame, so it can never air a different flight's DATA (checked in BOTH directions).** ★★★★★★★ **⛔⛔ AND THE DISPATCH'S OWN GATE PREDICTION IS REFUTED — THE THIRD IN THREE ROUNDS, AND AGAIN A ONE-DIRECTION CLAIM: it said *"the corpus WILL likely move — some `alternate_path` credits should become `local_admitted`"* and *"do not predict inertness"*. MEASURED: **ALL 36 STREAMS ARE BYTE-IDENTICAL (raw md5, no substitution)**, census **49 · 36/13 · 45/3/1 in both arms** with the cross-split and the by-scenario set identical, because the ONLY newly-covered path is **CORPUS-DARK: `duty_cycle_blocked` with label `DATA` is ZERO across all 36 scenarios** (33 NACK · 11 RTS are the only duty blocks that fire). ⇒ nothing could move, and the credit census could not shift.** ★★★★ B162 authority **734 → 734**, `s06` **110**; PHY airtime **5 830 644 → 5 830 644 ms**; event counts and `0 assertion failure(s)` identical on all 36 rows. Native **1482/79741/0 → 1483/79761/0** (+1 case, +20 assertions), `grep -c "error:"` **0**, warnings **9 → 9 with an IDENTICAL per-file multiset** and ZERO from any file this slice touched, `-Wswitch` **0**. `sizeof(Node)` **221880** · `sizeof(PendingTx)` **352** (flag still at offset **347**, `is_gw_relay` at 346) · `sizeof(std::optional<PendingTx>)` **360** · `kCap` **91** · top timer **90** — **moving a writer adds no state, confirmed by compile-only reveal rather than assumed.** `lus` **`b6e9220f` → `9150ad1a`**, rebuild proven both directions (BEFORE: `cmake --build` **zero build actions**; AFTER: `node_mac.cpp` + `node_mac_rx.cpp` recompiled into **both** core libs). ★ **ONE MUTATION, at match count == 1 from `rm -rf .pio/build/native`, REPRODUCING THE ORIGINAL CONTROL FLOW rather than deleting a line — RED on exactly the intended assertion and nothing else (1 of 79761), reporting `alternate_path == local_admitted`** — plus a restore control (native **1483/79761/0**, `lus` back to **`9150ad1a`** byte-for-byte after 2 build actions). ⛔ The `^### 36/36 corpus` anchor table is NOT edited — proven by a FULL-REGION `diff` against `git show HEAD:` (EMPTY diff), ⛔ never by an md5 of a `sed` range. ⛔ **BOARD BUILDS AND `warning_census.sh` DID NOT RUN — standing owner instruction; NOTHING here implies they passed. An unrun gate is unrun.** ⛔ `≥733` stays **CONDITIONAL on [[B163]]** (open, untouched); [[B161]] open ⇒ **[[B153]] CANNOT be called closed.** ⛔ **[[B164]] is now OPEN FOR AIRING ONLY** — both post-admission drop mechanisms (`on_radio_busy`, `pump_tx()`'s failed arm) stand, and option **(b)** remains **DEFERRED, NOT DISMISSED.** ⛔ **`local_admitted` STILL LACKS OWNER APPROVAL and nothing here claims it.** ⛔ **S5, S6, (b)'s implementation, [[B158]], [[B159]], [[B160-COV]]/[[B160-SIB]], routing T1–T3, the parked mobile-home arc, the OLED UI and `tools/` NOT touched.** ⛔ UNCOMMITTED (D4). ⛔ **NO OWNER OR QA APPROVAL IS CLAIMED.**
 
 **★★★★★★★★★★★★★★★★★★★★★★★★★★ 2026-08-10 §HYBRID-RTS-S4c IS THE NEWEST NOTE (detail immediately after §HYBRID-RTS-S4b (9)) — it CORRECTS §HYBRID-RTS-S4b in ONE place and every other figure S4/S4b published still stands.** ★★★★★★ **S4c IN ONE LINE: `data_ever_transmitted` never meant “DATA aired” and was wrong in BOTH directions, so the field and the diagnostic label are RENAMED to what they measure — `data_ever_admitted` / `basis=local_admitted` — the spec's and the plan's OPERATIONAL text are amended, and [[B164]] is expanded to carry both mechanisms. ⛔ ZERO behaviour change.** ★★★★★ **THE BLOCKER, VERIFIED AT THE CODE: `TxHandOff::handed` only means `IHal::tx` returned `ok`, and `lib/hal/device_hal.cpp:10-12` says outright *“tx() ENQUEUES … Returns ok when queued”* with the on-air send deferred to `pump_tx()`. ⇒ (i) FALSE POSITIVE — `Node::on_radio_busy(FrameTag::data)` (`node.cpp:2191-2195`) refuses a frame the flag ALREADY booked and cannot unset it, and the path is EXERCISED: **652 `data_tx_blocked` events across 15 of the 36 scenarios**, re-measured here; plus `pump_tx()`'s failed arm (`device_hal.cpp:38-46`), which DROPS a queued frame with no retry (a SECOND, metal-only mechanism this arc had not named); (ii) FALSE NEGATIVE — [[B164]]'s two re-hand sites. ⇒ ⛔⛔ **S4b's *“★ THE DIRECTION IS THE SAFE ONE”* IS RETIRED AT ITS OWN SITE.**** ★★★★★★ **OPTION (a) WAS TAKEN OVER (b) AND THE REASON IS ON THE RECORD: nothing consumes the true fact — both bases take the SAME action, so the split is diagnostic only — while (b) (a flight-correlated TX-start/completion signal) would add state, plumbing and stream movement for a fact with no reader. ★ (b) IS DEFERRED, NOT DISMISSED: build it the moment a consumer needs “aired” rather than “admitted”, and ⛔ NEVER approximate it by adding the assignment at B164's two retry sites — that repairs the false negatives and PRESERVES the late-busy false positive.** ★★★★★★★ **THE INERTNESS PROOF IS STRONGER THAN THE MD5 IDENTITY THE DISPATCH EXPECTED, AND THAT EXPECTATION IS REFUTED BY CONSTRUCTION: renaming the `basis` VALUE necessarily moves stream bytes. Measured: 27/36 byte-identical, **9 movers = EXACTLY the 9 scenarios in which the credit fires** (`s06 8 · s07 13 · s15 6 · s15_metal 3 · s17 1 · s18 12 · s20 4 · sim_9node_base 1 · twin 1`), and substituting `local_admitted` → `local_data` in the AFTER streams reproduces **36/36 BEFORE streams BYTE-FOR-BYTE** — positively controlled, since WITHOUT the substitution 9 of 36 differ. ⇒ the only byte that moved corpus-wide is that one token.** ★★★★ Credit census **49 · 36/13 · 45/3/1 in both arms** (cross-split 32/13/3/1 identical); B162 authority **734 → 734**, `s06` **110**; PHY airtime **5 830 644 → 5 830 644 ms**; event counts and `0 assertion failure(s)` identical on all 36 rows. Native **1482/79741/0** (RUN from the real binary; the wrapper printed its usual false *“0 test cases”*), `grep -c "error:"` **0**, warnings **9 → 9 with an IDENTICAL per-file multiset** and ZERO from any file this slice touched, `-Wswitch` **0**. `sizeof(Node)` **221880** · `sizeof(PendingTx)` **352** (`data_ever_admitted` still at offset 347) · `kCap` **91** · top timer id **90** — a rename adds no state, confirmed by compile-only reveal. `lus` **`6d12577b` → `b6e9220f`**, rebuild proven (both core libs), and the comment-only follow-up pass proven **byte-inert** (4 build actions, `lus` still `b6e9220f`). ⛔ The `^### 36/36 corpus` anchor table is NOT edited — proven by a FULL-REGION `diff` against `git show HEAD:` (1398 lines each, EMPTY diff; control: 28 `^| s` rows + the keystone row reached). ⛔ **BOARD BUILDS AND `warning_census.sh` DID NOT RUN — standing owner instruction; NOTHING here implies they passed.** ⛔ `≥733` stays CONDITIONAL on [[B163]] (open, untouched); [[B161]] open ⇒ **[[B153]] CANNOT be called closed.** ⛔ **S5, S6, (b)'s implementation, [[B158]], [[B159]], [[B160-COV]]/[[B160-SIB]], routing T1–T3 NOT touched.** ⛔ UNCOMMITTED (D4). ⛔ **NO OWNER OR QA APPROVAL IS CLAIMED.**
@@ -8,6 +14,937 @@
 **★★★★★★★★★★★★★★★★★★★★★★★★ 2026-08-09 §HYBRID-RTS-S4b (superseded in ONE place by §HYBRID-RTS-S4c above; below, immediately after §HYBRID-RTS-S4 (9)) — it CORRECTS §HYBRID-RTS-S4 in two places and every figure in the S4 headline that follows still stands.** ★★★★★★ **S4b IN ONE LINE: two CORPUS-DARK correctness holes S4 left are closed and neither costs a delivery — (1) a HAL **rejection** was recorded as `data_ever_transmitted`, so a refused DATA was later credited `basis=local_data`, i.e. it ASSERTED A TRANSMISSION THAT NEVER HAPPENED; (2) the credit gate tested identity, plane, expected neighbour and destination — every one of which answers *which flight* — and NOTHING tested DIRECTION, so a LOOPED RTS forwarded straight BACK to us cleared our timers and DISCARDED THE ONLY VIABLE COPY of the message.** ★★★★ **BOTH ARE INVISIBLE TO THE CORPUS AND THAT IS MEASURED, NOT ASSUMED: `tx_hal_rejected` is ZERO corpus-wide (of any label, all 36 scenarios) and the credit census is 49 before AND after, so all 36 streams are BYTE-IDENTICAL, deliveries 734 → 734, `s06` 110, airtime 5 830 644 → 5 830 644 ms. ⇒ the native cases are the ONLY detectors either fix has, which is exactly why each carries a positive control and a mutation.** ★★★ Native **1479/79693/0 → 1482/79741/0** (+3 cases, +48 assertions), `grep -c "error:"` **0**, warnings **9 → 9 SET-IDENTICAL**. **FOUR mutations at match count == 1 from a clean rebuild, each RED and each discriminating a different set** (M5 revert the rejection distinction 1 RED · M6 remove the direction term 2 RED · M7 the WRONG FIX, a hand-rolled `r.next == _node_id` instead of the canonical predicates, 1 RED · M8 HARNESS VACUITY CONTROL, the HAL can no longer refuse, 1 RED) + a restore control (native 1482/79741/0, `lus` `6d12577b`). ⛔⛔ **AND A PREMISE OF MY OWN DISPATCH IS WRONG: the "3 occurrences of 46" in `node_mac_rx.cpp` are ONE claim plus two Lua line references (`dv:10449-10467`, `dv:10462`); the claim's second live site was in `test_node_r3.cpp`, not that file** — corrected sites: 2. ⛔⛔ **NEW FINDING, REGISTERED NOT FIXED: [[B164]] — `duty_defer_fire` and `retry_stashed` also fly a DM DATA and NEITHER writes `data_ever_transmitted`, so S4's *"THE ACTUAL DATA TRANSMISSION BOUNDARY"* is the only WRITER but not the only BOUNDARY; the flag UNDER-reports, in the safe direction.** ⛔ Board builds / `warning_census.sh` / the UI probes DID NOT RUN — standing owner instruction; nothing implies they passed. ⛔ `≥733` stays CONDITIONAL on [[B163]] (open, untouched); [[B161]] open ⇒ **[[B153]] CANNOT be called closed**. ⛔ UNCOMMITTED (D4). ⛔ **NO OWNER OR QA APPROVAL IS CLAIMED.**
 
 **★★★★★★★★★★★★★★★★★★★★★★★★ 2026-08-09 §HYBRID-RTS-S4 (superseded in two places by §HYBRID-RTS-S4b above) — the SENDER-SIDE implicit ACK is RESTORED, keyed on the S1 flight identity. ★★★★★★ **THE HEADLINE, ON THE B162 AUTHORITY AND NOT ON A RAW COUNT: unique corpus deliveries 719 → 734 (+15) and `s06` 110 — so S4 RECOVERS ALL 14 IT OWED AND ONE MORE, clearing `≥733`/`≥104` for the first time in this arc.** ⚠⚠ **THAT PASS IS CONDITIONAL ON [[B163]], WHICH IS OPEN AND UNTOUCHED:** `s07` carries a **correct** live runtime-id alias refusal on every arm (two mobiles genuinely wear the same **leased** wire id at different times), so `s07`'s figure — **71 → 80, the single largest mover** — may be SHORT on both arms by an amount that is **not derivable** without a time-windowed alias map. ⇒ ⛔ **the total is not settled until B163 is, and no owner acceptance of `734` is claimed.** ★★★★★ **AND THE AIRTIME MOVES THE RIGHT WAY AT THE SAME TIME, measured on the same authority (PHY ground truth, all 36 rows): 5 943 914 → 5 830 644 ms (−113 270, −1.91 %) — which puts S4 BELOW pre-B153 BASE (5 883 686) on airtime while being ABOVE it on deliveries. Against DELETE (6 421 497 / 707) it is −9.20 % airtime and +27 deliveries.** ★★★★★★ **THE CENTRAL PROOF IS MEASURED, NOT ARGUED: a behaviour-neutral telemetry arm finds 80 near-misses corpus-wide (endpoints matched, identity/plane did not) and 5 of them satisfy the ENTIRE retired `(next, dst, ctr_lo, payload_len)` predicate — including `s27_cross_layer_mobiles_meshroute` node 5 at t=363718, from=103, dst=101, ctr_lo=2, plen=57, `data_ever=false`, which is the frame [[B157]]'s deletion comment names VERBATIM as the one that lost `re-m3` in silence. S4 refuses it on the identity.** ★ All 5 sit at `data_ever_transmitted == false` ⇒ all 5 would have discarded a message that had never been transmitted. ⛔⛔ **AND THREE PREMISES OF THE DISPATCH ARE WRONG, ALL THREE RECORDED BELOW: the historical "46 of 61 credits were `awaiting_cts` with DATA never transmitted" CANNOT have been measured (the field that decides it is introduced BY THIS SLICE), and on the S4 wire `alternate_path` is the MINORITY at 13 of 49, not the majority; `s27`'s messages are `re-m2`/`re-m3`/`re-m4`, there is no `re-m1`; and the credit census is 49, not 61.** ★★★★ **ATTRIBUTION IS EXACT AND SET-THEORETIC, not argued: the 9 moved streams are EXACTLY the 9 scenarios in which the credit fires, and the 27 byte-identical streams are EXACTLY the 27 in which it does not — and `s27`, which has a near-miss and NO credit, is BYTE-IDENTICAL, which is the ruling's second half ("a mismatch must change nothing else") confirmed at corpus scope rather than asserted.** ★ Native **1471/79553/0 → 1479/79693/0** (+8 cases, +140 assertions), `grep -c "error:"` **0**, warnings **9 → 9 IDENTICAL** (zero from any file this slice touched), `-Wswitch` **0**. `sizeof(Node)` **221880 UNCHANGED** and `sizeof(PendingTx)` **352 UNCHANGED** — `data_ever_transmitted` lands in the 5 bytes of tail padding after `is_gw_relay` (offset 346), measured by compile-only reveal; `kCap` **91**, top timer id **90**, no timer allocated. ★ **FOUR mutations, each applied at match count == 1 from a `rm -rf .pio/build/native` rebuild, each RED and each discriminating a DIFFERENT set of cases** (M1 id-comparison 3 RED · M2 plane-comparison 2 RED · M3 `data_ever_transmitted` before the radio hand-off 1 RED · M4 synthesized `send_acked` 4 RED), plus a RESTORE CONTROL: after all four reversals the rebuilt `lus` is `d66392e9` byte-for-byte. ⛔ **BOARD BUILDS, `warning_census.sh`, the per-ABI `sizeof` reveal and both UI probes DID NOT RUN** — standing owner instruction / no state-size change; **nothing here implies they passed.** ⛔ The `^### 36/36 corpus` anchor table is NOT edited (proven by a full-region `diff` against `git show HEAD:`, §(9)). ⛔ **[[B163]], [[B161]], [[B158]]'s remaining site, [[B159]], [[B160-COV]]/[[B160-SIB]], routing T1–T3, S5 and S6 were NOT touched.** ⛔ UNCOMMITTED (D4). ⛔ **NO OWNER OR QA APPROVAL IS CLAIMED.**
+
+### ★★★★★★★★★★★★★★ §HYBRID-RTS-S6-B169 — ✅ **THE GATE BLOCKER IS FIXED. `warning_census.sh` NOW EXITS 0, AND S6's OWN ACCEPTANCE CRITERIA ARE MET.**
+
+**2026-08-10, a micro-slice, ★ QA-RECOMMENDED fix.** ⛔ **PROVENANCE CORRECTED IN PLACE: this section said *"owner-specified fix"*, *"Owner-ruled: the read must NOT be moved"* and *"the owner's five conditions"*. **ALL WITHDRAWN** — the fix form, the no-move constraint and the five gate conditions were **QA RECOMMENDATIONS relayed by the owner, not owner rulings**; a relay is not a ruling (ledger §3). ⓘ The owner's approval of the NAME `local_admitted` (ledger §1.12) is unaffected and stands.** §HYBRID-RTS-S6 (4) below recorded `warning_census.sh` **EXIT 1** —
+a board-only `-Wunused-variable` on `local_admitted`. That is now closed; **[[B169]] carries the full record.**
+
+**THE CHANGE — one line, the owner's preferred form, and no other:**
+`[[maybe_unused]] const bool local_admitted = pt.data_ever_admitted;` (**`lib/core/node_mac_rx.cpp:267`** — ⛔ cited as `:256`, then `:264`; the in-source block shifted it twice. ★ **Anchor on the declaration TEXT, not the line: a line number into a file still under edit rots on every edit.**), plus an
+in-source block stating why the attribute is load-bearing. ⛔ **QA-recommended constraint: the read must NOT be moved inside
+`MR_EMIT`** — the declaration is what documents that the credit's basis is read **before any timer is cancelled**.
+
+| the five QA acceptance conditions | result |
+|---|---|
+| native unchanged at **1487 / 80613 / 0** | ✅ rebuilt from the edited source, binary RUN (the wrapper's *"0 test cases"* is false), `error:` 0 |
+| `lus` byte-identical at **`9150ad1a`** | ✅ relinked, **identical** ⇒ the attribute is provably **codegen-inert**, so ★ **the corpus re-run was NOT required** — that exemption is part of the QA acceptance condition itself, not a shortcut taken here |
+| all ten board envs rebuild | ✅ **10/10**, and the `unused variable 'local_admitted'` diagnostic is at **0 occurrences on every one** (it was on all ten before) |
+| ⛔→✅ **`tools/warning_census.sh` exits 0** | ✅ **`PASS`**, and the delta is **exactly the +1 the defect caused, with zero other drift**: `gateway_heltec` **175 → 174** (pin 174) · `heltec_mobile` **179 → 178** (pin 178) · `heltec_v3` **179 → 178** (pin 178) · **`-Wswitch` 0** on all three · 326 objects each |
+| flash/RAM vs S6's just-measured table, **no silent re-pin** | ✅ **byte-for-byte IDENTICAL on all ten envs** (e.g. `gateway` 194860/479796, `heltec_v3` 215252/1271440) ⇒ the attribute costs **zero** footprint and **nothing was re-pinned** |
+
+ⓘ **Scope note, so the two counts are not read as a contradiction: the census pins THREE OLED envs, not ten.** The
+warning fired on **all ten board builds**; **three censused envs** therefore sat one over their pin. Both true.
+
+★★★ **WHY NO AUTOMATED GATE COULD HAVE CAUGHT THIS, and it is the durable lesson: native and the simulator build with
+telemetry ON**, so `local_admitted` is genuinely **used** there — while the board envs' `-DMESHROUTE_NO_TELEMETRY`
+expands `MR_TELEMETRY` to `do {} while (0)`, deletes the body, and orphans the variable. ⇒ **The defect is invisible to
+`pio test -e native` and to all 36 corpus streams BY CONSTRUCTION.** It entered at §hybrid-rts S4 and survived
+S4b/S4c/S4d/S5 because board builds were skipped by standing instruction. ⚠ **That is the measured cost of the skip —
+and the argument for the ten-env sweep being owed ONCE PER ARC rather than never.**
+
+⛔ **The re-anchor proposal at §HYBRID-RTS-S6 (3b) remains HELD pending the owner's ruling**, per the sequencing
+ruling recorded there. Its adoption condition — `lus` still `9150ad1a` after this fix — is now **satisfied**.
+
+---
+### ★★★★★★★★★★★★ §HYBRID-RTS-S6 (1) — **THE CUMULATIVE COMPARISON TABLE. EVERY CELL LABELLED `RE-MEASURED` OR `ARCHIVAL`, AND THE TWO ARE NEVER MIXED SILENTLY.**
+
+★★ **HOW BASE AND DELETE WERE OBTAINED, because it decides what their cells mean: they were NOT REBUILT.** The
+[[B162]] arm **STREAM SETS** are still on disk (`/home/staszek/b162-arms/streams/{base,delete}`, 36 `.ndjson` each) and
+were **RE-ANALYSED with THIS slice's single tool revision** — the same "one tool revision, one run set" discipline
+§B162 (11) used when it re-ran the ladder from those very files. ⇒ every figure below marked **`RE-MEAS(arch-stream)`**
+is a genuine measurement of the old arm's traffic, not a quotation; ⛔ but it is **NOT** a rebuild, so anything that
+lives in a *binary* rather than in a *stream* (native counts, board RAM/flash) stays `ARCHIVAL` or `NOT MEASURED`.
+★★★ **AND THE ARMS ARE CALIBRATED, not assumed: re-analysis reproduces §B162 (2)/(11) EXACTLY — BASE 733 / raw 765 /
+PHY 5 883 686 ms and DELETE 707 / raw 750 / PHY 6 421 497 ms**, and the DELETE RTS census reproduces
+§HYBRID-RTS-S1 (3)'s published `{7: 9517, 9: 304, 43: 544}` to the frame. ⛔ **The uniform-4B control was NOT
+rebuilt and NOT re-analysed — it has no stream set, because the arm is the REFUTED `flight_id` design and is not in
+the tree** (§HYBRID-RTS-S0 refused to reconstruct it for the same reason). Its cells are `ARCHIVAL` or, where no
+archival figure exists, **`NOT MEASURED`** — ⛔ never blank, never inferred.
+
+| item | BASE (pre-B153) | DELETE (`6c9ce89`) | uniform-4B control | **HYBRID (current, HEAD `06b63c2` + uncommitted)** |
+|---|---|---|---|---|
+| native cases / assertions / failures | **1436 / 75488 / 0** `ARCHIVAL` (§MH-S4b gate, quoted by §B153 as its pre-slice baseline). ⚠ **the §B162 BASE arm is a SOURCE-REVERT carrying `6c9ce89`'s tests, so its own native suite was never run** | **1440 / 75531 / 0** `ARCHIVAL` (§B153 gate) | **1439 / 75977 / 0** `ARCHIVAL` (plan §S0 step 3; §HYBRID-RTS-S0 states outright that **no claim is made that it still holds**) | ★ **1487 / 80613 / 0** `RE-MEASURED` — `pio test -e native` from a DELETED `.pio/build/native`, then **RUNNING the binary** (the wrapper printed its usual false *"0 test cases"*). `grep -c "error:"` **0**. ⓘ 80607 before this slice's 6 added assertions (§(5)) |
+| `s18` md5 / event count | **`1cd21235` / 271629** `RE-MEAS(arch-stream)` — ★ **and this IS the anchor table's keystone value**, which is the independent proof of what the anchor table is | **`8687f6a0` / 301737** `RE-MEAS(arch-stream)` | **`504785b9` / 277266** `ARCHIVAL` | ★ **`9868cad3` / 269905** `RE-MEASURED` |
+| 36/36 assertion failures | **5, all in `s27`** `ARCHIVAL` (§B153/§B162 (2)) — ⛔ the count lives in `lus` stdout, not in the stream, so it is **not** re-derivable from the archived ndjson | **0 in all 36** `ARCHIVAL` (§B153) | **0 in all 36, `s27` 5→0** `ARCHIVAL` | ★ **0 in all 36** `RE-MEASURED` (`scenarios run: 36`; the 37th JSON is `topo_9node.json`, a topology) |
+| streams differing from the `^### 36/36 corpus` anchor table | ★★ **EXACTLY 8 of 36, and they are EXACTLY the 8 mobile-plane rows** `RE-MEAS(arch-stream)` (md5 of each archived BASE stream vs the anchor row) | 15 further movers on top `ARCHIVAL` (§B153) | *"all 36 rows moved"* `ARCHIVAL` | ⛔ **36 of 36** `RE-MEASURED` — see §(3) |
+| **unique deliveries (THE AUTHORITY)** overall | **733** `RE-MEAS(arch-stream)` | **707** `RE-MEAS(arch-stream)` | **NOT MEASURED** (no stream set; no archival figure for this metric revision) | ★★ **734** `RE-MEASURED` |
+| … `s06` | **104** | **85** | **NOT MEASURED** | ★ **110** |
+| … `s18` | **104** | **100** | **NOT MEASURED** | **105** |
+| … `s27` | **4** | **6** | **NOT MEASURED** | **6** |
+| … `twin_9node_dm` | **21** | **17** | **NOT MEASURED** | **18** |
+| … `s07` ⚠ [[B163]] | **77** | **74** | **NOT MEASURED** | **80** |
+| cross-check: raw `delivered` events ⛔ **never the figure of record** | **765** | **750** | **NOT MEASURED** | **759** |
+| **duplicate application deliveries** — key `(scenario, node, origin, dst, ctr)` | **12** `RE-MEAS(arch-stream)` ★ reproduces [[B159]]'s registered breakdown exactly (`s16` 8 · `s07` 2 · `s06` 1 · `s27` 1) | **21** `RE-MEAS(arch-stream)` ★ reproduces the registered *"B153 raises it to 21"* | **NOT MEASURED** | ★★ **2** `RE-MEASURED` — **10 BELOW the pre-B153 count** |
+| … same key **+ payload text** (the stricter key) | **10** | **19** | **NOT MEASURED** | ★ **0** |
+| **send failures by terminal class** | **216**, all `e2e_ack_timeout` | **238**, all `e2e_ack_timeout` | **NOT MEASURED** | **214**, all `e2e_ack_timeout`. `giveup` **0** and `no_gateway` **0** on every row in all three arms |
+| **RTS airtime** (each frame at its OWN PHY `airtime_ms`) | **1 485 567 ms** / 9 064 frames | **1 632 649 ms** / 10 365 | **NOT MEASURED** | **1 535 167 ms** / 8 879 |
+| **CTS airtime** | **627 400 ms** / 4 926 | **688 116 ms** / 5 625 | **NOT MEASURED** | **615 139 ms** / 4 881 |
+| **DATA airtime** | **3 196 086 ms** / 5 520 | **3 446 218 ms** / 6 344 | **NOT MEASURED** | **3 113 863 ms** / 5 494 |
+| **ACK airtime** | **507 159 ms** / 4 146 | **544 101 ms** / 4 544 | **NOT MEASURED** | **501 460 ms** / 4 144 |
+| **NACK airtime** | **67 474 ms** / 449 | **110 413 ms** / 852 | **NOT MEASURED** | **65 015 ms** / 433 |
+| **TOTAL PHY airtime** | **5 883 686 ms** / 24 105 chargeable frames | **6 421 497 ms** / 27 730 | **NOT MEASURED** | ★★ **5 830 644 ms** / 23 831 — **−9.20 % vs DELETE · −0.90 % vs BASE**, with **+1** delivery on BASE and **+27** on DELETE |
+| RTS wire-length census | `{7: 8199, 9: 294, 43: 571}` | `{7: 9517, 9: 304, 43: 544}` | **NOT MEASURED** | ★ `{10: 8028, 11: 2, 9: 262, 43: 587}` — **0 frames at 7 B** (the legacy wire is provably gone); **M 9 B and FLOOD 43 B unchanged** |
+| CTS wire-length census | `{4: 4926}` | `{4: 5625}` | **NOT MEASURED** | ★ `{4: 4709, 6: 172}` — **0 at 3 B** (every CTSer runs `nav_enabled`) and **0 at 7 B** (the crypted terminal arm is corpus-dark) |
+| codec shape validation | 0 `FrameShapeError` | 0 | **NOT MEASURED** | ★ **0 `FrameShapeError` over 23 831 frames** — every frame is a shape `frame_codec.cpp` can produce |
+| **old-tuple at-risk / alias count** | ⛔ **NOT MEASURABLE ON THIS ARM** — a 7-B RTS carries no identity, so the frames that aliased are byte-identical *by definition* and nothing in the stream separates them. **That is the defect, not a gap in the instrument.** | ⛔ same | **NOT MEASURED** | ★★ **162 of 4 151 distinct old tuples `(src, dst, ctr_lo[4], payload_len)` carry MORE THAN ONE distinct flight identity = 3.90 %** (N = **8 030** unicast RTS frames), i.e. on the retired wire those flights were byte-identical and a terminal verdict could credit the wrong one. Worst rows `s20` 52/368 · `s07` 34/709 · `s06` 34/702 |
+| **new-identity collisions** | n/a | n/a | **NOT MEASURED** | ★ **plaintext: ZERO BY CONSTRUCTION** — the identity IS `(origin, ctr16)` and `dst` is compared *beside* it, so the compared key `(from, dst, plane, identity)` reconstructs the canonical DATA-dedup key `(origin, dst, ctr)` exactly. Census N: **8 028** plaintext frames / **635** distinct identities. ⛔ **crypted: ZERO OBSERVED over N = 2 — and N = 2 is the whole census.** The 11-B arm is corpus-dark, so its separation rests on the native BLAKE2b KAT and the ~1/2³² conditional bound, **not** on the corpus |
+| `sizeof(Node)` (native ABI) | **221384** `ARCHIVAL` | **221288** `ARCHIVAL` (§B153, −96) | RAM Δ0 `ARCHIVAL` | ★ **221880** — the `node.h:3110` tripwire, and the +592 closes as `(8 + 288) × MR_N_LAYERS(2)` |
+| flash / RAM per board | **10/10 envs `RE-MEASURED` in a SEPARATE WORKTREE at `6c9ce89`** — see §(4) | ⓘ `6c9ce89` **IS** the DELETE arm, so the BASE-column worktree figures **are** DELETE's; ⛔ pre-B153 board figures are `NOT MEASURED` | RAM Δ0 `ARCHIVAL` | ★ **10/10 envs `RE-MEASURED`** — ΔRAM **+296** single-layer / **+592** dual-layer, ΔFlash **+1 712 … +3 744** — §(4) |
+
+⛔⛔ **ONE COLUMN LABEL NEEDS READING TWICE, and it is the brief's own trap: the flash/RAM "baseline" worktree is
+`6c9ce89`, which is the **DELETE** arm, NOT BASE.** `6c9ce89` also **contains the whole mobile-home arc**. ⇒ the
+board diff reported in §(4) is *"the RTS arc only"* and ⛔ **none of the mobile-home arc's footprint may be attributed
+to it.**
+
+### ★★★★★★★★★★ §HYBRID-RTS-S6 (2) — **THE ACCEPTANCE-FLOOR VERDICT. `s27` AND `s07` ARE ADJUDICATED SEPARATELY, BEFORE THE TOTAL IS READ AS ANYTHING.**
+
+| floor item | requirement | measured | verdict |
+|---|---|---|---|
+| unique deliveries, overall | **≥ 733** | **734** | ✅ **MET** (+1) — ⚠ **CONDITIONAL ON [[B163]], WHICH IS OPEN** |
+| unique deliveries, `s06` | **≥ 104** | **110** | ✅ **MET** (+6) |
+| `s27` assertion failures | **== 0**, SEPARATE and NON-TRADEABLE | **0**, and `re-m2`/`re-m3`/`re-m4` all delivered (`s27` unique = 6 of 10 configured, 4 `unsent`) | ✅ **MET** — ⛔ and no delivery count was exchanged for it |
+| all 36 assertion failures | **0** | **0** in all 36 | ✅ **MET** |
+| duplicate application deliveries | **no worsening beyond the pre-B153 count (12)** | **2** | ✅ **MET with a 10-duplicate margin** — ⛔ [[B159]] is **NOT fixed** and stays open and explicitly independent; the mechanism is untouched and the improvement is a consequence of the restored terminal CTS removing the redundant duplicate DATA, not of a dedup change |
+| new plaintext identity aliases | **zero** by construction/census | **zero by construction**, census N = 8 028 frames / 635 identities | ✅ **MET** |
+| new crypted identity aliases | **zero observed** | **zero observed, N = 2** | ⚠ **MET AT AN N OF TWO — ✅ ACCEPTED 2026-08-10 ON QA'S RECOMMENDATION, EXPLICITLY NOT TREATED AS REASSURANCE; NON-BLOCKING for S6.** ⛔ **CORRECTED IN PLACE: this said *"OWNER-ACCEPTED"* — WITHDRAWN. It was a QA recommendation relayed by the owner, and a relay is not a ruling (ledger §3). ⓘ Not on the review's own list of mis-attributed sites; corrected anyway, because the rule is the rule.** ★ A zero from an unstated N is not a measurement, so the N is stated: the crypted arm is **corpus-dark** and this cell carries almost no weight. ★★ **WHAT THIS CELL DOES AND DOES NOT PROVE, per the owner's ruling: it proves ONLY that the encrypted path EXECUTED and produced no observed alias. It is NOT statistical reassurance.** ⇒ **SAFETY RESTS ON THE KEYED INPUTS AND THE 32-BIT BLAKE2b TRUNCATION, NOT ON THIS CORPUS SAMPLE** — so ⛔ **do not raise N and call the property established, and do not cite this cell as collision evidence.** ⓘ The honest wording was ruled appropriate as-is; it is kept deliberately |
+| airtime vs BASE **and** DELETE | reported against both, actual event PHY | **−0.90 % vs BASE · −9.20 % vs DELETE** | ✅ **REPORTED** — ⛔ and it is airtime, summed from each frame's own `airtime_ms`, never a symbol-event count |
+
+★★★★ **`s07` / [[B163]], DIAGNOSED SEPARATELY AS REQUIRED — AND THE ANSWER IS THAT THE ARC IS NOT LEANING ON IT.**
+`s07` measures **80 unique / 207 configured / 59 unsent / 36 in_flight**, with `wire_alias_refused_conflicts = 1`
+(BASE: **2**). The refusal is CORRECT — two mobiles genuinely wear the same **leased** wire id at different times, and
+a time-blind alias map cannot resolve it — so **`s07` may be SHORT on every arm by an amount that is not derivable**
+without a time-windowed alias map. ⇒ ★ **The load-bearing statement: even if `s07` is discarded entirely, the arc
+still clears the floor on the remaining 35 rows — 734 − 80 = 654 against 733 − 77 = 656, i.e. `s07`-excluded the arc
+is 2 BELOW BASE, so ⛔ `s07` is NOT where the +1 comes from and the +1 is NOT an artefact of it.** ⓘ Where the +1
+*does* come from, per row against BASE: `s06` **+6**, `s07` **+3**, `s18` **+1**, `s27` **+2**, `s16` **−7**,
+`s15_metal` **−3**, `twin` **−3**, `s17` **−1**. ⛔ **B163 IS NOT RESOLVED HERE and no figure above resolves it**;
+`≥733` remains conditional on it, and the honest reading is that the floor is met by a **margin of one delivery** on a
+metric with one named open residue.
+
+⚠⚠ **AND THE PARETO GATE IS GENUINELY CLEARED FOR THE FIRST TIME, which is the actual decision this slice exists to
+support:** BASE gives 733/104 **with `s27` RED (5 failures)**; DELETE gives `s27` 0 failures but only **707/85**;
+HYBRID gives **734/110 with `s27` 0 failures** — both halves at once, which no earlier arm did.
+
+### ★★★★★★★★★★★★★★ §HYBRID-RTS-S6 (3) — ⛔⛔ **THE RE-ANCHOR PROPOSAL. 36/36 ROWS HAVE MOVED, AND 36/36 ARE ATTRIBUTED TO A NAMED SLICE. ⛔ OWNER-GATED: THE `^### 36/36 corpus` TABLE IS *NOT* EDITED.**
+
+⛔⛔ **READ THIS FIRST: THE `^### 36/36 corpus` ANCHOR TABLE CURRENTLY ANCHORS NOTHING.** Every one of its 36 md5s is
+stale, so the *"36/36 — 0 assertion failures"* claim repeated throughout this arc was always about **in-scenario
+assertions** and **never** about reproducing an anchored hash. ⚠ **Nobody may report *"the corpus is green"* in a way
+that implies hash agreement.** ⓘ This is deliberate, not neglect: re-anchoring re-baselines every stream at once and
+would have destroyed per-slice attribution, so the arc refused to do it — nine times.
+
+★★ **THE SWEEP IS VERIFIED, NOT TRUSTED.** Reproduced independently this slice by the §2.1 method (`lus <cfg> <nd>`,
+`md5sum | cut -c1-8`, event count from the `lus: N events emitted` line): **36/36 MOVED · 16 with a CHANGED EVENT
+COUNT · 20 BYTE-ONLY · 0 assertion failures · 0 non-zero `lus` exits**, and it agrees with the pre-dispatch sweep in
+`simulation/s6_anchor_drift.tsv` on **all 36 rows, all five fields, 0 disagreements**. ★ The anchor table itself is
+proven unchanged by a **FULL-REGION `diff`** of `git show HEAD:simulation/BASELINE.md` against the worktree —
+**1 398 lines each, EMPTY diff** — with a CONTROL showing the extraction actually reached the table (**36** rows
+matching `lus: N events emitted`, including the `s18_meshroute … 1cd21235 … 271629` keystone). ⛔ **NOT an md5 of a
+`sed` window** (§B162 (25).1's retired non-citation).
+
+★★★★★ **AND THE CAUSAL DECOMPOSITION CLOSES ARITHMETICALLY ON ALL 36 ROWS — THIS IS THE POINT OF THE WHOLE EXERCISE.**
+Chaining every per-slice event-count record already in this file, from the anchor value forward, **lands on the
+independently re-measured current value on 36 of 36 rows, with 0 chain discontinuities** (no quoted per-slice BEFORE
+disagrees with the chained state). ⇒ **a table in which every row moved is nevertheless distinguishable from an
+un-audited re-baseline, because each row carries its cause.**
+
+⛔⛔ **THE BRIEF'S OWN ENUMERATION OF FIVE MOVEMENT SOURCES IS INCOMPLETE, AND THAT IS A FINDING, NOT A QUIBBLE.** It
+listed ① the parked mobile-home 8 · ② S1's all-36 · ③ B160's zero · ④ S2/S2b/S2c's · ⑤ S4's 9. **It omits [[B153]]'s
+15 movers and the `§MH-S4b` pass entirely** — and B153's contribution is *large* in event terms (`s17` **+40 696**,
+`s18` **+30 108**, `s06` **+10 146**, `s20` **+5 156**, `twin` **−565**). The complete set of causes is **NINE named
+slices with non-zero movement** — `MH-S4`, `MH-S4b`, `B153`, `S1`, `S2(+S3)`, `S2b`, `S2c`, `S4`, `S4c` — plus **five
+with measured zero movement**: `B160`, `S2d`, `S4b`, `S4d`, `S5`. ⓘ B153 is subsumed in *md5* terms because S1 moved
+all 36 anyway, but it is **not** subsumed in event-count terms, and a proposal that omitted it could not have closed.
+
+★★★ **THE MOBILE-HOME 8 ARE NOT ABSORBED, AND THE SEPARATION IS NOW MEASURED RATHER THAN ASSERTED:** md5-ing each
+archived **BASE** stream against its anchor row shows BASE differs from the anchor table on **exactly 8 of 36 rows**,
+and they are exactly `s07 · s21_mobile_dm_milestone · s22_mobile_team · s24_static_and_team_multihop · s27 · s28 ·
+s29 · s37` — every mobile-plane scenario and **no other**. ⇒ the anchor table **is** the pre-mobile-arc state, the
+mobile-home arc owns those 8 rows, and ⛔ **three slices of deliberate draw-inertness bought that attribution; the
+mobile-home arc is unparked next and must keep it.**
+
+**md5 LAST-MOVER DISTRIBUTION (which slice's published AFTER md5 equals the re-measured current md5):**
+**S1 → 16 rows · S2(+S3) → 10 · S2c → 1 (`s16`) · S4c → 9.** 16 + 10 + 1 + 9 = 36, no row unattributed, no row
+double-counted. ⓘ The 9 S4c rows are **exactly** the 9 credit-firing scenarios (set identity, §HYBRID-RTS-S4c (5)):
+S4 moved them behaviourally and S4c moved them again by **one token** (`local_data` → `local_admitted`, a `basis`
+string that lands in every stream).
+
+⚠⚠ **A TRAP IN THE WORD "BYTE-ONLY", AND IT WOULD MISLEAD A READER OF THE DRIFT TSV: 5 of the 20 "byte-only" rows had
+their event count MOVE AND COME BACK.** `s21_leaf_config_divergence` 390→403→390 · `s21_mobile_dm_milestone`
+680→684→680 · `s22_leaf_config_join` 215→226→215 · `s26_team_reroute` 1045→1055→1045 · `sim_9node_base`
+4959→5071→4960→4959. ⇒ **"byte-only" means NET byte-only, never movement-free**, and none of those five rows is
+evidence that nothing happened in it.
+
+| scenario | anchored md5 | **current md5** | anchored ev | **current ev** | Δ ev | md5 last moved by | event-count movement, chained per slice |
+|---|---|---|---|---|---|---|---|
+| `s06_seattle_lifecycle` | `c74e0608` | **`e7bd0f08`** | 67009 | **65835** | -1174 | **S4c** | B153 67009→77155; S2(+S3) 77155→64757; S4 64757→65835 |
+| `s07_seattle_mobile_meshroute` | `e679bd5b` | **`de7920a2`** | 109391 | **108936** | -455 | **S4c** | MH-S4 109391→109418; MH-S4b 109418→112830; B153 112830→114997; S2(+S3) 114997→110245; S2b 110245→112325; S4 112325→108936 |
+| `s09_two_layer_gateway` | `f171652c` | **`71120178`** | 2266 | **2266** | 0 | **S1** | - |
+| `s09_two_layer_gateway_metal` | `d626eefc` | **`17d1418f`** | 2345 | **2345** | 0 | **S1** | - |
+| `s10_two_layer_separation` | `0f81a374` | **`c44c0b39`** | 2266 | **2266** | 0 | **S1** | - |
+| `s15_three_layer` | `3dae1b82` | **`b53c6f47`** | 52488 | **52293** | -195 | **S4c** | B153 52488→54024; S1 54024→54108; S2(+S3) 54108→52881; S4 52881→52293 |
+| `s15_three_layer_metal` | `f4ef243e` | **`304e558b`** | 52386 | **51232** | -1154 | **S4c** | B153 52386→53622; S1 53622→53005; S2(+S3) 53005→51962; S4 51962→51232 |
+| `s16_dense_gateway` | `b6d5dfc6` | **`cfd86c16`** | 26267 | **24397** | -1870 | **S2c** | B153 26267→26515; S1 26515→26006; S2(+S3) 26006→24549; S2b 24549→24397 |
+| `s17_metro` | `b56ab583` | **`42e69427`** | 1181343 | **1181179** | -164 | **S4c** | B153 1181343→1222039; S1 1222039→1209524; S2(+S3) 1209524→1191168; S2b 1191168→1190969; S4 1190969→1181179 |
+| `s18_meshroute` | `1cd21235` | **`9868cad3`** | 271629 | **269905** | -1724 | **S4c** | B153 271629→301737; S2(+S3) 301737→274209; S2b 274209→269566; S4 269566→269905 |
+| `s19_singlelayer_multihop_chain` | `29a3b1f5` | **`c669b1ef`** | 1065 | **1065** | 0 | **S1** | - |
+| `s20_random_mesh` | `a267e553` | **`db240065`** | 40079 | **40566** | +487 | **S4c** | B153 40079→45235; S2(+S3) 45235→42048; S4 42048→40566 |
+| `s21_leaf_config_divergence` | `172b8646` | **`d7db6a04`** | 390 | **390** | 0 | **S2(+S3)** | B153 390→403; S2(+S3) 403→390 |
+| `s21_mobile_dm_milestone_meshroute` | `d2952649` | **`f3f950ad`** | 680 | **680** | 0 | **S2(+S3)** | MH-S4 680→684; MH-S4b 684→680 |
+| `s22_leaf_config_join` | `69010f6f` | **`baadfbed`** | 215 | **215** | 0 | **S2(+S3)** | B153 215→226; S2(+S3) 226→215 |
+| `s22_mobile_team_meshroute` | `90bf4727` | **`ea03873f`** | 1820 | **1822** | +2 | **S2(+S3)** | MH-S4 1820→1821; MH-S4b 1821→1822 |
+| `s23_leaf_config_epoch_write` | `20e3f95b` | **`0cd16bd5`** | 219 | **219** | 0 | **S1** | - |
+| `s23_mobile_team_multihop_meshroute` | `c789cfad` | **`568c684f`** | 924 | **924** | 0 | **S1** | - |
+| `s24_static_and_team_multihop_meshroute` | `7cac1b63` | **`6f9d78e4`** | 1556 | **1583** | +27 | **S2(+S3)** | MH-S4 1556→1557; MH-S4b 1557→1583 |
+| `s25_two_team_separation_meshroute` | `00813e38` | **`6ca24694`** | 792 | **792** | 0 | **S2(+S3)** | - |
+| `s26_team_reroute_meshroute` | `110269a7` | **`2ab37318`** | 1045 | **1045** | 0 | **S2(+S3)** | B153 1045→1055; S2(+S3) 1055→1045 |
+| `s27_cross_layer_mobiles_meshroute` | `c7496c45` | **`a7d5cc86`** | 9758 | **9205** | -553 | **S2(+S3)** | MH-S4 9758→9977; MH-S4b 9977→8510; B153 8510→9230; S2(+S3) 9230→9205 |
+| `s28_mixed_team_channels_meshroute` | `77386aba` | **`19136ba5`** | 3852 | **3856** | +4 | **S2(+S3)** | MH-S4 3852→3854; MH-S4b 3854→3856; B153 3856→3876; S2(+S3) 3876→3856 |
+| `s29_mixed_leaf_team_meshroute` | `d8a5beb9` | **`d3af0db6`** | 2031 | **2020** | -11 | **S1** | MH-S4 2031→2036; MH-S4b 2036→2020 |
+| `s30_team_dad_mediation_meshroute` | `db8cdb9b` | **`02a7d4d0`** | 1034 | **1034** | 0 | **S1** | - |
+| `s31_dual_carrier_gateway` | `da5448a0` | **`4eafb125`** | 2300 | **2300** | 0 | **S1** | - |
+| `s32_dual_cr_gateway` | `dad00d6c` | **`9574f5dd`** | 2266 | **2266** | 0 | **S1** | - |
+| `s33_mixed_cr_channel_overhear` | `2e70c4f5` | **`814ef421`** | 2845 | **2845** | 0 | **S1** | - |
+| `s34_team_switch_clears_plane` | `59310b6b` | **`2dcd78e9`** | 921 | **921** | 0 | **S2(+S3)** | - |
+| `s35a_cochannel_isolation_meshroute` | `585b9cc8` | **`bda1713b`** | 2388 | **2356** | -32 | **S1** | S1 2388→2356 |
+| `s35b_cochannel_isolation_control_meshroute` | `4f49e969` | **`7dbc19ae`** | 1063 | **1063** | 0 | **S1** | - |
+| `s36_reprovision_purges_carriers` | `fd11c9a4` | **`76d02e58`** | 472 | **472** | 0 | **S1** | - |
+| `s37_team_homed_origin_meshroute` | `46d3b916` | **`d836ce20`** | 748 | **750** | +2 | **S1** | MH-S4 748→749; MH-S4b 749→750 |
+| `s38_team_origin_learn_meshroute` | `a16ec83c` | **`1d0bb046`** | 526 | **526** | 0 | **S1** | - |
+| `sim_9node_base` | `04dc4ca0` | **`c7d74ddd`** | 4959 | **4959** | 0 | **S4c** | B153 4959→5071; S2(+S3) 5071→4960; S4 4960→4959 |
+| `twin_9node_dm` | `cdba2942` | **`ca698d79`** | 13837 | **13221** | -616 | **S4c** | B153 13837→13272; S2(+S3) 13272→12846; S4 12846→13221 |
+
+★ **UNATTRIBUTABLE ROWS: ZERO.** Every row's final md5 equals a named slice's published AFTER value and every row's
+event count chains exactly. ⛔ Had any row failed either test it would have been registered as a finding rather than
+rounded away; none did.
+
+### ★★★★★★★★★★★★ §HYBRID-RTS-S6 (3b) — ⛔⛔ **THE PROPOSED REPLACEMENT ANCHOR TABLE. THIS IS A PROPOSAL AWAITING THE OWNER'S RULING — IT IS *NOT* THE ANCHOR TABLE AND MUST NOT BE COPIED INTO ONE WITHOUT THAT RULING.**
+
+⛔⛔ **OWNER RULING 2026-08-10 — THIS PROPOSAL IS HELD, AND THE REASON IS SEQUENCING, NOT DOUBT: *"Do not approve the
+replacement anchor table until [[B169]] is fixed."*** The `[[maybe_unused]]` attribute **should** be behaviour-inert,
+but establishing the **final tree first** avoids anchoring a tree that then has to be re-validated. ⇒ **The figures
+below were produced BEFORE the B169 fix.** ★ **After the fix they may be adopted ONLY if `lus` is still byte-identical
+at `9150ad1a`; if it is not, the corpus must be re-run and this block regenerated before any ruling.**
+⛔ **DO NOT EDIT `^### 36/36 corpus` FROM THIS BLOCK ON AN AGENT'S AUTHORITY.** Re-anchoring re-baselines all 36
+streams at once; the owner rules once, and this block exists so that ruling can be made against measured, attributed
+figures instead of a promise. ⓘ Produced by `lus` **`9150ad1a`** (reproduced byte-for-byte from a from-scratch build
+directory, and again after the whole mutation battery with 40 build/link actions), MeshRoute HEAD **`06b63c2`** plus
+the uncommitted arc work, `sizeof(Node)` **221880**.
+
+```
+PROPOSED — §HYBRID-RTS-S6, 2026-08-10, AWAITING OWNER RULING (⛔ not live)
+s06_seattle_lifecycle                        e7bd0f08 lus: 65835 events emitted, 0 assertion failure(s)
+s07_seattle_mobile_meshroute                 de7920a2 lus: 108936 events emitted, 0 assertion failure(s)
+s09_two_layer_gateway                        71120178 lus: 2266 events emitted, 0 assertion failure(s)
+s09_two_layer_gateway_metal                  17d1418f lus: 2345 events emitted, 0 assertion failure(s)
+s10_two_layer_separation                     c44c0b39 lus: 2266 events emitted, 0 assertion failure(s)
+s15_three_layer                              b53c6f47 lus: 52293 events emitted, 0 assertion failure(s)
+s15_three_layer_metal                        304e558b lus: 51232 events emitted, 0 assertion failure(s)
+s16_dense_gateway                            cfd86c16 lus: 24397 events emitted, 0 assertion failure(s)
+s17_metro                                    42e69427 lus: 1181179 events emitted, 0 assertion failure(s)
+s18_meshroute                                9868cad3 lus: 269905 events emitted, 0 assertion failure(s)
+s19_singlelayer_multihop_chain               c669b1ef lus: 1065 events emitted, 0 assertion failure(s)
+s20_random_mesh                              db240065 lus: 40566 events emitted, 0 assertion failure(s)
+s21_leaf_config_divergence                   d7db6a04 lus: 390 events emitted, 0 assertion failure(s)
+s21_mobile_dm_milestone_meshroute            f3f950ad lus: 680 events emitted, 0 assertion failure(s)
+s22_leaf_config_join                         baadfbed lus: 215 events emitted, 0 assertion failure(s)
+s22_mobile_team_meshroute                    ea03873f lus: 1822 events emitted, 0 assertion failure(s)
+s23_leaf_config_epoch_write                  0cd16bd5 lus: 219 events emitted, 0 assertion failure(s)
+s23_mobile_team_multihop_meshroute           568c684f lus: 924 events emitted, 0 assertion failure(s)
+s24_static_and_team_multihop_meshroute       6f9d78e4 lus: 1583 events emitted, 0 assertion failure(s)
+s25_two_team_separation_meshroute            6ca24694 lus: 792 events emitted, 0 assertion failure(s)
+s26_team_reroute_meshroute                   2ab37318 lus: 1045 events emitted, 0 assertion failure(s)
+s27_cross_layer_mobiles_meshroute            a7d5cc86 lus: 9205 events emitted, 0 assertion failure(s)
+s28_mixed_team_channels_meshroute            19136ba5 lus: 3856 events emitted, 0 assertion failure(s)
+s29_mixed_leaf_team_meshroute                d3af0db6 lus: 2020 events emitted, 0 assertion failure(s)
+s30_team_dad_mediation_meshroute             02a7d4d0 lus: 1034 events emitted, 0 assertion failure(s)
+s31_dual_carrier_gateway                     4eafb125 lus: 2300 events emitted, 0 assertion failure(s)
+s32_dual_cr_gateway                          9574f5dd lus: 2266 events emitted, 0 assertion failure(s)
+s33_mixed_cr_channel_overhear                814ef421 lus: 2845 events emitted, 0 assertion failure(s)
+s34_team_switch_clears_plane                 2dcd78e9 lus: 921 events emitted, 0 assertion failure(s)
+s35a_cochannel_isolation_meshroute           bda1713b lus: 2356 events emitted, 0 assertion failure(s)
+s35b_cochannel_isolation_control_meshroute   7dbc19ae lus: 1063 events emitted, 0 assertion failure(s)
+s36_reprovision_purges_carriers              76d02e58 lus: 472 events emitted, 0 assertion failure(s)
+s37_team_homed_origin_meshroute              d836ce20 lus: 750 events emitted, 0 assertion failure(s)
+s38_team_origin_learn_meshroute              1d0bb046 lus: 526 events emitted, 0 assertion failure(s)
+sim_9node_base                               c7d74ddd lus: 4959 events emitted, 0 assertion failure(s)
+twin_9node_dm                                ca698d79 lus: 13221 events emitted, 0 assertion failure(s)
+```
+
+★ **KEYSTONE UNDER THE PROPOSAL: `s18_meshroute` `9868cad3` / 269905** (anchored `1cd21235` / 271629). ⛔ Until the
+owner rules, **`1cd21235` remains the written anchor and it does NOT reproduce** — a reader must not treat either
+value as "the" keystone without checking which state they are in.
+
+### ★★★★★★★★★★★★ §HYBRID-RTS-S6 (4) — **THE FULL D1/D2 GATE, DEFERRED ~10 SLICES AND NOW RUN. ⛔⛔ IT FAILS ON ONE THING, AND THE THING IT FAILS ON IS EXACTLY WHAT A DEFERRED BOARD GATE EXISTS TO CATCH.**
+
+★★ **WHY ALL TEN, WITH THE CITATION RATHER THAN A GUESS:** the standing owner ruling is a **3-env** gate
+(`gateway` + `xiao_sx1262` + `xiao_esp32s3`), with all ten **only when `sizeof(Node)`, a board `#if` or the linker
+moves**. `sizeof(Node)` **MOVED: 221288 → 221880 (+592)** in §hybrid-rts S2 (`lib/core/node.h:3110`). ⇒ D2 is
+triggered, the exception applies, **ten were built** — sequentially, each env's build dir deleted first (an
+INCREMENTAL `pio run` recompiles nothing and emits no warnings, so a warning count from one is unenforceable), and
+⛔ **never while source was being mutated** (the §(5) probes ran only after both sweeps finished).
+
+★ **THE `GIT_REV` `-dirty` HAZARD WAS NEUTRALISED, not ignored** (`tools/git_rev.py` appends `-dirty`, 6 bytes of
+`.rodata`, on the four nRF52 envs): the baseline worktree was made **equally dirty** by one appended comment line, so
+both arms embed a 13-character rev (`6c9ce89-dirty` / `06b63c2-dirty`). Verified in the logs.
+
+| gate | result |
+|---|---|
+| **native (D1)** | ★ **1487 cases / 80613 assertions / 0 failed**, from a DELETED `.pio/build/native`, **binary RUN** (the wrapper's *"0 test cases"* is false). `grep -c "error:"` **0** |
+| native warnings | **9** (8 file-attributed + 1 `cc1 -fno-rtti` note) — multiset **IDENTICAL** to §HYBRID-RTS-S5's, and **ZERO from any file this slice touched**. `-Wswitch` **0**, `-Wreorder` **0** |
+| **`lus` + 36-row corpus** | ★ **`lus` `9150ad1a`, reproduced BYTE-FOR-BYTE from a FROM-SCRATCH build directory** (`cmake -S . -B /tmp/lus-s6-verify` … 100 % built), so the binary provably corresponds to the working tree rather than to a stale object. **36 scenarios run, 0 assertion failures, 0 non-zero exits** |
+| **all 10 board envs** | ★★ **10/10 `rc=0` in BOTH trees (20 clean builds).** Object counts identical per env across the two trees (283 nRF52 · 326 heltec · 193 esp32s3) |
+| ⛔⛔ **`tools/warning_census.sh`** | ⛔⛔ **FAIL — EXIT CODE 1, MEASURED (not predicted): `gateway_heltec` 175 vs pinned 174 · `heltec_mobile` 179 vs 178 · `heltec_v3` 179 vs 178.** `-Wswitch` **0** on all three, objects **326** (unchanged), and its RAM/Flash figures reproduce my own sweep **to the byte** — which is what calibrates my harness. ⛔ **NOTHING WAS RE-PINNED** (the script's own rule, and §B87's) |
+| ★★ **the warning delta, ATTRIBUTED** | ★★★ **The multiset diff is EXACTLY ONE LINE on EVERY ONE OF THE TEN ENVS, and it is the same line: `lib/core/node_mac_rx.cpp: warning: unused variable 'local_admitted' [-Wunused-variable]`.** ⇒ **[[B169]] opened.** Cause is STRUCTURAL, not a grep: `local_admitted` (`node_mac_rx.cpp:256`) is consumed **only** inside the `MR_EMIT` at `:270-271`, and `MR_EMIT` → `MR_TELEMETRY` → `do {} while (0)` under `MESHROUTE_NO_TELEMETRY`, which every board env defines (`lib/core/hal.h:60-64`). ⇒ **the variable is unused on every board and used in native/sim** — invisible to native, invisible to the corpus, visible only to a board build. ⛔ **It entered at §HYBRID-RTS-S4 (as `local_data`) and survived S4b/S4c/S4d/S5 because board builds were skipped by standing owner instruction for ~10 slices.** ⛔ **NOT FIXED HERE** — see §(6) |
+| **`-Wreorder`** | ★ **CLEAN in project-owned code on all 10 envs (0 hits under `lib/` `src/` `test/` `variants/`).** The **3** hits on the four nRF52 envs are all in `.pio/libdeps/*/CustomLFS/src/CustomLFS_QSPIFlash.{h,cpp}` — a third-party dependency — and are **present identically in BOTH trees** |
+| **`sizeof`/`offsetof` static_asserts** | ★ **22 `sizeof`/`offsetof` `static_assert`s in `lib/core` all pass** — they are compile-time, so 20 successful board builds + a native build **are** the assertion. `sizeof(Node) == 221880` (`node.h:3110`) holds on the native ABI |
+| **per-board flash + RAM diff vs `6c9ce89`** | ★★ table below — and ⛔ **`6c9ce89` CONTAINS the mobile-home arc, so this diff is the RTS ARC ONLY and none of the mobile-home footprint may be charged to it** |
+| **codec negative/mutation probes** | §(5) — **8 probes, each at match count == 1; 7 RED, 1 GREEN and the green one is reported as a finding** |
+| the `^### 36/36 corpus` anchor table | ⛔ **NOT EDITED.** Full-region `diff` vs `git show HEAD:` — 1 398 lines each, EMPTY. The PROPOSAL lives in §(3b) |
+| ⛔ the two UI probes (`probe_board_ui` / `probe_firmware_ui`) | ⛔ **DID NOT RUN. Nothing here implies they passed.** ⓘ Not owed on the merits — no `src/` or UI file is in this slice's diff — but **stated rather than omitted** |
+| ⛔ per-ABI `sizeof(Node)` compile-only reveal | ⛔ **DID NOT RUN as a separate template reveal.** ⓘ The per-board **RAM diff below is the stronger, more direct measurement of the same thing** and it agrees with the ledger's per-layer arithmetic exactly; the reveal would add nothing this slice needs. **Stated so a missing number is not read as a skipped gate that passed** |
+| owner / QA approval | ⛔ **NONE CLAIMED.** ⛔ **UNCOMMITTED (D4)** |
+
+**PER-BOARD RAM / FLASH — 10/10 envs, both trees, clean builds. Baseline built in a SEPARATE WORKTREE
+(`git worktree add /tmp/mr-base-6c9ce89 6c9ce89`); ⛔ this working tree was never checked out and `git checkout --`
+was never used.**
+
+| env | layers | RAM `6c9ce89` | RAM current | **ΔRAM** | Flash `6c9ce89` | Flash current | **ΔFlash** | RAM % now |
+|---|---|---|---|---|---|---|---|---|
+| `xiao_sx1262` | 1 | 169396 | 169692 | **+296** | 526388 | 529556 | +3168 | 72.0 % |
+| `heltec_v3` | 1 | 214956 | 215252 | **+296** | 1268960 | 1271440 | +2480 | 65.7 % |
+| `xiao_esp32s3` | 1 | 213548 | 213844 | **+296** | 1214512 | 1217080 | +2568 | 65.3 % |
+| `gateway` | 2 | 194268 | 194860 | **+592** | 476884 | 479796 | +2912 | ⚠ **82.7 % — the tightest env in the fleet** |
+| `gateway_heltec` | 2 | 239828 | 240420 | **+592** | 1235628 | 1237364 | +1736 | 73.4 % |
+| `gateway_esp32s3` | 2 | 238420 | 239012 | **+592** | 1181348 | 1183060 | +1712 | 72.9 % |
+| `production` | 1 | 166300 | 166596 | **+296** | 518772 | 521956 | +3184 | — |
+| `xiao_mobile` | 1 | 168916 | 169212 | **+296** | 518980 | 522116 | +3136 | — |
+| `heltec_mobile` | 1 | 214476 | 214772 | **+296** | 1262452 | 1266120 | +3668 | — |
+| `xiao_esp32s3_mobile` | 1 | 213068 | 213364 | **+296** | 1207948 | 1211692 | +3744 | — |
+
+★★★★ **THE RAM RESULT IS THE ONE WORTH READING, AND IT IS A PREDICTION CONFIRMED BY MEASUREMENT RATHER THAN A NUMBER
+TO ACCEPT: ΔRAM IS EXACTLY `+296` ON EVERY SINGLE-LAYER ENV AND EXACTLY `+592` ON EVERY DUAL-LAYER ENV, ON THREE
+DIFFERENT TOOLCHAINS, WITH NO CELL DISAGREEING.** That is precisely the per-layer arithmetic `node.h:3110` states —
+`(8 B of `std::optional<PendingRx>` + 288 B of `CompletedFlight[12]`) × MR_N_LAYERS` — so the cost is **per-ABI and
+deliberately not uniform**, and the three gateway envs (`is_gateway ≡ n_layers == 2`) pay double. ⛔ **The `+592`
+native figure is therefore NOT the board figure for seven of ten envs**, which is exactly why the per-board diff
+exists and why native alignment could not have answered it.
+⚠ **Flash Δ ranges +1712 … +3744 and is NOT uniform**, which is expected: the identity producer (BLAKE2b call site),
+the terminal-CTS codec arms, the cache scan and the validation path all inline differently per toolchain and per
+feature set. ⓘ Everything here is far outside [[B86]]/[[B63]]'s known ±32 B ARM literal-packing and ±200 B xtensa
+object-set noise bands, so none of it is reported as noise — and ⛔ none of it is reported as *only* the RTS arc's
+identity bytes either: it is the whole S1→S4d delta.
+⚠ **`gateway` at 82.7 % RAM is the number to watch on metal** — it is the tightest env in the fleet and it is one of
+the three paying `+592`. It links clean; ⛔ a link is not a boot.
+
+### ★★★★★★★★★★★★ §HYBRID-RTS-S6 (5) — **THE CODEC MUTATION PROBES: 8 AT MATCH COUNT == 1. SEVEN RED — AND THE EIGHTH CAME OUT GREEN ON AN ASSERTION THAT ALREADY EXISTED AND COULD NOT FAIL.**
+
+★ Method: exact string replace **asserted at match count == 1**, snapshot-and-restore of the four codec files with
+`md5sum` verification after **every** probe, rebuild + **RUN the binary** each time. ⛔ `git checkout --` NEVER used.
+⛔ Nothing outside `frame_codec.{h,cpp}` / `dm_crypto.{h,cpp}` was touched; ⛔ `retry_jitter_ms()`,
+`airtime_routing_ms(8)` and the R3.x golden jitter assertions were **not** touched — that is [[B158]]'s arc, not this
+one. Baseline for every probe: **1487 / 80613 / 0**.
+
+| probe (each targets a fact THIS SLICE DOCUMENTS) | cases/assertions failed | verdict |
+|---|---|---|
+| **M1** `unicast_rts_wire_len` 7+w → 8+w (breaks the documented 10/11 B) | **24 cases / 621 assertions** | ★ RED — and its blast radius is the point: the length is load-bearing end to end (RTS round-trip, the B153 `s27` collision case, plaintext lost-ACK recovery, the dual-layer relay) |
+| **M2** `terminal_cts_wire_len` 3+w → 4+w (breaks the documented 6/7 B) | **6 / 18** | ★ RED — incl. the crypted end-to-end case and `start_rts_timeout`'s 128-cell margin |
+| **M3** plaintext identity wire order: `ctr_hi`/`ctr_lo` SWAPPED | **6 / 16** | ★ RED — the golden hex, the plaintext exact-bytes case, DATA-validation refusal, and the complete-tuple cache key |
+| **M4** `CTS_TERM_PLANE_BIT` `0x08` → `0x04` (documented byte-0 b3; collides with the rsv mask) | **4 / 7** | ★ RED — incl. the delayed-A/new-B echo guard and the wire-declares-the-plane case |
+| **M5** `parse_cts` widened to accept `n == 5` (documented set is EXACTLY `{3,4,6,7}`) | ⛔⛔ **0 / 0 — GREEN** | ⛔ **A COVERAGE GAP, REPORTED NOT SMOOTHED — see below** |
+| **M6** crypted domain prefix `0xE1` → `0xE2` | **1 / 8** | ★ RED — the BLAKE2b-512-then-truncate **known answer** fires, independently pinned |
+| **M7** `parse_cts` accepts the RETIRED 3/4-B terminal form | **2 / 4** | ★ RED — the ordinary golden hex + the cross-shape reject matrix |
+| **M8** `pack_rts` drops the M/FLOOD *"identity must be ABSENT"* refusal | **1 / 2** | ★ RED — the canonical RTS length matrix (cross-kind) |
+
+⛔⛔ **M5's GREEN IS THE FINDING, AND IT IS THE ARC'S OWN RECURRING SHAPE IN THE TEST THAT PINS A SENTENCE I WAS ABOUT
+TO WRITE INTO `docs/frames.md`.** A 5-B rejection assertion **already existed** —
+`CHECK_FALSE(parse_cts(span(buf.data(), 5)))` in *"the cross-shape reject matrix, in BOTH directions"* — and it is
+**VACUOUS with respect to the length gate**: `buf` holds a **terminal** frame, so byte 0 carries
+`already_received = 1`, and a 5-byte slice of it is refused by the terminal-bit branch (`if (ar) return nullopt`),
+**never by the length set**. ⇒ widening the length set to accept `n == 5` left the entire 1487-case suite green, and a
+5-B frame would then have been silently parsed as an ordinary 3-B CTS with its trailing bytes ignored.
+★ **CLOSED BY AN ADDED ASSERTION, NOT BY DELETING THE OLD ONE** (the B101 precedent; the vacuous line is kept **with
+the reason written beside it**, because the reason is the lesson): two cases built from an **ORDINARY** CTS with the
+terminal bit CLEAR — a 5-B frame whose *only* defect is its length, and a 2-B frame below the floor — each with a
+positive control at 4 B / 3 B proving the parse succeeds when the length is right. **+6 assertions (80607 → 80613),
++0 cases.** ★ **RE-RUN OF M5 AGAINST THE NEW ASSERTION: RED, at match count == 1, on exactly the intended case and
+nothing else.**
+⚠ **This is test-only** (`test/test_frame_codec.cpp`); `lib/`, `src/` and every scenario are untouched by it, so no
+corpus, board or airtime figure in this note can have moved because of it.
+
+★★ **RESTORE CONTROL, THE STRONGEST FORM AVAILABLE:** after the whole battery all four codec files' md5s equal their
+pre-battery snapshots (`a24d6464` · `360cbef8` · `65f17581` · `9dc7b82a`), native returns **1487 / 80613 / 0**, and a
+**FORCED** `lus` rebuild — 40 `Building/Linking CXX` actions, so the recompile is proven rather than assumed —
+reproduces **`9150ad1a` byte-for-byte**. ⇒ no corpus figure in this note can have been produced by a mutated or stale
+binary.
+
+### ★★★★★★★★ §HYBRID-RTS-S6 (6) — **DOCUMENTATION, AND THE REGISTER DISPOSITIONS WITH EVERY CONSTRAINT HONOURED**
+
+**`docs/frames.md` — [[B167]]'s EXPLICITLY OWED HALF, LANDED.** The RTS byte table gains the identity tail
+(**bytes 7..9** plaintext `[origin][ctr_hi][ctr_lo]`; **bytes 7..10** crypted, the BLAKE2b digest **in digest order**)
+plus an exact **length-discriminator table** (10 / 11 / 9 / 43, everything else rejected). The CTS section is split
+into its **two shapes** with a byte table each, the terminal one giving byte 0 as
+`cmd | CTS_TERM_PLANE_BIT(b3) | CTS_TERM_RSV_MASK(b2..1, MUST be zero) | already_received(b0) = 1`, bytes 1..2
+`tx_id`/`rx_id`, **bytes 3..5 / 3..6** the complete identity echo, **no NAV byte and no `chosen_data_sf`**, plus the
+cross-shape reject matrix in both directions. ★ **Every offset is cited to the codec** (`frame_codec.cpp:469`/`:531`,
+`frame_codec.h:445`/`:448`, `pack_cts`/`parse_cts`), and every one of them is now **mutation-pinned** by §(5).
+⛔ **AND ~20 LINES OF S5's PROSE WERE MIGRATED OUT, not copied:** the argument for why the frame grew, the refuted
+`flight_id` tail, and the terminal-CTS rationale now live in `protocol.md` §2.1; `frames.md` keeps **fields and byte
+offsets**, per `CLAUDE.md`'s standing complaint that the file has drifted toward prose. ⓘ Two false present-tense
+claims are gone rather than fenced (*"THE RTS IS STILL 7 BYTES"*, *"`already_received` is RESERVED and NEVER
+EMITTED"*), because the correction now IS the table a reader follows.
+
+**`docs/protocol.md` §2 — AUDITED AND REWRITTEN.** The historical fence and the retired-decisions block are replaced
+by a live **§2.1** covering: the identity and its two domains; why the frame grew (with the measured 80 % / 6.1 %
+aliasing that motivated it); mandatory DATA validation and its four absences on mismatch; the terminal CTS and the
+**complete-correlation-before-any-state-change** ordering (owner-ruled, ledger §1.11) with the airtime-billing half;
+the bounded completed-flight cache, its key, its **derived** 150 s TTL and its measured capacity; the two-contract
+plane handling; the overheard-forward credit with both named bases and their explicit non-claims; the withdrawn
+`payload_len` claim; and the airtime trade. ★ The audit the brief asked for found **0 `RTS_LEN` hits** and **no
+remaining `7 B`/`7-byte` RTS claim**, and it found **two live inaccuracies elsewhere in §2 that are now fixed**:
+① the `§rts-cr-overhear` bullet presented the overheard-RTS NAV site as done, with no mention that **[[B166]]** has it
+under-reserving an ordinary exchange by up to −131 ms and releasing NAV **early** — a one-line fence with the measured
+CTS census `{4: 4709, 6: 172}` is added; ② the mobile-marks paragraph said flatly *"CTS relies on the marked-RTS
+context"*, which is now true only of the **ordinary** shape — the terminal shape carries an explicit plane bit,
+because it ends a flight and may not infer one.
+
+**`docs/2026-07-31-bench-test-script.md` (M2) — ⛔ NO NEW STEP IS OWED, AND THE REASON IS STRUCTURAL RATHER THAN
+WAVED.** This slice lands **no behaviour**: documentation, one test-only assertion pair, and measurement. And the
+mechanisms it documents have **no metal-observable surface at all** — `grep -c '_hal.log' lib/core/node_mac_rx.cpp` is
+**0**, and there is **no `src/` console counter** for the terminal CTS, the identity mismatch or the cache; every
+diagnostic is `MR_EMIT`, which `MESHROUTE_NO_TELEMETRY` strips on device. ⇒ **no console line exists that a bench
+operator could read, so a step naming one would be unwritable, and a step that cannot fail is worse than none.**
+★ What IS owed and IS landed is a **correction in place to Part 16.3**, whose standing caution — *"the board sweep is
+still OWED and no board RAM number has been measured, so watch for an allocation failure at boot"* — this slice
+**discharges**: 10/10 envs link, ΔRAM is `+296`/`+592` by layer count, and the tightest env is `gateway` at **82.7 %**
+(not `gateway_heltec`, which that note implied). ⓘ Parts 15 (the mixed-fleet flag day) and 16.1/16.2 (the lost-ACK
+retry on a 6-B CTS, and the corpus-dark 7-B encrypted arm) already carry the arc's metal residue and are **left
+exactly as they are** — re-stating them here would be the corpus re-test M2 forbids.
+
+**BUG-REGISTER DISPOSITIONS (M1) — every constraint in the dispatch's table honoured, and each one is stated even
+where the answer is "no change".**
+
+| bug | disposition | why |
+|---|---|---|
+| **[[B153]]** | ⛔ **NOT CLOSED. Dependency on [[B161]] recorded in the entry.** | The ruled mechanism is implemented and now gated, but typed hash answers still lack a canonical origin on the wire, so a class of flights cannot reproduce their own identity. ⛔ B153 may not close while B161 is open |
+| **[[B157]]** | ⛔ **NOT CLOSED — the deviation from the dispatch's "close only if…" was stated openly and is ✅ ACCEPTED 2026-08-10 on QA's recommendation ("keep B157 open pending B161").** ⛔ **CORRECTED IN PLACE: this cell said *"OWNER-ACCEPTED"* and *"THE OWNER-RULED WORDING"* — WITHDRAWN; it was a QA recommendation relayed by the owner, and a relay is not a ruling (ledger §3).** | ★★ **THE CURRENT STATUS, ★ QA-RECOMMENDED WORDING: *"Implementation complete; universal safety remains blocked by [[B161]]."*** ⛔⛔ **THE EARLIER `CONDITIONS-MET` / `CONDITIONS-MET, BLOCKED WITH B153` LANGUAGE IS HISTORICAL AND WITHDRAWN — ⛔ it is NOT a competing current conclusion and must not be quoted as one.** ⛔⛔ **AND THE REASONING WAS CORRECTED BECAUSE IT WAS TOO WEAK: the old text said only that B157 is "the sender-side half of B153's single mechanism", i.e. a bookkeeping argument. THE REAL REASON IS SUBSTANTIVE — B161 DIRECTLY WEAKENS THE IDENTITY THIS FIX DEPENDS ON: for typed answers, DISTINCT FLIGHTS MAY DERIVE THE SAME PAYLOAD-BASED `origin`. ⇒ An EXACT comparison of a POTENTIALLY ALIASED identity does not fully solve B157** — the comparison is exact, but what it compares can collide, so the restored implicit ACK is only as safe as the identity beneath it. ⓘ That is why "implementation complete" is the correct claim and "conditions met" was not: the code is done; the *safety property* is not established while B161 is open |
+| **[[B156]]** | ✅ **STAYS CLOSED — verified STRUCTURALLY, by the call graph, not by grep.** | The cache's `from` is `r.src` on lookup (`node_mac_rx.cpp:481`) and `_pending_rx->from` on store (`:1200`), and `_pending_rx->from` is assigned **`prx.from = r.src`** at `:619` — the parsed RTS field. The local `from` that *prefers* `meta.src_hint` (`:1030`) reaches **neither** site. ⇒ `src_hint` cannot enter the cache key |
+| **[[B158]]** | ⛔⛔ **NOT TOUCHED, NOT CLOSED — REOPENED BY OWNER RULING (ledger §1.13).** | `retry_jitter_ms()`, `airtime_routing_ms(8)` and the R3.x golden jitter assertions were **not read for edit and not modified**; `test_airtime.cpp` is untouched by this slice. That work is a separate MeshRoute-native jitter arc |
+| **[[B160]]** | ✅ **STAYS CLOSED.** | All three requeue paths preserve explicit `Plane` through the single `txitem_from_pending()` helper; no caller-side normalisation and no fourth converter exists |
+| **[[B167]]** | ✅ **BYTE-TABLE HALF CLOSED.** | §4's offsets landed and are mutation-pinned. ⓘ The entry is closed **in place** with the residue it still names (the `18`/`14`/`13`/`9` DATA-header constant family) left open |
+| **[[B169]]** | ⛔ **NEW — OPENED, NOT FIXED.** | The board-only `-Wunused-variable` on `local_admitted`, +1 warning on all 10 envs, gate-blocking, `warning_census.sh` exit 1. ⛔ **Not fixed here on purpose:** it is a `lib/core` edit that would move board flash and invalidate all 20 builds this slice just measured, and it belongs to the slice that owns the code (C1 — one slice, one attribution). The one-line shape is named in the entry so nobody has to re-derive it |
+| **[[B159]] · [[B161]] · [[B163]] · [[B164]] (airing half) · [[B165]] · [[B166]] · [[B168]] · [[B160-COV]] · [[B160-SIB]]** | ⛔ **ALL STAY OPEN, each stated explicitly.** | None was touched. B159's *count* improved to 2 (§(1)) and ⛔ **that is not a fix** — the mechanism is unchanged. B163 keeps `≥733` conditional |
+
+**`MEMORY.md`** — one durable line added, pointing at the ruled design and at this note.
+
+### ⚠ §HYBRID-RTS-S6 (7) — **EVERY PREMISE THAT TURNED OUT WRONG, INCLUDING THE DISPATCH'S AND MINE**
+
+1. ⛔⛔ **THE DISPATCH'S, AND IT IS THE LOAD-BEARING ONE: its five named movement sources are INCOMPLETE.** It omits
+   **[[B153]]'s 15 movers** and the **`§MH-S4b`** pass. B153's event-count contribution is the largest single term in
+   the whole decomposition (`s17` +40 696, `s18` +30 108), so a proposal built on the five listed sources **could not
+   have closed arithmetically** on `s06`, `s17`, `s18`, `s20`, `sim_9node_base` or `twin`. The complete set is **nine**
+   moving slices plus five measured-zero ones. ⓘ The omission is understandable — S1 moved all 36 md5s, which *hides*
+   B153 in md5 terms — and that is exactly why the event-count chain was worth building.
+2. ⛔ **MINE, and it produced a wrong number I nearly published: my first duplicate census keyed on
+   `(node, origin, dst, ctr)` GLOBALLY, without the scenario**, and returned **103** extra events at CURRENT and
+   **115** at BASE against [[B159]]'s registered **12**. The key is not injective across scenarios (`ctr` repeats), so
+   two unrelated sends in different scenarios collapsed into one key. Adding the scenario reproduces **12 / 21 / 2** and
+   BASE's registered per-scenario breakdown exactly. ⇒ ★ **the archival figure is what caught my instrument**, which is
+   the opposite of this arc's usual direction and worth recording for that reason.
+3. ⛔ **MINE: my first "new-identity alias" test asked whether one identity binds >1 `dst`, and answered 340 — a
+   frightening number that MEASURES THE WRONG THING.** The identity is deliberately `(origin, ctr16)` **without**
+   `dst`, because `dst` is compared *beside* it in the key the code actually uses (`from`, `dst`, plane, identity). The
+   correct statement is a **construction** proof, not a census: identity + `dst` reconstructs `(origin, dst, ctr)`. ⇒
+   ★ **an instrument must be pointed at the key the code compares, not at a key that sounds stricter.**
+4. ⛔ **THE BENCH SCRIPT'S (Part 16.3), corrected in place:** it names `gateway_heltec` as the env to watch for a RAM
+   allocation failure. Measured, the tightest env in the fleet is **`gateway` at 82.7 %**; `gateway_heltec` is 73.4 %.
+   The 16.3 caution was written when *no* board number existed, and it guessed the wrong board.
+5. ⓘ **MINE (expectation): I expected the +1 warning to be attributable to several sites.** It is **exactly one line
+   on all ten envs** — a single cause. The expectation was right to hold loosely and the answer is cleaner than it.
+6. ⓘ **MINE (expectation): I expected `-Wreorder` to be clean everywhere.** It is clean in project-owned code, but
+   there are **3 hits per nRF52 env** in a vendored dependency. *"-Wreorder clean"* is only true with the qualifier,
+   and it is stated with the qualifier rather than rounded to zero.
+7. ⓘ **THE DISPATCH'S START-STATE FIGURES WERE ACCURATE** — HEAD `06b63c2`, `lus` `9150ad1a`, native 1487/80607/0,
+   authority 734 / `s06` 110, raw cross-check **759** (the corrected value, not the copied 734), PHY 5 830 644 ms,
+   `sizeof(Node)` 221880: **every one reproduced.** Recorded because the opposite has been true often enough in this
+   arc to be worth stating, and because the raw-vs-authority cell is the one that had been broken.
+8. ⚠ **A DISCREPANCY IN THE RECORD THAT I CANNOT RESOLVE AND AM NOT PAPERING OVER:** §B162 (1) illustrates the
+   raw-vs-authority over-count with *"12 duplicates at BASE, 21 at DELETE"*, but on the **same** streams the same
+   tool's own `raw − unique` residue is **32** at BASE and **43** at DELETE. Both figures are real and neither is
+   derivable from the other — they count different things (`raw − unique` also absorbs cross-layer/rounding effects
+   the duplicate key does not). ⇒ **two duplicate-shaped numbers coexist in this file and a reader can mistake one for
+   the other.** This note states its key explicitly at every use; the §B162 (1) sentence is left as written because it
+   is an illustration rather than a figure of record, and correcting a closed note's prose is not this slice's job.
+
+### §HYBRID-RTS-S6 (8) — **SCOPE / OWED / FILES**
+
+**FILES MODIFIED — five, and nothing else:** `docs/frames.md` (the RTS identity tail + length matrix, the CTS split
+into two shapes with the terminal byte table, ~20 lines of prose migrated OUT) · `docs/protocol.md` (§2.1 written,
+two live inaccuracies fixed) · `test/test_frame_codec.cpp` (**+6 assertions**, closing M5's vacuous 5-B check, with the
+vacuous line KEPT and explained) · `docs/2026-07-30-open-bug-register.md` (dispositions + **[[B169]]**) ·
+`docs/2026-07-31-bench-test-script.md` (Part 16.3 corrected in place) · this file. Plus one line in `MEMORY.md`.
+⛔ **NOT TOUCHED:** `lib/` (net — the mutation battery restored all four codec files byte-exactly and `lus` is
+`9150ad1a`) · `src/` · `lib/hal/` · `platformio.ini` · any scenario · `tools/` · the owner-rulings ledger · the spec ·
+`retry_jitter_ms` / `airtime_routing_ms` / `test_airtime.cpp` · **the `^### 36/36 corpus` anchor table**.
+⛔ **`simulation/s6_anchor_drift.tsv` DELETED** — its content is folded into §(3)'s table, verified against an
+independent re-run first; it was an input, not a result to re-publish.
+
+**OWED, AND NAMED RATHER THAN IMPLIED:**
+1. ⛔⛔ **THE OWNER'S RE-ANCHOR RULING.** §(3b) is a **proposal**; the anchor table is untouched. **This is the
+   expected stop, not a failure.**
+2. ⛔⛔ **[[B169]]'s one-line fix, in its own slice** — until it lands, `tools/warning_census.sh` **exits 1** and the
+   board gate is **RED**. ⛔ Nothing in this note implies the census passed.
+3. ⛔ **[[B161]]** — B153 and B157 cannot close without it.
+4. ⛔ **[[B163]]** — `≥733` stays conditional; the arc's margin is **one delivery**.
+5. ⛔ **[[B158]]** (MeshRoute-native jitter, its own arc) · **[[B166]]** · **[[B164]]**'s airing half · **[[B159]]** ·
+   **[[B165]]** · **[[B160-COV]]/[[B160-SIB]]** · **[[B168]]**'s owner accept-or-decline.
+6. ⛔ **The crypted (11-B) arm remains CORPUS-DARK at N = 2**, and the 7-B terminal CTS has **zero** corpus instances.
+   Both rest on native coverage plus bench Part 16.2. **A scenario is still owed** if the owner wants corpus evidence.
+7. ⛔ **The two UI probes and the per-ABI `sizeof` reveal DID NOT RUN.** Not owed on the merits; **stated, not implied.**
+
+---
+
+### ★★★★★★★★★★ §HYBRID-RTS-S5 (1) — **THE SEMANTIC-OWNER TABLE. EVERY PRODUCTION AIRTIME/LENGTH CONSTANT IN THE RTS/CTS/DATA/ACK TIMING PATHS, ITS OWNER, ITS INVARIANT AND ITS VERDICT.**
+
+Every `file:line` below was **re-read at the code on 2026-08-10** (V1); the dispatch brief's map was treated as a
+starting point, not a fact. ⓘ The complete inventory of `airtime_routing_ms(` call sites in `lib/core` + `src` is
+**16 expressions in 7 files** — derived by grep, not assumed, and every one appears in this table.
+
+| site | expression | what it OWNS | its invariant | verdict |
+|---|---|---|---|---|
+| `node_mac.cpp:43-45` `airtime_routing_ms()` | `airtime_ms(routing_sf, active_bw_hz(), active_cr(), preamble, len)` | the one adapter from a byte count to routing-SF airtime | monotone non-decreasing in `len` | ✅ **VERIFIED** at grid scope: 0 violations over 128 PHY cells × len 0..255 (this is the premise EVERY "the error is in the safe direction" claim below rests on) |
+| `node_mac.cpp:65` `retry_jitter_ms()` | `3 * airtime_routing_ms(8)` | the **Lua cross-engine retry-jitter RANGE** (contract at `node.h:100-103`) | equal the Lua's `3*airtime(RTS_LEN=8)`, NOT the C++ wire | ⛔ **UNCHANGED BY S5 — the current pre-[[B158]] BASELINE, ⛔⛔ NOT the accepted final design.** (This cell read *"owner-ruled parity constant"*; **WITHDRAWN 2026-08-10** — B158 is REOPENED and parity is no longer a final requirement. ★ The site also drives **four** coupled policies, incl. the LBT backoff at `retry_jitter_ms()/2`. Ledger §1.13.) Measured under-price vs the real frame: **worst −789 ms at SF11/BW62.5k/CR4/8**, differs on **66 of 128** cells, **+0 ms at BOTH dominant corpus cells** (SF8/BW62.5k 9 413 frames · SF8/BW125k 8 999) and **−123 ms at SF9/BW62.5k** (1 530 frames). Consequence is the jitter RANGE only — never a response wait. ✅ Its stale *"NOT the 7-B C++ wire"* comment **CORRECTED IN PLACE** + the measurement recorded in-source |
+| `node.cpp:1152-1162` `exchange_airtime_ms()` | `a(8) + a(4) + gap + DATA + a(4)` | the gateway herd-spread estimate | — | ⛔ **UNCHANGED. `DO-NOT-ADOPT`, already measured in §B158-EXCHANGE-ARM** (N of one, chaotic and non-monotone on `s16`). ✅ Re-verified at the line: its only live consumers are `node.cpp:1072` (window-tail headroom) and `node.cpp:1172` (the nibble); it does **NOT** feed `channel_capacity_C()` |
+| `node_routing.cpp:142` | `airtime_routing_ms(43)` | the FLOOD exchange's own price in `channel_capacity_C()` | be the actual flood RTS length | ✅ **VERIFIED CORRECT** — 43 B is the measured flood RTS length (587 frames in the corpus, all at exactly 43 B) |
+| `node_mac.cpp:2033-2034` (M/flood arm of `start_rts_timeout`) | `airtime_routing_ms(flood ? 43 : 9)` | the RTS-M → DATA-M gap | be the ACTUAL RTS length | ✅ **VERIFIED CORRECT** against the wire census: FLOOD **587 frames all at 43 B**, M_BROADCAST **262 all at 9 B** |
+| `node_mac.cpp:2058-2073` (unicast arm of `start_rts_timeout`) | `a(unicast_rts_wire_len(c)) + a(terminal_cts_wire_len(c))`, `<< shift`, `+ 2*slop + 1` | the CTS wait | **margin ≥ 0 at every supported PHY** | ✅ **VERIFIED, AND IT IS THE GATE'S OWN DEMAND** — see §(3): **+1 ms at ALL 128 cells, in BOTH domains**, and the no-flight fallback over-waits at every cell |
+| `node_mac.cpp:2091-2094` `start_ack_timeout` | `airtime_ms(data) + airtime_routing_ms(3) + slop` | the ACK wait | the ACK term be the real ACK length | ✅ **VERIFIED — the ACK is EXACTLY 3 B**, asserted at the codec (`pack_ack` returns 3 and refuses a 2-B buffer). The documented deliberate CR residual (`:2084-2090`) is **not re-litigated** |
+| `node_mac_rx.cpp:1352` post-ACK timer | `airtime_routing_ms(3) + 1` | the gap before `do_post_ack` | price our own ACK | ✅ **VERIFIED CORRECT AND CLOSED** — 3 B is exact |
+| `node_mac.cpp:1306` `nav_duration_cts` ACK term | `airtime_routing_ms(3)` | the ACK leg of an overheard-CTS reservation | price the ACK | ✅ **VERIFIED CORRECT** — 3 B exact |
+| `node_mac.cpp:2116` `start_pending_rx_expiry` | `airtime_routing_ms(4) /*CTS_LEN=4*/` | **OUR OWN outgoing CTS** | be ≥ the CTS we actually emit | ✅ **VERIFIED, BOTH QUESTIONS ANSWERED — see §(4).** (a) `a(4) ≥ a(3)` at **all 128 cells** (worst margin **0 ms**, never negative) — the error is only ever the safe direction. (b) A **terminal 6/7-B CTS is STRUCTURALLY unable to reach this site**, proven from the call graph, not from the comment |
+| `node_mac.cpp:1250/1253` `nav_duration_rts` | `airtime_routing_ms(3)` ×2 + `airtime_ms(dsf, dcr, pl+13)` + `3*gap` | an overheard **unicast RTS**'s NAV reservation | *"Conservative"* — over-reserve, never under | ⛔⛔ **INVARIANT IS FALSE, AND THE BRIEF'S HYPOTHESIS IS REFUTED — BUT NOT BY THE TERMINAL CTS.** See §(5): worst **−131 ms** (full grid), **−66 ms** even with `dSF==rSF` and `rCR==dCR`, and **−41 ms / −20 ms at two routing cells the corpus actually uses**. ⛔ **NOT FIXED HERE** (pre-existing, not RTS airtime, and a fix moves every NAV-bearing stream) — **registered as [[B166]]** |
+| `node_mac_rx.cpp:653` `cts_air_len` | `already_received ? 3u + c.id.width : 4u` | ⚠ **A BILLING TERM, NOT A TIMING TERM** | charge the frame that flew | ✅ **VERIFIED AND ANSWERED — it is billing ONLY.** Its three consumers (`node_mac_rx.cpp:723/782/828`) are all `track_originator_observation(...)`'s `air` argument → `OrigEvent.air` → `compute_originator_metric`'s `total_air` → the `rts_drop_originator_throttle` decision. **No timer, anywhere.** ⇒ over-charging WOULD be a real airtime distortion, not a safe margin — and the measured over-charge is **ZERO**: the corpus CTS length census is `{4: 4709, 6: 172}`, i.e. **not one 3-B CTS exists**, so the hard-coded `4` is EXACT on every ordinary frame aired. ⛔ UNCHANGED (its own note's Lua-parity reason still holds, and re-pricing it would move every CTS-bearing stream — C1) |
+| `node.cpp:506-510` and `:913-915` beacon max-defer | `airtime_routing_ms(protocol::beacon_max_bytes)` | the flood-LBT max defer (a BEACON length, not an RTS) | — | ✅ **VERIFIED — and `:506`'s asserted sentence is STILL TRUE:** `retry_jitter_ms()` really is `3*airtime_routing_ms(8)`, so *"the same RTS_LEN=8 timing constant"* has not drifted. **No edit** |
+| `node_mac.cpp:1509` `tx_flood` duty pre-check | `airtime_routing_ms(len)` | the beacon/flood duty charge | actual `len` | ✅ **VERIFIED — actual length** |
+| `node_mac.cpp:2091` DATA term / `:2077` `len` | `18 + inner_len` | our own DATA leg of the ACK wait | — | ⓘ **NOT AN RTS/CTS LENGTH — out of §0's scope and NOT audited beyond noting the family.** ⚠ **REPORTED AS AN OPEN RESIDUE:** four DIFFERENT DATA header constants coexist — `18` here, `14` at `:2108`, `13` at `:1252`, and `DATA_HDR_LEN 8` / `DATA_HDR_MAX_LEN 9` in the codec. Three of them cannot all be right; §(5) measures only the `13`. ⛔ I did not establish which of `18`/`14` is correct — **do not read this row as a clearance** |
+
+★ ⓘ **RE-VERIFICATION OF THE BRIEF'S OWN MAP:** every line reference it gave resolved to the right code, with two
+offsets — `retry_jitter_ms` is `node_mac.cpp:65` after this slice's comment (it was `:48`, exactly as the brief said,
+before), and `exchange_airtime_ms`'s `a(8)` is at `node.cpp:1157` inside the `:1152-1162` function. Nothing in the
+map was wrong.
+
+### ★★★★★★★★ §HYBRID-RTS-S5 (2) — **THE PHY LEDGER. `airtime_ms()` FOR CTS 3/4/6/7 AND RTS 7/9/10/11/43 AT ALL 128 SUPPORTED CELLS.**
+
+SF 5..12 × BW {62 500, 125 000, 250 000, 500 000} Hz × CR 4/5..4/8 = **128 cells**, the same grid §HYBRID-RTS-S0 used
+so the two are directly comparable. Computed with `lib/core/airtime.h`'s `airtime_ms()` — **the ONE model**, including
+the deliberate SX126x §6.1.4 SF5/SF6 case. ⛔ **No new airtime formula was written.** `preamble_sym = 16`.
+ⓗ **RTS 7 B is RETIRED from the wire** (`parse_rts` rejects it); it is the HISTORICAL column, present so the audit
+shows what changed.
+
+| SF | BW | CR | CTS 3 | CTS 4 | CTS 6 | CTS 7 | RTS 7ⓗ | RTS 9 | RTS 10 | RTS 11 | RTS 43 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 5 | 62.5k | 4/5 | 20 | 23 | 25 | 25 | 25 | 28 | 28 | 30 | 61 |
+| 5 | 62.5k | 4/6 | 21 | 24 | 27 | 27 | 27 | 30 | 30 | 33 | 70 |
+| 5 | 62.5k | 4/7 | 22 | 26 | 29 | 29 | 29 | 33 | 33 | 36 | 80 |
+| 5 | 62.5k | 4/8 | 23 | 27 | 31 | 31 | 31 | 35 | 35 | 40 | 89 |
+| 5 | 125k | 4/5 | 10 | 11 | 12 | 12 | 12 | 14 | 14 | 15 | 30 |
+| 5 | 125k | 4/6 | 10 | 12 | 13 | 13 | 13 | 15 | 15 | 16 | 35 |
+| 5 | 125k | 4/7 | 11 | 13 | 14 | 14 | 14 | 16 | 16 | 18 | 40 |
+| 5 | 125k | 4/8 | 11 | 13 | 15 | 15 | 15 | 17 | 17 | 20 | 44 |
+| 5 | 250k | 4/5 | 5 | 5 | 6 | 6 | 6 | 7 | 7 | 7 | 15 |
+| 5 | 250k | 4/6 | 5 | 6 | 6 | 6 | 6 | 7 | 7 | 8 | 17 |
+| 5 | 250k | 4/7 | 5 | 6 | 7 | 7 | 7 | 8 | 8 | 9 | 20 |
+| 5 | 250k | 4/8 | 5 | 6 | 7 | 7 | 7 | 8 | 8 | 10 | 22 |
+| 5 | 500k | 4/5 | 2 | 2 | 3 | 3 | 3 | 3 | 3 | 3 | 7 |
+| 5 | 500k | 4/6 | 2 | 3 | 3 | 3 | 3 | 3 | 3 | 4 | 8 |
+| 5 | 500k | 4/7 | 2 | 3 | 3 | 3 | 3 | 4 | 4 | 4 | 10 |
+| 5 | 500k | 4/8 | 2 | 3 | 3 | 3 | 3 | 4 | 4 | 5 | 11 |
+| 6 | 62.5k | 4/5 | 41 | 41 | 46 | 46 | 46 | 51 | 51 | 56 | 107 |
+| 6 | 62.5k | 4/6 | 43 | 43 | 49 | 49 | 49 | 55 | 55 | 61 | 123 |
+| 6 | 62.5k | 4/7 | 45 | 45 | 52 | 52 | 52 | 59 | 59 | 66 | 138 |
+| 6 | 62.5k | 4/8 | 47 | 47 | 55 | 55 | 55 | 63 | 63 | 71 | 153 |
+| 6 | 125k | 4/5 | 20 | 20 | 23 | 23 | 23 | 25 | 25 | 28 | 53 |
+| 6 | 125k | 4/6 | 21 | 21 | 24 | 24 | 24 | 27 | 27 | 30 | 61 |
+| 6 | 125k | 4/7 | 22 | 22 | 26 | 26 | 26 | 29 | 29 | 33 | 69 |
+| 6 | 125k | 4/8 | 23 | 23 | 27 | 27 | 27 | 31 | 31 | 35 | 76 |
+| 6 | 250k | 4/5 | 10 | 10 | 11 | 11 | 11 | 12 | 12 | 14 | 26 |
+| 6 | 250k | 4/6 | 10 | 10 | 12 | 12 | 12 | 13 | 13 | 15 | 30 |
+| 6 | 250k | 4/7 | 11 | 11 | 13 | 13 | 13 | 14 | 14 | 16 | 34 |
+| 6 | 250k | 4/8 | 11 | 11 | 13 | 13 | 13 | 15 | 15 | 17 | 38 |
+| 6 | 500k | 4/5 | 5 | 5 | 5 | 5 | 5 | 6 | 6 | 7 | 13 |
+| 6 | 500k | 4/6 | 5 | 5 | 6 | 6 | 6 | 6 | 6 | 7 | 15 |
+| 6 | 500k | 4/7 | 5 | 5 | 6 | 6 | 6 | 7 | 7 | 8 | 17 |
+| 6 | 500k | 4/8 | 5 | 5 | 6 | 6 | 6 | 7 | 7 | 8 | 19 |
+| 7 | 62.5k | 4/5 | 78 | 78 | 88 | 88 | 88 | 98 | 98 | 98 | 190 |
+| 7 | 62.5k | 4/6 | 82 | 82 | 94 | 94 | 94 | 107 | 107 | 107 | 217 |
+| 7 | 62.5k | 4/7 | 86 | 86 | 100 | 100 | 100 | 115 | 115 | 115 | 244 |
+| 7 | 62.5k | 4/8 | 90 | 90 | 107 | 107 | 107 | 123 | 123 | 123 | 270 |
+| 7 | 125k | 4/5 | 39 | 39 | 44 | 44 | 44 | 49 | 49 | 49 | 95 |
+| 7 | 125k | 4/6 | 41 | 41 | 47 | 47 | 47 | 53 | 53 | 53 | 108 |
+| 7 | 125k | 4/7 | 43 | 43 | 50 | 50 | 50 | 57 | 57 | 57 | 122 |
+| 7 | 125k | 4/8 | 45 | 45 | 53 | 53 | 53 | 61 | 61 | 61 | 135 |
+| 7 | 250k | 4/5 | 19 | 19 | 22 | 22 | 22 | 24 | 24 | 24 | 47 |
+| 7 | 250k | 4/6 | 20 | 20 | 23 | 23 | 23 | 26 | 26 | 26 | 54 |
+| 7 | 250k | 4/7 | 21 | 21 | 25 | 25 | 25 | 28 | 28 | 28 | 61 |
+| 7 | 250k | 4/8 | 22 | 22 | 26 | 26 | 26 | 30 | 30 | 30 | 67 |
+| 7 | 500k | 4/5 | 9 | 9 | 11 | 11 | 11 | 12 | 12 | 12 | 23 |
+| 7 | 500k | 4/6 | 10 | 10 | 11 | 11 | 11 | 13 | 13 | 13 | 27 |
+| 7 | 500k | 4/7 | 10 | 10 | 12 | 12 | 12 | 14 | 14 | 14 | 30 |
+| 7 | 500k | 4/8 | 11 | 11 | 13 | 13 | 13 | 15 | 15 | 15 | 33 |
+| 8 | 62.5k | 4/5 | 156 | 156 | 156 | 177 | 177 | 177 | 177 | 197 | 361 |
+| 8 | 62.5k | 4/6 | 164 | 164 | 164 | 189 | 189 | 189 | 189 | 214 | 410 |
+| 8 | 62.5k | 4/7 | 173 | 173 | 173 | 201 | 201 | 201 | 201 | 230 | 459 |
+| 8 | 62.5k | 4/8 | 181 | 181 | 181 | 214 | 214 | 214 | 214 | 246 | 508 |
+| 8 | 125k | 4/5 | 78 | 78 | 78 | 88 | 88 | 88 | 88 | 98 | 180 |
+| 8 | 125k | 4/6 | 82 | 82 | 82 | 94 | 94 | 94 | 94 | 107 | 205 |
+| 8 | 125k | 4/7 | 86 | 86 | 86 | 100 | 100 | 100 | 100 | 115 | 229 |
+| 8 | 125k | 4/8 | 90 | 90 | 90 | 107 | 107 | 107 | 107 | 123 | 254 |
+| 8 | 250k | 4/5 | 39 | 39 | 39 | 44 | 44 | 44 | 44 | 49 | 90 |
+| 8 | 250k | 4/6 | 41 | 41 | 41 | 47 | 47 | 47 | 47 | 53 | 102 |
+| 8 | 250k | 4/7 | 43 | 43 | 43 | 50 | 50 | 50 | 50 | 57 | 114 |
+| 8 | 250k | 4/8 | 45 | 45 | 45 | 53 | 53 | 53 | 53 | 61 | 127 |
+| 8 | 500k | 4/5 | 19 | 19 | 19 | 22 | 22 | 22 | 22 | 24 | 45 |
+| 8 | 500k | 4/6 | 20 | 20 | 20 | 23 | 23 | 23 | 23 | 26 | 51 |
+| 8 | 500k | 4/7 | 21 | 21 | 21 | 25 | 25 | 25 | 25 | 28 | 57 |
+| 8 | 500k | 4/8 | 22 | 22 | 22 | 26 | 26 | 26 | 26 | 30 | 63 |
+| 9 | 62.5k | 4/5 | 272 | 313 | 313 | 313 | 313 | 354 | 354 | 354 | 641 |
+| 9 | 62.5k | 4/6 | 280 | 329 | 329 | 329 | 329 | 378 | 378 | 378 | 722 |
+| 9 | 62.5k | 4/7 | 288 | 346 | 346 | 346 | 346 | 403 | 403 | 403 | 804 |
+| 9 | 62.5k | 4/8 | 296 | 362 | 362 | 362 | 362 | 428 | 428 | 428 | 886 |
+| 9 | 125k | 4/5 | 136 | 156 | 156 | 156 | 156 | 177 | 177 | 177 | 320 |
+| 9 | 125k | 4/6 | 140 | 164 | 164 | 164 | 164 | 189 | 189 | 189 | 361 |
+| 9 | 125k | 4/7 | 144 | 173 | 173 | 173 | 173 | 201 | 201 | 201 | 402 |
+| 9 | 125k | 4/8 | 148 | 181 | 181 | 181 | 181 | 214 | 214 | 214 | 443 |
+| 9 | 250k | 4/5 | 68 | 78 | 78 | 78 | 78 | 88 | 88 | 88 | 160 |
+| 9 | 250k | 4/6 | 70 | 82 | 82 | 82 | 82 | 94 | 94 | 94 | 180 |
+| 9 | 250k | 4/7 | 72 | 86 | 86 | 86 | 86 | 100 | 100 | 100 | 201 |
+| 9 | 250k | 4/8 | 74 | 90 | 90 | 90 | 90 | 107 | 107 | 107 | 221 |
+| 9 | 500k | 4/5 | 34 | 39 | 39 | 39 | 39 | 44 | 44 | 44 | 80 |
+| 9 | 500k | 4/6 | 35 | 41 | 41 | 41 | 41 | 47 | 47 | 47 | 90 |
+| 9 | 500k | 4/7 | 36 | 43 | 43 | 43 | 43 | 50 | 50 | 50 | 100 |
+| 9 | 500k | 4/8 | 37 | 45 | 45 | 45 | 45 | 53 | 53 | 53 | 110 |
+| 10 | 62.5k | 4/5 | 544 | 626 | 626 | 626 | 626 | 708 | 708 | 708 | 1363 |
+| 10 | 62.5k | 4/6 | 561 | 659 | 659 | 659 | 659 | 757 | 757 | 757 | 1544 |
+| 10 | 62.5k | 4/7 | 577 | 692 | 692 | 692 | 692 | 806 | 806 | 806 | 1724 |
+| 10 | 62.5k | 4/8 | 593 | 724 | 724 | 724 | 724 | 856 | 856 | 856 | 1904 |
+| 10 | 125k | 4/5 | 272 | 272 | 313 | 313 | 313 | 313 | 354 | 354 | 600 |
+| 10 | 125k | 4/6 | 280 | 280 | 329 | 329 | 329 | 329 | 378 | 378 | 673 |
+| 10 | 125k | 4/7 | 288 | 288 | 346 | 346 | 346 | 346 | 403 | 403 | 747 |
+| 10 | 125k | 4/8 | 296 | 296 | 362 | 362 | 362 | 362 | 428 | 428 | 821 |
+| 10 | 250k | 4/5 | 136 | 136 | 156 | 156 | 156 | 156 | 177 | 177 | 300 |
+| 10 | 250k | 4/6 | 140 | 140 | 164 | 164 | 164 | 164 | 189 | 189 | 336 |
+| 10 | 250k | 4/7 | 144 | 144 | 173 | 173 | 173 | 173 | 201 | 201 | 373 |
+| 10 | 250k | 4/8 | 148 | 148 | 181 | 181 | 181 | 181 | 214 | 214 | 410 |
+| 10 | 500k | 4/5 | 68 | 68 | 78 | 78 | 78 | 78 | 88 | 88 | 150 |
+| 10 | 500k | 4/6 | 70 | 70 | 82 | 82 | 82 | 82 | 94 | 94 | 168 |
+| 10 | 500k | 4/7 | 72 | 72 | 86 | 86 | 86 | 86 | 100 | 100 | 186 |
+| 10 | 500k | 4/8 | 74 | 74 | 90 | 90 | 90 | 90 | 107 | 107 | 205 |
+| 11 | 62.5k | 4/5 | 1089 | 1089 | 1253 | 1253 | 1253 | 1253 | 1417 | 1417 | 2564 |
+| 11 | 62.5k | 4/6 | 1122 | 1122 | 1318 | 1318 | 1318 | 1318 | 1515 | 1515 | 2891 |
+| 11 | 62.5k | 4/7 | 1155 | 1155 | 1384 | 1384 | 1384 | 1384 | 1613 | 1613 | 3219 |
+| 11 | 62.5k | 4/8 | 1187 | 1187 | 1449 | 1449 | 1449 | 1449 | 1712 | 1712 | 3547 |
+| 11 | 125k | 4/5 | 544 | 544 | 626 | 626 | 626 | 626 | 708 | 708 | 1282 |
+| 11 | 125k | 4/6 | 561 | 561 | 659 | 659 | 659 | 659 | 757 | 757 | 1445 |
+| 11 | 125k | 4/7 | 577 | 577 | 692 | 692 | 692 | 692 | 806 | 806 | 1609 |
+| 11 | 125k | 4/8 | 593 | 593 | 724 | 724 | 724 | 724 | 856 | 856 | 1773 |
+| 11 | 250k | 4/5 | 272 | 272 | 313 | 313 | 313 | 313 | 313 | 313 | 559 |
+| 11 | 250k | 4/6 | 280 | 280 | 329 | 329 | 329 | 329 | 329 | 329 | 624 |
+| 11 | 250k | 4/7 | 288 | 288 | 346 | 346 | 346 | 346 | 346 | 346 | 690 |
+| 11 | 250k | 4/8 | 296 | 296 | 362 | 362 | 362 | 362 | 362 | 362 | 755 |
+| 11 | 500k | 4/5 | 136 | 136 | 156 | 156 | 156 | 156 | 156 | 156 | 279 |
+| 11 | 500k | 4/6 | 140 | 140 | 164 | 164 | 164 | 164 | 164 | 164 | 312 |
+| 11 | 500k | 4/7 | 144 | 144 | 173 | 173 | 173 | 173 | 173 | 173 | 345 |
+| 11 | 500k | 4/8 | 148 | 148 | 181 | 181 | 181 | 181 | 181 | 181 | 377 |
+| 12 | 62.5k | 4/5 | 2179 | 2179 | 2506 | 2506 | 2506 | 2506 | 2506 | 2834 | 4800 |
+| 12 | 62.5k | 4/6 | 2244 | 2244 | 2637 | 2637 | 2637 | 2637 | 2637 | 3031 | 5390 |
+| 12 | 62.5k | 4/7 | 2310 | 2310 | 2768 | 2768 | 2768 | 2768 | 2768 | 3227 | 5980 |
+| 12 | 62.5k | 4/8 | 2375 | 2375 | 2899 | 2899 | 2899 | 2899 | 2899 | 3424 | 6569 |
+| 12 | 125k | 4/5 | 1089 | 1089 | 1253 | 1253 | 1253 | 1253 | 1253 | 1417 | 2400 |
+| 12 | 125k | 4/6 | 1122 | 1122 | 1318 | 1318 | 1318 | 1318 | 1318 | 1515 | 2695 |
+| 12 | 125k | 4/7 | 1155 | 1155 | 1384 | 1384 | 1384 | 1384 | 1384 | 1613 | 2990 |
+| 12 | 125k | 4/8 | 1187 | 1187 | 1449 | 1449 | 1449 | 1449 | 1449 | 1712 | 3284 |
+| 12 | 250k | 4/5 | 544 | 544 | 626 | 626 | 626 | 626 | 626 | 708 | 1200 |
+| 12 | 250k | 4/6 | 561 | 561 | 659 | 659 | 659 | 659 | 659 | 757 | 1347 |
+| 12 | 250k | 4/7 | 577 | 577 | 692 | 692 | 692 | 692 | 692 | 806 | 1495 |
+| 12 | 250k | 4/8 | 593 | 593 | 724 | 724 | 724 | 724 | 724 | 856 | 1642 |
+| 12 | 500k | 4/5 | 272 | 272 | 272 | 313 | 313 | 313 | 313 | 313 | 559 |
+| 12 | 500k | 4/6 | 280 | 280 | 280 | 329 | 329 | 329 | 329 | 329 | 624 |
+| 12 | 500k | 4/7 | 288 | 288 | 288 | 346 | 346 | 346 | 346 | 346 | 690 |
+| 12 | 500k | 4/8 | 296 | 296 | 296 | 362 | 362 | 362 | 362 | 362 | 755 |
+
+★★ **THE RULE THE GRID EXISTS TO ENFORCE, restated because it is the one thing that has been got wrong repeatedly:
+NEVER QUOTE ONE FIGURE FOR "THE COST OF n BYTES".** Measured off the table above: `a(4) != a(3)` on **34 of 128**
+cells (so a 4th CTS byte is FREE at 94 and costs at 34) · `a(6) != a(4)` on **83 of 128** · `a(10) != a(8)` on
+**66 of 128**. ⇒ ⛔ **the sign is NOT monotone in SF** — RTS 7→10 is **+0 ms at SF8/BW62.5k/CR5** and **+164 ms at
+SF11/BW62.5k/CR5** — and any test written at a single cell can be vacuous.
+★ **CROSS-CHECK AGAINST §HYBRID-RTS-S0's PUBLISHED REFERENCE POINTS, all four reproduced from this grid:** the S1
+CTS-wait change is **+20 ms** at `s18`'s SF8/BW125k/CR5 (crypted 98+88=186 vs 88+78=166), **+41 ms** at `s06`'s
+SF8/BW62.5k/CR5 (197+177=374 vs 177+156=333), **+0 ms** at BW62.5k/CR5/SF10 (708+626=1334 either way) and
+**+1049 ms** at BW62.5k/CR4/8/SF12 (3424+2899=6323 vs 2899+2375=5274). ⇒ the two grids agree to the millisecond.
+
+### ★★★★★★★★★★ §HYBRID-RTS-S5 (3) — **`start_rts_timeout`'s SIGNED MARGIN: `+1 ms` AT ALL 128 CELLS, IN BOTH DOMAINS. AND WHY THAT IS A STRUCTURAL FACT, NOT LUCK.**
+
+margin = (armed delay at shift 0, slop 0) − (the request that flies + its LONGEST LEGAL response).
+`slop = rx_window_slop_ms` is **0 on the sim/native HAL and nonzero on metal**, and `shift` only multiplies the base,
+so **shift 0 / slop 0 is the WORST case** — the grid result holds on hardware *a fortiori*.
+
+| arm | what is armed | what flies | **minimum margin** | cell |
+|---|---|---|---|---|
+| PLAINTEXT flight | `a(10) + a(6) + 1` | `a(10) + a(6)` | ★ **+1 ms** | **all 128 cells** (SF5/BW62.5k/CR4/5 first) |
+| CRYPTED flight | `a(11) + a(7) + 1` | `a(11) + a(7)` | ★ **+1 ms** | **all 128 cells** |
+| no-pending-flight re-arm (prices the CRYPTED worst case for a possibly PLAINTEXT flight) | `a(11) + a(7) + 1` | `a(10) + a(6)` | **+1 ms** | SF5/BW250k/CR4/5 (it is ≥ +1 everywhere, and larger at 61 of 128 cells) |
+
+⇒ ★ **THE GATE'S DEMAND IS MET AT EVERY SUPPORTED PHY, AND THE MINIMUM IS THE SITE'S OWN `+ 1u` LITERAL.**
+★★ **THAT IS THE REPORTABLE RESULT, AND IT IS A STRUCTURAL PROPERTY RATHER THAN A NUMERIC COINCIDENCE:** the armed
+side is computed *through the same two semantic helpers the packers use* (`unicast_rts_wire_len` /
+`terminal_cts_wire_len`), so the margin cannot be anything but the literal — **which is exactly why the test asserting
+it had to be built so it could still fail** (§(7): the ACTUAL side uses independent literals, and mutating either
+helper drives the sweep negative).
+⓵ The terminal CTS really is the bound: an ordinary CTS (3/4 B) and every NACK (4 B) are SHORTER, and airtime is
+monotone in length (§(1) row 1) — so no legal response can outlast the wait.
+⓶ **AND THE RETIRED FORMULA IS SEPARATED AT GRID SCOPE, not at one lucky cell:** `a(10)+a(6) != a(8)+a(4)` on
+**102 of 128** cells (max **+525 ms**) and `a(11)+a(7) != a(8)+a(4)` on **124 of 128** (max **+1049 ms**), and
+`a(10)+a(6) >= a(8)+a(4)` at **every** cell — the correction never shortens the wait anywhere.
+
+### ★★★★★★★★★★ §HYBRID-RTS-S5 (4) — **`start_pending_rx_expiry`: BOTH QUESTIONS ANSWERED, AND (b) IS A CALL-GRAPH PROOF, NOT A COMMENT**
+
+**(a) IS `airtime_routing_ms(4)` ALWAYS ≥ THE CTS WE ACTUALLY EMIT?** ✅ **YES, at all 128 cells.** The ordinary CTS
+is 3 B without a NAV hint and 4 B with one, and `a(4) − a(3) ≥ 0` everywhere (worst margin **0 ms**, at 94 of 128
+cells; ≥ +1 at the other 34). The error is therefore only ever the SAFE direction, and that rests on the monotonicity
+proof, not on the comment.
+
+**(b) CAN A TERMINAL 6/7-B CTS EVER REACH THIS FUNCTION?** ⛔ **NO — STRUCTURALLY, FROM THE CALL GRAPH.** Derived,
+not grepped:
+1. `start_pending_rx_expiry` has exactly **two** callers, both in `handle_rts`: `node_mac_rx.cpp:538` (the
+   re-CTS-on-retried-RTS fast path) and `:629` (fresh admission). **No third caller exists in `lib/core` or `src`.**
+2. Both build `cts_in cin{}` with **`cin.already_received = false`** into a **`uint8_t cbuf[4]`** — a terminal frame
+   could not even be *packed* into that buffer (`pack_cts` needs 6/7 B and returns 0 on a short span).
+3. The **only** terminal producer is `handle_rts`'s `completed_flight_find` branch (`:481-499`), and it **`return`s at
+   `:495`** — before any `PendingRx` is allocated and before either call site. ⓘ Its `pack refused` fall-through
+   (`:497`) does **not** escape this: it falls into ORDINARY admission, which emits `already_received = false`.
+⇒ ✅ The `/*CTS_LEN=4*/` price is correct, and **UNCHANGED**.
+★ **THE STAKE IS PINNED SO THE STRUCTURAL ARGUMENT IS NOT FREE:** were the call graph ever to change,
+`airtime_routing_ms(4)` would under-price a terminal CTS by up to **−524 ms** (SF12/BW62.5k/CR4/8). That number is now
+a native assertion, so a future call-graph change fails loudly instead of silently under-waiting.
+
+### ⛔⛔⛔ §HYBRID-RTS-S5 (5) — **`nav_duration_rts` DOES UNDER-RESERVE. THE BRIEF'S HYPOTHESIS IS REFUTED — AND NOT BY THE MECHANISM IT NAMED. [[B166]] OPENED.**
+
+The brief supplied a hypothesis (*"there is a plausible argument that no under-reservation exists"*) and required both
+directions to be tested. **Both were.** The result splits cleanly:
+
+| direction | reserved | actual | worst signed margin | verdict |
+|---|---|---|---|---|
+| the **TERMINAL** answer (no DATA, no ACK follows) | `a(3) + DATA(pl+13) + a(3) + 3·gap` | `a(6 or 7) + gap` | ★ **+14 ms** (worst cell rSF5/BW500k) | ✅ **ALWAYS OVER-RESERVED — the brief's named mechanism causes NO under-reservation at any cell.** The hypothesis was right about *this* channel |
+| the **ORDINARY** exchange | `a(3) + DATA(pl+13) + a(3) + 3·gap` | `a(4) + DATA(pl+hdr) + a(3) + 3·gap` | ⛔ **−131 ms** | ⛔⛔ **UNDER-RESERVED. The hypothesis was WRONG, via a channel it did not consider** |
+
+⛔⛔ **THE MECHANISM AS FIRST WRITTEN HERE CONFLATED TWO NODES' CONFIG AND IS WITHDRAWN (review, 2026-08-10).** It
+read: *"`nav_duration_rts` prices the responder's CTS at 3 B, and whenever NAV is on — which is the only condition
+under which this function is ever called (`node_mac_rx.cpp:423`) — the responder attaches a NAV hint and the frame
+that flies is 4 B."* ⛔ **That is FALSE as a single condition**, because it is **two independent decisions by two
+different nodes**:
+- `node_mac_rx.cpp:414` — `if (_cfg.nav_enabled)` — the **OVERHEARER's own** setting, gating whether it arms NAV at all;
+- `node_mac_rx.cpp:533` — `cin.payload_len = _cfg.nav_enabled ? r.payload_len : 0` — the **RESPONDER's own** setting,
+  deciding whether the 4th byte is attached.
+
+★★ **THE CORRECT — AND STRICTLY STRONGER — FORMULATION: the observer CANNOT KNOW whether the responder will attach a
+NAV hint, so a reservation whose own header calls itself *"Conservative"* MUST price the LONGEST LEGAL ORDINARY CTS,
+which is 4 B.** ⇒ the defect is a **violated conservatism invariant**, which holds for **any** responder configuration,
+not a configuration coincidence that would evaporate in a NAV-disabled fleet.
+
+★★ **THE TWO HALVES ARE SEPARATELY SCOPED — narrowed 2026-08-10 by review, and do not merge them again:**
+1. **THE INVARIANT BREACH IS UNCONDITIONAL.** A reservation whose header calls itself *"Conservative"* must price the
+   longest legal ordinary CTS **always**, because the observer has no way to learn the responder's `nav_enabled`
+   before it must arm NAV. This half is true even in a fleet where no 4-B CTS is ever emitted.
+2. ⚠ **THE ACTUAL UNDER-RESERVATION OCCURS ONLY WHEN THE RESPONDER ACTUALLY EMITS A 4-B CTS.** If a responder has NAV
+   disabled it emits 3 B and the `a(3)` price is exact for that exchange — **no harm on that exchange.** ⇒ the *harm*
+   is conditional on the responder's setting even though the *breach* is not.
+
+ⓘ The corpus census (4 709 of 4 709 ordinary CTS aired at 4 B) is what makes the conditional half **live as shipped**:
+every responder in the corpus has NAV on, so every measured exchange is in the harmful case. The census supports
+half 2; it is **not** the argument for half 1. Meanwhile the site's flat
+`+13` DATA header over-reserves by 4–5 B against the codec's real `DATA_HDR_LEN 8` / `DATA_HDR_MAX_LEN 9`, so the
+question is whether that surplus covers the CTS deficit. **At many PHYs it does not** — and the reason it does not is
+symbol-block quantization, verified independently against `lib/core/airtime.cpp`: at SF9/BW62.5k `a(3) = 272 ms` but
+`a(4) = 313 ms`, so the one-byte CTS deficit costs a **full 41 ms CR4/5 block** while the four-byte DATA surplus falls
+**inside** a block and buys **nothing**.
+
+⛔ **AND IT IS NOT ONE EXOTIC CELL.** Swept over routing-SF × data-SF × BW × routing-CR × data-CR × payload 1..249:
+
+| sub-grid | worst margin | negative cells |
+|---|---|---|
+| full grid | **−131 ms** (rSF10 dSF9 BW62.5k rCR4/8 dCR4/5 pl=4) | 205 651 / 2 039 808 |
+| `dSF ≥ rSF` only | **−131 ms** | 41 038 / 1 147 392 |
+| `rCR == dCR` (a uniform-CR fleet) | **−131 ms** | 48 304 / 509 952 |
+| `dSF ≥ rSF` **and** `rCR == dCR` | **−131 ms** | 7 455 / 286 848 |
+| ★ **fully homogeneous (`dSF == rSF`, `rCR == dCR`)** | ⛔ **−66 ms** | **1 862 / 63 744** |
+
+★★★ **AND IT IS REACHABLE IN THE CORPUS AS SHIPPED, at two of the eleven routing PHY cells the corpus actually
+exercises** — ⓘ the eleven cells AND their per-cell frame counts are **§HYBRID-RTS-S0's measurement, QUOTED and
+not re-measured here**; the margins are mine:
+
+| routing cell | `a(3)` | `a(4)` | CTS deficit | worst margin | negative (dSF,dCR,pl) cells |
+|---|---|---|---|---|---|
+| **SF9 / BW 62.5 k / CR 4/5** (`s16_dense_gateway`'s second leaf, 1 530 frames) | 272 | 313 | **+41** | ⛔ **−41 ms** | **8 163 / 15 936** |
+| **SF9 / BW 125 k / CR 4/5** (215 frames) | 136 | 156 | **+20** | ⛔ **−20 ms** | **8 344 / 15 936** |
+| the other **nine** cells (incl. SF8/BW62.5k and SF8/BW125k, 19 641 of 21 386 frames) | — | — | **+0** | **+0 ms** | 0 / 15 936 |
+
+⇒ ★★ **THE WIRE EVIDENCE, MEASURED NOT ARGUED: the corpus CTS length census is `{4: 4 709, 6: 172}` — there is NOT
+ONE 3-B CTS in the entire 36-scenario corpus.** So the `a(3)` term is short by one byte on **4 709 of 4 709** ordinary
+CTS frames aired; at 4 685 of them the byte happens to be free, and at the SF9 cells it is not.
+⚠⚠ **DIRECTION OF HARM — THE DANGEROUS ONE, and this is the same class as the already-closed `§cts-len6-cr2` finding:**
+under-reserving releases NAV **early**, so the overhearer may transmit into the tail of the exchange NAV exists to
+protect. It is not a wasted-airtime error.
+⛔ **NOT FIXED IN THIS SLICE, and the reason is scope, not doubt:** the defect is (i) **pre-existing** — the 4-B
+NAV-hint CTS predates §hybrid-rts entirely, so this is not the RTS growth's doing; (ii) **not unicast-RTS airtime**,
+which is the only class the dispatch's §0 authorises changing; and (iii) a one-byte re-price moves **every NAV-bearing
+stream**, i.e. a behaviour change that belongs in its own attributed slice. ⇒ **registered as [[B166]] with this
+measurement**, and an in-source marker is NOT added because `:1268-1270`'s existing `⚠ STILL MISSING, DELIBERATELY`
+block already names item (a) — what it got wrong was calling the residual *"noise-level"*, which the register entry
+now corrects at the entry a reader follows.
+
+### ★★★★★★★★ §HYBRID-RTS-S5 (6) — **[[B165]]'s REACHABILITY: THE CORPUS CANNOT REACH IT — AND THE ZERO IS POSITIVELY CONTROLLED, NOT AN ABSENCE OF LOOKING**
+
+Measured over all 36 streams by correlating each `duty_cycle_blocked{label=RTS, source=lbt_complete}` emit with the
+most recent `rts_tx` at the SAME node (a node holds one `pending_tx` at a time, so the correlation is exact):
+
+| measure | value |
+|---|---|
+| `duty_cycle_blocked{label=RTS}` firings, corpus-wide | ★ **11 — the branch IS live, so this is not a dead-code zero** |
+| ... their scenario | **all 11 in `s07_seattle_mobile_meshroute`** |
+| ... pending flight was a **FLOOD** | ⛔ **0** |
+| ... pending flight was NON-flood | **11** |
+| ... **UNRESOLVED** (no prior `rts_tx` at that node) | ★ **0** — every firing was attributed, so the zero is not a lookup failure |
+| ★ correlator **POSITIVE CONTROL** | **737** `rts_tx{flood:true}` emits exist corpus-wide and are parsed by the same code path ⇒ the discriminator can return true |
+| the other `duty_cycle_blocked` population | `NACK/tx_with_retry` **33** (a different site, not the slot) |
+
+⇒ ★★ **THE CORPUS CANNOT REACH [[B165]]'s TRUNCATION.** All 11 firings carry a **10-B unicast** RTS, which fits
+`buf[16]` with 6 B to spare, so the clamp expression executes 11 times and **never clamps**.
+★★★ **AND HERE IS WHAT WOULD REACH IT, because a zero is a coverage statement and not an absolution.** The
+configuration intersection is **NOT empty**: `duty_cycle` is enabled in **all 36** scenarios (**14 files at `1`, 22 at
+`10`** — a PERCENT in the scenario schema, `SimController.cpp:890-893`), and **three** of the 14 tight-duty (1 %)
+scenarios also air FLOOD RTS frames — `s22_mobile_team_meshroute` (4 flood RTS), `s33_mixed_cr_channel_overhear` (20)
+and `s34_team_switch_clears_plane` (12). They never trip the gate because they are **tiny** (1 822 / 2 845 / 921
+events), so no node ever accumulates enough airtime to exceed even a 1 % budget. ⇒ **the reachable shape is a
+flood-bearing scenario at `s07`'s traffic density and duration** — i.e. channel-flood traffic inside a long,
+duty-tight run. ⛔ Building one is NOT this slice's scope and no such scenario exists today.
+⓵ ⛔ **CORRECTION TO [[B165]]'s OWN ENTRY (V1):** it states *"`"duty_cycle": 1` in 10 scenario files, `10` in 4"*.
+Measured: **14 files carry `1` and 22 carry `10`**. The entry's conclusion (the branch is not configuration-dead) was
+RIGHT; its census was wrong, and it is corrected in place.
+⛔ **[[B165]] IS NOT FIXED HERE** — `buf[16] → buf[43]` moves `sizeof(Node)` ⇒ D2 ⇒ its own slice, and C1 forbids
+folding it into an audit. Its stale `node.h:2215` comment is likewise left for that slice.
+
+### ★★★★★★★★★★ §HYBRID-RTS-S5 (7) — **THE NEW TEST, AND ITS SIX MUTATIONS — EVERY ANCHOR AT MATCH COUNT == 1, AND ONE OF THEM CAME OUT GREEN**
+
+**Extended `test/test_airtime.cpp`** (U1/U3: it is the airtime differential test, it already hosts the
+`RTS_LEN=8 timing constant` MAC case, and the grid needs only `airtime_ms` + the two `constexpr` wire-length helpers).
+⛔ It does **not** duplicate `test_node_r3.cpp`'s two S1 Node-level cases (which assert the frame that really flies at
+two discriminating PHYs) — it bounds the same expression over the whole grid instead.
+**4 new cases · +846 assertions · native 1483 / 79 761 / 0 → 1487 / 80 607 / 0.**
+
+| case | what it holds |
+|---|---|
+| *the CTS 3/4/6/7 + RTS 7/9/10/11/43 ledger at the named PHY cells* | golden values at `s06`'s **BW 62.5 kHz** row, `s18`'s SF8/BW125k, `s16`'s SF9/BW62.5k, SF11/BW62.5k, ★ the **SF12/BW62.5k/CR4/8 worst case**, SF12/BW500k, and the SX126x §6.1.4 SF5 corner |
+| *`start_rts_timeout`'s margin is NON-NEGATIVE at ALL 128 supported PHY cells* | the 128-cell sweep, both domains + the no-flight fallback; `min_margin == 1`; and the retired formula separated at **102** / **124** cells |
+| *`airtime_ms` is monotonic in length over the whole grid* | 0 violations over 128 cells × len 0..255; `a(4) ≥ a(3)` everywhere; and the **−524 ms** stake behind §(4)(b)'s structural proof |
+| *the ACK is 3 B and the routing-frame length set is {3,4,6,7,9,10,11,43}* | `pack_ack` == 3 at a fat buffer **and at an exactly-3-B one**, 0 at 2 B; the two semantic helpers; and FLOOD 43 B ≥ 11 B at every cell |
+
+★★ **THE MUTATION BATTERY — every anchor asserted at EXACTLY ONE textual match before the edit, applied to the REAL
+tree, then restored from a byte snapshot with the md5 re-verified.** ⛔ **`git checkout --` was never used** (the
+recorded hazard that destroyed uncommitted S1+S2 work).
+
+| # | mutation (production code) | result |
+|---|---|---|
+| **M1** | `unicast_rts_wire_len`: `7u +` → `6u +` (10/11 → 9/10) | ★ **RED** — 2 of 4 cases, **7 assertions**, incl. `all_non_negative` and `min_margin == 1` |
+| **M2** | `terminal_cts_wire_len`: `3u +` → `2u +` (6/7 → 5/6) | ★ **RED** — 2 of 4 cases, **6 assertions**, incl. `all_non_negative` and `min_margin == 1` |
+| **M3** | `airtime.cpp`: drop the SX126x §6.1.4 SF5/SF6 sync (`6.25 : 4.25` → `4.25 : 4.25`) | ★ **RED** — 3 of 4 cases, 6 assertions (the SF5 ledger cells + all three grid counts) |
+| **M4** | `airtime.cpp`: make the payload term DECREASING in length (`8*len` → `2048 − 8*len`) | ★ **RED** — 4 of 4 cases, **381 assertions**, incl. `violations == 0` (so the monotonicity claim is falsifiable, not decorative) |
+| **M5** | `pack_ack`: raise the buffer floor `out.size() < 3` → `< 4` | ⚠⚠ **GREEN AT FIRST — A REAL COVERAGE GAP IN MY OWN TEST**, recorded rather than quietly fixed: the original pair of checks (fat buffer == 3, 2-B buffer == 0) is blind to a raised floor. **Closed by adding `pack_ack(…, span(buf,3)) == 3`; re-run → RED (1 assertion)** |
+| **M6** | `pack_ack`: emit a 4th ACK byte | ★ **RED** — 2 assertions (both `== 3` checks) |
+
+⇒ **6 mutations, all RED after M5's gap was closed.** ⛔ **A test at match-count 1 that was not mutated is not
+evidence, and M5 is the proof that the rule earns its keep.**
+
+### ★★★★★★★★ §HYBRID-RTS-S5 (8) — **THE GATE. ⛔ NOTHING HERE IMPLIES A SKIPPED GATE PASSED.**
+
+| gate | result |
+|---|---|
+| **native (D1)** | `pio test -e native` rc=0, **then the real binary** (the wrapper's *"0 test cases"* is false): BEFORE **1483 / 79 761 / 0**, AFTER **1487 / 80 607 / 0**, from a **CLEAN rebuild** (`rm -rf .pio/build/native`). `grep -c "error:"` **0** |
+| warnings | **8 file-attributed** (+1 `cc1 -fno-rtti` note) — `test_dual_layer.cpp` ×2 `-Woverflow`, `test_node_r3.cpp` `-Wunused-variable` + `-Wunused-parameter`, `test_node_query.cpp`, `test_node_channel.cpp`, `test_node_hashlocate.cpp` `-Wsign-compare`, `lib/core/node_hashlocate.cpp` `-Wmisleading-indentation` — **all pre-existing, and ZERO from any of the three files this slice touched**. `-Wswitch` **0** |
+| ★★ **`lus` + inertness** | ⛔⛔ **THE STRONGEST FORM AVAILABLE: `lus` is BYTE-IDENTICAL, `9150ad1a` BEFORE AND AFTER**, with `frame_codec.cpp` + `node_mac.cpp` provably recompiled into **both** core libs and both static libs relinked. A comment-only `lib/core` change cannot move a stream, and this is the proof rather than the assertion |
+| **36-row corpus** | **36 scenarios run** in each arm (`scenarios run: 36` printed and checked; the 37th JSON is `topo_9node.json`, a topology). ★ **ALL 36 ROWS BYTE-IDENTICAL — md5 AND event count** — and **0 assertion failures in all 72 runs** |
+| ★ row-diff **POSITIVE CONTROL** | poisoning ONE row (`s18_meshroute` md5 → `deadbeef`) makes the diff FIRE; restoring it makes it silent again ⇒ the "byte-identical" claim is a measurement, not an empty comparison |
+| ★★ **DELIVERY (the authority)** | `tools/dm_delivery_breakdown.py --mode dm --json` → `totals.unique_deliveries`: **734 overall / `s06` 110 — in BOTH arms, and the two 36-row tables are `diff`-identical.** ⇒ floor **≥733 / ≥104** met, with **zero movement** to attribute |
+| cross-check (never the figure of record) | ⛔⛔ **CORRECTED 2026-08-10 BY REVIEW, THEN RE-MEASURED: raw `delivered` events are 759 overall, NOT the 734 this cell claimed.** ★★ **THE ERROR WAS THE WORST POSSIBLE ONE FOR THIS CELL: it copied the AUTHORITY's figure into the CROSS-CHECK, making the two numbers identical — i.e. an instrument that could not disagree with the thing it exists to check** (recurring class 3). ✅ **RE-MEASURED INDEPENDENTLY 2026-08-10, ONE TOOL REVISION / ONE RUN SET, all 36 rows, 0 errors: `unique_deliveries` = 734 · raw `delivered` events = 759.** ⓘ Deriving 759 from byte-identity would have been sound, but [[B162]]'s whole lesson is that a carried-forward delivery figure compounds silently, so it was re-run rather than inferred. `giveup` **0** and `no_gateway` **0** on every row in both arms. |
+| **`s07` / [[B163]]** | ⓘ **DIAGNOSED SEPARATELY as the dispatch requires, and it did not move:** `s07` is **80 unique / 207 configured / 59 unsent / 36 in_flight**, with **`wire_alias_refused_conflicts = 1`** — the live leased-id alias refusal — **identical in both arms.** ⇒ this slice contributes nothing to B163 and **[[B163]] STAYS OPEN**; ⛔ no figure here resolves it |
+| **PHY airtime** | **5 830 644 ms in BOTH arms**, reconciled in code (`attributed 4 377 776` + `unattributed 1 452 868` == total, 23 831 chargeable frames) |
+| `sizeof(Node)` | ⓘ **NOT MOVED and could not be** — no `Node` or carrier member was added or resized (the only `lib/core` edits are two comments) |
+| **board builds / `tools/warning_census.sh`** | ⛔⛔ **DID NOT RUN — SKIPPED BY STANDING OWNER INSTRUCTION** (*"we don't need to build all firmwares, we focus on `lus` at the moment"*); the sweep is owed **once, at S6**. ⛔ **NOTHING HERE IMPLIES THEY PASSED. AN UNRUN GATE IS UNRUN.** ⓘ Sound only because the `lib/core` delta is comment-only and `lus` is byte-identical, so no board figure *can* have moved |
+| the two UI probes / per-ABI reveal | ⛔ **DID NOT RUN** — no state added, no behaviour landed. No claim is made |
+| `s18` keystone md5 | ⓘ **Not separately re-derived as an isolated figure — and it did not need to be:** `s18_meshroute` is one of the 36 rows and its row is byte-identical to the BEFORE arm (`9868cad3` / 269 905), which is the stronger statement. Stated explicitly so a missing number is not read as a skipped gate |
+| the `^### 36/36 corpus` anchor table | ⛔ **NOT EDITED** — and it needs no edit, because the corpus did not move. Re-anchoring remains the owner's owed ruling |
+| **bench script (M2)** | ⛔ **NOTHING OWED, argued not waved:** this slice lands no behaviour, so there is no console line a bench operator could read, and a step that cannot fail is worse than none. ⓘ The one metal-relevant fact is stated in §(3) instead: `rx_window_slop_ms` is **nonzero on metal**, so the CTS-wait margin is strictly LARGER on hardware — the sim's `+1 ms` is the worst case and the grid conclusion holds on metal *a fortiori* |
+| owner / QA approval | ⛔ **NONE CLAIMED.** ⛔ **UNCOMMITTED (D4)** |
+
+⚠⚠ **CONCURRENCY DISCLOSURE, because the recorded hazard is real:** while this slice ran, **another agent modified
+`simulation/BASELINE.md` (8 lines) and `docs/2026-08-05-owner-rulings-ledger.md` (42 lines) at 07:48–07:49** — an owner
+ruling pass on the `local_admitted` label (ledger §1.12). Neither touches `lib/`, `src/` or `test/`: `git diff HEAD --
+lib src` was **EMPTY** at that moment and every per-file `lib/core` md5 matched this slice's opening snapshot exactly
+(`node_mac.cpp` `77d1489d` · `node_mac_rx.cpp` `2acd87be` · `node.cpp` `23e74d4a` · `node.h` `dcf0bd39` ·
+`frame_codec.h` `360cbef8`). ⇒ **no measurement above is affected**, and this note was APPENDED without disturbing that
+agent's edits.
+
+### ⚠ §HYBRID-RTS-S5 (9) — **EVERY PREMISE THAT TURNED OUT WRONG, INCLUDING THE BRIEF'S, THE REGISTER'S AND MINE**
+
+1. ⛔⛔ **THE BRIEF'S HYPOTHESIS ON `nav_duration_rts` IS REFUTED — and, worse for the hypothesis, the channel it named
+   is the one that is FINE.** It reasoned that a terminal CTS means no DATA follows, so the flat `+13` should cover
+   everything. **True: the terminal direction is over-reserved at every cell (worst +14 ms).** But the ORDINARY
+   direction under-reserves by up to **−131 ms**, via the `a(3)`-vs-4-B-CTS term the hypothesis did not consider. ⇒ the
+   dispatch's own instruction (*"test both directions"*) is what found it; the argument alone would have closed it green.
+2. ⛔ **[[B165]]'s duty-cycle census is wrong:** *"`duty_cycle: 1` in 10 scenario files, `10` in 4"* — measured **14 and
+   22**, with duty enabled in **all 36**. Its conclusion survives; its number does not. Corrected in place.
+3. ⛔⛔ **`docs/frames.md` WAS TWO SLICES STALE AND NOBODY HAD NOTICED — the wire authority document.** It still
+   declared *"0x1 RTS 7 B"*, *"## RTS … 7 B"*, *"THE RTS IS STILL 7 BYTES"* and, on the CTS,
+   *"`already_received` is RESERVED and NEVER EMITTED"* — the last of which my own corpus census refutes at **172
+   terminal CTS frames**. Neither §hybrid-rts S1 (which changed the RTS) nor S2 (which restored the terminal CTS)
+   updated it. ⇒ the length statements and both false claims are **CORRECTED IN PLACE**; ⛔ the **byte-offset tables**
+   are deliberately NOT rewritten (that is plan §S6's durable-documentation job, and inventing offsets under an audit
+   is exactly the wrong risk) — the residue is named in the file itself.
+4. ⛔⛔ **A DEFECT OF MINE, RECORDED IN FULL BECAUSE IT PRODUCED A RESULT I ALMOST BELIEVED:** my mutation harness lost
+   its `cd` into the project, so `pio test` failed with `NotPlatformIOProjectError` and the harness then ran the
+   **STALE BINARY FROM THE PREVIOUS MUTATION**. It reported M2 as RED — with M1's failure list. Caught only because the
+   reddened assertions named `unicast_rts_wire_len`, which M2 does not touch. ⇒ every mutation was re-run with a proven
+   rebuild. ★ **This is the arc's own recurring shape wearing a new hat: an instrument that reports a result it did not
+   measure.**
+5. ⚠ **M5 CAME OUT GREEN** — my own new ACK case could not detect a raised `pack_ack` buffer floor. A coverage gap, not
+   an inert mutation; closed by an added assertion and re-reddened. Recorded rather than deleted.
+6. ⓘ **The brief's own map was ACCURATE** — all thirteen `file:line` references resolved to the right code at HEAD
+   `06b63c2`. This is recorded because the opposite has been true often enough in this arc to be worth stating.
+7. ⓘ **`node.cpp:506`'s asserted sentence had NOT drifted.** The brief flagged it for verification; `retry_jitter_ms()`
+   really is `3 * airtime_routing_ms(8)`, so *"the same RTS_LEN=8 timing constant"* is still true. **No edit made** —
+   reported so a future reader does not re-open it.
+
+### §HYBRID-RTS-S5 (10) — **SCOPE / OWED / FILES**
+
+**FILES MODIFIED — six, and nothing else:**
+`test/test_airtime.cpp` (4 new cases + 2 drifted comments) · `lib/core/node_mac.cpp` (**comment only** —
+`retry_jitter_ms`'s stale *"7-B C++ wire"* + the per-PHY under-price record) · `lib/core/frame_codec.cpp`
+(**comment only** — the `RTS — cmd 0x1, 7 B` section header) · `docs/frames.md` (the RTS/CTS length statements + two
+false present-tense claims) · `docs/2026-07-30-open-bug-register.md` ([[B158]] narrowed, [[B165]] reachability +
+census correction, **[[B166]] and [[B167]] opened**) · this file.
+⛔ **NOT TOUCHED:** the wire · the codec's behaviour · `node.h` · `node.cpp` · `node_mac_rx.cpp` ·
+`protocol_constants.h` · `airtime.cpp` (restored byte-exact after M3/M4) · any scenario · `platformio.ini` ·
+`tools/` · `docs/protocol.md` · `docs/2026-07-31-bench-test-script.md` · the owner-rulings ledger · the
+`^### 36/36 corpus` anchor table · the spec · the plan.
+⛔ **NOT FIXED, EACH WITH ITS REASON:** [[B165]] (`sizeof(Node)` ⇒ D2 ⇒ its own slice) · **[[B166]]** (new; moves every
+NAV-bearing stream) · [[B158]] site 1 `retry_jitter_ms` (owner-ruled parity constant) · [[B158]] site 2
+`exchange_airtime_ms` (`DO-NOT-ADOPT`, already measured) · [[B161]] · [[B163]] · [[B164]]'s airing half · [[B159]] ·
+`docs/frames.md`'s byte-offset tables (⇒ §S6) · the `18`/`14`/`13`/`9` DATA-header constant family (named as an open
+residue in §(1), **not** established).
+⛔ **NO `wire_version` CHANGE, and none was needed.**
+
+---
+
 
 ### ★★★★★★★ §HYBRID-RTS-S4 (1) — WHAT LANDED, BY STRUCTURE (three production edits, one of them a comment fence)
 
@@ -936,7 +1873,7 @@ set (`-DMESHROUTE_NATIVE=1 -DMR_N_LAYERS=2`). **Moving a writer adds no state; c
 | board builds / `warning_census.sh` / the two UI probes / per-ABI reveal | ⛔ **DID NOT RUN — standing owner instruction / no state-size change. ⛔ NOTHING HERE IMPLIES THEY PASSED. An unrun gate is unrun.** ⚠ `lib/core` changed (comments + one moved assignment), so board flash may move by a negligible amount; RAM will not (`sizeof` unchanged) |
 | `s18` keystone | ⓘ **NOT separately re-derived as an md5 — and it did not need to be:** the 36-row set INCLUDES `s18_meshroute` and its row is byte-identical to the BEFORE arm, which is the stronger statement. ⚠ Stated explicitly so nobody reads a missing figure as a skipped gate |
 | bench script (M2) | ⛔ **NOTHING OWED, argued rather than waved:** this slice moves one assignment whose only observable is the `basis` field of an `MR_EMIT`, which is **DEVICE-STRIPPED**. There is no console line a bench operator could read, so a step naming one would be unwritable — and a step that cannot fail is worse than none. ⚠ The genuinely metal-only mechanism in this area (`pump_tx()`'s dropped frame) is [[B164]]'s residue, not behaviour introduced here |
-| owner / QA approval | ⛔ **NONE CLAIMED.** No owner has accepted any figure here, and the `local_admitted` terminology remains explicitly un-confirmed by the owner — ⛔ this slice does **not** clear or assert that label |
+| owner / QA approval | ⛔ **NO FIGURE HERE IS OWNER- OR QA-ACCEPTED, and this slice did not clear or assert the label.** ✅ **SUPERSEDED IN PART 2026-08-10: the `local_admitted` TERMINOLOGY IS NOW OWNER-RULED** (verbatim at owner-rulings-ledger **§1.12**) — this cell used to read *"remains explicitly un-confirmed by the owner"*, which was true when written and is now false. ⚠ **Only the NAME was ruled; the measurements in this section remain un-accepted, and [[B164]]'s airing half stays OPEN.** |
 
 #### ⚠ §HYBRID-RTS-S4d (7) — EVERY PREMISE THAT TURNED OUT WRONG — **THE DISPATCH's FIRST, THEN MINE, THEN S4c's**
 
@@ -976,8 +1913,10 @@ set (`-DMESHROUTE_NATIVE=1 -DMR_N_LAYERS=2`). **Moving a writer adds no state; c
 `docs/superpowers/plans/2026-08-08-hybrid-rts-flight-identity.md` · `docs/2026-07-30-open-bug-register.md` ·
 this file.
 ⛔ **NOT TOUCHED:** the wire · the codec · `node.h` · `protocol_constants.h` · any scenario · `platformio.ini` ·
-`tools/` · `docs/protocol.md` · `docs/2026-08-05-owner-rulings-ledger.md` (⛔ the `local_admitted` label is still
-un-confirmed there and this slice does not touch that) · the anchor table · **S5** (B158's remaining site, the PHY
+`tools/` · `docs/protocol.md` · `docs/2026-08-05-owner-rulings-ledger.md` (this slice did not touch it; ⛔ its
+parenthetical used to add *"the `local_admitted` label is still un-confirmed there"* — ✅ **the label was
+OWNER-RULED 2026-08-10, ledger §1.12**, so that clause is retired while the "not touched by this slice" fact
+stands) · the anchor table · **S5** (B158's remaining site, the PHY
 ledger) · **S6** · option **(b)**'s implementation · **[[B163]]** · **[[B161]]** (⚠ **[[B153]] stays open while it is
 open**) · **[[B158]]** · **[[B159]]** · **[[B160-COV]]/[[B160-SIB]]** · routing **T1–T3** · the parked mobile-home
 arc · the OLED UI.

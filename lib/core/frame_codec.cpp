@@ -454,7 +454,11 @@ std::optional<ack_out> parse_ack(std::span<const uint8_t> frame) {
 }
 
 // -----------------------------------------------------------------------------
-// RTS — cmd 0x1, 7 B (+2 if M_BROADCAST). byte-5 reading A: flags at bits 5..2.
+// RTS — cmd 0x1. byte-5 reading A: flags at bits 5..2.
+// ⛔ CORRECTED 2026-08-10 (§HYBRID-RTS-S5, V1): this header read *"7 B (+2 if M_BROADCAST)"*. The lengths are
+//    **10 B unicast plaintext / 11 B unicast crypted** (7-B base + the §hybrid-rts S1 identity tail), **9 B**
+//    M_BROADCAST (7-B base + id_lo16) and **43 B** FLOOD — see `unicast_rts_wire_len` and the `need` computation
+//    below, which are the authority. A 7-B unicast frame is REJECTED by `parse_rts`.
 // -----------------------------------------------------------------------------
 size_t pack_rts(const rts_in& in, std::span<uint8_t> out) {
     const bool flood   = (in.rts_flags & RTS_FLAG_FLOOD) != 0;     // FLOOD wins the tail (it also sets M_BROADCAST)

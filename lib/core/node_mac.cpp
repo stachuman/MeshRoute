@@ -43,8 +43,47 @@ uint8_t Node::select_data_sf(uint8_t rts_sf_index, int16_t rx_snr_q4) const {
 uint32_t Node::airtime_routing_ms(uint16_t len) const {
     return airtime_ms(_cfg.routing_sf, active_bw_hz(), active_cr(), protocol::preamble_sym, len);
 }
-// 3*airtime(routing, Lua RTS_LEN=8) — a TIMING constant from the Lua, NOT the 7-B C++ wire,
-// so the retry rand RANGE matches the Lua and the lua-vs-meshroute streams stay aligned.
+// ★★★ OWNER-RULED 2026-08-10 — READ THIS FIRST; IT REVERSES THE INSTRUCTION THAT FOLLOWED IT FOR TWO DAYS.
+//   REPORTED FORM, no quotation (a blockquote here was withdrawn as NOT the owner's exact words):
+//   **the owner ruled that Lua parity is NOT a final MeshRoute jitter requirement, and that [[B158]] stays open
+//   until MeshRoute-native jitter has been independently measured and selected.** (owner-rulings-ledger §1.13)
+// ⛔⛔ SO DO **NOT** READ THE NEXT PARAGRAPH AS *"leave this alone, it is parity"*. That WAS the recorded
+//   disposition for about an hour on 2026-08-10 and it is **WITHDRAWN**. What is owed is not a constant tweak:
+// ★★ THIS ONE HELPER CONTROLS **FOUR UNRELATED POLICIES**, so retuning any one silently retunes the other three:
+//     (1) fresh DM origination spreading      -> node_mac.cpp:316 (app DMs, nav_enabled only)
+//     (2) same-hop RTS/ACK retry spreading    -> node_cascade.cpp:365/398 via retry_backoff_window()
+//     (3) BUSY_RX release spreading           -> node_mac_rx.cpp:2077 (short-busy same-hop wait)
+//     (4) the DEFAULT LBT RELEASE BACKOFF     -> node.cpp:508/913, `lbt_backoff_ms = max(1, retry_jitter_ms()/2)`
+//   ⇒ ★ (4) is the coupling to break FIRST: today, changing retry jitter resizes LBT backoff behind your back.
+//   THE OWED ARC (ledger §1.13 carries the full metric list): split into four behaviour-identical semantic helpers
+//   (`dm_origination_jitter_ms` / `same_hop_retry_jitter_ms(crypted)` / `busy_rx_release_jitter_ms` /
+//   `lbt_release_jitter_ms`); define `rts_contention_quantum_ms = airtime_routing_ms(unicast_rts_wire_len(true))`
+//   = the 11-B RTS airtime, **the SCALE, NOT the window**; then sweep `K = 1,2,3,4,6` on a **FLAT** window across
+//   the 36 scenarios + the 24-seed saturated twin + metal. ⛔ K=3 is a CANDIDATE, NOT a conclusion, and must not be
+//   picked from one deterministic corpus run (s16 is chaotic and non-monotone). ⛔ NO SECOND BEB LAYER: the CTS
+//   timeout already expands x4 and a 24-seed experiment showed added exponential jitter REDUCED delivery
+//   (consistent with `protocol::retry_backoff_max_shift == 0`, i.e. the window is already flat).
+// ---- the historical parity rationale, retained because it explains the CURRENT value, not the future one ----
+// 3*airtime(routing, Lua RTS_LEN=8) — a TIMING constant from the Lua, NOT a description of the C++ wire,
+// so the retry rand RANGE matches the Lua and the lua-vs-meshroute streams stay aligned. The contract is
+// written at node.h:100-103; ⚠ changing this is a cross-engine PARITY decision, never an incidental bug fix —
+// but per the ruling above, parity is no longer a REASON TO REFUSE the change, only a consequence to measure.
+// ⛔ CORRECTED 2026-08-10 (§HYBRID-RTS-S5, V1): this comment read *"NOT the 7-B C++ wire"*. The C++ unicast
+//    RTS has been 10 B plaintext / 11 B crypted since §hybrid-rts S1, and `parse_rts` REJECTS a 7-B frame
+//    outright — so the sentence described a frame that no longer exists.
+// ✖ KNOWN UNDER-PRICE, MEASURED AND DELIBERATELY LEFT (the mark-done-vs-missing rule). Against the frame that
+//   actually flies this is short by `3*(a(10) - a(8))`, swept over the full supported grid
+//   (SF 5..12 x BW {62.5k,125k,250k,500k} x CR 5..8 = 128 cells):
+//     · **worst −789 ms** at SF11 / BW 62.5 kHz / CR 4/8;
+//     · it differs from the accurate price on **66 of 128** cells, and is EXACT on the other 62;
+//     · ★ **+0 ms at BOTH of the corpus's two dominant routing cells** — SF8/BW62.5k (3*177 either way,
+//       9 413 frames) and `s18`'s SF8/BW125k (3*88, 8 999 frames) — which is why the parity decision is not
+//       urgent. ⚠ It is NOT free everywhere in the corpus: the third-most-used cell, SF9/BW62.5k/CR5
+//       (1 530 frames — `s16_dense_gateway`'s second gateway leaf), is short by **−123 ms**.
+//   ⇒ The consequence is the RETRY JITTER RANGE only (`node_mac.cpp:299`, `node_mac_rx.cpp:2077`,
+//   `node_cascade.cpp:365/398` via `retry_backoff_window`, and the derived `_lbt_backoff_ms` /
+//   `flood_lbt_max_defer_ms` at `node.cpp:508/510`), never a response-wait: `start_rts_timeout` prices the real
+//   frame through `unicast_rts_wire_len`/`terminal_cts_wire_len`. Full ledger: BASELINE.md §HYBRID-RTS-S5.
 uint32_t Node::retry_jitter_ms() const { return 3 * airtime_routing_ms(8); }
 
 // Build + enqueue an app DATA. `tx_event` separates an app send ("tx_enqueue", the dm_delivery

@@ -99,7 +99,12 @@ public:
     // Exposed for the R3.x determinism golden test. The retry-jitter RANGE is a
     // cross-engine alignment contract: 3*airtime_routing(RTS_LEN=8) must equal
     // the Lua's, or the lua-vs-meshroute forced-retry streams de-align (see the
-    // node.cpp definition comment). Pure, const, no side effects.
+    // node_mac.cpp definition comment). Pure, const, no side effects.
+    // ★★★ OWNER-RULED 2026-08-10 (ledger §1.13): **Lua parity is NOT a final MeshRoute jitter requirement**, and
+    //   [[B158]] stays OPEN until MeshRoute-native jitter is measured and selected. ⛔ So this "contract" is a
+    //   description of TODAY's value, NOT a reason to refuse a change. ⚠ And this ONE helper drives FOUR unrelated
+    //   policies (DM origination · same-hop retry · BUSY_RX release · the LBT backoff, which is retry_jitter_ms()/2)
+    //   ⇒ retuning it silently retunes all four. Full owed programme in the node_mac.cpp definition comment.
     uint32_t  retry_jitter_ms() const;                                   // 3*airtime(routing, RTS_LEN=8)
 
     // R4.0 duty-cycle budget tier (route-free; from the rolling airtime window). Lua dv:3555-3571.

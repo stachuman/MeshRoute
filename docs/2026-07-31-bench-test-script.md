@@ -1671,8 +1671,17 @@ shape, and confirm the CTS on A is **7 bytes** rather than 6 if you have a frame
 
 - The mixed-fleet flag day is **Part 15's**, unchanged: S2 alters no frame FORMAT, only which frames get produced.
 - RAM: `sizeof(Node)` grows **+296 bytes per layer** (a 12-slot completed-flight cache plus 8 bytes of `PendingRx`).
-  That is a **build** figure, not a bench check — but the board sweep is still OWED and no board RAM number has
-  been measured, so watch for an allocation failure at boot on the tightest env until it has been.
+  That is a **build** figure, not a bench check.
+  ✅ **CORRECTED IN PLACE 2026-08-10 (§HYBRID-RTS-S6) — THE SWEEP IS NO LONGER OWED AND THE BOARD NUMBERS EXIST.**
+  This bullet used to end *"the board sweep is still OWED and no board RAM number has been measured, so watch for an
+  allocation failure at boot on the tightest env until it has been"*. **All 10 envs now link clean in both trees**, and
+  ΔRAM is **exactly +296 on every single-layer env and exactly +592 on every dual-layer env** (`gateway`,
+  `gateway_heltec`, `gateway_esp32s3` — `is_gateway ≡ n_layers == 2`), on three toolchains with no cell disagreeing.
+  ⛔ **AND THE OLD CAUTION NAMED THE WRONG BOARD:** the tightest env in the fleet is **`gateway` at 82.7 % RAM**
+  (nRF52840), not `gateway_heltec` (73.4 %) — and `gateway` is one of the three paying `+592`.
+  ⇒ ⚠ **The residual bench-relevant fact, and it is the only one:** `gateway` **links**, and a link is not a boot.
+  If a `gateway` board fails to come up after this arc's reflash, RAM exhaustion is the first hypothesis, not the
+  radio. ⛔ There is no console line to check for it in advance, so no numbered step is written here.
 
 ## Completion record
 

@@ -357,6 +357,19 @@ TEST_CASE("§hybrid-rts S1 CTS — the cross-shape reject matrix, in BOTH direct
     CHECK_FALSE(parse_cts(std::span<const uint8_t>(buf.data(), 5)).has_value());        // 5 B: no such shape
     CHECK_FALSE(parse_cts(std::span<const uint8_t>(buf.data(), 4)).has_value());        // 4 B WITH the bit set
     CHECK_FALSE(parse_cts(std::span<const uint8_t>(buf.data(), 3)).has_value());        // 3 B WITH the bit set
+    // ⛔⛔ ADDED 2026-08-10 (§HYBRID-RTS-S6) — THE LINE THREE ABOVE IS **VACUOUS FOR THE LENGTH GATE AND IS KEPT
+    //     RATHER THAN DELETED**, because the reason is the finding: `buf` holds a TERMINAL frame, so its byte 0 has
+    //     `already_received = 1` and a 5-B slice of it is refused by the terminal-bit branch (`if (ar) return
+    //     nullopt`) — NOT by `parse_cts`'s length set. MEASURED: widening that set to accept `n == 5` leaves the
+    //     whole 1487-case suite GREEN. ⇒ the documented claim *"lengths {3,4,6,7} ONLY"* (`docs/frames.md`) needs a
+    //     5-B frame whose ONLY defect is its length, i.e. one built from an ORDINARY CTS with the bit CLEAR.
+    { std::array<uint8_t, 5> f{}; CHECK(pack_cts({8, false, 0x11, 0x2A, 30, rts_cr_encode(7)}, f) == 4);
+      CHECK(parse_cts(std::span<const uint8_t>(f.data(), 4)).has_value());               // ★ positive control at 4 B
+      f[4] = 0x5A;                                                                       // one trailing byte, bit CLEAR
+      CHECK_FALSE(parse_cts(std::span<const uint8_t>(f.data(), 5)).has_value()); }        // ⇒ ONLY the length is wrong
+    { std::array<uint8_t, 3> f{}; CHECK(pack_cts({8, false, 0x11, 0x2A, 0, 0}, f) == 3);
+      CHECK(parse_cts(std::span<const uint8_t>(f.data(), 3)).has_value());               // ★ positive control at 3 B
+      CHECK_FALSE(parse_cts(std::span<const uint8_t>(f.data(), 2)).has_value()); }        // below the floor
     { std::array<uint8_t, 8> f{}; for (size_t i = 0; i < 8; ++i) f[i] = buf[i % 6];
       f[0] = buf[0];
       CHECK_FALSE(parse_cts(std::span<const uint8_t>(f.data(), 8)).has_value()); }      // 8 B: no such shape

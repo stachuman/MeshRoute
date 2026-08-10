@@ -29,68 +29,98 @@ Single-slot stop-and-wait: **RTS→CTS→DATA→ACK** (NACK to refuse), each hop
 talk (LBT) + NAV virtual carrier sense gate the TX; a rolling duty-cycle budget tier throttles under load; failed
 next-hops cascade to alternates / hop-budget reroute.
 
-> ## ⛔⛔ THE §2 BLOCK BELOW IS **HISTORICAL AS OF `§hybrid-rts` S1–S4 (2026-08-08/09)** AND ITS PRESENT-TENSE
-> SENTENCES ARE **FALSE BY DESIGN**. ⛔ Do not act on them; they are kept because the *argument* they make is
-> still exactly right about the frame it was written about — **a 7-byte RTS**.
->
-> **WHAT IS TRUE IN THE TREE NOW:** the unicast RTS is **10 B plaintext / 11 B crypted** and carries the canonical
-> flight identity (`origin|ctr_hi|ctr_lo`, or `BLAKE2b-512(0xE1|seed8|ctr_hi|ctr_lo|dst)[:4]`). Keyed on THAT,
-> **both** retired optimisations are restored: the receiver's terminal `already_received` CTS (6/7 B, echoing the
-> complete identity + plane; S2/S3) and the sender's overheard-forward credit (S4). The sender acts on a terminal
-> CTS only after a full endpoint · plane · domain · width · every-identity-byte match, and the forward credit
-> requires the same equality plus the wire-declared plane.
-> ⇒ ⛔ **Specifically FALSE below:** *"the `CTS already_received` bit stays reserved and is never emitted"*, *"the
-> overheard-forward implicit ACK … is gone"*, and *"the RTS is 7 bytes"*.
->
-> ★★ **AND THE ONE CLAIM THAT WAS NEVER TRUE, WITHDRAWN RATHER THAN SOFTENED (`§hybrid-rts` S4 item 5):**
-> `payload_len` **does not disambiguate message identity and never did — it is a LENGTH.** The retired
-> implicit-ACK comment credited it with *"disambiguates a 4-bit `ctr_lo` wrap"*; it cannot, which is precisely why
-> two same-size messages to one destination collided. `payload_len` is a **frame-consistency / NAV field only**:
-> it sizes an overhearer's reservation and cheaply filters a NON-terminal fast path (the pending-RX re-CTS
-> branch, where a wrong match costs a retry and never a message). ⛔ It is absent from every identity comparison —
-> the completed-flight cache key, the terminal-CTS bind and the forward credit — and must not be added to any of
-> them "for extra safety": the comparison is the full identity or nothing.
-> ⇒ Live sources: `lib/core/frame_codec.h` (the wire + the same fence), `lib/core/node_mac_rx.cpp`
-> (`handle_rts` / `handle_cts`), spec `docs/superpowers/specs/2026-08-08-hybrid-rts-flight-identity-design.md`,
-> owner ruling `docs/2026-08-05-owner-rulings-ledger.md` §1.10.
-> ⓘ The full §2 rewrite (and `docs/frames.md`'s 10/11-B offsets) is **S6's** documentation task, deliberately not
-> done here — this fence exists so the block cannot be read as current in the meantime.
+### 2.1 Flight identity on the unicast RTS, and the two terminal decisions it licenses (`§hybrid-rts` S1–S5, 2026-08-08/10)
 
-**★★★ Terminal decisions may not be derived from an RTS — the retired `already_received` short-circuit and the
-retired implicit ACK (2026-08-08, `§B153`/`§B157`).** Two mechanisms used to end a sender's flight on the strength
-of an RTS. (1) A relay that had recently delivered a message answered a *retried* RTS with
-`CTS already_received = 1`, and the sender dropped its pending flight as delivered. (2) A sender that overheard
-**its own next-hop forwarding "the same" message onward** cancelled its flight (the *implicit ACK*), on the theory
-that the hop had demonstrably decoded. Both were keyed on `(hop src, dst, ctr_lo, payload_len)`: `src` is the
-sender **of that hop** — a gateway when it relays — `ctr_lo` is **4 bits**, and `payload_len` is a length. So two
-different messages with the same destination and the same size collided, and the loser was discarded with **no
-DATA, no emit and no `send_failed`**.
+**The unicast RTS carries the flight's canonical identity.** 10 B plaintext (`origin|ctr_hi|ctr_lo` — all 16 bits of
+`ctr`) / 11 B crypted (`BLAKE2b-512(0xE1|nonce_seed[8]|ctr_hi|ctr_lo|dst)[:4]`, which deliberately exposes **no
+`origin`**, because a `CRYPTED` DATA seals it). Byte offsets: `docs/frames.md`. One producer, one comparator
+(`rts_flight_identity*` / `rts_flight_identity_equal`, `lib/core/dm_crypto.h`); the comparison is **full width +
+domain**, never a prefix and never a truncated tag. `M_BROADCAST` (9 B) and `FLOOD` (43 B) carry **no** identity and
+did not grow; a legacy 7-B unicast frame is **rejected** — there is no compatibility parser.
 
-★★ **The refutation is information-theoretic, not a tuning matter, and it is the durable part.** A 7-byte RTS
-**cannot distinguish a RETRY of message A from the FIRST ATTEMPT of message B** sharing that tuple — the two
-frames are byte-identical. ⇒ **no receiver state and no cleverer matching can produce a safe terminal verdict from
-an RTS**, because the information is not in the frame. A first fix appended a 4-byte `flight_id` to the unicast
-RTS; that "works" only by changing the frame, and the frame never needed to carry it — the DATA already does.
-**⇒ RTS AUTHORIZES RECEPTION; ONLY DATA PROVES MESSAGE IDENTITY.** It is the sharp form of a recurring defect
-shape in this codebase: *a terminal decision made from evidence that could not support it.*
+**Why the frame grew, and why nothing smaller would do.** The old 7-B RTS identified a flight only by
+`(immediate src, dst, ctr_lo[4], payload_len)`: `src` is the sender **of that hop** (a gateway when it relays),
+`ctr_lo` is **4 bits**, and `payload_len` is a length. Measured across the 36-stream corpus that tuple aliased
+**4 of 5 gateway/different-origin pairs (80 %)** and **6.1 % overall**, because peer send counters are *correlated*,
+not independent. ★★ **The refutation of building a terminal verdict on it is information-theoretic, and it remains
+the durable rule for any frame that carries no identity:** a 7-B RTS **cannot distinguish a RETRY of message A from
+the FIRST ATTEMPT of message B** sharing that tuple — the frames are byte-identical — so no receiver state and no
+cleverer matching can make one safe. ⇒ **A frame that carries no flight identity authorizes reception only; the
+identity has to be ON it.** ⛔ A 4-B opaque `flight_id` tail was proposed first and **refuted**: it widened the frame
+without making the tag *recomputable*, so a receiver still could not check it against the DATA that followed. What
+S1 added instead is the identity **both endpoints can recompute from the frames themselves** — which is what makes
+an RTS-time answer bindable. ⓘ Owner ruling: ledger §1.10.
 
-⇒ **A free receiver now always creates a `PendingRx`, returns a normal CTS, and waits for the DATA**, and the
-DATA-level dedup is the sole authority: keyed on the canonical `(origin, dst, ctr)` — all 16 bits of `ctr` — or on
-the whole 8-byte cleartext nonce-seed for a `CRYPTED` flight, with a **30 s** TTL against the retired gate's 10 s.
-Fresh DATA → ACK, deliver/forward, record. Same message, same prev-hop (the real lost-ACK case) → **ACK only**,
-returning before the deliver/forward step. Same message, different prev-hop → the existing `LOOP_DUP` NACK.
+**DATA must reproduce the identity before the receiver stores completion.** At DATA reception the receiver recomputes
+the identity from the canonical DATA fields and compares. On mismatch: a named diagnostic, `PendingRx` cleared, and
+**no** app delivery, **no** ACK, **no** cache store and **no** route-success credit. ⚠ [[B161]] is **open**: two typed
+answer families (`send_hash_bind_response` and its mobile-proxy sibling) put no `origin` byte on the wire, so their
+canonical identity is currently a payload byte — 69 of 4 949 plaintext DATA frames could not reproduce their own RTS
+identity when first measured.
+
+**(1) The terminal `already_received` CTS — restored, and terminal only because it echoes the identity.** A receiver
+that has *completed* this exact flight answers a retried RTS with the 6/7-B terminal CTS: the complete identity echo
+plus the wire-declared plane bit, **no NAV byte and no chosen SF** (`docs/frames.md`). It allocates no `PendingRx`.
+★★ **The sender acts on it only after a COMPLETE correlation — endpoint · plane · domain · width · every identity
+byte — checked BEFORE any timer cancellation, link learn/confirm, state clear or success-shaped telemetry**
+(owner-ruled verbatim, ledger §1.11). A mismatch **may be billed as physical airtime** — it did occur — but must
+change nothing else: no liveness refresh, no timer, no routing, pending-state or application effect. An RTS cache
+**miss** follows ordinary receive admission and waits for the DATA; a pending-RX duplicate re-CTS stays ordinary
+(`already_received = 0`, 3/4 B, DATA still required).
+
+**The completed-flight cache.** Bounded, per `LayerRuntime`: `CompletedFlight[cap_completed_flights = 12]`, keyed on
+**the on-air immediate sender (`from`) + `dst` + the wire-declared team/static plane + the full identity (domain +
+width + bytes)**, with an absolute `expiry_ms`. ⛔ `meta.src_hint` (the simulator oracle's static id) is **never** the
+link identity — that was [[B156]]. TTL is `completed_flight_cache_ttl_ms`, **defined as** `gateway_send_giveup_ms`
+(150 000 ms) and not re-spelled as a literal, because the horizon it must cover is the gateway-hold retry class; the
+capacity is **measured, not chosen** (capacity 8 loses 5 of 429 corpus hits, capacity 1 loses 105). It is a deadline
+scan on absolute expiry — **no timer id is allocated**.
+
+**Plane handling is two deliberately different contracts.** `rts_wire_team_plane(addr_len, mobile_src)` is the
+**sender-declared, receiver-independent** plane — the only thing that may be stored on a flight or echoed on a
+terminal CTS. `team_addr_for_us(next, addr_len)` is **receiver-relative address admission** and says nothing about
+the frame's plane; the two genuinely disagree on a real frame (a host's `(1,0)` last-mile to a hosted mobile matches
+`team_addr_for_us` at any team member whose `_team_local_id` collides numerically, while the wire says STATIC — and
+the wire is right). ⛔ And never `is_team_peer(src)`: that is our own state, not the frame's declaration.
+
+**(2) The overheard-forward credit — restored, with exact identity matching.** A sender that overhears its selected
+next hop forwarding **this exact flight** (expected next hop · destination · plane · domain/width · full identity)
+may clear its own redundant pending copy, under one of two **named, diagnostic-only** bases: `local_admitted` (this
+node had previously **admitted** a DATA for the flight to its radio) or `alternate_path` (no DATA has been admitted
+locally). ⛔ **Neither basis is evidence a DATA of ours reached the air**, and nothing consumes the distinction: the
+redundancy of the local copy is the sole justification, and it holds on both. ⛔ It never emits `send_acked`,
+`send_e2e_acked`, `delivered` or `send_failed`, and never disturbs an independently armed end-to-end ACK wait; a
+mismatch changes no deadline, pending state, route state or app outcome. ⓘ `_hal.tx()` returns `ok` on **ENQUEUE**
+(`lib/hal/device_hal.cpp:10-12`), so the flag behind `local_admitted` is written at the **one HAL-admission crossing
+point** every admission passes — never at a caller's exit. Label owner-ruled: ledger §1.12. ⚠ [[B164]]'s **airing**
+half is **open**: post-admission refusal (`on_radio_busy`, `pump_tx()`'s failed arm) means admission ≠ airing, and
+establishing a true "aired" fact needs a flight-correlated TX-start signal — **deferred for want of a consumer, not
+dismissed**.
+
+★★ **`payload_len` is a LENGTH and never disambiguated identity** (withdrawn claim, `§hybrid-rts` S4 item 5): it is a
+frame-consistency / NAV field only — it sizes an overhearer's reservation and cheaply filters the **non-terminal**
+pending-RX re-CTS fast path, where a wrong match costs a retry and never a message. ⛔ It is absent from every
+identity comparison — the cache key, the terminal-CTS bind and the forward credit — and must not be added to any of
+them "for extra safety": the comparison is the full identity or nothing.
+
+**The DATA-level dedup remains the sole authority for delivery**, independently of either optimisation: keyed on the
+canonical `(origin, dst, ctr)` — all 16 bits — or on the whole 8-byte cleartext nonce-seed for a `CRYPTED` flight,
+with a **30 s** TTL. Fresh DATA → ACK, deliver/forward, record. Same message, same prev-hop (the real lost-ACK case)
+→ **ACK only**, returning before the deliver/forward step. Same message, different prev-hop → `LOOP_DUP` NACK.
 **Duplicate suppression is narrowed, never disabled** — that is what stops a lost ACK from delivering twice.
-The `CTS already_received` bit stays **reserved and is never emitted**; an inbound one is still honoured, so a
-mixed fleet interoperates and **no `wire_version` bump is required** (the wire did not change).
+⚠ [[B159]] (a retried DATA arriving later than `seen_origin_ttl_ms` delivered twice) is **pre-existing and open**;
+it is not fixed by any of the above.
 
-**The airtime trade, in numbers.** Successful traffic is **unchanged**: 7-byte RTS → CTS → DATA → ACK, so there is
-**no cost on any hop of any message**. Only recovery pays, and only after an ACK was actually lost or a forward
-actually overheard: the exchange becomes `retry RTS → CTS → duplicate DATA → ACK` instead of
-`retry RTS → already_received CTS`. At 125 kHz / CR4/5 / preamble 16 with a 20-byte body that is 83 ms → 212 ms at
-SF7 and 2342 ms → 5667 ms at SF12 (≈2.4–2.6×); with a 200-byte body, 83 → 473 ms and 2342 → 11565 ms. ⇒ the price
-is **one redundant DATA on a failure path**, in exchange for never silently destroying a message on a success path.
-⚠ Retiring the implicit ACK is the larger cost of the two: it fired 61 times across 8 corpus scenarios and its
-removal raises `s18`'s event count by ~10 %.
+**The airtime trade, measured on the corpus rather than argued.** The 3 identity bytes are **not** free in general
+and **are** free at many PHYs — at 22 of 36 scenarios' PHY `airtime(10) == airtime(7)` because the bytes fall in the
+same LoRa symbol bucket, while `s16_dense_gateway` paid **+28.7 %** RTS airtime and lost deliveries to the resulting
+congestion. Restoring both optimisations pays that back and more: total PHY airtime **6 421 497 ms** with both
+deleted → **5 830 644 ms** with both restored (**−9.2 %**), and **−0.9 %** against the pre-deletion baseline while
+delivering more. ⛔ Do not read a falling total alone as efficiency — a lost delivery also takes its DATA/ACK airtime
+with it; read it beside the delivery figure. ⓘ Timing: `start_rts_timeout` prices the **actual** 10/11-B request plus
+the possible 6/7-B terminal answer through the same `unicast_rts_wire_len`/`terminal_cts_wire_len` helpers the packers
+use, so its margin is non-negative at all 128 supported PHY cells. ⚠ [[B158]] (MeshRoute-native jitter) and [[B166]]
+(`nav_duration_rts` under-reserves an ordinary exchange) are **open and out of this arc**.
 
 **Sender-CR advertisement — sizing the receiver's DATA wait (2026-07-27).** After CTSing an RTS the receiver arms
 a DATA-wait window (`start_pending_rx_expiry`) and abandons the flight when it expires. That window is
@@ -116,7 +146,12 @@ events).
 everywhere the datum exists, not only by the addressed receiver:
 - the two **channel-overhear retune** windows (`FLOOD` and `M_BROADCAST` RTS-M) — an overhearer at CR4/5 used to
   retune off the data SF before a CR4/8 sender's M-frame finished, and lose it to `drop_sf_mismatch`;
-- the **NAV reservation taken from an overheard RTS**, which reserves for that sender's own DATA;
+- the **NAV reservation taken from an overheard RTS**, which reserves for that sender's own DATA. ⚠ **The CR term is
+  fixed; the site is NOT otherwise correct — [[B166]] is OPEN** (measured by `§hybrid-rts` S5): `nav_duration_rts`
+  prices the responder's CTS at **3 B** while the longest legal ordinary CTS is **4 B**, so an ordinary exchange
+  under-reserves by up to **−131 ms** and releases NAV **early** — the dangerous direction. The corpus CTS census is
+  `{4: 4709, 6: 172}`: **not one 3-B CTS exists.** The *terminal* direction over-reserves at every cell (worst +14 ms);
+  ⛔ this predates the hybrid-RTS arc and is not its doing;
 - the **anti-spam airtime ledger**'s RTS and DATA terms. This one is an *accountability* fix, not a timing one:
   the ledger answers *"how much airtime did this sender impose on us"*, so costing a peer's frame at our own rate
   **under-billed** every heavier-coded sender against `originator_airtime_share`. ⚠ Its RTS term reached
@@ -162,7 +197,7 @@ a new receiver decodes it correctly. The hazard is reachable only if the fleet's
 while un-reflashed nodes remain — do that only behind a `wire_version` bump.
 - **Source:** `node_mac.cpp` (`do_data_tx`, `duty_over_budget`, budget tiers) · `node_mac_rx.cpp` (RX handlers) · `node_cascade.cpp` (alt-walk)
 - **Spec:** `docs/specs/2026-05-30-r3-data-plane-design.md` · `2026-05-31-r4.5-lbt-design.md` · `2026-06-07-nav-virtual-carrier-sense-design.md` · `2026-05-31-r4-budget-nack-design.md`
-- **Mobile marks (codec — §mobile Slice 1).** A mobile uses a home-assigned LOCAL id that can collide with a global id, so **RTS/DATA carry `addr_len=1`** (`next` is a mobile local-id), **RTS a `MOBILE` bit** (byte-5 b1 — the `src`/originator is a mobile), and **ACK a `MOBILE` bit** (byte-1 b1 — the `to` is a mobile local-id); **CTS relies on the marked-RTS context**. These keep the mobile plane's local-ids distinct from global ids. The codec round-trips them (marks default `0` → backward-compatible); wire layout = `frames.md`. The mobile plane itself (registration, last-mile, presence) is **§12–14** below.
+- **Mobile marks (codec — §mobile Slice 1).** A mobile uses a home-assigned LOCAL id that can collide with a global id, so **RTS/DATA carry `addr_len=1`** (`next` is a mobile local-id), **RTS a `MOBILE` bit** (byte-5 b1 — the `src`/originator is a mobile), and **ACK a `MOBILE` bit** (byte-1 b1 — the `to` is a mobile local-id); the **ORDINARY CTS relies on the marked-RTS context** (its flags nibble is full), while the **TERMINAL CTS carries an explicit plane bit** (`CTS_TERM_PLANE_BIT`, byte-0 b3 — §2.1), because it ends a flight and may not infer the plane. These keep the mobile plane's local-ids distinct from global ids. The codec round-trips them (marks default `0` → backward-compatible); wire layout = `frames.md`. The mobile plane itself (registration, last-mile, presence) is **§12–14** below.
 
 ## 3. Beacons
 

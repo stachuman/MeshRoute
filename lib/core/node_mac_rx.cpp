@@ -253,7 +253,18 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         const RtsWireMarks      mk   = rts_wire_marks(pt);                        // the ONE producer of OUR marks
         if (rts_flight_identity_equal(r.id, mine)
             && rts_wire_team_plane(r) == rts_wire_team_plane(mk.addr_len, mk.mobile_src)) {
-            const bool local_admitted = pt.data_ever_admitted;
+            // [[maybe_unused]] is LOAD-BEARING — **QA-RECOMMENDED** form, 2026-08-10 ([[B169]]); ⛔ NOT an owner
+            // ruling, and the distinction is recorded because this arc has now mis-attributed provenance five times.
+            // This value's ONLY consumer is the
+            // MR_EMIT below, and the board envs define MESHROUTE_NO_TELEMETRY, which expands MR_TELEMETRY to
+            // `do {} while (0)` and DELETES that body -> `-Wunused-variable` on all ten board envs. ⛔ Do NOT "fix"
+            // it by moving the read inside MR_EMIT (**QA-recommended constraint**, not an owner ruling): the
+            // declaration is what documents that the credit's basis is read BEFORE any timer is cancelled, and
+            // warnings are gate-blocking.
+            // ★★ WHY NO AUTOMATED GATE SAW IT FOR FOUR SLICES: native and the simulator build with telemetry ON, so
+            // the variable is genuinely USED there. The defect is invisible to `pio test -e native` and to all 36
+            // corpus streams BY CONSTRUCTION — only a board build can see it. It entered at §hybrid-rts S4.
+            [[maybe_unused]] const bool local_admitted = pt.data_ever_admitted;
             _hal.cancel(kRtsTimeoutTimerId);
             _hal.cancel(kAckTimeoutTimerId);
             _hal.cancel(kRetryBackoffTimerId);                 // parity with handle_ack: drop a stale retry armed by a just-fired timeout

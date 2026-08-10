@@ -148,7 +148,11 @@ The replacement is RULED:
    per-layer state alone does not separate those planes;
 5. M/flood RTS frames do not grow; routing T1–T3 and B159 remain separate work.
 
-### 1.10 §2.3 — a terminal CTS may clear sender state ONLY on complete correlation · ✅ **OWNER-CONFIRMED 2026-08-09**
+### 1.11 §2.3 — a terminal CTS may clear sender state ONLY on complete correlation · ✅ **OWNER-CONFIRMED 2026-08-09**
+
+⛔ **RENUMBERED 2026-08-10 from `1.10` to `1.11`: this heading and §1.10 above BOTH read `1.10`** — the same
+id-used-twice maintenance defect the register recorded as [[B155]], in this file. ⚠ Any external reference to
+*"ledger §1.10 = the verbatim §2.3 ruling"* means **this section, now §1.11**; the §2.3 content itself is unchanged.
 
 ★★ **THE OWNER'S RULING, VERBATIM, GIVEN DIRECTLY IN SESSION 2026-08-09:**
 > **CONFIRMED. I approve §2.3: a terminal CTS may clear sender state only after complete endpoint, plane, domain,
@@ -209,12 +213,11 @@ cleared **only** when the owner's own words arrived, which is exactly the intend
   7 B encrypted); ordinary non-terminal CTS remains byte-identical at 3/4 B;
 - implicit-forward credit has two named bases — `local_data` and `alternate_path` — and may clear only the redundant
   local copy; it must not fabricate an app ACK/delivery/failure outcome;
-  - ⓘ **IMPLEMENTATION NOTE, NOT A RULING (2026-08-10, §HYBRID-RTS-S4c): the first label now emits as
-    `local_admitted`.** The ruling's substance — two named bases, clear only the redundant copy, fabricate no app
-    outcome — is UNCHANGED and unchallenged. The rename is because `local_data` read as *"our DATA aired"*, which the
-    underlying flag cannot support in either direction (it records a HAL **admission**; see spec §5.2 and
-    `BASELINE.md` §HYBRID-RTS-S4c). ⛔ **NO OWNER CONFIRMATION OF THE NEW LABEL IS CLAIMED** — if the owner wants the
-    ruling's spelling preserved on the wire of the telemetry, the label reverts and only the C++ field is renamed;
+  - ✅ **THE FIRST LABEL IS NOW `local_admitted`, AND THAT SPELLING IS ITSELF OWNER-RULED 2026-08-10 — see §1.12.**
+    The ruling's substance — two named bases, clear only the redundant copy, fabricate no app outcome — is UNCHANGED
+    and was never challenged; only the label's spelling moved. ⛔ This bullet used to read *"IMPLEMENTATION NOTE, NOT A
+    RULING … NO OWNER CONFIRMATION OF THE NEW LABEL IS CLAIMED"*, with a standing offer to revert the label if the
+    owner preferred the original spelling. **That offer is now closed by §1.12; corrected in place (§3 rule 3).**
 - derive the bounded completed-flight-cache TTL from measured live retry horizons; do not resurrect the historical
   10-second value without evidence.
 
@@ -222,6 +225,109 @@ cleared **only** when the owner's own words arrived, which is exactly the intend
 `docs/superpowers/specs/2026-08-08-hybrid-rts-flight-identity-design.md` plus
 `docs/superpowers/plans/2026-08-08-hybrid-rts-flight-identity.md`. The earlier B157 deletion plan is superseded.
 Per §1.8, no wire-version bump is required for this homogeneous test fleet; all bench nodes must run the same build.
+
+### 1.12 `local_admitted` is the telemetry basis name · ✅ **OWNER-RULED 2026-08-10**
+
+★★ **THE RULING, AS THE OWNER STATES IT (2026-08-10):**
+> **I did approve `local_admitted`**
+
+⛔⛔ **THIS SECTION NO LONGER PRESENTS ANY QUOTATION AS VERBATIM, AND THAT IS THE CORRECTION — read it before
+re-filing.** The approval is **valid and owner-given**; what was wrong was the QA-gate's *transcription discipline*.
+Two earlier renderings stood here as **bold verbatim quotations** (*"I approve `local_admitted` as the telemetry basis
+name"* and *"Yes, I do confirm `local_admitted` and will clarify to quality agent"*), and the owner has stated that
+**neither is their actual wording.** ⇒ Both are **WITHDRAWN as quotations**, and the claim that **two distinct owner
+statements** backed this section is **WITHDRAWN** too. The single line above is the owner's own supplied wording.
+
+★★★ **THE RULE THIS COST, AND IT BINDS EVERY FUTURE ENTRY IN §1: DO NOT USE QUOTATION MARKS FOR AN OWNER RULING
+UNLESS THE EXACT CHARACTERS ARE HELD.** A reconstruction dressed as a quotation is **indistinguishable from an
+invention** — by a reviewer, and (as this incident proves) even by the QA-gate that wrote it, which believed its
+renderings were exact. ⇒ **Record rulings in REPORTED form** (*"the owner approved X"*) **unless the wording is
+copied, not remembered.** A reported-form ruling that is accurate beats a quoted one that is embellished, because the
+embellishment is what destroys the ledger's only value: being the trustworthy answer to *"was this really ruled?"*
+ⓘ **Provenance history of this section, kept because it is instructive both ways:** a review pass flagged it as wholly
+fabricated and asked for deletion; the ruling itself turned out to be **real**, so deletion would have destroyed a
+genuine record — ⛔ **the right resolution of that ambiguity is to ASK THE OWNER, never to delete on a reviewer's
+inference, and never to defend a quotation the owner disowns.** §3's earlier firings were all *"the QA-gate asserted a
+ruling it did not have"*; this one adds a **third** failure mode — **a ruling it did have, recorded in words that were
+not the owner's.**
+
+⇒ **The implicit-forward credit's two bases are `local_admitted` and `alternate_path`.** The first replaces the
+§1.10 ruling's original spelling `local_data`; §1.10's *substance* is untouched by this and was never in question.
+The C++ field is `PendingTx::data_ever_admitted` (was `data_ever_transmitted`).
+
+⚠ **PROVENANCE, stated precisely, because this label took two rounds to land honestly.** The owner approved **the
+name**. The gloss that has circulated alongside it — *"It means HAL admission, not proof that the DATA aired"* — was
+**drafted by the independent QA agent, not spoken by the owner**, and it is recorded here as a **verified-in-code
+fact**, not as part of the ruling:
+- `_hal.tx()` returns `ok` on **ENQUEUE** — `lib/hal/device_hal.cpp:10-12` says so outright (*"Returns ok when
+  queued"*), with the on-air send deferred to `pump_tx()`;
+- the flag is set at the **one crossing point every admission passes** (`lib/core/node_mac.cpp:1742`, on
+  `tag == FrameTag::data` with a non-broadcast pending flight, immediately before `return TxHandOff::handed`);
+- ⇒ the name is accurate about **admission** and makes no claim about **airing**, which is exactly why [[B164]]'s
+  airing half remains **OPEN** and separately registered.
+
+★ **Why the split matters and is not pedantry:** an earlier dispatch brief asserted a §2.3 owner confirmation the
+QA-gate held only second-hand, and **two agents correctly refused it** while independent QA caught a
+*"HOLD CLEARED"* line the QA-gate had written on the same second-hand basis (§1.11's audit trail, §3 rule 1). ⇒ The
+verbatim ruling above is the owner's; the surrounding semantics are the code's. **Neither is attributed to the other.**
+
+### 1.13 Lua parity is **NOT** a final MeshRoute jitter requirement · ✅ **OWNER-RULED 2026-08-10**
+
+★★★ **THE RULING, IN REPORTED FORM — ⛔ NO QUOTATION IS OFFERED, DELIBERATELY:**
+**The owner ruled on 2026-08-10 that Lua parity is not a final MeshRoute jitter requirement, and that [[B158]] stays
+open until MeshRoute-native jitter has been independently measured and selected.**
+
+⛔⛔ **A BOLD BLOCKQUOTE STOOD HERE AND IS WITHDRAWN — it summarised the ruling accurately but was NOT the owner's exact
+words**, which is the identical defect §1.12 above had just established a rule against. ⇒ **§1.12's rule applies to
+every entry in §1, including the ones written after it: record in REPORTED form unless the exact characters are held.**
+ⓘ That this was violated *in the very next entry written* is the strongest evidence for the rule: the QA-gate was not
+being careless about provenance — it was **unable to tell its own paraphrase from a transcript**, twice in one session.
+⛔ **Do not "restore" a quotation here from any agent's recollection.**
+
+⛔⛔ **THIS SUPERSEDES THE `retry_jitter_ms` HALF OF THE 2026-08-10 B158 DISPOSITION.** That disposition had two
+outcomes — *retain `retry_jitter_ms()` for Lua parity* and *accept `exchange_airtime_ms()` as measured-and-left*.
+**Outcome 1 is WITHDRAWN by this ruling**; outcome 2 stands. ⇒ **B158 is REOPENED**, with a scope that is no longer
+*"change 8 to 10/11"* but **the design of MeshRoute-native jitter**.
+
+★★ **WHY IT IS BIGGER THAN A CONSTANT (owner's finding, verified at the code 2026-08-10): ONE HELPER CONTROLS FOUR
+UNRELATED POLICIES, so retuning any one of them silently retunes the other three.** All four consume
+`Node::retry_jitter_ms()` (`lib/core/node_mac.cpp:65`):
+
+| policy | site | how it consumes the helper |
+|---|---|---|
+| fresh DM origination spreading | `node_mac.cpp:316` | `rand_range(0, retry_jitter_ms()+1)`, app DMs only, `nav_enabled` only |
+| RTS/ACK same-hop retry spreading | `node_cascade.cpp:365`, `:398` | `protocol::retry_backoff_window(retry_jitter_ms(), attempt, max_shift)` |
+| BUSY_RX release spreading | `node_mac_rx.cpp:2077` | `rand_range(0, retry_jitter_ms()+1)` on the short-busy same-hop wait |
+| **default LBT release backoff** | `node.cpp:508`, `:913` | ⚠ **`lbt_backoff_ms = max(1, retry_jitter_ms()/2)`** — a **÷2 derivative**, confirmed at `node_carriers.h:244` |
+
+⇒ ★ **"changing retry jitter must no longer silently resize LBT backoff"** is the concrete coupling to break first.
+
+**THE OWNER'S PROPOSED PROGRAMME (recorded as the owner's proposal; ⛔ the multiplier is explicitly NOT ruled):**
+1. **Split into four semantic helpers, initially BEHAVIOUR-IDENTICAL** — `dm_origination_jitter_ms()` ·
+   `same_hop_retry_jitter_ms(crypted)` · `busy_rx_release_jitter_ms()` · `lbt_release_jitter_ms()`. ★ A
+   behaviour-identical split is byte-inert by construction, so it is a clean C1 refactor slice on its own.
+2. **Define a MeshRoute airtime quantum:**
+   `rts_contention_quantum_ms = airtime_routing_ms(unicast_rts_wire_len(/*worst case*/ true));` **(11 B)**.
+   ⚠ **This is the SCALE ONLY — it is NOT automatically the final window.**
+3. **Same-hop retries, first candidate:** `retry_window = 3 * rts_contention_quantum_ms; jitter = rand(0, retry_window)`.
+   ★★ **KEEP THE WINDOW FLAT ACROSS ATTEMPTS.** MeshRoute already expands the CTS timeout up to **×4**, and a previous
+   **24-seed** experiment showed additional exponential jitter **reduced** delivery. ⛔ **Do not add a second BEB
+   layer.** ⓘ Verified consistent with the tree: `protocol::retry_backoff_max_shift` is **globally 0**
+   (`protocol_constants.h:143`), i.e. the window is already flat today.
+4. ⛔⛔ **TREAT MULTIPLIER 3 AS A CANDIDATE, NOT A CONCLUSION. Measure `K = 1, 2, 3, 4, 6`** with
+   `retry_window = K × airtime(11-byte RTS)`, evaluated across **all 36 scenarios · the 24-seed saturated twin ·
+   `s06`, `s07`, `s16`, `s18`, `s27` individually · real-hardware simultaneous-send tests.**
+   **Primary metrics:** unique deliveries and `send_failed` · p50/p95/p99 delivery latency · RTS attempts and airtime
+   **per delivered DM** · collisions, no-CTS retries and cascades · pending-TX residence and queue blocking · false
+   liveness penalties caused by congestion.
+   ⛔ **DO NOT CHOOSE A MULTIPLIER FROM ONE DETERMINISTIC CORPUS RUN** — `s16` has already demonstrated chaotic,
+   non-monotone responses to small timing changes (§B158-EXCHANGE-ARM: 56/56/60/56/**70**/55 on an N-of-one row).
+5. **Then tune origination, BUSY_RX and LBT INDEPENDENTLY**, after the retry window is chosen.
+
+ⓘ ★ **THE OWNER'S EXPECTATION, EXPLICITLY NOT A RULING:** *a flat 2–3 actual-RTS-airtime window will win*, with
+`3 × airtime(11 B)` the safest first arm because it preserves the existing design intent while removing the Lua
+dependency; the measurements may justify reducing toward **2×** for faster failure and earlier cascade. ⛔ **This
+paragraph must never be cited as the decision** — it is the hypothesis the K-sweep exists to test.
 
 ---
 ## §2 — GENUINELY OPEN. These are fair review targets.
@@ -259,6 +365,20 @@ form. That approval never existed.**
    if it is silent, ask rather than assert.
 3. ★ **Corrections are made IN PLACE.** An entry must never assert a claim and its negation; the audit trail is kept,
    the false statement is corrected, not appended to.
+4. ★★★ **NEVER PUT AN OWNER RULING IN QUOTATION MARKS UNLESS THE EXACT CHARACTERS ARE HELD — record it in REPORTED
+   form** (*"the owner ruled that X"*). **Added 2026-08-10** after §1.12's wording was disowned and §1.13 repeated the
+   same defect **in the very next entry written**. ⚠ The lesson is not carelessness: the QA-gate **could not tell its
+   own paraphrase from a transcript**. A reconstruction in quotes is indistinguishable from an invention, *including to
+   its author*.
+5. ★★★ **A QA RECOMMENDATION RELAYED BY THE OWNER IS STILL A RECOMMENDATION. The channel it arrives on does not
+   promote it.** **Added 2026-08-10**, the fifth provenance incident and a new failure mode — the opposite of rule 1's:
+   not *"claiming an approval nobody gave"* but **silently upgrading a relayed review recommendation into an owner
+   ruling**, because it arrived inside an owner message. It hit **five** sites in one micro-slice (the `[[maybe_unused]]`
+   fix form, its no-move-into-`MR_EMIT` constraint, the five gate conditions, [[B157]]'s wording, and the N=2
+   acceptance), all corrected in place. ⇒ **Label the source, not the messenger: `QA-recommended` / `QG acceptance
+   condition` when a reviewer proposed it; `owner-ruled` ONLY when the owner decided it themselves.** ⓘ When both are
+   in play, say so separately — e.g. the **name** `local_admitted` is genuinely owner-ruled (§1.12) while the
+   `[[maybe_unused]]` **form** that carries it is QA-recommended.
 
 ### ✅ RESOLVED 2026-08-06 — every site corrected. Read this before filing a grep hit.
 **No site in the tree now asserts the invented approval.** All were corrected in place with the audit trail kept, and
