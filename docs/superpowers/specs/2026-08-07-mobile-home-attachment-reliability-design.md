@@ -4,8 +4,27 @@
 6.2–6.4, 7.1–7.2, 8, 9.1, 9.4, 10, 11, 12, 13 rewritten in place — the superseded formulations are gone, not
 annotated)
 
-**Status: ⏸ PARKED 2026-08-08 BY OWNER INSTRUCTION, PARTLY IMPLEMENTED — S0–S4b LANDED (uncommitted), S5–S6 NOT
-STARTED.** ⛔ *"proposed design; no implementation is claimed"* — the original status line — **is WITHDRAWN as of
+**Status: ▶ UNPARKED 2026-08-10 BY OWNER INSTRUCTION — S0–S4b LANDED (uncommitted), ★★ S5 LANDED 2026-08-10
+(uncommitted) EXCEPT ITS §8.3/§8.4 SWITCHING HALF, WHICH IS [[B171]], S6 NOT STARTED.**
+> ★ **What S5 landed:** §9.1–§9.3 (the one removal primitive + the 25-minute PHYSICAL expiry of direct AND redirect
+> rows, as a deadline scan on the existing aging timer — `TimerWheel::kCap` still 91), §9.2's breadcrumb-receipt
+> lifetime stamp, §9.4's eight-step expired-id-return test (step 8 mutation-proven), §8.2's candidate freshness /
+> after-gap reset / retention-across-adopt, §8.4's verified cross-layer widening with the team-PHY rule preserved,
+> gate 24's "adequate before optimal" pin, and two of [[B154]]'s three §10 items.
+> ⛔ **What it did NOT land, with its measurement:** §8.3's three searching-probe triggers and §8.4's
+> `echo_tier != 0xFF` requirement are **one indivisible corpus-live sub-slice** — see [[B171]]. And [[B154]](a),
+> the next-attempt remaining delay, stays open because both shapes cost more than a diagnostic field.
+> ⛔ **One corpus row moves (`s07`, +2 lines = the new expiry event only) — registered as [[B170]], an OWNER
+> DECISION. The anchor table was NOT edited.** Evidence: `simulation/BASELINE.md` §MH-S5 (top). Live S5 dispatch: [`../plans/2026-08-10-mobile-home-s5-candidates-lifecycle.md`](../plans/2026-08-10-mobile-home-s5-candidates-lifecycle.md).
+⚠⚠ **THE BASELINE UNDER THIS SPEC MOVED WHILE IT WAS PARKED — READ THIS BEFORE TRUSTING ANY FIGURE BELOW.** The
+hybrid-RTS arc completed: the unicast RTS is now **10 B plaintext / 11 B crypted** (was 7 B), the terminal CTS is
+6/7 B, `sizeof(Node)` moved **221288 → 221880**, and the `^### 36/36 corpus` anchor table was **RE-ANCHORED
+2026-08-10 on the owner's single ruling**. ⇒ **§12.2's *"a mover in S1/S4/S5/S6 blocks that slice"* rule still
+holds but must be measured against the NEW table**, and ⛔ **no delivery, airtime or md5 figure written in this
+spec before 2026-08-08 may be compared against a fresh measurement.** ⚠ Line references here may have rotted (V1).
+
+⛔ **(was: PARKED 2026-08-08 BY OWNER INSTRUCTION, PARTLY IMPLEMENTED — S0–S4b LANDED (uncommitted), S5–S6 NOT
+STARTED.)** ⛔ *"proposed design; no implementation is claimed"* — the original status line — **is WITHDRAWN as of
 2026-08-08; it is false.** Work moved to
 [`2026-08-08-hybrid-rts-flight-identity-design.md`](2026-08-08-hybrid-rts-flight-identity-design.md).
 
@@ -904,17 +923,17 @@ a bug in this table, not an implicit "later".
 | `home_desired` | ✅ landed S4 | ″ |
 | current retry **attempt** | ✅ landed S4 | `claim_retries` + `claim_retry_max` |
 | current retry **window** | ✅ landed **S4b** | `retry_window_ms` = §5.2's no-host backoff accumulator |
-| **next-attempt delay (remaining ms)** | ⛔ **REASSIGNED TO S5** | needs either a `Hal` accessor for a pending timer's REMAINING time (an interface change across `DeviceHal`, the sim wrapper and every test fake) or a stored deadline member. ⛔ Deliberately NOT faked from a nominal constant: while `claiming` the ask/wait phase is instead reported honestly by `claim_solicited` + the two constants, and printing a nominal as if it were a remaining time is the display-shaped-field error this whole plane exists to prevent |
+| **next-attempt delay (remaining ms)** | ⛔ **STILL OPEN AFTER S5 — [[B154]](a), DECLINED WITH A REASON, NOT INHERITED** | needs either a `Hal` accessor for a pending timer's REMAINING time (an interface change across `DeviceHal`, the sim wrapper and every test fake) or a stored deadline member. ⛔ Deliberately NOT faked from a nominal constant: while `claiming` the ask/wait phase is instead reported honestly by `claim_solicited` + the two constants, and printing a nominal as if it were a remaining time is the display-shaped-field error this whole plane exists to prevent |
 | current scan index/count | ✅ landed S4 | `scan_idx` / `scan_count` |
 | offers collected | ✅ landed S4 | `offers` |
 | candidate count | ✅ landed S4 | `candidates` |
-| **verified**-candidate count | ⛔ **S5** (candidates + lifecycle) — absent, not zero-faked | — |
+| **verified**-candidate count | ✅ landed **S5** | `mobile_status` JSON `verified_candidates` + `Node::mobile_verified_candidate_count()`. **DERIVED, zero new state.** Applies BOTH halves of §8.1/§8.2 — `echo_tier != 0xFF` **and** freshness within `mobile_liveness_ms` — so the number rendered is the number `presence_maybe_rehome` would actually consider |
 | last result | ✅ landed S4 | `last_result` |
 | age of last chosen-home confirmation | ✅ landed S4, **64-bit end to end in S4b** | `home_confirm_age_ms` — the u32 cast that wrapped it at ~49.7 days is gone |
 | solicitation substate | ✅ added **S4b** | `claim_solicited` (only while `claiming`) |
 | OFFER-ring overflow counter | ✅ landed **S4b** | `status` text `offerfull=` + JSON `offer_full` |
 | transmitter-rejection counter | ✅ landed **S4b** | `status` text `offerrej=` + JSON `offer_reject` |
-| host `routes`/hosting rows as direct-or-redirect **plus age** | ⛔ **REASSIGNED TO S5** | today `status` prints only `hosting=<n>`; the per-row view belongs with §9's row-lifetime work, which S5 owns |
+| host `routes`/hosting rows as direct-or-redirect **plus age** | ✅ landed **S5** | `status` prints one line per row under `hosting=<n>`: `m[i] hash=0x… local=<id> DIRECT`/`REDIRECT-><home>` + `age=<s>s/1500s` (`src/firmware_commands.cpp` via the read-only `Node::host_mobile_row()`). ★ The age is the §9.2 ROW LIFETIME clock — the same value `mobile_reg_age_out()` tests — so the display and the expiry decision cannot disagree |
 | device logs distinguish scheduled / transmitter-admitted / **confirmed** | ✅ completed **S4b** | scheduled+admitted landed in S1b (`mobile_offer_scheduled` / `mobile_offer_tx`); the CONFIRMED third had NO metal surface (`MR_EMIT` is device-stripped) and is now a `_hal.log` at the roster confirmation, naming the re-CLAIM count |
 
 Device logs must distinguish **scheduled**, **transmitter-admitted**, and **confirmed**. An event named
@@ -1178,8 +1197,11 @@ When implemented, update together:
 - `protocol_constants.h` — `cap_pending_mobile_offers` documented as **host-side**, with an explicit note
   that it is **not** related to `cap_mobile_offers` beyond a coincidental starting value.
 
-Do not describe `mobile_liveness_ms` as a home-side prune until the physical compaction and its boundary
-tests exist.
+~~Do not describe `mobile_liveness_ms` as a home-side prune until the physical compaction and its boundary
+tests exist.~~ ✅ **CONDITION MET 2026-08-10 (§MH-S5): both now exist** — `Node::mobile_reg_age_out()` physically
+compacts the row and its parallel arrays at the boundary, and the boundary is asserted from BOTH sides for BOTH row
+kinds, with the age-out predicate mutation-proven. ⇒ it **may** now be described as a home-side prune, and
+`protocol_constants.h`'s own comment does so with its four consumers enumerated.
 
 ⛔ **No surface may state or imply that a P roster proves general mesh connectivity.** A roster proves
 attachment and a live home link, and nothing beyond the home (§4.1).

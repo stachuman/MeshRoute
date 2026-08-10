@@ -1521,6 +1521,73 @@ again within one normal discovery cycle.
 policy only. Conversely, `cfg set mobile_autoregister 1` on a dormant mobile **is** expected to start a session
 immediately (it routes through the same path as `mobile register`).
 
+## Part 17 — §MH-S5 host-row lifetime and the expired-id return (2026-08-10)
+
+⚠ **M2 SCOPE, stated so nothing else is added here:** the native suite already asserts the 25-minute boundary from
+BOTH sides, both removal kinds, the parallel-array compaction, and all eight §9.4 steps — with nine mutations RED.
+What NO automated gate can reach is **real wall-clock time on real silicon** (the sim runs 60 simulated minutes in
+seconds and no board build compiles the test suite) and **a console line, which is device-only text**. Those two,
+and nothing more.
+
+### 17.1 — ★★ A HOST ROW IS PHYSICALLY GONE AT THE EXPIRY BOUNDARY, ON REAL TIME
+
+⚠ **USE A TEMPORARY BENCH CONSTANT.** 25 minutes of standing still is not a bench test. Rebuild the HOST only with
+`protocol::mobile_liveness_ms` cut to **120000** (2 min), run this, then **rebuild the defaults** — §12.3 item 6
+asks for exactly that, and the boundary arithmetic is identical at any value.
+
+1. Host: `cfg set host_mobiles on`, attach one mobile, confirm `status` shows `hosting=1`.
+2. Power the mobile **off** (⛔ not `mobile unregister` — that is the *other* path; this test is about silence).
+3. Wait past the shortened boundary, then on the host: `status`.
+
+**Expected — the per-row block is GONE and so is the count line:**
+
+```
+  hosting=1 mobile(s)
+    m[0] hash=0x1A2B3C4D local=254 DIRECT age=45s/120s
+```
+…becomes, after the boundary, **no `hosting=` line at all** (the line is printed only when the count is non-zero).
+
+4. Prove the id is genuinely released, which is the half a "count went to 0" reading cannot show: power a
+   **different** mobile on and let it register. **Expected:** its `local=` is **254** — the departed mobile's id,
+   re-offered — not 253.
+
+⛔ **FAILURE SHAPES:** the row still listed after the boundary (the expiry never ran on device) · the row gone but
+the new mobile offered **253** (the row was hidden, not removed — the id is still held) · `age=` frozen (the row
+lifetime clock is not being stamped) · a P roster still advertising the departed hash (sniff it: a home must never
+claim to host a mobile it has expired).
+
+### 17.2 — the per-row hosting view ([[B154]] (b)), and the REDIRECT kind
+
+The `DIRECT`/`REDIRECT` distinction and the age are **device-only console text**; no automated gate reads a console
+line. Run on a host that has hosted a mobile which then re-homed elsewhere.
+
+1. Attach mobile M to host **H1**. On H1: `status` — **expect** `m[0] … local=<id> DIRECT age=<n>s/1500s`.
+2. Bring host **H2** into range at a much stronger signal and attenuate H1 until M re-homes to H2 (H2's new-home
+   breadcrumb is what converts H1's row).
+3. On **H1**: `status`.
+
+**Expected — the SAME row, now a redirect, with its age RESTARTED from the breadcrumb (§9.2):**
+
+```
+  hosting=1 mobile(s)
+    m[0] hash=0x1A2B3C4D local=254 REDIRECT->77 age=3s/1500s
+```
+
+⛔ **FAILURE SHAPES:** still `DIRECT` after the re-home (the breadcrumb was not attributed) · `REDIRECT->0` (the new
+home id was not carried) · **`age=` continuing from the direct row's value instead of restarting near 0** — that is
+the §9.2 stamp not happening, and it means the redirect will expire early and black-hole stale senders instead of
+redirecting them.
+
+### 17.3 — ⓘ WHAT IS **NOT** OWED HERE, so nobody adds a step that cannot fail
+
+⛔ **The §9.4 expired-id return is NOT a separate bench step.** All eight of its steps are natively asserted and
+step 8 is mutation-proven (a local-id-anchored last-mile turns it RED). On metal it would require a 25-minute
+absence, a second mobile taking the exact freed id, and a sender still holding a stale route — an arrangement whose
+setup is harder to verify than its outcome, so a bench step for it would be a step that cannot honestly fail.
+**17.1 step 4 is the metal-only part of it that CAN be checked: the id really is re-offered.**
+⛔ **No step is owed for the candidate-freshness rule either** — it is native-covered, and its trigger is 25 minutes
+of a candidate's silence, which is the same wall-clock problem with no console surface of its own.
+
 ## Part 14 — §B153/§B157 the retired RTS-derived terminal decisions (2026-08-08)
 
 ⚠ **Why this part exists at all (M2), and why it is short.** ⛔ **The wire did NOT change** (the unicast RTS is

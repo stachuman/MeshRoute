@@ -299,7 +299,13 @@ struct MobileStatusFields {
     uint32_t retry_window_ms = 0;            // §10 "current retry window": §5.2's no-host backoff accumulator (0 = the next DISCOVER is a first try). ⛔ NOT the remaining delay to it — see the §10 field ledger in the design spec.
     uint8_t  offers          = 0;            // OFFERs collected in the current transaction (§10)
     uint8_t  scan_idx        = 0, scan_count = 0;   // current scan index / count (§10)
-    uint8_t  candidates      = 0;            // §10 candidate count (verified-candidate count is S5's — deliberately absent, not zero-faked)
+    uint8_t  candidates      = 0;            // §10 candidate count
+    // ★★★ §MH-S5 §10 / [[B154]] — the VERIFIED-candidate count. §MH-S4 left it deliberately ABSENT rather than
+    // zero-faked; this is the field, and it is NOT a subset the app can derive from `candidates`. "Verified" means
+    // §8.1's authority (a roster echo carrying OUR echo, or an OFFER addressed to us) AND fresh within
+    // `mobile_liveness_ms` — i.e. exactly the set a voluntary re-home may choose from, which is why the pair
+    // `candidates`/`verified_candidates` is the honest rendering: heard-of vs actually usable.
+    uint8_t  verified_candidates = 0;
 };
 size_t write_mobile_status(char* buf, size_t cap, const MobileStatusFields& m);
 size_t write_mobile_err   (char* buf, size_t cap, const char* reason);   // {"ev":"mobile_err","reason":"…"}

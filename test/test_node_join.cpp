@@ -48,6 +48,10 @@ struct Ev { std::string type; int64_t node = -1; int64_t proposed = -1; int64_t 
             // the field to notice. Captured here so the HEALED case can assert a NON-ZERO value — the presence
             // of a field is not evidence that it reports anything ([[B115]]'s lesson).
             int64_t reclaims = -1;
+            // ★ §MH-S5 §9.2 / gate 14 — `mobile_reg_expired.redirect`. The event's KIND is the assertion, because
+            // "a row expired" is true for both §9.1's direct rule and §9.2's redirect rule and only the field
+            // separates them; a case that read the count alone could not tell which mechanism fired.
+            int64_t redirect = -1;
             bool i_win = false; bool has_iwin = false; std::string reason; };
 
 class TestHal : public mrtest::TestHalBase {
@@ -115,6 +119,7 @@ public:
                 else if (!std::strcmp(fl.key, "to_key"))           e.to_key = fl.i;
                 else if (!std::strcmp(fl.key, "local_id"))         e.local_id = fl.i;
                 else if (!std::strcmp(fl.key, "reclaims"))         e.reclaims = fl.i;   // §MH-S4b: how many re-CLAIMs healed this attachment
+                else if (!std::strcmp(fl.key, "redirect"))         e.redirect = fl.i;   // §MH-S5 gate 14: direct vs redirect expiry
             } else if (fl.type == EventField::T::boolean) {
                 if (!std::strcmp(fl.key, "i_win")) { e.i_win = fl.b; e.has_iwin = true; }
             } else if (fl.type == EventField::T::str) {
@@ -4846,54 +4851,82 @@ TEST_CASE("★★★ §MH-S4 §4.3 (REWRITTEN §MH-S4b) — `mobile unregister` 
 }
 
 // ---------------------------------------------------------------------------
-// §S0-5 — A HOST ROW SURVIVES BEYOND 25 MINUTES.  Spec §2.6 / §9.1.
+// ★★★★ §S0-5 — REWRITTEN IN PLACE BY §MH-S5 (2026-08-10).  Spec §2.6 → §9.1-§9.3, gate items 13/15/16.
 //
-// DEFECT PINNED HERE: `mobile_liveness_ms` (protocol_constants.h:681) = 1 500 000 ms = 25 min has
-// exactly ONE consumer — the hash-locate proxy gate at node_hashlocate.cpp:1098. Past that age the home
-// stops proxy-answering for the mobile and NOTHING ELSE HAPPENS: the `_mobile_reg` row is never
-// compacted, so indefinitely afterwards the dead mobile is still in the registry, still advertised in
-// every emitted P roster, and still holding its local id against `find_free_mobile_id`. The
-// documentation's 25-minute "prune" does not exist.
+// ⛔ NOT DELETED AND NOT DISABLED (B101). This case was committed GREEN by §S0 asserting TODAY'S DEFECTIVE
+// BEHAVIOUR; §MH-S5 is the slice that owns its rewrite, and the diff of this block IS the behaviour change.
 //
-// CORRECT BEHAVIOUR (spec §9.1-§9.3, gate items 13/15), to be asserted by the S5 rewrite: at
-// `>= mobile_liveness_ms` the row is physically compacted out of `_mobile_reg` AND the parallel SNR
-// array by one `mobile_reg_remove(slot, reason)` primitive; it leaves the roster, releases its local id
-// and frees its host slot.
-// ⇒ ★ WHEN S5 LANDS THIS CASE GOES RED (`mobile_reg_count()` 1→0, the roster entry disappears, and the
-//   id is re-offered). REWRITE IT; don't delete it.
+// WHAT IT USED TO ASSERT, verbatim in intent, so the change is readable without `git log`:
+//   · `CHECK(home.mobile_reg_count() == 1)` **at** the 25-minute boundary — and again a full second liveness
+//     period later, with the comment *"the row is not slow to expire; it does not expire"*;
+//   · `CHECK(e.has_value())` on the roster at the boundary and at 50 minutes — *"STILL ADVERTISED"*;
+//   · `CHECK(o->proposed_mobile_id == kDeadId - 1)` — a brand-new mobile was offered 253 because 254 was still
+//     held by a mobile that had been dead for 25 minutes.
+// ⇒ the defect was that `mobile_liveness_ms` had exactly ONE consumer, the hash-locate proxy gate: past 25 min
+//   the home stopped answering FOR the mobile and changed NOTHING ELSE. The documented "prune" did not exist.
 //
-// ★★ THE INSTRUMENT-FIRED PROOF. A "the row is still there" assertion is worthless if the clock never
-// really crossed the boundary — the test would pass on a build that never advanced time at all. The
-// proxy gate is the ONE behaviour that DOES change at 25 minutes, so it is used as the boundary witness:
-// the same H query is answered-and-suppressed at boundary-1 ms and FORWARDED at boundary. Everything
-// asserted after that is therefore known to be past the deadline.
+// WHAT IT ASSERTS NOW (§9.1/§9.3):
+//   · at 25 min MINUS 1 ms the row is intact — in the registry, in the roster, and still holding its local id;
+//   · at 25 min the periodic `kAgingTimerId` sweep PHYSICALLY compacts it out (`mobile_reg_count()` 1 → 0), it
+//     leaves the roster, and its local id is IMMEDIATELY re-offerable — 254, not 253;
+//   · gate 15: the PARALLEL `_mobile_snr_q4` array is compacted with it. Proven by SURVIVORSHIP rather than by
+//     an accessor: a second mobile registered at a DIFFERENT SNR keeps ITS OWN roster quality tier after the
+//     first row is removed from BELOW it. A per-array off-by-one would hand the survivor the corpse's tier.
+//
+// ★★ THE BOUNDARY WITNESS IS KEPT VERBATIM, and it now does double duty. A "the row is gone" assertion is
+// worthless if the clock never really crossed the boundary — the test would pass on a build that never advanced
+// time. The proxy gate is an INDEPENDENT time-based effect (it reads `last_heard_ms` directly, not the row set),
+// so the same H query answered-and-suppressed at boundary−1 ms and FORWARDED at boundary proves the clock moved.
 // ---------------------------------------------------------------------------
-TEST_CASE("★★★ §S0-5 CHARACTERIZATION (spec §2.6) — past mobile_liveness_ms the host row is still in the registry AND in the roster") {
+TEST_CASE("★★★ §S0-5 REWRITTEN (§MH-S5 §9.1/§9.3) — at mobile_liveness_ms the host row is PHYSICALLY compacted out of the registry, the roster and the id pool") {
     constexpr uint32_t kDead   = 0x0000D1D1u;     // the mobile that goes silent
     constexpr uint8_t  kDeadId = 254;
+    constexpr uint32_t kLive   = 0x0000A1A1u;     // §gate 15: the SURVIVOR, registered at a different SNR
+    constexpr uint8_t  kLiveId = 253;
     constexpr uint8_t  kHomeId = 42;
     constexpr uint64_t kT0     = 100000;
-    RxMeta meta{8.0f, -80.0f, 0, -1};
+    RxMeta meta{8.0f, -80.0f, 0, -1};             // the dead mobile's CLAIM: snr_db +8 -> tier `strong`
+    // ★ THE SURVIVOR'S SNR, NOT ITS RSSI. `RxMeta`'s FIRST field is `snr_db` and that is the only one
+    // `presence_quality_tier` reads (protocol_constants.h:891) — an earlier draft of this case varied `rssi_dbm`
+    // instead and both mobiles landed on tier 3, so the gate-15 premise silently held with nothing behind it.
+    // −8 dB sits in [−12, −4) => tier `weak` (1), two tiers from the corpse's `strong` (3).
+    RxMeta meta_weak{-8.0f, -80.0f, 0, -1};
+
+    // ⛔ GATE 16 — ASSERTED, NOT INSPECTED. The 25-minute expiry is a DEADLINE SCAN on the EXISTING periodic
+    // aging timer precisely because there are ZERO free timer ids: the wheel's cap is 91 and the top allocated
+    // id is 90. If a future slice raises the cap "as a convenience", this line fails before any behaviour does.
+    CHECK(TimerWheel::kCap == 91);
 
     TestHal hal; hal._now = kT0;
     Node home(hal, kHomeId, /*key_hash32=*/0x00004242u);
     CHECK(home.on_init(join_cfg()));
     CHECK(home.can_host_mobiles());
 
-    // t0: the mobile registers for real (a J CLAIM stamps `last_heard_ms = now`).
+    // t0: both mobiles register for real (a J CLAIM stamps `last_heard_ms = now` and SEEDS `_mobile_snr_q4`).
     std::array<uint8_t, 16> cl{};
     const size_t cn = make_j_claim_mobile(kHomeId, kDeadId, kDead, cl);
     home.on_recv(cl.data(), cn, meta);
-    CHECK(home.mobile_reg_count() == 1);                              // PREMISE: there IS a row to outlive its deadline
-    // ...and it is genuinely advertised while alive.
+    std::array<uint8_t, 16> cl2{};
+    const size_t cn2 = make_j_claim_mobile(kHomeId, kLiveId, kLive, cl2);
+    home.on_recv(cl2.data(), cn2, meta_weak);
+    CHECK(home.mobile_reg_count() == 2);                              // PREMISE: there IS a row to outlive its deadline, plus a survivor
+    // ...and both are genuinely advertised while alive, at their OWN tiers.
     hal.tx_frames.clear();
     home.on_timer(kPresenceRosterTimerId);
+    uint8_t live_tier = 0xFF;
     {
         auto e = roster_entry_for(hal.tx_frames, kDead);
         CHECK(e.has_value());
         if (e) CHECK(e->local_id == kDeadId);
+        auto l = roster_entry_for(hal.tx_frames, kLive);
+        CHECK(l.has_value());
+        if (l) { CHECK(l->local_id == kLiveId); live_tier = l->quality; }
+        // PREMISE for gate 15: the two tiers really DIFFER, so inheriting the wrong one would be visible.
+        if (e && l) CHECK(e->quality != l->quality);
     }
-    // ⛔ THE MOBILE NOW GOES SILENT FOREVER — no beacon, no probe, no CLAIM refreshes `last_heard_ms`.
+    // ⛔ THE DEAD MOBILE NOW GOES SILENT FOREVER — no beacon, no probe, no CLAIM refreshes its `last_heard_ms`.
+    // ⓘ The SURVIVOR is kept alive by a probe just before each boundary check, which is also what makes the two
+    //   rows' deadlines genuinely independent rather than coincidentally equal.
 
     // ---- BOUNDARY WITNESS (a): at 25 min MINUS 1 ms the home still proxies, so the row is LIVE.
     hal._now = kT0 + protocol::mobile_liveness_ms - 1;
@@ -4906,6 +4939,19 @@ TEST_CASE("★★★ §S0-5 CHARACTERIZATION (spec §2.6) — past mobile_livene
         CHECK(hal.count("h_resolved") == 1);                          // the home ANSWERED as the mobile's location authority
         CHECK(count_h_frames(hal.tx_frames) == 0);                    // ★ and SUPPRESSED the flood — the live-proxy behaviour
     }
+    // ★★★ GATE 13, THE FIRST HALF — at 25 min MINUS 1 ms THE ROW REMAINS, and it remains through the sweep. Firing
+    // the aging timer here is the whole point: a build that expired one millisecond early would pass a test that
+    // only ever fired the sweep on the far side of the boundary.
+    home.test_fire_aging();
+    CHECK(home.mobile_reg_count() == 2);
+    CHECK(hal.count("mobile_reg_expired") == 0);
+    hal.tx_frames.clear();
+    home.on_timer(kPresenceRosterTimerId);
+    {
+        auto e = roster_entry_for(hal.tx_frames, kDead);
+        CHECK(e.has_value());                                         // still advertised at boundary−1 ms
+        if (e) CHECK(e->local_id == kDeadId);
+    }
 
     // ---- BOUNDARY WITNESS (b): at exactly 25 min the proxy STOPS. ★ This is the measurement that proves
     // the clock really crossed `mobile_liveness_ms`; every assertion below it is therefore past the deadline.
@@ -4916,21 +4962,37 @@ TEST_CASE("★★★ §S0-5 CHARACTERIZATION (spec §2.6) — past mobile_livene
         const size_t qn = make_h_query(/*origin=*/10, kDead, /*ttl=*/4, q);   // a fresh origin: not the dedup ring
         home.on_recv(q.data(), qn, meta);
         fire_h_forwards(home);
-        CHECK(hal.count("h_resolved") == 0);                          // ★ no proxy answer — the ONE time-based effect
+        CHECK(hal.count("h_resolved") == 0);                          // ★ no proxy answer — the pre-S5 time-based effect
         CHECK(hal.count("h_forward") == 1);
         CHECK(count_h_frames(hal.tx_frames) == 1);                    // ★ the flood is passed on instead, ON THE WIRE
     }
+    // Keep the SURVIVOR fresh across the boundary, through the production probe path (it re-stamps `last_heard_ms`
+    // and steps `_mobile_snr_q4`), so its own deadline is nowhere near due.
+    {
+        std::array<uint8_t, 48> pb{};
+        const size_t pn = make_p_probe(kLive, kHomeId, /*home_layer=*/0, /*epoch=*/1, pb);
+        home.on_recv(pb.data(), pn, meta_weak);
+    }
 
-    // ★★ THE DEFECT, AT THE BOUNDARY: everything else about the row is untouched.
-    CHECK(home.mobile_reg_count() == 1);                              // ← S5 must make this 0
+    // ★★★★ GATE 13, THE SECOND HALF — AT 25 MINUTES THE ROW IS REMOVED **EVERYWHERE**.
+    hal.events.clear();
+    home.test_fire_aging();                                           // §9.3: "from the normal aging timer"
+    CHECK(hal.count("mobile_reg_expired") == 1);                      // ← the new event; exactly one row died
+    CHECK(home.mobile_reg_count() == 1);                              // ★★★ was `== 1` with TWO rows → the corpse is GONE
     hal.tx_frames.clear();
     home.on_timer(kPresenceRosterTimerId);
     {
-        auto e = roster_entry_for(hal.tx_frames, kDead);
-        CHECK(e.has_value());                                         // ★★ STILL ADVERTISED as a hosted mobile
-        if (e) CHECK(e->local_id == kDeadId);
+        CHECK_FALSE(roster_entry_for(hal.tx_frames, kDead).has_value());   // ★★★ was `e.has_value()` — no longer advertised
+        // ★★★ GATE 15 — THE PARALLEL ARRAY WENT WITH IT. The survivor sat at slot 1 and the corpse at slot 0, so a
+        // registry-only compaction leaves the survivor reading the DEAD mobile's `_mobile_snr_q4[0]` and its tier
+        // changes. It must not.
+        auto l = roster_entry_for(hal.tx_frames, kLive);
+        CHECK(l.has_value());
+        if (l) { CHECK(l->local_id == kLiveId);
+                 CHECK(l->quality == live_tier); }                    // ★ its OWN tier, not the corpse's
     }
-    // ...and the local id is STILL RESERVED: a brand-new mobile DISCOVERing now is offered a DIFFERENT id.
+    // ★★★ AND THE LOCAL ID IS RELEASED IMMEDIATELY: the very next DISCOVER is offered 254 — the id a mobile dead
+    // for exactly 25 minutes was holding — not 253 (which the live survivor still holds) and not 252.
     {
         CHECK(stage_mobile_offer(home, hal, /*mobile_hash=*/0x0000E5E5u) == 1);
         hal.tx_frames.clear();
@@ -4938,21 +5000,651 @@ TEST_CASE("★★★ §S0-5 CHARACTERIZATION (spec §2.6) — past mobile_livene
         auto o = first_j(hal.tx_frames, j_opcode::offer);
         CHECK(o.has_value());
         if (o) { CHECK(o->target_key_hash32 == 0x0000E5E5u);
-                 CHECK(o->proposed_mobile_id != kDeadId);             // ★ 254 is held by a mobile dead for 25 minutes
-                 CHECK(o->proposed_mobile_id == kDeadId - 1); }       // the picker simply walks down past it
+                 CHECK(o->proposed_mobile_id == kDeadId); }           // ★★★ was `== kDeadId - 1`
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ★★★★ §MH-S5 §9.2 / GATE 14 — A REDIRECT ROW GETS ITS **OWN** 25-MINUTE LIFETIME, STAMPED AT BREADCRUMB RECEIPT.
+//
+// §9.2: "stamp the row's lifetime clock at breadcrumb receipt · retain the redirect for `mobile_liveness_ms` ·
+// then physically remove it under the same age-out sweep". The sharp half is the STAMP: if the redirect merely
+// inherited the direct row's clock, a mobile that moved at minute 20 would have its breadcrumb evaporate five
+// minutes later and every sender holding the 5-minute mobile-home cache would be black-holed instead of
+// redirected — which is the whole reason §9.2 exists.
+//
+// ⇒ SO THE TEST IS TWO-SIDED ACROSS **THE OLD CLOCK**, not just across the new one: the breadcrumb lands at
+// t0 + 20 min, and at t0 + 25 min (the ORIGINAL deadline, 5 min into the redirect) the row must SURVIVE a sweep.
+// A build that reused the direct stamp passes every "the redirect eventually dies" assertion and fails this one.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★ §MH-S5 §9.2 (gate 14) — the redirect lifetime is stamped at BREADCRUMB RECEIPT and expires at its own 25-minute boundary") {
+    constexpr uint32_t kMover   = 0x0000C0DEu;
+    constexpr uint8_t  kMoverId = 254;
+    constexpr uint8_t  kHomeId  = 42;
+    constexpr uint8_t  kNewHome = 77;
+    constexpr uint64_t kT0      = 100000;
+    constexpr uint64_t kBread   = kT0 + 1200000;   // t0 + 20 min: FIVE minutes before the direct row's own deadline
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+
+    TestHal hal; hal._now = kT0;
+    Node home(hal, kHomeId, /*key_hash32=*/0x00004242u);
+    CHECK(home.on_init(join_cfg()));
+
+    std::array<uint8_t, 16> cl{};
+    const size_t cn = make_j_claim_mobile(kHomeId, kMoverId, kMover, cl);
+    home.on_recv(cl.data(), cn, meta);
+    CHECK(home.mobile_reg_count() == 1);                              // PREMISE: a live DIRECT row
+
+    // t0 + 20 min: the mobile's NEW home tells us we are stale. This drives the PRODUCTION breadcrumb handler.
+    hal._now = kBread;
+    hal.events.clear();
+    home.test_drive_breadcrumb(/*origin=*/kNewHome, kMover, kNewHome, /*new_epoch=*/2, /*new_home_layer=*/0);
+    CHECK(hal.count("mobile_redirect_recorded") == 1);                // PREMISE: the row really converted to a redirect
+    CHECK(home.mobile_reg_count() == 1);
+
+    // ★★★★ THE POINT OF THE CASE — at t0 + 25 min, i.e. the row's ORIGINAL deadline and only 5 min into the
+    // redirect, a sweep must NOT remove it. This is what proves the clock was RE-STAMPED and not inherited.
+    hal._now = kT0 + protocol::mobile_liveness_ms;
+    hal.events.clear();
+    home.test_fire_aging();
+    CHECK(hal.count("mobile_reg_expired") == 0);                      // ★★★ the redirect is 5 min old, not 25
+    CHECK(home.mobile_reg_count() == 1);
+    // ...and it is still doing its job: an H query is ANSWERED with the redirect (that arm is deliberately not
+    // liveness-gated, so this also proves the fresher stamp did not turn it back into a DIRECT proxy answer).
+    hal.events.clear(); hal.tx_frames.clear();
+    {
+        std::array<uint8_t, 16> q{};
+        const size_t qn = make_h_query(/*origin=*/9, kMover, /*ttl=*/4, q);
+        home.on_recv(q.data(), qn, meta);
+        fire_h_forwards(home);
+        CHECK(hal.count("h_resolved") == 1);                          // the redirect breadcrumb is still followable
+        CHECK(count_h_frames(hal.tx_frames) == 0);
     }
 
-    // ★★ AND FAR BEYOND IT: a second full liveness period later — 50 minutes of silence — nothing has aged
-    // out. The row is not slow to expire; it does not expire.
-    hal._now = kT0 + 2ull * protocol::mobile_liveness_ms;
-    CHECK(home.mobile_reg_count() == 1);                              // ★ exactly the dead row — the new mobile above was
-                                                                      // only OFFERed, and a staged OFFER is not a registry
-                                                                      // row (it never CLAIMed), so this 1 IS the corpse
-    hal.tx_frames.clear();
+    // ---- ITS OWN BOUNDARY, both sides. At breadcrumb + 25 min MINUS 1 ms it survives...
+    hal._now = kBread + protocol::mobile_liveness_ms - 1;
+    hal.events.clear();
+    home.test_fire_aging();
+    CHECK(hal.count("mobile_reg_expired") == 0);
+    CHECK(home.mobile_reg_count() == 1);
+    // ...and AT breadcrumb + 25 min it is physically removed, labelled as a REDIRECT expiry.
+    hal._now = kBread + protocol::mobile_liveness_ms;
+    hal.events.clear();
+    home.test_fire_aging();
+    CHECK(hal.count("mobile_reg_expired") == 1);
+    { const Ev* x = hal.find("mobile_reg_expired");
+      CHECK(x != nullptr);
+      if (x) CHECK(x->redirect == 1); }                               // ★ §9.2's own kind, not a direct expiry
+    CHECK(home.mobile_reg_count() == 0);
+    // The redirect can no longer be followed — the flood is passed on instead of answered.
+    hal.events.clear(); hal.tx_frames.clear();
+    {
+        std::array<uint8_t, 16> q{};
+        const size_t qn = make_h_query(/*origin=*/10, kMover, /*ttl=*/4, q);
+        home.on_recv(q.data(), qn, meta);
+        fire_h_forwards(home);
+        CHECK(hal.count("h_resolved") == 0);
+        CHECK(hal.count("h_forward") == 1);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ★★★★★ §MH-S5 §9.4 (gate 29) — THE EXPIRED-ID RETURN, ALL EIGHT STEPS.
+//
+// §9.1 makes host rows genuinely mortal, and that creates a case the design has never had to face: a host
+// PHYSICALLY removes a direct row after 25 minutes, and **its former local id may then be reassigned to a
+// different mobile.** A mobile that was out of range for half an hour comes back holding state the host has
+// already given away. This case is that scenario end to end; it is NOT a variant of an existing one.
+//
+// ★★ STEP 8 IS THE POINT OF THE TEST; STEPS 5-7 ARE THE SETUP THAT MAKES IT REACHABLE. The requirement is that
+// **the last-mile decision is HASH-ANCHORED, never LOCAL-ID-ANCHORED.** Both directions are asserted, because a
+// one-directional test cannot tell a correct decision from a broken one:
+//   · (8a) with A absent and B holding A's old id 254, a DM for A's HASH must reach NOBODY — while the same
+//     drive for B's HASH reaches 254. That second half is the POSITIVE CONTROL for a discriminator that
+//     returns zero: without it, "no forward" would also be produced by a last-mile that had simply stopped
+//     working, or by a harness that never drove anything.
+//   · (8b) once A is re-homed at a DIFFERENT id, the two identities are still never crossed: A's hash goes to
+//     A's new id, B's hash goes to 254.
+//
+// ★ EPOCH IS DELIBERATELY NOT THE PROTECTION, and this case is built so that it cannot be mistaken for it:
+// A returns carrying epoch 1 and B is registered with epoch 1 as well (`make_j_claim_mobile` stamps 1). So
+// (hash, local_id) is the only thing separating them here — exactly §9.4's "epoch distinguishes generations of
+// ONE mobile, never two DIFFERENT mobiles".
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★★ §MH-S5 §9.4 (gate 29) — an expired mobile RETURNS: its old local id belongs to another mobile, and stale traffic for it is never delivered as A") {
+    constexpr uint32_t kA      = 0x0000AAAAu;      // the mobile that goes away and comes back
+    constexpr uint32_t kB      = 0x0000BBBBu;      // the mobile handed A's old local id
+    constexpr uint32_t kHome   = 0x00004242u;
+    constexpr uint8_t  kHomeId = 42;
+    constexpr uint64_t kT0     = 100000;
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+
+    TestHal ha; ha._now = kT0;                                        // A's world
+    TestHal hh; hh._now = kT0;                                        // the HOME's world
+    Node A   (ha, /*node_id=*/0,       kA);
+    Node home(hh, /*node_id=*/kHomeId, kHome);
+    CHECK(A.on_init(s0_mobile_cfg()));
+    CHECK(home.on_init(join_cfg()));
+    CHECK(home.can_host_mobiles());
+
+    // ================= STEP 1 — register A at H, CONFIRMED. A real handshake, frame by frame.
+    A.on_timer(kMobileDiscoverTimerId);
+    CHECK(first_j(ha.tx_frames, j_opcode::discover).has_value());     // PREMISE: A really DISCOVERed
+    home.on_recv(ha.tx_frames.back().data(), ha.tx_frames.back().size(), meta);
+    hh.tx_frames.clear();
+    fire_mobile_offer_timer(home, hh);
+    auto offA = first_j(hh.tx_frames, j_opcode::offer);
+    CHECK(offA.has_value());
+    const uint8_t idA = offA ? offA->proposed_mobile_id : uint8_t(0);
+    CHECK(idA == 254);                                                // PINNED: the picker walks TOP-DOWN from 254 into an empty registry
+    A.on_recv(hh.tx_frames.back().data(), hh.tx_frames.back().size(), meta);
+    ha.tx_frames.clear();
+    A.on_timer(kMobileClaimGuardTimerId);                             // -> CLAIM + provisional adopt
+    auto clA = first_j(ha.tx_frames, j_opcode::claim);
+    CHECK(clA.has_value());
+    home.on_recv(ha.tx_frames.back().data(), ha.tx_frames.back().size(), meta);   // the CLAIM LANDS this time
+    CHECK(home.mobile_reg_count() == 1);
+    // ★ THE ROW'S CLOCK IS READ, NOT ASSUMED. `fire_mobile_offer_timer` ADVANCES the home's clock to the OFFER's
+    // own jitter deadline (see its note at :1239), so `last_heard_ms` is NOT kT0 and a boundary computed from kT0
+    // would sit ~1 s short of the deadline — the test would then assert "no expiry" and pass for the wrong reason.
+    const uint64_t t_regA = hh._now;
+    // ...and the home's roster confirms it, which is the only thing that makes A `attached` (§7.1 step 4).
+    confirm_mobile_via_roster(A, ha, kHomeId, /*home_layer=*/0, kA, idA, /*epoch=*/1, meta);
+    CHECK(A.mobile_attach_state() == Node::MobileAttachState::attached);
+    CHECK(A.mobile_attached());
+    CHECK(A.node_id() == idA);
+    CHECK(A.mobile_home_id() == kHomeId);
+
+    // ================= STEP 2 — EXPIRE and PHYSICALLY REMOVE A's row (§9.1).
+    // ⛔ A is deliberately NOT told. That is the whole premise: A keeps its (hash, local id, epoch) while the
+    //    host forgets it, which is the state a mobile out of range for half an hour is really in.
+    hh._now = t_regA + protocol::mobile_liveness_ms - 1;              // one ms EARLY: the row must still be there
+    hh.events.clear();
+    home.test_fire_aging();
+    CHECK(hh.count("mobile_reg_expired") == 0);
+    CHECK(home.mobile_reg_count() == 1);
+    hh._now = t_regA + protocol::mobile_liveness_ms;                  // ...and AT the boundary it goes
+    hh.events.clear();
+    home.test_fire_aging();
+    CHECK(hh.count("mobile_reg_expired") == 1);
+    { const Ev* x = hh.find("mobile_reg_expired");
+      CHECK(x != nullptr);
+      if (x) CHECK(x->redirect == 0); }                               // a DIRECT expiry (§9.1), not a redirect one
+    CHECK(home.mobile_reg_count() == 0);                              // the row is GONE, and 254 is free
+
+    // ================= STEP 3 — assign A's OLD LOCAL ID to a DIFFERENT mobile B, registered and confirmed.
+    hh.tx_frames.clear();
+    CHECK(stage_mobile_offer(home, hh, kB) == 1);
+    fire_mobile_offer_timer(home, hh);
+    auto offB = first_j(hh.tx_frames, j_opcode::offer);
+    CHECK(offB.has_value());
+    if (offB) CHECK(offB->target_key_hash32 == kB);
+    const uint8_t idB = offB ? offB->proposed_mobile_id : uint8_t(0);
+    // ★★ THE ARRANGEMENT THIS WHOLE CASE NEEDS: B is offered the id A still believes is its own.
+    CHECK(idB == idA);
+    {
+        std::array<uint8_t, 16> cb{};
+        const size_t cn = make_j_claim_mobile(kHomeId, idB, kB, cb);
+        home.on_recv(cb.data(), cn, meta);
+    }
+    CHECK(home.mobile_reg_count() == 1);
+    hh.tx_frames.clear();
     home.on_timer(kPresenceRosterTimerId);
     {
-        auto e = roster_entry_for(hal.tx_frames, kDead);
-        CHECK(e.has_value());                                         // ★ 50 minutes silent, still in the roster
-        if (e) CHECK(e->local_id == kDeadId);
+        auto e = roster_entry_for(hh.tx_frames, kB);
+        CHECK(e.has_value());
+        if (e) { CHECK(e->local_id == idA);                           // ★ B really holds A's old id, on the wire
+                 CHECK(e->reg_epoch == 1); }                          // ★ ...and the SAME epoch A remembers (see the header note)
+        CHECK_FALSE(roster_entry_for(hh.tx_frames, kA).has_value());  // A is nowhere in it
+    }
+
+    // ================= STEP 4 — A RETURNS WITH ITS STALE STATE (same home, local id and epoch).
+    CHECK(A.mobile_attached());                                       // unchanged by anything the host did
+    CHECK(A.node_id() == idA);
+    CHECK(A.mobile_home_id() == kHomeId);
+
+    // ================= STEP 5 — A's STALE P EXCHANGE DOES NOT CONFIRM.
+    // ★★ AND THIS IS THE MOBILE-SIDE HALF OF THE SAME HASH-ANCHORING RULE: the roster A now hears DOES carry
+    // A's remembered local id (254) and A's remembered epoch (1) — two of the three fields match — under
+    // SOMEBODY ELSE'S HASH. A must refuse it. A local-id-anchored (or epoch-anchored) match would "confirm"
+    // A against B's row, which is the "success that isn't" one layer down.
+    const std::vector<std::vector<uint8_t>> home_roster = hh.tx_frames;   // the real frame, as emitted
+    CHECK(count_p_rosters(home_roster) == 1);                         // PREMISE: there IS a roster to feed A
+    ha.events.clear(); ha.tx_frames.clear();
+    for (const auto& f : home_roster) A.on_recv(f.data(), f.size(), meta);
+    CHECK(ha.count("mobile_attach_confirmed") == 0);                  // ★★★ NOT confirmed by a roster that lists its id under another hash
+    CHECK(ha.count("presence_roster_absent") == 1);                   // ...it is recognised as OUR home rostering WITHOUT us
+    CHECK_FALSE(A.mobile_attached());
+    CHECK_FALSE(A.mobile_registered());
+
+    // ================= STEP 6 — B IS UNCHANGED. Its row, local id and epoch are untouched by A's return.
+    CHECK(home.mobile_reg_count() == 1);
+    hh.tx_frames.clear();
+    home.on_timer(kPresenceRosterTimerId);
+    {
+        auto e = roster_entry_for(hh.tx_frames, kB);
+        CHECK(e.has_value());
+        if (e) { CHECK(e->local_id == idA); CHECK(e->reg_epoch == 1); }
+        CHECK_FALSE(roster_entry_for(hh.tx_frames, kA).has_value());
+    }
+
+    // ================= STEP 8a — ★★★★★ THE POINT. STALE TRAFFIC FOR A MUST REACH NOBODY, and the identical
+    // drive for B MUST reach 254. Run BEFORE A re-homes, i.e. in exactly the window where a local-id-anchored
+    // last-mile would mis-deliver: the home hosts one mobile, and it sits on A's old id.
+    // ⓘ Measured at the PHYSICAL ACT (the queued TxItem's `dst`/`addr_len`), not only at the emit — the tx drain
+    //   is suspended so the frame stays readable in the queue instead of being consumed into a flight.
+    home.test_suspend_tx_drain(true);
+    hh.events.clear();
+    const uint8_t q_before = home.test_tx_queue_n();                  // a DELTA, so a pre-existing queue cannot fake either arm
+    home.test_drive_deliver_for_hash(/*origin=*/9, kA);               // a DM for the DEPARTED mobile's hash
+    CHECK(hh.count("mobile_lastmile_fwd") == 0);                      // ★★★★ not last-miled to anybody
+    CHECK(home.test_tx_queue_n() == q_before);                        // ★★★★ and NOTHING was queued toward 254
+    // POSITIVE CONTROL — the same drive for the mobile that IS hosted does forward, to 254. Without this the
+    // zero above is indistinguishable from a last-mile that never runs at all.
+    hh.events.clear();
+    home.test_drive_deliver_for_hash(/*origin=*/9, kB);
+    CHECK(hh.count("mobile_lastmile_fwd") == 1);
+    CHECK(home.test_tx_queue_n() == q_before + 1);
+    if (home.test_tx_queue_n() == q_before + 1) {
+        CHECK(home.test_tx_dst(q_before) == idA);                     // B's local id — which IS A's old id
+        CHECK(home.test_tx_addr_len(q_before) == 1);                  // the mobile-local-id mark
+        CHECK(home.test_tx_origin(q_before) == 9);                    // the real originator preserved
+    }
+    home.test_suspend_tx_drain(false);
+
+    // ================= STEP 7 — A ENTERS `recovering` AND IS ISSUED A DIFFERENT LOCAL ID.
+    CHECK(A.mobile_attach_state() == Node::MobileAttachState::recovering);   // ★ a previously ATTACHED home was lost (§4.1), not `seeking`
+    ha.tx_frames.clear();
+    A.on_timer(kMobileDiscoverTimerId);                               // recovery runs an ORDINARY DISCOVER — no privileged re-CLAIM of 254
+    auto disc2 = first_j(ha.tx_frames, j_opcode::discover);
+    CHECK(disc2.has_value());
+    if (disc2) CHECK(disc2->key_hash32 == kA);                        // ★ the cryptographic identity never changed (§9.4 item 7)
+    home.on_recv(ha.tx_frames.back().data(), ha.tx_frames.back().size(), meta);
+    hh.tx_frames.clear();
+    fire_mobile_offer_timer(home, hh);
+    auto offA2 = first_j(hh.tx_frames, j_opcode::offer);
+    CHECK(offA2.has_value());
+    const uint8_t idA2 = offA2 ? offA2->proposed_mobile_id : uint8_t(0);
+    if (offA2) CHECK(offA2->target_key_hash32 == kA);
+    CHECK(idA2 != idA);                                               // ★★★ a DIFFERENT id — 254 belongs to B now
+    CHECK(idA2 == 253);                                               // pinned: the picker walks down past B's row
+    // ⛔ AND NO DENY WAS EMITTED ANYWHERE ON THIS PATH. §9.4 item 5: the targeted CLAIM DENY is a residual race
+    //    BACKSTOP, never the allocator — reservation-aware free-id selection is what resolves this case.
+    CHECK(count_j_deny(hh.tx_frames) == 0);
+    A.on_recv(hh.tx_frames.back().data(), hh.tx_frames.back().size(), meta);
+    ha.tx_frames.clear();
+    A.on_timer(kMobileClaimGuardTimerId);
+    CHECK(first_j(ha.tx_frames, j_opcode::claim).has_value());
+    home.on_recv(ha.tx_frames.back().data(), ha.tx_frames.back().size(), meta);
+    CHECK(home.mobile_reg_count() == 2);                              // both mobiles, distinct ids
+    CHECK(A.node_id() == idA2);
+
+    // ================= STEP 8b — AND THE TWO IDENTITIES ARE STILL NEVER CROSSED once A is back.
+    home.test_suspend_tx_drain(true);
+    hh.events.clear();
+    const uint8_t q2 = home.test_tx_queue_n();
+    home.test_drive_deliver_for_hash(/*origin=*/9, kA);
+    CHECK(hh.count("mobile_lastmile_fwd") == 1);
+    CHECK(home.test_tx_queue_n() == q2 + 1);
+    if (home.test_tx_queue_n() == q2 + 1) CHECK(home.test_tx_dst(q2) == idA2);   // ★ A's NEW id, never 254
+    hh.events.clear();
+    home.test_drive_deliver_for_hash(/*origin=*/9, kB);
+    CHECK(home.test_tx_queue_n() == q2 + 2);
+    if (home.test_tx_queue_n() == q2 + 2) CHECK(home.test_tx_dst(q2 + 1) == idA);   // ★ B still owns 254
+    home.test_suspend_tx_drain(false);
+}
+
+// ---------------------------------------------------------------------------
+// ★★★ §MH-S5 §8 helpers — a roster from ANOTHER home, optionally carrying OUR echo.
+//
+// §8.1: "Verified candidate / authority: a **compatible roster echo carrying our own echo**, or an OFFER addressed
+// to us. Either proves `can_host_mobiles()` at response time and supplies BOTH link directions." A beacon, or a
+// roster with no echo, is only a HINT — it proves reception in one direction and willingness in neither.
+// ⓘ `count = 0` is legitimate on the wire: `presence_emit_roster` emits an entry-less roster precisely to answer a
+//   searching-probe canvass with an echo (§S6 rev2), so this is the real frame shape, not a test fiction.
+// ---------------------------------------------------------------------------
+namespace {
+size_t make_p_roster_other(uint8_t home_id, uint8_t home_layer, std::array<uint8_t, 64>& buf) {
+    p_roster_in ri{}; ri.home_id = home_id; ri.home_layer = home_layer;
+    ri.wire_version = protocol::wire_version; ri.entries = nullptr; ri.count = 0;
+    return pack_p_roster(ri, std::span<uint8_t>(buf.data(), buf.size()));
+}
+size_t make_p_roster_other_echo(uint8_t home_id, uint8_t home_layer, uint32_t echo_hash, uint8_t echo_q,
+                                std::array<uint8_t, 64>& buf) {
+    p_roster_in ri{}; ri.home_id = home_id; ri.home_layer = home_layer;
+    ri.wire_version = protocol::wire_version; ri.entries = nullptr; ri.count = 0;
+    ri.has_echo = true; ri.echo_hash32 = echo_hash; ri.echo_quality = echo_q;
+    return pack_p_roster(ri, std::span<uint8_t>(buf.data(), buf.size()));
+}
+// Bring `mob` to a CONFIRMED attachment at `home_id` on `home_layer` with the given reported quality, using the
+// production wire path only. `snr` colours BOTH directions the switch criterion reads: the roster's own RX SNR
+// feeds `_presence_home_rx_q4` (home->me) and `quality` is the home's report of us (me->home).
+void attach_and_report(Node& mob, TestHal& hal, uint8_t home_id, uint32_t mob_hash, uint8_t local_id,
+                       uint8_t quality, const RxMeta& snr) {
+    std::array<uint8_t, 64> rb{};
+    const size_t rn = make_p_roster_one(home_id, /*home_layer=*/0, mob_hash, local_id, /*epoch=*/1, rb, quality);
+    mob.on_recv(rb.data(), rn, snr);
+}
+}  // namespace
+
+// ---------------------------------------------------------------------------
+// ★★★★ §MH-S5 §8.3 / GATE 24 — "ADEQUATE BEFORE OPTIMAL": A HEALTHY HOME PLUS A MEASURABLY STRONGER VERIFIED
+// CANDIDATE PRODUCES **ZERO ADDITIONAL TRANSMISSIONS** AND NO SWITCH.
+//
+// ⛔ THE GATE'S OWN WORDING IS "asserted as ZERO additional transmissions, not merely 'no adopt'", and the
+// distinction is the whole point: a build that canvassed for a better home on every tick and then declined to
+// adopt would pass a "no adopt" test while spending exactly the fleet-wide roster storm §8.3 exists to prevent.
+// ⇒ this case counts FRAMES ON THE WIRE, and the count is zero.
+//
+// ★★ AND IT IS POSITIVELY CONTROLLED IN THE SAME CASE (the discriminator returns zero, so the zero must be
+// earned): the identical candidate arriving at a mobile whose home is WEAK does produce the switch and its
+// DISCOVER. Without that half, "zero transmissions" would also be produced by a broken candidate table, a
+// mis-parsed roster, or a mobile that was never attached.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★★ §MH-S5 §8.3 (gate 24) — a HEALTHY home + a measurably stronger VERIFIED candidate: ZERO additional transmissions, no switch") {
+    constexpr uint32_t kMob   = 0x0000B0B1u;
+    constexpr uint8_t  kHome1 = 41;
+    constexpr uint8_t  kHome2 = 43;
+    constexpr uint8_t  kLocal = 254;
+    RxMeta strong{9.0f, -70.0f, 0, -1};      // +9 dB -> tier 3 (strong)
+    RxMeta weak  {-8.0f, -95.0f, 0, -1};     // -8 dB -> tier 1 (weak)
+    (void)weak;
+    TestHal hal; hal._now = 100000;
+    Node mob(hal, /*node_id=*/0, kMob);
+    CHECK(mob.on_init(s0_mobile_cfg()));
+    mob.test_set_my_mobile_reg(kHome1, kLocal);
+    CHECK(mob.mobile_registered());
+    attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_ok, strong);
+    CHECK(mob.mobile_attached());                                     // PREMISE: a genuinely ADEQUATE home
+    CHECK(mob.mobile_candidate_count() == 0);
+
+    // A measurably stronger candidate arrives, VERIFIED (its roster echoes OUR hash at the top tier).
+    hal._now += 1000;
+    std::array<uint8_t, 64> cb{};
+    const size_t cn = make_p_roster_other_echo(kHome2, /*home_layer=*/0, kMob, protocol::presence_q_strong, cb);
+    mob.on_recv(cb.data(), cn, strong);
+    CHECK(mob.mobile_candidate_count() == 1);                         // PREMISE: it really was collected...
+    CHECK(mob.mobile_verified_candidate_count() == 1);                // ...and really is VERIFIED (not a hint)
+
+    // Let both hysteresis windows elapse, so nothing but the policy can be holding the switch back.
+    hal._now += protocol::presence_rehome_dwell_ms + protocol::presence_candidate_hold_ms + 1000;
+    // Refresh the candidate so its own §8.2 freshness is beyond doubt, then keep the home healthy.
+    mob.on_recv(cb.data(), cn, strong);
+    attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_ok, strong);
+
+    // ★★★★ THE MEASUREMENT — from here on, NOT ONE FRAME.
+    hal.tx_frames.clear(); hal.events.clear();
+    mob.on_recv(cb.data(), cn, strong);                               // the stronger candidate, again
+    attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_ok, strong);
+    CHECK(hal.tx_frames.size() == 0);                                 // ★★★★ ZERO transmissions, not "no adopt"
+    CHECK(hal.count("presence_rehome") == 0);
+    CHECK(mob.mobile_attached());
+    CHECK(mob.mobile_home_id() == kHome1);                            // still the adequate home
+
+    // ★★ POSITIVE CONTROL — the SAME candidate, the SAME windows, but the home now reports WEAK. The policy is
+    // "adequate before optimal", not "never switch", so this must fire.
+    hal.tx_frames.clear(); hal.events.clear();
+    attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_weak, weak);
+    CHECK(hal.count("presence_rehome") == 1);                         // ★ the mechanism IS live
+    // ⓘ MEASURED, NOT ASSUMED: `mobile_home_id()` reads 0 here, because the move is `reset + ordinary discovery`
+    //   and `mobile_reset_registration` clears `_my_mobile_reg.active`. (An earlier draft of this case asserted
+    //   `== kHome1` on the strength of that function's own comment "keeps home_id for the j_discover last-home
+    //   block" — the ROW keeps it, the ACCESSOR does not. V1: the accessor is the contract a surface reads.)
+    CHECK(mob.mobile_home_id() == 0);
+    CHECK(mob.mobile_attach_state() == Node::MobileAttachState::recovering);
+    CHECK_FALSE(mob.mobile_attached());
+}
+
+// ---------------------------------------------------------------------------
+// ★★★★ §MH-S5 §8.2/§8.4 (gates 11, 12, 25, 26) — WHAT MAY AND MAY NOT TRIGGER A VOLUNTARY SWITCH.
+//
+// Four arms, each with its own negative:
+//   11 — a STALE candidate (last heard >= `mobile_liveness_ms`) cannot trigger a re-home, even though its
+//        `first_seen_ms` satisfies the 60-second sustained-availability hold. A FRESH bidirectionally verified
+//        candidate, identical in every other respect, can.
+//   12 — a VERIFIED candidate advertising ANOTHER FULL LAYER ID on the same PHY can; an UNVERIFIED one cannot
+//        (the unconditional layer-nibble rejection survives for hints).
+//   25 — the hysteresis is really enforced: the tier delta, the 60-second hold and the 5-minute anti-flap dwell
+//        each independently block the switch.
+//   26 — a TEAM mobile never leaves its provisioned team PHY. Asserted at the DISCOVER that the switch arms,
+//        because that is where `team_phy_ok` lives.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★★ §MH-S5 §8.2/§8.4 (gates 11/12/25) — stale and unverified candidates cannot re-home; a fresh verified cross-layer one can, after full hysteresis") {
+    constexpr uint32_t kMob   = 0x0000C0B1u;
+    constexpr uint8_t  kHome1 = 41;
+    constexpr uint8_t  kHome2 = 43;
+    constexpr uint8_t  kHome3 = 44;
+    constexpr uint8_t  kLocal = 254;
+    RxMeta strong{9.0f, -70.0f, 0, -1};
+    RxMeta weak  {-8.0f, -95.0f, 0, -1};
+
+    // ---- ARM 25a — THE TIER DELTA. A candidate only ONE tier better than a weak home must not move it
+    // (`presence_rehome_tier_delta` is 2).
+    {
+        TestHal hal; hal._now = 100000;
+        Node mob(hal, 0, kMob);
+        CHECK(mob.on_init(s0_mobile_cfg()));
+        mob.test_set_my_mobile_reg(kHome1, kLocal);
+        attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_weak, weak);   // home_worst = 1
+        std::array<uint8_t, 64> cb{};
+        const size_t cn = make_p_roster_other_echo(kHome2, 0, kMob, protocol::presence_q_ok, cb);   // echo tier 2
+        RxMeta ok_snr{0.0f, -85.0f, 0, -1};                          // 0 dB -> tier 2 => cand_worst = 2
+        mob.on_recv(cb.data(), cn, ok_snr);
+        CHECK(mob.mobile_verified_candidate_count() == 1);
+        hal._now += protocol::presence_rehome_dwell_ms + protocol::presence_candidate_hold_ms + 1000;
+        mob.on_recv(cb.data(), cn, ok_snr);
+        hal.events.clear();
+        attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_weak, weak);
+        CHECK(hal.count("presence_rehome") == 0);                     // 2 - 1 = 1 < 2 -> refused
+    }
+
+    // ---- ARM 25b — THE 60-SECOND HOLD. A candidate two tiers better but heard only just now must not move it.
+    {
+        TestHal hal; hal._now = 100000;
+        Node mob(hal, 0, kMob);
+        CHECK(mob.on_init(s0_mobile_cfg()));
+        mob.test_set_my_mobile_reg(kHome1, kLocal);
+        attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_weak, weak);
+        hal._now += protocol::presence_rehome_dwell_ms + 1000;         // the DWELL is satisfied, the HOLD is not
+        std::array<uint8_t, 64> cb{};
+        const size_t cn = make_p_roster_other_echo(kHome2, 0, kMob, protocol::presence_q_strong, cb);
+        mob.on_recv(cb.data(), cn, strong);                            // first_seen_ms = now
+        hal.events.clear();
+        attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_weak, weak);
+        CHECK(hal.count("presence_rehome") == 0);                     // sustained for 0 ms < 60 000 ms
+        // ...and the SAME candidate, once the hold has elapsed, does move it. (Positive control for the zero above.)
+        hal._now += protocol::presence_candidate_hold_ms + 1;
+        mob.on_recv(cb.data(), cn, strong);
+        hal.events.clear();
+        attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_weak, weak);
+        CHECK(hal.count("presence_rehome") == 1);
+    }
+
+    // ---- ARM 25c — THE 5-MINUTE ANTI-FLAP DWELL. Everything else satisfied, but the last adopt was recent.
+    {
+        TestHal hal; hal._now = 100000;
+        Node mob(hal, 0, kMob);
+        CHECK(mob.on_init(s0_mobile_cfg()));
+        mob.test_set_my_mobile_reg(kHome1, kLocal);
+        attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_weak, weak);
+        std::array<uint8_t, 64> cb{};
+        const size_t cn = make_p_roster_other_echo(kHome2, 0, kMob, protocol::presence_q_strong, cb);
+        mob.on_recv(cb.data(), cn, strong);
+        hal._now += protocol::presence_candidate_hold_ms + 1000;       // the HOLD is satisfied, the DWELL is not
+        CHECK(hal._now - 100000 < protocol::presence_rehome_dwell_ms); // PREMISE: still inside the dwell
+        mob.on_recv(cb.data(), cn, strong);
+        hal.events.clear();
+        attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_weak, weak);
+        CHECK(hal.count("presence_rehome") == 0);
+    }
+
+    // ---- ARM 11 — ★★★ A STALE CANDIDATE CANNOT RE-HOME, THOUGH ITS `first_seen_ms` IS ANCIENT ENOUGH TO SATISFY
+    // THE HOLD. This is the §8.2 rule that "`first_seen_ms` alone never proves sustained availability".
+    {
+        TestHal hal; hal._now = 100000;
+        Node mob(hal, 0, kMob);
+        CHECK(mob.on_init(s0_mobile_cfg()));
+        mob.test_set_my_mobile_reg(kHome1, kLocal);
+        attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_weak, weak);
+        std::array<uint8_t, 64> cb{};
+        const size_t cn = make_p_roster_other_echo(kHome2, 0, kMob, protocol::presence_q_strong, cb);
+        mob.on_recv(cb.data(), cn, strong);                            // heard ONCE, then never again
+        CHECK(mob.mobile_verified_candidate_count() == 1);
+        // 25 minutes of silence from the candidate. The home stays weak and keeps rostering, so the mobile is
+        // still evaluating — only the candidate has gone quiet.
+        hal._now += protocol::mobile_liveness_ms;
+        hal.events.clear();
+        attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_weak, weak);
+        CHECK(hal.count("presence_rehome") == 0);                     // ★★★ refused at selection on FRESHNESS
+        CHECK(mob.mobile_verified_candidate_count() == 0);            // ★ and it no longer counts as verified either
+        // POSITIVE CONTROL — one fresh observation of the SAME candidate, and it moves. ⓘ The re-hear resets
+        // `first_seen_ms` (§8.2), so the 60-second hold must be served again from NOW — which is itself the
+        // assertion that the reset happened.
+        mob.on_recv(cb.data(), cn, strong);
+        hal.events.clear();
+        attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_weak, weak);
+        CHECK(hal.count("presence_rehome") == 0);                     // ★ the reset really re-armed the hold
+        hal._now += protocol::presence_candidate_hold_ms + 1;
+        mob.on_recv(cb.data(), cn, strong);
+        hal.events.clear();
+        attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_weak, weak);
+        CHECK(hal.count("presence_rehome") == 1);                     // ★ ...and then it moves
+    }
+
+    // ---- ARM 12 — ★★★ A VERIFIED CANDIDATE ON ANOTHER FULL LAYER ID (same PHY) CAN; AN UNVERIFIED ONE CANNOT.
+    {
+        TestHal hal; hal._now = 100000;
+        Node mob(hal, 0, kMob);
+        CHECK(mob.on_init(s0_mobile_cfg()));
+        CHECK(mob.active_layer_id() == 0);                            // PREMISE: our layer nibble is 0...
+        mob.test_set_my_mobile_reg(kHome1, kLocal);
+        attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_weak, weak);
+        // (a) UNVERIFIED, layer 4 — a HINT only. §8.4 keeps the layer-nibble rejection for these.
+        std::array<uint8_t, 64> hb{};
+        const size_t hn = make_p_roster_other(kHome3, /*home_layer=*/4, hb);
+        mob.on_recv(hb.data(), hn, strong);
+        CHECK(mob.mobile_candidate_count() == 1);
+        CHECK(mob.mobile_verified_candidate_count() == 0);            // ★ a roster without OUR echo proves one direction
+        hal._now += protocol::presence_rehome_dwell_ms + protocol::presence_candidate_hold_ms + 1000;
+        mob.on_recv(hb.data(), hn, strong);
+        hal.events.clear();
+        attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_weak, weak);
+        CHECK(hal.count("presence_rehome") == 0);                     // ★★★ cross-layer + unverified -> refused
+        // (b) the SAME home, now VERIFIED by a roster carrying our echo. Nothing else changes.
+        std::array<uint8_t, 64> vb{};
+        const size_t vn = make_p_roster_other_echo(kHome3, /*home_layer=*/4, kMob, protocol::presence_q_strong, vb);
+        mob.on_recv(vb.data(), vn, strong);
+        CHECK(mob.mobile_verified_candidate_count() == 1);
+        hal.events.clear();
+        attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_weak, weak);
+        CHECK(hal.count("presence_rehome") == 1);                     // ★★★ verified cross-LAYER is allowed (§8.4)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ★★★★ §MH-S5 §8.4 / GATE 26 — A TEAM MOBILE NEVER SCANS OR ADOPTS AN INCOMPATIBLE PHY.
+//
+// §8.4's ⚠: "The team restriction is preserved unchanged. A team mobile stays on its provisioned team PHY
+// (`team_phy_ok()`): it must NOT roam or scan onto an incompatible PHY, because its teammates are unreachable
+// there." §MH-S5 widens the candidate rule by LAYER ID, and this case is the proof the widening did not leak
+// into the PHY axis — the two are separate and only one of them moved.
+//
+// ★ MEASURED AT THE DISCOVER, because that is where `team_phy_ok` actually lives (`node_mobile.cpp`): the
+// voluntary switch is `reset + ordinary J discovery`, so the question "did the mobile leave its PHY?" is
+// answered by which scan candidate the DISCOVER went out on — not by the re-home decision itself.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★★ §MH-S5 §8.4 (gate 26) — a TEAM mobile's voluntary switch DISCOVERs on its own team PHY, and a foreign-PHY scan candidate is REFUSED") {
+    constexpr uint32_t kMob   = 0x00007EA1u;
+    constexpr uint8_t  kHome1 = 41;
+    constexpr uint8_t  kHome3 = 44;
+    constexpr uint8_t  kLocal = 254;
+    RxMeta strong{9.0f, -70.0f, 0, -1};
+    RxMeta weak  {-8.0f, -95.0f, 0, -1};
+
+    TestHal hal; hal._now = 100000;
+    NodeConfig cfg = s0_mobile_cfg();
+    cfg.team_id = 0x00ABCDEFu;                                        // a TEAM member: the restriction is live
+    Node mob(hal, 0, kMob);
+    CHECK(mob.on_init(cfg));
+    mob.test_set_my_mobile_reg(kHome1, kLocal);
+    attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_weak, weak);
+
+    // A verified candidate on ANOTHER LAYER ID — the case §MH-S5 newly permits. It must still move the mobile only
+    // on its OWN PHY.
+    std::array<uint8_t, 64> vb{};
+    const size_t vn = make_p_roster_other_echo(kHome3, /*home_layer=*/4, kMob, protocol::presence_q_strong, vb);
+    mob.on_recv(vb.data(), vn, strong);
+    hal._now += protocol::presence_rehome_dwell_ms + protocol::presence_candidate_hold_ms + 1000;
+    mob.on_recv(vb.data(), vn, strong);
+    hal.events.clear(); hal.tx_frames.clear();
+    attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_weak, weak);
+    CHECK(hal.count("presence_rehome") == 1);                         // the switch is armed...
+    // ...and the DISCOVER it arms goes out on scan index 0, i.e. OUR configured PHY. `team_phy_ok` therefore
+    // passes and NO phy-mismatch refusal is raised — the widening is a LAYER-ID widening, never a PHY one.
+    CHECK(mob.mobile_scan_idx() == 0);
+    CHECK(mob.mobile_scan_count() == 1);                              // PREMISE: a single-entry scan set (no learned layers)
+    hal.tx_frames.clear(); hal.events.clear();
+    mob.on_timer(kMobileDiscoverTimerId);
+    CHECK(hal.count("mobile_home_phy_mismatch") == 0);                // ★ no refusal: we never left our PHY
+    CHECK(first_j(hal.tx_frames, j_opcode::discover).has_value());    // ★ and the DISCOVER really went out, here
+}
+
+// ---------------------------------------------------------------------------
+// ★★★★ §MH-S5 §9.3 — THE TWO NON-TIMER SWEEP CALL SITES, EACH PINNED ON ITS OWN.
+//
+// §9.3 requires `mobile_reg_age_out(now)` to run "from the normal aging timer · BEFORE allocating a local id or
+// refusing because `cap_host_mobiles` is full · BEFORE emitting a roster / using hosted rows for channel coverage".
+//
+// ⛔⛔ WHY THIS CASE EXISTS AND WHY IT IS NOT REDUNDANT: the §S0-5 and §9.4 cases both fire the aging timer first,
+// so by the time they read a roster or allocate an id the row is ALREADY gone — and the other two call sites would
+// pass those tests even if they were DELETED. That is precisely an instrument that cannot fail. Each arm below
+// therefore uses a FRESH node and NEVER fires the timer, so the only thing that can remove the row is the sweep
+// embedded in the consumer under test.
+// ⓘ These two sites are what make the 60-second `rt_aging_check_period_ms` granularity unobservable to the two
+//   decisions that matter (an id handed out, and a public claim to be hosting somebody).
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★★ §MH-S5 §9.3 — the expiry sweep runs inside `find_free_mobile_id` and `presence_emit_roster`, each proven WITHOUT the aging timer") {
+    constexpr uint32_t kDead   = 0x0000D2D2u;
+    constexpr uint8_t  kDeadId = 254;
+    constexpr uint8_t  kHomeId = 42;
+    constexpr uint64_t kT0     = 100000;
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+
+    // ---- ARM A — ID ALLOCATION. A dead row must not hold its id for the up-to-60 s until the next sweep.
+    {
+        TestHal hal; hal._now = kT0;
+        Node home(hal, kHomeId, 0x00004242u);
+        CHECK(home.on_init(join_cfg()));
+        std::array<uint8_t, 16> cl{};
+        const size_t cn = make_j_claim_mobile(kHomeId, kDeadId, kDead, cl);
+        home.on_recv(cl.data(), cn, meta);
+        CHECK(home.mobile_reg_count() == 1);
+        CHECK(home.test_find_free_mobile_id(0x0000E1E1u) == kDeadId - 1);   // PREMISE: while ALIVE, 254 is held
+        hal._now = kT0 + protocol::mobile_liveness_ms;
+        // ⛔ NO `test_fire_aging()` ANYWHERE IN THIS ARM.
+        CHECK(home.test_find_free_mobile_id(0x0000E1E1u) == kDeadId);       // ★★★ the allocator's OWN sweep released it
+        CHECK(home.mobile_reg_count() == 0);                               // ★ and it really was physically removed
+    }
+
+    // ---- ARM B — ROSTER EMISSION. A roster is a public claim "I host these mobiles"; an expired row must never
+    // appear in one, whatever the sweep timer happens to have done.
+    {
+        TestHal hal; hal._now = kT0;
+        Node home(hal, kHomeId, 0x00004242u);
+        CHECK(home.on_init(join_cfg()));
+        std::array<uint8_t, 16> cl{};
+        const size_t cn = make_j_claim_mobile(kHomeId, kDeadId, kDead, cl);
+        home.on_recv(cl.data(), cn, meta);
+        hal.tx_frames.clear();
+        home.on_timer(kPresenceRosterTimerId);
+        CHECK(roster_entry_for(hal.tx_frames, kDead).has_value());         // PREMISE: while ALIVE it IS advertised
+        hal._now = kT0 + protocol::mobile_liveness_ms;
+        // ⛔ NO `test_fire_aging()` ANYWHERE IN THIS ARM.
+        hal.tx_frames.clear(); hal.events.clear();
+        home.on_timer(kPresenceRosterTimerId);
+        CHECK(hal.count("mobile_reg_expired") == 1);                       // ★★★ the emit path's OWN sweep fired
+        CHECK_FALSE(roster_entry_for(hal.tx_frames, kDead).has_value());    // ★★★ and the corpse is not advertised
+        CHECK(count_p_rosters(hal.tx_frames) == 0);                        // an emptied registry emits no roster at all
+        CHECK(home.mobile_reg_count() == 0);
     }
 }

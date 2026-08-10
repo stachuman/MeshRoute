@@ -623,6 +623,9 @@ TEST_CASE("write_mobile_* / write_peer_name / inbox_channel team_id — §S3/S5/
     // `attachment` and `home_link` are two separate fields, `home_confirm_age_ms` is present because something WAS
     // confirmed, and the whole pre-existing prefix is byte-identical to what it was before this slice.
     m.attachment = "attached"; m.home_link = "confirmed"; m.last_result = "confirmed";
+    // ★ §MH-S5 §10 / [[B154]] — `verified_candidates` is pinned DISTINCT from `candidates` (1 of 2), because a
+    // fixture that set both to the same value could not tell the two fields apart if a future edit crossed them.
+    m.verified_candidates = 1;
     m.home_desired = true; m.home_confirmed = true; m.home_confirm_age_ms = 420000;
     m.claim_retries = 0; m.claim_retry_max = 3; m.offers = 1; m.scan_idx = 0; m.scan_count = 1; m.candidates = 2;
     m.retry_window_ms = 20000;   // ★ §MH-S4b §10 "current retry window" — a NON-DEFAULT value, so a serializer that dropped the field cannot pass
@@ -633,7 +636,7 @@ TEST_CASE("write_mobile_* / write_peer_name / inbox_channel team_id — §S3/S5/
                                "\"attachment\":\"attached\",\"home_link\":\"confirmed\",\"last_result\":\"confirmed\","
                                "\"home_desired\":true,\"home_confirm_age_ms\":420000,"
                                "\"claim_retries\":0,\"claim_retry_max\":3,\"retry_window_ms\":20000,\"offers\":1,"
-                               "\"scan_idx\":0,\"scan_count\":1,\"candidates\":2}\n");
+                               "\"scan_idx\":0,\"scan_count\":1,\"candidates\":2,\"verified_candidates\":1}\n");
     // ★★★★ §MH-S4b — **THE 64-BIT CONFIRMATION AGE, PINNED WHERE IT WAS TRUNCATED.** `MobileStatusFields`'s field
     // was `uint32_t` and `src/firmware_config.cpp` cast the node's `uint64_t` accessor down to it, so the rendered
     // age WRAPPED at ~49.7 days — a months-stale confirmation displayed as a fresh one, which is the exact

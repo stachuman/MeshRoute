@@ -81,6 +81,12 @@ void Node::age_out_mediated() {
 //   so an ELAPSED reservation stops blocking its id the instant it expires — even if `mobile_offer_fire`'s scan has
 //   not run yet (a dropped/failed `_hal.after` must never be able to leak an id permanently).
 uint8_t Node::find_free_mobile_id(uint32_t key_hash32) {
+    // ★ §MH-S5 §9.3 — "run `mobile_reg_age_out(now)` … before allocating a local id or refusing because
+    // `cap_host_mobiles` is full". Both of this function's refusals are downstream of the row set, so a row that
+    // is 25 minutes dead must not be able to hold its id (or a whole host slot) for the up-to-60 s until the next
+    // `kAgingTimerId` sweep. ⛔ Do NOT duplicate the age predicate below (§9.3's closing line) — the sweep is the
+    // only place it lives.
+    mobile_reg_age_out();
     for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
         if (_active->_mobile_reg[i].key_hash32 == key_hash32) return _active->_mobile_reg[i].mobile_local_id;
     const uint64_t now = _hal.now();
@@ -118,11 +124,7 @@ void Node::evict_aliased_hosted_mobile(uint8_t node_id, uint32_t static_key_hash
         MR_EMIT("mobile_evict_alias", EF_I("local_id", node_id),
                 EF_I("mobile_key", static_cast<int64_t>(_active->_mobile_reg[i].key_hash32)),
                 EF_I("static_key", static_cast<int64_t>(static_key_hash32)));
-        for (uint8_t k = i; k + 1 < _active->_mobile_reg_n; ++k) {             // compact out the evicted slot (parallel arrays)
-            _active->_mobile_reg[k]    = _active->_mobile_reg[k + 1];
-            _active->_mobile_snr_q4[k] = _active->_mobile_snr_q4[k + 1];
-        }
-        --_active->_mobile_reg_n;
+        mobile_reg_remove(i, "static_alias");   // §MH-S5 §9.3: the ONE compaction primitive (was open-coded here)
         presence_schedule_roster();   // the next roster omits it -> the mobile re-registers (absent-from-roster)
         return;
     }
@@ -679,6 +681,86 @@ void Node::mobile_reg_touch(uint8_t slot, int16_t snr_q4) {
     ew = protocol::snr_ewma_update(ew, snr_q4);   // seed-if-zero EWMA (canonical link-quality helper)
 }
 
+// ★★★ §MH-S5 §9.3 — **THE ONE REMOVAL PRIMITIVE.** Every hosted-row removal compacts `_mobile_reg` AND the
+// parallel `_mobile_snr_q4` array, and it does so HERE, once, so a future parallel array cannot be added to one
+// site and forgotten at the others. THREE call sites existed before this function and TWO of them had the loop
+// open-coded (`evict_aliased_hosted_mobile`, `presence_ingest_probe`'s select-elsewhere prune); the third —
+// timed expiry — did not exist at all, which is [[§S0-5]]'s defect.
+// ⛔ NOT a "mark dead" flag: §9.1 requires PHYSICAL compaction, because the id must become allocatable
+//    (`find_free_mobile_id` scans `_mobile_reg_n` rows) and the row must leave the roster (`presence_emit_roster`
+//    iterates the same count). A tombstone would satisfy neither.
+// ⓘ The caller owns the roster consequence: `evict_aliased_hosted_mobile` schedules one (the mobile learns from
+//   its absence), the prune deliberately does not answer at all, and the age-out has nobody to tell. Scheduling
+//   it here would put a roster on the air for a mobile that is 25 minutes dead.
+//
+// ⛔⛔ **THIS PRIMITIVE EMITS AND LOGS NOTHING, AND THAT IS AN ATTRIBUTION DECISION, NOT AN OVERSIGHT.** Both
+// `MR_EMIT` and `_hal.log` land in the simulator's event stream (`FirmwareNode::simLog` -> `logScriptLog`), so a
+// single new line here would move every corpus row that reaches either of the two PRE-EXISTING removal sites —
+// making the S5 behaviour change unmeasurable against §12.2's byte-identity rule. The two old sites keep their
+// own emits (`mobile_evict_alias`, `presence_prune_stale`) verbatim; only the genuinely NEW path
+// (`mobile_reg_age_out`) adds an event, where a mover would be the behaviour change itself and attributable.
+// ⇒ the refactor half of this slice is byte-inert BY CONSTRUCTION rather than by hope.
+// ⓘ `reason` is consumed by the caller-side emits, not here; it is retained in the signature because §9.3 names
+//   `mobile_reg_remove(slot, reason)` and a future administrative removal should not have to invent a channel.
+void Node::mobile_reg_remove(uint8_t slot, [[maybe_unused]] const char* reason) {
+    if (slot >= _active->_mobile_reg_n) return;                       // C2: never compact past the live count
+    for (uint8_t k = slot; k + 1 < _active->_mobile_reg_n; ++k) {
+        _active->_mobile_reg[k]    = _active->_mobile_reg[k + 1];
+        _active->_mobile_snr_q4[k] = _active->_mobile_snr_q4[k + 1];
+    }
+    --_active->_mobile_reg_n;
+    // The vacated tail is reset. ⓘ **VERIFIED INERT TODAY, kept as defence-in-depth and labelled as such (V1):**
+    // the CLAIM record's aggregate init `{ hash, id, epoch, now }` re-initialises every later member from
+    // `HostMobileEntry`'s DEFAULT MEMBER INITIALISERS (redirect_*, ed_pub, has_pubkey, name, name_len,
+    // last_key_fwd_hash32, deleg_fail all have one), and `_mobile_snr_q4[slot]` is hard-assigned beside it — so no
+    // live reader inherits a corpse and this assignment changes no behaviour. It exists so that a future PARTIAL
+    // write into a recycled slot cannot silently inherit the previous mobile's pubkey, name or redirect.
+    _active->_mobile_reg[_active->_mobile_reg_n]    = LayerRuntime::HostMobileEntry{};
+    _active->_mobile_snr_q4[_active->_mobile_reg_n] = 0;
+}
+
+// ★★★ §MH-S5 §9.1/§9.2 — **THE 25-MINUTE PHYSICAL EXPIRY, DIRECT *AND* REDIRECT.** Until this slice
+// `protocol::mobile_liveness_ms` had exactly ONE consumer — the hash-locate proxy gate — so past 25 minutes the
+// home stopped answering FOR the mobile and changed nothing else: the row stayed in the registry, in every
+// roster, and holding its local id for ever (§S0-5 pinned all three).
+//
+// ⛔⛔ **NO NEW TIMER ID, AND NONE WAS AVAILABLE.** `TimerWheel::kCap` is 91, the top allocated id is 90 and
+// every id in between is taken, so this is a DEADLINE SCAN on the existing periodic `kAgingTimerId` sweep — the
+// same shape §MH-S2 gave the OFFER ring on timer 80, and the `age_out_parked_sends` / `id_bind_age_out` /
+// `age_out_rreq_last` idiom this sweep already hosts (U1). It is additionally called at the two points §9.3
+// names where a STALE ROW WOULD CHANGE A DECISION, so the 60-second sweep granularity can never be observed by
+// the two consumers that matter:
+//   · `find_free_mobile_id` — before allocating an id or refusing because `cap_host_mobiles` is full;
+//   · `presence_emit_roster` — before advertising the rows.
+// ⚠ RESIDUAL, STATED: the channel-coverage readers (`flood_mark_direct_neighbours` / `flood_any_unmarked`,
+//   node_channel.cpp) are `const` and are NOT hooked. They can therefore over-cover a dead mobile for at most
+//   `rt_aging_check_period_ms` (60 s) past the boundary — a bounded extra re-flood, never a stale delivery, and
+//   the alternative was a const_cast or a mutating call inside a const predicate. Named rather than hidden.
+//
+// ★ ONE PREDICATE FOR BOTH ROW KINDS, and that is a design decision with a reason: §9.2 asks for the redirect
+// lifetime to be "stamped at breadcrumb receipt" and then to "be removed under the same age-out sweep".
+// `last_heard_ms` IS the row's lifetime clock and the breadcrumb handler now restamps it
+// (`node_mac_rx.cpp`'s DATA_TYPE_MOBILE_BREADCRUMB arm), so the two lifetimes are the same arithmetic on the
+// same field. ⛔ A SECOND `uint64_t redirect_stamp_ms` WAS CONSIDERED AND DECLINED: it would add 8 B ×
+// cap_host_mobiles(16) × MR_N_LAYERS to `sizeof(Node)` (D2, the ten-env sweep) to store a value that is
+// definitionally the last thing this home heard ABOUT this mobile. ⓘ Restamping is safe for the proxy gate
+// because the redirect answer at `node_hashlocate.cpp` tests `redirect_home_id != 0` FIRST and is deliberately
+// NOT liveness-gated, so a fresher stamp cannot resurrect a direct proxy answer for a redirected row.
+void Node::mobile_reg_age_out() {
+    if (_active->_mobile_reg_n == 0) return;                          // non-host / empty -> inert (static-mesh byte-identical)
+    const uint64_t now = _hal.now();
+    // Descending so a compaction cannot skip the row that slides into the vacated slot.
+    for (uint8_t i = _active->_mobile_reg_n; i-- > 0; ) {
+        if (now - _active->_mobile_reg[i].last_heard_ms < protocol::mobile_liveness_ms) continue;
+        const bool redirect = (_active->_mobile_reg[i].redirect_home_id != 0);
+        MR_EMIT("mobile_reg_expired", EF_I("local_id", _active->_mobile_reg[i].mobile_local_id),
+                EF_I("key", static_cast<int64_t>(_active->_mobile_reg[i].key_hash32)),
+                EF_I("age_ms", static_cast<int64_t>(now - _active->_mobile_reg[i].last_heard_ms)),
+                EF_I("redirect", redirect ? 1 : 0));
+        mobile_reg_remove(i, redirect ? "redirect_expiry" : "direct_expiry");
+    }
+}
+
 // A probe heard (LEAF-FREE): refresh the hosted mobile's liveness + SNR EWMA + key custody, then schedule ONE
 // coalesced roster. Answers ONLY for a mobile we CURRENTLY host (a `lost` probe from a hosted mobile = the
 // one-way-deaf recovery). A probe from a non-hosted mobile is ignored (registration is the J plane's job, D8).
@@ -698,8 +780,7 @@ void Node::presence_ingest_probe(const uint8_t* frame, size_t len, const RxMeta&
     if (mine >= 0 && !searching) {
         if (!sel_me) {                                              // §S6 rev2: the mobile selected ANOTHER home -> PRUNE my stale entry NOW (instant registry self-heal)
             const uint8_t m = static_cast<uint8_t>(mine);
-            for (uint8_t k = m; k + 1 < _active->_mobile_reg_n; ++k) { _active->_mobile_reg[k] = _active->_mobile_reg[k+1]; _active->_mobile_snr_q4[k] = _active->_mobile_snr_q4[k+1]; }
-            _active->_mobile_reg_n--;
+            mobile_reg_remove(m, "probe_selected_elsewhere");   // §MH-S5 §9.3: the ONE compaction primitive (was open-coded here); emits nothing, so the line below stays the stream's only event
             MR_EMIT("presence_prune_stale", EF_I("was", m), EF_I("selected", p->selected_home_id));
             return;                                                 // do NOT answer (only the selected home does)
         }
@@ -1020,6 +1101,11 @@ void Node::presence_mark_deleg_fail(uint32_t mobile_hash) {
 void Node::presence_emit_roster() {
     if (!can_host_mobiles()) return;                                 // ★ §B132: a roster ADVERTISES "I am the home of these mobiles" — an ineligible node must never emit one. Gated HERE because this is the single choke point for all SIX schedule paths (evict_aliased_hosted_mobile, the CLAIM record, the two presence_ingest_probe answers, presence_mark_deleg_fail, presence_roster_fire), so no future caller can route around the invariant. Inert for an eligible host by construction.
     if (_node_id == 0) return;                                       // §S6/QA-1: never broadcast a roster with home_id=0 garbage while mid-join/unprovisioned (SAME suspend as the OFFER gate)
+    // ★ §MH-S5 §9.3 — "…before emitting a roster". A roster is the home's public claim *"I host these mobiles"*, so
+    // an expired row must never appear in one; the sweep runs before the count is read, not after (§S0-5 asserted
+    // the opposite: a mobile 50 minutes silent was still advertised). Ordered AFTER the `_node_id`/eligibility gates
+    // so an ineligible node still mutates nothing.
+    mobile_reg_age_out();
     if (_active->_mobile_reg_n == 0 && !_active->_roster_echo_pending) return;   // §S6 rev2: an EMPTY home still answers a searching-probe canvass (echo only)
     PRosterEntry ents[protocol::cap_host_mobiles];
     uint8_t n = 0;

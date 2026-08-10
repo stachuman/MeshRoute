@@ -212,14 +212,13 @@ struct DualLayerTestAccess {
     static void     store_mobile(Node& n, uint32_t key_hash, uint8_t local_id) {                       // §mobile 3a: register a mobile on this host
         auto& L = *n._active; L._mobile_reg[L._mobile_reg_n++] = { key_hash, local_id, 1, n._hal.now() };
     }
-    static void     drive_post_ack_deliver(Node& n, uint8_t origin, uint32_t dst_hash) {               // §mobile 3a: a DM addressed to me carrying a DST_HASH -> run do_post_ack
-        auto& pa = n._active->_post_ack; pa = PostAck{};
-        pa.pending = true; pa.is_forward = false; pa.origin = origin; pa.dst = n._node_id;
-        pa.ctr = 0x1234; pa.ctr_lo = 4; pa.flags = DATA_FLAG_DST_HASH; pa.type = 0;
-        pa.inner[0] = static_cast<uint8_t>(dst_hash); pa.inner[1] = static_cast<uint8_t>(dst_hash >> 8);
-        pa.inner[2] = static_cast<uint8_t>(dst_hash >> 16); pa.inner[3] = static_cast<uint8_t>(dst_hash >> 24);
-        pa.inner[4] = origin; pa.inner[5] = 0xAA; pa.inner_len = 6;   // [dst_hash 4B LE][origin][body]
-        n.do_post_ack();
+    // §mobile 3a: a DM addressed to me carrying a DST_HASH -> run do_post_ack.
+    // ★ §MH-S5 — DELEGATES to `Node::test_drive_deliver_for_hash` (node.h) instead of keeping a second copy of the
+    // PostAck scaffold: §9.4's expired-id-return case needs the SAME drive from `test_node_join.cpp`, and two
+    // hand-maintained copies of a production inner layout is exactly the drift U1 forbids. Byte-for-byte the same
+    // fields as before.
+    static void     drive_post_ack_deliver(Node& n, uint8_t origin, uint32_t dst_hash) {
+        n.test_drive_deliver_for_hash(origin, dst_hash);
     }
     static void     drive_post_ack_intro(Node& n, uint8_t origin, uint32_t src_hash, const uint8_t* body, uint8_t body_len) {   // §S2: a received INTRO (type 15) addressed to US: inner = [dst_hash 4][origin][source_hash 4][body...]
         auto& pa = n._active->_post_ack; pa = PostAck{};

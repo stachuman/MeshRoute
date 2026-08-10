@@ -1269,6 +1269,7 @@ void Node::on_timer(uint32_t timer_id) {
         age_out_stale_routes();
         id_bind_age_out();            // hash-locate A0: drop expired bindings on the same periodic sweep
         mobile_home_age_out();        // §mobile 3c: TTL-drop the sender-side mobile_hash->home cache on the same sweep
+        mobile_reg_age_out();         // ★ §MH-S5 §9.1/§9.2: physically expire HOSTED-mobile rows (direct AND redirect) at mobile_liveness_ms — the deadline scan §9.3 requires "from the normal aging timer". ⛔ NO new timer id (kCap stays 91)
         age_out_parked_sends();       // hash-locate D: give up on DMs whose hash never resolved
         age_out_pending_id_pubkey();  // §id-hash S4b (spec §5 step 5): give up on by-id reqpubkeys whose id never resolved
         age_out_denied_ids();         // node_id DAD: a denied slot becomes reusable after dad_denied_id_ttl_ms

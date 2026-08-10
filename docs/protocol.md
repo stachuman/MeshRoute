@@ -402,6 +402,25 @@ re-register now; probe naming ANOTHER home ⇒ that registry prunes instantly; u
 minutes (not the old 30); weak quality ⇒ pre-scan and **proactively re-home** (bottleneck-direction ranking,
 dwell + hysteresis) while both homes are alive — the new home then notifies the old (§10 staleness).
 
+★★ **Host rows are MORTAL, and this is new in §MH-S5 (2026-08-10).** Until that slice `protocol::mobile_liveness_ms`
+(25 min) had exactly ONE consumer — the hash-locate proxy gate — so past the boundary the home stopped answering FOR
+a silent mobile and changed nothing else: the row stayed in the registry, in every roster, and holding its local id
+for ever. Now `mobile_reg_age_out()` **physically compacts the row out** at that boundary through one
+`mobile_reg_remove(slot, reason)` primitive that also compacts every parallel array. It is a **deadline scan on the
+existing periodic aging sweep** (no timer id was available: the wheel's cap is 91 and all are consumed) and it is
+additionally run **before an id is allocated** and **before a roster is emitted**, so the 60-second sweep period is
+invisible to the two decisions that could otherwise act on a corpse.
+- **A REDIRECT row gets its OWN full lifetime, stamped at BREADCRUMB RECEIPT**, so a sender holding the 5-minute
+  mobile-home cache always has a bounded window to follow the breadcrumb instead of being black-holed.
+- ★ **The asymmetry is intended:** the mobile detects loss in minutes (§14.2), the old home deliberately retains the
+  row far longer so delayed traffic can still be redirected. Silence eventually expires both sides; nothing is immortal.
+- ★★ **A local id may therefore be REUSED, and every last-mile decision is HASH-ANCHORED for exactly that reason.**
+  A mobile that returns after half an hour finds its remembered local id may belong to somebody else: its stale P
+  exchange cannot confirm (the roster carries that id under another hash), it enters `recovering`, and it is issued a
+  currently-free id by ordinary discovery. ⛔ **The epoch is NOT the collision protection** — it distinguishes
+  generations of ONE mobile, never two different mobiles; hash matching plus reservation-aware id selection do, with
+  the targeted CLAIM DENY as a residual race backstop only.
+
 ### 14.1 Attachment is CONFIRMED, and the three planes are separate (§MH-S4, 2026-08-08)
 
 ⛔ **Registration is not one-dimensional.** Three different questions have three different authorities, and no

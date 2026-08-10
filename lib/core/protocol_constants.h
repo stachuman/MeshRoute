@@ -824,7 +824,21 @@ inline constexpr uint32_t mobile_boot_jitter_ms          = 2000;     // MOBILE: 
 inline constexpr uint32_t mobile_claim_jitter_ms         = 1000;     // MOBILE: 0..this ADDED to the collect window
 inline constexpr uint32_t mobile_home_lost_ms            = 90000;    // no BCN from home -> re-register
 inline constexpr uint32_t mobile_reclaim_ms              = 600000;   // 10-min periodic re-CLAIM (self-heal + refresh)
-inline constexpr uint32_t mobile_liveness_ms            = 1500000;  // §mobile hash-locate: the home proxies for a mobile ONLY if heard within 25 min (≈2.5× re-CLAIM) — kills the long-term black hole; a just-died mobile is proxied ≤~25 min then goes silent
+// §mobile hash-locate: the home proxies for a mobile ONLY if heard within 25 min (≈2.5× re-CLAIM) — kills the
+// long-term black hole; a just-died mobile is proxied ≤~25 min then goes silent.
+// ★★ §MH-S5 §9.1/§9.2 — IT IS NOW A GENUINE PHYSICAL EXPIRY, NOT ONLY A PROXY GATE, and the difference matters to
+// anyone reading this line. Until S5 this constant had EXACTLY ONE consumer (the proxy answer in
+// `node_hashlocate.cpp`): past 25 minutes the home stopped answering FOR the mobile and changed nothing else — the
+// registry row, its roster advertisement and its hold on a local id all survived for ever (pinned by §S0-5).
+// `Node::mobile_reg_age_out()` (node_join.cpp) now COMPACTS the row out at this boundary, and the SAME boundary
+// governs a REDIRECT row from breadcrumb receipt (§9.2). ⇒ this value is the *slow backstop* for the case where no
+// re-home ever happens — the mobile detects loss far earlier (≈70 s weak … ≈490 s strong, §7.2) — and it is now
+// simultaneously the proxy horizon, the direct-row lifetime and the redirect-row lifetime.
+// ★ THE ASYMMETRY IS INTENDED (§9.1): the old home deliberately RETAINS the row far longer than the mobile takes to
+// notice loss, so delayed traffic still lands and can be redirected rather than black-holed.
+// ⛔ Also a THIRD consumer since S5: §8.2's candidate freshness (`presence_maybe_rehome` /
+//    `presence_note_candidate`) uses it as "an observation this old proves nothing".
+inline constexpr uint32_t mobile_liveness_ms            = 1500000;
 inline constexpr uint8_t  cap_learned_layers             = 4;        // §mobile 5a: neighbouring layers a mobile LEARNS (pulls from a gateway) to cross to on home-lost
 inline constexpr uint32_t learned_layer_ttl_ms           = 3600000;  // §mobile 5a: 1 h (layer records are static)
 inline constexpr uint32_t mobile_layer_query_period_ms   = 600000;   // §mobile 5a: 10-min directory refresh while connected

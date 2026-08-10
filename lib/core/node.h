@@ -452,6 +452,23 @@ public:
     void restart_discovery();    // re-enter discovery (fast beacon cadence + REQ_SYNC pull) to rebuild routes
     uint8_t           rt_count()       const { return _active->_rt_count; }
     uint8_t           mobile_reg_count() const { return _active ? _active->_mobile_reg_n : 0; }   // §mobile 2a: mobiles registered to this host (test/diagnostic accessor)
+    // ★★★ §MH-S5 §10 / [[B154]] — **THE PER-ROW HOSTING VIEW: DIRECT-OR-REDIRECT PLUS ITS AGE.** §10 required it
+    // ("The host `routes`/hosting section should print each row as direct or redirect plus its age") and the FIELD
+    // LEDGER reassigned it to S5 because it belongs with §9's row lifetime: the age is exactly the quantity the
+    // 25-minute expiry acts on, so a bench operator seeing `age=24m` knows the row is one minute from removal.
+    // ⓘ Read-only projection, zero new state. `false` = index past the live count.
+    // ⓘ `age_ms` is the ROW LIFETIME clock (§9.2), which for a redirect row is measured from BREADCRUMB RECEIPT —
+    //   the same value `mobile_reg_age_out()` tests, so the display and the decision cannot disagree.
+    bool              host_mobile_row(uint8_t i, uint32_t& key_hash32, uint8_t& local_id, bool& redirect,
+                                      uint8_t& redirect_home_id, uint64_t& age_ms) const {
+        if (!_active || i >= _active->_mobile_reg_n) return false;
+        const auto& e = _active->_mobile_reg[i];
+        key_hash32 = e.key_hash32; local_id = e.mobile_local_id;
+        redirect = (e.redirect_home_id != 0); redirect_home_id = e.redirect_home_id;
+        const uint64_t now = _hal.now();
+        age_ms = (now >= e.last_heard_ms) ? (now - e.last_heard_ms) : 0;
+        return true;
+    }
     bool              mobile_reg_at(uint8_t i, uint32_t& key_hash, uint8_t& local_id, bool& has_pubkey) const {   // §mobile: read a hosted-mobile entry (the `routes` dump)
         if (!_active || i >= _active->_mobile_reg_n) return false;
         const auto& e = _active->_mobile_reg[i]; key_hash = e.key_hash32; local_id = e.mobile_local_id; has_pubkey = e.has_pubkey; return true; }
@@ -615,7 +632,32 @@ public:
     uint8_t           mobile_offers_n() const { return _mobile_offers_n; }                        // §mobile 2b: OFFERs collected this window (test/diag)
     uint8_t           mobile_scan_idx()   const { return _mobile_scan_idx; }                      // §MH-S4 §10: current scan index / count
     uint8_t           mobile_scan_count() const { return scan_set_count(); }
-    uint8_t           mobile_candidate_count() const { return _presence_cand_n; }                 // §MH-S4 §10: candidate homes collected passively (the VERIFIED-candidate count is S5's and is deliberately not faked here)
+    uint8_t           mobile_candidate_count() const { return _presence_cand_n; }                 // §MH-S4 §10: candidate homes collected passively
+    // ★★★ §MH-S5 §10 / [[B154]] — **THE VERIFIED-CANDIDATE COUNT.** §MH-S4 deliberately left this ABSENT rather than
+    // zero-faked; this is it, and it is DERIVED, not stored (zero new state ⇒ `sizeof(Node)` unmoved).
+    // ★ "Verified" is §8.1's own definition and BOTH halves are load-bearing:
+    //   · `echo_tier != 0xFF` — the candidate echoed one of OUR probes, so BOTH link directions are proven. A
+    //     beacon or an echo-less roster proves reception in one direction and willingness to host in NEITHER, and
+    //     §8.1 says outright: "⛔ A beacon is only a hint."
+    //   · FRESH within `mobile_liveness_ms` (§8.2) — an old verification is not "recent bidirectional
+    //     verification". ⛔ Counting stale rows here would make the field disagree with the switching decision it
+    //     exists to explain, which is the display-shaped-field defect this plane keeps producing.
+    // ⇒ the number a surface renders is the number `presence_maybe_rehome` would actually consider.
+    uint8_t           mobile_verified_candidate_count() const {
+#if MR_FEAT_MOBILE
+        const uint64_t now = _hal.now();
+        uint8_t n = 0;
+        for (uint8_t i = 0; i < _presence_cand_n; ++i) {
+            if (_presence_cand[i].echo_tier == 0xFF) continue;
+            if (_presence_cand[i].incompatible) continue;
+            if (now - _presence_cand[i].last_seen_ms >= protocol::mobile_liveness_ms) continue;
+            ++n;
+        }
+        return n;
+#else
+        return 0;
+#endif
+    }
     // ★ §MH-S1 §10 "last result" — the outcome of the mobile's most recent attachment attempt.
     // ⛔ IT IS NOT A LINK STATE. §6.4: a `tx_rejected`/`defer_full` here is a statement about OUR OWN
     // transmitter and must NEVER be rendered as, or promoted into, a home-link verdict (gate 20).
@@ -785,6 +827,41 @@ public:
     // ★ §hybrid-rts S2b white-box: the home-liveness clock, so a test can prove an UNBOUND terminal CTS does NOT
     // refresh it (the ordering defect S2 shipped). Read-only; adds no state.
     uint64_t          test_last_heard_home_ms() const { return _my_mobile_reg.last_heard_home_ms; }
+    // ★★★ §MH-S5 §9.4 STEP 8 — drive the HOST LAST-MILE DECISION for a DM that arrived addressed to us and carries
+    // an inner DST_HASH. This is the decision the spec requires to be **hash-anchored, never local-id-anchored**:
+    // after a 25-minute row expiry the departed mobile's local id may belong to a DIFFERENT mobile, so a DM for the
+    // OLD hash must reach nobody rather than reach the new holder of that id.
+    // ⓘ THE INNER LAYOUT IS THE PRODUCTION ONE, not an approximation: `[dst_hash 4B LE][origin][body…]` behind
+    //   `DATA_FLAG_DST_HASH`, which is what `parse_unicast_inner` reads.
+    // ⓘ U1 — `test_dual_layer.cpp`'s `DualLayerTestAccess::drive_post_ack_deliver` now DELEGATES here instead of
+    //   keeping its own copy of this scaffold, so the two cannot drift apart.
+    void              test_drive_deliver_for_hash(uint8_t origin, uint32_t dst_hash) {
+        auto& pa = _active->_post_ack; pa = PostAck{};
+        pa.pending = true; pa.is_forward = false; pa.origin = origin; pa.dst = _node_id;
+        pa.ctr = 0x1234; pa.ctr_lo = 4; pa.flags = DATA_FLAG_DST_HASH; pa.type = 0;
+        pa.inner[0] = static_cast<uint8_t>(dst_hash);       pa.inner[1] = static_cast<uint8_t>(dst_hash >> 8);
+        pa.inner[2] = static_cast<uint8_t>(dst_hash >> 16); pa.inner[3] = static_cast<uint8_t>(dst_hash >> 24);
+        pa.inner[4] = origin; pa.inner[5] = 0xAA; pa.inner_len = 6;
+        do_post_ack();
+    }
+    // ★★★ §MH-S5 §9.2 / gate 14 — drive the REAL `DATA_TYPE_MOBILE_BREADCRUMB` handler (a moved mobile's new home
+    // telling us we are stale), so the redirect conversion AND its lifetime stamp are exercised by the production
+    // code rather than by a white-box poke into `redirect_home_id` — which would bypass the one line under test.
+    // ⓘ Inner layout for SOURCE_HASH without DST_HASH, read off `parse_unicast_inner` (V1, frame_codec.cpp:1030-1036):
+    //   `[origin][source_hash 4B LE][body…]`, body = `[new_home_id][new_epoch][new_home_layer]` (§S6.4-D's packer).
+    void              test_drive_breadcrumb(uint8_t origin, uint32_t mobile_hash,
+                                            uint8_t new_home_id, uint8_t new_epoch, uint8_t new_home_layer) {
+        auto& pa = _active->_post_ack; pa = PostAck{};
+        pa.pending = true; pa.is_forward = false; pa.origin = origin; pa.dst = _node_id;
+        pa.ctr = 0x1235; pa.ctr_lo = 5; pa.flags = DATA_FLAG_SOURCE_HASH; pa.type = DATA_TYPE_MOBILE_BREADCRUMB;
+        uint8_t o = 0;
+        pa.inner[o++] = origin;
+        pa.inner[o++] = static_cast<uint8_t>(mobile_hash);       pa.inner[o++] = static_cast<uint8_t>(mobile_hash >> 8);
+        pa.inner[o++] = static_cast<uint8_t>(mobile_hash >> 16); pa.inner[o++] = static_cast<uint8_t>(mobile_hash >> 24);
+        pa.inner[o++] = new_home_id; pa.inner[o++] = new_epoch; pa.inner[o++] = new_home_layer;
+        pa.inner_len = o;
+        do_post_ack();
+    }
 #endif
     // A heard 1-hop gateway's stored window schedule (nullptr if none known) + the ms to defer an RTS to its window.
     // For the `routes` console dump: surface a gateway route's unique state (period / per-leaf windows / heard-age).
@@ -1378,6 +1455,11 @@ private:
     // §S6 presence plane (home side) — always compiled (a home is a static); host-gated (dormant on a non-host).
     void    presence_ingest_probe(const uint8_t* frame, size_t len, const RxMeta& meta);   // home: a probe heard -> refresh registry + SNR EWMA + custody; schedule a coalesced roster
     void    mobile_reg_touch(uint8_t slot, int16_t snr_q4);    // §3-D: refresh a hosted mobile's last_heard_ms + step its per-mobile SNR EWMA. ONE path shared by the probe (node_join) + beacon (node_beacon) sites so the triple-site (CLAIM seeds; these two update) can't drift. NOT used by CLAIM (which SEEDS a fresh slot, not EWMA-updates).
+    // ★★★ §MH-S5 §9.3 — the ONE removal primitive (row + EVERY parallel array) and the 25-minute deadline scan
+    // that drives it. Contract + the declined-alternative record live at the definitions in `node_join.cpp`.
+    // ⛔ `mobile_reg_age_out()` allocates NO timer id — `TimerWheel::kCap` stays 91 (asserted, gate 16).
+    void    mobile_reg_remove(uint8_t slot, const char* reason);   // compact `_mobile_reg` + `_mobile_snr_q4`; the caller owns any roster consequence
+    void    mobile_reg_age_out();                              // §9.1/§9.2: physically expire direct AND redirect rows at `mobile_liveness_ms`
     void    presence_roster_fire();                            // kPresenceRosterTimerId: emit ONE coalesced roster
     void    presence_schedule_roster();                        // arm the coalesce timer (rate-limit floored)
     void    presence_mark_deleg_fail(uint32_t mobile_hash);    // §B2: a delegated send for this hosted mobile failed loud -> set the roster deleg_fail bit + schedule a roster
@@ -2996,6 +3078,13 @@ private:
         // §mobile 2a (host registration): mobiles this host has accepted. Populated on a mobile CLAIM (claim-stands, no
         // reply); mobile_local_id is host-assigned from 17..254 (may overlap a global id — the Slice-1 mark disambiguates).
         // Per-leaf (a host serves one leaf). DORMANT unless a mobile registers -> the static mesh is unaffected.
+        // ★★ §MH-S5 §9.1/§9.2 — `last_heard_ms` IS **THE ROW'S LIFETIME CLOCK**, and its meaning is now wider than
+        // its name: for a DIRECT row it is the last direct evidence of the mobile (CLAIM / probe / beacon, via
+        // `mobile_reg_touch`); for a REDIRECT row it is re-stamped at BREADCRUMB RECEIPT so §9.2's redirect gets its
+        // own full `mobile_liveness_ms` rather than inheriting the direct row's remaining time.
+        // `mobile_reg_age_out()` applies ONE predicate to both kinds. ⛔ A separate `redirect_stamp_ms` was measured
+        // and DECLINED: 8 B × cap_host_mobiles(16) × MR_N_LAYERS of RAM to store a value that is definitionally the
+        // last thing this home heard ABOUT this mobile (and it would have moved `sizeof(Node)` ⇒ D2).
         struct HostMobileEntry { uint32_t key_hash32; uint8_t mobile_local_id; uint16_t epoch; uint64_t last_heard_ms;
                                  uint8_t redirect_home_id = 0; uint8_t redirect_epoch = 0; uint8_t redirect_home_layer = 0;
                                  uint8_t ed_pub[32] = {}; bool has_pubkey = false;

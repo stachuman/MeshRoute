@@ -672,7 +672,28 @@ void Node::presence_on_adopt() {
     _mobile_claim_retries     = 0;                                 // §7.1: a fresh attachment gets the full bounded re-CLAIM budget
     _mobile_claim_solicited   = false;                             // §7.1 step 3: we have not asked yet — the next deadline SENDS the solicitation
     _last_adopt_ms = _hal.now();
-    _presence_cand_n = 0;                                          // a fresh home -> forget stale candidates
+    // ★★ §MH-S5 §8.2 — **"RETAIN OTHER FRESH CANDIDATES AFTER AN ADOPT; REMOVE/UPDATE THE CHOSEN HOME INSTEAD OF
+    // CLEARING THE TABLE."** `_presence_cand_n = 0` stood here — every adopt threw away the whole passively-gathered
+    // table, so a mobile that had just re-homed was blind to every alternative it had already heard and had to
+    // rediscover them from scratch. That is the opposite of §8.1's "collected passively … zero transmissions": the
+    // cheapest knowledge in the plane was being discarded at the one moment it is most likely to be needed again.
+    // ⇒ the chosen home's own row is REMOVED (it is no longer a *candidate*, it is the home — and
+    //   `presence_note_candidate` skips it from now on), and every OTHER row is kept subject to §8.2's freshness,
+    //   which `presence_maybe_rehome` enforces at selection.
+    // ⛔ STALE ROWS ARE DROPPED HERE TOO, not left for the evict-stalest allocator: an entry older than
+    //    `mobile_liveness_ms` can never be selected again (the §8.2 gate below refuses it) but it WOULD still
+    //    occupy one of the eight slots against a genuinely fresh candidate.
+    {
+        const uint64_t now_a = _hal.now();
+        uint8_t keep = 0;
+        for (uint8_t i = 0; i < _presence_cand_n; ++i) {
+            if (_presence_cand[i].home_id == _my_mobile_reg.home_id) continue;               // the chosen home: not a candidate
+            if (now_a - _presence_cand[i].last_seen_ms >= protocol::mobile_liveness_ms) continue;   // §8.2: unusable, so do not hold a slot
+            if (keep != i) _presence_cand[keep] = _presence_cand[i];
+            ++keep;
+        }
+        _presence_cand_n = keep;
+    }
     // ★★★★ §MH-S4b §7.1 step 3 — **THE CONFIRMATION DEADLINE IS SHORT, AND IT IS NOT THE STEADY CHECK PERIOD.**
     // §MH-S4 armed `_presence_T_ms` here (120 000 ms at the `ok` tier), so a mobile whose CLAIM was lost sat
     // provisionally attached for two minutes before anything asked, and §7.1 step 3's "short jittered searching
@@ -981,6 +1002,27 @@ void Node::presence_note_candidate(uint8_t home_id, uint8_t home_layer, int16_t 
     const uint64_t now = _hal.now();
     for (uint8_t i = 0; i < _presence_cand_n; ++i)
         if (_presence_cand[i].home_id == home_id && _presence_cand[i].home_layer == home_layer) {
+            // ★★ §MH-S5 §8.2 — **A CANDIDATE HEARD AFTER A `mobile_liveness_ms` GAP IS A FRESH OBSERVATION, NOT A
+            // CONTINUATION.** §8.2: "if a candidate is heard after that gap, reset `first_seen_ms`, `echo_tier`, and
+            // incompatibility evidence appropriate to a fresh observation", and "`first_seen_ms` alone never proves
+            // sustained availability". Without this, an entry seen once an hour ago and once now satisfies the
+            // 60-second sustained-availability hold (`presence_candidate_hold_ms`) on `first_seen_ms` alone — the
+            // exact "an old measurement standing in for a current one" shape §8.2 exists to close.
+            // ⛔ AND THE SNR IS HARD-ASSIGNED, NOT EWMA-STEPPED, ON THAT PATH: the retained EWMA describes a link
+            //    that has been unobservable for 25 minutes, so smoothing the new sample into it would carry stale
+            //    evidence into a switching decision. `echo_tier` goes back to 0xFF (unknown) for the same reason —
+            //    a verification from before the gap is not "recent bidirectional verification" (§8.4).
+            // ⓘ `incompatible` is cleared too: §D16's evidence is a wrong-`wire_version` roster, and after a gap
+            //   that long the home may have been reflashed. A fresh foreign roster re-marks it immediately.
+            if (now - _presence_cand[i].last_seen_ms >= protocol::mobile_liveness_ms) {
+                _presence_cand[i].snr_q4       = snr_q4;
+                _presence_cand[i].echo_tier    = 0xFF;
+                _presence_cand[i].incompatible = false;
+                _presence_cand[i].first_seen_ms = now;
+                _presence_cand[i].last_seen_ms  = now;
+                MR_EMIT("presence_cand_refreshed", EF_I("home", home_id), EF_I("layer", home_layer));
+                return;
+            }
             _presence_cand[i].snr_q4 = protocol::snr_ewma_step(_presence_cand[i].snr_q4, snr_q4);   // step() NOT update(): the slot is seeded at insertion, so no seed-if-zero (bit-identical to the old inline form)
             _presence_cand[i].last_seen_ms = now; return;
         }
@@ -1023,10 +1065,30 @@ void Node::presence_maybe_rehome() {
     for (uint8_t i = 0; i < _presence_cand_n; ++i) {
         if (_presence_cand[i].incompatible) continue;                                       // §D16: wrong-wire_version home -> never DISCOVER at it
         if (_presence_cand[i].home_id == _my_mobile_reg.home_id) continue;
-        if (_presence_cand[i].home_layer != active_layer_id()) continue;                    // same-PHY candidates only (cross-layer proactive re-home deferred)
+        // ★★ §MH-S5 §8.2 — **FRESHNESS AT SELECTION: "reject a candidate at selection if
+        // `now - last_seen_ms >= mobile_liveness_ms`".** This is the SECOND half of the freshness rule and it is not
+        // redundant with the reset above: a candidate that is never heard again is never re-entered, so nothing
+        // resets it — its row simply sits in the table until evicted as stalest, and `first_seen_ms` keeps
+        // satisfying the 60-second hold for ever. A switch away from a working home toward a node last heard half
+        // an hour ago is the failure this line refuses.
+        if (now - _presence_cand[i].last_seen_ms >= protocol::mobile_liveness_ms) continue;
+        // ★★ §MH-S5 §8.4 — **A VERIFIED CANDIDATE MAY ADVERTISE ANOTHER FULL LAYER ID.** §8.4: "Equality of the
+        // layer nibble is not required: a same-PHY candidate advertising another full layer id remains valid once
+        // verified, so remove the unconditional `candidate.home_layer != active_layer_id()` rejection for verified
+        // roster candidates." The rejection SURVIVES for unverified ones, which is what keeps the widening safe.
+        // ★ WHY "SAME-PHY" IS SATISFIED BY CONSTRUCTION rather than by a new check (V1): every entry in this table
+        //   arrives through `presence_ingest_roster` / a beacon RX, i.e. it was received ON THE PHY THE RADIO IS
+        //   CURRENTLY TUNED TO. So a candidate in this table is same-PHY by definition; only its layer NIBBLE can
+        //   differ, and that is precisely the mixed-leaf case §8.4 wants to allow.
+        // ⛔ AND THE TEAM-PHY RESTRICTION IS PRESERVED, ALSO BY CONSTRUCTION (§8.4's ⚠, gate 26): the adopt below is
+        //    `reset + ordinary J discovery`, which enters `mobile_discover_fire` and is gated there by
+        //    `team_phy_ok(scan_phy(_mobile_scan_idx))`. This path never retunes the radio, so it cannot move a team
+        //    member off its provisioned team PHY — the widening is a LAYER-ID widening, never a PHY one.
+        const bool verified = (_presence_cand[i].echo_tier != 0xFF);
+        if (!verified && _presence_cand[i].home_layer != active_layer_id()) continue;
         // D14 candidate bottleneck = WORSE of (cand->me = my RX of its roster) and (me->cand = its echo, if known).
         const uint8_t cand_rx   = protocol::presence_quality_tier(_presence_cand[i].snr_q4);
-        const uint8_t cand_worst = (_presence_cand[i].echo_tier == 0xFF) ? cand_rx : std::min<uint8_t>(cand_rx, _presence_cand[i].echo_tier);
+        const uint8_t cand_worst = verified ? std::min<uint8_t>(cand_rx, _presence_cand[i].echo_tier) : cand_rx;
         if (cand_worst < home_worst + protocol::presence_rehome_tier_delta) continue;       // not enough better on the BOTTLENECK link (hysteresis)
         if (now - _presence_cand[i].first_seen_ms < protocol::presence_candidate_hold_ms) continue;  // not sustained
         MR_EMIT("presence_rehome", EF_I("from", _my_mobile_reg.home_id), EF_I("to", _presence_cand[i].home_id), EF_I("cand_tier", cand_worst), EF_I("home_tier", home_worst));

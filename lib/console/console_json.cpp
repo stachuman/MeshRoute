@@ -748,6 +748,7 @@ size_t write_mobile_status(char* buf, size_t cap, const MobileStatusFields& m) {
     j.lit(",\"scan_idx\":");        j.u32(m.scan_idx);
     j.lit(",\"scan_count\":");      j.u32(m.scan_count);
     j.lit(",\"candidates\":");      j.u32(m.candidates);
+    j.lit(",\"verified_candidates\":"); j.u32(m.verified_candidates);   // §MH-S5 §10 / [[B154]]: §8.1-verified AND §8.2-fresh, i.e. the set a voluntary switch may pick from
     j.ch('}');
     return j.finish();
 }

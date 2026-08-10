@@ -1214,6 +1214,7 @@ void handle_mobile(const char* args, Print& out) {
         m.scan_idx        = g_node.mobile_scan_idx();
         m.scan_count      = g_node.mobile_scan_count();
         m.candidates      = g_node.mobile_candidate_count();
+        m.verified_candidates = g_node.mobile_verified_candidate_count();   // §MH-S5 §10 / [[B154]]: the count a voluntary re-home may actually choose from (§8.1 authority + §8.2 freshness)
         m.layer   = c.layers[0].layer_id;
         const double pf = c.layers[0].freq_mhz > 0.0 ? c.layers[0].freq_mhz : g_freq_mhz;   // §mobile: live layer freq (fallback to boot/global if not yet adopted)
         m.freq_khz = meshroute::protocol::mhz_to_khz(pf);   // MHz double -> integer kHz (rounded; no float on the wire)

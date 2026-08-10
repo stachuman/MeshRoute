@@ -304,7 +304,23 @@ static void dump_cfg(Print& out) {
         const uint8_t h = g_node.mobile_home_id();
         out.print(F("  mobile-reg: ")); if (h) { out.print(F("REGISTERED home=")); out.println(h); } else out.println(F("UNREGISTERED (scanning)"));
     }
-    if (g_node.mobile_reg_count()) { out.print(F("  hosting=")); out.print(g_node.mobile_reg_count()); out.println(F(" mobile(s)")); }   // §mobile: this node is a host with registered mobiles
+    // ★★★ §MH-S5 §10 / [[B154]] — the per-row hosting view: each row as DIRECT or REDIRECT, plus its age.
+    // §10 asked for it and the FIELD LEDGER reassigned it here; before this the line printed only a COUNT, so a
+    // bench operator could not tell a live hosted mobile from a redirect breadcrumb, nor see how close either was
+    // to §9.1's 25-minute expiry. ⓘ Ages are printed in whole seconds — the boundary is 1500 s away, so ms
+    // resolution would be noise on a console line, and §9's decisions are all minute-scale.
+    if (g_node.mobile_reg_count()) {
+        out.print(F("  hosting=")); out.print(g_node.mobile_reg_count()); out.println(F(" mobile(s)"));
+        uint32_t kh = 0; uint8_t lid = 0, rh = 0; bool rd = false; uint64_t age = 0;
+        for (uint8_t i = 0; i < g_node.mobile_reg_count(); ++i) {
+            if (!g_node.host_mobile_row(i, kh, lid, rd, rh, age)) break;
+            out.print(F("    m[")); out.print(i); out.print(F("] hash=0x")); out.print(kh, HEX);
+            out.print(F(" local=")); out.print(lid);
+            if (rd) { out.print(F(" REDIRECT->")); out.print(rh); } else out.print(F(" DIRECT"));
+            out.print(F(" age=")); out.print(static_cast<uint32_t>(age / 1000)); out.print(F("s/"));
+            out.print(static_cast<uint32_t>(meshroute::protocol::mobile_liveness_ms / 1000)); out.println(F("s"));
+        }
+    }
     out.print(F("  member: lineage_id=")); out.print(c.lineage_id);          // R6.1 leaf-config membership: 0 = UNMANAGED. A managed leaf (lineage!=0) only routes same-lineage peers -> a lineage-0 gateway is silently dropped (node_beacon.cpp:462). This is the field to compare across nodes.
     out.print(F(" config_epoch="));     out.print(c.config_epoch);
     if (c.leaf_name_len) { out.print(F(" leaf_name=\"")); for (uint8_t i = 0; i < c.leaf_name_len; ++i) out.print(c.leaf_name[i]); out.print(F("\"")); }

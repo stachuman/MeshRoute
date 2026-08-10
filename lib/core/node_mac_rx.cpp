@@ -1506,6 +1506,16 @@ void Node::do_post_ack() {
                         _active->_mobile_reg[i].redirect_home_id    = ui->body[0];
                         _active->_mobile_reg[i].redirect_epoch      = ui->body[1];
                         _active->_mobile_reg[i].redirect_home_layer = ui->body[2];   // §5b: the new home's LAYER
+                        // ★★ §MH-S5 §9.2 — **"STAMP THE ROW'S LIFETIME CLOCK AT BREADCRUMB RECEIPT."** The row has
+                        // just changed KIND (direct -> redirect) and §9.2 gives the redirect its own full
+                        // `mobile_liveness_ms` from *this* moment, so stale senders holding the 5-minute mobile-home
+                        // cache have a bounded window to follow it. `last_heard_ms` IS the row's lifetime clock and
+                        // `mobile_reg_age_out()` applies one predicate to both kinds (node_join.cpp) — ⛔ a second
+                        // `redirect_stamp_ms` member was declined there (8 B × 16 × MR_N_LAYERS ⇒ D2).
+                        // ⓘ SAFE FOR THE PROXY GATE, checked not assumed (V1, `node_hashlocate.cpp`): the H-answer
+                        //   tests `redirect_home_id != 0` FIRST and that arm is deliberately NOT liveness-gated, so a
+                        //   fresher stamp can never resurrect a DIRECT proxy answer for a row that now redirects.
+                        _active->_mobile_reg[i].last_heard_ms       = _hal.now();
                         MR_EMIT("mobile_redirect_recorded", EF_I("m", i), EF_I("to", ui->body[0]), EF_I("epoch", ui->body[1]));
                         break;
                     }
