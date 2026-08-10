@@ -1,6 +1,1806 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # Delivery baseline suite — the result-comparison gate
 
+**★★★★★★★★★★★★★★★★★★★★★★★★★★ 2026-08-10 §HYBRID-RTS-S4d IS THE NEWEST NOTE (detail immediately after §HYBRID-RTS-S4c (8)) — it CLOSES ONE NARROW BLOCKER §HYBRID-RTS-S4c LEFT OPEN and every other figure S4/S4b/S4c published still stands.** ★★★★★★ **S4d IN ONE LINE: S4c made the flag's `true` side honest by renaming it; its **`false`** side was still dishonest, because the only writer sat at ONE CALLER's exit — so the single write MOVES to the ONE CROSSING POINT every admission passes (`tx_with_retry`, immediately after `_hal.tx()` returns `ok`), the `do_data_tx` writer is DELETED, and `basis=alternate_path`'s CATEGORICAL claim becomes true. ⛔ ZERO behaviour change, ⛔ NO per-path assignment added.** ★★★★★ **THE BLOCKER, VERIFIED AT ALL FOUR CITED SITES (V1): the only writer was `node_mac.cpp` `do_data_tx`'s `if (disp == TxHandOff::handed) pt.data_ever_admitted = true;` (the INITIAL path); a duty-deferred DATA can LATER be admitted at `duty_defer_fire`'s `tx_with_retry(...) != deferred_retry_armed` re-run, which **re-runs the send and never touched the flag**; the consumer maps `false` **CATEGORICALLY** to `basis=alternate_path` (`node_mac_rx.cpp`); and the spec defines that as *"no DATA has been admitted locally"* (design §5.2 item 2). ⇒ `true` meant "admission observed" but **`false` did NOT prove "alternate path"**.** ★★★★★★ **THE FIX IS A TOPOLOGY, AND IT IS [[B162]]'s REFUSAL-BANNER LESSON IN A SECOND SHAPE — *a guarantee made at one of several exits is not made at all*: EVERY admission (initial AND duty-deferred-retry) necessarily crosses `_hal.tx()` inside `tx_with_retry`, so establishing the fact THERE makes it EXACT rather than best-effort **and makes a future call path unable to bypass it**. ★ `retry_stashed` deliberately gets NO writer and the reasoning is IN-SOURCE: it is reachable only via `kRadioBusyRetryTimerId + slot` (`node.cpp:1417-1418`) armed only inside `on_radio_busy` (`node.cpp:2220`), which for the DATA slot can only report a frame the HAL had ALREADY taken ⇒ a prior successful admission at the crossing point is a PRECONDITION; and it only ever re-sends the STASHED bytes of that same frame, so it can never air a different flight's DATA (checked in BOTH directions).** ★★★★★★★ **⛔⛔ AND THE DISPATCH'S OWN GATE PREDICTION IS REFUTED — THE THIRD IN THREE ROUNDS, AND AGAIN A ONE-DIRECTION CLAIM: it said *"the corpus WILL likely move — some `alternate_path` credits should become `local_admitted`"* and *"do not predict inertness"*. MEASURED: **ALL 36 STREAMS ARE BYTE-IDENTICAL (raw md5, no substitution)**, census **49 · 36/13 · 45/3/1 in both arms** with the cross-split and the by-scenario set identical, because the ONLY newly-covered path is **CORPUS-DARK: `duty_cycle_blocked` with label `DATA` is ZERO across all 36 scenarios** (33 NACK · 11 RTS are the only duty blocks that fire). ⇒ nothing could move, and the credit census could not shift.** ★★★★ B162 authority **734 → 734**, `s06` **110**; PHY airtime **5 830 644 → 5 830 644 ms**; event counts and `0 assertion failure(s)` identical on all 36 rows. Native **1482/79741/0 → 1483/79761/0** (+1 case, +20 assertions), `grep -c "error:"` **0**, warnings **9 → 9 with an IDENTICAL per-file multiset** and ZERO from any file this slice touched, `-Wswitch` **0**. `sizeof(Node)` **221880** · `sizeof(PendingTx)` **352** (flag still at offset **347**, `is_gw_relay` at 346) · `sizeof(std::optional<PendingTx>)` **360** · `kCap` **91** · top timer **90** — **moving a writer adds no state, confirmed by compile-only reveal rather than assumed.** `lus` **`b6e9220f` → `9150ad1a`**, rebuild proven both directions (BEFORE: `cmake --build` **zero build actions**; AFTER: `node_mac.cpp` + `node_mac_rx.cpp` recompiled into **both** core libs). ★ **ONE MUTATION, at match count == 1 from `rm -rf .pio/build/native`, REPRODUCING THE ORIGINAL CONTROL FLOW rather than deleting a line — RED on exactly the intended assertion and nothing else (1 of 79761), reporting `alternate_path == local_admitted`** — plus a restore control (native **1483/79761/0**, `lus` back to **`9150ad1a`** byte-for-byte after 2 build actions). ⛔ The `^### 36/36 corpus` anchor table is NOT edited — proven by a FULL-REGION `diff` against `git show HEAD:` (EMPTY diff), ⛔ never by an md5 of a `sed` range. ⛔ **BOARD BUILDS AND `warning_census.sh` DID NOT RUN — standing owner instruction; NOTHING here implies they passed. An unrun gate is unrun.** ⛔ `≥733` stays **CONDITIONAL on [[B163]]** (open, untouched); [[B161]] open ⇒ **[[B153]] CANNOT be called closed.** ⛔ **[[B164]] is now OPEN FOR AIRING ONLY** — both post-admission drop mechanisms (`on_radio_busy`, `pump_tx()`'s failed arm) stand, and option **(b)** remains **DEFERRED, NOT DISMISSED.** ⛔ **`local_admitted` STILL LACKS OWNER APPROVAL and nothing here claims it.** ⛔ **S5, S6, (b)'s implementation, [[B158]], [[B159]], [[B160-COV]]/[[B160-SIB]], routing T1–T3, the parked mobile-home arc, the OLED UI and `tools/` NOT touched.** ⛔ UNCOMMITTED (D4). ⛔ **NO OWNER OR QA APPROVAL IS CLAIMED.**
+
+**★★★★★★★★★★★★★★★★★★★★★★★★★★ 2026-08-10 §HYBRID-RTS-S4c IS THE NEWEST NOTE (detail immediately after §HYBRID-RTS-S4b (9)) — it CORRECTS §HYBRID-RTS-S4b in ONE place and every other figure S4/S4b published still stands.** ★★★★★★ **S4c IN ONE LINE: `data_ever_transmitted` never meant “DATA aired” and was wrong in BOTH directions, so the field and the diagnostic label are RENAMED to what they measure — `data_ever_admitted` / `basis=local_admitted` — the spec's and the plan's OPERATIONAL text are amended, and [[B164]] is expanded to carry both mechanisms. ⛔ ZERO behaviour change.** ★★★★★ **THE BLOCKER, VERIFIED AT THE CODE: `TxHandOff::handed` only means `IHal::tx` returned `ok`, and `lib/hal/device_hal.cpp:10-12` says outright *“tx() ENQUEUES … Returns ok when queued”* with the on-air send deferred to `pump_tx()`. ⇒ (i) FALSE POSITIVE — `Node::on_radio_busy(FrameTag::data)` (`node.cpp:2191-2195`) refuses a frame the flag ALREADY booked and cannot unset it, and the path is EXERCISED: **652 `data_tx_blocked` events across 15 of the 36 scenarios**, re-measured here; plus `pump_tx()`'s failed arm (`device_hal.cpp:38-46`), which DROPS a queued frame with no retry (a SECOND, metal-only mechanism this arc had not named); (ii) FALSE NEGATIVE — [[B164]]'s two re-hand sites. ⇒ ⛔⛔ **S4b's *“★ THE DIRECTION IS THE SAFE ONE”* IS RETIRED AT ITS OWN SITE.**** ★★★★★★ **OPTION (a) WAS TAKEN OVER (b) AND THE REASON IS ON THE RECORD: nothing consumes the true fact — both bases take the SAME action, so the split is diagnostic only — while (b) (a flight-correlated TX-start/completion signal) would add state, plumbing and stream movement for a fact with no reader. ★ (b) IS DEFERRED, NOT DISMISSED: build it the moment a consumer needs “aired” rather than “admitted”, and ⛔ NEVER approximate it by adding the assignment at B164's two retry sites — that repairs the false negatives and PRESERVES the late-busy false positive.** ★★★★★★★ **THE INERTNESS PROOF IS STRONGER THAN THE MD5 IDENTITY THE DISPATCH EXPECTED, AND THAT EXPECTATION IS REFUTED BY CONSTRUCTION: renaming the `basis` VALUE necessarily moves stream bytes. Measured: 27/36 byte-identical, **9 movers = EXACTLY the 9 scenarios in which the credit fires** (`s06 8 · s07 13 · s15 6 · s15_metal 3 · s17 1 · s18 12 · s20 4 · sim_9node_base 1 · twin 1`), and substituting `local_admitted` → `local_data` in the AFTER streams reproduces **36/36 BEFORE streams BYTE-FOR-BYTE** — positively controlled, since WITHOUT the substitution 9 of 36 differ. ⇒ the only byte that moved corpus-wide is that one token.** ★★★★ Credit census **49 · 36/13 · 45/3/1 in both arms** (cross-split 32/13/3/1 identical); B162 authority **734 → 734**, `s06` **110**; PHY airtime **5 830 644 → 5 830 644 ms**; event counts and `0 assertion failure(s)` identical on all 36 rows. Native **1482/79741/0** (RUN from the real binary; the wrapper printed its usual false *“0 test cases”*), `grep -c "error:"` **0**, warnings **9 → 9 with an IDENTICAL per-file multiset** and ZERO from any file this slice touched, `-Wswitch` **0**. `sizeof(Node)` **221880** · `sizeof(PendingTx)` **352** (`data_ever_admitted` still at offset 347) · `kCap` **91** · top timer id **90** — a rename adds no state, confirmed by compile-only reveal. `lus` **`6d12577b` → `b6e9220f`**, rebuild proven (both core libs), and the comment-only follow-up pass proven **byte-inert** (4 build actions, `lus` still `b6e9220f`). ⛔ The `^### 36/36 corpus` anchor table is NOT edited — proven by a FULL-REGION `diff` against `git show HEAD:` (1398 lines each, EMPTY diff; control: 28 `^| s` rows + the keystone row reached). ⛔ **BOARD BUILDS AND `warning_census.sh` DID NOT RUN — standing owner instruction; NOTHING here implies they passed.** ⛔ `≥733` stays CONDITIONAL on [[B163]] (open, untouched); [[B161]] open ⇒ **[[B153]] CANNOT be called closed.** ⛔ **S5, S6, (b)'s implementation, [[B158]], [[B159]], [[B160-COV]]/[[B160-SIB]], routing T1–T3 NOT touched.** ⛔ UNCOMMITTED (D4). ⛔ **NO OWNER OR QA APPROVAL IS CLAIMED.**
+
+**★★★★★★★★★★★★★★★★★★★★★★★★ 2026-08-09 §HYBRID-RTS-S4b (superseded in ONE place by §HYBRID-RTS-S4c above; below, immediately after §HYBRID-RTS-S4 (9)) — it CORRECTS §HYBRID-RTS-S4 in two places and every figure in the S4 headline that follows still stands.** ★★★★★★ **S4b IN ONE LINE: two CORPUS-DARK correctness holes S4 left are closed and neither costs a delivery — (1) a HAL **rejection** was recorded as `data_ever_transmitted`, so a refused DATA was later credited `basis=local_data`, i.e. it ASSERTED A TRANSMISSION THAT NEVER HAPPENED; (2) the credit gate tested identity, plane, expected neighbour and destination — every one of which answers *which flight* — and NOTHING tested DIRECTION, so a LOOPED RTS forwarded straight BACK to us cleared our timers and DISCARDED THE ONLY VIABLE COPY of the message.** ★★★★ **BOTH ARE INVISIBLE TO THE CORPUS AND THAT IS MEASURED, NOT ASSUMED: `tx_hal_rejected` is ZERO corpus-wide (of any label, all 36 scenarios) and the credit census is 49 before AND after, so all 36 streams are BYTE-IDENTICAL, deliveries 734 → 734, `s06` 110, airtime 5 830 644 → 5 830 644 ms. ⇒ the native cases are the ONLY detectors either fix has, which is exactly why each carries a positive control and a mutation.** ★★★ Native **1479/79693/0 → 1482/79741/0** (+3 cases, +48 assertions), `grep -c "error:"` **0**, warnings **9 → 9 SET-IDENTICAL**. **FOUR mutations at match count == 1 from a clean rebuild, each RED and each discriminating a different set** (M5 revert the rejection distinction 1 RED · M6 remove the direction term 2 RED · M7 the WRONG FIX, a hand-rolled `r.next == _node_id` instead of the canonical predicates, 1 RED · M8 HARNESS VACUITY CONTROL, the HAL can no longer refuse, 1 RED) + a restore control (native 1482/79741/0, `lus` `6d12577b`). ⛔⛔ **AND A PREMISE OF MY OWN DISPATCH IS WRONG: the "3 occurrences of 46" in `node_mac_rx.cpp` are ONE claim plus two Lua line references (`dv:10449-10467`, `dv:10462`); the claim's second live site was in `test_node_r3.cpp`, not that file** — corrected sites: 2. ⛔⛔ **NEW FINDING, REGISTERED NOT FIXED: [[B164]] — `duty_defer_fire` and `retry_stashed` also fly a DM DATA and NEITHER writes `data_ever_transmitted`, so S4's *"THE ACTUAL DATA TRANSMISSION BOUNDARY"* is the only WRITER but not the only BOUNDARY; the flag UNDER-reports, in the safe direction.** ⛔ Board builds / `warning_census.sh` / the UI probes DID NOT RUN — standing owner instruction; nothing implies they passed. ⛔ `≥733` stays CONDITIONAL on [[B163]] (open, untouched); [[B161]] open ⇒ **[[B153]] CANNOT be called closed**. ⛔ UNCOMMITTED (D4). ⛔ **NO OWNER OR QA APPROVAL IS CLAIMED.**
+
+**★★★★★★★★★★★★★★★★★★★★★★★★ 2026-08-09 §HYBRID-RTS-S4 (superseded in two places by §HYBRID-RTS-S4b above) — the SENDER-SIDE implicit ACK is RESTORED, keyed on the S1 flight identity. ★★★★★★ **THE HEADLINE, ON THE B162 AUTHORITY AND NOT ON A RAW COUNT: unique corpus deliveries 719 → 734 (+15) and `s06` 110 — so S4 RECOVERS ALL 14 IT OWED AND ONE MORE, clearing `≥733`/`≥104` for the first time in this arc.** ⚠⚠ **THAT PASS IS CONDITIONAL ON [[B163]], WHICH IS OPEN AND UNTOUCHED:** `s07` carries a **correct** live runtime-id alias refusal on every arm (two mobiles genuinely wear the same **leased** wire id at different times), so `s07`'s figure — **71 → 80, the single largest mover** — may be SHORT on both arms by an amount that is **not derivable** without a time-windowed alias map. ⇒ ⛔ **the total is not settled until B163 is, and no owner acceptance of `734` is claimed.** ★★★★★ **AND THE AIRTIME MOVES THE RIGHT WAY AT THE SAME TIME, measured on the same authority (PHY ground truth, all 36 rows): 5 943 914 → 5 830 644 ms (−113 270, −1.91 %) — which puts S4 BELOW pre-B153 BASE (5 883 686) on airtime while being ABOVE it on deliveries. Against DELETE (6 421 497 / 707) it is −9.20 % airtime and +27 deliveries.** ★★★★★★ **THE CENTRAL PROOF IS MEASURED, NOT ARGUED: a behaviour-neutral telemetry arm finds 80 near-misses corpus-wide (endpoints matched, identity/plane did not) and 5 of them satisfy the ENTIRE retired `(next, dst, ctr_lo, payload_len)` predicate — including `s27_cross_layer_mobiles_meshroute` node 5 at t=363718, from=103, dst=101, ctr_lo=2, plen=57, `data_ever=false`, which is the frame [[B157]]'s deletion comment names VERBATIM as the one that lost `re-m3` in silence. S4 refuses it on the identity.** ★ All 5 sit at `data_ever_transmitted == false` ⇒ all 5 would have discarded a message that had never been transmitted. ⛔⛔ **AND THREE PREMISES OF THE DISPATCH ARE WRONG, ALL THREE RECORDED BELOW: the historical "46 of 61 credits were `awaiting_cts` with DATA never transmitted" CANNOT have been measured (the field that decides it is introduced BY THIS SLICE), and on the S4 wire `alternate_path` is the MINORITY at 13 of 49, not the majority; `s27`'s messages are `re-m2`/`re-m3`/`re-m4`, there is no `re-m1`; and the credit census is 49, not 61.** ★★★★ **ATTRIBUTION IS EXACT AND SET-THEORETIC, not argued: the 9 moved streams are EXACTLY the 9 scenarios in which the credit fires, and the 27 byte-identical streams are EXACTLY the 27 in which it does not — and `s27`, which has a near-miss and NO credit, is BYTE-IDENTICAL, which is the ruling's second half ("a mismatch must change nothing else") confirmed at corpus scope rather than asserted.** ★ Native **1471/79553/0 → 1479/79693/0** (+8 cases, +140 assertions), `grep -c "error:"` **0**, warnings **9 → 9 IDENTICAL** (zero from any file this slice touched), `-Wswitch` **0**. `sizeof(Node)` **221880 UNCHANGED** and `sizeof(PendingTx)` **352 UNCHANGED** — `data_ever_transmitted` lands in the 5 bytes of tail padding after `is_gw_relay` (offset 346), measured by compile-only reveal; `kCap` **91**, top timer id **90**, no timer allocated. ★ **FOUR mutations, each applied at match count == 1 from a `rm -rf .pio/build/native` rebuild, each RED and each discriminating a DIFFERENT set of cases** (M1 id-comparison 3 RED · M2 plane-comparison 2 RED · M3 `data_ever_transmitted` before the radio hand-off 1 RED · M4 synthesized `send_acked` 4 RED), plus a RESTORE CONTROL: after all four reversals the rebuilt `lus` is `d66392e9` byte-for-byte. ⛔ **BOARD BUILDS, `warning_census.sh`, the per-ABI `sizeof` reveal and both UI probes DID NOT RUN** — standing owner instruction / no state-size change; **nothing here implies they passed.** ⛔ The `^### 36/36 corpus` anchor table is NOT edited (proven by a full-region `diff` against `git show HEAD:`, §(9)). ⛔ **[[B163]], [[B161]], [[B158]]'s remaining site, [[B159]], [[B160-COV]]/[[B160-SIB]], routing T1–T3, S5 and S6 were NOT touched.** ⛔ UNCOMMITTED (D4). ⛔ **NO OWNER OR QA APPROVAL IS CLAIMED.**
+
+### ★★★★★★★ §HYBRID-RTS-S4 (1) — WHAT LANDED, BY STRUCTURE (three production edits, one of them a comment fence)
+
+| # | file | change |
+|---|---|---|
+| 1 | `lib/core/node_carriers.h` | `PendingTx::data_ever_transmitted` — one bool, in tail padding. ★ Deliberately **NOT** copied by `txitem_from_pending` and **NOT** twinned on `TxItem`: design §5.2 words the fact as *"if this `PendingTx` has transmitted DATA at least once"*, and a requeue destroys the carrier and starts a fresh next-hop attempt from which nothing has aired ⇒ `false` there is the CORRECT value, not a dropped field. `cascade_to_alt` mutates in place and therefore KEEPS a true value, which is also right. The note beside the field is the answer to "why is it missing from the U2 ledger". |
+| 2 | `lib/core/node_mac.cpp` (`do_data_tx`) | the ONE writer, inside `if (handed)` — the same condition that arms `awaiting_ack`. ⛔ Not before `tx_with_retry`: a duty-deferred DATA consumed no airtime. |
+| 3 | `lib/core/node_mac_rx.cpp` (`handle_rts`) | the credit itself, restored at the retired block's EXACT historical position (after the anti-spam observation and the neighbour learn, before the `allowed_sf_bitmap` gate) so the surrounding control flow is the pre-B153 one. |
+| 4 | `docs/protocol.md` §2 | **item 5** — the obsolete `payload_len`-disambiguates-identity claim WITHDRAWN, and the whole §2 block fenced as historical (its present-tense sentences have been false since S1/S2). ⓘ The full rewrite is S6's. |
+
+**THE MATCH, IN FULL** — `_pending_tx` exists · not `m_broadcast` · `r.src == pt.next` · `r.dst == pt.dst` ·
+`rts_flight_identity_equal(r.id, flight_identity(pt))` (the ONE producer + the ONE comparator, full width + domain) ·
+`rts_wire_team_plane(r) == rts_wire_team_plane(rts_wire_marks(pt))`.
+⛔ `payload_len` is **absent by design**. ⛔ `team_addr_for_us`, layer membership and `is_team_peer(src)` are all
+absent by design — an overhearer has only the wire declaration.
+
+**WHAT A MATCH DOES:** cancel `kRtsTimeoutTimerId` / `kAckTimeoutTimerId` / `kRetryBackoffTimerId`, emit
+`implicit_ack_from_forward{basis, awaiting_cts, awaiting_ack}`, `_pending_tx.reset()`, `become_free()`.
+⛔ **WHAT IT DOES NOT DO** (owner ruling §1.10, verbatim: *"A mismatch may be billed as physical airtime, but must
+not refresh liveness or alter timers, routing, pending state, or application outcomes."*): no `send_acked`, no
+`send_e2e_acked`, no delivered, no `send_failed`, and **any independently armed end-to-end ACK wait is left
+running** — natively tested by driving the `-a` deadline after a credit and asserting the `send_failed
+{e2e_ack_timeout}` still names the app's own `ctr`.
+**WHAT A MISMATCH DOES:** nothing. It falls through to ordinary RTS handling.
+
+★★ **THE TWO BASES, AND THE SENTENCE THAT HAD TO BE WRITTEN IN-SOURCE:** `local_data` = this node previously aired
+DATA for the flight. `alternate_path` = it did not — the next hop got the same flight through another branch, so
+this local copy is redundant. ★ Its justification is **"the flight is progressing and this local copy is
+redundant"**, ⛔ **NOT "our DATA crossed the hop"**, because no DATA of ours exists. That distinction is stated at
+the code, because a later reader would otherwise re-derive a false success claim from it.
+
+### ★★★★★★★★ §HYBRID-RTS-S4 (2) — **THE AUTHORITY METRIC. 719 → 734, AND HOW MUCH OF THE 14 IS RECOVERED.**
+
+Authority = `tools/dm_delivery_breakdown.py --mode dm --json` → `totals.unique_deliveries`, per §B162.
+★ **POSITIVE CONTROL FIRST:** the BEFORE arm was **rebuilt from the `2a98554` worktree by my own build path** and
+returned `lus` **`15a3967d`** — byte-exact to §B162's published CURRENT binary — and its 36 rows are **identical to
+`b162-arms/rows-cur.txt` line for line**. So the instrument and the build path both reproduce.
+
+```
+arm                        lus        unique deliveries   s06     raw `delivered` (CROSS-CHECK ONLY)
+BASE   (pre-B153)          c5fc5e8c              733      104                765
+DELETE (no-growth)         0a770cd6              707       85                750
+S1     (wire only)         66b157ce              690       85                734
+S2(+S3)                    3e0f0a3f              724      110                752
+S2c                        f0900dc9              719      110                743
+CURRENT = S2d (BEFORE)     15a3967d              719      110                743      <- reproduced here
+★ S4  (AFTER)              d66392e9          ★   734      110            ★   759
+```
+
+★★ **S4 OWED 14 (719 → ≥733). IT RECOVERED 15.** `s06` is **110**, above its own `≥104` floor and unchanged by
+this slice. `s27` has **0 assertion failures** and all three of its reply payloads (`re-m2`, `re-m3`, `re-m4`)
+deliver — ⛔ **and note the dispatch's `re-m1` DOES NOT EXIST**: the scenario's assertions name `re-m2`/`re-m3`/
+`re-m4` (verified in `simulation/s27_cross_layer_mobiles_meshroute.json`), and B153's history names `re-m3` as the
+message the retired arm destroyed.
+
+⚠⚠ **AND THE PASS IS CONDITIONAL, WHICH IS NOT A FORMALITY HERE.** [[B163]] is OPEN. `s07` is **the single largest
+mover (+9) and the row B163 is about**; its figure may be short on BOTH arms by an amount no time-blind alias map
+can derive. ⇒ **`734 ≥ 733` must be read as "clears the floor on the current instrument, with one row's
+uncertainty unresolved"**, not as a settled acceptance. ⛔ No owner acceptance is claimed and B163 was not touched.
+
+**DUPLICATES** (raw − unique): BASE **32** · DELETE **43** · BEFORE **24** · AFTER **25**. ⇒ +1 against BEFORE and
+**still 7 below the pre-B153 count**, so the S6 floor's "no worsening beyond the pre-B153 duplicate count" holds.
+[[B159]] remains open and independent.
+
+**AIRTIME** — the same authority, PHY frames priced from their own bytes, summed over all 36 rows:
+
+```
+BASE 5 883 686 ms   DELETE 6 421 497 ms   BEFORE(S2d) 5 943 914 ms   ★ AFTER(S4) 5 830 644 ms
+S4 vs BEFORE  −113 270 ms  (−1.91 %)   with +15 deliveries
+S4 vs BASE     −53 042 ms  (−0.90 %)   with  +1 delivery      ⇒ better on BOTH axes than pre-B153
+S4 vs DELETE  −590 853 ms  (−9.20 %)   with +27 deliveries
+```
+
+### ★★★★★★★★★★ §HYBRID-RTS-S4 (3) — ⛔⛔ **THE CREDIT CENSUS, AND IT CONTRADICTS THE HISTORICAL 61 / 46-7-8 IN A WAY THAT MATTERS**
+
+**MEASURED, from the production emit itself** (`basis` + `awaiting_cts` + `awaiting_ack` ride the diagnostic, so no
+second instrument is needed for this half):
+
+```
+TOTAL implicit credits corpus-wide            49        (historical, BASE arm: 61)
+  by basis      local_data      36            alternate_path  13
+  by state      awaiting_cts    45            awaiting_ack     3       neither  1
+                                              (historical:    46 / 7 / 8)
+  basis x state   local_data/awaiting_cts 32 · alternate_path/awaiting_cts 13
+                  local_data/awaiting_ack  3 · local_data/neither          1
+  by scenario   s06 8 · s07 13 · s15 6 · s15_metal 3 · s17 1 · s18 12 · s20 4 · sim_9node_base 1 · twin 1
+```
+
+⛔⛔ **PREMISE WRONG, AND IT IS THE DISPATCH'S AND THE PLAN'S:** *"46 `awaiting_cts` with DATA never transmitted"*
+and therefore *"`alternate_path` is the MAJORITY case (46 of 61)"*. **Neither can have been measured.** The fact
+that decides the basis — `data_ever_transmitted` — **is introduced by this slice**; the historical census had only
+the pending state, and it inferred "DATA never transmitted" from `awaiting_cts`. ★★ **THAT INFERENCE IS FALSE:
+`awaiting_cts` is NOT a monotone phase.** A flight that airs DATA, loses the ACK, times out and re-RTSes is back in
+`awaiting_cts` with DATA already aired — and that is **32 of the 45** `awaiting_cts` credits here.
+⇒ ★ **On the S4 wire `alternate_path` is the MINORITY: 13 of 49 (27 %), not 46 of 61 (75 %).**
+★ **PROOF, and it is structural rather than statistical:** `data_ever_transmitted` has exactly ONE writer
+(`do_data_tx`'s `handed` arm) and lives in the `PendingTx` that the credit reads, so `local_data` cannot be true
+unless *this* carrier aired DATA. ⓘ CROSS-CHECK (weaker, and its weakness is stated): 32 of 32 `local_data`/
+`awaiting_cts` credits have an earlier `data_tx` from the same node with the same `ctr` — a `(node, ctr)` key,
+which for a relay is exactly the ambiguity this arc exists to remove, so it is corroboration and not the proof.
+ⓘ The `neither` credit is named: `s07`, node 14, t=2602975 — DATA aired at t=2600640, the (emit-free) ACK timeout
+then cleared `awaiting_ack` and armed the backoff, and the forward landed in that window.
+ⓘ 10 of the 13 `alternate_path` credits also have an earlier same-`(node, ctr)` `data_tx`; **3 of those have a
+`cascade_requeue` in between** (the documented per-`PendingTx` reset), and the other 7 have gaps of 47 s to 1345 s,
+i.e. they are almost certainly a different flight sharing `(node, ctr)` at a relay. ⛔ **Not resolved here** — it
+would need a flight-generation field on the probe, and it changes no S4 claim.
+
+**WHY 49 AND NOT 61 — the part that IS measured, and the part that is NOT:**
+- ★ **5 firings are now REFUSED as the wrong flight** (§(4)). That is the [[B157]] silent-loss class, measured live.
+- ⛔ **The remaining 7 are NOT derivable and are not claimed.** The corpus is a *different traffic pattern*: the 61
+  was counted on the BASE arm (7-B RTS, no terminal CTS), and S1's grown frame plus S2/S3's terminal CTS both change
+  which flights are still pending when a forward is overheard — a terminal CTS and an implicit credit are two ways
+  of ending the SAME flight. Frame-for-frame comparison across those arms is not possible, and no instrument here
+  attempts it.
+
+### ★★★★★★★★★★ §HYBRID-RTS-S4 (4) — **THE NEAR-MISS ARM: 80 REFUSALS, AND ONE OF THEM IS THE FRAME B157's OWN COMMENT NAMES**
+
+A behaviour-neutral telemetry arm (`lus` `75b040ee`, probe at the credit's own gate) emits `s4_nearmiss` whenever
+the ENDPOINTS matched (`r.src == pt.next && r.dst == pt.dst`) but the identity or the plane did not.
+★ **BEHAVIOUR-NEUTRALITY IS PROVEN, NOT ASSERTED: stripping the 80 probe lines reproduces the AFTER streams
+BYTE-FOR-BYTE on all 36 rows.**
+
+```
+near-misses corpus-wide                                   80
+  refused on IDENTITY                                     80   (79 at width 3 vs 3; ONE at width 0 vs 3 = an M/FLOOD RTS)
+  refused on PLANE                                         0   ⇐ ★ THE PLANE COMPARISON IS CORPUS-DARK
+  by scenario  s06 7 · s07 8 · s15 5 · s15_metal 5 · s18 19 · s20 1 · s27 1 · sim_9node_base 1 · twin 33
+★ of the 80, frames the RETIRED (next,dst,ctr_lo,payload_len) predicate WOULD have credited:  5
+     s27_cross_layer_mobiles_meshroute  node 5  t=363718  from=103 dst=101 ctr_lo=2 plen=57  data_ever=false
+     s20_random_mesh                    node 18 t=1240357 from=11  dst=16  ctr_lo=1 plen=24  data_ever=false
+     twin_9node_dm                      node 4  x3        from=1   dst=9   ctr_lo=1 plen=22  data_ever=false
+```
+
+★★★★ **THE `s27` LINE IS THE SLICE'S CENTRAL RESULT.** `node_mac_rx.cpp`'s deletion comment says, verbatim: *"at
+t=363718 G1 overhears 103 forwarding the 114 message to 102 and credits it to the 111 flight — which had never
+transmitted a DATA at all. `re-m3` lost in silence."* The probe reproduces that frame at that millisecond with
+`data_ever=false`, and **S4 refuses it on the identity tail**. ⇒ the restored optimisation does not reopen the
+defect that deleted it, and that is a measurement rather than an argument.
+★ **All 5 sit at `data_ever_transmitted == false`** — every one would have discarded a message never transmitted.
+
+⚠ **THE PLANE COMPARISON IS CORPUS-DARK (0 of 80) AND THAT IS DISCLOSED, NOT ROUNDED TO "SAFE".** Its only
+detectors are native: the wire-plane arm of the one-bit case and the both-directions TEAM/STATIC case, and mutation
+**M2** proves both non-vacuous. This matches [[B160-COV]]: 12 corpus scenarios have a team plane, 12 produce a
+requeue, and the intersection is empty.
+
+### ★★★★★★★★ §HYBRID-RTS-S4 (5) — **THE 36 ROWS: 27 BYTE-IDENTICAL · 9 MOVED · EVERY MOVER ATTRIBUTED BY A SET IDENTITY**
+
+★ BEFORE `15a3967d` (reproduced §B162's CURRENT column exactly — the positive control). AFTER **`d66392e9`**,
+11 build actions logged, `node_mac.cpp` + `node_mac_rx.cpp` recompiled into **both** core libs.
+`scenarios run: 36` printed and checked in both arms; **0 assertion failures in all 72 runs.**
+
+```
+scenario                                   BEFORE    AFTER    ev BEFORE   ev AFTER   deliveries   credits
+s06_seattle_lifecycle                    4c17a71f  ddf9e2c5      64757      65835     110 -> 110        8
+s07_seattle_mobile_meshroute             6335688d  cf21319b     112325     108936      71 ->  80       13
+s15_three_layer                          a5e8b230  9ef30538      52881      52293      54 ->  53        6
+s15_three_layer_metal                    ab07171e  28cdffc6      51962      51232      49 ->  51        3
+s17_metro                                651567d9  5fb34a8c    1190969    1181179      29 ->  29        1
+s18_meshroute                            36289bba  c5971f14     269566     269905     102 -> 105       12
+s20_random_mesh                          c9ccc089  ebeeda65      42048      40566     120 -> 120        4
+sim_9node_base                           743aa49b  b6d4de6c       4960       4959       6 ->   6        1
+twin_9node_dm                            6429e616  16187f39      12846      13221      16 ->  18        1
+  ... the other 27 rows are BYTE-IDENTICAL (md5 + event count + deliveries)
+```
+
+★★★★ **THE ATTRIBUTION IS A SET IDENTITY, checked by machine, not an argument: {9 moved rows} == {9 scenarios in
+which `implicit_ack_from_forward` fires}, exactly**, and {27 identical rows} == {27 scenarios with zero credits}.
+★★ **AND `s27` IS THE CONTROL THAT MAKES THE RULING'S SECOND HALF A MEASUREMENT: it has a near-miss and NO credit,
+and its stream is BYTE-IDENTICAL.** A refusal changes nothing — proven at corpus scope, not asserted.
+★ The diff is machine-made and **positively controlled**: poisoning one identical row takes the identical count
+**27 → 26**.
+⚠ **CAUSAL SEPARABILITY, per the dispatch's five sources:** ① the parked mobile-home arc's 8 movers, ② S1's all-36,
+③ B160's zero, ④ S2/S2b/S2c/S2d's (S2b's 1, S2c's 1, S2d's 0) and ⑤ **these 9** are disjoint measurements against
+different BEFORE binaries; my BEFORE is `15a3967d` = HEAD `2a98554`, which is ④'s published AFTER.
+ⓘ `s15_three_layer` **loses one delivery (54 → 53) and `s15_three_layer_metal` gains two (49 → 51)**; the tool's
+`configured_sends` moves with them (54 → 53, 49 → 51), so both rows keep a ZERO unattributed residual (§(6)).
+That coupling is an instrument property (configured sends are resolved from the stream), reported not explained.
+
+### ★★★★★★ §HYBRID-RTS-S4 (6) — **"NO SILENT DISAPPEARANCE", PER SCENARIO, AND IT IMPROVES**
+
+For every scenario: `configured_sends` against the sum of ATTRIBUTABLE outcomes
+(`unique_deliveries + giveup + no_gateway + unsent + in_flight`). The **RESIDUAL** is what the instrument cannot
+attribute — printed, never rounded away.
+
+```
+                       cfg   deliv  giveup  no_gw  unsent  in_flight  RESIDUAL
+BEFORE (36 rows)       966     719       0      0      73         78        96
+AFTER  (36 rows)       967     734       0      0      73         77        83     (−13)
+```
+
+★★ **NO SCENARIO'S RESIDUAL GREW — not one of 36** — and the corpus total falls by 13. The three scenarios that
+improve are `s06` (34 → 29), `s18` (11 → 7) and `s07`/`twin` (34 → 32, 15 → 13). **`giveup` and `no_gateway` are 0
+on every row in both arms**, so nothing was converted into a terminal failure either.
+★ THE STRUCTURAL HALF, because a corpus number is not a guarantee: a credit fires only when the selected next hop
+is provably airing an RTS for the **exact same flight**, so the message is downstream, not dropped; and the only
+app-facing future a `-a` send has — the `_pending_e2e_acks` deadline — is **left armed**, natively proven by firing
+it after a credit and observing the `send_failed{e2e_ack_timeout}` for the app's own `ctr`.
+⚠ The 83 residual is PRE-EXISTING and untouched by this slice (it is dominated by `s06` 29, `s07` 32, `twin` 13);
+diagnosing it is not S4's scope and no claim is made about it beyond "S4 does not add to it".
+
+### ★★★★★★ §HYBRID-RTS-S4 (7) — THE NATIVE CASES AND THE FOUR MUTATIONS (each at match count == 1)
+
+**8 new cases, +140 assertions.** ⛔ **AND ONE CASE WAS DELETED BECAUSE IT WAS A FALSE DETECTOR:** the old
+`[[B157]] an overheard forward-RTS must NOT cancel our pending flight` case **stayed GREEN through S4** — its
+forward RTS carried `mk_rts`'s PLACEHOLDER identity, so it was exercising the MISMATCH path while claiming to prove
+the mechanism was absent. ★ **A green that cannot distinguish "the feature is gone" from "this frame did not
+match" is not a detector**; the contract it protected is now the `s27`-collision and one-bit cases, each with a
+positive control beside it.
+
+| case | what it pins |
+|---|---|
+| `alternate_path` | credit while `awaiting_cts` with no DATA aired: clears the copy, **`data_tx` count stays 0**, no push, no `send_failed`/`delivered` |
+| `local_data` | credit after a real DATA: basis `local_data`, `awaiting_ack`, **no SECOND DATA**, no push |
+| e2e-ack survival | the `-a` deadline still fires `send_failed{e2e_ack_timeout}` for the app's own `ctr` AFTER a credit |
+| `s27` collision | two origins, same `ctr_lo`, same length, same dst, same next hop ⇒ REFUSED, flight retried; **the exact identity then credits** (control) |
+| one-bit ×5 | identity bit · dst · next-hop · wire PLANE · identity DOMAIN — each on its own node, **each with the exact frame as its own positive control** |
+| TEAM vs STATIC | our flight declares wire TEAM; a STATIC forward with IDENTICAL identity and endpoints is refused, the TEAM one credits |
+| duty-deferred DATA | ★ the only case that can falsify `data_ever_transmitted`'s placement: the frame is stashed, **`data_tx` telemetry fires anyway**, basis must stay `alternate_path`; also reproduces the `neither` pending state |
+| telemetry `dup` | the re-CTS branch emits `dup:true` on a frame whose `already_received` bit is **CLEAR** — asserted at `bytes[0] & 0x01` AND via `parse_cts`, with a real terminal 6-B CTS as the control |
+
+```
+M1  drop the full-identity comparison (plane kept, control flow reproduced)   3 RED
+      one-bit · M/FLOOD-no-identity · s27-collision
+M2  drop the wire-plane comparison   (identity kept)                          2 RED
+      one-bit · TEAM-vs-STATIC
+M3  set `data_ever_transmitted` BEFORE the radio hand-off                     1 RED
+      duty-deferred DATA   ⚠ and ONLY that case can catch it — TestHal always hands, so
+      every other path is blind to the placement. Without that case M3 would have been INERT.
+M4  synthesize `send_acked` on the credit                                     4 RED
+      alternate_path · local_data · duty-deferred · e2e-ack survival
+```
+
+★ Every mutation ran from a `rm -rf .pio/build/native` rebuild and was reversed by an exact reverse string replace
+at match count == 1. ⛔ **`git checkout --` was NEVER used.** ★ **RESTORE CONTROL: after all four reversals the
+rebuilt `lus` is `d66392e9`, byte-for-byte the binary that produced §(5)'s table** — so every figure above is the
+final source's.
+
+### ⚠ §HYBRID-RTS-S4 (8) — EVERY PREMISE THAT TURNED OUT WRONG, INCLUDING THE PLAN'S, THE SPEC'S AND THE DISPATCH'S
+
+1. ⛔⛔ **THE DISPATCH'S AND THE PLAN'S: "46 of 61 credits were `awaiting_cts` with DATA never transmitted", hence
+   "`alternate_path` is the MAJORITY case (46 of 61) — it is not a corner".** ★ **Unmeasurable when written** (the
+   deciding field is introduced by this slice) and **false on the S4 wire**: `alternate_path` is 13 of 49. The error
+   is the arc's signature shape one more time — *inferring a fact from state that does not carry it* — this time in
+   the brief rather than the code. ⓘ The in-source justification the dispatch demanded for `alternate_path` is
+   written anyway, and is if anything MORE necessary now that it is the rarer branch.
+2. ⛔ **THE DISPATCH'S: "`s27` … with both `re-m1`/`re-m3` delivered".** There is **no `re-m1`** in
+   `s27_cross_layer_mobiles_meshroute`; its reply payloads are `re-m2`, `re-m3`, `re-m4`, all three asserted at M1
+   (node 12) and all three delivered on both arms.
+3. ⛔ **MINE, caught by the gate rather than by reading:** my first `alternate_path` case asserted the emit's
+   `next` field. The emit's field is `forward_next`; the test HAL captured `next` and read −1. A one-line capture
+   bug that would have silently weakened the assertion had it defaulted to anything plausible.
+4. ⛔ **MINE, and it nearly produced an inert mutation:** M3 ("set the flag before the radio hand-off") is
+   **invisible on every native path** because `TestHal::tx` always succeeds, so `handed` is always true. The
+   mutation was only falsifiable after adding the duty-deferred case. ⇒ **a mutation whose target is a boundary
+   needs a case that straddles the boundary**, or the RED is an accident of coverage.
+5. ⓘ **THE PLAN'S S4 gate item "compare with the historical 61 firings" assumes the two arms are comparable.**
+   They are not, frame for frame: the 61 was counted on BASE (7-B RTS, no terminal CTS). 5 of the difference is
+   measured; the remaining 7 is stated as **not derivable** rather than attributed.
+6. ⓘ **THE SPEC'S §5.2 wording "if DATA has not been transmitted locally … that node obtained the same flight
+   through another branch/path"** reads as though `alternate_path` implies a genuinely different branch. In 3 of
+   the 13 measured cases the flight had aired DATA *before a `cascade_requeue`* — the fact is per-`PendingTx` by
+   design, so the label is correct as specified, but "another branch" is not always literally true. Recorded so the
+   label is not over-read.
+
+### §HYBRID-RTS-S4 (8b) — **M2 (metal-only residue): NOTHING IS OWED, AND HERE IS THE REASONING RATHER THAN THE CONCLUSION**
+
+`docs/2026-07-31-bench-test-script.md` holds only what **no automated gate can reach** — a different ABI, a file
+neither native nor the sim compiles, flash wear, a real radio. S4 adds **no such behaviour, and the reason is
+specific rather than reassuring**:
+
+- the credit is **densely sim-reachable** (49 firings across 9 scenarios) and its refusal path likewise (80
+  near-misses), so the corpus is a real detector, not a formality;
+- the arm reads **`r.src` off the decoded frame**, never `meta.src_hint`, so there is no sim/metal divergence to
+  bench ([[B156]]'s class is structurally absent here);
+- ⛔ **and the decisive point cuts the other way: `implicit_ack_from_forward` is `MR_EMIT`, i.e. DEVICE-STRIPPED.**
+  There is **no console line a bench operator could observe** to confirm or refute the credit on metal, so a bench
+  step naming one would be unwritable — and a bench step that cannot fail is worse than none.
+- ⚠ What IS genuinely metal-only about this slice is **flash**: `lib/core` changed, so board flash may move. That is
+  the board-build gate, which **did not run** by standing owner instruction — it is owed once, after behaviour
+  stabilises, and it is recorded as unrun in §(9), not waved through.
+
+### §HYBRID-RTS-S4 (9) — THE GATE: WHAT RAN, WHAT DID NOT. ⛔ NOTHING HERE IMPLIES A SKIPPED GATE PASSED.
+
+| gate | outcome |
+|---|---|
+| `pio test -e native` + **the real binary** | ★ **1479 cases / 79693 assertions / 0 failed** from a CLEAN rebuild (baseline **1471 / 79553 / 0**) ⇒ **+8 cases, +140 assertions**. ⚠ The wrapper printed its usual false *"0 test cases"*; the binary is the source of truth |
+| `grep -c "error:"` | **0** |
+| warnings | **9 — IDENTICAL to the S2d census** (1 `cc1 -fno-rtti` C note + `node_hashlocate.cpp` ×1, `test_dual_layer.cpp` ×2, `test_node_r3.cpp` ×2, `test_node_query`/`test_node_hashlocate`/`test_node_channel` ×1 each). **ZERO from `node_mac_rx.cpp`, `node_mac.cpp` or `node_carriers.h`**; both `test_node_r3.cpp` warnings are pre-existing lines untouched here. `-Wswitch` **0** |
+| `lus` rebuild + 36 rows | ★ BEFORE **`15a3967d`** (rebuilt from the `2a98554` worktree; reproduced §B162's CURRENT column exactly). AFTER **`d66392e9`**, rebuild proven (both core libs recompiled). Telemetry arm `75b040ee`, separate and proven behaviour-neutral. **27/36 byte-identical**, diff positively controlled (27 → 26) |
+| delivery authority | ★ **719 → 734** (+15) overall, `s06` **110**, on `dm_delivery_breakdown.py --mode dm --json` → `totals.unique_deliveries`. Raw `delivered` 743 → 759 quoted **only** as a labelled cross-check |
+| `s27` | ★ **0 assertion failures** in both arms; `re-m2`/`re-m3`/`re-m4` all delivered at M1 |
+| `sizeof(Node)` / `sizeof(PendingTx)` / `kCap` / top timer id | ★ **221880 UNCHANGED · 352 UNCHANGED · 91 · 90**, no timer allocated. The bool lands at offset 347 in the 5 bytes of tail padding after `is_gw_relay` (346), measured by a compile-only reveal on the native env's OWN flag set |
+| **per-ABI `sizeof` reveal** | ⛔ **NOT RUN AND NOT OWED** — `sizeof(Node)` did not move. ⓘ `PendingTx` is composed entirely of `uint8_t`/`uint16_t`/`uint32_t`/`uint64_t`/`bool`/arrays and a `Plane : uint8_t`, i.e. **no pointer- or enum-width-dependent member**, so its layout is ABI-invariant on every supported target by construction; that is an argument, and it is offered as one, not as a measurement |
+| mutations | ★ **4, each at match count == 1 from a clean rebuild, each RED, each discriminating a different case set**; restore control `d66392e9` |
+| board builds / `warning_census.sh` / the two UI probes | ⛔ **DID NOT RUN — standing owner instruction. ⛔ NOTHING HERE IMPLIES THEY PASSED. An unrun gate is unrun.** ⚠ `lib/core` changed, so board flash may move; RAM will not |
+| `^### 36/36 corpus` anchor table | ★ **NOT edited.** Proven by a full-region `diff` of everything from the anchor heading to EOF (`awk 'f{print} /^### 36\/36 corpus/{f=1;print}'`) over `git show HEAD:simulation/BASELINE.md` and over the worktree — **diff EMPTY**; CONTROL: the extraction contains the `s18_meshroute \| 1cd21235 \| 271629` anchor row, so it demonstrably reached the table |
+| owner / QA approval | ⛔ **NONE CLAIMED.** QA has not reviewed this slice; the owner has accepted no figure in it |
+
+**S4 FILES:** `lib/core/node_carriers.h` · `lib/core/node_mac.cpp` · `lib/core/node_mac_rx.cpp` ·
+`test/test_node_r3.cpp` · `docs/protocol.md` (§2 fence, item 5) · this file ·
+`docs/2026-07-30-open-bug-register.md` ([[B153]] in place).
+⛔ **NOT TOUCHED:** the wire · the codec · `node.h` · `protocol_constants.h` · any scenario · `platformio.ini` ·
+`tools/` · the `^### 36/36 corpus` anchor table · the owner-rulings ledger · **S5** (B158's remaining site, the PHY
+ledger) · **S6** · **[[B163]]** · **[[B161]]** · **[[B159]]** · **[[B160-COV]]/[[B160-SIB]]** · routing **T1–T3**
+and `s07`/`s16` congestion sensitivity · the parked mobile-home arc · the OLED UI.
+
+### ★★★★★★★★★★ §HYBRID-RTS-S4b (2026-08-09) — **THE TWO CORPUS-DARK HOLES §HYBRID-RTS-S4 LEFT, AND WHY THE CORPUS COULD NOT HAVE FOUND EITHER**
+
+⛔⛔ **NEITHER WAS FOUND BY A GATE. Both were found by reading the code, and the whole point of this note is that the
+36-row corpus, the delivery authority and the airtime authority ALL STAY EXACTLY WHERE S4 LEFT THEM** — so a slice
+that trusted "nothing moved" as evidence of correctness would have shipped both.
+
+| # | file | change |
+|---|---|---|
+| 1 | `lib/core/node_mac.cpp` (`do_data_tx`) | keep the three-way disposition in `disp`; **`data_ever_transmitted` is written only when `disp == TxHandOff::handed`**. ⛔ `start_ack_timeout()` / `awaiting_ack` still fire on the legacy `handed` (`!= deferred_retry_armed`) — **UNCHANGED**, deliberately. |
+| 2 | `lib/core/node_mac_rx.cpp` (`handle_rts`) | `for_static_rts` / `for_team_rts` / `wire_team` / `addressed_for_us` **HOISTED** above the credit gate (moved, not copied) and **`!addressed_for_us` added as a term of the gate**. A frame addressed back at us now FALLS THROUGH to ordinary addressed-RTS handling with the flight intact. |
+| 3 | `lib/core/node_mac_rx.cpp` + `test/test_node_r3.cpp` | the retired **"`alternate_path` is the MAJORITY case (46 of the 61 historical firings)"** claim corrected IN PLACE at both live sites (quoted as withdrawn, not deleted). ⛔ `alternate_path`'s JUSTIFICATION is unchanged. |
+| 4 | `test/test_node_r3.cpp` (`TestHal`) | `tx_answer` + `tx_calls`, **copied from `test_node_join.cpp` (U1)** — the one field that makes `TxHandOff::rejected` reachable in this TU. |
+
+#### ★★★★ (1) BLOCKER 1 — **A HAL REJECTION WAS BOOKED AS A TRANSMISSION, AND THE TWO DISPOSITIONS ARE NOT SYMMETRIC**
+
+S4 wrote the flag inside `if (handed)` and defended it as *"the same condition that arms `awaiting_ack`"*. That
+symmetry is the defect: `handed` is `disp != deferred_retry_armed`, so **`TxHandOff::rejected` satisfies it**. A
+`DeviceHal::tx` refusal (full 8-entry ring → `busy`, `txq_drops`, **nothing retained**) therefore set
+`data_ever_transmitted = true`, and a later exact downstream forward was credited **`basis=local_data`** — a claim
+that this node aired DATA for the flight when the radio never accepted it.
+
+★★ **THE ASYMMETRY, STATED BECAUSE IT IS THE HALF THAT IS EASY TO BREAK WHILE FIXING THIS:**
+- `start_ack_timeout()` **must** fire for BOTH `handed` and `rejected` — §tx-admission TX1's own finding: a rejection
+  arms nothing, so the MAC ack-timeout is its ONLY recovery. ⛔ That behaviour is untouched here.
+- `data_ever_transmitted` must be true for `handed` **only**. A DEFERRED frame is legitimately in flight (which is
+  why `tx_with_retry` answers TRUE-ish for it); a REJECTED one is not in flight at all.
+
+★★ **SIXTH SITE OF ONE RULE — A FACT IS ESTABLISHED BY THE PHYSICAL ACT, NEVER BY THE REQUEST**: [[B84]]'s `_tries` ·
+[[B139]]'s `_presence_miss` · [[B145]]/[[B146]]'s OFFER counters · the re-CLAIM budget · §HYBRID-RTS-S2b's accounting
+split · now `data_ever_transmitted`. The lineage is written **at the site**, because each site looks local.
+
+⚠ **WHY THE CORPUS IS BLIND, MEASURED RATHER THAN ASSUMED — and it is NOT the reason the dispatch expected.** The
+simulator's HAL **can** refuse (`NodeRuntimeWrapper.cpp:60-63` maps `kSimTxBusy`/`kSimTxTooLong` to
+`TxResult::busy`/`too_long`), so this is not a harness-capability gap. It is a traffic fact: **`tx_hal_rejected` is
+ZERO corpus-wide — of any label, across all 36 scenarios.** ⇒ the only possible detector is native, and
+`TestHal::tx` handed off unconditionally, which is precisely the shape S4's own M3 nearly died of.
+
+#### ★★★★ (2) BLOCKER 2 — **A LOOPED RTS WAS READ AS DOWNSTREAM PROGRESS**
+
+★ **THE PRINCIPLE, and it generalises past this gate: AN EXACT IDENTITY MATCH PROVES *WHICH FLIGHT*, NEVER *WHICH
+DIRECTION*. Direction is a separate fact and needs its own evidence.** Every S4 term — identity, plane,
+`r.src == pt.next`, `r.dst == pt.dst` — answers "which flight?"; not one answers "did it move away from me?".
+
+⇒ In a route loop our own next hop B forwards the EXACT flight back to us (`r.next == our id`). Every term matched
+(the identity is right — it IS our flight), so we cancelled `kRtsTimeoutTimerId`/`kAckTimeoutTimerId`/
+`kRetryBackoffTimerId`, `reset()` the `_pending_tx`, `become_free()` and RETURNED: **the only viable copy discarded,
+on evidence that showed the opposite of progress, and the frame never reached the handling it was owed.**
+
+★★ **THE FIX IS "NO CREDIT **AND** STILL HANDLED", not "no credit".** An addressed frame now falls through to
+`rts_rx` → completed-flight terminal CTS / re-CTS / BUSY_RX NACK / `rts_drop_pending_tx`, flight intact. A guard that
+merely skipped the credit and swallowed the frame would trade a lost message for a lost response.
+
+★ **ONE DERIVATION, ENFORCED BY A MOVE RATHER THAN A COPY.** The predicates are `for_static_rts`,
+`team_addr_for_us` (`node.h:291-293`) and `rts_wire_team_plane` — the same three the addressing decision below
+already used, **hoisted**, not re-derived. A second identity derivation cost §HYBRID-RTS-S2 forty false refusals.
+★ **THE MOVE IS VALUE-IDENTICAL FOR A STRUCTURAL REASON, not because "nothing looked relevant":** for any frame that
+reaches `if (!addressed_for_us)`, the only code between the old and new positions is the credit gate (RETURNS when it
+fires), the `allowed_sf_bitmap` refusal (RETURNS) and the whole `r.m_broadcast` block (RETURNS on **both** its
+paths) ⇒ nothing can run AND fall through, so nothing can mutate `_node_id`, `_team_local_id`, `_cfg.is_mobile` or
+`_cfg.team_id` in between. The 36 byte-identical streams are the corroboration, not the argument.
+
+⚠ **CORPUS-DARK, AND EXACTLY MEASURABLE: the credit census is 49 BEFORE and 49 AFTER.** A firing of the new term
+would refuse a credit and reduce that count, so **0 credits were removed** — hence 0 deliveries could be lost, and
+all 36 streams are byte-identical. ⛔ **A FALSE START OF MINE, RECORDED:** my first loop-detector compared the
+stream's `node` field to a protocol id and reported **2 loop-shaped credits**. The `node` field is the sim's
+**0-based node INDEX** (`FirmwareNode::_id`), not `_node_id`; with the correct `nodes[i].node_id` map the count is
+**0**. Both "hits" were coincidences (`sim_9node_base`'s `forward_next` was the flight's own DESTINATION;
+`s07`'s was a third static node, index 34 vs node_id 51). ⇒ **an index-vs-id comparison is an instrument that
+reports findings it cannot support** — the same shape as the defects this arc exists to remove.
+
+#### ★★★ (3) THE RETIRED `46 of 61` CLAIM — CORRECTED AT **2** SITES, NOT 3, AND THE DISPATCH'S COUNT WAS A GREP ARTIFACT
+
+⛔ **MY OWN DISPATCH WAS WRONG:** it named *"3 occurrences of `46`"* in `node_mac_rx.cpp`. There is **ONE** claim
+there (`:156`); the other two hits are Lua line references (`dv:10449-10467`, `dv:10462`) and are not the claim. The
+claim's **second live site was `test/test_node_r3.cpp:3794`**, in a different file. ⇒ **2 sites corrected**, both
+by quoting the retired sentence as withdrawn rather than deleting it, so a reader who saw it once sees it retired.
+★ **THE MEASURED REPLACEMENT (re-derived this slice, identical to §HYBRID-RTS-S4 (3)):**
+
+```
+TOTAL implicit credits corpus-wide            49       BEFORE and AFTER — unchanged by both fixes
+  by basis      local_data      36            alternate_path  13      ⇒ alternate_path is the MINORITY, ~27 %
+  by state      awaiting_cts    45            awaiting_ack     3       neither  1
+  basis x state local_data/awaiting_cts 32 · alternate_path/awaiting_cts 13
+                local_data/awaiting_ack  3 · local_data/neither          1
+  by scenario   s06 8 · s07 13 · s15 6 · s15_metal 3 · s17 1 · s18 12 · s20 4 · sim_9node_base 1 · twin 1
+```
+
+★★ **32 of the 45 `awaiting_cts` credits carry `local_data`** — the false historical inference shown as a number:
+`awaiting_cts` is **not a monotone phase**, so a flight that airs DATA, loses the ACK and re-RTSes is back in it.
+★ `alternate_path`'s **justification is unchanged and still load-bearing**: *"the flight is progressing and this
+local copy is redundant"*, ⛔ **never** *"our DATA crossed the hop"*. Only the frequency claim was wrong — and the
+in-source sentence matters MORE now that it is the rarer branch.
+
+#### ★★★★ (4) THE MEASUREMENTS — **EVERY ONE UNCHANGED, WHICH IS THE RESULT**
+
+★ Positive control first: my pipeline rebuilt the BEFORE arm from the live tree and `cmake --build` reported **zero
+build actions** at `lus` **`d66392e9`**, then reproduced §HYBRID-RTS-S4 (5)'s 36 rows **line for line**.
+AFTER = `lus` **`6d12577b`**, rebuild proven (`node_mac.cpp` + `node_mac_rx.cpp` recompiled into **both** core libs,
+4 build actions logged).
+
+```
+                          BEFORE (d66392e9)      AFTER (6d12577b)
+36 rows (md5+events+fails) 36/36 identical  ⇐ diff POSITIVELY CONTROLLED: poisoning one row gives 35/36
+assertion failures              0 in all 36        0 in all 36
+authority unique deliveries         734                734        (s06 110 · floor ≥733/≥104 held)
+cross-check raw delivered           759                759
+PHY airtime (all 36 rows)     5 830 644 ms       5 830 644 ms
+credit census                  49 · 36/13         49 · 36/13   (state 45/3/1 both arms)
+tx_hal_rejected corpus-wide           0                  0      ⇐ why Blocker 1 is corpus-dark
+no-silent-disappearance      cfg 967 / resid 83  cfg 967 / resid 83   — NO scenario's residual grew (0 of 36)
+```
+
+⚠ **`≥733` REMAINS CONDITIONAL ON [[B163]]** (open, untouched): `s07`'s **80** rests on a correct live leased-id
+alias refusal whose consequence is not derivable without a time-windowed alias map. ⛔ No owner acceptance claimed.
+★ **`s27`: 0 assertion failures, and `re-m2`/`re-m3`/`re-m4` all deliver — verified from the AFTER stream's own
+`delivered` events (re-m2 ×1, re-m3 ×2, re-m4 ×2), not inferred from the byte-identity.**
+★ `sizeof(Node)` **221880 UNCHANGED** · `sizeof(PendingTx)` **352 UNCHANGED** · `kCap` **91** · top timer id **90**,
+no timer allocated — expected, since neither fix adds state (a local `disp`, a hoisted `const bool`, one gate term).
+
+#### ★★★★ (5) THE NATIVE CASES AND THE FOUR MUTATIONS (each at match count == 1, from `rm -rf .pio/build/native`)
+
+**3 new cases, +48 assertions** (1479/79693/0 → **1482/79741/0**).
+
+| case | what it pins |
+|---|---|
+| HAL-rejected DATA | `tx_answer = busy` at the DATA ⇒ `tx_hal_rejected` 1, `duty_cycle_blocked` **0** (the OTHER disposition), `data_tx` telemetry fires anyway; the credit then reports **`basis == alternate_path` AND `awaiting_ack == true` IN THE SAME EMIT** — both halves of the asymmetry in one assertion pair |
+| STATIC loop | same identity/dst/plane, `next` = US ⇒ no credit, **flight intact**, `rts_rx` 1 **and** `rts_drop_pending_tx` 1 (it was still HANDLED), timers still recover it; then the SAME frame with `next = 9` **does** credit (positive control on the same node) |
+| TEAM loop + mark control | `next` = our `_team_local_id` (93) under a wire-TEAM declaration ⇒ refused on `team_addr_for_us`; then `next` = our NUMERIC id (30) under the SAME wire-TEAM declaration **must credit**, because that frame is not addressed to us on the plane it declares |
+
+```
+M5  revert Blocker 1: `if (handed) pt.data_ever_transmitted = true;`        1 case /  1 assert RED
+      HAL-rejected DATA only.  ★ reproduces the ORIGINAL control flow exactly (not a deletion)
+M6  remove the `!addressed_for_us` term from the credit gate                2 cases / 9 asserts RED
+      STATIC loop + TEAM loop
+M7  THE WRONG FIX: `!(r.next == _node_id)` — a hand-rolled second           1 case /  3 asserts RED
+      derivation ignoring the wire plane.  ⇒ the STATIC loop case stays
+      GREEN and only the TEAM case catches it, which is what makes the
+      canonical-predicate reuse load-bearing rather than merely tidy
+M8  HARNESS VACUITY CONTROL: TestHal ignores `tx_answer` (always hands)     1 case /  2 asserts RED
+      exactly the HAL-rejection case ⇒ it genuinely depends on the refusal
+      and is NOT an inert green
+```
+★ Reversed by exact reverse string replace at match count == 1; **all three source md5s verified byte-exact after
+restore** (`md5sum -c`). ⛔ **`git checkout --` was NEVER used.** ★ **RESTORE CONTROL: native back to
+1482/79741/0 and the rebuilt `lus` back to `6d12577b`**, so every figure above is the final source's.
+
+#### ⚠ (6) EVERY PREMISE THAT TURNED OUT WRONG — **QA's, MINE, AND S4's**
+
+1. ⛔⛔ **MINE (the dispatch): "3 occurrences of `46`" in `node_mac_rx.cpp`.** One claim + two Lua line refs; the
+   second live site was in `test_node_r3.cpp`. Corrected sites: **2**. A `grep -c` counts LINES, not claims.
+2. ⛔⛔ **MINE (method): the first loop-detector reported 2 loop-shaped credits and BOTH WERE ARTEFACTS** — it
+   compared the stream's 0-based node INDEX to a protocol node id. Corrected map ⇒ **0**. Recorded in §(2).
+3. ⛔ **MINE (the dispatch), and it cuts the OTHER way from how it was written: "`TestHal::tx_answer` exists for
+   exactly this".** It exists in `test_node_join.cpp`; `test_node_r3.cpp`'s `TestHal` is a **different class** and
+   had no such field. The capability still was one field away — but it had to be ADDED here, and a case written
+   without noticing would have been the inert green the dispatch warned about (M8 is the proof it is not).
+4. ⛔ **S4's: *"THE ACTUAL DATA TRANSMISSION BOUNDARY, AND THE ONLY WRITER OF THIS FACT."*** The second clause is
+   true; the first is not. `duty_defer_fire` and `retry_stashed` both re-hand a DM DATA to the radio and neither
+   writes the flag ⇒ registered as **[[B164]]**, NOT fixed (see §(7)).
+5. ⓘ **MINE (expectation): I expected Blocker 1 to be corpus-dark because the sim HAL cannot refuse.** It CAN
+   (`NodeRuntimeWrapper.cpp:60-63`). The real reason is a measured traffic fact — `tx_hal_rejected` is 0 corpus-wide.
+   ⇒ *"the harness can't reach it"* and *"the corpus doesn't reach it"* are different claims; only the second is true.
+6. ⓘ **MINE (expectation): I expected Blocker 2's guard to cost credits, and warned the floor might break.** It
+   costs **zero** on this corpus (census 49 → 49). The warning was right to make and the outcome is better than it.
+
+#### ⛔ (7) NEW FINDING — [[B164]], REGISTERED AND **NOT FIXED**
+
+`data_ever_transmitted` has ONE writer but the DM DATA has **THREE** transmission boundaries: `do_data_tx` (writes
+it), `duty_defer_fire`'s `handed && tag == FrameTag::data` re-hand (does not) and `retry_stashed`'s direct
+`_hal.tx` (does not). ⇒ the flag can read **false for a flight whose DATA really aired**, so `basis` can
+UNDER-report `local_data`. ★ **THE DIRECTION IS THE SAFE ONE** — `alternate_path`'s justification ("the flight is
+progressing and this local copy is redundant") holds whether or not we also aired DATA, whereas Blocker 1 was an
+OVER-claim. That asymmetry is why it is registered rather than folded in (C1). ⓘ It also means part of §HYBRID-RTS-S4
+(3)'s unexplained `alternate_path`-with-an-earlier-`data_tx` residue may be this, not a relay `(node,ctr)` collision.
+
+#### §HYBRID-RTS-S4b (8) — THE GATE: WHAT RAN, WHAT DID NOT. ⛔ NOTHING HERE IMPLIES A SKIPPED GATE PASSED.
+
+| gate | outcome |
+|---|---|
+| `pio test -e native` + **the real binary** | ★ **1482 / 79741 / 0** from a CLEAN rebuild (baseline **1479 / 79693 / 0**) ⇒ **+3 cases, +48 assertions**. ⚠ the wrapper printed its usual false *"0 test cases"* |
+| `grep -c "error:"` | **0** |
+| warnings | **9 → 9, and the per-file multiset is IDENTICAL** (`diff` of line-number-stripped counts is empty). `-Wswitch` **0** |
+| `lus` rebuild + 36 rows | BEFORE `d66392e9` (zero build actions ⇒ the binary IS the pre-edit tree; reproduced §HYBRID-RTS-S4 (5) line for line). AFTER **`6d12577b`**, both core libs recompiled. **36/36 byte-identical**, diff positively controlled (36 → 35) |
+| delivery authority | ★ **734 → 734**, `s06` **110**, on `dm_delivery_breakdown.py --mode dm --json` → `totals.unique_deliveries`. Raw 759 → 759 as a labelled cross-check only. **⚠ `≥733` CONDITIONAL on [[B163]]** |
+| airtime authority | **5 830 644 → 5 830 644 ms** (all 36 rows, PHY ground truth) |
+| credit census by basis + state | ★ **49 · 36/13 · 45/3/1 in BOTH arms** — identical to §HYBRID-RTS-S4 (3); **no change to explain** |
+| no-silent-disappearance | cfg **967**, residual **83** in both arms; **0 of 36 scenarios grew**; `giveup`/`no_gateway` 0 on every row |
+| `s27` | ★ **0 assertion failures**; `re-m2`/`re-m3`/`re-m4` delivered, read off the AFTER stream |
+| `sizeof(Node)` / `sizeof(PendingTx)` / `kCap` / top timer id | ★ **221880 · 352 · 91 · 90**, all UNCHANGED, by compile-only reveal on the native env's OWN flag set (`-DMESHROUTE_NATIVE=1 -DMR_N_LAYERS=2`) |
+| mutations | ★ **4, each at match count == 1 from a clean rebuild, each RED, each a different set**; all three source md5s verified after restore; restore control native 1482/79741/0 + `lus` `6d12577b` |
+| board builds / `warning_census.sh` / the two UI probes / per-ABI reveal | ⛔ **DID NOT RUN — standing owner instruction / no state-size change. ⛔ NOTHING HERE IMPLIES THEY PASSED. An unrun gate is unrun.** ⚠ `lib/core` changed, so board flash may move; RAM will not |
+| `^### 36/36 corpus` anchor table | ★ **NOT edited.** Full-region `diff` (`awk 'f{print} /^### 36\/36 corpus/{f=1;print}'`) of `git show HEAD:simulation/BASELINE.md` against the worktree: **1398 lines each, EMPTY diff**. CONTROL: the extraction contains 28 `^| s` rows and the `**s18_meshroute** \| **`1cd21235`** \| **271629**` keystone row, so it demonstrably reached the table. ⛔ **NOT an md5 of a `sed` window** (§B162 (25).1's retired non-citation) |
+| owner / QA approval | ⛔ **NONE CLAIMED.** No owner has accepted any figure here and QA has not reviewed this slice |
+
+#### §HYBRID-RTS-S4b (9) — **M2: NOTHING IS OWED TO THE BENCH SCRIPT, AND HERE IS THE REASONING RATHER THAN THE CONCLUSION**
+
+⚠ **BLOCKER 1 LOOKS LIKE THE EXCEPTION AND IS NOT**, so it is argued rather than waved through: the disposition it
+turns on (`TxHandOff::rejected`) is produced by `DeviceHal::tx`'s full-ring `busy` — a file **neither native nor the
+sim compiles** — which is exactly M2's own definition of metal-only. ⛔ **But the thing the fix CHANGES is the value
+of `PendingTx::data_ever_transmitted`, whose only reader is the `basis` field of `implicit_ack_from_forward`, and
+that is an `MR_EMIT` — DEVICE-STRIPPED.** ⇒ **there is no console line a bench operator could observe to confirm or
+refute either fix on metal, so a bench step naming one would be unwritable — and a bench step that cannot fail is
+worse than none.** ⓘ The `DeviceHal::tx`-really-refuses plumbing check already lives in Part 12 from §tx-admission
+TX1 and is unchanged by this slice; ⓘ the loop guard is likewise pure `lib/core` control flow with no ABI, no new
+file, no flash wear and no radio behaviour. ⚠ What IS genuinely metal-only is **flash**: `lib/core` changed, so board
+flash may move — that is the board-build gate, which **did not run** by standing owner instruction and is recorded as
+unrun in §(8), not waved through.
+
+**S4b FILES:** `lib/core/node_mac.cpp` · `lib/core/node_mac_rx.cpp` · `test/test_node_r3.cpp` · this file ·
+`docs/2026-07-30-open-bug-register.md` ([[B153]] in place + [[B164]] NEW).
+⛔ **NOT TOUCHED:** the wire · the codec · `node.h` · `node_carriers.h` · `protocol_constants.h` · any scenario ·
+`platformio.ini` · `tools/` · `docs/protocol.md` · the anchor table · the owner-rulings ledger · **S5** (B158's
+remaining site, the PHY ledger) · **S6** · **[[B163]]** · **[[B161]]** · **[[B158]]** · **[[B159]]** ·
+**[[B160-COV]]/[[B160-SIB]]** · routing **T1–T3** · the parked mobile-home arc · the OLED UI.
+
+---
+
+### ★★★★★★★★★★★ §HYBRID-RTS-S4c (2026-08-10) — **THE FLAG NEVER MEANT "AIRED", AND IT WAS WRONG IN BOTH DIRECTIONS. THE RECORD IS RENAMED, NOT RE-ENGINEERED.**
+
+⛔⛔ **THIS IS A NAMING + RECORD SLICE. ZERO BEHAVIOUR CHANGED, and the one thing that moves — the `basis` string in
+the telemetry — is proven to be the ONLY moving byte corpus-wide.** Nothing was found by a gate; the blocker was found
+by reading `lib/hal/device_hal.cpp` beside `lib/core/node.cpp`.
+
+| # | file | change |
+|---|---|---|
+| 1 | `lib/core/node_carriers.h` | `PendingTx::data_ever_transmitted` → **`data_ever_admitted`**; its doc block rewritten to state the admission semantics and BOTH failure directions |
+| 2 | `lib/core/node_mac.cpp` (`do_data_tx`) | S4's *"THE ACTUAL DATA TRANSMISSION BOUNDARY"* heading **withdrawn at its own site** and replaced by the HAL-**admission** framing; S4b's *"the direction is the safe one"* **retired in place**; the pre-existing `handed` comment *"ONLY if the DATA actually hit the air … fires only on real self:tx"* **withdrawn** (it was wrong twice — see §(3)) |
+| 3 | `lib/core/node_mac_rx.cpp` (`handle_rts`) | local `local_data` → `local_admitted`; **`EF_S("basis", … "local_admitted" …)`**; the two-bases block re-worded; the census label mapping recorded so the series stays continuous |
+| 4 | `test/test_node_r3.cpp` | the `local_data` assertion + two case titles + six comment claims corrected; the S4b HAL-rejection case's scope narrowed **in its own heading** (it pins "not an admission", and CANNOT pin "not aired") |
+| 5 | spec `…hybrid-rts-flight-identity-design.md` §5.2 · plan `…hybrid-rts-flight-identity.md` S4 | **the OPERATIONAL text amended** (not a note beside the old wording): the two "proofs" become an **admission observation** and the alternate-path observation, with the deferred-not-dismissed option stated as a requirement |
+| 6 | `docs/2026-07-30-open-bug-register.md` | **[[B164]] EXPANDED to both directions with their mechanisms**; **[[B153]] updated in place (STILL OPEN pending [[B161]])** |
+| 7 | `docs/2026-08-05-owner-rulings-ledger.md` | the ruling text **left verbatim**; an implementation note records the label rename and states ⛔ **no owner confirmation is claimed** |
+
+#### ★★★★★ §HYBRID-RTS-S4c (1) — THE BLOCKER, VERIFIED AT EVERY CITED LINE (V1)
+
+★ `TxHandOff::handed` proves exactly one thing: **`IHal::tx` returned `ok`.** On hardware that is an ENQUEUE, and the
+HAL says so itself — `lib/hal/device_hal.cpp:10-12`: *"tx() ENQUEUES (resolving the per-frame params); the on-air send
++ ledger debit happen in pump_tx() once the radio is idle. Returns ok when queued (mirrors the sim's tx == enqueue +
+ok)"*. ⇒ the flag is wrong in **BOTH** directions:
+
+```
+DIRECTION 1  FALSE POSITIVE — admitted, never aired          (NEW; the blocker)
+  (a) Node::on_radio_busy(FrameTag::data)   node.cpp:2191-2195
+      clears awaiting_ack + cancels kAckTimeoutTimerId, and CANNOT unset the flag.
+      ★ LIVE, MEASURED on the S4c corpus: 652 `data_tx_blocked` events / 15 of 36 scenarios
+        s17 476 · s15 48 · s15_metal 44 · s16 29 · sim_9node_base 24 · s18 8 · s07 7
+        s06 5 · twin 5 · s09 1 · s09_metal 1 · s10 1 · s20 1 · s32 1 · s33 1     = 652
+  (b) DeviceHal::pump_tx() failed arm       device_hal.cpp:38-46
+      a failed start_transmit() POPS AND DROPS the queued frame, with no retry.
+      ⇒ a SECOND mechanism, metal-only, that this arc had not named before.
+DIRECTION 2  FALSE NEGATIVE — aired, never recorded          ([[B164]], already open)
+      duty_defer_fire's `handed && tag == FrameTag::data` re-hand, and
+      retry_stashed's direct `_hal.tx`, both fly a DATA and write nothing.
+```
+
+⇒ ★★ **`basis=local_data` could assert that DATA aired when it did not — the SAME factual class as §HYBRID-RTS-S4b's
+synchronous-rejection blocker, only AFTER a successful enqueue.** S4b fixed the synchronous half and, in the same
+comment, asserted the residue was safe.
+
+★★★ **WHAT IS NOT BROKEN, AND THE SCOPE IS THE POINT (carried forward verbatim from the QA that found this): the
+implicit-credit BEHAVIOUR remains safe — both bases take the same action and the exact downstream forwarding proves
+progress. The blocker is the claimed proof semantics and the authoritative census, not a newly demonstrated
+message-loss path.**
+
+#### ★★★★★ §HYBRID-RTS-S4c (2) — **WHY OPTION (a) AND NOT (b), STATED SO THE CHOICE IS AUDITABLE**
+
+Two resolutions existed:
+
+- **(a)** redefine the field and the diagnostic honestly as HAL-**admission** / best-effort telemetry, amending spec
+  and plan;
+- **(b)** add a flight-correlated TX-start/completion signal and establish the fact there.
+
+★★ **(a) WAS TAKEN. THE REASON IS THAT NOTHING CONSUMES THE TRUE FACT.** Both bases take the **same** action —
+cancel the timers, drop the redundant `_pending_tx`, `become_free()` — so the `local`/`alternate` split is a *label*,
+never an input to a decision. (b) would add state, plumbing and corpus movement to establish a fact **with no current
+reader**; (a) costs nothing, changes no behaviour, and makes the record honest.
+
+★★★ **(b) IS DEFERRED, NOT DISMISSED — recorded here so a future slice knows the difference.** The moment a consumer
+genuinely needs "aired" rather than "admitted", establish it at a TX-completion boundary (so a post-admission
+rejection can retract it), route `do_data_tx` and both [[B164]] re-hand sites through **one** helper owning the
+`awaiting_ack` re-arm *and* the fact (U1/U2), and rename the field back.
+⛔⛔ **AND THE FORBIDDEN SHORTCUT IS NAMED: do NOT "fix" [[B164]] by adding assignments at the two retry sites.** That
+repairs the false negatives and **preserves the late-busy false positive** — it would make the field look fixed while
+leaving the over-claim intact, which is the exact shape this arc exists to remove.
+
+#### ★★★★ §HYBRID-RTS-S4c (3) — THE NAMES, AND THE RATIONALE FOR EACH
+
+| old | new | rationale |
+|---|---|---|
+| `PendingTx::data_ever_transmitted` | **`data_ever_admitted`** | "admitted" is this codebase's OWN word for this boundary — `§tx-admission TX1`, `TxHandOff`, `TxResult::ok` — so it follows the surrounding idiom (U3) and cannot be read as an on-air fact. ⓘ `data_ever_handed` was considered and rejected: `handed` is jargon local to one enum, and it invites "handed to the air". |
+| `basis=local_data` | **`basis=local_admitted`** | `local_data` reads as *"our DATA"*, i.e. as proof of airing — the precise over-claim being removed. It pairs symmetrically with the untouched `alternate_path`. |
+| `alternate_path` | **unchanged** | its name claims nothing about airing, and ★ its justification — *"the flight is progressing and this local copy is redundant"* — is preserved verbatim. **S4c STRENGTHENS it: with the local basis downgraded to admission telemetry, redundancy-of-this-copy is the ONLY justification either basis has ever had.** |
+
+★ **A THIRD LIVE FALSE CLAIM WAS FOUND WHILE DERIVING THE SET, AND IT PREDATES S4** — `node_mac.cpp`'s comment above
+`if (handed)`: *"Arm the ACK wait ONLY if the DATA actually hit the air … fires only on real self:tx"*. **Wrong
+twice:** (i) `handed` is `disp != deferred_retry_armed`, so a HAL-**rejected** frame also arms the wait — deliberately,
+per §tx-admission TX1, because the ack-timeout is a rejection's only recovery; (ii) even `handed` is an admission.
+ⓘ The BEHAVIOUR is correct and untouched; only the sentence was false. Withdrawn in place.
+
+#### ★★★★ §HYBRID-RTS-S4c (4) — THE DERIVED SET OF CORRECTED COMMENTS, WITH COUNTS
+
+★ **DERIVED STRUCTURALLY, NOT BY GREPPING A WORD.** Method: take every line in `lib/`, `src/`, `test/` that
+references the field identifier, the `basis` label token or the local variable; take the comment REGIONS those
+references live in; then scan those regions for airing vocabulary (`aired`/`AIRED`/`airs`/`air`/`transmission`/
+`transmitted`) and classify each hit. ⚠ **A `grep -c` would have over-counted, exactly as it did in S4b:** this file
+family carries several sentences that are *withdrawn quotations of retired claims*, which must not be counted as live.
+
+```
+REFERENCE SITES on the PRE-EDIT tree (old identifier OR old label, lib/ + src/ + test/):
+  29 unique lines in 4 files  =  6 code/string  +  23 comment
+     node_carriers.h    4  (420 code · 396/401/402 comment)
+     node_mac.cpp       7  (1885 code · 1847/1850/1860/1865/1870/1882 comment)
+     node_mac_rx.cpp    9  (236/245 code · 172/174/183/185/189/191/206 comment)
+     test_node_r3.cpp   9  (3848 case-title string · 3868 assertion ·
+                            37/3808/3809/4063/4068/4112/4113 comment)
+     ⓘ src/ contributes ZERO: no firmware module ever referenced either name.
+
+LIVE FALSE CLAIMS OF A TRANSMISSION BOUNDARY, enumerated:  11   ⇒ ALL 11 CORRECTED
+     node_carriers.h  3  (a) the ":392 "HAS ALREADY AIRED ITS DATA AT LEAST ONCE"" heading
+                         (b) ":393-4 "the same boundary that arms awaiting_ack"" — false since
+                             S4b deliberately made the two conditions differ
+                         (c) ":401-2 the `local_data`/`alternate_path` "aired" gloss
+     node_mac.cpp     3  (d) ":1846 "THE ACTUAL DATA TRANSMISSION BOUNDARY"" heading
+                         (e) ":1847 "we really did air DATA for this flight""
+                         (f) ":1841 "ONLY if the DATA actually hit the air … only on real
+                             self:tx"" — PRE-DATES S4; see §(3), wrong twice
+     node_mac_rx.cpp  2  (g) ":172 "this node ALREADY AIRED DATA for this flight""
+                         (h) ":174 "we have aired NO DATA for it""
+     test_node_r3.cpp 3  (i) ":3848 case title "AFTER a real DATA transmission""
+                         (j) ":3868 "we DID air DATA"" beside the assertion
+                         (k) ":4062 case title "the boundary is the hand-off, not the emit""
+
+WITHDRAWN QUOTATIONS present in the same regions, DELIBERATELY NOT COUNTED:   3
+     node_mac_rx.cpp:189 + test_node_r3.cpp:3806-9 (the retired "46 of 61" claim, quoted as
+     withdrawn by S4b) and node_mac.cpp:1892 (S4b quoting S4's heading in order to retire it).
+     ⚠ A `grep -c` counts these as claims. They are the record of a claim being withdrawn.
+
+STRUCTURAL RE-SCAN OF THE FINAL SOURCE (regex over aired|AIRED|airs|air|transmission|
+transmitted, restricted to the same regions):  32 hits, of which LIVE FALSE CLAIMS = 0.
+     Every remaining hit is (i) S4c's own negation/explanation, (ii) a withdrawn quotation,
+     or (iii) a TRUE unrelated statement (the M-broadcast arm airs an M frame; the overheard
+     RTS really aired; the non-monotone-phase mechanism; the EWMA scope fence).
+     ⇒ "no live code claims X" was answered STRUCTURALLY, not by absence of a word.
+
+MECHANICAL name-only updates, no claim involved (5 test comments + node_mac_rx.cpp:193):  6
+`§S4c` correction markers left in source:  20   (carriers 3 · mac 7 · mac_rx 6 · tests 4)
+```
+
+ⓘ Six further wordings were tightened from "aired" to "admitted" where BOTH were true (five test comments and the
+non-monotone-phase sentence at `node_mac_rx.cpp:193`) — counted above as name-only updates, not as corrections,
+because the original sentences were not false.
+
+#### ★★★★★★ §HYBRID-RTS-S4c (5) — **THE INERTNESS PROOF, AND THE DISPATCH'S EXPECTATION OF 36/36 IS REFUTED BY CONSTRUCTION**
+
+⛔⛔ **THE DISPATCH ASKED FOR A RENAME *AND* AN AMENDED `basis` LABEL, AND ALSO FOR 36/36 BYTE-IDENTICAL STREAMS.
+THOSE TWO CANNOT BOTH HOLD:** `basis` is an `MR_EMIT` string that lands in every stream, so renaming the VALUE moves
+bytes by construction. The choice was made deliberately — keeping a dishonest label to preserve an md5 would be the
+defect class this arc exists to remove — and the movement is then proven to be *exactly* the token:
+
+```
+                                BEFORE (lus 6d12577b)     AFTER (lus b6e9220f)
+36 rows, raw md5                 27 identical / 9 different  ⇐ the 9 = EXACTLY the 9 credit-firing scenarios
+36 rows, AFTER | s/local_admitted/local_data/  ==  BEFORE:  36 / 36 BYTE-FOR-BYTE, 0 mismatches
+  ⇐ POSITIVE CONTROL: without the substitution the same loop reports 9 mismatches, so the check CAN fail
+events emitted + "0 assertion failure(s)" columns, all 36 rows:  diff EMPTY (identical)
+credit census                    49 · 36/13 · 45/3/1        49 · 36/13 · 45/3/1
+  cross-split                    local/cts 32 · alt/cts 13 · local/ack 3 · local/neither 1   — BOTH arms
+by scenario  s06 8 · s07 13 · s15 6 · s15_metal 3 · s17 1 · s18 12 · s20 4 · sim_9node_base 1 · twin 1
+  ⇐ SET IDENTITY: that scenario set == the 9 movers, element for element
+B162 authority unique deliveries       734                        734      (s06 110)
+PHY airtime (all 36 rows)         5 830 644 ms               5 830 644 ms
+```
+
+★ **THE SUBSTITUTION PROOF IS STRONGER THAN THE MD5 IDENTITY IT REPLACES**, because md5 identity would only say
+"nothing moved", whereas this says "everything that moved is this one token, and nothing else did" — and it carries
+its own control. ⚠ Had ANY row failed the substitution, that would have been the finding the dispatch warned about.
+
+★ Rebuild proven, both directions: BEFORE = `cmake --build` reporting **zero build actions** at `lus` **`6d12577b`**
+(⇒ the binary IS the pre-edit tree, and it reproduced the S4b figures). AFTER = **`b6e9220f`**, both core libs
+recompiled. ★ The comment-only follow-up pass (§(3)'s third claim + six tightenings) is **PROVEN BYTE-INERT: 4 build
+actions and `lus` still `b6e9220f`**, so every figure above is the FINAL source's.
+
+#### ★★★★ §HYBRID-RTS-S4c (6) — B162 AUTHORITY AND THE STATE LEDGER
+
+★ **734 unchanged**, `s06` **110**, on `tools/dm_delivery_breakdown.py --mode dm --json` → `totals.unique_deliveries`,
+summed over all 36 rows in both arms. ⚠⚠ **`≥733` REMAINS CONDITIONAL ON [[B163]]** (open, untouched): `s07`'s **80**
+rests on a correct live leased-runtime-id alias refusal whose consequence is not derivable without a time-windowed
+alias map. ⛔ **No owner acceptance of 734 is claimed.**
+★ PHY airtime **5 830 644 → 5 830 644 ms** (`--airtime --json` → `airtime.phy_total_ms`, all 36 rows).
+★ `sizeof(Node)` **221880** · `sizeof(PendingTx)` **352** · `sizeof(std::optional<PendingTx>)` **360** ·
+`offsetof(PendingTx, data_ever_admitted)` **347** (still in the tail padding after `is_gw_relay` at 346) ·
+`TimerWheel::kCap` **91** · top timer id **90** — all UNCHANGED, by compile-only reveal on the native env's own flag
+set (`-DMESHROUTE_NATIVE=1 -DMR_N_LAYERS=2`). **A rename adds no state; confirmed rather than assumed.**
+
+#### §HYBRID-RTS-S4c (7) — THE GATE: WHAT RAN, WHAT DID NOT. ⛔ NOTHING HERE IMPLIES A SKIPPED GATE PASSED.
+
+| gate | outcome |
+|---|---|
+| `pio test -e native` + **the real binary** | ★ **1482 / 79741 / 0** from `rm -rf .pio/build/native`, i.e. **exactly the baseline** — no case added, none lost. ⚠ the wrapper printed its usual false *"0 test cases"*; the figure is the binary's |
+| `grep -c "error:"` | **0** |
+| warnings | **9 → 9, per-file multiset IDENTICAL** (`cc1 -fno-rtti` 1 · `node_hashlocate.cpp` 1 · `test_dual_layer.cpp` 2 · `test_node_channel.cpp` 1 · `test_node_hashlocate.cpp` 1 · `test_node_query.cpp` 1 · `test_node_r3.cpp` 2) — **ZERO from any file this slice touched**. `-Wswitch` **0** |
+| `lus` rebuild + 36 rows | BEFORE `6d12577b` (**zero build actions** ⇒ the binary is the pre-edit tree). AFTER **`b6e9220f`**, both core libs recompiled. **27/36 raw-identical + 9 movers, all 36 reproduced BYTE-FOR-BYTE under the single-token substitution, positively controlled (9 mismatches without it)** |
+| delivery authority | ★ **734 → 734**, `s06` **110**. **⚠ `≥733` CONDITIONAL on [[B163]]** |
+| airtime authority | **5 830 644 → 5 830 644 ms** (all 36 rows, PHY ground truth) |
+| credit census by basis + state | ★ **49 · 36/13 · 45/3/1 in BOTH arms**, cross-split identical, by-scenario set == the mover set |
+| assertion failures / event counts | ★ **0 in all 36 rows in both arms**; the events + failures columns `diff` EMPTY |
+| `sizeof(Node)` / `sizeof(PendingTx)` / `kCap` / top timer id | ★ **221880 · 352 · 91 · 90**, all UNCHANGED (compile-only reveal, native flag set) |
+| `^### 36/36 corpus` anchor table | ★ **NOT edited.** Full-region `diff` (`awk 'f{print} /^### 36\/36 corpus/{f=1;print}'`) of `git show HEAD:simulation/BASELINE.md` against the worktree: **1398 lines each, EMPTY diff.** CONTROL: the extraction holds **28** `^\| s` rows and the `s18_meshroute … 1cd21235` keystone row, so it demonstrably reached the table. ⛔ **NOT an md5 of a `sed` window** |
+| mutations | ⛔ **NONE RUN, and none is owed: this slice changes no predicate, no branch and no value** — the only executable delta is one string literal, whose effect is measured directly and positively controlled in §(5). ⚠ Recorded rather than waved: S4's M3 mutation (setting the flag before the hand-off) remains the live detector of the write's placement, and it is untouched |
+| board builds / `warning_census.sh` / the two UI probes / per-ABI reveal | ⛔ **DID NOT RUN — standing owner instruction / no state-size change. ⛔ NOTHING HERE IMPLIES THEY PASSED. An unrun gate is unrun.** ⚠ `lib/core` changed (comments + one string literal), so board flash MAY move by the string-length delta; RAM will not |
+| bench script (M2) | ⛔ **NOTHING OWED, and argued rather than waved:** the only observable this slice changes is the `basis` field of an `MR_EMIT`, which is **DEVICE-STRIPPED** — there is no console line a bench operator could read, so a step naming one would be unwritable, and a step that cannot fail is worse than none. ⚠ The genuinely metal-only mechanism this slice *names* (`pump_tx()`'s dropped frame) is a FINDING for [[B164]], not a behaviour introduced here |
+| owner / QA approval | ⛔ **NONE CLAIMED.** No owner has accepted any figure here, and the label rename is explicitly flagged as un-confirmed in the owner-rulings ledger |
+
+#### ⚠ §HYBRID-RTS-S4c (8) — EVERY PREMISE THAT TURNED OUT WRONG — **MINE FIRST, THEN QA's, THEN S4b's**
+
+1. ⛔⛔ **MINE (§HYBRID-RTS-S4b, the one this slice exists to correct): *"★ THE DIRECTION IS THE SAFE ONE — the flag
+   can only under-report, which is the safe direction."*** **FALSE.** The late-busy path *invents* a transmission:
+   `on_radio_busy(FrameTag::data)` refuses a frame the flag already booked, and `pump_tx()`'s failed arm drops one
+   silently. ★★ **AND THE SHAPE OF THE ERROR IS THE LESSON: it was an ASYMMETRY ASSERTED WITHOUT CHECKING THE OTHER
+   DIRECTION** — the second such refutation in three rounds. ⇒ **when you claim a fact can only be wrong one way,
+   check the other way explicitly.**
+2. ⛔ **MINE (§HYBRID-RTS-S4b): the register entry for [[B164]] recorded only the false negative**, so the field's
+   defect looked one-sided in the durable record too. Both directions are now recorded with their mechanisms.
+3. ⛔ **THE DISPATCH'S (mine): "expect 36/36 byte-identical".** It cannot hold together with the dispatch's own
+   requirement to rename the `basis` label — a `basis` value is stream content. **REFUTED BY CONSTRUCTION**, and
+   replaced by a stronger, positively-controlled substitution proof (§(5)).
+4. ⛔ **S4's (pre-existing, and NOT previously registered): `node_mac.cpp`'s *"Arm the ACK wait ONLY if the DATA
+   actually hit the air … fires only on real self:tx"*.** Wrong twice — `rejected` also arms it (deliberately), and
+   `handed` is an admission. Found only because §(4) derived the claim set structurally instead of grepping the
+   field name. ⓘ **A comment that predates the slice can still be a live false claim; the derivation must not be
+   scoped to the identifier being renamed.**
+5. ⓘ **MINE (expectation): I expected `on_radio_busy` to be the only post-admission rejection.** `pump_tx()`'s failed
+   arm is a second, and it is *worse* (no retry at all). Found by reading the HAL rather than the MAC — the same
+   direction of reading that found the blocker.
+6. ⓘ **S4b's scope claim, narrowed in its own heading:** its HAL-rejection case was titled *"a HAL-REJECTED DATA is
+   NOT a transmission"*. It pins that a **synchronous** refusal is not an **admission**; it cannot pin anything about
+   airing, and a reader could have taken it as coverage this slice's blocker did not have.
+7. ⓘ **QA's framing, ADOPTED AND CARRIED FORWARD RATHER THAN CORRECTED** (recorded here because it is load-bearing and
+   should not be re-derived): *"the implicit-credit BEHAVIOUR remains safe — both bases take the same action and exact
+   downstream forwarding proves progress. The blocker is the claimed proof semantics and the authoritative census,
+   not a newly demonstrated message-loss path."* ★ Measured consistency with that framing: deliveries, airtime,
+   census and per-row assertion failures are all unmoved.
+
+**S4c FILES:** `lib/core/node_carriers.h` · `lib/core/node_mac.cpp` · `lib/core/node_mac_rx.cpp` ·
+`test/test_node_r3.cpp` · `docs/superpowers/specs/2026-08-08-hybrid-rts-flight-identity-design.md` ·
+`docs/superpowers/plans/2026-08-08-hybrid-rts-flight-identity.md` ·
+`docs/2026-07-30-open-bug-register.md` ([[B164]] expanded + [[B153]] in place) ·
+`docs/2026-08-05-owner-rulings-ledger.md` (implementation note only, ruling text verbatim) · this file.
+⛔ **NOT TOUCHED:** the wire · the codec · `node.h` · `protocol_constants.h` · any scenario · `platformio.ini` ·
+`tools/` · `docs/protocol.md` · the anchor table · **S5** (B158's remaining site, the PHY ledger) · **S6** ·
+option **(b)**'s implementation · **[[B163]]** · **[[B161]]** (⚠ **[[B153]] stays open while it is open**) ·
+**[[B158]]** · **[[B159]]** · **[[B160-COV]]/[[B160-SIB]]** · routing **T1–T3** · the parked mobile-home arc ·
+the OLED UI.
+
+---
+
+### ★★★★★★★★★★★ §HYBRID-RTS-S4d (2026-08-10) — **`true` WAS HONEST; `false` WAS NOT. THE WRITE MOVES TO THE ONE CROSSING POINT.**
+
+⛔⛔ **THIS SLICE EXTENDS §HYBRID-RTS-S4c IN PLACE.** S4c's rename and evidence STAND; it left exactly one narrow
+blocker, and it is the flag's **`false`** side.
+
+| # | file | change |
+|---|---|---|
+| 1 | `lib/core/node_mac.cpp` (`tx_with_retry`) | **THE FIX: the single `data_ever_admitted` write, placed immediately after `_hal.tx()` returns `TxResult::ok`**, guarded `tag == FrameTag::data && _active->_pending_tx && !m_broadcast`; carries the one-crossing-point reasoning, the `retry_stashed` argument in BOTH directions, and the `!m_broadcast` justification |
+| 2 | `lib/core/node_mac.cpp` (`do_data_tx`) | the writer **DELETED**; four S4b/S4c claim blocks amended IN PLACE (the "only writer" clause, the "best-effort" phrasing, the placement invariant, and [[B164]]'s half-closure); the `disp` comment corrected — it claimed *"TWO DIFFERENT DECISIONS READ IT"* and only one does now |
+| 3 | `lib/core/node_carriers.h` | the field's doc block: *"Set at ONE place only: `do_data_tx`'s … arm"* **retired in place**; new text states the crossing point, the exact-for-admission/silent-about-airing split, and why `retry_stashed` needs nothing |
+| 4 | `lib/core/node_mac_rx.cpp` (`handle_rts`) | the consumer's *"WRONG BOTH WAYS"* line amended: it is now wrong **one** way, and the `false` side's categorical label is legitimate |
+| 5 | `test/test_node_r3.cpp` | **the duty-deferred regression** (+1 case, +20 assertions) with its vacuity controls, and an honest coverage note that the `!m_broadcast` term has NO native detector |
+| 6 | spec `…design.md` §5.2 · plan `…hybrid-rts-flight-identity.md` item 2 | **the OPERATIONAL text amended, not a note beside it** — item (2)'s antecedent is now exact, and the amendment says the CODE change is what makes it so |
+| 7 | `docs/2026-07-30-open-bug-register.md` | **[[B164]] half-closed in place** (admission direction CLOSED, airing OPEN, option (b) still deferred-not-dismissed); **[[B153]] updated in place, STILL OPEN pending [[B161]]** |
+
+#### ★★★★★ §HYBRID-RTS-S4d (1) — THE BLOCKER, VERIFIED AT ALL FOUR CITED SITES (V1)
+
+1. **The only writer** was in the INITIAL path — `node_mac.cpp` `do_data_tx`:
+   `if (disp == TxHandOff::handed) pt.data_ever_admitted = true;`.
+2. **A duty-deferred DATA can LATER be admitted** — `duty_defer_fire` re-runs
+   `tx_with_retry(s.buf, s.len, s.sf, tag) != TxHandOff::deferred_retry_armed` from the stash. That call **re-runs the
+   send** (`_hal.tx` on a healthy budget) and **never touched the flag**.
+3. **The consumer maps `false` CATEGORICALLY** to `basis=alternate_path` (`node_mac_rx.cpp`, `handle_rts`'s credit).
+4. **The spec says that means "no DATA has been admitted locally"** (design §5.2 item 2).
+
+⇒ ★★ **`true` honestly meant "an admission was observed"; `false` did NOT prove "alternate path".** A best-effort flag
+cannot support a **categorical** false-side label. ⛔ This is a DIFFERENT defect from S4c's: S4c fixed what `true`
+CLAIMS; S4d fixes what `false` PROVES.
+
+⚠ **STRUCTURAL ENUMERATION, NOT A GREP (the METHOD rule).** All four `_hal.tx(` call sites in `lib/core` were
+enumerated from the code, not from the identifier: `node_mac.cpp:1483` (RTS, `rts_duty_defer_fire`) ·
+`node_mac.cpp:1531` (BCN, `tx_flood`) · `tx_with_retry` · `retry_stashed`. Only the last two can ever carry a DM DATA.
+`lbt_complete`'s `tx_with_retry` call cannot: its `tag` is `rts`/`nack`/`beacon` by construction.
+
+#### ★★★★★★ §HYBRID-RTS-S4d (2) — THE FIX, AND WHY THIS SHAPE IS RIGHT
+
+★★ **ONE CROSSING POINT.** Every DM-DATA admission — initial **and** duty-deferred-retry — necessarily crosses
+`_hal.tx()` inside `tx_with_retry`. Establishing the fact **there** rather than at an exit makes it exact instead of
+best-effort, **and makes a future call path unable to bypass it.**
+★★ **THE STRUCTURAL LESSON IS [[B162]]'s REFUSAL BANNER IN A SECOND SHAPE: *a guarantee made at one of several exits
+is not made at all.*** ⛔ Therefore **no per-path assignment was added** — that is the defect in a new shape, and it
+is exactly what [[B164]] forbade for the retry sites (and what the spec forbids in as many words).
+
+★ **WHY `retry_stashed()` NEEDS NO WRITER — the argument is in-source so nobody adds a third copy, and it is checked
+in BOTH directions:**
+- it is reachable **only** from the `kRadioBusyRetryTimerId + slot` timer (`node.cpp:1417-1418`), armed **only**
+  inside `on_radio_busy` (`node.cpp:2220`) after `retry_slot_of(tag) >= 0 && s.valid`;
+- `on_radio_busy` REPORTS a frame the HAL had already taken. For the DATA slot its `info.tag` can only be
+  `FrameTag::data`, and the only `_hal.tx` in `lib/core` carrying that tag is the crossing point (§(1)'s enumeration;
+  `retry_stashed` itself only re-sends bytes that site already admitted). ⇒ **a prior successful admission is a
+  PRECONDITION of reaching it**, so the flag is already `true` for that flight;
+- **the other direction:** it re-sends `s.buf` — the stashed bytes of the very frame that was admitted — so it can
+  never air a *different* flight's DATA. If the flight has since been replaced, the NEW flight's `false` is
+  **CORRECT**: nothing of the new flight was ever admitted.
+
+⛔ **THE `!m_broadcast` TERM IS LOAD-BEARING, NOT DECORATIVE, AND THAT IS MEASURED:** `do_data_tx`'s M-broadcast arm
+returns early but reaches `tx_with_retry` **with `FrameTag::data`** on the way (`node_mac.cpp:1788`) — corpus-wide
+**1014 `data_tx` events with `m_broadcast: true`, across 9 scenarios**. Without the guard those would book an
+admission for a flight that airs an **M frame (cmd 0xA)**, not DATA.
+⚠ **HONEST COVERAGE OF THAT TERM, STATED NOT IMPLIED: it has NO detector, in the corpus OR native.** An
+`m_broadcast` flight's flag is **never read** — `handle_rts`'s credit excludes such flights — so removing the guard
+would be inert by construction. This is established **structurally** (from the read site), which is why no mutation
+was run for it and no native case was left behind: a case was drafted and **REMOVED rather than kept as an inert
+green**, and the removal is recorded in the test file itself.
+
+#### ★★★★★ §HYBRID-RTS-S4d (3) — **THE CORPUS DID NOT MOVE, AND THE DISPATCH PREDICTED THAT IT WOULD**
+
+```
+                                BEFORE (lus b6e9220f)      AFTER (lus 9150ad1a)
+36 rows: md5 + events + "0 assertion failure(s)"   machine diff EMPTY — 36/36 identical
+  ⇐ POSITIVE CONTROL: perturbing one row makes the same diff report 2 changed lines
+36 raw .ndjson byte-compare (cmp)                  36 identical / 0 different
+credit census                    49 · 36/13 · 45/3/1        49 · 36/13 · 45/3/1
+  cross-split                    local/cts 32 · alt/cts 13 · local/ack 3 · local/neither 1  — BOTH arms
+  by scenario   s06 8 · s07 13 · s15 6 · s15_metal 3 · s17 1 · s18 12 · s20 4 · sim_9node_base 1 · twin 1
+B162 authority unique deliveries       734                        734      (s06 110)
+PHY airtime (all 36 rows)         5 830 644 ms               5 830 644 ms
+```
+
+⛔⛔ **THE DISPATCH SAID *"THE CORPUS WILL LIKELY MOVE — some `alternate_path` credits should become
+`local_admitted`"* AND *"do not predict inertness"*. IT DID NOT MOVE, AND THE REASON IS A MEASUREMENT, NOT A
+PREDICTION: the ONLY newly-covered admission path is the DATA duty-defer re-run, and it is CORPUS-DARK.**
+
+```
+duty_cycle_blocked, by (label, source), all 36 scenarios, both arms:
+   NACK / tx_with_retry   33
+   RTS  / lbt_complete    11
+   DATA / anything          0     ⇐ ZERO. `duty_defer_fire` never fires for the DATA slot corpus-wide.
+data_tx, m_broadcast=false   4526 over 36 scenarios      (the initial path — unchanged condition)
+data_tx, m_broadcast=true    1014 over  9 scenarios      (the guarded path — correctly not booked)
+```
+
+★ **RECONCILIATION OF THE CENSUS AGAINST S4c's `49 · 36/13 · 45/3/1`: IT IS UNMOVED, ELEMENT FOR ELEMENT** — total,
+basis split, state split, the 2×3 cross-split and the nine-scenario distribution all reproduce S4c's published
+figures exactly, in **both** arms. ⇒ **there is no mover to attribute**, and the requested
+`alternate_path → local_admitted` shift **did not occur**. ⚠ That is not evidence the fix is inert in general — it is
+evidence the corpus cannot reach it, which is why §(4)'s native case and mutation are the whole of the proof.
+
+#### ★★★★★ §HYBRID-RTS-S4d (4) — THE REGRESSION, ITS VACUITY CONTROLS, AND THE MUTATION
+
+★ **THE REGRESSION** (`test/test_node_r3.cpp`): a first DATA attempt that is **duty-DEFERRED**, whose timer then
+**obtains HAL admission**, and whose exact downstream forward emits **`basis=local_admitted`**.
+
+★★ **PROOF THE HARNESS CAN ACTUALLY PRODUCE A DUTY DEFERRAL — asserted, not assumed, because `TestHal::tx` always
+hands off and a "duty-defer" case on a HAL that never defers is an INERT GREEN** (S4's own M3 was falsifiable only
+because someone had added a duty-deferred case):
+- `cfg.duty_cycle = 0.10` (with `0` there is no pre-check at all) and `hal._airtime_used = 999999999ull`;
+- `duty_cycle_blocked == 1` — the deferral really happened;
+- `hal.tx_calls` **UNCHANGED** across the first attempt — the HAL was **not asked at all**;
+- `tx_hal_rejected == 0` — it is the DUTY disposition, not the rejection twin;
+- zero `DATA` frames in `hal.tx_frames` at that point.
+Then `hal._airtime_used = 0` and `on_timer(kDutyDeferTimerId + 1)`: exactly **one** `DATA` frame appears, `tx_calls`
+is +1, and `duty_cycle_blocked` is still 1 (it did **not** re-defer — otherwise the premise is gone).
+
+★★ **THE MUTATION — M9, at match count == 1 from `rm -rf .pio/build/native`, and it REPRODUCES THE ORIGINAL CONTROL
+FLOW rather than merely deleting the line** (a previous M1 came back falsely green because disabling one step was
+masked by another): the crossing-point write is removed **and** `if (disp == TxHandOff::handed) pt.data_ever_admitted
+= true;` is re-inserted in `do_data_tx`. Result:
+
+```
+M9  native 1483 test cases | 1482 passed | 1 FAILED | 79761 assertions | 1 failed
+    test/test_node_r3.cpp:4353: CHECK( ia->basis == "local_admitted" ) is NOT correct!
+      values: CHECK( alternate_path == local_admitted )        ⇐ the WRONG basis, exactly the defect
+```
+
+⇒ ★ **the mutation makes the regression report the WRONG basis, and it is the ONLY failure** — no other case in the
+TU discriminates it, which is the honest statement of what this fix's detector set is.
+★ **THE EXISTING HAL-REJECTION CASE STAYS GREEN** (a rejected frame must still leave the flag false): the write sits
+on the `tr == ok` side of `tx_with_retry`'s own `rejected` return, so the S4b case passes in both arms — and it passes
+under M9 too, since M9 *is* the pre-S4d control flow.
+★ **RESTORE CONTROL:** both replacements reversed at match count == 1, `node_mac.cpp` **byte-identical** to the
+pre-mutation copy, native back to **1483/79761/0**, and the rebuilt `lus` back to **`9150ad1a`** byte-for-byte after
+2 build actions. ⛔ **No `git checkout --` at any point.**
+
+#### ★★★★ §HYBRID-RTS-S4d (5) — AUTHORITY FIGURES AND THE STATE LEDGER
+
+★ **B162 authority: 734 → 734**, `s06` **110** (`tools/dm_delivery_breakdown.py --mode dm --json` →
+`totals.unique_deliveries`, summed over all 36 rows in both arms). ⚠⚠ **`≥733` REMAINS CONDITIONAL ON [[B163]]**
+(open, untouched): `s07`'s figure rests on a correct live leased-runtime-id alias refusal whose consequence is not
+derivable without a time-windowed alias map. ⛔ **No owner acceptance of 734 is claimed.** ⛔ **No raw `delivered`
+figure is reported as the result** — the raw cross-check is a labelled column of the instrument, never the figure of
+record.
+★ PHY airtime **5 830 644 → 5 830 644 ms** (`--airtime --json` → `airtime.phy_total_ms`, all 36 rows).
+★ `sizeof(Node)` **221880** · `sizeof(PendingTx)` **352** · `sizeof(std::optional<PendingTx>)` **360** ·
+`offsetof(PendingTx, data_ever_admitted)` **347** (still in the tail padding after `is_gw_relay` at **346**) ·
+`TimerWheel::kCap` **91** · top timer id **90** — all UNCHANGED, by compile-only reveal on the native env's own flag
+set (`-DMESHROUTE_NATIVE=1 -DMR_N_LAYERS=2`). **Moving a writer adds no state; confirmed rather than assumed.**
+
+#### §HYBRID-RTS-S4d (6) — THE GATE: WHAT RAN, WHAT DID NOT. ⛔ NOTHING HERE IMPLIES A SKIPPED GATE PASSED.
+
+| gate | outcome |
+|---|---|
+| `pio test -e native` + **the real binary** | ★ **1483 / 79761 / 0** from `rm -rf .pio/build/native` (baseline 1482/79741/0 ⇒ **+1 case, +20 assertions**, the RISE the dispatch expected). ⚠ the wrapper printed its usual false *"0 test cases"*; the figure is the binary's |
+| `grep -c "error:"` | **0** |
+| warnings | **9 → 9, per-file multiset IDENTICAL** (`cc1 -fno-rtti` 1 · `node_hashlocate.cpp` 1 · `test_dual_layer.cpp` 2 · `test_node_channel.cpp` 1 · `test_node_hashlocate.cpp` 1 · `test_node_query.cpp` 1 · `test_node_r3.cpp` 2) — **ZERO from any file this slice touched**. `-Wswitch` **0** |
+| `lus` rebuild + 36 rows | BEFORE **`b6e9220f`** (`cmake --build` reported **zero build actions** ⇒ the binary IS the pre-edit tree, and it reproduced S4c's figures). AFTER **`9150ad1a`**, `node_mac.cpp` + `node_mac_rx.cpp` recompiled into **both** core libs. **36/36 rows machine-diff EMPTY and all 36 raw `.ndjson` byte-identical**, diff positively controlled (2 changed lines on a perturbed row) |
+| delivery authority | ★ **734 → 734**, `s06` **110**. **⚠ `≥733` CONDITIONAL on [[B163]]** |
+| airtime authority | **5 830 644 → 5 830 644 ms** (all 36 rows, PHY ground truth) |
+| credit census by basis + state | ★ **49 · 36/13 · 45/3/1 in BOTH arms**, cross-split and by-scenario set identical — **re-measured against S4c's published `49 · 36/13 · 45/3/1` and reconciled: UNMOVED** |
+| assertion failures / event counts | ★ **0 in all 36 rows in both arms**; the events + failures columns diff EMPTY |
+| `sizeof(Node)` / `sizeof(PendingTx)` / offset / `kCap` / top timer | ★ **221880 · 352 · 347 · 91 · 90**, all UNCHANGED (compile-only reveal, native flag set) |
+| `^### 36/36 corpus` anchor table | ★ **NOT edited.** Full-region `diff` (`awk 'f{print} /^### 36\/36 corpus/{f=1;print}'`) of `git show HEAD:simulation/BASELINE.md` against the worktree: **EMPTY diff**, both sides the same length, with a CONTROL counting the `^\| s` rows and the `s18_meshroute … 1cd21235` keystone row so the extraction demonstrably reached the table. ⛔ **NOT an md5 of a `sed` window** |
+| mutations | ★ **1 (M9), at match count == 1 from a clean rebuild, RED on exactly the intended assertion and nothing else, reproducing the ORIGINAL control flow rather than deleting a line**; restore control green (native 1483/79761/0, `lus` `9150ad1a`, source byte-identical). ⓘ S4's M3 (write placed before the hand-off) remains a live detector and is untouched |
+| board builds / `warning_census.sh` / the two UI probes / per-ABI reveal | ⛔ **DID NOT RUN — standing owner instruction / no state-size change. ⛔ NOTHING HERE IMPLIES THEY PASSED. An unrun gate is unrun.** ⚠ `lib/core` changed (comments + one moved assignment), so board flash may move by a negligible amount; RAM will not (`sizeof` unchanged) |
+| `s18` keystone | ⓘ **NOT separately re-derived as an md5 — and it did not need to be:** the 36-row set INCLUDES `s18_meshroute` and its row is byte-identical to the BEFORE arm, which is the stronger statement. ⚠ Stated explicitly so nobody reads a missing figure as a skipped gate |
+| bench script (M2) | ⛔ **NOTHING OWED, argued rather than waved:** this slice moves one assignment whose only observable is the `basis` field of an `MR_EMIT`, which is **DEVICE-STRIPPED**. There is no console line a bench operator could read, so a step naming one would be unwritable — and a step that cannot fail is worse than none. ⚠ The genuinely metal-only mechanism in this area (`pump_tx()`'s dropped frame) is [[B164]]'s residue, not behaviour introduced here |
+| owner / QA approval | ⛔ **NONE CLAIMED.** No owner has accepted any figure here, and the `local_admitted` terminology remains explicitly un-confirmed by the owner — ⛔ this slice does **not** clear or assert that label |
+
+#### ⚠ §HYBRID-RTS-S4d (7) — EVERY PREMISE THAT TURNED OUT WRONG — **THE DISPATCH's FIRST, THEN MINE, THEN S4c's**
+
+1. ⛔⛔ **THE DISPATCH'S (QA's): *"★★ The corpus WILL likely move — some `alternate_path` credits should become
+   `local_admitted`"*, paired with *"⚠ Do not predict inertness"*.** **REFUTED BY MEASUREMENT: all 36 streams are
+   byte-identical and the census is unmoved.** ★★ **AND THE SHAPE IS THE SAME ONE THE DISPATCH ITSELF WARNED
+   ABOUT — a claim about what WOULD happen, made without checking the other direction:** the only newly-covered path
+   is the DATA duty-defer re-run, and `duty_cycle_blocked` with label `DATA` is **ZERO** corpus-wide. ⇒ **the third
+   refuted gate prediction in three rounds.** ⓘ The instruction *not* to predict inertness was still the right
+   instruction — it forced the measurement that produced the number, instead of the reasoning that would have
+   produced a guess.
+2. ⛔ **THE DISPATCH'S (QA's), second: *"a shift from `alternate_path` toward `local_admitted` is the fix working;
+   report the new split"*.** There is **no new split** to report. The fix works and the census cannot see it; the
+   detectors are one native case and one mutation. ⚠ **An unmoved census is not evidence the fix is inert** — it is
+   evidence the corpus cannot reach the path, and the two are easy to confuse in exactly the direction that flatters.
+3. ⛔ **MINE, drafted then discarded rather than shipped: a native case for the `!m_broadcast` guard.** I wrote one
+   before checking whether the guard has any observable. It has none — an `m_broadcast` flight's flag is never read,
+   because `handle_rts` excludes such flights — so the case would have been an **inert green**, the precise defect
+   class S4b's `tx_answer` note warns about. **Removed, and the gap is recorded in the test file instead.**
+4. ⛔ **S4b's, found while amending it: `node_mac.cpp`'s *"THE DISPOSITION IS KEPT, NOT COLLAPSED, BECAUSE TWO
+   DIFFERENT DECISIONS READ IT"*.** True when written; **false the moment S4d moved the writer** — only `handed`
+   reads it now. Corrected in place (and `disp` deliberately kept, for the TX1 reason). ⓘ **A comment can be
+   falsified by a later slice's edit, which is why the derivation must be structural rather than name-scoped** — the
+   same lesson S4c recorded, applied one slice later.
+5. ⓘ **S4c's, narrowed rather than refuted: *"THE FIELD IS BEST-EFFORT ADMISSION TELEMETRY"*.** Accurate when
+   written; **too weak now.** The honest phrasing is **"exact about admission, silent about airing"**, and the two
+   halves must be stated separately because the consumer's `false` side is categorical while its `true` side is not.
+6. ⓘ **S4c's [[B164]] framing, half-retired: the false-negative direction was recorded as an open defect requiring
+   option (b).** It required only a **topology change**. ⚠ The prohibition it carried — *never approximate (b) by
+   adding the assignment at the two retry sites* — was correct and was **obeyed**: S4d added no per-path assignment.
+7. ⓘ **QA's framing, ADOPTED AND CARRIED FORWARD (recorded so it is not re-derived):** *"the implicit-credit
+   BEHAVIOUR remains safe — both bases take the same action and exact downstream forwarding proves progress."*
+   ★ Measured consistency: deliveries, airtime, census and per-row assertion failures are all unmoved.
+
+**S4d FILES:** `lib/core/node_mac.cpp` · `lib/core/node_carriers.h` · `lib/core/node_mac_rx.cpp` ·
+`test/test_node_r3.cpp` · `docs/superpowers/specs/2026-08-08-hybrid-rts-flight-identity-design.md` ·
+`docs/superpowers/plans/2026-08-08-hybrid-rts-flight-identity.md` · `docs/2026-07-30-open-bug-register.md` ·
+this file.
+⛔ **NOT TOUCHED:** the wire · the codec · `node.h` · `protocol_constants.h` · any scenario · `platformio.ini` ·
+`tools/` · `docs/protocol.md` · `docs/2026-08-05-owner-rulings-ledger.md` (⛔ the `local_admitted` label is still
+un-confirmed there and this slice does not touch that) · the anchor table · **S5** (B158's remaining site, the PHY
+ledger) · **S6** · option **(b)**'s implementation · **[[B163]]** · **[[B161]]** (⚠ **[[B153]] stays open while it is
+open**) · **[[B158]]** · **[[B159]]** · **[[B160-COV]]/[[B160-SIB]]** · routing **T1–T3** · the parked mobile-home
+arc · the OLED UI.
+
+
+**★★★★★★★★★★★★★★★★★★★★★★★★ 2026-08-09 §B162 IS THE NEWEST NOTE AND IT WAS **RE-OPENED AND RE-CLOSED THREE TIMES THE SAME DAY** — sections **(10)-(16)** are the second pass and they CORRECT SECTION (4) OF THIS SAME NOTE; sections **(17)-(20)** are the **THIRD** pass; sections **(21)-(25)** are the **FOURTH**. ★★★★★★ **FOURTH PASS IN ONE LINE: the fail-loud refusal banner the THIRD pass added was BYPASSED BY SIX OF THE SEVEN OUTPUT PATHS, INCLUDING THE AUTHORITATIVE `--airtime` VIEW, which printed `★★ TOTAL AIRTIME (AUTHORITY) = 346 ms` at rc 0 with no banner and no LOWER BOUND warning on a stream with two malformed lines, and whose `--json` form carried neither the count nor the examples — the FOURTH occurrence in this arc of a measurement path that fails toward "nothing happened", and the SECOND inside [[B162]] itself. ⛔⛔ Its own comment asserted the notice "must not be modeselectable away"; A COMMENT ASSERTING A GUARANTEE IS NOT THE GUARANTEE.** ★★★★★ **FIXED AS A TOPOLOGY, NOT A BANNER — a per-mode copy was CONSIDERED AND REJECTED as the same defect in a new shape: ONE unconditional `ndjson_refusal_crossing_point()` ahead of the entire mode dispatch (text) plus `emit_json()` as the ONLY JSON sink in the file (attaching a 3-key census PRESENT EVEN ON CLEAN INPUT), with `--json` against a text-only view now REFUSED instead of silently ignored (C2) — and BOTH propositions are proven FROM THE PARSE TREE by `test_10` with three detector controls, while `test_11` runs NINE CLI invocations × 2 arms asserting a NONZERO FIGURE BESIDE EVERY BANNER/FIELD plus an in-process PRE-FIX CONTROL that reproduces the 346 ms-with-no-banner blocker on demand ⇒ 69 → 110 checks, 0 failed.** ★★★★ **AND IT IS MEASUREMENT-INERT, PROVEN NOT ASSUMED: `s18`/`s32` `--airtime`, `--copies` and `--tail` are BYTE-IDENTICAL to pre-fix, the JSON differs by EXACTLY THREE ADDITIVE ZERO-VALUED KEYS (enumerated in §(24)), and ALL 216 LADDER CELLS MATCH THE PRE-FIX RECORD EXACTLY — re-run in 26 s rather than reasoned about, 0 parse refusals corpus-wide. Ladder UNCHANGED: BASE 733 · DELETE 707 · S1 690 · S2 724 · S2c 719 · CURRENT 719.** ⛔⛔ **AND A NON-CITATION OF MINE IS RETIRED IN §(25).1: `e92d5cf1`, published last pass as anchor-table-integrity evidence, was the md5 of a 2-LINE `sed` WINDOW THAT NEVER REACHED THE TABLE — an md5 without its extraction command is not a citation, and a hash that matches on 2 lines is an instrument that cannot fail. The table is now proven unchanged by a FULL-REGION `diff` against `git show HEAD:` (1398 lines each, empty diff) with a control counting the 80 rows captured.** ⛔ **STILL TOOLING ONLY: ZERO lines of `lib/`, `src/` or `test/`; the simulator DID NOT RUN and no `s18` md5 was re-derived. ⛔ BOARD BUILDS, `warning_census.sh`, the per-ABI reveal and both UI probes DID NOT RUN — standing owner instruction; nothing implies they passed. ⛔ [[B163]] OPEN and UNTOUCHED, so `≥733` stays CONDITIONAL. ⛔ UNCOMMITTED (D4). ⛔ NO OWNER OR QA APPROVAL IS CLAIMED.** ★★★★★ **THIRD PASS IN ONE LINE: the instrument's last two "parsers" were `str.__contains__` on a LITERAL COMPACT SUBSTRING, so on valid NDJSON with ordinary `json.dumps()` whitespace the AUTHORITATIVE airtime total printed `0 ms over 0 frames` and the delivery cross-check printed `0` — [[B162]]'s exact dangerous shape, a CLEAN ZERO instead of a refusal, and the THIRD occurrence of that shape in this arc. ⛔⛔ The test harness's own comment called the compact separators "LOAD-BEARING", DOCUMENTING THE DEFECT AS A FEATURE.** ★★★ **FIXED: one whitespace-independent reader (`iter_ndjson`), malformed lines REFUSED + COUNTED + SURFACED in BOTH the JSON and the text output (never a silent `continue`), regression `test_8`/`test_9` asserting IDENTICAL AND NONZERO figures across both encodings with a pre-fix control that reproduces `(0,0)` on demand ⇒ 47 → 69 checks, 0 failed.** ★★★★ **AND IT IS MEASUREMENT-INERT, PROVEN NOT ASSUMED: `s18` and `s32` `--airtime` are BYTE-IDENTICAL to pre-fix, the DM JSON differs only by two additive zero-valued keys, and ALL 216 LADDER CELLS (6 arms × 36 scenarios) MATCH THE PRE-FIX RECORD EXACTLY — the six-arm rerun was RUN, not skipped, because it cost 42 s.** ⚠⚠ **`≥733` REMAINS CONDITIONAL ON [[B163]] (OPEN) and that conditionality is now carried at every site stating the floor as a gate.** It remains **MEASUREMENT AND TOOLING ONLY: ⛔ ZERO lines of `lib/`, `src/` or `test/` changed** (`git diff -- lib src test` EMPTY; the changed files are `tools/dm_delivery_breakdown.py` and the NEW `tools/test_dm_delivery_breakdown.py`). ★★★★★ **THE DELIVERY LADDER IS UNCHANGED BY THE SECOND PASS AND THAT IS THE HEADLINE RESULT: BASE 733 · DELETE 707 · S1 690 · S2 724 · S2c 719 · CURRENT 719** unique deliveries (authority), raw cross-check 765 · 750 · 734 · 752 · 743 · 743 — **ALL 36 ROWS OF ALL 6 ARMS RE-MEASURED AND IDENTICAL**, so the floor stands at **`≥733` overall / `≥104` in `s06`** and `s27 == 0` assertion failures stays SEPARATE and NON-TRADEABLE. ⛔⛔⛔ **BUT THE AIRTIME HALF WAS STILL WRONG SIX WAYS, AND (4)'s OWN CONCLUSION — *"every aired frame is now counted exactly once … so the TOTAL is sound"* — WAS FALSE WHEN WRITTEN: 2557 of 23913 chargeable frames (10.7%) really aired and were charged ZERO.** ★★★★ **THE DEFECT WAS ARCHITECTURAL: the total was summed only over frames the tool could CORRELATE to an emit, so SUCCESSFUL ATTRIBUTION WAS A PRECONDITION FOR COUNTING and every correlation failure silently REDUCED the total — a meter that fails toward *less airtime*, which can only ever flatter the protocol.** ★★★★ **THE FIX IS AN INVERSION: THE PHY LOG IS GROUND TRUTH, ATTRIBUTION IS A CONVENIENCE.** Every chargeable PHY `tx` frame is now priced from **its own** bytes/`sf`/`bw_hz`/`cr`/`airtime_ms`; the per-message view is SECONDARY; and whatever cannot be attributed lands in an **`unattributed_airtime` bucket that is INCLUDED IN THE TOTAL**, with `attributed + unattributed == phy_total` **ASSERTED IN CODE**. ★★ **THE SIX DEFECTS: (1) an LBT-DEFERRED frame AIRS LATER than its emit and was booked "never aired" — `s18` BASE **421418 ms actual vs 405109**, 183 frames omitted; (2) ONE GLOBAL `bw_hz, cr` from the first tx event — `s32_dual_cr_gateway` carries CR 4/5 AND 4/8 at BW **250 kHz**: **3602 vs 2794 ms**, and the old answer was **2794 on EVERY arm**, erasing the very difference the scenario tests; (3) a duplicate `(node,label,ms)` key was flagged only when the LENGTHS DIFFERED, so same-length frames collapsed (corpus-DARK, fixed on contract); (4) `alias_stats` was computed, returned and DISCARDED — ⚠ **NOT theoretical: `refused_conflicts` is NONZERO on `s07` on every arm while `unresolved_configured_sends` reads 0**; (5) the emit's DECLARED SF ≠ the frame's own on **1348 of 12223** frames; (6) ★★ **this file's `lora_airtime_ms` was MISSING the SX126x §6.1.4 SF5/SF6 case that `lib/core/airtime.cpp:27-37` HAS** — **402 of 23913 frames disagreed with the PHY and EVERY disagreement was at SF6** (`s35a` 108/108, `s35b` 48/48, `s38` 32/32).** ★★★ **DEFECT 6 IS THE LESSON: the memory note about the deliberate SF5/SF6 framing was right, and about the C++/Lua model — nobody ever asked whether the PYTHON copy had it. A ported formula is a SECOND COPY, and a second copy drifts.** ★★ **RECONCILIATION IS EXACT: the residual against the PHY's own `airtime_ms` is ZERO on `s18`, on `s32` and on all 216 cells, and the independent formula now agrees on 100% of frames on all six arms (was 402 disagreements) with a `len+1` CONTROL agreeing on only 15567/23913 — ⚠ though that control is VACUOUS on `s32` (24/24), and the note says so.** ★★★ **178 of 178 orphaned `s18` frames are ACCOUNTED FOR, and the deferral explanation is PROVEN not inferred: 998 of 1183 unmatched emits coincide EXACTLY with a `tx_deferred` at the same `(node,label,ms)`, 174 of 178 orphan frames have an earlier deferred-and-unmatched emit, and the residual 4 are NAMED (node ids 115/138/18/93, RTS aired 154-453 ms late without a PHY deferral record = a MAC-level re-schedule).** ★★★ **THE INSTRUMENT NOW HAS DURABLE TESTS FOR THE FIRST TIME: `tools/test_dm_delivery_breakdown.py`, 47 checks, 0 failed, and EVERY ONE PAIRED WITH A CONTROL THAT PROVES IT COULD HAVE FAILED** — the old algorithm re-implemented locally and shown to give the wrong answer on the same fixture (88 vs 176 ms; 645 vs 866 ms; 0 vs 1 ambiguities; SF6/len50 **60 vs 61 ms**, the documented before/after pair from `lib/core/airtime.h:17`, with 180 SF7-12 combinations byte-identical so the common path did not move). ⚠ **A tool the arc calls its AUTHORITY had NO TESTS AT ALL, and had already produced a self-consistent wrong answer twice.** ⛔⛔ **NEW NAMED RESIDUE, §(12): `s07_seattle_mobile_meshroute` has a LIVE alias refusal on every arm — two mobiles genuinely wear the SAME LEASED runtime id at different times (wire id 33 claimed by config ids 50 and 52 on CURRENT; 19 and 35 at BASE), `aliases` accepted = 0. The refusal is CORRECT (a lease is time-multiplexed; a time-BLIND map cannot resolve it) but its consequence — that `s07`'s figure MAY BE SHORT on every arm — was invisible. ⓘ `s07` is also the row with the largest published error (+8); a mechanism now EXISTS that could account for part of that, and the measurement to decide it was NOT made here.** ⛔ **THE TWO §(6) RESIDUES (`s21_mobile_dm_milestone`, `s27`) ARE UNRESOLVED AND UNTOUCHED.** ★ Native **1471 / 79553 / 0** (RUN, not the wrapper's false *"0 test cases"*), `grep -c "error:"` **0** — unchanged by construction. The ladder: **216 cells × 2 views = 432 invocations, 0 failed cells**, streams REUSED from the first pass (that is what makes it ONE run set) and the worktrees at `/home/staszek/b162-arms/` reused, **not pruned**. ⛔⛔ **A METHOD FAILURE OF MINE IS RECORDED IN §(14): my first ladder runner DEADLOCKED SILENTLY on an unpicklable lambda — 8 workers at 00:00:00 CPU, no subprocess ever started, and 22 MINUTES OF A HANG LOOKED EXACTLY LIKE 22 MINUTES OF WORK. Caught by checking worker CPU time instead of believing the absence of output. The real run takes 31 s.** ⛔ **BOARD BUILDS, `warning_census.sh`, the per-ABI reveal and both UI probes DID NOT RUN** — standing owner instruction / no state added; **nothing here implies they passed.** ⛔ The `^### 36/36 corpus` anchor table is NOT edited. ⛔ **S4, B161, B158's remaining site, B159 and B160-COV/SIB were NOT touched.** ⛔ UNCOMMITTED (D4). ⛔ **NO OWNER OR QA APPROVAL IS CLAIMED — and no approval of any figure below is claimed either.****
+
+> ⚠⚠ **SUPERSESSION, STATED ONCE AND GLOBALLY: every delivery figure in every note BELOW this line — 732, 728, 708, 691, 752, 743, and every per-row delivery column — predates this slice and was produced by an instrument that is now known to have been wrong per row. They are retained as AUDIT TRAIL ONLY.** The figures of record are the six-arm table in (2). ⓘ The airtime figures below are a separate matter and are NOT re-established here: they came from each slice's own probe, not from `dm_delivery_breakdown.py`, whose `--airtime` view was **structurally empty** (see (4)) and then, after (4) "fixed" it, **still undercounted by 10.7% of all aired frames** (see **(10)**). ★ The airtime figures of record are the six-arm table in **(11)**, and they are the FIRST from this tool that reconcile with the PHY.
+
+### ★★★★★ §B162 (1) — WHAT THE DEFECT ACTUALLY WAS. **IT IS A PROVENANCE DEFECT, NOT AN ARITHMETIC ONE.**
+
+The arc's headline number did not reproduce, and the cause is not that someone mis-added. It is that **rows marked
+"identical" were CARRIED FORWARD instead of re-measured**, so a per-row error introduced once survived five slices
+while the totals stayed plausible. ⇒ ★★ **The lesson is about PROVENANCE, and it generalises past this metric: a
+figure with no single named producer drifts. `totals.unique_deliveries` now HAS one.**
+
+★ **THE AUTHORITY, DEFINED PRECISELY (owner-specified):** `tools/dm_delivery_breakdown.py --mode dm --json` →
+`totals.unique_deliveries` = **the sum, over the scenario's CONFIGURED logical sends, of those that reached their
+user-facing destination**, counting **FIRST ARRIVAL ONLY** per send (`arrived_ms` is write-once; cross-layer arrival
+is measured at the RESOLVED TARGET, never at the gateway).
+⛔ **THE RAW `delivered` EVENT COUNT IS A CROSS-CHECK AND IS NEVER THE FIGURE OF RECORD.** It counts EVENTS, so it
+over-counts a send delivered to the app twice — and that is not hypothetical, it is [[B159]], live and measured
+(12 duplicates at BASE, 21 at DELETE) — and it has **no denominator at all**: it cannot see a configured send that
+produced nothing. ★ Both are now emitted side by side, always, each labelled, with `totals.authority` naming which
+is which in the payload itself.
+
+### ★★★★★★★ §B162 (2) — **THE FIVE-ARM LADDER, RE-MEASURED. ONE TOOL REVISION, ONE RUN SET, ALL 36 ROWS OF ALL SIX ARMS.**
+
+⚠ **Read the two right-hand columns as the FINDING, not as decoration: they are the per-row error in the published
+BASE/DELETE column (§B153-DIAG2), and `ok` means the published figure reproduced.**
+
+```
+scenario                                       BASE DELETE     S1     S2    S2c    CUR  pubBASE  err  pubDEL  err
+s06_seattle_lifecycle                           104     85     85    110    110    110      104   ok      85   ok
+s07_seattle_mobile_meshroute                     77     74     74     76     71     71       85   +8      82   +8
+s09_two_layer_gateway                             4      4      4      4      4      4        4   ok       4   ok
+s09_two_layer_gateway_metal                       4      4      4      4      4      4        4   ok       4   ok
+s10_two_layer_separation                          4      4      4      4      4      4        4   ok       4   ok
+s15_three_layer                                  54     54     54     54     54     54       54   ok      54   ok
+s15_three_layer_metal                            52     54     54     49     49     49       52   ok      54   ok
+s16_dense_gateway                                72     72     56     63     65     65       72   ok      72   ok
+s17_metro                                        30     29     28     29     29     29       30   ok      29   ok
+s18_meshroute                                   104    100    100    104    102    102      104   ok     100   ok
+s19_singlelayer_multihop_chain                    8      8      8      8      8      8        4   -4       4   -4
+s20_random_mesh                                 118    119    119    120    120    120      118   ok     119   ok
+s21_leaf_config_divergence                        3      3      3      3      3      3        3   ok       3   ok
+s21_mobile_dm_milestone_meshroute                 0      0      0      0      0      0        1   +1       1   +1
+s22_leaf_config_join                              2      2      2      2      2      2        2   ok       2   ok
+s22_mobile_team_meshroute                         4      4      4      4      4      4        4   ok       4   ok
+s23_leaf_config_epoch_write                       3      3      3      3      3      3        3   ok       3   ok
+s23_mobile_team_multihop_meshroute                4      4      4      4      4      4        2   -2       2   -2
+s24_static_and_team_multihop_meshroute            5      5      5      5      5      5        2   -3       2   -3
+s25_two_team_separation_meshroute                 3      3      3      3      3      3        1   -2       1   -2
+s26_team_reroute_meshroute                        4      4      4      4      4      4        2   -2       2   -2
+s27_cross_layer_mobiles_meshroute                 4      6      6      6      6      6       11   +7      15   +9
+s28_mixed_team_channels_meshroute                 2      2      2      2      2      2        2   ok       2   ok
+s29_mixed_leaf_team_meshroute                     4      4      4      4      4      4        2   -2       2   -2
+s30_team_dad_mediation_meshroute                  4      4      4      4      4      4        2   -2       2   -2
+s31_dual_carrier_gateway                          4      4      4      4      4      4        4   ok       4   ok
+s32_dual_cr_gateway                               4      4      4      4      4      4        4   ok       4   ok
+s33_mixed_cr_channel_overhear                     4      4      4      4      4      4        4   ok       4   ok
+s34_team_switch_clears_plane                      2      2      2      2      2      2        2   ok       2   ok
+s35a_cochannel_isolation_meshroute                9      9      9      9      9      9        9   ok       9   ok
+s35b_cochannel_isolation_control_meshroute        4      4      4      4      4      4        4   ok       4   ok
+s36_reprovision_purges_carriers                   1      1      1      1      1      1        1   ok       1   ok
+s37_team_homed_origin_meshroute                   3      3      3      3      3      3        3   ok       3   ok
+s38_team_origin_learn_meshroute                   2      2      2      2      2      2        2   ok       2   ok
+sim_9node_base                                    6      6      6      6      6      6        6   ok       6   ok
+twin_9node_dm                                    21     17     17     16     16     16       21   ok      17   ok
+AUTHORITY TOTAL (unique deliveries)             733    707    690    724    719    719      732   -1     708   +1
+cross-check: raw `delivered` events             765    750    734    752    743    743
+```
+
+★ **THE ARMS AND HOW EACH IS PROVEN.** ⓘ The arc's slices were committed in BUNDLES, so three of the five arms are
+not simply a commit — which is itself part of why nobody re-measured them:
+
+| arm | source | `lus` md5 | control |
+|---|---|---|---|
+| **BASE** | `6c9ce89` with §B153's (a)+(b)+(c) reverted (4 edits, each asserted at match count == 1) | `c5fc5e8c` | ★ **all 36 published BASE rows reproduce byte-for-byte**, `s18` `1cd21235`/271629 and `s27` `235784e3`/8510/**5 fails** |
+| **DELETE** | `6c9ce89` verbatim | ★ **`0a770cd6`** | ★★ **byte-exact match to the published md5** |
+| **S1** | `863ad31` with **S2 *and* §B160** reverted | ★ **`66b157ce`** | ★★ **byte-exact**, + a restore control, + all 36 published S1 md5s, + the published `CTS {4: 5552}` and `RTS {9:275, 10:9622, 11:2, 43:574}` censuses |
+| **S2** | `863ad31` verbatim | ★ **`3e0f0a3f`** | ★★ **byte-exact match to S2's published AFTER binary** |
+| **S2c** | `d01d131` verbatim | ★ **`f0900dc9`** | ★★ **byte-exact match to the md5 published in §HYBRID-RTS-S2b (12)** |
+| **CURRENT** | `HEAD` = `2a98554` (S2d) | `15a3967d` | matches the `lus` already present in the sim build tree |
+
+⛔ **ONE ARM'S BINARY DID NOT REPRODUCE AND IT IS REPORTED, NOT SMOOTHED: my reconstructed BASE is `c5fc5e8c`, while
+§HYBRID-RTS-S0 published `c792e696`.** The two are **behaviourally identical on all 36 streams** (md5 + event count +
+assertion failures, `s27`'s five failures included), so every BASE figure above stands — but the binaries differ, so
+S0's BASE tree differed from mine somewhere **behaviourally inert on this corpus**, and I did not isolate where.
+★ Recorded as an open residue rather than explained away; the build is otherwise proven reproducible across paths
+(three arms hit their published md5 exactly from a different directory).
+
+★ **THE ARM MAPPING WAS ITSELF A FINDING:** `863ad31` ("RTS / CTS format change progress") contains **S1 + §B160 + S2**
+and `d01d131` contains **S2b + S2c**. Reverting "S2 and only S2" from `863ad31` lands on `cde5902c`, **not** on S1 —
+§B160's one line (`it.plane = pt.plane;`) sits between them. The binary control is what caught that.
+
+### ★★★★★★★★ §B162 (3) — ⛔⛔ **THE DRIFT IS NOT AN OFFSET. THE PER-ROW ERRORS, EACH NAMED.**
+
+| scenario | published BASE | measured | error | published DELETE | measured | error |
+|---|---|---|---|---|---|---|
+| `s07_seattle_mobile_meshroute` | 85 | **77** | **+8** | 82 | **74** | **+8** |
+| `s19_singlelayer_multihop_chain` | 4 | **8** | **−4** | 4 | **8** | **−4** |
+| `s21_mobile_dm_milestone_meshroute` | 1 | **0** | **+1** | 1 | **0** | **+1** |
+| `s23_mobile_team_multihop_meshroute` | 2 | **4** | **−2** | 2 | **4** | **−2** |
+| `s24_static_and_team_multihop_meshroute` | 2 | **5** | **−3** | 2 | **5** | **−3** |
+| `s25_two_team_separation_meshroute` | 1 | **3** | **−2** | 1 | **3** | **−2** |
+| `s26_team_reroute_meshroute` | 2 | **4** | **−2** | 2 | **4** | **−2** |
+| `s27_cross_layer_mobiles_meshroute` | 11 | **4** | **+7** | 15 | **6** | **+9** |
+| `s29_mixed_leaf_team_meshroute` | 2 | **4** | **−2** | 2 | **4** | **−2** |
+| `s30_team_dad_mediation_meshroute` | 2 | **4** | **−2** | 2 | **4** | **−2** |
+| **TOTAL** | **732** | **733** | **−1** | **708** | **707** | **+1** |
+
+★★★ **26 of 36 rows reproduce exactly. The 10 that do not are wrong in BOTH DIRECTIONS, and the total's −1 is a
+NEAR-CANCELLATION of +18 against −19.** ⇒ **the total was the most misleading number in the set**: it looked almost
+right and certified nothing. ★ And `s27` is the proof that no uniform correction could have worked: its error is
+**+7 on one arm and +9 on the other**, so no single constant reproduces both.
+
+### ★★★★★★ §B162 (4) — **THE AIRTIME LENGTHS: DERIVED PER FRAME, AND REFUSED WHEN UNDETERMINABLE (C2)**
+
+⛔ **WHAT WAS THERE:** `RTS_LEN, CTS_LEN, ACK_LEN, NACK_LEN, MAC_LEN = 8, 3, 3, 4, 4` + `DATA_HDR_LEN = 8`, and a
+DATA length estimated as `DATA_HDR_LEN + len(str(payload)) + MAC_LEN`.
+⛔⛔ **BOTH HEADLINE VALUES WERE WRONG ON EVERY ARM, MEASURED — not merely stale:**
+- **`RTS_LEN = 8` matches NO frame this firmware has ever aired.** Pre-S1 the unicast RTS is **7 B**; from S1 it is
+  **10/11 B**. The `8` traces to `node_mac.cpp`'s stale `RTS(8)` comment, which §HYBRID-RTS-S0 had already corrected
+  in prose — the constant was simply never followed up.
+- **`CTS_LEN = 3` matches no frame either:** with NAV enabled the ordinary CTS always carries its optional 4th byte,
+  so BASE's entire census is **`{4: 4926}`**; and from S2 a TERMINAL CTS is **6/7 B**.
+
+★★ **WHAT REPLACES THEM IS NOT ANOTHER PAIR OF CONSTANTS — IT IS THE WIRE.** The orchestrator's PHY `tx` event carries
+`hex`, i.e. **the actual transmitted bytes**. `frame_lengths_by_tx()` indexes every frame by
+`(node id, label, time_ms)` and each `*_tx` emit is priced at **its own frame's byte count**.
+★ **`frame_shape()` validates every frame against the CODEC and raises `FrameShapeError` otherwise.** The codec is
+the authority, verified at source (V1): `need = flood ? 43 : (m_bcast ? 9 : (7u + in.id.width))`
+(`frame_codec.cpp:469`) and `terminal_cts_wire_len() = 3u + id.width` (`frame_codec.h:448`).
+★★ **THE FAIL-LOUD PATH IS CONTROLLED IN BOTH DIRECTIONS, not assumed: 13 legal `(label, length)` pairs resolve, and
+9 illegal ones RAISE — including `RTS`/8 B, so THE RETIRED CONSTANT IS ITSELF REJECTED BY ITS REPLACEMENT.**
+★ **AN EMIT THAT NEVER AIRED IS CHARGED ZERO AND COUNTED, never charged a guess** — an LBT-deferred `rts_tx`
+consumed no airtime, and the old constants billed it anyway (`s18`: **1029 of 2467** `rts_tx` emits).
+★ Every figure now prints its own denominators: `priced_from_wire`, `never-aired(charged 0)`,
+`emits-without-(origin,ctr)`, `ambiguous`, plus the full per-label length census.
+
+⚠⚠ **AND THE INSTRUMENT'S OWN COUNTERS IMMEDIATELY EXPOSED A SECOND, OLDER DEFECT — WHICH IS THE POINT OF PRINTING
+THEM: `analyse_airtime` required `data["origin"]`, and NO current-vocabulary `rts_tx`/`data_tx` emit carries one.
+MEASURED: ALL 6007 chargeable emits in `s18` were skipped, so `--airtime` rendered `TOTAL (0 msgs)` and the two wrong
+constants WERE NEVER EVEN REACHED on that scenario.** ⇒ ★ **a length derivation that cannot be exercised cannot be
+verified**, so origin resolution now reuses `msg_key`'s own convention (U1). ⚠ Disclosed consequence: per-MESSAGE rows
+are attribution-approximate for relayed hops (charged to `(relay, ctr)`), while every aired frame is counted **exactly
+once at its true wire length** — so the TOTAL is sound, and the total is the quoted figure.
+⛔ **NO AIRTIME FIGURE FROM ANY EARLIER NOTE IS RE-ESTABLISHED HERE.** Those came from each slice's own probe. What is
+established is that **this tool's** airtime output was, until now, either wrong-by-constant or empty.
+
+### ★★★★★★★★ §B162 (5) — ⛔⛔ **THE AUTHORITY WAS ITSELF BROKEN, AND MY FIRST ANSWER WAS A NEW WRONG NUMBER**
+
+★★★ **THIS IS THE MOST IMPORTANT SECTION IN THE NOTE.** The first full pass with the corrected airtime code returned
+**BASE = 659**. It was self-consistent, it came from the repo's own canonical instrument, and it was **wrong**.
+Publishing it would have replaced one unreproducible figure with another — and it would have looked like a fix.
+
+★ **WHAT CAUGHT IT: fourteen of 36 scenarios reported exactly ZERO, and a zero was CONTROLLED instead of believed.**
+Running `--all` (no pair filter at all) printed **"no matching DM messages found"** for ten of them — proving the
+failure was upstream of the filter, in record creation itself. Four independent causes:
+
+| # | cause | evidence |
+|---|---|---|
+| **1** | `SEND_RE`'s dst was matched against node NAMES only, so a **numeric** destination resolved to nothing | `twin_9node_dm` (54 sends) + `sim_9node_base` (12) read **0**; both are `send_e2e 2 …` |
+| **2** | `send_hash` / `send_hashx` / `send_layerx` / `send_layer_e2e` matched **no pattern at all** — `^send_layer\s+` cannot match `send_layerx ` | 51 configured sends invisible |
+| **3** | the `key_hash32` index is keyed on `config.layer_id`, which a **single-layer scenario never sets** ⇒ the map was **EMPTY** for every flat scenario | every `send_hash` in s22/s24/s25/s26/s28/s29/s30/s34/s37/s38 unresolved |
+| **4** | ★★ **the entire TEAM plane was invisible: a team send stamps `team_local_id()` as its wire origin (owner ruling, §team-parity T6) while record creation required `fid == origin`** | `s26`: `tx_enqueue` carries `origin 83`, `dst 55`, for config ids 50 and 53 ⇒ **0 records** |
+
+★★ **THE FIX DERIVES THE WIRE IDENTITY FROM THE STREAM, NEVER FROM A CONFIG FIELD** (C3 — a per-plane runtime id read
+off the runtime, the only place it exists): a node reveals its own wire id in **`tx_enqueue.origin`** at the
+originating slot and **`delivered.dst`** at the receiving slot. Both endpoints of a configured pair AND of a record are
+then canonicalised into one id space, because translating only one side left the two halves in different spaces and
+the pair still failed to match (`s23`/`s38` had records that HAD arrived and still read 0).
+★★ **AMBIGUITY IS REFUSED, NOT RESOLVED:** a wire id worn by several nodes is left untranslated and counted.
+⚠⚠ **AND MY FIRST VERSION OF THIS FIX WAS WRONG IN A WAY THAT DID NOTHING VISIBLE — the exact shape of the defect
+being repaired: I sourced the alias from `delivered` *and* `data_rx`. A RELAY also emits `data_rx` carrying the
+message's final `dst`, so every relay claimed the destination's identity; `s26` produced 2 conflicting claims, the
+refusal correctly emptied the alias table, and the scenario still reported 0.** ⇒ **a fix that silently did nothing,
+caught only because the refusal counter was printed.** ⓘ This file's own §xl comment already said `data_rx` "fires on
+relay-forwards" — **the reason was on record before I made the mistake.** The grammar is now taken from the
+simulator's dispatcher (`NodeRuntimeWrapper.cpp:848/872/928/936`, `dm_plane_from_tail:639`), not from this tool.
+
+### ⚠⚠ §B162 (6) — **THE RESIDUE. [[B162]] CLOSES; THESE 2 OF 36 ROWS DO NOT, AND THEY ARE NAMED, NOT ROUNDED AWAY.**
+
+Both are **visible in the tool's own output** now (a `!! UNSENT` banner / the `cross-layer DMs: X/Y` line), which is
+the difference that matters: they are stated residues, not silent zeros.
+
+1. **`s21_mobile_dm_milestone_meshroute` — authority 0, raw 1, published 1.** `send_hash e27bc270` resolves by
+   `key_hash32` to `MobileM`, but the traffic demonstrably went to **id 19 (`Home`)** — the tool prints
+   *"this origin instead addressed #19 x3"*. **A registered mobile is reached VIA ITS HOME**, so the
+   configured-pair model (`Sender → MobileM`) cannot see the arrival. ⇒ a **homed-mobile indirection** modelling gap,
+   NOT a parse failure. ⓘ 3 sends produced 1 `delivered`.
+2. **`s27_cross_layer_mobiles_meshroute` — authority 4, published 11, raw 11, and the tool's OWN §xl metric says
+   6/8.** All of s27's mobiles carry config id **0** (the reserved unprovisioned sentinel), so four mobile-originated
+   sends collapse onto a single `M5(0) -> M5(0)` row. ⚠ **The three figures 4 / 6 / 11 are not interchangeable and I
+   am not choosing between them on my own authority**; the table above uses the per-pair sum (4) consistently for
+   every arm, and the divergence is flagged here.
+
+⇒ ★ **If the owner wants the floor to include these two rows, the honest number is not yet derivable and the residue
+must be closed first.** The `≥733` floor below is stated on the SAME definition for every arm, which is what makes
+the arms comparable — that, not the absolute level, is what a floor needs.
+
+### ★★★★★ §B162 (7) — **THE THRESHOLD. `≥732` IS RETIRED; THE FLOOR IS `≥733` OVERALL AND `≥104` IN `s06`.**
+
+| | published floor | **reproduced BASE result** |
+|---|---|---|
+| corpus total | `≥732` (unreproducible) | ★★ **`≥733` unique deliveries** |
+| `s06_seattle_lifecycle` | `≥104` | ★ **`≥104` — the `s06` half was ALREADY CORRECT and reproduces exactly** |
+
+⚠ **HOW THE ARMS STAND AGAINST THE CORRECTED FLOOR, and it does not flatter the arc:** CURRENT is **719**, i.e.
+**14 short of 733**, not the "4 short" the earlier notes carried. `s06` is **110 ≥ 104 ✓**. ⛔ **`s27`'s five
+assertion failures at BASE remain a SEPARATE, NON-TRADEABLE requirement** (owner-specified): BASE meets `733/104`
+**with `s27` RED**, every later arm has **`s27` == 0 failures**, and no delivery count may be exchanged for that.
+⇒ the Pareto gate stands exactly as designed; only its numeric half moves.
+
+### §B162 (8) — GATES: WHAT RAN, WHAT DID NOT
+
+| gate | result |
+|---|---|
+| **native** | ★ `pio test -e native` from a **DELETED** `.pio/build/native`, then **RUNNING the binary** (the wrapper printed its usual false *"0 test cases"*) = **1471 test cases / 79553 assertions / 0 failed** — the dispatch's expected figure, EXACTLY. **`grep -c "error:"` = 0**, counted and printed beside it. ⓘ Unchanged **by construction**: no `lib/`, `src/` or `test/` file was touched |
+| **`lus` + corpus** | ★★ **6 arms built SEQUENTIALLY** (never two builds at once), each in its own git worktree + its own build dir; **36 scenarios per arm, count printed and asserted (`scenarios run: 36`** — the 37th JSON is `topo_9node.json`, a topology). **216 runs, 0 failed cells.** 4 of 6 `lus` md5s are byte-exact matches to previously published values |
+| **tool self-controls** | ★ 13 legal frame shapes resolve · 9 illegal ones RAISE · the PHY-airtime formula agrees with the stream on **7746/7746** frames while the `len+1` negative control **disagrees on 2943** · alias conflicts counted · `unresolved_configured_sends` = **0** on all 36 scenarios after the fix |
+| ⛔ **board builds** | **DID NOT RUN** — standing owner instruction. **Nothing here implies they passed.** No firmware file was touched, so none was owed |
+| ⛔ **`warning_census.sh`** | **DID NOT RUN** — standing owner instruction; owed once after behaviour stabilises. **Nothing here implies it passed** |
+| ⛔ **per-ABI `sizeof` reveal / UI probes** | **DID NOT RUN.** Not owed: no state, no firmware change |
+| ⛔ **anchor table** | The `^### 36/36 corpus` table is **NOT edited** (owner's single ruling). ⓘ It is worth knowing WHAT it is: it is the **pre-mobile-arc** state, and my BASE arm differs from it on **exactly the 8 known mobile-arc movers** — which is an independent confirmation of the arm |
+
+### ⚠ §B162 (9) — EVERY PREMISE THAT TURNED OUT WRONG, **INCLUDING THE OWNER'S, QA'S AND MINE**
+
+1. ⛔ **MINE, AND IT IS THE BAD ONE: my first corrected measurement (BASE = 659) was wrong**, and it was wrong for
+   four independent reasons in the instrument I had just been told to make authoritative. It survived only because
+   fourteen zeros were controlled instead of believed. **Had I trusted the tool's label, I would have replaced one
+   unreproducible figure with another and called the slice done.**
+2. ⛔ **MINE: my first wire-identity fix sourced the alias from `data_rx` as well as `delivered`** — so every relay
+   claimed the destination's identity, the refusal emptied the table, and **the fix changed nothing while appearing
+   to be applied.** Caught by a printed counter, not by reasoning.
+3. ⛔ **THE DISPATCH'S (and mine): "the tool AGREED with the re-measurement, not the notes — e.g. `s19`: 8 arrived,
+   table said 4."** ✔ The `s19` half HOLDS (8 is right, 4 was wrong). ⛔ **But the general claim does not: the tool
+   as it stood agreed with NEITHER.** It returned 659 for BASE against a raw 765 and a published 732.
+4. ⛔ **THE DISPATCH'S: "Current raw figure, one instrument, compared to nothing: 743."** ✔ 743 reproduces exactly as
+   a RAW count. ⛔ But raw is the cross-check, and CURRENT's authoritative figure is **719**.
+5. ⛔ **THE DISPATCH'S: "a raw `delivered` count on S2's own binary gave 752 where the notes carried 728."** ✔ Both
+   halves reproduce (S2 raw = **752**, authority = **724**) ⛔ but the pair was never comparable: **752 is a raw
+   event count and 728 was a per-pair table sum.** The discrepancy that opened this slice was **partly a
+   metric-vs-metric comparison**, not only a carried-forward error. Both defects are real; they are different.
+6. ⛔ **THE BRIEF'S ARM MODEL: "recalculate BASE, DELETE, S1, S2".** Three of those are **not commits** — `863ad31`
+   bundles **S1 + B160 + S2** and `d01d131` bundles **S2b + S2c**. S1 exists only as a reconstruction.
+7. ⛔ **THE BRIEF'S IMPLICIT PREMISE that the drift might be per-scenario in the SAME direction.** It is not: the
+   errors run **both** ways and **cancel to −1** in total. ✔ **The owner's explicit warning not to add a constant was
+   exactly right, and for a sharper reason than stated: a constant correction would have been *rejected* by the
+   total, which is nearly correct, and *required* by ten rows, which are not.**
+8. ⛔ **MINE: I expected the `^### 36/36 corpus` anchor table to BE the BASE arm** (its `s18` is `1cd21235`/271629,
+   BASE's exactly). It is the **pre-mobile-arc** state; its `s27` is `c7496c45`/9758/**0 fails** where BASE's is
+   `235784e3`/8510/**5 fails**. Two rows agreeing is not two states agreeing.
+9. ⓘ **NOT WRONG, WORTH RECORDING: the `s06` half of the floor (`≥104`) was correct all along**, as were 26 of 36
+   BASE rows. The defect was narrow and specific — it was just never located, because nobody re-measured a row
+   marked "identical".
+
+### ★★★★★★★★★★ §B162 (10) — ⛔⛔ **[[B162]] REOPENED AND RE-CLOSED: THE AIRTIME SIDE OF THE "FIXED" INSTRUMENT HAD SIX MORE DEFECTS, ALL SIX CORPUS-PROVEN, AND THE BIG ONE FAILED IN THE WORST POSSIBLE DIRECTION — TOWARD *LESS* AIRTIME**
+
+★★★ **THE SENTENCE THAT MATTERS.** §B162 (4) above replaced two wrong constants with a per-frame wire
+derivation and concluded *"so the TOTAL is sound, and the total is the figure that is quoted."*
+⛔ **THE TOTAL WAS NOT SOUND, and the defect is architectural, not arithmetic:** the total was summed
+over the frames the tool managed to **CORRELATE** to a firmware emit, so **successful attribution was a
+PRECONDITION FOR COUNTING**, and **every correlation failure silently reduced the total.**
+⇒ ★★ **A measurement that fails toward "less airtime" can only ever flatter the protocol.** That is the
+wrong failure direction for an airtime meter, and it is the reusable lesson here.
+⛔ **MEASURED, arm CURRENT, corpus-wide: 2557 of 23913 chargeable frames (10.7%) really aired and were
+charged ZERO.** On `s18` alone: 4898 aired, 4720 priced, **178 real frames charged nothing**.
+
+★★ **THE FIX IS AN INVERSION, and it is stated inside the tool as well as here: THE PHY LOG IS GROUND
+TRUTH FOR AIRTIME; ATTRIBUTION IS A CONVENIENCE.** `phy_tx_frames()` (formerly `frame_lengths_by_tx`)
+now walks **every chargeable PHY `tx` event** and prices it from **that event's own** bytes, `sf`,
+`bw_hz`, `cr` and `airtime_ms`. `analyse_airtime()` is demoted to a **SECONDARY ATTRIBUTION VIEW**, and
+whatever it cannot attribute lands in an explicit **`unattributed_airtime`** bucket that is **INCLUDED
+IN THE TOTAL**. ★ The identity **`attributed + unattributed == phy_total` is ASSERTED in code** (it
+raises `FrameShapeError` otherwise) ⇒ *"an aired frame never vanishes"* is a **checked property**, not a
+claim in a comment.
+
+**THE SIX DEFECTS, each measured, each with the OLD answer beside the new one.** ⓘ Defects 1-4 were
+named by QA and **all four reproduce exactly, on the arm QA measured (BASE)**; 5 and 6 are new.
+
+| # | defect | site | measured |
+|---|---|---|---|
+| **1** | ★★ **a DEFERRED frame was booked "never aired"** — the key is `(node, label, time_ms)` and an LBT-deferred frame **airs LATER**, at a different timestamp | `frame_lengths_by_tx` / `wire_len` | **`s18` BASE: 4976 chargeable PHY frames, 4793 priced ⇒ 183 omitted; 421418 ms actual vs 405109 ms = a 16309 ms UNDERCOUNT.** Corpus (CUR): **2557 of 23913 frames** |
+| **2** | **ONE global `bw_hz, cr`**, taken from the FIRST tx event and applied to every transmission | `analyse_airtime:~2563` was literally `bw_hz, cr = 125000, 5` | **`s32_dual_cr_gateway` carries CR 4/5 AND 4/8 at BW 250 kHz: 3602 ms actual vs 2794 ms = 808 ms.** `s33_mixed_cr_channel_overhear` misprices **24** frames |
+| **3** | **the ambiguity check contradicted its own docstring**: a duplicate key was flagged only `if index[k] != nbytes`, so **two SAME-LENGTH transmissions in one millisecond collapsed silently** | `frame_lengths_by_tx:~2545` | corpus-DARK (0 duplicate keys of either kind) — so it is fixed **on contract**, and a synthetic test carries the proof (§(13) test 3) |
+| **4** | ★★ **`alias_stats` was computed, returned, and DISCARDED** — 3 mentions, **0 readers** | built `:779`, returned `:1072`, dropped `:2959` | ⛔ **NOT theoretical: `refused_conflicts` is NONZERO ON THE CORPUS — see §(12), a real `s07` residue that was invisible** |
+| **5** | ★ **the emit's DECLARED SF ≠ the frame's OWN SF** | `d["tx_routing_sf"]` / `d["data_sf"]` were used to price | **1348 of 12223** correlated rts/data frames disagree (CUR): `s16` 559/963, `s15` 251/794, `s15_metal` 233/720, `s17` 230/943 |
+| **6** | ★★ **this file's `lora_airtime_ms` was MISSING the SX126x §6.1.4 SF5/SF6 case that `lib/core/airtime.cpp:27-37` HAS** (6.25-symbol sync, not 4.25; `+36`, not `+44`) | `lora_airtime_ms:176` | **402 of 23913 frames disagreed with the PHY's own `airtime_ms`, and EVERY disagreement was at SF6** — `s35a` **108/108**, `s35b` **48/48**, `s38` **32/32**, plus `s16` 81, `s15` 68, `s15_metal` 65 |
+
+★★★ **DEFECT 6 IS THE ONE WORTH REMEMBERING, AND IT WAS FOUND BY THE CROSS-CHECK, NOT BY READING CODE.**
+The memory note *"deliberate SX126x SF5/SF6 framing in `airtime_ms` — don't simplify away"* has existed
+for weeks. It is about the **C++/Lua** model. **Nobody ever asked whether the PYTHON copy had it**, and
+it did not. ⇒ **A ported formula is a second copy, and a second copy drifts.** ★ The fix is verified
+against a **documented pair**, not a self-fulfilling one: `lib/core/airtime.h:17` records the SF5/SF6
+case as changing *"SF6/len50: 60 → 61 ms"* — the old Python gives **60**, the new gives **61** — while
+**all 180 tested SF7-12 combinations are byte-identical to the old formula**, so the common path did not
+move.
+
+★★ **AND DEFECT 6 IS WHY THE PRICE IS NOW THE PHY'S OWN `airtime_ms` WHEN THE EVENT CARRIES ONE.** That
+value **IS** the channel occupancy the simulator actually modelled — the number collisions, LBT and duty
+cycle were computed against — whereas the formula is a **second copy re-deriving it**. The formula's job
+is the **CROSS-CHECK**, which is exactly how it caught SF6. ⇒ **the residual against the PHY is now zero
+by construction on every row**, and the formula independently agrees on **100% of frames on all six
+arms** (§(11)). ⓘ Same lineage as §HYBRID-RTS-S2d's ruling: **inferring from a local model what the wire
+declares is this arc's signature error. When a frame states a fact, read the frame.**
+
+### ★★★★★★★★ §B162 (11) — **THE SIX-ARM LADDER RE-RUN. ⛔ THE AUTHORITY DID NOT MOVE — AND THAT IS THE REPORTABLE RESULT.**
+
+★★ **ONE TOOL REVISION, ONE RUN SET: the six arm stream sets already on disk** (each proven by binary
+`lus` md5 identity in the pass above), **re-measured end to end — 216 cells × 2 views = 432 tool
+invocations, 0 failed cells.** ★ **All 36 rows of all six arms reproduce the §B162 (2) table EXACTLY.**
+
+```
+                                                BASE DELETE     S1     S2    S2c    CUR
+AUTHORITY   unique deliveries                    733    707    690    724    719    719   <- UNCHANGED
+cross-check raw `delivered` events               765    750    734    752    743    743   <- UNCHANGED
+AIRTIME     PHY-direct total (ms)             5883686 6421497 6397487 5923170 5943914 5943914
+  of which  UNATTRIBUTED (IN the total)       1508357 1710021 1573489 1545852 1573043 1573043
+            chargeable PHY frames               24105  27730  27629  24039  23913  23913
+            unattributed frames                  3038   3895   3802   2955   3039   3039
+  formula vs the PHY's own airtime_ms        24105/24105 27730/27730 27629/27629 24039/24039 23913/23913 (100%)
+            ... disagreements                        0      0      0      0      0      0
+  CONTROL   a wrong len+1 agrees on only        22677  26147  17886  15773  15567  15567
+            ambiguous (node,label,ms) keys          0      0      0      0      0      0
+            unresolved configured sends            0      0      0      0      0      0
+  ⚠         REFUSED runtime-id alias conflicts     2      1      1      1      1      1   <- SEE §(12)
+```
+
+★★★ **THE EXPLICIT ANSWER THE DISPATCH ASKED FOR: `totals.unique_deliveries` DID NOT CHANGE, on any arm
+or any row.** ⇒ ★ **the floor stands exactly as §B162 (7) set it — `≥733` overall and `≥104` in `s06`
+(BASE `s06` = 104, re-measured)** — and `s27 == 0` assertion failures remains the separate,
+non-tradeable requirement. ⓘ That the delivery half is byte-stable across a 700-line airtime rewrite is
+**the control on the rewrite**, not a disappointment: the two halves were supposed to be independent and
+are now measured to be.
+
+⚠ **THE AIRTIME FIGURES MOVED ON EVERY ARM, AND NOTHING IN ANY EARLIER NOTE IS RE-ESTABLISHED BY THEM.**
+The two proof rows, old answer beside new:
+
+| row | arm | **PHY-direct total (new)** | the OLD tool's total | undercount | residual vs the PHY's own `airtime_ms` |
+|---|---|---|---|---|---|
+| `s18_meshroute` | BASE | **421418 ms** (4976 frames) | 405109 ms (4793 priced) | **−16309 ms** | ★ **0 ms — 4976/4976 frames agree** |
+| `s18_meshroute` | CUR | **416283 ms** (4898 frames) | 400666 ms (4720 priced) | **−15617 ms** | ★ **0 ms — 4898/4898** |
+| `s32_dual_cr_gateway` | BASE | **3602 ms** (24 frames) | 2794 ms | **−808 ms** | ★ **0 ms — 24/24** |
+| `s32_dual_cr_gateway` | CUR | **3610 ms** (24 frames) | 2794 ms | **−816 ms** | ★ **0 ms — 24/24** |
+
+★ **THE RESIDUAL IS ZERO ON BOTH PROOF ROWS AND ON ALL 216 CELLS**, because the price IS the event's own
+`airtime_ms`; the *independent* formula then agrees on **100%** of frames, where before the SF5/SF6 fix
+it disagreed on 402. ⚠ **The `len+1` control is honest about its own reach: on `s32` at BASE/DELETE it
+agrees 24/24, i.e. on THAT row it discriminates nothing** (those frames are short enough that one extra
+byte does not cross a symbol boundary). It discriminates strongly corpus-wide (15567 of 23913 on CUR)
+and on `s18` (3252/4898) — ⇒ **the control is reported per-arm, not asserted per-row.**
+
+⛔⛔ **THE OLD TOOL'S s32 ANSWER WAS 2794 ms ON *EVERY* ARM** — identical at BASE and CURRENT, because
+pricing the CR 4/8 frames at 4/5 **erased the very difference the scenario exists to test**. ⇒ a
+mixed-PHY scenario is where an airtime meter matters most, and it was exactly where the tool was blind.
+
+⚠ **THE UNATTRIBUTED BUCKET IS LARGE AND IT IS NOT AN ERROR — IT IS THE PREVIOUSLY-MISSING AIRTIME.**
+On CUR it is **1573043 ms of 5943914 (26.5%) across 3039 of 23913 frames (12.7%)** — the disproportion
+is real, since the unattributed set is DATA-heavy (`RTS 1836, DATA 489, CTS 363, NACK 302, ACK 49`) and
+DATA frames are long. ★ **Corpus-wide the bucket is 3039/3039 `no_matching_emit`, with `ambiguous_key`
+0 and `node_not_in_config` 0** — every millisecond of it is a frame that aired later than its emit.
+
+★★★ **AND THE DEFERRAL EXPLANATION IS PROVEN, NOT INFERRED — the orchestrator emits `tx_deferred`.**
+On `s18`/CUR: **998 of the 1183 emits with no frame at their own millisecond coincide EXACTLY with a
+`tx_deferred` at the same `(node, label, ms)`**, and of the **178** orphaned aired frames, **174 have an
+earlier deferred-and-unmatched emit of the same `(node, label)`**. ⛔ **The residual 4 are named, not
+rounded away:** node ids 115, 138, 18 and 93, each an RTS aired **154 / 453 / 164 / 240 ms** after an
+earlier unmatched emit of the same `(node, label)` that carries **no** `tx_deferred` — i.e. a MAC-level
+re-schedule rather than a PHY LBT deferral. ⇒ **178 of 178 orphaned frames are accounted for.**
+
+### ⚠⚠⚠ §B162 (12) — **A NEW, NAMED RESIDUE, AND IT IS THE POINT OF FIXING DEFECT 4: `s07` HAS A LIVE ALIAS REFUSAL AND NOTHING EVER SAID SO**
+
+★★ **`refused_conflicts` is NOT zero on the corpus. It is `s07_seattle_mobile_meshroute`, on every arm
+— 2 conflicts at BASE, 1 on the other five — and `aliases` accepted is `0`.** ⛔ Meanwhile
+`unresolved_configured_sends` is **0**, because the send text parsed perfectly. ⇒ **exactly the silent
+channel defect 4 describes: the authority can be short while every visible counter reads clean.**
+
+**WHAT IT ACTUALLY IS, read off the stream (not guessed):** two mobiles **genuinely wear the same
+leased runtime id at different times.** On CUR, wire id **33** is claimed by both config id **50
+(`mobile_walk_central`)** and **52 (`mobile_courier_south_north`)**; at BASE it is ids **19** (by 50 and
+52) and **35** (by 51 and 52). ★ **The refusal is CORRECT** — a lease is **time-multiplexed**, so a
+time-BLIND alias map genuinely cannot resolve it, and picking one would mis-attribute a delivery.
+⇒ ⛔ **`s07`'s figure (77 / 74 / 74 / 76 / 71 / 71) may be SHORT on every arm, and the amount is not
+derivable without a time-windowed alias map.** ⓘ Worth noting beside it, and **not** presented as proof:
+`s07` is the row §B162 (3) found the **largest published error** on (**+8 on both measured arms**).
+★ The honest statement is that **a mechanism now exists which could account for part of that**, and the
+measurement to decide it has **not** been made here.
+⇒ ⛔ **THE FIX IS OUT OF SCOPE FOR A MEASUREMENT SLICE** (a time-windowed alias map is new tool
+behaviour, and the two named §B162 (6) residues are still open). **It is registered as the residue that
+keeps [[B162]] from closing clean, and it is now VISIBLE in both outputs instead of discarded.**
+
+### ★★★★★★ §B162 (13) — **THE DURABLE TESTS: `tools/test_dm_delivery_breakdown.py`, 47 CHECKS, EVERY ONE WITH A CONTROL THAT PROVES IT COULD HAVE FAILED**
+
+⛔⛔ **WHY THIS FILE HAD TO EXIST: the instrument the arc calls its AUTHORITY had NO TESTS AT ALL**, and
+it had already produced a self-consistent wrong answer **twice** — BASE = **659** with **14 of 36
+scenarios reading ZERO**, and then a "fix" for that which **silently did nothing**. ★★ **A tool trusted
+as an authority and covered by no test is not an instrument; it is an opinion with denominators.**
+
+★★★ **THE RULE EVERY TEST OBEYS: the control is the OLD algorithm, re-implemented locally, shown to give
+the WRONG answer on the SAME fixture.** A test that also passes against the broken code would *certify*
+the defect. ⓘ Stdlib only, no corpus, no simulator, ~1 s.
+
+| test | asserts | ★ its CONTROL |
+|---|---|---|
+| **1 deferred-then-aired** | the deferred frame is in the total, in `unattributed_ms`, bucketed `no_matching_emit == 1`, and the reconciliation identity holds | **the old algorithm totals 88 ms where the truth is 176** — it undercounts by exactly one frame |
+| **2 mixed CR** | both CRs seen, BW read off the wire, total == the per-frame sum | **the old global `(250000, 5)` — taken from a BCN — gives 645 ms vs the true 866** |
+| **3 same-length collision** | the key IS ambiguous, both frames stay in the total, `ambiguous_key == 2`, `emit_refused_ambiguous == 1`, `attributed == 0` | **the old `!= nbytes` rule finds 0 ambiguities here** — plus a SECOND control showing it DID fire on different lengths, so the new rule is a **strict superset**, not a different check |
+| **4 alias conflict** | `refused_conflicts == 1` reaches `totals.wire_alias_refused_conflicts` **and** the text banner | **`unresolved_configured_sends` is 0 on the same fixture** (the clean-looking counter), and a **no-conflict** control gives `refused 0 / aliases 1` so the counter is shown to vary |
+| **5 formula vs PHY** | 120 synthetic frames across SF7-12 × 2 CRs × 2 BWs agree with the PHY's own `airtime_ms`, **denominator asserted nonzero** | **a deliberately wrong `len+1` agrees on only 94/120** |
+| **5b SF5/SF6** | `SF6/BW125/CR5/50B == 61 ms` | **the old formula gives 60** — the *documented* before/after pair from `lib/core/airtime.h:17`; plus **180 SF7-12 combinations byte-identical** (no regression) and **48 of 60 SF5/SF6 combinations DID move** (nonzero — a fix that moved nothing is the [[B162]] "silently did nothing" shape) |
+| **6 fail-loud** | **13** legal `(label,length)` pairs resolve, **9** illegal ones RAISE — **including the retired `RTS`/8 B** — and a tx event missing `hex` or `sf` is refused | both directions are the control |
+| **7 double attribution** | two emits claiming one frame charge it ONCE, `emit_double_attribution == 1`, nothing stranded | the inversion's own invariant |
+
+⚠ **AND THE TEST FILE CARRIES ITS OWN NEAR-MISS IN A COMMENT, because it is the arc's signature failure:
+the fixtures MUST be written with compact JSON separators.** The tool fast-paths on the literal
+substring `"type":"tx"`, so a pretty-printed fixture is **invisible** to it — the first run of test 1
+reported `0 frames` and would have "passed" several assertions vacuously had they been written the other
+way round. **A fixture that silently matches nothing is how this whole bug family works.**
+
+### ⛔⛔ §B162 (14) — **A METHOD FAILURE OF MINE, IN THE HARNESS, THAT COST 22 MINUTES AND WOULD HAVE PRODUCED AN EMPTY RESULT**
+
+★★★ **RECORDED BECAUSE IT IS THE SAME LESSON AS THE BUG: my first ladder runner DEADLOCKED SILENTLY.**
+It used `ProcessPoolExecutor.map(lambda ...)`; a lambda cannot be pickled, so the pool hung with **8
+workers at `00:00:00` CPU and not one tool subprocess ever started.** It printed nothing by design, so
+**22 minutes of a hang looked exactly like 22 minutes of work** — and a `timeout 5400` would eventually
+have handed me an empty output I might have read as "no data". ⇒ It was caught only by **checking the
+workers' CPU time instead of believing the absence of output.**
+★ Fixes applied to the harness itself: a **module-level callable**, and **one progress line per cell the
+moment it lands** — so absence of progress is now visible immediately. The real run took **31 s**.
+ⓘ A second self-inflicted one, for the same reason: `pkill -9 -f "measure2.py"` matched **my own shell's
+command line** (the here-doc writing the file mentioned that name) and killed the write mid-flight.
+⇒ **`pkill -f` matches the process that is running the pkill.**
+
+### §B162 (15) — **GATES: WHAT RAN, WHAT DID NOT. ⛔ NOTHING HERE IMPLIES A SKIPPED GATE PASSED.**
+
+| gate | result |
+|---|---|
+| **native** | ★ `pio test -e native` **+ RUNNING the binary** (the wrapper printed its usual false *"0 test cases"*) = **1471 test cases / 79553 assertions / 0 failed**, **`grep -c "error:"` = 0**. ⓘ Unchanged **by construction**: `git diff -- lib src test` is **EMPTY** |
+| **tool tests** | ★ `python3 tools/test_dm_delivery_breakdown.py` = **47 checks, 0 failed**, each with a control (§(13)) |
+| **the ladder** | ★★ **216 cells × 2 views = 432 invocations, 0 failed cells**, all 36 rows of all 6 arms; **all 36 delivery rows reproduce §B162 (2) exactly** |
+| **one-revision control** | ★ 3 cosmetic edits landed *after* the first ladder attempt (a `render_tail` print label, a docstring, an argparse help string). The published ladder was then re-run **whole** on the final file, and **8 sampled cells re-run again afterwards reproduce identically (8/8)** — so "one revision" is checked, not argued |
+| ⛔ **board builds** | **DID NOT RUN** — standing owner instruction. No firmware file was touched, so none was owed. **Nothing here implies they passed** |
+| ⛔ **`warning_census.sh`** | **DID NOT RUN** — standing owner instruction. **Nothing here implies it passed** |
+| ⛔ **per-ABI `sizeof` reveal / UI probes** | **DID NOT RUN.** Not owed: no state, no firmware change |
+| ⛔ **`lus` rebuilds** | **DID NOT RUN, deliberately.** The six arm stream sets from the pass above were **reused**, which is what makes this ONE run set; their `lus` md5s were already proven byte-exact there. The worktrees at `/home/staszek/b162-arms/` were **reused, not re-created, and not pruned** |
+| ⛔ **anchor table** | The `^### 36/36 corpus` table is **NOT edited** |
+
+### ⚠ §B162 (16) — **EVERY PREMISE THAT TURNED OUT WRONG IN *THIS* PASS, INCLUDING QA'S AND MINE**
+
+1. ⛔⛔ **MINE, AND IT IS THE BAD ONE: §B162 (4) — my own note, four sections above — concluded "every
+   aired frame is now counted EXACTLY ONCE at its TRUE wire length, so the TOTAL is sound."** It was
+   **false when written**: 2557 of 23913 frames were charged zero. I had fixed the *lengths* and
+   declared the *total* sound, which was a different claim I never measured. ★ The retraction is now
+   written into the function's own docstring, not only here.
+2. ⛔ **MINE: §B162 (4) said an emit with no PHY frame at its millisecond "never aired" and so
+   "consumed NO airtime."** True of most, **false for the deferred ones** — the right instinct applied
+   to the wrong set.
+3. ✔ **QA'S FOUR DEFECTS ALL REPRODUCE, TO THE MILLISECONDE, on the arm QA used (BASE):** 4976 vs 4793
+   frames, **183** omitted, **421418 vs 405109 = 16309 ms**; `s32` **3602 vs 2794 = 808 ms**; the
+   `!= nbytes` ambiguity gap; `alias_stats` unread. ⓘ QA's line numbers were flagged approximate and
+   were within a few lines; all four sites were verified at source (V1).
+4. ⛔ **QA'S ONE INACCURACY, and it is minor: "two same-length transmissions silently collapse" was
+   presented as a live corruption.** It is **corpus-DARK** — 0 duplicate keys of either kind in 23913
+   frames. It is still a real contract violation and is still fixed; but the *measured* harm is zero,
+   and §(13) test 3 says so rather than implying otherwise.
+5. ⛔ **QA'S AND THE DISPATCH'S FRAMING that these were "four" defects.** There were **six**: the emit's
+   declared SF (1348 disagreeing frames) and the missing SX126x SF5/SF6 case (402) were found only
+   because the inversion made the tool print a cross-check it had never printed.
+6. ⛔ **MINE: I expected the `len+1` control to discriminate everywhere.** On `s32` at BASE/DELETE it
+   agrees **24/24** — vacuous on that row. A control has a reach, and the reach must be reported.
+7. ⛔ **MINE, ABOUT THE HARNESS, NOT THE TOOL: I read 22 minutes of silence as progress** (§(14)).
+8. ⓘ **NOT WRONG, WORTH RECORDING: the dispatch's warning that the delivery figures "may or may not
+   move" was right to be neutral — they did not move at all**, on any row of any arm. The airtime
+   figures moved on every arm.
+9. ⓘ **NOT WRONG: the memory note about the deliberate SX126x SF5/SF6 framing was correct and current.**
+   It simply described the C++/Lua model, and nobody had ever asked the same question of the Python
+   copy. **A ported formula is a second copy.**
+
+### ★★★★★★★★★★ §B162 (17) — ⛔⛔ **THIRD PASS: THE INSTRUMENT'S TWO REMAINING PARSERS WERE `str.__contains__`, AND ON VALID NDJSON WITH ORDINARY WHITESPACE THEY RETURNED A CLEAN ZERO**
+
+★★★ **THE SENTENCE THAT MATTERS: A SUBSTRING FAST-PATH IS A SILENT PARSER, AND A SILENT PARSER IN A
+MEASUREMENT PATH FAILS TOWARD "NOTHING HAPPENED."**
+
+Two functions filtered the event stream on a **literal compact substring** before parsing anything:
+
+| site (pre-fix) | the line | what it did on `{"type": "tx", …}` |
+|---|---|---|
+| `phy_tx_frames()` `:2576` | `if '"type":"tx"' not in line: continue` | matched **nothing** ⇒ `frames` empty ⇒ **the AUTHORITATIVE airtime total printed `0 ms over 0 frames`** |
+| `raw_delivered_event_count()` `:1677` | `if '"emit_type":"delivered"' in line:` | matched **nothing** ⇒ the delivery **cross-check printed `0`** |
+
+⚠ **MEASURED, NOT ARGUED.** A synthetic **valid** NDJSON stream written with ordinary `json.dumps()`
+formatting produced `phy_frames 0 / raw_delivered 0 / walk_delivered 1` — the whitespace-independent
+walker saw the data, the two substring filters did not. ★★ **That is precisely [[B162]]'s dangerous
+failure mode: the authoritative instrument returns a CLEAN ZERO instead of refusing or parsing.**
+
+★★ **AND IT IS THE THIRD OCCURRENCE OF THIS EXACT SHAPE IN THIS ARC.** A fast-path substring filter
+already matched **zero rows in BOTH arms** of an A/B during §HYBRID-RTS-S0 and was believed; §B162 (10)
+defect 2 took `bw_hz/cr` from the first line it could see. ⇒ **the lineage is now written into the tool
+itself**, at `iter_ndjson()` and at both repaired sites, because the next reader will otherwise
+re-derive the fast path as an optimisation.
+
+⛔⛔ **THE HARNESS DOCUMENTED THE DEFECT AS A FEATURE.** `tools/test_dm_delivery_breakdown.py`'s own
+`write_stream()` carried the comment *"COMPACT separators are LOAD-BEARING: the tool fast-paths on the
+literal substring `"type":"tx"`, so a pretty-printed fixture is invisible to it and every count reads
+0."* **That sentence was true and it should have been a bug report.** The requirement was never
+"fixtures must be compact"; it was "the instrument must parse its input". It is deleted and replaced by
+the regression in §(18).
+
+### ★★★★★★ §B162 (18) — **THE FIX, AND THE REGRESSION THAT WOULD HAVE CAUGHT IT**
+
+★ **ONE READER.** `iter_ndjson(events_path)` is now the only way this file reads the event stream, and
+it yields `(lineno, dict)`. `walk_events()`, `walk_phy_events()`, `phy_tx_frames()`,
+`raw_delivered_event_count()` and the `--trace` view all go through it; **there is no remaining
+membership test against a raw line**, asserted structurally (see below).
+ⓘ `raw_delivered_event_count()`'s predicate is deliberately the **exact** one the substring encoded —
+`emit_type == "delivered"`, *not* additionally `type == "script_emit"` — so the repair is
+measurement-inert rather than quietly re-defining the cross-check while claiming to fix a parser.
+
+★★ **AND MALFORMED LINES ARE REFUSED, COUNTED AND SURFACED (C2).** Every walker previously swallowed
+`JSONDecodeError` with a bare `continue`, so a truncated or corrupt stream measured **LOW in silence** —
+the same fail-toward-less direction as §(10) defect 1. Now the refusal is counted per line number
+(union across the many passes the tool makes, so it can never inflate), a full scan is forced so the
+count is whole, and it is printed in **BOTH** views: `totals.malformed_ndjson_lines` +
+`malformed_ndjson_examples` in JSON, and a `!! N NDJSON LINE(S) REFUSED … EVERY figure below is a LOWER
+BOUND` banner **before any figure, in every text mode**. ⚠ That placement is the `alias_stats` lesson
+applied: **a refusal counter that only appears in `--json` is the §(10) defect 4 all over again.** The
+key is always present so a **zero is printable and comparable**. ⓘ A blank or whitespace-only line is
+**not** a refusal — a trailing newline is not corruption.
+
+★★★ **THE REGRESSION (`test_8`, `test_9`) — 47 → 69 CHECKS, 0 FAILED.** Identical event data is written
+in **both** encodings and every figure must be **IDENTICAL AND NONZERO**:
+
+| assertion | compact | pretty (`json.dumps` default) |
+|---|---|---|
+| `phy_frames` | **3** | **3** |
+| `phy_total_ms` | **346** | **346** |
+| `raw_delivered` | **2** | **2** |
+| formula/PHY agreement | **3** | **3** |
+| parse refusals | 0 | 0 |
+
+⛔ **THE NONZERO HALF IS NOT DECORATION: a test asserting only "compact == pretty" PASSES WITH BOTH AT
+ZERO — i.e. it passes against the very defect it exists to catch.** ★★ **PRE-FIX CONTROL, in the same
+test:** the two deleted filters, re-implemented locally, give `(3, 2)` on the compact fixture and
+**`(0, 0)` on the pretty one** — the defect reproduced on demand, proving the equality above is
+discriminating. `test_9` adds a genuinely malformed line (a truncated object) and a bare JSON scalar
+and asserts both are **refused, counted (2), line-numbered, and printed** — with the **CLI actually
+run** and its stdout read for the banner, plus a clean-stream control on which the banner is **absent**
+and the counter reads 0, and a control that the 3 valid frames are **still measured** alongside the
+refusals (refusal is per line, never a whole-file give-up).
+
+⚠⚠ **A METHOD FAILURE OF MINE, CAUGHT BY MY OWN RULE, AND WORTH THE INK:** my first "no fast path
+remains" assertion grepped every non-`#` line — and **FAILED on this slice's own docstring**, which
+quotes the deleted code. **A line-grep cannot tell live code from prose about code** (the same trap as
+scoring a fenced-superseded sentence as current). It is now an **AST** check for a membership test whose
+left operand is a compact JSON fragment, **with a control that proves the detector fires on a snippet of
+the old code** (it finds both).
+
+### ★★★★★★★★ §B162 (19) — ⛔ **THE FIX IS MEASUREMENT-INERT, AND THAT IS PROVEN AT LADDER SCOPE, NOT ASSUMED**
+
+★★ **THE SIX-ARM RERUN WAS *NOT* SKIPPED.** QA ruled it unnecessary if compact-input outputs were shown
+byte-identical; the streams were already on disk and the run costs **42 s**, so it was **RUN IN FULL**
+and the stronger claim is available instead of the weaker one:
+
+| proof | result |
+|---|---|
+| `s18_meshroute` `--airtime` (arm CURRENT) | ★ **BYTE-IDENTICAL** to pre-fix: **4898 frames / 416283 ms total / 400666 attributed + 15617 unattributed**, 4898/4898 formula agreement (len+1 control 3252), reconciliation ✓ |
+| `s32_dual_cr_gateway` `--airtime` | ★ **BYTE-IDENTICAL**: **3610 ms / 24 frames**, `cr=4/[5, 8]` at `bw_hz=[250000]`, **24/24** agreement (control 21 — still the narrow reach §(16).6 named), 2993 + 617 ✓ |
+| `s18`/`s32` `--mode dm --json` | identical **except the two ADDITIVE new keys**, `malformed_ndjson_lines: 0` and `malformed_ndjson_examples: []` |
+| ★★ **all 6 arms × 36 scenarios = 216 cells** vs the pre-fix `measured.json` record | ★★★ **0 cells differ. 0 cells failed.** |
+| the ladder | **BASE 733 · DELETE 707 · S1 690 · S2 724 · S2c 719 · CURRENT 719** (authority) and raw cross-check **765 · 750 · 734 · 752 · 743 · 743** — **exactly** §B162 (2)/(11) |
+| corpus-wide parse refusals | ★ **0** across all 36 CURRENT-arm streams (`--airtime` rc 0, `malformed_ndjson_lines` 0 on every one) |
+
+⇒ ★ **the `≥733` overall / `≥104` in `s06` floor and the separate, non-tradeable `s27 == 0` requirement
+are untouched by this slice**, and the corpus streams are confirmed **entirely compact**, which is
+exactly why the defect was corpus-dark and could only ever have bitten a future emitter, a hand-written
+fixture, or a re-serialised stream. ⛔ **Corpus-dark is not harmless: it means no run of the corpus could
+ever have revealed it, and the harness had frozen the workaround into a written requirement.**
+
+⚠⚠ **AND THE FLOOR REMAINS CONDITIONAL, UNCHANGED BY THIS PASS: [[B163]] IS OPEN.** `s07` has a live,
+**correct** alias refusal — two mobiles genuinely wear the same **leased** wire id at different times —
+so **`s07`'s figure may be short on every arm by an amount that is not derivable** without a
+time-windowed alias map. ⛔ Not fixed here, and **not silently resolved**: the conditionality is now
+carried at every site where `≥733` is stated as a gate (the plan, the hybrid-RTS plan and its spec).
+
+### ⚠ §B162 (20) — **GATES, AND EVERY PREMISE THAT TURNED OUT WRONG IN *THIS* PASS**
+
+| gate | outcome |
+|---|---|
+| `tools/test_dm_delivery_breakdown.py` | ★ **69 checks, 0 failed** (was 47; +22 from `test_8`/`test_9`) |
+| `pio test -e native` + **RUN the binary** | ★ **1471 test cases / 79553 assertions / 0 failed**, `grep -c "error:"` **0** — unchanged by construction (⚠ the wrapper again printed a false *"0 test cases"*) |
+| the 216-cell ladder | ★ **0 differing cells, 0 failed cells** vs the pre-fix record |
+| `git diff -- lib src test` | ★ **EMPTY — zero firmware/test lines**, as scoped |
+| `git diff --check` | clean |
+| `^### 36/36 corpus` anchor table | ★ **NOT edited — byte-identical to HEAD** (verified by `diff` against `git show HEAD:`) |
+| ⛔ board builds · `warning_census.sh` · the per-ABI reveal · both UI probes | **DID NOT RUN** — standing owner instruction, no state added. **Nothing here implies they passed.** |
+
+**PREMISES THAT TURNED OUT WRONG:**
+1. ⛔⛔ **THE HARNESS'S, AND THEREFORE MINE (§(13) wrote it):** *"compact separators are LOAD-BEARING."*
+   **A statement of a defect, recorded as a fixture requirement.** ★ The lesson generalises past this
+   tool: **when a test needs the input shaped a particular way for the code to see it at all, that is a
+   finding, not a fixture convention.**
+2. ⛔ **MINE, IN THIS PASS:** my first anti-regression assertion was a **line-grep** and it flagged this
+   slice's own docstring. **Verifying "no live code does X" is an AST question, never a text question.**
+3. ⚠ **QA's, in my favour and worth naming so the record is exact:** QA ruled the six-arm rerun
+   **unnecessary** if compact byte-identity were shown. That was a sound cost/benefit call, but the
+   rerun cost **42 s** ⇒ the stronger evidence was cheaper than the reasoning that avoided it. **When a
+   dispensation is cheaper to decline than to justify, decline it.**
+4. ⓘ **NOT WRONG, CONFIRMED:** the dispatch's expectation that the fix would be **measurement-inert on
+   the compact corpus** held on **all 216 cells** — and because §(19) states the figures it reproduces,
+   that inertness is a *measurement*, not an absence of evidence.
+5. ⓘ **NOT WRONG, AND STILL OPEN:** the two §(6) residues (`s21_mobile_dm_milestone`;
+   `s27`, where all mobiles carry config id 0 and **4/6/11 are three non-interchangeable readings** —
+   ⛔ none picked) and **[[B163]]** are **untouched by this pass.**
+
+### ★★★★★★★★★★ §B162 (21) — ⛔⛔ **FOURTH PASS: THE FAIL-LOUD BANNER §(18) ADDED EXISTED, AND THE *AUTHORITATIVE* RENDERER WALKED PAST IT. A PROMISE MADE AT ONE EXIT IS NOT MADE AT ALL WHEN THERE ARE SIX.**
+
+★★★ **THE BLOCKER, REPRODUCED BY RUNNING THE CLI** on a stream with two malformed lines (a truncated
+object and a bare string) — `--airtime` printed
+
+```
+★★ TOTAL AIRTIME (AUTHORITY) = 346 ms over 3 chargeable PHY frames …
+```
+
+with **rc 0, no `NDJSON LINE(S) REFUSED`, no `LOWER BOUND` warning**, and `--airtime --json` carried
+**neither `malformed_ndjson_lines` nor `malformed_ndjson_examples`**. §(18) placed the notice inside the
+DM/channel **text** renderer and its own comment asserted it "must not be modeselectable away". ⛔ **It
+was. A comment asserting a guarantee is not the guarantee.**
+
+★★★★ **AND THE HOLE IS WIDER THAN THE REPORT SAID — SIX OUTPUT PATHS, NOT FOUR.** The dispatch that
+raised this counted **four early `return`s** in `main()` (`--trace`, `--copies`, `--airtime`, `--tail`).
+That undercounts, because **a bypass need not be shaped like a `return`**: `--mode channel --json`
+assembles its payload *inline* in `main()` and dumped it through its own `json.dump`, so it too carried
+no census. ⇒ **counting exits is not the same as enumerating outputs.** ★ THE FOUR-MODE AUDIT THE
+DISPATCH REQUIRED, EACH RUN AND EACH GIVEN A VERDICT — **4 of 4 were broken, not "2 of 2 checked":**
+
+| mode | pre-fix verdict (MEASURED, by running the CLI on a 2-malformed-line stream) | post-fix |
+|---|---|---|
+| `--airtime` | ⛔ **BROKEN** — total printed, no banner, no LOWER BOUND (QA's reproduction) | ✓ banner + LOWER BOUND |
+| `--airtime --json` | ⛔ **BROKEN** — the AUTHORITY payload carried neither key | ✓ 3 census keys, always present |
+| `--trace SUBSTR` | ⛔ **BROKEN** — events dumped, no banner | ✓ banner + LOWER BOUND |
+| `--copies` | ⛔ **BROKEN** — switch counts printed, no banner | ✓ banner + LOWER BOUND |
+| `--tail` | ⛔ **BROKEN** — the airtime-tail profile printed, no banner | ✓ banner + LOWER BOUND |
+| `--mode channel --json` | ⛔ **BROKEN, AND NOT IN THE FOUR** — inline payload, own `json.dump`, no key | ✓ 3 census keys |
+| `--mode dm\|all` (text) | ✓ already guarded (§(18)) — the ONLY guarded path | ✓ same banner, now emitted earlier |
+| `--trace/--copies/--tail --json` | ⚠ **`--json` SILENTLY IGNORED** — text came out as if honoured | ⛔ **REFUSED loudly** (C2) |
+
+★★★ **THIS IS THE FOURTH OCCURRENCE OF ONE SHAPE IN THIS ARC AND THE SECOND *INSIDE* [[B162]]: a
+measurement path that fails toward "nothing happened".** (1) §S0's payload substring filter matched
+**zero rows in BOTH arms** of an A/B and was believed; (2) `phy_tx_frames` gated on `'"type":"tx"'` →
+a clean `0 ms over 0 frames`; (3) `raw_delivered_event_count` gated on `'"emit_type":"delivered"'` →
+a clean `0`; (4) **the banner that fixed (2)/(3) was bypassed by the renderer the arc calls the
+authority.** ⇒ ★★ **THE STRUCTURAL LESSON, and it is the whole point of the fix below: A FAIL-LOUD
+PROMISE MADE AT ONE EXIT IS NOT MADE AT ALL WHEN THERE ARE SIX.**
+
+### ★★★★★★★★ §B162 (22) — **THE FIX IS A TOPOLOGY, NOT A BANNER. ⛔ THE PER-MODE COPY WAS CONSIDERED AND REJECTED.**
+
+⛔⛔ **WHY NOT JUST PRINT THE BANNER IN ALL SIX PLACES.** A per-mode copy is **the same defect in a new
+shape**: it makes the guarantee proportional to the author's memory, so the *seventh* mode added to
+`main()` silently opts out — exactly how the sixth one already did. **The guarantee is therefore
+enforced by topology:**
+
+| | mechanism |
+|---|---|
+| **text** | `ndjson_refusal_crossing_point(args)` — called **ONCE, UNCONDITIONALLY**, as a direct statement of `main()`'s body, **before `load_config` and before the whole mode dispatch**. No `return` in any mode can precede it, so a NEW mode inherits the banner without its author knowing it exists. (Before `load_config` so the banner is the FIRST thing on stdout — `load_config`'s own diagnostics already go to **stderr**, for the same `--json`-corruption reason, `dm_delivery_breakdown.py:~370`. And **after** `maybe_run`, because the census must be taken of the stream that was actually produced.) |
+| **JSON** | `emit_json(payload, events_path)` — the **ONLY** function in the file permitted to write JSON to stdout. It **attaches** the census to whatever payload it is handed, so no payload can be emitted without it. The three former private `json.dump(..., sys.stdout)` sites (`render_json`, `render_airtime`, `main`'s channel/all merge) now route through it. |
+| **the seam between them** | ⛔ **C2:** `--json` alongside `--trace`/`--copies`/`--tail` used to be **silently ignored**. It is now **refused with a nonzero exit**. ★ That is not tidiness — it is what makes the delegation SOUND: after the refusal, `args.json` means **exactly** "this run emits JSON", so "text ⇒ banner, JSON ⇒ `emit_json`" is a total, provable split rather than a per-mode guess. |
+
+★ **THE THREE NEW JSON KEYS, TOP-LEVEL AND ALWAYS PRESENT** (⚠ **an absent key is indistinguishable
+from a zero to a consumer, and this instrument is the arc's authority**):
+`malformed_ndjson_lines` (int, `0` on clean input) · `malformed_ndjson_examples` (list, `[]`) ·
+`measurement_is_lower_bound` (bool, `false`). ⓘ **`totals.malformed_ndjson_lines` / `_examples` in the
+DM payload are RETAINED** — §(18)'s published contract — and are **not a second implementation**: both
+read the one memoized `ndjson_refusals()` census.
+
+### ★★★★★★ §B162 (23) — **THE REGRESSIONS: A TOPOLOGY PROOF FROM THE PARSE TREE, AND NINE CLI CASES THAT EACH ASSERT A NONZERO FIGURE *BESIDE* THE BANNER. 69 → 110 CHECKS, 0 FAILED.**
+
+★★ **`test_10` PROVES THE PROPOSITION STRUCTURALLY, NOT TEXTUALLY** — ⚠ §(20).2's lesson applied:
+*"no live path does X" is an AST question, never a text question.* Two checkers, each fed **source
+text** so the real tool and a deliberately-broken snippet go through the **same code**:
+
+| assertion | control that proves it can fail |
+|---|---|
+| in `main()`, **nothing** `print`s, `emit_json`s, calls a `render_*` or `return`s before the single unconditional crossing statement | ★ the **PRE-FIX shape** (notice *after* the dispatch) → the checker reports both the `render_airtime` call and the early `return` |
+| the crossing call is **not** nested in a branch | ★★ the **PER-MODE COPY shape**, *with every current mode covered* → still REJECTED (`0 unconditional … must be exactly 1` + two `per-mode copy` findings) |
+| **no** `json.dump(..., sys.stdout)` outside `emit_json` | ★ a snippet with the two pre-fix private dumps + the legitimate one inside `emit_json` → finds **exactly the two** |
+| `emit_json` attaches `0 / [] / false` on clean input and `2 / 2 examples / true` on corrupt | the same call on both streams; the caller's own payload passes through untouched |
+
+★★ **`test_11` RUNS THE REAL CLI** over **nine** mode-invocations × **two** input arms (malformed and
+clean), and ★★★ **EVERY CASE ASSERTS BOTH HALVES IN THE SAME BREATH — the banner/field AND a NONZERO
+figure.** ⛔ A test that only checked "the banner appears" would pass on a build that reports nothing at
+all (that is this arc's whole failure family); one that only checked "the numbers match" would pass with
+both arms at zero (the `s27` lesson). The nonzero probes: `--mode dm --all` table sent=**1** ·
+`--mode dm --all --json` / `--mode all --all --json` `totals.unique_deliveries`=**1** · `--airtime`
+**346 ms** · `--airtime --json` `phy_total_ms`=**346** · `--mode channel --json` `channels` present ·
+`--trace p1` **4** events · `--copies` **1** switch · `--tail` **268 ms** attributed. ★ And the clean
+arm asserts the **same nonzero figure with NO banner**, so the banner is shown to discriminate while
+the measurement is shown not to be zero.
+
+★★★ **THE PRE-FIX CONTROL, AS REQUIRED — THE BLOCKER REPRODUCED ON DEMAND WITHOUT KEEPING A COPY OF THE
+OLD FILE.** `test_11` re-enters `T.main()` in-process with exactly the two topology guarantees patched
+out (`ndjson_refusal_crossing_point` → no-op, `emit_json` → a bare `json.dump`), which reconstitutes the
+pre-fix shape precisely. Result: **`346 ms` printed with NO banner and NO LOWER BOUND**, and the airtime
+JSON carrying the 346 ms total and **neither census key**. ★ Plus a **control on the control**: the same
+in-process vehicle **unpatched** prints the banner and the same 346 ms — so the difference is the patch,
+not the vehicle.
+
+⚠ **AND RECORDED BECAUSE IT MATTERS: 3 OF MY OWN NEW CHECKS FAILED ON THEIR FIRST RUN** — the
+per-mode-copy control asserted the wrong rejection message, and the `--mode dm` nonzero probe read
+**0** because that fixture had no configured send (a **vacuous** assertion of exactly the kind §(13)
+exists to forbid, caught only because the check demanded NONZERO). ⇒ the suite is **known** to be able
+to fail, which is the only reason its passing is evidence.
+
+### ★★★★★★★★ §B162 (24) — ⛔ **MEASUREMENT-INERT, PROVEN AT LADDER SCOPE AGAIN. THE LADDER WAS RE-RUN BECAUSE IT COST 26 s.**
+
+| proof | result |
+|---|---|
+| `s18_meshroute` `--airtime` (arm CURRENT) | ★ **BYTE-IDENTICAL** to pre-fix, md5 `9114694f` both sides: **4898 frames / 416283 ms / 400666 attributed + 15617 unattributed**, **4898/4898** agreement (len+1 control 3252) |
+| `s32_dual_cr_gateway` `--airtime` | ★ **BYTE-IDENTICAL**, md5 `cca91ace` both sides: **3610 ms / 24 frames**, `cr=4/[5, 8]` at `bw_hz=[250000]`, **24/24** (control 21 — still §(16).6's narrow reach) |
+| `s18`/`s32` `--copies` and `--tail` (the two newly-guarded text modes) | ★ **BYTE-IDENTICAL** (e.g. `s18 --tail` `0942c66e`, `--copies` `731efdaa` both sides) |
+| `s18`/`s32` `--airtime --json` and `--mode dm --json` | ★ **0 keys removed, 0 values changed, exactly 3 keys ADDED**, enumerated: `malformed_ndjson_lines: 0` · `malformed_ndjson_examples: []` · `measurement_is_lower_bound: false` — **all additive and zero-valued** (compared by flattening both payloads to leaf paths, not by eyeballing a diff) |
+| ★★ **all 6 arms × 36 scenarios = 216 cells** vs the pre-fix `measured.json` | ★★★ **0 cells differ. 0 cells failed.** 216 invocations in **26 s** (`xargs -P 12`; ⓘ the serial form exceeded 2 min, which is why §(14)'s parallel-runner lesson still earns its keep — **but no lambda, so no silent deadlock**) |
+| the ladder | **BASE 733 · DELETE 707 · S1 690 · S2 724 · S2c 719 · CURRENT 719** (authority) and raw cross-check **765 · 750 · 734 · 752 · 743 · 743** — **exactly** §(2)/(11)/(19); `s06` BASE **104** |
+| corpus-wide parse refusals | ★ **0** on all 216 cells, and `measurement_is_lower_bound` **false** on all 216 — ⓘ the three new keys verified **present** on every cell, so the zero is a reading, not an absence |
+| the pre-fix record itself | ★ **NOT overwritten** — the runner was copied to scratch with a different output path; `/home/staszek/b162-arms/measured.json` md5 `d42b284e` before and after |
+
+⇒ ★ **the `≥733` overall / `≥104` in `s06` floor and the separate, non-tradeable `s27 == 0` requirement
+are untouched by this pass.** ⚠⚠ **AND THE FLOOR REMAINS CONDITIONAL ON [[B163]], WHICH IS OPEN AND WAS
+NOT TOUCHED:** `s07`'s alias refusal is *correct* (a lease is time-multiplexed) and the shortfall is
+**not derivable** without a time-windowed alias map.
+
+### ⚠ §B162 (25) — **GATES, AND EVERY PREMISE THAT TURNED OUT WRONG IN *THIS* PASS — STARTING WITH MINE**
+
+| gate | outcome |
+|---|---|
+| `tools/test_dm_delivery_breakdown.py` | ★ **110 checks, 0 failed** (was 69; +41 from `test_10`/`test_11`) |
+| `pio test -e native` + **RUN the binary** | ★ **1471 test cases / 79553 assertions / 0 failed**, `grep -c "error:"` **0** — inert by construction (⚠ the wrapper again printed a false *"0 test cases"*) |
+| the 216-cell ladder | ★ **0 differing cells, 0 failed cells** vs the pre-fix record |
+| `git diff -- lib src test` | ★ **EMPTY — zero firmware/test lines**, as scoped |
+| `git diff --check` | clean |
+| `^### 36/36 corpus` anchor table | ★ **NOT edited.** Proven by `diff` of the **whole region from the anchor heading to EOF** — `awk 'f{print} /^### 36\/36 corpus/{f=1;print}'` over `git show HEAD:simulation/BASELINE.md` and over the worktree — **1398 lines each, diff EMPTY**; ⓘ CONTROL: the extraction contains **80** table rows and the `s18_meshroute \| 1cd21235 \| 271629` anchor row, so it demonstrably *reached* the table |
+| ⛔ the simulator | **DID NOT RUN** — no `lib/`/`src/` line changed, so no `s18` md5 was re-derived; corpus streams were **REUSED** from §(19)'s run set. **Nothing here implies a sim gate passed.** |
+| ⛔ board builds · `warning_census.sh` · the per-ABI reveal · both UI probes | **DID NOT RUN** — standing owner instruction, no state added. **Nothing here implies they passed.** |
+
+**PREMISES THAT TURNED OUT WRONG:**
+1. ⛔⛔ **MINE, FROM THE PREVIOUS PASS, AND IT IS THE WORST ONE HERE: `e92d5cf1` WAS NOT A CITATION.**
+   I published that md5 as evidence that the `^### 36/36 corpus` anchor table was unedited. It was the
+   hash of a **2-line `sed` window that never reached the table**. ★★ **AN MD5 WITHOUT ITS EXTRACTION
+   COMMAND IS NOT A CITATION, AND A HASH THAT MATCHES ON 2 LINES IS AN INSTRUMENT THAT CANNOT FAIL.**
+   ⇒ replaced above by a **full-region `diff` against `git show HEAD:`** whose extraction command is
+   published *with* the result, plus a control that counts the rows the extraction captured.
+2. ⛔ **MINE, IN THE DISPATCH FOR THIS PASS: "FOUR early returns."** There are **SIX** unguarded output
+   paths; the fifth (`--mode channel --json`) is not `return`-shaped and the sixth is the silently
+   ignored `--json`. ★ **Enumerating exits is not enumerating outputs** — which is precisely why the
+   fix is a topology check and not a headcount.
+3. ⛔ **MINE, IN THE DISPATCH: "two of two checked so far were broken."** MEASURED: **four of four**
+   audited modes were broken (`--airtime`, `--trace`, `--copies`, `--tail`), and the JSON half added
+   two more. The requirement to audit all of them was right; the estimate of the damage was low.
+4. ⚠ **QA's: the blocker was scoped as "one narrow reporting blocker … on the `--airtime` path."** The
+   reproduction was exactly right and the diagnosis of *why* was right; the **scope was too small** —
+   every non-DM view had it. ⓘ Worth naming because "narrow" is what justified not auditing the rest.
+5. ⛔ **§(18)'s, therefore the previous pass's, therefore MINE:** its comment said the banner was placed
+   outside the DM block *"on purpose … this warning must not be modeselectable away."* **The intent was
+   right and the placement did not implement it.** ★ A comment stating a guarantee is not a guarantee;
+   only a topology (or a test of one) is.
+6. ⓘ **NOT WRONG, CONFIRMED:** §(19)'s finding that the 216-cell rerun is cheaper than the argument for
+   skipping it held again — **26 s**. ⓘ And the dispatch's insistence that a per-mode banner copy be
+   rejected is now *demonstrated*, not asserted: the AST control shows the copy shape failing even when
+   every current mode is covered.
+7. ⓘ **NOT WRONG, AND STILL OPEN, UNTOUCHED:** **[[B163]]** · the two §(6) residues
+   (`s21_mobile_dm_milestone`; `s27`'s id-0 mobiles, where **4/6/11 are three non-interchangeable
+   readings — ⛔ none picked**) · **S4** · **[[B161]]** (⚠ **[[B153]] cannot be called closed while B161
+   is open**) · **[[B158]]** · **[[B159]]** · **[[B160-COV]]/[[B160-SIB]]** · routing T1–T3 · the parked
+   mobile-home arc · the OLED UI.
+
+### §B162 — SCOPE / FILES
+
+★★★ **AND IN THE 2026-08-09 FOURTH PASS, §(21)-(25):** the [[B162c]] refusal banner was **bypassed by six
+of the seven output paths**, including the authoritative `--airtime` view ⇒ replaced by a **topology**:
+ONE unconditional `ndjson_refusal_crossing_point()` ahead of the whole mode dispatch (text) + `emit_json()`
+as the **only** JSON sink, attaching a 3-key census that is **present even on clean input** · `--json`
+against a text-only view **refused instead of ignored** (C2) · `test_10` proving both propositions **from
+the parse tree** with three detector controls, `test_11` running **nine** CLI invocations × 2 arms with a
+**nonzero figure asserted beside every banner/field** and an in-process **pre-fix control** that reproduces
+the 346 ms-with-no-banner blocker ⇒ **69 → 110 checks, 0 failed** · **inertness re-proven: `s18`/`s32`
+`--airtime`/`--copies`/`--tail` BYTE-IDENTICAL, JSON differing by exactly 3 additive zero-valued keys, all
+216 ladder cells unchanged.** ⛔ **`e92d5cf1` is RETIRED as table-integrity evidence — see §(25).1.**
+
+★★ **AND IN THE 2026-08-09 THIRD PASS, §(17)-(20):** the last two substring "parsers" replaced by ONE
+whitespace-independent reader (`iter_ndjson`) · malformed lines **refused, counted and surfaced in both
+views** instead of silently skipped · the harness comment that **documented the defect as a feature**
+deleted · a compact-vs-whitespace regression with **nonzero** assertions and a **pre-fix control**
+(`test_8`) plus a malformed-line refusal test that **runs the CLI** (`test_9`) ⇒ **47 → 69 checks, 0
+failed** · **measurement-inertness PROVEN on all 216 ladder cells, `s18`/`s32` `--airtime` byte-identical**
+· ⛔ **[[B163]]'s conditionality on the `≥733` floor now carried at every site that states it as a gate.**
+
+**IN SCOPE AND DONE:** [[B162]] registered and closed with a named residue · the authority defined and made
+machine-readable (`totals`) · the raw count retained as a labelled cross-check · the pinned frame lengths replaced by
+a per-frame wire derivation with a fail-loud codec validator · four silent-drop defects in the authority fixed · the
+five-arm ladder re-measured on ONE tool revision and ONE run set · the `≥732` threshold replaced by `≥733`/`≥104`
+wherever it is quoted as a gate · `s27 == 0` preserved as a separate, non-tradeable requirement.
+★★ **AND IN THE 2026-08-09 RE-OPENING, §(10)-(16):** the airtime total **INVERTED** to a PHY-direct sum with an
+`unattributed_airtime` bucket included in it (identity asserted in code) · **six** further defects fixed (deferred
+frames, per-frame bw/cr, all-duplicates ambiguity, the discarded `alias_stats`, the emit-declared SF, and the missing
+SX126x SF5/SF6 case that `lib/core/airtime.cpp` has and the Python copy did not) · the ladder re-run whole
+(**delivery UNCHANGED on all 36 rows of all 6 arms; airtime moved on every arm**) · `s18`/`s32` reconciled to a
+**zero** residual · **`tools/test_dm_delivery_breakdown.py` created: 47 checks, every one with a control** ·
+⛔ **a NEW named residue in `s07` (a live, time-multiplexed runtime-id alias refusal — §(12))**.
+
+⛔ **NOT TOUCHED, BY SCOPE:** any `lib/` or `src/` behaviour (**zero firmware lines changed**) · **S4** · **[[B161]]**
+(⚠ **[[B153]] cannot be called closed while B161 is open**) · **[[B158]]**'s remaining `exchange_airtime_ms()` site ·
+**[[B159]]** · **[[B160-COV]]/[[B160-SIB]]** · routing T1–T3 and the `s07`/`s16` congestion question · the parked
+mobile-home arc · the OLED UI · every airtime figure in the notes below.
+
+**FILES:** `tools/dm_delivery_breakdown.py` (the only changed *existing* file) ·
+★ `tools/test_dm_delivery_breakdown.py` (**NEW** — the durable tests, §(13)) · `simulation/BASELINE.md` (this note) ·
+`docs/2026-07-30-open-bug-register.md` ([[B162]]) ·
+`docs/superpowers/plans/2026-08-08-hybrid-rts-flight-identity.md` + `docs/superpowers/plans/2026-08-09-b162-delivery-metric-authority.md` +
+`docs/superpowers/specs/2026-08-08-hybrid-rts-flight-identity-design.md` (threshold).
+ⓘ The six arm worktrees + build dirs live outside the repo under `/home/staszek/b162-arms/` and are NOT part of the
+change set; `git worktree list` shows them and they can be pruned.
+
 **★★★★★★★★★★★★★★★★★★★★★★ 2026-08-09 §HYBRID-RTS-S2b IS THE NEWEST NOTE — it sits at the HEAD of §HYBRID-RTS-S2 directly below and is a CORRECTION SLICE on the landed S2, not new capability. ★★★ **TWO DEFECTS FIXED: an overheard TERMINAL CTS no longer arms NAV, and the terminal identity/plane bind now runs BEFORE every side effect instead of after the home-liveness refresh and the anti-spam meter.** ⛔⛔ **AND THE HEADLINE IS A COST, REPORTED NOT BURIED: corpus deliveries 752 → 743 (−9), ALL of it `s07_seattle_mobile_meshroute` (88 → 79, collisions 3444 → 3627).** ⇒ ★★ **QA'S HYPOTHESIS THAT THE FALSE NAV EXPLAINED PART OF THE 4-DELIVERY FLOOR GAP IS DISPROVEN — it recovers NOTHING and costs 9.** The false NAV was accidentally acting as congestion suppression in one dense mobile scenario; removing it is still correct, by the SAME principle already ruled for the 30 s TTL arm (**a delivery count produced by a scheduling side-effect is not a correctness argument — in either direction**). ★★★ **ATTRIBUTION IS EXACT AND MEASURED, NOT ARGUED: an isolation arm carrying the NAV fix but S2's 4-B meter length is byte-identical to the full fix on 35 of 36 rows** (only `s15_three_layer`'s stream differs — same event count, same deliveries) ⇒ **the meter re-pricing has ZERO delivery effect and the entire −9 is the NAV fix.** `cts_terminal_mismatch` is **0 corpus-wide in BOTH arms**, so the ordering fix is **corpus-INERT** and rests on native tests alone. ★★★ **THE OWED PER-ABI `sizeof` REVEAL IS RUN AND CONFIRMS S2's +296/LAYER ON REAL TOOLCHAINS:** `xiao_sx1262`/`xiao_esp32s3` 117456 → **117752 (+296)**, `xiao_mobile`/`xiao_esp32s3_mobile` 117424 → **117720 (+296)**, `gateway`/`gateway_esp32s3` 148024 → **148616 (+592)**. ★ Native **1466/79464/0 → 1468/79484/0**, `error:` 0, warnings **9 → 9 identical** with ZERO from any file touched, `-Wswitch` 0. `sizeof(Node)` **221880 UNCHANGED** (S2b adds no state), `kCap` 91, top timer id 90. ★ **2 mutations at match count == 1, both non-inert.** ⚠ **THREE PREMISES WERE WRONG AND ALL THREE ARE RECORDED BELOW — MINE, QA'S, AND THE ARC'S PUBLISHED DELIVERY METRIC.** ⛔ **BOARD BUILDS, `warning_census.sh` and both UI probes DID NOT RUN** (standing owner instruction); nothing here implies they passed. ⛔ The `^### 36/36 corpus` anchor table is NOT edited. ⛔ UNCOMMITTED (D4). ⛔ NO OWNER OR QA APPROVAL IS CLAIMED.**
 
 **★★★★★★★★★ 2026-08-09 §HYBRID-RTS-S2c — THE ADJUSTMENT REQUIRED BEFORE S2b MAY LAND, WRITTEN INTO S2b's OWN NOTE (there is no second note). ★★★ **QA's finding, and it PARTLY REVERSES S2b: "hoist the bind above EVERY side effect" WAS TOO BROAD.** An invalid terminal CTS must still be **CHARGED ONCE** to the anti-spam originator airtime ledger at its true 6/7-B length, because **accounting is a measurement of physical airtime that DID occur, while trust decisions are the things that must wait for evidence.** Without it the terminal bit is an **accounting escape hatch** (set `already_received`, echo a bogus identity, air frames for free). ⛔⛔ **AND THE DISPATCH'S EXPECTATION THAT THIS WOULD BE CORPUS-INERT IS WRONG, MEASURED: `s16_dense_gateway` MOVES** (`86f2454b` → **`cfd86c16`**, event count **24397 both**, deliveries **65 both**, 0 assertion failures both) — the other **35 of 36 rows are byte-identical**. ★★★ **THE MOVER IS ATTRIBUTED TWICE OVER, NOT ARGUED: an isolation arm carrying S2c's code with ONLY the charge removed reproduces the BEFORE `s16` stream BYTE-FOR-BYTE, and a telemetry arm names both billed frames.** ★★ **THE ESCAPE HATCH IS REAL AND REACHABLE — 2 invalid terminal CTS frames in the 36-row corpus, and BOTH fail at ② (no pending flight: `have_pending=false`), NOT at ③** — which is exactly why `cts_terminal_mismatch` stays **0 → 0** corpus-wide and why S2b believed the path was dead. ★ Native **1468/79484/0 → 1468/79494/0** (+10 assertions in the SAME case; no new case), `error:` **0**, warnings **9 → 9 identical** with ZERO from `node_mac_rx.cpp`, `-Wswitch` **0**. `sizeof(Node)` **221880 UNCHANGED**, `kCap` **91**, no timer id allocated. ★ **Both mutation directions RED at match count == 1**, each from a `rm -rf .pio/build/native` rebuild. ⛔ **BOARD BUILDS, `warning_census.sh` and both UI probes DID NOT RUN** (standing owner instruction); nothing here implies they passed. ⛔ The per-ABI reveal was NOT re-run and is not owed (no state added). ⛔ The `^### 36/36 corpus` anchor table is NOT edited. ⛔ The ledger's §2.3 *"awaiting owner confirmation"* label is STILL **OWED** and was not cleared. ⛔ UNCOMMITTED (D4). ⛔ NO OWNER OR QA APPROVAL IS CLAIMED.**

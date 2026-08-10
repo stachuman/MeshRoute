@@ -1699,6 +1699,47 @@ Node::TxHandOff Node::tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf
                 EF_I("len", static_cast<int64_t>(len)));
         return TxHandOff::rejected;
     }
+    // ★★★★★ §hybrid-rts S4d (2026-08-10) — ⛔⛔ **THE ONE CROSSING POINT FOR `data_ever_admitted`. THE WRITE LIVES
+    // HERE, NOT AT THE CALLERS, AND THAT IS THE WHOLE POINT OF THE FIX.**
+    // ⛔ WHAT WAS WRONG: the only writer sat in `do_data_tx`'s `disp == TxHandOff::handed` arm — the INITIAL send
+    //    path. But `duty_defer_fire` re-enters THIS function from the stash when the duty wait expires
+    //    (`tx_with_retry(s.buf, s.len, s.sf, tag) != deferred_retry_armed`), so a DATA that was duty-deferred and
+    //    LATER admitted got no write at all. ⇒ `true` was honest ("an admission was observed") but **`false` was
+    //    NOT**, while the consumer maps `false` **CATEGORICALLY** to `basis=alternate_path`, which the spec defines
+    //    as *"no DATA has been admitted locally"* (design §5.2 item 2). A best-effort flag cannot carry a
+    //    categorical label.
+    // ★★ WHY THIS PLACEMENT MAKES IT EXACT RATHER THAN BEST-EFFORT: **every** DM-DATA admission — initial AND
+    //    duty-deferred-retry — necessarily crosses this `_hal.tx()`. Establishing the fact at the crossing rather
+    //    than at an exit makes it true by construction, **and makes a future call path unable to bypass it.**
+    // ★★ THE STRUCTURAL LESSON, and it is [[B162]]'s refusal-banner lesson in a second shape: **A GUARANTEE MADE AT
+    //    ONE OF SEVERAL EXITS IS NOT MADE AT ALL.** ⛔ Therefore do NOT "fix" a future gap by adding a per-path
+    //    assignment: that is this defect in a new shape, and it is exactly what [[B164]] warned against for the
+    //    retry sites.
+    // ★ WHY `retry_stashed()` NEEDS NO WRITER — stated here so nobody adds a third copy. `retry_stashed` calls
+    //   `_hal.tx` DIRECTLY (bypassing this function), so it looks like a second crossing. It is not a NEW one:
+    //   · it is reached ONLY from the `kRadioBusyRetryTimerId + slot` timer (`node.cpp:1417-1418`), armed ONLY
+    //     inside `on_radio_busy` (`node.cpp:2220`) after `retry_slot_of(tag) >= 0 && s.valid`;
+    //   · `on_radio_busy` REPORTS a frame the HAL had already taken — for the DATA slot its `info.tag` can only be
+    //     `FrameTag::data`, and the ONLY `_hal.tx` in `lib/core` that ever carries that tag is the one above
+    //     (the other three are RTS at :1483, BCN at :1531, and `retry_stashed` itself, which only ever re-sends
+    //     bytes THIS site already admitted). ⇒ reaching `retry_stashed` for the DATA slot REQUIRES a prior
+    //     successful admission here, so the flag is ALREADY true for that flight;
+    //   · and it re-sends `s.buf` — the stashed bytes of the very frame that was admitted — so it can never air a
+    //     DIFFERENT flight's DATA. If the flight has since been replaced, the NEW flight's `false` is CORRECT:
+    //     nothing of the new flight was ever admitted.
+    //   ⚠ Checked in BOTH directions (the METHOD rule this arc keeps relearning): it cannot air a DATA whose flight
+    //   has no write (above), and it cannot cause a write for a flight that aired nothing (it takes no write).
+    // ⛔ THE GUARD IS `!m_broadcast`, LOAD-BEARING: `do_data_tx`'s M-broadcast arm reaches this function with
+    //    `FrameTag::data` (`node_mac.cpp:1788`) but airs an **M frame (cmd 0xA)**, not a DATA frame, and
+    //    `handle_rts`'s credit refuses an `m_broadcast` flight outright — so booking it would be a lie about a
+    //    frame type the consumer never labels. The same guard covers the duty-deferred re-run of that M frame.
+    // ⓘ WHAT THIS DOES **NOT** FIX, unchanged and still [[B164]]: the flag is still not proof of AIRING. Both
+    //   post-admission drop mechanisms remain — `on_radio_busy(FrameTag::data)` (`node.cpp:2191-2195`) and
+    //   `pump_tx()`'s failed arm (`device_hal.cpp:38-46`) — and neither can unset it. ⛔ Option (b), a
+    //   flight-correlated TX-completion signal, stays **DEFERRED, NOT DISMISSED** (no consumer needs "aired").
+    //   ⇒ what S4d closes is the FALSE-NEGATIVE direction **for admission**, exactly, and nothing more.
+    if (tag == FrameTag::data && _active->_pending_tx && !_active->_pending_tx->m_broadcast)
+        _active->_pending_tx->data_ever_admitted = true;
     return TxHandOff::handed;
 }
 
@@ -1831,14 +1872,130 @@ void Node::do_data_tx() {
     uint8_t buf[protocol::lora_max_frame_bytes];
     const size_t dlen = pack_data(din, std::span<uint8_t>(buf, sizeof(buf)));
     if (dlen == 0) { _hal.log("DATA pack failed"); return; }
-    const bool handed = tx_with_retry(buf, dlen, static_cast<int16_t>(pt.chosen_data_sf), FrameTag::data) != TxHandOff::deferred_retry_armed;   // R4.5b stash; #2 may duty-defer. §tx-admission TX1: verbatim the old `handed` — see TxHandOff for why a HAL rejection must NOT suppress start_ack_timeout()
+    // ★★★ §hybrid-rts S4b (2026-08-09) — the three-way disposition is kept in `disp` and the legacy two-way
+    // `handed` derived from it, so the two questions ("was it admitted?" vs "was it not deferred?") stay distinct.
+    // ⓘ §hybrid-rts S4d (2026-08-10) — **THE ORIGINAL WORDING HERE IS CORRECTED, NOT DELETED.** It read *"THE
+    //   DISPOSITION IS KEPT, NOT COLLAPSED, BECAUSE TWO DIFFERENT DECISIONS READ IT"*. That was true while the
+    //   `data_ever_admitted` writer lived below; S4d moved that writer to the ONE crossing point inside
+    //   `tx_with_retry`, so **only ONE decision reads the disposition here now** — `handed`, which gates
+    //   `start_ack_timeout()`. ⛔ `disp` is deliberately NOT collapsed into the `!=` expression: the three-way
+    //   answer is the honest one at the call site (§tx-admission TX1) and inlining it would re-hide the asymmetry
+    //   TX1 exists to surface. ⚠ A comment that survives the code it described is a false claim; this one is fixed
+    //   in place because a reader who saw the old sentence must be able to see it withdrawn.
+    const TxHandOff disp = tx_with_retry(buf, dlen, static_cast<int16_t>(pt.chosen_data_sf), FrameTag::data);   // R4.5b stash; #2 may duty-defer
+    const bool handed = disp != TxHandOff::deferred_retry_armed;   // §tx-admission TX1: verbatim the old `handed` — see TxHandOff for why a HAL rejection must NOT suppress start_ack_timeout()
     MR_EMIT("data_tx", EF_I("dst", pt.dst), EF_I("next", pt.next), EF_I("ctr", pt.ctr),
             EF_I("sf", pt.chosen_data_sf), EF_B("m_broadcast", false));   // emitted before tx_with_retry (dv:10251); m_broadcast handled above (early return)
-    // Arm the ACK wait ONLY if the DATA actually hit the air — mirrors the Lua DATA on_handed (dv:10270-10279, fires only
-    // on real self:tx) + the not-handed clear (dv:10281-10283). #2's duty defer returns handed=false: arming a short
-    // ack-timeout on an un-sent DATA would fire before the (long) duty wait, draw a rand + tear the flight down.
+    // Arm the ACK wait ONLY if the DATA was NOT duty-deferred — mirrors the Lua DATA on_handed (dv:10270-10279) + the
+    // not-handed clear (dv:10281-10283). #2's duty defer returns handed=false: arming a short ack-timeout on a stashed
+    // DATA would fire before the (long) duty wait, draw a rand + tear the flight down.
+    // ⛔ §hybrid-rts S4c (2026-08-10): this comment read *"ONLY if the DATA actually hit the air … fires only on real
+    //    self:tx"*. **WITHDRAWN — IT WAS WRONG TWICE.** (i) `handed` here is `disp != deferred_retry_armed`, so a HAL
+    //    `rejected` frame ALSO arms the wait — deliberately, per §tx-admission TX1, because the ack-timeout is a
+    //    rejection's ONLY recovery; (ii) even `TxHandOff::handed` is an ADMISSION, not an on-air fact (see below).
+    //    ⓘ The BEHAVIOUR is correct and untouched; only the sentence describing it was false.
     if (handed) {
         pt.awaiting_ack = true; start_ack_timeout();
+        // ★★★★★ §hybrid-rts S4c (2026-08-10) — ⛔⛔ **THE HAL-**ADMISSION** BOUNDARY. IT IS *NOT* A TRANSMISSION
+        // BOUNDARY, AND S4's HEADING HERE — *"THE ACTUAL DATA TRANSMISSION BOUNDARY, AND THE ONLY WRITER OF THIS
+        // FACT"* — IS WITHDRAWN AT ITS OWN SITE.** Only the "only writer" clause was ever true.
+        // ⛔⛔ §hybrid-rts S4d (2026-08-10) — **AND NOW THE "ONLY WRITER" CLAUSE IS WITHDRAWN TOO, BECAUSE IT WAS
+        //    TRUE ONLY BY BEING INCOMPLETE.** The writer no longer lives at this exit at all: it lives at the ONE
+        //    crossing point inside `tx_with_retry`, immediately after `_hal.tx()` answers `ok`. Everything below
+        //    that discusses the flag is kept — the claims were asserted HERE and a reader who saw them must be able
+        //    to see them withdrawn HERE — but each is amended to the S4d truth in place.
+        // ★ WHAT `TxHandOff::handed` ACTUALLY PROVES: `IHal::tx` returned `ok`. On metal that is an **ENQUEUE** —
+        //   `lib/hal/device_hal.cpp:10-12` says so outright (*"tx() ENQUEUES … Returns ok when queued"*), with the
+        //   on-air send deferred to `pump_tx()`. ⇒ the flag can be wrong in **BOTH** directions:
+        //   · **FALSE POSITIVE (admitted, never aired)** — `Node::on_radio_busy(FrameTag::data)` (`node.cpp:2191`)
+        //     is the medium refusing a frame this flag has ALREADY booked; it clears `awaiting_ack` but **cannot
+        //     unset this flag**. ⚠ The path is LIVE, not hypothetical: **652 `data_tx_blocked` events across 15 of
+        //     the 36 corpus scenarios.** Second mechanism, metal-only: `pump_tx()`'s failed arm (`device_hal.cpp:
+        //     38-46`) DROPS the queued frame with no retry.
+        //   · **FALSE NEGATIVE (aired, never recorded)** = [[B164]], see the note below.
+        // ⇒ ★★ **SO THE FLAG AND THE `basis` LABEL ARE NAMED FOR ADMISSION (`data_ever_admitted` /
+        //   `basis=local_admitted`) AND ARE BEST-EFFORT DIAGNOSTIC TELEMETRY.** The alternative — a
+        //   flight-correlated TX-start/completion signal that could establish "aired" — was **DEFERRED, NOT
+        //   DISMISSED** (`BASELINE.md` §HYBRID-RTS-S4c): **nothing consumes the true fact**, since both bases take
+        //   the SAME action, so it would add state and plumbing for a fact with no reader. ★ Establish it there the
+        //   moment something genuinely needs "aired".
+        // ⛔ §hybrid-rts S4d (2026-08-10) — **"BEST-EFFORT" IS NOW TOO WEAK IN ONE DIRECTION AND MUST BE SPLIT.**
+        //    For **ADMISSION** the flag is now **EXACT**: every admission crosses the one write point, so `true`
+        //    means an admission was observed AND `false` means none was — which is what makes the consumer's
+        //    CATEGORICAL `basis=alternate_path` label ("no DATA has been admitted locally") legitimate. ⛔ For
+        //    **AIRING** it is still not evidence at all (the two post-admission drops above), and option (b) stays
+        //    deferred. ⇒ the honest phrasing is *"exact about admission, silent about airing"*.
+        // ⛔ THE PLACEMENT IS STILL LOAD-BEARING and must NOT move above the `_hal.tx()` call: a duty-deferred or
+        //    HAL-rejected DATA was never even ADMITTED, so booking it before the call would make the flag wrong
+        //    about its own, weaker proposition too. The S4 gate mutates exactly that placement and requires a RED.
+        //    ⓘ S4d MOVED the write into `tx_with_retry` (still strictly after `_hal.tx()` returns `ok`), so the
+        //    invariant is unchanged in substance and is now enforced for EVERY caller instead of this one.
+        // ⓘ The M-broadcast arm above returns EARLY, and the crossing point additionally guards `!m_broadcast`:
+        //    it airs an M frame (cmd 0xA), not a DATA frame, and `handle_rts`'s credit refuses an `m_broadcast`
+        //    flight outright. ⚠ The guard is NOT redundant once the write moved — the M arm reaches
+        //    `tx_with_retry` with `FrameTag::data` (`node_mac.cpp:1788`), so without it that path would book a lie.
+        //
+        // ★★★★★ §hybrid-rts S4b (2026-08-09) — ⛔⛔ **CORRECTED: THE CONDITION IS `disp == handed`, NOT `handed`,
+        // AND THE TWO ARE DELIBERATELY DIFFERENT HERE WHILE BEING DELIBERATELY THE SAME ONE LINE ABOVE.**
+        // S4 wrote *"the same condition that arms `awaiting_ack`"* and treated that symmetry as the point. It is
+        // not: `handed` is `disp != deferred_retry_armed`, so **`TxHandOff::rejected` satisfies it** — the HAL
+        // REFUSED the frame (`DeviceHal::tx` on a full ring: `busy`, `txq_drops`, nothing retained) and S4 still
+        // recorded the flag, i.e. **a rejection was booked as an admission**.
+        // ⚠ WHY THE ASYMMETRY IS RIGHT, stated because it is the part that is easy to get wrong twice:
+        //   · `start_ack_timeout()` must fire for BOTH `handed` and `rejected` — §tx-admission TX1's whole finding
+        //     (see `TxHandOff` in node.h): a rejection arms NOTHING, so the MAC ack-timeout IS its only recovery,
+        //     and suppressing it would leave the flight with none. ⛔ That behaviour is UNCHANGED here.
+        //   · `data_ever_admitted` must be true for `handed` ONLY. A DEFERRED frame is legitimately in flight
+        //     (`tx_initiating`/`tx_with_retry` answer TRUE-ish for it) and a REJECTED one is not in flight at all —
+        //     so the two dispositions are **not symmetric for this flag even though they are for the timeout**.
+        //     ⓘ §hybrid-rts S4d: that asymmetry is now STRUCTURAL rather than restated at a caller — the write sits
+        //     on the `tr == ok` side of `tx_with_retry`'s own rejection return, so no caller can get it wrong.
+        // ★★ AND THIS IS THE SIXTH SITE OF ONE RULE IN THIS ARC — **A FACT IS ESTABLISHED BY THE PHYSICAL ACT,
+        //    NEVER BY THE REQUEST**: [[B84]]'s `_tries`, [[B139]]'s `_presence_miss`, [[B145]]/[[B146]]'s OFFER
+        //    counters, the re-CLAIM budget, §HYBRID-RTS-S2b's accounting split, and now this flag.
+        //    ⚠⚠ **AND S4b APPLIED THAT RULE ONLY ONE STEP: `handed` is the ADMISSION act, not the PHYSICAL one.**
+        //    §HYBRID-RTS-S4c's answer is to NAME the flag after the act it really witnesses rather than to chase the
+        //    physical act no reader needs — the rule is satisfied by honest naming, not only by moving the write.
+        // ⓘ SCOPE FENCE (C1): the `_dm_payload_mean` EWMA below still rolls on `handed`, i.e. it also folds in a
+        //    REJECTED frame's length. That is PRE-EXISTING and left alone — it is an airtime-estimator average,
+        //    not a claim about a transmission, and moving it would be a behaviour change this slice did not agree.
+        // ⚠⚠ [[B164]] — **OPEN, REGISTERED, NOT FIXED HERE, AND IT IS THE *OTHER* DIRECTION OF THE SAME ERROR.**
+        //    This is the ONLY WRITER of the flag, but NOT the only boundary at which a DM DATA reaches the radio:
+        //    `duty_defer_fire` (this file, the `handed && tag == FrameTag::data` re-hand) and `retry_stashed` (its
+        //    direct `_hal.tx`) both fly a DATA for this same flight and NEITHER writes it ⇒ **FALSE NEGATIVE.**
+        // ⛔⛔ §hybrid-rts S4d (2026-08-10) — **[[B164]]'s ADMISSION HALF IS NOW CLOSED, AND THE SENTENCE ABOVE IS
+        //    HALF-RETIRED IN PLACE.** `duty_defer_fire` re-enters `tx_with_retry`, so it now DOES record the fact —
+        //    at the shared crossing point, not with a copy of its own. `retry_stashed` still writes nothing and
+        //    still needs nothing: reaching it REQUIRES a prior successful admission at that crossing point, and it
+        //    only ever re-sends the stashed bytes of the frame that was admitted (the full structural argument, in
+        //    both directions, is at the crossing point). ⇒ ★ what remains OPEN in [[B164]] is **only the AIRING
+        //    question** — `on_radio_busy(FrameTag::data)` and `pump_tx()`'s failed arm — for which option (b) stays
+        //    DEFERRED, NOT DISMISSED.
+        // ⛔⛔ §hybrid-rts S4c (2026-08-10) — **A RETIRED CLAIM OF S4b's, CORRECTED IN PLACE.** ⛔ WHAT STOOD HERE:
+        //    *"★ THE DIRECTION IS THE SAFE ONE … whereas the defect fixed above was an OVER-claim"*. ★ **THAT IS
+        //    FALSE, AND IT WAS AN ASYMMETRY ASSERTED WITHOUT CHECKING THE OTHER DIRECTION.** The over-claim was NOT
+        //    fully fixed above: `handed` only proves the HAL **ADMITTED** the frame, and `on_radio_busy` /
+        //    `pump_tx()`'s failed arm can still reject it AFTER that ⇒ the flag can also read TRUE for a flight
+        //    whose DATA never aired. **IT IS WRONG IN BOTH DIRECTIONS**, which is why S4c renames it instead.
+        // ⛔ AND [[B164]]'s FIX IS **NOT** "add the assignment at the two retry sites": that repairs the false
+        //    negatives and PRESERVES the late-busy false positive. The durable cure is the deferred option — one
+        //    flight-correlated TX-start/completion signal — and until a reader needs it, this flag stays
+        //    ADMISSION-named and best-effort. See the register entry and `BASELINE.md` §HYBRID-RTS-S4c.
+        // ⓘ §hybrid-rts S4d HONOURED THAT PROHIBITION EXACTLY: it added **no** per-path assignment. It moved the
+        //    single write to the one point every admission crosses, which closes the admission-side false negative
+        //    WITHOUT touching the airing question and without a second copy anyone could forget. See
+        //    `BASELINE.md` §HYBRID-RTS-S4c (S4d is recorded in place there).
+        // ⛔⛔ §hybrid-rts S4d (2026-08-10) — **THE WRITER THAT STOOD HERE IS GONE, MOVED INTO `tx_with_retry`
+        //    IMMEDIATELY AFTER `_hal.tx()` RETURNS `ok`.** What stood here was
+        //    `if (disp == TxHandOff::handed) pt.data_ever_admitted = true;` — correct for THIS path and for no
+        //    other. ★ THE BLOCKER IT LEFT: a duty-deferred DATA that `duty_defer_fire` LATER admits (the
+        //    `tx_with_retry(...) != deferred_retry_armed` re-run in this file) never reached this line, so `false`
+        //    did not mean *"no DATA was admitted locally"* — which is precisely what the consumer's
+        //    `basis=alternate_path` label asserts CATEGORICALLY (`node_mac_rx.cpp`, design §5.2 item 2).
+        // ★★ ⇒ THE FACT IS NOW ESTABLISHED AT THE **ONE CROSSING POINT** EVERY ADMISSION MUST PASS, WHICH MAKES IT
+        //    EXACT INSTEAD OF BEST-EFFORT (for admission — NOT for airing; see [[B164]]). ⛔ Do NOT re-add a copy
+        //    here or at any other caller: a guarantee made at one of several exits is not made at all.
+        //    Full reasoning, including why `retry_stashed` needs no writer, is at the crossing point itself.
         // §3e: roll the DATA-payload mean (EWMA alpha 5/16) over every DATA we pass — feeds exchange_airtime_ms.
         _dm_payload_mean = _dm_payload_mean ? static_cast<uint16_t>((_dm_payload_mean * 11u + pt.inner_len * 5u) / 16u)
                                             : pt.inner_len;

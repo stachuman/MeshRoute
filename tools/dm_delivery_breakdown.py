@@ -97,20 +97,110 @@ import sys
 from collections import defaultdict, Counter
 
 # --- LoRa airtime (mirrors dv_dual_sf.lua airtime_ms) + frame sizes ---
-RTS_LEN, CTS_LEN, ACK_LEN, NACK_LEN, MAC_LEN = 8, 3, 3, 4, 4
-DATA_HDR_LEN = 8           # C++ drops the Lua visited[6] (deliberate wire divergence)
 PREAMBLE_SYM = 16          # PROTOCOL default
+
+# ★★★★ [[B162]] 2026-08-09 — THE FIXED FRAME LENGTHS ARE GONE. THIS FILE NO LONGER GUESSES A LENGTH.
+#
+# What stood here was `RTS_LEN, CTS_LEN, ACK_LEN, NACK_LEN, MAC_LEN = 8, 3, 3, 4, 4` plus
+# `DATA_HDR_LEN = 8`, and every airtime figure this tool ever printed was computed from them.
+# ⛔ EVERY ONE OF THOSE TWO HEADLINE VALUES WAS WRONG ON EVERY ARM, measured off the wire:
+#   · `RTS_LEN = 8` matched NO frame the firmware has ever aired. The pre-§hybrid-rts unicast RTS is
+#     **7 B** (BASE's census: {7: 8199, 9: 294, 43: 571}); from §HYBRID-RTS-S1 on it is **10 B / 11 B**.
+#     The `8` traces to `node_mac.cpp`'s stale `RTS(8)` comment, which §HYBRID-RTS-S0 already corrected.
+#   · `CTS_LEN = 3` matched no frame either: with NAV enabled the ordinary CTS carries its optional
+#     4th byte, so BASE's whole census is **{4: 4926}**, and from §S2 on a TERMINAL CTS is **6/7 B**.
+#
+# ⛔⛔ AND THE FIX IS **NOT** ANOTHER FIXED PAIR — that only moves the error to the next wire change.
+# ★ THE LENGTH IS READ OFF THE WIRE, PER EVENT: the orchestrator's PHY `tx` event carries `hex` (the
+#   ACTUAL transmitted bytes) and its own `airtime_ms`. `frame_lengths_by_tx()` correlates each
+#   firmware `*_tx` emit to its own PHY frame and takes that frame's true length.
+# ★★ AND IT FAILS LOUD (C2), IT DOES NOT DEFAULT: `frame_shape()` below validates every (label, length)
+#   pair against the CODEC's legal shapes and raises `FrameShapeError` on anything the firmware cannot
+#   have produced. An emit that never aired is charged ZERO and COUNTED, never charged a guessed length —
+#   the old constants silently priced 1029 of s18's 2467 `rts_tx` emits that the LBT never let air.
+#
+# THE CODEC IS THE AUTHORITY FOR EVERY SHAPE BELOW (verified 2026-08-09, V1):
+#   `pack_rts`  `frame_codec.cpp:469`: need = flood ? 43 : (m_bcast ? 9 : (7u + in.id.width))
+#                ⇒ 43 FLOOD · 9 M-BROADCAST · 7 legacy-unicast (no identity) · 10/11 unicast
+#                  (id.width 3 plaintext / 4 crypted). ⚠ 43-vs-9 IS THAT WAY ROUND — the design doc
+#                  had FLOOD and M swapped until 2026-08-08; the wire agrees with the codec (BASE:
+#                  571 frames at 43, 294 at 9).
+#   `pack_cts`  `frame_codec.cpp:341+`: ORDINARY = 3 B + an optional 4th NAV byte iff payload_len != 0;
+#                TERMINAL (already_received) = `terminal_cts_wire_len()` = `3u + id.width` = 6/7
+#                (`frame_codec.h:448`). ⇒ {3,4} ordinary, {6,7} terminal — and the LENGTH is the only
+#                discriminator available in the stream, which is exactly why it must not be assumed.
+#   ACK 3 B (`frame_codec.h:283`) · NACK 4 B (`frame_codec.h:456`) · DATA/BCN: variable, wire length only.
+FRAME_SHAPES = {
+    # label -> {wire length: canonical shape name}.  ⛔ NOT a default table: a length absent from a
+    # label's dict is a FrameShapeError, never a fallback.
+    "RTS":  {7: "unicast-legacy(no-identity)", 10: "unicast-plaintext", 11: "unicast-crypted",
+             9: "m-broadcast", 43: "flood"},
+    "CTS":  {3: "ordinary(no-nav)", 4: "ordinary(nav)",
+             6: "terminal-plaintext", 7: "terminal-crypted"},
+    "ACK":  {3: "ack"},
+    "NACK": {4: "nack"},
+}
+# labels whose length is legitimately variable (payload-bearing) — no shape table can constrain them,
+# so the wire length is taken verbatim and nothing is validated beyond "we have the bytes".
+VARIABLE_LEN_LABELS = {"DATA", "DATA-M", "BCN", "Q", "H"}
+
+
+class FrameShapeError(RuntimeError):
+    """A frame whose shape/length the codec cannot produce, or which cannot be determined at all.
+    ⛔ Raised, never swallowed: a tool that guesses a length is how [[B162]] was born."""
+
+
+def frame_shape(label, nbytes):
+    """Canonical shape name for a frame of `label` observed at `nbytes` on the wire.
+
+    ★ FAILS LOUD on any (label, length) outside the codec's legal set, and on an unknown label —
+    both are evidence the wire moved and this table did not."""
+    # the PHY labels a retried/forwarded RTS and a duplicate CTS distinctly; the SHAPE is the same frame.
+    base = {"RTS-fwd": "RTS", "RTS-rty": "RTS", "CTS-dup": "CTS"}.get(label, label)
+    if base in VARIABLE_LEN_LABELS:
+        return f"{base}({nbytes}B)"
+    tbl = FRAME_SHAPES.get(base)
+    if tbl is None:
+        raise FrameShapeError(f"unknown frame label {label!r} at {nbytes} B — the wire has a shape "
+                              f"this tool has never been told about; add it to FRAME_SHAPES "
+                              f"FROM THE CODEC, do not guess")
+    shape = tbl.get(nbytes)
+    if shape is None:
+        raise FrameShapeError(
+            f"{base} frame of {nbytes} B is NOT a shape the codec can produce "
+            f"(legal: {sorted(tbl)} = {tbl}). Either the wire changed and FRAME_SHAPES is stale, or "
+            f"the stream is corrupt. ⛔ REFUSING TO PRICE IT — see [[B162]].")
+    return shape
 
 
 def lora_airtime_ms(sf, bw_hz, cr, len_bytes, preamble_sym=PREAMBLE_SYM):
-    """Port of dv_dual_sf.lua:airtime_ms — verified to match the PHY tx airtime
-    (e.g. SF7/BW125, 76 B -> 146 ms)."""
+    """Port of `lib/core/airtime.cpp:airtime_ms` (itself a port of dv_dual_sf.lua).
+    ⓘ Verified against the PHY stream, e.g. SF7/BW125, 76 B -> 146 ms.
+
+    ⛔⛔ [[B162b]] 2026-08-09 — THIS FUNCTION WAS MISSING THE SX126x SF5/SF6 CASE, AND IT IS
+    CORPUS-LIVE. `lib/core/airtime.cpp:27-37` (V1, read at source) applies a **6.25-symbol** sync
+    offset instead of 4.25 and a **+36** payload numerator constant instead of +44 whenever
+    `sf == 5 || sf == 6` — SX126x datasheet §6.1.4, mirrored in RadioLib's
+    `SX126x::calculateTimeOnAir`. This Python copy had **neither**, so every SF6 frame was mispriced
+    by roughly −4…+3 ms. MEASURED before the fix: **402 of 23913 frames disagreed with the PHY's own
+    `airtime_ms`, and every single disagreement was at SF6** — in `s15_three_layer` (68),
+    `s15_three_layer_metal` (65), `s16_dense_gateway` (81) and, at **100% of their frames**,
+    `s35a` (108), `s35b` (48) and `s38_team_origin_learn` (32).
+    ⚠ The memory note *"deliberate SX126x SF5/SF6 framing in airtime_ms — don't simplify away"* was
+    about the C++/Lua model; **nobody checked whether the Python instrument had it.** A ported formula
+    is a second copy, and a second copy drifts.
+    ★ Integer arithmetic mirrors the C++ deliberately (`(num + den - 1) // den` on positive `num`,
+    clamped at 0) so the two cannot diverge on a rounding edge."""
     t_sym = (2 ** sf) / (bw_hz / 1000.0)
-    t_pre = (preamble_sym + 4.25) * t_sym
+    low_sf = sf in (5, 6)
+    t_pre = (preamble_sym + (6.25 if low_sf else 4.25)) * t_sym
     de = 1 if t_sym >= 16 else 0
-    num = 8 * len_bytes - 4 * sf + 44
+    num = 8 * len_bytes - 4 * sf + (36 if low_sf else 44)
     den = 4 * (sf - 2 * de)
-    pay_sym = 8 + max(math.ceil(num / den) * cr, 0)
+    pay_sym_extra = 0
+    if den > 0:
+        pay_sym_extra = max(int(math.ceil(num / den)) * cr, 0)
+    pay_sym = 8 + pay_sym_extra
     return math.floor(t_pre + pay_sym * t_sym)
 
 
@@ -328,10 +418,52 @@ def gateway_layers(cfg):
     return gw_home, gw_visit
 
 
+# ★★★★ [[B162]] 2026-08-09 — THE CONFIGURED-SEND GRAMMAR, AND WHY IT HAD TO BE WIDENED.
+# `--mode dm --json` is now the AUTHORITY for unique deliveries, so a configured send this file cannot
+# PARSE is a send that silently leaves the denominator — and that is not a hypothetical:
+#   ⛔ `SEND_RE`'s dst group was matched against `name_to_id` ONLY, so a NUMERIC destination
+#      (`send_e2e 2 …` — the authored form in `twin_9node_dm` (54 sends) and `sim_9node_base` (12))
+#      resolved to nothing and the whole scenario reported **0 deliveries**.
+#   ⛔ `send_hash` / `send_hashx` (by-key_hash32 addressing on the H plane, 41 corpus sends) and
+#      `send_layerx` / `send_layerx_e2e` / `send_layer_e2e` (10 more) matched NO pattern at all —
+#      `^send_layer\s+` cannot match `send_layerx `, and nothing matched `send_hash `.
+#   ⇒ FOURTEEN of the 36 scenarios reported a corpus-authoritative delivery total of exactly ZERO while
+#      demonstrably delivering messages. ★★ That zero was believed once already; it is the reason this
+#      slice re-derives the grammar FROM THE SIMULATOR'S OWN DISPATCHER rather than from this file.
+# ★ THE GRAMMAR IS THE SIM'S, VERIFIED 2026-08-09 against `orchestrator/runtime/NodeRuntimeWrapper.cpp`:
+#   · `send|send_priority|send_e2e|send_e2e_priority <dst> <text>`  — dst = a node NAME **or** a numeric id
+#   · `send_hash|send_hashx <key_hash32 HEX> <text>`   (`:848`,`:872`; "0x is an ignorable prefix, ALWAYS
+#     HEX" — deliberately NOT `send_layer`'s radix rule, and the two must not be merged)
+#   · `send_layer|send_layerx|send_layer_e2e|send_layerx_e2e <layer[,layer…]> <key_hash32 DECIMAL> <text>`
+#   · a TRAILING ` -t` on any DM verb selects the TEAM plane (`dm_plane_from_tail`, :639). It changes the
+#     PLANE, never the addressee, so it does not affect which pair a send is counted under.
+#   · `send_channel[_g|_b] <channel id> <text>` is a CHANNEL post, not a DM — excluded here by design.
+# ★★ AND THE RESIDUE IS NOW COUNTED, NOT DROPPED: `configured_pairs` returns `unparsed`, surfaced as
+#    `totals.unresolved_configured_sends`. A verb this file has never heard of can no longer shrink the
+#    denominator in silence — it shows up as a number beside the figure.
 SEND_RE = re.compile(r"^send(?:_priority|_e2e|_e2e_priority)?\s+(\S+)\s+",
                      re.IGNORECASE)
-SEND_LAYER_RE = re.compile(r"^send_layer\s+(\S+)\s+(\S+)\s+", re.IGNORECASE)
+SEND_LAYER_RE = re.compile(r"^send_layer(?:x)?(?:_e2e)?\s+(\S+)\s+(\S+)\s+", re.IGNORECASE)
+SEND_HASH_RE = re.compile(r"^send_hash(?:x)?\s+(\S+)\s+", re.IGNORECASE)
 SEND_CHANNEL_RE = re.compile(r"^send_channel\s+(\S+)\s+(.+)$", re.IGNORECASE)
+# every DM-producing scenario verb, so an UNRECOGNISED one can be told apart from a channel post
+DM_SEND_VERBS = re.compile(r"^send(_priority|_e2e|_e2e_priority|_hash|_hashx|"
+                           r"_layer|_layerx|_layer_e2e|_layerx_e2e)?\s", re.IGNORECASE)
+
+
+def resolve_dst_token(tok, name_to_id):
+    """A `send`/`send_e2e` destination: a node NAME, or a bare numeric node id.
+
+    ⛔ Returns None rather than guessing. A numeric token outside 1..254 is refused: 0 is the reserved
+    unprovisioned sentinel and 0xFF is reserved, so such a token is a scenario-authoring error, not an
+    address (`src_hint`/id-reservation rules)."""
+    if tok in name_to_id:
+        return name_to_id[tok]
+    if tok.isdigit():
+        v = int(tok)
+        if 1 <= v <= 254:
+            return v
+    return None
 
 
 def configured_channel_posts(cfg, name_to_id):
@@ -389,30 +521,84 @@ def configured_pairs(cfg, name_to_id, hash_layer_to_name):
     """
     pairs = Counter()
     same_layer = Counter()
+    unparsed = Counter()          # ★ [[B162]]: the residue, COUNTED — see the grammar note above
+    id_to_layer = {}
+    # ★ [[B162]]: a LAYER-AGNOSTIC key_hash32 index, needed because `hash_layer_to_name` is keyed on
+    # `config.layer_id` and a SINGLE-LAYER scenario does not set one — so that map is EMPTY for every
+    # flat scenario, and every `send_hash` in s22/s24/s25/s26/s28/s29/s30/s34/s37/s38 resolved to
+    # nothing. ⛔ Ambiguity is REFUSED, not resolved by picking: if two nodes share a key_hash32 the
+    # addressee is genuinely undetermined from the command, and guessing is what [[B162]] is about.
+    hash_to_ids = defaultdict(set)
+    for n in cfg.get("nodes", []):
+        lyr = (n.get("config") or {}).get("layer_id")
+        if lyr is not None:
+            id_to_layer[n["node_id"]] = lyr
+        h = _hash_key_to_int(n.get("key_hash32"))
+        if h is not None:
+            hash_to_ids[h].add(n["node_id"])
     for c in cfg.get("commands", []):
         node = c.get("node")
         cmd = c.get("command", "")
+        src_id = name_to_id.get(node)
         m_layer = SEND_LAYER_RE.match(cmd)
         if m_layer:
             # layer field may be a comma-separated source-routed hop path
             # (e.g. "1,3"); the destination sits on the LAST hop's layer.
+            # ⓘ Covers send_layer / send_layerx / send_layer_e2e / send_layerx_e2e: the crypt and
+            #   e2e-ack variants differ in FLAGS, never in addressing, so one arm serves all four.
             try:
                 target_layer = int(m_layer.group(1).split(",")[-1])
-                target_hash = int(m_layer.group(2))
+                target_hash = int(m_layer.group(2))        # send_layer's hash arg is DECIMAL
             except ValueError:
+                unparsed["send_layer*: unparseable layer/hash"] += 1
                 continue
             dst_name = hash_layer_to_name.get((target_layer, target_hash))
-            if node in name_to_id and dst_name in name_to_id:
-                pairs[(name_to_id[node], name_to_id[dst_name])] += 1
+            if src_id is not None and dst_name in name_to_id:
+                pairs[(src_id, name_to_id[dst_name])] += 1
+            else:
+                unparsed["send_layer*: target hash unresolved"] += 1
+            continue
+        m_hash = SEND_HASH_RE.match(cmd)
+        if m_hash:
+            # ★ send_hash/send_hashx address by key_hash32 on the H plane, ALWAYS HEX with `0x` an
+            #   ignorable prefix (NodeRuntimeWrapper.cpp:754) — deliberately NOT send_layer's radix.
+            #   The addressee is same-plane/same-layer as the SENDER, so resolve on the sender's layer.
+            tok = m_hash.group(1)
+            try:
+                target_hash = int(tok[2:] if tok[:2].lower() == "0x" else tok, 16)
+            except ValueError:
+                unparsed["send_hash*: unparseable hash"] += 1
+                continue
+            lyr = id_to_layer.get(src_id)
+            dst_name = hash_layer_to_name.get((lyr, target_hash))
+            dst_id = name_to_id.get(dst_name) if dst_name else None
+            if dst_id is None:                      # flat scenario: no layer_id to key on
+                cand = hash_to_ids.get(target_hash) or set()
+                if len(cand) == 1:
+                    dst_id = next(iter(cand))
+                elif len(cand) > 1:
+                    unparsed["send_hash*: key_hash32 shared by several nodes (REFUSED)"] += 1
+                    continue
+            if src_id is not None and dst_id is not None:
+                pairs[(src_id, dst_id)] += 1
+                same_layer[(src_id, dst_id)] += 1      # same-layer: it DOES own an (origin,dst) row
+            else:
+                unparsed["send_hash*: target hash unresolved"] += 1
             continue
         m = SEND_RE.match(cmd)
         if not m:
+            # a DM verb this grammar does not know is REPORTED, not dropped (channel posts excluded)
+            if DM_SEND_VERBS.match(cmd) and not SEND_CHANNEL_RE.match(cmd) \
+               and not cmd.lower().startswith("send_channel"):
+                unparsed[f"unrecognised DM verb: {cmd.split()[0]}"] += 1
             continue
-        dst = m.group(1)
-        if node in name_to_id and dst in name_to_id:
-            pairs[(name_to_id[node], name_to_id[dst])] += 1
-            same_layer[(name_to_id[node], name_to_id[dst])] += 1
-    return pairs, same_layer
+        dst_id = resolve_dst_token(m.group(1), name_to_id)   # a NAME or a numeric node id
+        if src_id is not None and dst_id is not None:
+            pairs[(src_id, dst_id)] += 1
+            same_layer[(src_id, dst_id)] += 1
+        else:
+            unparsed["send: dst token unresolved"] += 1
+    return pairs, same_layer, unparsed
 
 
 def parse_pair_filter(arg, name_to_id):
@@ -459,20 +645,158 @@ def msg_key(data, default_origin, origin_ctr_index):
     return (origin, dst, ctr)
 
 
-def walk_events(events_path, slot_to_id):
-    """Yield (time_ms, firmware_id, emit_type, data) for every script_emit."""
+# ★★★ [[B162c]] 2026-08-09 — ONE NDJSON READER, AND IT IS WHITESPACE-INDEPENDENT AND REFUSES OUT LOUD.
+#
+# ⛔⛔ THE DEFECT THIS REPLACES, AND ITS LINEAGE. Two measurement functions fast-pathed on a LITERAL
+# COMPACT SUBSTRING before parsing — `phy_tx_frames` on `'"type":"tx"'` and `raw_delivered_event_count`
+# on `'"emit_type":"delivered"'`. Both are valid-NDJSON-blind: an emitter that writes
+# `{"type": "tx", ...}` — ordinary `json.dumps()` spacing — matches NEITHER, so every count reads
+# **exactly ZERO** and the tool prints that zero as a measurement. ⚠ MEASURED, not theorised: a
+# synthetic valid stream written with default `json.dumps` formatting produced `phy_frames 0`,
+# `raw_delivered 0`.
+#
+# ★★★ SAY THE LINEAGE, BECAUSE THIS IS ITS THIRD OCCURRENCE IN THIS ARC: **a substring fast-path is a
+# silent parser, and a silent parser in a measurement path fails toward "nothing happened."** The same
+# shape already cost this arc a fast-path filter that matched zero rows in BOTH arms of an A/B and was
+# believed, and a `bw_hz/cr` constant taken from the first line. A discriminator that can only ever
+# return "no data" when it is wrong is indistinguishable from a scenario in which nothing occurred.
+#
+# ★★ AND THE SECOND HALF OF THE FIX (C2): a line that does not parse is **REFUSED, COUNTED AND
+# SURFACED** — never `continue`d in silence. The old walkers swallowed `JSONDecodeError` with a bare
+# `continue`, so a truncated or corrupt stream measured LOW with no indication whatsoever. ⚠ And per
+# the `alias_stats` lesson (a refusal counter that nobody reads is not a safeguard) the count is
+# printed in BOTH the JSON (`totals.malformed_ndjson_lines`) and the text output, and the key is
+# always present so a ZERO is printable and comparable.
+#
+# ⓘ The refusal ledger is keyed by path and stores LINE NUMBERS in a set, so the many passes this tool
+# makes over one file UNION rather than multiply, and a partially-consumed generator can only ever
+# under-report — never inflate. `ndjson_refusals()` forces one complete scan so the reported count is
+# whole regardless of which walkers ran.
+_NDJSON_REFUSED = {}            # events_path -> {lineno: raw line prefix}
+_NDJSON_SCANNED = set()         # events_path values given a guaranteed full scan
+
+
+def iter_ndjson(events_path):
+    """Yield (lineno, event dict) for every NDJSON line that parses; REFUSE + RECORD the rest.
+
+    ★ THE ONLY WAY THIS FILE MAY READ THE EVENT STREAM. ⛔ Do not re-add a substring pre-filter:
+    it is a parser that cannot say "I did not understand", and this tool's failure mode is being
+    believed. Blank lines are not refusals (a trailing newline is not corruption)."""
+    ledger = _NDJSON_REFUSED.setdefault(events_path, {})
     with open(events_path) as f:
-        for line in f:
+        for lineno, line in enumerate(f, 1):
+            if not line.strip():
+                continue
             try:
                 e = json.loads(line)
-            except json.JSONDecodeError:
+            except ValueError:
+                ledger[lineno] = line.strip()[:160]
                 continue
-            if e.get("type") != "script_emit":
+            if not isinstance(e, dict):
+                # A bare scalar/array is syntactically fine and semantically meaningless here.
+                ledger[lineno] = line.strip()[:160]
                 continue
-            slot = e.get("node")
-            fid = slot_to_id.get(slot, slot)
-            yield (e.get("time_ms", 0), fid,
-                   e.get("emit_type"), e.get("data", {}))
+            yield lineno, e
+
+
+def ndjson_refusals(events_path):
+    """Complete, memoized refusal census: {"lines": n, "examples": [(lineno, text), ...]}.
+
+    ★ Forces one full pass so the count cannot be short just because no walker read to EOF."""
+    if events_path is not None and events_path not in _NDJSON_SCANNED:
+        for _ in iter_ndjson(events_path):
+            pass
+        _NDJSON_SCANNED.add(events_path)
+    ledger = _NDJSON_REFUSED.get(events_path, {})
+    ex = [(ln, ledger[ln]) for ln in sorted(ledger)[:3]]
+    return {"lines": len(ledger), "examples": ex}
+
+
+# ==================================================================================================
+# ★★★ [[B162d]] 2026-08-09 — THE SINGLE CROSSING POINT FOR THE REFUSAL NOTICE.
+#
+# ⛔⛔ WHY THIS EXISTS AS *ONE* POINT AND NOT AS A BANNER REPEATED PER MODE. [[B162c]] added the
+# refusal banner to the DM/channel text renderer and called the promise kept. It was not: `main()`
+# dispatched to FIVE other outputs that returned BEFORE it — `--trace`, `--copies`, `--airtime`,
+# `--tail` (four early `return`s) and, missed even by the report that found those four, the
+# `--mode channel --json` payload, which is assembled inline and carried no refusal key. So on a
+# stream with a corrupt line `--airtime` printed `★★ TOTAL AIRTIME (AUTHORITY) = … ms` with **no
+# banner, no LOWER BOUND warning, rc 0**, and `--airtime --json` carried neither the count nor the
+# examples. ⚠ The AUTHORITATIVE view was the one path the guarantee did not reach.
+#
+# ★★★ THIS IS THE FOURTH OCCURRENCE OF ONE SHAPE IN THIS ARC — a measurement path that fails toward
+# "nothing happened" — AND THE SECOND *INSIDE* [[B162]] ITSELF:
+#   1. §S0   a payload substring fast-path matched ZERO rows in BOTH arms of an A/B, and was believed;
+#   2. [[B162c]] `phy_tx_frames` gated on the literal `'"type":"tx"'` → a clean `0 ms over 0 frames`;
+#   3. [[B162c]] `raw_delivered_event_count` gated on `'"emit_type":"delivered"'` → a clean `0`;
+#   4. [[B162d]] the banner that fixed (2)/(3) existed, but the authoritative renderer BYPASSED it.
+#
+# ★★★ THE STRUCTURAL LESSON, WHICH IS THE POINT OF THIS FUNCTION: **A FAIL-LOUD PROMISE MADE AT ONE
+# EXIT IS NOT MADE AT ALL WHEN THERE ARE FIVE.** ⛔ A per-mode copy of the banner is the SAME DEFECT
+# IN A NEW SHAPE — it keeps the guarantee proportional to the author's memory, so the next mode added
+# to `main()` silently opts out. The guarantee is therefore enforced by TOPOLOGY, not by diligence:
+#   · every TEXT path crosses `ndjson_refusal_crossing_point()`, called once in `main()` BEFORE the
+#     mode dispatch, so no `return` can precede it;
+#   · every JSON path goes through `emit_json()`, the ONLY function in this file permitted to write
+#     JSON to stdout, which ATTACHES the census to whatever payload it is handed.
+# `tools/test_dm_delivery_breakdown.py::test_10` asserts both of those propositions FROM THE PARSE
+# TREE (a line-grep cannot tell live code from prose about code — [[B162c]]'s own lesson), each with
+# a detector control proving the check can fail.
+def emit_json(payload, events_path):
+    """★ THE ONLY PLACE THIS FILE MAY WRITE A JSON PAYLOAD TO STDOUT. ⛔ Do not add a second one.
+
+    Attaches the NDJSON refusal census to every payload, at the TOP LEVEL, with the keys ALWAYS
+    PRESENT. ⚠ An absent key is indistinguishable from a zero to a consumer, and this tool is the
+    arc's authority for delivery and airtime — so a clean stream emits `0` / `[]` / `false` rather
+    than nothing. (`totals.malformed_ndjson_lines` in the DM payload is the same census read through
+    the same `ndjson_refusals()`; it is kept for [[B162c]]'s published contract, not recomputed.)"""
+    ref = ndjson_refusals(events_path)
+    out = dict(payload)
+    out["malformed_ndjson_lines"] = ref["lines"]
+    out["malformed_ndjson_examples"] = [{"line": ln, "text": tx} for ln, tx in ref["examples"]]
+    out["measurement_is_lower_bound"] = bool(ref["lines"])
+    json.dump(out, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+
+
+def ndjson_refusal_crossing_point(args):
+    """★★★ Called ONCE in `main()`, before the mode dispatch. Every output path crosses it.
+
+    Text modes get the banner here — ahead of the first figure of ANY view, not just the DM table.
+    JSON modes get nothing printed here (it would corrupt the payload) because `emit_json()` carries
+    the census instead; the `sys.exit` below is what makes that delegation SOUND rather than a
+    hopeful comment: after it, `args.json` is EXACTLY "this run emits JSON".
+
+    ⛔ C2 — `--json` alongside `--trace`/`--copies`/`--tail` used to be SILENTLY IGNORED (text came
+    out, the flag did nothing). That is this bug's own family: an option that fails toward "nothing
+    happened". It is refused loudly instead of quietly honoured-in-name."""
+    if args.json and (args.trace or args.copies or args.tail is not None):
+        sys.exit("--json is not implemented for --trace / --copies / --tail (they are text-only "
+                 "views). ⛔ Refusing rather than ignoring the flag: a silently-dropped output "
+                 "option is how [[B162]] produced three wrong-but-confident answers. Use "
+                 "`--airtime --json` or `--mode dm|channel|all --json`.")
+    if args.json:
+        return          # ★ emit_json() attaches the census to the payload — see its docstring.
+    ref = ndjson_refusals(args.events)
+    if not ref["lines"]:
+        return
+    print(f"!! {ref['lines']} NDJSON LINE(S) REFUSED — they are not parseable JSON objects, so "
+          f"they were NOT measured. ⛔ EVERY figure below is a LOWER BOUND, not a measurement "
+          f"([[B162c]]):")
+    for ln, txt in ref["examples"]:
+        print(f"     line {ln}: {txt}")
+    print()
+
+
+def walk_events(events_path, slot_to_id):
+    """Yield (time_ms, firmware_id, emit_type, data) for every script_emit."""
+    for _lineno, e in iter_ndjson(events_path):
+        if e.get("type") != "script_emit":
+            continue
+        slot = e.get("node")
+        fid = slot_to_id.get(slot, slot)
+        yield (e.get("time_ms", 0), fid,
+               e.get("emit_type"), e.get("data", {}))
 
 
 def walk_phy_events(events_path, name_to_id):
@@ -488,17 +812,12 @@ def walk_phy_events(events_path, name_to_id):
     """
     PHY_TYPES = {"tx", "tx_deferred", "rx", "collision", "drop_halfduplex",
                  "drop_sf_mismatch", "drop_preamble_miss", "drop_rx_blind"}
-    with open(events_path) as f:
-        for line in f:
-            try:
-                e = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            t = e.get("type")
-            if t not in PHY_TYPES:
-                continue
-            # `node` for tx/tx_deferred; `from`/`to` for rx/drop.
-            yield e.get("time_ms", 0), t, e
+    for _lineno, e in iter_ndjson(events_path):
+        t = e.get("type")
+        if t not in PHY_TYPES:
+            continue
+        # `node` for tx/tx_deferred; `from`/`to` for rx/drop.
+        yield e.get("time_ms", 0), t, e
 
 
 def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None):
@@ -565,6 +884,52 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None):
     xl_orig = {}        # (origin, ctr, target_layer) -> (gw_wire_dst, target_layer, t_enqueue_ms)
     delivered_oc = {}   # (origin, ctr, target_dst) -> (target_dst, t_delivered_ms)  (first per destination)
     xl_no_gw = 0        # cross-layer sends dropped at origination: no gateway route (xl_send_no_gateway)
+    # ★★★★ [[B162]] 2026-08-09 — THE WIRE-IDENTITY ALIAS PASS. WITHOUT IT THE TEAM PLANE IS INVISIBLE.
+    # A team send stamps `team_local_id()` as the wire origin, NOT the node's static id (owner ruling,
+    # §team-parity T6), and a registered mobile LEASES its id. So `tx_enqueue` at the sender's own slot
+    # carries `origin = <its team-local id>` while `slot_to_id` says `<its config id>` — and the record
+    # creation policy below (`fid == origin`) therefore matched NOTHING on the team plane.
+    # ⛔ MEASURED CONSEQUENCE, not a hypothetical: TEN scenarios (s22/s23m/s25/s26/s28/s29/s30/s34/s37/s38)
+    # produced ZERO records — `--all`, i.e. with no pair filter at all, printed "no matching DM messages
+    # found" — so the authoritative figure for each was 0 while their streams carried real deliveries.
+    # ★ THE ALIAS IS OBSERVED, NEVER INFERRED FROM A CONFIG FIELD: a node reveals its own wire id in its
+    #   own emits — `tx_enqueue.origin` at the originating slot, and `delivered.dst` / `data_rx.dst` at the
+    #   receiving slot. C3: this is a per-plane runtime id being read off the runtime, which is the only
+    #   place it exists.
+    # ★★ AMBIGUITY IS REFUSED, NOT RESOLVED: if one wire id is worn by several config nodes it is left
+    #   untranslated (and counted), because picking one would mis-attribute a delivery — the exact defect
+    #   shape [[B162]] records.
+    wears = defaultdict(set)          # config id -> {wire ids it was seen using}
+    for t_ms, fid, et, d in walk_events(events_path, slot_to_id):
+        if et == "tx_enqueue":
+            o = d.get("origin")
+            if o is not None and o != fid:
+                wears[fid].add(o)
+        elif et == "delivered":
+            # ⛔ `delivered` ONLY — NOT `data_rx`. A RELAY also emits `data_rx` carrying the message's
+            # final `dst`, so treating that as "this node wears that id" made every relay claim the
+            # destination's wire id. MEASURED: on `s26` it produced 2 conflicting claims, the alias table
+            # was (correctly) emptied by the refusal, and the scenario still reported 0 — a fix that
+            # silently did nothing. `delivered` is app-delivery AT the destination, which is the only
+            # emit that proves the emitter is the addressee. (This file's own §xl note already says
+            # `data_rx` "fires on relay-forwards" — the reason was on record before the mistake.)
+            w = d.get("dst")
+            if w is not None and w != fid:
+                wears[fid].add(w)
+    wire_to_config = {}
+    wire_conflicts = set()
+    for cid, ws in wears.items():
+        for w in ws:
+            if w in wire_to_config and wire_to_config[w] != cid:
+                wire_conflicts.add(w)
+            wire_to_config[w] = cid
+    for w in wire_conflicts:
+        wire_to_config.pop(w, None)   # ⛔ refuse: several nodes wore it
+    # a wire id that IS a config id in its own right is never translated away
+    for cid in set(slot_to_id.values()):
+        wire_to_config.pop(cid, None)
+    alias_stats = {"aliases": len(wire_to_config), "refused_conflicts": len(wire_conflicts)}
+
     for t_ms, fid, et, d in walk_events(events_path, slot_to_id):
         if et == "gateway_schedule_change":
             lyr = d.get("active_layer_id")
@@ -681,6 +1046,15 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None):
     fwd_gw_rts = set()
     fwd_hop1_ack = set()
 
+    def same_node(cfg_id, wire_id):
+        """★ [[B162]]: is this emitting node the node that `wire_id` names? Compares in CONFIG-id space,
+        so a team/mobile record keyed on a `team_local_id`/leased id still identifies its own endpoints.
+        ⛔ Without this, `fid == dst` was false for every team delivery and `arrived_ms` stayed None —
+        4 records existed on `s26` and all four read un-arrived while the stream carried 4 `delivered`."""
+        if wire_id is None:
+            return False
+        return cfg_id == wire_id or wire_to_config.get(wire_id) == cfg_id
+
     for t_ms, fid, et, d in walk_events(events_path, slot_to_id):
         # Second-leg forward trace: who carried the gateway's forward, did the
         # gateway itself RTS it, and did the gateway get the hop-1 ACK?
@@ -739,7 +1113,12 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None):
         # silently skipped if no record exists — which happens for the
         # gateway's re-issued second-leg frames whose `origin` field is
         # rewritten to the gateway's own id).
-        is_originator_enqueue = (et == "tx_enqueue" and fid == origin)
+        # ★ [[B162]]: `fid == origin` is the STATIC-plane form.
+        # (see same_node() — every id comparison in this pass runs through it) A team/mobile originator stamps its
+        # per-plane wire id, so the alias learned above is an equally valid identification of "this node
+        # originated it". ⛔ Nothing else may create a record — a relay still may not.
+        is_originator_enqueue = (et == "tx_enqueue"
+                                 and (fid == origin or wire_to_config.get(origin) == fid))
         if is_originator_enqueue:
             r = rec_create(k)
         else:
@@ -763,16 +1142,16 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None):
                 # Cross-layer target resolution is done in a post-pass
                 # below so we have access to the full name_to_id map.
             origin_ctr_to_record_key[(origin, ctr)] = k
-        elif et == "data_rx" and fid == dst and r["arrived_ms"] is None:
+        elif et == "data_rx" and same_node(fid, dst) and r["arrived_ms"] is None:
             r["arrived_ms"] = t_ms
-        elif et == "delivered" and fid == dst and r["arrived_ms"] is None:
+        elif et == "delivered" and same_node(fid, dst) and r["arrived_ms"] is None:
             # §1c sealed-sender: a CRYPTED DM's data_rx carries origin=0 (the origin is sealed), so it mis-keys
             # and never sets arrived_ms. The `delivered` event (app-delivery at the dst) carries the RECOVERED
             # origin -> it keys correctly. For PLAINTEXT, data_rx already set arrived_ms first (this is a no-op).
             r["arrived_ms"] = t_ms
-        elif et == "ack_rx" and fid == origin and r["ack_ms"] is None:
+        elif et == "ack_rx" and same_node(fid, origin) and r["ack_ms"] is None:
             r["ack_ms"] = t_ms
-        elif et == "send_giveup" and fid == origin:
+        elif et == "send_giveup" and same_node(fid, origin):
             r["giveup_ms"] = t_ms
             r["giveup_reason"] = d.get("reason") or d.get("terminal")
 
@@ -841,7 +1220,8 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None):
         "hops_by_payload": hops_by_payload,
         "transit_started": transit_started,
     }
-    return msgs, arrival_by_payload, drops, gw_giveup, gw_layers, second_leg, xl_stats
+    return (msgs, arrival_by_payload, drops, gw_giveup, gw_layers, second_leg, xl_stats,
+            wire_to_config, alias_stats)
 
 
 def outcome(rec):
@@ -885,7 +1265,7 @@ def _arrived(rec):
 
 
 def summarise(msgs, pair_filter, id_to_name, no_gw_by_pair=None,
-              intended_by_pair=None):
+              intended_by_pair=None, wire_to_config=None):
     """Summarise per-pair delivery.
 
     `intended_by_pair` (Counter from configured_pairs) makes the denominator
@@ -901,18 +1281,26 @@ def summarise(msgs, pair_filter, id_to_name, no_gw_by_pair=None,
     """
     no_gw_by_pair = no_gw_by_pair or {}
     intended_by_pair = intended_by_pair or {}
+    # ★ [[B162]]: the configured pairs are in CONFIG-id space; a team/mobile record is keyed in WIRE-id
+    # space. Translate the record, never the configuration — the scenario's intent is the fixed thing.
+    w2c = wire_to_config or {}
+
+    def cfgid(i):
+        return w2c.get(i, i)
+
     by_pair = defaultdict(list)
     misaddressed = defaultdict(Counter)   # origin -> Counter{observed dst: n}, for the diagnostic
     for k, r in msgs.items():
-        eff_dst = effective_dst(r)
-        if pair_filter is not None and (r["origin"], eff_dst) not in pair_filter:
+        eff_dst = cfgid(effective_dst(r))
+        r_origin = cfgid(r["origin"])
+        if pair_filter is not None and (r_origin, eff_dst) not in pair_filter:
             # Not intended for this pair. If the ORIGIN was supposed to send
             # somewhere, remember where its traffic actually went -- that is the
             # evidence explaining an unsent intended pair below.
-            if any(o == r["origin"] for (o, _d) in intended_by_pair):
-                misaddressed[r["origin"]][eff_dst] += 1
+            if any(o == r_origin for (o, _d) in intended_by_pair):
+                misaddressed[r_origin][eff_dst] += 1
             continue
-        by_pair[(r["origin"], eff_dst)].append(r)
+        by_pair[(r_origin, eff_dst)].append(r)
     # Drop-only pairs (every send dropped before enqueue) have no records, so
     # they're absent from by_pair -- inject them so the loss is counted. Same for
     # intended-but-never-observed pairs (see the docstring).
@@ -1406,8 +1794,87 @@ def render_detail_text(msgs, pair_filter, id_to_name):
         print()
 
 
-def render_json(rows, msgs, pair_filter, id_to_name, detail):
+def raw_delivered_event_count(events_path):
+    """★ THE CROSS-CHECK, AND ONLY THE CROSS-CHECK ([[B162]]). A raw count of `delivered` emits.
+
+    ⛔ THIS IS NOT THE FIGURE OF RECORD and must never be quoted as one. It counts EVENTS, so it
+    over-counts a logical send that was delivered to the app more than once ([[B159]]: duplicate app
+    deliveries are a live, measured defect — 12 at BASE, 21 at DELETE), and it has no denominator: it
+    cannot see a configured send that produced nothing at all. The AUTHORITY is
+    `totals.unique_deliveries`, which aggregates FIRST ARRIVAL PER CONFIGURED LOGICAL SEND.
+    ★ Both are emitted side by side, always, and always labelled — because this arc quoted the raw
+    number as the metric and then compared it to a carried-forward table.
+
+    ★★ [[B162c]] 2026-08-09 — THIS USED TO BE `if '"emit_type":"delivered"' in line`, a literal
+    COMPACT-SUBSTRING test. On valid NDJSON written with ordinary `json.dumps()` spacing it matched
+    NOTHING and this function returned **0** — the cross-check silently agreeing that nothing was ever
+    delivered. It now PARSES (`iter_ndjson`), so the predicate is on the field, not on the whitespace.
+    ⓘ The predicate is deliberately the exact one the substring encoded — `emit_type == "delivered"`,
+    NOT additionally `type == "script_emit"` — so the repair is measurement-INERT on the compact
+    corpus rather than quietly re-defining the cross-check while claiming to fix a parser."""
+    n = 0
+    for _lineno, e in iter_ndjson(events_path):
+        if e.get("emit_type") == "delivered":
+            n += 1
+    return n
+
+
+def delivery_totals(rows, xl_stats, events_path, unparsed_sends=None, alias_stats=None):
+    """★★ [[B162]] — THE AUTHORITATIVE UNIQUE-DELIVERY FIGURE, made explicit and machine-readable.
+
+    `unique_deliveries` = sum over the configured-send rows of `arrived`, i.e. ONE count per
+    configured logical send that reached its user-facing destination (cross-layer aware: arrival is
+    at the resolved target, not the gateway). Each record's `arrived_ms` is set by the FIRST arrival
+    only, so a retried/duplicated delivery cannot inflate it.
+
+    ⚠ WHY THIS EXISTS AS A BLOCK RATHER THAN BEING LEFT TO THE CALLER: it was left to the caller,
+    every consumer re-derived it slightly differently, and the arc's headline number stopped
+    reproducing. A figure with no single named producer is a figure that drifts."""
+    return {
+        "unique_deliveries":    sum(r["arrived"] for r in rows),      # ★ AUTHORITATIVE
+        "configured_sends":     sum(r["sent"] for r in rows),
+        "hop1_acked":           sum(r["acked"] for r in rows),
+        "giveup":               sum(r["giveup"] for r in rows),
+        "in_flight":            sum(r["in_flight"] for r in rows),
+        "no_gateway":           sum(r.get("no_gw", 0) for r in rows),
+        "unsent":               sum(r.get("unsent", 0) for r in rows),
+        "cross_layer":          dict(xl_stats) if xl_stats else None,
+        "raw_delivered_events": raw_delivered_event_count(events_path),   # ⛔ CROSS-CHECK ONLY
+        # ★ [[B162]]: configured sends this grammar could not resolve. MUST be 0 for the figure above to
+        # be a complete accounting of the scenario's intent; a non-zero value is a LOUD warning that the
+        # denominator is short, not a rounding detail.
+        "unresolved_configured_sends": (sum(unparsed_sends.values()) if unparsed_sends else 0),
+        "unresolved_detail":  (dict(unparsed_sends) if unparsed_sends else {}),
+        # ★★ [[B162b]] 2026-08-09 — THE RUNTIME-ID ALIAS REFUSALS ARE NOW EXPOSED. They were computed
+        # in `analyse()` (as `alias_stats`), returned all the way out to `main()`, and then DISCARDED:
+        # three mentions in the whole file, zero readers. ⛔ That was a silent-corruption channel of
+        # exactly the kind this bug is about — a team/runtime-id collision empties the alias table, so
+        # records stop resolving, while `unresolved_configured_sends` can stay 0 because the SEND
+        # parsed fine. It is `refused_conflicts` that says the authority may be short, and nothing
+        # printed it. It is printed now, in BOTH the JSON and the text output.
+        "wire_alias_aliases":  (alias_stats or {}).get("aliases"),
+        "wire_alias_refused_conflicts": (alias_stats or {}).get("refused_conflicts"),
+        # ★★ [[B162c]] 2026-08-09 — NDJSON LINES REFUSED BY THE PARSER. Every walker used to swallow a
+        # `JSONDecodeError` with a bare `continue`, so a truncated/corrupt stream measured LOW in
+        # silence — the same fail-toward-nothing-happened shape as the substring fast paths this slice
+        # removed. ⛔ A nonzero value means the stream was NOT fully read and EVERY figure above is a
+        # LOWER BOUND. The key is always present so a zero is printable and comparable, and it is
+        # printed in the TEXT output too (the `alias_stats` lesson: a counter nobody reads is not a
+        # safeguard).
+        "malformed_ndjson_lines": ndjson_refusals(events_path)["lines"],
+        "malformed_ndjson_examples": [
+            {"line": ln, "text": tx} for ln, tx in ndjson_refusals(events_path)["examples"]],
+        "authority":            "unique_deliveries (first arrival per configured logical send); "
+                                "raw_delivered_events is a CROSS-CHECK and is NOT the figure of record",
+    }
+
+
+def render_json(rows, msgs, pair_filter, id_to_name, detail,
+                xl_stats=None, events_path=None, unparsed_sends=None, alias_stats=None):
     out = {"summary": rows}
+    if events_path is not None:
+        out["totals"] = delivery_totals(rows, xl_stats, events_path, unparsed_sends,
+                                        alias_stats)
     if detail:
         keys = []
         for k, r in msgs.items():
@@ -1465,8 +1932,7 @@ def render_json(rows, msgs, pair_filter, id_to_name, detail):
                     entry["second_leg_loc"]     = r.get("second_leg_loc")
             messages.append(entry)
         out["messages"] = messages
-    json.dump(out, sys.stdout, indent=2)
-    sys.stdout.write("\n")
+    emit_json(out, events_path)          # ★ [[B162d]] the one JSON sink; attaches the refusal census
 
 
 CHANNEL_EVENT_TYPES = {
@@ -2063,31 +2529,23 @@ def render_trace(events_path, substr, slot_to_id, id_to_name):
                 return True
         return False
 
+    # ⓘ [[B162c]]: both passes go through the one reader, so a corrupt line is refused and counted here
+    # too rather than silently dropped by a bare `except ValueError: continue`.
     hashes = set()
-    with open(events_path) as f:
-        for line in f:
-            try:
-                e = json.loads(line)
-            except ValueError:
-                continue
-            if e.get("type") == "script_emit" and matches(e.get("data", {})):
-                h = e["data"].get("dst_key_hash32")
-                if isinstance(h, int):
-                    hashes.add(h)
+    for _lineno, e in iter_ndjson(events_path):
+        if e.get("type") == "script_emit" and matches(e.get("data", {})):
+            h = e["data"].get("dst_key_hash32")
+            if isinstance(h, int):
+                hashes.add(h)
 
     rows = []
-    with open(events_path) as f:
-        for line in f:
-            try:
-                e = json.loads(line)
-            except ValueError:
-                continue
-            if e.get("type") != "script_emit":
-                continue
-            d = e.get("data", {})
-            if matches(d) or (isinstance(d.get("dst_key_hash32"), int)
-                              and d["dst_key_hash32"] in hashes):
-                rows.append(e)
+    for _lineno, e in iter_ndjson(events_path):
+        if e.get("type") != "script_emit":
+            continue
+        d = e.get("data", {})
+        if matches(d) or (isinstance(d.get("dst_key_hash32"), int)
+                          and d["dst_key_hash32"] in hashes):
+            rows.append(e)
     rows.sort(key=lambda e: e.get("time_ms", 0))
 
     print(f"TRACE '{substr}': {len(rows)} events; following hashes {sorted(hashes)}")
@@ -2204,26 +2662,157 @@ def render_copies(events_path, slot_to_id, id_to_name, top=12):
             print(f"    {t:>8}  {nm(frm):>{w}} -> {nm(to):<{w}} {label:<12} {str(pl)[:24]}")
 
 
-def analyse_airtime(events_path, slot_to_id):
-    """Per-message airtime (ms), computed from the *_tx script_emits + the LoRa
-    formula, split by category/SF: RTS+CTS (routing SF), DATA (data SF), ACK/NACK
-    (routing SF). RTS/DATA/ACK/NACK carry (origin,ctr); CTS carries only
-    (to,ctr_lo), so it's attributed to the most recent RTS from `to`. bw_hz/cr are
-    read from a PHY tx event (uniform across a run)."""
-    bw_hz, cr = 125000, 5
-    with open(events_path) as f:
-        for line in f:
-            if '"type":"tx"' not in line:
-                continue
-            try:
-                e = json.loads(line)
-            except ValueError:
-                continue
-            if e.get("type") == "tx":
-                bw_hz = e.get("bw_hz", bw_hz)
-                cr = e.get("cr", cr)
-                break
+EMIT_PHY_LABEL = {"rts_tx": "RTS", "rts_retry": "RTS", "rts_fwd": "RTS",
+                  "cts_tx": "CTS", "ack_tx": "ACK", "nack_tx": "NACK", "data_tx": "DATA"}
 
+
+# base labels whose airtime this tool charges to the DM/routing budget. BCN/Q/H are aired too, but
+# they are not part of the per-message DM budget and were never in any figure this tool quoted —
+# so they are censused and EXCLUDED from the total, explicitly, rather than being silently absent.
+CHARGEABLE_PHY_LABELS = {"RTS", "CTS", "ACK", "NACK", "DATA"}
+
+
+def phy_tx_frames(events_path, name_to_id):
+    """★★★ [[B162b]] 2026-08-09 — THE PHY LOG IS GROUND TRUTH FOR AIRTIME. THIS IS THE PRIMARY PASS.
+
+    ⛔⛔ WHAT CHANGED AND WHY IT IS AN INVERSION, NOT A PATCH. Until now this function was
+    `frame_lengths_by_tx()`: an INDEX built for correlation, and `analyse_airtime` summed only the
+    frames it managed to correlate to a firmware `*_tx` emit. ⇒ SUCCESSFUL ATTRIBUTION WAS A
+    PRECONDITION FOR COUNTING, so every correlation failure silently REDUCED the total. A measurement
+    that fails toward "less airtime" fails in exactly the wrong direction: it can only ever flatter
+    the protocol, and it did — MEASURED on the corpus (arm CURRENT): **2557 of 23913 chargeable frames
+    (10.7%) really aired and were charged ZERO.**
+
+    ★ THE SHAPE NOW: the airtime TOTAL is computed here, directly, from EVERY chargeable PHY `tx`
+    event, each priced with ITS OWN `sf`, `bw_hz`, `cr` and byte count — and cross-checked against
+    that same event's own `airtime_ms`. Correlation to emits is a SECONDARY ATTRIBUTION VIEW
+    (`analyse_airtime`), and anything it cannot attribute lands in an explicit
+    `unattributed_airtime` bucket that is INCLUDED IN THE TOTAL. ⛔ AN AIRED FRAME NEVER VANISHES.
+
+    Returns `(frames, index, ambiguous, census, xcheck)`:
+      · `frames`  — every chargeable frame, in stream order, each with its own priced `ms`. THE TOTAL
+                    IS `sum(f["ms"] for f in frames)` and it does not depend on any correlation.
+      · `index`   — (firmware node id, base label, time_ms) -> frame, for the attribution view only.
+                    ⓘ The two streams key nodes differently (PHY `tx` carries the node NAME,
+                    `script_emit` the slot index), so the key uses the firmware id via `name_to_id`.
+      · `ambiguous` — ★ EVERY key seen more than once, REGARDLESS OF LENGTH. ⛔ The previous version
+                    marked a duplicate ambiguous only `if index[k] != nbytes`, so TWO SAME-LENGTH
+                    transmissions in one millisecond collapsed into one — silently, and in direct
+                    contradiction of this docstring's own contract. Same length is not same frame.
+                    (Measured on the corpus: ZERO duplicate keys of either kind — but that is now a
+                    measurement of the strict rule, not of a rule that could not have caught it.)
+      · `census`  — per-label wire-length histogram over ALL tx labels, every one codec-validated.
+      · `xcheck`  — agreement between this file's LoRa formula and the PHY's own `airtime_ms`,
+                    with a deliberately-wrong `len+1` CONTROL so the agreement can be seen to be
+                    discriminating rather than vacuous."""
+    frames = []
+    census = defaultdict(Counter)
+    seen = Counter()
+    # ★ keys pre-seeded to 0 so the reported shape is CONSTANT: an absent key reads as "no data" to a
+    # human and raises KeyError in a consumer, and both failure modes here have historically been read
+    # as "zero, fine". A zero must be printable and comparable ([[B162]] method rule).
+    xcheck = Counter({"frames": 0, "agree": 0, "disagree": 0, "control_len_plus1_agree": 0})
+    # ★★ [[B162c]] 2026-08-09 — THE SUBSTRING FAST PATH IS GONE. This loop used to open with
+    #   `if '"type":"tx"' not in line: continue`, which is a PARSER made of `str.__contains__`: valid
+    #   NDJSON with ordinary spacing (`{"type": "tx", ...}`) matched nothing, so `frames` came back
+    #   EMPTY and the authoritative airtime total printed **0 ms over 0 frames** as a measurement.
+    #   ⛔ Never re-add it. A substring fast-path is a silent parser, and a silent parser in a
+    #   measurement path fails toward "nothing happened" — the third time this arc has been bitten by
+    #   exactly that shape. Malformed lines are now REFUSED, COUNTED and SURFACED by `iter_ndjson`
+    #   instead of being swallowed by the bare `except ValueError: continue` that stood here.
+    for _lineno, e in iter_ndjson(events_path):
+        if e.get("type") != "tx":
+            continue
+        hexs = e.get("hex")
+        if hexs is None:
+            # ⛔ FAIL LOUD: no bytes means no length, and a length is exactly what must not be guessed.
+            raise FrameShapeError(
+                f"PHY tx event at t={e.get('time_ms')} node={e.get('node')!r} "
+                f"label={e.get('label')!r} carries NO `hex` — the frame length cannot be "
+                f"determined. ⛔ REFUSING to substitute a constant (see [[B162]]).")
+        nbytes = len(hexs) // 2
+        label = e.get("label")
+        base = {"RTS-fwd": "RTS", "RTS-rty": "RTS", "CTS-dup": "CTS"}.get(label, label)
+        census[base][nbytes] += 1
+        frame_shape(label, nbytes)          # validate every frame against the codec, loudly
+        if base not in CHARGEABLE_PHY_LABELS:
+            continue
+        # ★ PER-FRAME PHY PARAMETERS (C2 — refuse, never default). ⛔ The previous version took
+        #   `bw_hz, cr = 125000, 5` from the FIRST tx event in the file and applied it to every
+        #   transmission in the scenario. MEASURED: `s32_dual_cr_gateway` carries CR 4/5 AND 4/8
+        #   (4 frames mispriced) and `s33_mixed_cr_channel_overhear` carries both too (24 frames),
+        #   and BOTH run at BW 250 kHz, not the 125 kHz default. A mixed-PHY scenario is exactly
+        #   where an airtime figure matters most, and it was exactly where the tool was wrong.
+        sf, bw_hz, cr = e.get("sf"), e.get("bw_hz"), e.get("cr")
+        if sf is None or bw_hz is None or cr is None:
+            raise FrameShapeError(
+                f"PHY tx event at t={e.get('time_ms')} node={e.get('node')!r} label={label!r} "
+                f"is missing sf/bw_hz/cr (sf={sf} bw_hz={bw_hz} cr={cr}) — its airtime cannot be "
+                f"computed. ⛔ REFUSING to substitute a scenario-global constant ([[B162]]).")
+        formula_ms = lora_airtime_ms(sf, bw_hz, cr, nbytes)
+        reported = e.get("airtime_ms")
+        if reported is not None:
+            xcheck["frames"] += 1
+            xcheck["agree" if formula_ms == reported else "disagree"] += 1
+            # ★ the CONTROL: if a one-byte-wrong length agreed just as often, the agreement above
+            #   would prove nothing about the length. It must be seen to be able to disagree.
+            if lora_airtime_ms(sf, bw_hz, cr, nbytes + 1) == reported:
+                xcheck["control_len_plus1_agree"] += 1
+        # ★★ [[B162b]] THE PRICE IS THE PHY'S OWN `airtime_ms` WHEN THE EVENT CARRIES ONE. That
+        #   value IS the channel occupancy the simulator actually modelled — the thing collisions,
+        #   LBT and duty cycle were computed against — whereas the formula above is a SECOND COPY
+        #   re-deriving it. When a frame states a fact, read the frame. (Same lineage as §S2d's
+        #   ruling: inferring from a local model what the wire declares is this arc's signature
+        #   error.) ⇒ the formula's role is the CROSS-CHECK, which is exactly how it caught the
+        #   missing SF5/SF6 case above. ⛔ If neither exists there is no price: refuse.
+        ms = reported if reported is not None else formula_ms
+        if ms is None:
+            raise FrameShapeError(
+                f"PHY tx event at t={e.get('time_ms')} node={e.get('node')!r} has neither an "
+                f"`airtime_ms` nor derivable parameters. ⛔ REFUSING to price it ([[B162b]]).")
+        fid = name_to_id.get(e.get("node"))
+        key = None if fid is None else (fid, base, e.get("time_ms"))
+        if key is not None:
+            seen[key] += 1
+        frames.append({"key": key, "label": label, "base": base, "n": nbytes,
+                       "sf": sf, "bw_hz": bw_hz, "cr": cr, "ms": ms,
+                       "reported": reported, "t_ms": e.get("time_ms"),
+                       "node": e.get("node")})
+    # ★ EVERY duplicate key is ambiguous — length is not an identity.
+    ambiguous = {k for k, v in seen.items() if v > 1}
+    index = {}
+    for fr in frames:
+        k = fr["key"]
+        if k is None or k in ambiguous:
+            continue
+        index[k] = fr
+    return (frames, index, ambiguous,
+            {k: dict(sorted(v.items())) for k, v in census.items()}, xcheck)
+
+
+def analyse_airtime(events_path, slot_to_id, name_to_id=None):
+    """Per-message ATTRIBUTION of airtime (ms), split by category: RTS+CTS, DATA, ACK/NACK.
+    RTS/DATA/ACK/NACK carry (origin,ctr); CTS carries only (to,ctr_lo), so it is attributed to the
+    most recent RTS from `to`.
+
+    ★★ [[B162]] 2026-08-09 — EVERY LENGTH IS READ OFF THE WIRE, PER FRAME. Each `*_tx` emit is
+    correlated to its own PHY `tx` frame and priced at THAT frame's byte count; the old fixed
+    `RTS_LEN=8 / CTS_LEN=3 / DATA_HDR_LEN+len(payload)+MAC_LEN` estimates are gone.
+    ⚠ [[B162b]] CORRECTS THIS NOTE'S OWN CLAIM: it said an emit with no PHY frame at its millisecond
+      "never aired". That is true of most of them but NOT of all — an LBT-DEFERRED emit airs LATER, at
+      a different timestamp. So "charged zero and counted" was the right instinct applied to the wrong
+      set, and the frames that HAD aired were dropped from the total. See below.
+
+    ★★★ [[B162b]] 2026-08-09 — THIS VIEW IS NO LONGER THE TOTAL, AND THAT IS THE POINT.
+      The authoritative total is `phy_total_ms`, computed by `phy_tx_frames()` over EVERY chargeable
+      PHY frame. What this function does is ATTRIBUTE that airtime to messages, and attribution can
+      fail. ⛔ Before this change, a failure to attribute REMOVED the frame from the total: the
+      correlation key is `(node, label, time_ms)`, and an LBT-DEFERRED frame AIRS LATER, so its PHY
+      timestamp does not equal its emit timestamp and it fell into `never-aired (charged 0)` —
+      although it had very much aired. MEASURED on `s18` (arm CURRENT): 4898 chargeable PHY frames,
+      4720 priced, **178 real frames charged nothing**; corpus-wide 2557 of 23913.
+      ⇒ Everything this view cannot attribute is now summed into `unattributed_ms` and INCLUDED in
+      the reported total, which therefore always equals the PHY total by construction (asserted)."""
     msgs = {}
 
     def m(o, c):
@@ -2233,49 +2822,190 @@ def analyse_airtime(events_path, slot_to_id):
                        "data_air": 0, "ack_air": 0}
         return msgs[k]
 
+    # ★ [[B162]]: the per-frame length oracle. `name_to_id` bridges the PHY stream's node NAMES to the
+    # emit stream's firmware ids; without it no correlation is possible, so that is a REFUSAL, not a
+    # fallback to a constant.
+    if name_to_id is None:
+        raise FrameShapeError("analyse_airtime needs name_to_id to correlate emits to PHY frames; "
+                              "without it every length would have to be assumed ([[B162]])")
+    frames, tx_index, tx_ambiguous, tx_census, xcheck = phy_tx_frames(events_path, name_to_id)
+    phy_total_ms = sum(f["ms"] for f in frames)
+    # counters printed beside every figure — an instrument whose misses are invisible is the defect
+    # this slice exists to fix.
+    stats = Counter({"priced_from_wire": 0, "unaired": 0, "emit_unattributable": 0,
+                     "emit_refused_ambiguous": 0, "emit_double_attribution": 0})
+    shapes = Counter()
+    consumed = set()
+
+    def phy_frame(fid, et, t_ms):
+        """The PHY frame this emit actually aired, or None. ⛔ Never returns a guess, never
+        double-charges one frame, and never lets a refusal shrink the total — a refused frame stays
+        in `unattributed_ms`, which is added back in below."""
+        label = EMIT_PHY_LABEL.get(et)
+        if label is None:
+            return None
+        k = (fid, label, t_ms)
+        if k in tx_ambiguous:
+            # ⛔ REFUSE to pick a side. ⓘ [[B162b]]: this used to `raise`, which was defensible when
+            # the correlated sum WAS the total. It no longer is — the frame is already counted in
+            # `phy_total_ms`, so refusing costs only attribution, and aborting the whole run over an
+            # attribution gap would be a worse instrument. The refusal is counted and printed loudly
+            # in BOTH the text and the JSON output instead.
+            stats["emit_refused_ambiguous"] += 1
+            return None
+        fr = tx_index.get(k)
+        if fr is None:
+            stats["unaired"] += 1        # no frame at this (node,label,ms): deferred, or never aired
+            return None
+        if k in consumed:
+            # two emits claiming one frame: charge it ONCE. Counted, never silently doubled.
+            stats["emit_double_attribution"] += 1
+            return None
+        consumed.add(k)
+        stats["priced_from_wire"] += 1
+        shapes[frame_shape(fr["label"], fr["n"])] += 1
+        return fr
+
+    def oc(d, fid):
+        """(origin, ctr) for an airtime charge, using `msg_key`'s OWN convention (U1): a relay's
+        `*_tx` emit carries no `origin`, so the EMITTING node stands in as the key's origin.
+        ⚠ [[B162]] disclosure — this is a REAL correction, not cosmetics. Before it, `analyse_airtime`
+        required `data["origin"]` and `continue`d without it, and NO current-vocabulary `rts_tx` /
+        `data_tx` emit carries one: measured, ALL 6007 chargeable emits in `s18` were skipped, so this
+        view rendered `TOTAL (0 msgs)` and the old `RTS_LEN`/`CTS_LEN` constants were never even
+        reached on that scenario. A length derivation that cannot be exercised cannot be verified.
+        ⇒ The per-MESSAGE rows are therefore attribution-approximate for relayed hops (the frame is
+        charged to (relay, ctr), not to the originator).
+        ⚠ [[B162b]] RETRACTS THIS DOCSTRING'S OWN CONCLUSION — it claimed "every aired frame is now
+        counted EXACTLY ONCE at its TRUE wire length, so the TOTAL is sound". THE TOTAL WAS NOT SOUND:
+        2557 of 23913 aired frames corpus-wide were charged zero because their emit's timestamp did not
+        match their PHY timestamp. Soundness now comes from `phy_total_ms`, which does not depend on any
+        of this, and this function's job is attribution alone."""
+        o = d.get("origin")
+        if o is None:
+            o = d.get("src")
+        if o is None:
+            o = fid
+        c = d.get("ctr")
+        if c is None:
+            c = d.get("ctr_lo")
+        return o, c
+
     recent_rts = {}   # (rts_sender_id, ctr_lo) -> (origin, ctr)
     for t_ms, fid, et, d in walk_events(events_path, slot_to_id):
-        if et == "rts_tx" or et == "rts_retry":
-            o, c = d.get("origin"), d.get("ctr")
+        if et in ("rts_tx", "rts_retry", "rts_fwd"):
+            o, c = oc(d, fid)
             if o is None or c is None:
+                stats["emit_unattributable"] += 1   # no (origin,ctr) -> not chargeable to a message
                 continue
-            rsf = d.get("tx_routing_sf") or 8
             r = m(o, c)
             r["dst"] = r["dst"] if r["dst"] is not None else d.get("dst")
-            r["rsf"] = r["rsf"] or rsf
-            r["rts_air"] += lora_airtime_ms(rsf, bw_hz, cr, RTS_LEN)
+            fr = phy_frame(fid, et, t_ms)
+            if fr is not None:
+                # ★ [[B162b]] the SF is the FRAME'S OWN, not the emit's declaration. They disagree:
+                #   MEASURED 1348 of 12223 correlated rts/data frames corpus-wide (arm CURRENT),
+                #   concentrated in the multi-SF gateway scenarios (s16 559/963, s15 251/794).
+                r["rsf"] = r["rsf"] or fr["sf"]
+                r["rts_air"] += fr["ms"]
+            else:
+                r["rsf"] = r["rsf"] or (d.get("tx_routing_sf") or 8)   # display only; nothing charged
             recent_rts[(fid, d.get("ctr_lo"))] = (o, c)
         elif et == "cts_tx":
             k = recent_rts.get((d.get("to"), d.get("ctr_lo")))
             if k is None:
+                stats["emit_unattributable"] += 1
                 continue
             r = m(*k)
-            r["cts_air"] += lora_airtime_ms(r["rsf"] or 8, bw_hz, cr, CTS_LEN)
+            fr = phy_frame(fid, et, t_ms)
+            if fr is not None:
+                r["cts_air"] += fr["ms"]
         elif et == "data_tx":
-            o, c = d.get("origin"), d.get("ctr")
+            o, c = oc(d, fid)
             if o is None or c is None:
+                stats["emit_unattributable"] += 1
                 continue
-            dsf = d.get("data_sf") or d.get("sf") or 7
-            nbytes = DATA_HDR_LEN + len(str(d.get("payload", ""))) + MAC_LEN
             r = m(o, c)
             r["dst"] = r["dst"] if r["dst"] is not None else d.get("dst")
-            r["data_air"] += lora_airtime_ms(dsf, bw_hz, cr, nbytes)
-        elif et == "ack_tx" or et == "nack_tx":
-            o, c = d.get("origin"), d.get("ctr")
+            fr = phy_frame(fid, et, t_ms)
+            if fr is not None:
+                r["data_air"] += fr["ms"]
+        elif et in ("ack_tx", "nack_tx"):
+            o, c = oc(d, fid)
             if o is None or c is None:
+                stats["emit_unattributable"] += 1
                 continue
             r = m(o, c)
-            r["ack_air"] += lora_airtime_ms(r["rsf"] or 8, bw_hz, cr,
-                                            ACK_LEN if et == "ack_tx" else NACK_LEN)
-    return msgs, bw_hz, cr
+            fr = phy_frame(fid, et, t_ms)
+            if fr is not None:
+                r["ack_air"] += fr["ms"]
+
+    # ★★★ [[B162b]] THE RECONCILIATION. The attributed sum plus the unattributed bucket must equal
+    # the PHY total EXACTLY — that identity is what makes "an aired frame never vanishes" a checked
+    # property rather than a claim, so it is ASSERTED, not merely printed.
+    attributed_ms = sum(r["rts_air"] + r["cts_air"] + r["data_air"] + r["ack_air"]
+                        for r in msgs.values())
+    unattrib = [f for f in frames
+                if f["key"] is None or f["key"] in tx_ambiguous or f["key"] not in consumed]
+    unattributed_ms = sum(f["ms"] for f in unattrib)
+    if attributed_ms + unattributed_ms != phy_total_ms:
+        raise FrameShapeError(
+            f"AIRTIME RECONCILIATION FAILED: attributed {attributed_ms} + unattributed "
+            f"{unattributed_ms} != PHY total {phy_total_ms}. A frame was double-charged or lost; "
+            f"⛔ refusing to report a total that does not reconcile ([[B162b]]).")
+    # ★ same rule as `xcheck`: a fixed key set, so a zero is visible rather than absent.
+    ua = Counter({"frames": 0, "ms": 0, "no_matching_emit": 0, "no_matching_emit_ms": 0,
+                  "ambiguous_key": 0, "ambiguous_key_ms": 0,
+                  "node_not_in_config": 0, "node_not_in_config_ms": 0})
+    for f in unattrib:
+        ua["frames"] += 1
+        ua["ms"] += f["ms"]
+        if f["key"] is None:
+            ua["node_not_in_config"] += 1
+            ua["node_not_in_config_ms"] += f["ms"]
+        elif f["key"] in tx_ambiguous:
+            ua["ambiguous_key"] += 1
+            ua["ambiguous_key_ms"] += f["ms"]
+        else:
+            ua["no_matching_emit"] += 1        # ★ overwhelmingly the LBT-deferred aired frame
+            ua["no_matching_emit_ms"] += f["ms"]
+        ua[f"by_label:{f['base']}"] += 1
+    air = {
+        "phy_total_ms":        phy_total_ms,          # ★ AUTHORITATIVE
+        "attributed_ms":       attributed_ms,
+        "unattributed_ms":     unattributed_ms,       # ★ INCLUDED IN THE TOTAL
+        "chargeable_frames":   len(frames),
+        "unattributed":        dict(ua),
+        "ambiguous_keys":      len(tx_ambiguous),
+        "xcheck":              dict(xcheck),
+        "phy_params": {"bw_hz": sorted({f["bw_hz"] for f in frames}),
+                       "cr":    sorted({f["cr"] for f in frames}),
+                       "sf":    sorted({f["sf"] for f in frames})},
+    }
+    return msgs, air, stats, shapes, tx_census, len(tx_ambiguous)
 
 
-def render_airtime(events_path, slot_to_id, id_to_name, top=20):
+def render_airtime(events_path, slot_to_id, id_to_name, top=20, name_to_id=None,
+                   as_json=False):
     def nm(nid):
         n = id_to_name.get(nid)
         return f"{n}({nid})" if n is not None else str(nid)
 
-    msgs, bw_hz, cr = analyse_airtime(events_path, slot_to_id)
+    msgs, air, stats, shapes, tx_census, n_amb = analyse_airtime(
+        events_path, slot_to_id, name_to_id)
+    if as_json:
+        # ★★ [[B162d]] THROUGH `emit_json`, NOT A LOCAL `json.dump`: this payload is the AUTHORITY and
+        # it was the one that carried NEITHER the refusal count nor the examples.
+        emit_json({"airtime": air,
+                   "attribution_counters": dict(stats),
+                   "priced_shapes": dict(sorted(shapes.items())),
+                   "phy_length_census": tx_census,
+                   "authority": "airtime.phy_total_ms — summed DIRECTLY over every chargeable PHY "
+                                "tx frame at its OWN length/sf/bw/cr. attributed_ms + "
+                                "unattributed_ms == phy_total_ms (asserted). The per-message "
+                                "attribution view is SECONDARY and may be incomplete; the total "
+                                "never is."},
+                  events_path)
+        return
     rows = []
     for (o, c), r in msgs.items():
         rtscts = r["rts_air"] + r["cts_air"]
@@ -2290,21 +3020,55 @@ def render_airtime(events_path, slot_to_id, id_to_name, top=20):
     labels = [f"{nm(o)} -> {nm(r['dst'])} ({c})" for _, o, c, r, _ in disp]
     w = max([len(x) for x in labels] + [len("origin -> dst (ctr)"),
                                         len("TOTAL (%d msgs)" % len(rows))])
-    print("=== Airtime per message (ms; *_tx events + LoRa formula) ===")
-    print(f"bw={bw_hz}Hz cr=4/{cr} preamble={PREAMBLE_SYM}. RTS/CTS/ACK on routing SF, "
-          f"DATA on data SF.\n")
+    xc = air["xcheck"]
+    ua = air["unattributed"]
+    print("=== Airtime (ms) ===")
+    # ★★★ [[B162b]]: THE PHY LOG IS GROUND TRUTH; ATTRIBUTION IS A CONVENIENCE. The total is printed
+    # FIRST and is summed over the PHY frames themselves, so no correlation failure can shrink it.
+    print(f"★★ TOTAL AIRTIME (AUTHORITY) = {air['phy_total_ms']} ms over "
+          f"{air['chargeable_frames']} chargeable PHY frames "
+          f"(RTS/CTS/ACK/NACK/DATA; BCN/Q/H aired but are not in the DM budget).")
+    print(f"   Each frame priced at ITS OWN length/sf/bw/cr — sf={air['phy_params']['sf']} "
+          f"bw_hz={air['phy_params']['bw_hz']} cr=4/{air['phy_params']['cr']} "
+          f"preamble={PREAMBLE_SYM}.")
+    print(f"   CROSS-CHECK vs the PHY's own airtime_ms: {xc.get('agree', 0)}/"
+          f"{xc.get('frames', 0)} agree, {xc.get('disagree', 0)} disagree "
+          f"— ⓘ CONTROL: a deliberately wrong len+1 agrees on only "
+          f"{xc.get('control_len_plus1_agree', 0)}, so the agreement above discriminates.")
+    print(f"   = attributed {air['attributed_ms']} ms + UNATTRIBUTED {air['unattributed_ms']} ms "
+          f"({ua.get('frames', 0)} frames: no-matching-emit {ua.get('no_matching_emit', 0)} "
+          f"[LBT-deferred frames air LATER than their emit], ambiguous-key "
+          f"{ua.get('ambiguous_key', 0)}, node-not-in-config {ua.get('node_not_in_config', 0)})")
+    print(f"   ⛔ THE UNATTRIBUTED BUCKET IS PART OF THE TOTAL — an aired frame is never dropped "
+          f"([[B162b]]; the previous version dropped {ua.get('frames', 0)} of them here).")
+    if n_amb:
+        print(f"!! {n_amb} AMBIGUOUS (node,label,ms) KEY(S) — two frames indistinguishable from the "
+              f"emit stream. Their airtime is counted but NOT attributed to any message.")
+    # ★ [[B162]]: print the instrument's own counts BESIDE the figures.
+    print(f"★ lengths READ OFF THE WIRE per frame (no fixed RTS/CTS/DATA length — [[B162]]): "
+          f"priced_from_wire={stats['priced_from_wire']}  "
+          f"emits-with-no-frame-at-that-ms={stats['unaired']}  "
+          f"emits-without-(origin,ctr)={stats['emit_unattributable']}  "
+          f"emits-refused-ambiguous={stats['emit_refused_ambiguous']}  "
+          f"double-attribution-refused={stats['emit_double_attribution']}")
+    print(f"  PHY frame-length census (the codec's legal shapes, all validated): {tx_census}")
+    print(f"  priced shapes: {dict(sorted(shapes.items()))}\n")
+    print("--- SECONDARY VIEW: per-message attribution (approximate for relayed hops; "
+          "sums to `attributed`, NOT to the total above) ---")
     print(f"  {'origin -> dst (ctr)':{w}} {'rsf':>3} {'RTS+CTS':>8} {'DATA':>7} "
           f"{'ACK':>6} {'TOTAL':>7}")
     for (tot, o, c, r, rtscts), lbl in zip(disp, labels):
         print(f"  {lbl:{w}} {str(r['rsf'] or '?'):>3} {rtscts:>8} "
               f"{r['data_air']:>7} {r['ack_air']:>6} {tot:>7}")
     print(f"  {'-' * (w + 35)}")
-    print(f"  {('TOTAL (%d msgs)' % len(rows)):{w}} {'':>3} {s_rc:>8} {s_d:>7} "
+    print(f"  {('attributed (%d msgs)' % len(rows)):{w}} {'':>3} {s_rc:>8} {s_d:>7} "
           f"{s_a:>6} {s_t:>7}")
     print(f"  {'mean / msg':{w}} {'':>3} {s_rc // n:>8} {s_d // n:>7} "
           f"{s_a // n:>6} {s_t // n:>7}")
-    print(f"\n  split: RTS+CTS {100 * s_rc // max(s_t, 1)}%  "
+    print(f"\n  split of the ATTRIBUTED part: RTS+CTS {100 * s_rc // max(s_t, 1)}%  "
           f"DATA {100 * s_d // max(s_t, 1)}%  ACK {100 * s_a // max(s_t, 1)}%")
+    print(f"  reconciliation: attributed {s_t} + unattributed {air['unattributed_ms']} "
+          f"= {air['phy_total_ms']} = TOTAL ✓ (asserted in analyse_airtime)")
 
 
 def _haversine_km(lat1, lon1, lat2, lon2):
@@ -2365,7 +3129,7 @@ def analyse_tail(events_path, slot_to_id):
 
 
 def render_tail(events_path, slot_to_id, id_to_name, id_to_ll, top=10,
-                link_km=2.0):
+                link_km=2.0, name_to_id=None):
     """Airtime-tail profile: top N messages by total airtime, with hop counts
     + retry/copy stress + geographic distance. The `min_h` column is the
     minimum plausible hop count (= ceil(km / link_km), where link_km is the
@@ -2380,7 +3144,7 @@ def render_tail(events_path, slot_to_id, id_to_name, id_to_ll, top=10,
 
     # Reuse analyse_airtime for airtime totals (its key is (origin, ctr) — but
     # (origin, dst, ctr) uniquely refines it since ctr is per-(origin,dst)).
-    air_msgs, _, _ = analyse_airtime(events_path, slot_to_id)
+    air_msgs = analyse_airtime(events_path, slot_to_id, name_to_id)[0]
     tail_msgs = analyse_tail(events_path, slot_to_id)
 
     # Cross-reference: for each (o, c) in air_msgs, the dst is in air_msgs[k]["dst"]
@@ -2427,8 +3191,12 @@ def render_tail(events_path, slot_to_id, id_to_name, id_to_ll, top=10,
     total_air = sum(r[0] for r in rows)
     total_retr = sum(t.get("rts_retry", 0) for t in tail_msgs.values())
     print()
-    print(f"  top-{top} share of total airtime: {100 * tail_air / max(total_air, 1):.1f}%  "
-          f"({tail_air} / {total_air} ms)")
+    # ⚠ [[B162b]]: this denominator is the ATTRIBUTED airtime of the rows this view built, NOT the
+    # scenario's total airtime — the total is `--airtime`'s `phy_total_ms`, which also carries the
+    # unattributed bucket. Labelled rather than renamed: this is a per-message tail profile and a
+    # share-of-attributed is the right question for it; calling it "total" was the misleading part.
+    print(f"  top-{top} share of ATTRIBUTED airtime: {100 * tail_air / max(total_air, 1):.1f}%  "
+          f"({tail_air} / {total_air} ms)   ⓘ see `--airtime` for the PHY-direct TOTAL")
     print(f"  top-{top} retries / total retries: {tail_retr} / {total_retr}  "
           f"(mean {tail_retr / max(len(top_rows), 1):.1f}/msg)")
     if tail_chain:
@@ -2475,10 +3243,14 @@ def main():
                         "(transit / handoff / no_binding / H-query). "
                         "e.g. --trace xl-w015-e020")
     p.add_argument("--airtime", action="store_true",
-                   help="per-message airtime (ms) by category/SF: RTS+CTS (routing "
-                        "SF), DATA (data SF), ACK (routing SF). Computed from the "
-                        "*_tx emits + the LoRa formula (matches PHY airtime). "
-                        "Re-analyses existing ndjson, no re-sim.")
+                   help="airtime (ms). The TOTAL is summed DIRECTLY over every "
+                        "chargeable PHY tx frame at its OWN length/sf/bw/cr and "
+                        "cross-checked against the frame's own airtime_ms; the "
+                        "per-message split (RTS+CTS / DATA / ACK) is a SECONDARY "
+                        "attribution view, and whatever it cannot attribute lands "
+                        "in an explicit unattributed bucket that is still IN the "
+                        "total ([[B162b]]). Add --json for the machine-readable "
+                        "form. Re-analyses existing ndjson, no re-sim.")
     p.add_argument("--copies", action="store_true",
                    help="count copy-creating switches: a forward that abandoned "
                         "a next-hop which already decoded the frame (data_rx) and "
@@ -2509,6 +3281,13 @@ def main():
                  f"  (pass --run to generate it, or provide an "
                  f"explicit EVENTS path)")
 
+    # ★★★ [[B162d]] THE SINGLE CROSSING POINT — MUST STAY AHEAD OF THE MODE DISPATCH BELOW, so that
+    # no `return` in any mode can precede it. See `ndjson_refusal_crossing_point()` for why a
+    # per-mode copy of this notice was REJECTED, and `test_10` for the AST proof that nothing has
+    # slipped in front of it. ⓘ Placed before `load_config` so the banner is the FIRST thing on
+    # stdout (load_config's own diagnostics go to stderr — see line ~370).
+    ndjson_refusal_crossing_point(args)
+
     cfg, id_to_name, name_to_id, slot_to_id, hash_layer_to_name, id_to_layer \
         = load_config(args.config)
 
@@ -2521,7 +3300,8 @@ def main():
         return
 
     if args.airtime:
-        render_airtime(args.events, slot_to_id, id_to_name)
+        render_airtime(args.events, slot_to_id, id_to_name, name_to_id=name_to_id,
+                       as_json=args.json)
         return
 
     if args.tail is not None:
@@ -2529,10 +3309,11 @@ def main():
                     for n in cfg["nodes"]
                     if n.get("lat") is not None and n.get("lon") is not None}
         render_tail(args.events, slot_to_id, id_to_name, id_to_ll,
-                    top=args.tail, link_km=args.tail_link_km)
+                    top=args.tail, link_km=args.tail_link_km, name_to_id=name_to_id)
         return
 
-    msgs, arrival_by_payload, drops, gw_giveup, gw_layers, second_leg, xl_stats = analyse(
+    (msgs, arrival_by_payload, drops, gw_giveup, gw_layers, second_leg, xl_stats,
+     wire_to_config, alias_stats) = analyse(
         args.events, slot_to_id, hash_layer_to_name, id_to_layer)
     gw_home, gw_visit = gateway_layers(cfg)
 
@@ -2579,15 +3360,38 @@ def main():
     # an explicit --pair is the user narrowing the question, and --all removes the
     # filter entirely, so in neither case is a "missing intended send" well-defined.
     intended = None
+    unparsed_sends = Counter()
     if explicit is not None:
         pair_filter = explicit
     elif args.all:
         pair_filter = None
     else:
-        pair_filter, intended = configured_pairs(cfg, name_to_id,
-                                                 hash_layer_to_name)
+        pair_filter, intended, unparsed_sends = configured_pairs(cfg, name_to_id,
+                                                                 hash_layer_to_name)
 
-    rows = summarise(msgs, pair_filter, id_to_name, no_gw_by_pair, intended)
+    # ★★ [[B162]]: the CONFIGURED pair must be canonicalised into the SAME id space as the records.
+    # A scenario may address a teammate by its WIRE id (`send 254 hop_test -t`, `send_e2e 213 … -t`) while
+    # the same node's config id is 55 / 53 — so translating only the record left the two halves in
+    # different spaces and the pair silently failed to match (s23/s38 read 0 with records that HAD
+    # arrived). Translate both ends through the learned alias; a pair already in config space is a no-op.
+    def _canon_pairs(counter):
+        if not counter or not wire_to_config:
+            return counter
+        out = Counter()
+        for (o, dd), n in counter.items():
+            out[(wire_to_config.get(o, o), wire_to_config.get(dd, dd))] += n
+        return out
+
+    if wire_to_config:
+        if pair_filter is not None:
+            pair_filter = _canon_pairs(pair_filter) if isinstance(pair_filter, Counter) \
+                else {(wire_to_config.get(o, o), wire_to_config.get(d2, d2))
+                      for (o, d2) in pair_filter}
+        intended = _canon_pairs(intended)
+        no_gw_by_pair = {(wire_to_config.get(o, o), wire_to_config.get(d2, d2)): v
+                         for (o, d2), v in (no_gw_by_pair or {}).items()}
+
+    rows = summarise(msgs, pair_filter, id_to_name, no_gw_by_pair, intended, wire_to_config)
 
     channel_rows = None
     posts_meta = None
@@ -2609,7 +3413,8 @@ def main():
         if args.mode == "channel":
             payload = {"channels": channel_rows or []}
         elif args.mode == "dm":
-            render_json(rows, msgs, pair_filter, id_to_name, args.detail)
+            render_json(rows, msgs, pair_filter, id_to_name, args.detail,
+                        xl_stats, args.events, unparsed_sends, alias_stats)
             return
         else:
             # Inline-render the DM JSON view into a dict so we can pair it
@@ -2619,18 +3424,44 @@ def main():
             old_stdout = sys.stdout
             sys.stdout = buf
             try:
-                render_json(rows, msgs, pair_filter, id_to_name, args.detail)
+                render_json(rows, msgs, pair_filter, id_to_name, args.detail,
+                            xl_stats, args.events, unparsed_sends, alias_stats)
             finally:
                 sys.stdout = old_stdout
             dm_payload = json.loads(buf.getvalue())
             payload = {**dm_payload, "channels": channel_rows or []}
-        json.dump(payload, sys.stdout, indent=2)
-        sys.stdout.write("\n")
+        emit_json(payload, args.events)
         return
+
+    # ⓘ [[B162d]]: the refusal banner USED TO BE PRINTED HERE, and that was the defect — this line is
+    # reached only by `--mode dm|channel|all` in text form, so `--airtime`/`--trace`/`--copies`/
+    # `--tail` had all returned above without it, and the `--mode channel --json` payload built just
+    # above carried no refusal key either. It now lives at the single crossing point in `main()`,
+    # ahead of the whole dispatch. ⛔ Do not re-add a copy here.
 
     if args.mode in ("dm", "all"):
         print("=== DM ===")
         render_table(rows)
+        # ★ [[B162]] FAIL LOUD: a configured send this grammar could not resolve is missing from the
+        # denominator. It used to vanish silently and made 14 of 36 scenarios report 0 deliveries.
+        if unparsed_sends:
+            print()
+            print(f"!! {sum(unparsed_sends.values())} CONFIGURED SEND(S) COULD NOT BE RESOLVED — the "
+                  f"delivery figure above is INCOMPLETE for this scenario:")
+            for k, v in sorted(unparsed_sends.items(), key=lambda kv: -kv[1]):
+                print(f"     {k}: {v}")
+        # ★★ [[B162b]] FAIL LOUD ON THE OTHER HALF: a REFUSED runtime-id alias means one wire id was
+        # worn by several nodes, so `analyse()` correctly declined to translate it — and every record
+        # that needed that translation went unmatched. ⛔ `unresolved_configured_sends` stays 0 in that
+        # case (the send text parsed perfectly), so this counter is the ONLY warning that the
+        # authority may be short. It was computed and thrown away until now.
+        if alias_stats and alias_stats.get("refused_conflicts"):
+            print()
+            print(f"!! {alias_stats['refused_conflicts']} RUNTIME-ID ALIAS CONFLICT(S) REFUSED — a "
+                  f"wire id was worn by more than one node, so it was left untranslated. Deliveries "
+                  f"that needed it CANNOT be matched and the figure above may be SHORT. "
+                  f"({alias_stats.get('aliases', 0)} alias(es) accepted.) "
+                  f"⛔ Not a rounding detail — see [[B162]].")
         # §xl: the authoritative cross-layer delivery metric (pair-grouping-independent — the per-pair table
         # above drops un-arrived cross-layer rows whose target can't be resolved without the seal). Reconstructed
         # from tx_enqueue_xl + the (origin,ctr)-matched `delivered`.

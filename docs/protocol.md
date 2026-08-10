@@ -29,6 +29,33 @@ Single-slot stop-and-wait: **RTS→CTS→DATA→ACK** (NACK to refuse), each hop
 talk (LBT) + NAV virtual carrier sense gate the TX; a rolling duty-cycle budget tier throttles under load; failed
 next-hops cascade to alternates / hop-budget reroute.
 
+> ## ⛔⛔ THE §2 BLOCK BELOW IS **HISTORICAL AS OF `§hybrid-rts` S1–S4 (2026-08-08/09)** AND ITS PRESENT-TENSE
+> SENTENCES ARE **FALSE BY DESIGN**. ⛔ Do not act on them; they are kept because the *argument* they make is
+> still exactly right about the frame it was written about — **a 7-byte RTS**.
+>
+> **WHAT IS TRUE IN THE TREE NOW:** the unicast RTS is **10 B plaintext / 11 B crypted** and carries the canonical
+> flight identity (`origin|ctr_hi|ctr_lo`, or `BLAKE2b-512(0xE1|seed8|ctr_hi|ctr_lo|dst)[:4]`). Keyed on THAT,
+> **both** retired optimisations are restored: the receiver's terminal `already_received` CTS (6/7 B, echoing the
+> complete identity + plane; S2/S3) and the sender's overheard-forward credit (S4). The sender acts on a terminal
+> CTS only after a full endpoint · plane · domain · width · every-identity-byte match, and the forward credit
+> requires the same equality plus the wire-declared plane.
+> ⇒ ⛔ **Specifically FALSE below:** *"the `CTS already_received` bit stays reserved and is never emitted"*, *"the
+> overheard-forward implicit ACK … is gone"*, and *"the RTS is 7 bytes"*.
+>
+> ★★ **AND THE ONE CLAIM THAT WAS NEVER TRUE, WITHDRAWN RATHER THAN SOFTENED (`§hybrid-rts` S4 item 5):**
+> `payload_len` **does not disambiguate message identity and never did — it is a LENGTH.** The retired
+> implicit-ACK comment credited it with *"disambiguates a 4-bit `ctr_lo` wrap"*; it cannot, which is precisely why
+> two same-size messages to one destination collided. `payload_len` is a **frame-consistency / NAV field only**:
+> it sizes an overhearer's reservation and cheaply filters a NON-terminal fast path (the pending-RX re-CTS
+> branch, where a wrong match costs a retry and never a message). ⛔ It is absent from every identity comparison —
+> the completed-flight cache key, the terminal-CTS bind and the forward credit — and must not be added to any of
+> them "for extra safety": the comparison is the full identity or nothing.
+> ⇒ Live sources: `lib/core/frame_codec.h` (the wire + the same fence), `lib/core/node_mac_rx.cpp`
+> (`handle_rts` / `handle_cts`), spec `docs/superpowers/specs/2026-08-08-hybrid-rts-flight-identity-design.md`,
+> owner ruling `docs/2026-08-05-owner-rulings-ledger.md` §1.10.
+> ⓘ The full §2 rewrite (and `docs/frames.md`'s 10/11-B offsets) is **S6's** documentation task, deliberately not
+> done here — this fence exists so the block cannot be read as current in the meantime.
+
 **★★★ Terminal decisions may not be derived from an RTS — the retired `already_received` short-circuit and the
 retired implicit ACK (2026-08-08, `§B153`/`§B157`).** Two mechanisms used to end a sender's flight on the strength
 of an RTS. (1) A relay that had recently delivered a message answered a *retried* RTS with

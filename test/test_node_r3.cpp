@@ -19,6 +19,7 @@
 
 #include <array>
 #include <cstring>
+#include <functional>   // §hybrid-rts S4: the per-arm mismatch lambdas
 #include <span>
 #include <string>
 #include <vector>
@@ -31,7 +32,13 @@ struct Ev { std::string type; int to = -1; int dst = -1; bool dup = false;
             bool has_payload = false; std::string payload; int depth = -1; int ctr = -1;
             int next = -1; int requeue_count = -1; int reason = -1; int from = -1;
             int rt_total = -1;                                    // §B4: the sync-response plane's route count
-            bool healed = false; bool has_healed = false; };
+            bool healed = false; bool has_healed = false;
+            // ★ §hybrid-rts S4: the implicit-forward credit's own fields. `basis` is the NAMED observation
+            // (`local_admitted` / `alternate_path` — S4 emitted the first as `local_data`, renamed by S4c because
+            // NEITHER basis proves a DATA of ours aired) and the two bools are the pending state, so the credit
+            // census can be split by state from ONE instrument instead of two.
+            std::string basis; bool awaiting_cts = false; bool awaiting_ack = false;
+            int forward_next = -1; };
 
 struct TxFrame { std::string label; std::vector<uint8_t> bytes; };
 
@@ -42,7 +49,19 @@ public:
     // NB `rand_calls` (the base's) guards the cascade #1 determinism risk: no EXTRA draws. rand_bytes is
     // overridden below and does NOT route through rand_range, so it does not perturb those deltas.
 
+    // ★★★★ §hybrid-rts S4b (2026-08-09) — `tx_answer`, COPIED (U1) from `test_node_join.cpp`'s TestHal rather than
+    // invented, because §HYBRID-RTS-S4's own mutation M3 was nearly INERT for want of it: this HAL always handed
+    // off, so `TxHandOff::rejected` was UNREACHABLE in this TU and a "HAL rejection" case here would have been an
+    // inert green. ⛔ THE LESSON, and it is the same one join's copy records: before declaring a disposition
+    // unreachable, ask what ONE field would make it reachable. `DeviceHal::tx` answers `busy` on a full 8-entry
+    // outbound ring and RETAINS NOTHING, which is exactly what this reproduces.
+    // ⓘ Defaults to `ok` and a refused frame is NOT recorded in `tx_frames`, so every pre-existing case in this TU
+    //   is byte-identical — none of them sets it.
+    TxResult tx_answer = TxResult::ok;
+    int      tx_calls  = 0;                       // ATTEMPTS, refused or not (a refusal is still an attempt)
     TxResult tx(const uint8_t* b, size_t n, const TxParams& p) override {
+        ++tx_calls;
+        if (tx_answer != TxResult::ok) return tx_answer;   // refused: the HAL keeps nothing, so neither do we
         TxFrame f; f.label = p.label ? p.label : "";
         f.bytes.assign(b, b + n); tx_frames.push_back(std::move(f));
         return TxResult::ok;
@@ -82,6 +101,10 @@ public:
             else if (std::strcmp(f[i].key, "requeue_count") == 0) e.requeue_count = static_cast<int>(f[i].i);
             else if (std::strcmp(f[i].key, "rt_total") == 0) e.rt_total = static_cast<int>(f[i].i);   // §B4
             else if (std::strcmp(f[i].key, "payload") == 0 && f[i].s) { e.has_payload = true; e.payload = f[i].s; }
+            else if (std::strcmp(f[i].key, "basis") == 0 && f[i].s) e.basis = f[i].s;              // §hybrid-rts S4
+            else if (std::strcmp(f[i].key, "forward_next") == 0) e.forward_next = static_cast<int>(f[i].i);  // §hybrid-rts S4
+            else if (std::strcmp(f[i].key, "awaiting_cts") == 0) e.awaiting_cts = f[i].b;          // §hybrid-rts S4
+            else if (std::strcmp(f[i].key, "awaiting_ack") == 0) e.awaiting_ack = f[i].b;          // §hybrid-rts S4
         }
         events.push_back(e);
     }
@@ -3715,42 +3738,702 @@ TEST_CASE("§18 — a TEAM flight's LOCAL-id next-hop timing out does NOT suspec
     delete stat;
 }
 
-// ⛔⛔ ② THE IMPLICIT-ACK CASE IS REPLACED, NOT DELETED QUIETLY. It used to assert that an overheard
-// forward-RTS matching `next/dst/ctr_lo + payload_len` CANCELS our pending flight. That behaviour is GONE
-// (§B153/[[B157]]): it was a TERMINAL decision derived from an RTS, which cannot prove message identity, and
-// `s27` measured it discarding a real message (t=363718 — the gateway credited origin-114's forward to the
-// still-unsent origin-111 flight). The case now asserts the NEW contract in the SAME scenario, so the change
-// of behaviour is pinned rather than merely un-tested.
-TEST_CASE("[[B157]] an overheard forward-RTS must NOT cancel our pending flight — the optimization is gone, and "
-          "the flight survives to be retried (RTS authorizes reception; only DATA proves identity)") {
-    TestHal hal;
-    Node* node = mk_sender_with_routes(hal, {{2,1,14},{3,2,14}});   // dest 5 via 2 (primary) + 3 (alt)
-    send_cmd(*node, 5, "hi");                                       // RTS to via 2
-    uint8_t our_ctr_lo = 0, our_plen = 0; bool got = false;
-    for (auto& f : hal.tx_frames) { auto pr = parse_rts(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
-        if (pr && pr->src == 1) { our_ctr_lo = pr->ctr_lo; our_plen = pr->payload_len; got = true; } }
-    CHECK(got);
-    RxMeta m2{12.0f, -70.0f, 0, static_cast<int8_t>(2)};
-    std::array<uint8_t, 8> cb{}; const size_t cn = mk_cts(/*rx_id=*/1, /*tx_id=*/2, /*data_sf=*/7, cb);
-    node->on_recv(cb.data(), cn, m2);
-    node->on_timer(kCtsToDataGapTimerId);                          // -> DATA tx (awaiting_ack)
-    CHECK(node->has_pending_tx());
+// =============================================================================
+// ★★★★★ §hybrid-rts S4 (2026-08-09) — THE SENDER-SIDE IMPLICIT-ACK, RESTORED AND KEYED ON THE S1 IDENTITY.
+// Design: docs/superpowers/specs/2026-08-08-hybrid-rts-flight-identity-design.md §5.2 · plan §S4 ·
+// owner ruling `docs/2026-08-05-owner-rulings-ledger.md` §1.10.
+//
+// ⛔⛔ WHAT WAS HERE, AND WHY IT IS REPLACED RATHER THAN DELETED QUIETLY. A single [[B157]] case asserted that
+// an overheard forward-RTS matching `next/dst/ctr_lo + payload_len` must NOT cancel our pending flight, and it
+// stayed GREEN through S4 for the wrong reason: `mk_rts` gave that frame a PLACEHOLDER identity, so it was
+// exercising the mismatch path while claiming to prove the mechanism was absent. ⇒ **a case whose green could
+// not distinguish "the feature is gone" from "this particular frame did not match" is not a detector.** The
+// contract it protected is preserved BELOW, as an explicit one-bit / same-old-tuple refusal with a positive
+// control beside it, so a build that lost the identity comparison goes red rather than green.
+//
+// ⚠ ⛔ NEITHER CREDIT BASIS IS DELIVERY EVIDENCE (ruling §1.10, verbatim: *"A mismatch may be billed as physical
+//   airtime, but must not refresh liveness or alter timers, routing, pending state, or application outcomes."*).
+//   Every case below asserts the ABSENCE of `send_acked` / `send_e2e_acked` / `send_failed`, because the one way
+//   this restoration could be wrong is by looking like a success.
+// =============================================================================
+namespace {
+// ★ §hybrid-rts S4 — a unicast RTS carrying an EXPLICIT identity and EXPLICIT wire marks. The credit cases need
+// both: the identity so a forward can be made to match (or to miss by one bit), and the marks so the wire-declared
+// plane can be varied WITHOUT changing any numeric field.
+static size_t mk_rts_wire(uint8_t src, uint8_t next, uint8_t dst, uint8_t ctr_lo, uint8_t plen,
+                          std::array<uint8_t, 16>& b, const RtsFlightIdentity& id,
+                          uint8_t addr_len = 0, bool mobile_src = false, uint8_t rts_flags = 0) {
+    rts_in in{}; in.leaf_id = 0; in.src = src; in.next = next; in.ctr_lo = ctr_lo; in.dst = dst;
+    in.sf_index = 3; in.rts_flags = rts_flags; in.payload_len = plen;
+    in.addr_len = addr_len; in.mobile_src = mobile_src; in.id = id;
+    return pack_rts(in, std::span<uint8_t>(b.data(), b.size()));
+}
+// The shape of the unicast RTS WE most recently aired, read OFF THE WIRE. ⛔ A case that restated the identity
+// derivation would be asserting its own arithmetic; this asserts the frame the receiver would actually see, which
+// is also what makes the "same identity" arms honest.
+struct OurRts { bool got = false; uint8_t src = 0, next = 0, dst = 0, ctr_lo = 0, plen = 0, addr_len = 0;
+                bool mobile_src = false; RtsFlightIdentity id{}; };
+static OurRts our_last_rts(const TestHal& hal) {
+    OurRts o{};
+    for (const auto& f : hal.tx_frames) {
+        auto pr = parse_rts(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+        if (!pr || pr->m_broadcast) continue;                       // unicast only (an M/FLOOD RTS carries no identity)
+        o.got = true; o.src = pr->src; o.next = pr->next; o.dst = pr->dst; o.ctr_lo = pr->ctr_lo;
+        o.plen = pr->payload_len; o.addr_len = pr->addr_len; o.mobile_src = pr->mobile_src; o.id = pr->id;
+    }
+    return o;
+}
+// "No app-facing outcome was invented." Drains the push ring and reports whether ANY terminal send outcome appeared.
+static bool any_send_outcome_push(Node& n) {
+    Push p{}; bool any = false;
+    while (n.next_push(p))
+        if (p.kind == PushKind::send_acked || p.kind == PushKind::send_failed
+            || p.kind == PushKind::send_e2e_acked) any = true;
+    return any;
+}
+// A sender at id 1 with a TWO-HOP route to `dst` via `next`, so an overheard forward from `next` to a third node
+// is a genuine downstream forward rather than a frame addressed back at the destination.
+static Node* s4_sender(TestHal& hal, uint8_t dst, uint8_t next) {
+    Node* n = new Node(hal, /*id=*/1, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
+    n->on_init(cfg);
+    n->route_inject(dst, next, /*hops=*/2, /*score=*/100);
+    return n;
+}
+}  // namespace
 
-    // The forward that used to be read as an implicit ACK: our next-hop (2) relaying to 9, agreeing on
-    // dst/ctr_lo AND payload_len — i.e. EVERY field the retired match used.
-    std::array<uint8_t, 16> fb{}; const size_t fn = mk_rts(/*src=*/2, /*next=*/9, /*dst=*/5, our_ctr_lo, our_plen, fb);
-    node->on_recv(fb.data(), fn, m2);
-    CHECK(hal.count("implicit_ack_from_forward") == 0);             // ⛔ the emit no longer exists at all
-    // ★ THE ASSERTION THAT MATTERS: our flight is STILL OURS. Nothing terminal was inferred from that frame,
-    // so the message cannot have been silently discarded — which is the whole defect.
+TEST_CASE("§hybrid-rts S4 — `alternate_path`: an exact downstream forward while we still AWAIT CTS clears the "
+          "redundant local copy, sends NO DATA, and invents NO app outcome") {
+    // ⛔⛔ §hybrid-rts S4b (2026-08-09) — **THIS CASE'S HEADING USED TO READ "THE MAJORITY SHAPE … 46 of the 61
+    // historical credits". BOTH HALVES ARE WITHDRAWN.** The 46/61 split was UNMEASURABLE when written (the deciding
+    // field, `data_ever_admitted` — S4 called it `data_ever_transmitted` — is introduced by S4) and is FALSE on the
+    // S4 wire: measured over all 36 scenarios, **49 credits — 36 local / 13 `alternate_path`** (the 36 were emitted
+    // as `local_data`, renamed `local_admitted` by S4c with the counts unmoved), so this shape is the MINORITY (~27 %).
+    // The historical inference "`awaiting_cts` ⇒ DATA never transmitted" fails because `awaiting_cts` is NOT a
+    // monotone phase — a flight that ADMITS a DATA, loses the ACK and re-RTSes is back in it (32 of the 45).
+    // ★ WHAT THIS CASE PINS IS UNCHANGED, and it is the justification, not the frequency: **"the flight is
+    // progressing and this local copy is redundant"** — ⛔ NOT "our DATA crossed the hop", because no DATA of ours
+    // exists. Figures: `simulation/BASELINE.md` §HYBRID-RTS-S4 (3) / §HYBRID-RTS-S4b.
+    TestHal hal;
+    Node* node = s4_sender(hal, /*dst=*/50, /*next=*/20);
+    const uint8_t body[2] = { 'h', 'i' };
+    hal._now = 1000;
+    CHECK(node->test_do_send_typed(/*dst=*/50, body, sizeof body, CryptIntent::def, 0, 0) != 0);
+    const OurRts o = our_last_rts(hal); CHECK(o.got);
+    CHECK(o.next == 20); CHECK(o.dst == 50);
+    CHECK(rts_flight_identity_valid(o.id));
+    CHECK(hal.count("data_tx") == 0);                       // precondition: awaiting_cts, nothing aired
     CHECK(node->has_pending_tx());
-    // ...and the ACK timeout it is still waiting on genuinely fires and drives the RECOVERY path (a backoff-armed
-    // re-RTS) rather than a silent drop. ⓘ The re-RTS is deferred through kRetryBackoffTimerId, so drive both.
-    const int rts_before = hal.count("rts_tx");
-    node->on_timer(kAckTimeoutTimerId);
-    node->on_timer(kRetryBackoffTimerId);
-    CHECK(hal.count("rts_tx") > rts_before);                       // a real retry — the recovery path, not a drop
+    { Push d{}; while (node->next_push(d)) {} }              // drain whatever the origination pushed
+    // 20 (our next hop) forwards THE SAME FLIGHT onward to 9 — same identity bytes, same dst, wire plane STATIC.
+    RxMeta m20{ 12.0f, -70.0f, 0, static_cast<int8_t>(20) };
+    std::array<uint8_t, 16> fb{};
+    const size_t fn = mk_rts_wire(/*src=*/20, /*next=*/9, /*dst=*/50, o.ctr_lo, o.plen, fb, o.id);
+    CHECK(fn == 10);
+    hal._now = 1500; node->on_recv(fb.data(), fn, m20);
+    // ★★ THE CREDIT, AND ITS BASIS
+    CHECK(hal.count("implicit_ack_from_forward") == 1);
+    const Ev* ia = hal.last("implicit_ack_from_forward"); CHECK(ia != nullptr);
+    if (ia) { CHECK(ia->basis == "alternate_path");          // ★ we admitted no DATA — the OTHER label
+              CHECK(ia->awaiting_cts); CHECK_FALSE(ia->awaiting_ack);
+              CHECK(ia->from == 20); CHECK(ia->dst == 50); CHECK(ia->forward_next == 9); }
+    CHECK_FALSE(node->has_pending_tx());                    // the redundant copy is gone...
+    CHECK(hal.count("data_tx") == 0);                       // ★ ...and NO DATA was ever sent for it
+    // ⛔ AND NOTHING SUCCESS- OR FAILURE-SHAPED WAS INVENTED (ruling §1.10 second half)
+    CHECK(hal.count("send_failed") == 0);
+    CHECK(hal.count("delivered") == 0);
+    CHECK(hal.count("send_e2e_acked") == 0);
+    CHECK_FALSE(any_send_outcome_push(*node));
     delete node;
+}
+
+TEST_CASE("§hybrid-rts S4 — `local_admitted`: an exact forward after the DATA was ADMITTED to the radio clears the "
+          "copy, emits only the named diagnostic, and does not re-send the DATA") {
+    // ⛔ §hybrid-rts S4c (2026-08-10): this case's basis used to be called `local_data` and this heading used to say
+    // *"AFTER a real DATA transmission"*. **BOTH ARE WITHDRAWN NAMES FOR THE SAME OBSERVATION** — `TestHal::tx`
+    // returning `ok` is an ADMISSION, and on metal `DeviceHal::tx` is an enqueue whose frame can still be refused
+    // (`on_radio_busy`) or dropped (`pump_tx`). What the case pins is unchanged: the OTHER of the two labels fires,
+    // and no second DATA is sent.
+    TestHal hal;
+    Node* node = s4_sender(hal, /*dst=*/50, /*next=*/20);
+    const uint8_t body[2] = { 'h', 'i' };
+    hal._now = 1000;
+    CHECK(node->test_do_send_typed(/*dst=*/50, body, sizeof body, CryptIntent::def, 0, 0) != 0);
+    const OurRts o = our_last_rts(hal); CHECK(o.got);
+    RxMeta m20{ 12.0f, -70.0f, 0, static_cast<int8_t>(20) };
+    std::array<uint8_t, 8> cb{}; const size_t cn = mk_cts(/*rx_id=*/1, /*tx_id=*/20, /*data_sf=*/7, cb);
+    hal._now = 1100; node->on_recv(cb.data(), cn, m20);
+    node->on_timer(kCtsToDataGapTimerId);                   // -> the DATA is ADMITTED to the HAL (awaiting_ack)
+    CHECK(hal.count("data_tx") == 1);                       // ★ the precondition this case is ABOUT
+    CHECK(node->has_pending_tx());
+    { Push d{}; while (node->next_push(d)) {} }
+    std::array<uint8_t, 16> fb{};
+    const size_t fn = mk_rts_wire(/*src=*/20, /*next=*/9, /*dst=*/50, o.ctr_lo, o.plen, fb, o.id);
+    hal._now = 1600; node->on_recv(fb.data(), fn, m20);
+    CHECK(hal.count("implicit_ack_from_forward") == 1);
+    const Ev* ia = hal.last("implicit_ack_from_forward"); CHECK(ia != nullptr);
+    if (ia) { CHECK(ia->basis == "local_admitted");          // ★ THE OTHER BASIS — the HAL ADMITTED our DATA
+              CHECK(ia->awaiting_ack); CHECK_FALSE(ia->awaiting_cts); }
+    CHECK_FALSE(node->has_pending_tx());
+    CHECK(hal.count("data_tx") == 1);                       // ★ no SECOND DATA — that is the airtime saving
+    CHECK(hal.count("send_failed") == 0);
+    CHECK(hal.count("delivered") == 0);
+    CHECK_FALSE(any_send_outcome_push(*node));
+    // ...and the recovery path is not needed, because the flight is gone: the ACK timeout it was waiting on can
+    // fire harmlessly (the timers were cancelled, and there is no flight left to retry).
+    const int rts_before = hal.count("rts_tx");
+    node->on_timer(kAckTimeoutTimerId); node->on_timer(kRetryBackoffTimerId);
+    CHECK(hal.count("rts_tx") == rts_before);
+    CHECK_FALSE(any_send_outcome_push(*node));
+    delete node;
+}
+
+TEST_CASE("§hybrid-rts S4 — an INDEPENDENTLY ARMED end-to-end ACK wait SURVIVES the credit (the credit is "
+          "progress evidence, never a delivery receipt)") {
+    // ★★ Design §5.2: *"Preserve any independently armed end-to-end ACK wait."* The `-a` deadline ring is the ONLY
+    // thing that can report a real end-to-end outcome; if the credit had cleared it, an undelivered `-a` DM would
+    // go silent forever — the "a success that isn't" class this whole arc exists to remove.
+    // ⓘ The wait is PRIVATE state, so it is proven BEHAVIOURALLY: the deadline still fires its send_failed.
+    TestHal hal;
+    Node* node = s4_sender(hal, /*dst=*/50, /*next=*/20);
+    const uint8_t body[2] = { 'h', 'i' };
+    hal._now = 1000;
+    Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = 50; c.u.send.flags = DATA_FLAG_E2E_ACK_REQ;
+    c.body = body; c.body_len = sizeof body;
+    const CmdResult r = node->on_command(c);
+    CHECK(r.code == CmdCode::queued);
+    const uint16_t ctr = r.ctr;
+    CHECK(ctr != 0);
+    const OurRts o = our_last_rts(hal); CHECK(o.got);
+    { Push d{}; while (node->next_push(d)) {} }
+    RxMeta m20{ 12.0f, -70.0f, 0, static_cast<int8_t>(20) };
+    std::array<uint8_t, 16> fb{};
+    const size_t fn = mk_rts_wire(/*src=*/20, /*next=*/9, /*dst=*/50, o.ctr_lo, o.plen, fb, o.id);
+    hal._now = 1500; node->on_recv(fb.data(), fn, m20);
+    CHECK(hal.count("implicit_ack_from_forward") == 1);
+    CHECK_FALSE(node->has_pending_tx());
+    CHECK_FALSE(any_send_outcome_push(*node));              // ⛔ the credit itself pushed NOTHING
+    // ★★ THE ASSERTION: the E2E wait is STILL ARMED — its deadline still fires, and it names OUR ctr.
+    hal._now = 1000 + protocol::e2e_ack_deadline_ms + 1;
+    node->on_timer(/*kE2eAckDeadlineTimerId=*/90);
+    bool timed_out = false; Push p{};
+    while (node->next_push(p))
+        if (p.kind == PushKind::send_failed && p.reason == SendFailReason::e2e_ack_timeout && p.ctr == ctr)
+            timed_out = true;
+    CHECK(timed_out);                                       // ★ the app still learns the truth
+    delete node;
+}
+
+TEST_CASE("§hybrid-rts S4 — the `s27` collision frame (TWO ORIGINS, SAME `ctr_lo`, SAME length) does NOT clear the "
+          "other flight, and the flight survives to be retried") {
+    // ★★★ THE EXACT FRAME THAT FORCED [[B157]]'s DELETION, rebuilt. On the 7-byte wire the two frames were
+    // BYTE-IDENTICAL: `s27` t=363718, gateway G1 overheard 103 forwarding origin **114**'s message and credited it
+    // to the still-unsent origin **111** flight (both `ctr` 2, both `payload_len` 57). ⇒ `re-m3` lost in silence.
+    // On the S1 wire the identity tail differs, so the credit REFUSES.
+    TestHal hal;
+    Node* node = s4_sender(hal, /*dst=*/50, /*next=*/20);
+    const uint8_t body[2] = { 'h', 'i' };
+    hal._now = 1000;
+    CHECK(node->test_do_send_typed(/*dst=*/50, body, sizeof body, CryptIntent::def, 0, 0) != 0);
+    const OurRts o = our_last_rts(hal); CHECK(o.got);
+    const Ev* rt = hal.last("rts_tx"); CHECK(rt != nullptr);
+    const uint16_t our_ctr = rt ? static_cast<uint16_t>(rt->ctr) : 0;
+    // A DIFFERENT ORIGIN, the SAME full ctr — i.e. the same `ctr_lo`, the same dst, the same next hop, the same
+    // payload_len. EVERY field the retired match compared is equal; only the identity's origin byte differs.
+    const RtsFlightIdentity other = rts_flight_identity_plain(/*origin=*/114, our_ctr);
+    CHECK_FALSE(rts_flight_identity_equal(other, o.id));    // ⚠ stated up front: the frames DO differ now
+    RxMeta m20{ 12.0f, -70.0f, 0, static_cast<int8_t>(20) };
+    std::array<uint8_t, 16> fb{};
+    const size_t fn = mk_rts_wire(/*src=*/20, /*next=*/9, /*dst=*/50, o.ctr_lo, o.plen, fb, other);
+    hal._now = 1500; node->on_recv(fb.data(), fn, m20);
+    CHECK(hal.count("implicit_ack_from_forward") == 0);      // ★★ REFUSED
+    CHECK(node->has_pending_tx());                          // ★ our message is STILL OURS
+    CHECK_FALSE(any_send_outcome_push(*node));              // no outcome either way — a mismatch changes nothing
+    // ...and the recovery path still works: the CTS timeout drives a real retry rather than a silent drop.
+    const int rts_before = hal.count("rts_tx");
+    node->on_timer(kRtsTimeoutTimerId); node->on_timer(kRetryBackoffTimerId);
+    CHECK(hal.count("rts_tx") > rts_before);
+    // ★ THE POSITIVE CONTROL, in the same case: the EXACT identity on the SAME endpoints DOES credit — so the
+    //   refusal above is about the identity, not about an inert code path.
+    const OurRts o2 = our_last_rts(hal); CHECK(o2.got);
+    std::array<uint8_t, 16> gb{};
+    const size_t gn = mk_rts_wire(/*src=*/20, /*next=*/9, /*dst=*/50, o2.ctr_lo, o2.plen, gb, o2.id);
+    hal._now = 2500; node->on_recv(gb.data(), gn, m20);
+    CHECK(hal.count("implicit_ack_from_forward") == 1);
+    CHECK_FALSE(node->has_pending_tx());
+    delete node;
+}
+
+TEST_CASE("§hybrid-rts S4 — a ONE-BIT mismatch in identity, dst, next-hop, wire PLANE or identity DOMAIN leaves "
+          "the flight pending (each arm on its own node, each with the exact frame as its control)") {
+    const uint8_t body[2] = { 'h', 'i' };
+    RxMeta m20{ 12.0f, -70.0f, 0, static_cast<int8_t>(20) };
+    // Each arm: build a fresh sender, perturb ONE thing, assert no credit + flight intact, then feed the EXACT
+    // frame and assert the credit fires. Without that second half every arm would pass on a build with the
+    // mechanism removed entirely — which is exactly how the retired [[B157]] case stayed green.
+    auto arm = [&](const char* what,
+                   std::function<void(const OurRts&, std::array<uint8_t,16>&, size_t&)> make_bad) {
+        TestHal hal;
+        Node* node = s4_sender(hal, /*dst=*/50, /*next=*/20);
+        hal._now = 1000;
+        CHECK(node->test_do_send_typed(/*dst=*/50, body, sizeof body, CryptIntent::def, 0, 0) != 0);
+        const OurRts o = our_last_rts(hal); CHECK(o.got);
+        { Push d{}; while (node->next_push(d)) {} }
+        std::array<uint8_t, 16> bad{}; size_t bn = 0;
+        make_bad(o, bad, bn);
+        CHECK_MESSAGE(bn > 0, what);                        // the frame must actually pack, or the arm is vacuous
+        hal._now = 1500; node->on_recv(bad.data(), bn, m20);
+        CHECK_MESSAGE(hal.count("implicit_ack_from_forward") == 0, what);   // ⛔ REFUSED
+        CHECK_MESSAGE(node->has_pending_tx(), what);                        // ★ flight intact
+        CHECK_FALSE(any_send_outcome_push(*node));
+        // the positive control on the SAME node
+        std::array<uint8_t, 16> good{};
+        const size_t gn = mk_rts_wire(20, 9, o.dst, o.ctr_lo, o.plen, good, o.id);
+        hal._now = 1600; node->on_recv(good.data(), gn, m20);
+        CHECK_MESSAGE(hal.count("implicit_ack_from_forward") == 1, what);
+        CHECK_MESSAGE(!node->has_pending_tx(), what);
+        delete node;
+    };
+    // ⛔ ONE IDENTITY BIT
+    arm("one identity bit", [](const OurRts& o, std::array<uint8_t,16>& b, size_t& n) {
+        RtsFlightIdentity x = o.id; x.bytes[o.id.width - 1] ^= 0x01;
+        n = mk_rts_wire(20, 9, o.dst, o.ctr_lo, o.plen, b, x);
+    });
+    // ⛔ DST
+    arm("dst", [](const OurRts& o, std::array<uint8_t,16>& b, size_t& n) {
+        n = mk_rts_wire(20, 9, static_cast<uint8_t>(o.dst ^ 0x01), o.ctr_lo, o.plen, b, o.id);
+    });
+    // ⛔ NEXT-HOP RELATIONSHIP: the forward comes from a node that is NOT the hop we RTS'd
+    arm("next-hop", [](const OurRts& o, std::array<uint8_t,16>& b, size_t& n) {
+        n = mk_rts_wire(/*src=*/21, 9, o.dst, o.ctr_lo, o.plen, b, o.id);
+    });
+    // ⛔ WIRE PLANE: identical identity and endpoints, but the frame DECLARES the TEAM plane (1,1) while our own
+    //    flight declared STATIC. Decoded with the shared wire helper on BOTH sides — never a receiver predicate.
+    arm("wire plane", [](const OurRts& o, std::array<uint8_t,16>& b, size_t& n) {
+        n = mk_rts_wire(20, 9, o.dst, o.ctr_lo, o.plen, b, o.id, /*addr_len=*/1, /*mobile_src=*/true);
+    });
+    // ⛔ IDENTITY DOMAIN/WIDTH: a CRYPTED 4-byte tail where our flight is PLAINTEXT. `rts_flight_identity_equal`
+    //    compares domain and width first, so a numeric coincidence can never cross the domains.
+    arm("identity domain", [](const OurRts& o, std::array<uint8_t,16>& b, size_t& n) {
+        const uint8_t seed[8] = { 0x11,0x22,0x33,0x44, 0x55,0x66,0x77,0x88 };
+        RtsFlightIdentity cid = rts_flight_identity_crypted(seed, 0x0001, o.dst);
+        for (uint8_t i = 0; i < o.id.width; ++i) cid.bytes[i] = o.id.bytes[i];   // ★ numerically IDENTICAL prefix
+        n = mk_rts_wire(20, 9, o.dst, o.ctr_lo, o.plen, b, cid);
+    });
+}
+
+TEST_CASE("§hybrid-rts S4 — a TEAM-plane flight and a STATIC forward with otherwise IDENTICAL numeric fields do "
+          "not cross-match, in BOTH directions") {
+    // ★★ The mirror of the STATIC-flight/TEAM-forward arm above, and the direction the corpus cannot reach
+    // ([[B160-COV]]: 12 scenarios have a team plane, 12 produce a requeue, and the intersection is empty).
+    // Our own flight declares wire TEAM (`addr_len=1, mobile_src=1` — `rts_wire_marks`), so a forward that
+    // declares STATIC with the SAME identity bytes and the SAME endpoints must be refused.
+    const uint32_t TEAM = 0xABCD1234u;
+    TestHal hal;
+    Node node(hal, /*id=*/30, /*key=*/0x3030u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
+    cfg.is_mobile = true; cfg.team_id = TEAM; CHECK(node.on_init(cfg));
+    uint8_t ext[8]; const size_t en = pack_team_id_tlv(TEAM, std::span<uint8_t>(ext, sizeof ext));
+    beacon_in tb{}; tb.leaf_id = 0; tb.src = 40; tb.key_hash32 = 0x4040u; tb.is_mobile = true;
+    tb.ext = std::span<const uint8_t>(ext, en);
+    std::array<uint8_t, 64> b{};
+    const size_t bn = pack_beacon(tb, std::span<uint8_t>(b.data(), b.size()));
+    hal._now = 500; node.on_recv(b.data(), bn, RxMeta{ 12.0f, -70.0f, 0, static_cast<int8_t>(40) });
+    CHECK(node.is_team_peer(40));
+    hal._now = 1000;
+    send_cmd(node, /*dst=*/40, "hi");                       // a TEAM DM -> RTS with (addr_len=1, mobile_src=1)
+    const OurRts o = our_last_rts(hal); CHECK(o.got);
+    CHECK(o.addr_len == 1); CHECK(o.mobile_src);            // ★ precondition: OUR flight declares wire TEAM
+    CHECK(rts_wire_team_plane(o.addr_len, o.mobile_src));
+    CHECK(node.has_pending_tx());
+    RxMeta m40{ 12.0f, -70.0f, 0, static_cast<int8_t>(40) };
+    // ⛔ ARM 1 — the SAME identity, SAME endpoints, but the forward declares STATIC (0,0).
+    { std::array<uint8_t, 16> fb{};
+      const size_t fn = mk_rts_wire(/*src=*/40, /*next=*/9, o.dst, o.ctr_lo, o.plen, fb, o.id,
+                                    /*addr_len=*/0, /*mobile_src=*/false);
+      hal._now = 1500; node.on_recv(fb.data(), fn, m40); }
+    CHECK(hal.count("implicit_ack_from_forward") == 0);      // ★★ REFUSED — the planes disagree
+    CHECK(node.has_pending_tx());
+    // ★ ARM 2 (the positive control) — the SAME frame declaring TEAM (1,1) DOES credit.
+    { std::array<uint8_t, 16> fb{};
+      const size_t fn = mk_rts_wire(/*src=*/40, /*next=*/9, o.dst, o.ctr_lo, o.plen, fb, o.id,
+                                    /*addr_len=*/1, /*mobile_src=*/true);
+      hal._now = 1600; node.on_recv(fb.data(), fn, m40); }
+    CHECK(hal.count("implicit_ack_from_forward") == 1);
+    const Ev* ia = hal.last("implicit_ack_from_forward"); CHECK(ia != nullptr);
+    if (ia) CHECK(ia->basis == "alternate_path");
+    CHECK_FALSE(node.has_pending_tx());
+}
+
+TEST_CASE("§hybrid-rts S4 — a DUTY-DEFERRED DATA was never even ADMITTED, so the basis stays `alternate_path` EVEN "
+          "THOUGH the `data_tx` telemetry fired (the boundary is the admission, not the emit)") {
+    // ★★★ THIS IS THE CASE THAT MAKES `data_ever_admitted`'s PLACEMENT FALSIFIABLE, and it is the only one that
+    // can: `TestHal::tx` answers `ok` unless `tx_answer` says otherwise, so on every other path `handed` is true and
+    // moving the assignment above `tx_with_retry` would be INVISIBLE. Here the duty pre-check returns
+    // `deferred_retry_armed` — the frame is stashed, NOT offered to the radio at all — while `MR_EMIT("data_tx", ...)`
+    // fires REGARDLESS, a few lines later.
+    // ⇒ ⚠ THE TELEMETRY IS NOT EVEN THE ADMISSION, let alone the transmission. If the field were set before the
+    //   hand-off, this flight would report the local basis for a DATA that never left the node. The gate mutates that.
+    // ⓘ It also reproduces the corpus's rarest pending state: `awaiting_cts` false (the CTS arrived) AND
+    //   `awaiting_ack` false (nothing was handed, so no ACK wait was armed) — the "neither" class.
+    TestHal hal;
+    Node* node = new Node(hal, /*id=*/1, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
+    cfg.duty_cycle = 0.10;                                  // ⚠ a real budget: with 0 there is no pre-check at all
+    CHECK(node->on_init(cfg));
+    node->route_inject(/*dest=*/50, /*next_hop=*/20, /*hops=*/2, /*score=*/100);
+    hal._now = 1000;
+    CHECK(node->test_do_send_typed(/*dst=*/50, (const uint8_t*)"hi", 2, CryptIntent::def, 0, 0) != 0);
+    const OurRts o = our_last_rts(hal); CHECK(o.got);       // the RTS is slot<0 -> never duty-deferred, so it flew
+    hal._airtime_used = 999999999ull;                       // ★ now the DATA cannot be handed to the radio
+    RxMeta m20{ 12.0f, -70.0f, 0, static_cast<int8_t>(20) };
+    std::array<uint8_t, 8> cb{}; const size_t cn = mk_cts(/*rx_id=*/1, /*tx_id=*/20, /*data_sf=*/7, cb);
+    hal._now = 1100; node->on_recv(cb.data(), cn, m20);
+    node->on_timer(kCtsToDataGapTimerId);
+    CHECK(hal.count("duty_cycle_blocked") == 1);            // ★ the frame was DEFERRED, not sent
+    CHECK(hal.count("data_tx") == 1);                       // ⚠ ...and the telemetry fired anyway
+    CHECK(node->has_pending_tx());
+    { Push d{}; while (node->next_push(d)) {} }
+    std::array<uint8_t, 16> fb{};
+    const size_t fn = mk_rts_wire(/*src=*/20, /*next=*/9, /*dst=*/50, o.ctr_lo, o.plen, fb, o.id);
+    hal._now = 1600; node->on_recv(fb.data(), fn, m20);
+    CHECK(hal.count("implicit_ack_from_forward") == 1);
+    const Ev* ia = hal.last("implicit_ack_from_forward"); CHECK(ia != nullptr);
+    if (ia) { CHECK(ia->basis == "alternate_path");           // ★★ THE ASSERTION — no DATA of ours was ever admitted
+              CHECK_FALSE(ia->awaiting_cts); CHECK_FALSE(ia->awaiting_ack); }   // the "neither" pending state
+    CHECK_FALSE(node->has_pending_tx());
+    CHECK_FALSE(any_send_outcome_push(*node));
+    delete node;
+}
+
+// =============================================================================
+// ★★★★★ §hybrid-rts S4b (2026-08-09) — THE TWO CORPUS-DARK CORRECTNESS HOLES S4 LEFT, EACH WITH ITS CONTROL.
+// Both were found by review, NOT by the corpus: the credit census and all 36 stream md5s are unchanged by either
+// fix, so ⛔ **these native cases are the ONLY detectors either fix has** and each is paired with a positive
+// control + a mutation applied at match count == 1 (recorded in `simulation/BASELINE.md` §HYBRID-RTS-S4b).
+// =============================================================================
+
+TEST_CASE("★★★ §hybrid-rts S4b — a HAL-REJECTED DATA is NOT an admission: the basis stays `alternate_path` while "
+          "the ACK wait it legitimately arms stays armed (the two dispositions are ASYMMETRIC for the flag)") {
+    // ⛔⛔ THE DEFECT: `do_data_tx` computed `handed = tx_with_retry(...) != deferred_retry_armed`, so
+    // `TxHandOff::rejected` — the HAL REFUSING the frame (`DeviceHal::tx`: full ring, `busy`, `txq_drops`, nothing
+    // retained) — satisfied it, and the flag was set although the radio never accepted the DATA. A later exact
+    // downstream forward was then credited on the LOCAL basis, i.e. it asserted something that never happened.
+    // §hybrid-rts S4b restricts the flag to `disp == TxHandOff::handed`.
+    // ⛔ §hybrid-rts S4c (2026-08-10) — **THIS CASE'S SCOPE IS NARROWER THAN S4b's HEADING CLAIMED, AND THE HEADING
+    //   IS CORRECTED ABOVE.** It pins that a SYNCHRONOUS refusal is not an admission. ⚠ It does NOT — and cannot —
+    //   pin that the DATA aired: `on_radio_busy` and `pump_tx()`'s failed arm reject a frame AFTER a successful
+    //   admission, and this flag has no writer that can take it back. That residue is [[B164]], both directions.
+    // ★★★ WHY THIS CASE CAN EXIST AT ALL, and it is the method point: `TestHal::tx` used to ALWAYS hand off, so
+    //   `rejected` was unreachable in this TU and any "rejection" case here would have been an INERT GREEN. The
+    //   capability was ONE FIELD away (`tx_answer`), the same field `test_node_join.cpp` already had. ⇒ a rejection
+    //   test on a HAL that cannot reject proves nothing.
+    // ★★ THE ASYMMETRY IS PINNED IN ONE EMIT, deliberately, because that is the half that is easy to break while
+    //   "fixing" this: the SAME credit must report `basis == alternate_path` (no DATA admitted) AND
+    //   `awaiting_ack == true` (the MAC ack-timeout IS a rejected frame's only recovery — §tx-admission TX1 —
+    //   so it must still have been armed). A two-way `false-on-rejection` would flip the second one.
+    TestHal hal;
+    Node* node = s4_sender(hal, /*dst=*/50, /*next=*/20);
+    hal._now = 1000;
+    CHECK(node->test_do_send_typed(/*dst=*/50, (const uint8_t*)"hi", 2, CryptIntent::def, 0, 0) != 0);
+    const OurRts o = our_last_rts(hal); CHECK(o.got);        // the RTS flew BEFORE the HAL starts refusing
+    CHECK(o.next == 20); CHECK(o.dst == 50);
+    RxMeta m20{ 12.0f, -70.0f, 0, static_cast<int8_t>(20) };
+    std::array<uint8_t, 8> cb{}; const size_t cn = mk_cts(/*rx_id=*/1, /*tx_id=*/20, /*data_sf=*/7, cb);
+    hal._now = 1100; node->on_recv(cb.data(), cn, m20);      // CTS -> the DATA is due after the gap
+    hal.tx_answer = TxResult::busy;                          // ⛔ NOW the radio refuses: a DEFINITIVE drop
+    const int calls_before = hal.tx_calls;
+    node->on_timer(kCtsToDataGapTimerId);                    // -> do_data_tx -> tx_with_retry -> TxHandOff::rejected
+    // ★ PRECONDITIONS, asserted so this case cannot pass for the wrong reason
+    CHECK(hal.tx_calls == calls_before + 1);                 // the HAL WAS asked (a refusal is still an attempt)
+    CHECK(hal.count("tx_hal_rejected") == 1);                // ★★ and it REFUSED — this is the whole premise
+    CHECK(hal.count("duty_cycle_blocked") == 0);             // ⚠ NOT the duty path: this is the OTHER disposition
+    CHECK(hal.count("data_tx") == 1);                        // the telemetry fired regardless (as at the duty twin)
+    CHECK(node->has_pending_tx());
+    { Push d{}; while (node->next_push(d)) {} }
+    hal.tx_answer = TxResult::ok;                            // let the rest of the exchange behave normally
+    // 20 forwards THE EXACT flight onward to 9 — the credit's endpoints, identity and plane all match.
+    std::array<uint8_t, 16> fb{};
+    const size_t fn = mk_rts_wire(/*src=*/20, /*next=*/9, /*dst=*/50, o.ctr_lo, o.plen, fb, o.id);
+    hal._now = 1600; node->on_recv(fb.data(), fn, m20);
+    CHECK(hal.count("implicit_ack_from_forward") == 1);
+    const Ev* ia = hal.last("implicit_ack_from_forward"); CHECK(ia != nullptr);
+    if (ia) {
+        CHECK(ia->basis == "alternate_path");                // ★★★ THE ASSERTION: a rejection is NOT an admission
+        CHECK(ia->awaiting_ack);                             // ★★★ ...and the legacy recovery IS still armed
+        CHECK_FALSE(ia->awaiting_cts);
+    }
+    CHECK_FALSE(node->has_pending_tx());
+    CHECK_FALSE(any_send_outcome_push(*node));               // ⛔ and still no invented app outcome
+    delete node;
+}
+
+TEST_CASE("★★★ §hybrid-rts S4b — a LOOPED RTS (our own next hop forwards the EXACT flight BACK to us) earns NO "
+          "credit, KEEPS our copy, and is still handled normally") {
+    // ⛔⛔ THE DEFECT: the credit gate tested expected neighbour, destination, identity and plane — every one of
+    // which answers *"which flight?"* — and NOTHING tested whether the RTS was addressed BACK to this node. In a
+    // route loop B forwards our exact flight to A, and A then cancelled its timers, dropped its `_pending_tx` and
+    // RETURNED: it discarded THE ONLY VIABLE COPY on evidence that showed the opposite of progress, and it never
+    // reached the ordinary addressed-RTS handling that frame was owed.
+    // ★★ THE PRINCIPLE: **an exact identity match proves WHICH FLIGHT, never WHICH DIRECTION.**
+    // ★★★ THIS CASE HAS TWO HALVES AND THE SECOND IS NOT OPTIONAL: "no credit" is NOT the contract — the frame must
+    //   FALL THROUGH to normal processing with the flight intact. `rts_rx` is emitted only AFTER the
+    //   `!addressed_for_us` overhear branch returns, so its presence is proof the addressed path was reached; and
+    //   with a `_pending_tx` and no `_pending_rx` the normal path answers `rts_drop_pending_tx` (silent, by design).
+    //   A guard that merely skipped the credit and swallowed the frame would fail on those two.
+    TestHal hal;
+    Node* node = s4_sender(hal, /*dst=*/50, /*next=*/20);    // us = id 1, route to 50 via 20
+    hal._now = 1000;
+    CHECK(node->test_do_send_typed(/*dst=*/50, (const uint8_t*)"hi", 2, CryptIntent::def, 0, 0) != 0);
+    const OurRts o = our_last_rts(hal); CHECK(o.got);
+    CHECK(o.next == 20); CHECK(o.dst == 50);
+    CHECK(rts_flight_identity_valid(o.id));
+    CHECK(node->has_pending_tx());
+    { Push d{}; while (node->next_push(d)) {} }
+    RxMeta m20{ 12.0f, -70.0f, 0, static_cast<int8_t>(20) };
+    // ⛔ THE LOOP FRAME: from 20 (our chosen next hop), same dst 50, THE SAME IDENTITY BYTES, wire plane STATIC —
+    //    but `next = 1`, i.e. addressed straight BACK at us. Every S4 term matches; only the direction is wrong.
+    std::array<uint8_t, 16> lb{};
+    const size_t ln = mk_rts_wire(/*src=*/20, /*next=*/1, /*dst=*/50, o.ctr_lo, o.plen, lb, o.id);
+    CHECK(ln == 10);                                         // a real unicast RTS with a real identity tail
+    hal._now = 1500; node->on_recv(lb.data(), ln, m20);
+    CHECK(hal.count("implicit_ack_from_forward") == 0);      // ★★★ NO CREDIT — a loop is not progress
+    CHECK(node->has_pending_tx());                           // ★★★ ...and OUR COPY SURVIVES
+    CHECK(hal.count("rts_rx") == 1);                         // ★★★ ...and the frame WAS handled (addressed path)
+    CHECK(hal.count("rts_drop_pending_tx") == 1);            // ★★★ ...by the normal busy-with-own-TX answer
+    CHECK_FALSE(any_send_outcome_push(*node));
+    // ...and the flight still recovers on its own timers, so nothing was quietly wedged either.
+    const int rts_before = hal.count("rts_tx");
+    node->on_timer(kRtsTimeoutTimerId); node->on_timer(kRetryBackoffTimerId);
+    CHECK(hal.count("rts_tx") > rts_before);
+    // ★★★★ THE POSITIVE CONTROL, ON THE SAME NODE: the SAME frame differing ONLY in `next` (9, a third node =
+    //   a GENUINE downstream forward) DOES credit. ⇒ the refusal above is about DIRECTION and nothing else, and a
+    //   build with the guard removed cannot pass both halves.
+    const OurRts o2 = our_last_rts(hal); CHECK(o2.got);
+    std::array<uint8_t, 16> gb{};
+    const size_t gn = mk_rts_wire(/*src=*/20, /*next=*/9, /*dst=*/50, o2.ctr_lo, o2.plen, gb, o2.id);
+    hal._now = 2500; node->on_recv(gb.data(), gn, m20);
+    CHECK(hal.count("implicit_ack_from_forward") == 1);      // ★ the genuine forward credits
+    CHECK_FALSE(node->has_pending_tx());
+    CHECK(hal.count("rts_rx") == 1);                         // ⓘ unchanged: an OVERHEARD frame never emits rts_rx
+    delete node;
+}
+
+TEST_CASE("★★★ §hybrid-rts S4b — the loop guard uses the CANONICAL address admission: a TEAM-plane loop is refused "
+          "on `team_addr_for_us`, and the mark must MATCH OUR KIND (a bare `next == id` would be wrong)") {
+    // ★★ WHY THIS SECOND LOOP CASE EXISTS: the guard is `wire_team ? for_team_rts : for_static_rts`, not
+    // `r.next == _node_id`. Two properties follow that a bare numeric compare would get wrong, and both are pinned:
+    //   ① on the TEAM plane the loop is detected against `_team_local_id` (`team_addr_for_us`), NOT `_node_id`;
+    //   ② the ADDRESS MARK must match our kind — a `(addr_len=0)` STATIC frame naming our numeric id is NOT
+    //      addressed to a mobile, so it is a genuine overhear and MUST still be able to credit.
+    // ⛔ A second, hand-rolled derivation of either would be the §hybrid-rts S2 defect again (40 false refusals);
+    //   the gate reuses `for_static_rts` / `team_addr_for_us` / `rts_wire_team_plane` and this case is what proves
+    //   the reuse is the right one rather than merely tidy.
+    const uint32_t TEAM = 0xABCD1234u;
+    TestHal hal;
+    Node node(hal, /*id=*/30, /*key=*/0x3030u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
+    cfg.is_mobile = true; cfg.team_id = TEAM; CHECK(node.on_init(cfg));
+    node.set_team_local_id(93);                              // a CONFIRMED team-plane id (the persisted-at-boot API,
+                                                             // the same idiom `b160_collision_node` uses) — 93 != 30
+    uint8_t ext[8]; const size_t en = pack_team_id_tlv(TEAM, std::span<uint8_t>(ext, sizeof ext));
+    beacon_in tb{}; tb.leaf_id = 0; tb.src = 40; tb.key_hash32 = 0x4040u; tb.is_mobile = true;
+    tb.ext = std::span<const uint8_t>(ext, en);
+    std::array<uint8_t, 64> b{};
+    const size_t bn = pack_beacon(tb, std::span<uint8_t>(b.data(), b.size()));
+    hal._now = 500; node.on_recv(b.data(), bn, RxMeta{ 12.0f, -70.0f, 0, static_cast<int8_t>(40) });
+    CHECK(node.is_team_peer(40));
+    const uint8_t my_team_id = node.team_local_id();
+    CHECK(my_team_id != 0);                                  // precondition: we HAVE a team-plane id to loop back to
+    CHECK(my_team_id != 30);                                 // ★ and it DIFFERS from our numeric node id, or ARM 2 below
+                                                             //   would be the same frame as ARM 1 and prove nothing
+    hal._now = 1000;
+    send_cmd(node, /*dst=*/40, "hi");                        // a TEAM DM -> RTS with (addr_len=1, mobile_src=1)
+    const OurRts o = our_last_rts(hal); CHECK(o.got);
+    CHECK(o.addr_len == 1); CHECK(o.mobile_src);
+    CHECK(node.has_pending_tx());
+    RxMeta m40{ 12.0f, -70.0f, 0, static_cast<int8_t>(40) };
+    // ⛔ ARM 1 — a TEAM-plane loop: same identity, same dst, wire TEAM, `next = OUR TEAM-PLANE id`.
+    { std::array<uint8_t, 16> fb{};
+      const size_t fn = mk_rts_wire(/*src=*/40, /*next=*/my_team_id, o.dst, o.ctr_lo, o.plen, fb, o.id,
+                                    /*addr_len=*/1, /*mobile_src=*/true);
+      hal._now = 1500; node.on_recv(fb.data(), fn, m40); }
+    CHECK(hal.count("implicit_ack_from_forward") == 0);      // ★★ REFUSED on `team_addr_for_us`
+    CHECK(node.has_pending_tx());                            // ★★ our copy survives
+    CHECK(hal.count("rts_rx") == 1);                         // ★★ and it reached the addressed path
+    // ★ ARM 2 (the MARK control, property ②) — `next` is our NUMERIC node id (30) but the frame declares TEAM, so
+    //   the wire-team reading applies and `team_addr_for_us` is FALSE for id 30 ⇒ this is an OVERHEAR and it MUST
+    //   credit. A guard written as `r.next == _node_id` would wrongly refuse here and this arm would go RED.
+    { std::array<uint8_t, 16> fb{};
+      const size_t fn = mk_rts_wire(/*src=*/40, /*next=*/30, o.dst, o.ctr_lo, o.plen, fb, o.id,
+                                    /*addr_len=*/1, /*mobile_src=*/true);
+      hal._now = 1600; node.on_recv(fb.data(), fn, m40); }
+    CHECK(hal.count("implicit_ack_from_forward") == 1);      // ★★★ the overhear DOES credit
+    const Ev* ia = hal.last("implicit_ack_from_forward"); CHECK(ia != nullptr);
+    if (ia) CHECK(ia->basis == "alternate_path");
+    CHECK_FALSE(node.has_pending_tx());
+}
+
+// =============================================================================
+// ★★★★★ §hybrid-rts S4d (2026-08-10) — **THE FLAG'S `false` SIDE WAS NOT HONEST, AND THIS IS ITS ONLY DETECTOR.**
+// S4c made `true` honest by renaming the flag to what it witnesses (an ADMISSION). It left `false` claiming more
+// than it could: the only writer sat in `do_data_tx` (the INITIAL send path), while `duty_defer_fire` re-runs
+// `tx_with_retry` from the stash and can obtain an admission there with NO write — yet the consumer maps `false`
+// **CATEGORICALLY** onto `basis=alternate_path` = *"no DATA has been admitted locally"* (design §5.2 item 2).
+// ★★ S4d's FIX IS STRUCTURAL, NOT ADDITIVE: the single write moves to the ONE point every admission crosses
+// (`tx_with_retry`, immediately after `_hal.tx()` answers `ok`). ⛔ NOT a copy at each retry site — that is the
+// same defect in a new shape, and it is what [[B164]] explicitly forbade.
+// ⚠ THE CORPUS CANNOT SEE THIS: `duty_cycle_blocked` with label `DATA` is **ZERO across all 36 scenarios**
+// (measured, `BASELINE.md` §HYBRID-RTS-S4c/S4d), so the DATA duty-defer path is CORPUS-DARK and the case below is
+// the only thing that can fail. ⇒ it carries its own vacuity controls: the deferral itself is asserted, and the
+// mutation that restores the pre-S4d control flow must turn it RED.
+// ⚠ HONEST COVERAGE GAP, STATED RATHER THAN IMPLIED: the crossing point's `!m_broadcast` term has **NO native
+// detector here**. It is load-bearing — `do_data_tx`'s M-broadcast arm reaches `tx_with_retry` with
+// `FrameTag::data` (`node_mac.cpp:1788`) — but the flag has no accessor and an M flight can never earn the credit,
+// so there is no observable this TU can assert on. A case was DRAFTED and REMOVED rather than left as an inert
+// green. Its only evidence is the structural argument in-source plus the mutation recorded in `BASELINE.md`
+// §HYBRID-RTS-S4d; ⛔ do not read the absence of a case here as coverage.
+// =============================================================================
+
+TEST_CASE("★★★★ §hybrid-rts S4d — a DUTY-DEFERRED DATA THAT THE TIMER LATER ADMITS reports `basis=local_admitted`: "
+          "the fact is established at the ONE crossing point every admission passes, not at the initial send") {
+    // ⛔⛔ THE DEFECT THIS CASE PINS: pre-S4d the assignment lived in `do_data_tx`'s `disp == TxHandOff::handed`
+    // arm. A DATA that the duty pre-check DEFERRED never reached it; when `duty_defer_fire` later re-ran
+    // `tx_with_retry` and the radio ACCEPTED the frame, nothing was recorded. The flight then earned the credit
+    // labelled `alternate_path` — *"we admitted NO DATA, the next hop got this flight through another branch"* —
+    // on a flight whose DATA this node had itself handed to its own radio. **A CATEGORICAL LABEL ON A FACT THE
+    // FLAG COULD NOT ESTABLISH.**
+    // ★★ WHY THE FIX IS A CROSSING POINT AND NOT TWO ASSIGNMENTS: every admission — initial AND deferred-retry —
+    // must pass `_hal.tx()` inside `tx_with_retry`, so establishing the fact THERE makes it exact **and makes a
+    // future path unable to bypass it**. Same structural lesson as [[B162]]'s refusal banner: *a guarantee made at
+    // one of several exits is not made at all.*
+    // ★★★ HARNESS VACUITY IS THE FIRST THING PROVEN, because S4's own M3 mutation was only ever falsifiable
+    // BECAUSE someone added a duty-deferred case: `TestHal::tx` answers `ok` unless told otherwise, so on every
+    // other path `handed` is true and a mis-placed write is INVISIBLE. ⇒ the deferral is ASSERTED here
+    // (`duty_cycle_blocked == 1`, **zero** DATA frames offered, and NOT the rejection disposition) before the
+    // admission is arranged. A "duty-defer" test on a HAL that never defers is an inert green.
+    TestHal hal;
+    Node* node = new Node(hal, /*id=*/1, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
+    cfg.duty_cycle = 0.10;                                  // ⚠ a real budget: with 0 there is no pre-check at all
+    CHECK(node->on_init(cfg));
+    node->route_inject(/*dest=*/50, /*next_hop=*/20, /*hops=*/2, /*score=*/100);
+    hal._now = 1000;
+    CHECK(node->test_do_send_typed(/*dst=*/50, (const uint8_t*)"hi", 2, CryptIntent::def, 0, 0) != 0);
+    const OurRts o = our_last_rts(hal); CHECK(o.got);       // the RTS is slot<0 -> never duty-deferred, so it flew
+    CHECK(o.next == 20); CHECK(o.dst == 50);
+    RxMeta m20{ 12.0f, -70.0f, 0, static_cast<int8_t>(20) };
+    std::array<uint8_t, 8> cb{}; const size_t cn = mk_cts(/*rx_id=*/1, /*tx_id=*/20, /*data_sf=*/7, cb);
+    hal._now = 1100; node->on_recv(cb.data(), cn, m20);     // CTS -> the DATA is due after the gap
+    // ---- (1) the FIRST attempt is DUTY-DEFERRED: the radio is never even asked ----
+    hal._airtime_used = 999999999ull;                       // ★ over budget -> tx_with_retry defers, no _hal.tx
+    const int tx_calls_before = hal.tx_calls;
+    node->on_timer(kCtsToDataGapTimerId);                   // do_data_tx -> tx_with_retry -> deferred_retry_armed
+    CHECK(hal.count("duty_cycle_blocked") == 1);            // ★ VACUITY CONTROL: the deferral REALLY happened
+    CHECK(hal.tx_calls == tx_calls_before);                 // ★ VACUITY CONTROL: the HAL was NOT asked at all
+    CHECK(hal.count("tx_hal_rejected") == 0);               // ⚠ and it is the DUTY path, not the rejection twin
+    int data_deferred = 0; for (const auto& f : hal.tx_frames) if (f.label == "DATA") ++data_deferred;
+    CHECK(data_deferred == 0);                              // ★ no DATA frame exists yet
+    CHECK(node->has_pending_tx());
+    // ---- (2) the duty timer fires and the SAME flight's DATA is ADMITTED — the write pre-S4d never made ----
+    hal._airtime_used = 0;                                  // budget frees
+    node->on_timer(kDutyDeferTimerId + 1);                  // duty_defer_fire(DATA slot) -> tx_with_retry -> ok
+    int data_admitted = 0; for (const auto& f : hal.tx_frames) if (f.label == "DATA") ++data_admitted;
+    CHECK(data_admitted == 1);                              // ★ THE PREMISE: the DATA WAS admitted, on the re-run
+    CHECK(hal.tx_calls == tx_calls_before + 1);             // ★ ...and exactly one HAL admission happened
+    CHECK(hal.count("duty_cycle_blocked") == 1);            // ⚠ it did NOT re-defer (else the premise is gone)
+    { Push d{}; while (node->next_push(d)) {} }
+    // ---- (3) 20 forwards THE EXACT flight onward to 9: the credit must rest on the LOCAL admission ----
+    std::array<uint8_t, 16> fb{};
+    const size_t fn = mk_rts_wire(/*src=*/20, /*next=*/9, /*dst=*/50, o.ctr_lo, o.plen, fb, o.id);
+    hal._now = 1600; node->on_recv(fb.data(), fn, m20);
+    CHECK(hal.count("implicit_ack_from_forward") == 1);
+    const Ev* ia = hal.last("implicit_ack_from_forward"); CHECK(ia != nullptr);
+    if (ia) {
+        CHECK(ia->basis == "local_admitted");               // ★★★★ THE ASSERTION — pre-S4d this read alternate_path
+        CHECK(ia->awaiting_ack);                            // the re-hand re-armed the ACK wait (duty_defer_fire)
+        CHECK_FALSE(ia->awaiting_cts);                      // the CTS had arrived before the defer
+    }
+    CHECK_FALSE(node->has_pending_tx());                    // the redundant local copy is still cleared
+    CHECK_FALSE(any_send_outcome_push(*node));              // ⛔ and still NO invented app outcome
+    delete node;
+}
+
+TEST_CASE("§hybrid-rts S4 — an M/FLOOD RTS carries NO identity tail and can therefore never earn the credit") {
+    // ⚠ HONEST COVERAGE STATEMENT, because this case does NOT test what its neighbour in the source does.
+    //   WHAT IS TESTED HERE: the OVERHEARD-FRAME half — an M_BROADCAST RTS has no identity tail, so
+    //   `rts_flight_identity_equal` (absent-vs-absent is NOT a match) refuses it. That is the live discriminator.
+    //   ⛔ WHAT IS **NOT** TESTED: the `!pt.m_broadcast` guard on OUR OWN pending flight. That guard is
+    //   DEFENSIVE-AND-EXPLICIT, not load-bearing: for it to matter, a channel M flight would have to be pending
+    //   AND an overheard unicast RTS would have to reproduce that flight's identity — and the M flight's identity
+    //   is derived from a channel inner that no unicast DATA carrier can reproduce. It is written down (and this
+    //   sentence says so) rather than claimed to be covered.
+    TestHal hal;
+    Node* node = s4_sender(hal, /*dst=*/50, /*next=*/20);
+    hal._now = 1000;
+    CHECK(node->test_do_send_typed(/*dst=*/50, (const uint8_t*)"hi", 2, CryptIntent::def, 0, 0) != 0);
+    const OurRts o = our_last_rts(hal); CHECK(o.got);
+    RxMeta m20{ 12.0f, -70.0f, 0, static_cast<int8_t>(20) };
+    // An M_BROADCAST RTS from our next hop, on our dst, cannot carry an identity at all — so it cannot credit.
+    { std::array<uint8_t, 16> fb{};
+      rts_in in{}; in.leaf_id = 0; in.src = 20; in.next = 9; in.ctr_lo = o.ctr_lo; in.dst = o.dst;
+      in.sf_index = 3; in.rts_flags = RTS_FLAG_M_BROADCAST; in.payload_len = o.plen; in.m_payload_id_lo16 = 0x1234;
+      const size_t fn = pack_rts(in, std::span<uint8_t>(fb.data(), fb.size()));
+      CHECK(fn == 9);                                       // the M shape — 9 B, no identity tail
+      hal._now = 1500; node->on_recv(fb.data(), fn, m20); }
+    CHECK(hal.count("implicit_ack_from_forward") == 0);
+    CHECK(node->has_pending_tx());
+    // ★ the control: the unicast twin of the same frame DOES credit, so "no credit" above is about the shape
+    { std::array<uint8_t, 16> gb{};
+      const size_t gn = mk_rts_wire(20, 9, o.dst, o.ctr_lo, o.plen, gb, o.id);
+      hal._now = 1600; node->on_recv(gb.data(), gn, m20); }
+    CHECK(hal.count("implicit_ack_from_forward") == 1);
+    delete node;
+}
+
+TEST_CASE("§hybrid-rts S4 — telemetry `dup` is NOT the wire bit: the re-CTS branch emits dup:true on a frame "
+          "whose `already_received` bit is CLEAR, and only the frame may be believed") {
+    // ⚠⚠ THE INSTRUMENT TRAP, pinned so no future case reaches for `dup` as a shorthand for the terminal bit.
+    // `handle_rts`'s pending-RX re-CTS branch emits `cts_tx{dup:true}` while packing `already_received = false`;
+    // the completed-flight branch emits `cts_tx{already_received:true}` and packs the bit. ⇒ the telemetry field
+    // and the wire bit are DIFFERENT FACTS, and only the second one is a protocol statement.
+    // ⓘ STRUCTURAL NOTE: `Hal::emit` returns void and lib/core has no telemetry READER, so no live decision can
+    //   consume `dup` even in principle — the risk is entirely in TESTS, which is what this case fences.
+    TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
+    CHECK(node.on_init(cfg));
+    RxMeta from1{ 12.0f, -70.0f, 0, static_cast<int8_t>(1) };
+    const RtsFlightIdentity id = rts_flight_identity_plain(/*origin=*/1, /*ctr=*/0x0005);
+    std::array<uint8_t, 16> rb{};
+    const size_t rn = mk_rts_wire(/*src=*/1, /*next=*/2, /*dst=*/2, /*ctr_lo=*/5, /*plen=*/15, rb, id);
+    hal._now = 1000; node.on_recv(rb.data(), rn, from1);    // fresh admission -> ordinary CTS + PendingRx
+    { const Ev* e = hal.last("cts_tx"); CHECK(e != nullptr); if (e) CHECK_FALSE(e->dup); }
+    // ⇒ the RETRIED RTS for the SAME flight while the DATA is still awaited: the re-CTS branch.
+    hal._now = 1100; node.on_recv(rb.data(), rn, from1);
+    { const Ev* e = hal.last("cts_tx"); CHECK(e != nullptr);
+      if (e) CHECK(e->dup); }                               // ⚠ telemetry says "dup"...
+    { const auto* c = hal.last_tx("CTS"); CHECK(c != nullptr);
+      if (c) {
+        // ★★ ...AND THE FRAME SAYS OTHERWISE. Parsed AND asserted at the raw bit, both ways.
+        CHECK((c->bytes.size() == 3 || c->bytes.size() == 4));      // an ORDINARY shape, never 6/7
+        CHECK((c->bytes[0] & 0x01) == 0);                           // ★ bit 0 of byte 0 = already_received: CLEAR
+        auto pc = parse_cts(std::span<const uint8_t>(c->bytes.data(), c->bytes.size()));
+        CHECK(pc.has_value()); if (pc) CHECK_FALSE(pc->already_received);
+      } }
+    // ★ THE POSITIVE CONTROL — a genuinely TERMINAL CTS, so "bit clear" above is not a build that never sets it.
+    node.completed_flight_store(/*from=*/1, /*dst=*/2, /*team=*/false, id, hal._now);
+    { std::array<uint8_t, 16> r2{};
+      const size_t n2 = mk_rts_wire(/*src=*/1, /*next=*/2, /*dst=*/2, /*ctr_lo=*/9, /*plen=*/15, r2, id);
+      hal._now = 2000; node.on_recv(r2.data(), n2, from1); }
+    { const auto* c = hal.last_tx("CTS"); CHECK(c != nullptr);
+      if (c) {
+        CHECK(c->bytes.size() == 6);                               // the plaintext TERMINAL wire
+        CHECK((c->bytes[0] & 0x01) == 1);                          // ★ the bit IS set on the real thing
+        auto pc = parse_cts(std::span<const uint8_t>(c->bytes.data(), c->bytes.size()));
+        CHECK(pc.has_value()); if (pc) CHECK(pc->already_received);
+      } }
+    { const Ev* e = hal.last("cts_tx"); CHECK(e != nullptr);
+      if (e) CHECK_FALSE(e->dup); }                        // ⚠ ...and THIS one does not say "dup" at all
 }
 
 TEST_CASE("④ cascade_effective_max — full budget at/below threshold, shrinks 1:1 above, int-clamp no wrap (dv:6275)") {

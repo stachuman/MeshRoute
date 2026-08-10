@@ -209,6 +209,12 @@ cleared **only** when the owner's own words arrived, which is exactly the intend
   7 B encrypted); ordinary non-terminal CTS remains byte-identical at 3/4 B;
 - implicit-forward credit has two named bases — `local_data` and `alternate_path` — and may clear only the redundant
   local copy; it must not fabricate an app ACK/delivery/failure outcome;
+  - ⓘ **IMPLEMENTATION NOTE, NOT A RULING (2026-08-10, §HYBRID-RTS-S4c): the first label now emits as
+    `local_admitted`.** The ruling's substance — two named bases, clear only the redundant copy, fabricate no app
+    outcome — is UNCHANGED and unchallenged. The rename is because `local_data` read as *"our DATA aired"*, which the
+    underlying flag cannot support in either direction (it records a HAL **admission**; see spec §5.2 and
+    `BASELINE.md` §HYBRID-RTS-S4c). ⛔ **NO OWNER CONFIRMATION OF THE NEW LABEL IS CLAIMED** — if the owner wants the
+    ruling's spelling preserved on the wire of the telemetry, the label reverts and only the C++ field is renamed;
 - derive the bounded completed-flight-cache TTL from measured live retry horizons; do not resurrect the historical
   10-second value without evidence.
 

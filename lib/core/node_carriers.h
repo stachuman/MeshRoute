@@ -389,6 +389,81 @@ struct PendingTx {                   // the in-flight sender state (one per node
     uint8_t  hop_left = 0;
     uint8_t  flood_bitmap[32] = {};
     bool     is_gw_relay = false;    // Slice 4c.2: a gateway's cross-layer re-inject -> RTS carries RTS_FLAG_RELAY (receiver exempts it from anti-spam)
+    // ★★★★★ §hybrid-rts S4c (2026-08-10) — ⛔⛔ **RENAMED FROM `data_ever_transmitted`, BECAUSE THAT NAME NAMED A
+    // FACT THIS FLAG CANNOT ESTABLISH.** It means exactly ONE thing: **"a DM DATA for this pending copy was ADMITTED
+    // to the HAL at least once"** (`tx_with_retry` answered `TxHandOff::handed`, i.e. `IHal::tx` returned `ok`).
+    // ⛔ IT IS **NOT** "the DATA aired", and the gap is not theoretical in either direction:
+    //   · **admitted-but-never-aired (FALSE POSITIVE).** `DeviceHal::tx` *"ENQUEUES … Returns ok when queued"*
+    //     (`lib/hal/device_hal.cpp:10-12`); the on-air send happens later in `pump_tx()`. Two live rejections come
+    //     AFTER a successful admission: (i) `Node::on_radio_busy(FrameTag::data)` (`node.cpp:2191-2195`) — the
+    //     medium refused a frame this flag already booked; it clears `awaiting_ack` but **cannot unset this flag**,
+    //     and the path is EXERCISED: **652 `data_tx_blocked` events across 15 of the 36 corpus scenarios**;
+    //     (ii) `pump_tx()`'s failed arm (`device_hal.cpp:38-46`) DROPS the queued frame and does not retry it.
+    //   · **aired-but-never-recorded (FALSE NEGATIVE) = [[B164]]:** `duty_defer_fire`'s `handed && tag == data`
+    //     re-hand and `retry_stashed`'s direct `_hal.tx` both fly a DATA for this same flight and write nothing.
+    //     ⛔⛔ **§hybrid-rts S4d (2026-08-10) — THIS BULLET IS HALF-RETIRED IN PLACE.** The `duty_defer_fire` half
+    //     was an **ADMISSION-side** false negative and it is CLOSED: that path re-enters `tx_with_retry`, which now
+    //     carries the single write. `retry_stashed` still writes nothing and correctly needs nothing (argument at
+    //     the crossing point). ⇒ what survives of this bullet is only *"admitted ⇏ aired"*, i.e. the FALSE-POSITIVE
+    //     bullet above — the false-negative direction for **admission** no longer exists.
+    // ⇒ ⛔ **THE FIELD IS EXACT ABOUT ADMISSION (S4d) AND NEVER PROOF OF AIRING.** ⓘ It read *"BEST-EFFORT ADMISSION
+    //   TELEMETRY"* before S4d, which was accurate then and is too weak now. Downgrading the NAME (rather
+    //   than adding a flight-correlated TX-completion signal) is a DELIBERATE choice recorded in `BASELINE.md`
+    //   §HYBRID-RTS-S4c: **nothing consumes the true "aired" fact** — both bases take the SAME action — so the
+    //   split is diagnostic only. ★ The completion-signal option is **DEFERRED, NOT DISMISSED**: the moment a
+    //   consumer genuinely needs "aired" rather than "admitted", establish it there and rename back.
+    //
+    // ⛔⛔ §hybrid-rts S4d (2026-08-10) — **THE TEXT THAT STOOD HERE IS AMENDED, AND SO IS THE FLAG'S FALSE SIDE.**
+    //   ⛔ WHAT IT SAID: *"Set at ONE place only: `do_data_tx`'s `disp == TxHandOff::handed` arm."* That was true and
+    //   it was the bug: `do_data_tx` is the INITIAL send path only, while `duty_defer_fire` re-runs `tx_with_retry`
+    //   from the stash when the duty wait expires and can obtain an admission there — with no write. ⇒ `true` meant
+    //   "an admission was observed", but **`false` did NOT mean "no admission happened"**, and the consumer maps
+    //   `false` **CATEGORICALLY** onto `basis=alternate_path` = *"we admitted none"* (design §5.2 item 2).
+    //   ★★ NOW SET AT **ONE CROSSING POINT**: inside `Node::tx_with_retry`, immediately after `_hal.tx()` returns
+    //   `TxResult::ok`, guarded on `tag == FrameTag::data && _active->_pending_tx && !m_broadcast`. **Every** DM-DATA
+    //   admission — initial AND duty-deferred-retry — crosses that call, so the fact is now EXACT for admission in
+    //   BOTH directions, and a future call path cannot bypass it. (A guarantee made at one of several exits is not
+    //   made at all — the same structural lesson as [[B162]]'s refusal banner.)
+    //   ★ `retry_stashed` calls `_hal.tx` directly and deliberately takes NO writer: reaching it requires a prior
+    //   successful admission at the crossing point, and it only re-sends the stashed bytes of the frame that was
+    //   admitted. The full two-direction argument is in-source at the crossing point. ⛔ Do NOT add a third copy.
+    // ⛔ NOT before `_hal.tx()`: a duty-deferred (`deferred_retry_armed`) or HAL-refused (`rejected`) DATA was never
+    //   even admitted, so booking it earlier would make the flag wrong about its OWN, weaker proposition. (That is
+    //   the mutation the S4 gate runs, and it is still live.)
+    // ⛔ AND NOT for an M-broadcast flight: that path airs an M frame (cmd 0xA), not a DATA frame, and its flight is
+    //    excluded from the credit altogether — see the guard at `handle_rts`. ⚠ It reaches `tx_with_retry` WITH
+    //    `FrameTag::data` (`node_mac.cpp:1788`), so the `!m_broadcast` term of the crossing-point guard is
+    //    load-bearing, not decorative.
+    // ⛔ WHAT S4d DOES **NOT** CHANGE: the AIRING question. The two post-admission drop mechanisms above stand and
+    //    neither can unset the flag ⇒ [[B164]] stays OPEN for airing, with option (b) DEFERRED, NOT DISMISSED.
+    //    ⇒ the honest one-liner is **"exact about admission, silent about airing"**.
+    //
+    // WHO READS IT: `handle_rts`'s restored implicit-forward credit, and ONLY to LABEL the credit's basis —
+    //   `local_admitted` (this node admitted a DATA for the flight to its own radio, so an exact downstream forward
+    //   is CONSISTENT WITH the next hop having obtained it after our attempt) vs `alternate_path` (we admitted
+    //   none, so the next hop got the same flight through another branch and this local copy is redundant).
+    //   ★★ THE ACTION IS IDENTICAL ON BOTH BASES and the justification that carries it is `alternate_path`'s —
+    //   **"the flight is progressing and this local copy is redundant"**, ⛔ never *"our DATA crossed the hop"*.
+    //   With this flag downgraded to admission telemetry, that redundancy argument is the **ONLY** justification
+    //   either basis has ever had. ⛔ NEITHER basis is delivery evidence and the field must never gate an app
+    //   outcome — design §5.2 / owner ruling §1.10.
+    //
+    // ⚠⚠ SCOPE IS THIS `PendingTx`, DELIBERATELY, AND IT IS NOT COPIED BY `txitem_from_pending` BELOW.
+    //   Design §5.2 words the fact as *"if this `PendingTx` has ADMITTED a DATA at least once"* (S4c amended the
+    //   spec's operational text; it used to read *"has transmitted DATA at least once"*), and a requeue
+    //   (cascade / gateway doorstep hold / long-busy) DESTROYS this PendingTx and re-issues a NEW one for a fresh
+    //   next-hop attempt from which nothing has yet been admitted ⇒ `false` is the CORRECT value there, not a
+    //   dropped field. `cascade_to_alt` mutates the carrier IN PLACE (same flight, same generation) and therefore
+    //   KEEPS a true value, which is also right: we did admit a DATA for this flight, just at the previous hop.
+    //   ⇒ ⛔ Do NOT "fix" this by adding a twin to `TxItem`: that would grow `TxItem` x cap_tx_queue for a fact
+    //   whose only consumer is a diagnostic LABEL, and the U2 ledger below would then owe a copy. The field list
+    //   in that ledger is derived from the two structs, so this note is the answer to "why is it missing".
+    // ★ LAYOUT, MEASURED not inferred (compile-only reveal on the native flag set `-DMESHROUTE_NATIVE=1
+    //   -DMR_N_LAYERS=2`): `is_gw_relay` sits at offset 346 and `sizeof(PendingTx)` is 352 with alignof 8, so
+    //   bytes 347..351 are pure tail padding — this bool takes 347 and the hole shrinks to four. `sizeof(PendingTx)`
+    //   stays 352, `std::optional<PendingTx>` stays 360, and `sizeof(Node)` does NOT move (221880). Fourteenth
+    //   application of the padding-placement rule (see the node.h sizeof ledger).
+    bool     data_ever_admitted = false;
 };
 // S1 (2026-07-04): the ONE place a TxItem is re-materialized from an in-flight PendingTx. Every
 // requeue site (try_cascade_requeue / gateway_doorstep_hold / the long-busy same-hop requeue) MUST

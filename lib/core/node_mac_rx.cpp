@@ -112,34 +112,169 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     else if (r.mobile_src && is_team_peer(r.src)                                       // §T2 row 1 — refresh a KNOWN teammate
              && learn_direct_neighbor(r.src, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/true)) schedule_triggered_beacon();
 #endif
-    // ⛔⛔ ② THE IMPLICIT-ACK FROM AN OVERHEARD FORWARD-RTS (Lua dv:9863-9893) IS **DELETED** — §B153/[[B157]],
-    // 2026-08-08. It used to cancel our in-flight timers and `_pending_tx.reset()` when we overheard our own
-    // next-hop forwarding "the same" DATA onward, on the theory that the hop had demonstrably decoded.
-    //
-    // ★★★ IT IS THE SECOND TERMINAL DECISION DERIVED FROM AN RTS, AND QA's ARGUMENT CONDEMNS IT VERBATIM.
-    // The match was `next/dst/ctr_lo` + `payload_len`, and its own comment credited `payload_len` with
-    // *"disambiguates a 4-bit ctr_lo wrap"* — it never did: it is a LENGTH. So an overheard forward of a
-    // DIFFERENT message with the same destination and the same size satisfied it, and `_pending_tx.reset()`
-    // then discarded OUR message with no `data_tx`, no emit and **no `send_failed`** — the identical silent
-    // loss as the retired `already_received` gate, from the identical class of missing evidence.
-    // ⇒ **RTS AUTHORIZES RECEPTION; ONLY DATA PROVES MESSAGE IDENTITY** applies here too, and no key can rescue
-    // it: the frame does not carry the message's identity, so the optimization is not implementable safely.
-    //
-    // ⛔ MEASURED, NOT ARGUED — this is what forced the deletion. With the RTS-time gate removed, `s27` STAYED
-    // RED with the same five expectations, and the cause was here: at t=362768 gateway G1 has both hosted
-    // mobiles' replies queued to home 101 (origins 114 and 111, both `ctr` 2, both `payload_len` 57); the
-    // origin-114 flight completes at t=362768, the origin-111 flight airs its RTS and gets no CTS (103 is busy
-    // relaying the first), and at **t=363718** G1 overhears 103 forwarding the **114** message to 102 and
-    // credits it to the **111** flight — which had never transmitted a DATA at all. `re-m3` lost in silence.
-    //
-    // WHAT REPLACES IT: nothing. The sender waits out its ACK timeout and retries — and that retry is now SAFE
-    // by the same mechanism the whole slice rests on: the receiver ACKs the duplicate DATA and the DATA-level
-    // `_seen_origins` dedup returns before `_post_ack`, so there is no second delivery and no second forward.
-    // COST: one redundant DATA on a path where an ACK was already lost or an overhear already happened —
-    // exactly the trade the retired CTS gate's removal accepts, for exactly the same reason.
-    // ⚠ PRICE, STATED HONESTLY: this fired **61 times across 8 corpus scenarios** (10 of them in `s18`), so it
-    // was a real airtime saving on a real path — and removing it MOVES those streams. It is removed anyway,
-    // because a saving that silently destroys a message is not a saving.
+    // §mobile 3b/6.4: addressed iff the frame targets EITHER of my plane ids. for_static = next==_node_id AND the mark
+    // matches my kind (a mobile accepts addr_len=1, a static addr_len=0). for_team = next==_team_local_id AND addr_len=1
+    // (a team member's team-plane id; off-grid it's the only id). A non-team node has _team_local_id==0 -> for_team false
+    // -> this is byte-identical to the old `next != _node_id || (addr_len==1)!=is_mobile`.
+    // ★★★★★ §hybrid-rts S4b (2026-08-09) — **HOISTED FROM ITS POST-M_BROADCAST POSITION TO HERE, so the implicit-
+    // forward credit below can ask "is this frame addressed BACK to me?" from the CANONICAL predicates.** ⛔ NOT a
+    // second derivation: `for_static_rts`, `team_addr_for_us` and `rts_wire_team_plane` are the same three producers
+    // the addressing decision at `if (!addressed_for_us)` below uses, moved rather than copied — a SECOND identity
+    // derivation cost §hybrid-rts S2 forty false refusals and there is still only one here.
+    // ★ THE MOVE IS VALUE-IDENTICAL, and the argument is STRUCTURAL rather than "nothing looked relevant": for any
+    //   frame that reaches the `!addressed_for_us` branch, the ONLY code now executing between this point and that
+    //   branch is the credit gate (which RETURNS when it fires), the `allowed_sf_bitmap` refusal (which RETURNS)
+    //   and the whole `r.m_broadcast` block (which RETURNS on every path, at both its own `return`s). ⇒ nothing
+    //   between the two positions can run AND fall through, so nothing can mutate `_node_id`, `_team_local_id`,
+    //   `_cfg.is_mobile` or `_cfg.team_id` in between. The three predicates are `const`-read and side-effect-free.
+    const bool for_static_rts = r.next == _node_id && ((r.addr_len == 1) == _cfg.is_mobile);
+#if MR_FEAT_TEAM
+    const bool for_team_rts   = team_addr_for_us(r.next, r.addr_len);   // §P2-3
+#else
+    const bool for_team_rts   = false;   // §featuresplit
+#endif
+    const bool wire_team        = rts_wire_team_plane(r);
+    const bool addressed_for_us = wire_team ? for_team_rts : for_static_rts;
+    // ⛔⛔ ② THE IMPLICIT-ACK FROM AN OVERHEARD FORWARD-RTS (Lua dv:9863-9893) WAS **DELETED** by §B153/[[B157]]
+    // on 2026-08-08 and is **RESTORED HERE, KEYED ON THE S1 FLIGHT IDENTITY**, by §hybrid-rts S4 (2026-08-09).
+    // ⓘ THE DELETION WAS RIGHT ABOUT THE FRAME IT WAS WRITTEN ABOUT, and the argument is kept because the
+    // restoration only survives review if the reader can see exactly which premise changed:
+    //   ⛔ The old match was `next/dst/ctr_lo` + `payload_len`, and its own comment credited `payload_len` with
+    //      *"disambiguates a 4-bit ctr_lo wrap"* — ★ **IT NEVER DID: `payload_len` IS A LENGTH, NOT AN IDENTITY,
+    //      AND THAT CLAIM IS WITHDRAWN, NOT SOFTENED** (design §2.4; the same fence stands at frame_codec.h's
+    //      `payload_len IS NOT PART OF IDENTITY` note). It is a frame-consistency / NAV field and nothing else.
+    //      ⛔ It is therefore ABSENT from the comparison below, deliberately — do not add it "for extra safety":
+    //      the comparison is the full identity or nothing.
+    //   ⛔ MEASURED, NOT ARGUED — this is what forced the deletion. With the RTS-time gate removed, `s27` STAYED
+    //      RED, and the cause was here: at t=362768 gateway G1 has both hosted mobiles' replies queued to home 101
+    //      (origins 114 and 111, both `ctr` 2, both `payload_len` 57); the origin-114 flight completes, the
+    //      origin-111 flight airs its RTS and gets no CTS (103 is busy relaying the first), and at t=363718 G1
+    //      overhears 103 forwarding the **114** message to 102 and credits it to the **111** flight — which had
+    //      never transmitted a DATA at all. `re-m3` was lost in silence.
+    // ★★★★ WHAT CHANGED IS THE FRAME, NOT THE REASONING. A unicast RTS is no longer 7 bytes: it is 10 B
+    //   (plaintext `origin|ctr_hi|ctr_lo`) or 11 B (crypted `BLAKE2b-512(0xE1|seed8|ctr_hi|ctr_lo|dst)[:4]`) and
+    //   CARRIES the canonical flight identity (§hybrid-rts S1). ⇒ in the `s27` case above, origin 114's forward and
+    //   origin 111's pending flight now differ in the identity tail, so the credit REFUSES — that exact frame is a
+    //   required regression of this slice, not a hope.
+    // ★★★ AND THE CREDIT IS NOT A DELIVERY VERDICT, WHICH IS THE OTHER HALF OF WHY IT IS SAFE TO HAVE BACK.
+    //   Owner ruling 2026-08-09 (ledger §1.10), verbatim: *"A mismatch may be billed as physical airtime, but must
+    //   not refresh liveness or alter timers, routing, pending state, or application outcomes."*
+    //   ⇒ ⛔ NO `send_acked`, NO `send_e2e_acked`, NO delivered, NO `send_failed` is synthesized on EITHER basis,
+    //     and any independently armed end-to-end ACK wait (`_pending_e2e_acks`) is LEFT RUNNING — it is keyed on the
+    //     app's own ctr and is the only thing that can report a real end-to-end outcome. The app was told `queued`;
+    //     an ordinary non-`-a` send gets no new terminal outcome, which is the historical behaviour verbatim.
+    //   ⇒ A MISMATCH does nothing at all: it falls through to ordinary RTS handling with every timer, deadline,
+    //     pending copy and route/liveness datum untouched. (The anti-spam observation and the neighbour learn a few
+    //     lines above already happened for EVERY RTS — that is the pre-existing per-frame accounting/learning of a
+    //     frame that really aired, not an effect of this arm, and it is the same accounting-vs-trust split S2c
+    //     wrote down for the terminal CTS.)
+    // ★★ THE TWO BASES STAY NAMED SEPARATELY (design §5.2) — ⛔⛔ BUT §hybrid-rts S4c (2026-08-10) DOWNGRADED WHAT
+    //   THE FIRST ONE CLAIMS, AND ITS NAME WITH IT. **NEITHER IS A PROOF THAT ANY DATA OF OURS AIRED.**
+    //   · `local_admitted` — `pt.data_ever_admitted` (was `local_data` / `data_ever_transmitted`): this node
+    //                        **ADMITTED** a DATA for this flight to its own radio — `IHal::tx` returned `ok`, which
+    //                        on metal is an ENQUEUE (`device_hal.cpp:10-12`). ⛔ It is **NOT** evidence the DATA
+    //                        aired: `on_radio_busy(FrameTag::data)` can refuse it AFTER admission (652
+    //                        `data_tx_blocked` corpus-wide) and `pump_tx()`'s failed arm can drop it; conversely
+    //                        [[B164]]'s two re-hand sites air a DATA and never set it. **WRONG BOTH WAYS ⇒ it is
+    //                        best-effort DIAGNOSTIC telemetry, and NOTHING here consumes it but this label.**
+    //     ⛔⛔ **§hybrid-rts S4d (2026-08-10) — "WRONG BOTH WAYS" IS NOW WRONG ONE WAY, AND THAT IS THE WHOLE POINT
+    //     OF S4d.** The FALSE side of this test is the one that carries a CATEGORICAL claim — `alternate_path` says
+    //     *"we admitted NO DATA"* — and it could not support it while the only writer sat on the initial send path:
+    //     a duty-deferred DATA that `duty_defer_fire` later admitted read `false`. S4d moves the write to the ONE
+    //     crossing point (`tx_with_retry`, right after `_hal.tx()` returns `ok`), which **every** DM-DATA admission
+    //     must pass ⇒ ★ **`false` NOW MEANS "no DATA of ours was admitted", EXACTLY, and this label is legitimate.**
+    //     ⛔ The over-claim direction is UNCHANGED and still real: `true` is ADMISSION, never AIRING, because
+    //     `on_radio_busy` and `pump_tx()`'s failed arm can drop the frame afterwards and nothing can unset the flag.
+    //     ⇒ [[B164]] stays OPEN **for airing only**; option (b) (a flight-correlated TX-completion signal) remains
+    //     DEFERRED, NOT DISMISSED. ⚠ So neither basis became delivery evidence — see the ruling two lines down.
+    //   · `alternate_path` — we admitted NO DATA for it (typically still `awaiting_cts`). ★★ ITS JUSTIFICATION IS
+    //                        **"the flight is progressing and this local copy is redundant"** — ⛔ it is **NOT**
+    //                        *"our DATA crossed the hop"*, because no DATA of ours exists. The next hop obtained the
+    //                        same flight through ANOTHER branch/path; keeping our copy would only add a duplicate
+    //                        DATA behind a hop that is already forwarding it. ⚠ Stated here in as many words
+    //                        because a later reader who skips this line will re-derive a false success claim from it
+    //                        — and it matters MORE, not less, now that it is the RARER branch (see below).
+    // ⛔⛔ §hybrid-rts S4b (2026-08-09) — **A RETIRED CLAIM, CORRECTED IN PLACE RATHER THAN DELETED, because it was
+    //   asserted at this exact line and a reader who saw it once must be able to see it withdrawn.** ⛔ WHAT STOOD
+    //   HERE: *"`alternate_path` is the MAJORITY case, not a corner (46 of the 61 historical firings)"*.
+    //   ★ IT IS FALSE, AND IT WAS UNKNOWABLE WHEN WRITTEN. Unknowable because the field that DECIDES the basis,
+    //   `data_ever_admitted` (S4 named it `data_ever_transmitted`), is introduced by S4 — the historical census had
+    //   only the pending state and INFERRED "DATA never transmitted" from `awaiting_cts`. ★★ THAT INFERENCE IS THE
+    //   BUG IN THE CLAIM: **`awaiting_cts` IS NOT A MONOTONE PHASE.** A flight that admits a DATA, loses the ACK,
+    //   times out and re-RTSes is back in `awaiting_cts` with a DATA already admitted. ⇒ MEASURED on the S4 wire, 36
+    //   scenarios, from this emit's own fields: **49 credits — 36 / 13**, i.e. `alternate_path` is the **MINORITY at
+    //   ~27 %**; by state 45 `awaiting_cts` / 3 `awaiting_ack` / 1 neither, and **32 of the 45 `awaiting_cts` credits
+    //   carry the local basis** — which is the false inference shown as a number. ⓘ Those 36 were emitted under the
+    //   label `local_data`; §hybrid-rts S4c renamed it `local_admitted` with the counts unmoved, so the two figures
+    //   are ONE continuous series (the S4/S4b tables in `BASELINE.md` keep the old label as measured).
+    //   ⓘ `alternate_path`'s JUSTIFICATION above is UNCHANGED by this correction and still load-bearing: it is
+    //   *"the flight is progressing and this local copy is redundant"*, never *"our DATA crossed the hop"*. Only
+    //   the frequency claim was wrong. ★★ §hybrid-rts S4c STRENGTHENS it to the ONLY justification either basis has:
+    //   with the local basis downgraded to admission telemetry, redundancy-of-this-copy is all that ever carried the
+    //   clear, on BOTH branches. Figures: `BASELINE.md` §HYBRID-RTS-S4 (3), §HYBRID-RTS-S4b, §HYBRID-RTS-S4c.
+    // ★ ONE DERIVATION, ALWAYS: the identity comes from `Node::flight_identity` (the ONE producer `tx_rts_retry`
+    //   also uses) and the comparison from `rts_flight_identity_equal` (the ONE comparator — full width + domain,
+    //   never a prefix). A SECOND derivation of this identity cost S2 forty false refusals; there is not one here.
+    // ★ THE PLANE IS DECODED FROM THE WIRE ON BOTH SIDES: `rts_wire_team_plane(r)` for the overheard frame (the only
+    //   plane evidence an overhearer HAS) against `rts_wire_team_plane(rts_wire_marks(pt))` — the marks we ourselves
+    //   AIRED for this flight. ⛔ NOT `team_addr_for_us` (receiver-relative address admission; it never consults
+    //   `mobile_src`, and this frame is not addressed to us at all), ⛔ NOT layer membership, ⛔ NOT
+    //   `is_team_peer(src)` (our own state, not the frame's declaration). Design §4.3 / §5.2 item 4.
+    // ⛔ AN `m_broadcast` FLIGHT IS EXCLUDED — new vs the historical arm, and deliberately. A channel M flight is
+    //   fire-and-forget (`awaiting_cts == awaiting_ack == false`, cleared by kMBcastClearTimerId) and airs an M
+    //   frame, not DATA: there is no CTS/ACK wait to short-circuit, clearing it would race that timer, and it has
+    //   no `data_ever_admitted` writer so its basis label would be a lie. Its identity cannot match anyway
+    //   (an M/FLOOD RTS carries NO identity tail, and `rts_flight_identity_equal` treats absent-vs-absent as NOT a
+    //   match), so this guard is belt-and-braces made explicit rather than left to be re-derived.
+    // ★★★★★ §hybrid-rts S4b (2026-08-09) — ⛔⛔ **`!addressed_for_us` IS A LOAD-BEARING TERM OF THIS GATE, AND ITS
+    //   ABSENCE WAS A REAL DEFECT: A LOOPED RTS READ AS DOWNSTREAM PROGRESS.**
+    // ★ THE PRINCIPLE, because it generalises past this gate: **AN EXACT IDENTITY MATCH PROVES *WHICH FLIGHT*,
+    //   NEVER *WHICH DIRECTION*. Direction is a separate fact and needs its own evidence.** Every other term here
+    //   (identity, plane, `r.src == pt.next`, `r.dst == pt.dst`) answers "which flight?"; not one of them answers
+    //   "did it move AWAY from me?".
+    // ⛔ THE FRAME, and it is reachable rather than hypothetical: in a route loop our own next hop B can forward the
+    //   EXACT flight straight BACK to us (`r.next == our id`). Every S4 term then matched — the identity is right,
+    //   because it IS our flight — so we cancelled our timers, `reset()` our `_pending_tx`, `become_free()` and
+    //   RETURNED. ⇒ we DISCARDED THE ONLY VIABLE COPY of a message on evidence that showed the opposite of
+    //   progress, and we returned BEFORE the normal addressed-RTS handling that frame was owed.
+    // ★★ AND THE FIX IS NOT "NO CREDIT" — IT IS "NO CREDIT **AND STILL HANDLED**". A frame addressed to us FALLS
+    //   THROUGH from here into the ordinary path below (`rts_rx`, the completed-flight terminal CTS, the re-CTS
+    //   branch, the BUSY_RX NACK / `rts_drop_pending_tx`), with the pending flight INTACT. A guard that merely
+    //   skipped the credit and swallowed the frame would trade a lost message for a lost response.
+    // ⓘ COVERAGE, stated honestly: **corpus-DARK on the 36-scenario corpus** (the credit census is 49 before and
+    //   after this term, all 36 streams byte-identical), so its ONLY detectors are native — the negative loop case,
+    //   the positive genuine-forward control beside it, and the mutation that removes this term.
+    if (_active->_pending_tx && !_active->_pending_tx->m_broadcast
+        && !addressed_for_us                                   // ★ direction: an RTS aimed BACK at us is not progress
+        && r.src == _active->_pending_tx->next
+        && r.dst == _active->_pending_tx->dst) {
+        const PendingTx&        pt   = *_active->_pending_tx;
+        const RtsFlightIdentity mine = flight_identity(pt);                       // the ONE producer
+        const RtsWireMarks      mk   = rts_wire_marks(pt);                        // the ONE producer of OUR marks
+        if (rts_flight_identity_equal(r.id, mine)
+            && rts_wire_team_plane(r) == rts_wire_team_plane(mk.addr_len, mk.mobile_src)) {
+            const bool local_admitted = pt.data_ever_admitted;
+            _hal.cancel(kRtsTimeoutTimerId);
+            _hal.cancel(kAckTimeoutTimerId);
+            _hal.cancel(kRetryBackoffTimerId);                 // parity with handle_ack: drop a stale retry armed by a just-fired timeout
+            // The emit keeps its HISTORICAL NAME so the telemetry series is continuous — ⛔ but the name is a
+            // historical label ONLY and never an app ACK (design §5.2). `basis` says which observation this credit
+            // rests on; `awaiting_cts`/`awaiting_ack` are carried so the census can be split by pending state
+            // without a second instrument.
+            // ⛔⛔ §hybrid-rts S4c (2026-08-10) — **THE `basis` VALUE `local_data` IS RENAMED `local_admitted` AND
+            //   THAT IS THE ONE THING IN THIS SLICE THAT MOVES A STREAM BYTE.** Deliberate: `local_data` reads as
+            //   *"our DATA"*, i.e. as proof of airing, which the flag cannot support in EITHER direction (see
+            //   `do_data_tx` and [[B164]]). ★ The movement is exactly this token — proven by substituting it back
+            //   and reproducing all 36 pre-rename streams byte-for-byte (`BASELINE.md` §HYBRID-RTS-S4c). ⛔ The
+            //   COUNTS are unmoved (49 · 36/13 · 45/3/1), so the census is one continuous series across the rename.
+            MR_EMIT("implicit_ack_from_forward", EF_I("from", r.src), EF_I("dst", pt.dst), EF_I("ctr", pt.ctr),
+                    EF_I("forward_next", r.next), EF_S("basis", local_admitted ? "local_admitted" : "alternate_path"),
+                    EF_B("awaiting_cts", pt.awaiting_cts), EF_B("awaiting_ack", pt.awaiting_ack));
+            _active->_pending_tx.reset();
+            become_free();
+            return;
+        }
+    }
     // No data SF configured (empty sf_list) -> this node is data-incapable: it can't pick a DATA SF, so it does
     // NOT CTS / retune / arm NAV (no silent fallback). The sender's DM just fails — fail loud. Control plane
     // (neighbour-learn above, beacons, routing) still runs; only data participation is refused.
@@ -255,16 +390,6 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         }
         return;                                          // M_BROADCAST RTS never CTSes
     }
-    // §mobile 3b/6.4: addressed iff the frame targets EITHER of my plane ids. for_static = next==_node_id AND the mark
-    // matches my kind (a mobile accepts addr_len=1, a static addr_len=0). for_team = next==_team_local_id AND addr_len=1
-    // (a team member's team-plane id; off-grid it's the only id). A non-team node has _team_local_id==0 -> for_team false
-    // -> this is byte-identical to the old `next != _node_id || (addr_len==1)!=is_mobile`.
-    const bool for_static_rts = r.next == _node_id && ((r.addr_len == 1) == _cfg.is_mobile);
-#if MR_FEAT_TEAM
-    const bool for_team_rts   = team_addr_for_us(r.next, r.addr_len);   // §P2-3
-#else
-    const bool for_team_rts   = false;   // §featuresplit
-#endif
     // ★★★★ §hybrid-rts S2 (2026-08-08) — THE WIRE DECLARATION SELECTS WHICH RECEIVER-RELATIVE TARGET MUST HOLD.
     // `rts_wire_team_plane(r)` = `(addr_len == 1 && mobile_src)` is what the SENDER said this flight's plane is
     // (frame_codec.h). The two predicates above are receiver-relative ADDRESS admission and say nothing about the
@@ -282,8 +407,6 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     //   `addressed_for_us == (wire_team ? false : for_static_rts)`. A `wire_team` frame was therefore never
     //   admitted on those builds either (`for_static_rts` needs `(addr_len==1) == is_mobile`, and a static node is
     //   not mobile), so this predicate is byte-identical there.
-    const bool wire_team        = rts_wire_team_plane(r);
-    const bool addressed_for_us = wire_team ? for_team_rts : for_static_rts;
     if (!addressed_for_us) {   // else overheard
         // NAV (virtual carrier sense): an overheard UNICAST RTS reserves the medium for the rest of the
         // exchange (CTS+DATA+ACK) — M_BROADCAST already returned above, so this is unicast. Defer own

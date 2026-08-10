@@ -1,7 +1,37 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # B162 — the delivery metric is not reproducible · measurement-only slice · 2026-08-09
 
-**Status: OWNER-SPECIFIED, NOT STARTED.** ⏳ **Sequencing is ruled: finish the plane correction (S2d ✅ done) → QG
+**Status: ✅ EXECUTED 2026-08-09, then ⛔ REOPENED AND RE-CLOSED THE SAME DAY (second pass) — the results are
+`simulation/BASELINE.md` §B162, sections (1)-(9) for the first pass and **(10)-(16)** for the second, plus the [[B162]]
+and [[B163]] register entries.**
+★★★ **THE SECOND PASS DID NOT MOVE THE LADDER: all 36 rows of all 6 arms re-measured IDENTICAL, so the floor stands.
+What it fixed was the AIRTIME half, which had SIX more defects — the largest being that the total was summed only over
+frames the tool could CORRELATE to an emit, so 2557 of 23913 aired frames (10.7%) were charged ZERO.** The total is now
+a PHY-direct sum with an `unattributed_airtime` bucket included in it, and §3 below (the "derive, do not re-pin"
+requirement) is superseded by that inversion: **lengths are still read off the wire, but the PRICE is the PHY event's
+own `airtime_ms`, with the formula demoted to a cross-check** — which is how the missing SX126x SF5/SF6 case was found.
+⛔ **NEW RESIDUE: [[B163]] (`s07`'s refused runtime-id alias).** ★ The instrument now has durable tests:
+`tools/test_dm_delivery_breakdown.py`, 47 checks, each with a control.
+★★ **LADDER, ONE TOOL REVISION / ONE RUN SET: BASE 733 · DELETE 707 · S1 690 · S2 724 · S2c 719 · CURRENT 719**
+(authority = `--mode dm --json` → `totals.unique_deliveries`; raw `delivered` events 765 · 750 · 734 · 752 · 743 · 743
+kept as a labelled CROSS-CHECK). ★ **`≥732` → `≥733` overall, `≥104` in `s06` unchanged.**
+⚠⚠ **AND `≥733` IS CONDITIONAL, NOT FINAL — [[B163]] IS OPEN (§B162 (12)).** `s07_seattle_mobile_meshroute` carries a
+**correct** runtime-id alias refusal: two mobiles genuinely wear the same **leased** wire id at different times, and a
+time-BLIND alias map cannot resolve it. ⇒ **`s07`'s figure may be SHORT ON EVERY ARM by an amount that is not
+derivable** without a time-windowed alias map. ⛔ Quote the floor as `≥733` **with this caveat attached**; do not
+present it as a settled absolute, and do not "resolve" it by picking a number.
+ⓘ Re-confirmed by §B162 (17)-(20) (the parser third pass): all 216 ladder cells reproduce the table above exactly, so
+the floor did not move — **but it did not become unconditional either.**
+⛔⛔ **THE DRIFT WAS NOT AN OFFSET: total off by −1/+1, but 10 of 36 rows wrong in BOTH directions (−4…+9), and
+`s27`'s error DIFFERS BETWEEN ARMS (+7/+9) — a constant correction would have been rejected by the total and required
+by ten rows.** ⛔ **AND THE TOOL ITSELF WAS WRONG FOUR WAYS: my first corrected pass returned BASE = 659** (numeric
+destinations, the `send_hash*`/`send_layerx` verbs, a `layer_id`-keyed hash index, and the whole TEAM plane were
+silently dropped ⇒ **14 of 36 scenarios read exactly ZERO**). ⛔ **CLOSED WITH A NAMED RESIDUE on 2 of 36 rows**
+(`s21_mobile_dm_milestone` homed-mobile indirection; `s27`'s id-0 mobiles). ⛔ Zero `lib/`/`src/` lines changed.
+⛔ Native 1471/79553/0, `error:` 0. ⛔ Board builds / `warning_census.sh` DID NOT RUN. ⛔ UNCOMMITTED (D4).
+⛔ NO OWNER OR QA APPROVAL IS CLAIMED.
+
+**Original brief below, unchanged.** **Status was: OWNER-SPECIFIED, NOT STARTED.** ⏳ **Sequencing is ruled: finish the plane correction (S2d ✅ done) → QG
 review → THIS SLICE → S4.** ⛔ Do not start it before QG clears S2d. **D4: the owner commits.**
 
 ⛔⛔ **MEASUREMENT AND TOOLING ONLY. NO FIRMWARE OR ROUTING CHANGES IN B162.** If a firmware defect surfaces, register
@@ -38,6 +68,8 @@ quoted from it describes a wire that no longer exists.
 4. **Recalculate BASE, DELETE, S1, S2 and the current state with ONE tool revision.** ⚠ One revision, one run set —
    a comparison across tool versions is not a comparison.
 5. **Replace the invalid `≥732` threshold with the reproduced BASE result** (total **and** the BASE `s06` value).
+   ⚠ **State it as CONDITIONAL: `≥733` holds subject to [[B163]] (open) — `s07`'s figure may be short on every arm by
+   a non-derivable amount.** A gate whose known uncertainty is unstated will be read as exact.
 6. **Preserve `s27 == 0` assertion failures as a SEPARATE correctness requirement** — ⛔ it is not folded into the
    delivery figure and is not tradeable against it.
 

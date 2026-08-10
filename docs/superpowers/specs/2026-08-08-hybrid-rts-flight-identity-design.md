@@ -296,17 +296,62 @@ An overheard downstream RTS may clear the redundant local pending copy only if a
 With that equality the RTS is no longer an inference from ambiguous bytes: it identifies the same flight. Two
 different proofs must remain distinct:
 
-1. **Local-copy proof:** if this `PendingTx` has transmitted DATA at least once, the exact downstream forward proves
-   that the selected next hop obtained this flight after a local attempt.
-2. **Alternate-path proof:** if DATA has not been transmitted locally, an exact forward from the selected next hop
-   proves that node obtained the same flight through another branch/path and that this pending local copy is
+⛔⛔ **AMENDED 2026-08-10 BY §HYBRID-RTS-S4c — THE TEXT BELOW IS THE OPERATIVE VERSION.** ⛔ What stood here claimed a
+**local-copy proof** resting on *"if this `PendingTx` has transmitted DATA at least once"*, carried as a durable
+`data_ever_transmitted` fact *"set only at the actual DATA transmission boundary"* and labelled `basis=local_data`.
+★ **THAT FACT CANNOT BE ESTABLISHED WHERE IT IS SET, AND IT IS NOT ESTABLISHED ANYWHERE ELSE EITHER.** `IHal::tx`
+returning `ok` is an **admission** — on hardware an enqueue (`lib/hal/device_hal.cpp:10-12`), with the on-air send
+deferred to `pump_tx()`. The frame can still be refused after admission (`Node::on_radio_busy(FrameTag::data)`, live
+at **652** corpus events; `pump_tx()`'s failed arm drops it outright), and conversely two re-hand sites fly a DATA
+without recording anything ([[B164]]). ⇒ the flag is wrong in **both** directions, so the honest specification is:
+
+1. **Local-admission observation:** if a DATA for this `PendingTx` was **admitted to the radio** at least once, an
+   exact downstream forward is *consistent with* the selected next hop having obtained this flight after a local
+   attempt. ⛔ It is **not** proof that any DATA of ours reached the air.
+2. **Alternate-path observation:** if no DATA has been admitted locally, an exact forward from the selected next hop
+   shows that node obtained the same flight through another branch/path and that this pending local copy is
    redundant. This is progress evidence, not proof of final delivery and not a MAC ACK to this node.
 
-Carry a durable `data_ever_transmitted` fact in `PendingTx`, set only at the actual DATA transmission boundary, and
-emit the credit diagnostic with `basis=local_data` or `basis=alternate_path`. In either case the redundant local
-`PendingTx` may be cleared, but the optimisation must **not** synthesize `send_acked`, `send_e2e_acked`, delivered,
-or `send_failed`. Preserve any independently armed end-to-end ACK wait. The command has already reported queued;
-ordinary non-`-a` sends receive no new terminal app outcome, matching the historical implicit-credit behavior.
+⛔⛔ **AMENDED AGAIN 2026-08-10 BY §HYBRID-RTS-S4d — THE PARAGRAPH ABOVE IS THE OPERATIVE VERSION, AND WHAT MAKES ITEM
+(2) TRUE IS A CODE CHANGE, NOT A WORDING.** ★ S4c fixed the name; it left item (2)'s **antecedent** unprovable. Item
+(2) is a **CATEGORICAL** claim — *"if **no** DATA has been admitted locally"* — but the flag behind it had a single
+writer in `do_data_tx`, i.e. on the **INITIAL** send path only, while `duty_defer_fire` re-runs `tx_with_retry` from
+the stash and can obtain an admission there. ⇒ a duty-deferred DATA that was **later admitted** read `false` and was
+labelled `alternate_path`, so the specification asserted something the implementation could not establish: `true`
+meant *"an admission was observed"*, `false` meant only *"none was observed on the initial path"*.
+★★ **S4d ESTABLISHES THE FACT AT THE ONE POINT EVERY ADMISSION CROSSES** — inside `Node::tx_with_retry`, immediately
+after `_hal.tx()` returns `TxResult::ok`, for a live non-`m_broadcast` `FrameTag::data` flight — and REMOVES the
+`do_data_tx` writer. Because **every** DM-DATA admission (initial and duty-deferred-retry) must pass that call, item
+(2)'s antecedent is now exact in both directions, **and a future call path cannot bypass it**. ★ `retry_stashed`
+requires **no** additional writer: reaching it presupposes a prior successful admission at that crossing point, and it
+only ever re-sends the stashed bytes of the frame that was admitted.
+⛔ **THIS DOES NOT TOUCH ITEM (1)'s LIMIT.** `local_admitted` is still **ADMISSION, NEVER AIRING** — `on_radio_busy`
+and `pump_tx()`'s failed arm can drop an already-booked frame and nothing can unset the flag ⇒ [[B164]] stays open
+**for airing only**. The honest one-liner for the flag is **"exact about admission, silent about airing"**.
+⛔ **AND THE PROHIBITION BELOW STILL BINDS AND WAS OBEYED: S4d added NO per-path assignment.** A guarantee made at one
+of several exits is not made at all — the same structural lesson as [[B162]]'s refusal banner.
+
+★★ **BOTH OBSERVATIONS TAKE THE SAME ACTION, AND ONLY (2)'s REASONING EVER JUSTIFIED IT** — *"the flight is
+progressing and this local copy is redundant"*. Nothing in the protocol consumes the distinction, so it is
+**diagnostic only**.
+
+Carry a `data_ever_admitted` fact in `PendingTx`, set at the **one** HAL-admission crossing point (inside
+`tx_with_retry`, immediately after `_hal.tx()` answers `TxResult::ok`; ⓘ §HYBRID-RTS-S4d — this read *"a best-effort
+… fact, set only at the HAL-admission boundary (`TxHandOff::handed`)"*, which described a write at ONE CALLER's exit
+and was therefore best-effort by construction), and emit the credit diagnostic with `basis=local_admitted` or
+`basis=alternate_path`. In
+either case the redundant local `PendingTx` may be cleared, but the optimisation must **not** synthesize
+`send_acked`, `send_e2e_acked`, delivered, or `send_failed`. Preserve any independently armed end-to-end ACK wait.
+The command has already reported queued; ordinary non-`-a` sends receive no new terminal app outcome, matching the
+historical implicit-credit behavior.
+
+⛔ **NO CONSUMER MAY TREAT `local_admitted` AS AIRING EVIDENCE.** If one ever genuinely needs "aired" rather than
+"admitted", establish it with a **flight-correlated TX-start/completion signal** and rename the fact back — that
+option was considered in S4c, **deferred for want of a consumer, and explicitly not dismissed**. ⛔ It must NOT be
+approximated by adding the assignment at [[B164]]'s two retry sites: that repairs the false negatives and preserves
+the post-admission false positive. ⓘ §HYBRID-RTS-S4d honoured this exactly — it added **no** per-path assignment; it
+CENTRALIZED the single existing one, which closes the admission-side false negative and leaves the airing question
+(and option (b)) untouched.
 
 Any mismatch is non-terminal and changes no pending deadline or route state.
 
@@ -352,8 +397,8 @@ attribution inside the implementation plan.
   the echo comparison makes this regression red;
 - a different flight with the same old tuple never produces that bit;
 - DATA/RTS identity mismatch neither delivers, ACKs, nor seeds the cache;
-- both `local_data` and `alternate_path` forward-credit bases clear only the exact redundant copy and emit no app
-  success/failure outcome; a one-bit identity mismatch leaves it pending;
+- both `local_admitted` (S4 spelled it `local_data`) and `alternate_path` forward-credit bases clear only the exact
+  redundant copy and emit no app success/failure outcome; a one-bit identity mismatch leaves it pending;
 - the S0 producer ledger proves the canonical mark matrix; addressed admission combines the pure wire declaration
   with the receiver-relative target predicate, while an overhearer uses only the wire declaration;
 - a same-layer team/static mismatch never cache-matches or earns forward credit;
@@ -367,11 +412,22 @@ full-width comparison is removed.
 ### System gate
 
 The final comparison must report, not merely re-anchor. Its acceptance floor is deliberately conjunctive and no
-existing comparison arm satisfies it: BASE supplies 732/104 deliveries but leaves `s27` red; DELETE makes `s27`
-green but supplies only 708/85. HYBRID must beat both relevant halves rather than choosing one as its baseline:
+⛔⛔ **CORRECTED 2026-08-09 BY [[B162]] — `732` IS RETIRED AND UNREPRODUCIBLE; THE FLOOR IS `≥733` OVERALL AND `≥104` IN `s06`** (the `s06` half was already right). The published per-row column was wrong on **10 of 36 rows, in both directions, from −4 to +9** — ⛔ NOT a constant offset, so nothing here may be patched by adding a difference. Authoritative ladder, one tool revision, one run set: **BASE 733 · DELETE 707 · S1 690 · S2 724 · CURRENT 719**. See `simulation/BASELINE.md` §B162.
+
+existing comparison arm satisfies it: BASE supplies **733/104** deliveries but leaves `s27` red; DELETE makes
+`s27` green but supplies only **707/85**. HYBRID must beat both relevant halves rather than choosing one as its
+baseline:
 
 - all 36 scenarios and assertion failures;
-- unique deliveries overall and for `s06`, with target **at least 732 overall and 104 in `s06`** unless the owner
+- ⚠⚠ **`≥733` IS A CONDITIONAL FLOOR: [[B163]] IS OPEN** (§B162 (12), re-confirmed by §B162 (17)-(20)). Two mobiles in
+  `s07_seattle_mobile_meshroute` genuinely wear the same **leased** wire id at different times, so the alias refusal is
+  **correct** and **`s07`'s figure may be short on every arm by an amount that is not derivable** without a
+  time-windowed alias map. ⇒ **the total's uncertainty is one-sided and concentrated in one row**: report `s07`
+  separately, and treat neither a pass nor a near-miss at `733` as settled until B163 is resolved. ⛔ Do not resolve it
+  by picking one of its readings.
+- unique deliveries overall and for `s06`, with target **at least 733 overall and 104 in `s06`** — measured by
+  `dm_delivery_breakdown.py --mode dm --json` → `totals.unique_deliveries`, which is THE authority; the raw
+  `delivered` event count is a CROSS-CHECK and is never the figure of record — unless the owner
   explicitly accepts a diagnosed delta;
 - `s27` at zero failures with both previously lost messages delivered;
 - DM and all-frame airtime against both pre-B153 base and the current no-growth implementation;

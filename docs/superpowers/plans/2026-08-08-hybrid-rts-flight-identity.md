@@ -30,6 +30,9 @@ probabilistic tag is not acceptable at any point in this arc, because a terminal
 **S1 verdict: CONDITIONAL PASS.** ⚠ It costs **−17 deliveries (708 → 691)** — attributed: identity wire −9, CTS-wait
 correction −8, concentrated in `s16_dense_gateway` (collisions 1282 → 1464, `s16` −16, `s17` −1). ⇒ ★★ **S2–S4 must now
 recover ≥41, not ≥24, to reach the ≥732 floor.** The −17 is acceptable **only as an attributed intermediate result.**
+⛔ **SUPERSEDED 2026-08-09 BY [[B162]]: the figures in this verdict (708 → 691, and the ≥732 floor) came from the
+unreproducible metric. Re-measured, S1 is 690 against DELETE's 707 — the −17 HOLDS EXACTLY — but the floor is ≥733
+and the arc's shortfall from CURRENT is 14, not 4.**
 
 **Owed BEFORE S2, in this order (QA's sequencing):**
 1. ✅ *(done 2026-08-08)* the stale M/flood comment at `frame_codec.h:302` and B158's **false** channel-capacity
@@ -313,13 +316,57 @@ arm exists that has S2's cache without S3's terminal answer.
 
 ## S4 — restore exact implicit ACK from downstream forwarding
 
+> ## ✅ **S4 LANDED 2026-08-09 — items 1–5, all eight required regressions and all four mutations.** Evidence:
+> `simulation/BASELINE.md` §HYBRID-RTS-S4 (1)–(9); register [[B153]] updated in place (STILL OPEN pending [[B161]]).
+> ★ **719 → 734 unique deliveries** on the [[B162]] authority (`s06` 110) — S4 owed 14 and recovered 15, so `≥733`/
+> `≥104` is cleared for the first time in this arc, ⚠ **conditionally on [[B163]], which is OPEN** and which owns the
+> largest mover (`s07` +9). Airtime **−1.91 %** vs CURRENT and **−0.90 % vs pre-B153 BASE** with **+1** delivery on it.
+> ⛔ **THIS SECTION'S OWN CENSUS PREMISE IS FALSE AND IS CORRECTED THERE, NOT HERE:** the gate item *"reconcile with the
+> measured 7/46/8 state census"* and the claim that `alternate_path` is the majority (46 of 61) rest on a field
+> (`PendingTx::data_ever_transmitted`) that **S4 introduces** — the historical census could only see the pending
+> STATE, and `awaiting_cts` does **not** imply "no DATA aired" (a retry re-enters it). Measured on the S4 wire:
+> **49 credits · 36 local / 13 `alternate_path` · 45 / 3 / 1 by state**, with **32 of the 45 `awaiting_cts`
+> credits having ADMITTED a DATA** ⇒ `alternate_path` is the MINORITY. ⓘ Also: `s27` has no `re-m1`; its replies are
+> `re-m2`/`re-m3`/`re-m4`, all delivered.
+> ⛔⛔ **AND THE FIELD ITSELF WAS MIS-NAMED, CORRECTED BY §HYBRID-RTS-S4c (2026-08-10): `data_ever_transmitted` →
+> `data_ever_admitted`, `basis=local_data` → `basis=local_admitted`.** It records a HAL **admission**, never an
+> on-air fact, and it is wrong in **both** directions — post-admission rejection (`on_radio_busy`, 652 corpus
+> events; `pump_tx()`'s failed arm) and [[B164]]'s two unrecorded re-hand sites. The 36 counted above were emitted
+> under the old label; the **counts did not move** (49 · 36/13 · 45/3/1), so the census is one continuous series.
+> ★ Establishing a true "aired" fact is **DEFERRED, NOT DISMISSED** — see item 2 and `BASELINE.md` §HYBRID-RTS-S4c.
+> ⛔ **S5 and S6 remain UNSTARTED.**
+
 ### Production changes
 
 1. Reintroduce the forwarding-credit arm with exact identity matching: expected next hop, destination, team/static
    plane, domain/width, and full identity.
-2. Carry `data_ever_transmitted` in `PendingTx`, set only at the actual DATA transmission boundary. An exact match may
-   clear the redundant local pending copy under one of two named bases: `local_data` when this node previously aired
-   DATA, or `alternate_path` when the selected next hop already forwards the exact flight without a local DATA send.
+2. ⛔ **AMENDED 2026-08-10 BY §HYBRID-RTS-S4c, THEN **AGAIN THE SAME DAY BY §HYBRID-RTS-S4d — THE S4d SENTENCE AT
+   THE END OF THIS ITEM IS THE OPERATIVE ONE.** Carry `data_ever_admitted` in
+   `PendingTx`, set at the **ONE HAL-admission crossing point** inside `tx_with_retry`, immediately after `_hal.tx()`
+   returns `TxResult::ok`, for a live non-`m_broadcast` `FrameTag::data` flight. An exact match may clear the
+   redundant local pending copy under one of two named bases: `local_admitted` when this node previously **admitted**
+   a DATA for the flight to its radio, or `alternate_path` when the selected next hop already forwards the exact
+   flight without a local DATA send. ⛔ **Neither basis is evidence that a DATA of ours reached the air**, and
+   nothing consumes the distinction — it is diagnostic only, and the redundancy of the local copy is the sole
+   justification for the clear on *both* bases. ⛔ What this item said until S4c — *"Carry `data_ever_transmitted`
+   … set only at the actual DATA transmission boundary … `local_data` when this node previously aired DATA"* — is
+   WITHDRAWN: `IHal::tx` returning `ok` is an enqueue (`lib/hal/device_hal.cpp:10-12`) that `on_radio_busy` (652
+   corpus events) or `pump_tx()`'s failed arm can still refuse, and [[B164]]'s two re-hand sites air a DATA without
+   recording it ⇒ the flag was wrong in **both** directions. ★ Establishing the true "aired" fact needs a
+   flight-correlated TX-start/completion signal; that is **DEFERRED for want of a consumer, NOT dismissed**.
+   ★★★ ⛔⛔ **§HYBRID-RTS-S4d (2026-08-10) — S4c's OWN WORDING HERE, *"set only at the HAL-admission boundary
+   (`TxHandOff::handed`)"*, IS WITHDRAWN, AND SO IS THE IMPLEMENTATION IT DESCRIBED.** That write sat in
+   `do_data_tx`, i.e. at **ONE CALLER's EXIT** on the INITIAL send path, while `duty_defer_fire` re-runs
+   `tx_with_retry` from the stash and can obtain an admission there with no write. ⇒ `true` was honest but **`false`
+   was NOT**, and `alternate_path` is a **CATEGORICAL** label meaning *"no DATA has been admitted locally"*. ★★ S4d
+   moves the single write to the crossing point **every** admission must pass and DELETES the `do_data_tx` writer, so
+   the antecedent is exact in both directions and no future path can bypass it. ★ `retry_stashed` needs **no** writer:
+   reaching it presupposes a prior successful admission there, and it only re-sends the stashed bytes of that same
+   frame. ⛔ **NO per-path assignment was added** — a guarantee made at one of several exits is not made at all
+   ([[B162]]'s refusal-banner lesson in a second shape). ⛔ **The AIRING limit is UNCHANGED**: `local_admitted` is
+   admission, never airing; [[B164]] stays open for airing only and option (b) stays DEFERRED, NOT DISMISSED.
+   ⓘ The DATA duty-defer path is **CORPUS-DARK** (`duty_cycle_blocked` label `DATA` = **0** across all 36 scenarios),
+   so the fix's only detectors are a native regression plus the mutation that restores the pre-S4d control flow.
 3. Neither basis is final-delivery evidence. Do not emit `send_acked`, `send_e2e_acked`, delivered, or `send_failed`;
    preserve any independently armed end-to-end ACK wait. A mismatch changes no deadline, pending state, route state,
    or app outcome.
@@ -330,22 +377,23 @@ arm exists that has S2's cache without S3's terminal answer.
 ### Required regressions
 
 - exact downstream forward clears the correct pending flight without another DATA send;
-- `local_data` basis: an exact forward after a real DATA transmission clears the copy and emits only the named
-  diagnostic;
+- `local_admitted` basis (S4 named it `local_data`): an exact forward after the DATA was **admitted to the radio**
+  clears the copy and emits only the named diagnostic;
 - `alternate_path` basis: the measured `awaiting_cts`/no-local-DATA shape clears only the exact redundant copy,
   emits only the alternate-path diagnostic, and produces no app success/failure push;
 - the `s27` two-origin, same-`ctr_lo`, same-length frame does not clear the other flight;
 - one-bit id, destination, next-hop, plane, or domain mismatch leaves the flight pending;
 - same-layer team/static identities with otherwise identical numeric fields do not cross-match;
 - no producer or test uses telemetry `dup` as a wire-bit proxy;
-- mutations: remove full-id/plane comparison, set `data_ever_transmitted` before radio DATA transmission, or
+- mutations: remove full-id/plane comparison, set `data_ever_admitted` before the radio hand-off, restore the pre-S4d
+  per-caller write (§HYBRID-RTS-S4d's M9 — it must make the duty-deferred regression report `alternate_path`), or
   synthesize `send_acked`; each must make a targeted case red.
 
 ### Gate
 
 - native + full corpus;
 - count exact implicit credits by pending state and compare with the historical 61 firings;
-- split those credits by `local_data` versus `alternate_path`, and reconcile with the measured 7/46/8 state census;
+- split those credits by `local_admitted` versus `alternate_path`, and reconcile with the measured 7/46/8 state census;
 - unique deliveries and airtime versus S3, DELETE, and BASE;
 - no silent disappearance: every originated payload is delivered or has an attributable terminal failure.
 
@@ -395,11 +443,24 @@ Produce one table for BASE, DELETE, prior uniform-4B control, and final HYBRID:
 
 ### Acceptance floor
 
-- this is intentionally a Pareto gate which no existing arm passes: BASE provides 732/104 but `s27` is red, while
-  DELETE provides zero `s27` failures but only 708/85; HYBRID must satisfy both halves simultaneously;
+⛔⛔ **CORRECTED 2026-08-09 BY [[B162]] — `732` IS RETIRED AND UNREPRODUCIBLE; THE FLOOR IS `≥733` OVERALL AND `≥104` IN `s06`** (the `s06` half was already right). The published per-row column was wrong on **10 of 36 rows, in both directions, from −4 to +9** — ⛔ NOT a constant offset, so nothing here may be patched by adding a difference. Authoritative ladder, one tool revision, one run set: **BASE 733 · DELETE 707 · S1 690 · S2 724 · CURRENT 719**. See `simulation/BASELINE.md` §B162.
+
+- this is intentionally a Pareto gate which no existing arm passes: BASE provides **733/104** but `s27` is red,
+  while DELETE provides zero `s27` failures but only **707/85**; HYBRID must satisfy both halves simultaneously;
 - all assertions green; `s27` has zero failures and both target payloads deliver;
-- target ≥732 unique corpus deliveries and ≥104 in `s06`; any shortfall needs a flight-level diagnosis and explicit
-  owner acceptance, not a baseline edit;
+- ⚠⚠ ★ **`≥733` IS CONDITIONAL ON [[B163]], WHICH IS OPEN** (§B162 (12), re-confirmed by §B162 (17)-(20)):
+  `s07_seattle_mobile_meshroute` has a **correct** runtime-id alias refusal — two mobiles genuinely wear the same
+  **leased** wire id at different times — so **`s07`'s figure may be SHORT on every arm by an amount that is not
+  derivable** without a time-windowed alias map. ⇒ **a shortfall against `≥733` that lands in `s07` is NOT
+  automatically a regression**, and a pass is not automatically clean. ⛔ Diagnose `s07` separately before reading the
+  total as a verdict; do not silently resolve B163 by choosing a figure.
+- ★ target **≥733** unique corpus deliveries and **≥104** in `s06`, measured by
+  `dm_delivery_breakdown.py --mode dm --json` → `totals.unique_deliveries` (the raw `delivered` event count is a
+  CROSS-CHECK, never the figure of record); any shortfall needs a flight-level diagnosis and explicit owner
+  acceptance, not a baseline edit. ⚠ CURRENT stands at **719**, i.e. **14 short**, not the "4 short" the pre-B162
+  notes carried;
+- ⛔ `s27 == 0` assertion failures is a SEPARATE, NON-TRADEABLE requirement — it is not folded into the delivery
+  figure and no delivery count may be exchanged for it;
 - no worsening beyond the pre-B153 duplicate count (B159 is not fixed here);
 - new plaintext identity has zero aliases by construction/census; encrypted identity has zero observed aliases;
 - final DM airtime must be reported against both BASE and DELETE. Do not describe symbol-event count as airtime.
