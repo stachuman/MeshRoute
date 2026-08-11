@@ -1376,9 +1376,29 @@ void Node::do_post_ack() {
         // not us. VERIFY source_hash is one of OUR mobiles (else the reply couldn't return here + reject a spoof). Checked
         // BEFORE the last-mile fork so a MOBILE_SEND wrapper is never forwarded verbatim. _mobile_reg_n>0 -> non-host inert.
         if (pa.type == DATA_TYPE_MOBILE_SEND && _active->_mobile_reg_n > 0 && ui && ui->has_dst_hash && ui->has_source_hash) {
+            // ★★★ §MH-S5-FIX2 (owner-ruled 2026-08-10, ledger §1.14) — **"OURS" IS A LIVE DIRECT ROW, NOT A HASH MATCH.**
+            // This scan had NO row-kind test at all, so a redirect or expired row licensed full UPSTREAM DELEGATION
+            // (re-origination on the mobile's behalf, under its SOURCE_HASH) from a home that had already recorded the
+            // mobile moving away — the same *"identity is the whole tuple"* defect [[B172]] closed at the roster, the
+            // last mile and both coverage readers.
+            // ⛔⛔ §MH-S5-FIX's justification for leaving it — *"the mobile is physically in range if it is asking"* —
+            //   IS WITHDRAWN AND WAS FALSE: a mobile delegates through the ordinary ROUTED `do_send` to its home
+            //   (`node_channel.cpp` `do_send_channel_delegated`, `node_hashlocate.cpp` `send_by_hash`), so a
+            //   MOBILE_SEND reaches this home over an arbitrary number of hops. ⚠ An inference about radio range is
+            //   never a substitute for the recorded state.
+            // ★★ AND THE SECOND CONSEQUENCE IS WHY IT COULD NOT BE LEFT: on a re-origination failure the arms below
+            //   call `presence_mark_deleg_fail()`, which set the one-shot on the REDIRECT row — and [[B172]]'s roster
+            //   filter means no roster will ever carry it, so the failure became UNREPORTABLE and its absence read as
+            //   success. Refusing here is what stops that bit ever being aimed at an unadvertised row (and
+            //   `presence_mark_deleg_fail` now refuses it a second time, at the setter).
+            // ⓘ CONSEQUENCE, STATED: a refused wrapper falls to the `become_free(); return;` below — the same silent
+            //   drop a SPOOFED `source_hash` has always taken. ⛔ No new emit and no "forward it to `redirect_home_id`"
+            //   shortcut: neither is asked for by any spec section here, and C1 keeps both out of a corrective slice.
+            //   The mobile's own retry / E2E-ack deadline is the backstop, and its CURRENT home is what owes it a
+            //   `deleg_fail` signal — this home cannot deliver one it may no longer roster.
             bool ours = false;
             for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
-                if (_active->_mobile_reg[i].key_hash32 == ui->source_hash) { ours = true; break; }
+                if (_active->_mobile_reg[i].key_hash32 == ui->source_hash && host_row_live_direct(i)) { ours = true; break; }
             if (ours && (pa.flags & DATA_FLAG_MS_ENCLOSED_TYPE) && ui->body.size() >= 2 && ui->body[0] == DATA_TYPE_CHANNEL_POST) {
                 // §S7 T-B: a delegated GLOBAL/leaf channel post. Body = [DATA_TYPE_CHANNEL_POST][channel_id][text].
                 // Re-originate via do_send_channel under OUR OWN origin/ctr (the home mints; the wrapper's DST_HASH =
@@ -1446,6 +1466,19 @@ void Node::do_post_ack() {
         if (ui && ui->has_dst_hash && ui->dst_key_hash32 != _key_hash32 && _active->_mobile_reg_n > 0) {
             for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i) {
                 if (_active->_mobile_reg[i].key_hash32 == ui->dst_key_hash32) {
+                    // ★★★ §MH-S5-FIX [[B172]] — spec §9.2: *"redirect rows never RESERVE LAST-MILE SERVICE"*. A hash
+                    // match alone is NOT hosting: the row's identity is `(hash, local_id, direct-vs-redirect)`, and a
+                    // redirect row's `mobile_local_id` names an id AT THIS HOME where the mobile no longer is — so
+                    // re-addressing to it aired a 1-hop DM at a mobile that had moved away. The expired half comes
+                    // with the shared predicate (§9.1/[[B173]]).
+                    // ⓘ CONSEQUENCE, STATED because it is a behaviour path and not just a refusal: the DM now falls
+                    //   through to the ordinary forks below. For a plain DM that is `l2c_handle_misdelivery`, which
+                    //   PARKS it and floods a HARD H for the hash — i.e. the sender's traffic follows the mobile via
+                    //   the hash plane, which is exactly the mechanism §9.2 keeps the redirect alive FOR (the H answer
+                    //   at `node_hashlocate.cpp` reads `redirect_home_id` first and is deliberately not liveness-
+                    //   gated). ⛔ A direct "forward it to `redirect_home_id`" shortcut was NOT added here: that is new
+                    //   behaviour no spec section asks for at this site, and C1 keeps it out of a corrective slice.
+                    if (!host_row_live_direct(i)) continue;
                     if (_active->_tx_queue_n < kTxQueueCap) {              // best-effort (match the bridge: drop if full)
                         TxItem it{};
                         it.origin     = pa.origin;                        // PRESERVE the real originator (anti-spam)
@@ -1516,6 +1549,15 @@ void Node::do_post_ack() {
                         //   tests `redirect_home_id != 0` FIRST and that arm is deliberately NOT liveness-gated, so a
                         //   fresher stamp can never resurrect a DIRECT proxy answer for a row that now redirects.
                         _active->_mobile_reg[i].last_heard_ms       = _hal.now();
+                        // ★★ §MH-S5-FIX2 finding C — **CLEAR THE `deleg_fail` ONE-SHOT WHEN THE ROW CHANGES KIND.**
+                        // The bit is a promise to tell the mobile, on the NEXT ROSTER, that a delegated send was
+                        // dropped ([[B172]]'s §B2 one-shot). This row has just stopped being advertised at all, so the
+                        // promise can no longer be kept and the bit would sit here until a re-CLAIM or expiry.
+                        // ⛔ §MH-S5-FIX called that *"self-clearing"*; that word is WITHDRAWN — nothing clears it.
+                        // ★ It also closes a RACE the setter's own refusal cannot: delegation accepted while the row
+                        //   was still DIRECT, this breadcrumb arriving BEFORE the failure was recorded. Both orders now
+                        //   end with the bit clear.
+                        _active->_mobile_reg[i].deleg_fail         = false;
                         MR_EMIT("mobile_redirect_recorded", EF_I("m", i), EF_I("to", ui->body[0]), EF_I("epoch", ui->body[1]));
                         break;
                     }

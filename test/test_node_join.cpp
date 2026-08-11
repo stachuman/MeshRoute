@@ -5648,3 +5648,161 @@ TEST_CASE("★★★★ §MH-S5 §9.3 — the expiry sweep runs inside `find_fre
         CHECK(home.mobile_reg_count() == 0);
     }
 }
+
+// ---------------------------------------------------------------------------
+// ★★★★★ §MH-S5-FIX / [[B172]] — A REDIRECT ROW IS **NOT** A DIRECTLY-HOSTED ROW.
+//
+// Spec §9.2, verbatim: *"redirect rows never reserve last-mile service or advertise as directly hosted."* §MH-S5
+// converted direct rows into redirects and expired both kinds, but THREE live consumers still read every registry row
+// as if a hash match meant "I host this": the roster, the host last-mile forward, and channel coverage. The registry's
+// marker (`redirect_home_id != 0`) already existed and was already trusted by `mobile_reg_age_out` and
+// `host_mobile_row` — it was simply never consulted by those three.
+//
+// ★★ THE CASE IS BUILT AROUND ONE REGISTRY HOLDING BOTH KINDS AT ONCE, because that is the only arrangement in which
+// a filter can be told apart from a breakage. Every "the redirect gets nothing" assertion below is paired with the
+// IDENTICAL drive against a co-resident DIRECT row that must still get everything — a discriminator that can return
+// zero is worthless without its positive control.
+//
+// ★ AND THE LAST ASSERTION IS THE POSITIVE CONTROL FOR THE FILTER ITSELF (the brief's test 4): the redirect must still
+// perform its HASH-LOCATION REDIRECT. `node_hashlocate.cpp` tests `redirect_home_id != 0` FIRST and that arm is
+// deliberately NOT liveness-gated; if a filter had leaked into it, the breadcrumb would stop being followable and a
+// moved mobile would be black-holed instead of redirected — the opposite of what §9.2 exists for.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★★★ §MH-S5-FIX [[B172]] — a REDIRECT row leaves the roster and the last-mile, while a co-resident DIRECT row keeps both, and the hash-locate redirect still works") {
+    constexpr uint32_t kMover   = 0x0000C1DEu;     // registers here, then moves away (row becomes a redirect)
+    constexpr uint8_t  kMoverId = 254;
+    constexpr uint32_t kStay    = 0x0000A2A2u;     // ★ THE POSITIVE CONTROL: stays directly hosted throughout
+    constexpr uint8_t  kStayId  = 253;
+    constexpr uint8_t  kHomeId  = 42;
+    constexpr uint8_t  kNewHome = 77;
+    constexpr uint64_t kT0      = 100000;
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+
+    TestHal hal; hal._now = kT0;
+    Node home(hal, kHomeId, /*key_hash32=*/0x00004242u);
+    CHECK(home.on_init(join_cfg()));
+    CHECK(home.can_host_mobiles());
+
+    std::array<uint8_t, 16> c1{};
+    home.on_recv(c1.data(), make_j_claim_mobile(kHomeId, kMoverId, kMover, c1), meta);
+    std::array<uint8_t, 16> c2{};
+    home.on_recv(c2.data(), make_j_claim_mobile(kHomeId, kStayId, kStay, c2), meta);
+    CHECK(home.mobile_reg_count() == 2);                              // PREMISE: two LIVE DIRECT rows
+
+    // ---- PREMISE, MEASURED: while both are direct, BOTH are advertised and BOTH are last-mile reachable.
+    hal.tx_frames.clear();
+    home.on_timer(kPresenceRosterTimerId);
+    CHECK(roster_entry_for(hal.tx_frames, kMover).has_value());
+    CHECK(roster_entry_for(hal.tx_frames, kStay).has_value());
+    {
+        auto r = parse_p_roster(std::span<const uint8_t>(hal.tx_frames.back().data(), hal.tx_frames.back().size()));
+        CHECK(r.has_value());
+        if (r) CHECK(r->count == 2);                                  // ★ the WIRE count, not just "an entry was found"
+    }
+
+    // ---- THE MOVE. The mobile's NEW home tells us we are stale: this drives the PRODUCTION breadcrumb handler, so the
+    //      row converts to a redirect exactly the way the wire does it (never a white-box poke at `redirect_home_id`).
+    hal.events.clear();
+    home.test_drive_breadcrumb(/*origin=*/kNewHome, kMover, kNewHome, /*new_epoch=*/2, /*new_home_layer=*/0);
+    CHECK(hal.count("mobile_redirect_recorded") == 1);                // PREMISE: the row really is a REDIRECT now
+    CHECK(home.mobile_reg_count() == 2);                              // ...and it is still PRESENT (that is the point: present, not hosted)
+
+    // ================= (1) IT IS ABSENT FROM THE DIRECT-HOST ROSTER.
+    // ⚠ The `PRosterEntry` wire entry carries NO redirect marker, so a listener could not tell a redirect from a
+    //   hosting — which is why the old home advertised a departed mobile as its own for the full redirect lifetime.
+    hal.tx_frames.clear();
+    home.on_timer(kPresenceRosterTimerId);
+    CHECK_FALSE(roster_entry_for(hal.tx_frames, kMover).has_value());   // ★★★★ the moved mobile is NOT advertised
+    {
+        auto s = roster_entry_for(hal.tx_frames, kStay);
+        CHECK(s.has_value());                                          // ★ POSITIVE CONTROL: the direct row still is
+        if (s) CHECK(s->local_id == kStayId);
+        auto r = parse_p_roster(std::span<const uint8_t>(hal.tx_frames.back().data(), hal.tx_frames.back().size()));
+        CHECK(r.has_value());
+        if (r) CHECK(r->count == 1);                                   // ★★★ 2 -> 1 on the wire; the filter is visible in the frame
+    }
+
+    // ================= (2) IT CANNOT TRIGGER DIRECT LAST-MILE FORWARDING.
+    // ⓘ Measured at the PHYSICAL ACT (the queued TxItem), not only at the emit: the drain is suspended so a frame
+    //   stays readable in the queue instead of being consumed into a flight (the §9.4 idiom).
+    home.test_suspend_tx_drain(true);
+    hal.events.clear();
+    const uint8_t q0 = home.test_tx_queue_n();
+    home.test_drive_deliver_for_hash(/*origin=*/9, kMover);            // a DM addressed to the MOVED mobile's hash
+    CHECK(hal.count("mobile_lastmile_fwd") == 0);                      // ★★★★ no 1-hop delivery to an id it has left
+    CHECK(home.test_tx_queue_n() == q0);                               // ★★★★ and nothing was queued at all
+    // ⓘ WHERE IT WENT INSTEAD, asserted rather than assumed: the DM falls through to the ordinary misdelivery fork,
+    //   which PARKS it and floods a HARD H for the hash — so the sender's traffic follows the mobile through the hash
+    //   plane, which is the mechanism §9.2 keeps the redirect alive FOR. This is a behaviour path, so it is pinned.
+    CHECK(hal.count("l2c_misdelivery") == 1);
+    // ★ POSITIVE CONTROL — the identical drive for the co-resident DIRECT mobile still forwards, to ITS local id.
+    hal.events.clear();
+    home.test_drive_deliver_for_hash(/*origin=*/9, kStay);
+    CHECK(hal.count("mobile_lastmile_fwd") == 1);
+    CHECK(home.test_tx_queue_n() == q0 + 1);
+    if (home.test_tx_queue_n() == q0 + 1) {
+        CHECK(home.test_tx_dst(q0)      == kStayId);                   // ★ the direct row's own local id
+        CHECK(home.test_tx_addr_len(q0) == 1);                         // the mobile-local-id mark
+        CHECK(home.test_tx_origin(q0)   == 9);                         // the real originator preserved
+    }
+    home.test_suspend_tx_drain(false);
+
+    // ================= (4) ★★★★★ THE POSITIVE CONTROL FOR THE FILTER ITSELF — THE REDIRECT STILL REDIRECTS.
+    // The hash-locate arm reads `redirect_home_id` FIRST and is deliberately not liveness-gated. If the filter had
+    // leaked here, the flood would be forwarded instead of answered and the mobile would be unreachable everywhere,
+    // which would have made assertions (1) and (2) pass for entirely the wrong reason.
+    hal.events.clear(); hal.tx_frames.clear();
+    {
+        std::array<uint8_t, 16> q{};
+        const size_t qn = make_h_query(/*origin=*/9, kMover, /*ttl=*/4, q);
+        home.on_recv(q.data(), qn, meta);
+        fire_h_forwards(home);
+        CHECK(hal.count("h_resolved") == 1);                           // ★★★★★ still the mobile's location authority
+        CHECK(count_h_frames(hal.tx_frames) == 0);                     // ★ and it SUPPRESSED the flood (it answered)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ★★★★★ §MH-S5-FIX2 — THE OVER-FILTER CONTROL, EXTENDED TO THE **AGE** SHAPE OF AN OVER-FIX.
+//
+// ⚠⚠ WHY THIS CASE EXISTS, STATED PLAINLY: §MH-S5-FIX2's mutation battery aimed an AGE-ONLY over-fix at the redirect
+// answer (a liveness term added to the `redirect_home_id != 0` fork) and the control above came out **GREEN** — it
+// drives its H query immediately after the breadcrumb, and §9.2 stamps `last_heard_ms = now` at breadcrumb receipt, so
+// its redirect row is never old enough to tell the two over-fix shapes apart. ⇒ the guard covered the KIND shape (fold
+// `host_row_live_direct` into the match and a redirect stops matching) and **not** the AGE shape. This closes it.
+//
+// ★★ THE PROPOSITION (owner-ruled 2026-08-10, ledger §1.14, reported form): the ruling is about SERVICE, and a redirect
+// row must STILL answer a hash-location redirect. Past the boundary the row is doomed — `mobile_reg_age_out()` will
+// compact it on the next sweep — but until it does, its ONE remaining job is to be followable. ⇒ the redirect fork is
+// deliberately not liveness-gated, in EITHER shape.
+// ⓘ A DIFFERENT REQUESTER ORIGIN for the second query, deliberately: `mark_hash_query_seen` would otherwise let the
+//   dedup, not the redirect, decide the outcome — and the case would pass without the answer being re-derived.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★★★ §MH-S5-FIX2 over-filter control — an EXPIRED redirect row STILL answers the hash-location redirect (service is refused; the redirect is not)") {
+    constexpr uint32_t kMover   = 0x0000C1DEu;
+    constexpr uint8_t  kMoverId = 254;
+    constexpr uint8_t  kHomeId  = 42;
+    constexpr uint8_t  kNewHome = 77;
+    constexpr uint64_t kT0      = 100000;
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+
+    TestHal hal; hal._now = kT0;
+    Node home(hal, kHomeId, /*key_hash32=*/0x00004242u);
+    CHECK(home.on_init(join_cfg()));
+    std::array<uint8_t, 16> c1{};
+    home.on_recv(c1.data(), make_j_claim_mobile(kHomeId, kMoverId, kMover, c1), meta);
+    home.test_drive_breadcrumb(/*origin=*/kNewHome, kMover, kNewHome, /*new_epoch=*/2, /*new_home_layer=*/0);
+    CHECK(home.mobile_reg_count() == 1);                               // PREMISE: one row, and it is a REDIRECT
+
+    // ---- PAST THE BOUNDARY, and with NO sweep run: the row is expired but still physically present.
+    hal._now = kT0 + protocol::mobile_liveness_ms;
+    CHECK(home.mobile_reg_count() == 1);                               // PREMISE: nothing compacted it (no age-out fired)
+
+    hal.events.clear(); hal.tx_frames.clear();
+    std::array<uint8_t, 16> q{};
+    const size_t qn = make_h_query(/*origin=*/11, kMover, /*ttl=*/4, q);   // ⓘ origin 11 != the (4)-case's 9: never a dedup hit
+    home.on_recv(q.data(), qn, meta);
+    fire_h_forwards(home);
+    CHECK(hal.count("h_resolved") == 1);                               // ★★★★★ STILL the mobile's location authority
+    CHECK(count_h_frames(hal.tx_frames) == 0);                         // ★ and it still SUPPRESSED the flood
+}

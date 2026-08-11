@@ -1561,6 +1561,80 @@ TEST_CASE("§S7 T-A — a team member re-floods a TEAM flood to an UNMARKED team
     CHECK(run(/*cover_peer=*/true)  == 0);   // team peer 60 COVERED -> silent
 }
 
+// ============ §MH-S5-FIX [[B172]]/[[B173]] — CHANNEL COVERAGE COUNTS ONLY **LIVE DIRECT** HOSTED ROWS ============
+//
+// §S7 T-B made a home cover its hosted mobiles: it seeds their local ids into the flood bitmap
+// (`flood_set_my_coverage`) and re-floods while one of them is unmarked (`flood_any_unmarked`). Both read EVERY
+// registry row, which is wrong twice over:
+//   · [[B172]] a REDIRECT row's mobile is registered at ANOTHER home and cannot hear this leaf's flood at all;
+//   · [[B173]] an EXPIRED row's mobile has been silent for 25 minutes — §9.1 wants it *"absent from rosters and
+//     coverage accounting"*, and §9.3's *"do not duplicate age predicates at each consumer"* is why the age test is
+//     the shared `host_row_live_direct()` and not a second copy of the arithmetic here.
+// A false coverage bit is a claim to have reached a node this home cannot reach; a false unmarked target is airtime
+// spent on a mobile that is not there.
+//
+// ★★ ALL FOUR ARMS ARE PAIRED WITH AN IDENTICAL-SETUP CONTROL WHOSE ROW IS LIVE AND DIRECT, so "no coverage" cannot
+// be produced by a hosted-mobile coverage path that simply stopped working, or by a harness that added no row.
+// ⓘ `test_add_host_mobile` stamps `last_heard_ms = now`, so the EXPIRED arms are made by moving the clock, and the
+//   REDIRECT arms by driving the PRODUCTION breadcrumb handler — never by poking `redirect_home_id`.
+static const uint8_t kCovPub[32] = { 0xAB, 0xCD };
+
+TEST_CASE("★★★★ §MH-S5-FIX [[B172]]/[[B173]] — flood_set_my_coverage seeds ONLY live direct hosted mobiles (a redirect / an expired row claims no bit)") {
+    constexpr uint32_t kM   = 0x0000C1DEu;
+    constexpr uint8_t  kMId = 200;                  // the hosted mobile's local id (its coverage bit)
+    // kind: 0 = live direct (the CONTROL), 1 = redirect, 2 = expired
+    auto seeded = [&](int kind) -> bool {
+        TestHal hal; hal._now = 1000;
+        Node home(hal, /*id=*/3, 0x1234ABCDu);
+        NodeConfig cfg = basic_cfg(); home.on_init(cfg);
+        home.test_add_host_mobile(kM, kMId, kCovPub);
+        if (kind == 1) home.test_drive_breadcrumb(/*origin=*/77, kM, /*new_home=*/77, /*epoch=*/2, /*layer=*/0);
+        if (kind == 2) hal._now = 1000 + protocol::mobile_liveness_ms;      // ...one ms PAST is asserted below
+        hal.tx_frames.clear();
+        send_channel(home, 5, "hi");                                        // originate: the seed IS the emitted bitmap
+        const std::vector<uint8_t>* rts = nullptr;
+        for (auto& f : hal.tx_frames) { auto o = parse_rts(std::span<const uint8_t>(f.data(), f.size())); if (o && o->flood) rts = &f; }
+        CHECK(rts != nullptr);                                              // PREMISE: a FLOOD RTS-M really went out
+        if (!rts) return true;                                              // ⛔ fail LOUD: `true` reddens every CHECK_FALSE arm below
+        auto o = parse_rts(std::span<const uint8_t>(rts->data(), rts->size()));
+        CHECK(o.has_value());
+        if (!o) return true;
+        auto bm = rts_flood_bitmap(std::span<const uint8_t>(rts->data(), rts->size()), *o);
+        CHECK(bm.size() == 32);
+        if (bm.size() != 32) return true;
+        CHECK(bm_bit(bm.data(), 3));                                        // ★ self is always seeded — the seed ran
+        return bm_bit(bm.data(), kMId);
+    };
+    CHECK(seeded(0));           // ★ CONTROL: a live DIRECT hosted mobile IS covered (§S7 T-B, unchanged)
+    CHECK_FALSE(seeded(1));     // ★★★★ [[B172]]: a REDIRECT row claims no coverage bit
+    CHECK_FALSE(seeded(2));     // ★★★★ [[B173]]: an EXPIRED row claims no coverage bit — with NO sweep having run
+}
+
+TEST_CASE("★★★★ §MH-S5-FIX [[B172]]/[[B173]] — flood_any_unmarked: only a live direct hosted mobile can DEMAND a re-flood") {
+    constexpr uint32_t kM   = 0x0000C1DEu;
+    constexpr uint8_t  kMId = 200;
+    auto refloods = [&](int kind) -> int {
+        TestHal hal; hal._now = 1000;
+        Node node(hal, /*id=*/2, 0xBEEFu);
+        NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+        node.test_add_host_mobile(kM, kMId, kCovPub);
+        if (kind == 1) node.test_drive_breadcrumb(/*origin=*/77, kM, /*new_home=*/77, /*epoch=*/2, /*layer=*/0);
+        if (kind == 2) hal._now = 1000 + protocol::mobile_liveness_ms;
+        hal.events.clear();
+        // ⛔ NO beacon anywhere in this case: `_rt` is EMPTY, so the hosted mobile is the ONLY possible coverage
+        //    target and the re-flood decision turns on it alone. (bm marks the sender only.)
+        const uint32_t id = (uint32_t(5) << 24) | static_cast<uint32_t>(0x70 + kind);
+        uint8_t bm[32] = {}; bm_set(bm, 1);
+        std::array<uint8_t,64> rb{}; node.on_recv(rb.data(), mk_flood_rts(0, /*src=*/1, id, bm, 8, 3, rb), meta_at(hal._now + 10));
+        std::array<uint8_t,64> db{}; node.on_recv(db.data(), mk_m_frame(0, id, 5, db), meta_at(hal._now + 40));
+        CHECK(node.channel_has(id));                                        // PREMISE: the body really was ingested
+        return hal.count("flood_rebroadcast_scheduled");
+    };
+    CHECK(refloods(0) == 1);    // ★ CONTROL: an UNMARKED live direct hosted mobile -> the home re-floods (§S7 T-B)
+    CHECK(refloods(1) == 0);    // ★★★★ [[B172]]: a REDIRECT row never demands the re-flood
+    CHECK(refloods(2) == 0);    // ★★★★ [[B173]]: an EXPIRED row never demands it either — no sweep required
+}
+
 // ===================== §F-CH-RELAY — HOLDER re-offer on unconfirmed downstream team coverage =====================
 // A RELAY (not the origin) that re-broadcasts a TEAM flood and still has an UNMARKED hops-1 team neighbour (a downstream
 // member not yet confirmed to hold it) re-offers the cached body — the origin's re-offer only reaches ITS OWN neighbours,

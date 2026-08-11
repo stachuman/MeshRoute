@@ -642,7 +642,14 @@ public:
     //   · FRESH within `mobile_liveness_ms` (§8.2) — an old verification is not "recent bidirectional
     //     verification". ⛔ Counting stale rows here would make the field disagree with the switching decision it
     //     exists to explain, which is the display-shaped-field defect this plane keeps producing.
-    // ⇒ the number a surface renders is the number `presence_maybe_rehome` would actually consider.
+    // ⇒ ★ WHAT THE NUMBER IS, STATED EXACTLY, because the sentence that stood here overstated it: it is the count of
+    //   candidate rows that are FRESH, COMPATIBLE and BIDIRECTIONALLY VERIFIED — **the eligibility floor, not the
+    //   selection.** ⛔ It is NOT "what re-home would consider": `presence_maybe_rehome` additionally applies the
+    //   quality delta over the CURRENT home, the 60-second sustained hold, the 5-minute dwell, and the exclusion of
+    //   the current home itself — so this count can be non-zero while re-home correctly does nothing (which is
+    //   precisely §8.3's "adequate before optimal" behaviour, gate 24). Read it as *"how many candidates are even
+    //   admissible"*, never as *"a switch is due"*. ⛔ Do not change the number to chase the old sentence — a golden
+    //   test pins it (§MH-S5 §10 / [[B154]]); this correction is to the CLAIM, at the place a reader acts on it.
     uint8_t           mobile_verified_candidate_count() const {
 #if MR_FEAT_MOBILE
         const uint64_t now = _hal.now();
@@ -1455,6 +1462,58 @@ private:
     // §S6 presence plane (home side) — always compiled (a home is a static); host-gated (dormant on a non-host).
     void    presence_ingest_probe(const uint8_t* frame, size_t len, const RxMeta& meta);   // home: a probe heard -> refresh registry + SNR EWMA + custody; schedule a coalesced roster
     void    mobile_reg_touch(uint8_t slot, int16_t snr_q4);    // §3-D: refresh a hosted mobile's last_heard_ms + step its per-mobile SNR EWMA. ONE path shared by the probe (node_join) + beacon (node_beacon) sites so the triple-site (CLAIM seeds; these two update) can't drift. NOT used by CLAIM (which SEEDS a fresh slot, not EWMA-updates).
+    // ★★★ §MH-S5-FIX [[B172]]/[[B173]] + §MH-S5-FIX2 (owner-ruled) — **THE ONE "LIVE DIRECT HOSTED ROW" PREDICATE.**
+    // A registry row's identity is the whole tuple `(hash, local_id, direct-vs-redirect, live-vs-expired)`, and matching
+    // `hash` alone is the defect both slices closed. `redirect_home_id != 0` means the mobile lives at ANOTHER home and
+    // this row is only a breadcrumb, so spec §9.2's *"redirect rows never reserve last-mile service or advertise as
+    // directly hosted"* and §9.1's *"an expired row is absent from rosters and coverage accounting"* are the SAME
+    // question — asked here, and nowhere else. §9.3: *"do not duplicate age predicates at each consumer"*, which is why
+    // the arithmetic is spelled ONCE and `mobile_reg_age_out()` tests the same helper.
+    //
+    // ★ THE TEN CONSUMERS, and exactly what each one excludes (both kinds — redirect AND expired — at every one).
+    //   §MH-S5-FIX landed the first four; §MH-S5-FIX2 added the rest on the owner's *"consistently to every service
+    //   path"* ruling, so a locally-originated send, a forwarded send and a delegation now agree about one boundary:
+    //   · `presence_emit_roster`            (node_join)       — an excluded row is not ADVERTISED as directly hosted;
+    //   · the host last-mile FORWARD        (node_mac_rx)     — no re-addressed 1-hop delivery of a routed DM;
+    //   · `flood_set_my_coverage`           (node_channel)    — contributes NO coverage bit;
+    //   · `flood_any_unmarked`              (node_channel)    — never DEMANDS a re-flood;
+    //   · the `DATA_TYPE_MOBILE_SEND` OWNERSHIP scan (node_mac_rx) — no upstream DELEGATION on its behalf;
+    //   · the `send_by_hash` direct last mile (node_hashlocate) — the LOCALLY-originated twin of the forward above;
+    //   · `forward_requester_key_to_mobile` (node_hashlocate) — no last-mile key push;
+    //   · `host_mobile_ed_pub`              (node_hashlocate) — no *"here is my hosted mobile's key"* answer;
+    //   · the team-key-grant pre-check      (node.cpp)        — its whole job is to PREDICT the send path above;
+    //   · `presence_mark_deleg_fail`        (node_join)       — refuses a one-shot no roster could ever carry.
+    //
+    // ⓘ **NON-MUTATING BY DESIGN, and that is the [[B173]] answer.** The alternative was to de-const the two coverage
+    //   readers so they could run the compaction sweep; a flood-coverage predicate that silently deletes registry rows
+    //   is a worse contract than a pure test. Physical compaction stays with `mobile_reg_age_out()` (the aging timer +
+    //   §9.3's two decision points); what changes here is that a row PAST the boundary is refused IMMEDIATELY by every
+    //   consumer instead of up to one 60-second sweep later.
+    // ★★★ §MH-S5-FIX2 — **CORRECTED IN PLACE 2026-08-10 (owner-ruled; ledger §1.14). THE INSTRUCTION THAT STOOD HERE
+    //   IS WITHDRAWN.** It read: ⛔ *"NOT the same question as the bare `redirect_home_id == 0` tests in
+    //   `node_hashlocate.cpp` (`host_mobile_ed_pub`, `forward_requester_key_to_mobile`, the send_by_hash last-mile) and
+    //   `node.cpp`'s grant pre-check … ⇒ Do not mechanically fold them in here."* (kept as the audit trail, per the
+    //   owner-rulings ledger §3 rule 3 — ⛔ a WITHDRAWN quote, never a live claim).
+    //   **It was wrong twice.** (a) The owner ruled the boundary applies to EVERY hosted/last-mile SERVICE path, so it
+    //   IS the same question at all four of those sites, and all four now read this predicate (see the list above).
+    //   (b) *"paths this slice never measured"* was a reason to measure them, not a reason to diverge; the
+    //   half-and-half state it produced is what §MH-S5-FIX was corrected for.
+    // ⛔⛔ WHAT IS **NOT** FOLDED IN, and must never be: the **hash-location REDIRECT ANSWER**
+    //   (`node_hashlocate.cpp` `handle_h`, the `redirect_home_id != 0` fork). The ruling is about SERVICE; a redirect
+    //   row's whole remaining job is to be followable, so that fork is deliberately **not** liveness-gated. A positive
+    //   control (`test_node_join.cpp`) turns RED if a filter ever leaks into it — over-fixing is the live risk here.
+    // ⓘ The DIRECT proxy arm beside it keeps its own inline `now - last_heard_ms < mobile_liveness_ms` (the exact
+    //   complement of `host_row_expired`), which is what makes the WANT_PUBKEY caller of `host_mobile_ed_pub`
+    //   structurally already-gated; the gate there is redundancy, not a new exclusion.
+    // ⓘ Bounds are CALLER-checked (the `mobile_reg_touch` idiom): every consumer loops `i < _mobile_reg_n`.
+    bool    host_row_live_direct(uint8_t i) const {
+        return _active->_mobile_reg[i].redirect_home_id == 0 && !host_row_expired(i, _hal.now());
+    }
+    // The AGE half alone. `mobile_reg_age_out()` expires BOTH kinds at this boundary, so it cannot use the predicate
+    // above (which excludes redirects) — it uses THIS, so the two can never disagree about where the boundary is.
+    bool    host_row_expired(uint8_t i, uint64_t now) const {
+        return (now - _active->_mobile_reg[i].last_heard_ms) >= protocol::mobile_liveness_ms;
+    }
     // ★★★ §MH-S5 §9.3 — the ONE removal primitive (row + EVERY parallel array) and the 25-minute deadline scan
     // that drives it. Contract + the declined-alternative record live at the definitions in `node_join.cpp`.
     // ⛔ `mobile_reg_age_out()` allocates NO timer id — `TimerWheel::kCap` stays 91 (asserted, gate 16).

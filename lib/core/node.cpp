@@ -210,8 +210,13 @@ Node::TeamKeyGrantTx Node::team_key_grant_send(uint32_t target_hash, const char*
         uint8_t      tid     = 0;
         const bool   team_ok = team_id_of_key(target_hash, tid);                            // stubs false on MR_FEAT_TEAM 0
         bool hosted = false;                                                               // a mobile WE host is a direct last-mile, which DOES keep the type
+        // ★★★ §MH-S5-FIX2 (owner-ruled 2026-08-10, ledger §1.14): `host_row_live_direct(i)`, not a bare
+        // `redirect_home_id == 0`. This pre-check exists to PREDICT `send_by_hash`'s direct-last-mile arm, and that arm
+        // now refuses an EXPIRED row too — so leaving the bare test here would have made the prediction wrong in
+        // exactly the case the operator is warned about, sending a private key half into a delegated wrapper whose
+        // enclosed-type slot is already taken. ⇒ the two must ask the same question, and this is the same question.
         for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
-            if (_active->_mobile_reg[i].key_hash32 == target_hash && _active->_mobile_reg[i].redirect_home_id == 0) hosted = true;
+            if (_active->_mobile_reg[i].key_hash32 == target_hash && host_row_live_direct(i)) hosted = true;
         if (!(id >= 0 && conf == IdBindConf::authoritative) && !team_ok && !hosted)
             return TeamKeyGrantTx::delegated;
     }

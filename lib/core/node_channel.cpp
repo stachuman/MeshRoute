@@ -1545,7 +1545,13 @@ void Node::flood_set_my_coverage(uint8_t* bm, bool team) const {
     for (uint8_t i = 0; i < _active->_rt_count; ++i)
         if (_active->_rt[i].n > 0 && _active->_rt[i].candidates[0].hops == 1) seen_set(bm, _active->_rt[i].dest);
 #if MR_FEAT_MOBILE
-    for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i) seen_set(bm, _active->_mobile_reg[i].mobile_local_id);   // §S7 T-B: a home covers its hosted mobiles so a leaf flood re-broadcasts to reach them
+    // §S7 T-B: a home covers its hosted mobiles so a leaf flood re-broadcasts to reach them.
+    // ★★ §MH-S5-FIX [[B172]]/[[B173]] — ONLY the LIVE DIRECT rows (`host_row_live_direct`, node.h). A REDIRECT row's
+    // mobile is at another home and cannot hear this leaf's flood; an EXPIRED row's mobile has been silent for 25
+    // minutes. Claiming coverage for either is a claim about a node this home cannot reach (§9.1 wants an expired row
+    // "absent from … coverage accounting"). ⓘ The predicate is non-mutating, so this reader stays `const`.
+    for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
+        if (host_row_live_direct(i)) seen_set(bm, _active->_mobile_reg[i].mobile_local_id);
 #endif
 }
 bool Node::flood_any_unmarked(const uint8_t* bm, bool team) const {
@@ -1561,7 +1567,10 @@ bool Node::flood_any_unmarked(const uint8_t* bm, bool team) const {
     for (uint8_t i = 0; i < _active->_rt_count; ++i)
         if (_active->_rt[i].n > 0 && _active->_rt[i].candidates[0].hops == 1 && !seen_test(bm, _active->_rt[i].dest)) return true;
 #if MR_FEAT_MOBILE
-    for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i) if (!seen_test(bm, _active->_mobile_reg[i].mobile_local_id)) return true;   // §S7 T-B: an un-covered hosted mobile -> the home re-floods to reach it
+    // §S7 T-B: an un-covered hosted mobile -> the home re-floods to reach it. ★★ §MH-S5-FIX [[B172]]/[[B173]]: only a
+    // LIVE DIRECT row may DEMAND that re-flood — a redirect/expired row drove airtime at a mobile that is not here.
+    for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
+        if (host_row_live_direct(i) && !seen_test(bm, _active->_mobile_reg[i].mobile_local_id)) return true;
 #endif
     return false;
 }

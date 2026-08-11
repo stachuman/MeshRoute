@@ -5756,6 +5756,302 @@ TEST_CASE("§B2 — home sets deleg_fail -> roster carries the bit -> CLEARED af
     CHECK_FALSE(DualLayerTestAccess::mobile_reg_deleg_fail(home, 0));          // ★ cleared after ONE roster (one-shot)
 }
 
+// ★★★★★ §MH-S5-FIX [[B172]] — THE TRAP THE REDIRECT FILTER SETS, AND THE ONE-SHOT THAT MUST SURVIVE IT.
+//
+// `presence_emit_roster` used to end with `for (i < n) _mobile_reg[i].deleg_fail = false;`, whose own comment asserted
+// *"entry i maps 1:1 to _mobile_reg[i]"*. That was true only while the copy loop copied EVERY row. [[B172]]'s filter
+// makes `n < _mobile_reg_n`, so the entry index stops being the registry index — and this loop would then clear **the
+// wrong rows' bits**, silently losing the *delegated-send-dropped* signal a mobile depends on to fire
+// `send_failed{no_route}` exactly once (§B2). ⇒ the emit carries the SOURCE SLOT per entry and this case asserts it.
+//
+// ★★ THE ARRANGEMENT IS THE WHOLE TEST: the REDIRECT row sits at slot 0 and the flagged DIRECT row at slot 1, so
+// entry 0 of the roster maps to registry row 1. An index-keyed clear touches row 0 (a redirect, whose bit was never
+// set) and leaves row 1 flagged for ever — a home that re-reports the same failure on every subsequent roster.
+// ⓘ Both halves are witnessed: the REGISTRY bit (state) and the NEXT roster on the wire (behaviour).
+TEST_CASE("★★★★★ §MH-S5-FIX [[B172]] — with a filtered roster the deleg_fail one-shot clears the row it CARRIED, not the row at that index") {
+    StubHal hal; Node home(hal, 40, 0x4040u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.host_mobiles=true; CHECK(home.on_init(cfg));
+    DualLayerTestAccess::store_mobile(home, /*MOVED*/0xB0B1u, /*local*/17);    // slot 0 -> becomes the REDIRECT
+    DualLayerTestAccess::store_mobile(home, /*HOSTED*/0xB0B2u, /*local*/18);   // slot 1 -> stays DIRECT, carries the bit
+    home.test_drive_breadcrumb(/*origin=*/77, /*mobile=*/0xB0B1u, /*new_home=*/77, /*new_epoch=*/2, /*new_home_layer=*/0);
+    CHECK(DualLayerTestAccess::mobile_reg_redirect(home, 0) == 77);            // PREMISE: slot 0 really is a redirect
+    CHECK(DualLayerTestAccess::mobile_reg_n(home) == 2);                       // PREMISE: and it is still PRESENT (so the indices really do shift)
+    DualLayerTestAccess::mark_deleg_fail(home, 0xB0B2u);
+    CHECK(DualLayerTestAccess::mobile_reg_deleg_fail(home, 1));                // PREMISE: the bit is set on SLOT 1
+
+    hal.emits.clear();
+    DualLayerTestAccess::presence_roster_fire(home);
+    CHECK(hal.saw_emit("presence_roster_tx"));
+    {   // the emitted roster: ONE entry (the redirect is filtered), and it is the flagged mobile, carrying the bit
+        auto r = parse_p_roster(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len));
+        CHECK(r.has_value());
+        if (r) {
+            CHECK(r->count == 1);                                             // ★ [[B172]]: 2 rows -> 1 entry on the wire
+            auto e = parse_p_roster_entry(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len), *r, 0);
+            CHECK(e.has_value());
+            if (e) { CHECK(e->key_hash32 == 0xB0B2u);                          // ★ entry 0 is the row at SLOT 1
+                     CHECK(e->local_id == 18);
+                     CHECK(e->deleg_fail); }                                  // ★ and it really carried the signal
+        }
+    }
+    // ★★★★ THE ASSERTION THE OLD LOOP FAILS: the bit is cleared on the row that CARRIED it (slot 1), not on slot 0.
+    CHECK_FALSE(DualLayerTestAccess::mobile_reg_deleg_fail(home, 1));
+    CHECK_FALSE(DualLayerTestAccess::mobile_reg_deleg_fail(home, 0));          // ★ and the redirect's bit was never touched/set either
+    // ★★★★ ...and the WIRE agrees: a second roster no longer re-reports the failure (one-shot, not sticky).
+    hal.emits.clear();
+    DualLayerTestAccess::presence_roster_fire(home);
+    CHECK(hal.saw_emit("presence_roster_tx"));
+    {
+        auto r = parse_p_roster(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len));
+        CHECK(r.has_value());
+        if (r) { CHECK(r->count == 1);
+                 auto e = parse_p_roster_entry(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len), *r, 0);
+                 CHECK(e.has_value());
+                 if (e) { CHECK(e->key_hash32 == 0xB0B2u); CHECK_FALSE(e->deleg_fail); } }   // ★★★★ NOT re-reported
+    }
+}
+
+// ===========================================================================================================
+// ★★★★★ §MH-S5-FIX2 — THE LIVE-DIRECT BOUNDARY, APPLIED TO EVERY HOME/LAST-MILE **SERVICE** PATH.
+//
+// The owner ruled (2026-08-10; `docs/2026-08-05-owner-rulings-ledger.md` §1.14, REPORTED form — no quotation) that a
+// registry row at or beyond `mobile_liveness_ms` must provide NO direct hosted service and NO last-mile service, even
+// before physical compaction, and that the rule applies CONSISTENTLY to all such paths. §MH-S5-FIX had landed it at
+// four consumers; these cases pin the rest.
+//
+// ★★ EVERY ARM BELOW IS A TRIPLE — `live direct` (the CONTROL that must still get everything) · `redirect` · `expired`
+//    — because a discriminator that can return zero is worthless without the paired positive control, and because the
+//    two exclusions have DIFFERENT causes (kind vs age) and must be shown separately.
+// ⓘ Row kind is always produced the way the WIRE produces it: `test_drive_breadcrumb` for a redirect (never a poke at
+//   `redirect_home_id`), and MOVING THE CLOCK for expiry (never a poke at `last_heard_ms`, and never a sweep — the
+//   whole point of [[B173]] is that no sweep is needed).
+// ⛔ WHAT THESE CASES MUST NEVER START PASSING FOR: the hash-location REDIRECT ANSWER staying gated. That positive
+//   control lives in `test_node_join.cpp` (§MH-S5-FIX's *"the redirect still redirects"*) and over-fixing is the real
+//   risk in this slice — the ruling is about SERVICE, not about the redirect mechanism.
+// ===========================================================================================================
+
+namespace {
+// The three row kinds, produced identically for every case below. Returns the home with ONE row for `M` at `local`.
+// `kind`: 0 = live direct · 1 = redirect (breadcrumb-driven) · 2 = expired (clock-driven, NO sweep).
+enum class RowKind : int { live_direct = 0, redirect = 1, expired = 2 };
+constexpr uint64_t kLdT0 = 500000;
+void ld_make_row(Node& home, StubHal& hal, uint32_t M, uint8_t local, RowKind kind) {
+    hal._now = kLdT0;
+    DualLayerTestAccess::store_mobile(home, M, local);                  // stamps last_heard_ms = now
+    if (kind == RowKind::redirect)
+        home.test_drive_breadcrumb(/*origin=*/77, M, /*new_home=*/77, /*new_epoch=*/2, /*new_home_layer=*/0);
+    if (kind == RowKind::expired)
+        hal._now = kLdT0 + protocol::mobile_liveness_ms;                 // AT the boundary (>= is expired), no sweep run
+}
+NodeConfig ld_home_cfg() {
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+    cfg.leaf_id = 4; cfg.host_mobiles = true; return cfg;
+}
+}  // namespace
+
+// ---------------------------------------------------------------------------------------------------------
+// ★★★★★ FINDING A — THE `DATA_TYPE_MOBILE_SEND` OWNERSHIP SCAN HAD **NO ROW-KIND TEST AT ALL**.
+//
+// `node_mac_rx.cpp`'s `ours` scan matched `key_hash32` alone, so a redirect OR an expired row licensed full upstream
+// DELEGATION: the old home re-originated under the mobile's SOURCE_HASH after it had already recorded the mobile
+// moving away. ⛔ §MH-S5-FIX's justification — *"the mobile is physically in range if it is asking"* — is WITHDRAWN and
+// was false: a mobile delegates through the ordinary ROUTED `do_send` to its home, so a MOBILE_SEND arrives over an
+// arbitrary number of hops. ⚠ An inference about radio range replacing a state check is the shape, not the detail.
+//
+// ★★ AND THE SECOND CONSEQUENCE IS WHY IT COULD NOT BE LEFT: the failure arms call `presence_mark_deleg_fail`, whose
+//    bit only ever travels in a ROSTER — which [[B172]]'s filter now (correctly) withholds for a redirect row. So the
+//    failure became UNREPORTABLE and its absence would have read as success. That is the *instrument that cannot fail*
+//    class in its worst direction, and it is closed at both ends (here, and at the setter — see the Finding-C cases).
+// ⓘ THE OBSERVABLE IS THE RE-ORIGINATION ITSELF: an accepted wrapper makes the home flood a HARD hash-locate for the
+//   TARGET (`send_by_hash` parks the delegated send and asks who owns `X`). A refused wrapper airs NOTHING AT ALL —
+//   asserted as `h_tx == 0` AND an empty emit set, so "no re-origination" cannot be satisfied by a differently-shaped
+//   frame going out instead.
+// ---------------------------------------------------------------------------------------------------------
+TEST_CASE("★★★★★ §MH-S5-FIX2 finding A — a delegated MOBILE_SEND is re-originated ONLY for a LIVE DIRECT row (a redirect and an expired row are both refused)") {
+    constexpr uint32_t kM = 0x0000C1DEu;      // the delegating mobile
+    constexpr uint32_t kX = 0x0000BEEFu;      // the target it wants reached
+    constexpr uint8_t  kLocal = 200;
+
+    auto reoriginated = [&](RowKind kind) -> int {
+        StubHal hal; Node home(hal, /*id=*/42, /*key=*/0x4242u);
+        NodeConfig cfg = ld_home_cfg(); CHECK(home.on_init(cfg));
+        CHECK(home.can_host_mobiles());                                  // PREMISE: this node may host at all
+        ld_make_row(home, hal, kM, kLocal, kind);
+        CHECK(DualLayerTestAccess::mobile_reg_n(home) == 1);             // PREMISE: the row is PRESENT in every arm
+        if (kind == RowKind::redirect)
+            CHECK(DualLayerTestAccess::mobile_reg_redirect(home, 0) == 77);   // PREMISE: ...and really is a redirect
+        hal.emits.clear();
+        DualLayerTestAccess::drive_post_ack_mobile_send(home, /*source_hash_M=*/kM, /*dst_hash_X=*/kX,
+                                                        /*ctr_M=*/0x0021, /*body0=*/'z');
+        return hal.count("h_tx");
+    };
+    // ★ CONTROL: a live DIRECT hosted mobile's delegation is still served in full (§S2, unchanged).
+    CHECK(reoriginated(RowKind::live_direct) == 1);
+    // ★★★★ the two refusals — the same drive, the same registry hash, only the row's KIND/AGE differs.
+    CHECK(reoriginated(RowKind::redirect) == 0);
+    CHECK(reoriginated(RowKind::expired)  == 0);
+}
+
+TEST_CASE("★★★★★ §MH-S5-FIX2 finding A — a refused MOBILE_SEND airs NOTHING (the refusal is a drop, not a differently-shaped transmission)") {
+    constexpr uint32_t kM = 0x0000C1DEu;
+    constexpr uint32_t kX = 0x0000BEEFu;
+    StubHal hal; Node home(hal, 42, 0x4242u);
+    NodeConfig cfg = ld_home_cfg(); CHECK(home.on_init(cfg));
+    ld_make_row(home, hal, kM, /*local=*/200, RowKind::redirect);
+    hal.emits.clear(); hal.last_tx_len = 0;
+    const uint8_t q0 = home.test_tx_queue_n();
+    DualLayerTestAccess::drive_post_ack_mobile_send(home, kM, kX, 0x0021, 'z');
+    CHECK(hal.emits.empty());                       // ★★★★ not one event — no re-origination, no park, no H
+    CHECK(hal.last_tx_len == 0);                    // ★★★★ and nothing reached the radio
+    CHECK(home.test_tx_queue_n() == q0);            // ★★★★ nor the TX queue
+    // ★ CONTROL for the instrument itself: the identical drive against a LIVE DIRECT row DOES produce all three.
+    StubHal h2; Node home2(h2, 42, 0x4242u);
+    NodeConfig c2 = ld_home_cfg(); CHECK(home2.on_init(c2));
+    ld_make_row(home2, h2, kM, /*local=*/200, RowKind::live_direct);
+    h2.emits.clear(); h2.last_tx_len = 0;
+    DualLayerTestAccess::drive_post_ack_mobile_send(home2, kM, kX, 0x0021, 'z');
+    CHECK_FALSE(h2.emits.empty());
+    CHECK(h2.last_tx_len > 0);
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// ★★★★★ FINDING B, SITE 1 — THE LOCALLY-ORIGINATED LAST MILE, WHICH DISAGREED WITH THE FORWARDED ONE.
+//
+// §MH-S5-FIX gated the FORWARDED last mile (`node_mac_rx.cpp`) on expiry. `send_by_hash`'s DIRECT last-mile enqueue
+// kept a bare `redirect_home_id == 0`, so the same expired row was refused a routed DM and still handed a 1-hop frame
+// when this node originated to the same hash itself. That half-and-half state is what the ruling settles.
+// ⓘ Measured at the PHYSICAL ACT: the queued `TxItem`'s `dst` (the mobile's LOCAL id) and `addr_len == 1` (the
+//   mobile-local-id mark), not merely at an emit.
+// ---------------------------------------------------------------------------------------------------------
+TEST_CASE("★★★★★ §MH-S5-FIX2 finding B/1 — send_by_hash takes the DIRECT last mile only for a LIVE DIRECT row; a redirect and an expired row fall through to the hash plane") {
+    constexpr uint32_t kM = 0x0000C1DEu;
+    constexpr uint8_t  kLocal = 201;
+    const uint8_t body[] = { 'h', 'i' };
+
+    auto last_mile_dst = [&](RowKind kind) -> int {
+        StubHal hal; Node home(hal, /*id=*/55, /*key=*/0x5555u);
+        NodeConfig cfg = ld_home_cfg(); CHECK(home.on_init(cfg));
+        ld_make_row(home, hal, kM, kLocal, kind);
+        home.test_suspend_tx_drain(true);                                // §9.4 idiom: keep the frame readable in the queue
+        const uint8_t q0 = home.test_tx_queue_n();
+        DualLayerTestAccess::send_by_hash(home, kM, body, 2);
+        if (home.test_tx_queue_n() != q0 + 1) return -1;                 // nothing enqueued -> no direct last mile
+        if (home.test_tx_addr_len(q0) != 1)   return -2;                 // enqueued, but NOT as a mobile local id
+        return home.test_tx_dst(q0);
+    };
+    CHECK(last_mile_dst(RowKind::live_direct) == kLocal);   // ★ CONTROL: the live direct row still gets its 1-hop frame
+    CHECK(last_mile_dst(RowKind::redirect)    == -1);       // ★★★★ a redirect: no direct enqueue (pre-existing behaviour, pinned)
+    CHECK(last_mile_dst(RowKind::expired)     == -1);       // ★★★★ an expired row: NEW — and with NO sweep having run
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// ★★★★★ FINDING B, SITE 4 — `host_mobile_ed_pub`, THE ONE THE BRIEF LEFT FOR THE IMPLEMENTER TO CLASSIFY.
+//
+// It answers *"here is my hosted mobile's key"*, which is direct hosted service. The question was whether both callers
+// already stood behind a gate that excludes an EXPIRED row. Established from the call graph, not inferred:
+//   · `handle_h`'s WANT_PUBKEY proxy answer — ALREADY live+direct (its `mobile_proxy` flag is set at exactly two
+//     places, and under `want_pubkey` the redirect arm `break`s first, leaving only the arm whose own gate is
+//     `now - last_heard_ms < mobile_liveness_ms`) ⇒ the new term is REDUNDANT there;
+//   · ★ `reqpubkey`'s local short-circuit (`node.cpp`, `on_command`) — **NO liveness gate at all.** That is the caller
+//     that made *"leave it alone"* unavailable, and it is what this case drives.
+// ⓘ Both halves are witnessed: the LOCAL answer (`peer_key_cached` + a `peer_key_find` hit) and its consequence on the
+//   wire (no `h_tx` when answered locally, an `h_tx` when refused — the refusal does not black-hole the operator, it
+//   sends the question to the mobile's CURRENT home, which is the node that really holds the key).
+// ---------------------------------------------------------------------------------------------------------
+TEST_CASE("★★★★★ §MH-S5-FIX2 finding B/4 — reqpubkey answers from the hosted-mobile registry only for a LIVE DIRECT row; a redirect and an expired row flood instead") {
+    // ed_pub[:4] LE == the mobile's key_hash32 (peer_key_set self-consistency)
+    uint8_t ed[32] = {}; ed[0]=0xB6; ed[1]=0x31; ed[2]=0x09; ed[3]=0xCD; for (int i=4;i<32;++i) ed[i]=static_cast<uint8_t>(i);
+    constexpr uint32_t kM = 0xCD0931B6u;
+
+    auto answered_locally = [&](RowKind kind, bool& flooded, bool& keyed) {
+        StubHal hal; Node home(hal, /*id=*/155, /*key=*/0x9999u);
+        NodeConfig cfg = ld_home_cfg(); CHECK(home.on_init(cfg));
+        // ★ A CRYPTO IDENTITY IS LOAD-BEARING FOR THE NEGATIVE ARMS, not decoration: `emit_hash_query` gates
+        //   `want_pubkey` on `_crypto_ready`, so without one a REFUSED lookup would return `err_no_identity` and air
+        //   nothing — and `CHECK_FALSE(flooded)` would then have passed for entirely the wrong reason.
+        uint8_t xs[32], selfed[32];
+        for (int i = 0; i < 32; ++i) { xs[i] = static_cast<uint8_t>(0x40 + i); selfed[i] = static_cast<uint8_t>(0x70 + i); }
+        home.set_crypto_identity(xs, selfed);
+        ld_make_row(home, hal, kM, /*local=*/40, kind);
+        DualLayerTestAccess::set_mobile_pubkey(home, 0, ed);             // the mobile pushed its key while it was here
+        hal.emits.clear();
+        Command c{}; c.kind = CmdKind::reqpubkey; c.u.resolve.dst_hash = kM; c.u.resolve.plane = 2 /*GLOBAL*/;
+        home.on_command(c);
+        flooded = hal.saw_emit("h_tx");
+        uint8_t pk[32]; keyed = home.peer_key_find(kM, pk);
+        return hal.saw_emit("peer_key_cached");
+    };
+    bool flooded = false, keyed = false;
+    CHECK(answered_locally(RowKind::live_direct, flooded, keyed));       // ★ CONTROL: answered from _mobile_reg
+    CHECK_FALSE(flooded);                                               // ★ ...and it airs NOTHING (unchanged)
+    CHECK(keyed);                                                       // ★ ...and the home really can now seal to it
+    CHECK_FALSE(answered_locally(RowKind::redirect, flooded, keyed));   // ★★★★ a redirect holds no local key (pre-existing)
+    CHECK(flooded);                                                     // ★★★★ ...so the question goes to the mesh
+    CHECK_FALSE(keyed);
+    CHECK_FALSE(answered_locally(RowKind::expired, flooded, keyed));    // ★★★★ an EXPIRED row: NEW — no local key authority
+    CHECK(flooded);                                                     // ★★★★ ...and the flood reaches its CURRENT home
+    CHECK_FALSE(keyed);
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// ★★★★★ FINDING C — `presence_mark_deleg_fail` REFUSES A SIGNAL NOTHING COULD CARRY, AND A BREADCRUMB CLEARS ONE.
+//
+// The bit only ever reaches its mobile inside a ROSTER, and [[B172]]'s filter withholds a redirect/expired row from
+// every roster. ⛔ §MH-S5-FIX called the leftover bit *"self-clearing"*; WITHDRAWN — only a re-CLAIM's aggregate
+// initialise or expiry cleared it, i.e. possibly never. Two halves, and NEITHER is sufficient alone:
+//   (1) the setter refuses unless the row is live AND direct — and refuses the ROSTER SCHEDULE with it (airtime for a
+//       signal that cannot be carried);
+//   (2) the breadcrumb arm CLEARS an existing bit when a row converts direct -> redirect, which is the only thing that
+//       closes the RACE — delegation accepted while direct, breadcrumb arriving BEFORE the failure was recorded.
+// ---------------------------------------------------------------------------------------------------------
+TEST_CASE("★★★★★ §MH-S5-FIX2 finding C/1 — presence_mark_deleg_fail sets the one-shot ONLY on a live direct row, and schedules no roster when it refuses") {
+    constexpr uint32_t kM = 0x0000C1DEu;
+    auto marked = [&](RowKind kind, bool& roster_armed) {
+        StubHal hal; Node home(hal, /*id=*/40, /*key=*/0x4040u);
+        NodeConfig cfg = ld_home_cfg(); CHECK(home.on_init(cfg));
+        ld_make_row(home, hal, kM, /*local=*/17, kind);
+        for (auto& a : hal.armed) a = false;                             // forget the setup's own timers
+        DualLayerTestAccess::mark_deleg_fail(home, kM);
+        roster_armed = hal.armed[79];                                    // kPresenceRosterTimerId
+        return DualLayerTestAccess::mobile_reg_deleg_fail(home, 0);
+    };
+    bool armed = false;
+    CHECK(marked(RowKind::live_direct, armed));        // ★ CONTROL: a live direct row still records the failure (§B2)
+    CHECK(armed);                                      // ★ ...and still schedules the roster that carries it
+    CHECK_FALSE(marked(RowKind::redirect, armed));     // ★★★★ a redirect: no bit — no roster will ever advertise it
+    CHECK_FALSE(armed);                                // ★★★★ ...and NO airtime is scheduled for the unsendable signal
+    CHECK_FALSE(marked(RowKind::expired, armed));      // ★★★★ an expired row: likewise
+    CHECK_FALSE(armed);
+}
+
+TEST_CASE("★★★★★ §MH-S5-FIX2 finding C/2 — a breadcrumb CLEARS an already-set deleg_fail (the accepted-then-converted race), and the next roster cannot carry it") {
+    constexpr uint32_t kM = 0x0000C1DEu;
+    StubHal hal; Node home(hal, /*id=*/40, /*key=*/0x4040u);
+    NodeConfig cfg = ld_home_cfg(); CHECK(home.on_init(cfg));
+    ld_make_row(home, hal, kM, /*local=*/17, RowKind::live_direct);
+    DualLayerTestAccess::store_mobile(home, /*a co-resident DIRECT row*/0x0000A2A2u, /*local=*/18);
+    DualLayerTestAccess::mark_deleg_fail(home, kM);
+    CHECK(DualLayerTestAccess::mobile_reg_deleg_fail(home, 0));          // PREMISE: the bit really is set while DIRECT
+    // ---- THE RACE: the mobile's NEW home tells us we are stale, AFTER the failure was recorded.
+    hal.emits.clear();
+    home.test_drive_breadcrumb(/*origin=*/77, kM, /*new_home=*/77, /*new_epoch=*/2, /*new_home_layer=*/0);
+    CHECK(hal.count("mobile_redirect_recorded") == 1);                   // PREMISE: the row converted, via the WIRE path
+    CHECK_FALSE(DualLayerTestAccess::mobile_reg_deleg_fail(home, 0));    // ★★★★★ the stranded bit is CLEARED
+    // ★ ...and the row is genuinely gone from the roster, so nothing could have carried it anyway (the co-resident
+    //   DIRECT row is the positive control that a roster was emitted at all).
+    hal.emits.clear();
+    DualLayerTestAccess::presence_roster_fire(home);
+    CHECK(hal.saw_emit("presence_roster_tx"));
+    auto r = parse_p_roster(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len));
+    CHECK(r.has_value());
+    if (r) {
+        CHECK(r->count == 1);                                            // ★ only the co-resident direct row
+        auto e = parse_p_roster_entry(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len), *r, 0);
+        CHECK(e.has_value());
+        if (e) { CHECK(e->key_hash32 == 0x0000A2A2u); CHECK_FALSE(e->deleg_fail); }
+    }
+}
+
 TEST_CASE("§B2 — a mobile seeing ITS deleg_fail bit fires send_failed{no_route} once; a clear roster fires nothing") {
     StubHal hm; Node mob(hm, 0, 0xB0B1u);
     NodeConfig mc; mc.routing_sf=8; mc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); mc.leaf_id=4; mc.is_mobile=true; mc.mobile_autoregister=true; CHECK(mob.on_init(mc));

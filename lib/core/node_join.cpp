@@ -732,10 +732,18 @@ void Node::mobile_reg_remove(uint8_t slot, [[maybe_unused]] const char* reason) 
 // the two consumers that matter:
 //   · `find_free_mobile_id` — before allocating an id or refusing because `cap_host_mobiles` is full;
 //   · `presence_emit_roster` — before advertising the rows.
-// ⚠ RESIDUAL, STATED: the channel-coverage readers (`flood_mark_direct_neighbours` / `flood_any_unmarked`,
-//   node_channel.cpp) are `const` and are NOT hooked. They can therefore over-cover a dead mobile for at most
-//   `rt_aging_check_period_ms` (60 s) past the boundary — a bounded extra re-flood, never a stale delivery, and
-//   the alternative was a const_cast or a mutating call inside a const predicate. Named rather than hidden.
+// ✅ **THE RESIDUAL THIS COMMENT USED TO CLAIM IS CLOSED BY §MH-S5-FIX ([[B173]]) — corrected in place, because a
+//   reader acts on THIS text.** It said the channel-coverage readers "are `const` and are NOT hooked", so they could
+//   over-cover a dead mobile for up to `rt_aging_check_period_ms` (60 s) past the boundary, "and the alternative was a
+//   const_cast or a mutating call inside a const predicate". ⛔ That was a FALSE DICHOTOMY: there is a third option and
+//   it is the one §9.3's *"do not duplicate age predicates at each consumer"* points at — ONE shared, non-mutating
+//   `host_row_live_direct()` (node.h) that every consumer reads. Both coverage readers now consult it and stay `const`,
+//   so a row past the boundary is excluded from coverage IMMEDIATELY, not one sweep later. ⓘ It also named
+//   `flood_mark_direct_neighbours`, which does not exist — the function is `flood_set_my_coverage` (V1).
+// ★★ §MH-S5-FIX2 (owner-ruled 2026-08-10, ledger §1.14): the same predicate now guards SIX more service paths, so the
+//   sentence above ("the two consumers that matter") is about this SWEEP's two extra call sites, NOT about the reach of
+//   the boundary — the full consumer list is at the predicate in `node.h`.
+// ⓘ The sweep below is still what PHYSICALLY compacts; the predicate only stops a consumer ACTING on a doomed row.
 //
 // ★ ONE PREDICATE FOR BOTH ROW KINDS, and that is a design decision with a reason: §9.2 asks for the redirect
 // lifetime to be "stamped at breadcrumb receipt" and then to "be removed under the same age-out sweep".
@@ -751,7 +759,7 @@ void Node::mobile_reg_age_out() {
     const uint64_t now = _hal.now();
     // Descending so a compaction cannot skip the row that slides into the vacated slot.
     for (uint8_t i = _active->_mobile_reg_n; i-- > 0; ) {
-        if (now - _active->_mobile_reg[i].last_heard_ms < protocol::mobile_liveness_ms) continue;
+        if (!host_row_expired(i, now)) continue;   // §MH-S5-FIX: the boundary is spelled ONCE (node.h), shared with `host_row_live_direct`
         const bool redirect = (_active->_mobile_reg[i].redirect_home_id != 0);
         MR_EMIT("mobile_reg_expired", EF_I("local_id", _active->_mobile_reg[i].mobile_local_id),
                 EF_I("key", static_cast<int64_t>(_active->_mobile_reg[i].key_hash32)),
@@ -1089,9 +1097,22 @@ void Node::presence_roster_fire() {
 // Build + LBT-broadcast the roster from the host registry + the per-mobile quality tier + has_key + dir_epoch.
 // §B2: a delegated send this home tried to route for a hosted mobile failed LOUD (no gateway / bad path). Set the
 // per-entry deleg_fail bit + schedule a coalesced roster; the mobile seeing ITS bit fires send_failed{no_route} once.
+// ★★★ §MH-S5-FIX2 finding C (owner-ruled 2026-08-10, ledger §1.14) — **THE BIT IS REFUSED UNLESS THE ROW IS LIVE AND
+// DIRECT.** `deleg_fail` only ever reaches its mobile inside a ROSTER, and [[B172]]'s filter means a redirect/expired
+// row is never in one — so setting it there produced a flag nothing could carry and a failure NOTHING WOULD REPORT
+// (the *"instrument that cannot fail"* shape, in its worst direction: the absence of the mobile's
+// `send_failed{no_route}` would have read as success). ⛔ §MH-S5-FIX called that *"self-clearing"*; WITHDRAWN — only a
+// re-CLAIM's aggregate-initialise or expiry cleared it, i.e. possibly never.
+// ⇒ Refuse, and refuse the ROSTER SCHEDULE with it: airtime for a signal that cannot be carried is airtime wasted.
+// ★ The other half of the same defect lives at the breadcrumb arm (`node_mac_rx.cpp`), which CLEARS an already-set bit
+//   when a row converts direct -> redirect. This refusal alone cannot close that order of events (accepted while
+//   direct, breadcrumb before the failure was recorded), and that clear alone cannot stop a fresh set on an EXPIRED
+//   row — both are needed.
+// ⓘ `host_row_live_direct` is the ONE predicate (`node.h`); no age arithmetic is re-spelled here (§9.3).
 void Node::presence_mark_deleg_fail(uint32_t mobile_hash) {
     for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
         if (_active->_mobile_reg[i].key_hash32 == mobile_hash) {
+            if (!host_row_live_direct(i)) return;              // §MH-S5-FIX2: not ours to signal for -> no bit, no roster
             _active->_mobile_reg[i].deleg_fail = true;
             presence_schedule_roster();
             return;
@@ -1108,8 +1129,22 @@ void Node::presence_emit_roster() {
     mobile_reg_age_out();
     if (_active->_mobile_reg_n == 0 && !_active->_roster_echo_pending) return;   // §S6 rev2: an EMPTY home still answers a searching-probe canvass (echo only)
     PRosterEntry ents[protocol::cap_host_mobiles];
+    // ★★★ §MH-S5-FIX [[B172]] — **THE SOURCE ROW OF EACH ENTRY, CARRIED.** Once the copy loop FILTERS, `n < i` and the
+    // roster index stops being the registry index. The one-shot `deleg_fail` clear at the bottom of this function used
+    // to key on the ENTRY index with a comment asserting the 1:1 mapping, so under a filter it would clear the WRONG
+    // rows' bits — silently losing the *delegated-send-dropped* signal a mobile needs to fire `send_failed{no_route}`
+    // exactly once. ⛔ Do not re-key that loop on `i`. ⓘ A FUNCTION-LOCAL array: zero `Node` bytes, so D2 does not fire
+    // (a member would have cost `cap_host_mobiles × MR_N_LAYERS`). Bounded by the same cap as `ents`.
+    uint8_t src_slot[protocol::cap_host_mobiles];
     uint8_t n = 0;
     for (uint8_t i = 0; i < _active->_mobile_reg_n && n < protocol::cap_host_mobiles; ++i) {
+        // ★★ §MH-S5-FIX [[B172]]/[[B173]] — a roster is this home's PUBLIC CLAIM *"I host these mobiles"*, and spec
+        // §9.2 is explicit: *"redirect rows never … advertise as directly hosted"* (§9.1 says the same for an expired
+        // row). ⚠ The `PRosterEntry` wire entry has NO redirect marker, so a listener CANNOT tell — which is why the
+        // filter has to be here, at the producer. Before this, an old home advertised a moved mobile as its own for up
+        // to the full 25-minute redirect lifetime.
+        if (!host_row_live_direct(i)) continue;
+        src_slot[n]        = i;                                     // entry n came from registry row i
         ents[n].key_hash32 = _active->_mobile_reg[i].key_hash32;
         ents[n].local_id   = _active->_mobile_reg[i].mobile_local_id;
         ents[n].reg_epoch  = static_cast<uint8_t>(_active->_mobile_reg[i].epoch);
@@ -1127,7 +1162,10 @@ void Node::presence_emit_roster() {
         _active->_last_roster_ms = _hal.now();
         MR_EMIT("presence_roster_tx", EF_I("count", n), EF_I("home", _node_id), EF_I("echo", _active->_roster_echo_pending ? 1 : 0));
         tx_initiating(buf, sz, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
-        for (uint8_t i = 0; i < n; ++i) _active->_mobile_reg[i].deleg_fail = false;   // §B2: one-shot — this roster carried the bit (entry i maps 1:1 to _mobile_reg[i]); a probe between set and here just re-fires the roster
+        // §B2: one-shot — this roster carried the bit, so clear it. ★ KEYED ON `src_slot`, NOT on the entry index:
+        // since [[B172]] the copy loop above filters, so entry k maps to registry row `src_slot[k]`, never to row k.
+        // A probe between set and here just re-fires the roster.
+        for (uint8_t k = 0; k < n; ++k) _active->_mobile_reg[src_slot[k]].deleg_fail = false;
     }
     _active->_roster_echo_pending = false;                          // one echo per window (consumed)
 }

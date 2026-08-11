@@ -1339,11 +1339,26 @@ void Node::on_mobile_hash_bind_response(const uint8_t* inner, uint8_t inner_len)
 }
 
 // §mobile hash-locate Part 2 (Fix 7): the cached ed_pub for a hosted mobile M (hash), IFF we hold it (Fix 6 push) AND this is
-// a LIVE DIRECT proxy (redirect_home_id==0 — a redirect points elsewhere and carries no local key). Returns nullptr otherwise.
+// a LIVE DIRECT row (a redirect points elsewhere and carries no local key). Returns nullptr otherwise.
+// ★★★ §MH-S5-FIX2 (owner-ruled 2026-08-10, ledger §1.14) — **THE CLASSIFICATION WAS ESTABLISHED FROM THE CALL GRAPH,
+// NOT ASSUMED, AND IT IS SERVICE ⇒ GATED.** Answering *"here is my hosted mobile's key"* is direct hosted service; the
+// only question was whether both callers already stood behind a gate that excludes an expired row. They do not:
+//   · `handle_h`'s WANT_PUBKEY proxy answer (`:1125`) — ALREADY live-and-direct, structurally: `mobile_proxy` is
+//     assigned at exactly two places (`:1097` redirect / `:1102` direct) and the redirect arm is preceded by
+//     `if (h.want_pubkey) break;`, so under WANT_PUBKEY only the DIRECT arm can set it, and that arm's own gate is
+//     `now - last_heard_ms < mobile_liveness_ms` — the exact complement of `host_row_expired`. ⇒ the new term is
+//     REDUNDANT there, and deliberately so (§9.3: the boundary is spelled once, not re-asked per consumer).
+//   · `node.cpp`'s `reqpubkey`/`emit_hash_query` short-circuit (`:1920`) — **NO liveness gate of any kind.** This is
+//     the caller that made the "leave it alone" option unavailable: an expired row let this node answer its own
+//     operator as key authority for a mobile it may no longer host, and (this is the behaviour change) that arm
+//     returns `queued` WITHOUT airing anything. Refusing now lets the ordinary WANT_PUBKEY flood run, which reaches
+//     the mobile's CURRENT home — the node that really holds the key (Fix 6 push).
+// ⚠ NOT the redirect ANSWER: the location-redirect fork at `:1092` is untouched and stays un-liveness-gated. A
+//   redirect must still redirect; that is the mechanism §9.2 keeps the row alive FOR (pinned by a positive control).
 const uint8_t* Node::host_mobile_ed_pub(uint32_t key_hash32) const {
     for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
         if (_active->_mobile_reg[i].key_hash32 == key_hash32 && _active->_mobile_reg[i].has_pubkey
-            && _active->_mobile_reg[i].redirect_home_id == 0)
+            && host_row_live_direct(i))
             return _active->_mobile_reg[i].ed_pub;
     return nullptr;
 }
@@ -1400,11 +1415,17 @@ uint32_t Node::cache_want_pubkey_requester(const h_out& h) {
 // §S3 part2: FORWARD a WANT_PUBKEY requester's key to a hosted mobile as a 1-hop last-mile DM (DATA_TYPE_MOBILE_KEY_FORWARD,
 // addr_len=1, plaintext). Body = [requester_ed_pub 32][name_len u8][name <=32]. Dedup: skip if we ALREADY forwarded this same
 // requester to this mobile last (per-entry last_key_fwd_hash32) — the cheapest guard against a reqpubkey-retry re-forwarding.
+// ★★★ §MH-S5-FIX2 (owner-ruled 2026-08-10, ledger §1.14): `host_row_live_direct(i)` replaces the bare
+// `redirect_home_id == 0`. The body of this function IS a last-mile transmission (`addr_len=1` to `mobile_local_id`),
+// so it is service in exactly the sense the ruling names, and an expired row's local id points at a mobile that has
+// been silent for 25 minutes. ⓘ Refusing is a plain no-op for the requester: this push is the EAGER half of the
+// WANT_PUBKEY exchange, and its absence already had to be tolerated (the caller's own comment: the push races
+// registration, and the mobile's `reqpubkey` retry is the backstop).
 void Node::forward_requester_key_to_mobile(uint32_t mobile_hash, const uint8_t requester_ed_pub[32],
                                            const char* name, uint8_t name_len) {
     const uint32_t rq = key_hash32_of(requester_ed_pub);   // §P2-6: identity.h owns the LE(ed_pub[:4]) derivation
     for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
-        if (_active->_mobile_reg[i].key_hash32 == mobile_hash && _active->_mobile_reg[i].redirect_home_id == 0) {
+        if (_active->_mobile_reg[i].key_hash32 == mobile_hash && host_row_live_direct(i)) {
             if (_active->_mobile_reg[i].last_key_fwd_hash32 == rq) return;   // already forwarded this requester -> dedup (no re-forward)
             _active->_mobile_reg[i].last_key_fwd_hash32 = rq;
             const uint8_t local_id = _active->_mobile_reg[i].mobile_local_id;
@@ -1675,10 +1696,16 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     }
     // §mobile: a mobile WE HOST (in our _mobile_reg) is reached by a DIRECT last-mile (addr_len=1 -> its local id), NOT an H
     // query — the home is BOTH the querier and the proxy, so a flood deadlocks (the registered mobile suppresses its own-hash
-    // H answer, node_hashlocate.cpp handle_h). Mirrors do_post_ack's forwarded last-mile. redirect_home_id==0 = a LIVE local
-    // hosting (a migrated mobile falls through to the mobile_home_find redirect below). Gated on _mobile_reg_n -> non-host byte-identical.
+    // H answer, node_hashlocate.cpp handle_h). Mirrors do_post_ack's forwarded last-mile. Gated on _mobile_reg_n -> non-host byte-identical.
+    // ★★★ §MH-S5-FIX2 (owner-ruled 2026-08-10, ledger §1.14) — `host_row_live_direct(i)` REPLACES the bare
+    // `redirect_home_id == 0` here. This is the LOCALLY-ORIGINATED twin of the forwarded last mile §MH-S5-FIX already
+    // gated in `node_mac_rx.cpp`, and the two treated the SAME EXPIRED ROW DIFFERENTLY — a forwarded DM refused it
+    // while `send`-ing to the same hash from this node's own console still aired a 1-hop frame at a mobile 25 minutes
+    // silent. One boundary, every service path (spec §9.1/§9.2 + §9.3's no-duplicate-predicates rule).
+    // ⓘ WHERE A REFUSED ROW GOES, unchanged from the redirect case: straight on to `mobile_home_find` below, i.e. the
+    //   hash plane / the cached home — which is exactly what a migrated mobile has always done here.
     for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
-        if (_active->_mobile_reg[i].key_hash32 == key_hash32 && _active->_mobile_reg[i].redirect_home_id == 0) {
+        if (_active->_mobile_reg[i].key_hash32 == key_hash32 && host_row_live_direct(i)) {
             const uint16_t lch = enqueue_data(_active->_mobile_reg[i].mobile_local_id, sbody, sblen, flags, "tx_enqueue", /*app_dm=*/true,
                                               /*type=*/itype, crypt, /*override_dst_hash=*/0, /*override_source_hash=*/reply_to_hash, /*addr_len=*/1, plane);
             // ★ §xl-deleg-ack: the THIRD site that stamped the mobile's SOURCE_HASH without mapping ctr_H->ctr_M. Reached

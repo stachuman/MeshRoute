@@ -329,6 +329,45 @@ UNRELATED POLICIES, so retuning any one of them silently retunes the other three
 dependency; the measurements may justify reducing toward **2×** for faster failure and earlier cascade. ⛔ **This
 paragraph must never be cited as the decision** — it is the hypothesis the K-sweep exists to test.
 
+### 1.14 An expired hosted row provides NO service, before compaction · ✅ **OWNER-RULED 2026-08-10**
+
+★★★ **THE RULING, IN REPORTED FORM — ⛔ no quotation, per §3 rule 4:**
+**The owner ruled that a mobile registry row at or beyond `mobile_liveness_ms` (25 min) must NOT provide direct
+hosted service or last-mile service, EVEN BEFORE physical compaction — and that the rule must be applied
+CONSISTENTLY to every such service path.**
+
+⇒ **What this settles:** §MH-S5 had wired physical expiry (`mobile_reg_age_out`) but left the *service* question to
+each consumer, so an expired row still served on some paths until the next 60-second sweep. §MH-S5-FIX then added
+the boundary to **one** last-mile path, producing a half-and-half state QA called the least desirable option.
+**This ruling makes the boundary systematic**: physical compaction stays on the aging timer; *service refusal* is
+immediate everywhere. Live dispatch:
+`docs/superpowers/plans/2026-08-10-mobile-home-s5-livedirect-consistency.md`.
+
+⚠⚠ **THE RULING IS ABOUT SERVICE, NOT ABOUT THE REDIRECT MECHANISM.** A redirect row must still **answer a
+hash-location redirect** — that is the redirect doing its job, and `node_hashlocate.cpp`'s redirect fork is
+deliberately **not** liveness-gated. ⛔ **Gating the redirect answer would be a regression**, and §MH-S5-FIX's
+*"the redirect still redirects"* positive control exists to catch exactly that over-fix.
+
+⛔ **IT ALSO SUPERSEDES AN IN-SOURCE INSTRUCTION:** `lib/core/node.h:1483-1487` says *"⛔ NOT the same question as
+the bare `redirect_home_id == 0` tests … Do not mechanically fold them in here."* **Withdrawn for service paths**,
+and it must be corrected in place — otherwise it is another correction placed anywhere but the instruction a
+reader follows.
+
+ⓘ **Related decision, same day:** [[B170]]'s re-anchor of `s07_seattle_mobile_meshroute` to **`2ce470f9` / 108951**
+is **APPROVED BUT CONDITIONAL** — it holds only if the completed corrective work still reproduces that value. A
+different value is a **new** decision, not a transfer of this approval.
+
+✅ **IMPLEMENTED 2026-08-10 by §MH-S5-FIX2 — evidence in `simulation/BASELINE.md` §MH-S5-FIX2; register
+[[B174]]/[[B175]]/[[B176]].** The boundary now reaches **ten** consumers (four from §MH-S5-FIX plus the MOBILE_SEND
+ownership scan · the `send_by_hash` direct last mile · `forward_requester_key_to_mobile` · `host_mobile_ed_pub` · the
+team-key-grant pre-check · `presence_mark_deleg_fail`), all through the ONE non-mutating `host_row_live_direct()`, and
+the withdrawn `node.h:1483-1487` instruction is **corrected in place with its old text kept as a labelled
+`⛔ WITHDRAWN` quote** (§3 rule 3). ★ **The redirect answer is untouched and both over-fix shapes are now pinned:** the
+pre-existing *"the redirect still redirects"* control turned out to cover only the KIND shape — an AGE-shaped over-fix
+left it GREEN — so a second control was added for an **expired** redirect row. ⚠ **B170's condition is MET and
+reported as still the owner's call: `s07` reproduces `2ce470f9` / 108951 with all 36 rows byte-identical to the
+pre-slice arm.** ⛔ **No owner or QA approval is claimed for any figure in that note.**
+
 ---
 ## §2 — GENUINELY OPEN. These are fair review targets.
 
