@@ -671,14 +671,37 @@ uint8_t Node::presence_compute_dir_epoch() const {
     return e;
 }
 
-// §3-D: refresh a hosted mobile's proxy-liveness clock + step its per-mobile SNR EWMA (seed-if-zero). The ONE updater
-// shared by the probe path (presence_ingest_probe) and the beacon path (node_beacon.cpp) so the roster-tier feed can
-// never again be present on one and skipped on the other. The CLAIM path deliberately does NOT use this — it SEEDS a
-// fresh registry slot with a hard assign (a stale _mobile_snr_q4 tail slot must reset, not smooth). Caller checks bounds.
+// §3-D: refresh a hosted mobile's proxy-liveness clock + step its per-mobile SNR EWMA (seed-if-zero).
+// ★★ §B177-FIX (owner-ruled 2026-08-11, ledger §1.16) — **CORRECTED IN PLACE.** This header used to read *"The ONE
+// updater shared by the probe path (presence_ingest_probe) and the beacon path (node_beacon.cpp) so the roster-tier feed
+// can never again be present on one and skipped on the other."* **The BEACON CALLER IS GONE** (removed at
+// `node_beacon.cpp`'s `if (b.is_mobile)` arm, with the reason and the withdrawn rationale recorded there): a beacon
+// carries the hash but no `reg_epoch`, so it can never establish the row identity a refresh needs. ⇒ the ONE remaining
+// caller is `presence_refresh_hosted_row`, i.e. **both P-probe arms**, each gated on `host_row_probe_refreshable()`.
+// The CLAIM path deliberately does NOT use this — it SEEDS a fresh registry slot with a hard assign (a stale
+// _mobile_snr_q4 tail slot must reset, not smooth). Caller checks bounds.
 void Node::mobile_reg_touch(uint8_t slot, int16_t snr_q4) {
     _active->_mobile_reg[slot].last_heard_ms = _hal.now();
     int16_t& ew = _active->_mobile_snr_q4[slot];
     ew = protocol::snr_ewma_update(ew, snr_q4);   // seed-if-zero EWMA (canonical link-quality helper)
+}
+
+// ★★★ §MH-S5b — **THE ONE "A PROBE FROM THIS HOSTED MOBILE ARRIVED" REFRESH.** Contract at the declaration (node.h).
+// It is the SELECTED-check arm's own pre-existing body, lifted verbatim so the SEARCHING arm can read the same one
+// (U1) — `mobile_reg_touch` plus §S6 A.4 key custody with its `ed_pub[:4] == key_hash32` self-consistency test.
+// ⛔ THE SELF-CONSISTENCY TEST IS NOT OPTIONAL AND IS NOT A FORMALITY: without it any node could push a pubkey under
+//    somebody else's hash. `key_hash32_of` (identity.h) owns the LE(ed_pub[:4]) derivation — ⛔ never re-derive it.
+// ⓘ BYTE-INERT FOR THE OLD CALLER, by construction: same two effects in the same order, no emit, no log. The only
+//   behaviour change in this slice's host half is the NEW call site.
+void Node::presence_refresh_hosted_row(uint8_t slot, const p_probe_out& p, int16_t snr_q4) {
+    mobile_reg_touch(slot, snr_q4);                             // §3-D: last_heard_ms + seed-if-zero SNR EWMA (shared with the beacon path so the two can't drift)
+    if (p.has_pubkey) {                                         // §S6 A.4: key custody rides the probe (RETIRES TYPE-12) — self-consistency check ed_pub[:4]==hash
+        const uint32_t pk_hash = key_hash32_of(p.ed_pub);       // §P2-6: identity.h owns the LE(ed_pub[:4]) derivation
+        if (pk_hash == p.key_hash32) {
+            for (uint8_t k = 0; k < 32; ++k) _active->_mobile_reg[slot].ed_pub[k] = p.ed_pub[k];
+            _active->_mobile_reg[slot].has_pubkey = true;
+        }
+    }
 }
 
 // ★★★ §MH-S5 §9.3 — **THE ONE REMOVAL PRIMITIVE.** Every hosted-row removal compacts `_mobile_reg` AND the
@@ -793,19 +816,55 @@ void Node::presence_ingest_probe(const uint8_t* frame, size_t len, const RxMeta&
             return;                                                 // do NOT answer (only the selected home does)
         }
         // sel_me: normal refresh + custody + SNR EWMA, then answer (ONLY the selected home answers a check probe)
-        mobile_reg_touch(static_cast<uint8_t>(mine), snr_q4);       // §3-D: last_heard_ms + seed-if-zero SNR EWMA (shared with the beacon path so the two can't drift)
-        if (p->has_pubkey) {                                        // §S6 A.4: key custody rides the probe (RETIRES TYPE-12) — self-consistency check ed_pub[:4]==hash
-            const uint32_t pk_hash = key_hash32_of(p->ed_pub);   // §P2-6: identity.h owns the LE(ed_pub[:4]) derivation
-            if (pk_hash == p->key_hash32) {
-                for (uint8_t k = 0; k < 32; ++k) _active->_mobile_reg[mine].ed_pub[k] = p->ed_pub[k];
-                _active->_mobile_reg[mine].has_pubkey = true;
-            }
-        }
+        // ★★★★ §B177-FIX (owner-ruled 2026-08-11, ledger §1.16) — **THE SELECTED ARM NOW ASKS THE SAME TUPLE AS THE
+        // SEARCHING ARM.** It used to refresh on `mine >= 0 && sel_me` alone, i.e. on a row found by **HASH ALONE** with
+        // no `host_row_live_direct()` and no epoch term — so a REDIRECT row was restamped past §9.2's breadcrumb clock, an
+        // EXPIRED row was resurrected before compaction (ledger §1.14), and a row from before a re-home was kept alive at
+        // an old home. `sel_me` proves only that the probe names US as home. ⇒ ONE predicate for both arms (node.h),
+        // never re-spelled. ⓘ The ANSWER is deliberately NOT gated: a probe that named us is still ingested and still
+        // gets its coalesced roster, and that roster carries the row's OWN `reg_epoch` — which is exactly the evidence
+        // `presence_ingest_roster` re-registers on (`node_mobile.cpp`, the epoch-mismatch arm). Refusing the refresh
+        // therefore self-heals rather than going quiet (C2).
+        if (host_row_probe_refreshable(static_cast<uint8_t>(mine), p->reg_epoch))
+            presence_refresh_hosted_row(static_cast<uint8_t>(mine), *p, snr_q4);   // §MH-S5b: the ONE refresh, shared with the searching arm below (was inline here)
         MR_EMIT("presence_probe_rx", EF_I("m", mine), EF_I("snr_q4", _active->_mobile_snr_q4[mine]));
         presence_schedule_roster();                                 // coalesced answer (rate-limit floored)
         return;
     }
     if (searching) {                                                // §S6 rev2: EVERY home answers a searching probe (candidate canvass), incl. non-hosts — with the ECHO of how WE heard IT (D14/D15)
+        // ★★★★ §MH-S5b ITEM 2 — **A SEARCHING PROBE FROM A MOBILE WE ACTUALLY HOST REFRESHES ITS ROW.** Until this
+        // slice the refresh lived on the `!searching` arm ONLY, so every searching probe — the §MH-S4b claiming
+        // solicitation, the home-loss recovery canvass, and now §8.3's weak/missed-home canvass (item 1) — left the
+        // hosted row's `last_heard_ms` and its per-mobile SNR EWMA untouched. §9.1 says the opposite in as many
+        // words: "mobile beacons/**probes** refreshing `last_heard_ms`".
+        // ⛔⛔ **AND IT IS WHAT STOPS ITEM 1 FROM CREATING A DEFECT.** With §MH-S5's rows now MORTAL, a permanently
+        //    weak-home mobile would probe every 1-8 minutes on a kind that never re-stamped its own row. ⓘ STATED
+        //    HONESTLY BECAUSE IT WAS MEASURED (V1) RATHER THAN INHERITED: eviction at `mobile_liveness_ms` was NOT
+        //    imminent, because a hosted mobile's periodic BEACON also called `mobile_reg_touch` (`node_beacon.cpp`).
+        //    The real residue item 2 closes is (a) a beacon SKIPPED by the R4.3 budget tier (a live corpus path) and
+        //    (b) the SNR-EWMA feed, i.e. the roster quality tier the mobile's own re-home decision reads back.
+        //    ★★ §B177-FIX UPDATE (2026-08-11, ledger §1.16): **that beacon caller no longer exists** — the sentence above
+        //    is kept as the audit trail of what was true when item 2 landed, and its consequence has STRENGTHENED rather
+        //    than weakened: with the beacon out of the registry entirely, item 2 is no longer a redundancy over a second
+        //    refresh path but **one of the only two refresh paths there are** (this arm and the SELECTED arm above).
+        //
+        // ★★★ THE IDENTITY IS THE TUPLE, NOT THE HASH (the [[B147]]/[[B174]] shape, twice-learned):
+        //   · `host_row_live_direct` — ⛔ a REDIRECT row is a breadcrumb whose clock §9.2 gives to the BREADCRUMB, and
+        //     an EXPIRED row must get no service before compaction (ledger §1.14). Refreshing either would RESURRECT
+        //     a row this arc spent two slices making mortal. ONE predicate, ten-plus consumers, not re-spelled.
+        //   · `epoch` — ⛔ AND THIS TERM IS LOAD-BEARING, NOT BELT-AND-BRACES. A searching probe names NO home
+        //     (`selected_home_id == 0` is what makes it searching), so the `sel_me` test that protects the arm above
+        //     is unavailable here. Without an epoch match, an OLD home holding a row from BEFORE a re-home would
+        //     refresh it from the mobile's canvass — and item 1 removes the `presence_prune_stale` self-heal that
+        //     used to reap it (a selected probe prunes; a searching probe must not, because it selects nobody). The
+        //     mobile bumps `_my_mobile_reg.epoch` on every fresh CLAIM, so a stale row's epoch cannot match.
+        //     ⓘ The comparison is the low byte, deliberately: that is the width the wire carries and the same
+        //       arithmetic `presence_ingest_roster` already uses at the mobile end.
+        // ★ §B177-FIX: those two terms are now the shared `host_row_probe_refreshable()` (node.h) — SAME two terms, same
+        //   order, no behaviour change on this arm; the SELECTED arm above reads the identical predicate so the two can
+        //   never again disagree about which row a probe may refresh.
+        if (mine >= 0 && host_row_probe_refreshable(static_cast<uint8_t>(mine), p->reg_epoch))
+            presence_refresh_hosted_row(static_cast<uint8_t>(mine), *p, snr_q4);
         if (!_active->_roster_echo_pending) {                       // first probe of the window wins the echo (D15)
             _active->_roster_echo_hash = p->key_hash32; _active->_roster_echo_q = rx_tier; _active->_roster_echo_pending = true;
         }

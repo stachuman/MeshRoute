@@ -399,8 +399,79 @@ pubkey push — all retired) with two **leaf-free, unacked 1-hop broadcasts**: a
 key custody) and the home's coalesced **P-roster** (its hosted list + per-mobile 2-bit link quality + `has_key`
 + the layer-directory `dir_epoch`; one roster refreshes every listener). Semantics: absent-from-roster ⇒
 re-register now; probe naming ANOTHER home ⇒ that registry prunes instantly; unanswered probes ⇒ home lost in
-minutes (not the old 30); weak quality ⇒ pre-scan and **proactively re-home** (bottleneck-direction ranking,
-dwell + hysteresis) while both homes are alive — the new home then notifies the old (§10 staleness).
+minutes (not the old 30); weak quality ⇒ pre-scan and re-home (bottleneck-direction ranking, dwell + hysteresis)
+while both homes are alive — the new home then notifies the old (§10 staleness).
+⛔ **CORRECTED IN PLACE 2026-08-11 (§MH-S5b-ii): this line said *"weak quality ⇒ pre-scan and **PROACTIVELY** re-home"*
+and that word is now FALSE.** A weak home still unlocks the re-home EVALUATION but **no longer makes the mobile
+canvass**, and a switch needs a verified echo that only a canvass can produce ⇒ **the switch is reachable only once the
+home starts MISSING checks.** (⚠ candidate *collection* was never gated on quality at all — `presence_note_candidate`
+is unconditional.) [[B178]] holds the deferral and the block below states the limitation in full.
+
+★★★ **WHEN A PROBE IS `SEARCHING`, AND WHY THE LIST IS CLOSED — new in §MH-S5b, NARROWED TO THREE ENTRIES BY
+§MH-S5b-ii (both 2026-08-11).** A probe is
+`searching` exactly when it names no home (`selected_home_id == 0`); a *selected* probe is answered only by the home
+it names, a *searching* one by **every** eligible home **and with an echo of the prober's own hash**. That echo is the
+only thing that can prove the reverse link, so it is the only thing that can authorise a voluntary switch (below).
+The permitted reasons are a **closed list**, because a fleet of mobiles each canvassing for a better home is a
+fleet-wide roster storm bought with nothing:
+
+1. while `claiming` — the §MH-S4b confirmation solicitation;
+2. on home **loss** — the immediate recovery canvass;
+3. **the home missed a check** (§MH-S5b, `_presence_miss > 0` — ⛔ an *admitted* miss; a probe our own transmitter
+   refused is not one).
+
+⛔⛔ **AND A FOURTH REASON WAS IMPLEMENTED, MEASURED AND *DEFERRED* — [[B178]], §MH-S5b-ii (2026-08-11). ⛔ This list
+previously carried *"the home's reported quality is weak or critical"* as a live entry; that is corrected in place, not
+appended to.** §MH-S5b landed it (`_presence_prescan`) and the corpus priced it: **+31 % P-roster airtime**, `s07`
+collisions 2775 → 3528 and **6 unique deliveries lost, all in `s07`** (734 → 728) — a fleet-wide roster storm arising
+from a trigger the design itself permits. ★★ **THE LIMITATION THAT LEAVES, stated rather than implied: a weak but
+CONSISTENTLY RESPONDING home will not proactively initiate candidate verification, so the mobile changes home only
+AFTER connectivity begins failing.** ⇒ **a CONSERVATIVE INTERIM POLICY, NOT completed proactive roaming**; the design's
+§8.3 is **NOT** satisfied and §S6.4-C's *leave a weak home BEFORE loss* purpose is **NOT** met. ⓘ A weak home still
+**unlocks the switch evaluation** (`_presence_prescan`'s remaining role) and candidate collection was always
+unconditional — what the mobile no longer does is spend airtime **asking**, and without an echo the evaluation has
+nothing verified to select. What returns is a narrower trigger (weak home **and** a fresh, compatible, passively observed,
+still-unverified candidate whose one-way quality could satisfy the two-tier rule, with hold and dwell already served),
+after [[B177]] is fixed.
+
+★ It is a **KIND** decision, never a cadence one: the frame is the same 8 bytes on the same deadline, so the mobile's
+own airtime per unit time is unchanged at every quality tier. What *is* new airtime is the other homes' answers, and
+the home-side coalescing plus the 10-second `presence_roster_min_interval_ms` floor remain the shared de-storm.
+★★ **And a searching probe from a mobile the home actually hosts refreshes that row** — `last_heard_ms`, the
+per-mobile SNR EWMA and §S6 A.4 key custody, exactly as a selected check probe does. It is gated on the row being
+**live and direct** (an expired or redirect row must not be resurrected) **and on the probe's `reg_epoch` matching the
+row's**, because a searching probe names no home: without the epoch term an old home would keep refreshing a row the
+mobile left behind, and the instant `presence_prune_stale` self-heal does not fire on a probe that selects nobody.
+
+★★★ **THE EPOCH-BEARING P PROBE IS THE *SOLE* ONGOING AUTHORITY OVER A HOSTED ROW — new in §B177-FIX (2026-08-11,
+owner-ruled, ledger §1.16), and it corrects two things this document said in place.**
+- ⛔ **A BEACON NO LONGER REFRESHES A HOSTED ROW AT ALL. It is a presence/candidate HINT.** The old touch matched the
+  registry row by **hash alone**, so it restamped a **redirect** row past §9.2's breadcrumb clock, **resurrected an
+  expired** row before compaction (ledger §1.14), and — the BCN wire carrying **`key_hash32` and no `reg_epoch`** — kept
+  a **pre-re-home** row alive at an old home for as long as the mobile stayed audible there. ⛔ It could not be *gated*
+  into correctness for exactly that reason, which is why the resolution is a **removal**; and ⛔ **no epoch byte or TLV
+  was added to the beacon** (permanent airtime for a mechanism the P plane already provides). **A stationary mobile is
+  still covered because it is the case that probes:** its adaptive check cadence is 1–8 minutes, inside the 25-minute
+  expiry.
+- ★ **Both probe arms now ask the same tuple.** The **selected**-check arm previously refreshed on `sel_me` plus a
+  hash match — no live-direct term and no epoch term (`sel_me` proves only that the probe names *us*). The two arms
+  therefore disagreed and the older was the weaker; they now share one predicate, `(live · direct · epoch matches)`.
+- ⓘ **A refused refresh is never a refused answer** (C2): the probe is still ingested and still gets its coalesced
+  roster, and that roster carries the row's **own** `reg_epoch` — which is the evidence the mobile re-registers on.
+- ⚠ **MEASURED COST, recorded not smoothed over:** removing the beacon touch moves **one** corpus row
+  (`s07_seattle_mobile_meshroute`) and costs **5 unique deliveries there (737 → 732)**, taking the total **below the
+  then-`≥733` floor ⇒ ★ **the canonical floor was RE-SET to `≥732` (owner-ruled 2026-08-11, provisional pending [[B163]]; ledger §1.17), on the measured ground that the −5 is a static↔static collision reshuffle with ZERO observed mobile-delivery delta**. The selected-arm half is **byte-inert on all 36 rows and delivery-neutral**. Both attributed by
+  in-tree A/B; the disposition is the owner's ([[B177]] / `simulation/BASELINE.md` §B177-FIX).
+
+★★★ **A VOLUNTARY SWITCH REQUIRES A VERIFIED ECHO — also new in §MH-S5b.** All six conjuncts must hold: fresh
+evidence (within `mobile_liveness_ms`), **`echo_tier != 0xFF`, i.e. the candidate echoed one of OUR OWN probes**,
+a bottleneck ≥ `presence_rehome_tier_delta` (2) tiers better, the 60-second `presence_candidate_hold_ms`, the
+5-minute `presence_rehome_dwell_ms` anti-flap, and a compatible `wire_version`. ⛔ **A beacon, or a roster with no
+echo of us, is only a HINT** — it proves reception in one direction and willingness to host in neither. Since only a
+verified candidate can be selected, the layer-nibble equality test is gone: a verified candidate may advertise
+another full layer id (same PHY by construction — the table only ever holds what was received on the tuned PHY),
+while the team-PHY restriction is untouched, because the move is *reset + ordinary J discovery* and `team_phy_ok`
+gates that.
 
 ★★ **Host rows are MORTAL, and this is new in §MH-S5 (2026-08-10).** Until that slice `protocol::mobile_liveness_ms`
 (25 min) had exactly ONE consumer — the hash-locate proxy gate — so past the boundary the home stopped answering FOR

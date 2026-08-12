@@ -731,10 +731,45 @@ A **searching** P probe is sent **only** when one of these three is true:
 2. the current home **misses a check** (an unanswered probe, on the way to `lost`);
 3. an **attributable home-path failure** occurs.
 
+⛔⛔⛔ **IMPLEMENTATION STATE, 2026-08-11 (§MH-S5b-ii) — THIS SECTION IS *NOT* SATISFIED, AND THE STATE IS STATED HERE
+because this is the instruction a reader follows.** ⛔ **This paragraph replaces, in place, an earlier one that said
+*"1 and 2 are IMPLEMENTED"*; that was true of §MH-S5b and is FALSE of the tree as it now stands.**
+
+- **TRIGGER 2 IS IMPLEMENTED** — `Node::presence_searching_probe_due()` (`lib/core/node_mobile.cpp`) reads
+  `_presence_miss > 0`, an **admitted** miss, so a probe our own transmitter refused is not one.
+- ⛔⛔ **TRIGGER 1 IS *DEFERRED* UNDER [[B178]] — implemented, measured, and then withdrawn.** §MH-S5b landed it
+  (`_presence_prescan`) and the corpus priced it: a weak-home mobile's already-scheduled check flips from *selected* to
+  *searching*, **every** eligible home answers, corpus P-roster airtime rises **+31 %** (33 518 → 43 752 ms), `s07`
+  collisions go 2775 → 3528, and **6 unique deliveries are lost, all of them in `s07`** (734 → 728, below the `≥733`
+  floor) — §8.3's *own* stated hazard arriving from a trigger §8.3 itself permits. The disjunct is therefore removed.
+- ⛔ **TRIGGER 3 IS NOT IMPLEMENTED** — it needs a latch, i.e. a `Node` member and therefore D2, and it is its own
+  slice.
+
+★★★ **THE LIMITATION THIS LEAVES, WHICH MUST NOT BE PRESENTED AS COMPLETION: a weak but CONSISTENTLY RESPONDING home
+will not proactively initiate candidate verification, so the mobile changes home only AFTER connectivity begins
+failing.** A verified echo can only come from a *searching* probe, and today only a MISS (or loss, or `claiming`) sends
+one. ⇒ **THIS IS A CONSERVATIVE INTERIM POLICY, NOT COMPLETED PROACTIVE ROAMING**, and ⛔ **§S6.4-C's purpose — *leave a
+weak home BEFORE loss* — IS NOT MET.**
+
+★★ **WHAT RETURNS ([[B178]]'s refined form, to be implemented and measured, ⛔ not yet designed into the numbered list
+above):** a proactive searching probe **only** when the home is weak/critical **and** at least one candidate is
+**fresh**, **compatible**, **passively observed**, **still unverified**, and whose **measured one-way quality could
+possibly satisfy the two-tier improvement rule** — **and** the **candidate hold** and **anti-flap dwell** are already
+satisfied, i.e. a canvass is only ever spent where a switch could actually complete. ⛔⛔ **The broad *"weak home + any
+audible candidate"* form is REFUSED: in a dense scenario nearly every mobile has an audible candidate, so it would
+reproduce the same storm unchanged — the audibility of a candidate is not evidence that switching is possible.**
+⚠ **[[B177]] must be fixed FIRST** (the hosted-mobile beacon touch has no row-kind/freshness/epoch gate): its erroneous
+refresh can alter the very liveness and quality inputs the refined trigger reads, so measuring the refined form on top
+of it would measure the wrong tree.
+⛔ Nothing here claims any owner or QA approval beyond the deferral itself, and the refined trigger's acceptance
+criteria (the canonical floor — **`≥732` since 2026-08-11, provisional pending [[B163]]; ledger §1.17** — **plus** no increase in `presence_home_lost` in `s07`, bounded roster airtime and peak-window
+collisions, and no repeated canvass once a plausible candidate is verified) are recorded in [[B178]], not met here.
+
 Everything else stays passive:
 
 - always collect passive same-PHY hints and overheard rosters while attached — **zero transmissions**;
-- ordinary healthy-home checks remain **selected-home** probes, not searching ones;
+- ordinary healthy-home checks remain **selected-home** probes, not searching ones — ⚠ **and while trigger 1 is
+  deferred, so does a WEAK-but-answering home's check** (§MH-S5b-ii, above);
 - on home **loss**, the existing searching probe fires immediately (unchanged);
 - home roster coalescing and its 10-second rate-limit (`presence_roster_min_interval_ms`) remain the shared
   response de-storm mechanism.
@@ -761,6 +796,23 @@ A P roster received on the currently tuned PHY proves RF compatibility. ★ **Eq
 not required:** a same-PHY candidate advertising another **full layer id** remains valid once verified, so
 remove the unconditional `candidate.home_layer != active_layer_id()` rejection for verified roster
 candidates.
+
+✅ **IMPLEMENTED 2026-08-11 (§MH-S5b): the verified-echo conjunct is enforced** — `presence_maybe_rehome` refuses any
+candidate whose `echo_tier` is still `0xFF`, and the other five conjuncts are untouched with no constant re-tuned.
+⚠⚠ **BUT READ IT TOGETHER WITH §8.3's DEFERRAL (§MH-S5b-ii): the ONLY thing that can set `echo_tier` is a *searching*
+probe, and today only a MISS, a LOSS or `claiming` sends one.** ⇒ a voluntary switch is reachable **only after the home
+has begun failing** — `s27`'s re-home still fires, so the mechanism is not disabled, but the *proactive* half of it is
+gated behind [[B178]]'s refined trigger. ⛔ **Do not "restore" reachability by relaxing this conjunct** — trigger 2 is
+what keeps it reachable, and §MH-S5b measured that dropping the conjunct instead is not what costs the deliveries.
+★ **AND THE LAYER-NIBBLE REJECTION IS NOW GONE ALTOGETHER, NOT KEPT FOR HINTS.** §MH-S5 landed it as
+`if (!verified && home_layer != active_layer_id()) continue;` and recorded that *"the rejection SURVIVES for
+unverified ones, which is what keeps the widening safe"* — **that sentence is withdrawn as a live rule**: once an
+unverified candidate is refused outright the layer test is unreachable, so keeping it would be dead code asserting a
+policy that decides nothing. The widening itself is unchanged and is now unconditional. ⛔ The team-PHY restriction is
+untouched (gate 26): the move is *reset + ordinary J discovery*, gated by `team_phy_ok` at `mobile_discover_fire`.
+⚠ ★ **`mobile_verified_candidate_count()` remains the ELIGIBILITY FLOOR, not this predicate** — it applies
+verification, freshness and compatibility and stops there; selection additionally applies the delta, the hold, the
+dwell and the current-home exclusion. ⛔ **Do not reconcile the two by changing the count** — a golden test pins it.
 
 ★ **Same-PHY candidates are monitored passively; monitoring another PHY means leaving the current one.**
 Retuning away from the current PHY blinds the mobile to its own home and team, so it is permitted **only
@@ -790,8 +842,19 @@ array. From that point the mobile is deregistered at that home: its local id is 
 rosters and coverage accounting, and it consumes no host slot.
 
 This aligns physical state with the proxy-answer rule that already uses the same constant. With presence
-checks at 1..8 minutes and mobile beacons/probes refreshing `last_heard_ms`, 25 minutes leaves multiple
-repair opportunities without permitting immortal rows.
+checks at 1..8 minutes and **validated registration probes** refreshing `last_heard_ms`, 25 minutes leaves
+multiple repair opportunities without permitting immortal rows.
+
+⛔⛔ **CORRECTED IN PLACE 2026-08-11 BY §B177-FIX (owner-ruled, ledger §1.16). THE SENTENCE ABOVE READ
+*"mobile beacons/probes refreshing `last_heard_ms`"* AND THE BEACON HALF IS WITHDRAWN.** A **beacon is a
+presence/candidate HINT ONLY** and no longer refreshes a hosted row: it matched the row by **hash alone**,
+which restamped redirect rows past §9.2's breadcrumb clock, resurrected expired rows before compaction
+(ledger §1.14) and — carrying **no `reg_epoch`** on the BCN wire — kept pre-re-home rows alive at an old
+home. ⇒ the refresh authority is **the epoch-bearing P probe, on BOTH its arms** (selected and searching),
+each gated on the shared `host_row_probe_refreshable()` predicate `(live · direct · epoch matches)`.
+⛔ **No epoch byte or TLV was added to the beacon** — permanent airtime for a mechanism the P plane already
+provides. **A stationary mobile is still covered because it is exactly the case that probes:** its own
+adaptive check cadence is 60 000..480 000 ms (1–8 min), well inside the 25-minute expiry.
 
 ★ **Keep 25 minutes, and understand the asymmetry it creates — it is intended, not an inconsistency:**
 
@@ -1139,6 +1202,25 @@ Added by the 2026-08-07 §MH-S2b / §MH-S2c independent-QA rounds (additional, n
     claimant's subsequent CLAIM for *that* id **accepted**. ⓘ The retained-reservation assertion is the one
     that separates the correct early return from the tempting half-fix that reads the reservation and then
     falls through anyway.
+
+✅ **DISCHARGED 2026-08-11 BY §MH-S5b — gates 11 (its unverified half), 24 (its zero-additional-transmissions half),
+27 and 28.** Evidence: `simulation/BASELINE.md` §MH-S5b; the cases live in `test/test_node_join.cpp` and each is
+mutation-proven at match count 1. What each gate now asserts, so a later reader does not re-derive it:
+- **11** — an unverified candidate **on our own layer** (asserted, so §MH-S5's layer rejection cannot be the refusal),
+  three tiers better, fresh, both hysteresis windows served ⇒ **no switch**; the same candidate once it echoes OUR
+  hash ⇒ switch; an echo of **somebody else's** hash ⇒ still no switch.
+- **24** — the previous form fired no timer, so it could not tell "no canvass" from "nothing was scheduled". It now
+  **drives the probe deadline** and asserts the frame that leaves the radio is **SELECTED**, that it is the **only**
+  frame, and that the stronger verified candidate is still counted as admissible (a refusal by policy, not blindness).
+- **27** — per quality tier, with another eligible home audible: the check period **T** is the pre-existing §S6.3
+  value, three periods produce exactly three probes at exactly **3 × 8 bytes**, and an audible candidate's roster
+  produces **zero** frames from the mobile. ⚠ It measures the MOBILE; the answering rosters are corpus-measured in
+  §MH-S5b (mobile probe airtime **falls** 30 821 → 25 702 ms; roster airtime **rises** 33 518 → 43 752 ms).
+- **28** — the strong-link idle-loss interval is asserted as an **equality**, 495 000 ms (480 s + 3 × 5 s), with the
+  ≤ 527 000 ms on-metal jittered worst case beside it, and the in-source block states that shortening the strong-tier
+  period is a **design change to be argued**, not a regression to be filed. Metal residue: bench script **18.1**.
+⛔ **Gate 26 is unchanged and was already discharged by §MH-S5**; §8.3's **trigger 3** is still unimplemented, so no
+gate here covers it.
 
 Every positive must have a nearby negative or mutation control that proves the asserted branch executed.
 ★ For each **S0 characterization** test the control is the inverse and is run **at S0 time**: applying the

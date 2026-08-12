@@ -342,6 +342,88 @@ def _hash_key_to_int(k):
     return None
 
 
+# ==================================================================================================
+# ★★★★ [[B182]] 2026-08-12 — THE TWO IDENTITY LAYERS. THIS CLASS IS THE LOGICAL ONE.
+#
+# ⛔⛔ THE DEFECT THIS EXISTS TO REMOVE: this file used to treat the CONFIGURED `node_id` and the
+# ON-WIRE id as ONE identity space. A hosted mobile violates that in BOTH directions —
+#   · static → mobile: the first leg's wire `dst` is the mobile's HOME, and the final delivery's
+#     `dst` is a LEASED local id (measured, `s22`: `tx_enqueue{dst:17}` for a DM to `M1(60)`,
+#     `delivered{dst:254}` at M1);
+#   · mobile → static: `stamp_origin` stamps `mob ? home_id : _node_id`, so the wire `origin` is the
+#     HOME's static `node_id` (measured, `s22`: `M1(60)` emits `tx_enqueue{origin:17}`).
+# ⇒ the configured pair key and the record's wire key never met, and `s21` 0/3, `s22` 0/2+0/2 and
+#   `s07` 0/59 were printed as delivery measurements for DMs that demonstrably ARRIVED.
+#
+# ⛔⛔ AND WHY THE OBVIOUS FIX IS WRONG — read this before "simplifying" the class away: NO GLOBAL
+# ID ALIAS MAP CAN REPAIR IT, because a home id SIMULTANEOUSLY identifies a real static node, and the
+# home genuinely originates its OWN DMs under that id at the same time. MEASURED IN THE CORPUS, not
+# hypothesised: in `s07` FOUR wire triples `(origin, dst, ctr)` are each claimed by TWO different
+# logical senders — `(19,27,1)` by `mobile_walk_central` and by `mobile_courier_south_north`;
+# `(37,20,1)` by `mobile_bike_west_east` and by the real static `N7GRN5_Portage_Bay_r(37)`;
+# `(17,49,1)` and `(20,18,1)` likewise. The id is not a disambiguator AT ANY INSTANT.
+#
+# ★★ THE SLOT IS. A scenario SLOT is the node's index in the config's `nodes` array: it is unique by
+# construction, time-invariant, and independent of every runtime lease. It is therefore the ONLY
+# sound key for a LOGICAL endpoint, and it also un-collapses `s27`'s five `node_id: 0` mobiles, which
+# shared one label (`M5(0)`) and one pair row.
+# ★ THE WIRE IDS ARE KEPT — for route/hop diagnostics, frame correlation and the airtime views ONLY.
+#   ⛔ They are never again a logical pair identity.
+class Slots:
+    """The LOGICAL identity layer: scenario slot -> name / node_id / key_hash32 / layer.
+
+    ⛔ Every resolver here REFUSES ambiguity by returning None (and the caller counts it). A slot is
+    unique; an `id`/`hash`/`name` shared by two slots is genuinely undetermined from that token, and
+    picking one is how a delivery gets attributed to the wrong node — the defect wearing a new hat."""
+
+    def __init__(self, nodes):
+        self.n = len(nodes)
+        self.names = [n["name"] for n in nodes]
+        self.ids = [n["node_id"] for n in nodes]
+        self.layers = [((n.get("config") or {}).get("layer_id")) for n in nodes]
+        self._by_name = defaultdict(list)
+        self._by_id = defaultdict(list)
+        self._by_hash = defaultdict(list)
+        for s, n in enumerate(nodes):
+            self._by_name[n["name"]].append(s)
+            self._by_id[n["node_id"]].append(s)
+            h = _hash_key_to_int(n.get("key_hash32"))
+            if h is not None:
+                self._by_hash[h].append(s)
+
+    # --- rendering -------------------------------------------------------------------------------
+    def label(self, slot):
+        """`name(node_id)` for a slot. ★ Unlike fmt_node() this can never merge two nodes into one
+        label, which is why `s27`'s five id-0 mobiles now render as M1/M2/M3/M4/M5 and not `M5(0)`."""
+        if slot is None or not (0 <= slot < self.n):
+            return "?"
+        return f"{self.names[slot]}({self.ids[slot]})"
+
+    # --- resolvers: exactly one slot, or None ----------------------------------------------------
+    def of_name(self, name):
+        c = self._by_name.get(name) or []
+        return c[0] if len(c) == 1 else None
+
+    def of_id(self, node_id):
+        """⛔ Returns None for a SHARED id (s10's `l4_seed`/`l5_seed` are both `node_id` 1) and for
+        the reserved sentinel 0, which s27/s28/s29/s37 give to every unprovisioned mobile."""
+        if node_id in (None, 0):
+            return None
+        c = self._by_id.get(node_id) or []
+        return c[0] if len(c) == 1 else None
+
+    def of_hash(self, h):
+        c = self._by_hash.get(h) or []
+        return c[0] if len(c) == 1 else None
+
+    def of_hash_in_layer(self, h, layer):
+        c = [s for s in (self._by_hash.get(h) or []) if self.layers[s] == layer]
+        return c[0] if len(c) == 1 else None
+
+    def id_is_shared(self, node_id):
+        return len(self._by_id.get(node_id) or []) > 1
+
+
 def load_config(path):
     with open(path) as f:
         cfg = json.load(f)
@@ -363,8 +445,16 @@ def load_config(path):
         _by_id[n["node_id"]].append(n["name"])
     global ALIASED_IDS
     # id 0 is excluded deliberately: it is the reserved "unprovisioned" sentinel (see the
-    # normalisation note above), so the mobiles that share it in s27/s28/s29 are not aliased —
-    # each leases a real id at registration and never appears as origin 0 in the stream.
+    # normalisation note above), so the mobiles that share it in s27/s28/s29 are not aliased in the
+    # STREAM — each leases a real id at registration and never appears as origin 0 there.
+    # ⛔⛔ CORRECTED 2026-08-12 ([[B182]], V1): the sentence that stood here stopped at "in the
+    # stream", and the register recorded the consequence — the premise was FALSE of the
+    # CONFIGURED-SEND side, which read `node_id` straight out of the JSON, so `s27`'s five id-0
+    # mobiles collapsed into ONE pair label (`M5(0)`) and one row of six unrelated sends, SILENTLY,
+    # because this suppression hid the collision. ★ That half is no longer keyed on ids at all: the
+    # configured intents and the pair table are keyed on the SCENARIO SLOT (see `Slots`), which is
+    # unique by construction. This dict now describes ONLY the wire/route diagnostics that still
+    # render an id (`fmt_node`), which is what it was always sound for.
     ALIASED_IDS = {i: names for i, names in _by_id.items()
                    if len(names) > 1 and i != 0}
     if ALIASED_IDS:
@@ -401,7 +491,8 @@ def load_config(path):
             continue
         if layer is not None:
             hash_layer_to_name[(layer, h)] = n["name"]
-    return cfg, id_to_name, name_to_id, slot_to_id, hash_layer_to_name, id_to_layer
+    return (cfg, id_to_name, name_to_id, slot_to_id, hash_layer_to_name, id_to_layer,
+            Slots(nodes))          # ★ [[B182]]: the LOGICAL layer, alongside the wire maps above
 
 
 def gateway_layers(cfg):
@@ -451,18 +542,31 @@ DM_SEND_VERBS = re.compile(r"^send(_priority|_e2e|_e2e_priority|_hash|_hashx|"
                            r"_layer|_layerx|_layer_e2e|_layerx_e2e)?\s", re.IGNORECASE)
 
 
-def resolve_dst_token(tok, name_to_id):
-    """A `send`/`send_e2e` destination: a node NAME, or a bare numeric node id.
+def resolve_dst_token(tok, slots, wire_to_slot=None):
+    """A `send`/`send_e2e` destination: a node NAME, a config `node_id`, or a RUNTIME WIRE id -> SLOT.
 
     ⛔ Returns None rather than guessing. A numeric token outside 1..254 is refused: 0 is the reserved
     unprovisioned sentinel and 0xFF is reserved, so such a token is a scenario-authoring error, not an
-    address (`src_hint`/id-reservation rules)."""
-    if tok in name_to_id:
-        return name_to_id[tok]
+    address (`src_hint`/id-reservation rules). ★ [[B182]]: a numeric token naming an id worn by TWO
+    slots (s10's `node_id` 1) is ALSO refused — `Slots.of_id` returns None — because which node the
+    author meant is genuinely undetermined from the number.
+
+    ★★ THE THIRD FORM IS REAL CORPUS SYNTAX, not a courtesy: a team destination is routinely written as
+    its RUNTIME team-local id (`send 254 hop_test -t` in s23, `send_e2e 220 … -t` in s37, `send_e2e
+    213 …` in s38, `send 174/235 … -t` in s35a) — an id NO node carries as `node_id`. ⛔ Order matters
+    and is the [[B162]] rule kept intact: a `node_id` match WINS, so a number that names a real node is
+    never translated away; only an unclaimed number falls through to the observed wire alias, and only
+    when exactly one slot ever wore it."""
+    s = slots.of_name(tok)
+    if s is not None:
+        return s
     if tok.isdigit():
         v = int(tok)
         if 1 <= v <= 254:
-            return v
+            byid = slots.of_id(v)
+            if byid is not None:
+                return byid
+            return (wire_to_slot or {}).get(v)
     return None
 
 
@@ -497,49 +601,60 @@ def configured_channel_posts(cfg, name_to_id):
     return posts
 
 
-def configured_pairs(cfg, name_to_id, hash_layer_to_name):
-    """Return Counter of (origin_id, dst_id) -> how many sends the scenario *intends*.
+def configured_pairs(cfg, slots, hash_layer_to_name, wire_to_slot=None):
+    """Return Counter of (origin_SLOT, dst_SLOT) -> how many sends the scenario *intends*.
+
+    ★★★★ [[B182]] item 1, 2026-08-12 — KEYED ON THE SCENARIO SLOT, NOT ON `node_id`. This used to
+    resolve every addressee to a config `node_id` and key the pair on it, which is one half of the
+    hosted-mobile mis-attribution (`Slots`' header has the whole mechanism) and is ALSO why `s27`'s
+    five `node_id: 0` mobiles collapsed into ONE pair (`M5(0) -> M5(0)`, six unrelated sends on one
+    row, four of them then flagged UNSENT). Slots are unique by construction, so neither can recur.
+    ⛔ AND THE RESOLVERS REFUSE: a name/id/hash worn by two slots yields None and lands in `unparsed`,
+    where `unresolved_configured_sends` reports it. It is never resolved by picking one.
 
     Recognises both same-layer `send <name>` and cross-layer
     `send_layer <target_layer> <dst_key_hash32_decimal>`. For
     `send_layer`, the dst is resolved via (target_layer_id, hash) ->
-    node_name, then to that node's short id.
+    node_name, then to that node's slot.
 
-    ★ Returns (pairs, same_layer_pairs), both Counters (2026-07-25). Membership
+    ★ Returns (pairs, intended, unparsed), the first two Counters (2026-07-25). Membership
     still works everywhere `pairs` is used as a pair filter, but the COUNTS are what
     let summarise() notice that an intended send produced no message at all;
     before that, such a send was absent from the table and silently vanished from
     the denominator — see the fail-loud note in summarise().
 
-    ⚠ `same_layer_pairs` holds ONLY the `send <name>` intents, and it is the one to
-    feed summarise(). A `send_layer` record's effective_dst is the GATEWAY's id (the
-    wire dst), never the final destination, so a cross-layer intent legitimately has
-    no row under its own (origin, final_dst) key — injecting it would report a
-    DELIVERED cross-layer DM as unsent (verified on s10's `cross-l4-to-l5-joiner`).
-    Cross-layer already has its own honest denominator: the "cross-layer DMs: X/Y"
-    line, built from tx_enqueue_xl + the no-gateway drops.
+    ★★★★ [[B182]] 2026-08-12 — THE CROSS-LAYER EXCLUSION IS REMOVED, AND THE REASON IT EXISTED IS GONE
+    WITH IT. The second counter used to be `same_layer_pairs`, holding ONLY the `send <name>` intents,
+    under this (correct at the time) rationale: *"a `send_layer` record's effective_dst is the
+    GATEWAY's id (the wire dst), never the final destination, so a cross-layer intent legitimately has
+    no row under its own (origin, final_dst) key — injecting it would report a DELIVERED cross-layer DM
+    as unsent (verified on s10's `cross-l4-to-l5-joiner`)."*
+    ⇒ ★ That is a statement about WIRE-KEYED records. A record's pair identity is now the LOGICAL one
+      (`assign_logical_pairs()`), whose destination for a cross-layer message is the RESOLVED TARGET
+      slot — the same slot the intent names. Verified on `s10`: its two `send_layer` rows sit under
+      their own `(sender, target)` keys and read 1/1, so injecting the intent adds `unsent` 0.
+    ⛔ AND WITHOUT THE REMOVAL A CROSS-LAYER SEND CAN STILL VANISH FROM THE DENOMINATOR — measured on
+      `s27`, where 9 configured `send_layer*` DMs produced no row of their own AT ALL because their
+      records are attributed to the DELEGATING HOME, not the mobile. Silence is the one outcome this
+      file may not produce; they now read as sent-and-not-arrived. ⓘ Cross-layer also keeps its
+      independent "cross-layer DMs: X/Y" line, built from tx_enqueue_xl + the no-gateway drops.
     """
     pairs = Counter()
-    same_layer = Counter()
+    intended = Counter()          # ★ [[B182]]: ALL intents, cross-layer included (see the docstring)
     unparsed = Counter()          # ★ [[B162]]: the residue, COUNTED — see the grammar note above
-    id_to_layer = {}
     # ★ [[B162]]: a LAYER-AGNOSTIC key_hash32 index, needed because `hash_layer_to_name` is keyed on
     # `config.layer_id` and a SINGLE-LAYER scenario does not set one — so that map is EMPTY for every
     # flat scenario, and every `send_hash` in s22/s24/s25/s26/s28/s29/s30/s34/s37/s38 resolved to
     # nothing. ⛔ Ambiguity is REFUSED, not resolved by picking: if two nodes share a key_hash32 the
     # addressee is genuinely undetermined from the command, and guessing is what [[B162]] is about.
-    hash_to_ids = defaultdict(set)
-    for n in cfg.get("nodes", []):
-        lyr = (n.get("config") or {}).get("layer_id")
-        if lyr is not None:
-            id_to_layer[n["node_id"]] = lyr
-        h = _hash_key_to_int(n.get("key_hash32"))
-        if h is not None:
-            hash_to_ids[h].add(n["node_id"])
+    # ⓘ [[B182]]: `Slots.of_hash` / `of_hash_in_layer` are that index, in SLOT space.
     for c in cfg.get("commands", []):
         node = c.get("node")
         cmd = c.get("command", "")
-        src_id = name_to_id.get(node)
+        src_slot = slots.of_name(node)
+        if src_slot is None and DM_SEND_VERBS.match(cmd) and not SEND_CHANNEL_RE.match(cmd):
+            unparsed["send*: sending node name unresolved (unknown or shared by 2 slots)"] += 1
+            continue
         m_layer = SEND_LAYER_RE.match(cmd)
         if m_layer:
             # layer field may be a comma-separated source-routed hop path
@@ -552,9 +667,10 @@ def configured_pairs(cfg, name_to_id, hash_layer_to_name):
             except ValueError:
                 unparsed["send_layer*: unparseable layer/hash"] += 1
                 continue
-            dst_name = hash_layer_to_name.get((target_layer, target_hash))
-            if src_id is not None and dst_name in name_to_id:
-                pairs[(src_id, name_to_id[dst_name])] += 1
+            dst_slot = slots.of_hash_in_layer(target_hash, target_layer)
+            if dst_slot is not None:
+                pairs[(src_slot, dst_slot)] += 1
+                intended[(src_slot, dst_slot)] += 1    # ★ [[B182]]: no longer excluded
             else:
                 unparsed["send_layer*: target hash unresolved"] += 1
             continue
@@ -569,19 +685,16 @@ def configured_pairs(cfg, name_to_id, hash_layer_to_name):
             except ValueError:
                 unparsed["send_hash*: unparseable hash"] += 1
                 continue
-            lyr = id_to_layer.get(src_id)
-            dst_name = hash_layer_to_name.get((lyr, target_hash))
-            dst_id = name_to_id.get(dst_name) if dst_name else None
-            if dst_id is None:                      # flat scenario: no layer_id to key on
-                cand = hash_to_ids.get(target_hash) or set()
-                if len(cand) == 1:
-                    dst_id = next(iter(cand))
-                elif len(cand) > 1:
+            lyr = slots.layers[src_slot]
+            dst_slot = slots.of_hash_in_layer(target_hash, lyr)
+            if dst_slot is None:                    # flat scenario: no layer_id to key on
+                if len(slots._by_hash.get(target_hash) or []) > 1:
                     unparsed["send_hash*: key_hash32 shared by several nodes (REFUSED)"] += 1
                     continue
-            if src_id is not None and dst_id is not None:
-                pairs[(src_id, dst_id)] += 1
-                same_layer[(src_id, dst_id)] += 1      # same-layer: it DOES own an (origin,dst) row
+                dst_slot = slots.of_hash(target_hash)
+            if dst_slot is not None:
+                pairs[(src_slot, dst_slot)] += 1
+                intended[(src_slot, dst_slot)] += 1
             else:
                 unparsed["send_hash*: target hash unresolved"] += 1
             continue
@@ -592,16 +705,18 @@ def configured_pairs(cfg, name_to_id, hash_layer_to_name):
                and not cmd.lower().startswith("send_channel"):
                 unparsed[f"unrecognised DM verb: {cmd.split()[0]}"] += 1
             continue
-        dst_id = resolve_dst_token(m.group(1), name_to_id)   # a NAME or a numeric node id
-        if src_id is not None and dst_id is not None:
-            pairs[(src_id, dst_id)] += 1
-            same_layer[(src_id, dst_id)] += 1
+        dst_slot = resolve_dst_token(m.group(1), slots, wire_to_slot)   # NAME / node_id / wire id
+        if dst_slot is not None:
+            pairs[(src_slot, dst_slot)] += 1
+            intended[(src_slot, dst_slot)] += 1
         else:
             unparsed["send: dst token unresolved"] += 1
-    return pairs, same_layer, unparsed
+    return pairs, intended, unparsed
 
 
-def parse_pair_filter(arg, name_to_id):
+def parse_pair_filter(arg, slots):
+    """`--pair src:dst,...` -> a set of (src_SLOT, dst_SLOT). ★ [[B182]]: slot space, like every other
+    pair key in this file now."""
     if arg is None:
         return None
     pairs = set()
@@ -612,10 +727,11 @@ def parse_pair_filter(arg, name_to_id):
         if ":" not in chunk:
             sys.exit(f"--pair entry must be 'src:dst', got {chunk!r}")
         s, d = chunk.split(":", 1)
-        if s not in name_to_id or d not in name_to_id:
-            sys.exit(f"--pair {chunk!r}: unknown node name "
-                     f"(known: {sorted(name_to_id)})")
-        pairs.add((name_to_id[s], name_to_id[d]))
+        ss, ds = slots.of_name(s), slots.of_name(d)
+        if ss is None or ds is None:
+            sys.exit(f"--pair {chunk!r}: unknown or ambiguous node name "
+                     f"(known: {sorted(set(slots.names))})")
+        pairs.add((ss, ds))
     return pairs
 
 
@@ -788,15 +904,26 @@ def ndjson_refusal_crossing_point(args):
     print()
 
 
-def walk_events(events_path, slot_to_id):
-    """Yield (time_ms, firmware_id, emit_type, data) for every script_emit."""
+def walk_events_slots(events_path, slot_to_id):
+    """Yield (time_ms, slot, firmware_id, emit_type, data) for every script_emit.
+
+    ★★ [[B182]]: the SLOT is the emitting node's LOGICAL identity and `fid` its wire identity. The
+    walker has always had the slot (`e["node"]`) and threw it away one line later — which is exactly
+    how the two identity layers came to be conflated. Both are yielded now; `walk_events()` below is
+    the wire-only adapter every diagnostic view still uses (U1: extended, not forked)."""
     for _lineno, e in iter_ndjson(events_path):
         if e.get("type") != "script_emit":
             continue
         slot = e.get("node")
         fid = slot_to_id.get(slot, slot)
-        yield (e.get("time_ms", 0), fid,
+        yield (e.get("time_ms", 0), slot, fid,
                e.get("emit_type"), e.get("data", {}))
+
+
+def walk_events(events_path, slot_to_id):
+    """Yield (time_ms, firmware_id, emit_type, data) for every script_emit."""
+    for t_ms, _slot, fid, et, d in walk_events_slots(events_path, slot_to_id):
+        yield (t_ms, fid, et, d)
 
 
 def walk_phy_events(events_path, name_to_id):
@@ -820,10 +947,68 @@ def walk_phy_events(events_path, name_to_id):
         yield e.get("time_ms", 0), t, e
 
 
-def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None):
+def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None, slots=None):
     hash_layer_to_name = hash_layer_to_name or {}
-    name_to_id_local = None
     msgs = {}
+    # ★★★★ [[B182]] 2026-08-12 — THE LOGICAL-CORRELATION LEDGER (item 7). ⛔ EVERY KEY IS ALWAYS
+    # PRESENT so a ZERO is printable and comparable, and every one is printed in BOTH `--json` and the
+    # text table. ⚠ These counters are themselves instruments: the arc has 20+ that could not fail, so
+    # each is positively controlled in `tools/test_dm_delivery_breakdown.py` (a fixture that DRIVES it
+    # off zero), not merely asserted to exist.
+    logical = Counter({
+        # positive control: last-mile deliveries recovered through the (origin, ctr) correlation
+        "lastmile_correlated": 0,
+        # ★★ item 5: an (origin, ctr) last-mile match with SEVERAL candidate records -> REFUSED
+        "lastmile_refused_ambiguous": 0,
+        # a `delivered` that matched no record at all, by wire key or by (origin, ctr)
+        "lastmile_unmatched": 0,
+        # ⛔ one wire (origin,dst,ctr) claimed by SEVERAL emitting slots -> both logical sends refused
+        "refused_wire_key_shared": 0,
+        # ⛔ an undelivered record whose wire dst is a HOME its sender also addresses a hosted mobile
+        #    of: home-or-mobile is undecidable from the stream -> REFUSED rather than filed at random
+        "refused_ambiguous_dst": 0,
+        # ⛔ SEVERAL slots app-delivered one wire triple: which send it was FOR is undetermined
+        "refused_multi_delivery": 0,
+        # ⛔ a record whose wire dst names an id worn by two slots (s10's `node_id` 1)
+        "refused_shared_dst_id": 0,
+        # ⛔ a record with no resolvable logical sender / destination at all
+        "refused_no_logical_src": 0,
+        "refused_unresolved_dst": 0,
+        # ★★★★ [[B185]]/QG 2026-08-12 — THE DELEGATED-ORIGINATION COUNTERS. A hosted mobile whose target it
+        # cannot resolve itself sends a MOBILE_SEND *wrapper* to its home, and the HOME re-originates the DM
+        # under its OWN identity. ⇒ a third logical-identity break, and the firmware ALREADY names the link.
+        "deleg_reattributed_samelayer": 0,    # via `deleg_ack_put{mobile_hash, ctr_h, ctr_m}` at the home
+        "deleg_reattributed_xl": 0,           # via `mobile_delegate_xl{home, ctr, dst_hash}` at the mobile
+        "deleg_refused_ambiguous": 0,         # ⛔ several delegating mobiles fit one re-origination -> REFUSED
+        "deleg_wrappers_excluded": 0,         # the mobile->home wrapper leg: transport, not an app-level send
+        # basis split: how much of the figure rests on OBSERVED app-delivery vs the wire-dst fallback
+        "dst_from_delivery": 0,
+        "dst_from_wire": 0,
+    })
+    # ★★★ THE DELEGATION LEDGER, read off the firmware's own emits (V1, verified at the producers):
+    #   · `deleg_ack_put` — `lib/core/node_hashlocate.cpp:1788`, called at `:2052` (the parked re-origination) and
+    #     `:1712` (a home hosting BOTH the delegator and the target). It fires ONLY when `reply_to_hash != 0 &&
+    #     mobile_ctr != 0`, i.e. EXACTLY on a delegated re-origination, and it carries the three fields that close
+    #     the identity gap: the delegating mobile's stable `mobile_hash`, the HOME's re-originated `ctr_h`, and the
+    #     MOBILE's own `ctr_m`.
+    #   · `mobile_delegate_xl` — `lib/core/node_mac.cpp:813`, at the MOBILE's slot, carrying `home`, its own `ctr`
+    #     and the final target's `dst_hash`.
+    # ⛔⛔ AN EARLIER DRAFT OF THIS FILE (and a register entry, since corrected) CLAIMED THE SAME-LAYER SHAPE NEEDED
+    #    A NEW `lib/core` EMIT. THAT WAS WRONG: `deleg_ack_put` already exists and already names the mobile. The
+    #    claim was made from `tx_enqueue`'s field list alone without looking for a sibling emit — a
+    #    "the evidence does not exist" conclusion drawn from one call site.
+    # ⓘ MEASURED on `s27`: 4 `deleg_ack_put` + 10 `mobile_delegate_xl` = 14, precisely its 14 delegated originations.
+    deleg_same = defaultdict(set)   # (home_slot, ctr_h) -> {delegating mobile slots}
+    deleg_xl = []                   # [{mobile_slot, home_id, ctr_m, dst_slot, t_ms, used}]
+    deleg_wrappers = set()          # (mobile_slot, ctr_m, home_id) -> the wrapper leg, excluded from pairing
+    # Observed hosting: home slot -> {hosted mobile slots}. ★ OBSERVED, never inferred from a config
+    # flag: `mobile_registered` fires AT the home and carries the mobile's stable key_hash32, and
+    # `mobile_adopted` fires AT the mobile and names its home's id. Both are read; neither is trusted
+    # to be present.
+    hosted_by = defaultdict(set)
+    # mobile leased id -> {(mobile slot, home slot)} as observed at `mobile_adopted`. This is what
+    # lets the last-mile correlation below insist that the delivery really is a HOSTED-MOBILE one.
+    lease_owner = defaultdict(set)
     # First pass: build (origin, ctr) -> dst from events that carry dst.
     # Second pass below applies the index to events that lack dst.
     origin_ctr_to_dst = {}
@@ -900,11 +1085,49 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None):
     #   untranslated (and counted), because picking one would mis-attribute a delivery — the exact defect
     #   shape [[B162]] records.
     wears = defaultdict(set)          # config id -> {wire ids it was seen using}
-    for t_ms, fid, et, d in walk_events(events_path, slot_to_id):
+    wire_slot_claims = defaultdict(set)  # ★ [[B182]]: wire id -> {slots observed wearing it}
+    for t_ms, slot, fid, et, d in walk_events_slots(events_path, slot_to_id):
+        # ★ [[B182]]: the observed hosting relation, gathered in the pass that already exists (U1).
+        if et == "mobile_registered" and slots is not None:
+            m = slots.of_hash(d.get("key"))
+            if m is not None and slot is not None:
+                hosted_by[slot].add(m)
+            if d.get("local_id") is not None and m is not None and slot is not None:
+                lease_owner[d["local_id"]].add((m, slot))
+        elif et == "mobile_adopted" and slots is not None:
+            h = slots.of_id(d.get("home"))
+            if h is not None and slot is not None:
+                hosted_by[h].add(slot)
+            if d.get("local_id") is not None and h is not None and slot is not None:
+                lease_owner[d["local_id"]].add((slot, h))
+        elif et == "deleg_ack_put" and slots is not None:
+            m = slots.of_hash(d.get("mobile_hash"))
+            ch, cm = d.get("ctr_h"), d.get("ctr_m")
+            if m is not None and slot is not None and ch is not None:
+                # ★★ KEYED ON `(home_slot, ctr_h, t_ms)`, AND THE TIMESTAMP IS LOAD-BEARING, NOT DECORATION.
+                # `ctr` is per-DESTINATION (`next_ctr(dst)`), so ONE home legitimately holds several records at
+                # `ctr_h == 1`. MEASURED on `s27`: `S1 tx_enqueue{ctr:1,dst:104}` (delegated, t=276322),
+                # `{ctr:1,dst:105}` (delegated, t=1061206) and `{ctr:1,dst:106}` (S1's OWN send to M5,
+                # t=1204903) — a `(slot, ctr)` key collided all three and STOLE S1's own send from it,
+                # dropping `S1(101) -> M5(0)` from 1/1 to 0/1. ⇒ the emit is produced in the SAME call chain as
+                # its `tx_enqueue`, with no clock advance between them (verified: all four `deleg_ack_put` in
+                # `s27` share their `tx_enqueue`'s exact millisecond), so an EXACT `enqueued_ms` match is an
+                # identity, not a time heuristic.
+                deleg_same[(slot, ch, t_ms)].add(m)
+                if cm:
+                    deleg_wrappers.add((m, cm, slots.ids[slot]))
+        elif et == "mobile_delegate_xl" and slots is not None:
+            ds = slots.of_hash(d.get("dst_hash"))
+            if slot is not None and d.get("home") is not None:
+                deleg_xl.append({"mobile_slot": slot, "home_id": d["home"], "ctr_m": d.get("ctr"),
+                                 "dst_slot": ds, "t_ms": t_ms, "used": False})
+                if d.get("ctr"):
+                    deleg_wrappers.add((slot, d["ctr"], d["home"]))
         if et == "tx_enqueue":
             o = d.get("origin")
             if o is not None and o != fid:
                 wears[fid].add(o)
+                wire_slot_claims[o].add(slot)          # ★ [[B182]]: the same claim, in SLOT space
         elif et == "delivered":
             # ⛔ `delivered` ONLY — NOT `data_rx`. A RELAY also emits `data_rx` carrying the message's
             # final `dst`, so treating that as "this node wears that id" made every relay claim the
@@ -916,6 +1139,30 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None):
             w = d.get("dst")
             if w is not None and w != fid:
                 wears[fid].add(w)
+                wire_slot_claims[w].add(slot)          # ★ [[B182]]: the same claim, in SLOT space
+    # ★★★★ [[B182]] — THE SAME OBSERVATION, IN SLOT SPACE, FOR THE *CONFIGURED* SIDE.
+    # ⛔ A scenario legitimately addresses a teammate by its RUNTIME WIRE id: `send 254 hop_test -t`
+    # (s23), `send_e2e 220 … -t` (s37), `send_e2e 213 … -t` (s38), `send 174/235 … -t` (s35a). Those
+    # numbers are team-local / leased ids that NO node carries as its config `node_id`, so the
+    # slot resolver alone cannot see them — and [[B162]] handled it by translating the PAIR KEYS through
+    # `wire_to_config` afterwards, the very step that cannot express a hosted mobile.
+    # ★ Instead the TOKEN is resolved, once, to the slot that was OBSERVED wearing that wire id — and
+    #   only when EXACTLY ONE slot ever wore it. ⛔ Two claimants ⇒ refused, not picked.
+    # ⓘ `Slots.of_id` is tried FIRST by the caller, so a number that IS a real node's `node_id` is
+    #   never translated away — the rule [[B162]] established and this keeps.
+    wire_to_slot = {w: next(iter(ss)) for w, ss in wire_slot_claims.items() if len(ss) == 1}
+    # ★★ PUBLISHED AS `logical_wire_slot_conflicts` — and ⛔ RENAMED FROM `configured_wire_token_refused`,
+    # which was BOTH too strong AND silently discarded (it occurred exactly once in this file: at the line
+    # that computed it). Two corrections in one, both of them item-7 failures in the very slice that added
+    # item 7:
+    #   · IT DOES NOT COUNT REFUSED COMMANDS. It counts WIRE IDS worn by SEVERAL SLOTS, whether or not any
+    #     scenario command ever names one. A command actually affected shows up where it belongs, in
+    #     `unresolved_configured_sends` (`resolve_dst_token` returns None -> the `unparsed` residue).
+    #   · A computed-and-discarded counter is exactly the `alias_stats` defect this file documents at
+    #     length. It now rides `totals.logical_*` and the text table like every other one.
+    # ⓘ MEASURED: 2 on `s07`. It is a DIAGNOSTIC, not a refusal, so it is deliberately NOT in
+    #   `LOGICAL_REFUSAL_KEYS` and does not raise the REFUSED banner.
+    logical["wire_slot_conflicts"] = sum(1 for ss in wire_slot_claims.values() if len(ss) > 1)
     wire_to_config = {}
     wire_conflicts = set()
     for cid, ws in wears.items():
@@ -930,7 +1177,7 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None):
         wire_to_config.pop(cid, None)
     alias_stats = {"aliases": len(wire_to_config), "refused_conflicts": len(wire_conflicts)}
 
-    for t_ms, fid, et, d in walk_events(events_path, slot_to_id):
+    for t_ms, slot, fid, et, d in walk_events_slots(events_path, slot_to_id):
         if et == "gateway_schedule_change":
             lyr = d.get("active_layer_id")
             if lyr is not None:
@@ -955,7 +1202,9 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None):
                 delivered_fwd.add((o, dst, c))
             # §xl: the target's `delivered` preserves the ORIGINAL (origin,ctr) -> key cross-layer arrival on it.
             if o is not None and c is not None and (o, c, dst) not in delivered_oc:
-                delivered_oc[(o, c, dst)] = (dst, t_ms)
+                # ★ [[B182]]: the delivering SLOT is carried too — for a cross-layer record it is the
+                #   logical recipient, and the third element used to be the only thing available.
+                delivered_oc[(o, c, dst)] = (dst, t_ms, slot)
         elif et == "gateway_envelope_dropped":
             drops.append({"origin": d.get("origin", fid),
                           "target_layer_id": d.get("target_layer_id"),
@@ -990,7 +1239,10 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None):
         elif et == "tx_enqueue_xl":                       # §xl: a cross-layer origination (dst = the gateway wire-dst)
             tl = d.get("target_layer")
             if o is not None and c is not None and (o, c, tl) not in xl_orig:
-                xl_orig[(o, c, tl)] = (dst, tl, t_ms)
+                # ★ [[B182]]: `slot` is the ORIGINATING scenario node — the logical sender (item 2) for
+                #   the cross-layer records, which are built by the §xl post-pass and never see a
+                #   `tx_enqueue`, so they would otherwise have no logical sender at all.
+                xl_orig[(o, c, tl)] = (dst, tl, t_ms, slot)
         elif et == "xl_send_no_gateway":                  # §xl: cross-layer send dropped at origination (no gateway route)
             xl_no_gw += 1
 
@@ -1032,6 +1284,28 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None):
                 "handoff_drained_ms":      None,
                 "handoff_deferred_reason": None,
                 "handoff_giveup_reason":   None,
+                # ★★★★ [[B182]] — THE LOGICAL LAYER, carried alongside the wire fields above.
+                # `src_slot` (item 2) is the SCENARIO NODE that emitted the record-creating
+                # `tx_enqueue`, even when the wire `origin` is its home's static id.
+                "src_slot":        None,
+                # `src_slot_shared` (item 5) — TWO different slots emitted a `tx_enqueue` for this one
+                # wire triple. MEASURED in `s07` on 4 triples. ⛔ The logical sender is then genuinely
+                # undetermined, so the record is REFUSED for pairing rather than credited to whichever
+                # slot happened to be first. The pair's denominator survives via `unsent` flooring.
+                "src_slot_shared": False,
+                # `delivered_slots` (item 3): slot -> first correlated `delivered` t_ms. The emitting
+                # slot of a `delivered` IS the app addressee, so this is the logical RECIPIENT even
+                # when `data.dst` is a leased local id.
+                "delivered_slots": {},
+                # slots reached through the (origin, ctr) last-mile correlation (item 4), a subset of
+                # `delivered_slots`. Kept separate so the recovery is measurable, not just effective.
+                "lastmile_slots":  set(),
+                # filled by assign_logical_pairs(): the pair identity + how it was established.
+                "logical_src":     None,
+                "logical_dst":     None,
+                "logical_basis":   None,
+                # ★ [[B185]]: True on the mobile->home MOBILE_SEND wrapper leg (see the delegation ledger).
+                "deleg_wrapper":   False,
             }
         return msgs[k]
 
@@ -1055,7 +1329,37 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None):
             return False
         return cfg_id == wire_id or wire_to_config.get(wire_id) == cfg_id
 
-    for t_ms, fid, et, d in walk_events(events_path, slot_to_id):
+    # ★★★★ [[B182]] item 4 — THE STATIC→HOSTED-MOBILE LAST MILE, CORRELATED THROUGH `(origin, ctr)`.
+    #
+    # THE SHAPE, measured on `s22` (V1, at the stream, not from a doc):
+    #     455820  S2  tx_enqueue {origin:30, dst:17, ctr:1}          <- record key (30,17,1); dst=HOME
+    #     456835  S1  mobile_lastmile_fwd {local:254, origin:30}
+    #     458299  M1  delivered  {origin:30, dst:254, ctr:1, payload:"static_to_mobile"}
+    # ⇒ `(origin, ctr)` is PRESERVED across the last mile and only `dst` changes, home id -> leased id.
+    # The exact-key lookup therefore misses, and this is the one correlation that can recover it.
+    #
+    # ★★ AND IT IS NARROWED BY OBSERVATION, NOT BY HOPE — all four conditions must hold:
+    #   (a) the delivering slot is observed to HOLD the lease `dst` (from its own `mobile_adopted`);
+    #   (b) the candidate record's wire dst is that lease's observed HOME;
+    #   (c) the payload matches, where both are known — ⚠ a CONTROLLED CROSS-CHECK used ONLY to
+    #       REJECT a candidate, never to select one: messages legitimately repeat the same text;
+    #   (d) the record has not already been delivered at that slot.
+    # ★★★ AND IF (a)-(d) LEAVE MORE THAN ONE CANDIDATE IT IS **REFUSED**, NOT PICKED (item 5). `ctr` is
+    # per-destination (`next_ctr(dst)`), so one origin can legitimately hold (o,dstA,c) and (o,dstB,c)
+    # at once; a guess there attributes a delivery to the WRONG MOBILE, which is this bug in new
+    # clothing. The refusal is counted in `lastmile_refused_ambiguous` and printed.
+    by_origin_ctr = defaultdict(list)
+    pending_unmatched = []      # (origin, ctr, dst) — adjudicated after the §xl post-pass, see below
+
+    def note_delivered(r, slot, t_ms, lastmile=False):
+        if slot is None:
+            return
+        if slot not in r["delivered_slots"]:
+            r["delivered_slots"][slot] = t_ms
+        if lastmile:
+            r["lastmile_slots"].add(slot)
+
+    for t_ms, slot, fid, et, d in walk_events_slots(events_path, slot_to_id):
         # Second-leg forward trace: who carried the gateway's forward, did the
         # gateway itself RTS it, and did the gateway get the hop-1 ACK?
         o_ = d.get("origin")
@@ -1102,6 +1406,47 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None):
             continue
         origin, dst, ctr = k
 
+        # ★★★★ [[B182]] item 4 — the LAST-MILE fallback, tried BEFORE the record-creation policy so a
+        # `delivered` whose `dst` has become a leased id is not simply skipped as "no record".
+        if et == "delivered" and k not in msgs and slots is not None:
+            owners = lease_owner.get(dst) or set()
+            homes = {h for (m, h) in owners if m == slot}
+            oc = by_origin_ctr.get((origin, ctr), ())
+            cands = []
+            if homes:                                   # (a) this slot really holds lease `dst`
+                for kk in oc:
+                    rr = msgs.get(kk)
+                    if rr is None or slots.of_id(rr["dst"]) not in homes:
+                        continue                        # (b) record's wire dst == the observed home
+                    pl = d.get("payload")
+                    if (rr["payload"] is not None and pl is not None
+                            and rr["payload"] != pl):
+                        continue                        # (c) payload cross-check: REJECT only
+                    if slot in rr["delivered_slots"]:
+                        continue                        # (d) already delivered here
+                    cands.append(kk)
+            if len(cands) == 1:
+                note_delivered(msgs[cands[0]], slot, t_ms, lastmile=True)
+                logical["lastmile_correlated"] += 1
+            elif len(cands) > 1:
+                logical["lastmile_refused_ambiguous"] += 1
+            elif homes and oc:
+                # ⓘ Counted ONLY when (a) held AND an `(origin, ctr)` origination record EXISTS but
+                #   every candidate was rejected by (b)/(c)/(d) — i.e. this REALLY is a hosted-mobile
+                #   last mile whose own origination we hold and could not reconcile.
+                # ⛔ Deliberately NOT counted otherwise, and BOTH narrowings here are MEASURED, not tidy —
+                #   this counter twice fired on perfectly healthy traffic before they were added:
+                #   (i) without the `oc` term, `s27` reported 10 "unmatched" that were its 10 correctly
+                #       attributed CROSS-LAYER deliveries (those records are built by the §xl post-pass from
+                #       `tx_enqueue_xl`, so they are not in `by_origin_ctr` during this pass at all);
+                #   (ii) with it, 3 remained — cross-layer deliveries whose `(origin, ctr)` HAPPENS to
+                #       coincide with a same-layer record at the same home. ⇒ the decision is DEFERRED to
+                #       after the §xl post-pass, which is the only point at which "nothing claimed this
+                #       delivery" is a fact rather than a guess about pass ordering.
+                #   ★ A counter that fires on healthy traffic is the shape that made `alias_stats` unread.
+                pending_unmatched.append((origin, ctr, dst))
+            continue
+
         # Filter: only track DMs (no broadcasts, no channel msgs).
         # Channel msg events have separate emit types so this branch
         # is more a defensive filter than an active one.
@@ -1117,14 +1462,51 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None):
         # (see same_node() — every id comparison in this pass runs through it) A team/mobile originator stamps its
         # per-plane wire id, so the alias learned above is an equally valid identification of "this node
         # originated it". ⛔ Nothing else may create a record — a relay still may not.
-        is_originator_enqueue = (et == "tx_enqueue"
-                                 and (fid == origin or wire_to_config.get(origin) == fid))
+        # ★★★★ [[B182]] item 2, 2026-08-12 — THE ID TEST IS GONE; `tx_enqueue` ITSELF IS THE POLICY, AND
+        # THE EMITTING SLOT IS THE **DEFAULT** LOGICAL SENDER.
+        # ⛔⛔ CORRECTED IN PLACE 2026-08-12 (this comment used to say the emitting slot **IS** the logical sender,
+        #    full stop — an invariant STRONGER THAN THE CODE, which is the defect class this arc has hit repeatedly):
+        #    **IT IS FALSE FOR A DELEGATED RE-ORIGINATION.** When a hosted mobile cannot resolve its target itself it
+        #    sends a MOBILE_SEND wrapper to its home and THE HOME emits the `tx_enqueue` — the home is the EMITTER and
+        #    is NOT the application sender. ⇒ the emitting slot is the sender **unless** the firmware's own
+        #    `deleg_ack_put` / `mobile_delegate_xl` names a delegating mobile for it, which
+        #    `assign_logical_pairs()` applies. MEASURED: `s27` has 14 such re-originations out of 15 sends.
+        # ⛔⛔ The `fid == origin or alias` test DROPPED THE
+        # RECORD ENTIRELY for a hosted mobile's own DM, because `stamp_origin` stamps the HOME's static
+        # id and [[B162]]'s alias pass (correctly) refuses to translate an id that is a real node's
+        # config id. MEASURED: 32 `tx_enqueue` emits corpus-wide were discarded that way — `s07` 24,
+        # `s27` 4, `s22_mobile_team` 2, `s28` 2 — so `s22`'s `M1(60) -> S2(30)` had NO RECORD AT ALL and
+        # its 2 genuine arrivals could not be seen by any later pass.
+        # ★ AND IT IS SOUND, verified at the firmware rather than assumed: `"tx_enqueue"` is passed by
+        #   exactly TWO `enqueue_data` call sites — `node_mac.cpp:421` (`do_send`, an app origination)
+        #   and `node_hashlocate.cpp:1709` (a home originating a DIRECT last mile to a mobile it hosts,
+        #   `addr_len=1`) — both of which ARE originations BY the emitting node. A relay/forward never
+        #   passes it (the E2E ack uses `e2e_ack_tx`, precisely so it is not counted as an app DM).
+        # ⛔ ITEM 5 APPLIES HERE TOO: if a SECOND slot emits `tx_enqueue` for the same wire triple the
+        #   logical sender is undetermined, and the record is marked shared and REFUSED for pairing.
+        is_originator_enqueue = (et == "tx_enqueue")
         if is_originator_enqueue:
             r = rec_create(k)
+            if r["src_slot"] is None:
+                r["src_slot"] = slot
+                by_origin_ctr[(origin, ctr)].append(k)
+                # ★ the MOBILE->HOME wrapper leg of a delegated send: transport, not an app-level DM. Its
+                #   app-level twin is the home's re-origination, re-attributed to this mobile below. Counting
+                #   both would double the mobile's sends and invent a (mobile -> its own home) pair.
+                if (slot, ctr, dst) in deleg_wrappers:
+                    r["deleg_wrapper"] = True
+            elif r["src_slot"] != slot and not r["src_slot_shared"]:
+                r["src_slot_shared"] = True
+                logical["refused_wire_key_shared"] += 1
         else:
             r = rec_lookup(k)
             if r is None:
                 continue
+        if et == "delivered" and same_node(fid, dst):
+            # item 3: the emitter of a `delivered` IS the app addressee, so its SLOT is the logical
+            # recipient. (`data_rx` is deliberately not used for this — a RELAY emits `data_rx`
+            # carrying the message's final `dst`; this file's §xl note has said so since 2026-06.)
+            note_delivered(r, slot, t_ms)
         if r["payload"] is None and "payload" in d:
             r["payload"] = d["payload"]
 
@@ -1182,10 +1564,16 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None):
     # share (origin, ctr) from both claiming one delivery and double-counting it.
     xl_arrived = 0
     consumed = set()
-    for (o, c, _tl), (gw, tlayer, te) in sorted(xl_orig.items(), key=lambda kv: kv[1][2]):
+    for (o, c, _tl), (gw, tlayer, te, src_slot) in sorted(xl_orig.items(), key=lambda kv: kv[1][2]):
         r = rec_create((o, gw, c))
         r["via_gateway"] = True
         r["target_layer_id"] = tlayer
+        # ★ [[B182]] item 2 for the cross-layer path: the `tx_enqueue_xl` emitter is the logical sender.
+        if r["src_slot"] is None:
+            r["src_slot"] = src_slot
+        elif r["src_slot"] != src_slot and not r["src_slot_shared"]:
+            r["src_slot_shared"] = True
+            logical["refused_wire_key_shared"] += 1
         if r["enqueued_ms"] is None:
             r["enqueued_ms"] = te
         cands = [k for k in delivered_oc
@@ -1203,9 +1591,15 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None):
             dd = delivered_oc[pick]
             r["arrival_at_target_ms"] = dd[1]
             r["target_id"] = dd[0]
+            # ★ [[B182]] item 3: the slot that emitted the target's `delivered` is the logical recipient.
+            note_delivered(r, dd[2], dd[1])
             xl_arrived += 1
     xl_stats = {"sent": len(xl_orig) + xl_no_gw, "enqueued": len(xl_orig),
                 "arrived": xl_arrived, "no_gateway": xl_no_gw}
+    # ★ Adjudicate the deferred last-mile misses now that the §xl post-pass has claimed what is its own.
+    for oc_key in pending_unmatched:
+        if oc_key not in consumed:
+            logical["lastmile_unmatched"] += 1
 
     for tl in gw_layers.values():
         tl.sort()
@@ -1220,8 +1614,9 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None):
         "hops_by_payload": hops_by_payload,
         "transit_started": transit_started,
     }
+    deleg = {"same": dict(deleg_same), "xl": deleg_xl}
     return (msgs, arrival_by_payload, drops, gw_giveup, gw_layers, second_leg, xl_stats,
-            wire_to_config, alias_stats)
+            wire_to_config, alias_stats, dict(hosted_by), logical, wire_to_slot, deleg)
 
 
 def outcome(rec):
@@ -1264,9 +1659,142 @@ def _arrived(rec):
     return rec["arrived_ms"] is not None
 
 
-def summarise(msgs, pair_filter, id_to_name, no_gw_by_pair=None,
-              intended_by_pair=None, wire_to_config=None):
-    """Summarise per-pair delivery.
+def logical_arrived(rec):
+    """★★ [[B182]]: did the message reach its LOGICAL recipient (as opposed to its wire `dst`)?
+
+    An OBSERVED app-delivery at a scenario slot is the strongest evidence there is, and it is the ONLY
+    thing that can see a hosted-mobile last mile: for `s22`'s `S2 -> M1` the wire `dst` is the home and
+    `_arrived()` goes true at the HOME's `data_rx` — a "success that isn't", one layer down.
+    ⛔ The wire-`dst` arrival is still honoured when no `delivered` was correlated, so nothing that
+    worked before this fix changes: `assign_logical_pairs()` has already REFUSED the records where the
+    two readings could disagree (the wire dst is a home its sender also addresses a mobile at)."""
+    if rec.get("delivered_slots"):
+        return True
+    return _arrived(rec)
+
+
+def assign_logical_pairs(msgs, slots, hosted_by, intended_by_pair, logical, deleg=None):
+    """★★★★ [[B182]] — SET `logical_src` / `logical_dst` / `logical_basis` ON EVERY RECORD.
+
+    This is the one place the two identity layers meet, and the order of preference is the order of
+    evidential strength:
+      1. ★ ONE observed `delivered` slot (items 3+4) — the addressee identified itself. Includes the
+         last-mile-correlated case, where `data.dst` was a leased local id.
+      2. ⛔ SEVERAL observed `delivered` slots -> REFUSED (item 5). Two nodes app-delivered one wire
+         triple; which one the send was FOR is undetermined.
+      3. the wire `dst` resolved to a slot — the static↔static path, unchanged in effect.
+         ⛔⛔ GUARDED: if that slot is a HOME observed to host a mobile THIS SENDER also addresses,
+         then "the home" and "its hosted mobile" are indistinguishable at the wire for an undelivered
+         send, and it is REFUSED (item 5) rather than filed at random. ★ WHY THAT GUARD IS NOT
+         COSMETIC: without it a FAILED static→mobile send is filed under `(sender, home)` and depresses
+         a real pair's rate, and a mobile-bound DM that reached the home but never the mobile would be
+         COUNTED AS A DELIVERY for `(sender, home)` — inflating the authority.
+      4. the wire `dst` names an id worn by two slots (s10's `node_id` 1) -> REFUSED.
+    ⛔ A refused record keeps every wire/route field for the diagnostics and is simply absent from the
+    pair table. ★ THE DENOMINATOR DOES NOT MOVE: `summarise()`'s `unsent` flooring already counts every
+    configured send the table cannot match, so a refusal shows as sent-and-not-arrived, never as a send
+    that vanished. That is the property that makes refusing SAFE here."""
+    targets_of = defaultdict(set)
+    for (s, dd) in (intended_by_pair or {}):
+        targets_of[s].add(dd)
+    deleg_same = (deleg or {}).get("same") or {}
+    deleg_xl = (deleg or {}).get("xl") or []
+    for r in msgs.values():
+        r["logical_src"] = r["logical_dst"] = r["logical_basis"] = None
+        if r["src_slot"] is None:
+            logical["refused_no_logical_src"] += 1
+            continue
+        if r["src_slot_shared"]:
+            continue                     # already counted, once per wire triple, in analyse()
+        if r.get("deleg_wrapper"):
+            logical["deleg_wrappers_excluded"] += 1
+            continue                     # ★ [[B185]]: the transport leg, not an app-level send
+        src = r["src_slot"]
+        ds = r["delivered_slots"]
+        if len(ds) == 1:
+            r["logical_src"], r["logical_dst"] = src, next(iter(ds))
+            r["logical_basis"] = ("lastmile-correlated-delivery" if r["lastmile_slots"]
+                                  else "observed-delivery")
+            logical["dst_from_delivery"] += 1
+            continue
+        if len(ds) > 1:
+            logical["refused_multi_delivery"] += 1
+            continue
+        wd = effective_dst(r)
+        h = slots.of_id(wd)
+        if h is None:
+            logical["refused_shared_dst_id" if slots.id_is_shared(wd)
+                    else "refused_unresolved_dst"] += 1
+            continue
+        if targets_of.get(src, ()) and (targets_of[src] & hosted_by.get(h, set())):
+            logical["refused_ambiguous_dst"] += 1
+            continue
+        r["logical_src"], r["logical_dst"] = src, h
+        r["logical_basis"] = "wire-dst"
+        logical["dst_from_wire"] += 1
+
+    # ★★★★ [[B185]] 2026-08-12 — THE DELEGATED ORIGINATION: RE-ATTRIBUTE THE **SENDER** FROM THE HOME TO THE MOBILE.
+    #
+    # ⛔⛔ WHY THIS IS A SECOND PASS AND NOT A CLAUSE ABOVE: the cross-layer arm needs the record's LOGICAL
+    # DESTINATION (resolved from the target's own `delivered`) as its discriminator, so it can only run after every
+    # destination is settled. ★ AND THAT DISCRIMINATOR IS WHAT MAKES THE XL MATCH SOUND RATHER THAN A QUEUE GUESS: a
+    # delegate is matched to the re-origination that DELIVERED TO THE TARGET THE DELEGATE NAMED, not to "the next XL
+    # enqueue at that home".
+    # ★★ AMBIGUITY IS REFUSED, the same rule as the `(origin, ctr)` last mile: if two delegating mobiles fit one
+    #    re-origination the sender is undetermined, and a guess attributes a delivery to the WRONG MOBILE — this
+    #    defect wearing a new hat.
+    for r in msgs.values():
+        if r["logical_src"] is None or r["logical_dst"] is None:
+            continue
+        def _refuse(rec):
+            logical["deleg_refused_ambiguous"] += 1
+            rec["logical_src"] = rec["logical_dst"] = None
+            rec["logical_basis"] = "refused-ambiguous-delegation"
+
+        # --- (a) SAME-LAYER, via `deleg_ack_put{mobile_hash, ctr_h, ctr_m}` emitted AT THE HOME, in the same call
+        #     chain and the same millisecond as the re-originated `tx_enqueue`. ⇒ a per-message identity.
+        cands = deleg_same.get((r["logical_src"], r["ctr"], r["enqueued_ms"]))
+        if cands:
+            ms = {m for m in cands if m != r["logical_dst"]}   # a mobile is not both sender and recipient
+            if len(ms) == 1:
+                r["logical_src"] = next(iter(ms))
+                r["logical_basis"] = (r["logical_basis"] or "") + "+deleg-samelayer"
+                logical["deleg_reattributed_samelayer"] += 1
+            elif len(ms) > 1:
+                _refuse(r)
+            continue
+        # --- (b) CROSS-LAYER, via `mobile_delegate_xl{home, ctr, dst_hash}` emitted AT THE MOBILE.
+        if not r.get("via_gateway") or not deleg_xl:
+            continue
+        home_id = r["origin"]                  # the wire origin of an XL re-origination IS the home
+        fits = [x for x in deleg_xl
+                if not x["used"] and x["home_id"] == home_id and x["mobile_slot"] != r["logical_dst"]
+                and x["dst_slot"] == r["logical_dst"]
+                and (r["enqueued_ms"] is None or x["t_ms"] <= r["enqueued_ms"])]
+        # ★★ THE REFUSAL RULE IS ABOUT THE **IDENTITY**, NOT THE PAIRING — and this distinction was MEASURED, not
+        # reasoned: `s27`'s M1 delegates to M3 three times, so three unconsumed delegates fit each of the three
+        # re-originations. A blanket "more than one candidate ⇒ refuse" threw all of them away and read `M1 -> M3`
+        # as 1/3. ⇒ if every candidate names the SAME mobile the logical SENDER is fully determined (which pairing
+        # goes with which message is not asked here, and does not change any figure); ⛔ only candidates naming
+        # DIFFERENT mobiles are a genuine ambiguity, and those are refused.
+        senders = {x["mobile_slot"] for x in fits}
+        if len(senders) == 1:
+            min(fits, key=lambda x: x["t_ms"])["used"] = True
+            r["logical_src"] = next(iter(senders))
+            r["logical_basis"] = (r["logical_basis"] or "") + "+deleg-xl"
+            logical["deleg_reattributed_xl"] += 1
+        elif len(senders) > 1:
+            _refuse(r)
+
+
+def summarise(msgs, pair_filter, slots, no_gw_by_pair=None,
+              intended_by_pair=None):
+    """Summarise per-pair delivery. ★★ [[B182]]: every pair key here is a (src_SLOT, dst_SLOT).
+
+    ⛔ The pair identity comes from `assign_logical_pairs()`, NEVER from the record's wire ids. What
+    stood here was a [[B162]] wire->config alias translation of `r["origin"]` / `effective_dst(r)`, and
+    it CANNOT repair a hosted mobile in either direction, because the wire id in question IS a real
+    static's config id — the alias pass deliberately (and correctly) never translates that away.
 
     `intended_by_pair` (Counter from configured_pairs) makes the denominator
     FAIL LOUD. ★ 2026-07-25: without it, a scenario's `send` whose message ended
@@ -1281,26 +1809,23 @@ def summarise(msgs, pair_filter, id_to_name, no_gw_by_pair=None,
     """
     no_gw_by_pair = no_gw_by_pair or {}
     intended_by_pair = intended_by_pair or {}
-    # ★ [[B162]]: the configured pairs are in CONFIG-id space; a team/mobile record is keyed in WIRE-id
-    # space. Translate the record, never the configuration — the scenario's intent is the fixed thing.
-    w2c = wire_to_config or {}
-
-    def cfgid(i):
-        return w2c.get(i, i)
-
     by_pair = defaultdict(list)
-    misaddressed = defaultdict(Counter)   # origin -> Counter{observed dst: n}, for the diagnostic
+    misaddressed = defaultdict(Counter)   # src slot -> Counter{observed dst slot: n}, a diagnostic
     for k, r in msgs.items():
-        eff_dst = cfgid(effective_dst(r))
-        r_origin = cfgid(r["origin"])
-        if pair_filter is not None and (r_origin, eff_dst) not in pair_filter:
+        src, eff_dst = r.get("logical_src"), r.get("logical_dst")
+        if src is None or eff_dst is None:
+            # ⛔ REFUSED or unresolvable logical identity — counted in `logical`/`totals.logical_*` and
+            # printed. It is deliberately NOT filed under a guessed pair; the `unsent` flooring below
+            # keeps the pair's denominator whole, so a refusal reads as sent-and-not-arrived.
+            continue
+        if pair_filter is not None and (src, eff_dst) not in pair_filter:
             # Not intended for this pair. If the ORIGIN was supposed to send
             # somewhere, remember where its traffic actually went -- that is the
             # evidence explaining an unsent intended pair below.
-            if any(o == r_origin for (o, _d) in intended_by_pair):
-                misaddressed[r_origin][eff_dst] += 1
+            if any(o == src for (o, _d) in intended_by_pair):
+                misaddressed[src][eff_dst] += 1
             continue
-        by_pair[(r_origin, eff_dst)].append(r)
+        by_pair[(src, eff_dst)].append(r)
     # Drop-only pairs (every send dropped before enqueue) have no records, so
     # they're absent from by_pair -- inject them so the loss is counted. Same for
     # intended-but-never-observed pairs (see the docstring).
@@ -1318,7 +1843,7 @@ def summarise(msgs, pair_filter, id_to_name, no_gw_by_pair=None,
         observed = len(recs) + no_gw
         unsent = max(0, intended_by_pair.get((origin, dst), 0) - observed)
         n = observed + unsent
-        arrived = sum(1 for r in recs if _arrived(r))
+        arrived = sum(1 for r in recs if logical_arrived(r))
         acked = sum(1 for r in recs if r["ack_ms"] is not None)
         giveup = sum(1 for r in recs if outcome(r) == "giveup")
         in_flight = sum(1 for r in recs if outcome(r) == "in_flight")
@@ -1328,13 +1853,13 @@ def summarise(msgs, pair_filter, id_to_name, no_gw_by_pair=None,
         # §hops: hop count = distinct data_rx receivers (origin-keyed, robust). Fall back to carriers for
         # records with no rx_nodes (e.g. the post-pass cross-layer records, whose data_rx keys on the target dst).
         hops_list = [len(r["rx_nodes"]) if r["rx_nodes"] else len(r["carriers"])
-                     for r in recs if _arrived(r)]
+                     for r in recs if logical_arrived(r)]
         mean_hops = (sum(hops_list) / len(hops_list)) if hops_list else None
         giveup_reasons = [r["giveup_reason"] for r in recs
                           if r["giveup_reason"]]
         rows.append({
-            "origin":     fmt_node(origin, id_to_name),
-            "dst":        fmt_node(dst, id_to_name),
+            "origin":     slots.label(origin),
+            "dst":        slots.label(dst),
             "sent":       n,
             "arrived":    arrived,
             "acked":      acked,
@@ -1344,10 +1869,12 @@ def summarise(msgs, pair_filter, id_to_name, no_gw_by_pair=None,
             "mean_hops":  mean_hops,
             "giveup_reasons": giveup_reasons,
             "cross_layer": any_cross,
-            "pair_key":   (origin, dst),   # raw ids, so callers can share the unsent map
+            "pair_key":   (origin, dst),   # SLOT pair, so callers can share the unsent map
             "unsent":     unsent,
-            # Where this origin's traffic went instead, when it owes an unsent send.
-            "misaddressed": (dict(misaddressed.get(origin, {})) if unsent else {}),
+            # Where this origin's traffic went instead, when it owes an unsent send. ★ [[B182]]: the
+            # keys are RENDERED here (slot -> "name(id)") so no downstream renderer needs the slot map.
+            "misaddressed": ({slots.label(d): n for d, n in misaddressed.get(origin, {}).items()}
+                             if unsent else {}),
         })
     return rows
 
@@ -1409,7 +1936,7 @@ def render_table(rows):
         for r in unsent_rows:
             print(f"  {r['origin']} -> {r['dst']}   intended-but-missing: {r['unsent']}")
             for dst, n in sorted(r["misaddressed"].items(), key=lambda kv: -kv[1]):
-                print(f"      this origin instead addressed {fmt_node(dst, {})}"
+                print(f"      this origin instead addressed {dst}"
                       f" x{n}  <- likely the mis-resolved destination")
         print("  (a `send <name>` resolves to the target's id at command time; a"
               " dual-layer gateway's id")
@@ -1600,9 +2127,14 @@ def render_dm_failures(msgs, no_gw_by_pair, gw_giveup, pair_filter, id_to_name,
     sl_loc = Counter()        # HOME/VISIT split of the second-leg failures
     ok = 0
     for r in msgs.values():
-        if pair_filter is not None and (r["origin"], effective_dst(r)) not in pair_filter:
+        # ★ [[B182]]: filter on the LOGICAL pair, like the table — the two views used to disagree about
+        # which messages were in scope the moment a mobile was involved.
+        lp = (r.get("logical_src"), r.get("logical_dst"))
+        if None in lp:
             continue
-        if _arrived(r):
+        if pair_filter is not None and lp not in pair_filter:
+            continue
+        if logical_arrived(r):
             ok += 1
         else:
             cat[failure_category(r, gw_giveup, gw_layers, id_to_layer)] += 1
@@ -1663,7 +2195,10 @@ def render_xl_funnel(msgs, no_gw_by_pair, gw_giveup, second_leg,
     for r in msgs.values():
         if not r.get("via_gateway"):
             continue
-        if pair_filter is not None and (r["origin"], effective_dst(r)) not in pair_filter:
+        lp = (r.get("logical_src"), r.get("logical_dst"))     # ★ [[B182]]: logical pair, as the table
+        if None in lp:
+            continue
+        if pair_filter is not None and lp not in pair_filter:
             continue
         recs.append(r)
     dropped = 0
@@ -1741,8 +2276,8 @@ def render_detail_text(msgs, pair_filter, id_to_name):
     # the summary table stay consistent on which messages appear.
     keys = []
     for k, r in msgs.items():
-        eff = effective_dst(r)
-        if pair_filter is None or (r["origin"], eff) in pair_filter:
+        lp = (r.get("logical_src"), r.get("logical_dst"))     # ★ [[B182]]: logical pair, as the table
+        if pair_filter is None or lp in pair_filter:
             keys.append(k)
     keys.sort(key=lambda k: (k[0], k[1], k[2]))
     for k in keys:
@@ -1819,7 +2354,35 @@ def raw_delivered_event_count(events_path):
     return n
 
 
-def delivery_totals(rows, xl_stats, events_path, unparsed_sends=None, alias_stats=None):
+def logical_total_keys(logical):
+    """★★★★ [[B182]] item 7 — THE LOGICAL-CORRELATION RESIDUE, AS `totals.logical_*` KEYS.
+
+    ⛔⛔ WHY EVERY KEY IS ALWAYS PRESENT, EVEN AT ZERO, AND WHY THEY ARE PRINTED IN THE TEXT TABLE TOO:
+    `alias_stats` was computed, returned to `main()` and then DISCARDED — three mentions, zero readers —
+    while being NONZERO on the corpus. A refusal counter nobody reads is not a safeguard, and an ABSENT
+    key is indistinguishable from a zero to a consumer. So a clean scenario prints `0`s, and a reader
+    sees the residue instead of inferring soundness from a clean total.
+    ★ `logical_lastmile_correlated` and `logical_dst_from_delivery` are the POSITIVE controls: if the
+    two-layer machinery ever stops working they go to zero while the refusals stay zero too, which is
+    the "fails toward nothing happened" shape this file exists to make visible."""
+    lg = logical or {}
+    return {f"logical_{k}": int(lg.get(k, 0)) for k in (
+        "lastmile_correlated", "lastmile_refused_ambiguous", "lastmile_unmatched",
+        "refused_wire_key_shared", "refused_ambiguous_dst", "refused_multi_delivery",
+        "refused_shared_dst_id", "refused_no_logical_src", "refused_unresolved_dst",
+        "deleg_reattributed_samelayer", "deleg_reattributed_xl", "deleg_refused_ambiguous",
+        "deleg_wrappers_excluded", "wire_slot_conflicts", "dst_from_delivery", "dst_from_wire")}
+
+
+LOGICAL_REFUSAL_KEYS = ("logical_lastmile_refused_ambiguous", "logical_lastmile_unmatched",
+                        "logical_refused_wire_key_shared", "logical_refused_ambiguous_dst",
+                        "logical_refused_multi_delivery", "logical_refused_shared_dst_id",
+                        "logical_refused_no_logical_src", "logical_refused_unresolved_dst",
+                        "logical_deleg_refused_ambiguous")
+
+
+def delivery_totals(rows, xl_stats, events_path, unparsed_sends=None, alias_stats=None,
+                    logical=None):
     """★★ [[B162]] — THE AUTHORITATIVE UNIQUE-DELIVERY FIGURE, made explicit and machine-readable.
 
     `unique_deliveries` = sum over the configured-send rows of `arrived`, i.e. ONE count per
@@ -1830,7 +2393,7 @@ def delivery_totals(rows, xl_stats, events_path, unparsed_sends=None, alias_stat
     ⚠ WHY THIS EXISTS AS A BLOCK RATHER THAN BEING LEFT TO THE CALLER: it was left to the caller,
     every consumer re-derived it slightly differently, and the arc's headline number stopped
     reproducing. A figure with no single named producer is a figure that drifts."""
-    return {
+    out = {
         "unique_deliveries":    sum(r["arrived"] for r in rows),      # ★ AUTHORITATIVE
         "configured_sends":     sum(r["sent"] for r in rows),
         "hop1_acked":           sum(r["acked"] for r in rows),
@@ -1867,19 +2430,24 @@ def delivery_totals(rows, xl_stats, events_path, unparsed_sends=None, alias_stat
         "authority":            "unique_deliveries (first arrival per configured logical send); "
                                 "raw_delivered_events is a CROSS-CHECK and is NOT the figure of record",
     }
+    # ★★★★ [[B182]] item 7: the logical-correlation counters ride the SAME totals block, so the
+    # authority and its residue can never again be reported apart from each other.
+    out.update(logical_total_keys(logical))
+    return out
 
 
 def render_json(rows, msgs, pair_filter, id_to_name, detail,
-                xl_stats=None, events_path=None, unparsed_sends=None, alias_stats=None):
+                xl_stats=None, events_path=None, unparsed_sends=None, alias_stats=None,
+                logical=None, slots=None):
     out = {"summary": rows}
     if events_path is not None:
         out["totals"] = delivery_totals(rows, xl_stats, events_path, unparsed_sends,
-                                        alias_stats)
+                                        alias_stats, logical)
     if detail:
         keys = []
         for k, r in msgs.items():
-            eff = effective_dst(r)
-            if pair_filter is None or (r["origin"], eff) in pair_filter:
+            lp = (r.get("logical_src"), r.get("logical_dst"))   # ★ [[B182]]: logical pair
+            if pair_filter is None or lp in pair_filter:
                 keys.append(k)
         keys.sort(key=lambda k: (k[0], k[1], k[2]))
         messages = []
@@ -1895,8 +2463,13 @@ def render_json(rows, msgs, pair_filter, id_to_name, detail,
                         out_f[kk] = vv
                 return out_f
             entry = {
+                # ⓘ [[B182]]: `origin`/`dst` stay the WIRE ids (route diagnostics); the LOGICAL pair
+                #   and how it was established are their own fields, so the two are never conflated.
                 "origin":      fmt_node(r["origin"], id_to_name),
                 "dst":         fmt_node(r["dst"], id_to_name),
+                "logical_src": (slots.label(r.get("logical_src")) if slots else r.get("logical_src")),
+                "logical_dst": (slots.label(r.get("logical_dst")) if slots else r.get("logical_dst")),
+                "logical_basis": r.get("logical_basis"),
                 "ctr":         r["ctr"],
                 "payload":     r["payload"],
                 "outcome":     outcome(r),
@@ -3288,8 +3861,8 @@ def main():
     # stdout (load_config's own diagnostics go to stderr — see line ~370).
     ndjson_refusal_crossing_point(args)
 
-    cfg, id_to_name, name_to_id, slot_to_id, hash_layer_to_name, id_to_layer \
-        = load_config(args.config)
+    (cfg, id_to_name, name_to_id, slot_to_id, hash_layer_to_name, id_to_layer,
+     slots) = load_config(args.config)
 
     if args.trace:
         render_trace(args.events, args.trace, slot_to_id, id_to_name)
@@ -3313,8 +3886,8 @@ def main():
         return
 
     (msgs, arrival_by_payload, drops, gw_giveup, gw_layers, second_leg, xl_stats,
-     wire_to_config, alias_stats) = analyse(
-        args.events, slot_to_id, hash_layer_to_name, id_to_layer)
+     wire_to_config, alias_stats, hosted_by, logical, wire_to_slot, deleg) = analyse(
+        args.events, slot_to_id, hash_layer_to_name, id_to_layer, slots)
     gw_home, gw_visit = gateway_layers(cfg)
 
     # Post-pass: resolve cross-layer target_id + arrival_at_target_ms.
@@ -3346,16 +3919,21 @@ def main():
 
     # Resolve dropped cross-layer sends (no gateway route) to (origin, target)
     # pairs so they count toward the honest cross-layer denominator.
+    # ★ [[B182]]: keyed on SLOTS, like every other pair key. Both ends are resolved through `Slots`,
+    #   which REFUSES an ambiguous id rather than picking (`logical_refused_unresolved_dst` counts it).
     no_gw_by_pair = defaultdict(int)
     for dp in drops:
-        t_name = hash_layer_to_name.get((dp["target_layer_id"], dp["dst_key_hash32"]))
-        t_id = name_to_id.get(t_name) if t_name else None
-        if t_id is not None:
-            no_gw_by_pair[(dp["origin"], t_id)] += 1
+        t_slot = slots.of_hash_in_layer(dp["dst_key_hash32"], dp["target_layer_id"]) \
+            if dp["dst_key_hash32"] is not None else None
+        o_slot = slots.of_id(dp["origin"])
+        if t_slot is not None and o_slot is not None:
+            no_gw_by_pair[(o_slot, t_slot)] += 1
+        else:
+            logical["refused_unresolved_dst"] += 1
 
     # Pair filter: explicit --pair wins; else configured commands;
     # else (with --all) no filter at all.
-    explicit = parse_pair_filter(args.pair, name_to_id)
+    explicit = parse_pair_filter(args.pair, slots)
     # `intended` is only meaningful for the default (configured-commands) view:
     # an explicit --pair is the user narrowing the question, and --all removes the
     # filter entirely, so in neither case is a "missing intended send" well-defined.
@@ -3366,32 +3944,20 @@ def main():
     elif args.all:
         pair_filter = None
     else:
-        pair_filter, intended, unparsed_sends = configured_pairs(cfg, name_to_id,
-                                                                 hash_layer_to_name)
+        pair_filter, intended, unparsed_sends = configured_pairs(cfg, slots,
+                                                                 hash_layer_to_name, wire_to_slot)
 
-    # ★★ [[B162]]: the CONFIGURED pair must be canonicalised into the SAME id space as the records.
-    # A scenario may address a teammate by its WIRE id (`send 254 hop_test -t`, `send_e2e 213 … -t`) while
-    # the same node's config id is 55 / 53 — so translating only the record left the two halves in
-    # different spaces and the pair silently failed to match (s23/s38 read 0 with records that HAD
-    # arrived). Translate both ends through the learned alias; a pair already in config space is a no-op.
-    def _canon_pairs(counter):
-        if not counter or not wire_to_config:
-            return counter
-        out = Counter()
-        for (o, dd), n in counter.items():
-            out[(wire_to_config.get(o, o), wire_to_config.get(dd, dd))] += n
-        return out
+    # ★★★★ [[B182]] 2026-08-12 — THE [[B162]] WIRE->CONFIG CANONICALISATION OF THE PAIR KEYS IS GONE
+    # FROM HERE, AND IT HAD TO GO: it translated `(origin, dst)` through the learned runtime alias to
+    # get the configured intents and the records into ONE id space. That is exactly the map that cannot
+    # express a hosted mobile — the wire id is a real static's config id, so the alias pass leaves it
+    # untranslated (correctly), and the two halves never met. ★ Both halves are now in SLOT space from
+    # the start: `configured_pairs()` keys intents on slots, `assign_logical_pairs()` keys records on
+    # slots, and no translation step exists to drift. ⓘ `wire_to_config` is STILL BUILT and still used —
+    # by `same_node()`, for wire-level arrival/ack/giveup correlation, which is its sound job.
+    assign_logical_pairs(msgs, slots, hosted_by, intended, logical, deleg)
 
-    if wire_to_config:
-        if pair_filter is not None:
-            pair_filter = _canon_pairs(pair_filter) if isinstance(pair_filter, Counter) \
-                else {(wire_to_config.get(o, o), wire_to_config.get(d2, d2))
-                      for (o, d2) in pair_filter}
-        intended = _canon_pairs(intended)
-        no_gw_by_pair = {(wire_to_config.get(o, o), wire_to_config.get(d2, d2)): v
-                         for (o, d2), v in (no_gw_by_pair or {}).items()}
-
-    rows = summarise(msgs, pair_filter, id_to_name, no_gw_by_pair, intended, wire_to_config)
+    rows = summarise(msgs, pair_filter, slots, no_gw_by_pair, intended)
 
     channel_rows = None
     posts_meta = None
@@ -3414,7 +3980,7 @@ def main():
             payload = {"channels": channel_rows or []}
         elif args.mode == "dm":
             render_json(rows, msgs, pair_filter, id_to_name, args.detail,
-                        xl_stats, args.events, unparsed_sends, alias_stats)
+                        xl_stats, args.events, unparsed_sends, alias_stats, logical, slots)
             return
         else:
             # Inline-render the DM JSON view into a dict so we can pair it
@@ -3425,7 +3991,7 @@ def main():
             sys.stdout = buf
             try:
                 render_json(rows, msgs, pair_filter, id_to_name, args.detail,
-                            xl_stats, args.events, unparsed_sends, alias_stats)
+                            xl_stats, args.events, unparsed_sends, alias_stats, logical, slots)
             finally:
                 sys.stdout = old_stdout
             dm_payload = json.loads(buf.getvalue())
@@ -3462,6 +4028,38 @@ def main():
                   f"that needed it CANNOT be matched and the figure above may be SHORT. "
                   f"({alias_stats.get('aliases', 0)} alias(es) accepted.) "
                   f"⛔ Not a rounding detail — see [[B162]].")
+        # ★★★★ [[B182]] item 7 — THE LOGICAL-IDENTITY LEDGER, PRINTED HERE AND NOT ONLY IN `--json`.
+        # ⛔ The whole reason this block exists as unconditional output is the `alias_stats` lesson: a
+        # counter that lives only in a JSON key nobody opens is not a safeguard. The BASIS line is a
+        # POSITIVE control — if the two-layer machinery breaks, `from delivery` drops to 0 while the
+        # refusals stay 0, and a clean-looking total is exactly what a reader must not trust.
+        lt = logical_total_keys(logical)
+        print()
+        print(f"logical identity ([[B182]]): pair basis — {lt['logical_dst_from_delivery']} from an "
+              f"OBSERVED delivery ({lt['logical_lastmile_correlated']} of them recovered through the "
+              f"hosted-mobile last mile), {lt['logical_dst_from_wire']} from the wire dst.")
+        if lt["logical_deleg_reattributed_samelayer"] or lt["logical_deleg_reattributed_xl"] \
+                or lt["logical_deleg_wrappers_excluded"]:
+            print(f"   delegated originations re-attributed from the HOME to the sending mobile "
+                  f"([[B185]]): {lt['logical_deleg_reattributed_samelayer']} same-layer (via "
+                  f"deleg_ack_put) + {lt['logical_deleg_reattributed_xl']} cross-layer (via "
+                  f"mobile_delegate_xl); {lt['logical_deleg_wrappers_excluded']} mobile->home wrapper "
+                  f"leg(s) excluded as transport.")
+        if lt["logical_wire_slot_conflicts"]:
+            print(f"   ⚠ {lt['logical_wire_slot_conflicts']} WIRE-ID/SLOT CONFLICT(S): a runtime wire id was "
+                  f"worn by more than one scenario slot, so it cannot resolve a numeric destination token. "
+                  f"ⓘ A DIAGNOSTIC, not a refusal — a command actually affected is counted in "
+                  f"`unresolved_configured_sends` above.")
+        refused = {k: lt[k] for k in LOGICAL_REFUSAL_KEYS if lt[k]}
+        if refused:
+            print("!! LOGICAL CORRELATIONS REFUSED — these messages are ABSENT from the pair table "
+                  "above (their configured sends are still counted, via UNSENT):")
+            for k, v in sorted(refused.items(), key=lambda kv: -kv[1]):
+                print(f"     {k}: {v}")
+            print("   ⛔ Refused, not guessed: attributing one of these to the wrong endpoint is the "
+                  "defect [[B182]] records, in a new shape.")
+        else:
+            print("   0 logical correlations refused (every counter zero).")
         # §xl: the authoritative cross-layer delivery metric (pair-grouping-independent — the per-pair table
         # above drops un-arrived cross-layer rows whose target can't be resolved without the seal). Reconstructed
         # from tx_enqueue_xl + the (origin,ctr)-matched `delivered`.

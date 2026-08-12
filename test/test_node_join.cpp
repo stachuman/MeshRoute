@@ -1084,7 +1084,20 @@ TEST_CASE("§autoregister — OFF team member: a failed manual request DOES retr
     CHECK(node.team_local_id() == tid);                       // ★★ and `mobile unregister` does NOT touch the team plane
 }
 
-TEST_CASE("§3-D beacon feeds the hosted-mobile SNR EWMA — CLAIM seeds, beacon steps, probe steps (one shared path)") {
+// ★★★★★ §B177-FIX (owner-ruled 2026-08-11, ledger §1.16) — **REWRITTEN IN PLACE, AND ITS ASSERTION IS NOW THE
+// OPPOSITE OF WHAT IT WAS. THE BEACON IS OUT OF THE SNR EWMA; THE P PROBE IS THE WHOLE FEED.**
+// ⛔ **WHAT THIS CASE USED TO PIN, WITHDRAWN WITH ITS REASON (B101 precedent — a removal is PINNED, never merely
+// deleted, or the next reader restores the code it removed):** it asserted that a hosted mobile's BEACON steps the
+// per-mobile SNR EWMA — §3-D, ruled 2026-07-21, *"the same way as in the static mesh"* — with a `pre_fix` discriminator
+// proving the beacon sample really was inside the accumulator. That mechanism is REMOVED: the beacon matched the row by
+// **hash alone** (the [[B147]]/[[B172]]/[[B174]] tuple error) and the BCN wire carries **no `reg_epoch`**, so the match
+// can never be gated into correctness — the fix had to be a removal, not a gate.
+// ★ WHAT REPLACES THE FEED, and it is asserted here rather than assumed: the P **check** probe, which the mobile already
+//   emits every `presence_check_min_ms`..`presence_check_max_ms` (60 000..480 000 ms), well inside the 25-minute
+//   `mobile_liveness_ms` expiry. So the arms below are the same drive as before with the roles swapped: the beacon must
+//   leave the accumulator UNTOUCHED, the probe must step it, and the two expectations are numerically DIFFERENT (the
+//   discriminator is kept — it is what makes this case fail on a build that still touched from the beacon).
+TEST_CASE("★★★★★ §B177-FIX — a hosted mobile's BEACON does NOT feed the SNR EWMA; the P PROBE is the sole feed (CLAIM seeds, probe steps)") {
     TestHal hal; hal._now = 100000;
     Node host(hal, /*node_id=*/42, /*key_hash32=*/0x00004242u);
     host.on_init(join_cfg());
@@ -1093,23 +1106,26 @@ TEST_CASE("§3-D beacon feeds the hosted-mobile SNR EWMA — CLAIM seeds, beacon
     std::array<uint8_t, 16> cl{};
     const size_t cn = make_j_claim_mobile(/*host=*/42, /*local=*/254, M, cl);
     { RxMeta meta{8.0f, -80.0f, 0, -1}; host.on_recv(cl.data(), cn, meta); }
-    // ★ the mobile's BEACON at -4 dB must STEP the EWMA (was last_heard-only before the 3-D ruling)
+    // ★★★ the mobile's BEACON at −4 dB must NOT step the EWMA any more.
     std::array<uint8_t, 64> b{};
     { beacon_in in{}; in.leaf_id = 0; in.src = 254; in.key_hash32 = M; in.is_mobile = true;
       const size_t bn = pack_beacon(in, std::span<uint8_t>(b.data(), b.size()));
       RxMeta meta{-4.0f, -110.0f, 0, -1}; host.on_recv(b.data(), bn, meta); }
-    // a probe at +8 dB steps again; its presence_probe_rx emit carries the resulting EWMA
+    CHECK(host.is_mobile_peer(254));                           // ★★ PREMISE: the beacon really WAS ingested and reached the
+                                                               //    `is_mobile` arm — without this the case would pass on a
+                                                               //    build that dropped the frame outright (a vacuous control)
+    // a probe at +8 dB steps the EWMA; its presence_probe_rx emit carries the resulting value
     std::array<uint8_t, 48> pr{};
     const size_t pn = make_p_probe(M, /*home=*/42, /*layer=*/0, /*epoch=*/1, pr);
     { RxMeta meta{8.0f, -80.0f, 0, -1}; host.on_recv(pr.data(), pn, meta); }
     const int16_t seed     = protocol::db_to_q4(8.0f);
-    const int16_t after_b  = protocol::snr_ewma_update(seed, protocol::db_to_q4(-4.0f));
-    const int16_t expected = protocol::snr_ewma_update(after_b, protocol::db_to_q4(8.0f));
-    const int16_t pre_fix  = protocol::snr_ewma_update(seed, protocol::db_to_q4(8.0f));   // what beacon-skipping produced
-    CHECK(expected != pre_fix);                               // the test discriminates (not vacuous)
+    const int16_t expected = protocol::snr_ewma_update(seed, protocol::db_to_q4(8.0f));            // seed -> probe only
+    const int16_t with_bcn = protocol::snr_ewma_update(protocol::snr_ewma_update(seed, protocol::db_to_q4(-4.0f)),
+                                                       protocol::db_to_q4(8.0f));                  // what the REMOVED touch produced
+    CHECK(expected != with_bcn);                               // the test discriminates (not vacuous)
     const Ev* e = hal.find("presence_probe_rx");
     CHECK(e != nullptr);
-    if (e) CHECK(e->snr_q4 == expected);                      // ★ the beacon sample is IN the accumulator
+    if (e) CHECK(e->snr_q4 == expected);                      // ★★★★ the beacon sample is NOT in the accumulator
 }
 
 TEST_CASE("§3-A.6 _notify_pending evicts the STALEST stash when full (not slot 0)") {
@@ -4952,6 +4968,19 @@ TEST_CASE("★★★ §S0-5 REWRITTEN (§MH-S5 §9.1/§9.3) — at mobile_livene
         CHECK(e.has_value());                                         // still advertised at boundary−1 ms
         if (e) CHECK(e->local_id == kDeadId);
     }
+    // ★★★★ §B177-FIX (2026-08-11) — **THE SURVIVOR IS KEPT ALIVE *HERE*, AT BOUNDARY−1 ms, AND THE MOVE IS A FINDING
+    // RATHER THAN A TIDY-UP.** Its refresh used to sit AFTER `hal._now` had been advanced to exactly
+    // `kT0 + mobile_liveness_ms`, under a comment claiming its *"own deadline is nowhere near due"*. ⛔ THAT COMMENT WAS
+    // FALSE ABOUT THE STATE THE TEST REACHED: the survivor CLAIMed at `kT0` too, so at that instant its row was AT its
+    // own deadline — i.e. already EXPIRED (`>=`) — and the only reason it survived was the very defect this slice fixes:
+    // the SELECTED probe arm refreshed a row found by hash alone, resurrecting it before compaction (ledger §1.14).
+    // ⇒ the probe is moved to the last millisecond at which the row is genuinely LIVE, which is what the case always
+    // meant to assert (gate 15 is about compacting the parallel array, not about resurrection).
+    {
+        std::array<uint8_t, 48> pb{};
+        const size_t pn = make_p_probe(kLive, kHomeId, /*home_layer=*/0, /*epoch=*/1, pb);
+        home.on_recv(pb.data(), pn, meta_weak);
+    }
 
     // ---- BOUNDARY WITNESS (b): at exactly 25 min the proxy STOPS. ★ This is the measurement that proves
     // the clock really crossed `mobile_liveness_ms`; every assertion below it is therefore past the deadline.
@@ -4966,13 +4995,9 @@ TEST_CASE("★★★ §S0-5 REWRITTEN (§MH-S5 §9.1/§9.3) — at mobile_livene
         CHECK(hal.count("h_forward") == 1);
         CHECK(count_h_frames(hal.tx_frames) == 1);                    // ★ the flood is passed on instead, ON THE WIRE
     }
-    // Keep the SURVIVOR fresh across the boundary, through the production probe path (it re-stamps `last_heard_ms`
-    // and steps `_mobile_snr_q4`), so its own deadline is nowhere near due.
-    {
-        std::array<uint8_t, 48> pb{};
-        const size_t pn = make_p_probe(kLive, kHomeId, /*home_layer=*/0, /*epoch=*/1, pb);
-        home.on_recv(pb.data(), pn, meta_weak);
-    }
+    // ⓘ The SURVIVOR was kept fresh through the production probe path at boundary−1 ms (see the §B177-FIX block above,
+    //   which records why the refresh cannot stand HERE any more): at this instant its own row would be AT its deadline,
+    //   and an expired row is refreshed by NEITHER probe arm. Its clock therefore reads 1 ms of age across the boundary.
 
     // ★★★★ GATE 13, THE SECOND HALF — AT 25 MINUTES THE ROW IS REMOVED **EVERYWHERE**.
     hal.events.clear();
@@ -5381,6 +5406,24 @@ TEST_CASE("★★★★ §MH-S5 §8.3 (gate 24) — a HEALTHY home + a measurabl
     CHECK(mob.mobile_attached());
     CHECK(mob.mobile_home_id() == kHome1);                            // still the adequate home
 
+    // ★★★★★ GATE 24's SECOND HALF, ADDED BY §MH-S5b — **THE PROBE THAT *IS* DUE MUST STILL BE A `SELECTED` ONE.**
+    // ⛔⛔ WITHOUT THIS BLOCK THE CASE WAS HALF-VACUOUS AGAINST §MH-S5b, AND THAT IS SAID PLAINLY: the measurement
+    // above fires no timer, so it could not distinguish "no canvass" from "the canvass timer simply did not fire".
+    // A build that flipped every steady probe to SEARCHING — the exact airtime hole §8.3 exists to close — would
+    // still have shown zero frames there, because zero frames were possible only while nothing was scheduled.
+    // ⇒ the deadline is DRIVEN, and the assertion is on the FRAME's own `searching` derivation (`selected_home_id`),
+    //   never on the emit field the producer chose.
+    hal.tx_frames.clear(); hal.events.clear();
+    mob.on_timer(kPresenceProbeTimerId);
+    CHECK(count_p_probes(hal.tx_frames) == 1);                        // ★ exactly ONE probe — the one already on the cadence
+    CHECK(hal.tx_frames.size() == 1);                                 // ★★★ and NOTHING ELSE went out: zero ADDITIONAL transmissions
+    { auto pk = last_p_probe(hal.tx_frames);
+      CHECK(pk.has_value());
+      if (pk) { CHECK_FALSE(pk->searching());                         // ★★★★ an adequate home is probed SELECTED, not canvassed
+                CHECK(pk->selected_home_id == kHome1); } }
+    CHECK(hal.count("presence_rehome") == 0);
+    CHECK(mob.mobile_verified_candidate_count() == 1);                // ★ and the stronger candidate is STILL admissible — the refusal is policy, not blindness
+
     // ★★ POSITIVE CONTROL — the SAME candidate, the SAME windows, but the home now reports WEAK. The policy is
     // "adequate before optimal", not "never switch", so this must fire.
     hal.tx_frames.clear(); hal.events.clear();
@@ -5587,6 +5630,901 @@ TEST_CASE("★★★★ §MH-S5 §8.4 (gate 26) — a TEAM mobile's voluntary sw
     mob.on_timer(kMobileDiscoverTimerId);
     CHECK(hal.count("mobile_home_phy_mismatch") == 0);                // ★ no refusal: we never left our PHY
     CHECK(first_j(hal.tx_frames, j_opcode::discover).has_value());    // ★ and the DISCOVER really went out, here
+}
+
+// ===========================================================================================================
+// §MH-S5b — §8.3's TWO SEARCHING-PROBE TRIGGERS · the HOST-SIDE row refresh · §8.4's VERIFIED-ECHO requirement.
+// Helpers first; the cases follow. ⓘ `TestHal`'s un-forced `rand_range` returns `lo`, so every probe jitter in
+// this block is 0 — which is what makes the gate-28 arithmetic an EQUALITY rather than a bound.
+// ===========================================================================================================
+namespace {
+// A SEARCHING P probe (selected_home_id == 0 is what MAKES it searching — frame_codec.h `p_probe_out::searching()`).
+size_t make_p_probe_searching(uint32_t key_hash32, uint8_t epoch, std::array<uint8_t, 48>& buf) {
+    p_probe_in in{}; in.selected_home_id = 0; in.selected_home_layer = 0;
+    in.key_hash32 = key_hash32; in.reg_epoch = epoch;
+    return pack_p_probe(in, std::span<uint8_t>(buf.data(), buf.size()));
+}
+// A probe carrying §S6 A.4 key custody. `ed[0..3]` must be LE(key_hash32) or the home's self-consistency test
+// refuses it — which is exactly the negative arm below.
+size_t make_p_probe_key(uint32_t key_hash32, uint8_t sel_home, uint8_t epoch, const uint8_t* ed,
+                        std::array<uint8_t, 48>& buf) {
+    p_probe_in in{}; in.selected_home_id = sel_home; in.selected_home_layer = 0;
+    in.key_hash32 = key_hash32; in.reg_epoch = epoch; in.has_pubkey = true;
+    for (int i = 0; i < 32; ++i) in.ed_pub[i] = ed[i];
+    return pack_p_probe(in, std::span<uint8_t>(buf.data(), buf.size()));
+}
+// An ed_pub whose first four LE bytes ARE `key_hash32` (`key_hash32_of`'s derivation, identity.h).
+void ed_pub_for(uint32_t key_hash32, uint8_t (&ed)[32]) {
+    for (int i = 0; i < 32; ++i) ed[i] = static_cast<uint8_t>(0xA0 + i);
+    ed[0] = static_cast<uint8_t>(key_hash32 & 0xFF);
+    ed[1] = static_cast<uint8_t>((key_hash32 >> 8) & 0xFF);
+    ed[2] = static_cast<uint8_t>((key_hash32 >> 16) & 0xFF);
+    ed[3] = static_cast<uint8_t>((key_hash32 >> 24) & 0xFF);
+}
+// Total bytes of every P PROBE among captured TX. Gate 27 is about AIRTIME, and airtime is bytes, not frames.
+size_t p_probe_bytes(const std::vector<std::vector<uint8_t>>& frames) {
+    size_t n = 0;
+    for (const auto& f : frames)
+        if (parse_p_probe(std::span<const uint8_t>(f.data(), f.size()))) n += f.size();
+    return n;
+}
+// The expected steady check period T for a reported quality tier (§S6.3, mirrored from `presence_ingest_roster`).
+uint32_t expected_T_for(uint8_t quality) {
+    return (quality == protocol::presence_q_strong)
+               ? std::min(4u * protocol::presence_check_base_ms, protocol::presence_check_max_ms)
+           : (quality == protocol::presence_q_ok) ? protocol::presence_check_base_ms
+                                                  : protocol::presence_check_min_ms;
+}
+}  // namespace
+
+// ---------------------------------------------------------------------------
+// ★★★★★ §MH-S5b-ii §8.3 / ITEM 1 — **THE STEADY CHECK PROBE TURNS `SEARCHING` FOR EXACTLY *ONE* REASON TODAY, AND
+// ⛔⛔ ARM 2 PINS A **DEFERRAL** — IT IS NOT A MISSING FEATURE AND MUST NOT BE "RESTORED".**
+//
+// §8.3's permitted triggers are a closed list of three. §MH-S5b-ii lands **trigger 2 ONLY** (the home missed a check,
+// on the way to `lost`). ⛔ Trigger 3 needs a latch (Node state ⇒ D2) and is a separate slice — its absence is
+// asserted nowhere here, because an absence is not a behaviour.
+//
+// ⛔⛔⛔ **ARM 2 BELOW ASSERTS THAT A WEAK/CRITICAL HOME IS PROBED *SELECTED*, AND THAT IS A PIN ON [[B178]]'s
+// DEFERRAL, NOT A STATEMENT THAT TRIGGER 1 IS WRONG.** §MH-S5b implemented trigger 1 and MEASURED it costing **6
+// unique deliveries, all in `s07`** (734 → 728, below the `≥733` floor) through the fleet-wide roster storm §8.3
+// itself predicts: P-roster airtime **+31 %**, `s07` collisions 2775 → 3528. ⇒ the disjunct was removed.
+// ★★ **THE LIMITATION IS NAMED HERE TOO, because this is the assertion a reader will meet first: a weak but
+// CONSISTENTLY RESPONDING home will not proactively initiate candidate verification, so the mobile changes home only
+// AFTER connectivity begins failing.** That is a **CONSERVATIVE INTERIM POLICY, ⛔ NOT completed proactive roaming**,
+// and ⛔ **§8.3 is NOT satisfied** — §S6.4-C's *leave a weak home BEFORE loss* purpose is unmet. What returns is a
+// NARROWER trigger (weak home **and** a fresh/compatible/passively-observed/still-unverified candidate whose measured
+// one-way quality could satisfy the two-tier rule, with hold and dwell already served), after [[B177]] is fixed.
+// ⇒ ⛔ **A future slice that re-adds `_presence_prescan` here must REWRITE arm 2, not delete it** (the B101 precedent).
+//
+// ★★ EVERY ARM READS THE FRAME, NOT AN EMIT. `searching` is DERIVED on the wire (`selected_home_id == 0`), so an
+// emit field is the producer's opinion; `last_p_probe()` parses what actually left the radio.
+//
+// ★★★ AND THE DEFERRAL ARM IS PAIRED WITH A POSITIVE CONTROL ON THE *SAME MOBILE AT THE SAME WEAK TIER* — without it
+// the arm would pass a build in which NO probe is ever searching again (searching would then be dead and §8.4's
+// verified-echo requirement structurally unreachable, which is exactly the `s27` RED the "items 2+3" arm produced).
+// Conversely arm 3's positive is paired with a SELECTED probe a moment earlier and later, so a build that flipped
+// every steady probe to searching — §8.3's own airtime hole — fails there.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★★★ §MH-S5b-ii §8.3 (item 1) — the steady check probe is SEARCHING on a MISSED CHECK; a weak/critical home is probed SELECTED because trigger 1 is DEFERRED ([[B178]])") {
+    constexpr uint32_t kMob   = 0x0000583Au;
+    constexpr uint8_t  kHome  = 61;
+    constexpr uint8_t  kLocal = 250;
+    RxMeta strong{9.0f, -70.0f, 0, -1};
+
+    // ---- ARM 1 — THE TWO HEALTHY TIERS PROBE `SELECTED`. This is the airtime-hole guard, and it is first.
+    for (uint8_t q : {protocol::presence_q_ok, protocol::presence_q_strong}) {
+        TestHal hal; hal._now = 100000;
+        Node mob(hal, 0, kMob);
+        CHECK(mob.on_init(s0_mobile_cfg()));
+        mob.test_set_my_mobile_reg(kHome, kLocal);
+        attach_and_report(mob, hal, kHome, kMob, kLocal, q, strong);
+        CHECK(mob.mobile_attached());                                 // PREMISE: confirmed by the home's own roster
+        hal.tx_frames.clear();
+        mob.on_timer(kPresenceProbeTimerId);
+        CHECK(count_p_probes(hal.tx_frames) == 1);
+        auto p = last_p_probe(hal.tx_frames);
+        CHECK(p.has_value());
+        if (p) { CHECK_FALSE(p->searching());                         // ★★★ healthy ⇒ SELECTED
+                 CHECK(p->selected_home_id == kHome);
+                 CHECK(p->selected_home_layer == 0); }
+    }
+
+    // ---- ARM 2 — ⛔⛔ **THIS ARM PINS [[B178]]'s DEFERRAL OF TRIGGER 1: THE TWO UNHEALTHY TIERS STILL PROBE
+    // `SELECTED`.** An earlier revision of this arm asserted `searching()` here, because §MH-S5b had landed trigger 1;
+    // it is **REWRITTEN, NOT DELETED**, so that the deferral is a pinned fact and not a silent gap (B101 precedent).
+    // ★★ **A weak-but-ANSWERING home is therefore never canvassed** — the limitation stated in the block above.
+    // ⓘ The byte count is still asserted: `selected_home_id` is present in EVERY probe, so the deferral cannot be
+    //   confused with a length change either.
+    for (uint8_t q : {protocol::presence_q_weak, protocol::presence_q_critical}) {
+        TestHal hal; hal._now = 100000;
+        Node mob(hal, 0, kMob);
+        CHECK(mob.on_init(s0_mobile_cfg()));
+        mob.test_set_my_mobile_reg(kHome, kLocal);
+        // First, the SAME mobile at the SAME instant with a healthy report — the reference probe.
+        attach_and_report(mob, hal, kHome, kMob, kLocal, protocol::presence_q_ok, strong);
+        hal.tx_frames.clear();
+        mob.on_timer(kPresenceProbeTimerId);
+        const size_t selected_bytes = p_probe_bytes(hal.tx_frames);
+        CHECK(selected_bytes > 0);
+        { auto p0 = last_p_probe(hal.tx_frames); CHECK(p0.has_value()); if (p0) CHECK_FALSE(p0->searching()); }
+        // ...now the home reports us weak/critical. `_presence_miss` is reset to 0 by that same roster, so trigger 2
+        // cannot be firing either — this arm isolates trigger 1, and trigger 1 is DEFERRED.
+        attach_and_report(mob, hal, kHome, kMob, kLocal, q, strong);
+        // ★★★ PREMISE, AND IT IS NOT DECORATION: the roster's weak/critical branch REALLY WAS TAKEN. There is no
+        //   public accessor for `_presence_prescan`, so this reads its SIBLING assignment from the same `quality`
+        //   in the same block — `_presence_T_ms` clamps to `presence_check_min_ms` on weak/critical and to
+        //   `presence_check_base_ms` on ok — and the two are asserted DIFFERENT so the premise cannot pass vacuously.
+        //   ⛔ Without it, "the probe was SELECTED" could mean "the weak report never landed", which is exactly the
+        //   instrument-that-cannot-fail shape this arc keeps hitting.
+        CHECK(hal.last_armed(kPresenceProbeTimerId) == static_cast<int64_t>(protocol::presence_check_min_ms));
+        CHECK(protocol::presence_check_min_ms != protocol::presence_check_base_ms);
+        hal.tx_frames.clear();
+        mob.on_timer(kPresenceProbeTimerId);
+        CHECK(count_p_probes(hal.tx_frames) == 1);                     // ★ exactly ONE probe: the cadence is untouched
+        auto p = last_p_probe(hal.tx_frames);
+        CHECK(p.has_value());
+        if (p) { CHECK_FALSE(p->searching());                         // ★★★★★ DEFERRED ([[B178]]): weak/critical ⇒ still SELECTED
+                 CHECK(p->selected_home_id == kHome);                 // ★★★★ and it still names the home it is checking
+                 CHECK(p->selected_home_layer == 0);
+                 CHECK(p->key_hash32 == kMob); }                      // ★ and it is still OUR identity on the wire
+        CHECK(p_probe_bytes(hal.tx_frames) == selected_bytes);         // ★ byte-identical to the healthy-tier probe
+        // ★★★★ THE POSITIVE CONTROL, AND IT IS WHAT STOPS THIS ARM BEING VACUOUS: the SAME mobile at the SAME weak
+        //   tier DOES go searching once the home actually MISSES — so `searching` is not dead, §8.4's verified echo
+        //   stays reachable, and the refusal above is attributable to trigger 1's deferral and to nothing else.
+        //   (Without this, a build in which no probe is ever searching again would pass — the `s27`-RED shape.)
+        CHECK(mob.mobile_home_link() == Node::MobileHomeLink::checking);   // PREMISE: that probe booked the miss
+        hal._now += protocol::presence_probe_retry_ms;
+        hal.tx_frames.clear();
+        mob.on_timer(kPresenceProbeTimerId);
+        { auto p1 = last_p_probe(hal.tx_frames); CHECK(p1.has_value());
+          if (p1) { CHECK(p1->searching()); CHECK(p1->selected_home_id == 0); } }   // ★★★★ trigger 2, at the WEAK tier
+        // ★★ AND THE HOME ANSWERING PUTS IT BACK TO SELECTED *WHILE STILL WEAK* — the sharpest form of the pin:
+        //    the roster clears `_presence_miss` but leaves `_presence_prescan` SET, so a build that had re-added
+        //    trigger 1 would send a searching probe here and fail.
+        attach_and_report(mob, hal, kHome, kMob, kLocal, q, strong);
+        CHECK(hal.last_armed(kPresenceProbeTimerId) == static_cast<int64_t>(protocol::presence_check_min_ms));   // ★ STILL weak: only the miss was cleared
+        hal.tx_frames.clear();
+        mob.on_timer(kPresenceProbeTimerId);
+        { auto p2 = last_p_probe(hal.tx_frames); CHECK(p2.has_value());
+          if (p2) { CHECK_FALSE(p2->searching());                     // ★★★★★ DEFERRED: weak ALONE never canvasses
+                    CHECK(p2->selected_home_id == kHome); } }
+    }
+
+    // ---- ARM 3 — ★★★ TRIGGER 2: A MISSED CHECK, AT THE **STRONG** TIER, SO TRIGGER 1 CANNOT BE THE CAUSE.
+    {
+        TestHal hal; hal._now = 100000;
+        Node mob(hal, 0, kMob);
+        CHECK(mob.on_init(s0_mobile_cfg()));
+        mob.test_set_my_mobile_reg(kHome, kLocal);
+        attach_and_report(mob, hal, kHome, kMob, kLocal, protocol::presence_q_strong, strong);
+        CHECK(mob.mobile_home_link() == Node::MobileHomeLink::confirmed);
+        // Probe 1: nothing has been missed yet ⇒ SELECTED, and it is what CREATES the miss.
+        hal._now += expected_T_for(protocol::presence_q_strong);
+        hal.tx_frames.clear();
+        mob.on_timer(kPresenceProbeTimerId);
+        { auto p = last_p_probe(hal.tx_frames); CHECK(p.has_value()); if (p) CHECK_FALSE(p->searching()); }
+        CHECK(mob.mobile_home_link() == Node::MobileHomeLink::checking);   // PREMISE: the miss was really booked
+        // Probe 2: one probe has now gone unanswered ⇒ SEARCHING, purely on trigger 2.
+        hal._now += protocol::presence_probe_retry_ms;
+        hal.tx_frames.clear();
+        mob.on_timer(kPresenceProbeTimerId);
+        CHECK(count_p_probes(hal.tx_frames) == 1);
+        { auto p = last_p_probe(hal.tx_frames); CHECK(p.has_value());
+          if (p) { CHECK(p->searching()); CHECK(p->selected_home_id == 0); } }   // ★★★★ trigger 2
+        // ★★ AND THE HOME ANSWERING CLEARS IT. A roster resets `_presence_miss`, so the next probe is SELECTED
+        //    again — the assertion that trigger 2 is a TRANSIENT, not a one-way door.
+        attach_and_report(mob, hal, kHome, kMob, kLocal, protocol::presence_q_strong, strong);
+        hal.tx_frames.clear();
+        mob.on_timer(kPresenceProbeTimerId);
+        { auto p = last_p_probe(hal.tx_frames); CHECK(p.has_value()); if (p) CHECK_FALSE(p->searching()); }
+    }
+
+    // ---- ARM 4 — ★★★ A PROBE **OUR OWN TRANSMITTER** REFUSED IS NOT A MISSED CHECK, so it must not start a
+    // canvass either. This is [[B139]]/§6.4's boundary reused rather than re-spelled, and it is the one arm that
+    // proves the trigger reads the ADMITTED-miss counter and not "a probe happened".
+    {
+        TestHal hal; hal._now = 100000;
+        Node mob(hal, 0, kMob);
+        CHECK(mob.on_init(s0_mobile_cfg()));
+        mob.test_set_my_mobile_reg(kHome, kLocal);
+        attach_and_report(mob, hal, kHome, kMob, kLocal, protocol::presence_q_strong, strong);
+        hal.tx_answer = TxResult::busy;                               // OUR radio refuses; the home is untouched
+        for (int i = 0; i < 3; ++i) { hal._now += protocol::presence_probe_retry_ms; mob.on_timer(kPresenceProbeTimerId); }
+        CHECK(hal.count("presence_probe_refused") == 3);               // PREMISE: three genuine local refusals
+        CHECK(hal.tx_frames.empty());                                 // PREMISE: not one frame was kept
+        hal.tx_answer = TxResult::ok;
+        hal._now += protocol::presence_probe_retry_ms;
+        mob.on_timer(kPresenceProbeTimerId);
+        auto p = last_p_probe(hal.tx_frames);
+        CHECK(p.has_value());
+        if (p) CHECK_FALSE(p->searching());                           // ★★★★ still SELECTED: a local refusal is not a miss
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ★★★★★ §MH-S5b GATE 27 (§7.2's airtime gate) — **STEADY-STATE AIRTIME IS NO WORSE THAN THE EXISTING ADAPTIVE
+// CADENCE, MEASURED AT EACH QUALITY TIER WITH ANOTHER ELIGIBLE STATIC AUDIBLE.**
+//
+// §7.2's own wording is about what the MOBILE EMITS: "an idle attached mobile ... must emit no more frames per unit
+// time than the current implementation at the same quality tier. Candidate monitoring adds ZERO transmissions."
+// ⇒ THREE things are measured per tier, and a weaker test would pass vacuously:
+//   (1) the check period T is the pre-existing §S6.3 value for that tier — the CADENCE is not touched;
+//   (2) three cadence periods produce exactly THREE probes and exactly 3×(one probe's bytes) — the searching flip
+//       is byte-free, so airtime per unit time is IDENTICAL, not merely "similar";
+//   (3) an audible eligible candidate home's roster produces ZERO frames from the mobile — §8.1's passive rule.
+// ⛔ WHAT THIS CASE DOES **NOT** CLAIM, stated rather than implied: it measures the MOBILE. §8.3's canvass is
+//    answered by other homes, and those rosters ARE new airtime on the channel — measured at corpus scope in
+//    `simulation/BASELINE.md` §MH-S5b, not here, because a two-node fixture cannot show a fleet.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★★★ §MH-S5b gate 27 (§7.2) — per-tier steady-state cadence AND per-tier probe bytes are unchanged, and a candidate costs ZERO transmissions") {
+    constexpr uint32_t kMob   = 0x00002700u;
+    constexpr uint8_t  kHome  = 62;
+    constexpr uint8_t  kOther = 63;
+    constexpr uint8_t  kLocal = 249;
+    RxMeta strong{9.0f, -70.0f, 0, -1};
+
+    for (uint8_t q : {protocol::presence_q_critical, protocol::presence_q_weak,
+                      protocol::presence_q_ok, protocol::presence_q_strong}) {
+        TestHal hal; hal._now = 100000;
+        Node mob(hal, 0, kMob);
+        CHECK(mob.on_init(s0_mobile_cfg()));
+        mob.test_set_my_mobile_reg(kHome, kLocal);
+
+        // (3) ANOTHER ELIGIBLE HOME IS AUDIBLE, AND IT COSTS THE MOBILE NOTHING — verified before anything else,
+        //     so the zero cannot be an artefact of a later clear().
+        hal.tx_frames.clear();
+        std::array<uint8_t, 64> ob{};
+        const size_t on = make_p_roster_other_echo(kOther, /*home_layer=*/0, kMob, protocol::presence_q_strong, ob);
+        mob.on_recv(ob.data(), on, strong);
+        CHECK(hal.tx_frames.empty());                                 // ★★★ passive monitoring: ZERO transmissions
+
+        attach_and_report(mob, hal, kHome, kMob, kLocal, q, strong);
+        CHECK(mob.mobile_attached());
+        CHECK(mob.mobile_candidate_count() == 1);                     // PREMISE: the candidate really is being tracked
+
+        size_t bytes = 0; int probes = 0; size_t first_bytes = 0;
+        for (int period = 0; period < 3; ++period) {
+            // (1) THE CADENCE: the roster armed T for this tier, and T is the pre-existing §S6.3 value.
+            CHECK(hal.last_armed(kPresenceProbeTimerId) == static_cast<int64_t>(expected_T_for(q)));
+            hal._now += expected_T_for(q);
+            hal.tx_frames.clear();
+            mob.on_timer(kPresenceProbeTimerId);
+            probes += count_p_probes(hal.tx_frames);
+            const size_t b = p_probe_bytes(hal.tx_frames);
+            if (period == 0) first_bytes = b;
+            CHECK(hal.tx_frames.size() == 1);                         // ★ ONE frame per period, and it IS the probe
+            bytes += b;
+            // the home answers, which is what re-arms T and clears the miss (so trigger 2 never enters this loop)
+            mob.on_recv(ob.data(), on, strong);                       // ...and the candidate keeps being audible
+            attach_and_report(mob, hal, kHome, kMob, kLocal, q, strong);
+        }
+        // (2) THE AIRTIME: three periods, three probes, and every probe the SAME size — at EVERY tier.
+        CHECK(probes == 3);
+        CHECK(first_bytes > 0);
+        CHECK(bytes == 3 * first_bytes);
+        CHECK(first_bytes == 8);                                      // ★ the §S6 rev-2 8-byte check/searching probe
+        CHECK(hal.count("presence_rehome") == 0);                     // ★ and nothing switched: this is STEADY state
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ★★★★★ §MH-S5b GATE 28 (§7.2) — **THE STRONG-LINK IDLE-LOSS BOUND IS ≈8 MINUTES, AND THAT IS THE ACCEPTED
+// TRADE-OFF, NOT A DEFECT.**
+//
+// ★★★ READ THIS BEFORE "FIXING" A FAILURE HERE. At the `strong` tier §S6.3 stretches the check period to
+// `min(4·presence_check_base_ms, presence_check_max_ms)` = 480 000 ms, deliberately, to buy battery on a link that
+// is working. A mobile that walks out of range IMMEDIATELY after a confirmation and then generates no traffic
+// therefore cannot notice until that period plus the bounded retry ladder has run:
+//
+//     480 000 (T at `strong`) + (presence_probe_k_miss + 1) × 5 000 (retry) = 495 000 ms = 8 min 15 s
+//
+// ⇒ **THAT NUMBER IS RULED, NOT TOLERATED** (spec §7.2 / gate 28, and hardware case 12.3-8 walks it on metal). A
+// later change that "improves" it by shortening T at the strong tier is spending battery on every healthy mobile in
+// the fleet to help the one that walked away silently, and must be argued on those terms — not filed as a
+// regression against this line.
+// ⓘ IT IS AN EQUALITY, NOT A BOUND, ONLY BECAUSE THE FIXTURE'S JITTER IS ZERO (`TestHal::rand_range` returns `lo`).
+//   On real hardware each of the four deadlines adds 0..`presence_probe_jitter_ms`, so the worst case is
+//   495 000 + 4 × 8 000 = 527 000 ms. BOTH are asserted, so neither can drift unnoticed.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★★★ §MH-S5b gate 28 (§7.2) — a STRONG home going silent is detected in 495 000 ms, the ACCEPTED ≈8-minute trade-off") {
+    constexpr uint32_t kMob   = 0x00002800u;
+    constexpr uint8_t  kHome  = 64;
+    constexpr uint8_t  kLocal = 248;
+    RxMeta strong{9.0f, -70.0f, 0, -1};
+
+    TestHal hal; hal._now = 100000;
+    Node mob(hal, 0, kMob);
+    CHECK(mob.on_init(s0_mobile_cfg()));
+    mob.test_set_my_mobile_reg(kHome, kLocal);
+    attach_and_report(mob, hal, kHome, kMob, kLocal, protocol::presence_q_strong, strong);
+    CHECK(mob.mobile_attached());
+    CHECK(mob.mobile_home_link() == Node::MobileHomeLink::confirmed);
+    const uint64_t confirmed_at = hal._now;
+    CHECK(hal.last_armed(kPresenceProbeTimerId) == 480000);           // PREMISE: the STRONG-tier period, not the base one
+    CHECK(hal.last_armed(kPresenceProbeTimerId)
+          == static_cast<int64_t>(std::min(4u * protocol::presence_check_base_ms, protocol::presence_check_max_ms)));
+
+    // The mobile walks away. It generates nothing; the home answers nothing. Drive each armed deadline exactly.
+    int probes = 0;
+    for (int guard = 0; guard < 12 && hal.count("presence_home_lost") == 0; ++guard) {
+        const int64_t d = hal.last_armed(kPresenceProbeTimerId);
+        CHECK(d > 0);                                                 // ⛔ a zero/absent deadline would spin this loop
+        hal._now += static_cast<uint64_t>(d);
+        probes += count_p_probes(hal.tx_frames) ? 0 : 0;              // (frames counted below; this keeps the loop honest)
+        mob.on_timer(kPresenceProbeTimerId);
+    }
+    const uint64_t detect_ms = hal._now - confirmed_at;
+
+    CHECK(hal.count("presence_home_lost") == 1);                      // ★ it IS detected — the bound is not "never"
+    CHECK(mob.mobile_home_link() == Node::MobileHomeLink::lost);
+    CHECK(detect_ms == 495000);                                       // ★★★★ THE RULED FIGURE, jitter-free
+    CHECK(detect_ms == static_cast<uint64_t>(std::min(4u * protocol::presence_check_base_ms, protocol::presence_check_max_ms))
+                     + static_cast<uint64_t>(protocol::presence_probe_k_miss + 1) * protocol::presence_probe_retry_ms);
+    CHECK(detect_ms <= 495000 + 4ull * protocol::presence_probe_jitter_ms);   // ★ and the on-metal worst case is 527 000 ms
+    CHECK(detect_ms > 8ull * 60ull * 1000ull);                        // ★ it really is PAST eight minutes — named, not hidden
+    CHECK(detect_ms < 9ull * 60ull * 1000ull);
+    // ★★ AND THE LADDER SPENT EXACTLY THE BUDGET §7.2 GIVES IT — `k_miss + 1` = 3 check probes, then the verdict.
+    //    A build that probed more often would reach `lost` sooner and would silently retire the trade-off above.
+    // ⓘ THE `+ 1` IS MEASURED, NOT SLACK: the home-loss path itself fires ONE immediate SEARCHING recovery probe
+    //   (`presence_probe_fire`'s `presence_home_lost` arm, pre-existing since §S6) — so 4 probes leave the radio and
+    //   only 3 of them are checks. An earlier draft of this line asserted 3 and was WRONG about which frames it was
+    //   counting; corrected here rather than by loosening the assertion.
+    CHECK(count_p_probes(hal.tx_frames) == static_cast<int>(protocol::presence_probe_k_miss) + 2);
+    { auto plast = last_p_probe(hal.tx_frames); CHECK(plast.has_value());
+      if (plast) CHECK(plast->searching()); }                         // ★ the LAST one is the recovery canvass
+    CHECK(probes == 0);                                               // (the placeholder accumulator, kept at zero)
+}
+
+// ---------------------------------------------------------------------------
+// ★★★★★ §MH-S5b ITEM 2 — **A SEARCHING PROBE FROM A MOBILE WE ACTUALLY HOST REFRESHES ITS ROW; A STALE-EPOCH,
+// REDIRECT OR EXPIRED ROW GETS NOTHING.**
+//
+// ★★★ THE §0 HAZARD CONTROL LIVES IN ARM A, AND IT IS BUILT SO IT CANNOT PASS BY ACCIDENT. The lesson this arc
+// keeps re-learning (§MH-S5-FIX's "the redirect still redirects" control, which an AGE-shaped over-fix walked
+// straight past) is: **ask what state the test actually REACHES, not what it is named.** So arm A does not assert
+// "the probe was handled" — it advances the clock until the row's fate DIFFERS between the two arms, and asserts
+// the row's PHYSICAL PRESENCE across the `mobile_liveness_ms` boundary. Its negative twin is the identical drive
+// with the probe omitted, and that twin loses the row.
+//
+// ★★ AND THE SNR ARM IS NOT DECORATION: `mobile_reg_touch` does TWO things, and a build that stamped only
+// `last_heard_ms` would pass the presence arm while leaving the roster quality tier frozen — which is the very
+// feedback the mobile's own re-home decision reads back (§8.4's `me->home` term).
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★★★ §MH-S5b (item 2) — a SEARCHING probe refreshes a LIVE DIRECT row at the CURRENT epoch, and nothing else") {
+    constexpr uint32_t kMob    = 0x0000B2B2u;
+    constexpr uint8_t  kLocal  = 254;
+    constexpr uint8_t  kHomeId = 42;
+    constexpr uint64_t kT0     = 100000;
+    RxMeta strong{8.0f, -80.0f, 0, -1};
+    RxMeta faint {-20.0f, -110.0f, 0, -1};                            // −20 dB ⇒ tier 0 (critical)
+
+    // A host holding one LIVE DIRECT row for kMob at epoch 1 (the epoch `make_j_claim_mobile` sends).
+    auto fresh_host = [&](TestHal& hal, Node& home) {
+        hal._now = kT0;
+        CHECK(home.on_init(join_cfg()));
+        std::array<uint8_t, 16> cl{};
+        home.on_recv(cl.data(), make_j_claim_mobile(kHomeId, kLocal, kMob, cl), strong);
+        CHECK(home.mobile_reg_count() == 1);                          // PREMISE: the row exists and is DIRECT
+    };
+
+    // ---- ARM A — ★★★★ THE POSITIVE, AND ITS NEGATIVE TWIN. Two identical drives across the 25-minute boundary,
+    // differing ONLY in whether a searching probe arrived at the midpoint.
+    for (int with_probe = 0; with_probe < 2; ++with_probe) {
+        TestHal hal; Node home(hal, kHomeId, 0x00004242u);
+        fresh_host(hal, home);
+        hal._now = kT0 + protocol::mobile_liveness_ms - 1;             // one ms before the row would die
+        if (with_probe) {
+            std::array<uint8_t, 48> pb{};
+            hal.tx_frames.clear();
+            home.on_recv(pb.data(), make_p_probe_searching(kMob, /*epoch=*/1, pb), strong);
+            CHECK(count_p_rosters(hal.tx_frames) + hal.count("presence_probe_rx") > 0);   // PREMISE: the probe WAS ingested
+        }
+        // Now advance a FULL liveness window past the probe. Only a genuine restamp can save the row.
+        hal._now += protocol::mobile_liveness_ms - 1;
+        hal.events.clear();
+        home.test_fire_aging();
+        if (with_probe) {
+            CHECK(home.mobile_reg_count() == 1);                      // ★★★★ the searching probe kept the row alive
+            CHECK(hal.count("mobile_reg_expired") == 0);
+        } else {
+            CHECK(home.mobile_reg_count() == 0);                      // ★★★ the negative twin: no probe, no row
+            CHECK(hal.count("mobile_reg_expired") == 1);
+        }
+    }
+
+    // ---- ARM B — ★★★★ THE SNR EWMA MOVES TOO, READ OFF THE ROSTER ON THE WIRE. The CLAIM seeds the tier from a
+    // strong SNR; a searching probe heard FAINTLY must drag the advertised quality tier down. Paired with the
+    // identical drive minus the probe, whose tier must not move.
+    for (int with_probe = 0; with_probe < 2; ++with_probe) {
+        TestHal hal; Node home(hal, kHomeId, 0x00004242u);
+        fresh_host(hal, home);
+        hal.tx_frames.clear();
+        home.on_timer(kPresenceRosterTimerId);
+        auto before = roster_entry_for(hal.tx_frames, kMob);
+        CHECK(before.has_value());
+        const uint8_t tier_before = before ? before->quality : 0xFF;
+        CHECK(tier_before == protocol::presence_q_strong);             // PREMISE: seeded strong by the CLAIM
+        hal._now += 60000;
+        if (with_probe) {
+            std::array<uint8_t, 48> pb{};
+            home.on_recv(pb.data(), make_p_probe_searching(kMob, /*epoch=*/1, pb), faint);
+        }
+        hal._now += protocol::presence_roster_min_interval_ms + 1;     // clear the home's own rate-limit floor
+        hal.tx_frames.clear();
+        home.on_timer(kPresenceRosterTimerId);
+        auto after = roster_entry_for(hal.tx_frames, kMob);
+        CHECK(after.has_value());
+        if (after) {
+            if (with_probe) CHECK(after->quality < tier_before);       // ★★★★ the EWMA really was stepped
+            else            CHECK(after->quality == tier_before);      // ★★★ and without the probe it does not move
+        }
+    }
+
+    // ---- ARM C — ★★★★ THE EPOCH TERM, AND IT IS THE ONE THAT STOPS A STALE OLD HOME'S ROW BECOMING IMMORTAL.
+    // A searching probe names NO home, so `sel_me` cannot protect this arm; a mobile that has re-homed carries a
+    // BUMPED epoch, and our row still holds the old one. Same drive as arm A, epoch 2 instead of 1.
+    {
+        TestHal hal; Node home(hal, kHomeId, 0x00004242u);
+        fresh_host(hal, home);
+        hal._now = kT0 + protocol::mobile_liveness_ms - 1;
+        std::array<uint8_t, 48> pb{};
+        hal.tx_frames.clear(); hal.events.clear();
+        home.on_recv(pb.data(), make_p_probe_searching(kMob, /*epoch=*/2, pb), strong);
+        CHECK(hal.count("presence_probe_rx") == 1);                   // ★ the canvass IS still ingested and answered
+        home.on_timer(kPresenceRosterTimerId);
+        CHECK(count_p_rosters(hal.tx_frames) == 1);                   // ★ ...with a real roster (the echo is owed)
+        hal._now += protocol::mobile_liveness_ms - 1;
+        hal.events.clear();
+        home.test_fire_aging();
+        CHECK(home.mobile_reg_count() == 0);                          // ★★★★ a STALE-EPOCH probe refreshed nothing
+        CHECK(hal.count("mobile_reg_expired") == 1);
+    }
+
+    // ---- ARM D — ★★★★ AN **EXPIRED** ROW IS NOT RESURRECTED (owner ruling, ledger §1.14: no service before
+    // compaction). The probe arrives AT the boundary, i.e. when the row is already doomed but not yet swept.
+    {
+        TestHal hal; Node home(hal, kHomeId, 0x00004242u);
+        fresh_host(hal, home);
+        hal._now = kT0 + protocol::mobile_liveness_ms;                 // AT the boundary: expired, not yet compacted
+        std::array<uint8_t, 48> pb{};
+        home.on_recv(pb.data(), make_p_probe_searching(kMob, /*epoch=*/1, pb), strong);
+        CHECK(home.mobile_reg_count() == 1);                          // PREMISE: still physically present
+        hal.events.clear();
+        home.test_fire_aging();
+        CHECK(home.mobile_reg_count() == 0);                          // ★★★★ the probe did NOT restart its clock
+        CHECK(hal.count("mobile_reg_expired") == 1);
+    }
+
+    // ---- ARM E — ★★★★ A **REDIRECT** ROW IS NOT REFRESHED: §9.2 gives its lifetime to the BREADCRUMB, and a
+    // probe-driven restamp would let an old home hold a breadcrumb for ever while the mobile is audible.
+    {
+        constexpr uint8_t kNewHome = 77;
+        TestHal hal; Node home(hal, kHomeId, 0x00004242u);
+        fresh_host(hal, home);
+        home.test_drive_breadcrumb(/*origin=*/kNewHome, kMob, kNewHome, /*new_epoch=*/2, /*new_home_layer=*/0);
+        CHECK(hal.count("mobile_redirect_recorded") == 1);            // PREMISE: the row really is a REDIRECT now
+        const uint64_t stamped_at = hal._now;
+        hal._now = stamped_at + protocol::mobile_liveness_ms - 1;
+        std::array<uint8_t, 48> pb{};
+        home.on_recv(pb.data(), make_p_probe_searching(kMob, /*epoch=*/1, pb), strong);   // the OLD epoch this row holds
+        hal._now += 2;                                                // one ms past the breadcrumb's own deadline
+        hal.events.clear();
+        home.test_fire_aging();
+        CHECK(home.mobile_reg_count() == 0);                          // ★★★★ the redirect died on ITS OWN clock
+        { const Ev* x = hal.find("mobile_reg_expired"); CHECK(x != nullptr);
+          if (x) CHECK(x->redirect == 1); }                           // ★ and as a REDIRECT expiry, per §9.2
+    }
+
+    // ---- ARM F — ★★★★ §S6 A.4 KEY CUSTODY RIDES THE SEARCHING PROBE TOO, WITH ITS SELF-CONSISTENCY TEST INTACT.
+    // ⛔ THIS ARM IS WHY ITEM 1 NEEDS NO CUSTODY SUPPRESSION: the home ingested `ed_pub` on the `!searching` arm
+    //    ONLY, so a mobile whose home reported it weak before custody landed would have canvassed for ever with an
+    //    unstored key. The shared refresh closes it at the HOME, which is where the omission was.
+    {
+        uint8_t ed[32]; ed_pub_for(kMob, ed);
+        // (a) the GOOD key, on a SEARCHING probe.
+        TestHal hal; Node home(hal, kHomeId, 0x00004242u);
+        fresh_host(hal, home);
+        std::array<uint8_t, 48> kb{};
+        home.on_recv(kb.data(), make_p_probe_key(kMob, /*sel_home=*/0, /*epoch=*/1, ed, kb), strong);
+        hal._now += protocol::presence_roster_min_interval_ms + 1;
+        hal.tx_frames.clear();
+        home.on_timer(kPresenceRosterTimerId);
+        { auto e = roster_entry_for(hal.tx_frames, kMob); CHECK(e.has_value());
+          if (e) CHECK(e->has_key); }                                 // ★★★★ custody landed from a SEARCHING probe
+        // (b) THE NEGATIVE: a key whose ed_pub[:4] does NOT derive our hash is refused, searching or not.
+        TestHal h2; Node home2(h2, kHomeId, 0x00004242u);
+        fresh_host(h2, home2);
+        uint8_t bad[32]; ed_pub_for(kMob ^ 0xFFFFu, bad);
+        std::array<uint8_t, 48> bb{};
+        home2.on_recv(bb.data(), make_p_probe_key(kMob, /*sel_home=*/0, /*epoch=*/1, bad, bb), strong);
+        h2._now += protocol::presence_roster_min_interval_ms + 1;
+        h2.tx_frames.clear();
+        home2.on_timer(kPresenceRosterTimerId);
+        { auto e = roster_entry_for(h2.tx_frames, kMob); CHECK(e.has_value());
+          if (e) CHECK_FALSE(e->has_key); }                           // ★★★ a mismatched pubkey is still refused
+    }
+
+    // ---- ARM G — a searching probe for a hash we do NOT host still gets its canvass answer and creates no row.
+    // (The pre-existing §S6 rev-2 behaviour, pinned so item 2 cannot be read as narrowing it.)
+    {
+        TestHal hal; Node home(hal, kHomeId, 0x00004242u);
+        hal._now = kT0;
+        CHECK(home.on_init(join_cfg()));
+        CHECK(home.mobile_reg_count() == 0);
+        std::array<uint8_t, 48> pb{};
+        hal.tx_frames.clear();
+        home.on_recv(pb.data(), make_p_probe_searching(/*stranger=*/0x0000DEADu, /*epoch=*/1, pb), strong);
+        home.on_timer(kPresenceRosterTimerId);
+        CHECK(count_p_rosters(hal.tx_frames) == 1);                   // ★ the canvass IS answered (with the echo)
+        CHECK(home.mobile_reg_count() == 0);                          // ★ and no row was invented
+    }
+}
+
+// ===========================================================================================================
+// ★★★★★★ §B177-FIX (owner-ruled 2026-08-11, ledger §1.16) — **A BEACON IS A PRESENCE/CANDIDATE HINT AND NOTHING MORE;
+// THE EPOCH-BEARING P PROBE IS THE SOLE ONGOING AUTHORITY OVER A HOSTED ROW.**
+//
+// ⛔⛔ **WHY THIS IS A REMOVAL AND NOT A GATE, STATED WHERE THE TESTS ARE, BECAUSE IT IS THE WHOLE DESIGN:** the beacon
+// matched the registry row by **hash alone** — the [[B147]]/[[B172]]/[[B174]] tuple error at its fifth site — and the
+// **BCN wire carries `key_hash32` and NO `reg_epoch`** (`frame_codec.h` BCN bytes 4..7; `beacon_out` has no epoch
+// member). So the probe arms' `host_row_live_direct() + low-byte epoch` shape **cannot** be copied here: it would assert
+// a guarantee the frame does not carry. ⇒ the touch is REMOVED, and ⛔ no epoch byte/TLV is added to every beacon.
+//
+// ★★★ HOW THESE ARMS ARE BUILT, AND THE TRAP THEY ARE BUILT AGAINST: **establish the state the test REACHES, not what
+// its name implies.** Two controls in this arc were vacuous exactly there — one queried a row right after a clock
+// restamp, so it was never old enough for the age gate to bite. So every arm below asserts the row's **PHYSICAL
+// PRESENCE across the `mobile_liveness_ms` boundary** (the only observable that a restamp can change), each with its own
+// premise that the frame really was ingested, and the LIVE arm carries a probe twin that must go the OTHER way — without
+// which the whole case would pass on a build that simply dropped every beacon.
+// ---------------------------------------------------------------------------
+namespace {
+// A hosted mobile's own periodic identity beacon: `is_mobile`, src = its host-assigned LOCAL id, key_hash32 = its hash.
+size_t make_mobile_beacon(uint8_t local_id, uint32_t key_hash32, std::array<uint8_t, 64>& buf) {
+    beacon_in in{}; in.leaf_id = 0; in.src = local_id; in.key_hash32 = key_hash32; in.is_mobile = true;
+    return pack_beacon(in, std::span<uint8_t>(buf.data(), buf.size()));
+}
+}  // namespace
+
+TEST_CASE("★★★★★★ §B177-FIX — a mobile BEACON refreshes NO hosted row: not a LIVE one, not a REDIRECT, not an EXPIRED one, not a stale generation") {
+    constexpr uint32_t kMob    = 0x0000B7B7u;
+    constexpr uint8_t  kLocal  = 254;
+    constexpr uint8_t  kHomeId = 42;
+    constexpr uint64_t kT0     = 100000;
+    RxMeta strong{8.0f, -80.0f, 0, -1};
+
+    auto fresh_host = [&](TestHal& hal, Node& home) {                     // one LIVE DIRECT row for kMob at epoch 1
+        hal._now = kT0;
+        CHECK(home.on_init(join_cfg()));
+        std::array<uint8_t, 16> cl{};
+        home.on_recv(cl.data(), make_j_claim_mobile(kHomeId, kLocal, kMob, cl), strong);
+        CHECK(home.mobile_reg_count() == 1);                              // PREMISE: the row exists and is DIRECT
+    };
+
+    // ---- ARM A — ★★★★ **THE POSITIVE DIRECTION OF THE REMOVAL, AND THE ONE EASIEST TO GET WRONG: A BEACON MUST NOT
+    // REFRESH EVEN A PERFECTLY VALID ROW.** Two identical drives across the 25-minute boundary, differing ONLY in which
+    // frame arrives at the midpoint — a BEACON (must not save the row) or a CHECK PROBE (must). ⛔ The probe twin is not
+    // decoration: without it this arm would pass on a build that dropped mobile beacons entirely, or that never advanced
+    // the clock at all.
+    for (int kind = 0; kind < 2; ++kind) {   // 0 = beacon, 1 = check probe
+        TestHal hal; Node home(hal, kHomeId, 0x00004242u);
+        fresh_host(hal, home);
+        hal._now = kT0 + protocol::mobile_liveness_ms - 1;                 // the last ms at which the row is LIVE
+        if (kind == 0) {
+            std::array<uint8_t, 64> bb{};
+            home.on_recv(bb.data(), make_mobile_beacon(kLocal, kMob, bb), strong);
+            CHECK(home.is_mobile_peer(kLocal));                            // ★★ PREMISE: the beacon WAS ingested and DID
+                                                                           //    reach the `is_mobile` arm (mobility bit set)
+        } else {
+            std::array<uint8_t, 48> pb{};
+            home.on_recv(pb.data(), make_p_probe(kMob, kHomeId, /*layer=*/0, /*epoch=*/1, pb), strong);
+            CHECK(hal.count("presence_probe_rx") == 1);                    // PREMISE: the probe WAS ingested
+        }
+        hal._now += protocol::mobile_liveness_ms - 1;                      // a FULL window past the frame
+        hal.events.clear();
+        home.test_fire_aging();
+        if (kind == 0) {
+            CHECK(home.mobile_reg_count() == 0);                           // ★★★★ the beacon did NOT restamp the clock
+            CHECK(hal.count("mobile_reg_expired") == 1);
+        } else {
+            CHECK(home.mobile_reg_count() == 1);                           // ★★★ and the PROBE genuinely does
+            CHECK(hal.count("mobile_reg_expired") == 0);
+        }
+    }
+
+    // ---- ARM B — ★★★★ A **REDIRECT** ROW: §9.2 gives its lifetime to the BREADCRUMB, and the departed mobile is still
+    // audible at its OLD home — which is precisely how the removed touch could hold a breadcrumb open indefinitely.
+    {
+        constexpr uint8_t kNewHome = 77;
+        TestHal hal; Node home(hal, kHomeId, 0x00004242u);
+        fresh_host(hal, home);
+        home.test_drive_breadcrumb(/*origin=*/kNewHome, kMob, kNewHome, /*new_epoch=*/2, /*new_home_layer=*/0);
+        CHECK(hal.count("mobile_redirect_recorded") == 1);                 // PREMISE: the row really is a REDIRECT now
+        const uint64_t stamped_at = hal._now;
+        hal._now = stamped_at + protocol::mobile_liveness_ms - 1;
+        std::array<uint8_t, 64> bb{};
+        home.on_recv(bb.data(), make_mobile_beacon(kLocal, kMob, bb), strong);
+        CHECK(home.is_mobile_peer(kLocal));                                // PREMISE: ingested
+        hal._now += 2;                                                     // one ms past the breadcrumb's OWN deadline
+        hal.events.clear();
+        home.test_fire_aging();
+        CHECK(home.mobile_reg_count() == 0);                               // ★★★★ the redirect died on ITS OWN clock
+        { const Ev* x = hal.find("mobile_reg_expired"); CHECK(x != nullptr);
+          if (x) CHECK(x->redirect == 1); }                                // ★ and as a REDIRECT expiry, per §9.2
+    }
+
+    // ---- ARM C — ★★★★ An **EXPIRED** row is not resurrected before compaction (owner ruling, ledger §1.14). The beacon
+    // arrives AT the boundary: the row is doomed but still physically present, which is the only window in which a
+    // restamp could have brought it back.
+    {
+        TestHal hal; Node home(hal, kHomeId, 0x00004242u);
+        fresh_host(hal, home);
+        hal._now = kT0 + protocol::mobile_liveness_ms;                      // AT the boundary: expired, not yet compacted
+        std::array<uint8_t, 64> bb{};
+        home.on_recv(bb.data(), make_mobile_beacon(kLocal, kMob, bb), strong);
+        CHECK(home.mobile_reg_count() == 1);                                // PREMISE: still physically present
+        CHECK(home.is_mobile_peer(kLocal));                                 // PREMISE: the beacon was ingested
+        hal.events.clear();
+        home.test_fire_aging();
+        CHECK(home.mobile_reg_count() == 0);                                // ★★★★ no resurrection
+        CHECK(hal.count("mobile_reg_expired") == 1);
+    }
+
+    // ---- ARM D — ★★★★ **A STALE GENERATION: THE ROW IS AT EPOCH 1 WHILE THE MOBILE HAS MOVED ON TO EPOCH 2.** ⛔ AND
+    // THE HONEST STATEMENT OF WHAT CAN AND CANNOT BE TESTED HERE: *"a WRONG-EPOCH beacon"* is **not a constructible
+    // frame** — the BCN wire has no epoch field at all — so this arm asserts the strictly stronger property the removal
+    // delivers: the beacon is refused **unconditionally**, whatever generation the row holds. Alongside it, BOTH P-probe
+    // arms carrying the mobile's CURRENT epoch 2 are refused against this epoch-1 row, so the three refusals are measured
+    // together at the one moment where a single restamp would have been visible.
+    {
+        TestHal hal; Node home(hal, kHomeId, 0x00004242u);
+        fresh_host(hal, home);                                              // row epoch 1
+        hal._now = kT0 + protocol::mobile_liveness_ms - 1;
+        std::array<uint8_t, 64> bb{};
+        home.on_recv(bb.data(), make_mobile_beacon(kLocal, kMob, bb), strong);          // no epoch on the wire
+        CHECK(home.is_mobile_peer(kLocal));                                 // PREMISE: ingested
+        std::array<uint8_t, 48> sp{};
+        hal.events.clear();
+        home.on_recv(sp.data(), make_p_probe_searching(kMob, /*epoch=*/2, sp), strong);  // SEARCHING arm, epoch 2
+        CHECK(hal.count("presence_probe_rx") == 1);                          // PREMISE: ingested and answered
+        std::array<uint8_t, 48> cp{};
+        hal.events.clear();
+        home.on_recv(cp.data(), make_p_probe(kMob, kHomeId, /*layer=*/0, /*epoch=*/2, cp), strong);   // SELECTED arm, epoch 2
+        CHECK(hal.count("presence_probe_rx") == 1);                          // PREMISE: ingested and answered
+        hal._now += protocol::mobile_liveness_ms - 1;
+        hal.events.clear();
+        home.test_fire_aging();
+        CHECK(home.mobile_reg_count() == 0);                                 // ★★★★ none of the three refreshed the row
+        CHECK(hal.count("mobile_reg_expired") == 1);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ★★★★★★ §B177-FIX / THE ADJACENT SITE (ledger §1.16's *"handle it honestly"*) — **BOTH P-PROBE ARMS NOW ASK THE SAME
+// TUPLE, SO A WRONG-EPOCH, REDIRECT OR EXPIRED ROW IS REFRESHED BY *NEITHER*.**
+//
+// ⛔ WHAT WAS WRONG AND WHY IT WAS FIXED HERE RATHER THAN REGISTERED SEPARATELY: the **SELECTED** arm
+// (`presence_ingest_probe`, `node_join.cpp`) found the row by **HASH ALONE** and refreshed it with no
+// `host_row_live_direct()` and no `reg_epoch` check — `sel_me` proves only that the probe names *us* as home, never the
+// row's kind, freshness or generation. §MH-S5b's SEARCHING arm already carried both terms, so with the beacon touch gone
+// the two remaining refresh paths disagreed, **and the older one was the weaker.** It is the same invariant, the
+// predicate already existed, and — unlike the beacon — a P probe **does** carry the epoch (`frame_codec.h` P-probe byte
+// 7, present on EVERY probe). ⇒ one shared `host_row_probe_refreshable()` (node.h), read by both arms.
+//
+// ★★★ THE MATRIX IS DRIVEN FOR **BOTH** ARMS, and the POSITIVE row is what makes the refusals mean something: the same
+// two arms, at the same instant, with a CORRECT-epoch live direct row, must keep the row alive. A build that refused
+// everything would pass the three refusal rows and fail the positive one.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★★★★ §B177-FIX (the adjacent site) — a correct-epoch probe refreshes a LIVE DIRECT row on BOTH arms; a WRONG-EPOCH, REDIRECT or EXPIRED row is refreshed by NEITHER") {
+    constexpr uint32_t kMob    = 0x0000B8B8u;
+    constexpr uint8_t  kLocal  = 254;
+    constexpr uint8_t  kHomeId = 42;
+    constexpr uint8_t  kNewHome = 77;
+    constexpr uint64_t kT0     = 100000;
+    RxMeta strong{8.0f, -80.0f, 0, -1};
+
+    enum Row { live_ok = 0, wrong_epoch = 1, redirect = 2, expired = 3 };
+    for (int arm = 0; arm < 2; ++arm) {            // 0 = SELECTED (a check probe naming us), 1 = SEARCHING
+        for (int row = live_ok; row <= expired; ++row) {
+            TestHal hal; Node home(hal, kHomeId, 0x00004242u);
+            hal._now = kT0;
+            CHECK(home.on_init(join_cfg()));
+            std::array<uint8_t, 16> cl{};
+            home.on_recv(cl.data(), make_j_claim_mobile(kHomeId, kLocal, kMob, cl), strong);
+            CHECK(home.mobile_reg_count() == 1);                            // PREMISE: a LIVE DIRECT row at epoch 1
+            uint64_t deadline_from = kT0;
+            if (row == redirect) {                                          // becomes a breadcrumb, with its OWN clock
+                home.test_drive_breadcrumb(kNewHome, kMob, kNewHome, /*new_epoch=*/2, /*new_home_layer=*/0);
+                CHECK(hal.count("mobile_redirect_recorded") == 1);          // PREMISE: the row really is a REDIRECT
+                deadline_from = hal._now;
+            }
+            // Deliver the probe at the last LIVE millisecond — except for `expired`, where the whole point is that it
+            // arrives AT the boundary, doomed but not yet compacted (ledger §1.14).
+            hal._now = deadline_from + protocol::mobile_liveness_ms - (row == expired ? 0 : 1);
+            const uint8_t probe_epoch = (row == wrong_epoch) ? 2 : 1;
+            hal.events.clear();
+            std::array<uint8_t, 48> pb{};
+            const size_t pn = (arm == 0) ? make_p_probe(kMob, kHomeId, /*layer=*/0, probe_epoch, pb)
+                                         : make_p_probe_searching(kMob, probe_epoch, pb);
+            home.on_recv(pb.data(), pn, strong);
+            CHECK(hal.count("presence_probe_rx") == 1);                     // ★★ PREMISE: the probe WAS ingested and
+                                                                            //    ANSWERED on this arm — the refusal is of the
+                                                                            //    REFRESH only, never of the probe (C2: the
+                                                                            //    roster still carries the row's own epoch,
+                                                                            //    which is what makes the mobile re-register)
+            CHECK(home.mobile_reg_count() == 1);                            // PREMISE: nothing was pruned by the ingest
+            // ★★★★ Advance to the ONE instant that discriminates, and the arithmetic is spelled out because THE FIRST
+            // VERSION OF THIS LINE MADE THE `redirect` ROW MUTATION-BLIND — the mutation matrix caught it, not review.
+            // It advanced by a FULL `mobile_liveness_ms` for that row, so the row aged out *even when the mutant had
+            // restamped it*, and the assertion below could not fail. With the probe delivered at `P` and the row's clock
+            // at `deadline_from`, the window that separates the two outcomes is `X ∈ [P+1, P+mobile_liveness_ms-1]`:
+            // an UNREFRESHED row is then past `deadline_from + mobile_liveness_ms` (so it dies) while a REFRESHED one is
+            // only `X - P` old (so it lives). `X = P + mobile_liveness_ms - 1` satisfies both for every row kind here.
+            hal._now += protocol::mobile_liveness_ms - 1;
+            hal.events.clear();
+            home.test_fire_aging();
+            if (row == live_ok) {
+                CHECK(home.mobile_reg_count() == 1);                        // ★★★★ the correct-epoch probe DID refresh
+                CHECK(hal.count("mobile_reg_expired") == 0);
+            } else {
+                CHECK(home.mobile_reg_count() == 0);                        // ★★★★ wrong-epoch / redirect / expired: nothing
+                CHECK(hal.count("mobile_reg_expired") == 1);
+                if (row == redirect) { const Ev* x = hal.find("mobile_reg_expired");
+                                       if (x) CHECK(x->redirect == 1); }    // ★ and it died as a REDIRECT (§9.2)
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ★★★★★★ §B177-FIX — **THE OVER-REMOVAL CONTROL. ⛔ WITHOUT THIS CASE, DELETING TOO MUCH PASSES SILENTLY.**
+// The edit removes a `for` loop that sat one line below the `_mobile_peer` mobility write and immediately above the
+// carried-DV merge, inside a shared `if (b.is_mobile)` arm — i.e. exactly the shape where a brace or a neighbouring
+// statement goes with it and every "the beacon no longer refreshes" assertion above still passes. So each unrelated
+// beacon function is asserted here on its own observable, not inferred from "the file compiles".
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★★★★ §B177-FIX (over-removal control) — a beacon still does EVERY unrelated job: mobility bit, static route learn, team peer + team route, mobile candidate collection, home-heard stamp") {
+    RxMeta strong{8.0f, -80.0f, 0, -1};
+
+    // (1) ★★★★ THE MOBILITY BIT — the line DIRECTLY above the deleted loop, and the one thing a sloppy removal takes
+    // with it. It is load-bearing: `route_uses_mobile_as_transit` reads it to avoid routing THROUGH a mobile.
+    {
+        TestHal hal; hal._now = 100000;
+        Node host(hal, /*node_id=*/42, 0x00004242u);
+        CHECK(host.on_init(join_cfg()));
+        CHECK_FALSE(host.is_mobile_peer(200));                              // PREMISE: not set beforehand
+        std::array<uint8_t, 64> bb{};
+        host.on_recv(bb.data(), make_mobile_beacon(/*local=*/200, 0x0000AA01u, bb), strong);
+        CHECK(host.is_mobile_peer(200));                                     // ★★★★ still learned
+        CHECK(host.mobile_reg_count() == 0);                                 // ★ and no row was invented for a stranger
+    }
+    // (2) ★★★ A STATIC beacon still learns a DIRECT route into `_rt` (the `else if` branch beside the mobile arm).
+    {
+        TestHal hal; hal._now = 100000;
+        Node host(hal, /*node_id=*/42, 0x00004242u);
+        CHECK(host.on_init(join_cfg()));
+        const uint8_t rt_before = host.rt_count();
+        std::array<uint8_t, 64> bb{};
+        host.on_recv(bb.data(), make_beacon(/*src=*/60, 0x00006060u, bb), strong);
+        CHECK(host.rt_count() == rt_before + 1);                             // ★★★ route learning intact
+        CHECK_FALSE(host.is_mobile_peer(60));                                // ★ and a STATIC sender is not marked mobile
+    }
+#if MR_FEAT_TEAM
+    // (3) ★★★ A SAME-TEAM MOBILE beacon still marks the team peer AND learns into the TEAM plane. This one shares the
+    // `is_mobile` arm with the removed loop, so it is the closest neighbour of all.
+    {
+        constexpr uint32_t kTeam = 0x7EA30000u;
+        TestHal hal; hal._now = 100000;
+        Node node(hal, /*node_id=*/42, 0x00004242u);
+        NodeConfig c = join_cfg(); c.team_id = kTeam;
+        CHECK(node.on_init(c));
+        CHECK_FALSE(node.is_team_peer(90));                                  // PREMISE
+        const uint8_t team_before = node.rt_team_count();
+        std::array<uint8_t, 64> bb{}; std::array<uint8_t, 8> tlv{};
+        node.on_recv(bb.data(), make_team_beacon(/*src=*/90, 0x00009090u, kTeam, bb, tlv), strong);
+        CHECK(node.is_team_peer(90));                                        // ★★★ team peer learned
+        CHECK(node.rt_team_count() == team_before + 1);                      // ★★★ and a TEAM-plane route with it
+    }
+#endif
+#if MR_FEAT_MOBILE
+    // (4) ★★★★ A REGISTERED MOBILE still collects CANDIDATE HOMES from overheard static beacons (§S6.4-C) and still
+    // stamps hearing its OWN home's beacon (§mobile 2b, the home-loss timeout's input). Both live in the same
+    // `ingest_beacon` body, ahead of the arm that was edited.
+    {
+        TestHal hal; hal._now = 100000;
+        Node mob(hal, /*node_id=*/17, 0x0000C0DEu);
+        NodeConfig mc = join_cfg(); mc.is_mobile = true;
+        CHECK(mob.on_init(mc));
+        mob.test_set_my_mobile_reg(/*home_id=*/30, /*local_id=*/17);
+        CHECK(mob.mobile_candidate_count() == 0);                            // PREMISE
+        std::array<uint8_t, 64> cb{};
+        mob.on_recv(cb.data(), make_beacon(/*src=*/61, 0x00006161u, cb), strong);
+        CHECK(mob.mobile_candidate_count() == 1);                            // ★★★★ candidate collection intact
+        // ...and the §mobile 2b HOME-HEARD stamp (the home-loss timeout's only input) still fires. `test_set_my_mobile_reg`
+        // seeds `home_key_hash32 = 0`, so the home's beacon is built with that hash — the handler compares BOTH id and key.
+        hal._now += 50000;
+        CHECK(mob.test_last_heard_home_ms() != hal._now);                    // PREMISE: not already stamped at this instant
+        std::array<uint8_t, 64> hb{};
+        mob.on_recv(hb.data(), make_beacon(/*src=*/30, /*key_hash32=*/0u, hb), strong);
+        CHECK(mob.test_last_heard_home_ms() == hal._now);                    // ★★★★ home-liveness stamp intact
+    }
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// ★★★★★ §MH-S5b ITEM 3 / GATE 11's UNVERIFIED HALF — **AN UNVERIFIED CANDIDATE ON OUR OWN LAYER CANNOT RE-HOME,
+// HOWEVER MUCH STRONGER IT IS. THE SAME CANDIDATE, ONCE IT HAS ECHOED ONE OF OUR PROBES, CAN.**
+//
+// ⛔⛔ WHY THIS CASE HAD TO BE WRITTEN RATHER THAN RELYING ON THE EXISTING ARM 12(a): that arm's unverified
+// candidate is ALSO on a different layer nibble, so §MH-S5's layer rejection refused it and the verification term
+// was never exercised. It could not fail if the verified requirement were absent — the instruments-that-cannot-fail
+// shape this arc has now hit 17+ times. ⇒ **this candidate sits on OUR OWN layer, and the case ASSERTS that**, so
+// the only thing that can refuse it is §8.4's verification requirement.
+//
+// ★★ AND THE THIRD ARM IS THE ONE THAT MAKES "VERIFIED" MEAN SOMETHING: a roster echoing SOMEBODY ELSE'S hash is
+// not our verification. `echo_tier` may only be set by an echo of OUR OWN hash (§8.1: either proves willingness to
+// host *us* at response time), so a build that recorded any echo at all would pass arms 1 and 2 and fail here.
+// ---------------------------------------------------------------------------
+TEST_CASE("★★★★★ §MH-S5b §8.4 (item 3, gate 11's unverified half) — an UNVERIFIED same-layer candidate cannot re-home; the ECHOED one can") {
+    constexpr uint32_t kMob    = 0x00001103u;
+    constexpr uint32_t kOtherM = 0x00009999u;                          // somebody else's hash, for the echo arm
+    constexpr uint8_t  kHome1  = 65;
+    constexpr uint8_t  kHome2  = 66;
+    constexpr uint8_t  kLocal  = 247;
+    RxMeta strong{9.0f, -70.0f, 0, -1};
+    RxMeta weak  {-8.0f, -95.0f, 0, -1};
+
+    // Drive a mobile to a weak-home steady state with `cand` audible for the full hysteresis, then evaluate.
+    auto run = [&](int flavour) {
+        TestHal hal; hal._now = 100000;
+        Node mob(hal, 0, kMob);
+        CHECK(mob.on_init(s0_mobile_cfg()));
+        CHECK(mob.active_layer_id() == 0);                            // ★ PREMISE: the candidate below is on OUR layer
+        mob.test_set_my_mobile_reg(kHome1, kLocal);
+        attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_weak, weak);   // home_worst = 1
+
+        std::array<uint8_t, 64> cb{};
+        size_t cn = 0;
+        if (flavour == 0)      cn = make_p_roster_other(kHome2, /*home_layer=*/0, cb);                                    // NO echo at all
+        else if (flavour == 1) cn = make_p_roster_other_echo(kHome2, 0, kMob, protocol::presence_q_strong, cb);           // echoes US
+        else                   cn = make_p_roster_other_echo(kHome2, 0, kOtherM, protocol::presence_q_strong, cb);        // echoes SOMEBODY ELSE
+
+        mob.on_recv(cb.data(), cn, strong);                           // cand->me = tier 3
+        CHECK(mob.mobile_candidate_count() == 1);                     // PREMISE: collected either way
+        CHECK(mob.mobile_verified_candidate_count() == (flavour == 1 ? 1 : 0));
+        hal._now += protocol::presence_rehome_dwell_ms + protocol::presence_candidate_hold_ms + 1000;
+        mob.on_recv(cb.data(), cn, strong);                           // keep it FRESH (§8.2) — so freshness cannot be the refusal
+        hal.events.clear();
+        attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_weak, weak);
+        return hal.count("presence_rehome");
+    };
+
+    // ---- ARM 1 — ★★★★ NO ECHO AT ALL. Same layer, three tiers better, fresh, both hysteresis windows served.
+    CHECK(run(0) == 0);                                               // ★★★★ refused on VERIFICATION and nothing else
+    // ---- ARM 2 — ★★★★ THE POSITIVE CONTROL: the identical candidate, now echoing OUR hash.
+    CHECK(run(1) == 1);                                               // ★★★★ verified ⇒ the switch fires
+    // ---- ARM 3 — ★★★★ AN ECHO OF SOMEBODY ELSE IS NOT OUR VERIFICATION.
+    CHECK(run(2) == 0);                                               // ★★★★ still refused
+
+    // ★★★ AND THE CROSS-LAYER WIDENING §MH-S5 LANDED IS STILL IN FORCE (gate 12(b)) — item 3 removed the layer
+    // rejection as UNREACHABLE, not as a policy change, so a VERIFIED candidate on another full layer id must
+    // still be able to move us. Asserted here rather than inferred from arm 12(b), which uses a different fixture.
+    {
+        TestHal hal; hal._now = 100000;
+        Node mob(hal, 0, kMob);
+        CHECK(mob.on_init(s0_mobile_cfg()));
+        mob.test_set_my_mobile_reg(kHome1, kLocal);
+        attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_weak, weak);
+        std::array<uint8_t, 64> vb{};
+        const size_t vn = make_p_roster_other_echo(kHome2, /*home_layer=*/7, kMob, protocol::presence_q_strong, vb);
+        mob.on_recv(vb.data(), vn, strong);
+        CHECK(mob.active_layer_id() != 7);                            // PREMISE: it really is ANOTHER layer nibble
+        hal._now += protocol::presence_rehome_dwell_ms + protocol::presence_candidate_hold_ms + 1000;
+        mob.on_recv(vb.data(), vn, strong);
+        hal.events.clear();
+        attach_and_report(mob, hal, kHome1, kMob, kLocal, protocol::presence_q_weak, weak);
+        CHECK(hal.count("presence_rehome") == 1);                     // ★★★ verified cross-layer still allowed
+    }
 }
 
 // ---------------------------------------------------------------------------

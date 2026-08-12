@@ -849,11 +849,38 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 #endif
     if (b.is_mobile) {
         _active->_mobile_peer[b.src >> 3] |= static_cast<uint8_t>(1u << (b.src & 7));   // ① learn mobility (SET-only, dv:9603-9604) -> avoid as transit
-        for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)   // §mobile hash-locate liveness refresh: a hosted mobile's periodic beacon (key_hash32=M) proves it's alive + present -> refresh the proxy-liveness clock. WITHOUT this a STATIONARY mobile black-holes ~mobile_liveness_ms after homing: it never re-CLAIMs while its home stays heard, so CLAIM is the only other last_heard_ms write (beacon_period_ms < mobile_liveness_ms keeps a live mobile fresh). Gated on _mobile_reg_n>0 -> a non-host is byte-identical.
-            // §3-D (ruled 2026-07-21): a hosted mobile's beacon ALSO feeds the per-mobile SNR EWMA — "the same way as in the
-            // static mesh" — via the shared mobile_reg_touch (last_heard + snr_ewma_update), exactly as the probe path does.
-            // Previously this refreshed last_heard_ms ONLY, so a stationary mobile's roster tier was frozen at its CLAIM seed.
-            if (_active->_mobile_reg[i].key_hash32 == b.key_hash32) { mobile_reg_touch(i, meta_snr_q4); break; }
+        // ★★★★★ §B177-FIX (owner-ruled 2026-08-11, ledger §1.16) — **A MOBILE BEACON IS A PRESENCE/CANDIDATE *HINT*.
+        // IT IS NO LONGER AN AUTHORITY OVER THE HOSTED REGISTRY, AND THE REFRESH THAT USED TO STAND HERE IS REMOVED.**
+        // What was here: `for (i < _mobile_reg_n) if (_mobile_reg[i].key_hash32 == b.key_hash32) { mobile_reg_touch(i,
+        // meta_snr_q4); break; }` — a match on the **HASH ALONE**, i.e. the [[B147]]/[[B172]]/[[B174]] tuple error at its
+        // fifth site in this arc. A hosted row's identity is `(hash, local_id, direct-vs-redirect, live-vs-expired,
+        // epoch)`, and matching one field of five restamped: (a) a **REDIRECT** row, overriding §9.2's *"the redirect
+        // lifetime is stamped at breadcrumb receipt"* clock so a departed mobile's beacon could hold an old home's
+        // breadcrumb open indefinitely; (b) an **EXPIRED** row, i.e. resurrection before compaction — the liveness twin
+        // of the service question ledger §1.14 ruled on; (c) a row from **before a re-home**, because the beacon has no
+        // epoch term to disagree with.
+        // ⛔⛔ **AND IT COULD NOT BE REPAIRED BY A GATE, WHICH IS *WHY* THE ANSWER IS A REMOVAL: THE BCN LAYOUT CARRIES
+        //    `key_hash32` AND NO `reg_epoch`** (`frame_codec.h` BCN bytes 4..7; `beacon_out` has no epoch member —
+        //    verified at the codec, not inferred). Copying the P-probe arm's `host_row_live_direct() + low-byte epoch`
+        //    shape onto this path would have shipped a gate **asserting a guarantee the frame cannot deliver.**
+        //    ⛔ Adding an epoch byte or TLV to EVERY beacon was ruled out: permanent airtime spent to preserve a
+        //    mechanism the presence plane already provides.
+        // ⇒ **THE EPOCH-BEARING P PROBE IS NOW THE SOLE ONGOING AUTHORITY** for hosted-row liveness *and* the per-mobile
+        //   SNR EWMA — `presence_refresh_hosted_row` (`node_join.cpp`), reached by BOTH probe arms, each gated on
+        //   `host_row_probe_refreshable()` (node.h). CLAIM still SEEDS a fresh row; nothing else writes `last_heard_ms`.
+        //
+        // ⚠⚠ **THE RATIONALE THAT STOOD HERE IS WITHDRAWN IN PLACE WITH ITS REASON — ⛔ NOT DELETED — SO THE NEXT READER
+        // DOES NOT "RESTORE" THE TOUCH.** It argued, in two parts: (1) *"WITHOUT this a STATIONARY mobile black-holes
+        // ~mobile_liveness_ms after homing: it never re-CLAIMs while its home stays heard, so CLAIM is the only other
+        // last_heard_ms write (beacon_period_ms < mobile_liveness_ms keeps a live mobile fresh)"*; and (2) §3-D (ruled
+        // 2026-07-21) *"a hosted mobile's beacon ALSO feeds the per-mobile SNR EWMA — the same way as in the static mesh
+        // … Previously this refreshed last_heard_ms ONLY, so a stationary mobile's roster tier was frozen at its CLAIM
+        // seed."* **BOTH PREDATE THE PRESENCE PLANE AND ARE STALE:** a hosted mobile emits a P **check** probe on its own
+        // adaptive deadline `presence_check_min_ms`..`presence_check_max_ms` = **60 000..480 000 ms (1-8 min)**
+        // (`presence_probe_fire` / the per-tier `T` clamp, `node_mobile.cpp`), that probe carries the epoch, and the home
+        // measures its SNR — so the liveness clock AND the EWMA are both fed **well inside** the 25-minute
+        // `mobile_liveness_ms` expiry, on a frame the mobile already sends. A stationary mobile is exactly the case that
+        // is covered: it is the case that probes.
     }
 
     // DV merge: each carried entry is a route via the sender (dv_dual_sf.lua:9620-9678).

@@ -1556,6 +1556,38 @@ the new mobile offered **253** (the row was hidden, not removed — the id is st
 lifetime clock is not being stamped) · a P roster still advertising the departed hash (sniff it: a home must never
 claim to host a mobile it has expired).
 
+### 17.1b — ★★ §B177-FIX: A MOBILE THAT IS AUDIBLE BUT ONLY **BEACONING** IS STILL EXPIRED (owner ruling, ledger §1.16)
+
+⚠ **THIS IS THE ONE METAL-ONLY RESIDUE §B177-FIX ADDS, AND IT IS *NOT* 17.1 REPEATED.** 17.1 powers the mobile **off**,
+so no frames arrive at all. Here the mobile stays **powered, in range and beaconing** while its presence probes stop —
+which is exactly the case the removed beacon → `mobile_reg_touch()` touch used to keep alive **for ever**. Native covers
+the refusal (four arms, mutation `m_bcn` = 12 RED); what only metal can show is **real wall-clock expiry with real
+beacons genuinely being received**, plus the device-only console line.
+
+⚠ **USE THE SAME TEMPORARY BENCH CONSTANT AS 17.1** (`protocol::mobile_liveness_ms` → 120000 on the HOST only, then
+rebuild the defaults). ⛔ Do the whole of 17.1b in the same session as 17.1 so the rebuild is paid once.
+
+1. Host: `cfg set host_mobiles on`, attach one mobile, `status` → `hosting=1` with `m[0] … DIRECT age=<n>s/120s`.
+2. On the **MOBILE**: `mobile unregister`. ★ This is the arrangement, and it is chosen because it is purely local — it
+   cancels `kPresenceProbeTimerId` (probes stop) and sends **nothing** to the home, while **beaconing is untouched** and
+   continues on `beacon_ms`. ⛔ Do **not** power the mobile off; that is 17.1.
+3. Confirm on the host, with `debug on`, that the mobile's beacons **are still arriving** (its `hash=`/src appears in the
+   beacon/neighbour traffic). ★★ **THIS STEP IS THE WHOLE TEST'S PREMISE — without it, a pass proves only that a silent
+   mobile expires, which 17.1 already proves.**
+4. Wait past the shortened boundary. On the host: `status`.
+
+**Expected — the row is GONE even though the mobile is audible:** no `hosting=` line at all (it prints only when the
+count is non-zero), exactly as in 17.1. Sniff the host's P roster: it must **not** advertise the departed hash.
+
+5. ★ **THE POSITIVE CONTROL, so the step cannot pass on a node that simply lost its registry:** on the mobile,
+   `mobile register`. It re-attaches, and its **probes** now resume. Wait **past another full boundary** and check
+   `status` again — **expect the row PRESENT with `age=` well under the limit**, i.e. the probe really is the refresh.
+
+⛔ **FAILURE SHAPES:** the row still listed after the boundary in step 4 **while beacons are confirmed arriving** ⇒ the
+beacon touch is still in the build · the row gone in step 4 but **also** gone after step 5 ⇒ the probe refresh is broken
+too (that would be a regression in `presence_refresh_hosted_row`, not this fix) · `age=` frozen in step 5 ⇒ the row's
+clock is not being stamped by the probe · no beacons visible in step 3 ⇒ **the test is void, not passed.**
+
 ### 17.2 — the per-row hosting view ([[B154]] (b)), and the REDIRECT kind
 
 The `DIRECT`/`REDIRECT` distinction and the age are **device-only console text**; no automated gate reads a console
@@ -1587,6 +1619,86 @@ setup is harder to verify than its outcome, so a bench step for it would be a st
 **17.1 step 4 is the metal-only part of it that CAN be checked: the id really is re-offered.**
 ⛔ **No step is owed for the candidate-freshness rule either** — it is native-covered, and its trigger is 25 minutes
 of a candidate's silence, which is the same wall-clock problem with no console surface of its own.
+
+## Part 18 — §MH-S5b the weak/missed-home canvass and the verified-echo switch (2026-08-11)
+
+⚠ **M2 SCOPE, stated so nothing else is added here.** The native suite asserts the probe KIND at all four quality
+tiers, the missed-check trigger, the local-refusal exclusion, the per-tier byte count, the host-row refresh with its
+epoch/redirect/expired/custody arms, and the verified-echo requirement — 13 mutations, all RED. What no automated gate
+reaches is **real wall-clock time** (the 8-minute strong-tier period), **real RF attenuation** (a genuine weak home
+next to a genuine stronger one) and **a sniffer's view of the byte that changed**. Those three, and nothing more.
+⛔⛔ **AMENDED 2026-08-11 BY §MH-S5b-ii: §8.3's TRIGGER 1 (a weak home canvassing) IS DEFERRED UNDER [[B178]], SO 18.2
+NOW PINS THE DEFERRAL RATHER THAN THE CANVASS.** Nothing is added and nothing is deleted — 18.2 is rewritten in place,
+and it gains one step because "weak but answering" and "not answering" are now DIFFERENT expected outcomes and a bench
+run must be able to tell them apart. ★★ **The residual policy it verifies on metal: a weak but consistently responding
+home is never canvassed, so M changes home only AFTER connectivity begins failing — a CONSERVATIVE INTERIM POLICY, ⛔
+NOT completed proactive roaming.**
+
+### 18.1 — ★★ THE ≈8-MINUTE STRONG-LINK IDLE-LOSS BOUND IS THE ACCEPTED TRADE-OFF, NOT A FAULT (spec §12.3-8)
+
+⚠ **RUN THIS AT THE REAL DEFAULTS — the point is the wall clock.** Budget ~10 minutes of doing nothing.
+
+1. Attach mobile M to host H at a **strong** signal. On M: `mobile status` — confirm the reported tier is `strong`
+   and the home link is `confirmed` with a small age.
+2. Walk M out of range (or attenuate to zero) **immediately after** a confirmation, and generate **no traffic**.
+3. Watch `mobile status` every minute.
+
+**Expected — the confirmation AGE GROWS monotonically and nothing claims connectivity, then loss is declared at
+≈8 min 15 s (495 s: 480 s at the strong tier + three 5 s retries, plus up to 8 s of jitter per deadline ⇒ ≤ 527 s):**
+
+```
+mobile home link: confirmed  age=310s      <- growing, never "connected"
+mobile home link: checking   age=495s
+!! home lost after 3 unanswered presence probes
+```
+
+⛔ **FAILURE SHAPES:** loss declared in well under 8 minutes (the strong-tier period was shortened — that spends
+battery on every healthy mobile in the fleet, and it must be argued as a design change, not filed as a fix) · loss
+never declared · the panel showing an unqualified "connected" at any point while the age grows.
+
+### 18.2 — ★★ A HEALTHY HOME IS KEPT SILENTLY; **A WEAK-BUT-ANSWERING ONE IS *ALSO* KEPT SILENTLY** (trigger 1 DEFERRED); ONLY A **MISSED CHECK** CANVASSES, THEN SWITCHES (spec §12.3-7)
+
+⛔⛔ **REWRITTEN IN PLACE 2026-08-11 BY §MH-S5b-ii — READ THIS BEFORE FILING A FAILURE.** Step 2 previously read
+*"attenuate H1 until its roster reports M as `weak`. Expected: M's next P-probe has byte 1 = 0"*. **That expectation is
+WITHDRAWN: §8.3's trigger 1 is DEFERRED under [[B178]]** (measured at −6 unique deliveries, all in `s07`, from a
+fleet-wide roster storm). ⇒ **a weak home that still ANSWERS is now probed SELECTED, and a searching probe there is a
+FAILURE, not a pass.** ★★ **The limitation this pins: the mobile changes home only AFTER connectivity begins failing —
+a conservative interim policy, ⛔ NOT completed proactive roaming.**
+
+Needs **two** hosts on the same PHY and a sniffer. The measurable byte is P-probe **byte 1**
+(`selected_home_id`): non-zero = selected, **0 = searching**.
+
+1. M attached to H1, healthy. Bring H2 into range at a **much stronger** signal. Leave it there for >6 minutes.
+   **Expected:** `mobile status` on M lists H2 under verified candidates, `hosting` at H1 is unchanged, and the
+   sniffer shows **every** P-probe from M with byte 1 = **H1's id** — ⛔ **zero searching probes and zero extra
+   frames from M.** That is "adequate before optimal", and a single searching probe here is the failure.
+2. ★★ Now attenuate **H1** until its roster reports M as `weak`, **but keep H1 ANSWERING** (its rosters must still
+   reach M — check `mobile status` shows a `weak` tier with a small home-link age).
+   **Expected — THE DEFERRAL:** `mobile status` on M shows the tier `weak`, the check period drops to **60 s** (from
+   120 s at `ok`), and the sniffer STILL shows **every** P-probe from M with byte 1 = **H1's id**. ⛔ **NO searching
+   probe, NO re-home, and H2's rosters carry no echo of M** — H2 is never asked.
+3. ★★ Now make H1 **stop answering** (attenuate further / power it down) so M's checks go unanswered.
+   **Expected — TRIGGER 2:** M's FIRST probe is still selected (it is what books the miss), and the **retry ≈5 s
+   later has byte 1 = 0**. H2 answers with a roster carrying an **echo** of M's hash, and once the 60-second hold and
+   the 5-minute dwell are served M re-homes to H2. (⚠ With H1 powered down its `REDIRECT->H2` row (17.2) cannot be
+   read; to see that, restore H1 after the switch.)
+4. On H1 while it is still answering and M is canvassing (i.e. H1 attenuated but alive, mid-ladder), `status` must
+   show `m[0] … DIRECT age=` **restarting**, not frozen — M's own **searching** probes refresh the row it still
+   lives in.
+
+⛔ **FAILURE SHAPES:** searching probes while H1 is healthy (the airtime hole) · ★★ **a searching probe, or a re-home,
+while H1 is WEAK BUT STILL ANSWERING** — that means trigger 1 came back and [[B178]]'s deferral is broken · no
+searching probe on the retry after H1 stops answering (the canvass never fires ⇒ the switch is unreachable) · a switch
+with **no** echoing roster from H2 on the sniffer (a one-way beacon decided it) · H1's `age=` climbing past the
+boundary and the row being evicted while M is still attached and probing.
+
+### 18.3 — ⓘ WHAT IS **NOT** OWED HERE
+
+⛔ **No step for §8.3's trigger 3** (an attributable home-path failure) — it is not implemented; it is a separate
+slice. ⛔ **No step for §8.3's trigger 1 as a POSITIVE either** — it is DEFERRED ([[B178]]); 18.2 step 2 pins its
+ABSENCE, and a step asserting it fires would fail by design until the refined trigger lands. ⛔ **No step for the
+stale-epoch refusal**: producing a genuinely stale row at an old home while the mobile canvasses needs the same
+two-host arrangement as 18.2 plus a 25-minute wait, and 18.2 step 4 already checks the half that has a console surface.
 
 ## Part 14 — §B153/§B157 the retired RTS-derived terminal decisions (2026-08-08)
 

@@ -719,6 +719,53 @@ void Node::presence_arm_check(uint32_t delay_ms) {
     (void)_hal.after(delay_ms + jitter, kPresenceProbeTimerId);
 }
 
+// ★★★★ §MH-S5b-ii §8.3 — **THE *ONE* PERMITTED REASON, TODAY, FOR THE STEADY CHECK PROBE TO BE A *SEARCHING* ONE.**
+// The contract, the airtime argument and the trigger-3 exclusion are documented at the declaration (node.h); this is
+// the arithmetic, and every term is EXISTING state — nothing is stored for it (D2: `sizeof(Node)` unmoved).
+//
+// ★ TRIGGER 2 = `_presence_miss > 0`, i.e. at least one probe has already gone unanswered and this is the retry.
+//   §8.3 words it "the current home misses a check (an unanswered probe, on the way to `lost`)". ⓘ `_presence_miss`
+//   counts only ADMITTED probes ([[B139]]) — a probe OUR OWN transmitter refused never sets it, so a busy channel
+//   cannot start a canvass. That is the same boundary §6.4 draws, reused rather than re-spelled.
+//
+// ⛔⛔ **TRIGGER 1 (`_presence_prescan`, "the home's reported quality is weak or critical") IS *NOT* READ HERE, AND
+//    THAT IS DELIBERATE AND CURRENT: IT IS **DEFERRED** UNDER [[B178]], NOT FORGOTTEN AND NOT DEAD.** §MH-S5b landed
+//    it and MEASURED it: a weak-home mobile's check flips from `selected` to `searching`, **every** eligible home
+//    answers, corpus P-roster airtime rises **+31 %**, `s07` collisions go 2775 → 3528, and **6 unique deliveries are
+//    lost, all of them in `s07`** (734 → 728, under the `≥733` floor). ⇒ §MH-S5b-ii keeps trigger 2 and drops the
+//    trigger-1 disjunct. **⛔ THE MOBILE THEREFORE STILL EVALUATES A SWITCH ON A WEAK HOME — what it no longer does is
+//    SPEND AIRTIME ASKING.** ⓘ VERIFIED at the code rather than asserted (V1): `_presence_prescan`'s two remaining
+//    readers are `presence_ingest_roster`'s `if (_presence_prescan) presence_maybe_rehome();` and
+//    `presence_maybe_rehome`'s own guard — it is the gate that lets the switch EVALUATION run at all.
+//    ⛔ **CANDIDATE COLLECTION IS NOT ONE OF THEM AND NEVER WAS: `presence_note_candidate` is UNCONDITIONAL on home
+//    quality**, so the candidate table keeps filling from passive traffic whatever the home's tier.
+//   ★★ **THE LIMITATION THIS LEAVES, STATED HERE BECAUSE THIS IS THE PREDICATE A READER FOLLOWS: A WEAK BUT
+//      CONSISTENTLY RESPONDING HOME WILL NOT PROACTIVELY INITIATE CANDIDATE VERIFICATION, SO THE MOBILE CHANGES HOME
+//      ONLY AFTER CONNECTIVITY BEGINS FAILING.** A verified echo can only come from a searching probe, and today only
+//      a MISS (or loss, or `claiming`) sends one. ⇒ **this is a CONSERVATIVE INTERIM POLICY, NOT completed proactive
+//      roaming**, and ⛔ **§8.3 is NOT satisfied** — §S6.4-C's purpose (*leave a weak home BEFORE loss*) is NOT met.
+//   ★ **WHAT RETURNS, AND WHY IT IS NARROWER THAN WHAT WAS REMOVED ([[B178]]'s refined form):** a proactive searching
+//      probe only when the home is weak/critical **AND** at least one candidate is fresh, compatible, passively
+//      observed, still unverified, whose measured one-way quality could possibly satisfy the two-tier rule, **and**
+//      whose candidate hold + anti-flap dwell are already satisfied — i.e. a canvass is only ever spent where a switch
+//      could actually complete. ⛔ The broad *"weak home + any audible candidate"* form is REFUSED: in a dense
+//      scenario nearly every mobile has an audible candidate, so it reproduces the same storm unchanged.
+//      ⚠ [[B177]] (the beacon touch with no row-kind/freshness/epoch gate) must be fixed FIRST — its erroneous
+//      refresh alters the very liveness and quality inputs the refined trigger would read.
+//   ⛔ AND THE WIDER BOTTLENECK (`min(quality_tier(_presence_home_rx_q4), _presence_my_tier)`, which §8.4 uses for the
+//      DELTA) STAYS REFUSED AS THE TRIGGER SHAPE: it is true in cases `presence_maybe_rehome` cannot act on, so a
+//      canvass spent there buys nothing and is exactly §8.3's airtime hole.
+// ⛔ `claiming` IS NOT A TRIGGER AND IS NOT TESTED HERE: a claiming mobile's probe is ALREADY searching (§MH-S4b
+//    §7.1 step 3) and its deadline belongs to the confirmation budget. The caller keeps that fork ahead of this one.
+// ⛔ NO CUSTODY SUPPRESSION. An earlier shape of this predicate refused to canvass until `_presence_key_confirmed`,
+//    because the home ingests `ed_pub` on the `!searching` arm only — that hole is closed at the HOME (item 2's
+//    shared refresh now carries custody on both arms), so suppressing here would have been a second fix for a
+//    defect already fixed, and one that a permanently-unconfirmed key could have made permanent.
+bool Node::presence_searching_probe_due() const {
+    if (!_cfg.is_mobile || !_my_mobile_reg.active) return false;   // unattached -> the DISCOVER FSM owns the canvass
+    return _presence_miss > 0;                                     // §8.3 trigger 2 — ⛔ trigger 1 DEFERRED ([[B178]]), see above
+}
+
 // The check timer fired: send a probe (unless a fresh roster already refreshed us), else escalate toward HOME LOST.
 void Node::presence_probe_fire() {
     if (!_cfg.is_mobile || !_my_mobile_reg.active) return;         // unregistered -> the DISCOVER FSM owns it
@@ -792,8 +839,33 @@ void Node::presence_probe_fire() {
     //   confirmation is still SELECTED and still carries it, and `presence_ingest_roster` re-arms that probe at
     //   `_presence_T_ms` from the confirmation. Pre-§MH-S4b the first selected probe was at T after ADOPT; it is now
     //   at T after CONFIRMATION, seconds later. §S6 A.4's custody timing is therefore materially unchanged.
+    // ★★★★ §MH-S5b-ii §8.3 — **THE ALREADY-SCHEDULED CHECK PROBE MAY BE A *SEARCHING* ONE, AND TODAY FOR ONE REASON.**
+    // §8.3's list is closed at three; `presence_searching_probe_due()` (node.h) carries **trigger 2 ONLY** (the home
+    // missed a check). ⛔⛔ **TRIGGER 1 (home quality weak/critical) IS DEFERRED UNDER [[B178]] — measured at −6
+    // deliveries, all in `s07`, from a fleet-wide roster storm §8.3 itself predicts — so a weak-but-ANSWERING home is
+    // never canvassed and the mobile can only leave it AFTER connectivity begins failing. That is a CONSERVATIVE
+    // INTERIM POLICY, ⛔ NOT completed proactive roaming; the predicate's own block carries the full statement.**
+    // ⛔ NOTHING ELSE MAY FLIP IT — §8.3 says outright that sending a
+    // searching probe "merely because another node may be stronger" is "a fleet-wide roster storm bought with
+    // nothing", and gate 24 asserts ZERO additional transmissions while the home is adequate.
+    // ★ WHY THIS IS THE WHOLE OF THE COST: the probe is not extra and is not earlier. It is the SAME frame on the
+    //   SAME deadline with ONE byte given a different value (`selected_home_id` = 0 instead of the home id), so the
+    //   mobile's own airtime per unit time is byte-identical at every quality tier (gate 27). What the flip buys is
+    //   §8.1's authority: a searching probe is answered by EVERY eligible home WITH AN ECHO OF US, and an echo is the
+    //   only thing that can set `echo_tier` — which §8.4/item 3 now REQUIRES before a voluntary switch. ⇒ without
+    //   this flip, item 3 would make voluntary re-home structurally unreachable.
+    // ⛔ THE HOME STILL ANSWERS AND STILL CONFIRMS US: `presence_ingest_probe`'s searching arm schedules a roster at
+    //    every eligible home including ours, and our home's roster carries our (hash, local id, epoch) triple, which
+    //    is what `presence_ingest_roster` confirms on. Checked at the home's own code (V1), not assumed.
+    // ⛔ AND OUR ROW IS STILL REFRESHED — that is item 2, and it is not optional: `presence_ingest_probe` used to
+    //    touch `last_heard_ms` on the `!searching` arm ONLY, so flipping the kind without it would stop OUR OWN
+    //    probes from feeding the home's liveness clock and its per-mobile SNR EWMA (hence its roster quality tier,
+    //    hence this very decision). ⓘ Measured, not assumed: a hosted mobile's periodic BEACON also touches the row
+    //    (`node_beacon.cpp`), so eviction at `mobile_liveness_ms` was NOT imminent — the honest residue is the
+    //    budget-skipped beacon and the frozen tier feed. See the §MH-S5b note in `simulation/BASELINE.md`.
     p_probe_in cp{};
-    if (!claiming) { cp.selected_home_id = _my_mobile_reg.home_id; cp.selected_home_layer = _my_mobile_reg.home_leaf_id; }
+    const bool canvass = !claiming && presence_searching_probe_due();
+    if (!claiming && !canvass) { cp.selected_home_id = _my_mobile_reg.home_id; cp.selected_home_layer = _my_mobile_reg.home_leaf_id; }
     cp.key_hash32 = _key_hash32; cp.reg_epoch = static_cast<uint8_t>(_my_mobile_reg.epoch);
     if (_crypto_ready && !_presence_key_confirmed) { cp.has_pubkey = true; for (int i = 0; i < 32; ++i) cp.ed_pub[i] = _ed_pub[i]; }
     uint8_t buf[42]; const size_t n = pack_p_probe(cp, std::span<uint8_t>(buf, sizeof buf));
@@ -819,7 +891,11 @@ void Node::presence_probe_fire() {
     //   host OFFER with `mobile_offer_scheduled` / `mobile_offer_tx`. Stated as a residual, not hidden.
     TxAdmission adm = TxAdmission::admitted;
     bool admitted = false;
-    if (n) { MR_EMIT("presence_probe_tx", EF_I("searching", claiming ? 1 : 0));
+    // ⓘ §MH-S5b — THE `searching` FIELD IS NOW DERIVED FROM THE FRAME, NOT FROM `claiming`. `searching` IS
+    //   `selected_home_id == 0` on the wire (`p_probe_out::searching()`, frame_codec.h), so reading the packed value
+    //   is the ONE definition; `claiming ? 1 : 0` was equivalent only while `claiming` was the only reason to omit
+    //   the home. ⛔ No new emit site and no new field — the same instrument, told the truth.
+    if (n) { MR_EMIT("presence_probe_tx", EF_I("searching", cp.selected_home_id == 0 ? 1 : 0));
              admitted = tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0, &adm); }
     if (admitted && claiming) {
         // ★★★★ §MH-S4b §7.1 step 3 — **THE SOLICITATION IS OUT; NOW WAIT FOR ITS ANSWER.** This is the half
@@ -1072,10 +1148,22 @@ void Node::presence_maybe_rehome() {
         // satisfying the 60-second hold for ever. A switch away from a working home toward a node last heard half
         // an hour ago is the failure this line refuses.
         if (now - _presence_cand[i].last_seen_ms >= protocol::mobile_liveness_ms) continue;
-        // ★★ §MH-S5 §8.4 — **A VERIFIED CANDIDATE MAY ADVERTISE ANOTHER FULL LAYER ID.** §8.4: "Equality of the
-        // layer nibble is not required: a same-PHY candidate advertising another full layer id remains valid once
-        // verified, so remove the unconditional `candidate.home_layer != active_layer_id()` rejection for verified
-        // roster candidates." The rejection SURVIVES for unverified ones, which is what keeps the widening safe.
+        // ★★★★ §MH-S5b §8.4 / item 3 — **A VOLUNTARY SWITCH REQUIRES A RECENT *VERIFIED* ECHO. AN UNVERIFIED
+        // CANDIDATE IS NOW REFUSED OUTRIGHT, WHATEVER ITS LAYER.** §8.2: "voluntary switching requires a recent
+        // verified echo (`echo_tier != 0xFF`), not merely an old beacon"; §8.4 lists "recent bidirectional
+        // verification — a roster echo or OFFER, never a beacon alone" as one of the six conjuncts. `echo_tier` is set
+        // ONLY when a candidate's roster carried an echo of OUR OWN hash (`presence_ingest_roster`), so it is exactly
+        // §8.1's "authority" and it proves BOTH link directions at response time.
+        // ⛔ THE OTHER FIVE CONJUNCTS ARE UNTOUCHED AND NO CONSTANT IS RE-TUNED: freshness (above), the 2-tier
+        //    bottleneck delta, the 60 s hold, the 5-minute dwell and `wire_version` compatibility (`incompatible`,
+        //    above) all stand exactly as they were.
+        // ⛔⛔ **AND THIS SUBSUMES §MH-S5's LAYER-NIBBLE REJECTION, WHICH IS THEREFORE GONE RATHER THAN DEAD.**
+        //    §MH-S5 kept `if (!verified && home_layer != active_layer_id()) continue;` and its comment said "the
+        //    rejection SURVIVES for unverified ones, which is what keeps the widening safe". **That sentence is
+        //    WITHDRAWN as a live rule and corrected here in place**: with the verified requirement above, no
+        //    unverified candidate ever reaches the layer test, so keeping the line would have been unreachable code
+        //    asserting a policy that no longer decides anything. The WIDENING it guarded still holds and is now
+        //    unconditional — a VERIFIED candidate may advertise another full layer id (gate 12(b)).
         // ★ WHY "SAME-PHY" IS SATISFIED BY CONSTRUCTION rather than by a new check (V1): every entry in this table
         //   arrives through `presence_ingest_roster` / a beacon RX, i.e. it was received ON THE PHY THE RADIO IS
         //   CURRENTLY TUNED TO. So a candidate in this table is same-PHY by definition; only its layer NIBBLE can
@@ -1084,11 +1172,15 @@ void Node::presence_maybe_rehome() {
         //    `reset + ordinary J discovery`, which enters `mobile_discover_fire` and is gated there by
         //    `team_phy_ok(scan_phy(_mobile_scan_idx))`. This path never retunes the radio, so it cannot move a team
         //    member off its provisioned team PHY — the widening is a LAYER-ID widening, never a PHY one.
-        const bool verified = (_presence_cand[i].echo_tier != 0xFF);
-        if (!verified && _presence_cand[i].home_layer != active_layer_id()) continue;
-        // D14 candidate bottleneck = WORSE of (cand->me = my RX of its roster) and (me->cand = its echo, if known).
+        // ⛔ `mobile_verified_candidate_count()` IS THE ELIGIBILITY FLOOR, NOT THIS PREDICATE (node.h): it applies
+        //    verification + freshness + compatibility and stops there, while this loop additionally applies the
+        //    delta, the hold, the dwell and the current-home exclusion. The two are NOT to be reconciled by changing
+        //    the count — a golden test pins it.
+        if (_presence_cand[i].echo_tier == 0xFF) continue;
+        // D14 candidate bottleneck = WORSE of (cand->me = my RX of its roster) and (me->cand = its echo). Both terms
+        // are now always known, because an unverified row can no longer reach this line.
         const uint8_t cand_rx   = protocol::presence_quality_tier(_presence_cand[i].snr_q4);
-        const uint8_t cand_worst = verified ? std::min<uint8_t>(cand_rx, _presence_cand[i].echo_tier) : cand_rx;
+        const uint8_t cand_worst = std::min<uint8_t>(cand_rx, _presence_cand[i].echo_tier);
         if (cand_worst < home_worst + protocol::presence_rehome_tier_delta) continue;       // not enough better on the BOTTLENECK link (hysteresis)
         if (now - _presence_cand[i].first_seen_ms < protocol::presence_candidate_hold_ms) continue;  // not sustained
         MR_EMIT("presence_rehome", EF_I("from", _my_mobile_reg.home_id), EF_I("to", _presence_cand[i].home_id), EF_I("cand_tier", cand_worst), EF_I("home_tier", home_worst));

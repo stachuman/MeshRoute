@@ -1458,10 +1458,34 @@ private:
     uint8_t presence_cand_alloc_slot();   // §P2-6: append while room, else evict the STALEST (min last_seen_ms) — never clobber the best candidate (was evict-slot-0)
     void    presence_maybe_rehome();                           // §S6.4-C: sustained-better candidate + dwell -> voluntary re-DISCOVER
     void    presence_on_adopt();                               // called from the mobile adopt path: seed clocks + arm the first check probe
+    // ★★★ §MH-S5b-ii §8.3 — **IS THE ALREADY-SCHEDULED STEADY CHECK PROBE ALLOWED TO BE A *SEARCHING* ONE?**
+    // §8.3's permitted triggers are a CLOSED LIST OF THREE and this predicate carries **exactly ONE of them today**:
+    // trigger 2 (the home missed a check, on the way to `lost`).
+    // ⛔⛔ **TRIGGER 1 (the current home's quality is weak or critical) IS IMPLEMENTED-THEN-DEFERRED UNDER [[B178]]**,
+    //    measured at −6 unique deliveries (all in `s07`) from the fleet-wide roster storm §8.3 itself predicts.
+    //    ★★ **THE LIMITATION THAT LEAVES: a weak but CONSISTENTLY RESPONDING home is never canvassed, so the mobile
+    //    changes home only AFTER connectivity begins failing** — a CONSERVATIVE INTERIM POLICY, ⛔ **NOT completed
+    //    proactive roaming, and §8.3 is NOT satisfied** (§S6.4-C's *leave a weak home BEFORE loss* is unmet). The
+    //    refined trigger that returns, and the [[B177]] fix that must precede it, are spelled out at the definition.
+    // ⛔ Trigger 3 (an attributable home-path failure) is NOT here either: it needs a latch, i.e. `Node` state
+    // and therefore D2, and it is a separate slice.
+    // ⛔⛔ IT IS A *KIND* DECISION, NEVER A *CADENCE* ONE. Nothing here schedules, re-arms or adds a probe: the
+    //    caller is `presence_probe_fire`, already on its own deadline, and the frame it packs is the same 8 B
+    //    either way (`selected_home_id` is present in every probe; only its VALUE changes). That is what keeps
+    //    §8.3's airtime hole shut on the mobile's own transmissions — gate 27.
+    // ⓘ DERIVED, not stored: `sizeof(Node)` is unmoved by this slice (gate 5 / D2).
+    bool    presence_searching_probe_due() const;
 #endif
     // §S6 presence plane (home side) — always compiled (a home is a static); host-gated (dormant on a non-host).
     void    presence_ingest_probe(const uint8_t* frame, size_t len, const RxMeta& meta);   // home: a probe heard -> refresh registry + SNR EWMA + custody; schedule a coalesced roster
-    void    mobile_reg_touch(uint8_t slot, int16_t snr_q4);    // §3-D: refresh a hosted mobile's last_heard_ms + step its per-mobile SNR EWMA. ONE path shared by the probe (node_join) + beacon (node_beacon) sites so the triple-site (CLAIM seeds; these two update) can't drift. NOT used by CLAIM (which SEEDS a fresh slot, not EWMA-updates).
+    void    mobile_reg_touch(uint8_t slot, int16_t snr_q4);    // §3-D: refresh a hosted mobile's last_heard_ms + step its per-mobile SNR EWMA. ★ §B177-FIX (ledger §1.16) — CORRECTED IN PLACE: this used to read "ONE path shared by the probe (node_join) + beacon (node_beacon) sites"; the BEACON caller is REMOVED, so the ONE remaining caller is `presence_refresh_hosted_row` (both P-probe arms, each gated on host_row_probe_refreshable). NOT used by CLAIM (which SEEDS a fresh slot, not EWMA-updates).
+    // ★★★ §MH-S5b — **ONE "A PROBE FROM THIS HOSTED MOBILE ARRIVED" REFRESH, read by BOTH probe arms.** It is
+    // `mobile_reg_touch` (last_heard_ms + the SNR EWMA) PLUS §S6 A.4 key custody, which is exactly what the
+    // selected-check arm already did inline. §MH-S5b needs the identical refresh on the SEARCHING arm (item 2), and
+    // U1 says extend the one path rather than fork a second copy — a forked custody check is precisely the
+    // field-drop rot U1 names. ⛔ The extraction is BYTE-INERT for the pre-existing caller (same two effects, same
+    // order); only the new call site changes behaviour.
+    void    presence_refresh_hosted_row(uint8_t slot, const p_probe_out& p, int16_t snr_q4);
     // ★★★ §MH-S5-FIX [[B172]]/[[B173]] + §MH-S5-FIX2 (owner-ruled) — **THE ONE "LIVE DIRECT HOSTED ROW" PREDICATE.**
     // A registry row's identity is the whole tuple `(hash, local_id, direct-vs-redirect, live-vs-expired)`, and matching
     // `hash` alone is the defect both slices closed. `redirect_home_id != 0` means the mobile lives at ANOTHER home and
@@ -1508,6 +1532,26 @@ private:
     // ⓘ Bounds are CALLER-checked (the `mobile_reg_touch` idiom): every consumer loops `i < _mobile_reg_n`.
     bool    host_row_live_direct(uint8_t i) const {
         return _active->_mobile_reg[i].redirect_home_id == 0 && !host_row_expired(i, _hal.now());
+    }
+    // ★★★★ §B177-FIX (owner-ruled 2026-08-11, ledger §1.16) — **THE ONE "MAY A P PROBE REFRESH THIS HOSTED ROW?"
+    // PREDICATE, READ BY *BOTH* PROBE ARMS.** With the beacon touch removed (`node_beacon.cpp`) the P probe is the SOLE
+    // ongoing authority over `last_heard_ms` and the per-mobile SNR EWMA, so the two arms must agree about which row
+    // they are allowed to refresh — and before this they did not: §MH-S5b's SEARCHING arm carried `host_row_live_direct`
+    // + the low-byte epoch match, while the older SELECTED arm found the row by **hash alone** and refreshed it with
+    // neither term. `sel_me` proves only that the probe names *us* as home; it says nothing about row kind, freshness or
+    // generation. ⇒ the tuple is asked ONCE, here, and never re-spelled at a call site (the [[B147]]/[[B172]]/[[B174]]/
+    // beacon-touch lesson: a predicate copied is a predicate that drifts).
+    // · `host_row_live_direct` — a REDIRECT row's clock belongs to the BREADCRUMB (§9.2) and an EXPIRED row gets no
+    //   service before compaction (ledger §1.14); refreshing either RESURRECTS a row this arc made mortal.
+    // · the **epoch** — the low byte, deliberately: that is the width the P wire carries (`frame_codec.h` P-probe byte 7,
+    //   present on EVERY probe — check and searching alike) and the same arithmetic `presence_ingest_roster` uses at the
+    //   mobile end. The mobile bumps `_my_mobile_reg.epoch` on every fresh CLAIM (`node_mobile.cpp`) and the home
+    //   overwrites the row's epoch from the CLAIM it accepts (`node_join.cpp`), so a row from BEFORE a re-home cannot
+    //   match, and a matching pair is the same registration generation on both sides.
+    // ⓘ Bounds are CALLER-checked, the `mobile_reg_touch` idiom (every consumer loops `i < _mobile_reg_n`).
+    bool    host_row_probe_refreshable(uint8_t i, uint8_t probe_reg_epoch) const {
+        return host_row_live_direct(i)
+            && static_cast<uint8_t>(_active->_mobile_reg[i].epoch) == probe_reg_epoch;
     }
     // The AGE half alone. `mobile_reg_age_out()` expires BOTH kinds at this boundary, so it cannot use the predicate
     // above (which excludes redirects) — it uses THIS, so the two can never disagree about where the boundary is.
@@ -2754,7 +2798,14 @@ private:
     uint8_t   _presence_my_tier  = protocol::presence_q_ok;     // my link tier from the last roster
     uint8_t   _presence_dir_epoch = 0;                          // last-seen layer-directory aggregate (pull on change)
     bool      _presence_dir_epoch_seen = false;                 // have we seen ANY roster dir_epoch yet
-    bool      _presence_prescan  = false;                       // weak/critical -> collect candidate homes from beacons/rosters
+    // ★ §MH-S5b-ii — **STILL LOAD-BEARING, AND DELIBERATELY *NOT* READ BY `presence_searching_probe_due()`.** Two
+    //   readers remain, both on the SWITCH-EVALUATION path: `presence_ingest_roster`'s
+    //   `if (_presence_prescan) presence_maybe_rehome();` and `presence_maybe_rehome`'s own guard. ⛔ The third reader,
+    //   §8.3's **trigger 1**, is **DEFERRED under [[B178]]**, and the flag is RETAINED for the refined trigger that
+    //   returns with it: re-adding a member later would move `sizeof(Node)` twice and cost two ten-env sweeps.
+    // ⛔ **AND THE TRAILING COMMENT BELOW USED TO SAY "collect candidate homes from beacons/rosters", WHICH THIS FLAG
+    //   HAS NEVER GATED** — `presence_note_candidate` is unconditional on home quality. Corrected in place (V1).
+    bool      _presence_prescan  = false;                       // weak/critical -> the re-home EVALUATION is unlocked (collection is unconditional)
     bool      _presence_key_confirmed = false;                  // §S6 A.4: home confirmed our key (roster has_key=1) -> stop attaching ed_pub to probes
     // ★★★ §MH-S4 §4.1 — NOW LOAD-BEARING. Before this slice it had TWO WRITES AND ZERO READS (measured by
     // grep across lib/core + src, and proven observably by the §S0-4 characterization case: no second CLAIM
@@ -3138,9 +3189,11 @@ private:
         // reply); mobile_local_id is host-assigned from 17..254 (may overlap a global id — the Slice-1 mark disambiguates).
         // Per-leaf (a host serves one leaf). DORMANT unless a mobile registers -> the static mesh is unaffected.
         // ★★ §MH-S5 §9.1/§9.2 — `last_heard_ms` IS **THE ROW'S LIFETIME CLOCK**, and its meaning is now wider than
-        // its name: for a DIRECT row it is the last direct evidence of the mobile (CLAIM / probe / beacon, via
-        // `mobile_reg_touch`); for a REDIRECT row it is re-stamped at BREADCRUMB RECEIPT so §9.2's redirect gets its
-        // own full `mobile_liveness_ms` rather than inheriting the direct row's remaining time.
+        // its name: for a DIRECT row it is the last direct evidence of the mobile — **CLAIM (seed) or a P PROBE (via
+        // `mobile_reg_touch`), and ⛔ NO LONGER A BEACON: §B177-FIX (ledger §1.16) removed the beacon writer, because a
+        // beacon carries no `reg_epoch` and so cannot establish the row identity a refresh needs** (this list read
+        // *"CLAIM / probe / beacon"* before; corrected in place). For a REDIRECT row it is re-stamped at BREADCRUMB
+        // RECEIPT so §9.2's redirect gets its own full `mobile_liveness_ms` rather than inheriting the direct row's time.
         // `mobile_reg_age_out()` applies ONE predicate to both kinds. ⛔ A separate `redirect_stamp_ms` was measured
         // and DECLINED: 8 B × cap_host_mobiles(16) × MR_N_LAYERS of RAM to store a value that is definitionally the
         // last thing this home heard ABOUT this mobile (and it would have moved `sizeof(Node)` ⇒ D2).

@@ -364,9 +364,153 @@ team-key-grant pre-check · `presence_mark_deleg_fail`), all through the ONE non
 the withdrawn `node.h:1483-1487` instruction is **corrected in place with its old text kept as a labelled
 `⛔ WITHDRAWN` quote** (§3 rule 3). ★ **The redirect answer is untouched and both over-fix shapes are now pinned:** the
 pre-existing *"the redirect still redirects"* control turned out to cover only the KIND shape — an AGE-shaped over-fix
-left it GREEN — so a second control was added for an **expired** redirect row. ⚠ **B170's condition is MET and
-reported as still the owner's call: `s07` reproduces `2ce470f9` / 108951 with all 36 rows byte-identical to the
-pre-slice arm.** ⛔ **No owner or QA approval is claimed for any figure in that note.**
+left it GREEN — so a second control was added for an **expired** redirect row. ✅ **[[B170]] IS APPROVED AND CLOSED 2026-08-11, AND THE `s07` ROW IS LANDED** (`2ce470f9` / 108951 in the live
+anchor table; all 36 rows were byte-identical to the pre-slice arm, so `s07` could not have moved, and an
+independent re-measurement at `lus` `79b01d8a` reproduced it exactly). ⛔ **This sentence previously read *"the
+condition is MET and reported as still the owner's call"* — accurate when written, false once the approval's
+condition was verified and the row landed. No further owner ruling is needed.** ⛔ **No owner or QA approval is claimed for any figure in that note.**
+
+### 1.15 [[B178]] — 728 REJECTED. Land trigger 2, DEFER trigger 1 as a conservative interim · ✅ **OWNER-RULED 2026-08-11**
+
+★★★ **THE RULING, IN REPORTED FORM (⛔ no quotation — §3 rule 4):** **the owner REJECTED the 728 outcome and ruled
+that §MH-S5b lands as OPTION (ii) — §8.3 trigger 2 plus items 2 and 3 — with trigger 1 DEFERRED under [[B178]].**
+
+**What (ii) preserves, per the owner:** home-loss detection · searching after a **genuine missed response** ·
+proper host-row refresh · bidirectionally verified switching · **737 deliveries, above the existing anchor**.
+
+⚠⚠ **THE OWNER NAMED THE LIMITATION AND IT MUST NOT BE PRESENTED AS COMPLETION: a weak but CONSISTENTLY RESPONDING
+home will not proactively initiate candidate verification, so the mobile changes home only AFTER connectivity begins
+failing.** ⇒ **This is a CONSERVATIVE INTERIM POLICY, not completed proactive roaming.** ⛔ Do not record §8.3 as
+satisfied, and do not let a later reader infer that §S6.4-C's *leave a weak home BEFORE loss* purpose is met.
+
+⛔⛔ **THE BROAD FORM OF OPTION (iii) IS REJECTED AS TOO BROAD:** *weak home + any audible candidate* — in a dense
+scenario virtually every mobile probably has an audible candidate, so it would **reproduce the same storm
+unchanged.** ⇒ the audibility of a candidate is not evidence that switching is possible.
+
+★★ **THE REFINED (iii) THE OWNER SPECIFIED, to be implemented and measured (reported form):** send a proactive
+searching probe **only** when the home is **weak/critical** *and* there is at least one candidate that is **fresh**,
+**compatible**, **passively observed**, **still unverified**, and whose **measured one-way quality could possibly
+satisfy the two-tier improvement rule** — *and* the **candidate hold** and **anti-flap dwell** are already
+satisfied. ⓘ The point of the extra terms is that a canvass is only spent where a switch could actually complete.
+
+★ **THE RULED SEQUENCE:**
+1. ✅ **LANDED 2026-08-11 by §MH-S5b-ii — option (ii): trigger 2 + items 2 and 3.** The `_presence_prescan` disjunct
+   is gone from `Node::presence_searching_probe_due()`; items 2 and 3 untouched. **737 / `s06` 110 / `s07` 83 / raw
+   763**, `s27` **0** assertion failures, 31/36 anchor-identical with the 5 movers re-attributed by in-tree A/B,
+   `sizeof(Node)` **221880**, `kCap` **91**, native **1509/81105/0**. ★ The rebuilt `lus` md5 is **`1c0c63cb`**, the
+   SAME binary §MH-S5b published for its *"trigger 2 only"* arm ⇒ the landed tree IS the arm that was priced.
+   ⛔ **UNCOMMITTED (D4); the `^### 36/36 corpus` table was NOT edited; no approval beyond this ruling is claimed.**
+2. ✅ **DONE in the same slice — the spec marks trigger 1 deferred under [[B178]] and explicitly does NOT record §8.3
+   as satisfied**, carrying the named limitation. Also carried at the predicate + its declaration (`node_mobile.cpp` /
+   `node.h`), `docs/protocol.md` (whose *"proactively re-home"* line was corrected in place), the bench script §18.2
+   (rewritten in place to pin the deferral) and `BASELINE.md` §MH-S5b-ii.
+3. ⚠ **fix [[B177]] SEPARATELY AND BEFORE step 4** — its erroneous beacon refresh **can alter the liveness and
+   quality inputs that trigger 1 reads**, so measuring the refined (iii) on top of it would measure the wrong tree;
+4. **implement and measure the refined (iii)**;
+5. **keep the `≥733` floor**, and additionally require: **no increase in `presence_home_lost` in `s07`** ·
+   **bounded roster airtime and peak-window collisions** · **no repeated canvass once a plausible candidate is
+   verified**.
+
+### 1.16 [[B177]] — beacons are HINTS ONLY; epoch-bearing P probes are the sole hosted-row authority · ✅ **OWNER-RULED 2026-08-11** · ✅ **IMPLEMENTED 2026-08-11 (§B177-FIX)**
+
+★★★ **IMPLEMENTATION STATUS, added 2026-08-11 — all five ruled points landed, plus the adjacent site as option (a):**
+1. ✅ the beacon → `mobile_reg_touch()` loop is **REMOVED** (`lib/core/node_beacon.cpp`, `if (b.is_mobile)` arm; the
+   `_mobile_peer` write above it kept); 2. ✅ **both** P-probe arms are the sole authority, sharing ONE new predicate
+`Node::host_row_probe_refreshable()` (`node.h`); 3. ✅ ⛔ **no epoch byte/TLV was added to the beacon**; 4. ✅ §9.1's
+wording is corrected in place to *"validated registration probes"* with the beacon half **withdrawn with its reason**,
+and `docs/protocol.md` carries the same correction; 5. ✅ the stale in-source §3-D rationale is **withdrawn in place**,
+quoted so a reader cannot "restore" the touch. ★ **The adjacent SELECTED arm: option (a) — fixed here, and it is
+measurably free: byte-identical to the pre-slice tree on all 36 corpus streams and delivery-neutral.**
+⛔⛔ **AND ONE THING IS *NOT* SETTLED, AND IT IS THE OWNER'S: DELIVERY FALLS 737 → 732 (`s06` 110, `s07` 78), BELOW THE
+`≥733` FLOOR. The beacon touch was NOT restored to recover it and no approval of 732 is claimed** — registered as
+[[B179]] with three priced-but-untaken options. All of the −5 is `s07`'s and all of it is the beacon removal's, by
+in-tree A/B; **zero DM deliveries reach a mobile in `s07` in either arm**, so it is a static↔static collision reshuffle,
+not lost hosted-mobile service. Evidence: `simulation/BASELINE.md` §B177-FIX. ⛔ UNCOMMITTED (D4).
+
+
+★★★ **THE RULING, IN REPORTED FORM (⛔ no quotation — §3 rule 4). The owner ruled that:**
+1. **beacons are treated as presence/candidate HINTS ONLY**;
+2. the **beacon → `mobile_reg_touch()` registry refresh is REMOVED**;
+3. **epoch-bearing P probes become the SOLE ongoing authority** for hosted-row liveness and SNR refresh;
+4. ⛔ **no epoch byte or TLV is added to every beacon** — that would spend **permanent airtime** to preserve a
+   now-redundant mechanism;
+5. **§9.1's wording changes** from *"mobile beacons/probes refresh `last_heard_ms`"* to **"validated registration
+   probes refresh it."**
+
+★ **WHY IT IS SAFE, per the owner: P checks run every ~1–8 minutes, well inside the 25-minute host expiry.** The
+in-source comment claiming a **stationary** mobile needs its beacons to avoid expiry **predates that presence
+mechanism** and is stale.
+
+⛔⛔ **AND THE REGISTER'S PROPOSED ONE-LINE FIX WAS IMPOSSIBLE — this is why the ruling is a REMOVAL, not a gate.**
+[[B177]] recorded *"the fix is the same one-line shape item 2 uses (`host_row_live_direct` + the low-byte epoch
+match)"*. ★★ **A MOBILE BEACON CARRIES THE HASH BUT NOT THE REGISTRATION EPOCH** (BCN layout,
+`lib/core/frame_codec.h`; verified at the code 2026-08-11) ⇒ that fix **cannot** deliver the epoch term it claims.
+**Copying item 2's shape would have shipped a gate asserting a guarantee it does not hold** — the
+instruments-that-cannot-fail class, this time inside a fix rather than a test. The sentence is withdrawn in place.
+
+⚠⚠ **THE ADJACENT SITE THE OWNER REQUIRED BE HANDLED HONESTLY:** the **SELECTED**-probe arm
+(`lib/core/node_join.cpp:804`) also finds the hosted row by **hash alone** and refreshes it with **no**
+`host_row_live_direct()` and **no** `reg_epoch` check — `sel_me` only proves the probe names us as home. Since
+§MH-S5b's *searching* arm carries both terms, **the two arms are inconsistent and the older one is weaker.**
+⇒ **Either fix it inside B177 as the same hosted-row identity invariant, or register it separately — but ⛔ B177
+may NOT be reported as closing stale-row refresh while it stands.**
+
+★ **REQUIRED TESTS (owner-specified):** a beacon cannot refresh a **live**, **redirect**, **expired** or
+**wrong-epoch** hosted row · a **correct-epoch** P probe refreshes a live direct row · **wrong-epoch, redirect and
+expired rows are refreshed by NEITHER P-probe arm** · a beacon **still performs** its unrelated mobility/team/
+candidate functions · corpus movement **measured and attributed**, with ⛔ **no [[B178]] trigger work bundled in.**
+
+### 1.17 ★★ THE CANONICAL DELIVERY FLOOR IS `≥732`, PROVISIONAL PENDING [[B163]] · ✅ **OWNER-RULED 2026-08-11**
+
+★★★ **THE RULING, IN REPORTED FORM (⛔ no quotation offered, per §3 rule 4). The owner took [[B179]] option (i) and
+ruled:** ⓘ **PROVENANCE NOTE: the owner subsequently RESTATED this ruling and the reported form below matched it on
+every point** — so this entry is confirmed against the owner's own restatement, not merely transcribed from one
+reading. ⛔ **A quotation is still not offered**: §3 rule 4 says reported form unless the exact characters are held,
+and that rule was broken twice in this arc by an agent that believed its paraphrase was exact.
+1. **ACCEPT the correctness-driven 737 → 732 delivery movement**;
+2. **RE-ANCHOR `s07`** (landed: `2ce470f9`/108951 → **`b3b7ce31`/107989**, the only row edited);
+3. ★★ **the CURRENT CANONICAL FLOOR IS `≥732`, EXPLICITLY PROVISIONAL PENDING [[B163]]**;
+4. ⛔ **DO NOT reinstate beacon authority**, and ⛔ **do NOT open a recovery slice solely to regain the five
+   deliveries.**
+
+★ **THE ATTRIBUTION THE OWNER REQUIRED ON RECORD, and it is what makes 732 acceptable rather than a regression:**
+- the delta is **entirely attributable to the beacon-refresh removal** — measured both ways: the beacon-removal-only
+  arm is identical to the landed arm on **all 36 streams** (732 / `s07` 78), while the **selected-arm fix alone is
+  36/36 BYTE-IDENTICAL to the pre-slice tree and delivery-NEUTRAL** (737 / `s07` 83);
+- it consists of a **static-to-static collision reshuffle** — 15 changed static↔static pair rows after the presence
+  plane goes quieter (`presence_roster_tx` 185 → 148), with DM airtime *rising* slightly (667 393 → 670 107 ms);
+- ★★ **it contains ZERO observed mobile-delivery delta: no DM delivery reaches a mobile in `s07` in EITHER arm.** ⛔⛔ **BUT READ WHAT THAT DOES AND DOES NOT PROVE — OWNER-CORRECTED 2026-08-11, and the first framing was TOO STRONG: because `s07` delivers ZERO DMs to mobiles in BOTH arms, this metric is BLIND to hosted-mobile service ENTIRELY.** ⇒ *"no mobile-delivery regression was observed"* is the accurate claim; **"hosted-mobile service is unharmed" is NOT** — the absence of a delta here is the absence of any signal, not evidence of health. ★★ **POSITIVE hosted-mobile service coverage rests on the NATIVE TESTS and the METAL GATE, not on this figure.** ⚠ This is the instruments-that-cannot-fail class applied to a delivery metric: a zero from an instrument that cannot see the thing is not a measurement of it.
+
+⚠ **`≥732` is PROVISIONAL, not a new settled number.** [[B163]] is open — `s07` carries a *correct* leased-id alias
+refusal whose shortfall is not derivable without a time-windowed alias map — and `s07` is where **both** the B163
+question and this −5 live. ⇒ **Quote the floor with that caveat attached**, and ⛔ **do not present `≥732` as exact.**
+
+ⓘ **Reading older records:** every slice note and brief written before 2026-08-11 states the floor as `≥733` (and
+earlier ones `≥732`, retired by [[B162]] for being unreproducible — ⛔ **not the same 732**). Those are **accurate as
+of their date** and are deliberately not rewritten. **This section is the canonical statement; a figure in a slice
+record is history.**
+
+### 1.18 ⛔⛔ THE `≥732` FLOOR IS FROZEN AS AN ACCEPTANCE GATE, PENDING [[B182]] · ✅ **OWNER-RULED 2026-08-12**
+
+★★★ **THE RULING, IN REPORTED FORM (⛔ no quotation — §3 rule 4). The owner ruled:**
+1. **FREEZE `≥732` as an acceptance gate NOW.** ⛔ **It is no longer authoritative for accepting or rejecting a
+   slice.** Preserve it as **HISTORICAL**, and mark it **temporarily NON-AUTHORITATIVE pending [[B182]]**.
+2. ⛔ **After the tool fix, RE-RUN — do NOT arithmetically adjust — every figure that is still a decision input:**
+   the **current tree** · **pre-[[B177]]** · **beacon-removal-only** · **selected-arm-only** · **all [[B178]] trigger
+   arms** · and **the [[B162]] / hybrid-RTS comparison ladder** if those figures remain decision inputs.
+   ★ **The reason it must be a re-run and not an offset: the correction may affect arms DIFFERENTLY, because their
+   attachment windows differ.** ⇒ A single delta applied to every arm would re-bake the error under a new name —
+   the [[B162]] lesson exactly.
+
+★★ **WHY: [[B182]] is a LOGICAL-IDENTITY defect on the hosted-mobile/static plane, and it is measurement-only.** The
+decisive control is `s22`: **team mobile → team mobile is 4/4 and correctly attributed**, while **static ↔ hosted
+mobile messages ARRIVE and the tool reports ZERO.** ⇒ So the tool is **not** blind to mobiles; it mis-attributes one
+addressing path. ⛔ **Everything landed remains as landed** — the arms were compared against each other on one tool
+revision, so their RELATIVE ordering stands. What is suspended is the **absolute** floor and what it certifies.
+
+ⓘ **Supersedes §1.17's status, not its history.** §1.17 recorded `≥732` as the canonical floor, provisional pending
+[[B163]]. That provisionality is now **stronger**: the floor is **frozen and non-authoritative** until B182 lands and
+the arms are re-run. ⛔ **Do not quote `≥732` as a gate in any brief until then.**
 
 ---
 ## §2 — GENUINELY OPEN. These are fair review targets.
@@ -380,6 +524,8 @@ pre-slice arm.** ⛔ **No owner or QA approval is claimed for any figure in that
 | **B104** residue | **narrowed 2026-08-06** | ⛔ **This row used to read *"No behavioural probe for battery cadence, the snapshot builder, `draw_*`"*; corrected in place — B105 landed and the BATTERY CADENCE is now measured** (including the ATTEMPTED-vs-SUCCEEDED clause), along with the MAC-idle gate's two clauses *and* its permissive direction, the caller half of once-per-page, the throttle and the page-feedback loop. ⚠ **Still genuinely uncovered: the snapshot BUILDER's field values and every `draw_*`** — the probe counts draw CALLS, so it can prove a page was painted, never that the right text was on it. That is a further slice. |
 | **B116** | **PARKED** — see §1.7 | Gap is real; the replacement design is the owner's. |
 | **Task 8** | ✅ **BENCH-READY 2026-08-06 — awaiting the owner's run; no firmware owed.** ⛔ **This row used to read *"next"*; corrected in place (§3 rule 3).** Task 8 turned out to have **no implementation component left**: its Step-1 render landed with Tasks 1–7 and the §B115/§B117 slices (all eight arms verified in `src/firmware_ui.cpp`'s `draw_emergency`), so **Task 8 IS its bench matrix**. All **nine** owner validation cases now have an entry with exact panel/console text and explicit failure shapes — three script entries and one guide entry were newly written ([[B122]]). ⚠ Its `⛔ Gated on B38/B39/B40` banner was **stale and said Task 8 was blocked**; fact-only corrected ([[B121]]). | Run bench guide **H8-01…H8-10**; script **8.4 / 8.10 / 8.15 / 8.18 / 8.23–8.27** is the acceptance residue. ⚠ Every `REPLY` line is marked **PROVISIONAL** — the firmware *infers* a reply from any live-alarm same-team channel post, and **B118** (unbuilt, authentication floor **unruled**) is what replaces the inference. |
+| **§MH-S5b's delivery cost** — [[B178]] | ✅ **RULED AND LANDED 2026-08-11 (§1.15 + §MH-S5b-ii): option (ii). ⛔ This row previously read *"owner decision OWED … no approval of any figure or option is claimed"*; corrected in place (§3 rule 3), and the description below is kept as the record of what was priced.** Trigger 1 is **DEFERRED**; trigger 2 + items 2 and 3 landed at **737 / `s06` 110 / `s07` 83**, `s27` green, `lus` `1c0c63cb`. ⚠ **What is STILL OPEN is the REFINED trigger 1, sequenced AFTER [[B177]]** — and the interim limitation (a weak but consistently responding home is never canvassed) is **recorded, not repaired**. ⓘ **Two NEW measurements from the landing, recorded not acted on:** dropping **item 2** would score **739 with all 36 rows green** (⛔ refused — it is a correctness term the ruling preserves, and it would void the §0 hazard control), and **item 3 is NO LONGER byte-inert** (it moves `s27`), so §MH-S5b's *"footprint is zero"* was a property of that arm, not of item 3. ⓘ Historical description follows. (was: **NEW 2026-08-11, owner decision OWED. ⛔ No approval of any figure or option is claimed.** §8.3's trigger 1 (a searching probe when the home's reported quality is weak or critical — a trigger the spec itself permits) is measured to cost **6 unique deliveries, all inside `s07`**: 734 → **728** overall, `s06` **110** unchanged, total PHY airtime **−0.51 %**. Per-item in-tree A/B attributes the whole −6 to that trigger: trigger 2 alone measures **737** (above the anchor), item 2 alone **734**, and item 3 is **byte-inert on all 36 rows in both contexts tested**. ⚠ **The arm that scores highest (739) is INADMISSIBLE** — it disables trigger 1 while keeping the verified-echo requirement, and `s27` then returns **3 scenario assertion failures** because M5's re-home never happens. ⇒ five corpus rows moved and are attributed; **the `^### 36/36 corpus` table was NOT edited.**) ⓘ **END of the historical description.** | ✅ **Option (ii) TAKEN and landed.** ⛔ The *"a candidate is audible"* narrowing was **refused as too broad**; the refined form and its acceptance criteria live in [[B178]], **after [[B177]]**. ⚠ `≥733` is met but was already conditional on [[B163]]. |
+| **The `≥733` delivery floor** — [[B179]] | ⛔⛔ **NEW 2026-08-11, owner decision OWED. ⛔ No approval of 732 is claimed.** §B177-FIX implements ruling §1.16 in full and delivery lands at **732 / `s06` 110 / `s07` 78** (raw 757, `lus` `316b9cb1`) — **below `≥733`**, which was already conditional on [[B163]]. In-tree A/B attributes the whole −5 and the single moved corpus row (`s07`, `e73be070`/107963 → `b3b7ce31`/107989) to the **beacon removal**; the selected-arm half is **byte-identical to the pre-slice tree on all 36 streams** and delivery-neutral. ⛔ **The beacon touch was NOT restored to recover the 5 — the brief named that an owner decision.** ★ What the loss is *not*: hosted-mobile service — **zero DM deliveries reach a mobile in `s07` in EITHER arm** — it is **15 changed static↔static pair rows netting −5** after the presence plane quiets (`presence_roster_tx` 185→148) and DM airtime rises (667 393→670 107 ms). ⓘ My churn-loop hypothesis was **refuted at the stream** (`presence_epoch_mismatch` = 0 in both arms). | Three options priced in [[B179]], ⛔ **none taken and none recommended**: accept-and-re-anchor · treat the 5 as a `s07` artefact pending [[B163]] · recover it *without* a hash-only registry refresh (undesigned, unmeasured, a new slice). |
 | Docs debt | — | The B64 ruling is not yet recorded in spec §5 (§R1/§R2 set that precedent); **`docs/2026-08-04-oled-handover.md` has three stacked `STATUS` headers — the newest is authoritative.** |
 
 ---

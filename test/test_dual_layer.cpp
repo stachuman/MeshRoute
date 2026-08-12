@@ -4047,28 +4047,53 @@ TEST_CASE("§mobile hash-locate Fix 2 — the home proxies a HARD locate ONLY wh
     if (pt) CHECK(pt->type == DATA_TYPE_MOBILE_H_ANSWER);        // ★ live again -> proxy resumes
 }
 
-TEST_CASE("§mobile hash-locate liveness — a hosted mobile's BEACON refreshes the proxy clock (a STATIONARY mobile never black-holes)") {
-    // Regression for the black-hole: a homed mobile that stays put never re-CLAIMs (the discover timer short-circuits while the
-    // home is heard), so CLAIM would be the ONLY last_heard_ms write -> the proxy goes stale ~mobile_liveness_ms later even
-    // though the mobile is alive. The mobile's periodic BEACON (beacon_period_ms < mobile_liveness_ms) must refresh it.
+// ★★★★★ §B177-FIX (owner-ruled 2026-08-11, ledger §1.16) — **REWRITTEN IN PLACE; ITS POSITIVE ARM IS NOW A REFUSAL.**
+// ⛔ **WHAT THIS CASE USED TO PIN, WITHDRAWN WITH ITS REASON (B101 precedent — a removal is PINNED, not silently
+// deleted):** *"a hosted mobile's BEACON refreshes the proxy clock (a STATIONARY mobile never black-holes)"* — a stale
+// row was restamped by the mobile's beacon and the home resumed proxying for it. The beacon matched the registry row by
+// **hash alone** (the [[B147]]/[[B172]]/[[B174]] tuple error) and the BCN wire carries **no `reg_epoch`**, so it could
+// not be gated into correctness; the owner ruled it REMOVED and made the epoch-bearing P probe the sole authority.
+// ★ THE BLACK-HOLE THE OLD CASE GUARDED IS COVERED BY THE PROBE, and this case now asserts BOTH directions:
+//   (a) the beacon does NOT resurrect a stale row — the locate must still be FORWARDED, not proxy-answered;
+//   (b) a P **check** probe from the same mobile, at the row's own epoch, DOES keep the proxy alive — which is why a
+//       stationary mobile still never black-holes (it probes every 1-8 minutes, inside the 25-minute expiry).
+TEST_CASE("★★★★★ §B177-FIX — a hosted mobile's BEACON does NOT refresh the proxy clock; its P PROBE does") {
     StubHal hal; Node home(hal, 30, 0x3030u);
     NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
-    DualLayerTestAccess::store_mobile(home, /*M*/0xB0B1u, /*local*/17);   // last_heard = now(=0)
+    DualLayerTestAccess::store_mobile(home, /*M*/0xB0B1u, /*local*/17);   // last_heard = now(=0), epoch 1
     DualLayerTestAccess::learn_neighbor(home, 50);
-    hal._now = protocol::mobile_liveness_ms + 100;                        // age past liveness -> WITHOUT a refresh the proxy is stale
+    hal._now = protocol::mobile_liveness_ms + 100;                        // age past liveness -> the row is EXPIRED
     // the hosted mobile beacons (key_hash32=M). ★ config_hash is DIVERGENT (a mobile adopts only the host's PHY, not its
-    // config-plane) -> the beacon must survive the R6.1 membership filter via the is_mobile exemption to reach the refresh.
+    // config-plane) -> the beacon still survives the R6.1 membership filter via the is_mobile exemption, so it really does
+    // reach the `is_mobile` arm — which is what makes the refusal below a measurement and not a dropped frame.
     beacon_in bin{}; bin.leaf_id=4; bin.src=17; bin.key_hash32=0xB0B1u; bin.is_mobile=true; bin.config_hash=0xDEADBEEFu;
     std::array<uint8_t,64> bb{}; size_t bn = pack_beacon(bin, std::span<uint8_t>(bb.data(), bb.size()));
     home.on_recv(bb.data(), bn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
-    // a HARD locate now RESOLVES (the beacon proved liveness) -> a MOBILE_H_ANSWER, not "unreachable"
+    CHECK(home.is_mobile_peer(17));                                      // ★★ PREMISE: the beacon WAS ingested (mobility bit set)
+    // (a) the HARD locate is still FORWARDED — the beacon proved nothing about the registry row
     h_in q{}; q.leaf_id=4; q.origin=50; q.query_key32=0xB0B1u; q.ttl=3; q.hard=true;
     std::array<uint8_t,16> qb{}; size_t qn = pack_h(q, std::span<uint8_t>(qb.data(), qb.size()));
     home.on_recv(qb.data(), qn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
-    const PendingTx* pt = DualLayerTestAccess::pending(home);
-    CHECK(pt != nullptr);
-    if (pt) CHECK(pt->type == DATA_TYPE_MOBILE_H_ANSWER);
-    // a mobile beacon for a DIFFERENT hash does NOT refresh M (no false liveness)
+    CHECK(DualLayerTestAccess::pending(home) == nullptr);                // ★★★★ no MOBILE_H_ANSWER: the beacon did NOT refresh
+    CHECK_FALSE(hal.saw_emit("h_resolved"));
+    CHECK(hal.saw_emit("h_forward"));
+    // (b) ★★★★ THE POSITIVE TWIN — the SAME drive with a P CHECK PROBE instead of the beacon, delivered while the row is
+    // still LIVE (an EXPIRED row is refreshed by neither arm, ledger §1.14 — so the probe is placed at boundary−1 ms,
+    // which is the state this arm must actually reach). The proxy then answers.
+    StubHal hp; Node homep(hp, 30, 0x3030u); CHECK(homep.on_init(hc));
+    DualLayerTestAccess::store_mobile(homep, 0xB0B1u, 17);               // epoch 1
+    DualLayerTestAccess::learn_neighbor(homep, 50);
+    hp._now = protocol::mobile_liveness_ms - 1;                          // last ms at which the row is LIVE
+    { p_probe_in p{}; p.selected_home_id = 30; p.selected_home_layer = 4; p.key_hash32 = 0xB0B1u; p.reg_epoch = 1;
+      std::array<uint8_t,42> pp{}; const size_t pn = pack_p_probe(p, std::span<uint8_t>(pp.data(), pp.size()));
+      homep.on_recv(pp.data(), pn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)}); }
+    hp._now += protocol::mobile_liveness_ms - 1;                         // a full window PAST the probe
+    homep.on_recv(qb.data(), qn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    { const PendingTx* pt = DualLayerTestAccess::pending(homep);
+      CHECK(pt != nullptr);
+      if (pt) CHECK(pt->type == DATA_TYPE_MOBILE_H_ANSWER); }            // ★★★★ the probe DID restamp the clock
+    // a mobile beacon for a DIFFERENT hash likewise refreshes nothing (kept: it was the old case's negative control and
+    // it is still a valid one — a build that restored the touch keyed on the WRONG hash would pass (a) and fail here).
     StubHal h2; Node home2(h2, 30, 0x3030u); CHECK(home2.on_init(hc));
     DualLayerTestAccess::store_mobile(home2, 0xB0B1u, 17);
     h2._now = protocol::mobile_liveness_ms + 100;
@@ -4122,9 +4147,15 @@ TEST_CASE("§S6 — a home caches a hosted mobile's key from the PROBE's HAS_PUB
     // the hosted mobile's registry entry iff ed_pub[:4] LE == key_hash32 (self-consistency), then schedules a roster whose
     // has_key bit confirms custody. Same self-check + host-gating the old push handler had.
     const RxMeta m8{8.0f, -80.0f, 0, static_cast<int8_t>(-1)};
-    auto mk_probe = [](uint32_t key, const uint8_t ed[32], std::array<uint8_t,42>& buf) -> size_t {
+    // ★★★ §B177-FIX (2026-08-11): `reg_epoch` is **1**, not 0, and that is a CORRECTION, not a tweak. `store_mobile`
+    // seeds the row at epoch 1 (what a real CLAIM stamps — the mobile pre-increments, so 1 is the FIRST live generation),
+    // while this builder used to send 0. The selected arm now asks the same tuple as the searching arm
+    // (`host_row_probe_refreshable`, node.h), so an epoch-0 probe against an epoch-1 row is refused — correctly, and the
+    // arm below asserts exactly that as a NEW negative control. ⇒ the old 0 was a fixture artefact that a hash-only
+    // match made invisible.
+    auto mk_probe = [](uint32_t key, const uint8_t ed[32], std::array<uint8_t,42>& buf, uint8_t epoch = 1) -> size_t {
         p_probe_in p{}; p.selected_home_id = 30; p.selected_home_layer = 4;   // rev2: a CHECK probe selecting home 30 (else searching -> no key cache)
-        p.key_hash32 = key; p.reg_epoch = 0; p.has_pubkey = true; for (int i=0;i<32;++i) p.ed_pub[i]=ed[i];
+        p.key_hash32 = key; p.reg_epoch = epoch; p.has_pubkey = true; for (int i=0;i<32;++i) p.ed_pub[i]=ed[i];
         return pack_p_probe(p, std::span<uint8_t>(buf.data(), buf.size()));
     };
     StubHal hal; Node home(hal, 30, 0x3030u);
@@ -4147,6 +4178,16 @@ TEST_CASE("§S6 — a home caches a hosted mobile's key from the PROBE's HAS_PUB
     std::array<uint8_t,42> nb{}; size_t nn = mk_probe(0xB0B1u, ed, nb);
     DualLayerTestAccess::presence_ingest_probe(home3, nb.data(), nn, m8);
     CHECK(DualLayerTestAccess::mobile_reg_n(home3) == 0);   // ★ non-host: no cache, byte-identical
+    // ★★★★ §B177-FIX — **A WRONG-EPOCH CHECK PROBE CACHES NOTHING EITHER**, because custody rides the SAME gated refresh
+    // (`presence_refresh_hosted_row`) on both arms. A perfectly self-consistent key at a STALE generation must not land in
+    // a row that belongs to an older registration — that row is on its way out, and a key written into it would be
+    // compacted away silently. ⓘ This arm is the negative twin of the FIRST arm above: identical drive, epoch 2 vs 1.
+    StubHal h4; Node home4(h4, 30, 0x3030u); CHECK(home4.on_init(hc));
+    DualLayerTestAccess::store_mobile(home4, 0xB0B1u, 17);                  // row epoch 1
+    std::array<uint8_t,42> eb{}; size_t en = mk_probe(0xB0B1u, ed, eb, /*epoch=*/2);
+    DualLayerTestAccess::presence_ingest_probe(home4, eb.data(), en, m8);
+    CHECK(DualLayerTestAccess::mobile_reg_n(home4) == 1);                   // PREMISE: the row is still there (nothing pruned)
+    CHECK_FALSE(DualLayerTestAccess::mobile_reg_has_pubkey(home4, 0));      // ★★★★ stale generation -> no custody
 }
 
 TEST_CASE("§mobile Part 2 Fix 7 — a home answers a WANT_PUBKEY locate for its LIVE mobile with a MOBILE_H_ANSWER_PUBKEY; silent without the key") {
