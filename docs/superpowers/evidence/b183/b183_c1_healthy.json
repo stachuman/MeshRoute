@@ -1,0 +1,115 @@
+{
+ "_name": "b183_c1_healthy",
+ "_desc": "B183 diagnosis fixture (NON-CORPUS). 1 mobile + initial home HomeA (dies) + eligible replacement HomeB. Presence plane only. C1 HEALTHY POSITIVE CONTROL: no home loss.",
+ "simulation": {
+  "duration_ms": 1500000,
+  "step_ms": 1,
+  "warmup_ms": 0,
+  "beacon_period_ms": 20000,
+  "seed": 183,
+  "node_startup_jitter_ms": 0,
+  "radio": {
+   "sf": 8,
+   "bw": 62.5,
+   "cr": 5,
+   "max_packet_bytes": 255,
+   "snr_coherence_ms": 0,
+   "duty_cycle": 1
+  },
+  "path_loss": {
+   "model": "log_distance",
+   "mobile_only": true,
+   "alpha": 3.0,
+   "sigma_db": 0.0,
+   "ref_distance_m": 1.0,
+   "ref_loss_db": 40.0,
+   "noise_floor_db": -120.0,
+   "tx_power_dbm": 14.0,
+   "node_tx_offset_sigma_db": 0.0,
+   "node_rx_offset_sigma_db": 0.0,
+   "asymmetry_coherence_ms": 60000
+  }
+ },
+ "commands": [],
+ "expect": [
+  {
+   "type": "script_emit_contains",
+   "node": "MobileM",
+   "emit_type": "mobile_attach_confirmed",
+   "value": "\"home\""
+  }
+ ],
+ "nodes": [
+  {
+   "name": "HomeA",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.3,
+   "start_at_ms": 1000,
+   "node_id": 19,
+   "key_hash32": "0x33333333",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9,
+     10
+    ],
+    "beacon_period_ms": 20000
+   }
+  },
+  {
+   "name": "HomeB",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.301,
+   "start_at_ms": 60000,
+   "node_id": 20,
+   "key_hash32": "0x44444444",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9,
+     10
+    ],
+    "beacon_period_ms": 20000
+   }
+  },
+  {
+   "name": "MobileM",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6003,
+   "lon": -122.3005,
+   "start_at_ms": 1000,
+   "node_id": 50,
+   "key_hash32": "0xe27bc270",
+   "velocity_mps": 0.01,
+   "direction_deg": 0.0,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9,
+     10
+    ],
+    "beacon_period_ms": 20000,
+    "is_mobile": true,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  }
+ ],
+ "topology": {
+  "links": [
+   {
+    "from": "HomeA",
+    "to": "HomeB",
+    "snr": 38.0,
+    "rssi": -82.0,
+    "snr_std_dev": 0,
+    "bidir": true
+   }
+  ]
+ }
+}

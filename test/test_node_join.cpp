@@ -52,6 +52,10 @@ struct Ev { std::string type; int64_t node = -1; int64_t proposed = -1; int64_t 
             // "a row expired" is true for both §9.1's direct rule and §9.2's redirect rule and only the field
             // separates them; a case that read the count alone could not tell which mechanism fired.
             int64_t redirect = -1;
+            // ★★★ §B186a — `mobile_tx_refused`'s fields. The event exists to say WHICH mobile operation the radio
+            // refused, so a case that counted only its NAME would prove nothing about attribution: four operations
+            // reported under one name is precisely the defect B186a removes.
+            int64_t sf = INT64_MIN; int64_t busy_until_ms = -1; std::string op; std::string reason_name;
             bool i_win = false; bool has_iwin = false; std::string reason; };
 
 class TestHal : public mrtest::TestHalBase {
@@ -72,8 +76,14 @@ public:
     //   either), so every pre-existing case in this TU is byte-identical — they never set it.
     TxResult tx_answer = TxResult::ok;
     int      tx_calls  = 0;                                          // attempts, refused or not (a refusal must still be an ATTEMPT)
-    TxResult tx(const uint8_t* b, size_t n, const TxParams&) override {
-        ++tx_calls;
+    // ★★★ §B186a — `TxParams::tag` IS CAPTURED, PER ATTEMPT, AT THE HAND-OFF. That is the only place the mobile
+    // TX-operation identity can honestly be read: the whole point of the slice is that the fact is established by
+    // the act of sending, not recovered from FSM state afterwards. Recorded for REFUSED attempts too (a refusal is
+    // still an attempt, and the refused frame's identity is exactly what the report must name).
+    std::vector<uint16_t> tx_tags;
+    uint16_t last_tag() const { return tx_tags.empty() ? 0xFFFFu : tx_tags.back(); }
+    TxResult tx(const uint8_t* b, size_t n, const TxParams& p) override {
+        ++tx_calls; tx_tags.push_back(p.tag);
         if (tx_answer != TxResult::ok) return tx_answer;             // refused: the HAL keeps nothing, so neither do we
         tx_frames.emplace_back(b, b + n); return TxResult::ok;
     }
@@ -120,10 +130,14 @@ public:
                 else if (!std::strcmp(fl.key, "local_id"))         e.local_id = fl.i;
                 else if (!std::strcmp(fl.key, "reclaims"))         e.reclaims = fl.i;   // §MH-S4b: how many re-CLAIMs healed this attachment
                 else if (!std::strcmp(fl.key, "redirect"))         e.redirect = fl.i;   // §MH-S5 gate 14: direct vs redirect expiry
+                else if (!std::strcmp(fl.key, "sf"))              e.sf = fl.i;             // §B186a: the refused frame's SF
+                else if (!std::strcmp(fl.key, "busy_until_ms"))    e.busy_until_ms = fl.i;  // §B186a: when the radio says it may fly
             } else if (fl.type == EventField::T::boolean) {
                 if (!std::strcmp(fl.key, "i_win")) { e.i_win = fl.b; e.has_iwin = true; }
             } else if (fl.type == EventField::T::str) {
-                if (!std::strcmp(fl.key, "reason")) e.reason = fl.s ? fl.s : "";
+                if      (!std::strcmp(fl.key, "reason"))      e.reason = fl.s ? fl.s : "";
+                else if (!std::strcmp(fl.key, "op"))          e.op = fl.s ? fl.s : "";              // §B186a: WHICH mobile operation
+                else if (!std::strcmp(fl.key, "reason_name")) e.reason_name = fl.s ? fl.s : "";     // §B186a: the refusal CONDITION, by name
             }
         }
         events.push_back(e);
@@ -4749,6 +4763,225 @@ TEST_CASE("★★★★ §MH-S4b — a DEFERRED re-CLAIM the HAL later refuses R
         CHECK(hc.count("mobile_tx_rejected") == 1);                  // ★★ …it took `mobile_admission_rejected`…
         CHECK(hc.count_armed(kMobileDiscoverTimerId) == 1);          // ★★★ …and got its bounded retry-DISCOVER
     }
+}
+
+// ===========================================================================
+// ★★★★ §B186a 2026-08-12 — FOUR DISTINCT INTERNAL TX IDENTITIES FOR THE MOBILE OPERATIONS.
+//
+// THE DEFECT ([[B183]] §2.3 / [[B186]]): a mobile DISCOVER, a host OFFER, an initial CLAIM and a re-CLAIM all reach
+// the transmitter tagged `FrameTag::beacon`, so an asynchronous refusal reported through `on_radio_busy` could name
+// only *"a beacon"* — `retry_slot_of(beacon)` is −1, the function returns, and nothing downstream records that the
+// frame died while `mobile_discover_tx` / `mobile_offer_tx` had already claimed success one layer above.
+// THE FIX IS OBSERVABILITY ONLY: the operation now rides `TxParams::tag`'s previously-unused HIGH byte and comes
+// back on `BusyInfo::tag`. ⛔ No wire change, no retry, no beacon change — those are [[B186b]]'s and are NOT here.
+// ⛔⛔ AND THE IDENTITY IS STAMPED BY THE ACT: the sending SITE chooses the `LbtKind`, which is what these cases
+//    read at the hand-off. A case that inferred the operation from the node's state afterwards would be asserting
+//    the reconstruction this slice exists to remove — see the `seeking` arm of the third case, which is exactly
+//    the moment a reconstruction would answer wrongly.
+// ===========================================================================
+
+// Every op's tag, so the cases read one vocabulary (and a typo cannot make two ops compare equal).
+constexpr uint16_t kTagBeaconPlain = 5;                              // FrameTag::beacon, op == none (an ORDINARY beacon)
+constexpr uint16_t kTagData        = 2;                              // FrameTag::data — a retry-eligible NON-mobile frame
+
+TEST_CASE("★★★★ §B186a — the FOUR mobile operations carry FOUR DISTINCT tags, stamped AT THE HAND-OFF (and an ordinary beacon carries none)") {
+    constexpr uint32_t kMob = 0x0000B301u, kHomeHash = 0x00005B5Bu, kOther = 0x0000A1B1u;
+    constexpr uint8_t  kHomeId = 91, kLocal = 215;
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+
+    // ---- (1) DISCOVER — the mobile's own attach probe.
+    TestHal hal; hal._now = 100000;
+    Node mob(hal, /*node_id=*/0, kMob);
+    CHECK(mob.on_init(s0_mobile_cfg()));
+    mob.on_timer(kMobileDiscoverTimerId);
+    CHECK(hal.count("mobile_discover_tx") == 1);                     // PREMISE: the DISCOVER path really ran…
+    CHECK(hal.tx_tags.size() == 1);                                  // …and really reached the transmitter
+    const uint16_t t_discover = hal.last_tag();
+    CHECK(t_discover == Node::mobile_tx_tag(Node::MobileTxOp::discover));
+    CHECK(Node::mobile_op_of_tag(t_discover) == Node::MobileTxOp::discover);
+    // ★ THE LOW BYTE IS UNCHANGED: the frame is still a beacon to the retry/label machinery, which is what keeps
+    //   stash selection, the "BCN" label and the corpus's transmitted bytes untouched.
+    CHECK((t_discover & 0xFFu) == kTagBeaconPlain);
+
+    // ---- (2) initial CLAIM — a different operation, therefore a different tag.
+    std::array<uint8_t, 16> off{};
+    const size_t on = make_j_offer_mobile(kHomeId, kHomeHash, kLocal, kMob, off);
+    mob.on_recv(off.data(), on, meta);
+    mob.on_timer(kMobileClaimGuardTimerId);                          // window close -> CLAIM + provisional adopt
+    CHECK(mob.mobile_attach_state() == Node::MobileAttachState::claiming);   // PREMISE
+    const uint16_t t_claim = hal.last_tag();
+    CHECK(t_claim == Node::mobile_tx_tag(Node::MobileTxOp::claim));
+    CHECK(Node::mobile_op_of_tag(t_claim) == Node::MobileTxOp::claim);
+
+    // ---- (3) re-CLAIM — ★★ THE PAIR THAT USED TO BE INDISTINGUISHABLE. Same frame shape, same epoch, same host;
+    //          a DIFFERENT operation, and only the sending site knows which.
+    const uint8_t layer = mob.config().layers[0].layer_id;
+    { std::array<uint8_t, 64> rb{};
+      const size_t rn = make_p_roster_one(kHomeId, layer, /*mobile_hash=*/kOther, /*local=*/200, /*epoch=*/1, rb);
+      mob.on_recv(rb.data(), rn, meta); }                            // §7.1 step 5: rostered somebody else -> one re-CLAIM
+    CHECK(hal.count("mobile_reclaim_tx") == 1);                      // PREMISE: it really was the re-CLAIM path
+    const uint16_t t_reclaim = hal.last_tag();
+    CHECK(t_reclaim == Node::mobile_tx_tag(Node::MobileTxOp::reclaim));
+    CHECK(Node::mobile_op_of_tag(t_reclaim) == Node::MobileTxOp::reclaim);
+    CHECK(t_reclaim != t_claim);                                     // ★★★★ THE DEFECT, GONE: these two were equal
+
+    // ---- (4) OFFER — the HOST side (a static node), so a second fixture.
+    TestHal hh; hh._now = 100000;
+    Node host(hh, /*node_id=*/42, /*key_hash32=*/0x00004242u);
+    CHECK(host.on_init(join_cfg()));
+    CHECK(host.can_host_mobiles());                                  // PREMISE
+    CHECK(stage_mobile_offer(host, hh, /*mobile_hash=*/0x0000D1D1u) == 1);
+    hh.tx_tags.clear();
+    fire_mobile_offer_timer(host, hh);                               // the staged OFFER's own deadline
+    CHECK(count_j_offer_mobile(hh.tx_frames) == 1);                  // PREMISE: an OFFER really flew
+    const uint16_t t_offer = hh.last_tag();
+    CHECK(t_offer == Node::mobile_tx_tag(Node::MobileTxOp::offer));
+    CHECK(Node::mobile_op_of_tag(t_offer) == Node::MobileTxOp::offer);
+
+    // ---- ★★★★ ALL FOUR PAIRWISE DISTINCT. "Identity is the whole tuple": replacing four-sharing-one with
+    //      three-sharing-one would pass every assertion above except these.
+    CHECK(t_discover != t_offer); CHECK(t_discover != t_claim); CHECK(t_discover != t_reclaim);
+    CHECK(t_offer != t_claim);    CHECK(t_offer != t_reclaim);       CHECK(t_claim != t_reclaim);
+
+    // ---- ★★★ NEGATIVE CONTROL — AN ORDINARY BEACON IS UNCHANGED. `tx_flood` tags beacons itself and never goes
+    //      through the mobile path, so its tag must still be the bare `FrameTag::beacon`. Without this, "ordinary
+    //      beacons and floods stay unchanged" would be a claim rather than a measurement.
+    {
+        TestHal hb; hb._now = 100000;
+        Node st(hb, /*node_id=*/7, /*key_hash32=*/0x00000707u);
+        CHECK(st.on_init(join_cfg()));
+        hb.tx_tags.clear();
+        st.on_timer(kBeaconTimerId);                                 // the periodic beacon tick
+        CHECK(hb.tx_tags.size() >= 1);                               // PREMISE: a beacon really was handed over
+        for (uint16_t t : hb.tx_tags) {
+            CHECK(t == kTagBeaconPlain);                             // ★★ bit-for-bit the pre-slice value…
+            CHECK(Node::mobile_op_of_tag(t) == Node::MobileTxOp::none);   // ★★ …and it names NO mobile operation
+        }
+    }
+}
+
+TEST_CASE("★★★★ §B186a — an ASYNCHRONOUS refusal REPORTS the operation, reason, SF and busy_until — and reports nothing for a non-mobile frame") {
+    constexpr uint32_t kMob = 0x0000B302u;
+    TestHal hal; hal._now = 100000;
+    Node mob(hal, /*node_id=*/0, kMob);
+    CHECK(mob.on_init(s0_mobile_cfg()));
+
+    struct Case { Node::MobileTxOp op; const char* name; };
+    const Case cases[] = { { Node::MobileTxOp::discover, "discover" }, { Node::MobileTxOp::offer,   "offer" },
+                           { Node::MobileTxOp::claim,    "claim" },    { Node::MobileTxOp::reclaim, "reclaim" } };
+    for (const Case& c : cases) {
+        hal.events.clear(); hal.armed.clear();
+        BusyInfo bi{ BusyReason::duty_cycle_exceeded, Node::mobile_tx_tag(c.op), /*sf=*/9, /*busy_until_ms=*/777000 };
+        mob.on_radio_busy(bi);
+        CHECK(hal.count("radio_busy") == 1);                         // PREMISE: the pre-existing emit still fires, unchanged
+        CHECK(hal.count("mobile_tx_refused") == 1);                  // ★★★ …and the frame is no longer anonymous
+        const Ev* e = hal.find("mobile_tx_refused");
+        CHECK(e != nullptr);
+        if (e) {
+        CHECK(e->op == c.name);                                      // ★★★★ THE EXACT OPERATION
+        CHECK(e->reason_name == "duty_cycle_exceeded");               // ★★ the reason…
+        CHECK(e->reason == "");                                      // (the numeric `reason` is an i64 field, not a str)
+        CHECK(e->sf == 9);                                           // ★★ the SF…
+        CHECK(e->busy_until_ms == 777000);                            // ★★ …and when the radio says it may fly
+        }
+        // ⛔ OBSERVABILITY ONLY: a beacon-tagged frame is still not retry-eligible, so NOTHING was re-armed and
+        //    nothing gave up. This is the assertion that would fail if the report had grown into a recovery.
+        CHECK(hal.count("tx_giveup") == 0);
+        CHECK(hal.count_armed(19) == 0);                             // kRadioBusyRetryTimerId (base of the 4-slot range)
+        CHECK(hal.count_armed(23) == 0);                             // kDutyDeferTimerId base — no duty re-issue either
+    }
+
+    // ---- ★★★ EVERY REASON IS REPORTED AS ITSELF (a single hard-coded string would pass the loop above).
+    struct RCase { BusyReason r; const char* name; };
+    const RCase reasons[] = { { BusyReason::channel_busy, "channel_busy" }, { BusyReason::self_tx_in_flight, "self_tx_in_flight" },
+                              { BusyReason::oversized, "oversized" },       { BusyReason::duty_cycle_exceeded, "duty_cycle_exceeded" } };
+    for (const RCase& rc : reasons) {
+        hal.events.clear();
+        BusyInfo bi{ rc.r, Node::mobile_tx_tag(Node::MobileTxOp::discover), /*sf=*/7, /*busy_until_ms=*/0 };
+        mob.on_radio_busy(bi);
+        const Ev* e = hal.find("mobile_tx_refused");
+        CHECK(e != nullptr);
+        if (e) { CHECK(e->reason_name == rc.name);
+                 CHECK(e->op == "discover");
+                 CHECK(e->busy_until_ms == 0); }                      // ★ `oversized` really carries 0 — reported, not invented
+    }
+
+    // ---- ★★★ NEGATIVE HALF (a): an ORDINARY BEACON refusal reports NO operation. The instrument is proven
+    //      REACHED by `radio_busy` firing on the same call, so a silent `mobile_tx_refused` cannot be silence.
+    hal.events.clear();
+    { BusyInfo bi{ BusyReason::channel_busy, kTagBeaconPlain, 8, 500 }; mob.on_radio_busy(bi); }
+    CHECK(hal.count("radio_busy") == 1);                             // ★ reached…
+    CHECK(hal.count("mobile_tx_refused") == 0);                      // ★★ …and correctly says nothing
+
+    // ---- ★★★ NEGATIVE HALF (b): a DATA refusal is untouched — it still takes the stash-retry path, and it still
+    //      names no mobile operation. This is the "non-mobile behaviour is bit-identical" control.
+    hal.events.clear();
+    { BusyInfo bi{ BusyReason::channel_busy, kTagData, 9, 400 }; mob.on_radio_busy(bi); }
+    CHECK(hal.count("mobile_tx_refused") == 0);
+    CHECK(Node::mobile_op_of_tag(kTagData) == Node::MobileTxOp::none);
+
+    // ---- ★★★ NEGATIVE HALF (c): an UNKNOWN high byte must report NOTHING rather than guess an operation
+    //      (a future build's op arriving at an older one).
+    hal.events.clear();
+    { BusyInfo bi{ BusyReason::channel_busy, static_cast<uint16_t>((99u << 8) | 5u), 9, 400 }; mob.on_radio_busy(bi); }
+    CHECK(hal.count("radio_busy") == 1);
+    CHECK(hal.count("mobile_tx_refused") == 0);
+    CHECK(Node::mobile_op_of_tag(static_cast<uint16_t>((99u << 8) | 5u)) == Node::MobileTxOp::none);
+}
+
+TEST_CASE("★★★★ §B186a — the identity survives an LBT DEFER, and is READ not RECONSTRUCTED (it still names the re-CLAIM after the FSM has left `claiming`)") {
+    constexpr uint32_t kMob = 0x0000B303u, kHomeHash = 0x00005C5Cu, kOther = 0x0000A1B3u;
+    constexpr uint8_t  kHomeId = 92, kLocal = 214;
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    TestHal hal; hal._now = 100000;
+    NodeConfig cfg = s0_mobile_cfg(); cfg.lbt_enabled = true;        // ★ required: only LBT can DEFER
+    Node mob(hal, /*node_id=*/0, kMob);
+    CHECK(mob.on_init(cfg));
+
+    hal._busy_until = 0;                                             // clear channel: CLAIM #1 goes out immediately
+    mob.on_timer(kMobileDiscoverTimerId);
+    std::array<uint8_t, 16> off{};
+    const size_t on = make_j_offer_mobile(kHomeId, kHomeHash, kLocal, kMob, off);
+    mob.on_recv(off.data(), on, meta);
+    mob.on_timer(kMobileClaimGuardTimerId);
+    CHECK(mob.mobile_attach_state() == Node::MobileAttachState::claiming);   // PREMISE
+    const uint8_t layer = mob.config().layers[0].layer_id;
+
+    // ---- the channel is busy, so the re-CLAIM enters the LBT defer ring: NOTHING is handed to the radio yet.
+    hal._busy_until = hal._now + 5000;
+    hal.tx_tags.clear(); hal.events.clear();
+    { std::array<uint8_t, 64> rb{};
+      const size_t rn = make_p_roster_one(kHomeId, layer, kOther, 200, 1, rb);
+      mob.on_recv(rb.data(), rn, meta); }
+    CHECK(hal.count("tx_lbt_defer") == 1);                           // PREMISE: it really deferred…
+    CHECK(hal.tx_tags.empty());                                      // …so no tag exists yet
+
+    // ---- the defer fires on a clear channel. ★★ THE TAG THE RADIO SEES IS STILL "reclaim": the identity rode
+    //      `DeferredLbt::kind`, the carrier that already existed, across the wait.
+    hal._busy_until = 0; hal._now += 6000;
+    mob.test_fire_lbt_defer(/*slot=*/0);
+    CHECK(hal.tx_tags.size() == 1);
+    const uint16_t t_deferred_reclaim = hal.last_tag();
+    CHECK(t_deferred_reclaim == Node::mobile_tx_tag(Node::MobileTxOp::reclaim));
+
+    // ---- ★★★★ THE ANTI-RECONSTRUCTION ASSERTION. Drive the mobile OUT of `claiming` — the exhaustion path returns
+    //      it to `seeking` — and only THEN deliver the refusal for the frame captured above. A report derived from
+    //      FSM state at this instant could not answer "re-CLAIM" any more (`mobile_reclaim_deferred_rejected()`'s
+    //      predicate requires `active` + `claiming`, and both are gone); the TAG still does, because the fact was
+    //      established by the act of sending.
+    for (int i = 0; i < static_cast<int>(protocol::presence_claim_max_retries) + 2; ++i) {
+        hal._now += protocol::presence_claim_solicit_ms;  mob.on_timer(kPresenceProbeTimerId);
+        hal._now += protocol::presence_claim_confirm_ms;  mob.on_timer(kPresenceProbeTimerId);
+    }
+    CHECK(mob.mobile_attach_state() == Node::MobileAttachState::seeking);   // PREMISE: the FSM HAS moved on
+    CHECK_FALSE(mob.mobile_registered());                                  // PREMISE: …and the registration is gone
+    hal.events.clear();
+    BusyInfo bi{ BusyReason::duty_cycle_exceeded, t_deferred_reclaim, /*sf=*/9, /*busy_until_ms=*/999000 };
+    mob.on_radio_busy(bi);
+    const Ev* e = hal.find("mobile_tx_refused");
+    CHECK(e != nullptr);
+    if (e) { CHECK(e->op == "reclaim");                              // ★★★★ still exactly right, with the FSM elsewhere
+             CHECK(e->busy_until_ms == 999000); }
 }
 
 // ---------------------------------------------------------------------------

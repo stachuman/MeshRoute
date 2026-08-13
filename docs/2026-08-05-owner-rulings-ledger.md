@@ -512,6 +512,90 @@ revision, so their RELATIVE ordering stands. What is suspended is the **absolute
 [[B163]]. That provisionality is now **stronger**: the floor is **frozen and non-authoritative** until B182 lands and
 the arms are re-run. ⛔ **Do not quote `≥732` as a gate in any brief until then.**
 
+### 1.19 The 1-hour rolling duty window STAYS; `s07` saturation is EXPECTED · ✅ **OWNER-RULED 2026-08-12**
+
+★★★ **THE RULING, IN REPORTED FORM (⛔ no quotation — §3 rule 4). The owner ruled:**
+1. **RETAIN the 1-hour rolling duty window.**
+2. **Treat `s07` saturation as VALID STRESS BEHAVIOUR** — ⛔ **do NOT retune its window or its load merely to restore
+   delivery.**
+3. **RECLASSIFY [[B187]] as EXPECTED SATURATION** (not a defect).
+4. **Register the ROLLING-WINDOW-BOUNDARY coverage gap SEPARATELY**, and test it with a **compressed explicit
+   window**.
+5. **Correct the stale [[B183]] documentation, then proceed with [[B186]].**
+6. ⛔⛔ **NO `s07` RE-ANCHOR IS AUTHORISED BY THIS RULING.**
+
+★★ **WHAT THIS SETTLES, and why the original B187 wording would have caused harm:** the measurement behind it was
+that **36 of 36 corpus scenarios are in the ONE-SHOT duty regime** — not one sets `duty_cycle_window_ms`, so all
+inherit the 1 h default and every duration is ≤ 1 h. ⇒ B187 was first worded as *"`s07`'s duty window equals its own
+`duration_ms`"*, which reads as an `s07` authoring defect. It is not: a 1 h scenario seeing exactly one window is
+**correct modelling** of a 1 %-of-rolling-hour limit. ⛔ **Shortening `s07`'s window to force rolling behaviour would
+have made the scenario LESS faithful, moved an anchored row, and inflated delivery for no protocol reason.**
+
+⇒ ★ **The consequence for [[B183]]: duty exhaustion in `s07` is a LEGITIMATE STRESS CONDITION, not the defect.** The
+defect B183 located is purely that the **core mishandles a busy-refused, `FrameTag::beacon`-tagged J frame** — no
+retry, no attributable emit, while `mobile_offer_tx` has already fired. **Any B183 document that presents the duty
+window as the cause or trigger is stale and must be corrected in place.**
+
+ⓘ **The separately-registered gap is [[B188]]**: the rolling window's boundary behaviour is **corpus-dark** — never
+exercised anywhere — and is to be tested with a **compressed explicit `duty_cycle_window_ms`**, not by lengthening a
+scenario or shortening `s07`'s.
+
+### 1.20 The bounded B186a / HAL-audit / B188 slice · ✅ **OWNER-RULED 2026-08-12**
+
+★★★ **THE RULING, IN REPORTED FORM (⛔ no quotation — §3 rule 4). THE OBJECTIVE, in the owner's framing: HONEST TX
+OUTCOMES AND EVIDENCE FOR RECOVERY — ⛔ NOT forcing `s07` to reattach, and ⛔ NOT creating a generic retry
+mechanism.** Bounded: ⛔ **do not attempt to "fix `s07`" and do not broadly redesign mobile attachment.**
+
+**1 · [[B186a]] OBSERVABILITY FIRST.** Give mobile **DISCOVER, OFFER, initial CLAIM and re-CLAIM distinct internal TX
+identities** · ⛔ **no wire-format change** · ⛔ **no generic beacon retries** · **ordinary beacons and floods
+unchanged** · ★★ **capture initial-CLAIM versus re-CLAIM BEFORE TX HANDOFF — do NOT reconstruct it after FSM state has
+changed** · on asynchronous TX refusal **report the exact mobile operation, reason, SF and `busy_until`** ·
+ⓘ **`BusyInfo` has `tag` and SF but NOT length — do NOT add length plumbing in this slice** · **positive AND negative
+tests for every subtype, INCLUDING telemetry-disabled compilation.**
+
+**2 · AUDIT REACHABILITY BEFORE [[B186b]].** Enumerate **every** HAL implementation and establish whether it can
+**accept a frame and later invoke `on_radio_busy`**. **Distinguish simulator-only behaviour from behaviour reachable on
+physical boards.** ⛔ **Record evidence, not assumptions.**
+
+**3 · [[B188]] AS A SEPARATE COVERAGE SLICE.** A **purpose-built fixture with an explicitly compressed
+`duty_cycle_window_ms`**, verifying **refusal at exhaustion · correct `busy_until` · incremental rolling expiry ·
+resumed transmission once budget is available.** ⛔ **Do NOT shorten `s07`'s duty window and do NOT lengthen the
+general corpus merely to exercise rollover.**
+
+**4 · ⛔ DO NOT IMPLEMENT [[B186b]] BEHAVIOURAL RECOVERY YET.** After B186a and the HAL audit, **report**: which paths
+are **simulator-only** and which are **hardware-reachable** · **corpus movement caused ONLY by new diagnostics** · and
+**a minimal recovery proposal per reachable mobile operation.**
+
+**5 · PRESERVED RULINGS.** `s07` saturation is **legitimate stress behaviour, not a defect** · ⛔ **do not change
+`s07` load/window or re-anchor it in this slice** · **the delivery floor remains FROZEN/UNRATIFIED** · **[[B187]]
+stands as expected saturation/reframed, and [[B188]] owns the missing rolling-window coverage.**
+
+### 1.21 The mobile-home investigation STOPS; return to the OLED plan · ✅ **OWNER-RULED 2026-08-13**
+
+★★★ **THE RULING, IN REPORTED FORM (⛔ no quotation — §3 rule 4). The owner ruled:**
+1. **STOP the mobile-home investigation.** ⛔ **Do NOT implement [[B186b]] yet** — it stays OPEN and unimplemented,
+   with its minimal recovery proposals recorded as proposals only.
+2. **RETURN to the Heltec OLED plan**, with the **inbox detail/delete slice**, followed by **settings dirty/save**.
+3. ★★ **KEEP [[B164]] AND [[B189]] AS A MANDATORY GATE** before **on-device registration / team onboarding** and
+   before **final Phase-A acceptance.**
+
+★★ **WHY ITEM 3 MATTERS AND MUST NOT BE FORGOTTEN WHEN THE OLED WORK LOOKS DONE:** both are *unobservability*
+findings, and both bear directly on the feature the OLED UI is being built to drive.
+- **[[B164]]** — admission truth is exact, but **actual on-air completion remains unobservable after a
+  post-admission rejection**. ⇒ A UI that reports a send as done can be reporting an admission, not a transmission.
+- **[[B189]]** — ⛔ **`Node::on_radio_busy` has NO caller on hardware at all** (whole-tree evidence, §B186a's HAL
+  audit), so the async busy path **and the entire R4.5b stash-retry machinery are SIMULATOR-ONLY**; conversely the
+  synchronous `DeviceHal` refusal is **corpus-dark** (`tx_hal_rejected`/`tx_failed`/`oversized` = 0 across all 36
+  streams). ⇒ **Each shape exists in exactly one implementation and neither is proven for the other. No hardware run
+  has been done.**
+⇒ ★ **Together they mean on-device registration and team onboarding would be driven by TX outcomes whose truth on
+metal is unestablished.** That is why they gate, not merely accompany, those features.
+
+ⓘ **State at the stop:** B186a is IMPLEMENTED (four distinct internal TX identities; `mobile_reclaim = 6`; the
+enum-switch guard proved to bite at two sites) · native **1515 / 81320 / 0** · `lus` **`43a7b6eb`** ·
+`sizeof(Node)` **221880** (D2 negative) · [[B188]]'s non-corpus fixture at **39 verifier checks / 37 controls, all
+mutation-proved** · the delivery floor remains **FROZEN / UNRATIFIED** · **`s07` untouched and un-re-anchored.**
+
 ---
 ## §2 — GENUINELY OPEN. These are fair review targets.
 

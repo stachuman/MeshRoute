@@ -74,6 +74,23 @@ public:
 #endif
     void on_recv(const uint8_t* bytes, size_t len, const RxMeta& meta);  // bytes valid during call only
     void on_timer(uint32_t timer_id);                                    // dispatch on Node-owned id
+    // ★★★ §B186a 2026-08-12 — THE MOBILE TX-OPERATION IDENTITY, and it rides `TxParams::tag` / `BusyInfo::tag`.
+    // The four mobile attachment frames are ALL tagged `FrameTag::beacon` at the transmitter (that is deliberate and
+    // unchanged — the tag's LOW byte still selects the retry slot and the "BCN" label), so a refusal reported back
+    // through `on_radio_busy` could name only "a beacon". `TxParams::tag` is a uint16 of which exactly 3 bits were
+    // in use, so the operation travels in its HIGH byte: `tag = (op << 8) | FrameTag`.
+    // ⛔ NOT A WIRE CHANGE: `tag` is an opaque host token (hal.h:31). No frame byte moves and no `wire_version` is
+    //    touched. ⛔ NOT A LENGTH FIELD either — `BusyInfo` carries `reason`, `tag`, `sf` and `busy_until_ms`, which
+    //    is exactly what the refusal report needs, and nothing was added to it.
+    // ★ WHY THE HIGH BYTE AND NOT A NEW FIELD: the tag is the ONLY datum that survives the hand-off to the radio
+    //   and comes BACK on the asynchronous callback. Anything the Node stores instead would have to be re-associated
+    //   with the refused frame afterwards — i.e. reconstructed — which is the defect, not the fix.
+    // ⓘ The LOW byte is masked out before every `FrameTag` use (`frame_tag_of`), so retry-slot selection, the
+    //   telemetry label and the giveup path see exactly the values they saw before.
+    enum class MobileTxOp : uint8_t { none = 0, discover = 1, offer = 2, claim = 3, reclaim = 4 };
+    static uint16_t    mobile_tx_tag(MobileTxOp op);          // the TxParams::tag a mobile J frame of `op` carries
+    static MobileTxOp  mobile_op_of_tag(uint16_t tag);        // decode the high byte (unknown/out-of-range -> none)
+    static const char* mobile_tx_op_name(MobileTxOp op);      // "discover"/"offer"/"claim"/"reclaim"/"none"
     void on_radio_busy(const BusyInfo& info);                            // deferred-TX retry/giveup
     void on_preamble_detected(uint64_t time_ms);                         // SX1262 IRQ / throttle witness
     CmdResult on_command(const Command& c);                              // the typed app<->firmware seam
@@ -2130,7 +2147,21 @@ private:
     //   · `mobile_offer`    emits the honest `mobile_offer_tx` at the handoff (§6.2/§10).
     // All three map to `FrameTag::beacon` below, exactly as `flood` did, so stash/retry/labelling is
     // unchanged and a clear-channel path is byte-identical to the pre-slice ordering.
-    enum class LbtKind : uint8_t { rts = 0, nack = 1, flood = 2, mobile_discover = 3, mobile_claim = 4, mobile_offer = 5 };
+    // ★★★ §B186a 2026-08-12 — `mobile_reclaim` IS A FOURTH KIND, AND IT IS THE WHOLE OF "CAPTURE IT BEFORE THE
+    // HAND-OFF". A re-CLAIM used to travel as `mobile_claim`, so the four mobile attachment frames reached the
+    // transmitter under THREE identities and the two CLAIMs were indistinguishable downstream. The only place that
+    // knows which one it is, is the site that DECIDED to send it (`mobile_claim_guard_fire` vs
+    // `mobile_reclaim_send`) — so the fact is established THERE, by the act, and carried in the carriers that
+    // already exist (`DeferredLbt::kind` for a deferred frame; `TxParams::tag`'s high byte for the radio).
+    // ⛔ IT MUST NOT BE RECONSTRUCTED FROM FSM STATE AT REFUSAL TIME: by the time an asynchronous refusal arrives
+    //    the attachment FSM may have moved on, and a reconstructed answer would be a false attribution wearing a
+    //    diagnostic's name. (`mobile_reclaim_deferred_rejected()` still derives its REFUND decision that way —
+    //    unchanged by this slice, deliberately, because changing a decision is not observability; see its note.)
+    // ⓘ `mobile_reclaim` is BEHAVIOURALLY `mobile_claim` everywhere the two are tested: the stale-attachment
+    //    cancel, the adopt-at-handoff line and node.cpp's deferred-loss arm all name BOTH, so nothing about a
+    //    re-CLAIM's handling changed. Only its NAME downstream did.
+    enum class LbtKind : uint8_t { rts = 0, nack = 1, flood = 2, mobile_discover = 3, mobile_claim = 4, mobile_offer = 5,
+                                  mobile_reclaim = 6 };
     // R4.5b frame-type tag (echoed by the sim in on_radio_busy; identifies a blocked TX heap-free).
     enum class FrameTag : uint16_t { rts = 0, cts = 1, data = 2, ack = 3, nack = 4, beacon = 5 };
     // ★ §id-hash S1c/S1d: returns FALSE iff the frame was DROPPED — a full LBT defer ring, or a HAL rejection. A
@@ -2230,12 +2261,22 @@ private:
     };
     // R4.5b: the central TX helper (Lua tx_with_retry dv:3599) — stash the retry-eligible frame + set the
     // frame-type tag + duty pre-check + _hal.tx. Every TX except the beacon routes through it.
-    TxHandOff tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf, FrameTag tag);   // §tx-admission TX1: handed / deferred_retry_armed / rejected
+    // §B186a: `op` is the MOBILE TX-OPERATION IDENTITY, defaulting to `none` so all ~30 non-mobile callers are
+    // untouched. It ONLY colours `TxParams::tag`'s high byte — it changes no branch, no stash slot and no label.
+    TxHandOff tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf, FrameTag tag,
+                            MobileTxOp op = MobileTxOp::none);   // §tx-admission TX1: handed / deferred_retry_armed / rejected
     void     retry_stashed(uint8_t slot);                          // re-issue a stashed frame (kRadioBusyRetryTimerId+slot)
     void     duty_defer_fire(uint8_t slot);                        // re-run tx_with_retry from the stash after a duty defer (kDutyDeferTimerId+slot)
     bool     duty_over_budget(size_t len, int16_t sf, uint32_t* wait_ms);   // check_duty_cycle dv:3573; *wait_ms = defer time when over budget
     static int retry_slot_of(FrameTag tag);                        // FrameTag -> stash slot (0..3) or -1 (not eligible)
     static const char* label_of_frame(FrameTag tag);              // FrameTag -> "RTS"/"CTS"/...
+    // §B186a decoders/derivations. `frame_tag_of` is the ONE place the mobile-op high byte is masked off, so the
+    // retry/label/giveup paths keep seeing the pre-slice values; `mobile_op_of_kind` derives the op from the kind
+    // the SENDING SITE chose, which is what makes the identity captured-at-the-act rather than reconstructed.
+    static uint16_t    tx_tag_of(FrameTag t, MobileTxOp op);       // THE one encoder: (op << 8) | FrameTag
+    static FrameTag    frame_tag_of(uint16_t tag);                 // tag's low byte -> FrameTag (verbatim pre-slice values)
+    static MobileTxOp  mobile_op_of_kind(LbtKind kind);            // LbtKind -> MobileTxOp (non-mobile kinds -> none)
+    static const char* busy_reason_name(BusyReason r);             // BusyReason -> "channel_busy"/... (telemetry only)
     // ---- cascade-to-alt walk + no-route defer+Q ----------------------------
     uint8_t  pick_next_cascade_hop(const PendingTx& pt);          // two-pass walk :5430; 0 = none (NON-const: refreshes the route order first)
     bool     next_hop_selectable(const RtCandidate& c, const PendingTx& pt,

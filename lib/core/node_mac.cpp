@@ -1424,8 +1424,12 @@ bool Node::lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind ki
     //   only ever compare a value against itself. Only a DEFER can put a bump in between.
     // ⛔ NOT `mobile_offer`: that is the HOST side, whose single staging slot is [[B137]]/S2's to give an
     //   identity to. Its `completion_gen` is 0 and it is never tested here.
-    if ((kind == LbtKind::mobile_discover || kind == LbtKind::mobile_claim) && completion_gen != _mobile_attach_gen) {
-        MR_EMIT("mobile_tx_cancelled_stale", EF_S("kind", kind == LbtKind::mobile_claim ? "claim" : "discover"),
+    // §B186a: `mobile_reclaim` is named here TOO — it used to arrive as `mobile_claim` and the cancel applied to it,
+    // so omitting it would REMOVE a live guard from re-CLAIMs. The emitted `kind` now comes from the op table, so a
+    // stale re-CLAIM reports "reclaim" instead of the pre-slice "claim" (0 occurrences corpus-wide, measured).
+    if ((kind == LbtKind::mobile_discover || kind == LbtKind::mobile_claim || kind == LbtKind::mobile_reclaim)
+        && completion_gen != _mobile_attach_gen) {
+        MR_EMIT("mobile_tx_cancelled_stale", EF_S("kind", mobile_tx_op_name(mobile_op_of_kind(kind))),
                 EF_I("gen", static_cast<int64_t>(completion_gen)),
                 EF_I("current_gen", static_cast<int64_t>(_mobile_attach_gen)));
         return true;   // a superseded transaction's frame — CANCELLED, not lost: nothing happens, nothing is reported
@@ -1433,7 +1437,10 @@ bool Node::lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind ki
 #endif
     const FrameTag tag = (kind == LbtKind::rts)  ? FrameTag::rts
                        : (kind == LbtKind::nack) ? FrameTag::nack : FrameTag::beacon;
-    const TxHandOff r = tx_with_retry(bytes, len, sf, tag);           // R4.5b: stash (NACK) + tag the frame
+    // §B186a: the mobile operation is DERIVED FROM THE KIND THE SENDING SITE PASSED — i.e. from the fact
+    // established by the act, before this hand-off — and rides `TxParams::tag`'s high byte from here on. Non-mobile
+    // kinds give `none`, so the tag they carry is bit-for-bit the pre-slice value.
+    const TxHandOff r = tx_with_retry(bytes, len, sf, tag, mobile_op_of_kind(kind));   // R4.5b: stash (NACK) + tag the frame
     if (kind == LbtKind::rts) start_rts_timeout();                     // after_tx: CTS-wait starts when the RTS is on air
 #if MR_FEAT_MOBILE
     // ★★ §MH-S1 §6.1 — THE ADMISSION BOUNDARY FOR THE COLLECT-OFFERs WINDOW, and it is the RTS line above
@@ -1471,7 +1478,11 @@ bool Node::lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind ki
     //    and the adopt used to run on the statement immediately after that call returned — with nothing in
     //    between but the two `kind`-gated lines above. So the Hal-call sequence of a non-deferred CLAIM is
     //    unchanged, which is what keeps the non-deferring corpus rows byte-identical.
-    if (kind == LbtKind::mobile_claim && r != TxHandOff::rejected) mobile_claim_adopt();
+    // §B186a: BOTH claim kinds, so the pre-slice call is preserved EXACTLY for a re-CLAIM. It is a deliberate no-op
+    // for one (`mobile_claim_adopt` early-returns on `!_mobile_claim_pending`, which is exactly a re-CLAIM's state —
+    // see its note at node_mobile.cpp), and leaving it out would make that invariant load-bearing HERE instead of
+    // where it is documented.
+    if ((kind == LbtKind::mobile_claim || kind == LbtKind::mobile_reclaim) && r != TxHandOff::rejected) mobile_claim_adopt();
 #endif
     // ★ §MH-S1b §6.2/§10 — `mobile_offer_tx` NOW MEANS TRANSMITTED. It used to be emitted at DISCOVER time,
     // beside the stash, i.e. it meant only "copied into a stash" — the very thing §10 forbids by name, and
@@ -1589,6 +1600,67 @@ const char* Node::label_of_frame(FrameTag t) {
                  case FrameTag::nack: return "NACK"; case FrameTag::beacon: return "BCN"; }
     return "BCN";
 }
+// ★★★ §B186a — THE FOUR MOBILE TX IDENTITIES, encoded into `TxParams::tag`'s HIGH byte. See the contract at the
+// `MobileTxOp` declaration in node.h. These five functions are the whole mechanism; every one is pure.
+// ⛔ `frame_tag_of` is what keeps the slice byte-inert for every non-mobile frame AND for the mobile frames'
+//    handling: the low byte is exactly what `on_radio_busy` used to cast, so `retry_slot_of` / `label_of_frame` /
+//    the giveup arm see unchanged values. (An unknown low byte still falls through to their trailing returns, as
+//    it did before — see label_of_frame's note on the HAL-supplied uint16.)
+// THE ONE ENCODER (U1) — everything else that needs a tag goes through it, so the format cannot be written two ways.
+uint16_t Node::tx_tag_of(FrameTag t, MobileTxOp op) {
+    return static_cast<uint16_t>((static_cast<uint16_t>(op) << 8) | static_cast<uint16_t>(t));
+}
+// A mobile J frame is ALWAYS `FrameTag::beacon` (lbt_complete's tag table maps all four kinds there), so the public
+// form a host/test needs takes only the operation.
+uint16_t Node::mobile_tx_tag(MobileTxOp op) { return tx_tag_of(FrameTag::beacon, op); }
+// ⛔⛔ REPAIRED 2026-08-13 — THE FIRST VERSION OF THIS FUNCTION CARRIED A COMMENT ASSERTING A PROTECTION THE CODE
+// DID NOT HAVE, WHICH IS THE DEFECT CLASS THIS ARC HAS PAID FOR ELEVEN-PLUS TIMES. It claimed *"no `default:` —
+// -Wswitch must fail the build when a fifth operation is added"* and was wrong TWO ways:
+//   (a) a `default: break;` sat FOUR LINES BELOW that very comment; and
+//   (b) worse, and the reason (a) hardly mattered: it switched on `hi`, a **`uint8_t`**, and **-Wswitch gives no
+//       exhaustiveness checking at all when the condition is an integer** — so the guard could never have fired
+//       even with the `default:` removed. A comment is not a gate.
+// ★ THE GUARD IS NOW REAL, and it is the pattern `mobile_op_of_kind` (three lines below) already used: switch on
+//   the ENUM TYPE, list every enumerator, and have NO `default:`. Adding a fifth `MobileTxOp` now fails the build
+//   HERE under `-Werror=switch` (proved by mutation, not asserted).
+// ⓘ The trailing return is NOT a `default:` in disguise and is load-bearing for a different reason: `tag` is a
+//   HAL-supplied uint16, so its high byte can hold a value no enumerator names (a newer build's operation
+//   arriving at an older one). That case must report NOTHING rather than guess an op — the same
+//   representable-but-unnamed argument `label_of_frame` / `retry_slot_of` document for `FrameTag`.
+Node::MobileTxOp Node::mobile_op_of_tag(uint16_t tag) {
+    const MobileTxOp op = static_cast<MobileTxOp>(static_cast<uint8_t>(tag >> 8));
+    switch (op) {   // no `default:` — and the condition is the ENUM, which is what makes -Wswitch bite
+    case MobileTxOp::discover: case MobileTxOp::offer:
+    case MobileTxOp::claim:    case MobileTxOp::reclaim: return op;
+    case MobileTxOp::none:                               return MobileTxOp::none;
+    }
+    return MobileTxOp::none;   // an out-of-range cast (see above): report NOTHING rather than guess an op
+}
+Node::FrameTag Node::frame_tag_of(uint16_t tag) { return static_cast<FrameTag>(tag & 0xFFu); }
+Node::MobileTxOp Node::mobile_op_of_kind(LbtKind kind) {
+    switch (kind) { case LbtKind::mobile_discover: return MobileTxOp::discover;
+                    case LbtKind::mobile_offer:    return MobileTxOp::offer;
+                    case LbtKind::mobile_claim:    return MobileTxOp::claim;
+                    case LbtKind::mobile_reclaim:  return MobileTxOp::reclaim;
+                    case LbtKind::rts: case LbtKind::nack: case LbtKind::flood: return MobileTxOp::none; }
+    return MobileTxOp::none;   // no `default:` above -> -Wswitch catches a new LbtKind that forgets its op
+}
+const char* Node::mobile_tx_op_name(MobileTxOp op) {
+    switch (op) { case MobileTxOp::discover: return "discover"; case MobileTxOp::offer: return "offer";
+                  case MobileTxOp::claim:    return "claim";    case MobileTxOp::reclaim: return "reclaim";
+                  case MobileTxOp::none:     return "none"; }
+    return "none";
+}
+// Telemetry-only: the BusyReason a refusal carried, by name. The numeric `reason` is emitted beside it (the
+// pre-existing `radio_busy` convention) — the name exists so an evidence fixture can match on the CONDITION
+// instead of on an enum ordinal that a future insertion could renumber.
+const char* Node::busy_reason_name(BusyReason r) {
+    switch (r) { case BusyReason::channel_busy:        return "channel_busy";
+                 case BusyReason::self_tx_in_flight:   return "self_tx_in_flight";
+                 case BusyReason::oversized:           return "oversized";
+                 case BusyReason::duty_cycle_exceeded: return "duty_cycle_exceeded"; }
+    return "unknown";
+}
 int Node::retry_slot_of(FrameTag tag) {
     // PORT DIVERGENCE (deliberate, non-goal): Lua keys its stash by string label and has SEPARATE retry-eligible
     // labels "CTS" vs "CTS-dup" (and "K-dup", "Q") — dv:3073-3081. We collapse the dup variants into the base slot
@@ -1697,7 +1769,7 @@ bool Node::duty_over_budget(size_t len, int16_t sf, uint32_t* wait_ms) {
 // readers below branch on `!= deferred_retry_armed`, and BOTH other enumerators satisfy that, so their behaviour is
 // bit-for-bit the pre-TX1 `handed == true`. A fourth enumerator added on the wrong side of this line would change
 // DATA post-TX arming silently; these asserts make that a build failure instead.
-Node::TxHandOff Node::tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf, FrameTag tag) {
+Node::TxHandOff Node::tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf, FrameTag tag, MobileTxOp op) {
     static_assert(TxHandOff::handed   != TxHandOff::deferred_retry_armed, "TX1: `handed` must satisfy the readers' predicate");
     static_assert(TxHandOff::rejected != TxHandOff::deferred_retry_armed, "TX1: a HAL rejection must still arm the MAC timeout that recovers a retry-eligible frame");
     const int slot = retry_slot_of(tag);
@@ -1723,7 +1795,12 @@ Node::TxHandOff Node::tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf
         (void)_hal.after(wait, kDutyDeferTimerId + static_cast<uint32_t>(slot));
         return TxHandOff::deferred_retry_armed;                        // NOT handed to the radio (caller must not arm post-tx state)
     }
-    TxParams p; p.sf = sf; p.label = label_of_frame(tag); p.tag = static_cast<uint16_t>(tag);
+    // §B186a: the tag carries the frame type in its LOW byte (verbatim) and the mobile operation in its HIGH byte.
+    // ⛔ `p.label` is DELIBERATELY LEFT AT "BCN" for a mobile J frame: the label is what the simulator prints in its
+    //    `tx` / `tx_deferred` records, so renaming it would move every mobile stream line AND break the [[B183]]
+    //    correlator, which binds a lost J frame to a same-millisecond **BCN** refusal. The identity belongs in the
+    //    tag (which the sim does not serialize) — that is why the corpus movement here is only the new emit's.
+    TxParams p; p.sf = sf; p.label = label_of_frame(tag); p.tag = tx_tag_of(tag, op);   // op == none ⇒ the pre-slice value, bit for bit
     // ★★★ §tx-admission TX1 (2026-08-01): the TxResult was DISCARDED here and this returned `true // handed`
     // unconditionally. `DeviceHal::tx` answers `busy` when its 8-entry outbound ring is full — it bumps `txq_drops`
     // and **does not retain the frame** — and `too_long` past the SX1262 length register. For a `slot < 0` frame

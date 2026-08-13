@@ -350,7 +350,13 @@ bool Node::mobile_reclaim_send() {
     MR_EMIT("mobile_reclaim_tx", EF_I("home", o.responder_id), EF_I("local_id", o.proposed_local_id),
             EF_I("epoch", _my_mobile_reg.epoch), EF_I("attempt", _mobile_claim_retries));
     TxAdmission adm = TxAdmission::admitted;
-    if (n == 0 || !tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::mobile_claim, _mobile_attach_gen, &adm)) {
+    // ★★★ §B186a 2026-08-12 — `LbtKind::mobile_reclaim`, AND THIS LINE IS THE WHOLE POINT OF THE SLICE'S FIRST HALF.
+    // THIS is the site that knows the frame is a RE-CLAIM (its sibling `mobile_claim_guard_fire` sends the INITIAL
+    // one), so the identity is stamped HERE, by the act of sending, and travels with the frame — into
+    // `DeferredLbt::kind` if it defers and into `TxParams::tag`'s high byte at the radio. ⛔ Nothing downstream has
+    // to ask "was that a re-CLAIM?" after the FSM has moved on. Handling is unchanged: `lbt_complete` and node.cpp's
+    // deferred-loss arm both name `mobile_reclaim` alongside `mobile_claim`.
+    if (n == 0 || !tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::mobile_reclaim, _mobile_attach_gen, &adm)) {
         // §6.3/§6.4: OUR transmitter refused the retry. That is a LOCAL fact — record it as the last attempt
         // result and let the next confirmation deadline try again. ⛔ It does NOT move the home-link plane, and
         // ★★ §MH-S4b: it now consumes NO retry AT ALL. The caller used to increment before calling, so three

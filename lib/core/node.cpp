@@ -1407,7 +1407,15 @@ void Node::on_timer(uint32_t timer_id) {
                     //    retry-DISCOVER, and a `claiming` node already has a home, a local id and an armed
                     //    confirmation deadline that will try again. Routing it there would throw the attachment away
                     //    for a local radio hiccup — [[B139]]'s defect, one plane over.
-                    if (static_cast<LbtKind>(d.kind) == LbtKind::mobile_claim
+                    // ★ §B186a 2026-08-12 — BOTH claim kinds are named, so this arm behaves EXACTLY as it did: a
+                    // re-CLAIM used to arrive here as `mobile_claim` and omitting the new kind would silently stop
+                    // routing re-CLAIM deaths into the refund. ⓘ THE ORDER IS UNCHANGED AND SO IS THE DECISION:
+                    // `mobile_reclaim_deferred_rejected()` still identifies the re-CLAIM from FSM state
+                    // (`_mobile_claim_pending` / `active` / `claiming`). ⛔ NOT rewired to `d.kind` in this slice —
+                    // that would change a BEHAVIOURAL decision, which is [[B186b]]'s, not observability's. The
+                    // captured kind is now available here for that work, and the two agreeing is testable.
+                    if ((static_cast<LbtKind>(d.kind) == LbtKind::mobile_claim
+                         || static_cast<LbtKind>(d.kind) == LbtKind::mobile_reclaim)
                         && !mobile_reclaim_deferred_rejected()) {
                         _mobile_claim_pending = false;
                         mobile_admission_rejected(TxAdmission::tx_rejected, "claim_deferred");
@@ -2181,9 +2189,31 @@ bool Node::next_push(Push& out) {
 // retry-eligible frame (CTS/DATA/ACK/NACK) up to TX_DEFER_MAX_RETRIES. Lua dv:12081-12215. NEVER fires in the gates
 // (lbt_enabled=false + healthy duty) -> inert.
 void Node::on_radio_busy(const BusyInfo& info) {
-    const FrameTag tag = static_cast<FrameTag>(info.tag);
+    const FrameTag tag = frame_tag_of(info.tag);   // §B186a: mask the mobile-op high byte — the low byte is verbatim what this line used to cast
     MR_EMIT("radio_busy",EF_I("reason",info.reason),EF_I("busy_until_ms",info.busy_until_ms));
-   
+    // ★★★★ §B186a 2026-08-12 — THE ASYNCHRONOUS REFUSAL REPORT, and it is the ONE gap this slice closes.
+    // `radio_busy` above carries neither a frame identity nor an SF, and for a `FrameTag::beacon` frame the function
+    // RETURNS a few lines below with no retry and no further emit — so a mobile DISCOVER/OFFER/CLAIM/re-CLAIM that
+    // the radio accepted and then refused was UNATTRIBUTABLE from firmware telemetry ([[B183]] §7: seven counters
+    // read 0 while 71 J frames died). The four facts `BusyInfo` already carries are now reported together:
+    // the OPERATION (from the tag the sending site stamped), the REASON, the SF and `busy_until_ms`.
+    // ⛔ THIS IS OBSERVABILITY, NOT RECOVERY: nothing below changes, no retry is armed, no beacon is re-sent
+    //    ([[B186b]] is not implemented here). ⛔ And the operation is READ, never DERIVED FROM FSM STATE: by now the
+    //    attachment FSM may have moved on, so a reconstruction would be a false attribution wearing a diagnostic's
+    //    name — the defect class this arc keeps paying for.
+    // ⚠ THE WHOLE BLOCK IS INSIDE `MR_TELEMETRY`, DELIBERATELY, AND [[B169]] IS WHY: `op` and the two name lookups
+    //   exist ONLY to fill the event, so on a `MESHROUTE_NO_TELEMETRY` board build they must vanish WITH it —
+    //   otherwise `op` is a set-but-unused variable on all ten board envs, invisible to native and to all 36 corpus
+    //   streams by construction. (Same idiom, same reason, as the `parse_j` read-back at node_mac.cpp's
+    //   `mobile_offer_tx`.) ⓘ No length field is reported: `BusyInfo` does not carry one and none was added.
+    MR_TELEMETRY( const MobileTxOp op = mobile_op_of_tag(info.tag);
+                  if (op != MobileTxOp::none)
+                      MR_EMIT("mobile_tx_refused", EF_S("op", mobile_tx_op_name(op)),
+                              EF_I("reason", static_cast<int64_t>(info.reason)),
+                              EF_S("reason_name", busy_reason_name(info.reason)),
+                              EF_I("sf", info.sf),
+                              EF_I("busy_until_ms", static_cast<int64_t>(info.busy_until_ms))); );
+
     if (tag == FrameTag::rts && _active->_pending_tx) {                      // RTS blocked: rts_timeout retries (dv:12089)
         // PORT DIVERGENCE (deliberate): Lua dv:12091 clears awaiting_cts here, but Lua's rts_timeout_fire does NOT
         // gate on it (it captures ctr_lo in the timer closure). OUR rts_timeout_fire uses awaiting_cts AS the

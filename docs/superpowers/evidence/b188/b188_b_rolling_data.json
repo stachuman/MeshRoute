@@ -1,0 +1,267 @@
+{
+ "_name": "b188_b_rolling_data",
+ "_desc": "B188 (NON-CORPUS) B \u2014 COMPRESSED rolling window (30000 ms, 1% => 300 ms budget) + a DM every 15000 ms. Exercises the FIRMWARE duty pre-check, its promised wait, and the deferred DATA actually flying once the window rolls.",
+ "simulation": {
+  "duration_ms": 600000,
+  "step_ms": 1,
+  "warmup_ms": 0,
+  "beacon_period_ms": 20000,
+  "seed": 188,
+  "node_startup_jitter_ms": 0,
+  "radio": {
+   "sf": 8,
+   "bw": 62.5,
+   "cr": 5,
+   "max_packet_bytes": 255,
+   "snr_coherence_ms": 0,
+   "duty_cycle": 1,
+   "duty_cycle_window_ms": 30000
+  },
+  "path_loss": {
+   "model": "log_distance",
+   "mobile_only": true,
+   "alpha": 3.0,
+   "sigma_db": 0.0,
+   "ref_distance_m": 1.0,
+   "ref_loss_db": 40.0,
+   "noise_floor_db": -120.0,
+   "tx_power_dbm": 14.0,
+   "node_tx_offset_sigma_db": 0.0,
+   "node_rx_offset_sigma_db": 0.0,
+   "asymmetry_coherence_ms": 60000
+  }
+ },
+ "commands": [
+  {
+   "at_ms": 60000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 75000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 90000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 105000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 120000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 135000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 150000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 165000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 180000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 195000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 210000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 225000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 240000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 255000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 270000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 285000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 300000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 315000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 330000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 345000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 360000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 375000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 390000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 405000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 420000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 435000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 450000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 465000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 480000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 495000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 510000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 525000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 540000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 555000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 570000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  },
+  {
+   "at_ms": 585000,
+   "node": "Home",
+   "command": "send_hash 22222222 b188_probe"
+  }
+ ],
+ "expect": [],
+ "nodes": [
+  {
+   "name": "Home",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.3,
+   "start_at_ms": 1000,
+   "node_id": 19,
+   "key_hash32": "0x33333333",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9,
+     10
+    ],
+    "beacon_period_ms": 20000
+   }
+  },
+  {
+   "name": "Peer",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.301,
+   "start_at_ms": 1000,
+   "node_id": 18,
+   "key_hash32": "0x22222222",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9,
+     10
+    ],
+    "beacon_period_ms": 20000
+   }
+  }
+ ],
+ "topology": {
+  "links": [
+   {
+    "from": "Home",
+    "to": "Peer",
+    "snr": 38.0,
+    "rssi": -82.0,
+    "snr_std_dev": 0,
+    "bidir": true
+   }
+  ]
+ }
+}
