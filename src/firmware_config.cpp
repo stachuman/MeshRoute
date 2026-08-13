@@ -7,13 +7,15 @@
 #include "firmware_config.h"
 #include "fw_context.h"              // g_radio, g_iradio, g_hal, g_node, g_identity, g_freq_mhz, g_tx_power, g_radio_ok, g_lat_e7/lon_e7, g_ble_*
 #include "firmware_config_parse.h"   // mrfw::parse_sf_list
-// ★ §UI-13 COMPILE-COVERAGE ANCHOR, and it is deliberately an include with no call yet. The typed staged-config
-// service (spec §3.6.1) is HEADLESS: §UI-14's SETTINGS renderer is its first consumer, and `ICfgStore`/`ICfgLive`
-// have no device binding yet (bug register B193 records both obligations). A header that NO env compiles is a header
-// whose board ABIs are unverified, and this TU is the one every board build compiles — so this line is what puts the
-// service in front of arm-none-eabi and xtensa now instead of at the first UI-14 build. It is inline-only and
-// instantiates nothing: MEASURED zero bytes of flash and RAM on all three OLED envs (2026-08-13 §UI-13).
+// ⛔ CORRECTED IN PLACE 2026-08-13 (§UI-14): this line was a §UI-13 COMPILE-COVERAGE ANCHOR — *"an include with no
+// call yet … the service is HEADLESS … `ICfgStore`/`ICfgLive` have no device binding"* — and that is now FALSE. The
+// bindings are IN THIS FILE ([[B193]], see `device_cfg_store` / `device_cfg_live` below), so the include is load-
+// bearing and the header arrives through `firmware_config.h` regardless. The anchor's reasoning is kept because it
+// still holds for every env that does NOT compile the OLED: this TU is the one every board build compiles, so the
+// service's ABI is verified on arm-none-eabi and xtensa even where nothing constructs one.
 #include "firmware_config_service.h"
+#include "mr_ui.h"                   // ★ §UI-14 follow-up: mr_ui_on_config_saved — the FEATURE-NEUTRAL notification
+                                     //   seam (an inline no-op off the OLED profile, so no MR_FEAT_OLED appears here)
 #include "node_role.h"               // ★ §role-model/B28: role_set_refusal — the O1/O2/R4 role-transition truth table (pure, natively tested)
 #include "protocol_constants.h"      // meshroute::protocol::* (preamble_sym, gateway_node_id_max, discovery_beacon_period_ms, leaf_name_max)
 #include "leaf_config.h"             // meshroute::duty_to_bp/bp_to_duty/frac_to_bp/bp_to_frac/ms_to_u16
@@ -70,6 +72,108 @@ void nv_load_stamped(mrnv::Blob& b) {
     if (!mrnv::load(b)) seed_blob_from_live(b);            // nothing persisted (or a rejected version) -> the live config
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;    // (re)stamp on BOTH paths — also upgrades an older loaded blob
 }
+
+// ================================================================ §notify-every-save — THE RULE, IN ONE PLACE
+// ★★★ THE RULE A NEW `/mrcfg` WRITER MUST FOLLOW, and it is deliberately a RULE rather than a per-field judgement:
+//     **every USER-INITIATED verb that persists `/mrcfg` calls `mr_ui_on_config_saved()` after a write that BOTH
+//     HAPPENED AND SUCCEEDED.** ⛔ Never on a refusal, never before the write. Spec §3.6.1 requires an open OLED
+//     draft to show `CFG! RELOAD` at the INSTANT the record moves under it, not at its next SAVE attempt.
+// ★★ WHY THE RULE AND NOT "notify where a covered field provably changes": the second form makes every future writer
+//    re-derive the table below, and a writer that forgets is SILENTLY non-compliant. The rule is safe because it is
+//    SELF-LIMITING BY CONSTRUCTION — `mr_ui_on_config_saved` re-reads the record and hands it to
+//    `ConfigService::note_external_write`, which compares ONLY the four covered fields (`ble_mode`, `e2e_dm`,
+//    `intro_attach`, `mobile_autoregister`) against the draft's baseline ⇒ a save that moved nothing covered raises
+//    NOTHING, and the repaint is edge-triggered so it cannot even ask for a redundant frame.
+// ★ THE SEVEN USER-INITIATED SITES (all notify; the `file:line` a reader needs is the verb's own save):
+//     handle_cfg_set · handle_gateway · handle_join · handle_create · handle_team · handle_leave · handle_password
+//   ⓘ MEASURED, not assumed, and it is why `leave` was the blocker: `handle_leave` does `b = mrnv::Blob{}` and
+//     restores only magic/version/freq/the radio defaults/beacon/duty/the three anti-spam knobs ⇒ it RESETS ALL FOUR
+//     covered fields to 0 — the largest covered-field change any verb makes. `handle_gateway`'s load-FAILURE seed
+//     writes `ble_mode` from the live global and leaves the other three at 0. The remaining four verbs assign none of
+//     the four and carry the loaded record's values through unchanged (which is exactly the case the self-limiting
+//     comparison above turns into a no-op).
+// ⛔ THE INTERNAL WRITERS STAY SILENT, and the reason is measured rather than stylistic: `fw_main.cpp`'s ctr-lease /
+//    join persist (it assigns node_id/claim_epoch/joined/channel_ctr/team_local_id), `fw_main.cpp`'s leaf-config
+//    adopt (lineage/epoch/sf_bitmap/duty/anti-spam/leaf_name) and `firmware_remote.cpp`'s admin counter-floor and
+//    pubkey-rotate writes (admin fields only) assign NONE of the four, and all four are load-IF-PRESENT or
+//    load-or-seed so the covered bytes are carried through untouched. They are also not user-initiated and the lease
+//    fires on a TIMER: notifying there would put a flash read on a periodic path for a latch that can never move.
+// ⛔ NO `MR_FEAT_OLED` MAY APPEAR IN THIS FILE. `lib/hal/mr_ui.h` supplies the inline no-op off the OLED profile,
+//    exactly as it does for `mr_ui_on_push`, so the config cluster never learns whether a panel exists.
+//    (`tools/probe_board_ui/`'s W13 is the check that keeps it true; W12/W14-W19 pin the seven placements.)
+
+// ================================================================== §UI-14 / [[B193]] — THE DEVICE BINDINGS
+// ★★★ WHAT B193 RECORDED AS OWED, DISCHARGED HERE. §UI-13 shipped `ICfgStore`/`ICfgLive` with NO hardware
+//     implementation and named the two obligations a binding inherits; these are those two, and nothing more.
+//
+// ★★ THE STORE. `load()` IS the §nv-ritual (`nv_load_stamped` above), NOT a bare `mrnv::load`. ⇒ IT CANNOT FAIL, and
+//    that is the DESIGNED behaviour rather than an unchecked call: the ritual seeds from the LIVE config when nothing
+//    is persisted (or the version is rejected) and stamps magic/version on both paths, so an unprovisioned chip OPENS
+//    the editor on its live values instead of being refused. ⇒ `CfgOpen::no_record` and the `CfgSave::nv_failed` arm
+//    that comes from a failed pre-write load are UNREACHABLE ON DEVICE, by construction. They remain reachable — and
+//    tested — through a fake store, which is the only place a load failure can be produced at all.
+// ⚠ `save()` is `mrnv::save`, which COALESCES a BYTE-IDENTICAL WHOLE RECORD (device_nv.h's H3 change detection: flash
+//   wear plus the reset-during-write window). ⛔ CORRECTED IN PLACE 2026-08-13: this note used to claim the coalescing
+//   meant *"a save of covered fields whose values did not move writes no flash EVEN IF a NON-covered field made the
+//   blob differ"*. THAT IS BACKWARDS AND IS WITHDRAWN — the comparison is `memcmp` over the WHOLE `mrnv::Blob`, so a
+//   non-covered difference makes the record differ and the write DOES happen. ★ The true half stands: for the
+//   covered-fields case the two agree, because the service refuses a no-op save at its own gate 3 before the store is
+//   ever asked — so an unchanged draft costs zero writes by the SERVICE's rule, not by the store's.
+// ⛔⛔ AND THE LIMIT OF EVERY CLAIM MADE ABOUT THIS BINDING: nothing here is exercised by any automated gate. The
+//    native suite and `tools/probe_firmware_ui/` both drive the service through FAKES (there is no NVS/LittleFS on the
+//    host), and the board builds only COMPILE these functions. ⇒ NO flash write, NO wear and ⛔ NO reset-during-write
+//    / power-cut behaviour (§3.6.5's "either the complete old record or the complete new record") is proved by any
+//    green run. That half is a BENCH check (docs/2026-07-31-bench-test-script.md) and B193 keeps its 🧪 until it runs.
+namespace {
+struct DeviceCfgStore : ICfgStore {
+    bool load(mrnv::Blob& out) override { nv_load_stamped(out); return true; }   // §nv-ritual — see above
+    bool save(const mrnv::Blob& b) override { return mrnv::save(b); }            // ONE whole-record write
+};
+// ★★ THE EFFECTIVE SEAM — the RUNNING values, which legitimately differ from the persisted ones between a save and
+//    the reboot. `ble_mode` is read from `g_ble_mode` and not from `NodeConfig`, because the BLE stack initialises
+//    ONCE at boot from that global and nothing writes it at runtime — which is exactly what makes `reboot_required()`
+//    derivable rather than latched (firmware_config_service.h says so, and `handle_cfg_set`'s `ble_mode` arm confirms
+//    it: it writes the blob and sets `live = false`, never `g_ble_mode`).
+struct DeviceCfgLive : ICfgLive {
+    CfgValues effective() const override {
+        const meshroute::NodeConfig& c = g_node.config();
+        CfgValues v{};
+        v.at(CfgField::ble_mode)            = g_ble_mode;
+        v.at(CfgField::e2e_dm)              = c.e2e_dm ? 1 : 0;
+        v.at(CfgField::intro_attach)        = c.intro_attach ? 1 : 0;
+        v.at(CfgField::mobile_autoregister) = c.mobile_autoregister ? 1 : 0;
+        return v;
+    }
+    // ★★★ THE OFF->ON BRIDGE IS THE SECOND HALF OF B193, AND IT IS THE ONE A FLAG-COPY LOSES. `mobile_autoregister`
+    //     is the BOOT policy — `on_init` reads it once into `_mobile_home_desired` (§MH-S4b §4.2) — so a RUNTIME
+    //     write needs an explicit verb, and in ONE direction only:
+    //       · OFF -> ON  = an explicit request for home service ⇒ `mobile_register_current()`, the same verb the
+    //         operator would have typed. Without it the flag is set and NOTHING discovers a home.
+    //       · ON -> OFF  = ⛔ DELIBERATELY NOTHING: §4.2 keeps an already-started attachment session running
+    //         independently of this initial-auto flag; only `mobile unregister` ends one.
+    //     ⚠ IT IS THE SAME RULE AS `handle_cfg_set`'s `mobile_autoregister` arm, deliberately in the same file so the
+    //     two cannot drift — and it is written out rather than shared because that arm also parses text, writes the
+    //     pending blob and answers a `Print&`, none of which belongs on this seam.
+    void apply_live(const CfgLiveFields& f) override {
+        meshroute::NodeConfig& lc = g_node.mutable_config();
+        lc.e2e_dm       = f.e2e_dm;
+        lc.intro_attach = f.intro_attach;
+        const bool was = lc.mobile_autoregister;
+        lc.mobile_autoregister = f.mobile_autoregister;
+#if MR_FEAT_MOBILE
+        if (!was && f.mobile_autoregister && lc.is_mobile) g_node.mobile_register_current();
+#else
+        (void)was;   // ⚠ [[B169]]'s shape: on `gateway_heltec` (MR_FEAT_MOBILE 0) the test compiles out and the
+                     //   capture is orphaned -> a board-only `-Wunused-but-set-variable`. Same fix, same reason, as
+                     //   the `handle_cfg_set` arm ten lines of history above; warnings are gate-blocking.
+#endif
+    }
+};
+}  // namespace
+// ⓘ Function-local statics: the OLED layer constructs its `ConfigService` over these at static-init time, and a
+//   function-local static is initialised on first CALL — so there is no cross-TU initialisation-order question.
+ICfgStore& device_cfg_store() { static DeviceCfgStore s; return s; }
+ICfgLive&  device_cfg_live()  { static DeviceCfgLive  s; return s; }
 
 // ★★ §role-model — THE ONE place a refused role transition is answered (spec §2.3 + owner rulings O1/O2 + R4).
 // The DECISION is `meshroute::role_set_refusal` (node_role.h, pure + natively tested); this is only its voice, so the
@@ -446,6 +550,25 @@ void handle_cfg_set(const char* args, Print& out) {
     else { out.print(F("> cfg err unknown_key ")); out.println(key); return; }
 
     if (persist && !mrnv::save(b)) { out.println(F("> cfg err nv_save_failed")); return; }
+    // ★★★ §3.6.1's IMMEDIATE NOTIFICATION (§UI-14 follow-up). Serial and BLE keep their immediate-write path — the
+    // spec REQUIRES that for companion compatibility — so the OLED's draft has to be told the record moved, at the
+    // moment it moves. ⛔ Without this the panel learns of a conflict only at its next SAVE attempt, and the
+    // `change → external REVERT → SAVE` case is not caught there at all: the bytes match again, the latch was never
+    // raised, and the save proceeds over a companion change the operator never saw.
+    // ★ THE PLACEMENT IS THE CONTRACT: AFTER the write, and only on the path where it BOTH happened and SUCCEEDED.
+    //   The line above has already returned on failure, so reaching here with `persist` true means the record is
+    //   durably written; `persist == false` means a live-only key (`nav`, `team_hop_cap`, `team_channel_crypt`, …)
+    //   that has no durable representation to disagree with.
+    // ⛔ NO `MR_FEAT_OLED` HERE, deliberately: `mr_ui.h` supplies an inline no-op off the OLED profile, exactly as it
+    //   does for `mr_ui_on_push`, so this config path never learns whether a panel exists.
+    // ⛔ CORRECTED IN PLACE 2026-08-13 ([[B194]]): this block used to end *"NOT WIRED … the OTHER `/mrcfg` writers —
+    //   the provisioning verbs (`join`/`create`/`team`/`leave`) and fw_main's channel-ctr lease — do NOT notify"*.
+    //   THAT IS NOW FALSE FOR THE SIX USER-INITIATED VERBS and is withdrawn: every one of them notifies, under the
+    //   §notify-every-save rule stated once at the top of this file (which also records, measured, why the INTERNAL
+    //   writers stay silent). ⚠ The withdrawn text's OTHER claim still stands and is kept: none of those verbs could
+    //   produce last-writer-wins, because the service's SAVE-time gate 2b re-reads and refuses with zero writes —
+    //   what they lacked was the IMMEDIATE marker.
+    if (persist) mr_ui_on_config_saved();   // §notify-every-save — site 1 of 7
     if (radio && live) apply_radio_live(b, reconfig);
     out.print(F("> cfg ")); out.print(key); out.print('='); out.print(val);
     if      (!live)   out.println(F(" ok (reboot to apply)"));
@@ -559,6 +682,7 @@ void handle_gateway(const char* args, Print& out) {
     b.l1_bw_hz = g.l1.bw_hz; b.l1_cr = g.l1.cr;              //      bw1/cr1 = layer-1 (0 = inherit)
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
     if (!mrnv::save(b)) { out.println(F("> gateway err nv_save_failed")); return; }
+    mr_ui_on_config_saved();   // §notify-every-save — site 2 of 7. ⓘ Reachable on an OLED build: `gateway_heltec` is heltec_v3 (MR_FEAT_OLED=1) + MR_N_LAYERS=2. On the load-FAILURE path above the seed writes `ble_mode` live and leaves the other three covered fields at 0; on the load-SUCCESS path all four are carried through and the comparison is a no-op.
 
     out.print(F("> gateway OK — L0 leaf")); out.print(g.l0.layer_id); out.print(F(" id")); out.print(g.l0.node_id);
     out.print(F(" sf")); out.print(g.l0.routing_sf);
@@ -651,6 +775,7 @@ void handle_join(const char* args, Print& out) {
         b.node_id = 0; b.joined = 0; b.lineage_id = 0; b.config_epoch = 0;       // unprovisioned -> DAD + adopt the leaf's lineage via pull
         b.leaf_name_len = 0;                                                     // §clean-join: don't carry the OLD leaf's name into the new network — present as freshly-joined (config-not-yet-pulled). A managed leaf repopulates via the config pull; an unmanaged one shows blank until `cfg set leaf_name`. (Bytes need not be zeroed — len-gated.)
         if (!mrnv::save(b)) { out.println(F("> join err nv_save_failed")); return; }
+        mr_ui_on_config_saved();   // §notify-every-save — site 3 of 7 (assigns none of the four covered fields; the rule is the point, not the field list)
         provision_apply_live(b, /*do_dad=*/true);
         meshroute::console::JoinStartedFields js{};   // JSON verb ack (replaces the human line): the app's start-of-DAD event
         js.layer = (uint8_t)pa.layer; js.leaf = (uint8_t)(pa.layer & 0x0F);
@@ -700,6 +825,7 @@ void handle_create(const char* args, Print& out) {
         uint16_t lin = 0; do { mrrng::fill(reinterpret_cast<uint8_t*>(&lin), sizeof lin); } while (lin == 0);   // mint a managed lineage (never 0)
         b.lineage_id = lin; b.config_epoch = 1; b.node_id = 0; b.joined = 0;      // a fresh managed leaf starts at epoch 1
         if (!mrnv::save(b)) { out.println(F("> create err nv_save_failed")); return; }
+        mr_ui_on_config_saved();   // §notify-every-save — site 4 of 7 (assigns none of the four covered fields; the rule is the point, not the field list)
         provision_apply_live(b, /*do_dad=*/true);
         meshroute::console::JoinStartedFields js{};   // JSON verb ack (replaces the human line): create adds create/lineage/leaf_name
         js.create = true;
@@ -1116,7 +1242,12 @@ void handle_team(const char* args, Print& out) {
     b.team_local_id = g_node.team_local_id();                // §6.4: persist the fresh id (or 0 on leave) alongside team_id
     b.is_mobile     = c.is_mobile ? 1 : 0;                   // ★ §role-model: PERSIST the (possibly just-promoted) role. NV carries team_id and is_mobile INDEPENDENTLY, so without this line a reboot would land straight back in the outlawed combination and lean on fw_main's boot normalisation to re-fix it every single boot.
     blob_take_team_channel_key(b);                            // §team-ch-key (v22): persist the pair we just minted/adopted (or carry the existing one through a leave)
-    if (!mrnv::save(b)) out.println(F("> team err nv_save_failed (team is LIVE but NOT persisted — will revert on reboot)"));   // §3-A.4: was the ONLY unchecked save of 9 (the LIVE team state above is already applied, so report — don't roll back)
+    // ★★ §notify-every-save — site 5 of 7, and THE THIRD STATE IS NAMED HERE RATHER THAN ASSUMED. This save's domain
+    //    is not success / failure-with-return: it is success · FAILURE-BUT-LIVE-ANYWAY (§3-A.4 — the LIVE team state
+    //    above is already applied and is deliberately NOT rolled back, which is why the verb reports and carries on).
+    //    ⇒ the verdict must be CAPTURED to notify only on the success arm; ⛔ the rollback behaviour is UNCHANGED.
+    const bool team_saved = mrnv::save(b);   // §3-A.4: was the ONLY unchecked save of 9 — now checked for the notification, still not rolled back
+    if (team_saved) mr_ui_on_config_saved(); else out.println(F("> team err nv_save_failed (team is LIVE but NOT persisted — will revert on reboot)"));
     char tx[9]; snprintf(tx, sizeof tx, "%08lX", (unsigned long)t);
     out.print(F("> team -> team_id=0x")); out.println(tx);
     if (c.is_mobile && t != 0) { out.print(F("  team-DAD: local_id=")); out.println(g_node.team_local_id()); }
@@ -1248,7 +1379,8 @@ void handle_leave(Print& out) {
     b.beacon_ms = 900000; b.duty = (double)LORA_DUTY_CYCLE_PCT / 100.0;       // NodeConfig defaults (15 min, 10%)
     b.channel_active_fraction = 0.125f; b.channel_min_interval_ms = meshroute::protocol::channel_min_interval_ms; b.dm_min_interval_ms = meshroute::protocol::dm_min_interval_ms;   // v16 anti-spam per-leaf defaults
     if (!mrnv::save(b)) { out.println(F("> leave err nv_save_failed")); return; }
-    provision_apply_live(b, /*do_dad=*/false);                              // unprovisioned + idle (no DAD)
+    mr_ui_on_config_saved();   // §notify-every-save — site 6 of 7, and THE BLOCKER this rule was written for: the `Blob{}` above RESETS ALL FOUR covered fields to 0, so an open draft must show `CFG! RELOAD` immediately
+    provision_apply_live(b, /*do_dad=*/false);                            // unprovisioned + idle (no DAD)
     out.print(F("> left network (kept freq=")); out.print(keep_freq, 3); out.println(F(") — idle; `join` to re-provision (live)"));
 }
 
@@ -1269,9 +1401,10 @@ void handle_password(const char* args, Print& out) {
     for (int i = 0; i < 32; ++i) b.admin_pubkey[i] = admin.ed_pub[i];
     b.admin_provisioned = 1; b.admin_counter_floor = 0;      // fresh credential -> reset the replay floor
     const bool saved = mrnv::save(b);
-    memset(&admin, 0, sizeof admin);                          // discard the derived keypair (best-effort local wipe)
+    memset(&admin, 0, sizeof admin);                          // discard the derived keypair (best-effort local wipe) — ⛔ NOT moved by §notify-every-save: the wipe must happen on BOTH arms
     if (!saved) { out.println(F("> password err: nv_save_failed")); return; }
-    out.print(F("> admin pubkey pinned (fp "));               // print only a 4-byte fingerprint, NEVER the pubkey/pw
+    mr_ui_on_config_saved();   // §notify-every-save — site 7 of 7, on the SUCCESS side of the verdict this site already captured (admin fields only, so the comparison is a no-op — the rule is the point)
+    out.print(F("> admin pubkey pinned (fp "));             // print only a 4-byte fingerprint, NEVER the pubkey/pw
     const uint8_t* pk = g_node.admin_pubkey();
     for (int i = 0; i < 4 && pk; ++i) { char hx[3]; snprintf(hx, sizeof hx, "%02X", pk[i]); out.print(hx); }
     out.println(F(")"));

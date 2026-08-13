@@ -38,6 +38,22 @@
 //             is SUPPRESSED. The suppression is the safety half — a highlight beside a target the model has already
 //             refused to use is the mis-send in display form. Pinned by the probe's W9 + its negative control, because
 //             no native test compiles this file.
+//   ★ DONE 2026-08-13 (§UI-14) — the SETTINGS screen's DEVICE half: the ONE `mrfw::ConfigService` instance over the
+//             [[B193]] device bindings, the per-frame FREEZE of its three facts + the draft (`SettingsView`), the
+//             menu/editor renderer, spec §3.3's draft marker and `RESTART NEEDED` row on STATUS, and the build-time
+//             `MR_UI_BLE_ROW` condition published into the snapshot. Every gesture meaning, the row table and all
+//             three action landings are `firmware_ui_model.h`, under the native gate.
+//   ★ DONE 2026-08-13 (§UI-14 follow-up) — the IMMEDIATE conflict notification §3.6.1 requires: `mr_ui_on_config_saved`
+//             below, called after a SUCCESSFUL PERSISTED write through the feature-neutral fourth hook in
+//             `lib/hal/mr_ui.h`. ⛔ **CORRECTED IN PLACE: this line read *"NOT DONE HERE, and NOT anywhere
+//             yet: `note_external_write` is UNWIRED … a conflict is detected at SAVE rather than the instant it
+//             happens"*, which was accurate when written and is now FALSE.**
+//   ★ COMPLETED 2026-08-13 (§notify-every-save, [[B194]]) — ⛔ **AND THE QUALIFIER THIS LINE CARRIED IS ALSO
+//             WITHDRAWN: it said the hook was `handle_cfg_set`'s only, and that the OTHER `/mrcfg` writers "do not
+//             notify". Now SEVEN user-initiated verbs call it** — `cfg set` · `gateway` · `join` · `create` · `team` ·
+//             `leave` · `password` — under the rule stated at `§notify-every-save` in `src/firmware_config.cpp`.
+//             ⚠ Still true and deliberately unchanged: the INTERNAL writers (fw_main's ctr lease / leaf-config adopt,
+//             firmware_remote's admin writes) stay silent; that file records the measurement behind the exemption.
 //   ⚠ NOT DONE, stated so it is not read as shipped: a DM whose synchronous result is `queued` with `ctr == 0` has no
 //             handle to correlate and no outcome kind of its own, so the sub-view shows `SENDING...` until its own
 //             kBlankMs auto-exit. Bounded and never a false claim, but it answers nothing — register B111.
@@ -62,11 +78,35 @@
 #include "firmware_commands.h"  // ★ UI-7: mrfw::exec_command — the typed send path (the one approved new surface)
 #include "console_json.h"    // ★ UI-7: cmdcode_name — the ONE CmdCode->text mapper (U1; fw_main.cpp:905 says so)
 #include "inbox.h"           // ★ UI-7: meshroute::InboxEntry / InboxKind for the §6.1 pull adapter
+#include "firmware_config.h" // ★★ §UI-14 / [[B193]]: `mrfw::device_cfg_store()` / `device_cfg_live()` — the DEVICE
+                             //   bindings of §UI-13's `ICfgStore` / `ICfgLive`. They live in `firmware_config.cpp`
+                             //   and not here for a hard reason: `apply_live` must reproduce `handle_cfg_set`'s
+                             //   OFF->ON `mobile_register_current()` bridge (so the two cannot drift), and the
+                             //   EFFECTIVE `ble_mode` is `g_ble_mode`, which lives behind `fw_context.h` — the header
+                             //   §B105 took OUT of this TU and whose return `tools/probe_firmware_ui/`'s C0 forbids.
 
 #ifndef MR_UI_TEAM_CHANNEL_ID
 // C2, fail loud: the channel the alarm and the canned posts go to is an OWNER-RULED BUILD CONSTANT with no cfg key, no
 // NV field and no console verb. Defaulting it here would silently point a distress call at somebody else's channel.
 #  error "MR_UI_TEAM_CHANNEL_ID is not defined — the board env must supply it (platformio.ini, [env:heltec_v3])"
+#endif
+
+// ★★★ §UI-14, spec §3.6.2 — THE `BLE mode` ROW IS CONDITIONAL: *"row absent when UI-12 transport is not compiled"*.
+// ⛔ AND IT IS `#error`-LESS, unlike `MR_UI_TEAM_CHANNEL_ID` above, ON PURPOSE: the absent row IS the spec's ruled
+//    state for "no transport", so a 0 here is the RULED behaviour rather than an unagreed default (C2). Getting the
+//    channel wrong points a distress call somewhere else; getting this wrong hides one recoverable setting.
+// ⚠ MEASURED, NOT ASSUMED, 2026-08-13: it is 0 in EVERY env in the tree. The transport's own compile predicate is
+//   `MRBLE_NRF52` (src/device_ble.h — nRF52 only), and the three envs that compile this file (`heltec_v3`,
+//   `gateway_heltec`, `heltec_mobile`) are all ESP32-S3, where `mrble::*` is a set of inert inline stubs.
+// ⛔ WHY THIS IS NOT `#include "device_ble.h"` AND A `#if defined(MRBLE_NRF52)`: that header DEFINES its transport
+//    functions inline in the file (it says so — *"included by the one device TU (fw_main)"*), so a second includer is
+//    a duplicate-symbol link failure on any nRF52 build. ⇒ the condition is a build flag, set beside
+//    `MR_UI_TEAM_CHANNEL_ID` by whichever env compiles a transport, and §UI-12 owns turning it on.
+// ★ The row's presence is NOT `#if`-gated in the model: it rides `UiSnapshot::ble_row`, so the native suite drives
+//   BOTH arms (`settings_rows(true, …)` / `(false, …)`) and `tools/probe_firmware_ui/run.sh` builds a second variant
+//   with `-DMR_UI_BLE_ROW=1` to measure the present arm end to end.
+#ifndef MR_UI_BLE_ROW
+#  define MR_UI_BLE_ROW 0
 #endif
 
 namespace {
@@ -82,6 +122,16 @@ mrui::SendTracker s_tracker_emg, s_tracker_normal;
 // and counting here needs no new core API. ★ The six loose statics they used to be MOVED into `mrui::UiInboxCounters`
 // so the two things that move them are natively driven — see firmware_ui_model.h and §B103/§B108.
 mrui::UiInboxCounters s_counters;
+
+// ★★★ §UI-14 / [[B193]] — THE ONE STAGED-CONFIG SERVICE INSTANCE, over the DEVICE bindings. It is constructed HERE,
+//     in the OLED feature layer, because the DRAFT is the OLED's (§3.6.1 calls it "the OLED's ConfigDraft") — while
+//     the two SEAMS it runs on are the device's and live in `firmware_config.cpp` beside `nv_load_stamped` and
+//     `handle_cfg_set`.
+// ⚠ IT IS NEVER CLOSED, and that is the contract rather than an omission: `open()` happens the first time the operator
+//   reaches SETTINGS and `already_open` makes every later arrival a no-op, so the draft survives BACK, a blank and a
+//   screen cycle (§3.6.1 forbids discarding on a timeout), and `reboot_required()` stays true from the save until the
+//   reboot (§3.6.5: that state stays visible until then).
+mrfw::ConfigService s_cfg(mrfw::device_cfg_store(), mrfw::device_cfg_live());
 
 int32_t  s_batt_mv        = -1;      // last GOOD reading; <0 = never had one -> render `--`
 uint32_t s_batt_next_ms   = 0;
@@ -122,9 +172,26 @@ struct OutcomeView {
     char               who[mrui::kLabelCap + 1] = {};
     char               text[21]                 = {};
 };
+// ★★★ §UI-14 — THE SERVICE'S HALF OF THE FRAME, FROZEN LIKE EVERYTHING ELSE (spec §5, and the UI-7D contract the
+//     brief restates: the renderer reads only frame-frozen state, never a live buffer). `UiState` carries what the
+//     MODEL decided; this carries what the SERVICE says, and the two are kept apart deliberately — mirroring the
+//     service's predicates into `UiState` would be the SECOND STATE MODEL §3.6.1 forbids.
+// ★★ THREE FACTS, NOT ONE, AND THEY ARE THREE DIFFERENT COMPARISONS (firmware_config_service.h's own heading):
+//     `unsaved` = draft vs baseline · `conflict` = persisted vs baseline · `reboot` = baseline vs EFFECTIVE over the
+//     reboot-class fields. ⇒ a save that needs a reboot is `reboot && !unsaved`, which is a state the panel must be
+//     able to show, and collapsing any two of these into one flag makes it unrepresentable.
+// ⛔ `unsaved` IS `config_unsaved()`, NEVER `UiState::dirty` — `dirty` means "a repaint is owed" and is read three
+//    lines away in this same file.
+// ⓘ `reboot_required()` calls `ICfgLive::effective()`, which reads `NodeConfig` + `g_ble_mode`. Once per FRAME, at the
+//   freeze — never per page, and never per tick.
+struct SettingsView {
+    bool open = false, unsaved = false, conflict = false, reboot = false;
+    mrfw::CfgValues draft{};
+};
 mrui::UiState    s_frame_state{};
 mrui::UiSnapshot s_frame_snap{};
 OutcomeView      s_frame_out{};
+SettingsView     s_frame_cfg{};
 // ★ WHEN to paint (§B107). The frozen copies above are WHAT to paint; this owns the lifecycle that decides when they
 //   are refreshed — including the `dirty` consumption, which belongs to the FREEZE and not to the final page.
 mrui::FrameGate  s_gate;
@@ -340,6 +407,9 @@ mrui::UiSnapshot build_snapshot(uint32_t now_ms) {
     // The TEAM/SEND slots are gated on MR_FEAT_OLED && MR_FEAT_TEAM (spec §9): `gateway_heltec` is a REAL build with
     // OLED=1 and TEAM=0, so this is not hypothetical. `team_build` is what makes the model's cycle skip those slots.
     s.team_build = (MR_FEAT_TEAM != 0);
+    // ★ §UI-14: the build-time fact the pure model branches on, published at the ONE site that knows it — the same
+    //   shape as `team_build` directly above (U3). See the `MR_UI_BLE_ROW` block at the top of this file.
+    s.ble_row    = (MR_UI_BLE_ROW != 0);
 #if MR_FEAT_TEAM
     // ⚠ `rt_team_at` has NO !MR_FEAT_TEAM stub, by deliberate core design (there is no `_rt_team` to read), so this
     //   whole block must be guarded — the two counters around it stub to 0 and would compile either way.
@@ -395,6 +465,23 @@ OutcomeView freeze_outcome(const mrui::UiSnapshot& s) {
         snprintf(v.who,  sizeof v.who,  "%s", s_model.reply_who());
         snprintf(v.text, sizeof v.text, "%s", s_model.reply_text());
     }
+    return v;
+}
+
+// ★★ §UI-14 — THE SERVICE READ, and it happens EXACTLY ONCE PER FRAME, at the freeze. ⛔ Not per page (the eight page
+//    transfers of one frame would each re-read `effective()` and could tear a marker across the image) and ⛔ not in
+//    the renderer, which by contract touches nothing live.
+// ★ The three predicates are read only while the service is OPEN. That is not defensive: `config_unsaved()` and
+//   `reboot_required()` are both defined as false on a closed service, so reading them regardless would be reading a
+//   value whose meaning is "we do not know" — and `open == false` is a state the panel says out loud instead.
+SettingsView freeze_settings() {
+    SettingsView v{};
+    v.open = s_cfg.is_open();
+    if (!v.open) return v;
+    v.unsaved  = s_cfg.config_unsaved();
+    v.conflict = s_cfg.conflict();
+    v.reboot   = s_cfg.reboot_required();
+    v.draft    = s_cfg.draft();
     return v;
 }
 
@@ -454,9 +541,24 @@ void draw_status_bar(const mrui::UiSnapshot& s) {
     mrui::draw_hline(0, kBarRuleY, 128);
 }
 
-void draw_status_screen(const mrui::UiSnapshot& s) {
+// ★★★ §UI-14, spec §3.3 — THE DRAFT MARKER LIVES HERE TOO, and it is on STATUS rather than only on SETTINGS because
+//     the whole point of it is to be seen WITHOUT cycling to the screen that owns the draft.
+// ★ TWO PLACES FOR TWO INDEPENDENT FACTS, because one row cannot carry both honestly:
+//     · the TITLE row takes the DRAFT marker — `CFG! RELOAD` if the persisted record moved under us, else
+//       `CFG* UNSAVED`. `STATUS` + one space + the 12/11-char marker is 19-20 of the panel's 21 columns, so it fits
+//       WITHOUT shortening the status bar (§3.3 forbids that explicitly).
+//     · the LAST body row takes `RESTART NEEDED`, REPLACING the `batt <n>mV` line. ⚠ Stated rather than smoothed
+//       over: that costs the millivolt reading while the state stands — the bar keeps showing volts (§3.3's ruled
+//       render), so the information lost is the extra precision, not the battery. The alternative was folding two
+//       facts into one row, which is exactly the collapse §3.6.1 warns against, and a reboot-required state has to
+//       STAY VISIBLE UNTIL THE REBOOT (§3.6.5) so it cannot ride the transient note.
+// ⓘ Both are silent until the operator has actually opened SETTINGS: a draft cannot exist before then, and the
+//   service is not open, so `freeze_settings` reports all three false. Nothing is claimed about a config nobody edited.
+void draw_status_screen(const mrui::UiSnapshot& s, const SettingsView& c) {
     char l[kLineCap], age[10];
-    mrui::draw_text(0, body_y(0), "STATUS");
+    const char* marker = mrui::cfg_marker_text(c.unsaved, c.conflict);
+    if (marker[0]) { snprintf(l, sizeof l, "STATUS %s", marker); mrui::draw_text(0, body_y(0), l); }
+    else           mrui::draw_text(0, body_y(0), "STATUS");
     snprintf(l, sizeof l, "me T%u  team %08lx", unsigned(s.my_team_id), (unsigned long)s.team_id);
     mrui::draw_text(0, body_y(1), l);
     fmt_age(age, sizeof age, s.last_dm_age_s);
@@ -465,6 +567,8 @@ void draw_status_screen(const mrui::UiSnapshot& s) {
     fmt_age(age, sizeof age, s.last_ch_age_s);
     snprintf(l, sizeof l, "CH %u, newest %s", unsigned(s.unread_ch), age);
     mrui::draw_text(0, body_y(3), l);
+    // §3.6.5: a saved-but-reboot-required state stays visible until the reboot — so it OWNS this row while it stands.
+    if (c.reboot) { mrui::draw_text(0, body_y(4), mrui::kCfgRestartText); return; }
     if (s.batt_mv >= 0) snprintf(l, sizeof l, "batt %ldmV", (long)s.batt_mv);
     else                snprintf(l, sizeof l, "batt --");
     mrui::draw_text(0, body_y(4), l);
@@ -569,6 +673,52 @@ void draw_inbox_detail(const mrui::UiState& st) {
     mrui::draw_text(0, body_y(3), l);
     snprintf(l, sizeof l, "%cdelete", (st.detail_action == mrui::InboxAction::del)  ? '>' : ' ');
     mrui::draw_text(0, body_y(4), l);
+}
+
+// ★★★★ §UI-14 — THE SETTINGS SCREEN (spec §3.6.2). Everything it reads is FROZEN: `st` is the model's copy, `c` is
+//     the service's copy taken at the same instant, and the row LIST is rebuilt from those two frozen inputs through
+//     the SAME pure builder the model bounds its cursor with (U1) — so the highlighted row and the row an activation
+//     would act on cannot disagree by construction.
+// ★★ WHAT EACH LINE SAYS, and why none of it is derived here:
+//     · the TITLE carries the `*` §3.3 asks for, through the ONE marker function (`CFG! RELOAD` is the SERVICE's
+//       ruled string and is CALLED, never re-spelled);
+//     · a VALUE row shows the DRAFT's value — never the effective one — because the draft is what SAVE would write;
+//     · the value is BRACKETED while that row is being edited, so `short`'s two modes are distinguishable ON THE
+//       PANEL and not only in the model;
+//     · `RESTART NEEDED` is its own row, from `reboot_required()`, independent of the unsaved marker above it.
+void draw_settings_screen(const mrui::UiState& st, const mrui::UiSnapshot& s, const SettingsView& c) {
+    char l[kLineCap];
+    const char* marker = mrui::cfg_marker_text(c.unsaved, c.conflict);
+    snprintf(l, sizeof l, "SETTINGS %s", marker);      // ⓘ an empty marker leaves a trailing space; the panel clips
+    mrui::draw_text(0, body_y(0), l);
+    // ⛔ C2, FAIL LOUD: the store could not produce a record, so there is no baseline, nothing may be saved, and every
+    //    activation below is refused by the model. Saying so is the whole of this screen in that state — rendering an
+    //    editable-looking menu over no draft is the "success that isn't".
+    if (!c.open) { mrui::draw_text(0, body_y(2), "CFG UNAVAILABLE"); return; }
+    // The note and the reboot fact share the last row, and the ORDER is deliberate: the note describes the act the
+    // operator just performed and is transient, so while it stands it is what they are looking for; `RESTART NEEDED`
+    // is durable and comes back the moment the note is retired by the next press.
+    const char* note = mrui::settings_note(st);
+    const uint8_t rows = uint8_t(kBodyRows - 2);       // row 0 is the title, the last row is the note/reboot line
+    const mrui::CfgRowList list = mrui::settings_rows(s.ble_row, c.conflict);
+    const uint8_t first = list_first(st.cursor, list.n, rows);
+    for (uint8_t row = 0; row < rows && first + row < list.n; ++row) {
+        mrui::CfgRow r{};
+        if (!list.at(uint8_t(first + row), r)) break;
+        const bool here = (first + row == st.cursor);
+        mrfw::CfgField f{};
+        if (mrui::cfg_row_field(r, f)) {
+            const char* v = mrui::cfg_value_text(f, c.draft.at(f));
+            const bool  ed = here && st.settings == mrui::Settings::editing;
+            if (ed) snprintf(l, sizeof l, "%c%-10s [%s]", here ? '>' : ' ', mrui::settings_row_label(r), v);
+            else    snprintf(l, sizeof l, "%c%-10s %s",   here ? '>' : ' ', mrui::settings_row_label(r), v);
+        } else {
+            snprintf(l, sizeof l, "%c%s", here ? '>' : ' ', mrui::settings_row_label(r));
+        }
+        mrui::draw_text(0, body_y(row + 1), l);
+    }
+    if (note[0])   mrui::draw_text(0, body_y(kBodyRows - 1), note);
+    else if (c.reboot) mrui::draw_text(0, body_y(kBodyRows - 1), mrui::kCfgRestartText);
 }
 
 void draw_send_screen() {
@@ -754,7 +904,7 @@ void draw_emergency(const OutcomeView& v) {
 
 // ⚠ Called ONCE PER PAGE, on the FROZEN copies. It must be pure: no state written, nothing read that a later page
 //   could see differently, or the image tears across page boundaries (spec §5).
-void draw_frame(const mrui::UiState& st, const mrui::UiSnapshot& s, const OutcomeView& v) {
+void draw_frame(const mrui::UiState& st, const mrui::UiSnapshot& s, const OutcomeView& v, const SettingsView& c) {
     mrui::set_font(mrui::Font::small);
     draw_status_bar(s);
     if (v.st != mrui::Emergency::idle) { draw_emergency(v); return; }   // the alarm owns the body, from any screen
@@ -764,10 +914,11 @@ void draw_frame(const mrui::UiState& st, const mrui::UiSnapshot& s, const Outcom
     //   is not drawn, and the model has already closed it at `long_arm` regardless.
     if (st.detail != mrui::InboxModal::closed) { draw_inbox_detail(st); return; }
     switch (st.screen) {
-        case mrui::Screen::status: draw_status_screen(s);      break;
-        case mrui::Screen::team:   draw_team_screen(st, s);    break;
-        case mrui::Screen::inbox:  draw_inbox_screen(st, s);   break;
-        case mrui::Screen::send:   draw_send_screen();         break;
+        case mrui::Screen::status:   draw_status_screen(s, c);        break;
+        case mrui::Screen::team:     draw_team_screen(st, s);         break;
+        case mrui::Screen::inbox:    draw_inbox_screen(st, s);        break;
+        case mrui::Screen::send:     draw_send_screen();              break;
+        case mrui::Screen::settings: draw_settings_screen(st, s, c);  break;   // §UI-14
         case mrui::Screen::count:  break;                     // not a screen; listed so -Wswitch stays useful
     }
 }
@@ -784,6 +935,10 @@ void mr_ui_init() {
     //   `void` return could not have — one console line, once, at boot. It is deliberately not fatal: a node with a
     //   dead panel must keep meshing, and the UI keeps running blind.
     if (!mrui::board_init()) mrcon.println(F("!! OLED panel did not ACK (check Vext / addr 0x3C / wiring)"));
+    // ★★ §UI-14: hand the model the ONE staged-config service. ⛔ It is NOT opened here — `open()` snapshots the
+    //    persisted record and records a baseline, and doing that at boot would read `/mrcfg` on every node that never
+    //    touches SETTINGS. The model opens it the first time the operator actually reaches the screen.
+    s_model.attach_config(s_cfg);
     // No boot splash: the first real frame is one tick away and goes through the page-chunked path. UI-5's splash
     // existed only to prove the canvas was reachable under --gc-sections; the feature layer calls all nine entry
     // points now (§B88), so nothing is collected and nothing needs a stand-in.
@@ -842,6 +997,7 @@ void mr_ui_tick(uint32_t now_ms) {
             s_frame_state = s_model.state();
             s_frame_snap  = s;
             s_frame_out   = freeze_outcome(s);
+            s_frame_cfg   = freeze_settings();     // §UI-14: the service's three facts + the draft, same instant
             mrui::begin_frame();
             break;
         case mrui::FrameStep::next_page:
@@ -851,8 +1007,33 @@ void mr_ui_tick(uint32_t now_ms) {
     // ★ U8g2 page mode redraws the WHOLE scene per page — the draw calls are CLIPPED, not accumulated. Drawing once at
     //   frame start and then only advancing pages (an earlier draft) leaves seven of eight pages blank. `open` and
     //   `next_page` therefore share this tail, which is what makes "once per page" structural rather than a rule.
-    draw_frame(s_frame_state, s_frame_snap, s_frame_out);       // the FROZEN copies, so the image cannot tear
+    draw_frame(s_frame_state, s_frame_snap, s_frame_out, s_frame_cfg);   // the FROZEN copies — the image cannot tear
     s_gate.on_page(mrui::next_page(), s_model, s_counters);
+}
+
+// ★★★★ §3.6.1's IMMEDIATE CONFLICT NOTIFICATION — the OLED half of the fourth hook. Serial and BLE write `/mrcfg`
+//     directly (the spec requires it), so the draft's baseline can be invalidated by somebody else at any moment; this
+//     is where the panel finds out AT THAT MOMENT rather than at its next SAVE attempt.
+// ★★ THE `is_open()` GUARD IS FIRST, AND IT IS NOT DEFENSIVE — IT IS WHAT KEEPS THIS FREE. With no draft open there is
+//    no baseline to compare against and nothing to say, so a `cfg set` on a node whose operator has never opened
+//    SETTINGS costs exactly one boolean test: ⛔ no flash read, no comparison, nothing. (`note_external_write` would
+//    also return early, but only AFTER we had paid for the load.)
+// ★★★ AND THE REPAINT IS REQUIRED, NOT COSMETIC: `FrameGate::step` returns `idle` while the model is clean, so a latch
+//     raised without `mark_dirty()` would be TRUE AND INVISIBLE until some unrelated event happened to invalidate the
+//     panel — a state change with no frame, which is the "instrument that cannot fail" shape moved into a renderer.
+// ★ EDGE-TRIGGERED (spec §5): only a CHANGE of the latch asks for a frame. `note_external_write` can only ever RAISE
+//   it (RELOAD/DISCARD are the only clearers), so `was != now` means "it just became true" — and a companion writing
+//   the same key ten times in a row cannot request ten repaints.
+void mr_ui_on_config_saved() {
+    if (!s_cfg.is_open()) return;                       // no draft -> nothing to invalidate, and nothing to pay for
+    mrnv::Blob b{};
+    // ⛔ A RECORD WE CANNOT READ IS NOT A CONFLICT. Failing to load says nothing about whether the covered fields
+    //    moved, so inventing a latch here would refuse a SAVE the operator is entitled to make. The SAVE-time gate
+    //    still re-reads and still refuses on a real mismatch, which is the backstop this path is not allowed to fake.
+    if (!mrfw::device_cfg_store().load(b)) return;
+    const bool was = s_cfg.conflict();
+    s_cfg.note_external_write(b);                       // ⇒ compares the FOUR covered fields with the baseline, only
+    if (s_cfg.conflict() != was) s_model.mark_dirty();  //   so a non-covered write raises NOTHING, by construction
 }
 
 void mr_ui_on_push(const MESHROUTE_NS::Push& pu) {

@@ -42,6 +42,19 @@
 // the modal itself (`InboxModal` / `InboxAction`, `detail_gesture`, the 42-char paging and its 2 s cadence on THIS
 // tick), the open/erase REQUEST-and-typed-ANSWER seam, all three `InboxEraseResult` landings, the `long_arm` close, and
 // `FrameGate`'s exclusion of the modal from the unread clear.
+// DONE here (2026-08-13, §UI-14 — the SETTINGS screen, the draft marker and the save/discard/reboot states, spec
+// §3.6.2/§3.6.1/§3.3): the fifth cycle slot (`Screen::settings`, in BOTH cycles), the row TABLE and its two CONDITIONAL
+// rows (`CfgRow` / `settings_rows` — the BLE row's transport condition and the RELOAD row's conflict condition, both
+// PARAMETERS so the native suite drives both arms), the `Settings{closed,browsing,editing}` state that separates
+// `short`'s two modes, the value cycle (`cfg_menu_next`) and its MENU-only narrowing of `ble_mode`, the activation of
+// SAVE / DISCARD / RELOAD / BACK through §UI-13's `ConfigService`, the transient note (`settings_note`), spec §3.3's
+// three literals (`cfg_marker_text`, `kCfgRestartText`), the row-identity cursor (`sync_settings` /
+// `note_settings_cursor` — §B64's rule on a third screen, live because the RELOAD row appears under the cursor), and
+// the `long_arm` close of the editor.
+// ⛔ NOT here, by unit boundary: the SERVICE's own state (draft/baseline/latch) — it lives in `ConfigService`, which
+//    this unit POINTS AT and never copies; and the DEVICE bindings of `ICfgStore`/`ICfgLive`, which are
+//    `src/firmware_config.cpp`'s ([[B193]]). ⛔ NOT here at all, by scope: §3.6.3 provisioning (§UI-15) and §3.6.4's
+//    nearby-team scan (§UI-16). The PROVISION row exists and REFUSES; nothing behind it is built.
 // ⛔ NOT here, by unit boundary: `pull()` / `erase()` themselves and the pull callback that copies the body — those need
 //    `g_node` and live in src/firmware_ui.cpp. ⚠ [[B134]]: on ESP32 the inbox is a RAM ring, so "durable" here means the
 //    tombstone was appended IN THIS RUNTIME; nothing claims survival across a power cycle.
@@ -79,6 +92,17 @@
 // Arduino, no heap, no `Node`), and it also carries `protocol::inbox_max_body`, the one number the modal's body buffer
 // may be sized from.
 #include "inbox.h"
+// ★★★ §UI-14: THE THIRD lib-free dependency, and it is the SAME argument as `command.h`'s and `inbox.h`'s — except
+// that this one is not even cross-library: `src/firmware_config_service.h` is §UI-13's TYPED STAGED-CONFIGURATION
+// SERVICE, a PURE unit (no Arduino, no `Print`, no `Node`, no strings) with its own native suite. Spec §3.6.1 rules
+// that the OLED owns an explicit `ConfigDraft` and ⛔ must NOT loop through `handle_cfg_set` or manufacture command
+// strings, so the SETTINGS screen's rows, its editor and its SAVE/DISCARD/RELOAD actions all speak to that service.
+// ⇒ the model holds a POINTER to it rather than emitting a request the way it does for the inbox (`InboxReq`): the
+//   request idiom exists because `Inbox` needs `g_node`, and this service needs nothing at all. Keeping the calls HERE
+//   is what puts every gesture meaning AND every save/discard landing under the native gate.
+// ⛔ THE MARKER IS `config_unsaved`, NEVER `dirty` — `UiState::dirty` (below) already means "a repaint is owed", and
+//   this file is the one place both are read. That collision is why §3.6.1 named the field in advance.
+#include "firmware_config_service.h"
 #include "firmware_ui_input.h"
 
 namespace mrui {
@@ -94,8 +118,144 @@ inline constexpr uint8_t  kLabelCap     = 14;   // display-clamped teammate labe
 using InboxKind        = MESHROUTE_NS::InboxKind;
 using InboxEraseResult = MESHROUTE_NS::InboxEraseResult;
 
-enum class Screen  : uint8_t { status = 0, team, inbox, send, count };
+// ★ §UI-14 appends SETTINGS to the cycle (spec §3.1): STATUS -> TEAM -> INBOX -> SEND -> SETTINGS, or
+//   STATUS -> INBOX -> SETTINGS on a `!MR_FEAT_TEAM` build. `next_screen` is the ONE place that skips the team slots,
+//   and SETTINGS is deliberately NOT one of them — the four covered fields exist on every build.
+enum class Screen  : uint8_t { status = 0, team, inbox, send, settings, count };
 enum class Compose : uint8_t { none = 0, dm, channel };
+
+// ================================================================================= §UI-14 — the SETTINGS screen
+// ★★★ THE STATE THAT SEPARATES `short`'s TWO MODES, AND IT IS A TERNARY BECAUSE THE DOMAIN IS.
+// Spec §3.6.2: *"`short` advances rows OR CYCLES A FINITE VALUE WHILE EDITING; `double` enters/accepts"* — so one
+// gesture has two meanings and something has to say which. The three states, and each is reachable and distinct:
+//   `closed`   — SETTINGS is not the current screen. `short` is the ordinary list-aware advance of §3.2, and the
+//                editor MUST NOT survive here: leaving the screen closes it (see `sync_settings`).
+//   `browsing` — the menu is up. `short` walks the rows; `double` ENTERS a value row or performs an action row.
+//   `editing`  — one value row is open. `short` CYCLES that row's finite value in the RAM draft; `double` ACCEPTS.
+// ⓘ It is the `InboxModal` precedent one screen over (§UI-7D slice B: short toggles, double activates, and the modal
+//   state is what makes the two readable), deliberately rather than a second idiom (U1/U3).
+// ⛔ NOT derived from `screen == Screen::settings`: that predicate cannot express "editing", and a bare `bool editing`
+//   beside it would leave the third state unnamed — the binary-test-over-a-ternary-domain defect this arc has hit five
+//   times (see `tools/probe_ui_model_mutations.py`'s `arm_backup` roll-call).
+enum class Settings : uint8_t { closed = 0, browsing, editing };
+
+// ★★★ THE MENU'S ROWS AS STABLE IDENTITIES, NEVER ROW INDICES (§3.2.2's rule, and §B66's): the visible list is built
+// per frame and two of its rows are CONDITIONAL, so a row's meaning may not be derived from its position.
+// Order is §3.6.2's own: the value rows, PROVISION, then the actions.
+enum class CfgRow : uint8_t {
+    ble_mode = 0, e2e_dm, intro_attach, mobile_autoregister,   // the four covered fields (§UI-13's CfgField)
+    provision,                                                 // §3.6.3's entry point — see `settings_activate`
+    reload,                                                    // CONDITIONAL: only while `conflict()` stands
+    save, discard, back,
+    count
+};
+inline constexpr uint8_t kMaxCfgRows = uint8_t(CfgRow::count);
+
+// The visible list, built fresh from the two conditions. ⛔ A fixed array + a count, never a container: this is
+// embedded code and the count is what `list_len` returns, so the two must come from ONE construction.
+struct CfgRowList {
+    CfgRow  row[kMaxCfgRows] = {};
+    uint8_t n = 0;
+    // ⛔ FAILS CLOSED (C2): an out-of-range index names NO row and the caller must do nothing, rather than being
+    //    handed a plausible one. `back` would be the safe action, but "the safe action" is still an action the user
+    //    did not choose — and `discard` is one row away from it.
+    bool at(uint8_t i, CfgRow& out) const { if (i >= n) return false; out = row[i]; return true; }
+};
+
+// ★★ THE ONE ROW-LIST BUILDER (U1), and BOTH conditions are PARAMETERS rather than `#if`s so the native suite can
+//    drive both arms of each. That is not a testing convenience — it is the only way §3.6.2's conditional BLE row can
+//    be measured at all in a tree where the transport does not exist.
+//   `ble_row`  — spec §3.6.2: *"row absent when UI-12 transport is not compiled"*. ⚠ `ble_mode` being a COVERED FIELD
+//                of §UI-13's service is NOT a reason to render the row: the field is durable on every board, while the
+//                row would offer the operator a setting that changes nothing this build can act on. The condition is
+//                supplied at the ONE call site (`src/firmware_ui.cpp`, `MR_UI_BLE_ROW`), and is FALSE in every env in
+//                the tree today — measured, not assumed: `MRBLE_NRF52` (src/device_ble.h) is the transport's own
+//                predicate and no ESP32 env defines it, and the three envs that compile the OLED are all ESP32.
+//   `conflict` — §3.6.1 requires a conflict to be resolved by *"`RELOAD` or `DISCARD`"*, and §3.6.2's table lists only
+//                SAVE/DISCARD/BACK. ⇒ RELOAD is offered EXACTLY WHEN IT APPLIES rather than standing permanently in a
+//                menu where it would mean nothing. ★ Reported as a decision, not as a reading of the table: without a
+//                RELOAD row the ONLY escape from a conflict is DISCARD, which throws the operator's edits away — the
+//                cost [[B192]]'s ruling explicitly declines to charge them.
+inline CfgRowList settings_rows(bool ble_row, bool conflict) {
+    CfgRowList l{};
+    if (ble_row) l.row[l.n++] = CfgRow::ble_mode;
+    l.row[l.n++] = CfgRow::e2e_dm;
+    l.row[l.n++] = CfgRow::intro_attach;
+    l.row[l.n++] = CfgRow::mobile_autoregister;
+    l.row[l.n++] = CfgRow::provision;
+    if (conflict) l.row[l.n++] = CfgRow::reload;
+    l.row[l.n++] = CfgRow::save;
+    l.row[l.n++] = CfgRow::discard;
+    l.row[l.n++] = CfgRow::back;
+    return l;
+}
+
+// Which rows EDIT A COVERED FIELD, and which `CfgField` each one is. ⛔ `default`-LESS so `-Werror=switch` fails the
+// build when a row is added without stating whether it is a value row — the same discipline as `cfg_field_name`.
+inline bool cfg_row_field(CfgRow r, mrfw::CfgField& out) {
+    switch (r) {
+        case CfgRow::ble_mode:            out = mrfw::CfgField::ble_mode;            return true;
+        case CfgRow::e2e_dm:              out = mrfw::CfgField::e2e_dm;              return true;
+        case CfgRow::intro_attach:        out = mrfw::CfgField::intro_attach;        return true;
+        case CfgRow::mobile_autoregister: out = mrfw::CfgField::mobile_autoregister; return true;
+        case CfgRow::provision: case CfgRow::reload: case CfgRow::save:
+        case CfgRow::discard:   case CfgRow::back:   case CfgRow::count: return false;
+    }
+    return false;
+}
+
+// ★ THE ROW LABELS, in this PURE unit for the §B115 reason: a string built in `src/firmware_ui.cpp` is a string no
+//   automated gate can read. ⚠ WIDTH IS A CONSTRAINT, NOT A PREFERENCE — the panel is 21 small-font columns and the
+//   row renders as `<marker><label padded to 10><space><value>`, so a label over 10 characters would push the value
+//   off the panel. The longest here is `key attach` at exactly 10.
+inline const char* settings_row_label(CfgRow r) {
+    switch (r) {
+        case CfgRow::ble_mode:            return "BLE";
+        case CfgRow::e2e_dm:              return "DM crypt";
+        case CfgRow::intro_attach:        return "key attach";
+        case CfgRow::mobile_autoregister: return "auto reg";
+        case CfgRow::provision:           return "PROVISION";
+        case CfgRow::reload:              return "RELOAD";
+        case CfgRow::save:                return "SAVE";
+        case CfgRow::discard:             return "DISCARD";
+        case CfgRow::back:                return "BACK";
+        case CfgRow::count:               return "?";
+    }
+    return "?";
+}
+// The VALUE as the operator reads it. ⓘ `periodic` is `ble_mode == 2`: §3.6.2 keeps it OUT of the menu (it is to be
+// retired from the firmware) but a value already persisted by serial/BLE must still be RENDERED HONESTLY rather than
+// shown as one of the two the menu offers — the service's domain is 0..2 and this unit does not get to narrow it.
+inline const char* cfg_value_text(mrfw::CfgField f, uint8_t v) {
+    if (f == mrfw::CfgField::ble_mode) return (v == 0) ? "off" : (v == 1) ? "on" : (v == 2) ? "periodic" : "?";
+    return (v == 0) ? "off" : (v == 1) ? "on" : "?";
+}
+// ★★ THE CYCLE, i.e. what `short` does WHILE EDITING. It is the MENU's domain, which for `ble_mode` is deliberately
+//    NARROWER than the field's (§3.6.2 offers off/on only). A value outside the menu — `periodic`, or anything a
+//    future writer persisted — steps to the FIRST offered value rather than being preserved: the operator is looking
+//    at the row and pressed the button, so this is a deliberate edit, and it lands in the RAM DRAFT where SAVE or
+//    DISCARD still decides its fate. ⛔ It does NOT narrow `cfg_field_valid`: that domain is shared with serial/BLE.
+inline uint8_t cfg_menu_next(mrfw::CfgField f, uint8_t v) {
+    switch (f) {
+        case mrfw::CfgField::ble_mode:            return (v == 0) ? uint8_t(1) : uint8_t(0);   // off <-> on; 2 -> off
+        case mrfw::CfgField::e2e_dm:
+        case mrfw::CfgField::intro_attach:
+        case mrfw::CfgField::mobile_autoregister: return v ? uint8_t(0) : uint8_t(1);
+    }
+    return 0;
+}
+
+// ★★★ SPEC §3.3's THREE LITERALS, AND THEY ARE THREE FACTS RATHER THAN ONE STATE.
+// `config_unsaved` and `reboot_required` are INDEPENDENT (§3.6.1: a save that needs a reboot is durably saved and NO
+// LONGER unsaved), and `conflict` is a third comparison again — so they are rendered from three separate predicates
+// and never collapsed into a single "config is odd" flag.
+// ⛔ `CFG! RELOAD` IS NOT RE-SPELLED HERE: it is §UI-13's ruled string and is CALLED from `cfg_save_panel`, so the
+//    panel text has exactly one declaration (U1). Only the strings §UI-14 owns are written out below.
+inline const char* cfg_marker_text(bool unsaved, bool conflict) {
+    if (conflict) return mrfw::cfg_save_panel(mrfw::CfgSave::conflict);   // "CFG! RELOAD" — the SERVICE's string
+    return unsaved ? "CFG* UNSAVED" : "";
+}
+inline constexpr const char* kCfgRestartText = "RESTART NEEDED";   // §3.3: a durable save whose effect is boot-only
 
 // ★★★ §UI-7D slice B — THE INBOX DETAIL MODAL'S GEOMETRY (spec §3.5), DERIVED AND NOT RESTATED ([[B120]]).
 // Two body rows of the panel's 21 small-font columns expose 42 characters per page, so the largest stored body needs
@@ -178,6 +338,12 @@ struct UiSnapshot {
     uint8_t  my_team_id = 0; uint32_t team_id = 0;
     int32_t  batt_mv = -1;                        // <0 = unavailable -> render "--", never a guess
     bool     team_build = true;
+    // ★ §UI-14: is the companion BLE transport COMPILED INTO THIS BUILD? It rides the snapshot for exactly the reason
+    //   `team_build` does (U3): a build-time fact the PURE model must branch on, published once at the one call site
+    //   that knows it (`src/firmware_ui.cpp`) so the model stays `#if`-free and both arms are natively drivable.
+    //   ⛔ FALSE by default, which is §3.6.2's own ruled state for "the transport is not compiled" — not an invented
+    //   fallback. It is false in every env in the tree today (see `settings_rows`).
+    bool     ble_row = false;
 };
 
 // ★ THE UI-LOCAL UNREAD / RECENCY COUNTERS (spec §6). They were six file-static variables in firmware_ui.cpp, and
@@ -475,9 +641,56 @@ struct UiState {
     uint32_t    detail_seq  = 0;
     uint8_t     detail_origin = 0, detail_channel = 0;
     char        detail_line[kDetailBodyRows][kDetailCols + 1] = {};   // the current page, already sanitized + wrapped
+    // ★★★ §UI-14 — WHAT THE MODEL DECIDED ABOUT SETTINGS, frozen with everything else. ⛔ WHAT IS DELIBERATELY *NOT*
+    //     HERE: `config_unsaved`, `conflict`, `reboot_required` and the draft VALUES. Those are the SERVICE's, read
+    //     through `ConfigService` at the freeze (`src/firmware_ui.cpp`'s `SettingsView`) — mirroring them into
+    //     `UiState` would be a SECOND state model, which §3.6.1 forbids in as many words.
+    Settings settings = Settings::closed;
+    // The last ACTION's outcome, kept VERBATIM as the service's own typed result (⛔ never a `mrui::` mirror of
+    // `CfgSave` — that is the parallel enum U1 forbids, and the panel would then be able to claim an outcome the
+    // service never returned). `cfg_have_save` is the separate "there is one" flag, because `CfgSave` reserves no
+    // value for "nothing has been attempted" (§B74's discipline: no arithmetic value stands in for a state).
+    // ★ TRANSIENT BY DESIGN, exactly like `team_pick_gone`: the next navigation press clears it, so what the panel
+    //   shows always belongs to the act the operator just performed.
+    bool          cfg_have_save = false;
+    mrfw::CfgSave cfg_save      = mrfw::CfgSave::not_open;
+    // DISCARD / RELOAD have only ONE failure between them — the store could not be read (`CfgRefresh::nv_failed`) —
+    // and on that path the draft SURVIVES. Success needs no note: the marker itself disappearing IS the feedback.
+    bool     cfg_refresh_failed = false;
+    // §3.6.3 is §UI-15's. The ROW exists (§3.6.2 lists it) and the activation REFUSES OUT LOUD (C2) rather than
+    // doing nothing — a menu row that silently ignores a press reads as a broken panel.
+    bool     cfg_provision_na = false;
     bool    blanked = false;
     bool    dirty   = true;
 };
+
+// ★★ THE ONE-LINE NOTE THE SETTINGS PANEL SHOWS AFTER AN ACTION — formatted in this PURE unit so the native suite can
+//    assert the VISIBLE BYTES (§B115's rule; `src/firmware_ui.cpp` is compiled by neither the native suite nor the
+//    simulator). It returns `""` when there is nothing to say, and the three sources are MUTUALLY EXCLUSIVE by
+//    construction: every activation clears the other two before recording its own.
+// ★★★ "A FACT IS ESTABLISHED BY THE ACT": every string below names an outcome the SERVICE RETURNED. ⛔ There is no
+//     path that prints `SAVED` before `save()` came back, and none that prints it for a refusal — `invalid`,
+//     `conflict` and `nv_failed` each have their own words, and the last two are the SERVICE's ruled ones.
+inline const char* settings_note(const UiState& st) {
+    if (st.cfg_provision_na)   return "PROVISION: UI-15";
+    if (st.cfg_refresh_failed) return "NV READ FAILED";
+    if (!st.cfg_have_save)     return "";
+    switch (st.cfg_save) {
+        case mrfw::CfgSave::saved:        return "SAVED";
+        // ⓘ The SAME word as `saved`, deliberately: it IS saved, and `RESTART NEEDED` is a SEPARATE fact rendered from
+        //   `reboot_required()` on its own row (§3.3's third literal). Folding them into one string would be the
+        //   two-facts-as-one collapse §3.6.1 warns about — and the reboot row must outlive this transient note.
+        case mrfw::CfgSave::saved_reboot: return "SAVED";
+        case mrfw::CfgSave::no_change:    return "NO CHANGE";
+        case mrfw::CfgSave::invalid:      return "BAD VALUE";
+        case mrfw::CfgSave::conflict:                       // "CFG! RELOAD" — §UI-13's ruled string, CALLED not copied
+        case mrfw::CfgSave::nv_failed:    return mrfw::cfg_save_panel(st.cfg_save);   // "SAVE FAILED", likewise
+        // Unreachable from the panel (the screen refuses to offer SAVE at all when the service could not open), and
+        // listed rather than defaulted so an eighth outcome fails the build (§B72's rule).
+        case mrfw::CfgSave::not_open:     return "NO CONFIG";
+    }
+    return "";
+}
 
 class UiModel {
 public:
@@ -541,7 +754,20 @@ public:
         //    roster is rebuilt every tick and can have reordered since the last one. See `sync_team_cursor`.
         sync_team_cursor(s);
         sync_inbox_cursor(s);            // ★ §UI-7D: the same re-anchoring for the INBOX row, by `(kind, seq)`
-        if (g == Gesture::short_press)  { advance_or_next(s); note_team_cursor(s); note_inbox_cursor(s); _st.dirty = true; }
+        sync_settings(s);                // ★ §UI-14: the screen owns the editor's lifetime — see the function
+        // ★★★ §UI-14 — THE EDITOR OWNS `short`, AND THIS BRANCH IS THE WHOLE OF "short's two modes". While a value row
+        //     is open a short press CYCLES that row's value and must NOT walk the list: leaving the branch out is the
+        //     defect where the value the operator is looking at scrolls away under their finger.
+        // ⚠ It is checked AFTER the emergency arms above (§4.2: emergency pre-empts everything, and `long` has already
+        //   left the editor) and after the two modals, which cannot coexist with it — the same ordering statement
+        //   §UI-7D made for the detail modal, for the same reason: the view that owns the BODY owns the press.
+        if (_st.settings == Settings::editing) { settings_edit_gesture(g, s); return; }
+        // ⚠ `note_settings_cursor` runs AFTER the move and `sync_settings` BEFORE it (at the top of this function) —
+        //   the same split as the other two cursors, and it is load-bearing: syncing after the move would drag the
+        //   highlight straight back onto the row the operator just left.
+        if (g == Gesture::short_press)  { advance_or_next(s); note_team_cursor(s); note_inbox_cursor(s);
+                                          settings_follow_screen(); note_settings_cursor(s);
+                                          clear_settings_note(); _st.dirty = true; }
         else if (g == Gesture::double_press) { activate(s);   _st.dirty = true; }
     }
 
@@ -583,11 +809,37 @@ public:
         sync_team_cursor(s);
         sync_inbox_cursor(s);            // ★ §UI-7D: same placement, same argument — the frozen frame must show the
                                          //   highlight beside the record `activate()` would actually open.
+        sync_settings(s);                // ★ §UI-14: same placement, same argument — the frame FREEZES immediately
+                                         //   after this call, so the service must already be open when it does.
         if (!_st.blanked && !hold_active(s.now_ms) &&
-            elapsed(s.now_ms, _last_input_ms) >= kBlankMs) { _st.blanked = true; _st.dirty = true; }
+            elapsed(s.now_ms, _last_input_ms) >= kBlankMs) {
+            _st.blanked = true; _st.dirty = true;
+            // ★★ §3.6.1, VERBATIM IN SUBSTANCE: *"`BACK` and blanking PRESERVE the draft; silently discarding because
+            //    attention timed out is FORBIDDEN."* `on_blank()` is the named seam the service exposes for exactly
+            //    this event, and it is a draft-preserving no-op BY CONSTRUCTION. ⇒ calling it is what makes the
+            //    property ASSERTABLE (mutation C29 turns it into a `discard()` and the suite reddens); leaving the
+            //    blank unreported would put the obligation in a comment instead of in a call.
+            if (_cfg) _cfg->on_blank();
+        }
     }
 
     const UiState& state() const { return _st; }
+    // ★★ §UI-14 — THE STAGED-CONFIG SERVICE, ATTACHED RATHER THAN OWNED. `src/firmware_ui.cpp` constructs it over the
+    //    DEVICE bindings ([[B193]]) and hands it here once, at `mr_ui_init`; the native suite hands over one built on
+    //    fakes. ⛔ The model never constructs one: a service is a thing with a durable store behind it, and a model
+    //    that made its own would be a second draft nobody could save.
+    // ⓘ NULL IS A REAL STATE and it fails CLOSED: an unattached model shows the menu's rows but every activation
+    //   refuses. That is what a `!MR_FEAT_OLED`-shaped build or a partially-wired probe looks like, and it must not
+    //   crash a safety device.
+    void attach_config(mrfw::ConfigService& c) { _cfg = &c; }
+    mrfw::ConfigService*       config()       { return _cfg; }
+    const mrfw::ConfigService* config() const { return _cfg; }
+    // The visible SETTINGS rows for THIS snapshot — one construction, shared by the cursor bound (`list_len`), the
+    // activation and the renderer (U1/U2). ⛔ Never rebuild the list at a call site: a renderer whose list differed
+    // from the model's by one row would highlight one thing and act on another.
+    CfgRowList settings_row_list(const UiSnapshot& s) const {
+        return settings_rows(s.ble_row, _cfg && _cfg->conflict());
+    }
     void clear_dirty() { _st.dirty = false; }
     // ★★ §B108: AN ARRIVAL IS A REASON TO REPAINT. `mr_ui_on_push` moved the unread counters and the recency stamps
     // and then asked for nothing, so a new message sat unshown until some UNRELATED gesture or timer happened to
@@ -1049,6 +1301,15 @@ protected:
     char      _detail_body[MESHROUTE_NS::protocol::inbox_max_body + 1] = {};
     uint8_t   _detail_len = 0;
     uint32_t  _detail_page_at_ms = 0;   // when the visible page was last turned; the 2 s cadence measures from here
+    // ★★ §UI-14's ONE new member: a POINTER to the staged-config service, never an instance (see `attach_config`).
+    //    ⇒ this model gains 8 bytes and no config state of its own — the draft, the baseline and the conflict latch
+    //    all live in the service, which is what makes "there is one draft" structural rather than a convention.
+    mrfw::ConfigService* _cfg = nullptr;
+    // ★ The SETTINGS cursor's selection, held by ROW IDENTITY rather than by index — see `sync_settings` for why that
+    //   is live here and not merely tidy. ⓘ NO ARITHMETIC VALUE IS RESERVED (§B74): `_cfg_sel_valid` is its own flag,
+    //   so row 0 needs no special case and cannot be confused with "nothing is selected".
+    CfgRow _cfg_sel_row   = CfgRow::back;
+    bool   _cfg_sel_valid = false;
 
     uint32_t next_backoff() {
         _backoff_ms = (_backoff_ms == 0) ? kBlockedBackoffMinMs
@@ -1121,7 +1382,144 @@ private:
             note_inbox_neighbour(s);                     // captured NOW, so a successful delete can land beside it
             _inbox_req = { InboxWhat::open, _inbox_sel_kind, _inbox_sel_seq };
             _inbox_taken = false;
+        } else if (_st.screen == Screen::settings) {
+            settings_activate(s);
         }
+    }
+    // ================================================================================== §UI-14 — the SETTINGS screen
+    // ★★★ THE EDITOR'S LIFETIME BELONGS TO THE SCREEN, AND THAT IS THE POINT OF THIS FUNCTION. It runs on every
+    //     gesture AND every tick (the two places the other two cursors re-anchor), so:
+    //       · arriving on SETTINGS OPENS the service — `open()` snapshots the persisted covered fields and records the
+    //         baseline (§3.6.1). ⚠ RE-ENTERING returns `already_open`, which is a NO-OP BY CONTRACT: the draft
+    //         SURVIVES leaving and coming back, because losing it there would be the attention-timeout discard §3.6.1
+    //         forbids, arriving through the door instead of the timer.
+    //       · leaving SETTINGS closes the EDITOR but ⛔ NEVER the service. There is no `close()` and there must not be
+    //         one: the draft, the conflict latch and `reboot_required` all have to outlive the screen — §3.6.5 says a
+    //         saved-but-reboot-required state stays visible until the reboot.
+    // ⓘ `open()` on a tick is free after the first: `already_open` returns before touching the store, so this is not a
+    //   flash read per tick.
+    // ★★ THE EDITOR MAY NEVER OUTLIVE ITS SCREEN, AND THIS IS THE ONE PRIMITIVE THAT ENFORCES IT — called from BOTH
+    //    paths that can leave SETTINGS (the `short` walk off the last row, and `sync_settings` itself), because a
+    //    guard belongs to the INVARIANT and not to the site where it was first needed. ⛔ Leaving it to `sync_settings`
+    //    alone is a real hole: the walk-off happens INSIDE a gesture, after that gesture's sync has already run, so
+    //    the state would stay `browsing`/`editing` for the rest of the pass — and a frame frozen in between would
+    //    render a SETTINGS editor over the STATUS screen.
+    void settings_follow_screen() {
+        if (_st.screen == Screen::settings) return;
+        if (_st.settings != Settings::closed) { _st.settings = Settings::closed; _st.dirty = true; }
+        _cfg_sel_valid = false;
+    }
+    void sync_settings(const UiSnapshot& s) {
+        settings_follow_screen();
+        if (_st.screen != Screen::settings) return;
+        if (_st.settings == Settings::closed) { _st.settings = Settings::browsing; _st.dirty = true; }
+        if (_cfg && !_cfg->is_open()) {
+            // ⛔ A REFUSED OPEN IS NOT RETRIED SILENTLY BEHIND A WORKING-LOOKING MENU: `no_record` means the store
+            //    could not produce a record, so there is no baseline and nothing may be saved. The renderer says so
+            //    (C2) and every activation below refuses, because `is_open()` stays false.
+            (void)_cfg->open();
+        }
+        // ★★★★ THE CURSOR TRACKS THE ROW, NOT THE INDEX — §B64's ruling and §B66's lesson, arriving on a THIRD screen
+        //     and for a reason that is LIVE rather than hypothetical: the RELOAD row is CONDITIONAL, so the list grows
+        //     by one at the exact moment a refused SAVE raises the conflict. ⇒ a cursor left on index 4 was pointing
+        //     at SAVE and would now be pointing at RELOAD, and the operator's next `double` — aimed at the row they
+        //     were looking at one press ago — would perform a DIFFERENT action. Re-anchoring by identity is what makes
+        //     the highlight and the act agree.
+        // ⓘ WHY THE LOST-ROW LANDING IS DIFFERENT FROM TEAM's AND INBOX's, and it is a reasoned difference rather
+        //   than a weaker rule: there, a vanished selection meant somebody ELSE's message or teammate could be hit, so
+        //   activation is REFUSED. Here the only row that can vanish is RELOAD, it vanishes only because its own
+        //   conflict was just resolved, and nothing in this menu can address the wrong record — so the cursor lands on
+        //   the SAFE action (BACK, which leaves and preserves) and the panel shows that highlight before any press.
+        const CfgRowList l = settings_row_list(s);
+        if (!_cfg_sel_valid) { note_settings_cursor(s); return; }   // first arrival: whatever row 0 is IS the pick
+        for (uint8_t i = 0; i < l.n; ++i) {
+            if (l.row[i] != _cfg_sel_row) continue;
+            if (_st.cursor != i) { _st.cursor = i; _st.dirty = true; }   // the row MOVED -> the highlight follows
+            return;
+        }
+        for (uint8_t i = 0; i < l.n; ++i)
+            if (l.row[i] == CfgRow::back) { _st.cursor = i; _cfg_sel_row = CfgRow::back; _st.dirty = true; return; }
+    }
+    // The WRITE side, exactly as `note_team_cursor` / `note_inbox_cursor` are: whatever row the cursor has come to
+    // rest on IS the new selection, so "the pick" is always something the operator's last press actually pointed at.
+    void note_settings_cursor(const UiSnapshot& s) {
+        CfgRow r{};
+        if (_st.screen == Screen::settings && settings_row_list(s).at(_st.cursor, r)) {
+            _cfg_sel_row = r; _cfg_sel_valid = true; return;
+        }
+        _cfg_sel_valid = false;
+    }
+    // ★★★ `short` WHILE EDITING — THE SECOND OF ITS TWO MODES. It CYCLES the highlighted row's finite value in the RAM
+    //     DRAFT and nothing else: ⛔ no live mutation, no radio retune, no flash write (§3.6.1). `double` ACCEPTS,
+    //     which is a pure state change — the value is ALREADY in the draft, so "accept" costs nothing and "leave" is
+    //     not a revert. ⓘ That is deliberate and is what the LONG-press rule below depends on.
+    void settings_edit_gesture(Gesture g, const UiSnapshot& s) {
+        if (g != Gesture::short_press && g != Gesture::double_press) return;
+        if (g == Gesture::double_press) { _st.settings = Settings::browsing; _st.dirty = true; return; }
+        CfgRow r{}; mrfw::CfgField f{};
+        // ⛔ FAILS CLOSED at both steps: a cursor that names no row, or a row that edits no field, cycles NOTHING.
+        //    Neither is reachable today (only a value row enters `editing`), and both are written out rather than
+        //    assumed because the alternative — writing `_draft.at(<whatever>)` — is a wrong-field edit.
+        if (!settings_row_list(s).at(_st.cursor, r) || !cfg_row_field(r, f)) { _st.settings = Settings::browsing; return; }
+        if (!_cfg) return;
+        (void)_cfg->set(f, cfg_menu_next(f, _cfg->draft().at(f)));
+        _st.dirty = true;
+    }
+    // ★★★ `double` IN THE MENU — enters a value row, or performs an action row. EVERY branch that changes anything
+    //     goes through the SERVICE (§3.6.1: ⛔ never a loop over `handle_cfg_set`, never a manufactured command line).
+    void settings_activate(const UiSnapshot& s) {
+        clear_settings_note();                       // the note belongs to the act about to happen, never to the last
+        CfgRow r{};
+        if (!settings_row_list(s).at(_st.cursor, r)) return;     // fails closed — see CfgRowList::at
+        mrfw::CfgField f{};
+        if (cfg_row_field(r, f)) {
+            // ⛔ Refused while the service is not open: there is no draft to edit, and an editor over nothing would
+            //    show a value the operator could change and never save.
+            if (_cfg && _cfg->is_open()) { _st.settings = Settings::editing; _st.dirty = true; }
+            return;
+        }
+        switch (r) {
+            // ⛔⛔ §3.6.3 IS §UI-15's, ENTIRELY. The row is rendered because §3.6.2's menu lists it; the ACTION
+            //     refuses out loud. ★ AND ITS PRECONDITION IS DELIBERATELY NOT IMPLEMENTED HERE: §3.6.3's *"if a
+            //     settings draft is unsaved, PROVISION first requires SAVE or DISCARD"* is a rule about a flow that
+            //     does not exist, and enforcing it now would be building part of that slice.
+            case CfgRow::provision: _st.cfg_provision_na = true; break;
+            case CfgRow::reload:
+                // The conflict's OTHER way out ([[B192]], owner-ruled: the three-way merge). Reported form: fields the
+                // operator did not edit adopt the current persisted values; fields they did edit stay in the draft.
+                if (_cfg) _st.cfg_refresh_failed = (_cfg->reload() == mrfw::CfgRefresh::nv_failed);
+                break;
+            case CfgRow::save:
+                // ★★ A FACT IS ESTABLISHED BY THE ACT: the outcome is whatever `save()` RETURNED, recorded verbatim.
+                //    ⛔ Nothing here decides that a save happened, and nothing clears a marker — `config_unsaved()`
+                //    goes false because the SERVICE moved its baseline, and only on the path where it wrote.
+                if (_cfg) { _st.cfg_save = _cfg->save(); _st.cfg_have_save = true; }
+                break;
+            case CfgRow::discard:
+                // §3.6.1's explicit full reset. ⓘ NO confirmation step: §3.6.2 makes DISCARD *"a separate deliberate
+                //   action"*, which it already is — reaching the row costs a walk and the act costs a `double` — and
+                //   inventing a confirmation screen here would be inventing UI the spec does not describe.
+                if (_cfg) _st.cfg_refresh_failed = (_cfg->discard() == mrfw::CfgRefresh::nv_failed);
+                break;
+            case CfgRow::back:
+                // ★ §3.6.2: *"`BACK` is safe and PRESERVES an unsaved draft"*. `on_back()` is the service's named seam
+                //   for it — a draft-preserving no-op by construction, called so the property is assertable rather
+                //   than merely intended (mutation C28 turns it into a `discard()`).
+                if (_cfg) _cfg->on_back();
+                _st.screen = Screen::status; _st.cursor = 0; _st.settings = Settings::closed;
+                _cfg_sel_valid = false;                  // the pick belonged to a screen we have left
+                break;
+            case CfgRow::ble_mode: case CfgRow::e2e_dm: case CfgRow::intro_attach:
+            case CfgRow::mobile_autoregister:   // handled above by `cfg_row_field`; listed so -Wswitch stays useful
+            case CfgRow::count: break;
+        }
+        _st.dirty = true;
+    }
+    // The note is TRANSIENT — it describes the last act, so the next navigation press retires it (the `team_pick_gone`
+    // idiom). ⛔ It is cleared as a SET, in one place: three flags cleared at three sites would be the drift that lets
+    // a `SAVED` from two presses ago sit under a fresh `BAD VALUE`.
+    void clear_settings_note() {
+        _st.cfg_have_save = false; _st.cfg_refresh_failed = false; _st.cfg_provision_na = false;
     }
     // ★★★★ §B64 — THE TEAMMATE THE CURSOR IS ON, HELD BY IDENTITY, AND RE-FOUND IN EVERY SNAPSHOT.
     // ★ THE IDENTITY IS THE ROW'S OWN `id`, DERIVED AND NOT INVENTED (U1): it is the team-plane id the snapshot already
@@ -1311,12 +1709,18 @@ private:
     uint8_t list_len(const UiSnapshot& s) const {
         if (_st.screen == Screen::team)  return s.team_shown;
         if (_st.screen == Screen::inbox) return s.inbox_shown;
+        // ★ §UI-14: SETTINGS is list-aware exactly like TEAM and INBOX (§3.2: *"`short` walks the list and leaves only
+        //   at the end"*), and the length is the ONE row-list construction — never a hand-written count, which is
+        //   §B66's defect one screen over: two conditional rows mean the number is not a constant.
+        if (_st.screen == Screen::settings) return settings_row_list(s).n;
         return 1;
     }
     static Screen next_screen(Screen cur, const UiSnapshot& s) {
         for (uint8_t i = 1; i <= uint8_t(Screen::count); ++i) {
             const Screen cand = Screen((uint8_t(cur) + i) % uint8_t(Screen::count));
-            if (s.team_build || cand == Screen::status || cand == Screen::inbox) return cand;
+            // ★ §UI-14: SETTINGS is in BOTH cycles (spec §3.1). Only TEAM and SEND are team-gated — the four covered
+            //   fields are durable on every build, including `gateway_heltec` (OLED=1, TEAM=0).
+            if (s.team_build || cand == Screen::status || cand == Screen::inbox || cand == Screen::settings) return cand;
         }
         return Screen::status;
     }
@@ -1341,6 +1745,19 @@ inline void UiModel::emergency_gesture(Gesture g, const UiSnapshot& s) {
     //   (firmware_ui_input.h:39), and `long_arm` is the only thing that sets `_armed` — so the modal is provably already
     //   closed by then. A `long_cancel` cannot bring it back either: closing is destructive.
     if (_st.detail != InboxModal::closed) close_detail();
+    // ★★★★ §UI-14 — THE SETTINGS EDITOR CLOSES AT `long_arm` TOO, i.e. BEFORE the alarm is armed, and ⛔ NOT at
+    //     `long_fire`. Spec §3.6.2 is explicit: *"the long gesture ALWAYS leaves the editor and arms emergency"* — and
+    //     copying compose's fire-time close was exactly §UI-7D's correction one modal over. ⇒ the same placement, the
+    //     same unconditional form, and therefore the same property: a `long_cancel` cannot bring the editor back,
+    //     because closing is destructive and `long_arm` has already happened by then (`InputFsm::update` emits
+    //     `long_fire`/`long_cancel` only with `_armed` set, and only `long_arm` sets it).
+    // ★ WHAT IT DOES NOT DO, deliberately: it does not REVERT the value the operator had cycled. That value is already
+    //   in the RAM draft, unsaved, and §3.6.5 rules that *"a draft survives; an UNCONFIRMED DESTRUCTIVE ACTION does
+    //   not"* — a draft edit is neither confirmed nor destructive, and discarding it here would be the silent discard
+    //   §3.6.1 forbids, triggered by a press the operator may still cancel.
+    // ⓘ The cursor is left where it was, which is a VALUE row by construction: only a value row can be in `editing`
+    //   at all, so this can never come back to rest on `DISCARD`.
+    if (_st.settings == Settings::editing) { _st.settings = Settings::browsing; _st.dirty = true; }
     if (g == Gesture::long_arm)    { _emg = Emergency::arming; _arm_fire_at_ms = s.now_ms + kArmToFireMs; return; }
     if (g == Gesture::long_cancel) { _emg = Emergency::cancelled; _cancelled_until_ms = s.now_ms + kCancelledMs; return; }
     // long_fire — a NEW alarm: the three-transmission budget, the backoff and any armed retry all reset, so a sticky

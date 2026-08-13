@@ -152,14 +152,18 @@ w_pass=0; w_fail=0; w_ctl=0
 #    how the population line at `freeze_outcome` stayed unguarded while W10 was green: replacing it with a
 #    plausible-but-wrong value satisfied every clause the harness had. ⇒ pass as many sed scripts as the property has
 #    wrong answers; EVERY one must be non-vacuous AND must turn the predicate red, and the count is reported.
-wchk() {  # wchk(label, predicate-fn, sed-script-that-reverts-the-property [, further sed scripts ...])
-  local label=$1 pred=$2; shift 2
-  if ! "$pred" "$FW_UI"; then w_fail=$((w_fail+1)); echo "  FAIL $label (not wired in firmware_ui.cpp)"; return; fi
+# ★ GENERALISED 2026-08-13 (§UI-14 follow-up) — the file is now a PARAMETER, because the newest wiring property lives
+#   in `src/firmware_config.cpp` (the config verb must NOTIFY the panel) rather than in `firmware_ui.cpp`. ⛔ The body
+#   is NOT forked: `wchk` delegates, so all thirteen existing call sites are untouched and there is still exactly ONE
+#   implementation of "PASS live, FAIL on every revert" (U1 — a second copy is how two harnesses drift).
+wchk_in() {  # wchk_in(file, label, predicate-fn, sed-script-that-reverts-the-property [, further sed scripts ...])
+  local file=$1 label=$2 pred=$3; shift 3
+  if ! "$pred" "$file"; then w_fail=$((w_fail+1)); echo "  FAIL $label (not wired in $(basename "$file"))"; return; fi
   local n=0 revert
   for revert in "$@"; do
     n=$((n+1))
-    sed "$revert" "$FW_UI" > "$OUT/fw_ui_revert.cpp"
-    if cmp -s "$FW_UI" "$OUT/fw_ui_revert.cpp"; then
+    sed "$revert" "$file" > "$OUT/fw_ui_revert.cpp"
+    if cmp -s "$file" "$OUT/fw_ui_revert.cpp"; then
       w_fail=$((w_fail+1)); echo "  FAIL $label CONTROL $n — the revert changed NOTHING, so the check is vacuous"; return
     fi
     if "$pred" "$OUT/fw_ui_revert.cpp"; then
@@ -169,6 +173,7 @@ wchk() {  # wchk(label, predicate-fn, sed-script-that-reverts-the-property [, fu
   done
   w_pass=$((w_pass+1))
 }
+wchk() { wchk_in "$FW_UI" "$@"; }   # the thirteen §UI-6/§UI-7 checks, unchanged: they all read firmware_ui.cpp
 echo
 echo "== §UI-6 wiring checks + their negative controls (each must PASS live and FAIL reverted) =="
 # W1 §B103/F4 — the distress-reply scope. The shipped guard was `pu.channel_id == MR_UI_TEAM_CHANNEL_ID` alone, which
@@ -324,6 +329,151 @@ w11w() {   # every Font::large headline must fit 12 columns (10 px glyphs on a 1
 wchk "W11b no Font::large headline exceeds the 12-column large-font budget" \
      w11w 's|head = "NOT RELAYED";|head = "NOTHING HEARD";|' \
           's|head = "NOT RELAYED";|head = "NO RELAY HEARD";|'
+# W12 ★★★ §UI-14 follow-up / [[B194]] — THE IMMEDIATE CONFLICT NOTIFICATION, AND IT IS THE FIRST WIRING CHECK IN THIS
+#     FILE THAT READS A DIFFERENT SOURCE. Spec §3.6.1 requires a serial/BLE write during an open OLED draft to produce
+#     `CFG! RELOAD` IMMEDIATELY; the panel half is measured by `tools/probe_firmware_ui/`, but the CALL — in
+#     `handle_cfg_set`, a function no host build compiles — is reachable by nothing else.
+# ★★★ ONE PREDICATE, FOUR WRONG ANSWERS, and the reason it is one literal sequence rather than a bare presence grep:
+#     the property is not "the call exists", it is "the call happens AFTER a write that BOTH happened and SUCCEEDED".
+#     Matching the failure branch's exact body is what makes an added call INSIDE it fail the check — the wrong answer
+#     a presence-only grep would have passed (§B115's W10b lesson: a check whose only control is a deletion measures
+#     half the property).
+#       (a) the call deleted            -> no notification at all, i.e. the blocker back;
+#       (b) the call moved BEFORE the save -> notifies on a write that may then FAIL;
+#       (c) the `persist` guard dropped -> notifies on a LIVE-ONLY key with no durable record to disagree with;
+#       (d) a call ADDED to the failure branch -> claims a change on a write that did not happen.
+CFG_CPP="$ROOT/src/firmware_config.cpp"
+# ⚠ TWO CLAUSES, and the second was ADDED after control (b) proved the first insufficient — MEASURED, not foreseen: a
+#   revert that inserted a SECOND call before the write left the good sequence intact and the check passed. ⇒ the
+#   property is "there are EXACTLY SEVEN notification sites, and THIS one is after a successful persisted write". The
+#   count clause is what makes (b) and (d) — both of which ADD a call rather than move one — actually fail.
+# ★★ GENERALISED 2026-08-13 ([[B194]] / §notify-every-save): the rule is now SEVEN user-initiated `/mrcfg` writers, so
+#    the predicate is SHARED rather than copy-pasted seven times (U1 — a second copy is how two harnesses drift). Both
+#    clauses stay load-bearing, and they divide the wrong answers between them:
+#      · the COUNT clause catches every control that ADDS a call (before the write, or inside a failure branch);
+#      · the SEQUENCE clause catches a deletion, a dropped guard, and a dropped `return` that lets the notification
+#        run after a FAILED write.
+#    ⛔⛔ CORRECTED IN PLACE 2026-08-13 (QG round 2) — THIS BLOCK USED TO CLAIM A PROPERTY THE CODE DID NOT HAVE, and
+#    that is the worse half of the defect, because the comment is the instruction a reader trusts. It read: *"The
+#    count is a SINGLE constant on purpose: a new writer that forgets to notify does not merely leave its own check
+#    unwritten — it makes all seven fail loudly, which is the maintenance property §notify-every-save exists for."*
+#    **THAT WAS FALSE AS WRITTEN.** The count looked at `mr_ui_on_config_saved()` ONLY, so an EIGHTH `mrnv::save(`
+#    added with NO notification left the count at seven and every check GREEN — precisely the omission the sentence
+#    claimed to catch, i.e. an instrument that cannot fail hiding behind a comment that says it can.
+#    ✅ THE FIX IS THE OTHER HALF OF THE COUNT: `cfg_writer_counts_ok` counts the file's `/mrcfg` WRITES too and
+#    requires them to BALANCE the notifications. The withdrawn sentence is now true of the code below — but only
+#    within the scope stated next, which is why the scope is stated rather than left to be inferred.
+# ⛔⛔ SCOPE LIMIT, STATED PLAINLY SO THE CLAIM IS NOT WIDER THAN THE GUARD: this is a PER-FILE check on
+#    `src/firmware_config.cpp`. A new user-initiated `/mrcfg` verb added in a DIFFERENT file is NOT caught by it.
+#    ⛔ No whole-tree scan is built here; the residue is named, not silently absorbed.
+# ★★ THREE CONSTANTS, and the third exists because the arithmetic must not be able to go silently wrong: the file's
+#    `mrnv::save(` occurrences are the SEVEN verbs PLUS `DeviceCfgStore::save` (the `ICfgStore` override — the
+#    service's own store, not a verb), so the override is subtracted BY MATCHING ITS LINE, and the match itself is
+#    asserted. ⓘ VERIFIED rather than assumed (V1): the file holds 8 `mrnv::save(` occurrences, and `grep -oF` does
+#    NOT match `mrnv::save_id(` (lines 231/242, the `/mrid` writer) — the paren excludes it, not luck.
+CFG_NOTIFY_SITES=7                 # the seven USER-INITIATED verbs — bump this ONLY together with a new W-check
+CFG_STORE_SAVE='bool save(const mrnv::Blob& b) override { return mrnv::save(b); }'   # the ONE exempt save
+cfg_writer_counts_ok() {  # the SHARED tripwire: every non-exempt /mrcfg write in this file has a notification
+  local notifies saves exempt
+  notifies=$(code_flat "$1" | grep -oF 'mr_ui_on_config_saved()' | grep -c .)
+  saves=$(code_flat "$1"   | grep -oF 'mrnv::save('            | grep -c .)
+  exempt=$(code_flat "$1" | tr -s ' ' | grep -oF "$CFG_STORE_SAVE" | grep -c .)
+  [ "$exempt" -eq 1 ]                        || return 1   # the override must stay identifiable, or the sum lies
+  [ "$notifies" -eq "$CFG_NOTIFY_SITES" ]    || return 1   # the PIN: any new writer forces the harness to be updated
+  [ "$((saves - exempt))" -eq "$notifies" ]; }             # the TRIPWIRE: a BARE save is an unnotified writer
+nsite() {  # nsite(file, literal-comment-stripped-space-squeezed-sequence)
+  cfg_writer_counts_ok "$1" || return 1
+  code_flat "$1" | tr -s ' ' | grep -qF "$2"; }
+w12() { nsite "$1" 'if (persist && !mrnv::save(b)) { out.println(F("> cfg err nv_save_failed")); return; } if (persist) mr_ui_on_config_saved();'; }
+wchk_in "$CFG_CPP" "W12 handle_cfg_set NOTIFIES the panel after a successful persisted /mrcfg write" \
+     w12 's|    if (persist) mr_ui_on_config_saved();||' \
+         's|    if (persist && !mrnv::save(b)) { out.println(F("> cfg err nv_save_failed")); return; }|    if (persist) mr_ui_on_config_saved();\n    if (persist \&\& !mrnv::save(b)) { out.println(F("> cfg err nv_save_failed")); return; }|' \
+         's|    if (persist) mr_ui_on_config_saved();|    mr_ui_on_config_saved();|' \
+         's|{ out.println(F("> cfg err nv_save_failed")); return; }|{ mr_ui_on_config_saved(); out.println(F("> cfg err nv_save_failed")); return; }|'
+# W13 ⛔ AND THE HOOK MUST STAY FEATURE-NEUTRAL: `src/firmware_config.cpp` may not learn that a panel exists. The
+#     no-op arm lives in `lib/hal/mr_ui.h`, exactly as it does for the other three hooks, so an `MR_FEAT_OLED` guard
+#     appearing around this call would mean the config path had grown a display dependency.
+#     ★ Its control ADDS the guard rather than removing anything, because "no `#if` here" cannot be reverted by deletion.
+w13() { ! code_flat "$1" | grep -qE 'MR_FEAT_OLED'; }
+wchk_in "$CFG_CPP" "W13 the config path stays feature-neutral (no MR_FEAT_OLED around the hook)" \
+     w13 's|    if (persist) mr_ui_on_config_saved();|#if MR_FEAT_OLED\n    if (persist) mr_ui_on_config_saved();\n#endif|'
+# ================================================================================================ W14-W19
+# ★★★ §notify-every-save / [[B194]] — THE OTHER SIX USER-INITIATED `/mrcfg` WRITERS. `handle_cfg_set` (W12) was only
+#     the first: `leave` RESETS ALL FOUR covered fields (`b = mrnv::Blob{}`) and persisted them while telling the panel
+#     nothing, which is the blocker this slice was dispatched on. All six live in `src/firmware_config.cpp`, which no
+#     host build compiles — the same reason W12 exists here rather than in a native case.
+# ★★ EACH CHECK CARRIES FOUR CONTROLS (W19 five), and they are the same four wrong answers every time, which is the
+#    point of a RULE: (a) the call deleted -> the blocker back; (b) a call added BEFORE the write -> notifies on a
+#    write that may then FAIL; (c) the failure branch's `return`/guard dropped -> notifies after a FAILED write;
+#    (d) a call added INSIDE the failure branch -> claims a change on a write that did not happen.
+w14() { nsite "$1" 'if (!mrnv::save(b)) { out.println(F("> gateway err nv_save_failed")); return; } mr_ui_on_config_saved();'; }
+wchk_in "$CFG_CPP" "W14 handle_gateway NOTIFIES after its successful /mrcfg write" \
+     w14 '/gateway err nv_save_failed/{n;s|mr_ui_on_config_saved();|;|;}' \
+         's|    if (!mrnv::save(b)) { out.println(F("> gateway err nv_save_failed")); return; }|    mr_ui_on_config_saved();\n    if (!mrnv::save(b)) { out.println(F("> gateway err nv_save_failed")); return; }|' \
+         's|(F("> gateway err nv_save_failed")); return; }|(F("> gateway err nv_save_failed")); }|' \
+         's|{ out.println(F("> gateway err nv_save_failed")); return; }|{ mr_ui_on_config_saved(); out.println(F("> gateway err nv_save_failed")); return; }|'
+w15() { nsite "$1" 'if (!mrnv::save(b)) { out.println(F("> join err nv_save_failed")); return; } mr_ui_on_config_saved();'; }
+wchk_in "$CFG_CPP" "W15 handle_join NOTIFIES after its successful /mrcfg write" \
+     w15 '/join err nv_save_failed/{n;s|mr_ui_on_config_saved();|;|;}' \
+         's|        if (!mrnv::save(b)) { out.println(F("> join err nv_save_failed")); return; }|        mr_ui_on_config_saved();\n        if (!mrnv::save(b)) { out.println(F("> join err nv_save_failed")); return; }|' \
+         's|(F("> join err nv_save_failed")); return; }|(F("> join err nv_save_failed")); }|' \
+         's|{ out.println(F("> join err nv_save_failed")); return; }|{ mr_ui_on_config_saved(); out.println(F("> join err nv_save_failed")); return; }|'
+w16() { nsite "$1" 'if (!mrnv::save(b)) { out.println(F("> create err nv_save_failed")); return; } mr_ui_on_config_saved();'; }
+wchk_in "$CFG_CPP" "W16 handle_create NOTIFIES after its successful /mrcfg write" \
+     w16 '/create err nv_save_failed/{n;s|mr_ui_on_config_saved();|;|;}' \
+         's|        if (!mrnv::save(b)) { out.println(F("> create err nv_save_failed")); return; }|        mr_ui_on_config_saved();\n        if (!mrnv::save(b)) { out.println(F("> create err nv_save_failed")); return; }|' \
+         's|(F("> create err nv_save_failed")); return; }|(F("> create err nv_save_failed")); }|' \
+         's|{ out.println(F("> create err nv_save_failed")); return; }|{ mr_ui_on_config_saved(); out.println(F("> create err nv_save_failed")); return; }|'
+# ⚠⚠ W17 IS THE ONE WITH A THIRD STATE. `handle_team`'s save is §3-A.4's UNCHECKED one: not success /
+#    failure-with-return but success · FAILURE-BUT-LIVE-ANYWAY (the live team state is deliberately not rolled back).
+#    ⇒ the verdict is CAPTURED into `team_saved` so the notification rides the success arm only; the check pins that
+#    capture, and control (c) is the wrong answer that ignores it and notifies either way.
+w17() { nsite "$1" 'const bool team_saved = mrnv::save(b); if (team_saved) mr_ui_on_config_saved(); else out.println(F("> team err nv_save_failed'; }
+wchk_in "$CFG_CPP" "W17 handle_team CAPTURES its save verdict and NOTIFIES only on the success arm" \
+     w17 's|    if (team_saved) mr_ui_on_config_saved(); else out.println|    if (!team_saved) out.println|' \
+         's|    const bool team_saved = mrnv::save(b);|    mr_ui_on_config_saved();\n    const bool team_saved = mrnv::save(b);|' \
+         's|    if (team_saved) mr_ui_on_config_saved(); else out.println|    mr_ui_on_config_saved(); if (!team_saved) out.println|' \
+         's|    if (team_saved) mr_ui_on_config_saved(); else out.println|    if (team_saved) mr_ui_on_config_saved(); else mr_ui_on_config_saved(), out.println|'
+w18() { nsite "$1" 'if (!mrnv::save(b)) { out.println(F("> leave err nv_save_failed")); return; } mr_ui_on_config_saved();'; }
+wchk_in "$CFG_CPP" "W18 handle_leave NOTIFIES after its successful /mrcfg write (THE BLOCKER: it resets all four covered fields)" \
+     w18 '/leave err nv_save_failed/{n;s|mr_ui_on_config_saved();|;|;}' \
+         's|    if (!mrnv::save(b)) { out.println(F("> leave err nv_save_failed")); return; }|    mr_ui_on_config_saved();\n    if (!mrnv::save(b)) { out.println(F("> leave err nv_save_failed")); return; }|' \
+         's|(F("> leave err nv_save_failed")); return; }|(F("> leave err nv_save_failed")); }|' \
+         's|{ out.println(F("> leave err nv_save_failed")); return; }|{ mr_ui_on_config_saved(); out.println(F("> leave err nv_save_failed")); return; }|'
+# ⚠ W19 CARRIES A FIFTH CONTROL, and it guards something that is NOT this slice's property: the `memset` that wipes
+#   the derived admin keypair sits BETWEEN the save and the guard, and it must run on BOTH arms. The sequence clause
+#   spans it, so a revert that removes or relocates the wipe turns this check red — deliberately, because "notify on
+#   the success side" was the ONLY thing this slice was allowed to change at this site.
+w19() { nsite "$1" 'const bool saved = mrnv::save(b); memset(&admin, 0, sizeof admin); if (!saved) { out.println(F("> password err: nv_save_failed")); return; } mr_ui_on_config_saved();'; }
+wchk_in "$CFG_CPP" "W19 handle_password NOTIFIES on the success side of its existing verdict, wipe untouched" \
+     w19 '/password err: nv_save_failed/{n;s|mr_ui_on_config_saved();|;|;}' \
+         's|    const bool saved = mrnv::save(b);|    mr_ui_on_config_saved();\n    const bool saved = mrnv::save(b);|' \
+         's|    if (!saved) { out.println(F("> password err: nv_save_failed")); return; }||' \
+         's|{ out.println(F("> password err: nv_save_failed")); return; }|{ mr_ui_on_config_saved(); out.println(F("> password err: nv_save_failed")); return; }|' \
+         's|    memset(&admin, 0, sizeof admin);|    ;|'
+# ================================================================================================ W20
+# ⛔⛔ W20 IS THE FUTURE-WRITER TRIPWIRE ITSELF, AND IT EXISTS BECAUSE THE FIRST VERSION OF IT WAS VACUOUS (QG round 2).
+#     W12-W19 each pin ONE site's placement; none of them — and, before this check, no clause anywhere — could see a
+#     NEW `/mrcfg` writer that never notified at all. The count was over `mr_ui_on_config_saved()` alone, so an eighth
+#     `mrnv::save(` with no notification left it at seven and the whole file stayed GREEN.
+# ★★★ CONTROL (a) IS THE WHOLE POINT OF THIS CHECK: it inserts an EIGHTH BARE SAVE — a new verb that forgot — and the
+#     gate must turn RED. A two-clause count whose "somebody added a save" arm was never run is the same defect with a
+#     larger constant, which is exactly what the previous round shipped.
+# ★ (b) proves the PIN is live: a new verb that DOES notify also turns it red, because the harness must be updated
+#   alongside it (bump `CFG_NOTIFY_SITES` and add its own W-check). That is the intended maintenance burden, not a bug.
+# ★ (c) proves the SUBTRACTION cannot go silently wrong: make `DeviceCfgStore::save` unrecognisable and the exemption
+#   count drops to 0, which must fail LOUDLY rather than quietly mis-total.
+# ★ (d) is the converse arm of the balance: a save left in place with its notification removed.
+# ⚠ ITS ONE BLIND SPOT, STATED RATHER THAN IMPLIED: moving a verb's notification INTO the exempt store override would
+#   keep both totals balanced and W20 would pass. **W12-W19's per-site SEQUENCE clauses are what catch that** — W20
+#   guards "no unnotified writer", they guard "each notification is at its own site, after its own successful save".
+#   ⛔ And the scope limit above still applies: a new verb in a DIFFERENT file is caught by neither.
+w20() { cfg_writer_counts_ok "$1"; }
+wchk_in "$CFG_CPP" "W20 every non-exempt /mrcfg write in the file has a notification (the future-writer tripwire)" \
+     w20 's|    out.print(F("> left network (kept freq="));|    { mrnv::Blob nb{}; (void)mrnv::save(nb); }\n    out.print(F("> left network (kept freq="));|' \
+         's|    out.print(F("> left network (kept freq="));|    { mrnv::Blob nb{}; (void)mrnv::save(nb); mr_ui_on_config_saved(); }\n    out.print(F("> left network (kept freq="));|' \
+         's|bool save(const mrnv::Blob& b) override { return mrnv::save(b); }|bool save(const mrnv::Blob\& b) override { const bool ok = mrnv::save(b); return ok; }|' \
+         '/leave err nv_save_failed/{n;s|mr_ui_on_config_saved();|;|;}'
 echo "structural: $s_pass passed / $s_fail failed / $((s_pass+s_fail)) total"
 echo "wiring:     $w_pass passed / $w_fail failed / $((w_pass+w_fail)) total; $w_ctl negative control(s) verified RED"
 [ "$s_fail" -eq 0 ] || rc=1

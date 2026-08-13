@@ -43,12 +43,34 @@
 //     activation never reaches the store at all, so no mutation of the served path can move it). They can still fail —
 //     a `record_*` that stopped returning the assigned seq, or an `erase` that took a bystander, would trip them, and
 //     that is exactly their job: without them the P6 phases could be passing over an EMPTY store.
+//   ⓘ §UI-14 ADDS TEN MORE, AND EVERY ONE OF THEM IS NEGATIVE SPACE — the shape that no mutation of the file under
+//     test can move, because it asserts that something did NOT happen: "opening it wrote NOTHING" / "applied NOTHING
+//     live" / "the persisted record is untouched" / "the NON-covered fields carried through" / "changed nothing" /
+//     "the marker is GONE once it is durable" / "STATUS is clean again" / "it is NOT reported as unsaved" / "no
+//     RESTART is claimed for a live field" / "NOT the word `dirty` in any form". ★ They are the checks that make the
+//     POSITIVE ones mean something — "SAVED" is only evidence if a REFUSAL does not also say it — and they can still
+//     fail: a renderer that showed the effective value, or a save path that wrote twice, trips them. ⚠ The one that
+//     LOOKS breakable and is not is "the marker is GONE once it is durable": the marker comes straight from
+//     `config_unsaved()`, so the mutation that would wrongly keep it lives in the SERVICE, where the native battery's
+//     `C05` (the marker cleared before the write returns) already reddens it.
+//   ⓘ §notify-every-save ([[B194]]) ADDS FOUR MORE, all negative space and all of P8f/P8g: "P8f ...with zero writes",
+//     "P8f DISCARD clears it, onto the record leave left", "P8g a JOIN-shaped write moves no covered field, raises
+//     nothing" and "P8g ...and no unsaved marker either". ★ The one worth naming is P8f's ZERO WRITES, because it
+//     looks like it should redden and MUST NOT: unlike P8b's reverted write, the `leave`-shaped change is STANDING at
+//     save time, so `save()`'s gate 2b re-reads and refuses it with zero writes even if the notification never
+//     arrived. That is the backstop working, and it is precisely why the IMMEDIATE half needs its own positive check
+//     ("shows CFG! RELOAD", reddened by C37/C38) rather than being inferred from the refusal.
+//   ⚠ AND THE 64-CHARACTER LABEL BOUND BIT AGAIN, MEASURED NOT FORESEEN: two of this slice's labels were written at
+//     67 and 69 characters and DROPPED OUT of `run.sh`'s reddened roll-up (it parses the `%-64s` field), so both read
+//     as "no control reddens" while C37/C38 were in fact turning one of them red. Both were shortened. ⇒ the bound is
+//     a real constraint on the label, not a style note — §UI-14 recorded the same defect one slice earlier.
 
 #include "mr_features.h"
 #include "board_ui.h"          // the mrui:: canvas contract — IMPLEMENTED below as counting fakes
 #include "mr_ui.h"             // mr_ui_init / mr_ui_tick / mr_ui_on_push — the seam under test
 #include "fw_context_pure.h"   // §B105: g_hal / g_node — DEFINED here (fw_main.cpp is not in this link)
 #include "firmware_commands.h" // mrfw::exec_command — faked below
+#include "firmware_config.h"   // §UI-14: mrfw::device_cfg_store / device_cfg_live — the two seams, faked below
 #include "iclock.h"
 #include "iradio.h"
 #include "command.h"
@@ -155,6 +177,50 @@ void set_power_save(bool on)           { ++g_c.power_save; g_c.last_power_save =
 bool button_pressed()                  { ++g_c.button; return g_c.button_down; }
 int32_t battery_sample_mv()            { ++g_c.battery; return g_c.batt_answer; }
 }  // namespace mrui
+
+// ---- §UI-14: the CONFIG-SERVICE seams' fakes ----------------------------------------------------------------------
+// ★★★ THE SAME SHAPE AS `exec_command` ABOVE, AND FOR THE SAME REASON: `src/firmware_ui.cpp` constructs the ONE
+//     `mrfw::ConfigService` over `mrfw::device_cfg_store()` / `device_cfg_live()`, whose real bodies live in
+//     `src/firmware_config.cpp` behind `<Arduino.h>`, LittleFS/NVS and `g_ble_mode`. Faking the two ACCESSORS is what
+//     lets this probe drive the feature layer's use of the service — including the failure arms, which no real store
+//     on a host could produce.
+// ⛔⛔ AND IT IS THE LIMIT OF WHAT THIS PROBE PROVES, stated here rather than left to be assumed: the DEVICE binding
+//     ([[B193]] — the §nv-ritual load and the OFF->ON `mobile_register_current()` bridge) is NOT in this link at all.
+//     Nothing here writes flash, and ⛔ no reset-during-write / power-cut behaviour is exercised. That half is a BENCH
+//     check. A green run here says the SCREEN drives the service correctly, never that the storage is sound.
+namespace {
+struct ProbeCfgStore : mrfw::ICfgStore {
+    mrnv::Blob rec{};
+    bool can_load = true, can_save = true;
+    int  writes = 0, loads = 0;
+    ProbeCfgStore() {
+        rec.magic = mrnv::kMagic; rec.version = mrnv::kVersion;
+        rec.e2e_dm = 0; rec.intro_attach = 1; rec.mobile_autoregister = 0; rec.ble_mode = 0;
+        rec.node_id = 42; rec.channel_ctr = 7;      // NON-covered fields: a save that dropped them is visible
+    }
+    bool load(mrnv::Blob& out) override { ++loads; if (!can_load) return false; out = rec; return true; }
+    bool save(const mrnv::Blob& b) override { ++writes; if (!can_save) return false; rec = b; return true; }
+};
+struct ProbeCfgLive : mrfw::ICfgLive {
+    mrfw::CfgValues eff{};
+    int applies = 0;
+    mrfw::CfgValues effective() const override { return eff; }
+    void apply_live(const mrfw::CfgLiveFields& f) override {
+        ++applies;
+        eff.at(mrfw::CfgField::e2e_dm)              = f.e2e_dm ? 1 : 0;
+        eff.at(mrfw::CfgField::intro_attach)        = f.intro_attach ? 1 : 0;
+        eff.at(mrfw::CfgField::mobile_autoregister) = f.mobile_autoregister ? 1 : 0;
+    }
+};
+// ⓘ Function-local statics, exactly as the device bindings are, so the OLED layer's `ConfigService` — which is
+//   constructed over them at STATIC-INIT time — cannot bind a reference to an object whose construction has not run.
+ProbeCfgStore& probe_store() { static ProbeCfgStore s; return s; }
+ProbeCfgLive&  probe_live()  { static ProbeCfgLive  s; return s; }
+}  // namespace
+namespace mrfw {
+ICfgStore& device_cfg_store() { return probe_store(); }
+ICfgLive&  device_cfg_live()  { return probe_live(); }
+}  // namespace mrfw
 
 // ---- the executor fake --------------------------------------------------------------------------------------------
 namespace mrfw {
@@ -263,6 +329,10 @@ bool live_has(meshroute::InboxKind k, uint32_t seq) {
     return c.found;
 }
 
+// §UI-14: press `short` until the panel SHOWS `want`, then leave it on screen. ⚠ BOUNDED and asserted by the caller,
+// never assumed: if the walk never finds it, the caller's own check is what fails.
+uint32_t walk_to(uint32_t t, const char* want);
+
 uint32_t settle(uint32_t t) {
     g_c.button_down = true;  tick(t); tick(t + 50);          // stable press (debounce 25 ms)
     g_c.button_down = false; tick(t + 100);                  // release
@@ -272,10 +342,30 @@ uint32_t settle(uint32_t t) {
     return t;
 }
 
-// Walk the list until the HIGHLIGHTED row is of the wanted kind (`>DM` / `>CH`), then open it with a double press.
+// Walk the list until the HIGHLIGHTED row is of the wanted kind, then open it with a double press.
+// ⛔⛔ THE TARGET STRING MUST NOT MATCH ANOTHER SCREEN'S ROW, and this is a MEASURED trap rather than a caution: the
+//    callers used to pass `">DM"`, and §UI-14's SETTINGS menu has a row rendered `">DM crypt   off"` — so the walk
+//    matched the SETTINGS screen, double-pressed there, and ENTERED THE VALUE EDITOR instead of an inbox record. Every
+//    later phase then measured the wrong screen. ⇒ the inbox preview row pads its kind tag to 3 columns and adds a
+//    separator (`"%c%-3s %-9s %4s"`), so a DM row is always `">DM  "` with TWO spaces and a channel row `">CH7 "` —
+//    neither of which any other screen can produce. Pass those, never a bare prefix.
 // ⚠ Asserted by the caller afterwards, never assumed: if the walk never finds one, the caller's first check fails.
+uint32_t walk_to(uint32_t t, const char* want) {
+    for (int i = 0; i < 22; ++i) {
+        paint(t);
+        if (strstr(g_c.page_text, want) != nullptr) return t;
+        t = settle(t + 500);
+    }
+    paint(t);
+    return t;
+}
+
 uint32_t open_highlighted(uint32_t t, const char* want) {
-    for (int i = 0; i < 14; ++i) {
+    // ⚠ THE BOUND IS THE WHOLE CYCLE, WITH SLACK, AND IT IS NOT DECORATION: §UI-14 appended a fifth screen whose menu
+    //   is itself list-aware, so a walk sized for the four-screen cycle stopped short and every later phase drifted
+    //   onto the wrong screen (measured: 25 checks red, none of them the feature's). Bounded, so a missing row still
+    //   fails the caller's check instead of looping.
+    for (int i = 0; i < 28; ++i) {
         paint(t);
         if (strstr(g_c.page_text, want) != nullptr) { t = double_press(t + 500); paint(t); return t; }
         t = settle(t + 500);
@@ -292,6 +382,18 @@ int main() {
     // `fw_context.h`; `run.sh`'s first control puts that include back and requires the BUILD to fail.
     mr_ui_init();
     CHK("P0 mr_ui_init reaches the canvas exactly once", g_c.init == 1);
+    // ★★★ §UI-14 follow-up, AND IT HAS TO BE MEASURED HERE — the ONLY moment in this binary when the config service
+    //     has never been opened. `mr_ui_on_config_saved` guards on `is_open()` BEFORE it loads, so a `cfg set` on a
+    //     node whose operator has never reached SETTINGS must cost NOTHING: no flash read, no comparison, no marker.
+    //     ⚠ Once P7 opens the service it can never be closed again (that is the contract — the draft must outlive the
+    //     screen), so this arm is unrepeatable later and the check would have to be deleted rather than moved.
+    {
+        ProbeCfgStore& st0 = probe_store();
+        st0.rec.e2e_dm = 1;                       // a covered field really did move under it
+        mr_ui_on_config_saved();
+        CHK("P0c a config write before SETTINGS is opened reads no flash", st0.loads == 0);
+        st0.rec.e2e_dm = 0;
+    }
     // §B91: a panel that does not ACK is REPORTED. Nothing else in this file prints, so the sink is unambiguous.
     Serial.reset();
     g_c.init_answer = false;
@@ -474,14 +576,17 @@ int main() {
 
     // Walk to the INBOX screen with real presses. Asserted rather than counted, so a screen-order change cannot
     // silently retarget everything below it.
-    t = settle(t + 2000);
-    for (int i = 0; i < 6 && strstr(g_c.page_text, "INBOX") == nullptr; ++i) { t = settle(t + 1000); paint(t); }
+    // ⚠ THE WALK IS THE SHARED BOUNDED HELPER, not a hand-sized loop. It used to be `for (i < 6)`, which was exactly
+    //   the four-screen cycle plus slack — and §UI-14's fifth screen made it stop short, so P6a failed and every later
+    //   phase drifted onto the wrong screen (MEASURED: 25 red checks, none of them about the inbox). A walk sized by
+    //   hand to today's cycle is a walk that breaks on the next slice.
+    t = walk_to(t + 2000, "INBOX");
     CHK("P6a the INBOX screen is reachable by pressing",   strstr(g_c.page_text, "INBOX") != nullptr);
     CHK("P6a ...and it lists both kinds",                  strstr(g_c.page_text, "DM ") != nullptr &&
                                                            strstr(g_c.page_text, "CH7") != nullptr);
 
     // ---- (a) A CHANNEL record, opened while its same-numbered DM is still live -------------------------------------
-    t = open_highlighted(t + 500, ">CH");
+    t = open_highlighted(t + 500, ">CH7 ");
     CHK("P6b a double opens the CHANNEL record's modal",    strstr(g_c.page_text, "CH7 from") != nullptr);
     CHK("P6b ...showing that record's own body",           strstr(g_c.page_text, "ch-one") != nullptr);
     CHK("P6b ...with `back` selected, never `delete`",     strstr(g_c.page_text, ">back") != nullptr &&
@@ -497,7 +602,7 @@ int main() {
     CHK("P6c ...including the one that was open",          live_has(meshroute::InboxKind::channel, 1));
 
     // ---- (c) THE DELIBERATE SEQUENCE on a channel record: open, short, double -------------------------------------
-    t = open_highlighted(t + 500, ">CH");
+    t = open_highlighted(t + 500, ">CH7 ");
     CHK("P6d the channel modal is open again",             strstr(g_c.page_text, "CH7 from") != nullptr);
     t = settle(t + 500); paint(t);                         // one SHORT press -> the action toggles
     CHK("P6d a short press selects `delete`",              strstr(g_c.page_text, ">delete") != nullptr &&
@@ -513,7 +618,7 @@ int main() {
                                                            strstr(g_c.page_text, ">delete") == nullptr);
 
     // ---- (d) THE SAME on a DM, so neither store is assumed symmetric with the other -------------------------------
-    t = open_highlighted(t + 500, ">DM");
+    t = open_highlighted(t + 500, ">DM  ");
     CHK("P6e a DM record opens with the DM header",        strstr(g_c.page_text, "DM from 48") != nullptr);
     CHK("P6e ...and its own body",                         strstr(g_c.page_text, "dm-one") != nullptr);
     t = settle(t + 500); paint(t);
@@ -534,14 +639,14 @@ int main() {
     // ★ THE SAFETY HALF (§B64's rule, one plane over): while the refusal stands the `>` marker is SUPPRESSED. A
     //   highlight beside a record the model has already refused to act on is the same wrong in display form — and it is
     //   two presses from a Delete.
-    CHK("P6f ...and the list's highlight is suppressed",   strstr(g_c.page_text, ">DM") == nullptr &&
-                                                           strstr(g_c.page_text, ">CH") == nullptr);
+    CHK("P6f ...and the list's highlight is suppressed",   strstr(g_c.page_text, ">DM  ") == nullptr &&
+                                                           strstr(g_c.page_text, ">CH7 ") == nullptr);
     CHK("P6f ...and deletes nothing else",                 live_count() == live_after_oob);
 
     // ---- (f) THE `not_found` DELETE OUTCOME, END TO END: the record is evicted WHILE THE MODAL IS OPEN, so the erase
     //          the user then confirms comes back `not_found`. ⛔ The modal must say MESSAGE GONE and must NOT read as a
     //          success — "a visual disappearance without durable success is forbidden" is precisely this path.
-    t = open_highlighted(t + 500, ">CH");
+    t = open_highlighted(t + 500, ">CH7 ");
     CHK("P6g a channel record is open",                    strstr(g_c.page_text, "CH7 from") != nullptr);
     {
         // remove whichever channel record is open, out of band, then confirm the delete from the modal
@@ -563,6 +668,212 @@ int main() {
     CHK("P6g a press returns to the rebuilt INBOX",        strstr(g_c.page_text, "INBOX") != nullptr &&
                                                            strstr(g_c.page_text, "evicted or deleted") == nullptr &&
                                                            strstr(g_c.page_text, ">back") == nullptr);
+
+    // ============================================================================================================ P7
+    // ★★★★ §UI-14 — THE SETTINGS SCREEN, END TO END, THROUGH THE SHIPPED PATH. The native suite drives the pure model
+    //     against the pure service; what NOTHING there can see is whether THIS file renders the row it is highlighting,
+    //     shows the DRAFT's value rather than the effective one, puts the draft marker on STATUS, and freezes the
+    //     service's three facts at the frame instead of reading them live.
+    // ★★ THE AUTHORITY FOR "SAVED" IS THE FAKE STORE, NEVER THE PANEL — the §UI-7D rule one screen over: a visual
+    //    claim is exactly what may not be trusted as evidence that something durable happened.
+    // ⛔ AND THE STORE IS A FAKE. No flash, no wear, no power-cut ([[B193]]); that half is a bench check.
+    {
+        ProbeCfgStore& st = probe_store();
+        ProbeCfgLive&  lv = probe_live();
+        lv.eff = mrfw::cfg_values_from_blob(st.rec);          // a freshly booted node: effective == persisted
+        t = walk_to(t + 2000, "SETTINGS");
+        CHK("P7 the SETTINGS screen is reachable by pressing",  strstr(g_c.page_text, "SETTINGS") != nullptr);
+        CHK("P7 ...and it lists a covered field with its value", strstr(g_c.page_text, "DM crypt") != nullptr);
+        CHK("P7 ...opening it wrote NOTHING",                    st.writes == 0);
+        CHK("P7 ...and applied NOTHING live",                    lv.applies == 0);
+    // ★★ SPEC §3.6.2's CONDITIONAL ROW, MEASURED IN BOTH ARMS — and the same source file asserts both, so neither arm
+    //    can rot unnoticed. `run.sh` builds this file AND `firmware_ui.cpp` a second time with `-DMR_UI_BLE_ROW=1`.
+#if MR_UI_BLE_ROW
+        t = walk_to(t + 500, ">BLE");
+        CHK("P7 the BLE row IS rendered when the transport condition is met",
+            strstr(g_c.page_text, "BLE") != nullptr);
+#else
+        // Walk the WHOLE menu once and require the row to appear on none of its frames — a single frame shows only
+        // three rows, so checking one would prove nothing.
+        {
+            bool seen_ble = false;
+            for (int i = 0; i < 10; ++i) { paint(t); if (strstr(g_c.page_text, "BLE")) seen_ble = true; t = settle(t + 500); }
+            // ⚠ THE LABEL IS UNDER 64 CHARACTERS ON PURPOSE: `run.sh`'s coverage roll-up parses `%-64s`, so a longer
+            //   one silently drops out of the "N of M reddened" denominator — measured on this very check.
+            CHK("P7 the BLE row is ABSENT (no UI-12 transport in any env)", !seen_ble);
+        }
+        t = walk_to(t + 500, "SETTINGS");
+#endif
+        // ---- the EDITOR: `double` enters, `short` cycles the DRAFT, `double` accepts -------------------------------
+        t = walk_to(t + 500, ">DM crypt");
+        CHK("P7a the value row can be highlighted",             strstr(g_c.page_text, ">DM crypt") != nullptr);
+        printf("DBG PAGE=[%s]\n", g_c.page_text);
+        CHK("P7a ...and shows the persisted value",             strstr(g_c.page_text, "DM crypt   off") != nullptr);
+        t = double_press(t + 500); paint(t);
+        CHK("P7a a double ENTERS the editor (the value is bracketed)",
+            strstr(g_c.page_text, "[off]") != nullptr);
+        t = settle(t + 500); paint(t);
+        CHK("P7a a short press CYCLES the value while editing", strstr(g_c.page_text, "[on]") != nullptr);
+        CHK("P7a ...in the RAM DRAFT ONLY — no durable write",  st.writes == 0);
+        CHK("P7a ...and no live apply",                         lv.applies == 0);
+        CHK("P7a ...the persisted record is untouched",         st.rec.e2e_dm == 0);
+        t = double_press(t + 500); paint(t);
+        CHK("P7a a double ACCEPTS and leaves the editor",       strstr(g_c.page_text, "[on]") == nullptr &&
+                                                                strstr(g_c.page_text, "DM crypt   on") != nullptr);
+        // ---- THE DRAFT MARKER, ON STATUS (spec §3.3) --------------------------------------------------------------
+        t = walk_to(t + 500, "STATUS");
+        CHK("P7b STATUS carries the unsaved marker",            strstr(g_c.page_text, "CFG* UNSAVED") != nullptr);
+        CHK("P7b ...and it is NOT the word `dirty` in any form", strstr(g_c.page_text, "dirty") == nullptr);
+        // ---- SAVE ------------------------------------------------------------------------------------------------
+        t = walk_to(t + 500, ">SAVE");
+        CHK("P7c the SAVE row can be highlighted",              strstr(g_c.page_text, ">SAVE") != nullptr);
+        t = double_press(t + 500); paint(t);
+        CHK("P7c the panel says SAVED",                         strstr(g_c.page_text, "SAVED") != nullptr);
+        CHK("P7c ...and the STORE says so too: EXACTLY one write", st.writes == 1);
+        CHK("P7c ...with the covered field written",            st.rec.e2e_dm == 1);
+        CHK("P7c ...and the NON-covered fields carried through", st.rec.node_id == 42 && st.rec.channel_ctr == 7u);
+        CHK("P7c ...the live half applied, once",               lv.applies == 1);
+        CHK("P7c ...and it applied the SAVED value",            lv.eff.at(mrfw::CfgField::e2e_dm) == 1);
+        t = walk_to(t + 500, "STATUS");
+        CHK("P7c the unsaved marker is GONE once it is durable", strstr(g_c.page_text, "CFG* UNSAVED") == nullptr);
+        CHK("P7c ...and no RESTART is claimed for a live field", strstr(g_c.page_text, "RESTART NEEDED") == nullptr);
+        // ---- A FAILED WRITE: the panel must say so, and the marker must SURVIVE -----------------------------------
+        t = walk_to(t + 500, ">key attach");
+        t = double_press(t + 500); paint(t);                    // enter
+        t = settle(t + 500);                                    // cycle 1 -> 0
+        t = double_press(t + 500); paint(t);                    // accept
+        st.can_save = false;
+        const int writes_before = st.writes;
+        t = walk_to(t + 500, ">SAVE");
+        t = double_press(t + 500); paint(t);
+        CHK("P7d a failed durable write says SAVE FAILED",      strstr(g_c.page_text, "SAVE FAILED") != nullptr);
+        CHK("P7d ...it was ATTEMPTED",                          st.writes == writes_before + 1);
+        CHK("P7d ...and changed nothing",                       st.rec.intro_attach == 1);
+        CHK("P7d ...nothing was applied live",                  lv.applies == 1);
+        CHK("P7d ...and the DRAFT MARKER SURVIVES the failure", (t = walk_to(t + 500, "STATUS"),
+                                                                 strstr(g_c.page_text, "CFG* UNSAVED") != nullptr));
+        // ---- BACK preserves it, and a REBOOT-CLASS save shows the third literal -----------------------------------
+        st.can_save = true;
+        t = walk_to(t + 500, ">DISCARD");
+        t = double_press(t + 500); paint(t);
+        CHK("P7e DISCARD clears the marker without writing",    st.writes == writes_before + 1);
+        t = walk_to(t + 500, "STATUS");
+        CHK("P7e ...and STATUS is clean again",                 strstr(g_c.page_text, "CFG* UNSAVED") == nullptr);
+        // A reboot-class difference is produced the way a real one is: the EFFECTIVE `ble_mode` differs from what is
+        // persisted, which is exactly the state a saved-but-not-rebooted node is in.
+        // ⓘ MEASURED AND STATED, because the first version of this check failed for the right reason: poking the LIVE
+        //   sink from outside changes a fact the MODEL never saw, so nothing marked the frame dirty and the panel kept
+        //   the previous image. On device that cannot happen — `reboot_required` only becomes true at a SAVE (which
+        //   marks dirty) or at boot — so the press below is what a real operator supplies, not a workaround.
+        lv.eff.at(mrfw::CfgField::ble_mode) = 1;
+        t = settle(t + 500);
+        t = walk_to(t + 500, "STATUS");
+        CHK("P7e a reboot-class difference renders RESTART NEEDED",
+            strstr(g_c.page_text, "RESTART NEEDED") != nullptr);
+        CHK("P7e ...and it is NOT reported as unsaved",         strstr(g_c.page_text, "CFG* UNSAVED") == nullptr);
+        lv.eff.at(mrfw::CfgField::ble_mode) = 0;
+
+        // ======================================================================================================= P8
+        // ★★★★ §UI-14 follow-up — THE IMMEDIATE EXTERNAL-WRITE NOTIFICATION (spec §3.6.1), which is `mr_ui_on_config_saved`.
+        //     `handle_cfg_set` calls it after a successful persisted `/mrcfg` write; here the probe plays that part,
+        //     because `firmware_config.cpp` is not in this link. ⇒ what IS measured here is everything the hook's own
+        //     body must do; what is NOT is the CALL SITE, which is `tools/probe_board_ui/`'s W12/W13 (four + one
+        //     controls) because no host build compiles `handle_cfg_set`.
+        // ★★ THE REPAINT IS PART OF THE PROPERTY, NOT A DETAIL: `FrameGate::step` returns `idle` while the model is
+        //    clean, so a latch raised without `mark_dirty()` would be TRUE AND INVISIBLE. Every check below therefore
+        //    reads the PANEL after the hook and WITHOUT any button press — a press would repaint anyway and the check
+        //    would pass on the broken code.
+        {
+            // (a) IMMEDIATE — a covered field moves under an open draft, and the panel says so with no input at all.
+            const int loads_before = st.loads;
+            st.rec.intro_attach = 0;                       // the companion's write (the record is already updated)
+            mr_ui_on_config_saved();
+            CHK("P8a the hook re-read the record",              st.loads > loads_before);
+            t += 700; paint(t);                            // NO gesture: the repaint must come from the hook alone
+            CHK("P8a a covered external write shows CFG! RELOAD at once",
+                strstr(g_c.page_text, "CFG! RELOAD") != nullptr);
+            CHK("P8a ...and the RELOAD row is offered",         (t = walk_to(t + 500, ">RELOAD"),
+                                                                strstr(g_c.page_text, ">RELOAD") != nullptr));
+            // (b) the CHANGE -> REVERT case the SAVE-time byte comparison cannot catch: the record goes back, so the
+            //     bytes match the baseline again — and the latch must SURVIVE that, or the save proceeds.
+            st.rec.intro_attach = 1;
+            mr_ui_on_config_saved();
+            const int writes_before2 = st.writes;
+            t = walk_to(t + 500, ">SAVE");
+            t = double_press(t + 500); paint(t);
+            CHK("P8b a reverted external write STILL refuses the save",
+                strstr(g_c.page_text, "CFG! RELOAD") != nullptr);
+            CHK("P8b ...with zero writes",                      st.writes == writes_before2);
+            t = walk_to(t + 500, ">DISCARD");
+            t = double_press(t + 500); paint(t);           // the ruled way out
+            t += 700; paint(t);
+            CHK("P8b DISCARD clears it",                        strstr(g_c.page_text, "CFG! RELOAD") == nullptr);
+            // (c) a NON-COVERED write raises NOTHING — the negative half, and it is structural: the hook extracts
+            //     only the four covered fields, so a leased counter or an identity cannot reach the marker.
+            st.rec.channel_ctr = 999;
+            st.rec.node_id     = 123;
+            mr_ui_on_config_saved();
+            t += 700; paint(t);
+            CHK("P8c a NON-covered external write raises no conflict",
+                strstr(g_c.page_text, "CFG! RELOAD") == nullptr);
+            CHK("P8c ...and no unsaved marker either",          strstr(g_c.page_text, "CFG* UNSAVED") == nullptr);
+            // (d) NOTHING CHANGED -> nothing claimed. The hook must not invent a conflict from being called.
+            mr_ui_on_config_saved();
+            mr_ui_on_config_saved();
+            t += 700; paint(t);
+            CHK("P8d repeated notifications with no change claim nothing",
+                strstr(g_c.page_text, "CFG! RELOAD") == nullptr);
+            // (e) an UNREADABLE record is not a conflict either — it says nothing about whether the fields moved, and
+            //     the SAVE-time gate still re-reads. ⛔ Inventing a latch here would refuse a legitimate save.
+            st.can_load = false;
+            mr_ui_on_config_saved();
+            st.can_load = true;
+            t += 700; paint(t);
+            CHK("P8e an unreadable record is not treated as a conflict",
+                strstr(g_c.page_text, "CFG! RELOAD") == nullptr);
+            // (f) ★★★ §notify-every-save / [[B194]] — THE `leave` SHAPE, which is the largest covered-field change any
+            //     verb makes: `handle_leave` rebuilds the record from a zeroed `mrnv::Blob` and persists it, so ALL
+            //     FOUR covered fields land at 0 under whatever draft is open. Before this slice that write notified
+            //     nothing. ⓘ The CALL SITE is `tools/probe_board_ui/`'s W18 — `firmware_config.cpp` is not in this link.
+            t = walk_to(t + 500, ">key attach");
+            t = double_press(t + 500); paint(t);           // enter the editor
+            t = settle(t + 500);                           // cycle the DRAFT (intro_attach 1 -> 0)
+            t = double_press(t + 500); paint(t);           // accept
+            t = walk_to(t + 500, "STATUS");
+            CHK("P8f a covered field is edited, so the draft marker stands",
+                strstr(g_c.page_text, "CFG* UNSAVED") != nullptr);
+            t = walk_to(t + 500, "SETTINGS");
+            const int writes_before3 = st.writes;
+            st.rec.e2e_dm = 0; st.rec.intro_attach = 0; st.rec.mobile_autoregister = 0; st.rec.ble_mode = 0;
+            mr_ui_on_config_saved();
+            t += 700; paint(t);                            // NO gesture: the repaint must come from the hook alone
+            CHK("P8f a LEAVE-shaped write (all four reset) shows CFG! RELOAD",
+                strstr(g_c.page_text, "CFG! RELOAD") != nullptr);
+            t = walk_to(t + 500, ">SAVE");
+            t = double_press(t + 500); paint(t);
+            CHK("P8f ...and the SAVE over the wiped record is REFUSED",
+                strstr(g_c.page_text, "CFG! RELOAD") != nullptr);
+            CHK("P8f ...with zero writes",                  st.writes == writes_before3);
+            t = walk_to(t + 500, ">DISCARD");
+            t = double_press(t + 500); paint(t);
+            t += 700; paint(t);
+            CHK("P8f DISCARD clears it, onto the record leave left",
+                strstr(g_c.page_text, "CFG! RELOAD") == nullptr);
+            // (g) ⛔ THE NEGATIVE HALF OF THE SYSTEMATIC RULE, and it is what makes "notify on EVERY user-initiated
+            //     save" defensible rather than merely loud: `join` persists `/mrcfg` and now notifies too, but it
+            //     assigns NONE of the four covered fields — so the notification must raise NOTHING AT ALL.
+            st.rec.freq_mhz = 869.525; st.rec.bw_hz = 125000; st.rec.routing_sf = 9;
+            st.rec.leaf_id = 3; st.rec.layer0_id = 3;
+            st.rec.node_id = 0; st.rec.joined = 0; st.rec.lineage_id = 0; st.rec.config_epoch = 0;
+            st.rec.leaf_name_len = 0;
+            mr_ui_on_config_saved();
+            t += 700; paint(t);
+            CHK("P8g a JOIN-shaped write moves no covered field, raises nothing",
+                strstr(g_c.page_text, "CFG! RELOAD") == nullptr);
+            t = walk_to(t + 500, "STATUS");
+            CHK("P8g ...and no unsaved marker either",      strstr(g_c.page_text, "CFG* UNSAVED") == nullptr);
+        }
+    }
 
     printf("\n%d passed / %d failed / %d total\n", g_pass, g_fail, g_pass + g_fail);
     return g_fail == 0 ? 0 : 1;

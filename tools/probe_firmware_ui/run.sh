@@ -99,6 +99,28 @@ if ! build_variant "$FW_UI" "$OUT/probe" -Werror; then
 fi
 "$OUT/probe"; rc=$?
 echo "probe exit=$rc"
+
+# ---- ★★★ §UI-14: THE SECOND ARM OF SPEC §3.6.2's CONDITIONAL `BLE mode` ROW -------------------------------------
+# The row is ABSENT when the UI-12 transport is not compiled — which is EVERY env in this tree — so the live run above
+# measures only one half of the condition. ⛔ A conditional tested in one arm is a conditional whose other arm has
+# never run. This builds BOTH TUs with `-DMR_UI_BLE_ROW=1` (the same flag the env that lands a transport will set) and
+# requires the probe to pass THERE TOO; `probe_main.cpp` carries the matching `#if`, so one source asserts both arms.
+echo
+echo "== §UI-14 second arm: the BLE row's condition MET (-DMR_UI_BLE_ROW=1) =="
+if "$CXX" "${STD[@]}" -Wall -Wextra -Werror -DMR_UI_BLE_ROW=1 "${DEFS[@]}" "${INCS[@]}" \
+        -c "$HERE/probe_main.cpp" -o "$OUT/probe_main_ble.o" 2>"$OUT/ble.log" \
+   && "$CXX" "${STD[@]}" -Wall -Wextra -Werror -DMR_UI_BLE_ROW=1 "${DEFS[@]}" "${INCS[@]}" \
+        -c "$FW_UI" -o "$OUT/fw_ui_ble.o" 2>>"$OUT/ble.log" \
+   && "$CXX" "$OUT/probe_main_ble.o" "$OUT/fw_ui_ble.o" "$OUT/libsupport.a" -o "$OUT/probe_ble" 2>>"$OUT/ble.log"; then
+  if "$OUT/probe_ble" > "$OUT/probe_ble.out" 2>&1; then
+    echo "  ok   the BLE-row arm builds and PASSES ($(grep -c '' "$OUT/probe_ble.out") lines)"
+    grep -E "^[0-9]+ passed" "$OUT/probe_ble.out" | sed 's/^/       /'
+  else
+    echo "  FAIL the BLE-row arm is RED:"; grep '^  FAIL' "$OUT/probe_ble.out" | sed 's/^/    /' | head -10; rc=1
+  fi
+else
+  echo "  FAIL the BLE-row arm did not build:"; sed 's/^/    /' "$OUT/ble.log" | head -10; rc=1
+fi
 # ★ THE DENOMINATOR FOR THE COVERAGE ROLL-UP AT THE BOTTOM, taken from the probe itself. `PROBE_LIST=1` makes every
 #   CHK print its label whether it passed or not, so "N of M checks are reddened by a control" is MEASURED here rather
 #   than maintained by hand in a comment — which is exactly how the header's "20 of 25" went stale in one slice.
@@ -253,6 +275,42 @@ if [ "${1:-}" != "--no-neg" ]; then
   #   one plane over: a `>` beside a record the model has refused to act on is the mis-delete in display form).
   ctl "C25 the MESSAGE GONE refusal row is dropped from the list" yes \
       's|    if (st.inbox_pick_gone) mrui::draw_text(0, body_y(kBodyRows - 1), "MESSAGE GONE");|    ;|'
+  # C29-C36 ★★★ §UI-14 — THE SETTINGS SCREEN's DEVICE HALF. The model's half is under the native gate; these are the
+  #   steps NO native case can reach, and C31 is THE named one: §3.6.1 forbade the marker from being `UiState::dirty`
+  #   IN ADVANCE, and this file is where both are in scope at once.
+  ctl "C29 the SETTINGS screen is never drawn (the switch arm dropped)" yes \
+      's|        case mrui::Screen::settings: draw_settings_screen(st, s, c);  break;   // §UI-14|        case mrui::Screen::settings: break;|'
+  ctl "C30 the model is never given the config service (the menu is inert)" yes \
+      's|    s_model.attach_config(s_cfg);|    ;|'
+  # ⛔⛔ C31 IS THE DEFECT §3.6.1 NAMED BEFORE IT COULD BE WRITTEN: `UiState::dirty` means "a repaint is owed" and is
+  #    read three lines from the marker. Rendering it AS the marker leaves `CFG* UNSAVED` on a panel with nothing
+  #    unsaved — P7c's "the marker is GONE once it is durable" is what sees it.
+  ctl "C31 the draft marker renders UiState::dirty instead of config_unsaved()" yes \
+      's|    v.unsaved  = s_cfg.config_unsaved();|    v.unsaved  = s_model.state().dirty;|'
+  ctl "C32 the value row shows a default instead of the DRAFT" yes \
+      's|    v.draft    = s_cfg.draft();|    v.draft    = mrfw::CfgValues{};|'
+  ctl "C33 STATUS drops the draft marker (it is only on SETTINGS)" yes \
+      's|    if (marker\[0\]) { snprintf(l, sizeof l, "STATUS %s", marker); mrui::draw_text(0, body_y(0), l); }|    if (false) { }|'
+  ctl "C34 the editor is indistinguishable from the browsing row (no bracket)" yes \
+      's|            if (ed) snprintf(l, sizeof l, "%c%-10s \[%s\]", here ? '"'"'>'"'"' : '"'"' '"'"', mrui::settings_row_label(r), v);|            if (false) { }|'
+  ctl "C35 RESTART NEEDED never reaches STATUS (the reboot fact is dropped)" yes \
+      's|    if (c.reboot) { mrui::draw_text(0, body_y(4), mrui::kCfgRestartText); return; }|    ;|'
+  # ⛔ C36 is the CONDITIONAL ROW's own control: rendering it unconditionally offers a setting this build cannot act on.
+  ctl "C36 the BLE row is rendered unconditionally (the transport condition ignored)" yes \
+      's|    s.ble_row    = (MR_UI_BLE_ROW != 0);|    s.ble_row    = true;|'
+
+  # C37-C40 ★★★ §UI-14 follow-up — `mr_ui_on_config_saved`, the IMMEDIATE conflict notification §3.6.1 requires. The
+  #   hook's four obligations each have a wrong answer, and C38 is the one that would ship green everywhere else: the
+  #   latch raised WITHOUT a repaint is true and invisible, because `FrameGate::step` returns `idle` on a clean model.
+  ctl "C37 the hook never tells the service (the notification is dropped)" yes \
+      's|    s_cfg.note_external_write(b);|    (void)b;|'
+  ctl "C38 the latch is raised but no repaint is asked for (true and INVISIBLE)" yes \
+      's|    if (s_cfg.conflict() != was) s_model.mark_dirty();|    (void)was;|'
+  ctl "C39 the is_open() guard is dropped (flash is read on every cfg set)" yes \
+      's|    if (!s_cfg.is_open()) return;|    ;|'
+  ctl "C40 an unreadable record is treated as a conflict (a latch from no evidence)" yes \
+      's|    if (!mrfw::device_cfg_store().load(b)) return;|    (void)mrfw::device_cfg_store().load(b);|'
+
   ctl "C26 the highlight is NOT suppressed while the refusal stands" yes \
       's|                 (!st.inbox_pick_gone \&\& first + row == st.cursor) ? '"'"'>'"'"' : '"'"' '"'"', tag, e.text, age);|                 (first + row == st.cursor) ? '"'"'>'"'"' : '"'"' '"'"', tag, e.text, age);|'
 fi

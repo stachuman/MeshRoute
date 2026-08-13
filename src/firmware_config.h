@@ -15,6 +15,7 @@
 #include <Arduino.h>     // Print
 #include "device_nv.h"   // mrnv::Blob
 #include "mr_features.h" // MR_FEAT_MOBILE / MR_FEAT_REMOTE_MGMT (guards below)
+#include "firmware_config_service.h"   // §UI-14 / [[B193]]: mrfw::ICfgStore / ICfgLive — the two seams bound below
 
 namespace mrfw {
 
@@ -29,6 +30,20 @@ namespace mrfw {
 // load() may still have overwritten `b` with the rejected record's bytes, and the fields seed_blob_from_live
 // does not set keep whatever is there; the `{}` is what makes that residue deterministic.
 void nv_load_stamped(mrnv::Blob& b);
+
+// ★★★ §UI-14 / [[B193]] — THE DEVICE BINDINGS OF §UI-13's TWO SEAMS, and they live in THIS cluster rather than in the
+// OLED feature layer for two measured reasons, both of which are the whole content of B193:
+//   1. the store's `load()` must be the §nv-ritual `nv_load_stamped` DIRECTLY above — load-or-seed + version stamp —
+//      so an unprovisioned (or version-rejected) chip opens the editor on the LIVE config instead of being refused;
+//   2. `apply_live()` must reproduce `handle_cfg_set`'s OFF->ON `mobile_register_current()` bridge (see its
+//      `mobile_autoregister` arm in firmware_config.cpp). Setting the flag alone leaves a mobile that never starts a
+//      home attachment, and the two implementations of that rule must sit in ONE file so they cannot drift.
+// ⓘ They are ACCESSORS returning references to function-local statics, not exported objects: that gives a defined
+//   initialisation order against the OLED layer's `ConfigService`, which is constructed over them at static-init time.
+// ⚠ THE OWNER OF THE SERVICE IS THE CALLER. This cluster binds the seams; it holds no draft and no baseline, and
+//   `handle_cfg_set` keeps its own immediate-write path exactly as §3.6.1 requires for companion compatibility.
+ICfgStore& device_cfg_store();
+ICfgLive&  device_cfg_live();
 
 // `cfg set <key> <value>` — accumulate onto the pending NV blob + apply live where possible (dispatch verb).
 void handle_cfg_set(const char* args, Print& out);

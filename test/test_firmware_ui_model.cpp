@@ -19,6 +19,7 @@
 #include "firmware_ui_model.h"
 #include <cstdint>
 #include <cstring>   // strlen/strncmp — the UI-3 reply-clamping case checks copy_clamped's exact result
+#include <initializer_list>   // §UI-14: the range-for over a braced CfgSave list (not dragged in transitively)
 
 using namespace mrui;
 
@@ -54,7 +55,9 @@ TEST_CASE("ui-model: short press is LIST-AWARE: it walks TEAM before leaving it"
     m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::team);   CHECK(m.state().cursor == 2);
     m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::inbox);
     m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::send);
-    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::status);
+    // ★ §UI-14 (spec §3.1): SETTINGS is appended to the cycle, so SEND no longer wraps straight to STATUS. It is a
+    //   LIST screen too — with no service attached the row list is still built, so the walk takes its rows first.
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::settings);
 }
 
 TEST_CASE("ui-model: an empty TEAM list is passed through, not a dead end") {
@@ -119,13 +122,17 @@ TEST_CASE("ui-model: panel blanks and the waking SHORT press is consumed") {
 
 // Spec §3.1: "On a non-team build the cycle is STATUS -> INBOX." The gate is a snapshot flag, so the same binary
 // is exercised both ways here — and TEAM/SEND must be unreachable, not merely unhelpful.
-TEST_CASE("ui-model: a non-team build cycles STATUS <-> INBOX and never reaches TEAM or SEND") {
+// ★ §UI-14 UPDATED THE EXPECTATION, not the property: the non-team cycle is now STATUS -> INBOX -> SETTINGS (spec
+//   §3.1), because the four covered fields are durable on every build — `gateway_heltec` is a real OLED=1/TEAM=0 env.
+//   ⛔ TEAM and SEND must STILL be unreachable, which is what the loop below asserts.
+TEST_CASE("ui-model: a non-team build cycles STATUS -> INBOX -> SETTINGS and never reaches TEAM or SEND") {
     UiModel m; auto s = snap(); s.team_build = false;
     m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::inbox);
-    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::status);
-    for (int i = 0; i < 8; ++i) {
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::settings);
+    for (int i = 0; i < 40; ++i) {
         m.on_gesture(Gesture::short_press, s);
-        CHECK((m.state().screen == Screen::status || m.state().screen == Screen::inbox));
+        CHECK((m.state().screen == Screen::status || m.state().screen == Screen::inbox ||
+               m.state().screen == Screen::settings));
     }
 }
 
@@ -536,10 +543,13 @@ TEST_CASE("ui-model: the model's declared bounds are the ones the spec fixed") {
     CHECK(kBlankMs      == 15000u);
     CHECK(kDmTextCount      == 3);                   // "Are you OK?", "I'm OK", back without sending
     CHECK(kChannelTextCount == 3);                   // "Got your message", "All good", back without sending
-    CHECK(uint8_t(Screen::count) == 4);
+    CHECK(uint8_t(Screen::count) == 5);              // §UI-14: STATUS/TEAM/INBOX/SEND/SETTINGS (spec §3.1)
     UiSnapshot s{};
     CHECK(s.batt_mv == -1);                          // <0 = unavailable -> render "--", never a guess
     CHECK(s.team_build == true);
+    // ★ §UI-14: the BLE row's condition defaults to ABSENT, which is spec §3.6.2's ruled state for "the UI-12
+    //   transport is not compiled" — and it is the state of every env in the tree today.
+    CHECK(s.ble_row == false);
     CHECK(sizeof(s.team) / sizeof(s.team[0]) == kMaxTeamRows);
     CHECK(sizeof(s.inbox) / sizeof(s.inbox[0]) == kMaxInboxRows);
 }
@@ -2547,4 +2557,806 @@ TEST_CASE("ui7d-frame: a completed DETAIL frame does NOT clear the session unrea
     g.on_page(false, m, c);
     CHECK(c.read_dm == 4u);
     CHECK(c.unread_dm() == 0u);
+}
+
+// ==================================================================================================================
+// §UI-14 — THE SETTINGS SCREEN, THE DRAFT MARKER, AND THE SAVE / DISCARD / REBOOT STATES (spec §3.6.2, §3.6.1, §3.3)
+// ==================================================================================================================
+// ★★ WHAT THESE CASES MEASURE, AND WHAT THEY DELIBERATELY DO NOT. They drive the PURE model against a PURE service
+//    over a fake store, so every gesture meaning, every row-list condition and every action's landing is machine-
+//    checked. ⛔ THEY PROVE NOTHING ABOUT STORAGE: there is no NVS/LittleFS here, so no flash write, no wear and NO
+//    reset-during-write behaviour is exercised — that is the DEVICE BINDING's half ([[B193]]) and it is a bench check.
+//    §UI-13's formulation holds unchanged: a green suite says the LOGIC is right, never that the storage is.
+//
+// ⓘ THE FAKE BELOW IS NOT §UI-13's, AND THE DIFFERENCE IS THE MEASUREMENT, NOT AN OVERSIGHT (U1 considered and
+//   answered): `test_firmware_config_service.cpp`'s `FakeCfgStore` is a WRITE COUNTER built to prove "zero writes" /
+//   "exactly one write" / "live strictly after durable success" — properties of the SERVICE, already proven there.
+//   What these cases need is a SCRIPTABLE record with two failure switches, so the PANEL can be driven into
+//   `CFG! RELOAD`, `SAVE FAILED` and `NV READ FAILED`. Extracting one shared fixture into `test/support/` is the U1
+//   move if a third consumer appears; it is not done here because it is a refactor and this slice is a feature (C1).
+namespace {
+
+struct UiFakeStore : mrfw::ICfgStore {
+    mrnv::Blob rec{};
+    bool can_load = true;      // false -> `load` reports no usable record (the ONLY producer of no_record/nv_failed)
+    bool can_save = true;      // false -> the durable write FAILS and the record is untouched
+    int  writes   = 0;
+    UiFakeStore() {
+        rec.magic = mrnv::kMagic; rec.version = mrnv::kVersion;
+        rec.e2e_dm = 0; rec.intro_attach = 1; rec.mobile_autoregister = 0; rec.ble_mode = 0;
+        rec.node_id = 42; rec.channel_ctr = 7;      // two NON-covered fields, so a save that dropped them is visible
+    }
+    bool load(mrnv::Blob& out) override { if (!can_load) return false; out = rec; return true; }
+    bool save(const mrnv::Blob& b) override { ++writes; if (!can_save) return false; rec = b; return true; }
+};
+// The EFFECTIVE seam. `eff` starts equal to the persisted record (a freshly booted node) and `apply_live` MOVES it,
+// so "the live state did not change" is a measurement rather than an absence.
+struct UiFakeLive : mrfw::ICfgLive {
+    mrfw::CfgValues eff{};
+    int applies = 0;
+    mrfw::CfgValues effective() const override { return eff; }
+    void apply_live(const mrfw::CfgLiveFields& f) override {
+        ++applies;
+        eff.at(mrfw::CfgField::e2e_dm)              = f.e2e_dm ? 1 : 0;
+        eff.at(mrfw::CfgField::intro_attach)        = f.intro_attach ? 1 : 0;
+        eff.at(mrfw::CfgField::mobile_autoregister) = f.mobile_autoregister ? 1 : 0;
+    }
+};
+struct CfgFix {
+    UiFakeStore store;
+    UiFakeLive  live;
+    mrfw::ConfigService svc{store, live};
+    UiModel     m;
+    CfgFix() { live.eff = mrfw::cfg_values_from_blob(store.rec); m.attach_config(svc); }
+};
+
+// Walk to SETTINGS with real short presses, exactly as the operator would. ⚠ ASSERTED by the caller afterwards, never
+// assumed: the walk is bounded, so a cycle change that made SETTINGS unreachable fails the caller's first check
+// instead of looping.
+void to_settings(UiModel& m, const UiSnapshot& s) {
+    for (int i = 0; i < 40 && m.state().screen != Screen::settings; ++i) m.on_gesture(Gesture::short_press, s);
+    // ⚠ AND THEN A TICK, because that is the shipped order (`mr_ui_tick`: on_gesture -> on_tick -> the freeze) and it
+    //   is when `sync_settings` OPENS the service. Without it the baseline would be snapshotted later — at whatever
+    //   moment the next tick happened — and a case that writes the fake store in between would be measuring an open
+    //   that had not happened yet rather than the behaviour it meant to drive. (Observed exactly that, once.)
+    m.on_tick(s);
+}
+// The row the cursor is CURRENTLY on, by identity — the same question the renderer asks.
+// ⚠ THE RAW `cursor` IS ONLY MEANINGFUL AFTER A SYNC, and that is a property of the design rather than of this
+//   helper: `sync_settings` re-anchors the highlight onto the remembered ROW, and it runs at the top of every gesture
+//   AND in `on_tick` — which is where the frame freezes (`mr_ui_tick`: on_gesture -> on_tick -> FrameGate::step). So
+//   the panel never shows an un-synced index, and a test that reads one is reading a state no frame can contain.
+bool row_under_cursor(UiModel& m, const UiSnapshot& s, CfgRow& out) {
+    return m.settings_row_list(s).at(m.state().cursor, out);
+}
+// Put the cursor on a named row by pressing `short` until the HIGHLIGHTED ROW IS THAT ROW. ⛔ Never by walking to a
+// hardcoded index: two rows are conditional, so an index means different things in different arms — the exact
+// coupling §B66 exists to warn about, and §UI-14's own RELOAD row makes it live. It wraps through the cycle the way
+// the operator would, and it is BOUNDED so a missing row fails the caller's check instead of looping.
+bool cursor_to(UiModel& m, const UiSnapshot& s, CfgRow want) {
+    for (int i = 0; i < 60; ++i) {
+        CfgRow r{};
+        m.on_tick(s);          // ...which is why this ticks first — see `row_under_cursor`
+        if (m.state().screen == Screen::settings && row_under_cursor(m, s, r) && r == want) return true;
+        m.on_gesture(Gesture::short_press, s);
+    }
+    return false;
+}
+UiSnapshot cfg_snap(uint32_t now_ms = 1000, bool ble_row = false) {
+    UiSnapshot s = snap(now_ms); s.ble_row = ble_row; return s;
+}
+
+}  // namespace
+
+// ---------------------------------------------------------------------------------------------- the row list
+TEST_CASE("ui14-rows: the menu is §3.6.2's, and the BLE row is ABSENT when the transport is not compiled") {
+    const CfgRowList l = settings_rows(/*ble_row=*/false, /*conflict=*/false);
+    CHECK(l.n == 7);
+    CfgRow r{};
+    CHECK(l.at(0, r)); CHECK(r == CfgRow::e2e_dm);
+    CHECK(l.at(1, r)); CHECK(r == CfgRow::intro_attach);
+    CHECK(l.at(2, r)); CHECK(r == CfgRow::mobile_autoregister);
+    CHECK(l.at(3, r)); CHECK(r == CfgRow::provision);
+    CHECK(l.at(4, r)); CHECK(r == CfgRow::save);
+    CHECK(l.at(5, r)); CHECK(r == CfgRow::discard);
+    CHECK(l.at(6, r)); CHECK(r == CfgRow::back);
+    // ⛔ FAILS CLOSED: an out-of-range index names NO row, so the caller does nothing rather than acting on a
+    //    plausible one — and `discard` is one row from the end.
+    CHECK(l.at(7, r) == false);
+    CHECK(l.at(255, r) == false);
+}
+
+TEST_CASE("ui14-rows: the BLE row is PRESENT when the transport's condition is met, and it comes first") {
+    const CfgRowList l = settings_rows(/*ble_row=*/true, /*conflict=*/false);
+    CHECK(l.n == 8);
+    CfgRow r{};
+    CHECK(l.at(0, r)); CHECK(r == CfgRow::ble_mode);
+    CHECK(l.at(1, r)); CHECK(r == CfgRow::e2e_dm);
+    // ...and the rest of the menu is UNMOVED in meaning: every other row is still found by identity
+    int n_save = 0, n_ble = 0;
+    for (uint8_t i = 0; i < l.n; ++i) { CHECK(l.at(i, r)); if (r == CfgRow::save) ++n_save; if (r == CfgRow::ble_mode) ++n_ble; }
+    CHECK(n_save == 1);
+    CHECK(n_ble == 1);
+}
+
+TEST_CASE("ui14-rows: RELOAD appears ONLY while a conflict stands, exactly once, and before SAVE") {
+    const CfgRowList clean = settings_rows(false, /*conflict=*/false);
+    CfgRow r{};
+    for (uint8_t i = 0; i < clean.n; ++i) { CHECK(clean.at(i, r)); CHECK(r != CfgRow::reload); }
+    const CfgRowList conf = settings_rows(false, /*conflict=*/true);
+    CHECK(conf.n == uint8_t(clean.n + 1));
+    int i_reload = -1, i_save = -1, n_reload = 0;
+    for (uint8_t i = 0; i < conf.n; ++i) {
+        CHECK(conf.at(i, r));
+        if (r == CfgRow::reload) { i_reload = i; ++n_reload; }
+        if (r == CfgRow::save)   i_save = i;
+    }
+    CHECK(n_reload == 1);
+    CHECK(i_reload >= 0);
+    CHECK(i_save > i_reload);
+}
+
+TEST_CASE("ui14-rows: exactly the four covered fields are value rows, and each names its own CfgField") {
+    mrfw::CfgField f{};
+    CHECK(cfg_row_field(CfgRow::ble_mode, f));            CHECK(f == mrfw::CfgField::ble_mode);
+    CHECK(cfg_row_field(CfgRow::e2e_dm, f));              CHECK(f == mrfw::CfgField::e2e_dm);
+    CHECK(cfg_row_field(CfgRow::intro_attach, f));        CHECK(f == mrfw::CfgField::intro_attach);
+    CHECK(cfg_row_field(CfgRow::mobile_autoregister, f)); CHECK(f == mrfw::CfgField::mobile_autoregister);
+    CHECK(cfg_row_field(CfgRow::provision, f) == false);
+    CHECK(cfg_row_field(CfgRow::reload, f)    == false);
+    CHECK(cfg_row_field(CfgRow::save, f)      == false);
+    CHECK(cfg_row_field(CfgRow::discard, f)   == false);
+    CHECK(cfg_row_field(CfgRow::back, f)      == false);
+}
+
+// ★ THE VISIBLE BYTES, asserted here because `src/firmware_ui.cpp` is compiled by neither the native suite nor the
+//   simulator (§B115's rule). ⚠ The 10-column label bound is a PANEL constraint, not a preference — the row renders
+//   as `<marker><label:10><space><value>` on a 21-column display.
+TEST_CASE("ui14-rows: the row labels are the panel's, and none exceeds the 10-column budget") {
+    CHECK(strcmp(settings_row_label(CfgRow::e2e_dm), "DM crypt") == 0);
+    CHECK(strcmp(settings_row_label(CfgRow::intro_attach), "key attach") == 0);
+    CHECK(strcmp(settings_row_label(CfgRow::mobile_autoregister), "auto reg") == 0);
+    CHECK(strcmp(settings_row_label(CfgRow::ble_mode), "BLE") == 0);
+    CHECK(strcmp(settings_row_label(CfgRow::provision), "PROVISION") == 0);
+    CHECK(strcmp(settings_row_label(CfgRow::save), "SAVE") == 0);
+    CHECK(strcmp(settings_row_label(CfgRow::discard), "DISCARD") == 0);
+    CHECK(strcmp(settings_row_label(CfgRow::back), "BACK") == 0);
+    CHECK(strcmp(settings_row_label(CfgRow::reload), "RELOAD") == 0);
+    for (uint8_t i = 0; i < kMaxCfgRows; ++i) CHECK(strlen(settings_row_label(CfgRow(i))) <= 10u);
+}
+
+TEST_CASE("ui14-rows: a value renders as the operator reads it, and `periodic` is RENDERED though the menu omits it") {
+    CHECK(strcmp(cfg_value_text(mrfw::CfgField::e2e_dm, 0), "off") == 0);
+    CHECK(strcmp(cfg_value_text(mrfw::CfgField::e2e_dm, 1), "on") == 0);
+    CHECK(strcmp(cfg_value_text(mrfw::CfgField::ble_mode, 0), "off") == 0);
+    CHECK(strcmp(cfg_value_text(mrfw::CfgField::ble_mode, 1), "on") == 0);
+    // ★ §3.6.2 keeps `periodic` OUT OF THE MENU, and the service's domain still accepts it — so a value written by
+    //   serial/BLE must be shown HONESTLY rather than as one of the two the menu offers.
+    CHECK(strcmp(cfg_value_text(mrfw::CfgField::ble_mode, 2), "periodic") == 0);
+    CHECK(mrfw::cfg_field_valid(mrfw::CfgField::ble_mode, 2) == true);   // ...and the SERVICE's domain is unnarrowed
+}
+
+TEST_CASE("ui14-rows: the MENU's cycle is off/on, and an out-of-menu value steps to the first offered one") {
+    CHECK(cfg_menu_next(mrfw::CfgField::e2e_dm, 0) == 1);
+    CHECK(cfg_menu_next(mrfw::CfgField::e2e_dm, 1) == 0);
+    CHECK(cfg_menu_next(mrfw::CfgField::intro_attach, 1) == 0);
+    CHECK(cfg_menu_next(mrfw::CfgField::mobile_autoregister, 0) == 1);
+    CHECK(cfg_menu_next(mrfw::CfgField::ble_mode, 0) == 1);
+    CHECK(cfg_menu_next(mrfw::CfgField::ble_mode, 1) == 0);
+    CHECK(cfg_menu_next(mrfw::CfgField::ble_mode, 2) == 0);      // `periodic` -> `off`, a deliberate edit
+    // every menu step lands INSIDE the service's typed domain — the menu narrows, it never produces an invalid value
+    for (uint8_t v = 0; v <= 2; ++v)
+        CHECK(mrfw::cfg_field_valid(mrfw::CfgField::ble_mode, cfg_menu_next(mrfw::CfgField::ble_mode, v)));
+}
+
+// ---------------------------------------------------------------------------------------------- the cycle
+TEST_CASE("ui14-cycle: SETTINGS is the last slot, and it is LIST-AWARE like TEAM and INBOX") {
+    CfgFix f; const auto s = cfg_snap();
+    to_settings(f.m, s);
+    CHECK(f.m.state().screen == Screen::settings);
+    CHECK(f.m.state().settings == Settings::browsing);
+    CHECK(f.m.state().cursor == 0);
+    const uint8_t n = f.m.settings_row_list(s).n;
+    CHECK(n == 7);
+    for (uint8_t i = 1; i < n; ++i) {                      // the short press WALKS the rows...
+        f.m.on_gesture(Gesture::short_press, s);
+        CHECK(f.m.state().screen == Screen::settings);
+        CHECK(f.m.state().cursor == i);
+    }
+    f.m.on_gesture(Gesture::short_press, s);               // ...and leaves only at the end (§3.2)
+    CHECK(f.m.state().screen == Screen::status);
+    CHECK(f.m.state().settings == Settings::closed);       // ⛔ the editor state never survives the screen
+}
+
+// ---------------------------------------------------------------------------------------------- short's two modes
+TEST_CASE("ui14-edit: `double` ENTERS a value row and `short` then CYCLES ITS VALUE — the draft only") {
+    CfgFix f; const auto s = cfg_snap();
+    to_settings(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
+    CHECK(f.svc.is_open());
+    CHECK(f.svc.draft().at(mrfw::CfgField::e2e_dm) == 0);
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().settings == Settings::editing);      // ★ THE STATE THAT SEPARATES short's TWO MODES
+    const uint8_t cur = f.m.state().cursor;
+    f.m.on_gesture(Gesture::short_press, s);
+    CHECK(f.svc.draft().at(mrfw::CfgField::e2e_dm) == 1);  // the value moved...
+    CHECK(f.m.state().cursor == cur);                      // ...and the cursor did NOT (this is the trap)
+    CHECK(f.m.state().screen == Screen::settings);
+    // ⛔ RAM ONLY (§3.6.1): no durable write, no live mutation
+    CHECK(f.store.writes == 0);
+    CHECK(f.live.applies == 0);
+    CHECK(f.store.rec.e2e_dm == 0);
+    CHECK(f.svc.config_unsaved() == true);                 // ★ the marker is `config_unsaved`, never `dirty`
+    f.m.on_gesture(Gesture::short_press, s);
+    CHECK(f.svc.draft().at(mrfw::CfgField::e2e_dm) == 0);  // it CYCLES
+    CHECK(f.svc.config_unsaved() == false);                // ...back to the baseline, so the marker clears again
+    f.m.on_gesture(Gesture::short_press, s);
+    f.m.on_gesture(Gesture::double_press, s);              // `double` ACCEPTS
+    CHECK(f.m.state().settings == Settings::browsing);
+    CHECK(f.svc.draft().at(mrfw::CfgField::e2e_dm) == 1);  // ...and accepting is not a revert
+    f.m.on_gesture(Gesture::short_press, s);               // and NOW a short press walks again
+    CHECK(f.m.state().cursor == uint8_t(cur + 1));
+}
+
+TEST_CASE("ui14-edit: `dirty` and `config_unsaved` are DIFFERENT FACTS and this is the file where both are read") {
+    CfgFix f; const auto s = cfg_snap();
+    to_settings(f.m, s);
+    CHECK(f.m.state().dirty == true);                      // a repaint is owed (the walk marked it)
+    CHECK(f.svc.config_unsaved() == false);                // ...and NOTHING is unsaved
+    f.m.clear_dirty();
+    CHECK(cursor_to(f.m, s, CfgRow::intro_attach));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);               // now the draft really differs
+    CHECK(f.svc.config_unsaved() == true);
+    f.m.clear_dirty();
+    CHECK(f.m.state().dirty == false);                     // ⛔ a consumed repaint does NOT clear the draft marker
+    CHECK(f.svc.config_unsaved() == true);
+}
+
+// ---------------------------------------------------------------------------------------------- SAVE
+TEST_CASE("ui14-save: an edited draft SAVES once, applies live, and is no longer unsaved") {
+    CfgFix f; const auto s = cfg_snap();
+    to_settings(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::mobile_autoregister));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);               // OFF -> ON in the draft
+    CHECK(f.m.state().settings == Settings::editing);
+    f.m.on_gesture(Gesture::double_press, s);              // accept
+    CHECK(cursor_to(f.m, s, CfgRow::save));
+    CHECK(f.live.applies == 0);                            // ⛔ nothing live has happened yet
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().cfg_have_save == true);
+    CHECK(f.m.state().cfg_save == mrfw::CfgSave::saved);
+    CHECK(strcmp(settings_note(f.m.state()), "SAVED") == 0);
+    CHECK(f.store.writes == 1);                            // EXACTLY one durable write
+    CHECK(f.store.rec.mobile_autoregister == 1);
+    CHECK(f.store.rec.node_id == 42);                      // ...and the NON-covered fields came through untouched
+    CHECK(f.store.rec.channel_ctr == 7u);
+    CHECK(f.live.applies == 1);                            // live, and only AFTER the durable write
+    CHECK(f.svc.config_unsaved() == false);
+    CHECK(f.svc.reboot_required() == false);
+}
+
+TEST_CASE("ui14-save: a no-op SAVE says NO CHANGE and writes nothing") {
+    CfgFix f; const auto s = cfg_snap();
+    to_settings(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::save));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().cfg_save == mrfw::CfgSave::no_change);
+    CHECK(strcmp(settings_note(f.m.state()), "NO CHANGE") == 0);
+    CHECK(f.store.writes == 0);
+    CHECK(f.live.applies == 0);
+}
+
+TEST_CASE("ui14-save: a FAILED write says SAVE FAILED and RETAINS the draft and its marker") {
+    CfgFix f; const auto s = cfg_snap();
+    to_settings(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);
+    f.m.on_gesture(Gesture::double_press, s);
+    f.store.can_save = false;
+    CHECK(cursor_to(f.m, s, CfgRow::save));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().cfg_save == mrfw::CfgSave::nv_failed);
+    // ★ THE RULED STRING, and it comes from the SERVICE's own formatter — this asserts they are the same bytes.
+    CHECK(strcmp(settings_note(f.m.state()), "SAVE FAILED") == 0);
+    CHECK(strcmp(settings_note(f.m.state()), mrfw::cfg_save_panel(mrfw::CfgSave::nv_failed)) == 0);
+    CHECK(f.store.writes == 1);                            // it was ATTEMPTED...
+    CHECK(f.store.rec.e2e_dm == 0);                        // ...and changed nothing
+    CHECK(f.live.applies == 0);                            // ⛔ never applied live on a failed write
+    CHECK(f.svc.config_unsaved() == true);                 // ★ the marker is RETAINED — nothing was established
+    CHECK(f.svc.draft().at(mrfw::CfgField::e2e_dm) == 1);  // ...and so is the draft
+}
+
+TEST_CASE("ui14-save: a reboot-class save is SAVED and REBOOT-REQUIRED — two independent facts") {
+    CfgFix f; auto s = cfg_snap(); s.ble_row = true;        // the BLE row is the only reboot-class one
+    to_settings(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::ble_mode));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);                // off -> on, in the draft
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(cursor_to(f.m, s, CfgRow::save));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().cfg_save == mrfw::CfgSave::saved_reboot);
+    CHECK(f.store.rec.ble_mode == 1);
+    // ★★ THE TWO FACTS, AND THEY MUST NOT COLLAPSE: it IS durably saved and is NO LONGER unsaved, AND a reboot is
+    //    still owed because the running stack cannot adopt it.
+    CHECK(f.svc.config_unsaved() == false);
+    CHECK(f.svc.reboot_required() == true);
+    // ⛔ `ble_mode` is structurally absent from the live-apply type, so the panel could not have applied it live
+    CHECK(f.live.eff.at(mrfw::CfgField::ble_mode) == 0);
+    CHECK(strcmp(settings_note(f.m.state()), "SAVED") == 0);
+    CHECK(strcmp(kCfgRestartText, "RESTART NEEDED") == 0);  // §3.3's third literal, rendered from `reboot_required`
+    // ...and the reboot fact SURVIVES the transient note (§3.6.5: visible until the reboot)
+    f.m.on_gesture(Gesture::short_press, s);
+    CHECK(strcmp(settings_note(f.m.state()), "") == 0);
+    CHECK(f.svc.reboot_required() == true);
+}
+
+// ---------------------------------------------------------------------------------------------- conflict
+TEST_CASE("ui14-conflict: SAVE is refused with CFG! RELOAD, and RELOAD then merges the three states") {
+    CfgFix f; const auto s = cfg_snap();
+    to_settings(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);                // the operator edits e2e_dm 0 -> 1
+    f.m.on_gesture(Gesture::double_press, s);
+    // ...and serial/BLE writes a DIFFERENT covered field underneath (its immediate-write path, §3.6.1)
+    f.store.rec.intro_attach = 0;
+    CHECK(f.m.settings_row_list(s).n == 7);                 // no RELOAD row yet — the conflict is not known
+    CHECK(cursor_to(f.m, s, CfgRow::save));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().cfg_save == mrfw::CfgSave::conflict);
+    CHECK(strcmp(settings_note(f.m.state()), "CFG! RELOAD") == 0);
+    CHECK(strcmp(settings_note(f.m.state()), mrfw::cfg_save_panel(mrfw::CfgSave::conflict)) == 0);
+    CHECK(f.store.writes == 0);                             // ⛔ ZERO writes — last-writer-wins is what this prevents
+    CHECK(f.svc.conflict() == true);
+    CHECK(strcmp(cfg_marker_text(f.svc.config_unsaved(), f.svc.conflict()), "CFG! RELOAD") == 0);
+    // ★ the escape hatch APPEARS, exactly when it applies
+    CHECK(f.m.settings_row_list(s).n == 8);
+    CHECK(cursor_to(f.m, s, CfgRow::reload));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.svc.conflict() == false);
+    CHECK(f.m.state().cfg_refresh_failed == false);
+    // ★★ [[B192]]'s ruled THREE-WAY MERGE, in reported form: the field the operator EDITED stays in the draft, the
+    //    field they did NOT touch adopts the companion's value.
+    CHECK(f.svc.draft().at(mrfw::CfgField::e2e_dm) == 1);
+    CHECK(f.svc.draft().at(mrfw::CfgField::intro_attach) == 0);
+    CHECK(f.m.settings_row_list(s).n == 7);                 // ...and the row retires with the conflict
+    CHECK(cursor_to(f.m, s, CfgRow::save));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().cfg_save == mrfw::CfgSave::saved);
+    CHECK(f.store.writes == 1);
+    CHECK(f.store.rec.e2e_dm == 1);
+    CHECK(f.store.rec.intro_attach == 0);
+}
+
+// ---------------------------------------------------------------------------------------------- DISCARD / BACK
+TEST_CASE("ui14-discard: DISCARD is the explicit full reset, and it clears the marker") {
+    CfgFix f; const auto s = cfg_snap();
+    to_settings(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.svc.config_unsaved() == true);
+    CHECK(cursor_to(f.m, s, CfgRow::discard));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.svc.config_unsaved() == false);
+    CHECK(f.svc.draft().at(mrfw::CfgField::e2e_dm) == 0);
+    CHECK(f.store.writes == 0);                             // a DISCARD writes NOTHING
+    CHECK(f.live.applies == 0);
+    CHECK(f.m.state().cfg_refresh_failed == false);
+}
+
+TEST_CASE("ui14-discard: an unreadable store says NV READ FAILED and the draft SURVIVES") {
+    CfgFix f; const auto s = cfg_snap();
+    to_settings(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);
+    f.m.on_gesture(Gesture::double_press, s);
+    f.store.can_load = false;
+    CHECK(cursor_to(f.m, s, CfgRow::discard));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().cfg_refresh_failed == true);
+    CHECK(strcmp(settings_note(f.m.state()), "NV READ FAILED") == 0);
+    CHECK(f.svc.draft().at(mrfw::CfgField::e2e_dm) == 1);   // ⛔ a failure never destroys the draft (C2)
+    CHECK(f.svc.config_unsaved() == true);
+}
+
+TEST_CASE("ui14-back: BACK is safe — it leaves the screen and PRESERVES the unsaved draft") {
+    CfgFix f; const auto s = cfg_snap();
+    to_settings(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.svc.config_unsaved() == true);
+    CHECK(cursor_to(f.m, s, CfgRow::back));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().screen == Screen::status);
+    CHECK(f.m.state().settings == Settings::closed);
+    CHECK(f.m.state().cursor == 0);
+    // ★★ THE WHOLE POINT: the draft is still there, the marker is still up, and the service is still open.
+    CHECK(f.svc.config_unsaved() == true);
+    CHECK(f.svc.draft().at(mrfw::CfgField::e2e_dm) == 1);
+    CHECK(f.svc.is_open() == true);
+    CHECK(f.store.writes == 0);
+    // ...and STATUS is where the marker is seen without cycling back (§3.3)
+    CHECK(strcmp(cfg_marker_text(f.svc.config_unsaved(), f.svc.conflict()), "CFG* UNSAVED") == 0);
+    // RE-ENTERING must not reset it either — `CfgOpen::already_open` is a no-op by contract
+    to_settings(f.m, s);
+    CHECK(f.m.state().screen == Screen::settings);
+    CHECK(f.svc.draft().at(mrfw::CfgField::e2e_dm) == 1);
+    CHECK(f.svc.config_unsaved() == true);
+}
+
+TEST_CASE("ui14-back: BLANKING preserves the draft too — a timeout may never discard (§3.6.1)") {
+    CfgFix f; auto s = cfg_snap();
+    to_settings(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);
+    CHECK(f.svc.config_unsaved() == true);
+    auto s2 = cfg_snap(s.now_ms + kBlankMs + 1);
+    f.m.on_tick(s2);
+    CHECK(f.m.state().blanked == true);
+    CHECK(f.svc.config_unsaved() == true);                  // ⛔ the forbidden discard did NOT happen
+    CHECK(f.svc.draft().at(mrfw::CfgField::e2e_dm) == 1);
+    CHECK(f.store.writes == 0);
+}
+
+// ---------------------------------------------------------------------------------------------- PROVISION
+TEST_CASE("ui14-provision: the row is PRESENT and INERT — it refuses out loud and changes nothing (§UI-15)") {
+    CfgFix f; const auto s = cfg_snap();
+    to_settings(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);                 // leave an UNSAVED draft standing...
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(cursor_to(f.m, s, CfgRow::provision));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().cfg_provision_na == true);
+    CHECK(strcmp(settings_note(f.m.state()), "PROVISION: UI-15") == 0);
+    CHECK(f.m.state().screen == Screen::settings);           // ⛔ it opened NOTHING
+    CHECK(f.m.state().settings == Settings::browsing);
+    CHECK(f.store.writes == 0);
+    CHECK(f.live.applies == 0);
+    // ⛔ AND §3.6.3's "an unsaved draft requires SAVE or DISCARD first" is NOT implemented here — that precondition is
+    //    §UI-15's. The unsaved draft is untouched and was not a factor in the refusal.
+    CHECK(f.svc.config_unsaved() == true);
+    f.m.on_gesture(Gesture::short_press, s);                 // the note is transient, like every other one
+    CHECK(f.m.state().cfg_provision_na == false);
+}
+
+// ---------------------------------------------------------------------------------------------- the LONG gesture
+TEST_CASE("ui14-long: `long_arm` LEAVES THE EDITOR — and a `long_cancel` does not bring it back") {
+    CfgFix f; const auto s = cfg_snap();
+    to_settings(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);
+    CHECK(f.m.state().settings == Settings::editing);
+    const uint8_t cur = f.m.state().cursor;
+    f.m.on_gesture(Gesture::long_arm, s);
+    // ★★ CLOSED AT `long_arm`, NOT AT `long_fire` — §3.6.2's "the long gesture ALWAYS leaves the editor", and the
+    //    exact correction §UI-7D made one modal over.
+    CHECK(f.m.state().settings == Settings::browsing);
+    CHECK(f.m.emergency() == Emergency::arming);
+    f.m.on_gesture(Gesture::long_cancel, s);
+    CHECK(f.m.emergency() == Emergency::cancelled);
+    CHECK(f.m.state().settings == Settings::browsing);       // ⛔ the editor did NOT come back...
+    CHECK(f.m.state().cursor == cur);                        // ...and the cursor is still on the VALUE row it was on
+    CfgRow r{};
+    CHECK(f.m.settings_row_list(s).at(f.m.state().cursor, r));
+    CHECK(r == CfgRow::e2e_dm);                              // ⛔ never a destructive row
+    // ★ the draft edit SURVIVES: it is neither confirmed nor destructive (§3.6.5), so nothing may revert it
+    CHECK(f.svc.draft().at(mrfw::CfgField::e2e_dm) == 1);
+    CHECK(f.store.writes == 0);
+}
+
+TEST_CASE("ui14-long: `long_fire` from the editor arms the alarm and the editor is already gone") {
+    CfgFix f; const auto s = cfg_snap();
+    to_settings(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().settings == Settings::editing);
+    f.m.on_gesture(Gesture::long_arm, s);
+    f.m.on_gesture(Gesture::long_fire, s);
+    CHECK(f.m.emergency() == Emergency::firing);
+    CHECK(f.m.state().settings == Settings::browsing);
+    SendReq req{};
+    const bool got = f.m.take_send_request(req);             // ⚠ DRAINS — one call, into a local (§B70)
+    CHECK(got == true);
+    CHECK(req.kind == SendKind::emergency);
+}
+
+TEST_CASE("ui14-long: the emergency overlay ABSORBS a double over SETTINGS (ledger §1.4)") {
+    CfgFix f; const auto s = cfg_snap();
+    to_settings(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::discard));
+    f.m.on_gesture(Gesture::long_arm, s);
+    CHECK(f.m.emergency() == Emergency::arming);
+    f.m.on_gesture(Gesture::double_press, s);                // ⛔ absorbed ENTIRELY — it must not reach DISCARD
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().settings == Settings::browsing);
+    CHECK(f.m.emergency() == Emergency::arming);
+    CHECK(f.store.writes == 0);
+    CHECK(f.svc.config_unsaved() == false);
+}
+
+// ---------------------------------------------------------------------------------------------- the refused open
+TEST_CASE("ui14-open: a store that cannot produce a record REFUSES to open, and every activation is refused") {
+    UiFakeStore store; UiFakeLive live;
+    store.can_load = false;
+    mrfw::ConfigService svc{store, live};
+    UiModel m; m.attach_config(svc);
+    const auto s = cfg_snap();
+    to_settings(m, s);
+    CHECK(m.state().screen == Screen::settings);
+    CHECK(svc.is_open() == false);                           // ⛔ the panel says CFG UNAVAILABLE and offers nothing
+    CHECK(cursor_to(m, s, CfgRow::e2e_dm));
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().settings == Settings::browsing);          // ⛔ no editor over a draft that does not exist
+    CHECK(cursor_to(m, s, CfgRow::save));
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().cfg_save == mrfw::CfgSave::not_open);
+    CHECK(store.writes == 0);
+    CHECK(live.applies == 0);
+    // ...and BACK still works, because leaving must never depend on the store
+    CHECK(cursor_to(m, s, CfgRow::back));
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().screen == Screen::status);
+}
+
+TEST_CASE("ui14-open: an UNATTACHED model shows the menu and refuses every activation (fails closed)") {
+    UiModel m; const auto s = cfg_snap();                     // ⛔ no attach_config at all
+    to_settings(m, s);
+    CHECK(m.state().screen == Screen::settings);
+    CHECK(m.config() == nullptr);
+    CHECK(m.settings_row_list(s).n == 7);
+    m.on_gesture(Gesture::double_press, s);                   // on e2e_dm: nothing to edit
+    CHECK(m.state().settings == Settings::browsing);
+    CHECK(m.state().cfg_have_save == false);
+}
+
+// ---------------------------------------------------------------------------------------------- the marker's bytes
+TEST_CASE("ui14-marker: §3.3's three literals are three separate facts, and CONFLICT wins the marker row") {
+    CHECK(strcmp(cfg_marker_text(/*unsaved=*/false, /*conflict=*/false), "") == 0);
+    CHECK(strcmp(cfg_marker_text(true,  false), "CFG* UNSAVED") == 0);
+    CHECK(strcmp(cfg_marker_text(false, true),  "CFG! RELOAD") == 0);
+    // ★ a conflicted draft is BOTH, and the row says the one that BLOCKS the save — the other two facts have their
+    //   own places (the SETTINGS title, and the RESTART row).
+    CHECK(strcmp(cfg_marker_text(true, true), "CFG! RELOAD") == 0);
+    // ...and the conflict string is the SERVICE's, not a copy
+    CHECK(strcmp(cfg_marker_text(false, true), mrfw::cfg_save_panel(mrfw::CfgSave::conflict)) == 0);
+    // WIDTH: `STATUS ` + the marker must fit the panel's 21 small-font columns (§3.3 forbids shortening the bar)
+    CHECK(strlen("STATUS ") + strlen(cfg_marker_text(true, false)) <= 21u);
+    CHECK(strlen("STATUS ") + strlen(cfg_marker_text(false, true)) <= 21u);
+    CHECK(strlen(kCfgRestartText) <= 21u);
+}
+
+TEST_CASE("ui14-marker: every SAVE outcome has its own words, and none of them says SAVED for a refusal") {
+    UiState st{};
+    CHECK(strcmp(settings_note(st), "") == 0);               // nothing attempted -> nothing claimed
+    st.cfg_have_save = true;
+    st.cfg_save = mrfw::CfgSave::saved;        CHECK(strcmp(settings_note(st), "SAVED") == 0);
+    st.cfg_save = mrfw::CfgSave::saved_reboot; CHECK(strcmp(settings_note(st), "SAVED") == 0);
+    st.cfg_save = mrfw::CfgSave::no_change;    CHECK(strcmp(settings_note(st), "NO CHANGE") == 0);
+    st.cfg_save = mrfw::CfgSave::invalid;      CHECK(strcmp(settings_note(st), "BAD VALUE") == 0);
+    st.cfg_save = mrfw::CfgSave::conflict;     CHECK(strcmp(settings_note(st), "CFG! RELOAD") == 0);
+    st.cfg_save = mrfw::CfgSave::nv_failed;    CHECK(strcmp(settings_note(st), "SAVE FAILED") == 0);
+    st.cfg_save = mrfw::CfgSave::not_open;     CHECK(strcmp(settings_note(st), "NO CONFIG") == 0);
+    // ⛔ NOT ONE refusal reads as a success
+    for (mrfw::CfgSave r : { mrfw::CfgSave::invalid, mrfw::CfgSave::conflict, mrfw::CfgSave::nv_failed,
+                             mrfw::CfgSave::not_open }) {
+        st.cfg_save = r;
+        CHECK(strstr(settings_note(st), "SAVED") == nullptr);
+    }
+    // the other two note sources OUTRANK a stale save outcome, and each has its own words
+    st.cfg_save = mrfw::CfgSave::saved;
+    st.cfg_refresh_failed = true;  CHECK(strcmp(settings_note(st), "NV READ FAILED") == 0);
+    st.cfg_provision_na   = true;  CHECK(strcmp(settings_note(st), "PROVISION: UI-15") == 0);
+    for (uint8_t i = 0; i < 8; ++i) CHECK(strlen(settings_note(st)) <= 21u);   // every note fits the panel
+}
+
+// ★★★★ THE ROW SHIFT, AND IT IS LIVE RATHER THAN HYPOTHETICAL: the conditional RELOAD row appears at the exact
+//     moment a refused SAVE raises the conflict, so the list grows by one UNDER THE CURSOR. A cursor held as an INDEX
+//     would then be highlighting RELOAD while the operator was aiming at SAVE — §B64's ruling and §B66's lesson, on a
+//     third screen. ⓘ The negative half is asserted too: the identity does NOT move on its own.
+TEST_CASE("ui14-cursor: the highlight follows the ROW when a conflict inserts one above it") {
+    CfgFix f; const auto s = cfg_snap();
+    to_settings(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::save));
+    const uint8_t before = f.m.state().cursor;
+    CHECK(f.m.settings_row_list(s).n == 7);
+    f.store.rec.intro_attach = 0;                     // an external write moves a covered field...
+    f.m.on_gesture(Gesture::double_press, s);         // ...so this SAVE is refused and the conflict is raised
+    CHECK(f.m.state().cfg_save == mrfw::CfgSave::conflict);
+    CHECK(f.svc.conflict() == true);
+    CHECK(f.m.settings_row_list(s).n == 8);           // the list GREW under the cursor
+    f.m.on_tick(cfg_snap(s.now_ms + 10));             // the next frame re-anchors (the freeze happens right after)
+    CHECK(f.m.state().cursor == uint8_t(before + 1)); // ★ the index moved...
+    CfgRow r{};
+    CHECK(row_under_cursor(f.m, s, r));
+    CHECK(r == CfgRow::save);                         // ...because the ROW did not
+    // ⛔ AND NOTHING ELSE MOVED IT: a second tick with the same list leaves the highlight exactly where it is.
+    const uint8_t held = f.m.state().cursor;
+    f.m.on_tick(cfg_snap(s.now_ms + 20));
+    CHECK(f.m.state().cursor == held);
+}
+
+TEST_CASE("ui14-cursor: when the RELOAD row retires, the highlight lands on the SAFE action, never on DISCARD") {
+    CfgFix f; const auto s = cfg_snap();
+    to_settings(f.m, s);
+    f.store.rec.intro_attach = 0;
+    CHECK(cursor_to(f.m, s, CfgRow::save));
+    f.m.on_gesture(Gesture::double_press, s);         // refused -> the conflict stands and RELOAD appears
+    CHECK(f.svc.conflict() == true);
+    CHECK(cursor_to(f.m, s, CfgRow::reload));
+    f.m.on_gesture(Gesture::double_press, s);         // RELOAD resolves it, so its own row retires
+    CHECK(f.svc.conflict() == false);
+    f.m.on_tick(cfg_snap(s.now_ms + 10));
+    CfgRow r{};
+    CHECK(row_under_cursor(f.m, s, r));
+    CHECK(r == CfgRow::back);                         // ⛔ the SAFE action, and ⛔ NOT `discard`
+    CHECK(f.store.writes == 0);
+}
+
+// ==================================================================================================================
+// §UI-14 follow-up — THE IMMEDIATE EXTERNAL-WRITE NOTIFICATION (spec §3.6.1), i.e. what `note_external_write` buys
+// ==================================================================================================================
+// ★★★ THE CASE BELOW IS THE ONE THE SAVE-TIME COMPARISON CANNOT CATCH, AND IT IS WHY THE NOTIFICATION HAS TO BE
+//     IMMEDIATE RATHER THAN EVENTUAL. `save()`'s gate 2b re-reads `/mrcfg` and refuses when the bytes differ from the
+//     baseline — which covers a companion write that is still standing. ⛔ It does NOT cover
+//     `external change → external REVERT → SAVE`: by save time the bytes match the baseline again, so 2b passes, and
+//     without a notification the latch was never raised either. The operator's draft then overwrites a record the
+//     companion touched twice, having been told nothing.
+// ★ SAME SHAPE AS §UI-13's OWN BLOCKER, ONE LAYER EARLIER: there the latch existed and `save()` ignored it; here the
+//   latch is never SET. Both are the third state of the same ternary — {bytes differ} · {bytes match, latch clear} ·
+//   {BYTES MATCH, LATCH SET} — and only the third needs the notification.
+TEST_CASE("ui14-notify: change -> REVERT -> SAVE is refused, which the byte comparison alone cannot do") {
+    CfgFix f; const auto s = cfg_snap();
+    to_settings(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);                 // the operator edits e2e_dm 0 -> 1
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.svc.config_unsaved() == true);
+    // the companion writes a DIFFERENT covered field and is NOTIFIED immediately (the device hook's job)...
+    f.store.rec.intro_attach = 0;
+    f.svc.note_external_write(f.store.rec);
+    CHECK(f.svc.conflict() == true);
+    // ...and then puts it back. The BYTES now match the baseline again.
+    f.store.rec.intro_attach = 1;
+    f.svc.note_external_write(f.store.rec);
+    CHECK(mrfw::cfg_values_from_blob(f.store.rec) == f.svc.baseline());   // ★ the byte comparison would PASS here
+    CHECK(f.svc.conflict() == true);                                       // ...and the LATCH still says otherwise
+    CHECK(cursor_to(f.m, s, CfgRow::save));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().cfg_save == mrfw::CfgSave::conflict);
+    CHECK(strcmp(settings_note(f.m.state()), "CFG! RELOAD") == 0);
+    CHECK(f.store.writes == 0);                              // ⛔ ZERO writes — the whole point
+    // ...and the ways out are the ruled two, both of which clear it
+    CHECK(f.m.settings_row_list(s).n == 8);                  // the RELOAD row is offered
+    CHECK(cursor_to(f.m, s, CfgRow::discard));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.svc.conflict() == false);
+}
+
+TEST_CASE("ui14-notify: a NON-COVERED external write raises NOTHING, and a SAVE still goes through") {
+    CfgFix f; const auto s = cfg_snap();
+    to_settings(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);
+    f.m.on_gesture(Gesture::double_press, s);
+    // ⛔ THE NEGATIVE HALF IS STRUCTURAL, NOT A FILTER LIST: only the four covered fields are ever extracted, so a
+    //    write that moved a leased counter, an identity or the radio floor cannot raise a marker at all.
+    f.store.rec.channel_ctr = 4242;
+    f.store.rec.node_id     = 77;
+    f.svc.note_external_write(f.store.rec);
+    CHECK(f.svc.conflict() == false);
+    CHECK(f.m.settings_row_list(s).n == 7);                  // ...so no RELOAD row appears either
+    CHECK(strcmp(cfg_marker_text(f.svc.config_unsaved(), f.svc.conflict()), "CFG* UNSAVED") == 0);
+    CHECK(cursor_to(f.m, s, CfgRow::save));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().cfg_save == mrfw::CfgSave::saved);
+    CHECK(f.store.writes == 1);
+    // ★ AND THE NON-COVERED FIELDS THE COMPANION WROTE SURVIVE THE PANEL'S SAVE — the one-write-of-the-RELOADED-blob
+    //   rule, measured rather than assumed.
+    CHECK(f.store.rec.channel_ctr == 4242u);
+    CHECK(f.store.rec.node_id == 77);
+    CHECK(f.store.rec.e2e_dm == 1);
+}
+
+// ★★★ §notify-every-save / [[B194]] — THE `leave` SHAPE, WHICH IS THE LARGEST COVERED-FIELD CHANGE ANY VERB MAKES.
+//     `handle_leave` does `b = mrnv::Blob{}` and restores only magic/version/freq/the radio defaults/beacon/duty/the
+//     anti-spam knobs ⇒ ALL FOUR covered fields land at 0, whatever they were, and the record is persisted. Before
+//     this slice that write told the panel nothing, so an open draft kept its `CFG* UNSAVED` marker over a record that
+//     had been wiped underneath it. ⓘ The CALL SITE is in a file no host build compiles — `tools/probe_board_ui/`'s
+//     W18 is the instrument for that half; this case is the SEMANTICS.
+// ⚠⚠ AND THE LIMIT OF THIS CASE IS MEASURED AND STATED RATHER THAN LEFT TO BE ASSUMED: its CENTRAL claim — the SAVE
+//    over the wiped record is refused — has NO single-mutation witness, and that is a property of the design rather
+//    than a hole in the battery. The `leave` change is STANDING at save time, so `save()` refuses it TWICE over: gate
+//    2a on the latch this notification raised, and gate 2b on the byte comparison. Dropping either one alone
+//    (`C32` / `C04`, both verified) leaves the refusal intact. ⇒ what this case uniquely measures is reddened by
+//    `C14` (the CfgValues equality, 1 assertion) and `C23` (DISCARD keeping the draft, 1 assertion); the property
+//    THIS SLICE adds — that the notification arrives at all — is measured by `probe_firmware_ui`'s P8f (reddened by
+//    C37 "the hook never tells the service" and C38 "raised but no repaint") and by the CALL SITE check W18.
+//    ★ The sibling `change → REVERT → SAVE` case above is the one where 2b cannot help, which is exactly why it, and
+//      not this one, is the case that carries `C32`.
+TEST_CASE("ui14-notify: a LEAVE-shaped external write (all four covered fields reset) conflicts and refuses SAVE") {
+    CfgFix f; const auto s = cfg_snap();
+    f.store.rec.e2e_dm = 1; f.store.rec.intro_attach = 1; f.store.rec.mobile_autoregister = 1; f.store.rec.ble_mode = 2;
+    f.live.eff = mrfw::cfg_values_from_blob(f.store.rec);
+    to_settings(f.m, s);
+    CHECK(f.svc.draft().at(mrfw::CfgField::mobile_autoregister) == 1);
+    CHECK(cursor_to(f.m, s, CfgRow::intro_attach));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);                 // the operator edits intro_attach 1 -> 0
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.svc.config_unsaved() == true);
+    CHECK(f.svc.conflict() == false);
+    // ...and now `leave` runs on the serial/BLE side: the whole record is rebuilt from a zeroed Blob.
+    f.store.rec.e2e_dm = 0; f.store.rec.intro_attach = 0; f.store.rec.mobile_autoregister = 0; f.store.rec.ble_mode = 0;
+    f.svc.note_external_write(f.store.rec);
+    CHECK(f.svc.conflict() == true);
+    CHECK(strcmp(cfg_marker_text(f.svc.config_unsaved(), f.svc.conflict()), "CFG! RELOAD") == 0);
+    const int writes_before = f.store.writes;
+    CHECK(cursor_to(f.m, s, CfgRow::save));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().cfg_save == mrfw::CfgSave::conflict);
+    CHECK(f.store.writes == writes_before);                  // ⛔ ZERO writes over the wiped record
+    CHECK(f.m.settings_row_list(s).n == 8);                  // the RELOAD row is offered as the non-destructive way out
+    CHECK(cursor_to(f.m, s, CfgRow::discard));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.svc.conflict() == false);
+    CHECK(f.svc.draft().at(mrfw::CfgField::mobile_autoregister) == 0);   // ...on the record `leave` actually left
+}
+
+// ★★ THE NEGATIVE HALF, AND IT IS WHAT MAKES THE SYSTEMATIC RULE DEFENSIBLE RATHER THAN MERELY LOUD. `join` persists
+//    `/mrcfg` too and now notifies — but it assigns NONE of the four covered fields, so the notification must raise
+//    NOTHING. ⛔ This is structural, not a filter list: only the four covered fields are ever extracted, so no
+//    provisioning field can reach the marker however many of them move.
+TEST_CASE("ui14-notify: a JOIN-shaped external write moves no covered field and raises NOTHING") {
+    CfgFix f; const auto s = cfg_snap();
+    to_settings(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.svc.config_unsaved() == true);
+    // exactly the fields `handle_join` assigns before its save
+    f.store.rec.freq_mhz = 869.525; f.store.rec.bw_hz = 125000; f.store.rec.routing_sf = 9;
+    f.store.rec.leaf_id = 3; f.store.rec.layer0_id = 3;
+    f.store.rec.node_id = 0; f.store.rec.joined = 0; f.store.rec.lineage_id = 0; f.store.rec.config_epoch = 0;
+    f.store.rec.leaf_name_len = 0;
+    f.svc.note_external_write(f.store.rec);
+    CHECK(f.svc.conflict() == false);
+    CHECK(f.m.settings_row_list(s).n == 7);                  // ...so no RELOAD row appears
+    CHECK(strcmp(cfg_marker_text(f.svc.config_unsaved(), f.svc.conflict()), "CFG* UNSAVED") == 0);
+    CHECK(cursor_to(f.m, s, CfgRow::save));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().cfg_save == mrfw::CfgSave::saved);     // the operator's own save still goes through
+    CHECK(f.store.rec.e2e_dm == 1);
+    CHECK(f.store.rec.routing_sf == 9);                      // ...carrying join's fields through untouched
+    CHECK(f.store.rec.leaf_id == 3);
+}
+
+TEST_CASE("ui14-notify: a write while the service is CLOSED is harmless, and does not poison a later open") {
+    CfgFix f; const auto s = cfg_snap();
+    CHECK(f.svc.is_open() == false);                         // the operator has never reached SETTINGS
+    f.store.rec.e2e_dm = 1;
+    f.svc.note_external_write(f.store.rec);                  // ⇒ a no-op by construction
+    CHECK(f.svc.conflict() == false);
+    to_settings(f.m, s);
+    CHECK(f.svc.is_open() == true);
+    // ★ the baseline is whatever the record holds NOW, so the companion's change is simply the starting state
+    CHECK(f.svc.draft().at(mrfw::CfgField::e2e_dm) == 1);
+    CHECK(f.svc.config_unsaved() == false);
+    CHECK(f.svc.conflict() == false);
+    CHECK(f.m.settings_row_list(s).n == 7);
 }

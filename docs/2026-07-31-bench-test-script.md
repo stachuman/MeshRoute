@@ -1934,6 +1934,135 @@ present) and mutation-proven in both directions.
 ⛔ **No step for the unread counters.** That a completed detail frame does not clear them is a pure-model property with
 its own native case; the panel gives it no separate surface.
 
+## Part 20 — §UI-14: the SETTINGS screen, and the ONE thing no automated gate can reach — REAL `/mrcfg`
+
+⚠ **M2 SCOPE, stated first so nothing else is added here.** Every gesture meaning, the row table with both conditional
+rows, `short`'s two modes, the four action landings, the three markers' bytes and the `long_arm` editor close are
+asserted by the native suite (29 cases; 18 new mutations, all RED). The device half — the menu's rendering, the draft
+marker on STATUS, the editor's bracket, `SAVED` / `SAVE FAILED`, the one write and the live apply — is measured by
+`tools/probe_firmware_ui/` against a **fake** store (8 new controls, all RED), in **both arms of the BLE-row
+condition**. ⇒ **what is beyond every gate is exactly one thing, and it is the whole point of this part: the REAL
+`/mrcfg` record — that a save reaches flash, survives a reboot, preserves the fields the editor does not know about,
+and does not corrupt the record when the power is cut mid-write.**
+
+⛔⛔ **UNTIL THIS PART RUNS, [[B193]] IS NOT DISCHARGED AND NOTHING MAY CLAIM THE STORAGE IS SOUND.** The service and
+its bindings are proved against fakes; a green suite says the LOGIC is right, never that the storage is.
+
+### 20.1 — the menu, and that a draft is RAM only
+
+1. Cycle past SEND (or past INBOX on a `gateway_heltec`): the fifth screen's title row reads `SETTINGS`.
+   ⛔ **There must be NO `BLE` row** — the UI-12 transport is not compiled on any ESP32 env. If one appears, the
+   build set `MR_UI_BLE_ROW` and the rest of this part is about a different menu.
+2. Expected rows, in order, three at a time as you `short`-press: `DM crypt`, `key attach`, `auto reg`, `PROVISION`,
+   `SAVE`, `DISCARD`, `BACK`. Each of the first three shows its value (`off` / `on`) to the right of the label.
+   ★ Compare them with `cfg` over USB: **the panel's values must equal the persisted ones**, not the live ones.
+3. Highlight `DM crypt`, **double press**: the value becomes **bracketed** (`>DM crypt   [off]`). **Short press**: it
+   flips to `[on]`. ⛔ The cursor must NOT move to the next row while bracketed — that is the whole of `short`'s two
+   modes. **Double press** accepts and the bracket goes away.
+4. ⛔ **Nothing has been saved.** Over USB, `cfg` still reports the OLD value, and the title row now reads
+   `SETTINGS CFG* UNSAVED`.
+5. Cycle to **STATUS**: it reads `STATUS CFG* UNSAVED` on its title row. ⛔ **The status bar (`DM… CH… T…/… …V`) must
+   not be shortened to make room** — if it is, the marker is being drawn in the wrong place.
+6. ★★ **Leave the board alone for ~20 s so the panel BLANKS, then press once to wake it.** The marker is still there
+   and the value is still edited. ⛔ **A draft may never be discarded because attention timed out.**
+7. Walk to `BACK` and double-press: the panel returns to STATUS **with the marker still up**. Cycle back into
+   SETTINGS: the edited value is **still edited**. ⛔ Re-entering must not reset the draft.
+
+### 20.2 — ★ THE SAVE THAT REACHES REAL FLASH, AND WHAT IT MUST NOT DESTROY
+
+1. Before saving, record over USB: `cfg` (note `e2e_dm`, `intro_attach`, `mobile_autoregister`, `ble_mode`) **and**
+   at least two fields this editor does not cover — `status` for the node id / team id, and the channel counter.
+2. With the draft still standing, walk to `SAVE` and double-press. Expected on the panel: **`SAVED`**, and the
+   `CFG* UNSAVED` marker **gone** from both SETTINGS and STATUS.
+3. `cfg` over USB: the edited field now holds the NEW value. ⛔ **And every non-covered field is unchanged** — same
+   node id, same team id, same channel counter, same radio floor. ★ **This is the step the fakes cannot do**: the real
+   record is a whole `mrnv::Blob`, and a save that rebuilt it instead of reloading it would revert a leased counter.
+4. **Power-cycle the board.** `cfg` again: the saved value **survives**, and so does everything in step 1. ⛔ If the
+   value reverts, the write did not reach flash and the panel's `SAVED` was a false claim — stop and report.
+5. Repeat the same edit and press `SAVE` again **without changing anything**: expected **`NO CHANGE`**, and ⛔ no NV
+   write at all. (`/mrcfg` coalesces a byte-identical record — the flash-wear guard.)
+
+### 20.3 — DISCARD, and the conflict the companion can cause
+
+1. Edit a value, then walk to `DISCARD` and double-press. The marker clears and the panel's value returns to the
+   persisted one. ⛔ `cfg` over USB must show **no change at all** — a DISCARD writes nothing.
+2. ★★ **THE CONFLICT, which needs the USB console and the panel at the same time.** Open SETTINGS and edit
+   `DM crypt` (leave it unsaved). Now, over USB, run `cfg set intro_attach 0` (a DIFFERENT covered field).
+3. ★★★ **DO NOT TOUCH THE BUTTON. Within one repaint the panel must change to `CFG! RELOAD` BY ITSELF** — on the
+   SETTINGS title and on STATUS. ⛔ **If it only appears after you press something, the notification hook is not
+   firing and the marker is being discovered late** (`mr_ui_on_config_saved`, `src/firmware_ui.cpp`; the repaint comes
+   from its `mark_dirty()` — without that the conflict is true and invisible). ⓘ This is the one step here that the
+   automated gates get closest to and still cannot finish: the probe proves the hook repaints, but only real hardware
+   proves the real `cfg set` reaches it.
+4. Walk to `SAVE` and double-press. Expected: **`CFG! RELOAD`** again, ⛔ **and no write** — `cfg` over USB still shows
+   your console value, not the panel's draft. ★ This is the step that proves the companion's change cannot be
+   silently overwritten.
+5. ★★ **THE REVERT CASE, and it is the reason the notification has to be immediate rather than eventual.** With the
+   conflict standing, put the console value BACK (`cfg set intro_attach 1`). The persisted bytes now equal the panel's
+   baseline again. ⛔ **`CFG! RELOAD` MUST STILL STAND, and SAVE must still be refused** — the record was touched
+   twice and the operator has not acknowledged it. ⓘ A save-time byte comparison alone cannot see this, which is
+   exactly what the hook exists for.
+6. ⓘ **The negative half, worth one minute:** over USB run a NON-covered write (e.g. `cfg set beacon_ms 30000`).
+   ⛔ **No marker may appear** — only `ble_mode`, `e2e_dm`, `intro_attach` and `mobile_autoregister` are covered.
+   And run a live-only key (`cfg set nav 1`): likewise nothing, because nothing durable moved.
+7. A **`RELOAD`** row has appeared above `SAVE`. Walk to it and double-press. Expected: the conflict clears, **your
+   edited field keeps the panel's value**, and the field you changed over USB **keeps the console's value**.
+8. Walk to `SAVE` and double-press: **`SAVED`**. `cfg` now shows both — the panel's edit and the console's change.
+
+### 20.4 — the reboot-class field, and the row that stays until the reboot
+
+⚠ **Only reachable on a build whose BLE transport is compiled** (`MR_UI_BLE_ROW=1`), which no env sets today. ⇒
+**record "n/a, no UI-12 transport" unless you are testing such a build.** If you are: save a change to the `BLE` row,
+and expect **`SAVED`** plus a **`RESTART NEEDED`** row that stays on STATUS until the node is rebooted — and ⛔ **no
+`CFG* UNSAVED`**, because it IS saved. The two are independent facts.
+
+### 20.5 — ⛔⛔ THE RESET-DURING-WRITE CHECK, which is why [[B193]] is still open
+
+1. Set up a real edit and get the cursor onto `SAVE`.
+2. Press `double` and **cut the power within a second** (pull USB / hit reset). Repeat this ~5 times, varying the
+   delay.
+3. On each reboot, `cfg` over USB must report **either the complete OLD record or the complete NEW one** (§3.6.5).
+   ⛔ **Never a half-written record, never a version/magic rejection, and never a node that comes up unprovisioned.**
+4. ⛔ If any run comes up with defaults, the `/mrcfg` write is not atomic against a reset on this platform and that is
+   a REAL finding — stop, record the exact repro, and do not "fix" it from the UI layer.
+5. ⓘ Also worth recording while you are here: nothing above proves flash WEAR. `cfg set` and this panel share one
+   record and the store coalesces identical writes, so the wear question is about how often the operator saves; it is
+   not answered by this part.
+
+### 20.6 — ⓘ WHAT IS **NOT** OWED HERE, so nobody adds a step that cannot fail
+
+⛔ **No step for `PROVISION`.** The row is rendered and REFUSES (`PROVISION: UI-15`); pressing it is a one-line check
+that the native suite already makes, and there is nothing behind it.
+⛔ **No step for the `SAVE FAILED` path.** Provoking a real NV write failure on a V3 means arranging a broken
+filesystem, which is harder to verify than its outcome; it is natively asserted (the draft AND the marker survive) and
+mutation-proven, and the probe drives it end to end against a failing fake.
+⛔ **No step for `CFG UNAVAILABLE`.** The device store's `load()` is the §nv-ritual, which load-or-seeds — so on
+hardware it cannot fail, and the state is unreachable by construction rather than untested.
+
+### 20.7 — §notify-every-save ([[B194]]): the OTHER six verbs, added 2026-08-13
+
+⚠ **M2 SCOPE.** §20.3 step 3 already proves the hook repaints for `cfg set`. What no gate reaches is that the SIX
+other user-initiated `/mrcfg` verbs reach the same hook **on real hardware**: their call sites are in
+`src/firmware_config.cpp`, which neither the native suite nor the simulator compiles, so the only automated instrument
+is a source-level wiring check (`tools/probe_board_ui/` W14-W19). ⇒ **exactly two steps, and only the first is a
+must-run.** ⛔ **Do this on a spare/re-provisionable node — step 1 wipes the network provisioning.**
+
+1. ★★ **`leave` — the blocker this rule was written for.** Open SETTINGS, edit `DM crypt` and leave it unsaved
+   (`SETTINGS CFG* UNSAVED`). Now, over USB, run `leave`. Expected console line:
+   `> left network (kept freq=<n.nnn>) — idle; \`join\` to re-provision (live)`.
+   ⛔ **DO NOT TOUCH THE BUTTON.** Within one repaint the panel must change to **`CFG! RELOAD`** by itself — `leave`
+   rebuilds the record from a zeroed blob, so **all four covered fields were just reset to 0** under the draft.
+   Then walk to `SAVE`: expected **`CFG! RELOAD`** again and ⛔ **no write** (`cfg` still shows the wiped values).
+   Walk to `DISCARD`: the marker clears and the panel now shows the values `leave` left.
+2. ⓘ **The negative half, one minute, optional.** Re-provision with `join layer=… freq=… bw=… sf=…` (expected: the
+   `join_started` JSON line). With a fresh SETTINGS draft open, run it again: ⛔ **no marker may appear** — `join`
+   assigns none of the four covered fields, so the notification it now sends must raise nothing. ★ That is the half
+   that proves the systematic rule is self-limiting rather than merely loud.
+3. ⓘ **Not owed here:** `gateway`, `create`, `team` and `password` take the same code shape as `join` (a save whose
+   verdict is checked, then the hook) and are pinned individually by W14/W16/W17/W19 with their controls. Running all
+   four on metal would re-test the corpus, not the residue — record "covered by W14-W19" unless one of them is being
+   changed.
+
 ## Completion record
 
 - Firmware revision tested: `________________`

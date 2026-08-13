@@ -2,8 +2,13 @@
 // Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // §UI-13 — THE TYPED STAGED-CONFIGURATION SERVICE (spec docs/superpowers/specs/2026-07-31-onboard-oled-ui-design.md
-// §3.6.1). ★ HEADLESS BY DESIGN: this is an API plus its native tests. There is NO panel, NO screen and NO cycle
-// change in this slice — §UI-14's SETTINGS renderer is the first consumer, and it is deliberately not here.
+// §3.6.1). ★ HEADLESS BY DESIGN **IN THE SLICE THAT ADDED THIS FILE**: it is an API plus its native tests, with NO
+// panel, NO screen and NO cycle change of its own — that separation is why it stayed transport- and render-agnostic.
+// ⛔ CORRECTED IN PLACE 2026-08-13 (QG round 2): the sentence continued *"§UI-14's SETTINGS renderer is the first
+// consumer, and it is deliberately not here"* — future tense, and a reader who stopped at line 5 was told this
+// service is not used. **§UI-14 HAS LANDED and IS that consumer**: `src/firmware_ui.cpp` renders the SETTINGS screen
+// and constructs the ONE `ConfigService`, over the device bindings in `src/firmware_config.cpp`. The file is still
+// headless — that is a property of the FILE, not of the feature.
 //
 // ★★★ THERE ARE THREE STATES, NOT TWO, AND EVERY PREDICATE BELOW NAMES WHICH TWO OF THE THREE IT COMPARES
 //     (§3.6.1's own heading: "persisted, effective and draft are three different states"):
@@ -33,19 +38,31 @@
 //
 // ⓘ SERIAL/BLE KEEP THEIR IMMEDIATE-WRITE PATH (§3.6.1 says so explicitly, for companion compatibility). This
 //   service is transport-agnostic (no `Print`, no strings, no Arduino), and their hook into it is
-//   `note_external_write()` — see it for the two INDEPENDENT conflict detectors and why the unwired one still cannot
-//   produce last-writer-wins.
+//   `note_external_write()` — see it for the two INDEPENDENT conflict detectors and why the byte comparison alone
+//   still cannot produce last-writer-wins. ⛔ CORRECTED IN PLACE 2026-08-13 ([[B194]]): this sentence said "the
+//   UNWIRED one", which was true of §UI-13 and is now false — every USER-INITIATED `/mrcfg` verb calls the hook (see
+//   `§notify-every-save` in `src/firmware_config.cpp`); the INTERNAL writers deliberately do not.
 //
-// ✖ NOT IMPLEMENTED HERE, deliberately and by scope ([[meshroute-mark-done-vs-missing-in-code]]):
-//   · the SETTINGS renderer / menu / gestures (§3.6.2)      -> §UI-14;
-//   · team creation, join profiles, the nearby-join flow (§3.6.3/§3.6.4) -> their own slices; provisioning is
-//     explicitly NOT a draft field;
-//   · the DEVICE bindings of `ICfgStore` / `ICfgLive`. There is no instance of this service on hardware yet, so
-//     nothing calls it: the store binding belongs next to `nv_load_stamped` (src/firmware_config.cpp — the §nv-ritual
-//     load-or-seed/stamp prologue is what a device `load()` must be, so an unprovisioned chip opens on the live
-//     config instead of being refused), and `apply_live` must reproduce `handle_cfg_set`'s OFF->ON
-//     `mobile_register_current()` bridge (src/firmware_config.cpp, the `mobile_autoregister` arm) — the flag alone
-//     does not start a home attachment. ⚠ Both are listed here because a header is where an obligation survives.
+// ✖ NOT IMPLEMENTED IN THE §UI-13 SLICE THAT ADDED THIS FILE, deliberately and by scope
+//   ([[meshroute-mark-done-vs-missing-in-code]]). ⛔⛔ CORRECTED IN PLACE 2026-08-13 (QG round 2): this block was
+//   written as a list of things that DO NOT EXIST, and the first two entries have since LANDED — read as-is it told
+//   a reader that §UI-14 had not happened, on the same page as a service §UI-14 now drives. The list is kept as the
+//   §UI-13 SLICE BOUNDARY it always was, with each entry marked; nothing is deleted, and ⛔ NO obligation it records
+//   is dropped — the two that were owed are restated below as what the binding actually DID.
+//   · ✅ LANDED (§UI-14) — the SETTINGS renderer / menu / gestures (§3.6.2): `src/firmware_ui.cpp` + the pure model in
+//     `src/firmware_ui_model.h`. This file stayed transport- and render-agnostic, which is why it could.
+//   · 📝 STILL OWED — team creation, join profiles, the nearby-join flow (§3.6.3/§3.6.4) -> their own slices;
+//     provisioning is explicitly NOT a draft field. (The `PROVISION` row §UI-14 renders REFUSES out loud.)
+//   · ✅ LANDED (§UI-14, [[B193]]'s first half) — the DEVICE bindings of `ICfgStore` / `ICfgLive`. ⛔ This entry read
+//     *"There is no instance of this service on hardware yet, so nothing calls it"*; THAT IS NOW FALSE and is
+//     withdrawn here, not deleted. `mrfw::device_cfg_store()` / `device_cfg_live()` are in `src/firmware_config.cpp`
+//     and `src/firmware_ui.cpp` constructs the ONE `ConfigService` over them. ★ BOTH OBLIGATIONS THIS ENTRY RECORDED
+//     WERE DISCHARGED, and they are restated rather than dropped because a header is where an obligation survives:
+//     (1) the store's `load()` IS the §nv-ritual `nv_load_stamped` (load-or-seed/stamp), so an unprovisioned chip
+//     opens on its live config instead of being refused — and therefore `CfgOpen::no_record` and the pre-write
+//     `nv_failed` are UNREACHABLE ON DEVICE by construction; (2) `apply_live` reproduces `handle_cfg_set`'s OFF->ON
+//     `mobile_register_current()` bridge (the `mobile_autoregister` arm, same file so the two cannot drift) — the
+//     flag alone does not start a home attachment. ⛔ What is STILL owed is the third bullet below: real flash.
 //   · ⛔⛔ ANY QUALIFICATION AGAINST REAL FLASH. Every behaviour below is proved against FAKES in
 //     `test/test_firmware_config_service.cpp` — an `ICfgStore` that counts writes and can be told to fail. That is
 //     what makes "zero writes", "exactly one write" and "live only after durable success" measurable at all, and it
@@ -53,6 +70,10 @@
 //     behaviour (§3.6.5's "either the complete old record or the complete new record") is exercised here. Those are
 //     properties of the DEVICE BINDING and are deferred with it to §UI-14 / bug register B193, where they become a
 //     bench check. ⇒ a green suite here says the LOGIC is right, never that the storage is.
+//     ⛔⛔ AND THIS ONE IS STILL OWED, WHICH IS WHY IT IS THE BULLET THE OTHERS NOW POINT AT: the binding LANDED with
+//     §UI-14, but NOTHING EXERCISES IT — the native suite and both probes drive the service through FAKES (there is
+//     no NVS/LittleFS on a host) and the board envs only COMPILE it. ⇒ [[B193]] stays OPEN for exactly this half, and
+//     `docs/2026-07-31-bench-test-script.md` Parts 19/20 are its only closure path.
 //   · ⓘ `apply_radio_live` (src/firmware_config.cpp) is NOT reached from this slice and that is a MEASURED fact, not
 //     an omission: NOT ONE of the four covered fields is a radio parameter (§3.6.2 excludes frequency, transmit
 //     power, bandwidth and SF from the one-button editor). It remains the right and only hook for "apply live fields"

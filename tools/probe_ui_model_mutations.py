@@ -71,10 +71,21 @@ H = os.path.join(ROOT, TARGET_SRC[_TARGET])
 #    measured nothing — the instrument-that-cannot-fail shape, in the tool built to prevent it. ⇒ the clean tree is run
 #    FIRST and must produce EXACTLY these figures, or the run ABORTS before a single mutation is applied.
 #    ⓘ Override deliberately (a slice that legitimately adds cases): MR_MUT_BASE="cases,asserts".
-BASE_CASES, BASE_ASSERTS = 1581, 81943   # 2026-08-13: 1552 / 81563 -> +29 cases / +380 assertions, all §UI-13's
-                                         # (test/test_firmware_config_service.cpp). The pin is the WHOLE suite's, so
-                                         # BOTH targets move together when either adds cases — that is why it is one
-                                         # constant and not a per-target one.
+BASE_CASES, BASE_ASSERTS = 1615, 82362   # 2026-08-13 §notify-every-save ([[B194]]): +2 cases / +23 assertions — the
+                                         # `leave` SHAPE (all four covered fields reset to 0 under an open draft ->
+                                         # conflict + SAVE refused) and its NEGATIVE half (a `join`-shaped write moves
+                                         # no covered field and must raise NOTHING, which is what makes "notify on
+                                         # EVERY user-initiated save" self-limiting rather than merely loud).
+                                         # 2026-08-13 §UI-14 follow-up: 1610 / 82310 -> 1613 / 82339 for the IMMEDIATE
+                                         # external-write notification (spec §3.6.1) — incl. the change->REVERT->SAVE
+                                         # case the save-time byte comparison structurally cannot catch.
+                                         # 2026-08-13 §UI-14: 1581 / 81943 -> +29 cases / +367 assertions, all in
+                                         # test/test_firmware_ui_model.cpp (the SETTINGS screen, its marker and the
+                                         # save/discard/reboot states) — 2 of those assertions are the CYCLE update
+                                         # existing cases needed, the rest are new. ⓘ Before that: 1552 / 81563 ->
+                                         # 1581 / 81943 was §UI-13's. The pin is the WHOLE suite's, so BOTH targets
+                                         # move together when either adds cases — that is why it is one constant and
+                                         # not a per-target one.
 if os.environ.get("MR_MUT_BASE"):
     BASE_CASES, BASE_ASSERTS = (int(x) for x in os.environ["MR_MUT_BASE"].split(","))
 
@@ -456,12 +467,17 @@ MUTS_MODEL = [
   "                _inbox_sel_kind  = _inbox_nb_kind; _inbox_sel_seq = _inbox_nb_seq;\n                _inbox_sel_valid = _inbox_nb_valid;",
   "                ;"),
  # --- emergency interplay + the frame gate -------------------------------------------------------------------------
+ # ⚠ RE-ANCHORED 2026-08-13 (§UI-14): both used to carry `\n    if (g == Gesture::long_arm)` as part of the pattern,
+ #   and §UI-14 inserted the SETTINGS editor's close between the two lines — so both silently fell to match count 0,
+ #   i.e. VACUOUS. ★ That is the runner's own guard doing its job, and the lesson is the one this file already carries:
+ #   a pattern that spans two statements is a pattern the next slice can break. Anchor on the ONE line that is the
+ #   behaviour.
  ("M27 the modal is closed at `long_fire` (compose's rule, copied)",
-  "if (_st.detail != InboxModal::closed) close_detail();\n    if (g == Gesture::long_arm)",
-  "if (g == Gesture::long_fire && _st.detail != InboxModal::closed) close_detail();\n    if (g == Gesture::long_arm)"),
+  "if (_st.detail != InboxModal::closed) close_detail();",
+  "if (g == Gesture::long_fire && _st.detail != InboxModal::closed) close_detail();"),
  ("M28 the modal is not closed by a long press at all",
-  "if (_st.detail != InboxModal::closed) close_detail();\n    if (g == Gesture::long_arm)",
-  ";\n    if (g == Gesture::long_arm)"),
+  "if (_st.detail != InboxModal::closed) close_detail();",
+  ";"),
  ("M29 a completed DETAIL frame clears the unread counters",
   "st.detail == InboxModal::closed && st.screen == Screen::inbox);",
   "st.screen == Screen::inbox);"),
@@ -475,6 +491,64 @@ MUTS_MODEL = [
  ("M32 the page indicator is 0-based on the panel",
   'snprintf(out, cap, "%-14s %u/%u", from, unsigned(page) + 1u, unsigned(pages));',
   'snprintf(out, cap, "%-14s %u/%u", from, unsigned(page), unsigned(pages));'),
+ # --- §UI-14: the SETTINGS screen, the marker, and the save/discard/reboot states ------------------------------------
+ # ★ The aim is the same as the §UI-13 block's: the state COLLAPSES. `short`'s two modes with no state to separate
+ #   them (M35), the marker read from the wrong one of three predicates (M44/M46), and a fact claimed before the act
+ #   that establishes it (M47).
+ ("M33 SETTINGS is unreachable on a non-team build (the cycle gate copied from TEAM)",
+  "if (s.team_build || cand == Screen::status || cand == Screen::inbox || cand == Screen::settings) return cand;",
+  "if (s.team_build || cand == Screen::status || cand == Screen::inbox) return cand;"),
+ ("M34 the SETTINGS screen is not list-aware (one press leaves it)",
+  "if (_st.screen == Screen::settings) return settings_row_list(s).n;",
+  ";"),
+ ("M35 `short` WALKS THE ROWS while editing (the double-duty trap)",
+  "if (_st.settings == Settings::editing) { settings_edit_gesture(g, s); return; }",
+  ";"),
+ ("M36 the editor closes at `long_fire` instead of `long_arm` (compose's rule, copied)",
+  "if (_st.settings == Settings::editing) { _st.settings = Settings::browsing; _st.dirty = true; }\n    if (g == Gesture::long_arm)",
+  "if (g == Gesture::long_fire && _st.settings == Settings::editing) { _st.settings = Settings::browsing; }\n    if (g == Gesture::long_arm)"),
+ ("M37 a long press does not leave the editor at all",
+  "if (_st.settings == Settings::editing) { _st.settings = Settings::browsing; _st.dirty = true; }\n    if (g == Gesture::long_arm)",
+  ";\n    if (g == Gesture::long_arm)"),
+ ("M38 `BACK` DISCARDS the draft (the forbidden silent discard, through the door)",
+  "if (_cfg) _cfg->on_back();",
+  "if (_cfg) _cfg->discard();"),
+ ("M39 blanking DISCARDS the draft (the forbidden discard, through the timer)",
+  "if (_cfg) _cfg->on_blank();",
+  "if (_cfg) _cfg->discard();"),
+ ("M40 the RELOAD row stands permanently, not only while it applies",
+  "if (conflict) l.row[l.n++] = CfgRow::reload;",
+  "(void)conflict; l.row[l.n++] = CfgRow::reload;"),
+ ("M41 the BLE row is rendered unconditionally (the transport condition ignored)",
+  "if (ble_row) l.row[l.n++] = CfgRow::ble_mode;",
+  "(void)ble_row; l.row[l.n++] = CfgRow::ble_mode;"),
+ ("M42 an out-of-range row index CLAMPS to row 0 instead of failing closed",
+  "bool at(uint8_t i, CfgRow& out) const { if (i >= n) return false; out = row[i]; return true; }",
+  "bool at(uint8_t i, CfgRow& out) const { out = row[i >= n ? 0 : i]; return true; }"),
+ ("M43 the cursor does NOT follow its row when the list changes under it",
+  "            if (_st.cursor != i) { _st.cursor = i; _st.dirty = true; }   // the row MOVED -> the highlight follows\n            return;",
+  "            return;"),
+ ("M44 a REFUSED save reads as SAVED (the success that isn't)",
+  "        case mrfw::CfgSave::invalid:      return \"BAD VALUE\";",
+  "        case mrfw::CfgSave::invalid:      return \"SAVED\";"),
+ ("M45 the SAVE outcome is recorded BEFORE the service returns it",
+  "if (_cfg) { _st.cfg_save = _cfg->save(); _st.cfg_have_save = true; }",
+  "if (_cfg) { _st.cfg_save = mrfw::CfgSave::saved; _st.cfg_have_save = true; (void)_cfg->save(); }"),
+ ("M46 the unsaved marker is dropped from §3.3's row",
+  'return unsaved ? "CFG* UNSAVED" : "";',
+  '(void)unsaved; return "";'),
+ ("M47 the conflict headline is re-spelled here instead of called from the service",
+  "if (conflict) return mrfw::cfg_save_panel(mrfw::CfgSave::conflict);   // \"CFG! RELOAD\" — the SERVICE's string",
+  'if (conflict) return "CFG RELOAD!";'),
+ ("M48 the transient note is never retired (a stale outcome under a fresh act)",
+  "note_settings_cursor(s);\n                                          clear_settings_note(); _st.dirty = true; }",
+  "note_settings_cursor(s);\n                                          _st.dirty = true; }"),
+ ("M49 the editor SETS instead of cycling (one press can never turn a value off)",
+  "(void)_cfg->set(f, cfg_menu_next(f, _cfg->draft().at(f)));",
+  "(void)_cfg->set(f, uint8_t(1));"),
+ ("M50 a value row can be edited while the service is not open",
+  "if (_cfg && _cfg->is_open()) { _st.settings = Settings::editing; _st.dirty = true; }",
+  "{ _st.settings = Settings::editing; _st.dirty = true; }"),
 ]
 
 # ===== §UI-13 — src/firmware_config_service.h =====================================================================
