@@ -37,6 +37,12 @@
 //     stops being non-empty at the moment P2b measures suppression, because then P2b's real check would be passing
 //     over an empty queue. They are this probe's own vacuity guard, in the W10b sense, and they can fail: a
 //     `DeviceHal::tx` that sent immediately instead of enqueuing would trip them.
+//   ⓘ §UI-7D slice B ADDS FIVE MORE STANDING EXCEPTIONS, and they are the same shape — HARNESS PRECONDITIONS about
+//     `meshroute::Inbox`, not about this file: "the probe's real inbox is wired", "a DM is recorded", "a channel post is
+//     recorded", "six live records to browse", and the negative-space "P6f ...and deletes nothing else" (a REFUSED
+//     activation never reaches the store at all, so no mutation of the served path can move it). They can still fail —
+//     a `record_*` that stopped returning the assigned seq, or an `erase` that took a bystander, would trip them, and
+//     that is exactly their job: without them the P6 phases could be passing over an EMPTY store.
 
 #include "mr_features.h"
 #include "board_ui.h"          // the mrui:: canvas contract — IMPLEMENTED below as counting fakes
@@ -46,6 +52,8 @@
 #include "iclock.h"
 #include "iradio.h"
 #include "command.h"
+#include "inbox.h"              // §UI-7D slice B: the REAL Inbox is what these cases delete out of
+#include "fixed_inbox_store.h"  //   ...backed by the same heap-free RAM ring the ESP32 board itself runs ([[B134]])
 #include <Arduino.h>           // the shim: millis / Print / F() / Serial  (tools/probe_board_ui/fakes)
 #include <cstdio>
 #include <cstring>
@@ -166,6 +174,9 @@ ExecResult exec_command(const char* line, size_t len) {
 namespace { meshroute::ArduinoClock g_probe_clock; ProbeRadio g_probe_radio; }
 meshroute::DeviceHal g_hal(g_probe_clock, g_probe_radio);
 meshroute::Node      g_node(g_hal, /*node_id=*/1, /*key_hash32=*/0x11223344u, "probe");
+// §UI-7D slice B: two REAL stores, installed in P6 rather than at construction so the earlier phases keep measuring the
+// unwired-inbox configuration they were written against.
+namespace { meshroute::FixedInboxStore<8> g_probe_dm_store, g_probe_ch_store; }
 
 // ==================================================================================================================
 // harness
@@ -222,12 +233,53 @@ void dirty_the_model(uint32_t now_ms) {
 //   for a reason that was the harness, not the firmware. A gesture is the only thing that moves `_last_input_ms`.
 // ⓘ The press is delivered as a real `short_press` through the real `InputFsm` (debounce 25 / double_gap 350), not
 //   by poking the model — the whole point is that this probe drives the SHIPPED path.
+// ---- §UI-7D slice B helpers -------------------------------------------------------------------------------------
+// ★ Every gesture below is delivered through the REAL `InputFsm` (debounce 25, double_gap 350, arm 800), because the
+//   whole point of this probe is that it drives the shipped path rather than poking the model.
+uint32_t double_press(uint32_t t) {
+    g_c.button_down = true;  tick(t);       tick(t + 50);       // tap 1 (well inside arm_ms, so no long_arm)
+    g_c.button_down = false; tick(t + 100); tick(t + 150);
+    g_c.button_down = true;  tick(t + 200); tick(t + 250);      // tap 2 -> its release is the double_press
+    g_c.button_down = false; tick(t + 300); tick(t + 350);
+    return t + 400;
+}
+// Let the panel paint one complete frame. `begin_frame` resets `page_text` and every page re-draws the WHOLE scene, so
+// after this `page_text` is exactly what the panel is showing.
+void paint(uint32_t t) { run_ticks(t, 10, 10); }
+
+// A real `pull()` — the ONLY authority these cases use for "is the record still in the store". ⛔ Never the panel: a
+// visual disappearance is precisely what must not be trusted as evidence of a delete.
+struct LiveScan { int n = 0; bool found = false; meshroute::InboxKind kind = meshroute::InboxKind::dm; uint32_t seq = 0; };
+bool live_cb(void* vctx, const meshroute::InboxEntry& e) {
+    LiveScan* c = static_cast<LiveScan*>(vctx);
+    ++c->n;
+    if (e.kind == c->kind && e.seq == c->seq) c->found = true;
+    return true;
+}
+int live_count() { LiveScan c{}; (void)g_node.inbox().pull(0, 0, live_cb, &c); return c.n; }
+bool live_has(meshroute::InboxKind k, uint32_t seq) {
+    LiveScan c{}; c.kind = k; c.seq = seq;
+    (void)g_node.inbox().pull(0, 0, live_cb, &c);
+    return c.found;
+}
+
 uint32_t settle(uint32_t t) {
     g_c.button_down = true;  tick(t); tick(t + 50);          // stable press (debounce 25 ms)
     g_c.button_down = false; tick(t + 100);                  // release
     t += 500; tick(t);                                       // > double_gap_ms after the release -> short_press
     for (int i = 1; i <= 12; ++i) tick(t + uint32_t(i) * 10);   // let that press's frame page all the way out
     t += 700; tick(t);                                       // > kPaintThrottleMs since that paint
+    return t;
+}
+
+// Walk the list until the HIGHLIGHTED row is of the wanted kind (`>DM` / `>CH`), then open it with a double press.
+// ⚠ Asserted by the caller afterwards, never assumed: if the walk never finds one, the caller's first check fails.
+uint32_t open_highlighted(uint32_t t, const char* want) {
+    for (int i = 0; i < 14; ++i) {
+        paint(t);
+        if (strstr(g_c.page_text, want) != nullptr) { t = double_press(t + 500); paint(t); return t; }
+        t = settle(t + 500);
+    }
     return t;
 }
 }  // namespace
@@ -384,6 +436,133 @@ int main() {
     dirty_the_model(t);
     run_ticks(t, 8, 10);
     CHK("P5 an unavailable read does not erase the last good value", ends_with(g_c.first_text, "3.9V"));
+
+    // ============================================================================================================ P6
+    // ★★★★ §UI-7D slice B — THE INBOX DETAIL MODAL, END TO END, AGAINST A REAL `meshroute::Inbox`. This is the only
+    //     instrument in the tree that exercises the whole chain: a real button press -> the real `InputFsm` -> the model's
+    //     identity tracking -> `firmware_ui.cpp`'s `(kind, seq)` lookup over the real `pull()` -> the real
+    //     `Inbox::erase()` -> the panel. The native suite drives the model with a hand-built snapshot; nothing there can
+    //     see whether THIS file looks the record up by the right pair, copies the body while the pointer is alive, or
+    //     passes the three erase outcomes through.
+    // ★★ THE AUTHORITY FOR "DELETED" IS A REAL `pull()`, NEVER THE PANEL. Spec §3.5 forbids a visual disappearance
+    //    without durable success, so a check that read the screen would be asserting the one thing that may not be
+    //    trusted as evidence.
+    // ★★★ THE FIXTURE IS BUILT FOR ONE DEFECT IN PARTICULAR: three DMs and three channel posts, so BOTH stores hold
+    //     seq 1, 2 and 3. The two sequence spaces are independent, so a lookup or an erase that drops the KIND resolves
+    //     to the other store's record with the same number — [[B133]] was exactly that. ⓘ And the CHANNEL record is
+    //     opened FIRST, while its same-numbered DM is still live: `pull()` streams the DM block before the channel block,
+    //     so a `seq`-only lookup is INDISTINGUISHABLE from a correct one whenever the target is a DM. Ordering the
+    //     phases this way is what makes that control able to fail at all.
+    // ⚠ [[B134]] IS RESPECTED IN THE WORDING: the store here is the same volatile RAM ring the ESP32 board runs, so what
+    //   is measured is that the record is gone from every future pull IN THIS RUNTIME. ⛔ No power-loss claim is made or
+    //   available — and ⛔⛔ a cross-reboot check would be VACUOUS rather than merely absent: on that store a reboot
+    //   destroys the record, its tombstone and the whole history alike, so "still deleted" would pass for the wrong
+    //   reason. That is why nothing here simulates one.
+    g_probe_dm_store.set_epoch(1); g_probe_ch_store.set_epoch(1);
+    g_node.inbox().on_init(&g_probe_dm_store, &g_probe_ch_store);
+    CHK("P6 the probe's real inbox is wired", g_node.inbox().enabled());
+    {
+        const uint8_t d1[] = { 'd', 'm', '-', 'o', 'n', 'e' };
+        const uint8_t c1[] = { 'c', 'h', '-', 'o', 'n', 'e' };
+        for (uint16_t i = 1; i <= 3; ++i) {
+            CHK("P6 a DM is recorded",      g_node.inbox().record_dm(48, 0, i, 0, d1, sizeof d1, 1000) == i);
+            CHK("P6 a channel post is recorded",
+                g_node.inbox().record_channel(7, 0x01020300u + i, 0, c1, sizeof c1, 1000) == i);
+        }
+    }
+    CHK("P6 six live records to browse, seq 1..3 in BOTH stores", live_count() == 6);
+
+    // Walk to the INBOX screen with real presses. Asserted rather than counted, so a screen-order change cannot
+    // silently retarget everything below it.
+    t = settle(t + 2000);
+    for (int i = 0; i < 6 && strstr(g_c.page_text, "INBOX") == nullptr; ++i) { t = settle(t + 1000); paint(t); }
+    CHK("P6a the INBOX screen is reachable by pressing",   strstr(g_c.page_text, "INBOX") != nullptr);
+    CHK("P6a ...and it lists both kinds",                  strstr(g_c.page_text, "DM ") != nullptr &&
+                                                           strstr(g_c.page_text, "CH7") != nullptr);
+
+    // ---- (a) A CHANNEL record, opened while its same-numbered DM is still live -------------------------------------
+    t = open_highlighted(t + 500, ">CH");
+    CHK("P6b a double opens the CHANNEL record's modal",    strstr(g_c.page_text, "CH7 from") != nullptr);
+    CHK("P6b ...showing that record's own body",           strstr(g_c.page_text, "ch-one") != nullptr);
+    CHK("P6b ...with `back` selected, never `delete`",     strstr(g_c.page_text, ">back") != nullptr &&
+                                                           strstr(g_c.page_text, ">delete") == nullptr);
+    CHK("P6b ...and the page indicator reads 1/1",         strstr(g_c.page_text, "1/1") != nullptr);
+    CHK("P6b opening DELETED NOTHING",                     live_count() == 6);
+
+    // ---- (b) `back` CHANGES NOTHING IN STORAGE — asserted at the STORE, not on the screen --------------------------
+    t = double_press(t + 500); paint(t);
+    CHK("P6c `back` closes the modal",                     strstr(g_c.page_text, ">back") == nullptr &&
+                                                           strstr(g_c.page_text, "INBOX") != nullptr);
+    CHK("P6c ...and left all six records in the store",    live_count() == 6);
+    CHK("P6c ...including the one that was open",          live_has(meshroute::InboxKind::channel, 1));
+
+    // ---- (c) THE DELIBERATE SEQUENCE on a channel record: open, short, double -------------------------------------
+    t = open_highlighted(t + 500, ">CH");
+    CHK("P6d the channel modal is open again",             strstr(g_c.page_text, "CH7 from") != nullptr);
+    t = settle(t + 500); paint(t);                         // one SHORT press -> the action toggles
+    CHK("P6d a short press selects `delete`",              strstr(g_c.page_text, ">delete") != nullptr &&
+                                                           strstr(g_c.page_text, ">back") == nullptr);
+    CHK("P6d ...and still nothing has been deleted",       live_count() == 6);
+    t = double_press(t + 500); paint(t);
+    CHK("P6d the channel record is GONE from a real pull", !live_has(meshroute::InboxKind::channel, 1));
+    CHK("P6d ...exactly one record was removed",           live_count() == 5);
+    CHK("P6d ★ the DM with the SAME seq survived",         live_has(meshroute::InboxKind::dm, 1));
+    CHK("P6d ...and so did the other channel posts",       live_has(meshroute::InboxKind::channel, 2) &&
+                                                           live_has(meshroute::InboxKind::channel, 3));
+    CHK("P6d the modal closed back to the list",           strstr(g_c.page_text, "INBOX") != nullptr &&
+                                                           strstr(g_c.page_text, ">delete") == nullptr);
+
+    // ---- (d) THE SAME on a DM, so neither store is assumed symmetric with the other -------------------------------
+    t = open_highlighted(t + 500, ">DM");
+    CHK("P6e a DM record opens with the DM header",        strstr(g_c.page_text, "DM from 48") != nullptr);
+    CHK("P6e ...and its own body",                         strstr(g_c.page_text, "dm-one") != nullptr);
+    t = settle(t + 500); paint(t);
+    t = double_press(t + 500); paint(t);
+    CHK("P6e the DM is GONE from a real pull",             !live_has(meshroute::InboxKind::dm, 1));
+    CHK("P6e ...exactly one record was removed",           live_count() == 4);
+    CHK("P6e ★ the channel posts are untouched",           live_has(meshroute::InboxKind::channel, 2) &&
+                                                           live_has(meshroute::InboxKind::channel, 3));
+
+    // ---- (e) A RECORD REMOVED BEHIND THE UI'S BACK. The console verb `del_msg` does exactly this between two frames.
+    //          The list is rebuilt from the store every tick, so the selection is dropped and the activation REFUSED.
+    CHK("P6f removing a record out of band succeeds",
+        g_node.inbox().erase(meshroute::InboxKind::dm, 2) == meshroute::InboxEraseResult::erased);
+    const int live_after_oob = live_count();
+    t = double_press(t + 500); paint(t);
+    CHK("P6f a vanished record REFUSES with MESSAGE GONE", strstr(g_c.page_text, "MESSAGE GONE") != nullptr);
+    CHK("P6f ...opens no modal",                           strstr(g_c.page_text, ">back") == nullptr);
+    // ★ THE SAFETY HALF (§B64's rule, one plane over): while the refusal stands the `>` marker is SUPPRESSED. A
+    //   highlight beside a record the model has already refused to act on is the same wrong in display form — and it is
+    //   two presses from a Delete.
+    CHK("P6f ...and the list's highlight is suppressed",   strstr(g_c.page_text, ">DM") == nullptr &&
+                                                           strstr(g_c.page_text, ">CH") == nullptr);
+    CHK("P6f ...and deletes nothing else",                 live_count() == live_after_oob);
+
+    // ---- (f) THE `not_found` DELETE OUTCOME, END TO END: the record is evicted WHILE THE MODAL IS OPEN, so the erase
+    //          the user then confirms comes back `not_found`. ⛔ The modal must say MESSAGE GONE and must NOT read as a
+    //          success — "a visual disappearance without durable success is forbidden" is precisely this path.
+    t = open_highlighted(t + 500, ">CH");
+    CHK("P6g a channel record is open",                    strstr(g_c.page_text, "CH7 from") != nullptr);
+    {
+        // remove whichever channel record is open, out of band, then confirm the delete from the modal
+        const bool had2 = live_has(meshroute::InboxKind::channel, 2);
+        const uint32_t victim = had2 ? 2u : 3u;
+        CHK("P6g the open record is removed out of band",
+            g_node.inbox().erase(meshroute::InboxKind::channel, victim) == meshroute::InboxEraseResult::erased);
+    }
+    const int live_before_confirm = live_count();
+    t = settle(t + 500); paint(t);                         // select `delete`
+    t = double_press(t + 500); paint(t);                   // ...and confirm it
+    CHK("P6g the modal reports MESSAGE GONE",              strstr(g_c.page_text, "MESSAGE GONE") != nullptr);
+    CHK("P6g ...and says why, rather than implying success", strstr(g_c.page_text, "evicted or deleted") != nullptr);
+    CHK("P6g ...and NOTHING further was deleted",          live_count() == live_before_confirm);
+    t = double_press(t + 500); paint(t);                   // either press returns to the rebuilt list
+    // ⓘ MEASURED, and it is the right behaviour rather than a leak: the rebuilt LIST also carries `MESSAGE GONE`, because
+    //   the selection it was tracking is likewise gone from the store. What distinguishes the list from the modal is the
+    //   modal's own second line — so THAT is what must have disappeared.
+    CHK("P6g a press returns to the rebuilt INBOX",        strstr(g_c.page_text, "INBOX") != nullptr &&
+                                                           strstr(g_c.page_text, "evicted or deleted") == nullptr &&
+                                                           strstr(g_c.page_text, ">back") == nullptr);
 
     printf("\n%d passed / %d failed / %d total\n", g_pass, g_fail, g_pass + g_fail);
     return g_fail == 0 ? 0 : 1;

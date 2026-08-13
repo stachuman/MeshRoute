@@ -2,8 +2,10 @@
 
 *2026-07-31. From the owner's screen draft, refined in design dialogue. Fills the `mr_ui` seam that `2026-07-12-firmware-feature-split.md` slice 4 left empty.*
 
-*Status: ACTIVE DESIGN, updated 2026-08-06. Phase A code through UI-7 and the UI-9 battery reader is landed;
-UI-8/UI-9 still have open metal acceptance. Sections marked 📝 are design only and must not be read as shipped behavior.
+*Status: ACTIVE DESIGN, updated 2026-08-13. Phase A code through UI-7, **UI-7D (inbox detail/delete, BOTH slices)** and
+the UI-9 battery reader is landed; UI-7D/UI-8/UI-9 still have open metal acceptance. ⛔ **Phase A is NOT complete —
+[[B164]] and [[B189]] are a mandatory gate before on-device registration / team onboarding and before final Phase-A
+acceptance (ledger §1.21).** Sections marked 📝 are design only and must not be read as shipped behavior.
 The 2026-08-06 UI-13–UI-16 extension adds staged settings, direct provisioning and nearby-team onboarding.*
 
 > ★★ **FACT-ONLY CORRECTION PASS 2026-08-06 — register [[B130]]. Read this before trusting any instruction below.**
@@ -41,10 +43,11 @@ manual hardware gate.
 | UI-1 … UI-7 | ✅ | gesture, model, attribution, canvas, feature layer, real sends, roster and inbox preview are implemented |
 | UI-8 emergency hardware qualification | 🧪 | all render/send arms exist; the H8 bench matrix is still the completion gate |
 | UI-9 V3 battery reader | 🧪 | code and probes landed; H9 meter, control-line and radio-load checks remain |
-| UI-7D inbox detail/delete | 📝 UI · ✅ **storage** | **slice A LANDED 2026-08-06, QA-REJECTED the same day, RE-CLOSED 2026-08-07** — §6.2's `Inbox::erase(InboxKind, seq)` exists (tombstone; three outcomes; console `del_msg`); its two blockers were the durable store's **mid-frame tear** ([[B135]], pre-existing) and the verb's **target parsing** ([[B136]]), both fixed. §3.5's modal is **slice B** and is not built: the double press on INBOX still intentionally does nothing |
+| UI-7D inbox detail/delete | ✅ **UI + storage** · 🧪 metal | ⛔ **CORRECTED IN PLACE 2026-08-13: this row used to read `📝 UI · ✅ storage` and end *"§3.5's modal is slice B and is not built: the double press on INBOX still intentionally does nothing"*. THAT IS NOW FALSE.** **Slice A** (storage) landed 2026-08-06, QA-rejected the same day, re-closed 2026-08-07 — §6.2's `Inbox::erase(InboxKind, seq)` (tombstone; three outcomes; console `del_msg`), with the durable store's **mid-frame tear** ([[B135]], pre-existing) and the verb's **target parsing** ([[B136]]) both fixed. **Slice B** (the §3.5 modal) landed **2026-08-13**: `src/firmware_ui_model.h` owns the identity-tracked selection (`(InboxKind, seq)`), the modal, its paging and all three erase landings; `src/firmware_ui.cpp` owns the `(kind, seq)` lookup, the in-callback body copy and the one `erase()` call. 32 native mutations + 13 device-half probe controls, all RED. 🧪 **What remains is metal**: the panel's own rendering of the modal and the [[B134]] non-persistence check — see `docs/2026-07-31-bench-test-script.md` §UI-7D |
 | UI-10/UI-11 configurable presets | 📝 | §3.2.2–3; current OLED still uses the landed fixed catalog |
 | UI-12 Heltec ESP32 BLE | 📝 | §2.2; persisted `ble_mode` does not provide BLE on V3 yet |
-| UI-13…UI-16 settings and provisioning | 📝 | §3.6; no SETTINGS screen, draft marker, team-create/static-join UI or nearby-team onboarding exists yet |
+| UI-13 typed staged-config service | ✅ **service only — HEADLESS** | ⛔ **CORRECTED IN PLACE 2026-08-13: this used to be one `UI-13…UI-16` row reading `📝 … no SETTINGS screen, draft marker, team-create/static-join UI or nearby-team onboarding exists yet`. That sentence is now FALSE for UI-13 and still TRUE for UI-14…UI-16, so the row is SPLIT rather than overwritten.** `src/firmware_config_service.h` implements §3.6.1: the three states (persisted / effective / draft) with `config_unsaved`, `conflict` and `reboot_required` as three DISTINCT comparisons, typed per-field validation, whole-candidate validation before any write, exactly ONE durable `/mrcfg` write, live apply only after durable success, DISCARD/RELOAD, and the two ruled headlines `CFG! RELOAD` / `SAVE FAILED`. Covered fields = the four already-durable ones (`ble_mode`, `e2e_dm`, `intro_attach`, `mobile_autoregister`); no NV schema change, no `kVersion` bump. 29 native cases / 32 mutations, all RED. ⚠ **Proved against FAKES: the NV fault / power-cut half is deferred with the device binding to UI-14 / [[B193]].** ⛔ **NOTHING RENDERS OR CALLS IT**: no SETTINGS screen, no menu row, no gesture, and `ICfgStore`/`ICfgLive` have no device binding yet, so the running firmware's behaviour is unchanged |
+| UI-14…UI-16 settings screen and provisioning | 📝 | §3.6.2–§3.6.5; no SETTINGS screen, no draft marker on the panel, no team-create/static-join UI and no nearby-team onboarding exists yet. UI-14 is the first consumer of UI-13's service |
 | Heltec V4 UI/GPS | 📝 | Phase B; radio/RF work is owned by the separate V4 spec |
 
 Section headings below repeat a status only where the whole section has one clear state. Mixed sections defer to this
@@ -252,7 +255,7 @@ that can only boot into `INIT FAILED`.
 |---|---|---|---|
 | 1 | STATUS | `MR_FEAT_OLED` | ✅ |
 | 2 | TEAM (peer list) | `MR_FEAT_OLED && MR_FEAT_TEAM` | ✅ |
-| 3 | INBOX (DM + CH merged) | `MR_FEAT_OLED` | ✅ preview; detail/delete 📝 |
+| 3 | INBOX (DM + CH merged) | `MR_FEAT_OLED` | ✅ preview; ✅ detail/delete (§UI-7D slice B, 2026-08-13) |
 | 4 | SEND (team channel) | `MR_FEAT_OLED && MR_FEAT_TEAM` | ✅ |
 | 5 | SETTINGS / PROVISION | `MR_FEAT_OLED` | 📝 UI-14/UI-15 |
 
@@ -456,10 +459,27 @@ The tracker must therefore carry the **whole `SendFailReason`** into the model, 
 
 The sub-view closes to its parent on an explicit `double`, or after a bounded display window. `delivered` is the one place in this design where the word **DELIVERED is accurate** — it is a genuine end-to-end ack, unlike a channel post's `PICKED UP`.
 
-### 3.5 Inbox message detail and delete (owner extension 2026-08-05) · 📝 not implemented
+### 3.5 Inbox message detail and delete (owner extension 2026-08-05) · ✅ implemented 2026-08-13 (§UI-7D slice B)
 
-The landed UI-7 inbox is a bounded preview list: a double press has no inbox action and `InboxRow::text` retains only
-20 display characters. It does **not** yet satisfy this extension. A `double` on a highlighted DM or channel row opens
+> **AS BUILT — slice B, 2026-08-13.** Everything below is implemented as written; the paragraphs are kept in the
+> requirement's own words. ⛔ **CORRECTED IN PLACE: the opening sentence used to say the extension was NOT satisfied and
+> that "a double press has no inbox action" — both are now false.** The identity rule is enforced at three sites (the
+> preview snapshot's `(InboxKind, seq)`, the activation, and the `erase()` call), `InboxRow::text` remains a 20-character
+> RENDERING field, and the model asks while `src/firmware_ui.cpp` performs. ⚠ **[[B134]] BOUNDS WHAT "DURABLE" MEANS ON
+> THIS BOARD:** on every ESP32 target, `heltec_v3` included, the inbox is a **volatile RAM ring**, so `erased` means the
+> tombstone was appended and the record is gone from every future `pull()` **within that runtime**. ⛔ No power-loss
+> durability is claimed by the code, the tests or the panel — and ⛔⛔ **note which way that cuts: a reboot destroys the
+> record, its tombstone and the ENTIRE inbox together, so a deleted message CANNOT reappear and *"it survived the reboot"*
+> would be a VACUOUS pass on this board.** Cross-reboot delete durability is owed by a **durable** backend and is
+> qualified as such at §6.2's criterion; the volatility itself is pinned by bench Part 11.4.
+> ⓘ **Two measured consequences, recorded rather than smoothed over:** (1) the panel retains only
+> `kInboxRowsPerKind` = 4 rows **per kind** (§6.1's bound), so a record outside that window cannot be selected — and
+> therefore cannot be deleted — from the panel; the console verb `del_msg` remains the way to reach it ([[B191]]).
+> (2) After the terminal `MESSAGE GONE` modal closes, the rebuilt LIST also shows `MESSAGE GONE`, because the selection
+> it was tracking is likewise gone from the store. That is honest, not a leak.
+
+The landed UI-7 inbox was a bounded preview list: a double press had no inbox action and `InboxRow::text` retains only
+20 display characters. That did **not** satisfy this extension. A `double` on a highlighted DM or channel row opens
 one detail modal containing the complete stored body and exactly two selectable actions:
 
 ```
@@ -496,13 +516,26 @@ channel sequence spaces are independent, so `seq` alone is insufficient. The pre
 activation re-finds the exact record and copies it. If a refresh moves rows, the highlight follows the identity; if
 the record disappears, activation refuses with `MESSAGE GONE` rather than opening or deleting its replacement.
 
-### 3.6 On-device settings and provisioning (owner extension 2026-08-06) · 📝 not implemented
+### 3.6 On-device settings and provisioning (owner extension 2026-08-06) · 📝 not implemented, EXCEPT §3.6.1's service
 
 This extension changes the product scope: a Heltec mobile should be able to create a team without a phone, and should
 be able to join a static network from a prepared profile. It also introduces finite-choice settings on the panel.
 It does **not** retroactively make UI-1…UI-9 incomplete.
 
-#### 3.6.1 Persistence model: persisted, effective and draft are three different states
+#### 3.6.1 Persistence model: persisted, effective and draft are three different states · ✅ implemented 2026-08-13 (§UI-13) — the SERVICE only, headless
+
+★ **Where it landed:** `src/firmware_config_service.h` (`ConfigService`, `CfgValues`, `ICfgStore`, `ICfgLive`,
+`CfgOpen`/`CfgSet`/`CfgSave`/`CfgRefresh`), tests in `test/test_firmware_config_service.cpp`. The paragraphs below are
+the normative text and are unchanged; two points they leave open are recorded rather than invented:
+**(a)** `RELOAD` is named but not defined in the paragraphs below. ✅ **OWNER-RULED 2026-08-13** ([[B192]], ledger
+§1.22), in reported form: **RELOAD performs the THREE-WAY MERGE — fields UNCHANGED in the OLED draft adopt the current
+persisted values, fields EDITED in the draft remain unsaved in the draft, and DISCARD remains the explicit full
+reset.** That is what `ConfigService::reload` implements, so no code changed; ⛔ do not re-open it. The reason it is
+not "reinstate the whole draft" is why it was ruled so: that would be the last-writer-wins this same paragraph
+forbids. ⛔ **CORRECTED IN PLACE 2026-08-13: this item read *"That shape is a design choice, not a ruling — registered
+as an owner decision"*, which was true when written and is now false.** ⚠ **The ruling settles BEHAVIOUR only — the
+NV / power-cut qualification remains deferred to the UI-14 device binding and [[B193]].**
+**(b)** the covered set is the four fields §3.6.2 lists that are already durable; ⛔ no live-only field was promoted.
 
 The existing console contract is mixed by design: most `cfg set` keys write `/mrcfg` immediately, some are live-only
 and revert at reboot, identity fields write `/mrid`, and `join`/`create`/`team` are provisioning operations. A single
@@ -882,8 +915,15 @@ entry into a fixed buffer; no unbounded JSON intermediary and no heap allocation
 > to `InboxStore`** — `erase()` is composed from `read_since` + `append`, so no backend can be missed or silently
 > default to a no-op. The record format is **unchanged** (the marker is `type = 0xFE`, not a `DataType`), so **no
 > store-format version bump was taken**. Console: `del_msg <dm|chan> <seq>`. Register [[B133]].
-> ⚠ **[[B134]]:** on every ESP32 target — `heltec_v3` included — the inbox is a **volatile RAM ring**, so on the
-> panel's own board the delete is durable only until the next power cycle. Slice B must not imply otherwise.
+> ⚠ **[[B134]] — ⛔ DO NOT ACT ON THE NEXT SENTENCE WITHOUT THE SHARPENING DIRECTLY BELOW IT; read as-is it produced a
+> bench step that could only pass vacuously:** on every ESP32 target — `heltec_v3` included — the inbox is a **volatile
+> RAM ring**, so on the panel's own board the delete is durable only until the next power cycle. Slice B must not imply
+> otherwise.
+> ⛔ **SHARPENED 2026-08-13 (slice B), because the sentence above is true and still reads as the WRONG THING — it misled a
+> reader into writing a bench step that could only pass vacuously: *"durable only until the next power cycle"* does NOT
+> mean the message returns.** A reboot takes the record, its tombstone **and the whole inbox** with it
+> (`persisted_next_seq()` = 0, a fresh `storage_epoch` every boot). ⇒ **within the runtime: deletion is real. Across a
+> reboot: there is no history to have deleted from.** Nothing comes back, and nothing cross-reboot is testable here.
 
 
 > ⛔ **SUPERSEDED 2026-08-07 — the paragraph immediately below is the ORIGINAL REQUIREMENT text and its present
@@ -905,6 +945,13 @@ must prove all of the following before UI-7D is complete:
 - after power loss at any mutation point, the target record is either still present or absent; every other previously
   valid record remains readable and in its original order;
 - successful deletion survives reboot, creates only a hole in that kind's sequence space, and never reuses a sequence;
+  ⛔⛔ **PLATFORM-QUALIFIED 2026-08-13 (§UI-7D slice B), because the unqualified sentence invites a VACUOUS pass:** this
+  criterion is **REQUIRED OF A DURABLE BACKEND** (nRF52 + QSPI `DeviceInboxStore`) and is **UNTESTABLE ON THE CURRENT
+  HELTEC/ESP32 BACKEND**, where `FixedInboxStore` is a RAM ring — a reboot destroys the record, its tombstone and the
+  entire history alike ([[B134]]). ⇒ on ESP32 the honest statement is *"deletion is real and `pull()`-verified WITHIN the
+  runtime"*; *"it is still deleted after a reboot"* is true there only because **everything** is gone, so it must be
+  recorded `n/a, volatile store` rather than as a pass (bench Part 19.1 step 6). The native cases discharge this criterion
+  against the **segmented** store, which is where it has meaning.
 - `next_seq`, read cursor and storage epoch keep their meanings. A one-record delete is not a store wipe and must not
   make the companion reset both cursors;
 - `pull_inbox` and OLED browsing omit the deleted record; a failed delete omits nothing;
@@ -1254,32 +1301,49 @@ Slices are named `UI-n` deliberately: bare `U1`/`U3` would collide with the CLAU
 | UI-5 | ✅ | U8g2 board canvas and page paint | landed; board probe |
 | UI-6 | ✅ | button, snapshot/render policy and live cycle | landed; board probe |
 | UI-7 | ✅ | roster, fixed compose tables, real sends and inbox preview | landed; hardware acceptance partly recorded |
-| UI-7D | 📝 UI · ✅ storage | inbox detail/delete (§3.5/§6.2) | ✅ storage: `Inbox::erase` + `del_msg` + durable-append recovery ([[B135]]) + strict target parsing ([[B136]]); **storage fault/power-cut injection DONE natively** (`§B135/1…/6`, mid-frame injector) · 📝 UI: the §3.5 modal (slice B) + bench Part 11 on target |
+| UI-7D | ✅ **UI + storage** · 🧪 metal | inbox detail/delete (§3.5/§6.2) | ⛔ **CORRECTED IN PLACE 2026-08-13: this cell read `📝 UI · ✅ storage`, i.e. the ONE table a reader consults to answer "is this built?" still said the UI was not — while §3.5, §6.2 and §13's prose had all been corrected. Class-4 (a correction placed anywhere but the instruction a reader follows), third instance in one review round.** ✅ storage (slice A): `Inbox::erase` + `del_msg` + durable-append recovery ([[B135]]) + strict target parsing ([[B136]]); **storage fault/power-cut injection DONE natively** (`§B135/1…/6`, mid-frame injector). ✅ **UI (slice B, 2026-08-13): the §3.5 modal — identity-tracked `(InboxKind, seq)` selection, 42-char paging on `mr_ui_tick`, all three erase landings, the `long_arm` close; 32 native mutations + 13 device-half probe controls, all RED.** 🧪 **metal REMAINS THE ONLY OUTSTANDING PART: bench Part 19** (the panel's real 21 columns, wall-clock paging, and [[B134]]'s volatility control) |
 | UI-8 | 🧪 | emergency end-to-end qualification | code exists; complete H8 |
 | UI-9 | 🧪 | V3 battery reader and cache (§7) | code exists; complete H9/multimeter |
 | UI-10 | 📝 | versioned configurable preset catalog | native + storage fault injection |
 | UI-11 | 📝 | preset verbs, sparse lists and per-slot location | native + target, serial first |
 | UI-12 | 📝 | secured ESP32-S3 BLE-NUS for `heltec_mobile` | builds + BLE/LoRa soak |
-| UI-13 | 📝 | typed staged-config service, conflict detection and one-write commit (§3.6.1) | native + NV fault/power-cut |
+| UI-13 | ✅ **service only — HEADLESS** · 🧪 NV/power-cut | typed staged-config service, conflict detection and one-write commit (§3.6.1) | ⛔ **CORRECTED IN PLACE 2026-08-13: this cell read `📝` and the "Recommended next order" line below still named UI-13 as the next slice to START. Both were true until the service landed and are now false. FOURTH instance in this arc of a correction reaching the prose but not the table a reader acts on — which is why the sweep for this one covered §13's table, §13's next-order sentence, the §status map and §3.6/§3.6.1's headings.** ✅ **landed 2026-08-13** (`src/firmware_config_service.h`): three states, `config_unsaved` / `conflict` / `reboot_required` as three distinct comparisons, typed validation, whole-candidate validation before any write, ONE durable write, live apply only after durable success, DISCARD/RELOAD, `CFG! RELOAD` / `SAVE FAILED`. Native: 29 cases, **32 mutations all RED**. ⛔ **HEADLESS — no screen, no cycle change and NO DEVICE BINDING** (`ICfgStore`/`ICfgLive` unimplemented on hardware, [[B193]]) ⇒ 🧪 **the gate's "NV fault/power-cut" half is NOT met and is deferred with that binding to UI-14**: everything here is proved against a counting/failing FAKE store, which measures the LOGIC and cannot measure flash, wear or a reset mid-write |
 | UI-14 | 📝 | SETTINGS screen, marker and save/discard/reboot states (§3.6.2) | native + board probe + target |
 | UI-15 | 📝 | atomic team creation and four-profile static join (§3.6.3) | native + NV fault/power-cut + multi-node metal |
 | UI-16 | 📝 | current-PHY nearby-team scan, explicit candidate approval and sealed key grant (§3.6.4) | native + RF isolation controls + multi-node metal |
 
-UI-1…UI-7 and the UI-9 code are landed. UI-8 is a hardware gate, not missing firmware. UI-7D and UI-10…UI-16 are
-extensions and must not be reported as current behavior.
+UI-1…UI-7, **UI-7D (both slices)** and the UI-9 code are landed. UI-8 is a hardware gate, not missing firmware.
+**UI-7D is a hardware gate too now — its firmware is complete and only bench Part 19 is outstanding.**
+**UI-10…UI-12 and UI-14…UI-16 are extensions and must not be reported as current behavior.**
+⛔ **CORRECTED IN PLACE 2026-08-13: this read "UI-10…UI-16", which stopped being accurate when UI-13's SERVICE landed
+the same day. ⚠ The correction is narrow on purpose — UI-13's landed part is a HEADLESS API with no device binding and
+no screen, so "no on-device settings behavior exists" REMAINS TRUE and must still not be reported otherwise.**
+⛔ **CORRECTED IN PLACE 2026-08-13: this sentence read *"UI-7D and UI-10…UI-16 are extensions and must not be reported as
+current behavior"*, which was true until slice B landed and is now false for UI-7D. It is kept withdrawn rather than
+deleted because it is the sentence a reader acts on.**
 
-**Recommended next order:** finish H8/H9 qualification; then UI-13 → UI-14 → UI-15 → UI-16 because direct team
-creation followed by no-phone member onboarding is the owner's primary new goal. UI-10 → UI-11 and UI-12 may
+**Recommended next order:** finish H8/H9 qualification; then **UI-14 → UI-15 → UI-16** because direct team
+creation followed by no-phone member onboarding is the owner's primary new goal. ⛔ **CORRECTED IN PLACE 2026-08-13:
+this line read "then UI-13 → UI-14 → …" — UI-13's SERVICE landed that day, so it is no longer a slice to start.
+⚠ What UI-13 still owes is carried BY UI-14 and must not be dropped in the hand-over: the device binding of
+`ICfgStore`/`ICfgLive` ([[B193]] — the §nv-ritual load and `handle_cfg_set`'s OFF→ON `mobile_register_current()`
+bridge) and the NV fault / power-cut qualification that only a real store can be subjected to.** UI-10 → UI-11 and UI-12 may
 proceed independently after their own dependencies; UI-12 is needed for convenient preset/profile editing and
 companion key export, but neither atomic team creation nor current-PHY nearby onboarding depends on BLE.
 
-UI-7D's **storage half is LANDED** (§6.2 AS-BUILT; `Inbox::erase`, console `del_msg`, durable-append recovery
-[[B135]], target parsing [[B136]]). What remains is **slice B, the §3.5 modal itself**, which is independent of
-every other UI item. Until slice B lands, inbox double press doing nothing is expected.
+UI-7D is **LANDED IN FULL**: the storage half 2026-08-06/07 (§6.2 AS-BUILT; `Inbox::erase`, console `del_msg`,
+durable-append recovery [[B135]], target parsing [[B136]]) and **slice B, the §3.5 modal itself, on 2026-08-13**. What
+remains is **metal only** (bench Part 19).
+⛔ **CORRECTED IN PLACE 2026-08-13 — this paragraph read: *"What remains is slice B, the §3.5 modal itself … Until slice B
+lands, inbox double press doing nothing is expected."* Both sentences are now false: a double press on a highlighted
+inbox row opens the detail modal.**
 ⛔ **SUPERSEDED 2026-08-07 — this paragraph read: *"UI-7D remains independent and blocked on §6.2's durable erase
 contract. Until it lands, inbox double press doing nothing is expected."* The erase contract is no longer the
 blocker; only the UI is.** ⚠ On `heltec_v3` the store is a volatile RAM ring ([[B134]]), so slice B must not imply
-a permanence the board does not provide. UI-15's profile-based static join is honest about its boundary: a fresh device with no profile
+a permanence the board does not provide — ⓘ **and slice B (landed 2026-08-13) does not: it claims only within-runtime
+removal. ⛔ The correct reading of that volatility, spelled out because the short phrasing misled a reader once: a reboot
+takes the record, its tombstone and the whole history together, so nothing reappears and nothing cross-reboot is
+testable here.** UI-15's profile-based static join is honest about its boundary: a fresh device with no profile
 cannot enter arbitrary RF numbers from one button. UI-16 likewise discovers only teams audible on the current PHY;
 neither slice may imply a general cross-frequency scan.
 

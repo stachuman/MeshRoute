@@ -1862,6 +1862,78 @@ shape, and confirm the CTS on A is **7 bytes** rather than 6 if you have a frame
   If a `gateway` board fails to come up after this arc's reflash, RAM exhaustion is the first hypothesis, not the
   radio. ⛔ There is no console line to check for it in advance, so no numbered step is written here.
 
+## Part 19 — §UI-7D slice B: the on-device inbox detail/delete modal (2026-08-13)
+
+⚠ **M2 SCOPE, stated first so nothing else is added here.** Every gesture meaning, the `(InboxKind, seq)` identity
+rule, the 42-character paging, the 2 s cadence, all three `Inbox::erase` outcomes and the `long_arm` close are asserted
+by the native suite (32 mutations, all RED), and the whole device half — the `(kind, seq)` lookup over the real
+`pull()`, the in-callback body copy, the one `erase()` call and the panel's strings — is measured against a REAL
+`meshroute::Inbox` by `tools/probe_firmware_ui/` (13 controls for this slice, all RED). ⇒ **only three things here are
+beyond every automated gate: the real SSD1306's 21 columns, real wall-clock paging, and the fact that the ESP32 store
+is RAM.**
+
+### 19.1 — ★★ THE DELETE IS REAL *WITHIN THE RUNTIME*; ACROSS A REBOOT THERE IS NOTHING LEFT TO TEST ([[B134]])
+
+⛔ **This is the step that exists because the automated gates CANNOT reach it: the panel's store is a volatile RAM
+ring on `heltec_v3`, so the firmware's `erased` means "gone from every future pull IN THIS RUNTIME" and nothing more.**
+
+⛔⛔ **AND READ THE NEXT SENTENCE BEFORE STEP 6, BECAUSE THE FIRST DRAFT OF THIS PART GOT IT BACKWARDS AND WROTE A
+STEP THAT COULD ONLY PASS VACUOUSLY.** On ESP32 the backing store is `FixedInboxStore` — a RAM ring
+(`lib/core/fixed_inbox_store.h`: `Slot _slot[Slots]`, `persisted_next_seq()` returns 0 *"volatile: no backstop -> seq
+restarts at 1 each boot"*), and `fw_main.cpp` draws a **fresh random `storage_epoch` on every boot** precisely because
+*"the volatile store lost its history"*. ⇒ **after a power cycle NEITHER the record NOR its tombstone exists: the WHOLE
+inbox is empty.** So a deleted message **cannot come back** — and *"it is still deleted after a reboot"* passes for the
+wrong reason, on a board where every message is gone. ⇒ ⛔ **DELETE DURABILITY ACROSS A REBOOT IS NOT TESTABLE ON
+HELTEC AT ALL; it is owed by a DURABLE backend (nRF52 + QSPI), and Part 11.4 is already the control that pins the
+volatility itself.** ⚠ The retired step is kept here as the record: it read *"POWER-CYCLE THE BOARD … the deleted
+message COMES BACK. That is [[B134]] and it is expected"*. **That was false, and it is exactly the
+instrument-that-cannot-fail class this arc has 23 recorded instances of — reached, this time, in a bench step.**
+
+1. On a V3 with at least two stored messages, send yourself two DMs and one team-channel post so the INBOX screen
+   lists them. Confirm over USB with `pull_inbox` and note each record's `seq` **and** its kind.
+2. Cycle to INBOX, highlight a message, **double press**. Expected on the panel, exactly:
+   `DM from <origin>` (or `CH<n> from <origin>`) on the header row with `1/1` at its right, the body on the next two
+   rows, then `>back` and `  delete`. ⛔ **`>delete` must NOT be the selected row.**
+3. `pull_inbox` again: the record is **still there**. ⛔ Opening deletes nothing.
+4. **Short press** → the marker moves to `delete`. **Double press** → the modal closes to the list.
+5. `pull_inbox`: that record — and **only** that record — is gone. ★ **If the DM and channel stores both held that
+   `seq`, the other one MUST still be listed.** That is the one thing this step is really for.
+6. ⛔⛔ **DO NOT "verify the delete survived a reboot" HERE — there is nothing to survive.** What you may check, and
+   only as the [[B134]] product fact, is Part 11.4's control: power-cycle, `pull_inbox 0 0` → **ZERO lines and a CHANGED
+   `epoch`**, because the whole RAM ring went with the power. ⛔ If any message at all survives, the durable store has
+   been wired on ESP32 (a real change — say so) or the node did not reset, and **steps 1-5 are void until this
+   behaves**. ★ **The delete-survives-reboot criterion (spec §6.2) is owed by a DURABLE backend — nRF52 + QSPI — and
+   is UNTESTABLE on this board.** ⇒ record "n/a, volatile store" against it rather than a pass.
+
+### 19.2 — the panel's own 21 columns, and the 2 s page turn on real time
+
+1. Send yourself a DM of **more than 42 characters** (e.g. 100), open it, and watch without touching the button.
+   Expected: the header's indicator reads `1/3`, then `2/3`, then `3/3`, then **back to `1/3`** — about **2 s** each.
+2. ★ **Nothing may be clipped on the header row.** Worst case is `CH255 from 255 6/6` = 18 of the 21 columns; if the
+   panel truncates it, the font or the padding has changed and `mrui::inbox_detail_head` is where to look.
+3. ★★ **Leave it paging and do not press anything: after ~15 s of no input the modal closes back to INBOX and the panel
+   blanks as usual.** A page turn deliberately does NOT postpone that. ⛔ If the modal survives indefinitely on a long
+   body, the page advance is refreshing the inactivity deadline and the fix is in `UiModel::on_tick`, not here.
+4. Send yourself a message with non-printable bytes if you have a way to (or an E2E-ack receipt, which has **no body**
+   at all). Expected: `.` in place of each unsupported byte, an empty body renders as a blank two rows, and the
+   indicator still reads `1/1`. ⛔ Never a blank screen and never a wedged modal.
+
+### 19.3 — the emergency interplay, which is the safety half
+
+1. Open a message, **short press so `delete` is selected**, then **hold the button** (long press).
+2. Expected: the modal is **gone before** the `RELEASE!` overlay appears — and when you release early to CANCEL the
+   arm, the panel returns to the **INBOX list**, ⛔ **never to the modal with `delete` still selected.**
+3. Re-open the message: it must start on `>back` again.
+
+### 19.4 — ⓘ WHAT IS **NOT** OWED HERE, so nobody adds a step that cannot fail
+
+⛔ **No step for the `DELETE FAILED` (`io_error`) path.** On a V3 the RAM ring's append cannot fail short of the
+32-tombstone cap, so provoking it on metal means filling that cap deliberately — an arrangement harder to verify than
+its outcome. It is natively asserted (the modal stays open, says `DELETE FAILED`, and the record is proved still
+present) and mutation-proven in both directions.
+⛔ **No step for the unread counters.** That a completed detail frame does not clear them is a pure-model property with
+its own native case; the panel gives it no separate surface.
+
 ## Completion record
 
 - Firmware revision tested: `________________`

@@ -36,6 +36,15 @@
 // §R1 an accepted REPLY un-blanks the panel (`on_reply`, one line, past both scope guards — it is a TRANSITION, and
 // the "not wake-on-any-push" half is the placement); §R2 the emergency overlay ABSORBS a `double` entirely
 // (`on_gesture`, its OWN arm — see the ⚠⚠ there for why it must never be folded into §B102's latched short-press arm).
+// DONE here (2026-08-13, §UI-7D slice B — the inbox DETAIL/DELETE modal, spec §3.5): the preview row's identity PAIR
+// (`InboxRow::kind` + `seq`, replacing `is_dm` — one kind authority), the identity-tracking INBOX cursor
+// (`sync_inbox_cursor` / `note_inbox_cursor`, §B64's shape one plane over), `activate`'s INBOX arm and its loud refusal,
+// the modal itself (`InboxModal` / `InboxAction`, `detail_gesture`, the 42-char paging and its 2 s cadence on THIS
+// tick), the open/erase REQUEST-and-typed-ANSWER seam, all three `InboxEraseResult` landings, the `long_arm` close, and
+// `FrameGate`'s exclusion of the modal from the unread clear.
+// ⛔ NOT here, by unit boundary: `pull()` / `erase()` themselves and the pull callback that copies the body — those need
+//    `g_node` and live in src/firmware_ui.cpp. ⚠ [[B134]]: on ESP32 the inbox is a RAM ring, so "durable" here means the
+//    tombstone was appended IN THIS RUNTIME; nothing claims survival across a power cycle.
 // NOT here yet (UI-4, [[meshroute-mark-done-vs-missing-in-code]]): NOTHING correlates outcomes. Every `on_outcome` /
 // `on_send_accepted` / `on_send_refused` call must come from the Task-4 send tracker, which matches ctr/peer/channel
 // FIRST — feeding this model a raw Push would let an unrelated channel post complete an emergency (spec §2.1).
@@ -61,6 +70,15 @@
 // Arduino, no heap, no `Node` (it is what fw_main and the sim both parse INTO), so the unit stays native-testable and
 // board-free. Precedent: src/firmware_config_parse.h includes protocol_constants.h for the same reason.
 #include "command.h"
+// ★ §UI-7D slice B: THE SECOND lib/core dependency, and it is the SAME argument as `command.h`'s above. Spec §3.5/§6.1
+// rule that a preview row's selection identity is the PAIR `(InboxKind, seq)` and that the modal's delete calls
+// `Inbox::erase(InboxKind, seq)` — so this unit must name the CORE's `InboxKind` and its three-valued
+// `InboxEraseResult`. ⛔ A `mrui::` mirror of either would be the parallel enum U1 forbids, and — worse here — a
+// SECOND kind authority: the displayed kind and the erase target could then disagree, i.e. we would delete out of the
+// other store. `inbox.h` is app-seam-shaped exactly like `command.h` (typed PODs + an abstract store interface, no
+// Arduino, no heap, no `Node`), and it also carries `protocol::inbox_max_body`, the one number the modal's body buffer
+// may be sized from.
+#include "inbox.h"
 #include "firmware_ui_input.h"
 
 namespace mrui {
@@ -70,8 +88,31 @@ inline constexpr uint8_t  kMaxTeamRows  = 8;    // spec §11: a 3-10 member grou
 inline constexpr uint8_t  kMaxInboxRows = 8;
 inline constexpr uint8_t  kLabelCap     = 14;   // display-clamped teammate label
 
+// ⚠ ALIASES, not UI enums — they ARE `MESHROUTE_NS::InboxKind` / `MESHROUTE_NS::InboxEraseResult`, exactly as
+// `FailReason` below is `MESHROUTE_NS::SendFailReason`. They exist so this header names its cross-namespace
+// dependencies in one place; ⛔ never redeclare, renumber or mirror either.
+using InboxKind        = MESHROUTE_NS::InboxKind;
+using InboxEraseResult = MESHROUTE_NS::InboxEraseResult;
+
 enum class Screen  : uint8_t { status = 0, team, inbox, send, count };
 enum class Compose : uint8_t { none = 0, dm, channel };
+
+// ★★★ §UI-7D slice B — THE INBOX DETAIL MODAL'S GEOMETRY (spec §3.5), DERIVED AND NOT RESTATED ([[B120]]).
+// Two body rows of the panel's 21 small-font columns expose 42 characters per page, so the largest stored body needs
+// `ceil(inbox_max_body / 42)` pages — SIX today. ⛔ The `6` in the spec is a CONSEQUENCE of those three numbers; it is
+// asserted by a native case and appears in no arithmetic here.
+inline constexpr uint8_t  kDetailCols      = 21;
+inline constexpr uint8_t  kDetailBodyRows  = 2;
+inline constexpr uint8_t  kDetailPageChars = uint8_t(kDetailCols * kDetailBodyRows);
+inline constexpr uint8_t  kDetailMaxPages  =
+    uint8_t((MESHROUTE_NS::protocol::inbox_max_body + kDetailPageChars - 1) / kDetailPageChars);
+inline constexpr uint32_t kDetailPageMs    = 2000;   // spec §3.5: long bodies advance every 2 s and CYCLE
+
+// ★★ THE ONE DISPLAY-BYTE SANITIZER (U1), shared by the preview row and the detail body. An inbox body is NOT a C
+// string — it is raw record bytes that may contain NUL, control bytes and high-bit bytes — and spec §3.5 requires
+// unsupported bytes to be replaced VISIBLY rather than treated as control characters. `'.'` is the policy the UI-7
+// preview already shipped; this is that expression, moved to where both callers can reach it, not a second one.
+inline char ui_display_byte(uint8_t b) { return (b >= 0x20 && b < 0x7f) ? char(b) : '.'; }
 
 // ★★ §B66 CLOSED HERE 2026-08-05 (UI-7) — THE COUNT IS NOW DERIVED FROM THE TABLE, so the two cannot disagree.
 // The LAST row of a compose list is `back, don't send` and the model identifies it POSITIONALLY (`cursor + 1 == n`),
@@ -101,8 +142,23 @@ struct TeamRow {
     uint8_t  id = 0; uint32_t last_heard_s = 0; int16_t score_q4 = 0; uint8_t hops = 0;
     char     label[kLabelCap + 1] = {};   // resolved name / 0xhash / bare id, already clamped (spec §3.3)
 };
+// ★★★★ THE PREVIEW ROW, AND ITS IDENTITY IS THE PAIR `(kind, seq)` — spec §3.5/§6.1, verbatim in substance: "not the
+// visible row index, origin, message counter or body. DM and channel sequence spaces are independent, so `seq` alone is
+// insufficient."
+// ⛔ WHAT THIS STRUCT USED TO CARRY: `bool is_dm`, and it was LOAD-BEARING — `InboxRowBudget::add()` branched on it to
+//    pick the per-kind ring. It is REPLACED by `kind` rather than joined by it: two kind fields are two authorities that
+//    can drift, and the failure that drift produces is deleting from the OTHER STORE while the panel shows this one.
+//    ⇒ rendering AND budgeting both derive from `kind`. ⚠ A grep for `is_dm` still returns hits and ALL of them are
+//    COMMENTS recording the removal — [[B77]]'s trap, so read the sentence rather than counting the match; no CODE in
+//    the tree names it.
+// ⓘ `seq == 0` means NO IDENTITY: store sequences are 1-based (inbox.h:129, "seq 0 is the 'before everything' pull
+//    cursor"), and `Inbox::erase` documents `seq == 0` as `not_found`. `note_inbox_cursor` therefore refuses to select
+//    such a row at all, rather than carrying a selection that can only ever resolve to somebody else's record.
+// ⓘ `text` stays a RENDERING field — 20 display characters of preview — and is never an identity (spec §6.1).
 struct InboxRow {
-    bool     is_dm = false; uint8_t channel_id = 0; uint32_t rx_age_s = 0;
+    InboxKind kind = InboxKind::dm;
+    uint32_t  seq  = 0;
+    uint8_t  channel_id = 0; uint32_t rx_age_s = 0;
     char     text[21] = {};               // clamped to the panel width
 };
 
@@ -179,9 +235,12 @@ public:
     void reset() { _n_dm = 0; _n_ch = 0; }
     // Newest-wins: `pull` hands rows oldest-first, so once a ring is full each further row displaces the OLDEST it
     // holds. Shifting `kInboxRowsPerKind - 1` small structs is bounded and happens only past the cap.
+    // ⓘ §UI-7D slice B: the ring is selected from `r.kind`, which is now the row's ONLY kind field. The predicate is
+    //   deliberately written out at each use rather than cached in a second member — see InboxRow's block.
     void add(const InboxRow& r) {
-        InboxRow* buf = r.is_dm ? _dm : _ch;
-        uint8_t&  n   = r.is_dm ? _n_dm : _n_ch;
+        const bool dm = (r.kind == InboxKind::dm);
+        InboxRow* buf = dm ? _dm : _ch;
+        uint8_t&  n   = dm ? _n_dm : _n_ch;
         if (n < kInboxRowsPerKind) { buf[n++] = r; return; }
         for (uint8_t i = 1; i < kInboxRowsPerKind; ++i) buf[i - 1] = buf[i];
         buf[kInboxRowsPerKind - 1] = r;
@@ -242,6 +301,45 @@ inline constexpr uint32_t kArmToFireMs          = 3500;   // MUST match InputCfg
 // the exact text of the FIRST attempt. `firmware_ui.cpp` must CALL this; `tools/probe_board_ui/run.sh`'s W10 pins it.
 inline void emg_attempt_line(char* out, std::size_t cap, uint8_t ordinal) {
     snprintf(out, cap, "attempt %u of %u", unsigned(ordinal), unsigned(kEmgMaxTries));
+}
+
+// ================================================================================== §UI-7D slice B — the DETAIL MODAL
+// ★★★ THE MODAL'S STATE, and the two terminal answers are STATES rather than a message the renderer infers:
+//   `body` — the record is open: header, the current 42-character page, and the two actions.
+//   `gone` — the delete came back `not_found` (evicted, already deleted, or `seq == 0`). ⛔ TERMINAL, and there is NO
+//            ACTIVE DELETE in it: either press returns to a rebuilt INBOX. Nothing was deleted, and it must not read
+//            as though something had been.
+// ⓘ There is deliberately no `opening` state: `firmware_ui.cpp` serves the request inside the SAME service pass (the
+//   `take_send_request` precedent), so the gap is unobservable — and a request that is never served opens NOTHING,
+//   which fails closed rather than showing a record we have not read.
+enum class InboxModal  : uint8_t { closed = 0, body, gone };
+// ★ `back` is FIRST and is what a freshly opened modal selects, because spec §3.5 requires deletion to cost the
+//   deliberate sequence short -> double. ⛔ Not identified positionally (§B66's lesson): a two-member enum cannot be
+//   turned into a delete by somebody adding a row.
+enum class InboxAction : uint8_t { back = 0, del };
+// The model NEVER touches `g_node.inbox()` — it ASKS, exactly as it does for a send. `firmware_ui.cpp` drains the
+// request, performs the `pull()` / `erase()`, and feeds back a TYPED answer.
+enum class InboxWhat   : uint8_t { none = 0, open, erase };
+struct InboxReq { InboxWhat what = InboxWhat::none; InboxKind kind = InboxKind::dm; uint32_t seq = 0; };
+
+// ★★ THE MODAL'S HEADER LINE, formatted in this PURE unit for the §B115 reason: `src/firmware_ui.cpp` is compiled by
+// neither the native suite nor the simulator, so a string it builds is a string no automated gate can read. Here the
+// native suite asserts the VISIBLE BYTES.
+// ⓘ Spec §3.5's layout: `DM from <origin>` (or `CH<n> from <origin>`) with a `<page>/<pages>` indicator. Widest real
+//   expansion `CH255 from 255 6/6` = 18 of the panel's 21 small-font columns.
+// ★ `del_failed` REPLACES the from-line rather than a body row: the body rows are the message's own bytes, and dropping
+//   half a page while the error stands would make the page indicator name bytes the panel is not showing. The indicator
+//   itself is kept, so the failure does not cost the reader their place. Spec §3.5: "on storage failure stay in the
+//   modal and show DELETE FAILED".
+inline void inbox_detail_head(char* out, std::size_t cap, InboxKind kind, uint8_t origin, uint8_t channel_id,
+                              uint8_t page, uint8_t pages, bool del_failed) {
+    if (del_failed) { snprintf(out, cap, "DELETE FAILED %u/%u", unsigned(page) + 1u, unsigned(pages)); return; }
+    // 32 bytes so -Wformat-truncation can PROVE the widest expansion fits: "CH" + 10 + " from " + 10 + NUL = 29. The
+    // panel clips at 21 columns regardless — this bounds the FORMATTER, exactly as `kLineCap` does in the renderer.
+    char from[32];
+    if (kind == InboxKind::dm) snprintf(from, sizeof from, "DM from %u", unsigned(origin));
+    else                       snprintf(from, sizeof from, "CH%u from %u", unsigned(channel_id), unsigned(origin));
+    snprintf(out, cap, "%-14s %u/%u", from, unsigned(page) + 1u, unsigned(pages));
 }
 
 enum class Emergency : uint8_t { idle = 0, arming, firing, blocked, picked_up, not_heard, reply, cancelled, failed };
@@ -355,6 +453,28 @@ struct UiState {
     //    positional coupling §B66 exists to warn about — one row added or one clamp changed and it silently means
     //    something else. The flag says what it means.
     bool    team_pick_gone = false;
+    // ★★★ §UI-7D slice B — THE INBOX SIDE OF THE SAME IDENTITY RULING, and the same reason it rides `UiState`: the
+    //    refusal is a thing the panel must SAY (C2), and `UiState` is the struct the frame FREEZES, so it needs no
+    //    second plumbing (U2). Set when activation is refused because the selected `(kind, seq)` is no longer in the
+    //    store; cleared by the next navigation press. ⇒ spec §3.5's "activation refuses with MESSAGE GONE rather than
+    //    opening or deleting its replacement", and the renderer suppresses the `>` marker while it stands for the §B64
+    //    reason — a highlight beside a record the model has already refused to act on is the same wrong in display form.
+    bool    inbox_pick_gone = false;
+    // ★★★★ THE DETAIL MODAL'S FROZEN DISPLAY STATE (spec §3.5). ⛔ THE 242-BYTE BODY BUFFER IS **NOT** HERE: it stays
+    //     LIVE in the model (`_detail_body`) and only the CURRENT PAGE is frozen, so a frame copies ~60 bytes instead of
+    //     a quarter of a kilobyte while still satisfying the §5 freeze contract — the renderer reads none of the live
+    //     buffer.
+    // ★ `detail_kind` / `detail_seq` are the modal's SINGLE identity authority: `activate` writes them from the
+    //   selection, the open answer is REFUSED unless it names the same pair, and the erase request is built from them.
+    //   ⛔ Never re-derive the erase target from a snapshot row — rows move.
+    InboxModal  detail        = InboxModal::closed;
+    InboxAction detail_action = InboxAction::back;
+    bool        detail_del_failed = false;
+    uint8_t     detail_page = 0, detail_pages = 1;   // `pages` is never 0 — an empty body is ONE page
+    InboxKind   detail_kind = InboxKind::dm;
+    uint32_t    detail_seq  = 0;
+    uint8_t     detail_origin = 0, detail_channel = 0;
+    char        detail_line[kDetailBodyRows][kDetailCols + 1] = {};   // the current page, already sanitized + wrapped
     bool    blanked = false;
     bool    dirty   = true;
 };
@@ -411,11 +531,17 @@ public:
         //   because the user genuinely did act. That is the input-liveness layer, not the gesture contract, and the
         //   hold deadline (§4.3) is what governs the overlay's panel time regardless.
         if (g == Gesture::double_press && _emg != Emergency::idle) return;
+        // ★★ §UI-7D slice B: the DETAIL modal owns the gesture while it is open, and it is checked BEFORE compose
+        //    deliberately even though the two are mutually exclusive by construction (compose opens from TEAM/SEND,
+        //    detail from INBOX) — the modal that owns the BODY must own the press, and stating the order here means a
+        //    later screen that can reach both cannot make it ambiguous.
+        if (_st.detail != InboxModal::closed) { detail_gesture(g); return; }
         if (_st.compose != Compose::none) { compose_gesture(g); return; }
         // ★★★ §B64: re-anchor the TEAM cursor onto the TEAMMATE it was placed on, BEFORE the gesture acts on it — the
         //    roster is rebuilt every tick and can have reordered since the last one. See `sync_team_cursor`.
         sync_team_cursor(s);
-        if (g == Gesture::short_press)  { advance_or_next(s); note_team_cursor(s); _st.dirty = true; }
+        sync_inbox_cursor(s);            // ★ §UI-7D: the same re-anchoring for the INBOX row, by `(kind, seq)`
+        if (g == Gesture::short_press)  { advance_or_next(s); note_team_cursor(s); note_inbox_cursor(s); _st.dirty = true; }
         else if (g == Gesture::double_press) { activate(s);   _st.dirty = true; }
     }
 
@@ -430,12 +556,33 @@ public:
         if (_st.compose != Compose::none && elapsed(s.now_ms, _last_input_ms) >= kBlankMs) {
             close_compose();                                                 // never outlive attention; sends nothing
         }
+        // ★ §UI-7D slice B, spec §3.5: "ordinary modal timeout returns to INBOX without deleting" — the SAME kBlankMs
+        //   window the compose sub-view uses (U1), for the same reason: a modal that outlives the user's attention is
+        //   one whose selected action eventually gets pressed by accident. It deletes nothing, by construction.
+        if (_st.detail != InboxModal::closed && elapsed(s.now_ms, _last_input_ms) >= kBlankMs) close_detail();
+        // ★★★ THE 2 s PAGE ADVANCE, AND IT RIDES THIS TICK ON PURPOSE: `TimerWheel::kCap` is 91 and every id is
+        //     allocated, so a `Node` timer was not available — and would have been the wrong layer anyway, since a
+        //     display cadence is not protocol time.
+        // ★ IT MARKS THE MODEL DIRTY BUT DELIBERATELY DOES NOT TOUCH `_last_input_ms` (spec §3.5): the page turning is
+        //   the DEVICE acting, not the user, so it must not postpone the blank or the modal's own timeout above. ⇒ a
+        //   long body cycles for exactly as long as the inactivity window, and then the panel blanks as it always would.
+        // ⓘ The resulting repaint still obeys §5's MAC-idle/page-buffer gate — `FrameGate` is the only thing that
+        //   decides a frame may open, and this only asks.
+        if (_st.detail == InboxModal::body && _st.detail_pages > 1 &&
+            elapsed(s.now_ms, _detail_page_at_ms) >= kDetailPageMs) {
+            _st.detail_page = uint8_t((_st.detail_page + 1) % _st.detail_pages);   // ★ CYCLES, never stops at the last
+            _detail_page_at_ms = s.now_ms;
+            refresh_detail_page();
+            _st.dirty = true;
+        }
         // ★★★ §B64, AND THE PLACEMENT IS THE POINT: `FrameGate::step` FREEZES the state immediately after this call
         //    (`mr_ui_tick`: on_gesture -> on_tick -> step), so the highlight must already name the remembered teammate
         //    IN THIS SNAPSHOT. Re-anchoring only on a gesture would leave the panel showing `>` beside one teammate
         //    while `activate()` addressed another — the mis-send this ruling closes, arriving from the other side.
         //    ⓘ After the auto-exit above, deliberately: a modal that just closed gets its team cursor back the same tick.
         sync_team_cursor(s);
+        sync_inbox_cursor(s);            // ★ §UI-7D: same placement, same argument — the frozen frame must show the
+                                         //   highlight beside the record `activate()` would actually open.
         if (!_st.blanked && !hold_active(s.now_ms) &&
             elapsed(s.now_ms, _last_input_ms) >= kBlankMs) { _st.blanked = true; _st.dirty = true; }
     }
@@ -467,6 +614,103 @@ public:
         return true;
     }
     bool emergency_pending() const { return _emg_req_pending; }
+
+    // ------------------------------------------------------------------- §UI-7D slice B: the inbox detail/delete seam
+    // ★★★ THE WHOLE SEAM IN FIVE STEPS, and it exists because this unit may not touch `g_node.inbox()`:
+    //   1. the model emits a REQUEST carrying `(kind, seq)` — `take_inbox_request` below;
+    //   2. `firmware_ui.cpp` performs the `pull()` / `erase()`;
+    //   3. its pull callback COPIES AND SANITIZES the body BEFORE RETURNING (it calls `on_inbox_opened` from INSIDE the
+    //      callback, while `InboxEntry::body` is still valid — that pointer is a use-after-free one line later);
+    //   4. a TYPED answer comes back here;
+    //   5. the renderer reads only the FROZEN `UiState`, never the live buffer.
+    // ⚠ THIS IS NOT `take_send_request` AND MUST NOT BE CONFUSED WITH IT ([[B70]]): it does not blank the request, it
+    //   MARKS IT TAKEN, because the PAIR has to survive until the answer can be checked against it. A second call
+    //   returns false, so calling it twice cannot lose a request — the opposite failure mode from B70's.
+    bool take_inbox_request(InboxReq& out) {
+        if (_inbox_req.what == InboxWhat::none || _inbox_taken) return false;
+        _inbox_taken = true; out = _inbox_req; return true;
+    }
+    // ★★ THE OPEN ANSWER. `body` is the store's own record bytes and `body_len` is their COUNT — ⛔ never `strlen`: an
+    //    inbox body is not a C string and legitimately contains NUL (and `body` itself is `nullptr` whenever
+    //    `body_len == 0`, e.g. an E2E-ack receipt). The copy through `ui_display_byte` happens HERE, i.e. inside the
+    //    caller's pull callback, which is what makes the pointer safe to read at all.
+    // ⛔ A CROSSED ANSWER IS ACTED ON IN NO WAY: unless a request is outstanding AND names this exact pair, nothing
+    //    opens. That is the identity assertion at the second of its three sites (snapshot, activation, erase).
+    void on_inbox_opened(InboxKind kind, uint32_t seq, uint8_t origin, uint8_t channel_id,
+                         const uint8_t* body, uint8_t body_len, uint32_t now_ms) {
+        if (!inbox_answer_is(InboxWhat::open, kind, seq)) return;
+        clear_inbox_request();
+        _st.detail_kind = kind; _st.detail_seq = seq;
+        _st.detail_origin = origin; _st.detail_channel = channel_id;
+        uint8_t n = body ? body_len : 0;                      // no body at all is a legitimate record, not an error
+        if (n > MESHROUTE_NS::protocol::inbox_max_body) n = MESHROUTE_NS::protocol::inbox_max_body;
+        for (uint8_t i = 0; i < n; ++i) _detail_body[i] = ui_display_byte(body[i]);
+        _detail_body[n] = '\0'; _detail_len = n;
+        // ★ pages = max(1, ceil(len / 42)) — ⛔ never zero: an empty body still has a page, or the modal would render
+        //   `1/0` and the cycling arithmetic above would divide by zero.
+        const uint8_t p = uint8_t((n + kDetailPageChars - 1) / kDetailPageChars);
+        _st.detail_pages = p ? p : uint8_t(1);
+        _st.detail_page = 0;
+        _st.detail_action = InboxAction::back;                // spec §3.5: deletion costs short -> double, always
+        _st.detail_del_failed = false;
+        _st.detail = InboxModal::body;
+        _st.inbox_pick_gone = false;
+        _detail_page_at_ms = now_ms;
+        refresh_detail_page();
+        _st.dirty = true;
+    }
+    // The record named by the request was not in the store. ⇒ spec §3.5: REFUSE — do not open, and never open or delete
+    // whatever now occupies that row. The INBOX list is rebuilt from the store every tick, so returning to it with the
+    // refusal displayed IS the rebuilt list.
+    void on_inbox_open_gone(InboxKind kind, uint32_t seq) {
+        if (!inbox_answer_is(InboxWhat::open, kind, seq)) return;
+        clear_inbox_request();
+        _inbox_sel_valid = false; _st.inbox_pick_gone = true; _st.dirty = true;
+    }
+    // ★★★ THE DELETE ANSWER — all three outcomes, and NONE of them may make a record LOOK deleted without the store
+    //     having said so (spec §3.5: "a visual disappearance without durable success is forbidden").
+    // ⚠⚠ [[B134]], AND THE DIRECTION MATTERS: on every ESP32 target, `heltec_v3` included, the inbox is a VOLATILE RAM
+    //    ring. `erased` therefore means the tombstone was appended and the record is gone from every future `pull()` IN
+    //    THIS RUNTIME. ⛔ It is not a claim about surviving a power cycle — and ⛔⛔ that is NOT because the message would
+    //    come back: a reboot destroys the record, its tombstone AND THE WHOLE INBOX together
+    //    (`fixed_inbox_store.h`: `persisted_next_seq()` = 0, "seq restarts at 1 each boot"). ⇒ cross-reboot delete
+    //    durability is owed by a DURABLE backend and is not testable on this board at all.
+    void on_inbox_erased(InboxKind kind, uint32_t seq, InboxEraseResult r) {
+        if (!inbox_answer_is(InboxWhat::erase, kind, seq)) return;
+        clear_inbox_request();
+        switch (r) {
+            case InboxEraseResult::erased:
+                // ★ "preserve the neighbouring selection where possible" (spec §3.5) — by IDENTITY, captured when the
+                //   modal opened, so the next `sync_inbox_cursor` walks the highlight onto whatever row that record now
+                //   occupies. With no neighbour (we deleted the only row) there is nothing to preserve and the cursor
+                //   goes home rather than pointing past the end of a shorter list.
+                _inbox_sel_kind  = _inbox_nb_kind; _inbox_sel_seq = _inbox_nb_seq;
+                _inbox_sel_valid = _inbox_nb_valid;
+                if (!_inbox_sel_valid) _st.cursor = 0;
+                _st.inbox_pick_gone = false;
+                close_detail();
+                break;
+            case InboxEraseResult::not_found:
+                _st.detail = InboxModal::gone;        // TERMINAL, and it has no Delete action at all
+                _st.detail_del_failed = false;
+                _st.dirty = true;
+                break;
+            case InboxEraseResult::io_error:
+                // Stay in the modal, say so, and put the selection back on the SAFE action: a retry then costs the
+                // deliberate short -> double again rather than being one twitch away.
+                _st.detail_del_failed = true;
+                _st.detail_action = InboxAction::back;
+                _st.dirty = true;
+                break;
+        }
+    }
+    // Diagnostics for the native suite and the probes: what the modal is showing, and the identity it will act on.
+    InboxModal  detail_state()  const { return _st.detail; }
+    InboxAction detail_action() const { return _st.detail_action; }
+    InboxKind   detail_kind()   const { return _st.detail_kind; }
+    uint32_t    detail_seq()    const { return _st.detail_seq; }
+    uint8_t     detail_body_len() const { return _detail_len; }
+    const char* detail_body()   const { return _detail_body; }
 
     // ---------------------------------------------------------------------------------- UI-3: emergency + DM
     Emergency emergency() const { return _emg; }
@@ -783,6 +1027,29 @@ protected:
     char     _reply_who[kLabelCap + 1] = {};
     char     _reply_text[21]           = {};
 
+    // ★★★★ §UI-7D slice B's STATE. The INBOX selection is held by IDENTITY for the §B64 reason one plane over: the row
+    //     index is not the message. `_inbox_nb_*` is the neighbour a successful delete falls back to.
+    // ⓘ NO ARITHMETIC VALUE IS RESERVED (§B74's discipline): `_inbox_sel_valid` is a separate flag, so seq 0 — which
+    //   inbox.h documents as the "before everything" cursor and `erase()` reports as `not_found` — needs no special case
+    //   and can never be confused with "nothing is selected".
+    InboxKind _inbox_sel_kind = InboxKind::dm;
+    uint32_t  _inbox_sel_seq  = 0;
+    bool      _inbox_sel_valid = false;
+    InboxKind _inbox_nb_kind  = InboxKind::dm;
+    uint32_t  _inbox_nb_seq   = 0;
+    bool      _inbox_nb_valid = false;
+    // The in-flight request. ★ `_inbox_taken` says the request has been HANDED OUT and an answer is owed; the pair stays
+    //   readable until that answer arrives, because checking the answer against it is the identity assertion.
+    InboxReq  _inbox_req{};
+    bool      _inbox_taken = false;
+    // ★★ THE MODAL'S BODY, LIVE AND NOT FROZEN — `inbox_max_body + 1` bytes, held for the modal's lifetime so nothing
+    //    ever dereferences the callback-owned `InboxEntry::body` after `pull()` has returned (spec §3.5; that pointer is
+    //    into the store's own record bytes and is valid for the callback only). The FRAME freezes just the current page
+    //    (`UiState::detail_line`), which is what keeps a 242-byte buffer off the per-frame copy.
+    char      _detail_body[MESHROUTE_NS::protocol::inbox_max_body + 1] = {};
+    uint8_t   _detail_len = 0;
+    uint32_t  _detail_page_at_ms = 0;   // when the visible page was last turned; the 2 s cadence measures from here
+
     uint32_t next_backoff() {
         _backoff_ms = (_backoff_ms == 0) ? kBlockedBackoffMinMs
                                          : ((_backoff_ms * 2 > kBlockedBackoffMaxMs) ? kBlockedBackoffMaxMs : _backoff_ms * 2);
@@ -837,6 +1104,23 @@ private:
             _st.compose = Compose::dm; _st.compose_peer = _team_sel_id; _st.cursor = 0;
         } else if (_st.screen == Screen::send) {
             _st.compose = Compose::channel; _st.compose_peer = 0; _st.cursor = 0;
+        } else if (_st.screen == Screen::inbox) {
+            // ★★★★ §UI-7D slice B — WHAT USED TO BE A DELIBERATE NO-OP. Spec §3.2: a `double` on INBOX opens the detail
+            //     modal. It is the SAME shape as §B64's TEAM activation and for the same reason: the thing activated is
+            //     the remembered RECORD, never the row the cursor happens to be sitting on.
+            // ⛔ AND IT REFUSES RATHER THAN CLAMPING OR RE-READING THE ROW. A selection that is no longer in the store
+            //    (or was never identifiable) queues NOTHING and says so — because the alternative shape, "open whatever
+            //    is at this index now", opens somebody else's message and puts a DELETE two presses away from it.
+            // ⓘ An EMPTY list is left silent: the screen already says it has no stored rows, which IS the reason. Same
+            //   carve-out as the empty TEAM roster.
+            if (!_inbox_sel_valid) {
+                if (s.inbox_shown > 0) _st.inbox_pick_gone = true;
+                _st.dirty = true;
+                return;                                  // ⇒ NOTHING is requested. That is the whole assertion.
+            }
+            note_inbox_neighbour(s);                     // captured NOW, so a successful delete can land beside it
+            _inbox_req = { InboxWhat::open, _inbox_sel_kind, _inbox_sel_seq };
+            _inbox_taken = false;
         }
     }
     // ★★★★ §B64 — THE TEAMMATE THE CURSOR IS ON, HELD BY IDENTITY, AND RE-FOUND IN EVERY SNAPSHOT.
@@ -879,6 +1163,120 @@ private:
         _team_sel_valid = false;                         // an empty roster, or a screen that has no teammates at all
         if (_st.screen != Screen::team) _st.team_pick_gone = false;   // leaving the screen retires its message
     }
+    // ★★★★ §UI-7D slice B — THE INBOX CURSOR, HELD BY THE RECORD'S IDENTITY, AND RE-FOUND IN EVERY SNAPSHOT.
+    // ★ THE IDENTITY IS THE PAIR `(kind, seq)`, DERIVED AND NOT INVENTED (U1): both halves are fields the snapshot row
+    //   already carries and both are what `Inbox::erase(InboxKind, seq)` takes, so the thing tracked, the thing
+    //   displayed and the thing deleted are the SAME two values and cannot drift.
+    // ⛔ NOT the row index. `Inbox::pull()` hands records oldest-first and the per-kind budget keeps the NEWEST, so a
+    //    single arriving message shifts every retained row by one — an index-based selection then names its neighbour,
+    //    and the modal's Delete deletes that neighbour. ⛔ NOT `seq` alone either: the DM and channel sequence spaces are
+    //    independent, so seq 4 names two different messages. [[B133]] was this exact pair at another site.
+    // ⛔ NOT `origin`, the message counter or the preview text: `text` is a display field, and a display-shaped field
+    //    must never make a storage decision (the rule that killed B48).
+    // ⚠ It runs while the DETAIL modal is open too, deliberately: the list underneath must stay honest, and the modal
+    //   holds its OWN copy of the identity (`UiState::detail_*`), so a selection lost here cannot retarget an open
+    //   modal's delete. What it does mean is that returning from a modal whose record vanished lands on the refusal —
+    //   which is true.
+    void sync_inbox_cursor(const UiSnapshot& s) {
+        if (_st.screen != Screen::inbox || _st.compose != Compose::none) return;
+        if (!_inbox_sel_valid) return;                    // nothing picked yet, or a pick already lost (and announced)
+        for (uint8_t i = 0; i < s.inbox_shown; ++i) {
+            if (s.inbox[i].kind != _inbox_sel_kind || s.inbox[i].seq != _inbox_sel_seq) continue;   // ★ BOTH halves
+            if (_st.cursor != i) { _st.cursor = i; _st.dirty = true; }     // the record MOVED -> the highlight follows
+            return;
+        }
+        // GONE. The cursor may not silently come to rest on another message, so the selection is DROPPED and the loss
+        // is announced. ★ EDGE-TRIGGERED (spec §5): clearing `_inbox_sel_valid` is what stops this re-marking the frame
+        // dirty on every subsequent tick.
+        _inbox_sel_valid = false; _st.inbox_pick_gone = true; _st.dirty = true;
+    }
+    // The WRITE side: whatever row the cursor has come to rest on IS the new selection — so "the pick" is always
+    // something the user's last press actually pointed at. ⓘ A row with `seq == 0` has no identity and is NOT selected
+    // (see InboxRow): the refusal path above then applies, rather than a selection that could only resolve wrongly.
+    void note_inbox_cursor(const UiSnapshot& s) {
+        if (_st.screen == Screen::inbox && _st.cursor < s.inbox_shown && s.inbox[_st.cursor].seq != 0) {
+            _inbox_sel_kind = s.inbox[_st.cursor].kind; _inbox_sel_seq = s.inbox[_st.cursor].seq;
+            _inbox_sel_valid = true; _st.inbox_pick_gone = false;
+            return;
+        }
+        _inbox_sel_valid = false;                        // an empty list, an unidentifiable row, or another screen
+        if (_st.screen != Screen::inbox) _st.inbox_pick_gone = false;   // leaving the screen retires its message
+    }
+    // The row a successful delete should leave the highlight on: the one AFTER the selection, else the one BEFORE it.
+    // Captured at activation because that is the last snapshot in which the doomed record is still present.
+    // ⓘ The arithmetic is done in `uint16_t` so `cursor + 1` cannot wrap into a valid-looking index 0. The cursor is
+    //   bounded by `list_len` today, so that is a shape rule rather than a reachable bug — and it is the shape that
+    //   turns "no neighbour" into "row 0", which is a wrong row, which is the whole class this slice guards against.
+    void note_inbox_neighbour(const UiSnapshot& s) {
+        _inbox_nb_valid = false;
+        const uint16_t cur = _st.cursor, n = s.inbox_shown;
+        uint16_t nb = 0; bool have = false;
+        if (cur + 1u < n)          { nb = uint16_t(cur + 1u); have = true; }
+        else if (cur > 0 && cur <= n) { nb = uint16_t(cur - 1u); have = true; }
+        if (!have || nb >= n || s.inbox[nb].seq == 0) return;
+        _inbox_nb_kind = s.inbox[nb].kind; _inbox_nb_seq = s.inbox[nb].seq; _inbox_nb_valid = true;
+    }
+    // ★★★ THE MODAL'S GESTURES (spec §3.5): short TOGGLES the action, double ACTIVATES it, and `back` is selected on
+    //     entry — so deletion always costs the deliberate sequence short -> double.
+    void detail_gesture(Gesture g) {
+        // The TERMINAL `MESSAGE GONE` state: there is no action to toggle and nothing left to activate, so either press
+        // means "I have read it" and returns to the (rebuilt) INBOX. Same derivation as the compose result phase.
+        if (_st.detail == InboxModal::gone) {
+            if (g == Gesture::short_press || g == Gesture::double_press) close_detail();
+            return;
+        }
+        if (g == Gesture::short_press) {
+            _st.detail_action = (_st.detail_action == InboxAction::back) ? InboxAction::del : InboxAction::back;
+            _st.dirty = true; return;
+        }
+        if (g != Gesture::double_press) return;
+        // ⚠ A request already in flight is not doubled. The answer lands in the same service pass, so this is defensive
+        //   rather than reachable — but a second `erase` of the same pair would come back `not_found` and read as though
+        //   the first one had failed to find it.
+        if (_inbox_req.what != InboxWhat::none) return;
+        if (_st.detail_action == InboxAction::back) { close_detail(); return; }   // ⇒ storage is not touched at all
+        // ★★ THE ERASE TARGET IS THE MODAL'S OWN PAIR — the record we actually read and are actually showing. ⛔ Never
+        //    the snapshot row under `_st.cursor`: rows move, and this is the third of the identity's three assertion
+        //    sites (snapshot, activation, erase).
+        _inbox_req = { InboxWhat::erase, _st.detail_kind, _st.detail_seq };
+        _inbox_taken = false;
+        _st.dirty = true;
+    }
+    // ★ ONE exit for the modal (U1/U2). Five call sites reach it — `back`, the terminal state's acknowledgement,
+    //   `on_tick`'s timeout, a successful delete, and §UI-7D's `long_arm` — and every field must be cleared together or
+    //   a re-opened modal would render one record's page under another's header.
+    void close_detail() {
+        _st.detail = InboxModal::closed;
+        _st.detail_action = InboxAction::back;
+        _st.detail_del_failed = false;
+        _st.detail_page = 0; _st.detail_pages = 1;
+        _st.detail_seq = 0; _st.detail_origin = 0; _st.detail_channel = 0;
+        _detail_len = 0; _detail_body[0] = '\0';
+        for (uint8_t r = 0; r < kDetailBodyRows; ++r) _st.detail_line[r][0] = '\0';
+        _inbox_nb_valid = false;
+        _st.dirty = true;
+    }
+    // The current page, wrapped into the two body rows WITHOUT DROPPING BYTES: 21 columns each, taken in order. The
+    // bytes are already sanitized (`on_inbox_opened`), so this is a slice and nothing else — and it reads `_detail_len`
+    // rather than looking for a terminator, because the length is the truth about the record.
+    void refresh_detail_page() {
+        const uint16_t off = uint16_t(uint16_t(_st.detail_page) * kDetailPageChars);
+        for (uint8_t row = 0; row < kDetailBodyRows; ++row) {
+            char* dst = _st.detail_line[row];
+            uint8_t n = 0;
+            for (; n < kDetailCols; ++n) {
+                const uint16_t i = uint16_t(off + uint16_t(row) * kDetailCols + n);
+                if (i >= _detail_len) break;
+                dst[n] = _detail_body[i];
+            }
+            dst[n] = '\0';
+        }
+    }
+    bool inbox_answer_is(InboxWhat w, InboxKind k, uint32_t seq) const {
+        return _inbox_taken && _inbox_req.what == w && _inbox_req.kind == k && _inbox_req.seq == seq;
+    }
+    void clear_inbox_request() { _inbox_req = InboxReq{}; _inbox_taken = false; }
+
     void compose_gesture(Gesture g) {
         // ★★ UI-7: THE RESULT PHASE. Once a send has been issued the modal shows its OUTCOME instead of the list
         //    (spec §3.2.1/§3.4.1), so there is nothing to walk and nothing to activate — the only thing either gesture
@@ -931,6 +1329,18 @@ private:
 // ---------------------------------------------------------------------------------------------------- UI-3 bodies
 
 inline void UiModel::emergency_gesture(Gesture g, const UiSnapshot& s) {
+    // ★★★★ §UI-7D slice B — THE DETAIL MODAL CLOSES AT `long_arm`, i.e. BEFORE the alarm is armed, and ⛔ NOT at
+    //     `long_fire` the way the compose sub-view does. Spec §3.5 is explicit: "long press closes the detail modal
+    //     before arming emergency; the hidden Delete action cannot survive underneath an emergency overlay."
+    // ★ WHY THE COMPOSE RULE IS THE WRONG ONE TO COPY: §B101 deliberately leaves compose open through `long_arm` because
+    //   arming is cancellable and destroying the user's list position for a press they may still cancel is a second,
+    //   smaller wrong. Here the surviving selection can be DELETE, and ledger §1.4 has the overlay ABSORB a double
+    //   outright — so a modal left open underneath is unreachable, invisible, and still armed the moment the overlay
+    //   goes away. The asymmetry is the point, not an inconsistency.
+    // ⓘ `long_fire` needs no clause of its own: `InputFsm::update` emits it only with `_armed` set
+    //   (firmware_ui_input.h:39), and `long_arm` is the only thing that sets `_armed` — so the modal is provably already
+    //   closed by then. A `long_cancel` cannot bring it back either: closing is destructive.
+    if (_st.detail != InboxModal::closed) close_detail();
     if (g == Gesture::long_arm)    { _emg = Emergency::arming; _arm_fire_at_ms = s.now_ms + kArmToFireMs; return; }
     if (g == Gesture::long_cancel) { _emg = Emergency::cancelled; _cancelled_until_ms = s.now_ms + kCancelledMs; return; }
     // long_fire — a NEW alarm: the three-transmission budget, the backoff and any armed retry all reset, so a sticky
@@ -1045,8 +1455,13 @@ public:
         // ★★ §B108 — WHAT THIS FRAME WILL ACTUALLY SHOW, frozen with everything else. "Visible" mirrors `draw_frame`'s
         //   two early returns exactly: the emergency overlay REPLACES the body, and so does the compose modal — a
         //   frame showing either has not shown the Inbox, whatever `screen` says underneath it.
+        // ★★ §UI-7D slice B: THE DETAIL MODAL IS THE THIRD BODY-REPLACING VIEW and is EXCLUDED for exactly the reason
+        //    the other two are — `draw_frame` returns straight after drawing it, so a frame showing the modal HAS NOT
+        //    SHOWN THE INBOX LIST, whatever `screen` says underneath. Counting it would clear the session unread
+        //    counters for messages the panel never listed, which is [[B108]]'s harm in a new location.
         const UiState& st = m.state();
-        _fr_inbox = (m.emergency() == Emergency::idle && st.compose == Compose::none && st.screen == Screen::inbox);
+        _fr_inbox = (m.emergency() == Emergency::idle && st.compose == Compose::none &&
+                     st.detail == InboxModal::closed && st.screen == Screen::inbox);
         // ★★ THE SERIALS, not the counts (§B108 round 2). These come from the same `publish` that produced the
         //   `unread_*` this frame will render, so "what the user saw" and "what we will mark read" cannot diverge.
         _fr_arr_dm = s.arr_dm;

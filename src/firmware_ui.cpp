@@ -28,6 +28,11 @@
 //             reading — is `mrui::ui_perform_send` in firmware_ui_send.h, under the native gate.
 //   ★ DONE 2026-08-05 (UI-7) — inbox ROWS, over `Inbox::pull()` directly (spec §6.1), with the per-kind newest-wins
 //             budget in `mrui::InboxRowBudget` so a chatty channel cannot evict every DM row.
+//   ★ DONE 2026-08-13 (§UI-7D slice B) — the inbox DETAIL/DELETE modal's DEVICE half: the exact `(kind, seq)` lookup
+//             over `pull()`, the body copy performed INSIDE that callback (the pointer dies with it), the one call to
+//             `Inbox::erase` with its three outcomes passed through verbatim, and the modal's renderer. Every gesture
+//             meaning, the identity tracking, the paging cadence and all three outcome landings are `firmware_ui_model.h`,
+//             under the native gate. ⚠ [[B134]]: the ESP32 inbox is a RAM ring — "durable" here is within this runtime.
 //   ★ DONE 2026-08-05 (the UI-7 QA fix slice, §B64) — the TEAM screen's half of the owner's identity ruling: while
 //             `UiState::team_pick_gone` stands, one body row is RESERVED for `TEAMMATE GONE, repick` and the `>` marker
 //             is SUPPRESSED. The suppression is the safety half — a highlight beside a target the model has already
@@ -238,7 +243,12 @@ struct InboxPullCtx { mrui::InboxRowBudget* budget; uint64_t now64; };
 bool inbox_row_cb(void* vctx, const MESHROUTE_NS::InboxEntry& e) {
     InboxPullCtx* c = static_cast<InboxPullCtx*>(vctx);
     mrui::InboxRow r{};
-    r.is_dm      = (e.kind == MESHROUTE_NS::InboxKind::dm);
+    // ★★★ §UI-7D slice B: THE ROW CARRIES THE IDENTITY PAIR, copied verbatim from the record. `kind` replaced the old
+    //     `bool is_dm` (one kind authority — see InboxRow), and `seq` is what makes the row nameable at all: it is what
+    //     `Inbox::erase(InboxKind, seq)` takes, so what the panel selects and what the store deletes are the same two
+    //     values. ⛔ Neither may be re-derived downstream from `origin`, `msg_id` or the row's position.
+    r.kind       = e.kind;
+    r.seq        = e.seq;
     r.channel_id = e.channel_id;
     // `rx_time_ms` is 64-bit node uptime; the snapshot carries a 32-bit age. A record stamped in the future (a store
     // that survived a reboot, since uptime restarts and the store does not) reads as UNKNOWN — `--`, never a
@@ -248,13 +258,66 @@ bool inbox_row_cb(void* vctx, const MESHROUTE_NS::InboxEntry& e) {
     const uint8_t cap = uint8_t(sizeof r.text - 1);
     uint8_t n = (e.body_len < cap) ? e.body_len : cap;
     if (!e.body) n = 0;                                   // an E2E-ack RECEIPT carries no body at all (body == nullptr)
-    for (uint8_t i = 0; i < n; ++i) {
-        const uint8_t ch = e.body[i];
-        r.text[i] = (ch >= 0x20 && ch < 0x7f) ? char(ch) : '.';   // one panel row; a raw control byte is not drawable
-    }
+    // ⓘ §UI-7D slice B: the `'.'` substitution moved into `mrui::ui_display_byte` so the preview row and the detail
+    //   body share ONE sanitizer (U1) — the policy is unchanged, and the detail modal must not invent a second one.
+    for (uint8_t i = 0; i < n; ++i) r.text[i] = mrui::ui_display_byte(e.body[i]);
     r.text[n] = '\0';
     c->budget->add(r);
     return true;                                          // never stop early — the budget decides what is KEPT
+}
+
+// ---- the DETAIL modal's store half (§UI-7D slice B, spec §3.5) ---------------------------------------------------
+// ★★★ THE MODEL ASKS; THIS ANSWERS. `mrui::UiModel` may not touch `g_node.inbox()` at all — that is what keeps every
+//     gesture meaning, every state transition and the whole identity rule natively testable — so it emits a REQUEST
+//     carrying `(InboxKind, seq)` and this file performs the `pull()` / `erase()` and feeds back a TYPED answer.
+// ★★ AND THE COPY HAPPENS INSIDE THE CALLBACK, ON PURPOSE. `InboxEntry::body` points into the store's own record bytes
+//    and is valid for the duration of this callback ONLY (inbox.h:23-24) — one line after `pull()` returns it is a
+//    use-after-free. `on_inbox_opened` copies AND sanitizes it into the model's fixed `inbox_max_body + 1` buffer while
+//    the pointer is still live, and the renderer only ever reads the FROZEN page that buffer produced.
+// ⚠ `e.body` is `nullptr` whenever `body_len == 0` (an E2E-ack receipt has no body at all) and the bytes are NOT a C
+//   string — the model is handed the LENGTH and never calls `strlen`.
+struct InboxFindCtx { mrui::InboxKind kind; uint32_t seq; uint32_t now_ms; bool found; };
+bool inbox_detail_cb(void* vctx, const MESHROUTE_NS::InboxEntry& e) {
+    InboxFindCtx* c = static_cast<InboxFindCtx*>(vctx);
+    // ★★★ BOTH HALVES OF THE PAIR. The DM and channel sequence spaces are independent, so matching `seq` alone would
+    //     open — and then delete — the other store's record with the same number ([[B133]] was this exact pair).
+    if (e.kind != c->kind || e.seq != c->seq) return true;
+    c->found = true;
+    s_model.on_inbox_opened(e.kind, e.seq, e.origin, e.channel_id, e.body, e.body_len, c->now_ms);
+    return false;                                         // sequences are unique within a kind: nothing else can match
+}
+
+// ⓘ `pull()` already FILTERS tombstoned records (inbox.h:132-137), so a record deleted a moment ago is genuinely not
+//   found here — which is what makes `MESSAGE GONE` the truth rather than a guess.
+void ui_open_inbox_detail(const mrui::InboxReq& rq, uint32_t now_ms) {
+    InboxFindCtx c{ rq.kind, rq.seq, now_ms, false };
+    (void)g_node.inbox().pull(/*dm_since=*/0, /*chan_since=*/0, inbox_detail_cb, &c);
+    // C2, FAIL LOUD: the request is ALWAYS answered. A silent non-answer would leave the model waiting for an open that
+    // can never arrive, and the panel would simply not respond to the press.
+    if (!c.found) s_model.on_inbox_open_gone(rq.kind, rq.seq);
+}
+
+// ★★ ⛔ THE ONE PLACE A RECORD IS DELETED, and the outcome is passed through VERBATIM. `Inbox::erase` distinguishes
+//    three states and the panel renders each differently; collapsing them to a bool is exactly what §3.5 forbids —
+//    `not_found` is neither a success nor a storage failure.
+// ⚠ [[B134]]: on `heltec_v3` the inbox is a volatile RAM ring, so `erased` means the tombstone was appended and the
+//   record is gone from every future `pull()` IN THIS RUNTIME. ⛔ It is not a claim about surviving a power cycle — and
+//   ⛔⛔ not because the record would return: a reboot takes it, its tombstone and the ENTIRE history together, so there
+//   is nothing cross-reboot to test on this board (spec §6.2's criterion is platform-qualified for exactly that).
+void ui_erase_inbox_record(const mrui::InboxReq& rq) {
+    s_model.on_inbox_erased(rq.kind, rq.seq, g_node.inbox().erase(rq.kind, rq.seq));
+}
+
+void ui_service_inbox_request(uint32_t now_ms) {
+    mrui::InboxReq rq{};
+    if (!s_model.take_inbox_request(rq)) return;
+    switch (rq.what) {
+        case mrui::InboxWhat::open:  ui_open_inbox_detail(rq, now_ms); break;
+        case mrui::InboxWhat::erase: ui_erase_inbox_record(rq);        break;
+        // `none` is not a request the drain can hand out (it is the "nothing pending" value), and it is listed rather
+        // than defaulted so a fourth verb fails the build instead of being silently dropped (§B72's rule).
+        case mrui::InboxWhat::none:  break;
+    }
 }
 
 void fill_inbox_rows(mrui::UiSnapshot& s) {
@@ -456,16 +519,56 @@ void draw_inbox_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
     }
     snprintf(l, sizeof l, "INBOX %u/%u", unsigned(s.inbox_shown), unsigned(s.inbox_total));
     mrui::draw_text(0, body_y(0), l);
-    const uint8_t first = list_first(st.cursor, s.inbox_shown, kBodyRows - 1);
-    for (uint8_t row = 0; row + 1 < kBodyRows && first + row < s.inbox_shown; ++row) {
+    // ★★★ §UI-7D slice B — THE LOUD HALF OF THE ACTIVATION REFUSAL, and the suppressed highlight is the other half. It
+    //     is §B64's TEAM treatment applied to the record identity: the selected `(kind, seq)` is no longer in the store,
+    //     so `UiModel::activate` refused to open (and therefore refused to put a DELETE two presses from) whatever now
+    //     occupies that row. One body row is RESERVED for the reason rather than overwriting a message, and the `>`
+    //     marker goes away — a highlight beside a record the model has already refused to act on is the same wrong in
+    //     display form. The two must agree, always.
+    const uint8_t rows  = st.inbox_pick_gone ? uint8_t(kBodyRows - 2) : uint8_t(kBodyRows - 1);
+    const uint8_t first = list_first(st.cursor, s.inbox_shown, rows);
+    for (uint8_t row = 0; row < rows && first + row < s.inbox_shown; ++row) {
         const mrui::InboxRow& e = s.inbox[first + row];
         char tag[6];
-        if (e.is_dm) snprintf(tag, sizeof tag, "DM");
-        else         snprintf(tag, sizeof tag, "CH%u", unsigned(e.channel_id));
+        // ⓘ §UI-7D: the tag comes from `kind`, the row's ONLY kind field. `is_dm` is gone from the tree.
+        if (e.kind == mrui::InboxKind::dm) snprintf(tag, sizeof tag, "DM");
+        else                               snprintf(tag, sizeof tag, "CH%u", unsigned(e.channel_id));
         fmt_age(age, sizeof age, e.rx_age_s);
-        snprintf(l, sizeof l, "%c%-3s %-9s %4s", (first + row == st.cursor) ? '>' : ' ', tag, e.text, age);
+        snprintf(l, sizeof l, "%c%-3s %-9s %4s",
+                 (!st.inbox_pick_gone && first + row == st.cursor) ? '>' : ' ', tag, e.text, age);
         mrui::draw_text(0, body_y(row + 1), l);
     }
+    // Spec §3.5's own words for the refusal, on the last body row — the same place the TEAM screen puts its reason.
+    if (st.inbox_pick_gone) mrui::draw_text(0, body_y(kBodyRows - 1), "MESSAGE GONE");
+}
+
+// ★★★★ §UI-7D slice B — THE DETAIL MODAL (spec §3.5). It REPLACES the body, like the emergency overlay and the compose
+//     sub-view, which is why `FrameGate::_fr_inbox` excludes it from the unread clear.
+// ★★ EVERYTHING HERE IS FROZEN STATE. The 242-byte body buffer stays LIVE in the model and is never read from this
+//    file: what a frame renders is the CURRENT PAGE, wrapped into two rows at the freeze, so the eight page transfers
+//    of one frame cannot tear a body that the 2 s cadence turns underneath them (spec §5).
+// ★ The header line is composed by the PURE formatter `mrui::inbox_detail_head`, where the native suite asserts its
+//   visible bytes — the §B115 discipline: a string built in this TU is a string no automated gate can read.
+void draw_inbox_detail(const mrui::UiState& st) {
+    char l[kLineCap];
+    // ⛔ TERMINAL `MESSAGE GONE` (the delete came back `not_found`): NO Delete action is offered, and the panel says
+    //    plainly that nothing was removed by this press — the record was already absent. Either press returns to INBOX.
+    if (st.detail == mrui::InboxModal::gone) {
+        mrui::draw_text(0, body_y(0), "MESSAGE GONE");
+        mrui::draw_text(0, body_y(1), "evicted or deleted");
+        mrui::draw_text(0, body_y(4), "press = back");
+        return;
+    }
+    mrui::inbox_detail_head(l, sizeof l, st.detail_kind, st.detail_origin, st.detail_channel,
+                            st.detail_page, st.detail_pages, st.detail_del_failed);
+    mrui::draw_text(0, body_y(0), l);
+    for (uint8_t row = 0; row < mrui::kDetailBodyRows; ++row)
+        mrui::draw_text(0, body_y(row + 1), st.detail_line[row]);
+    // ★ `back` FIRST and selected on entry, so deletion costs the deliberate short -> double (spec §3.5).
+    snprintf(l, sizeof l, "%cback",   (st.detail_action == mrui::InboxAction::back) ? '>' : ' ');
+    mrui::draw_text(0, body_y(3), l);
+    snprintf(l, sizeof l, "%cdelete", (st.detail_action == mrui::InboxAction::del)  ? '>' : ' ');
+    mrui::draw_text(0, body_y(4), l);
 }
 
 void draw_send_screen() {
@@ -656,6 +759,10 @@ void draw_frame(const mrui::UiState& st, const mrui::UiSnapshot& s, const Outcom
     draw_status_bar(s);
     if (v.st != mrui::Emergency::idle) { draw_emergency(v); return; }   // the alarm owns the body, from any screen
     if (st.compose != mrui::Compose::none) { draw_compose(st, v); return; }
+    // ★ §UI-7D slice B: the THIRD body-replacing view. Its position after the overlay is what makes ledger §1.4's
+    //   "a double under the overlay is absorbed entirely" true in display terms as well — while an alarm is up the modal
+    //   is not drawn, and the model has already closed it at `long_arm` regardless.
+    if (st.detail != mrui::InboxModal::closed) { draw_inbox_detail(st); return; }
     switch (st.screen) {
         case mrui::Screen::status: draw_status_screen(s);      break;
         case mrui::Screen::team:   draw_team_screen(st, s);    break;
@@ -710,6 +817,10 @@ void mr_ui_tick(uint32_t now_ms) {
         const bool got_req = s_model.take_send_request(req);   // ⚠ §B70: distinct name, still exactly one call
         if (got_req) ui_perform_send(req, now_ms);
     }
+
+    // ★★ §UI-7D slice B: serve the inbox detail/delete request, and BEFORE the frame gate below — the answer must be in
+    //    `UiState` by the time the frame FREEZES, or the press would appear to do nothing for one whole frame.
+    ui_service_inbox_request(now_ms);
 
     // ★★ ALL of the render POLICY — the §5 MAC-idle gate, the blank, the page continuation, the 2 Hz throttle and the
     //    emergency bypass — is `mrui::FrameGate::step`, a PURE class in firmware_ui_model.h. It moved there for the

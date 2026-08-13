@@ -596,6 +596,32 @@ enum-switch guard proved to bite at two sites) · native **1515 / 81320 / 0** ·
 `sizeof(Node)` **221880** (D2 negative) · [[B188]]'s non-corpus fixture at **39 verifier checks / 37 controls, all
 mutation-proved** · the delivery floor remains **FROZEN / UNRATIFIED** · **`s07` untouched and un-re-anchored.**
 
+### 1.22 [[B192]] — RELOAD is the three-way merge · ✅ **OWNER-RULED 2026-08-13**
+
+★★★ **THE RULING, IN REPORTED FORM (⛔ no quotation — §3 rule 4). The owner approved [[B192]] as implemented:**
+**RELOAD performs the three-way merge.**
+- **fields UNCHANGED in the OLED draft ADOPT the current persisted values**;
+- **fields EDITED in the OLED draft REMAIN UNSAVED in the draft**;
+- **DISCARD remains the explicit FULL RESET.**
+
+★★ **WHY IT MATTERS — this is the conflict escape hatch, and the alternative was forbidden.** §3.6.1 defines DISCARD
+and NAMES RELOAD without defining it, so the semantics were genuinely open. ⇒ **Reinstating the whole draft over a
+conflicting external write would have resurrected LAST-WRITER-WINS, which §3.6.1 explicitly forbids because it
+silently overwrites companion changes.** The merge keeps the operator's deliberate edits while accepting everything
+they did not touch — so a serial/BLE writer's changes survive unless the operator has explicitly overridden that
+field.
+
+ⓘ **Provenance, stated because this arc has five incidents:** the merge was **implemented first** (§UI-13) and
+**recorded as a QG RECOMMENDATION, explicitly NOT an owner ruling**, through several review rounds. **It is now
+ruled.** ⇒ ⛔ **Every in-source, register and spec label reading *"QG recommends"* / *"not ruled"* / *"awaiting an
+owner decision"* for B192 is now FALSE and must be corrected in place** — §3 rule 3, and the class-4 defect this arc
+has hit twelve-plus times.
+
+⚠ **What this does NOT settle:** RELOAD's *behaviour* is ruled; its **NV/power-cut qualification is still deferred**
+to the UI-14 device binding and [[B193]]. §UI-13 proves the logic against a counting/failing **fake** store — no NVS
+or LittleFS write, no wear, no reset-during-write. **A green suite says the logic is right, never that the storage
+is.**
+
 ---
 ## §2 — GENUINELY OPEN. These are fair review targets.
 

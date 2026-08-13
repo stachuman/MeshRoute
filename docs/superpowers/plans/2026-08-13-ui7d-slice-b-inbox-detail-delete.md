@@ -1,8 +1,11 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # §UI-7D slice B — the inbox detail/delete modal · dispatch brief · 2026-08-13
 
-**Status: DISPATCHED 2026-08-13 on an owner ruling (ledger §1.21 — return to the OLED plan with this slice, then
-settings dirty/save).** ★ Role split: the QA-gate wrote this brief and verifies your claims at the code; **the OWNER
+**Status: ✅ IMPLEMENTED 2026-08-13 · QG PASSED · 🧪 METAL OUTSTANDING · UNCOMMITTED (D4 — the owner commits).**
+⛔ **This brief is now a HISTORICAL dispatch record; its instructions are spent. Do not re-execute it.** Dispatched
+under ledger §1.21 (return to the OLED plan with this slice, then settings dirty/save — the latter landed as §UI-13).
+⚠ **What remains is METAL ONLY** (bench Part 19), and ⛔ **Phase A is NOT complete: [[B164]]/[[B189]] gate on-device
+registration, team onboarding and final Phase-A acceptance.** ★ Role split: the QA-gate wrote this brief and verifies your claims at the code; **the OWNER
 runs QG and rules.** ⛔ **Never `git commit`. Never `git add -A`. NEVER `git checkout --` anything; never check out
 another commit here** — the tree carries the uncommitted mobile-home arc.
 
@@ -125,6 +128,9 @@ snapshot, on activation and on the erase call.
 
 ⛔ **§3.6 / UI-13…UI-16 settings and provisioning** — that is the **next** slice (settings dirty/save) and must not be
 started here: no SETTINGS screen, no draft marker, no team-create/static-join UI, no nearby-team onboarding.
+ⓘ **STATUS UPDATE 2026-08-13 (fact-only, this brief's own scope is unchanged and it stays as written): §UI-13's HEADLESS
+SERVICE has since landed** (`src/firmware_config_service.h`). ⇒ the **next** slice is **UI-14**, the SETTINGS renderer
+that consumes it — ⛔ do not re-open UI-13. The rest of this bullet still holds: this brief's slice added none of it.
 ⛔ Storage redesign · the `del_msg` console verb (exists) · [[B186b]] (owner-ruled unimplemented) · any `s07`,
 anchor-table or delivery-floor change · the mobile-home arc.
 

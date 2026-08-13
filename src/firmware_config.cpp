@@ -7,6 +7,13 @@
 #include "firmware_config.h"
 #include "fw_context.h"              // g_radio, g_iradio, g_hal, g_node, g_identity, g_freq_mhz, g_tx_power, g_radio_ok, g_lat_e7/lon_e7, g_ble_*
 #include "firmware_config_parse.h"   // mrfw::parse_sf_list
+// ★ §UI-13 COMPILE-COVERAGE ANCHOR, and it is deliberately an include with no call yet. The typed staged-config
+// service (spec §3.6.1) is HEADLESS: §UI-14's SETTINGS renderer is its first consumer, and `ICfgStore`/`ICfgLive`
+// have no device binding yet (bug register B193 records both obligations). A header that NO env compiles is a header
+// whose board ABIs are unverified, and this TU is the one every board build compiles — so this line is what puts the
+// service in front of arm-none-eabi and xtensa now instead of at the first UI-14 build. It is inline-only and
+// instantiates nothing: MEASURED zero bytes of flash and RAM on all three OLED envs (2026-08-13 §UI-13).
+#include "firmware_config_service.h"
 #include "node_role.h"               // ★ §role-model/B28: role_set_refusal — the O1/O2/R4 role-transition truth table (pure, natively tested)
 #include "protocol_constants.h"      // meshroute::protocol::* (preamble_sym, gateway_node_id_max, discovery_beacon_period_ms, leaf_name_max)
 #include "leaf_config.h"             // meshroute::duty_to_bp/bp_to_duty/frac_to_bp/bp_to_frac/ms_to_u16

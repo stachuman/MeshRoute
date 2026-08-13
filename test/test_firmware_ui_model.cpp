@@ -31,10 +31,17 @@ static UiSnapshot snap(uint32_t now_ms = 1000) {
 }
 
 // Same, plus `n` inbox rows — the INBOX screen is list-aware exactly like TEAM (spec §12).
+// ★ §UI-7D slice B: every row now carries its IDENTITY PAIR. `seq` starts at 1 because store sequences are 1-based and
+//   `seq == 0` deliberately means "no identity" (see InboxRow) — a helper handing out 0 would have made every case
+//   below exercise the refusal path instead of the feature.
 static UiSnapshot snap_inbox(uint8_t n, uint32_t now_ms = 1000) {
     UiSnapshot s = snap(now_ms);
     s.inbox_shown = n; s.inbox_total = n;
-    for (uint8_t i = 0; i < n && i < kMaxInboxRows; ++i) { s.inbox[i].is_dm = (i % 2) == 0; s.inbox[i].rx_age_s = i; }
+    for (uint8_t i = 0; i < n && i < kMaxInboxRows; ++i) {
+        s.inbox[i].kind = ((i % 2) == 0) ? InboxKind::dm : InboxKind::channel;
+        s.inbox[i].seq = uint32_t(i + 1);
+        s.inbox[i].rx_age_s = i;
+    }
     return s;
 }
 
@@ -132,17 +139,49 @@ TEST_CASE("ui-model: a non-team build cannot open a compose modal") {
     CHECK(m.take_send_request(req) == false);
 }
 
-// Spec §3.2: double on STATUS/INBOX means nothing. It must be a no-op, not a modal on an empty list.
-TEST_CASE("ui-model: double on STATUS and on INBOX activates nothing") {
+// ★★★ REWRITTEN IN PLACE 2026-08-13 BY §UI-7D slice B ([[B101]]'s precedent: a case whose behaviour a slice changes is
+//     REWRITTEN, never deleted or disabled, with a heading saying what changed).
+// ⛔ WHAT IT USED TO ASSERT: "double on STATUS and on INBOX activates nothing" — INBOX included, on a THREE-ROW list.
+//    That was correct for UI-7 (the inbox had no `double` action at all) and is now WRONG: spec §3.2/§3.5 give `double`
+//    on a highlighted inbox row the detail modal. STATUS keeps its no-op, and INBOX keeps it only when there is nothing
+//    to open — which is what the second half now pins.
+// ★ AND THE INBOX HALF MUST STILL QUEUE NO SEND. The modal is a storage view; the two send slots are untouched by it, so
+//   the original case's real invariant (no send request escapes an inbox double) is kept rather than dropped.
+TEST_CASE("ui-model: double on STATUS activates nothing; on INBOX it now OPENS THE DETAIL MODAL (§UI-7D)") {
     UiModel m; const auto s = snap_inbox(3); SendReq req{};
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().screen == Screen::status); CHECK(m.state().compose == Compose::none);
+    CHECK(m.state().detail == InboxModal::closed);
     m.on_gesture(Gesture::short_press, s);   // -> team
     m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);
     m.on_gesture(Gesture::short_press, s);   // -> inbox
     CHECK(m.state().screen == Screen::inbox);
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().compose == Compose::none); CHECK(m.state().screen == Screen::inbox);
+    CHECK(m.take_send_request(req) == false);                    // ★ the ORIGINAL invariant: no send is ever queued
+    // ⇒ what it does instead: a REQUEST naming the highlighted row's identity pair. The modal itself opens only when the
+    //   device half answers — nothing here reads the store, which is the whole point of the seam.
+    InboxReq rq{};
+    const bool asked = m.take_inbox_request(rq);
+    CHECK(asked == true);
+    if (asked) {
+        CHECK(rq.what == InboxWhat::open);
+        CHECK(rq.kind == InboxKind::dm);                         // row 0 of snap_inbox is a DM...
+        CHECK(rq.seq == 1u);                                     // ...with seq 1
+    }
+}
+
+// ★ THE OTHER HALF OF THE OLD ASSERTION, KEPT AS ITS OWN CASE: with nothing to open, a `double` on INBOX still does
+//   nothing at all — and it does not raise the refusal either, because an empty list already says why (the same
+//   carve-out the empty TEAM roster has).
+TEST_CASE("ui-model: double on an EMPTY INBOX still activates nothing and says nothing (§UI-7D)") {
+    UiModel m; auto s = snap_inbox(0); SendReq req{}; InboxReq rq{};
+    for (int i = 0; i < 4; ++i) m.on_gesture(Gesture::short_press, s);   // status -> team(0,1,2) -> inbox
+    CHECK(m.state().screen == Screen::inbox);
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().detail == InboxModal::closed);
+    CHECK(m.state().inbox_pick_gone == false);
+    CHECK(m.take_inbox_request(rq) == false);
     CHECK(m.take_send_request(req) == false);
 }
 
@@ -1830,8 +1869,13 @@ TEST_CASE("ui7-result: §B101's alarm close-out clears the result phase too") {
 //     block FIRST and the channel block SECOND, with NO limit parameter of any kind. So "keep the newest 8" over one
 //     shared pool lets a chatty channel evict EVERY DM row — on the one screen whose purpose is showing both.
 
-static InboxRow row(bool dm, uint8_t ch, uint32_t age) {
-    InboxRow r{}; r.is_dm = dm; r.channel_id = ch; r.rx_age_s = age; return r;
+// ⓘ §UI-7D slice B: `bool dm` stays the TEST's parameter (it reads better at 20 call sites) but the ROW carries `kind`
+//   — the row has exactly one kind field, and the budget branches on it.
+static InboxRow row(bool dm, uint8_t ch, uint32_t age, uint32_t seq = 1) {
+    InboxRow r{};
+    r.kind = dm ? InboxKind::dm : InboxKind::channel;
+    r.seq = seq; r.channel_id = ch; r.rx_age_s = age;
+    return r;
 }
 
 TEST_CASE("ui7-inbox: a chatty channel CANNOT evict the DM rows — the budget is PER KIND") {
@@ -1842,9 +1886,9 @@ TEST_CASE("ui7-inbox: a chatty channel CANNOT evict the DM rows — the budget i
     CHECK(b.dm_count() == 2);                                     // ★ both DMs survive the flood
     CHECK(b.ch_count() == kInboxRowsPerKind);
     CHECK(s.inbox_shown == uint8_t(2 + kInboxRowsPerKind));
-    CHECK(s.inbox[0].is_dm == true);                              // block order: DM rows first
-    CHECK(s.inbox[1].is_dm == true);
-    CHECK(s.inbox[2].is_dm == false);
+    CHECK(s.inbox[0].kind == InboxKind::dm);                      // block order: DM rows first
+    CHECK(s.inbox[1].kind == InboxKind::dm);
+    CHECK(s.inbox[2].kind == InboxKind::channel);
 }
 
 TEST_CASE("ui7-inbox: within a kind the NEWEST rows win, because pull() hands them oldest-first") {
@@ -1882,4 +1926,625 @@ TEST_CASE("ui7-B66: the canned counts are derived from the tables and `back` is 
     CHECK(kChannelSendableTexts == uint8_t(kChannelTextCount - 1));
     CHECK(std::strcmp(kDmTexts[kDmTextCount - 1], "back, don't send") == 0);
     CHECK(std::strcmp(kChannelTexts[kChannelTextCount - 1], "back, don't send") == 0);
+}
+
+// ================================================================================ §UI-7D slice B — INBOX DETAIL/DELETE
+// ★★★★ SPEC §3.5. The requirement most of this block exists for is IDENTITY: selection identity is the PAIR
+//     `(InboxKind, seq)` — never the visible row index, origin, message counter or body — because the DM and channel
+//     sequence spaces are INDEPENDENT and `Inbox::pull()` hands records oldest-first while the per-kind budget keeps the
+//     NEWEST, so ONE arriving message renumbers every retained row. [[B133]] was this exact pair at another site.
+// ⚠ A case that only drives a STATIC list proves nothing about that, so the identity cases below all MOVE the rows.
+// ⚠ [[B134]]: on the panel's own board (ESP32) the inbox is a volatile RAM ring. Nothing here asserts, or may assert,
+//   survival across a power cycle — `erased` means the tombstone was appended within this runtime.
+
+// Walk status -> team(0,1,2) -> inbox, leaving the cursor on inbox row 0 (snap_inbox's roster is 3 members).
+static void to_inbox(UiModel& m, const UiSnapshot& s) {
+    for (int i = 0; i < 4; ++i) m.on_gesture(Gesture::short_press, s);
+}
+// The device half, in three lines, exactly as `firmware_ui.cpp` performs it: drain the request, look the record up by
+// the PAIR, and answer. Returns false if no open request was raised at all.
+static bool open_detail(UiModel& m, const UiSnapshot& s, const uint8_t* body, uint8_t len, uint8_t origin = 48) {
+    m.on_gesture(Gesture::double_press, s);
+    InboxReq rq{};
+    if (!m.take_inbox_request(rq) || rq.what != InboxWhat::open) return false;
+    m.on_inbox_opened(rq.kind, rq.seq, origin, rq.kind == InboxKind::dm ? 0 : 7, body, len, s.now_ms);
+    return true;
+}
+// Drain a delete request and answer it with `r`. Returns false if the model raised no erase request.
+static bool answer_erase(UiModel& m, InboxEraseResult r, uint32_t* out_seq = nullptr, InboxKind* out_kind = nullptr) {
+    InboxReq rq{};
+    if (!m.take_inbox_request(rq) || rq.what != InboxWhat::erase) return false;
+    if (out_seq)  *out_seq  = rq.seq;
+    if (out_kind) *out_kind = rq.kind;
+    m.on_inbox_erased(rq.kind, rq.seq, r);
+    return true;
+}
+static const uint8_t kBody7[] = { 'h', 'e', 'l', 'l', 'o', '!', '?' };
+
+// ---------------------------------------------------------------------------------------------------------- IDENTITY
+
+TEST_CASE("ui7d-identity: a refresh that MOVES the rows keeps the highlight on the same (kind, seq)") {
+    UiModel m; auto s = snap_inbox(4);
+    to_inbox(m, s);
+    m.on_gesture(Gesture::short_press, s);                       // cursor 1 -> the CHANNEL row, seq 2
+    CHECK(m.state().cursor == 1);
+    // A new message arrives: `pull()` is oldest-first and the budget keeps the newest, so every row shifts DOWN one.
+    UiSnapshot s2 = s;
+    for (uint8_t i = 0; i + 1 < 4; ++i) s2.inbox[i] = s.inbox[i + 1];
+    s2.inbox[3].kind = InboxKind::channel; s2.inbox[3].seq = 99; s2.inbox[3].rx_age_s = 0;
+    m.on_tick(s2);
+    CHECK(m.state().cursor == 0);                                // ★ the HIGHLIGHT FOLLOWED the record, not the index
+    CHECK(m.state().inbox_pick_gone == false);
+    // ...and activating now names that record, not whatever row 1 became.
+    m.on_gesture(Gesture::double_press, s2);
+    InboxReq rq{};
+    const bool asked = m.take_inbox_request(rq);
+    CHECK(asked == true);
+    if (asked) { CHECK(rq.kind == InboxKind::channel); CHECK(rq.seq == 2u); }
+}
+
+TEST_CASE("ui7d-identity: a DM and a channel record SHARING a seq do not cross-select") {
+    UiModel m; UiSnapshot s = snap(1000);
+    s.inbox_shown = 2; s.inbox_total = 2;
+    s.inbox[0].kind = InboxKind::dm;      s.inbox[0].seq = 4;     // the SAME number in both stores
+    s.inbox[1].kind = InboxKind::channel; s.inbox[1].seq = 4;
+    to_inbox(m, s);
+    CHECK(m.state().cursor == 0);                                // the DM with seq 4 is the pick
+    // Now SWAP the two rows. ★ A `seq`-only match walks the list in order, finds the CHANNEL row first because it is now
+    //   row 0, and comes to rest on it — the same number, the other store, one index away from a Delete.
+    UiSnapshot s2 = s;
+    s2.inbox[0] = s.inbox[1]; s2.inbox[1] = s.inbox[0];
+    m.on_tick(s2);
+    CHECK(m.state().cursor == 1);                                // ★ the DM's new index, not the first seq-4 hit
+    CHECK(m.state().inbox_pick_gone == false);
+    m.on_gesture(Gesture::double_press, s2);
+    InboxReq rq{};
+    const bool asked = m.take_inbox_request(rq);
+    CHECK(asked == true);
+    if (asked) { CHECK(rq.kind == InboxKind::dm); CHECK(rq.seq == 4u); }   // ⛔ never the channel row with the same seq
+}
+
+// ★ THE GESTURE PATH RE-ANCHORS TOO, and it has to: `FrameGate` freezes immediately after `on_tick`, but a press can
+//   arrive against a snapshot the cursor has never been reconciled with. If only `on_tick` re-anchored, the panel would
+//   show `>` beside one record while the activation opened another — §B64's harm arriving from the display side.
+TEST_CASE("ui7d-identity: a double press with no tick in between still leaves the highlight on what it opened") {
+    UiModel m; auto s = snap_inbox(3);
+    to_inbox(m, s);
+    m.on_gesture(Gesture::short_press, s);                       // cursor 1 -> channel seq 2
+    UiSnapshot s2 = s;                                           // two arrivals shift it to row 3 without any tick
+    s2.inbox[0].kind = InboxKind::dm;      s2.inbox[0].seq = 7;
+    s2.inbox[1].kind = InboxKind::dm;      s2.inbox[1].seq = 8;
+    s2.inbox[2].kind = InboxKind::channel; s2.inbox[2].seq = 2;
+    m.on_gesture(Gesture::double_press, s2);
+    CHECK(m.state().cursor == 2);
+    InboxReq rq{};
+    const bool asked = m.take_inbox_request(rq);
+    CHECK(asked == true);
+    if (asked) { CHECK(rq.kind == InboxKind::channel); CHECK(rq.seq == 2u); }
+}
+
+TEST_CASE("ui7d-identity: a VANISHED record refuses activation with MESSAGE GONE and touches no other row") {
+    UiModel m; auto s = snap_inbox(3);
+    to_inbox(m, s);
+    m.on_gesture(Gesture::short_press, s);                       // cursor 1 -> channel seq 2
+    // seq 2 is evicted; the survivors keep their identities and slide up, and a newer record joins the tail.
+    UiSnapshot s2 = snap(1000);
+    s2.inbox_shown = 3; s2.inbox_total = 3;
+    s2.inbox[0].kind = InboxKind::dm;      s2.inbox[0].seq = 1;
+    s2.inbox[1].kind = InboxKind::dm;      s2.inbox[1].seq = 3;
+    s2.inbox[2].kind = InboxKind::channel; s2.inbox[2].seq = 5;
+    m.on_tick(s2);
+    CHECK(m.state().inbox_pick_gone == true);                    // ★ announced, EDGE-triggered
+    InboxReq rq{};
+    m.on_gesture(Gesture::double_press, s2);
+    CHECK(m.take_inbox_request(rq) == false);                    // ⛔ NOTHING is requested — no open, no delete
+    CHECK(m.state().detail == InboxModal::closed);
+    CHECK(m.state().inbox_pick_gone == true);
+    // the OTHER rows are untouched: the next press walks the list and re-picks normally
+    m.on_gesture(Gesture::short_press, s2);                      // cursor 1 -> 2
+    CHECK(m.state().screen == Screen::inbox);
+    CHECK(m.state().cursor == 2);
+    CHECK(m.state().inbox_pick_gone == false);
+    m.on_gesture(Gesture::double_press, s2);
+    const bool asked = m.take_inbox_request(rq);
+    CHECK(asked == true);
+    if (asked) { CHECK(rq.kind == InboxKind::channel); CHECK(rq.seq == 5u); }
+}
+
+TEST_CASE("ui7d-identity: the loss is announced ONCE — a second tick does not re-dirty the frame") {
+    UiModel m; auto s = snap_inbox(2);
+    to_inbox(m, s);
+    UiSnapshot s2 = snap(1000); s2.inbox_shown = 0;              // everything evicted
+    m.on_tick(s2);
+    CHECK(m.state().inbox_pick_gone == true);
+    m.clear_dirty();
+    m.on_tick(s2);
+    CHECK(m.state().dirty == false);                             // ★ edge-triggered, not per-tick
+}
+
+TEST_CASE("ui7d-identity: a row with seq 0 is NOT selectable — an unidentifiable row is refused, never guessed at") {
+    UiModel m; UiSnapshot s = snap(1000);
+    s.inbox_shown = 1; s.inbox_total = 1;
+    s.inbox[0].kind = InboxKind::dm; s.inbox[0].seq = 0;         // inbox.h: seq 0 is the "before everything" cursor
+    to_inbox(m, s);
+    InboxReq rq{};
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.take_inbox_request(rq) == false);
+    CHECK(m.state().detail == InboxModal::closed);
+    CHECK(m.state().inbox_pick_gone == true);                    // refused LOUDLY, by the one refusal path
+}
+
+TEST_CASE("ui7d-identity: a CROSSED open answer opens nothing") {
+    UiModel m; auto s = snap_inbox(2);
+    to_inbox(m, s);
+    m.on_gesture(Gesture::double_press, s);                      // asks for (dm, 1)
+    InboxReq rq{};
+    CHECK(m.take_inbox_request(rq) == true);
+    m.on_inbox_opened(InboxKind::channel, rq.seq, 9, 7, kBody7, sizeof kBody7, 1000);   // right seq, WRONG kind
+    CHECK(m.state().detail == InboxModal::closed);
+    m.on_inbox_opened(rq.kind, 77, 9, 0, kBody7, sizeof kBody7, 1000);                  // right kind, WRONG seq
+    CHECK(m.state().detail == InboxModal::closed);
+    m.on_inbox_opened(rq.kind, rq.seq, 9, 0, kBody7, sizeof kBody7, 1000);              // the PAIR -> opens
+    CHECK(m.state().detail == InboxModal::body);
+}
+
+TEST_CASE("ui7d-identity: the ERASE target is the modal's own record, even after the rows move underneath it") {
+    UiModel m; auto s = snap_inbox(3);
+    to_inbox(m, s);
+    m.on_gesture(Gesture::short_press, s);                       // cursor 1 -> channel seq 2
+    CHECK(open_detail(m, s, kBody7, sizeof kBody7) == true);
+    CHECK(m.state().detail_kind == InboxKind::channel);
+    CHECK(m.state().detail_seq == 2u);
+    // The list is rebuilt under the open modal and every row moves.
+    UiSnapshot s2 = snap(2000);
+    s2.inbox_shown = 3; s2.inbox_total = 3;
+    s2.inbox[0].kind = InboxKind::dm;      s2.inbox[0].seq = 3;
+    s2.inbox[1].kind = InboxKind::dm;      s2.inbox[1].seq = 5;
+    s2.inbox[2].kind = InboxKind::channel; s2.inbox[2].seq = 2;
+    m.on_tick(s2);
+    m.on_gesture(Gesture::short_press, s2);                      // toggle to `delete`
+    CHECK(m.state().detail_action == InboxAction::del);
+    m.on_gesture(Gesture::double_press, s2);
+    uint32_t seq = 0; InboxKind kind = InboxKind::dm;
+    CHECK(answer_erase(m, InboxEraseResult::erased, &seq, &kind) == true);
+    CHECK(kind == InboxKind::channel);                           // ★ the record we READ, not the row under the cursor
+    CHECK(seq == 2u);
+}
+
+// ------------------------------------------------------------------------------------------- THE MODAL AND ITS PAGING
+
+TEST_CASE("ui7d-modal: the geometry is DERIVED — 42 chars a page, six pages for the largest body, 2 s a page") {
+    CHECK(kDetailCols == 21);
+    CHECK(kDetailBodyRows == 2);
+    CHECK(kDetailPageChars == 42);
+    CHECK(kDetailMaxPages == 6);                                 // spec §3.5's "at most six pages", as a consequence
+    CHECK(kDetailPageMs == 2000u);
+    CHECK(uint16_t(kDetailMaxPages) * kDetailPageChars >= MESHROUTE_NS::protocol::inbox_max_body);
+}
+
+TEST_CASE("ui7d-modal: pages = max(1, ceil(body_len / 42)) at every boundary, and NEVER zero") {
+    static uint8_t big[MESHROUTE_NS::protocol::inbox_max_body];
+    for (uint16_t i = 0; i < sizeof big; ++i) big[i] = uint8_t('a' + (i % 26));
+    struct { uint16_t len; uint8_t pages; } cases[] = {
+        {0, 1}, {1, 1}, {42, 1}, {43, 2}, {84, 2}, {85, 3}, {MESHROUTE_NS::protocol::inbox_max_body, 6},
+    };
+    for (const auto& c : cases) {
+        UiModel m; auto s = snap_inbox(1);
+        to_inbox(m, s);
+        CHECK(open_detail(m, s, big, uint8_t(c.len)) == true);
+        CHECK(m.state().detail == InboxModal::body);
+        CHECK(m.state().detail_pages == c.pages);
+        CHECK(m.state().detail_page == 0);
+        CHECK(m.detail_body_len() == c.len);
+    }
+}
+
+TEST_CASE("ui7d-modal: an EMPTY body (body == nullptr) is one page of nothing, not a refusal") {
+    UiModel m; auto s = snap_inbox(1);
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, nullptr, 0) == true);                // an E2E-ack receipt carries no body at all
+    CHECK(m.state().detail == InboxModal::body);
+    CHECK(m.state().detail_pages == 1);
+    CHECK(m.detail_body_len() == 0);
+    CHECK(m.state().detail_line[0][0] == '\0');
+    CHECK(m.state().detail_line[1][0] == '\0');
+}
+
+TEST_CASE("ui7d-modal: a non-null body with body_len 0 still yields no bytes (the LENGTH is the truth)") {
+    UiModel m; auto s = snap_inbox(1);
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, kBody7, 0) == true);                 // ⛔ strlen(kBody7) would have shown 7 bytes
+    CHECK(m.detail_body_len() == 0);
+    CHECK(m.state().detail_line[0][0] == '\0');
+}
+
+TEST_CASE("ui7d-modal: the body is WRAPPED into two 21-column rows without dropping a byte") {
+    static uint8_t b[45];
+    for (uint8_t i = 0; i < sizeof b; ++i) b[i] = uint8_t('A' + (i % 26));
+    UiModel m; auto s = snap_inbox(1);
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, b, sizeof b) == true);
+    CHECK(m.state().detail_pages == 2);
+    CHECK(std::strlen(m.state().detail_line[0]) == 21);
+    CHECK(std::strlen(m.state().detail_line[1]) == 21);
+    CHECK(std::strncmp(m.state().detail_line[0], "ABCDEFGHIJKLMNOPQRSTU", 21) == 0);
+    CHECK(std::strncmp(m.state().detail_line[1], "VWXYZABCDEFGHIJKLMNOP", 21) == 0);
+    // page 2 holds the remaining three bytes, and every one of the 45 has now been shown
+    m.on_tick(snap_inbox(1, 1000 + kDetailPageMs));
+    CHECK(m.state().detail_page == 1);
+    CHECK(std::strcmp(m.state().detail_line[0], "QRS") == 0);
+    CHECK(m.state().detail_line[1][0] == '\0');
+}
+
+TEST_CASE("ui7d-modal: unsupported display bytes are replaced VISIBLY — NUL, control and high-bit alike") {
+    const uint8_t b[] = { 'o', 0x00, 'k', 0x07, 0x1f, 0x7f, 0x80, 0xff, 'z' };
+    UiModel m; auto s = snap_inbox(1);
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, b, sizeof b) == true);
+    CHECK(m.detail_body_len() == sizeof b);                      // ★ the embedded NUL did NOT truncate the record
+    CHECK(std::strcmp(m.state().detail_line[0], "o.k.....z") == 0);
+    CHECK(ui_display_byte(0x20) == ' ');                         // the boundaries of the one policy
+    CHECK(ui_display_byte(0x7e) == '~');
+    CHECK(ui_display_byte(0x7f) == '.');
+    CHECK(ui_display_byte(0x1f) == '.');
+}
+
+TEST_CASE("ui7d-modal: a long body advances every 2 s and CYCLES, marking dirty each time") {
+    static uint8_t b[100];
+    for (uint8_t i = 0; i < sizeof b; ++i) b[i] = 'x';
+    UiModel m; auto s = snap_inbox(1);
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, b, sizeof b) == true);
+    CHECK(m.state().detail_pages == 3);
+    m.clear_dirty();
+    m.on_tick(snap_inbox(1, 1000 + kDetailPageMs - 1));
+    CHECK(m.state().detail_page == 0);                           // not yet due
+    CHECK(m.state().dirty == false);
+    m.on_tick(snap_inbox(1, 1000 + kDetailPageMs));
+    CHECK(m.state().detail_page == 1);
+    CHECK(m.state().dirty == true);
+    m.on_tick(snap_inbox(1, 1000 + 2 * kDetailPageMs));
+    CHECK(m.state().detail_page == 2);
+    m.on_tick(snap_inbox(1, 1000 + 3 * kDetailPageMs));
+    CHECK(m.state().detail_page == 0);                           // ★ CYCLES
+}
+
+TEST_CASE("ui7d-modal: a ONE-page body never advances, so a short body cannot flicker") {
+    UiModel m; auto s = snap_inbox(1);
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, kBody7, sizeof kBody7) == true);
+    CHECK(m.state().detail_pages == 1);
+    m.clear_dirty();
+    for (uint32_t k = 1; k <= 5; ++k) m.on_tick(snap_inbox(1, 1000 + k * kDetailPageMs));
+    CHECK(m.state().detail_page == 0);
+    CHECK(m.state().dirty == false);
+}
+
+// ★★★ THE CLAUSE THAT IS EASIEST TO GET WRONG: a page turn marks the model dirty but DOES NOT reset the user-inactivity
+//     deadline (spec §3.5). If it did, a long body would hold the modal — and its selected action — open for ever.
+TEST_CASE("ui7d-modal: paging does NOT postpone the inactivity timeout — the modal still closes at kBlankMs") {
+    static uint8_t b[241];
+    for (uint16_t i = 0; i < sizeof b; ++i) b[i] = 'y';
+    UiModel m; auto s = snap_inbox(1);
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, b, uint8_t(sizeof b)) == true);
+    CHECK(m.state().detail_pages == 6);
+    for (uint32_t k = 1; k * kDetailPageMs < kBlankMs; ++k) m.on_tick(snap_inbox(1, 1000 + k * kDetailPageMs));
+    CHECK(m.state().detail == InboxModal::body);                 // still open just inside the window
+    m.on_tick(snap_inbox(1, 1000 + kBlankMs));
+    CHECK(m.state().detail == InboxModal::closed);               // ★ closed on time, having paged seven times
+    CHECK(m.state().screen == Screen::inbox);                    // ...and back on the list
+}
+
+TEST_CASE("ui7d-modal: the ordinary timeout deletes NOTHING") {
+    UiModel m; auto s = snap_inbox(1);
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, kBody7, sizeof kBody7) == true);
+    m.on_gesture(Gesture::short_press, s);                       // arm `delete`, then walk away
+    CHECK(m.state().detail_action == InboxAction::del);
+    m.on_tick(snap_inbox(1, 1000 + kBlankMs));
+    CHECK(m.state().detail == InboxModal::closed);
+    InboxReq rq{};
+    CHECK(m.take_inbox_request(rq) == false);                    // ⛔ no erase was ever requested
+}
+
+// ------------------------------------------------------------------------------------------------------- THE GESTURES
+
+TEST_CASE("ui7d-gesture: `back` is selected on entry, so deletion costs the deliberate short -> double") {
+    UiModel m; auto s = snap_inbox(2);
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, kBody7, sizeof kBody7) == true);
+    CHECK(m.state().detail_action == InboxAction::back);         // ★ never `delete`
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().detail_action == InboxAction::del);
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().detail_action == InboxAction::back);         // toggles, both ways
+}
+
+TEST_CASE("ui7d-gesture: a `double` on `back` closes the modal and requests NOTHING of storage") {
+    UiModel m; auto s = snap_inbox(2);
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, kBody7, sizeof kBody7) == true);
+    m.on_gesture(Gesture::double_press, s);                      // `back` is selected
+    CHECK(m.state().detail == InboxModal::closed);
+    CHECK(m.state().screen == Screen::inbox);
+    InboxReq rq{};
+    CHECK(m.take_inbox_request(rq) == false);                    // ⛔ nothing to serve = nothing can be deleted
+    CHECK(m.detail_body_len() == 0);                             // the buffer is released with the modal
+}
+
+TEST_CASE("ui7d-gesture: an immediate `double` cannot delete — the FIRST double is what opened the modal") {
+    UiModel m; auto s = snap_inbox(2);
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, kBody7, sizeof kBody7) == true);
+    m.on_gesture(Gesture::double_press, s);                      // the second double lands on `back`
+    InboxReq rq{};
+    CHECK(m.take_inbox_request(rq) == false);
+}
+
+// ------------------------------------------------------------------------------------------- THE THREE DELETE OUTCOMES
+
+TEST_CASE("ui7d-delete: `erased` closes the modal and preserves the NEIGHBOURING selection") {
+    UiModel m; auto s = snap_inbox(3);
+    to_inbox(m, s);
+    m.on_gesture(Gesture::short_press, s);                       // cursor 1 (channel seq 2); neighbour = row 2, dm seq 3
+    CHECK(open_detail(m, s, kBody7, sizeof kBody7) == true);
+    m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::double_press, s);
+    uint32_t seq = 0; CHECK(answer_erase(m, InboxEraseResult::erased, &seq) == true);
+    CHECK(seq == 2u);
+    CHECK(m.state().detail == InboxModal::closed);
+    CHECK(m.state().inbox_pick_gone == false);
+    // the store now returns two rows; the highlight lands on the neighbour, wherever it moved to
+    UiSnapshot s2 = snap(1100);
+    s2.inbox_shown = 2; s2.inbox_total = 2;
+    s2.inbox[0].kind = InboxKind::dm; s2.inbox[0].seq = 1;
+    s2.inbox[1].kind = InboxKind::dm; s2.inbox[1].seq = 3;
+    m.on_tick(s2);
+    CHECK(m.state().cursor == 1);
+    m.on_gesture(Gesture::double_press, s2);
+    InboxReq rq{};
+    const bool asked = m.take_inbox_request(rq);
+    CHECK(asked == true);
+    if (asked) { CHECK(rq.kind == InboxKind::dm); CHECK(rq.seq == 3u); }
+}
+
+TEST_CASE("ui7d-delete: deleting the LAST row falls back to the row BEFORE it") {
+    UiModel m; auto s = snap_inbox(3);
+    to_inbox(m, s);
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);   // cursor 2 = the last row, seq 3
+    CHECK(m.state().cursor == 2);
+    CHECK(open_detail(m, s, kBody7, sizeof kBody7) == true);
+    m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(answer_erase(m, InboxEraseResult::erased) == true);
+    UiSnapshot s2 = snap(1100);
+    s2.inbox_shown = 2; s2.inbox_total = 2;
+    s2.inbox[0].kind = InboxKind::dm;      s2.inbox[0].seq = 1;
+    s2.inbox[1].kind = InboxKind::channel; s2.inbox[1].seq = 2;
+    m.on_tick(s2);
+    CHECK(m.state().cursor == 1);                                // the predecessor, seq 2
+}
+
+TEST_CASE("ui7d-delete: deleting the ONLY row leaves the cursor at home rather than past the end") {
+    UiModel m; auto s = snap_inbox(1);
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, kBody7, sizeof kBody7) == true);
+    m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(answer_erase(m, InboxEraseResult::erased) == true);
+    CHECK(m.state().cursor == 0);
+    UiSnapshot s2 = snap(1100); s2.inbox_shown = 0;
+    m.on_tick(s2);
+    CHECK(m.state().inbox_pick_gone == false);                   // nothing was LOST — it was deleted on purpose
+}
+
+TEST_CASE("ui7d-delete: `not_found` is TERMINAL, has NO active Delete, and returns to the list on either press") {
+    UiModel m; auto s = snap_inbox(2);
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, kBody7, sizeof kBody7) == true);
+    m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(answer_erase(m, InboxEraseResult::not_found) == true);
+    CHECK(m.state().detail == InboxModal::gone);                 // ★ the modal STAYS, saying so
+    CHECK(m.state().detail_del_failed == false);                 // ⛔ this is not a storage failure
+    // ⛔ no action can be selected, so no second delete is one press away
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().detail == InboxModal::closed);
+    CHECK(m.state().screen == Screen::inbox);
+    InboxReq rq{};
+    CHECK(m.take_inbox_request(rq) == false);
+    // ...and the DOUBLE half of "either press" behaves the same way
+    UiModel m2; auto s2 = snap_inbox(2);
+    to_inbox(m2, s2);
+    CHECK(open_detail(m2, s2, kBody7, sizeof kBody7) == true);
+    m2.on_gesture(Gesture::short_press, s2);
+    m2.on_gesture(Gesture::double_press, s2);
+    CHECK(answer_erase(m2, InboxEraseResult::not_found) == true);
+    m2.on_gesture(Gesture::double_press, s2);
+    CHECK(m2.state().detail == InboxModal::closed);
+    CHECK(m2.take_inbox_request(rq) == false);
+}
+
+TEST_CASE("ui7d-delete: `io_error` STAYS in the modal, says DELETE FAILED, and resets the selection to `back`") {
+    UiModel m; auto s = snap_inbox(2);
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, kBody7, sizeof kBody7) == true);
+    m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(answer_erase(m, InboxEraseResult::io_error) == true);
+    CHECK(m.state().detail == InboxModal::body);                 // ⛔ NOT closed: nothing was deleted
+    CHECK(m.state().detail_del_failed == true);
+    CHECK(m.state().detail_action == InboxAction::back);         // ★ back on the SAFE action
+    CHECK(m.state().detail_kind == InboxKind::dm);                // still the same record, still readable
+    CHECK(m.state().detail_seq == 1u);
+    CHECK(m.detail_body_len() == sizeof kBody7);
+    // ⇒ a retry costs short -> double all over again
+    m.on_gesture(Gesture::double_press, s);                      // this one lands on `back`
+    CHECK(m.state().detail == InboxModal::closed);
+    InboxReq rq{};
+    CHECK(m.take_inbox_request(rq) == false);
+}
+
+TEST_CASE("ui7d-delete: after DELETE FAILED a fresh short -> double DOES retry, with the same identity") {
+    UiModel m; auto s = snap_inbox(2);
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, kBody7, sizeof kBody7) == true);
+    m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(answer_erase(m, InboxEraseResult::io_error) == true);
+    m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::double_press, s);
+    uint32_t seq = 0; InboxKind kind = InboxKind::channel;
+    CHECK(answer_erase(m, InboxEraseResult::erased, &seq, &kind) == true);
+    CHECK(kind == InboxKind::dm); CHECK(seq == 1u);
+    CHECK(m.state().detail == InboxModal::closed);
+}
+
+TEST_CASE("ui7d-delete: a CROSSED erase answer changes nothing at all") {
+    UiModel m; auto s = snap_inbox(2);
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, kBody7, sizeof kBody7) == true);
+    m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::double_press, s);
+    InboxReq rq{};
+    CHECK(m.take_inbox_request(rq) == true);
+    m.on_inbox_erased(InboxKind::channel, rq.seq, InboxEraseResult::erased);    // wrong kind
+    CHECK(m.state().detail == InboxModal::body);
+    m.on_inbox_erased(rq.kind, 42, InboxEraseResult::erased);                   // wrong seq
+    CHECK(m.state().detail == InboxModal::body);
+    m.on_inbox_erased(rq.kind, rq.seq, InboxEraseResult::erased);               // the PAIR
+    CHECK(m.state().detail == InboxModal::closed);
+}
+
+TEST_CASE("ui7d-delete: an UNSOLICITED answer is ignored — no request, no effect") {
+    UiModel m; auto s = snap_inbox(2);
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, kBody7, sizeof kBody7) == true);
+    m.on_inbox_erased(m.state().detail_kind, m.state().detail_seq, InboxEraseResult::erased);
+    CHECK(m.state().detail == InboxModal::body);                 // nothing was asked for, so nothing may happen
+    m.on_inbox_open_gone(m.state().detail_kind, m.state().detail_seq);
+    CHECK(m.state().detail == InboxModal::body);
+    CHECK(m.state().inbox_pick_gone == false);
+}
+
+// ★★ AN ANSWER MUST CORRESPOND TO AN OPERATION SOMEBODY ACTUALLY PERFORMED. Until the request has been HANDED OUT
+//    nothing can have read the store, so an answer arriving first is not a measurement — it is a fabrication, and the
+//    model refuses it. (The same guard is what stops a second answer to an already-answered request.)
+TEST_CASE("ui7d-delete: an answer that arrives BEFORE the request was drained is refused") {
+    UiModel m; auto s = snap_inbox(2);
+    to_inbox(m, s);
+    m.on_gesture(Gesture::double_press, s);                      // the request is raised but NOT yet taken
+    m.on_inbox_opened(InboxKind::dm, 1, 9, 0, kBody7, sizeof kBody7, 1000);
+    CHECK(m.state().detail == InboxModal::closed);               // ⛔ nothing performed it, so nothing may show it
+    InboxReq rq{};
+    CHECK(m.take_inbox_request(rq) == true);                     // ...and the request is still there to be served
+    m.on_inbox_opened(rq.kind, rq.seq, 9, 0, kBody7, sizeof kBody7, 1000);
+    CHECK(m.state().detail == InboxModal::body);
+    m.on_inbox_opened(rq.kind, rq.seq, 9, 0, nullptr, 0, 1000);  // a SECOND answer to the same request is refused too
+    CHECK(m.detail_body_len() == sizeof kBody7);
+}
+
+TEST_CASE("ui7d-delete: an activation whose record has vanished refuses at the ANSWER too") {
+    UiModel m; auto s = snap_inbox(2);
+    to_inbox(m, s);
+    m.on_gesture(Gesture::double_press, s);
+    InboxReq rq{};
+    CHECK(m.take_inbox_request(rq) == true);
+    m.on_inbox_open_gone(rq.kind, rq.seq);                       // the pull found nothing
+    CHECK(m.state().detail == InboxModal::closed);               // ⛔ never opened
+    CHECK(m.state().inbox_pick_gone == true);                    // ...and said so
+}
+
+// ------------------------------------------------------------------------------------------- THE EMERGENCY INTERPLAY
+
+TEST_CASE("ui7d-emergency: `long_arm` closes the modal BEFORE arming, and a long_cancel does not bring it back") {
+    UiModel m; auto s = snap_inbox(2);
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, kBody7, sizeof kBody7) == true);
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().detail_action == InboxAction::del);           // Delete is selected and about to be hidden
+    m.on_gesture(Gesture::long_arm, snap_inbox(2, 1100));
+    CHECK(m.emergency() == Emergency::arming);
+    CHECK(m.state().detail == InboxModal::closed);                // ★ closed at ARM, not at fire
+    CHECK(m.state().detail_action == InboxAction::back);
+    m.on_gesture(Gesture::long_cancel, snap_inbox(2, 1200));
+    CHECK(m.emergency() == Emergency::cancelled);
+    CHECK(m.state().detail == InboxModal::closed);                // ★★ the modal and its Delete do NOT reappear
+    CHECK(m.state().detail_action == InboxAction::back);
+    // and a double press while the cancelled overlay is up is absorbed entirely (ledger §1.4) — it cannot re-open
+    m.on_gesture(Gesture::double_press, snap_inbox(2, 1250));
+    CHECK(m.state().detail == InboxModal::closed);
+    InboxReq rq{};
+    CHECK(m.take_inbox_request(rq) == false);
+}
+
+TEST_CASE("ui7d-emergency: a re-opened modal after an alarm starts on `back`, never on the hidden Delete") {
+    UiModel m; auto s = snap_inbox(2);
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, kBody7, sizeof kBody7) == true);
+    m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::long_arm,  snap_inbox(2, 1100));
+    m.on_gesture(Gesture::long_fire, snap_inbox(2, 4700));
+    CHECK(m.emergency() == Emergency::firing);
+    CHECK(m.state().detail == InboxModal::closed);
+    SendReq sr{};
+    CHECK(m.take_send_request(sr) == true);                      // the alarm is what happened, not a delete
+    CHECK(sr.kind == SendKind::emergency);
+    InboxReq rq{};
+    CHECK(m.take_inbox_request(rq) == false);
+}
+
+TEST_CASE("ui7d-emergency: while the overlay is up a double cannot open the modal from INBOX") {
+    UiModel m; auto s = snap_inbox(2);
+    to_inbox(m, s);
+    m.on_gesture(Gesture::long_arm, snap_inbox(2, 1100));
+    m.on_gesture(Gesture::double_press, snap_inbox(2, 1200));
+    CHECK(m.state().detail == InboxModal::closed);
+    InboxReq rq{};
+    CHECK(m.take_inbox_request(rq) == false);
+}
+
+// --------------------------------------------------------------------------------------- THE HEADER'S VISIBLE BYTES
+
+TEST_CASE("ui7d-head: the modal's header line, asserted as BYTES") {
+    char l[48];
+    inbox_detail_head(l, sizeof l, InboxKind::dm, 48, 0, 0, 6, false);
+    CHECK(std::strcmp(l, "DM from 48     1/6") == 0);
+    inbox_detail_head(l, sizeof l, InboxKind::channel, 48, 7, 2, 6, false);
+    CHECK(std::strcmp(l, "CH7 from 48    3/6") == 0);
+    inbox_detail_head(l, sizeof l, InboxKind::channel, 255, 255, 5, 6, false);
+    CHECK(std::strcmp(l, "CH255 from 255 6/6") == 0);            // the widest real expansion: 18 of 21 columns
+    CHECK(std::strlen(l) <= kDetailCols);
+    // ★ the failure REPLACES the from-line and KEEPS the reader's place
+    inbox_detail_head(l, sizeof l, InboxKind::dm, 48, 0, 1, 2, true);
+    CHECK(std::strcmp(l, "DELETE FAILED 2/2") == 0);
+    CHECK(std::strlen(l) <= kDetailCols);
+}
+
+// ------------------------------------------------------------------------- §F: THE FRAME GATE MUST NOT COUNT THE MODAL
+
+TEST_CASE("ui7d-frame: a completed DETAIL frame does NOT clear the session unread counters") {
+    UiModel m; FrameGate g; UiInboxCounters c;
+    c.arr_dm = 4; c.arr_ch = 2;
+    auto s = snap_inbox(2);
+    c.publish(s);
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, kBody7, sizeof kBody7) == true);
+    auto s2 = snap_inbox(2, 9000); c.publish(s2);
+    CHECK(g.step(m, s2, true) == FrameStep::open);
+    for (int p = 0; p < 7; ++p) g.on_page(true, m, c);
+    g.on_page(false, m, c);                                     // the frame COMPLETES
+    CHECK(c.read_dm == 0u);                                     // ★ the panel showed the MODAL, not the list
+    CHECK(c.read_ch == 0u);
+    CHECK(c.unread_dm() == 4u);
+    // ...and the very same gate does clear them once the LIST is what completed
+    m.on_gesture(Gesture::double_press, snap_inbox(2, 9100));   // `back` -> the list
+    CHECK(m.state().detail == InboxModal::closed);
+    auto s3 = snap_inbox(2, 19000); c.publish(s3);
+    CHECK(g.step(m, s3, true) == FrameStep::open);
+    for (int p = 0; p < 7; ++p) g.on_page(true, m, c);
+    g.on_page(false, m, c);
+    CHECK(c.read_dm == 4u);
+    CHECK(c.unread_dm() == 0u);
 }

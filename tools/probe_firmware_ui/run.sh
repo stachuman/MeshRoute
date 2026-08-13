@@ -16,10 +16,13 @@
 #    `tools/probe_board_ui/run.sh` states at the same spot: this project has already LOST a proven 33-assert scenario
 #    to a session scratchpad ([[meshroute-agent-scratchpad-is-volatile]]). A recipe in a note is not a storage
 #    location.
-#    ⛔ CORRECTED IN PLACE 2026-08-06: this line used to read "IT IS COMMITTED AND MUST STAY COMMITTED". That was
-#    NOT the case — this file is UNTRACKED, and under D4 the owner makes every commit, so nothing in this slice is
-#    committed. The obligation above is real; the claimed state was not. (Same class as the ledger's §3 incident:
-#    a document asserting a state that is not the case.)
+#    ⛔ CORRECTED IN PLACE 2026-08-06: this line used to read "IT IS COMMITTED AND MUST STAY COMMITTED". That was NOT
+#    the case at the time — the file was UNTRACKED, and under D4 the owner makes every commit.
+#    ✅ CORRECTED AGAIN 2026-08-13 (§UI-7D slice B, which extends this probe): the 2026-08-06 correction has itself gone
+#    stale — `git ls-files` now lists `tools/probe_firmware_ui/probe_main.cpp` and `run.sh`, so the file IS tracked and
+#    this slice's edits appear as ordinary modifications. The obligation was always real; both claimed STATES were
+#    point-in-time. ⇒ verify with `git ls-files`, never from this comment. (The standing lesson of the ledger's §3
+#    incident, arriving from the other direction: a document asserting a state that has since changed.)
 #
 # USAGE:  tools/probe_firmware_ui/run.sh            # probe + NEGATIVE CONTROLS (the controls run BY DEFAULT)
 #         tools/probe_firmware_ui/run.sh --no-neg   # probe only — NOT a gate, use only while iterating
@@ -213,6 +216,45 @@ if [ "${1:-}" != "--no-neg" ]; then
       's|    snprintf(out, cap, "%u.%uV", unsigned(mv / 1000), unsigned((mv % 1000) / 100));|    snprintf(out, cap, "%u%%", unsigned(mv / 42));|'
   ctl "C16 the bar hardcodes a voltage instead of reading the model" yes \
       's|    char volts\[12\]; fmt_volts(volts, sizeof volts, s.batt_mv);|    char volts[12]; fmt_volts(volts, sizeof volts, 3900);|'
+
+  # C17-C26 ★★★ §UI-7D slice B — THE DETAIL/DELETE MODAL'S DEVICE HALF. The model's half is under the native gate
+  #   (32 mutations); these ten are the steps NO native case can reach, and the two identity ones are the shape
+  #   [[B133]] already produced once: the DM and channel seq spaces are INDEPENDENT, so a lookup or an erase that drops
+  #   the KIND deletes the other store's record with the same number. The probe records DM 1/2 and channel 1/2 for
+  #   exactly that reason.
+  ctl "C17 the record lookup matches seq only (the kind clause dropped)" yes \
+      's|    if (e.kind != c->kind \|\| e.seq != c->seq) return true;|    if (e.seq != c->seq) return true;|'
+  ctl "C18 the erase targets the DM store unconditionally (B133's shape)" yes \
+      's|g_node.inbox().erase(rq.kind, rq.seq)|g_node.inbox().erase(mrui::InboxKind::dm, rq.seq)|'
+  ctl "C19 the preview row carries msg_id where the identity should be" yes \
+      's|^    r.seq        = e.seq;|    r.seq        = e.msg_id;|'
+  ctl "C20 the preview row hardcodes the kind (every row reads DM)" yes \
+      's|^    r.kind       = e.kind;|    r.kind       = MESHROUTE_NS::InboxKind::dm;|'
+  # ⛔ C21 IS THE HARD REQUIREMENT: "a visual disappearance without durable success is forbidden" (spec §3.5). Report
+  #    every erase as a success and the modal closes while the record is still there — the one failure this feature must
+  #    not have. P6g reaches it because it evicts the open record out of band, so the confirmed erase really does come
+  #    back `not_found`.
+  ctl "C21 every erase is reported as a SUCCESS regardless of the outcome" yes \
+      's|    s_model.on_inbox_erased(rq.kind, rq.seq, g_node.inbox().erase(rq.kind, rq.seq));|    (void)g_node.inbox().erase(rq.kind, rq.seq); s_model.on_inbox_erased(rq.kind, rq.seq, MESHROUTE_NS::InboxEraseResult::erased);|'
+  # C27 the mirror of C18: the erase hits the CHANNEL store whatever the record was.
+  ctl "C27 the erase targets the CHANNEL store unconditionally" yes \
+      's|g_node.inbox().erase(rq.kind, rq.seq));|g_node.inbox().erase(mrui::InboxKind::channel, rq.seq));|'
+  # C28 the switch arms crossed — OPENING a record deletes it. A copy-paste away, and the negative-space checks
+  #     ("opening DELETED NOTHING") are what see it.
+  ctl "C28 opening a record DELETES it (the switch arms crossed)" yes \
+      's|        case mrui::InboxWhat::open:  ui_open_inbox_detail(rq, now_ms); break;|        case mrui::InboxWhat::open:  ui_erase_inbox_record(rq); break;|'
+  ctl "C22 the tick never serves the inbox request (the modal cannot open)" yes \
+      's|    ui_service_inbox_request(now_ms);|    ;|'
+  ctl "C23 the body length is left for the model to measure (the strlen shape)" yes \
+      's|s_model.on_inbox_opened(e.kind, e.seq, e.origin, e.channel_id, e.body, e.body_len, c->now_ms);|s_model.on_inbox_opened(e.kind, e.seq, e.origin, e.channel_id, e.body, 0, c->now_ms);|'
+  ctl "C24 draw_frame stops giving the modal the body" yes \
+      's|    if (st.detail != mrui::InboxModal::closed) { draw_inbox_detail(st); return; }|    ;|'
+  # C25-C26 the REFUSAL's two halves on the list screen — the message, and the suppressed highlight (B64's rule
+  #   one plane over: a `>` beside a record the model has refused to act on is the mis-delete in display form).
+  ctl "C25 the MESSAGE GONE refusal row is dropped from the list" yes \
+      's|    if (st.inbox_pick_gone) mrui::draw_text(0, body_y(kBodyRows - 1), "MESSAGE GONE");|    ;|'
+  ctl "C26 the highlight is NOT suppressed while the refusal stands" yes \
+      's|                 (!st.inbox_pick_gone \&\& first + row == st.cursor) ? '"'"'>'"'"' : '"'"' '"'"', tag, e.text, age);|                 (first + row == st.cursor) ? '"'"'>'"'"' : '"'"' '"'"', tag, e.text, age);|'
 fi
 
 # ---- the tree must be exactly as we found it -------------------------------------------------------------------
