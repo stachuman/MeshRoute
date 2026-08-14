@@ -396,6 +396,8 @@ static void dump_status(Print& out) {
     out.print(F(" rxarm="));              out.print(g_iradio.rx_arm_failures());  // L5: startReceive() re-arm failures — non-zero = an SPI glitch left RX transiently un-armed (was silent before)
     out.print(F(" txq="));                out.print(g_hal.txq_depth());      // async-TX queue depth (should idle at 0)
     out.print(F(" txdrop="));             out.print(g_hal.txq_drops());      // outbound-queue overflow drops (should stay 0)
+    out.print(F(" txfail="));             out.print(g_hal.tx_failed_arms()); // admitted frames whose radio arm failed
+    out.print(F(" txoutdrop="));          out.print(g_hal.tx_outcome_drops()); // completion reports lost to ring overflow
     // ★★★ §MH-S4b §10 — the two HOST-side OFFER admission counters, beside `txdrop` because §10 names it as their
     // precedent. Both existed since §MH-S2/[[B146]] as native-only accessors; the debt of making them device-visible
     // was explicitly assigned to S4 by the earlier slices and is discharged here. ⓘ Unconditional: a `0` is the

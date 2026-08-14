@@ -1908,12 +1908,13 @@ private:
     // (fills `picked`); the per-ad ad_count++/retire is COMMITTED separately.
     // ★★ §tx-admission TX3 (owner ruling 2026-08-02) — WHERE THE COMMIT HAPPENS AND WHAT "SENT" MEANS. It is NOT
     // `emit_beacon`, and it is NOT literal airtime; both halves of the old wording here were wrong after TX3.
-    // "Sent" = **ACCEPTED BY THE TRANSMITTER/DeviceHal** — the strongest boundary this architecture can observe —
+    // "Sent" = **ACCEPTED BY THE TRANSMITTER/DeviceHal** — the owner-ruled digest-commit boundary —
     // and the commit lives at the two sites that reach it: the IMMEDIATE path (`tx_flood` after `_hal.tx` answers
     // ok, node_mac.cpp) and the DEFERRED path (the LBT timer's `lbt_complete`, node.cpp — the selected ids ride the
     // `DeferredLbt` slot so a late rejection leaves both `bcn_ad_count` and `dirty` untouched).
     // ⚠ WHAT THE BOUNDARY IS NOT: a later `DeviceHal::pump_tx` radio-start error drops the frame AFTER admission and
-    //   is OUTSIDE the guarantee. Nothing here claims the beacon reached the air.
+    //   is OUTSIDE the guarantee. §T2 makes that attempt observable as `tx_failed`; moving the digest boundary is a
+    //   separate decision. Nothing here claims the beacon reached the air.
     size_t  build_channel_digest_ext(uint8_t* out, size_t cap, uint32_t* picked, uint8_t& npicked);  // SELECT: dirty ids -> BCN ext-TLV; NO side effects (dv:1426)
     void    commit_channel_digest_advertised(const uint32_t* ids, uint8_t n);  // COMMIT (transmitter-admitted, see above): ad_count++ + holder-aware retire
     void    process_channel_digest(uint8_t src, const uint32_t* ids, uint8_t count);  // diff -> mark/schedule pull (dv:3546)
@@ -2431,10 +2432,11 @@ private:
     // ⚠ THE RULING REVERSED THE EARLIER CALL, and the reason is worth keeping: the `reqpubkey_sent` ruling settled an
     // APP EVENT; digest retirement is an INDEPENDENTLY load-bearing state machine (`++bcn_ad_count`, and on horizon
     // `dirty = false`), so extending the app-event boundary to it was a design decision, not an implementation
-    // detail. It now has its own ruling: **"sent" = accepted by the transmitter/DeviceHal** — the strongest boundary
-    // this architecture can observe.
+    // detail. It now has its own ruling: **"sent" = accepted by the transmitter/DeviceHal** — the digest commit
+    // boundary, even though §T2 separately observes hardware completion.
     // ★ WHAT THIS BOUNDARY IS NOT: a later `DeviceHal::pump_tx` radio-start error (`start_transmit` -> radio_error)
-    //   drops the frame AFTER admission and is **outside** the guarantee. Do not describe it as covered.
+    //   drops the frame AFTER admission and is **outside** the guarantee. It is now reported as `tx_failed`, but
+    //   moving the boundary is a separate decision; do not describe it as covered.
     // ⓘ `digest_ids[0] == 0` terminates: a live channel id can never be 0 (`channel_msg_id_mint` packs origin >= 1
     //   into the high byte), and `channel_buffer_find(0)` therefore misses — so no count byte is needed.
     static constexpr uint8_t kDeferDigestIds = 3;   // == the digest select cap (emit_beacon picks <= 3)

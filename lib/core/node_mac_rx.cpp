@@ -174,9 +174,9 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     //                        **ADMITTED** a DATA for this flight to its own radio — `IHal::tx` returned `ok`, which
     //                        on metal is an ENQUEUE (`device_hal.cpp:10-12`). ⛔ It is **NOT** evidence the DATA
     //                        aired: `on_radio_busy(FrameTag::data)` can refuse it AFTER admission (652
-    //                        `data_tx_blocked` corpus-wide) and `pump_tx()`'s failed arm can drop it; conversely
-    //                        [[B164]]'s two re-hand sites air a DATA and never set it. **WRONG BOTH WAYS ⇒ it is
-    //                        best-effort DIAGNOSTIC telemetry, and NOTHING here consumes it but this label.**
+    //                        `data_tx_blocked` corpus-wide) and `pump_tx()`'s failed arm can drop it. §T2 now
+    //                        reports the separate attempt outcome, but does not mutate this admission flag.
+    //                        Nothing in this implicit-credit arm consumes airing as delivery evidence.
     //     ⛔⛔ **§hybrid-rts S4d (2026-08-10) — "WRONG BOTH WAYS" IS NOW WRONG ONE WAY, AND THAT IS THE WHOLE POINT
     //     OF S4d.** The FALSE side of this test is the one that carries a CATEGORICAL claim — `alternate_path` says
     //     *"we admitted NO DATA"* — and it could not support it while the only writer sat on the initial send path:
@@ -185,8 +185,9 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     //     must pass ⇒ ★ **`false` NOW MEANS "no DATA of ours was admitted", EXACTLY, and this label is legitimate.**
     //     ⛔ The over-claim direction is UNCHANGED and still real: `true` is ADMISSION, never AIRING, because
     //     `on_radio_busy` and `pump_tx()`'s failed arm can drop the frame afterwards and nothing can unset the flag.
-    //     ⇒ [[B164]] stays OPEN **for airing only**; option (b) (a flight-correlated TX-completion signal) remains
-    //     DEFERRED, NOT DISMISSED. ⚠ So neither basis became delivery evidence — see the ruling two lines down.
+    //     §T2's flight-correlated completion signal now reports the separate outcome without rewriting this field;
+    //     its app/UI consumer remains T3. ⚠ So neither basis became delivery evidence — see the ruling two lines
+    //     down.
     //   · `alternate_path` — we admitted NO DATA for it (typically still `awaiting_cts`). ★★ ITS JUSTIFICATION IS
     //                        **"the flight is progressing and this local copy is redundant"** — ⛔ it is **NOT**
     //                        *"our DATA crossed the hop"*, because no DATA of ours exists. The next hop obtained the

@@ -31,6 +31,7 @@ namespace {
 struct Ev { std::string type; int to = -1; int dst = -1; bool dup = false;
             bool has_payload = false; std::string payload; int depth = -1; int ctr = -1;
             int next = -1; int requeue_count = -1; int reason = -1; int from = -1;
+            int tag = -1; uint32_t seq = 0; int sf = -1; int result = -1; std::string label;
             int rt_total = -1;                                    // §B4: the sync-response plane's route count
             bool healed = false; bool has_healed = false;
             // ★ §hybrid-rts S4: the implicit-forward credit's own fields. `basis` is the NAMED observation
@@ -40,8 +41,8 @@ struct Ev { std::string type; int to = -1; int dst = -1; bool dup = false;
             std::string basis; bool awaiting_cts = false; bool awaiting_ack = false;
             int forward_next = -1; };
 
-// §T1: `seq` is the flight identity `Node::tx_params_of` stamped. Captured HERE rather than inferred, because it is
-// the ONE thing the T1 builder changes and nothing else in the tree reads it yet (the completion path is §T2).
+// §T1/T2: `seq` is the flight identity `Node::tx_params_of` stamped. The production DeviceHal now carries it through
+// queue/in-flight/outcome; native TestHal reads it solely for direct regression evidence at the hand-off boundary.
 struct TxFrame { std::string label; std::vector<uint8_t> bytes; uint32_t seq = 0; };
 
 class TestHal : public mrtest::TestHalBase {
@@ -100,6 +101,11 @@ public:
             else if (std::strcmp(f[i].key, "next") == 0)  e.next  = static_cast<int>(f[i].i);
             else if (std::strcmp(f[i].key, "from") == 0)  e.from  = static_cast<int>(f[i].i);
             else if (std::strcmp(f[i].key, "reason") == 0) e.reason = static_cast<int>(f[i].i);
+            else if (std::strcmp(f[i].key, "tag") == 0) e.tag = static_cast<int>(f[i].i);
+            else if (std::strcmp(f[i].key, "seq") == 0) e.seq = static_cast<uint32_t>(f[i].i);
+            else if (std::strcmp(f[i].key, "sf") == 0) e.sf = static_cast<int>(f[i].i);
+            else if (std::strcmp(f[i].key, "result") == 0) e.result = static_cast<int>(f[i].i);
+            else if (std::strcmp(f[i].key, "label") == 0 && f[i].s) e.label = f[i].s;
             else if (std::strcmp(f[i].key, "requeue_count") == 0) e.requeue_count = static_cast<int>(f[i].i);
             else if (std::strcmp(f[i].key, "rt_total") == 0) e.rt_total = static_cast<int>(f[i].i);   // §B4
             else if (std::strcmp(f[i].key, "payload") == 0 && f[i].s) { e.has_payload = true; e.payload = f[i].s; }
@@ -5330,17 +5336,41 @@ TEST_CASE("R4.5b on_radio_busy — a DATA retry re-arms the ACK wait (port diver
     delete node;
 }
 
-// ---- §T1 (N7) — `on_tx_complete` is THE entry; `on_radio_busy` is a thin adapter onto it ----
-// ★★ WHAT THIS PINS THAT THE ~35 EXISTING `on_radio_busy` CASES CANNOT. They all enter through the adapter, so they
-//    prove the MOVED BODY still works — which is most of what T1 needs, and it is why they are left untouched. They
-//    say nothing about (a) the new entry point being callable at all, and (b) the three kinds that today have ⛔ NO
-//    PRODUCER (the DeviceHal completion path is §T2) and ⛔ NO CONSUMER (the app/UI half is §T3).
-// ★★★ THE NEGATIVE HALF IS THE LOAD-BEARING ONE, and it is the mutation that reddens it: delete
-//    `on_tx_complete`'s `kind != TxOutcomeKind::refused` guard and an `aired` outcome runs the WHOLE refusal body —
-//    `radio_busy` emitted, `awaiting_ack` cleared, the ack-timeout cancelled and a stash retry consumed, for a frame
-//    that FLEW. That is a false report in the exact direction this arc exists to remove, and it would be invisible to
-//    every other case in the tree.
-TEST_CASE("§T1 on_tx_complete — a `refused` outcome drives exactly what the adapter drives; aired/failed/unknown drive NOTHING") {
+TEST_CASE("§T2 retry_stashed — reports the synchronous HAL refusal with the stashed frame identity") {
+    TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14}});
+    send_cmd(*node, 5, "hi");
+    std::array<uint8_t,8> cb{}; const size_t cn = mk_cts(1, 2, 7, cb);
+    RxMeta m2{12.0f,-70.0f,0,static_cast<int8_t>(2)}; node->on_recv(cb.data(), cn, m2);
+    node->on_timer(kCtsToDataGapTimerId);                         // initial DATA admitted + stashed
+    BusyInfo bi{BusyReason::channel_busy, /*tag=DATA*/2, /*sf=*/7, /*busy_until=*/0};
+    node->on_radio_busy(bi);                                      // arm DATA stash retry
+    hal.events.clear();
+    const size_t frames_before = hal.tx_frames.size();
+    const int calls_before = hal.tx_calls;
+    hal.tx_answer = TxResult::busy;
+    node->on_timer(kRadioBusyRetryTimerId + 1);                    // retry_stashed -> synchronous refusal
+    CHECK(hal.tx_calls == calls_before + 1);                       // premise: HAL was called
+    CHECK(hal.tx_frames.size() == frames_before);                  // refusal retained no frame
+    CHECK(hal.count("tx_hal_rejected") == 1);
+    const Ev* rejected = hal.last("tx_hal_rejected"); CHECK(rejected != nullptr);
+    if (rejected) {
+        CHECK(rejected->label == "DATA");
+        CHECK(rejected->result == static_cast<int>(TxResult::busy));
+    }
+    CHECK(hal.count("tx_failed") == 0);                            // synchronous refusal is not a queued outcome
+    CHECK(hal.count("tx_unknown") == 0);
+    CHECK(hal.count("tx_aired") == 0);
+    delete node;
+}
+
+// ---- §T1/T2 (N7) — `on_tx_complete` is THE entry; `on_radio_busy` is a thin refused adapter onto it ----
+// T1 pins the refused adapter to the direct entry. T2 gives aired/failed/unknown real DeviceHal producers and reports
+// them through telemetry, while deliberately preserving the T1 protocol boundary: no retry-state, timer, or stash
+// mutation and no app/UI push (the latter is T3).
+// ★★★ The negative half remains load-bearing: routing an `aired` outcome into the refusal body would emit
+// `radio_busy`, clear `awaiting_ack`, cancel the ACK timeout, and consume a stash retry for a frame that flew.
+// The named completion events below are evidence only; they must not change that state boundary.
+TEST_CASE("§T1/T2 on_tx_complete — refused adapter is identical; aired/failed/unknown report telemetry only") {
     // Bring a node to a live DATA flight: awaiting_ack set, the DATA stashed in slot 1.
     auto to_live_data = [](TestHal& hal, Node& node) {
         send_cmd(node, 5, "hi");                                   // RTS
@@ -5386,17 +5416,33 @@ TEST_CASE("§T1 on_tx_complete — a `refused` outcome drives exactly what the a
     CHECK(armed_a == 1);                                           // PREMISE: one stash re-issue timer…
     CHECK(armed_b == armed_a);                                     // ★ …armed identically
 
-    // ---- ★★★ NEGATIVE: the three kinds that have no producer and no consumer must do NOTHING AT ALL. Not "nothing
-    //      visible" — no emit, no draw, no timer, and ⛔ no stash retry consumed, which the giveup count below proves.
+    // ---- ★★★ COMPLETION REPORTS: exactly one named telemetry event each, but no refusal event, draw, timer, or
+    //      stash retry consumption. DeviceHal produces these three kinds; T3 will add the separate app/UI consumer.
     {
         TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14}});
         to_live_data(hal, *node);
         const int rb = hal.rand_calls;
         const TxOutcomeKind kinds[] = { TxOutcomeKind::aired, TxOutcomeKind::failed, TxOutcomeKind::unknown };
         for (TxOutcomeKind k : kinds)
-            node->on_tx_complete(TxOutcome{ k, BusyReason::channel_busy, TxResult::radio_error,
+            node->on_tx_complete(TxOutcome{ k, BusyReason::none, TxResult::radio_error,
                                             /*tag=DATA*/2, /*seq=*/7u, /*sf=*/7, /*busy_until_ms=*/0 });
-        CHECK(hal.events.empty());                                 // ★★ no telemetry — not even `radio_busy`
+        CHECK(hal.count("tx_aired") == 1);
+        CHECK(hal.count("tx_failed") == 1);
+        CHECK(hal.count("tx_unknown") == 1);
+        CHECK(hal.count("radio_busy") == 0);                       // ★★ never the refusal/retry path
+        const Ev* aired = hal.last("tx_aired"); CHECK(aired != nullptr);
+        const Ev* failed = hal.last("tx_failed"); CHECK(failed != nullptr);
+        const Ev* unknown = hal.last("tx_unknown"); CHECK(unknown != nullptr);
+        if (aired) {
+            CHECK(aired->tag == 2); CHECK(aired->seq == 7u); CHECK(aired->sf == 7);
+        }
+        if (failed) {
+            CHECK(failed->tag == 2); CHECK(failed->seq == 7u); CHECK(failed->sf == 7);
+            CHECK(failed->result == static_cast<int>(TxResult::radio_error));
+        }
+        if (unknown) {
+            CHECK(unknown->tag == 2); CHECK(unknown->seq == 7u); CHECK(unknown->sf == 7);
+        }
         CHECK(hal.rand_calls - rb == 0);                           // ★★ no backoff draw
         CHECK(armed_in_retry_range(hal) == 0);                     // ★★ no stash re-issue armed
         // ★★ AND THE STASH IS UNTOUCHED: `tx_defer_max_retries` is 3, so four REFUSALS give exactly one giveup —
@@ -5410,10 +5456,10 @@ TEST_CASE("§T1 on_tx_complete — a `refused` outcome drives exactly what the a
     }
 }
 
-// ★★★ §T1 — THE `TxParams` BUILDER'S IDENTITY ROUTING, MEASURED RATHER THAN ARGUED. `TxParams::seq` has no reader
-// anywhere in the firmware yet (the completion path that echoes it back is §T2), so WITHOUT this case the one thing
-// T1's builder actually does would be covered by nothing at all — an unmeasured claim, which is the shape this arc
-// keeps paying for. The HAL fake captures `p.seq` at the hand-off; every assertion below reads it there.
+// ★★★ §T1/T2 — THE `TxParams` BUILDER'S IDENTITY ROUTING, MEASURED RATHER THAN ARGUED. DeviceHal is now the
+// production reader: it carries the value through queue/in-flight/outcome. Native TestHal reads it solely for direct
+// regression evidence at the hand-off boundary, so this test can distinguish every sending site's identity without
+// simulating the hardware completion ring.
 // ⛔⛔ WITHDRAWN CLAIM, KEPT VISIBLE (§T1 round 2). This header used to read: *"the last arm cannot distinguish
 //   `TxStashSlot::flight_gen` from the CURRENT `PendingTx::flight_gen` … distinguishing the two sources needs a
 //   flight REPLACED while a stash retry is armed — reachable only with an outcome consumer that does not exist yet
@@ -5647,6 +5693,40 @@ TEST_CASE("Cleanup #A (redo) — over-budget RTS duty-deferred in the dedicated 
     rts = 0; for (const auto& f : hal.tx_frames) if (f.label == "RTS") ++rts;
     CHECK(rts == 1);                                           // handed once the budget freed
     CHECK(hal.rand_calls - rb == 0);                           // the whole defer/re-defer/hand path is DRAW-FREE
+}
+
+TEST_CASE("§T2 rts_duty_defer_fire — reports synchronous HAL refusal and retains the existing CTS-wait arm") {
+    TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
+    cfg.duty_cycle = 0.10; cfg.duty_cycle_window_ms = 100000; cfg.nav_enabled = false;
+    node.on_init(cfg);
+    std::array<uint8_t,64> bb{}; RxMeta mb{12.0f,-70.0f,0,static_cast<int8_t>(2)};
+    const size_t bn = mk_beacon_route(2,5,9,1,14,bb); node.on_recv(bb.data(),bn,mb);
+    hal._airtime_used = 9990;
+    send_cmd(node, 5, "hi");                                      // RTS is duty-deferred, never handed
+    int timeout_arms_before = 0;
+    for (const auto& a : hal.armed) if (a.second == kRtsTimeoutTimerId) ++timeout_arms_before;
+    const size_t frames_before = hal.tx_frames.size();
+    const int calls_before = hal.tx_calls;
+    hal.events.clear();
+    hal._airtime_used = 0;
+    hal.tx_answer = TxResult::busy;
+    node.on_timer(kRtsDutyDeferTimerId);                           // deferred RTS reaches HAL and is refused
+    CHECK(hal.tx_calls == calls_before + 1);                       // premise: HAL was called
+    CHECK(hal.tx_frames.size() == frames_before);                  // refusal retained no frame
+    CHECK(hal.count("tx_hal_rejected") == 1);
+    const Ev* rejected = hal.last("tx_hal_rejected"); CHECK(rejected != nullptr);
+    if (rejected) {
+        CHECK(rejected->label == "RTS");
+        CHECK(rejected->result == static_cast<int>(TxResult::busy));
+    }
+    int timeout_arms_after = 0;
+    for (const auto& a : hal.armed) if (a.second == kRtsTimeoutTimerId) ++timeout_arms_after;
+    CHECK(timeout_arms_before == 0);                               // duty defer had not started the CTS wait
+    CHECK(timeout_arms_after == 1);                                // existing recovery behavior is unchanged
+    CHECK(hal.count("tx_failed") == 0);                            // synchronous refusal is not a queued outcome
+    CHECK(hal.count("tx_unknown") == 0);
+    CHECK(hal.count("tx_aired") == 0);
 }
 
 // Cleanup #B (pick_next_cascade_hop now refresh_route_order-s first, dv:5434) is exercised by the r5_cascade

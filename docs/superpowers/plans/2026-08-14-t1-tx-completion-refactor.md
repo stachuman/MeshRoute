@@ -110,7 +110,6 @@ identity argument has no honest source at some call site (⇒ **report it; passi
 compile is the exact defect**) · or the spec and the code disagree (⇒ **report the conflict, do not pick a side**).
 
 ---
----
 # ROUND 2 — QG HOLD, one EVIDENCE blocker (relayed by the owner 2026-08-14). ⛔ Do not commit T1.
 
 ⚠ QG's finding relayed by the owner — a recommendation, not an owner ruling (ledger §3 rule 5).
@@ -186,3 +185,61 @@ white-box `stash.valid` / forced-generation controls while testing the productio
 ⇒ Remove `TxStashTestAccess` and its `Node` friend declaration. Re-run the same production mutation
 (`retry_stashed`: `s.flight_gen` → current `_pending_tx->flight_gen`); it must remain RED. Correct the round-2
 public-unreachability claim in `node.h`, the test, `simulation/BASELINE.md`, [[B189]], and every sibling found by
+grep.
+
+---
+# ROUND 3 — QG HOLD (relayed by the owner 2026-08-14). Functional T1 PASSES; a TEST/DOC correction remains.
+
+⚠ QG's finding relayed by the owner — a recommendation, not an owner ruling (ledger §3 rule 5).
+✅ **QG confirms every gate passes** — native 1618/82415/0 · `lus` `a66fc85d` · `s18` `9868cad3`/269905 · 7/7 reported
+mutations RED · `sizeof(Node)` 221880 · `git diff --check` clean. ⛔ **THE PRODUCT IMPLEMENTATION NEEDS NO CHANGE.**
+
+## R3.1 — ⛔⛔ BLOCKER: the test CATCHES the right mutation, but its JUSTIFICATION IS FALSE
+
+**The A-stash / B-pending state is PRODUCTION-REACHABLE through the public surface.** QG's sequence:
+1. queue flights **A** and **B**;
+2. **A** sends DATA and receives `on_radio_busy` ⇒ **A** sits in the valid retry stash;
+3. observe an **exact downstream forward of A**;
+4. `implicit_ack_from_forward` clears **A** and calls `become_free()`;
+5. **B** becomes the current pending flight and sends its RTS;
+6. **the still-armed radio-busy timer retransmits stashed DATA A while B is current.**
+
+★★★ **VERIFIED AT THE CODE, AND IT IS STRONGER THAN "does not cancel it":** the implicit-forward path
+(`lib/core/node_mac_rx.cpp:269-286`) cancels `kRtsTimeoutTimerId`, `kAckTimeoutTimerId` and `kRetryBackoffTimerId`,
+then `_pending_tx.reset()` + `become_free()` — **and never touches `_tx_stash`.** ⛔ **`kRadioBusyRetryTimerId` is
+NEVER CANCELLED ANYWHERE IN `lib/core`**: a whole-tree grep finds only the arm (`node.cpp:2287`), the dispatch
+(`node.cpp:1431-1432`) and two comments. The **only** stash clear is `node.cpp:2269`'s giveup. ⇒ **the stash outlives
+flight completion by construction, on every path.**
+
+### Required
+- **Replace the synthetic `set_flight_gen()` test with the PUBLIC end-to-end sequence above.**
+- **Then REMOVE `TxStashTestAccess` and its `friend` declaration** — the seam is unnecessary.
+- ★ **The same mutation — `lib/core/node_mac.cpp:1943` reading the current pending generation — MUST REMAIN RED.**
+  ⚠ **Prove it by running it, not by expecting it**: the new driver reaches the state differently, so its redness is
+  a NEW measurement, not the old one inherited.
+- ⚠ **Keep the two vacuity gates** (the slot still `valid` + the two generations actually DIFFER, asserted directly).
+  They were right, and the public path makes them **more** necessary: a driver that fails to reach step 6 leaves
+  `A == B` and the assertion true for the wrong reason. **Control C-A's shape must survive the rewrite.**
+
+## R3.2 — ⛔ The false claim must be corrected at ALL FIVE sites QG names
+`lib/core/node.h:3299` · `test/test_node_r3.cpp:33` · `test/test_node_r3.cpp:5448` · `simulation/BASELINE.md:9` ·
+**[[B189]]**'s row, `docs/2026-07-30-open-bug-register.md:70`.
+
+⛔⛔ **`node.h:3299` IS THE WORST OF THE FIVE AND FIX IT FIRST: it is a claim in a FIRMWARE SOURCE COMMENT**, where a
+future reader will trust it (V1 — code is truth, and a comment asserting an unreachability that does not hold is
+exactly the drift this project fixes on sight). ★ Correct in place, keep the withdrawn wording (§3 rule 3), **and
+grep for siblings** — this is the SECOND round in a row in which a claim of mine propagated into five-plus places in
+one pass.
+
+## R3.3 — ★ A FINDING THIS EXPOSES. Register it; ⛔ do NOT fix it in T1 (C1).
+QG's sequence is not only a test route — **it is real behaviour: a stale-flight DATA for a COMPLETED flight A can be
+retransmitted ON THE AIR while B is current.** The post-tx re-arm guard (`node_mac.cpp:1904`) keeps the flight *state*
+sane, so this is **wasted airtime and a possible duplicate delivery**, not a stranded flight. ⛔ **T1 is
+refactor-only: register it on [[B189]]'s row with this measurement and leave the behaviour alone**, flagged for §T2 /
+[[B186b]] consideration. ⛔ **Do not mint a fix, a cancel, or a stash clear in this slice.**
+
+## R3.4 — Re-gate (QG states this is sufficient)
+**Native + the seventh mutation + byte-identical `lus`/`s18`.** ⛔ Read the keystone from `BASELINE.md`, never
+hardcode (D1). ⚠ Removing a `friend` declaration is byte-inert in the simulator, so `lus` must reproduce **`a66fc85d`**
+— **if it does not, stop and report.** ⛔ Do not commit T1. ⛔ T2/T3 still unauthorised. ⛔ **[[B164]]/[[B189]] not
+fixed; [[B193]] does not close; Phase A is not complete.**

@@ -85,6 +85,24 @@ TEST_CASE("DeviceHal::tx — enqueues; service_tx sends + records airtime at the
     CHECK(hal.oldest_tx_end_ms() == clk.now + expect_air);
 }
 
+TEST_CASE("§T2 DeviceHal — TxDone reports exactly one aired outcome with the queued tag and seq") {
+    FakeClock clk; MockRadio radio; DeviceHal hal(clk, radio);
+    hal.configure(8, 125000, 5, 16, 14, 100);
+    const uint8_t frame[3] = {1,2,3};
+    TxParams p; p.sf = 7; p.tag = 0x1234; p.seq = 0x89ABCDEFu;
+    CHECK(hal.tx(frame, sizeof(frame), p) == TxResult::ok);
+    hal.service_tx();
+    radio.complete_tx(); hal.service_tx();
+    TxOutcome outcome{};
+    CHECK(hal.pop_tx_outcome(outcome));
+    CHECK(outcome.kind == TxOutcomeKind::aired);
+    CHECK(outcome.reason == BusyReason::none);
+    CHECK(outcome.tag == p.tag);
+    CHECK(outcome.seq == p.seq);
+    CHECK(outcome.sf == p.sf);
+    CHECK_FALSE(hal.pop_tx_outcome(outcome));
+}
+
 TEST_CASE("DeviceHal — half-duplex: queued frames send ONE at a time, in FIFO order") {
     FakeClock clk; MockRadio radio; DeviceHal hal(clk, radio);
     hal.configure(8, 125000, 5, 16, 14, 100); clk.now = 0;
@@ -116,6 +134,32 @@ TEST_CASE("DeviceHal — outbound queue overflow drops + counts (the MAC's own t
     CHECK(ok > 0);
     CHECK(hal.txq_drops() > 0);                             // past the cap -> dropped
     CHECK(ok + static_cast<int>(hal.txq_drops()) == 64);   // every call either queued or counted as a drop
+    TxOutcome outcome{};
+    CHECK_FALSE(hal.pop_tx_outcome(outcome));                  // synchronous ring-full rejects never double-report
+}
+
+TEST_CASE("§T2 DeviceHal — outcome-ring overflow is counted and preserves the four retained reports") {
+    FakeClock clk; MockRadio radio; DeviceHal hal(clk, radio);
+    hal.configure(8, 125000, 5, 16, 14, 100);
+    const uint8_t frame[2] = {1,2};
+    for (uint16_t i = 1; i <= 5; ++i) {
+        TxParams p; p.tag = i; p.seq = static_cast<uint32_t>(i) * 10u;
+        CHECK(hal.tx(frame, sizeof(frame), p) == TxResult::ok);
+    }
+    radio.start_result = TxResult::radio_error;
+    for (int i = 0; i < 5; ++i) hal.service_tx();
+    CHECK(hal.tx_failed_arms() == 5);
+    CHECK(hal.tx_outcome_drops() == 1);
+    CHECK(hal.txq_depth() == 0);
+    TxOutcome outcome{};
+    for (uint16_t i = 1; i <= 4; ++i) {
+        CHECK(hal.pop_tx_outcome(outcome));
+        CHECK(outcome.kind == TxOutcomeKind::failed);
+        CHECK(outcome.reason == BusyReason::none);
+        CHECK(outcome.tag == i);
+        CHECK(outcome.seq == static_cast<uint32_t>(i) * 10u);
+    }
+    CHECK_FALSE(hal.pop_tx_outcome(outcome));
 }
 
 TEST_CASE("DeviceHal::tx — len > 255 rejected as too_long (SX1262 length register); nothing queued") {
@@ -125,18 +169,30 @@ TEST_CASE("DeviceHal::tx — len > 255 rejected as too_long (SX1262 length regis
     CHECK(hal.tx(big.data(), big.size(), p) == TxResult::too_long);
     CHECK(hal.txq_depth() == 0);
     hal.service_tx(); CHECK(radio.txs.empty());
+    TxOutcome outcome{};
+    CHECK_FALSE(hal.pop_tx_outcome(outcome));                  // synchronous oversize rejects never double-report
 }
 
 TEST_CASE("DeviceHal — a radio that refuses start_transmit: frame dropped, airtime NOT recorded, queue not stuck") {
     FakeClock clk; MockRadio radio; DeviceHal hal(clk, radio);
     hal.configure(8, 125000, 5, 16, 14, 100); clk.now = 1000;
     radio.start_result = TxResult::radio_error;
-    const uint8_t f[4] = {1,2,3,4}; TxParams p; p.sf = 7;
+    const uint8_t f[4] = {1,2,3,4}; TxParams p; p.sf = 7; p.tag = 0x2345; p.seq = 77;
     CHECK(hal.tx(f, 4, p) == TxResult::ok);                 // enqueue still succeeds
     hal.service_tx();                                       // start_transmit -> radio_error
     CHECK(radio.txs.empty());                               // not recorded by the mock
     CHECK(hal.airtime_used_ms(3600000) == 0);              // ledger NOT debited
     CHECK(hal.txq_depth() == 0);                            // the bad frame was popped, not stuck
+    CHECK(hal.tx_failed_arms() == 1);
+    TxOutcome outcome{};
+    CHECK(hal.pop_tx_outcome(outcome));
+    CHECK(outcome.kind == TxOutcomeKind::failed);
+    CHECK(outcome.reason == BusyReason::none);
+    CHECK(outcome.error == TxResult::radio_error);
+    CHECK(outcome.tag == p.tag);
+    CHECK(outcome.seq == p.seq);
+    CHECK(outcome.sf == p.sf);
+    CHECK_FALSE(hal.pop_tx_outcome(outcome));
 }
 
 TEST_CASE("DeviceHal — TX watchdog: a missed TxDone is force-recovered past the deadline; the queue resumes") {
@@ -144,9 +200,10 @@ TEST_CASE("DeviceHal — TX watchdog: a missed TxDone is force-recovered past th
     hal.configure(/*sf=*/12, 125000, 5, 16, 14, 100);      // SF12 -> long airtime (a generous deadline)
     clk.now = 0;
     const uint8_t a[20] = {0xA}; const uint8_t b[3] = {0xB,1,2};
-    TxParams p; p.sf = 12;
-    CHECK(hal.tx(a, 20, p) == TxResult::ok);
-    CHECK(hal.tx(b, 3,  p) == TxResult::ok);
+    TxParams pa; pa.sf = 12; pa.tag = 0xA1; pa.seq = 101;
+    TxParams pb; pb.sf = 12; pb.tag = 0xB2; pb.seq = 202;
+    CHECK(hal.tx(a, 20, pa) == TxResult::ok);
+    CHECK(hal.tx(b, 3,  pb) == TxResult::ok);
     hal.service_tx();                                       // A starts (in flight)
     CHECK(radio.tx_busy());
     CHECK(hal.tx_timeouts() == 0);
@@ -164,6 +221,14 @@ TEST_CASE("DeviceHal — TX watchdog: a missed TxDone is force-recovered past th
     CHECK(radio.tx_busy());                                 // B is now the in-flight TX (radio busy again)
     CHECK(radio.txs.size() == 2);
     if (radio.txs.size() == 2) CHECK(radio.txs[1].bytes[0] == 0xB);
+    TxOutcome outcome{};
+    CHECK(hal.pop_tx_outcome(outcome));
+    CHECK(outcome.kind == TxOutcomeKind::unknown);
+    CHECK(outcome.reason == BusyReason::none);
+    CHECK(outcome.tag == pa.tag);
+    CHECK(outcome.seq == pa.seq);
+    CHECK(outcome.sf == pa.sf);
+    CHECK_FALSE(hal.pop_tx_outcome(outcome));                  // B has started, but has no completion yet
 }
 
 TEST_CASE("DeviceHal — TX watchdog does NOT fire on a timely completion") {
@@ -176,6 +241,39 @@ TEST_CASE("DeviceHal — TX watchdog does NOT fire on a timely completion") {
     CHECK(!radio.tx_busy());
     CHECK(hal.tx_timeouts() == 0);                          // no false recovery
     CHECK(radio.abort_count == 0);
+}
+
+TEST_CASE("§T2 DeviceHal — mixed completion order is aired, failed, aired with each frame's own identity") {
+    FakeClock clk; MockRadio radio; DeviceHal hal(clk, radio);
+    hal.configure(8, 125000, 5, 16, 14, 100);
+    const uint8_t a[2] = {0xA,1}, b[2] = {0xB,2}, c[2] = {0xC,3};
+    TxParams pa; pa.tag = 0xA1; pa.seq = 101;
+    TxParams pb; pb.tag = 0xB2; pb.seq = 202;
+    TxParams pc; pc.tag = 0xC3; pc.seq = 303;
+    CHECK(hal.tx(a, sizeof(a), pa) == TxResult::ok);
+    CHECK(hal.tx(b, sizeof(b), pb) == TxResult::ok);
+    CHECK(hal.tx(c, sizeof(c), pc) == TxResult::ok);
+    hal.service_tx();                                           // A starts
+    radio.complete_tx(); radio.start_result = TxResult::radio_error;
+    hal.service_tx();                                           // A airs, then B fails to arm
+    radio.start_result = TxResult::ok;
+    hal.service_tx();                                           // C starts
+    radio.complete_tx(); hal.service_tx();                      // C airs
+    TxOutcome outcome{};
+    CHECK(hal.pop_tx_outcome(outcome));
+    CHECK(outcome.kind == TxOutcomeKind::aired);
+    CHECK(outcome.reason == BusyReason::none);
+    CHECK(outcome.tag == pa.tag);
+    CHECK(hal.pop_tx_outcome(outcome));
+    CHECK(outcome.kind == TxOutcomeKind::failed);
+    CHECK(outcome.reason == BusyReason::none);
+    CHECK(outcome.error == TxResult::radio_error);
+    CHECK(outcome.tag == pb.tag);
+    CHECK(hal.pop_tx_outcome(outcome));
+    CHECK(outcome.kind == TxOutcomeKind::aired);
+    CHECK(outcome.reason == BusyReason::none);
+    CHECK(outcome.tag == pc.tag);
+    CHECK_FALSE(hal.pop_tx_outcome(outcome));
 }
 
 TEST_CASE("DeviceHal::channel_busy_until — CAD busy -> now+hold; clear -> 0") {

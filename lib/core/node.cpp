@@ -2201,14 +2201,25 @@ void Node::on_radio_busy(const BusyInfo& info) {
 // awaiting_cts here — see below); DATA -> clear awaiting_ack + cancel the ack-timeout; then re-issue the stashed
 // retry-eligible frame (CTS/DATA/ACK/NACK) up to TX_DEFER_MAX_RETRIES. Lua dv:12081-12215. NEVER fires in the gates
 // (lbt_enabled=false + healthy duty) -> inert.
-// ★ §T1 — WHAT IS HERE AND WHAT IS NOT, in the code rather than in a doc: the `refused` arm below is the whole of
-//   this function today. `aired` / `failed` / `unknown` are DECLARED in hal.h and have ⛔ NO PRODUCER (the DeviceHal
-//   completion path is §T2) and ⛔ NO CONSUMER (the app/UI half is §T3), so they return immediately.
-// ⛔ THAT EARLY RETURN IS A SLICE BOUNDARY, NOT A SILENT FALLBACK: when §T2 starts producing them, the arms are
-//   written HERE, and ⛔ neither `failed` nor `unknown` may be turned into a terminal app/UI state — a failed
-//   attempt is routinely followed by a successful retry (the MAC recovery below and in `tx_with_retry` keeps running).
+// ★ §T2 — DeviceHal's `aired` / `failed` / `unknown` attempts are reported here to telemetry and return. They do
+//   NOT enter the app push ring, mutate protocol state, arm a timer or consume the refusal stash: an attempt outcome
+//   is not a terminal send outcome, and a failed/unknown attempt may still be followed by a successful MAC retry.
+//   The `refused` arm below remains the simulator's existing recovery path, reached through on_radio_busy's adapter.
 void Node::on_tx_complete(const TxOutcome& info) {
-    if (info.kind != TxOutcomeKind::refused) return;
+    switch (info.kind) {
+        case TxOutcomeKind::aired:
+            MR_EMIT("tx_aired", EF_I("tag", info.tag), EF_I("seq", info.seq), EF_I("sf", info.sf));
+            return;
+        case TxOutcomeKind::failed:
+            MR_EMIT("tx_failed", EF_I("tag", info.tag), EF_I("seq", info.seq), EF_I("sf", info.sf),
+                    EF_I("result", static_cast<uint8_t>(info.error)));
+            return;
+        case TxOutcomeKind::unknown:
+            MR_EMIT("tx_unknown", EF_I("tag", info.tag), EF_I("seq", info.seq), EF_I("sf", info.sf));
+            return;
+        case TxOutcomeKind::refused:
+            break;
+    }
     const FrameTag tag = frame_tag_of(info.tag);   // §B186a: mask the mobile-op high byte — the low byte is verbatim what this line used to cast
     MR_EMIT("radio_busy",EF_I("reason",info.reason),EF_I("busy_until_ms",info.busy_until_ms));
     // ★★★★ §B186a 2026-08-12 — THE ASYNCHRONOUS REFUSAL REPORT, and it is the ONE gap this slice closes.

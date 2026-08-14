@@ -87,15 +87,14 @@ the wire is right). ⛔ And never `is_team_peer(src)`: that is our own state, no
 next hop forwarding **this exact flight** (expected next hop · destination · plane · domain/width · full identity)
 may clear its own redundant pending copy, under one of two **named, diagnostic-only** bases: `local_admitted` (this
 node had previously **admitted** a DATA for the flight to its radio) or `alternate_path` (no DATA has been admitted
-locally). ⛔ **Neither basis is evidence a DATA of ours reached the air**, and nothing consumes the distinction: the
-redundancy of the local copy is the sole justification, and it holds on both. ⛔ It never emits `send_acked`,
-`send_e2e_acked`, `delivered` or `send_failed`, and never disturbs an independently armed end-to-end ACK wait; a
-mismatch changes no deadline, pending state, route state or app outcome. ⓘ `_hal.tx()` returns `ok` on **ENQUEUE**
-(`lib/hal/device_hal.cpp:10-12`), so the flag behind `local_admitted` is written at the **one HAL-admission crossing
-point** every admission passes — never at a caller's exit. Label owner-ruled: ledger §1.12. ⚠ [[B164]]'s **airing**
-half is **open**: post-admission refusal (`on_radio_busy`, `pump_tx()`'s failed arm) means admission ≠ airing, and
-establishing a true "aired" fact needs a flight-correlated TX-start signal — **deferred for want of a consumer, not
-dismissed**.
+locally). ⛔ **Neither basis is evidence a DATA of ours reached the air**: the redundancy of the local copy is the
+sole justification, and it holds on both. ⛔ It never emits `send_acked`, `send_e2e_acked`, `delivered` or
+`send_failed`, and never disturbs an independently armed end-to-end ACK wait; a mismatch changes no deadline,
+pending state, route state or app outcome. ⓘ `_hal.tx()` returns `ok` on **ENQUEUE**, so the flag behind
+`local_admitted` is written at the **one HAL-admission crossing point** every admission passes—never at a caller's
+exit. Label owner-ruled: ledger §1.12. §T2 now establishes the separate, flight-correlated hardware completion fact
+and reports it through telemetry, but deliberately does not rewrite this admission flag or change either
+implicit-credit action. Its app/UI consumer remains T3; neither basis here became delivery evidence.
 
 ★★ **`payload_len` is a LENGTH and never disambiguated identity** (withdrawn claim, `§hybrid-rts` S4 item 5): it is a
 frame-consistency / NAV field only — it sizes an overhearer's reservation and cheaply filters the **non-terminal**
@@ -198,6 +197,39 @@ while un-reflashed nodes remain — do that only behind a `wire_version` bump.
 - **Source:** `node_mac.cpp` (`do_data_tx`, `duty_over_budget`, budget tiers) · `node_mac_rx.cpp` (RX handlers) · `node_cascade.cpp` (alt-walk)
 - **Spec:** `docs/specs/2026-05-30-r3-data-plane-design.md` · `2026-05-31-r4.5-lbt-design.md` · `2026-06-07-nav-virtual-carrier-sense-design.md` · `2026-05-31-r4-budget-nack-design.md`
 - **Mobile marks (codec — §mobile Slice 1).** A mobile uses a home-assigned LOCAL id that can collide with a global id, so **RTS/DATA carry `addr_len=1`** (`next` is a mobile local-id), **RTS a `MOBILE` bit** (byte-5 b1 — the `src`/originator is a mobile), and **ACK a `MOBILE` bit** (byte-1 b1 — the `to` is a mobile local-id); the **ORDINARY CTS relies on the marked-RTS context** (its flags nibble is full), while the **TERMINAL CTS carries an explicit plane bit** (`CTS_TERM_PLANE_BIT`, byte-0 b3 — §2.1), because it ends a flight and may not infer the plane. These keep the mobile plane's local-ids distinct from global ids. The codec round-trips them (marks default `0` → backward-compatible); wire layout = `frames.md`. The mobile plane itself (registration, last-mile, presence) is **§12–14** below.
+
+### 2.2 Hardware TX completion is an attempt outcome, not a send verdict (§T2, 2026-08-14)
+
+On hardware, `DeviceHal::tx()` admits into an eight-entry queue; it does not mean that the frame aired. The
+sending site's opaque `TxParams::tag` and flight `seq` travel with that queue entry and the one-deep in-flight
+record. They are echoed verbatim on completion—never reconstructed from whichever flight is current later.
+
+`DeviceHal::service_tx()` reports three mutually exclusive asynchronous attempt outcomes through a bounded
+four-entry, drop-newest ring:
+
+- `aired`: the radio produced its TxDone edge;
+- `failed`: `start_transmit` rejected an already-admitted queue entry, carrying the exact `TxResult`;
+- `unknown`: transmission started, but no TxDone arrived before the watchdog. It may have aired fully, partly, or
+  not at all; it is neither `aired` nor `failed`.
+
+These three hardware outcomes carry `BusyReason::none`; only a synchronous/asynchronous `refused` outcome carries
+an actual busy reason.
+
+The device loop drains every pending outcome immediately after `service_tx()` into
+`Node::on_tx_complete()`. The core emits `tx_aired`, `tx_failed`, or `tx_unknown` with `tag`, `seq`, and
+resolved physical `sf` (`tx_failed` also carries `result`). These are telemetry-only in T2: they enqueue no
+app push, mutate no protocol state, arm no timer, and consume no retry stash. Existing MAC recovery remains
+authoritative, so an attempt failure is never presented as a terminal send failure.
+
+Outcome-ring overflow increments `tx_outcome_drops`; failed radio arms increment `tx_failed_arms`. Both are
+visible in device `status` as `txoutdrop` and `txfail`, alongside `txdrop` and `txto`. Synchronous
+`busy`/`too_long` returns never enter the outcome ring and therefore cannot double-report. All four core
+hand-off sites now inspect their synchronous `TxResult`; the two formerly discarded sites report
+`tx_hal_rejected` while retaining their pre-existing timeout/recovery behavior.
+
+The simulator still reports only its asynchronous `refused` path through the same
+`Node::on_tx_complete()` entry. It does not synthesize hardware `aired`/`failed`/`unknown` events, so those
+three outcomes remain corpus-dark and are covered by the native DeviceHal tests.
 
 ## 3. Beacons
 

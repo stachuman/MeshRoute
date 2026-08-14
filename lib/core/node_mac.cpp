@@ -1533,7 +1533,10 @@ void Node::rts_duty_defer_fire() {
     // what the staleness guard eleven lines above compared. ⛔ Not `_pending_tx->flight_gen`: they are equal here
     // only because that guard just proved it, and depending on that equality is how a derived identity sneaks in.
     TxParams p = tx_params_of(static_cast<uint16_t>(FrameTag::rts), d.sf, d.flight_gen);
-    _hal.tx(d.buf, d.len, p);
+    const TxResult tr = _hal.tx(d.buf, d.len, p);
+    if (tr != TxResult::ok)
+        MR_EMIT("tx_hal_rejected", EF_S("label", "RTS"), EF_I("result", static_cast<uint8_t>(tr)),
+                EF_I("len", static_cast<int64_t>(d.len)));
     start_rts_timeout();                                                 // the DRIFT — arm the CTS-wait the Lua drops
 }
 
@@ -1617,11 +1620,11 @@ const char* Node::label_of_frame(FrameTag t) {
 //      · `tx_flood` / CTS/ACK/NACK     -> **0**, passed deliberately: they belong to no flight
 // ⛔ A builder that read the current flight instead would label a stale retry as the NEW flight — a reconstructed
 //    fact, i.e. a false confirmation, which is the exact defect class the identity exists to prevent.
-// ⓘ INERT TODAY BY CONSTRUCTION: `TxParams::seq` has no production reader; native TestHal reads it solely for
-//    regression evidence. The completion path that echoes it back is §T2, and `label` is derived from the tag
-//    through `label_of_frame` — the same pointer the
-//    three tag-driven sites already used and, for `rts_duty_defer_fire`/`tx_flood`, the same "RTS"/"BCN" text their
-//    literals carried. ⇒ every byte handed to the HAL is what it was before.
+// ⓘ §T2: DeviceHal is the production reader of `TxParams::seq`, carrying it with the frame through queue,
+//    in-flight record and outcome; native TestHal reads it solely for regression evidence. `label` remains derived
+//    from the tag through `label_of_frame` — the same pointer the three tag-driven sites already used and, for
+//    `rts_duty_defer_fire`/`tx_flood`, the same "RTS"/"BCN" text their literals carried. The identity is internal
+//    metadata only and never changes the bytes handed to the radio.
 TxParams Node::tx_params_of(uint16_t tag, int16_t sf, uint32_t flight_seq) {
     TxParams p;
     p.sf    = sf;
@@ -1688,7 +1691,8 @@ const char* Node::busy_reason_name(BusyReason r) {
     switch (r) { case BusyReason::channel_busy:        return "channel_busy";
                  case BusyReason::self_tx_in_flight:   return "self_tx_in_flight";
                  case BusyReason::oversized:           return "oversized";
-                 case BusyReason::duty_cycle_exceeded: return "duty_cycle_exceeded"; }
+                 case BusyReason::duty_cycle_exceeded: return "duty_cycle_exceeded";
+                 case BusyReason::none:                return "none"; }
     return "unknown";
 }
 int Node::retry_slot_of(FrameTag tag) {
@@ -1943,7 +1947,10 @@ void Node::retry_stashed(uint8_t slot) {
     //    an unrelated response was stashed), so passing it would be a borrowed identity, not this frame's.
     const uint32_t flight_seq = (tag == FrameTag::data) ? s.flight_gen : 0u;
     TxParams p = tx_params_of(static_cast<uint16_t>(tag), s.sf, flight_seq);
-    _hal.tx(s.buf, s.len, p);
+    const TxResult tr = _hal.tx(s.buf, s.len, p);
+    if (tr != TxResult::ok)
+        MR_EMIT("tx_hal_rejected", EF_S("label", label_of_frame(tag)),
+                EF_I("result", static_cast<uint8_t>(tr)), EF_I("len", static_cast<int64_t>(s.len)));
     s.reissue_pending = false;   // the armed busy re-issue has now been handed to the radio. UNLIKE the duty path
                                  // (duty_defer_fire -> tx_with_retry, which clears it), THIS path calls _hal.tx
                                  // directly, so clear it HERE — else a gateway's busy-retried ACK leaves the stash
@@ -2084,16 +2091,17 @@ void Node::do_data_tx() {
         //   · **FALSE NEGATIVE (aired, never recorded)** = [[B164]], see the note below.
         // ⇒ ★★ **SO THE FLAG AND THE `basis` LABEL ARE NAMED FOR ADMISSION (`data_ever_admitted` /
         //   `basis=local_admitted`) AND ARE BEST-EFFORT DIAGNOSTIC TELEMETRY.** The alternative — a
-        //   flight-correlated TX-start/completion signal that could establish "aired" — was **DEFERRED, NOT
-        //   DISMISSED** (`BASELINE.md` §HYBRID-RTS-S4c): **nothing consumes the true fact**, since both bases take
-        //   the SAME action, so it would add state and plumbing for a fact with no reader. ★ Establish it there the
-        //   moment something genuinely needs "aired".
+        //   flight-correlated completion signal that establishes "aired" — now exists (§T2) and reports telemetry.
+        //   It deliberately does NOT rewrite this admission flag or change either implicit-credit action: neither
+        //   basis becomes airing or delivery evidence. The app/UI consumer is the separate T3 slice, so this flag
+        //   keeps its exact admission meaning and its single writer.
         // ⛔ §hybrid-rts S4d (2026-08-10) — **"BEST-EFFORT" IS NOW TOO WEAK IN ONE DIRECTION AND MUST BE SPLIT.**
         //    For **ADMISSION** the flag is now **EXACT**: every admission crosses the one write point, so `true`
         //    means an admission was observed AND `false` means none was — which is what makes the consumer's
         //    CATEGORICAL `basis=alternate_path` label ("no DATA has been admitted locally") legitimate. ⛔ For
-        //    **AIRING** it is still not evidence at all (the two post-admission drops above), and option (b) stays
-        //    deferred. ⇒ the honest phrasing is *"exact about admission, silent about airing"*.
+        //    **AIRING** it is still not evidence at all (the two post-admission drops above). §T2 now reports the
+        //    separate completion outcome without mutating this field. ⇒ the honest phrasing remains *"exact about
+        //    admission, silent about airing"*.
         // ⛔ THE PLACEMENT IS STILL LOAD-BEARING and must NOT move above the `_hal.tx()` call: a duty-deferred or
         //    HAL-rejected DATA was never even ADMITTED, so booking it before the call would make the flag wrong
         //    about its own, weaker proposition too. The S4 gate mutates exactly that placement and requires a RED.
@@ -2137,9 +2145,10 @@ void Node::do_data_tx() {
         //    at the shared crossing point, not with a copy of its own. `retry_stashed` still writes nothing and
         //    still needs nothing: reaching it REQUIRES a prior successful admission at that crossing point, and it
         //    only ever re-sends the stashed bytes of the frame that was admitted (the full structural argument, in
-        //    both directions, is at the crossing point). ⇒ ★ what remains OPEN in [[B164]] is **only the AIRING
-        //    question** — `on_radio_busy(FrameTag::data)` and `pump_tx()`'s failed arm — for which option (b) stays
-        //    DEFERRED, NOT DISMISSED.
+        //    both directions, is at the crossing point). ⇒ §T2 now OBSERVES the separate `aired` / `failed` /
+        //    `unknown` attempt outcomes without changing this admission fact. What remains outside this slice is the
+        //    app/UI use of `aired` (T3); neither attempt failures nor an unknown completion are terminal send
+        //    outcomes.
         // ⛔⛔ §hybrid-rts S4c (2026-08-10) — **A RETIRED CLAIM OF S4b's, CORRECTED IN PLACE.** ⛔ WHAT STOOD HERE:
         //    *"★ THE DIRECTION IS THE SAFE ONE … whereas the defect fixed above was an OVER-claim"*. ★ **THAT IS
         //    FALSE, AND IT WAS AN ASYMMETRY ASSERTED WITHOUT CHECKING THE OTHER DIRECTION.** The over-claim was NOT
@@ -2147,9 +2156,9 @@ void Node::do_data_tx() {
         //    `pump_tx()`'s failed arm can still reject it AFTER that ⇒ the flag can also read TRUE for a flight
         //    whose DATA never aired. **IT IS WRONG IN BOTH DIRECTIONS**, which is why S4c renames it instead.
         // ⛔ AND [[B164]]'s FIX IS **NOT** "add the assignment at the two retry sites": that repairs the false
-        //    negatives and PRESERVES the late-busy false positive. The durable cure is the deferred option — one
-        //    flight-correlated TX-start/completion signal — and until a reader needs it, this flag stays
-        //    ADMISSION-named and best-effort. See the register entry and `BASELINE.md` §HYBRID-RTS-S4c.
+        //    negatives and PRESERVES the late-busy false positive. §T2 instead landed the durable, separate,
+        //    flight-correlated completion signal while leaving this flag ADMISSION-named and exact about admission.
+        //    See the register entry and `BASELINE.md` §HYBRID-RTS-S4c.
         // ⓘ §hybrid-rts S4d HONOURED THAT PROHIBITION EXACTLY: it added **no** per-path assignment. It moved the
         //    single write to the one point every admission crosses, which closes the admission-side false negative
         //    WITHOUT touching the airing question and without a second copy anyone could forget. See

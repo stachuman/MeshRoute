@@ -1089,6 +1089,7 @@ static void mesh_service_once() {
     // 2b) Async TX: drain the in-flight TX completion (radio re-arms RX) + start the next queued frame.
     //     After RX + timers, since both enqueue TX. The loop stays live during a long TX (no freeze).
     g_hal.service_tx();
+    for (meshroute::TxOutcome outcome; g_hal.pop_tx_outcome(outcome); ) g_node.on_tx_complete(outcome);
     canary(CW_tx_done);
 
     // 2b2) Firmware scheduled-send (testsend/testch): fire the next DUE entry through the REAL send path so it rides

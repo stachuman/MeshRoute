@@ -66,8 +66,11 @@ public:
     // Async-TX pump (Step 2): drain the in-flight TX completion (-> radio re-arms RX) + start the next
     // queued frame when the radio is idle. Call every loop, after RX + the timer drain (both enqueue TX).
     void     service_tx();
+    bool     pop_tx_outcome(TxOutcome& out);              // false = no completion report pending
     uint32_t txq_drops() const { return _txq_drops; }     // # frames dropped on outbound-queue overflow (status diagnostic)
     uint8_t  txq_depth() const { return _txq_count; }     // current outbound-queue depth (status diagnostic)
+    uint32_t tx_failed_arms() const { return _tx_failed_arms; }       // start_transmit refused after queue admission
+    uint32_t tx_outcome_drops() const { return _tx_outcome_drops; }   // completion reports dropped on ring overflow
     // ★★ §B105 — THE ONE REASON THIS ACCESSOR EXISTS, and it is not tidiness. A feature TU that needs "is a TX on air?"
     //    used to have to name the CONCRETE radio (`g_iradio`, i.e. `device_radio.h` -> `<RadioLib.h>`), which drags a
     //    vendored `#warning` and a `-Wvolatile` diagnostic into every including TU (§B106) and — the real cost — makes
@@ -96,17 +99,41 @@ public:
 
 private:
     void pump_tx();                 // internal: start the head queued frame if the radio is idle (+ debit the ledger)
+    void push_tx_outcome(const TxOutcome& outcome);
 
     // Outbound TX queue (Step 2 async TX). Half-duplex: the radio sends ONE frame at a time. tx() enqueues
     // (mirrors the sim's _pending_txs + MeshCore's `outbound`); service_tx()/pump_tx() start the next when
     // the radio is idle + debit the ledger at the actual on-air send. Bounded ring; overflow drops + counts
     // (the MAC's own timeouts recover the frame — at lbt=false this matches the sim, which never busies tx).
-    struct TxQEntry { uint8_t buf[255]; uint16_t len; int16_t sf; int32_t bw; int8_t cr; int16_t pre; int8_t pw; };
+    // ★ §T2: tag/seq are copied from TxParams at the hand-off and travel WITH the queued frame. They are never
+    // rebuilt from Node state at completion time: a stale retry may complete after a newer flight became current.
+    struct TxQEntry {
+        uint8_t buf[255]; uint16_t len; int16_t sf; int32_t bw; int8_t cr; int16_t pre; int8_t pw;
+        uint16_t tag; uint32_t seq;
+    };
+    static_assert(sizeof(TxQEntry) == 276, "TxQEntry tag uses tail padding; seq is the intentional +4-byte cost");
+    static_assert(offsetof(TxQEntry, tag) == 270 && offsetof(TxQEntry, seq) == 272,
+                  "TxQEntry identity layout drifted — remeasure every board ABI before accepting RAM movement");
     static constexpr uint8_t kTxQCap = 8;
     TxQEntry _txq[kTxQCap];
     uint8_t  _txq_head  = 0;        // ring read index
     uint8_t  _txq_count = 0;        // entries in flight in the ring
     uint32_t _txq_drops = 0;        // overflow drops (diagnostic)
+
+    // Exactly one radio TX can be in flight. Preserve the identity established at the hand-off until TxDone or
+    // watchdog recovery; never reconstruct it from the protocol's now-current flight.
+    struct InflightTx { uint32_t seq = 0; uint16_t tag = 0; int16_t sf = -1; };
+    InflightTx _inflight{};
+    bool       _inflight_valid = false;
+
+    // Attempt outcomes are drained by fw_main immediately after service_tx(). Drop-newest on overflow, but count
+    // every dropped report (C2): losing observability must never be silent.
+    static constexpr uint8_t kTxOutcomeCap = 4;
+    TxOutcome _tx_outcomes[kTxOutcomeCap]{};
+    uint8_t   _tx_outcome_head  = 0;
+    uint8_t   _tx_outcome_count = 0;
+    uint32_t  _tx_outcome_drops = 0;
+    uint32_t  _tx_failed_arms   = 0;
 
     // TX-completion watchdog (mirrors MeshCore's outbound_expiry). pump_tx() sets the deadline at the
     // on-air send; service_tx() force-recovers the radio if a TxDone never arrives by then (else a missed

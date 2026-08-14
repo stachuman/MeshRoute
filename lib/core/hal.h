@@ -20,7 +20,9 @@
 namespace MESHROUTE_NS {
 
 enum class TxResult  : uint8_t { ok, busy, too_long, radio_error };
-enum class BusyReason : uint8_t { channel_busy, self_tx_in_flight, oversized, duty_cycle_exceeded };
+// Append-only: telemetry exposes the existing numeric reasons. `none` means there was no refusal and therefore no
+// busy reason; it is deliberately last so the four established values retain their ordinals.
+enum class BusyReason : uint8_t { channel_busy, self_tx_in_flight, oversized, duty_cycle_exceeded, none };
 
 struct TxParams {                 // sentinel = use the radio default (RF plan SF8/BW125/CR4/5)
     int16_t sf           = -1;
@@ -29,9 +31,9 @@ struct TxParams {                 // sentinel = use the radio default (RF plan S
     int8_t  power_dbm    = -127;
     int16_t preamble_sym = -1;
     uint16_t    tag   = 0;        // opaque token echoed back in on_radio_busy (heap-free retry match)
-    // ★★★ §T1 2026-08-14 — THE FLIGHT IDENTITY OF THIS HAND-OFF. It has no production reader; native TestHal reads
-    // it solely for regression evidence. The TX-completion path that echoes it back is §T2's. It is NOT a wire
-    // field: it never leaves the host.
+    // ★★★ §T1/T2 2026-08-14 — THE FLIGHT IDENTITY OF THIS HAND-OFF. DeviceHal carries it through its bounded TX
+    // queue, one-deep in-flight record and completion outcome; native TestHal reads it solely for regression
+    // evidence. It is NOT a wire field: it never leaves the host.
     // ⛔⛔ IT IS AN EXPLICIT PER-CALLER ARGUMENT AND MUST NEVER BE DERIVED FROM LIVE STATE AT BUILD TIME.
     //    `Node::tx_params_of` is the ONE builder and it takes `flight_seq` as a parameter for exactly that reason:
     //    `retry_stashed` re-transmits a frame that may belong to a SUPERSEDED flight (it has no pre-transmit flight
@@ -60,9 +62,9 @@ struct BusyInfo { BusyReason reason; uint16_t tag; int16_t sf; uint64_t busy_unt
 // ★ WHAT IS BUILT vs WHAT IS MISSING, stated here because code is what gets read:
 //   · `refused`  — PRODUCED (the simulator's async refusal, via the `on_radio_busy` adapter) and CONSUMED
 //                  (the stash-retry / giveup body in `Node::on_tx_complete`). This is the whole of §T1.
-//   · `aired` / `failed` / `unknown` — ⛔ DECLARED ONLY. NOTHING produces them (the `DeviceHal` completion path is
-//                  §T2) and NOTHING consumes them (`on_tx_complete` returns immediately; the app/UI half is §T3).
-//                  They are named now so §T2 has one domain to report into rather than inventing a second.
+//   · `aired` / `failed` / `unknown` — PRODUCED by DeviceHal's bounded completion path and CONSUMED by
+//                  `Node::on_tx_complete` for telemetry only (§T2). They have ⛔ NO app/UI consumer yet; that is
+//                  §T3, and an attempt outcome remains non-terminal here.
 // ⛔ `unknown` IS A THIRD STATE, NOT A SYNONYM: the transmit was STARTED and its completion was never observed —
 //    it may have aired in whole, in part, or not at all. Collapsing it into `aired` or `failed` is a binary test
 //    over a ternary domain, which is the defect this enum exists to prevent.
@@ -70,13 +72,14 @@ enum class TxOutcomeKind : uint8_t { aired, refused, failed, unknown };
 
 struct TxOutcome {
     TxOutcomeKind kind;
-    BusyReason    reason;        // meaningful iff kind == refused (verbatim BusyInfo::reason)
+    BusyReason    reason;        // refused = verbatim BusyInfo::reason; aired/failed/unknown = none
     TxResult      error;         // meaningful iff kind == failed  (verbatim start_transmit's answer)
     uint16_t      tag;           // the TxParams::tag the SENDING SITE stamped — echoed, never rebuilt
     uint32_t      seq;           // the TxParams::seq the SENDING SITE supplied; 0 = no flight identity
-    int16_t       sf;
+    int16_t       sf;            // resolved physical SF for device outcomes; verbatim BusyInfo::sf for refused
     uint64_t      busy_until_ms; // refused only
 };
+static_assert(sizeof(TxOutcome) == 24, "BusyReason::none must not change the attempt-outcome carrier layout");
 
 // One telemetry key/value; bounded, heap-free — the Node never formats JSON,
 // the backend serializes (sim → NDJSON; device → USB-CDC or compiled out).

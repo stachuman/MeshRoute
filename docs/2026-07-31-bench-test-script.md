@@ -1474,7 +1474,7 @@ as native accessors. They are HOST-side, so run this on the node that hosts mobi
 **Expected — the two fields ride immediately after `txdrop`, and are ALWAYS present (a `0` is a reading):**
 
 ```
-… txq=0 txdrop=0 offerfull=0 offerrej=0 txto=0 …
+… txq=0 txdrop=0 txfail=0 txoutdrop=0 offerfull=0 offerrej=0 txto=0 …
 ```
 
 and over BLE/JSON: `…"txq":0,"txdrop":0,"offer_full":0,"offer_reject":0,"rx":…`
@@ -2062,6 +2062,27 @@ must-run.** ⛔ **Do this on a spare/re-provisionable node — step 1 wipes the 
    verdict is checked, then the hook) and are pinned individually by W14/W16/W17/W19 with their controls. Running all
    four on metal would re-test the corpus, not the residue — record "covered by W14-W19" unless one of them is being
    changed.
+
+## Part 21 — §T2 hardware TX-completion diagnostics (2026-08-14)
+
+T2 adds no panel state or string. Its metal-only residue is the real SX1262 completion path and its four status
+counters; native tests substitute a mock radio and the simulator does not produce these outcomes.
+
+1. Over **USB serial** (the human text console), after boot run `status`. Then exercise the existing queue-stress command
+   `testsend <dst> 200 @sendms 20`, let the queue drain, and run `status` again.
+2. Expected: all four diagnostics are present on every read, including when zero:
+
+   ```
+   … txq=<n> txdrop=<n> txfail=<n> txoutdrop=<n> … txto=<n> …
+   ```
+
+   `txdrop` counts synchronous queue-full admissions; `txfail` counts queued frames whose radio arm failed;
+   `txto` counts started transmissions whose TxDone was not observed; `txoutdrop` counts completion reports lost
+   because the four-entry outcome ring was full. ⛔ Do not assume `txoutdrop=0`; record the value.
+   ⛔ The BLE/JSON status contract currently omits `txfail`, `txoutdrop`, and `txto`; extending that contract is
+   deferred to T3. Do not use a BLE/JSON response as evidence for this T2 metal check.
+3. Pass: the fields are always present, the node remains responsive after the burst, and `txq` returns to 0.
+   Fail: any field is omitted at zero, `txq` remains wedged, or a non-zero counter is silently reset between reads.
 
 ## Completion record
 

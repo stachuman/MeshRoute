@@ -474,6 +474,27 @@ wchk_in "$CFG_CPP" "W20 every non-exempt /mrcfg write in the file has a notifica
          's|    out.print(F("> left network (kept freq="));|    { mrnv::Blob nb{}; (void)mrnv::save(nb); mr_ui_on_config_saved(); }\n    out.print(F("> left network (kept freq="));|' \
          's|bool save(const mrnv::Blob& b) override { return mrnv::save(b); }|bool save(const mrnv::Blob\& b) override { const bool ok = mrnv::save(b); return ok; }|' \
          '/leave err nv_save_failed/{n;s|mr_ui_on_config_saved();|;|;}'
+# ================================================================================================ W21
+# ★★★ §T2 / [[B189]] — THE SOLE PRODUCTION BRIDGE FROM THE DEVICE-HAL OUTCOME RING INTO CORE. Native tests can
+#     drive `DeviceHal` and `Node::on_tx_complete` independently, but `src/fw_main.cpp` is outside that build; the
+#     simulator has no device outcome ring. Deleting this loop therefore leaves both halves green while every metal
+#     completion is silently stranded. The exact sequence pins all four caller obligations together:
+#       (a) `service_tx()` runs first, so a completion is produced before the drain;
+#       (b) `pop_tx_outcome(outcome)` is the `for` condition, so the bounded ring is drained exhaustively;
+#       (c) the popped object itself reaches `g_node.on_tx_complete(outcome)` on every iteration; and
+#       (d) no hand-replicated dispatch or different destination method stands in for the core entry point.
+# ★ FOUR CONTROLS, one per wrong answer named by QG: delete the drain; reverse producer/drain order; replace the loop
+#   with a single `if` pop; or discard each outcome into the wrong Node method. `wchk_in` additionally proves every
+#   mutation changes the source copy before requiring the predicate to turn RED.
+FW_MAIN="$ROOT/src/fw_main.cpp"
+w21() {
+  code_flat "$1" | grep -qE 'g_hal\.service_tx\(\);[[:space:]]*for \(meshroute::TxOutcome outcome; g_hal\.pop_tx_outcome\(outcome\); \)[[:space:]]*g_node\.on_tx_complete\(outcome\);'
+}
+wchk_in "$FW_MAIN" "W21 service_tx precedes an exhaustive outcome drain into Node::on_tx_complete" \
+     w21 '/g_hal\.pop_tx_outcome(outcome)/d' \
+         's|    g_hal.service_tx();|__W21_SERVICE__|; s|    for (meshroute::TxOutcome outcome; g_hal.pop_tx_outcome(outcome); ) g_node.on_tx_complete(outcome);|    g_hal.service_tx();|; s|__W21_SERVICE__|    for (meshroute::TxOutcome outcome; g_hal.pop_tx_outcome(outcome); ) g_node.on_tx_complete(outcome);|' \
+         's|    for (meshroute::TxOutcome outcome; g_hal.pop_tx_outcome(outcome); ) g_node.on_tx_complete(outcome);|    meshroute::TxOutcome outcome; if (g_hal.pop_tx_outcome(outcome)) g_node.on_tx_complete(outcome);|' \
+         's|g_node.on_tx_complete(outcome)|g_node.on_radio_busy({})|'
 echo "structural: $s_pass passed / $s_fail failed / $((s_pass+s_fail)) total"
 echo "wiring:     $w_pass passed / $w_fail failed / $((w_pass+w_fail)) total; $w_ctl negative control(s) verified RED"
 [ "$s_fail" -eq 0 ] || rc=1

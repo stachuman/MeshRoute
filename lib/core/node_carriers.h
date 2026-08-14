@@ -398,7 +398,8 @@ struct PendingTx {                   // the in-flight sender state (one per node
     //     AFTER a successful admission: (i) `Node::on_radio_busy(FrameTag::data)` (`node.cpp:2191-2195`) — the
     //     medium refused a frame this flag already booked; it clears `awaiting_ack` but **cannot unset this flag**,
     //     and the path is EXERCISED: **652 `data_tx_blocked` events across 15 of the 36 corpus scenarios**;
-    //     (ii) `pump_tx()`'s failed arm (`device_hal.cpp:38-46`) DROPS the queued frame and does not retry it.
+    //     (ii) `pump_tx()`'s failed arm DROPS the queued frame and does not retry it. §T2 now reports that attempt
+    //     as `tx_failed`; it deliberately does not rewrite this admission fact.
     //   · **aired-but-never-recorded (FALSE NEGATIVE) = [[B164]]:** `duty_defer_fire`'s `handed && tag == data`
     //     re-hand and `retry_stashed`'s direct `_hal.tx` both fly a DATA for this same flight and write nothing.
     //     ⛔⛔ **§hybrid-rts S4d (2026-08-10) — THIS BULLET IS HALF-RETIRED IN PLACE.** The `duty_defer_fire` half
@@ -408,10 +409,11 @@ struct PendingTx {                   // the in-flight sender state (one per node
     //     bullet above — the false-negative direction for **admission** no longer exists.
     // ⇒ ⛔ **THE FIELD IS EXACT ABOUT ADMISSION (S4d) AND NEVER PROOF OF AIRING.** ⓘ It read *"BEST-EFFORT ADMISSION
     //   TELEMETRY"* before S4d, which was accurate then and is too weak now. Downgrading the NAME (rather
-    //   than adding a flight-correlated TX-completion signal) is a DELIBERATE choice recorded in `BASELINE.md`
-    //   §HYBRID-RTS-S4c: **nothing consumes the true "aired" fact** — both bases take the SAME action — so the
-    //   split is diagnostic only. ★ The completion-signal option is **DEFERRED, NOT DISMISSED**: the moment a
-    //   consumer genuinely needs "aired" rather than "admitted", establish it there and rename back.
+    //   rather than conflating it with the flight-correlated completion signal) is a DELIBERATE choice recorded in
+    //   `BASELINE.md` §HYBRID-RTS-S4c. §T2 now establishes and reports the separate true "aired" fact, but no
+    //   protocol/app consumer uses it yet (T3 owns that), and both implicit-credit bases still take the SAME action.
+    //   Therefore this field keeps its admission name and meaning; do not rename it or make completion write it.
+    //   The split remains diagnostic only.
     //
     // ⛔⛔ §hybrid-rts S4d (2026-08-10) — **THE TEXT THAT STOOD HERE IS AMENDED, AND SO IS THE FLAG'S FALSE SIDE.**
     //   ⛔ WHAT IT SAID: *"Set at ONE place only: `do_data_tx`'s `disp == TxHandOff::handed` arm."* That was true and
@@ -434,9 +436,10 @@ struct PendingTx {                   // the in-flight sender state (one per node
     //    excluded from the credit altogether — see the guard at `handle_rts`. ⚠ It reaches `tx_with_retry` WITH
     //    `FrameTag::data` (`node_mac.cpp:1788`), so the `!m_broadcast` term of the crossing-point guard is
     //    load-bearing, not decorative.
-    // ⛔ WHAT S4d DOES **NOT** CHANGE: the AIRING question. The two post-admission drop mechanisms above stand and
-    //    neither can unset the flag ⇒ [[B164]] stays OPEN for airing, with option (b) DEFERRED, NOT DISMISSED.
-    //    ⇒ the honest one-liner is **"exact about admission, silent about airing"**.
+    // ⛔ WHAT S4d DOES **NOT** CHANGE: this field's AIRING meaning. The two post-admission drop mechanisms above
+    //    stand and neither can unset it. §T2 reports their separate attempt outcomes; it does not repurpose the flag.
+    //    ⇒ the honest one-liner remains **"exact about admission, silent about airing"**, while the app/UI use of the
+    //    separate completion fact remains T3.
     //
     // WHO READS IT: `handle_rts`'s restored implicit-forward credit, and ONLY to LABEL the credit's basis —
     //   `local_admitted` (this node admitted a DATA for the flight to its own radio, so an exact downstream forward
