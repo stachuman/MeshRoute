@@ -447,7 +447,7 @@ int main() {
     CHK("P2b ...with the radio still idle",                  !g_probe_radio.busy_tx);
     run_ticks(t, 8, 10);
     CHK("P2b a queued TX alone suppresses every bus call",   g_c.bus_ops() == 0);
-    g_hal.service_tx();                                      // hand it to the radio -> the queue drains
+    g_hal.collect_tx_completion(); g_hal.pump_tx();          // §T3 §2.1: the two halves of the old service_tx()
     CHK("P2b the queue drained",                             g_hal.txq_depth() == 0);
     CHK("P2b ...and the frame really went to the radio",     g_probe_radio.starts == 1);
     run_ticks(t + 100, 8, 10);
@@ -872,6 +872,101 @@ int main() {
                 strstr(g_c.page_text, "CFG! RELOAD") == nullptr);
             t = walk_to(t + 500, "STATUS");
             CHK("P8g ...and no unsaved marker either",      strstr(g_c.page_text, "CFG* UNSAVED") == nullptr);
+        }
+    }
+
+    // ============================================================================================================ P9
+    // ★★★★ §T3 — WHAT THE OPERATOR ACTUALLY READS, END TO END THROUGH `mr_ui_on_push`.
+    // The panel is the whole point of this slice: until now `SENT, waiting` appeared at CORE ADMISSION, which is five
+    // measured gaps short of the air. These cases drive the SHIPPED path — the real `firmware_ui.cpp`, the real
+    // `SendTracker`, the real `UiModel`, and `mr_ui_on_push` (the exact seam `fw_main` calls) — and read the panel's
+    // own bytes. ⓘ The design numbers these P1-P7; this file's P-slots are already taken, so they land as P9a-P9f and
+    // the mapping is stated here rather than left to be guessed: P9a=P1(first half), P9b=P1(second half), P9c=P7,
+    // P9d=P1 for the DM plane, P9e=P6, P9f=P4.
+    // ⛔ WHAT THIS DOES **NOT** PROVE, stated rather than implied: the CORE's production of the push (its ownership
+    //    predicate, the `flood` clause, the 16-bit handle) is native-only cover — `mrfw::exec_command` is faked here,
+    //    so no real origination happens in this binary. §T3's N14a-e are those assertions; these measure the app half.
+    {
+        auto aired_push = [](uint8_t dst, uint16_t ctr) {
+            MESHROUTE_NS::Push pu{}; pu.kind = MESHROUTE_NS::PushKind::send_aired;
+            pu.dst = dst; pu.ctr = ctr; return pu;
+        };
+        // ---- ★ A CANNED TEAM POST, sent through the real SEND screen with the real gestures.
+        g_exec = ExecLog{}; g_exec.ok = true;
+        g_exec.code = MESHROUTE_NS::CmdCode::queued;
+        g_exec.ctr  = 300;                                   // ★ ABOVE 255 on purpose — §b40's 16-bit handle
+        uint32_t t9 = settle(400000);
+        t9 = open_highlighted(t9, "SEND to team");            // the SEND screen -> the canned CHANNEL list
+        t9 = double_press(t9 + 500); paint(t9);               // ...and send its first text
+        CHK("P9a the canned post really reached the executor", g_exec.calls == 1);
+        CHK("P9a an ACCEPTED post reads QUEUED, never SENT",
+            strstr(g_c.page_text, "QUEUED") != nullptr && strstr(g_c.page_text, "SENT, waiting") == nullptr);
+
+        // ---- ★★★★ THE COMPLETION. This is the fact §T3 exists to deliver, arriving through the core's own app
+        //      channel exactly as `fw_main`'s push drain delivers it.
+        mr_ui_on_push(aired_push(/*dst=*/0, /*ctr=*/300));
+        t9 += 700; paint(t9);
+        CHK("P9b the correlated airing turns QUEUED into SENT, waiting",
+            strstr(g_c.page_text, "SENT, waiting") != nullptr && strstr(g_c.page_text, "QUEUED") == nullptr);
+
+        // ---- ⛔ P9c (design P7): an UNCORRELATED airing moves NOTHING. Re-send so a fresh QUEUED is on screen.
+        g_exec = ExecLog{}; g_exec.ok = true; g_exec.code = MESHROUTE_NS::CmdCode::queued; g_exec.ctr = 301;
+        t9 = settle(t9 + 1000);
+        t9 = open_highlighted(t9, "SEND to team");
+        t9 = double_press(t9 + 500); paint(t9);
+        CHK("P9c precondition: the new post is QUEUED",  strstr(g_c.page_text, "QUEUED") != nullptr);
+        mr_ui_on_push(aired_push(/*dst=*/0, /*ctr=*/45));     // ⛔ 301 & 0xff == 45: the TRUNCATED handle
+        t9 += 700; paint(t9);
+        CHK("P9c a truncated/foreign handle leaves the panel on QUEUED",
+            strstr(g_c.page_text, "QUEUED") != nullptr && strstr(g_c.page_text, "SENT, waiting") == nullptr);
+        // ---- ⛔ P9f (design P4): a push of an UNRELATED kind moves neither new state.
+        MESHROUTE_NS::Push other{}; other.kind = MESHROUTE_NS::PushKind::send_acked; other.dst = 0; other.ctr = 301;
+        mr_ui_on_push(other);
+        t9 += 700; paint(t9);
+        CHK("P9f an unrelated push kind moves neither new state",
+            strstr(g_c.page_text, "QUEUED") != nullptr && strstr(g_c.page_text, "SENT, waiting") == nullptr);
+        // ...and the CORRECT handle still works, so the two refusals above are the correlation and not an inert panel.
+        mr_ui_on_push(aired_push(0, 301));
+        t9 += 700; paint(t9);
+        CHK("P9c ...and the exact 16-bit handle still promotes it",
+            strstr(g_c.page_text, "SENT, waiting") != nullptr);
+
+        // ---- ★ P9e (design P6): the renamed no-relay string, ON THE PANEL. The retired wording kept the word SENT
+        //      on a state reached with no airing evidence at all — the same contradiction the two lines above remove.
+        // ⚠ THE NEEDLE IS ASSEMBLED AT RUNTIME ON PURPOSE: `run.sh`'s P6 grep asserts the retired literal appears in
+        //   NO `src/` or `tools/` source, and a check that spelled it out here would match ITSELF and make that gate
+        //   permanently red for the wrong reason.
+        char retired[16]; snprintf(retired, sizeof retired, "SENT, %s relay", "no");
+        MESHROUTE_NS::Push nr{}; nr.kind = MESHROUTE_NS::PushKind::channel_sent; nr.ctr = 301; nr.relayed = false;
+        mr_ui_on_push(nr);
+        t9 += 700; paint(t9);
+        CHK("P9e the no-relay outcome renders NO RELAY HEARD",
+            strstr(g_c.page_text, "NO RELAY HEARD") != nullptr);
+        CHK("P9e ...and the retired no-relay wording is nowhere on the panel",
+            strstr(g_c.page_text, retired) == nullptr);
+
+        // ---- ★★ P9d — THE DM PLANE, on the panel, through the real TEAM roster. `aired_waiting` is a SEPARATE
+        //      state from `ChanState::aired` and is rendered by a separate arm, so the channel checks above say
+        //      nothing about it. A teammate is installed on the real team routing plane so the TEAM screen has a row
+        //      to open — the same seam the native suite uses, not a poked snapshot.
+        {
+            MESHROUTE_NS::NodeConfig cfg{};
+            cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
+            cfg.team_id = 0xABCD1234u;
+            g_node.on_init(cfg);
+            g_node.set_team_local_id(50);
+            g_node.test_learn_route(/*dest=*/60, /*via=*/60, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
+            g_exec = ExecLog{}; g_exec.ok = true; g_exec.code = MESHROUTE_NS::CmdCode::queued; g_exec.ctr = 42;
+            t9 = settle(t9 + 1000);
+            t9 = open_highlighted(t9, ">id 60");           // the teammate row -> the DM compose list
+            t9 = double_press(t9 + 500); paint(t9);        // ...and send its first canned text
+            CHK("P9d the DM really reached the executor", g_exec.calls == 1);
+            CHK("P9d an ACCEPTED DM reads QUEUED, never SENT",
+                strstr(g_c.page_text, "QUEUED") != nullptr && strstr(g_c.page_text, "SENT, waiting") == nullptr);
+            mr_ui_on_push(aired_push(/*dst=*/60, /*ctr=*/42));
+            t9 += 700; paint(t9);
+            CHK("P9d the DM airing turns QUEUED into SENT, waiting",
+                strstr(g_c.page_text, "SENT, waiting") != nullptr && strstr(g_c.page_text, "QUEUED") == nullptr);
         }
     }
 

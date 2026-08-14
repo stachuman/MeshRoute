@@ -311,8 +311,49 @@ if [ "${1:-}" != "--no-neg" ]; then
   ctl "C40 an unreadable record is treated as a conflict (a latch from no evidence)" yes \
       's|    if (!mrfw::device_cfg_store().load(b)) return;|    (void)mrfw::device_cfg_store().load(b);|'
 
+  # C41-C44 ★★★ §T3 — THE THREE CHANGED STRINGS AND THE TWO NEW STATES. Each control is the TEMPTING WRONG ANSWER,
+  #   not a deletion: C41 puts `SENT` back on core acceptance (the §B69 false confirmation this slice removes), C42
+  #   makes the EARNED state say the unearned word, C43 restores `SENT, no relay` on a state that never established
+  #   any airing, and C44 collapses the two DM states so the promotion is invisible.
+  # ⚠ C41/C42 are DIRECTIONAL OPPOSITES on purpose: with only one of them a renderer that printed the SAME string for
+  #   both states would still redden something, and the pair is what proves the two states are distinguishable.
+  ctl "C41 ChanState::waiting says SENT again (the pre-T3 false confirmation)" yes \
+      's|case mrui::ChanState::waiting:    mrui::draw_text(0, body_y(1), "QUEUED");|case mrui::ChanState::waiting:    mrui::draw_text(0, body_y(1), "SENT, waiting");|'
+  ctl "C42 ChanState::aired says QUEUED (the earned state never shows)" yes \
+      's|case mrui::ChanState::aired:      mrui::draw_text(0, body_y(1), "SENT, waiting");|case mrui::ChanState::aired:      mrui::draw_text(0, body_y(1), "QUEUED");|'
+  ctl "C43 the no-relay outcome reads SENT, no relay again" yes \
+      's|"NO RELAY HEARD"|"SENT, no relay"|'
+  ctl "C44 DmState::aired_waiting is rendered as QUEUED too" yes \
+      's|case mrui::DmState::aired_waiting: mrui::draw_text(0, body_y(1), "SENT, waiting");|case mrui::DmState::aired_waiting: mrui::draw_text(0, body_y(1), "QUEUED");|'
+
   ctl "C26 the highlight is NOT suppressed while the refusal stands" yes \
       's|                 (!st.inbox_pick_gone \&\& first + row == st.cursor) ? '"'"'>'"'"' : '"'"' '"'"', tag, e.text, age);|                 (first + row == st.cursor) ? '"'"'>'"'"' : '"'"' '"'"', tag, e.text, age);|'
+fi
+
+# ---- ★★ §T3 (design P6) — THE OLD STRING MUST BE GONE FROM EVERY RENDERING SOURCE ------------------------------
+# ⛔ SCOPE IS `src/` + `tools/`, DELIBERATELY, AND NOT TREE-WIDE. The bench guide and the bug register legitimately
+#   QUOTE `SENT, no relay` inside withdrawn-wording blocks (a withdrawal is kept visible, never deleted), so a
+#   tree-wide grep would force those histories to be erased to make a gate green — the wrong trade. What must be true
+#   is that nothing a panel can PRINT still carries it.
+echo
+echo "== §T3 P6: the retired string is absent from every rendering source =="
+# ⚠ COMMENTS ARE STRIPPED FIRST (§B77's lesson, borrowed from `probe_board_ui`'s `code_flat`): the rename is
+#   RECORDED in a comment beside the arm it changed, and a bare grep matches the note that says the string is gone.
+#   What must be absent is a string a panel can PRINT, i.e. code.
+: > "$OUT/p6.txt"
+while IFS= read -r f; do
+  sed 's://.*::' "$f" | grep -n -F 'SENT, no relay' | sed "s|^|$f:|" >> "$OUT/p6.txt"
+done < <(find "$ROOT/src" "$ROOT/tools" \( -name '*.cpp' -o -name '*.h' \) )
+if [ -s "$OUT/p6.txt" ]; then
+  echo "  FAIL 'SENT, no relay' still present in a rendering source:"; sed 's/^/    /' "$OUT/p6.txt" | head -10; rc=1
+else
+  echo "  ok   'SENT, no relay' appears in no src/ or tools/ source"
+fi
+# ⚠ AND THE VACUITY GUARD FOR IT (the grep must be able to FIND things): the string that REPLACED it must be present.
+if grep -rq --include=*.cpp -F 'NO RELAY HEARD' "$ROOT/src"; then
+  echo "  ok   ...and its replacement IS present, so the grep is not matching nothing"
+else
+  echo "  FAIL the replacement string is absent too — the check above proved nothing"; rc=1
 fi
 
 # ---- the tree must be exactly as we found it -------------------------------------------------------------------

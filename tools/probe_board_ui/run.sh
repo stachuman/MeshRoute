@@ -479,22 +479,42 @@ wchk_in "$CFG_CPP" "W20 every non-exempt /mrcfg write in the file has a notifica
 #     drive `DeviceHal` and `Node::on_tx_complete` independently, but `src/fw_main.cpp` is outside that build; the
 #     simulator has no device outcome ring. Deleting this loop therefore leaves both halves green while every metal
 #     completion is silently stranded. The exact sequence pins all four caller obligations together:
-#       (a) `service_tx()` runs first, so a completion is produced before the drain;
+#       (a) `collect_tx_completion()` runs first, so a completion is produced before the drain;
 #       (b) `pop_tx_outcome(outcome)` is the `for` condition, so the bounded ring is drained exhaustively;
 #       (c) the popped object itself reaches `g_node.on_tx_complete(outcome)` on every iteration; and
 #       (d) no hand-replicated dispatch or different destination method stands in for the core entry point.
+# ⛔ UPDATED FOR §T3 §2.1: the producer half is now `collect_tx_completion()`, not the old combined `service_tx()`.
+#    W22 below is what pins WHERE that pair sits relative to the timer drain — this check pins only the pair itself.
 # ★ FOUR CONTROLS, one per wrong answer named by QG: delete the drain; reverse producer/drain order; replace the loop
 #   with a single `if` pop; or discard each outcome into the wrong Node method. `wchk_in` additionally proves every
 #   mutation changes the source copy before requiring the predicate to turn RED.
 FW_MAIN="$ROOT/src/fw_main.cpp"
 w21() {
-  code_flat "$1" | grep -qE 'g_hal\.service_tx\(\);[[:space:]]*for \(meshroute::TxOutcome outcome; g_hal\.pop_tx_outcome\(outcome\); \)[[:space:]]*g_node\.on_tx_complete\(outcome\);'
+  code_flat "$1" | grep -qE 'g_hal\.collect_tx_completion\(\);[[:space:]]*for \(meshroute::TxOutcome outcome; g_hal\.pop_tx_outcome\(outcome\); \)[[:space:]]*g_node\.on_tx_complete\(outcome\);'
 }
-wchk_in "$FW_MAIN" "W21 service_tx precedes an exhaustive outcome drain into Node::on_tx_complete" \
+wchk_in "$FW_MAIN" "W21 collect_tx_completion precedes an exhaustive drain into on_tx_complete" \
      w21 '/g_hal\.pop_tx_outcome(outcome)/d' \
-         's|    g_hal.service_tx();|__W21_SERVICE__|; s|    for (meshroute::TxOutcome outcome; g_hal.pop_tx_outcome(outcome); ) g_node.on_tx_complete(outcome);|    g_hal.service_tx();|; s|__W21_SERVICE__|    for (meshroute::TxOutcome outcome; g_hal.pop_tx_outcome(outcome); ) g_node.on_tx_complete(outcome);|' \
+         's|    g_hal.collect_tx_completion();|__W21_COLLECT__|; s|    for (meshroute::TxOutcome outcome; g_hal.pop_tx_outcome(outcome); ) g_node.on_tx_complete(outcome);|    g_hal.collect_tx_completion();|; s|__W21_COLLECT__|    for (meshroute::TxOutcome outcome; g_hal.pop_tx_outcome(outcome); ) g_node.on_tx_complete(outcome);|' \
          's|    for (meshroute::TxOutcome outcome; g_hal.pop_tx_outcome(outcome); ) g_node.on_tx_complete(outcome);|    meshroute::TxOutcome outcome; if (g_hal.pop_tx_outcome(outcome)) g_node.on_tx_complete(outcome);|' \
          's|g_node.on_tx_complete(outcome)|g_node.on_radio_busy({})|'
+# ================================================================================================ W22
+# ★★★ §T3 §2.1 — THE LOOP **ORDER**, AND IT IS A DIFFERENT PROPERTY FROM W21. W21 would stay green with the whole
+#     collect+drain pair sitting AFTER the timer loop, which is where it used to be and which LOSES the channel
+#     post's completion outright: `kMBcastClearTimerId` does `_pending_tx.reset(); become_free();` 5 ms after the
+#     calculated M-frame airtime, so on a loop pass delayed past both deadlines the timer deletes the flight before
+#     the TxDone edge is ever collected and `send_aired` can never be attributed. The order is:
+#       collect_tx_completion() -> drain -> the Node timer loop -> pump_tx().
+# ★ THREE CONTROLS, each a plausible wrong answer rather than a deletion: (a) move the collect+drain BACK below the
+#   timer loop (the pre-§T3 order); (b) move `pump_tx()` UP in front of the timer loop (which would starve a frame a
+#   timer enqueues of its pass); (c) re-merge the two halves by pumping straight after the collect.
+# ⚠ The predicate reads the FLATTENED source, so it is an order assertion over the real statements, not over comments.
+w22() {
+  code_flat "$1" | grep -qE 'g_hal\.collect_tx_completion\(\);.*g_node\.on_tx_complete\(outcome\);.*for \(int id; \(id = g_hal\.pop_due_timer\(\)\) >= 0; \).*g_hal\.pump_tx\(\);'
+}
+wchk_in "$FW_MAIN" "W22 collect+drain run BEFORE the timer loop and pump_tx AFTER it (§T3 §2.1)" \
+     w22 's|^    g_hal.collect_tx_completion();$|__W22_MOVED__|; s|^    for (int id; (id = g_hal.pop_due_timer()).*$|\&\n    g_hal.collect_tx_completion();|; s|^__W22_MOVED__$|    ;|' \
+         's|^    g_hal.pump_tx();$|    ;|; s|^    for (int id; (id = g_hal.pop_due_timer()).*$|    g_hal.pump_tx();\n\&|' \
+         's|^    g_hal.pump_tx();$|    ;|; s|^    g_hal.collect_tx_completion();$|    g_hal.collect_tx_completion();\n    g_hal.pump_tx();|'
 echo "structural: $s_pass passed / $s_fail failed / $((s_pass+s_fail)) total"
 echo "wiring:     $w_pass passed / $w_fail failed / $((w_pass+w_fail)) total; $w_ctl negative control(s) verified RED"
 [ "$s_fail" -eq 0 ] || rc=1
