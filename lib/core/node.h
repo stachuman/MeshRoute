@@ -91,7 +91,12 @@ public:
     static uint16_t    mobile_tx_tag(MobileTxOp op);          // the TxParams::tag a mobile J frame of `op` carries
     static MobileTxOp  mobile_op_of_tag(uint16_t tag);        // decode the high byte (unknown/out-of-range -> none)
     static const char* mobile_tx_op_name(MobileTxOp op);      // "discover"/"offer"/"claim"/"reclaim"/"none"
-    void on_radio_busy(const BusyInfo& info);                            // deferred-TX retry/giveup
+    // ★★★ §T1 2026-08-14 — ONE core TX-completion entry, and `on_radio_busy` is now a FOUR-LINE ADAPTER onto it.
+    // The two HALs used to drive two different core functions (the simulator the async refusal, the device nothing
+    // at all); they now drive ONE. ⛔ The adapter is kept rather than removed: the simulator and ~35 native cases
+    // call `on_radio_busy(BusyInfo)` directly, and re-pointing them is a SEPARATE refactor, not this one.
+    void on_radio_busy(const BusyInfo& info);                            // deferred-TX retry/giveup (adapter -> on_tx_complete)
+    void on_tx_complete(const TxOutcome& info);                          // THE core TX-completion entry (see hal.h for what is built vs missing)
     void on_preamble_detected(uint64_t time_ms);                         // SX1262 IRQ / throttle witness
     CmdResult on_command(const Command& c);                              // the typed app<->firmware seam
     bool      next_push(Push& out);                                      // drain the async push ring (CMD_SYNC_NEXT)
@@ -2270,6 +2275,12 @@ private:
     bool     duty_over_budget(size_t len, int16_t sf, uint32_t* wait_ms);   // check_duty_cycle dv:3573; *wait_ms = defer time when over budget
     static int retry_slot_of(FrameTag tag);                        // FrameTag -> stash slot (0..3) or -1 (not eligible)
     static const char* label_of_frame(FrameTag tag);              // FrameTag -> "RTS"/"CTS"/...
+    // ★★★ §T1 2026-08-14 — THE ONE `TxParams` BUILDER. Every `_hal.tx()` hand-off in lib/core builds its params
+    // here (four sites), so a fifth site cannot silently omit a field — the S1/L9 field-drop shape (U2).
+    // ⛔⛔ `flight_seq` IS AN ARGUMENT AND THIS FUNCTION DERIVES NOTHING. It must never read `_pending_tx` (it is
+    //    `static` so that it cannot): `retry_stashed` transmits with NO pre-transmit flight guard, so its frame may
+    //    belong to a SUPERSEDED flight, and a derived identity would confirm the WRONG one. See hal.h's TxParams::seq.
+    static TxParams tx_params_of(uint16_t tag, int16_t sf, uint32_t flight_seq);
     // §B186a decoders/derivations. `frame_tag_of` is the ONE place the mobile-op high byte is masked off, so the
     // retry/label/giveup paths keep seeing the pre-slice values; `mobile_op_of_kind` derives the op from the kind
     // the SENDING SITE chose, which is what makes the identity captured-at-the-act rather than reconstructed.

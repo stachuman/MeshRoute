@@ -40,7 +40,9 @@ struct Ev { std::string type; int to = -1; int dst = -1; bool dup = false;
             std::string basis; bool awaiting_cts = false; bool awaiting_ack = false;
             int forward_next = -1; };
 
-struct TxFrame { std::string label; std::vector<uint8_t> bytes; };
+// §T1: `seq` is the flight identity `Node::tx_params_of` stamped. Captured HERE rather than inferred, because it is
+// the ONE thing the T1 builder changes and nothing else in the tree reads it yet (the completion path is §T2).
+struct TxFrame { std::string label; std::vector<uint8_t> bytes; uint32_t seq = 0; };
 
 class TestHal : public mrtest::TestHalBase {
 public:
@@ -62,7 +64,7 @@ public:
     TxResult tx(const uint8_t* b, size_t n, const TxParams& p) override {
         ++tx_calls;
         if (tx_answer != TxResult::ok) return tx_answer;   // refused: the HAL keeps nothing, so neither do we
-        TxFrame f; f.label = p.label ? p.label : "";
+        TxFrame f; f.label = p.label ? p.label : ""; f.seq = p.seq;   // §T1: the identity the SENDING SITE supplied
         f.bytes.assign(b, b + n); tx_frames.push_back(std::move(f));
         return TxResult::ok;
     }
@@ -5325,6 +5327,231 @@ TEST_CASE("R4.5b on_radio_busy — a DATA retry re-arms the ACK wait (port diver
     std::array<uint8_t,8> ab{}; const size_t an = mk_ack(1, 1, ab);
     RxMeta m3{12.0f,-70.0f,0,static_cast<int8_t>(2)}; node->on_recv(ab.data(), an, m3);
     CHECK(hal.count("ack_rx") == 1);                          // re-armed -> the ACK completes the flight
+    delete node;
+}
+
+// ---- §T1 (N7) — `on_tx_complete` is THE entry; `on_radio_busy` is a thin adapter onto it ----
+// ★★ WHAT THIS PINS THAT THE ~35 EXISTING `on_radio_busy` CASES CANNOT. They all enter through the adapter, so they
+//    prove the MOVED BODY still works — which is most of what T1 needs, and it is why they are left untouched. They
+//    say nothing about (a) the new entry point being callable at all, and (b) the three kinds that today have ⛔ NO
+//    PRODUCER (the DeviceHal completion path is §T2) and ⛔ NO CONSUMER (the app/UI half is §T3).
+// ★★★ THE NEGATIVE HALF IS THE LOAD-BEARING ONE, and it is the mutation that reddens it: delete
+//    `on_tx_complete`'s `kind != TxOutcomeKind::refused` guard and an `aired` outcome runs the WHOLE refusal body —
+//    `radio_busy` emitted, `awaiting_ack` cleared, the ack-timeout cancelled and a stash retry consumed, for a frame
+//    that FLEW. That is a false report in the exact direction this arc exists to remove, and it would be invisible to
+//    every other case in the tree.
+TEST_CASE("§T1 on_tx_complete — a `refused` outcome drives exactly what the adapter drives; aired/failed/unknown drive NOTHING") {
+    // Bring a node to a live DATA flight: awaiting_ack set, the DATA stashed in slot 1.
+    auto to_live_data = [](TestHal& hal, Node& node) {
+        send_cmd(node, 5, "hi");                                   // RTS
+        std::array<uint8_t,8> cb{}; const size_t cn = mk_cts(1, 2, 7, cb);
+        RxMeta m2{12.0f,-70.0f,0,static_cast<int8_t>(2)}; node.on_recv(cb.data(), cn, m2);
+        node.on_timer(kCtsToDataGapTimerId);                       // DATA tx -> awaiting_ack + DATA stashed
+        hal.events.clear(); hal.armed.clear();
+    };
+    auto armed_in_retry_range = [](const TestHal& hal) {           // kRadioBusyRetryTimerId..+3 (the 4 stash slots)
+        int n = 0; for (const auto& a : hal.armed)
+            if (a.second >= kRadioBusyRetryTimerId && a.second <= kRadioBusyRetryTimerId + 3) ++n;
+        return n;
+    };
+
+    // ---- ★ POSITIVE: the two entries are the same entry. Arm A goes through `on_radio_busy(BusyInfo)`, arm B
+    //      calls `on_tx_complete` with the `refused` outcome the adapter builds. Same events, same draw, same timer.
+    std::vector<std::string> seq_a, seq_b;
+    int draws_a = 0, draws_b = 0, armed_a = 0, armed_b = 0;
+    {
+        TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14}});
+        to_live_data(hal, *node);
+        const int rb = hal.rand_calls;
+        BusyInfo bi{BusyReason::channel_busy, /*tag=DATA*/2, /*sf=*/7, /*busy_until=*/0};
+        node->on_radio_busy(bi);
+        for (const auto& e : hal.events) seq_a.push_back(e.type);
+        draws_a = hal.rand_calls - rb; armed_a = armed_in_retry_range(hal);
+        delete node;
+    }
+    {
+        TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14}});
+        to_live_data(hal, *node);
+        const int rb = hal.rand_calls;
+        node->on_tx_complete(TxOutcome{ TxOutcomeKind::refused, BusyReason::channel_busy, TxResult::ok,
+                                        /*tag=DATA*/2, /*seq=*/0u, /*sf=*/7, /*busy_until_ms=*/0 });
+        for (const auto& e : hal.events) seq_b.push_back(e.type);
+        draws_b = hal.rand_calls - rb; armed_b = armed_in_retry_range(hal);
+        delete node;
+    }
+    CHECK(seq_a.size() >= 2);                                      // PREMISE: the arm is REACHED (a silent pair would compare equal)
+    CHECK(seq_a == seq_b);                                         // ★★ the same body ran, in the same order
+    CHECK(draws_a == 1);                                           // PREMISE: the retry jitter draw is what a refusal costs…
+    CHECK(draws_b == draws_a);                                     // ★ …and the direct entry costs exactly the same
+    CHECK(armed_a == 1);                                           // PREMISE: one stash re-issue timer…
+    CHECK(armed_b == armed_a);                                     // ★ …armed identically
+
+    // ---- ★★★ NEGATIVE: the three kinds that have no producer and no consumer must do NOTHING AT ALL. Not "nothing
+    //      visible" — no emit, no draw, no timer, and ⛔ no stash retry consumed, which the giveup count below proves.
+    {
+        TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14}});
+        to_live_data(hal, *node);
+        const int rb = hal.rand_calls;
+        const TxOutcomeKind kinds[] = { TxOutcomeKind::aired, TxOutcomeKind::failed, TxOutcomeKind::unknown };
+        for (TxOutcomeKind k : kinds)
+            node->on_tx_complete(TxOutcome{ k, BusyReason::channel_busy, TxResult::radio_error,
+                                            /*tag=DATA*/2, /*seq=*/7u, /*sf=*/7, /*busy_until_ms=*/0 });
+        CHECK(hal.events.empty());                                 // ★★ no telemetry — not even `radio_busy`
+        CHECK(hal.rand_calls - rb == 0);                           // ★★ no backoff draw
+        CHECK(armed_in_retry_range(hal) == 0);                     // ★★ no stash re-issue armed
+        // ★★ AND THE STASH IS UNTOUCHED: `tx_defer_max_retries` is 3, so four REFUSALS give exactly one giveup —
+        //    on the fourth. If any of the three above had consumed a retry, the giveup would arrive one call early.
+        BusyInfo bi{BusyReason::channel_busy, /*tag=DATA*/2, /*sf=*/7, /*busy_until=*/0};
+        node->on_radio_busy(bi); node->on_radio_busy(bi); node->on_radio_busy(bi);
+        CHECK(hal.count("tx_giveup") == 0);                        // ★ three retries still available => no giveup yet
+        node->on_radio_busy(bi);
+        CHECK(hal.count("tx_giveup") == 1);                        // ★★ …and the fourth is the giveup, exactly as the sibling case above
+        delete node;
+    }
+}
+
+// ★★★ §T1 — THE `TxParams` BUILDER'S IDENTITY ROUTING, MEASURED RATHER THAN ARGUED. `TxParams::seq` has no reader
+// anywhere in the firmware yet (the completion path that echoes it back is §T2), so WITHOUT this case the one thing
+// T1's builder actually does would be covered by nothing at all — an unmeasured claim, which is the shape this arc
+// keeps paying for. The HAL fake captures `p.seq` at the hand-off; every assertion below reads it there.
+// ⛔⛔ WITHDRAWN CLAIM, KEPT VISIBLE (§T1 round 2). This header used to read: *"the last arm cannot distinguish
+//   `TxStashSlot::flight_gen` from the CURRENT `PendingTx::flight_gen` … distinguishing the two sources needs a
+//   flight REPLACED while a stash retry is armed — reachable only with an outcome consumer that does not exist yet
+//   (§T2/§T3)."* ★★ **THAT SECOND SENTENCE WAS WRONG, AND WRONG IN THE DIRECTION THAT MATTERS: it declared a site
+//   unmeasurable while the instrument that measures it was already in this file.** The consumer the test needs is
+//   NOT the outcome path — it is `TestHal::tx`'s `f.seq = p.seq` capture at the hand-off, four hundred lines above.
+// ⛔⛔ WITHDRAWN ROUND-2 REACHABILITY CLAIM: *"What is genuinely unreachable is only the STATE (stash on flight A,
+//   pending flight on B), and that is what a white-box seam is for."* The state is reachable through public APIs:
+//   queue A and B, busy-refuse A's DATA, then overhear A's exact downstream-forward RTS. The implicit ACK closes A
+//   and `become_free()` installs B while A's already-armed stash timer remains fireable. The NEXT case drives that
+//   sequence without a friend seam and reddens the current-flight mutation directly at the HAL capture.
+// ⓘ The last arm below still measures only that `retry_stashed` supplies the identity of the frame it re-sends;
+//   the SOURCE question is the next case's, and neither claims the other's coverage.
+TEST_CASE("§T1 tx_params_of — every hand-off carries the identity ITS OWN SITE supplied, and 0 where the frame has none") {
+    // ---- ★ A BEACON HAS NO FLIGHT ⇒ 0, and `tx_flood` passes it DELIBERATELY rather than borrowing one.
+    {
+        TestHal hal; Node node(hal, 1, 0xABCD);
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
+        cfg.quiet_threshold_ms = 0;                            // quiet fast path -> emit_beacon -> tx_flood
+        node.on_init(cfg);
+        hal._now = 1000; node.on_timer(kBeaconTimerId);
+        const auto* b = hal.last_tx("BCN"); CHECK(b != nullptr);   // PREMISE: the beacon really reached the radio
+        if (b) CHECK(b->seq == 0u);                                // ★★ …carrying no identity
+    }
+
+    TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14}});
+    auto cts_then_data = [&](uint8_t ctr_lo) {                 // CTS in -> the CTS->DATA gap fires -> DATA out
+        std::array<uint8_t,8> cb{}; const size_t cn = mk_cts(1, 2, 7, cb);
+        RxMeta m{12.0f,-70.0f,0,static_cast<int8_t>(2)}; node->on_recv(cb.data(), cn, m);
+        node->on_timer(kCtsToDataGapTimerId);
+        (void)ctr_lo;
+    };
+
+    // ---- ★★ FLIGHT 1. The RTS and the DATA are BOTH handed by `tx_with_retry`, and the flight is ALREADY LIVE when
+    //      the RTS goes out — so the RTS carrying 0 is the `tag == FrameTag::data` guard doing its job, not an
+    //      absence of state to borrow. ⛔ That is the whole point: a CTS/ACK/NACK/RTS must not inherit an identity.
+    send_cmd(*node, 5, "hi");
+    { const auto* r = hal.last_tx("RTS"); CHECK(r != nullptr);
+      if (r) CHECK(r->seq == 0u); }                            // ★★ an RTS of a LIVE flight still carries 0
+    cts_then_data(1);
+    const auto* d1 = hal.last_tx("DATA"); CHECK(d1 != nullptr);
+    const uint32_t seq1 = d1 ? d1->seq : 0u;
+    CHECK(seq1 != 0u);                                         // ★★ the DATA carries the live flight's identity
+
+    // ---- ★★ THE STASH RE-ISSUE carries the identity of the frame it RE-SENDS, not a fresh or zero one.
+    BusyInfo bi{BusyReason::channel_busy, /*tag=DATA*/2, /*sf=*/7, /*busy_until=*/0};
+    node->on_radio_busy(bi);                                   // arms the slot-1 re-issue
+    node->on_timer(kRadioBusyRetryTimerId + 1);                // -> retry_stashed
+    const auto* d1r = hal.last_tx("DATA"); CHECK(d1r != nullptr);
+    CHECK(d1r != d1);                                          // PREMISE: a SECOND DATA really flew (else the next line is vacuous)
+    if (d1r) CHECK(d1r->seq == seq1);                          // ★★ the re-issue is the SAME flight
+
+    // ---- ★★★ A SECOND FLIGHT MUST CARRY A DIFFERENT IDENTITY. Without this the value could be any constant —
+    //      this is what makes `seq1 != 0` mean "the live flight" rather than "some non-zero number".
+    std::array<uint8_t,8> ab{}; const size_t an = mk_ack(1, 1, ab);
+    RxMeta m3{12.0f,-70.0f,0,static_cast<int8_t>(2)}; node->on_recv(ab.data(), an, m3);   // flight 1 completes
+    CHECK(hal.count("ack_rx") == 1);                           // PREMISE: it really completed
+    send_cmd(*node, 5, "again");
+    cts_then_data(2);
+    const auto* d2 = hal.last_tx("DATA"); CHECK(d2 != nullptr);
+    if (d2) { CHECK(d2->seq != 0u);
+              CHECK(d2->seq != seq1); }                        // ★★★ a NEW flight ⇒ a NEW identity (monotonic per flight)
+    delete node;
+}
+
+// ★★★★ §T1 — THE STALE-STASH CASE. This is the one that separates `TxStashSlot::flight_gen` from the CURRENT
+// `PendingTx::flight_gen`, i.e. the ONLY assertion in the tree that can catch the builder confirming the WRONG
+// flight. ⛔ `retry_stashed` has NO PRE-TRANSMIT FLIGHT GUARD — unlike its sibling `duty_defer_fire`, it calls
+// `_hal.tx()` unconditionally and only its POST-tx ACK re-arm is guarded — so a frame it re-sends may genuinely
+// belong to a superseded flight. If the builder read the live flight there, that stale frame's completion would be
+// attributed to the NEW flight and would FALSELY CONFIRM it.
+// ★ THE STATE IS PUBLICLY REACHABLE. Queue A and B; busy-refuse A's DATA; then overhear A's exact downstream RTS.
+//   `implicit_ack_from_forward` closes A and `become_free()` starts B, but does not cancel A's already-armed DATA
+//   stash timer. That timer therefore re-sends A while B is current — the exact source-disagreement state.
+// ⚠ BOTH VACUITY MODES ARE CHECKED EXPLICITLY BELOW: B must really become current, and the timer must really hand
+//   A's byte-identical DATA to the HAL. Otherwise `seq == A` could pass without exercising `retry_stashed` against B.
+TEST_CASE("§T1 retry_stashed — public A-to-B replacement carries the stale STASH identity, never live B's") {
+    TestHal hal; Node* node = s4_sender(hal, /*dst=*/50, /*next=*/20);
+    constexpr uint8_t data_slot = 1;                          // production retry-slot order: CTS, DATA, ACK, NACK
+
+    // ---- Queue flights A and B. A starts; B must remain queued behind the live flight.
+    hal._now = 1000; send_cmd(*node, /*dst=*/50, "a");
+    const OurRts rts_a = our_last_rts(hal); CHECK(rts_a.got);
+    CHECK(rts_a.ctr_lo == 1); CHECK(hal.count("rts_tx") == 1);
+    hal._now = 1001; send_cmd(*node, /*dst=*/50, "b");
+    CHECK(hal.count("tx_enqueue") == 2);
+    CHECK(hal.count("rts_tx") == 1);                          // B is queued, not current yet
+
+    // ---- Progress A through CTS to DATA and save the identity + exact bytes the HAL received.
+    RxMeta m20{12.0f, -70.0f, 0, static_cast<int8_t>(20)};
+    std::array<uint8_t, 8> cb{}; const size_t cn = mk_cts(/*rx_id=*/1, /*tx_id=*/20, /*data_sf=*/7, cb);
+    hal._now = 1100; node->on_recv(cb.data(), cn, m20);
+    node->on_timer(kCtsToDataGapTimerId);
+    const auto* data_a = hal.last_tx("DATA"); CHECK(data_a != nullptr);
+    const uint32_t gen_a = data_a ? data_a->seq : 0u;
+    const std::vector<uint8_t> bytes_a = data_a ? data_a->bytes : std::vector<uint8_t>{};
+    CHECK(gen_a != 0u); CHECK_FALSE(bytes_a.empty());
+    CHECK(hal.count("data_tx") == 1);
+
+    // ---- Refuse A's DATA asynchronously: the production path leaves its retry stash armed.
+    BusyInfo bi{BusyReason::channel_busy, /*tag=DATA*/2, /*sf=*/7, /*busy_until=*/0};
+    node->on_radio_busy(bi);
+    CHECK(hal.count("data_tx_blocked") == 1);
+    int data_retry_arms = 0;
+    for (const auto& a : hal.armed) if (a.second == kRadioBusyRetryTimerId + data_slot) ++data_retry_arms;
+    CHECK(data_retry_arms == 1);                                // the timer fired below was genuinely armed for A
+
+    // ---- Feed an exact downstream-forward RTS for A. The implicit ACK closes A and become_free starts B.
+    std::array<uint8_t, 16> fb{};
+    const size_t fn = mk_rts_for_frame(/*src=*/20, /*next=*/9, /*dst=*/50, rts_a.ctr_lo, rts_a.plen,
+                                       fb, bytes_a.data(), bytes_a.size());
+    CHECK(fn == 10);
+    auto forwarded = parse_rts(std::span<const uint8_t>(fb.data(), fn)); CHECK(forwarded.has_value());
+    if (forwarded) CHECK(rts_flight_identity_equal(forwarded->id, rts_a.id));
+    hal._now = 5000; node->on_recv(fb.data(), fn, m20);          // past the own-DM burst floor, so B starts now
+    CHECK(hal.count("implicit_ack_from_forward") == 1);
+    CHECK(node->has_pending_tx());                               // A closed, and B is now the live flight
+    CHECK(hal.count("rts_tx") == 2);
+    const Ev* b_rts = hal.last("rts_tx"); CHECK(b_rts != nullptr);
+    if (b_rts) CHECK(b_rts->ctr == 2);                           // ★ become_free installed/started queued B
+    const OurRts rts_b = our_last_rts(hal); CHECK(rts_b.got);
+    CHECK_FALSE(rts_flight_identity_equal(rts_b.id, rts_a.id)); // B is a distinct current flight on the wire
+    const uint32_t gen_b = gen_a + 1u;                           // issue_send bumps once for the one newly-started B
+    CHECK(gen_b != gen_a);
+
+    // ---- Fire A's still-armed DATA retry while B is current. A's exact bytes + saved seq must reach the HAL.
+    const size_t before = hal.tx_frames.size();
+    const int data_before = hal.count("data_tx");
+    node->on_timer(kRadioBusyRetryTimerId + data_slot);
+    CHECK(hal.tx_frames.size() == before + 1);                   // ★ stale DATA really reached the HAL
+    const auto* retried_a = hal.last_tx("DATA"); CHECK(retried_a != nullptr);
+    if (retried_a) {
+        CHECK(retried_a->bytes == bytes_a);                      // ★ A's stashed carrier, not B's RTS/current carrier
+        CHECK(retried_a->seq == gen_a);                          // ★★★★ the identity saved with stale A
+        CHECK(retried_a->seq != gen_b);                          // ★★★★ never B's current identity
+    }
+    CHECK(hal.count("data_tx") == data_before);                 // telemetry stays at A's one production DATA admit
+    CHECK(node->has_pending_tx());                               // the stale retry did not replace current B
     delete node;
 }
 

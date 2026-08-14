@@ -29,6 +29,16 @@ struct TxParams {                 // sentinel = use the radio default (RF plan S
     int8_t  power_dbm    = -127;
     int16_t preamble_sym = -1;
     uint16_t    tag   = 0;        // opaque token echoed back in on_radio_busy (heap-free retry match)
+    // ★★★ §T1 2026-08-14 — THE FLIGHT IDENTITY OF THIS HAND-OFF. It has no production reader; native TestHal reads
+    // it solely for regression evidence. The TX-completion path that echoes it back is §T2's. It is NOT a wire
+    // field: it never leaves the host.
+    // ⛔⛔ IT IS AN EXPLICIT PER-CALLER ARGUMENT AND MUST NEVER BE DERIVED FROM LIVE STATE AT BUILD TIME.
+    //    `Node::tx_params_of` is the ONE builder and it takes `flight_seq` as a parameter for exactly that reason:
+    //    `retry_stashed` re-transmits a frame that may belong to a SUPERSEDED flight (it has no pre-transmit flight
+    //    guard at all), so a builder that read the CURRENT `PendingTx::flight_gen` would label a stale retry as the
+    //    NEW flight — a reconstructed fact, i.e. a FALSE CONFIRMATION on the one surface this identity exists to
+    //    make honest. 0 = "no flight" and is what a caller with no identity must pass DELIBERATELY.
+    uint32_t    seq   = 0;
     const char* label = nullptr;  // static-literal telemetry (e.g. "RTS"); device may ignore
     const char* info  = nullptr;  // static-literal telemetry; device may ignore
 };
@@ -38,6 +48,35 @@ struct TxParams {                 // sentinel = use the radio default (RF plan S
 struct RxMeta { float snr_db; float rssi_dbm; uint64_t recv_ms; int16_t src_hint = -1; };
 
 struct BusyInfo { BusyReason reason; uint16_t tag; int16_t sf; uint64_t busy_until_ms; };
+
+// ★★★ §T1 2026-08-14 — THE ATTEMPT-LEVEL TX OUTCOME, and `Node::on_tx_complete` is its ONE core entry.
+// ⛔ AN ATTEMPT OUTCOME IS NOT A SEND OUTCOME. `aired`/`failed`/`unknown` describe ONE hand-off to the radio; the
+//    authoritative terminal facts the app speaks (`send_acked`, `send_failed`, `send_e2e_acked`, `channel_sent`,
+//    the ACK timeout) are unchanged and live a layer up. A `failed` attempt is routinely followed by a successful
+//    retry, so it is NOT terminal and must never be rendered as one.
+// ⛔ `BusyInfo` IS DELIBERATELY NEITHER EXTENDED NOR DELETED — this is a SEPARATE type so the simulator's braced
+//    `BusyInfo` init keeps compiling untouched and no corpus stream can move for a type change.
+//
+// ★ WHAT IS BUILT vs WHAT IS MISSING, stated here because code is what gets read:
+//   · `refused`  — PRODUCED (the simulator's async refusal, via the `on_radio_busy` adapter) and CONSUMED
+//                  (the stash-retry / giveup body in `Node::on_tx_complete`). This is the whole of §T1.
+//   · `aired` / `failed` / `unknown` — ⛔ DECLARED ONLY. NOTHING produces them (the `DeviceHal` completion path is
+//                  §T2) and NOTHING consumes them (`on_tx_complete` returns immediately; the app/UI half is §T3).
+//                  They are named now so §T2 has one domain to report into rather than inventing a second.
+// ⛔ `unknown` IS A THIRD STATE, NOT A SYNONYM: the transmit was STARTED and its completion was never observed —
+//    it may have aired in whole, in part, or not at all. Collapsing it into `aired` or `failed` is a binary test
+//    over a ternary domain, which is the defect this enum exists to prevent.
+enum class TxOutcomeKind : uint8_t { aired, refused, failed, unknown };
+
+struct TxOutcome {
+    TxOutcomeKind kind;
+    BusyReason    reason;        // meaningful iff kind == refused (verbatim BusyInfo::reason)
+    TxResult      error;         // meaningful iff kind == failed  (verbatim start_transmit's answer)
+    uint16_t      tag;           // the TxParams::tag the SENDING SITE stamped — echoed, never rebuilt
+    uint32_t      seq;           // the TxParams::seq the SENDING SITE supplied; 0 = no flight identity
+    int16_t       sf;
+    uint64_t      busy_until_ms; // refused only
+};
 
 // One telemetry key/value; bounded, heap-free — the Node never formats JSON,
 // the backend serializes (sim → NDJSON; device → USB-CDC or compiled out).

@@ -1529,7 +1529,10 @@ void Node::rts_duty_defer_fire() {
         return;
     }
     d.pending = false;
-    TxParams p; p.sf = d.sf; p.label = "RTS"; p.tag = static_cast<uint16_t>(FrameTag::rts);
+    // §T1: identity = `RtsDutyDefer::flight_gen` — the value STORED IN THIS CARRIER at defer time, which is also
+    // what the staleness guard eleven lines above compared. ⛔ Not `_pending_tx->flight_gen`: they are equal here
+    // only because that guard just proved it, and depending on that equality is how a derived identity sneaks in.
+    TxParams p = tx_params_of(static_cast<uint16_t>(FrameTag::rts), d.sf, d.flight_gen);
     _hal.tx(d.buf, d.len, p);
     start_rts_timeout();                                                 // the DRIFT — arm the CTS-wait the Lua drops
 }
@@ -1573,7 +1576,10 @@ bool Node::tx_flood(const uint8_t* bytes, size_t len, int16_t sf,
             return schedule_lbt_defer(bytes, len, sf, LbtKind::flood, 0, delay, digest_ids, digest_n);
         }
     }
-    TxParams p; p.sf = sf; p.label = "BCN"; p.tag = static_cast<uint16_t>(FrameTag::beacon);  // tag the immediate beacon too (the deferred path tags via lbt_complete) — else a blocked clear-channel beacon reaches on_radio_busy mislabelled tag=0(rts)
+    // tag the immediate beacon too (the deferred path tags via lbt_complete) — else a blocked clear-channel beacon
+    // reaches on_radio_busy mislabelled tag=0(rts).
+    // §T1: identity = **0**, passed deliberately — a beacon belongs to no flight, and there is nothing to borrow.
+    TxParams p = tx_params_of(static_cast<uint16_t>(FrameTag::beacon), sf, /*flight_seq=*/0u);
     // ★★★ §tx-admission TX2: the second discarded result, same consequence. `DeviceHal::tx` answers `busy` on a full
     // 8-entry ring (bumps `txq_drops`, does NOT retain) and a beacon is `slot < 0` — no stash, no retry. It has its
     // OWN emit because tx_flood bypasses `tx_with_retry` entirely: that was the sweep-scope error which hid this
@@ -1599,6 +1605,30 @@ const char* Node::label_of_frame(FrameTag t) {
                  case FrameTag::data: return "DATA"; case FrameTag::ack: return "ACK";
                  case FrameTag::nack: return "NACK"; case FrameTag::beacon: return "BCN"; }
     return "BCN";
+}
+// ★★★ §T1 2026-08-14 — THE ONE `TxParams` BUILDER. All four `_hal.tx()` hand-offs in `lib/core` build their params
+// here, so the params can no longer be assembled field-by-field at a site that forgets one (U2, the S1/L9 shape).
+// ⛔⛔ IT DERIVES NOTHING FROM LIVE STATE, AND `static` IS WHAT ENFORCES THAT — it cannot reach `_pending_tx` even
+//    by accident. `flight_seq` is supplied BY THE CALLER, at the act:
+//      · `tx_with_retry`         DATA  -> the CURRENT `PendingTx::flight_gen` (this IS the flight being handed)
+//      · `retry_stashed`         DATA  -> ★ `TxStashSlot::flight_gen`, NEVER the current one: this function has no
+//                                         pre-transmit flight guard, so its bytes may belong to a SUPERSEDED flight
+//      · `rts_duty_defer_fire`   RTS   -> `RtsDutyDefer::flight_gen`, the identity STORED in that carrier
+//      · `tx_flood` / CTS/ACK/NACK     -> **0**, passed deliberately: they belong to no flight
+// ⛔ A builder that read the current flight instead would label a stale retry as the NEW flight — a reconstructed
+//    fact, i.e. a false confirmation, which is the exact defect class the identity exists to prevent.
+// ⓘ INERT TODAY BY CONSTRUCTION: `TxParams::seq` has no production reader; native TestHal reads it solely for
+//    regression evidence. The completion path that echoes it back is §T2, and `label` is derived from the tag
+//    through `label_of_frame` — the same pointer the
+//    three tag-driven sites already used and, for `rts_duty_defer_fire`/`tx_flood`, the same "RTS"/"BCN" text their
+//    literals carried. ⇒ every byte handed to the HAL is what it was before.
+TxParams Node::tx_params_of(uint16_t tag, int16_t sf, uint32_t flight_seq) {
+    TxParams p;
+    p.sf    = sf;
+    p.label = label_of_frame(frame_tag_of(tag));
+    p.tag   = tag;
+    p.seq   = flight_seq;
+    return p;
 }
 // ★★★ §B186a — THE FOUR MOBILE TX IDENTITIES, encoded into `TxParams::tag`'s HIGH byte. See the contract at the
 // `MobileTxOp` declaration in node.h. These five functions are the whole mechanism; every one is pure.
@@ -1800,7 +1830,13 @@ Node::TxHandOff Node::tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf
     //    `tx` / `tx_deferred` records, so renaming it would move every mobile stream line AND break the [[B183]]
     //    correlator, which binds a lost J frame to a same-millisecond **BCN** refusal. The identity belongs in the
     //    tag (which the sim does not serialize) — that is why the corpus movement here is only the new emit's.
-    TxParams p; p.sf = sf; p.label = label_of_frame(tag); p.tag = tx_tag_of(tag, op);   // op == none ⇒ the pre-slice value, bit for bit
+    // §T1: identity = the CURRENT `PendingTx::flight_gen` for a DATA — this function IS the hand-off of the live
+    // flight, so the fact is established at the act, not reconstructed later. ⛔ **0** for every other tag
+    // (CTS/ACK/NACK responses and the mobile J frames): they belong to no flight of ours, and stamping the live
+    // flight onto them would attribute an unrelated frame's completion to it. ⓘ Same read as the stash write at
+    // the top of this function (`s.flight_gen`), deliberately — one flight, one identity.
+    const uint32_t flight_seq = (tag == FrameTag::data && _active->_pending_tx) ? _active->_pending_tx->flight_gen : 0u;
+    TxParams p = tx_params_of(tx_tag_of(tag, op), sf, flight_seq);   // op == none ⇒ the pre-slice tag value, bit for bit
     // ★★★ §tx-admission TX1 (2026-08-01): the TxResult was DISCARDED here and this returned `true // handed`
     // unconditionally. `DeviceHal::tx` answers `busy` when its 8-entry outbound ring is full — it bumps `txq_drops`
     // and **does not retain the frame** — and `too_long` past the SX1262 length register. For a `slot < 0` frame
@@ -1833,13 +1869,14 @@ Node::TxHandOff Node::tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf
     //    retry sites.
     // ★ WHY `retry_stashed()` NEEDS NO WRITER — stated here so nobody adds a third copy. `retry_stashed` calls
     //   `_hal.tx` DIRECTLY (bypassing this function), so it looks like a second crossing. It is not a NEW one:
-    //   · it is reached ONLY from the `kRadioBusyRetryTimerId + slot` timer (`node.cpp:1417-1418`), armed ONLY
-    //     inside `on_radio_busy` (`node.cpp:2220`) after `retry_slot_of(tag) >= 0 && s.valid`;
-    //   · `on_radio_busy` REPORTS a frame the HAL had already taken — for the DATA slot its `info.tag` can only be
+    //   · it is reached ONLY from the `kRadioBusyRetryTimerId + slot` timer (`node.cpp`'s `on_timer` dispatch),
+    //     armed ONLY inside the refusal arm of `Node::on_tx_complete` (§T1 moved that body out of `on_radio_busy`,
+    //     which is now the adapter) after `retry_slot_of(tag) >= 0 && s.valid`;
+    //   · that arm REPORTS a frame the HAL had already taken — for the DATA slot its `info.tag` can only be
     //     `FrameTag::data`, and the ONLY `_hal.tx` in `lib/core` that ever carries that tag is the one above
-    //     (the other three are RTS at :1483, BCN at :1531, and `retry_stashed` itself, which only ever re-sends
-    //     bytes THIS site already admitted). ⇒ reaching `retry_stashed` for the DATA slot REQUIRES a prior
-    //     successful admission here, so the flag is ALREADY true for that flight;
+    //     (the other three are the RTS at `rts_duty_defer_fire`, the BCN at `tx_flood`, and `retry_stashed` itself,
+    //     which only ever re-sends bytes THIS site already admitted). ⇒ reaching `retry_stashed` for the DATA slot
+    //     REQUIRES a prior successful admission here, so the flag is ALREADY true for that flight;
     //   · and it re-sends `s.buf` — the stashed bytes of the very frame that was admitted — so it can never air a
     //     DIFFERENT flight's DATA. If the flight has since been replaced, the NEW flight's `false` is CORRECT:
     //     nothing of the new flight was ever admitted.
@@ -1850,8 +1887,9 @@ Node::TxHandOff Node::tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf
     //    `handle_rts`'s credit refuses an `m_broadcast` flight outright — so booking it would be a lie about a
     //    frame type the consumer never labels. The same guard covers the duty-deferred re-run of that M frame.
     // ⓘ WHAT THIS DOES **NOT** FIX, unchanged and still [[B164]]: the flag is still not proof of AIRING. Both
-    //   post-admission drop mechanisms remain — `on_radio_busy(FrameTag::data)` (`node.cpp:2191-2195`) and
-    //   `pump_tx()`'s failed arm (`device_hal.cpp:38-46`) — and neither can unset it. ⛔ Option (b), a
+    //   post-admission drop mechanisms remain — `on_tx_complete`'s refused arm for `FrameTag::data` (reached
+    //   through the `on_radio_busy` adapter since §T1) and `pump_tx()`'s failed arm (`device_hal.cpp:38-46`) —
+    //   and neither can unset it. ⛔ Option (b), a
     //   flight-correlated TX-completion signal, stays **DEFERRED, NOT DISMISSED** (no consumer needs "aired").
     //   ⇒ what S4d closes is the FALSE-NEGATIVE direction **for admission**, exactly, and nothing more.
     if (tag == FrameTag::data && _active->_pending_tx && !_active->_pending_tx->m_broadcast)
@@ -1868,8 +1906,14 @@ void Node::duty_defer_fire(uint8_t slot) {
     static const FrameTag kSlotTag[kRetrySlots] = { FrameTag::cts, FrameTag::data, FrameTag::ack, FrameTag::nack };
     const FrameTag tag = kSlotTag[slot];
     // DATA staleness guard (review #6): if the flight moved on during the duty wait (ACK/NACK/implicit-ack replaced
-    // _active->_pending_tx), do NOT re-transmit the stale DATA / re-stash with a mismatched ctr_lo. Mirrors retry_stashed +
-    // the Lua m_broadcast retry guard (dv:12172). CTS/ACK/NACK are idempotent responses -> no flight guard.
+    // _active->_pending_tx), do NOT re-transmit the stale DATA / re-stash with a mismatched ctr_lo. Follows the Lua
+    // m_broadcast retry guard (dv:12172). CTS/ACK/NACK are idempotent responses -> no flight guard.
+    // ⛔⛔ CORRECTED 2026-08-14 (§T1, V1): this comment used to say the guard *"Mirrors retry_stashed"*. IT DOES NOT,
+    //    AND THE DIFFERENCE IS LOAD-BEARING. `retry_stashed` has NO pre-transmit flight guard at all — it calls
+    //    `_hal.tx()` unconditionally, and its ONLY `flight_gen` test guards the POST-tx ACK re-arm. ⇒ this function
+    //    cannot re-transmit a superseded DATA; `retry_stashed` CAN, and routinely may. Anything that reasons about
+    //    the two paths as equivalent (identity, "aired" attribution, a completion report) is reasoning from a
+    //    symmetry that is not there — which is exactly how §T1's identity hazard stayed invisible.
     if (tag == FrameTag::data && (!_active->_pending_tx || _active->_pending_tx->flight_gen != s.flight_gen)) return;   // L9: exact flight match (was the 4-bit ctr_lo, 1/16 alias)
     // §tx-admission TX1: `!= deferred_retry_armed` is EXACTLY this site's previous `handed == true` — a HAL
     // rejection must still arm the ACK wait, because for a retry-eligible frame that timeout IS the recovery.
@@ -1890,7 +1934,15 @@ void Node::retry_stashed(uint8_t slot) {
     if (!s.valid) return;
     static const FrameTag kSlotTag[kRetrySlots] = { FrameTag::cts, FrameTag::data, FrameTag::ack, FrameTag::nack };
     const FrameTag tag = kSlotTag[slot];
-    TxParams p; p.sf = s.sf; p.label = label_of_frame(tag); p.tag = static_cast<uint16_t>(tag);
+    // ★★ §T1: identity = `TxStashSlot::flight_gen` — ⛔ NEVER `_active->_pending_tx->flight_gen`. THIS FUNCTION HAS
+    // NO PRE-TRANSMIT FLIGHT GUARD (unlike `duty_defer_fire`): it re-sends `s.buf` unconditionally, so the bytes may
+    // belong to a flight that has already been REPLACED — and the exact-match test six lines below exists precisely
+    // because that happens. Reading the current flight here would report the stale frame's completion against the
+    // NEW flight and falsely confirm it. `s.flight_gen` is the identity the stash captured at hand-off time.
+    // ⓘ **0** for CTS/ACK/NACK: those slots never consult `s.flight_gen` (it holds whatever flight was live when
+    //    an unrelated response was stashed), so passing it would be a borrowed identity, not this frame's.
+    const uint32_t flight_seq = (tag == FrameTag::data) ? s.flight_gen : 0u;
+    TxParams p = tx_params_of(static_cast<uint16_t>(tag), s.sf, flight_seq);
     _hal.tx(s.buf, s.len, p);
     s.reissue_pending = false;   // the armed busy re-issue has now been handed to the radio. UNLIKE the duty path
                                  // (duty_defer_fire -> tx_with_retry, which clears it), THIS path calls _hal.tx
@@ -2023,7 +2075,8 @@ void Node::do_data_tx() {
         // ★ WHAT `TxHandOff::handed` ACTUALLY PROVES: `IHal::tx` returned `ok`. On metal that is an **ENQUEUE** —
         //   `lib/hal/device_hal.cpp:10-12` says so outright (*"tx() ENQUEUES … Returns ok when queued"*), with the
         //   on-air send deferred to `pump_tx()`. ⇒ the flag can be wrong in **BOTH** directions:
-        //   · **FALSE POSITIVE (admitted, never aired)** — `Node::on_radio_busy(FrameTag::data)` (`node.cpp:2191`)
+        //   · **FALSE POSITIVE (admitted, never aired)** — `Node::on_tx_complete`'s refused arm for
+        //     `FrameTag::data` (§T1 moved that body out of `on_radio_busy`, which is now its adapter)
         //     is the medium refusing a frame this flag has ALREADY booked; it clears `awaiting_ack` but **cannot
         //     unset this flag**. ⚠ The path is LIVE, not hypothetical: **652 `data_tx_blocked` events across 15 of
         //     the 36 corpus scenarios.** Second mechanism, metal-only: `pump_tx()`'s failed arm (`device_hal.cpp:

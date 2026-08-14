@@ -2182,13 +2182,33 @@ bool Node::next_push(Push& out) {
 }
 
 // ---- callbacks deferred to later R-iterations -------------------------------
+// ★★★ §T1 2026-08-14 — THE ADAPTER, AND IT IS ALL THAT IS LEFT OF THIS FUNCTION. The simulator's asynchronous
+// refusal is ONE `TxOutcome` of kind `refused`; the entire previous body of `on_radio_busy` now lives in
+// `Node::on_tx_complete` below, moved VERBATIM (its parameter is still named `info` for exactly that reason).
+// ⛔ NOTHING ELSE CHANGES: the four `BusyInfo` members map one-to-one, `error` is unread on this arm
+// (`TxResult::ok` is the placeholder), and `seq` is **0 DELIBERATELY** — the simulator's refusal carries no flight
+// identity, and reconstructing one here from `_pending_tx` is the false-confirmation defect this arc is about.
+// ⛔ THE ADAPTER IS KEPT, NOT REMOVED: the simulator's wrapper and ~35 native cases call this directly, and
+//    re-pointing them at `on_tx_complete` is a separate pure refactor (C1) — not this slice.
+void Node::on_radio_busy(const BusyInfo& info) {
+    on_tx_complete(TxOutcome{ TxOutcomeKind::refused, info.reason, TxResult::ok,
+                              info.tag, /*seq=*/0u, info.sf, info.busy_until_ms });
+}
+
 // R4.5b: the sim's LBT/half-duplex safety-net fires this when a handed TX hits a busy channel (the firmware
 // LBT defers the INITIATING TXs first, so this catches the residual + the non-LBT responses). info.tag is the
 // frame-type the firmware tagged the TX with. RTS -> the already-armed rts_timeout re-RTSes (we must NOT clear
 // awaiting_cts here — see below); DATA -> clear awaiting_ack + cancel the ack-timeout; then re-issue the stashed
 // retry-eligible frame (CTS/DATA/ACK/NACK) up to TX_DEFER_MAX_RETRIES. Lua dv:12081-12215. NEVER fires in the gates
 // (lbt_enabled=false + healthy duty) -> inert.
-void Node::on_radio_busy(const BusyInfo& info) {
+// ★ §T1 — WHAT IS HERE AND WHAT IS NOT, in the code rather than in a doc: the `refused` arm below is the whole of
+//   this function today. `aired` / `failed` / `unknown` are DECLARED in hal.h and have ⛔ NO PRODUCER (the DeviceHal
+//   completion path is §T2) and ⛔ NO CONSUMER (the app/UI half is §T3), so they return immediately.
+// ⛔ THAT EARLY RETURN IS A SLICE BOUNDARY, NOT A SILENT FALLBACK: when §T2 starts producing them, the arms are
+//   written HERE, and ⛔ neither `failed` nor `unknown` may be turned into a terminal app/UI state — a failed
+//   attempt is routinely followed by a successful retry (the MAC recovery below and in `tx_with_retry` keeps running).
+void Node::on_tx_complete(const TxOutcome& info) {
+    if (info.kind != TxOutcomeKind::refused) return;
     const FrameTag tag = frame_tag_of(info.tag);   // §B186a: mask the mobile-op high byte — the low byte is verbatim what this line used to cast
     MR_EMIT("radio_busy",EF_I("reason",info.reason),EF_I("busy_until_ms",info.busy_until_ms));
     // ★★★★ §B186a 2026-08-12 — THE ASYNCHRONOUS REFUSAL REPORT, and it is the ONE gap this slice closes.
