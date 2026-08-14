@@ -1878,6 +1878,10 @@ private:
         uint16_t ctr;            // §b40: the FULL 16-bit originating ctr (next_ctr), so channel_sent can be correlated past 255 posts. ⚠ A LOCAL CORRELATION HANDLE ONLY — the wire carries just `ctr & 0xff` (the channel msg-id's low byte, channel_msg_id_mint), so no peer can echo more than 8 bits and this must never be matched against a received id. 0 on a holder slot (a relay owns no origination).
         uint8_t  retries_left;
     };
+    // ★★ §T3 (2026-08-14): `id`, `ctr` and `holder` are now ALSO READ by `Node::push_send_aired_if_owned` — the
+    //    channel row of the `send_aired` ownership rule matches an ACTIVE, NON-holder slot on `id` and pushes its
+    //    16-bit `ctr`. ⛔ THAT PATH ADDED NO FIELD AND MUST NEVER ADD ONE: the three it needs already existed, and
+    //    the assert below is why — a grown record costs bytes x cap x MR_N_LAYERS and moves `sizeof(Node)`.
     static_assert(sizeof(ChannelReofferPending) == 12 && offsetof(ChannelReofferPending, id) == 4
                       && offsetof(ChannelReofferPending, ctr) == 8,
                   "node.h: ChannelReofferPending grew — §b38's relay_seen / §b40's ctr left the padding they were "
@@ -1895,6 +1899,11 @@ public:
     // enqueues channel_sent{relayed:false}); called internally from do_send_channel / become_free / channel_reoffer_*.
     void    emit_send_blocked(bool channel, SendFailReason reason, uint32_t next_ms);   // Slice 6a: the send_blocked push (self-gate)
     void    emit_channel_sent(bool relayed, uint16_t ctr);                              // Slice 6c: OWN channel post re-offer outcome
+    // ★★★ §T3: the `aired` arm's ONE app consumer — enqueue `PushKind::send_aired` iff this completion belongs to a
+    // LOCALLY ORIGINATED flight. Public for the same reason `emit_channel_sent` is: native cases drive it through
+    // `on_tx_complete`, and the ownership rows need to be reachable per-carrier. ⛔ It is NOT telemetry — see the
+    // definition's [[B169]] note; wrapping it in `MR_TELEMETRY` would delete the whole B164 fix on every board env.
+    void    push_send_aired_if_owned(const TxOutcome& info);
 private:
     int     channel_buffer_pick_eviction(bool* safe) const;        // oldest-all-seen else oldest; index (dv:3485)
     bool    channel_entry_fully_seen(const ChannelEntry& e) const; // 2026-06-23: every live 1-hop neighbour holds e (or none to serve) -> retire-OK (holder-aware retirement; NOT shared with pick_eviction — opposite nn==0 meaning)

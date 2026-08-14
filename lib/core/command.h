@@ -243,6 +243,25 @@ enum class PushKind : uint8_t {
                           //   content-blind, and an un-keyed member must not break the flood for everyone else.
                           //   ★ APPENDED AT THE END, same contract rule as team_key_received above. Both sim asserts
                           //   pin join_adopted == 13 and are UNAFFECTED (this enumerator is 15).
+    send_aired,           // ★★★ §T3 (TX-completion arc, 2026-08-14): a locally-ORIGINATED DM or channel post
+                          //   PHYSICALLY LEFT THE RADIO — the SX1262 TxDone edge for the frame carrying THIS flight
+                          //   (`DeviceHal` -> `Node::on_tx_complete`, `TxOutcomeKind::aired`, `seq == flight_gen`).
+                          //   Carries only the existing `dst`/`ctr`; there is deliberately NO new `Push` field,
+                          //   because only `aired` is ever pushed ⇒ the PushKind IS the outcome kind.
+                          //     DM      -> `dst` = the peer, `ctr` = the origination counter.
+                          //     CHANNEL -> `dst` = 0, `ctr` = `ChannelReofferPending::ctr`, the FULL 16-bit local
+                          //                correlation handle (⛔ never `PendingTx::ctr`, which is the msg-id's low
+                          //                byte — truncating it re-creates the §b40 defect).
+                          //   ★★ IT IS NOT TERMINAL AND IT IS NOT AN ACK. It says the frame aired, never that anyone
+                          //   received it: `send_acked` / `send_e2e_acked` / `send_failed` / `channel_sent` remain the
+                          //   authoritative send-level outcomes and still arrive afterwards. A consumer must apply it
+                          //   as an UPGRADE of a queued state only, never over a terminal one.
+                          //   ⛔ `failed` / `unknown` attempt outcomes NEVER produce a push: a failed attempt is
+                          //   routinely followed by a successful MAC retry, so a terminal rendering of one would be
+                          //   the false-negative mirror of [[B164]].
+                          //   ★ APPENDED AT THE END, same contract rule as the two above. Both simulator asserts pin
+                          //   `join_adopted == 13` and are UNAFFECTED (this enumerator is 16); ⛔ an INSERTION would
+                          //   silently renumber an existing kind for every scenario, the companion and the sim bridge.
 };
 // E2E §5: why a send_failed Push fired, so the app reacts (no_pubkey -> offer Request-key/Scan-QR; the permanent
 // reasons -> plain fail). Mirrors the contract `send_failed.reason`. `none` = a non-send_failed push.

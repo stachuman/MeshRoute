@@ -70,7 +70,16 @@ void DeviceHal::pump_tx() {
     _txq_count--;
 }
 
-void DeviceHal::service_tx() {
+// ★★★ §T3 §2.1 — COLLECTION IS ITS OWN CALL, AND THE SPLIT IS THE WHOLE POINT.
+// This used to be the first half of a `service_tx()` that also called `pump_tx()`, and fw_main called that ONE
+// function AFTER its timer drain. That order LOSES the completion fact for a channel post: `kMBcastClearTimerId`
+// is armed at `data_air + 5` (node_mac.cpp, do_data_tx's m_broadcast arm) and its handler does
+// `_pending_tx.reset(); become_free();` — so on a loop pass delayed past both deadlines the timer deleted the
+// flight BEFORE the TxDone edge was ever collected, and `Node::on_tx_complete` had no `_pending_tx` left to
+// attribute the airing to. The device loop now COLLECTS here, BEFORE the timers, and PUMPS after them.
+// ⛔ Do NOT re-merge the two halves into one call, and ⛔ do NOT "fix" the race by widening the 5 ms margin —
+//    that trades one timing race for a wider one and leaves the ordering wrong.
+void DeviceHal::collect_tx_completion() {
     // Drain a normal completion (radio re-arms RX). If none AND a TX is still on air past its deadline,
     // the TxDone was lost -> force-recover, else the node is stuck deaf+mute (MeshCore outbound_expiry).
     if (_radio.poll_tx_done()) {
@@ -88,7 +97,6 @@ void DeviceHal::service_tx() {
         _inflight_valid = false;
         _tx_deadline_ms = 0;
     }
-    pump_tx();                                                           // start the next queued frame if the radio is now idle
 }
 
 void DeviceHal::set_rx_sf(int sf) {

@@ -509,7 +509,11 @@ inline void inbox_detail_head(char* out, std::size_t cap, InboxKind kind, uint8_
 }
 
 enum class Emergency : uint8_t { idle = 0, arming, firing, blocked, picked_up, not_heard, reply, cancelled, failed };
-enum class DmState   : uint8_t { idle = 0, submitting, waiting_ack, delivered, no_key, not_confirmed, failed };
+// ★ §T3: `aired_waiting` is APPENDED, and it is the ONE state that may say "SENT" for a DM. `waiting_ack` now means
+// exactly what it can establish — the core ACCEPTED the send and minted a ctr — and renders `QUEUED`; `aired_waiting`
+// is reached only by a correlated `send_aired`, i.e. the SX1262 TxDone edge for THIS flight, and renders the existing
+// `SENT, waiting` string, now earned. Both are non-terminal; every terminal DM state outranks them (see on_send_aired).
+enum class DmState   : uint8_t { idle = 0, submitting, waiting_ack, delivered, no_key, not_confirmed, failed, aired_waiting };
 // ★★★ §B69's CARRIER, HALF ONE (UI-7) — THE CANNED-CHANNEL OUTCOME MACHINE, and it is the DmState of the channel path.
 // Until now the canned channel post had NO model state at all: `ui_pump_trackers` had to CONSUME the normal tracker's
 // expiry and throw it away, with `⛔ Do not "fix" this by calling on_outcome` beside it, because `on_outcome` is the
@@ -518,10 +522,21 @@ enum class DmState   : uint8_t { idle = 0, submitting, waiting_ack, delivered, n
 // ★ EVERY MEMBER IS REACHABLE ONLY FROM A PATH THAT ESTABLISHED IT — the §2.1 rule this whole arc exists for:
 //   `waiting`     — accepted with OUR ctr; the `channel_sent` verdict has not come back yet (it can take ~36 s).
 //   `no_relay`    — a `channel_sent` came back for our ctr with `relayed == false`: we transmitted and OVERHEARD NOTHING.
+//                   ★ §T3 renamed its STRING `SENT, no relay` -> `NO RELAY HEARD` (`firmware_ui.cpp`). The state and
+//                   its meaning are unchanged; what changed is that the word SENT no longer appears on a state that
+//                   establishes no airing — the same rule `waiting`/`aired` above now follow. ⓘ §B38's argument
+//                   (`no_relay` is CORRECT at 100 % delivery on a 1-hop pair) survives the rename untouched.
+//                   ⚠ NOT to be confused with the EMERGENCY headline, where `NO RELAY HEARD` was ruled OUT on width
+//                   (14 chars x Font::large = 140 px > the 128 px panel; that headline is `NOT RELAYED`). This state
+//                   renders in Font::small at 21 columns, so 14 fits with room to spare.
 //   `unconfirmed` — §B69: `ctr == 0`, so NO LOCAL HANDLE ever existed. We never listened, so we may not say "no relay";
 //                   we cannot establish transmission either, so we may not say SENT. See the ★★ correction below.
 //   `relayed`     — a neighbour was overheard re-flooding it. The only member that may say PICKED UP.
-enum class ChanState : uint8_t { idle = 0, submitting, waiting, relayed, no_relay, unconfirmed, blocked, failed };
+//   `aired`       — ★ §T3, APPENDED: a correlated `send_aired` — the post's M-frame physically left the radio.
+//                   It is the channel twin of `DmState::aired_waiting` and the ONLY channel state below `relayed`
+//                   that may say SENT. `waiting` (core acceptance) now renders `QUEUED`, because acceptance is
+//                   five measured gaps short of the air.
+enum class ChanState : uint8_t { idle = 0, submitting, waiting, relayed, no_relay, unconfirmed, blocked, failed, aired };
 // ★★★ §B69's CARRIER, HALF TWO — THE EMERGENCY'S EVIDENCE, because the alarm's two channel outcomes collapse into ONE
 // `Emergency` state and the renderer cannot ask which happened. `on_outcome` maps `channel_no_relay` AND
 // `channel_remote_mint` down the SAME path (neither carries relay evidence ⇒ neither may claim PICKED UP ⇒ bounded
@@ -1010,10 +1025,15 @@ public:
 
     // ★★★ §B113 (found by independent QA on UI-7, FIXED 2026-08-05) — THE THIRD ARM, AND WITHOUT IT
     // `ChanState::waiting` WAS A DEAD STATE: assigned zero times in the whole tree, referenced once, by
-    // `firmware_ui.cpp`'s `"SENT, waiting"` arm. An ACCEPTED canned post therefore stayed on `submitting`, so the panel
+    // `firmware_ui.cpp`'s renderer arm. An ACCEPTED canned post therefore stayed on `submitting`, so the panel
     // read `SENDING...` until either the `channel_sent` verdict (up to ~36 s on a team post) or — first, on the common
     // path — the sub-view's own 15 s auto-exit. ⇒ a SUCCESSFUL send whose only feedback was a spinner that never
-    // resolved, contradicting the bench guide's required `SENDING... -> SENT, waiting` verbatim.
+    // resolved, contradicting the bench guide's required sequence.
+    // ⓘ **§T3 2026-08-14 — WHAT THAT ARM PRINTS HAS CHANGED, and the two sentences above are corrected rather than
+    //   left drifting (V1):** `ChanState::waiting` renders **`QUEUED`**, because acceptance is five measured gaps
+    //   short of the air; `SENT, waiting` moved to `ChanState::aired`, reached only by a correlated `send_aired`.
+    //   ⛔ B113's defect and this arm's necessity are UNCHANGED — a post that never leaves `SENDING...` is still the
+    //   regression; what moved is only which word acceptance is allowed to print.
     // ★ `waiting` MEANS WE HOLD A HANDLE, and that is the whole reason it may be reached only here: `ui_perform_send`
     //   calls this ONLY after `tr.accept(r.ctr)` with a non-zero ctr (§B39 — a `ctr == 0` result is parked in
     //   `awaiting` and never reaches acceptance), so the state cannot claim a transmission we do not own.
@@ -1098,6 +1118,53 @@ public:
             case K::dm_acked: case K::dm_no_key: case K::dm_failed: case K::dm_timeout: return;
         }
         _st.dirty = true;
+    }
+    // ★★★★ §T3 — THE SCOPED MONOTONIC RANK, AND THE WORD "SCOPED" IS THE CORRECTION THAT MADE IT SAFE.
+    // A `send_aired` is an ATTEMPT-level fact raised into a send-level surface. It is safe to raise because it can
+    // only ever be an UPGRADE (`queued -> sent`) and no later attempt can contradict it — but it is NOT terminal and
+    // it must never behave as though it were. The rank, applied ONLY when applying a correlated `send_aired` inside
+    // one transaction, is:
+    //        queued  <  aired  <  EVERY logical terminal outcome
+    //   · `waiting_ack` / `waiting`      MAY become `aired_waiting` / `aired`;
+    //   · an already-aired state is IDEMPOTENT (which is what removes any need for a de-duplication bit in `Node` —
+    //     a repeated attempt for the same flight costs one push and changes nothing, so `sizeof(Node)` is unmoved);
+    //   · ⛔ EVERY terminal state REFUSES it. All of them, not an enumerated pair: a delayed `send_aired` arriving
+    //     after `DELIVERED`, `NO RELAY HEARD`, `NO CONFIRM`, `BLOCKED` or `FAILED` must change NOTHING.
+    //   · ⛔ `idle` / `submitting` also refuse: a model on those states belongs to a NEWER transaction (the sub-view
+    //     reset under a still-open tracker), and a new-transaction reset stays authoritative.
+    // ⛔⛔ AND THIS RANK GOVERNS NOTHING ELSE. The existing terminal transitions — including the DELIBERATE late
+    //    `NO CONFIRM -> DELIVERED` upgrade at `on_outcome`'s `K::dm_acked` arm — are untouched and remain
+    //    authoritative. Stating the rank over ALL transitions (the first draft) would have broken both that upgrade
+    //    and the reset a new send performs.
+    // ★ BOTH SWITCHES ARE `default:`-LESS ON PURPOSE. A future `DmState`/`ChanState` must be CLASSIFIED as
+    //   queued-like / aired / terminal by whoever adds it, rather than silently inheriting "refuse" (or, worse,
+    //   "promote") from a catch-all. That is the enumerated-subset failure this rule exists to prevent.
+    // ⓘ `now_ms` is unused: `send_aired` starts no window and retains no panel — the sub-view's own lifetime and the
+    //   terminal outcome that follows own the display. Kept in the signature so every model entry point reads alike.
+    void on_send_aired(SendKind k, uint32_t now_ms) {
+        (void)now_ms;
+        // ⛔ THE EMERGENCY SLOT NEVER REACHES HERE, and the caller is what guarantees it (`ui_route_send_push`).
+        //   An attempt-level fact must not move a live alarm: `Emergency`, `ChanState` and `EmgEvidence` are the
+        //   alarm's own evidence, and "the frame left the radio" is not evidence that anyone heard it. Guarded
+        //   here as well, so a future second caller cannot re-open the hole.
+        if (k == SendKind::emergency) return;
+        if (k == SendKind::dm) {
+            switch (_dm) {
+                case DmState::waiting_ack:   _dm = DmState::aired_waiting; _st.dirty = true; return;   // queued -> aired
+                case DmState::aired_waiting: return;                                                   // idempotent
+                case DmState::idle: case DmState::submitting: return;                                  // a newer transaction owns the panel
+                case DmState::delivered: case DmState::no_key:
+                case DmState::not_confirmed: case DmState::failed: return;                             // ⛔ terminal: refuse
+            }
+            return;
+        }
+        switch (_chan) {
+            case ChanState::waiting: _chan = ChanState::aired; _st.dirty = true; return;               // queued -> aired
+            case ChanState::aired:   return;                                                           // idempotent
+            case ChanState::idle: case ChanState::submitting: return;                                  // a newer transaction owns the panel
+            case ChanState::relayed: case ChanState::no_relay: case ChanState::unconfirmed:
+            case ChanState::blocked: case ChanState::failed: return;                                   // ⛔ terminal: refuse
+        }
     }
     void on_outcome(const SendOutcome& o, uint32_t now_ms) {
         using K = SendOutcome::Kind;

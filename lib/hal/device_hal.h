@@ -63,9 +63,17 @@ public:
     // ---- device-loop glue (called by fw_main, not part of the Hal contract) ----
     int      pop_due_timer() { return _wheel.pop_due(_clock.now_ms()); }   // -1 if none due
     uint64_t next_due_ms()   { return _wheel.earliest_due(); }             // earliest armed deadline (UINT64_MAX = idle); bounds the idle-sleep
-    // Async-TX pump (Step 2): drain the in-flight TX completion (-> radio re-arms RX) + start the next
-    // queued frame when the radio is idle. Call every loop, after RX + the timer drain (both enqueue TX).
-    void     service_tx();
+    // ★★★ §T3 §2.1 — TWO CALLS, ONE AUTHORITY EACH, AND THE ORDER IS LOAD-BEARING.
+    //   `collect_tx_completion()` drains the in-flight TX completion (-> radio re-arms RX, -> the outcome ring).
+    //     ⛔ It must run BEFORE the Node's timer drain: `kMBcastClearTimerId` deletes `_pending_tx` 5 ms after the
+    //        calculated M-frame airtime, and `Node::on_tx_complete` needs that flight alive to attribute the airing.
+    //        With the old combined `service_tx()` (collect+pump, called AFTER the timers) a delayed loop pass lost
+    //        the channel post's completion entirely — the ordinary failure mode on a loaded node, not a corner case.
+    //   `pump_tx()` starts the next queued frame and runs AFTER the timers, so a frame a timer enqueued still
+    //     departs on the same pass.
+    // ⛔ There is deliberately NO combined wrapper: one existed and the wrong order was the bug.
+    void     collect_tx_completion();
+    void     pump_tx();                                   // start the head queued frame if the radio is idle (+ debit the ledger)
     bool     pop_tx_outcome(TxOutcome& out);              // false = no completion report pending
     uint32_t txq_drops() const { return _txq_drops; }     // # frames dropped on outbound-queue overflow (status diagnostic)
     uint8_t  txq_depth() const { return _txq_count; }     // current outbound-queue depth (status diagnostic)
@@ -98,11 +106,10 @@ public:
     }
 
 private:
-    void pump_tx();                 // internal: start the head queued frame if the radio is idle (+ debit the ledger)
     void push_tx_outcome(const TxOutcome& outcome);
 
     // Outbound TX queue (Step 2 async TX). Half-duplex: the radio sends ONE frame at a time. tx() enqueues
-    // (mirrors the sim's _pending_txs + MeshCore's `outbound`); service_tx()/pump_tx() start the next when
+    // (mirrors the sim's _pending_txs + MeshCore's `outbound`); pump_tx() starts the next when
     // the radio is idle + debit the ledger at the actual on-air send. Bounded ring; overflow drops + counts
     // (the MAC's own timeouts recover the frame — at lbt=false this matches the sim, which never busies tx).
     // ★ §T2: tag/seq are copied from TxParams at the hand-off and travel WITH the queued frame. They are never
@@ -126,7 +133,7 @@ private:
     InflightTx _inflight{};
     bool       _inflight_valid = false;
 
-    // Attempt outcomes are drained by fw_main immediately after service_tx(). Drop-newest on overflow, but count
+    // Attempt outcomes are drained by fw_main immediately after collect_tx_completion(). Drop-newest on overflow, but count
     // every dropped report (C2): losing observability must never be silent.
     static constexpr uint8_t kTxOutcomeCap = 4;
     TxOutcome _tx_outcomes[kTxOutcomeCap]{};
@@ -136,7 +143,7 @@ private:
     uint32_t  _tx_failed_arms   = 0;
 
     // TX-completion watchdog (mirrors MeshCore's outbound_expiry). pump_tx() sets the deadline at the
-    // on-air send; service_tx() force-recovers the radio if a TxDone never arrives by then (else a missed
+    // on-air send; collect_tx_completion() force-recovers the radio if a TxDone never arrives by then (else a missed
     // edge leaves the node deaf + mute). Generous (1.5x airtime + slop) so a normal TX never trips it.
     uint64_t _tx_deadline_ms = 0;
     uint32_t _tx_timeouts    = 0;   // # watchdog recoveries (diagnostic; should stay 0)

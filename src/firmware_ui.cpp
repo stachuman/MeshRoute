@@ -747,7 +747,15 @@ void draw_compose_result(const mrui::UiState& st, const OutcomeView& v) {
         switch (v.dm) {
             case mrui::DmState::idle:
             case mrui::DmState::submitting:    mrui::draw_text(0, body_y(1), "SENDING..."); break;
-            case mrui::DmState::waiting_ack:   mrui::draw_text(0, body_y(1), "SENT, waiting"); break;
+            // ★★ §T3 — `QUEUED`, NOT `SENT`. `waiting_ack` is reached at CORE ADMISSION (`on_send_accepted` after
+            //    `tr.accept(r.ctr)`): the core minted a counter and queued the message. Five measured gaps still sit
+            //    between that and the air — the core queue, the oversize reject, the ring-full drop, `pump_tx`'s
+            //    failed arm and a lost TxDone — so saying SENT here was the §B69 false confirmation one layer out.
+            case mrui::DmState::waiting_ack:   mrui::draw_text(0, body_y(1), "QUEUED"); break;
+            // ★★ ...and THIS is where `SENT, waiting` moved to: the string is unchanged, verbatim, and is now EARNED.
+            //    `aired_waiting` is reached only by a correlated `send_aired`, i.e. the SX1262 TxDone edge for this
+            //    exact flight — the physical act, established by the act.
+            case mrui::DmState::aired_waiting: mrui::draw_text(0, body_y(1), "SENT, waiting"); break;
             case mrui::DmState::delivered:
                 snprintf(l, sizeof l, "DELIVERED to %s", label); mrui::draw_text(0, body_y(1), l); break;
             // §3.4 — a genuine dead end on-device: the 2026-07-29 ruling forbids the node auto-issuing `reqpubkey`,
@@ -761,11 +769,19 @@ void draw_compose_result(const mrui::UiState& st, const OutcomeView& v) {
         switch (v.chan) {
             case mrui::ChanState::idle:
             case mrui::ChanState::submitting: mrui::draw_text(0, body_y(1), "SENDING..."); break;
-            case mrui::ChanState::waiting:    mrui::draw_text(0, body_y(1), "SENT, waiting"); break;
+            // ★★ §T3, the channel twin of the DM lines above: acceptance is `QUEUED`, the TxDone edge is `SENT`.
+            case mrui::ChanState::waiting:    mrui::draw_text(0, body_y(1), "QUEUED"); break;
+            case mrui::ChanState::aired:      mrui::draw_text(0, body_y(1), "SENT, waiting"); break;
             case mrui::ChanState::relayed:    mrui::draw_text(0, body_y(1), "PICKED UP"); break;
             // §B38: `relayed` is FIRST RELAY ONLY, never coverage — on a fully-1-hop team this is the CORRECT reading
-            // at 100 % delivery. It reports what was MEASURED, not what it implies about delivery.
-            case mrui::ChanState::no_relay:   mrui::draw_text(0, body_y(1), "SENT, no relay"); break;
+            // at 100 % delivery. It reports what was MEASURED, not what it implies about delivery. ★ That argument
+            // is unchanged by the rename below and moves with it.
+            // ★★ §T3 RENAMED `SENT, no relay` -> `NO RELAY HEARD`. It is the SAME `ChanState`, rendered by the SAME
+            //    function as the two lines above, so keeping the word SENT on a state reached without any airing
+            //    evidence would have contradicted the rule those lines state. `NO RELAY HEARD` also reads more
+            //    truthfully: `channel_no_relay` means the re-offer exhausted without OVERHEARING a relay — an
+            //    observation about what was heard, which is exactly what the new string says.
+            case mrui::ChanState::no_relay:   mrui::draw_text(0, body_y(1), "NO RELAY HEARD"); break;
             // ★★★ §B69. It is NOT "SENT" and it is NOT "no relay": with no local handle we never listened, and on the
             //     `-t` line this UI sends the two surviving `ctr == 0` producers are a pre-TX block and a SEAL
             //     FAILURE — neither of them a success (see firmware_ui_model.h's EmgEvidence block for the source

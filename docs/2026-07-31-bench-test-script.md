@@ -6,13 +6,17 @@ prepare each rig once, work through the checkboxes, and save full serial capture
 
 ## Current release state
 
-- Parts 0-7 describe the committed firmware gates. Part 8's OLED Task 7 tree is **QG-approved but uncommitted** on
-  top of `cbbd69e`; record the exact `version`/dirty state used for every OLED result.
-- B43's one-command by-ID `reqpubkey` flow landed at `2ff40dc`.
-- B30's freshest-authoritative team-ID selection landed at HEAD `ea1e324`.
-- Flash `ea1e324` or newer for the current gate.
-- Automated baseline: native 1,149 cases / 72,681 assertions, board builds, and 36 simulator scenarios. This checklist
-  focuses on device-only wiring, persistent storage, radio behavior, and operator surfaces.
+- **Operational refresh 2026-08-14:** the current Heltec run includes Tasks 5-9, UI-7D inbox detail/delete,
+  UI-14 settings, T2 hardware completion diagnostics, and T3 `send_aired`. T3 passed QG; record the exact
+  `version` and dirty/commit state used on every node.
+- Use `heltec_mobile` for the integrated OLED run. Reflash every participating node with a mutually compatible
+  firmware before diagnosing a radio failure.
+- Current automated reference: native **1640 cases / 82691 assertions / 0 failures**, 36 simulator scenarios,
+  six essential board builds, board probe **68/68 + 13/13 + 24/24**, and firmware-UI probe **136/136**.
+- Parts 19-22 are live metal gates. In particular, B164 remains open only for Part 22's physical
+  TxDone→`AIRED`→panel verification. Parts 21-22 require **USB serial**, not BLE/JSON.
+- This checklist contains device-only wiring, persistent-storage, physical-radio and operator-surface checks. Do not
+  repeat automated cases merely to increase the checkbox count.
 
 ## How to use this document
 
@@ -44,15 +48,18 @@ Before each multi-node block:
 
 ## Suggested run order
 
-1. Fresh or expendable 32-bit node: Parts 0–2.
-2. Two directly connected nodes: Parts 3–5.
-3. Team rig, including one keyless node: Part 6.
-4. Static, team, dual-plane, and saturation rigs: Part 7.
-5. Heltec V3 mobile UI: use the focused guide and run **H5, H6, then H7 through H7-09**. In this document, Part 8's
-   Task 6/7 checks are live except retired 8.1/8.9, conditional diagnostics, and Task-9-only 8.6. **Stop before H8**
-   in the focused guide; H8 and H9 are not yet released for execution.
+1. For the current Heltec qualification, start with the focused guide's **§0 Current metal run** and execute R1-R6.
+2. Run this document's **Part 9** during R1 for post-B95 console-line integrity.
+3. Run **Part 19** for inbox detail/delete and **Part 20.1-20.3** for normal settings qualification.
+4. On a spare/re-provisionable node, run destructive **Part 20.5** and **Part 20.7 step 1**. Part 20.5 is the
+   remaining B193 real-NV/power-cut qualification.
+5. Run **Parts 21-22 before emergency stress** so TX counters and the T3 `AIRED` path have a clean baseline.
+6. Then run focused-guide H8 emergency and H9 battery acceptance.
+7. Parts 0-7 and 10-18 remain targeted regression rigs; run them when their subsystem or topology is in scope rather
+   than as a prerequisite for every Heltec UI pass.
 
-If Part 1 or Part 2 fails, stop and report before continuing.
+Stop at the first unexplained failure and preserve the boot-to-failure logs. Do not continue into a noisier topology
+after a basic console, storage, TX-completion or UI-safety invariant has failed.
 
 ---
 
@@ -687,7 +694,7 @@ TX FIFO, the tightest transport we ship). ⛔ **Blocked by B96 today**: no Helte
 is fixed, run these on `xiao_sx1262` (256-B CDC FIFO) and note the board — the guarantee is the same, the pressure is
 lower, so a `heltec_v3` rerun is still owed.
 
-- [ ] **9.1 — `cfg` twenty times: every row structurally complete**
+- [x] **9.1 — `cfg` twenty times: every row structurally complete**
   - Do: `cfg`, twenty times, while the node is beaconing.
   - Pass: **every** received line is a whole row. Specifically **NOT** the H5-06 shapes:
     - ⛔ `  proto : duty=1.00% beacon_ms=900000168010102layer=5 leaf=5000` (labels dropped, values fused)
@@ -696,12 +703,12 @@ lower, so a `heltec_v3` rerun is still owed.
     - `  proto : duty=1.00% beacon_ms=900000 hop_cap=16 team_hop_cap=8 lbt=1 nav=1 intra_relay=0 host_mobiles=1 nav_ignore=0`
   - ★ A row may be **absent**; it may never be **wrong**. An absence must be accompanied by 9.4's drop line.
 
-- [ ] **9.2 — `routes` twenty times with a gateway schedule present**
+- [x] **9.2 — `routes` twenty times with a gateway schedule present**
   - Do: `routes`, twenty times, on a node that has learned a gateway.
   - Pass: the `[route]   gw_sched period=…ms heard_ms=…` line and each `[route] dest=…` line are separate, complete
     lines. ⛔ Never `heard_ms=39214608526@]5@0125015-20[route] dest=5` (the H5-06 fusion).
 
-- [ ] **9.3 — `help` five times: no line without a line ending**
+- [x] **9.3 — `help` five times: no line without a line ending**
   - Do: `help`, five times.
   - Pass: every received help line ends with CRLF and **nothing follows it on the same physical line** — in particular
     the next prompt/response never starts mid-line. (The old `hl()` emitted its CRLF only when two FIFO bytes happened
@@ -710,7 +717,7 @@ lower, so a `heltec_v3` rerun is still owed.
     roughly the first 25 lines and then reports the loss (9.4). What must never happen is a *garbled* or *unterminated*
     line. If the whole text is wanted at the bench, raise `MR_CONSOLE_STAGE_BYTES` (see `src/console_sink.h`).
 
-- [ ] **9.4 — the deferred drop report, verbatim**
+- [x] **9.4 — the deferred drop report, verbatim**
   - Do: run `help` (which necessarily overflows the stage). Watch for the report after the delivered lines.
   - Pass: exactly this line, on its own line, **once** per burst of loss:
     ```
@@ -719,7 +726,7 @@ lower, so a `heltec_v3` rerun is still owed.
     (the count varies; the text does not — `!! CONSOLE_DROP lines=<N>`, CRLF-terminated). It must appear **after** the
     lines it refers to, never inside one, and must not repeat while nothing further is lost.
 
-- [ ] **9.5 — stop the host reading, then resume (the anti-wedge)**
+- [x] **9.5 — stop the host reading, then resume (the anti-wedge)**
   - Do: with the monitor attached, suspend the reader (`Ctrl-S` in a terminal that honours it, or pause/detach the
     monitor process — do **not** unplug), issue `cfg` a few times, then resume.
   - Pass: **the node keeps working throughout** — beacons continue, a DM still ACKs, no reset, no watchdog, no wedge.
@@ -727,12 +734,12 @@ lower, so a `heltec_v3` rerun is still owed.
   - ⛔ Fail if the console freezes the radio (missed beacons/ACK timeouts correlated with the pause), or if a partial
     row appears after the resume.
 
-- [ ] **9.6 — boot banner intact**
+- [x] **9.6 — boot banner intact**
   - Do: reset the board with the monitor already attached; capture the boot log.
   - Pass: every banner line complete, ending with `  node      = up. Type 'help' for commands.` Measured to be ~1.3 KB,
     i.e. inside the stage, so **no banner line should be missing at all**.
 
-- [ ] **9.7 — `reboot` still prints before it resets**
+- [x] **9.7 — `reboot` still prints before it resets**
   - Do: `reboot`.
   - Pass: `> rebooting` is received **before** the reset. (This is the one deliberately blocking path,
     `GuardedConsole::flush()`; if the line is missing, the bounded drain is not working.)
@@ -743,7 +750,7 @@ lower, so a `heltec_v3` rerun is still owed.
     NUS. (Before this fix a BLE `help` printed the text to *USB* instead; now help honours its sink, so the refusal is
     what keeps 6 KB off a link that has wedged this node before.)
 
-- [ ] **9.9 — the `cfg` SF list appears in the response, not on another transport**
+- [x] **9.9 — the `cfg` SF list appears in the response, not on another transport**
   - Do: `cfg` over USB; then `rcmd <id> cfg`-style / companion `cfg` if reachable.
   - Pass: `sf_list=6,7` (whatever the real list) is inside the `radio :` row of the response itself. ⛔ Fail if the SF
     list appears on the USB console while missing from a captured/remote response — that was the
@@ -853,6 +860,8 @@ the radio and what the other node received.
 2. Expected on A's USB console: **one** send, answered `ack:queued ctr=<n>` — not two, not zero.
 3. Expected on B: the channel message with body **`Got your message`**.
 4. Expected on A's panel: `to: team ch 0` header, then `SENT, waiting`, bottom line `press = back`.
+   ⓘ **§T3:** a brief **`QUEUED`** may appear first (core acceptance -> the radio's TxDone edge). ⛔ It may be too
+   brief to see and **its absence is NOT a failure**; the absence of `SENT, waiting` still is.
 5. Repeat for the DM: TEAM -> teammate -> `double` -> `double` on `Are you OK?`.
    Expected console line executed: `send <id> "Are you OK?" -t -a` (⚠ **no `-e`** — the parser rejects it on an id
    target). Expected panel end state: **`DELIVERED to <label>`**.
@@ -873,7 +882,9 @@ the radio and what the other node received.
 
 Bench guide **H7-07** carries the full procedure. The one-line residue for this script: on a `ctr == 0` outcome the
 panel must read **`NOT CONFIRMED` / `no send handle`** (canned) or **`NOT RELAYED` / `unconfirmed x3`** (alarm).
-⛔ **`SENT` or `SENT, no relay` in that state is a false confirmation — stop and report.** Hard to provoke on demand;
+⛔ **`SENT` in any form is a false confirmation in that state — `SENT, waiting`, or the no-relay reading (`NO RELAY
+HEARD` since §T3; the retired spelling was `SENT, no relay`). Any of them: stop and report.** ⚠ The §T3 rename moved
+the spelling of the no-relay reading; it did NOT narrow this prohibition — BOTH spellings stay forbidden here. Hard to provoke on demand;
 record it opportunistically. The most reachable trigger is a node whose team channel key was removed after `create`.
 
 ### 8.20 — UI-7 an unconfirmed DM must not brick the send path (2026-08-05)
@@ -916,10 +927,15 @@ one-line residue of bench guide **H7-01**.
 
 1. On A, `short` to SEND, `double`, `double` on `Got your message`.
 2. Expected panel: `SENDING...` for one frame, then **`SENT, waiting`**, then (within ~36 s) `PICKED UP` or
-   `SENT, no relay`.
+   **`NO RELAY HEARD`** (§T3 renamed this reading; the retired spelling was `SENT, no relay`).
+   ⓘ **§T3:** a brief **`QUEUED`** may appear between `SENDING...` and `SENT, waiting`. ⛔ Too brief to see is
+   EXPECTED and its absence is NOT a failure.
    ⛔ **Sitting on `SENDING...` all the way to the settle or the 15 s auto-exit is the B113 regression** — the accepted
    post's acceptance never moved the channel state. The DM twin (`SENT, waiting` in 8.17 step 5) always worked; only the
    channel arm was missing.
+   ⛔ **§T3 ADDS A SECOND FAILURE SHAPE AT THE SAME STEP: sitting on `QUEUED`** while the console shows the post
+   really went out. That means the radio's completion never reached the app — the drain, the ownership rule, or the
+   correlation. It is metal-only: neither native nor the simulator has a TxDone edge.
 
 ### 8.23 — §B115 the alarm's attempt counter must START at `1 of 3` (2026-08-05) ★★ MEASURED WRONG ON METAL
 
@@ -2079,10 +2095,60 @@ counters; native tests substitute a mock radio and the simulator does not produc
    `txdrop` counts synchronous queue-full admissions; `txfail` counts queued frames whose radio arm failed;
    `txto` counts started transmissions whose TxDone was not observed; `txoutdrop` counts completion reports lost
    because the four-entry outcome ring was full. ⛔ Do not assume `txoutdrop=0`; record the value.
-   ⛔ The BLE/JSON status contract currently omits `txfail`, `txoutdrop`, and `txto`; extending that contract is
-   deferred to T3. Do not use a BLE/JSON response as evidence for this T2 metal check.
+   ⛔ The BLE/JSON status contract currently omits `txfail`, `txoutdrop`, and `txto`. Do not use a BLE/JSON response
+   as evidence for this T2 metal check — use USB serial.
+   ⛔⛔ **CORRECTED 2026-08-14: this line said *"extending that contract is deferred to T3"*. §T3 IS IMPLEMENTED AND
+   DID NOT EXTEND IT** — T3 added an app *push* (`send_aired`), not a status field. ⇒ the omission is **still open and
+   is now unassigned**; it belongs to whichever slice takes the BLE/JSON status contract, and this check stays
+   USB-only until then.
 3. Pass: the fields are always present, the node remains responsive after the burst, and `txq` returns to 0.
    Fail: any field is omitted at zero, `txq` remains wedged, or a non-zero counter is silently reset between reads.
+
+## Part 22 — §T3 the app/UI half of the TX-completion arc (2026-08-14)
+
+⛔ **THIS IS THE ONLY PLACE `send_aired` HAS EVER FIRED FOR REAL.** Neither host build has a radio and the simulator
+has no TxDone edge at all, so the whole chain — a physical airing becoming a panel word — exists on metal and nowhere
+else. ⚠ **T3's BLE/JSON status residue from Part 21 is UNCHANGED and still open:** T3 added an app *push*, not a
+status field, so `txfail` / `txoutdrop` / `txto` remain USB-console-only. Use USB serial here too.
+
+### 22.1 — the console line the core's push produces
+
+1. Over **USB serial**, with a second node in range, send a DM: `send <id> "aired probe"`.
+2. Expected, in order, on the sender's console:
+
+   ```
+   AIRED ctr=<n> dst=<id>
+   ACKED ctr=<n>
+   ```
+
+   ⓘ `AIRED` may be interleaved with other traffic, and it may repeat if the MAC retransmits the flight — a repeat is
+   expected and is not a fault. ⛔ **What must NEVER happen is `ACKED`/`E2EACK`/`FAILED` for a ctr that produced no
+   `AIRED` at all** while the frame demonstrably went out: that is the completion never reaching the app.
+3. Repeat with a canned/console **channel** post (`send_channel 0 "aired probe" -t`). Expected: **`AIRED ctr=<n>
+   dst=0`** — ★ `dst=0` is the channel form, and `<n>` is the FULL origination handle the `ack:queued ctr=<n>` line
+   reported, ⛔ **not** its low byte. On a node that has posted more than 255 times those two differ, and a mismatch
+   there is the §b40 truncation defect.
+4. Pass: `AIRED` appears for a locally originated DM and a locally originated channel post, carrying the same `ctr`
+   the acceptance line reported.
+   Fail: no `AIRED` at all; an `AIRED` for a channel post carrying a truncated `ctr`; or an `AIRED` on a node that is
+   only **relaying** somebody else's traffic (⛔ a relay owns no origination and must print none — leave a third node
+   forwarding for a minute and check its console stays silent of `AIRED`).
+
+### 22.2 — the panel word, and the failure shape that is new
+
+1. On the OLED node: `short` to **SEND**, `double`, `double` on `Got your message` (bench guide **H7-01**).
+2. Expected: `SENDING...` → (possibly a brief **`QUEUED`**) → **`SENT, waiting`** → within ~36 s `PICKED UP` or
+   **`NO RELAY HEARD`**.
+   ⛔ **`QUEUED` may be too brief to see and its ABSENCE IS NOT A FAILURE.** Do not gate this check on observing it.
+3. ⛔ **THE NEW FAILURE SHAPE: the panel STUCK on `QUEUED`** while the console shows the post really went out. It
+   means the airing never reached the app — the loop's completion drain, the core ownership rule, or the UI
+   correlation. Report it with the console transcript.
+4. ⛔ **THE OLD FAILURE SHAPE IS UNCHANGED: the panel stuck on `SENDING...`** is still the §B113 regression.
+5. Repeat for a DM (guide **H7-03**): `SENDING...` → (brief `QUEUED`) → `SENT, waiting` → `DELIVERED to <label>`.
+6. ★ **THE ONE-SIDED CHECK THAT IS WORTH MORE THAN THE HAPPY PATH: power the second node OFF** and post again.
+   Expected: `QUEUED` → **`SENT, waiting`** (the frame still aired — nobody was listening) → within ~36 s
+   **`NO RELAY HEARD`**. ⛔ If it never leaves `QUEUED` with no peer present, the airing report is gated on something
+   it must not be gated on.
 
 ## Completion record
 

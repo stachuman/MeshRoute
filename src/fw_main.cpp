@@ -1065,6 +1065,17 @@ static void mesh_service_once() {
     if (g_iradio.take_preamble()) g_node.on_preamble_detected(now);
     canary(CW_poll_rx);
 
+    // ★★★ 1b) TX COMPLETION — COLLECTED **BEFORE** THE TIMERS (§T3 §2.1), and the order is the feature, not a tidy-up.
+    //     `kMBcastClearTimerId` deletes `_pending_tx` 5 ms after the calculated M-frame airtime, and the `send_aired`
+    //     rule needs that flight ALIVE to attribute the airing to the origination that owns it. With the collection
+    //     after the timer loop, a loop pass delayed past both deadlines fired the M-clear FIRST and the channel post's
+    //     completion was lost outright — the ordinary failure mode on a loaded node.
+    // ⛔ Do NOT move this below the timer drain, and ⛔ do NOT merge it back with `pump_tx()` at (2b): the pump must
+    //    stay AFTER the timers so a frame a timer enqueued still departs on this pass. `tools/probe_board_ui`'s W21
+    //    pins both halves and their order, because `fw_main.cpp` is outside every host build.
+    g_hal.collect_tx_completion();
+    for (meshroute::TxOutcome outcome; g_hal.pop_tx_outcome(outcome); ) g_node.on_tx_complete(outcome);
+
     // 2) Timers: fire every elapsed Node timer (beacons, RTS/ACK timeouts, retries, the duty/LBT defers).
     for (int id; (id = g_hal.pop_due_timer()) >= 0; ) { g_node.on_timer((uint32_t)id); canary_timer((uint32_t)id); }   // ADDENDUM: per-timer-id fine canary -> names the exact handler that corrupts the HAL
 
@@ -1086,10 +1097,10 @@ static void mesh_service_once() {
         }
     }
 
-    // 2b) Async TX: drain the in-flight TX completion (radio re-arms RX) + start the next queued frame.
-    //     After RX + timers, since both enqueue TX. The loop stays live during a long TX (no freeze).
-    g_hal.service_tx();
-    for (meshroute::TxOutcome outcome; g_hal.pop_tx_outcome(outcome); ) g_node.on_tx_complete(outcome);
+    // 2b) Async TX: start the next queued frame. AFTER RX + timers, since both enqueue TX — so a frame a timer
+    //     enqueued departs on this same pass. The loop stays live during a long TX (no freeze).
+    //     ⓘ The COMPLETION half moved to (1b) above; see the §T3 §2.1 note there for why.
+    g_hal.pump_tx();
     canary(CW_tx_done);
 
     // 2b2) Firmware scheduled-send (testsend/testch): fire the next DUE entry through the REAL send path so it rides
@@ -1160,8 +1171,8 @@ static void mesh_service_once() {
     meshroute::Push pu{};
     while (g_node.next_push(pu)) {
         mr_ui_on_push(pu);   // §featuresplit slice 4: surface the delivery/ACK on the board display (no-op unless MR_FEAT_OLED)
-        // ★ ALL 15 PushKinds are rendered, and this switch is DELIBERATELY `default`-less so -Wswitch fails the build
-        // when a 16th is added (owner ruling 2026-07-26; 6 kinds used to fall through and print NOTHING here, which is
+        // ★ ALL 17 PushKinds are rendered, and this switch is DELIBERATELY `default`-less so -Wswitch fails the build
+        // when an 18th is added (owner ruling 2026-07-26; 6 kinds used to fall through and print NOTHING here, which is
         // BASELINE 25m's enum→string defect class — this file is invisible to the native gate, so the compiler is the
         // only tripwire). Case order tracks the enum declaration order in command.h.
         // ✔ IT WORKED, again: §team-ch-key T-K3 added the 15th kind (team_key_received) plus the 17th
@@ -1189,6 +1200,12 @@ static void mesh_service_once() {
                 break;
             case meshroute::PushKind::send_acked:
                 mrcon.print(F("ACKED ctr="));    mrcon.println(pu.ctr); break;
+            // ★ §T3: the frame PHYSICALLY LEFT THE RADIO. ⛔ Deliberately NOT worded as a delivery — the send-level
+            // outcome (ACKED / E2EACK / FAILED / CHSENT) still follows and is the authoritative one. `dst=0` means a
+            // channel post, whose `ctr` is the local 16-bit correlation handle rather than a DM counter.
+            case meshroute::PushKind::send_aired:
+                mrcon.print(F("AIRED ctr="));    mrcon.print(pu.ctr);
+                mrcon.print(F(" dst="));         mrcon.println(pu.dst); break;
             case meshroute::PushKind::send_failed:
                 mrcon.print(F("FAILED ctr="));   mrcon.print(pu.ctr);
                 switch (pu.reason) {   // §mobile/§3-A.5: surface WHY so a fail-loud is actionable — render EVERY reason (was a bare "FAILED" for 6 of them)

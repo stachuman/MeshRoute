@@ -5598,6 +5598,154 @@ TEST_CASE("§T1 retry_stashed — public A-to-B replacement carries the stale ST
     }
     CHECK(hal.count("data_tx") == data_before);                 // telemetry stays at A's one production DATA admit
     CHECK(node->has_pending_tx());                               // the stale retry did not replace current B
+
+    // ---- ★★★★ §T3 (N15) — AND NOW THE CONSUMER SIDE OF THE SAME STATE, ASSERTED HERE RATHER THAN IN A FORKED
+    //      FIXTURE (U1): this is the only place in the tree where a stale carrier is in flight while a DIFFERENT
+    //      flight is current, which is exactly the state a false confirmation needs. Feed the completion the HAL
+    //      would produce for A's re-sent bytes and the app must hear NOTHING — neither for A (its transaction is
+    //      closed) nor, above all, for B (which never aired).
+    { Push sink{}; while (node->next_push(sink)) {} }            // start from an empty ring
+    node->on_tx_complete(TxOutcome{ TxOutcomeKind::aired, BusyReason::none, TxResult::ok,
+                                    /*tag=DATA*/2, /*seq=*/gen_a, /*sf=*/7, /*busy_until_ms=*/0 });
+    { int n = 0; Push sink{}; while (node->next_push(sink)) ++n;
+      CHECK(n == 0); }                                          // ★★★★ the stale airing confirms NOTHING
+    // ⚠ THE CONTROL THAT MAKES THAT ZERO MEAN SOMETHING: the SAME call with B's identity DOES push, so the zero
+    //   above is the identity guard working, not an inert consumer.
+    node->on_tx_complete(TxOutcome{ TxOutcomeKind::aired, BusyReason::none, TxResult::ok,
+                                    /*tag=DATA*/2, /*seq=*/gen_b, /*sf=*/7, /*busy_until_ms=*/0 });
+    { int n = 0; Push sink{}; PushKind k = PushKind::msg_recv;
+      while (node->next_push(sink)) { ++n; k = sink.kind; }
+      CHECK(n == 1); CHECK(k == PushKind::send_aired); }
+    delete node;
+}
+
+// ==================================================================================================================
+// §T3 — `PushKind::send_aired`: the CORE ownership rule, DM plane. (design §7.2 N8/N9/N10/N11/N12/N14e/N15)
+// ==================================================================================================================
+// ★★★ WHAT THESE MEASURE, AND WHY EACH ONE COULD COME OUT OTHERWISE. `aired` is the ONE attempt-level outcome allowed
+// into the app push ring, because it can only ever be an UPGRADE. Everything below is about the guards that decide
+// WHOSE upgrade it is: drop any one of them and a completion is attributed to a send this node never made, or to the
+// wrong flight — the false confirmation [[B164]] is about, arriving from the other direction.
+// ⓘ There is deliberately NO de-duplication anywhere in core: a repeated `aired` for the same live flight enqueues a
+//   second push, and the CONSUMER's monotonic rank makes it idempotent. That is what keeps `sizeof(Node)` unmoved,
+//   and it is asserted below rather than left as an assumption.
+namespace {
+// Drain the whole push ring; returns only the `send_aired` ones, so a case can assert BOTH "exactly one of mine" and
+// "nothing else appeared".
+struct PushDrain { int total = 0; std::vector<Push> aired; };
+static PushDrain drain_pushes(Node& n) {
+    PushDrain d; Push pu{};
+    while (n.next_push(pu)) { ++d.total; if (pu.kind == PushKind::send_aired) d.aired.push_back(pu); }
+    return d;
+}
+static TxOutcome aired_of(uint16_t tag, uint32_t seq) {
+    return TxOutcome{ TxOutcomeKind::aired, BusyReason::none, TxResult::ok, tag, seq, /*sf=*/7, /*busy_until_ms=*/0 };
+}
+}  // namespace
+
+TEST_CASE("§T3 send_aired (DM) — one push for the live LOCAL flight; zero for a stale seq or a non-DATA tag") {
+    TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14}});
+    const CmdResult sent = send_cmd(*node, /*dst=*/5, "hi");
+    CHECK(sent.code == CmdCode::queued);
+    CHECK(sent.ctr != 0);                                          // PREMISE: a real origination handle was minted
+    std::array<uint8_t,8> cb{}; const size_t cn = mk_cts(1, 2, 7, cb);
+    RxMeta m2{12.0f,-70.0f,0,static_cast<int8_t>(2)}; node->on_recv(cb.data(), cn, m2);
+    node->on_timer(kCtsToDataGapTimerId);                          // the DATA is handed to the HAL
+    const auto* d = hal.last_tx("DATA"); CHECK(d != nullptr);
+    const uint32_t gen = d ? d->seq : 0u;
+    CHECK(gen != 0u);                                              // PREMISE: the hand-off carried this flight's identity
+    (void)drain_pushes(*node);                                     // start from an empty ring
+
+    // ---- ★★ N8: the completion for THIS flight, on a DATA tag ⇒ exactly ONE push, carrying the DM's own handle.
+    node->on_tx_complete(aired_of(/*tag=DATA*/2, gen));
+    PushDrain p = drain_pushes(*node);
+    CHECK(p.total == 1);                                           // ⛔ nothing else was enqueued
+    CHECK(p.aired.size() == 1);
+    if (p.aired.size() == 1) {
+        CHECK(p.aired[0].dst == 5);                                // ★ the peer, from the carrier — never rebuilt
+        CHECK(p.aired[0].ctr == sent.ctr);                         // ★ the SAME handle `on_command` answered with
+    }
+
+    // ---- ★★ N9: a STALE identity confirms NOTHING. This is decision-3's tripwire: with a tag-only identity the
+    //      completion of a superseded frame would be attributed to whatever flight is live now.
+    node->on_tx_complete(aired_of(2, gen + 1000u));
+    CHECK(drain_pushes(*node).total == 0);
+    node->on_tx_complete(aired_of(2, 0u));                         // the "no identity" value beacons/RTS/CTS carry
+    CHECK(drain_pushes(*node).total == 0);
+
+    // ---- ★★ N10: every NON-DATA frame type is telemetry only, even carrying the live flight's identity.
+    //      `frame_tag_of` masks §B186a's mobile-op high byte, so the high byte must not smuggle one through either.
+    const uint16_t non_data[] = { /*beacon*/0, /*rts*/1, /*cts*/3, /*ack*/4, /*nack*/5 };
+    for (uint16_t t : non_data) {
+        node->on_tx_complete(aired_of(t, gen));
+        CHECK(drain_pushes(*node).total == 0);
+    }
+    node->on_tx_complete(aired_of(/*mobile-op high byte + DATA*/0x0302u, gen));
+    CHECK(drain_pushes(*node).aired.size() == 1);                  // ★ the masked low byte IS data ⇒ still owned
+
+    // ---- ★ NO CORE DE-DUPLICATION, STATED AND MEASURED. Two attempts of one flight = two pushes; idempotence is
+    //      the CONSUMER's rank, which is what lets `Node` carry no bit for this at all.
+    node->on_tx_complete(aired_of(2, gen));
+    node->on_tx_complete(aired_of(2, gen));
+    CHECK(drain_pushes(*node).aired.size() == 2);
+    delete node;
+}
+
+TEST_CASE("§T3 send_aired — N14e: a FORWARDED DM airs and pushes NOTHING (we made no send to report)") {
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+    std::array<uint8_t,64> bb{};                                   // a route to dst=5 via 7, so node 1 forwards
+    const size_t bn = mk_beacon_route(/*src=*/7, /*dest=*/5, /*next=*/9, /*hops=*/1, /*score=*/14, bb);
+    RxMeta m7{12.0f,-70.0f,0,static_cast<int8_t>(7)}; node.on_recv(bb.data(), bn, m7);
+    std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
+    RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)};
+    hal._now = 1000; { const size_t rn = mk_rts(2,1,5,10,10,rb,0,/*origin=*/0,/*ctr=*/10); node.on_recv(rb.data(), rn, m2); }
+    hal._now = 1100; { const size_t dn = mk_data(1,5,10,0,"x",db); node.on_recv(db.data(), dn, m2); }
+    node.on_timer(kPostAckTimerId);                                // the ACK has aired -> the forward is issued
+    CHECK(hal.count("rts_tx") >= 1);                               // PREMISE: node 1 really took the forward on
+    std::array<uint8_t,8> cb{}; const size_t cn = mk_cts(/*rx_id=*/1, /*tx_id=*/7, /*data_sf=*/7, cb);
+    hal._now = 1200; node.on_recv(cb.data(), cn, m7);
+    node.on_timer(kCtsToDataGapTimerId);
+    const auto* d = hal.last_tx("DATA"); CHECK(d != nullptr);
+    const uint32_t gen = d ? d->seq : 0u;
+    CHECK(gen != 0u);                                              // PREMISE: a forwarded DATA really flew, WITH an identity
+    (void)drain_pushes(node);
+    // ★★ The completion is EXACT — same tag, same flight — and it must still produce nothing: `has_previous_hop`
+    //    says this carrier is somebody else's message. Drop that clause and the companion receives a completion for
+    //    a send this node never made.
+    node.on_tx_complete(aired_of(2, gen));
+    CHECK(drain_pushes(node).total == 0);
+}
+
+TEST_CASE("§T3 send_aired — N11/N12: a FAILED attempt pushes nothing; the retry that airs pushes exactly one") {
+    TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14}});
+    const CmdResult sent = send_cmd(*node, /*dst=*/5, "hi");
+    std::array<uint8_t,8> cb{}; const size_t cn = mk_cts(1, 2, 7, cb);
+    RxMeta m2{12.0f,-70.0f,0,static_cast<int8_t>(2)}; node->on_recv(cb.data(), cn, m2);
+    node->on_timer(kCtsToDataGapTimerId);
+    const auto* d = hal.last_tx("DATA"); CHECK(d != nullptr);
+    const uint32_t gen = d ? d->seq : 0u;
+    (void)drain_pushes(*node);
+    hal.events.clear();
+
+    // ---- ★★★ ATTEMPT 1 FAILS. It is REPORTED (telemetry) and it changes NOTHING the app can see. This is the
+    //      false-negative mirror of [[B164]]: the reachable sequence is "attempt 1's start_transmit fails -> the MAC
+    //      ack-timeout fires -> attempt 2 airs and the message is delivered", so a terminal panel state here would be
+    //      exactly as wrong as today's premature SENT.
+    node->on_tx_complete(TxOutcome{ TxOutcomeKind::failed, BusyReason::none, TxResult::radio_error,
+                                    /*tag=DATA*/2, gen, /*sf=*/7, 0 });
+    CHECK(hal.count("tx_failed") == 1);                            // ★ reported, not hidden
+    CHECK(drain_pushes(*node).total == 0);                         // ⛔ and NOT pushed
+    // ---- ★ N12's half that belongs here: `unknown` is the same — never a push, never `aired`.
+    node->on_tx_complete(TxOutcome{ TxOutcomeKind::unknown, BusyReason::none, TxResult::ok, 2, gen, 7, 0 });
+    CHECK(hal.count("tx_unknown") == 1);
+    CHECK(drain_pushes(*node).total == 0);
+
+    // ---- ★★★ THE RETRY AIRS. A later `aired` must never be suppressed by the earlier weaker attempts.
+    node->on_tx_complete(aired_of(2, gen));
+    PushDrain p = drain_pushes(*node);
+    CHECK(p.aired.size() == 1);
+    if (p.aired.size() == 1) { CHECK(p.aired[0].dst == 5); CHECK(p.aired[0].ctr == sent.ctr); }
     delete node;
 }
 

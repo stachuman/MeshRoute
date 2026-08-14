@@ -142,6 +142,7 @@ const char* pushkind_name(PushKind k) {
         case PushKind::join_adopted:  return "join_adopted";       // a DAD/join adopt landed (id may have changed)
         case PushKind::team_key_received: return "team_key_received";   // §team-ch-key T-K3: a teammate granted us the team CONTENT key over a sealed TYPE-19 DM (already adopted)
         case PushKind::team_channel_no_key: return "team_channel_no_key";   // §chan-crypt CL2a: a CRYPTED team channel post arrived and we cannot read it (no key, or a stale one) -> the app prompts for a grant. Rate-limited node-side.
+        case PushKind::send_aired:    return "send_aired";          // §T3: a locally-originated DM/channel post physically left the radio (TxDone). NOT an ack and NOT terminal — the send-level outcome still follows.
     }
     return "unknown";
 }
@@ -386,6 +387,16 @@ size_t write_push(char* buf, size_t cap, const Push& p, const NodeConfig* cfg) {
         j.lit(",\"id\":");    j.u32(p.dst);         // the adopted node_id
         j.lit(",\"layer\":"); j.u32(p.layer_id);    // _cfg.leaf_id (the wire leaf nibble)
         j.lit(",\"epoch\":"); j.u32(p.ctr);         // _claim_epoch
+    } else if (p.kind == PushKind::send_aired) {   // ★ §T3: the attempt-level airing fact — dst + ctr, nothing else
+        // ⛔ AN EXPLICIT BRANCH, NOT A FALLTHROUGH, AND THE DIFFERENCE IS THE WHOLE POINT. Without it `send_aired`
+        //    lands in the final `else` below and happens to emit exactly `dst` + `ctr` — the right output for the
+        //    wrong reason, pinned by no test and silently changed by any future edit to that branch. A golden JSON
+        //    case in test_console_json.cpp now pins these bytes.
+        // ⓘ `ctr` is the DM's origination counter, or — when `dst` is 0 — the channel post's FULL 16-bit local
+        //    correlation handle (`ChannelReofferPending::ctr`). It is a LOCAL handle: the wire carries only its low
+        //    byte inside the channel msg-id, so an app must never match it against a received message id.
+        j.lit(",\"dst\":"); j.u32(p.dst);
+        j.lit(",\"ctr\":"); j.u32(p.ctr);
     } else {  // send_acked / send_failed
         j.lit(",\"dst\":"); j.u32(p.dst);
         j.lit(",\"ctr\":"); j.u32(p.ctr);

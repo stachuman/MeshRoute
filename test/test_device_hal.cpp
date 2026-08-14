@@ -61,7 +61,56 @@ struct MockRadio : IRadio {
 };
 }  // namespace
 
-TEST_CASE("DeviceHal::tx — enqueues; service_tx sends + records airtime at the on-air send (not at enqueue)") {
+// ★ §T3 §2.1 — ONE DEVICE-LOOP TX PASS, IN THE SHIPPED ORDER. `service_tx()` (collect + pump in one call) is GONE:
+// `fw_main` now collects BEFORE the Node's timer drain and pumps AFTER it, because the M-clear timer deletes
+// `_pending_tx` 5 ms after the calculated airtime and the completion must be collected while that flight is alive.
+// These cases do not drive Node timers at all, so for them the two halves are simply back-to-back — the ORDERING
+// property itself is measured by the dedicated `§T3-a` case (collect-before-timers vs timers-before-collect).
+static void tx_pass(meshroute::DeviceHal& h) { h.collect_tx_completion(); h.pump_tx(); }
+
+// ★★★★ §T3 §2.1 — THE SPLIT ITSELF. `service_tx()` used to do BOTH halves in one call, and `fw_main` called it
+// AFTER the Node's timer drain. That order loses a channel post's completion outright (the M-clear timer deletes
+// `_pending_tx` 5 ms after the calculated airtime), so the halves are now two calls with one authority each and the
+// device loop puts the Node's timers BETWEEN them. These pin that they really are separable — a `collect` that also
+// pumped would re-create the single call under a new name and W22's source check would be the only thing left.
+TEST_CASE("§T3-a DeviceHal — collect and pump are SEPARABLE: neither does the other's job") {
+    FakeClock clk; MockRadio radio; DeviceHal hal(clk, radio);
+    hal.configure(/*sf=*/8, 125000, 5, 16, 14, 100);
+    const uint8_t a[16] = { 1 }, b[16] = { 2 };
+    TxParams pa; pa.sf = 8; pa.tag = 2; pa.seq = 11;
+    TxParams pb; pb.sf = 8; pb.tag = 2; pb.seq = 22;
+    CHECK(hal.tx(a, sizeof a, pa) == TxResult::ok);
+    CHECK(hal.tx(b, sizeof b, pb) == TxResult::ok);
+
+    // ---- ★ COLLECT ALONE STARTS NOTHING. With an empty radio and a full queue there is nothing to collect, and a
+    //      `collect` that also pumped would have armed frame A here.
+    hal.collect_tx_completion();
+    CHECK(radio.txs.empty());                                   // ★★ nothing was handed to the radio
+    CHECK(hal.txq_depth() == 2);
+    TxOutcome o{};
+    CHECK(hal.pop_tx_outcome(o) == false);
+
+    // ---- ★ PUMP ALONE ARMS A, and consumes no completion.
+    hal.pump_tx();
+    CHECK(radio.txs.size() == 1);
+    CHECK(hal.txq_depth() == 1);
+    CHECK(hal.pop_tx_outcome(o) == false);                      // ⛔ arming is not an outcome
+    radio.complete_tx();                                        // the DIO1 TxDone edge is now pending
+    hal.pump_tx();                                              // ⛔ ...and the PUMP must not consume it
+    CHECK(hal.pop_tx_outcome(o) == false);
+    CHECK(radio.txs.size() == 1);                               // B did not start: the radio is still "in flight"
+
+    // ---- ★★ COLLECT IS WHAT TURNS THE EDGE INTO THE OUTCOME — with A's identity, not B's.
+    hal.collect_tx_completion();
+    const bool got = hal.pop_tx_outcome(o);
+    CHECK(got == true);
+    if (got) { CHECK(o.kind == TxOutcomeKind::aired); CHECK(o.seq == 11u); CHECK(o.tag == 2); }
+    CHECK(radio.txs.size() == 1);                               // ★★ and it STILL started nothing
+    hal.pump_tx();
+    CHECK(radio.txs.size() == 2);                               // B departs on the pump, as the loop intends
+}
+
+TEST_CASE("DeviceHal::tx — enqueues; the pump sends + records airtime at the on-air send (not at enqueue)") {
     FakeClock clk; MockRadio radio; DeviceHal hal(clk, radio);
     hal.configure(/*sf=*/8, /*bw=*/125000, /*cr=*/5, /*preamble=*/16, /*power=*/14, /*hold=*/100);
     clk.now = 1000;
@@ -72,7 +121,7 @@ TEST_CASE("DeviceHal::tx — enqueues; service_tx sends + records airtime at the
     CHECK(hal.airtime_used_ms(3600000) == 0);              // ledger debited at the send, not at enqueue
     CHECK(hal.txq_depth() == 1);
 
-    hal.service_tx();                                       // radio idle -> start_transmit
+    tx_pass(hal);                                       // radio idle -> start_transmit
     CHECK(radio.txs.size() == 1);
     if (radio.txs.size() == 1) {
         CHECK(radio.txs[0].sf == 7);
@@ -91,8 +140,8 @@ TEST_CASE("§T2 DeviceHal — TxDone reports exactly one aired outcome with the 
     const uint8_t frame[3] = {1,2,3};
     TxParams p; p.sf = 7; p.tag = 0x1234; p.seq = 0x89ABCDEFu;
     CHECK(hal.tx(frame, sizeof(frame), p) == TxResult::ok);
-    hal.service_tx();
-    radio.complete_tx(); hal.service_tx();
+    tx_pass(hal);
+    radio.complete_tx(); tx_pass(hal);
     TxOutcome outcome{};
     CHECK(hal.pop_tx_outcome(outcome));
     CHECK(outcome.kind == TxOutcomeKind::aired);
@@ -112,14 +161,14 @@ TEST_CASE("DeviceHal — half-duplex: queued frames send ONE at a time, in FIFO 
     CHECK(hal.tx(b, 3, p) == TxResult::ok);                 // both queued
     CHECK(hal.txq_depth() == 2);
 
-    hal.service_tx();                                       // A starts
+    tx_pass(hal);                                       // A starts
     CHECK(radio.txs.size() == 1);
     if (radio.txs.size() == 1) CHECK(radio.txs[0].bytes[0] == 0xA);
-    hal.service_tx();                                       // B BLOCKED while A is in flight
+    tx_pass(hal);                                       // B BLOCKED while A is in flight
     CHECK(radio.txs.size() == 1);
     CHECK(radio.tx_busy());
 
-    radio.complete_tx(); hal.service_tx();                  // A done -> B starts
+    radio.complete_tx(); tx_pass(hal);                  // A done -> B starts
     CHECK(radio.txs.size() == 2);
     if (radio.txs.size() == 2) CHECK(radio.txs[1].bytes[0] == 0xB);
     CHECK(radio.done_count == 1);                           // exactly one completion drained
@@ -147,7 +196,7 @@ TEST_CASE("§T2 DeviceHal — outcome-ring overflow is counted and preserves the
         CHECK(hal.tx(frame, sizeof(frame), p) == TxResult::ok);
     }
     radio.start_result = TxResult::radio_error;
-    for (int i = 0; i < 5; ++i) hal.service_tx();
+    for (int i = 0; i < 5; ++i) tx_pass(hal);
     CHECK(hal.tx_failed_arms() == 5);
     CHECK(hal.tx_outcome_drops() == 1);
     CHECK(hal.txq_depth() == 0);
@@ -168,7 +217,7 @@ TEST_CASE("DeviceHal::tx — len > 255 rejected as too_long (SX1262 length regis
     std::vector<uint8_t> big(256, 0xEE); TxParams p;
     CHECK(hal.tx(big.data(), big.size(), p) == TxResult::too_long);
     CHECK(hal.txq_depth() == 0);
-    hal.service_tx(); CHECK(radio.txs.empty());
+    tx_pass(hal); CHECK(radio.txs.empty());
     TxOutcome outcome{};
     CHECK_FALSE(hal.pop_tx_outcome(outcome));                  // synchronous oversize rejects never double-report
 }
@@ -179,7 +228,7 @@ TEST_CASE("DeviceHal — a radio that refuses start_transmit: frame dropped, air
     radio.start_result = TxResult::radio_error;
     const uint8_t f[4] = {1,2,3,4}; TxParams p; p.sf = 7; p.tag = 0x2345; p.seq = 77;
     CHECK(hal.tx(f, 4, p) == TxResult::ok);                 // enqueue still succeeds
-    hal.service_tx();                                       // start_transmit -> radio_error
+    tx_pass(hal);                                       // start_transmit -> radio_error
     CHECK(radio.txs.empty());                               // not recorded by the mock
     CHECK(hal.airtime_used_ms(3600000) == 0);              // ledger NOT debited
     CHECK(hal.txq_depth() == 0);                            // the bad frame was popped, not stuck
@@ -204,18 +253,18 @@ TEST_CASE("DeviceHal — TX watchdog: a missed TxDone is force-recovered past th
     TxParams pb; pb.sf = 12; pb.tag = 0xB2; pb.seq = 202;
     CHECK(hal.tx(a, 20, pa) == TxResult::ok);
     CHECK(hal.tx(b, 3,  pb) == TxResult::ok);
-    hal.service_tx();                                       // A starts (in flight)
+    tx_pass(hal);                                       // A starts (in flight)
     CHECK(radio.tx_busy());
     CHECK(hal.tx_timeouts() == 0);
 
     // Simulate a LOST TxDone (never complete_tx). Before the deadline -> no recovery, B stays queued.
-    clk.now = 100; hal.service_tx();
+    clk.now = 100; tx_pass(hal);
     CHECK(radio.tx_busy());
     CHECK(hal.tx_timeouts() == 0);
     CHECK(radio.txs.size() == 1);                           // B not started while A is "in flight"
 
     // Well past 1.5x any SF12 airtime -> the watchdog recovers the radio + the queue resumes with B.
-    clk.now = 60000; hal.service_tx();
+    clk.now = 60000; tx_pass(hal);
     CHECK(hal.tx_timeouts() == 1);
     CHECK(radio.abort_count == 1);
     CHECK(radio.tx_busy());                                 // B is now the in-flight TX (radio busy again)
@@ -236,8 +285,8 @@ TEST_CASE("DeviceHal — TX watchdog does NOT fire on a timely completion") {
     hal.configure(12, 125000, 5, 16, 14, 100); clk.now = 0;
     const uint8_t f[20] = {1}; TxParams p; p.sf = 12;
     CHECK(hal.tx(f, 20, p) == TxResult::ok);
-    hal.service_tx();                                       // starts
-    clk.now = 100; radio.complete_tx(); hal.service_tx();   // completes promptly (before the deadline)
+    tx_pass(hal);                                       // starts
+    clk.now = 100; radio.complete_tx(); tx_pass(hal);   // completes promptly (before the deadline)
     CHECK(!radio.tx_busy());
     CHECK(hal.tx_timeouts() == 0);                          // no false recovery
     CHECK(radio.abort_count == 0);
@@ -253,12 +302,12 @@ TEST_CASE("§T2 DeviceHal — mixed completion order is aired, failed, aired wit
     CHECK(hal.tx(a, sizeof(a), pa) == TxResult::ok);
     CHECK(hal.tx(b, sizeof(b), pb) == TxResult::ok);
     CHECK(hal.tx(c, sizeof(c), pc) == TxResult::ok);
-    hal.service_tx();                                           // A starts
+    tx_pass(hal);                                           // A starts
     radio.complete_tx(); radio.start_result = TxResult::radio_error;
-    hal.service_tx();                                           // A airs, then B fails to arm
+    tx_pass(hal);                                           // A airs, then B fails to arm
     radio.start_result = TxResult::ok;
-    hal.service_tx();                                           // C starts
-    radio.complete_tx(); hal.service_tx();                      // C airs
+    tx_pass(hal);                                           // C starts
+    radio.complete_tx(); tx_pass(hal);                      // C airs
     TxOutcome outcome{};
     CHECK(hal.pop_tx_outcome(outcome));
     CHECK(outcome.kind == TxOutcomeKind::aired);
@@ -330,9 +379,9 @@ TEST_CASE("DeviceHal — a real Node runs over the device backend: a beacon time
             if (id < 0) break;
             node.on_timer(static_cast<uint32_t>(id));
         }
-        hal.service_tx();                              // start a queued beacon
+        tx_pass(hal);                              // start a queued beacon
         radio.complete_tx();                           // simulate its TxDone
-        hal.service_tx();                              // drain the completion (re-arm)
+        tx_pass(hal);                              // drain the completion (re-arm)
         if (!radio.txs.empty()) beaconed = true;
     }
     CHECK(beaconed);                                    // the Node emitted a frame THROUGH the device Hal

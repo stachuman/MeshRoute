@@ -1,8 +1,14 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # §B189 + §B164 — ONE authoritative HAL TX-completion path · **DESIGN ONLY** · 2026-08-13, **REVISED ROUND 2 + ROUND 3 2026-08-14**
 
-⛔⛔ **THIS IS A DESIGN. NO FIRMWARE WAS WRITTEN**, in round 1 or round 2. Nothing under `lib/`, `src/`, `test/` or
-`tools/` was modified; the only edits outside this file are the two register rows M1 obliges (B164, B189).
+⚙ **STATUS BANNER, 2026-08-14 — READ THIS BEFORE THE PROHIBITIONS BELOW. THIS DOCUMENT IS A DESIGN, BUT THE ARC IT
+DESIGNS IS BUILT: §T1 and §T2 are COMMITTED (HEAD `6878e78`) and §T3 is IMPLEMENTED and UNCOMMITTED, under a QG hold.**
+⛔ **NO QG APPROVAL IS CLAIMED** for any slice; the owner approved the T3 implementation spec, which is a different
+statement. ⇒ every *"nothing was written"* / *"must not be started"* sentence in this file is a record of the state
+**at the time it was written** and is superseded here — corrected in place, never deleted (§3 rule 3).
+⛔⛔ **[HISTORICAL, TRUE WHEN WRITTEN] THIS IS A DESIGN. NO FIRMWARE WAS WRITTEN**, in round 1 or round 2. Nothing
+under `lib/`, `src/`, `test/` or `tools/` was modified; the only edits outside this file are the two register rows M1
+obliges (B164, B189). ⚠ **That sentence is FALSE as of 2026-08-14** and is kept only as the round-1/2 record.
 ⛔ **NO OWNER OR QA APPROVAL IS CLAIMED ANYWHERE IN THIS DOCUMENT.** Every ruling referenced is in **reported form**
 and is never quoted. **The round-2 QG findings arrived relayed by the owner and are a RECOMMENDATION, not an owner
 ruling** — except the six items the owner states as decisions, which are marked **[R2.8 decision]** where they bind.
@@ -14,6 +20,17 @@ confirmed; the UI outcome semantics were wrong and are RE-DERIVED below.**
 `aired`. Corrected in §4.4.1(b), with its tests. ⛔ T3 MUST NOT BE STARTED FROM THIS SPEC YET**; T1 is mechanically
 independent, but its go-ahead belongs to the **T1 implementation brief the QA-gate writes**, which is what supersedes
 the design-only prohibition — ⛔ **not this document** (R3.3).
+⚙ **STATUS UPDATE 2026-08-14 — ALL THREE SLICES ARE IMPLEMENTED AND THE ROUND-3 PROHIBITION ABOVE IS SPENT.**
+**§T1 and §T2 are COMMITTED** (HEAD `6878e78`); **§T3 is IMPLEMENTED, UNCOMMITTED, and under a QG HOLD pending
+corrections.** T3 was started from its OWN implementation spec —
+`docs/superpowers/specs/2026-08-14-t3-app-ui-send-aired-spec.md`, owner-approved — which is precisely the supersession
+R3.3 describes; ⛔ it was **not** started from this document, and the sentence above stays visible as the withdrawal
+it now is. ⛔ **NO QG APPROVAL IS CLAIMED for any of the three.** ⓘ **One correction this design owes to itself:**
+§4.4.1(b)'s channel predicate was **incomplete as written** — the implementation had to add a third clause,
+**`pt.flood`**, because `enqueue_channel_m` (the CHANNEL_PULL responder) writes the SAME message id into
+`inner[0..3]` without setting `flood`, so an id match alone reports a pull response as the original post airing.
+See the T3 spec §2.2. ⛔ [[B193]] does not close; **Phase A is not complete**; [[B164]] stays open for its metal half
+and [[B189]] for [[B186b]].
 ⛔ Withdrawn round-1 and round-2 claims are **corrected in place and kept visible as withdrawals**, never deleted
 (§12 is the navigable index of all eleven).
 

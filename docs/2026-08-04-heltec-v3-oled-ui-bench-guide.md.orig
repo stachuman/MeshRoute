@@ -18,10 +18,8 @@ flash, **Part 21** TX-completion diagnostics, and **Part 22** the §T3 `AIRED` p
 - **Do not wait for UI-15/UI-16.** They are later product work, not prerequisites for qualifying the current UI.
 - **Do not implement B186b before this run.** Record real `txdrop`/`txfail`/`txto`/`txoutdrop`;
   recovery design needs those measurements.
-- **B193 is part of this run, not a prerequisite implementation.** Part 20 validates the real `/mrcfg` binding;
-  Part 20.5 is its destructive power-cut qualification and belongs on a spare/re-provisionable node.
-- T2/T3 diagnostic fields `txfail`, `txoutdrop`, and `txto` are not exposed over BLE/JSON, so Parts 21-22 use
-  **USB serial**. This limitation is separate from B193.
+- **B193 is not a reason to delay.** Its remaining TX diagnostic fields are absent from BLE/JSON, so Parts 21-22 use
+  **USB serial**.
 - A brief `QUEUED` can be invisible to a human. That is **not** a failure. `SENT, waiting` without an
   `AIRED` event is.
 - On Heltec ESP32 the inbox store is volatile. A reboot empties the entire inbox; it cannot prove delete durability.
@@ -75,8 +73,7 @@ status
 | stage | run now | pass point |
 |---|---|---|
 | **R1 — board/UI smoke** | H5-06; H6-00 through H6-05 | complete console lines, stable panel, navigation/blank/wake work, radio remains usable |
-| **R2a — settings** | generic script Part 20.1-20.3 | dirty/conflict markers are immediate; SAVE survives reboot; DISCARD writes nothing; unrelated fields survive |
-| **R2b — destructive storage** | Part 20.5 and Part 20.7 step 1, on a spare/re-provisionable node | power cut leaves a complete old-or-new record; stale-save conflict is visible; completes B193 metal qualification |
+| **R2 — settings** | generic script Part 20.1-20.3; Part 20.7 step 1 only on a spare node | dirty/conflict markers are immediate; SAVE survives reboot; DISCARD writes nothing; unrelated fields survive |
 | **R3 — inbox** | H7-05 plus generic script Part 19.1-19.3 | open does not delete; delete removes exactly `(kind, seq)`; paging and emergency exit work |
 | **R4 — ordinary sends / T3** | generic script Parts 21-22; H7-01, H7-03, H7-06, H7-08 | DM and channel both emit correctly correlated `AIRED`; panel earns `SENT, waiting`; terminal result still follows |
 | **R5 — emergency** | H8-01 through H8-08, especially H8-02/H8-04/H8-06/H8-10 | attempts are exactly 1→2→3, never 4; relay/reply is consumed; no unrelated outcome closes the alarm |

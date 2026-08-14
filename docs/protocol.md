@@ -204,8 +204,8 @@ On hardware, `DeviceHal::tx()` admits into an eight-entry queue; it does not mea
 sending site's opaque `TxParams::tag` and flight `seq` travel with that queue entry and the one-deep in-flight
 record. They are echoed verbatim on completion—never reconstructed from whichever flight is current later.
 
-`DeviceHal::service_tx()` reports three mutually exclusive asynchronous attempt outcomes through a bounded
-four-entry, drop-newest ring:
+`DeviceHal::collect_tx_completion()` reports three mutually exclusive asynchronous attempt outcomes through a
+bounded four-entry, drop-newest ring:
 
 - `aired`: the radio produced its TxDone edge;
 - `failed`: `start_transmit` rejected an already-admitted queue entry, carrying the exact `TxResult`;
@@ -215,11 +215,45 @@ four-entry, drop-newest ring:
 These three hardware outcomes carry `BusyReason::none`; only a synchronous/asynchronous `refused` outcome carries
 an actual busy reason.
 
-The device loop drains every pending outcome immediately after `service_tx()` into
+The device loop drains every pending outcome immediately after `collect_tx_completion()` into
 `Node::on_tx_complete()`. The core emits `tx_aired`, `tx_failed`, or `tx_unknown` with `tag`, `seq`, and
-resolved physical `sf` (`tx_failed` also carries `result`). These are telemetry-only in T2: they enqueue no
-app push, mutate no protocol state, arm no timer, and consume no retry stash. Existing MAC recovery remains
-authoritative, so an attempt failure is never presented as a terminal send failure.
+resolved physical `sf` (`tx_failed` also carries `result`). `failed` and `unknown` are telemetry-and-counters
+only: they enqueue no app push, mutate no protocol state, arm no timer, and consume no retry stash. Existing MAC
+recovery remains authoritative, so an attempt failure is never presented as a terminal send failure.
+
+**Collection runs BEFORE the node's timers, and pumping runs after (§T3, 2026-08-14).** The completion half and the
+"start the next queued frame" half are two separate calls — `collect_tx_completion()` and `pump_tx()` — with the
+Node's timer drain between them. The order is load-bearing rather than tidy: `kMBcastClearTimerId` deletes the
+in-flight channel-M flight five milliseconds after its calculated airtime, and the ownership rule below needs that
+flight alive to attribute the airing to the origination that owns it. With the collection after the timer loop, a
+loop pass delayed past both deadlines lost the channel post's completion entirely.
+
+### 2.3 `send_aired` — the one attempt outcome the app hears (§T3, 2026-08-14)
+
+`aired` is the only attempt outcome raised into the app surface, and the reason is monotonicity: it can only ever be
+an upgrade from *queued* to *sent*, and no later attempt can contradict it. `failed` and `unknown` are non-monotonic
+— a later attempt supersedes them — so presenting either as an outcome would be a false negative in exactly the shape
+the premature *sent* was a false positive.
+
+The core enqueues one `PushKind::send_aired` when **all** of the following hold: the outcome is `aired`; the frame's
+tag is `FrameTag::data`; a flight is live; the outcome's `seq` equals that flight's `flight_gen` exactly; and the
+carrier matches exactly one of two ownership rows.
+
+| carrier | predicate | push fields |
+|---|---|---|
+| ordinary local DM | `!m_broadcast && !has_previous_hop` | `dst` = the peer, `ctr` = the origination counter |
+| locally originated channel post | `m_broadcast && flood && inner_len >= 6`, plus an **active**, **non-holder** `_channel_reoffer_pending` entry whose `id` matches the decoded message id | `dst` = 0, `ctr` = that entry's full 16-bit handle |
+
+Everything else — beacons, RTS, CTS, ACK, NACK, forwarded transit, channel **pull responses** and relay/holder
+re-floods — is telemetry only. The `flood` clause is what separates the two channel cases: a pull response carries the
+**same** message id as the original post but is not a flood, so without it a pull response airing while the origin's
+re-offer slot is still active would report as the original post airing.
+
+`send_aired` is **not terminal and not an acknowledgement**. `send_acked`, `send_e2e_acked`, `send_failed`,
+`channel_sent` and the ACK timeout remain the authoritative send-level outcomes and still arrive afterwards. A
+consumer applies it under a scoped monotonic rank — `queued < aired < every terminal outcome` — so a repeat is
+idempotent and a delayed one can never overwrite a terminal state. Nothing about it is stored in `Node`: the fact is
+forwarded at the instant it is established, and the consumer's rank is what makes de-duplication state unnecessary.
 
 Outcome-ring overflow increments `tx_outcome_drops`; failed radio arms increment `tx_failed_arms`. Both are
 visible in device `status` as `txoutdrop` and `txfail`, alongside `txdrop` and `txto`. Synchronous

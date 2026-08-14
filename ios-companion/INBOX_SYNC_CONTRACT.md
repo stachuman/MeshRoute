@@ -349,6 +349,47 @@ So the sync layer:
 Implemented + tested app-side: `InboxSyncState.beginSync(nodeEpoch:)`, `MessageIdentity`,
 `ConversationStore.ingestInbox`, and `NodeProfileEntity.syncState` (see `AppModel.startInboxSync`).
 
+## `send_aired` — the ATTEMPT-LEVEL airing fact (§T3, 2026-08-14) · ★ PURELY ADDITIVE
+
+A new push kind. ⛔ **No existing event changes**, and `PushKind` was **APPENDED** to, never renumbered — the numeric
+values every earlier event carries are unmoved.
+
+```json
+{"ev":"send_aired","dst":5,"ctr":7}      // a DM:      dst = the peer, ctr = the origination counter
+{"ev":"send_aired","dst":0,"ctr":300}    // a CHANNEL post: dst = 0, ctr = the 16-bit local correlation handle
+```
+
+**What it means, exactly:** the frame carrying a **locally originated** DM or channel post **physically left this
+node's radio** — the SX1262 TxDone edge for that specific flight. Nothing more.
+
+⛔ **IT IS NOT AN ACK AND IT IS NOT TERMINAL.** It says the frame was transmitted; it says nothing about anyone
+receiving it. The authoritative send-level outcomes are unchanged and **still arrive afterwards**: `send_acked`,
+`e2e_acked`, `send_failed`, `channel_sent` (and the ACK timeout). ⇒ **treat it as an UPGRADE of a queued state only:**
+
+> `queued  <  send_aired  <  every terminal outcome`
+
+⛔ **Never let a `send_aired` overwrite a terminal state that already arrived** — a delayed one can arrive after
+`e2e_acked` or `send_failed`, and applying it there would downgrade a stronger fact to a weaker one.
+ⓘ **It may repeat.** The MAC may transmit the same flight more than once; the firmware does not de-duplicate, so an
+app must treat it as **idempotent**.
+
+**Correlation, per plane — they do NOT share one key:**
+
+| shape | correlate on | note |
+|---|---|---|
+| `dst != 0` (DM) | **`(dst, ctr)`** | the DM's own origination handle, as `send_acked` / `e2e_acked` already use |
+| `dst == 0` (channel post) | ★ **`ctr` alone** | the SAME 16-bit handle `channel_sent` carries (§b40) |
+
+⚠ **The channel `ctr` is a LOCAL handle and is 16-bit.** The wire carries only its low byte inside the channel
+message id, so ⛔ never match it against a received `channel_msg_id`, and ⛔ never truncate it to 8 bits.
+
+⛔ **Attempt FAILURES are deliberately not reported here.** A failed or unobserved transmit attempt is routinely
+followed by a successful MAC retry, so surfacing one as an outcome would be a false negative. Only a positively
+observed airing is pushed; failures reach the device's counters and telemetry only.
+
+ⓘ **A companion that ignores this event entirely remains correct** — it is additive, and every existing outcome it
+already handles still arrives.
+
 ## Firmware asks (small — so live pushes share the pulled inbox's identity keys + a live cursor)
 
 So a message seen **live** and later **pulled** dedups on the same key **and** the client can detect a

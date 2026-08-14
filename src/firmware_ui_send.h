@@ -155,6 +155,25 @@ public:
         return true;
     }
 
+    // ★★★ §T3 — `send_aired`, THE ONE NON-TERMINAL CORRELATION IN THIS CLASS, AND IT IS `const` FOR THAT REASON.
+    // Every matcher above ENDS a transaction (`_state = State::idle`). This one must not: `send_aired` says the
+    // frame physically left the radio, and the terminal outcome — `channel_sent`, `send_failed`, the E2E ack, the
+    // ack timeout — still has to arrive and still has to be able to correlate. Consuming the slot here would
+    // silently disarm the very outcome the panel (and, on the emergency slot, the ALARM) is waiting for.
+    // ★ It is otherwise as strict as its terminal siblings, and the two planes are structurally DISJOINT:
+    //     DM      -> `_k == dm`,  exact `ctr` AND `dst == _peer` (the DM's own origination handle);
+    //     CHANNEL -> `_k != dm`,  exact `ctr` AND `dst == 0`.
+    //   ⚠ `dst == 0` is used here as a CONFIRMATION of the channel form, never as a discriminator on its own —
+    //     §B84's converse error. The core emits `dst = 0` for exactly the channel row, and requiring it is what
+    //     stops a DM push whose ctr happens to equal a live channel handle from claiming the channel slot.
+    //   ⚠ `_ctr` is the FULL 16-bit handle and is compared whole: truncating anywhere on this path re-creates §b40.
+    //   ⓘ `accepted` only. `awaiting` holds no handle (ctr == 0) and `late_ack` is already terminal on the panel.
+    bool match_aired(uint8_t dst, uint16_t ctr) const {
+        if (_state != State::accepted) return false;
+        if (ctr == 0 || ctr != _ctr) return false;     // `next_ctr` never yields 0, so 0 is an unambiguous non-handle
+        return (_k == SendKind::dm) ? (dst == _peer) : (dst == 0);
+    }
+
     // ★★ THE WINDOW'S EXPIRY, and the ONLY producer of `channel_remote_mint` anywhere in the tree.
     // B39's producer (3) — a registered mobile's plain/`-g` GLOBAL post — "emits no CHANNEL-level push at all, only
     // the wrapper DM's own send_acked/send_failed, under a ctr this caller never saw" (node.cpp:1631-1634, MEASURED).
@@ -309,8 +328,22 @@ inline bool ui_route_send_push(SendTracker& emg, SendTracker& normal, UiModel& m
             if (emg.match_dm(pu.ctr, pu.dst, /*acked=*/false, pu.reason, o)) { m.on_outcome(o, now_ms); return true; }
             if (normal.match_dm(pu.ctr, pu.dst, /*acked=*/false, pu.reason, o)) { m.on_outcome(o, now_ms); return true; }
             return false;
-        // ⓘ `default:` is correct here and is NOT §B72's -Wswitch hole: `PushKind` has 15 members on core's schedule
-        //    and this unit is interested in exactly four. The kinds the UI renders rather than correlates
+        // ★★★ §T3 — THE EXPLICIT `send_aired` ARM. ⛔ It MUST be spelled out here and must never be left to the
+        //     `default:` below (or to `firmware_ui.cpp:mr_ui_on_push`'s own `default:`): both would silently ignore
+        //     the new kind and the whole app half of [[B164]] would compile and pass while doing nothing.
+        // ★ THE EMERGENCY SLOT IS OFFERED FIRST, exactly as it is for every other kind — and when it claims the
+        //   push the model is NOT touched at all. That is the point, not an omission: an attempt-level fact must
+        //   leave `Emergency`, `ChanState` and `EmgEvidence` UNCHANGED (an alarm's evidence is about what was
+        //   HEARD), and the slot is RETAINED so the alarm's own `channel_sent` still reaches `on_outcome`.
+        // ★ The normal slot promotes through `on_send_aired`, which applies the SCOPED rank in `UiModel`:
+        //   queued -> aired, aired idempotent, every terminal state refuses.
+        // ⛔ Neither arm closes its tracker — see `match_aired`, which is `const` for exactly this reason.
+        case PK::send_aired:
+            if (emg.match_aired(pu.dst, pu.ctr))    return true;   // correlated, and DELIBERATELY inert on the model
+            if (normal.match_aired(pu.dst, pu.ctr)) { m.on_send_aired(normal.kind(), now_ms); return true; }
+            return false;
+        // ⓘ `default:` is correct here and is NOT §B72's -Wswitch hole: `PushKind` has 17 members on core's schedule
+        //    and this unit is interested in exactly five. The kinds the UI renders rather than correlates
         //    (`msg_recv` / `channel_recv`) are handled by firmware_ui.cpp, which owns the counters they feed.
         default: return false;
     }

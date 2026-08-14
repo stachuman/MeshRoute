@@ -1771,7 +1771,7 @@ ExecResult exec_command(const char* line, size_t len) {
 
 Keep the mapping a small `switch` in `firmware_ui.cpp` so `-Wswitch` covers new `CmdCode` values.
 
-- [ ] **Step 2: Implement the compose sub-view render** — header line (`to: <label>` / `to: team`), then the item list with a `>` marker on `cursor`, `back, don't send` last. Outcome states replace the list: `SENDING...`, `SENT, waiting`, `DELIVERED to <label>`, `NO KEY`, `NO CONFIRM`, or the refusal reason.
+- [ ] **Step 2: Implement the compose sub-view render** — header line (`to: <label>` / `to: team`), then the item list with a `>` marker on `cursor`, `back, don't send` last. Outcome states replace the list: `SENDING...`, `SENT, waiting`, `DELIVERED to <label>`, `NO KEY`, `NO CONFIRM`, or the refusal reason. ⓘ **UPDATED §T3 2026-08-14:** the acceptance state now renders **`QUEUED`** and `SENT, waiting` moved to the new `aired` states, reached only by a correlated `send_aired` (the radio's TxDone edge); the channel no-relay reading is now **`NO RELAY HEARD`**.
 
 - [ ] **Step 3: Implement the inbox adapter over `Inbox::pull()`**
 

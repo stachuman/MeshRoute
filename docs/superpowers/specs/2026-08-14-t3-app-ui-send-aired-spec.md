@@ -1,7 +1,8 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # §T3 — `send_aired`: the app/UI half of the TX-completion arc · IMPLEMENTATION SPEC · 2026-08-14
 
-**Status: SPEC — REVISED after a QG HOLD (round 2, 2026-08-14). ⛔ NO FIRMWARE UNTIL QG CLEARS THIS DOCUMENT.**
+**Status: ⚙ IMPLEMENTED, UNCOMMITTED, QG HOLD PENDING CORRECTIONS (2026-08-14).** The firmware described below exists in the working tree and is gated (native, `s18` exact, 36/36 corpus, six board envs, both probes, the warning census). ⛔ **NOT COMMITTED (D4)** and ⛔ **NO QG APPROVAL IS CLAIMED — QG has not given one.** The OWNER approved this SPEC; that is a different statement from QG clearing the implementation, and the two must not be conflated.
+⛔⛔ **WITHDRAWN IN PLACE, KEPT VISIBLE (§3 rule 3): this line previously read *"Status: SPEC — REVISED after a QG HOLD (round 2, 2026-08-14). ⛔ NO FIRMWARE UNTIL QG CLEARS THIS DOCUMENT."* That sentence was written by the QA-gate and is now FALSE — the firmware was subsequently written under an owner-approved spec.** ⚠ It is corrected here rather than deleted because it is exactly the class of stale line a reader ACTS on: for five consecutive rounds a status correction has reached this arc's prose and missed the instruction a reader follows.
 ★ Role split: the QA-gate wrote this spec; **QG is run by an external agent**; the **OWNER rules and commits**.
 ⚠ QG's findings are a recommendation relayed by the owner, not an owner ruling (ledger §3 rule 5). **All five
 round-1 blockers were re-verified at the code before being accepted here**; withdrawn wording is kept visible

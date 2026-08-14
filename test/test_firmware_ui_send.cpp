@@ -1400,7 +1400,10 @@ TEST_CASE("ui7-send: a DM goes to the NORMAL slot and reaches waiting_ack; the a
 //     arms for `emergency` and `dm` only, so an ACCEPTED canned post stayed on `submitting` and the panel read
 //     `SENDING...` until either the ~36 s `channel_sent` verdict or the sub-view's own 15 s auto-exit — which on the
 //     common path arrives FIRST. ⇒ a successful send whose only feedback was a spinner that never resolved. The bench
-//     guide (H7-01, :502) states the required behaviour verbatim: `SENDING...` -> `SENT, waiting`.
+//     guide (H7-01) states the required behaviour verbatim.
+// ⓘ **§T3 2026-08-14:** that sequence is now `SENDING...` -> `QUEUED` -> `SENT, waiting`, and this case's subject —
+//     the ACCEPTANCE arm — is the `QUEUED` step. `SENT, waiting` belongs to `ChanState::aired` and is reached only by
+//     a correlated `send_aired`; the ui-T3 cases at the bottom of this file own that half.
 // ★ THREE THINGS ARE ASSERTED, and ② and ③ are what stop the one-line fix from breaking what already worked:
 //     ① the state MOVES on acceptance;
 //     ② the normal tracker STILL HOLDS ITS HANDLE — UI-4's slot discipline: the acceptance must not disturb the
@@ -1793,4 +1796,226 @@ TEST_CASE("ui7-b115: re-firing a sticky NOT HEARD opens at `1 of 3` again") {
     CHECK(m.attempts() == 0);
     emg_line_now(m, l, sizeof l);
     CHECK(std::strcmp(l, "attempt 1 of 3") == 0);
+}
+
+// ==================================================================================================================
+// §T3 — the UI half of `send_aired`: one explicit arm, a NON-CONSUMING correlation, and a SCOPED monotonic rank.
+// ==================================================================================================================
+// ★★★ THREE PROPERTIES, AND EACH ONE IS A DIFFERENT WAY THIS COULD GO WRONG:
+//   (1) it must be CORRELATED — an uncorrelated attempt fact moving the panel is §2.1's false confirmation;
+//   (2) it must NOT CONSUME the slot — it is not terminal, and the terminal outcome still has to arrive;
+//   (3) it must be RANKED — a delayed `send_aired` must never overwrite a terminal state that already landed.
+// ⓘ Helper: `aired_push(dst, ctr)` builds exactly what `Node::push_send_aired_if_owned` enqueues.
+static MESHROUTE_NS::Push aired_push(uint8_t dst, uint16_t ctr) {
+    MESHROUTE_NS::Push pu = push_of(MESHROUTE_NS::PushKind::send_aired);
+    pu.dst = dst; pu.ctr = ctr; return pu;
+}
+
+TEST_CASE("ui-T3: a correlated DM send_aired upgrades QUEUED -> SENT and does NOT close the slot") {
+    UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(42);
+    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, /*peer=*/11, 0}, 0, false, fake_exec, &f, 6000);
+    CHECK(m.dm_state() == DmState::waiting_ack);                       // PREMISE: core ACCEPTANCE only — renders `QUEUED`
+    // ---- ① CORRELATED ⇒ the upgrade happens, through the ONE explicit arm.
+    CHECK(ui_route_send_push(emg, normal, m, aired_push(/*dst=*/11, /*ctr=*/42), 6100) == true);
+    CHECK(m.dm_state() == DmState::aired_waiting);                     // ★ the only DM state that may say `SENT, waiting`
+    // ---- ② IDEMPOTENT. The core does not de-duplicate, so a second attempt of the same flight arrives here.
+    CHECK(ui_route_send_push(emg, normal, m, aired_push(11, 42), 6200) == true);
+    CHECK(m.dm_state() == DmState::aired_waiting);
+    // ---- ③ ★★★ THE SLOT IS NOT CONSUMED — the terminal outcome still correlates and still lands.
+    //      ⚠ `match_dm` CONSUMES (§B70), so this is the ONE call that proves it: had `send_aired` closed the slot,
+    //      the ack below would be ignored and the panel would sit on `SENT, waiting` for ever.
+    MESHROUTE_NS::Push ack = push_of(MESHROUTE_NS::PushKind::send_e2e_acked); ack.dst = 11; ack.ctr = 42;
+    CHECK(ui_route_send_push(emg, normal, m, ack, 6300) == true);
+    CHECK(m.dm_state() == DmState::delivered);
+    CHECK(m.emergency() == Emergency::idle);                           // ⛔ and it never touched the alarm
+}
+
+TEST_CASE("ui-T3: an UNCORRELATED send_aired moves nothing (neither handle nor peer may be approximated)") {
+    UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(42);
+    ui_perform_send(emg, normal, m, SendReq{SendKind::dm, /*peer=*/11, 0}, 0, false, fake_exec, &f, 6000);
+    CHECK(ui_route_send_push(emg, normal, m, aired_push(/*dst=*/11, /*ctr=*/43), 6100) == false);  // wrong handle
+    CHECK(m.dm_state() == DmState::waiting_ack);
+    CHECK(ui_route_send_push(emg, normal, m, aired_push(/*dst=*/12, /*ctr=*/42), 6100) == false);  // wrong peer
+    CHECK(m.dm_state() == DmState::waiting_ack);
+    CHECK(ui_route_send_push(emg, normal, m, aired_push(/*dst=*/0,  /*ctr=*/42), 6100) == false);  // the CHANNEL form
+    CHECK(m.dm_state() == DmState::waiting_ack);                       // ★ a DM slot never answers a channel push
+    // ...and the correct one still works, so the three refusals above are the guard and not an inert consumer.
+    CHECK(ui_route_send_push(emg, normal, m, aired_push(11, 42), 6100) == true);
+    CHECK(m.dm_state() == DmState::aired_waiting);
+}
+
+TEST_CASE("ui-T3: a canned CHANNEL post correlates on the 16-bit handle ALONE, above 255 (§b40)") {
+    UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(300);
+    ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, /*text=*/0}, /*ch=*/0, false, fake_exec, &f, 6000);
+    CHECK(m.chan_state() == ChanState::waiting);                       // PREMISE: acceptance -> `QUEUED`
+    // ⛔ TRUNCATION IS THE DEFECT THIS PINS: 300 & 0xff == 44, and the low byte must NOT match.
+    CHECK(ui_route_send_push(emg, normal, m, aired_push(/*dst=*/0, /*ctr=*/44), 6100) == false);
+    CHECK(m.chan_state() == ChanState::waiting);
+    CHECK(ui_route_send_push(emg, normal, m, aired_push(/*dst=*/0, /*ctr=*/300), 6100) == true);
+    CHECK(m.chan_state() == ChanState::aired);                         // ★ the channel twin of `aired_waiting`
+    CHECK(m.dm_state() == DmState::idle);                              // ⛔ the DM machine did not move
+    CHECK(m.emergency() == Emergency::idle);
+    // ...and the terminal verdict still arrives, because the slot was not consumed.
+    MESHROUTE_NS::Push sent = push_of(MESHROUTE_NS::PushKind::channel_sent); sent.ctr = 300; sent.relayed = true;
+    CHECK(ui_route_send_push(emg, normal, m, sent, 6200) == true);
+    CHECK(m.chan_state() == ChanState::relayed);
+}
+
+// ★★★★ §T3-c — THE EMERGENCY PATH. An attempt-level fact must not move a live alarm, AND must not disarm the alarm's
+// own reporting. Both halves are asserted, because either one alone would pass a broken implementation:
+//   · consume the emergency slot and the following `channel_sent` is ignored ⇒ the alarm never reports;
+//   · write the model from the emergency arm and `ChanState`/`EmgEvidence` move for a frame nobody has heard.
+TEST_CASE("ui-T3-c: an EMERGENCY send_aired changes NOTHING and RETAINS the slot; its channel_sent still lands") {
+    UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(77);
+    const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
+    ui_perform_send(emg, normal, m, req, /*ch=*/0, /*have_fix=*/true, fake_exec, &f, 6000);
+    CHECK(m.emergency() == Emergency::firing);
+    CHECK(m.attempts() == 1);
+    const Emergency   emg_before  = m.emergency();
+    const ChanState   chan_before = m.chan_state();
+    const EmgEvidence ev_before   = m.emg_evidence();
+
+    // ---- ① the push IS correlated (it returns true), so this is not a silent miss...
+    CHECK(ui_route_send_push(emg, normal, m, aired_push(/*dst=*/0, /*ctr=*/77), 6100) == true);
+    // ---- ② ...and NOTHING moved.
+    CHECK(m.emergency()    == emg_before);
+    CHECK(m.chan_state()   == chan_before);
+    CHECK(m.emg_evidence() == ev_before);
+    CHECK(m.attempts()     == 1);                                      // ⛔ no bounded attempt was spent
+    CHECK(emg.idle()       == false);                                  // ★★★ the slot is RETAINED
+    // ---- ③ the alarm's own terminal outcome still reaches the emergency path.
+    MESHROUTE_NS::Push sent = push_of(MESHROUTE_NS::PushKind::channel_sent); sent.ctr = 77; sent.relayed = true;
+    CHECK(ui_route_send_push(emg, normal, m, sent, 6200) == true);
+    CHECK(m.emergency()    == Emergency::picked_up);                   // ★★★★ the alarm reported, as it must
+    CHECK(m.emg_evidence() == EmgEvidence::local_tx);
+}
+
+// ★★★★ §T3-c, SECOND HALF — AND IT EXISTS BECAUSE THE FIRST HALF COULD NOT FAIL FOR TWO OF ITS OWN MUTATIONS.
+// Measured, not foreseen: with `_chan` on `idle` (an alarm never sets it), BOTH "the emergency arm writes the model"
+// and "the model's own `SendKind::emergency` refusal is dropped" leave every assertion above green — the promotion
+// is absorbed by the rank's idle-refusal, one layer further in. ⇒ the state this needs is a canned post SITTING IN
+// `waiting` while the alarm airs, which is also the real §2.1 crossover: an ALARM's airing must never relabel a
+// coincident canned post as `SENT, waiting`.
+TEST_CASE("ui-T3-c: an EMERGENCY airing must not relabel a coincident canned post") {
+    UiModel m = armed_and_fired(); SendReq req{}; SendTracker emg, normal;
+    // A canned post is accepted on the NORMAL slot first, and is left QUEUED.
+    { FakeExec fc; fc.reply = ok_ctr(300);
+      ui_perform_send(emg, normal, m, SendReq{SendKind::channel_canned, 0, 0}, /*ch=*/0, false, fake_exec, &fc, 5900); }
+    CHECK(m.chan_state() == ChanState::waiting);                       // PREMISE: a live canned transaction stands
+    // ...and the alarm is accepted on the EMERGENCY slot, with a DIFFERENT handle.
+    { const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
+      FakeExec fe; fe.reply = ok_ctr(77);
+      ui_perform_send(emg, normal, m, req, /*ch=*/0, /*have_fix=*/true, fake_exec, &fe, 6000); }
+    CHECK(m.attempts() == 1);
+    const Emergency emg_before = m.emergency();
+    // ★★★★ THE ALARM'S OWN airing. It correlates (the emergency slot claims it) and it must move NOTHING —
+    //      neither the alarm nor the canned post standing beside it.
+    CHECK(ui_route_send_push(emg, normal, m, aired_push(/*dst=*/0, /*ctr=*/77), 6100) == true);
+    CHECK(m.chan_state() == ChanState::waiting);                       // ★★★★ the canned post was NOT relabelled
+    CHECK(m.emergency()  == emg_before);
+    CHECK(m.attempts()   == 1);
+    // ⚠ THE CONTROL: the CANNED post's own airing, on ITS handle, DOES promote — so the refusal above is the
+    //   emergency scoping, not an inert panel.
+    CHECK(ui_route_send_push(emg, normal, m, aired_push(/*dst=*/0, /*ctr=*/300), 6200) == true);
+    CHECK(m.chan_state() == ChanState::aired);
+    CHECK(m.emergency()  == emg_before);                               // ...and it still did not touch the alarm
+}
+
+// ★★ The MODEL-level twin of the case above: the same crossover, one layer in, so the `SendKind::emergency` refusal
+// inside `on_send_aired` has a witness of its own rather than resting on the caller never calling it.
+TEST_CASE("ui-T3: on_send_aired(emergency) never promotes a canned post standing in QUEUED") {
+    UiModel m = armed_and_fired();
+    m.on_send_accepted(SendKind::channel_canned, 5900);
+    CHECK(m.chan_state() == ChanState::waiting);
+    m.on_send_aired(SendKind::emergency, 6000);
+    CHECK(m.chan_state() == ChanState::waiting);                       // ★★★ the alarm's kind may not move the post
+    m.on_send_aired(SendKind::channel_canned, 6100);
+    CHECK(m.chan_state() == ChanState::aired);                         // ...and the post's own kind still does
+}
+
+// ★★★★ §T3-d (design N16) — THE RANK, DRIVEN AT THE MODEL DIRECTLY, AND THAT IS THE WHOLE POINT.
+// ⛔ Through `ui_route_send_push` every terminal outcome has ALREADY CLOSED the tracker, so the correlation fails
+//    first and the rank mutation is NEVER REACHED — the test would pass without measuring the thing it names, i.e.
+//    an instrument that cannot fail, on the very test written to prevent one. These call `on_send_aired` directly.
+// ★ FIVE ARMS, not one: an enumerated-subset rank (`DELIVERED`/`relayed` only, the first draft) passes two of them
+//   and fails the other three.
+TEST_CASE("ui-T3-d: a LATE send_aired never overwrites a terminal state — all five, plus the queued controls") {
+    // ---- the DM terminals.
+    { UiModel m; m.on_send_accepted(SendKind::dm, 1000); m.on_outcome(SendOutcome::dm_acked(), 1100);
+      CHECK(m.dm_state() == DmState::delivered);
+      m.on_send_aired(SendKind::dm, 1200);
+      CHECK(m.dm_state() == DmState::delivered); }                     // ★ DELIVERED
+    { UiModel m; m.on_send_accepted(SendKind::dm, 1000); m.on_outcome(SendOutcome::dm_timeout(), 1100);
+      CHECK(m.dm_state() == DmState::not_confirmed);
+      m.on_send_aired(SendKind::dm, 1200);
+      CHECK(m.dm_state() == DmState::not_confirmed); }                 // ★ NO CONFIRM — the arm a two-state rank misses
+    { UiModel m; m.on_send_accepted(SendKind::dm, 1000); m.on_outcome(SendOutcome::dm_no_key(), 1100);
+      CHECK(m.dm_state() == DmState::no_key);
+      m.on_send_aired(SendKind::dm, 1200);
+      CHECK(m.dm_state() == DmState::no_key); }
+    { UiModel m; m.on_send_accepted(SendKind::dm, 1000);
+      m.on_outcome(SendOutcome::dm_failed(FailReason::no_route), 1100);
+      CHECK(m.dm_state() == DmState::failed);
+      m.on_send_aired(SendKind::dm, 1200);
+      CHECK(m.dm_state() == DmState::failed); }                        // ★ FAILED
+    // ---- the CHANNEL terminals.
+    { UiModel m; m.on_send_accepted(SendKind::channel_canned, 1000);
+      m.on_channel_outcome(SendOutcome::channel_no_relay(), 1100);
+      CHECK(m.chan_state() == ChanState::no_relay);
+      m.on_send_aired(SendKind::channel_canned, 1200);
+      CHECK(m.chan_state() == ChanState::no_relay); }                  // ★ NO RELAY HEARD
+    { UiModel m; m.on_send_accepted(SendKind::channel_canned, 1000);
+      m.on_channel_outcome(SendOutcome::blocked(500), 1100);
+      CHECK(m.chan_state() == ChanState::blocked);
+      m.on_send_aired(SendKind::channel_canned, 1200);
+      CHECK(m.chan_state() == ChanState::blocked); }                   // ★ BLOCKED
+    { UiModel m; m.on_send_accepted(SendKind::channel_canned, 1000);
+      m.on_channel_outcome(SendOutcome::channel_relayed(), 1100);
+      CHECK(m.chan_state() == ChanState::relayed);
+      m.on_send_aired(SendKind::channel_canned, 1200);
+      CHECK(m.chan_state() == ChanState::relayed); }
+    { UiModel m; m.on_send_accepted(SendKind::channel_canned, 1000);
+      m.on_channel_outcome(SendOutcome::channel_remote_mint(), 1100);
+      CHECK(m.chan_state() == ChanState::unconfirmed);
+      m.on_send_aired(SendKind::channel_canned, 1200);
+      CHECK(m.chan_state() == ChanState::unconfirmed); }
+    // ---- ★★ THE CONTROLS THAT MAKE THE EIGHT REFUSALS MEAN SOMETHING: from the QUEUED state the SAME call DOES
+    //      promote, and the promotion is idempotent. Without these, an `on_send_aired` that did nothing at all would
+    //      pass every arm above.
+    { UiModel m; m.on_send_accepted(SendKind::dm, 1000);
+      CHECK(m.dm_state() == DmState::waiting_ack);
+      m.on_send_aired(SendKind::dm, 1100);
+      CHECK(m.dm_state() == DmState::aired_waiting);
+      m.on_send_aired(SendKind::dm, 1200);
+      CHECK(m.dm_state() == DmState::aired_waiting); }
+    { UiModel m; m.on_send_accepted(SendKind::channel_canned, 1000);
+      CHECK(m.chan_state() == ChanState::waiting);
+      m.on_send_aired(SendKind::channel_canned, 1100);
+      CHECK(m.chan_state() == ChanState::aired);
+      m.on_send_aired(SendKind::channel_canned, 1200);
+      CHECK(m.chan_state() == ChanState::aired); }
+    // ---- ⛔ AND A NEW TRANSACTION'S RESET STAYS AUTHORITATIVE: an `idle`/`submitting` model refuses the promotion
+    //      rather than resurrecting the previous send's panel.
+    { UiModel m;
+      m.on_send_aired(SendKind::dm, 1000);            CHECK(m.dm_state()   == DmState::idle);
+      m.on_send_aired(SendKind::channel_canned, 1000); CHECK(m.chan_state() == ChanState::idle); }
+    // ---- ⛔ THE EMERGENCY KIND IS REFUSED AT THE MODEL TOO, so a second caller cannot re-open §T3-c's hole.
+    { UiModel m = armed_and_fired();
+      const Emergency before = m.emergency();
+      m.on_send_aired(SendKind::emergency, 1000);
+      CHECK(m.emergency() == before);
+      CHECK(m.chan_state() == ChanState::idle); }
+}
+
+// ★★ §T3 (design N13, the UI half): `aired` is an UPGRADE and never a BARRIER. A terminal outcome arriving after it
+// must still be applied — the failure this pins is a rank that treats `aired` as terminal-ish and swallows the ack.
+TEST_CASE("ui-T3: after SENT the terminal verdict still applies, in every direction") {
+    { UiModel m; m.on_send_accepted(SendKind::dm, 1000); m.on_send_aired(SendKind::dm, 1100);
+      CHECK(m.dm_state() == DmState::aired_waiting);
+      m.on_outcome(SendOutcome::dm_timeout(), 1200);
+      CHECK(m.dm_state() == DmState::not_confirmed); }
+    { UiModel m; m.on_send_accepted(SendKind::channel_canned, 1000); m.on_send_aired(SendKind::channel_canned, 1100);
+      CHECK(m.chan_state() == ChanState::aired);
+      m.on_channel_outcome(SendOutcome::channel_no_relay(), 1200);
+      CHECK(m.chan_state() == ChanState::no_relay); }
 }

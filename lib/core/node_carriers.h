@@ -527,6 +527,14 @@ static inline TxItem txitem_from_pending(const PendingTx& pt) {
 //                never made — which can only collide with a real local (dst, ctr).
 // Everything else staged or in flight IS an origination this node made on its own ctr — including a home
 // re-originating for its hosted mobile, which is exactly how the existing giveup_flight path already treats it.
+// ⛔⛔ THE QUESTION THIS ANSWERS IS NARROW, AND IT HAS ALREADY BEEN MISREAD ONCE. It answers *"does dropping this
+//    carrier owe a `send_failed` push?"* — ⛔ NOT *"does this carrier own an app future?"*. The `channel_m` exclusion
+//    exists because a channel post's future is a DIFFERENT one (`channel_sent`, owned by the re-offer slot), not
+//    because there is none. §T3's `send_aired` design adopted this predicate for its ownership test on that
+//    misreading; the result made `ChanState::aired` UNREACHABLE, because a canned post and an emergency both
+//    transmit as channel-M. ⇒ §T3 uses TWO distinct ownership paths of its own (`Node::push_send_aired_if_owned`)
+//    and ⛔ deliberately does NOT call this. Nothing here changes; this note exists so the next reader does not
+//    repeat the reuse.
 static inline bool carrier_owes_send_failed(bool channel_m, bool forwarded) { return !channel_m && !forwarded; }
 
 struct DeferredSend {                // a send with no route yet — held until one appears (or TTL)

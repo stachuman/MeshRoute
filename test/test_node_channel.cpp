@@ -46,9 +46,13 @@ public:
     TxResult _tx_reject_with  = TxResult::busy;
     int      _tx_reject_after = -1;                       // <0 = never reject; else reject from the Nth tx() onward
     int      tx_calls = 0;
-    TxResult tx(const uint8_t* b, size_t n, const TxParams&) override {
+    // §T3: the flight identity the SENDING SITE stamped, captured at the hand-off. `last_data_seq` is what a
+    // `TxOutcome` for this frame would carry, so a case can feed the real completion instead of guessing a number.
+    uint32_t last_data_seq = 0;
+    TxResult tx(const uint8_t* b, size_t n, const TxParams& p) override {
         const int call = tx_calls++;
         if (_tx_reject_after >= 0 && call >= _tx_reject_after) return _tx_reject_with;
+        if (p.label && std::strcmp(p.label, "DATA") == 0) last_data_seq = p.seq;
         tx_frames.emplace_back(b, b + n); return TxResult::ok;
     }
     void     set_rx_sf(int sf) override { last_rx_sf = sf; }
@@ -3590,4 +3594,140 @@ TEST_CASE("★★ §chan-crypt CL2b — a MALFORMED inner is a CONTENT drop, NOT
       Push pu{}; CHECK(find_push(drain_all(R), PushKind::channel_recv, pu));
       CHECK(pu.body_len == 1); CHECK(pu.body[0] == 'x');
       CHECK(hr.count("channel_inner_malformed") == 0); }
+}
+
+// ==================================================================================================================
+// §T3 — `PushKind::send_aired`, the CHANNEL plane (design §7.2 N14a/N14b/N14c/N14d) + §T3-a, the LOOP ORDER.
+// ==================================================================================================================
+// ★★★ THE CLAUSE THAT CARRIES THIS WHOLE SECTION IS `pt.flood`. A channel post and a CHANNEL_PULL RESPONSE are BOTH
+// `m_broadcast` M frames and both write the SAME 4-byte BE message id into `inner[0..3]`; only the flood path sets
+// `flood`. Without that clause a pull response airing while the origin's own re-offer slot is still active reports
+// as THE ORIGINAL POST AIRING — a false confirmation on exactly the surface this arc exists to fix. N14d below is
+// built so it can actually catch that: its pull response's id DELIBERATELY MATCHES the live origin entry, because a
+// non-matching id would pass vacuously against any implementation.
+namespace {
+struct ChanPushDrain { int total = 0; std::vector<Push> aired; };
+static ChanPushDrain drain_ch_pushes(Node& n) {
+    ChanPushDrain d; Push pu{};
+    while (n.next_push(pu)) { ++d.total; if (pu.kind == PushKind::send_aired) d.aired.push_back(pu); }
+    return d;
+}
+static TxOutcome ch_aired(uint32_t seq) {
+    return TxOutcome{ TxOutcomeKind::aired, BusyReason::none, TxResult::ok, /*tag=DATA*/2, seq, /*sf=*/9, 0 };
+}
+}  // namespace
+
+TEST_CASE("§T3 send_aired (channel) — N14a/N14b: a LOCAL post's M-frame airs once, carrying the FULL 16-bit handle") {
+    TestHal hal; Node node(hal, 3, 0x1234ABCDu);
+    NodeConfig cfg = basic_cfg(); cfg.allowed_sf_bitmap = (1u << 9); node.on_init(cfg);
+    // ★★ N14b's whole point: drive the origination handle ABOVE 255. `ChannelReofferPending::ctr` is 16-bit
+    //    precisely so `channel_sent` can correlate past 255 posts, and `PendingTx::ctr` for an M frame holds only
+    //    the msg-id's LOW BYTE — pushing that instead would answer 44 for a post the caller knows as 300.
+    node.restore_peer_ctr_floor(299);
+    const CmdResult r = send_channel(node, /*ch=*/7, "hello");
+    CHECK(r.code == CmdCode::queued);
+    CHECK(r.ctr == 300);                                          // PREMISE: the handle really is above 255
+    CHECK(hal.armed(kChannelReofferTimerId));                     // PREMISE: an ORIGIN re-offer slot was armed
+    node.on_timer(kCtsToDataGapTimerId);                          // RTS-M -> the flood DATA-M is handed to the HAL
+    CHECK(hal.last_tx_cmd(0xA) != nullptr);                       // PREMISE: the lean M frame really flew
+    const uint32_t gen = hal.last_data_seq;
+    CHECK(gen != 0u);                                             // PREMISE: it carried this flight's identity
+    (void)drain_ch_pushes(node);
+
+    // ---- ★★ N14a: exactly ONE `send_aired`, dst = 0 (the channel form), ctr = the re-offer slot's handle.
+    node.on_tx_complete(ch_aired(gen));
+    ChanPushDrain p = drain_ch_pushes(node);
+    CHECK(p.total == 1);
+    CHECK(p.aired.size() == 1);
+    if (p.aired.size() == 1) {
+        CHECK(p.aired[0].dst == 0);                               // ★ the channel form carries no peer
+        CHECK(p.aired[0].ctr == 300);                             // ★★★★ N14b: EXACT, not 300 & 0xff == 44
+        CHECK(p.aired[0].ctr == r.ctr);                           // ★ …and it is the handle `on_command` answered with
+    }
+    // ---- ★ A STALE identity is refused here too (the channel row is not exempt from the flight guard).
+    node.on_tx_complete(ch_aired(gen + 500u));
+    CHECK(drain_ch_pushes(node).total == 0);
+}
+
+TEST_CASE("§T3 send_aired (channel) — N14c: a HOLDER re-offer airs and pushes NOTHING (it owns no origination)") {
+    // A relay that re-broadcasts somebody else's TEAM flood arms a HOLDER slot: `holder = true`, `ctr = 0`. Drop the
+    // `holder == false` clause and this pushes a correlation handle of ZERO — a meaningless id handed to the app as
+    // a confirmation of a post this node never made.
+    TestHal hal; Node n(hal, /*id=*/50, 0xBEEFu);
+    const uint32_t id = Node::channel_msg_id_mint(9, 0x1u, 7);
+    hold_team_flood(hal, n, id, /*up=*/9, /*down=*/60);
+    CHECK(hal.armed(kChannelReofferTimerId));                     // PREMISE: a HOLDER slot really was armed
+    n.on_timer(kChannelReofferTimerId);                           // the holder re-offer fires -> a live flood M flight
+    CHECK(hal.count("channel_holder_reoffer_tx") == 1);           // PREMISE: it really re-offered
+    n.on_timer(kCtsToDataGapTimerId);                             // RTS-M -> the re-offered DATA-M
+    const uint32_t gen = hal.last_data_seq;
+    CHECK(gen != 0u);                                             // PREMISE: it carried a flight identity
+    (void)drain_ch_pushes(n);
+    // ★★★★ EXACT tag, EXACT flight, an ACTIVE re-offer slot whose id matches — and still nothing, because the slot
+    //      is a HOLDER's.
+    n.on_tx_complete(ch_aired(gen));
+    CHECK(drain_ch_pushes(n).total == 0);
+}
+
+TEST_CASE("§T3 send_aired (channel) — N14d: a PULL RESPONSE with the ORIGIN's OWN id pushes NOTHING") {
+    TestHal hal; Node node(hal, 3, 0x1234ABCDu);
+    NodeConfig cfg = basic_cfg(); cfg.allowed_sf_bitmap = (1u << 9); node.on_init(cfg);
+    const CmdResult r = send_channel(node, /*ch=*/7, "data");
+    const uint32_t id = Node::channel_msg_id_mint(3, 0x1234ABCDu, static_cast<uint8_t>(r.ctr & 0xff));
+    // Let the ORIGINATE flood finish, so the next M flight is genuinely a pull response and not the flood itself.
+    drain_originate_flood(node);
+    CHECK(!node.has_pending_tx());
+    CHECK(hal.armed(kChannelReofferTimerId));                     // ★★ THE ORIGIN SLOT IS STILL ACTIVE — this is what
+                                                                  //    makes the id below MATCH, i.e. non-vacuous.
+    // A peer pulls that exact id from us -> `enqueue_channel_m` stages an M frame with the SAME id and NO `flood`.
+    std::array<uint8_t,32> qb{};
+    node.on_recv(qb.data(), mk_q_pull(/*src=*/5, /*dest=*/3, &id, 1, qb), meta_at(200));
+    CHECK(hal.count("channel_broadcast_tx") == 1);                // PREMISE: a pull RESPONSE was really staged
+    node.on_timer(kCtsToDataGapTimerId);                          // RTS-M -> the pull-response DATA-M
+    const uint32_t gen = hal.last_data_seq;
+    CHECK(gen != 0u);
+    (void)drain_ch_pushes(node);
+    // ★★★★ The completion is EXACT and its id MATCHES the live origin slot. It must still push nothing: this frame
+    //      is a service to a puller, not the origination the app is waiting on.
+    node.on_tx_complete(ch_aired(gen));
+    CHECK(drain_ch_pushes(node).total == 0);
+}
+
+// ★★★★ §T3-a — THE LOOP ORDER, MEASURED AT THE LEVEL WHERE IT BITES.
+// `kMBcastClearTimerId` is armed at `data_air + 5` and its handler does `_pending_tx.reset(); become_free();`.
+// `push_send_aired_if_owned` needs that flight ALIVE. ⇒ on a loop pass delayed past BOTH deadlines the question is
+// purely one of ORDER, and the two arms below are the two orders, on identical state:
+//   · SHIPPED (`fw_main` §1b): collect the completion, drain it into core, THEN run the timers  -> the push survives.
+//   · PRE-§T3 (collect after the timer loop):                                                    -> the push is LOST.
+// ⛔ A test that only asserts "the push happens" passes with either order whenever the loop is fast; this one
+//    constructs the DELAYED pass explicitly, which is why it is the regression that pins §2.1.
+// ⓘ `tools/probe_board_ui`'s W22 pins the ORDER OF THE SHIPPED SOURCE, which no host build compiles; this case pins
+//    the MECHANISM that makes that order load-bearing. Neither replaces the other.
+TEST_CASE("§T3-a loop order — the completion must be collected BEFORE the M-clear timer, or the push is lost") {
+    auto live_post = [](TestHal& hal, Node& node) -> uint32_t {
+        NodeConfig cfg = basic_cfg(); cfg.allowed_sf_bitmap = (1u << 9); node.on_init(cfg);
+        const CmdResult r = send_channel(node, /*ch=*/7, "hello");
+        CHECK(r.ctr != 0);
+        node.on_timer(kCtsToDataGapTimerId);                      // the flood DATA-M is handed to the HAL
+        CHECK(hal.armed(kMBcastClearTimerId));                    // PREMISE: the 5 ms clear really is armed
+        Push sink{}; while (node.next_push(sink)) {}
+        return hal.last_data_seq;
+    };
+    // ---- ARM A: the SHIPPED order.
+    {
+        TestHal hal; Node node(hal, 3, 0x1234ABCDu);
+        const uint32_t gen = live_post(hal, node); CHECK(gen != 0u);
+        node.on_tx_complete(ch_aired(gen));                       // (1b) collect + drain
+        node.on_timer(kMBcastClearTimerId);                       // (2)  timers
+        CHECK(!node.has_pending_tx());                            // the clear really ran (else the arms are equal)
+        CHECK(drain_ch_pushes(node).aired.size() == 1);           // ★★★★ the fact survived the delayed pass
+    }
+    // ---- ARM B: the PRE-§T3 order, on identical state. This is what the tree did before §2.1.
+    {
+        TestHal hal; Node node(hal, 3, 0x1234ABCDu);
+        const uint32_t gen = live_post(hal, node); CHECK(gen != 0u);
+        node.on_timer(kMBcastClearTimerId);                       // (2)  timers FIRST — the flight is deleted here
+        node.on_tx_complete(ch_aired(gen));                       // (2b) …and only then is the completion collected
+        CHECK(drain_ch_pushes(node).total == 0);                  // ★★★★ the fact is GONE — this is the defect §2.1 fixes
+    }
 }

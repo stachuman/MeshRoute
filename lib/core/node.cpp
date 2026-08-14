@@ -2173,6 +2173,69 @@ void Node::push_join_refused_wire(uint8_t their_ver) {
     }
 }
 
+// ★★★★ §T3 2026-08-14 — THE ORIGIN-OWNERSHIP RULE FOR `send_aired`, and it is the whole app half of [[B164]].
+//
+// ⛔⛔ THIS FUNCTION IS LOAD-BEARING AND MUST NEVER BE WRAPPED IN `MR_TELEMETRY(...)` — nor may its call site.
+//    `MESHROUTE_NO_TELEMETRY` is set on every board env, so a wrapped push would compile the entire fix OUT on metal
+//    while native and all 36 corpus streams stayed green. That is [[B169]]'s mirror image and it earns this comment.
+//
+// The rule, in full: enqueue exactly one `send_aired` iff the completion is a DATA (`frame_tag_of` masks §B186a's
+// mobile-op high byte), a flight is live, the completion's identity is EXACTLY this flight's (`o.seq ==
+// pt.flight_gen`, never an approximation — a stale retry completing after the flight was replaced would otherwise
+// falsely confirm the NEW one), and the carrier matches exactly ONE of two ownership rows:
+//
+//   · ORDINARY LOCAL DM      `!pt.m_broadcast && !pt.has_previous_hop`     -> dst = pt.dst, ctr = pt.ctr
+//   · LOCAL CHANNEL POST     `pt.m_broadcast && pt.flood && inner_len>=6`  -> dst = 0,      ctr = entry.ctr
+//     ...plus an ACTIVE `_channel_reoffer_pending` entry whose `id` matches and whose `holder` is FALSE.
+//
+// ★★ WHY `pt.flood` IS A REQUIRED CLAUSE AND NOT DECORATION. `enqueue_channel_m` (the CHANNEL_PULL responder) writes
+//    the SAME 4-byte BE message id into `inner[0..3]` and sets `is_channel_m`, but it does NOT set `flood`; only the
+//    flood path does (node_channel.cpp's re-flood/origination). ⇒ without this clause a PULL RESPONSE airing while
+//    the origin's own re-offer slot is still active would be reported as THE ORIGINAL POST AIRING — a false
+//    confirmation on precisely the surface this arc exists to fix. With it, the DM and channel rows are structurally
+//    disjoint rather than merely non-overlapping in practice.
+// ⚠ `entry.holder == false` is equally load-bearing: a HOLDER slot (a relay covering its downstream) owns no
+//    origination and its `ctr` is 0, so a holder match would push a correlation handle that means nothing.
+// ★ The id decode is the EXISTING shared helper `m_inner_id` (U1) — never hand-rolled here; `inner_len >= 6` is
+//    checked first, exactly as `do_data_tx` does, so this read can never be the one that underflows.
+// ⛔ `carrier_owes_send_failed` is NOT the predicate here and must not be reused for it: it answers *"does dropping
+//    this carrier owe a `send_failed`?"* and excludes `channel_m` DELIBERATELY, because a channel post's app future
+//    is the `channel_sent` push owned by the re-offer slot. Reusing it made `ChanState::aired` unreachable once.
+// ⛔ `ChannelReofferPending` is READ here and never grown — node.h's `sizeof == 12` static_assert is the tripwire.
+// ⓘ NOTHING IS STORED: no de-duplication bit exists anywhere, because the consumer's monotonic rank makes a repeated
+//    `send_aired` idempotent. `sizeof(Node)` is therefore unmoved by this whole slice.
+void Node::push_send_aired_if_owned(const TxOutcome& info) {
+    if (frame_tag_of(info.tag) != FrameTag::data) return;       // beacon / RTS / CTS / ACK / NACK: telemetry only
+    if (!_active->_pending_tx) return;                          // the flight is gone -> nothing to attribute this to
+    const PendingTx& pt = *_active->_pending_tx;
+    if (info.seq != pt.flight_gen) return;                      // exact flight identity (flight_gen is never 0 on a live flight)
+    Push pu{};
+    pu.kind = PushKind::send_aired;
+    if (!pt.m_broadcast) {
+        if (pt.has_previous_hop) return;                        // a FORWARDED DM — we made no send, so we own no future
+        pu.dst = pt.dst;
+        pu.ctr = pt.ctr;
+    } else {
+        if (!pt.flood) return;                                  // a CHANNEL_PULL response carries the same id — see above
+        // ⚠ BELT-AND-BRACES, AND MEASURED AS SUCH RATHER THAN CLAIMED AS TESTED: both production paths that can put
+        //   an m_broadcast flight in the air REFUSE a short inner first (`do_data_tx` and `tx_m_broadcast_rts` both
+        //   log and reset `_pending_tx`), so no live flight can reach here with `inner_len < 6`. ⇒ deleting this line
+        //   leaves the native suite GREEN — verified by mutation, and recorded instead of pretending otherwise. It
+        //   stays because this read must never be the one that underflows if a future path changes that.
+        if (pt.inner_len < 6) return;
+        const uint32_t id = m_inner_id(pt.inner);
+        const ChannelReofferPending* owned = nullptr;
+        for (uint8_t s = 0; s < protocol::cap_channel_reoffer_pending; ++s) {
+            const ChannelReofferPending& rp = _active->_channel_reoffer_pending[s];
+            if (rp.active && rp.id == id && !rp.holder) { owned = &rp; break; }
+        }
+        if (!owned) return;                                     // a relay/holder re-flood of someone else's post
+        pu.dst = 0;
+        pu.ctr = owned->ctr;                                    // §b40: the FULL 16-bit handle, never pt.ctr's low byte
+    }
+    enqueue_push(pu);
+}
+
 bool Node::next_push(Push& out) {
     if (_push_count == 0) return false;
     out = _push_ring[_push_head];
@@ -2201,14 +2264,18 @@ void Node::on_radio_busy(const BusyInfo& info) {
 // awaiting_cts here — see below); DATA -> clear awaiting_ack + cancel the ack-timeout; then re-issue the stashed
 // retry-eligible frame (CTS/DATA/ACK/NACK) up to TX_DEFER_MAX_RETRIES. Lua dv:12081-12215. NEVER fires in the gates
 // (lbt_enabled=false + healthy duty) -> inert.
-// ★ §T2 — DeviceHal's `aired` / `failed` / `unknown` attempts are reported here to telemetry and return. They do
-//   NOT enter the app push ring, mutate protocol state, arm a timer or consume the refusal stash: an attempt outcome
-//   is not a terminal send outcome, and a failed/unknown attempt may still be followed by a successful MAC retry.
+// ★ §T2 — DeviceHal's `failed` / `unknown` attempts are reported here to telemetry and return. They do NOT enter the
+//   app push ring, mutate protocol state, arm a timer or consume the refusal stash: an attempt outcome is not a
+//   terminal send outcome, and a failed/unknown attempt may still be followed by a successful MAC retry.
 //   The `refused` arm below remains the simulator's existing recovery path, reached through on_radio_busy's adapter.
+// ★★ §T3 — `aired` GAINS ITS ONE APP CONSUMER and is now the ONLY attempt outcome that may. It can only ever be an
+//   UPGRADE (`queued -> sent`) and no later attempt can contradict it, which is exactly what `failed`/`unknown`
+//   cannot claim. Everything else about this function is unchanged: no protocol state, no timer, no stash.
 void Node::on_tx_complete(const TxOutcome& info) {
     switch (info.kind) {
         case TxOutcomeKind::aired:
             MR_EMIT("tx_aired", EF_I("tag", info.tag), EF_I("seq", info.seq), EF_I("sf", info.sf));
+            push_send_aired_if_owned(info);   // ⛔ NOT telemetry, NEVER inside MR_TELEMETRY — see the definition
             return;
         case TxOutcomeKind::failed:
             MR_EMIT("tx_failed", EF_I("tag", info.tag), EF_I("seq", info.seq), EF_I("sf", info.sf),

@@ -786,6 +786,23 @@ TEST_CASE("write_push — channel_sent carries relayed bool + no_relay reason (S
     CHECK(std::string(b, n) == "{\"ev\":\"channel_sent\",\"ctr\":6,\"relayed\":false,\"reason\":\"no_relay\"}\n");
 }
 
+// ★★ §T3 — THE GOLDEN `send_aired` LINE. The design named this seam explicitly: without an EXPLICIT `write_push`
+// branch the new kind falls into the final `else { // send_acked / send_failed }`, which HAPPENS to emit `dst` and
+// `ctr` — the right output for the wrong reason, pinned by nothing. These two cases pin the bytes, so the branch
+// cannot be deleted "because the fallthrough already does it" and the fallthrough cannot be edited under it.
+TEST_CASE("write_push — send_aired carries dst + ctr, and the CHANNEL form keeps a 16-bit handle (§T3)") {
+    char b[128];
+    Push dm{}; dm.kind = PushKind::send_aired; dm.dst = 5; dm.ctr = 7;
+    size_t n = write_push(b, sizeof b, dm);
+    CHECK(std::string(b, n) == "{\"ev\":\"send_aired\",\"dst\":5,\"ctr\":7}\n");
+    // dst == 0 is the CHANNEL form, and `ctr` is the full 16-bit local handle — above 255 on purpose (§b40).
+    Push ch{}; ch.kind = PushKind::send_aired; ch.dst = 0; ch.ctr = 300;
+    n = write_push(b, sizeof b, ch);
+    CHECK(std::string(b, n) == "{\"ev\":\"send_aired\",\"dst\":0,\"ctr\":300}\n");
+    // ⛔ NO `reason` key, ever: `send_aired` has no SendFailReason and must not inherit the send_failed branch's.
+    CHECK(std::string(b, n).find("reason") == std::string::npos);
+}
+
 // ── ★ THE ENUM→STRING COVERAGE GUARD (2026-07-25) ────────────────────────────────────────────────────────
 // console_json.cpp hand-maintains one switch per contract-visible enum, and a missing `case` is SILENT: the
 // switch falls through to the trailing `return "none"` / `return "unknown"`, so the companion receives a value
@@ -829,6 +846,7 @@ static unsigned ord(PushKind k) {
         case PushKind::send_blocked:   case PushKind::channel_sent:   case PushKind::mobile_reg:
         case PushKind::team_reg:       case PushKind::join_adopted:   case PushKind::team_key_received:
         case PushKind::team_channel_no_key:   // §chan-crypt CL2a
+        case PushKind::send_aired:            // §T3: the attempt-level airing fact
             return static_cast<unsigned>(k);
     }
     return kUnlisted;
@@ -903,7 +921,7 @@ static void check_mapper_covers_every_enumerator(const char* enum_name, const ch
 
 TEST_CASE("★ enum->string mappers cover EVERY enumerator — no silent fallback at the app boundary") {
     check_mapper_covers_every_enumerator<CmdCode>("CmdCode", cmdcode_name, "err_unknown", 14);   // 10 -> 11 S1 `err_ambiguous_plane`; 11 -> 12 S1b `err_no_identity`; 12 -> 13 S1c `err_tx_queue_full`; 13 -> 14 S4b `err_resolve_pending_full`
-    check_mapper_covers_every_enumerator<PushKind>("PushKind", pushkind_name, "unknown", 16);   // 14 -> 15: §team-ch-key T-K3 `team_key_received`; 15 -> 16: §chan-crypt CL2a `team_channel_no_key`
+    check_mapper_covers_every_enumerator<PushKind>("PushKind", pushkind_name, "unknown", 17);   // 14 -> 15: §team-ch-key T-K3 `team_key_received`; 15 -> 16: §chan-crypt CL2a `team_channel_no_key`; 16 -> 17: §T3 `send_aired`
     check_mapper_covers_every_enumerator<SendFailReason>("SendFailReason", sendfailreason_name, "none", 18,
                                                          /*exempt_ord=*/0);   // SendFailReason::none == "none"  (15 -> 16: §clean-join-carriers `reprovisioned`; 16 -> 17: §team-ch-key T-K3 `unsealable`; 17 -> 18: §loc-per-send `no_location`)
     check_mapper_covers_every_enumerator<JoinRefuseReason>("JoinRefuseReason", joinrefusereason_name, "none", 4);
@@ -939,6 +957,7 @@ TEST_CASE("★ enum->string mappers cover EVERY enumerator — no silent fallbac
     CHECK(std::strcmp(sendfailreason_name(SendFailReason::reprovisioned), "reprovisioned") == 0);      // §clean-join-carriers: a join/create/leave discarded a staged/in-flight DM
     CHECK(std::strcmp(sendfailreason_name(SendFailReason::unsealable), "unsealable") == 0);            // §team-ch-key T-K3: a sealed-only TYPE on a transport that cannot carry it sealed-AND-typed
     CHECK(std::strcmp(pushkind_name(PushKind::team_key_received), "team_key_received") == 0);          // §team-ch-key T-K3: the granted-key notification
+    CHECK(std::strcmp(pushkind_name(PushKind::send_aired), "send_aired") == 0);                        // §T3: the attempt-level airing fact
     CHECK(std::strcmp(cmdcode_name(CmdCode::err_ack_ring_full), "err_ack_ring_full") == 0);            // enumerator-name convention
     // ★★ §err-reason/B32 — THE TEXT CONSOLE'S SELF-LABELLING INVARIANT, and the only part of that slice native can see.
     // src/fw_main.cpp now prints this mapper's token BARE on the USB console (`> err_no_binding ctr=0 depth=0`), with no
