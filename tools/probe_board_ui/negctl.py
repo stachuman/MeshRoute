@@ -137,6 +137,53 @@ MUT=[
  ('C8 board_init() claims the panel is present without asking',
   '    Wire.beginTransmission(kOledAddr);\n    return Wire.endTransmission() == 0;',
   '    return true;'),
+ # ★★★ §B197 — THE BUTTON WAKE. Five controls, and NOT ONE OF THEM IS A DELETION OF THE WHOLE FUNCTION: each is a
+ # plausible half-fix that compiles, arms something, and reports success. That matters here more than usual, because
+ # the FAILURE MODE OF EVERY ONE OF THEM IS SILENT — the node keeps meshing, the panel keeps painting, and the only
+ # symptom is that a sleeping node stops answering the button, which is the defect this slice was written to remove.
+ # ⚠ C9a is the one that would look like the fix working: a HIGH-level source wakes CONTINUOUSLY while the button is
+ #   NOT pressed, so `slept=` stops climbing and a tester watching the panel sees a responsive node.
+ ('C9a the wake level is inverted (HIGH = wakes while NOT pressed)',
+  'gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL)',
+  'gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_HIGH_LEVEL)'),
+ ('C9b an EDGE trigger is requested (light sleep accepts only levels)',
+  'gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL)',
+  'gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_NEGEDGE)'),
+ # C9c/C9d are the two halves of "both return values are checked" — the fail-safe's entire input. Either one ignored
+ # and `enable_button_wake()` reports success for a wake source that was never armed, so the caller sleeps anyway.
+ ('C9c gpio_wakeup_enable\'s return code is ignored',
+  '    if (gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL) != ESP_OK) return false;\n    return esp_sleep_enable_gpio_wakeup() == ESP_OK;',
+  '    (void)gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL);\n    return esp_sleep_enable_gpio_wakeup() == ESP_OK;'),
+ ('C9d esp_sleep_enable_gpio_wakeup\'s return code is ignored',
+  '    return esp_sleep_enable_gpio_wakeup() == ESP_OK;',
+  '    (void)esp_sleep_enable_gpio_wakeup();\n    return true;'),
+ # C9e the pin is configured but the source is never ADMITTED to the next esp_light_sleep_start(). The most tempting
+ # wrong answer of all: `gpio_wakeup_enable` alone reads like it does the whole job, and nothing complains.
+ ('C9e the GPIO source is never admitted to sleep (gpio_wakeup_enable alone)',
+  '    return esp_sleep_enable_gpio_wakeup() == ESP_OK;',
+  '    return true;'),
+ # C9f the MIRROR of C9e: the source is admitted but the PIN is never configured. Reads plausible — `board_init()`
+ # already `pinMode`s the button, so "the pin is set up" is true of the wrong thing. `esp_sleep_enable_gpio_wakeup()`
+ # admits only the pins `gpio_wakeup_enable` armed, so this arms NOTHING and still reports success.
+ ('C9f the pin is never configured as a wake source (the sleep-enable alone)',
+  '    if (gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL) != ESP_OK) return false;\n    return esp_sleep_enable_gpio_wakeup() == ESP_OK;',
+  '    return esp_sleep_enable_gpio_wakeup() == ESP_OK;'),
+ # C9g the WRONG PIN — the battery divider's control line instead of the button. A copy-paste away in a file whose
+ # three `MR_UI_*` macros all name GPIOs, and the symptom is identical to no wake source at all.
+ ('C9g the wake is armed on the ADC control pin, not the button',
+  'gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL)',
+  'gpio_wakeup_enable((gpio_num_t)MR_UI_ADC_CTRL, GPIO_INTR_LOW_LEVEL)'),
+ # C9h arming folded INTO board_init(). Tempting ("it is board wiring, do it with the rest"), and it destroys the
+ # fail-safe: `board_init()` reports the PANEL's ACK, so a wake-arm failure would be reported as a dead display —
+ # or, worse, silently discarded. The wake must be its own reported step.
+ ('C9h the wake is armed inside board_init() (its failure loses its own channel)',
+  '    battery_init();',
+  '    battery_init();\n    (void)gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL);\n    (void)esp_sleep_enable_gpio_wakeup();'),
+ # C9i the success test inverted. It is the vacuity control for the two failure arms: without it, "FAILS -> false"
+ # would also be satisfied by a function that answered false unconditionally.
+ ('C9i the success comparison is inverted (success reported as failure)',
+  '    return esp_sleep_enable_gpio_wakeup() == ESP_OK;',
+  '    return esp_sleep_enable_gpio_wakeup() != ESP_OK;'),
 ]
 rc_all = 0
 for idx, (label, find, repl) in enumerate(MUT):

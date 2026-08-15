@@ -2150,6 +2150,79 @@ status field, so `txfail` / `txoutdrop` / `txto` remain USB-console-only. Use US
    **`NO RELAY HEARD`**. ⛔ If it never leaves `QUEUED` with no peer present, the airing report is gated on something
    it must not be gated on.
 
+## Part 23 — §B197/§B198 the sleep/wake seam (2026-08-14)
+
+⛔⛔ **EVERY CHECK IN THIS PART IS METAL-ONLY BY CONSTRUCTION, AND ONE OF THEM IS THE DESIGN'S PRINCIPAL UNPROVEN
+HARDWARE ASSUMPTION.** No host build sleeps, the simulator has no sleep pacing at all, and neither has an ESP32-S3.
+The pure halves — `InputFsm::active()` and `mrui::ui_allows_sleep` — are under the native gate (nine mutations); the
+wiring and the two ESP-IDF calls are under the two UI probes. What is left is exactly this.
+
+⚠ **PRECONDITION FOR THE WHOLE PART: DO NOT SEND A CONSOLE BYTE AFTER BOOT.** A single byte latches `g_host_present`
+and the node then never light-sleeps, so every check below would pass over a node that was simply awake. Use `team 0`
+(no peers ⇒ almost no RX traffic ⇒ maximum sleep duty), wait past `MR_BOOT_GRACE_MS` = 30 s, and drive the node by
+BUTTON ONLY. Read `slept=` only at the END, or from a second boot.
+
+### 23.1 — ⛔⛔ THE COEXISTENCE TEST. Run this FIRST; nothing else in this Part means anything if it fails
+
+The button uses the **digital-domain** `gpio_wakeup_enable` + `esp_sleep_enable_gpio_wakeup()`; the radio's RxDone
+uses the **RTC-domain** `esp_sleep_enable_ext1_wakeup` on DIO1, untouched by this slice. **Whether the two coexist in
+ESP32-S3 light sleep is UNVERIFIED on this hardware.** ⇒ prove each INDEPENDENTLY; ⛔ neither result may be inferred
+from the other.
+
+1. **(a) BUTTON.** Boot, no console byte, `team 0`, wait 45 s (past the 30 s grace and the 15 s panel blank).
+   Give **one short tap**. Expected: the panel lights within a fraction of a second and shows a normal screen.
+   ⛔ **It must NOT be classified as a long press** — no `EMERGENCY` arming countdown may appear.
+2. **(b) RADIO.** Boot a second node in range. On the sleeping node (again no console byte, past 45 s, panel dark)
+   have the second node send it a DM. Expected: the message is received — confirm afterwards on the sleeping node's
+   `inbox` or by its ACK arriving at the sender.
+3. Pass: **BOTH** (a) and (b) succeed, separately.
+   Fail: either one. ⛔ If (b) fails while (a) succeeds, the GPIO wake has displaced the radio wake and this design
+   does not proceed as written — record it and stop; the fallback named in the design (§3.1.2) is **not authorised**
+   and would need its own radio regression gate.
+
+### 23.2 — the boot line, and the FAIL-CLOSED behaviour behind it
+
+1. At boot, watch the console. Expected: **nothing** about the button wake.
+2. ⛔ If you ever see `!! OLED button wake unavailable; sleep disabled`, the node has **deliberately disabled idle
+   light-sleep for that whole boot** — that is the fail-safe working, not a second fault. Confirm it: `status` must
+   then show `slept=` **STUCK AT 0** however long the node idles. Record the board and stop; a node that prints that
+   line and still increments `slept=` is the one outcome this slice exists to prevent.
+
+### 23.3 — §B198: a frame must render promptly, not over ~8 seconds
+
+Measured on metal before the fix: *"each portion of screen took 1 s to refresh, so the whole screen took like 8 sec"*
+— eight page pushes paced by an up-to-1 s sleep between service passes, **on the EMERGENCY screen**.
+
+1. From the woken state of 23.1(a), with the MAC idle, press `short` to change screen and WATCH THE REPAINT.
+2. Expected: the frame assembles in **well under 250 ms** — it should read as instantaneous, not as bands appearing
+   one per second. ⓘ Time it against a phone stopwatch if in doubt; the pre-fix figure was ~8 s, so the two are not
+   close and no precision instrument is needed.
+3. ★ **Repeat it on the EMERGENCY screen, which is the reason this is safety-relevant, not cosmetic:** hold the
+   button through `arm` and let the countdown run. The countdown digits must tick **once per second, all of them** —
+   ⛔ digits skipped or a screen assembling in bands is the defect back.
+4. ⛔ **AND THE THING THAT MUST NOT HAVE BROKEN: page chunking is still one page per service pass.** With a second
+   node exchanging traffic, drive repaints continuously for a minute. Expected: the second node's RTS/CTS/DATA
+   exchanges continue to complete. A full-frame repaint (~25 ms of blocking I²C against a 5 ms CTS→DATA gap) would
+   show up as dropped frames on the second node, not as anything visible on the panel.
+
+### 23.4 — sleep RESUMES, and the emergency timing is unchanged
+
+1. After 23.3, stop touching the node. Wait for the panel to blank (15 s) and then a further 60 s.
+2. Read `status` **once** (this ends the headless run, so do it last). Expected: **`slept=` has increased**.
+   ⛔ `slept=` stuck at 0 on a board that printed no wake-unavailable line means the UI is holding the CPU awake for
+   ever — check whether the panel is really blank and whether a gesture is stuck part-classified.
+3. On a fresh boot, re-check the emergency timing: from the debounced press, `FIRE` must still be at
+   **~3.5 s**, and `arm` at ~0.8 s. ⛔ Neither constant was changed by this slice; a shift means the tick cadence
+   moved, not the thresholds.
+
+### 23.5 — ⚠ GPIO0 IS THE BOOT STRAP: the recovery instruction, so it is not rediscovered in a panic
+
+`MR_UI_BTN_PIN` is GPIO0, which the ESP32-S3 samples **only during RESET**. Arming it as a runtime wake source adds
+nothing to that hazard, but the pre-existing one is unchanged: **a board reset while the button is held enters serial
+download mode and looks bricked.**
+
+⇒ **RELEASE THE BUTTON AND RESET AGAIN.** That is the whole remedy. It is a hardware behaviour, not a fault to report.
+
 ## Completion record
 
 - Firmware revision tested: `________________`

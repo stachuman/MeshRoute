@@ -15,6 +15,10 @@
 #include <Arduino.h>
 #include <U8g2lib.h>
 #include <Wire.h>
+// §B197: the two ESP-IDF shims this file DEFINES (the counters and the scripted return codes live in
+// fakes/esp_wake_probe.h, which both of these pull in).
+#include <driver/gpio.h>
+#include <esp_sleep.h>
 #include <cstdio>
 #include <cstring>
 
@@ -23,6 +27,7 @@ ProbeGpio  g_gpio;
 ProbeU8g2  g_u8;
 ProbeWire    g_wire;
 ProbeTwoWire Wire;
+ProbeWake  g_wake;   // §B197: the two ESP-IDF wake calls (fakes/esp_wake_probe.h)
 const u8g2_cb_t u8g2_cb_r0{0};
 const uint8_t u8g2_font_6x10_tf[1]  = {0};
 const uint8_t u8g2_font_10x20_tf[1] = {0};
@@ -60,6 +65,23 @@ int  analogRead(uint8_t pin) {
     return g_gpio.analog_returns;
 }
 
+// ---- §B197: the two ESP-IDF wake calls ---------------------------------------------------------------------------
+// ★ Each records its ARGUMENTS and an ORDER STAMP, and each hands back a SCRIPTED code, so both failure arms of
+//   `enable_button_wake()` are reachable from the host. Neither has any side effect — a shim that "worked" would be
+//   pretending to know something about the silicon, which is precisely what the bench has to settle.
+esp_err_t gpio_wakeup_enable(gpio_num_t gpio_num, gpio_int_type_t intr_type) {
+    ++g_wake.gpio_wakeup_calls;
+    g_wake.last_gpio = int(gpio_num);
+    g_wake.last_intr = int(intr_type);
+    g_wake.seq_gpio_wakeup = g_wake.next_seq++;
+    return g_wake.gpio_wakeup_result;
+}
+esp_err_t esp_sleep_enable_gpio_wakeup(void) {
+    ++g_wake.sleep_enable_calls;
+    g_wake.seq_sleep_enable = g_wake.next_seq++;
+    return g_wake.sleep_enable_result;
+}
+
 // ---- tiny harness ------------------------------------------------------------------------------------------------
 static int g_pass = 0, g_fail = 0;
 #define CHK(label, expr) do {                                                              \
@@ -67,7 +89,7 @@ static int g_pass = 0, g_fail = 0;
     if (ok_) ++g_pass; else { ++g_fail; printf("  FAIL %-58s  %s\n", (label), #expr); }    \
 } while (0)
 
-static void reset_counters() { g_u8 = ProbeU8g2(); g_gpio = ProbeGpio(); g_wire = ProbeWire(); }
+static void reset_counters() { g_u8 = ProbeU8g2(); g_gpio = ProbeGpio(); g_wire = ProbeWire(); g_wake = ProbeWake(); }
 
 // The scene UI-5's boot frame drew, kept as the probe's own stand-in caller: 2 strings + 1 hline per pass. A correct
 // page loop therefore reads 16 drawStr / 8 drawHLine; a draw-once-per-frame loop reads 2 / 1.
@@ -315,6 +337,52 @@ int main() {
     do { probe_scene(); if (++dead_pages > 32) break; } while (mrui::next_page());
     CHK("P10a a NACKed panel still runs 8 pages",      dead_pages == 8 && g_u8.nextPage == 8);
     g_wire.end_returns = 0;
+
+    // ================================================================================================ P11
+    // ★★★ §B197 — THE BUTTON AS A LIGHT-SLEEP WAKE SOURCE. `enable_button_wake()` has no observable effect on a host
+    //     beyond WHICH platform calls it makes, WITH WHAT, IN WHAT ORDER, and WHAT IT DOES WITH THEIR RETURN CODES —
+    //     so those four things are exactly what is measured. Nothing here proves the silicon wakes; that is metal.
+    // ⚠ P11a is NEGATIVE SPACE and is checked FIRST, before anything arms anything: `board_init()` must NOT arm the
+    //   wake source as a side effect. Arming is an explicit, separately-reported step precisely so its FAILURE can be
+    //   propagated — folded into `board_init()` it would be indistinguishable from a dead panel.
+    reset_counters();
+    (void)mrui::board_init();
+    CHK("P11a board_init() arms NO wake source (it is a separate, reported step)",
+        g_wake.gpio_wakeup_calls == 0 && g_wake.sleep_enable_calls == 0);
+
+    // ---- the success path ----------------------------------------------------------------------------------------
+    reset_counters();
+    const bool wake_ok = mrui::enable_button_wake();
+    CHK("P11b both platform calls succeed -> enable_button_wake() reports true", wake_ok == true);
+    CHK("P11c exactly one gpio_wakeup_enable",          g_wake.gpio_wakeup_calls == 1);
+    CHK("P11d ... on the USER BUTTON pin",              g_wake.last_gpio == MR_UI_BTN_PIN);
+    // ★★ THE POLARITY, AND IT IS THE SAME FACT `button_pressed()` READS: INPUT_PULLUP -> pressed is LOW. A HIGH-level
+    //    source would wake the node CONTINUOUSLY while the button is NOT pressed — i.e. it would never sleep, which is
+    //    a defect that LOOKS like the fix working. The edge triggers are the other wrong answers and are expressible.
+    CHK("P11e ... with the ACTIVE-LOW level trigger",   g_wake.last_intr == GPIO_INTR_LOW_LEVEL);
+    CHK("P11f exactly one esp_sleep_enable_gpio_wakeup", g_wake.sleep_enable_calls == 1);
+    // ★ ORDER: the pin must be configured BEFORE the source is admitted to the next sleep. Two "was it called" flags
+    //   cannot see a swap; the sequence stamps can.
+    CHK("P11g ... and it runs AFTER the pin was configured",
+        g_wake.seq_gpio_wakeup > 0 && g_wake.seq_sleep_enable > g_wake.seq_gpio_wakeup);
+
+    // ---- failure arm 1: the pin cannot be configured --------------------------------------------------------------
+    // ⛔ THE WHOLE FAIL-SAFE RESTS ON THIS RETURNING FALSE. `true` here is [[B197]] made permanent: the caller would
+    //    let the node sleep with no user wake source at all, leaving only DIO1 and the ≤1 s timer.
+    reset_counters();
+    g_wake.gpio_wakeup_result = ESP_ERR_INVALID_ARG;
+    CHK("P11h gpio_wakeup_enable FAILS -> false (the fail-closed input)", mrui::enable_button_wake() == false);
+
+    // ---- failure arm 2: the source cannot be admitted to sleep ----------------------------------------------------
+    // ★ A SEPARATE ARM, not a duplicate: checking only the first return is a real and tempting half-fix — the pin is
+    //   configured, nothing complains, and the source is still never admitted to `esp_light_sleep_start()`.
+    reset_counters();
+    g_wake.sleep_enable_result = ESP_ERR_INVALID_ARG;
+    const bool arm2 = mrui::enable_button_wake();
+    CHK("P11i esp_sleep_enable_gpio_wakeup FAILS -> false", arm2 == false);
+    CHK("P11j ... and the pin HAD been configured first",   g_wake.gpio_wakeup_calls == 1);
+
+    reset_counters();   // leave the shims as constructed for any later case
 
     printf("phA5 board_ui probe: %d passed / %d failed / %d total\n", g_pass, g_fail, g_pass + g_fail);
     return g_fail == 0 ? 0 : 1;

@@ -42,6 +42,21 @@ void draw_text(int x, int y, const char* s);
 void draw_hline(int x, int y, int w);
 void set_power_save(bool on);       // panel off/on WITHOUT clearing display RAM; latched, repeat calls are no-ops
 bool button_pressed();
+// ★★★ §B197 — ARM THE BUTTON AS A LIGHT-SLEEP WAKE SOURCE. Called ONCE, after board_init() (which is what configures
+//   the pin as INPUT_PULLUP), by src/firmware_ui.cpp's mr_ui_init(). The ACTIVE-LOW level is not a new fact: it comes
+//   from the same INPUT_PULLUP / button_pressed() contract two lines up, so there is one polarity authority, not two.
+// ★★ true = BOTH platform calls succeeded and a press can now wake a sleeping CPU.
+//    false = the node MUST NOT SLEEP for the rest of this boot (the caller's fail-closed rule). ⛔ Do not "recover"
+//    by sleeping anyway: a sleeping node whose button is not armed is reachable only by a LoRa RxDone or the ≤1 s
+//    deadline timer, i.e. by nothing the operator can do — which is [[B197]] exactly, made permanent and silent.
+// ⚠ It does NOT touch the radio's DIO1 `ext1` wake in fw_main.cpp's board_sleep_until(). Whether the RTC-domain
+//   ext1 source and this digital-domain GPIO source COEXIST in ESP32-S3 light sleep is the design's one UNPROVEN
+//   HARDWARE ASSUMPTION and is settled only on metal, independently per source
+//   (docs/superpowers/specs/2026-08-14-b197-b198-ui-sleep-wake-design.md §3.1.2; bench script Part 23).
+// ⓘ GPIO0 is also the ESP32-S3 boot strap, but that pin is sampled ONLY during RESET — arming it as a RUNTIME wake
+//   source adds nothing to that hazard. Holding it through a reset still enters serial-download mode; if a board
+//   looks bricked, RELEASE THE BUTTON AND RESET AGAIN (spec §3.1.1).
+bool enable_button_wake();
 // One sample, taken now: enable the divider, read, disable it. <0 = UNAVAILABLE — no reader, or a reading outside the
 // 1S-LiPo plausible window — and the caller renders `--` for it, never a substituted default (spec §7).
 // ★ The CALLER decides WHEN: spec §7's boot + ~30 s cadence under the §5 MAC-idle predicate. This canvas owns no

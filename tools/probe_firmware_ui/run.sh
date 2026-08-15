@@ -326,6 +326,36 @@ if [ "${1:-}" != "--no-neg" ]; then
   ctl "C44 DmState::aired_waiting is rendered as QUEUED too" yes \
       's|case mrui::DmState::aired_waiting: mrui::draw_text(0, body_y(1), "SENT, waiting");|case mrui::DmState::aired_waiting: mrui::draw_text(0, body_y(1), "QUEUED");|'
 
+  # C45-C51 ★★★ §B197/§B198 — THE SLEEP SEAM. Each control is a plausible half-fix rather than a deletion, and the
+  #   FAILURE MODE OF EVERY ONE IS SILENT: the node keeps meshing, the panel keeps painting, and the only symptom is
+  #   that a sleeping node stops answering the button — which is the defect being fixed, back again.
+  # ⛔ C45 IS THE ONE THAT MATTERS MOST. Drop the fail-closed guard and a board whose wake source could NOT be armed
+  #   light-sleeps anyway, leaving the operator no input at all. It must be RED.
+  ctl "C45 the fail-closed guard is dropped (sleeps with the button unarmed)" yes \
+      's|    if (!s_btn_wake_armed) return false;|    ;|'
+  ctl "C46 the wake is never armed (the latch is simply asserted true)" yes \
+      's|    s_btn_wake_armed = mrui::enable_button_wake();|    s_btn_wake_armed = true;|'
+  # ⚠ C47 is the mirror of C46: the call is made and its ANSWER thrown away — the tempting "it cannot really fail".
+  ctl "C47 the board's wake report is discarded (armed by assumption)" yes \
+      's|    s_btn_wake_armed = mrui::enable_button_wake();|    (void)mrui::enable_button_wake(); s_btn_wake_armed = true;|'
+  ctl "C48 the wake failure is never said on the console" yes \
+      's|    if (!s_btn_wake_armed) mrcon.println(F("!! OLED button wake unavailable; sleep disabled"));|    ;|'
+  # ⓘ C52 is C48's INVERSION and it is what makes the "says nothing on success" half of P10a mean something: without
+  #   it that check is negative space no mutation could move. Same shape as C9, §B91's report-channel control.
+  ctl "C52 the wake report is inverted (cries wolf on a healthy board)" yes \
+      's|    if (!s_btn_wake_armed) mrcon.println(F("!! OLED button wake unavailable; sleep disabled"));|    if (s_btn_wake_armed) mrcon.println(F("!! OLED button wake unavailable; sleep disabled"));|'
+  # C49/C50 are DIRECTIONAL OPPOSITES on purpose: with only the permissive one, a hook stuck at `false` would satisfy
+  # every "refuses" check while the node never slept again; with only the refusing one, the converse.
+  ctl "C49 the hook always permits sleep (the whole policy bypassed)" yes \
+      's|    return mrui::ui_allows_sleep(s_model, s_input, s_gate);|    return true;|'
+  ctl "C50 the hook never permits sleep (the panel-lit answer for ever)" yes \
+      's|    return mrui::ui_allows_sleep(s_model, s_input, s_gate);|    return false;|'
+  # ⛔ C51 IS THE HALF-FIX THAT WOULD FIX [[B198]] AND LEAVE [[B197]] IN PLACE — inhibit on the frame and the panel,
+  #   but not on a gesture still being classified. It is precisely the shape a reader who fixed only the visible
+  #   symptom would write, and it re-derives the policy here instead of calling the pure one (U1).
+  ctl "C51 the policy is re-derived here without the input term (B197 back)" yes \
+      's|    return mrui::ui_allows_sleep(s_model, s_input, s_gate);|    return s_model.state().blanked \&\& !s_gate.frame_open();|'
+
   ctl "C26 the highlight is NOT suppressed while the refusal stands" yes \
       's|                 (!st.inbox_pick_gone \&\& first + row == st.cursor) ? '"'"'>'"'"' : '"'"' '"'"', tag, e.text, age);|                 (first + row == st.cursor) ? '"'"'>'"'"' : '"'"' '"'"', tag, e.text, age);|'
 fi

@@ -2,8 +2,9 @@
 // Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // §featuresplit slice 4: the board-UI seam (MR_FEAT_OLED). A board with a display (e.g. the heltec_v3's on-board
-// SSD1306) implements these FOUR hooks (⛔ corrected in place 2026-08-13 — this line said "three" while the block at
-// the fourth one already called it "THE FOURTH HOOK", so the file contradicted itself two lines apart)
+// SSD1306) implements these FIVE hooks (⛔ corrected in place TWICE — 2026-08-13 this line said "three" while the
+// block at the fourth one already called it "THE FOURTH HOOK", and 2026-08-14 §B197/§B198 added the fifth; a count
+// in prose beside a list is exactly the thing that drifts, so it is checked against the list when either changes)
 // in a TU compiled under `#if MR_FEAT_OLED` (variants/heltec_v3/board_ui.cpp — §A0 2026-08-03; the port is
 // per-BOARD, so V4 brings its own variants/heltec_v4/board_ui.cpp). EVERY other
 // profile gets the inline no-ops below, so the fw_main call sites are UNCONDITIONAL (no `#if` sprawl at the call
@@ -33,15 +34,26 @@ namespace meshroute { struct Push; }
 //   writers (fw_main's ctr lease / leaf-config adopt, firmware_remote's admin writes) stay SILENT: they are not
 //   user-initiated, they assign no covered field, and the lease is on a timer. The rule, the seven call sites and the
 //   measurement behind the exemption live at `§notify-every-save` in `src/firmware_config.cpp`.
+// ★★★ THE FIFTH HOOK (§B197/§B198). Same shape and the same reason as the four above: `src/fw_main.cpp`'s idle
+// light-sleep gate must be able to ask *"is the UI in the middle of something?"* WITHOUT knowing that a panel, a
+// button pin or a page loop exists. ⛔ NO `MR_FEAT_OLED` MAY REACH THE SLEEP GATE — the call stays unconditional and
+// this header supplies the always-true stub, so a non-OLED profile's sleep behaviour is BYTE-IDENTICAL to before.
+// ⚠ THE SENSE IS "MAY I SLEEP?", never "am I busy?": `true` = the UI has no objection. The non-OLED answer is
+//   therefore `true`, and an OLED board that could not ARM ITS WAKE SOURCE answers `false` FOR THE WHOLE BOOT —
+//   ★★ FAIL CLOSED. A node that sleeps with the user button unarmed is [[B197]] made permanent and invisible: the
+//   only inputs left are a DIO1 RxDone and the ≤1 s deadline timer, and neither is reachable by the operator.
+// ⓘ Called every service pass, so it must stay cheap: the OLED side is three boolean reads of state it already owns.
 #if MR_FEAT_OLED
 void mr_ui_init();                                // boot: bring the panel up (called once, end of setup())
 void mr_ui_tick(uint32_t now_ms);                 // main loop: periodic refresh — THROTTLE inside (called every service pass)
 void mr_ui_on_push(const meshroute::Push& pu);    // event: an app Push worth surfacing (RX DM / channel / ACK / send-failed)
 void mr_ui_on_config_saved();                     // event: a SUCCESSFUL, PERSISTED /mrcfg write by serial/BLE (§3.6.1)
+bool mr_ui_allows_sleep();                        // policy: may the CPU light-sleep now? (false = panel lit / gesture / open frame)
 #else
 // No display on this profile -> every hook inlines to nothing (the call sites stay unconditional).
 inline void mr_ui_init() {}
 inline void mr_ui_tick(uint32_t /*now_ms*/) {}
 inline void mr_ui_on_push(const meshroute::Push& /*pu*/) {}
 inline void mr_ui_on_config_saved() {}
+inline bool mr_ui_allows_sleep() { return true; }
 #endif

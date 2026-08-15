@@ -1423,7 +1423,12 @@ static void mesh_service_once() {
     // explicit `sleep` command forces it even with a host present. A host that has typed latches us awake so
     // the console stays usable (ESP32 light-sleep would otherwise gate the UART and strand it). See MR_BOOT_GRACE_MS.
     const bool may_sleep = !g_halted && (g_force_sleep || (!g_host_present && s_now >= MR_BOOT_GRACE_MS));   // halted -> stay awake (console-responsive)
-    if (may_sleep && !g_iradio.tx_busy() && g_hal.txq_depth() == 0 && !serial_has_input() && !mrble::connected()) {
+    // §B197/§B198: ...and the UI must have no objection — panel blanked, no gesture being classified, no page-buffer
+    // frame open. Inlines to `true` off MR_FEAT_OLED (lib/hal/mr_ui.h), so no `#if` reaches this gate and a non-OLED
+    // profile's behaviour is unchanged. ⚠ It constrains `g_force_sleep` too, deliberately: an explicit `sleep` on an
+    // OLED build waits for the bounded UI work to finish rather than stranding a half-painted emergency screen.
+    if (may_sleep && mr_ui_allows_sleep() &&
+        !g_iradio.tx_busy() && g_hal.txq_depth() == 0 && !serial_has_input() && !mrble::connected()) {
         uint64_t due = g_hal.next_due_ms();                    // UINT64_MAX if no timer armed
         const uint64_t cap = s_now + MR_MAX_SLEEP_MS;
         if (due > cap) due = cap;

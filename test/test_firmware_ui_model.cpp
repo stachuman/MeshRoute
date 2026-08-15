@@ -3360,3 +3360,120 @@ TEST_CASE("ui14-notify: a write while the service is CLOSED is harmless, and doe
     CHECK(f.svc.conflict() == false);
     CHECK(f.m.settings_row_list(s).n == 7);
 }
+
+
+// ================================================================ §B197/§B198 — `ui_allows_sleep`, the UI sleep policy
+// ★★★ WHAT THIS BLOCK IS FOR. `src/fw_main.cpp`'s idle light-sleep gate is compiled by neither the native suite nor
+//   the simulator, so before this the sleep policy could only ever be GREPPED. `mrui::ui_allows_sleep` is the pure
+//   predicate that gate calls through `mr_ui_allows_sleep()`, and these cases drive it against the REAL `UiModel`,
+//   `InputFsm` and `FrameGate` — not against booleans standing in for them.
+// ⚠ EVERY FALSE TERM IS EXERCISED SEPARATELY AND WITH THE OTHER TWO PERMISSIVE, which is what makes each one
+//   individually load-bearing: a case that left two terms false could not tell which one was doing the work.
+
+// Bring a model to the BLANKED state the way the device does: seed the inactivity clock, then tick again once
+// kBlankMs has passed with no gesture. ⛔ Never by poking `UiState` — `blanked` is the model's own.
+// ⚠ `base` is not decoration: `on_tick` seeds `_last_input_ms` on the FIRST call only, so a helper that always seeded
+//   from 0 would, on an already-seeded model, blank via an UNSIGNED WRAP instead of via the real 15 s window — a case
+//   that passes for the wrong reason.
+static void blank_the_model(UiModel& m, uint32_t base = 0) {
+    UiSnapshot s0 = snap(base);                 m.on_tick(s0);
+    UiSnapshot s1 = snap(base + kBlankMs + 1);  m.on_tick(s1);
+}
+
+TEST_CASE("ui-sleep: blank + idle input + no open frame is the ONLY state that permits sleep") {
+    UiModel m; InputFsm in; FrameGate g;
+    blank_the_model(m);
+    CHECK(m.state().blanked == true);
+    CHECK(in.active()       == false);
+    CHECK(g.frame_open()    == false);
+    CHECK(ui_allows_sleep(m, in, g) == true);
+}
+
+TEST_CASE("ui-sleep: a LIT panel forbids sleep — the operator is looking at it") {
+    UiModel m; InputFsm in; FrameGate g;
+    UiSnapshot s = snap(0); m.on_tick(s);           // seeded, never blanked
+    CHECK(m.state().blanked == false);
+    CHECK(in.active() == false);                    // ★ the other two terms are PERMISSIVE, so `blanked` is what fails
+    CHECK(g.frame_open() == false);
+    CHECK(ui_allows_sleep(m, in, g) == false);
+    // ...and the bounded 15 s attention window is what ends it, with nothing else changing.
+    blank_the_model(m);
+    CHECK(m.state().blanked == true);
+    CHECK(ui_allows_sleep(m, in, g) == true);
+}
+
+TEST_CASE("ui-sleep: a gesture being CLASSIFIED forbids sleep, even on a blank panel") {
+    UiModel m; InputFsm in; FrameGate g;
+    blank_the_model(m);
+    CHECK(ui_allows_sleep(m, in, g) == true);       // the baseline this case moves ONE term away from
+    in.update(true, 20000);                         // the raw edge: undecided
+    CHECK(in.active() == true);
+    CHECK(m.state().blanked == true);               // ★ still blanked — the gesture alone is what forbids it
+    CHECK(g.frame_open() == false);
+    CHECK(ui_allows_sleep(m, in, g) == false);
+    // ⛔ AND IT STAYS FORBIDDEN ACROSS THE WHOLE UNDECIDED WINDOW. A ≤1 s sleep pass anywhere in here is exactly what
+    //    turned a real tap into nothing on metal: debounce is 25 ms, the double window 350 ms, the arm 800 ms.
+    in.update(true,  20030); CHECK(ui_allows_sleep(m, in, g) == false);   // debounced press
+    in.update(false, 20100); CHECK(ui_allows_sleep(m, in, g) == false);   // release debounce
+    in.update(false, 20130); CHECK(ui_allows_sleep(m, in, g) == false);   // pending single-vs-double
+    CHECK(in.update(false, 20450) == Gesture::short_press);
+    CHECK(in.active() == false);
+    // ⓘ The press is a real gesture through the real classifier, so the model consumes it as the WAKING press and the
+    //   panel lights — which is the correct combined answer, not a weakening of this case.
+    m.on_gesture(Gesture::short_press, snap(20450));
+    CHECK(m.state().blanked == false);
+    CHECK(ui_allows_sleep(m, in, g) == false);
+}
+
+TEST_CASE("ui-sleep: an OPEN page-buffer frame forbids sleep until its last page is out (B198)") {
+    UiModel m; InputFsm in; FrameGate g; UiInboxCounters c{};
+    UiSnapshot s = snap(10000);
+    m.on_tick(s);
+    m.mark_dirty();
+    CHECK(g.step(m, s, /*mac_idle=*/true) == FrameStep::open);
+    CHECK(g.frame_open() == false);                 // ⓘ `_open` is set by on_page, not by step
+    g.on_page(/*more=*/true, m, c);
+    CHECK(g.frame_open() == true);
+    // ★★ THE B198 STATE ITSELF, AND IT IS THE ONE THAT MEASURED ~8 s ON METAL: seven pages still to push. Make the
+    //    other two terms PERMISSIVE so `frame_open` is provably the term doing the work.
+    blank_the_model(m, 10000);
+    CHECK(m.state().blanked == true);
+    CHECK(in.active() == false);
+    CHECK(ui_allows_sleep(m, in, g) == false);
+    // Push the remaining seven pages; only the LAST one closes the loop.
+    for (int i = 0; i < 6; ++i) {
+        g.on_page(/*more=*/true, m, c);
+        CHECK(g.frame_open() == true);
+        CHECK(ui_allows_sleep(m, in, g) == false);
+    }
+    g.on_page(/*more=*/false, m, c);                // the frame is COMPLETE
+    CHECK(g.frame_open() == false);
+    CHECK(ui_allows_sleep(m, in, g) == true);
+}
+
+// ★★ THE THREE-TERM MATRIX, stated as one case so no combination is left to inference: sleep is permitted in EXACTLY
+//    one of the eight cells. Without this, three independent "this term forbids it" cases would still be satisfied by
+//    a predicate that ORed them, or by one that dropped a term the other cases never varied alone.
+TEST_CASE("ui-sleep: exactly one of the eight term combinations permits sleep") {
+    for (int bits = 0; bits < 8; ++bits) {
+        const bool want_blank = (bits & 1) != 0, want_input = (bits & 2) != 0, want_frame = (bits & 4) != 0;
+        UiModel m; InputFsm in; FrameGate g; UiInboxCounters c{};
+        UiSnapshot s0 = snap(0); m.on_tick(s0);                  // seed the inactivity clock at 0
+        // ⚠ ORDER MATTERS: `FrameGate::step` answers `blank` on a blanked model and would never open a frame, so the
+        //   frame is opened FIRST and the panel blanked afterwards. That is also the real sequence B198 measured.
+        if (want_frame) {
+            // ⓘ 10000 ms, not a small number: `FrameGate` has a 2 Hz throttle, so a `step` at t = 100 answers `idle`
+            //   and the frame would never open — a harness detail that would silently make three cells vacuous.
+            UiSnapshot s = snap(10000);
+            m.mark_dirty();
+            CHECK(g.step(m, s, /*mac_idle=*/true) == FrameStep::open);
+            g.on_page(/*more=*/true, m, c);
+        }
+        if (want_blank) blank_the_model(m);
+        if (want_input) in.update(true, 40000);
+        CHECK(m.state().blanked == want_blank);
+        CHECK(in.active()       == want_input);
+        CHECK(g.frame_open()    == want_frame);
+        CHECK(ui_allows_sleep(m, in, g) == (want_blank && !want_input && !want_frame));
+    }
+}

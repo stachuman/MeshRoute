@@ -1994,4 +1994,28 @@ protected:
     uint32_t  _fr_news = 0;
 };
 
+// ============================================================== §B197/§B198 — MAY THE DEVICE LIGHT-SLEEP RIGHT NOW?
+// ★★★ THE UI HALF OF THE SLEEP POLICY, AND IT IS HERE FOR THE SAME REASON `FrameGate` IS: `src/fw_main.cpp`'s sleep
+//   gate is compiled by neither the native suite nor the simulator, so a predicate written there could only ever be
+//   grepped. As a pure function over the THREE EXISTING AUTHORITIES it is driven by the native suite against the real
+//   `UiModel` / `InputFsm` / `FrameGate` state machines.
+//
+// ★★ THE THREE TERMS ARE THREE DIFFERENT DEFECTS, not one property spelled three ways:
+//   `blanked`      — while the panel is intentionally LIT the operator is looking at it, and the ~15 s attention
+//                    window (`kBlankMs`) is already bounded, so the CPU stays up for it. ⛔ Note the two clocks are
+//                    INDEPENDENT: a dark panel says nothing about `MR_BOOT_GRACE_MS`, and vice versa ([[B197]]).
+//   `input.active` — [[B197]]: a ≤1 s sleep pass is longer than debounce (25 ms), the double window (350 ms) and the
+//                    arm threshold (800 ms), so sleeping mid-gesture is what turns one short tap into "nothing
+//                    happened" and a long hold into the only input that ever registers.
+//   `frame_open`   — [[B198]]: the panel paints ONE 128 B page per service pass, so a sleep pass between pages costs
+//                    the WHOLE FRAME up to 8 × MR_MAX_SLEEP_MS ≈ 8 s. Measured on metal, on the EMERGENCY screen.
+//
+// ⛔ `FrameGate::frame_open()` IS the page-loop authority and it already existed — the board's private `s_painting`
+//   must NOT be exported to answer this ([[B198]]'s own correction). The two are kept in step by `on_page`.
+// ⓘ This says nothing about the RADIO or the host: `!tx_busy && txq_depth == 0 && !serial_has_input && !ble` stay
+//   exactly where they are, in the fw_main gate. This predicate only ever ADDS a reason to stay awake.
+inline bool ui_allows_sleep(const UiModel& m, const InputFsm& in, const FrameGate& g) {
+    return m.state().blanked && !in.active() && !g.frame_open();
+}
+
 }  // namespace mrui

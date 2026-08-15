@@ -122,6 +122,12 @@ struct Canvas {
     char page_text[2048] = {};            // every string of the current frame, '|'-separated
     size_t n_page_text = 0;
     bool init_answer  = true;             // what board_init() reports (§B91)
+    // ---- §B197: the button wake -------------------------------------------------------------------------------
+    // ★ `wake_answer` is what the BOARD reports back from its two ESP-IDF calls, so the caller's FAIL-CLOSED arm is
+    //   reachable from a host. It is the only input to `s_btn_wake_armed`, which is the only thing that can make
+    //   `mr_ui_allows_sleep()` refuse regardless of UI state.
+    int  wake_calls   = 0;
+    bool wake_answer  = true;
     bool button_down  = false;
     int32_t batt_answer = -1;             // what battery_sample_mv() hands back; <0 = unavailable (the real V3 today)
     int  bus_ops() const { return init + begin_frame + next_page + power_save; }
@@ -175,6 +181,10 @@ void draw_text(int, int, const char* s) {
 void draw_hline(int, int, int)         { ++g_c.draw_hline; }
 void set_power_save(bool on)           { ++g_c.power_save; g_c.last_power_save = on ? 1 : 0; }
 bool button_pressed()                  { ++g_c.button; return g_c.button_down; }
+// §B197: the REAL one lives in variants/heltec_v3/board_ui.cpp and is measured by tools/probe_board_ui (P11 + its
+// nine controls). Here it is a scriptable stand-in, because what THIS probe measures is what the FEATURE layer does
+// with the answer — arm once, say so on failure, and never sleep afterwards.
+bool enable_button_wake()              { ++g_c.wake_calls; return g_c.wake_answer; }
 int32_t battery_sample_mv()            { ++g_c.battery; return g_c.batt_answer; }
 }  // namespace mrui
 
@@ -968,6 +978,85 @@ int main() {
             CHK("P9d the DM airing turns QUEUED into SENT, waiting",
                 strstr(g_c.page_text, "SENT, waiting") != nullptr && strstr(g_c.page_text, "QUEUED") == nullptr);
         }
+    }
+
+    // ============================================================================================================ P10
+    // ★★★ §B197/§B198 — THE DEVICE SLEEP POLICY, THROUGH THE REAL `mr_ui_allows_sleep()`. The PURE predicate is under
+    //   the native gate (`ui-sleep:` cases, nine mutations); what NO native case can reach is this file's two jobs:
+    //   arming the wake source and REFUSING FOR THE WHOLE BOOT when that fails. `src/fw_main.cpp`'s gate — the one
+    //   consumer — is outside every build a host can make, and is pinned structurally by `probe_board_ui`'s W23.
+    {
+        // ---- (i) the wake is armed ONCE, by mr_ui_init, and its failure is SAID ---------------------------------
+        g_c.wake_calls = 0; g_c.wake_answer = true;
+        Serial.reset();
+        mr_ui_init();
+        CHK("P10a mr_ui_init arms the button wake exactly once", g_c.wake_calls == 1);
+        CHK("P10a ...and says nothing about it when it succeeds",
+            strstr(Serial.out, "button wake unavailable") == nullptr);
+
+        // ---- (ii) a blank, idle, frame-free node PERMITS sleep --------------------------------------------------
+        // ⚠ This is the POSITIVE arm and it comes first deliberately: every "refuses" check below is only evidence
+        //   because this state exists and answers true. Without it a hook stuck at `false` would satisfy them all.
+        uint32_t t10 = settle(600000);
+        paint(t10);
+        t10 += 20000; tick(t10);                    // > kBlankMs since the last input -> the panel blanks
+        CHK("P10b a blank, idle node with no open frame PERMITS sleep", mr_ui_allows_sleep() == true);
+
+        // ---- (iii) a LIT panel refuses — the bounded 15 s attention window --------------------------------------
+        g_c.button_down = true;  tick(t10 + 10); tick(t10 + 60);
+        g_c.button_down = false; tick(t10 + 110);
+        // ★ THE B197 DISCRIMINATOR, AND IT IS MEASURED BEFORE THE PANEL EVER LIGHTS: the press is still UNDEBOUNCED
+        //   here, so the model has not yet been woken by any gesture — the ONLY thing forbidding sleep at this
+        //   instant is that a gesture is being classified. That is exactly the ≤1 s window a sleeping node used to
+        //   spend asleep, which is why a tap did nothing and only a long hold ever got through.
+        g_c.button_down = true;  tick(t10 + 200);
+        CHK("P10c a press being CLASSIFIED refuses sleep (B197)", mr_ui_allows_sleep() == false);
+        g_c.button_down = false;
+        t10 = settle(t10 + 300);                    // complete the gesture; the panel is now LIT
+        CHK("P10d a LIT panel refuses sleep", mr_ui_allows_sleep() == false);
+
+        // ---- (iv) an OPEN page-buffer frame refuses on EVERY page pass (B198) -----------------------------------
+        // ⛔ THE HARM WAS ~8 SECONDS PER FRAME ON THE EMERGENCY SCREEN: one 128 B page per service pass × a ≤1 s
+        //   sleep between passes. So the property is "false on every pass of the frame", not "false at some point".
+        dirty_the_model(t10 + 100);
+        g_c = Canvas{}; g_c.wake_answer = true;
+        int refused_mid_frame = 0;
+        for (int i = 0; i < 8; ++i) {
+            tick(t10 + 200 + uint32_t(i) * 10);
+            if (!mr_ui_allows_sleep()) ++refused_mid_frame;
+        }
+        CHK("P10e sleep is refused on EVERY page pass of the frame (B198)", refused_mid_frame == 8);
+        CHK("P10e ...and the frame really did page out (8 pages, none blank)",
+            g_c.next_page == 8 && g_c.min_draws_per_page >= 1);
+        // ⓘ WHAT THIS ARM CANNOT ISOLATE, stated rather than implied: a frame can only be OPEN on a LIT panel, so
+        //   `blanked` is false here too and this cannot prove `frame_open` is the term doing the work. The native
+        //   `ui-sleep:` matrix drives all eight term combinations and does prove it; this measures the shipped path.
+        t10 += 400;
+        t10 += 20000; tick(t10);                    // blank again, frame long since complete
+        CHK("P10f ...and permitted again once the frame is out and blank",
+            mr_ui_allows_sleep() == true);
+
+        // ---- (v) ★★★ THE FAIL-CLOSED PATH. The single most important behaviour in this slice ---------------------
+        // ⛔ A node that light-sleeps with its button unarmed is [[B197]] made PERMANENT AND INVISIBLE: the only
+        //   remaining wake sources are a LoRa RxDone and the ≤1 s deadline timer, neither of which the operator can
+        //   reach. ⇒ an arming failure must disable sleep for the WHOLE BOOT, and must SAY SO once, exactly.
+        Serial.reset();
+        g_c.wake_answer = false;
+        mr_ui_init();
+        CHK("P10g a wake-arm FAILURE is reported with the exact boot line",
+            strstr(Serial.out, "!! OLED button wake unavailable; sleep disabled") != nullptr);
+        t10 = settle(t10 + 1000);
+        paint(t10);
+        t10 += 20000; tick(t10);                    // the SAME blank/idle/frame-free state that permitted sleep above
+        CHK("P10h ...and that state now REFUSES sleep (fail closed)", mr_ui_allows_sleep() == false);
+
+        // ---- (vi) the positive control for (v): re-arming restores it, so P10h is not a stuck `false` ------------
+        g_c.wake_answer = true;
+        mr_ui_init();
+        t10 = settle(t10 + 1000);
+        paint(t10);
+        t10 += 20000; tick(t10);
+        CHK("P10i a successful re-arm restores sleep in the same state", mr_ui_allows_sleep() == true);
     }
 
     printf("\n%d passed / %d failed / %d total\n", g_pass, g_fail, g_pass + g_fail);

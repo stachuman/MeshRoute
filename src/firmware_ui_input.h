@@ -45,6 +45,22 @@ public:
 
     uint32_t hold_ms(uint32_t now_ms) const { return _stable ? now_ms - _press_ms : 0; }
 
+    // ★★★ §B197/§B198 — "a gesture is still being CLASSIFIED", read-only. The device sleep gate needs this: an
+    //   ESP32 light-sleep pass can be up to MR_MAX_SLEEP_MS (1000 ms) long, which is longer than debounce_ms (25),
+    //   double_gap_ms (350) and arm_ms (800), so a node that slept between the edge and the decision would classify
+    //   a real gesture from samples a second apart — or drop it. ⇒ while this is true the CPU must stay awake.
+    // ★ THE THREE TERMS ARE THE THREE UNDECIDED STATES, and each covers a window the others do not:
+    //     `_raw`         a level change has been SEEN but not yet debounced (press debounce AND release debounce —
+    //                    `_raw` is the raw level, so it is true through a press and false through a release; the
+    //                    release window is covered by `_stable`, which is still true until the debounce completes);
+    //     `_stable`      a debounced press is being HELD — the arm/fire clock is running;
+    //     `_pending_tap` released, and the single-vs-double decision has not expired yet (`double_gap_ms`).
+    // ⛔ `_armed` / `_fired` NEED NO TERM, and adding one would be wrong rather than merely redundant: WHILE HELD they
+    //   are strictly implied by `_stable` (both are only ever set with `_stable` true, and `on_release` is the only
+    //   other writer), and AFTER the release they are HISTORICAL — `_fired` in particular stays true until the next
+    //   debounced press, so a term on it would hold the CPU awake for ever after one emergency fire.
+    bool active() const { return _raw || _stable || _pending_tap; }
+
 private:
     Gesture on_release() {
         _release_ms = _edge_ms;

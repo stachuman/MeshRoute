@@ -10,6 +10,11 @@
 // ★ WHAT IS DONE AND WHAT IS NOT — stated here because docs rot and code is read:
 //   DONE      the display-independent canvas of board_ui.h — panel bring-up, page-chunked paint, edge-triggered
 //             blanking, the user button. Nothing above this file may see U8g2, and nothing here may see a "screen".
+//   DONE      §B197 (2026-08-14): `enable_button_wake()` arms MR_UI_BTN_PIN as an ACTIVE-LOW light-sleep wake source
+//             and REPORTS whether both platform calls succeeded — the caller fails CLOSED on false (stays awake).
+//   NOT DONE  nothing in this TU can prove that the digital-domain GPIO wake COEXISTS with the radio's RTC-domain
+//             `ext1` DIO1 wake in ESP32-S3 light sleep. That is the design's one unproven hardware assumption and is
+//             metal-only, per wake source, independently (bench script Part 23).
 //   DONE      battery_sample_mv() is REAL as of plan Task 9 / slice UI-9 (spec §7): auto-detected ADC_CTRL polarity,
 //             divider enabled only around the burst, mean of 8 samples, NO settling delay. It still answers `-1` when
 //             the reading is not a battery (see the plausibility window), because `--` is this project's rule for an
@@ -35,6 +40,12 @@
 #include <Wire.h>          // §B91: the panel-ACK probe. U8g2 already links Wire on this env (U8x8lib.cpp:52 includes
                            // it unconditionally) and OWNS Wire.begin(), so this adds no dependency — only a use.
 #include <U8g2lib.h>
+// §B197: the light-sleep GPIO wake source. `driver/gpio.h` for gpio_wakeup_enable + GPIO_INTR_LOW_LEVEL, `esp_sleep.h`
+// for esp_sleep_enable_gpio_wakeup. This TU is compiled ONLY on the ESP32-S3 OLED envs (MR_FEAT_OLED), so no
+// architecture `#if` is needed — and adding one would state a portability this file does not have (it names U8g2, I2C
+// and the board's pin table outright). The V4 port brings its own variants/heltec_v4/board_ui.cpp.
+#include <driver/gpio.h>
+#include <esp_sleep.h>
 #include "board_ui.h"
 
 #ifndef MR_UI_BTN_PIN
@@ -297,6 +308,28 @@ void set_power_save(bool on) {
 
 bool button_pressed() { return digitalRead(MR_UI_BTN_PIN) == LOW; }   // INPUT_PULLUP -> pressed reads LOW
 
+// ★★★ §B197 — THE BUTTON BECOMES A WAKE SOURCE. Until this existed the only light-sleep wake sources were the radio's
+//   DIO1 (`ext1`, fw_main.cpp's board_sleep_until) and the ≤1 s deadline timer, so a headless node past
+//   MR_BOOT_GRACE_MS answered a short tap only if the tap happened to land in the sliver of each second it was awake.
+//   The owner reproduced exactly that on metal: taps did nothing, a long hold eventually got through.
+// ★★ LEVEL, NOT EDGE, AND THAT IS THE PLATFORM'S RULE RATHER THAN A CHOICE: ESP32 light-sleep GPIO wake supports only
+//   the two LEVEL triggers (`GPIO_INTR_LOW_LEVEL` / `GPIO_INTR_HIGH_LEVEL`); the edge triggers are rejected. LOW is
+//   the pressed level of the INPUT_PULLUP contract `button_pressed()` reads one line above — ONE polarity authority.
+//   A level source is also the RIGHT shape here: it makes the wake reachable for as long as the finger is down,
+//   instead of depending on the instant the edge occurred.
+// ★★★ BOTH RETURNS ARE CHECKED AND THE FAILURE IS PROPAGATED, NOT LOGGED-AND-IGNORED. `gpio_wakeup_enable` rejects a
+//   pin that cannot wake; `esp_sleep_enable_gpio_wakeup` is what actually admits the GPIO source to the next
+//   `esp_light_sleep_start()`. Either one failing means a press CANNOT wake this node ⇒ the caller keeps it awake for
+//   the whole boot (src/firmware_ui.cpp's mr_ui_init / mr_ui_allows_sleep). ⛔ There is deliberately no retry and no
+//   "try again next boot" state: this is boot-time pin configuration, and a silent second attempt would be a fallback
+//   nobody agreed to (C2).
+// ⛔ IT DOES NOT TOUCH DIO1. The radio's `ext1` source is armed per-sleep in fw_main and is not reordered, disabled or
+//   replaced here — see board_ui.h for the coexistence assumption this leaves for the bench to settle.
+bool enable_button_wake() {
+    if (gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL) != ESP_OK) return false;
+    return esp_sleep_enable_gpio_wakeup() == ESP_OK;
+}
+
 // ★ ONE SAMPLE. The CALLER decides when (spec §7: boot, then every ~30 s, and only under the §5 MAC-idle predicate —
 //   src/firmware_ui.cpp's battery_maybe_sample). This function owns no cadence and no policy; it must not acquire one.
 // ★ ENABLE -> SAMPLE -> DISABLE, with NO per-tick residue — the same edge/latch discipline set_power_save() follows.
@@ -334,6 +367,7 @@ int32_t battery_sample_mv() {
 //
 // ⓘ The `--gc-sections` reachability that `mr_ui_init()` used to provide (§B88) now comes from the real caller:
 //    `firmware_ui.cpp` calls `board_init`, `begin_frame`, `next_page`, `set_font`, `draw_text`, `draw_hline`,
-//    `set_power_save`, `button_pressed` and `battery_sample_mv` — all nine canvas entry points, so none is collected.
+//    `set_power_save`, `button_pressed`, `battery_sample_mv` and — since §B197 — `enable_button_wake`: all TEN canvas
+//    entry points, so none is collected.
 
 #endif  // MR_FEAT_OLED

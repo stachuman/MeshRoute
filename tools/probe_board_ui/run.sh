@@ -91,6 +91,10 @@ fi
 for h in mr_ui_init mr_ui_tick mr_ui_on_push; do
   schk "S2 src/firmware_ui.cpp defines $h" "grep -qE '^void $h\\(' '$FW_UI'"
 done
+# S2b §B197's FIFTH hook. Separate from the loop above because it is the only one that RETURNS something — and the
+#     return is the whole seam: `bool`, not `void`. A `void` here would not link against `lib/hal/mr_ui.h`'s
+#     declaration at all, which is a stronger backstop than this grep; the grep is what says WHICH TU owns it.
+schk "S2b src/firmware_ui.cpp defines mr_ui_allows_sleep" "grep -qE '^bool mr_ui_allows_sleep\\(' '$FW_UI'"
 # S3 THE ONCE-PER-PAGE REDRAW, caller half. U8g2 CLIPS each page rather than accumulating, so drawing once at frame
 #    start and then only advancing pages leaves 7 of 8 pages blank (spec §5).
 # ★ RE-EXPRESSED 2026-08-05 by §B107, and the property got STRONGER, not weaker. It used to check for >=2 `draw_frame`
@@ -515,6 +519,76 @@ wchk_in "$FW_MAIN" "W22 collect+drain run BEFORE the timer loop and pump_tx AFTE
      w22 's|^    g_hal.collect_tx_completion();$|__W22_MOVED__|; s|^    for (int id; (id = g_hal.pop_due_timer()).*$|\&\n    g_hal.collect_tx_completion();|; s|^__W22_MOVED__$|    ;|' \
          's|^    g_hal.pump_tx();$|    ;|; s|^    for (int id; (id = g_hal.pop_due_timer()).*$|    g_hal.pump_tx();\n\&|' \
          's|^    g_hal.pump_tx();$|    ;|; s|^    g_hal.collect_tx_completion();$|    g_hal.collect_tx_completion();\n    g_hal.pump_tx();|'
+# ================================================================================================ W23-W28
+# ★★★ §B197/§B198 — THE SLEEP SEAM. Five files, none of which any behavioural gate can reach: `src/fw_main.cpp` is
+#     outside the native build and outside the simulator; `lib/hal/mr_ui.h`'s non-OLED arm is compiled only by board
+#     envs; `src/firmware_ui.cpp`'s fail-closed latch is reachable by `tools/probe_firmware_ui` but its CALL SITE in
+#     the loop is not. The PURE halves (`InputFsm::active`, `mrui::ui_allows_sleep`) are under the native gate.
+# ⚠ `flat1` squeezes runs of spaces as well as stripping comments, because the sleep gate is now a TWO-LINE `if` and a
+#   continuation indent is not a property anybody should be able to break this check with.
+flat1() { code_flat "$1" | tr -s ' '; }
+# W23 THE GATE ITSELF, AND ITS ORDER. Three properties in one sequence, which is what makes each control a plausible
+#     wrong answer rather than a deletion:
+#       (a) `mr_ui_tick()` runs BEFORE the gate — the UI must have serviced this pass (advanced its gesture, pushed a
+#           page, possibly blanked) before its answer is consulted, or the gate reads last pass's state;
+#       (b) `mr_ui_allows_sleep()` is IN the gate, ANDed;
+#       (c) the four EXISTING terms are all still there — a fix that quietly dropped `!serial_has_input()` would let a
+#           node sleep on a host that had just typed.
+w23() { flat1 "$1" | grep -qE 'mr_ui_tick\(\(uint32_t\)now\);.*if \(may_sleep && mr_ui_allows_sleep\(\) && !g_iradio\.tx_busy\(\) && g_hal\.txq_depth\(\) == 0 && !serial_has_input\(\) && !mrble::connected\(\)\)'; }
+wchk_in "$FW_MAIN" "W23 the sleep gate consults mr_ui_allows_sleep() after mr_ui_tick, terms intact" \
+     w23 's|    if (may_sleep \&\& mr_ui_allows_sleep() \&\&|    if (may_sleep \&\&|' \
+         's|    if (may_sleep \&\& mr_ui_allows_sleep() \&\&|    if (may_sleep \|\| mr_ui_allows_sleep() \&\&|' \
+         's|!serial_has_input() \&\& !mrble::connected()) {|!mrble::connected()) {|' \
+         's|^    mr_ui_tick((uint32_t)now);.*$|    ;|; s|^        board_sleep_until(due, s_now);$|        board_sleep_until(due, s_now);\n    mr_ui_tick((uint32_t)now);|'
+# W24 ⛔ THE HOOK MUST STAY FEATURE-NEUTRAL, exactly as W13 requires of the config path: no `MR_FEAT_OLED` may appear
+#     anywhere near the sleep gate, or `fw_main` has acquired a display dependency. Its control ADDS the guard, because
+#     "no `#if` here" cannot be reverted by deletion.
+w24() { ! flat1 "$1" | grep -qE 'MR_FEAT_OLED'; }
+wchk_in "$FW_MAIN" "W24 fw_main's sleep gate stays feature-neutral (no MR_FEAT_OLED)" \
+     w24 's|    if (may_sleep \&\& mr_ui_allows_sleep() \&\&|#if MR_FEAT_OLED\n    if (may_sleep \&\& mr_ui_allows_sleep() \&\&|'
+# W25 ⛔⛔ THE DIO1 WAKE IS NOT REPLACED, REORDERED OR REMOVED. §3.1.2: the radio's RTC-domain `ext1` source stays
+#     exactly as it was, and whether it COEXISTS with the new digital-domain GPIO source is metal-only. A slice that
+#     "simplified" the radio onto GPIO wake would be changing the radio path behind a UI fix.
+w25() { flat1 "$1" | grep -qF 'esp_sleep_enable_ext1_wakeup((1ULL << LORA_PIN_DIO1), ESP_EXT1_WAKEUP_ANY_HIGH);'; }
+wchk_in "$FW_MAIN" "W25 board_sleep_until still arms DIO1 ext1 wake, unchanged" \
+     w25 's|        esp_sleep_enable_ext1_wakeup((1ULL << LORA_PIN_DIO1), ESP_EXT1_WAKEUP_ANY_HIGH);.*|        ;|' \
+         's|        esp_sleep_enable_ext1_wakeup((1ULL << LORA_PIN_DIO1), ESP_EXT1_WAKEUP_ANY_HIGH);.*|        gpio_wakeup_enable((gpio_num_t)LORA_PIN_DIO1, GPIO_INTR_HIGH_LEVEL);|'
+# W26 ★★ THE NON-OLED ARM. Every profile without a panel must answer `true` — that is what makes this slice inert for
+#     them. A stub returning `false` would stop every headless node in the fleet from ever light-sleeping, and no test
+#     in this tree compiles that arm.
+MR_UI_H="$ROOT/lib/hal/mr_ui.h"
+w26() { flat1 "$1" | grep -qF 'inline bool mr_ui_allows_sleep() { return true; }' && \
+        flat1 "$1" | grep -qF 'bool mr_ui_allows_sleep();'; }
+wchk_in "$MR_UI_H" "W26 the non-OLED hook is an inline TRUE stub and the OLED one is declared" \
+     w26 's|inline bool mr_ui_allows_sleep() { return true; }|inline bool mr_ui_allows_sleep() { return false; }|' \
+         's|^bool mr_ui_allows_sleep();.*$||'
+# W27 ★★★ THE FAIL-CLOSED PATH, AND IT IS THE MOST IMPORTANT CHECK IN THIS BLOCK. Four clauses, four wrong answers:
+#       (a) the latch DEFAULTS to false — the safe answer must not depend on a code path remembering to write it;
+#       (b) it is assigned from the board's REPORT, not from a constant;
+#       (c) the failure is SAID (the exact boot line the bench looks for); and
+#       (d) `mr_ui_allows_sleep` REFUSES on it before consulting any UI state.
+#     ⛔ Without (d) a board whose wake source could not be armed sleeps anyway, which is [[B197]] made permanent and
+#     invisible — the one outcome this slice exists to prevent.
+w27() { flat1 "$1" | grep -qF 'bool s_btn_wake_armed = false;' && \
+        flat1 "$1" | grep -qF 's_btn_wake_armed = mrui::enable_button_wake();' && \
+        flat1 "$1" | grep -qF 'if (!s_btn_wake_armed) mrcon.println(F("!! OLED button wake unavailable; sleep disabled"));' && \
+        flat1 "$1" | grep -qF 'bool mr_ui_allows_sleep() { if (!s_btn_wake_armed) return false; return mrui::ui_allows_sleep(s_model, s_input, s_gate); }'; }
+wchk_in "$FW_UI" "W27 the button wake is armed, its failure is said, and sleep FAILS CLOSED on it" \
+     w27 's|bool              s_btn_wake_armed = false;|bool              s_btn_wake_armed = true;|' \
+         's|    s_btn_wake_armed = mrui::enable_button_wake();|    (void)mrui::enable_button_wake(); s_btn_wake_armed = true;|' \
+         's|    if (!s_btn_wake_armed) mrcon.println(F("!! OLED button wake unavailable; sleep disabled"));||' \
+         's|    if (!s_btn_wake_armed) return false;|    ;|' \
+         's|    return mrui::ui_allows_sleep(s_model, s_input, s_gate);|    return true;|'
+# W28 ⛔ `s_painting` STAYS PRIVATE TO THE BOARD TU ([[B198]]'s own correction). The logical page-loop authority is
+#     `FrameGate::frame_open()`, which already existed; exporting the board's private latch would give the sleep policy
+#     a SECOND page-loop authority that nothing keeps in step with the first.
+# ★ TWO CLAUSES: the feature layer never names it, and the canvas header exposes no accessor for it. Its controls ADD
+#   rather than delete, because negative space cannot be reverted by deletion.
+w28() { ! flat1 "$1" | grep -qE 's_painting|painting\(\)'; }
+wchk_in "$FW_UI" "W28 firmware_ui.cpp never reaches for the board-private s_painting" \
+     w28 's|    if (!s_btn_wake_armed) return false;|    if (!s_btn_wake_armed \|\| mrui::s_painting) return false;|'
+wchk_in "$BOARD_H" "W28b board_ui.h exposes no page-loop accessor (FrameGate::frame_open is the authority)" \
+     w28 's|bool enable_button_wake();|bool enable_button_wake();\nbool painting();|'
 echo "structural: $s_pass passed / $s_fail failed / $((s_pass+s_fail)) total"
 echo "wiring:     $w_pass passed / $w_fail failed / $((w_pass+w_fail)) total; $w_ctl negative control(s) verified RED"
 [ "$s_fail" -eq 0 ] || rc=1

@@ -169,6 +169,88 @@ TEST_CASE("ui-input: a button already down at construction still debounces befor
     CHECK(f.update(true, 9835) == Gesture::long_arm);      // 805 ms held
 }
 
+// ---------------------------------------------------------------- §B197: active() — "a gesture is being classified"
+// ★★★ WHY THIS PREDICATE EXISTS AND WHY IT IS TESTED HERE. The device sleep gate may not light-sleep while a gesture
+//   is undecided: an ESP32 light-sleep pass runs up to MR_MAX_SLEEP_MS = 1000 ms, which is longer than debounce_ms
+//   (25), double_gap_ms (350) AND arm_ms (800) — so sleeping between the edge and the decision is what turned a real
+//   short tap into "nothing happened" on metal ([[B197]]). The classifier is the only unit that knows.
+// ⚠ THE CASES BELOW ARE WRITTEN AS "TRUE THROUGH THE WHOLE WINDOW, FALSE THE INSTANT THE DECISION LANDS" rather than
+//   as spot checks, because the harm is a HOLE in the window, not a wrong value at one instant.
+
+TEST_CASE("ui-input: active() is false at rest and true from the very first pressed sample") {
+    InputFsm f;
+    CHECK(f.active() == false);                            // constructed idle: nothing to protect
+    f.update(true, 0);                                     // the raw edge — NOT yet debounced
+    CHECK(f.active() == true);                             // ...and the CPU must already be held awake
+    f.update(true, 10);  CHECK(f.active() == true);        // still inside debounce_ms
+    f.update(true, 30);  CHECK(f.active() == true);        // debounced press: held
+}
+
+TEST_CASE("ui-input: active() spans the whole single-tap decision and clears exactly when short_press lands") {
+    InputFsm f;
+    run_until(f, true, 0, 60);
+    CHECK(f.active() == true);                             // held
+    CHECK(f.update(false, 100) == Gesture::none);
+    CHECK(f.active() == true);                             // RELEASE debounce: _raw is already false, _stable is not
+    CHECK(f.update(false, 130) == Gesture::none);
+    CHECK(f.active() == true);                             // _pending_tap: single vs double is still undecided
+    // ★ THE WHOLE double_gap_ms WINDOW, sampled densely — a hole anywhere in it is a pass the device could sleep on.
+    // ⓘ The window is measured from the RELEASE EDGE (t = 100), not from the debounce completion — `on_release`
+    //   sets `_release_ms = _edge_ms`. So the decision is due at 100 + double_gap_ms = 450, and 445 is the last
+    //   sample that must still read active.
+    for (uint32_t t = 135; t < 450; t += 5) { f.update(false, t); CHECK(f.active() == true); }
+    CHECK(f.update(false, 450) == Gesture::short_press);    // the decision lands...
+    CHECK(f.active() == false);                             // ...and only now may the CPU sleep
+}
+
+TEST_CASE("ui-input: active() clears on a double_press, which never enters the pending-tap window") {
+    InputFsm f;
+    run_until(f, true, 0, 60); run_until(f, false, 65, 120); run_until(f, true, 125, 180);
+    CHECK(f.active() == true);
+    CHECK(f.update(false, 185) == Gesture::none);           // release debounce of the SECOND tap
+    CHECK(f.active() == true);
+    CHECK(f.update(false, 215) == Gesture::double_press);
+    CHECK(f.active() == false);
+}
+
+TEST_CASE("ui-input: active() holds through arm and fire, and clears once the fired press is released") {
+    InputFsm f;
+    CHECK(run_until(f, true, 0, 900) == Gesture::long_arm);
+    CHECK(f.active() == true);
+    CHECK(run_until(f, true, 905, 3600) == Gesture::long_fire);
+    CHECK(f.active() == true);                              // still held down — the alarm screen is live
+    CHECK(run_until(f, true, 3605, 5000) == Gesture::none);
+    CHECK(f.active() == true);
+    CHECK(f.update(false, 5100) == Gesture::none);
+    CHECK(f.active() == true);                              // release debounce
+    CHECK(f.update(false, 5130) == Gesture::none);          // _fired consumes the release: no gesture, no pending tap
+    // ⛔⛔ THE ONE THAT WOULD BE A DEFECT IF IT WERE TRUE. `_fired` stays set until the next debounced press, so a
+    //    predicate that included it would hold the CPU AWAKE FOR EVER after a single emergency — on a battery-powered
+    //    safety device. This is why the design gives `_armed`/`_fired` no term of their own.
+    CHECK(f.active() == false);
+}
+
+TEST_CASE("ui-input: active() clears on long_cancel too (armed, released before the fire)") {
+    InputFsm f;
+    CHECK(run_until(f, true, 0, 900) == Gesture::long_arm);
+    CHECK(f.update(false, 1000) == Gesture::none);
+    CHECK(f.active() == true);                              // release debounce
+    CHECK(f.update(false, 1030) == Gesture::long_cancel);
+    CHECK(f.active() == false);                             // `_armed` is history; it must not hold the CPU up
+}
+
+// A bounce shorter than debounce_ms produces NO gesture — but it is still an undecided edge while it lasts, and the
+// device must not sleep through it. ★ This is the case that separates `_raw` from `_stable`: `_stable` never moves
+// here, so a predicate built on `_stable` alone reads "idle" across a real physical press.
+TEST_CASE("ui-input: active() is true during a sub-debounce bounce that yields no gesture at all") {
+    InputFsm f;
+    f.update(true, 0);
+    CHECK(f.active() == true);
+    CHECK(f.update(false, 10) == Gesture::none);            // the bounce ends before debounce_ms
+    CHECK(run_until(f, false, 15, 600) == Gesture::none);
+    CHECK(f.active() == false);                             // settled again, nothing pending
+}
+
 // The cfg is per-instance, so a bench retune of fire_ms must be honoured without touching the class.
 TEST_CASE("ui-input: InputCfg is honoured — a retuned fire_ms moves the fire, not the arm") {
     InputFsm f(InputCfg{/*debounce_ms=*/25, /*double_gap_ms=*/350, /*arm_ms=*/800, /*fire_ms=*/1500});

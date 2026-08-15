@@ -1,7 +1,13 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # B197 + B198 — reliable button wake and prompt page-buffer rendering · **DESIGN ONLY** · 2026-08-14
 
-**Status:** design for review. No firmware, test, probe, or bench-script implementation is authorized by this file.
+**Status: ✅ APPROVED BY THE OWNER 2026-08-14 WITH FOUR REQUIRED EDITS — ALL FOUR ARE APPLIED BELOW — AND THEREFORE
+READY FOR IMPLEMENTATION.** ⛔ **CORRECTED IN PLACE (§3 rule 3): this line previously read *"design for review. No
+firmware, test, probe, or bench-script implementation is authorized by this file."* That was true when written and is
+now FALSE.** The four edits are: **(1)** the inherited radio-idle duplication, §1 — ⛔ do not unify it; **(2)** the
+GPIO0 strap facts, §3.1.1; **(3)** DIO1/GPIO coexistence marked as the principal unproven hardware assumption with a
+fail-safe, §3.1.2; **(4)** the structural simulator-inertness proof, §7. ⚠ **No QG approval of an IMPLEMENTATION is
+claimed — none exists yet.**
 The two defects share one sleep-policy boundary and should be one implementation slice. B196 remains a separate,
 undiagnosed panic investigation; this design neither attributes it nor proposes a fix for it.
 
@@ -17,9 +23,23 @@ undiagnosed panic investigation; this design neither attributes it nor proposes 
 | The logical page-loop authority already exists | `src/firmware_ui_model.h` — `FrameGate::frame_open()` | Do not expose or duplicate board-private `s_painting`. |
 | The pinned ESP32-S3 framework supports GPIO light-sleep wake | `driver/gpio.h` and `esp_sleep.h` | `gpio_wakeup_enable(..., GPIO_INTR_LOW_LEVEL)` followed by `esp_sleep_enable_gpio_wakeup()` is available. |
 
-The existing `mac_idle()` predicate in `firmware_ui.cpp` is the same radio/queue predicate used by the sleep gate.
-If MAC activity prevents a blank command or page advance, it also prevents that pass from sleeping. This shared
-predicate remains authoritative; no second radio-idle definition is introduced (U1).
+⛔⛔ **CORRECTED 2026-08-14 (QG). This paragraph previously read: *"The existing `mac_idle()` predicate in
+`firmware_ui.cpp` is the same radio/queue predicate used by the sleep gate … This shared predicate remains
+authoritative; no second radio-idle definition is introduced (U1)."* That implied ONE shared authority. THERE IS
+NOT ONE.** `mac_idle()` (`src/firmware_ui.cpp:206`) and the sleep gate's inline terms (`src/fw_main.cpp:1426`) are
+**two separate expressions of the same rule** — `!g_hal.radio().tx_busy() && g_hal.txq_depth() == 0` against
+`!g_iradio.tx_busy() && g_hal.txq_depth() == 0`. They are **equivalent today** (§B105: `g_hal.radio()` IS
+`g_iradio`, bound by reference at `fw_main.cpp:166`) but they are not one implementation.
+
+⇒ **THE SLICE INHERITS THIS PRE-EXISTING DUPLICATION AND ADDS ONLY `mr_ui_allows_sleep()` TO THE SLEEP GATE.**
+⛔ **DO NOT refactor or unify the two radio-idle expressions in this slice** — that is a separate change with its own
+risk, and folding it in would violate C1.
+
+★ **One comment IS corrected while the area is touched (V1), with logic UNCHANGED:** the block above `mac_idle()`
+(`src/firmware_ui.cpp:199-200`) claims *"The SAME predicate fw_main.cpp:1406 uses to decide it may sleep (U1 — do
+not invent a second one)"*. **Both halves are wrong: it is an equivalent expression rather than the same predicate,
+and the line reference is STALE — the gate is at `:1426`, not `:1406`.** Correct the wording and the reference; change
+no code.
 
 ## 2. Required behavior
 
@@ -28,7 +48,9 @@ predicate remains authoritative; no second radio-idle definition is introduced (
 3. While the panel is intentionally lit, the CPU stays awake for the existing bounded 15 s attention window.
 4. Sleep is also inhibited while button debounce/gesture classification or a logical page-buffer frame is active.
 5. Once the panel is blank, input is idle, and no frame is open, the existing headless sleep policy resumes.
-6. DIO1 RxDone wake and the one-second deadline timer remain unchanged and coexist with GPIO wake.
+6. DIO1 RxDone wake and the one-second deadline timer remain unchanged. ⚠ **Their coexistence with GPIO wake is the
+   design's PRINCIPAL UNPROVEN HARDWARE ASSUMPTION (§3.1.2), not established behaviour** — it is proved by the first
+   metal gate, independently per wake source, or the design does not proceed as written.
 7. Non-OLED profiles preserve the current sleep behavior exactly.
 
 UART input alone remains unable to wake a sleeping node. Supported recovery is button wake, a fresh monitor/DTR
@@ -52,6 +74,35 @@ Add a narrow `mrui::enable_button_wake()` board-canvas function beside `button_p
 
 The active-low level comes from the existing `INPUT_PULLUP`/`button_pressed()` contract. The board TU owns the pin
 and ESP-IDF calls; `fw_main.cpp` does not acquire an OLED feature conditional or a button pin number (U3).
+
+#### 3.1.1 ⚠ GPIO0 IS THE ESP32-S3 BOOT STRAP PIN — recorded explicitly so the question is answered before it is asked
+
+`platformio.ini:231-234` documents the hazard: GPIO0 held across a **reset** enters serial-download mode, so a user
+holding the emergency long-press through a brownout gets *"a bricked-looking device"* (spec §10.1) — *"a hardware
+behaviour to document, not one the UI can fix"*. **The facts, stated:**
+
+- **GPIO0 is sampled as a boot strap ONLY during reset.**
+- ⇒ **arming it as a RUNTIME light-sleep wake source does NOT worsen that behaviour** — nothing this design adds is
+  sampled at reset.
+- **Holding the button through a reset can still enter download mode.** That is unchanged and out of scope.
+- ★ **BENCH INSTRUCTION (M2): if the device appears bricked, RELEASE GPIO0 AND RESET AGAIN.**
+
+#### 3.1.2 ⛔⛔ THE PRINCIPAL UNPROVEN HARDWARE ASSUMPTION — DIO1 / GPIO wake coexistence
+
+★★★ **This is the one thing in this design that could sink it, and it is recorded as an ASSUMPTION, not as
+established behaviour.** The existing DIO1 wake uses the **RTC-domain** `esp_sleep_enable_ext1_wakeup`
+(`src/fw_main.cpp:986`); the button would use the **digital-domain** `gpio_wakeup_enable` + `esp_sleep_enable_gpio_wakeup()`.
+**Whether the two coexist in LIGHT sleep on the ESP32-S3 is UNVERIFIED on this hardware.**
+
+- **The FIRST metal gate must prove INDEPENDENTLY that a sleeping node wakes from (a) active-low GPIO0 and
+  (b) LoRa DIO1 / RxDone.** Neither result may be inferred from the other.
+- ⛔⛔ **FAIL-SAFE, and it is not optional: if EITHER wake-source setup returns an error, the node must REMAIN AWAKE.
+  It must NEVER enter sleep with the user button silently unarmed** — that is the present defect made permanent and
+  invisible.
+- ⛔ **Do NOT replace the existing DIO1 `ext1` mechanism unless coexistence FAILS.**
+- ⓘ **If it fails:** using light-sleep GPIO wake for **both** pins, with **separate HIGH/LOW levels**, is a possible
+  fallback — but it touches the radio wake path and therefore **requires its own radio regression gate**. It is not
+  authorised by this design.
 
 ### 3.2 Read-only input activity
 
@@ -164,8 +215,22 @@ Keep configuration and RF topology fixed while comparing before/after behavior:
 
 ## 7. Implementation gate
 
-When this design is approved and implemented, run the native wrapper and direct binary, both UI probes with their
-negative controls, `tools/warning_census.sh`, the three OLED builds, and the three essential non-OLED builds. Re-run
-the exact `s18` keystone once as an inertness check; no 36-scenario rerun or anchor-table edit is justified because
-the slice does not change simulator-compiled protocol code. Finish with `git diff --check` and report every skipped
-metal item honestly. Keep all work uncommitted (D4).
+When this design is approved and implemented, run the native wrapper **and the direct binary** (⚠ the wrapper prints
+a false *"0 test cases"*), both UI probes with their negative controls, `tools/warning_census.sh`, the three OLED
+builds, and the three essential non-OLED builds. Finish with `git diff --check`, report every skipped metal item
+honestly, and keep all work **uncommitted (D4)**.
+
+★★ **SIMULATOR INERTNESS — USE THE ESTABLISHED STRUCTURAL PROOF, NOT A SINGLE SCENARIO RUN.** ⛔ The previous wording
+(*"re-run the exact `s18` keystone once as an inertness check"*) is **withdrawn as insufficient**: a scenario run
+behind a **stale binary** reproduces the old streams and looks exactly like *"nothing moved"* — that has already
+produced one false conclusion in this arc. The required sequence is:
+
+1. **record the PRE-slice `lus` md5**;
+2. **invoke the canonical simulator rebuild**;
+3. **confirm ZERO relevant build actions** — the changed files (`src/`, `variants/`, `lib/hal/mr_ui.h`) are **outside
+   the simulator's sources**, which is *why* it is inert, and the build-action count is what demonstrates it;
+4. **require the POST-slice `lus` md5 to be IDENTICAL**;
+5. **retain `s18` as a smoke/keystone check — ⛔ never as the sole proof**, and read its expected value from
+   `simulation/BASELINE.md` rather than hardcoding it (D1).
+
+⛔ No 36-scenario rerun and ⛔ no anchor-table edit are justified or authorised.
