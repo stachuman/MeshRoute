@@ -326,24 +326,65 @@ if [ "${1:-}" != "--no-neg" ]; then
   ctl "C44 DmState::aired_waiting is rendered as QUEUED too" yes \
       's|case mrui::DmState::aired_waiting: mrui::draw_text(0, body_y(1), "SENT, waiting");|case mrui::DmState::aired_waiting: mrui::draw_text(0, body_y(1), "QUEUED");|'
 
-  # C45-C51 ★★★ §B197/§B198 — THE SLEEP SEAM. Each control is a plausible half-fix rather than a deletion, and the
-  #   FAILURE MODE OF EVERY ONE IS SILENT: the node keeps meshing, the panel keeps painting, and the only symptom is
-  #   that a sleeping node stops answering the button — which is the defect being fixed, back again.
-  # ⛔ C45 IS THE ONE THAT MATTERS MOST. Drop the fail-closed guard and a board whose wake source could NOT be armed
-  #   light-sleeps anyway, leaving the operator no input at all. It must be RED.
-  ctl "C45 the fail-closed guard is dropped (sleeps with the button unarmed)" yes \
-      's|    if (!s_btn_wake_armed) return false;|    ;|'
-  ctl "C46 the wake is never armed (the latch is simply asserted true)" yes \
-      's|    s_btn_wake_armed = mrui::enable_button_wake();|    s_btn_wake_armed = true;|'
-  # ⚠ C47 is the mirror of C46: the call is made and its ANSWER thrown away — the tempting "it cannot really fail".
-  ctl "C47 the board's wake report is discarded (armed by assumption)" yes \
-      's|    s_btn_wake_armed = mrui::enable_button_wake();|    (void)mrui::enable_button_wake(); s_btn_wake_armed = true;|'
-  ctl "C48 the wake failure is never said on the console" yes \
-      's|    if (!s_btn_wake_armed) mrcon.println(F("!! OLED button wake unavailable; sleep disabled"));|    ;|'
-  # ⓘ C52 is C48's INVERSION and it is what makes the "says nothing on success" half of P10a mean something: without
-  #   it that check is negative space no mutation could move. Same shape as C9, §B91's report-channel control.
-  ctl "C52 the wake report is inverted (cries wolf on a healthy board)" yes \
-      's|    if (!s_btn_wake_armed) mrcon.println(F("!! OLED button wake unavailable; sleep disabled"));|    if (s_btn_wake_armed) mrcon.println(F("!! OLED button wake unavailable; sleep disabled"));|'
+  # C45-C56 ★★★ §B197/§B198/§B200 — THE SLEEP SEAM. Each control is a plausible half-fix rather than a deletion, and
+  #   the FAILURE MODE OF EVERY ONE IS SILENT: the node keeps meshing, the panel keeps painting, and the only symptom
+  #   is either a sleeping node that stops answering the button ([[B197]]) or one that PANICS on a held button
+  #   ([[B200]]).
+  # ⛔⛔ RETARGETED BY §B200. C46/C47/C48/C52 used to mutate `s_btn_wake_armed = mrui::enable_button_wake();` in
+  #   `mr_ui_init()` — a line whose EXISTENCE was the defect. Controls over a defective shape protect the defect.
+  # ⛔ C45 IS STILL THE ONE THAT MATTERS MOST. Drop the fail-closed guard and a board whose wake hardware has already
+  #   refused light-sleeps anyway, leaving the operator no input at all. It must be RED.
+  ctl "C45 the fail-closed guard is dropped (sleeps after a hardware refusal)" yes \
+      's|    if (s_sleep_locked_out) return false;|    ;|'
+  ctl "C46 the board is never asked (the arm is answered from a constant)" yes \
+      's|    switch (mrui::arm_button_wake()) {|    (void)mrui::arm_button_wake(); switch (mrui::WakeArm::armed) {|'
+  # ⛔⛔ C47 IS THE [[B200]] BEHAVIOURAL CONTROL, AND IT IS THE SUBTLEST WRONG ANSWER IN THIS FILE: fold `button_down`
+  #   into the failure arm and a HELD BUTTON — the most ordinary event there is — disables light-sleep for the whole
+  #   boot on a battery-powered safety device, while looking exactly like a working fix.
+  ctl "C47 a held button is treated as a hardware failure (latches sleep off for the boot)" yes \
+      's|        case mrui::WakeArm::button_down: return MrUiWakeArm::button_down;|        case mrui::WakeArm::button_down: break;|'
+  ctl "C48 the arm failure is never said on the console" yes \
+      's|    if (latch_sleep_off()) mrcon.println(F("!! OLED button wake unavailable; sleep disabled"));|    ;|'
+  # ⓘ C52 is C48's INVERSION and it is what makes the "says nothing when it succeeds" halves mean something: without
+  #   it those checks are negative space no mutation could move. Same shape as C9, §B91's report-channel control.
+  ctl "C52 the arm report is inverted (silent on the first failure, cries later)" yes \
+      's|    if (latch_sleep_off()) mrcon.println(F("!! OLED button wake unavailable; sleep disabled"));|    if (!latch_sleep_off()) mrcon.println(F("!! OLED button wake unavailable; sleep disabled"));|'
+  # ★★ C53 THE FLOOD. The arm runs on EVERY idle service pass, so an unlatched print turns one broken board into a
+  #   continuous USB-CDC stream — the failure that has already wedged this firmware once. The edge is the fix.
+  ctl "C53 the failure is said on every pass, not once (a USB-CDC flood)" yes \
+      's|    if (latch_sleep_off()) mrcon.println(F("!! OLED button wake unavailable; sleep disabled"));|    (void)latch_sleep_off(); mrcon.println(F("!! OLED button wake unavailable; sleep disabled"));|'
+  # ⛔⛔ C54 IS [[B200]] ITSELF, RE-ADDED. An arm in `mr_ui_init()` is a level-triggered interrupt that outlives every
+  #   sleep; holding the button then storms the shared GPIO ISR until the Interrupt watchdog resets the node.
+  ctl "C54 an arm is put back into mr_ui_init() (B200, literally)" yes \
+      's|    s_model.attach_config(s_cfg);|    (void)mrui::arm_button_wake();\n    s_model.attach_config(s_cfg);|'
+  # ★ C55 the disarm's verdict discarded — the tempting "a teardown cannot really fail". It is the one that must not
+  #   be missed: a refused disarm means the level is still armed on a RUNNING core.
+  ctl "C55 the disarm's answer is discarded (a stuck level is reported as clean)" yes \
+      's|    if (mrui::disarm_button_wake()) return true;|    (void)mrui::disarm_button_wake(); return true;|'
+  # ★★ C56 an arm hidden in the POLICY hook, which fw_main calls every service pass. It reads like belt-and-braces
+  #   ("make sure it is armed before we answer yes") and is a per-pass arm on a pin that may be held — B200 again.
+  ctl "C56 the policy hook arms the wake itself (a per-pass arm on a possibly-held pin)" yes \
+      's|    if (s_sleep_locked_out) return false;|    if (s_sleep_locked_out \|\| mrui::arm_button_wake() != mrui::WakeArm::armed) return false;|'
+  # ★ C57 the boot ANNOUNCES a wake state. Harmless-looking, and it is how the removed §B197 boot line would creep
+  #   back: a reader restoring "tell me at boot whether the button can wake us" also restores the expectation that
+  #   something was armed there. The boot must say nothing about a wake source, because nothing happens there.
+  ctl "C57 the boot announces a wake source again (nothing arms one there)" yes \
+      's|^    s_model.attach_config(s_cfg);$|    mrcon.println(F("!! OLED button wake unavailable; sleep disabled"));\n    s_model.attach_config(s_cfg);|'
+  # ⓘ C58 is the VACUITY CONTROL for the two failure arms: without it, "a failure answers failed" would also be
+  #   satisfied by a mapping that answered `failed` to everything, and P10g would be measuring nothing.
+  ctl "C58 a SUCCESSFUL arm is reported as a failure (the vacuity control)" yes \
+      's|        case mrui::WakeArm::armed:       return MrUiWakeArm::ok;|        case mrui::WakeArm::armed:       break;|'
+  # ★★ C59 the teardown is never performed — the board is not even asked, and `true` is returned. This is [[B200]]
+  #   with a clean conscience: every reader sees a disarm, and the pin keeps its level interrupt.
+  ctl "C59 the disarm is never performed (the board is not even asked)" yes \
+      's|    if (mrui::disarm_button_wake()) return true;|    return true;|'
+  # ⓘ C60 is C59's inversion, and it is what makes "says nothing when it succeeds" mean something: a teardown that
+  #   reported on its SUCCESS path would put a line on the console after every single sleep.
+  # ⚠ It reports rather than LATCHES, deliberately: by the time P12 runs the boot lockout is already spent (P10h
+  #   claimed it), so a latch-on-success mutant would be INVISIBLE here — the ordering limitation P12's header
+  #   states, arriving as a control that had to be written around it rather than as one that quietly passed.
+  ctl "C60 a successful disarm reports a problem anyway (cries wolf)" yes \
+      's|    if (mrui::disarm_button_wake()) return true;|    if (mrui::disarm_button_wake()) { mrcon.println(F("!! OLED button wake stuck armed; sleep disabled")); return true; }|'
   # C49/C50 are DIRECTIONAL OPPOSITES on purpose: with only the permissive one, a hook stuck at `false` would satisfy
   # every "refuses" check while the node never slept again; with only the refusing one, the converse.
   ctl "C49 the hook always permits sleep (the whole policy bypassed)" yes \

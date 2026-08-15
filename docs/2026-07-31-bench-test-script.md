@@ -2150,7 +2150,16 @@ status field, so `txfail` / `txoutdrop` / `txto` remain USB-console-only. Use US
    **`NO RELAY HEARD`**. ⛔ If it never leaves `QUEUED` with no peer present, the airing report is gated on something
    it must not be gated on.
 
-## Part 23 — §B197/§B198 the sleep/wake seam (2026-08-14)
+## Part 23 — §B197/§B198/§B200 the sleep/wake seam (2026-08-14, amended 2026-08-15)
+
+⛔⛔ **AMENDED 2026-08-15 BY [[B200]]. READ THIS BEFORE RUNNING ANYTHING IN THIS PART.** The image these checks were
+first written for **panics on demand**: the button's light-sleep wake was armed once at boot with a LEVEL-triggered
+interrupt, so **holding the button storms the shared GPIO ISR and trips the Interrupt watchdog**. The fix arms the
+wake immediately before each `esp_light_sleep_start()` and disarms it the instant the CPU wakes. Consequences here:
+- **23.6 is NEW and is the reproducer** — run it FIRST, before anything else in this Part;
+- ⛔ **23.1(b) MUST BE RE-RUN.** Its 2026-08-15 pass was measured with the wake armed **permanently**; per-sleep
+  arming is a different configuration and that result **does not transfer**;
+- **23.2 now has two possible lines and a second, sharper instrument** (the `wk_*` counters).
 
 ⛔⛔ **EVERY CHECK IN THIS PART IS METAL-ONLY BY CONSTRUCTION, AND ONE OF THEM IS THE DESIGN'S PRINCIPAL UNPROVEN
 HARDWARE ASSUMPTION.** No host build sleeps, the simulator has no sleep pacing at all, and neither has an ESP32-S3.
@@ -2162,7 +2171,10 @@ and the node then never light-sleeps, so every check below would pass over a nod
 (no peers ⇒ almost no RX traffic ⇒ maximum sleep duty), wait past `MR_BOOT_GRACE_MS` = 30 s, and drive the node by
 BUTTON ONLY. Read `slept=` only at the END, or from a second boot.
 
-### 23.1 — ⛔⛔ THE COEXISTENCE TEST. Run this FIRST; nothing else in this Part means anything if it fails
+### 23.1 — ⛔⛔ THE COEXISTENCE TEST. Run it after 23.6; nothing else in this Part means anything if it fails
+
+⚠ **ORDER, amended 2026-08-15: 23.6 comes first** — it is the reproducer for a panic, and there is no point testing
+wake sources on a node that resets when you hold its button. Everything else still hangs on 23.1.
 
 The button uses the **digital-domain** `gpio_wakeup_enable` + `esp_sleep_enable_gpio_wakeup()`; the radio's RxDone
 uses the **RTC-domain** `esp_sleep_enable_ext1_wakeup` on DIO1, untouched by this slice. **Whether the two coexist in
@@ -2175,18 +2187,51 @@ from the other.
 2. **(b) RADIO.** Boot a second node in range. On the sleeping node (again no console byte, past 45 s, panel dark)
    have the second node send it a DM. Expected: the message is received — confirm afterwards on the sleeping node's
    `inbox` or by its ACK arriving at the sender.
+   ⛔⛔ **RE-RUN REQUIRED (2026-08-15, [[B200]]): the pass recorded below was measured with the GPIO wake armed
+   PERMANENTLY at boot. The shipped firmware now arms it per sleep and disarms it on every wake, which is a
+   DIFFERENT hardware configuration — the result does not carry over.** ★ And the re-run is now much stronger than
+   before: read `status` afterwards and use the per-cause counters — **`wk_ext1=` non-zero is the DIO1 edge itself
+   delivering the CPU**, which is precisely the attribution the note below says this check could not make.
+   ✅ **(b) PASSED ON METAL 2026-08-15 [SUPERSEDED — SEE THE RE-RUN NOTICE ABOVE] — AND IT IS THE GO/NO-GO HALF, SO THE DESIGN PROCEEDS.** Conditions met as
+   written: the node was **headless** (serial was lost when the port renumbered across a reboot, so ⛔ **no console
+   byte was ever sent** and `g_host_present` stayed false), **in a team** (`team_id=0x75E7479F`, persisted in NV and
+   restored by the reboot), and **~5 min up** — past both the 30 s boot grace and the 15 s panel blank, therefore
+   light-sleeping. **Result: a DM from the peer node was received AND ACKED, with the ACK observed at the sender.**
+   ⇒ **arming the digital-domain GPIO0 wake did NOT displace the RTC-domain DIO1 radio path**, and the full RX→TX
+   turnaround completed in the sleeping profile. ⚠ **STATED HONESTLY — WHAT THIS DOES *NOT* ISOLATE:** with the sleep
+   capped at `MR_MAX_SLEEP_MS` = 1 s the MCU wakes at least once a second anyway, so this does **not** prove the DIO1
+   edge specifically delivered the CPU rather than the deadline timer. **This check was written to test that the radio
+   path SURVIVES with GPIO wake armed, and that is exactly what it establishes** — a stricter edge-attribution test
+   would need a sleep cap longer than the exchange, which is not configured here.
+   ⛔ **(a) IS STILL OWED** — the short tap, on the *fixed* firmware, must light the panel and **not** be classified as
+   a long press.
 3. Pass: **BOTH** (a) and (b) succeed, separately.
    Fail: either one. ⛔ If (b) fails while (a) succeeds, the GPIO wake has displaced the radio wake and this design
    does not proceed as written — record it and stop; the fallback named in the design (§3.1.2) is **not authorised**
    and would need its own radio regression gate.
 
-### 23.2 — the boot line, and the FAIL-CLOSED behaviour behind it
+### 23.2 — the failure line, and the FAIL-CLOSED behaviour behind it
 
-1. At boot, watch the console. Expected: **nothing** about the button wake.
-2. ⛔ If you ever see `!! OLED button wake unavailable; sleep disabled`, the node has **deliberately disabled idle
-   light-sleep for that whole boot** — that is the fail-safe working, not a second fault. Confirm it: `status` must
-   then show `slept=` **STUCK AT 0** however long the node idles. Record the board and stop; a node that prints that
-   line and still increments `slept=` is the one outcome this slice exists to prevent.
+⚠ **AMENDED 2026-08-15 ([[B200]]): there is no longer any arming at boot, so this line — if it appears at all —
+appears at the FIRST IDLE SLEEP ATTEMPT (past the 30 s grace), not in the boot banner.** There are now TWO lines.
+
+1. At boot, watch the console. Expected: **nothing** about a button wake, ever. (A line here would mean somebody
+   put an arm back into `mr_ui_init()`, which is [[B200]] itself.)
+2. ⛔ If you ever see **either** of
+   `!! OLED button wake unavailable; sleep disabled` (the platform refused to ARM) or
+   `!! OLED button wake stuck armed; sleep disabled` (⛔ **the worse one** — it refused to DISARM, i.e. a running
+   core carried an armed level interrupt), the node has **deliberately disabled idle light-sleep for that whole
+   boot** — that is the fail-safe working, not a second fault. Confirm it: `status` must then show `slept=`
+   **STUCK** however long the node idles, with `wkarmfail=` or `wkdisarm=` non-zero. Record the board and stop; a
+   node that prints either line and still increments `slept=` is the one outcome this slice exists to prevent.
+3. ★ **The line is said ONCE, not once per pass.** The arm runs on every idle service pass, so a repeating line is
+   itself a defect (a USB-CDC flood on a node that is already broken).
+4. ⓘ `status` gained **seven** fields beside `slept=` on the ESP32 envs — `wk_gpio= wk_ext1= wk_tmr= wkbusy=
+   wkarmfail= wkdisarm= wksleepfail=`. **`wkbusy=` is NOT a fault** — it counts sleeps skipped because the button
+   was physically held at the instant of arming, and ⚠ **it can legitimately stay at 0** (the UI gate already
+   refuses to sleep while a gesture is being classified, so this counts only the tick-to-re-sample race).
+   ⓘ **`wksleepfail=`** counts `esp_light_sleep_start()` REFUSING to sleep (`ESP_ERR_SLEEP_REJECT` /
+   `ESP_ERR_SLEEP_TOO_SHORT_SLEEP_DURATION`); such a pass is deliberately **not** counted in `slept=`.
 
 ### 23.3 — §B198: a frame must render promptly, not over ~8 seconds
 
@@ -2222,6 +2267,65 @@ nothing to that hazard, but the pre-existing one is unchanged: **a board reset w
 download mode and looks bricked.**
 
 ⇒ **RELEASE THE BUTTON AND RESET AGAIN.** That is the whole remedy. It is a hardware behaviour, not a fault to report.
+
+### 23.6 — ⛔⛔ [[B200]]: A LONG PRESS MUST NOT PANIC THE NODE. **Run this FIRST — it is the reproducer**
+
+Metal, 2026-08-15, on the arm-once-at-boot image: **one long press produced `Guru Meditation Error: Core 1 panic'ed
+(Interrupt wdt timeout on CPU1)` with `Core 1 was running in ISR context`,** then two more resets
+(`WATCHDOG ran 0s`, then `ran 41s`) and `Re-entered core dump! Exception happened during core dump!`. It is the
+cheapest possible reproducer and no automated gate in this tree can reach it: nothing here runs an ESP32-S3.
+
+1. Boot, no console byte, `team 0`. **Immediately** hold the button for **10 seconds** — through the emergency arm
+   and fire, and well past them. Expected: the panel behaves (arm → countdown → FIRE) and **the node does not
+   reset**. ⛔ Any `Guru Meditation` / `Interrupt wdt` / `Core 1 was running in ISR context` is the defect back.
+2. Wait past the 30 s grace and the 15 s blank so the node is light-sleeping. Now hold the button for **10 seconds**
+   again — this is the case that panicked, because the arm was live and the level asserted. Expected: the panel
+   lights, the gesture classifies, no reset.
+3. Repeat step 2 **five times**, and after a **cold power cycle** once more. The original fault was reproducible on
+   demand, so a single clean pass is weak evidence; five is the cheapest way to make it less weak.
+4. Read `status` **last** (it ends the headless run). Expected: **`slept=` has increased** · **`wk_gpio=` has
+   increased** after the sleeping-button test (that is the button itself delivering the CPU — the attribution the
+   old 23.1(b) could not make) · `wkarmfail=0` · `wkdisarm=0` · **`wksleepfail=` RECORD THE VALUE — do NOT require
+   zero.**
+   ⛔⛔ **`wksleepfail=0` WAS DEMANDED HERE AND THAT WAS WRONG; IT IS WITHDRAWN.** ⚠ **It is the SAME MISTAKE as the
+   `wkbusy` one directly below, made in the same replacement list** — an INFORMATIONAL counter asserted as a fault
+   counter. **Both results it counts are LEGITIMATE, not hardware faults:** `ESP_ERR_SLEEP_REJECT` (a wake source —
+   typically the button — asserted after the physical re-sample but before sleep entry, i.e. the residual race the
+   re-sample narrows and cannot eliminate) and `ESP_ERR_SLEEP_TOO_SHORT_SLEEP_DURATION` (the deadline came too
+   close, ordinary against the ≤1 s cap). ★ **The firmware already classifies them correctly — "did not sleep",
+   NOT an arm/disarm hardware failure** — which is exactly why they have their own counter and do NOT touch the
+   fail-closed latch. ⇒ **RECORD it; a non-zero value is not a failure. A RAPIDLY GROWING value merits
+   investigation** (it would mean the node is repeatedly trying and failing to sleep).
+   ⛔ **`wkbusy=` MAY LEGITIMATELY BE ZERO, and a non-zero value is not required.** ⚠ The earlier wording here
+   demanded it be non-zero *"(you held the button across sleep attempts, which is what it counts)"* — **that was
+   wrong and is withdrawn**: `mr_ui_allows_sleep()` already returns false while `input.active()`, so a held button
+   normally stops the arm being **attempted at all**. `wkbusy=` counts only the narrow race in which the press lands
+   between the UI tick and the physical re-sample, so a non-zero value merely shows that race guard was exercised.
+5. `/mrfault` must show **no new** `HARDFAULT`/`WATCHDOG` record from this session.
+
+⚠ **WHAT ONLY THIS CHECK CAN SETTLE, stated so a green run is not over-read:** the wake-to-disarm window (the few
+microseconds between `esp_light_sleep_start()` returning on a GPIO wake and `gpio_wakeup_disable()`) is a HARDWARE
+TIMING claim. The pattern is ESP-IDF's own and the Interrupt WDT window is ~300 ms, so it should be safe by three
+orders of magnitude — but **nothing in this repository can prove it**, and step 3's repetition is the only
+instrument that exists.
+
+### 23.7 — ★ RETAIN THE ELF FOR EVERY IMAGE YOU FLASH (the [[B200]] capture was undecodable)
+
+The B200 panic dump printed `ELF file SHA256: 7a8aaa957` over a banner reading `nogit`. Neither identified anything:
+`tools/git_rev.py` was wired to **one** env and not to the Heltec ones, so **every Heltec image ever flashed carried
+`nogit`** — on exactly the boards that produce the field faults. `platformio.ini` now injects `GIT_REV` on
+`heltec_v3` (and thus `heltec_mobile` / `gateway_heltec` through `extends`).
+
+1. After building an image you intend to flash, **copy `.pio/build/<env>/firmware.elf` somewhere durable** and record
+   its `sha256`. ⛔ `.pio/` is gitignored and any clean destroys it.
+2. Record the banner's `rev=` alongside it. A `-dirty` stamp is honest but does **not** identify a revision — if the
+   work is committed, rebuild and archive the clean-stamped image.
+3. Decode a future backtrace with
+   `xtensa-esp32s3-elf-addr2line -pfiaC -e <that firmware.elf> <addresses>`.
+4. ⓘ **The §B200 slice's own image is already archived** (outside the repo — a ~20 MB ELF is not an agent's
+   commit to make): `~/MeshRoute-artifacts/b200/`, `heltec_v3-2d2af7a-dirty-b200.elf`, sha256
+   `40e2c18043eb3f63a9e14e1fbc963d16f76bdf8dd34a503d7151c049eceb74be`, banner `rev=2d2af7a-dirty`. ⚠ It decodes
+   **only** that exact image; once the slice is committed, rebuild and archive the clean-stamped one.
 
 ## Completion record
 

@@ -114,13 +114,20 @@ namespace {
 // ---- state ------------------------------------------------------------------------------------------------------
 mrui::UiModel     s_model;
 mrui::InputFsm    s_input;
-// ★★★ §B197 — THE FAIL-CLOSED LATCH, AND ITS INITIAL VALUE IS THE POINT. `false` means "this node may not
-//   light-sleep", and it stays false unless `mrui::enable_button_wake()` reports that BOTH ESP-IDF calls succeeded.
-//   ⇒ the safe answer is the DEFAULT rather than something a code path has to remember to write: before
-//   `mr_ui_init()` has even run, and on every board where arming the pin fails, `mr_ui_allows_sleep()` is false.
-// ⛔ A node that sleeps with the button unarmed is [[B197]] made permanent AND INVISIBLE — the operator has no input
-//   left at all. Losing idle power on a board with a broken wake source is the cheaper failure, by a wide margin.
-bool              s_btn_wake_armed = false;
+// ★★★ §B200 — THE FAIL-CLOSED LATCH. ⛔⛔ IT REPLACES §B197's `s_btn_wake_armed`, AND THE OLD COMMENT IS KEPT HERE
+//   BECAUSE THE REASONING IN IT WAS RIGHT WHILE ITS MECHANISM WAS FATAL. It read: *"THE FAIL-CLOSED LATCH, AND ITS
+//   INITIAL VALUE IS THE POINT. `false` means 'this node may not light-sleep', and it stays false unless
+//   `mrui::enable_button_wake()` reports that BOTH ESP-IDF calls succeeded"* — i.e. the wake was armed ONCE AT BOOT
+//   and the latch remembered the verdict. That permanent arm is [[B200]] (a level trigger no sleep consumes storms
+//   the shared GPIO ISR while the button is held).
+// ★★ THE NEW SHAPE IS STRICTLY STRONGER, WHICH IS WHY THE DEFAULT COULD SAFELY INVERT: the arm now happens INSIDE
+//   the sleep path, immediately before the halt, and a failed arm REFUSES THAT SLEEP. ⇒ "sleeping with the button
+//   unarmed" is no longer a state a latch has to exclude — it is unreachable by construction. What the latch still
+//   owns is the DURABLE half: a board whose hardware refused to arm OR to disarm must stop trying for the rest of
+//   the boot rather than re-attempting a failing arm on every idle pass.
+// ⛔ `true` here means sleep is disabled for the WHOLE BOOT. It is only ever SET, never cleared (a boot is the
+//   scope), and `mr_ui_allows_sleep()` short-circuits on it before any UI state is consulted.
+bool              s_sleep_locked_out = false;
 // ★ TWO trackers: an alarm must never queue behind a DM waiting on its e2e ack (spec §2.1). Normal work never touches
 //   the emergency slot, in either direction.
 mrui::SendTracker s_tracker_emg, s_tracker_normal;
@@ -208,8 +215,9 @@ mrui::FrameGate  s_gate;
 //   uses to decide it may sleep (U1 — do not invent a second one)"*. BOTH HALVES WERE WRONG. It is an EQUIVALENT
 //   EXPRESSION, not the same predicate — the sleep gate spells its radio/queue terms out inline as
 //   `!g_iradio.tx_busy() && g_hal.txq_depth() == 0` — and the line reference had DRIFTED: the gate is the `if
-//   (may_sleep && mr_ui_allows_sleep() && ...)` in `mesh_service_once()`, `src/fw_main.cpp:1430`. It was cited as
-//   `:1406` while it stood at `:1426`; ★ grep for `if (may_sleep` rather than trusting either number.
+//   (may_sleep && mr_ui_allows_sleep() && ...)` in `mesh_service_once()` — it was cited as `:1406` while it stood at
+//   `:1426`, then re-cited as `:1430` and has drifted AGAIN (§B200 moved it). ★ THE LESSON IS THE NUMBER ITSELF:
+//   grep for `if (may_sleep`; ⛔ do not restore a line reference here, it has now been wrong three times.
 // ⓘ THE DUPLICATION IS REAL, PRE-EXISTING AND DELIBERATELY LEFT ALONE (C1: refactor XOR fix). The two are equivalent
 //   TODAY because `g_hal.radio()` IS `g_iradio` (§B105, below), but they are two implementations of one rule.
 //   Unifying them is its own change with its own risk; ⛔ do not fold it into a fix.
@@ -966,14 +974,12 @@ void mr_ui_init() {
     //   `void` return could not have — one console line, once, at boot. It is deliberately not fatal: a node with a
     //   dead panel must keep meshing, and the UI keeps running blind.
     if (!mrui::board_init()) mrcon.println(F("!! OLED panel did not ACK (check Vext / addr 0x3C / wiring)"));
-    // ★★★ §B197 — ARM THE BUTTON AS A WAKE SOURCE, AND FAIL CLOSED IF IT CANNOT BE ARMED. It runs AFTER
-    //   `board_init()` because that is what configures MR_UI_BTN_PIN as INPUT_PULLUP, and the wake level is the same
-    //   active-low contract. ⛔ ONE call, once: this is boot-time pin configuration, not something to re-attempt.
-    // ⛔⛔ THE `false` BRANCH IS THE SAFETY-CRITICAL HALF AND IT IS NOT MERELY A LOG LINE: it leaves
-    //   `s_btn_wake_armed` false, so `mr_ui_allows_sleep()` answers false for the WHOLE BOOT and this node never
-    //   light-sleeps. Sleeping with the user button unarmed would reproduce [[B197]] permanently and silently.
-    s_btn_wake_armed = mrui::enable_button_wake();
-    if (!s_btn_wake_armed) mrcon.println(F("!! OLED button wake unavailable; sleep disabled"));
+    // ⛔⛔ §B200 — NOTHING ARMS THE BUTTON WAKE HERE, AND THE ABSENCE IS THE FIX. §B197 put
+    //   `s_btn_wake_armed = mrui::enable_button_wake();` on this line, described as *"ONE call, once: this is
+    //   boot-time pin configuration"*. It was a LEVEL-triggered interrupt that nothing ever disarmed, so holding the
+    //   button stormed the shared GPIO ISR and tripped the Interrupt watchdog — the node panicked on demand.
+    //   The arm now belongs to `mr_ui_arm_button_wake()` below, which `src/fw_main.cpp` calls immediately before it
+    //   halts and pairs with a disarm the instant it wakes. ⛔ Do not re-add an arm to any init path.
     // ★★ §UI-14: hand the model the ONE staged-config service. ⛔ It is NOT opened here — `open()` snapshots the
     //    persisted record and records a baseline, and doing that at boot would read `/mrcfg` on every node that never
     //    touches SETTINGS. The model opens it the first time the operator actually reaches the screen.
@@ -1053,17 +1059,56 @@ void mr_ui_tick(uint32_t now_ms) {
 // ★★★★ §B197/§B198 — THE OLED HALF OF THE DEVICE SLEEP POLICY. `src/fw_main.cpp`'s gate calls this every service
 //   pass, unconditionally; on every non-OLED profile `lib/hal/mr_ui.h` inlines it to `true`, so their sleep behaviour
 //   is byte-identical to before.
-// ★★ TWO CLAUSES, AND THEY ANSWER DIFFERENT QUESTIONS. The FIRST is the fail-closed gate — *"can a press wake this
-//   node at all?"* — and it short-circuits everything: with no armed wake source there is no safe time to sleep, so
-//   no UI state can license it. The SECOND is the actual UI policy, and it is the PURE `mrui::ui_allows_sleep` in
-//   firmware_ui_model.h, driven by the native suite against the real UiModel / InputFsm / FrameGate.
+// ★★ TWO CLAUSES, AND THEY ANSWER DIFFERENT QUESTIONS. The FIRST is the fail-closed gate — *"has this board's wake
+//   hardware already proved it cannot be armed or disarmed?"* — and it short-circuits everything: a board that
+//   failed once must stop trying, so no UI state can license a sleep. (§B200 narrowed it: before, this clause also
+//   covered "the boot arm never ran", a state that no longer exists — the arm happens at the sleep itself.) The
+//   SECOND is the actual UI policy, and it is the PURE `mrui::ui_allows_sleep` in firmware_ui_model.h, driven by the
+//   native suite against the real UiModel / InputFsm / FrameGate.
 // ⛔ THE POLICY IS NOT RE-DERIVED HERE (U1). This file owns no copy of "blanked and idle and no open frame"; it
 //   supplies the three authorities it already holds and nothing else. A second expression of the rule is how
 //   `mac_idle()` and the sleep gate ended up as two implementations of one predicate (see the block at `mac_idle`).
 // ⓘ Radio, queue, console and BLE stay in fw_main's own gate — this predicate only ever ADDS a reason to stay awake.
 bool mr_ui_allows_sleep() {
-    if (!s_btn_wake_armed) return false;
+    if (s_sleep_locked_out) return false;
     return mrui::ui_allows_sleep(s_model, s_input, s_gate);
+}
+
+// ★★★ §B200 — THE BOOT-SCOPED LOCKOUT. ONE writer of the latch (U1), and it hands back the EDGE so each caller can
+//   say its own line exactly once.
+// ⚠ THE EDGE IS A REQUIREMENT ON THIS PATH RATHER THAN TIDINESS: the arm runs on every idle service pass, so an
+//   unconditional print would turn one broken board into a continuous USB-CDC flood — the failure this firmware has
+//   already been wedged by once (the `mrcon` drop-never-block sink exists for it). Returning the transition makes
+//   "said exactly once" structural instead of a counter somebody has to maintain.
+// ⓘ The MESSAGE deliberately stays at each call site rather than being passed in: `F()` is a flash handle on the
+//   device and a plain pointer on the probe host, so a parameter would have to be a template for nothing — and the
+//   two exact strings are what the bench script and the probe controls read.
+static bool latch_sleep_off() { const bool first = !s_sleep_locked_out; s_sleep_locked_out = true; return first; }
+
+// ★★★★ §B200 — ARM THE WAKE FOR THIS SLEEP. `src/fw_main.cpp`'s `board_sleep_until()` calls this immediately before
+//   `esp_light_sleep_start()`; it is the ONLY caller and there must never be another (an arm outside a sleep is the
+//   defect this slice removes). This file adds exactly two things to the board's verdict: the mapping onto the
+//   feature-neutral answer `fw_main` understands, and the boot-scoped lockout on a hardware failure.
+// ⛔ `button_down` MUST NOT LATCH. It is not a fault — it means the operator's finger is on the button at this
+//   instant, which is the single most normal reason not to sleep. Latching on it would disable sleep for the boot on
+//   the first press of the day, and the node would look "fixed" while quietly never sleeping again.
+MrUiWakeArm mr_ui_arm_button_wake() {
+    switch (mrui::arm_button_wake()) {
+        case mrui::WakeArm::armed:       return MrUiWakeArm::ok;
+        case mrui::WakeArm::button_down: return MrUiWakeArm::button_down;
+        case mrui::WakeArm::failed:      break;
+    }
+    if (latch_sleep_off()) mrcon.println(F("!! OLED button wake unavailable; sleep disabled"));
+    return MrUiWakeArm::failed;
+}
+
+// ★★★★ §B200 — DISARM, IMMEDIATELY AFTER THE HALT RETURNS. ⛔ A failure here is WORSE than a failed arm: the pin is
+//   still carrying the level interrupt on a now-RUNNING core, which is exactly the storm. There is nothing this
+//   layer can do about the hardware, so it does the one thing it can — stop the node ever arming it again.
+bool mr_ui_disarm_button_wake() {
+    if (mrui::disarm_button_wake()) return true;
+    if (latch_sleep_off()) mrcon.println(F("!! OLED button wake stuck armed; sleep disabled"));
+    return false;
 }
 
 // ★★★★ §3.6.1's IMMEDIATE CONFLICT NOTIFICATION — the OLED half of the fourth hook. Serial and BLE write `/mrcfg`

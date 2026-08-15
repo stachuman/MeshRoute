@@ -519,7 +519,11 @@ wchk_in "$FW_MAIN" "W22 collect+drain run BEFORE the timer loop and pump_tx AFTE
      w22 's|^    g_hal.collect_tx_completion();$|__W22_MOVED__|; s|^    for (int id; (id = g_hal.pop_due_timer()).*$|\&\n    g_hal.collect_tx_completion();|; s|^__W22_MOVED__$|    ;|' \
          's|^    g_hal.pump_tx();$|    ;|; s|^    for (int id; (id = g_hal.pop_due_timer()).*$|    g_hal.pump_tx();\n\&|' \
          's|^    g_hal.pump_tx();$|    ;|; s|^    g_hal.collect_tx_completion();$|    g_hal.collect_tx_completion();\n    g_hal.pump_tx();|'
-# ================================================================================================ W23-W28
+# ================================================================================================ W23-W32
+# ⛔⛔ §B200 RETARGETED W26/W27/W28 AND ADDED W29-W32, AND THE REASON IS THE POINT OF THIS WHOLE BLOCK: the §B197
+#     versions PINNED "the wake is armed ONCE, at boot, by mr_ui_init()". That is [[B200]] — a level-triggered GPIO
+#     interrupt nothing ever disarms, which storms the shared ISR whenever the button is held and trips the Interrupt
+#     watchdog. ⇒ THOSE CHECKS WOULD HAVE GONE GREEN AGAINST THE DEFECT. They are retargeted, not supplemented.
 # ★★★ §B197/§B198 — THE SLEEP SEAM. Five files, none of which any behavioural gate can reach: `src/fw_main.cpp` is
 #     outside the native build and outside the simulator; `lib/hal/mr_ui.h`'s non-OLED arm is compiled only by board
 #     envs; `src/firmware_ui.cpp`'s fail-closed latch is reachable by `tools/probe_firmware_ui` but its CALL SITE in
@@ -539,7 +543,7 @@ wchk_in "$FW_MAIN" "W23 the sleep gate consults mr_ui_allows_sleep() after mr_ui
      w23 's|    if (may_sleep \&\& mr_ui_allows_sleep() \&\&|    if (may_sleep \&\&|' \
          's|    if (may_sleep \&\& mr_ui_allows_sleep() \&\&|    if (may_sleep \|\| mr_ui_allows_sleep() \&\&|' \
          's|!serial_has_input() \&\& !mrble::connected()) {|!mrble::connected()) {|' \
-         's|^    mr_ui_tick((uint32_t)now);.*$|    ;|; s|^        board_sleep_until(due, s_now);$|        board_sleep_until(due, s_now);\n    mr_ui_tick((uint32_t)now);|'
+         's|^    mr_ui_tick((uint32_t)now);.*$|    ;|; s|^        if (board_sleep_until(due, s_now)) ++g_sleep_count;.*$|\&\n    mr_ui_tick((uint32_t)now);|'
 # W24 ⛔ THE HOOK MUST STAY FEATURE-NEUTRAL, exactly as W13 requires of the config path: no `MR_FEAT_OLED` may appear
 #     anywhere near the sleep gate, or `fw_main` has acquired a display dependency. Its control ADDS the guard, because
 #     "no `#if` here" cannot be reverted by deletion.
@@ -562,23 +566,62 @@ w26() { flat1 "$1" | grep -qF 'inline bool mr_ui_allows_sleep() { return true; }
 wchk_in "$MR_UI_H" "W26 the non-OLED hook is an inline TRUE stub and the OLED one is declared" \
      w26 's|inline bool mr_ui_allows_sleep() { return true; }|inline bool mr_ui_allows_sleep() { return false; }|' \
          's|^bool mr_ui_allows_sleep();.*$||'
-# W27 ★★★ THE FAIL-CLOSED PATH, AND IT IS THE MOST IMPORTANT CHECK IN THIS BLOCK. Four clauses, four wrong answers:
-#       (a) the latch DEFAULTS to false — the safe answer must not depend on a code path remembering to write it;
-#       (b) it is assigned from the board's REPORT, not from a constant;
-#       (c) the failure is SAID (the exact boot line the bench looks for); and
-#       (d) `mr_ui_allows_sleep` REFUSES on it before consulting any UI state.
-#     ⛔ Without (d) a board whose wake source could not be armed sleeps anyway, which is [[B197]] made permanent and
-#     invisible — the one outcome this slice exists to prevent.
-w27() { flat1 "$1" | grep -qF 'bool s_btn_wake_armed = false;' && \
-        flat1 "$1" | grep -qF 's_btn_wake_armed = mrui::enable_button_wake();' && \
-        flat1 "$1" | grep -qF 'if (!s_btn_wake_armed) mrcon.println(F("!! OLED button wake unavailable; sleep disabled"));' && \
-        flat1 "$1" | grep -qF 'bool mr_ui_allows_sleep() { if (!s_btn_wake_armed) return false; return mrui::ui_allows_sleep(s_model, s_input, s_gate); }'; }
-wchk_in "$FW_UI" "W27 the button wake is armed, its failure is said, and sleep FAILS CLOSED on it" \
-     w27 's|bool              s_btn_wake_armed = false;|bool              s_btn_wake_armed = true;|' \
-         's|    s_btn_wake_armed = mrui::enable_button_wake();|    (void)mrui::enable_button_wake(); s_btn_wake_armed = true;|' \
-         's|    if (!s_btn_wake_armed) mrcon.println(F("!! OLED button wake unavailable; sleep disabled"));||' \
-         's|    if (!s_btn_wake_armed) return false;|    ;|' \
-         's|    return mrui::ui_allows_sleep(s_model, s_input, s_gate);|    return true;|'
+# W26b ★★ §B200's TWO NEW SEAMS, same property and the same reason. ⛔ THE NON-OLED ARM IS THE ONE THAT CAN SILENTLY
+#      STOP THE FLEET SLEEPING: a stub answering anything but `ok` would make every headless XIAO refuse every sleep,
+#      and NO test in this tree compiles that arm. The disarm stub must answer `true` for the same reason — the caller
+#      COUNTS a false as a hardware failure.
+w26b() { flat1 "$1" | grep -qF 'inline MrUiWakeArm mr_ui_arm_button_wake() { return MrUiWakeArm::ok; }' && \
+         flat1 "$1" | grep -qF 'inline bool mr_ui_disarm_button_wake() { return true; }' && \
+         flat1 "$1" | grep -qF 'MrUiWakeArm mr_ui_arm_button_wake();' && \
+         flat1 "$1" | grep -qF 'bool mr_ui_disarm_button_wake();'; }
+wchk_in "$MR_UI_H" "W26b the non-OLED arm/disarm stubs are permissive and both OLED seams are declared" \
+     w26b 's|inline MrUiWakeArm mr_ui_arm_button_wake() { return MrUiWakeArm::ok; }|inline MrUiWakeArm mr_ui_arm_button_wake() { return MrUiWakeArm::failed; }|' \
+          's|inline bool mr_ui_disarm_button_wake() { return true; }|inline bool mr_ui_disarm_button_wake() { return false; }|' \
+          's|^MrUiWakeArm mr_ui_arm_button_wake();.*$||' \
+          's|^bool mr_ui_disarm_button_wake();.*$||'
+# W27 ★★★ THE FAIL-CLOSED PATH, AND IT IS THE MOST IMPORTANT CHECK IN THIS BLOCK. ⛔⛔ RETARGETED BY §B200 — the
+#     §B197 form required `s_btn_wake_armed = mrui::enable_button_wake();` at boot, i.e. IT REQUIRED THE DEFECT.
+#     Five clauses now, five wrong answers:
+#       (a) the lockout latch DEFAULTS to false, i.e. sleeping is allowed until hardware proves otherwise — safe
+#           because the arm now happens INSIDE the sleep path and refuses it there (the old boot latch is obsolete);
+#       (b) the latch has ONE writer, `latch_sleep_off()`, which returns the EDGE so the line is said once and a
+#           broken board cannot flood the console from the per-pass arm;
+#       (c) the arm DELEGATES to the board and maps all three verdicts — ⛔ `button_down` must NOT latch, or the
+#           first press of the day disables sleep for the boot;
+#       (d) each failure is SAID with its own exact line (the bench reads them); and
+#       (e) `mr_ui_allows_sleep` REFUSES on the latch before consulting any UI state.
+w27() { flat1 "$1" | grep -qF 'bool s_sleep_locked_out = false;' && \
+        flat1 "$1" | grep -qF 'static bool latch_sleep_off() { const bool first = !s_sleep_locked_out; s_sleep_locked_out = true; return first; }' && \
+        flat1 "$1" | grep -qF 'MrUiWakeArm mr_ui_arm_button_wake() { switch (mrui::arm_button_wake()) { case mrui::WakeArm::armed: return MrUiWakeArm::ok; case mrui::WakeArm::button_down: return MrUiWakeArm::button_down; case mrui::WakeArm::failed: break; } if (latch_sleep_off()) mrcon.println(F("!! OLED button wake unavailable; sleep disabled")); return MrUiWakeArm::failed; }' && \
+        flat1 "$1" | grep -qF 'bool mr_ui_disarm_button_wake() { if (mrui::disarm_button_wake()) return true; if (latch_sleep_off()) mrcon.println(F("!! OLED button wake stuck armed; sleep disabled")); return false; }' && \
+        flat1 "$1" | grep -qF 'bool mr_ui_allows_sleep() { if (s_sleep_locked_out) return false; return mrui::ui_allows_sleep(s_model, s_input, s_gate); }'; }
+wchk_in "$FW_UI" "W27 the per-sleep arm maps all three verdicts, says its failures, and sleep FAILS CLOSED" \
+     w27 's|bool              s_sleep_locked_out = false;|bool              s_sleep_locked_out = true;|' \
+         's|        case mrui::WakeArm::button_down: return MrUiWakeArm::button_down;|        case mrui::WakeArm::button_down: break;|' \
+         's|    switch (mrui::arm_button_wake()) {|    (void)mrui::arm_button_wake(); switch (mrui::WakeArm::armed) {|' \
+         's|    if (latch_sleep_off()) mrcon.println(F("!! OLED button wake unavailable; sleep disabled"));|    ;|' \
+         's|    if (mrui::disarm_button_wake()) return true;|    (void)mrui::disarm_button_wake(); return true;|' \
+         's|    if (s_sleep_locked_out) return false;|    ;|' \
+         's|    return mrui::ui_allows_sleep(s_model, s_input, s_gate);|    return true;|' \
+         's|static bool latch_sleep_off() { const bool first = !s_sleep_locked_out; s_sleep_locked_out = true; return first; }|static bool latch_sleep_off() { return !s_sleep_locked_out; }|'
+# W27b ⛔⛔ THE [[B200]] WIRING CHECK, AND IT IS PURE NEGATIVE SPACE: `mr_ui_init()` MUST NOT ARM ANYTHING. This is the
+#      single line §B197 shipped and §B200 removed — an arm at boot is a level-triggered interrupt that outlives every
+#      sleep, and the owner reproduced the panic with one long press. Its control ADDS the old line back, because
+#      negative space cannot be reverted by deletion; that control is literally the defect.
+# ⚠ Scoped to the FUNCTION BODY, not the file: the file must (and does) name the board's arm exactly once, inside the
+#   seam `fw_main` calls at the sleep. Scoping it to `mr_ui_init` is what makes "nowhere at boot" the property.
+init_body() { sed -n '/^void mr_ui_init()/,/^}/p' "$1" | sed 's://.*::'; }
+w27b() { init_body "$1" | grep -qE 'void mr_ui_init\(\)' && ! init_body "$1" | grep -qE 'arm_button_wake|enable_button_wake'; }
+wchk_in "$FW_UI" "W27b mr_ui_init() ARMS NOTHING — no boot-time wake arm survives (B200)" \
+     w27b 's|    s_model.attach_config(s_cfg);|    (void)mrui::arm_button_wake();\n    s_model.attach_config(s_cfg);|' \
+          's|    s_model.attach_config(s_cfg);|    (void)mr_ui_arm_button_wake();\n    s_model.attach_config(s_cfg);|'
+# W27c ★ ...and the board's arm is reached from EXACTLY ONE place in the feature layer — the seam. A second caller is
+#      how "armed only at the sleep" quietly becomes "armed at the sleep AND somewhere else".
+w27c() { [ "$(flat1 "$1" | grep -o 'mrui::arm_button_wake()' | wc -l)" -eq 1 ] && \
+         [ "$(flat1 "$1" | grep -o 'mrui::disarm_button_wake()' | wc -l)" -eq 1 ]; }
+wchk_in "$FW_UI" "W27c the board's arm/disarm are each called from exactly ONE site" \
+     w27c 's|    battery_maybe_sample(now_ms);|    (void)mrui::arm_button_wake();\n    battery_maybe_sample(now_ms);|' \
+          's|    battery_maybe_sample(now_ms);|    (void)mrui::disarm_button_wake();\n    battery_maybe_sample(now_ms);|'
 # W28 ⛔ `s_painting` STAYS PRIVATE TO THE BOARD TU ([[B198]]'s own correction). The logical page-loop authority is
 #     `FrameGate::frame_open()`, which already existed; exporting the board's private latch would give the sleep policy
 #     a SECOND page-loop authority that nothing keeps in step with the first.
@@ -586,9 +629,80 @@ wchk_in "$FW_UI" "W27 the button wake is armed, its failure is said, and sleep F
 #   rather than delete, because negative space cannot be reverted by deletion.
 w28() { ! flat1 "$1" | grep -qE 's_painting|painting\(\)'; }
 wchk_in "$FW_UI" "W28 firmware_ui.cpp never reaches for the board-private s_painting" \
-     w28 's|    if (!s_btn_wake_armed) return false;|    if (!s_btn_wake_armed \|\| mrui::s_painting) return false;|'
+     w28 's|    if (s_sleep_locked_out) return false;|    if (s_sleep_locked_out \|\| mrui::s_painting) return false;|'
 wchk_in "$BOARD_H" "W28b board_ui.h exposes no page-loop accessor (FrameGate::frame_open is the authority)" \
-     w28 's|bool enable_button_wake();|bool enable_button_wake();\nbool painting();|'
+     w28 's|^WakeArm arm_button_wake();$|WakeArm arm_button_wake();\nbool painting();|'
+# ================================================================================================ W29-W31
+# ★★★ §B200 — WHERE THE ARM LIVES. This is the fix, and `src/fw_main.cpp` is reachable by no behavioural gate at all,
+#     so these are the only automated cover the placement will ever have.
+# W29 THE PAIR STRADDLES THE HALT, INSIDE THE RTC GUARD. Five properties in one sequence:
+#       (a) the arm is INSIDE `if (rtc_gpio_is_valid_gpio(...))` — ⛔ outside it, a board whose DIO1 is not RTC-capable
+#           arms and then neither sleeps nor disarms, which is [[B200]] again on another board;
+#       (b) it sits immediately before `esp_light_sleep_start()` — the armed level exists only while the CPU is halted;
+#       (c) a verdict other than `ok` RETURNS WITHOUT SLEEPING (nothing was armed, so nothing is owed);
+#       (d) ⛔⛔ THE DISARM IS THE **FIRST STATEMENT** AFTER THE HALT RETURNS — not merely "after it" (§R2.2); and
+#       (e) its verdict is captured and counted.
+# ★★★ (d) IS THE SAFETY PROPERTY AND IT IS WHY THIS CHECK WAS ITSELF RETARGETED 2026-08-15. On a GPIO wake the button
+#     is BY DEFINITION still held low — that is what woke the node — so the interval between the halt returning and
+#     `gpio_wakeup_disable()` is EXACTLY the window in which the storm condition is live on a RUNNING CPU. The first
+#     version of this check tolerated the wake-cause read sitting in that window, and W31 below actively REQUIRED it.
+# ⚠ The regex demands ADJACENCY (`esp_light_sleep_start(); const bool disarm_ok =`), with no `.*` between them, so
+#   ANY statement interposed there turns it red — which is the whole point of "first".
+w29() { flat1 "$1" | grep -qE 'if \(rtc_gpio_is_valid_gpio\(\(gpio_num_t\)LORA_PIN_DIO1\)\) \{.*const MrUiWakeArm arm = mr_ui_arm_button_wake\(\); if \(arm != MrUiWakeArm::ok\) \{.*return false; \} const esp_err_t sleep_rc = esp_light_sleep_start\(\); const bool disarm_ok = mr_ui_disarm_button_wake\(\); if \(!disarm_ok\) \+\+g_wake_disarm_fail;'; }
+wchk_in "$FW_MAIN" "W29 the wake is armed immediately BEFORE the halt and disarmed FIRST after it, inside the RTC guard" \
+     w29 's|^        const MrUiWakeArm arm = mr_ui_arm_button_wake();$|        const MrUiWakeArm arm = MrUiWakeArm::ok;|' \
+         's|^        const bool disarm_ok = mr_ui_disarm_button_wake();$|        const bool disarm_ok = true;|' \
+         's|^        if (!disarm_ok) ++g_wake_disarm_fail;.*$|        ;|' \
+         's|^        const esp_err_t sleep_rc = esp_light_sleep_start();$|__W29_SLEEP__|; s|^        const bool disarm_ok = mr_ui_disarm_button_wake();$|        const esp_err_t sleep_rc = esp_light_sleep_start();|; s|^__W29_SLEEP__$|        const bool disarm_ok = mr_ui_disarm_button_wake();|' \
+         's|^        const MrUiWakeArm arm = mr_ui_arm_button_wake();$|__W29_ARM__|; s|^    if (rtc_gpio_is_valid_gpio((gpio_num_t)LORA_PIN_DIO1)) {.*$|    const MrUiWakeArm arm = mr_ui_arm_button_wake();\n\&|; s|^__W29_ARM__$|        ;|' \
+         's|^        if (arm != MrUiWakeArm::ok) {$|        if (false) {|' \
+         's|^        const esp_err_t sleep_rc = esp_light_sleep_start();$|\&\n        const esp_sleep_wakeup_cause_t cause2 = esp_sleep_get_wakeup_cause(); (void)cause2;|'
+# W30 ★★★ `slept=` MUST NOT LIE. The `++` used to sit BEFORE the call, when reaching the call and halting were the
+#     same thing; with a fallible arm they are not, and `slept=` is the field every Part-23 bench check reads. ⇒ the
+#     counter is CONDITIONAL on the call's own report, and there is exactly ONE of them.
+w30() { flat1 "$1" | grep -qF 'if (board_sleep_until(due, s_now)) ++g_sleep_count;' && \
+        [ "$(flat1 "$1" | grep -o '++g_sleep_count' | wc -l)" -eq 1 ]; }
+wchk_in "$FW_MAIN" "W30 slept= counts only a sleep that ACTUALLY happened (one conditional ++)" \
+     w30 's|^        if (board_sleep_until(due, s_now)) ++g_sleep_count;.*$|        ++g_sleep_count;\n        (void)board_sleep_until(due, s_now);|' \
+         's|^        if (board_sleep_until(due, s_now)) ++g_sleep_count;.*$|        ++g_sleep_count;\n\&|' \
+         's|^        if (board_sleep_until(due, s_now)) ++g_sleep_count;.*$|        (void)board_sleep_until(due, s_now); ++g_sleep_count;|'
+# W31 ⛔⛔ RETARGETED 2026-08-15 (§R2.2) — AND THE OLD VERSION IS THE REASON THIS COMMENT IS LONG. It read:
+#       `w31() { … grep -qE 'const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause\(\); if \(!mr_ui_disarm_button_wake\(\)\)' … }`
+#     i.e. IT REQUIRED THE WAKE-CAUSE READ TO SIT BETWEEN THE HALT AND THE DISARM — **the instrument ENFORCED the
+#     unsafe order**, and would have gone red against the safe one. ★ That is the THIRD time in this arc an instrument
+#     pinned the shape it should forbid (after the arm-once W-checks and [[B195]]'s vacuous tripwire), which is why the
+#     rule is now written here: when a check encodes an ORDER, ask which end of it is the safety property.
+# ★★★ THE ORDER IS: halt returns → DISARM → (refused-sleep bail) → inspect the cause. On a GPIO wake the button is by
+#     definition still held low, so every instruction before `gpio_wakeup_disable()` runs with the storm condition
+#     live on a running CPU. Diagnostics are never allowed in that window.
+# ★★ The counters themselves still answer what bench 23.1(b) could not: with the sleep capped at 1 s the MCU wakes
+#    anyway, so only a per-cause tally can say the DIO1 edge (or the button) actually delivered the CPU.
+w31() { flat1 "$1" | grep -qE 'const bool disarm_ok = mr_ui_disarm_button_wake\(\); if \(!disarm_ok\) \+\+g_wake_disarm_fail; if \(sleep_rc != ESP_OK\) \{ \+\+g_wake_sleep_fail; return false; \} const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause\(\);' && \
+        flat1 "$1" | grep -qF 'if (cause == ESP_SLEEP_WAKEUP_GPIO) ++g_wake_gpio; else if (cause == ESP_SLEEP_WAKEUP_EXT1) ++g_wake_ext1; else if (cause == ESP_SLEEP_WAKEUP_TIMER) ++g_wake_timer;'; }
+wchk_in "$FW_MAIN" "W31 the cause is inspected AFTER the disarm (never in the storm window) and tallied per source" \
+     w31 's|^        const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();$|__W31_CAUSE__|; s|^        const bool disarm_ok = mr_ui_disarm_button_wake();$|        const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();\n\&|; s|^__W31_CAUSE__$|        ;|' \
+         's|^        const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();$|__W31_CAUSE__|; s|^        const esp_err_t sleep_rc = esp_light_sleep_start();$|\&\n        const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();|; s|^__W31_CAUSE__$|        ;|' \
+         's|^        if      (cause == ESP_SLEEP_WAKEUP_GPIO)  ++g_wake_gpio;.*$|        ;|' \
+         's|(cause == ESP_SLEEP_WAKEUP_EXT1)  ++g_wake_ext1;|(cause == ESP_SLEEP_WAKEUP_EXT1)  ++g_wake_gpio;|'
+# ================================================================================================ W32
+# W32 ★★★ §R2.1 — `esp_light_sleep_start()` CAN REFUSE, AND A REFUSAL IS NOT A SLEEP. ESP-IDF returns
+#     `ESP_ERR_SLEEP_REJECT` (a wake source already asserted / entry rejected) or
+#     `ESP_ERR_SLEEP_TOO_SHORT_SLEEP_DURATION` (the interval is below the entry/exit overhead). Discarding the return
+#     re-broke truthful `slept=` THROUGH A DIFFERENT DOOR: the rejection would be counted as a sleep and its STALE
+#     wake cause tallied as if it were fresh — on a node whose `slept=` is the field every Part-23 bench check reads.
+# ★★ THE PROPERTY IS `!= ESP_OK`, NOT A LIST OF CODES, and the two narrowing controls are what make that measurable:
+#    each restricts the test to ONE documented rejection and therefore leaves the OTHER counted as a sleep. A single
+#    control could not distinguish "handles every non-OK code" from "handles the one code the control happens to use".
+# ⛔ And the bail must come BEFORE the cause is read — a stale cause is worse than no cause, because it looks fresh.
+w32() { flat1 "$1" | grep -qF 'const esp_err_t sleep_rc = esp_light_sleep_start();' && \
+        flat1 "$1" | grep -qF 'if (sleep_rc != ESP_OK) { ++g_wake_sleep_fail; return false; }'; }
+wchk_in "$FW_MAIN" "W32 a REFUSED light sleep is counted and returns false, before any cause is read" \
+     w32 's|^        const esp_err_t sleep_rc = esp_light_sleep_start();$|        esp_light_sleep_start();|; s|^        if (sleep_rc != ESP_OK) { ++g_wake_sleep_fail; return false; }$|        ;|' \
+         's|^        if (sleep_rc != ESP_OK) { ++g_wake_sleep_fail; return false; }$|        (void)sleep_rc;|' \
+         's|^        if (sleep_rc != ESP_OK) { ++g_wake_sleep_fail; return false; }$|        if (sleep_rc == ESP_ERR_SLEEP_REJECT) { ++g_wake_sleep_fail; return false; }|' \
+         's|^        if (sleep_rc != ESP_OK) { ++g_wake_sleep_fail; return false; }$|        if (sleep_rc == ESP_ERR_SLEEP_TOO_SHORT_SLEEP_DURATION) { ++g_wake_sleep_fail; return false; }|' \
+         's|^        if (sleep_rc != ESP_OK) { ++g_wake_sleep_fail; return false; }$|        if (sleep_rc != ESP_OK) ++g_wake_sleep_fail;|' \
+         's|^        if (sleep_rc != ESP_OK) { ++g_wake_sleep_fail; return false; }$|        if (sleep_rc != ESP_OK) { return false; }|'
 echo "structural: $s_pass passed / $s_fail failed / $((s_pass+s_fail)) total"
 echo "wiring:     $w_pass passed / $w_fail failed / $((w_pass+w_fail)) total; $w_ctl negative control(s) verified RED"
 [ "$s_fail" -eq 0 ] || rc=1

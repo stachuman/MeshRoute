@@ -10,8 +10,17 @@
 // ★ WHAT IS DONE AND WHAT IS NOT — stated here because docs rot and code is read:
 //   DONE      the display-independent canvas of board_ui.h — panel bring-up, page-chunked paint, edge-triggered
 //             blanking, the user button. Nothing above this file may see U8g2, and nothing here may see a "screen".
-//   DONE      §B197 (2026-08-14): `enable_button_wake()` arms MR_UI_BTN_PIN as an ACTIVE-LOW light-sleep wake source
-//             and REPORTS whether both platform calls succeeded — the caller fails CLOSED on false (stays awake).
+//   DONE      §B197 (2026-08-14) / ⛔ CORRECTED IN PLACE BY §B200 (2026-08-15). This line USED TO READ:
+//             *"`enable_button_wake()` arms MR_UI_BTN_PIN as an ACTIVE-LOW light-sleep wake source and REPORTS
+//             whether both platform calls succeeded — the caller fails CLOSED on false (stays awake)"*, and it
+//             described an arm performed ONCE AT BOOT. ⛔⛔ THAT CONTRACT IS WITHDRAWN: it panicked the node on
+//             demand ([[B200]] — a level trigger that no sleep consumes storms the shared GPIO ISR whenever the
+//             button is held). WHAT IS TRUE NOW: `arm_button_wake()` / `disarm_button_wake()` are a PAIR scoped to a
+//             single `esp_light_sleep_start()`, called from fw_main's `board_sleep_until()`; the arm re-samples the
+//             pin and REFUSES while the button is held; a partial arm is rolled back; the caller still fails CLOSED.
+//   NOT DONE  nothing in this TU can prove that the ~microseconds between `esp_light_sleep_start()` returning on a
+//             GPIO wake and the disarm are too short to storm. The pattern is ESP-IDF's own and the Interrupt WDT
+//             window is ~300 ms, but this is a hardware-timing claim and only the bench can make it (Part 23.6).
 //   NOT DONE  nothing in this TU can prove that the digital-domain GPIO wake COEXISTS with the radio's RTC-domain
 //             `ext1` DIO1 wake in ESP32-S3 light sleep. That is the design's one unproven hardware assumption and is
 //             metal-only, per wake source, independently (bench script Part 23).
@@ -40,8 +49,9 @@
 #include <Wire.h>          // §B91: the panel-ACK probe. U8g2 already links Wire on this env (U8x8lib.cpp:52 includes
                            // it unconditionally) and OWNS Wire.begin(), so this adds no dependency — only a use.
 #include <U8g2lib.h>
-// §B197: the light-sleep GPIO wake source. `driver/gpio.h` for gpio_wakeup_enable + GPIO_INTR_LOW_LEVEL, `esp_sleep.h`
-// for esp_sleep_enable_gpio_wakeup. This TU is compiled ONLY on the ESP32-S3 OLED envs (MR_FEAT_OLED), so no
+// §B197/§B200: the light-sleep GPIO wake source, armed and DISARMED per sleep. `driver/gpio.h` for
+// gpio_wakeup_enable / gpio_wakeup_disable + GPIO_INTR_LOW_LEVEL, `esp_sleep.h` for esp_sleep_enable_gpio_wakeup /
+// esp_sleep_disable_wakeup_source. This TU is compiled ONLY on the ESP32-S3 OLED envs (MR_FEAT_OLED), so no
 // architecture `#if` is needed — and adding one would state a portability this file does not have (it names U8g2, I2C
 // and the board's pin table outright). The V4 port brings its own variants/heltec_v4/board_ui.cpp.
 #include <driver/gpio.h>
@@ -308,26 +318,55 @@ void set_power_save(bool on) {
 
 bool button_pressed() { return digitalRead(MR_UI_BTN_PIN) == LOW; }   // INPUT_PULLUP -> pressed reads LOW
 
-// ★★★ §B197 — THE BUTTON BECOMES A WAKE SOURCE. Until this existed the only light-sleep wake sources were the radio's
-//   DIO1 (`ext1`, fw_main.cpp's board_sleep_until) and the ≤1 s deadline timer, so a headless node past
-//   MR_BOOT_GRACE_MS answered a short tap only if the tap happened to land in the sliver of each second it was awake.
-//   The owner reproduced exactly that on metal: taps did nothing, a long hold eventually got through.
+// ★★★ §B197/§B200 — THE BUTTON BECOMES A WAKE SOURCE, FOR THE DURATION OF ONE SLEEP. Until §B197 the only light-sleep
+//   wake sources were the radio's DIO1 (`ext1`, fw_main.cpp's board_sleep_until) and the ≤1 s deadline timer, so a
+//   headless node past MR_BOOT_GRACE_MS answered a short tap only if the tap happened to land in the sliver of each
+//   second it was awake. The owner reproduced exactly that on metal: taps did nothing, a long hold eventually got in.
 // ★★ LEVEL, NOT EDGE, AND THAT IS THE PLATFORM'S RULE RATHER THAN A CHOICE: ESP32 light-sleep GPIO wake supports only
 //   the two LEVEL triggers (`GPIO_INTR_LOW_LEVEL` / `GPIO_INTR_HIGH_LEVEL`); the edge triggers are rejected. LOW is
 //   the pressed level of the INPUT_PULLUP contract `button_pressed()` reads one line above — ONE polarity authority.
-//   A level source is also the RIGHT shape here: it makes the wake reachable for as long as the finger is down,
-//   instead of depending on the instant the edge occurred.
-// ★★★ BOTH RETURNS ARE CHECKED AND THE FAILURE IS PROPAGATED, NOT LOGGED-AND-IGNORED. `gpio_wakeup_enable` rejects a
-//   pin that cannot wake; `esp_sleep_enable_gpio_wakeup` is what actually admits the GPIO source to the next
-//   `esp_light_sleep_start()`. Either one failing means a press CANNOT wake this node ⇒ the caller keeps it awake for
-//   the whole boot (src/firmware_ui.cpp's mr_ui_init / mr_ui_allows_sleep). ⛔ There is deliberately no retry and no
-//   "try again next boot" state: this is boot-time pin configuration, and a silent second attempt would be a fallback
-//   nobody agreed to (C2).
+// ⛔⛔ AND THE LEVEL TRIGGER IS ALSO WHY §B197's ARM-ONCE-AT-BOOT WAS A PANIC GENERATOR, WHICH IS [[B200]]: a level
+//   interrupt CANNOT BE CLEARED WHILE THE LEVEL PERSISTS, so a HELD button re-asserts GPIO0's interrupt status
+//   continuously. The shared GPIO ISR is installed (RadioLib's `setPacketReceivedAction` on DIO1,
+//   lib/hal/device_radio.h), so that is an interrupt storm on a RUNNING core ⇒ `Guru Meditation Error: Core 1
+//   panic'ed (Interrupt wdt timeout on CPU1)`, `Core 1 was running in ISR context`. Captured on metal 2026-08-15 by
+//   nothing more exotic than a long press.
+// ⇒ ★★★ THE ARM IS NOW SCOPED TO THE HALT. fw_main's `board_sleep_until()` calls this immediately before
+//   `esp_light_sleep_start()` and `disarm_button_wake()` immediately after it returns. While the CPU is halted a
+//   level source cannot storm anything — that is the whole ESP-IDF pattern, and it is why arming here is safe and
+//   arming at boot was not.
+// ★★ THE RE-SAMPLE IS THE FIRST THING THIS FUNCTION DOES, and it is here rather than at the caller BY DESIGN: the one
+//   place that can never forget it is inside the thing it protects. Arming a LOW-level wake on a pin that is ALREADY
+//   LOW arms an already-asserted interrupt — i.e. it reproduces the storm the moment the CPU keeps running (and it
+//   would keep running, because the caller then must not sleep). ⛔ The UI's debounced `InputFsm` is NOT a substitute:
+//   it is updated at tick time, and the press can land between that tick and this call. This reads the PIN.
+// ★★★ BOTH RETURNS ARE CHECKED, THE FAILURE IS PROPAGATED, AND A PARTIAL ARM IS ROLLED BACK. `gpio_wakeup_enable`
+//   rejects a pin that cannot wake; `esp_sleep_enable_gpio_wakeup` is what actually admits the GPIO source to the next
+//   `esp_light_sleep_start()`. ⛔ If the FIRST succeeds and the SECOND fails, the pin is left carrying a live level
+//   interrupt that no sleep will ever consume — the storm, arrived at by the failure path instead of by a held
+//   button. So the first is undone before returning. There is deliberately no retry (C2).
 // ⛔ IT DOES NOT TOUCH DIO1. The radio's `ext1` source is armed per-sleep in fw_main and is not reordered, disabled or
 //   replaced here — see board_ui.h for the coexistence assumption this leaves for the bench to settle.
-bool enable_button_wake() {
-    if (gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL) != ESP_OK) return false;
-    return esp_sleep_enable_gpio_wakeup() == ESP_OK;
+WakeArm arm_button_wake() {
+    if (button_pressed()) return WakeArm::button_down;      // the finger is DOWN right now -> arming a LOW level = the storm
+    if (gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL) != ESP_OK) return WakeArm::failed;
+    if (esp_sleep_enable_gpio_wakeup() != ESP_OK) {
+        (void)gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN);   // ROLL BACK: never leave a half-armed level behind
+        return WakeArm::failed;
+    }
+    return WakeArm::armed;
+}
+
+// ★★★ §B200 — THE DISARM, AND IT UNDOES BOTH HALVES BECAUSE BOTH WERE DONE. `gpio_wakeup_disable` takes the level
+//   interrupt off the pin (the half that storms a running core); `esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO)`
+//   withdraws the source from the next sleep, so a later sleep can never inherit an arm the caller did not ask for.
+// ★ BOTH ARE ATTEMPTED EVEN IF THE FIRST FAILS — this is a teardown, and stopping half way through one leaves exactly
+//   the state it exists to prevent. The two verdicts are then ANDed, so a failure anywhere is reported as a failure.
+// ⛔ It does NOT touch `ESP_SLEEP_WAKEUP_EXT1`: that is the radio's DIO1 source, owned by fw_main and armed per sleep.
+bool disarm_button_wake() {
+    const bool pin_off = (gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN) == ESP_OK);
+    const bool src_off = (esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO) == ESP_OK);
+    return pin_off && src_off;
 }
 
 // ★ ONE SAMPLE. The CALLER decides when (spec §7: boot, then every ~30 s, and only under the §5 MAC-idle predicate —
@@ -367,7 +406,8 @@ int32_t battery_sample_mv() {
 //
 // ⓘ The `--gc-sections` reachability that `mr_ui_init()` used to provide (§B88) now comes from the real caller:
 //    `firmware_ui.cpp` calls `board_init`, `begin_frame`, `next_page`, `set_font`, `draw_text`, `draw_hline`,
-//    `set_power_save`, `button_pressed`, `battery_sample_mv` and — since §B197 — `enable_button_wake`: all TEN canvas
-//    entry points, so none is collected.
+//    `set_power_save`, `button_pressed`, `battery_sample_mv` and — since §B200 — `arm_button_wake` /
+//    `disarm_button_wake`: all ELEVEN canvas entry points, so none is collected. (§B197's single
+//    `enable_button_wake` is gone; the pair replaced it.)
 
 #endif  // MR_FEAT_OLED

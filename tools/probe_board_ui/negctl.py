@@ -137,10 +137,13 @@ MUT=[
  ('C8 board_init() claims the panel is present without asking',
   '    Wire.beginTransmission(kOledAddr);\n    return Wire.endTransmission() == 0;',
   '    return true;'),
- # ★★★ §B197 — THE BUTTON WAKE. Five controls, and NOT ONE OF THEM IS A DELETION OF THE WHOLE FUNCTION: each is a
- # plausible half-fix that compiles, arms something, and reports success. That matters here more than usual, because
- # the FAILURE MODE OF EVERY ONE OF THEM IS SILENT — the node keeps meshing, the panel keeps painting, and the only
- # symptom is that a sleeping node stops answering the button, which is the defect this slice was written to remove.
+ # ★★★ §B197/§B200 — THE BUTTON WAKE. NOT ONE OF THESE IS A DELETION OF THE WHOLE FUNCTION: each is a plausible
+ # half-fix that compiles, arms something, and reports success. That matters here more than usual, because the FAILURE
+ # MODE OF EVERY ONE IS SILENT — the node keeps meshing, the panel keeps painting, and the only symptom is either a
+ # sleeping node that stops answering the button ([[B197]]) or a node that PANICS when the button is held ([[B200]]).
+ # ⛔⛔ RETARGETED BY §B200. The §B197 set controlled a `bool enable_button_wake()` armed ONCE AT BOOT — the defect
+ #    itself — so those controls could only ever have protected the wrong shape. C9j/C9k/C9l/C9m are new and are the
+ #    ones that speak to [[B200]] directly.
  # ⚠ C9a is the one that would look like the fix working: a HIGH-level source wakes CONTINUOUSLY while the button is
  #   NOT pressed, so `slept=` stops climbing and a tester watching the panel sees a responsive node.
  ('C9a the wake level is inverted (HIGH = wakes while NOT pressed)',
@@ -150,40 +153,81 @@ MUT=[
   'gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL)',
   'gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_NEGEDGE)'),
  # C9c/C9d are the two halves of "both return values are checked" — the fail-safe's entire input. Either one ignored
- # and `enable_button_wake()` reports success for a wake source that was never armed, so the caller sleeps anyway.
+ # and `arm_button_wake()` reports success for a wake source that was never armed, so the caller sleeps anyway.
  ('C9c gpio_wakeup_enable\'s return code is ignored',
-  '    if (gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL) != ESP_OK) return false;\n    return esp_sleep_enable_gpio_wakeup() == ESP_OK;',
-  '    (void)gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL);\n    return esp_sleep_enable_gpio_wakeup() == ESP_OK;'),
+  '    if (gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL) != ESP_OK) return WakeArm::failed;',
+  '    (void)gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL);'),
  ('C9d esp_sleep_enable_gpio_wakeup\'s return code is ignored',
-  '    return esp_sleep_enable_gpio_wakeup() == ESP_OK;',
-  '    (void)esp_sleep_enable_gpio_wakeup();\n    return true;'),
+  '    if (esp_sleep_enable_gpio_wakeup() != ESP_OK) {',
+  '    (void)esp_sleep_enable_gpio_wakeup();\n    if (false) {'),
  # C9e the pin is configured but the source is never ADMITTED to the next esp_light_sleep_start(). The most tempting
  # wrong answer of all: `gpio_wakeup_enable` alone reads like it does the whole job, and nothing complains.
  ('C9e the GPIO source is never admitted to sleep (gpio_wakeup_enable alone)',
-  '    return esp_sleep_enable_gpio_wakeup() == ESP_OK;',
-  '    return true;'),
+  '    if (esp_sleep_enable_gpio_wakeup() != ESP_OK) {\n        (void)gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN);   // ROLL BACK: never leave a half-armed level behind\n        return WakeArm::failed;\n    }\n',
+  ''),
  # C9f the MIRROR of C9e: the source is admitted but the PIN is never configured. Reads plausible — `board_init()`
  # already `pinMode`s the button, so "the pin is set up" is true of the wrong thing. `esp_sleep_enable_gpio_wakeup()`
  # admits only the pins `gpio_wakeup_enable` armed, so this arms NOTHING and still reports success.
  ('C9f the pin is never configured as a wake source (the sleep-enable alone)',
-  '    if (gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL) != ESP_OK) return false;\n    return esp_sleep_enable_gpio_wakeup() == ESP_OK;',
-  '    return esp_sleep_enable_gpio_wakeup() == ESP_OK;'),
+  '    if (gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL) != ESP_OK) return WakeArm::failed;\n',
+  ''),
  # C9g the WRONG PIN — the battery divider's control line instead of the button. A copy-paste away in a file whose
  # three `MR_UI_*` macros all name GPIOs, and the symptom is identical to no wake source at all.
  ('C9g the wake is armed on the ADC control pin, not the button',
   'gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL)',
   'gpio_wakeup_enable((gpio_num_t)MR_UI_ADC_CTRL, GPIO_INTR_LOW_LEVEL)'),
- # C9h arming folded INTO board_init(). Tempting ("it is board wiring, do it with the rest"), and it destroys the
- # fail-safe: `board_init()` reports the PANEL's ACK, so a wake-arm failure would be reported as a dead display —
- # or, worse, silently discarded. The wake must be its own reported step.
- ('C9h the wake is armed inside board_init() (its failure loses its own channel)',
+ # C9h ⛔⛔ THE [[B200]] CONTROL AT THE BOARD LEVEL: arming folded INTO board_init(), i.e. ONCE AT BOOT. That is not a
+ # hypothetical wrong answer — it is what §B197 shipped and what panicked the node on a long press. It is also still
+ # tempting for the original reason ("it is board wiring, do it with the rest"), and it destroys the fail-safe:
+ # `board_init()` reports the PANEL's ACK, so a wake-arm failure would be reported as a dead display.
+ ('C9h the wake is armed inside board_init() (B200: an arm that outlives every sleep)',
   '    battery_init();',
   '    battery_init();\n    (void)gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL);\n    (void)esp_sleep_enable_gpio_wakeup();'),
- # C9i the success test inverted. It is the vacuity control for the two failure arms: without it, "FAILS -> false"
- # would also be satisfied by a function that answered false unconditionally.
- ('C9i the success comparison is inverted (success reported as failure)',
-  '    return esp_sleep_enable_gpio_wakeup() == ESP_OK;',
-  '    return esp_sleep_enable_gpio_wakeup() != ESP_OK;'),
+ # C9i the success test inverted. It is the vacuity control for the failure arms: without it, "FAILS -> failed" would
+ # also be satisfied by a function that answered `failed` unconditionally.
+ ('C9i the success verdict is inverted (a good arm reported as failure)',
+  '    return WakeArm::armed;\n}',
+  '    return WakeArm::failed;\n}'),
+ # ★★★ C9j IS THE [[B200]] CONTROL. Drop the re-sample and the function arms a LOW-level interrupt on a pin that is
+ # ALREADY LOW — asserted the instant it exists, unclearable while the finger is down, and the caller does NOT sleep
+ # after a refusal it no longer receives. That is the ISR storm, and it is one deleted line away at all times.
+ ('C9j the pin re-sample is removed (arms a LOW level on an already-LOW pin)',
+  '    if (button_pressed()) return WakeArm::button_down;      // the finger is DOWN right now -> arming a LOW level = the storm\n',
+  ''),
+ # C9k the re-sample INVERTED — arm only while the button IS held. The exact opposite of the rule, and it reads like a
+ # plausible "only arm when there is something to wake for" to anyone who has not thought about level triggers.
+ ('C9k the re-sample is inverted (arms ONLY while the button is held)',
+  '    if (button_pressed()) return WakeArm::button_down;',
+  '    if (!button_pressed()) return WakeArm::button_down;'),
+ # ★★ C9l THE ROLLBACK. A partial arm — pin configured, source refused — leaves a live level interrupt that no sleep
+ # will ever consume: [[B200]] reached through the failure path instead of through a held button. The caller is told
+ # `failed` and owes no disarm, so nothing else can clean it up.
+ ('C9l the partial-arm ROLLBACK is dropped (a half-armed pin is left live)',
+  '        (void)gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN);   // ROLL BACK: never leave a half-armed level behind\n',
+  ''),
+ # ★★★ C9m/C9n/C9o THE DISARM — the half [[B197]] did not have at all, which is the whole defect.
+ ('C9m the disarm never takes the LEVEL INTERRUPT off the pin (the storming half)',
+  '    const bool pin_off = (gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN) == ESP_OK);',
+  '    const bool pin_off = true;'),
+ ('C9n the disarm never withdraws the GPIO source from the next sleep',
+  '    const bool src_off = (esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO) == ESP_OK);',
+  '    const bool src_off = true;'),
+ # ⛔ C9o the teardown reaches for the RADIO's source. EXT1 is DIO1's, owned by fw_main and armed per sleep; taking it
+ # down from a panel file would silently disable LoRa RX wake — a radio regression hidden inside a UI fix.
+ # ⚠ The anchor is the whole STATEMENT, not the call: the block above it names the call in prose, and a bare match
+ #   would hit twice and be refused (the §B77 comment-matching trap, arriving here as a duplicate rather than a hit).
+ ('C9o the disarm withdraws EXT1 (the RADIO\'s DIO1 source) instead of GPIO',
+  '    const bool src_off = (esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO) == ESP_OK);',
+  '    const bool src_off = (esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_EXT1) == ESP_OK);'),
+ # C9p the teardown gives up after its first failure, leaving exactly the state it exists to remove.
+ ('C9p the disarm returns early on the first failure (the second withdrawal never runs)',
+  '    const bool pin_off = (gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN) == ESP_OK);\n    const bool src_off = (esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO) == ESP_OK);\n    return pin_off && src_off;',
+  '    if (gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN) != ESP_OK) return false;\n    return esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO) == ESP_OK;'),
+ # C9q the disarm's verdict is fabricated. "It cannot really fail" is the tempting one, and it is how a board that
+ # CANNOT take the level down would keep sleeping — arming the storm again on the very next idle pass.
+ ('C9q the disarm always reports success (a stuck level is never noticed)',
+  '    return pin_off && src_off;',
+  '    (void)pin_off; (void)src_off;\n    return true;'),
 ]
 rc_all = 0
 for idx, (label, find, repl) in enumerate(MUT):

@@ -65,10 +65,10 @@ int  analogRead(uint8_t pin) {
     return g_gpio.analog_returns;
 }
 
-// ---- §B197: the two ESP-IDF wake calls ---------------------------------------------------------------------------
-// ★ Each records its ARGUMENTS and an ORDER STAMP, and each hands back a SCRIPTED code, so both failure arms of
-//   `enable_button_wake()` are reachable from the host. Neither has any side effect — a shim that "worked" would be
-//   pretending to know something about the silicon, which is precisely what the bench has to settle.
+// ---- §B197/§B200: the four ESP-IDF wake calls --------------------------------------------------------------------
+// ★ Each records its ARGUMENTS and an ORDER STAMP, and each hands back a SCRIPTED code, so every failure arm of
+//   `arm_button_wake()` / `disarm_button_wake()` is reachable from the host. None has any side effect — a shim that
+//   "worked" would be pretending to know something about the silicon, which is precisely what the bench has to settle.
 esp_err_t gpio_wakeup_enable(gpio_num_t gpio_num, gpio_int_type_t intr_type) {
     ++g_wake.gpio_wakeup_calls;
     g_wake.last_gpio = int(gpio_num);
@@ -80,6 +80,18 @@ esp_err_t esp_sleep_enable_gpio_wakeup(void) {
     ++g_wake.sleep_enable_calls;
     g_wake.seq_sleep_enable = g_wake.next_seq++;
     return g_wake.sleep_enable_result;
+}
+esp_err_t gpio_wakeup_disable(gpio_num_t gpio_num) {
+    ++g_wake.gpio_disable_calls;
+    g_wake.last_disable_gpio = int(gpio_num);
+    g_wake.seq_gpio_disable = g_wake.next_seq++;
+    return g_wake.gpio_disable_result;
+}
+esp_err_t esp_sleep_disable_wakeup_source(esp_sleep_source_t source) {
+    ++g_wake.sleep_disable_calls;
+    g_wake.last_disable_src = int(source);
+    g_wake.seq_sleep_disable = g_wake.next_seq++;
+    return g_wake.sleep_disable_result;
 }
 
 // ---- tiny harness ------------------------------------------------------------------------------------------------
@@ -339,9 +351,13 @@ int main() {
     g_wire.end_returns = 0;
 
     // ================================================================================================ P11
-    // ★★★ §B197 — THE BUTTON AS A LIGHT-SLEEP WAKE SOURCE. `enable_button_wake()` has no observable effect on a host
-    //     beyond WHICH platform calls it makes, WITH WHAT, IN WHAT ORDER, and WHAT IT DOES WITH THEIR RETURN CODES —
-    //     so those four things are exactly what is measured. Nothing here proves the silicon wakes; that is metal.
+    // ★★★ §B197/§B200 — THE BUTTON AS A LIGHT-SLEEP WAKE SOURCE, ARMED PER SLEEP AND ALWAYS DISARMED. The pair has no
+    //     observable effect on a host beyond WHICH platform calls it makes, WITH WHAT, IN WHAT ORDER, and WHAT IT
+    //     DOES WITH THEIR RETURN CODES — so those four things are exactly what is measured. Nothing here proves the
+    //     silicon wakes; that is metal.
+    // ⛔⛔ THESE CHECKS WERE RETARGETED, NOT EXTENDED. The §B197 versions pinned "arm once, at boot" and would have
+    //     gone GREEN against [[B200]] — the level trigger left armed on a running core, which panics the node on a
+    //     long press. A check that passes against the defect is the failure mode this project keeps recording.
     // ⚠ P11a is NEGATIVE SPACE and is checked FIRST, before anything arms anything: `board_init()` must NOT arm the
     //   wake source as a side effect. Arming is an explicit, separately-reported step precisely so its FAILURE can be
     //   propagated — folded into `board_init()` it would be indistinguishable from a dead panel.
@@ -351,9 +367,10 @@ int main() {
         g_wake.gpio_wakeup_calls == 0 && g_wake.sleep_enable_calls == 0);
 
     // ---- the success path ----------------------------------------------------------------------------------------
+    // ⓘ `read_returns` defaults to HIGH = NOT pressed (INPUT_PULLUP), so the re-sample below passes here.
     reset_counters();
-    const bool wake_ok = mrui::enable_button_wake();
-    CHK("P11b both platform calls succeed -> enable_button_wake() reports true", wake_ok == true);
+    const mrui::WakeArm wake_ok = mrui::arm_button_wake();
+    CHK("P11b both platform calls succeed -> arm_button_wake() reports armed", wake_ok == mrui::WakeArm::armed);
     CHK("P11c exactly one gpio_wakeup_enable",          g_wake.gpio_wakeup_calls == 1);
     CHK("P11d ... on the USER BUTTON pin",              g_wake.last_gpio == MR_UI_BTN_PIN);
     // ★★ THE POLARITY, AND IT IS THE SAME FACT `button_pressed()` READS: INPUT_PULLUP -> pressed is LOW. A HIGH-level
@@ -365,22 +382,79 @@ int main() {
     //   cannot see a swap; the sequence stamps can.
     CHK("P11g ... and it runs AFTER the pin was configured",
         g_wake.seq_gpio_wakeup > 0 && g_wake.seq_sleep_enable > g_wake.seq_gpio_wakeup);
+    // ⛔ A SUCCESSFUL ARM MUST NOT TEAR ITSELF DOWN. The rollback checked below is for the FAILURE path only; a
+    //   disarm on the success path would hand the caller an `armed` verdict over a pin that is no longer armed.
+    CHK("P11g2 ... and nothing was disarmed on the success path",
+        g_wake.gpio_disable_calls == 0 && g_wake.sleep_disable_calls == 0);
+
+    // ---- ★★★ P11k — THE RE-SAMPLE. THIS IS THE [[B200]] CHECK, AND IT IS THE ONE THAT WOULD HAVE CAUGHT IT --------
+    // ⛔⛔ Arming a LOW-LEVEL wake on a pin that is ALREADY LOW arms an interrupt that is asserted the instant it
+    //    exists and cannot be cleared while the finger stays down. With the CPU still running (the caller must not
+    //    sleep after a refusal) that is an ISR storm ⇒ `Interrupt wdt timeout on CPU1`, which is exactly what the
+    //    owner reproduced on metal with a long press. ⇒ the pin is read FIRST and the platform is not called at all.
+    // ⚠ It must be the PIN, not the UI's debounced FSM: the FSM is updated at tick time and the press can land
+    //   between that tick and this call. This shim only has a pin, which is the point.
+    reset_counters();
+    g_gpio.read_returns = LOW;                       // the finger is DOWN at the instant of the arm
+    const mrui::WakeArm held = mrui::arm_button_wake();
+    CHK("P11k a HELD button REFUSES the arm (button_down), it does not arm anyway",
+        held == mrui::WakeArm::button_down);
+    CHK("P11k2 ... and NOT ONE platform call was made (the storm is never armed)",
+        g_wake.gpio_wakeup_calls == 0 && g_wake.sleep_enable_calls == 0 &&
+        g_wake.gpio_disable_calls == 0 && g_wake.sleep_disable_calls == 0);
+    g_gpio.read_returns = HIGH;
 
     // ---- failure arm 1: the pin cannot be configured --------------------------------------------------------------
-    // ⛔ THE WHOLE FAIL-SAFE RESTS ON THIS RETURNING FALSE. `true` here is [[B197]] made permanent: the caller would
-    //    let the node sleep with no user wake source at all, leaving only DIO1 and the ≤1 s timer.
+    // ⛔ THE WHOLE FAIL-SAFE RESTS ON THIS REPORTING `failed`. `armed` here is [[B197]] made permanent: the caller
+    //    would let the node sleep with no user wake source at all, leaving only DIO1 and the ≤1 s timer.
     reset_counters();
     g_wake.gpio_wakeup_result = ESP_ERR_INVALID_ARG;
-    CHK("P11h gpio_wakeup_enable FAILS -> false (the fail-closed input)", mrui::enable_button_wake() == false);
+    CHK("P11h gpio_wakeup_enable FAILS -> failed (the fail-closed input)",
+        mrui::arm_button_wake() == mrui::WakeArm::failed);
+    CHK("P11h2 ... and nothing is admitted to sleep after that failure", g_wake.sleep_enable_calls == 0);
 
-    // ---- failure arm 2: the source cannot be admitted to sleep ----------------------------------------------------
+    // ---- failure arm 2: the source cannot be admitted to sleep, AND THE PARTIAL ARM IS ROLLED BACK ----------------
     // ★ A SEPARATE ARM, not a duplicate: checking only the first return is a real and tempting half-fix — the pin is
     //   configured, nothing complains, and the source is still never admitted to `esp_light_sleep_start()`.
+    // ⛔⛔ AND THE ROLLBACK IS THE [[B200]] HALF OF IT: a pin left carrying a live level interrupt that NO SLEEP will
+    //    ever consume is the storm arrived at by the failure path instead of by a held button. The caller cannot fix
+    //    it — it is told `failed` and owes no disarm — so this function must undo its own first call.
     reset_counters();
     g_wake.sleep_enable_result = ESP_ERR_INVALID_ARG;
-    const bool arm2 = mrui::enable_button_wake();
-    CHK("P11i esp_sleep_enable_gpio_wakeup FAILS -> false", arm2 == false);
+    const mrui::WakeArm arm2 = mrui::arm_button_wake();
+    CHK("P11i esp_sleep_enable_gpio_wakeup FAILS -> failed", arm2 == mrui::WakeArm::failed);
     CHK("P11j ... and the pin HAD been configured first",   g_wake.gpio_wakeup_calls == 1);
+    CHK("P11j2 ... and that half-arm was ROLLED BACK on the button pin",
+        g_wake.gpio_disable_calls == 1 && g_wake.last_disable_gpio == MR_UI_BTN_PIN);
+    CHK("P11j3 ... rolled back BEFORE returning, i.e. after the failed admit",
+        g_wake.seq_gpio_disable > g_wake.seq_sleep_enable);
+
+    // ---- ★★★ P11l — THE DISARM. The half [[B197]] did not have at all ---------------------------------------------
+    // ⛔ Both withdrawals are required: `gpio_wakeup_disable` takes the LEVEL INTERRUPT off the pin (the half that
+    //    storms a running core) and `esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO)` takes the SOURCE out of
+    //    the next sleep (so no later sleep inherits an arm nobody asked for). Either alone is a plausible half-fix.
+    // ⛔ ...and it must be the GPIO source, NEVER `ESP_SLEEP_WAKEUP_EXT1` — that is the radio's DIO1 wake, owned by
+    //    fw_main. Disabling it here would silently take the radio's wake path down, which no panel fix may do.
+    reset_counters();
+    CHK("P11l disarm_button_wake() succeeds when the platform agrees", mrui::disarm_button_wake() == true);
+    CHK("P11l2 ... it disables the LEVEL INTERRUPT on the button pin",
+        g_wake.gpio_disable_calls == 1 && g_wake.last_disable_gpio == MR_UI_BTN_PIN);
+    CHK("P11l3 ... and withdraws the GPIO source (not EXT1 — that is the radio's)",
+        g_wake.sleep_disable_calls == 1 && g_wake.last_disable_src == ESP_SLEEP_WAKEUP_GPIO);
+    CHK("P11l4 ... and it arms nothing while tearing down",
+        g_wake.gpio_wakeup_calls == 0 && g_wake.sleep_enable_calls == 0);
+
+    // ---- the two disarm failure arms, separately ------------------------------------------------------------------
+    // ★ Each is checked ALONE, because a teardown that stops at its first failure leaves precisely the state it
+    //   exists to remove — so BOTH withdrawals must be attempted even when the first refuses.
+    reset_counters();
+    g_wake.gpio_disable_result = ESP_ERR_INVALID_ARG;
+    CHK("P11m the pin refusing to disarm is reported as failure", mrui::disarm_button_wake() == false);
+    CHK("P11m2 ... and the source was STILL withdrawn (no early return)", g_wake.sleep_disable_calls == 1);
+    reset_counters();
+    g_wake.sleep_disable_result = ESP_ERR_INVALID_ARG;
+    CHK("P11n the source refusing to withdraw is reported as failure", mrui::disarm_button_wake() == false);
+    CHK("P11n2 ... and the pin's level interrupt was STILL taken down", g_wake.gpio_disable_calls == 1);
 
     reset_counters();   // leave the shims as constructed for any later case
 

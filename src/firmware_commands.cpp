@@ -405,7 +405,24 @@ static void dump_status(Print& out) {
     out.print(F(" offerfull="));          out.print(g_node.mobile_offer_ring_full_count());   // pending-OFFER ring admissions refused `full` (§5.3.2) — non-zero = mobiles are colliding on the ring
     out.print(F(" offerrej="));           out.print(g_node.mobile_offer_reject_count());      // armed OFFERs OUR OWN transmitter refused (defer ring full / HAL rejection) — a LOCAL fact, never a mobile's fault
     out.print(F(" txto="));               out.print(g_hal.tx_timeouts());    // TX-watchdog recoveries — a missed TxDone (should stay 0)
-    out.print(F(" slept="));              out.print(g_sleep_count);          // idle light-sleep entries — climbs = the gate fires (0 = never sleeps)
+    out.print(F(" slept="));              out.print(g_sleep_count);          // idle light-sleep entries that ACTUALLY HALTED — climbs = the gate fires (0 = never sleeps)
+#if defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
+    // ★★★ §B200 — WHAT WOKE US, AND WHAT REFUSED TO ARM. ⓘ ESP32-only (the same guard as `board_sleep_until`'s
+    //   light-sleep branch, which is the only writer): nRF52 uses WFE and has no wake-cause API, so printing these
+    //   there would make "never measured" indistinguishable from "never happened" — the ambiguity `offerfull=` above
+    //   was written unconditional to AVOID, arrived at from the other side.
+    // ★★ `wk_gpio/wk_ext1/wk_tmr` are the attribution bench 23.1(b) could not make: a 1 s sleep cap means the MCU
+    //   wakes anyway, so only a per-cause tally can say the DIO1 edge (or the button) actually delivered the CPU.
+    // ⛔ `wkdisarm=` NON-ZERO IS THE SERIOUS ONE: the platform refused to take the level interrupt down after a
+    //   sleep, i.e. a running core carried an armed level — [[B200]]'s exact precondition. Sleep is off for the boot.
+    out.print(F(" wk_gpio="));            out.print(g_wake_gpio);            // woken by the user button (GPIO)
+    out.print(F(" wk_ext1="));            out.print(g_wake_ext1);            // woken by DIO1 RxDone (the radio)
+    out.print(F(" wk_tmr="));             out.print(g_wake_timer);           // woken by the ≤1 s deadline cap
+    out.print(F(" wkbusy="));             out.print(g_wake_arm_busy);        // sleeps skipped: the button was HELD at the arm (normal)
+    out.print(F(" wkarmfail="));          out.print(g_wake_arm_fail);        // the platform refused to ARM -> sleep disabled for the boot
+    out.print(F(" wkdisarm="));           out.print(g_wake_disarm_fail);     // ⛔ refused to DISARM -> the storm precondition
+    out.print(F(" wksleepfail="));        out.print(g_wake_sleep_fail);      // §R2.1: light sleep REFUSED (reject/too-short) — the CPU never slept, so it is not in `slept=`
+#endif
     out.print(F(" sleep="));              out.print(g_force_sleep ? F("forced") : (g_host_present ? F("off-host") : F("auto"))); // policy: auto=headless→sleeps, off-host=awake (host seen), forced=`sleep` cmd
     out.print(F(" lbt="));                out.print(g_node.config().lbt_enabled ? 1 : 0);
     out.print(F(" nf="));                 out.print(g_iradio.noise_floor(), 0); // LBT noise floor (dBm)

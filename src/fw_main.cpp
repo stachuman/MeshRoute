@@ -184,7 +184,19 @@ meshroute::Identity     g_identity{};                                           
 uint8_t  g_rxbuf[P::max_payload_bytes_hard_cap + 32];   // block below all extern in fw_context.h
 bool     g_radio_ok = false;   // SX1262 std_init result — surfaced in the heartbeat below
 uint32_t g_rx_count = 0;       // frames received (status diagnostic)
-uint32_t g_sleep_count = 0;    // idle light-sleep entries (status `slept=`); climbs = the gate fires, stuck = never sleeps
+uint32_t g_sleep_count = 0;    // idle light-sleep entries that ACTUALLY HALTED (status `slept=`); §B200 moved the ++ after the call
+// ★★★ §B200 — THE LIGHT-SLEEP WAKE/ARM DIAGNOSTICS. ⓘ ESP32 ONLY, and the guard is the same triple `board_sleep_until`
+//   uses (this is the only place they are counted, and it is inside that branch): on nRF52 there is no wake-cause API
+//   and nothing to arm, so a printed `0` would read as "never happened" when the truth is "never measured".
+// ★★ The three CAUSE counters are worth more than diagnostics — they close bench 23.1(b)'s attribution gap: with the
+//   sleep capped at 1 s the MCU wakes anyway, so "the DM arrived" never proved the DIO1 edge delivered the CPU.
+#if defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
+uint32_t g_wake_gpio = 0, g_wake_ext1 = 0, g_wake_timer = 0;      // esp_sleep_get_wakeup_cause() tally: button / DIO1 / deadline
+uint32_t g_wake_arm_busy = 0;      // sleeps SKIPPED because the button was physically held at the arm (normal, not a fault)
+uint32_t g_wake_arm_fail = 0;      // the platform refused to arm the wake -> sleep disabled for the boot
+uint32_t g_wake_disarm_fail = 0;   // ⛔ the platform refused to DISARM it -> a running core carried an armed level
+uint32_t g_wake_sleep_fail = 0;    // §R2.1: esp_light_sleep_start() REFUSED (reject / too-short) -> the CPU never slept
+#endif
 bool     g_host_present = false; // a console byte was seen this boot -> a human is here -> stay awake (MeshCore inhibit_sleep)
 bool     g_force_sleep  = false; // the `sleep` console command -> light-sleep when idle even with a host present
 double   g_freq_mhz = LORA_FREQ;   // live operating freq (compile default; Slice-2 NV will override at boot)
@@ -970,8 +982,14 @@ static void persist_cfg_if_needed() {
 // scheduled beacon/timeout. nRF52: WFE (errata-87 FPU clear first) — wakes on ANY event (RTC tick / DIO1 /
 // USB), so the deadline is advisory + the console stays responsive. ESP32-S3: esp_light_sleep to the
 // deadline or DIO1 (ext1). -DMR_NO_POWERSAVE compiles it out (busy-spin, for A/B power measurement).
+// ★★★ §B200 — IT RETURNS WHETHER IT ACTUALLY SLEPT, AND THAT IS NOT A STYLE CHOICE. The arm below is FALLIBLE (the
+//   button may be held; the platform may refuse), so there are now real paths through this function that halt
+//   nothing. The caller's `slept=` counter used to be incremented BEFORE the call, which under a fallible arm would
+//   report sleeps that never happened — and `slept=` is precisely the field the bench checks read (Part 23.2/23.4).
+//   ⇒ count only what this function reports. ⓘ It also makes the pre-existing non-RTC-DIO1 path honest: a board whose
+//   DIO1 cannot wake from light sleep never entered this branch's sleep and used to be counted anyway.
 #if !defined(MR_NO_POWERSAVE)
-static void board_sleep_until([[maybe_unused]] uint64_t deadline_ms, [[maybe_unused]] uint64_t now_ms) {
+static bool board_sleep_until([[maybe_unused]] uint64_t deadline_ms, [[maybe_unused]] uint64_t now_ms) {
 #if defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(BOARD_XIAO_WIO_SX1262)
   #if (__FPU_USED == 1)
     __set_FPSCR(__get_FPSCR() & ~(0x0000009Fu));   // nRF52 errata 87: stale FPU flags keep WFE awake ("insomnia")
@@ -980,6 +998,7 @@ static void board_sleep_until([[maybe_unused]] uint64_t deadline_ms, [[maybe_unu
     uint8_t sd_on = 0; sd_softdevice_is_enabled(&sd_on);
     if (sd_on) sd_app_evt_wait();                  // SoftDevice: process pending events, then sleep
     else { __SEV(); __WFE(); __WFE(); }            // raw WFE (SEV+double-WFE clears any stale event)
+    return true;                                   // WFE always halts; there is no armable/refusable source here
 #elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
     if (rtc_gpio_is_valid_gpio((gpio_num_t)LORA_PIN_DIO1)) {   // only if DIO1 can wake from light-sleep
         esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
@@ -991,8 +1010,51 @@ static void board_sleep_until([[maybe_unused]] uint64_t deadline_ms, [[maybe_unu
         // NB: no UART wake source — light-sleep gates the UART clock, so a typed byte can't reliably wake us
         // (verified dead on the Heltec). We only reach here when NO host is present (loop()'s `may_sleep`), so
         // there's no console to strand; regain it by reconnecting (DTR resets -> a fresh, awake boot).
-        esp_light_sleep_start();
+        // ★★★ §B200 — THE UI's WAKE SOURCE IS ARMED HERE, ONE LINE BEFORE THE HALT, AND NOWHERE ELSE. [[B197]] armed
+        //   it once at boot; the trigger is level-triggered, a level interrupt cannot be cleared while the level
+        //   holds, and the shared GPIO ISR is live (RadioLib's DIO1 attach) ⇒ a HELD BUTTON stormed the ISR and
+        //   tripped the Interrupt watchdog. Scoped to the halt, the armed level exists only while nothing is running.
+        // ⛔ INSIDE THIS `rtc_gpio_is_valid_gpio` GUARD, DELIBERATELY: outside it, a board whose DIO1 is not
+        //   RTC-capable would arm and then neither sleep nor disarm — [[B200]] again, on a different board.
+        // ⛔ NOT `ok` ⇒ NOTHING WAS ARMED AND WE DO NOT SLEEP. The button being held is the ordinary case (skip this
+        //   pass); a platform failure has already disabled sleep for the boot inside the hook.
+        const MrUiWakeArm arm = mr_ui_arm_button_wake();
+        if (arm != MrUiWakeArm::ok) {
+            if (arm == MrUiWakeArm::button_down) ++g_wake_arm_busy; else ++g_wake_arm_fail;
+            return false;
+        }
+        // ★★ §B200 R2.1 — THE HALT'S RETURN IS CAPTURED, because light sleep CAN REFUSE TO HAPPEN. ESP-IDF answers
+        //   `ESP_ERR_SLEEP_REJECT` (a wake source was already asserted, or the hardware rejected entry) or
+        //   `ESP_ERR_SLEEP_TOO_SHORT_SLEEP_DURATION` (the requested interval is below the entry/exit overhead) — both
+        //   meaning THE CPU NEVER SLEPT. Discarding it re-broke truthful `slept=` through a different door: a
+        //   rejection would have been counted as a sleep and its STALE wake cause tallied as if it were fresh.
+        const esp_err_t sleep_rc = esp_light_sleep_start();
+        // ⛔⛔⛔ §B200 R2.2 — THE DISARM IS THE FIRST OPERATION AFTER THE HALT RETURNS, AND NOTHING MAY BE PUT BEFORE
+        //   IT. On a GPIO wake THE BUTTON IS BY DEFINITION STILL HELD LOW — that is what woke the node — so the
+        //   interval between this line and `gpio_wakeup_disable()` is EXACTLY the window in which the storm condition
+        //   is live on a running CPU. Removing the active-low level is safety-critical; everything else is reporting.
+        // ⛔ WITHDRAWN IN PLACE (§3 rule 3), because the wrong reason for the wrong order is worth keeping visible.
+        //   This block previously read the cause FIRST and defended it as: *"THE CAUSE IS READ BEFORE THE DISARM, so
+        //   no teardown can be suspected of clobbering it … No `return`, no branch, nothing at all may sit between
+        //   the halt and this line"* — a comment that FORBADE what the three statements above it were doing. The
+        //   clobbering concern is speculative, and if it were ever real it would surface benignly as `wk_gpio=0`,
+        //   never as a panic. ⇒ safety first, diagnostics second.
+        const bool disarm_ok = mr_ui_disarm_button_wake();
+        if (!disarm_ok) ++g_wake_disarm_fail;                       // the hook has already latched sleep off for the boot
+        // ⛔ A REFUSED SLEEP IS NOT A SLEEP: count it, and return BEFORE reading a wake cause that would be stale.
+        if (sleep_rc != ESP_OK) { ++g_wake_sleep_fail; return false; }
+        // ★★ THE PER-CAUSE TALLY CLOSES THE ATTRIBUTION GAP bench 23.1(b) could not: with the sleep capped at
+        //   MR_MAX_SLEEP_MS the MCU wakes every second anyway, so a received frame never proved the DIO1 edge
+        //   delivered the CPU. This answers it directly, permanently, and for free.
+        const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+        if      (cause == ESP_SLEEP_WAKEUP_GPIO)  ++g_wake_gpio;    // the user button (this slice's whole point)
+        else if (cause == ESP_SLEEP_WAKEUP_EXT1)  ++g_wake_ext1;    // DIO1 RxDone — the radio really woke us
+        else if (cause == ESP_SLEEP_WAKEUP_TIMER) ++g_wake_timer;   // the ≤1 s deadline cap
+        return true;
     }
+    return false;   // DIO1 cannot wake this board from light sleep -> nothing was armed and nothing slept
+#else
+    return false;   // no light-sleep implementation on this architecture -> `slept=` stays 0, truthfully
 #endif
 }
 #endif  // !MR_NO_POWERSAVE
@@ -1432,8 +1494,11 @@ static void mesh_service_once() {
         uint64_t due = g_hal.next_due_ms();                    // UINT64_MAX if no timer armed
         const uint64_t cap = s_now + MR_MAX_SLEEP_MS;
         if (due > cap) due = cap;
-        ++g_sleep_count;                                       // count sleep entries (status `slept=`)
-        board_sleep_until(due, s_now);
+        // ★★ §B200 — COUNT ONLY A SLEEP THAT ACTUALLY HAPPENED. The `++` used to sit on the line ABOVE the call, when
+        //    reaching the call and halting were the same thing. They no longer are: the per-sleep wake arm can refuse
+        //    (button held, or a platform failure), and a counter that reported those as sleeps would make `slept=` —
+        //    the field every bench check in Part 23 reads — a lie in exactly the situation being investigated.
+        if (board_sleep_until(due, s_now)) ++g_sleep_count;     // status `slept=`
     }
 #endif
 }

@@ -42,21 +42,40 @@ void draw_text(int x, int y, const char* s);
 void draw_hline(int x, int y, int w);
 void set_power_save(bool on);       // panel off/on WITHOUT clearing display RAM; latched, repeat calls are no-ops
 bool button_pressed();
-// ★★★ §B197 — ARM THE BUTTON AS A LIGHT-SLEEP WAKE SOURCE. Called ONCE, after board_init() (which is what configures
-//   the pin as INPUT_PULLUP), by src/firmware_ui.cpp's mr_ui_init(). The ACTIVE-LOW level is not a new fact: it comes
-//   from the same INPUT_PULLUP / button_pressed() contract two lines up, so there is one polarity authority, not two.
-// ★★ true = BOTH platform calls succeeded and a press can now wake a sleeping CPU.
-//    false = the node MUST NOT SLEEP for the rest of this boot (the caller's fail-closed rule). ⛔ Do not "recover"
-//    by sleeping anyway: a sleeping node whose button is not armed is reachable only by a LoRa RxDone or the ≤1 s
-//    deadline timer, i.e. by nothing the operator can do — which is [[B197]] exactly, made permanent and silent.
-// ⚠ It does NOT touch the radio's DIO1 `ext1` wake in fw_main.cpp's board_sleep_until(). Whether the RTC-domain
+// ★★★ §B200 — ARM THE BUTTON AS A LIGHT-SLEEP WAKE SOURCE, FOR ONE SLEEP ONLY. ⛔⛔ THE OLD CONTRACT IS WITHDRAWN
+//   AND ITS WORDING IS KEPT HERE SO THE MISTAKE IS NOT REPEATED: §B197 declared `bool enable_button_wake()`, *"Called
+//   ONCE, after board_init() … by src/firmware_ui.cpp's mr_ui_init()"*. That permanent arm is [[B200]]: the trigger is
+//   LEVEL-triggered (light sleep admits no other kind), a level interrupt CANNOT BE CLEARED while the level holds, and
+//   RadioLib's DIO1 attach keeps the shared GPIO ISR installed ⇒ a HELD BUTTON storms the ISR and trips the Interrupt
+//   watchdog (`Core 1 panic'ed (Interrupt wdt timeout on CPU1)`, captured on metal 2026-08-15).
+// ⇒ ★ THE CALL SITE IS NOW `src/fw_main.cpp`'s `board_sleep_until()`, IMMEDIATELY BEFORE `esp_light_sleep_start()`,
+//   with `disarm_button_wake()` IMMEDIATELY AFTER IT RETURNS. The armed level then exists only while the CPU is
+//   halted — the one state in which it cannot storm anything. ⛔ Nothing may arm this at boot, ever again.
+// ★★ IT RE-SAMPLES THE PIN ITSELF, and that is deliberately INSIDE this function rather than left to the caller: a
+//   caller cannot forget what it never had to remember. `button_down` means the finger is on the button at this
+//   instant, so arming a LOW-level source would arm an ALREADY-ASSERTED interrupt — the storm, exactly. The UI's own
+//   `InputFsm` is NOT an acceptable substitute: it is updated at tick time and the press can land between the tick
+//   and the sleep. The ACTIVE-LOW level is not a new fact either — it is the same INPUT_PULLUP / button_pressed()
+//   contract above, so there is ONE polarity authority, not two.
+// ★★ armed       = BOTH platform calls succeeded; a press can now wake the halted CPU, and the caller OWES a disarm.
+//    button_down = nothing was armed, nothing is owed, and the caller MUST NOT SLEEP this pass. Not a fault.
+//    failed      = the platform refused. Any PARTIAL arm has been ROLLED BACK before returning (a half-armed pin is
+//                  the storm), nothing is owed, and the caller must not sleep — for the whole boot (fail closed).
+// ⚠ Neither call touches the radio's DIO1 `ext1` wake in fw_main.cpp's board_sleep_until(). Whether the RTC-domain
 //   ext1 source and this digital-domain GPIO source COEXIST in ESP32-S3 light sleep is the design's one UNPROVEN
 //   HARDWARE ASSUMPTION and is settled only on metal, independently per source
 //   (docs/superpowers/specs/2026-08-14-b197-b198-ui-sleep-wake-design.md §3.1.2; bench script Part 23).
 // ⓘ GPIO0 is also the ESP32-S3 boot strap, but that pin is sampled ONLY during RESET — arming it as a RUNTIME wake
 //   source adds nothing to that hazard. Holding it through a reset still enters serial-download mode; if a board
 //   looks bricked, RELEASE THE BUTTON AND RESET AGAIN (spec §3.1.1).
-bool enable_button_wake();
+enum class WakeArm : uint8_t { armed = 0, button_down = 1, failed = 2 };
+WakeArm arm_button_wake();
+// ★★★ THE OTHER HALF, AND IT IS NOT OPTIONAL ON ANY PATH. Disarms the pin's level interrupt AND withdraws the GPIO
+//   source from the next sleep, so a running CPU never carries an armed level. false = the platform refused, which
+//   the caller must treat as fatal-to-sleeping for the boot: a level source it cannot take down is [[B200]] durable.
+// ⓘ Calling it when nothing is armed is harmless — it is the same two withdrawals against state that is already
+//   withdrawn — but the caller is told exactly when it is owed, so it never has to rely on that.
+bool disarm_button_wake();
 // One sample, taken now: enable the divider, read, disable it. <0 = UNAVAILABLE — no reader, or a reading outside the
 // 1S-LiPo plausible window — and the caller renders `--` for it, never a substituted default (spec §7).
 // ★ The CALLER decides WHEN: spec §7's boot + ~30 s cadence under the §5 MAC-idle predicate. This canvas owns no

@@ -68,6 +68,12 @@ extern uint8_t  g_rxbuf[meshroute::protocol::max_payload_bytes_hard_cap + 32];
 extern bool     g_radio_ok;
 extern uint32_t g_rx_count;
 extern uint32_t g_sleep_count;
+// §B200 light-sleep wake/arm diagnostics (status). ESP32 only — same guard as their definitions in fw_main.cpp and as
+// the `board_sleep_until()` branch that is the only thing that writes them.
+#if defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
+extern uint32_t g_wake_gpio, g_wake_ext1, g_wake_timer;
+extern uint32_t g_wake_arm_busy, g_wake_arm_fail, g_wake_disarm_fail, g_wake_sleep_fail;
+#endif
 extern bool     g_host_present;
 extern bool     g_force_sleep;
 extern double   g_freq_mhz;

@@ -11,6 +11,13 @@ claimed — none exists yet.**
 The two defects share one sleep-policy boundary and should be one implementation slice. B196 remains a separate,
 undiagnosed panic investigation; this design neither attributes it nor proposes a fix for it.
 
+⛔⛔ **STATUS CORRECTION 2026-08-15 — [[B200]]. THE IMPLEMENTATION OF §3.1 AS WRITTEN PANICKED THE NODE ON DEMAND**
+(`Interrupt wdt timeout on CPU1`, reproduced by a long press), because §3.1 instructed a **level-triggered GPIO wake
+armed ONCE AT BOOT and never disarmed**. **§3.1 and §3.4 are WITHDRAWN AND REWRITTEN IN PLACE below**; the fix
+(arm at the sleep, disarm on wake, re-sample the pin, roll back partials, fail closed) is the §B200 slice. Every
+other section of this design still stands. ⚠ Bench **23.1(b)'s pass does NOT transfer** — it was measured with the
+wake armed permanently and must be re-run.
+
 ## 1. Verified present state (V1)
 
 | Fact | Current source | Consequence |
@@ -60,20 +67,56 @@ reset, or a console byte received during boot grace. The previously unreliable U
 
 ### 3.1 Board-owned GPIO wake setup
 
-Add a narrow `mrui::enable_button_wake()` board-canvas function beside `button_pressed()`:
+⛔⛔ **WITHDRAWN AND REWRITTEN IN PLACE 2026-08-15 (§3 rule 3 — a withdrawal stays visible). THIS SECTION AS WRITTEN
+CAUSED [[B200]]: THE NODE PANICS ON DEMAND WHEN THE BUTTON IS HELD.** The withdrawn text read:
 
-- `board_init()` continues to configure `MR_UI_BTN_PIN` as `INPUT_PULLUP`;
-- after `board_init()`, `mr_ui_init()` calls `enable_button_wake()` once;
-- the Heltec V3 implementation calls
-  `gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL)`, then
-  `esp_sleep_enable_gpio_wakeup()`;
-- both return values are checked. Failure prints one exact boot diagnostic,
-  `!! OLED button wake unavailable; sleep disabled`, and the OLED sleep hook remains false for the boot;
-- the implementation does not replace, disable, or reorder the existing DIO1 `ext1` setup in
-  `board_sleep_until()`.
+> - `board_init()` continues to configure `MR_UI_BTN_PIN` as `INPUT_PULLUP`;
+> - **after `board_init()`, `mr_ui_init()` calls `enable_button_wake()` once;**
+> - the Heltec V3 implementation calls `gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL)`, then
+>   `esp_sleep_enable_gpio_wakeup()`;
+> - both return values are checked. Failure prints one exact boot diagnostic, … and the OLED sleep hook remains
+>   false for the boot;
+> - the implementation does not replace, disable, or reorder the existing DIO1 `ext1` setup.
+
+**WHY IT WAS WRONG, and it is one fact:** `GPIO_INTR_LOW_LEVEL` is **level-triggered** — light sleep admits no other
+kind — and **a level interrupt cannot be cleared while the level persists.** Armed once at boot and never disarmed,
+a **held** button re-asserts GPIO0's interrupt status continuously; RadioLib's `setPacketReceivedAction(mr_on_dio1)`
+(`lib/hal/device_radio.h:75`) has installed the shared GPIO ISR, so that is an **interrupt storm on a running core**
+⇒ `Guru Meditation Error: Core 1 panic'ed (Interrupt wdt timeout on CPU1)`, `Core 1 was running in ISR context`.
+Reproduced on metal 2026-08-15 by one long press. ⓘ The failure was **structural, not incidental**: nothing in the
+design gave the arm a lifetime, so no reviewer had a place to ask how it ended.
+
+**WHAT REPLACES IT (implemented 2026-08-15; ⛔ no owner or QA approval of the implementation is claimed):** the
+board canvas exposes a **PAIR** scoped to a single sleep, and `mr_ui_init()` arms **nothing**.
+
+- `board_init()` still configures `MR_UI_BTN_PIN` as `INPUT_PULLUP`, and still arms no wake source;
+- `mrui::arm_button_wake()` returns `armed` / `button_down` / `failed`. It **re-samples the pin first** and refuses
+  (`button_down`) while the button is held — arming a LOW-level source on an already-LOW pin *is* the storm, and the
+  debounced `InputFsm` is not an acceptable substitute because the press can land between the tick and the sleep;
+- on `armed` it has called `gpio_wakeup_enable(..., GPIO_INTR_LOW_LEVEL)` then `esp_sleep_enable_gpio_wakeup()`, both
+  return values checked, and **a partial arm is rolled back** (`gpio_wakeup_disable`) before reporting `failed`;
+- `mrui::disarm_button_wake()` calls `gpio_wakeup_disable(MR_UI_BTN_PIN)` **and**
+  `esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO)`, attempts both even if the first fails, and ANDs the two;
+- `src/fw_main.cpp`'s `board_sleep_until()` arms **immediately before** `esp_light_sleep_start()` and disarms as the
+  **FIRST statement after it returns**, ⛔ **inside** the existing `if (rtc_gpio_is_valid_gpio(LORA_PIN_DIO1))` guard —
+  outside it, a board whose DIO1 is not RTC-capable would arm and then neither sleep nor disarm, i.e. B200 again.
+  ★★ **"First" is load-bearing, not stylistic (round-2 correction): on a GPIO wake the button is BY DEFINITION still
+  held low — that is what woke the node — so anything placed between the halt returning and `gpio_wakeup_disable()`
+  runs with the storm condition live on a running CPU. Diagnostics come after the teardown, never before it;**
+- the halt's **return code is checked**: `ESP_ERR_SLEEP_REJECT` / `ESP_ERR_SLEEP_TOO_SHORT_SLEEP_DURATION` mean the
+  CPU never slept, so they are counted (`wksleepfail=`) and reported as "did not sleep" rather than being counted in
+  `slept=` with a stale wake cause;
+- anything but `armed` ⇒ **nothing was armed and the node does not sleep this pass**;
+- an arm **or disarm** HARDWARE failure latches sleep off for the whole boot and says so once —
+  `!! OLED button wake unavailable; sleep disabled` / `!! OLED button wake stuck armed; sleep disabled`;
+- ⛔ neither call replaces, disables or reorders the DIO1 `ext1` setup.
+
+★ **The fail-closed property is now stronger than a latch could make it: "sleeping with the button unarmed" is
+unreachable by construction**, because the arm happens inside the sleep path and refuses the sleep on failure.
 
 The active-low level comes from the existing `INPUT_PULLUP`/`button_pressed()` contract. The board TU owns the pin
-and ESP-IDF calls; `fw_main.cpp` does not acquire an OLED feature conditional or a button pin number (U3).
+and ESP-IDF calls; `fw_main.cpp` does not acquire an OLED feature conditional or a button pin number (U3) — the pair
+reaches it through two new unconditional `lib/hal/mr_ui.h` seams with non-OLED no-op stubs.
 
 #### 3.1.1 ⚠ GPIO0 IS THE ESP32-S3 BOOT STRAP PIN — recorded explicitly so the question is answered before it is asked
 
@@ -147,8 +190,19 @@ attention/frame/input work is complete. Non-OLED behavior is unchanged because i
 
 ### 3.4 Wake-to-gesture sequence
 
-1. The blank, idle node enters light sleep through the existing gate.
-2. GPIO0 going low wakes it immediately; DIO1 and timer wake remain armed.
+⛔ **STEPS 1-3 WERE REWRITTEN IN PLACE 2026-08-15 (§B200): the withdrawn version ASSUMED A PERMANENT ARM.** It read:
+*"1. The blank, idle node enters light sleep through the existing gate. 2. GPIO0 going low wakes it immediately;
+DIO1 and timer wake remain armed. 3. The next `mr_ui_tick()` samples the low level…"* — a sequence in which the
+button is simply always a wake source, which is exactly the assumption that panicked the node. **Steps 4-7 are
+unchanged and still stand.**
+
+1. The blank, idle node reaches the existing gate. `board_sleep_until()` re-samples the button: **if it is held, the
+   node does not arm and does not sleep this pass** (there is nothing to wake for, and arming would storm).
+2. Otherwise the GPIO wake is armed **for this sleep only**, the CPU halts, and GPIO0 going low wakes it. DIO1 and
+   the timer are armed by the same call, as before. **The FIRST thing that happens when the halt returns is the
+   disarm** — a running core never carries the level, and on a GPIO wake the button is still held, so nothing may be
+   done ahead of it. Only then is the halt's own verdict checked (a refused sleep is not a sleep) and
+   `esp_sleep_get_wakeup_cause()` tallied into `wk_gpio/wk_ext1/wk_tmr`.
 3. The next `mr_ui_tick()` samples the low level. `InputFsm::active()` becomes true before debounce completes, so the
    node cannot sleep again between the edge and classification.
 4. Release debounce and `_pending_tap` keep it awake through the double-click window.

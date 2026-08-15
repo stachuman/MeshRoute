@@ -122,12 +122,14 @@ struct Canvas {
     char page_text[2048] = {};            // every string of the current frame, '|'-separated
     size_t n_page_text = 0;
     bool init_answer  = true;             // what board_init() reports (§B91)
-    // ---- §B197: the button wake -------------------------------------------------------------------------------
-    // ★ `wake_answer` is what the BOARD reports back from its two ESP-IDF calls, so the caller's FAIL-CLOSED arm is
-    //   reachable from a host. It is the only input to `s_btn_wake_armed`, which is the only thing that can make
-    //   `mr_ui_allows_sleep()` refuse regardless of UI state.
-    int  wake_calls   = 0;
-    bool wake_answer  = true;
+    // ---- §B197/§B200: the button wake, armed PER SLEEP and always disarmed --------------------------------------
+    // ★ `arm_answer` is what the BOARD reports back from its ESP-IDF calls, so every arm of the caller's mapping —
+    //   including the FAIL-CLOSED one — is reachable from a host. `disarm_answer` is the same for the teardown.
+    // ⛔ `arm_calls` starting at 0 and STAYING 0 across `mr_ui_init()` is [[B200]]'s check: nothing may arm at boot.
+    int  arm_calls    = 0;
+    int  disarm_calls = 0;
+    mrui::WakeArm arm_answer = mrui::WakeArm::armed;
+    bool disarm_answer = true;
     bool button_down  = false;
     int32_t batt_answer = -1;             // what battery_sample_mv() hands back; <0 = unavailable (the real V3 today)
     int  bus_ops() const { return init + begin_frame + next_page + power_save; }
@@ -181,10 +183,12 @@ void draw_text(int, int, const char* s) {
 void draw_hline(int, int, int)         { ++g_c.draw_hline; }
 void set_power_save(bool on)           { ++g_c.power_save; g_c.last_power_save = on ? 1 : 0; }
 bool button_pressed()                  { ++g_c.button; return g_c.button_down; }
-// §B197: the REAL one lives in variants/heltec_v3/board_ui.cpp and is measured by tools/probe_board_ui (P11 + its
-// nine controls). Here it is a scriptable stand-in, because what THIS probe measures is what the FEATURE layer does
-// with the answer — arm once, say so on failure, and never sleep afterwards.
-bool enable_button_wake()              { ++g_c.wake_calls; return g_c.wake_answer; }
+// §B197/§B200: the REAL pair lives in variants/heltec_v3/board_ui.cpp and is measured by tools/probe_board_ui (P11 +
+// its controls, including the pin re-sample and the rollback). Here they are scriptable stand-ins, because what THIS
+// probe measures is what the FEATURE layer does with the answers — map all three verdicts, latch only on a HARDWARE
+// failure, say each failure once, and ⛔ never arm at boot.
+WakeArm arm_button_wake()              { ++g_c.arm_calls;    return g_c.arm_answer; }
+bool    disarm_button_wake()           { ++g_c.disarm_calls; return g_c.disarm_answer; }
 int32_t battery_sample_mv()            { ++g_c.battery; return g_c.batt_answer; }
 }  // namespace mrui
 
@@ -981,18 +985,23 @@ int main() {
     }
 
     // ============================================================================================================ P10
-    // ★★★ §B197/§B198 — THE DEVICE SLEEP POLICY, THROUGH THE REAL `mr_ui_allows_sleep()`. The PURE predicate is under
-    //   the native gate (`ui-sleep:` cases, nine mutations); what NO native case can reach is this file's two jobs:
-    //   arming the wake source and REFUSING FOR THE WHOLE BOOT when that fails. `src/fw_main.cpp`'s gate — the one
-    //   consumer — is outside every build a host can make, and is pinned structurally by `probe_board_ui`'s W23.
+    // ★★★ §B197/§B198/§B200 — THE DEVICE SLEEP POLICY, THROUGH THE REAL `mr_ui_allows_sleep()`. The PURE predicate is
+    //   under the native gate (`ui-sleep:` cases, nine mutations); what NO native case can reach is this file's jobs:
+    //   mapping the board's three arm verdicts, latching sleep off for the boot on a HARDWARE failure, and ⛔ NEVER
+    //   arming at boot. `src/fw_main.cpp`'s gate — the one consumer — is outside every build a host can make, and is
+    //   pinned structurally by `probe_board_ui`'s W23/W29/W30/W31.
+    // ⛔⛔ P10a WAS RETARGETED, NOT EXTENDED. It used to assert *"mr_ui_init arms the button wake exactly once"* — it
+    //   REQUIRED [[B200]], and would have gone green against the panicking image. It now asserts the opposite.
     {
-        // ---- (i) the wake is armed ONCE, by mr_ui_init, and its failure is SAID ---------------------------------
-        g_c.wake_calls = 0; g_c.wake_answer = true;
+        // ---- (i) ⛔ mr_ui_init ARMS NOTHING. The [[B200]] fix, measured rather than grepped ----------------------
+        g_c.arm_calls = 0; g_c.disarm_calls = 0;
+        g_c.arm_answer = mrui::WakeArm::armed; g_c.disarm_answer = true;
         Serial.reset();
         mr_ui_init();
-        CHK("P10a mr_ui_init arms the button wake exactly once", g_c.wake_calls == 1);
-        CHK("P10a ...and says nothing about it when it succeeds",
-            strstr(Serial.out, "button wake unavailable") == nullptr);
+        CHK("P10a mr_ui_init ARMS NOTHING at boot (B200)",
+            g_c.arm_calls == 0 && g_c.disarm_calls == 0);
+        CHK("P10a2 ...and says nothing about a wake source at boot",
+            strstr(Serial.out, "button wake") == nullptr);
 
         // ---- (ii) a blank, idle, frame-free node PERMITS sleep --------------------------------------------------
         // ⚠ This is the POSITIVE arm and it comes first deliberately: every "refuses" check below is only evidence
@@ -1019,7 +1028,7 @@ int main() {
         // ⛔ THE HARM WAS ~8 SECONDS PER FRAME ON THE EMERGENCY SCREEN: one 128 B page per service pass × a ≤1 s
         //   sleep between passes. So the property is "false on every pass of the frame", not "false at some point".
         dirty_the_model(t10 + 100);
-        g_c = Canvas{}; g_c.wake_answer = true;
+        g_c = Canvas{};
         int refused_mid_frame = 0;
         for (int i = 0; i < 8; ++i) {
             tick(t10 + 200 + uint32_t(i) * 10);
@@ -1036,27 +1045,65 @@ int main() {
         CHK("P10f ...and permitted again once the frame is out and blank",
             mr_ui_allows_sleep() == true);
 
-        // ---- (v) ★★★ THE FAIL-CLOSED PATH. The single most important behaviour in this slice ---------------------
+        // ---- (v) ★★★ THE ARM VERDICT MAPPING, AND `button_down` IS THE ONE THAT MUST NOT LATCH ------------------
+        // The node is in the blank/idle/frame-free state that P10f just proved PERMITS sleep, so every answer below
+        // is attributable to the arm alone.
+        // ⛔⛔ A HELD BUTTON IS NOT A FAULT. It is the most ordinary reason in the world not to sleep — and latching
+        //   on it would disable light-sleep for the whole boot on the first press of the day, on a battery-powered
+        //   safety device, while looking exactly like a working fix.
+        g_c.arm_calls = 0; g_c.disarm_calls = 0;
+        Serial.reset();
+        g_c.arm_answer = mrui::WakeArm::armed;
+        CHK("P10g an armed board answers ok", mr_ui_arm_button_wake() == MrUiWakeArm::ok);
+        g_c.arm_answer = mrui::WakeArm::button_down;
+        CHK("P10g2 a HELD button answers button_down", mr_ui_arm_button_wake() == MrUiWakeArm::button_down);
+        CHK("P10g3 ...and does NOT latch sleep off, and says nothing",
+            mr_ui_allows_sleep() == true && Serial.out[0] == '\0');
+        // ★ TWO arms so far, one per `mr_ui_arm_button_wake()` call — and `mr_ui_allows_sleep()` in P10g3 contributed
+        //   NONE. That is a property, not bookkeeping: the policy hook runs every service pass and must never arm
+        //   anything; an arm hidden inside it would be a per-pass arm on a possibly-held button.
+        CHK("P10g4 ...and the POLICY hook itself armed nothing", g_c.arm_calls == 2);
+
+        // ---- (vi) ★★★ THE FAIL-CLOSED PATH. The single most important behaviour in this slice -------------------
         // ⛔ A node that light-sleeps with its button unarmed is [[B197]] made PERMANENT AND INVISIBLE: the only
         //   remaining wake sources are a LoRa RxDone and the ≤1 s deadline timer, neither of which the operator can
-        //   reach. ⇒ an arming failure must disable sleep for the WHOLE BOOT, and must SAY SO once, exactly.
+        //   reach. ⇒ a HARDWARE failure must disable sleep for the WHOLE BOOT, and must SAY SO once, exactly.
         Serial.reset();
-        g_c.wake_answer = false;
-        mr_ui_init();
-        CHK("P10g a wake-arm FAILURE is reported with the exact boot line",
+        g_c.arm_answer = mrui::WakeArm::failed;
+        CHK("P10h a platform failure answers failed", mr_ui_arm_button_wake() == MrUiWakeArm::failed);
+        CHK("P10h2 ...reported with the exact boot line",
             strstr(Serial.out, "!! OLED button wake unavailable; sleep disabled") != nullptr);
-        t10 = settle(t10 + 1000);
-        paint(t10);
-        t10 += 20000; tick(t10);                    // the SAME blank/idle/frame-free state that permitted sleep above
-        CHK("P10h ...and that state now REFUSES sleep (fail closed)", mr_ui_allows_sleep() == false);
+        CHK("P10h3 ...and that state now REFUSES sleep (fail closed)",
+            mr_ui_allows_sleep() == false);
+        // ★ SAID ONCE. The arm runs on every idle service pass, so an unlatched print would flood the USB-CDC sink
+        //   this firmware has already been wedged by — and a flood is not something a later reader would attribute
+        //   to a missing edge check. A second failure must add nothing.
+        Serial.reset();
+        (void)mr_ui_arm_button_wake();
+        CHK("P10h4 ...and it is said ONCE, not on every pass", Serial.out[0] == '\0');
+    }
 
-        // ---- (vi) the positive control for (v): re-arming restores it, so P10h is not a stuck `false` ------------
-        g_c.wake_answer = true;
-        mr_ui_init();
-        t10 = settle(t10 + 1000);
-        paint(t10);
-        t10 += 20000; tick(t10);
-        CHK("P10i a successful re-arm restores sleep in the same state", mr_ui_allows_sleep() == true);
+    // ============================================================================================================ P12
+    // ★★★ §B200 — THE DISARM SEAM, AND ITS FAILURE IS THE SERIOUS ONE. A refused disarm means the level interrupt is
+    //   still on the pin with the CPU RUNNING, which is [[B200]]'s exact precondition. This layer cannot fix the
+    //   hardware; the one thing it can do is stop the node ever arming it again.
+    // ⛔⛔ WHAT THIS BLOCK CANNOT ISOLATE, STATED RATHER THAN LEFT TO BE ASSUMED. The lockout latch is BOOT-SCOPED and
+    //   is deliberately never cleared — there is no reset entry point and adding a test-only one would be inventing
+    //   API for the instrument. P10h already latched it, so *"the disarm failure is what disabled sleep"* is NOT
+    //   attributable here, and neither is its own console line (it is said once, and the once is spent). ⇒ ONE of
+    //   the two lockout paths can be proved end-to-end per process, and the ARM path was given that slot because it
+    //   is the common one and its exact line is what bench Part 23.2 reads.
+    //   ★ The disarm path's remaining obligations are covered STRUCTURALLY, with mutation controls, by
+    //     `probe_board_ui`'s W27 (its `latch_sleep_off()` call and its exact string) — weaker, and named as such.
+    {
+        Serial.reset();
+        g_c.disarm_calls = 0; g_c.disarm_answer = true;
+        CHK("P12a a successful disarm reports true and says nothing",
+            mr_ui_disarm_button_wake() == true && Serial.out[0] == '\0');
+        CHK("P12a2 ...having actually asked the board", g_c.disarm_calls == 1);
+        g_c.disarm_answer = false;
+        CHK("P12b a refused disarm reports false", mr_ui_disarm_button_wake() == false);
+        CHK("P12b2 ...and asked the board that time too", g_c.disarm_calls == 2);
     }
 
     printf("\n%d passed / %d failed / %d total\n", g_pass, g_fail, g_pass + g_fail);
