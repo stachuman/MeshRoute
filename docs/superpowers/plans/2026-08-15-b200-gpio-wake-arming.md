@@ -181,3 +181,141 @@ Native (binary run) · both probes with control sets, W31's retarget and its new
 `warning_census.sh` at its pins · the four-step simulator-inertness proof (`lus` md5 → rebuild → **0 relevant build
 actions** → identical md5; `s18` smoke only, keystone **read from `BASELINE.md`**) · six board envs with RAM/flash ·
 `sizeof(Node)` unmoved · ⛔ nothing committed. ⛔ **[[B196]] untouched.**
+
+---
+---
+# ROUND 3 — the fix is INCOMPLETE. Two-part correction, dispatched on an owner directive 2026-08-15.
+
+⛔ **THE PANIC REPRODUCED ON THE ROUND-2 IMAGE** (`fw_main.cpp` mtime 19:27 < the flashed build 21:54, so the metal
+image DOES carry round 2). **The B197/B198 block stands.**
+
+## R3.1 — What the two-way test established (owner-run, and it discriminates cleanly)
+
+| test | condition | result |
+|---|---|---|
+| **A** | power-on, `reboot` within ~1 s, long press. Up ~1 s ⇒ inside the 30 s grace ⇒ **never slept ⇒ NEVER ARMED** | ✅ **no panic** |
+| **B** | `reboot` after `ran 1m17s` (past the grace, headless until the keystroke ⇒ **it slept, so it armed AND disarmed**), button pressed as the first boot lines appeared | ⛔ **PANIC** — `Interrupt wdt timeout on CPU1`, ISR context |
+
+⇒ ★★★ **A boot that NEVER ARMED does not storm; a boot that ARMED AND DISARMED before the reset DOES.**
+⇒ **`disarm_button_wake()` IS INCOMPLETE: something `gpio_wakeup_enable(GPIO0, GPIO_INTR_LOW_LEVEL)` sets survives
+BOTH our disarm AND `RTC_SW_CPU_RST`** (a CPU-only reset — `do_reboot()` calls `ESP.restart()`, `src/fw_main.cpp:275`).
+ⓘ **Corroboration:** this panic hit **MID-BANNER** (it cut the `inbox = RAM volatile…` line), i.e. **earlier than the
+round-1 capture and as soon as interrupts went live** — the signature of a level interrupt already configured before
+our code ran.
+
+## R3.2 — Part 1: the disarm must clear the INTERRUPT TYPE, not just the wake source
+
+**Leading mechanism:** `gpio_wakeup_disable()` clears the wake-**enable** bit but **not the pin's interrupt type**.
+GPIO0 keeps `GPIO_INTR_LOW_LEVEL` in the GPIO matrix; a CPU-only reset does not clear it; the next boot re-installs
+the shared GPIO ISR (RadioLib `attachInterrupt` via `setPacketReceivedAction`) and a held button asserts the level.
+⇒ **`disarm_button_wake()` must ALSO `gpio_set_intr_type(MR_UI_BTN_PIN, GPIO_INTR_DISABLE)`**, and must still attempt
+every withdrawal even if an earlier one fails (the existing rule). ⛔ **Verify the claim at the IDF source rather than
+inheriting it from this brief** (V1) — if `gpio_wakeup_disable()` *does* clear the type, say so and report what else
+survives.
+
+## R3.3 — Part 2: a BOOT-TIME SCRUB, because a reset can happen WHILE ARMED
+
+Part 1 fixes the orderly path. It does **not** cover a reset taken **while armed** — a panic or WDT during sleep —
+after which **no disarm ever runs**. ⇒ **scrub GPIO0's wake enable AND interrupt type once at boot.**
+
+★★ **THE PLACEMENT IS THE CRUX AND IT IS VERIFIED:** the scrub must run **BEFORE `g_radio.std_init()`
+(`src/fw_main.cpp:622`/`:624`)**, which is where RadioLib installs the shared GPIO ISR. ⛔ **`mr_ui_init()`
+(`src/fw_main.cpp:864`) IS FAR TOO LATE** — by then the ISR service exists and interrupts are live, so the storm has
+already happened. Place it after `mrfault::fault_wdt_start()` (`:598`, so a hang in the scrub is still caught) and
+before `:622`.
+
+⚠ **Reuse the EXISTING seam — `mr_ui_disarm_button_wake()` already does exactly what a scrub is** (U1); ⛔ do not add a
+sixth hook, and ⛔ `fw_main.cpp` still must not learn `MR_UI_BTN_PIN` or `MR_FEAT_OLED`.
+⚠⚠ **BUT CHECK ONE THING BEFORE WIRING IT: a boot scrub must NOT spuriously latch sleep off.** Nothing is armed at
+boot, and the latch is boot-scoped and unclearable — if the IDF returns non-OK for withdrawing a source that was never
+enabled, the node would disable sleep for every boot for ever. **Establish the actual return codes for the
+never-armed case and handle them; do not assume.**
+
+★ **Note the shape: this is DISARM at boot — the exact MIRROR of the original B200 defect, which was ARM at boot.**
+⇒ it also gives [[B199]]'s `ran 0s` a mechanism: a reset taken while armed leaves the next boot storming before its
+first loop heartbeat.
+
+## R3.4 — Tests
+- **Probe:** the scrub call exists, goes **through the seam**, and sits **before** the radio init. **Controls:**
+  scrub removed · scrub moved **after** `std_init()` · scrub replaced by an **arm** (the original defect, literally) ·
+  the interrupt-type clear removed from the disarm · the disarm's remaining withdrawals skipped after a failure.
+- **Native** where the logic is reachable; every new assertion mutation-proven with match counts.
+- **Bench 23.6 gains the two reboot cases** as the reproducer: **(A)** power-on → `reboot` within ~5 s (never slept)
+  → hold ⇒ no panic; **(B)** wait past 45 s so it sleeps, **read `slept=` to confirm it armed**, → `reboot` → hold
+  ⇒ no panic. ⚠ **(B) is the one that fails today**, and ⛔ **the `slept=` read is not optional** — it is what proves
+  the arm happened, which is the assumption the whole diagnosis rests on.
+
+## R3.5 — Explicitly NOT in this slice
+⛔ `tools/git_rev.py`'s silent `"nogit"` fallback (a C2 violation that has cost two undecodable captures) and a
+`GIT_REV` environment override for cross-machine builds. **Recorded here so it is not lost; not authorised now.**
+ⓘ The operator has since fixed their side (`git config --global --add safe.directory /mnt/MeshRoute`; `rev-parse`
+now answers `473581f`), so the **next** build will stamp and be decodable.
+
+---
+---
+# ROUND 4 — QG HOLD. Two firmware blockers: the ROLLBACK path was missed, and the teardown ORDER is wrong.
+
+⚠ QG's findings relayed by the owner — a recommendation, not an owner ruling (ledger §3 rule 5). **Both re-verified at
+the code.** ✅ Round 3's driver disassembly and its conclusion stand; ⛔ what is wrong is where the conclusion was
+applied.
+
+## R4.1 — ⛔⛔ BLOCKER: the PARTIAL-ARM ROLLBACK still clears only bit 10 — the SAME defect, a SECOND site
+
+`variants/heltec_v3/board_ui.cpp:353-355`:
+```cpp
+    if (esp_sleep_enable_gpio_wakeup() != ESP_OK) {
+        (void)gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN);   // ROLL BACK: never leave a half-armed level behind
+        return WakeArm::failed;
+    }
+```
+★★ **Round 3 proved at the linked driver that `gpio_wakeup_disable()` clears WAKEUP_ENABLE (bit 10) ALONE and leaves
+`GPIO_INTR_LOW_LEVEL` in INT_TYPE (bits 9:7).** ⇒ **this rollback RECREATES EXACTLY THE ROUND-3 RESIDUE**, and the
+caller is told `failed` — i.e. it believes nothing is armed. **The fix was applied to `disarm_button_wake()` and NOT
+to the rollback.**
+⚠ **And the comment on that very line asserts the property the code violates** — *"never leave a half-armed level
+behind"* is precisely what it leaves. Same shape as round 2's comment that forbade what the statements above it were
+doing. **Withdraw it in place.**
+
+⛔⛔ **AND THE PROBE PINS THE INSUFFICIENT CALL: `tools/probe_board_ui/probe_main.cpp:423`'s P11j checks only
+`gpio_wakeup_disable()`, so its GREEN is misleading.** ★ **FOURTH instance in this arc of an instrument enforcing the
+shape it should forbid** (after the arm-once W-checks, [[B195]]'s vacuous tripwire, and W31's unsafe order).
+
+## R4.2 — ⛔ BLOCKER: the storming state is cleared SECOND, not FIRST
+
+`board_ui.cpp:385`'s teardown order is **(1)** wake-enable bit, **(2)** interrupt type, **(3)** sleep source.
+★★ **Under this slice's OWN verified diagnosis, step (1) does not stop the storm — INT_TYPE is what drives the
+interrupt.** After a GPIO wake the CPU is running and **the button is still low** (that is what woke it), so the
+teardown spends two operations before touching the thing that is actually storming.
+⇒ **`gpio_set_intr_type(MR_UI_BTN_PIN, GPIO_INTR_DISABLE)` MUST BE THE FIRST TEARDOWN OPERATION.**
+
+## R4.3 — The required shape: ONE shared teardown (U1)
+
+```cpp
+static bool clear_button_wake_state() {
+    const bool type_off = gpio_set_intr_type(MR_UI_BTN_PIN, GPIO_INTR_DISABLE) == ESP_OK;   // FIRST — the storm source
+    const bool pin_off  = gpio_wakeup_disable(MR_UI_BTN_PIN) == ESP_OK;
+    const esp_err_t src = esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
+    const bool src_off  = src == ESP_OK || src == ESP_ERR_INVALID_STATE;
+    return type_off && pin_off && src_off;
+}
+```
+- **normal disarm calls it**; **partial-arm failure calls it** — ⛔ one teardown, two callers, never two copies;
+- keep attempting **all three** after any failure, verdicts ANDed (unchanged);
+- keep the narrow `ESP_ERR_INVALID_STATE` forgiveness and both opposing controls (C9u/C9v) — that was correct.
+
+⛔ **NO `gpio_intr_disable()` IS JUSTIFIED** and adding one is out of scope: the linked `gpio_wakeup_enable()`
+producer writes **INT_TYPE and the wake bit, not the CPU interrupt-enable field**, so the teardown stays symmetric
+with the producer. ★ If you believe otherwise, **report it with driver evidence; do not add it silently.**
+
+## R4.4 — Probes
+- **Retarget P11j** to require the **full** teardown on the rollback path — its current green is the defect.
+- **Require the interrupt-type clear FIRST** in both callers, and add a control **swapping it behind
+  `gpio_wakeup_disable()`** which **must turn RED**.
+- Add a control proving the two callers share **one** helper (duplicate the body into either site ⇒ RED), so the fix
+  cannot drift apart again — this bug exists because one site was updated and the other was not.
+
+## R4.5 — Re-gate
+Native from the binary · both probes with control sets and the retargeted P11j reported explicitly ·
+`warning_census.sh` at its pins · the four-step simulator-inertness proof · six envs with RAM/flash (⚠ expect the
+three non-OLED envs to stay **byte-identical** — the seam is inert there) · `sizeof(Node)` unmoved · ⛔ nothing
+committed. ⛔ [[B196]] untouched. ⛔ `git_rev.py` still NOT in scope.

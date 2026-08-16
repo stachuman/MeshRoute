@@ -14,3 +14,7 @@ esp_err_t gpio_wakeup_enable(gpio_num_t gpio_num, gpio_int_type_t intr_type);
 // that it was never called: a LEVEL trigger left armed on a running core re-asserts for as long as the button is
 // held, storming the shared GPIO ISR until the Interrupt watchdog fires.
 esp_err_t gpio_wakeup_disable(gpio_num_t gpio_num);
+// esp_err_t gpio_set_intr_type(gpio_num_t, gpio_int_type_t) — the real signature. ★★ §B200 ROUND 3: this is the ONLY
+// call that clears `GPIO_PINn_REG`'s INT_TYPE field (bits 9:7). `gpio_wakeup_disable()` clears bit 10 alone, so
+// without this the pin stays configured to interrupt on a level a held button asserts — across a CPU reset.
+esp_err_t gpio_set_intr_type(gpio_num_t gpio_num, gpio_int_type_t intr_type);

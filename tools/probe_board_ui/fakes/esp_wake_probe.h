@@ -24,8 +24,14 @@
 //   The one non-OK value below stands in for the whole family (`ESP_ERR_INVALID_ARG` is 0x102), because the code under
 //   test must treat EVERY non-OK code the same way — it checks `!= ESP_OK`, never a specific code.
 typedef int esp_err_t;
-static constexpr esp_err_t ESP_OK               = 0;
-static constexpr esp_err_t ESP_ERR_INVALID_ARG  = 0x102;
+static constexpr esp_err_t ESP_OK                 = 0;
+static constexpr esp_err_t ESP_ERR_INVALID_ARG    = 0x102;
+// ★★★ §B200 ROUND 3 — `ESP_ERR_INVALID_STATE` IS NOT A FAILURE HERE, AND THE VALUE IS THE REAL ONE (0x103).
+//   Verified by disassembling the linked `sleep_modes.c.obj`: `esp_sleep_disable_wakeup_source()` tests the source's
+//   bit in `wakeup_triggers` and, when the source was NEVER ENABLED, falls through every branch and returns
+//   `ESP_ERR_INVALID_STATE`. The boot scrub runs in exactly that state on every normal boot, so a shim that could
+//   not express this code could not measure the one rule that keeps the scrub from latching sleep off for ever.
+static constexpr esp_err_t ESP_ERR_INVALID_STATE  = 0x103;
 
 typedef int gpio_num_t;
 // The light-sleep-capable GPIO trigger types. ★ The two EDGE values are declared DELIBERATELY even though the
@@ -71,7 +77,16 @@ struct ProbeWake {
     int last_disable_src  = -1;               // which source esp_sleep_disable_wakeup_source was asked for
     int seq_gpio_disable = 0;
     int seq_sleep_disable = 0;
-    esp_err_t gpio_disable_result  = ESP_OK;  // scriptable: both teardown failure arms are reachable
+    esp_err_t gpio_disable_result  = ESP_OK;  // scriptable: every teardown failure arm is reachable
     esp_err_t sleep_disable_result = ESP_OK;
+    // ---- §B200 ROUND 3: the third withdrawal, the one whose absence brought the panic back ----------------------
+    // ★ `gpio_wakeup_disable()` clears the pin's WAKE-ENABLE bit and NOTHING ELSE (verified in the linked driver), so
+    //   the INTERRUPT TYPE survived both the disarm and a CPU-only reset. This shim records the type-clear separately
+    //   from the wake-disable precisely so "we cleared the wake bit" can never be mistaken for "the pin is quiet".
+    int set_intr_type_calls = 0;
+    int last_intr_type_gpio = -1;             // which pin gpio_set_intr_type was asked for
+    int last_intr_type      = -1;             // ...and with which type (must be GPIO_INTR_DISABLE on the teardown)
+    int seq_set_intr_type   = 0;
+    esp_err_t set_intr_type_result = ESP_OK;
 };
 extern ProbeWake g_wake;

@@ -155,21 +155,27 @@ MUT=[
  # C9c/C9d are the two halves of "both return values are checked" — the fail-safe's entire input. Either one ignored
  # and `arm_button_wake()` reports success for a wake source that was never armed, so the caller sleeps anyway.
  ('C9c gpio_wakeup_enable\'s return code is ignored',
-  '    if (gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL) != ESP_OK) return WakeArm::failed;',
+  '    if (gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL) != ESP_OK) {\n        (void)clear_button_wake_state();\n        return WakeArm::failed;\n    }',
   '    (void)gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL);'),
+ # ★★★ C9c2 — ROUND 4: the FIRST failure path returns WITHOUT tearing down. Tempting and wrong: the linked
+ # gpio_wakeup_enable() writes INT_TYPE and the wake bit and only THEN returns the RTC half's error, so a non-OK
+ # return can already have armed the pin. This is the pre-round-4 shape of that path.
+ ('C9c2 the FIRST arm failure returns without tearing down (it may already have written the pin)',
+  '    if (gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL) != ESP_OK) {\n        (void)clear_button_wake_state();\n        return WakeArm::failed;\n    }',
+  '    if (gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL) != ESP_OK) return WakeArm::failed;'),
  ('C9d esp_sleep_enable_gpio_wakeup\'s return code is ignored',
   '    if (esp_sleep_enable_gpio_wakeup() != ESP_OK) {',
   '    (void)esp_sleep_enable_gpio_wakeup();\n    if (false) {'),
  # C9e the pin is configured but the source is never ADMITTED to the next esp_light_sleep_start(). The most tempting
  # wrong answer of all: `gpio_wakeup_enable` alone reads like it does the whole job, and nothing complains.
  ('C9e the GPIO source is never admitted to sleep (gpio_wakeup_enable alone)',
-  '    if (esp_sleep_enable_gpio_wakeup() != ESP_OK) {\n        (void)gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN);   // ROLL BACK: never leave a half-armed level behind\n        return WakeArm::failed;\n    }\n',
+  '    if (esp_sleep_enable_gpio_wakeup() != ESP_OK) {\n        (void)clear_button_wake_state();\n        return WakeArm::failed;\n    }\n',
   ''),
  # C9f the MIRROR of C9e: the source is admitted but the PIN is never configured. Reads plausible — `board_init()`
  # already `pinMode`s the button, so "the pin is set up" is true of the wrong thing. `esp_sleep_enable_gpio_wakeup()`
  # admits only the pins `gpio_wakeup_enable` armed, so this arms NOTHING and still reports success.
  ('C9f the pin is never configured as a wake source (the sleep-enable alone)',
-  '    if (gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL) != ESP_OK) return WakeArm::failed;\n',
+  '    if (gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL) != ESP_OK) {\n        (void)clear_button_wake_state();\n        return WakeArm::failed;\n    }\n',
   ''),
  # C9g the WRONG PIN — the battery divider's control line instead of the button. A copy-paste away in a file whose
  # three `MR_UI_*` macros all name GPIOs, and the symptom is identical to no wake source at all.
@@ -203,31 +209,67 @@ MUT=[
  # will ever consume: [[B200]] reached through the failure path instead of through a held button. The caller is told
  # `failed` and owes no disarm, so nothing else can clean it up.
  ('C9l the partial-arm ROLLBACK is dropped (a half-armed pin is left live)',
-  '        (void)gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN);   // ROLL BACK: never leave a half-armed level behind\n',
-  ''),
+  '    if (esp_sleep_enable_gpio_wakeup() != ESP_OK) {\n        (void)clear_button_wake_state();\n        return WakeArm::failed;\n    }',
+  '    if (esp_sleep_enable_gpio_wakeup() != ESP_OK) {\n        return WakeArm::failed;\n    }'),
+ # ★★★★ C9l2 IS ROUND 4'S BLOCKER WRITTEN OUT: the rollback reverts to `gpio_wakeup_disable()` ALONE — bit 10 only,
+ # INT_TYPE left set. It is EXACTLY what shipped after round 3, it looks like a rollback, and the pre-round-4 P11j
+ # stayed GREEN against it. ⛔ This is the control whose absence let the defect through.
+ ('C9l2 the rollback reverts to clearing bit 10 alone (round 3\'s residue, at the second site)',
+  '    if (esp_sleep_enable_gpio_wakeup() != ESP_OK) {\n        (void)clear_button_wake_state();\n        return WakeArm::failed;\n    }',
+  '    if (esp_sleep_enable_gpio_wakeup() != ESP_OK) {\n        (void)gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN);\n        return WakeArm::failed;\n    }'),
  # ★★★ C9m/C9n/C9o THE DISARM — the half [[B197]] did not have at all, which is the whole defect.
- ('C9m the disarm never takes the LEVEL INTERRUPT off the pin (the storming half)',
-  '    const bool pin_off = (gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN) == ESP_OK);',
-  '    const bool pin_off = true;'),
+ ('C9m the disarm never clears the pin\'s WAKE-ENABLE bit',
+  '    const bool pin_off  = (gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN) == ESP_OK);',
+  '    const bool pin_off  = true;'),
  ('C9n the disarm never withdraws the GPIO source from the next sleep',
-  '    const bool src_off = (esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO) == ESP_OK);',
-  '    const bool src_off = true;'),
+  '    const esp_err_t src = esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);',
+  '    const esp_err_t src = ESP_OK;'),
+ # ★★★★ C9r IS THE ROUND-3 CONTROL, AND IT IS THE DEFECT METAL FOUND AFTER ROUND 2 SHIPPED. Without the type clear the
+ # pin keeps GPIO_INTR_LOW_LEVEL after the disarm AND across a CPU-only reset, so the next boot storms the shared GPIO
+ # ISR the moment RadioLib installs it. ⛔ Every other check in this file stayed GREEN against exactly this.
+ ('C9r the teardown leaves the INTERRUPT TYPE set (B200 round 3: it survives a reset)',
+  '    const bool type_off = (gpio_set_intr_type((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_DISABLE) == ESP_OK);   // FIRST: the storming field',
+  '    const bool type_off = true;'),
+ # C9s the type is "cleared" to another LEVEL — the plausible half-fix: something was written, the pin still interrupts.
+ ('C9s the interrupt type is set to a LEVEL instead of DISABLE',
+  'gpio_set_intr_type((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_DISABLE)',
+  'gpio_set_intr_type((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_HIGH_LEVEL)'),
+ # C9t the type clear is aimed at the wrong pin — the same copy-paste risk as C9g, on the call that matters most.
+ ('C9t the interrupt type is disabled on the ADC control pin, not the button',
+  'gpio_set_intr_type((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_DISABLE)',
+  'gpio_set_intr_type((gpio_num_t)MR_UI_ADC_CTRL, GPIO_INTR_DISABLE)'),
+ # ★★★ C9u THE BOOT-SCRUB SAFETY RULE. `esp_sleep_disable_wakeup_source()` answers ESP_ERR_INVALID_STATE when the
+ # source was never enabled — which is EVERY boot, since the scrub runs before anything arms. Treating it as a failure
+ # latches sleep off for the whole boot, on every boot, for ever: a silent power regression that no panic reveals.
+ ('C9u INVALID_STATE (never-enabled) is treated as a disarm FAILURE (the boot scrub then kills sleep for ever)',
+  '    const bool src_off  = (src == ESP_OK || src == ESP_ERR_INVALID_STATE);   // INVALID_STATE = nothing was enabled = nothing to withdraw',
+  '    const bool src_off  = (src == ESP_OK);'),
+ # ⓘ C9v is C9u's OPPOSITE and it is what keeps the forgiveness NARROW: forgiving every code would swallow a real
+ # refusal (ESP_ERR_INVALID_ARG) and hand back `true` for a teardown that did not happen.
+ ('C9v the forgiveness is widened to swallow a REAL refusal too',
+  '    const bool src_off  = (src == ESP_OK || src == ESP_ERR_INVALID_STATE);   // INVALID_STATE = nothing was enabled = nothing to withdraw',
+  '    const bool src_off  = (src == ESP_OK || src == ESP_ERR_INVALID_STATE || src == ESP_ERR_INVALID_ARG);'),
  # ⛔ C9o the teardown reaches for the RADIO's source. EXT1 is DIO1's, owned by fw_main and armed per sleep; taking it
  # down from a panel file would silently disable LoRa RX wake — a radio regression hidden inside a UI fix.
  # ⚠ The anchor is the whole STATEMENT, not the call: the block above it names the call in prose, and a bare match
  #   would hit twice and be refused (the §B77 comment-matching trap, arriving here as a duplicate rather than a hit).
  ('C9o the disarm withdraws EXT1 (the RADIO\'s DIO1 source) instead of GPIO',
-  '    const bool src_off = (esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO) == ESP_OK);',
-  '    const bool src_off = (esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_EXT1) == ESP_OK);'),
+  '    const esp_err_t src = esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);',
+  '    const esp_err_t src = esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_EXT1);'),
  # C9p the teardown gives up after its first failure, leaving exactly the state it exists to remove.
- ('C9p the disarm returns early on the first failure (the second withdrawal never runs)',
-  '    const bool pin_off = (gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN) == ESP_OK);\n    const bool src_off = (esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO) == ESP_OK);\n    return pin_off && src_off;',
-  '    if (gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN) != ESP_OK) return false;\n    return esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO) == ESP_OK;'),
+ ('C9p the teardown returns early on the first failure (the later withdrawals never run)',
+  '    const bool type_off = (gpio_set_intr_type((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_DISABLE) == ESP_OK);   // FIRST: the storming field\n    const bool pin_off  = (gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN) == ESP_OK);',
+  '    if (gpio_set_intr_type((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_DISABLE) != ESP_OK) return false;\n    const bool type_off = true;\n    const bool pin_off  = (gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN) == ESP_OK);'),
+ # ★★★★ C9w — ROUND 4's ORDER PROPERTY. Swap the two pin writes and the storming field is cleared SECOND: after a
+ # GPIO wake the CPU is running with the button still low, so those instructions run with the interrupt live.
+ ('C9w the wake bit is cleared BEFORE the interrupt type (the storming field goes second)',
+  '    const bool type_off = (gpio_set_intr_type((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_DISABLE) == ESP_OK);   // FIRST: the storming field\n    const bool pin_off  = (gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN) == ESP_OK);',
+  '    const bool pin_off  = (gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN) == ESP_OK);\n    const bool type_off = (gpio_set_intr_type((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_DISABLE) == ESP_OK);'),
  # C9q the disarm's verdict is fabricated. "It cannot really fail" is the tempting one, and it is how a board that
  # CANNOT take the level down would keep sleeping — arming the storm again on the very next idle pass.
- ('C9q the disarm always reports success (a stuck level is never noticed)',
-  '    return pin_off && src_off;',
-  '    (void)pin_off; (void)src_off;\n    return true;'),
+ ('C9q the teardown always reports success (a stuck level is never noticed)',
+  '    return type_off && pin_off && src_off;',
+  '    (void)type_off; (void)pin_off; (void)src_off;\n    return true;'),
 ]
 rc_all = 0
 for idx, (label, find, repl) in enumerate(MUT):

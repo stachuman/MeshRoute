@@ -610,6 +610,32 @@ void setup() {
     mrfault::fault_wdt_start();
 #endif
 
+    // ★★★★ §B200 ROUND 3 — THE BOOT SCRUB, AND ITS PLACEMENT IS THE WHOLE POINT. A reset can be taken WHILE THE
+    //   BUTTON WAKE IS ARMED (a panic or a watchdog during light sleep), and then NO disarm ever runs: the pin keeps
+    //   its level interrupt across `RTC_SW_CPU_RST`, so the NEXT boot storms the shared GPIO ISR the moment one is
+    //   installed. Metal proved exactly this — a boot that had slept before a `reboot` panicked on a held button; a
+    //   boot that never slept (never armed) did not.
+    // ⛔⛔ IT MUST RUN BEFORE `g_radio.std_init()` BELOW, which is where RadioLib's `setPacketReceivedAction()`
+    //   installs the shared GPIO ISR. `mr_ui_init()` (end of setup()) is FAR TOO LATE — by then interrupts are live
+    //   and the storm has already happened. It sits AFTER `fault_wdt_start()` so a hang in the scrub is still caught.
+    // ★ NOTE THE SHAPE: this is DISARM at boot — the exact mirror of [[B200]]'s original defect, which was ARM at
+    //   boot. ⓘ It also gives [[B199]]'s `ran 0s` watchdog a mechanism.
+    // ★★ IT REUSES THE EXISTING SEAM (U1): a scrub is precisely what a disarm does, so there is no sixth hook and
+    //   `fw_main` still knows nothing about a button pin or a panel. Off `MR_FEAT_OLED` it inlines to `true`.
+    // ⚠ A never-armed scrub must NOT latch sleep off, and that was VERIFIED at the IDF rather than assumed: the
+    //   board side treats "the source was never enabled" (`ESP_ERR_INVALID_STATE`) as success — see the block at
+    //   `disarm_button_wake()`. A `false` here is therefore a REAL hardware refusal, and refusing to sleep after one
+    //   is the intended fail-closed behaviour.
+    // ⓘ THE CALL IS UNCONDITIONAL (seam discipline — no `#if` at a `mr_ui_*` call site, ever); only the COUNTING is
+    //   arch-guarded, because the counter itself exists only where a light sleep can arm anything. The condition is
+    //   an ARCHITECTURE macro, never `MR_FEAT_OLED` — `fw_main` still has no idea a panel exists.
+    const bool wake_scrub_ok = mr_ui_disarm_button_wake();   // §B200: leave no armed level from a previous boot
+#if defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
+    if (!wake_scrub_ok) ++g_wake_disarm_fail;
+#else
+    (void)wake_scrub_ok;
+#endif
+
     print_banner(mrcon);   // §6: version (build/git/board) + the last reset reason — replaces the old boot banner + board lines
     // These are the COMPILE-TIME build defaults, printed BEFORE the NV blob loads — NOT the live config.
     // A persisted `cfg set` overrides them; the real operating point prints below (control sf / data sf / `cfg`).

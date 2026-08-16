@@ -59,8 +59,10 @@ bool button_pressed();
 //   contract above, so there is ONE polarity authority, not two.
 // ★★ armed       = BOTH platform calls succeeded; a press can now wake the halted CPU, and the caller OWES a disarm.
 //    button_down = nothing was armed, nothing is owed, and the caller MUST NOT SLEEP this pass. Not a fault.
-//    failed      = the platform refused. Any PARTIAL arm has been ROLLED BACK before returning (a half-armed pin is
-//                  the storm), nothing is owed, and the caller must not sleep — for the whole boot (fail closed).
+//    failed      = the platform refused. ★★ EITHER failure path runs the FULL teardown before returning — not just
+//                  the second one, and not just the wake bit: the IDF's `gpio_wakeup_enable()` writes the pin
+//                  registers even on the path where it returns an error, so "it failed" does not mean "it wrote
+//                  nothing". Nothing is owed afterwards, and the caller must not sleep — for the whole boot.
 // ⚠ Neither call touches the radio's DIO1 `ext1` wake in fw_main.cpp's board_sleep_until(). Whether the RTC-domain
 //   ext1 source and this digital-domain GPIO source COEXIST in ESP32-S3 light sleep is the design's one UNPROVEN
 //   HARDWARE ASSUMPTION and is settled only on metal, independently per source
@@ -70,11 +72,21 @@ bool button_pressed();
 //   looks bricked, RELEASE THE BUTTON AND RESET AGAIN (spec §3.1.1).
 enum class WakeArm : uint8_t { armed = 0, button_down = 1, failed = 2 };
 WakeArm arm_button_wake();
-// ★★★ THE OTHER HALF, AND IT IS NOT OPTIONAL ON ANY PATH. Disarms the pin's level interrupt AND withdraws the GPIO
-//   source from the next sleep, so a running CPU never carries an armed level. false = the platform refused, which
-//   the caller must treat as fatal-to-sleeping for the boot: a level source it cannot take down is [[B200]] durable.
-// ⓘ Calling it when nothing is armed is harmless — it is the same two withdrawals against state that is already
-//   withdrawn — but the caller is told exactly when it is owed, so it never has to rely on that.
+// ★★★ THE OTHER HALF, AND IT IS NOT OPTIONAL ON ANY PATH. THREE withdrawals, in this order: the pin's INTERRUPT
+//   TYPE **first** (that is the field which actually drives the interrupt, and after a GPIO wake the CPU is running
+//   with the button still low), then the pin's WAKE-ENABLE bit, then the GPIO wake source. false = the platform
+//   refused, which the caller must treat as fatal-to-sleeping for the boot: a level source it cannot take down is
+//   [[B200]] made durable.
+// ★★ It is ONE shared teardown, also used by `arm_button_wake()`'s rollback paths — ⛔ never a second copy. Round 3
+//   updated the disarm and not the rollback, and the rollback went on leaving the interrupt type set.
+// ⛔⛔ THE INTERRUPT TYPE IS THE ROUND-3 ADDITION AND IT IS WHY THE PANIC CAME BACK: `gpio_wakeup_disable()` clears
+//   ONLY the wake-enable bit (verified in the linked driver — see the block at the definition), so GPIO0 kept
+//   `GPIO_INTR_LOW_LEVEL` across our disarm AND across a CPU-only reset, and the NEXT boot stormed as soon as
+//   RadioLib installed the shared GPIO ISR.
+// ★★★ CALLING IT WHEN NOTHING IS ARMED IS NOT MERELY HARMLESS — IT IS A SUPPORTED USE, and `src/fw_main.cpp` relies
+//   on it: this is also the BOOT SCRUB, run once before the radio ISR is installed, because a reset taken WHILE
+//   ARMED (a panic or WDT during sleep) leaves an armed level that no disarm ever ran for. ⇒ the "source was never
+//   enabled" answer (`ESP_ERR_INVALID_STATE`) is treated as SUCCESS; only a genuine refusal reports false.
 bool disarm_button_wake();
 // One sample, taken now: enable the divider, read, disable it. <0 = UNAVAILABLE — no reader, or a reading outside the
 // 1S-LiPo plausible window — and the caller renders `--` for it, never a substituted default (spec §7).

@@ -347,27 +347,78 @@ bool button_pressed() { return digitalRead(MR_UI_BTN_PIN) == LOW; }   // INPUT_P
 //   button. So the first is undone before returning. There is deliberately no retry (C2).
 // ⛔ IT DOES NOT TOUCH DIO1. The radio's `ext1` source is armed per-sleep in fw_main and is not reordered, disabled or
 //   replaced here — see board_ui.h for the coexistence assumption this leaves for the bench to settle.
+// ★★★★★ §B200 ROUND 4 — **ONE TEARDOWN, THREE CALLERS.** ⛔⛔ THIS FUNCTION EXISTS BECAUSE THE BUG IT PREVENTS HAS
+//   ALREADY HAPPENED TWICE, THE SAME WAY BOTH TIMES: round 3 added the interrupt-type clear to `disarm_button_wake()`
+//   AND NOT TO THE ARM'S ROLLBACK, so the rollback went on clearing bit 10 alone — recreating exactly the residue
+//   round 3 was written to remove, while telling the caller `failed`, i.e. that nothing is armed. ⇒ **duplicating
+//   this body at any call site is how the next divergence happens** (U1); a probe control now forbids it.
+// ★★★ THE ORDER IS A SAFETY PROPERTY, NOT HOUSEKEEPING. INT_TYPE is what makes the pin interrupt; the wake-enable bit
+//   only makes the interrupt able to end a sleep. After a GPIO wake the CPU is RUNNING and the button is still LOW —
+//   that is what woke it — so **the interrupt type must go first**. Clearing the wake bit first spends two operations
+//   with the storm still live.
+// ⛔ NO `gpio_intr_disable()` HERE, AND THE REASON IS THE PRODUCER: the linked `gpio_wakeup_enable()` writes INT_TYPE
+//   (bits 9:7) and WAKEUP_ENABLE (bit 10) and NOTHING ELSE — it never touches the per-CPU interrupt-enable field — so
+//   this teardown is exactly symmetric with what the arm sets. Adding one would be undoing state we never created.
+// ★★ `ESP_ERR_INVALID_STATE` from the source withdrawal means "it was never enabled" (verified in the linked
+//   `sleep_modes.c.obj`) and is SUCCESS: it is the boot scrub's normal case, and treating it as a failure would latch
+//   sleep off on every boot for ever. The forgiveness stays NARROW — `ESP_ERR_INVALID_ARG` still fails.
+// ★ ALL THREE ARE ATTEMPTED EVEN IF AN EARLIER ONE FAILS: a teardown that stops half way leaves precisely the state
+//   it exists to remove. The verdicts are ANDed, so a failure anywhere is reported.
+static bool clear_button_wake_state() {
+    const bool type_off = (gpio_set_intr_type((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_DISABLE) == ESP_OK);   // FIRST: the storming field
+    const bool pin_off  = (gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN) == ESP_OK);
+    const esp_err_t src = esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
+    const bool src_off  = (src == ESP_OK || src == ESP_ERR_INVALID_STATE);   // INVALID_STATE = nothing was enabled = nothing to withdraw
+    return type_off && pin_off && src_off;
+}
+
 WakeArm arm_button_wake() {
     if (button_pressed()) return WakeArm::button_down;      // the finger is DOWN right now -> arming a LOW level = the storm
-    if (gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL) != ESP_OK) return WakeArm::failed;
+    // ⛔⛔ BOTH FAILURE PATHS ROLL BACK IN FULL, AND THE FIRST ONE IS NOT DEFENSIVE PADDING — IT IS DRIVER-EVIDENCED.
+    //   ⛔ WITHDRAWN IN PLACE (§3 rule 3): this rollback used to be `(void)gpio_wakeup_disable(...)` on the second
+    //   path only, under the comment *"ROLL BACK: never leave a half-armed level behind"* — a comment asserting
+    //   exactly the property the statement violated, since that call clears bit 10 and leaves INT_TYPE set.
+    // ★★ AND THE FIRST PATH NEEDS IT TOO, WHICH THE DISASSEMBLY SHOWS AND NO DOCUMENTATION DOES: in
+    //   `gpio_wakeup_enable()`, `rtc_gpio_wakeup_enable()`'s result is moved into the return register and control
+    //   FALLS THROUGH to the digital register writes — they are NOT skipped on that error. ⇒ a NON-OK return can
+    //   still have set INT_TYPE and WAKEUP_ENABLE, so "it failed" does not mean "it wrote nothing".
+    if (gpio_wakeup_enable((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_LOW_LEVEL) != ESP_OK) {
+        (void)clear_button_wake_state();
+        return WakeArm::failed;
+    }
     if (esp_sleep_enable_gpio_wakeup() != ESP_OK) {
-        (void)gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN);   // ROLL BACK: never leave a half-armed level behind
+        (void)clear_button_wake_state();
         return WakeArm::failed;
     }
     return WakeArm::armed;
 }
 
-// ★★★ §B200 — THE DISARM, AND IT UNDOES BOTH HALVES BECAUSE BOTH WERE DONE. `gpio_wakeup_disable` takes the level
-//   interrupt off the pin (the half that storms a running core); `esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO)`
-//   withdraws the source from the next sleep, so a later sleep can never inherit an arm the caller did not ask for.
-// ★ BOTH ARE ATTEMPTED EVEN IF THE FIRST FAILS — this is a teardown, and stopping half way through one leaves exactly
-//   the state it exists to prevent. The two verdicts are then ANDed, so a failure anywhere is reported as a failure.
+// ★★★★ §B200 ROUND 3 — THE DISARM UNDOES **THREE** THINGS, AND THE THIRD IS THE ONE THE PANIC CAME BACK THROUGH.
+// ⛔⛔ ROUND 2's TWO-CALL TEARDOWN WAS INCOMPLETE AND METAL PROVED IT: a boot that had slept (⇒ armed AND disarmed)
+//   before a `reboot` PANICKED on a held button; a boot that never slept (⇒ never armed) did not. So something the
+//   arm sets survived both the disarm AND `RTC_SW_CPU_RST`.
+// ★★★ VERIFIED IN THE ACTUAL LINKED DRIVER (not from a doc, not from a brief — V1): disassembling
+//   `libesp_driver_gpio.a`'s `gpio.c.obj` for THIS toolchain shows
+//     `gpio_wakeup_enable()`  → two writes to `GPIO_PINn_REG`: `and 0xfffffc7f` + `or (type<<7)` (INT_TYPE, bits 9:7)
+//                                and `or 0x400` (WAKEUP_ENABLE, bit 10);
+//     `gpio_wakeup_disable()` → ONE write: `and 0xfffffbff` — **bit 10 only**.
+//   (`soc/gpio_reg.h`: `GPIO_PIN0_WAKEUP_ENABLE` = BIT(10), `GPIO_PIN0_INT_TYPE_S` = 7. The RTC half is symmetric —
+//   `rtc_gpio_wakeup_disable()` clears both fields in the RTCIO register — so the asymmetry is the DIGITAL matrix's.)
+//   ⇒ ⛔ **GPIO0 KEEPS `GPIO_INTR_LOW_LEVEL` AFTER OUR DISARM.** A CPU-only reset does not clear it, and the next
+//   boot's RadioLib `attachInterrupt` installs the shared GPIO ISR onto a pin that is already configured to interrupt
+//   on a level the held button is asserting ⇒ the storm, before our code has run a single loop pass.
+//   ⓘ It matches the capture: the round-2 panic hit MID-BANNER, earlier than round 1's, i.e. the instant interrupts
+//   went live — the signature of an interrupt configured before this boot began.
+// ★ ALL THREE ARE ATTEMPTED EVEN IF AN EARLIER ONE FAILS — this is a teardown, and stopping half way through one
+//   leaves exactly the state it exists to prevent. The verdicts are ANDed, so a failure anywhere is reported.
 // ⛔ It does NOT touch `ESP_SLEEP_WAKEUP_EXT1`: that is the radio's DIO1 source, owned by fw_main and armed per sleep.
-bool disarm_button_wake() {
-    const bool pin_off = (gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN) == ESP_OK);
-    const bool src_off = (esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO) == ESP_OK);
-    return pin_off && src_off;
-}
+// ★★★ `ESP_ERR_INVALID_STATE` FROM THE SOURCE-WITHDRAWAL IS **SUCCESS**, AND THAT IS MEASURED, NOT ASSUMED. The same
+//   disassembly of `esp_sleep_disable_wakeup_source()` (`sleep_modes.c.obj`) shows it tests the source's bit in
+//   `wakeup_triggers` and, when the bit is CLEAR — the source was never enabled — falls through every branch to
+//   `return ESP_ERR_INVALID_STATE`. ⇒ treating that as a failure would make the BOOT SCRUB (which by definition runs
+//   with nothing enabled) latch sleep off on EVERY boot, for ever. "Already withdrawn" IS the post-state this
+//   function exists to produce, so it is the success case; a genuinely bad call still answers `ESP_ERR_INVALID_ARG`.
+bool disarm_button_wake() { return clear_button_wake_state(); }
 
 // ★ ONE SAMPLE. The CALLER decides when (spec §7: boot, then every ~30 s, and only under the §5 MAC-idle predicate —
 //   src/firmware_ui.cpp's battery_maybe_sample). This function owns no cadence and no policy; it must not acquire one.

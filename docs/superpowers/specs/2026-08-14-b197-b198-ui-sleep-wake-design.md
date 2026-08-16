@@ -95,8 +95,25 @@ board canvas exposes a **PAIR** scoped to a single sleep, and `mr_ui_init()` arm
   debounced `InputFsm` is not an acceptable substitute because the press can land between the tick and the sleep;
 - on `armed` it has called `gpio_wakeup_enable(..., GPIO_INTR_LOW_LEVEL)` then `esp_sleep_enable_gpio_wakeup()`, both
   return values checked, and **a partial arm is rolled back** (`gpio_wakeup_disable`) before reporting `failed`;
-- `mrui::disarm_button_wake()` calls `gpio_wakeup_disable(MR_UI_BTN_PIN)` **and**
-  `esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO)`, attempts both even if the first fails, and ANDs the two;
+- ★ **ONE shared teardown, `clear_button_wake_state()`, with THREE callers** — `disarm_button_wake()` and BOTH of
+  `arm_button_wake()`'s failure paths. ⛔ **Never a second copy: round 3 updated the disarm and not the rollback, and
+  the rollback went on clearing bit 10 alone.** It makes three withdrawals **in this order** —
+  **`gpio_set_intr_type(MR_UI_BTN_PIN, GPIO_INTR_DISABLE)` FIRST** (INT_TYPE is the field that drives the interrupt,
+  and after a GPIO wake the CPU is running with the button still low), then `gpio_wakeup_disable(MR_UI_BTN_PIN)`, then
+  `esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO)` — attempts all three even if an earlier one fails, and ANDs
+  the verdicts. ⚠ **BOTH arm-failure paths tear down, not just the second:** the IDF's `gpio_wakeup_enable()` writes
+  the pin registers and only then returns the RTC half's error, so a non-OK return may already have armed the pin. ⛔⛔ **THE INTERRUPT-TYPE CLEAR IS NOT OPTIONAL AND ITS ABSENCE REPRODUCED THE PANIC (round 3):**
+  `gpio_wakeup_disable()` clears only the pin's WAKE-ENABLE bit — **verified by disassembling the linked IDF driver**,
+  where the arm writes INT_TYPE (bits 9:7) *and* WAKEUP_ENABLE (bit 10) while the disarm masks bit 10 alone — so GPIO0
+  kept `GPIO_INTR_LOW_LEVEL` across the disarm AND across a CPU-only reset, and the next boot stormed as soon as
+  RadioLib installed the shared GPIO ISR. ★ `ESP_ERR_INVALID_STATE` from the source withdrawal means "it was never
+  enabled" and is treated as SUCCESS (also verified at the driver), which is what lets the same function serve as the
+  boot scrub below;
+- **a BOOT SCRUB runs the same disarm once in `setup()`, after `fault_wdt_start()` and ⛔ BEFORE
+  `g_radio.std_init()`** — because a reset taken *while armed* (a panic or watchdog during sleep) leaves a configured
+  level interrupt that no disarm ever ran for. The placement is the property: `std_init()` is where the shared GPIO
+  ISR is installed, and `mr_ui_init()` at the end of `setup()` is far too late. ★ Note the shape — this is **disarm at
+  boot, the exact mirror of B200's original defect, which was arm at boot**;
 - `src/fw_main.cpp`'s `board_sleep_until()` arms **immediately before** `esp_light_sleep_start()` and disarms as the
   **FIRST statement after it returns**, ⛔ **inside** the existing `if (rtc_gpio_is_valid_gpio(LORA_PIN_DIO1))` guard —
   outside it, a board whose DIO1 is not RTC-capable would arm and then neither sleep nor disarm, i.e. B200 again.

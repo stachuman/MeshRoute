@@ -703,6 +703,48 @@ wchk_in "$FW_MAIN" "W32 a REFUSED light sleep is counted and returns false, befo
          's|^        if (sleep_rc != ESP_OK) { ++g_wake_sleep_fail; return false; }$|        if (sleep_rc == ESP_ERR_SLEEP_TOO_SHORT_SLEEP_DURATION) { ++g_wake_sleep_fail; return false; }|' \
          's|^        if (sleep_rc != ESP_OK) { ++g_wake_sleep_fail; return false; }$|        if (sleep_rc != ESP_OK) ++g_wake_sleep_fail;|' \
          's|^        if (sleep_rc != ESP_OK) { ++g_wake_sleep_fail; return false; }$|        if (sleep_rc != ESP_OK) { return false; }|'
+# ================================================================================================ W33
+# W33 ★★★★ §B200 ROUND 3 — THE BOOT SCRUB, AND ITS PLACEMENT IS THE PROPERTY. A reset taken WHILE THE WAKE IS ARMED
+#     (a panic or watchdog during light sleep) leaves the pin's level interrupt configured with NO disarm ever having
+#     run; `RTC_SW_CPU_RST` does not clear it, so the next boot storms as soon as a GPIO ISR exists. Metal
+#     discriminated it cleanly: a boot that had slept before a `reboot` PANICKED on a held button, a boot that never
+#     slept did not.
+# ⛔⛔ THE ORDER IS THE WHOLE CHECK: `fault_wdt_start()` → SCRUB → `g_radio.std_init()`. RadioLib installs the shared
+#     GPIO ISR inside `std_init()`, so a scrub after it is a scrub after the storm; and `mr_ui_init()` at the end of
+#     `setup()` — the "obvious" home for anything UI — is far too late for the same reason.
+# ★ It goes through the EXISTING `mr_ui_disarm_button_wake()` seam (U1: a scrub IS a disarm), so `fw_main` gains no
+#   sixth hook and still knows nothing about a button pin or a panel.
+# ★ FOUR CONTROLS, each a plausible wrong answer rather than a deletion: scrub removed · scrub moved AFTER the radio
+#   init · scrub moved into `mr_ui_init()`-era code (after the radio is up) · ⛔ scrub replaced by an ARM, which is
+#   [[B200]]'s ORIGINAL defect written out literally.
+w33() { flat1 "$1" | grep -qE 'mrfault::fault_wdt_start\(\);.*const bool wake_scrub_ok = mr_ui_disarm_button_wake\(\);.*g_radio\.std_init'; }
+wchk_in "$FW_MAIN" "W33 the boot scrub runs after the WDT arm and BEFORE the radio installs its GPIO ISR" \
+     w33 's|^    const bool wake_scrub_ok = mr_ui_disarm_button_wake();.*$|    const bool wake_scrub_ok = true;|' \
+         's|^    const bool wake_scrub_ok = mr_ui_disarm_button_wake();.*$|    bool wake_scrub_ok = true;|; s|^    g_radio_ok = ok;$|\&\n    wake_scrub_ok = mr_ui_disarm_button_wake();|' \
+         's|^    const bool wake_scrub_ok = mr_ui_disarm_button_wake();.*$|    bool wake_scrub_ok = true;|; s|^    mr_ui_init();.*$|\&\n    wake_scrub_ok = mr_ui_disarm_button_wake();|' \
+         's|^    const bool wake_scrub_ok = mr_ui_disarm_button_wake();.*$|    const bool wake_scrub_ok = (mr_ui_arm_button_wake() == MrUiWakeArm::ok);|'
+# ================================================================================================ W34
+# W34 ★★★★ §B200 ROUND 4 — **ONE TEARDOWN, THREE CALLERS, AND NO SECOND COPY.** This check exists because the bug it
+#     forbids has already happened: round 3 added the interrupt-type clear to `disarm_button_wake()` and NOT to the
+#     arm's rollback, so one site kept clearing bit 10 alone and recreated the exact residue round 3 removed — while
+#     reporting `failed`, i.e. "nothing is armed". ⛔ A behavioural probe CANNOT see this: a duplicated body behaves
+#     identically until the day someone edits one copy. Only a structural count can forbid the duplication itself.
+# ★ The property is stated as CARDINALITY over code (comments stripped): each of the three platform teardown calls
+#   appears EXACTLY ONCE in the whole TU, and the shared helper is named four times (one definition + three callers:
+#   the normal disarm and both arm-failure paths).
+# ★ FOUR CONTROLS, and each is a real way the copies drift apart: inline the body at the rollback · inline it at the
+#   disarm · revert one caller to the bit-10-only call · drop a caller's teardown entirely.
+BOARD_CPP="$BOARD/board_ui.cpp"
+n_of() { flat1 "$1" | grep -o -F "$2" | wc -l; }
+w34() { [ "$(n_of "$1" 'gpio_set_intr_type(')" -eq 1 ] && \
+        [ "$(n_of "$1" 'gpio_wakeup_disable(')" -eq 1 ] && \
+        [ "$(n_of "$1" 'esp_sleep_disable_wakeup_source(')" -eq 1 ] && \
+        [ "$(n_of "$1" 'clear_button_wake_state()')" -eq 4 ]; }
+wchk_in "$BOARD_CPP" "W34 ONE shared teardown, three callers — no second copy of the withdrawals" \
+     w34 's|^        (void)clear_button_wake_state();$|        (void)gpio_set_intr_type((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_DISABLE);\n        (void)gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN);\n        (void)esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);|' \
+         's|^bool disarm_button_wake() { return clear_button_wake_state(); }$|bool disarm_button_wake() {\n    const bool t = (gpio_set_intr_type((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_DISABLE) == ESP_OK);\n    const bool p = (gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN) == ESP_OK);\n    const esp_err_t r = esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);\n    return t \&\& p \&\& (r == ESP_OK \|\| r == ESP_ERR_INVALID_STATE);\n}|' \
+         's|^        (void)clear_button_wake_state();$|        (void)gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN);|' \
+         's|^        (void)clear_button_wake_state();$|        ;|'
 echo "structural: $s_pass passed / $s_fail failed / $((s_pass+s_fail)) total"
 echo "wiring:     $w_pass passed / $w_fail failed / $((w_pass+w_fail)) total; $w_ctl negative control(s) verified RED"
 [ "$s_fail" -eq 0 ] || rc=1

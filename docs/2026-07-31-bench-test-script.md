@@ -2283,6 +2283,20 @@ cheapest possible reproducer and no automated gate in this tree can reach it: no
    lights, the gesture classifies, no reset.
 3. Repeat step 2 **five times**, and after a **cold power cycle** once more. The original fault was reproducible on
    demand, so a single clean pass is weak evidence; five is the cheapest way to make it less weak.
+3a. ⛔⛔ **THE TWO REBOOT CASES. THESE ARE THE ROUND-3 REPRODUCER — (B) IS THE ONE THAT FAILED ON THE ROUND-2 IMAGE,
+    and they discriminate cleanly because one of them never arms the wake at all.**
+    - **(A) never-armed control.** Power on, and within ~5 s type `reboot`. Up ~5 s is inside the 30 s boot grace, so
+      the node **never light-slept and therefore never armed** anything. Hold the button as the first boot lines
+      appear. Expected: **no panic.** ⓘ This one passed even on the broken image — it is the control that makes (B)
+      mean something, not a test of the fix.
+    - **(B) armed-then-reset.** Boot, **no console byte**, wait past 45 s so the node is light-sleeping. ⛔ **READ
+      `status` AND RECORD `slept=` — THIS IS NOT OPTIONAL.** A non-zero, increasing `slept=` is the ONLY evidence
+      that the wake was actually armed, and the entire diagnosis rests on that assumption. (Reading `status` ends the
+      headless run; that is fine, the arm has already happened.) Now type `reboot`, and **hold the button as the
+      first boot lines appear**. Expected: **no panic, and the banner completes** — including the
+      `inbox = RAM volatile…` line, which is precisely where the round-2 panic cut the output.
+    - Repeat **(B) three times**. ⚠ If it panics, capture the whole dump: the mid-banner cut point is the signal that
+      an interrupt was configured *before* this boot's code ran.
 4. Read `status` **last** (it ends the headless run). Expected: **`slept=` has increased** · **`wk_gpio=` has
    increased** after the sleeping-button test (that is the button itself delivering the CPU — the attribution the
    old 23.1(b) could not make) · `wkarmfail=0` · `wkdisarm=0` · **`wksleepfail=` RECORD THE VALUE — do NOT require
@@ -2303,6 +2317,12 @@ cheapest possible reproducer and no automated gate in this tree can reach it: no
    between the UI tick and the physical re-sample, so a non-zero value merely shows that race guard was exercised.
 5. `/mrfault` must show **no new** `HARDFAULT`/`WATCHDOG` record from this session.
 
+⚠ **WHY (B) FAILED ON THE ROUND-2 IMAGE, so the check is understood rather than merely followed:** `gpio_wakeup_disable()`
+clears only the pin's WAKE-ENABLE bit — verified in the linked IDF driver — so GPIO0 kept `GPIO_INTR_LOW_LEVEL` across
+the disarm **and** across a CPU-only reset, and the next boot stormed as soon as RadioLib installed the shared GPIO
+ISR. The fix clears the interrupt **type** as well, and scrubs both once at boot **before** the radio comes up (for
+the case where the reset happened while still armed, so no disarm ever ran).
+
 ⚠ **WHAT ONLY THIS CHECK CAN SETTLE, stated so a green run is not over-read:** the wake-to-disarm window (the few
 microseconds between `esp_light_sleep_start()` returning on a GPIO wake and `gpio_wakeup_disable()`) is a HARDWARE
 TIMING claim. The pattern is ESP-IDF's own and the Interrupt WDT window is ~300 ms, so it should be safe by three
@@ -2322,10 +2342,17 @@ The B200 panic dump printed `ELF file SHA256: 7a8aaa957` over a banner reading `
    work is committed, rebuild and archive the clean-stamped image.
 3. Decode a future backtrace with
    `xtensa-esp32s3-elf-addr2line -pfiaC -e <that firmware.elf> <addresses>`.
-4. ⓘ **The §B200 slice's own image is already archived** (outside the repo — a ~20 MB ELF is not an agent's
-   commit to make): `~/MeshRoute-artifacts/b200/`, `heltec_v3-2d2af7a-dirty-b200.elf`, sha256
-   `40e2c18043eb3f63a9e14e1fbc963d16f76bdf8dd34a503d7151c049eceb74be`, banner `rev=2d2af7a-dirty`. ⚠ It decodes
-   **only** that exact image; once the slice is committed, rebuild and archive the clean-stamped one.
+4. ⓘ **The §B200 slice's images are already archived** (outside the repo — a ~20 MB ELF is not an agent's commit to
+   make), in `~/MeshRoute-artifacts/b200/` with a `SHA256SUMS` and a `README.txt`:
+   - **round 4 (current, flash this one)** — `heltec_v3-473581f-dirty-b200r4.elf`, sha256
+     `bb5108a08b05aa1100efdc457a60363826b140968a1171e105e81cc69d15570b`, banner `rev=473581f-dirty`;
+     ⚠ the round-3 build is not kept — never flashed, and it carried the SAME `-dirty` stamp, which an uncommitted
+     tree cannot distinguish. Keep at most one uncommitted image per stamp;
+   - round 2 (the image that still panicked in case (B)) — `heltec_v3-2d2af7a-dirty-b200.elf`, sha256
+     `40e2c18043eb3f63a9e14e1fbc963d16f76bdf8dd34a503d7151c049eceb74be`. **Keep it: it is the one a round-2 dump
+     decodes against.**
+   ⚠ An ELF decodes **only** the exact image built from it, and a `-dirty` stamp does not identify a revision; once
+   the slice is committed, rebuild and archive the clean-stamped one.
 
 ## Completion record
 
