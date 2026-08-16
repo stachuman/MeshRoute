@@ -60,7 +60,14 @@
 //     save time, so `save()`'s gate 2b re-reads and refuses it with zero writes even if the notification never
 //     arrived. That is the backstop working, and it is precisely why the IMMEDIATE half needs its own positive check
 //     ("shows CFG! RELOAD", reddened by C37/C38) rather than being inferred from the refusal.
-//   ⚠ AND THE 64-CHARACTER LABEL BOUND BIT AGAIN, MEASURED NOT FORESEEN: two of this slice's labels were written at
+//   ⓘ §CHROME-4 ADDS ONE MORE, AND IT IS THE SAME HARNESS-PRECONDITION SHAPE: "P14d precondition: a DM compose modal
+//     is open over the TEAM screen". No mutation of the rail can move it — it asserts that the WALK reached the modal
+//     at all, which is what makes the rail assertion beside it mean something. It can still fail: a compose modal that
+//     stopped opening from TEAM trips it, and then the rail check below it would have been measuring an empty screen.
+//   ⚠ AND THE 64-CHARACTER LABEL BOUND BIT FOR THE THIRD SLICE RUNNING (registered as [[B203]]): two §CHROME-4 labels
+//     were written at 67 and 68 BYTES and dropped out of the reddened roll-up while their controls were turning them
+//     red. Both were shortened. ⓘ It is BYTES, not characters — a `§` costs two.
+//   ⚠ THE ORIGINAL RECORD OF THE SAME DEFECT: two of §UI-14's labels were written at
 //     67 and 69 characters and DROPPED OUT of `run.sh`'s reddened roll-up (it parses the `%-64s` field), so both read
 //     as "no control reddens" while C37/C38 were in fact turning one of them red. Both were shortened. ⇒ the bound is
 //     a real constraint on the label, not a style note — §UI-14 recorded the same defect one slice earlier.
@@ -74,6 +81,9 @@
 #include "iclock.h"
 #include "iradio.h"
 #include "command.h"
+#include "firmware_ui_icons.h"  // ★ §CHROME-3: the strip's glyphs, so "the RIGHT icon" is POINTER IDENTITY rather
+                                //   than "a bitmap appeared". ⓘ Pure and Arduino-free, which is why a probe may
+                                //   include it without dragging the model in.
 #include "inbox.h"              // §UI-7D slice B: the REAL Inbox is what these cases delete out of
 #include "fixed_inbox_store.h"  //   ...backed by the same heap-free RAM ring the ESP32 board itself runs ([[B134]])
 #include <Arduino.h>           // the shim: millis / Print / F() / Serial  (tools/probe_board_ui/fakes)
@@ -133,8 +143,214 @@ struct Canvas {
     bool button_down  = false;
     int32_t batt_answer = -1;             // what battery_sample_mv() hands back; <0 = unavailable (the real V3 today)
     int  bus_ops() const { return init + begin_frame + next_page + power_save; }
+    // ★★★ §CHROME-3 — THE PANEL'S LATCH, MODELLED, because `bus_ops()` above counts CALLS and the real board counts
+    //   COMMANDS. `variants/heltec_v3/board_ui.cpp`'s `set_power_save` returns immediately when the value has not
+    //   changed ("repeat calls are GENUINE no-ops"), so the tick's per-blanked-tick `set_power_save(true)` reaches
+    //   the SSD1306 exactly once, on the edge. A fake that counted every call would make §8.3.1's "zero ADDITIONAL
+    //   bus calls" fail against a correct implementation — and, far worse, invite somebody to "fix" it by suppressing
+    //   the edge itself. ⇒ `power_cmds` counts EDGES, which is what the panel sees.
+    int  power_cmds = 0;
+    int  bus_cmds() const { return init + begin_frame + next_page + power_cmds; }
+    // ---- §CHROME-3: WHERE each thing was drawn, and on WHICH page --------------------------------------------------
+    // ★ [[B104]]'s standing residue is that this probe counted draw CALLS. The strip is a GEOMETRY, so counting is
+    //   structurally unable to measure it: a slot at the wrong x, an icon selected for the wrong state, or a battery
+    //   token that moved the icons before it all leave every count identical. ⇒ every draw is recorded with its
+    //   coordinates, its bytes' IDENTITY (the exact `mrui::icons::` pointer) and the page it landed on.
+    static constexpr int kMaxRec = 512;
+    struct Rec { int page; bool is_text; int x, y, w, h; const uint8_t* bits; char s[24]; };
+    Rec rec[kMaxRec] = {};
+    int n_rec = 0;
+    int cur_page = 0;
+    // ★★ §CHROME-4: `draw_rect` HAS A CALLER AT LAST — the navigation rail's selection frame, which §CHROME-2 and
+    //    §CHROME-3 both recorded as the one thing keeping the primitive out of every shipped image. ⛔ It was `== 0`
+    //    in §CHROME-3 and is now a COUNT with a required value per frame: exactly ONE on an ordinary or modal view,
+    //    exactly ZERO on an emergency one (§5.3, §11.2).
+    int draw_rect_calls = 0;
 };
 Canvas g_c;
+
+// ---- readers over the recorded draws -------------------------------------------------------------------------------
+// ⚠ `Font::small` is a 6x10 FIXED font (u8g2_font_6x10_tf), so a string's pixel width is exactly 6 columns per
+//   character. That is the same arithmetic `src/firmware_ui.cpp`'s layout table derives its slots from, written out
+//   here independently rather than shared with it — a bound computed by the code under test would agree with a
+//   layout that had drifted.
+int text_px(const char* s) { return int(strlen(s)) * 6; }
+
+// The text drawn AT an exact slot, on a given page. `nullptr` = nothing was drawn there, which is itself an answer
+// (the home and key slots are legitimately empty in some states).
+const char* text_at(int x, int y, int page = 0) {
+    for (int i = 0; i < g_c.n_rec; ++i) {
+        const Canvas::Rec& r = g_c.rec[i];
+        if (r.is_text && r.page == page && r.x == x && r.y == y) return r.s;
+    }
+    return nullptr;
+}
+// The bitmap drawn at an exact x on the strip row, by POINTER IDENTITY — so "the right glyph" is a measurement and
+// not "some bitmap appeared".
+const uint8_t* bitmap_at(int x, int y, int page = 0) {
+    for (int i = 0; i < g_c.n_rec; ++i) {
+        const Canvas::Rec& r = g_c.rec[i];
+        if (!r.is_text && r.page == page && r.x == x && r.y == y) return r.bits;
+    }
+    return nullptr;
+}
+int bitmaps_on_page(int page = 0) {
+    int n = 0;
+    for (int i = 0; i < g_c.n_rec; ++i) if (!g_c.rec[i].is_text && g_c.rec[i].page == page) ++n;
+    return n;
+}
+// ⛔ SCOPED TO THE STRIP SINCE §CHROME-4: the rail draws five more glyphs below the y = 9 rule, so a page-wide count
+//   would no longer say anything about the strip's own budget. Everything at or above the rule is the strip's.
+int strip_glyphs_on_page(int page = 0) {
+    int n = 0;
+    for (int i = 0; i < g_c.n_rec; ++i)
+        if (!g_c.rec[i].is_text && g_c.rec[i].page == page && g_c.rec[i].y <= 9) ++n;
+    return n;
+}
+// The rightmost pixel column any STRIP draw claimed (the strip is everything at or above the y = 9 rule).
+// ⚠ SCOPED TO THE STRIP DELIBERATELY. ⓘ HISTORY, KEPT VISIBLE: this note used to say the 21-column BODY
+//   *"legitimately over-runs 128 px today — `DELIVERED to <14-char label>` is 27 columns = 162 px and u8g2 clips it"*
+//   and deferred the fix to slice 4. §CHROME-4 HAS DONE IT: the body is 19 columns at `x = 12`, that exact line was
+//   split across two rows, and P14f now ASSERTS the body's extent instead of merely reporting it. The strip keeps a
+//   reader of its own because it is the one region that is still 128 px wide.
+int strip_max_x() {
+    int m = -1;
+    for (int i = 0; i < g_c.n_rec; ++i) {
+        const Canvas::Rec& r = g_c.rec[i];
+        if (r.y > 9) continue;
+        const int right = r.is_text ? (r.x + text_px(r.s) - 1) : (r.x + r.w - 1);
+        if (right > m) m = right;
+    }
+    return m;
+}
+int strip_max_y() {
+    int m = -1;
+    for (int i = 0; i < g_c.n_rec; ++i) {
+        const Canvas::Rec& r = g_c.rec[i];
+        if (r.y > 9) continue;
+        // ⓘ A bitmap's rows run y .. y+h-1. For TEXT the bottom is the BASELINE itself, and that is a MEASUREMENT of
+        //   the strip's alphabet rather than a convenience: the only characters any strip token can contain are
+        //   `0-9 + - . V s m h d o l`, and not one of them descends below the baseline in `u8g2_font_6x10_tf`. ⛔ A
+        //   token that ever gained a descender (`g`, `p`, `y`, `q`, `j`) would sit two rows lower and this bound
+        //   would have to be re-derived rather than nudged.
+        const int bottom = r.is_text ? r.y : (r.y + r.h - 1);
+        if (bottom > m) m = bottom;
+    }
+    return m;
+}
+int body_max_x() {
+    int m = -1;
+    for (int i = 0; i < g_c.n_rec; ++i) {
+        const Canvas::Rec& r = g_c.rec[i];
+        if (r.y <= 9) continue;
+        const int right = r.is_text ? (r.x + text_px(r.s) - 1) : (r.x + r.w - 1);
+        if (right > m) m = right;
+    }
+    return m;
+}
+
+// ================================================================================ §CHROME-4 — the rail's own readers
+// ★★ THE GEOMETRY IS STATED HERE INDEPENDENTLY of the renderer's table, exactly as P13's slot coordinates are: a
+//    bound imported from the code under test agrees with a layout that has drifted. Design §3.2: rail `x = 0..9`,
+//    `y = 10..59`, five 10-px slots aligned to the body baselines 19/29/39/49/59.
+constexpr int kRailX = 0, kRailW = 10, kRailH = 10;
+constexpr int kRailSlotY[5] = { 10, 20, 30, 40, 50 };     // STATUS, TEAM, INBOX, SEND, SETTINGS — §3.2's order
+constexpr int kRailIconX = 1;                              // (10 - 7) / 2
+inline int rail_icon_y(int slot) { return kRailSlotY[slot] + 1; }
+
+// Which glyph is in a rail slot, by POINTER IDENTITY. `nullptr` = the slot drew nothing, which is an ANSWER (§3.2's
+// unavailable slots) rather than a failure.
+const uint8_t* rail_glyph_at(int slot, int page = 0) { return bitmap_at(kRailIconX, rail_icon_y(slot), page); }
+
+// Which slot carries the selection frame on a page: 0..4, -1 if none, -2 if MORE THAN ONE (§11.2 requires exactly
+// one — a reader that returned the first would pass over a rail that boxed everything).
+int rail_boxed_slot(int page = 0) {
+    int found = -1;
+    for (int i = 0; i < g_c.n_rec; ++i) {
+        const Canvas::Rec& r = g_c.rec[i];
+        if (r.is_text || r.page != page || r.bits != nullptr) continue;   // `[rect]` records carry no bytes
+        if (strcmp(r.s, "[rect]") != 0) continue;
+        for (int sl = 0; sl < 5; ++sl)
+            if (r.x == kRailX && r.y == kRailSlotY[sl] && r.w == kRailW && r.h == kRailH)
+                { if (found >= 0) return -2; found = sl; }
+    }
+    return found;
+}
+int rail_frames_on_page(int page = 0) {
+    int n = 0;
+    for (int i = 0; i < g_c.n_rec; ++i)
+        if (!g_c.rec[i].is_text && g_c.rec[i].page == page && strcmp(g_c.rec[i].s, "[rect]") == 0) ++n;
+    return n;
+}
+// How many rail glyphs a page drew, counting only bitmaps inside the rail's column band.
+int rail_glyphs_on_page(int page = 0) {
+    int n = 0;
+    for (int i = 0; i < g_c.n_rec; ++i) {
+        const Canvas::Rec& r = g_c.rec[i];
+        if (r.is_text || r.page != page || r.y <= 9) continue;
+        if (r.bits != nullptr && r.x == kRailIconX) ++n;
+    }
+    return n;
+}
+
+// ★★★ §7.1's BODY BOUNDS, MEASURED OVER THE **TEXT** RECORDS ONLY. The rail draws bitmaps and a frame at `x = 0..9`
+//     with `y > 9`, so a bound taken over every record below the rule would report the rail's own x and prove
+//     nothing about the body. Design §3.2: normal body origin `x = 12`, width 116 px ⇒ last usable column 127.
+int body_text_min_x() {
+    int m = 1 << 30;
+    for (int i = 0; i < g_c.n_rec; ++i) {
+        const Canvas::Rec& r = g_c.rec[i];
+        if (!r.is_text || r.y <= 9) continue;
+        if (r.x < m) m = r.x;
+    }
+    return (m == (1 << 30)) ? -1 : m;
+}
+int body_text_max_x() {
+    int m = -1;
+    for (int i = 0; i < g_c.n_rec; ++i) {
+        const Canvas::Rec& r = g_c.rec[i];
+        if (!r.is_text || r.y <= 9) continue;
+        const int right = r.x + text_px(r.s) - 1;
+        if (right > m) m = right;
+    }
+    return m;
+}
+// The widest body line, in COLUMNS — the figure design §7.3's audit is expressed in.
+int body_max_cols() {
+    int m = 0;
+    for (int i = 0; i < g_c.n_rec; ++i) {
+        const Canvas::Rec& r = g_c.rec[i];
+        if (!r.is_text || r.y <= 9) continue;
+        const int n = int(strlen(r.s));
+        if (n > m) m = n;
+    }
+    return m;
+}
+// Every page of the CURRENT frame drew the same strip — the property a FROZEN chrome delivers and a live one cannot.
+// ⚠ The comparison is over the strip's records IN ORDER, including each glyph's byte POINTER: a page that drew the
+//   same number of things in the same places from a newer projection would still differ in a token or a glyph.
+int strip_recs_of_page(int page, const Canvas::Rec** out, int cap) {
+    int n = 0;
+    for (int i = 0; i < g_c.n_rec && n < cap; ++i) {
+        const Canvas::Rec& r = g_c.rec[i];
+        if (r.page == page && r.y <= 9) out[n++] = &r;
+    }
+    return n;
+}
+bool strip_identical_on_every_page(int pages) {
+    const Canvas::Rec* a[32];
+    const Canvas::Rec* b[32];
+    const int na = strip_recs_of_page(0, a, 32);
+    if (na == 0) return false;                       // a page with no strip at all proves nothing
+    for (int p = 1; p < pages; ++p) {
+        const int nb = strip_recs_of_page(p, b, 32);
+        if (nb != na) return false;
+        for (int i = 0; i < na; ++i)
+            if (a[i]->is_text != b[i]->is_text || a[i]->x != b[i]->x || a[i]->y != b[i]->y ||
+                a[i]->bits != b[i]->bits || strcmp(a[i]->s, b[i]->s) != 0) return false;
+    }
+    return true;
+}
 
 // The recording executor. `exec_command` is the ONE device dependency of the send path.
 struct ExecLog {
@@ -156,9 +372,11 @@ void begin_frame() { ++g_c.begin_frame; g_c.pages_left = 8; g_c.pages_this_frame
                      // a new frame's text replaces the old one — never accumulates across frames, or a stale value
                      // from an earlier frame would satisfy a "the panel says X" check for ever.
                      g_c.have_first = false; g_c.first_text[0] = '\0';
-                     g_c.n_page_text = 0;    g_c.page_text[0]  = '\0'; }
+                     g_c.n_page_text = 0;    g_c.page_text[0]  = '\0';
+                     g_c.n_rec = 0;          g_c.cur_page      = 0; }
 bool next_page()   {
     ++g_c.next_page;
+    ++g_c.cur_page;   // §CHROME-3: everything recorded from here on belongs to the NEXT page's replay
     // The scene drawn since the last page boundary is this page's content. A caller that draws only at frame start
     // leaves every later page with ZERO — which is the seven-blank-pages defect (spec §5).
     const int drew = g_c.draw_text - g_c.draws_at_page_start;
@@ -169,7 +387,16 @@ bool next_page()   {
     return g_c.pages_left > 0;
 }
 void set_font(Font)                    { ++g_c.set_font; }
-void draw_text(int, int, const char* s) {
+// §CHROME-3: record the placement of every draw, on its page, before the existing text bookkeeping.
+void record(bool is_text, int x, int y, int w, int h, const uint8_t* bits, const char* s) {
+    if (g_c.n_rec >= Canvas::kMaxRec) return;
+    Canvas::Rec& r = g_c.rec[g_c.n_rec++];
+    r.page = g_c.cur_page; r.is_text = is_text;
+    r.x = x; r.y = y; r.w = w; r.h = h; r.bits = bits;
+    snprintf(r.s, sizeof r.s, "%s", s ? s : "");
+}
+void draw_text(int x, int y, const char* s) {
+    record(/*is_text=*/true, x, y, 0, 0, nullptr, s);
     ++g_c.draw_text;
     if (!s) return;
     if (!g_c.have_first) { snprintf(g_c.first_text, sizeof g_c.first_text, "%s", s); g_c.have_first = true; }
@@ -181,7 +408,19 @@ void draw_text(int, int, const char* s) {
     }
 }
 void draw_hline(int, int, int)         { ++g_c.draw_hline; }
-void set_power_save(bool on)           { ++g_c.power_save; g_c.last_power_save = on ? 1 : 0; }
+// ★★ §CHROME-3 — THE TWO §CHROME-2 PRIMITIVES, faked here for the first time because THIS SLICE IS THEIR FIRST
+//    CALLER. Both are compose-only on the real board (`variants/heltec_v3/board_ui.cpp`, pure forwards to U8g2's
+//    `drawXBM` / `drawFrame`) and `tools/probe_board_ui` measures that against the real TU; here they only record.
+// ★★ §CHROME-4: `draw_rect` NOW HAS ITS ONLY LEGITIMATE CALLER — the rail's selection frame. The recorded
+//    `[rect]` entry carries a NULL byte pointer, which is what distinguishes it from a glyph in every reader below.
+void draw_bitmap(int x, int y, int w, int h, const uint8_t* bits) { record(false, x, y, w, h, bits, ""); }
+void draw_rect(int x, int y, int w, int h) { ++g_c.draw_rect_calls; record(false, x, y, w, h, nullptr, "[rect]"); }
+void set_power_save(bool on)           {
+    ++g_c.power_save;
+    // The board LATCHES (see `Canvas::power_cmds`): only a CHANGE reaches the panel.
+    if (g_c.last_power_save != (on ? 1 : 0)) ++g_c.power_cmds;
+    g_c.last_power_save = on ? 1 : 0;
+}
 bool button_pressed()                  { ++g_c.button; return g_c.button_down; }
 // §B197/§B200: the REAL pair lives in variants/heltec_v3/board_ui.cpp and is measured by tools/probe_board_ui (P11 +
 // its controls, including the pin re-sample and the rollback). Here they are scriptable stand-ins, because what THIS
@@ -281,10 +520,10 @@ bool has_voltage(const char* s) {
         if (isdigit((unsigned char)p[0]) && p[1] == '.' && isdigit((unsigned char)p[2]) && p[3] == 'V') return true;
     return false;
 }
-bool ends_with(const char* s, const char* suffix) {
-    const size_t n = strlen(s), m = strlen(suffix);
-    return m <= n && strcmp(s + (n - m), suffix) == 0;
-}
+// ⓘ `ends_with` LIVED HERE and is gone: its only callers were P5's three battery checks, which read the LAST FIELD of
+//   the packed status bar. §CHROME-3's strip has no last field to suffix-match — the battery lives at a fixed slot —
+//   so those checks now read `text_at(x, y)` and this helper had no remaining caller (-Wunused-function under the
+//   -Werror this file is built with). ⛔ Removed because it became dead, never because a check was dropped.
 
 void set_now(uint32_t ms) { g_probe_millis = ms; }
 void tick(uint32_t ms)    { set_now(ms); mr_ui_tick(ms); }
@@ -358,11 +597,12 @@ uint32_t settle(uint32_t t) {
 
 // Walk the list until the HIGHLIGHTED row is of the wanted kind, then open it with a double press.
 // ⛔⛔ THE TARGET STRING MUST NOT MATCH ANOTHER SCREEN'S ROW, and this is a MEASURED trap rather than a caution: the
-//    callers used to pass `">DM"`, and §UI-14's SETTINGS menu has a row rendered `">DM crypt   off"` — so the walk
+//    callers used to pass `">DM"`, and §UI-14's SETTINGS menu has a row rendered `">DM crypt off"` — so the walk
 //    matched the SETTINGS screen, double-pressed there, and ENTERED THE VALUE EDITOR instead of an inbox record. Every
-//    later phase then measured the wrong screen. ⇒ the inbox preview row pads its kind tag to 3 columns and adds a
-//    separator (`"%c%-3s %-9s %4s"`), so a DM row is always `">DM  "` with TWO spaces and a channel row `">CH7 "` —
-//    neither of which any other screen can produce. Pass those, never a bare prefix.
+//    later phase then measured the wrong screen. ⇒ the inbox preview row pads its kind tag to FIVE columns (§CHROME-4
+//    widened it from three so `CH255` can never be truncated into a DIFFERENT channel number), so a DM row is always
+//    `">DM   "` and a channel row `">CH7  "` — neither of which any other screen can produce. Pass those, never a
+//    bare prefix.
 // ⚠ Asserted by the caller afterwards, never assumed: if the walk never finds one, the caller's first check fails.
 uint32_t walk_to(uint32_t t, const char* want) {
     for (int i = 0; i < 22; ++i) {
@@ -373,6 +613,26 @@ uint32_t walk_to(uint32_t t, const char* want) {
     paint(t);
     return t;
 }
+
+// ★★★★ §CHROME-4 — WALK BY THE **RAIL**, because design §7.2 deleted the two titles this used to walk by.
+//   `walk_to(t, "STATUS")` and `walk_to(t, "SETTINGS")` worked only while those screens carried a label-only heading;
+//   the rail now names the screen and §7.2 gives the row to the content. ⇒ the screen predicate is the BOXED SLOT.
+// ⚠ STATED PLAINLY: this navigates by the mechanism this slice adds, so a rail that boxed the wrong slot would send
+//   the walk to the wrong screen — and every content check the caller then makes would fail. That direction is safe
+//   (it makes a defect louder, never quieter); what it cannot do is stand in for a check ON the rail, which is why
+//   P14 asserts the mapping directly instead of inferring it from a successful walk.
+uint32_t walk_to_slot(uint32_t t, int slot) {
+    for (int i = 0; i < 22; ++i) {
+        paint(t);
+        if (rail_boxed_slot() == slot) return t;
+        t = settle(t + 500);
+    }
+    paint(t);
+    return t;
+}
+constexpr int kSlotStatus = 0, kSlotTeam = 1, kSlotInbox = 2, kSlotSend = 3, kSlotSettings = 4;
+// Design §3.2's normal body origin, stated here rather than imported from `src/firmware_ui.cpp`'s `kBodyX`.
+constexpr int kBodyXExpected = 12;
 
 uint32_t open_highlighted(uint32_t t, const char* want) {
     // ⚠ THE BOUND IS THE WHOLE CYCLE, WITH SLACK, AND IT IS NOT DECORATION: §UI-14 appended a fifth screen whose menu
@@ -437,6 +697,15 @@ int main() {
     //
     // (a) the RADIO half — `g_hal.radio().tx_busy()`. Driving this is what [[B105]] made possible at all.
     t = settle(t + 2000);
+    // ⛔⛔ QUIESCE FIRST, AND §CHROME-3 IS WHY — MEASURED, not defensive. `g_c = Canvas{}` resets the FAKE's page
+    //    counter, so a frame still OPEN at that moment leaves the harness and the firmware disagreeing about how many
+    //    pages remain, and the resume phase then measures the tail of the old frame instead of a new one. That became
+    //    reachable when the strip landed: a COMPLETE, VISIBLE Inbox frame advances the read watermark, which changes
+    //    the mail token, which correctly asks for ONE more paint — so `settle()` no longer reliably returns with the
+    //    panel idle. ⇒ page any such frame out, then clear the 2 Hz throttle, so the phase below starts from rest.
+    //    ⓘ The property P2a measures is unchanged; only the precondition is now established instead of assumed.
+    paint(t);
+    t += 700;
     dirty_the_model(t);
     g_c = Canvas{};
     g_probe_radio.busy_tx = true;
@@ -444,7 +713,7 @@ int main() {
     CHK("P2a a TX on air suppresses EVERY canvas/bus call",  g_c.bus_ops() == 0);
     CHK("P2a ...and no drawing either",                      g_c.draw_text == 0);
     g_probe_radio.busy_tx = false;
-    run_ticks(t + 100, 8, 10);
+    run_ticks(t + 700, 8, 10);
     CHK("P2a the paint RESUMES once the TX completes",       g_c.begin_frame == 1 && g_c.next_page == 8);
 
     // (b) the QUEUE half — `g_hal.txq_depth()`. The REAL DeviceHal queue, moved by the REAL tx(): enqueue one frame
@@ -515,19 +784,30 @@ int main() {
     // ============================================================================================================ P5
     // ★★ WHAT THE CADENCE PUTS ON THE PANEL (plan Task 9 / slice UI-9). P4 proves the ADC is READ at the right
     //    moments; it says nothing about what the operator sees, and [[B104]]'s residue is exactly that — this probe
-    //    counts draw CALLS. These checks read the STATUS BAR's TEXT, which `draw_frame` emits first on every screen.
-    // ★ THE RULED RENDER POLICY (plan Task 9 Step 3, spec §3.3): `3.9V` or `--`, NEVER a percentage. A percentage
-    //   needs a chemistry and a discharge curve nobody has approved.
-    // ⚠ ONLY the bar is asserted, deliberately: `settle()` delivers a real short press, which CYCLES the screen, so
-    //   which BODY is drawn is not deterministic here. The bar is drawn on every screen and under the overlay.
+    //    counts draw CALLS. These checks read the STATUS STRIP's battery TOKEN, which `draw_frame` emits on every
+    //    screen and under the overlay.
+    // ★ THE RULED RENDER POLICY (plan Task 9 Step 3, spec §3.3, design §4.5): `3.9V` or `--`, NEVER a percentage. A
+    //   percentage needs a chemistry and a discharge curve nobody has approved.
+    // ⛔⛔ RETARGETED BY §CHROME-3, NOT WEAKENED — and the retarget is the point: these three used to read
+    //    `first_text`, i.e. *"the first string of the frame"*, which was the packed `DM… CH… T…/… …V` bar. The strip
+    //    that replaced it draws the battery token LAST and at a FIXED SLOT, so `ends_with(first_text, "3.9V")` would
+    //    now be asserting the MAIL count and would pass or fail for reasons nothing to do with the battery. ⇒ they
+    //    read the exact slot instead, which is strictly stronger: it pins the value AND where it landed.
+    //    ⓘ §6.1's rule, applied one section over: a check is retargeted when its string moves, never deleted.
+    // ⚠ ONLY the strip is asserted, deliberately: `settle()` delivers a real short press, which CYCLES the screen, so
+    //   which BODY is drawn is not deterministic here.
     // ⛔ This closes ONE field of B104's residue. The snapshot BUILDER and every other `draw_*` remain uncovered.
+    // §3.1's battery slot, stated INDEPENDENTLY of the renderer's own table (a bound taken from the code under test
+    // would agree with a layout that had drifted): icon at x = 91, token at x = 104, both on the y = 7 baseline.
+    const int kBattTextX = 104, kStripBaseY = 7;
 
     // (a) THE READER HAS NEVER SUCCEEDED -> `--`, and nothing may be invented in its place.
     g_c.batt_answer = -1;
     t = settle(t + 100000);
     dirty_the_model(t);
     run_ticks(t, 8, 10);
-    CHK("P5 an unavailable reading renders the bar's `--`",  ends_with(g_c.first_text, "--"));
+    CHK("P5 an unavailable reading renders the strip's `--`",
+        text_at(kBattTextX, kStripBaseY) != nullptr && strcmp(text_at(kBattTextX, kStripBaseY), "--") == 0);
     CHK("P5 ... and NO voltage is invented anywhere",        !has_voltage(g_c.page_text));
 
     // (b) ONE GOOD READING REACHES THE PANEL — as volts, to one decimal, never a percentage.
@@ -536,8 +816,9 @@ int main() {
     t = settle(t + 1000);
     dirty_the_model(t);
     run_ticks(t, 8, 10);
-    CHK("P5 a successful reading renders as volts",          ends_with(g_c.first_text, "3.9V"));
-    CHK("P5 ... and never as a percentage",                  strchr(g_c.first_text, '%') == nullptr);
+    CHK("P5 a successful reading renders as volts",
+        text_at(kBattTextX, kStripBaseY) != nullptr && strcmp(text_at(kBattTextX, kStripBaseY), "3.9V") == 0);
+    CHK("P5 ... and never as a percentage",                  strchr(g_c.page_text, '%') == nullptr);
 
     // (c) ★ SPEC §7's LAST-GOOD RULE, MEASURED. A later UNAVAILABLE read must NOT erase the value already displayed
     //     (`if (mv >= 0) s_batt_mv = mv;`). ⚠ THE CONSEQUENCE IS REAL AND IS REPORTED RATHER THAN SMOOTHED: after one
@@ -551,7 +832,8 @@ int main() {
     t = settle(t + 1000);
     dirty_the_model(t);
     run_ticks(t, 8, 10);
-    CHK("P5 an unavailable read does not erase the last good value", ends_with(g_c.first_text, "3.9V"));
+    CHK("P5 an unavailable read does not erase the last good value",
+        text_at(kBattTextX, kStripBaseY) != nullptr && strcmp(text_at(kBattTextX, kStripBaseY), "3.9V") == 0);
 
     // ============================================================================================================ P6
     // ★★★★ §UI-7D slice B — THE INBOX DETAIL MODAL, END TO END, AGAINST A REAL `meshroute::Inbox`. This is the only
@@ -695,8 +977,8 @@ int main() {
         ProbeCfgStore& st = probe_store();
         ProbeCfgLive&  lv = probe_live();
         lv.eff = mrfw::cfg_values_from_blob(st.rec);          // a freshly booted node: effective == persisted
-        t = walk_to(t + 2000, "SETTINGS");
-        CHK("P7 the SETTINGS screen is reachable by pressing",  strstr(g_c.page_text, "SETTINGS") != nullptr);
+        t = walk_to_slot(t + 2000, kSlotSettings);
+        CHK("P7 the SETTINGS screen is reachable by pressing",  rail_boxed_slot() == kSlotSettings);
         CHK("P7 ...and it lists a covered field with its value", strstr(g_c.page_text, "DM crypt") != nullptr);
         CHK("P7 ...opening it wrote NOTHING",                    st.writes == 0);
         CHK("P7 ...and applied NOTHING live",                    lv.applies == 0);
@@ -716,13 +998,13 @@ int main() {
             //   one silently drops out of the "N of M reddened" denominator — measured on this very check.
             CHK("P7 the BLE row is ABSENT (no UI-12 transport in any env)", !seen_ble);
         }
-        t = walk_to(t + 500, "SETTINGS");
+        t = walk_to_slot(t + 500, kSlotSettings);
 #endif
         // ---- the EDITOR: `double` enters, `short` cycles the DRAFT, `double` accepts -------------------------------
         t = walk_to(t + 500, ">DM crypt");
         CHK("P7a the value row can be highlighted",             strstr(g_c.page_text, ">DM crypt") != nullptr);
         printf("DBG PAGE=[%s]\n", g_c.page_text);
-        CHK("P7a ...and shows the persisted value",             strstr(g_c.page_text, "DM crypt   off") != nullptr);
+        CHK("P7a ...and shows the persisted value",             strstr(g_c.page_text, "DM crypt off") != nullptr);
         t = double_press(t + 500); paint(t);
         CHK("P7a a double ENTERS the editor (the value is bracketed)",
             strstr(g_c.page_text, "[off]") != nullptr);
@@ -733,10 +1015,22 @@ int main() {
         CHK("P7a ...the persisted record is untouched",         st.rec.e2e_dm == 0);
         t = double_press(t + 500); paint(t);
         CHK("P7a a double ACCEPTS and leaves the editor",       strstr(g_c.page_text, "[on]") == nullptr &&
-                                                                strstr(g_c.page_text, "DM crypt   on") != nullptr);
-        // ---- THE DRAFT MARKER, ON STATUS (spec §3.3) --------------------------------------------------------------
-        t = walk_to(t + 500, "STATUS");
-        CHK("P7b STATUS carries the unsaved marker",            strstr(g_c.page_text, "CFG* UNSAVED") != nullptr);
+                                                                strstr(g_c.page_text, "DM crypt on") != nullptr);
+        // ---- THE DRAFT STATE, NOW ON THE RAIL'S SETTINGS BADGE ------------------------------------------------
+        // ⛔⛔ RETARGETED BY §CHROME-4 / design §6.1, AND THE RETARGETING IS THE POINT. These checks read
+        //   `CFG* UNSAVED` off the STATUS TITLE, which design §6 removes: *"the redundant `CFG* UNSAVED` /
+        //   `CFG! RELOAD` decoration is removed from the STATUS title. The rail makes the state visible from every
+        //   ordinary screen."* ⛔ THE FACT IS NOT DROPPED — it MOVED, so the coverage moves with it, onto the
+        //   SETTINGS rail icon's BADGE. ⓘ The ACTIONABLE text is still measured, on the screen §6 requires it on:
+        //   see P8b/P8c/P8f, which read `CFG! RELOAD` off SETTINGS, and P14g's `UNSAVED` check.
+        // ★ AND THE TRANSITION IS PROVABLE IN BOTH DIRECTIONS (§6.1 rule 4): the badge check below requires the new
+        //   presentation, and the companion check requires the OLD one to be ABSENT from the STATUS body — so a
+        //   renderer cannot satisfy both the old and the new answer.
+        t = walk_to_slot(t + 500, kSlotStatus);
+        CHK("P7b the SETTINGS rail badge carries the unsaved state",
+            rail_glyph_at(kSlotSettings) == mrui::icons::kIconSettingsUnsaved);
+        CHK("P7b ...and the STATUS body no longer carries the withdrawn marker TEXT",
+            strstr(g_c.page_text, "CFG* UNSAVED") == nullptr && strstr(g_c.page_text, "CFG! RELOAD") == nullptr);
         CHK("P7b ...and it is NOT the word `dirty` in any form", strstr(g_c.page_text, "dirty") == nullptr);
         // ---- SAVE ------------------------------------------------------------------------------------------------
         t = walk_to(t + 500, ">SAVE");
@@ -748,8 +1042,8 @@ int main() {
         CHK("P7c ...and the NON-covered fields carried through", st.rec.node_id == 42 && st.rec.channel_ctr == 7u);
         CHK("P7c ...the live half applied, once",               lv.applies == 1);
         CHK("P7c ...and it applied the SAVED value",            lv.eff.at(mrfw::CfgField::e2e_dm) == 1);
-        t = walk_to(t + 500, "STATUS");
-        CHK("P7c the unsaved marker is GONE once it is durable", strstr(g_c.page_text, "CFG* UNSAVED") == nullptr);
+        t = walk_to_slot(t + 500, kSlotStatus);
+        CHK("P7c the unsaved badge is GONE once it is durable",  rail_glyph_at(kSlotSettings) == mrui::icons::kIconSettings);
         CHK("P7c ...and no RESTART is claimed for a live field", strstr(g_c.page_text, "RESTART NEEDED") == nullptr);
         // ---- A FAILED WRITE: the panel must say so, and the marker must SURVIVE -----------------------------------
         t = walk_to(t + 500, ">key attach");
@@ -764,15 +1058,15 @@ int main() {
         CHK("P7d ...it was ATTEMPTED",                          st.writes == writes_before + 1);
         CHK("P7d ...and changed nothing",                       st.rec.intro_attach == 1);
         CHK("P7d ...nothing was applied live",                  lv.applies == 1);
-        CHK("P7d ...and the DRAFT MARKER SURVIVES the failure", (t = walk_to(t + 500, "STATUS"),
-                                                                 strstr(g_c.page_text, "CFG* UNSAVED") != nullptr));
+        CHK("P7d ...and the DRAFT BADGE SURVIVES the failure",  (t = walk_to_slot(t + 500, kSlotStatus),
+                                                                 rail_glyph_at(kSlotSettings) == mrui::icons::kIconSettingsUnsaved));
         // ---- BACK preserves it, and a REBOOT-CLASS save shows the third literal -----------------------------------
         st.can_save = true;
         t = walk_to(t + 500, ">DISCARD");
         t = double_press(t + 500); paint(t);
         CHK("P7e DISCARD clears the marker without writing",    st.writes == writes_before + 1);
-        t = walk_to(t + 500, "STATUS");
-        CHK("P7e ...and STATUS is clean again",                 strstr(g_c.page_text, "CFG* UNSAVED") == nullptr);
+        t = walk_to_slot(t + 500, kSlotStatus);
+        CHK("P7e ...and the badge is clean again",              rail_glyph_at(kSlotSettings) == mrui::icons::kIconSettings);
         // A reboot-class difference is produced the way a real one is: the EFFECTIVE `ble_mode` differs from what is
         // persisted, which is exactly the state a saved-but-not-rebooted node is in.
         // ⓘ MEASURED AND STATED, because the first version of this check failed for the right reason: poking the LIVE
@@ -781,10 +1075,12 @@ int main() {
         //   marks dirty) or at boot — so the press below is what a real operator supplies, not a workaround.
         lv.eff.at(mrfw::CfgField::ble_mode) = 1;
         t = settle(t + 500);
-        t = walk_to(t + 500, "STATUS");
+        t = walk_to_slot(t + 500, kSlotStatus);
         CHK("P7e a reboot-class difference renders RESTART NEEDED",
             strstr(g_c.page_text, "RESTART NEEDED") != nullptr);
-        CHK("P7e ...and it is NOT reported as unsaved",         strstr(g_c.page_text, "CFG* UNSAVED") == nullptr);
+        // ★★ §6's PRIORITY, THROUGH THE SHIPPED PATH: a durable save that needs a reboot is NO LONGER unsaved, so the
+        //    badge must be the RESTART one — ⛔ not the unsaved one, and not the clean gear either.
+        CHK("P7e ...and the badge is RESTART, not unsaved",     rail_glyph_at(kSlotSettings) == mrui::icons::kIconSettingsRestart);
         lv.eff.at(mrfw::CfgField::ble_mode) = 0;
 
         // ======================================================================================================= P8
@@ -804,8 +1100,11 @@ int main() {
             mr_ui_on_config_saved();
             CHK("P8a the hook re-read the record",              st.loads > loads_before);
             t += 700; paint(t);                            // NO gesture: the repaint must come from the hook alone
-            CHK("P8a a covered external write shows CFG! RELOAD at once",
-                strstr(g_c.page_text, "CFG! RELOAD") != nullptr);
+            // ⓘ THE PANEL IS ON **STATUS** HERE (P7e left it there and no gesture has been made since), which is
+            //   exactly why this one reads the BADGE: §6 moved the compact indicator to the rail so it is visible
+            //   from every ordinary screen. The ACTIONABLE text is asserted on SETTINGS by P8b/P8f below.
+            CHK("P8a a covered external write shows the conflict badge at once",
+                rail_glyph_at(kSlotSettings) == mrui::icons::kIconSettingsConflict);
             CHK("P8a ...and the RELOAD row is offered",         (t = walk_to(t + 500, ">RELOAD"),
                                                                 strstr(g_c.page_text, ">RELOAD") != nullptr));
             // (b) the CHANGE -> REVERT case the SAVE-time byte comparison cannot catch: the record goes back, so the
@@ -853,10 +1152,10 @@ int main() {
             t = double_press(t + 500); paint(t);           // enter the editor
             t = settle(t + 500);                           // cycle the DRAFT (intro_attach 1 -> 0)
             t = double_press(t + 500); paint(t);           // accept
-            t = walk_to(t + 500, "STATUS");
-            CHK("P8f a covered field is edited, so the draft marker stands",
-                strstr(g_c.page_text, "CFG* UNSAVED") != nullptr);
-            t = walk_to(t + 500, "SETTINGS");
+            t = walk_to_slot(t + 500, kSlotStatus);
+            CHK("P8f a covered field is edited, so the draft badge stands",
+                rail_glyph_at(kSlotSettings) == mrui::icons::kIconSettingsUnsaved);
+            t = walk_to_slot(t + 500, kSlotSettings);
             const int writes_before3 = st.writes;
             st.rec.e2e_dm = 0; st.rec.intro_attach = 0; st.rec.mobile_autoregister = 0; st.rec.ble_mode = 0;
             mr_ui_on_config_saved();
@@ -884,8 +1183,8 @@ int main() {
             t += 700; paint(t);
             CHK("P8g a JOIN-shaped write moves no covered field, raises nothing",
                 strstr(g_c.page_text, "CFG! RELOAD") == nullptr);
-            t = walk_to(t + 500, "STATUS");
-            CHK("P8g ...and no unsaved marker either",      strstr(g_c.page_text, "CFG* UNSAVED") == nullptr);
+            t = walk_to_slot(t + 500, kSlotStatus);
+            CHK("P8g ...and no unsaved badge either",       rail_glyph_at(kSlotSettings) == mrui::icons::kIconSettings);
         }
     }
 
@@ -1104,6 +1403,482 @@ int main() {
         g_c.disarm_answer = false;
         CHK("P12b a refused disarm reports false", mr_ui_disarm_button_wake() == false);
         CHK("P12b2 ...and asked the board that time too", g_c.disarm_calls == 2);
+    }
+
+    // ============================================================================================================ P13
+    // ★★★★ §CHROME-3 — THE STATUS STRIP (design §3.1/§4) AND §8.3's REPAINT INVALIDATION, AS AMENDED BY §8.3.1.
+    //   The projection, its formatters and its equality are PURE and are driven by `test/test_firmware_ui_chrome.cpp`
+    //   with a mutation battery. What NOTHING there can see is what this file does with them: which glyph lands at
+    //   which x, whether the strip is drawn from the FROZEN chrome or read live mid-frame, and whether a snapshot-only
+    //   change asks for a repaint at all.
+    // ★★ THE SLOTS ARE STATED HERE INDEPENDENTLY of the renderer's layout table. A bound imported from the code under
+    //    test would agree with a layout that had drifted — the "instrument that cannot fail" shape this arc keeps
+    //    finding. `Font::small` is 6 px per column; every glyph but the battery is 7 px wide.
+    {
+        struct Slot { int icon_x, text_x; };
+        const Slot kMail = {  0,   8 }, kHome = { 28, 36 }, kTeam = { 56, 64 };
+        const Slot kKey  = { 79,  -1 }, kBatt = { 91, 104 };
+        const int  kIconY = 0, kBaseY = 7;
+
+        // ---- the fixture. The team plane already carries P9d's `team_id` + one route to id 60; the CONTENT key is
+        //      loaded here through the core's own boot-restore path, which is the only public way to move §4.4's fact.
+        uint8_t pub[32], priv[32];
+        for (int i = 0; i < 32; ++i) { pub[i] = uint8_t(0xA0 + i); priv[i] = uint8_t(0x40 + i); }
+        g_node.team_channel_key_load(pub, priv, /*present=*/true);
+        g_c.batt_answer = 4123;                                  // 4.123 V -> the token `4.1V`
+        uint32_t t13 = settle(900000);
+        run_ticks(t13, 4, 10);                                   // > 30 s since P5's last sample -> one good read
+        t13 = walk_to(t13 + 500, "INBOX");                       // a COMPLETE, VISIBLE inbox frame zeroes the unread
+        paint(t13);
+        t13 = settle(t13 + 500);
+        paint(t13);
+
+        // ---- (a) THE FIXED SLOTS, and every glyph by POINTER IDENTITY --------------------------------------------
+        CHK("P13a the mail envelope is drawn at the strip's first slot",
+            bitmap_at(kMail.icon_x, kIconY) == mrui::icons::kIconMail);
+        CHK("P13a ...with its count in the slot's own text column",
+            text_at(kMail.text_x, kBaseY) != nullptr && strcmp(text_at(kMail.text_x, kBaseY), "0") == 0);
+        // §4.2 — this build HAS the mobile plane (MR_FEAT_MOBILE defaults to 1 here), nothing was ever confirmed, so
+        // the house is the EMPTY one and the age reads `--`. ⛔ `--` is NOT `0s`: they are different silences.
+        // ⚠ STATED LIMIT: only `unknown` is reachable from a host — `confirmed`/`checking`/`lost` are set by the
+        //   mobile FSM's own RF paths, which this probe does not run. The four-state icon TABLE is pinned natively
+        //   (`chrome-home:` cases); what is measured here is that the renderer selects from it at all, which the
+        //   control that hardcodes one glyph reddens.
+        CHK("P13a the home slot draws the never-confirmed house",
+            bitmap_at(kHome.icon_x, kIconY) == mrui::icons::kIconHomeUnknown);
+        CHK("P13a ...and its compact age is `--`, never `0s`",
+            text_at(kHome.text_x, kBaseY) != nullptr && strcmp(text_at(kHome.text_x, kBaseY), "--") == 0);
+        CHK("P13a the people slot draws the people glyph",
+            bitmap_at(kTeam.icon_x, kIconY) == mrui::icons::kIconPeople);
+        CHK("P13a ...counting the ONE team route this node knows",
+            text_at(kTeam.text_x, kBaseY) != nullptr && strcmp(text_at(kTeam.text_x, kBaseY), "1") == 0);
+        CHK("P13a a held team CONTENT key draws the normal key",
+            bitmap_at(kKey.icon_x, kIconY) == mrui::icons::kIconKey);
+        CHK("P13a the battery outline is the 11-px asset",
+            bitmap_at(kBatt.icon_x, kIconY) == mrui::icons::kIconBattery);
+        // ★ THE DIMENSIONS TRAVEL WITH THE POINTER, and this is not pedantry: the battery is the ONE asset whose rows
+        //   are TWO bytes (`stride_of(11) == 2`), so a call site that passed the shared 7-px width would decode the
+        //   same bytes as a 7x14 smear — an error a pointer-identity check alone cannot see.
+        {
+            bool dims_ok = true;
+            for (int i = 0; i < g_c.n_rec; ++i) {
+                const Canvas::Rec& r = g_c.rec[i];
+                if (r.is_text || r.page != 0) continue;
+                if (r.bits == nullptr) continue;      // §CHROME-4: the rail's `[rect]` frame carries no bytes
+                const bool batt = (r.bits == mrui::icons::kIconBattery);
+                const int  w    = batt ? int(mrui::icons::kBatteryW) : int(mrui::icons::kIconW);
+                if (r.w != w || r.h != int(mrui::icons::kIconH)) dims_ok = false;
+            }
+            CHK("P13a each glyph is drawn at its OWN width (battery 11, others 7)", dims_ok);
+        }
+        CHK("P13a ...voltage in the right-anchored token column",
+            text_at(kBatt.text_x, kBaseY) != nullptr && strcmp(text_at(kBatt.text_x, kBaseY), "4.1V") == 0);
+        CHK("P13a the y=9 rule is still drawn under the strip", g_c.draw_hline > 0);
+        CHK("P13a exactly five glyphs on the strip (no sixth)", strip_glyphs_on_page(0) == 5);
+        // ★ §CHROME-4: the rail lives BELOW the rule and is measured in full by P14; what this pins here is that the
+        //   two regions are disjoint — the strip kept its five and the rail drew its own five plus one frame.
+        CHK("P13a ...and the rail drew five glyphs and ONE frame below it",
+            rail_glyphs_on_page(0) == 5 && rail_frames_on_page(0) == 1);
+
+        // ---- (b) GEOMETRY — §11.2's bound ------------------------------------------------------------------------
+        // ⓘ Still scoped to the strip HERE, because the strip's own budget is what P13 is about; the BODY's bound is
+        //   ASSERTED by P14f now that §CHROME-4 has migrated it to 19 columns at `x = 12`.
+        CHK("P13b no strip draw exceeds x=127",  strip_max_x() >= 0 && strip_max_x() <= 127);
+        CHK("P13b no strip draw exceeds y=63",   strip_max_y() >= 0 && strip_max_y() <= 63);
+        CHK("P13b ...and the strip stays inside its own y=0..8 band", strip_max_y() <= 8);
+        printf("  INFO strip right edge x=%d, bottom y=%d; BODY right edge x=%d\n",
+               strip_max_x(), strip_max_y(), body_max_x());
+
+        // ---- (c) THE BATTERY FIELD IS ANCHORED, so a shorter token moves NO earlier icon ---------------------------
+        // ★ THE SHORTER TOKEN IS PRODUCED THE HONEST WAY: a reading too wide to render as `d.dV` is UNAVAILABLE
+        //   (§CHROME-1 R2.2's geometric guard), so 12.0 V renders `--` — ⛔ never a plausible-looking clamp. That
+        //   makes this check ALSO the end-to-end proof of the guard, through the shipped renderer.
+        // ⓘ It cannot be produced by an unavailable READ: spec §7's last-good rule keeps the previous voltage for
+        //   ever, and P5 already took a good sample in this process.
+        const int mail_x = kMail.icon_x, home_x = kHome.icon_x, team_x = kTeam.icon_x, key_x = kKey.icon_x;
+        g_c.batt_answer = 12000;                                 // 12.0 V — outside the four-column slot
+        t13 += 31000; run_ticks(t13, 2, 10);
+        t13 = settle(t13 + 1000);
+        paint(t13);
+        CHK("P13c an unrenderable voltage renders `--`, never a clamp",
+            text_at(kBatt.text_x, kBaseY) != nullptr && strcmp(text_at(kBatt.text_x, kBaseY), "--") == 0);
+        CHK("P13c ...and the battery ICON did not move with it",
+            bitmap_at(kBatt.icon_x, kIconY) == mrui::icons::kIconBattery);
+        CHK("P13c ...nor did any icon before it (anchored, not flowed)",
+            bitmap_at(mail_x, kIconY) == mrui::icons::kIconMail &&
+            bitmap_at(home_x, kIconY) == mrui::icons::kIconHomeUnknown &&
+            bitmap_at(team_x, kIconY) == mrui::icons::kIconPeople &&
+            bitmap_at(key_x,  kIconY) == mrui::icons::kIconKey);
+        CHK("P13c ...and the strip still fits 128 px", strip_max_x() <= 127);
+
+        // ---- (d) ★★★ THE FROZEN CHROME, ACROSS ALL EIGHT PAGE REPLAYS ---------------------------------------------
+        // U8g2 re-clips the WHOLE scene once per page, so a frame spans eight ticks. A renderer that read the LIVE
+        // projection would tear the strip the moment a value moved mid-frame — and this is the ONLY place that can be
+        // measured, which is why the change is injected BETWEEN two pages of one frame.
+        // ★ THE DRIVER IS THE **TEAM ROUTE COUNT**, deliberately: it is MONOTONIC and settable at any instant
+        //   (`test_learn_route`), so unlike the session-unread mail value it cannot be reset underneath the case by a
+        //   complete INBOX frame that a screen cycle happened to land on. An instrument whose fixture another
+        //   mechanism can undo is one that fails for the wrong reason.
+        t13 = settle(t13 + 1000);
+        paint(t13);
+        t13 += 1000;
+        dirty_the_model(t13);                                     // an arrival, so a frame is owed
+        run_ticks(t13 + 700, 3, 10);                              // open it and push three pages
+        const char* p0 = text_at(kTeam.text_x, kBaseY, 0);
+        char frozen_tok[8]; snprintf(frozen_tok, sizeof frozen_tok, "%s", p0 ? p0 : "?");
+        g_node.test_learn_route(/*dest=*/62, /*via=*/62, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
+        run_ticks(t13 + 740, 6, 10);                              // ⚡ ...and the remaining pages replay
+        CHK("P13d every page of one frame drew the SAME strip", strip_identical_on_every_page(8));
+        CHK("P13d ...including pages drawn after the value moved",
+            text_at(kTeam.text_x, kBaseY, 7) != nullptr &&
+            strcmp(text_at(kTeam.text_x, kBaseY, 7), frozen_tok) == 0);
+        CHK("P13d the fixture really did move it under the open frame",
+            strcmp(frozen_tok, "1") == 0);
+        // ★ AND THE MID-FRAME CHANGE IS NOT LOST (§8.3 rule 5 / §B107): ONE follow-up frame renders it.
+        t13 += 3000; paint(t13);
+        CHK("P13d ...and the NEXT frame renders the newer projection",
+            text_at(kTeam.text_x, kBaseY) != nullptr &&
+            strcmp(text_at(kTeam.text_x, kBaseY), "2") == 0);
+
+        // ---- (e) ★★★ §8.3.1 BEHAVIOUR 4 — LIT + CLEAN + A VISIBLE CHROME CHANGE ⇒ DIRTY --------------------------
+        // ★★ THE POSITIVE HALF, AND THE WHOLE POINT OF §8.3: a rule that never invalidates is as wrong as one that
+        //    always does. The change is a SNAPSHOT-ONLY fact with NO gesture and NO push — exactly the class §8.3
+        //    names (a team route arriving on a beacon, the home link changing state) — so nothing else can mark the
+        //    model dirty, and `FrameGate::step` answers `idle` for ever on a clean model.
+        t13 = settle(t13 + 1000);
+        paint(t13);                                              // ...and let that press's frame page out
+        t13 += 1000; tick(t13);                                  // past the 500 ms throttle, panel LIT and CLEAN
+        {
+            const int frames_before = g_c.begin_frame;
+            run_ticks(t13 + 10, 4, 10);
+            CHK("P13e precondition: a clean lit panel opens NO frame itself",
+                g_c.begin_frame == frames_before);
+            g_node.team_channel_key_load(pub, priv, /*present=*/false);   // the CONTENT key is gone — §4.4 state moves
+            run_ticks(t13 + 100, 10, 10);
+            CHK("P13e a snapshot-only chrome change opens a frame, no gesture",
+                g_c.begin_frame > frames_before);
+            CHK("P13e ...and the strip now draws the CROSSED key",
+                bitmap_at(kKey.icon_x, kIconY) == mrui::icons::kIconKeyCrossed);
+            t13 += 300;
+        }
+
+        // ---- (f) ★★★★ §8.3.1 BEHAVIOURS 1 AND 2 — THE BLANKED PANEL, IN THE FIVE PINNED STEPS --------------------
+        // ⛔⛔ THE SEQUENCE BEGINS AFTER THE BLANKING EDGE HAS COMPLETED, because the first `set_power_save(true)`
+        //    LEGITIMATELY ISSUES ONE PANEL COMMAND. Counting it would fail a correct implementation — or, far worse,
+        //    invite somebody to "fix" it by suppressing the edge itself.
+        // ⓘ WHAT IS MEASURED HERE AND WHAT IS NOT, STATED RATHER THAN IMPLIED. `dirty` is private to the model and
+        //   unreachable from this binary, so its PRESERVATION is pinned where it can be READ: the `chrome-invalidate:`
+        //   cases in `test/test_firmware_ui_chrome.cpp` (mutations X27-X30), plus `probe_board_ui`'s W3, which forbids
+        //   `firmware_ui.cpp` from naming `clear_dirty` at all. ⓘ `mr_ui_allows_sleep()` is ALSO unusable from here
+        //   and it is not a gap in this slice: P10h has already spent the BOOT-SCOPED lockout, so the hook answers
+        //   false whatever the UI state (P12's header records that ordering limit). The sleep permission itself is
+        //   measured by P10b/P10f. ⇒ what this block measures is every OTHER observable consequence of behaviours 1
+        //   and 2: no unblank, no frame, no page, and not one additional panel command.
+        {
+            t13 += 16000;                                        // (1) blank: > kBlankMs (15 s) with no input at all
+            tick(t13);
+            tick(t13 + 10);                                      //     ...and let the power-save edge complete
+            CHK("P13f precondition: the panel is dark", g_c.last_power_save == 1);
+            const int bus0    = g_c.bus_cmds();                  // (2) record the bus-COMMAND count, after the edge
+            const int frames0 = g_c.begin_frame;
+            const int pages0  = g_c.next_page;
+            const int pwr0    = g_c.power_cmds;
+            // (3) change the chrome while still blanked — the key, the team count and the battery together. ⛔ NO
+            //     push and NO gesture: either would mark the model dirty on its own and the measurement would then be
+            //     about that instead.
+            g_node.team_channel_key_load(pub, priv, /*present=*/true);
+            g_node.test_learn_route(/*dest=*/61, /*via=*/61, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
+            g_c.batt_answer = 3555;
+            run_ticks(t13 + 100, 40, 100);                       // (4) four seconds of subsequent UI ticks
+            // (5) ZERO ADDITIONAL bus commands, NO frame opened, and the panel still dark.
+            CHK("P13f a blanked chrome change issues ZERO extra bus commands",
+                g_c.bus_cmds() == bus0 && g_c.power_cmds == pwr0);
+            CHK("P13f ...opens no frame and pushes no page",
+                g_c.begin_frame == frames0 && g_c.next_page == pages0);
+            CHK("P13f ...and does not unblank the panel", g_c.last_power_save == 1);
+            // ---- §8.3.1 BEHAVIOUR 3 — after the WAKE, the first frame freezes the CURRENT chrome ------------------
+            // ⛔ Not the projection captured while dark: the two now differ in the key AND the team count, which is
+            //   what makes this check able to come out otherwise.
+            t13 = settle(t13 + 5000);                            // a real press wakes the panel
+            paint(t13);
+            CHK("P13g the first frame after a wake freezes the CURRENT chrome",
+                bitmap_at(kKey.icon_x, kIconY) == mrui::icons::kIconKey &&
+                text_at(kTeam.text_x, kBaseY) != nullptr &&
+                strcmp(text_at(kTeam.text_x, kBaseY), "3") == 0);
+        }
+
+        // ---- (h) ★★★ THE ATTENTION CLOCK IS NOT TOUCHED (§8.3.1 behaviour 1's last clause) ------------------------
+        // ★★ A chrome change is NOT an input. The tempting wrong edit — "keep the panel awake while things are
+        //    changing" — would postpone the bounded 15 s attention window on every tick, so a node whose home age
+        //    turns once a second WOULD NEVER BLANK, and therefore (via `ui_allows_sleep`) would never light-sleep
+        //    again. That is a power regression with no panic and nothing visible on the panel.
+        {
+            uint32_t t14 = settle(t13 + 2000);                   // ⓘ `settle` returns 1200 ms after its press, so the
+            const int pwr_before = g_c.power_cmds;               //   attention deadline is t14 + ~14.3 s
+            bool key_on = true;
+            for (int i = 0; i < 40; ++i) {                       // 10 s of ticks, a chrome change on EVERY one
+                key_on = !key_on;
+                g_node.team_channel_key_load(pub, priv, key_on);
+                tick(t14 + 100 + uint32_t(i) * 250);
+            }
+            CHK("P13h 40 chrome changes do NOT blank the panel early",
+                g_c.last_power_save != 1);
+            CHK("P13h ...and none of them touched the panel's power latch", g_c.power_cmds == pwr_before);
+            tick(t14 + 100 + 16000);                             // now past kBlankMs since the LAST INPUT
+            CHK("P13h ...and it still blanks on the unmoved deadline",
+                g_c.last_power_save == 1 && g_c.power_cmds == pwr_before + 1);
+            t13 = t14 + 20000;
+            g_node.team_channel_key_load(pub, priv, /*present=*/true);
+        }
+
+        // ---- (i) NO BUS TRAFFIC FROM A DRAW. One frame = one begin_frame + eight next_page, whatever it drew ------
+        // ⓘ The board half of this is `tools/probe_board_ui` (§CHROME-2's checks against the REAL `board_ui.cpp`:
+        //   `draw_bitmap` / `draw_rect` are pure forwards to U8g2's COMPOSE-ONLY calls and add nothing to its
+        //   `bus_ops()`). What THIS measures is the caller: the strip's ten-odd draws must not add a bus command of
+        //   their own — an icon renderer that "helpfully" flushed a page would be invisible to a draw COUNT.
+        {
+            uint32_t t15 = settle(t13 + 2000);
+            dirty_the_model(t15);
+            const int bf0 = g_c.begin_frame, np0 = g_c.next_page, pwr0 = g_c.power_cmds;
+            run_ticks(t15 + 700, 8, 10);
+            CHK("P13i one frame costs one begin + eight pages, whatever it drew",
+                g_c.begin_frame - bf0 == 1 && g_c.next_page - np0 == 8);
+            CHK("P13i ...and the strip's draws issued no panel command",
+                g_c.power_cmds == pwr0);
+            CHK("P13i ...having actually drawn the strip on that frame",
+                strip_glyphs_on_page(0) == 5);
+        }
+    }
+
+    // ============================================================================================================ P14
+    // ★★★★ §CHROME-4 — THE NAVIGATION RAIL (design §3.2/§5.2/§5.3), THE CONFIGURATION BADGE (§6) AND THE 19-COLUMN
+    //   BODY MIGRATION (§7). The mapping, the badge priority and the slot mask are PURE and are driven by
+    //   `test/test_firmware_ui_chrome.cpp` with a mutation battery. What NOTHING there can see is what THIS file does
+    //   with them: which glyph lands in which slot, whether exactly ONE slot is boxed, whether the selection survives
+    //   all eight page replays, whether an emergency frame issues a rail call at all, and where the BODY is drawn.
+    // ★★ THE GEOMETRY IS STATED IN THIS FILE (see `kRailSlotY` above), never imported from the renderer's table.
+    {
+        uint32_t t16 = settle(1200000);
+        paint(t16);
+
+        // ---- (a) THE FIVE SLOTS, each glyph by POINTER IDENTITY, each at its canonical y ------------------------
+        CHK("P14a the STATUS slot draws the information disc",
+            rail_glyph_at(kSlotStatus) == mrui::icons::kIconStatus);
+        CHK("P14a the TEAM slot reuses the people glyph",
+            rail_glyph_at(kSlotTeam) == mrui::icons::kIconPeople);
+        CHK("P14a the INBOX slot reuses the envelope",
+            rail_glyph_at(kSlotInbox) == mrui::icons::kIconMail);
+        CHK("P14a the SEND slot draws the outgoing arrow",
+            rail_glyph_at(kSlotSend) == mrui::icons::kIconSend);
+        CHK("P14a the SETTINGS slot draws a badge variant of the gear",
+            rail_glyph_at(kSlotSettings) != nullptr);
+        // ★ EVERY rail glyph is 7x7 and sits in the rail's column — a glyph drawn at the body's x would still be "a
+        //   bitmap below the rule" to a count, and would land on top of the text.
+        {
+            bool geom_ok = true;
+            for (int i = 0; i < g_c.n_rec; ++i) {
+                const Canvas::Rec& r = g_c.rec[i];
+                if (r.is_text || r.page != 0 || r.y <= 9) continue;
+                if (r.bits == nullptr) {                        // the selection frame
+                    if (r.x != kRailX || r.w != kRailW || r.h != kRailH) geom_ok = false;
+                } else {                                        // a slot glyph
+                    if (r.x != kRailIconX || r.w != int(mrui::icons::kIconW) ||
+                        r.h != int(mrui::icons::kIconH)) geom_ok = false;
+                    if (r.y + r.h - 1 > 59) geom_ok = false;    // §3.2: the rail ends at y = 59
+                }
+            }
+            CHK("P14a every rail draw is inside x=0..9, y=10..59", geom_ok);
+        }
+        CHK("P14a no draw of the whole frame exceeds x=127 or y=63",
+            strip_max_x() <= 127 && body_max_x() <= 127 && strip_max_y() <= 63);
+        // ★ THE WHOLE FRAME'S NON-TEXT TALLY, which is what a sixth rail glyph or a second selection frame moves and
+        //   neither of the two scoped counters above would: 5 strip glyphs + 5 rail glyphs + 1 selection frame.
+        CHK("P14a the frame draws exactly 5 + 5 glyphs and 1 frame", bitmaps_on_page(0) == 11);
+
+        // ---- (b) EXACTLY ONE FRAME, AND IT NAMES THE SCREEN ------------------------------------------------------
+        // ⛔ `rail_boxed_slot` answers -2 for MORE THAN ONE, so "the right slot is boxed" cannot be satisfied by a
+        //    rail that boxes everything — the reader that returned the first match would have passed over exactly that.
+        {
+            struct { int slot; const char* name; } order[5] = {
+                { kSlotStatus, "STATUS" }, { kSlotTeam, "TEAM" }, { kSlotInbox, "INBOX" },
+                { kSlotSend, "SEND" }, { kSlotSettings, "SETTINGS" },
+            };
+            bool every_screen_ok = true, exactly_one = true;
+            for (int k = 0; k < 5; ++k) {
+                t16 = walk_to_slot(t16 + 500, order[k].slot);
+                if (rail_boxed_slot() != order[k].slot) every_screen_ok = false;
+                if (rail_frames_on_page(0) != 1) exactly_one = false;
+            }
+            CHK("P14b cycling the five screens boxes each one's own slot", every_screen_ok);
+            CHK("P14b ...and EXACTLY one navigation frame is drawn each time", exactly_one);
+        }
+
+        // ---- (c) THE SELECTION SURVIVES ALL EIGHT PAGE REPLAYS ---------------------------------------------------
+        // ★★ U8g2 re-clips the WHOLE scene once per page, so a rail read from a live authority — or from a
+        //    renderer-local cursor advanced per page — would move under an open frame. This is the only venue that
+        //    can see it.
+        {
+            t16 = walk_to_slot(t16 + 500, kSlotInbox);
+            t16 += 1000;
+            dirty_the_model(t16);
+            run_ticks(t16 + 700, 9, 10);                        // one whole frame, page by page
+            bool same_every_page = true;
+            for (int p = 0; p < 8; ++p) {
+                if (rail_boxed_slot(p) != kSlotInbox) same_every_page = false;
+                if (rail_glyph_at(kSlotSend, p) != mrui::icons::kIconSend) same_every_page = false;
+            }
+            CHK("P14c the correct slot stays boxed on all EIGHT page replays", same_every_page);
+        }
+
+        // ---- (d) §5.2's MODAL MAPPING, THROUGH THE SHIPPED PATH --------------------------------------------------
+        // ★★ THE RAIL MUST DESCRIBE THE BODY ACTUALLY BEING SHOWN. The inbox DETAIL modal replaces the body while
+        //    `Screen::inbox` is underneath it; the DM compose modal is opened from the TEAM screen, so a rail that
+        //    followed the screen alone would say TEAM over a send.
+        {
+            t16 = walk_to_slot(t16 + 500, kSlotInbox);
+            t16 = open_highlighted(t16 + 500, ">DM  ");
+            CHK("P14d precondition: the inbox DETAIL modal is open",
+                strstr(g_c.page_text, ">back") != nullptr);
+            CHK("P14d the detail modal keeps INBOX selected",   rail_boxed_slot() == kSlotInbox);
+            t16 = double_press(t16 + 500); paint(t16);          // `back` closes it
+            t16 = walk_to_slot(t16 + 500, kSlotTeam);
+            t16 = open_highlighted(t16 + 500, ">id 60");        // a teammate row -> the DM compose modal
+            CHK("P14d precondition: a DM compose modal is open over the TEAM screen",
+                strstr(g_c.page_text, "to: ") != nullptr);
+            CHK("P14d a compose modal opened from TEAM selects SEND, not TEAM",
+                rail_boxed_slot() == kSlotSend);
+            t16 = double_press(t16 + 500); paint(t16);          // send the first canned text -> the RESULT phase
+            CHK("P14d ...and the send RESULT keeps SEND selected", rail_boxed_slot() == kSlotSend);
+            t16 = double_press(t16 + 500); paint(t16);          // acknowledge and close
+        }
+
+        // ---- (e) §5.3's EMERGENCY EXCEPTION — NO RAIL AT ALL, AND THE BODY KEEPS x = 0 ---------------------------
+        // ⛔⛔ THIS IS THE SAFETY HALF OF THE SLICE. `NO RELAY HRD` / `NOT RELAYED` are `Font::large` = 10 px per
+        //    column on a 128-px panel, i.e. TWELVE columns at x = 0. Shifting that body to `kBodyX` would leave 11
+        //    and CLIP A DISTRESS HEADLINE — which is why §5.3 makes the exception and why it is measured here rather
+        //    than trusted to the projection.
+        {
+            t16 = settle(t16 + 2000);
+            g_c.button_down = true;                             // hold past arm_ms -> the alarm ARMS
+            for (int i = 0; i < 20; ++i) tick(t16 + 100 + uint32_t(i) * 100);
+            t16 += 2200;
+            paint(t16);
+            CHK("P14e precondition: the emergency overlay owns the body",
+                strstr(g_c.page_text, "RELEASE!") != nullptr || strstr(g_c.page_text, "EMERGENCY IN") != nullptr);
+            CHK("P14e an emergency frame draws NO rail glyph and NO frame",
+                rail_glyphs_on_page(0) == 0 && rail_frames_on_page(0) == 0);
+            CHK("P14e ...and the STRIP is still there (§5.3 keeps it)", strip_glyphs_on_page(0) == 5);
+            // ⛔⛔ EVERY emergency body draw, not just the leftmost. A check on `body_text_min_x()` alone PASSED over a
+            //   mutant that moved the `Font::large` HEADLINE to `kBodyX` and left the small-font detail line at 0 —
+            //   measured, on this very control (C82). The headline is the string that clips, so it is the one that
+            //   must be asserted individually.
+            {
+                bool all_at_zero = true;
+                for (int i = 0; i < g_c.n_rec; ++i) {
+                    const Canvas::Rec& r = g_c.rec[i];
+                    if (!r.is_text || r.page != 0 || r.y <= 9) continue;
+                    if (r.x != 0) all_at_zero = false;
+                }
+                // ⚠ THE LABEL IS UNDER 64 BYTES ON PURPOSE — `run.sh`'s coverage roll-up parses `%-64s`, so a
+                //   longer one silently drops out of the "N of M reddened" denominator. Measured here: the first
+                //   wording was 67 bytes and read as "no control reddens" while C82 was turning it red.
+                CHK("P14e ...and EVERY emergency body draw keeps x=0", all_at_zero && body_text_min_x() == 0);
+            }
+            g_c.button_down = false;
+            for (int i = 0; i < 10; ++i) tick(t16 + 100 + uint32_t(i) * 100);
+            t16 = settle(t16 + 3000);
+            t16 = settle(t16 + 1000);                           // acknowledge the outcome, back to the normal cycle
+            t16 = settle(t16 + 1000);
+        }
+
+        // ---- (f) §7's BODY MIGRATION, MEASURED ON EVERY ORDINARY SCREEN -------------------------------------------
+        // ★★★ §7.1 rule 3: *"every rendered normal line is proven at or below 116 pixels"*. ⛔ AND rule 1's other
+        //     half is measured with it: every ordinary body draw starts at `kBodyX`, so no text can land under the
+        //     rail. A renderer that moved only SOME sites would satisfy neither.
+        // ⚠ THE WALK COVERS THE MODAL BODIES TOO, because those are the widest lines in the tree (the inbox preview
+        //   row and the detail header).
+        {
+            bool x_ok = true, w_ok = true;
+            int  widest = 0, widest_right = 0;
+            for (int k = 0; k < 5; ++k) {
+                t16 = walk_to_slot(t16 + 500, k);
+                if (body_text_min_x() >= 0 && body_text_min_x() != kBodyXExpected) x_ok = false;
+                if (body_text_max_x() > 127) w_ok = false;
+                if (body_max_cols() > widest) widest = body_max_cols();
+                if (body_text_max_x() > widest_right) widest_right = body_text_max_x();
+            }
+            // ...and the two body-REPLACING views, which the screen walk cannot reach
+            t16 = walk_to_slot(t16 + 500, kSlotInbox);
+            t16 = open_highlighted(t16 + 500, ">CH7 ");
+            if (body_text_min_x() >= 0 && body_text_min_x() != kBodyXExpected) x_ok = false;
+            if (body_text_max_x() > 127) w_ok = false;
+            if (body_max_cols() > widest) widest = body_max_cols();
+            if (body_text_max_x() > widest_right) widest_right = body_text_max_x();
+            t16 = double_press(t16 + 500); paint(t16);
+            CHK("P14f every ordinary body draw starts at x=12 (the one kBodyX)", x_ok);
+            CHK("P14f ...and no ordinary body line exceeds 116 px", w_ok);
+            printf("  INFO §7.3 audit: widest ordinary body line = %d columns, right edge x = %d (bound 19 / 127)\n",
+                   widest, widest_right);
+            CHK("P14f ...and the widest line is at most 19 columns", widest <= 19);
+            // ⛔ VACUITY GUARD: a walk that drew nothing would satisfy both bounds. Require the body to have been
+            //    genuinely wide — the inbox preview row is 19 columns by construction.
+            CHK("P14f ...and the walk really did draw a full-width line", widest >= 15);
+        }
+
+        // ---- (g) §6/§6.1 — THE BADGE PRIORITY TABLE, INCLUDING BOTH OVERLAPPING PAIRS -----------------------------
+        // ★★ THE FOUR STATES ARE DRIVEN THROUGH THE REAL `ConfigService` over the fake store, so this measures the
+        //    SHIPPED selection (`ChromeCfg::from` -> `ui_cfg_badge` -> `rail_badge_glyph`), not a table lookup.
+        // ⛔ AND SETTINGS MUST STILL SAY IT IN WORDS (§6: *"the icon may replace the STATUS decoration; it may never
+        //    replace the instruction"*) — every arm below asserts the badge AND, where the state is one §6 names,
+        //    the actionable text on the SETTINGS screen itself.
+        {
+            ProbeCfgStore& st = probe_store();
+            ProbeCfgLive&  lv = probe_live();
+            st.can_save = true; st.can_load = true;
+            t16 = walk_to_slot(t16 + 500, kSlotSettings);
+            t16 = walk_to(t16 + 500, ">DISCARD");
+            t16 = double_press(t16 + 500); paint(t16);           // a clean draft over the current record
+            lv.eff = mrfw::cfg_values_from_blob(st.rec);
+            t16 += 700; paint(t16);
+            CHK("P14g clean  -> the plain gear",     rail_glyph_at(kSlotSettings) == mrui::icons::kIconSettings);
+            CHK("P14g ...and SETTINGS says nothing it cannot act on",
+                strstr(g_c.page_text, "CFG* UNSAVED") == nullptr &&
+                strstr(g_c.page_text, "CFG! RELOAD")  == nullptr);
+            // unsaved: edit a covered field in the DRAFT only
+            t16 = walk_to(t16 + 500, ">DM crypt");
+            t16 = double_press(t16 + 500); paint(t16);
+            t16 = settle(t16 + 500);
+            t16 = double_press(t16 + 500); paint(t16);
+            CHK("P14g unsaved -> the gear with the dot",
+                rail_glyph_at(kSlotSettings) == mrui::icons::kIconSettingsUnsaved);
+            CHK("P14g ...and SETTINGS still SAYS `CFG* UNSAVED` in words",
+                strstr(g_c.page_text, "CFG* UNSAVED") != nullptr);
+            // unsaved + RESTART-REQUIRED: §6's priority puts UNSAVED above restart
+            lv.eff.at(mrfw::CfgField::ble_mode) = 1;
+            t16 = settle(t16 + 500);
+            CHK("P14g unsaved + restart -> UNSAVED wins (§6's priority)",
+                rail_glyph_at(kSlotSettings) == mrui::icons::kIconSettingsUnsaved);
+            CHK("P14g ...and RESTART NEEDED is still stated in words",
+                strstr(g_c.page_text, "RESTART NEEDED") != nullptr);
+            // conflict + unsaved: CONFLICT outranks everything
+            st.rec.mobile_autoregister = st.rec.mobile_autoregister ? 0 : 1;
+            mr_ui_on_config_saved();
+            t16 += 700; paint(t16);
+            CHK("P14g conflict + unsaved -> CONFLICT wins",
+                rail_glyph_at(kSlotSettings) == mrui::icons::kIconSettingsConflict);
+            CHK("P14g ...and SETTINGS SAYS `CFG! RELOAD`, the remedy",
+                strstr(g_c.page_text, "CFG! RELOAD") != nullptr);
+            // ...clear the conflict and the draft; only the reboot fact is left
+            t16 = walk_to(t16 + 500, ">DISCARD");
+            t16 = double_press(t16 + 500); paint(t16);
+            t16 += 700; paint(t16);
+            CHK("P14g restart alone -> the gear with the restart marker",
+                rail_glyph_at(kSlotSettings) == mrui::icons::kIconSettingsRestart);
+            CHK("P14g ...and it is NOT the unsaved or the conflict glyph",
+                rail_glyph_at(kSlotSettings) != mrui::icons::kIconSettingsUnsaved &&
+                rail_glyph_at(kSlotSettings) != mrui::icons::kIconSettingsConflict);
+            lv.eff.at(mrfw::CfgField::ble_mode) = 0;
+        }
     }
 
     printf("\n%d passed / %d failed / %d total\n", g_pass, g_fail, g_pass + g_fail);

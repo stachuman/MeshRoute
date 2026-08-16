@@ -55,6 +55,8 @@ ROOT = str(Path(__file__).resolve().parents[1])
 TARGET_SRC = {
     "model":  "src/firmware_ui_model.h",        # §UI-7D slice B — the pure screen/state model
     "config": "src/firmware_config_service.h",  # §UI-13 — the typed staged-configuration service
+    "chrome": "src/firmware_ui_chrome.h",       # §CHROME-1 — the frozen chrome projection + the §5.2 nav mapping
+    "icons":  "src/firmware_ui_icons.h",        # §CHROME-1 — the icon assets and their byte-order contract
 }
 _flags = [a for a in sys.argv[1:] if a.startswith("--")]
 _TARGET = "model"
@@ -71,7 +73,36 @@ H = os.path.join(ROOT, TARGET_SRC[_TARGET])
 #    measured nothing — the instrument-that-cannot-fail shape, in the tool built to prevent it. ⇒ the clean tree is run
 #    FIRST and must produce EXACTLY these figures, or the run ABORTS before a single mutation is applied.
 #    ⓘ Override deliberately (a slice that legitimately adds cases): MR_MUT_BASE="cases,asserts".
-BASE_CASES, BASE_ASSERTS = 1615, 82362   # 2026-08-13 §notify-every-save ([[B194]]): +2 cases / +23 assertions — the
+BASE_CASES, BASE_ASSERTS = 1680, 83432   # ★★ RE-PINNED 2026-08-16 by §CHROME-4: 1678 / 83346 -> **1680 / 83432**
+                                         # (+2 cases / +86 assertions: `chrome4-audit:` — design §7.3's audit of
+                                         # every PURE panel string against the rail's 19-column body, including
+                                         # §7.1 rule 6's preset-collision check — and `chrome-nav:`'s pin on the
+                                         # rail enumerator order the renderer indexes by. The remaining assertions
+                                         # are the RE-DERIVED inbox-detail geometry: 21 -> 19 columns, 42 -> 38
+                                         # characters a page, 6 -> 7 pages.)
+                                         # ---- §CHROME-3's derivation, kept as history ----
+                                         # ★★ RE-PINNED 2026-08-16 by §CHROME-3: 1673 / 83284 -> **1678 / 83346**
+                                         # (+5 cases / +62 assertions, ALL in `test/test_firmware_ui_chrome.cpp`'s
+                                         # new `chrome-invalidate:` group — §8.3's rule, including the case that
+                                         # pins §8.3.1's WITHDRAWN instruction as NOT implemented).
+                                         # ---- §CHROME-1's derivation, kept as history ----
+                                         # ★★ RE-PINNED 2026-08-16 by §CHROME-1: 1651 / 82867 -> 1671 / 83252
+                                         # (round 1: +20 cases / +385 assertions, ALL in the new
+                                         # `test/test_firmware_ui_chrome.cpp`) -> **1673 / 83284** (round 2's QG
+                                         # corrections: the compose/inbox-detail PRECEDENCE case split out with its
+                                         # own control, one REAL model-driven outcome transition, the geometric
+                                         # battery bound, and the two vacuous 17-iteration outcome loops REPLACED by
+                                         # a cross product that can actually come out differently).
+                                         # ⛔⛔ AND THE PIN WAS ALREADY STALE WHEN THIS SLICE FOUND IT, which is
+                                         # worth recording rather than quietly overwriting: it still read
+                                         # 1615 / 82362 while HEAD `b8929e5` measured 1651 / 82867 — i.e. §T3 and
+                                         # the §B200 arc added 36 cases / 505 assertions without re-pinning, so
+                                         # ANY run of this tool in between ABORTED at the baseline gate and
+                                         # measured NOTHING. ⓘ That is the gate working (it refused rather than
+                                         # reporting successes), but a gate nobody can pass is a battery nobody
+                                         # runs. The 1615 -> 1651 step is NOT attributed here; only 1651 -> 1671 is.
+                                         # ---- the pre-§CHROME-1 derivation, kept as history ----
+                                         # 2026-08-13 §notify-every-save ([[B194]]): +2 cases / +23 assertions — the
                                          # `leave` SHAPE (all four covered fields reset to 0 under an open draft ->
                                          # conflict + SAVE refused) and its NEGATIVE half (a `join`-shaped write moves
                                          # no covered field and must raise NOTHING, which is what makes "notify on
@@ -438,7 +469,7 @@ MUTS_MODEL = [
   "if (_st.detail_page + 1 < _st.detail_pages) _st.detail_page = uint8_t(_st.detail_page + 1);"),
  ("M17 a page turn also refreshes the inactivity deadline",
   "_detail_page_at_ms = s.now_ms;", "_detail_page_at_ms = s.now_ms; _last_input_ms = s.now_ms;"),
- ("M18 both body rows render the SAME 21 columns",
+ ("M18 both body rows render the SAME 19 columns",
   "const uint16_t i = uint16_t(off + uint16_t(row) * kDetailCols + n);",
   "const uint16_t i = uint16_t(off + n);"),
  ("M19 the modal has no inactivity timeout",
@@ -549,6 +580,28 @@ MUTS_MODEL = [
  ("M50 a value row can be edited while the service is not open",
   "if (_cfg && _cfg->is_open()) { _st.settings = Settings::editing; _st.dirty = true; }",
   "{ _st.settings = Settings::editing; _st.dirty = true; }"),
+ # --- §CHROME-1: the one snapshot field whose TYPE is the correctness argument ----------------------------------------
+ # ⚠ THE FORMATTER'S OWN 32-BIT MUTATION LIVES IN THE `chrome` BATTERY (X01). This entry is the OTHER half and it is
+ #   not redundant: the age could be truncated in the CARRIER while the formatter's parameter stayed 64-bit, and a
+ #   battery that only mutated the formatter would measure the easy half. `UiSnapshot`'s neighbours (`now_ms`,
+ #   `last_dm_age_s`) are both `uint32_t`, so this is the narrowing somebody would make "for consistency".
+ ("M51 the home confirmation age is carried as uint32_t (the ~49.7-day wrap, re-created in the snapshot)",
+  "    uint64_t home_confirm_age_ms = 0;",
+  "    uint32_t home_confirm_age_ms = 0;"),
+ # --- §CHROME-4: the ONE edited number of the 19-column body migration, and the derivation that hangs off it -------
+ # ⛔⛔ M52 IS THE MIGRATION DONE AT THE DRAW ORIGIN ONLY — design §7.3's named trap. The renderer draws 19 columns
+ #    while the MODEL still wraps at 21, so every full detail row loses its last two characters to u8g2's clip AND
+ #    `detail_pages` reports a count computed from 42 characters a page over rows that can show 38. ⓘ It also trips
+ #    `src/firmware_ui.cpp`'s `static_assert(kBodyCols == mrui::kDetailCols)`, which is the point of that assert —
+ #    but the native suite must redden on its own, because nothing native compiles that file.
+ ("M52 the inbox detail still wraps at 21 columns (the migration done at the draw origin only)",
+  "inline constexpr uint8_t  kDetailCols      = 19;",
+  "inline constexpr uint8_t  kDetailCols      = 21;"),
+ # ⛔ M53 THE PAGE CAPACITY RE-CLAMPED INSTEAD OF RE-DERIVED — the brief's own wording. The wrap moves to 19 and the
+ #    page still claims 42 characters, so the LAST page of a long body is short and the modal's `n/N` lies.
+ ("M53 the page capacity is re-clamped to its old 42 instead of derived from kDetailCols",
+  "inline constexpr uint8_t  kDetailPageChars = uint8_t(kDetailCols * kDetailBodyRows);",
+  "inline constexpr uint8_t  kDetailPageChars = 42;"),
 ]
 
 # ===== §UI-13 — src/firmware_config_service.h =====================================================================
@@ -680,7 +733,172 @@ MUTS_CONFIG = [
   'case CfgSave::conflict:  return "SAVE FAILED";\n        case CfgSave::nv_failed: return "CFG! RELOAD";'),
 ]
 
-MUTS_BY_TARGET = {"model": MUTS_MODEL, "config": MUTS_CONFIG}
+# ===== §CHROME-1 — src/firmware_ui_chrome.h ========================================================================
+# ★ THE SHAPE THIS BATTERY IS AIMED AT: a projection whose job is to CLASSIFY has two failure modes, and both look
+#   correct in review. (a) it carries the RAW authority instead of the classified one — every value still "right",
+#   but the panel's equality now changes when the pixels do not, which §8.3 turns into a repaint per tick; (b) it
+#   COLLAPSES a third state into one of the other two — no team read as a team with zero peers, "not applicable"
+#   rendered as a fault, "never confirmed" rendered as "just now". X01 is the exception and is the slice's headline
+#   trap: a 32-bit millisecond age, which re-creates the ~49.7-day wrap this project already fixed once.
+MUTS_CHROME = [
+ # --- the 64-bit age, and the 32-bit cast the snapshot's own idiom invites -------------------------------------------
+ ("X01 the compact age takes a 32-bit millisecond parameter (the ~49.7-day wrap, re-created)",
+  "inline void ui_fmt_home_age(char* out, std::size_t cap, bool ever, uint64_t age_ms) {",
+  "inline void ui_fmt_home_age(char* out, std::size_t cap, bool ever, uint32_t age_ms) {"),
+ ("X02 `ever` is ignored, so a never-confirmed home renders `0s` instead of `--`",
+  "if (!ever) {", "if (false) {"),
+ ("X03 the seconds bucket is inclusive (60 s renders `60s`, not `1m`)",
+  "if      (s <  60u) n = snprintf(out, cap, \"%us\", unsigned(s));",
+  "if      (s <= 60u) n = snprintf(out, cap, \"%us\", unsigned(s));"),
+ ("X04 the 100-day cutoff is inclusive (100 d renders a day count instead of `old`)",
+  "else if (d < 100u) n = snprintf(out, cap, \"%ud\", unsigned(d));",
+  "else if (d <= 100u) n = snprintf(out, cap, \"%ud\", unsigned(d));"),
+ ("X05 the tokens are not NUL-padded (equality then depends on what the buffer held before)",
+  "    for (std::size_t i = used; i < cap; ++i) out[i] = '\\0';",
+  "    (void)out; (void)cap; (void)used;"),
+ # --- the classification: raw values instead of drawn ones ----------------------------------------------------------
+ ("X06 the mail slot carries the RAW combined count instead of the drawn digits",
+  "    c.mail          = c.mail_overflow ? kMailMax : uint8_t(mail_total);",
+  "    c.mail          = uint8_t(mail_total);"),
+ # ⚠ RETARGETED at QG round 2: R2.2 rewrote the millivolt->decivolt line, and the OLD pattern went VACUOUS (match
+ #   count 0) rather than silently passing — which is the runner's own instrument-that-cannot-fail guard doing its
+ #   job, and the reason a mutation battery must be re-run after every edit to the file it targets.
+ ("X07 the battery ROUNDS instead of truncating (4199 mV becomes 4.2V)",
+  "    const int32_t dv = (s.batt_mv < 0) ? int32_t(-1) : (s.batt_mv / 100);",
+  "    const int32_t dv = (s.batt_mv < 0) ? int32_t(-1) : ((s.batt_mv + 50) / 100);"),
+ ("X08 equality is a `memcmp` over the struct, padding included (§8.2 forbids it in as many words)",
+  "    for (std::size_t i = 0; i < kAgeTokenCap; ++i)\n"
+  "        if (a.home_age[i] != b.home_age[i]) return false;\n"
+  "    return a.mail            == b.mail",
+  "    return __builtin_memcmp(&a, &b, sizeof a) == 0;\n"
+  "    return a.mail            == b.mail"),
+ # --- the third state, collapsed ------------------------------------------------------------------------------------
+ ("X09 NO TEAM is collapsed into a team with zero teammates (`--` becomes `0`)",
+  "    c.team_configured = s.team_build && s.team_id != 0;",
+  "    c.team_configured = s.team_build;"),
+ ("X10 the key slot is filled with no team configured (`blank` collapses into `crossed`)",
+  "    if (c.team_configured) {", "    if (true) {"),
+ ("X11 the people count is the UI's row capacity, not the true total (the retired `T8/12`)",
+  "        c.team_overflow = s.team_total > kTeamMax;\n"
+  "        c.team_count    = c.team_overflow ? kTeamMax : s.team_total;",
+  "        c.team_overflow = s.team_shown > kTeamMax;\n"
+  "        c.team_count    = c.team_overflow ? kTeamMax : s.team_shown;"),
+ ("X12 a build with no mobile plane draws the CROSSED house (§4.2's forbidden fault icon)",
+  "        c.home = HomeIcon::blank;", "        c.home = HomeIcon::lost;"),
+ ("X13 the home slot is classified without asking whether the plane exists at all",
+  "    if (!s.mobile_build) {", "    if (false) {"),
+ ("X14 a blank home slot still prints `--` ('not applicable' rendered as 'never confirmed')",
+  "        ui_pad_token(c.home_age, kAgeTokenCap, 0);",
+  "        ui_fmt_home_age(c.home_age, kAgeTokenCap, false, 0);"),
+ # --- §6's badge priority -------------------------------------------------------------------------------------------
+ ("X15 UNSAVED outranks CONFLICT (the operator is not told their draft is stale)",
+  "    if (conflict)         return CfgBadge::conflict;\n"
+  "    if (unsaved)          return CfgBadge::unsaved;",
+  "    if (unsaved)          return CfgBadge::unsaved;\n"
+  "    if (conflict)         return CfgBadge::conflict;"),
+ ("X16 RESTART-REQUIRED outranks UNSAVED (an unsaved draft hides behind a reboot notice)",
+  "    if (unsaved)          return CfgBadge::unsaved;\n"
+  "    if (restart_required) return CfgBadge::restart;",
+  "    if (restart_required) return CfgBadge::restart;\n"
+  "    if (unsaved)          return CfgBadge::unsaved;"),
+ # --- §5.2/§5.3's navigation mapping ---------------------------------------------------------------------------------
+ ("X17 the emergency exception is dropped (the rail is drawn over a 128-px headline)",
+  "    if (emg != Emergency::idle) return NavSlot::none;", "    ;"),
+ ("X18 the rail is always visible",
+  "inline bool ui_rail_visible(Emergency emg) { return emg == Emergency::idle; }",
+  "inline bool ui_rail_visible(Emergency emg) { (void)emg; return true; }"),
+ ("X19 the compose modal does not claim the rail (a DM compose from TEAM reads TEAM)",
+  "    switch (st.compose) {\n"
+  "        case Compose::dm:\n"
+  "        case Compose::channel: return NavSlot::send;\n"
+  "        case Compose::none:    break;\n"
+  "    }",
+  "    ;"),
+ ("X20 the send RESULT phase falls back to the screen underneath it",
+  "        case Compose::channel: return NavSlot::send;",
+  "        case Compose::channel: if (!st.compose_result) return NavSlot::send; break;"),
+ ("X21 a body-replacing inbox modal loses its slot (precedence dropped)",
+  "        case InboxModal::gone:   return NavSlot::inbox;",
+  "        case InboxModal::gone:   break;"),
+ ("X22 a non-team build still exposes the TEAM/SEND rail slots (misleading dead icons)",
+  "        if (s.team_build) c.slots = uint8_t(c.slots | slot_bit(NavSlot::team) | slot_bit(NavSlot::send));",
+  "        c.slots = uint8_t(c.slots | slot_bit(NavSlot::team) | slot_bit(NavSlot::send));"),
+ ("X23 the rail fields are published while the rail is SUPPRESSED (visible equality stops being visible)",
+  "    if (c.rail_visible) {", "    if (true) {"),
+ # --- QG round 2: the two entries that would have caught round 1's own defects ----------------------------------------
+ # ★★ X24 IS THE ROUND-1 DEFECT ITSELF, INSTALLED ON PURPOSE. The mapping tested `st.detail` BEFORE `st.compose`
+ #    while `draw_frame` (src/firmware_ui.cpp:949-953) draws compose FIRST ⇒ with both open the renderer drew COMPOSE
+ #    and the rail said INBOX. ⛔ It survived a full gate because the TEST PINNED THE WRONG ANSWER — the fifth
+ #    instrument in this arc to enforce the defect it was written against. This entry is what makes the corrected
+ #    order measured rather than merely written down.
+ ("X24 the inbox-detail clause is tested BEFORE compose (the rail names a body the renderer is not drawing)",
+  "    switch (st.compose) {\n"
+  "        case Compose::dm:\n"
+  "        case Compose::channel: return NavSlot::send;\n"
+  "        case Compose::none:    break;\n"
+  "    }",
+  "    switch (st.detail) {\n"
+  "        case InboxModal::body:\n"
+  "        case InboxModal::gone:   return NavSlot::inbox;\n"
+  "        case InboxModal::closed: break;\n"
+  "    }\n"
+  "    switch (st.compose) {\n"
+  "        case Compose::dm:\n"
+  "        case Compose::channel: return NavSlot::send;\n"
+  "        case Compose::none:    break;\n"
+  "    }"),
+ # ★★ X25 IS ROUND 1'S BATTERY GUARD. It clamped an unrenderable reading to a PLAUSIBLE-LOOKING voltage instead of
+ #    declaring it unavailable — the substitution the battery path forbids — and the clamped token was six characters
+ #    wide against a 35-px slot that fits four.
+ ("X25 an unrenderable battery reading is CLAMPED to a plausible voltage instead of `--`",
+  "    c.batt_dv = (dv < 0 || dv > int32_t(kBattMaxDv)) ? int16_t(-1) : int16_t(dv);",
+  "    c.batt_dv = (dv < 0) ? int16_t(-1) : (dv > int32_t(kBattMaxDv) ? kBattMaxDv : int16_t(dv));"),
+ ("X26 the formatter's own width guard is dropped (it can emit a token wider than the frozen slot)",
+  "    const bool renderable = decivolts >= 0 && decivolts <= kBattMaxDv;",
+  "    const bool renderable = decivolts >= 0;"),
+ # --- §CHROME-3 / §8.3.1: the repaint invalidation. Three wrong answers, and X27 is the WITHDRAWN INSTRUCTION -------
+ # ⛔⛔ X27 IS §8.3.1's WITHDRAWN TEST, INSTALLED AS CODE. An earlier version of the amendment required a blanked
+ #    chrome change to mark the model CLEAN; it was withdrawn because clearing a dirty bit while dark ERASES A
+ #    LEGITIMATE PENDING REDRAW that §B107 exists to preserve. This entry is what stops the withdrawal being quietly
+ #    re-adopted by a later reader who finds the tidier shape obvious. ⓘ Its structural twin is `probe_board_ui`'s W3,
+ #    which forbids `src/firmware_ui.cpp` from naming `clear_dirty` at all.
+ ("X27 the invalidation marks the model CLEAN when nothing changed (§8.3.1's WITHDRAWN instruction)",
+  "    if (ui_chrome_equal(live, frozen)) return false;   // ⛔ NOTHING is cleared on this arm either",
+  "    if (ui_chrome_equal(live, frozen)) { m.clear_dirty(); return false; }"),
+ ("X28 the invalidation's sense is inverted (it raises when nothing moved, and misses what did)",
+  "    if (ui_chrome_equal(live, frozen)) return false;   // ⛔ NOTHING is cleared on this arm either",
+  "    if (!ui_chrome_equal(live, frozen)) return false;"),
+ ("X29 nothing ever invalidates (the strip goes stale on a lit panel)",
+  "    m.mark_dirty();\n    return true;", "    return true;"),
+ # --- §CHROME-4: the rail's slot IDENTITY, which the renderer indexes by ---------------------------------------------
+ # ⛔⛔ X30 TWO SLOTS SHARE ONE MASK BIT. `draw_rail` walks `NavSlot(i + 1)` and asks the mask whether to draw slot i,
+ #    so a bit that is not one-per-slot makes an unavailable TEAM blank the INBOX icon as well — §3.2's "the remaining
+ #    icons keep the same locations" broken in the one direction no team-enabled build can show. ⓘ The arithmetic
+ #    still looks derived rather than hand-written, which is exactly why it needs a case that can see it.
+ ("X30 the slot mask bit is not one-per-slot (two rail slots share a bit)",
+  "    return (s == NavSlot::none) ? uint8_t(0) : uint8_t(1u << (uint8_t(s) - 1u));",
+  "    return (s == NavSlot::none) ? uint8_t(0) : uint8_t(1u << (uint8_t(s) / 2u));"),
+]
+
+# ===== §CHROME-1 — src/firmware_ui_icons.h =========================================================================
+# ★ §8.1's amendment defines the bitmap byte format IN THE DESIGN, "because leaving it to the board is how the same
+#   asset renders MIRRORED or BIT-REVERSED on the V4 port". These four entries are that sentence made falsifiable:
+#   two authoring errors (a mirror and an MSB-first byte), one stride error, and one collapsed badge state.
+MUTS_ICONS = [
+ ("I01 the SEND arrow is authored MIRRORED (send drawn as receive — an error that reads as a feature)",
+  "inline constexpr uint8_t kIconSend[7] = { 0x01, 0x07, 0x1F, 0x7F, 0x1F, 0x07, 0x01 };",
+  "inline constexpr uint8_t kIconSend[7] = { 0x40, 0x70, 0x7C, 0x7F, 0x7C, 0x70, 0x40 };"),
+ ("I02 the KEY is authored MSB-first (each byte bit-reversed — the V4-port hazard §8.1 names)",
+  "inline constexpr uint8_t kIconKey[7] = { 0x00, 0x06, 0x09, 0x79, 0x49, 0x06, 0x00 };",
+  "inline constexpr uint8_t kIconKey[7] = { 0x00, 0x60, 0x90, 0x9E, 0x92, 0x60, 0x00 };"),
+ ("I03 the battery is declared 8 px wide, so its rows stop being 2 bytes (a 7x14 smear)",
+  "inline constexpr uint8_t kBatteryW = 11;", "inline constexpr uint8_t kBatteryW = 8;"),
+ ("I04 two SETTINGS badge states share one picture (§6's priority becomes unobservable)",
+  "inline constexpr uint8_t kIconSettingsUnsaved[7] = { 0x0E, 0x1F, 0x1B, 0x1F, 0x0E, 0x60, 0x60 };",
+  "inline constexpr uint8_t kIconSettingsUnsaved[7] = { 0x0E, 0x1F, 0x1B, 0x1F, 0x0E, 0x00, 0x00 };"),
+]
+
+MUTS_BY_TARGET = {"model": MUTS_MODEL, "config": MUTS_CONFIG, "chrome": MUTS_CHROME, "icons": MUTS_ICONS}
 MUTS = MUTS_BY_TARGET[_TARGET]
 
 def md5(p):

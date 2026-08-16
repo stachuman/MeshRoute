@@ -232,12 +232,20 @@ if [ "${1:-}" != "--no-neg" ]; then
   #     spec §3.3). It is a control rather than a comment so the ruling cannot be undone quietly.
   ctl "C13 an unavailable read ERASES the last good value" yes \
       's|    if (mv >= 0) s_batt_mv = mv;|    s_batt_mv = mv;|'
-  ctl "C14 the unavailable render invents a plausible voltage instead of --" yes \
-      's|    if (mv < 0) { snprintf(out, cap, "--"); return; }|    if (mv < 0) { snprintf(out, cap, "3.9V"); return; }|'
-  ctl "C15 the bar renders a PERCENTAGE instead of volts (ruled out)" yes \
-      's|    snprintf(out, cap, "%u.%uV", unsigned(mv / 1000), unsigned((mv % 1000) / 100));|    snprintf(out, cap, "%u%%", unsigned(mv / 42));|'
-  ctl "C16 the bar hardcodes a voltage instead of reading the model" yes \
-      's|    char volts\[12\]; fmt_volts(volts, sizeof volts, s.batt_mv);|    char volts[12]; fmt_volts(volts, sizeof volts, 3900);|'
+  # ⛔⛔ C14-C16 RETARGETED BY §CHROME-3, AND THE REASON IS RECORDED RATHER THAN THE CONTROLS QUIETLY REWRITTEN. All
+  #   three used to mutate `fmt_volts`, which this slice DELETES: `mrui::ui_fmt_batt` is the same formatter expressed
+  #   over decivolts, in a pure header, with a width guard `fmt_volts` never had, and a native case asserts the exact
+  #   bytes of both its branches. ⇒ a sed for the old lines would have matched NOTHING and been reported VACUOUS —
+  #   §CHROME-1's re-gate found exactly that failure mode ("a mutation whose target line has MOVED measures nothing"),
+  #   which is why the whole battery is re-run rather than only the new entries.
+  # ★ The three wrong answers are unchanged in SUBSTANCE and now land on the strip's battery slot: invent a plausible
+  #   token · render a percentage · read a constant instead of the frozen chrome.
+  ctl "C14 the battery token is invented instead of formatted (a plausible voltage for --)" yes \
+      's|    mrui::ui_fmt_batt(tok, sizeof tok, c.batt_dv);|    snprintf(tok, sizeof tok, "3.9V");|'
+  ctl "C15 the strip renders a PERCENTAGE instead of volts (ruled out)" yes \
+      's|    mrui::ui_fmt_batt(tok, sizeof tok, c.batt_dv);|    snprintf(tok, sizeof tok, "%u%%", unsigned(c.batt_dv));|'
+  ctl "C16 the strip hardcodes a voltage instead of reading the frozen chrome" yes \
+      's|    mrui::ui_fmt_batt(tok, sizeof tok, c.batt_dv);|    mrui::ui_fmt_batt(tok, sizeof tok, 39);|'
 
   # C17-C26 ★★★ §UI-7D slice B — THE DETAIL/DELETE MODAL'S DEVICE HALF. The model's half is under the native gate
   #   (32 mutations); these ten are the steps NO native case can reach, and the two identity ones are the shape
@@ -274,7 +282,7 @@ if [ "${1:-}" != "--no-neg" ]; then
   # C25-C26 the REFUSAL's two halves on the list screen — the message, and the suppressed highlight (B64's rule
   #   one plane over: a `>` beside a record the model has refused to act on is the mis-delete in display form).
   ctl "C25 the MESSAGE GONE refusal row is dropped from the list" yes \
-      's|    if (st.inbox_pick_gone) mrui::draw_text(0, body_y(kBodyRows - 1), "MESSAGE GONE");|    ;|'
+      's|    if (st.inbox_pick_gone) body_text(kBodyRows - 1, "MESSAGE GONE");|    ;|'
   # C29-C36 ★★★ §UI-14 — THE SETTINGS SCREEN's DEVICE HALF. The model's half is under the native gate; these are the
   #   steps NO native case can reach, and C31 is THE named one: §3.6.1 forbade the marker from being `UiState::dirty`
   #   IN ADVANCE, and this file is where both are in scope at once.
@@ -289,12 +297,19 @@ if [ "${1:-}" != "--no-neg" ]; then
       's|    v.unsaved  = s_cfg.config_unsaved();|    v.unsaved  = s_model.state().dirty;|'
   ctl "C32 the value row shows a default instead of the DRAFT" yes \
       's|    v.draft    = s_cfg.draft();|    v.draft    = mrfw::CfgValues{};|'
-  ctl "C33 STATUS drops the draft marker (it is only on SETTINGS)" yes \
-      's|    if (marker\[0\]) { snprintf(l, sizeof l, "STATUS %s", marker); mrui::draw_text(0, body_y(0), l); }|    if (false) { }|'
+  # ⛔⛔ C33 RETARGETED BY §CHROME-4 / design §6.1, AND THE RETARGETING IS RECORDED RATHER THAN THE CONTROL DELETED.
+  #   It used to mutate `if (marker[0]) { snprintf(l, …, "STATUS %s", marker); …}` — the STATUS TITLE's draft marker,
+  #   which design §6 REMOVES ("the redundant `CFG* UNSAVED` / `CFG! RELOAD` decoration is removed from the STATUS
+  #   title. The rail makes the state visible from every ordinary screen"). ⇒ a sed for that line would now match
+  #   NOTHING and be reported VACUOUS. ★ THE FACT IT GUARDED DID NOT GO AWAY — it MOVED, onto the SETTINGS rail
+  #   badge — so the control moves with it: make the badge blind and the configuration state becomes invisible from
+  #   every ordinary screen, which is exactly what the old control described one presentation earlier.
+  ctl "C33 the SETTINGS badge always draws the clean gear (the state becomes invisible)" yes \
+      's|        case mrui::CfgBadge::unsaved:  return mrui::icons::kIconSettingsUnsaved;|        case mrui::CfgBadge::unsaved:  return mrui::icons::kIconSettings;|'
   ctl "C34 the editor is indistinguishable from the browsing row (no bracket)" yes \
-      's|            if (ed) snprintf(l, sizeof l, "%c%-10s \[%s\]", here ? '"'"'>'"'"' : '"'"' '"'"', mrui::settings_row_label(r), v);|            if (false) { }|'
+      's|            if (ed) snprintf(l, sizeof l, "%c%-8s\[%s\]", here ? '"'"'>'"'"' : '"'"' '"'"', mrui::settings_row_label(r), v);|            if (false) { }|'
   ctl "C35 RESTART NEEDED never reaches STATUS (the reboot fact is dropped)" yes \
-      's|    if (c.reboot) { mrui::draw_text(0, body_y(4), mrui::kCfgRestartText); return; }|    ;|'
+      's|    if (c.reboot) { body_text(4, mrui::kCfgRestartText); return; }|    ;|'
   # ⛔ C36 is the CONDITIONAL ROW's own control: rendering it unconditionally offers a setting this build cannot act on.
   ctl "C36 the BLE row is rendered unconditionally (the transport condition ignored)" yes \
       's|    s.ble_row    = (MR_UI_BLE_ROW != 0);|    s.ble_row    = true;|'
@@ -304,8 +319,16 @@ if [ "${1:-}" != "--no-neg" ]; then
   #   latch raised WITHOUT a repaint is true and invisible, because `FrameGate::step` returns `idle` on a clean model.
   ctl "C37 the hook never tells the service (the notification is dropped)" yes \
       's|    s_cfg.note_external_write(b);|    (void)b;|'
-  ctl "C38 the latch is raised but no repaint is asked for (true and INVISIBLE)" yes \
-      's|    if (s_cfg.conflict() != was) s_model.mark_dirty();|    (void)was;|'
+  # ⛔⛔ C38 RETARGETED BY §CHROME-3, AND THE MEASUREMENT BEHIND IT IS RECORDED RATHER THAN THE CONTROL DELETED.
+  #   It used to drop the hook's own `mark_dirty` alone, and that made the probe RED because nothing else asked for a
+  #   repaint. It no longer does: §8.3's per-tick invalidation watches the CONFIGURATION BADGE, whose three inputs are
+  #   the same three predicates the STATUS title already renders — so the panel now updates on the next tick even with
+  #   the hook's own request removed. ⇒ the property "the latch is raised and NOTHING repaints" now needs BOTH writers
+  #   dropped, which is the defect this control always described. ⚠ Stated plainly: the IMMEDIACY of the hook's own
+  #   request is no longer separately attributable in this probe, because two independent mechanisms deliver it.
+  ctl "C38 the latch is raised and NOTHING asks for a repaint (INVISIBLE)" yes \
+      's|    if (s_cfg.conflict() != was) s_model.mark_dirty();|    (void)was;|
+       s|    (void)mrui::ui_chrome_invalidate(s_model, live_chrome, s_frame_chrome);|    (void)live_chrome;|'
   ctl "C39 the is_open() guard is dropped (flash is read on every cfg set)" yes \
       's|    if (!s_cfg.is_open()) return;|    ;|'
   ctl "C40 an unreadable record is treated as a conflict (a latch from no evidence)" yes \
@@ -318,13 +341,13 @@ if [ "${1:-}" != "--no-neg" ]; then
   # ⚠ C41/C42 are DIRECTIONAL OPPOSITES on purpose: with only one of them a renderer that printed the SAME string for
   #   both states would still redden something, and the pair is what proves the two states are distinguishable.
   ctl "C41 ChanState::waiting says SENT again (the pre-T3 false confirmation)" yes \
-      's|case mrui::ChanState::waiting:    mrui::draw_text(0, body_y(1), "QUEUED");|case mrui::ChanState::waiting:    mrui::draw_text(0, body_y(1), "SENT, waiting");|'
+      's|case mrui::ChanState::waiting:    body_text(1, "QUEUED");|case mrui::ChanState::waiting:    body_text(1, "SENT, waiting");|'
   ctl "C42 ChanState::aired says QUEUED (the earned state never shows)" yes \
-      's|case mrui::ChanState::aired:      mrui::draw_text(0, body_y(1), "SENT, waiting");|case mrui::ChanState::aired:      mrui::draw_text(0, body_y(1), "QUEUED");|'
+      's|case mrui::ChanState::aired:      body_text(1, "SENT, waiting");|case mrui::ChanState::aired:      body_text(1, "QUEUED");|'
   ctl "C43 the no-relay outcome reads SENT, no relay again" yes \
       's|"NO RELAY HEARD"|"SENT, no relay"|'
   ctl "C44 DmState::aired_waiting is rendered as QUEUED too" yes \
-      's|case mrui::DmState::aired_waiting: mrui::draw_text(0, body_y(1), "SENT, waiting");|case mrui::DmState::aired_waiting: mrui::draw_text(0, body_y(1), "QUEUED");|'
+      's|case mrui::DmState::aired_waiting: body_text(1, "SENT, waiting");|case mrui::DmState::aired_waiting: body_text(1, "QUEUED");|'
 
   # C45-C56 ★★★ §B197/§B198/§B200 — THE SLEEP SEAM. Each control is a plausible half-fix rather than a deletion, and
   #   the FAILURE MODE OF EVERY ONE IS SILENT: the node keeps meshing, the panel keeps painting, and the only symptom
@@ -399,6 +422,157 @@ if [ "${1:-}" != "--no-neg" ]; then
 
   ctl "C26 the highlight is NOT suppressed while the refusal stands" yes \
       's|                 (!st.inbox_pick_gone \&\& first + row == st.cursor) ? '"'"'>'"'"' : '"'"' '"'"', tag, e.text, age);|                 (first + row == st.cursor) ? '"'"'>'"'"' : '"'"' '"'"', tag, e.text, age);|'
+
+  # C61-C68 ★★★★ §CHROME-3 — THE STATUS STRIP AND §8.3's INVALIDATION. Each is a plausible edit that leaves every
+  #   native case green (the projection is pure and correct in all of them) and every earlier control green too.
+  # ⛔⛔ C61 IS THE ONE THIS WHOLE ARCHITECTURE EXISTS TO PREVENT: draw the strip from the LIVE projection instead of
+  #   the frozen copy. It looks tidier — the value is right there — and it is correct on any single page. U8g2 replays
+  #   the WHOLE scene once per page across eight ticks, so the strip then tears mid-frame, which is visible ONLY to
+  #   P13d's per-page comparison.
+  ctl "C61 the strip is drawn from the LIVE chrome instead of the frozen copy" yes \
+      's|    draw_frame(s_frame_state, s_frame_snap, s_frame_out, s_frame_cfg, s_frame_chrome);|    draw_frame(s_frame_state, s_frame_snap, s_frame_out, s_frame_cfg, live_chrome);|'
+  # ⛔ C62 THE INVALIDATION ITSELF. Without it the strip simply goes stale on a lit panel: `FrameGate::step` answers
+  #   `idle` for ever on a clean model, and a team route arriving on a beacon or a battery sample landing would never
+  #   reach the pixels. It is the POSITIVE half of §8.3.1, and a rule that never invalidates is as wrong as one that
+  #   always does.
+  ctl "C62 nothing invalidates on a chrome change (the strip goes stale on a lit panel)" yes \
+      's|    (void)mrui::ui_chrome_invalidate(s_model, live_chrome, s_frame_chrome);|    (void)live_chrome;|'
+  # ⛔⛔ C63 THE REFERENCE UPDATED AT THE **OBSERVATION** INSTEAD OF AT THE FREEZE (§8.3 rule 4). It reads like an
+  #   optimisation ("we have seen it, record it") and does two things at once: it consumes the invalidation before any
+  #   frame drew it, and — because that same object is what the page loop replays — it rewrites the strip underneath
+  #   the pages still to come.
+  ctl "C63 the comparison reference is updated where the change is OBSERVED, not at the freeze" yes \
+      's|    (void)mrui::ui_chrome_invalidate(s_model, live_chrome, s_frame_chrome);|    if (mrui::ui_chrome_invalidate(s_model, live_chrome, s_frame_chrome)) s_frame_chrome = live_chrome;|'
+  # C64/C65 THE GLYPH SELECTION, which is the renderer's own job (§8.1: the firmware owns icon identity and state
+  #   selection). Both are pointer-level errors a draw COUNT cannot see, and C65 is the safety-shaped one: a key icon
+  #   that says the team content key is HELD when it is absent claims a capability the node does not have.
+  ctl "C64 every home state draws the same house (the four-state table bypassed)" yes \
+      's|        case mrui::HomeIcon::unknown:   return mrui::icons::kIconHomeUnknown;|        case mrui::HomeIcon::unknown:   return mrui::icons::kIconHomeConfirmed;|'
+  ctl "C65 a missing team content key draws the NORMAL key (the slot claims a capability)" yes \
+      's|        case mrui::KeyIcon::absent:  return mrui::icons::kIconKeyCrossed;|        case mrui::KeyIcon::absent:  return mrui::icons::kIconKey;|'
+  # ⛔ C66 A SLOT MOVED. §3.1 freezes the strip's geometry; the battery token at x = 104 is what makes its last column
+  #   land on x = 127 exactly, so moving it either overruns the panel or opens a gap the earlier icons will grow into.
+  # ⚠ THE COLUMN IS MOVED FAR ENOUGH THAT THE **NARROW** TOKEN ALSO OVERRUNS, and that is deliberate rather than
+  #   dramatic: at 110 the `--` case still fits and P13c's "the strip still fits 128 px" stayed green, i.e. the
+  #   control measured only half the property. At 118 both the 4-column `4.1V` (141) and the 2-column `--` (129)
+  #   leave the panel, so both the wide and the narrow arm are covered.
+  ctl "C66 the battery token's column is moved (the frozen slot redefined)" yes \
+      's|    /\* batt \*/ { 91,     104, 127 },|    /* batt */ { 91,     118, 127 },|'
+  # ⛔ C67 THE LAYOUT TABLE BYPASSED — every glyph drawn at one x, which is what "the coordinates must not be repeated
+  #   at individual draw sites" (§3.1) exists to make impossible. It draws SOMETHING on every page and every count
+  #   stays identical, so only a coordinate-level check sees it.
+  ctl "C67 every glyph is drawn at the same x (the layout table bypassed)" yes \
+      's|    mrui::draw_bitmap(sl.icon_x, kStripIconY, mrui::icons::kIconW, mrui::icons::kIconH, bits);|    mrui::draw_bitmap(0, kStripIconY, mrui::icons::kIconW, mrui::icons::kIconH, bits);|'
+  # ⛔ C68 THE BATTERY DRAWN AT THE SHARED 7-PX WIDTH. `stride_of(11)` is 2 and `stride_of(7)` is 1, so U8g2 would
+  #   decode the outline's 14 bytes as a 7x14 smear — the exact hazard `firmware_ui_icons.h`'s stride rule names, and
+  #   one that a pointer-identity check alone cannot see.
+  ctl "C68 the battery is drawn at the shared 7-px width (its 2-byte stride ignored)" yes \
+      's|    mrui::draw_bitmap(slot(Strip::batt).icon_x, kStripIconY, mrui::icons::kBatteryW, mrui::icons::kBatteryH,|    mrui::draw_bitmap(slot(Strip::batt).icon_x, kStripIconY, mrui::icons::kIconW, mrui::icons::kIconH,|'
+  # ⛔ C69 THE STRIP IS NOT DRAWN AT ALL. The tempting shape is not a deletion but a REORDER — "the body first, then
+  #   the header" — and `draw_frame`'s early `return`s under the emergency/compose/detail views would then drop the
+  #   strip from exactly the screens §3.1 and §5.3 require it on.
+  ctl "C69 the strip is drawn after the body, so body-replacing views lose it" yes \
+      's|    draw_status_strip(ch);|    ;|'
+  # ⛔ C70 THE STRIP LEAVES ITS OWN BAND. §3.1 gives it y = 0..8 above the y = 9 rule; icons pushed down overlap the
+  #   rule and the first body row, which no draw COUNT and no text check can see.
+  ctl "C70 the strip's icons are drawn below their y=0..8 band" yes \
+      's|constexpr int kStripIconY = 0;|constexpr int kStripIconY = 4;|'
+  # ⛔⛔ C71 THE BLANK ARM FALLS THROUGH AND PAINTS ANYWAY — the tempting "keep the image ready for the wake". It is
+  #   §8.3.1 behaviour 1's exact forbidden outcome (a dark panel taking bus traffic) and it also spends the power the
+  #   whole blank exists to save. ⓘ It leaves W6's `blank -> set_power_save(true)` grep intact, which is why a
+  #   behavioural check is needed as well as the structural one.
+  ctl "C71 the blanked arm falls through and paints into a dark panel" yes \
+      's|            mrui::set_power_save(true);                         // EDGE-triggered|            mrui::set_power_save(true); break;   // EDGE-triggered|'
+  # ⛔⛔ C74 A CHROME CHANGE IS TREATED AS USER ATTENTION — and this is the most plausible wrong edit in the whole
+  #   slice: "the strip changed, so show it to them". It refreshes `_last_input_ms`, so a node whose home age turns
+  #   once a second NEVER blanks and therefore (via `ui_allows_sleep`) never light-sleeps again — a power regression
+  #   with no panic and nothing visible on the panel. Design §9 lists "waking the panel for every status-strip change"
+  #   as an explicit NON-GOAL, and §8.3.1 rule 1 forbids touching the attention clock.
+  ctl "C74 a chrome change is treated as user input (the panel never blanks)" yes \
+      's|    (void)mrui::ui_chrome_invalidate(s_model, live_chrome, s_frame_chrome);|    if (mrui::ui_chrome_invalidate(s_model, live_chrome, s_frame_chrome)) s_model.on_gesture(mrui::Gesture::short_press, s);|'
+  # ⛔ C72 THE PROJECTION IS BUILT ONCE AND CACHED — the "why rebuild it every tick" optimisation. It is the STALE
+  #   PROJECTION §8.3.1 rule 3 names: every later freeze then takes a chrome captured at boot.
+  ctl "C72 the live chrome is built once and cached (a stale projection for ever)" yes \
+      's|    const mrui::UiChrome live_chrome =|    static const mrui::UiChrome live_chrome =|'
+  # ⛔ C73 THE RENDERER FLUSHES A PAGE OF ITS OWN. §11.2: bitmap/frame calls must touch no I2C outside the existing
+  #   `next_page()` boundary, and the strip is the first thing in the tree that draws bitmaps at all.
+  ctl "C73 the strip opens a frame of its own while composing" yes \
+      's|    mrui::draw_hline(0, kBarRuleY, 128);|    mrui::begin_frame();\n    mrui::draw_hline(0, kBarRuleY, 128);|'
+  ctl "C75 the strip parks the panel mid-compose (a bus command from a draw)" yes \
+      's|    mrui::draw_hline(0, kBarRuleY, 128);|    mrui::set_power_save(true);\n    mrui::draw_hline(0, kBarRuleY, 128);|'
+  # ⛔⛔ C76 RETARGETED BY §CHROME-4, AND THE WITHDRAWAL IS RECORDED RATHER THAN THE ENTRY DELETED. It used to read
+  #   *"a rail selection frame is drawn (slice 4's scope, one slice early)"* and added a `draw_rect` to prove the
+  #   strip drew none — negative space that could only be reverted by ADDING. The rail is now the legitimate caller,
+  #   so that mutation would be the CORRECT behaviour. ★ What survives is the half that is still negative space and
+  #   is now a SAFETY property: an emergency frame must draw NO rail at all (§5.3), because the body then keeps
+  #   x = 0 and the full 128 px that `NOT RELAYED` needs.
+  # ⚠ MEASURED, AND THE MEASUREMENT IS WHY THIS CONTROL DROPS **BOTH** CLAUSES: §5.3's suppression is enforced TWICE
+  #   over — `rail_visible` is false under an emergency AND `ui_chrome` normalises the slot mask to 0 (so that two
+  #   builds which render identically compare equal, §11.1's last rule). Dropping only the `rail_visible` guard
+  #   therefore changed NOTHING and this entry was reported UNUSABLE on its first run. ⇒ the control removes the
+  #   suppression, not one expression of it.
+  ctl "C76 the emergency rail suppression is dropped entirely (§5.3)" yes \
+      's|    if (!c.rail_visible) return;|    ;|
+       s|        if ((c.slots \& mrui::slot_bit(s)) == 0) continue;      // unavailable: EMPTY, and nothing else moves|        ;|'
+
+  # ============================================================================================ §CHROME-4: C77-C84
+  # ★★★★ THE RAIL, THE BADGE AND THE 19-COLUMN BODY. Each entry below is a PLAUSIBLE WRONG IMPLEMENTATION rather than
+  #   a deletion, and each leaves the whole native suite green — the projection is pure and correct in all of them,
+  #   because every one of these defects lives in the RENDERER, i.e. in the one TU nothing else compiles.
+  # ⛔ C77 THE RAIL IS NOT DRAWN AT ALL. The tempting shape is not a deletion but a REORDER — "chrome after the body"
+  #   — and `draw_frame`'s early `return`s under the emergency/compose/detail arms would then drop it from exactly
+  #   the modal views §5.2 requires it on.
+  ctl "C77 the rail is never drawn (the screens lose their only heading)" yes \
+      's|    draw_rail(ch);|    ;|'
+  # ⛔⛔ C78 EVERY SLOT IS BOXED. §11.2 asks for EXACTLY ONE navigation frame; a rail that framed all five would look
+  #   busy rather than wrong, and no count of draw calls could tell the difference. `rail_boxed_slot` answers -2 for
+  #   more than one precisely so this cannot pass.
+  ctl "C78 every rail slot gets a selection frame (exactly-one becomes all-five)" yes \
+      's|        if (c.nav == s) mrui::draw_rect(kRailX, y, kRailW, kRailH);|        mrui::draw_rect(kRailX, y, kRailW, kRailH);|'
+  # ⛔⛔ C79 A RENDERER-LOCAL SELECTION CURSOR — the thing §5.1 forbids in as many words ("the selection frame follows
+  #   the frozen `UiState::screen`, NEVER a renderer-local cursor"). It is the most plausible wrong edit in the slice
+  #   because it looks like an optimisation, and U8g2 replays the scene once per page, so it advances the highlight
+  #   EIGHT TIMES inside one frame. Only P14c (all eight page replays) can see it.
+  ctl "C79 the selection comes from a renderer-local cursor, not the frozen nav" yes \
+      's|        if (c.nav == s) mrui::draw_rect(kRailX, y, kRailW, kRailH);|        static int cursor = 0; if (i == (cursor \&\& 0)) mrui::draw_rect(kRailX, y, kRailW, kRailH); cursor = (cursor + 1) % 5;|'
+  # ⛔ C80 THE SECOND LAYOUT §3.2 FORBIDS: pack the available slots consecutively, so an unavailable TEAM/SEND slot
+  #   MOVES the icons below it. ⓘ In THIS build all five slots are available, so the mutation is measured through the
+  #   arithmetic rather than through a gap — the packed y comes from a running counter and lands one slot high.
+  ctl "C80 the rail packs its slots consecutively (a second layout)" yes \
+      's|        const int y = rail_slot_y(i);|        static int packed = 0; const int y = rail_slot_y(packed++ % 5) + 1;|'
+  # ⛔⛔ C81 THE BODY IS DRAWN AT x = 0 — i.e. the icons land ON TOP OF the text, which is §13's "icons drawn over
+  #   21-column content" verbatim. It is the migration's single most likely half-done state.
+  ctl "C81 the ordinary body is drawn at x=0, under the rail's icons" yes \
+      's|void body_text(int row, const char\* s) { mrui::draw_text(kBodyX, body_y(row), s); }|void body_text(int row, const char* s) { mrui::draw_text(0, body_y(row), s); }|'
+  # ⛔⛔ C82 THE EMERGENCY BODY IS MOVED TO kBodyX — the ONE thing §5.3 exists to prevent. `Font::large` is 10 px per
+  #   column on a 128-px panel, so a headline drawn at x = 12 has ELEVEN columns and `NOT RELAYED` needs twelve: a
+  #   CLIPPED DISTRESS HEADLINE, and nothing else in the tree would notice.
+  ctl "C82 the emergency headline is shifted to kBodyX (a clipped distress string)" yes \
+      's|    mrui::draw_text(0, kEmgHeadY, head);|    mrui::draw_text(kBodyX, kEmgHeadY, head);|'
+  # ⛔ C83 A BODY LINE PUT BACK OVER 19 COLUMNS. `me T255  team ffffffff` is 22 columns and was the reason STATUS's
+  #   identity took two rows; restoring the single line is exactly the "it used to fit" edit, and P14f's measured
+  #   19-column bound is the only thing that sees it.
+  ctl "C83 the STATUS identity goes back onto one 22-column row" yes \
+      's|    snprintf(l, sizeof l, "team %08lx", (unsigned long)s.team_id);|    snprintf(l, sizeof l, "me T%u  team %08lx", unsigned(s.my_team_id), (unsigned long)s.team_id);|'
+  # ⛔ C84 THE WITHDRAWN STATUS PRESENTATION, RESTORED — and this is §6.1 rule 4's OTHER DIRECTION: *"the badge's
+  #   tests must fail against the old STATUS presentation and vice versa, so the two cannot both pass"*. Without it,
+  #   a renderer that drew BOTH the badge and the old title marker would satisfy every badge check.
+  ctl "C84 the withdrawn CFG marker is put back on the STATUS body (§6.1's other direction)" yes \
+      's|    snprintf(l, sizeof l, "me T%u", unsigned(s.my_team_id));|    snprintf(l, sizeof l, "%s", mrui::cfg_marker_text(c.unsaved, c.conflict));|'
+  # ⛔ C85 THE SETTINGS INSTRUCTION IS REPLACED BY THE ICON — §6's explicit prohibition ("the icon may replace the
+  #   STATUS decoration; it may NEVER replace the instruction"). The badge would still be right and the operator
+  #   would have no remedy to read.
+  ctl "C85 SETTINGS drops its actionable marker text, leaving only the badge (§6 forbids)" yes \
+      's|    if (marker\[0\]) body_text(0, marker);|    ;|'
+  # ⓘ C86 IS C85's INVERSION, and it is what makes the "SETTINGS says nothing it cannot act on" half mean something:
+  #   without it that check is negative space no mutation could move, and a screen that announced `CFG* UNSAVED` over
+  #   a clean draft would pass every other check in this file.
+  ctl "C86 the SETTINGS marker row is drawn unconditionally (a clean draft reads UNSAVED)" yes \
+      's|    if (marker\[0\]) body_text(0, marker);|    body_text(0, "CFG* UNSAVED");|'
+  # ⛔ C87 A RAIL GLYPH DRAWN AT THE BODY'S x — the "centre it in the row" edit. Every count stays identical, the
+  #   selection frame stays in the rail, and the icons land on top of the text. Only a coordinate check sees it.
+  ctl "C87 the rail's glyphs are drawn at the body's x, over the text" yes \
+      's|        mrui::draw_bitmap(kRailX + kRailIconDx, y + kRailIconDy,|        mrui::draw_bitmap(kBodyX, y + kRailIconDy,|'
 fi
 
 # ---- ★★ §T3 (design P6) — THE OLD STRING MUST BE GONE FROM EVERY RENDERING SOURCE ------------------------------

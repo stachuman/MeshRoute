@@ -253,10 +253,18 @@ wchk "W8 firmware_ui.cpp composes no send line itself (the pure composer owns th
 #          the mis-send surviving one layer down in display form, with every native case still green. That is precisely
 #          the §B97 shape this whole W-block exists for.
 # ⚠ The revert targets (b) alone, because (b) is the half that is a SAFETY property rather than a message.
+# ⛔⛔ RE-PINNED 2026-08-16 (§CHROME-4). Two of this predicate's four clauses named things the 19-column body
+#    migration moved, and BOTH would have gone silently false rather than loudly wrong:
+#      · the draw call is now `body_text(...)`, the ONE `kBodyX = 12` authority design §7.1 rule 1 requires, not a
+#        bare `mrui::draw_text(0, …)`;
+#      · the string is `TEAMMATE GONE, pick` — 19 columns exactly. The old `TEAMMATE GONE, repick` was 21 and was
+#        SIZED TO THE OLD BODY (its own comment said so); at 19 the panel would have clipped it to `…, repi`, which
+#        §7.1 rule 5 forbids as a truncation policy. ★ Both halves of §B64's ruling are intact — the row still names
+#        the fact AND gives the remedy, and the `>` highlight is still suppressed.
 w9() { code_flat "$1" | grep -qE 'st\.team_pick_gone \? uint8_t\(kBodyRows - 1\)' && \
        code_flat "$1" | grep -qE '!st\.team_pick_gone && first \+ row == st\.cursor' && \
-       code_flat "$1" | grep -qF 'st.team_pick_gone) mrui::draw_text' && \
-       code_flat "$1" | grep -qF 'TEAMMATE GONE, repick'; }
+       code_flat "$1" | grep -qF 'st.team_pick_gone) body_text' && \
+       code_flat "$1" | grep -qF 'TEAMMATE GONE, pick'; }
 wchk "W9 the TEAM screen says B64's refusal AND suppresses the highlight while it stands" \
      w9 's/!st\.team_pick_gone && first + row == st\.cursor/first + row == st.cursor/'
 # W10 §B115 (owner-MEASURED on metal 2026-08-05) — THE LAST MILE OF THE ATTEMPT COUNTER, and it is the one step no
@@ -745,6 +753,141 @@ wchk_in "$BOARD_CPP" "W34 ONE shared teardown, three callers — no second copy 
          's|^bool disarm_button_wake() { return clear_button_wake_state(); }$|bool disarm_button_wake() {\n    const bool t = (gpio_set_intr_type((gpio_num_t)MR_UI_BTN_PIN, GPIO_INTR_DISABLE) == ESP_OK);\n    const bool p = (gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN) == ESP_OK);\n    const esp_err_t r = esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);\n    return t \&\& p \&\& (r == ESP_OK \|\| r == ESP_ERR_INVALID_STATE);\n}|' \
          's|^        (void)clear_button_wake_state();$|        (void)gpio_wakeup_disable((gpio_num_t)MR_UI_BTN_PIN);|' \
          's|^        (void)clear_button_wake_state();$|        ;|'
+# ================================================================================================ W35-W36
+# ★★★ §CHROME-2 / design §8.1 — THE HARD BOUNDARY, NOW THAT THE BOARD HAS DRAWING PRIMITIVES A UI WANTS TO USE.
+#     Slice 2 adds `draw_bitmap` / `draw_rect`, and the very next temptation is the one §8.1 names by example: move
+#     the icon table down beside them and expose `draw_mail_icon()`. ⛔ That would make the V4 port a rewrite instead
+#     of a pin table — the whole reason the seam exists — and NOTHING else in the tree can see it: the board TU is
+#     compiled by no native test and no simulator, and a semantic call would build and run perfectly.
+# ★ TWO CLAUSES: no UI header may be INCLUDED by either board file, and no SEMANTIC draw entry point may be declared
+#   or defined in them. S4a already covers `board_ui.h` x `firmware_ui_model.h`; this widens it to both files and to
+#   §CHROME-1's two new headers, which did not exist when S4a was written.
+# ★ CONTROLS ADD rather than delete, because negative space cannot be reverted by deletion — and the third control is
+#   literally the function §8.1 forbids by name.
+# ⚠ §B77: `code_flat` strips comments FIRST. Both board files state this invariant in prose and name all three
+#   headers while forbidding them, so a bare grep would read the documentation as the violation — which is exactly
+#   how both S4 checks failed on their first writing.
+w35() { ! code_flat "$1" | grep -qE '#[[:space:]]*include[^;]*firmware_ui_(model|chrome|icons)' && \
+        ! code_flat "$1" | grep -qE 'draw_[a-z_]*_icon[[:space:]]*\('; }
+wchk_in "$BOARD_CPP" "W35 board_ui.cpp includes no UI header and declares no semantic icon call (§8.1)" \
+     w35 's|#include "board_ui.h"|#include "board_ui.h"\n#include "firmware_ui_icons.h"|' \
+         's|#include "board_ui.h"|#include "board_ui.h"\n#include "firmware_ui_model.h"|' \
+         's|^void draw_hline(int x, int y, int w)        { s_u8g2.drawHLine(x, y, w); }$|\&\nvoid draw_mail_icon(int x, int y) { s_u8g2.drawXBM(x, y, 7, 7, nullptr); }|'
+wchk_in "$BOARD_H" "W36 board_ui.h includes no UI header and declares no semantic icon call (§8.1)" \
+     w35 's|#include <cstdint>|#include <cstdint>\n#include "firmware_ui_chrome.h"|' \
+         's|#include <cstdint>|#include <cstdint>\n#include "firmware_ui_icons.h"|' \
+         's|^void draw_rect(int x, int y, int w, int h);$|\&\nvoid draw_mail_icon(int x, int y);|'
+# ================================================================================================ W37
+# ★★ §CHROME-2 — THE TWO PRIMITIVES ARE **DECLARED IN THE CANVAS HEADER**, i.e. they are part of the seam rather than
+#    file-local helpers. A `static` definition in `board_ui.cpp` would compile, pass every P12 check (the probe
+#    includes the same TU)… and then fail to link the moment slice 3's renderer calls them, from the one file no
+#    host build compiles. ⇒ pin the declarations, and pin that they carry the byte-pointer form rather than a
+#    board-owned type.
+w37() { code_flat "$1" | grep -qF 'void draw_bitmap(int x, int y, int w, int h, const uint8_t* bits);' && \
+        code_flat "$1" | grep -qF 'void draw_rect(int x, int y, int w, int h);'; }
+wchk_in "$BOARD_H" "W37 both §CHROME-2 primitives are declared in the canvas header, in the generic byte form" \
+     w37 's|^void draw_bitmap(int x, int y, int w, int h, const uint8_t\* bits);$||' \
+         's|^void draw_rect(int x, int y, int w, int h);$||' \
+         's|^void draw_bitmap(int x, int y, int w, int h, const uint8_t\* bits);$|void draw_bitmap(int x, int y, int w, int h, const char* bits);|'
+# ================================================================================================ W38-W40
+# ★★★★ §CHROME-3 — THE THREE PROPERTIES OF THE STRIP'S WIRING THAT **NO BEHAVIOURAL PROBE IN THIS TREE CAN REACH**.
+#     Everything else about the strip is measured by `tools/probe_firmware_ui`'s P13 against the real renderer; these
+#     three are not, and each is named rather than assumed.
+#
+# W38 ★★★★ THE 64-BIT HOME AGE IS TAKEN **VERBATIM** FROM THE ACCESSOR. Design §4.2 forbids a 32-bit millisecond age
+#     because it re-creates the ~49.7-day wrap this project already fixed once — a four-month-old confirmation would
+#     render `13h`, i.e. a stale home link shown as a live one, on a safety device.
+# ⛔⛔ AND IT IS **UNREACHABLE BY EVERY OTHER GATE**, WHICH IS THE REASON THIS CHECK EXISTS: `mobile_home_confirmed_ever()`
+#     is `_mobile_home_confirmed_ms != 0`, set ONLY by the mobile FSM's RF paths, so no host probe can make the age
+#     non-zero at all — the firmware probe reads `--` whatever the arithmetic does. The native battery's X01 pins the
+#     FORMATTER's parameter type; nothing pins the PUBLISHER's, and the publisher is where the snapshot's own idiom
+#     (`now_ms` is `uint32_t`, `last_dm_age_s` is a `uint32_t` age) invites the cast to be written naturally.
+# ★ THREE CONTROLS, and only the first is a deletion: the other two are the two tempting WRONG answers — the explicit
+#   32-bit cast, and re-deriving the age from the snapshot's 32-bit clock instead of asking the core.
+w38() { code_flat "$1" | grep -qF 's.home_confirm_age_ms  = g_node.mobile_home_confirm_age_ms();' && \
+        ! code_flat "$1" | grep -qE 'uint32_t\([[:space:]]*g_node\.mobile_home_confirm_age_ms'; }
+wchk_in "$FW_UI" "W38 the 64-bit home confirmation age reaches the snapshot VERBATIM, never recomputed or cast" \
+     w38 's|    s.home_confirm_age_ms  = g_node.mobile_home_confirm_age_ms();|    ;|' \
+         's|    s.home_confirm_age_ms  = g_node.mobile_home_confirm_age_ms();|    s.home_confirm_age_ms  = uint32_t(g_node.mobile_home_confirm_age_ms());|' \
+         's|    s.home_confirm_age_ms  = g_node.mobile_home_confirm_age_ms();|    s.home_confirm_age_ms  = uint64_t(now_ms - uint32_t(g_node.mobile_home_confirm_age_ms()));|'
+# W39 ALL FIVE §CHROME-1 FIELDS ARE ACTUALLY PUBLISHED. They were DEFINED one slice ago and held their declared
+#     "nothing established" defaults; a projection built from unpublished fields is honest but blind, and four of the
+#     five would still render something plausible (`--`, a blank slot) if their assignment were dropped — which is
+#     precisely the shape that survives review.
+w39() { for f in 'mobile_build         = (MR_FEAT_MOBILE != 0)' 'home_link            = g_node.mobile_home_link()' \
+                 'home_confirmed_ever  = g_node.mobile_home_confirmed_ever()' \
+                 'team_key_present     = g_node.team_channel_key_present()'; do
+          code_flat "$1" | grep -qF "s.$f" || return 1
+        done; return 0; }
+wchk_in "$FW_UI" "W39 build_snapshot publishes the §CHROME-1 fields from the core's own accessors" \
+     w39 's|    s.home_link            = g_node.mobile_home_link();|    ;|' \
+         's|    s.team_key_present     = g_node.team_channel_key_present();|    ;|' \
+         's|    s.mobile_build         = (MR_FEAT_MOBILE != 0);|    s.mobile_build         = true;|'
+# W40 ★★★ §8.3's COMPARISON REFERENCE MOVES **AT THE FREEZE AND NOWHERE ELSE**, and the strip is drawn from the
+#     FROZEN copy. The two are one object on purpose (`s_frame_chrome`): a reference updated where a difference is
+#     OBSERVED would consume the invalidation without ever drawing it, and — because that same object is what the
+#     page loop replays — would tear the strip across the remaining pages of an open frame.
+# ⓘ The behavioural half is `probe_firmware_ui`'s P13d (all eight page replays) and P13e (the positive invalidation);
+#   this pins the STRUCTURE those two depend on, in the one file no native test compiles.
+# ⛔ The fourth clause is negative space: this file must never clear the dirty bit — see W3, which forbids
+#   `clear_dirty` outright, and which is what makes §8.3.1's "NEVER clear an existing dirty bit" structural here.
+w40() { code_flat "$1" | grep -qF 'mrui::ui_chrome_invalidate(s_model, live_chrome, s_frame_chrome)' && \
+        [ "$(code_flat "$1" | grep -o 's_frame_chrome = live_chrome;' | wc -l)" -eq 1 ] && \
+        code_flat "$1" | grep -qE 'FrameStep::open:.*s_frame_chrome = live_chrome;.*mrui::begin_frame\(\);' && \
+        code_flat "$1" | grep -qF 'draw_frame(s_frame_state, s_frame_snap, s_frame_out, s_frame_cfg, s_frame_chrome)'; }
+wchk_in "$FW_UI" "W40 the chrome reference updates ONLY at the freeze, and the strip is drawn from it" \
+     w40 's|    (void)mrui::ui_chrome_invalidate(s_model, live_chrome, s_frame_chrome);|    (void)live_chrome;|' \
+         's|            s_frame_chrome = live_chrome;.*$|            ;|' \
+         's|    (void)mrui::ui_chrome_invalidate(s_model, live_chrome, s_frame_chrome);|    if (mrui::ui_chrome_invalidate(s_model, live_chrome, s_frame_chrome)) s_frame_chrome = live_chrome;|' \
+         's|draw_frame(s_frame_state, s_frame_snap, s_frame_out, s_frame_cfg, s_frame_chrome)|draw_frame(s_frame_state, s_frame_snap, s_frame_out, s_frame_cfg, live_chrome)|'
+# ================================================================================================ W41-W43
+# ★★★★ §CHROME-4 — THE THREE PROPERTIES OF THE RAIL AND THE BODY MIGRATION THAT **NO BEHAVIOURAL PROBE IN THIS TREE
+#     CAN REACH**. Everything else about them is measured by `tools/probe_firmware_ui`'s P14 against the real
+#     renderer; these three are not, and each is named rather than assumed.
+#
+# W41 ★★★★ §3.2's *"unavailable slots remain empty and the remaining icons keep the same locations rather than
+#     acquiring a second layout"*, AND IT IS STRUCTURAL BECAUSE IT CANNOT BE BEHAVIOURAL HERE. ⛔ NO host variant of
+#     `probe_firmware_ui` can compile a `!MR_FEAT_TEAM` `firmware_ui.cpp` against a team-enabled `lib/core`, so the
+#     one build where TEAM/SEND are missing (`gateway_heltec`) is reachable only by the LINKER. ⇒ what is pinned is
+#     the construction that makes the property true for every mask at once: the slot's y comes from the ENUMERATOR
+#     (`NavSlot(i + 1)` -> `rail_slot_y(i)`), and an unavailable slot is `continue`d rather than skipped-and-packed.
+#     ★ THREE CONTROLS, and only one is a deletion: the other two are the two tempting wrong answers — pack the
+#       available slots with a running counter, and ignore the mask so dead icons are drawn on a build that has no
+#       TEAM plane (§3.2's "misleading dead icons", verbatim).
+w41() { code_flat "$1" | grep -qF 'const mrui::NavSlot s = mrui::NavSlot(i + 1);' && \
+        code_flat "$1" | grep -qF 'if ((c.slots & mrui::slot_bit(s)) == 0) continue;' && \
+        code_flat "$1" | grep -qF 'const int y = rail_slot_y(i);' && \
+        code_flat "$1" | grep -qF 'if (c.nav == s) mrui::draw_rect(kRailX, y, kRailW, kRailH);'; }
+wchk_in "$FW_UI" "W41 the rail indexes its slots by the ENUMERATOR and skips unavailable ones" \
+     w41 's|        if ((c.slots \& mrui::slot_bit(s)) == 0) continue;|        ;|' \
+         's|        const int y = rail_slot_y(i);|        static int packed = 0; const int y = rail_slot_y(packed++);|' \
+         's|        const mrui::NavSlot s = mrui::NavSlot(i + 1);|        const mrui::NavSlot s = c.nav;|'
+# W42 ★★★ §7.1 rule 1 — **ONE** `kBodyX` AUTHORITY, AS NEGATIVE SPACE. §13 refuses a partial state in which "icons
+#     are drawn over 21-column content", and the shape that produces it is a migration that moved MOST draw sites: a
+#     single surviving `mrui::draw_text(0, body_y(...))` puts one line under the rail's icons on one screen, which no
+#     count can see and which the firmware probe would only catch if its walk happened to reach that screen.
+# ⛔ THE EMERGENCY EXCEPTION IS PINNED IN THE SAME CHECK, because it is the one body that MUST stay at x = 0 (§5.3):
+#    a grep that merely forbade `x = 0` would push somebody to "fix" the distress headline into a clipped one.
+w42() { ! code_flat "$1" | grep -qE 'draw_text\([[:space:]]*0,[[:space:]]*body_y' && \
+        code_flat "$1" | grep -qF 'void body_text(int row, const char* s) { mrui::draw_text(kBodyX, body_y(row), s); }' && \
+        code_flat "$1" | grep -qF 'constexpr int kBodyX    = 12;' && \
+        code_flat "$1" | grep -qF 'mrui::draw_text(0, kEmgHeadY, head);'; }
+wchk_in "$FW_UI" "W42 every ordinary body line goes through the ONE kBodyX authority" \
+     w42 's|    body_text(1, "no teammates heard");|    mrui::draw_text(0, body_y(1), "no teammates heard");|' \
+         's|void body_text(int row, const char\* s) { mrui::draw_text(kBodyX, body_y(row), s); }|void body_text(int row, const char* s) { mrui::draw_text(0, body_y(row), s); }|' \
+         's|    mrui::draw_text(0, kEmgHeadY, head);|    mrui::draw_text(kBodyX, kEmgHeadY, head);|'
+# W43 ★★★ §7.3's OTHER HALF, AND IT IS THE ONE §CHROME-4's BRIEF CALLS THE BIGGEST RISK IN THE SLICE: the inbox
+#     detail's wrap must move AT THE MODEL, not at the draw origin. `kDetailCols` and the renderer's `kBodyCols` are
+#     ONE number — a renderer drawing 19 columns over a model still wrapping at 21 clips every full row AND makes
+#     `detail_pages` a lie. The `static_assert` is what makes that a build failure; this check is what stops the
+#     assert being deleted by somebody who finds it in the way.
+# ⓘ The VALUE 19 is pinned natively (`ui7d-modal:` re-derives 38 chars a page and 7 pages from it); what no native
+#   case can see is the renderer's side of the equality, because nothing compiles this file.
+w43() { code_flat "$1" | grep -qF 'static_assert(kBodyCols == mrui::kDetailCols,' && \
+        code_flat "$1" | grep -qF 'constexpr int kBodyCols = 19;'; }
+wchk_in "$FW_UI" "W43 the body width and the model's detail wrap are ONE number (build-enforced)" \
+     w43 's|static_assert(kBodyCols == mrui::kDetailCols,|static_assert(kBodyCols == kBodyCols,|' \
+         's|constexpr int kBodyCols = 19;    |constexpr int kBodyCols = 21;    |'
 echo "structural: $s_pass passed / $s_fail failed / $((s_pass+s_fail)) total"
 echo "wiring:     $w_pass passed / $w_fail failed / $((w_pass+w_fail)) total; $w_ctl negative control(s) verified RED"
 [ "$s_fail" -eq 0 ] || rc=1

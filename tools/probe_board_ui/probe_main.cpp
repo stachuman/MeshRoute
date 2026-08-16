@@ -522,6 +522,87 @@ int main() {
         g_wake.gpio_disable_calls == 1 && g_wake.set_intr_type_calls == 1 &&
         g_wake.last_intr_type == GPIO_INTR_DISABLE);
 
+    // ================================================================================================ P12
+    // ★★★ §CHROME-2 — THE TWO GENERIC CANVAS PRIMITIVES (design §8.1). They have no observable effect on a host
+    //     beyond WHICH U8g2 call they choose, WITH WHAT ARGUMENTS, IN WHAT ORDER, and WHETHER THEY REACH THE BUS —
+    //     so those four things are exactly what is measured, which is the same rule P11 follows.
+    // ⚠⚠ A CALL **COUNT** IS NOT COVERAGE HERE, and that is the whole reason the shim records arguments: "drawXBM was
+    //    called once" stays green against a board that transposes x with y, swaps w with h, or copies the bitmap into
+    //    a scratch buffer and hands over a different pointer. U8g2 CLIPS silently, so every one of those defects
+    //    renders as a blank or a smear on metal and as a PASS in a count-only probe — the instrument-that-cannot-fail
+    //    shape this arc has recorded five times. ⇒ every argument is asserted, and the four coordinates are
+    //    DELIBERATELY ALL DIFFERENT so a transposition cannot coincide with the right answer.
+    // ⓘ The bytes are arbitrary: this probe measures the FORWARD, not the glyph. §CHROME-1's native test is what
+    //   decodes real assets against the row-major/LSB-first contract.
+    static const uint8_t kProbeBits[8] = {0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80};
+
+    // ---- draw_bitmap: the RIGHT U8g2 call, the arguments through unchanged, and nothing else touched -------------
+    reset_counters();
+    mrui::draw_bitmap(3, 11, 7, 5, kProbeBits);
+    CHK("P12a draw_bitmap forwards to drawXBM exactly once",   g_u8.drawXBM == 1);
+    // ★★ THE `P` VARIANT IS A REAL WRONG ANSWER, NOT A HYPOTHETICAL: `drawXBMP` reads through `u8g2_pgm_read`, the
+    //    AVR separate-address-space form. On ESP32-S3/nRF52 flash is memory-mapped and §CHROME-1's assets are plain
+    //    `inline constexpr` objects, so the two are indistinguishable HERE and differ only in which platform they
+    //    corrupt — which is precisely why the choice is pinned by an assertion rather than by a comment.
+    CHK("P12b ... and NEVER to drawXBMP (the AVR PROGMEM form)", g_u8.drawXBMP == 0);
+    CHK("P12c ... x,y,w,h arrive in that order, unchanged",
+        g_u8.xbm_x == 3 && g_u8.xbm_y == 11 && g_u8.xbm_w == 7 && g_u8.xbm_h == 5);
+    // ★ THE POINTER ITSELF, not a value derived from it: §8.1 forbids the board copying a bitmap into a buffer, and a
+    //   content comparison would pass over exactly that.
+    CHK("P12d ... and the byte POINTER is forwarded, never copied", g_u8.xbm_bits == kProbeBits);
+    CHK("P12e ... and it draws nothing ELSE (no frame, box, text or rule)",
+        g_u8.drawFrame == 0 && g_u8.drawBox == 0 && g_u8.drawStr == 0 && g_u8.drawHLine == 0);
+    // ⛔ COMPOSE-ONLY (§11.2). `bus_ops()` counts only begin/nextPage/setPowerSave — the three calls that actually
+    //    reach the panel — so a primitive that pushed a page, or flushed, or blanked, is visible here and nowhere else.
+    CHK("P12f ... and it reaches the BUS not once (compose-only)", g_u8.bus_ops() == 0);
+
+    // ---- draw_rect: an OUTLINE, never a filled box ---------------------------------------------------------------
+    reset_counters();
+    mrui::draw_rect(1, 12, 9, 6);
+    CHK("P12g draw_rect forwards to drawFrame exactly once",   g_u8.drawFrame == 1);
+    // ⚠ `drawBox` is the tempting wrong answer — same signature, one letter apart — and on the panel it INVERTS the
+    //   rail slot, hiding the very icon the selection frame exists to point at (§3.2).
+    CHK("P12h ... and NEVER to drawBox (a filled rectangle)",   g_u8.drawBox == 0);
+    CHK("P12i ... x,y,w,h arrive in that order, unchanged",
+        g_u8.rect_x == 1 && g_u8.rect_y == 12 && g_u8.rect_w == 9 && g_u8.rect_h == 6);
+    CHK("P12j ... and it draws nothing ELSE",
+        g_u8.drawXBM == 0 && g_u8.drawXBMP == 0 && g_u8.drawStr == 0 && g_u8.drawHLine == 0);
+    CHK("P12k ... and it reaches the BUS not once (compose-only)", g_u8.bus_ops() == 0);
+
+    // ---- the panel's edge: a LEGAL request must still be legal after the board has handled it ---------------------
+    // ⚠ HONEST ABOUT WHAT THIS IS (the P8s/P6g convention): it is NOT independent coverage. U8g2 clips silently, so
+    //   "it did not crash" proves nothing and the probe must assert the coordinates it passed — but any mutation that
+    //   moves them also breaks P12c/P12i, so no negative control reddens THIS pair alone. It is cheap and it states
+    //   the boundary in the file where a future offset/padding change would be written; it is not measured coverage.
+    reset_counters();
+    mrui::draw_bitmap(120, 56, 8, 8, kProbeBits);     // the bottom-right corner: last pixel exactly (127, 63)
+    mrui::draw_rect(118, 54, 10, 10);
+    CHK("P12l a corner bitmap stays inside 128x64 after the board handled it",
+        g_u8.xbm_x + g_u8.xbm_w == 128 && g_u8.xbm_y + g_u8.xbm_h == 64);
+    CHK("P12m ... and so does a corner outline",
+        g_u8.rect_x + g_u8.rect_w == 128 && g_u8.rect_y + g_u8.rect_h == 64);
+
+    // ---- inside a real page loop: the ONE bus boundary is still next_page() ---------------------------------------
+    // ★ THE PROPERTY §11.2 ACTUALLY NAMES: "bitmap/frame calls touch no I2C outside the existing next_page()
+    //   boundary". Drawing both primitives on every page of a full frame must cost EXACTLY the eight page transfers a
+    //   text-only frame costs — no more, and not fewer (fewer would mean the frame stopped completing).
+    reset_counters();
+    mrui::begin_frame();
+    CHK("P12n begin_frame still composes only, with the new primitives present", g_u8.bus_ops() == 0);
+    int chrome_pages = 0;
+    do {
+        probe_scene();
+        mrui::draw_bitmap(0, 0, 7, 7, kProbeBits);
+        mrui::draw_rect(0, 10, 10, 10);
+        if (++chrome_pages > 32) break;
+    } while (mrui::next_page());
+    CHK("P12o a frame drawing both primitives is still exactly 8 page transfers",
+        chrome_pages == 8 && g_u8.nextPage == 8);
+    CHK("P12p ... each primitive ran once per page (U8g2 re-clips, it accumulates nothing)",
+        g_u8.drawXBM == 8 && g_u8.drawFrame == 8);
+    CHK("P12q ... and the ONLY bus traffic in the whole frame is those 8 transfers",
+        g_u8.bus_ops() == 8 && g_u8.begin == 0 && g_u8.setPowerSave == 0);
+
     reset_counters();   // leave the shims as constructed for any later case
 
     printf("phA5 board_ui probe: %d passed / %d failed / %d total\n", g_pass, g_fail, g_pass + g_fail);

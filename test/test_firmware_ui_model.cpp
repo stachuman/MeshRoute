@@ -2123,20 +2123,35 @@ TEST_CASE("ui7d-identity: the ERASE target is the modal's own record, even after
 
 // ------------------------------------------------------------------------------------------- THE MODAL AND ITS PAGING
 
-TEST_CASE("ui7d-modal: the geometry is DERIVED — 42 chars a page, six pages for the largest body, 2 s a page") {
-    CHECK(kDetailCols == 21);
+// ★★★★ §CHROME-4 / design §7.3 — RE-DERIVED FOR THE 19-COLUMN BODY, AND THE POINT IS THAT ONLY ONE NUMBER MOVED.
+//      The rail takes `x = 0..9`, so the ordinary body is 116 px = 19 small-font columns. `kDetailCols` is that 19;
+//      `kDetailPageChars` and `kDetailMaxPages` are computed FROM it and are asserted here as CONSEQUENCES.
+//   ⛔ THE PAGE COUNT IS RE-DERIVED, NEVER RE-CLAMPED: 19 x 2 = 38 characters a page, and `ceil(241 / 38)` = 7 pages
+//      for the largest body — one MORE page than the six a 42-character page needed. A renderer that had moved only
+//      the draw origin would still have reported six, i.e. a pagination that lies about a body the panel cannot show.
+TEST_CASE("ui7d-modal: the geometry is DERIVED — 38 chars a page, seven pages for the largest body, 2 s a page") {
+    CHECK(kDetailCols == 19);                                    // ★ the ONE edited number (was 21 before §CHROME-4)
     CHECK(kDetailBodyRows == 2);
-    CHECK(kDetailPageChars == 42);
-    CHECK(kDetailMaxPages == 6);                                 // spec §3.5's "at most six pages", as a consequence
+    CHECK(kDetailPageChars == 38);                               // 19 x 2, derived
+    CHECK(kDetailMaxPages == 7);                                 // ceil(241 / 38), derived
     CHECK(kDetailPageMs == 2000u);
+    // ★ THE PAGINATION MUST NOT LIE: the pages the modal offers must between them cover the largest storable body.
+    //   At 19 columns a stale `6` fails this outright (6 x 38 = 228 < 241), which is what makes the re-derivation
+    //   measured rather than asserted.
     CHECK(uint16_t(kDetailMaxPages) * kDetailPageChars >= MESHROUTE_NS::protocol::inbox_max_body);
+    // ...and it must not over-count either: one page fewer would already be short.
+    CHECK(uint16_t(kDetailMaxPages - 1) * kDetailPageChars < MESHROUTE_NS::protocol::inbox_max_body);
 }
 
-TEST_CASE("ui7d-modal: pages = max(1, ceil(body_len / 42)) at every boundary, and NEVER zero") {
+// ★ §CHROME-4: every boundary re-derived at 38 characters a page. ⛔ The old boundaries (42/43, 84/85) are NOT
+//   translated mechanically — they are recomputed, and 38/39 and 76/77 are where a body now gains a page. A 42-char
+//   body is TWO pages at 19 columns and was ONE at 21, which is exactly the off-by-a-page a re-clamped count hides.
+TEST_CASE("ui7d-modal: pages = max(1, ceil(body_len / 38)) at every boundary, and NEVER zero") {
     static uint8_t big[MESHROUTE_NS::protocol::inbox_max_body];
     for (uint16_t i = 0; i < sizeof big; ++i) big[i] = uint8_t('a' + (i % 26));
     struct { uint16_t len; uint8_t pages; } cases[] = {
-        {0, 1}, {1, 1}, {42, 1}, {43, 2}, {84, 2}, {85, 3}, {MESHROUTE_NS::protocol::inbox_max_body, 6},
+        {0, 1}, {1, 1}, {38, 1}, {39, 2}, {42, 2}, {76, 2}, {77, 3},
+        {MESHROUTE_NS::protocol::inbox_max_body, 7},
     };
     for (const auto& c : cases) {
         UiModel m; auto s = snap_inbox(1);
@@ -2168,21 +2183,26 @@ TEST_CASE("ui7d-modal: a non-null body with body_len 0 still yields no bytes (th
     CHECK(m.state().detail_line[0][0] == '\0');
 }
 
-TEST_CASE("ui7d-modal: the body is WRAPPED into two 21-column rows without dropping a byte") {
+// ★★ §CHROME-4: 19-column rows, and the ROW BYTES are asserted rather than only the lengths — that is what makes a
+//    renderer-only migration (draw origin moved, model still wrapping at 21) fail here instead of on the panel.
+TEST_CASE("ui7d-modal: the body is WRAPPED into two 19-column rows without dropping a byte") {
     static uint8_t b[45];
     for (uint8_t i = 0; i < sizeof b; ++i) b[i] = uint8_t('A' + (i % 26));
     UiModel m; auto s = snap_inbox(1);
     to_inbox(m, s);
     CHECK(open_detail(m, s, b, sizeof b) == true);
     CHECK(m.state().detail_pages == 2);
-    CHECK(std::strlen(m.state().detail_line[0]) == 21);
-    CHECK(std::strlen(m.state().detail_line[1]) == 21);
-    CHECK(std::strncmp(m.state().detail_line[0], "ABCDEFGHIJKLMNOPQRSTU", 21) == 0);
-    CHECK(std::strncmp(m.state().detail_line[1], "VWXYZABCDEFGHIJKLMNOP", 21) == 0);
-    // page 2 holds the remaining three bytes, and every one of the 45 has now been shown
+    CHECK(std::strlen(m.state().detail_line[0]) == 19);
+    CHECK(std::strlen(m.state().detail_line[1]) == 19);
+    CHECK(std::strcmp(m.state().detail_line[0], "ABCDEFGHIJKLMNOPQRS") == 0);
+    CHECK(std::strcmp(m.state().detail_line[1], "TUVWXYZABCDEFGHIJKL") == 0);
+    // ⛔ NO ROW MAY EXCEED THE PANEL'S BODY. The buffer is `kDetailCols + 1`, so an over-wide wrap could not even be
+    //    stored — but the row that MATTERS is the one the renderer draws, and this is where its width is fixed.
+    for (uint8_t r = 0; r < kDetailBodyRows; ++r) CHECK(std::strlen(m.state().detail_line[r]) <= kDetailCols);
+    // page 2 holds the remaining SEVEN bytes, and every one of the 45 has now been shown
     m.on_tick(snap_inbox(1, 1000 + kDetailPageMs));
     CHECK(m.state().detail_page == 1);
-    CHECK(std::strcmp(m.state().detail_line[0], "QRS") == 0);
+    CHECK(std::strcmp(m.state().detail_line[0], "MNOPQRS") == 0);
     CHECK(m.state().detail_line[1][0] == '\0');
 }
 
@@ -2238,7 +2258,7 @@ TEST_CASE("ui7d-modal: paging does NOT postpone the inactivity timeout — the m
     UiModel m; auto s = snap_inbox(1);
     to_inbox(m, s);
     CHECK(open_detail(m, s, b, uint8_t(sizeof b)) == true);
-    CHECK(m.state().detail_pages == 6);
+    CHECK(m.state().detail_pages == 7);                          // §CHROME-4: 38 chars a page, so the largest body is 7
     for (uint32_t k = 1; k * kDetailPageMs < kBlankMs; ++k) m.on_tick(snap_inbox(1, 1000 + k * kDetailPageMs));
     CHECK(m.state().detail == InboxModal::body);                 // still open just inside the window
     m.on_tick(snap_inbox(1, 1000 + kBlankMs));
@@ -2524,7 +2544,9 @@ TEST_CASE("ui7d-head: the modal's header line, asserted as BYTES") {
     inbox_detail_head(l, sizeof l, InboxKind::channel, 48, 7, 2, 6, false);
     CHECK(std::strcmp(l, "CH7 from 48    3/6") == 0);
     inbox_detail_head(l, sizeof l, InboxKind::channel, 255, 255, 5, 6, false);
-    CHECK(std::strcmp(l, "CH255 from 255 6/6") == 0);            // the widest real expansion: 18 of 21 columns
+    // §CHROME-4 / §7.3: the widest real expansion is 18 columns, which still fits the 19-column body the rail leaves.
+    // ⓘ `pages` is at most `kDetailMaxPages` = 7, so both counters stay one digit and the line cannot grow.
+    CHECK(std::strcmp(l, "CH255 from 255 6/6") == 0);
     CHECK(std::strlen(l) <= kDetailCols);
     // ★ the failure REPLACES the from-line and KEEPS the reader's place
     inbox_detail_head(l, sizeof l, InboxKind::dm, 48, 0, 1, 2, true);
@@ -3128,14 +3150,90 @@ TEST_CASE("ui14-marker: §3.3's three literals are three separate facts, and CON
     CHECK(strcmp(cfg_marker_text(true,  false), "CFG* UNSAVED") == 0);
     CHECK(strcmp(cfg_marker_text(false, true),  "CFG! RELOAD") == 0);
     // ★ a conflicted draft is BOTH, and the row says the one that BLOCKS the save — the other two facts have their
-    //   own places (the SETTINGS title, and the RESTART row).
+    //   own places (the SETTINGS marker row, and the RESTART row).
     CHECK(strcmp(cfg_marker_text(true, true), "CFG! RELOAD") == 0);
     // ...and the conflict string is the SERVICE's, not a copy
     CHECK(strcmp(cfg_marker_text(false, true), mrfw::cfg_save_panel(mrfw::CfgSave::conflict)) == 0);
-    // WIDTH: `STATUS ` + the marker must fit the panel's 21 small-font columns (§3.3 forbids shortening the bar)
-    CHECK(strlen("STATUS ") + strlen(cfg_marker_text(true, false)) <= 21u);
-    CHECK(strlen("STATUS ") + strlen(cfg_marker_text(false, true)) <= 21u);
-    CHECK(strlen(kCfgRestartText) <= 21u);
+    // ⛔⛔ WIDTH, RETARGETED 2026-08-16 (§CHROME-4 / §6.1) RATHER THAN DELETED. These three lines used to read
+    //    `strlen("STATUS ") + strlen(marker) <= 21` — a bound on the STATUS **TITLE**, which design §6 removes in
+    //    favour of the SETTINGS rail badge. ⛔ THE STRINGS THEMSELVES ARE NOT REMOVED: §6.1 is explicit that
+    //    `CFG! RELOAD` remains required ACTIONABLE SETTINGS text, and it now occupies a row of its own on SETTINGS.
+    //    ⇒ the fact these lines pin — *the marker fits the row it is drawn on* — survives; only the row changed, so
+    //    the bound is re-derived to the rail's 19-column body instead of the old 21 minus a title.
+    CHECK(strlen(cfg_marker_text(true, false)) <= 19u);
+    CHECK(strlen(cfg_marker_text(false, true)) <= 19u);
+    CHECK(strlen(kCfgRestartText) <= 19u);
+}
+
+// ★★★★ §CHROME-4 / design §7.3 — THE AUDIT, AS AN ASSERTION RATHER THAN A READING. §7.1 rule 3 requires every
+//      ordinary body line to be PROVEN at or below 116 px = 19 small-font columns, and §7.3 says in as many words
+//      that *"it fits" is a MEASUREMENT, not an assumption*. Every panel string this PURE unit owns is walked here.
+//   ⛔ THE RENDERER'S FORMATS ARE RESTATED, NOT IMPORTED, and that is deliberate for the same reason the strip's
+//      probe states its slot coordinates itself: a bound computed from the code under test agrees with a layout that
+//      has drifted. `src/firmware_ui.cpp` is compiled by neither the native suite nor the simulator, so what is
+//      pinned here are the COMPONENT widths its per-screen audit is derived from.
+//   ⓘ NOT covered here, and named rather than implied: the literals that live in `src/firmware_ui.cpp` itself
+//      (`QUEUED`, `SENT, waiting`, `NO RELAY HEARD`, `no teammates heard`, `double = pick text`, …) and the drawn
+//      geometry. Those are measured end-to-end by `tools/probe_firmware_ui`'s P14f, which reads the x and the
+//      pixel extent of every body draw the shipped renderer makes.
+TEST_CASE("chrome4-audit: every PURE panel string fits the rail's 19-column body") {
+    constexpr size_t kCols = 19;   // 116 px / 6 px per small-font column — design §3.2
+
+    // ---- the SETTINGS rows. The renderer draws `%c%-8s %s` browsing and `%c%-8s[%s]` editing, so the row's width is
+    //      `1 + max(8, label) + 1 + value` and `1 + max(8, label) + 2 + value`. ★ THE ARITHMETIC IS PER ROW, because
+    //      the widest VALUE (`periodic`, 8) belongs to the shortest LABEL (`BLE`, 3): a label x value bound would be
+    //      19 + something and would fail on a combination no row can reach.
+    for (uint8_t i = 0; i < uint8_t(CfgRow::count); ++i) {
+        const CfgRow r = CfgRow(i);
+        const size_t label = strlen(settings_row_label(r));
+        const size_t pad   = label > 8 ? label : 8;
+        mrfw::CfgField f{};
+        if (!cfg_row_field(r, f)) { CHECK(1u + label <= kCols); continue; }   // an ACTION row: `%c%s`
+        // every value the FIELD's domain can hold, not only the two the menu offers (§3.6.2: a `periodic` persisted
+        // by serial/BLE must still render honestly)
+        for (uint8_t v = 0; v <= 3; ++v) {
+            const size_t val = strlen(cfg_value_text(f, v));
+            CHECK(1u + pad + 1u + val <= kCols);          // browsing
+            CHECK(1u + pad + 2u + val <= kCols);          // editing, `[` + value + `]`
+        }
+    }
+    // ---- the transient note and the two durable literals
+    UiState st{}; st.cfg_have_save = true;
+    for (mrfw::CfgSave r : { mrfw::CfgSave::saved, mrfw::CfgSave::saved_reboot, mrfw::CfgSave::no_change,
+                             mrfw::CfgSave::invalid, mrfw::CfgSave::conflict, mrfw::CfgSave::nv_failed,
+                             mrfw::CfgSave::not_open }) {
+        st.cfg_save = r; CHECK(strlen(settings_note(st)) <= kCols);
+    }
+    st.cfg_have_save = false;
+    st.cfg_refresh_failed = true;  CHECK(strlen(settings_note(st)) <= kCols);
+    st.cfg_refresh_failed = false;
+    st.cfg_provision_na  = true;   CHECK(strlen(settings_note(st)) <= kCols);
+    CHECK(strlen(kCfgRestartText) <= kCols);
+
+    // ---- the inbox detail's header, at its widest reachable expansion (`pages` is bounded by kDetailMaxPages)
+    char l[48];
+    inbox_detail_head(l, sizeof l, InboxKind::channel, 255, 255, uint8_t(kDetailMaxPages - 1), kDetailMaxPages, false);
+    CHECK(strlen(l) <= kCols);
+    inbox_detail_head(l, sizeof l, InboxKind::dm, 255, 0, uint8_t(kDetailMaxPages - 1), kDetailMaxPages, true);
+    CHECK(strlen(l) <= kCols);
+    // ...and the wrapped body rows themselves
+    CHECK(size_t(kDetailCols) <= kCols);
+
+    // ---- the compose presets, WITH their `>` marker (`%c%s`)
+    for (uint8_t i = 0; i < kDmTextCount; ++i)      CHECK(1u + strlen(kDmTexts[i])      <= kCols);
+    for (uint8_t i = 0; i < kChannelTextCount; ++i) CHECK(1u + strlen(kChannelTexts[i]) <= kCols);
+    // ★★ §7.1 RULE 6 — *"two selectable preset strings must not become visually identical after clamping"*. The rows
+    //    of ONE list are what the operator chooses between, so the comparison is WITHIN each table, over the VISIBLE
+    //    prefix (marker + 18 columns of text). ⛔ Relying on a hidden suffix is forbidden outright.
+    for (uint8_t a = 0; a < kDmTextCount; ++a)
+        for (uint8_t b = uint8_t(a + 1); b < kDmTextCount; ++b)
+            CHECK(strncmp(kDmTexts[a], kDmTexts[b], kCols - 1) != 0);
+    for (uint8_t a = 0; a < kChannelTextCount; ++a)
+        for (uint8_t b = uint8_t(a + 1); b < kChannelTextCount; ++b)
+            CHECK(strncmp(kChannelTexts[a], kChannelTexts[b], kCols - 1) != 0);
+    // ⓘ The emergency body is EXEMPT and stays 21 columns at x = 0 (§5.3) — `kEmergencyText` is not a body row at
+    //   all (it is the wire text of the alarm), and the `Font::large` headlines have their own 12-column budget,
+    //   pinned by `tools/probe_board_ui`'s W11b.
 }
 
 TEST_CASE("ui14-marker: every SAVE outcome has its own words, and none of them says SAVED for a refusal") {

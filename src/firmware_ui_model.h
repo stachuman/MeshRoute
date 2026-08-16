@@ -92,7 +92,22 @@
 // Arduino, no heap, no `Node`), and it also carries `protocol::inbox_max_body`, the one number the modal's body buffer
 // may be sized from.
 #include "inbox.h"
-// ★★★ §UI-14: THE THIRD lib-free dependency, and it is the SAME argument as `command.h`'s and `inbox.h`'s — except
+// ★★★ §CHROME-1: THE THIRD lib/core dependency, and the argument is `inbox.h`'s taken one step further. The chrome
+// projection (`src/firmware_ui_chrome.h`, design §4.2) must classify the MOBILE-HOME LINK's four states into an icon,
+// and `Node::MobileHomeLink` is a NESTED enum — it cannot be forward-declared without its class.
+// ⛔ THE TWO ALTERNATIVES WERE BOTH WORSE, and this is a decision rather than a default:
+//   · a `mrui::HomeLink` MIRROR of the four enumerators is the parallel enum U1 forbids, and here it is also a second
+//     authority for a safety-adjacent state (§4.2 forbids the word "connected" on this plane; two enums = two places
+//     to get that wrong);
+//   · classifying at the PUBLISHER (`src/firmware_ui.cpp`'s `build_snapshot`) would put the four-state -> icon switch
+//     in a TU that neither the native suite nor the simulator compiles — §B115's rule, and the reason every panel
+//     string in this file is formatted HERE.
+// ⇒ the snapshot names the CORE state and the projection classifies it, so all four arms are natively drivable.
+// ⓘ COST, MEASURED not assumed: `src/firmware_ui.cpp` already pulls `node.h` through `fw_context_pure.h:29`, so the
+//   only TUs that gain it are the native test TUs — which already compile `node.h` in a dozen other cases. `node.h` is
+//   Arduino-free by construction (the simulator compiles it), so this unit stays board-free and host-testable.
+#include "node.h"
+// ★★★ §UI-14: THE FOURTH lib-free dependency, and it is the SAME argument as `command.h`'s and `inbox.h`'s — except
 // that this one is not even cross-library: `src/firmware_config_service.h` is §UI-13's TYPED STAGED-CONFIGURATION
 // SERVICE, a PURE unit (no Arduino, no `Print`, no `Node`, no strings) with its own native suite. Spec §3.6.1 rules
 // that the OLED owns an explicit `ConfigDraft` and ⛔ must NOT loop through `handle_cfg_set` or manufacture command
@@ -205,9 +220,15 @@ inline bool cfg_row_field(CfgRow r, mrfw::CfgField& out) {
 }
 
 // ★ THE ROW LABELS, in this PURE unit for the §B115 reason: a string built in `src/firmware_ui.cpp` is a string no
-//   automated gate can read. ⚠ WIDTH IS A CONSTRAINT, NOT A PREFERENCE — the panel is 21 small-font columns and the
-//   row renders as `<marker><label padded to 10><space><value>`, so a label over 10 characters would push the value
-//   off the panel. The longest here is `key attach` at exactly 10.
+//   automated gate can read. ⚠ WIDTH IS A CONSTRAINT, NOT A PREFERENCE.
+// ⛔ RE-DERIVED 2026-08-16 (§CHROME-4): this block used to read *"the panel is 21 small-font columns and the row
+//    renders as `<marker><label padded to 10><space><value>`, so a label over 10 characters would push the value off
+//    the panel"*. The rail moved the ordinary body to **19 columns** and the row now renders as
+//    `<marker><label padded to 8><space><value>` while browsing and `<marker><label padded to 8>[<value>]` while
+//    editing — see `draw_settings_screen`, where the arithmetic is written out **per row**, because the widest VALUE
+//    (`periodic`, 8 columns) belongs to the shortest LABEL (`BLE`, 3) and a label x value worst case would be a bound
+//    no row can actually reach. The longest label here is still `key attach` at exactly 10, which simply pushes its
+//    own (3-column) value right: 1 + 10 + 1 + 3 = 15 of 19.
 inline const char* settings_row_label(CfgRow r) {
     switch (r) {
         case CfgRow::ble_mode:            return "BLE";
@@ -258,10 +279,20 @@ inline const char* cfg_marker_text(bool unsaved, bool conflict) {
 inline constexpr const char* kCfgRestartText = "RESTART NEEDED";   // §3.3: a durable save whose effect is boot-only
 
 // ★★★ §UI-7D slice B — THE INBOX DETAIL MODAL'S GEOMETRY (spec §3.5), DERIVED AND NOT RESTATED ([[B120]]).
-// Two body rows of the panel's 21 small-font columns expose 42 characters per page, so the largest stored body needs
-// `ceil(inbox_max_body / 42)` pages — SIX today. ⛔ The `6` in the spec is a CONSEQUENCE of those three numbers; it is
-// asserted by a native case and appears in no arithmetic here.
-inline constexpr uint8_t  kDetailCols      = 21;
+// Two body rows of the panel's small-font columns expose `kDetailCols * kDetailBodyRows` characters per page, so the
+// largest stored body needs `ceil(inbox_max_body / that)` pages. ⛔ The page count is a CONSEQUENCE of those three
+// numbers; it is asserted by a native case and appears in no arithmetic here.
+//
+// ★★★★ §CHROME-4 / design §7.3 — **21 → 19 COLUMNS, AND THE PAGE COUNT IS RE-DERIVED, NOT RE-CLAMPED.** The
+//      navigation rail takes `x = 0..9`, so the ordinary body starts at `x = 12` and is 116 px wide = 19 small-font
+//      columns (`src/firmware_ui.cpp`'s `kBodyX` / `kBodyCols`). ⛔ THE WRAP HAD TO MOVE **HERE**, AT THE MODEL'S
+//      FREEZE POINT, and not merely at the draw origin: `refresh_detail_page` slices the body into `detail_line[]`
+//      when the page is FROZEN, so a renderer that shifted x while the model still wrapped at 21 would (a) let u8g2
+//      clip the last two characters of every full row and (b) make `detail_pages` a LIE — a count computed from 42
+//      characters a page over rows the panel can only show 38 of.
+//      ⇒ 19 x 2 = **38** characters a page, and `ceil(241 / 38)` = **7** pages for the largest body (was 6 at 42).
+//      ⓘ Every one of those figures is DERIVED below; the only edited number is `kDetailCols`.
+inline constexpr uint8_t  kDetailCols      = 19;
 inline constexpr uint8_t  kDetailBodyRows  = 2;
 inline constexpr uint8_t  kDetailPageChars = uint8_t(kDetailCols * kDetailBodyRows);
 inline constexpr uint8_t  kDetailMaxPages  =
@@ -319,7 +350,10 @@ struct InboxRow {
     InboxKind kind = InboxKind::dm;
     uint32_t  seq  = 0;
     uint8_t  channel_id = 0; uint32_t rx_age_s = 0;
-    char     text[21] = {};               // clamped to the panel width
+    // ⓘ 20 bytes of PREVIEW plus its NUL. §CHROME-4 draws it through `%-8.8s`, so what reaches the panel is an
+    //   explicitly bounded 8 columns of the rail's 19-column row — the buffer is the CARRIER's capacity, not the
+    //   display's, and the whole body is one press away in the detail modal (spec §3.5).
+    char     text[21] = {};
 };
 
 struct UiSnapshot {
@@ -344,6 +378,48 @@ struct UiSnapshot {
     //   ⛔ FALSE by default, which is §3.6.2's own ruled state for "the transport is not compiled" — not an invented
     //   fallback. It is false in every env in the tree today (see `settings_rows`).
     bool     ble_row = false;
+
+    // ================================================================== §CHROME-1 — the status strip's new authorities
+    // ★★★ DEFINED HERE, PUBLISHED IN SLICE 3. Design §8.2's chrome projection is PURE and may not touch `g_node`, but
+    //     every fact below lives behind a `g_node` accessor. ⇒ slice 1 declares the fields and builds the projection
+    //     from them; `src/firmware_ui.cpp`'s `build_snapshot` gains the four assignments in slice 3. Until then these
+    //     hold their declared defaults, which are the honest "nothing established" states — ⛔ NOT plausible values.
+    //
+    // ★ IS THERE A MOBILE-HOME PLANE ON THIS BUILD AT ALL? Published from `MR_FEAT_MOBILE` at the ONE site that knows
+    //   it, exactly as `team_build` and `ble_row` above are (U3), so the model stays `#if`-free and both arms are
+    //   natively drivable. `gateway_heltec` is a REAL build with OLED=1 and MOBILE=0, so this is not hypothetical.
+    //   ⛔ FALSE by default: design §4.2 rules that a non-mobile build draws the home slot BLANK, never crossed —
+    //      "not applicable" must not render as a fault.
+    bool     mobile_build = false;
+    // ★★ THE CORE STATE, NAMED NOT MIRRORED (see the `node.h` include note above). Authority:
+    //    `Node::mobile_home_link()` — "a recent correlated bidirectional exchange with the SELECTED home".
+    // ⛔⛔ IT IS NOT CONNECTIVITY. §4.2: never labelled or described as "connected", "mesh online" or "last packet
+    //    heard"; a team message, a foreign beacon or a one-way receive must not refresh it. `node.h`'s own
+    //    `home_link_name` block says the word "connected" is forbidden on every surface, and this is a surface.
+    MESHROUTE_NS::Node::MobileHomeLink home_link = MESHROUTE_NS::Node::MobileHomeLink::unknown;
+    // Authority: `Node::mobile_home_confirmed_ever()`. ★ SEPARATE FROM THE AGE ON PURPOSE — node.h:609's own note: a
+    // surface must be able to OMIT the field rather than render a 0 that reads as "confirmed just now".
+    bool     home_confirmed_ever = false;
+    // ★ THE TEAM CHANNEL **CONTENT** KEY (§4.4). Authority: `Node::team_channel_key_present()`.
+    // ⛔ It does NOT mean the node has its own crypto identity, and NOT that peer public keys are cached. Those are
+    //   different facts with different remedies, and one icon may only carry the one it measures.
+    // ⓘ DECLARED HERE, BESIDE THE HOME BOOLS RATHER THAN AFTER THE 64-BIT AGE, AND THE PLACEMENT IS MEASURED: this is
+    //   `node.h`'s padding-placement rule applied to `UiSnapshot`. The struct's tail was `...team_build, ble_row` +
+    //   2 pad bytes at 592; the four 1-byte members fill that hole and the two that follow it, so the 8-aligned
+    //   `home_confirm_age_ms` lands at 600 and `sizeof(UiSnapshot)` is 592 -> **608**. Declared AFTER the age instead
+    //   it measures **616** — the bool alone would have cost EIGHT. ⚠ `UiSnapshot` is instantiated twice on the OLED
+    //   envs (the frozen `s_frame_snap` plus the per-tick build), so the 8 bytes are worth the two lines of ordering.
+    bool     team_key_present = false;
+    // ★★★★ `uint64_t`, AND THE TYPE IS THE WHOLE POINT (design §4.2, and the trap this slice was briefed against).
+    //     Authority: `Node::mobile_home_confirm_age_ms()`, which is `uint64_t`. ⛔⛔ NEVER a `uint32_t` millisecond
+    //     age: that cast re-creates the ~49.7-day wrap this project already fixed once (see node.h's §MH-S4 ledger
+    //     line, where a u32 stamp was MEASURED as free and DECLINED under M3 for exactly this reason), and it would
+    //     make a four-month-old confirmation render as a fresh one.
+    // ⚠ THE SNAPSHOT'S OWN IDIOM INVITES THE BUG: `now_ms` above is `uint32_t` and `last_dm_age_s` is a `uint32_t`
+    //   seconds age, so "age = now_ms - confirmed_ms" would be written naturally and would be wrong. ⇒ the age is
+    //   carried WHOLE and is bucketed exactly once, in `ui_fmt_home_age` (src/firmware_ui_chrome.h).
+    // ⓘ Meaningful only while `home_confirmed_ever` is true; 0 with `!ever` is "never", not "just now".
+    uint64_t home_confirm_age_ms = 0;
 };
 
 // ★ THE UI-LOCAL UNREAD / RECENCY COUNTERS (spec §6). They were six file-static variables in firmware_ui.cpp, and
@@ -492,7 +568,8 @@ struct InboxReq { InboxWhat what = InboxWhat::none; InboxKind kind = InboxKind::
 // neither the native suite nor the simulator, so a string it builds is a string no automated gate can read. Here the
 // native suite asserts the VISIBLE BYTES.
 // ⓘ Spec §3.5's layout: `DM from <origin>` (or `CH<n> from <origin>`) with a `<page>/<pages>` indicator. Widest real
-//   expansion `CH255 from 255 6/6` = 18 of the panel's 21 small-font columns.
+//   expansion `CH255 from 255 7/7` = 18 columns, which fits the rail's 19-column body (§CHROME-4). ⓘ `pages` cannot
+//   exceed `kDetailMaxPages` = 7, so both counters stay one digit and the line cannot grow.
 // ★ `del_failed` REPLACES the from-line rather than a body row: the body rows are the message's own bytes, and dropping
 //   half a page while the error stands would make the page indicator name bytes the panel is not showing. The indicator
 //   itself is kept, so the failure does not cost the reader their place. Spec §3.5: "on storage failure stay in the
@@ -500,8 +577,9 @@ struct InboxReq { InboxWhat what = InboxWhat::none; InboxKind kind = InboxKind::
 inline void inbox_detail_head(char* out, std::size_t cap, InboxKind kind, uint8_t origin, uint8_t channel_id,
                               uint8_t page, uint8_t pages, bool del_failed) {
     if (del_failed) { snprintf(out, cap, "DELETE FAILED %u/%u", unsigned(page) + 1u, unsigned(pages)); return; }
-    // 32 bytes so -Wformat-truncation can PROVE the widest expansion fits: "CH" + 10 + " from " + 10 + NUL = 29. The
-    // panel clips at 21 columns regardless — this bounds the FORMATTER, exactly as `kLineCap` does in the renderer.
+    // 32 bytes so -Wformat-truncation can PROVE the widest expansion fits: "CH" + 10 + " from " + 10 + NUL = 29. This
+    // bounds the FORMATTER, exactly as `kLineCap` does in the renderer; what bounds the DISPLAY is the 19-column
+    // audit above (`chrome4-audit:` asserts this line at its widest reachable expansion).
     char from[32];
     if (kind == InboxKind::dm) snprintf(from, sizeof from, "DM from %u", unsigned(origin));
     else                       snprintf(from, sizeof from, "CH%u from %u", unsigned(channel_id), unsigned(origin));
@@ -528,7 +606,7 @@ enum class DmState   : uint8_t { idle = 0, submitting, waiting_ack, delivered, n
 //                   (`no_relay` is CORRECT at 100 % delivery on a 1-hop pair) survives the rename untouched.
 //                   ⚠ NOT to be confused with the EMERGENCY headline, where `NO RELAY HEARD` was ruled OUT on width
 //                   (14 chars x Font::large = 140 px > the 128 px panel; that headline is `NOT RELAYED`). This state
-//                   renders in Font::small at 21 columns, so 14 fits with room to spare.
+//                   renders in Font::small in the rail's 19-column body (§CHROME-4), so 14 still fits with 5 to spare.
 //   `unconfirmed` — §B69: `ctr == 0`, so NO LOCAL HANDLE ever existed. We never listened, so we may not say "no relay";
 //                   we cannot establish transmission either, so we may not say SENT. See the ★★ correction below.
 //   `relayed`     — a neighbour was overheard re-flooding it. The only member that may say PICKED UP.
@@ -913,8 +991,8 @@ public:
         if (n > MESHROUTE_NS::protocol::inbox_max_body) n = MESHROUTE_NS::protocol::inbox_max_body;
         for (uint8_t i = 0; i < n; ++i) _detail_body[i] = ui_display_byte(body[i]);
         _detail_body[n] = '\0'; _detail_len = n;
-        // ★ pages = max(1, ceil(len / 42)) — ⛔ never zero: an empty body still has a page, or the modal would render
-        //   `1/0` and the cycling arithmetic above would divide by zero.
+        // ★ pages = max(1, ceil(len / kDetailPageChars)) — ⛔ never zero: an empty body still has a page, or the modal
+        //   would render `1/0` and the cycling arithmetic above would divide by zero.
         const uint8_t p = uint8_t((n + kDetailPageChars - 1) / kDetailPageChars);
         _st.detail_pages = p ? p : uint8_t(1);
         _st.detail_page = 0;
@@ -1721,7 +1799,8 @@ private:
         _inbox_nb_valid = false;
         _st.dirty = true;
     }
-    // The current page, wrapped into the two body rows WITHOUT DROPPING BYTES: 21 columns each, taken in order. The
+    // The current page, wrapped into the two body rows WITHOUT DROPPING BYTES: `kDetailCols` columns each (19 since
+    // §CHROME-4 — the rail's 116-px body), taken in order. The
     // bytes are already sanitized (`on_inbox_opened`), so this is a slice and nothing else — and it reads `_detail_len`
     // rather than looking for a terminator, because the length is the truth about the record.
     void refresh_detail_page() {

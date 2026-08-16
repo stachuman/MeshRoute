@@ -16,6 +16,19 @@ struct ProbeU8g2 {
     int last_power_save_arg = -1;
     const uint8_t* last_font = nullptr;
     int pages_left = 0;
+    // ★ §CHROME-2. The FOUR bitmap/outline entry points are shimmed, not just the two the board is supposed to use:
+    //   `drawXBMP` and `drawBox` exist here PRECISELY SO THE WRONG-CALL CONTROLS COMPILE. A mutation that fails to
+    //   build is a weaker control than one that builds and is caught — negctl.py prints "COMPILE FAILS" and moves on,
+    //   which would leave "the board picked the wrong U8g2 call" unmeasured by the probe itself.
+    int drawXBM = 0, drawXBMP = 0, drawFrame = 0, drawBox = 0;
+    // Every argument is recorded, in order, because a transposition (x<->y, w<->h) is invisible to a call COUNT.
+    int xbm_x = -1, xbm_y = -1, xbm_w = -1, xbm_h = -1;
+    const uint8_t* xbm_bits = nullptr;      // the POINTER, so "forwarded unchanged, never copied" is assertable
+    int rect_x = -1, rect_y = -1, rect_w = -1, rect_h = -1;
+    int box_x = -1, box_y = -1, box_w = -1, box_h = -1;
+    // ⚠ COMPOSE-ONLY CALLS ARE DELIBERATELY ABSENT FROM THIS SUM, which is what makes "no bus traffic outside
+    //   next_page()" a MEASUREMENT rather than a claim: drawStr/drawHLine/drawXBM/drawFrame write the page buffer,
+    //   so a primitive that reached the panel would have to do it through one of the three counted below.
     int bus_ops() const { return begin + nextPage + setPowerSave; }   // the calls that actually reach the panel
 };
 extern ProbeU8g2 g_u8;
@@ -32,5 +45,13 @@ public:
     void     setFont(const uint8_t* f)                 { g_u8.setFont++; g_u8.last_font = f; }
     uint16_t drawStr(int, int, const char*)            { g_u8.drawStr++; return 0; }
     void     drawHLine(int, int, int)                  { g_u8.drawHLine++; }
+    void     drawXBM(int x, int y, int w, int h, const uint8_t* b) {
+                 g_u8.drawXBM++;  g_u8.xbm_x = x; g_u8.xbm_y = y; g_u8.xbm_w = w; g_u8.xbm_h = h; g_u8.xbm_bits = b; }
+    void     drawXBMP(int x, int y, int w, int h, const uint8_t* b) {
+                 g_u8.drawXBMP++; g_u8.xbm_x = x; g_u8.xbm_y = y; g_u8.xbm_w = w; g_u8.xbm_h = h; g_u8.xbm_bits = b; }
+    void     drawFrame(int x, int y, int w, int h)     {
+                 g_u8.drawFrame++; g_u8.rect_x = x; g_u8.rect_y = y; g_u8.rect_w = w; g_u8.rect_h = h; }
+    void     drawBox(int x, int y, int w, int h)       {
+                 g_u8.drawBox++;   g_u8.box_x = x;  g_u8.box_y = y;  g_u8.box_w = w;  g_u8.box_h = h; }
     void     setPowerSave(uint8_t v)                   { g_u8.setPowerSave++; g_u8.last_power_save_arg = v; }
 };

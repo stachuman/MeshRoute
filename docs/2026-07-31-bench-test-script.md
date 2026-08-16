@@ -623,9 +623,10 @@ the whole of Task 8 is this bench matrix. **The nine cases map: 1 → 8.23 · 2 
   - ⇒ Full procedure and the residual this does NOT close: guide **H9-05 part C**.
 
 - [ ] **8.29 — TASK 9: an unmeasurable battery renders `--`, never a number**
-  - Do: watch the status bar from boot, before the first successful sample.
-  - Pass: the bar's last field is exactly `--`; the STATUS body reads exactly `batt --`; **no** text anywhere matches
-    `<digit>.<digit>V`; no percentage anywhere.
+  - Do: watch the status strip from boot, before the first successful sample.
+  - Pass: the **battery slot's token** (the rightmost field, beside the outline) is exactly `--`; the STATUS body
+    reads exactly `batt --`; **no** text anywhere matches `<digit>.<digit>V`; no percentage anywhere.
+    ⓘ §CHROME-3 moved this field from *"the bar's last field"* into a fixed right-anchored slot; the rule is unchanged.
   - Fail: `0.0V` / `batt 0mV` (the plausibility window **`kBattMinMv`**/**`kBattMaxMv`** is not being applied, or a
     raw-0 read is rendered) · a plausible voltage appearing instantly at boot (a fabricated default) · a percentage
     (ruled out — plan Task 9 Step 3, spec §3.3).
@@ -655,8 +656,11 @@ the whole of Task 8 is this bench matrix. **The nine cases map: 1 → 8.23 · 2 
 - [ ] **8.8 — TASK 6 / §B91: the panel-ACK line, and it must be ABSENT on a working board**
   - Do: on a Task-6 build, watch the console from power-on.
   - Pass on a **healthy** panel: the line below **does not appear**, and the panel shows the live STATUS screen —
-    status bar `DM0 CH0 T0/0 --` (a fresh node: no mail, no teammates heard, no battery reader until Task 9), then
-    `STATUS` / `me T<team_local_id>  team <8-hex team_id>` / `DM 0, newest --` / `CH 0, newest --` / `batt --`.
+    the **status strip** (§CHROME-3, see Part 24) reading `0` mail, the home slot's `--`, `--` teammates and `--`
+    volts on a fresh node, then `STATUS` / `me T<team_local_id>  team <8-hex team_id>` / `DM 0, newest --` /
+    `CH 0, newest --` / `batt --`.
+    ⛔ **WITHDRAWN WORDING, kept visible:** this line used to read *"status bar `DM0 CH0 T0/0 --`"*. That packed text
+    bar was **replaced** by the icon strip in §CHROME-3 (design §2/§3.1); seeing it means an older image is flashed.
   - Pass on a **dead** panel: exactly this line, **once**, at boot —
     `!! OLED panel did not ACK (check Vext / addr 0x3C / wiring)`
     — and the node **keeps meshing** (the report is not fatal; confirm beacons/DMs still work).
@@ -797,19 +801,27 @@ The panel is the only instrument; there is no console line.
 ### 8.14 — §B108 round 2: the unread cap is a DISPLAY limit, and only the panel can say so (2026-08-05)
 
 The arithmetic is fully native-gated (`ui-frame: B108 round 2 — a mid-frame arrival survives AT the unread cap`). What
-no gate reaches is the **status bar itself**: the arrival serial is now uncapped and the clamp lives in exactly one
-place, `UiInboxCounters::publish`. If a future edit publishes the raw serial instead, every native case still passes
-and the bar silently grows a fourth digit that the 128-px line has no room for.
+no gate reaches is the **rendering**: the arrival serial is now uncapped and the clamp lives in exactly one place,
+`UiInboxCounters::publish`. If a future edit publishes the raw serial instead, every native case still passes and the
+panel silently grows a digit the 128-px line has no room for.
+
+⛔⛔ **RETARGETED BY §CHROME-3 (2026-08-16), AND THE WITHDRAWN EXPECTATION IS KEPT VISIBLE.** This entry used to read
+*"Expected status bar, exactly — `CH999`, never `CH1000`: `DM0 CH999 T0/0 --`"*. The packed text bar is **gone**; the
+strip draws the **combined** session-unread value clamped to `99+` (design §4.1), so **`CH999` is no longer rendered
+anywhere on the strip** and looking for it would fail a correct build. The 999 display cap survives in the **STATUS and
+INBOX body rows**, which still print `DM <n>` / `CH <n>` from the same capped fields — so that is where it is checked.
 
 1. From a second node, post more than `999` channel messages without visiting INBOX on the panel node (a scripted
    burst; nothing else reaches four digits).
-2. Expected status bar, exactly — `CH999`, never `CH1000` and never a rolled-over small number:
-   `DM0 CH999 T0/0 --`
-3. Then walk to INBOX and let one full frame draw. Expected: `CH0`, and the bar layout is unchanged throughout.
+2. Expected on the **strip**: the mail slot reads `99+` (not `999`, not `1000`, not a rolled-over small number), and
+   ⛔ the four icons after it have **not moved** — the token is three columns wide, which is what its slot budgets.
+3. Expected on the **STATUS body**, exactly: `CH 999, newest <age>` — never `CH 1000`.
+4. Then walk to INBOX and let one full frame draw. Expected: the mail slot returns to `0` and the body to `CH 0`, and
+   the strip's geometry is unchanged throughout.
 
-⛔ A four-digit count, a truncated `T<n>/<n>` field, or a count that *drops* while the burst is still arriving is a
-regression of this slice. ⓘ If the burst is not practical on the day, say so in the completion record rather than
-ticking it — the behavioural half is natively covered; only the **rendering** half is owed here.
+⛔ A four-digit count anywhere, an icon that shifts, or a count that *drops* while the burst is still arriving is a
+regression. ⓘ If the burst is not practical on the day, say so in the completion record rather than ticking it — the
+behavioural half is natively covered; only the **rendering** half is owed here.
 
 ### 8.15 — §R1/B109 a REPLY lights a DARK panel; a stranger's post does not (2026-08-05, OWNER-RULED)
 
@@ -1966,7 +1978,11 @@ its bindings are proved against fakes; a green suite says the LOGIC is right, ne
 
 ### 20.1 — the menu, and that a draft is RAM only
 
-1. Cycle past SEND (or past INBOX on a `gateway_heltec`): the fifth screen's title row reads `SETTINGS`.
+1. Cycle past SEND (or past INBOX on a `gateway_heltec`): the fifth screen is SETTINGS.
+   ⛔⛔ **RETARGETED 2026-08-16 (§CHROME-4, QG): THIS STEP READ *"the fifth screen's title row reads `SETTINGS`"* AND
+   THAT IS NOW FALSE — §7.2 REMOVED the standalone title and gave the row to the menu.** ⇒ **you are on SETTINGS when
+   the NAVIGATION RAIL's fifth (bottom) slot carries the one-pixel selection frame**, per Part 25.1. The withdrawn
+   wording is kept visible rather than deleted (§3 rule 3).
    ⛔ **There must be NO `BLE` row** — the UI-12 transport is not compiled on any ESP32 env. If one appears, the
    build set `MR_UI_BLE_ROW` and the rest of this part is about a different menu.
 2. Expected rows, in order, three at a time as you `short`-press: `DM crypt`, `key attach`, `auto reg`, `PROVISION`,
@@ -1976,9 +1992,17 @@ its bindings are proved against fakes; a green suite says the LOGIC is right, ne
    flips to `[on]`. ⛔ The cursor must NOT move to the next row while bracketed — that is the whole of `short`'s two
    modes. **Double press** accepts and the bracket goes away.
 4. ⛔ **Nothing has been saved.** Over USB, `cfg` still reports the OLD value, and the title row now reads
-   `SETTINGS CFG* UNSAVED`.
-5. Cycle to **STATUS**: it reads `STATUS CFG* UNSAVED` on its title row. ⛔ **The status bar (`DM… CH… T…/… …V`) must
-   not be shortened to make room** — if it is, the marker is being drawn in the wrong place.
+   the marker row **`CFG* UNSAVED`** — ⚠ **RETARGETED 2026-08-16 (§CHROME-4): this read `SETTINGS CFG* UNSAVED`.**
+   The **marker is RETAINED** (§6: the badge *"may replace the STATUS decoration; it may never replace the
+   instruction"*); only the `SETTINGS` **title** is gone (§7.2), so the row now carries the marker alone.
+   ★ The SETTINGS rail slot's badge gains its dot at the same moment — see Part 25.4.
+5. Cycle to **STATUS**: ⛔⛔ **RETARGETED 2026-08-16 (§CHROME-4) — the withdrawn step read *"it reads
+   `STATUS CFG* UNSAVED` on its title row"*, and §6 REMOVED that decoration together with the STATUS title.**
+   ⇒ **the unsaved state is now visible from every ordinary screen as the SETTINGS rail slot's BADGE** (Part 25.4).
+   ⛔ The STATUS body must NOT carry the marker; if it does, §6's removal was reverted. ⛔ **The status STRIP must not be shortened
+   or overdrawn to make room** — if it is, the marker is being drawn in the wrong place.
+   ⓘ The strip replaced the packed `DM… CH… T…/… …V` bar in §CHROME-3; the marker keeps its own title row, and §6's
+   move of this decoration onto the SETTINGS rail icon is **slice 4**, not done here.
 6. ★★ **Leave the board alone for ~20 s so the panel BLANKS, then press once to wake it.** The marker is still there
    and the value is still edited. ⛔ **A draft may never be discarded because attention timed out.**
 7. Walk to `BACK` and double-press: the panel returns to STATUS **with the marker still up**. Cycle back into
@@ -1989,7 +2013,9 @@ its bindings are proved against fakes; a green suite says the LOGIC is right, ne
 1. Before saving, record over USB: `cfg` (note `e2e_dm`, `intro_attach`, `mobile_autoregister`, `ble_mode`) **and**
    at least two fields this editor does not cover — `status` for the node id / team id, and the channel counter.
 2. With the draft still standing, walk to `SAVE` and double-press. Expected on the panel: **`SAVED`**, and the
-   `CFG* UNSAVED` marker **gone** from both SETTINGS and STATUS.
+   the `CFG* UNSAVED` marker row **gone from SETTINGS** and the **rail badge back to its plain tools glyph**.
+   ⚠ **RETARGETED 2026-08-16: this read *"gone from both SETTINGS and STATUS"*** — STATUS no longer carries a
+   marker to lose, so the badge is what proves the clean state from an ordinary screen.
 3. `cfg` over USB: the edited field now holds the NEW value. ⛔ **And every non-covered field is unchanged** — same
    node id, same team id, same channel counter, same radio floor. ★ **This is the step the fakes cannot do**: the real
    record is a whole `mrnv::Blob`, and a save that rebuilt it instead of reloading it would revert a leased counter.
@@ -2353,6 +2379,136 @@ The B200 panic dump printed `ELF file SHA256: 7a8aaa957` over a banner reading `
      decodes against.**
    ⚠ An ELF decodes **only** the exact image built from it, and a `-dirty` stamp does not identify a revision; once
    the slice is committed, rebuild and archive the clean-stamped one.
+
+## Part 24 — §CHROME-3: the status strip and its repaint invalidation (2026-08-16)
+
+⛔ **THE RESIDUE ONLY.** The projection, its formatters, the slot coordinates, the eight-page replay, the blanked/no-bus
+sequence and the invalidation rule are all host-gated (`test/test_firmware_ui_chrome.cpp` + `tools/probe_firmware_ui`
+P13 + `tools/probe_board_ui` W38-W40). What no host can reach is **pixels on glass**, the **real I²C timing**, and the
+**power** the new per-tick work costs. Nothing else belongs here.
+
+### 24.1 — the strip is LEGIBLE and nothing overlaps (design §3.1)
+
+1. Boot `heltec_mobile` with the panel attached and cycle all five screens.
+2. Expected, left to right on the top row: **envelope + count · house + compact age · people + count · key · battery
+   outline + volts**, all above the existing full-width rule, and the body untouched below it.
+3. ⛔ Fail on: any glyph overlapping its neighbour or the rule · a token running off the right edge · an icon that
+   MOVES when a token's width changes (walk the mail count past `9` and past `99` — the four icons after it must stay
+   put) · a smeared battery outline (that is the 11-px asset drawn at 7 px — its rows are two bytes).
+
+### 24.2 — each slot agrees with the console, and claims nothing more
+
+| slot | compare against | ⛔ must never |
+|---|---|---|
+| envelope | one DM + one channel post: `0 -> 1 -> 2`; opening a message does not clear it; ONE fully drawn INBOX list returns it to `0` | show a stored total |
+| house + age | `mobile status`'s home-link state and confirmation age | read as "connected"/"online" — it is a **confirmation** age, and a team message or a foreign beacon must not refresh it |
+| people | `routes` / the TEAM screen row count | claim members ONLINE; with **no team configured** it reads `--`, with a team and nobody heard `0` |
+| key | `team_ch_key` present/absent | claim the node's own crypto identity is missing |
+| battery | a multimeter, per **H9-02**'s one-sided window | show a percentage |
+
+⚠ On `gateway_heltec` (an OLED build with **no** mobile plane) the house slot must be **BLANK — not a crossed house**:
+"not applicable" is not a fault (design §4.2).
+
+### 24.3 — ★★ IDLE SLEEP STILL WORKS WITH THE STRIP ENABLED (design §12.11 — the regression guard)
+
+The strip adds per-tick work and a new invalidation path to the one subsystem that took five review rounds to
+stabilise. A regression there presents **only** as `slept=` failing to climb: no panic, nothing visible on the panel.
+
+1. Persist `team 0` **before** rebooting, so the node comes up with no peers.
+2. ⛔ **Send NO console byte during the test boot** — one byte latches `g_host_present` and the node then never
+   sleeps, so the check would pass over a node that was simply awake.
+3. Wait past the 30 s boot grace **and** the 15 s panel blank, then read `status` **once, at the end**.
+4. Pass: **`slept=` > 0**, with `wkarmfail=0` and `wkdisarm=0`.
+5. ⓘ `wkbusy=` and `wksleepfail=` are informational — **record them, do not require zero** (Part 23 records why).
+
+⛔ Fail = `slept=0` on a node that met steps 1-3 ⇒ something in the new per-tick path is holding the node awake. The
+host-side guards are `probe_firmware_ui` P13f (a blanked chrome change opens no frame and issues no bus command) and
+P13h (a chrome change is not user input, so the attention window is not postponed).
+
+## Part 25 — §CHROME-4: the navigation rail, the config badge and the 19-column body (2026-08-16)
+
+⛔ **THE RESIDUE ONLY.** The §5.2 mapping, the §6 badge priority, the slot mask, the 19-column wrap and its re-derived
+page count are host-gated (`test/test_firmware_ui_chrome.cpp`, `test/test_firmware_ui_model.cpp`'s `chrome4-audit:`,
+`tools/probe_firmware_ui` P14, `tools/probe_board_ui` W41-W43). What no host can reach is **pixels on glass** — whether
+the icons are legible at 7 px, whether anything overlaps, and whether a real `/mrcfg` write moves the badge.
+
+### 25.1 — geometry: exactly one boxed icon, and no text touches the rail (design §12.1)
+
+1. Cycle all five screens on `heltec_mobile`.
+2. Expected: a **one-pixel box** around exactly ONE rail icon at a time, and it is the icon of the screen being shown —
+   ⓘ order top to bottom is **STATUS · TEAM · INBOX · SEND · SETTINGS**, aligned with the five body rows.
+3. ⛔ Fail on: two boxes at once · no box · a box around an icon that is not the current screen · any body text
+   touching or overlapping the icons · any body line clipped at the right edge.
+4. ⚠ The screens no longer print `STATUS` or `SETTINGS` as a heading — **that is the change, not a fault** (design
+   §7.2). INBOX keeps `INBOX <shown>/<total>` and SEND keeps `SEND to team`.
+
+### 25.2 — the modal mapping: the rail names the body, not the screen underneath (design §12.2)
+
+1. Open an inbox message (INBOX ⇒ double). Expected: **INBOX stays boxed** through the detail modal, its paging and
+   `MESSAGE GONE`.
+2. From TEAM, open a teammate and send a canned DM. Expected: **SEND is boxed** for the pick-a-text list *and* for the
+   result view — ⛔ not TEAM, which is the screen underneath.
+3. ⛔ Fail on the box following the screen rather than the body.
+
+### 25.3 — ★★ emergency: the rail disappears and every headline is COMPLETE (design §12.3)
+
+⛔ **THIS IS THE SAFETY CHECK OF THE SLICE.** `Font::large` is 10 px per column on a 128-px panel = **12 columns at
+x = 0**; `NOT RELAYED` spends 11 of them. A rail-shifted emergency body would have 11 columns and would clip a
+distress headline.
+
+1. Long-press to arm, then fire an alarm; also let one run to `NOT RELAYED` and cancel one.
+2. Expected on EVERY emergency screen: **no rail at all**, the top status strip still present, and the headline
+   (`RELEASE!` / `SENDING...` / `BLOCKED` / `PICKED UP` / `NOT RELAYED` / `REPLY` / `CANCELLED` / `FAILED`) rendered
+   **complete**, starting hard against the left edge.
+3. ⛔ Fail on: a rail icon visible during an alarm · a headline missing its last character(s) · a headline that starts
+   12 px in.
+
+### 25.4 — the SETTINGS badge follows the priority table, and SETTINGS still says WHY (design §12.8)
+
+⚠ The badge is a 7x7 glyph; read it at arm's length and confirm the four states are **distinguishable**.
+
+| do this | badge on the SETTINGS rail icon | ⛔ SETTINGS must ALSO still print |
+|---|---|---|
+| nothing (fresh boot, never opened SETTINGS) | plain gear | — |
+| edit a value, do not save | gear **+ dot** | `CFG* UNSAVED` |
+| with that draft open, `cfg set e2e_dm 1` **over serial** | gear **+ exclamation** | `CFG! RELOAD` |
+| save a reboot-class field (`ble_mode`), do not reboot | gear **+ restart marker** | `RESTART NEEDED` |
+| unsaved **and** restart-required together | the **unsaved** dot (unsaved outranks restart) | both texts, on their own rows |
+| conflict **and** unsaved together | the **exclamation** (conflict outranks everything) | `CFG! RELOAD` |
+
+⛔ **Fail on an icon-only configuration error**: if the badge changes and SETTINGS does not state the remedy in words,
+that is design §6's forbidden state and §13 refuses it as a release. ⓘ The badge replaced the STATUS-title
+`CFG* UNSAVED` / `CFG! RELOAD` decoration — **STATUS carrying no such text is the change, not a fault**.
+
+### 25.5 — the 19-column body, on the two screens where it is tightest
+
+1. **Inbox detail:** open the longest message you can post (≥ 120 bytes). Expected: two body rows of **19** characters,
+   a page indicator `n/N` whose **N counts every page** — page through the whole body and confirm the last page's
+   content really is the tail of the message, with **no bytes missing between page N-1 and page N**.
+   ⛔ Fail on a body that never shows its final characters: that is a page count computed from the old 21-column wrap.
+2. **TEAM:** with a teammate whose name is long, confirm the row shows name / age / hops without running under the
+   rail or off the right edge, and that a teammate that has left reads `TEAMMATE GONE, pick` **complete**
+   (ⓘ 19 characters exactly — it was `TEAMMATE GONE, repick` at 21 and had to lose two columns to the rail).
+
+### 25.6 — ★★ IDLE SLEEP STILL WORKS WITH THE RAIL ENABLED (design §12.11 — the same regression guard)
+
+The rail adds five bitmap draws and a frame per page, i.e. six more compose calls x 8 pages per frame. A power
+regression presents **only** as `slept=` failing to climb: no panic, nothing visible on the panel.
+
+1. Persist `team 0` **before** rebooting, so the node comes up with no peers.
+2. ⛔ **Send NO console byte during the test boot** — one byte latches `g_host_present` and the node then never sleeps,
+   so the check would pass over a node that was simply awake.
+3. Wait past the 30 s boot grace **and** the 15 s panel blank, then read `status` **once, at the end**.
+4. Pass: **`slept=` > 0**, with `wkarmfail=0` and `wkdisarm=0`.
+5. ⓘ `wkbusy=` and `wksleepfail=` are informational — **record them, do not require zero** (Part 23 records why).
+
+### 25.7 — the non-team OLED build (`gateway_heltec`)
+
+1. Flash `gateway_heltec` and cycle its screens.
+2. Expected: the rail shows **STATUS, INBOX and SETTINGS only**; the TEAM and SEND slots are **EMPTY**, and the three
+   remaining icons are at the **same heights** as on `heltec_mobile` (⛔ not packed up to close the gaps — design §3.2
+   forbids a second layout).
+3. ⛔ Fail on a TEAM or SEND icon appearing on a build with no team plane, or on the icons shifting position.
 
 ## Completion record
 

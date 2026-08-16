@@ -301,6 +301,22 @@ void set_font(Font f) {
 void draw_text(int x, int y, const char* s) { s_u8g2.drawStr(x, y, s); }
 void draw_hline(int x, int y, int w)        { s_u8g2.drawHLine(x, y, w); }
 
+// ★★★ §CHROME-2 — THE TWO GENERIC PRIMITIVES. Both are PURE FORWARDS, and being pure forwards is the property, not
+//   laziness: every UI decision (which glyph, where, in which state) belongs one layer up, and a board that
+//   "helpfully" offset, clipped or reinterpreted a request would be making one. See board_ui.h for the boundary and
+//   for the byte-order contract's single home (`src/firmware_ui_icons.h`).
+// ⚠ `drawXBM`, ⛔ **NOT `drawXBMP`** — and the difference is silent, not cosmetic. The `P` suffix is U8g2's PROGMEM
+//   form: `u8g2_DrawHXBMP` reads its bytes through `u8g2_pgm_read`, which on AVR is a SEPARATE ADDRESS SPACE
+//   instruction. On ESP32-S3 and nRF52 flash is memory-mapped and §CHROME-1's assets are ordinary `inline constexpr`
+//   objects at namespace scope, so `drawXBMP` would be a needless indirection here and a wrong-address-space read on
+//   an AVR port — i.e. the wrong call in both directions, differing only in which platform it corrupts.
+// ⚠ NO NULL GUARD, DELIBERATELY (C2 — fail loud, no unagreed fallback): a silent "skip the draw" would turn a
+//   caller's bug into a missing icon nobody can see. The caller owns the pointer, as board_ui.h states.
+void draw_bitmap(int x, int y, int w, int h, const uint8_t* bits) { s_u8g2.drawXBM(x, y, w, h, bits); }
+// ⚠ `drawFrame`, ⛔ NOT `drawBox` — an OUTLINE, one pixel wide. A filled box would invert the rail slot and hide the
+//   very icon the frame exists to select (design §3.2).
+void draw_rect(int x, int y, int w, int h)                        { s_u8g2.drawFrame(x, y, w, h); }
+
 // ★ EDGE-TRIGGERED, and the latch is the entire point. An earlier design draft called clearDisplay() on every tick
 //   while blanked — a full 1024 B I2C transfer per service pass, i.e. exactly the traffic the page-chunking rule
 //   exists to prevent, plus the power it wastes (spec §5's power note). setPowerSave sends ONE SSD1306
@@ -458,7 +474,15 @@ int32_t battery_sample_mv() {
 // ⓘ The `--gc-sections` reachability that `mr_ui_init()` used to provide (§B88) now comes from the real caller:
 //    `firmware_ui.cpp` calls `board_init`, `begin_frame`, `next_page`, `set_font`, `draw_text`, `draw_hline`,
 //    `set_power_save`, `button_pressed`, `battery_sample_mv` and — since §B200 — `arm_button_wake` /
-//    `disarm_button_wake`: all ELEVEN canvas entry points, so none is collected. (§B197's single
+//    `disarm_button_wake`: ELEVEN of the canvas entry points, so none of those is collected. (§B197's single
 //    `enable_button_wake` is gone; the pair replaced it.)
+// ⛔⛔ AND THE TWO §CHROME-2 PRIMITIVES ARE **NOT** IN THAT LIST, WHICH IS SAID OUT LOUD RATHER THAN LEFT TO BE
+//    DISCOVERED AS A SURPRISING FLASH NUMBER: `draw_bitmap` and `draw_rect` have **NO CALLER ANYWHERE IN THE TREE**
+//    until the slice-3 renderer, so `--gc-sections` is entitled to discard both. They are COMPILED into this TU's
+//    object on every OLED env (measurable with `nm` on the `.pio` object) but they are NOT LINKED and NOT EXERCISED
+//    in any firmware image, and a near-zero per-board flash delta for this slice is therefore EXPECTED and is NOT
+//    evidence that the strip fits. ⇒ design §11.2's *"linked and exercised in every OLED environment"* bullet is
+//    DEFERRED TO SLICE 3, where the renderer becomes their caller; it is deliberately NOT faked here with a dummy
+//    reference, because a fake caller would link dead code into every shipped image to satisfy a test.
 
 #endif  // MR_FEAT_OLED

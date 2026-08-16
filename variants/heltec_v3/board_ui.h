@@ -40,6 +40,29 @@ bool next_page();                   // push ONE page (~3 ms); true while pages r
 void set_font(Font f);
 void draw_text(int x, int y, const char* s);
 void draw_hline(int x, int y, int w);
+// ★★★ §CHROME-2 — THE TWO GENERIC CANVAS PRIMITIVES THE STATUS STRIP AND THE NAVIGATION RAIL WILL DRAW THROUGH
+//   (design `docs/superpowers/specs/2026-08-15-heltec-mobile-status-navigation-ui-design.md` §8.1). They are
+//   GENERIC ON PURPOSE and the boundary above is the whole point of the redesign: ⛔ this canvas must NEVER gain a
+//   `draw_mail_icon()` / `draw_home_icon()` and ⛔ must never include `firmware_ui_model.h`, `firmware_ui_chrome.h`
+//   or `firmware_ui_icons.h`. The firmware owns icon IDENTITY, PLACEMENT and STATE SELECTION; the board copies
+//   pixels. That is exactly what lets the Heltec V4 port reuse the same bitmaps and the same renderer unchanged.
+// ★ COMPOSE-ONLY, like every other draw call here: they write the page buffer and touch NO bus. The one and only
+//   bus boundary remains `next_page()` (see the paint contract at the top of this file).
+//
+// ⛔⛔ THE BYTE-ORDER CONTRACT IS **NOT** RESTATED HERE, AND THAT IS DELIBERATE (§8.1's 2026-08-16 amendment): it is
+//   defined ONCE, in `src/firmware_ui_icons.h`'s header block — U8g2/XBM convention, row-major, LSB-first, 1 bit per
+//   pixel, rows padded to whole bytes (`stride = (w + 7) / 8`). ⚠ A second, drifting copy of that contract in a board
+//   file is precisely how the same asset renders MIRRORED on one port and BIT-REVERSED on another. `bits` must point
+//   at `stride * h` readable bytes; the CALLER owns that buffer and its lifetime.
+// ★ IT MAPS 1:1 ONTO U8g2's NATIVE CALL — no conversion, no per-board reinterpretation (`u8g2_DrawXBM`,
+//   `clib/u8g2_bitmap.c:167`, walks rows with `blen = (w + 7) >> 3` and `u8g2_DrawHXBM` starts its mask at bit 0).
+void draw_bitmap(int x, int y, int w, int h, const uint8_t* bits);
+// ★ A ONE-PIXEL RECTANGLE OUTLINE — the rail's selection frame (§3.2), never a filled box.
+// ⚠⚠ NAMED `draw_rect`, NOT the design's `draw_frame`, AND THE DEVIATION IS RECORDED AS A DESIGN AMENDMENT
+//   (§8.1, 2026-08-16). `draw_frame` ALREADY EXISTS in `src/firmware_ui.cpp:946` as the WHOLE-SCREEN composer, so
+//   the slice-3 renderer would otherwise call two `draw_frame`s meaning "compose the entire screen" and "draw a
+//   rectangle outline" in the same function. The names are separable by namespace, but a reader's mistake is not.
+void draw_rect(int x, int y, int w, int h);
 void set_power_save(bool on);       // panel off/on WITHOUT clearing display RAM; latched, repeat calls are no-ops
 bool button_pressed();
 // ★★★ §B200 — ARM THE BUTTON AS A LIGHT-SLEEP WAKE SOURCE, FOR ONE SLEEP ONLY. ⛔⛔ THE OLD CONTRACT IS WITHDRAWN

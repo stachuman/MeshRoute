@@ -43,6 +43,23 @@
 //             menu/editor renderer, spec §3.3's draft marker and `RESTART NEEDED` row on STATUS, and the build-time
 //             `MR_UI_BLE_ROW` condition published into the snapshot. Every gesture meaning, the row table and all
 //             three action landings are `firmware_ui_model.h`, under the native gate.
+//   ★★ DONE 2026-08-16 (§CHROME-3) — THE STATUS STRIP and design §8.3's REPAINT INVALIDATION. The packed
+//             `DM… CH… T…/… …V` bar is GONE; the top row is now `[mail][count] [home][age] [people][count] [key]
+//             [battery][volts]` at fixed slots from ONE layout table here, drawn from a FIFTH frozen copy
+//             (`s_frame_chrome`) and from nothing else. `build_snapshot` publishes the five §CHROME-1 fields, and
+//             `fmt_volts` was DELETED in favour of `mrui::ui_fmt_batt` (same bytes, plus the width guard it lacked).
+//   ★★ DONE 2026-08-16 (§CHROME-4) — THE NAVIGATION RAIL, THE CONFIG BADGE AND THE 19-COLUMN BODY. `draw_rail` draws
+//             §3.2's five 10-px slots at `x = 0..9` from the FROZEN rail fields (`nav` / `slots` / `rail_visible`),
+//             boxes the active one with `draw_rect` (its first and only caller in the tree), and carries §6's
+//             configuration badge on the SETTINGS glyph. Every ordinary body line moved to the one `kBodyX = 12`
+//             authority through `body_text` and was re-derived for 19 columns (§7.3's audit is written out beside
+//             each screen); the inbox detail's wrap moved with it, AT THE MODEL (`kDetailCols` 21 -> 19, so the page
+//             count is re-derived 42 -> 38 chars and 6 -> 7 pages rather than re-clamped). The standalone `STATUS`
+//             and `SETTINGS` titles are gone (§7.2) and with them the STATUS `CFG* UNSAVED` / `CFG! RELOAD`
+//             DECORATION — ⛔ but NOT the instruction: SETTINGS still renders that text on a row of its own, because
+//             §6 rules that the icon may replace the decoration and may never replace the remedy.
+//   ⛔ NOT DONE HERE, stated so a reader does not look for it: the emergency body is the ONE body that stays at
+//             `x = 0` and 128 px wide (§5.3), and no rail is drawn while an alarm is up.
 //   ★ DONE 2026-08-13 (§UI-14 follow-up) — the IMMEDIATE conflict notification §3.6.1 requires: `mr_ui_on_config_saved`
 //             below, called after a SUCCESSFUL PERSISTED write through the feature-neutral fourth hook in
 //             `lib/hal/mr_ui.h`. ⛔ **CORRECTED IN PLACE: this line read *"NOT DONE HERE, and NOT anywhere
@@ -65,6 +82,13 @@
 
 #include <cstdio>            // snprintf — every panel string is formatted here, never in the board TU
 #include "firmware_ui_model.h"
+#include "firmware_ui_chrome.h"  // ★★ §CHROME-3: the ONE frozen chrome projection, its compact formatters and the
+                                 //   §8.3 invalidation rule. ⓘ THIS INCLUDE IS THE FIRST TIME EITHER CHROME HEADER
+                                 //   MEETS A BOARD TOOLCHAIN — §CHROME-1 and §CHROME-2 both reported that nothing
+                                 //   in the tree included them, so their `-Os` cross-compile behaviour and their
+                                 //   flash cost were UNVERIFIED until this slice.
+#include "firmware_ui_icons.h"   // ★ the strip's glyphs. `inline constexpr` at namespace scope ⇒ `.rodata`, and
+                                 //   §8.1's amendment requires them to land in FLASH, not RAM.
 #include "firmware_ui_send.h"
 #include "board_ui.h"        // resolved by `-I variants/heltec_v3` — ★ THIS is the task that makes that flag
                              //   load-bearing; §A0 predicted Task 5 and UI-5 measured it dead there three ways.
@@ -206,6 +230,14 @@ mrui::UiState    s_frame_state{};
 mrui::UiSnapshot s_frame_snap{};
 OutcomeView      s_frame_out{};
 SettingsView     s_frame_cfg{};
+// ★★★ §CHROME-3 — THE FIFTH FROZEN COPY, and it is frozen at the same instant and for the same reason as the four
+//     above (design §8.2): the strip is redrawn on every page of a frame, so a live chrome would tear the header
+//     across a page boundary exactly as a live `UiState` would tear the body.
+// ★★ IT IS ALSO THE §8.3 COMPARISON REFERENCE — *"the chrome frozen for the MOST RECENTLY OPENED FRAME"* — and the
+//    two roles are the same object on purpose: the reference must move AT THE FREEZE and nowhere else, so a value
+//    that changes while the page loop is open keeps the model dirty until one follow-up frame has rendered it.
+//    ⛔ Never assign it at the point a difference is OBSERVED; that would consume the invalidation without drawing it.
+mrui::UiChrome   s_frame_chrome{};
 // ★ WHEN to paint (§B107). The frozen copies above are WHAT to paint; this owns the lifecycle that decides when they
 //   are refreshed — including the `dirty` consumption, which belongs to the FREEZE and not to the final page.
 mrui::FrameGate  s_gate;
@@ -262,18 +294,36 @@ void label_for_origin(const MESHROUTE_NS::Push& pu, char* out, uint8_t cap) {
 }
 
 // ---- small formatters (ALL text formatting lives in this file, never in the board TU) ----------------------------
+// ★★★★ §CHROME-4 — `fmt_age` IS NOW A ONE-LINE ADAPTER ONTO `mrui::ui_fmt_home_age`, WHICH IS THE SECOND FORMATTER
+//      DUPLICATION THIS ARC HAS RETIRED (§CHROME-3 deleted `fmt_volts` the same way, and for the same reason: U1).
+//      ⛔ The body's own version WAS NOT BOUNDED, and §7.3's audit is what found it: its hour bucket emitted
+//         `%uh%02u` — five columns (`23h59`) — and its day bucket `%ud` over a `uint32_t` seconds value is SIX
+//         (`49710d`). Against a 19-column body, `DM 999, newest 23h59` is 20 columns and `newest 49710d` is 21, so
+//         the STATUS and INBOX lines would have been clipped by the panel — the truncation policy §7.1 rule 5 forbids.
+//      ★ `ui_fmt_home_age` is design §4.2's ruled table (`--` / `Ns` / `Nm` / `Nh` / `Nd` / `old`), is bounded to
+//        THREE columns by construction (`kAgeTokenCap`), and every one of its boundaries is pinned by a native case
+//        with a mutation (`chrome-home:`, X02-X04). ⇒ this is a VERIFIED MOVE onto a stronger formatter, not a rewrite.
+//      ⚠ WHAT IT COSTS, STATED RATHER THAN SMOOTHED OVER: the minutes-inside-an-hour (`23h59` -> `23h`) and an exact
+//        day count above 99 days (`120d` -> `old`). Both are coarser, neither is wrong, and the alternative was a
+//        clipped line — which is not coarser, it is arbitrary.
+//      ⓘ `UINT32_MAX` remains "unknown" and still renders `--`: that is `ever = false` on the other side.
 void fmt_age(char* out, size_t cap, uint32_t s) {
-    if (s == UINT32_MAX)  { snprintf(out, cap, "--"); return; }
-    if (s < 60)           { snprintf(out, cap, "%us", unsigned(s)); return; }
-    if (s < 3600)         { snprintf(out, cap, "%um", unsigned(s / 60)); return; }
-    if (s < 86400)        { snprintf(out, cap, "%uh%02u", unsigned(s / 3600), unsigned((s % 3600) / 60)); return; }
-    snprintf(out, cap, "%ud", unsigned(s / 86400));
+    mrui::ui_fmt_home_age(out, cap, /*ever=*/s != UINT32_MAX, uint64_t(s) * 1000u);
 }
-// Volts, never a percentage: a percentage needs a chemistry and a discharge curve nobody has approved (spec §3.3).
-void fmt_volts(char* out, size_t cap, int32_t mv) {
-    if (mv < 0) { snprintf(out, cap, "--"); return; }
-    snprintf(out, cap, "%u.%uV", unsigned(mv / 1000), unsigned((mv % 1000) / 100));
-}
+// The widest token `fmt_age` can now produce is 3 columns + NUL; every caller sizes its buffer from this.
+constexpr size_t kAgeCap = mrui::kAgeTokenCap;
+// ⛔⛔ `fmt_volts` LIVED HERE AND IS **DELETED** BY §CHROME-3 — a VERIFIED MOVE, not a rewrite. It read:
+//        if (mv < 0) { snprintf(out, cap, "--"); return; }
+//        snprintf(out, cap, "%u.%uV", unsigned(mv / 1000), unsigned((mv % 1000) / 100));
+//    and its one caller was the old packed status bar. `mrui::ui_fmt_batt` (src/firmware_ui_chrome.h) is that same
+//    formatter expressed over DECIVOLTS — `mv/1000` IS `dv/10` and `(mv%1000)/100` IS `dv%10` — and a native case
+//    asserts the exact bytes of BOTH branches, which is what makes deleting this one a move rather than a rewrite.
+// ★★ THEY HAD ALREADY DIVERGED, AND THE SURVIVOR IS THE STRICTER ONE: this version had NO WIDTH GUARD, so a reading
+//    outside the panel's four-column battery slot rendered `10.0V` / `99.9V` and pushed every earlier icon in §3.1's
+//    frozen strip out of budget (the §CHROME-1 R2.2 defect). `ui_fmt_batt` declares such a value UNAVAILABLE and
+//    renders `--` — ⛔ never a plausible-looking clamp, which is the one substitution the battery path forbids.
+// ⓘ The rule it carried is unchanged and now lives beside the survivor: volts, never a percentage — a percentage
+//   needs a chemistry and a discharge curve nobody has approved (spec §3.3, design §4.5).
 const char* refuse_text(mrui::RefuseReason r) {
     switch (r) {
         case mrui::RefuseReason::parser:      return "BAD CMD";
@@ -459,6 +509,26 @@ mrui::UiSnapshot build_snapshot(uint32_t now_ms) {
     s.my_team_id = g_node.team_local_id();
     s.team_id    = g_node.config().team_id;
     s.batt_mv    = s_batt_mv;
+    // ================================================== §CHROME-3 — THE FIVE FIELDS §CHROME-1 DEFINED BUT COULD NOT
+    // PUBLISH. The projection is PURE and may not touch `g_node`; every fact below is a `g_node` accessor, so this is
+    // the one site that can supply them (the same shape as `team_build` / `ble_row` above — U3).
+    // ★ IS THERE A MOBILE-HOME PLANE ON THIS BUILD AT ALL? `gateway_heltec` is a REAL build with OLED=1 and MOBILE=0,
+    //   where design §4.2 rules the home slot BLANK — never crossed, because "not applicable" is not a fault.
+    s.mobile_build         = (MR_FEAT_MOBILE != 0);
+    // ⓘ No `#if` around the three accessors below: `node.h` supplies !MR_FEAT_MOBILE stubs for all three (`unknown` /
+    //   false / 0), so the non-mobile build reads the same "nothing established" answers the projection then blanks.
+    s.home_link            = g_node.mobile_home_link();
+    s.home_confirmed_ever  = g_node.mobile_home_confirmed_ever();
+    // ★★★★ THE 64-BIT AGE, TAKEN VERBATIM FROM THE ACCESSOR AND NOT RECOMPUTED — the trap this slice was briefed
+    //     against. `Node::mobile_home_confirm_age_ms()` returns `uint64_t` (node.h) and does the subtraction against
+    //     the HAL's own 64-bit clock; `UiSnapshot::now_ms` here is `uint32_t`, so `now_ms - confirmed_ms` written at
+    //     this line would be the ~49.7-day wrap design §4.2 forbids and this project already fixed once. ⛔ There is
+    //     exactly one bucketing of this value in the tree (`ui_fmt_home_age`) and it takes `uint64_t` all the way
+    //     into the divisions. ⛔ Never widen a 32-bit difference here and never cast on the way in.
+    s.home_confirm_age_ms  = g_node.mobile_home_confirm_age_ms();
+    // ★ THE TEAM CHANNEL **CONTENT** KEY (§4.4) — not the node's own crypto identity, and not a cached peer key.
+    //   ⓘ Stubbed to false on a !MR_FEAT_TEAM build, so no guard is needed here either.
+    s.team_key_present     = g_node.team_channel_key_present();
     fill_inbox_rows(s);
     return s;
 }
@@ -509,8 +579,11 @@ SettingsView freeze_settings() {
 }
 
 // ---- render policy (spec §3.3 layout) ---------------------------------------------------------------------------
-// 128x64, two fonts only (spec §11: do not link the full font set). 6x10 gives 21 columns and a 10 px line pitch;
-// 10x20 gives 12 columns and is used for the emergency headline alone.
+// 128x64, two fonts only (spec §11: do not link the full font set). 6x10 gives 21 columns ACROSS THE WHOLE PANEL and
+// a 10 px line pitch; 10x20 gives 12 columns and is used for the emergency headline alone.
+// ⛔ SINCE §CHROME-4 THE ORDINARY BODY IS **19** OF THOSE 21 COLUMNS, because the navigation rail owns `x = 0..9`
+//    (design §3.2). The full 21 survive in exactly two places: the top status strip, which is always 128 px wide, and
+//    the EMERGENCY body, which §5.3 keeps at `x = 0`. See `kBodyX` / `kBodyCols` below.
 constexpr int kBarBaseline = 7;    // 6x10 baseline inside the 8 px status bar
 constexpr int kBarRuleY    = 9;
 constexpr int kBodyY0      = 19;
@@ -521,13 +594,51 @@ constexpr int kEmgDetailY  = 52;   // 6x10 detail beneath it
 // ⚠ DELIBERATELY OVERSIZED vs the 21 visible columns, and it is NOT slack for its own sake — do not shrink it back.
 //   Every line here is built with snprintf, and `-Wformat-truncation=` (on by default under -Wall in this toolchain and
 //   GATE-BLOCKING in this project) fires whenever GCC cannot PROVE the widest expansion fits. It measured 10 such
-//   warnings at kLineCap 24 — all benign truncations, all still ten new warnings against a pinned census. The widest
-//   provable line is the status bar (two uint16_t counts at 5 digits, two uint8_t at 3, plus an 11-char volts field
-//   because `int32_t/1000` can be 7 digits) at 37 bytes, and the REPLY detail (`who` 14 + `text` 20) at 37. 48 proves
-//   both. The panel clips at 21 columns regardless — this buffer bounds the FORMATTER, not the display.
+//   warnings at kLineCap 24 — all benign truncations, all still ten new warnings against a pinned census.
+// ⛔ CORRECTED IN PLACE 2026-08-16 (§CHROME-3, V1): this block used to name the packed STATUS BAR as one of the two
+//   widest provable lines *("two uint16_t counts at 5 digits, two uint8_t at 3, plus an 11-char volts field because
+//   `int32_t/1000` can be 7 digits, at 37 bytes")*. That line is GONE — the icon strip replaced it and formats its
+//   tokens through `mrui::ui_fmt_*` into a 5-byte buffer of their own. ⇒ the widest remaining provable line is the
+//   REPLY detail (`who` 14 + `text` 20) at 37 bytes. ⛔ **The value stays 48 and must not be shrunk to fit the new
+//   figure**: it is what keeps the census at its pin, and the margin costs stack, not flash. ⛔⛔ AND SINCE §CHROME-4
+//   THE DISTINCTION IS LOAD-BEARING RATHER THAN A NOTE: this buffer bounds the FORMATTER; what bounds the DISPLAY is
+//   each format's own PRECISION (`%-9.9s`, `%-8.8s`, `%4.4s`) and the §7.3 audit written beside each screen, because
+//   §7.1 rule 5 forbids letting the panel clip as a truncation policy. ⇒ a format whose widest expansion exceeds
+//   19 columns is a DEFECT even though it fits this buffer, and `probe_firmware_ui`'s P14f is what says so.
 constexpr int kLineCap     = 48;
 
 int body_y(int row) { return kBodyY0 + row * kBodyDy; }
+
+// ================================================================== §CHROME-4 / design §3.2, §7.1 — THE BODY ORIGIN
+//
+// ★★★ ONE AUTHORITY, AND EVERY ORDINARY BODY DRAW GOES THROUGH IT (§7.1 rule 1). The navigation rail owns `x = 0..9`,
+//     so the ordinary body starts at `x = 12` and is 116 px wide — 19 columns of the 6-px small font, down from 21.
+//     ⛔ A per-call-site `12` is exactly the drift §3.1 already forbids for the strip's slots; here it would be worse,
+//        because a site left at `0` would draw its text UNDER the rail's icons rather than merely at the wrong x.
+// ⛔⛔ THE ONE EXCEPTION IS THE EMERGENCY BODY, AND IT IS LOAD-BEARING (§5.3): the `Font::large` headlines are 10 px
+//     per column on a 128-px panel = 12 columns at `x = 0`, and `NOT RELAYED` already spends 11 of them. Shifting
+//     that body to `kBodyX` would leave 11 columns and CLIP A DISTRESS HEADLINE. `draw_emergency` therefore draws at
+//     `x = 0` and the rail is not drawn at all while an alarm is up.
+constexpr int kBodyX    = 12;    // §3.2: rail x=0..9, then a 2-px gutter
+constexpr int kBodyCols = 19;    // 116 px / 6 px per small-font column — ⛔ derived below, never a second literal
+constexpr int kBodyPx   = 128 - kBodyX;   // 116
+static_assert(kBodyCols * 6 <= kBodyPx, "design §3.2: the body's column count does not fit its 116-px width");
+static_assert(kBodyCols == mrui::kDetailCols,
+              "design §7.3: the inbox detail wraps at the MODEL's freeze point, so its column count and the "
+              "renderer's body width are ONE number — a mismatch makes detail_pages a lie");
+
+// ★★★★ THE ONE ORDINARY-BODY DRAW, AND IT DELIBERATELY DOES **NOT** CLAMP THE LINE.
+//   §7.1 rule 5 requires dynamic labels to be *"explicitly clamped or moved to a second row"*, and every one of them
+//   IS — at its own format (`%-9.9s` on a teammate name, `%-8.8s` on an inbox preview, `%4.4s` on an age) or by
+//   taking a row of its own (`DELIVERED to` / the peer name). ⇒ each label is clamped where the MEANING of the clamp
+//   can be judged, which is the rule's point.
+// ⛔⛔ A BLANKET 19-COLUMN CLAMP HERE WAS WRITTEN AND THEN REMOVED, AND THE REASON IS THE ONE THIS ARC KEEPS
+//   RE-LEARNING: it would make §11.2's *"every normal text line fits the 116-pixel body"* an INSTRUMENT THAT CANNOT
+//   FAIL. Every drawn line would be 19 columns by construction, so `tools/probe_firmware_ui`'s P14f could never
+//   redden, and a future format whose widest expansion was 26 columns would lose six columns of meaning SILENTLY —
+//   the same information u8g2's clip loses, with a comment claiming it was a policy. ⇒ the width is PROVEN per
+//   format (the §7.3 audit written beside each screen) and MEASURED end to end by P14f, which can therefore fail.
+void body_text(int row, const char* s) { mrui::draw_text(kBodyX, body_y(row), s); }
 
 // ★★ THE FAILURE DETAIL, in the two alphabets that exist (spec §2.1 rule 6). A refusal the user cannot act on is the
 //    thing C2 and §err-reason exist to prevent — but the honest limit is real: five different walls all come back as
@@ -538,11 +649,11 @@ int body_y(int row) { return kBodyY0 + row * kBodyDy; }
 // ⓘ A `parser` refusal has no `CmdCode` at all (the line never became a `Command`), and `RefuseReason::parser` IS
 //   that predicate — so the code line is suppressed there rather than printing a `queued` that means "not applicable".
 void draw_failure_lines(const OutcomeView& v) {
-    mrui::draw_text(0, body_y(1), refuse_text(v.refuse));
+    body_text(1, refuse_text(v.refuse));
     if (v.refuse == mrui::RefuseReason::parser) return;
     char l[kLineCap];
     snprintf(l, sizeof l, "%s", MESHROUTE_NS::console::cmdcode_name(v.refuse_code));
-    mrui::draw_text(0, body_y(2), l);
+    body_text(2, l);
 }
 
 // Which slice of a longer list is on screen. A cursor may address up to kMaxTeamRows entries while only kBodyRows fit.
@@ -552,55 +663,253 @@ uint8_t list_first(uint8_t cursor, uint8_t n, uint8_t rows) {
     return uint8_t((first + rows > n) ? (n - rows) : first);
 }
 
-void draw_status_bar(const mrui::UiSnapshot& s) {
-    char volts[12]; fmt_volts(volts, sizeof volts, s.batt_mv);   // 7-digit volts + ".xV" + NUL — see kLineCap
-    char bar[kLineCap];
-    if (s.team_build)
-        snprintf(bar, sizeof bar, "DM%u CH%u T%u/%u %s", unsigned(s.unread_dm), unsigned(s.unread_ch),
-                 unsigned(s.team_shown), unsigned(s.team_total), volts);
-    else
-        snprintf(bar, sizeof bar, "DM%u CH%u %s", unsigned(s.unread_dm), unsigned(s.unread_ch), volts);
-    mrui::draw_text(0, kBarBaseline, bar);
+// ==================================================================== §CHROME-3 / design §3.1 — THE STATUS STRIP
+//
+// ⛔⛔ WHAT THIS REPLACES, kept visible rather than deleted: the packed 6x10 line `DM%u CH%u T%u/%u %s` (and its
+//    `DM%u CH%u %s` non-team arm). Design §2 tabulates why every one of its fields was narrower than its label — `DM`
+//    and `CH` were SESSION-unread, not stored totals; `T<a>/<b>` was the UI's 8-row capacity over the route count,
+//    never online/total. ⇒ the counts are COMBINED into one envelope (§4.1), the retired `T8/12` fraction becomes the
+//    true `team_total` (§4.3), and the two facts the old line could not carry at all — the mobile-home link and the
+//    team CONTENT key — get slots of their own.
+//
+// ★★★ IT CONSUMES THE **FROZEN CHROME** AND NOTHING ELSE. ⛔ No `g_node`, no `ConfigService`, no counter and no
+//     battery read happens in here, because U8g2 replays this whole scene once per page across the eight ticks a
+//     frame spans (§8.2): anything read live would tear the strip across a page boundary. Every value below was
+//     CLASSIFIED at the freeze — clamped to the digits the panel draws, and the home age BUCKETED to its token — so
+//     this function makes no display decision at all beyond where to put the pixels.
+//
+// ★★ AND THE COORDINATES LIVE IN ONE TABLE (§3.1: *"the exact `x` coordinates belong to one layout table in the
+//    renderer; they must not be repeated at individual draw sites"*). A slot repeated at its draw site is how a strip
+//    acquires a second, drifting layout the moment one field's width changes.
+struct StripSlot {
+    int16_t icon_x;      // left edge of the slot's glyph
+    int16_t text_x;      // left edge of its token — `kNoToken` for a slot that draws no text
+    int16_t right;       // ★ the slot's frozen RIGHT EDGE at its WIDEST token: what the probe pins, and what makes
+};                       //   "the battery cannot push an earlier icon out of budget" a measurement (§3.1's budget).
+constexpr int16_t kNoToken = -1;
+enum class Strip : uint8_t { mail = 0, home, team, key, batt, count };
+// ⓘ THE ARITHMETIC BEHIND THE TABLE, so a future edit re-derives it instead of nudging numbers: `Font::small` is
+//   6 px/column and every glyph but the battery is 7 px wide (`icons::kIconW`); the battery outline is 11
+//   (`kBatteryW`). Widest tokens: mail `99+` and home `59m`/`old` = 3 columns, team `9+` = 2, battery `4.1V` = 4.
+//     mail 0..25 · gap · home 28..53 · gap · team 56..75 · gap · key 79..85 · gap · battery 91..127
+//   = 26 + 2 + 26 + 2 + 20 + 3 + 7 + 5 + 37 = 128 px exactly, with the battery's last column landing on x = 127.
+// ★ THE BATTERY SLOT IS ANCHORED TO THE RIGHT EDGE (§3.1: *"battery is right-aligned so `--` and `4.1V` do not move
+//   the preceding icons"*) — and being a FIXED slot is what delivers that: its icon and its token sit at constant x
+//   whatever the token's width, so a `--` leaves the trailing columns empty instead of dragging the strip. ⛔ A
+//   flowed layout that packed each field after the previous one would satisfy the sentence and break the picture the
+//   moment the mail count reached three digits.
+constexpr StripSlot kStrip[uint8_t(Strip::count)] = {
+    /* mail */ {  0,       8,  25 },
+    /* home */ { 28,      36,  53 },
+    /* team */ { 56,      64,  75 },
+    /* key  */ { 79, kNoToken, 85 },
+    /* batt */ { 91,     104, 127 },
+};
+constexpr const StripSlot& slot(Strip f) { return kStrip[uint8_t(f)]; }
+// ★★ THE TABLE CHECKS ITSELF AT BUILD TIME, which is what makes `right` a LOAD-BEARING field rather than a comment in
+//    struct form: the three ways a future edit can break §3.1's frozen geometry — a slot that leaves the panel, a slot
+//    that overlaps its neighbour, and a token column that starts inside its own glyph — are all decidable here, and a
+//    panel is the worst place to discover any of them. ⓘ The `right` values are each slot's extent at its WIDEST
+//    token (`99+`, `59m`, `9+`, `4.1V`); the probe pins the same numbers independently, from the drawn coordinates.
+constexpr bool strip_slots_fit() {
+    for (uint8_t i = 0; i < uint8_t(Strip::count); ++i) {
+        if (kStrip[i].icon_x < 0 || kStrip[i].right > 127) return false;
+        if (kStrip[i].text_x != kNoToken && kStrip[i].text_x <= kStrip[i].icon_x) return false;
+        if (i > 0 && kStrip[i].icon_x <= kStrip[i - 1].right) return false;
+    }
+    return true;
+}
+static_assert(strip_slots_fit(),
+              "design §3.1: a status-strip slot overlaps its neighbour, starts its token inside its own glyph, "
+              "or runs past x=127");
+constexpr int kStripIconY = 0;    // §3.1: icons occupy y = 0..6, inside the y = 0..8 strip; the rule stays at y = 9
+// The widest token any slot draws is 4 columns (`4.1V`); `kVoltsTokenCap` is that plus its NUL and is the largest of
+// the four caps the chrome header declares, so one buffer serves every slot (U1 — not four near-identical ones).
+constexpr size_t kTokenCap = mrui::kVoltsTokenCap;
+
+// §4.2's four icons, plus `blank` = NO GLYPH AT ALL. ⛔ `nullptr` is the DRAWN-NOTHING answer and not an error path:
+// on a build with no mobile plane the slot is empty, because a crossed house there would be a claim about a plane
+// this firmware does not run. `switch` without `default:` so a fifth state fails the build (-Werror=switch).
+const uint8_t* home_glyph(mrui::HomeIcon h) {
+    switch (h) {
+        case mrui::HomeIcon::blank:     return nullptr;
+        case mrui::HomeIcon::unknown:   return mrui::icons::kIconHomeUnknown;
+        case mrui::HomeIcon::confirmed: return mrui::icons::kIconHomeConfirmed;
+        case mrui::HomeIcon::checking:  return mrui::icons::kIconHomeChecking;
+        case mrui::HomeIcon::lost:      return mrui::icons::kIconHomeLost;
+    }
+    return nullptr;   // -Wreturn-type only; -Wswitch covers the enum
+}
+// §4.4's three key states — and `blank` is again the ABSENCE of a glyph, not a third picture: with no team
+// configured the content key is IRRELEVANT, which is a different statement from "missing" (the crossed key).
+const uint8_t* key_glyph(mrui::KeyIcon k) {
+    switch (k) {
+        case mrui::KeyIcon::blank:   return nullptr;
+        case mrui::KeyIcon::absent:  return mrui::icons::kIconKeyCrossed;
+        case mrui::KeyIcon::present: return mrui::icons::kIconKey;
+    }
+    return nullptr;   // -Wreturn-type only
+}
+
+void draw_strip_icon(const StripSlot& sl, const uint8_t* bits) {
+    mrui::draw_bitmap(sl.icon_x, kStripIconY, mrui::icons::kIconW, mrui::icons::kIconH, bits);
+}
+
+void draw_status_strip(const mrui::UiChrome& c) {
+    char tok[kTokenCap];
+    // ---- [mail][count] (§4.1) — always present: `0` is a fact, and the envelope is what says which fact it is.
+    draw_strip_icon(slot(Strip::mail), mrui::icons::kIconMail);
+    mrui::ui_fmt_mail(tok, sizeof tok, c.mail, c.mail_overflow);
+    mrui::draw_text(slot(Strip::mail).text_x, kBarBaseline, tok);
+    // ---- [home][age] (§4.2) — the token was bucketed from the 64-bit age AT THE FREEZE and is drawn verbatim.
+    // ⛔ It is a CONFIRMATION age and is never labelled or read as "connected" (design §4.2, node.h's own rule).
+    if (const uint8_t* home = home_glyph(c.home)) {
+        draw_strip_icon(slot(Strip::home), home);
+        mrui::draw_text(slot(Strip::home).text_x, kBarBaseline, c.home_age);
+    }
+    // ---- [people][count] (§4.3) — teammates HEARD/KNOWN. The icon stays put with no team configured and the token
+    //      reads `--`: "no team" and "a team with no teammate heard" are different answers and both are drawn.
+    draw_strip_icon(slot(Strip::team), mrui::icons::kIconPeople);
+    mrui::ui_fmt_team(tok, sizeof tok, c.team_configured, c.team_count, c.team_overflow);
+    mrui::draw_text(slot(Strip::team).text_x, kBarBaseline, tok);
+    // ---- [key] (§4.4) — the TEAM CHANNEL CONTENT key, never the node's own identity.
+    if (const uint8_t* key = key_glyph(c.key)) draw_strip_icon(slot(Strip::key), key);
+    // ---- [battery][voltage] (§4.5) — the outline is UNFILLED and stays that way: a fill level implies a chemistry
+    //      and a discharge curve nobody has approved. `--` until a reading succeeds, and never a plausible guess.
+    mrui::draw_bitmap(slot(Strip::batt).icon_x, kStripIconY, mrui::icons::kBatteryW, mrui::icons::kBatteryH,
+                      mrui::icons::kIconBattery);
+    mrui::ui_fmt_batt(tok, sizeof tok, c.batt_dv);
+    mrui::draw_text(slot(Strip::batt).text_x, kBarBaseline, tok);
     mrui::draw_hline(0, kBarRuleY, 128);
 }
 
-// ★★★ §UI-14, spec §3.3 — THE DRAFT MARKER LIVES HERE TOO, and it is on STATUS rather than only on SETTINGS because
-//     the whole point of it is to be seen WITHOUT cycling to the screen that owns the draft.
-// ★ TWO PLACES FOR TWO INDEPENDENT FACTS, because one row cannot carry both honestly:
-//     · the TITLE row takes the DRAFT marker — `CFG! RELOAD` if the persisted record moved under us, else
-//       `CFG* UNSAVED`. `STATUS` + one space + the 12/11-char marker is 19-20 of the panel's 21 columns, so it fits
-//       WITHOUT shortening the status bar (§3.3 forbids that explicitly).
-//     · the LAST body row takes `RESTART NEEDED`, REPLACING the `batt <n>mV` line. ⚠ Stated rather than smoothed
-//       over: that costs the millivolt reading while the state stands — the bar keeps showing volts (§3.3's ruled
-//       render), so the information lost is the extra precision, not the battery. The alternative was folding two
-//       facts into one row, which is exactly the collapse §3.6.1 warns against, and a reboot-required state has to
-//       STAY VISIBLE UNTIL THE REBOOT (§3.6.5) so it cannot ride the transient note.
-// ⓘ Both are silent until the operator has actually opened SETTINGS: a draft cannot exist before then, and the
+// ======================================================================= §CHROME-4 / design §3.2 — THE NAVIGATION RAIL
+//
+// ★★★ WHAT IT ANSWERS, and why it is a second region rather than more text: the strip says *"what is happening?"*, the
+//     rail says *"where am I?"* (design §1). It replaces the label-only screen titles §7.2 removes, and — because it
+//     is CHROME — it carries §6's configuration badge from every ordinary screen instead of only from STATUS.
+//
+// ★★ ITS GEOMETRY IS ONE TABLE, exactly as §3.1 requires of the strip: `x = 0..9`, `y = 10..59`, five 10-px slots
+//    aligned to the five body baselines (19, 29, 39, 49, 59 — slot `i` spans `10 + 10i` .. `19 + 10i`, so its bottom
+//    row IS its body row's baseline).
+// ★★★★ AND THE SLOT'S y IS A FUNCTION OF THE **ENUMERATOR**, NOT OF A RUNNING COUNTER. That is what makes §3.2's
+//      *"builds where TEAM/SEND are unavailable do not draw misleading dead icons. Their canonical slots remain empty;
+//      the remaining icons keep the same locations rather than acquiring a second layout"* structural rather than
+//      careful: an unavailable slot is `continue`d, and nothing below it can move because nothing below it is
+//      positioned relative to it. ⛔ Never pack these consecutively.
+constexpr int kRailX      = 0;
+constexpr int kRailW      = 10;
+constexpr int kRailY0     = 10;    // immediately under the y = 9 rule
+constexpr int kRailDy     = 10;
+constexpr int kRailH      = 10;
+constexpr int kRailSlots  = 5;
+constexpr int kRailIconDx = 1;     // (10 - 7) / 2, so the glyph clears the selection frame on both sides
+constexpr int kRailIconDy = 1;     //   ...and its 7 rows sit inside the slot's 10 without touching the frame
+static_assert(kRailY0 + (kRailSlots - 1) * kRailDy + kRailH - 1 == 59,
+              "design §3.2: the rail's five slots must span y = 10..59, aligned to the five body baselines");
+static_assert(kRailX + kRailW <= kBodyX, "design §3.2: the rail must not reach into the 116-px body");
+// The slot index of a `NavSlot`. ⛔ `none` never reaches here — the loop iterates the five real slots.
+constexpr int rail_slot_y(int index) { return kRailY0 + index * kRailDy; }
+
+// §6's badge, as ONE bitmap per state rather than a gear plus an overlay sprite (see firmware_ui_icons.h for why).
+// ⛔ `default`-less: a fifth badge state must fail the build here rather than silently render the clean gear, which
+//    is precisely the "icon-only configuration error" §13 refuses to ship.
+const uint8_t* rail_badge_glyph(mrui::CfgBadge b) {
+    switch (b) {
+        case mrui::CfgBadge::clean:    return mrui::icons::kIconSettings;
+        case mrui::CfgBadge::restart:  return mrui::icons::kIconSettingsRestart;
+        case mrui::CfgBadge::unsaved:  return mrui::icons::kIconSettingsUnsaved;
+        case mrui::CfgBadge::conflict: return mrui::icons::kIconSettingsConflict;
+    }
+    return mrui::icons::kIconSettings;   // -Wreturn-type only; -Wswitch covers the enum
+}
+
+// §3.2's icon table. ⓘ TEAM reuses the strip's people glyph and INBOX its envelope (U1 — firmware_ui_icons.h declares
+// one of each on purpose); only STATUS, SEND and SETTINGS have their own.
+const uint8_t* rail_glyph(mrui::NavSlot s, mrui::CfgBadge badge) {
+    switch (s) {
+        case mrui::NavSlot::status:   return mrui::icons::kIconStatus;
+        case mrui::NavSlot::team:     return mrui::icons::kIconPeople;
+        case mrui::NavSlot::inbox:    return mrui::icons::kIconMail;
+        case mrui::NavSlot::send:     return mrui::icons::kIconSend;
+        case mrui::NavSlot::settings: return rail_badge_glyph(badge);
+        // ⛔ Not a slot. It is listed rather than defaulted so a sixth REAL slot fails the build here.
+        case mrui::NavSlot::none:     return nullptr;
+    }
+    return nullptr;   // -Wreturn-type only
+}
+
+// ★★★ IT CONSUMES THE **FROZEN CHROME** AND NOTHING ELSE, for the reason the strip does (§8.2): U8g2 replays this
+//     whole scene once per page, so a selection read live would move under an open frame. ⛔ There is NO
+//     renderer-local cursor here and never may be — `c.nav` is §5.2's one pure mapping, already frozen (§5.1: *"the
+//     selection frame follows the frozen `UiState::screen`, never a renderer-local cursor"*).
+// ⛔⛔ EMERGENCY DRAWS NO RAIL AT ALL (§5.3). `c.rail_visible` was frozen from `ui_rail_visible(emergency)`, so this
+//     is one test and no rail draw call is issued — the body then keeps `x = 0` and all 128 px, which is what stops
+//     a `Font::large` distress headline being clipped.
+// ⓘ A selected slot that this build does not draw yields NO frame rather than a frame around nothing: the mask is
+//   checked first, which is C2's fail-closed direction.
+void draw_rail(const mrui::UiChrome& c) {
+    if (!c.rail_visible) return;
+    for (int i = 0; i < kRailSlots; ++i) {
+        const mrui::NavSlot s = mrui::NavSlot(i + 1);          // §3.2's order: STATUS, TEAM, INBOX, SEND, SETTINGS
+        if ((c.slots & mrui::slot_bit(s)) == 0) continue;      // unavailable: EMPTY, and nothing else moves
+        const int y = rail_slot_y(i);
+        mrui::draw_bitmap(kRailX + kRailIconDx, y + kRailIconDy,
+                          mrui::icons::kIconW, mrui::icons::kIconH, rail_glyph(s, c.badge));
+        // §3.2: "the active icon has a one-pixel rectangular frame around its slot" — an OUTLINE, never a filled box.
+        if (c.nav == s) mrui::draw_rect(kRailX, y, kRailW, kRailH);
+    }
+}
+
+// ★★★★ §CHROME-4, design §6 and §7.2 — WHAT LEFT THIS SCREEN, AND WHAT DELIBERATELY DID NOT.
+//   ⛔ GONE: the standalone `STATUS` title (§7.2: *"remove the standalone STATUS title"* — the rail's boxed STATUS
+//      icon says it, and a label-only heading costs a whole row of a five-row body), and with it the
+//      `CFG* UNSAVED` / `CFG! RELOAD` DECORATION (§6: *"the redundant … decoration is removed from the STATUS
+//      title. The rail makes the state visible from every ordinary screen"*).
+//   ★★ WHERE THAT FACT WENT: the SETTINGS rail icon's CONFIGURATION BADGE (`rail_badge_glyph`), which is chrome and
+//      is therefore visible from EVERY ordinary screen rather than only from this one — strictly more coverage than
+//      the line it replaces. ⛔ AND IT REPLACES ONLY THE DECORATION: `draw_settings_screen` still renders the
+//      ACTIONABLE text (`CFG* UNSAVED` / `CFG! RELOAD` / `RESTART NEEDED`), because §6 says in as many words that one
+//      small icon cannot replace an instruction.
+//   ⛔⛔ STAYING: `RESTART NEEDED` on the last body row. §6 removes the TITLE decoration and names nothing else; this
+//      row is a body statement of a durable fact (§3.6.5: it stays visible until the reboot) and deleting it would be
+//      exactly the §6.1 over-deletion that amendment exists to prevent.
+// ★ THE ROW FREED BY THE TITLE goes to the identity, which no longer fits one 19-column line: `me T255` +
+//   `team ffffffff` is 22 columns and would have had to be clamped. Two rows, both complete — §7.1 rule 5's
+//   *"moved to a second row"* rather than a truncation.
+// ⓘ The badge is silent until the operator has actually opened SETTINGS: a draft cannot exist before then, and the
 //   service is not open, so `freeze_settings` reports all three false. Nothing is claimed about a config nobody edited.
+//
+// §7.3 AUDIT (widest reachable expansion, in 19-column units):
+//   `team ffffffff`                                                    13
+//   `me T255`                                                           7
+//   `DM 999, newest 49d`   (unread clamped to kUnreadCap; fmt_age <= 3) 18
+//   `CH 999, newest 49d`                                               18
+//   `RESTART NEEDED`                                                   14
+//   `batt -2147483648mV`   (int32_t, the type's own bound)             18
 void draw_status_screen(const mrui::UiSnapshot& s, const SettingsView& c) {
-    char l[kLineCap], age[10];
-    const char* marker = mrui::cfg_marker_text(c.unsaved, c.conflict);
-    if (marker[0]) { snprintf(l, sizeof l, "STATUS %s", marker); mrui::draw_text(0, body_y(0), l); }
-    else           mrui::draw_text(0, body_y(0), "STATUS");
-    snprintf(l, sizeof l, "me T%u  team %08lx", unsigned(s.my_team_id), (unsigned long)s.team_id);
-    mrui::draw_text(0, body_y(1), l);
+    char l[kLineCap], age[kAgeCap];
+    snprintf(l, sizeof l, "team %08lx", (unsigned long)s.team_id);
+    body_text(0, l);
+    snprintf(l, sizeof l, "me T%u", unsigned(s.my_team_id));
+    body_text(1, l);
     fmt_age(age, sizeof age, s.last_dm_age_s);
     snprintf(l, sizeof l, "DM %u, newest %s", unsigned(s.unread_dm), age);
-    mrui::draw_text(0, body_y(2), l);
+    body_text(2, l);
     fmt_age(age, sizeof age, s.last_ch_age_s);
     snprintf(l, sizeof l, "CH %u, newest %s", unsigned(s.unread_ch), age);
-    mrui::draw_text(0, body_y(3), l);
+    body_text(3, l);
     // §3.6.5: a saved-but-reboot-required state stays visible until the reboot — so it OWNS this row while it stands.
-    if (c.reboot) { mrui::draw_text(0, body_y(4), mrui::kCfgRestartText); return; }
+    if (c.reboot) { body_text(4, mrui::kCfgRestartText); return; }
     if (s.batt_mv >= 0) snprintf(l, sizeof l, "batt %ldmV", (long)s.batt_mv);
     else                snprintf(l, sizeof l, "batt --");
-    mrui::draw_text(0, body_y(4), l);
+    body_text(4, l);
 }
 
 void draw_team_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
     if (s.team_shown == 0) {
-        mrui::draw_text(0, body_y(0), "TEAM");
-        mrui::draw_text(0, body_y(1), "no teammates heard");
+        body_text(0, "TEAM");
+        body_text(1, "no teammates heard");
         return;
     }
     // ★★★ §B64 (owner-ruled 2026-08-05) — THE LOUD HALF OF THE REFUSAL, AND THE SUPPRESSED HIGHLIGHT IS THE OTHER HALF.
@@ -613,14 +922,29 @@ void draw_team_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
     const uint8_t first = list_first(st.cursor, s.team_shown, rows);
     for (uint8_t row = 0; row < rows && first + row < s.team_shown; ++row) {
         const mrui::TeamRow& t = s.team[first + row];
-        char age[10]; fmt_age(age, sizeof age, t.last_heard_s);
+        char age[kAgeCap]; fmt_age(age, sizeof age, t.last_heard_s);
         char l[kLineCap];
-        snprintf(l, sizeof l, "%c%-10s %4s %uh",
-                 (!st.team_pick_gone && first + row == st.cursor) ? '>' : ' ', t.label, age, unsigned(t.hops));
-        mrui::draw_text(0, body_y(row), l);
+        // §7.3 AUDIT, and the widths are PRECISIONS rather than paddings, which is the whole difference between a
+        // clamp and a clip: `%-9.9s` both pads AND bounds, so a 14-column `kLabelCap` name cannot push the age and
+        // the hop count off the panel the way `%-10s` did (that line was 25 columns at its widest — it already
+        // over-ran the OLD 21-column body and u8g2 was silently clipping it).
+        //   marker 1 + label 9 + space 1 + age 4 + space 1 + hops 3 = 19 of 19.
+        // ⛔ `hops` IS BOUNDED, NOT CLAMPED-IN-MEANING: it is a `uint8_t`, so `%uh` is 4 columns at its type bound,
+        //    while the protocol's own hop limit is far below 99. The `> 99` arm exists so the FORMAT has a proven
+        //    width; it is not reachable by any route this firmware can build.
+        snprintf(l, sizeof l, "%c%-9.9s %4.4s %uh",
+                 (!st.team_pick_gone && first + row == st.cursor) ? '>' : ' ', t.label, age,
+                 unsigned(t.hops > 99 ? 99 : t.hops));
+        body_text(row, l);
     }
-    // 21 characters exactly, so it cannot be clipped: the panel is 21 columns in Font::small (spec §3.3).
-    if (st.team_pick_gone) mrui::draw_text(0, body_y(kBodyRows - 1), "TEAMMATE GONE, repick");
+    // ⛔⛔ RE-DERIVED 2026-08-16 (§CHROME-4 / §7.3), AND THE WORDING CHANGE IS FORCED RATHER THAN CHOSEN. This row read
+    //    `TEAMMATE GONE, repick` and its comment said *"21 characters exactly, so it cannot be clipped: the panel is
+    //    21 columns"* — i.e. the string was SIZED TO THE OLD BODY. The rail leaves 19, and §7.1 rule 5 forbids
+    //    letting the panel clip a refusal as a truncation policy, so the string had to lose two columns rather than
+    //    its last two characters (`…, repi` would have been the clip). ★ BOTH HALVES OF §B64's ruling survive intact:
+    //    the row still NAMES the fact (the teammate is gone) and still gives the remedy (pick another), and the `>`
+    //    highlight is still suppressed. ⓘ 19 characters exactly, so it cannot be clipped at the new width either.
+    if (st.team_pick_gone) body_text(kBodyRows - 1, "TEAMMATE GONE, pick");
 }
 
 // ★ UI-7: the real rows (spec §6.1). BLOCK ORDER — every DM row, then every channel row — never chronological: the
@@ -629,23 +953,23 @@ void draw_team_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
 // ★ TRUNCATION IS STATED, never implied: `inbox_total` is what `pull` VISITED, so a screen showing 8 of 40 says so
 //   rather than presenting the cap as the whole mailbox (the same rule the TEAM screen's `T4/12` follows).
 void draw_inbox_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
-    char l[kLineCap], age[10];
+    char l[kLineCap], age[kAgeCap];
     if (s.inbox_shown == 0) {
-        mrui::draw_text(0, body_y(0), "INBOX");
+        body_text(0, "INBOX");
         // ⚠ NOT "no messages": an inbox with no durable store installed (`Inbox::enabled()` false ⇒ `pull` returns 0)
         //   is indistinguishable here from an empty one, and the unread counters below are the honest thing we DO
         //   know. Claiming emptiness would be a statement we cannot support.
         fmt_age(age, sizeof age, s.last_dm_age_s);
         snprintf(l, sizeof l, "DM %u  newest %s", unsigned(s.unread_dm), age);
-        mrui::draw_text(0, body_y(1), l);
+        body_text(1, l);
         fmt_age(age, sizeof age, s.last_ch_age_s);
         snprintf(l, sizeof l, "CH %u  newest %s", unsigned(s.unread_ch), age);
-        mrui::draw_text(0, body_y(2), l);
-        mrui::draw_text(0, body_y(4), "no stored rows");
+        body_text(2, l);
+        body_text(4, "no stored rows");
         return;
     }
     snprintf(l, sizeof l, "INBOX %u/%u", unsigned(s.inbox_shown), unsigned(s.inbox_total));
-    mrui::draw_text(0, body_y(0), l);
+    body_text(0, l);
     // ★★★ §UI-7D slice B — THE LOUD HALF OF THE ACTIVATION REFUSAL, and the suppressed highlight is the other half. It
     //     is §B64's TEAM treatment applied to the record identity: the selected `(kind, seq)` is no longer in the store,
     //     so `UiModel::activate` refused to open (and therefore refused to put a DELETE two presses from) whatever now
@@ -661,12 +985,21 @@ void draw_inbox_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
         if (e.kind == mrui::InboxKind::dm) snprintf(tag, sizeof tag, "DM");
         else                               snprintf(tag, sizeof tag, "CH%u", unsigned(e.channel_id));
         fmt_age(age, sizeof age, e.rx_age_s);
-        snprintf(l, sizeof l, "%c%-3s %-9s %4s",
+        // §7.3 AUDIT: marker 1 + tag 5 + preview 8 + space 1 + age 4 = 19 of 19.
+        // ⚠ THE TAG'S COLUMN IS **5**, NOT 3, AND THAT IS THE WHOLE CHANNEL ID: `CH255` is the widest tag a
+        //   `uint8_t channel_id` can produce, and a `%-3.3s` would have rendered it `CH2` — a channel number that is
+        //   not the record's. A tag must never be truncated INTO a different true-looking value.
+        // ⚠ `e.text` is a 20-byte PREVIEW and `%-8.8s` bounds it explicitly; the whole body is one press away in the
+        //   detail modal, which is where the record is actually read (§3.5). `%-9s` used to let a 20-column preview
+        //   push the age off a 21-column panel.
+        // ⓘ `%4.4s` is a BOUND THAT IS NEVER REACHED: `fmt_age` now emits at most 3 columns (`kAgeCap`), so the
+        //   precision can never truncate a token — it is there so the row's width is provable from this line alone.
+        snprintf(l, sizeof l, "%c%-5s%-8.8s %4.4s",
                  (!st.inbox_pick_gone && first + row == st.cursor) ? '>' : ' ', tag, e.text, age);
-        mrui::draw_text(0, body_y(row + 1), l);
+        body_text(row + 1, l);
     }
     // Spec §3.5's own words for the refusal, on the last body row — the same place the TEAM screen puts its reason.
-    if (st.inbox_pick_gone) mrui::draw_text(0, body_y(kBodyRows - 1), "MESSAGE GONE");
+    if (st.inbox_pick_gone) body_text(kBodyRows - 1, "MESSAGE GONE");
 }
 
 // ★★★★ §UI-7D slice B — THE DETAIL MODAL (spec §3.5). It REPLACES the body, like the emergency overlay and the compose
@@ -681,21 +1014,21 @@ void draw_inbox_detail(const mrui::UiState& st) {
     // ⛔ TERMINAL `MESSAGE GONE` (the delete came back `not_found`): NO Delete action is offered, and the panel says
     //    plainly that nothing was removed by this press — the record was already absent. Either press returns to INBOX.
     if (st.detail == mrui::InboxModal::gone) {
-        mrui::draw_text(0, body_y(0), "MESSAGE GONE");
-        mrui::draw_text(0, body_y(1), "evicted or deleted");
-        mrui::draw_text(0, body_y(4), "press = back");
+        body_text(0, "MESSAGE GONE");
+        body_text(1, "evicted or deleted");
+        body_text(4, "press = back");
         return;
     }
     mrui::inbox_detail_head(l, sizeof l, st.detail_kind, st.detail_origin, st.detail_channel,
                             st.detail_page, st.detail_pages, st.detail_del_failed);
-    mrui::draw_text(0, body_y(0), l);
+    body_text(0, l);
     for (uint8_t row = 0; row < mrui::kDetailBodyRows; ++row)
-        mrui::draw_text(0, body_y(row + 1), st.detail_line[row]);
+        body_text(row + 1, st.detail_line[row]);
     // ★ `back` FIRST and selected on entry, so deletion costs the deliberate short -> double (spec §3.5).
     snprintf(l, sizeof l, "%cback",   (st.detail_action == mrui::InboxAction::back) ? '>' : ' ');
-    mrui::draw_text(0, body_y(3), l);
+    body_text(3, l);
     snprintf(l, sizeof l, "%cdelete", (st.detail_action == mrui::InboxAction::del)  ? '>' : ' ');
-    mrui::draw_text(0, body_y(4), l);
+    body_text(4, l);
 }
 
 // ★★★★ §UI-14 — THE SETTINGS SCREEN (spec §3.6.2). Everything it reads is FROZEN: `st` is the model's copy, `c` is
@@ -703,26 +1036,52 @@ void draw_inbox_detail(const mrui::UiState& st) {
 //     the SAME pure builder the model bounds its cursor with (U1) — so the highlighted row and the row an activation
 //     would act on cannot disagree by construction.
 // ★★ WHAT EACH LINE SAYS, and why none of it is derived here:
-//     · the TITLE carries the `*` §3.3 asks for, through the ONE marker function (`CFG! RELOAD` is the SERVICE's
-//       ruled string and is CALLED, never re-spelled);
 //     · a VALUE row shows the DRAFT's value — never the effective one — because the draft is what SAVE would write;
 //     · the value is BRACKETED while that row is being edited, so `short`'s two modes are distinguishable ON THE
 //       PANEL and not only in the model;
 //     · `RESTART NEEDED` is its own row, from `reboot_required()`, independent of the unsaved marker above it.
+//
+// ★★★★ §CHROME-4, design §7.2 AND §6 — THE TITLE IS GONE AND THE INSTRUCTION IS NOT. Two different things used to
+//      share row 0, and only one of them left:
+//        ⛔ GONE — the word `SETTINGS` (§7.2: *"remove the standalone SETTINGS title and use the gained row for the
+//           menu"*). The rail's boxed SETTINGS icon names the screen, and the row is worth more to the menu: the list
+//           is up to nine rows deep and only three of them fitted.
+//        ⛔⛔ NOT GONE — `mrui::cfg_marker_text`. §6 is explicit that the badge *"may replace the STATUS decoration;
+//           it may NEVER replace the instruction"*, and §6.1 says `CFG! RELOAD` REMAINS REQUIRED ACTIONABLE
+//           SETTINGS/service text. ⇒ the marker keeps a row OF ITS OWN here, and the gained row goes to the menu
+//           EXACTLY WHEN there is nothing to say: four menu rows while the configuration is clean, three while
+//           `CFG* UNSAVED` / `CFG! RELOAD` stands. ⓘ That is the same conditional-reservation shape the TEAM and
+//           INBOX screens already use for their refusals (`team_pick_gone` / `inbox_pick_gone`), not a second layout.
+//
+// §7.3 AUDIT (widest reachable expansion, in 19-column units) — and the arithmetic is PER ROW, because the widest
+// VALUE belongs to the shortest LABEL and a label x value bound would be one no row can reach:
+//   marker row      `CFG* UNSAVED` 12 · `CFG! RELOAD` 11
+//   value browsing  `%c%-8s %s`  : `BLE` -> 8 + ` ` + `periodic` 8      = 18   (the widest)
+//                                  `key attach` 10 + ` ` + `off` 3      = 14
+//   value editing   `%c%-8s[%s]` : `BLE` -> 8 + `[periodic]` 10         = 19   (the widest)
+//                                  `key attach` 10 + `[off]` 5          = 16
+//   action row      `%c%s`       : `PROVISION`                          = 10
+//   note / reboot   `PROVISION: UI-15` 16 · `RESTART NEEDED` 14 · `CFG! RELOAD` 11
+//   unavailable     `CFG UNAVAILABLE`                                   = 15
+// ⚠ THE EDITING ARM LOST THE SPACE BEFORE ITS BRACKET rather than a column of the label, and that is deliberate: the
+//   bracket is already the edit indicator, while truncating `key attach` to `key atta` would make two SELECTABLE rows
+//   collide on their visible prefix — §7.1 rule 6's forbidden outcome.
 void draw_settings_screen(const mrui::UiState& st, const mrui::UiSnapshot& s, const SettingsView& c) {
     char l[kLineCap];
+    // §6/§6.1: the ACTIONABLE text, through the ONE marker function (`CFG! RELOAD` is the SERVICE's ruled string and
+    // is CALLED, never re-spelled). An empty marker means the row belongs to the menu instead.
     const char* marker = mrui::cfg_marker_text(c.unsaved, c.conflict);
-    snprintf(l, sizeof l, "SETTINGS %s", marker);      // ⓘ an empty marker leaves a trailing space; the panel clips
-    mrui::draw_text(0, body_y(0), l);
+    const uint8_t top  = marker[0] ? uint8_t(1) : uint8_t(0);   // the first row the MENU may use
+    if (marker[0]) body_text(0, marker);
     // ⛔ C2, FAIL LOUD: the store could not produce a record, so there is no baseline, nothing may be saved, and every
     //    activation below is refused by the model. Saying so is the whole of this screen in that state — rendering an
     //    editable-looking menu over no draft is the "success that isn't".
-    if (!c.open) { mrui::draw_text(0, body_y(2), "CFG UNAVAILABLE"); return; }
+    if (!c.open) { body_text(2, "CFG UNAVAILABLE"); return; }
     // The note and the reboot fact share the last row, and the ORDER is deliberate: the note describes the act the
     // operator just performed and is transient, so while it stands it is what they are looking for; `RESTART NEEDED`
     // is durable and comes back the moment the note is retired by the next press.
     const char* note = mrui::settings_note(st);
-    const uint8_t rows = uint8_t(kBodyRows - 2);       // row 0 is the title, the last row is the note/reboot line
+    const uint8_t rows = uint8_t(kBodyRows - 1 - top);   // the last row is the note/reboot line; `top` is the marker's
     const mrui::CfgRowList list = mrui::settings_rows(s.ble_row, c.conflict);
     const uint8_t first = list_first(st.cursor, list.n, rows);
     for (uint8_t row = 0; row < rows && first + row < list.n; ++row) {
@@ -733,21 +1092,24 @@ void draw_settings_screen(const mrui::UiState& st, const mrui::UiSnapshot& s, co
         if (mrui::cfg_row_field(r, f)) {
             const char* v = mrui::cfg_value_text(f, c.draft.at(f));
             const bool  ed = here && st.settings == mrui::Settings::editing;
-            if (ed) snprintf(l, sizeof l, "%c%-10s [%s]", here ? '>' : ' ', mrui::settings_row_label(r), v);
-            else    snprintf(l, sizeof l, "%c%-10s %s",   here ? '>' : ' ', mrui::settings_row_label(r), v);
+            if (ed) snprintf(l, sizeof l, "%c%-8s[%s]", here ? '>' : ' ', mrui::settings_row_label(r), v);
+            else    snprintf(l, sizeof l, "%c%-8s %s",  here ? '>' : ' ', mrui::settings_row_label(r), v);
         } else {
             snprintf(l, sizeof l, "%c%s", here ? '>' : ' ', mrui::settings_row_label(r));
         }
-        mrui::draw_text(0, body_y(row + 1), l);
+        body_text(uint8_t(row + top), l);
     }
-    if (note[0])   mrui::draw_text(0, body_y(kBodyRows - 1), note);
-    else if (c.reboot) mrui::draw_text(0, body_y(kBodyRows - 1), mrui::kCfgRestartText);
+    if (note[0])   body_text(kBodyRows - 1, note);
+    else if (c.reboot) body_text(kBodyRows - 1, mrui::kCfgRestartText);
 }
 
+// §7.3 AUDIT: `SEND to team` 12 · `double = pick text` 18 · `long   = EMERGENCY` 18.
+// ⛔ `double = pick a text` WAS 20 COLUMNS and is now 18: at 21 it fitted, at 19 the panel would have clipped it to
+//    `double = pick a te`. The word dropped is the article, so nothing the operator acts on is lost.
 void draw_send_screen() {
-    mrui::draw_text(0, body_y(0), "SEND to team");
-    mrui::draw_text(0, body_y(2), "double = pick a text");
-    mrui::draw_text(0, body_y(3), "long   = EMERGENCY");
+    body_text(0, "SEND to team");
+    body_text(2, "double = pick text");
+    body_text(3, "long   = EMERGENCY");
 }
 
 // ★★ §B66 CLOSED 2026-08-05 (UI-7). The two tables and their counts USED TO LIVE APART — the strings here, the counts
@@ -763,39 +1125,48 @@ void draw_send_screen() {
 // ★★ `DELIVERED` appears in exactly one place in this design and this is it: a DM's `send_e2e_acked` is a genuine
 //    end-to-end ack from that PERSON. A channel post can never say it — the strongest thing it has is PICKED UP,
 //    which only means a neighbour was overheard re-flooding it.
+// ⓘ NO `char l[kLineCap]` HERE ANY MORE: every arm now draws either a literal or a frozen label, because §CHROME-4
+//   moved `DELIVERED`'s peer name onto its own row instead of composing it into a line. A leftover buffer would be
+//   `-Wunused-variable` on the board envs and INVISIBLE to both the native suite and this file's host probe ([[B169]]).
 void draw_compose_result(const mrui::UiState& st, const OutcomeView& v) {
-    char l[kLineCap];
     if (st.compose == mrui::Compose::dm) {
         char label[mrui::kLabelCap + 1]; label_for_team_id(st.compose_peer, label, uint8_t(sizeof label));
         switch (v.dm) {
             case mrui::DmState::idle:
-            case mrui::DmState::submitting:    mrui::draw_text(0, body_y(1), "SENDING..."); break;
+            case mrui::DmState::submitting:    body_text(1, "SENDING..."); break;
             // ★★ §T3 — `QUEUED`, NOT `SENT`. `waiting_ack` is reached at CORE ADMISSION (`on_send_accepted` after
             //    `tr.accept(r.ctr)`): the core minted a counter and queued the message. Five measured gaps still sit
             //    between that and the air — the core queue, the oversize reject, the ring-full drop, `pump_tx`'s
             //    failed arm and a lost TxDone — so saying SENT here was the §B69 false confirmation one layer out.
-            case mrui::DmState::waiting_ack:   mrui::draw_text(0, body_y(1), "QUEUED"); break;
+            case mrui::DmState::waiting_ack:   body_text(1, "QUEUED"); break;
             // ★★ ...and THIS is where `SENT, waiting` moved to: the string is unchanged, verbatim, and is now EARNED.
             //    `aired_waiting` is reached only by a correlated `send_aired`, i.e. the SX1262 TxDone edge for this
             //    exact flight — the physical act, established by the act.
-            case mrui::DmState::aired_waiting: mrui::draw_text(0, body_y(1), "SENT, waiting"); break;
+            case mrui::DmState::aired_waiting: body_text(1, "SENT, waiting"); break;
+            // ★★ §CHROME-4 / §7.3 — THE LABEL MOVED TO A SECOND ROW (§7.1 rule 5), it was not clamped.
+            //    `DELIVERED to <14-column label>` is 27 columns; it already over-ran the OLD 21-column body (u8g2
+            //    was clipping the name of the person the message reached) and at 19 it would lose even more. ⛔ The
+            //    label is the one thing on this screen that must not be truncated — it is WHO the delivery was to —
+            //    so the two facts take a row each: `DELIVERED to` (12) then the label (<= 14).
             case mrui::DmState::delivered:
-                snprintf(l, sizeof l, "DELIVERED to %s", label); mrui::draw_text(0, body_y(1), l); break;
+                body_text(1, "DELIVERED to");
+                body_text(2, label);
+                break;
             // §3.4 — a genuine dead end on-device: the 2026-07-29 ruling forbids the node auto-issuing `reqpubkey`,
             // so this needs a QR ceremony or a typed command. Say so plainly instead of a generic failure.
-            case mrui::DmState::no_key:        mrui::draw_text(0, body_y(1), "NO KEY"); break;
+            case mrui::DmState::no_key:        body_text(1, "NO KEY"); break;
             // ⚠ NOT "failed": command.h insists the distinction is "delivery was never CONFIRMED, not that it failed".
-            case mrui::DmState::not_confirmed: mrui::draw_text(0, body_y(1), "NO CONFIRM"); break;
+            case mrui::DmState::not_confirmed: body_text(1, "NO CONFIRM"); break;
             case mrui::DmState::failed:        draw_failure_lines(v); break;
         }
     } else {
         switch (v.chan) {
             case mrui::ChanState::idle:
-            case mrui::ChanState::submitting: mrui::draw_text(0, body_y(1), "SENDING..."); break;
+            case mrui::ChanState::submitting: body_text(1, "SENDING..."); break;
             // ★★ §T3, the channel twin of the DM lines above: acceptance is `QUEUED`, the TxDone edge is `SENT`.
-            case mrui::ChanState::waiting:    mrui::draw_text(0, body_y(1), "QUEUED"); break;
-            case mrui::ChanState::aired:      mrui::draw_text(0, body_y(1), "SENT, waiting"); break;
-            case mrui::ChanState::relayed:    mrui::draw_text(0, body_y(1), "PICKED UP"); break;
+            case mrui::ChanState::waiting:    body_text(1, "QUEUED"); break;
+            case mrui::ChanState::aired:      body_text(1, "SENT, waiting"); break;
+            case mrui::ChanState::relayed:    body_text(1, "PICKED UP"); break;
             // §B38: `relayed` is FIRST RELAY ONLY, never coverage — on a fully-1-hop team this is the CORRECT reading
             // at 100 % delivery. It reports what was MEASURED, not what it implies about delivery. ★ That argument
             // is unchanged by the rename below and moves with it.
@@ -804,19 +1175,19 @@ void draw_compose_result(const mrui::UiState& st, const OutcomeView& v) {
             //    evidence would have contradicted the rule those lines state. `NO RELAY HEARD` also reads more
             //    truthfully: `channel_no_relay` means the re-offer exhausted without OVERHEARING a relay — an
             //    observation about what was heard, which is exactly what the new string says.
-            case mrui::ChanState::no_relay:   mrui::draw_text(0, body_y(1), "NO RELAY HEARD"); break;
+            case mrui::ChanState::no_relay:   body_text(1, "NO RELAY HEARD"); break;
             // ★★★ §B69. It is NOT "SENT" and it is NOT "no relay": with no local handle we never listened, and on the
             //     `-t` line this UI sends the two surviving `ctr == 0` producers are a pre-TX block and a SEAL
             //     FAILURE — neither of them a success (see firmware_ui_model.h's EmgEvidence block for the source
             //     measurement). Saying SENT here would be the §2.1 false confirmation the obligation was written to
             //     prevent. ⇒ report exactly what is known.
-            case mrui::ChanState::unconfirmed: mrui::draw_text(0, body_y(1), "NOT CONFIRMED");
-                                               mrui::draw_text(0, body_y(2), "no send handle"); break;
-            case mrui::ChanState::blocked:    mrui::draw_text(0, body_y(1), "BLOCKED"); break;
+            case mrui::ChanState::unconfirmed: body_text(1, "NOT CONFIRMED");
+                                               body_text(2, "no send handle"); break;
+            case mrui::ChanState::blocked:    body_text(1, "BLOCKED"); break;
             case mrui::ChanState::failed:     draw_failure_lines(v); break;
         }
     }
-    mrui::draw_text(0, body_y(4), "press = back");
+    body_text(4, "press = back");
 }
 
 void draw_compose(const mrui::UiState& st, const OutcomeView& v) {
@@ -830,7 +1201,7 @@ void draw_compose(const mrui::UiState& st, const OutcomeView& v) {
     } else {
         snprintf(head, sizeof head, "to: team ch %u", unsigned(MR_UI_TEAM_CHANNEL_ID));
     }
-    mrui::draw_text(0, body_y(0), head);
+    body_text(0, head);
     if (st.compose_result) { draw_compose_result(st, v); return; }
     const char* const* texts = dm ? mrui::kDmTexts : mrui::kChannelTexts;
     const uint8_t n = dm ? mrui::kDmTextCount : mrui::kChannelTextCount;
@@ -838,7 +1209,7 @@ void draw_compose(const mrui::UiState& st, const OutcomeView& v) {
     for (uint8_t row = 0; row + 1 < kBodyRows && first + row < n; ++row) {
         char l[kLineCap];
         snprintf(l, sizeof l, "%c%s", (first + row == st.cursor) ? '>' : ' ', texts[first + row]);
-        mrui::draw_text(0, body_y(row + 1), l);
+        body_text(row + 1, l);
     }
 }
 
@@ -943,9 +1314,15 @@ void draw_emergency(const OutcomeView& v) {
 
 // ⚠ Called ONCE PER PAGE, on the FROZEN copies. It must be pure: no state written, nothing read that a later page
 //   could see differently, or the image tears across page boundaries (spec §5).
-void draw_frame(const mrui::UiState& st, const mrui::UiSnapshot& s, const OutcomeView& v, const SettingsView& c) {
+void draw_frame(const mrui::UiState& st, const mrui::UiSnapshot& s, const OutcomeView& v, const SettingsView& c,
+                const mrui::UiChrome& ch) {
     mrui::set_font(mrui::Font::small);
-    draw_status_bar(s);
+    draw_status_strip(ch);
+    // ★★ §CHROME-4: the rail is CHROME and is composed with the strip, before any body arm can `return`. Its own
+    //    `rail_visible` test is what suppresses it under an emergency (§5.3) — ⛔ do not move it below the arms and
+    //    ⛔ do not gate it on `v.st` here: that would be a SECOND expression of the emergency exception, and the two
+    //    would be free to disagree. The one authority is the frozen projection.
+    draw_rail(ch);
     if (v.st != mrui::Emergency::idle) { draw_emergency(v); return; }   // the alarm owns the body, from any screen
     if (st.compose != mrui::Compose::none) { draw_compose(st, v); return; }
     // ★ §UI-7D slice B: the THIRD body-replacing view. Its position after the overlay is what makes ledger §1.4's
@@ -1022,6 +1399,28 @@ void mr_ui_tick(uint32_t now_ms) {
     //    `UiState` by the time the frame FREEZES, or the press would appear to do nothing for one whole frame.
     ui_service_inbox_request(now_ms);
 
+    // ★★★★ §CHROME-3 / design §8.3 — THE REPAINT INVALIDATION. Snapshot-only facts move with NO gesture and NO app
+    //   push: a team route arrives on a beacon, the mobile-home link changes state, a battery sample lands, and the
+    //   compact home age turns with the clock. Without this the strip would simply go stale on a lit panel, because
+    //   `FrameGate::step` returns `idle` while the model is clean.
+    // ★★ IT IS BUILT HERE, LAST, AND FROM THE SAME INPUTS THE FREEZE WILL TAKE — after the gesture, the tick, the
+    //   send drain and the inbox request, so `UiState` is final for this pass. ⇒ when the gate answers `open` two
+    //   lines below, `s_frame_chrome = live_chrome` freezes THE CURRENT LIVE PROJECTION (§8.3.1 rule 3), never one
+    //   captured earlier while the panel was dark.
+    // ★★★ THE RULE ITSELF IS PURE AND LIVES IN `firmware_ui_chrome.h`, where the native suite drives it against the
+    //   real `UiModel` and can read `dirty` directly. ⛔ It RAISES or does nothing: it must NEVER clear a dirty bit,
+    //   least of all while blanked, where §B107's survival rule is load-bearing (§8.3.1's WITHDRAWN test asked for
+    //   exactly that and would have erased a legitimate pending redraw).
+    // ⓘ WHILE THE PANEL IS DARK THIS COSTS ONE PROJECTION AND ONE COMPARISON PER TICK AND CHANGES NOTHING ELSE:
+    //   `FrameGate::step` tests `blanked` FIRST and never examines `dirty`, so no frame opens, no bus call is made,
+    //   `_last_input_ms` is untouched and `ui_allows_sleep` — which reads `blanked`, the input FSM and `frame_open`,
+    //   never `dirty` — still permits the light sleep.
+    // ⛔ NO TIMER, and the two existing brakes are untouched: this only ever ASKS for a paint, which the MAC-idle
+    //   gate and the 2 Hz ordinary-frame throttle inside `FrameGate::step` are still free to refuse.
+    const mrui::UiChrome live_chrome =
+        mrui::ui_chrome(s, s_model.state(), s_model.emergency(), mrui::ChromeCfg::from(&s_cfg));
+    (void)mrui::ui_chrome_invalidate(s_model, live_chrome, s_frame_chrome);
+
     // ★★ ALL of the render POLICY — the §5 MAC-idle gate, the blank, the page continuation, the 2 Hz throttle and the
     //    emergency bypass — is `mrui::FrameGate::step`, a PURE class in firmware_ui_model.h. It moved there for the
     //    same reason `ui_pump_trackers` did: §B104 recorded that none of it had any behavioural probe, and §B107 (a
@@ -1043,6 +1442,7 @@ void mr_ui_tick(uint32_t now_ms) {
             s_frame_snap  = s;
             s_frame_out   = freeze_outcome(s);
             s_frame_cfg   = freeze_settings();     // §UI-14: the service's three facts + the draft, same instant
+            s_frame_chrome = live_chrome;          // §CHROME-3: the strip's projection AND §8.3's comparison reference
             mrui::begin_frame();
             break;
         case mrui::FrameStep::next_page:
@@ -1052,7 +1452,7 @@ void mr_ui_tick(uint32_t now_ms) {
     // ★ U8g2 page mode redraws the WHOLE scene per page — the draw calls are CLIPPED, not accumulated. Drawing once at
     //   frame start and then only advancing pages (an earlier draft) leaves seven of eight pages blank. `open` and
     //   `next_page` therefore share this tail, which is what makes "once per page" structural rather than a rule.
-    draw_frame(s_frame_state, s_frame_snap, s_frame_out, s_frame_cfg);   // the FROZEN copies — the image cannot tear
+    draw_frame(s_frame_state, s_frame_snap, s_frame_out, s_frame_cfg, s_frame_chrome);   // the FROZEN copies — the image cannot tear
     s_gate.on_page(mrui::next_page(), s_model, s_counters);
 }
 

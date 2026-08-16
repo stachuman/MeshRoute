@@ -270,6 +270,55 @@ MUT=[
  ('C9q the teardown always reports success (a stuck level is never noticed)',
   '    return type_off && pin_off && src_off;',
   '    (void)type_off; (void)pin_off; (void)src_off;\n    return true;'),
+ # ★★★ §CHROME-2 — THE TWO GENERIC CANVAS PRIMITIVES. ⛔ NOT ONE OF THESE IS A DELETION OF THE FUNCTION: each is a
+ # plausible wrong answer that COMPILES, draws something, and looks right in every count-only instrument. That is the
+ # point — U8g2 clips and reinterprets silently, so a transposed coordinate or the wrong sibling call is a blank slot
+ # or a smear on the panel and a PASS everywhere else.
+ # ⚠ The shim deliberately implements drawXBMP and drawBox so C10d/C10i BUILD; a control that only proves the
+ #   COMPILER objects would leave "the board picked the wrong U8g2 call" measured by nothing.
+ ('C10a draw_bitmap draws nothing at all (the icon is silently absent)',
+  '{ s_u8g2.drawXBM(x, y, w, h, bits); }',
+  '{ (void)x; (void)y; (void)w; (void)h; (void)bits; }'),
+ ('C10b draw_bitmap transposes x and y',
+  's_u8g2.drawXBM(x, y, w, h, bits);', 's_u8g2.drawXBM(y, x, w, h, bits);'),
+ ('C10c draw_bitmap transposes w and h',
+  's_u8g2.drawXBM(x, y, w, h, bits);', 's_u8g2.drawXBM(x, y, h, w, bits);'),
+ # ★★ C10d IS THE ONE THE BRIEF SINGLES OUT. `drawXBMP` is the AVR PROGMEM form (`u8g2_pgm_read`), and on ESP32-S3 /
+ # nRF52 it is indistinguishable from `drawXBM` at runtime — so it is a defect that can only ever be caught by an
+ # assertion on WHICH CALL WAS MADE, never by looking at the panel on this board.
+ ('C10d drawXBMP is substituted for drawXBM (the AVR PROGMEM form)',
+  's_u8g2.drawXBM(x, y, w, h, bits);', 's_u8g2.drawXBMP(x, y, w, h, bits);'),
+ # ★★ C10e — §8.1's "the board copies pixels, it does not own them". A board that stages the bitmap in its own buffer
+ # breaks the V4-port promise and any caller that mutates its asset, and a CONTENT comparison would pass over it.
+ ('C10e draw_bitmap hands over a COPY of the bytes, not the caller\'s pointer',
+  'void draw_bitmap(int x, int y, int w, int h, const uint8_t* bits) { s_u8g2.drawXBM(x, y, w, h, bits); }',
+  'void draw_bitmap(int x, int y, int w, int h, const uint8_t* bits) {\n'
+  '    static uint8_t scratch[64];\n'
+  '    const int n = ((w + 7) / 8) * h;\n'
+  '    for (int i = 0; i < n && i < 64; ++i) scratch[i] = bits[i];\n'
+  '    s_u8g2.drawXBM(x, y, w, h, scratch);\n}'),
+ # ★★★ C10f/C10g — THE BUS DISCIPLINE (§11.2). A compose-time page push is the exact hazard board_ui.h's paint
+ # contract exists for: ~3 ms of blocking I2C per call against a cts_to_data_gap_ms of 5, issued from inside a draw.
+ ('C10f draw_bitmap pushes a page at COMPOSE time (bus traffic outside next_page())',
+  'void draw_bitmap(int x, int y, int w, int h, const uint8_t* bits) { s_u8g2.drawXBM(x, y, w, h, bits); }',
+  'void draw_bitmap(int x, int y, int w, int h, const uint8_t* bits) { s_u8g2.drawXBM(x, y, w, h, bits); (void)s_u8g2.nextPage(); }'),
+ ('C10g draw_rect blanks/wakes the panel at COMPOSE time (bus traffic outside next_page())',
+  'void draw_rect(int x, int y, int w, int h)                        { s_u8g2.drawFrame(x, y, w, h); }',
+  'void draw_rect(int x, int y, int w, int h)                        { s_u8g2.setPowerSave(0); s_u8g2.drawFrame(x, y, w, h); }'),
+ ('C10h draw_rect draws nothing at all (no selection frame is ever drawn)',
+  '{ s_u8g2.drawFrame(x, y, w, h); }', '{ (void)x; (void)y; (void)w; (void)h; }'),
+ # ★★ C10i — the outline becomes a FILLED box: same signature, one letter apart, and on the panel it inverts the rail
+ # slot and HIDES the icon the frame exists to select.
+ ('C10i drawBox is substituted for drawFrame (a filled slot, not an outline)',
+  's_u8g2.drawFrame(x, y, w, h);', 's_u8g2.drawBox(x, y, w, h);'),
+ ('C10j draw_rect transposes x and y',
+  's_u8g2.drawFrame(x, y, w, h);', 's_u8g2.drawFrame(y, x, w, h);'),
+ ('C10k draw_rect transposes w and h',
+  's_u8g2.drawFrame(x, y, w, h);', 's_u8g2.drawFrame(x, y, h, w);'),
+ # ⓘ C10l is the "helpful board" defect §8.1 forbids in principle: a one-pixel origin offset compiles, looks nearly
+ # right, and silently pushes an edge-anchored draw off the 128x64 panel, where U8g2 clips it without a word.
+ ('C10l draw_bitmap "helpfully" offsets the origin by one pixel',
+  's_u8g2.drawXBM(x, y, w, h, bits);', 's_u8g2.drawXBM(x + 1, y + 1, w, h, bits);'),
 ]
 rc_all = 0
 for idx, (label, find, repl) in enumerate(MUT):
