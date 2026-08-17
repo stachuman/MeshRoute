@@ -888,6 +888,91 @@ w43() { code_flat "$1" | grep -qF 'static_assert(kBodyCols == mrui::kDetailCols,
 wchk_in "$FW_UI" "W43 the body width and the model's detail wrap are ONE number (build-enforced)" \
      w43 's|static_assert(kBodyCols == mrui::kDetailCols,|static_assert(kBodyCols == kBodyCols,|' \
          's|constexpr int kBodyCols = 19;    |constexpr int kBodyCols = 21;    |'
+# ================================================================================================ W44-W46
+# ★★★★ [[B196]] — THE ONE `esp_sleep_pd_config()` CALL, ITS COUNT AND ITS PLACE. `esp_sleep_pd_config` is REF-COUNTED
+#     in an ESP-IDF `int16_t refs`, so a call PER SLEEP ATTEMPT overflowed it and `assert(refs >= 0)` panic-rebooted
+#     every headless node about every nine hours. The fix asserts the domain ONCE PER BOOT in `setup()`.
+# ⛔⛔ AND THIS DEFECT IS INVISIBLE TO EVERY BEHAVIOURAL GATE WE HAVE — native does not compile this arm, the 36 corpus
+#     streams never enter it, and neither UI probe drives `fw_main.cpp`'s sleep path. It needs a real ESP32, real IDF
+#     state and 32,769 sleeps (bench Part 26). ⇒ what CAN be measured here is the SOURCE SHAPE, and nothing more is
+#     claimed for it: these three checks cannot prove the node stops rebooting, only that the tree still has the
+#     shape the metal soak validated.
+# ★★★ THE COUNT MUST BE OF **CALL EXPRESSIONS IN CODE**, NOT TEXT OCCURRENCES, and that is not a nicety: the required
+#     comments at BOTH ends of this fix name `esp_sleep_pd_config` and `ESP_PD_OPTION_OFF` in prose, so a raw
+#     `grep -c` over the tree fails the instant the fix is documented — §B77's trap (a check reading its own
+#     documentation as the violation), which has already broken two checks in this file.
+# ⇒ comments are stripped BY THE COMPILER (`-fpreprocessed -dD -E -P` removes `//` AND `/* */` without needing a
+#   single include or macro), and the count is then taken with a call-shaped pattern over the STRIPPED text.
+# ⓘ A file whose RAW text does not mention the identifier at all contributes 0 and is not stripped — stripping can
+#   only REMOVE occurrences, so raw absence already proves code absence. That also keeps the one vendored file
+#   `-fpreprocessed` refuses (`lib/monocypher/src/monocypher.c`, whose macros use escaped newlines) out of the loop
+#   without a silent skip: if a file that DOES mention the identifier cannot be stripped, pd_count fails LOUD.
+prod_files() {   # every production source/header the firmware compiles — `src/`, `variants/`, `lib/`
+  find "$ROOT/src" "$ROOT/variants" "$ROOT/lib" -type f \
+       \( -name '*.cpp' -o -name '*.cc' -o -name '*.c' -o -name '*.h' -o -name '*.hpp' \) | sort
+}
+pd_count() {   # pd_count <ERE> <fw_main-substitute>: matches in COMMENT-STRIPPED production code, with $2 standing
+               # in for src/fw_main.cpp so every clause below is mutation-controllable through wchk_in's copy.
+  local re=$1 sub=$2 total=0 f p n
+  while IFS= read -r f; do
+    p=$f; [ "$f" = "$ROOT/src/fw_main.cpp" ] && p=$sub
+    grep -qE 'esp_sleep_pd_config|ESP_PD_OPTION' "$p" || continue
+    if ! "$CXX" -fpreprocessed -dD -E -P "$p" > "$OUT/pd_strip.i" 2>/dev/null; then
+      echo "  pd_count: CANNOT comment-strip $p — the count would be unsound" >&2; printf '9999'; return
+    fi
+    n=$(grep -oE "$re" "$OUT/pd_strip.i" | wc -l); total=$((total+n))
+  done < <(prod_files)
+  printf '%s' "$total"
+}
+PD_CALL_RE='esp_sleep_pd_config[[:space:]]*\('
+# W44 THE CARDINALITY. Exactly ONE `ON` call expression in the whole of `src/` + `variants/` + `lib/`, and ZERO
+#     `ESP_PD_OPTION_OFF` — the latter forbids a future half-pairing driving `refs` NEGATIVE from the other side
+#     (the `OFF` path asserts on the POST-decrement value, so an unmatched `OFF` is the same defect mirrored).
+# ★ THREE CONTROLS, and the first one is the defect verbatim: the call restored at its old per-attempt home; the new
+#   call deleted (count 0 — a check that only catches duplication would pass over a fix that vanished); and an `OFF`
+#   introduced after the halt.
+w44() { [ "$(pd_count "$PD_CALL_RE" "$1")" -eq 1 ] && [ "$(pd_count 'ESP_PD_OPTION_OFF' "$1")" -eq 0 ]; }
+# ⚠ THE COUNTS ARE PRINTED UNCONDITIONALLY, unlike every other check here, and so is the SWEEP SIZE: a cardinality
+#   check whose file list came out empty would report `0` and look like a considered measurement. Two numbers make
+#   that visible — how many files were walked, and how many of them name the identifier at all.
+pd_naming() { while IFS= read -r f; do grep -qE 'esp_sleep_pd_config|ESP_PD_OPTION' "$f" && echo "$f"; done < <(prod_files); }
+echo "  W44 counts: $(prod_files | wc -l) production files walked, $(pd_naming | wc -l) naming the identifier -> $(pd_count "$PD_CALL_RE" "$FW_MAIN") call expression(s) (required 1), $(pd_count 'ESP_PD_OPTION_OFF' "$FW_MAIN") ESP_PD_OPTION_OFF (required 0)"
+wchk_in "$FW_MAIN" "W44 exactly ONE esp_sleep_pd_config call in production code, ZERO ESP_PD_OPTION_OFF (got $(pd_count "$PD_CALL_RE" "$FW_MAIN") / $(pd_count 'ESP_PD_OPTION_OFF' "$FW_MAIN"))" \
+     w44 's|^        esp_sleep_enable_ext1_wakeup((1ULL << LORA_PIN_DIO1), ESP_EXT1_WAKEUP_ANY_HIGH);.*$|        esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);\n\&|' \
+         's|^.*B196 return checked.*$|        if (ESP_OK != ESP_OK)|' \
+         's|^        const esp_err_t sleep_rc = esp_light_sleep_start();$|\&\n        esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);|'
+# W45 WHERE IT IS, AND UNDER WHAT. The call sits in `setup()` — scoped by the body extraction, so "once per boot"
+#     is the property rather than "somewhere in the file" — inside BOTH compile conditions and under the SAME runtime
+#     guard the old site had, with its return CHECKED and said in wording that is NOT panel-specific.
+# ⛔ Dropping any of the three conditions is a behaviour change, not a tidy-up: an `MR_NO_POWERSAVE` build must gain
+#    no call it never had, only the ESP32 arm ever configured a domain, and a board whose DIO1 cannot wake configures
+#    nothing. ⇒ the regex demands them ADJACENTLY (no `.*` anywhere in it), so anything interposed turns it red.
+# ★ FIVE CONTROLS, and only one is a deletion: each condition dropped in turn · the return discarded · and the
+#   ⛔ OLED-specific wording, which would print a false attribution on `xiao_esp32s3` / `gateway_esp32s3` /
+#   `xiao_esp32s3_mobile` — three envs that compile this line and have no panel at all.
+setup_code() { sed -n '/^void setup() {$/,/^}$/p' "$1" | sed 's://.*::' | tr '\n' ' ' | tr -s ' '; }
+w45() { setup_code "$1" | grep -qF '#if !defined(MR_NO_POWERSAVE) #if defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3) if (rtc_gpio_is_valid_gpio((gpio_num_t)LORA_PIN_DIO1)) { if (esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON) != ESP_OK) mrcon.println(F("!! RTC sleep power-domain configuration failed")); } #endif #endif'; }
+wchk_in "$FW_MAIN" "W45 the ONE call is in setup(), under !MR_NO_POWERSAVE + the ESP32 arm + the rtc_gpio guard, return checked" \
+     w45 's|^.*B196 cond 1/3.*$||' \
+         's|^.*B196 cond 2/3.*$||' \
+         's|^.*B196 cond 3/3.*$|    {|' \
+         's|^.*B196 return checked.*$|        esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);|' \
+         's|!! RTC sleep power-domain configuration failed|!! OLED button wake unavailable; sleep disabled|'
+# W46 ⛔⛔ NEGATIVE SPACE, AND IT IS THE HALF THAT ACTUALLY FIXES THE BUG: `board_sleep_until()` MUST NOT ASSERT THE
+#     DOMAIN. The next reader's instinct is to "restore it for safety" beside the `ext1` arm — that instinct IS the
+#     defect, and it cannot be reverted by deletion, so both controls ADD code.
+# ★ CONTROL 2 IS CANDIDATE (b), WHICH THE OWNER DID NOT RULE: a one-shot `static bool` inside this function has the
+#   same call count and would satisfy any counting check, so W44 alone cannot see it. The ruled shape is once per boot
+#   in the INIT PATH, and this is the clause that says so.
+# ⚠ The first clause is what stops the check being vacuous: if the `sed` range ever stops matching (a renamed or
+#   re-signatured function), the body comes out EMPTY and a bare "does not contain" would pass over anything. A token
+#   known to live in that body must be found before its absence means anything.
+sleep_fn_code() { sed -n '/^static bool board_sleep_until(/,/^}$/p' "$1" | sed 's://.*::' | tr '\n' ' ' | tr -s ' '; }
+w46() { sleep_fn_code "$1" | grep -qF 'esp_sleep_enable_ext1_wakeup(' && \
+        ! sleep_fn_code "$1" | grep -qF 'esp_sleep_pd_config'; }
+wchk_in "$FW_MAIN" "W46 board_sleep_until() asserts NO power domain (the per-attempt call is gone, B196)" \
+     w46 's|^        esp_sleep_enable_ext1_wakeup((1ULL << LORA_PIN_DIO1), ESP_EXT1_WAKEUP_ANY_HIGH);.*$|        esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);\n\&|' \
+         's|^        esp_sleep_enable_ext1_wakeup((1ULL << LORA_PIN_DIO1), ESP_EXT1_WAKEUP_ANY_HIGH);.*$|        static bool s_pd_done = false; if (!s_pd_done) { s_pd_done = true; esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON); }\n\&|'
 echo "structural: $s_pass passed / $s_fail failed / $((s_pass+s_fail)) total"
 echo "wiring:     $w_pass passed / $w_fail failed / $((w_pass+w_fail)) total; $w_ctl negative control(s) verified RED"
 [ "$s_fail" -eq 0 ] || rc=1

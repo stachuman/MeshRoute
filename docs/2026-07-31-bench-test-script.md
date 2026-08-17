@@ -2368,17 +2368,22 @@ The B200 panic dump printed `ELF file SHA256: 7a8aaa957` over a banner reading `
    work is committed, rebuild and archive the clean-stamped image.
 3. Decode a future backtrace with
    `xtensa-esp32s3-elf-addr2line -pfiaC -e <that firmware.elf> <addresses>`.
-4. ⓘ **The §B200 slice's images are already archived** (outside the repo — a ~20 MB ELF is not an agent's commit to
-   make), in `~/MeshRoute-artifacts/b200/` with a `SHA256SUMS` and a `README.txt`:
-   - **round 4 (current, flash this one)** — `heltec_v3-473581f-dirty-b200r4.elf`, sha256
-     `bb5108a08b05aa1100efdc457a60363826b140968a1171e105e81cc69d15570b`, banner `rev=473581f-dirty`;
-     ⚠ the round-3 build is not kept — never flashed, and it carried the SAME `-dirty` stamp, which an uncommitted
-     tree cannot distinguish. Keep at most one uncommitted image per stamp;
-   - round 2 (the image that still panicked in case (B)) — `heltec_v3-2d2af7a-dirty-b200.elf`, sha256
-     `40e2c18043eb3f63a9e14e1fbc963d16f76bdf8dd34a503d7151c049eceb74be`. **Keep it: it is the one a round-2 dump
-     decodes against.**
-   ⚠ An ELF decodes **only** the exact image built from it, and a `-dirty` stamp does not identify a revision; once
+4. ⚠ An ELF decodes **only** the exact image built from it, and a `-dirty` stamp does not identify a revision; once
    the slice is committed, rebuild and archive the clean-stamped one.
+5. ★★ **WHAT IS ARCHIVED RIGHT NOW (updated 2026-08-17):** one directory only —
+   **`~/MeshRoute-artifacts/soak-20260816-1646/`** (`firmware.{elf,map,bin}` + `COMMIT.txt` + `SHA256SUMS`), the
+   [[B196]] panic image: `firmware.elf` sha256 **`d964a5239b568…`**, `COMMIT.txt` **`a1e53dd`**. ⛔ **Keep it until
+   B196 closes** — it is the only ELF matching that panic, the provenance proof cited on the register row, and the
+   artefact the fix's whole equivalence audit was measured against.
+   ⓘ **The earlier `b196/` and `b200/` archives were DELETED 2026-08-17 on an owner instruction**, and the reasoning is
+   worth keeping because it is the general rule: **`b200/` — B200 closed on metal and its backtrace was already decoded
+   and recorded, so no future dump can arrive to need it**; **`b196/` — those two rebuilt ELFs matched NO flashed image
+   (1276784 / 1276720 against a flashed 1275984) and the captures they were built for were fault-log records with no
+   console backtrace at all, so there was nothing they could ever decode.**
+   ⇒ ★ **THE RULE THIS LEAVES: an archived ELF is worth keeping exactly as long as a backtrace it can decode might
+   still arrive. Archive at FLASH TIME (a rebuild is not the same image — measured), keep it while its row is OPEN,
+   delete it when the row closes.** ⓘ [[B206]] is the related trap on the measuring side: two `__DATE__` TUs make an
+   incremental rebuild's flash figures differ by ~16-32 B, so a rebuilt image is not even size-stable.
 
 ## Part 24 — §CHROME-3: the status strip and its repaint invalidation (2026-08-16)
 
@@ -2509,6 +2514,40 @@ regression presents **only** as `slept=` failing to climb: no panic, nothing vis
    remaining icons are at the **same heights** as on `heltec_mobile` (⛔ not packed up to close the gaps — design §3.2
    forbids a second layout).
 3. ⛔ Fail on a TEAM or SEND icon appearing on a build with no team plane, or on the icons shifting position.
+
+## Part 26 — [[B196]]: the once-per-boot RTC power-domain assert (2026-08-17)
+
+★★★ **THIS IS THE ONLY CHECK THAT CAN CLOSE [[B196]], AND IT IS COUNTED IN SLEEPS, NOT IN HOURS.** The defect was our
+own `esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON)` running once per sleep ATTEMPT: ESP-IDF
+ref-counts it in an `int16_t`, so call **#32,769** hit `assert(refs >= 0)` and panic-rebooted the node. The call now
+runs **once per boot** in `setup()`. ⛔ **No automated gate in this tree can see any of this** — native does not
+compile the arm, the 36 corpus streams never enter it, and neither UI probe drives `fw_main.cpp`'s sleep path.
+
+⛔⛔ **UPTIME IS NOT THE CRITERION AND MUST NOT BE SUBSTITUTED FOR ONE.** Awake periods suspend the counting entirely
+(the host-attached negative control survived 9h25m with `slept=0`), so a long uptime proves nothing on its own.
+★ `slept=` is the CONSERVATIVE proxy: it counts sleeps that HAPPENED, while the old defect fired on every ATTEMPT
+(attempts >= `slept` always) ⇒ **`slept` > 32,769 GUARANTEES the old trip point was passed**; a lower `slept` leaves
+it undecided whatever the clock says.
+
+1. Build `heltec_v3` (or any ESP32-S3 env), **archive its `firmware.elf` and record the banner `rev=`** before
+   flashing — Part 23.7's rule, and it is what made the [[B196]] diagnosis possible at all.
+2. Provision the node so it is idle and headless: persist `team 0` (no peers ⇒ almost no RX ⇒ maximum sleep duty),
+   then **reboot**.
+3. ⛔⛔ **SEND NO CONSOLE BYTE UNTIL THE FINAL READ — not one.** A single byte latches `g_host_present`, `may_sleep`
+   goes false for the rest of the boot, `slept=` stops advancing, and the soak measures NOTHING however long it runs.
+   ⓘ Attaching a monitor resets the board over DTR, so "connect at the end" means "the experiment is over".
+4. Leave it strictly alone for **~10 h** (the practical target for > 32,769 sleeps at the <=1 s cap; the pre-fix
+   panics landed at ~9h01m ± 3 min).
+5. Then type `status` **ONCE** and read: **`slept=`**, **`sleep=`**, **`wkarmfail=`**, **`wkbusy=`**,
+   **`wksleepfail=`** — the last three are exactly the attempts that did NOT become sleeps, so reporting all of them
+   settles the attempt-vs-sleep gap by measurement instead of estimate.
+6. **PASS:** `sleep=auto`, **`slept=` > 32,769**, and `/mrfault` shows **no new `HARDFAULT · hint:PANIC`** record for
+   this boot (`boot_seq` advanced by one, POR cause).
+7. ⛔ **`slept=0` or `sleep=off-host` means the arm never ran — the soak measured nothing and must be re-run**, no
+   matter what the uptime says.
+8. ⛔ **FAIL, and it refutes the fix rather than the run:** a panic whose backtrace names `esp_sleep_pd_config` /
+   `sleep_modes.c` on a build carrying the once-per-boot call. Capture it with the monitor attached, decode it against
+   the archived ELF (Part 23.7 step 3), and reopen [[B196]].
 
 ## Completion record
 

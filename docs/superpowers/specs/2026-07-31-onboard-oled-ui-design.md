@@ -2,11 +2,15 @@
 
 *2026-07-31. From the owner's screen draft, refined in design dialogue. Fills the `mr_ui` seam that `2026-07-12-firmware-feature-split.md` slice 4 left empty.*
 
-*Status: ACTIVE DESIGN, updated 2026-08-13. Phase A code through UI-7, **UI-7D (inbox detail/delete, BOTH slices)** and
-the UI-9 battery reader is landed; UI-7D/UI-8/UI-9 still have open metal acceptance. ⛔ **Phase A is NOT complete —
-[[B164]] and [[B189]] are a mandatory gate before on-device registration / team onboarding and before final Phase-A
-acceptance (ledger §1.21).** Sections marked 📝 are design only and must not be read as shipped behavior.
-The 2026-08-06 UI-13–UI-16 extension adds staged settings, direct provisioning and nearby-team onboarding.*
+*Status: ACTIVE DESIGN, updated 2026-08-17. Phase A now includes the implemented UI-13/UI-14 staged SETTINGS flow,
+the T2/T3 transmit-completion reporting path, and the implemented four-slice status/navigation redesign. The current
+OLED chrome is the fixed status strip + left navigation rail defined by
+`2026-08-15-heltec-mobile-status-navigation-ui-design.md`; the earlier full-width status-row layouts below survive
+only where explicitly fenced as history. UI-7D/UI-8/UI-9, SETTINGS storage, transmit truth, sleep/wake and the new
+chrome still have named metal acceptance. ⛔ **Phase A is NOT complete:** [[B164]] remains a metal truthfulness gate,
+while [[B189]]'s recovery half remains an explicit post-diagnostic decision rather than an implemented retry.
+Sections marked 📝 are design only and must not be read as shipped behavior. The 2026-08-06 UI-13–UI-16 extension
+adds staged settings, direct provisioning and nearby-team onboarding; UI-15/UI-16 remain design only.*
 
 > ★★ **FACT-ONLY CORRECTION PASS 2026-08-06 — register [[B130]]. Read this before trusting any instruction below.**
 > Every earlier slice was told *"⛔ do not edit the spec — report needed changes"*, and every slice obeyed. The
@@ -37,19 +41,25 @@ manual hardware gate.
 | 📝 | specified only; no implementation may be inferred |
 | ⏸ | deliberately deferred or blocked |
 
-| area | status on 2026-08-06 | evidence / remaining work |
+| area | status on 2026-08-17 | evidence / remaining work |
 |---|---|---|
 | A0 board-source placement | ✅ | landed; Heltec board UI lives under `variants/heltec_v3/` |
 | UI-1 … UI-7 | ✅ | gesture, model, attribution, canvas, feature layer, real sends, roster and inbox preview are implemented |
 | UI-8 emergency hardware qualification | 🧪 | all render/send arms exist; the H8 bench matrix is still the completion gate |
 | UI-9 V3 battery reader | 🧪 | code and probes landed; H9 meter, control-line and radio-load checks remain |
+| Status/navigation chrome | ✅ implementation · 🧪 metal | CHROME-1…CHROME-4 implemented the fixed top status strip, five-slot left navigation rail, settings badge and 19-column body. The detailed normative authority is `2026-08-15-heltec-mobile-status-navigation-ui-design.md`; bench Parts 24–25 remain the visual, timing and sleep/radio acceptance gate. |
 | UI-7D inbox detail/delete | ✅ **UI + storage** · 🧪 metal | ⛔ **CORRECTED IN PLACE 2026-08-13: this row used to read `📝 UI · ✅ storage` and end *"§3.5's modal is slice B and is not built: the double press on INBOX still intentionally does nothing"*. THAT IS NOW FALSE.** **Slice A** (storage) landed 2026-08-06, QA-rejected the same day, re-closed 2026-08-07 — §6.2's `Inbox::erase(InboxKind, seq)` (tombstone; three outcomes; console `del_msg`), with the durable store's **mid-frame tear** ([[B135]], pre-existing) and the verb's **target parsing** ([[B136]]) both fixed. **Slice B** (the §3.5 modal) landed **2026-08-13**: `src/firmware_ui_model.h` owns the identity-tracked selection (`(InboxKind, seq)`), the modal, its paging and all three erase landings; `src/firmware_ui.cpp` owns the `(kind, seq)` lookup, the in-callback body copy and the one `erase()` call. 32 native mutations + 13 device-half probe controls, all RED. 🧪 **What remains is metal**: the panel's own rendering of the modal and the [[B134]] non-persistence check — see `docs/2026-07-31-bench-test-script.md` §UI-7D |
 | UI-10/UI-11 configurable presets | 📝 | §3.2.2–3; current OLED still uses the landed fixed catalog |
 | UI-12 Heltec ESP32 BLE | 📝 | §2.2; persisted `ble_mode` does not provide BLE on V3 yet |
+| T2/T3 transmit-completion truth | ✅ implementation · 🧪 metal | HAL completion outcomes and app/UI `QUEUED` → `SENT` / `NO RELAY HEARD` semantics are implemented. [[B164]] remains open for Part 22 metal correlation; [[B189]]'s B186b recovery is deliberately not implied by observability. |
 | UI-13 typed staged-config service | ✅ **service only — HEADLESS** | ⛔ **CORRECTED IN PLACE 2026-08-13: this used to be one `UI-13…UI-16` row reading `📝 … no SETTINGS screen, draft marker, team-create/static-join UI or nearby-team onboarding exists yet`. That sentence is now FALSE for UI-13 and still TRUE for UI-14…UI-16, so the row is SPLIT rather than overwritten.** `src/firmware_config_service.h` implements §3.6.1: the three states (persisted / effective / draft) with `config_unsaved`, `conflict` and `reboot_required` as three DISTINCT comparisons, typed per-field validation, whole-candidate validation before any write, exactly ONE durable `/mrcfg` write, live apply only after durable success, DISCARD/RELOAD, and the two ruled headlines `CFG! RELOAD` / `SAVE FAILED`. Covered fields = the four already-durable ones (`ble_mode`, `e2e_dm`, `intro_attach`, `mobile_autoregister`); no NV schema change, no `kVersion` bump. 29 native cases / 32 mutations, all RED. ⚠ **Proved against FAKES: the NV fault / power-cut half is deferred with the device binding to UI-14 / [[B193]].** ⛔⛔ **CORRECTED IN PLACE 2026-08-13 (QG round 2): this row used to END *"NOTHING RENDERS OR CALLS IT: no SETTINGS screen, no menu row, no gesture, and `ICfgStore`/`ICfgLive` have no device binding yet, so the running firmware's behaviour is unchanged"* — SITTING DIRECTLY ABOVE THE UI-14 ROW THAT SAYS THE OPPOSITE. That sentence is withdrawn here, not deleted.** ★ **Read it as what it always was: the §UI-13 SLICE BOUNDARY.** UI-13 landed HEADLESS by scope — no renderer, no menu row, no gesture and no hardware binding *in that slice* — and **§UI-14 CONSUMES it**: the SETTINGS screen renders it, `src/firmware_ui.cpp` constructs the one `ConfigService`, and `mrfw::device_cfg_store()` / `device_cfg_live()` supply the binding ([[B193]]'s first half). ⇒ the running firmware's behaviour **is** changed by UI-14, and the header of `src/firmware_config_service.h` carries the same correction beside the obligations it recorded. ⛔ **What is STILL owed is [[B193]]'s other half:** the binding is exercised only through FAKES, so no real-flash write, no wear and no reset-during-write is proved by any gate — bench Parts 19/20 |
 | UI-14 SETTINGS screen, draft marker, save/discard/reboot | ✅ **UI + the device binding** · 🧪 NV / power-cut | ⛔ **CORRECTED IN PLACE 2026-08-13: this was part of a `UI-14…UI-16 📝` row saying *"no SETTINGS screen, no draft marker on the panel"*. That is now FALSE for UI-14 and still TRUE for UI-15/UI-16, so the row is SPLIT rather than overwritten.** §3.6.2's menu is the fifth cycle slot on both cycles: the three live-class value rows with `short`-to-cycle / `double`-to-enter-and-accept, SAVE / DISCARD / BACK, a **conflict-conditional RELOAD** row, and a **present-but-inert PROVISION** row that refuses out loud. §3.3's marker is on STATUS (`CFG* UNSAVED` / `CFG! RELOAD`) and `RESTART NEEDED` is its own row. `src/firmware_ui_model.h` owns every gesture meaning, the row table and all four action landings; `src/firmware_ui.cpp` owns the frame-frozen render and the one `ConfigService` instance; **[[B193]]'s DEVICE BINDING landed in `src/firmware_config.cpp`** (`device_cfg_store` / `device_cfg_live` — the §nv-ritual `nv_load_stamped` load and the OFF→ON `mobile_register_current()` bridge). 29 native cases / 18 new model mutations / 8 new device-half probe controls. ⚠ **The BLE-mode row is ABSENT in every env in the tree** — §3.6.2's own condition, since UI-12 does not exist; the present arm is built and run by the probe under `-DMR_UI_BLE_ROW=1`. 🧪 **What remains is the storage half: no NVS/LittleFS write, no wear and no reset-during-write is exercised by any gate** — see `docs/2026-07-31-bench-test-script.md` §UI-14 |
 | UI-15…UI-16 provisioning and nearby onboarding | 📝 | §3.6.3–§3.6.4; no team-create/static-join UI and no nearby-team onboarding exists. ⚠ The SETTINGS menu's PROVISION row is rendered and **refuses**; §3.6.3's *"an unsaved draft requires SAVE or DISCARD first"* precondition is deliberately **not** implemented — it belongs to UI-15 |
 | Heltec V4 UI/GPS | 📝 | Phase B; radio/RF work is owned by the separate V4 spec |
+
+**Chrome precedence (2026-08-17):** the UI-14 row retains its 2026-08-13 landing description, including the then-live
+STATUS placement. CHROME-1…4 superseded only that placement: configuration state is now the SETTINGS-rail badge and
+actionable words remain on SETTINGS. Read §3.3 for current behavior.
 
 Section headings below repeat a status only where the whole section has one clear state. Mixed sections defer to this
 table. Historical `⛔ SUPERSEDED` blocks are evidence only.
@@ -170,6 +180,7 @@ Four units:
 
 ```
 begin_frame() · next_page() · set_font(Font) · draw_text(x, y, const char*) · draw_hline(x, y, w)
+draw_bitmap(x, y, w, h, bits) · draw_rect(x, y, w, h)
 set_power_save(bool) · button_pressed() · battery_sample_mv()
 ```
 
@@ -250,7 +261,7 @@ that can only boot into `INIT FAILED`.
 
 ## 3. Screens and gestures
 
-### 3.1 Cycle · ✅ current cycle; 📝 SETTINGS extension
+### 3.1 Cycle · ✅ current cycle; 📝 provisioning extension
 
 | slot | screen | gate | status |
 |---|---|---|---|
@@ -268,6 +279,12 @@ paths, is simpler than N message slots**. Enabling a preset adds a list row, not
 extension adds exactly one fixed slot, independent of preset count. Emergency remains outside every list.
 
 **"I'm in danger" appears in no list.** It is reachable only by long-press (§4). Two routes to the same dangerous action invite accidental alarms, and the navigational one would be the route nobody can use under stress.
+**As-built navigation chrome (2026-08-16):** the cycle above is represented by five fixed rail slots — STATUS, TEAM,
+INBOX, SEND and SETTINGS — at x=0…9 below the top strip. Gated-out TEAM/SEND slots remain empty instead of shifting
+later icons. The active slot has a rectangular outline. Detail and compose modals retain their parent slot; emergency
+suppresses the rail and uses the full width while keeping the top strip. The exact pixel geometry and modal mapping
+are normative in `2026-08-15-heltec-mobile-status-navigation-ui-design.md`.
+
 
 ### 3.2 Gestures · ✅ current screens; ✅ SETTINGS actions (§UI-14, 2026-08-13)
 
@@ -333,7 +350,7 @@ Each persistent slot stores:
   implicitly always enabled.
 - `text`: when enabled, 1–18 printable ASCII bytes containing at least one non-space character; `"`, `\`, CR and LF are
   rejected. Eighteen is a UI safety bound, not an on-air limit: with the selection marker and location marker the
-  full message remains visible in the panel's measured 21-column small font. The device must never send a hidden
+  full message remains visible in the panel's implemented 19-column body. The device must never send a hidden
   suffix the wearer could not inspect.
 - `include_location`: one explicit boolean. The compose row shows `L` when set and `-` when clear; this is part of
   what the user confirms before the double press.
@@ -392,43 +409,50 @@ returns `busy`; an alarm's retries must not change body or location policy halfw
 Page-buffer painting likewise freezes one catalog generation for the whole frame so a BLE update between OLED pages
 cannot tear two versions into one image.
 
-### 3.3 Layout · ✅ current layout; ✅ unsaved-settings marker (§UI-14, 2026-08-13)
+### 3.3 Layout · ✅ implemented status strip + navigation rail (2026-08-16)
 
-A persistent 8 px status bar on every screen, so "is anything wrong" never requires cycling:
+The current geometry is normative here at product level and pixel-exact in
+`2026-08-15-heltec-mobile-status-navigation-ui-design.md`:
 
-```
-+---------------------------------------+
-| DM3 CH12 T4/5 B* 3.9V                 |  <- 6x8, always
-+---------------------------------------+
-|  screen body: 4 lines @ 6x8,          |
-|  or 2 lines @ 8x16 (emergency)        |
-+---------------------------------------+
-```
+- **status strip:** y=0…8, followed by a rule at y=9;
+- **navigation rail:** x=0…9, y=10…59;
+- **body:** x=12…127, 116 px wide, five small-font baselines at y=19/29/39/49/59, and therefore **19 text columns**;
+- **emergency exception:** retain the top strip, suppress the rail, and use x=0…127 for the alarm body.
 
-**BLE indicator is gated by the real transport.** Until UI-12 lands, V3 omits it because `mrble::connected()` is
-structurally false on ESP32. With the Heltec transport compiled in, the bar shows `B*` while connected and `B-`
-while enabled but disconnected; it remains absent when BLE is compiled out or configured off. The measured worst-case
-bar above is exactly 21 small-font columns.
+The status strip is a fixed-slot summary. A missing value changes its token to `--`; it never shifts later slots:
 
-**Battery is shown as volts, not a percentage.** A percentage requires a chemistry and discharge-curve policy nobody has approved; `3.9V` is honest with zero assumptions. `--` when unavailable, per the `console_json.h:126` rule.
+| slot | content | semantic authority |
+|---|---|---|
+| mail, x=0 / token x=8 | combined session-unread DM + channel count: `0…99`, then `99+` | merged inbox cursors, not store depth |
+| home, x=28 / token x=36 | `--`, seconds, or minutes since the latest correlated **bidirectional** confirmation with the registered home | mobile-home link only; never generic RF activity |
+| team, x=56 / token x=64 | active team-route count: `--`, `0…9`, then `9+` | active runtime routes; this is reachability evidence, not an “online” claim |
+| key, x=79 | key / crossed-key icon | actual team content-key presence |
+| battery, x=91 / token x=104 | fixed battery outline plus one-decimal volts, or `--` | cached board reading |
 
-STATUS becomes the detail view: ages spelled out ("DM 3, newest 1h05"), **our own team local id** (so the wearer can tell a teammate how to address them), the configured `team_id`, registration state, and battery mV.
+Battery remains volts, not percentage: a percentage requires an unapproved chemistry/discharge-curve policy.
 
-✅ **IMPLEMENTED 2026-08-13 (§UI-14), and the paragraph below is unchanged as the requirement.** Where each literal
-landed, because "a row" left the placement open: the draft marker rides the **STATUS TITLE ROW** (`STATUS CFG* UNSAVED`
-— 19 of the 21 columns, so the packed status bar is untouched, as this paragraph requires), `CFG! RELOAD` **replaces**
-it while a conflict stands (it is the state that blocks SAVE), and `RESTART NEEDED` takes the **last body row**,
-displacing the `batt <n>mV` line — stated rather than smoothed over: the millivolt reading is lost while that state
-stands, and the bar keeps showing volts. The three are rendered from three DISTINCT service predicates
-(`config_unsaved` / `conflict` / `reboot_required`), never from one flag. ⚠ Both are silent until the operator has
-actually opened SETTINGS: no draft can exist before then.
+The rail has five stable semantic slots — STATUS, TEAM, INBOX, SEND, SETTINGS. TEAM/SEND may be absent in a build,
+but their slots do not collapse. The selected slot is outlined with `draw_rect`; icons use `draw_bitmap`. Inbox
+detail retains INBOX, compose/outcome retains SEND (or TEAM for a peer compose), and settings editing retains
+SETTINGS. A frame freezes one `UiChrome` snapshot so the strip, rail and body cannot describe different moments.
 
-After UI-14, STATUS adds a literal `CFG* UNSAVED` row whenever an OLED draft differs from its persisted baseline;
-the SETTINGS title also carries `*`. The packed 21-column status bar is not silently shortened to make room.
-`CFG! RELOAD` denotes a conflict with a serial/BLE write, and `RESTART NEEDED` denotes a successful durable save whose
-effect is boot-only. These are configuration states, distinct from `UiState::dirty`, which means only “repaint owed”.
+Configuration state belongs on the SETTINGS rail icon, not in the status body. Its four visual states are clean,
+unsaved, conflict and restart-needed, with priority **conflict > unsaved > restart > clean**. The distinct service
+predicates remain `config_unsaved`, `conflict` and `reboot_required`; `UiState::dirty` still means only
+“repaint owed”. Actionable text such as `RELOAD`, `SAVE FAILED` and `RESTART NEEDED` remains in SETTINGS.
 
-TEAM shows one row per teammate: a display label resolved through `team_key_of_id()` → `peer_name_find()`, falling back to `0x<hash>` and then the bare team id; plus last-heard age, signal quality and hops. When `rt_team_count()` exceeds `kMaxTeamRows`, the screen shows the true total and a truncation marker (`3/12`) — it must never present the cap as the team size. **Phase B adds a distance column on V4**, rendered only when both our fix and the peer's location are known and fresh — omitted, never estimated (§10.3).
+STATUS remains the detail view: expanded home/team ages and identities, our own team local id, configured `team_id`,
+registration state and battery detail may live there without duplicating the compact strip.
+
+TEAM shows one row per teammate: a display label resolved through `team_key_of_id()` → `peer_name_find()`, falling
+back to `0x<hash>` and then the bare team id; plus last-heard age, signal quality and hops. When `rt_team_count()`
+exceeds `kMaxTeamRows`, the screen shows the true total and a truncation marker (`3/12`) — it must never present
+the cap as the team size. **Phase B adds a distance column on V4**, rendered only when both our fix and the peer's
+location are known and fresh — omitted, never estimated (§10.3).
+
+⛔ **SUPERSEDED:** the pre-CHROME implementation used a full-width 21-column body, a textual
+`DM… CH… B* …V` top row, and `CFG* UNSAVED` / `CFG! RELOAD` on STATUS. Those placements are historical and must
+not be reintroduced. UI-12 may add BLE status later only through a separately approved slot/layout change.
 
 ### 3.4 Direct messages to a teammate · ✅ implemented
 
@@ -506,7 +530,8 @@ without dropping bytes, and held in a fixed `inbox_max_body + 1` buffer for the 
 or dereference the callback-owned `InboxEntry::body` after `pull()` returns. Unsupported display bytes are replaced
 visibly, never treated as control characters.
 
-Two body rows expose 42 characters per page, so the maximum 241-byte inbox body needs at most six pages. Long bodies
+Two body rows expose **38 characters per page** in the implemented 19-column body, so the maximum 241-byte inbox
+body needs at most **seven pages**. Long bodies
 advance automatically every 2 s and cycle while the modal remains open. A page change marks the model dirty but does
 not reset the user-inactivity deadline, and every resulting repaint still obeys §5's MAC-idle/page-buffer gate. Short
 press toggles the action selection; double activates it. `back` is selected initially, so deletion requires the
@@ -1327,6 +1352,15 @@ an outstanding gate.
   action; a waking press commits nothing
 - power loss at every config/team/profile commit boundary recovers the complete old or complete new record only
 
+**Status/navigation chrome acceptance (bench Parts 24–25):**
+
+- verify all five fixed rail positions, including empty TEAM/SEND slots on a non-team OLED build, and the selected outline;
+- distinguish all four SETTINGS badge states on glass without relying on STATUS text;
+- verify mail, home, team, key and battery slot semantics against their source data, including every `--` / saturation case;
+- verify every normal line remains inside the 116 px body and inbox detail uses 19-column wrapping / seven-page maximum;
+- verify emergency suppresses the rail but retains the top strip and full-width body;
+- repeat repaint, radio-wake and `slept=` checks after the extra chrome compose work; visual success alone is insufficient.
+
 **Gate:** the standing D1 gate applies per slice: native tests, relevant board envs per §11, and the s18 corpus.
 Require exact s18 byte identity only for a slice proven outside the core/simulator behavior surface. A core/storage
 change such as UI-7D must instead attribute any corpus delta and add a non-vacuous behavioral control; do not demand
@@ -1355,8 +1389,14 @@ Slices are named `UI-n` deliberately: bare `U1`/`U3` would collide with the CLAU
 | UI-12 | 📝 | secured ESP32-S3 BLE-NUS for `heltec_mobile` | builds + BLE/LoRa soak |
 | UI-13 | ✅ **service only — HEADLESS** · 🧪 NV/power-cut | typed staged-config service, conflict detection and one-write commit (§3.6.1) | ⛔ **CORRECTED IN PLACE 2026-08-13: this cell read `📝` and the "Recommended next order" line below still named UI-13 as the next slice to START. Both were true until the service landed and are now false. FOURTH instance in this arc of a correction reaching the prose but not the table a reader acts on — which is why the sweep for this one covered §13's table, §13's next-order sentence, the §status map and §3.6/§3.6.1's headings.** ✅ **landed 2026-08-13** (`src/firmware_config_service.h`): three states, `config_unsaved` / `conflict` / `reboot_required` as three distinct comparisons, typed validation, whole-candidate validation before any write, ONE durable write, live apply only after durable success, DISCARD/RELOAD, `CFG! RELOAD` / `SAVE FAILED`. Native: 29 cases, **32 mutations all RED**. ⛔⛔ **CORRECTED IN PLACE 2026-08-13 (QG round 2): this cell read *"HEADLESS — no screen, no cycle change and NO DEVICE BINDING (`ICfgStore`/`ICfgLive` unimplemented on hardware)"*. THAT IS NOW FALSE and is withdrawn here, not deleted — it describes the §UI-13 SLICE BOUNDARY, and §UI-14 (the row below) landed BOTH the screen and the binding.** ★ Read as history: UI-13 shipped headless by scope; UI-14 consumes it. ⇒ 🧪 **the gate's "NV fault/power-cut" half is STILL NOT met — it moved to [[B193]] with the binding rather than being discharged by it**: everything here is proved against a counting/failing FAKE store, which measures the LOGIC and cannot measure flash, wear or a reset mid-write |
 | UI-14 | ✅ **UI + device binding** · 🧪 NV/power-cut | SETTINGS screen, marker and save/discard/reboot states (§3.6.2) | ⛔ **CORRECTED IN PLACE 2026-08-13: this cell read `📝` and the gate column read *"native + board probe + target"*. ✅ landed 2026-08-13** — the fifth cycle slot on both cycles, the row table with its two CONDITIONAL rows (BLE by the UI-12 transport, RELOAD by `conflict()`), `short`'s two modes behind the `Settings{closed,browsing,editing}` state, `double` to enter/accept, SAVE / DISCARD / RELOAD / BACK through the §UI-13 service, §3.3's three literals on STATUS, the `long_arm` editor close, and **[[B193]]'s device binding** in `src/firmware_config.cpp`. **PROVISION is present-but-inert; §3.6.3's unsaved-draft precondition is NOT built.** 18 new model mutations + 8 new probe controls, both UI probes green, census at its pins, 36/36 corpus with 0 movers. ⛔ **NATIVE TOTAL CORRECTED IN PLACE 2026-08-13 (§notify-every-save): this cell published `1610/82310/0`, which was already stale by the §UI-14 FOLLOW-UP's `1613/82339/0` and is now stale again. The live figure is `1615/82362/0`** — and the lesson is that a suite-wide total published in a per-row cell goes stale on the next slice by construction, so read it from the tree, never from here. 🧪 **THE `target` HALF IS NOT MET: no NVS/LittleFS write, no wear and no reset-during-write is exercised by any gate** — the bindings are proved only by compiling, and everything behavioural runs against FAKES. That is a BENCH check (`docs/2026-07-31-bench-test-script.md` §UI-14) and [[B193]] keeps its 🧪 until it runs |
+| CHROME-1…4 | ✅ implementation · 🧪 metal | status strip, navigation rail, settings badge and 19-column migration | implementation complete; bench Parts 24–25 remain |
 | UI-15 | 📝 | atomic team creation and four-profile static join (§3.6.3) | native + NV fault/power-cut + multi-node metal |
 | UI-16 | 📝 | current-PHY nearby-team scan, explicit candidate approval and sealed key grant (§3.6.4) | native + RF isolation controls + multi-node metal |
+
+**2026-08-17 reconciliation:** the UI-7D row's historical “42-char / 21-column” evidence describes its landing
+configuration; current chrome makes it **38 characters / 19 columns / at most seven pages**. Likewise the UI-14 row's
+historical “three literals on STATUS” placement is superseded by the SETTINGS-rail badge in §3.3. Neither historical
+cell is operational guidance.
 
 UI-1…UI-7, **UI-7D (both slices)** and the UI-9 code are landed. UI-8 is a hardware gate, not missing firmware.
 **UI-7D is a hardware gate too now — its firmware is complete and only bench Part 19 is outstanding.**
@@ -1374,18 +1414,13 @@ no screen, so "no on-device settings behavior exists" REMAINS TRUE and must stil
 current behavior"*, which was true until slice B landed and is now false for UI-7D. It is kept withdrawn rather than
 deleted because it is the sentence a reader acts on.**
 
-**Recommended next order:** finish H8/H9 qualification; then **UI-15 → UI-16** because direct team
-creation followed by no-phone member onboarding is the owner's primary new goal. ⛔ **CORRECTED IN PLACE 2026-08-13:
-this line read "then UI-13 → UI-14 → …" — UI-13's SERVICE landed that day, so it is no longer a slice to start.
-⚠ What UI-13 still owes is carried BY UI-14 and must not be dropped in the hand-over: the device binding of
-`ICfgStore`/`ICfgLive` ([[B193]] — the §nv-ritual load and `handle_cfg_set`'s OFF→ON `mobile_register_current()`
-bridge) and the NV fault / power-cut qualification that only a real store can be subjected to.**
-⛔ **CORRECTED AGAIN IN PLACE 2026-08-13 (§UI-14): the order above read *"then UI-14 → UI-15 → UI-16"*. UI-14 landed the
-same day, so it is no longer a slice to start. ★ Of the two things it was carrying, the **BINDING IS DISCHARGED** and
-the **NV / POWER-CUT QUALIFICATION IS NOT** — it moves to the bench, not to the next slice, and [[B193]] stays open
-for it.** UI-10 → UI-11 and UI-12 may
-proceed independently after their own dependencies; UI-12 is needed for convenient preset/profile editing and
-companion key export, but neither atomic team creation nor current-PHY nearby onboarding depends on BLE.
+**Recommended next order (2026-08-17):** qualify the current firmware on metal before adding another screen flow:
+finish the refreshed Phase-A R1–R6 cases plus bench Parts 19–25, including B196 soak, [[B164]] transmit correlation,
+[[B193]] real-storage/reset behavior and the status/navigation visual + sleep/radio checks. Use the observed
+`tx_outcome_drops` / HAL results to decide [[B189]] recovery separately; do not treat T2/T3 observability as retry.
+After those gates, proceed **UI-15 → UI-16** because no-phone team creation and onboarding are the owner's primary
+remaining OLED functions. UI-10 → UI-11 and UI-12 may proceed independently after their own dependencies; UI-12 is
+needed for convenient preset/profile editing and companion key export, but UI-15/UI-16 do not depend on BLE.
 
 UI-7D is **LANDED IN FULL**: the storage half 2026-08-06/07 (§6.2 AS-BUILT; `Inbox::erase`, console `del_msg`,
 durable-append recovery [[B135]], target parsing [[B136]]) and **slice B, the §3.5 modal itself, on 2026-08-13**. What

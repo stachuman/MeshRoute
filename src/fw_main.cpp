@@ -887,6 +887,45 @@ void setup() {
     #if defined(ARDUINO_ARCH_ESP32) || defined(ESP32)
     esp_ota_mark_app_valid_cancel_rollback();
     #endif
+    // ★★★★ [[B196]] — THE RTC PERIPHERAL POWER DOMAIN IS ASSERTED **ONCE PER BOOT, HERE**, AND THE CALL **COUNT** IS
+    //   THE WHOLE PROPERTY. `esp_sleep_pd_config()` is REF-COUNTED: ESP-IDF keeps an `int16_t refs` per domain
+    //   (`sleep_modes.c`, read from the DWARF of the panicking image) and bumps it on every `ESP_PD_OPTION_ON` call
+    //   without ever saturating. This call used to be the FIRST LINE of `board_sleep_until()`'s ESP32 arm, i.e. once
+    //   per sleep ATTEMPT: at <= MR_MAX_SLEEP_MS per attempt the counter reached 32767 in ~9 h, the 32,768th call
+    //   stored the wrapped -32768 and the 32,769th tripped `assert(refs >= 0)` ⇒ **EVERY HEADLESS LIGHT-SLEEPING NODE
+    //   PANIC-REBOOTED ROUGHLY EVERY NINE HOURS.** Metal-proven with the image identified (the dump's
+    //   `ELF file SHA256` matched the archived build): `assert failed: esp_sleep_pd_config sleep_modes.c:2168
+    //   (refs >= 0)` at `ran 9h02m29s`, backtrace `mesh_service_once() -> loop()`.
+    // ★★ WHY ONCE IS ENOUGH — verified at the INSTRUCTION level in that exact image, not assumed: `esp_sleep_pd_config`
+    //   stores `pd_option` ONLY when the pre-call `refs` was zero (a `bnez` skips the store otherwise), so the FIRST
+    //   `ON` configured the domain and all 32,768 later ones changed nothing but the counter. The only other writer of
+    //   that table — `get_power_down_flags()` at sleep entry — converts AUTO->ON and NEVER touches `refs`, so nothing
+    //   zeroes it and no later call could have become effective again. ⇒ once-per-boot leaves the configured domain
+    //   state IDENTICAL; the only semantic delta is the call count.
+    // ⛔⛔ ALL THREE CONDITIONS ARE THE OLD SITE'S, AND DROPPING ANY OF THEM IS A BEHAVIOUR CHANGE, not a tidy-up: an
+    //   `MR_NO_POWERSAVE` build must gain no call it never had; only the ESP32 arm ever configured a domain; and a
+    //   board whose DIO1 cannot wake from light sleep must configure nothing, because that arm never sleeps on it.
+    // ⓘ `#if`-EQUIVALENCE, checked rather than eyeballed: `board_sleep_until()` reaches its ESP32 code through an
+    //   `#elif` behind the nRF52 arm, this site through a plain `#if`. No env defines an nRF52 macro AND an ESP32 one,
+    //   so both select the same six ESP32-S3 envs — and the four nRF52 envs compile neither.
+    // ⓘ `rtc_gpio_is_valid_gpio()` is safe this early: it is a pure query over the const `.rodata` table
+    //   `rtc_io_num_map[]` (`pin > 48 ? false : map[pin] >= 0`) — no state, no initialisation dependency.
+    // ⓘ THE RETURN IS CHECKED AND SAID, then execution CONTINUES — ⛔ deliberately no sleep-disable policy here, that
+    //   is a separate decision. ⚠ THE CHECK IS DEFENSIVE AND IS EXPECTED NEVER TO FIRE, so it is not a test of
+    //   anything: `esp_sleep.h` documents only `ESP_OK` and `ESP_ERR_INVALID_ARG` *"if either of the arguments is out
+    //   of range"*, both arguments here are in-range compile-time constants, and the disassembly's only error path is
+    //   those two range checks. It is insurance against a future edit passing a wrong domain, nothing more.
+    // ⛔ AND THE WORDING IS DELIBERATELY **NOT** PANEL-SPECIFIC: `xiao_esp32s3`, `gateway_esp32s3` and
+    //   `xiao_esp32s3_mobile` compile this line and have NO OLED AT ALL, so reusing the `!! OLED …` sleep-wake wording
+    //   would print a false attribution on three envs.
+    #if !defined(MR_NO_POWERSAVE)                                          // B196 cond 1/3 — a no-powersave build gains no call it never had
+      #if defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)   // B196 cond 2/3 — the same ESP32 arm the sleep path takes
+    if (rtc_gpio_is_valid_gpio((gpio_num_t)LORA_PIN_DIO1)) {                // B196 cond 3/3 — only a board whose DIO1 can wake light-sleep sleeps there
+        if (esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON) != ESP_OK)   // B196 return checked, once per boot
+            mrcon.println(F("!! RTC sleep power-domain configuration failed"));
+    }
+      #endif
+    #endif
     mr_ui_init();   // §featuresplit slice 4: bring up the board display (no-op unless MR_FEAT_OLED)
     mrcon.println(F("  node      = up. Type 'help' for commands."));
 }
@@ -1027,7 +1066,18 @@ static bool board_sleep_until([[maybe_unused]] uint64_t deadline_ms, [[maybe_unu
     return true;                                   // WFE always halts; there is no armable/refusable source here
 #elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
     if (rtc_gpio_is_valid_gpio((gpio_num_t)LORA_PIN_DIO1)) {   // only if DIO1 can wake from light-sleep
-        esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
+        // ⛔⛔⛔ [[B196]] — THE RTC-PERIPH POWER DOMAIN IS CONFIGURED **ONCE PER BOOT IN `setup()`** AND MUST NOT BE
+        //   RE-ASSERTED HERE. `esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON)` was the first line of
+        //   this block until 2026-08-17. ESP-IDF ref-counts that call in an `int16_t`, so once per sleep ATTEMPT
+        //   overflowed it after 32,768 attempts and `assert(refs >= 0)` PANIC-REBOOTED every headless light-sleeping
+        //   node about every nine hours (metal-proven; see the once-per-boot site in `setup()` for the full mechanism).
+        // ⛔ THE INSTINCT TO "RESTORE IT FOR SAFETY" BESIDE THE `ext1` ARM IS THE DEFECT ITSELF, and it buys nothing
+        //   even on its own terms: IDF skips the `pd_option` store whenever `refs != 0`, so a second `ON` call cannot
+        //   re-configure anything — it can only advance the counter that panics. If the domain ever needed
+        //   re-asserting, this code could not have done it either.
+        // ⛔ The `ext1` and timer arms below STAY per-attempt: they are plain idempotent setters (verified at the
+        //   instruction level — a mask store and an OR into the trigger word, no counter anywhere), and the timer
+        //   duration is recomputed on every pass by construction.
         esp_sleep_enable_ext1_wakeup((1ULL << LORA_PIN_DIO1), ESP_EXT1_WAKEUP_ANY_HIGH);   // DIO1 RxDone wakes us
         if (deadline_ms != UINT64_MAX) {
             const uint64_t dt = deadline_ms > now_ms ? (deadline_ms - now_ms) : 1;

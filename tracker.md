@@ -1,18 +1,15 @@
 # MeshRoute tracker
 
-Last refreshed: **2026-08-15**
+Last refreshed: **2026-08-17**
 
 This file records only project-level status. Implementation detail belongs in the linked specification or plan;
 individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 
 ## Ongoing
 
-- `2026-07-31-onboard-oled-ui-design.md` / `2026-07-31-onboard-oled-ui-phase-a.md` — implementation through
-  UI-14 and TX-completion T3 passed QG. Run the refreshed R1-R6 Heltec metal qualification, fix confirmed findings,
-  then continue with UI-15/UI-16 provisioning.
-- `2026-08-15-heltec-mobile-status-navigation-ui-design.md` — queued in the current OLED track: replace the text
-  header with truthful mail/home/team/key/battery indicators and add the boxed left navigation rail; include its
-  acceptance cases in the Heltec metal qualification.
+- `2026-07-31-onboard-oled-ui-design.md` / `2026-07-31-onboard-oled-ui-phase-a.md` — UI-14, TX-completion T3 and
+  the status/navigation redesign are implemented. Finish the B196 sleep correction and QG, then run refreshed R1-R6
+  plus Parts 19-25 metal qualification before UI-15/UI-16 provisioning.
 
 ## Backlog — priority order
 
@@ -48,6 +45,8 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
   active Heltec run.
 - `2026-08-14-t3-app-ui-send-aired-spec.md` — implemented and QG-approved; metal evidence is part of the active
   Heltec run.
+- `2026-08-15-heltec-mobile-status-navigation-ui-design.md` — CHROME-1…4 implemented; Parts 24-25 metal evidence is
+  part of the active Heltec run.
 
 ## Working references — not backlog items
 
