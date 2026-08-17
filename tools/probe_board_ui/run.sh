@@ -383,16 +383,35 @@ CFG_CPP="$ROOT/src/firmware_config.cpp"
 #    service's own store, not a verb), so the override is subtracted BY MATCHING ITS LINE, and the match itself is
 #    asserted. ⓘ VERIFIED rather than assumed (V1): the file holds 8 `mrnv::save(` occurrences, and `grep -oF` does
 #    NOT match `mrnv::save_id(` (lines 231/242, the `/mrid` writer) — the paren excludes it, not luck.
+# ★★★ UPDATED 2026-08-17 BY §PROV-TX ([[B207]]) — AND THE ARITHMETIC GAINED A THIRD TERM, DELIBERATELY RATHER THAN BY
+#     RELAXING THE PIN. `handle_team` no longer calls `mrnv::save` at all: its `/mrcfg` write now goes through the
+#     provisioning TRANSACTION, i.e. through `ICfgStore::save` — the SAME override this check exempts as "the service's
+#     own store, not a verb". So the file holds SEVEN direct `mrnv::save(` (six verbs + that override) while still
+#     holding SEVEN notifications, and the old `saves - exempt == notifies` balance would report 6 == 7 and FAIL.
+#     MEASURED, not assumed: at HEAD the file had 8 saves / 7 notifies; after the slice it has 7 / 7, and every one of
+#     W12-W20 went red on the shared predicate until this term was added.
+# ★★ THE CREDIT IS EARNED, NOT ASSERTED: `CFG_ROUTED_SITES` is only granted if the ROUTE ITSELF is present, matched by
+#    the transaction call. A future refactor that deletes the route but keeps the credit drops `routed` to 0 and fails
+#    LOUDLY — the same discipline the `exempt` term already has, and the reason the term is a counted match rather than
+#    a constant subtracted from the total.
+# ⛔⛔ AND THE BLIND SPOT THIS WIDENS IS STATED RATHER THAN ABSORBED: a NEW verb that also writes through
+#    `device_cfg_store()` adds NO direct `mrnv::save(`, so the balance no longer sees it — it would have to bump
+#    `CFG_ROUTED_SITES` and add its own W-check, exactly as a direct writer must bump `CFG_NOTIFY_SITES`. W20's
+#    control (e) is what keeps that honest for the ONE route that exists today.
 CFG_NOTIFY_SITES=7                 # the seven USER-INITIATED verbs — bump this ONLY together with a new W-check
 CFG_STORE_SAVE='bool save(const mrnv::Blob& b) override { return mrnv::save(b); }'   # the ONE exempt save
+CFG_ROUTED_SITES=1                 # §PROV-TX: verbs whose /mrcfg write goes through ICfgStore::save, not mrnv::save
+CFG_ROUTED_CALL='prov_service().apply_team('                                        # …and the route that earns it
 cfg_writer_counts_ok() {  # the SHARED tripwire: every non-exempt /mrcfg write in this file has a notification
-  local notifies saves exempt
+  local notifies saves exempt routed
   notifies=$(code_flat "$1" | grep -oF 'mr_ui_on_config_saved()' | grep -c .)
   saves=$(code_flat "$1"   | grep -oF 'mrnv::save('            | grep -c .)
   exempt=$(code_flat "$1" | tr -s ' ' | grep -oF "$CFG_STORE_SAVE" | grep -c .)
+  routed=$(code_flat "$1" | tr -s ' ' | grep -oF "$CFG_ROUTED_CALL" | grep -c .)
   [ "$exempt" -eq 1 ]                        || return 1   # the override must stay identifiable, or the sum lies
+  [ "$routed" -eq "$CFG_ROUTED_SITES" ]      || return 1   # ★ the routed credit must be EARNED by a present route
   [ "$notifies" -eq "$CFG_NOTIFY_SITES" ]    || return 1   # the PIN: any new writer forces the harness to be updated
-  [ "$((saves - exempt))" -eq "$notifies" ]; }             # the TRIPWIRE: a BARE save is an unnotified writer
+  [ "$((saves - exempt + routed))" -eq "$notifies" ]; }    # the TRIPWIRE: a BARE save is an unnotified writer
 nsite() {  # nsite(file, literal-comment-stripped-space-squeezed-sequence)
   cfg_writer_counts_ok "$1" || return 1
   code_flat "$1" | tr -s ' ' | grep -qF "$2"; }
@@ -436,16 +455,26 @@ wchk_in "$CFG_CPP" "W16 handle_create NOTIFIES after its successful /mrcfg write
          's|        if (!mrnv::save(b)) { out.println(F("> create err nv_save_failed")); return; }|        mr_ui_on_config_saved();\n        if (!mrnv::save(b)) { out.println(F("> create err nv_save_failed")); return; }|' \
          's|(F("> create err nv_save_failed")); return; }|(F("> create err nv_save_failed")); }|' \
          's|{ out.println(F("> create err nv_save_failed")); return; }|{ mr_ui_on_config_saved(); out.println(F("> create err nv_save_failed")); return; }|'
-# ⚠⚠ W17 IS THE ONE WITH A THIRD STATE. `handle_team`'s save is §3-A.4's UNCHECKED one: not success /
-#    failure-with-return but success · FAILURE-BUT-LIVE-ANYWAY (the live team state is deliberately not rolled back).
-#    ⇒ the verdict is CAPTURED into `team_saved` so the notification rides the success arm only; the check pins that
-#    capture, and control (c) is the wrong answer that ignores it and notifies either way.
-w17() { nsite "$1" 'const bool team_saved = mrnv::save(b); if (team_saved) mr_ui_on_config_saved(); else out.println(F("> team err nv_save_failed'; }
-wchk_in "$CFG_CPP" "W17 handle_team CAPTURES its save verdict and NOTIFIES only on the success arm" \
-     w17 's|    if (team_saved) mr_ui_on_config_saved(); else out.println|    if (!team_saved) out.println|' \
-         's|    const bool team_saved = mrnv::save(b);|    mr_ui_on_config_saved();\n    const bool team_saved = mrnv::save(b);|' \
-         's|    if (team_saved) mr_ui_on_config_saved(); else out.println|    mr_ui_on_config_saved(); if (!team_saved) out.println|' \
-         's|    if (team_saved) mr_ui_on_config_saved(); else out.println|    if (team_saved) mr_ui_on_config_saved(); else mr_ui_on_config_saved(), out.println|'
+# ⚠⚠ W17 REWRITTEN 2026-08-17 BY §PROV-TX ([[B207]]). ⛔ THE OLD PROPERTY IS GONE BECAUSE THE DEFECT IT DESCRIBED IS
+#    GONE, and the withdrawn wording is kept here because it is the history a reader needs: it pinned
+#    *"const bool team_saved = mrnv::save(b); if (team_saved) mr_ui_on_config_saved(); else out.println(…)"* — §3-A.4's
+#    THIRD state, success · FAILURE-BUT-LIVE-ANYWAY, in which the live team state was deliberately NOT rolled back. That
+#    third state WAS [[B207]]: the verb mutated (and TRANSMITTED) before persisting, so a failed write left the node in a
+#    team it would silently leave at the next reboot.
+# ★★ THE NEW PROPERTY IS STRICTLY STRONGER AND STRICTLY SIMPLER, because the transaction is atomic: there is now ONE
+#    verdict to notify on. `handle_team` guards on the TYPED verdict and notifies ONLY on `applied` — so `no_change`
+#    (a real outcome that performs ZERO writes) must NOT notify either, which the old two-arm shape could not even
+#    express. The one-line guard is what makes it a compact source fact; the strings live in `team_report_not_applied`.
+# ★ FOUR CONTROLS — the same wrong answers as W14-W16, re-aimed at this shape:
+#     (a) the guard+notification pair deleted;   (b) a notification BEFORE the transaction (the count clause catches it);
+#     (c) the guard's `return` dropped, so a refusal or a no_change falls THROUGH into the notification;
+#     (d) a notification added inside the not-applied branch — the `no_change` mis-notify, i.e. [[B194]] inverted.
+w17() { nsite "$1" 'if (res.verdict != mrfw::ProvVerdict::applied) { team_report_not_applied(res, out); return; } mr_ui_on_config_saved();'; }
+wchk_in "$CFG_CPP" "W17 handle_team NOTIFIES only on the transaction's applied verdict" \
+     w17 's|    if (res.verdict != mrfw::ProvVerdict::applied) { team_report_not_applied(res, out); return; }||' \
+         's|    const mrfw::ProvResult res = prov_service().apply_team(rq, c, snap);|    mr_ui_on_config_saved();\n    const mrfw::ProvResult res = prov_service().apply_team(rq, c, snap);|' \
+         's|{ team_report_not_applied(res, out); return; }|{ team_report_not_applied(res, out); }|' \
+         's|{ team_report_not_applied(res, out); return; }|{ team_report_not_applied(res, out); mr_ui_on_config_saved(); return; }|'
 w18() { nsite "$1" 'if (!mrnv::save(b)) { out.println(F("> leave err nv_save_failed")); return; } mr_ui_on_config_saved();'; }
 wchk_in "$CFG_CPP" "W18 handle_leave NOTIFIES after its successful /mrcfg write (THE BLOCKER: it resets all four covered fields)" \
      w18 '/leave err nv_save_failed/{n;s|mr_ui_on_config_saved();|;|;}' \
@@ -485,7 +514,8 @@ wchk_in "$CFG_CPP" "W20 every non-exempt /mrcfg write in the file has a notifica
      w20 's|    out.print(F("> left network (kept freq="));|    { mrnv::Blob nb{}; (void)mrnv::save(nb); }\n    out.print(F("> left network (kept freq="));|' \
          's|    out.print(F("> left network (kept freq="));|    { mrnv::Blob nb{}; (void)mrnv::save(nb); mr_ui_on_config_saved(); }\n    out.print(F("> left network (kept freq="));|' \
          's|bool save(const mrnv::Blob& b) override { return mrnv::save(b); }|bool save(const mrnv::Blob\& b) override { const bool ok = mrnv::save(b); return ok; }|' \
-         '/leave err nv_save_failed/{n;s|mr_ui_on_config_saved();|;|;}'
+         '/leave err nv_save_failed/{n;s|mr_ui_on_config_saved();|;|;}' \
+         's|prov_service().apply_team(rq, c, snap)|prov_service().apply_team_renamed(rq, c, snap)|'
 # ================================================================================================ W21
 # ★★★ §T2 / [[B189]] — THE SOLE PRODUCTION BRIDGE FROM THE DEVICE-HAL OUTCOME RING INTO CORE. Native tests can
 #     drive `DeviceHal` and `Node::on_tx_complete` independently, but `src/fw_main.cpp` is outside that build; the

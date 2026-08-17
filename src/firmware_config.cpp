@@ -14,7 +14,12 @@
 // still holds for every env that does NOT compile the OLED: this TU is the one every board build compiles, so the
 // service's ABI is verified on arm-none-eabi and xtensa even where nothing constructs one.
 #include "firmware_config_service.h"
-#include "mr_ui.h"                   // ★ §UI-14 follow-up: mr_ui_on_config_saved — the FEATURE-NEUTRAL notification
+// ★★ §PROV-TX ([[B207]], spec 2026-08-17): the typed team-provisioning TRANSACTION `handle_team` now runs on, plus the
+//    one explicit-material `blob_put_team_channel_key` helper `blob_take_team_channel_key` below delegates to. Pure
+//    (no Print, no Arduino, no globals) so the native suite reaches ALL of its decision logic — which is the point,
+//    because THIS FILE is compiled by neither the native suite nor the simulator.
+#include "firmware_provisioning_service.h"
+#include "mr_ui.h"                 // ★ §UI-14 follow-up: mr_ui_on_config_saved — the FEATURE-NEUTRAL notification
                                      //   seam (an inline no-op off the OLED profile, so no MR_FEAT_OLED appears here)
 #include "node_role.h"               // ★ §role-model/B28: role_set_refusal — the O1/O2/R4 role-transition truth table (pure, natively tested)
 #include "protocol_constants.h"      // meshroute::protocol::* (preamble_sym, gateway_node_id_max, discovery_beacon_period_ms, leaf_name_max)
@@ -698,20 +703,20 @@ void handle_gateway(const char* args, Print& out) {
 #endif
 }
 
-// §team-ch-key (T-K1): THE one node->Blob conversion for the team channel keypair (U2 — never rebuild a carrier
-// field-by-field per site). Two callers: seed_blob_from_live (the load-FAILED path, so a create/join reprovision
-// on a fresh chip does not silently drop the key) and handle_team (which must persist a pair it just
-// minted/adopted). A keyless node writes present=0 + all-zero, which is exactly what load restores as "no key".
+// §team-ch-key (T-K1): the LIVE-READING half of the one node->Blob conversion for the team channel keypair (U2 —
+// never rebuild a carrier field-by-field per site). It COLLECTS the material from the node and DELEGATES the write to
+// `mrfw::blob_put_team_channel_key` (src/firmware_provisioning_service.h).
+// ★★ OWNER-RULED 2026-08-17 (§PROV-TX v4 §4): ONE EXPLICIT-MATERIAL HELPER, with this function delegating to it —
+//    ⛔ NOT an overload pair, because an overload pair is exactly how the S1/L9 field-drop rot starts. §PROV-TX's
+//    candidate composition calls THE SAME helper with STAGED material, so there is one conversion authority.
+// Its callers now: seed_blob_from_live (the load-FAILED path, so a create/join reprovision on a fresh chip does not
+// silently drop the key) and handle_leave/handle_cfg_set through that seed. ⓘ `handle_team` no longer calls it — the
+// transaction composes its candidate from the STAGED pair (which is the whole point: what is persisted is what will
+// be installed), so a live read there would have re-introduced the mutate-then-derive-the-candidate defect [[B207]].
 // NB it reads through the ACCESSORS, which return nullptr while keyless — so there is no path where an
 // unflagged buffer leaks into NV as if it were a key.
 static void blob_take_team_channel_key(mrnv::Blob& b) {
-    const uint8_t* pub  = g_node.team_channel_pub();
-    const uint8_t* priv = g_node.team_channel_priv();
-    b.team_ch_key_present = (pub && priv) ? 1 : 0;
-    for (uint8_t i = 0; i < 32; ++i) {
-        b.team_ch_pub[i]  = pub  ? pub[i]  : 0;
-        b.team_ch_priv[i] = priv ? priv[i] : 0;
-    }
+    blob_put_team_channel_key(b, g_node.team_channel_pub(), g_node.team_channel_priv());
 }
 
 // Seed a fresh blob from the live config (so a save on a never-persisted node doesn't zero the non-provisioning fields).
@@ -909,6 +914,13 @@ static mrfw::TeamKeyTail parse_team_key_tail(const char* tail, char* rest, size_
             out.println(F("> team err: args too long"));
             break;
     }
+    // ⛔⛔ §PROV-TX §3.10 — `scratch` HELD THE PRIVATE KEY AS CLEARTEXT HEX AND IS `static`, so before this line it
+    //    OUTLIVED THE COMMAND IN RAM (and every command after it, until a longer tail overwrote it). Wiped HERE, where
+    //    it was filled, and AFTER the switch because `bad_key` points into it. ⓘ `rest` is deliberately NOT wiped: the
+    //    tk tokens were removed from it by construction (that is what `split_team_key_tail` is for), so it carries the
+    //    surviving PHY tokens only. The 32-byte binary halves in `pub`/`priv` belong to the caller's request and are
+    //    wiped by `TeamRequest::wipe()` on every exit of handle_team.
+    crypto_wipe(scratch, sizeof scratch);
     return r;
 }
 #endif   // MR_FEAT_TEAM (parse_team_key_tail)
@@ -1047,12 +1059,158 @@ static void team_grant_key(const char* tail, Print& out) {
     if (detail) out.println(detail);
 }
 
+// ============================================================ §PROV-TX — THE DEVICE BINDINGS ([[B207]], spec §3.1)
+// ★★ THE ONLY THREE THINGS THE TRANSACTION NEEDS FROM THE DEVICE, and each is a THIN adapter on purpose: any decision
+//    taken here would be unreachable by every automated gate (this TU is compiled by neither the native suite nor the
+//    simulator), which is the whole reason the logic lives in `firmware_provisioning_service.h`.
+// ⓘ The DURABLE seam is NOT re-bound: `device_cfg_store()` above is reused unchanged (U1) — one `/mrcfg` record, one
+//   whole-record write, and the same "false = THE WRITE FAILED" contract `ConfigService` runs on.
+// ★ These live INSIDE the `#if MR_N_LAYERS < 2` region, so the two feature axes are guaranteed present rather than
+//   stubbed — asserted rather than assumed, because a silently-inert binding would make the transaction a no-op:
+static_assert(MR_FEAT_TEAM == 1 && MR_FEAT_MOBILE == 1,
+              "§PROV-TX: handle_team's region assumes BOTH planes are compiled in (MR_FEAT_TEAM 0 / MR_FEAT_MOBILE 0 "
+              "arrive only with MR_PROFILE_GATEWAY, which sets MR_N_LAYERS=2 and compiles this whole region out). If "
+              "that stops holding, the IProvLive binding below would silently bind to inert stubs — bind explicitly.");
+namespace {
+// ★ The CSPRNG seam. Same source the old inline mint used (`g_hal.rand_bytes` = the HW RNG on device, the simulator's
+//   per-node deterministic stream in-sim), and the DRAW ORDER is preserved too — the team-id nonce first, then the
+//   32-byte key scalar — so nothing about the entropy stream moves.
+struct DeviceProvEntropy : mrfw::IEntropy {
+    void fill(uint8_t* out, size_t n) override { g_hal.rand_bytes(out, n); }
+};
+// ★★ THE FOUR LIVE OPERATIONS, in the §3.2 order. Note what is NOT here: no `team_channel_key_adopt`, no
+//    `team_channel_key_adopt_priv`, no `team_channel_key_mint`. All three are `bool` (fallible) and all three belong
+//    to STAGING or to nothing — the post-save install is the `void` `team_channel_key_load`, which is documented as
+//    *"boot restore from NV — VERBATIM, no re-derivation"* and is exactly the semantic step 6b needs.
+struct DeviceProvLive : mrfw::IProvLive {
+    // §clean-team: ONE core call does the whole switch — drop the OLD team's learned plane (_rt_team / _team_peer /
+    // team liveness / the team KEY CACHE / team RREQ ledgers) and the stale team-DAD id, then adopt the new id LIVE.
+    // ⓘ The `bool` return is DELIBERATELY discarded: the plan decided `membership_changed` at stage time from
+    //   `NodeConfig::team_id` (the same comparison this function makes at `node.cpp:667`), and this call is only
+    //   reached when that was true. Its other false arm — a build with no mobile plane — is refused at staging.
+    void set_team(uint32_t team_id) override { (void)g_node.set_team_id(team_id); }
+    // ★★ THE INFALLIBLE INSTALL, and it MUST come after `set_team`: `set_team_id` DESTROYS the team channel key by
+    //    design (§o3-key-lifetime — a content key must not outlive the team it was granted for), so the reverse order
+    //    would persist a key the node no longer holds. The pair handed in is already CANONICAL (derived + cross-checked
+    //    at stage time) and is byte-identical to what the candidate persisted, which is why VERBATIM is correct here.
+    void install_key(const uint8_t pub[32], const uint8_t priv[32]) override {
+        g_node.team_channel_key_load(pub, priv, /*present=*/true);
+    }
+    // Retune the radio (+ kick the mobile FSM -> team-DAD via the no-host path). ⓘ `layer_id` is read LIVE, exactly as
+    // the old inline call did (`parse_phy_tail(…, c.leaf_id, …)`): the team PHY sets the CURRENT layer's radio floor.
+    void apply_phy(const mrfw::ProvPhy& p) override {
+        meshroute::LayerConfig phy{};
+        phy.layer_id           = g_node.config().leaf_id;
+        phy.routing_sf         = p.routing_sf;
+        phy.freq_mhz           = p.freq_mhz;
+        phy.bw_hz              = p.bw_hz;
+        phy.allowed_sf_bitmap  = p.allowed_sf_bitmap;
+        g_node.mobile_register_phy(phy);
+    }
+    // ★★ THE AIRTIME OPERATION, and the reason a save failure must return before reaching it: §6.4's team-plane
+    //    bootstrap self-assigns a `_team_local_id` with no static host needed — i.e. it TRANSMITS.
+    void fire_dad() override { g_node.team_dad_fire(); }
+};
+}  // namespace
+// Function-local statics: constructed on first CALL, so there is no cross-TU initialisation-order question (the same
+// reasoning as `device_cfg_store()`). ONE service instance, which is also what the future OLED path will reach for.
+static mrfw::ProvisioningService& prov_service() {
+    static DeviceProvLive     live;
+    static DeviceProvEntropy  ent;
+    static mrfw::ProvisioningService s(device_cfg_store(), live, ent);
+    return s;
+}
+
+// §PROV-TX — THE VOICE OF A NON-`applied` VERDICT, and it is a separate function for two reasons rather than one:
+// U3 (`handle_team` stays parse -> request -> render, not a wall of strings) and because ONE guarded early return is
+// what lets `tools/probe_prov_tx` and `tools/probe_board_ui`'s W17 pin *"notify ONLY on the applied arm"* as a compact
+// source fact — the property is unreachable by any automated build (this TU is compiled by neither the native suite
+// nor the simulator), so a shape a grep can state exactly is worth more here than a tidier inline switch.
+// ⛔ EVERY ARM IS A REFUSAL OR A NON-EVENT: nothing was written, nothing was applied, and no airtime was spent. The
+//    strings say so explicitly, because the old verb's failure line said the OPPOSITE (*"team is LIVE but NOT
+//    persisted — will revert on reboot"*) and an operator who read it had no way to know what state the node was in.
+// `-Wswitch` is `-Werror=switch` here, so both switches are `default`-less: a new verdict or a new `ProvErr` fails the
+// build until its text is written, which is the same discipline `cfg_save_name` and `peer_put_name` are held to.
+static void team_report_not_applied(const mrfw::ProvResult& res, Print& out) {
+    switch (res.verdict) {
+        case mrfw::ProvVerdict::refused:
+            switch (res.err) {
+                // U1: the role refusals speak through the ONE message set (`role_refused`), so `team <id>` is not a
+                // second spelling of the O1/O2/R4 policy. `no_mobile_plane` reuses that same voice deliberately.
+                case mrfw::ProvErr::role_refused:
+                    (void)role_refused(res.role_refusal, F("> team err "), out);
+                    return;
+                case mrfw::ProvErr::no_mobile_plane:
+                    (void)role_refused(meshroute::RoleSetRefusal::no_mobile_plane, F("> team err "), out);
+                    return;
+                case mrfw::ProvErr::key_on_leave:
+                    out.println(F("> team err: tkpub=/tkpriv= make no sense on `team 0` (leave)"));
+                    return;
+                // ★★ v4 OWNER RULING: leaving a team PRESERVES the PHY, so a PHY argument on `team 0` is REFUSED
+                //    LOUDLY — ⛔ not honoured, ⛔ not ignored, ⛔ not partially parsed. Same shape as the refusal above.
+                case mrfw::ProvErr::phy_on_leave:
+                    out.println(F("> team err: freq=/sf=/bw= make no sense on `team 0` (leave) — leaving a team PRESERVES the current PHY."));
+                    out.println(F(">   NOTHING changed. To retune, leave the team first (`team 0`) and then set the PHY (`mobile register freq=… sf=… bw=…`)."));
+                    return;
+                case mrfw::ProvErr::key_degenerate:
+                    out.println(F("> team err: tkpriv= REFUSED — not a valid X25519 scalar (all-zero or degenerate). Team NOT joined; NOTHING changed."));
+                    return;
+                // ⚠ THE OLD CODE COULD ONLY REACH THIS REFUSAL **AFTER** RETUNING THE RADIO. It is now caught at stage
+                //   time, where refusing is free — and it is a check the SYNTAX parser structurally cannot make.
+                case mrfw::ProvErr::key_mismatch:
+                    out.println(F("> team err: tkpub= REFUSED — it is not the public key of the supplied tkpriv= (the two halves do not match). Team NOT joined; NOTHING changed."));
+                    return;
+                case mrfw::ProvErr::keygen_failed:
+                    out.println(F("> team err: team channel keygen FAILED (crypto RNG returned no entropy). Team NOT minted."));
+                    return;
+                case mrfw::ProvErr::incomplete_phy:
+                    out.println(F("> team err: incomplete PHY — need freq, routing_sf(5..12), sf_list(DATA SF), bw."));
+                    out.println(F(">   set them inline: `team new freq=869.0 sf=7 bw=125` — ALL members MUST use the SAME freq/sf/bw."));
+                    return;
+                case mrfw::ProvErr::id_unavailable:
+                    out.println(F("> team err: could not mint a usable team id (every draw came back 0 or this node's CURRENT team). NOTHING changed — retry."));
+                    return;
+                case mrfw::ProvErr::nv_load_failed:
+                    out.println(F("> team err nv_load_failed — the config record could not be read, so the non-team fields cannot be preserved. NOTHING changed."));
+                    return;
+                case mrfw::ProvErr::nv_save_failed:   // carried by the nv_failed VERDICT below, never by this arm
+                case mrfw::ProvErr::none:             // unreachable for a refusal; listed so -Wswitch stays exhaustive
+                    return;
+            }
+            return;
+        // ★★★ THE POINT OF THE WHOLE SLICE. This arm used to read *"team is LIVE but NOT persisted — will revert on
+        //     reboot"* and then CARRY ON; now the write is the commit point, so a failure means nothing happened at all.
+        // ⛔⛔ WHAT THIS LINE MAY NOT CLAIM, AND THE CLAIM IS NOT A WORDING PREFERENCE. An earlier version ended by
+        //     asserting THE FLASH HAD NOT MOVED — ⛔ NOT ESTABLISHED. A backend can fail AFTER a partial write; that is
+        //     precisely [[B193]]'s open question, and no host test can settle it (spec §5.1). What IS established is
+        //     what the transaction itself did: it attempted EXACTLY ONE write, applied NOTHING when that write reported
+        //     failure, and reached no `fire_dad`. ⇒ say that, and nothing about the flash.
+        case mrfw::ProvVerdict::nv_failed:
+            out.println(F("> team err nv_save_failed — persistence FAILED: NO live state was applied (team, role, keys and PHY are ALL as they were) and NO AIRTIME was spent. Retry, or check flash."));
+            return;
+        // ★★ A HARD REQUIREMENT, not an optimisation (§3.7): a same-team request that changes nothing performs ZERO
+        //    saves and ZERO live applies. ⓘ `mrnv::save` would have coalesced the byte-identical record anyway — the
+        //    point is that the TRANSACTION decides it explicitly instead of inheriting it from a lower layer.
+        // ⚠ AND THE WORDING IS NOW EXACT ([[B207]] QG round 3): this verdict requires the STORED RECORD **AND** the
+        //   LIVE radio/key to already match everything the command named. It used to be reachable with the record
+        //   matching while the RADIO sat on a different PHY — the line below then said "nothing was applied" about a
+        //   request whose whole point was to apply something.
+        case mrfw::ProvVerdict::no_change:
+            { char nx[9]; snprintf(nx, sizeof nx, "%08lX", (unsigned long)res.team_id);
+              out.print(F("> team: no change — already team_id=0x")); out.print(nx);
+              out.println(F(", and the stored record AND the live radio/key already match what you asked for. Nothing was written and nothing was applied.")); }
+            return;
+        case mrfw::ProvVerdict::applied:   // never routed here (the caller's guard), and it prints NOTHING if it were
+            return;
+    }
+}
+
 // §mobile 6.1: FNV-1a over (key_hash32 ‖ nonce) = the 32-bit team_id (team_fnv1a32, firmware_config_parse.h).
 // `team new` = MINT a fresh team_id = hash(our key ‖ HW-RNG nonce). `team <id>` = JOIN an existing team. `team 0` = leave.
 void handle_team(const char* args, Print& out) {
     while (*args == ' ') ++args;
     const meshroute::NodeConfig& c = g_node.config();
-    uint32_t t;
+    uint32_t t = 0;              // the TARGET form's operator-typed id; the `new` form leaves it 0 (see below)
     const char* phy_args = nullptr;
     // §team-ch-key (T-K1b): the THIRD subcommand, beside `new` and `<id>` (T-K3's `grantkey` is the fourth).
     // ★ ANSWERED FIRST, BEFORE the numeric parse below — that is a safety requirement, not ordering taste. `strtoul`
@@ -1077,8 +1235,13 @@ void handle_team(const char* args, Print& out) {
     if (!strncmp(args, "grantkey", 8)) { team_grant_key(args + 8, out); return; }
     const bool mint_form = !strncmp(args, "new", 3);
     if (mint_form) {
-        uint32_t nonce = 0; g_hal.rand_bytes(reinterpret_cast<uint8_t*>(&nonce), 4);
-        t = team_fnv1a32(g_node.key_hash32(), nonce);
+        // ★★ §PROV-TX §3.5: THE ID IS NO LONGER MINTED HERE. It used to be `t = team_fnv1a32(key_hash32, nonce)` on
+        //    this line, straight from `team_fnv1a32`, which HAS NO ZERO GUARD — so a 0 made `team new` mint a key and
+        //    then execute `team 0` = LEAVE, skipping every `t != 0` guard and doing the opposite of what was asked
+        //    (~1 in 2^32, structurally reachable). ⇒ generation moved into the shared builder, which resamples over a
+        //    bounded loop until the id is neither 0 NOR THE CURRENT TEAM (the second exclusion matters too: a
+        //    regenerated current id would silently make `team new` a same-team RE-KEY), and refuses loudly otherwise.
+        //    `t` stays 0 on this arm and is deliberately unused — the id to report comes back in `ProvResult`.
         phy_args = args + 3;   // §mobile 6.4: `team new [freq=<MHz> sf=<5-12> bw=<kHz>]` — optional team PHY
     } else if (parse_team_target(args, t, phy_args)) {
         // §6.4: `team <id> [freq= sf= bw=]` — a JOIN can set the shared team PHY too (mirrors `team new`). phy_args =
@@ -1111,146 +1274,133 @@ void handle_team(const char* args, Print& out) {
         out.println(F(">   `team grantkey <target>` sends this team's channel key to a teammate in a SEALED DM (needs a verified pubkey for it)"));
         return;
     }
-    // ★★ §role-model / O2 + R4 (2026-07-31): ADOPTING a team makes this node MOBILE (B28/R2, enforced in
-    // Node::set_team_id), so the two refusals that guard a static->mobile promotion must guard THIS path too —
-    // otherwise `team <id>` is a silent back door around `cfg set mobile 1`'s guards. Same truth table, same messages
-    // (role_set_refusal / role_refused, U1 — not a second spelling of the policy).
-    // ★ Placed here, before ANY state moves: no NV read, no PHY retune, no key mint/adopt, no set_team_id.
-    // ⚠ GUARDED ON `t != 0` because the team verb can only ever PROMOTE: by R3 `team 0` (leave) does NOT demote —
-    // a mobile with no team is legitimate — so passing t==0 as "wants static" would make the O1 demotion clause fire
-    // and REFUSE every `team 0`, i.e. trap members in their team. The team verb is a one-way role gate by design.
-    // ⚠ O2 is the case the B28 entry did not have and the spec found: a static node that HOSTS mobiles stops carrying
-    // the static plane the moment it becomes one, so its guests lose their home and reverse-ack path unnotified.
-    // Refusing means a busy host must shed its guests first — the honest trade (owner ruling O2; eviction-with-notice
-    // is its own slice).
-    if (t != 0 && role_refused(meshroute::role_set_refusal(/*want_mobile=*/true, c.is_mobile, c.is_gateway,
-                                                           c.team_id, g_node.mobile_reg_count()),
-                               F("> team err "), out)) return;
+    // ★★★ §PROV-TX ([[B207]], owner-ruled 2026-08-17) — FROM HERE THIS VERB IS **ONE TYPED TRANSACTION**.
+    // ⛔⛔ WHAT USED TO BE HERE, AND WHY IT IS GONE RATHER THAN REORDERED. This block performed SIX LIVE MUTATIONS
+    //    BEFORE its `mrnv::save` — the PHY retune (which also kicks the mobile FSM), `team_channel_key_adopt`,
+    //    `team_channel_key_mint`, `set_team_id`, `team_channel_key_adopt_priv` and ★★ `team_dad_fire()`, which SPENDS
+    //    AIRTIME — and its own failure line admitted the consequence: *"team is LIVE but NOT persisted — will revert on
+    //    reboot"*. On an off-grid safety device a `team new` whose flash write failed PRESENTED AS SUCCESS and then lost
+    //    membership at the next power cycle. ⛔ AND "just move the save up" was structurally impossible: the persisted
+    //    candidate was DERIVED from having already mutated (it read `canonical_node_id()` because DAD may have moved it,
+    //    `team_local_id()` because DAD assigned it, `is_mobile` because the switch may have promoted it, and the key the
+    //    adopt/mint had installed). ⇒ the candidate had to become computable WITHOUT mutating, which is what
+    //    `mrfw::project_team` + `mrfw::stage_team_candidate` do.
+    // ★ EVERYTHING BELOW THIS LINE UNTIL `apply_team` IS PARSING ONLY — no NV read, no retune, no key install, no
+    //   `set_team_id`, no entropy draw — so every refusal returns with all five domains (PHY, role, team, keys, NV)
+    //   untouched and ZERO airtime spent. The five refusals that used to live here (role, `team 0 tkpub=`, incomplete
+    //   PHY, key adopt, key mint) are now DECISIONS IN THE SERVICE, where the native suite can reach them; this
+    //   function keeps only their voice.
+    mrfw::TeamRequest rq{};
+    // ★ THE SECRET'S SCOPE GUARD: `rq` carries a PRIVATE KEY, and this wipes both halves on EVERY exit below —
+    //   including the two parse-failure returns. ⓘ The old code never wiped its `tk_priv` frame buffer at all (§3.10).
+    struct ReqGuard { mrfw::TeamRequest& q; ~ReqGuard() { q.wipe(); } } rq_guard{rq};
+    rq.mint    = mint_form;
+    rq.team_id = mint_form ? 0u : t;
+    // The BUILD floor a `0` in the persisted record resolves to (§3.4). ⚠ Passed IN because the service is board-free;
+    // these are the same two defaults `handle_gateway`'s validate and the §nv-ritual seed use (U1). ⓘ On device a fresh
+    // chip does not reach them — `nv_load_stamped` SEEDS from the live config — so a 0 means the record truly holds 0.
+    rq.floor.freq_mhz = (double)LORA_FREQ;
+    rq.floor.bw_hz    = meshroute::protocol::khz_to_hz(LORA_BW);
     // §team-ch-key (T-K1): peel `tkpub=`/`tkpriv=` off the tail FIRST — parse_phy_tail below refuses unknown keys.
-    // Nothing is applied here; we only VALIDATE + stage, so a malformed key refuses before any state moves.
-#if MR_FEAT_TEAM
-    uint8_t tk_pub[32] = {}, tk_priv[32] = {};
-    bool tk_supplied = false;
+    // ⛔ This validates SYNTAX ONLY (64 hex digits, both-or-neither). It never proves the public half belongs to the
+    //    private one — that cross-check is the TRANSACTION's, at stage time, because the primitive that used to do it
+    //    (`team_channel_key_adopt`) is fallible and may no longer run after the save (§3.6).
+    static char tk_rest[96];   // STATIC (see parse_team_key_tail): keeps the console frame small AND outlives this block for the PHY parse below
     if (phy_args && *phy_args) {
-        static char tk_rest[96];                        // STATIC (see parse_team_key_tail): keeps the console frame small AND outlives this block for the PHY parse below
-        const mrfw::TeamKeyTail r = parse_team_key_tail(phy_args, tk_rest, sizeof tk_rest, tk_pub, tk_priv, out);
-        if (r != mrfw::TeamKeyTail::none && r != mrfw::TeamKeyTail::ok) return;   // reported; team_id, the key, and NV are ALL unchanged
-        tk_supplied = (r == mrfw::TeamKeyTail::ok);
-        if (tk_supplied && t == 0) {                    // `team 0 tkpub=…` is meaningless — leaving a team takes no key
-            out.println(F("> team err: tkpub=/tkpriv= make no sense on `team 0` (leave)"));
-            return;
-        }
+        const mrfw::TeamKeyTail r = parse_team_key_tail(phy_args, tk_rest, sizeof tk_rest, rq.key_pub, rq.key_priv, out);
+        if (r != mrfw::TeamKeyTail::none && r != mrfw::TeamKeyTail::ok) return;   // reported; NOTHING has been touched
+        rq.key_supplied = (r == mrfw::TeamKeyTail::ok);
         phy_args = tk_rest;                             // the tail parse_phy_tail sees has the team-key tokens REMOVED (it may now be empty)
     }
-#endif
-    mrnv::Blob b{}; nv_load_stamped(b);   // §nv-ritual — the stamp this path once MISSED (see nv_load_stamped) is now structural
-    b.team_id = t;
-    // §mobile 6.4 Fix 6: set the team PHY so teammates hear each other (AND a member can later register with a compatible
-    // static network). Mirror `mobile register freq=`. Omitted -> keep the current PHY. Requires is_mobile (a team is mobile).
-#if MR_FEAT_MOBILE
-    if (phy_args && *phy_args && c.is_mobile) {
+    // §mobile 6.4 Fix 6: the SHARED team PHY, so teammates hear each other (and a member can later register with a
+    // compatible static network). Omitted -> the current PHY is carried through.
+    // ⛔⛔ NO LONGER GATED ON THE OLD ROLE, and that gate was a live C2 defect (§1.2.1): `if (phy_args && *phy_args &&
+    //    c.is_mobile)` meant a STATIC node's `team new freq=869 sf=7 bw=125` SILENTLY DISCARDED the PHY arguments, and
+    //    the incomplete-PHY check then ran against live values. Parsing mutates nothing, so it now runs
+    //    unconditionally and the TRANSACTION gates the result on the PROJECTED role — which is what makes a static
+    //    node promoted BY THIS VERB have its PHY honoured.
+    if (phy_args && *phy_args) {
         const PhyTailMsgs msg{ F("> team err bad/unknown key: "),
                                F("> team err: PHY args need freq= (freq=<MHz> sf=<5-12> [bw=<kHz>])"),
                                F("> team new err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz") };
         meshroute::LayerConfig phy{}; double bw = 0.0;
         const PhyTail r = parse_phy_tail(phy_args, c.leaf_id, msg, out, phy, bw);
-        if (r == PhyTail::error) return;
+        if (r == PhyTail::error) return;                           // reported; NOTHING has been touched
         if (r == PhyTail::ok) {                                    // `none` (empty tail, e.g. `team 0`) = keep the current PHY
-            g_node.mobile_register_phy(phy);                       // retune the radio (+ kick the FSM -> team-DAD via the no-host path)
-            b.freq_mhz = phy.freq_mhz; b.routing_sf = phy.routing_sf; b.bw_hz = phy.bw_hz; b.allowed_sf_bitmap = phy.allowed_sf_bitmap;   // PERSIST the team PHY
-            out.print(F("> team PHY: freq=")); out.print(phy.freq_mhz, 3); out.print(F(" sf=")); out.print(phy.routing_sf); out.print(F(" bw=")); out.print(bw, 2); out.println(F(" kHz"));
+            rq.phy.present           = true;
+            rq.phy.freq_mhz          = phy.freq_mhz;
+            rq.phy.routing_sf        = phy.routing_sf;
+            rq.phy.bw_hz             = phy.bw_hz;
+            rq.phy.allowed_sf_bitmap = phy.allowed_sf_bitmap;
+            rq.phy.bw_khz            = bw;                         // the RAW operator value, for the echo line only (no second rounding)
         }
     }
-#endif
-    // §6.4: a team is a SHARED-PHY overlay — members can only hear each other on a COMMON freq/routing_sf/sf_list/bw, and an
-    // empty sf_list blocks DATA entirely ([[data-sf-removed]]). Refuse to mint/join (t!=0) with an INCOMPLETE PHY so a member
-    // never lands on an isolated island (the 250-vs-125 kHz / empty-sf_list state seen on the bench). Leave (t==0) is exempt.
-    if (t != 0) {
-        const double eff_freq = (c.is_mobile && c.layers[0].freq_mhz > 0.0) ? c.layers[0].freq_mhz : g_freq_mhz;
-        if (eff_freq <= 0.0 || c.routing_sf < 5 || c.routing_sf > 12 || c.allowed_sf_bitmap == 0 || g_node.active_bw_hz() == 0) {
-            out.println(F("> team err: incomplete PHY — need freq, routing_sf(5..12), sf_list(DATA SF), bw."));
-            out.println(F(">   set them inline: `team new freq=869.0 sf=7 bw=125` — ALL members MUST use the SAME freq/sf/bw."));
-            return;   // NOT joined/minted: team_id, _team_local_id, NV all unchanged
-        }
+    mrfw::ProvSnapshot snap{};
+    snap.mobile_reg_count = g_node.mobile_reg_count();   // O2: the hosted-guest count `role_set_refusal` rules on
+    snap.key_hash32       = g_node.key_hash32();         // §mobile 6.1: team_id = FNV-1a(key_hash32 ‖ nonce)
+    // ★★★ THE LIVE PHY AND THE LIVE KEY ([[B207]] QG round 3) — the reads that stop an EXPLICIT request from being
+    //     discarded because NV happens to hold its value already. `mobile register freq=…` retunes the radio and moves
+    //     `_cfg.layers[0]` WITHOUT persisting (`Node::adopt_mobile_phy`, `lib/core/node.cpp:869`), so the record and
+    //     the radio genuinely diverge on this device — and before this the transaction could only see the record.
+    // ⓘ WHY THE ADAPTER AND NOT THE SERVICE: `firmware_provisioning_service.h` is compiled by the native suite, which
+    //   has no `g_node` and no board — it must stay pure (the same split `mobile_reg_count`/`key_hash32` already use).
+    // ★ EXISTING accessors only (U1): `active_freq_mhz()`/`active_bw_hz()` return the EFFECTIVE carrier (per-layer
+    //   override or the global) the radio really flies on; `layers[0]` is this node's only leaf (`MR_N_LAYERS < 2`) and
+    //   is the pair `adopt_mobile_phy` writes; `team_channel_pub()`/`team_channel_priv()` return nullptr — never a
+    //   zero buffer — when no key is held, which is how "no live key" reaches the service without a second flag.
+    // ⛔ NO COPY OF THE PRIVATE KEY IS TAKEN: the snapshot holds POINTERS into the node's own storage, so this frame
+    //   never becomes a second unwiped home for the team secret (§3.10).
+    snap.live_freq_mhz          = g_node.active_freq_mhz();
+    snap.live_bw_hz             = g_node.active_bw_hz();
+    snap.live_routing_sf        = c.layers[0].routing_sf;
+    snap.live_allowed_sf_bitmap = c.layers[0].allowed_sf_bitmap;
+    snap.live_key_pub           = g_node.team_channel_pub();
+    snap.live_key_priv          = g_node.team_channel_priv();
+    // ★★★ THE COMMIT. Validate + project + stage -> ONE `mrnv::save` -> and only then set_team / install key / retune /
+    //     DAD, in that order. ⓘ `c` is a REFERENCE to the live config; it is read ONLY inside the staging half (the
+    //     role projection and the membership comparison), strictly before the post-save block can move it.
+    const mrfw::ProvResult res = prov_service().apply_team(rq, c, snap);
+    // ---- and ONLY NOW is anything printed. §1.2.4: `ADOPTED`, `MINTED` and `> team PHY:` all used to print BEFORE
+    //      the save, which is exactly what the OLED design's §3.6.5 forbids ("no screen may claim success before the
+    //      save returns") — the console owes the same. One typed verdict in, one report out.
+    if (res.verdict != mrfw::ProvVerdict::applied) { team_report_not_applied(res, out); return; }
+    mr_ui_on_config_saved();   // §notify-every-save — site 5 of 7. ★ NOW ON THE SUCCESS ARM ONLY, and only after the
+                               //   transaction reported `applied` — i.e. the write both HAPPENED and SUCCEEDED, which
+                               //   is the rule's exact condition. ⛔ `no_change` performs no write, so it must NOT
+                               //   notify: an OLED draft told the record moved when it did not is [[B194]] inverted.
+    // ★★★ SYNC THE TEAM-DAD PERSIST TRACKER TO WHAT THE RECORD NOW HOLDS. ⛔ NOT OPTIONAL BOOKKEEPING — without it a
+    //     newly assigned `team_local_id` CAN NEVER REACH NV. `g_persist_team_local_id` is the change-detector
+    //     `persist_cfg_if_needed()` compares the live team-DAD id against (`fw_main.cpp:1030`), and it is written in
+    //     only two places: the boot restore (`:797`) and that function's own successful save (`:1042`). The
+    //     transaction's `ICfgStore::save` touches NEITHER — so the tracker was still holding the OLD team's id while NV
+    //     now holds 0, and if team-DAD then happened to pick THE SAME NUMERIC ID the old team used, `team_changed` was
+    //     FALSE, nothing was persisted, NV STAYED 0, and the next boot needlessly re-DAD'd.
+    // ⓘ WHY HERE AND NOT IN THE SERVICE: the service is compiled by the native suite, which has no `fw_main` and no
+    //   globals — the plumbing must not leak into it. It REPORTS the value it wrote; the adapter assigns it (U1/C3).
+    // ⓘ WHY AFTER `apply_team` RETURNS IS STILL "BEFORE DAD" IN THE ONLY SENSE THAT MATTERS: the tracker is read by
+    //   exactly one caller, `persist_cfg_if_needed()` at the loop tail (`fw_main.cpp:1553`), which cannot run until
+    //   this verb returns (single-threaded loop). So the live id team-DAD assigns is compared against the SAVED 0 and
+    //   is persisted promptly, which is the outcome design v2 asked for.
+    g_persist_team_local_id = res.persisted_team_local_id;
+    if (res.phy.present) {
+        out.print(F("> team PHY: freq=")); out.print(res.phy.freq_mhz, 3);
+        out.print(F(" sf=")); out.print(res.phy.routing_sf);
+        out.print(F(" bw=")); out.print(res.phy.bw_khz, 2); out.println(F(" kHz"));
     }
-    // §team-ch-key (T-K1, spec §2.1 + ★ OWNER RULING 2026-07-29 "when team is created — a dedicated pair of key has
-    // to be created"): the CREATOR always ends up holding a team channel keypair. Two ways in, and NO opt-out:
-    //   · `tkpub=`/`tkpriv=` supplied  -> ADOPT them verbatim (canonicalised + cross-checked). This is the T-K4 QR
-    //     onboarding path, which a JOINER uses too — hence both `team new` and `team <id>` accept the pair (spec
-    //     §2.4: "the app provisions its node over the existing companion channel (`team …` + the new key fields)").
-    //   · `team new` with no pair      -> MINT from the HAL CSPRNG.
-    //   · `team <id>` with no pair     -> generate NOTHING. A joiner is meant to RECEIVE the key (T-K3 grant / T-K4
-    //     QR); minting an unrelated second key here would silently split the team's readership in two. It is also
-    //     what keeps the simulator corpus draw-free — see the §sim-team-verb note in NodeRuntimeWrapper.cpp.
-    // ★ Placed BEFORE set_team_id so a refusal leaves the team UNJOINED rather than keyless (C2 — the owner ruling
-    // removed the opt-out precisely because a keyless creator is a footgun). The only state already applied at this
-    // point is the optional PHY retune above, which is the pre-existing shape of the incomplete-PHY refusal too.
-#if MR_FEAT_TEAM
-    if (tk_supplied) {
-        if (!g_node.team_channel_key_adopt(tk_pub, tk_priv)) {
-            out.println(F("> team err: tkpub=/tkpriv= REFUSED — not a valid X25519 keypair (all-zero, or tkpub is not tkpriv's public key). Team NOT joined."));
-            return;
-        }
-        out.println(F("> team channel key: ADOPTED (from tkpub=/tkpriv=)"));
-    } else if (mint_form) {
-        if (!g_node.team_channel_key_mint()) {
-            out.println(F("> team err: team channel keygen FAILED (crypto RNG returned no entropy). Team NOT minted."));
-            return;   // C2: refuse the whole verb — never leave a creator holding no content key
-        }
-        out.println(F("> team channel key: MINTED (X25519)"));
-    }
-    // ★★ §o3-key-lifetime (owner ruling 2026-07-31) — THE ONE EXCEPTION, and it is why this slice is not the
-    // three-liner it looks like. `set_team_id` below now DESTROYS the team channel key, because a content key must
-    // not outlive the team it was granted for. But the pair applied immediately above was established FOR THE TEAM
-    // WE ARE JOINING RIGHT NOW, not for the old one — and `set_team_id` cannot tell the two apart. Left unhandled,
-    // `team new` would mint a key and wipe it three lines later, then persist `present=0`: the owner's "the creator
-    // always ends up holding a keypair" ruling silently broken, and the T-K4 QR onboarding path (`team <id>
-    // tkpub=/tkpriv=`) broken with it.
-    // ★ Stash-and-re-apply rather than moving the mint/adopt below the switch: every refusal above returns with
-    // team_id, the key and NV ALL unchanged (the C2 property the block's placement exists for), whereas a refusal
-    // AFTER the switch would return from a node that is in the new team LIVE but with nothing persisted and no
-    // team-DAD fired. Ordering stays; 3 lines carry the key across.
-    // ⓘ Reuses `tk_priv` — same meaning (the pair's private half), just sourced from the node instead of the tail —
-    // so the console frame grows by one bool, not by 32 B of secret. The PRIVATE half alone is sufficient and the
-    // re-derivation is byte-exact: clamping is idempotent over an already-canonical scalar (identity.h's contract),
-    // which is the same guarantee T-K3's grant relies on. adopt_priv cannot fail here (a stored key is non-zero and
-    // canonical by construction), but C2 gets the report anyway rather than a silent keyless join.
-    const bool tk_carry = (tk_supplied || mint_form) && g_node.team_channel_key_present();
-    if (tk_carry) memcpy(tk_priv, g_node.team_channel_priv(), 32);
-#endif
-    // §clean-team (2026-07-27): ONE core call does the whole switch — drop the OLD team's learned plane (_rt_team /
-    // _team_peer / team liveness / the team KEY CACHE / team RREQ ledgers) and the stale team-DAD id, then adopt the new
-    // team_id LIVE. Returns false on a same-team no-op (`team <current_id>`), which clears nothing and skips the re-DAD.
-    const bool was_mobile    = c.is_mobile;                  // ★ §role-model: capture the role BEFORE the switch — set_team_id may PROMOTE us (B28/R2), and a role change must be reported, not inferred
-    const bool team_switched = g_node.set_team_id(t);
-#if MR_FEAT_TEAM
-    // §o3-key-lifetime: re-apply the pair the switch just destroyed (see the stash note above). A BARE `team <id>` /
-    // `team 0` takes tk_carry==false and therefore keeps the clear — that IS the ruling.
-    if (tk_carry && !g_node.team_channel_key_adopt_priv(tk_priv))
-        out.println(F("> team err: the team channel key was LOST across the switch (re-adopt refused) — re-grant it with `team grantkey` from a teammate, or re-scan the team QR"));
-#endif
+    // ★ The owner's ruling that a CREATOR ALWAYS ENDS UP HOLDING A KEYPAIR is now guaranteed by the candidate plus a
+    //   `void` install, not by ordering luck — so v1's stash-and-re-apply dance around `set_team_id` is gone entirely.
+    if (res.key_action == mrfw::KeyAction::install)
+        out.println(res.key_minted ? F("> team channel key: MINTED (X25519)")
+                                   : F("> team channel key: ADOPTED (from tkpub=/tkpriv=)"));
     // ★★ §role-model / B28 constraint 3 — REPORT the automatic promotion; never flip the role silently. `is_mobile`
-    // changes beaconing (the node beacons on its team_local_id, not its node_id), home registration, DAD and relay
-    // behaviour, and it is ON THE WIRE (beacon bit 0x20 / J bit 0x40) — peers make routing decisions from it.
-    // ⓘ `c` is a REFERENCE to the live config, so it already reads the promoted value here — which is also what turns
-    // the pre-existing team_dad_fire() below ON for a just-promoted node, giving it the same team-plane bootstrap an
-    // already-mobile joiner has always got. That is the whole "self-announcing" argument for R5 on this path.
-    if (!was_mobile && c.is_mobile)
+    //    changes beaconing, home registration, DAD and relay behaviour, and it is ON THE WIRE (beacon bit 0x20 / J bit
+    //    0x40). ⓘ The value is the PROJECTED `RoleFix::forced_mobile` the builder read off the real `role_enforce`,
+    //    reported only on this arm — never inferred from a live comparison across a mutation.
+    if (res.role_promoted)
         out.println(F("> role -> MOBILE (automatic: a team member IS a mobile — reachable by team_local_id, not by a static node_id). `team 0` leaves the team; the role then STAYS mobile."));
-    if (c.is_mobile && t != 0 && team_switched) g_node.team_dad_fire();   // §6.4: bootstrap the team plane (self-assign a _team_local_id, no static host needed)
-    b.node_id       = g_node.canonical_node_id();            // §6.4: team_dad_fire may have MOVED node_id (off-grid: node_id==team id) -> persist the live id, don't re-save the stale one loaded at entry
-    b.team_local_id = g_node.team_local_id();                // §6.4: persist the fresh id (or 0 on leave) alongside team_id
-    b.is_mobile     = c.is_mobile ? 1 : 0;                   // ★ §role-model: PERSIST the (possibly just-promoted) role. NV carries team_id and is_mobile INDEPENDENTLY, so without this line a reboot would land straight back in the outlawed combination and lean on fw_main's boot normalisation to re-fix it every single boot.
-    blob_take_team_channel_key(b);                            // §team-ch-key (v22): persist the pair we just minted/adopted (or carry the existing one through a leave)
-    // ★★ §notify-every-save — site 5 of 7, and THE THIRD STATE IS NAMED HERE RATHER THAN ASSUMED. This save's domain
-    //    is not success / failure-with-return: it is success · FAILURE-BUT-LIVE-ANYWAY (§3-A.4 — the LIVE team state
-    //    above is already applied and is deliberately NOT rolled back, which is why the verb reports and carries on).
-    //    ⇒ the verdict must be CAPTURED to notify only on the success arm; ⛔ the rollback behaviour is UNCHANGED.
-    const bool team_saved = mrnv::save(b);   // §3-A.4: was the ONLY unchecked save of 9 — now checked for the notification, still not rolled back
-    if (team_saved) mr_ui_on_config_saved(); else out.println(F("> team err nv_save_failed (team is LIVE but NOT persisted — will revert on reboot)"));
-    char tx[9]; snprintf(tx, sizeof tx, "%08lX", (unsigned long)t);
+    char tx[9]; snprintf(tx, sizeof tx, "%08lX", (unsigned long)res.team_id);
     out.print(F("> team -> team_id=0x")); out.println(tx);
-    if (c.is_mobile && t != 0) { out.print(F("  team-DAD: local_id=")); out.println(g_node.team_local_id()); }
+    if (res.team_id != 0 && g_node.config().is_mobile) { out.print(F("  team-DAD: local_id=")); out.println(g_node.team_local_id()); }
 }
 
 // §mobile console: `mobile register [freq=<MHz> sf=<5-12> bw=<kHz> | scan]` · `gateways` · `query <gw>` · `status`.

@@ -28,6 +28,18 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 7. `2026-07-26-remote-admin-challenge-response-design.md` — implement authenticated remote administration.
 8. `2026-08-01-full-firmware-source-review-vectors.md` — perform the systematic firmware review.
 
+## Bugs - suggested order
+
+  1. B207 provisioning transaction - awaiting QG
+  2. Parallel metal checks: B196, B164, B193 - B196 awaiting final test, B164 - awaiting final test, B193 - probably not implemented
+  3. B206/B138 measurement reliability, then B205.
+  4. B20/B21, B35, B159 message correctness.
+  5. B161 → B157 → B153 hybrid-RTS closure.
+  6. B151 → B178 → B186b mobile-home work.
+  7. B134, O4, and remaining product/UI backlog.
+
+
+
 ### Hardware backlog
 
 9. `2026-08-01-heltec-v4-radio-port-and-board-rf-seam-design.md` — port and qualify Heltec V4 hardware.

@@ -2370,11 +2370,21 @@ The B200 panic dump printed `ELF file SHA256: 7a8aaa957` over a banner reading `
    `xtensa-esp32s3-elf-addr2line -pfiaC -e <that firmware.elf> <addresses>`.
 4. ⚠ An ELF decodes **only** the exact image built from it, and a `-dirty` stamp does not identify a revision; once
    the slice is committed, rebuild and archive the clean-stamped one.
-5. ★★ **WHAT IS ARCHIVED RIGHT NOW (updated 2026-08-17):** one directory only —
-   **`~/MeshRoute-artifacts/soak-20260816-1646/`** (`firmware.{elf,map,bin}` + `COMMIT.txt` + `SHA256SUMS`), the
-   [[B196]] panic image: `firmware.elf` sha256 **`d964a5239b568…`**, `COMMIT.txt` **`a1e53dd`**. ⛔ **Keep it until
-   B196 closes** — it is the only ELF matching that panic, the provenance proof cited on the register row, and the
-   artefact the fix's whole equivalence audit was measured against.
+5. ★★ **WHAT IS ARCHIVED RIGHT NOW (updated 2026-08-17), two directories, both to be kept until [[B196]] closes:**
+   - ⛔ **`~/MeshRoute-artifacts/soak-20260816-1646/`** — the **PANIC** image (the defect). `firmware.elf` sha256
+     **`d964a5239b568…`**, `COMMIT.txt` **`a1e53dd`**. The only ELF matching that panic, the provenance proof cited on
+     the register row, and the artefact the fix's whole equivalence audit was measured against.
+   - ★ **`~/MeshRoute-artifacts/soak-20260817-1002/`** — the **FIXED** image now under soak. `COMMIT.txt`
+     **`cb76d793295492d81a519f78b3a4e78fd37f8ddc`** (`cb76d79`), `firmware.elf` sha256 **`3071ef553026e75a…`**,
+     `firmware.bin` 1277936 B, banner `built Aug 17 2026 11:53:20 · cb76d79-dirty`.
+     ★★ **Its identity is PROVEN, not assumed, by two independent checks:** the ELF contains the exact banner string
+     `Aug 17 2026 11:53:20` (so it *is* the build that printed that banner), and its `DIRT.txt` — `git status --short`
+     restricted to `src/ lib/ variants/ platformio.ini tools/` — is **EMPTY**, so ⇒ **the `-dirty` stamp is docs/other-
+     workstream only and the binary corresponds to `cb76d79`'s firmware source.** ⓘ `DIRT.txt` is a **new** member of
+     the archive triple; keep producing it — it is what turns a `-dirty` banner from an ambiguity into a measurement.
+   ⚠ **CLOCK OFFSET, so it is not later misread as a mismatch: the build machine runs ~2 h ahead of the archive host**
+   (archive mtimes 16:47 vs banner 18:43:50; 10:03 vs 11:53:20 — the same offset both times). **The banner string is
+   the identity, never the file mtime.**
    ⓘ **The earlier `b196/` and `b200/` archives were DELETED 2026-08-17 on an owner instruction**, and the reasoning is
    worth keeping because it is the general rule: **`b200/` — B200 closed on metal and its backtrace was already decoded
    and recorded, so no future dump can arrive to need it**; **`b196/` — those two rebuilt ELFs matched NO flashed image
@@ -2556,3 +2566,82 @@ it undecided whatever the clock says.
 - Date and tester: `________________`
 - Failed or skipped checks: `________________`
 - Log/archive location: `________________`
+
+## Part 27 — [[B207]]: the typed team-provisioning transaction (2026-08-17)
+
+⛔ **THE RESIDUE ONLY.** The transaction, the `KeyAction` matrix, the refusals, the save-failure guarantee and the
+candidate composition are all host-gated (`test/test_firmware_provisioning_service.cpp` + `tools/probe_prov_tx` +
+`tools/probe_board_ui` W12/W14-W20). What no host can reach is **a real NV backend**, **real airtime**, and **the
+stack on a real frame**. Nothing else belongs here.
+
+### 27.1 — ★★ `stackhw` after a `team new` (the one OWNER-CALL item)
+★★ **FIGURES CORRECTED 2026-08-17 — the earlier explanation was measured and REFUTED.** The 256-B `NodeConfig` copy is
+**not** the cost and never was: ARM `handle_team` measures the same with the projection first, with the plan+Blob first,
+and with the copy **deleted outright** (`-Ofast` scalarises it — `role_enforce` touches three fields). The growth is the
+**typed carriers**. Current figures: **ARM `handle_team` 888 B** (pre-slice 536), **xtensa deepest chain 928 B**
+(pre-slice 704). ⛔ **The old "`stackhw` once fell to 72 B" framing is WITHDRAWN as a statement of present risk** — that
+reading predates the dedicated 8 KB mesh-task fix that moved this work off the 4 KB Arduino loop stack. ⇒ this check is
+a **qualification**, owner-accepted as such, not a code blocker — **but run it on the first firmware that carries the
+slice.**
+1. Boot, then `status` and record `stackhw=`.
+2. Run `team new freq=869.4625 sf=7 bw=125`.
+3. `status` again. **PASS = `stackhw` stays comfortably above ~1 KB and does not fall across the verb.**
+⛔ **FAIL (any reading under a few hundred bytes) is a STOP: report it rather than tuning around it** — the fix would be
+a design question (where the projection copy lives), not a constant.
+
+### 27.2 — `team 0` with a PHY argument is refused, and nothing changes
+⚠ **A BEHAVIOUR CHANGE: this used to be a silent no-op.**
+1. In a team, note `freq`/`sf`/`bw` from `status`.
+2. `team 0 freq=868` ⇒ **expect a refusal naming the meaningless arguments**, in the shape of the existing
+   `team 0 tkpub=` refusal.
+3. ⛔⛔ **CORRECTED 2026-08-17 (QG): `status` ⇒ the ORIGINAL NON-ZERO `team_id` IS STILL THERE, and freq/sf/bw are
+   UNCHANGED.** This step previously read *"team_id 0"*, which contradicted the check's own point: the command was
+   **REFUSED**, so it did not leave the team either. ⛔ No `cfg saved` notification, and ⛔ the OLED must not show a
+   save marker — nothing was written. ⓘ A bare `team 0` DOES leave; that is §27.3.
+4. Repeat for `sf=` alone and `bw=` alone.
+
+### 27.3 — a bare `team 0` still leaves, and PRESERVES the PHY (the owner ruling)
+`team 0` with **no** tail ⇒ leaves the team, and `status` shows **freq/sf/bw unchanged**. ★ This is the ruled invariant:
+leaving changes membership only.
+
+### 27.4 — a truly-unchanged same-team request reports `no change`
+While in team `0xNNNNNNNN`, run `team 0xNNNNNNNN` with no tail ⇒ **expect a `no change` report, no save, and no
+OLED save marker.** ⓘ Distinguishes the ruled `no_change` verdict from a silent success.
+
+### 27.5 — a same-team re-key preserves the local id (⛔ the defect this slice exists to prevent)
+1. `status` ⇒ record `team_local_id`.
+2. Re-key in place: `team <current id> tkpub=<64hex> tkpriv=<64hex>`.
+3. `status` ⇒ ★ **`team_local_id` and the node id are UNCHANGED**, and ⛔ **no team-DAD was fired**.
+4. **Power-cycle** ⇒ `team_local_id` is still the same value. ⛔ A re-DAD here means the candidate persisted
+   `team_local_id = 0` on a same-membership request — the exact defect corrected at design v2.
+
+### 27.6 — a static node's `team new` honours its PHY (⚠ behaviour change)
+On a **static** node: `team new freq=869.4625 sf=7 bw=125` ⇒ the PHY is **applied and reported**, and the role
+promotion to MOBILE is reported. ⛔ Previously the PHY arguments were **silently discarded**.
+
+### 27.7 — the save-failure arm, if it can be provoked at all
+⚠ **Only if a real NV write can be made to fail** (a full/unwritable store). Then: `team new` ⇒ the verb reports the
+failure, and **team, keys, role and PHY are all UNCHANGED and NO airtime is spent** (no beacon on the new team).
+ⓘ If it cannot be provoked, **say so** — the host tests cover the caller's half; ⛔ **physical NV atomicity remains
+[[B193]] Part 20.5 and is NOT established here.**
+
+### 27.8 — ★★ an explicit PHY request is APPLIED when the RADIO diverges from the record (QG round-3 blocker)
+⛔ **This is the defect the last correction closed; it is invisible to every host gate.**
+1. `mobile register freq=868.5 sf=9 bw=250` — this retunes the radio **live and does NOT update the record**.
+2. `team <current-id> freq=<the value the record already held> sf=<same> bw=<same>`.
+3. ★ **PASS = it APPLIES:** `> team PHY: freq=… sf=… bw=… kHz` then `> team -> team_id=0x…`, and `status` shows the
+   radio back on the record's PHY.
+⛔ **FAIL, and it is the exact old defect: `> team: no change — …` while the radio stays on 868.5.**
+
+### 27.9 — …and a converged request still reports `no change`
+Immediately repeat the same `team <current> <same PHY>`. **PASS =** `> team: no change — already team_id=0x…, and the
+stored record AND the live radio/key already match what you asked for. Nothing was written and nothing was applied.`
+⛔ No save, and ⛔ the OLED must not repaint as saved.
+
+### 27.10 — an explicit key is INSTALLED when the live key is absent
+On a node whose live team key was cleared (e.g. `team 0` then rejoin), run
+`team <current> tkpub=<the record's own pub> tkpriv=<its priv>`.
+**PASS =** `> team channel key: ADOPTED (from tkpub=/tkpriv=)` — one installation. ⛔ **FAIL = `no change`**, which would
+leave the node unable to read team traffic while NV claims it holds the key.
+ⓘ The comparison includes the **private** half deliberately: `team_channel_key_load` installs verbatim, so a pub-only
+check would accept a record whose halves disagree and produce a node that cannot decrypt.
