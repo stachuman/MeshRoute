@@ -239,6 +239,48 @@ final class PushDecoderTests: XCTestCase {
         XCTAssertNil(s.teamChKey)
     }
 
+    func testTeamChannelNoKeyAsBuilt() {   // CL2a (2026-08-01) — field is `team_id`, and there is NO body/seq
+        guard case .teamChannelNoKey(let team, let origin, let ch, let mid)? = PushDecoder.decode(
+            line: #"{"ev":"team_channel_no_key","origin":9,"layer_id":4,"channel_id":3,"channel_msg_id":68298753,"team_id":"cccc0001"}"#) else {
+            return XCTFail("not team_channel_no_key")
+        }
+        XCTAssertEqual(team, "cccc0001"); XCTAssertEqual(origin, 9)
+        XCTAssertEqual(ch, 3); XCTAssertEqual(mid, 68298753)
+        // team_id is omit-when-0
+        guard case .teamChannelNoKey(let t2, _, _, _)? = PushDecoder.decode(
+            line: #"{"ev":"team_channel_no_key","origin":9,"layer_id":4,"channel_id":3,"channel_msg_id":1}"#) else { return XCTFail() }
+        XCTAssertNil(t2)
+    }
+
+    func testMobileAttachmentState() {   // §MH-S4: attachment + home_link are TWO fields; age OMITTED when never confirmed
+        guard case .mobileStatus(let s)? = PushDecoder.decode(
+            line: #"{"ev":"mobile_status","mobile":true,"registered":true,"home":222,"local":17,"epoch":6,"home_layer":4,"autoregister":true,"layer":4,"freq_khz":869525,"sf":9,"bw_hz":125000,"nets":2,"attachment":"attached","home_link":"confirmed","last_result":"confirmed","home_desired":true,"home_confirm_age_ms":420000,"claim_retries":0,"claim_retry_max":3,"retry_window_ms":30000,"offers":1,"scan_idx":0,"scan_count":2,"candidates":2,"verified_candidates":1}"#) else {
+            return XCTFail("not mobile_status")
+        }
+        XCTAssertEqual(s.attachment, "attached"); XCTAssertEqual(s.homeLink, "confirmed")
+        XCTAssertEqual(s.homeConfirmAgeMs, 420_000)      // i64 — a u32 would wrap at ~49.7 days
+        XCTAssertEqual(s.verifiedCandidates, 1)
+        // mid-CLAIM: registered:false even though a claim is in flight, and NO confirmation age yet
+        guard case .mobileStatus(let c)? = PushDecoder.decode(
+            line: #"{"ev":"mobile_status","mobile":true,"registered":false,"home":0,"local":0,"epoch":0,"autoregister":true,"layer":4,"freq_khz":869525,"sf":9,"bw_hz":125000,"nets":1,"attachment":"claiming","home_link":"unknown","last_result":"none","home_desired":true,"claim_retries":1,"claim_retry_max":3,"claim_solicited":true,"retry_window_ms":30000,"offers":0,"scan_idx":0,"scan_count":1,"candidates":1,"verified_candidates":0}"#) else { return XCTFail() }
+        XCTAssertFalse(c.registered); XCTAssertEqual(c.attachment, "claiming")
+        XCTAssertNil(c.homeConfirmAgeMs)                 // ★ omitted, never 0 ("0 age" would read as "just now")
+        XCTAssertEqual(c.claimSolicited, true)
+    }
+
+    func testNewAckCodes() {   // §id-hash S1: the plane/queue refusals
+        for (wire, expected) in [("err_ambiguous_plane", AckCode.errAmbiguousPlane),
+                                 ("err_no_identity", .errNoIdentity),
+                                 ("err_tx_queue_full", .errTxQueueFull),
+                                 ("err_resolve_pending_full", .errResolvePendingFull),
+                                 ("err_ack_ring_full", .errAckRingFull)] {
+            guard case .ack(let a)? = PushDecoder.decode(line: #"{"ack":"\#(wire)","ctr":0,"qd":0}"#) else {
+                return XCTFail("not an ack: \(wire)")
+            }
+            XCTAssertEqual(a.code, expected); XCTAssertTrue(a.code.isError)
+        }
+    }
+
     func testPeerKeyProvisioningEvents() {     // E2E peer-key provisioning (2026-06-16)
         XCTAssertEqual(Command.peerKey(pubkeyHex: String(repeating: "ab", count: 32)).line,
                        "peerkey " + String(repeating: "ab", count: 32))

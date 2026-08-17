@@ -218,7 +218,9 @@ final class AppModel {
             teamID = team; teamLocal = local                          // team-DAD adopted / re-picked
         case .mobileStatus(let s):
             latestMobileStatus = s
-            mobileState = MobileState(home: s.home, local: s.local, homeLayer: s.homeLayer, registered: s.registered)
+            mobileState = MobileState(home: s.home, local: s.local, homeLayer: s.homeLayer,
+                                      registered: s.registered, attachment: s.attachment,
+                                      homeLink: s.homeLink, homeConfirmAgeMs: s.homeConfirmAgeMs)
         case .mobileGateway(let gw, let leaf):
             mobileGwAccum.append(MobileGatewayRow(gw: gw, leaf: leaf))
         case .mobileNet(let layer, let name, let freqKHz, let sf, let bwHz):
@@ -1049,11 +1051,56 @@ struct MobileNetRow: Identifiable, Hashable {
 
 /// D30: the connected mobile's registration — drives the connectivity chip ("home 222 · L4" / "searching for home…").
 struct MobileState: Hashable {
-    let home: Int          // 0 = unregistered
+    let home: Int          // 0 = no home
     let local: Int         // home-assigned local id (informational; never used for addressing)
     let homeLayer: Int?
+    /// ⚠ 2026-08 semantics: this is `mobile_attached()` — a CONFIRMED attachment. A mobile mid-CLAIM reports
+    /// false while `attachment == "claiming"`. It is NOT the provisional link-layer flag.
     let registered: Bool
-    var label: String { registered ? "Registered · home \(home)\(homeLayer.map { " · L\($0)" } ?? "")" : "Searching for home…" }
+    // The three-plane detail (from `mobile status`; nil when we've only seen `ready`).
+    let attachment: String?          // dormant · seeking · claiming · attached · recovering
+    let homeLink: String?            // unknown · confirmed · checking · lost
+    let homeConfirmAgeMs: Int64?     // age of the LAST confirmation; nil = never confirmed (never render as 0)
+
+    init(home: Int, local: Int, homeLayer: Int?, registered: Bool,
+         attachment: String? = nil, homeLink: String? = nil, homeConfirmAgeMs: Int64? = nil) {
+        self.home = home; self.local = local; self.homeLayer = homeLayer; self.registered = registered
+        self.attachment = attachment; self.homeLink = homeLink; self.homeConfirmAgeMs = homeConfirmAgeMs
+    }
+
+    /// ★ Standing firmware ruling: the word "connected" is FORBIDDEN on any surface, and a healthy-looking
+    /// light must never stand in for evidence. Render the state machine + the AGE of the last confirmation.
+    var label: String {
+        switch attachment {
+        case "attached":   return "Attached · home \(home)" + (homeLayer.map { " · L\($0)" } ?? "")
+        case "claiming":   return "Claiming home \(home == 0 ? "…" : String(home))"
+        case "seeking":    return "Seeking a home…"
+        case "recovering": return "Recovering home \(home == 0 ? "…" : String(home))"
+        case "dormant":    return "Not seeking a home"
+        default:           return registered ? "Attached · home \(home)" + (homeLayer.map { " · L\($0)" } ?? "")
+                                             : "No home"
+        }
+    }
+    /// The evidence line — what we actually know, never a green light. nil when there is nothing to claim.
+    var evidence: String? {
+        switch homeLink {
+        case "confirmed": return homeConfirmAgeMs.map { "Home confirmed \(Self.age($0)) ago" } ?? "Home confirmed"
+        case "checking":  return "Checking the home link…"
+        case "lost":      return "Home link lost"
+        case "unknown":   return homeConfirmAgeMs.map { "Last confirmed \(Self.age($0)) ago" }
+        default:          return homeConfirmAgeMs.map { "Home confirmed \(Self.age($0)) ago" }
+        }
+    }
+    /// Healthy only when BOTH the attachment and the link agree — used for colour, never for wording.
+    var isHealthy: Bool { attachment == "attached" && homeLink == "confirmed" }
+
+    private static func age(_ ms: Int64) -> String {
+        let s = ms / 1000
+        if s < 60 { return "\(s) s" }
+        if s < 3600 { return "\(s / 60) min" }
+        if s < 86_400 { return "\(s / 3600) h" }
+        return "\(s / 86_400) d"
+    }
 }
 
 /// Routes a tapped DM banner into the right conversation. The banner's `threadIdentifier` is "dm-<hash>".
@@ -1108,7 +1155,8 @@ func describe(_ inbound: Inbound) -> String {
     case .teamKeyExport(let id, _, _):             return "team_key_export team_id=\(id) (⚠ private key — not logged)"
     case .teamKeyError(let r):                     return "team_key_err \(r)"
     case .teamKeyGrant(let h, let c, let p):       return "team_key_grant 0x\(h.hex8) ctr=\(c)\(p ? " PARKED" : "")"
-    case .teamChannelNoKey(let t):                 return "team_channel_no_key\(t.map { " team=\($0)" } ?? "") — ask a teammate for the key"
+    case .teamChannelNoKey(let t, let o, let ch, let mid):
+        return "team_channel_no_key\(t.map { " team=\($0)" } ?? "") from \(o) ch\(ch) msg=\(mid) — ask a teammate for the key"
     case .hashResolved(let n, let a, let h):       return "hash_resolved \(h.hex8) → node \(n)\(a ? " (auth)" : "")"
     case .ready(let r):                            return "ready id=\(r.id) key=\(r.key.hex8) sf=\(r.routingSF)"
     case .status(let s):                           return "status id=\(s.id) \(s.state) up=\(s.uptimeMs.map(String.init) ?? "—") routes=\(s.routes.map(String.init) ?? "—")"

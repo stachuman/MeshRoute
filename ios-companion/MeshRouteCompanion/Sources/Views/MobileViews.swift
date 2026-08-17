@@ -15,11 +15,17 @@ struct MobileRoamView: View {
         List {
             Section("Registration") {
                 if let ms = model.mobileState {
-                    HStack {
-                        Image(systemName: ms.registered ? "antenna.radiowaves.left.and.right.circle.fill"
-                                                        : "antenna.radiowaves.left.and.right.slash")
-                            .foregroundStyle(ms.registered ? Color.green : .orange)
-                        Text(ms.label)
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Image(systemName: ms.isHealthy ? "antenna.radiowaves.left.and.right.circle.fill"
+                                                           : "antenna.radiowaves.left.and.right.slash")
+                                .foregroundStyle(ms.isHealthy ? Color.green : .orange)
+                            Text(ms.label)
+                        }
+                        // ★ evidence, not a light: the AGE of the last confirmation (never "connected")
+                        if let e = ms.evidence {
+                            Text(e).font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                 }
                 if let s = model.latestMobileStatus {
@@ -27,6 +33,13 @@ struct MobileRoamView: View {
                                                         Double(s.freqKHz) / 1000, s.sf, Double(s.bwHz) / 1000))
                     LabeledContent("Layer", value: "\(s.layer)")
                     LabeledContent("Auto-register", value: s.autoregister ? "on (node roams itself)" : "off (app-driven)")
+                    if let a = s.attachment { LabeledContent("Attachment", value: a) }
+                    if let hl = s.homeLink  { LabeledContent("Home link", value: hl) }
+                    if let lr = s.lastResult, lr != "none" { LabeledContent("Last result", value: lr) }
+                    if s.attachment == "claiming", let r = s.claimRetries, let mx = s.claimRetryMax {
+                        LabeledContent("Claim retries", value: "\(r)/\(mx)")
+                    }
+                    if let c = s.candidates { LabeledContent("Candidates", value: "\(c)\(s.verifiedCandidates.map { " (\($0) verified)" } ?? "")") }
                     if s.registered { LabeledContent("Config epoch", value: "\(s.epoch)") }
                 }
                 Button { model.mobileRegister() } label: {

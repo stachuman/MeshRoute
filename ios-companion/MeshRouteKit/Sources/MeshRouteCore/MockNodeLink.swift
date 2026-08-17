@@ -126,7 +126,7 @@ public actor MockNodeLink: NodeLink {
         case "mobile":                                       // D30/S3: roam-screen demo data (a registered team mobile)
             switch tokens.first {
             case "status":
-                emit(#"{"ev":"mobile_status","mobile":true,"registered":true,"home":222,"local":17,"epoch":6,"home_layer":4,"autoregister":true,"layer":4,"freq_khz":869525,"sf":9,"bw_hz":125000,"nets":2}"#)
+                emit(#"{"ev":"mobile_status","mobile":true,"registered":true,"home":222,"local":17,"epoch":6,"home_layer":4,"autoregister":true,"layer":4,"freq_khz":869525,"sf":9,"bw_hz":125000,"nets":2,"attachment":"attached","home_link":"confirmed","last_result":"confirmed","home_desired":true,"home_confirm_age_ms":420000,"claim_retries":0,"claim_retry_max":3,"retry_window_ms":30000,"offers":1,"scan_idx":0,"scan_count":2,"candidates":2,"verified_candidates":1}"#)
             case "gateways":
                 emit(#"{"ev":"mobile_gw","gw":3,"leaf":4}"#)
                 emit(#"{"ev":"mobile_net","layer":7,"name":"north field","freq_khz":869525,"sf":9,"bw_hz":125000}"#)

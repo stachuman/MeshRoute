@@ -852,12 +852,14 @@ The node replies on TXD with one JSON line:
 ### Node → app: in the `ready` snapshot (so the app shows it on connect)
 `ready` also carries `"duty_pct":42` (+ `"duty_avail_ms":0`) — an immediate starting value on connect; the `duty` query above is the live truth to refresh from.
 
-## Firmware asks — profiles wave (app → node agent, 2026-07-16 · roadmap D31/§8.2)
+## Firmware asks (app → node agent · D31/§8.2 · living — amendable by BOTH sides)
 
-Two asks from the user-profiles decision (D31). App needs stated; the wire/design shape is the node agent's call —
-please update this doc with the final shapes (the app builds decode-after-contract, never ahead of it).
+App needs stated; the wire/design shape is the node agent's call — please update this doc with the final shapes
+(the app builds decode-after-contract, never ahead of it). **Status: Ask 2 ✅ BUILT** (`loc_src:"team"` is live).
+**Ask 1 ⊂ Ask 3** — Ask 3 (2026-08-16) supersedes and sharpens it with the profile split and the measured
+foot-gun; read Ask 3 first, Ask 1 remains for the items it still carries (unlock/lock, verb coverage).
 
-### Ask 1 — remote-admin app surface (P1-remote: configure a node THROUGH another node)
+### Ask 1 — remote-admin app surface (P1-remote: configure a node THROUGH another node) — folded into Ask 3
 The authenticated `rcmd` spine exists (open reads cleartext; sealed writes behind `unlock`; binary-TLV responses).
 The app needs an app-consumable shape on the BLE side:
 1. **`rcmd` responses as JSON lines** the companion can decode (e.g. `{"ev":"rcmd_resp","from":<id>,"verb":"…","ok":…,…}`
@@ -868,6 +870,64 @@ The app needs an app-consumable shape on the BLE side:
 3. **An error model** the app can render: `no_admin_key` (target has none pinned) · `locked` (unlock first) ·
    `stale` (replay-rejected) · timeout behaviour (silent? push?).
 4. Verb coverage for the P1 use cases: remote `cfg get/set`, `reboot`, `status`, `routes` (what else is cheap?).
+
+### Ask 3 — the CONFIGURATOR path: let a mobile-attached phone configure another node (2026-08-16)
+
+> ⚠ **This section is NEGOTIABLE and expected to move — on BOTH sides.** It states an app NEED and the product
+> flow behind it; the wire/design shape is the node agent's and the owner's call. Amend it freely, and when a
+> slice lands QA writes the as-built shape here (the app builds decode-after-contract, never ahead of it).
+
+**Product context (owner, 2026-08-16 — this is *why*, and it is the part worth arguing with).** The companion is
+reshaping into **two contexts on one phone**: a **mobile companion** (messaging/team/position — attached to the
+user's own mobile) and a **configurator** (config + diagnostics, *target-scoped*: "configure node X"). Two entry
+paths were specified:
+- **A — direct:** connect over BLE to a fresh **static/gateway** node and configure it. ✅ Works today.
+- **B — indirect:** start on the **mobile** companion → *view network* → pick a node → configure it remotely.
+  ❌ **Structurally impossible today**, for the reasons below. **Path B is the flow this ask exists to unblock.**
+
+**1. ★ Split the remote-management capability into ORIGINATE vs ACCEPT.**
+Today one flag does both (`MR_FEAT_REMOTE_MGMT`, `lib/core/mr_features.h:11-49`), and it is **0 on the mobile
+profile**. Consequences measured in-source:
+- A mobile **cannot be administered** — `remote_exec` is an inert stub (`src/firmware_remote.cpp:158-160`); it
+  ignores even the open `status`/`routes` reads a static node answers. ★ **The app is fine with this — a personal
+  tracker should NOT be administrable. Keep ACCEPT = 0 on mobile.**
+- But a mobile **can still issue `rcmd`** (`handle_rcmd` always compiles, `firmware_remote.cpp:182`) while the
+  **sealing branch is gated out** (`:192-210`). So a gated verb from a mobile **flies in cleartext**, the target
+  **silently drops it**, and the console prints a success-looking `> rcmd -> N "reboot" ctr=…`.
+  ⇒ **This is a foot-gun, not a missing feature — it is the single most urgent item here.** Either make
+  ORIGINATE work on mobile, or make the mobile **refuse loudly** so the app can say "this node cannot do that".
+- **The ask: `MR_FEAT_REMOTE_ORIGINATE` = 1 on mobile, `MR_FEAT_REMOTE_ACCEPT` = 0.** The operator's phone is
+  attached to a *mobile*; that is where the configurator flow begins. Without originate-from-mobile, Path B
+  cannot exist at all.
+
+**2. Route the `rcmd` RESPONSE to the requesting transport, as JSON.**
+✅ *The plumbing already exists* — the command-sink consolidation gave the JSON handlers a `Print& out`
+(`mrcon` on USB, a `LineSink` over BLE — `src/fw_main.cpp:311-313`), which is how `status`/`routes`/`cfg`/`peers`
+reach the phone. ❌ **The `rcmd` response printer still hardcodes the USB console** — `mrcon.print(F("[rcmd "))…`
+as human text at `src/fw_main.cpp:1464-1474`. So the phone that issued the command never sees the answer.
+⇒ **The ask is small and mechanical: send that response through the same sink and emit it as JSON** — e.g.
+`{"ev":"rcmd_resp","from":<id>,…}`; open reads could reuse the existing `status`/`route` writers tagged with
+`from`. Shape is the node agent's call.
+
+**3. Challenge–response (the replay scheme) — still owed.**
+`src/firmware_remote.cpp:72-90` labels the current monotonic-counter scheme **known-broken by design, redesign
+owed**, and a repo-wide grep for `challenge` finds only that comment — i.e. the ratified
+`2026-07-26-remote-admin-challenge-response-design.md` is **not built**. The app cannot offer a trustworthy
+remote-write UI on top of a scheme the firmware itself calls broken. App-side promise, unchanged: **the challenge
+lifecycle stays INVISIBLE** (cache per node, auto-bootstrap, auto-resync once) — the operator never sees one.
+
+**4. A failure vocabulary the app can render.**
+"Silently dropped" is unusable in a UI. The app needs to distinguish, per attempt: **target cannot be
+administered** (e.g. it is a mobile) · **no admin key pinned** · **locked — unlock first** · **stale/replay** ·
+**no route / timeout**. Whether these arrive as `rcmd_err{reason}` or on the existing `send_failed` is the node
+agent's call; the app only needs them to be *distinguishable*.
+
+**5. Unlock/lock over BLE with acks** + a readable unlocked-state flag (in `ready`, or an ack), so the app can gate
+its remote-write UI rather than discovering the lock state by failing. (Carried over from Ask 1, still open.)
+
+★ **What the app will do meanwhile:** build the configurator **target-scoped** with capability gating, so the
+remote leg is a *transport swap* and not a redesign — direct-BLE targets work today, remote targets light up when
+the above lands. The app will **not** surface a mobile-originated `rcmd` as "sent" while §1 stands.
 
 ### Ask 2 — team position sharing (P3 hike mode) — ★ DECIDED 2026-07-16: TEAM-PLANE ONLY
 User decision (D31, confirmed): **(b) team-scoped distribution, fully separated — visible IN-TEAM ONLY** (works

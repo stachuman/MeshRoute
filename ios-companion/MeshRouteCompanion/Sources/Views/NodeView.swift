@@ -79,11 +79,16 @@ struct NodeView: View {
                         }
                         if let ms = model.mobileState {   // D30: the mobile connectivity chip → the roam screen
                             NavigationLink { MobileRoamView() } label: {
-                                HStack {
-                                    Image(systemName: ms.registered ? "antenna.radiowaves.left.and.right.circle.fill"
-                                                                    : "antenna.radiowaves.left.and.right.slash")
-                                        .foregroundStyle(ms.registered ? Color.green : .orange)
-                                    Text(ms.label)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack {
+                                        Image(systemName: ms.isHealthy ? "antenna.radiowaves.left.and.right.circle.fill"
+                                                                       : "antenna.radiowaves.left.and.right.slash")
+                                            .foregroundStyle(ms.isHealthy ? Color.green : .orange)
+                                        Text(ms.label)
+                                    }
+                                    if let e = ms.evidence {
+                                        Text(e).font(.caption2).foregroundStyle(.secondary)
+                                    }
                                 }
                             }
                         }

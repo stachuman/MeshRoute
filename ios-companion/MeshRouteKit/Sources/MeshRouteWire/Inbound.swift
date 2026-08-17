@@ -24,6 +24,11 @@ public enum AckCode: String, Codable, Sendable {
     case errUnsupported     = "err_unsupported"
     case errUnprovisioned   = "err_unprovisioned"   // node_id==0: join or `cfg set node_id` first
     case errNoDataSF        = "err_no_data_sf"       // allowed_sf_bitmap==0: configure sf_list first
+    case errAckRingFull     = "err_ack_ring_full"    // pending-ack ring saturated — a new -a send is refused loudly
+    case errAmbiguousPlane  = "err_ambiguous_plane"  // a bare id resolves in BOTH planes → pass -s or -t
+    case errNoIdentity      = "err_no_identity"      // no Ed25519 identity → a mutual pubkey exchange is impossible (`regen`)
+    case errTxQueueFull     = "err_tx_queue_full"    // TRANSIENT: the bounded TX queue rejected the frame — retry shortly
+    case errResolvePendingFull = "err_resolve_pending_full"   // TRANSIENT: the by-id reqpubkey intent ring is full
     case unknown                                     // forward-compat: an ack string we don't model
     public init(wire: String) { self = AckCode(rawValue: wire) ?? .unknown }
     public var isError: Bool { self != .queued }
@@ -155,9 +160,26 @@ public struct MobileStatusInfo: Hashable, Sendable, Codable {
     public let sf: Int
     public let bwHz: Int
     public let nets: Int            // learned networks (rows come from `mobile gateways`)
+    // ---- the three-plane block (§MH-S4 §10). `attachment` and `home_link` are TWO fields, never folded. ----
+    public let attachment: String?       // dormant · seeking · claiming · attached · recovering
+    public let homeLink: String?         // unknown · confirmed · checking · lost
+    public let lastResult: String?       // none · no_offer · tx_rejected · defer_full · claim_unconfirmed · denied · confirmed
+    public let homeDesired: Bool?
+    /// ⚠ i64 ms (a u32 wraps at ~49.7 days and re-renders a months-stale confirmation as fresh). OMITTED — not
+    /// 0 — when nothing was ever confirmed: a 0 age reads as "just now", the exact lie this plane prevents.
+    public let homeConfirmAgeMs: Int64?
+    public let claimRetries: Int?
+    public let claimRetryMax: Int?
+    public let claimSolicited: Bool?     // emitted ONLY while attachment == "claiming"
+    public let candidates: Int?
+    public let verifiedCandidates: Int?
     enum CodingKeys: String, CodingKey {
         case mobile, registered, home, local, epoch, homeLayer = "home_layer", autoregister,
-             layer, freqKHz = "freq_khz", sf, bwHz = "bw_hz", nets
+             layer, freqKHz = "freq_khz", sf, bwHz = "bw_hz", nets,
+             attachment, homeLink = "home_link", lastResult = "last_result", homeDesired = "home_desired",
+             homeConfirmAgeMs = "home_confirm_age_ms", claimRetries = "claim_retries",
+             claimRetryMax = "claim_retry_max", claimSolicited = "claim_solicited",
+             candidates, verifiedCandidates = "verified_candidates"
     }
 }
 
@@ -255,7 +277,10 @@ public enum Inbound: Hashable, Sendable {
     case teamKeyError(reason: String)                                         // a DISTINCT refusal event (never a success object with nulls)
     case teamKeyGrant(hash: KeyHash, ctr: Int, parked: Bool)                  // our grant went out (ctr 0 + parked:true = held behind a hash resolve)
     case teamKeyReceived(team: String?, hash: KeyHash?, origin: Int?, name: String?)   // a grant ARRIVED and is already adopted — a notification, not a request
-    case teamChannelNoKey(team: String?)                                      // (CL2, unbuilt) an encrypted team post we can't read → "ask a teammate for the key"
+    /// CL2a: a CRYPTED team post this node cannot open (we hold no team content key). Carries NO body and NO
+    /// seq — nothing was inboxed. ⚠ Default-on sealing means a keyless member sees teammates "go silent" unless
+    /// the app surfaces this → prompt for a `team grantkey` / team QR.
+    case teamChannelNoKey(team: String?, origin: Int, channelID: Int, channelMsgID: UInt32)
     case inboxEntry(InboxEntry)                                       // one record from a pull_inbox stream
     case inboxEnd(dmSeq: UInt32, chanSeq: UInt32, epoch: UInt32?, count: Int, nowMs: UInt64?)  // pull done: newest seqs, served epoch, #streamed, uptime anchor
     case event(type: String, fields: [String: JSONValue])             // generic / future events
@@ -402,9 +427,11 @@ public enum PushDecoder {
         case "team_key_received":                                      // T-K3: the key is ALREADY adopted when this fires
             let m = try? decoder.decode(TeamKeyEvent.self, from: data)
             return .teamKeyReceived(team: m?.team, hash: m?.hash.map(KeyHash.init), origin: m?.origin, name: m?.name)
-        case "team_channel_no_key":                                    // CL2 (unbuilt): rate-limited un-keyed drop
-            let m = try? decoder.decode(TeamKeyEvent.self, from: data)
-            return .teamChannelNoKey(team: m?.team)
+        case "team_channel_no_key":     // CL2a (BUILT 2026-08-01): a CRYPTED team post we can't open. No body, no seq.
+            if let m = try? decoder.decode(TeamNoKey.self, from: data) {
+                return .teamChannelNoKey(team: m.team_id, origin: m.origin, channelID: m.channel_id,
+                                         channelMsgID: m.channel_msg_id)
+            }
         case "inbox_dm":
             if let m = try? decoder.decode(InboxDM.self, from: data) {
                 let receipt = (m.type == "e2e_ack")     // a delivery RECEIPT rides the DM seq-cursor — NOT a message (D25)
@@ -454,6 +481,7 @@ public enum PushDecoder {
     private struct MobileGwEnd: Decodable { let gws: Int; let nets: Int }
     private struct TeamKeyEvent: Decodable { let team: String?; let hash: UInt32?; let origin: Int?; let name: String? }
     private struct TeamKeyExport: Decodable { let team_id: UInt32; let tkpub: String; let tkpriv: String }
+    private struct TeamNoKey: Decodable { let origin: Int; let layer_id: Int?; let channel_id: Int; let channel_msg_id: UInt32; let team_id: String? }
     private struct TeamKeyGrant: Decodable { let hash: UInt32; let ctr: Int; let parked: Bool }
     private struct ReasonEvent: Decodable { let reason: String }                              // peerkey_err
     private struct InboxDM: Decodable { let seq: UInt32; let origin: Int; let ctr: Int; let sender_hash: UInt32?; let layer_id: Int?; let enc: Bool?; let type: String?; let rx_ms: UInt64; let body: String }   // enc = CRYPTED indicator; type "e2e_ack" = a delivery receipt (D25)
