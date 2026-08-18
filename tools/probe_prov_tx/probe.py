@@ -239,6 +239,130 @@ def s12_service_reads_no_globals(svc, cfg, rsvc, rcfg):
     return (sum(hits.values()) == 0), 'counts=%s' % hits
 
 
+
+# ---------------------------------------------------------------------------------------------------------------
+# [[B209]] (2026-08-18). The behavioural half is pinned by the native suite (the three §B209 cases + their seam
+# mutation). What NO automated build can see is which CORE SEAM the ADAPTER reaches for: `src/firmware_config.cpp`
+# is compiled by neither the native suite nor the simulator, and the defect was ONE identifier — `apply_phy` calling
+# `mobile_register_phy` (retune + AUTHORISE static-home attachment + immediate DISCOVER) instead of the retune-only
+# `mobile_retune_phy`. ⇒ S13 pins the identifier at the one site that matters.
+def s13_apply_phy_is_retune_only(svc, cfg, rsvc, rcfg):
+    """S13 - [[B209]]: `DeviceProvLive::apply_phy` calls the RETUNE-ONLY seam, and never the registration verb.
+
+    Two clauses, because either alone is weak:
+      (a) `mobile_retune_phy` is called EXACTLY ONCE in the adapter body -- the retune must still happen;
+      (b) `mobile_register_phy` appears ZERO times in that body -- it is the authorising verb, and a team PHY tail
+          must not decide that this device wants a static home.
+    ⛔ SCOPED TO THE FUNCTION BODY ON PURPOSE, not to the file: `handle_mobile` (the explicit console verb
+    `mobile register [freq=...]`) legitimately calls `mobile_register_phy`, and a file-wide count would either fail
+    on that correct call or have to whitelist it. Comments are blanked before this runs, so the prose above the call
+    -- which names the withdrawn call in order to record the defect -- can neither satisfy nor break the check.
+    """
+    b = body(cfg, 'void apply_phy(')
+    retune, reg = b.count('mobile_retune_phy('), b.count('mobile_register_phy(')
+    return (retune == 1 and reg == 0), 'mobile_retune_phy=%d mobile_register_phy=%d' % (retune, reg)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# [[B211]] (2026-08-18). The behavioural half — resolve the unspecified `sf_list` from the PERSISTED RECORD before
+# both comparisons — is pinned by the native suite (§B211 pins 1/1b/2/5 + four source mutations). What NO automated
+# build can see lives entirely in `src/firmware_config.cpp`, which neither the native suite nor the simulator
+# compiles: that the console STOPS SENDING the collapsed bitmap (S14), that it REPORTS the resolved one through the
+# EXISTING formatter and its sink (S15), and ★ that `mobile register` was left ALONE (S16 — a POSITIVE control).
+def s14_team_request_sends_no_sf_list(svc, cfg, rsvc, rcfg):
+    """S14 - [[B211]]: `handle_team` sends the "not specified" sentinel, never the parser's collapsed bitmap.
+
+    `parse_phy_tail` sets `allowed_sf_bitmap = 1u << pa.sf` from the ROUTING sf, and the console used to copy that
+    into the request -- which silently replaced the DATA SF set and PERSISTED it (metal-confirmed: `6,7` -> `7`).
+    Two clauses:
+      (a) the collapsed value is copied ZERO times;
+      (b) the sentinel `rq.phy.allowed_sf_bitmap = 0` is assigned EXACTLY ONCE -- deleting the field entirely would
+          leave the default 0 and pass clause (a), so the assignment is required to be there and readable.
+    """
+    b = body(cfg, 'void handle_team(')
+    collapsed = b.count('rq.phy.allowed_sf_bitmap = phy.allowed_sf_bitmap')
+    sentinel = len(re.findall(r'rq\.phy\.allowed_sf_bitmap\s*=\s*0\s*;', b))
+    return (collapsed == 0 and sentinel == 1), 'collapsed copies=%d sentinel assignments=%d' % (collapsed, sentinel)
+
+
+def s15_team_phy_line_reports_the_resolved_sf_list(svc, cfg, rsvc, rcfg):
+    """S15 - [[B211]]: the `> team PHY:` line reports the RESOLVED sf_list, through THE existing formatter, to `out`.
+
+    Three clauses, and each is a defect this project has actually shipped:
+      (a) `print_sf_list` is called EXACTLY ONCE in `handle_team`, on `res.phy.allowed_sf_bitmap` -- the value the
+          TRANSACTION resolved and applied, ⛔ not the request's (which is the sentinel 0);
+      (b) it is passed `out` -- ★ its own comment (`firmware_commands.cpp:247-249`) records the B95 defect where a
+          formatter wrote to the global `mrcon` and half a line went to a different sink;
+      (c) THE EXACT OPERATOR-VISIBLE LINE, read from the RAW source because `neutral()` blanks every literal: the
+          echo ends ` kHz sf_list=` -> `> team PHY: freq=869.463 sf=7 bw=125.00 kHz sf_list=6,7`.
+    """
+    b = body(cfg, 'void handle_team(')
+    calls = b.count('print_sf_list(')
+    sunk = b.count('print_sf_list(out, res.phy.allowed_sf_bitmap)')
+    anchor = rcfg.find('out.print(F("> team PHY: freq="))')
+    literal = rcfg.count('F(" kHz sf_list=")') if anchor >= 0 else 0
+    inline = (anchor >= 0 and ' kHz sf_list=' in rcfg[anchor:anchor + 400])
+    return (calls == 1 and sunk == 1 and literal == 1 and inline), \
+        'print_sf_list calls=%d sunk-on-out=%d literal=%d in-echo=%s' % (calls, sunk, literal, inline)
+
+
+def s16_mobile_register_is_unchanged(svc, cfg, rsvc, rcfg):
+    """S16 - ★ THE POSITIVE CONTROL (pin 4): `mobile register` and the SHARED parser are UNTOUCHED.
+
+    ⛔ THE ONE FACT THAT SHAPED [[B211]]'s FIX: `parse_phy_tail` is SHARED -- `handle_team` calls it and so does
+    `handle_mobile`. The owner's ruling changes the TEAM path only, so the parser must still collapse the bitmap for
+    the mobile verb and `handle_mobile` must still hand the parser's own `phy` straight to `mobile_register_phy`.
+    ⚠ A POSITIVE control fails only if this slice broke something: ⛔ do not try to make it RED. Its own negative
+    controls below prove it is not vacuous.
+    """
+    p = body(cfg, 'static PhyTail parse_phy_tail(')
+    m = body(cfg, 'void handle_mobile(')
+    collapse = p.count('phy.allowed_sf_bitmap = (uint16_t)(1u << pa.sf)')
+    reg = m.count('mobile_register_phy(phy)')
+    touched = m.count('allowed_sf_bitmap')
+    return (collapse == 1 and reg == 1 and touched == 0), \
+        'parser collapse=%d mobile_register_phy(phy)=%d bitmap writes in handle_mobile=%d' % (collapse, reg, touched)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# [[B210]] (2026-08-18). The line `  team-DAD: local_id=N` used to print on EVERY applied team command that left the
+# node a mobile in a team — a display line ASSERTING an airtime event that may not have occurred (the mirror of this
+# project's standing rule that a display-shaped field must never MAKE an airtime decision). The truth was already
+# computed and returned: `ProvResult::dad_fired`, set only where `_live.fire_dad()` is called. The native suite pins
+# `dad_fired` itself; ⛔ what it CANNOT see is the print site, because `src/firmware_config.cpp` is compiled by
+# neither the native suite nor the simulator. ⇒ S17 pins the gate, the id SOURCE, and the operator-visible literal.
+def s17_team_dad_line_is_gated_on_dad_fired(svc, cfg, rsvc, rcfg):
+    """S17 - [[B210]]: the `team-DAD` line prints IF AND ONLY IF the transaction actually fired DAD.
+
+    Five clauses, because every weaker shape of this check is one this arc has already shipped green:
+      (a) the gate is `res.dad_fired`, present EXACTLY ONCE in `handle_team`;
+      (b) ⛔ the OLD gate (`res.team_id != 0 && g_node.config().is_mobile`) appears ZERO times -- it is true of every
+          applied team command on a mobile, which IS the defect;
+      (c) ★ the id is still read LIVE (`g_node.team_local_id()`) inside the gated statement. `res.persisted_team_local_id`
+          carries the CANDIDATE's value, which is 0 on exactly the membership-change case this line prints (design v2:
+          `team_local_id = 0` means DAD-pending) -- swapping to it would print `local_id=0` every time, a silent defect
+          no build and no native case would catch. So the candidate field must NOT appear inside the statement;
+      (d) pin 4, CONFIRMED rather than assumed: the site sits AFTER the `verdict != applied` guard, so `no_change`
+          and every refusal return before reaching it;
+      (e) ★ THE COUNTED DISCRIMINATOR the brief asks for -- the operator-visible literal occurs EXACTLY ONCE in the
+          raw source. Read RAW because `neutral()` blanks every string literal by design. Presence/absence of this
+          literal is the whole behaviour under test: deleting the line would silence a GENUINE DAD.
+    """
+    b = body(cfg, 'void handle_team(')
+    gate = len(re.findall(r'if\s*\(\s*res\.dad_fired\s*\)', b))
+    old = b.count('res.team_id != 0 && g_node.config().is_mobile')
+    at = b.find('if (res.dad_fired)')
+    stmt = b[at:at + 200] if at >= 0 else ''
+    live = stmt.count('out.println(g_node.team_local_id())')
+    cand = stmt.count('res.persisted_team_local_id')
+    guard = b.find('if (res.verdict != mrfw::ProvVerdict::applied)')
+    literal = rcfg.count('F("  team-DAD: local_id=")')
+    ok = (gate == 1 and old == 0 and live == 1 and cand == 0
+          and guard >= 0 and at > guard and literal == 1)
+    return ok, ('dad_fired gates=%d old-gate=%d live-id reads=%d candidate-id reads=%d '
+                'guard_at=%d site_at=%d literal=%d' % (gate, old, live, cand, guard, at, literal))
+
+
 CHECKS = [
     ('S1 no fallible key primitive in the transaction header', s1_no_fallible_in_service),
     ('S2 IProvLive::install_key returns void',                 s2_install_key_is_void),
@@ -252,6 +376,11 @@ CHECKS = [
     ('S10 nothing claims "no flash was changed"',              s10_no_flash_claim),
     ('S11 handle_team fills the SIX live snapshot fields',      s11_adapter_fills_live_snapshot),
     ('S12 the service reads no firmware global',                s12_service_reads_no_globals),
+    ('S13 apply_phy uses the RETUNE-ONLY core seam',            s13_apply_phy_is_retune_only),
+    ('S14 the team request sends NO collapsed sf_list',          s14_team_request_sends_no_sf_list),
+    ('S15 the team PHY line reports the RESOLVED sf_list',       s15_team_phy_line_reports_the_resolved_sf_list),
+    ('S16 mobile register + the shared parser are UNCHANGED',    s16_mobile_register_is_unchanged),
+    ('S17 the team-DAD line is gated on res.dad_fired',         s17_team_dad_line_is_gated_on_dad_fired),
 ]
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -324,6 +453,67 @@ CONTROLS = [
     ('C15 the service reads g_node directly', 'svc',
      'inline bool live_phy_matches(const ProvPhy& phy, const ProvSnapshot& snap) {',
      'inline bool live_phy_matches(const ProvPhy& phy, const ProvSnapshot& snap) {\n    (void)g_node.active_freq_mhz();', 'S12'),
+    # ---- [[B209]]'s control: THE DEFECT ITSELF, reinstated verbatim -- the adapter routed back through the
+    # registration verb. This is pin 4 of the register row.
+    ('C16 apply_phy routes back through mobile_register_phy', 'cfg',
+     '        g_node.mobile_retune_phy(phy);',
+     '        g_node.mobile_register_phy(phy);', 'S13'),
+    # ...and the other half, which is why S13 counts the retune too: deleting the call outright would silently stop
+    # the team PHY from ever being applied, and a check that only BANNED the registration verb would call that a pass.
+    ('C17 the retune call is deleted outright', 'cfg',
+     '        g_node.mobile_retune_phy(phy);\n', '', 'S13'),
+    # ---- [[B211]]'s controls. C18 is THE DEFECT ITSELF, reinstated verbatim: the console copying the parser's
+    # routing-sf-collapsed bitmap into the team request, which is what dropped SF6 on metal and persisted it.
+    ('C18 the team request copies the collapsed bitmap again', 'cfg',
+     '            rq.phy.allowed_sf_bitmap = 0;',
+     '            rq.phy.allowed_sf_bitmap = phy.allowed_sf_bitmap;', 'S14'),
+    # ...and the silent half: the field is simply dropped. The default IS 0, so the behaviour would be correct while
+    # the intent became invisible -- which is why S14 requires the assignment to be WRITTEN, not merely defaulted.
+    ('C19 the sentinel assignment is deleted (left to default)', 'cfg',
+     '            rq.phy.allowed_sf_bitmap = 0;\n', '', 'S14'),
+    # the report regresses to the three-field line that altered a fourth field it never mentioned
+    ('C20 the sf_list is dropped from the team PHY echo', 'cfg',
+     'out.print(F(" kHz sf_list="));\n        mrfw::print_sf_list(out, res.phy.allowed_sf_bitmap); out.println();',
+     'out.println(F(" kHz"));', 'S15'),
+    # ★ the B95 defect: the formatter reaches past the sink it was given
+    ('C21 the formatter writes to the global instead of `out`', 'cfg',
+     'mrfw::print_sf_list(out, res.phy.allowed_sf_bitmap)',
+     'mrfw::print_sf_list(mrcon, res.phy.allowed_sf_bitmap)', 'S15'),
+    # ...and the subtler one: it reports what was ASKED FOR (the sentinel 0 -> `-`) instead of what LANDED
+    ('C22 the echo reports the REQUEST bitmap, not the resolved one', 'cfg',
+     'mrfw::print_sf_list(out, res.phy.allowed_sf_bitmap)',
+     'mrfw::print_sf_list(out, rq.phy.allowed_sf_bitmap)', 'S15'),
+    # ⛔ THE WRONG TURN THE BRIEF NAMED FIRST: "fix" the SHARED parser, which silently changes `mobile register` too
+    ('C23 the SHARED parser stops collapsing the bitmap', 'cfg',
+     'phy.allowed_sf_bitmap = (uint16_t)(1u << pa.sf);', '', 'S16'),
+    # ...and the other way of leaking the team ruling into the mobile verb: override the parser at the call site
+    ('C24 handle_mobile overrides the parser bitmap', 'cfg',
+     '            g_node.mobile_register_phy(phy);',
+     '            phy.allowed_sf_bitmap = 0;\n            g_node.mobile_register_phy(phy);', 'S16'),
+    # ---- [[B210]]'s controls. C25 is THE DEFECT ITSELF, reinstated verbatim: the gate that is true of every applied
+    # team command on a mobile, so the line claims DAD on a same-team re-key that spent no airtime.
+    ('C25 the old always-true gate is restored', 'cfg',
+     'if (res.dad_fired) { out.print(F("  team-DAD: local_id="))',
+     'if (res.team_id != 0 && g_node.config().is_mobile) { out.print(F("  team-DAD: local_id="))', 'S17'),
+    # ...the blunter form: no gate at all, so the line prints on every applied team command whatsoever
+    ('C26 the gate is deleted outright (always prints)', 'cfg',
+     '    if (res.dad_fired) { out.print(F("  team-DAD: local_id="))',
+     '    { out.print(F("  team-DAD: local_id="))', 'S17'),
+    # ...and the half-fix: gated on the RESULT SHAPE rather than the airtime decision -- still true of every
+    # same-team re-apply that leaves the node in a team
+    ('C27 gated on res.team_id != 0 alone', 'cfg',
+     'if (res.dad_fired) { out.print(F("  team-DAD: local_id="))',
+     'if (res.team_id != 0) { out.print(F("  team-DAD: local_id="))', 'S17'),
+    # ⛔⛔ THE SILENT DEFECT THE BRIEF NAMED: the id source swapped to the candidate's value, which is 0 on exactly
+    # the membership-change case that now reaches this line -- `team-DAD: local_id=0` on every genuine DAD.
+    ('C28 the id source swapped to the candidate value', 'cfg',
+     'out.println(g_node.team_local_id());',
+     'out.println(res.persisted_team_local_id);', 'S17'),
+    # ...and the other direction, which is why the literal is COUNTED: the line removed altogether would silence a
+    # GENUINE DAD, and a check that only banned the old gate would call that a pass.
+    ('C29 the whole team-DAD line is deleted', 'cfg',
+     '    if (res.dad_fired) { out.print(F("  team-DAD: local_id=")); out.println(g_node.team_local_id()); }\n',
+     '', 'S17'),
 ]
 
 

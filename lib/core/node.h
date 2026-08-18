@@ -647,6 +647,20 @@ public:
     void              mobile_register_current() { mobile_request_home_service(); (void)_hal.after(0, kMobileDiscoverTimerId); }             // DISCOVER on the current PHY now
     void              mobile_register_phy(const LayerConfig& phy) { adopt_mobile_phy(phy); mobile_request_home_service(); (void)_hal.after(0, kMobileDiscoverTimerId); }  // retune + DISCOVER
     void              mobile_register_scan()    { _mobile_scan_idx = 0; mobile_request_home_service(); (void)_hal.after(0, kMobileDiscoverTimerId); }  // cycle [current] ∪ learned
+    // ★★ [[B209]] — THE RETUNE-ONLY SEAM, and the NAME is half the fix. `mobile_register_phy` above reads like a
+    // retune and is not: it is *retune + AUTHORISE home-service + kick the FSM*, so provisioning calling it silently
+    // granted a static-home attachment on a node whose operator had set `mobile_autoregister=false` (metal-confirmed:
+    // `autoregister:false` beside `home_desired:true` / `attachment:"seeking"` plus repeated outbound J DISCOVERs).
+    // ⭐ THIS ONE RETUNES AND NOTHING ELSE. It does NOT call `mobile_request_home_service()`, does NOT arm
+    //   `kMobileDiscoverTimerId`, and does NOT touch `_mobile_attach_state` — so an already-authorised session
+    //   survives a team PHY apply untouched (preserved, never cleared, and never re-authorised a second time).
+    // ⓘ WHO CALLS WHICH, so the two are not re-conflated: the PROVISIONING transaction's `apply_phy` (the team
+    //   plane's PHY step) calls THIS; the explicit console/app verb `mobile register [freq=…]` — which is the
+    //   operator ASKING for a home — keeps calling `mobile_register_phy` and must keep authorising + DISCOVERing.
+    // ⚠ Not arming the discover timer here does NOT stop team-DAD: the team plane's airtime step is the separate,
+    //   last operation `team_dad_fire()` (§6.4), which the transaction fires explicitly. The boot-time arm at
+    //   `node.cpp:588` is unchanged — an auto-OFF team member still runs team-DAD with zero DISCOVERs.
+    void              mobile_retune_phy(const LayerConfig& phy) { adopt_mobile_phy(phy); }   // ★ RETUNE ONLY — no authorisation, no DISCOVER
     void              mobile_unregister();      // §MH-S4 §4.2/§4.3: clear home-service desired, cancel the FSM timers, drop the attachment -> `dormant`
     void              mobile_send_layer_query(uint8_t gw) {                                                  // manual pull: MOBILE_LAYER_QUERY -> gw
         uint8_t q = 0; (void)enqueue_data(gw, &q, 0, DATA_FLAG_SOURCE_HASH, "mobile_layer_query", false, DATA_TYPE_MOBILE_LAYER_QUERY, CryptIntent::off);

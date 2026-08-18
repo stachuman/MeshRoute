@@ -1,9 +1,10 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # §PROV-TX — one typed team-provisioning transaction · DESIGN SPEC **v4** · 2026-08-17
 
-**Status: v4 design APPROVED and IMPLEMENTED 2026-08-17 — ⛔ QG HELD the implementation with three defects; corrections
-in flight.** Registered as **[[B207]]**. ⛔ **CORRECTED: this header read *"No code is written (P2)"*, which stopped being
-true the moment the slice was dispatched.**
+**Status: ✅ v4 design APPROVED · IMPLEMENTED · ALL QG BLOCKERS CLOSED (3 rounds) · QG PASSED 2026-08-17. ⛔ UNCOMMITTED
+(D4) and NOT yet metal-qualified — bench Part 27.** Registered as **[[B207]]**.
+⛔ **Header corrected twice: it read *"No code is written (P2)"* (stale from dispatch) and then *"QG HELD … corrections in
+flight"* (stale after round 3). Both are withdrawn.**
 ★ Role split: the QA-gate wrote this spec; **the OWNER runs QG and rules.**
 
 ⚠ **THREE QG HOLDS answered.** v2 fixed v1's key **ordering** and same-team handling · v3 fixed v2's key
@@ -36,7 +37,7 @@ and **four configured static-join profiles suffice for v1** (resolves the design
 
 | # | line | mutation | domain |
 |---|---|---|---|
-| ① | `:1159` | `mobile_register_phy(phy)` — retunes the radio **and kicks the FSM** | **PHY** |
+| ① | `:1159` | `mobile_register_phy(phy)` — ⛔ **THREE actions, see §1.3** | **PHY + home-service authorisation** |
 | ② | `:1190` | `team_channel_key_adopt(tk_pub, tk_priv)` | **keys** |
 | ③ | `:1196` | `team_channel_key_mint()` — consumes CSPRNG entropy | **keys** |
 | ④ | `:1225` | `set_team_id(t)` — drops the old team's plane/key-cache/DAD id; role via `role_enforce` | **team + role** |
@@ -51,6 +52,20 @@ membership at the next power cycle.
 **The candidate is DERIVED from the mutations:** `:1241` reads `canonical_node_id()` (⑥ may have moved it), `:1242`
 reads `team_local_id()` (⑥ assigned it), `:1243` reads `c.is_mobile` (④ set it), `:1244` reads the key ②/③/⑤
 installed. ⇒ **restructure, not reorder.**
+
+### 1.3 — ⛔⛔ CORRECTED 2026-08-18: THIS SPEC'S OWN DESCRIPTION OF ① WAS WRONG, AND [[B209]] IS THE CONSEQUENCE
+Row ① read *"retunes the radio **and kicks the FSM**"* — a **conflation inherited from the old call site's comment**,
+carried into this spec unchecked and therefore into the implementation. ★ **The real contract is THREE actions**
+(`lib/core/node.h:647-649`): **`adopt_mobile_phy` (retune) + `mobile_request_home_service()` + an immediate
+DISCOVER.** The middle one **authorises static-home attachment**, which is a *different plane and a different intent*
+from a team PHY retune.
+⇒ **The slice therefore reproduced a hidden authorisation:** on a node with `mobile_autoregister=false`,
+`team new … freq=…` yields `home_desired:true` / `attachment:"seeking"` and repeated outbound J DISCOVERs.
+**Registered as [[B209]]** (metal-confirmed) — ⛔ **fixed THERE, not here**, and this spec's §3.1/§3.2 seam is already
+correct in separating `apply_phy` (PHY) from `fire_dad` (airtime); only this row's prose was wrong.
+ⓘ **A caution I raised was REFUTED and is withdrawn:** I suggested the FSM kick might be load-bearing for team-DAD on
+the no-host path. It is not — `test/test_node_join.cpp` already pins an **auto-OFF team member performing team-DAD
+with ZERO DISCOVERs**, so a retune-only seam built on `adopt_mobile_phy()` is safe.
 
 ### 1.2 — ★ Four further defects this slice must also correct (all verified)
 1. **The PHY parse is gated on the OLD role.** `:1151` `if (phy_args && *phy_args && c.is_mobile)` ⇒ on a **static**
@@ -301,20 +316,28 @@ S1/L9 field-drop rot U1/U2 exist to prevent.
 ⛔⛔ **CORRECTED 2026-08-17 (QG) — THIS SECTION'S PREMISE WAS MEASURED AND REFUTED, INCLUDING BY ITS OWN AUTHOR.**
 It read: *"A `NodeConfig` copy is 256 B (measured), plus an `mrnv::Blob`, the `TeamPlan` and a 64-byte keypair — on a
 console path with recorded stack-overflow history (the loop-task overflow arc; `stackhw` fell to 72 B)."*
-★★ **WHAT MEASUREMENT ACTUALLY SHOWS: the 256-B copy is NOT the cost and never was.** ARM `handle_team` measures
+★★ **WHAT MEASUREMENT ACTUALLY SHOWS: the 256-B copy is NOT the cost and never was.** ⓘ **The three figures below are
+PRE-ROUND-3** — they are the control experiment that refuted the copy, not the shipped result; **for the CURRENT numbers
+see the box at the end of this section.** ARM `handle_team` measured
 **856 B with the projection first, 856 B with the plan+Blob first, and 856 B with the `NodeConfig` copy DELETED
 OUTRIGHT** — at `-Ofast` the copy is **scalarised away**, because `role_enforce` touches exactly three fields
 (`lib/core/node_role.h:79-85`: reads `team_id`, writes `is_mobile`, and `team_id = 0` on one arm). ⇒ **the growth comes
 from the TYPED CARRIERS** — `TeamRequest` 136 + `TeamPlan` 128 + `ProvResult` 64 against the old frame's 64 B of
 `tk_pub`/`tk_priv`. Pre-slice ARM `handle_team` was **536 B**; the split bought **+8 B** (`sizeof(TeamProjection)`), not
-a reduction. ⓘ xtensa: pre-slice **704** (496 + 208); the deepest chain is now **976** (`handle_team` 304 →
+a reduction. ⓘ xtensa: pre-slice **704** (496 + 208); the deepest chain **was 976 AT THAT POINT** (`handle_team` 304 →
 `apply_team` 592 → `apply_phy` 80) — ⚠ an earlier figure of 928 took a shorter leg and understated the peak by 48 B.
+⛔ **All figures in this paragraph are PRE-ROUND-3.**
 ⛔ **AND THE "72 B" HISTORY IS WITHDRAWN AS AN EXPLANATION OF PRESENT RISK:** that reading predates the dedicated
 8 KB mesh-task fix (`src/fw_main.cpp` §stability) which moved this work off the 4 KB Arduino loop stack. Citing it as
 current headroom is unsupported. ⇒ ★ **the residual stack risk is a METAL QUALIFICATION (bench 27.1), not a code
 blocker** — but Part 27 must be run on the resulting firmware immediately. **Reducing the frame means changing the
 seam's carriers (dropping `TeamPlan::phy` ~40 B, letting the plan reference the request's key buffers ~64 B), which is
 a design change and is NOT authorised here.**
+★★★ **CURRENT FIGURES (post-round-3, the shipped implementation — these are the ones to quote): ARM `handle_team`
+888 B · xtensa deepest in-TU chain 928 B.** ⓘ Round 3's live-divergence fix extended `ProvSnapshot`, adding **+32** on
+ARM (856 → 888) while xtensa's peak **fell 48** (976 → 928, `stage_team_candidate` stopped being inlined). Pre-slice
+baselines for comparison: ARM **536**, xtensa **704**. ⛔ **The 856 / 976 pair is superseded and must not be quoted as
+the result.** ⓘ Bench **27.1** carries the same numbers.
 **Required:**
 - **measured** stack and RAM impact, reported per board (⛔ not asserted);
 - ⛔ **no unnecessary simultaneous copies** — the config copy exists only for `role_enforce`; scope it tightly;

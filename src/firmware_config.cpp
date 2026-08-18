@@ -19,7 +19,11 @@
 //    (no Print, no Arduino, no globals) so the native suite reaches ALL of its decision logic — which is the point,
 //    because THIS FILE is compiled by neither the native suite nor the simulator.
 #include "firmware_provisioning_service.h"
-#include "mr_ui.h"                 // ★ §UI-14 follow-up: mr_ui_on_config_saved — the FEATURE-NEUTRAL notification
+// ★ [[B211]]: `mrfw::print_sf_list` — THE ONE bitmap->CSV formatter (`firmware_commands.cpp:250`), reused by the
+//   `> team PHY:` echo so no third implementation is written (U1). ⚠ The B211 brief stated this header was already
+//   reachable here; it was NOT included by this TU (verified per V1) — one declaration-only include, no new seam.
+#include "firmware_commands.h"
+#include "mr_ui.h"                   // ★ §UI-14 follow-up: mr_ui_on_config_saved — the FEATURE-NEUTRAL notification
                                      //   seam (an inline no-op off the OLED profile, so no MR_FEAT_OLED appears here)
 #include "node_role.h"               // ★ §role-model/B28: role_set_refusal — the O1/O2/R4 role-transition truth table (pure, natively tested)
 #include "protocol_constants.h"      // meshroute::protocol::* (preamble_sym, gateway_node_id_max, discovery_beacon_period_ms, leaf_name_max)
@@ -1096,8 +1100,14 @@ struct DeviceProvLive : mrfw::IProvLive {
     void install_key(const uint8_t pub[32], const uint8_t priv[32]) override {
         g_node.team_channel_key_load(pub, priv, /*present=*/true);
     }
-    // Retune the radio (+ kick the mobile FSM -> team-DAD via the no-host path). ⓘ `layer_id` is read LIVE, exactly as
-    // the old inline call did (`parse_phy_tail(…, c.leaf_id, …)`): the team PHY sets the CURRENT layer's radio floor.
+    // ★★ [[B209]] — RETUNE ONLY. ⓘ `layer_id` is read LIVE, exactly as the old inline call did
+    // (`parse_phy_tail(…, c.leaf_id, …)`): the team PHY sets the CURRENT layer's radio floor.
+    // ⛔ The call below was `mobile_register_phy`, whose contract is *retune + `mobile_request_home_service()` +
+    //    immediate DISCOVER* — so a TEAM PHY tail silently AUTHORISED static-home attachment on a node configured
+    //    `mobile_autoregister=false` (metal-confirmed on both bench nodes). A provisioning PHY apply is a PHY
+    //    operation; it must not decide that this device wants a home. `mobile_retune_phy` is the retune-only seam.
+    // ⓘ Nothing is lost by not kicking the FSM here: `fire_dad` (step 6d) is the team plane's explicit airtime
+    //    operation, and the boot arm at `lib/core/node.cpp:588` still runs team-DAD for an auto-OFF team member.
     void apply_phy(const mrfw::ProvPhy& p) override {
         meshroute::LayerConfig phy{};
         phy.layer_id           = g_node.config().leaf_id;
@@ -1105,7 +1115,7 @@ struct DeviceProvLive : mrfw::IProvLive {
         phy.freq_mhz           = p.freq_mhz;
         phy.bw_hz              = p.bw_hz;
         phy.allowed_sf_bitmap  = p.allowed_sf_bitmap;
-        g_node.mobile_register_phy(phy);
+        g_node.mobile_retune_phy(phy);
     }
     // ★★ THE AIRTIME OPERATION, and the reason a save failure must return before reaching it: §6.4's team-plane
     //    bootstrap self-assigns a `_team_local_id` with no static host needed — i.e. it TRANSMITS.
@@ -1331,7 +1341,21 @@ void handle_team(const char* args, Print& out) {
             rq.phy.freq_mhz          = phy.freq_mhz;
             rq.phy.routing_sf        = phy.routing_sf;
             rq.phy.bw_hz             = phy.bw_hz;
-            rq.phy.allowed_sf_bitmap = phy.allowed_sf_bitmap;
+            // ★★★ [[B211]] — THE DATA `sf_list` IS **NOT** SENT, AND THE OMISSION IS THE FIX. `parse_phy_tail` builds a
+            //     fresh `LayerConfig{}` and sets `allowed_sf_bitmap = 1u << pa.sf` (`:885`), so copying it here made the
+            //     ROUTING/control `sf=` also COLLAPSE the DATA SF set to that one value — unrequested, unreported and
+            //     PERSISTED (metal-confirmed: a node booted `data sf = 6,7` came back `data sf = 7` and survived a
+            //     power-cycle). ★ `lib/core/node.h:302-305` defines team-PHY compatibility as freq/bw/routing_sf/cr and
+            //     says **NOT sf_list — F-SF-1 keeps that across registration** ⇒ team coherence never needed it.
+            // ⛔⛔ AND THE FIX IS HERE, NOT IN THE PARSER: `parse_phy_tail` is SHARED with `handle_mobile` (`:1458`), so
+            //     changing it would silently alter `mobile register` semantics — which the owner's ruling excludes.
+            // ★ `0` = "the operator named no sf_list", and it is a SAFE sentinel needing no new field: an empty set
+            //   blocks DATA entirely and is already refused (`ProvErr::incomplete_phy`,
+            //   `firmware_provisioning_service.h:551`), and the [[data-sf-removed]] ruling makes it illegal as a value
+            //   ⇒ it can never be a legitimate request. `stage_team_candidate` RESOLVES it from the PERSISTED RECORD
+            //   before either comparison runs, and `res.phy.allowed_sf_bitmap` carries the resolved set back for the
+            //   echo below — so what is reported is what actually landed.
+            rq.phy.allowed_sf_bitmap = 0;
             rq.phy.bw_khz            = bw;                         // the RAW operator value, for the echo line only (no second rounding)
         }
     }
@@ -1382,10 +1406,18 @@ void handle_team(const char* args, Print& out) {
     //   this verb returns (single-threaded loop). So the live id team-DAD assigns is compared against the SAVED 0 and
     //   is persisted promptly, which is the outcome design v2 asked for.
     g_persist_team_local_id = res.persisted_team_local_id;
+    // ★★ [[B211]] — THE ECHO NOW NAMES ALL FOUR PHY FIELDS. It used to print THREE while the request silently altered a
+    //    FOURTH it never mentioned (C2). `res.phy.allowed_sf_bitmap` is the set the transaction RESOLVED and applied —
+    //    the operator's own list when the tail named none — so this reports WHAT LANDED, not what was asked for.
+    // ⛔ THE FORMATTER IS THE EXISTING ONE (U1): `mrfw::print_sf_list` (`firmware_commands.cpp:250`, declared in
+    //    `firmware_commands.h:46`), the same one `dump_cfg` and the boot banner use — ⛔ no third bitmap-to-text
+    //    implementation. ★ AND IT IS PASSED `out`, never a global: its own comment records the defect where a formatter
+    //    reached past the sink it was given and half a line went to USB instead (§B95).
     if (res.phy.present) {
         out.print(F("> team PHY: freq=")); out.print(res.phy.freq_mhz, 3);
         out.print(F(" sf=")); out.print(res.phy.routing_sf);
-        out.print(F(" bw=")); out.print(res.phy.bw_khz, 2); out.println(F(" kHz"));
+        out.print(F(" bw=")); out.print(res.phy.bw_khz, 2); out.print(F(" kHz sf_list="));
+        mrfw::print_sf_list(out, res.phy.allowed_sf_bitmap); out.println();
     }
     // ★ The owner's ruling that a CREATOR ALWAYS ENDS UP HOLDING A KEYPAIR is now guaranteed by the candidate plus a
     //   `void` install, not by ordering luck — so v1's stash-and-re-apply dance around `set_team_id` is gone entirely.
@@ -1400,7 +1432,23 @@ void handle_team(const char* args, Print& out) {
         out.println(F("> role -> MOBILE (automatic: a team member IS a mobile — reachable by team_local_id, not by a static node_id). `team 0` leaves the team; the role then STAYS mobile."));
     char tx[9]; snprintf(tx, sizeof tx, "%08lX", (unsigned long)res.team_id);
     out.print(F("> team -> team_id=0x")); out.println(tx);
-    if (res.team_id != 0 && g_node.config().is_mobile) { out.print(F("  team-DAD: local_id=")); out.println(g_node.team_local_id()); }
+    // ★★ [[B210]] — THE LINE IS GATED ON THE TRANSACTION'S OWN AIRTIME DECISION, not on the shape of the result.
+    //    It used to read `res.team_id != 0 && g_node.config().is_mobile`, which is true of EVERY applied team command
+    //    on a mobile — so a same-team re-key or PHY-only re-apply printed `team-DAD: local_id=N` although membership
+    //    never changed and nothing was ever transmitted. Metal-confirmed (bench 27.5/27.8): it printed on both
+    //    invocations while `team_local_id` stayed 32 and the `»tx BCN` burst a real DAD produces never appeared, and
+    //    it MISLED a bench check that used the line's absence as its "no airtime" discriminator.
+    // ★ `res.dad_fired` is set at exactly one place — `if (plan.fire_dad) { _live.fire_dad(); r.dad_fired = true; }`
+    //   (`firmware_provisioning_service.h:716`) — so the line now means what it says: DAD RAN. `fire_dad` is
+    //   `membership_changed && team_id != 0 && projected_is_mobile` (`:619`), which STRICTLY IMPLIES both halves of
+    //   the old gate; ⛔ re-adding them would be dead weight that hides where the decision is really made.
+    // ★★ THE ID IS STILL READ LIVE, DELIBERATELY. `res.persisted_team_local_id` is NOT a substitute: it carries what
+    //    the CANDIDATE wrote, which is 0 on precisely the membership-change case this line now prints (design v2 —
+    //    `team_local_id = 0` means DAD-pending), so it would print `local_id=0` every time. DAD has just run one
+    //    statement earlier inside `apply_team`, so the LIVE id is the fresh one.
+    // ⓘ ACCEPTED CONSEQUENCE, not an oversight: on a same-team apply the operator no longer sees the id on this line.
+    //   It is a `cfg` / `status` fact; a line labelled `team-DAD` must mean DAD. ⛔ No substitute line is added here.
+    if (res.dad_fired) { out.print(F("  team-DAD: local_id=")); out.println(g_node.team_local_id()); }
 }
 
 // §mobile console: `mobile register [freq=<MHz> sf=<5-12> bw=<kHz> | scan]` · `gateways` · `query <gw>` · `status`.

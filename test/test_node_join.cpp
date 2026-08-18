@@ -1063,6 +1063,127 @@ TEST_CASE("§autoregister — OFF team member: team-DAD runs (ungated), but ZERO
     CHECK(hal.count("mobile_discover_tx") == 0);              // ★ but NOT a single host-registration DISCOVER
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// ★★★ [[B209]] — THE PROVISIONING PHY SEAM IS RETUNE-ONLY. Extends the §autoregister family directly above (U1):
+// that case proves an auto-OFF team member runs team-DAD with zero DISCOVERs **at BOOT**; these three prove the
+// same holds when a TEAM PHY TAIL is applied, which is the path the metal defect took.
+//
+// ⛔ WHAT THE DEFECT WAS: `DeviceProvLive::apply_phy` called `Node::mobile_register_phy`, whose contract is THREE
+//    actions — retune + `mobile_request_home_service()` (which AUTHORISES static-home attachment) + an immediate
+//    `kMobileDiscoverTimerId`. So `team new freq=… sf=… bw=…` on a node with `mobile_autoregister=false` produced
+//    the contradictory metal tuple `autoregister:false` / `home_desired:true` / `attachment:"seeking"` and a stream
+//    of outbound J DISCOVERs. `mobile_retune_phy` does the FIRST action and nothing else.
+//
+// ★★ WHY THE ARM COUNT IS ASSERTED AND NOT JUST THE STATE (QG): `mobile_request_home_service()` is IDEMPOTENT for a
+//    mobile that is already authorised (`node_mobile.cpp:555-559` only sets `_mobile_home_desired` and promotes
+//    `dormant -> seeking`). ⇒ on the already-authorised fixture below, `home_desired` and the attachment state read
+//    the SAME before and after the fix, and asserting them alone would pass vacuously. `count_armed` is the term
+//    that discriminates: the retune-only seam adds ZERO arms, `mobile_register_phy` adds exactly ONE.
+//
+// ⓘ THE DISCRIMINATOR FOR CASE 1 IS CASE 2, not a comment: case 2 runs the IDENTICAL fixture through
+//   `mobile_register_phy` and asserts the OPPOSITE of every term — so none of case 1's assertions is one that
+//   could not have come out otherwise. Case 2 is also pin 2 of the register row (the explicit console verb is
+//   UNCHANGED and must stay green).
+// ⛔ NOT PINNED HERE, deliberately: what `adopt_mobile_phy` does with an `sf_list`/`cr` the caller left at 0 is
+//   [[B211]]'s subject (a separate slice); this family pins only that the supplied fields ARRIVE.
+static meshroute::LayerConfig b209_team_phy() {
+    meshroute::LayerConfig phy{};
+    phy.layer_id          = 0;            // the adapter reads `config().leaf_id` LIVE; the fixture's leaf is 0
+    phy.routing_sf        = 9;            // ≠ join_cfg()'s 7, so a retune is OBSERVABLE
+    phy.freq_mhz          = 869.4625;     // the metal reproduction's carrier
+    phy.bw_hz             = 125000;
+    phy.allowed_sf_bitmap = (1u << 9);
+    return phy;
+}
+
+TEST_CASE("§B209 — auto-OFF team member: a team PHY apply RETUNES and authorises NOTHING; team-DAD still succeeds") {
+    TestHal hal; hal._now = 100000;
+    Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000B209u);
+    NodeConfig mcfg = join_cfg(); mcfg.is_mobile = true; mcfg.team_id = 0x7EA30000u; mcfg.mobile_autoregister = false;
+    node.on_init(mcfg);
+    Push p{}; while (node.next_push(p)) {}
+    const int arms_before = hal.count_armed(kMobileDiscoverTimerId);   // the BOOT kick (§6.4) — not this slice's
+    CHECK(arms_before == 1);                                  // ⓘ stated so a later change to the boot arm cannot hide here
+    CHECK_FALSE(node.mobile_home_desired());
+    CHECK(node.mobile_attach_state() == Node::MobileAttachState::dormant);
+
+    node.mobile_retune_phy(b209_team_phy());                  // ★ the provisioning seam, exactly as `apply_phy` calls it
+
+    // ① THE RETUNE HAPPENED — otherwise the case would pass by doing nothing at all.
+    CHECK(node.config().routing_sf == 9);
+    CHECK(node.config().layers[0].freq_mhz == doctest::Approx(869.4625));
+    CHECK(node.config().layers[0].bw_hz == 125000u);
+    CHECK(node.active_freq_mhz() == doctest::Approx(869.4625));
+    // ② AND NOTHING ELSE DID. `home_desired` is the AUTHORISATION; `dormant` is the state a node with the toggle
+    //    OFF must stay in until an explicit `mobile register`; the arm count is the term that cannot pass vacuously.
+    CHECK_FALSE(node.mobile_home_desired());                  // ★★ the metal defect read `true` HERE
+    CHECK(node.mobile_attach_state() == Node::MobileAttachState::dormant);   // ★★ ...and `seeking` HERE
+    CHECK(hal.count_armed(kMobileDiscoverTimerId) == arms_before);           // ★★ ZERO new DISCOVER arms
+
+    // ③ THE TEAM PLANE IS UNHARMED — this is the half that makes the fix safe, and it is measured, not asserted by
+    //    reasoning: the transaction fires DAD explicitly (step 6d), so removing the FSM kick costs the team nothing.
+    node.team_dad_fire();
+    CHECK(hal.count("team_dad_claim") == 1);
+    CHECK(node.team_local_id() != 0);                         // ★ the team-plane id was assigned
+    CHECK(hal.count("mobile_discover_tx") == 0);              // ★★ and STILL not one host-registration DISCOVER
+    node.on_timer(kMobileDiscoverTimerId);                    // the boot kick lands afterwards — still gated
+    CHECK(hal.count("mobile_discover_tx") == 0);
+}
+
+// ★ PIN 2 / THE DISCRIMINATOR. Identical fixture, identical PHY, the OTHER seam. ⛔ This case must stay GREEN — it is
+//   an UNCHANGED positive control (`mobile_register_phy` is deliberately untouched by [[B209]]), and every term it
+//   asserts is the term the case above asserts the opposite of.
+TEST_CASE("§B209 — the explicit `mobile register freq=…` verb is UNCHANGED: it authorises AND DISCOVERs") {
+    TestHal hal; hal._now = 100000;
+    Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000B20Au);
+    NodeConfig mcfg = join_cfg(); mcfg.is_mobile = true; mcfg.team_id = 0x7EA30000u; mcfg.mobile_autoregister = false;
+    node.on_init(mcfg);
+    Push p{}; while (node.next_push(p)) {}
+    const int arms_before = hal.count_armed(kMobileDiscoverTimerId);
+
+    node.mobile_register_phy(b209_team_phy());                // the console/app verb — retune + AUTHORISE + DISCOVER
+
+    CHECK(node.config().routing_sf == 9);                     // same retune...
+    CHECK(node.active_freq_mhz() == doctest::Approx(869.4625));
+    CHECK(node.mobile_home_desired());                        // ★ ...but this one DOES authorise
+    CHECK(node.mobile_attach_state() == Node::MobileAttachState::seeking);   // ★ ...and enters `seeking`
+    CHECK(hal.count_armed(kMobileDiscoverTimerId) == arms_before + 1);       // ★ ...and arms EXACTLY ONE DISCOVER
+    node.on_timer(kMobileDiscoverTimerId);
+    CHECK(hal.count("mobile_discover_tx") == 1);              // ★ ...which goes on the air
+}
+
+// ★★ PIN 3 — AN ALREADY-AUTHORISED SESSION SURVIVES A TEAM PHY APPLY UNTOUCHED. ⛔ "Untouched" is the claim, so the
+//    arm count carries it: `home_desired`/`seeking` are ALREADY true here and `mobile_request_home_service()` is
+//    idempotent, so those two assertions pass in BOTH arms and prove nothing on their own (QG).
+// ⓘ SCOPE: this proves provisioning does not touch the ATTACHMENT MACHINERY. It does NOT claim an existing home
+//   stays physically reachable after a real PHY change — any re-home/invalidation policy is a separate question and
+//   is deliberately not designed or implied here.
+TEST_CASE("§B209 — an already-authorised session is PRESERVED across a team PHY apply (no second authorisation)") {
+    TestHal hal; hal._now = 100000;
+    Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000B20Bu);
+    NodeConfig mcfg = join_cfg(); mcfg.is_mobile = true; mcfg.team_id = 0x7EA30000u; mcfg.mobile_autoregister = false;
+    node.on_init(mcfg);
+    Push p{}; while (node.next_push(p)) {}
+    node.mobile_register_current();                           // the operator explicitly ASKED for a home
+    node.on_timer(kMobileDiscoverTimerId);
+    CHECK(hal.count("mobile_discover_tx") == 1);
+    CHECK(node.mobile_home_desired());
+    CHECK(node.mobile_attach_state() == Node::MobileAttachState::seeking);
+    const int arms_before = hal.count_armed(kMobileDiscoverTimerId);
+    const int tx_before   = hal.count("mobile_discover_tx");
+
+    node.mobile_retune_phy(b209_team_phy());                  // ★ a team PHY tail arrives mid-session
+
+    CHECK(node.mobile_home_desired());                        // PRESERVED — ⓘ vacuous alone (idempotent), see below
+    CHECK(node.mobile_attach_state() == Node::MobileAttachState::seeking);   // PRESERVED — ⓘ likewise
+    // ★★ THE NON-VACUOUS TERM: no SECOND authorisation was performed. `mobile_register_phy` here would arm one more
+    //    immediate DISCOVER; the retune-only seam arms none.
+    CHECK(hal.count_armed(kMobileDiscoverTimerId) == arms_before);
+    CHECK(hal.count("mobile_discover_tx") == tx_before);       // and nothing extra went on the air
+    CHECK(node.config().routing_sf == 9);                      // ...while the PHY really was adopted
+    CHECK(node.active_freq_mhz() == doctest::Approx(869.4625));
+}
+
 // ★★★ REWRITTEN IN PLACE BY §MH-S4 §4.2 (B101 — never deleted). The old title and its pinned `== 1` asserted "a
 // failed manual arm does NOT auto-retry". That IS the §4.2 defect: a no-host round is exactly the failure a durable
 // request must survive, and under the one-shot an operator's `mobile register` that met an empty room stopped for

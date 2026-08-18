@@ -2569,12 +2569,56 @@ it undecided whatever the clock says.
 
 ## Part 27 — [[B207]]: the typed team-provisioning transaction (2026-08-17)
 
+### ✅ RESULT — RUN 2026-08-18, SEVEN PASS / THREE NOT-RUN / FOUR FINDINGS
+**Image `fc89e14`** (banner `built Aug 17 2026 22:20:08 · fc89e14-dirty`, archive
+`~/MeshRoute-artifacts/soak-20260817-2023/`, `firmware.elf` sha256 `70c4323b2f510a4f…`).
+**Nodes:** `heltec_mobile` (team-local 32 → 220) + `xiao_mobile` (team-local 155), team `0x3D9348A5`.
+
+| check | verdict | evidence |
+|---|---|---|
+| **27.1** stack | ✅ PASS | `stackhw` 6016 → 4512 → 4408 of an 8 KB task = **54 % headroom**, 4.4× the ~1 KB floor. ⓘ The verb cost **1504 B** for the WHOLE chain (console dispatch, LittleFS save, X25519 derive, `set_team_id` teardown, retune, DAD) — ⛔ **not attributable to this slice's 888 B frame alone.** |
+| **27.2** `team 0` + PHY refused | ⚠ **BEHAVIOUR PASS / DIAGNOSTICS FAIL** | With a COMPLETE tail: the exact two-line refusal, and `cfg` after shows team, local id, key and PHY **all unchanged** ⇒ the behaviour is correct. ⛔ **But this is NOT an unconditional pass (QG 2026-08-18): the `sf=`-only and `bw=`-only repetitions this step calls for do NOT reach the intended refusal at all** — they die in the parser on [[B212]]'s generic range check, exactly as `freq=`-only did. ⇒ **the diagnostics half FAILS until B212 is fixed**, and this row must not be read as green. ⚠ The step also had to be corrected twice before it tested anything (see below). |
+| **27.3** leave preserves PHY | ✅ PASS | `team 0` → `team_id=0x00000000`, `cfg` PHY unchanged. **The owner's ruling confirmed on metal.** |
+| **27.4** bare same-team | ✅ PASS (scoped) | exact `no change` string. ⚠ **CORRECTED (QG): "zero writes" is established by SOURCE and HOST tests, not by this observation** — metal saw no change, but **there is no physical write counter on the device**, so the run confirms the reported verdict and the absence of visible effect, not the absence of a flash write. |
+| **27.5** re-key + power-cycle | ✅ **PASS — the decisive one** | re-key **applied** while the node was keyless (`live_key_matches` false), `team_local_id` preserved at **220**; after `reboot`: **`team_local_id=220` and `team_ch_key=1` both survived** ⇒ the candidate did NOT persist `team_local_id = 0` on a same-membership request, which is exactly the defect design v2 corrected. ⚠ **QG provenance caveat: the metal conclusion assumes the documented absence of a reboot-time re-DAD, and RAW SERIAL LOGS WERE NOT ARCHIVED**, so that detail could not be independently replayed. ⇒ **archive the raw console capture on future runs**; the surviving id is strong but the no-re-DAD step rests on the design, not on a retained trace. |
+| **27.8** live divergence | ✅ **PASS** | with record and request **identical** (869.4625/7/{7}/125) and only the radio diverged, the verb **APPLIED** — `↻ rx-freq → 869.4625` + `> team PHY:`. The round-3 defect is closed on metal. |
+| **27.9** converged | ✅ PASS | exact `no change` string, no OLED save marker |
+| **27.6** static `team new freq=` | ⛔ **NOT RUN — STILL REQUIRED BEFORE FINAL [[B207]] CLOSURE (QG 2026-08-18)** | both bench nodes are mobiles and `team 0` does not demote (R3 one-directional). ⇒ **run it on a temporary static / factory-erased node AFTER [[B209]] and [[B211]] are fixed**, since both change what this step should observe. |
+| **27.7** save failure | ⛔ NOT RUN | a real `/mrcfg` write failure could not be provoked |
+| **27.10** live-keyless install | ⛔ NOT RUN — **unreachable by construction**, see the section itself |
+
+⛔⛔ **FOUR DEFECTS FOUND BY THIS RUN, ALL REGISTERED:** [[B209]] (a team PHY tail silently authorises static-home
+attachment) · [[B210]] (`team-DAD:` printed whether or not DAD ran) · [[B211]] (`sf=` silently collapses the DATA
+`sf_list` — corroborated **across a power-cycle**: the banner went `data sf = 6,7` → `data sf = 7`) · [[B212]] (range
+error misnamed *and* masking the specific refusal).
+
+★★ **AND THREE OF THIS PART'S OWN CHECKS WERE WRONG AND ARE CORRECTED IN PLACE — the lesson is uniform and worth
+stating once:** 27.1 named `stackhw`, which **does not exist on the Heltec** (nRF52-only); 27.2 expected `team_id 0`
+after a *refusal* and then used an incomplete tail that never reached the branch; 27.10 assumed a state that is
+**unreachable**. **Every one was written from the design's prose rather than from the code that executes** — the same
+root as the comment-derived errors in the [[B207]] arc. ⇒ **a bench step that names a field, a message or a state must
+be checked against the source that produces it.**
+
+
+
 ⛔ **THE RESIDUE ONLY.** The transaction, the `KeyAction` matrix, the refusals, the save-failure guarantee and the
 candidate composition are all host-gated (`test/test_firmware_provisioning_service.cpp` + `tools/probe_prov_tx` +
 `tools/probe_board_ui` W12/W14-W20). What no host can reach is **a real NV backend**, **real airtime**, and **the
 stack on a real frame**. Nothing else belongs here.
 
-### 27.1 — ★★ `stackhw` after a `team new` (the one OWNER-CALL item)
+### 27.1 — ★★ `stackhw` after a `team new` — ⛔ **nRF52 ONLY. RUN IT ON `xiao_sx1262` / `xiao_mobile`, NOT ON THE HELTEC.**
+⛔⛔ **CORRECTED 2026-08-17 — THIS CHECK NAMED AN INSTRUMENT THE HELTEC DOES NOT HAVE, and it was attempted there
+first.** `status` prints `stackhw=` only under `#if defined(NRF52_PLATFORM) || defined(ARDUINO_ARCH_NRF52)`
+(`src/firmware_commands.cpp:436-438`), and `loop_stack_free_bytes()` returns **0** off nRF52 by design
+(`src/fw_main.cpp:251-257`: *"nRF52 only (the cramped platform; ESP32's loopTask is large, native has no task)"*).
+⇒ **On a Heltec/ESP32 build the field is simply absent — that is not a failure, and there is nothing to read.**
+★★ **AND nRF52 IS THE RIGHT TARGET ANYWAY, which is why this is a relocation rather than a loss:** the **888 B**
+figure is the **ARM** frame, i.e. nRF52; the 4 KB Arduino-loop-task history belongs to nRF52; and the xtensa chain
+(928 B) sits on ESP32's ~8 KB loopTask, where it is ~11 % of the stack rather than a threat.
+⇒ **On ESP32: record "no on-device stack reading exists on this platform" and treat the host frame measurement as the
+qualification.** ⓘ **Open option, NOT ruled:** `uxTaskGetStackHighWaterMark` works on ESP32 too, so the field *could*
+be extended there — the in-source judgement that it is unnecessary predates this slice's +224 B. Raise it with the
+owner rather than assuming either way.
 ★★ **FIGURES CORRECTED 2026-08-17 — the earlier explanation was measured and REFUTED.** The 256-B `NodeConfig` copy is
 **not** the cost and never was: ARM `handle_team` measures the same with the projection first, with the plan+Blob first,
 and with the copy **deleted outright** (`-Ofast` scalarises it — `role_enforce` touches three fields). The growth is the
@@ -2592,8 +2636,15 @@ a design question (where the projection copy lives), not a constant.
 ### 27.2 — `team 0` with a PHY argument is refused, and nothing changes
 ⚠ **A BEHAVIOUR CHANGE: this used to be a silent no-op.**
 1. In a team, note `freq`/`sf`/`bw` from `status`.
-2. `team 0 freq=868` ⇒ **expect a refusal naming the meaningless arguments**, in the shape of the existing
-   `team 0 tkpub=` refusal.
+2. ⛔⛔ **CORRECTED 2026-08-18 — USE A COMPLETE PHY TAIL:** `team 0 freq=869.4625 sf=7 bw=125`.
+   This step read `team 0 freq=868`, which **never reaches the refusal under test** — `phy_args_in_range`
+   (`src/firmware_config_parse.h:106`) needs freq **and** bw **and** sf, so a partial tail dies at
+   `src/firmware_config.cpp:878` with a generic range error ([[B212]]) before the transaction is consulted.
+   Metal-confirmed 2026-08-18: it answered `> team new err: freq 100..1000 MHz, …`, refusing correctly but for the
+   wrong reason and naming the wrong subcommand.
+   ⇒ with a COMPLETE tail, expect:
+   `> team err: freq=/sf=/bw= make no sense on \`team 0\` (leave) — leaving a team PRESERVES the current PHY.`
+   followed by the `NOTHING changed…` remedy line.
 3. ⛔⛔ **CORRECTED 2026-08-17 (QG): `status` ⇒ the ORIGINAL NON-ZERO `team_id` IS STILL THERE, and freq/sf/bw are
    UNCHANGED.** This step previously read *"team_id 0"*, which contradicted the check's own point: the command was
    **REFUSED**, so it did not leave the team either. ⛔ No `cfg saved` notification, and ⛔ the OLED must not show a
@@ -2638,10 +2689,62 @@ Immediately repeat the same `team <current> <same PHY>`. **PASS =** `> team: no 
 stored record AND the live radio/key already match what you asked for. Nothing was written and nothing was applied.`
 ⛔ No save, and ⛔ the OLED must not repaint as saved.
 
-### 27.10 — an explicit key is INSTALLED when the live key is absent
-On a node whose live team key was cleared (e.g. `team 0` then rejoin), run
-`team <current> tkpub=<the record's own pub> tkpriv=<its priv>`.
-**PASS =** `> team channel key: ADOPTED (from tkpub=/tkpriv=)` — one installation. ⛔ **FAIL = `no change`**, which would
-leave the node unable to read team traffic while NV claims it holds the key.
+### 27.10 — an explicit key is INSTALLED when the live key is absent — ⛔ **HOST-PROVEN, METAL-CONDITIONAL**
+⛔⛔ **CORRECTED 2026-08-17 (QG): THE EXAMPLE THIS CHECK ORIGINALLY GAVE CANNOT CREATE THE CONDITION.** It read
+*"On a node whose live team key was cleared (e.g. `team 0` then rejoin)"* — but **`team 0` clears the PERSISTED key too**
+(`KeyAction::clear` zeroes the candidate, `src/firmware_provisioning_service.h:572`), so NV can never be keyed while the
+live node is keyless by that route. **Verified: the only live clear is inside `set_team_id`** (`lib/core/node.cpp:683`,
+its sole caller) **and boot always restores from NV** (`src/fw_main.cpp:789`) ⇒ ★ **on current firmware there is NO
+operator-reachable way to reach NV-keyed + live-keyless.**
+⇒ **Status: the `live_key_matches` branch is proven HOST-SIDE ONLY** — native case *"record key == request, LIVE key
+differs/absent"* (3 arms: absent · different pair · **pub matches but priv differs**) with control **M-F**
+(absent-treated-as-matching) and **M-E** (public-half-only compare) both RED.
+⛔ **Do NOT attempt this on metal and do NOT record a FAIL for being unable to set it up.** Run it **only if** a
+deliberate live-only clear is ever added (a debug verb, a failed re-adopt, or a grant path that installs without
+persisting); until then this line is a **standing note of an unreachable state**, not an owed check.
 ⓘ The comparison includes the **private** half deliberately: `team_channel_key_load` installs verbatim, so a pub-only
 check would accept a record whose halves disagree and produce a node that cannot decrypt.
+
+### 27.11 — ★ [[B209]]: a team PHY tail must NOT authorise home attachment (metal-only)
+⛔ **No host gate reaches this** — `src/firmware_config.cpp` is outside the native suite and only metal runs the console
+verb end to end. Run on a mobile bench node.
+1. `cfg set mobile_autoregister 0`, **reboot**, then `mobile status` ⇒ `autoregister:false`, `home_desired:false`,
+   `attachment:"dormant"`.
+2. `team new freq=869.4625 sf=7 bw=125` ⇒ the team applies and a team-local id is assigned.
+3. ★★ `mobile status` ⇒ **`home_desired:false`** and **`attachment:"dormant"`**, and ⛔ **NO outbound J `DISCOVER`** in
+   the console log over the following minute. ⓘ **Pre-fix this read `home_desired:true` / `"seeking"` with repeated
+   DISCOVERs** — that was the metal reproduction the bug was registered from.
+4. ★ **Positive control on the same node, and it is not optional:** `mobile register freq=869.4625` ⇒ `attachment:"seeking"`
+   and DISCOVERs **resume**. ⛔ Without this step, step 3's silence is indistinguishable from a **dead mobile plane** —
+   the check would pass just as well on a node whose home-seeking was broken outright.
+
+### 27.12 — ★ [[B211]]: a team PHY tail PRESERVES the DATA `sf_list` (real NV + power-cycle)
+⛔ **What no host gate reaches: persistence through a real LittleFS/NVS write and a reboot.** The decision itself is
+natively pinned; this proves it survives.
+1. Pre-condition: a mobile whose `cfg` reads **`sf_list=6,7`**.
+2. `team <its current id> freq=869.4625 sf=7 bw=125`.
+3. **Expect exactly:** `> team PHY: freq=869.463 sf=7 bw=125.00 kHz sf_list=6,7`
+4. `cfg` ⇒ **`routing_sf=7` and `sf_list=6,7`** — ⛔ **not `sf_list=7`**.
+5. ★ **Power-cycle, then `cfg` again ⇒ still `sf_list=6,7`.** ⓘ The pre-fix banner went `data sf = 6,7` → `data sf = 7`
+   and **survived a reboot**, so the reboot is the step that matters.
+
+### 27.13 — ★★ [[B211]]: resolution reads the RECORD, not live state (the pin-1b case on metal)
+⛔ **This is the case that separates a correct fix from one that merely looks correct.**
+1. From the same node: `mobile register freq=868.5 sf=9 bw=250` ⇒ `cfg` shows **live** collapsed to
+   `routing_sf=9 sf_list=9`. ★ **That collapse is UNCHANGED behaviour and must still happen** — `mobile register` was
+   deliberately left alone.
+2. `team <current id> freq=869.4625 sf=7 bw=125`.
+3. ★ **Expect `sf_list=6,7`** in the report, and `cfg` reading `sf_list=6,7` after a power-cycle.
+⛔ **`sf_list=9` here means the resolution read LIVE state and has laundered an un-persisted collapse into NV** — the
+exact failure the native mutation `snap.live_allowed_sf_bitmap` reddens.
+
+### 27.14 — ★ [[B210]]: `team-DAD` now means DAD, and this REPAIRS 27.8's discriminator
+1. On a mobile already in team `<T>` with a key, issue a **same-team re-apply**: `team <T> freq=<what it already flies>`.
+   ⇒ `> team -> team_id=0x<T>` and ⛔ **NO `  team-DAD: local_id=` line at all**, `team_local_id` unchanged in `cfg`,
+   and **no `»tx BCN from=<id>` burst**.
+2. Then a genuine membership change on the same node (`team new`, or `team <other>`).
+   ⇒ the line **MUST** appear, the `»tx BCN from=<N> n=0` burst **must** follow, and `<N>` must equal the
+   `team_local_id` `cfg` then reports — ★ **never `0`**, which is what a regression to `res.persisted_team_local_id`
+   would print.
+★★ **Consequence for Part 27.8:** the absence of the `team-DAD` line is a VALID "no DAD, no airtime" discriminator
+again. It was withdrawn when [[B210]] made it meaningless; ⇒ **27.8 may rely on it once this check passes.**

@@ -64,6 +64,13 @@ struct ProvPhy {
     double   freq_mhz           = 0.0;
     uint8_t  routing_sf         = 0;
     uint32_t bw_hz              = 0;
+    // ★★ [[B211]] — `0` MEANS "THE OPERATOR NAMED NO sf_list", NOT "an empty set". A PHY tail names freq / routing SF
+    //    / bw only; `stage_team_candidate` RESOLVES a 0 from the PERSISTED RECORD before either comparison runs, and
+    //    the resolved value comes back out on `ProvResult::phy` so the caller can report WHAT LANDED.
+    //    ⓘ Why `0` is a safe sentinel and needs no companion flag: an empty DATA SF set blocks DATA entirely and is
+    //    already refused (`ProvErr::incomplete_phy` below), and the [[data-sf-removed]] ruling makes an empty
+    //    `sf_list` illegal ⇒ 0 can never be a legitimate REQUEST value. A caller that really means one SF sets that
+    //    one bit explicitly.
     uint16_t allowed_sf_bitmap  = 0;
     double   bw_khz             = 0.0;     // the RAW operator value, kept only for the echo line: re-deriving it
                                            // from bw_hz would round a second time (parse_phy_tail's own reason)
@@ -281,7 +288,8 @@ struct IEntropy {
 //    INFALLIBLE given a validated plan:
 //      set_team    -> Node::set_team_id (drops the old team's plane / key cache / DAD id; may PROMOTE the role)
 //      install_key -> Node::team_channel_key_load(pub, priv, true)  ⛔ `void` BY REQUIREMENT (§3.6 step 5)
-//      apply_phy   -> Node::mobile_register_phy (retunes the radio and kicks the FSM)
+//      apply_phy   -> Node::mobile_retune_phy  ★ RETUNE ONLY — ⛔ NOT `mobile_register_phy` ([[B209]]: that one also
+//                     AUTHORISES static-home attachment and DISCOVERs, which a team PHY tail must never do)
 //      fire_dad    -> Node::team_dad_fire  ★ THE AIRTIME OPERATION
 // ⛔ `key_mint` and `key_adopt` are DELIBERATELY ABSENT (they were on v1's version of this seam): the key belongs in
 //    the candidate before persistence, and all three core key primitives that could appear here are fallible.
@@ -322,6 +330,9 @@ inline void blob_put_team_channel_key(mrnv::Blob& b, const uint8_t* pub, const u
 //   equal double. An epsilon would be the WRONG direction of error anyway — a false "matches" DISCARDS the request,
 //   while a false "differs" merely re-applies the value the node already has (one coalesced write, one idempotent
 //   retune). ⇒ when in doubt this pair says "differs", never "matches".
+// ⛔ [[B211]]: `phy` MUST be the RESOLVED `plan.phy`, never the raw `req.phy` — an unresolved `allowed_sf_bitmap == 0`
+//   can match no live node, so this would answer "differs" for every PHY tail and `no_change` would never be reachable.
+//   The single call site passes `plan.phy` after `stage_team_candidate` has resolved it.
 inline bool live_phy_matches(const ProvPhy& phy, const ProvSnapshot& snap) {
     if (!phy.present) return true;                       // nothing requested -> nothing owed
     return snap.live_freq_mhz          == phy.freq_mhz
@@ -499,6 +510,25 @@ inline ProvErr stage_team_candidate(const TeamRequest& req, const TeamProjection
     //    id back (`src/fw_main.cpp:1029` `join_changed`). That is what makes the old post-DAD read at `:1241`
     //    unnecessary, and it is why nothing here has to run AFTER `fire_dad`.
     plan.phy = req.phy;
+    // ★★★ [[B211]] — RESOLVE AN UNSPECIFIED `sf_list` FROM THE **PERSISTED RECORD**, AND DO IT HERE, WHICH IS BEFORE
+    //     BOTH COMPARISONS. A PHY tail names freq / routing SF / bw; it does NOT name the DATA SF set, and the console
+    //     therefore sends `allowed_sf_bitmap = 0` = "not specified" (`firmware_config.cpp:1358`). Collapsing the set to
+    //     `1 << routing_sf` was the metal-confirmed defect: a node booted `data sf = 6,7` came back `data sf = 7`, and
+    //     it PERSISTED. ⓘ `lib/core/node.h:302-305` defines team-PHY compatibility as freq/bw/routing_sf/cr and states
+    //     **NOT sf_list — F-SF-1 keeps that across registration** ⇒ a team never needed a common DATA SF set.
+    // ⛔⛔ THE POSITION IS THE REQUIREMENT, NOT A STYLE CHOICE. `cand` still holds the FRESHLY LOADED record at this
+    //     point (nothing above touches `allowed_sf_bitmap`), and the resolved value must be in `plan.phy` before
+    //     **(1)** the `differs` tracker just below and **(2)** `live_phy_matches` at the end of this function. Resolve
+    //     later and a raw `0` reaches both: the record comparison sees a change that is not one and the live predicate
+    //     can never match ⇒ a same-PHY re-apply reports `applied` FOREVER, which is a direct regression of bench
+    //     27.8/27.9 (already passed on metal). The `no_change` row of §3.6.1 depends on this line's position.
+    // ★ THE SOURCE IS `cand`, THE PERSISTED RECORD — ⛔ NEVER `snap.live_allowed_sf_bitmap`. The two genuinely
+    //   diverge on this device: `mobile register sf=…` collapses the LIVE bitmap without persisting
+    //   (`Node::adopt_mobile_phy`), which is the [[B207]] condition bench 27.8 exercises. Resolving from live would
+    //   LAUNDER that collapse into NV — the very defect this slice removes, one layer down.
+    // ⚠ A record that genuinely holds NO DATA SF resolves to 0 and is still REFUSED by the incomplete-PHY check
+    //   below: resolution must not turn a real "no DATA SF" configuration into a silent pass (C2).
+    if (plan.phy.present && plan.phy.allowed_sf_bitmap == 0) plan.phy.allowed_sf_bitmap = cand.allowed_sf_bitmap;
     if (plan.phy.present) {
         if (cand.freq_mhz          != plan.phy.freq_mhz
             || cand.routing_sf     != plan.phy.routing_sf
@@ -511,9 +541,15 @@ inline ProvErr stage_team_candidate(const TeamRequest& req, const TeamProjection
     }
 
     // (6) ★ THE INCOMPLETE-PHY REFUSAL, AGAINST THE STAGED CANDIDATE — ⛔ never against live state. A team is a
-    //     SHARED-PHY overlay: members hear each other only on a COMMON freq/routing_sf/sf_list/bw, and an empty
-    //     sf_list blocks DATA entirely ([[data-sf-removed]]). The old check read LIVE values that the retune above it
-    //     had ALREADY MOVED, under a comment claiming nothing had changed. Leave (id 0) is exempt.
+    //     SHARED-PHY overlay: members hear each other only on a COMMON freq/routing_sf/bw.
+    // ⛔⛔ CORRECTED (§B211): this comment used to list `sf_list` among the fields a team must hold in COMMON. THAT IS
+    //     WRONG, and it is the belief the sf_list-collapse defect rested on. `lib/core/node.h:302-305` defines team-PHY
+    //     compatibility EXPLICITLY EXCLUDING it — "freq/bw/routing_sf/cr; NOT layer_id ... NOT sf_list — F-SF-1 keeps
+    //     that across registration". ⇒ `sf_list` is NODE-LOCAL and is PRESERVED from the persisted record (step 5b
+    //     above); it is checked here only for NON-EMPTINESS, because an empty set blocks DATA entirely
+    //     ([[data-sf-removed]]) — not for agreement with anyone else.
+    //     ⓘ The old check read LIVE values that the retune above it had ALREADY MOVED, under a comment claiming
+    //     nothing had changed. Leave (id 0) is exempt.
     if (plan.team_id != 0) {
         const double   eff_freq = (cand.freq_mhz > 0.0) ? cand.freq_mhz : req.floor.freq_mhz;
         const uint32_t eff_bw   = cand.bw_hz ? cand.bw_hz : req.floor.bw_hz;

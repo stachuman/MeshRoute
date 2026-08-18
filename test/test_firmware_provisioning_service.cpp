@@ -1397,3 +1397,160 @@ TEST_CASE("§PROV-TX blob_put_team_channel_key writes all three fields, and null
     CHECK(b.team_ch_key_present == 0);
     CHECK(all_zero32(b.team_ch_priv));
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// ★★★ [[B211]] — A TEAM PHY TAIL PRESERVES THE PERSISTED `sf_list`. Owner-ruled 2026-08-18: a team PHY tail PRESERVES
+//     the persisted `allowed_sf_bitmap`, `mobile register` is UNCHANGED, and the success line REPORTS the resolved set.
+//
+// ⛔ WHAT THE DEFECT WAS: `parse_phy_tail` builds a fresh `LayerConfig{}` and sets `allowed_sf_bitmap = 1u << pa.sf`,
+//    and `handle_team` copied that into the request — so the ROUTING `sf=` also COLLAPSED the DATA SF set. A node
+//    booted `data sf = 6,7` came back `data sf = 7` on metal, and it PERSISTED. The console now sends `0` =
+//    "not specified" and the transaction RESOLVES it from the PERSISTED RECORD.
+//
+// ★★ WHY THESE ARE COUNTED AND NOT ONLY STATED (QG — the most recent vacuous instrument had two state assertions pass
+//    in BOTH arms and only a counter discriminated): the preservation is observable at THREE independent places —
+//    the CANDIDATE that was written, the RESULT the console renders, and the PHY that was APPLIED live — and the case
+//    below counts how many of the three hold the preserved set. Under the pin-1b mutation (resolve from
+//    `snap.live_allowed_sf_bitmap`) the verdict, the write count and the apply count are all IDENTICAL; only that
+//    count moves, 3 -> 0.
+namespace {
+// {6,7} — the metal fixture's own DATA set ("receiver picks the fastest by SNR"), and {7} — what a `mobile register
+// sf=7` collapses the LIVE bitmap to WITHOUT persisting ([[B207]], the divergence bench 27.8 exercises).
+constexpr uint16_t kSfList67 = static_cast<uint16_t>((1u << 6) | (1u << 7));
+constexpr uint16_t kSfList7  = static_cast<uint16_t>(1u << 7);
+
+// The request a `team <id> freq=… sf=… bw=…` tail now produces: every field the operator TYPED, and `0` for the DATA
+// SF set the operator did NOT type. ⛔ The `0` is the whole point — a fixture that filled it in would test nothing.
+void b211_tail(TeamRequest& r, double freq, uint8_t routing_sf, uint32_t bw_hz) {
+    r.phy.present           = true;
+    r.phy.freq_mhz          = freq;
+    r.phy.routing_sf        = routing_sf;
+    r.phy.bw_hz             = bw_hz;
+    r.phy.allowed_sf_bitmap = 0;          // ★ "not specified" — resolved from the PERSISTED RECORD
+    r.phy.bw_khz            = bw_hz / 1000.0;
+}
+}  // namespace
+
+TEST_CASE("§B211 pin 1 — a team PHY tail PRESERVES the multi-SF sf_list and PERSISTS it") {
+    PFix f;
+    f.cfg.team_id       = 0x5150u;
+    f.store.rec.team_id = 0x5150u;
+    f.store.rec.allowed_sf_bitmap = kSfList67;      // the record holds {6,7}
+    f.converge_live_phy();                          // …and so does the radio: the ONLY change asked for is the freq
+    TeamRequest r = f.join(0x5150u);
+    b211_tail(r, 869.0, 7, 125000);                 // routing SF 7 — the value that used to collapse the set
+    const mrfw::ProvResult res = f.svc.apply_team(r, f.cfg, f.snap);
+
+    CHECK(res.verdict == ProvVerdict::applied);     // the freq really moved, so this is not a no-change row
+    CHECK(res.err == ProvErr::none);
+    CHECK(f.store.writes == 1);
+    CHECK(f.live.phy_calls == 1);
+    // ★ THE THREE OBSERVATION POINTS, counted (see the family comment)
+    int preserved = 0;
+    if (f.store.rec.allowed_sf_bitmap  == kSfList67) ++preserved;   // the CANDIDATE — what a reboot restores
+    if (res.phy.allowed_sf_bitmap      == kSfList67) ++preserved;   // the RESULT — what the console echoes
+    if (f.live.phy.allowed_sf_bitmap   == kSfList67) ++preserved;   // the APPLIED PHY — what the radio flies
+    CHECK(preserved == 3);
+    CHECK(f.store.rec.allowed_sf_bitmap != kSfList7);               // ⛔ SF6 was NOT dropped — the defect, named
+    // …and everything the tail DID name landed
+    CHECK(f.store.rec.freq_mhz   == 869.0);
+    CHECK(f.store.rec.routing_sf == 7);
+    CHECK(f.store.rec.bw_hz      == 125000);
+    CHECK(f.live.dad_calls == 0);                                   // a same-team PHY repair spends no airtime
+}
+
+TEST_CASE("§B211 pin 1b — resolution reads the PERSISTED record, NOT the live bitmap (they diverge)") {
+    // ★★ THE DIVERGENCE FIXTURE, and it is the REAL [[B207]] condition rather than a contrived one: `mobile register
+    //    sf=7` collapses the LIVE bitmap and does NOT persist, so the record can hold {6,7} while the radio holds {7}.
+    //    Pin 1 alone PASSES if the coder resolves from `snap.live_allowed_sf_bitmap`; this case is what separates them.
+    PFix f;
+    f.cfg.team_id       = 0x5151u;
+    f.store.rec.team_id = 0x5151u;
+    f.store.rec.allowed_sf_bitmap = kSfList67;          // STORED  {6,7}
+    f.converge_live_phy();
+    f.snap.live_allowed_sf_bitmap = kSfList7;           // LIVE    {7}   ⇐ the divergence
+    TeamRequest r = f.join(0x5151u);
+    // the tail names EXACTLY the record's freq/bw and routing SF 7 — so the ONLY thing that can differ is the SF set
+    b211_tail(r, f.store.rec.freq_mhz, 7, f.store.rec.bw_hz);
+    const mrnv::Blob before = f.store.rec;
+    const mrfw::ProvResult res = f.svc.apply_team(r, f.cfg, f.snap);
+
+    // The live radio does not fly the resolved {6,7}, so the request IS owed -> applied, exactly one of each.
+    CHECK(res.verdict == ProvVerdict::applied);
+    CHECK(f.store.writes == 1);
+    CHECK(f.live.phy_calls == 1);
+    int preserved = 0;
+    if (f.store.rec.allowed_sf_bitmap == kSfList67) ++preserved;
+    if (res.phy.allowed_sf_bitmap     == kSfList67) ++preserved;
+    if (f.live.phy.allowed_sf_bitmap  == kSfList67) ++preserved;
+    CHECK(preserved == 3);                              // ★ 3 with the record as the source; 0 with the live bitmap
+    // ★★ AND THE RECORD IS BYTE-IDENTICAL TO WHAT IT ALREADY WAS: resolving from LIVE would have written {7} here,
+    //    i.e. LAUNDERED the un-persisted collapse into NV — the defect one layer down.
+    CHECK(memcmp(&before, &f.store.rec, sizeof before) == 0);
+    CHECK(f.live.dad_calls == 0);
+}
+
+TEST_CASE("§B211 pin 2 — no_change SURVIVES the change: record == live == request is still 0 saves, 0 applies") {
+    // ★★★ THE 27.8/27.9 REGRESSION GUARD. If the unresolved `0` reached `differs` or `live_phy_matches`, a same-PHY
+    //     re-apply would look like a change and would apply FOREVER. Both metal checks depend on this row.
+    PFix f;
+    f.cfg.team_id       = 0x5152u;
+    f.store.rec.team_id = 0x5152u;
+    f.store.rec.allowed_sf_bitmap = kSfList67;
+    f.converge_live_phy();                              // record ≡ live, including the {6,7} set
+    TeamRequest r = f.join(0x5152u);
+    b211_tail(r, f.store.rec.freq_mhz, f.store.rec.routing_sf, f.store.rec.bw_hz);
+    const mrfw::ProvResult res = f.svc.apply_team(r, f.cfg, f.snap);
+
+    CHECK(res.verdict == ProvVerdict::no_change);
+    CHECK(f.store.writes == 0);                         // ★ ZERO saves
+    CHECK(f.live.total_calls() == 0);                   // ★ ZERO live applies — every seam counter, not just phy
+    CHECK(res.key_action == KeyAction::preserve);
+    // ★ THE NON-VACUITY ARM, in the same case: move ONE live field and the identical request applies again. So the
+    //   no_change above is caused by the convergence and not by "an unspecified sf_list is never a change".
+    PFix g;
+    g.cfg.team_id       = 0x5152u;
+    g.store.rec.team_id = 0x5152u;
+    g.store.rec.allowed_sf_bitmap = kSfList67;
+    g.converge_live_phy();
+    g.snap.live_freq_mhz = g.store.rec.freq_mhz + 0.5;
+    TeamRequest q = g.join(0x5152u);
+    b211_tail(q, g.store.rec.freq_mhz, g.store.rec.routing_sf, g.store.rec.bw_hz);
+    const mrfw::ProvResult res2 = g.svc.apply_team(q, g.cfg, g.snap);
+    CHECK(res2.verdict == ProvVerdict::applied);
+    CHECK(g.store.writes == 1);
+    CHECK(g.live.phy_calls == 1);
+    CHECK(g.store.rec.allowed_sf_bitmap == kSfList67);  // …and it STILL preserves the set
+}
+
+TEST_CASE("§B211 pin 5 — an unspecified sf_list over an EMPTY record is still REFUSED, never a silent pass") {
+    // ⚠ Resolution must not turn a real "no DATA SF" configuration into a pass (C2). ⓘ This is also the one
+    //   OPERATOR-VISIBLE consequence of the slice: before it, `team <id> freq=… sf=9 …` would have repaired an empty
+    //   record by inventing `sf_list={9}`; now the record's emptiness is REPORTED instead of silently papered over.
+    PFix f;
+    f.cfg.team_id       = 0x5153u;
+    f.store.rec.team_id = 0x5153u;
+    f.store.rec.allowed_sf_bitmap = 0;                  // a genuinely empty DATA SF set
+    f.converge_live_phy();
+    TeamRequest r = f.join(0x5153u);
+    b211_tail(r, 869.0, 9, 125000);
+    const mrfw::ProvResult res = f.svc.apply_team(r, f.cfg, f.snap);
+
+    CHECK(res.verdict == ProvVerdict::refused);
+    CHECK(res.err == ProvErr::incomplete_phy);
+    CHECK(f.store.writes == 0);
+    CHECK(f.live.total_calls() == 0);
+    // ★ THE DISCRIMINATOR: the SAME empty record with an EXPLICIT set in the tail is accepted — so the refusal is
+    //   caused by the resolved bitmap being empty, not by "a tail over an empty record always refuses".
+    PFix g;
+    g.cfg.team_id       = 0x5153u;
+    g.store.rec.team_id = 0x5153u;
+    g.store.rec.allowed_sf_bitmap = 0;
+    g.converge_live_phy();
+    TeamRequest q = g.join(0x5153u);
+    b211_tail(q, 869.0, 9, 125000);
+    q.phy.allowed_sf_bitmap = static_cast<uint16_t>((1u << 9) | (1u << 10));   // explicitly named -> no resolution
+    const mrfw::ProvResult res2 = g.svc.apply_team(q, g.cfg, g.snap);
+    CHECK(res2.verdict == ProvVerdict::applied);
+    CHECK(g.store.rec.allowed_sf_bitmap == static_cast<uint16_t>((1u << 9) | (1u << 10)));
+}
