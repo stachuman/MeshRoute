@@ -107,6 +107,45 @@ inline bool phy_args_in_range(const PhyArgs& a, bool with_layer) {
         && (!with_layer || valid_layer0_id(a.layer));
 }
 
+// ---- POSITIONAL arguments: a STRICT index and an EMPTY tail (§UI-15 slice 2 correction, 2026-08-19) -------------
+// ★★★ THE DEFECT: `joinprofile clear`/`set` read their slot with `atol`, and **`atol` PARSES A PREFIX AND STOPS**.
+//     `atol("2junk") == 2`, so `joinprofile clear 2junk` CLEARED SLOT 2 — a WRITE from a token the operator plainly
+//     mistyped — and `joinprofile set 1x layer=…` overwrote slot 1. The verb's own contract is the opposite: *a
+//     malformed or out-of-range index refuses loudly and writes nothing* (C2). `atol` also answers 0 for a token
+//     with no digits at all, so "unparsable" and "the operator typed 0" were the same answer.
+// ★★ AND IT IS HERE, NOT IN `firmware_config.cpp`, FOR THE REASON THAT KEEPS RECURRING IN THIS ARC: that TU is
+//    compiled by NEITHER the native suite (`test_build_src = no`) NOR the simulator, and no corpus scenario runs a
+//    console verb — so a strict parse decided inside `handle_joinprofile` would be a rule no automated gate could
+//    fail. Hoisted, `test/test_firmware_config_parse.cpp` drives it directly. Same move, same reason, as §B212's
+//    `classify_phy_tail` above. ⛔ A structural probe can show that `atol` is GONE; only this can show what
+//    `clear 2junk` DOES.
+//
+// The WHOLE token must be decimal digits. Empty refuses; a sign refuses (there is no slot -1, and `atol("-0")`
+// would otherwise smuggle a 0 in); any trailing byte refuses; overflow refuses rather than wrapping.
+// ⛔ `out` IS ONLY WRITTEN ON SUCCESS — a refused token must never leave a half-parsed index behind for a caller
+//    that forgot to check the bool.
+inline bool parse_index_strict(const char* tok, long& out) {
+    if (!tok || !*tok) return false;
+    long v = 0;
+    for (const char* c = tok; *c; ++c) {
+        if (*c < '0' || *c > '9') return false;
+        const long d = *c - '0';
+        if (v > (2147483647L - d) / 10) return false;   // ⛔ refuse, never wrap. 2^31-1 because `long` is 32 bits on
+        v = v * 10 + d;                                 //    ARM/Xtensa and 64 on the host — one answer on all three.
+    }
+    out = v;
+    return true;
+}
+
+// True when nothing but spaces remains. `joinprofile list extra`, `clear 1 extra` and `reset confirm extra` each
+// carry a token the verb has NO MEANING FOR, and silently dropping it is how an operator comes to believe he typed
+// something that took effect. ⇒ the verbs refuse instead (C2), before any load and any write.
+inline bool arg_tail_empty(const char* p) {
+    if (!p) return true;
+    while (*p == ' ') ++p;
+    return *p == '\0';
+}
+
 // ★★ §B212 (BUG FIX 2026-08-18) — THE PARSER MASKED THE SPECIFIC `team 0` REFUSAL.
 // ⛔⛔ CORRECTED: an earlier version of this comment said `phy_args_in_range` "requires freq AND bw AND sf". IT DOES
 // NOT, and `firmware_config.cpp:881` says so: `pa.bw_khz = 125.0` — "sf is REQUIRED with freq (0 fails the 5..12

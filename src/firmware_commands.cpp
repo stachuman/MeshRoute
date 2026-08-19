@@ -1052,6 +1052,9 @@ bool dispatch(const char* line, size_t len, Print& out) {   // §command-sink-co
     if (len >  8 && !strncmp(line, "gateway ", 8)) { handle_gateway(line + 8, out); return true; }
 #if MR_N_LAYERS < 2
     if (len >  5 && !strncmp(line, "join ", 5))    { handle_join(line + 5, out);    return true; }   // R6.3 provisioning verbs (normal-node, live)
+    // §UI-15 slice 2: the /mrjoin PRESET store. ⓘ It cannot shadow `join ` above — that arm requires a SPACE at
+    // index 4, which "joinprofile" does not have — but it is placed after it so the two read in verb order.
+    if ((len == 11 || (len > 11 && line[11] == ' ')) && !strncmp(line, "joinprofile", 11)) { handle_joinprofile(line + 11, out); return true; }
     if (len >  7 && !strncmp(line, "create ", 7))  { handle_create(line + 7, out);  return true; }
     if (len >  5 && !strncmp(line, "team ", 5))     { handle_team(line + 5, out);    return true; }   // §mobile 6.1: `team new` (mint) / `team <id>` (join)
 #if MR_FEAT_MOBILE
@@ -1060,6 +1063,13 @@ bool dispatch(const char* line, size_t len, Print& out) {   // §command-sink-co
 #else   // §config-integrity: create/join are normal-node provisioning -> refuse on the gateway build (mirrors how `gateway` errors on a normal build) — else `create` silently re-provisions the gateway into a managed leaf.
     if ((len > 5 && !strncmp(line, "join ", 5)) || (len > 7 && !strncmp(line, "create ", 7))) {
         out.println(F("> err gateway_build (create/join are normal-node only; use `gateway l0=<layer>:<node>:<sf>:<sfs> l1=…`)"));
+        return true;
+    }
+    // §UI-15 slice 2: the preset store follows join's plane — a gateway is provisioned by `gateway`, never by a
+    // stored join profile. ⛔ Its own line rather than a widened condition above: the existing message names the
+    // remedy for create/join and would be wrong here.
+    if ((len == 11 || (len > 11 && line[11] == ' ')) && !strncmp(line, "joinprofile", 11)) {
+        out.println(F("> err gateway_build (joinprofile is normal-node only)"));
         return true;
     }
 #endif

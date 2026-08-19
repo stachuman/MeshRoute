@@ -713,3 +713,98 @@ TEST_CASE("§B212 classify_phy_tail: ⛔ THE TRAP — the caller's tail is NOT t
     CHECK(phy_n == 5);       // ★ the five that must now REACH the transaction and be told the leave rule
     CHECK(mixed_n == 2);     // the two carrying an unknown token, whose existing error is retained
 }
+
+// ============================================================ §UI-15 slice 2 CORRECTION — THE STRICT POSITIONAL PARSE
+// ★★★ THE DEFECT, MEASURED. `handle_joinprofile` read its slot with `atol`, and `atol` PARSES A PREFIX: `clear 2junk`
+//     CLEARED SLOT 2 and `set 1x layer=…` OVERWROTE SLOT 1 — writes from tokens the operator plainly mistyped,
+//     against a verb whose stated rule is that a malformed index refuses loudly and writes nothing (C2). The rule
+//     could not be tested where it lived (`src/firmware_config.cpp` is in no automated build), so it is here.
+// ⛔ EVERY CASE BELOW IS PAIRED WITH WHAT `atol` ANSWERED, because "strict" is only meaningful against the leniency
+//    it replaces: an assertion that `parse_index_strict("2")` is 2 would have passed against the bug.
+TEST_CASE("cfgparse: parse_index_strict consumes the WHOLE token — the atol-prefix acceptances are gone") {
+    long v = 0;
+
+    SUBCASE("the four real slots, and the two out-of-range ends, all PARSE (the range is the service's job)") {
+        for (long want : { 0L, 1L, 2L, 3L, 4L, 5L, 9L }) {
+            const char tok[2] = { (char)('0' + want), '\0' };
+            CAPTURE(tok);
+            v = -1;
+            CHECK(mrfw::parse_index_strict(tok, v));
+            CHECK(v == want);
+        }
+        CHECK(mrfw::parse_index_strict("12", v));  CHECK(v == 12);
+        CHECK(mrfw::parse_index_strict("007", v)); CHECK(v == 7);    // leading zeros are digits, and harmless
+    }
+
+    // ★★ THE BUG ITSELF. Each of these has a NON-ZERO atol value, which is what made it a WRITE.
+    SUBCASE("a trailing tail refuses — ⛔ `2junk` is not slot 2") {
+        for (const char* tok : { "2junk", "1x", "3 ", "4.0", "2,", "1-", "0x2", "2e0" }) {
+            CAPTURE(tok);
+            v = -7;
+            CHECK_FALSE(mrfw::parse_index_strict(tok, v));
+            CHECK(v == -7);                          // ⛔ and `out` is UNTOUCHED on a refusal
+        }
+        CHECK(std::atol("2junk") == 2);              // ⓘ what the removed call answered — the write, named
+        CHECK(std::atol("1x")    == 1);
+    }
+
+    SUBCASE("no digits at all refuses — ⛔ and is NOT the same answer as the operator typing 0") {
+        for (const char* tok : { "", " ", "junk", "-", "+", "x1" }) {
+            CAPTURE(tok);
+            v = -7;
+            CHECK_FALSE(mrfw::parse_index_strict(tok, v));
+            CHECK(v == -7);
+        }
+        CHECK(std::atol("junk") == 0);               // ⓘ atol conflated "unparsable" with "zero"
+        CHECK(mrfw::parse_index_strict("0", v));     // …whereas a typed 0 IS a parse, refused later by the range
+        CHECK(v == 0);
+    }
+
+    SUBCASE("a SIGN refuses — there is no slot -1, and `-0` must not smuggle a zero in") {
+        for (const char* tok : { "-1", "+1", "-0", "+0" }) {
+            CAPTURE(tok);
+            CHECK_FALSE(mrfw::parse_index_strict(tok, v));
+        }
+    }
+
+    SUBCASE("overflow REFUSES rather than wrapping — one answer on 32-bit ARM and on the 64-bit host") {
+        CHECK(mrfw::parse_index_strict("2147483647", v));      // the last value that fits everywhere
+        CHECK(v == 2147483647L);
+        for (const char* tok : { "2147483648", "9999999999", "99999999999999999999" }) {
+            CAPTURE(tok);
+            v = -7;
+            CHECK_FALSE(mrfw::parse_index_strict(tok, v));
+            CHECK(v == -7);
+        }
+    }
+}
+
+// ★★ TRAILING TOKENS: `joinprofile list extra`, `clear 1 extra` and `reset confirm extra` used to run the verb and
+//    DROP the word. Silently ignoring an argument is how an operator comes to believe he typed something that took
+//    effect — the same "success that isn't" this record already refuses for a truncated name.
+TEST_CASE("cfgparse: arg_tail_empty sees a leftover token, and is not fooled by spacing") {
+    CHECK(mrfw::arg_tail_empty(""));
+    CHECK(mrfw::arg_tail_empty("   "));
+    CHECK(mrfw::arg_tail_empty(nullptr));
+    CHECK_FALSE(mrfw::arg_tail_empty("extra"));
+    CHECK_FALSE(mrfw::arg_tail_empty("  extra"));
+    CHECK_FALSE(mrfw::arg_tail_empty(" a b"));
+    // …and over the three verbs' real remainders, tokenized the way the console tokenizes them.
+    struct { const char* line; bool tail_ok; } cases[] = {
+        { "list",                 true  },
+        { "list extra",           false },
+        { "clear 1",              true  },
+        { "clear 1 extra",        false },
+        { "reset confirm",        true  },
+        { "reset confirm extra",  false },
+    };
+    for (auto& c : cases) {
+        CAPTURE(c.line);
+        char buf[64]; std::strncpy(buf, c.line, sizeof buf - 1); buf[sizeof buf - 1] = '\0';
+        char* p = buf;
+        // the verb, then at most one positional word — exactly `joinprofile_word`'s two calls
+        while (*p == ' ') ++p; while (*p && *p != ' ') ++p; if (*p == ' ') *p++ = '\0';
+        if (std::strcmp(buf, "list") != 0) { while (*p == ' ') ++p; while (*p && *p != ' ') ++p; if (*p == ' ') *p++ = '\0'; }
+        CHECK(mrfw::arg_tail_empty(p) == c.tail_ok);
+    }
+}

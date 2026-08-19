@@ -15,6 +15,10 @@
 //   2. per-backend `read_slot`/`write_slot` — the only platform-specific code, TWO functions per arm:
 //        nRF52 (Adafruit core) -> Adafruit_LittleFS / InternalFS FILES, addressed by `Slot::path`
 //        ESP32 (Heltec)        -> Preferences / NVS KEY-VALUE, addressed by `Slot::ns` + `Slot::key`
+//      ⓘ 2026-08-19: each READ arm is now a slim ADAPTER (nRF52: six members incl. the raw-rc `lookup`; ESP32:
+//      five) over the hoisted `fs_read_slot`/`nvs_read_slot` sequence in layer 1, so the branch order (and the two
+//      `SlotIo` facts) are host-testable too. The adapters hold no branch of their own; `write_slot` is untouched
+//      and stays whole in the arm.
 //      ⚠ Those are different storage MODELS, not different syntax — which is exactly why the typed wrappers
 //      are NOT collapsed into one `load_peers` with the `#if` moved inside it: same duplication, worse
 //      locality. The `#if` belongs at the primitive, and nowhere else.
@@ -203,6 +207,61 @@ inline bool peer_conf_restorable(uint8_t stored) {
 static_assert(sizeof(PeerRec) == 72,  "device_nv.h: the /mrpeers on-flash record layout moved — bump kPeersVersion");
 static_assert(sizeof(PeerBlob) == 8 + 16 * 72, "device_nv.h: the /mrpeers blob layout moved — bump kPeersVersion");
 
+// ---- Join-profile record (`/mrjoin`) — §UI-15 slice 2 (spec 2026-08-18-ui15-provisioning-implementation-plan.md
+// §3). FOUR operator-authored "networks I can join" presets, so a field join needs no keyboard.
+//
+// ★★★ IT IS ITS OWN RECORD, WITH ITS OWN MAGIC AND ITS OWN VERSION, AND THAT IS THE WHOLE POINT (§3.6.3): a corrupt
+//     PROFILE STORE must not reset config, identity, team keys or the peer book. Putting the four slots inside
+//     `Blob` would have made every profile edit a `/mrcfg` rewrite AND made `/mrjoin` corruption fatal to the join
+//     the node is currently running on.
+// ★★ …AND IT IS IN THE `"mr"` NAMESPACE ON PURPOSE — see `kSlotJoin` below. `/mrfault` is the ONE record that opts
+//    OUT of `factory_erase()`, and it does so by living in its own namespace. Join profiles are USER CONFIGURATION,
+//    not fault history, so §3's "factory reset DELETES /mrjoin" is delivered by the namespace choice alone, with no
+//    code in `factory_erase()` at all.
+// ⛔⛔ AND IT IS DELIBERATELY **NOT** IN `mount_or_repair()`'s nRF52 PROBE LIST (`kFiles[]`, in the nRF52 arm
+//    below — the former :400-413 ref had drifted). That function recovers by
+//    calling `InternalFS.format()`, whose own comment records *"a reformat wipes /mrid too -> the node re-mints its
+//    identity + loses its join"*. ⇒ listing an OPTIONAL preset store there would make ITS corruption destroy identity
+//    AND config — the exact inversion of the isolation this record exists for. A failed / short / invalid read is
+//    handled LOCALLY, as `JoinRead::invalid`, and the only repair is the operator's explicit `joinprofile reset
+//    confirm`. ⓘ The spec records this as a REVERSAL of its own earlier recommendation; it is written here because
+//    a header is where an obligation survives.
+struct JoinProfile {
+    uint8_t  present;      // 0 = EMPTY slot (a zeroed slot is empty by construction — see join_profile_put)
+    uint8_t  layer;        // the FULL 1..255 layer id, exactly as `Blob::layer0_id` holds it (leaf = layer & 0x0F,
+                           // DERIVED at use by mrfw::join_leaf_of_layer — ⛔ never stored twice)
+    uint8_t  routing_sf;   // 5..12
+    uint8_t  name_len;     // 0..sizeof(name); the bytes past it are ZERO (join_profile_put zeroes the slot first)
+    // ★★ HZ, NOT kHz, AND THE BUILD'S OWN DEFAULT CARRIER IS THE PROOF: 869.4625 MHz is 869462.5 kHz — NOT an
+    //    integer — but exactly 869462500 Hz. A `uint32_t freq_khz` would round it to 869462 and CHANGE THE RADIO.
+    //    ⛔ No `double` in a new record; `/mrcfg` keeps its own `double freq_mhz` unchanged (a v3 correction).
+    uint32_t freq_hz;
+    uint32_t bw_hz;
+    char     name[12];     // the operator's label; NOT NUL-terminated — name_len bounds it (as IdBlob::name does)
+    // ⛔ NO `sf_list` HERE, and it is a decision rather than an omission: team-PHY compatibility excludes it
+    //    (lib/core/node.h:302-305, [[B211]]). A profile is the RADIO FLOOR a join needs, nothing more.
+};
+constexpr uint8_t kJoinProfiles = 4;          // FIXED four slots — ⛔ no dynamic count, so the record has ONE size
+struct JoinBlob {
+    uint32_t magic;             // kJoinMagic
+    uint16_t version;           // kJoinVersion — EQUALITY (see load_join): a mismatch REJECTS the whole record
+    uint16_t reserved;          // ★ the header carries the padding, ⛔ never the per-profile struct (§3). Zeroed by
+                                //   join_blob_init, so it is part of the byte-identical write-coalescing compare.
+    JoinProfile prof[kJoinProfiles];
+};
+constexpr uint32_t kJoinMagic   = 0x4D524A31u;   // 'MRJ1' — its OWN magic, ⛔ never kMagic ('MRC1')
+constexpr uint16_t kJoinVersion = 1;             // v1: the first /mrjoin layout. A bump REJECTS the old record
+                                                 // outright (equality policy) -> the node comes up with NO profiles,
+                                                 // which is an ordinary state here (⛔ unlike /mrcfg, nothing about
+                                                 // the running join depends on this record).
+// ★ PER-ABI, NOT native-only — the same reason PeerRec's pair is here: `sizeof` IS the migration policy (load_join's
+//   exact size check), and test/ can only measure the HOST ABI, so pin it where it compiles on ARM and Xtensa too.
+//   4 × uint8 + 2 × uint32 + 12 chars = 24 with alignof 4 and ⛔ NO tail padding — which is why §3 forbids inventing
+//   a per-profile `reserved`: there is nothing for it to fix.
+static_assert(sizeof(JoinProfile) == 24, "device_nv.h: the /mrjoin profile layout moved — bump kJoinVersion");
+static_assert(alignof(JoinProfile) == 4, "device_nv.h: /mrjoin profile alignment moved — the 24-byte claim is ABI-dependent");
+static_assert(sizeof(JoinBlob) == 8 + 4 * 24, "device_nv.h: the /mrjoin record layout moved — bump kJoinVersion");
+
 // ---- slot table --------------------------------------------------------------------------------------
 // The ONE place each record's storage names live. Both live backends address the same four records with
 // different models, so a slot carries both spellings and each arm reads the field it needs.
@@ -214,6 +273,12 @@ inline constexpr Slot kSlotCfg   { "/mrcfg",   "mr",      "cfg"   };
 inline constexpr Slot kSlotId    { "/mrid",    "mr",      "id"    };
 inline constexpr Slot kSlotPeers { "/mrpeers", "mr",      "peers" };
 inline constexpr Slot kSlotFault { "/mrfault", "mrfault", "log"   };
+// §UI-15 slice 2 — the join-profile presets. ★★ `"mr"` IS THE FACTORY-RESET RULING, EXPRESSED AS DATA: the ESP32
+// `factory_erase()` clears the whole `"mr"` namespace in one `clear()`, and the nRF52 arm's `InternalFS.format()`
+// takes every file, so a profile store named here is DELETED by a factory reset with ⛔ not one line of new code.
+// /mrfault is the deliberate exception ABOVE and this record is emphatically not one: presets are user
+// configuration, so the fault-history precedent does NOT apply (spec §3).
+inline constexpr Slot kSlotJoin  { "/mrjoin",  "mr",      "join"  };
 
 // ---- record validation — ONE definition, DELIBERATELY ABOVE the platform `#if` -----------------------
 // This predicate was hand-written SIX times (Blob/IdBlob/PeerBlob × the two backend arms) inside those
@@ -244,6 +309,155 @@ inline bool blob_valid_range(const BlobT& b, int n, uint32_t magic, uint16_t v_m
 template <typename BlobT>
 inline bool blob_valid_exact(const BlobT& b, int n, uint32_t magic, uint16_t version) {
     return blob_valid_range(b, n, magic, version, version);
+}
+
+// ---- what the PRIMITIVE saw, beyond its `int` (§UI-15 slice 2 CORRECTION, 2026-08-19) -----------------
+// ★★★ THE DEFECT THIS EXISTS FOR: `read_slot` answered a single `int`, and BOTH live arms folded "the BACKEND would
+//     not open" into the SAME `-1` they use for "there is no such record". `join_blob_state` then mapped `-1` to
+//     `absent` unconditionally — so a filesystem that would not mount announced **NO PROFILES**, defeating this
+//     record's whole honesty requirement one layer beneath the service that implements it.
+// ★★ …AND `read_slot` IS SHARED WITH `/mrcfg`, `/mrid`, `/mrpeers`, `/mrfault`, whose load semantics must not move.
+//    ⇒ THE SHAPE CHOSEN IS AN **OUT-PARAM**, not a second read path and ⛔ not a new negative sentinel:
+//      · the `int` return is UNCHANGED on every path of every arm, so the four bool records — which consult it ONLY
+//        through `slot_size_ok` (directly, or via blob_valid_range) — cannot observe a difference. That is asserted,
+//        not asserted-by-comment: test_device_nv.cpp drives all four over the new arms.
+//      · a second `read_join_slot` per arm would FORK the primitive NV1 spent a slice de-duplicating (U1), and would
+//        have to be maintained in parallel forever for a record that reads exactly like the others.
+//      · `io` DEFAULTS TO `nullptr` and every extra backend QUESTION is asked only when it is non-null, so the four
+//        other records issue the IDENTICAL sequence of LittleFS / NVS calls they issued before.
+struct SlotIo {
+    // ⛔ NOT "the read failed" and ⛔ not "the record is bad" — this is "the STORE refused to answer, so NOTHING is
+    //    known about the record": LittleFS would not mount, its `lfs_stat` lookup answered a METADATA error, a file
+    //    the lookup said EXISTS would not open ([[B218]] cases 1/3/4 — allocation failure, `lfs_file_open` failure),
+    //    or NVS would not open for a reason other than "this namespace has never been written".
+    bool backend_failed = false;
+    // ★ THE STORED RECORD IS LONGER THAN THE CALLER'S BUFFER. nRF52 reads only `len` bytes, so a longer file
+    //   returns EXACTLY `sizeof(JoinBlob)` and a valid PREFIX would be accepted as the whole record. The length
+    //   alone can never show this; only the file's SIZE can.
+    bool oversize = false;
+};
+
+// ★ THE ABSENT SENTINEL IS THE PRIMITIVE'S CONTRACT, NAMED. Both live `read_slot` arms return EXACTLY -1 for "there
+//   is no such slot" (nRF52: the tri-state lookup answered LFS_ERR_NOENT — or, with no `io` asked for, `open()`
+//   failed; ESP32: `!has_key()`, or the namespace has never been written), and the
+//   host stub returns it unconditionally. ⚠ A nRF52 CORRUPT-CTZ read returns a *different* negative (an LFS_ERR_*,
+//   e.g. -84 / -5), which is why this is `== kSlotAbsent` and ⛔ not `< 0`: `< 0` would report a corrupt block as a
+//   fresh device, which is the exact dishonesty above.
+// ⛔⛔ THE ARMS ALSO RETURN -1 WHEN THE **BACKEND** WOULD NOT OPEN, and no sentinel can fix that without changing
+//    what the four other records see — which is precisely why that fact rides `SlotIo::backend_failed` and is
+//    consulted BEFORE this comparison. The comment that once said "if a backend ever returned -1 for a read error,
+//    that error would read as absent — no host test can rule that out" was describing a LIVE DEFECT, not a residual
+//    limit: both arms did exactly that. It is closed above, and `fs_read_slot`/`nvs_read_slot` are host-drivable so
+//    the closure is measured rather than argued.
+constexpr int kSlotAbsent = -1;
+
+// ---- the two backend read SEQUENCES, hoisted so a host test can drive them ----------------------------
+// ★★ WHY THESE ARE TEMPLATES AND NOT INLINE INSIDE THE `#if` ARMS: the arms are unreachable from the native suite,
+//    so a property decided there is a property no automated gate can fail. Hoisted, `test_device_nv.cpp` drives the
+//    REAL control flow — the real branch ORDER, the real early returns — against a fake FS / fake NVS, instead of
+//    a test hand-feeding `join_blob_state` a return value the shipped backend can never produce. (That vacuous
+//    shape is exactly what the §UI-15 slice 2 QG HOLD found in the over-length case.)
+// ⛔ The adapters below are the only untested residue: one-line forwards plus the nRF52 `lookup` (a locked stat,
+//    three straight-line calls), with no branch of their own — every classification is up here where the suite is.
+
+// nRF52 / Adafruit LittleFS — the slots are FILES.
+// ★★★ [[B218]] REOPENED 2026-08-19: `File::open() == false` IS NOT "ABSENT" — the vendored `File::_open`
+//     (Adafruit_LittleFS_File.cpp:121-153) does an `lfs_stat` FIRST and answers ONE `false` for FOUR facts:
+//       1. the stat rc is neither LFS_ERR_OK nor LFS_ERR_NOENT      -> a METADATA error;
+//       2. LFS_ERR_NOENT in read mode                                -> the only genuine ABSENT (first boot);
+//       3. `rtos_malloc` failed inside `_open_file`                  -> an allocation failure;
+//       4. `lfs_file_open` failed on a file that EXISTS              -> an open failure.
+//     Only (2) is a fresh device; (1)/(3)/(4) are the store refusing to answer — `backend_failed`'s fact. So the
+//     caller that asks (`io != nullptr`) gets a TRI-STATE lookup: the adapter surfaces the RAW `lfs_stat` rc (a
+//     locked stat mirroring the library's own `exists()`, which collapses the rc and so cannot be the lookup),
+//     and THIS template owns the classification — ⛔ never the adapter, which no automated gate compiles ([[B221]]:
+//     a shim signature that erases the distinction is exactly how this defect survived one round).
+template <typename FsT>
+inline int fs_read_slot(FsT& fs, const char* path, void* dst, size_t len, SlotIo* io) {
+    // ★ THE MOUNT RESULT IS NO LONGER DISCARDED. ⓘ The `int` is unchanged by this early return: with the FS
+    //   unmounted `open()` cannot succeed either, so this path already answered kSlotAbsent — what is new is that
+    //   it now SAYS SO in `io` instead of being indistinguishable from a first boot.
+    if (!fs.mount())    { if (io) io->backend_failed = true; return kSlotAbsent; }
+    if (io) {
+        // ★ ONLY `kAbsentRc` (LFS_ERR_NOENT) means a fresh device. The constants are the ADAPTER's, so the branch
+        //   is host-drivable against `FakeFs`, and the branch is HERE, so the adapter stays decision-free.
+        const int rc = fs.lookup(path);
+        if (rc == FsT::kAbsentRc) return kSlotAbsent;        // (2) no such record — an ordinary first boot
+        if (rc != FsT::kFoundRc)  { io->backend_failed = true; return kSlotAbsent; }  // (1) metadata error — ⛔ the open is NOT attempted
+        // (3)/(4): the lookup said PRESENT, yet the file would not open — ⛔ never `absent`: four possibly-intact
+        // profiles must not read as a fresh device because an allocation or lfs_file_open failed.
+        if (!fs.open(path)) { io->backend_failed = true; return kSlotAbsent; }
+    } else {
+        // ⛔ THE FOUR BOOL RECORDS' PATH, byte-for-byte the sequence they issued before this correction: no lookup,
+        //    no size question — mount -> open -> read -> close, same `int` on every path. Collapsing open()'s four
+        //    facts is CORRECT for them: absent and unreadable /mrcfg both mean "come up on defaults".
+        if (!fs.open(path)) return kSlotAbsent;
+    }
+    if (io && fs.size() > len) io->oversize = true;          // ★ a longer file would otherwise read as a valid PREFIX
+    const int n = fs.read(dst, len);                         // ⚠ < 0 on a corrupt CTZ block (mount_or_repair)
+    fs.close();
+    return n;
+}
+// ESP32 / Preferences NVS — the slots are KEYS in a namespace.
+template <typename NvsT>
+inline int nvs_read_slot(NvsT& nvs, const char* ns, const char* key, void* dst, size_t len, SlotIo* io) {
+    // ★★ `Preferences::begin(ns, readOnly=true)` ANSWERS ONE `false` FOR TWO OPPOSITE FACTS: "this namespace has
+    //    never been written" — an ORDINARY first boot, since `mr` is created by the first save of ANY record — and
+    //    "NVS itself would not open". ⇒ the arm classifies with the ESP-IDF error code; ⛔ calling it a storage
+    //    failure unconditionally would make a FRESH device report STORAGE FAILURE, which is the same dishonesty
+    //    pointing the other way.
+    if (!nvs.open(ns)) { if (io && !nvs.ns_absent(ns)) io->backend_failed = true; return kSlotAbsent; }
+    if (!nvs.has_key(key)) { nvs.close(); return kSlotAbsent; }   // no record yet — silent, no NVS error log
+    if (io && nvs.blob_len(key) > len) io->oversize = true;       // ★ the same PREFIX hazard, seen from the other arm
+    const int n = nvs.get_bytes(key, dst, len);                   // 0 when the stored blob is LONGER than `len`
+    nvs.close();
+    return n;
+}
+
+// ---- /mrjoin: ABSENT and CORRUPT are DIFFERENT ANSWERS (§UI-15 §3, the honesty requirement) -----------
+// ★★★ EVERY OTHER RECORD HERE COLLAPSES THE TWO INTO ONE `bool`, AND FOR THEM THAT IS RIGHT: an absent /mrcfg and a
+//     corrupt /mrcfg both mean "come up on defaults". ⛔ FOR THE PROFILE STORE IT IS WRONG. A silent fallback would
+//     make a corrupted store INDISTINGUISHABLE FROM A FRESH DEVICE — the operator would read `NO PROFILES`, retype
+//     four presets, and never learn that the flash ate them. So the state is a THREE-VALUED answer, and the verbs
+//     branch on all three (see src/firmware_join_profiles.h's absent/corrupt matrix).
+// ⛔ It is `enum class`, not two bools: the states are mutually exclusive and a bool pair would admit a
+//    meaningless combination — the binary-test-over-a-ternary-domain defect this arc is pre-registered against.
+enum class JoinRead : uint8_t {
+    ok,        // a record of the right size, magic and version was read
+    absent,    // ★ NO RECORD AT ALL — an ordinary fresh-device state, ⛔ never an error
+    invalid,   // ⛔ present but unreadable: short, over-long, wrong magic, wrong version, or a backend read ERROR
+    // ★★★ THE FOURTH STATE (2026-08-19 correction), AND IT IS NOT A SYNONYM FOR `invalid`. `invalid` says "I READ
+    //     THE STORE AND ITS CONTENTS ARE WRONG" — a fact about the RECORD, repairable by `joinprofile reset
+    //     confirm`, which rewrites it. `io_failed` says "I COULD NOT READ THE STORE AT ALL" — a fact about the
+    //     DEVICE, about which nothing is known of the record, and ⛔ over which a blind rewrite would destroy four
+    //     possibly-intact profiles because a mount failed. The two therefore take DIFFERENT verb behaviour (see
+    //     firmware_join_profiles.h) and DIFFERENT operator text; collapsing them is the bug one level up from the
+    //     `absent` collapse this record already exists to prevent.
+    io_failed,
+};
+// `io` carries what the `int` cannot (see SlotIo). ⓘ The default is for the PURE cases — the magic/version/length
+// matrix, which is about the BYTES and has no backend behind it. The one live caller (`load_join`) always passes
+// what the primitive actually reported.
+inline JoinRead join_blob_state(const JoinBlob& b, int n, const SlotIo& io = SlotIo{}) {
+    // ★★ FIRST, AND AHEAD OF THE `absent` TEST ON PURPOSE: this is the arm that used to be laundered into "NO
+    //    PROFILES". A backend that would not open returns kSlotAbsent, so any later ordering would lose it.
+    if (io.backend_failed) return JoinRead::io_failed;
+    // ★ AN OVER-LENGTH RECORD IS `invalid`, ⛔ never `ok`. `n` alone cannot see it: nRF52 reads `len` bytes out of a
+    //   longer file and returns EXACTLY `len`, so a valid PREFIX would pass every check below.
+    if (io.oversize) return JoinRead::invalid;
+    if (n == kSlotAbsent) return JoinRead::absent;
+    // EQUALITY on the version (blob_valid_exact), like /mrid and /mrpeers and ⛔ unlike /mrcfg's range: there is no
+    // migration arm for presets, and there must not be — a rejected record costs the operator four retypes, whereas
+    // a migration path is code that runs once per chip and can then never be exercised again.
+    return blob_valid_exact(b, n, kJoinMagic, kJoinVersion) ? JoinRead::ok : JoinRead::invalid;
+}
+// Stamp an EMPTY, VALID four-slot record. ONE path (U2) — the magic/version/zeroing triple is never re-typed at a
+// write site, exactly as `peers_blob_init` exists so that it is not. ★ `JoinBlob{}` zeroes `reserved` and every
+// profile byte, which is what makes the whole-record byte compare a valid "nothing changed".
+inline void join_blob_init(JoinBlob& b) {
+    b = JoinBlob{};
+    b.magic   = kJoinMagic;
+    b.version = kJoinVersion;
 }
 
 // ---- /mrpeers RECORD POLICY — pure, and ABOVE the platform `#if` for the SAME reason as blob_valid_* ----------
@@ -355,14 +569,34 @@ inline PeerPut peer_rec_put(PeerBlob& b, uint32_t key_hash32, const uint8_t ed_p
   #include <InternalFileSystem.h>
 namespace mrnv {
 // nRF52: the slots are Adafruit LittleFS FILES, addressed by `Slot::path`.
-inline int read_slot(const Slot& s, void* dst, size_t len) {
-    using namespace Adafruit_LittleFS_Namespace;
-    InternalFS.begin();
-    File f(InternalFS);
-    if (!f.open(s.path, FILE_O_READ)) return -1;               // absent slot (first boot) — not an error
-    const int n = f.read(dst, static_cast<uint16_t>(len));     // ⚠ < 0 on a corrupt CTZ block (mount_or_repair)
-    f.close();
-    return n;
+// ⛔ NO DECISION LIVES HERE. The members forward the library calls; the branch ORDER and the two `io` facts are in
+//    `fs_read_slot` above, where the native suite drives them. `lookup` is [[B218]]'s raw-rc stat: the library's
+//    own `exists()` (Adafruit_LittleFS.cpp:137-146) is this exact locked-`lfs_stat` idiom but COLLAPSES the rc to
+//    a bool, so it cannot be the lookup — the raw rc is the fact `fs_read_slot` classifies on. `_getFS`/`_lockFS`/
+//    `_unlockFS` are public (Adafruit_LittleFS.h:78-80, "internal usage only" but callable; ⛔ no vendored file is
+//    edited). `lookup` is only ever called AFTER `mount()` returned true, so the lfs handle is live.
+struct InternalFsSlot {
+    // ★ THE CLASSIFICATION CONSTANTS ARE DECLARED BY THE ADAPTER (FakeFs mirrors them), so the hoisted branch
+    //   compares against the backend's OWN convention instead of a magic 0/-2 baked into the template.
+    static constexpr int kFoundRc  = LFS_ERR_OK;      // the stat found the record
+    static constexpr int kAbsentRc = LFS_ERR_NOENT;   // ⛔ the ONLY rc that means "fresh device" ([[B218]])
+    Adafruit_LittleFS_Namespace::File f{InternalFS};
+    int lookup(const char* path) {
+        struct lfs_info info;
+        InternalFS._lockFS();
+        const int rc = lfs_stat(InternalFS._getFS(), path, &info);
+        InternalFS._unlockFS();
+        return rc;
+    }
+    bool     mount()                     { return InternalFS.begin(); }
+    bool     open(const char* path)      { return f.open(path, Adafruit_LittleFS_Namespace::FILE_O_READ); }
+    uint32_t size()                      { return f.size(); }
+    int      read(void* dst, size_t len) { return f.read(dst, static_cast<uint16_t>(len)); }
+    void     close()                     { f.close(); }
+};
+inline int read_slot(const Slot& s, void* dst, size_t len, SlotIo* io = nullptr) {
+    InternalFsSlot fs;
+    return fs_read_slot(fs, s.path, dst, len, io);
 }
 inline bool write_slot(const Slot& s, const void* src, size_t len) {
     using namespace Adafruit_LittleFS_Namespace;
@@ -429,15 +663,30 @@ inline bool mount_or_repair() {
 }  // namespace mrnv
 #elif defined(ARDUINO) && (defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3))
   #include <Preferences.h>
+  #include <nvs.h>            // nvs_open's ERROR CODE — the ONLY way to tell "never written" from "would not open"
 namespace mrnv {
 // ESP32: the slots are Preferences/NVS KEY-VALUE pairs, addressed by `Slot::ns` + `Slot::key`.
-inline int read_slot(const Slot& s, void* dst, size_t len) {
+// ⛔ NO DECISION LIVES HERE either — see `nvs_read_slot`. `ns_absent` is the one member with a body, and it is a
+//    CLASSIFIER, not a policy: it answers ESP-IDF's question, and the policy that consumes it is hoisted.
+struct PreferencesSlot {
     Preferences p;
-    if (!p.begin(s.ns, /*readOnly=*/true)) return -1;
-    if (!p.isKey(s.key)) { p.end(); return -1; }         // no record yet (first boot) — silent, no NVS error log
-    const size_t n = p.getBytes(s.key, dst, len);
-    p.end();
-    return static_cast<int>(n);
+    bool   open(const char* ns)          { return p.begin(ns, /*readOnly=*/true); }
+    bool   has_key(const char* key)      { return p.isKey(key); }
+    size_t blob_len(const char* key)     { return p.getBytesLength(key); }
+    int    get_bytes(const char* key, void* dst, size_t len) { return static_cast<int>(p.getBytes(key, dst, len)); }
+    void   close()                       { p.end(); }
+    // ⛔ READONLY, ALWAYS. A read-write probe would CREATE the namespace — a FLASH WRITE inside a read path, and it
+    //    would also make the very question ("has this ever been written?") answer itself yes forever after.
+    bool ns_absent(const char* ns) {
+        nvs_handle_t h = 0;
+        const esp_err_t e = nvs_open(ns, NVS_READONLY, &h);
+        if (e == ESP_OK) { nvs_close(h); return false; }   // it opened on the retry — the namespace exists
+        return e == ESP_ERR_NVS_NOT_FOUND;
+    }
+};
+inline int read_slot(const Slot& s, void* dst, size_t len, SlotIo* io = nullptr) {
+    PreferencesSlot nvs;
+    return nvs_read_slot(nvs, s.ns, s.key, dst, len, io);
 }
 inline bool write_slot(const Slot& s, const void* src, size_t len) {
     Preferences p;
@@ -465,7 +714,9 @@ namespace mrnv {
 // comes up on compile-time defaults; every save reports failure rather than pretending. ⚠ Before NV1 the host
 // build had NO mrnv:: functions at all (the whole backend section sat inside `#if defined(ARDUINO)`); this arm
 // now covers it, which is what lets a native test link against the typed wrappers below.
-inline int  read_slot (const Slot&, void*, size_t)      { return -1; }     // "no such slot", never a length
+// ⛔ `io` IS LEFT UNTOUCHED, DELIBERATELY: a host build has no store to fail, so "no NV backend" is reported as the
+//    absent slot it has always been, ⛔ never as a STORAGE FAILURE the host could not have observed.
+inline int  read_slot (const Slot&, void*, size_t, SlotIo* = nullptr) { return -1; }   // "no such slot", never a length
 inline bool write_slot(const Slot&, const void*, size_t) { return false; }
 inline bool factory_erase() { return true; }          // §2 no-op stub: nothing to erase IS success (must still boot)
 inline bool mount_or_repair() { return false; }       // no FS -> never reports a repair
@@ -525,4 +776,20 @@ inline bool load_faults(mrfault::FaultLog& out) {
     return slot_size_ok(n, sizeof out) && mrfault::fault_log_valid(out);
 }
 inline bool save_faults(const mrfault::FaultLog& b) { return write_slot(kSlotFault, &b, sizeof b); }
+// §UI-15 slice 2 — the join-profile presets. ★ THE ONLY WRAPPER PAIR THAT DOES NOT RETURN A BOOL, for the reason
+// `JoinRead` states: its caller must be able to tell a fresh device from a corrupted store.
+// ★ THE ONE CALLER THAT ASKS THE PRIMITIVE FOR MORE THAN A LENGTH (SlotIo). The other four records pass no `io` and
+//   are therefore byte-for-byte the calls they were before — that asymmetry is the whole point of the out-param
+//   shape, and it is what lets a storage failure be told apart from a fresh device HERE without moving `/mrcfg`.
+inline JoinRead load_join(JoinBlob& out) {
+    SlotIo io;
+    const int n = read_slot(kSlotJoin, &out, sizeof out, &io);
+    return join_blob_state(out, n, io);   // ⚠ `out` may hold a PARTIAL read on a non-ok answer — every caller re-inits
+}
+// ⛔ NO read-before-write COALESCING HERE, and that is a deliberate asymmetry with `save()` above rather than missed
+//    dedup. Every /mrjoin verb has ALREADY loaded the record (it must, to edit one slot of four), so the byte compare
+//    belongs one level up where it is FREE — in `mrfw::JoinProfileService`, which is a pure header the native suite
+//    can COUNT the writes of. Repeating /mrcfg's pattern here would add a second flash READ per write and would
+//    still be untestable off-device, which is exactly how "seventeen green instruments" happened.
+inline bool save_join(const JoinBlob& b) { return write_slot(kSlotJoin, &b, sizeof b); }
 }  // namespace mrnv

@@ -19,6 +19,11 @@
 //    (no Print, no Arduino, no globals) so the native suite reaches ALL of its decision logic — which is the point,
 //    because THIS FILE is compiled by neither the native suite nor the simulator.
 #include "firmware_provisioning_service.h"
+// ★★ §UI-15 slice 1: the typed STATIC-JOIN transaction `handle_join` now runs on — a SIBLING of the team one, ⛔ not
+//    an overload of it (`ProvErr` is the team vocabulary). Same reason for existing: pure, so the native suite reaches
+//    its decision logic, which nothing compiling THIS file can.
+#include "firmware_join_service.h"
+#include "firmware_join_profiles.h"   // §UI-15 slice 2: mrfw::JoinProfileService — the /mrjoin preset store (pure; this file only binds + renders)
 // ★ [[B211]]: `mrfw::print_sf_list` — THE ONE bitmap->CSV formatter (`firmware_commands.cpp:250`), reused by the
 //   `> team PHY:` echo so no third implementation is written (U1). ⚠ The B211 brief stated this header was already
 //   reachable here; it was NOT included by this TU (verified per V1) — one declaration-only include, no new seam.
@@ -766,8 +771,79 @@ static void provision_apply_live(const mrnv::Blob& b, bool do_dad) {
     if (do_dad) { meshroute::Command jc{}; jc.kind = meshroute::CmdKind::join; (void)g_node.on_command(jc); }   // re-DAD live (claim-after-listen -> J ~join_listen_ms later)
 }
 
-// `join layer=<1..255> freq=<MHz> bw=<kHz> sf=<5..12>` — set the radio floor + (re-)DAD; auto-pulls the leaf config (R6.2).
 #if MR_N_LAYERS < 2   // §config-integrity: create/join are normal-node-only — compiled out on the gateway build (refused at dispatch)
+// ================================================================ §UI-15 slice 1 — THE STATIC-JOIN DEVICE BINDING
+// ★★ THE ONE THING THE JOIN TRANSACTION NEEDS FROM THE DEVICE, and it is a thin adapter for the same reason
+//    §PROV-TX's three are: a decision taken here would be unreachable by every automated gate (this TU is compiled by
+//    neither the native suite nor the simulator), which is why the logic lives in `src/firmware_join_service.h`.
+// ⓘ The DURABLE seam is NOT re-bound: `device_cfg_store()` is reused unchanged (U1) — one `/mrcfg` record, one
+//   whole-record write, and the same "false = THE WRITE FAILED (nothing may be applied live)" contract. Its `load()`
+//   IS the §nv-ritual, so it cannot fail on device ⇒ `JoinErr::nv_load_failed` is UNREACHABLE ON DEVICE by
+//   construction and is reachable — and tested — only through a fake store. That is stated, not glossed.
+namespace {
+// ⛔ ONE CALL AND NOTHING ELSE. The seam is *"apply the just-saved record live and start DAD"*; the §notify-every-save
+//    hook deliberately does NOT live in here but at the VERB, beside its verdict guard, exactly as `handle_team`'s
+//    does — see the note at `handle_join`'s notification for why the resulting ordering is unobservable.
+struct DeviceJoinLive : mrfw::IJoinLive {
+    void apply_and_start(const mrnv::Blob& b) override { provision_apply_live(b, /*do_dad=*/true); }
+};
+}  // namespace
+// Function-local statics: constructed on first CALL, so there is no cross-TU initialisation-order question (the same
+// reasoning as `device_cfg_store()` / `prov_service()`). ONE service instance, which §UI-15 slice 6's OLED adapter
+// will reach for as well.
+static mrfw::JoinService& join_service() {
+    static DeviceJoinLive live;
+    static mrfw::JoinService s(device_cfg_store(), live);
+    return s;
+}
+
+// §UI-15 slice 1 — THE VOICE OF A NON-`started` VERDICT. Separate for the same two reasons `team_report_not_applied`
+// is (U3: the verb stays parse -> request -> render; and ONE guarded early return is what lets a probe pin *"notify
+// ONLY on the started arm"* as a compact source fact).
+// ★★ IT RETURNS A BOOL, AND THAT IS THE POINT RATHER THAN A SHORTCUT: the four DOMAIN refusals speak with the ONE
+//    shared usage line, which lives at `handle_join`'s `usage:` label. Re-spelling that string here would put a
+//    SECOND copy of it in flash and create exactly the drift U1 exists to prevent. ⇒ `false` = "say nothing; the
+//    caller's usage line is the answer", `true` = "the outcome has been reported".
+// `-Wswitch` is `-Werror=switch` here, so both switches are `default`-less: a new verdict or a new `JoinErr` fails
+// the build until its text is written.
+static bool join_report_not_started(const mrfw::JoinResult& res, Print& out) {
+    switch (res.verdict) {
+        case mrfw::JoinVerdict::refused:
+            switch (res.err) {
+                // ⛔ ALL FOUR FALL TO THE SHARED USAGE LINE, AND THAT IS THE PRE-SLICE BEHAVIOUR PRESERVED VERBATIM
+                //    (C1), not a design choice made here: `handle_join` has always answered every domain refusal
+                //    with one usage line. The ARMS are distinct so §UI-15 slice 6's screen can say WHICH field is
+                //    wrong — a usage line cannot — but ⛔ this slice changes not one console byte.
+                case mrfw::JoinErr::invalid_layer:
+                case mrfw::JoinErr::invalid_freq:
+                case mrfw::JoinErr::invalid_bw:
+                case mrfw::JoinErr::invalid_sf:
+                    return false;
+                // ⓘ UNREACHABLE ON DEVICE (see the binding note above: the store's `load()` is the §nv-ritual and
+                //   returns true unconditionally). It is written anyway because the ARM exists and `-Werror=switch`
+                //   requires it, and it speaks in the same voice as its `nv_save_failed` sibling.
+                case mrfw::JoinErr::nv_load_failed:
+                    out.println(F("> join err nv_load_failed"));
+                    return true;
+                case mrfw::JoinErr::nv_save_failed:   // carried by the nv_failed VERDICT below, never by this arm
+                case mrfw::JoinErr::none:             // unreachable for a refusal; listed so -Wswitch stays exhaustive
+                    return true;
+            }
+            return true;
+        // ★ THE SAME LINE THE VERB HAS ALWAYS PRINTED, byte for byte — and now it means strictly more: the write was
+        //   the commit point, so nothing was applied live and no DAD airtime was spent.
+        case mrfw::JoinVerdict::nv_failed:
+            out.println(F("> join err nv_save_failed"));
+            return true;
+        case mrfw::JoinVerdict::started:              // the caller guards on this; listed for exhaustiveness
+            return true;
+    }
+    return true;
+}
+
+// `join layer=<1..255> freq=<MHz> bw=<kHz> sf=<5..12>` — set the radio floor + (re-)DAD; auto-pulls the leaf config (R6.2).
+// ★ §UI-15 slice 1: parse -> request -> render. The decision logic (validate, load, compose ONE candidate, ONE save,
+//   then the live apply) is `mrfw::JoinService::apply_join`; ⛔ nothing below re-derives any of it.
 void handle_join(const char* args, Print& out) {
     char buf[128]; size_t bn = 0; for (; args[bn] && bn < sizeof(buf) - 1; ++bn) buf[bn] = args[bn]; buf[bn] = '\0';
     PhyArgs pa{};   // freq MHz / bw kHz (FRACTIONAL — 62.5 / 41.67 / 31.25 are valid LoRa BWs) / sf / layer — all four REQUIRED here
@@ -778,23 +854,266 @@ void handle_join(const char* args, Print& out) {
     }
     if (!(pa.has_freq && pa.has_bw && pa.has_sf && pa.has_layer) || !phy_args_in_range(pa, /*with_layer=*/true)) goto usage;
     {
-        mrnv::Blob b{}; nv_load_stamped(b);   // §nv-ritual
-        b.freq_mhz = pa.freq_mhz; b.bw_hz = meshroute::protocol::khz_to_hz(pa.bw_khz); b.routing_sf = (uint8_t)pa.sf;
-        b.leaf_id = (uint8_t)(pa.layer & 0x0F); b.layer0_id = (uint8_t)pa.layer;   // full layer id stored; leaf = layer & 0x0F (byte-0 wire filter)
-        b.node_id = 0; b.joined = 0; b.lineage_id = 0; b.config_epoch = 0;       // unprovisioned -> DAD + adopt the leaf's lineage via pull
-        b.leaf_name_len = 0;                                                     // §clean-join: don't carry the OLD leaf's name into the new network — present as freshly-joined (config-not-yet-pulled). A managed leaf repopulates via the config pull; an unmanaged one shows blank until `cfg set leaf_name`. (Bytes need not be zeroed — len-gated.)
-        if (!mrnv::save(b)) { out.println(F("> join err nv_save_failed")); return; }
+        // ⛔ THE NARROWING TO `uint8_t` IS SAFE ONLY BECAUSE `phy_args_in_range(pa, with_layer=true)` RAN ABOVE:
+        //    `PhyArgs::layer` is a `long`, so 257 would otherwise narrow to a perfectly valid 1 and join the WRONG
+        //    layer. ⓘ `bw` is handed over as the RAW operator kHz, ⛔ NOT pre-converted — see `JoinRequest::bw_khz`
+        //    for the measured reason (a `uint32_t` Hz field changes what `bw=nan` does).
+        mrfw::JoinRequest rq{};
+        rq.layer = (uint8_t)pa.layer; rq.freq_mhz = pa.freq_mhz;
+        rq.bw_khz = pa.bw_khz; rq.routing_sf = (uint8_t)pa.sf;
+        const mrfw::JoinResult res = join_service().apply_join(rq);
+        if (res.verdict != mrfw::JoinVerdict::started) { if (join_report_not_started(res, out)) return; goto usage; }
         mr_ui_on_config_saved();   // §notify-every-save — site 3 of 7 (assigns none of the four covered fields; the rule is the point, not the field list)
-        provision_apply_live(b, /*do_dad=*/true);
+        // ⓘ ORDERING NOTE, because this call USED to sit between the save and `provision_apply_live` and now sits
+        //   after both (the transaction owns the live apply, exactly as `handle_team`'s does). ★ MEASURED
+        //   UNOBSERVABLE, not assumed: the hook only re-reads `/mrcfg` and compares the FOUR covered fields
+        //   (`ble_mode`/`e2e_dm`/`intro_attach`/`mobile_autoregister`) against the OLED draft's baseline, and
+        //   `provision_apply_live` writes NONE of the four — not in NV (it makes no NV write at all) and not in
+        //   `NodeConfig`. So even on the §nv-ritual's seed-from-live path the blob it compares is identical either
+        //   way, and neither call can print.
         meshroute::console::JoinStartedFields js{};   // JSON verb ack (replaces the human line): the app's start-of-DAD event
-        js.layer = (uint8_t)pa.layer; js.leaf = (uint8_t)(pa.layer & 0x0F);
-        js.freq_khz = meshroute::protocol::mhz_to_khz(pa.freq_mhz); js.sf = (uint8_t)pa.sf; js.bw_hz = b.bw_hz;
+        js.layer = res.layer; js.leaf = res.leaf;     // ★ read off WHAT WAS PERSISTED (full byte / nibble), ⛔ not re-derived here
+        js.freq_khz = meshroute::protocol::mhz_to_khz(pa.freq_mhz); js.sf = (uint8_t)pa.sf; js.bw_hz = res.bw_hz;
         const size_t m = meshroute::console::write_join_started(s_inbox_jb, sizeof s_inbox_jb, js);
         if (m) out.write(s_inbox_jb, m);
         return;
     }
 usage:
     out.println(F("> join err usage: join layer=<1..255> freq=<MHz> bw=<kHz 7..500, fractional ok e.g. 62.5> sf=<5..12>   (leaf = layer & 0x0F)"));
+}
+
+
+// ================================================================ §UI-15 slice 2 — THE /mrjoin PROFILE-STORE BINDING
+// ★★ THIN ON PURPOSE, for the third time in this arc and for the same measured reason: this TU is compiled by
+//    NEITHER the native suite (`test_build_src = no`) NOR the simulator, and no corpus scenario runs a console verb.
+//    ⇒ every DECISION lives in `src/firmware_join_profiles.h`, where `test/test_firmware_join_profiles.cpp` can COUNT
+//    the writes; what is left here is parse -> call -> render.
+// ⛔ NOT `device_cfg_store()`: this is a DIFFERENT record with a THREE-valued read (absent vs corrupt vs ok), which is
+//    the whole point of §3.6.3's isolation. `/mrcfg` is not touched by any verb below.
+namespace {
+struct DeviceJoinProfileStore : mrfw::IJoinStore {
+    mrnv::JoinRead load(mrnv::JoinBlob& out) override { return mrnv::load_join(out); }
+    bool save(const mrnv::JoinBlob& b) override { return mrnv::save_join(b); }
+};
+}  // namespace
+// Function-local statics: constructed on first CALL, so there is no cross-TU initialisation-order question (the same
+// reasoning as `device_cfg_store()` / `join_service()`). ONE instance, which §UI-15 slice 6's OLED will reach for too.
+static mrfw::JoinProfileService& join_profile_service() {
+    static DeviceJoinProfileStore st;
+    static mrfw::JoinProfileService s(st);
+    return s;
+}
+
+// Which refusals are the operator MIS-TYPING something (⇒ show the grammar) and which are a STATE he must act on
+// (⇒ the message already says what to do, and a usage line would bury it). `default`-less, so `-Werror=switch` fails
+// the build when a `ProfileErr` arm is added without deciding which of the two it is.
+static bool joinprofile_refusal_needs_usage(mrfw::ProfileErr e) {
+    switch (e) {
+        case mrfw::ProfileErr::bad_index:
+        case mrfw::ProfileErr::invalid_layer:
+        case mrfw::ProfileErr::invalid_freq:
+        case mrfw::ProfileErr::invalid_bw:
+        case mrfw::ProfileErr::invalid_sf:
+        case mrfw::ProfileErr::not_finite:
+        case mrfw::ProfileErr::name_too_long:
+            return true;
+        case mrfw::ProfileErr::none:
+        case mrfw::ProfileErr::store_invalid:
+        case mrfw::ProfileErr::store_io_failed:
+        case mrfw::ProfileErr::needs_confirm:
+        case mrfw::ProfileErr::nv_save_failed:
+            return false;
+    }
+    return false;
+}
+
+// THE VOICE OF A PROBLEM. Returns `true` = "the outcome has been reported, stop"; `false` = "nothing is wrong, the
+// caller says what happened" — the same bool contract `join_report_not_started` uses, for the same reason (ONE copy
+// of the usage line, which lives at the verb's `usage:` label).
+// ⓘ The four DOMAIN arms are UNREACHABLE FROM THIS VERB by construction — `phy_args_in_range` screens them at the
+//   narrowing boundary below, exactly as `handle_join` does. They exist for §UI-15 slice 6's screen, which has no
+//   `PhyArgs` in front of it and needs to say WHICH field is wrong. Stated, not glossed
+//   ([[meshroute-mark-done-vs-missing-in-code]]).
+static bool joinprofile_report_problem(const mrfw::ProfileResult& res, Print& out) {
+    switch (res.verdict) {
+        case mrfw::ProfileVerdict::ok:
+        case mrfw::ProfileVerdict::unchanged:
+        case mrfw::ProfileVerdict::empty:
+            return false;
+        // ⛔ THE LINE SAYS ONLY WHAT IS KNOWN — the ONE write attempt was reported as failed. It must ⛔ NOT go on
+        //    to reassure the operator about the state of the flash: a backend can fail AFTER a partial physical
+        //    write ([[B193]]), and no layer here can establish otherwise. §PROV-TX's S10 pins that prohibition over
+        //    this whole file, prose included, which is why the forbidden sentence is not even quoted here.
+        case mrfw::ProfileVerdict::nv_failed:
+            out.println(F("> joinprofile err nv_save_failed"));
+            return true;
+        case mrfw::ProfileVerdict::refused:
+            // ★★ THE HONESTY LINE. An unreadable store is NOT reported as an empty one, and the remedy is named
+            //    because it is the ONLY one — and because it COSTS all four slots, which the operator must know
+            //    before typing it.
+            if (res.err == mrfw::ProfileErr::store_invalid) {
+                out.println(F("> joinprofile err PROFILE STORE INVALID (unreadable; `joinprofile reset confirm` is the ONLY repair and it discards all 4 slots)"));
+                return true;
+            }
+            // ★★★ THE SECOND HONESTY LINE, AND IT NAMES A DIFFERENT FAULT WITH A DIFFERENT REMEDY. The store could
+            //     not be OPENED, so nothing whatever is known about the four profiles — ⛔ this must never read as
+            //     `NO PROFILES` (the bug it was added for), and it must ⛔ not offer `reset confirm` either: that
+            //     verb cannot repair a filesystem, and taking the suggestion would throw away four presets that may
+            //     be perfectly intact behind a transient mount failure.
+            if (res.err == mrfw::ProfileErr::store_io_failed) {
+                out.println(F("> joinprofile err PROFILE STORE UNREADABLE - STORAGE FAILURE (the NV backend would not open; this is NOT an empty store - check `faults`, and treat it as a device fault, NOT as `joinprofile reset`)"));
+                return true;
+            }
+            out.print(F("> joinprofile err ")); out.println(mrfw::profile_err_name(res.err));
+            return !joinprofile_refusal_needs_usage(res.err);
+    }
+    return true;
+}
+
+// Take the next space-delimited word from *p (NUL-terminating it), or nullptr at end. ⛔ NOT `kv_next`: the verb and
+// the slot index are POSITIONAL, not `key=value`, and feeding them to kv_next would report them as malformed keys.
+// ★★ THE REFUSAL THE SERVICE NEVER SAW: the token was not an INDEX AT ALL (`2junk`, `1x`, ``). It is voiced through
+//    the SAME reporter as `clear 0`, so a mistyped index and an out-of-range one read identically to the operator,
+//    and the SERVICE stays the one authority for what a valid index IS (`valid_profile_slot`) — this only answers
+//    "is this token a number", which is `mrfw::parse_index_strict`'s job and is native-tested there.
+// ⛔ `ProfileResult{}` defaults to `refused`, which is the point: there is no path from here that writes.
+static mrfw::ProfileResult joinprofile_bad_index() {
+    mrfw::ProfileResult r{};
+    r.err = mrfw::ProfileErr::bad_index;
+    return r;
+}
+
+static char* joinprofile_word(char*& p) {
+    while (*p == ' ') ++p;
+    if (!*p) return nullptr;
+    char* w = p;
+    while (*p && *p != ' ') ++p;
+    if (*p == ' ') *p++ = '\0';
+    return w;
+}
+
+// `joinprofile list | set <1..4> layer= freq=<MHz> bw=<kHz> sf= [name="…"] | clear <1..4> | reset confirm`
+// ★ THE OPERATOR TYPES THE SAME UNITS AS `join` — freq in MHz, bw in kHz. Only the STORED record is integral (Hz).
+// ⛔ No JSON ack: `lib/console` owns the companion schemas and this slice must leave `lib/` untouched (D2). A
+//    companion that wants presets gets them in the next slice that may edit lib/console.
+void handle_joinprofile(const char* args, Print& out) {
+    char buf[160]; size_t bn = 0; for (; args[bn] && bn < sizeof(buf) - 1; ++bn) buf[bn] = args[bn]; buf[bn] = '\0';
+    char* p = buf;
+    char* verb = joinprofile_word(p);
+    if (!verb) goto usage;
+
+    if (!strcmp(verb, "list")) {
+        // ⛔ A TRAILING TOKEN IS REFUSED, ⛔ NOT IGNORED (C2). `joinprofile list extra` used to run a plain `list`,
+        //    which tells the operator his word was understood when it was silently dropped — the same class of
+        //    "success that isn't" this slice already refuses for a truncated name. Same rule on `clear` and `reset`.
+        if (!mrfw::arg_tail_empty(p)) goto usage;
+        mrnv::JoinBlob rec{};
+        const mrfw::ProfileResult r = join_profile_service().list(rec);
+        if (joinprofile_report_problem(r, out)) return;
+        // ★ TWO DIFFERENT FACTS, ONE ANSWER: an ABSENT store and a valid store with four empty slots are both
+        //   `NO PROFILES` to the operator. ⛔ A CORRUPT store is neither, and never reaches here.
+        if (r.verdict == mrfw::ProfileVerdict::empty || mrfw::join_profile_count(rec) == 0) {
+            out.println(F("> joinprofile NO PROFILES"));
+            return;
+        }
+        for (uint8_t i = 0; i < mrnv::kJoinProfiles; ++i) {
+            const mrnv::JoinProfile& pr = rec.prof[i];
+            if (!pr.present) continue;
+            const mrfw::JoinRequest jr = mrfw::join_request_from_profile(pr);   // the ONE Hz -> MHz/kHz authority (U2)
+            out.print(F("> joinprofile ")); out.print((int)(i + 1));
+            out.print(F(" layer=")); out.print((int)pr.layer);
+            out.print(F(" freq=")); out.print(jr.freq_mhz, 4);    // 4 dp: 869.4625 renders EXACTLY, which is the point
+            out.print(F(" bw=")); out.print(jr.bw_khz, 2);        // 2 dp: 62.50 / 41.67 are real LoRa bandwidths
+            out.print(F(" sf=")); out.print((int)pr.routing_sf);
+            out.print(F(" name=\""));
+            for (uint8_t j = 0; j < pr.name_len && j < sizeof pr.name; ++j) out.write((uint8_t)pr.name[j]);
+            out.println(F("\""));
+        }
+        return;
+    }
+
+    if (!strcmp(verb, "reset")) {
+        // ⛔ A MISSING `confirm` REFUSES WITHOUT LOADING AND WITHOUT WRITING — the service enforces that; this only
+        //    reports whether the word was typed.
+        {
+            const char* c = joinprofile_word(p);
+            if (!mrfw::arg_tail_empty(p)) goto usage;      // `reset confirm extra` — refused, ⛔ never a silent reset
+            const mrfw::ProfileResult r = join_profile_service().reset(c && !strcmp(c, "confirm"));
+            if (joinprofile_report_problem(r, out)) return;
+            out.print(F("> joinprofile reset ")); out.println(mrfw::profile_verdict_name(r.verdict));
+            return;
+        }
+    }
+
+    if (!strcmp(verb, "clear")) {
+        {
+            const char* n = joinprofile_word(p);
+            if (!n) goto usage;
+            if (!mrfw::arg_tail_empty(p)) goto usage;      // `clear 1 extra` — refused BEFORE any load or write
+            // ⛔⛔ NOT `atol`: it parses a PREFIX, so `clear 2junk` used to CLEAR SLOT 2. The strict parse is in
+            //     firmware_config_parse.h where the native suite drives it; the SERVICE still bounds 1..4.
+            long slot = 0;
+            const mrfw::ProfileResult r = mrfw::parse_index_strict(n, slot)
+                                        ? join_profile_service().clear(slot)
+                                        : joinprofile_bad_index();
+            if (joinprofile_report_problem(r, out)) return;
+            out.print(F("> joinprofile clear ")); out.print(n); out.print(' ');
+            out.println(mrfw::profile_verdict_name(r.verdict));
+            return;
+        }
+    }
+
+    if (!strcmp(verb, "set")) {
+        {
+            const char* n = joinprofile_word(p);
+            if (!n) goto usage;
+            // ⛔⛔ NOT `atol`: `set 1x layer=… ` used to overwrite SLOT 1. The refusal is deferred to the ONE service
+            //     call below rather than taken here, so `set 1x wibble=3` still names the unknown key — the more
+            //     actionable of the two truths (§B212's rule). ⛔ ZERO writes on either path.
+            long slot = 0;
+            const bool slot_ok = mrfw::parse_index_strict(n, slot);
+            PhyArgs pa{};                     // freq MHz / bw kHz (FRACTIONAL) / sf / layer — all four REQUIRED
+            char nm[sizeof(mrnv::JoinProfile::name)];
+            size_t name_typed = 0;              // ★ the TYPED length, which may EXCEED the slot — see below
+            char* k; char* v;
+            while (kv_next(p, k, v)) {
+                if (phy_arg_take(pa, k, v, /*allow_layer=*/true)) continue;
+                if (v && !strcmp(k, "name")) {
+                    // ★★ COUNT WHAT WAS TYPED, COPY ONLY WHAT FITS. Handing the service the TRUE length is what lets
+                    //    it REFUSE `name_too_long` (C2) instead of silently storing a truncated label — a truncated
+                    //    name is exactly the "success that isn't" this project has already paid for.
+                    for (const char* c = v; *c; ++c) {
+                        if (name_typed < sizeof nm) nm[name_typed] = *c;
+                        ++name_typed;
+                    }
+                    continue;
+                }
+                out.print(F("> joinprofile err bad/unknown key: ")); out.println(k); goto usage;
+            }
+            if (!(pa.has_freq && pa.has_bw && pa.has_sf && pa.has_layer)) goto usage;
+            // ⛔ THE NARROWING GUARD, VERBATIM FROM `handle_join` AND LOAD-BEARING FOR THE SAME REASON: `PhyArgs::
+            //    layer` is a `long`, so 257 would narrow to a perfectly valid 1 and store a profile for the WRONG
+            //    layer. ⓘ It deliberately does NOT screen a NaN (`phy_args_in_range` accepts one — [[B216]]); the
+            //    service refuses that at the profile boundary, which is where the integral record makes it fatal.
+            if (!phy_args_in_range(pa, /*with_layer=*/true)) goto usage;
+            {
+                mrfw::JoinRequest rq{};
+                rq.layer = (uint8_t)pa.layer; rq.freq_mhz = pa.freq_mhz;
+                rq.bw_khz = pa.bw_khz; rq.routing_sf = (uint8_t)pa.sf;
+                const uint8_t nlen = (uint8_t)(name_typed > 255 ? 255 : name_typed);
+                const mrfw::ProfileResult r = slot_ok
+                    ? join_profile_service().set(slot, rq, name_typed ? nm : nullptr, nlen)
+                    : joinprofile_bad_index();
+                if (joinprofile_report_problem(r, out)) return;
+                out.print(F("> joinprofile set ")); out.print(n); out.print(' ');
+                out.println(mrfw::profile_verdict_name(r.verdict));
+                return;
+            }
+        }
+    }
+
+usage:
+    out.println(F("> joinprofile err usage: joinprofile list | set <1..4> layer=<1..255> freq=<MHz> bw=<kHz 7..500> sf=<5..12> [name=\"<12 chars>\"] | clear <1..4> | reset confirm"));
 }
 
 // `create layer=<1..255> freq=<MHz> bw=<kHz> sf=<5..12> sf_list=<7,9> duty=<percent, 1 = 1%> name="<text>"

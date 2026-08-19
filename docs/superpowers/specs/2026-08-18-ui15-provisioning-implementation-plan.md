@@ -1,7 +1,7 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
-# §UI-15 — on-device provisioning: IMPLEMENTATION PLAN **v5** · 2026-08-19
+# §UI-15 — on-device provisioning: IMPLEMENTATION PLAN **v6** · 2026-08-19
 
-**Status: PLAN v4 — THIRD QG round applied, plus the owner's PHY ruling. ⓘ v3 fixed four blockers (two were
+**Status: PLAN v6 — THIRD QG round applied, plus the owner's PHY ruling. ⓘ v3 fixed four blockers (two were
 contradictions inside v2, one a real RF defect); v4 fixes a correlation term that was UNSATISFIABLE above layer 15.**
 ⛔ **NO PRODUCTION CODE, no storage-format change, no bench-baseline change.**
 ★ Role split: the QA-gate wrote this; **the OWNER rules.** Normative: `2026-07-31-onboard-oled-ui-design.md` §3.6.1-3.6.5.
@@ -49,7 +49,17 @@ membership operation only.
 
 ### 2.2 Static join (⛔ must be EXTRACTED — slice 1)
 A **sibling** transaction, ⛔ **not** an overload of the team one:
-- **`JoinRequest { uint8_t layer; double freq_mhz; uint32_t bw_hz; uint8_t routing_sf; }`**
+- **`JoinRequest { uint8_t layer; double freq_mhz; double bw_khz; uint8_t routing_sf; }`**
+  ⛔⛔ **CORRECTED v6 (slice 1, by MEASUREMENT): `bw` is `double bw_khz`, NOT `uint32_t bw_hz`.** v2-v5 all specified
+  pre-converted Hz and **it broke byte-identity** — `join layer=4 freq=869.525 bw=nan sf=9` went from *joining with
+  `bw_hz=0`* to *refused*, because `khz_to_hz(NaN)` is 0 and ⛔ **no `uint32_t` predicate can tell that apart from a
+  real 0.** `src/firmware_config_parse.h:95-99` carries the standing instruction verbatim: the range tests are written
+  as negated rejects *"so every one of these call sites has always ACCEPTED a NaN … `v >= lo && v <= hi` would start
+  rejecting it — a behaviour change smuggled into a refactor (C1). Preserve it."*
+  ★★ **This is the SAME defect the freq field already had** (v2 `uint32_t freq_khz` → v3 `double freq_mhz`, caught by
+  QG) **repeating one field over — neither QG nor the QA-gate extended the correction to `bw`.** ⇒ the request carries
+  the RAW operator value, `validate_join` runs the SAME `valid_bw_khz` the console runs, and the transaction owns the
+  single `khz_to_hz`. ⓘ Only the **stored** profile (§3) is integral.
   ⛔⛔ **CORRECTED v3: the TRANSIENT request keeps `double freq_mhz`.** v2 specified `uint32_t freq_khz` and that is a
   **real RF defect** — **869.4625 MHz is 869462.5 kHz**, so a `uint32_t` rounds it to 869462 and **changes the
   frequency the bench actually runs on**. It would also have broken slice 1's byte-identity claim. ⇒ **preserve the
@@ -163,8 +173,10 @@ presets). Own `kMagic`, own `kVersion`; ESP32 by `Slot::ns`+`Slot::key`, nRF52 b
   |---|---|---|
   | `set <1..4> …` | ★ **seeds a valid empty four-slot record, applies the slot, and performs ONE write** | ⛔ refuses (`PROFILE STORE INVALID`) |
   | `list` | **`NO PROFILES`** — an ordinary, non-alarming state | **`PROFILE STORE INVALID`** |
-  | `clear <1..4>` | operates on the seeded/valid record | ⛔⛔ **MUST NOT recover corruption** |
-  | `reset confirm` | valid empty record | ★ **the ONLY recovery path** |
+  | `clear <1..4>` | ★ **NO CHANGE, ZERO WRITES** — an honest non-error result ("already empty"), ⛔ not a failure | ⛔⛔ **MUST NOT recover corruption** |
+  | `reset confirm` | ★ **already empty ⇒ ZERO WRITES**, honest non-error result | ★ **the ONLY recovery path** |
+  ★ **Neither verb writes on an absent store**, and ⛔ **neither reports an error for it** — an absent store is an
+  ordinary fresh-device state, and a spurious write would also defeat the byte-identical coalescing rule below.
   ⇒ ⛔ **`clear` must never be a backdoor repair**: it would rewrite three slots it could not read.
 - ★ **Factory reset DELETES `/mrjoin`** — it is **user configuration**, not fault history, so the `/mrfault`
   preservation precedent does **not** apply.

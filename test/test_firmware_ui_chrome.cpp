@@ -388,6 +388,100 @@ TEST_CASE("chrome-batt: unavailable renders --, and the voltage TRUNCATES to one
     CHECK(kVoltsTokenCap == 5);
 }
 
+// ======================================================== §UI-15 §7 — the team-id fingerprint (DISPLAY-ONLY)
+//
+// ★★ THE ONLY REASON THIS HELPER EXISTS IS THAT TWO INDEPENDENT IMPLEMENTATIONS COULD DISAGREE, so these cases pin
+//    the DEFINITION rather than a sample of outputs: the mask, the width, the zero, and the case. §UI-15 plan §7
+//    rejected "six digits derived from the id" for admitting high-bits / low-bits / hash variants — every one of
+//    which passes a test that only checks "six characters come out".
+// ⓘ The helper is CURRENTLY UNCALLED (slice 3 is the definition alone; the INVITE and NEARBY screens are slices 5/6),
+//   so these cases drive it DIRECTLY. That is not a gap — a pinned definition landed before its first consumer is
+//   exactly what stops the second consumer forking it.
+
+TEST_CASE("chrome-fingerprint: §7's definition verbatim — UPPERCASE, ZERO-PADDED hex of the LOW 24 BITS") {
+    char tok[kTeamFpTokenCap];
+    // ★ THE SPEC'S OWN EXAMPLE, BYTE FOR BYTE. §UI-15 plan §7 / brief pin 1: `0x12A1B2C3` -> `A1B2C3`.
+    ui_fmt_team_fingerprint(tok, sizeof tok, 0x12A1B2C3u);
+    CHECK(std::strcmp(tok, "A1B2C3") == 0);
+
+    struct { uint32_t id; const char* tok; const char* why; } k[] = {
+        { 0x12A1B2C3u, "A1B2C3", "§7's example" },
+        { 0x00000000u, "000000", "⛔ NO SPECIAL CASE: 0 is formatted like any other id (C2)" },
+        { 0x00000001u, "000001", "the zero-padding, at its most visible" },
+        { 0x0000000Fu, "00000F", "one hex digit, and it is UPPER case" },
+        { 0x00000100u, "000100", "an interior zero as well as leading ones" },
+        { 0x00FFFFFFu, "FFFFFF", "the widest value the mask can pass" },
+        { 0xFFFFFFFFu, "FFFFFF", "…and the top byte adds NOTHING to it" },
+        { 0x00ABCDEFu, "ABCDEF", "every letter digit, upper case" },
+        { 0x00123456u, "123456", "every numeric digit" },
+    };
+    for (const auto& c : k) {
+        (void)c.why;
+        ui_fmt_team_fingerprint(tok, sizeof tok, c.id);
+        CHECK(std::strcmp(tok, c.tok) == 0);
+        // ⛔ EXACTLY SIX CHARACTERS, ALWAYS — it is a fixed-width field the panel places, not a variable token. A
+        //    `%lX` (no width) implementation passes the `A1B2C3` example above and fails right here.
+        CHECK(std::strlen(tok) == 6u);
+        // …and UPPERCASE: a list holding `a1b2c3` beside `A1B2C3` reads as two teams. Pinned as a PROPERTY over the
+        // whole table, not only on the entries that happen to contain a letter.
+        for (std::size_t i = 0; i < 6; ++i)
+            CHECK(((tok[i] >= '0' && tok[i] <= '9') || (tok[i] >= 'A' && tok[i] <= 'F')));
+    }
+    // The capacity is the token plus its NUL, and nothing this formatter can emit exceeds it.
+    CHECK(kTeamFpTokenCap == 7);
+    CHECK(kTeamFpMask == 0x00FFFFFFu);
+}
+
+TEST_CASE("chrome-fingerprint: the MASK IS the definition — the top byte is invisible, all 24 low bits are not") {
+    char a[kTeamFpTokenCap], b[kTeamFpTokenCap];
+    // ★★ A POSITIVE PROPERTY, NOT A DEFECT (brief pin 3): two ids differing ONLY in bits 24-31 fingerprint
+    //    IDENTICALLY. ⛔ It is safe precisely because of the DISPLAY-ONLY rule — design §3.6.4 point 3 has the
+    //    confirmation select the exact full `team_id`, never the visible fingerprint — so a collision costs a human
+    //    one extra glance, never a wrong join. ⛔ Do not "fix" this by widening the token; that forks the definition.
+    const uint32_t low = 0x00A1B2C3u;
+    for (uint32_t top = 0; top < 256u; ++top) {
+        ui_fmt_team_fingerprint(a, sizeof a, low);
+        ui_fmt_team_fingerprint(b, sizeof b, (top << 24) | low);
+        CHECK(std::strcmp(a, b) == 0);
+        CHECK(std::strcmp(b, "A1B2C3") == 0);
+    }
+    // ★ AND THE OTHER HALF, which is what makes the mask a MASK rather than a truncation to any old six digits: every
+    //   one of bits 0-23 REACHES the token, and each produces a token of its own. A high-bits implementation
+    //   (`id >> 8`), a hash, or a mask one nibble too narrow all die here rather than on the example above.
+    char seen[24][kTeamFpTokenCap];
+    char zero[kTeamFpTokenCap];
+    ui_fmt_team_fingerprint(zero, sizeof zero, 0u);
+    for (int i = 0; i < 24; ++i) {
+        ui_fmt_team_fingerprint(seen[i], sizeof seen[i], uint32_t(1u) << i);
+        CHECK(std::strcmp(seen[i], zero) != 0);                 // the bit is VISIBLE
+    }
+    for (int i = 0; i < 24; ++i)
+        for (int j = i + 1; j < 24; ++j)
+            CHECK(std::strcmp(seen[i], seen[j]) != 0);          // …and no two of them collide
+    // The NEGATIVE control for the same loop: bits 24-31 are invisible, one at a time.
+    for (int i = 24; i < 32; ++i) {
+        ui_fmt_team_fingerprint(a, sizeof a, uint32_t(1u) << i);
+        CHECK(std::strcmp(a, zero) == 0);
+    }
+}
+
+TEST_CASE("chrome-fingerprint: the WHOLE destination is defined, per the chrome formatters' padding rule") {
+    // The neighbours' contract (`ui_pad_token`): each formatter NUL-fills to `cap`, so the bytes of a token are fully
+    // defined and a byte-for-byte comparison of two tokens is sound. ⚠ Poison the buffer first — over a zeroed one
+    // this case would pass against a formatter that padded nothing.
+    char big[16];
+    std::memset(big, 'Z', sizeof big);
+    ui_fmt_team_fingerprint(big, sizeof big, 0x12A1B2C3u);
+    CHECK(std::strcmp(big, "A1B2C3") == 0);
+    for (std::size_t i = 6; i < sizeof big; ++i) CHECK(big[i] == '\0');
+    // ⓘ And a cap SHORTER than the token truncates and still NUL-terminates — `snprintf`'s own contract, asserted
+    //   here so the house idiom's behaviour is stated rather than assumed by a future caller with a tight buffer.
+    char small[4];
+    std::memset(small, 'Z', sizeof small);
+    ui_fmt_team_fingerprint(small, sizeof small, 0x12A1B2C3u);
+    CHECK(std::strcmp(small, "A1B") == 0);
+}
+
 // ===================================================================================== §6 — the badge priority
 
 TEST_CASE("chrome-badge: conflict > unsaved > restart-required > clean, including the two overlapping pairs") {

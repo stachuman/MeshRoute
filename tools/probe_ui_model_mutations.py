@@ -57,6 +57,13 @@ TARGET_SRC = {
     "config": "src/firmware_config_service.h",  # §UI-13 — the typed staged-configuration service
     "chrome": "src/firmware_ui_chrome.h",       # §CHROME-1 — the frozen chrome projection + the §5.2 nav mapping
     "icons":  "src/firmware_ui_icons.h",        # §CHROME-1 — the icon assets and their byte-order contract
+    "joinprofiles": "src/firmware_join_profiles.h",  # §UI-15 slice 2 — the /mrjoin preset store + its write policy
+    # ★★ TWO TARGETS ADDED 2026-08-19 BY THE §UI-15 slice 2 CORRECTIONS, and for the reason the file's own header
+    #    gives: a battery is per-SOURCE-FILE because every safety guard is keyed by the resolved path. The two
+    #    blockers that were NOT in the service live in these two files, so without their own targets the fixes would
+    #    have had no controlled mutation at all — which is the shape ([[B217]]) this run exists to avoid repeating.
+    "devicenv": "src/device_nv.h",              # §UI-15 slice 2 correction — the read arms' SlotIo facts (blockers 1+2)
+    "cfgparse": "src/firmware_config_parse.h",  # §UI-15 slice 2 correction — the strict positional parse (blocker 3)
 }
 _flags = [a for a in sys.argv[1:] if a.startswith("--")]
 _TARGET = "model"
@@ -73,7 +80,41 @@ H = os.path.join(ROOT, TARGET_SRC[_TARGET])
 #    measured nothing — the instrument-that-cannot-fail shape, in the tool built to prevent it. ⇒ the clean tree is run
 #    FIRST and must produce EXACTLY these figures, or the run ABORTS before a single mutation is applied.
 #    ⓘ Override deliberately (a slice that legitimately adds cases): MR_MUT_BASE="cases,asserts".
-BASE_CASES, BASE_ASSERTS = 1680, 83432   # ★★ RE-PINNED 2026-08-16 by §CHROME-4: 1678 / 83346 -> **1680 / 83432**
+BASE_CASES, BASE_ASSERTS = 1767, 85636   # ★★ RE-PINNED 2026-08-19 by §UI-15 slice 3 (the pure team-id
+                                         # fingerprint): **1764 / 84729 -> 1767 / 85636** (+3 cases / +907
+                                         # assertions, ALL three in test/test_firmware_ui_chrome.cpp's new
+                                         # `chrome-fingerprint:` group). ⓘ THE DELTA IS DERIVED, NOT MERELY
+                                         # OBSERVED, which is what proves the previous pin was still exact:
+                                         #   definition table  1 + 9 rows x (strcmp + strlen + 6 char-class) + 2 =  75
+                                         #   the MASK case     256 top-byte pairs x 2 + 24 visible low bits
+                                         #                     + C(24,2)=276 pairwise + 8 invisible high bits  = 820
+                                         #   the padding case  1 + 10 poisoned tail bytes + 1 short-cap        =  12
+                                         #                                                              total  = 907
+                                         # ---- the previous pin's derivation, kept as history ----
+                                         # ★★ RE-PINNED 2026-08-19 by the [[B218]] REOPEN correction (§UI-15
+                                         # slice 2): **1764 / 84705 -> 1764 / 84729** (+0 cases / +24
+                                         # assertions — the false "an OPEN failure is an ORDINARY absent slot"
+                                         # case was REWRITTEN IN PLACE as the tri-state lookup case (NOENT /
+                                         # metadata error / present-but-unopenable, as SUBCASES — hence no case
+                                         # movement), plus the counted `lookups == 0` discriminator on every
+                                         # io == nullptr path of the PIN 6 case).
+                                         # ---- the previous pin's derivation, kept as history ----
+                                         # ★★ RE-PINNED 2026-08-19 by the §UI-15 slice 2 CORRECTIONS:
+                                         # **1754 / 84519 -> 1764 / 84705** (+10 cases / +186 assertions —
+                                         # the two read arms driven through fake backends, the strict
+                                         # positional parse, and the io_failed column of the store matrix).
+                                         # ⛔ RE-PINNING IS PART OF THE SLICE, NOT AN AFTERTHOUGHT: a stale
+                                         # pin ABORTS every battery WITHOUT APPLYING A MUTATION and reports
+                                         # no RED lines — indistinguishable from a battery that found
+                                         # nothing. That is [[B217]], and slice 1 shipped it.
+                                         # ---- the previous pin's derivation, kept as history ----
+                                         # ★★ RE-PINNED 2026-08-19 by §UI-15 slice 2: 1680 / 83432 -> **1754 / 84519**.
+                                         # ⚠ THE PIN WAS ALREADY STALE WHEN THIS SLICE FOUND IT: §UI-15 slice 1 added
+                                         # test/test_firmware_join_service.cpp (uncommitted in the tree) and did NOT
+                                         # re-pin, so the gate below ABORTED on every target. The new value is the
+                                         # MEASURED clean tree (1733/84164 before this slice's 21 cases / 355
+                                         # assertions). ★ The baseline is a property of the TREE, not of the target —
+                                         # one number serves all five batteries, and a stale one disarms all five.
                                          # (+2 cases / +86 assertions: `chrome4-audit:` — design §7.3's audit of
                                          # every PURE panel string against the rail's 19-column body, including
                                          # §7.1 rule 6's preset-collision check — and `chrome-nav:`'s pin on the
@@ -878,6 +919,29 @@ MUTS_CHROME = [
  ("X30 the slot mask bit is not one-per-slot (two rail slots share a bit)",
   "    return (s == NavSlot::none) ? uint8_t(0) : uint8_t(1u << (uint8_t(s) - 1u));",
   "    return (s == NavSlot::none) ? uint8_t(0) : uint8_t(1u << (uint8_t(s) / 2u));"),
+ # --- §UI-15 §7: the team-id fingerprint. ★ ALL THREE ARE THE SAME DEFECT CLASS — a token that still LOOKS like a
+ #     fingerprint but is not the SHARED one, which is the only failure this helper exists to prevent. The plan
+ #     rejected "six digits derived from the id" because independent implementations would disagree; these entries
+ #     install three of the disagreements it admitted, so "they can never disagree" is measured rather than asserted.
+ # ⛔ X31 IS THE MASK ITSELF, WIDENED TO THE WHOLE ID — the tempting "why throw a byte away?" fix. The high byte then
+ #    leaks into the token: `0x12A1B2C3` draws `12A1B2` (truncated at the slot's capacity) instead of `A1B2C3`, and
+ #    two ids that §7 says fingerprint IDENTICALLY stop doing so. ⓘ It is aimed at the CONSTANT rather than the
+ #    snprintf line so that the two format-string entries below stay independently attributable.
+ ("X31 the mask is widened to the whole id (the top byte leaks into the shared token)",
+  "inline constexpr uint32_t    kTeamFpMask     = 0x00FFFFFFu;",
+  "inline constexpr uint32_t    kTeamFpMask     = 0xFFFFFFFFu;"),
+ # ⛔ X32 THE ZERO OF THE WIDTH DROPPED, WHICH IS THE SUBTLEST OF THE THREE: `%6lX` is still six columns wide, so the
+ #    field still LINES UP on the panel — it is SPACE-padded, so `0x00000001` draws `     1`. Every id with a
+ #    non-zero top nibble of the masked value passes it, which is most of them, and a hand-typed sample would miss it.
+ ("X32 the width loses its ZERO (a low id renders SPACE-padded, `     1` for `000001`)",
+  'const int n = snprintf(out, cap, "%06lX", (unsigned long)(team_id & kTeamFpMask));',
+  'const int n = snprintf(out, cap, "%6lX", (unsigned long)(team_id & kTeamFpMask));'),
+ # ⛔ X33 LOWERCASE. §7 says uppercase, and the reason is human: the inviter's panel and the joiner's candidate list
+ #    must show the SAME string. `a1b2c3` beside `A1B2C3` reads as two different teams to the person the token exists
+ #    for. ⓘ The `X`/`x` difference is one character in a format string — exactly the drift a shared definition ends.
+ ("X33 the hex digits are LOWER case (the two ends of a join render the same team differently)",
+  'const int n = snprintf(out, cap, "%06lX", (unsigned long)(team_id & kTeamFpMask));',
+  'const int n = snprintf(out, cap, "%06lx", (unsigned long)(team_id & kTeamFpMask));'),
 ]
 
 # ===== §CHROME-1 — src/firmware_ui_icons.h =========================================================================
@@ -898,7 +962,211 @@ MUTS_ICONS = [
   "inline constexpr uint8_t kIconSettingsUnsaved[7] = { 0x0E, 0x1F, 0x1B, 0x1F, 0x0E, 0x00, 0x00 };"),
 ]
 
-MUTS_BY_TARGET = {"model": MUTS_MODEL, "config": MUTS_CONFIG, "chrome": MUTS_CHROME, "icons": MUTS_ICONS}
+MUTS_JOINPROFILES = [
+ # --- the UNITS. ★ J02/J03/J04 are the three ways this record could quietly join the wrong carrier. -----------------
+ ("J02 MHz -> Hz becomes MHz -> kHz (every stored frequency is 1000x low)",
+  "inline constexpr uint32_t mhz_to_hz(double mhz) { return static_cast<uint32_t>(mhz * 1000000.0 + 0.5); }",
+  "inline constexpr uint32_t mhz_to_hz(double mhz) { return static_cast<uint32_t>(mhz * 1000.0 + 0.5); }"),
+ ("J03 ★ THE TEMPTING U1 'REUSE': MHz->Hz composed from the two EXISTING helpers (rounds TWICE: 869462500 -> 869463000)",
+  "p.freq_hz    = mhz_to_hz(req.freq_mhz);",
+  "p.freq_hz    = meshroute::protocol::khz_to_hz(meshroute::protocol::mhz_to_khz(req.freq_mhz));"),
+ ("J04 the bandwidth is stored in kHz, not Hz (the units-swap mutation the brief names)",
+  "p.bw_hz      = meshroute::protocol::khz_to_hz(req.bw_khz);",
+  "p.bw_hz      = static_cast<uint32_t>(req.bw_khz);"),
+ # --- the NaN boundary ([[B216]]) ----------------------------------------------------------------------------------
+ ("J01 ★★ the non-finite guard is dropped, so a NaN reaches the INTEGRAL cast (UB) exactly as B216 lets it",
+  "if (!std::isfinite(req.freq_mhz) || !std::isfinite(req.bw_khz)) return ProfileErr::not_finite;",
+  ";"),
+ ("J01b the non-finite guard runs AFTER validate_join, so a NaN is reported as an out-of-range number",
+  "if (!std::isfinite(req.freq_mhz) || !std::isfinite(req.bw_khz)) return ProfileErr::not_finite;\n"
+  "    // ⛔ ONE AUTHORITY, NEVER A SECOND RANGE TABLE (U1)",
+  "// ⛔ ONE AUTHORITY, NEVER A SECOND RANGE TABLE (U1)"),
+ # --- the absent/corrupt matrix. ⛔ Each cell that must NOT write gets its own entry. -------------------------------
+ # ⓘ J05/J11's patterns were RE-POINTED 2026-08-19 when the guard became `join_read_unreadable` — ⛔ the entries were
+ # NOT deleted for going vacuous, they were aimed at the line that now carries the rule (and they cover BOTH unreadable
+ # states as a result). A vacuous entry silently measures nothing, which is the whole failure this runner reports.
+ ("J05 ⛔⛔ `clear` BECOMES A BACKDOOR REPAIR: an unreadable store is reseeded and three unread slots are destroyed",
+  "if (join_read_unreadable(st)) { r.err = profile_err_of_unreadable(st); return r; }   // ⛔⛔ NOT a repair",
+  "if (join_read_unreadable(st)) mrnv::join_blob_init(cur);"),
+ ("J11 `set` silently reseeds an UNREADABLE store (corruption becomes indistinguishable from a fresh device)",
+  "if (join_read_unreadable(st)) { r.err = profile_err_of_unreadable(st); return r; }   // ⛔ 0 writes",
+  "if (join_read_unreadable(st)) mrnv::join_blob_init(cur);"),
+ ("J06 `clear` on an ABSENT store seeds a record (a write where the contract allows ZERO)",
+  "if (st == mrnv::JoinRead::absent) { r.verdict = ProfileVerdict::empty; return r; }\n"
+  "        mrnv::JoinBlob want = cur;\n"
+  "        want.prof[slot1 - 1] = mrnv::JoinProfile{};",
+  "if (st == mrnv::JoinRead::absent) mrnv::join_blob_init(cur);\n"
+  "        mrnv::JoinBlob want = cur;\n"
+  "        want.prof[slot1 - 1] = mrnv::JoinProfile{};"),
+ ("J07 `reset confirm` on an ABSENT store writes an empty record (ZERO writes is the contract)",
+  "if (st == mrnv::JoinRead::absent) { r.verdict = ProfileVerdict::empty; return r; }\n"
+  "        mrnv::JoinBlob want{};",
+  "if (st == mrnv::JoinRead::absent) mrnv::join_blob_init(cur);\n"
+  "        mrnv::JoinBlob want{};"),
+ ("J12 the CORRUPT reset goes through the byte compare, so a corrupt store whose bytes look empty is left corrupt",
+  "if (st == mrnv::JoinRead::invalid) return commit_forced(want);",
+  "if (st == mrnv::JoinRead::invalid) return commit(cur, want);"),
+ ("J15 the ABSENT seed is dropped, so a partial read's GARBAGE is written back as the record",
+  "if (st == mrnv::JoinRead::absent) mrnv::join_blob_init(cur);",
+  ";"),
+ # --- the write policy ---------------------------------------------------------------------------------------------
+ ("J08 the byte-identical coalescing guard is dropped (every re-set writes flash)",
+  "if (memcmp(&want, &cur, sizeof want) == 0) { r.verdict = ProfileVerdict::unchanged; return r; }",
+  ";"),
+ ("J13 `reset` no longer requires `confirm` (all four slots discarded on a typo)",
+  "if (!confirmed) { r.err = ProfileErr::needs_confirm; return r; }",
+  ";"),
+ # --- the index and the name ---------------------------------------------------------------------------------------
+ ("J09 the slot bound is off by one at the TOP end (slot 4 refuses)",
+  "inline bool valid_profile_slot(long slot1) { return slot1 >= 1 && slot1 <= static_cast<long>(mrnv::kJoinProfiles); }",
+  "inline bool valid_profile_slot(long slot1) { return slot1 >= 1 && slot1 < static_cast<long>(mrnv::kJoinProfiles); }"),
+ ("J14 an over-long name is TRUNCATED instead of refused (a 'success that isn't')",
+  "if (name_len > sizeof(mrnv::JoinProfile::name)) return ProfileErr::name_too_long;   // C2: refuse, ⛔ never truncate",
+  ";"),
+ ("J10 the slot is not zeroed before composition, so a shorter name leaves a stale tail (coalescing loses meaning)",
+  "p = mrnv::JoinProfile{};\n    p.present    = 1;",
+  "p.present    = 1;"),
+ # --- the ORDER ----------------------------------------------------------------------------------------------------
+ # --- the FOURTH store state (2026-08-19 correction). ⛔ Every one of these is a plausible "simplification". -------
+ ("J17 ★★★ `reset confirm` REPAIRS a store it could not read — four possibly-intact profiles destroyed by a mount fault",
+  "        if (st == mrnv::JoinRead::io_failed) { r.err = ProfileErr::store_io_failed; return r; }   // ⛔ 0 writes",
+  "        ;"),
+ ("J18 ★★★ `list` reports a STORAGE FAILURE as an empty store (the `NO PROFILES` lie, one layer up)",
+  "        if (st == mrnv::JoinRead::absent) { r.verdict = ProfileVerdict::empty; return r; }\n"
+  "        r.err = profile_err_of_unreadable(st);  // verdict stays `refused` (the default)",
+  "        if (st != mrnv::JoinRead::invalid) { r.verdict = ProfileVerdict::empty; return r; }\n"
+  "        r.err = profile_err_of_unreadable(st);  // verdict stays `refused` (the default)"),
+ ("J19 the two unreadable answers are COLLAPSED, so a dead flash is told to type `reset confirm`",
+  "    return st == mrnv::JoinRead::io_failed ? ProfileErr::store_io_failed : ProfileErr::store_invalid;",
+  "    return ProfileErr::store_invalid;"),
+ ("J20 `io_failed` stops counting as unreadable, so `set`/`clear` write onto a record they never read",
+  "    return st == mrnv::JoinRead::invalid || st == mrnv::JoinRead::io_failed;",
+  "    return st == mrnv::JoinRead::invalid;"),
+ ("J16 validation runs AFTER the load, so a refused request still costs a flash READ",
+  "const ProfileErr ve = validate_profile(req, name_len);\n"
+  "        if (ve != ProfileErr::none) { r.err = ve; return r; }                          // ⛔ 0 loads, 0 writes\n"
+  "\n"
+  "        mrnv::JoinBlob cur{};\n"
+  "        const mrnv::JoinRead st = _store.load(cur);",
+  "mrnv::JoinBlob cur{};\n"
+  "        const mrnv::JoinRead st = _store.load(cur);\n"
+  "        const ProfileErr ve = validate_profile(req, name_len);\n"
+  "        if (ve != ProfileErr::none) { r.err = ve; return r; }"),
+]
+
+
+# ===== §UI-15 slice 2 CORRECTIONS — src/device_nv.h (blockers 1 and 2) ==============================================
+# ★★★ WHAT THESE MEASURE. Until 2026-08-19 the two live read arms folded "the BACKEND would not open" into the same
+#     `-1` they use for "there is no such record", and `join_blob_state` mapped that to `absent` — so a filesystem
+#     that would not mount announced NO PROFILES. And neither arm looked at the stored SIZE, so an over-length file
+#     was accepted as a valid PREFIX. Both fixes are now in HOISTED sequences the native suite drives; these entries
+#     are the proof that driving them MEASURES something. ⛔ Each is a TEMPTING WRONG FIX, not a deletion.
+MUTS_DEVICENV = [
+ # --- blocker 1: the storage failure ------------------------------------------------------------------------------
+ ("N01 ★★★ THE DEFECT ITSELF: the mount result is discarded again, so a dead FS reads as a fresh device",
+  "    if (!fs.mount())    { if (io) io->backend_failed = true; return kSlotAbsent; }",
+  "    fs.mount();"),
+ ("N02 the mount failure is recorded but the read continues (a half-fix: the fact is set, the early return dropped)",
+  "    if (!fs.mount())    { if (io) io->backend_failed = true; return kSlotAbsent; }",
+  "    if (!fs.mount() && io) io->backend_failed = true;"),
+ ("N03 ★★ THE ESP32 CLASSIFIER IS INVERTED: a first boot is called a STORAGE FAILURE (the same lie, other way)",
+  "    if (!nvs.open(ns)) { if (io && !nvs.ns_absent(ns)) io->backend_failed = true; return kSlotAbsent; }",
+  "    if (!nvs.open(ns)) { if (io) io->backend_failed = true; return kSlotAbsent; }"),
+ ("N04 the ESP32 classifier is dropped, so 'NVS would not open' is a fresh device again",
+  "    if (!nvs.open(ns)) { if (io && !nvs.ns_absent(ns)) io->backend_failed = true; return kSlotAbsent; }",
+  "    if (!nvs.open(ns)) return kSlotAbsent;"),
+ ("N05 ★★ the backend fact is consulted AFTER the absent test — the ordering that loses it entirely",
+  "    if (io.backend_failed) return JoinRead::io_failed;\n"
+  "    // ★ AN OVER-LENGTH RECORD IS `invalid`, ⛔ never `ok`. `n` alone cannot see it: nRF52 reads `len` bytes out of a\n"
+  "    //   longer file and returns EXACTLY `len`, so a valid PREFIX would pass every check below.\n"
+  "    if (io.oversize) return JoinRead::invalid;\n"
+  "    if (n == kSlotAbsent) return JoinRead::absent;",
+  "    if (n == kSlotAbsent) return JoinRead::absent;\n"
+  "    if (io.backend_failed) return JoinRead::io_failed;\n"
+  "    if (io.oversize) return JoinRead::invalid;"),
+ ("N06 a storage failure is folded into `invalid` (the tempting collapse — it prints the WRONG remedy)",
+  "    if (io.backend_failed) return JoinRead::io_failed;",
+  "    if (io.backend_failed) return JoinRead::invalid;"),
+ # --- [[B218]] REOPENED (2026-08-19): the tri-state nRF52 lookup --------------------------------------------------
+ # ★★★ `File::open() == false` carries FOUR facts and only LFS_ERR_NOENT is a fresh device; the fix classifies the
+ #     adapter's raw `lfs_stat` rc IN THE TEMPLATE. Each entry is the collapse someone would make "to simplify".
+ ("N13 ★★★ THE REOPENED DEFECT: ANY lookup error is absent again — a metadata error reads as a fresh device",
+  "        if (rc != FsT::kFoundRc)  { io->backend_failed = true; return kSlotAbsent; }  // (1) metadata error — ⛔ the open is NOT attempted",
+  "        if (rc != FsT::kFoundRc)  return kSlotAbsent;"),
+ ("N14 ★★★ present-but-unopenable collapses to absent — four possibly-intact profiles read as NO PROFILES",
+  "        if (!fs.open(path)) { io->backend_failed = true; return kSlotAbsent; }",
+  "        if (!fs.open(path)) return kSlotAbsent;"),
+ ("N15 ⛔ the lookup is issued for EVERY record ('compute first, gate later') — the four bool records pay a stat each",
+  "    if (io) {\n        // ★ ONLY",
+  "    { const int probe = fs.lookup(path); (void)probe; }   // the stat asked unconditionally\n    if (io) {\n        // ★ ONLY"),
+ ("N07 ★★★ THE OVER-LENGTH CHECK IS DROPPED, so a longer file is accepted on its valid PREFIX",
+  "    if (io && fs.size() > len) io->oversize = true;          // ★ a longer file would otherwise read as a valid PREFIX",
+  ";"),
+ ("N08 the size comparison is `>=`, so an EXACTLY-sized record is rejected too (the off-by-one wrong fix)",
+  "    if (io && fs.size() > len) io->oversize = true;          // ★ a longer file would otherwise read as a valid PREFIX",
+  "    if (io && fs.size() >= len) io->oversize = true;"),
+ ("N09 the ESP32 over-length check is dropped",
+  "    if (io && nvs.blob_len(key) > len) io->oversize = true;       // ★ the same PREFIX hazard, seen from the other arm",
+  ";"),
+ ("N10 an over-length record is accepted anyway (the fact is gathered and then ignored)",
+  "    if (io.oversize) return JoinRead::invalid;",
+  ";"),
+ # --- the shared contract: the four OTHER records must not start paying for /mrjoin's extra facts ------------------
+ ("N11 ⛔ the extra FS question is asked for EVERY record (⛔ /mrcfg, /mrid, /mrpeers, /mrfault must not move)",
+  "    if (io && fs.size() > len) io->oversize = true;          // ★ a longer file would otherwise read as a valid PREFIX",
+  "    const bool over = fs.size() > len;\n    if (io) io->oversize = over;"),
+ ("N12 ⛔ the ESP32 nvs_open classification runs for every record, on every open failure",
+  "    if (!nvs.open(ns)) { if (io && !nvs.ns_absent(ns)) io->backend_failed = true; return kSlotAbsent; }",
+  "    if (!nvs.open(ns)) { const bool miss = nvs.ns_absent(ns); if (io && !miss) io->backend_failed = true; return kSlotAbsent; }"),
+]
+
+# ===== §UI-15 slice 2 CORRECTIONS — src/firmware_config_parse.h (blocker 3) =========================================
+# ★★ `handle_joinprofile` read its slot with `atol`, which PARSES A PREFIX: `clear 2junk` cleared slot 2 and
+#    `set 1x …` overwrote slot 1. The strict parse lives here because `src/firmware_config.cpp` is compiled by no
+#    automated build; these entries are what makes "strict" a measurement instead of an adjective.
+MUTS_CFGPARSE = [
+ ("P01 ★★★ THE DEFECT ITSELF: the parse falls back to atol, so a prefix is accepted again",
+  "inline bool parse_index_strict(const char* tok, long& out) {\n"
+  "    if (!tok || !*tok) return false;\n"
+  "    long v = 0;\n"
+  "    for (const char* c = tok; *c; ++c) {\n"
+  "        if (*c < '0' || *c > '9') return false;",
+  "inline bool parse_index_strict(const char* tok, long& out) {\n"
+  "    if (!tok || !*tok) return false;\n"
+  "    long v = atol(tok);\n"
+  "    for (const char* c = tok; *c; ++c) {\n"
+  "        if (*c < '0' || *c > '9') break;"),
+ ("P02 the loop stops at the first non-digit instead of refusing (atol's exact leniency, hand-written)",
+  "        if (*c < '0' || *c > '9') return false;",
+  "        if (*c < '0' || *c > '9') break;"),
+ ("P03 an EMPTY token parses as slot 0 rather than refusing (the 'unparsable == zero' conflation)",
+  "    if (!tok || !*tok) return false;",
+  "    if (!tok) return false;\n    if (!*tok) { out = 0; return true; }"),
+ ("P04 `out` is written on a REFUSAL too (\"report how far we got\") — a caller that skips the bool gets a partial index",
+  "        if (*c < '0' || *c > '9') return false;",
+  "        if (*c < '0' || *c > '9') { out = v; return false; }"),
+ ("P05 overflow WRAPS instead of refusing (a 20-digit token becomes a plausible small slot)",
+  "        if (v > (2147483647L - d) / 10) return false;   // ⛔ refuse, never wrap. 2^31-1 because `long` is 32 bits on",
+  "        if (false) return false;                        // ⛔ refuse, never wrap. 2^31-1 because `long` is 32 bits on"),
+ ("P06 ★★ A LEADING SIGN IS ACCEPTED, so `-1` and `-0` become indices",
+  "        if (*c < '0' || *c > '9') return false;\n"
+  "        const long d = *c - '0';",
+  "        if (c == tok && (*c == '-' || *c == '+')) continue;\n"
+  "        if (*c < '0' || *c > '9') return false;\n"
+  "        const long d = *c - '0';"),
+ ("P07 ★★ a trailing token is IGNORED again (`list extra` runs a plain list and drops the word)",
+  "inline bool arg_tail_empty(const char* p) {\n"
+  "    if (!p) return true;\n"
+  "    while (*p == ' ') ++p;\n"
+  "    return *p == '\\0';\n}",
+  "inline bool arg_tail_empty(const char*) { return true; }"),
+ ("P08 the tail check stops at the first space, so ` extra` reads as empty",
+  "    while (*p == ' ') ++p;\n    return *p == '\\0';",
+  "    return *p == '\\0' || *p == ' ';"),
+]
+
+MUTS_BY_TARGET = {"model": MUTS_MODEL, "config": MUTS_CONFIG, "chrome": MUTS_CHROME, "icons": MUTS_ICONS,
+                  "joinprofiles": MUTS_JOINPROFILES, "devicenv": MUTS_DEVICENV, "cfgparse": MUTS_CFGPARSE}
 MUTS = MUTS_BY_TARGET[_TARGET]
 
 def md5(p):

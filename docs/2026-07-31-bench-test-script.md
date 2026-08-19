@@ -2804,3 +2804,43 @@ This is a truthfulness check. It does not change or qualify the attachment algor
 
 ⓘ `recovering` and the impossible `attached`-without-home diagnostic are host-gated. Do not destabilise a metal
 topology merely to manufacture them.
+
+## Part 28 — §UI-15 slice 2: the `/mrjoin` profile store on REAL flash (2026-08-19)
+
+⛔ **THE RESIDUE ONLY.** The record layout, the tri-state read, the absent/corrupt matrix, the units and the
+coalescing decision are all host-gated (`test/test_firmware_join_profiles.cpp` + `tools/probe_ui_model_mutations.py
+--target=joinprofiles`, 17 entries). **What no host reaches is a real NVS/LittleFS write, wear, and a power cut** —
+⛔ the power-cut half is **slice 7**, not this Part.
+
+1. Fresh chip: `joinprofile list` ⇒ **`> joinprofile NO PROFILES`** — ★ the ordinary absent state, ⛔ never
+   `PROFILE STORE INVALID`.
+2. `joinprofile set 1 layer=4 freq=869.4625 bw=125 sf=9 name="hut"` ⇒ `> joinprofile set 1 ok`; then
+   `joinprofile list` ⇒ `> joinprofile 1 layer=4 freq=869.4625 bw=125.00 sf=9 name="hut"`.
+   ★★ **The four decimals are the Hz-not-kHz pin on metal:** 869.4625 MHz is 869462.5 kHz — not integral — so a store
+   that kept kHz would come back **869.462** or **869.463**. Reading `869.4625` back proves the record kept **Hz**.
+3. Repeat the identical `set` ⇒ **`> joinprofile set 1 unchanged`** and ⛔ **no flash write** (the coalescing guard).
+4. ★ **Power-cycle**, then `joinprofile list` ⇒ slot 1 still there. ⓘ **This is the only step that exercises the
+   backend at all** — everything above it ran against a fake store.
+5. `joinprofile clear 1` ⇒ `ok`. `joinprofile reset` (no `confirm`) ⇒ **`> joinprofile err needs_confirm …`** and
+   ⛔ **nothing written**. `joinprofile reset confirm` ⇒ `ok` / `unchanged`.
+6. ★★ **`factory_reset confirm`, then `joinprofile list` ⇒ `> joinprofile NO PROFILES`.** This is the owner's
+   ruling proved on metal — `/mrjoin` lives in the `"mr"` namespace precisely so a factory reset takes it, unlike
+   `/mrfault` which sits in its own namespace to survive one.
+7. On a **gateway** build: `joinprofile list` ⇒ `> err gateway_build (joinprofile is normal-node only)`.
+
+### 28.4 — ★ the FRESH-CHIP line (Heltec V3, `mr` NVS namespace never written)
+⛔ **Run BEFORE any `cfg set` / `regen`** — the first save of *any* record creates the namespace and the window closes.
+`joinprofile list` ⇒ **`> joinprofile NO PROFILES`**, and ⛔ **NOT** the storage-failure line.
+★ **This is the only check that can reach the ESP32 `nvs_open` / `ESP_ERR_NVS_NOT_FOUND` classifier** ([[B218]]):
+`Preferences::begin()` answers the same `false` for "never written" as for "would not open", so without that
+classifier a **fresh chip would report STORAGE FAILURE**.
+
+### 28.5 — the strict index (either board, no reflash)
+`joinprofile clear 2junk` and `joinprofile set 1x layer=4 freq=868 bw=125 sf=9` ⇒ **`> joinprofile err bad_index`**,
+and a following `joinprofile list` shows the slots **UNCHANGED** ([[B220]] — `atol` used to accept these as slots 2
+and 1, **and write**). `joinprofile list extra` ⇒ the usage line, ⛔ not silent acceptance.
+
+### 28.6 — ⛔ NOT REACHABLE ON THE BENCH, stated rather than glossed
+The **`PROFILE STORE UNREADABLE / STORAGE FAILURE`** line itself: inducing an unmountable LittleFS or an unopenable
+NVS is not a bench operation. ⇒ **its BEHAVIOUR is proven natively; its RENDERING on metal is not.** Related coverage
+residue: [[B221]] (the NV adapters are compiled by no automated gate).

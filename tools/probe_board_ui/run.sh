@@ -398,20 +398,32 @@ CFG_CPP="$ROOT/src/firmware_config.cpp"
 #    `device_cfg_store()` adds NO direct `mrnv::save(`, so the balance no longer sees it — it would have to bump
 #    `CFG_ROUTED_SITES` and add its own W-check, exactly as a direct writer must bump `CFG_NOTIFY_SITES`. W20's
 #    control (e) is what keeps that honest for the ONE route that exists today.
+# ★★★ UPDATED 2026-08-19 BY §UI-15 SLICE 1 — THE SECOND ROUTED VERB, AND THE ARITHMETIC IS EXTENDED THE SAME WAY
+#     §PROV-TX EXTENDED IT RATHER THAN RELAXED. `handle_join` no longer calls `mrnv::save` either: its `/mrcfg` write
+#     now goes through the typed STATIC-JOIN transaction, i.e. through the SAME exempt `ICfgStore::save` override.
+#     ⇒ the file drops to SIX direct `mrnv::save(` (five verbs + the override) while still holding SEVEN
+#     notifications, so the routed credit must rise to TWO or the balance reports 5 == 7 and fails.
+#     MEASURED, not assumed: before the slice the file had 7 saves / 7 notifies / 1 route; after it has 6 / 7 / 2.
+# ★★ AND THE CREDIT IS STILL EARNED PER ROUTE, NOT GRANTED AS A NUMBER: each named route must be present EXACTLY
+#    ONCE. A refactor that deletes either one drops its term to 0 and fails LOUDLY — the reason §PROV-TX made this a
+#    counted match instead of a constant in the first place. W20's controls (e)/(f) exercise both.
 CFG_NOTIFY_SITES=7                 # the seven USER-INITIATED verbs — bump this ONLY together with a new W-check
 CFG_STORE_SAVE='bool save(const mrnv::Blob& b) override { return mrnv::save(b); }'   # the ONE exempt save
-CFG_ROUTED_SITES=1                 # §PROV-TX: verbs whose /mrcfg write goes through ICfgStore::save, not mrnv::save
-CFG_ROUTED_CALL='prov_service().apply_team('                                        # …and the route that earns it
+CFG_ROUTED_SITES=2                 # verbs whose /mrcfg write goes through ICfgStore::save, not mrnv::save
+CFG_ROUTED_CALL='prov_service().apply_team('        # §PROV-TX  — the team route that earns its credit
+CFG_ROUTED_CALL2='join_service().apply_join('       # §UI-15 s1 — the static-join route that earns its credit
 cfg_writer_counts_ok() {  # the SHARED tripwire: every non-exempt /mrcfg write in this file has a notification
-  local notifies saves exempt routed
+  local notifies saves exempt routed routed2
   notifies=$(code_flat "$1" | grep -oF 'mr_ui_on_config_saved()' | grep -c .)
   saves=$(code_flat "$1"   | grep -oF 'mrnv::save('            | grep -c .)
   exempt=$(code_flat "$1" | tr -s ' ' | grep -oF "$CFG_STORE_SAVE" | grep -c .)
   routed=$(code_flat "$1" | tr -s ' ' | grep -oF "$CFG_ROUTED_CALL" | grep -c .)
+  routed2=$(code_flat "$1" | tr -s ' ' | grep -oF "$CFG_ROUTED_CALL2" | grep -c .)
   [ "$exempt" -eq 1 ]                        || return 1   # the override must stay identifiable, or the sum lies
-  [ "$routed" -eq "$CFG_ROUTED_SITES" ]      || return 1   # ★ the routed credit must be EARNED by a present route
+  [ "$routed" -eq 1 ] && [ "$routed2" -eq 1 ] || return 1  # ★ EACH routed credit must be EARNED by a present route
+  [ "$((routed + routed2))" -eq "$CFG_ROUTED_SITES" ] || return 1
   [ "$notifies" -eq "$CFG_NOTIFY_SITES" ]    || return 1   # the PIN: any new writer forces the harness to be updated
-  [ "$((saves - exempt + routed))" -eq "$notifies" ]; }    # the TRIPWIRE: a BARE save is an unnotified writer
+  [ "$((saves - exempt + routed + routed2))" -eq "$notifies" ]; }    # the TRIPWIRE: a BARE save is an unnotified writer
 nsite() {  # nsite(file, literal-comment-stripped-space-squeezed-sequence)
   cfg_writer_counts_ok "$1" || return 1
   code_flat "$1" | tr -s ' ' | grep -qF "$2"; }
@@ -443,12 +455,23 @@ wchk_in "$CFG_CPP" "W14 handle_gateway NOTIFIES after its successful /mrcfg writ
          's|    if (!mrnv::save(b)) { out.println(F("> gateway err nv_save_failed")); return; }|    mr_ui_on_config_saved();\n    if (!mrnv::save(b)) { out.println(F("> gateway err nv_save_failed")); return; }|' \
          's|(F("> gateway err nv_save_failed")); return; }|(F("> gateway err nv_save_failed")); }|' \
          's|{ out.println(F("> gateway err nv_save_failed")); return; }|{ mr_ui_on_config_saved(); out.println(F("> gateway err nv_save_failed")); return; }|'
-w15() { nsite "$1" 'if (!mrnv::save(b)) { out.println(F("> join err nv_save_failed")); return; } mr_ui_on_config_saved();'; }
-wchk_in "$CFG_CPP" "W15 handle_join NOTIFIES after its successful /mrcfg write" \
-     w15 '/join err nv_save_failed/{n;s|mr_ui_on_config_saved();|;|;}' \
-         's|        if (!mrnv::save(b)) { out.println(F("> join err nv_save_failed")); return; }|        mr_ui_on_config_saved();\n        if (!mrnv::save(b)) { out.println(F("> join err nv_save_failed")); return; }|' \
-         's|(F("> join err nv_save_failed")); return; }|(F("> join err nv_save_failed")); }|' \
-         's|{ out.println(F("> join err nv_save_failed")); return; }|{ mr_ui_on_config_saved(); out.println(F("> join err nv_save_failed")); return; }|'
+# ⚠⚠ W15 REWRITTEN 2026-08-19 BY §UI-15 SLICE 1, AND THE WITHDRAWN WORDING IS KEPT BECAUSE IT IS THE HISTORY A READER
+#    NEEDS: it pinned *"if (!mrnv::save(b)) { out.println(F(\"> join err nv_save_failed\")); return; }
+#    mr_ui_on_config_saved();"* — the verb's own inline save. `handle_join`'s `/mrcfg` write now goes through the
+#    typed STATIC-JOIN TRANSACTION, so there is no `mrnv::save(` at this site left to sequence against.
+# ★★ THE NEW PROPERTY IS THE SAME ONE W17 PINS FOR `handle_team`, and deliberately so — two transaction-routed verbs
+#    must not grow two different shapes: the verb guards on the TYPED verdict and notifies ONLY on `started`. That
+#    matters more here than a bare presence grep can express, because `refused` and `nv_failed` are BOTH non-writes.
+# ★ FOUR CONTROLS — the same four wrong answers, re-aimed at this shape:
+#     (a) the guard+notification pair deleted;   (b) a notification BEFORE the transaction (the count clause catches it);
+#     (c) the guard's `return`/`goto` dropped, so a refusal falls THROUGH into the notification;
+#     (d) a notification added inside the not-started branch — a claim of a change on a write that did not happen.
+w15() { nsite "$1" 'if (res.verdict != mrfw::JoinVerdict::started) { if (join_report_not_started(res, out)) return; goto usage; } mr_ui_on_config_saved();'; }
+wchk_in "$CFG_CPP" "W15 handle_join NOTIFIES only on the transaction's started verdict" \
+     w15 's|        if (res.verdict != mrfw::JoinVerdict::started) { if (join_report_not_started(res, out)) return; goto usage; }||' \
+         's|        const mrfw::JoinResult res = join_service().apply_join(rq);|        mr_ui_on_config_saved();\n        const mrfw::JoinResult res = join_service().apply_join(rq);|' \
+         's|{ if (join_report_not_started(res, out)) return; goto usage; }|{ (void)join_report_not_started(res, out); }|' \
+         's|{ if (join_report_not_started(res, out)) return; goto usage; }|{ if (join_report_not_started(res, out)) { mr_ui_on_config_saved(); return; } goto usage; }|'
 w16() { nsite "$1" 'if (!mrnv::save(b)) { out.println(F("> create err nv_save_failed")); return; } mr_ui_on_config_saved();'; }
 wchk_in "$CFG_CPP" "W16 handle_create NOTIFIES after its successful /mrcfg write" \
      w16 '/create err nv_save_failed/{n;s|mr_ui_on_config_saved();|;|;}' \
@@ -509,13 +532,17 @@ wchk_in "$CFG_CPP" "W19 handle_password NOTIFIES on the success side of its exis
 #   keep both totals balanced and W20 would pass. **W12-W19's per-site SEQUENCE clauses are what catch that** — W20
 #   guards "no unnotified writer", they guard "each notification is at its own site, after its own successful save".
 #   ⛔ And the scope limit above still applies: a new verb in a DIFFERENT file is caught by neither.
+# ★ (e)/(f) ARE ONE CONTROL PER ROUTE — 2026-08-19, §UI-15 slice 1 added the second. Renaming EITHER transaction call
+#   drops that route's term to 0 and must turn the gate RED, which is what stops the routed credit from becoming a
+#   constant somebody bumps. ⛔ A new routed verb owes a THIRD control here, not just a bigger `CFG_ROUTED_SITES`.
 w20() { cfg_writer_counts_ok "$1"; }
 wchk_in "$CFG_CPP" "W20 every non-exempt /mrcfg write in the file has a notification (the future-writer tripwire)" \
      w20 's|    out.print(F("> left network (kept freq="));|    { mrnv::Blob nb{}; (void)mrnv::save(nb); }\n    out.print(F("> left network (kept freq="));|' \
          's|    out.print(F("> left network (kept freq="));|    { mrnv::Blob nb{}; (void)mrnv::save(nb); mr_ui_on_config_saved(); }\n    out.print(F("> left network (kept freq="));|' \
          's|bool save(const mrnv::Blob& b) override { return mrnv::save(b); }|bool save(const mrnv::Blob\& b) override { const bool ok = mrnv::save(b); return ok; }|' \
          '/leave err nv_save_failed/{n;s|mr_ui_on_config_saved();|;|;}' \
-         's|prov_service().apply_team(rq, c, snap)|prov_service().apply_team_renamed(rq, c, snap)|'
+         's|prov_service().apply_team(rq, c, snap)|prov_service().apply_team_renamed(rq, c, snap)|' \
+         's|join_service().apply_join(rq)|join_service().apply_join_renamed(rq)|'
 # ================================================================================================ W21
 # ★★★ §T2 / [[B189]] — THE SOLE PRODUCTION BRIDGE FROM THE DEVICE-HAL OUTCOME RING INTO CORE. Native tests can
 #     drive `DeviceHal` and `Node::on_tx_complete` independently, but `src/fw_main.cpp` is outside that build; the

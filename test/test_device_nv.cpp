@@ -485,3 +485,277 @@ TEST_CASE("device_nv: the record sizes the version policy guards are what the st
     CHECK(kIdMagic == 0x4D524944u);                           // 'MRID'
     CHECK(kPeersMagic == 0x4D525052u);                        // 'MRPR'
 }
+
+// ============================================================ §UI-15 slice 2 CORRECTION (2026-08-19) — THE READ ARMS
+// ★★★ WHY THESE CASES EXIST AT ALL. Until 2026-08-19 the two live `read_slot` arms were unreachable from the host, so
+//     the QUESTION "what does this arm answer when the BACKEND will not open?" had no runnable answer — and the actual
+//     answer was `-1`, the same code as "there is no such record", which `join_blob_state` mapped to `absent`. A
+//     broken filesystem therefore announced **NO PROFILES**. The two sequences are now hoisted
+//     (`mrnv::fs_read_slot` / `mrnv::nvs_read_slot`), so these drive the REAL branch order against fakes that fail
+//     the way the real backends fail — ⛔ not by hand-feeding a return value the shipped backend can never produce,
+//     which is exactly the vacuity the QG HOLD found in the over-length case below.
+// ⛔ WHAT THEY STILL CANNOT SEE: the adapters (`InternalFsSlot`, `PreferencesSlot`). Each member forwards the library
+//    calls and holds no branch — [[B218]]'s `lookup` is a locked stat surfacing the RAW rc, classified up in the
+//    template, never in the shim; the flash itself remains the owner's bench.
+namespace {
+
+// The Adafruit-LittleFS shape `fs_read_slot` requires — and NOTHING else, so a member the sequence stops calling
+// makes this fake stop compiling rather than silently go unmeasured.
+// ★ [[B218]]: it mirrors `InternalFsSlot`'s two classification constants and its raw-rc `lookup`, so the tri-state
+//   branch in the HOISTED template is driven against the same convention the live shim answers in (LFS_ERR_OK /
+//   LFS_ERR_NOENT / any other negative = a metadata error).
+struct FakeFs {
+    static constexpr int kFoundRc  = 0;    // == LFS_ERR_OK on the live shim
+    static constexpr int kAbsentRc = -2;   // == LFS_ERR_NOENT — ⛔ the ONLY rc that means "fresh device"
+    bool     mount_ok   = true;
+    bool     open_ok    = true;
+    int      lookup_result = kFoundRc;     // the raw lfs_stat rc the adapter surfaces ([[B218]])
+    uint32_t file_size  = 0;      // ★ the fact the `int` cannot carry: what is ACTUALLY on the medium
+    int      read_result = 0;     // what File::read() returns (< 0 = a corrupt CTZ block)
+    const void* payload = nullptr;
+    size_t   payload_len = 0;
+    int mounts = 0, lookups = 0, opens = 0, sizes = 0, reads = 0, closes = 0;
+
+    bool     mount()                { ++mounts; return mount_ok; }
+    int      lookup(const char*)    { ++lookups; return lookup_result; }
+    bool     open(const char*)      { ++opens;  return open_ok; }
+    uint32_t size()                 { ++sizes;  return file_size; }
+    void     close()                { ++closes; }
+    int      read(void* dst, size_t len) {
+        ++reads;
+        if (payload) std::memcpy(dst, payload, payload_len < len ? payload_len : len);
+        return read_result;
+    }
+};
+
+// The Preferences/NVS shape `nvs_read_slot` requires.
+struct FakeNvs {
+    bool   open_ok    = true;
+    bool   ns_missing = false;    // ESP_ERR_NVS_NOT_FOUND — "this namespace has never been written"
+    bool   key_ok     = true;
+    size_t stored_len = 0;
+    int    get_result = 0;
+    const void* payload = nullptr;
+    size_t payload_len = 0;
+    int opens = 0, key_checks = 0, len_checks = 0, gets = 0, closes = 0, absent_checks = 0;
+
+    bool   open(const char*)            { ++opens; return open_ok; }
+    bool   ns_absent(const char*)       { ++absent_checks; return ns_missing; }
+    bool   has_key(const char*)         { ++key_checks; return key_ok; }
+    size_t blob_len(const char*)        { ++len_checks; return stored_len; }
+    void   close()                      { ++closes; }
+    int    get_bytes(const char*, void* dst, size_t len) {
+        ++gets;
+        if (payload) std::memcpy(dst, payload, payload_len < len ? payload_len : len);
+        return get_result;
+    }
+};
+
+JoinBlob valid_join() { JoinBlob b{}; join_blob_init(b); return b; }
+
+}  // namespace
+
+TEST_CASE("device_nv/nRF52 arm: a MOUNT FAILURE is a STORAGE FAILURE — ⛔ never the fresh-device 'absent'") {
+    FakeFs fs; fs.mount_ok = false;
+    JoinBlob out{};
+    SlotIo io;
+    const int n = fs_read_slot(fs, "/mrjoin", &out, sizeof out, &io);
+
+    // ★ THE `int` IS UNCHANGED, and that is the whole shape of the fix: /mrcfg, /mrid, /mrpeers and /mrfault read
+    //   the same -1 they always did (an unmounted FS could not have opened the file either), so nothing about them
+    //   moves. The NEW fact rides `io`.
+    CHECK(n == kSlotAbsent);
+    CHECK(fs.opens == 0);                       // ⛔ and it no longer even tries the open
+    CHECK(fs.lookups == 0);                     // ⛔ nor the lookup — an unmounted FS cannot answer a stat either
+    CHECK(io.backend_failed);
+    CHECK_FALSE(io.oversize);
+    CHECK(join_blob_state(out, n, io) == JoinRead::io_failed);
+    // ⛔⛔ THE CONTROL, AND IT IS THE DEFECT ITSELF: with the backend fact DISCARDED this identical read is a fresh
+    //     device. That is what the console printed as `NO PROFILES` before this correction.
+    CHECK(join_blob_state(out, n, SlotIo{}) == JoinRead::absent);
+}
+
+// ★★★ [[B218]] REOPENED (2026-08-19). This case used to be titled "an OPEN failure is an ORDINARY absent slot", and
+//     that claim is FALSE against the vendored backend: `File::_open` (Adafruit_LittleFS_File.cpp:121-153) stats
+//     FIRST and answers ONE `false` for FOUR facts — a stat METADATA error, LFS_ERR_NOENT (the only genuine
+//     absent), an ALLOCATION failure, and an `lfs_file_open` failure on a file that EXISTS. Only NOENT is a fresh
+//     device; the other three are the store refusing to answer, and under the old collapse all three read as
+//     `NO PROFILES`. The lookup is now TRI-STATE (the adapter's raw `lfs_stat` rc, classified in the hoisted
+//     template), so each fact gets the answer it is.
+TEST_CASE("device_nv/nRF52 arm: the lookup is TRI-STATE — ONLY LFS_ERR_NOENT is an absent slot") {
+    JoinBlob out{};
+    SUBCASE("LFS_ERR_NOENT -> absent (the fresh device still reads NO PROFILES — a first boot is not a fault)") {
+        FakeFs fs; fs.lookup_result = FakeFs::kAbsentRc;
+        SlotIo io;
+        const int n = fs_read_slot(fs, "/mrjoin", &out, sizeof out, &io);
+        CHECK(n == kSlotAbsent);
+        CHECK(fs.mounts == 1);
+        CHECK(fs.lookups == 1);
+        CHECK(fs.opens == 0);                       // an absent record costs no open at all
+        CHECK_FALSE(io.backend_failed);             // ★ the fresh device must still read NO PROFILES
+        CHECK(join_blob_state(out, n, io) == JoinRead::absent);
+    }
+    SUBCASE("a stat METADATA error -> io_failed, and the open is NEVER attempted (counted)") {
+        FakeFs fs; fs.lookup_result = -84;          // LFS_ERR_CORRUPT — neither OK nor NOENT
+        SlotIo io;
+        const int n = fs_read_slot(fs, "/mrjoin", &out, sizeof out, &io);
+        CHECK(n == kSlotAbsent);                    // ⛔ the `int` is UNCHANGED — the four bool records do not move
+        CHECK(fs.lookups == 1);
+        CHECK(fs.opens == 0);                       // ★ COUNTED: metadata the store cannot stat is not then opened
+        CHECK(io.backend_failed);
+        CHECK_FALSE(io.oversize);
+        CHECK(join_blob_state(out, n, io) == JoinRead::io_failed);
+    }
+    SUBCASE("PRESENT + open failure -> io_failed — ⛔ never absent (allocation / lfs_file_open failure)") {
+        FakeFs fs; fs.open_ok = false;              // the stat says FOUND; File::open then fails ([[B218]] cases 3/4)
+        SlotIo io;
+        const int n = fs_read_slot(fs, "/mrjoin", &out, sizeof out, &io);
+        CHECK(n == kSlotAbsent);
+        CHECK(fs.lookups == 1);
+        CHECK(fs.opens == 1);
+        CHECK(io.backend_failed);
+        CHECK(join_blob_state(out, n, io) == JoinRead::io_failed);
+        // ⛔⛔ THE CONTROL, AND IT IS THE DEFECT ITSELF: with the backend fact DISCARDED this identical sequence is
+        //     a fresh device — exactly what the pre-correction collapse announced as `NO PROFILES`.
+        CHECK(join_blob_state(out, n, SlotIo{}) == JoinRead::absent);
+    }
+}
+
+TEST_CASE("device_nv/nRF52 arm: a file LONGER than the record is REJECTED — the read alone cannot see it") {
+    const JoinBlob good = valid_join();
+    FakeFs fs;
+    fs.payload = &good; fs.payload_len = sizeof good;
+    fs.file_size   = (uint32_t)sizeof(JoinBlob) + 40u;   // ★ a REAL over-length file…
+    fs.read_result = (int)sizeof(JoinBlob);              // …of which the backend returns EXACTLY `len` bytes
+
+    JoinBlob out{};
+    SlotIo io;
+    const int n = fs_read_slot(fs, "/mrjoin", &out, sizeof out, &io);
+
+    // ★★ THIS IS WHY THE OLD TEST WAS VACUOUS: it asserted `join_blob_state(b, sizeof b + 1)`, a length the arm can
+    //    NEVER return. What the arm really returns is a full-length read of a VALID PREFIX.
+    CHECK(n == (int)sizeof(JoinBlob));
+    CHECK(io.oversize);
+    CHECK(join_blob_state(out, n, io) == JoinRead::invalid);
+    // ⛔ THE CONTROL: without the file's SIZE this exact read is a perfect record. That is the accepted-oversize bug.
+    CHECK(join_blob_state(out, n, SlotIo{}) == JoinRead::ok);
+}
+
+TEST_CASE("device_nv/nRF52 arm: an exactly-sized file reads ok; a SHORT one and a corrupt CTZ are invalid") {
+    const JoinBlob good = valid_join();
+    SUBCASE("exact") {
+        FakeFs fs; fs.payload = &good; fs.payload_len = sizeof good;
+        fs.file_size = (uint32_t)sizeof(JoinBlob); fs.read_result = (int)sizeof(JoinBlob);
+        JoinBlob out{}; SlotIo io;
+        const int n = fs_read_slot(fs, "/mrjoin", &out, sizeof out, &io);
+        CHECK_FALSE(io.oversize);
+        CHECK(fs.closes == 1);                       // ⛔ the handle is released on the success path too
+        CHECK(join_blob_state(out, n, io) == JoinRead::ok);
+    }
+    SUBCASE("short") {
+        FakeFs fs; fs.payload = &good; fs.payload_len = sizeof good;
+        fs.file_size = 40; fs.read_result = 40;
+        JoinBlob out{}; SlotIo io;
+        const int n = fs_read_slot(fs, "/mrjoin", &out, sizeof out, &io);
+        CHECK_FALSE(io.oversize);                    // ⛔ short is NOT over-long; it is caught by the length
+        CHECK(join_blob_state(out, n, io) == JoinRead::invalid);
+    }
+    SUBCASE("corrupt CTZ block (LFS_ERR_CORRUPT)") {
+        FakeFs fs; fs.file_size = (uint32_t)sizeof(JoinBlob); fs.read_result = -84;
+        JoinBlob out{}; SlotIo io;
+        const int n = fs_read_slot(fs, "/mrjoin", &out, sizeof out, &io);
+        CHECK_FALSE(io.backend_failed);              // the FS mounted; it is the BLOCK that is bad
+        CHECK(join_blob_state(out, n, io) == JoinRead::invalid);   // ⛔ never absent — -84 is not -1
+    }
+}
+
+TEST_CASE("device_nv/ESP32 arm: 'this namespace was never written' and 'NVS would not open' are DIFFERENT answers") {
+    JoinBlob out{};
+    SUBCASE("namespace absent (a first boot: `mr` is created by the first save of ANY record)") {
+        FakeNvs nv; nv.open_ok = false; nv.ns_missing = true;
+        SlotIo io;
+        const int n = nvs_read_slot(nv, "mr", "join", &out, sizeof out, &io);
+        CHECK(n == kSlotAbsent);
+        CHECK_FALSE(io.backend_failed);              // ★ a fresh chip must read NO PROFILES, ⛔ not STORAGE FAILURE
+        CHECK(join_blob_state(out, n, io) == JoinRead::absent);
+    }
+    SUBCASE("NVS itself would not open") {
+        FakeNvs nv; nv.open_ok = false; nv.ns_missing = false;
+        SlotIo io;
+        const int n = nvs_read_slot(nv, "mr", "join", &out, sizeof out, &io);
+        CHECK(n == kSlotAbsent);                     // ⛔ the `int` is UNCHANGED — the other four records do not move
+        CHECK(io.backend_failed);
+        CHECK(join_blob_state(out, n, io) == JoinRead::io_failed);
+        CHECK(join_blob_state(out, n, SlotIo{}) == JoinRead::absent);   // ⛔ the control: the bug, exactly
+    }
+    SUBCASE("the key is simply not there yet") {
+        FakeNvs nv; nv.key_ok = false;
+        SlotIo io;
+        const int n = nvs_read_slot(nv, "mr", "join", &out, sizeof out, &io);
+        CHECK(n == kSlotAbsent);
+        CHECK(nv.closes == 1);
+        CHECK_FALSE(io.backend_failed);
+        CHECK(join_blob_state(out, n, io) == JoinRead::absent);
+    }
+    SUBCASE("a stored blob LONGER than the record") {
+        const JoinBlob good = valid_join();
+        FakeNvs nv; nv.payload = &good; nv.payload_len = sizeof good;
+        nv.stored_len = sizeof(JoinBlob) + 8;
+        nv.get_result = 0;                           // Preferences::getBytes answers 0 when len > maxLen
+        SlotIo io;
+        const int n = nvs_read_slot(nv, "mr", "join", &out, sizeof out, &io);
+        CHECK(io.oversize);
+        CHECK(join_blob_state(out, n, io) == JoinRead::invalid);
+    }
+}
+
+// ★★★ PIN 6 — `/mrcfg`, `/mrid`, `/mrpeers`, `/mrfault` ARE UNCHANGED, MEASURED RATHER THAN ARGUED. They pass no
+//     `SlotIo`, and with `io == nullptr` neither arm asks the backend a single extra question: no `File::size()`, no
+//     `getBytesLength()`, no `nvs_open` classification. The sequence of library calls they issue is therefore the
+//     one they issued before this correction, and the `int` they read is the same on every path.
+TEST_CASE("device_nv: with NO SlotIo the arms ask the backend NOTHING extra — the four bool records cannot move") {
+    const JoinBlob good = valid_join();
+    SUBCASE("nRF52: an over-length file costs no size() call and no lookup, and returns the same length as before") {
+        FakeFs fs; fs.payload = &good; fs.payload_len = sizeof good;
+        fs.file_size = 4096; fs.read_result = (int)sizeof(JoinBlob);
+        Blob cfg{};
+        const int n = fs_read_slot(fs, "/mrcfg", &cfg, sizeof(JoinBlob), nullptr);
+        CHECK(fs.sizes == 0);                        // ⛔ not one extra FS call
+        CHECK(fs.lookups == 0);                      // ⛔ [[B218]]: the tri-state stat is /mrjoin's question ALONE
+        CHECK(n == (int)sizeof(JoinBlob));
+    }
+    SUBCASE("nRF52: a mount failure still just answers -1") {
+        FakeFs fs; fs.mount_ok = false;
+        Blob cfg{};
+        CHECK(fs_read_slot(fs, "/mrcfg", &cfg, sizeof cfg, nullptr) == kSlotAbsent);
+        CHECK(fs.lookups == 0);
+        CHECK_FALSE(blob_valid_range(cfg, kSlotAbsent, kMagic, 2, kVersion));   // /mrcfg: unchanged -> defaults
+    }
+    SUBCASE("nRF52: an OPEN failure with no io still answers -1 through the OLD collapsed sequence — no lookup") {
+        // ★ [[B218]]'s fix must not leak sideways: for the four bool records open()'s four collapsed facts STAY
+        //   collapsed (absent and unreadable /mrcfg both mean defaults), and the stat is never issued for them.
+        FakeFs fs; fs.open_ok = false;
+        Blob cfg{};
+        CHECK(fs_read_slot(fs, "/mrcfg", &cfg, sizeof cfg, nullptr) == kSlotAbsent);
+        CHECK(fs.mounts == 1);
+        CHECK(fs.opens == 1);                        // the identical mount -> open they always issued
+        CHECK(fs.lookups == 0);                      // ⛔ the counted discriminator: no lookup call
+        CHECK(fs.sizes == 0);
+    }
+    SUBCASE("ESP32: an open failure costs no nvs_open classification") {
+        FakeNvs nv; nv.open_ok = false; nv.ns_missing = false;
+        Blob cfg{};
+        CHECK(nvs_read_slot(nv, "mr", "cfg", &cfg, sizeof cfg, nullptr) == kSlotAbsent);
+        CHECK(nv.absent_checks == 0);                // ⛔ the extra probe is asked ONLY for /mrjoin
+    }
+    SUBCASE("ESP32: an over-length blob costs no getBytesLength() call") {
+        FakeNvs nv; nv.stored_len = 4096; nv.get_result = 0;
+        Blob cfg{};
+        CHECK(nvs_read_slot(nv, "mr", "cfg", &cfg, sizeof cfg, nullptr) == 0);
+        CHECK(nv.len_checks == 0);
+    }
+    // …and every one of those returns is rejected by the four records' predicates EXACTLY as it was before, because
+    // all four consult `n` only through `slot_size_ok` — which never saw a SlotIo and still does not.
+    CHECK_FALSE(slot_size_ok(kSlotAbsent, sizeof(Blob)));
+    CHECK_FALSE(slot_size_ok(0, sizeof(PeerBlob)));
+}

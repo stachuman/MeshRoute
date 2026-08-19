@@ -54,6 +54,7 @@ void handle_gateway(const char* args, Print& out);
 // Normal-node provisioning verbs (dispatch; compiled out on the gateway build).
 #if MR_N_LAYERS < 2
 void handle_join(const char* args, Print& out);       // set the radio floor + (re-)DAD; auto-pull the leaf config
+void handle_joinprofile(const char* args, Print& out);// §UI-15 slice 2: the /mrjoin preset store — list/set/clear/reset confirm (⛔ storage only, NO UI)
 void handle_create(const char* args, Print& out);     // join's floor + mint a MANAGED leaf (mother)
 void handle_team(const char* args, Print& out);       // `team new` mint / `team <id>` join / `team 0` leave
 #if MR_FEAT_MOBILE

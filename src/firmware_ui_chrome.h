@@ -175,6 +175,51 @@ inline void ui_fmt_batt(char* out, std::size_t cap, int16_t decivolts) {
     ui_pad_token(out, cap, (n < 0) ? 0u : std::size_t(n) + 1u);
 }
 
+// ================================================== §UI-15 §7 — THE ONE TEAM-ID FINGERPRINT, AND IT IS DISPLAY-ONLY
+//
+// ★★★ THE DEFINITION IS THE WHOLE POINT: uppercase, zero-padded hex of `team_id & 0x00FFFFFF` — SIX characters.
+//     `0x12A1B2C3` -> `A1B2C3`. ⛔ The plan's v3 wording ("six digits derived from the id") was REJECTED as
+//     under-specified precisely because it still admitted high-bits, low-bits and hash implementations, and two of
+//     those written independently would DISAGREE. A shared human-selection token that disagrees between the two ends
+//     of a join is worse than no token: the inviter reads one string off their panel and the joiner is looking for
+//     another. ⇒ ONE function, and both ends call it.
+//
+// ★★★★ DISPLAY-ONLY, AND THAT IS A HARD RULE, NOT A PREFERENCE ([[B210]]/[[B214]]: a display-shaped field must never
+//      make an airtime decision). The RETAINED FULL `team_id` REMAINS THE SELECTION AUTHORITY — design §3.6.4 point 3
+//      says it in as many words: *"Confirmation selects the exact full `team_id`, not the visible list index or
+//      truncated fingerprint."* ⛔ This token must never reach a routing, membership, key, DAD or airtime decision,
+//      and it is NOT authentication (§3.6.4 point 5: *"a human selection aid, not cryptographic authentication"*).
+// ⛔ ZERO WIRE BYTES. Beacons already carry the full `team_id` (the type-5 TLV); the token is derived LOCALLY at the
+//    two places that draw it. Nothing here is transmitted, stored or compared.
+//
+// ⛔⛔ TWO IDS DIFFERING ONLY IN BITS 24-31 FINGERPRINT IDENTICALLY, AND THAT IS THE SPEC, NOT A DEFECT. The mask IS
+//     the definition. It is safe exactly BECAUSE of the rule above — a collision costs a human one extra glance at a
+//     list, never a wrong join, because the confirmation carries the full 32-bit id. ⛔ Do not "fix" it by widening
+//     the token or hashing the high byte: either would fork the definition this function exists to be.
+// ⛔ NO SPECIAL CASES AND NO DEFAULTS (C2): it formats ANY `uint32_t`, so `0` renders `000000`. ⓘ Whether a
+//    fingerprint is RENDERED AT ALL for `team_id == 0` (the core's own "not in a team", node.h:261) is the CALLER's
+//    decision on the screen that draws it — a silent "render nothing for 0" hidden in here would be a policy the
+//    caller could not see, and `--` already has an owner one slot over (`ui_fmt_team`).
+//
+// ⓘ DONE-VS-MISSING, STATED IN CODE BECAUSE DOCS ROT: this function is COMPLETE and it is CURRENTLY UNCALLED. §UI-15
+//   slice 3 is the definition alone; the two consumers arrive later — the INVITE screen (slice 5, §3.6.4 point 1:
+//   "a short fingerprint of the full random `team_id`") and the joiner's NEARBY candidate list plus its
+//   `JOIN <fingerprint>?` confirmation (slice 6, §3.6.4 points 2-3). It is landed FIRST, on its own, so that neither
+//   screen can grow a private copy of the definition — that is the S1/L9 fork this project keeps paying for (U1).
+// ⛔ AND IT IS NOT THE EXISTING `"%08lX"` FULL-ID PRINTS (`firmware_commands.cpp:217/292`, `firmware_config.cpp:1787`,
+//    …): those render a DIFFERENT token — the whole 32-bit id — for a console reader who needs the authority value.
+//    Leave every one of them alone; folding them in here would silently truncate a diagnostic.
+inline constexpr uint32_t    kTeamFpMask     = 0x00FFFFFFu;   // §7: the low 24 bits, and nothing else
+inline constexpr std::size_t kTeamFpTokenCap = 7;             // six uppercase hex characters + NUL
+inline void ui_fmt_team_fingerprint(char* out, std::size_t cap, uint32_t team_id) {
+    // `%06lX` + `(unsigned long)` is the file-cluster's hex idiom (the `%08lX` sites above). ★ The width is `06`, not
+    // `6`: without the ZERO the token would be SPACE-padded, so `0x00000001` would draw `     1` and stop being a
+    // fixed six-column field the panel can place. ★ And `X`, not `x` — §7 says uppercase, and a list where one entry
+    // is `a1b2c3` and another `A1B2C3` reads as two different teams.
+    const int n = snprintf(out, cap, "%06lX", (unsigned long)(team_id & kTeamFpMask));
+    ui_pad_token(out, cap, (n < 0) ? 0u : std::size_t(n) + 1u);   // the neighbours' rule: the WHOLE buffer is defined
+}
+
 // ================================================================================ §5.2 — the ONE navigation mapping
 //
 // ★★★ ONE PURE FUNCTION, AND EVERY DISPATCH IN IT IS A `switch` WITH NO `default:`. That is the whole design of it:
