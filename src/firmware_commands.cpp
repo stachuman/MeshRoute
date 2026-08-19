@@ -21,7 +21,12 @@
 #include "device_rng.h"        // mrrng::fill (do_regen)
 
 #ifndef GIT_REV
-#define GIT_REV "nogit"        // tools/git_rev.py injects -DGIT_REV on the nRF52 base env only; this fallback (mirrors fw_main.cpp) keeps the ESP32 envs compiling — print_banner reads it
+#define GIT_REV "nogit"        // fallback only (mirrors fw_main.cpp) — print_banner reads it
+// ⛔ CORRECTED (§B213, 2026-08-18): this comment said `git_rev.py` injects -DGIT_REV "on the nRF52 base env only", and
+//   that the fallback is what "keeps the ESP32 envs compiling". BOTH became false and the second was misleading — it
+//   read as though ESP32 images were MEANT to report `nogit`. The script now runs on ALL THREE base envs:
+//   xiao_sx1262 (platformio.ini:108), heltec_v3 (:299) and xiao_esp32s3 (:344) — the last added by §B213 after a
+//   metal banner read `nogit`. ⇒ this fallback is now reached by NO shipped env; it exists so a stray env still compiles.
 #endif
 
 namespace mrfw {
@@ -301,8 +306,36 @@ static void dump_cfg(Print& out) {
         out.println();
     }
     if (c.is_mobile) {                                                        // §mobile: registration state (bench diagnostic) — did we register, and with whom?
+        // ★★ §B214 (BUG FIX 2026-08-18) — THE LABEL IS THE FSM STATE, NOT "IS A HOME ID SET".
+        // ⛔ This read `if (mobile_home_id()) REGISTERED else "UNREGISTERED (scanning)"`, wrong in BOTH directions and
+        //   metal-confirmed 2026-08-18:
+        //   · it said "(scanning)" whenever there was no home — INCLUDING `dormant`, where nothing is scheduled. The
+        //     same capture's `mobile status` read attachment=dormant / home_desired=false / retry_window_ms=0. It made
+        //     the operator ask how often the node would probe; the answer was "never". ★ A display-shaped field must
+        //     not ASSERT AN ACTIVITY — the mirror of [[B210]], whose `team-DAD` line asserted airtime that never flew.
+        //   · WORSE, a FALSE POSITIVE: `claiming` already holds a PROVISIONAL home id, so it printed
+        //     `REGISTERED home=<id>` BEFORE roster confirmation.
+        // ★ A `switch`, never an if-chain (node.h:550 — `-Wswitch` cannot see if-chains, and three enum->string bugs in
+        //   this tree came from exactly that), and the names come from the ONE formatter `attach_state_name` (U1).
+        // ⓘ The enum (node.h:534) and the formatter (:553) sit OUTSIDE `#if MR_FEAT_MOBILE` (:572), so this compiles on
+        //   a stripped build too; the accessor's `#else` stub answers `dormant` (:623).
         const uint8_t h = g_node.mobile_home_id();
-        out.print(F("  mobile-reg: ")); if (h) { out.print(F("REGISTERED home=")); out.println(h); } else out.println(F("UNREGISTERED (scanning)"));
+        const meshroute::Node::MobileAttachState as = g_node.mobile_attach_state();
+        out.print(F("  mobile-reg: "));
+        switch (as) {
+            case meshroute::Node::MobileAttachState::attached:
+                // ⛔ `attached` with NO home id is an INCONSISTENCY and must be VISIBLE: falling through to
+                //    "unregistered" is precisely how a broken attachment would hide.
+                if (h) { out.print(F("REGISTERED home=")); out.println(h); }
+                else     out.println(F("INCONSISTENT: attached with no home id"));
+                break;
+            case meshroute::Node::MobileAttachState::dormant:
+            case meshroute::Node::MobileAttachState::seeking:
+            case meshroute::Node::MobileAttachState::claiming:
+            case meshroute::Node::MobileAttachState::recovering:
+                out.print(F("UNREGISTERED (")); out.print(meshroute::Node::attach_state_name(as)); out.println(')');
+                break;
+        }
     }
     // ★★★ §MH-S5 §10 / [[B154]] — the per-row hosting view: each row as DIRECT or REDIRECT, plus its age.
     // §10 asked for it and the FIELD LEDGER reassigned it here; before this the line printed only a COUNT, so a

@@ -107,6 +107,70 @@ inline bool phy_args_in_range(const PhyArgs& a, bool with_layer) {
         && (!with_layer || valid_layer0_id(a.layer));
 }
 
+// ★★ §B212 (BUG FIX 2026-08-18) — THE PARSER MASKED THE SPECIFIC `team 0` REFUSAL.
+// ⛔⛔ CORRECTED: an earlier version of this comment said `phy_args_in_range` "requires freq AND bw AND sf". IT DOES
+// NOT, and `firmware_config.cpp:881` says so: `pa.bw_khz = 125.0` — "sf is REQUIRED with freq (0 fails the 5..12
+// check); bw is OPTIONAL, default 125 kHz". ★ THE ACCURATE MECHANISM, and it is TWO paths not one:
+//   · `freq=868` alone  -> has_freq is set, `sf` stays 0 -> `phy_args_in_range` fails on valid_routing_sf(0);
+//   · `sf=7` / `bw=125` alone -> `!pa.has_freq` (firmware_config.cpp:889) fires FIRST, before any range check.
+// Either way a PARTIAL tail died inside
+// `parse_phy_tail` and `handle_team` returned — the request NEVER REACHED THE TRANSACTION, so the accurate refusal
+// (`ProvErr::phy_on_leave`, `firmware_provisioning_service.h:393`) never ran. METAL-CONFIRMED: `team 0 freq=868`
+// answered *"> team new err: freq 100..1000 MHz…"*, which names the wrong verb AND diagnoses the wrong problem —
+// the operator reads it as "my number is out of range" when the truth is "a leave takes no PHY at all".
+//
+// ⇒ this classifier answers ONE question, ahead of any parsing: DOES THIS TAIL CONSIST ONLY OF PHY KEYS?
+//   · `none`             — no tokens at all; a bare `team 0` still leaves cleanly (⛔ the pre-scan must never
+//                          make an argument-free leave refuse).
+//   · `phy_only`         — EVERY token is a recognised PHY key ⇒ the caller sets `phy.present` and lets the
+//                          TRANSACTION speak. One message authority (U1): the refusal text lives in the verdict
+//                          reporter (`firmware_config.cpp:1169`) and is ⛔ never re-spelled at the call site.
+//   · `invalid_or_mixed` — at least one token is NOT a recognised PHY key ⇒ ⛔ the EXISTING parser's
+//                          unknown/malformed-token error is RETAINED. `team 0 freq=868 wibble=3` must complain
+//                          about `wibble`, which is the more actionable of the two truths; swallowing it to
+//                          report the leave rule instead would hide a typo.
+//
+// ★★ CLASSIFICATION IS BY **KEY RECOGNITION**, NEVER BY VALUE VALIDITY, and that is the whole point rather than a
+//    simplification: an INVALID NUMERIC VALUE under a RECOGNISED PHY KEY IS STILL PROHIBITED PHY ON `team 0`.
+//    Leaving a team never accepts a PHY argument AT ALL, so its range is irrelevant — `team 0 freq=99999` is
+//    `phy_only` and earns `phy_on_leave`, ⛔ NOT a range complaint. Testing the range here would rebuild exactly
+//    the mask this fix removes.
+//
+// U1: the key set is `phy_arg_take`'s (`:86`) and the tokenizer is `kv_next`'s (`:55`) — ⛔ never a hand-written
+// `strcmp("freq")…` set, which would be a SECOND definition of "what is a PHY key" and would drift the first time
+// one is added. `allow_layer` is false, matching `parse_phy_tail`'s own call: `layer=` is not a team/mobile PHY
+// key, so `team 0 layer=2` classifies as `invalid_or_mixed` and keeps its existing unknown-key error.
+//
+// ⛔⛔ THE TOKENIZER IS DESTRUCTIVE: `kv_next` takes `char*&` and NUL-terminates IN PLACE. Running it over the live
+//    tail would DESTROY the tail the real parse still needs on every non-leave path. ⇒ the caller hands in a
+//    `scratch` buffer and the tail is copied into it FIRST; `tail` itself is `const char*` and is never written.
+//    (Same discipline, same reason, as `split_team_key_tail` and `parse_grant_args` below.)
+// ⓘ A tail that does not FIT `scratch` returns `invalid_or_mixed` — i.e. it defers to the existing parser and
+//   changes nothing, which is the conservative outcome for a case no operator can reach (`parse_phy_tail`'s own
+//   buffer is the same 96 bytes).
+enum class PhyTailKeys : uint8_t {
+    none,             // no tokens at all
+    phy_only,         // every token is a recognised PHY key (freq/bw/sf) — value validity NOT considered
+    invalid_or_mixed  // at least one token is not a recognised PHY key (unknown key, or a valueless token)
+};
+inline PhyTailKeys classify_phy_tail(const char* tail, char* scratch, size_t scratch_cap) {
+    if (!tail || !scratch || !scratch_cap) return PhyTailKeys::invalid_or_mixed;
+    size_t n = 0;
+    for (const char* q = tail; *q; ++q) {
+        if (n + 1 >= scratch_cap) return PhyTailKeys::invalid_or_mixed;   // does not fit -> defer to the existing parser
+        scratch[n++] = *q;
+    }
+    scratch[n] = '\0';
+    char* p = scratch; char* k; char* v;
+    PhyArgs probe{};                       // ⚠ WRITE-ONLY: `phy_arg_take` needs a sink, but nothing here reads it back
+    bool any = false;
+    while (kv_next(p, k, v)) {
+        any = true;
+        if (!phy_arg_take(probe, k, v, /*allow_layer=*/false)) return PhyTailKeys::invalid_or_mixed;
+    }
+    return any ? PhyTailKeys::phy_only : PhyTailKeys::none;
+}
+
 // §team-ch-key (T-K1): parse EXACTLY 64 hex digits into 32 bytes — the `tkpub=`/`tkpriv=` provisioning params
 // (and, later, the T-K4 QR fields). FAIL-LOUD (C2): false on a wrong length (63, 65, empty) or ANY non-hex
 // character, and `out` is left untouched so a rejected token cannot half-write a key. Both cases are silent

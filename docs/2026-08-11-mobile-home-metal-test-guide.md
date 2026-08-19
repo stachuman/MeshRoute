@@ -130,11 +130,11 @@ Use the terminal application's capture/logging feature. Do not open two serial m
 Fill this once per firmware build.
 
 | Role | Board/env | Port | `version` | `whoami` id/hash | TX power | Notes |
-|---|---|---|---|---|---|---|
-| H1 |  |  |  |  |  |  |
-| H2 |  |  |  |  |  |  |
-| M |  |  |  |  |  |  |
-| O |  |  |  |  |  |  |
+| ---- | --------- | ---- | --------- | ---------------- | -------- | ----- |
+| H1   |           |      |           |                  |          |       |
+| H2   |           |      |           |                  |          |       |
+| M    |           |      |           |                  |          |       |
+| O    |           |      |           |                  |          |       |
 
 Test configuration:
 
@@ -253,19 +253,19 @@ Setup: `H1` on and in strong range; `H2` off; `M` dormant with autoregistration 
 
 Pass:
 
-- [ ] `M` enters `seeking` and/or `claiming` before `attached`.
-- [ ] While `attachment` is `claiming`, `registered` remains `false`.
-- [ ] Final state is `registered:true`, `attachment:"attached"`, `home_link:"confirmed"`.
-- [ ] `home_confirm_age_ms` is present after confirmation and grows between polls.
-- [ ] `H1 status` shows exactly one `DIRECT` row with `M`'s hash.
-- [ ] The row's `local=` equals `M`'s reported local id.
-- [ ] With `debug on`, `M` prints `mobile ATTACHMENT CONFIRMED by the home roster`.
+- [x] `M` enters `seeking` and/or `claiming` before `attached`.
+- [x] While `attachment` is `claiming`, `registered` remains `false`.
+- [x] Final state is `registered:true`, `attachment:"attached"`, `home_link:"confirmed"`.
+- [x] `home_confirm_age_ms` is present after confirmation and grows between polls.
+- [x] `H1 status` shows exactly one `DIRECT` row with `M`'s hash.
+- [x] The row's `local=` equals `M`'s reported local id.
+- [x] With `debug on`, `M` prints `mobile ATTACHMENT CONFIRMED by the home roster`.
 - [ ] No surface says `connected`.
 
 Data-plane control:
 
-- [ ] Send a plaintext DM from `H1` to `M` by hash; it arrives once.
-- [ ] Send a plaintext DM from `M` to `H1`; it arrives once and is acknowledged.
+- [x] Send a plaintext DM from `H1` to `M` by hash; it arrives once.
+- [x] Send a plaintext DM from `M` to `H1`; it arrives once and is acknowledged.
 
 Fail immediately if `registered:true` appears while still `claiming`, the home has no direct row, or attachment is
 reported without a confirming roster.
@@ -298,10 +298,10 @@ Power off both homes, then reboot `M`.
 
 Pass:
 
-- [ ] `M` continues retrying while no home exists; it does not silently become dormant.
-- [ ] After `H1` appears, `M` attaches without an operator command.
-- [ ] `H1` has one matching direct hosted row.
-- [ ] The post-attachment DM control from MH-01 passes.
+- [x] `M` continues retrying while no home exists; it does not silently become dormant.
+- [x] After `H1` appears, `M` attaches without an operator command.
+- [x] `H1` has one matching direct hosted row.
+- [x] The post-attachment DM control from MH-01 passes.
 
 Repeat matrix:
 
@@ -327,11 +327,11 @@ together as practical.
 
 Pass:
 
-- [ ] Every mobile eventually reaches confirmed `attached` without a manual retry.
-- [ ] `H1 status` contains one `DIRECT` row per mobile.
-- [ ] Every row has a different local id.
-- [ ] No mobile remains indefinitely in `claiming`.
-- [ ] A DM by hash reaches each mobile once.
+- [x] Every mobile eventually reaches confirmed `attached` without a manual retry.
+- [x] `H1 status` contains one `DIRECT` row per mobile.
+- [x] Every row has a different local id.
+- [x] No mobile remains indefinitely in `claiming`.
+- [x] A DM by hash reaches each mobile once.
 
 | Mobile | Hash | Assigned local id | Attach time | Result |
 |---|---|---:|---:|---|
@@ -414,12 +414,12 @@ minutes old. Confirm DMs work before disturbing RF.
 
 Pass:
 
-- [ ] `home_link` moves through `checking` and then `lost`, rather than remaining permanently confirmed.
-- [ ] `attachment` moves to `recovering` during the recovery cycle.
-- [ ] A missed selected check is followed by search/recovery traffic; `H2` answers and `M` attaches to it.
-- [ ] Final `home` is `H2`, with a fresh confirmation age.
-- [ ] `H2 status` shows `M` as `DIRECT`.
-- [ ] A DM by hash reaches `M` after the switch, and a DM from `M` reaches the static network.
+- [x] `home_link` moves through `checking` and then `lost`, rather than remaining permanently confirmed.
+- [x] `attachment` moves to `recovering` during the recovery cycle.
+- [x] A missed selected check is followed by search/recovery traffic; `H2` answers and `M` attaches to it.
+- [x] Final `home` is `H2`, with a fresh confirmation age.
+- [x] `H2 status` shows `M` as `DIRECT`.
+- [x] A DM by hash reaches `M` after the switch, and a DM from `M` reaches the static network.
 
 For a previously strong link, the accepted worst idle-loss timing is approximately 495 seconds plus jitter, bounded
 by about 527 seconds. A much faster strong-link declaration means the cadence changed; never declaring loss means

@@ -857,8 +857,16 @@ usage:
 //
 // Returns `none` when the tail holds no tokens at all: `team 0` / `team <id>` with no PHY must skip the block
 // silently, which is NOT the same as the "you gave args but no freq=" error. The per-verb strings are parameters
-// because the console text is user-visible and differs verb by verb — including `team`'s own inconsistency
-// (`> team err bad/unknown key:` vs `> team new err:`), which is preserved rather than tidied (C1).
+// because the console text is user-visible and differs verb by verb.
+// ⛔⛔ CORRECTED ([[B212]], 2026-08-18). This comment used to end *"including `team`'s own inconsistency
+//    (`> team err bad/unknown key:` vs `> team new err:`), which is PRESERVED rather than tidied (C1)"* — and the
+//    record matters: that inconsistency was a KNOWN, DELIBERATE artefact, not an oversight, so leaving it alone was
+//    the right call for a refactor. ⇒ [[B212]] makes removing it a SANCTIONED FIX, not tidying: the `PhyTailMsgs`
+//    set is shared by ALL THREE team forms (`team new`, `team <id>`, `team 0`), so a range error on a JOIN or a
+//    LEAVE announced itself as `> team new err:` — ⛔ a message naming a subcommand the operator did not type is a
+//    DEFECT, in the same family as the four false comments this arc has already had to correct. The third string is
+//    now verb-neutral (`> team err:`) and matches its two siblings; ★ the caller's set is the ONE place these read
+//    (`handle_team`, `:1368`), so there is no second spelling left to drift.
 // `bw_khz` comes back raw for the caller's echo line: re-deriving it from phy.bw_hz would round a second time.
 enum class PhyTail : uint8_t { none, ok, error };
 struct PhyTailMsgs {
@@ -1329,10 +1337,37 @@ void handle_team(const char* args, Print& out) {
     //    the incomplete-PHY check then ran against live values. Parsing mutates nothing, so it now runs
     //    unconditionally and the TRANSACTION gates the result on the PROJECTED role — which is what makes a static
     //    node promoted BY THIS VERB have its PHY honoured.
-    if (phy_args && *phy_args) {
+    // ★★★ [[B212]] (2026-08-18) — THE SPECIFIC `team 0` REFUSAL MUST WIN OVER THE GENERIC RANGE ERROR.
+    //     `parse_phy_tail` below insists on a COMPLETE, IN-RANGE triplet, so a PARTIAL leave tail (`team 0 freq=868`)
+    //     died in the parser and this function RETURNED — the request never reached the transaction, and
+    //     `ProvErr::phy_on_leave` (`firmware_provisioning_service.h:393`, checked before role/id/projection) never
+    //     ran. Metal-confirmed: the operator was told *"freq 100..1000 MHz…"*, i.e. the WRONG diagnosis of a value
+    //     that was in fact fine — what is wrong is asking for a PHY on a leave at all.
+    // ★ THE PRE-SCAN IS PURE AND NATIVELY TESTED (`mrfw::classify_phy_tail`, firmware_config_parse.h) — it decides
+    //   only whether every token is a recognised PHY KEY, ⛔ never whether its VALUE is in range: leaving never
+    //   accepts a PHY, so `team 0 freq=99999` is prohibited PHY, not a range error.
+    // ⛔⛔ SCOPED TO THE LEAVE FORM, and that is a CORRECTNESS requirement, not an optimisation: `kv_next` tokenises
+    //    IN PLACE, so a scan of the live tail would destroy what `parse_phy_tail` still needs on the join/mint
+    //    paths. It runs only where no further parse follows, and even there it scans a COPY (`phy_scan`).
+    // ⛔ MIXED TAILS KEEP THE PARSER'S ERROR: `team 0 freq=868 wibble=3` must still name `wibble` — the unknown
+    //    token is the more actionable complaint and must not be swallowed by the leave rule.
+    // ★ ONE MESSAGE AUTHORITY (U1): this block sets a REQUEST FIELD and prints NOTHING. The refusal text belongs to
+    //   `team_report_not_applied` (`:1169`) and is not re-spelled here.
+    const bool leave_form = !mint_form && t == 0;
+    bool phy_refusal_to_transaction = false;
+    if (phy_args && *phy_args && leave_form) {
+        static char phy_scan[96];   // STATIC for the same reason as `tk_rest` above: handle_team's frame already
+                                    // carries a ~272 B mrnv::Blob (the do_post_ack stack-overflow lesson), and
+                                    // console dispatch is single-threaded.
+        if (mrfw::classify_phy_tail(phy_args, phy_scan, sizeof phy_scan) == mrfw::PhyTailKeys::phy_only) {
+            rq.phy.present = true;              // ⇒ project_team answers `phy_on_leave` and NOTHING is written
+            phy_refusal_to_transaction = true;  // ⇒ skip the parser entirely; its range check is what masked this
+        }
+    }
+    if (phy_args && *phy_args && !phy_refusal_to_transaction) {
         const PhyTailMsgs msg{ F("> team err bad/unknown key: "),
                                F("> team err: PHY args need freq= (freq=<MHz> sf=<5-12> [bw=<kHz>])"),
-                               F("> team new err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz") };
+                               F("> team err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz") };
         meshroute::LayerConfig phy{}; double bw = 0.0;
         const PhyTail r = parse_phy_tail(phy_args, c.leaf_id, msg, out, phy, bw);
         if (r == PhyTail::error) return;                           // reported; NOTHING has been touched

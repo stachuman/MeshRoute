@@ -599,3 +599,117 @@ TEST_CASE("§B136 parse_seq_arg: only ONE unsigned decimal token is accepted for
     // range arms does the work on a given ABI, so neither can be shown necessary by testing this ABI alone.
     CHECK((static_cast<unsigned long>(UINT32_MAX) < ULONG_MAX) == (sizeof(unsigned long) > 4));
 }
+
+// ============================================================================================================
+// ★★ §B212 — `classify_phy_tail`: the pre-scan that lets the SPECIFIC `team 0` refusal win.
+//
+// THE DEFECT IT REPAIRS (⛔ CORRECTED: `bw=` is OPTIONAL, defaulted to 125 kHz at firmware_config.cpp:881 — an
+// earlier wording here claimed it was required). `team 0 freq=868` fails because `sf` stays 0 and trips the 5..12
+// range check; `team 0 sf=7` / `bw=125` fail EARLIER at `!pa.has_freq` (firmware_config.cpp:889). Both paths die inside
+// `parse_phy_tail` with a message like *"> team new err: freq 100..1000 MHz…"* and `handle_team` RETURNED — the request never
+// reached the transaction, so `ProvErr::phy_on_leave` (already correct, and already natively covered in
+// test_firmware_provisioning_service.cpp) never ran. The operator was given the wrong verb AND the wrong diagnosis.
+//
+// ⛔ THE PROPERTY UNDER TEST IS KEY RECOGNITION, NOT VALUE VALIDITY. Leaving a team never accepts a PHY at all,
+//    so an out-of-range value under a recognised key is STILL prohibited PHY: `freq=99999` must classify
+//    `phy_only` and earn the leave refusal, ⛔ never a range complaint. Every range-shaped input below is therefore
+//    asserted to be `phy_only` — that assertion IS the fix.
+// ⛔ AND MIXED TAILS MUST NOT BE SWALLOWED: `freq=868 wibble=3` stays `invalid_or_mixed` so the existing
+//    unknown-key error still names `wibble`, which is the more actionable of the two truths.
+// ★ THE DESTRUCTIVE-TOKENIZER GUARD is pinned here too (`kv_next` NUL-terminates in place): the input is
+//   `const char*` and a caller's live buffer must come back BYTE-IDENTICAL, because on the join/mint paths
+//   `parse_phy_tail` still has to read it.
+// ============================================================================================================
+TEST_CASE("§B212 classify_phy_tail: three-way by KEY RECOGNITION — the tails `handle_team` actually sees") {
+    char scratch[96];
+    using K = mrfw::PhyTailKeys;
+
+    // ---- `none`: a bare `team 0` must still LEAVE CLEANLY (pin 7 — the pre-scan may not make it refuse) ----
+    CHECK(mrfw::classify_phy_tail("", scratch, sizeof scratch) == K::none);
+    CHECK(mrfw::classify_phy_tail(" ", scratch, sizeof scratch) == K::none);
+    CHECK(mrfw::classify_phy_tail("    ", scratch, sizeof scratch) == K::none);
+
+    // ---- `phy_only`: THE DEFECT CASES (pins 1 + 2). Each of these used to die in the parser's range check ----
+    CHECK(mrfw::classify_phy_tail("freq=868", scratch, sizeof scratch) == K::phy_only);          // pin 1 — metal-confirmed
+    CHECK(mrfw::classify_phy_tail("sf=7", scratch, sizeof scratch) == K::phy_only);              // pin 2 (bench 27.2 rep a)
+    CHECK(mrfw::classify_phy_tail("bw=125", scratch, sizeof scratch) == K::phy_only);            // pin 2 (bench 27.2 rep b)
+    CHECK(mrfw::classify_phy_tail(" freq=868", scratch, sizeof scratch) == K::phy_only);         // the leading space parse_team_target leaves
+    CHECK(mrfw::classify_phy_tail("sf=7 bw=125", scratch, sizeof scratch) == K::phy_only);       // two of three
+    CHECK(mrfw::classify_phy_tail("freq=869.4625 bw=125", scratch, sizeof scratch) == K::phy_only);
+
+    // ---- `phy_only`: the COMPLETE tail — pin 3, the positive control that ALREADY worked and must stay green ----
+    CHECK(mrfw::classify_phy_tail("freq=869.4625 sf=7 bw=125", scratch, sizeof scratch) == K::phy_only);
+    CHECK(mrfw::classify_phy_tail(" freq=869.4625 sf=7 bw=125", scratch, sizeof scratch) == K::phy_only);
+
+    // ---- ★★ `phy_only` REGARDLESS OF RANGE. A value the domain would reject is still PROHIBITED PHY on a leave;
+    //         classifying by range here would rebuild exactly the mask [[B212]] removes.
+    CHECK(mrfw::classify_phy_tail("freq=99999", scratch, sizeof scratch) == K::phy_only);
+    CHECK(mrfw::classify_phy_tail("freq=0", scratch, sizeof scratch) == K::phy_only);
+    CHECK(mrfw::classify_phy_tail("sf=99", scratch, sizeof scratch) == K::phy_only);             // outside 5..12
+    CHECK(mrfw::classify_phy_tail("bw=0", scratch, sizeof scratch) == K::phy_only);              // outside 7..500
+    CHECK(mrfw::classify_phy_tail("freq=", scratch, sizeof scratch) == K::phy_only);             // recognised key, EMPTY value
+    CHECK(mrfw::classify_phy_tail("freq=abc", scratch, sizeof scratch) == K::phy_only);          // recognised key, non-numeric value
+    CHECK(mrfw::classify_phy_tail("freq=99999 sf=99 bw=0", scratch, sizeof scratch) == K::phy_only);
+
+    // ---- `invalid_or_mixed`: the parser's unknown/malformed-token error is RETAINED (⛔ never swallowed) ----
+    CHECK(mrfw::classify_phy_tail("wibble=3", scratch, sizeof scratch) == K::invalid_or_mixed);
+    CHECK(mrfw::classify_phy_tail("freq=868 wibble=3", scratch, sizeof scratch) == K::invalid_or_mixed);
+    CHECK(mrfw::classify_phy_tail("wibble=3 freq=868", scratch, sizeof scratch) == K::invalid_or_mixed);
+    CHECK(mrfw::classify_phy_tail("freq", scratch, sizeof scratch) == K::invalid_or_mixed);      // VALUELESS token — phy_arg_take refuses a null val
+    CHECK(mrfw::classify_phy_tail("freq=868 sf", scratch, sizeof scratch) == K::invalid_or_mixed);
+    // `layer=` is not a team/mobile PHY key (parse_phy_tail passes allow_layer=false) — it keeps its unknown-key error.
+    CHECK(mrfw::classify_phy_tail("layer=2", scratch, sizeof scratch) == K::invalid_or_mixed);
+    CHECK(mrfw::classify_phy_tail("freq=868 layer=2", scratch, sizeof scratch) == K::invalid_or_mixed);
+    // the team-key tokens are peeled off BEFORE this runs; if one ever reached it, it is not a PHY key either.
+    CHECK(mrfw::classify_phy_tail("tkpub=deadbeef", scratch, sizeof scratch) == K::invalid_or_mixed);
+
+    // ---- C2 fail-closed edges: a tail that does not fit the scratch, and the nul/zero-cap guards, DEFER to the
+    //      existing parser rather than inventing an answer.
+    char tiny[8];
+    CHECK(mrfw::classify_phy_tail("freq=869.4625 sf=7 bw=125", tiny, sizeof tiny) == K::invalid_or_mixed);
+    CHECK(mrfw::classify_phy_tail(nullptr, scratch, sizeof scratch) == K::invalid_or_mixed);
+    CHECK(mrfw::classify_phy_tail("freq=868", scratch, 0) == K::invalid_or_mixed);
+    CHECK(mrfw::classify_phy_tail("freq=868", nullptr, sizeof scratch) == K::invalid_or_mixed);
+}
+
+TEST_CASE("§B212 classify_phy_tail: ⛔ THE TRAP — the caller's tail is NOT tokenised in place") {
+    // `kv_next` takes `char*&` and NUL-terminates the buffer it walks. A pre-scan run over the LIVE tail would
+    // shred what `parse_phy_tail` still needs on the join/mint paths (pin 6: `team <id> freq=… sf=… bw=…` must
+    // still parse and apply). The classifier copies into `scratch` first — so the caller's buffer must survive
+    // BYTE-IDENTICAL, and the scan must be repeatable with the same answer.
+    char scratch[96];
+    char live[] = "freq=869.4625 sf=7 bw=125";
+    const std::string before(live);
+    CHECK(mrfw::classify_phy_tail(live, scratch, sizeof scratch) == mrfw::PhyTailKeys::phy_only);
+    CHECK(std::string(live) == before);                       // ★ not one byte moved
+    CHECK(std::memcmp(live, before.c_str(), before.size() + 1) == 0);
+    // ...and the tail is STILL tokenisable afterwards, which is the property the join path depends on.
+    const auto toks = tokenize(live);
+    CHECK(toks.size() == 3);
+    if (toks.size() == 3) {
+        CHECK(toks[0].first == "freq"); CHECK(toks[0].second == "869.4625");
+        CHECK(toks[1].first == "sf");   CHECK(toks[1].second == "7");
+        CHECK(toks[2].first == "bw");   CHECK(toks[2].second == "125");
+    }
+    // a second, identical classification of the same live buffer yields the same verdict (it was never consumed)
+    CHECK(mrfw::classify_phy_tail(live, scratch, sizeof scratch) == mrfw::PhyTailKeys::phy_only);
+    CHECK(std::string(live) == before);
+
+    // ★ THE COUNTED DISCRIMINATOR the brief asks for: over the exact tail set `handle_team` sees on a LEAVE,
+    //   how many reach the transaction (`phy_only`) vs how many keep the parser's own error (`invalid_or_mixed`)
+    //   vs how many leave cleanly (`none`). Before [[B212]] the reachable count was ZERO — every one of these
+    //   partial tails was answered by the range message instead.
+    const char* leave_tails[] = { "", "freq=868", "sf=7", "bw=125", "freq=869.4625 sf=7 bw=125",
+                                  "freq=99999", "freq=868 wibble=3", "wibble=3" };
+    int none_n = 0, phy_n = 0, mixed_n = 0;
+    for (const char* s : leave_tails) {
+        switch (mrfw::classify_phy_tail(s, scratch, sizeof scratch)) {
+            case mrfw::PhyTailKeys::none:             ++none_n;  break;
+            case mrfw::PhyTailKeys::phy_only:         ++phy_n;   break;
+            case mrfw::PhyTailKeys::invalid_or_mixed: ++mixed_n; break;
+        }
+    }
+    CHECK(none_n == 1);      // the bare `team 0`
+    CHECK(phy_n == 5);       // ★ the five that must now REACH the transaction and be told the leave rule
+    CHECK(mixed_n == 2);     // the two carrying an unknown token, whose existing error is retained
+}

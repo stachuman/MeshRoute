@@ -62,6 +62,18 @@ def mutate(path, find, repl, dest_name, subdir=None):
     open(dest, 'w').write(src.replace(find, repl, 1))
     return dest, ''
 
+def mutate_steps(path, steps, dest_name):
+    """Write a COPY after several individually-unique substitutions; fail loud before writing on any bad anchor."""
+    src = ORIG[path]
+    for step, (find, repl) in enumerate(steps, 1):
+        n = src.count(find)
+        if n != 1:
+            return None, f'step {step} anchor matched {n} times, expected 1'
+        src = src.replace(find, repl, 1)
+    dest = os.path.join(OUT, dest_name)
+    open(dest, 'w').write(src)
+    return dest, ''
+
 # ============================================================== SINK CONTROLS (behavioural) =========================
 LEGACY_PAIR = '''    size_t write(uint8_t b) override {
         if (!Serial || Serial.availableForWrite() < 1) return 0;
@@ -212,9 +224,79 @@ for idx, (label, path, find, repl, expect_ids) in enumerate(SRC_CTL):
     else:
         print(f'{label}\n   -> structural {"+".join(flipped)} now FAIL')
 
+# ============================================================== §B214 SOURCE CONTROLS ==============================
+# These are semantic regressions in scratch copies, not syntax-error stand-ins. The positive checker reads the same
+# neutralised executable source for the real file and every mutant, so comments cannot satisfy either side.
+B214_CTL = [
+    ('X6 B214 restore the old home-id-only authority and scanning label', CMDS, (
+        ('        const meshroute::Node::MobileAttachState as = g_node.mobile_attach_state();\n',
+         '        const meshroute::Node::MobileAttachState as = h ? '
+         'meshroute::Node::MobileAttachState::attached : meshroute::Node::MobileAttachState::dormant;\n'),
+        ('                out.print(F("UNREGISTERED (")); '
+         'out.print(meshroute::Node::attach_state_name(as)); out.println(\')\');\n',
+         '                out.println(F("UNREGISTERED (scanning)"));\n'),
+    ), ('S12',)),
+
+    ('X6b B214 retain a dead state read but derive the switch authority from home id', CMDS, (
+        ('        const meshroute::Node::MobileAttachState as = g_node.mobile_attach_state();\n',
+         '        (void)g_node.mobile_attach_state();\n'
+         '        const meshroute::Node::MobileAttachState as = h ?\n'
+         '            meshroute::Node::MobileAttachState::attached :\n'
+         '            meshroute::Node::MobileAttachState::dormant;\n'),
+    ), ('S12',)),
+
+    ('X7 B214 make claiming report REGISTERED before confirmation', CMDS, (
+        ('                out.print(F("UNREGISTERED (")); '
+         'out.print(meshroute::Node::attach_state_name(as)); out.println(\')\');\n',
+         '                if (as == meshroute::Node::MobileAttachState::claiming) {\n'
+         '                    if (h) { out.print(F("REGISTERED home=")); out.println(h); }\n'
+         '                    else     out.println(F("REGISTERED home=?"));\n'
+         '                } else {\n'
+         '                    out.print(F("UNREGISTERED (")); '
+         'out.print(meshroute::Node::attach_state_name(as)); out.println(\')\');\n'
+         '                }\n'),
+    ), ('S14',)),
+
+    ('X8 B214 hide recovering behind a default arm', CMDS, (
+        ('            case meshroute::Node::MobileAttachState::recovering:\n',
+         '            default:\n'),
+    ), ('S13',)),
+
+    ('X9 B214 silence attached-without-home instead of reporting inconsistency', CMDS, (
+        ('                else     out.println(F("INCONSISTENT: attached with no home id"));\n',
+         '                else     { }\n'),
+    ), ('S16',)),
+
+    ('X10 B214 hand-spell attachment labels instead of using attach_state_name', CMDS, (
+        ('out.print(meshroute::Node::attach_state_name(as));',
+         'out.print(as == meshroute::Node::MobileAttachState::dormant ? "dormant" : '
+         'as == meshroute::Node::MobileAttachState::seeking ? "seeking" : '
+         'as == meshroute::Node::MobileAttachState::claiming ? "claiming" : "recovering");'),
+    ), ('S15',)),
+]
+
+for idx, (label, path, steps, expect_ids) in enumerate(B214_CTL):
+    dest, err = mutate_steps(path, steps, f'b214_ctl{idx}_' + os.path.basename(path))
+    if dest is None:
+        print(f'{label}\n   !! CONTROL NOT APPLIED: {err}')
+        rc_all = 1
+        continue
+    paths = {CMDS: CMDS, CMDSH: CMDSH, FWMAIN: FWMAIN}
+    paths[path] = dest
+    rows = structural.check(paths[CMDS], paths[CMDSH], paths[FWMAIN])
+    status = {cid: ok for cid, _d, ok, _x in rows}
+    flipped = [cid for cid in expect_ids if not status.get(cid, True)]
+    failed = [cid for cid, _d, ok, _x in rows if not ok]
+    if not flipped:
+        print(f'{label}\n   !! STAYED GREEN -- {"/".join(expect_ids)} did not flip; this control proves NOTHING')
+        rc_all = 1
+    else:
+        print(f'{label}\n   -> structural {"+".join(failed)} now FAIL (required {"+".join(flipped)})')
+
 # ★ The real sources must be untouched, and we assert it rather than trusting that we never wrote them.
 for p, t in ORIG.items():
     assert hashlib.md5(open(p).read().encode()).hexdigest() == hashlib.md5(t.encode()).hexdigest(), \
         f'FATAL: {p} changed -- controls must only ever mutate a copy'
-print(f'\nreal sources verified UNCHANGED; {len(SINK_CTL)} sink + {len(SRC_CTL)} source controls run')
+print(f'\nreal sources verified UNCHANGED; {len(SINK_CTL)} sink + '
+      f'{len(SRC_CTL) + len(B214_CTL)} source controls run')
 sys.exit(rc_all)

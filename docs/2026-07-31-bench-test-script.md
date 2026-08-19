@@ -1,32 +1,40 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
-# Firmware bench acceptance checklist — 2026-07-31 work
+# Firmware bench acceptance library — 2026-07-31 onward
 
-This is the manual hardware gate for the 2026-07-31 firmware work and its follow-up fixes. It is organized for execution:
-prepare each rig once, work through the checkboxes, and save full serial captures outside this document.
+This is the **detailed authority** for manual pass conditions and retained evidence. It is intentionally comprehensive;
+do not execute it from top to bottom. For the current short, ordered checklist use
+[`2026-08-18-metal-session-run-sheet.md`](superpowers/plans/2026-08-18-metal-session-run-sheet.md).
 
-## Current release state
+## Status notation
 
-- **Operational refresh 2026-08-14:** the current Heltec run includes Tasks 5-9, UI-7D inbox detail/delete,
-  UI-14 settings, T2 hardware completion diagnostics, and T3 `send_aired`. T3 passed QG; record the exact
-  `version` and dirty/commit state used on every node.
-- Use `heltec_mobile` for the integrated OLED run. Reflash every participating node with a mutually compatible
-  firmware before diagnosing a radio failure.
-- Current automated reference: native **1640 cases / 82691 assertions / 0 failures**, 36 simulator scenarios,
-  six essential board builds, board probe **68/68 + 13/13 + 24/24**, and firmware-UI probe **136/136**.
-- Parts 19-22 are live metal gates. In particular, B164 remains open only for Part 22's physical
-  TxDone→`AIRED`→panel verification. Parts 21-22 require **USB serial**, not BLE/JSON.
-- This checklist contains device-only wiring, persistent-storage, physical-radio and operator-surface checks. Do not
-  repeat automated cases merely to increase the checkbox count.
+- `[x]` — passed on the build named beside the result. It is not automatically evidence for a later build.
+- `[ ]` — still owed on the current image.
+- `[-]` — intentionally not run or not applicable; write the reason beside it.
+- `OBSERVE` — opportunistic saturation check. Silence is neither pass nor failure; contradictory output is a failure.
+- `RETIRED`, `SUPERSEDED`, `KNOWN GAP`, and historical sections are reference material, not runnable checks.
 
-## How to use this document
+Never erase a completed result when a later build needs a re-run. Add a new current-image checkbox and retain the old
+result with its revision. This keeps “done before” distinct from “qualified now”.
 
-- `[x]` means the user had already marked the check successful in the previous document.
-- `[ ]` means pending on current firmware. Check it only after observing the stated pass condition.
-- `OBSERVE` means saturation may not occur on demand. No event is not a pass or failure; a contradictory event is.
-- `RETIRED` and `KNOWN GAP` entries are not runnable checks.
-- Add a short note only for the build, node IDs, or output needed to reproduce a failure.
+## Current qualification snapshot — 2026-08-18
 
-The checked state was migrated from the old `ok` markers. It does not mean those checks were rerun on `ea1e324`.
+| State | Work | Where |
+|---|---|---|
+| [x] | B196 sleep soak: 36,934 attempts, no panic; closed on `cb76d79` | Part 26 |
+| [x] | Team transaction on `fc89e14`: 27.1, 27.3-27.5, 27.8-27.9 | Part 27 result table |
+| [ ] | Current OLED chrome and sleep regression | Parts 24.1-24.3 and 25.1-25.6 |
+| [ ] | Physical TxDone → `AIRED` → UI result | Parts 21-22 (B164) |
+| [ ] | Post-fix team checks B209-B212 | Parts 27.11-27.15 |
+| [ ] | Truthful `cfg mobile-reg:` labels | Part 27.16 (B214) |
+| [ ] | Static-node `team new` | Part 27.6; requires a static/factory-erased node |
+| [ ] | Real power-cut atomicity | Part 20.5 (B193); run last |
+| [-] | Restart badge | Part 25.4; unavailable unless `MR_UI_BLE_ROW=1` |
+| [-] | Live-keyless team install | Part 27.10; unreachable by construction |
+| [-] | Real save-failure injection | Part 27.7; optional unless a safe fault-injection method exists |
+| [ ] | Non-team OLED layout | Part 25.7; separate `gateway_heltec` image |
+
+All earlier `[x]` marks below are preserved. They are subsystem history and are not prerequisites for every Heltec
+session.
 
 ## Bench worksheet
 
@@ -46,20 +54,11 @@ Before each multi-node block:
 5. In radio traces, `to=` is the immediate next hop and `dst=` is the final destination. CTS/ACK proves one-hop
    handoff, not application delivery or key installation.
 
-## Suggested run order
+## Execution rule
 
-1. For the current Heltec qualification, start with the focused guide's **§0 Current metal run** and execute R1-R6.
-2. Run this document's **Part 9** during R1 for post-B95 console-line integrity.
-3. Run **Part 19** for inbox detail/delete and **Part 20.1-20.3** for normal settings qualification.
-4. On a spare/re-provisionable node, run destructive **Part 20.5** and **Part 20.7 step 1**. Part 20.5 is the
-   remaining B193 real-NV/power-cut qualification.
-5. Run **Parts 21-22 before emergency stress** so TX counters and the T3 `AIRED` path have a clean baseline.
-6. Then run focused-guide H8 emergency and H9 battery acceptance.
-7. Parts 0-7 and 10-18 remain targeted regression rigs; run them when their subsystem or topology is in scope rather
-   than as a prerequisite for every Heltec UI pass.
-
-Stop at the first unexplained failure and preserve the boot-to-failure logs. Do not continue into a noisier topology
-after a basic console, storage, TX-completion or UI-safety invariant has failed.
+Use the current run sheet for order and rig changes, then return here only for the referenced Part's exact commands
+and pass condition. Stop at the first unexplained failure and preserve the boot-to-failure log plus the flashed ELF.
+Do not continue into a noisier topology after a console, storage, TX-completion, or UI-safety invariant fails.
 
 ---
 
@@ -2480,7 +2479,14 @@ distress headline.
 
 ### 25.4 — the SETTINGS badge follows the priority table, and SETTINGS still says WHY (design §12.8)
 
-⚠ The badge is a 7x7 glyph; read it at arm's length and confirm the four states are **distinguishable**.
+⛔⛔ **SCOPE CORRECTED 2026-08-18 (QG): THE `RESTART NEEDED` ARM IS NOT REACHABLE ON ANY CURRENT BUILD.** It requires
+saving `ble_mode`, and the BLE row is compiled out — `MR_UI_BLE_ROW` defaults to **0** (`src/firmware_ui.cpp:132-133`)
+and **no env sets it**. ⓘ Part **20.4** already records this (`⚠ Only reachable on a build whose BLE transport is
+compiled … which no env sets today`); this Part had not inherited it.
+⇒ ★ **On a stock `heltec_mobile`, test PLAIN, UNSAVED and CONFLICT only.** ⛔ **Restart-related combinations are N/A
+unless the image is built with `-DMR_UI_BLE_ROW=1`** — record them **not-run with that reason**, ⛔ never as a FAIL.
+
+⚠ The badge is a 7x7 glyph; read it at arm's length and confirm the states are **distinguishable**.
 
 | do this | badge on the SETTINGS rail icon | ⛔ SETTINGS must ALSO still print |
 |---|---|---|
@@ -2577,7 +2583,7 @@ it undecided whatever the clock says.
 | check | verdict | evidence |
 |---|---|---|
 | **27.1** stack | ✅ PASS | `stackhw` 6016 → 4512 → 4408 of an 8 KB task = **54 % headroom**, 4.4× the ~1 KB floor. ⓘ The verb cost **1504 B** for the WHOLE chain (console dispatch, LittleFS save, X25519 derive, `set_team_id` teardown, retune, DAD) — ⛔ **not attributable to this slice's 888 B frame alone.** |
-| **27.2** `team 0` + PHY refused | ⚠ **BEHAVIOUR PASS / DIAGNOSTICS FAIL** | With a COMPLETE tail: the exact two-line refusal, and `cfg` after shows team, local id, key and PHY **all unchanged** ⇒ the behaviour is correct. ⛔ **But this is NOT an unconditional pass (QG 2026-08-18): the `sf=`-only and `bw=`-only repetitions this step calls for do NOT reach the intended refusal at all** — they die in the parser on [[B212]]'s generic range check, exactly as `freq=`-only did. ⇒ **the diagnostics half FAILS until B212 is fixed**, and this row must not be read as green. ⚠ The step also had to be corrected twice before it tested anything (see below). |
+| **27.2** `team 0` + PHY refused | ⚠ **BEHAVIOUR PASS / DIAGNOSTICS FAIL — ⇒ EXPECTED PASS ON RE-RUN, see 27.15** | With a COMPLETE tail: the exact two-line refusal, and `cfg` after shows team, local id, key and PHY **all unchanged** ⇒ the behaviour is correct. ⛔ **But this is NOT an unconditional pass (QG 2026-08-18): the `sf=`-only and `bw=`-only repetitions this step calls for do NOT reach the intended refusal at all** — they die in the parser on [[B212]]'s generic range check, exactly as `freq=`-only did. ⇒ **the diagnostics half FAILS until B212 is fixed**, and this row must not be read as green. ⚠ The step also had to be corrected twice before it tested anything (see below). |
 | **27.3** leave preserves PHY | ✅ PASS | `team 0` → `team_id=0x00000000`, `cfg` PHY unchanged. **The owner's ruling confirmed on metal.** |
 | **27.4** bare same-team | ✅ PASS (scoped) | exact `no change` string. ⚠ **CORRECTED (QG): "zero writes" is established by SOURCE and HOST tests, not by this observation** — metal saw no change, but **there is no physical write counter on the device**, so the run confirms the reported verdict and the absence of visible effect, not the absence of a flash write. |
 | **27.5** re-key + power-cycle | ✅ **PASS — the decisive one** | re-key **applied** while the node was keyless (`live_key_matches` false), `team_local_id` preserved at **220**; after `reboot`: **`team_local_id=220` and `team_ch_key=1` both survived** ⇒ the candidate did NOT persist `team_local_id = 0` on a same-membership request, which is exactly the defect design v2 corrected. ⚠ **QG provenance caveat: the metal conclusion assumes the documented absence of a reboot-time re-DAD, and RAW SERIAL LOGS WERE NOT ARCHIVED**, so that detail could not be independently replayed. ⇒ **archive the raw console capture on future runs**; the surviving id is strong but the no-re-DAD step rests on the design, not on a retained trace. |
@@ -2629,7 +2635,14 @@ a **qualification**, owner-accepted as such, not a code blocker — **but run it
 slice.**
 1. Boot, then `status` and record `stackhw=`.
 2. Run `team new freq=869.4625 sf=7 bw=125`.
-3. `status` again. **PASS = `stackhw` stays comfortably above ~1 KB and does not fall across the verb.**
+3. `status` again. ⛔⛔ **PASS CRITERION CORRECTED 2026-08-18 (QG) — THE OLD ONE WAS UNSATISFIABLE AND CONTRADICTED
+   THE EVIDENCE THIS VERY PART ACCEPTED.** It read *"stays comfortably above ~1 KB **and does not fall across the
+   verb**"*, yet the recorded pass was **6016 → 4512 → 4408**. ★ `stackhw` is a **lifetime high-water mark**, so it
+   NECESSARILY falls the first time a deeper path executes — "no fall" cannot be met on a first run.
+   ★ **PASS =** (a) post-command `stackhw` **comfortably above ~1 KB**; (b) the node **stays responsive and does not
+   reset**; (c) the delta is **recorded** — a first-call decrease is **expected**, not a failure.
+   ⓘ Optional and cheap: repeat the verb once; a second run should **not** expose a materially deeper path (the
+   recorded second call cost only 104 B against the first call's 1504 B).
 ⛔ **FAIL (any reading under a few hundred bytes) is a STOP: report it rather than tuning around it** — the fix would be
 a design question (where the projection copy lives), not a constant.
 
@@ -2637,9 +2650,11 @@ a design question (where the projection copy lives), not a constant.
 ⚠ **A BEHAVIOUR CHANGE: this used to be a silent no-op.**
 1. In a team, note `freq`/`sf`/`bw` from `status`.
 2. ⛔⛔ **CORRECTED 2026-08-18 — USE A COMPLETE PHY TAIL:** `team 0 freq=869.4625 sf=7 bw=125`.
-   This step read `team 0 freq=868`, which **never reaches the refusal under test** — `phy_args_in_range`
-   (`src/firmware_config_parse.h:106`) needs freq **and** bw **and** sf, so a partial tail dies at
-   `src/firmware_config.cpp:878` with a generic range error ([[B212]]) before the transaction is consulted.
+   This step read `team 0 freq=868`, which **never reaches the refusal under test**. ⛔ **CORRECTED 2026-08-18 (QG):
+   an earlier wording here blamed "`phy_args_in_range` needs freq AND bw AND sf" — `bw=` is OPTIONAL and defaults to
+   125 kHz (`src/firmware_config.cpp:881`).** ★ The real mechanism is TWO paths: `freq=868` trips the range check
+   because **`sf` stays 0**, while `sf=7` or `bw=125` alone dies EARLIER at `!pa.has_freq` (`:889`). Both mask the
+   specific leave refusal ([[B212]]) before the transaction is consulted.
    Metal-confirmed 2026-08-18: it answered `> team new err: freq 100..1000 MHz, …`, refusing correctly but for the
    wrong reason and naming the wrong subcommand.
    ⇒ with a COMPLETE tail, expect:
@@ -2748,3 +2763,44 @@ exact failure the native mutation `snap.live_allowed_sf_bitmap` reddens.
    would print.
 ★★ **Consequence for Part 27.8:** the absence of the `team-DAD` line is a VALID "no DAD, no airtime" discriminator
 again. It was withdrawn when [[B210]] made it meaningless; ⇒ **27.8 may rely on it once this check passes.**
+
+### 27.15 — ★ [[B212]]: the SPECIFIC `team 0` refusal now wins, and the verb name is right
+⇒ **This is 27.2's diagnostics half, re-run against the fixed build.** ⛔ It is *expected* to pass, not *recorded* as
+passing — the fix is host-gated only and this TU is compiled by neither the native suite nor the simulator.
+1. In a team, type each of: `team 0 freq=868` · `team 0 sf=7` · `team 0 bw=125`.
+   ⇒ **each must answer EXACTLY:**
+   `> team err: freq=/sf=/bw= make no sense on `team 0` (leave) — leaving a team PRESERVES the current PHY.`
+   `>   NOTHING changed. To retune, leave the team first (`team 0`) and then set the PHY (`mobile register freq=… sf=… bw=…`).`
+   ⛔ **It must NOT say `> team new err: freq 100..1000 MHz…`** — that was the pre-fix answer, and it named a
+   subcommand the operator never typed.
+2. `cfg` after each ⇒ **still in the team, PHY unchanged.**
+3. ★ **Mixed tail:** `team 0 freq=868 wibble=3` ⇒ must still answer **`> team err bad/unknown key: wibble`** — ⛔ the
+   unknown token must NOT be swallowed by the PHY refusal.
+4. ★ **Positive controls, all must still hold:** a bare `team 0` leaves cleanly · an out-of-range `team new freq=99999
+   sf=7 bw=125` still gets the range message (now `> team err:`) · and ⛔ **`team <id> freq=869.4625 sf=7 bw=125` still
+   parses and APPLIES** — the destructive-tokeniser guard, whose native mutation fails with SIGSEGV.
+⇒ **When 1-4 hold, mark 27.2's diagnostics half PASS.**
+
+### 27.16 — ★ [[B214]]: `cfg mobile-reg:` reports attachment state, not merely a home id
+
+This is a truthfulness check. It does not change or qualify the attachment algorithm.
+
+- [ ] **Dormant is never called scanning.**
+  1. `cfg set mobile_autoregister 0`, then reboot.
+  2. `mobile status` must show `"attachment":"dormant"`, `home_desired:false`, and `retry_window_ms:0`.
+  3. `cfg` must say exactly `mobile-reg: UNREGISTERED (dormant)`; it must not contain `(scanning)`.
+- [ ] **Seeking is named seeking.**
+  1. With no host answering, run `mobile register freq=<bench frequency>`.
+  2. While `mobile status` says `"attachment":"seeking"`, `cfg` must say
+     `mobile-reg: UNREGISTERED (seeking)`.
+- [ ] **A provisional home is not reported as registered.**
+  1. Let a static host offer service. Poll `mobile status` until it reports `"attachment":"claiming"`; then
+     immediately run `cfg`.
+  2. Pass: `mobile-reg: UNREGISTERED (claiming)`. A line beginning `REGISTERED home=` is the B214 regression.
+  3. If the node reaches `attached` before `cfg`, repeat; that attempt did not exercise the claiming arm.
+- [ ] **Positive control: confirmed attachment is registered.**
+  - After roster confirmation, `mobile status` says `"attachment":"attached"` and `cfg` says
+    `mobile-reg: REGISTERED home=<same non-zero id>`.
+
+ⓘ `recovering` and the impossible `attached`-without-home diagnostic are host-gated. Do not destabilise a metal
+topology merely to manufacture them.

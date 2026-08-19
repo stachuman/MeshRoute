@@ -69,6 +69,44 @@ def neutral(txt):
     return ''.join(out)
 
 
+
+def decomment(txt):
+    """A same-LENGTH copy with COMMENTS blanked but STRING LITERALS KEPT.
+
+    ⚠ Needed because `neutral()` blanks literals too, and [[B212]]'s S19 is a check ABOUT a literal that must ALSO
+    survive being NAMED in the prose: the production comment at `parse_phy_tail` now RECORDS the withdrawn
+    `"> team new err:"` wording (that is the M1/V1 obligation — a corrected comment must say what it corrected), so a
+    raw count would report the very string the check bans. Same idea as `neutral()`'s "prose can neither satisfy nor
+    break a check", applied one layer finer.
+    """
+    out = list(txt)
+    i, n = 0, len(txt)
+    while i < n:
+        c = txt[i]
+        if c == '/' and i + 1 < n and txt[i + 1] == '/':
+            while i < n and txt[i] != '\n':
+                out[i] = ' '
+                i += 1
+        elif c == '/' and i + 1 < n and txt[i + 1] == '*':
+            while i < n and not (txt[i] == '*' and i + 1 < n and txt[i + 1] == '/'):
+                if txt[i] != '\n':
+                    out[i] = ' '
+                i += 1
+            j = min(i + 1, n - 1)
+            out[i] = out[j] = ' '
+            i += 2
+        elif c == '"':
+            i += 1
+            while i < n and txt[i] != '"':
+                if txt[i] == '\\':
+                    i += 1
+                i += 1
+            i += 1
+        else:
+            i += 1
+    return ''.join(out)
+
+
 def body(txt, signature):
     """The brace-balanced body of a function located by its SIGNATURE — never by line number."""
     i = txt.index(signature)
@@ -363,6 +401,91 @@ def s17_team_dad_line_is_gated_on_dad_fired(svc, cfg, rsvc, rcfg):
                 'guard_at=%d site_at=%d literal=%d' % (gate, old, live, cand, guard, at, literal))
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# [[B212]] (2026-08-18). The behavioural half — the three-way classification itself — is pinned by the NATIVE suite
+# (`test/test_firmware_config_parse.cpp`, §B212, + four source mutants), because `classify_phy_tail` was extracted
+# into the PURE header `src/firmware_config_parse.h` precisely so it could be. ⛔ WHAT A STRUCTURAL PROBE CANNOT DO
+# IS OBSERVE A RUN: it reads SOURCE TEXT, so it can say neither which message a command emits nor whether the
+# request reached the transaction. ⇒ S18/S19 pin ONLY what source text can honestly show, and the split is stated
+# here so no later reader mistakes these for behavioural coverage:
+#   · the classifier is CALLED, and called BEFORE `parse_phy_tail` (the ordering is the whole fix);
+#   · the `phy_only` arm sets `rq.phy.present` and PRINTS NOTHING (one message authority, U1);
+#   · the range message no longer names a subcommand the operator did not type.
+# ⛔ The service side (`phy_on_leave` ordering ahead of role/id/projection) is ALREADY natively covered in
+#    `test/test_firmware_provisioning_service.cpp` — it is deliberately NOT duplicated here.
+def s18_leave_phy_reaches_the_transaction(svc, cfg, rsvc, rcfg):
+    """S18 - [[B212]]: `handle_team` classifies the tail BEFORE parsing it, and lets the TRANSACTION do the talking.
+
+    Six clauses, because every weaker shape is one this arc has already shipped green:
+      (a) `mrfw::classify_phy_tail` is called EXACTLY ONCE in `handle_team` -- ⛔ never a second, hand-written
+          `strcmp("freq")...` set, which would be a second definition of "what is a PHY key";
+      (b) the call PRECEDES `parse_phy_tail` -- the generic range check is what masked the specific refusal, so
+          running the scan after it would fix nothing;
+      (c) the scan is SCOPED TO THE LEAVE FORM -- BOTH halves counted, the `!mint_form && t == 0` definition AND
+          the guard that actually USES it (a control that deleted only the guard passed a definition-only check).
+          ⛔ Not tidiness: `kv_next` tokenises IN
+          PLACE, so an unscoped pre-scan over the live tail would shred what `parse_phy_tail` still needs on the
+          join/mint paths (native pin 6 catches the shredding; this pins the guard that prevents it);
+      (d) the `phy_only` arm assigns `rq.phy.present` EXACTLY ONCE in the window between the classifier and the
+          parser -- the request field IS how the leave refusal reaches `project_team`;
+      (e) ★ ONE MESSAGE AUTHORITY: that window emits NOTHING (`out.print`/`out.println` count 0). The refusal text
+          belongs to `team_report_not_applied`, and a copy at the call site is exactly how two spellings of one
+          message start to drift;
+      (f) ...and the counted half of (e), read from the RAW source because `neutral()` blanks every literal: the
+          PHY-on-leave sentence occurs EXACTLY ONCE in the whole file, and ZERO times inside `handle_team`.
+    """
+    b = body(cfg, 'void handle_team(')
+    rb = body(rcfg, 'void handle_team(')
+    calls = b.count('mrfw::classify_phy_tail(')
+    at = b.find('mrfw::classify_phy_tail(')
+    parser_at = b.find('parse_phy_tail(')
+    db = body(decomment(rcfg), 'void handle_team(')   # comments blanked, literals KEPT (the key names are literals)
+    scoped = (len(re.findall(r'leave_form\s*=\s*!mint_form\s*&&\s*t\s*==\s*0', b))
+              + b.count('if (phy_args && *phy_args && leave_form) {'))
+    hand_rolled = len(re.findall(r'strcmp\s*\(\s*[^)]*"(?:freq|bw|sf)"', db))
+    window = b[at:parser_at] if (at >= 0 and parser_at > at) else ''
+    present = len(re.findall(r'rq\.phy\.present\s*=\s*true', window))
+    prints = window.count('out.print')
+    phrase = 'freq=/sf=/bw= make no sense on'
+    lit_file, lit_body = rcfg.count(phrase), rb.count(phrase)
+    ok = (calls == 1 and at >= 0 and parser_at > at and scoped == 2 and hand_rolled == 0
+          and present == 1 and prints == 0 and lit_file == 1 and lit_body == 0)
+    return ok, ('classify calls=%d at=%d parse_phy_tail_at=%d leave-scoped(decl+guard)=%d/2 hand-rolled key sets=%d '
+                'phy.present in window=%d prints in window=%d refusal literal file/body=%d/%d'
+                % (calls, at, parser_at, scoped, hand_rolled, present, prints, lit_file, lit_body))
+
+
+def s19_range_message_names_no_wrong_verb(svc, cfg, rsvc, rcfg):
+    """S19 - [[B212]] half (b): the shared `PhyTailMsgs` range string no longer announces `team new`.
+
+    The set is shared by ALL THREE team forms (`team new`, `team <id>`, `team 0`), so a range error on a JOIN or a
+    LEAVE used to say *"> team new err:"* -- a message naming a subcommand the operator did not type. RAW sources,
+    because these ARE string literals and `neutral()` blanks them. Four clauses:
+      (a) `> team new err` occurs ZERO times anywhere in the console TU;
+      (b) the replacement is verb-neutral and occurs EXACTLY ONCE -- ⛔ deleting the string would also satisfy (a);
+      (c) it matches its siblings, which already said `> team err` -- the three `> team err`-prefixed literals in
+          the TU counted together (`bad/unknown key` is used twice: the team-key reporter and this set);
+      (c2) ★ and the CORRECTION IS ON THE RECORD: the withdrawn wording is still NAMED in the production comment at
+          `parse_phy_tail`, which is why this check reads a comment-blanked-but-literal-keeping projection. A tree
+          where the prose forgot what it corrected fails too;
+      (d) ★ POSITIVE CONTROL: `mobile register`'s own three strings are UNTOUCHED. They share the parser but not the
+          verb, and their prefix was already correct. ⚠ A positive control fails only if this slice broke something.
+    """
+    code = decomment(rcfg)          # comments blanked, literals kept -- the corrected prose NAMES the old wording
+    wrong = code.count('> team new err')
+    in_prose = rcfg.count('> team new err')
+    record = rcfg.count('which is PRESERVED rather than tidied (C1)')
+    neutral_range = code.count('F("> team err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz")')
+    siblings = code.count('F("> team err bad/unknown key: ")') + \
+        code.count('F("> team err: PHY args need freq= (freq=<MHz> sf=<5-12> [bw=<kHz>])")')
+    mobile = code.count('> mobile register err')
+    ok = (wrong == 0 and neutral_range == 1 and siblings == 3 and mobile == 3 and in_prose >= 1 and record == 1)
+    return ok, ('"> team new err" in CODE=%d (in prose=%d, the correction record) verb-neutral range=%d '
+                'siblings=%d "> mobile register err"=%d correction record=%d'
+                % (wrong, in_prose, neutral_range, siblings, mobile, record))
+
+
+
 CHECKS = [
     ('S1 no fallible key primitive in the transaction header', s1_no_fallible_in_service),
     ('S2 IProvLive::install_key returns void',                 s2_install_key_is_void),
@@ -381,6 +504,8 @@ CHECKS = [
     ('S15 the team PHY line reports the RESOLVED sf_list',       s15_team_phy_line_reports_the_resolved_sf_list),
     ('S16 mobile register + the shared parser are UNCHANGED',    s16_mobile_register_is_unchanged),
     ('S17 the team-DAD line is gated on res.dad_fired',         s17_team_dad_line_is_gated_on_dad_fired),
+    ('S18 the leave PHY tail REACHES the transaction',           s18_leave_phy_reaches_the_transaction),
+    ('S19 the range message names no wrong verb',                s19_range_message_names_no_wrong_verb),
 ]
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -514,6 +639,54 @@ CONTROLS = [
     ('C29 the whole team-DAD line is deleted', 'cfg',
      '    if (res.dad_fired) { out.print(F("  team-DAD: local_id=")); out.println(g_node.team_local_id()); }\n',
      '', 'S17'),
+    # ---- [[B212]]'s controls. C30 is THE DEFECT ITSELF, reinstated verbatim: the pre-scan deleted, so a partial
+    # leave tail (`team 0 freq=868`) dies in `parse_phy_tail`'s range check and the transaction is never reached.
+    ('C30 the leave pre-scan is deleted (the defect itself)', 'cfg',
+     '        if (mrfw::classify_phy_tail(phy_args, phy_scan, sizeof phy_scan) == mrfw::PhyTailKeys::phy_only) {',
+     '        if (false) {', 'S18'),
+    # ...the ordering half: the scan runs AFTER the parser, which fixes nothing -- the range error already returned
+    # ...the ORDERING half, reinstated as the defect really presents: the PARSER speaks FIRST, so its range error
+    # has already been printed and `handle_team` has already returned before any classification could happen.
+    ('C31 parse_phy_tail runs ahead of the classifier', 'cfg',
+     '    if (phy_args && *phy_args && leave_form) {',
+     '    if (phy_args && *phy_args) { meshroute::LayerConfig phy0{}; double bw0 = 0.0; const PhyTailMsgs msg0{};\n'
+     '        if (parse_phy_tail(phy_args, c.leaf_id, msg0, out, phy0, bw0) == PhyTail::error) return; }\n'
+     '    if (phy_args && *phy_args && leave_form) {', 'S18'),
+    # ⛔ THE TRAP, as a source fact: the scan is un-scoped, so it also runs on the join/mint paths -- where
+    #    `kv_next` would tokenise IN PLACE the very tail `parse_phy_tail` still has to read (native pin 6 catches
+    #    the shredding itself; this catches the guard being removed).
+    ('C32 the leave scoping is removed (scan on every form)', 'cfg',
+     '    if (phy_args && *phy_args && leave_form) {',
+     '    if (phy_args && *phy_args) {', 'S18'),
+    # ⛔ THE ONE-AUTHORITY BREACH: the call site grows its own copy of the refusal text instead of letting the
+    #    transaction speak. Two spellings of one message is how this project's messages start to drift.
+    ('C33 handle_team prints the refusal itself', 'cfg',
+     '            rq.phy.present = true;              //',
+     '            out.println(F("> team err: freq=/sf=/bw= make no sense on `team 0` (leave)"));\n            rq.phy.present = true;              //', 'S18'),
+    # ...and the silent half: the arm classifies correctly and then forgets to SET the field, so the request reaches
+    # the transaction carrying no PHY at all and `team 0 freq=868` silently LEAVES -- the destructive outcome.
+    ('C34 the phy.present assignment is dropped', 'cfg',
+     '            rq.phy.present = true;              // \u21d2 project_team answers `phy_on_leave` and NOTHING is written\n', '', 'S18'),
+    # ⛔ U1: a second, hand-written definition of "what is a PHY key" beside `phy_arg_take`'s
+    ('C35 a hand-rolled PHY key set appears at the call site', 'cfg',
+     '        if (mrfw::classify_phy_tail(phy_args, phy_scan, sizeof phy_scan) == mrfw::PhyTailKeys::phy_only) {',
+     '        if (!strcmp(phy_args, "freq") || mrfw::classify_phy_tail(phy_args, phy_scan, sizeof phy_scan) == mrfw::PhyTailKeys::phy_only) {', 'S18'),
+    # ---- S19's controls. C36 is half (b) of the defect, reinstated verbatim.
+    ('C36 the range message says `team new err` again', 'cfg',
+     'F("> team err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz")',
+     'F("> team new err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz")', 'S19'),
+    # ...and the way a naive fix passes clause (a) while losing the message: delete the string outright
+    ('C37 the range message is deleted outright', 'cfg',
+     '                               F("> team err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz") };',
+     '                               nullptr };', 'S19'),
+    # ⛔ the leak the owner's ruling excludes: the team wording pushed onto the SHARED parser's other caller
+    ('C38 `mobile register` inherits the team prefix', 'cfg',
+     'F("> mobile register err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz")',
+     'F("> team err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz")', 'S19'),
+    # ...and the record itself: a tree whose corrected comment forgot WHAT it corrected (the fifth false comment
+    # this arc would have produced) -- clause (c2).
+    ('C39 the correction record is erased from the comment', 'cfg',
+     'which is PRESERVED rather than tidied (C1)"*', 'which is elided"*', 'S19'),
 ]
 
 
