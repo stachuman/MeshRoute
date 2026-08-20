@@ -49,47 +49,82 @@ CXX=${CXX:-g++}
 OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
 
-# ⚠ These -D MUST mirror `[env:heltec_v3]` (platformio.ini). If they drift, the probe measures a configuration the
-#   board never builds — the same vacuous-instrument failure the controls exist to catch. `-DARDUINO` is what selects
-#   the REAL `console_sink.h` staged console (MR_CONSOLE=1), so §B91's report line is a line this probe can assert.
+# ⚠⚠ THERE ARE **TWO** ARMS, AND EACH MIRRORS A REAL ENV. If either set drifts from `platformio.ini`, the probe
+#    measures a configuration the board never builds — the same vacuous-instrument failure the controls exist to catch.
+#    `-DARDUINO` is what selects the REAL `console_sink.h` staged console (MR_CONSOLE=1) in both, so §B91's report line
+#    is a line this probe can assert.
+#
+#   `l2`  — the LAYERED arm: the OLED/console `-D` set plus `-DMR_N_LAYERS=2`, i.e. `[env:gateway_heltec]`'s layer
+#           count. ⛔ CORRECTED IN PLACE 2026-08-20 (§UI-15 slice 5, V1): this line used to read *"These -D MUST mirror
+#           `[env:heltec_v3]`"*, and that was NOT true of `-DMR_N_LAYERS=2` — `[env:heltec_v3]` sets NO `MR_N_LAYERS`
+#           at all, so it takes `protocol_constants.h`'s default of 1. The claim and the flag had contradicted each
+#           other since the flag was added; the flag is what this arm actually measures, so the COMMENT is what moves.
+#   `v3`  — ★★★★ [[B225]]'s CORRECTION, THE CHILD-ENABLED ARM: the EXACT `-D` set of `[env:heltec_v3]` — a LEAF env
+#           (no `MR_N_LAYERS` ⇒ 1) with the panel (`MR_FEAT_OLED=1`) and the team plane (no `MR_PROFILE_*` ⇒
+#           `MR_FEAT_TEAM=1`). It is the ONLY configuration in which `build_snapshot` publishes a provisioning child,
+#           and therefore the only one in which `draw_provision_screen` (`src/firmware_ui.cpp:1143`) — real shipped
+#           rendering — is reachable AT ALL. Under `l2` both children hide, so §UI-15 slice 5's three screens were
+#           measured by nothing. ⓘ `MR_UI_ADC_CTRL` / `MR_UI_VBAT_READ` are carried for EXACTNESS even though the ADC
+#           reader that consumes them is `variants/heltec_v3/board_ui.cpp` — faked here, and measured by the sibling
+#           probe. The env's remaining flags (`-DBOARD_HELTEC_V3`, the LORA_PIN_*/SX126X_* wiring,
+#           `-DMESHROUTE_NO_TELEMETRY`, `-I variants/heltec_v3`) are the RADIO's and the board TU's; `INCS` already
+#           carries the include dir, and no TU in THIS link reads any of the rest.
+# ⚠ THE ARMS ASSERT THEIR OWN EXPECTATIONS FROM ONE SOURCE: `probe_main.cpp` carries the matching `#if MR_N_LAYERS < 2`
+#   (P7's parent-row check flips direction; P15 exists only on `v3`), exactly as the `MR_UI_BLE_ROW` arm below does.
 DEFS=(-DARDUINO=100 -DMR_FEAT_OLED=1 -DMR_UI_BTN_PIN=0 -DMR_UI_TEAM_CHANNEL_ID=0 -DMR_CONSOLE=1 -DMR_N_LAYERS=2)
+LEAF_DEFS=(-DARDUINO=100 -DMR_FEAT_OLED=1 -DMR_UI_BTN_PIN=0 -DMR_UI_TEAM_CHANNEL_ID=0 -DMR_CONSOLE=1
+           -DMR_UI_ADC_CTRL=37 -DMR_UI_VBAT_READ=1)
 INCS=(-I"$FAKES" -I"$BOARD" -I"$ROOT/lib/hal" -I"$ROOT/lib/core" -I"$ROOT/lib/console" -I"$ROOT/src" -I"$ROOT/lib/monocypher/src")
 STD=(-std=gnu++20 -fno-exceptions -fno-rtti -O0)
 
 # ---- the tree must not move ------------------------------------------------------------------------------------
+# ⓘ `firmware_ui_prov.h` JOINED THE LIST WITH [[B225]]'s arm: the child-enabled build compiles the adapter's PHY
+#   precondition and its verdict mapping into the binary under test, so it is now a file this probe READS.
 MD5_BEFORE=$(cat "$FW_UI" "$HERE/probe_main.cpp" "$FAKES/Arduino.h" "$ROOT/src/fw_context_pure.h" \
-                 "$ROOT/lib/hal/device_hal.h" | md5sum | cut -d' ' -f1)
+                 "$ROOT/src/firmware_ui_prov.h" "$ROOT/lib/hal/device_hal.h" | md5sum | cut -d' ' -f1)
 
 echo "== §B105 feature-layer probe (src/firmware_ui.cpp, host-compiled) =="
 
-# ---- support archive: lib/core + lib/hal + lib/console + monocypher, built ONCE and reused by every variant ------
+# ---- support archives: lib/core + lib/hal + lib/console + monocypher, built ONCE PER ARM and reused by every variant
+# ⛔⛔ ONE ARCHIVE PER ARM IS A REQUIREMENT, NOT TIDINESS: `MR_N_LAYERS` sizes `Node::_layers[]` (`lib/core/node.h:3326`),
+#     so the two arms have DIFFERENT ABIs. Linking one archive into both would put a `Node` of one layout under a
+#     `firmware_ui.cpp` compiled against the other — an ODR violation whose symptom is a corrupt run, not a link error.
 # ⓘ No -Werror on this half: `lib/core/node_hashlocate.cpp:1365` carries a PRE-EXISTING -Wmisleading-indentation that
 #   this slice neither introduced nor is allowed to fix (C1: refactor XOR fix). The gate for lib/ warnings is
 #   `tools/warning_census.sh` on the real board envs, not this probe.
-echo "-- building the support archive (lib/core + lib/hal + lib/console + monocypher) ..."
 SUP_SRCS=("$ROOT"/lib/core/*.cpp "$ROOT/lib/hal/device_hal.cpp" "$ROOT/lib/hal/timer_wheel.cpp"
           "$ROOT/lib/hal/airtime_ledger.cpp" "$ROOT/lib/console/console_json.cpp" "$ROOT/lib/console/console_parse.cpp")
-sup_objs=()
-for s in "${SUP_SRCS[@]}"; do
-  o="$OUT/$(basename "${s%.*}").o"
-  "$CXX" "${STD[@]}" -Wall -Wextra "${DEFS[@]}" "${INCS[@]}" -c "$s" -o "$o" 2>/dev/null || {
-      echo "SUPPORT BUILD FAILED on $s"; exit 1; }
-  sup_objs+=("$o")
-done
-"$CXX" -std=gnu17 -O0 "${DEFS[@]}" -I"$ROOT/lib/monocypher/src" -c "$ROOT/lib/monocypher/src/monocypher.c" \
-       -o "$OUT/monocypher.o" 2>/dev/null || { echo "SUPPORT BUILD FAILED on monocypher"; exit 1; }
-sup_objs+=("$OUT/monocypher.o")
-ar rcs "$OUT/libsupport.a" "${sup_objs[@]}" || exit 1
+# build_support(tag, defs...) — the archive + the harness object for one arm. ⓘ ONE body, two callers (U1).
+build_support() {
+  local tag=$1; shift
+  local defs=("$@")
+  echo "-- building the $tag support archive (lib/core + lib/hal + lib/console + monocypher) ..."
+  local objs=() s o
+  for s in "${SUP_SRCS[@]}"; do
+    o="$OUT/$tag-$(basename "${s%.*}").o"
+    "$CXX" "${STD[@]}" -Wall -Wextra "${defs[@]}" "${INCS[@]}" -c "$s" -o "$o" 2>/dev/null || {
+        echo "SUPPORT BUILD FAILED on $s ($tag)"; exit 1; }
+    objs+=("$o")
+  done
+  "$CXX" -std=gnu17 -O0 "${defs[@]}" -I"$ROOT/lib/monocypher/src" -c "$ROOT/lib/monocypher/src/monocypher.c" \
+         -o "$OUT/$tag-monocypher.o" 2>/dev/null || { echo "SUPPORT BUILD FAILED on monocypher ($tag)"; exit 1; }
+  objs+=("$OUT/$tag-monocypher.o")
+  ar rcs "$OUT/libsupport-$tag.a" "${objs[@]}" || exit 1
+  # probe_main is the harness; it is built once per arm, with -Werror, because nothing mutates it.
+  "$CXX" "${STD[@]}" -Wall -Wextra -Werror "${defs[@]}" "${INCS[@]}" -c "$HERE/probe_main.cpp" \
+         -o "$OUT/probe_main-$tag.o" || { echo "PROBE HARNESS BUILD FAILED ($tag) — see above"; exit 1; }
+}
+build_support l2 "${DEFS[@]}"
+build_support v3 "${LEAF_DEFS[@]}"
 
-# probe_main is the harness; it is built ONCE, with -Werror, because nothing mutates it.
-"$CXX" "${STD[@]}" -Wall -Wextra -Werror "${DEFS[@]}" "${INCS[@]}" -c "$HERE/probe_main.cpp" -o "$OUT/probe_main.o" || {
-    echo "PROBE HARNESS BUILD FAILED — see above"; exit 1; }
-
+# ---- the arm currently under test. `ARM` picks the archive + harness object; `ARM_DEFS` names the flag array. -------
+ARM=l2; ARM_DEFS=DEFS
 # build_variant(src, out_binary, extra_cxxflags...) -> 0 on a successful link
 build_variant() {
   local src=$1 bin=$2; shift 2
-  "$CXX" "${STD[@]}" -Wall -Wextra "$@" "${DEFS[@]}" "${INCS[@]}" -c "$src" -o "$OUT/fw_ui_var.o" 2>"$OUT/build.log" \
-    && "$CXX" "$OUT/probe_main.o" "$OUT/fw_ui_var.o" "$OUT/libsupport.a" -o "$bin" 2>>"$OUT/build.log"
+  local -n d="$ARM_DEFS"
+  "$CXX" "${STD[@]}" -Wall -Wextra "$@" "${d[@]}" "${INCS[@]}" -c "$src" -o "$OUT/fw_ui_var.o" 2>"$OUT/build.log" \
+    && "$CXX" "$OUT/probe_main-$ARM.o" "$OUT/fw_ui_var.o" "$OUT/libsupport-$ARM.a" -o "$bin" 2>>"$OUT/build.log"
 }
 
 # ---- THE LIVE RUN. -Werror here: the shipped TU must be clean at the same warning bar the board builds hold it to.
@@ -99,6 +134,25 @@ if ! build_variant "$FW_UI" "$OUT/probe" -Werror; then
 fi
 "$OUT/probe"; rc=$?
 echo "probe exit=$rc"
+
+# ---- ★★★★ [[B225]]: THE CHILD-ENABLED ARM — `[env:heltec_v3]`, THE ONLY BUILD THAT REACHES THE PROVISIONING SCREENS
+# The live run above builds `-DMR_N_LAYERS=2`, where BOTH provisioning children hide, so `draw_provision_screen` is
+# structurally unreachable there and §UI-15 slice 5's three screens had no behavioural cover at all. This arm builds
+# the SAME two TUs against the leaf env's own `-D` set and runs the SAME source's P15 phase against them.
+echo
+echo "== [[B225]] child-enabled arm: [env:heltec_v3] (a leaf env: MR_N_LAYERS defaults to 1, MR_FEAT_TEAM=1) =="
+ARM=v3; ARM_DEFS=LEAF_DEFS
+if ! build_variant "$FW_UI" "$OUT/probe_v3" -Werror; then
+  echo "  FAIL the child-enabled arm did not build:"; sed 's/^/    /' "$OUT/build.log" | head -20; rc=1
+else
+  if "$OUT/probe_v3" > "$OUT/probe_v3.out" 2>&1; then
+    echo "  ok   the child-enabled arm builds and PASSES"
+    grep -E "^[0-9]+ passed" "$OUT/probe_v3.out" | sed 's/^/       /'
+  else
+    echo "  FAIL the child-enabled arm is RED:"; grep '^  FAIL' "$OUT/probe_v3.out" | sed 's/^/    /' | head -20; rc=1
+  fi
+fi
+ARM=l2; ARM_DEFS=DEFS
 
 # ---- ★★★ §UI-14: THE SECOND ARM OF SPEC §3.6.2's CONDITIONAL `BLE mode` ROW -------------------------------------
 # The row is ABSENT when the UI-12 transport is not compiled — which is EVERY env in this tree — so the live run above
@@ -111,7 +165,7 @@ if "$CXX" "${STD[@]}" -Wall -Wextra -Werror -DMR_UI_BLE_ROW=1 "${DEFS[@]}" "${IN
         -c "$HERE/probe_main.cpp" -o "$OUT/probe_main_ble.o" 2>"$OUT/ble.log" \
    && "$CXX" "${STD[@]}" -Wall -Wextra -Werror -DMR_UI_BLE_ROW=1 "${DEFS[@]}" "${INCS[@]}" \
         -c "$FW_UI" -o "$OUT/fw_ui_ble.o" 2>>"$OUT/ble.log" \
-   && "$CXX" "$OUT/probe_main_ble.o" "$OUT/fw_ui_ble.o" "$OUT/libsupport.a" -o "$OUT/probe_ble" 2>>"$OUT/ble.log"; then
+   && "$CXX" "$OUT/probe_main_ble.o" "$OUT/fw_ui_ble.o" "$OUT/libsupport-l2.a" -o "$OUT/probe_ble" 2>>"$OUT/ble.log"; then
   if "$OUT/probe_ble" > "$OUT/probe_ble.out" 2>&1; then
     echo "  ok   the BLE-row arm builds and PASSES ($(grep -c '' "$OUT/probe_ble.out") lines)"
     grep -E "^[0-9]+ passed" "$OUT/probe_ble.out" | sed 's/^/       /'
@@ -124,8 +178,12 @@ fi
 # ★ THE DENOMINATOR FOR THE COVERAGE ROLL-UP AT THE BOTTOM, taken from the probe itself. `PROBE_LIST=1` makes every
 #   CHK print its label whether it passed or not, so "N of M checks are reddened by a control" is MEASURED here rather
 #   than maintained by hand in a comment — which is exactly how the header's "20 of 25" went stale in one slice.
-PROBE_LIST=1 "$OUT/probe" 2>/dev/null | sed -n 's/^  CHECK //p' | sort -u > "$OUT/all_checks.txt"
-: > "$OUT/reddened.txt"
+# ⛔ ONE DENOMINATOR **PER ARM**, and mixing them would be dishonest in both directions: the two arms run different
+#   check SETS (P7's parent-row check flips, P15 exists only on `v3`), so a shared ratio would count a `v3` label
+#   against the `l2` list and inflate the figure that is supposed to name the UNCOVERED checks.
+PROBE_LIST=1 "$OUT/probe"    2>/dev/null | sed -n 's/^  CHECK //p' | sort -u > "$OUT/all_checks-l2.txt"
+PROBE_LIST=1 "$OUT/probe_v3" 2>/dev/null | sed -n 's/^  CHECK //p' | sort -u > "$OUT/all_checks-v3.txt"
+: > "$OUT/reddened-l2.txt"; : > "$OUT/reddened-v3.txt"
 
 # ---------------------------------------------------------------------------------------------------------------
 # NEGATIVE CONTROLS
@@ -156,7 +214,8 @@ ctl() {
   else
     n_ctl=$((n_ctl+1)); echo "  ok   $label -> RED ($(grep -c '^  FAIL' "$OUT/mutant.out") check(s) failed)"
     # record WHICH checks this control reddened, for the roll-up (the CHK format is "  FAIL <label padded to 64>  <expr>")
-    sed -n 's/^  FAIL \(.\{1,64\}\)  .*$/\1/p' "$OUT/mutant.out" | sed 's/[[:space:]]*$//' >> "$OUT/reddened.txt"
+    # ⓘ INTO THE CURRENT ARM's file: a control mutates ONE build, so its evidence belongs to that arm's ratio.
+    sed -n 's/^  FAIL \(.\{1,64\}\)  .*$/\1/p' "$OUT/mutant.out" | sed 's/[[:space:]]*$//' >> "$OUT/reddened-$ARM.txt"
   fi
 }
 
@@ -573,6 +632,74 @@ if [ "${1:-}" != "--no-neg" ]; then
   #   selection frame stays in the rail, and the icons land on top of the text. Only a coordinate check sees it.
   ctl "C87 the rail's glyphs are drawn at the body's x, over the text" yes \
       's|        mrui::draw_bitmap(kRailX + kRailIconDx, y + kRailIconDy,|        mrui::draw_bitmap(kBodyX, y + kRailIconDy,|'
+  # ★★★★ C88/C89 §UI-15 slice 5 — THE OWNER's PARENT-ROW RULING, IN BOTH DIRECTIONS. C88 is the row kept
+  #      UNCONDITIONAL (slice 4's shape, i.e. the ruling not applied): the menu then offers PROVISION on a build with
+  #      no child, which is the state the ruling forbids. C89 is the OTHER wrong answer and it is why the predicate is
+  #      published rather than assumed — a snapshot that reported a child this build does not have would put the row
+  #      back through the front door. ⛔ Without C89 the check would be reddened only by an edit to the row builder,
+  #      and the PUBLISHING half — which is this file's whole contribution — would be negative space (the §W10b lesson).
+  ctl "C88 the PROVISION row is rendered unconditionally (the ruling not applied)" yes \
+      's|                                                      mrui::provision_has_child(s.prov_create_team, s.prov_join_static));|                                                      true);|'
+  ctl "C89 the child predicates are published as TRUE on a build with no children" yes \
+      's|    s.prov_join_static = (MR_N_LAYERS < 2);|    s.prov_join_static = true;|'
+
+  # ================================================================================= [[B225]]: L1-L9, THE `v3` ARM's
+  # ★★★★ THE CONTROLS FOR `draw_provision_screen` ITSELF, AND THEY EXIST ONLY HERE because the screens they mutate are
+  #   unreachable on the `l2` arm — a mutation of an unreachable renderer arm is the definition of a control that
+  #   measures nothing. Each is the TEMPTING WRONG IMPLEMENTATION rather than a deletion, and each leaves the WHOLE
+  #   native suite green: `test_firmware_ui_model.cpp` drives the strings, `test_firmware_ui_prov.cpp` drives the
+  #   adapter, and neither compiles this file.
+  echo
+  echo "-- [[B225]] controls on the child-enabled arm ([env:heltec_v3]) --"
+  ARM=v3; ARM_DEFS=LEAF_DEFS
+  # ⛔ L1 THE VERDICT ITSELF. A result screen that draws its id and its exit line but not its HEADLINE looks finished
+  #    and says nothing about what happened — and `TEAM CREATED` is the one word the operator acts on.
+  ctl "L1 the result's headline is dropped (the verdict never shows)" yes \
+      's|            body_text(0, mrui::prov_result_head(st.prov_answer));|            ;|'
+  # ⛔⛔ L2 THE TWO TOKENS SWAPPED. §3.6.3 draws the FULL id and the SHARED fingerprint one row apart; swapping them is
+  #     a copy-paste away, changes no count, and leaves both strings on the panel — only a per-ROW assertion sees it.
+  ctl "L2 the id and fingerprint rows are swapped" yes \
+      's|                body_text(1, id);|                body_text(1, fp_swap_marker);|
+       s|                body_text(2, fp);|                body_text(1, fp);|
+       s|                body_text(1, fp_swap_marker);|                body_text(2, id);|'
+  # ⛔ L3 THE FINGERPRINT ROW DROPPED — and this is the control the substring trap makes essential: the fingerprint is
+  #    the id's own last six characters, so a `strstr` check would still find it inside `0x12A1B2C3` and pass.
+  ctl "L3 the fingerprint row is dropped (only the full id is drawn)" yes \
+      's|                body_text(2, fp);|                (void)fp;|'
+  # ⛔⛔ L4 THE CONDITION RE-SPELLED AT THE DRAW SITE — the exact defect `ui_fmt_prov_replaces`'s block forbids ("the
+  #     CONDITION is the formatter's, never this file's"). A teamless node then reads `REPLACES 000000`: a warning
+  #     about replacing a team it is not in.
+  ctl "L4 the REPLACES warning is composed unconditionally" yes \
+      's|            if (mrui::ui_fmt_prov_replaces(note, sizeof note, s.team_id)) body_text(1, note);|            char rfp[mrui::kTeamFpTokenCap]; mrui::ui_fmt_team_fingerprint(rfp, sizeof rfp, s.team_id); snprintf(note, sizeof note, "REPLACES %s", rfp); body_text(1, note);|'
+  # ⓘ L5 IS L4's INVERSION, and it is what makes the "absent on a teamless node" half mean something: without it that
+  #   check is negative space no mutation could move, and a screen that NEVER warned would pass everything else here.
+  ctl "L5 the REPLACES warning is never drawn (§3.6.3 not applied)" yes \
+      's|            if (mrui::ui_fmt_prov_replaces(note, sizeof note, s.team_id)) body_text(1, note);|            (void)note;|'
+  # ⛔ L6 THE REFUSAL'S DETAIL DROPPED. `CREATE REFUSED` with no reason, `PHY DIFFERS` with no `USE SERIAL`, and
+  #    `SAVE FAILED` with no `NOTHING CHANGED` — three screens that state a problem and withhold the remedy.
+  ctl "L6 the refusal detail row is dropped (a verdict with no reason)" yes \
+      's|            if (detail\[0\]) body_text(1, detail);|            (void)detail;|'
+  # ⛔⛔ L7 THE RESULT DRAWN ON THE WRONG ARM — the two `case` labels crossed, which is the §B66 disagreement in its
+  #     purest form: the gestures act on the confirmation while the panel draws the result, and vice versa. ⓘ The swap
+  #     needs a scratch token because two `s` commands would otherwise undo each other on the same line.
+  ctl "L7 the confirm and result arms are crossed (the wrong screen)" yes \
+      's|        case mrui::Provision::create_confirm: {|        case mrui::Provision::__swap__: {|
+       s|        case mrui::Provision::create_result: {|        case mrui::Provision::create_confirm: {|
+       s|        case mrui::Provision::__swap__: {|        case mrui::Provision::create_result: {|'
+  # ⛔⛔ L8 THE SEAM. Without the attach the model's `run_create_team` fails closed with `no service` — so this control
+  #     is also the PROOF that this arm drives the REAL `UiProvisionAdapter` and not a probe stand-in: nothing else in
+  #     the phase would change if the probe were supplying its own `IUiProvision`.
+  ctl "L8 the model is never given the provisioning adapter" yes \
+      's|    s_model.attach_provision(s_prov_adapter);|    ;|'
+  # ⛔ L9 IS C89's MIRROR ON THIS ARM: the CREATE child published as absent on a build that has it. The parent row
+  #    survives (JOIN is still published), so the failure is a menu that silently drops the only act it can perform.
+  ctl "L9 the CREATE child is published as absent on a build that has it" yes \
+      's|    s.prov_create_team = (MR_N_LAYERS < 2) \&\& (MR_FEAT_TEAM != 0);|    s.prov_create_team = false;|'
+  # ⛔ L10 IS C88's MIRROR: the owner's HIDE ruling applied where it must NOT be. The parent row vanishes on a build
+  #    that HAS children, so §3.6.3 becomes unreachable from the panel — the one direction C88 alone cannot see.
+  ctl "L10 the parent row is hidden on a build that HAS a child" yes \
+      's|                                                      mrui::provision_has_child(s.prov_create_team, s.prov_join_static));|                                                      false);|'
+  ARM=l2; ARM_DEFS=DEFS
 fi
 
 # ---- ★★ §T3 (design P6) — THE OLD STRING MUST BE GONE FROM EVERY RENDERING SOURCE ------------------------------
@@ -603,7 +730,7 @@ fi
 
 # ---- the tree must be exactly as we found it -------------------------------------------------------------------
 MD5_AFTER=$(cat "$FW_UI" "$HERE/probe_main.cpp" "$FAKES/Arduino.h" "$ROOT/src/fw_context_pure.h" \
-                "$ROOT/lib/hal/device_hal.h" | md5sum | cut -d' ' -f1)
+                "$ROOT/src/firmware_ui_prov.h" "$ROOT/lib/hal/device_hal.h" | md5sum | cut -d' ' -f1)
 if [ "$MD5_BEFORE" != "$MD5_AFTER" ]; then
   echo "  FAIL the probe MODIFIED a real source file ($MD5_BEFORE -> $MD5_AFTER)"; rc=1
 else
@@ -614,11 +741,17 @@ fi
 # ---- ★★ THE COVERAGE ROLL-UP: which checks can a control actually break? ----------------------------------------
 # A green probe with green controls still says nothing about the checks NO control touches. This prints the ratio and
 # NAMES the exceptions, so an un-reddened check has to be justified in the source rather than assumed covered.
-if [ -s "$OUT/all_checks.txt" ] && [ "${1:-}" != "--no-neg" ]; then
-  sort -u "$OUT/reddened.txt" > "$OUT/reddened_u.txt"
+if [ -s "$OUT/all_checks-l2.txt" ] && [ "${1:-}" != "--no-neg" ]; then
+  # ⛔ THE RATIO IS OVER THE **UNION** OF THE TWO ARMS, and the alternative was measured and rejected: a PER-ARM ratio
+  #   reported every shared check as uncovered on `v3` (240 of them), because the control that breaks it runs against
+  #   `l2`. The question this roll-up exists to answer is *"is there a check NO control anywhere can break?"* — so the
+  #   denominator is every label either arm runs and the numerator is every label either arm's controls reddened.
+  cat "$OUT/all_checks-l2.txt" "$OUT/all_checks-v3.txt" | sort -u > "$OUT/all_checks.txt"
+  cat "$OUT/reddened-l2.txt"   "$OUT/reddened-v3.txt"   | sort -u > "$OUT/reddened_u.txt"
   n_all=$(grep -c . "$OUT/all_checks.txt"); n_red=$(grep -c . "$OUT/reddened_u.txt")
   echo
-  echo "coverage: $n_red of $n_all checks are reddened by at least one control"
+  echo "checks per arm: l2 $(grep -c . "$OUT/all_checks-l2.txt") · v3 $(grep -c . "$OUT/all_checks-v3.txt")"
+  echo "coverage: $n_red of $n_all checks (both arms, unioned) are reddened by at least one control"
   comm -23 "$OUT/all_checks.txt" "$OUT/reddened_u.txt" | sed 's/^/  (no control reddens) /'
 elif [ "${1:-}" != "--no-neg" ]; then
   echo "  FAIL the check roll-up produced 0 labels — PROBE_LIST is not wired, so the ratio would be vacuous"; rc=1

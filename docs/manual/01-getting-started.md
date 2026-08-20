@@ -28,4 +28,4 @@ Choose the appropriate firmware build, flash one node, and verify that it starts
 
 ## Next step
 
-Continue to [Connections](02-connections.md).
+Continue to [Connections](02-connections.md), then return to your selected journey in [Choose Your Path](00-choose-your-path.md).

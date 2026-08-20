@@ -2844,3 +2844,31 @@ and 1, **and write**). `joinprofile list extra` ⇒ the usage line, ⛔ not sile
 The **`PROFILE STORE UNREADABLE / STORAGE FAILURE`** line itself: inducing an unmountable LittleFS or an unopenable
 NVS is not a bench operation. ⇒ **its BEHAVIOUR is proven natively; its RENDERING on metal is not.** Related coverage
 residue: [[B221]] (the NV adapters are compiled by no automated gate).
+
+## Part 29 — §UI-15 slice 5: OLED team create on REAL hardware (2026-08-20)
+
+⛔ **THE RESIDUE ONLY.** The state model, the §4 gate, the adapter's PHY precondition, the two `ProvPhy` objects and
+every screen string are host-gated (`test_firmware_ui_prov.cpp`, the `model`/`chrome`/`uiprov` batteries, and the
+probe's **`v3` child-enabled arm** driving the REAL renderer + REAL adapter — [[B225]]). **What no host reaches: a
+real live-vs-persisted retune divergence, real flash persistence, a real team-DAD on air, and the physical panel.**
+
+1. **`gateway_heltec`:** SETTINGS lists **no `PROVISION` row** (walk the whole menu). Expected rows:
+   `DM crypt / key attach / auto reg / SAVE / DISCARD / BACK` only — the owner's 2026-08-19 hide ruling on metal.
+2. **Leaf (`heltec_v3` / `heltec_mobile`):** SETTINGS → `>PROVISION` → `double` ⇒ child menu `>CREATE TEAM`,
+   `JOIN NETWORK`, `BACK`. `double` on **JOIN NETWORK does NOTHING** — slice 6's, ⛔ not an error line.
+3. **Confirm screen:** `double` on CREATE TEAM ⇒ `CREATE NEW TEAM`, and `REPLACES <6 hex>` **only when already in
+   a team**; cursor on **`>BACK`**. A `double` here (BACK selected) returns to the child menu; `cfg` shows
+   ` team=0x…` **unchanged** and ⛔ **no `»tx BCN` burst** (zero transaction on BACK, proved on air).
+4. **Create:** `short` (→ CREATE) then `double` ⇒ panel **`TEAM CREATED` / `0x<8 uppercase hex>` /
+   `<6 uppercase hex>` / `press = back`**. ★ **The fingerprint row must be the LAST 6 of the 8 hex digits** — the
+   shared-helper pin (slice 3) read off the glass. `cfg` then prints ` team=0x<same 8 hex>` +
+   `team_local_id=<n>` (`(team-DAD pending)` until DAD completes).
+5. ★★ **PHY divergence — the check ONLY metal can run** (the precondition compares against a genuinely retuned
+   radio): `mobile register freq=869.100 sf=7 bw=125` (retunes live, persists nothing — the [[B211]] condition),
+   then OLED create ⇒ panel **`PHY DIFFERS` / `USE SERIAL`**; `cfg` ` team=0x…` **unchanged**, no key change, and
+   ⛔ **no `»tx BCN`** DAD burst.
+6. ★ **Durability:** after a successful create, **power-cycle** ⇒ `cfg` shows the same ` team=0x…`,
+   `team exportkey` returns the same keypair, and SETTINGS shows **no** `CFG! RELOAD` (the notify re-anchored the
+   draft baseline).
+7. **Persist tracker:** after create + DAD, note `team_local_id=<n>`; **power-cycle** ⇒ the same `<n>` and
+   ⛔ **no re-DAD burst** on boot.

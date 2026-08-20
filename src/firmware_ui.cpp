@@ -60,6 +60,16 @@
 //             §6 rules that the icon may replace the decoration and may never replace the remedy.
 //   ⛔ NOT DONE HERE, stated so a reader does not look for it: the emergency body is the ONE body that stays at
 //             `x = 0` and 128 px wide (§5.3), and no rail is drawn while an alarm is up.
+//   ★★ DONE 2026-08-19 (§UI-15 slice 5) — §3.6.3's TEAM-CREATE, DEVICE HALF ONLY. This file publishes the two §6
+//             CHILD PREDICATES into the snapshot (`prov_join_static` / `prov_create_team` — the ONE site that knows
+//             them), renders the provisioning sub-view (`draw_provision_screen`: the child menu, the confirmation and
+//             the result), and supplies the FOUR device forwards of `mrfw::ITeamCreateDevice` — the record load, the
+//             live facts, the transaction call and the post-save bookkeeping (`mr_ui_on_config_saved` + the persist
+//             tracker, which lives behind `firmware_config.cpp` because `fw_context.h` is barred from this TU).
+//   ⛔ AND NOT ONE DECISION OF IT IS HERE, by requirement: the OWNER's live-vs-persisted PHY precondition,
+//             `TeamRequest::phy.present = false` and the verdict mapping are all `src/firmware_ui_prov.h`'s, which the
+//             native suite compiles; every string is `firmware_ui_model.h`'s or `firmware_ui_chrome.h`'s. ⛔ The four
+//             `join_*` arms are slice 6's — they are entered by nothing and draw only the leave line.
 //   ★ DONE 2026-08-13 (§UI-14 follow-up) — the IMMEDIATE conflict notification §3.6.1 requires: `mr_ui_on_config_saved`
 //             below, called after a SUCCESSFUL PERSISTED write through the feature-neutral fourth hook in
 //             `lib/hal/mr_ui.h`. ⛔ **CORRECTED IN PLACE: this line read *"NOT DONE HERE, and NOT anywhere
@@ -90,6 +100,10 @@
 #include "firmware_ui_icons.h"   // ★ the strip's glyphs. `inline constexpr` at namespace scope ⇒ `.rodata`, and
                                  //   §8.1's amendment requires them to land in FLASH, not RAM.
 #include "firmware_ui_send.h"
+#include "firmware_ui_prov.h"    // ★★ §UI-15 slice 5: the PURE team-create adapter (`mrfw::UiProvisionAdapter` over
+                                 //   `mrfw::ITeamCreateDevice`). EVERY decision of §3.6.3's create — the PHY
+                                 //   precondition, `phy.present = false`, the verdict mapping — lives THERE, where
+                                 //   the native suite compiles it; this file supplies only the four device forwards.
 #include "board_ui.h"        // resolved by `-I variants/heltec_v3` — ★ THIS is the task that makes that flag
                              //   load-bearing; §A0 predicted Task 5 and UI-5 measured it dead there three ways.
 #include "mr_ui.h"           // the three hook DECLARATIONS we define below (fw_main calls them unconditionally)
@@ -170,6 +184,35 @@ mrui::UiInboxCounters s_counters;
 //   screen cycle (§3.6.1 forbids discarding on a timeout), and `reboot_required()` stays true from the save until the
 //   reboot (§3.6.5: that state stays visible until then).
 mrfw::ConfigService s_cfg(mrfw::device_cfg_store(), mrfw::device_cfg_live());
+
+// ★★★★ §UI-15 slice 5 — THE DEVICE HALF OF §3.6.3's TEAM-CREATE, AND EVERY LINE OF IT IS A FORWARD. The decisions are
+//      `src/firmware_ui_prov.h`'s, which is pure and natively compiled; what is left here is exactly what needs the
+//      device: the durable store, `g_node`, the ONE transaction instance and the two post-save bookkeeping calls.
+// ⓘ GUARDED BY THE CHILD PREDICATE ITSELF (`MR_N_LAYERS < 2`), because the three primitives it forwards to are
+//   compiled out with `handle_team` on a gateway build. That is the SAME predicate `build_snapshot` publishes as
+//   `prov_create_team`, so on a build where this block does not exist the CREATE row does not exist either — and the
+//   model's seam stays null, which fails closed (see `run_create_team`).
+#if MR_N_LAYERS < 2
+struct DeviceTeamCreate : mrfw::ITeamCreateDevice {
+    // The SAME durable seam the transaction writes through (U1) — ⛔ never a second `/mrcfg` reader.
+    bool load_record(mrnv::Blob& out) override { return mrfw::device_cfg_store().load(out); }
+    void device_facts(mrfw::ProvSnapshot& snap, mrfw::ProvPhyFloor& floor) override {
+        mrfw::prov_device_facts(snap, floor);
+    }
+    mrfw::ProvResult apply(mrfw::TeamRequest& rq, const mrfw::ProvSnapshot& snap) override {
+        return mrfw::prov_service().apply_team(rq, g_node.config(), snap);
+    }
+    // ⛔ THE ARM IS NOT DECIDED HERE — the adapter calls this ONLY on `ProvVerdict::applied` (i.e. the write both
+    //    happened and succeeded), which is the §notify-every-save rule's exact condition and is a decision the native
+    //    suite drives. This is the BODY of that decision and nothing else.
+    void on_applied(const mrfw::ProvResult& r) override {
+        mr_ui_on_config_saved();                                        // the OLED's own /mrcfg writer, §notify-every-save
+        mrfw::prov_note_persisted_team_local_id(r.persisted_team_local_id);
+    }
+};
+DeviceTeamCreate         s_team_create;
+mrfw::UiProvisionAdapter s_prov_adapter(s_team_create);
+#endif
 
 int32_t  s_batt_mv        = -1;      // last GOOD reading; <0 = never had one -> render `--`
 uint32_t s_batt_next_ms   = 0;
@@ -483,6 +526,16 @@ mrui::UiSnapshot build_snapshot(uint32_t now_ms) {
     // ★ §UI-14: the build-time fact the pure model branches on, published at the ONE site that knows it — the same
     //   shape as `team_build` directly above (U3). See the `MR_UI_BLE_ROW` block at the top of this file.
     s.ble_row    = (MR_UI_BLE_ROW != 0);
+    // ★★★★ §UI-15 slice 5 / plan §6 — §3.6.3's TWO CHILD PREDICATES, published at the ONE site that knows them, in the
+    //      same shape as `team_build` / `ble_row` above (U3) so the model stays `#if`-free and the native suite drives
+    //      every combination. ⛔ THEY ARE TWO PREDICATES AND NOT ONE: static join has NOTHING to do with the team
+    //      plane, and hiding it because `MR_FEAT_TEAM` is off is the defect plan §6 names in as many words.
+    // ★ MEASURED, not assumed: `handle_join` and `handle_create`/`handle_team` are ALL compiled out by
+    //   `#if MR_N_LAYERS < 2` (src/firmware_config.h), so that IS the child predicate — and CREATE additionally needs
+    //   the team plane to exist. They coincide in every env in the tree today (`MR_FEAT_TEAM 0` arrives only with
+    //   `MR_PROFILE_GATEWAY`, which sets `MR_N_LAYERS=2`), which is exactly why they are published separately.
+    s.prov_join_static = (MR_N_LAYERS < 2);
+    s.prov_create_team = (MR_N_LAYERS < 2) && (MR_FEAT_TEAM != 0);
 #if MR_FEAT_TEAM
     // ⚠ `rt_team_at` has NO !MR_FEAT_TEAM stub, by deliberate core design (there is no `_rt_team` to read), so this
     //   whole block must be guarded — the two counters around it stub to 0 and would compile either way.
@@ -1061,13 +1114,99 @@ void draw_inbox_detail(const mrui::UiState& st) {
 //   value editing   `%c%-8s[%s]` : `BLE` -> 8 + `[periodic]` 10         = 19   (the widest)
 //                                  `key attach` 10 + `[off]` 5          = 16
 //   action row      `%c%s`       : `PROVISION`                          = 10
-//   note / reboot   `PROVISION: UI-15` 16 · `RESTART NEEDED` 14 · `CFG! RELOAD` 11
+//   note / reboot   `RELOAD OR DISCARD` 17 · `SAVE OR DISCARD` 15 · `RESTART NEEDED` 14 · `CFG! RELOAD` 11
 //   unavailable     `CFG UNAVAILABLE`                                   = 15
+// ⛔ CORRECTED IN PLACE 2026-08-19 (§UI-15 slice 5, V1): the note row above used to read `PROVISION: UI-15` 16. That
+//    string is GONE — §UI-15 slice 4 replaced the placeholder refusal with §4's TWO remedy cells (`ProvBlock`), whose
+//    widths are the two now listed. The widest note is 17 of 19.
 // ⚠ THE EDITING ARM LOST THE SPACE BEFORE ITS BRACKET rather than a column of the label, and that is deliberate: the
 //   bracket is already the edit indicator, while truncating `key attach` to `key atta` would make two SELECTABLE rows
 //   collide on their visible prefix — §7.1 rule 6's forbidden outcome.
+// ★★★★ §UI-15 slice 5 — §3.6.3's SUB-VIEW, AND IT REPLACES THE BODY exactly as the compose modal and the inbox detail
+//      do (it owns the press, so it must own the pixels: a menu whose gestures act on one list while the panel draws
+//      another is the disagreement §B66 exists to prevent).
+// ★★ THE RENDERER IS THIN BY REQUIREMENT, NOT BY TASTE: this TU is compiled by no automated gate, so every string and
+//    every choice below comes from a PURE unit — the row list from `mrui::provision_rows` (the SAME builder the model
+//    bounds its cursor with, U1/U2 — exactly as `draw_settings_screen` calls `settings_rows`), the labels from
+//    `provision_row_label` / `prov_confirm_label`, the result's
+//    two lines from `prov_result_head` / `prov_result_detail`, the id tokens from the chrome formatters. ⛔ Nothing
+//    here decides anything.
+// §7.3 AUDIT (widest reachable expansion, 19-column body):
+//   menu row        `%c%s`         : `>JOIN NETWORK`                     = 13
+//   confirm title   `CREATE NEW TEAM`                                    = 15
+//   confirm note    `REPLACES A1B2C3`                                    = 15
+//   confirm action  `%c%s`         : `>CREATE`                           = 7
+//   result head     `CREATE REFUSED` 14 · `TEAM CREATED` 12 · `SAVE FAILED` 11 · `PHY DIFFERS` 11
+//   result detail   `NOTHING CHANGED` 15 · `no_mobile_plane` 15 (the widest `prov_err_name`) · `USE SERIAL` 10
+//   result id       `0x12A1B2C3` 10 · fingerprint `A1B2C3` 6
+//   exit line       `press = back`                                       = 12
+void draw_provision_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
+    char l[kLineCap];
+    switch (st.provisioning) {
+        case mrui::Provision::menu: {
+            const mrui::ProvRowList list = mrui::provision_rows(s.prov_create_team, s.prov_join_static);
+            const uint8_t first = list_first(st.cursor, list.n, uint8_t(kBodyRows));
+            for (uint8_t row = 0; row < kBodyRows && first + row < list.n; ++row) {
+                mrui::ProvRow r{};
+                if (!list.at(uint8_t(first + row), r)) break;
+                snprintf(l, sizeof l, "%c%s", (first + row == st.cursor) ? '>' : ' ', mrui::provision_row_label(r));
+                body_text(row, l);
+            }
+            return;
+        }
+        case mrui::Provision::create_confirm: {
+            body_text(0, mrui::kProvCreateTitle);
+            // Design §3.6.3: *"if already in a team, the screen says the current membership will be replaced"* — the
+            // CONDITION is the formatter's (a `team_id` of 0 is the core's "not in a team"), never this file's.
+            char note[mrui::kProvReplacesCap];
+            if (mrui::ui_fmt_prov_replaces(note, sizeof note, s.team_id)) body_text(1, note);
+            // ★ BACK FIRST and selected on entry, so CREATE costs the deliberate `short` -> `double` (§3.6.3) — the
+            //   same shape and the same order as the inbox modal's back/delete pair.
+            snprintf(l, sizeof l, "%c%s", (st.prov_confirm == mrui::ProvConfirm::back) ? '>' : ' ',
+                     mrui::prov_confirm_label(mrui::ProvConfirm::back));
+            body_text(3, l);
+            snprintf(l, sizeof l, "%c%s", (st.prov_confirm == mrui::ProvConfirm::confirm) ? '>' : ' ',
+                     mrui::prov_confirm_label(mrui::ProvConfirm::confirm));
+            body_text(4, l);
+            return;
+        }
+        case mrui::Provision::create_result: {
+            // ⛔ §8 pin 2: the headline is whatever the TRANSACTION returned — there is no arm here that can invent a
+            //    success, and `UiProvOutcome::none` (an answer nobody wrote) renders NOTHING rather than anything.
+            body_text(0, mrui::prov_result_head(st.prov_answer));
+            const char* detail = mrui::prov_result_detail(st.prov_answer);
+            if (detail[0]) body_text(1, detail);
+            // Design §3.6.3: success shows the FULL new team id PLUS the same short fingerprint (§3.6.4's token).
+            if (st.prov_answer.outcome == mrui::UiProvOutcome::created) {
+                char id[mrui::kTeamIdTokenCap]; mrui::ui_fmt_team_id_full(id, sizeof id, st.prov_answer.team_id);
+                body_text(1, id);
+                char fp[mrui::kTeamFpTokenCap]; mrui::ui_fmt_team_fingerprint(fp, sizeof fp, st.prov_answer.team_id);
+                body_text(2, fp);
+            }
+            body_text(4, "press = back");
+            return;
+        }
+        // ⛔ SLICE 6's FOUR ARMS: nothing in this tree enters them (`firmware_ui_model.h`'s per-arm table), and their
+        //    text is that slice's to specify — ⛔ no copy is invented here for a screen the design has not been read
+        //    against. They draw the LEAVE line only, which matches the model's leave-only fail-safe for them.
+        case mrui::Provision::join_select:
+        case mrui::Provision::join_confirm:
+        case mrui::Provision::join_waiting:
+        case mrui::Provision::join_result:
+            body_text(4, "press = back");
+            return;
+        // ⛔ UNREACHABLE BY THE INVARIANT (`Settings::provisioning` implies a non-`closed` arm) — listed so -Wswitch
+        //    stays useful, and drawing nothing is the honest answer for a state that says it is not open.
+        case mrui::Provision::closed: return;
+    }
+}
+
 void draw_settings_screen(const mrui::UiState& st, const mrui::UiSnapshot& s, const SettingsView& c) {
     char l[kLineCap];
+    // ★ §UI-15: the sub-view owns the press, so it owns the body. It is dispatched HERE rather than in `draw_frame`
+    //   because it is a view INSIDE settings (§5: no sixth cycle slot) — the rail already says SETTINGS for it
+    //   (`ui_nav_slot`'s fourth arm), and the two must not be able to disagree.
+    if (st.settings == mrui::Settings::provisioning) { draw_provision_screen(st, s); return; }
     // §6/§6.1: the ACTIONABLE text, through the ONE marker function (`CFG! RELOAD` is the SERVICE's ruled string and
     // is CALLED, never re-spelled). An empty marker means the row belongs to the menu instead.
     const char* marker = mrui::cfg_marker_text(c.unsaved, c.conflict);
@@ -1082,7 +1221,8 @@ void draw_settings_screen(const mrui::UiState& st, const mrui::UiSnapshot& s, co
     // is durable and comes back the moment the note is retired by the next press.
     const char* note = mrui::settings_note(st);
     const uint8_t rows = uint8_t(kBodyRows - 1 - top);   // the last row is the note/reboot line; `top` is the marker's
-    const mrui::CfgRowList list = mrui::settings_rows(s.ble_row, c.conflict);
+    const mrui::CfgRowList list = mrui::settings_rows(s.ble_row, c.conflict,
+                                                      mrui::provision_has_child(s.prov_create_team, s.prov_join_static));
     const uint8_t first = list_first(st.cursor, list.n, rows);
     for (uint8_t row = 0; row < rows && first + row < list.n; ++row) {
         mrui::CfgRow r{};
@@ -1361,6 +1501,13 @@ void mr_ui_init() {
     //    persisted record and records a baseline, and doing that at boot would read `/mrcfg` on every node that never
     //    touches SETTINGS. The model opens it the first time the operator actually reaches the screen.
     s_model.attach_config(s_cfg);
+    // ★★ §UI-15 slice 5: hand the model the ONE provisioning adapter, the same way. ⛔ It is guarded by the CHILD
+    //    PREDICATE and not by `MR_FEAT_OLED`: on a build with no children the transaction primitives do not exist, the
+    //    CREATE row is hidden and the PROVISION row itself is gone (`provision_has_child`), so the seam stays null —
+    //    which the model treats as a loud refusal rather than a crash.
+#if MR_N_LAYERS < 2
+    s_model.attach_provision(s_prov_adapter);
+#endif
     // No boot splash: the first real frame is one tick away and goes through the page-chunked path. UI-5's splash
     // existed only to prove the canvas was reachable under --gc-sections; the feature layer calls all nine entry
     // points now (§B88), so nothing is collected and nothing needs a stand-in.

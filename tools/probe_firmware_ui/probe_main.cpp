@@ -64,6 +64,21 @@
 //     is open over the TEAM screen". No mutation of the rail can move it — it asserts that the WALK reached the modal
 //     at all, which is what makes the rail assertion beside it mean something. It can still fail: a compose modal that
 //     stopped opening from TEAM trips it, and then the rail check below it would have been measuring an empty screen.
+//   ⓘ §UI-15 slice 5 / [[B225]] ADDS ITS OWN, AND THEY ARE THE SAME TWO SHAPES. The HARNESS PRECONDITIONS: "P15a the
+//     PROVISION row can be highlighted" and the two "precondition:" lines that state which team the node is in — they
+//     assert the walk ARRIVED and which arm of §3.6.3's conditional is being measured, which is what makes the
+//     assertion beside each mean something. The NEGATIVE SPACE: every "zero durable writes" / "the adapter was not
+//     entered at all" / "nothing was applied live" / "no retune happened" on the BACK, the PHY refusal and the two
+//     failure arms. ★ Each has a POSITIVE ARM IN THE SAME PHASE — the identical screen with the divergence removed
+//     really does create a team, write once and move the live node — so the zeros are evidence, not a fixture that
+//     could never do anything.
+//   ★★ AND THERE ARE NOW **TWO ARMS OF THIS FILE**, on the `MR_N_LAYERS` axis, for the reason the `MR_UI_BLE_ROW` arm
+//     exists one paragraph up: with `-DMR_N_LAYERS=2` BOTH provisioning children hide, so `draw_provision_screen` is
+//     structurally unreachable and §UI-15 slice 5's three screens were measured by NOTHING ([[B225]]). `run.sh`
+//     therefore builds this file and `firmware_ui.cpp` a second time against `[env:heltec_v3]`'s own `-D` set; P7's
+//     parent-row check flips direction there and P15 exists only there. ⛔ Anything used by one arm alone must be
+//     inside the same `#if`: this file is built with `-Werror`, so an unused static on the other arm is a build
+//     failure ([[B169]]'s shape).
 //   ⚠ AND THE 64-CHARACTER LABEL BOUND BIT FOR THE THIRD SLICE RUNNING (registered as [[B203]]): two §CHROME-4 labels
 //     were written at 67 and 68 BYTES and dropped out of the reddened roll-up while their controls were turning them
 //     red. Both were shortened. ⓘ It is BYTES, not characters — a `§` costs two.
@@ -86,6 +101,13 @@
                                 //   include it without dragging the model in.
 #include "inbox.h"              // §UI-7D slice B: the REAL Inbox is what these cases delete out of
 #include "fixed_inbox_store.h"  //   ...backed by the same heap-free RAM ring the ESP32 board itself runs ([[B134]])
+#include "firmware_ui_prov.h"   // ★★★★ §UI-15 slice 5 / [[B225]]: the REAL team-create adapter's three DEVICE seams
+                                //   (`prov_service` / `prov_device_facts` / `prov_note_persisted_team_local_id`) are
+                                //   FAKED below, so what the child-enabled arm drives is the SHIPPED adapter over a
+                                //   scripted device — ⛔ never a stand-in for the adapter itself.
+#include "firmware_ui_chrome.h" // ★ the SHARED id / fingerprint / REPLACES formatters. The P15 checks compute their
+                                //   EXPECTATION with them, so `the fingerprint on the panel` is a VALUE RELATION to
+                                //   `ui_fmt_team_fingerprint(the created id)` rather than "six hex characters appeared".
 #include <Arduino.h>           // the shim: millis / Print / F() / Serial  (tools/probe_board_ui/fakes)
 #include <cstdio>
 #include <cstring>
@@ -497,6 +519,80 @@ meshroute::Node      g_node(g_hal, /*node_id=*/1, /*key_hash32=*/0x11223344u, "p
 // unwired-inbox configuration they were written against.
 namespace { meshroute::FixedInboxStore<8> g_probe_dm_store, g_probe_ch_store; }
 
+// ---- ★★★★ §UI-15 slice 5 / [[B225]]: THE PROVISIONING SEAMS' FAKES — the CHILD-ENABLED ARM ONLY -------------------
+// ★★★ WHY THEY ARE *DEVICE* FAKES AND NOT AN `IUiProvision` STAND-IN, stated because the correction brief names
+//     `UiModel::attach_provision` as the natural seam and this is one layer BELOW it: `s_model` is a file-static in an
+//     anonymous namespace inside `src/firmware_ui.cpp`, so nothing outside that TU can call `attach_provision` — and
+//     the ONE thing this arm exists to measure is that THE SHIPPED FILE wires the real adapter into it. ⇒ the probe
+//     scripts what the adapter READS (`src/firmware_config.cpp`'s three device forwards, which are not in this link)
+//     and lets `mr_ui_init()` perform the attach itself. What runs is therefore the REAL `UiProvisionAdapter`, the
+//     REAL `ui_prov_create_team` precondition and the REAL `ProvisioningService` transaction — so every answer the
+//     renderer draws is the adapter's own, ⛔ never a shape invented here. A control drops the attach and this whole
+//     phase goes red, which is what proves the seam is wired rather than assumed.
+// ⛔ GUARDED BY `MR_N_LAYERS < 2` because that is the guard the DECLARATIONS carry (`src/firmware_config.h:60`): on
+//    the layered arm these three functions do not exist to define, and `firmware_ui.cpp` references none of them.
+// ⛔ AND THE LIMIT, in the shape §UI-14's own fakes state it: no flash, no wear, no power-cut. A green run here says
+//    the SCREEN drives the adapter and the transaction correctly, never that the storage is sound ([[B193]]).
+#if MR_N_LAYERS < 2
+namespace {
+// The live sink. ★ `set_team` REALLY MOVES THE NODE, and that is not decoration: `DeviceProvLive::set_team`
+// (`src/firmware_config.cpp:1422`) forwards to `g_node.set_team_id`, and `build_snapshot` draws the confirmation's
+// `REPLACES <fp>` line from `g_node.config().team_id` — so without this forward the "already in a team" arm of that
+// conditional would be unreachable and the probe would measure one half of it (the §W10b lesson).
+// ⛔ `fire_dad` IS COUNTED AND NOT PERFORMED: it is the transaction's one AIRTIME operation and this probe spends
+//    none. `apply_phy` is counted for the same reason it exists in the native suite — it must stay at ZERO, because an
+//    OLED create is a MEMBERSHIP operation ([[B209]]).
+struct ProbeProvLive : mrfw::IProvLive {
+    int set_team_calls = 0, install_calls = 0, phy_calls = 0, dad_calls = 0;
+    uint32_t last_team_id = 0;
+    void set_team(uint32_t team_id) override {
+        ++set_team_calls; last_team_id = team_id; (void)g_node.set_team_id(team_id);
+    }
+    void install_key(const uint8_t pub[32], const uint8_t priv[32]) override {
+        ++install_calls; g_node.team_channel_key_load(pub, priv, /*present=*/true);
+    }
+    void apply_phy(const mrfw::ProvPhy&) override { ++phy_calls; }
+    void fire_dad() override { ++dad_calls; }
+    int total() const { return set_team_calls + install_calls + phy_calls + dad_calls; }
+};
+// Deterministic, and it MOVES between creates: `project_team` resamples until the minted id is neither 0 nor the
+// current team, so a constant seed would make the second create walk the whole `kTeamIdMintTries` loop and refuse.
+struct ProbeEntropy : mrfw::IEntropy {
+    uint8_t seed = 0x51;
+    void fill(uint8_t* out, size_t n) override {
+        for (size_t i = 0; i < n; ++i) out[i] = uint8_t(seed + i);
+        seed = uint8_t(seed + 0x13);
+    }
+};
+// ⓘ The transaction runs over the SAME `ProbeCfgStore` the SETTINGS phases use (U1 — one durable seam, exactly as the
+//   device has one), so `writes` is a single authority for "did anything durable happen" across both features.
+struct ProvSeams {
+    ProbeProvLive      live;
+    ProbeEntropy       ent;
+    mrfw::ProvSnapshot snap{};
+    mrfw::ProvPhyFloor floor{};
+    int     facts_calls = 0;              // = how many times the ADAPTER was entered (its first act is this read)
+    int     noted_calls = 0;
+    uint8_t noted_team_local_id = 0xFF;
+    mrfw::ProvisioningService svc{probe_store(), live, ent};
+};
+ProvSeams& prov_seams() { static ProvSeams s; return s; }
+}  // namespace
+namespace mrfw {
+ProvisioningService& prov_service() { return prov_seams().svc; }
+void prov_device_facts(ProvSnapshot& out, ProvPhyFloor& floor) {
+    ProvSeams& s = prov_seams();
+    ++s.facts_calls;
+    out   = s.snap;
+    floor = s.floor;
+}
+void prov_note_persisted_team_local_id(uint8_t v) {
+    ProvSeams& s = prov_seams();
+    ++s.noted_calls; s.noted_team_local_id = v;
+}
+}  // namespace mrfw
+#endif  // MR_N_LAYERS < 2
+
 // ==================================================================================================================
 // harness
 // ==================================================================================================================
@@ -633,6 +729,23 @@ uint32_t walk_to_slot(uint32_t t, int slot) {
 constexpr int kSlotStatus = 0, kSlotTeam = 1, kSlotInbox = 2, kSlotSend = 3, kSlotSettings = 4;
 // Design §3.2's normal body origin, stated here rather than imported from `src/firmware_ui.cpp`'s `kBodyX`.
 constexpr int kBodyXExpected = 12;
+#if MR_N_LAYERS < 2
+// ★★ §UI-15 slice 5 — THE BODY'S FIVE ROW BASELINES, stated here INDEPENDENTLY of the renderer's own table (P13's and
+//    P14's rule: a bound imported from the code under test agrees with a layout that has drifted). Design §3.2 puts
+//    them at 19/29/39/49/59.
+// ⛔⛔ AND THE ROW IS WHY THIS READER EXISTS AT ALL, rather than a `strstr` over `page_text`: the success screen draws
+//    the FULL id `0x12A1B2C3` and the fingerprint `A1B2C3`, and the fingerprint is by definition the LAST SIX
+//    CHARACTERS OF THE ID — so a substring search for it matches inside the id token and would pass on a renderer
+//    that never drew the fingerprint row at all. The token is therefore asserted AS THE STRING AT ITS OWN ROW.
+// ⓘ Guarded with the phase that uses it: `probe_main.cpp` is built with `-Werror`, so an unused static on the OTHER
+//   arm is `-Wunused-function` and a build failure ([[B169]]'s shape, one file over).
+constexpr int kBodyY0Expected = 19, kBodyDyExpected = 10;
+const char* body_row(int row) { return text_at(kBodyXExpected, kBodyY0Expected + row * kBodyDyExpected); }
+bool body_row_is(int row, const char* want) {
+    const char* s = body_row(row);
+    return s != nullptr && strcmp(s, want) == 0;
+}
+#endif
 
 uint32_t open_highlighted(uint32_t t, const char* want) {
     // ⚠ THE BOUND IS THE WHOLE CYCLE, WITH SLACK, AND IT IS NOT DECORATION: §UI-14 appended a fifth screen whose menu
@@ -1000,6 +1113,26 @@ int main() {
         }
         t = walk_to_slot(t + 500, kSlotSettings);
 #endif
+        // ★★★★ §UI-15 slice 5 / OWNER RULING 2026-08-19 — **THE PARENT `PROVISION` ROW FOLLOWS THE CHILD PREDICATES**,
+        //      and BOTH ARMS OF THAT CONDITION ARE ASSERTED FROM THIS ONE SOURCE — the `MR_UI_BLE_ROW` shape directly
+        //      above (U3), and [[B225]]'s whole correction: `run.sh` builds this file and `firmware_ui.cpp` twice, once
+        //      layered (`-DMR_N_LAYERS=2`, both children hidden) and once mirroring `[env:heltec_v3]` (both children
+        //      present), so neither arm of the ruling can rot unnoticed.
+        // ⛔ The native suite cannot see either arm — it drives `settings_rows` directly, while what is measured here is
+        //    that THIS FILE publishes the predicates and passes them to the row builder.
+        // ⚠ THE WHOLE MENU IS WALKED, not one frame: a frame shows three rows, so a single look would prove nothing.
+        {
+            bool seen_prov = false;
+            for (int i = 0; i < 12; ++i) { paint(t); if (strstr(g_c.page_text, "PROVISION")) seen_prov = true; t = settle(t + 500); }
+            // ⚠ THE LABEL IS UNDER 64 CHARACTERS ON PURPOSE — `run.sh`'s coverage roll-up parses `%-64s`, so a longer
+            //   one silently drops out of the "N of M reddened" denominator (measured on this very check).
+#if MR_N_LAYERS < 2
+            CHK("P7 the PROVISION row IS offered when a child exists", seen_prov);
+#else
+            CHK("P7 the PROVISION row is HIDDEN with no child (owner ruling)", !seen_prov);
+#endif
+            t = walk_to_slot(t + 500, kSlotSettings);
+        }
         // ---- the EDITOR: `double` enters, `short` cycles the DRAFT, `double` accepts -------------------------------
         t = walk_to(t + 500, ">DM crypt");
         CHK("P7a the value row can be highlighted",             strstr(g_c.page_text, ">DM crypt") != nullptr);
@@ -1880,6 +2013,201 @@ int main() {
             lv.eff.at(mrfw::CfgField::ble_mode) = 0;
         }
     }
+
+    // ============================================================================================================ P15
+    // ★★★★ §UI-15 slice 5 / [[B225]] — THE PROVISIONING SUB-VIEW, DRIVEN THROUGH THE REAL `draw_provision_screen`.
+    //      ⛔ IT RUNS ON THE CHILD-ENABLED ARM ONLY, and that is the whole of the correction: with `-DMR_N_LAYERS=2`
+    //      both children hide (`build_snapshot`'s two predicates), so `draw_provision_screen`
+    //      (`src/firmware_ui.cpp:1143`) — real shipped rendering — is STRUCTURALLY UNREACHABLE and the slice's screens
+    //      were measured by nothing. `run.sh` therefore compiles this file and `firmware_ui.cpp` a SECOND time with the
+    //      exact `-D` set of `[env:heltec_v3]`, which is a leaf env with the panel (`MR_FEAT_OLED=1`) and the team
+    //      plane (no `MR_PROFILE_*` ⇒ `MR_FEAT_TEAM=1`), and runs this phase there.
+    // ★★ WHAT IS REAL HERE AND WHAT IS SCRIPTED: the RENDERER, the model, the gesture path (a real `InputFsm`), the
+    //    `UiProvisionAdapter`, `ui_prov_create_team`'s PHY precondition and the `ProvisioningService` transaction are
+    //    all the shipped ones. Scripted are only the three DEVICE forwards that live in `src/firmware_config.cpp`
+    //    (which is not in this link) — see the `ProvSeams` block above for why that, and not an `IUiProvision`
+    //    stand-in, is the seam.
+    // ⛔ AND THE AUTHORITY FOR "IT HAPPENED" IS NEVER THE PANEL: every act below is asserted on the store's write
+    //    count, the live sink's four counters and the adapter's own entry count. A visual claim is exactly what may
+    //    not be trusted as evidence that something durable happened (§UI-7D's rule, three screens over).
+#if MR_N_LAYERS < 2
+    {
+        ProbeCfgStore& st = probe_store();
+        ProvSeams&     ps = prov_seams();
+        st.can_load = true; st.can_save = true;
+
+        // ---- THE CONVERGED NODE, arranged exactly as the native suite's `DevFake::converge()` does (U1): the record
+        //      holds the PHY the radio flies, so the owner's precondition PASSES and the create is reachable at all.
+        //      ⚠ The two ends are seeded from the SAME four values on purpose — comparing live-against-live would make
+        //        the predicate trivially true and the refusal unreachable (the adapter's own header says so).
+        ps.snap.mobile_reg_count       = g_node.mobile_reg_count();     // the DEVICE's own reads (firmware_config.cpp)
+        ps.snap.key_hash32             = g_node.key_hash32();
+        ps.snap.live_freq_mhz          = 869.4625;                      // ⚠ not representable in integral kHz
+        ps.snap.live_bw_hz             = 125000;
+        ps.snap.live_routing_sf        = 7;
+        ps.snap.live_allowed_sf_bitmap = uint16_t((1u << 6) | (1u << 7));   // TWO data SFs: the [[B211]] shape
+        ps.floor.freq_mhz              = 869.4625;
+        ps.floor.bw_hz                 = 125000;
+        st.rec.freq_mhz          = ps.snap.live_freq_mhz;
+        st.rec.bw_hz             = ps.snap.live_bw_hz;
+        st.rec.routing_sf        = ps.snap.live_routing_sf;
+        st.rec.allowed_sf_bitmap = ps.snap.live_allowed_sf_bitmap;
+        // The live KEY is a pair of POINTERS INTO THE NODE (`ProvSnapshot`'s own contract: both null while no key is
+        // held). Re-read before every attempt, because a create installs one and a leave destroys it.
+        auto arm_live_key = [&]() {
+            ps.snap.live_key_pub  = g_node.team_channel_pub();
+            ps.snap.live_key_priv = g_node.team_channel_priv();
+        };
+        arm_live_key();
+
+        // ★★★ A PRESS, AND THEN A FRAME THAT IS CERTAINLY **NEWER THAN THE PRESS**. ⚠ MEASURED, not defensive: a
+        //     frame that opened on the SAME tick as the gesture froze the PREVIOUS state, and U8g2's eight page
+        //     replays then outlive the press — so a bare `paint()` read the pre-press scene and four checks failed
+        //     against a renderer that was correct. The second paint is past the 2 Hz throttle, and it opens a frame
+        //     ONLY if the model is still dirty, i.e. exactly in the case where the first one was stale.
+        auto see = [&](uint32_t at) { paint(at); paint(at + 700); return at + 800; };
+
+        uint32_t t17 = settle(1400000);
+
+        // ---- (a) THE PARENT ROW OPENS THE CHILD MENU ---------------------------------------------------------------
+        t17 = walk_to_slot(t17 + 2000, kSlotSettings);
+        t17 = walk_to(t17 + 500, ">PROVISION");
+        CHK("P15a the PROVISION row can be highlighted",  strstr(g_c.page_text, ">PROVISION") != nullptr);
+        t17 = see(double_press(t17 + 500));
+        CHK("P15a a double OPENS the child menu, on CREATE TEAM", body_row_is(0, ">CREATE TEAM"));
+        CHK("P15a ...which also offers JOIN NETWORK and BACK",
+            body_row_is(1, " JOIN NETWORK") && body_row_is(2, " BACK"));
+
+        // ---- (b) THE CONFIRMATION: ITS BACK DEFAULT AND ITS `REPLACES` WARNING ---------------------------------------
+        // ⛔ §3.6.3: reaching CREATE costs a deliberate `short` THEN `double`. A confirmation opening on CREATE would
+        //    make one press mint a team — the destructive-by-default shape the inbox delete modal is also built against.
+        // ⓘ THE NODE IS ALREADY IN A TEAM HERE, and that is P9d's doing rather than this phase's: it put `team_id =
+        //   0xABCD1234` on the real node so the TEAM screen had a roster. ⇒ the warning's POSITIVE arm is the state
+        //   this probe arrives in, and (d) below LEAVES the team to reach the negative one.
+        const int w0 = st.writes, f0 = ps.facts_calls, lv0 = ps.live.total(), l0 = st.loads;
+        char rep_tok[mrui::kProvReplacesCap];
+        const bool rep_owed = mrui::ui_fmt_prov_replaces(rep_tok, sizeof rep_tok, g_node.config().team_id);
+        CHK("P15b precondition: the node is in a team already", g_node.config().team_id != 0u && rep_owed);
+        t17 = see(double_press(t17 + 500));
+        CHK("P15b the confirmation opens with its title",      body_row_is(0, mrui::kProvCreateTitle));
+        CHK("P15b ...with BACK selected, never CREATE",
+            body_row_is(3, ">BACK") && body_row_is(4, " CREATE"));
+        // ★ Design §3.6.3's *"if already in a team, the screen says the current membership will be replaced"* — and the
+        //   token is the FORMATTER's output for THIS node's team, not "a REPLACES line appeared".
+        CHK("P15b ...and warns that the CURRENT membership is replaced", body_row_is(1, rep_tok));
+        // ⛔ THE ZEROS ARE THE POINT: merely OPENING the confirmation must run no transaction, spend no write and
+        //    touch nothing live. Each has a positive arm in (e), so a zero here is evidence and not a dead fixture.
+        CHK("P15b ...the adapter was not entered at all",      ps.facts_calls == f0);
+        CHK("P15b ...zero durable writes and zero record loads",
+            st.writes == w0 && st.loads == l0);
+        CHK("P15b ...and nothing was applied live",            ps.live.total() == lv0);
+
+        // ---- (c) BACK PERFORMS NOTHING ------------------------------------------------------------------------------
+        t17 = see(double_press(t17 + 500));
+        CHK("P15c a double on BACK returns to the child menu", body_row_is(0, ">CREATE TEAM"));
+        CHK("P15c ...having entered no transaction",           ps.facts_calls == f0);
+        CHK("P15c ...spent no write and applied nothing",
+            st.writes == w0 && ps.live.total() == lv0);
+
+        // ---- (d) THE WARNING'S OTHER ARM: A TEAMLESS NODE IS NOT WARNED ----------------------------------------------
+        // ⚠ THE LEAVE IS THE HARNESS's, through the node's own verb — `team_id == 0` is the core's "not in a team"
+        //   (node.h:261) and is the exact state the formatter answers `false` for.
+        (void)g_node.set_team_id(0);
+        arm_live_key();                                        // ...the leave destroyed the team channel key
+        t17 = see(double_press(t17 + 500));
+        CHK("P15d precondition: the node left its team",       g_node.config().team_id == 0u);
+        CHK("P15d a teamless node gets NO replace warning",
+            body_row(1) == nullptr && strstr(g_c.page_text, "REPLACES") == nullptr);
+        CHK("P15d ...and the confirmation is otherwise unchanged",
+            body_row_is(0, mrui::kProvCreateTitle) && body_row_is(3, ">BACK") && body_row_is(4, " CREATE"));
+
+        // ---- (e) CONFIRM -> THE `created` RESULT ----------------------------------------------------------------------
+        t17 = see(settle(t17 + 500));                          // `short` TOGGLES
+        CHK("P15e a short press moves the selection to CREATE",
+            body_row_is(4, ">CREATE") && body_row_is(3, " BACK"));
+        t17 = see(double_press(t17 + 500));                    // `double` PERFORMS
+        const uint32_t created = ps.live.last_team_id;
+        char id_tok[mrui::kTeamIdTokenCap]; mrui::ui_fmt_team_id_full(id_tok, sizeof id_tok, created);
+        char fp_tok[mrui::kTeamFpTokenCap]; mrui::ui_fmt_team_fingerprint(fp_tok, sizeof fp_tok, created);
+        CHK("P15e the panel says TEAM CREATED",                body_row_is(0, "TEAM CREATED"));
+        CHK("P15e the FULL 8-hex team id is on the panel",     created != 0u && body_row_is(1, id_tok));
+        // ★★ THE VALUE RELATION, NOT MERE PRESENCE: the token at the fingerprint's own row must equal
+        //    `ui_fmt_team_fingerprint` OF THE ID THE TRANSACTION MINTED. ⛔ A `strstr` for it would match INSIDE the id
+        //    (the fingerprint is the id's low 24 bits, i.e. its last six characters) and would pass on a renderer that
+        //    drew no fingerprint at all.
+        CHK("P15e ...and the SHARED fingerprint of that same id", body_row_is(2, fp_tok));
+        // ⛔ AND THE TWO ROWS REALLY ARE TWO TOKENS. ⚠ It compares the DRAWN rows, not the two locally formatted
+        //    strings: `strcmp(id_tok, fp_tok)` is a fact about this file's own arithmetic that no mutation of the
+        //    renderer could ever move — an unbreakable check, which this probe records as vacuous rather than as a pass.
+        CHK("P15e ...the two are DIFFERENT tokens, both drawn",
+            body_row(1) != nullptr && body_row(2) != nullptr && strcmp(body_row(1), body_row(2)) != 0);
+        CHK("P15e ...and the way out is stated",               body_row_is(4, "press = back"));
+        // ⛔ THE DURABLE + LIVE AUTHORITIES, never the panel.
+        CHK("P15e the adapter ran EXACTLY once",               ps.facts_calls == f0 + 1);
+        CHK("P15e ...and spent EXACTLY one durable write",     st.writes == w0 + 1);
+        CHK("P15e ...the record holds that same team id",      st.rec.team_id == created);
+        CHK("P15e ...the membership was applied live, DAD last",
+            ps.live.set_team_calls == 1 && ps.live.install_calls == 1 && ps.live.dad_calls == 1);
+        CHK("P15e ...and NO retune happened ([[B209]])",       ps.live.phy_calls == 0);
+        CHK("P15e ...the post-save bookkeeping ran once",      ps.noted_calls == 1);
+
+        // ---- (f) THE OWNER's PHY PRECONDITION, ON THE PANEL -------------------------------------------------------------
+        // The divergence is the real one: `mobile register sf=…` retunes the radio and moves `_cfg.layers[0]` WITHOUT
+        // persisting, so the record and the radio genuinely disagree.
+        const int w1 = st.writes, lv1 = ps.live.total(), f1 = ps.facts_calls;
+        ps.snap.live_routing_sf = 9;
+        arm_live_key();
+        t17 = see(double_press(t17 + 500));                    // leave the result -> the child menu
+        CHK("P15f a press leaves the result for the child menu", body_row_is(0, ">CREATE TEAM"));
+        t17 = see(double_press(t17 + 500));                    // -> the confirmation
+        t17 = see(settle(t17 + 500));                          // -> CREATE
+        t17 = see(double_press(t17 + 500));
+        CHK("P15f a live/persisted PHY divergence says PHY DIFFERS", body_row_is(0, "PHY DIFFERS"));
+        CHK("P15f ...and names the remedy: USE SERIAL",        body_row_is(1, "USE SERIAL"));
+        CHK("P15f ...the adapter refused BEFORE the transaction",
+            ps.facts_calls == f1 + 1 && st.writes == w1);
+        CHK("P15f ...nothing applied live, no id claimed",
+            ps.live.total() == lv1 && body_row(2) == nullptr);
+        ps.snap.live_routing_sf = 7;                           // converged again
+
+        // ---- (g) A FAILED DURABLE WRITE --------------------------------------------------------------------------------
+        const int w2 = st.writes, lv2 = ps.live.total();
+        st.can_save = false;
+        t17 = see(double_press(t17 + 500));                    // leave the result
+        t17 = see(double_press(t17 + 500));                    // the confirmation
+        t17 = see(settle(t17 + 500));                          // -> CREATE
+        t17 = see(double_press(t17 + 500));
+        CHK("P15g a failed durable write says SAVE FAILED",    body_row_is(0, "SAVE FAILED"));
+        CHK("P15g ...and NOTHING CHANGED",                     body_row_is(1, "NOTHING CHANGED"));
+        CHK("P15g ...the write was ATTEMPTED exactly once",    st.writes == w2 + 1);
+        CHK("P15g ...but nothing reached the live node",       ps.live.total() == lv2);
+        CHK("P15g ...and no team id is claimed for it",        body_row(2) == nullptr);
+        st.can_save = true;
+
+        // ---- (h) AN UNREADABLE RECORD — A PRECONDITION THAT COULD NOT BE ESTABLISHED --------------------------------------
+        const int w3 = st.writes, lv3 = ps.live.total(), f3 = ps.facts_calls;
+        st.can_load = false;
+        t17 = see(double_press(t17 + 500));                    // leave the result
+        t17 = see(double_press(t17 + 500));                    // the confirmation
+        t17 = see(settle(t17 + 500));                          // -> CREATE
+        t17 = see(double_press(t17 + 500));
+        CHK("P15h an unreadable record says CREATE REFUSED",   body_row_is(0, "CREATE REFUSED"));
+        CHK("P15h ...with the SERVICE's own typed reason",
+            body_row_is(1, mrfw::prov_err_name(mrfw::ProvErr::nv_load_failed)));
+        CHK("P15h ...the adapter was entered and refused closed",
+            ps.facts_calls == f3 + 1 && st.writes == w3);
+        CHK("P15h ...applying nothing at all",                 ps.live.total() == lv3);
+        st.can_load = true;
+
+        // ---- (i) THE WAY OUT --------------------------------------------------------------------------------------------
+        t17 = see(double_press(t17 + 500));
+        CHK("P15i a press leaves the result, rebuilding the menu", body_row_is(0, ">CREATE TEAM"));
+        t17 = walk_to(t17 + 500, ">BACK");
+        t17 = see(double_press(t17 + 500));
+        CHK("P15i BACK leaves the sub-view for the SETTINGS menu",
+            strstr(g_c.page_text, "PROVISION") != nullptr && !body_row_is(0, ">CREATE TEAM"));
+    }
+#endif  // MR_N_LAYERS < 2
 
     printf("\n%d passed / %d failed / %d total\n", g_pass, g_fail, g_pass + g_fail);
     return g_fail == 0 ? 0 : 1;

@@ -51,10 +51,31 @@
 // three literals (`cfg_marker_text`, `kCfgRestartText`), the row-identity cursor (`sync_settings` /
 // `note_settings_cursor` — §B64's rule on a third screen, live because the RELOAD row appears under the cursor), and
 // the `long_arm` close of the editor.
+// DONE here (2026-08-19, §UI-15 slice 4 — the PURE provisioning STATE MODEL and its two gates, plan §4/§5/§6): the
+// fourth `Settings` arm (`provisioning`) and the SEPARATE eight-arm `Provision` enum it carries, the §4 unsaved/conflict
+// entry gate (two DISTINCT refusals with two DIFFERENT remedies — `ProvBlock`), the §6 availability model
+// (`ProvRow` / `provision_rows`, both child predicates as snapshot PARAMETERS), the confirm-state cursor and its BACK
+// default (`ProvConfirm`), and the close-on-leave invariant (`provision_reset_on_leave`).
+// DONE here (2026-08-19, §UI-15 slice 5 — the TEAM-CREATE half of §3.6.3, plan §2.1/§8): the PURE intent carrier and
+// its typed answer (`UiProvIntent` / `UiProvAnswer` / `IUiProvision` — the adapter that fills them is
+// `src/firmware_ui_prov.h`), the `menu -> create_confirm` entry, the confirmation's toggle-and-perform gestures
+// (`provision_confirm_gesture`), the ONE act (`run_create_team`, whose four statements ARE §8's "no screen claims
+// success before the save returns"), the terminal `create_result` arm, both screens' PURE strings
+// (`kProvCreateTitle` / `prov_confirm_label` / `prov_result_head` / `prov_result_detail`), and the OWNER-RULED
+// hiding of the PARENT `PROVISION` row when no child is available (`provision_has_child`, `settings_rows`).
+// ⛔ WHAT IS STILL MISSING AND WHY (this is the [[meshroute-mark-done-vs-missing-in-code]] statement — read the
+//    per-arm table at `Provision` for the detail, and [[B222]] for the ruling): the FOUR `join_*` arms are DEFINED and
+//    ENTERED BY NOTHING. Activating JOIN NETWORK does NOTHING here — the profile list it selects from is `/mrjoin`'s,
+//    read through the static-join adapter (slice 6), so that transition lands WITH the flow behind it rather than
+//    ahead of it. ⛔ NOT here either, by scope: §2.3's ASYNC join outcome (the `join_adopted` correlation rule, the
+//    60 s `STILL JOINING` timeout) and §3.6.4's nearby-team scan (§UI-16).
+// ⛔ The JOIN row is nonetheless VISIBLE whenever its §6 predicate holds, and that is NOT the refusing stub [[B209]]
+//    forbids: the child IS supported on this build — only the flow behind it is pending, and a row that vanished and
+//    came back one slice later would be a menu that lies about the build it is running on.
 // ⛔ NOT here, by unit boundary: the SERVICE's own state (draft/baseline/latch) — it lives in `ConfigService`, which
 //    this unit POINTS AT and never copies; and the DEVICE bindings of `ICfgStore`/`ICfgLive`, which are
-//    `src/firmware_config.cpp`'s ([[B193]]). ⛔ NOT here at all, by scope: §3.6.3 provisioning (§UI-15) and §3.6.4's
-//    nearby-team scan (§UI-16). The PROVISION row exists and REFUSES; nothing behind it is built.
+//    `src/firmware_config.cpp`'s ([[B193]]). ⛔ NOT here at all, by scope: §3.6.3's SCREENS and its adapters to
+//    `ProvisioningService` / the typed join transaction (slices 5/6), and §3.6.4's nearby-team scan (§UI-16).
 // ⛔ NOT here, by unit boundary: `pull()` / `erase()` themselves and the pull callback that copies the body — those need
 //    `g_node` and live in src/firmware_ui.cpp. ⚠ [[B134]]: on ESP32 the inbox is a RAM ring, so "durable" here means the
 //    tombstone was appended IN THIS RUNTIME; nothing claims survival across a power cycle.
@@ -147,15 +168,87 @@ enum class Compose : uint8_t { none = 0, dm, channel };
 //                editor MUST NOT survive here: leaving the screen closes it (see `sync_settings`).
 //   `browsing` — the menu is up. `short` walks the rows; `double` ENTERS a value row or performs an action row.
 //   `editing`  — one value row is open. `short` CYCLES that row's finite value in the RAM draft; `double` ACCEPTS.
+//   `provisioning` — §UI-15: §3.6.3's sub-view OWNS THE BODY, so it owns the press. WHICH provisioning state is up is
+//                NOT encoded here — it is the separate `Provision` enum below (see it for why).
 // ⓘ It is the `InboxModal` precedent one screen over (§UI-7D slice B: short toggles, double activates, and the modal
 //   state is what makes the two readable), deliberately rather than a second idiom (U1/U3).
 // ⛔ NOT derived from `screen == Screen::settings`: that predicate cannot express "editing", and a bare `bool editing`
 //   beside it would leave the third state unnamed — the binary-test-over-a-ternary-domain defect this arc has hit five
 //   times (see `tools/probe_ui_model_mutations.py`'s `arm_backup` roll-call).
-enum class Settings : uint8_t { closed = 0, browsing, editing };
+enum class Settings : uint8_t { closed = 0, browsing, editing, provisioning };
+
+// ================================================================================ §UI-15 slice 4 — PROVISIONING (§3.6.3)
+// ★★★ THE PROVISIONING SUB-STATE, AND IT IS ITS OWN ENUM RATHER THAN MORE `Settings` ARMS (plan §5, adopted). The two
+//     questions are genuinely different — *which view owns the press* (`Settings`) and *where inside provisioning we
+//     are* (here) — and folding the second into the first would give `Settings` eleven arms, every one of which the
+//     editor's `short`/`double` switch would then have to name.
+// ⛔⛔ AND IT IS ⛔ NEVER A `bool in_provision`. `Settings`'s own block above names the defect: a binary test over a
+//     domain that is not binary, five occurrences this arc. Eight states cannot be a flag.
+// ★ THE INVARIANT, and it is enforced by TWO primitives and nowhere else (`enter_provision` / `close_provisioning`,
+//   both of which delegate the SUB-STATE half to the pure `provision_reset_on_leave` below):
+//   `Settings::provisioning` ⟺ `Provision != closed`. ⇒ never assign either field at a call site.
+//
+// WHAT IS REACHABLE IN THIS SLICE vs WHAT ARRIVES WITH THE ADAPTERS — stated per arm because a half-built state
+// machine that does not say which half it is, is the thing this project registers as "a success that isn't". ★ The
+// ruling is [[B222]]'s: a transition lands WITH the flow behind it, never one slice ahead of it.
+//   `closed`         — LIVE. Not in provisioning. The SETTINGS menu owns the press.
+//   `menu`           — LIVE: the child list (§6, `provision_rows`), the cycling cursor, and BACK (-> `closed`).
+//                      ⛔ Activating JOIN NETWORK does NOTHING here — see `provision_menu_gesture`.
+//   `create_confirm` — LIVE (slice 5): §3.6.3's confirmation, opened on BACK, `short` toggles, `double` performs.
+//   `create_result`  — LIVE (slice 5): the transaction's verdict, and it is entered ONLY by `run_create_team`, i.e.
+//                      only by the act that established it. Terminal; either press returns to the menu.
+//   `join_select`    — ⛔ slice 6, ENTRY INCLUDED: the PROFILE LIST it selects from is `/mrjoin`'s (slice 2's store,
+//                      read through slice 6's adapter), so an arm that could be entered now would show an empty list.
+//   `join_confirm`   — ⛔ slice 6: entered from `join_select`, so it cannot precede it.
+//   `join_waiting`   — ⛔ slice 6: it exists only once something can START a join, and its ELIGIBILITY/CORRELATION
+//                      rule (plan §2.3 rule 7's four like-for-like terms) is that slice's mutation-tested core.
+//   `join_result`    — ⛔ slice 6: a result arm may only be entered by the act that established it.
+// ⓘ The four pending arms are DEFINED now (the enum is plan §5's adopted shape, and `-Wswitch` then forces every reader
+//   to name them) and they carry a LEAVE-only fail-safe in `provision_gesture` — no arm can trap a press, not even one
+//   nothing can currently enter.
+enum class Provision : uint8_t {
+    closed = 0, menu, create_confirm, create_result, join_select, join_confirm, join_waiting, join_result
+};
+
+// ★★ THE CONFIRMATION'S TWO ACTIONS, AND `back` IS FIRST BECAUSE §3.6.3 REQUIRES IT TO BE THE DEFAULT — verbatim:
+//    *"opens a confirmation with `BACK` selected initially; reaching CREATE requires `short` then `double`"*. It is
+//    the `InboxAction` shape one screen over (§3.5's delete costs the same deliberate sequence), deliberately the same
+//    idiom and ⛔ never identified positionally (§B66: a two-member enum cannot be turned into a CONFIRM by somebody
+//    adding a row).
+// ⓘ §UI-15 slice 5 gave it its dispatch: `provision_confirm_gesture` toggles it on `short` and acts on it on
+//   `double`, and `prov_confirm_label` renders it. The DEFAULT is unchanged and stays plan §5's closing pin — `back`
+//   is the zero value, so a `ProvConfirm{}` anywhere is already the safe one, and every transition primitive
+//   re-establishes it. ⓘ The JOIN confirmation (slice 6) will reuse this same pair rather than growing a second one.
+enum class ProvConfirm : uint8_t { back = 0, confirm };
+
+// ★★★ §4's REFUSAL, AND IT IS A THREE-VALUED DOMAIN BECAUSE THE REMEDIES DIFFER — plan §4 in as many words: *"v1
+//     CONFLATED TWO STATES"*. `conflict()` and `config_unsaved()` are different comparisons (see
+//     firmware_config_service.h:21-22) with different escapes, so ⛔ one `bool provision_blocked` would be the same
+//     binary-test-over-a-ternary-domain defect `Settings` warns about, and the panel would then have to guess which
+//     remedy to print — the guess being SAVE, the one operation a conflict REFUSES.
+enum class ProvBlock : uint8_t { none = 0, conflict, unsaved };
+
+// ★★★★ §UI-15 slice 4 / [[B223]] — **THE CLOSE-ON-LEAVE RESET, AS A PURE FUNCTION**, and it is hoisted out of
+//     `settings_follow_screen` for the [[B212]]/[[B220]] reason, the fourth time this arc: the decision was
+//     UNREACHABLE where it was written — while the sub-view OWNS THE PRESS no gesture can move `_st.screen` out of
+//     SETTINGS underneath it — so a guard living only at that call site is a guard no suite can drive and no mutation
+//     can redden. ⛔ Stating that gap is not discharging the requirement. ⇒ THE DECISION LIVES HERE, where the suite
+//     drives ALL EIGHT arms directly, and both call sites are forwards.
+// ★ IT RESETS BOTH FIELDS, because they are two facts and not one. `Provision` says WHERE IN PROVISIONING we were: a
+//   stale `create_confirm` surviving into the next visit would re-open a confirmation the operator never asked for,
+//   which §3.6.5 rule 1 forbids in as many words. `ProvConfirm` says what a confirmation would OPEN ON: a stale
+//   `confirm` would re-open it with the destructive choice already selected, one `double` from CREATE TEAM.
+// ⓘ Returns whether anything CHANGED, so a caller repaints for a real close and not for every tick spent off-screen.
+inline bool provision_reset_on_leave(Provision& arm, ProvConfirm& confirm) {
+    const bool changed = arm != Provision::closed || confirm != ProvConfirm::back;
+    arm = Provision::closed;
+    confirm = ProvConfirm::back;
+    return changed;
+}
 
 // ★★★ THE MENU'S ROWS AS STABLE IDENTITIES, NEVER ROW INDICES (§3.2.2's rule, and §B66's): the visible list is built
-// per frame and two of its rows are CONDITIONAL, so a row's meaning may not be derived from its position.
+// per frame and THREE of its rows are CONDITIONAL (§UI-15 slice 5 made `provision` the third), so a row's meaning may
+// not be derived from its position.
 // Order is §3.6.2's own: the value rows, PROVISION, then the actions.
 enum class CfgRow : uint8_t {
     ble_mode = 0, e2e_dm, intro_attach, mobile_autoregister,   // the four covered fields (§UI-13's CfgField)
@@ -177,7 +270,7 @@ struct CfgRowList {
     bool at(uint8_t i, CfgRow& out) const { if (i >= n) return false; out = row[i]; return true; }
 };
 
-// ★★ THE ONE ROW-LIST BUILDER (U1), and BOTH conditions are PARAMETERS rather than `#if`s so the native suite can
+// ★★ THE ONE ROW-LIST BUILDER (U1), and ALL THREE conditions are PARAMETERS rather than `#if`s so the native suite can
 //    drive both arms of each. That is not a testing convenience — it is the only way §3.6.2's conditional BLE row can
 //    be measured at all in a tree where the transport does not exist.
 //   `ble_row`  — spec §3.6.2: *"row absent when UI-12 transport is not compiled"*. ⚠ `ble_mode` being a COVERED FIELD
@@ -191,13 +284,19 @@ struct CfgRowList {
 //                menu where it would mean nothing. ★ Reported as a decision, not as a reading of the table: without a
 //                RELOAD row the ONLY escape from a conflict is DISCARD, which throws the operator's edits away — the
 //                cost [[B192]]'s ruling explicitly declines to charge them.
-inline CfgRowList settings_rows(bool ble_row, bool conflict) {
+//   `provision`— ★★★ THE THIRD CONDITIONAL ROW, and it is an OWNER RULING (2026-08-19, reported form): **the PARENT
+//                row is HIDDEN when NO child is available.** Slice 4 left it unconditional, so `gateway_heltec`
+//                (OLED=1, `MR_N_LAYERS=2` ⇒ neither child) offered a menu whose only entry was BACK — a row that
+//                costs the operator a walk and a `double` to discover it offers nothing, which is the same complaint
+//                [[B209]] makes about a refusing stub one level down. ⇒ the predicate is the CHILD LIST's own
+//                (`provision_has_child`), so the parent and its children can never disagree.
+inline CfgRowList settings_rows(bool ble_row, bool conflict, bool provision) {
     CfgRowList l{};
     if (ble_row) l.row[l.n++] = CfgRow::ble_mode;
     l.row[l.n++] = CfgRow::e2e_dm;
     l.row[l.n++] = CfgRow::intro_attach;
     l.row[l.n++] = CfgRow::mobile_autoregister;
-    l.row[l.n++] = CfgRow::provision;
+    if (provision) l.row[l.n++] = CfgRow::provision;
     if (conflict) l.row[l.n++] = CfgRow::reload;
     l.row[l.n++] = CfgRow::save;
     l.row[l.n++] = CfgRow::discard;
@@ -264,6 +363,164 @@ inline uint8_t cfg_menu_next(mrfw::CfgField f, uint8_t v) {
         case mrfw::CfgField::mobile_autoregister: return v ? uint8_t(0) : uint8_t(1);
     }
     return 0;
+}
+
+// ============================================================ §UI-15 slice 4 — §6 AVAILABILITY: THE PROVISION MENU
+// ★★★ THE CHILDREN OF §3.6.3, AS STABLE IDENTITIES — the `CfgRow` rule one level down, and it is LIVE here for the
+//     same reason: two of the three rows are CONDITIONAL, so a row's meaning may not be derived from its position.
+enum class ProvRow : uint8_t { create_team = 0, join_static, back, count };
+inline constexpr uint8_t kMaxProvRows = uint8_t(ProvRow::count);
+
+// ⛔ NOT `CfgRowList` GENERALISED INTO A TEMPLATE, and that is C1 rather than laziness: turning `CfgRowList` into
+//    `RowList<CfgRow, kMaxCfgRows>` is a refactor of a shipped type, and this slice is a feature — the two may not
+//    ride together. Both are four lines and both FAIL CLOSED identically; if a third row list ever appears, unify
+//    them in a slice of their own.
+struct ProvRowList {
+    ProvRow row[kMaxProvRows] = {};
+    uint8_t n = 0;
+    // ⛔ FAILS CLOSED (C2), exactly as `CfgRowList::at` does: an out-of-range index names NO row and the caller must
+    //    do nothing. Here the row one press from `back` is CREATE TEAM, which REPLACES an existing membership.
+    bool at(uint8_t i, ProvRow& out) const { if (i >= n) return false; out = row[i]; return true; }
+};
+
+// ★★★★ PLAN §6 — AVAILABILITY IS GOVERNED BY THE ACTUAL CHILD PREDICATE, AND THE TWO CHILDREN DO NOT SHARE ONE.
+// ★ Per [[B209]] an unsupported child is **HIDDEN** (the conditional-row pattern `settings_rows` already uses for
+//   `CfgRow::reload`), ⛔ never a refusing stub: a row that exists only to say "not on this build" is a menu that
+//   lies about what it offers, and the operator pays a walk plus a `double` to find out.
+// ⛔⛔ AND THE TWO PREDICATES ARE **SEPARATE PARAMETERS**, WHICH IS THE WHOLE POINT OF §6: plan v1 hid static join
+//    when `MR_FEAT_TEAM` was off, and **static join has nothing to do with the team plane**. Measured, not assumed:
+//    `handle_join` and `handle_create`/`handle_team` are ALL compiled out by `#if MR_N_LAYERS < 2`
+//    (src/firmware_config.h:55, src/firmware_commands.cpp:1053), so
+//      · JOIN NETWORK is available iff `MR_N_LAYERS < 2`;
+//      · CREATE TEAM needs that AND the team plane (`MR_FEAT_TEAM`).
+//    They coincide in every env in the tree today (`MR_FEAT_TEAM 0` arrives only with `MR_PROFILE_GATEWAY`, which
+//    sets `MR_N_LAYERS=2`) — which is exactly why they must be two parameters here: a coincidence is not a rule, and
+//    the native suite drives the combination the tree cannot build.
+// ★ C3, and it is the `settings_rows(bool, bool)` pattern verbatim: the platform facts arrive as PARAMETERS, ⛔ never
+//   as `#if` inside this pure unit, so both arms of each are natively drivable.
+// ⓘ `back` is UNCONDITIONAL. Leaving must never depend on a build flag, a store or a service — the same rule
+//   `ui14-open`'s "BACK still works" case pins one level down. ⇒ a build with neither child still opens a menu the
+//   operator can leave; it just offers nothing, which is the honest answer for `gateway_heltec` (OLED=1, N_LAYERS=2).
+inline ProvRowList provision_rows(bool create_team, bool join_static) {
+    ProvRowList l{};
+    if (create_team) l.row[l.n++] = ProvRow::create_team;
+    if (join_static) l.row[l.n++] = ProvRow::join_static;
+    l.row[l.n++] = ProvRow::back;
+    return l;
+}
+
+// ★★★★ §UI-15 slice 5 / OWNER RULING 2026-08-19 — **IS THERE A CHILD AT ALL?**, i.e. the PARENT row's own condition
+//      (`settings_rows`'s third parameter). ⛔ IT IS DERIVED FROM THE CHILD LIST AND NOT RE-SPELLED AS
+//      `create_team || join_static`: the two predicates would then be two authorities, and slice 6 (or §UI-16's
+//      nearby-team child) could add a child the parent row never learned about — a menu entry that opens a sub-view
+//      the operator cannot see. ⓘ `back` is UNCONDITIONAL, so it is excluded BY IDENTITY rather than by assuming it
+//      is last: the list is built by position and §B66's rule is that position is never an identity.
+inline bool provision_has_child(bool create_team, bool join_static) {
+    const ProvRowList l = provision_rows(create_team, join_static);
+    for (uint8_t i = 0; i < l.n; ++i)
+        if (l.row[i] != ProvRow::back) return true;
+    return false;
+}
+
+// ★ The child labels, in this PURE unit for the §B115 reason (a string built in `src/firmware_ui.cpp` is a string no
+//   automated gate can read). ⚠ WIDTH IS A CONSTRAINT: an action row renders as `%c%s` in the rail's 19-column body,
+//   so the bound is `1 + strlen <= 19` and `chrome4-audit` walks it.
+inline const char* provision_row_label(ProvRow r) {
+    switch (r) {
+        case ProvRow::create_team: return "CREATE TEAM";
+        case ProvRow::join_static: return "JOIN NETWORK";
+        case ProvRow::back:        return "BACK";
+        case ProvRow::count:       return "?";
+    }
+    return "?";
+}
+
+// ================================================ §UI-15 slice 5 — the INTENT, its TYPED ANSWER and the ONE SEAM
+// ★★★ THE INTENT IS PURE AND MODEL-OWNED (plan §2.1), AND IT IS ⛔ NOT A `TeamRequest`. What the operator asked for is
+//     "create a new team"; a `TeamRequest` carries a build floor, a PHY, a key pair and a mint flag — device facts this
+//     unit cannot reach and must not invent. The ADAPTER (`src/firmware_ui_prov.h`, PURE and natively compiled) is what
+//     turns one into the other, and it is where plan §2.1's `phy.present = false` rule lives.
+// ⓘ A one-field struct rather than a bare enum, deliberately: slice 6's join intent carries the SELECTED PROFILE with
+//   it, and a carrier that cannot grow a field is how a second parallel intent type gets born instead (U1).
+enum class UiProvOp : uint8_t { none = 0, create_team };
+struct UiProvIntent {
+    UiProvOp op = UiProvOp::none;
+};
+
+// ★★★ THE TYPED ANSWER, AND THE FOUR OUTCOMES ARE FOUR DIFFERENT THINGS TO SAY — ⛔ never one `bool ok`. `created` is
+//     the only one that may show an id; `phy_differs` is the owner's REFUSAL WITH A REMEDY (plan §2.1: the operator is
+//     sent to the serial console, because the OLED create is a MEMBERSHIP operation and may not retune); `save_failed`
+//     is the durable write that came back false — §3.6.5's "no screen claims success before the save returns" is what
+//     makes it a state of its own rather than a flavour of `refused`; `refused` is a STAGING refusal, which by the
+//     transaction's contract spent zero writes and zero airtime.
+enum class UiProvOutcome : uint8_t { none = 0, created, phy_differs, save_failed, refused };
+// ⓘ `reason` IS A POINTER TO STATIC STORAGE and never an owned buffer: the adapter fills it from
+//   `mrfw::prov_err_name`, whose arms are string literals. ⛔ It is never null — `""` is the "nothing to add" value, so
+//   the renderer needs no null test and cannot print a stray pointer. Keeping the token as the SERVICE's own name is
+//   what stops a second `ProvErr`-to-text table being born in the UI (U1).
+struct UiProvAnswer {
+    UiProvOutcome outcome = UiProvOutcome::none;
+    uint32_t      team_id = 0;     // ⛔ MEANINGFUL ONLY when `outcome == created`
+    const char*   reason  = "";    // a STATIC token; "" when the outcome carries no second line
+};
+
+// ★★ THE SEAM THE CONFIRMATION PERFORMS THROUGH, and it is the `ConfigService` pattern rather than the `InboxReq`
+//    one (U3): the act is SYNCHRONOUS and returns a verdict, so a request/poll shape would make "the result is
+//    rendered only after the transaction returned" a matter of scheduling instead of a matter of structure.
+// ⓘ NULL IS A REAL STATE and it FAILS CLOSED — an unattached model refuses the act and says so (see `run_create_team`).
+//   That is what a build with no provisioning children, or a partially-wired probe, looks like.
+struct IUiProvision {
+    virtual ~IUiProvision() = default;
+    virtual UiProvAnswer perform(const UiProvIntent& intent) = 0;
+};
+
+// ★ THE CONFIRMATION'S TITLE — design §3.6.3's own name for the operation (*"`CREATE NEW TEAM` opens a confirmation"*),
+//   ⛔ not a second wording of the menu row it was reached from. 15 of the rail's 19 columns.
+inline constexpr const char* kProvCreateTitle = "CREATE NEW TEAM";
+// The confirmation's two actions, by IDENTITY (§B66: ⛔ never by position). Design §3.6.3 names both: *"a confirmation
+// with `BACK` selected initially; reaching CREATE requires `short` then `double`"*.
+inline const char* prov_confirm_label(ProvConfirm a) {
+    switch (a) {
+        case ProvConfirm::back:    return "BACK";
+        case ProvConfirm::confirm: return "CREATE";
+    }
+    return "?";
+}
+// ★★★ THE RESULT'S TWO LINES. ⛔ THE HEADLINE IS NEVER DERIVED FROM ANYTHING BUT THE OUTCOME THE TRANSACTION RETURNED
+//     — that is §8 pin 2 ("no screen claims success before the save returns") expressed as code: `created` is set by
+//     `run_create_team` from `ProvVerdict::applied` and by nothing else, so no earlier state can produce this string.
+// ★ `SAVE FAILED` is §UI-13's RULED string and is CALLED, never re-spelled (U1) — the same treatment `settings_note`
+//   gives it one screen up. `PHY DIFFERS` / `USE SERIAL` is the owner's ruled refusal (plan §2.1), split across the
+//   two rows by §7.1 rule 5 because the ruled sentence is 24 columns against a 19-column body: ⛔ the panel may not
+//   clip an actionable remedy, and neither half may be reworded.
+// ⚠ REPORTED, NOT INVENTED: design §3.6.3 requires "explicit success/failure states" and names the SUCCESS CONTENT
+//   (the full id + the short fingerprint) but rules no LEXEME for the two states themselves. `TEAM CREATED` /
+//   `CREATE REFUSED` are this file's house style applied to a state the design demands; they are one line each and are
+//   pinned by a native case, so an owner ruling changes them here and nowhere else.
+inline const char* prov_result_head(const UiProvAnswer& a) {
+    switch (a.outcome) {
+        case UiProvOutcome::created:     return "TEAM CREATED";
+        case UiProvOutcome::phy_differs: return "PHY DIFFERS";
+        case UiProvOutcome::save_failed: return mrfw::cfg_save_panel(mrfw::CfgSave::nv_failed);   // "SAVE FAILED"
+        case UiProvOutcome::refused:     return "CREATE REFUSED";
+        case UiProvOutcome::none:        return "";
+    }
+    return "";
+}
+// The SECOND row: the remedy, or the typed reason the transaction gave. ⓘ `created` has none — its second row is the
+// new team's id, which is a VALUE and not a string this unit owns.
+inline const char* prov_result_detail(const UiProvAnswer& a) {
+    switch (a.outcome) {
+        case UiProvOutcome::phy_differs: return "USE SERIAL";
+        // ★ The transaction's own guarantee, stated to the operator rather than left to be inferred: a failed save
+        //   applies NOTHING (`ProvVerdict::nv_failed` — zero live applies, zero airtime). ⛔ It is NOT a claim about
+        //   the flash bytes; `firmware_provisioning_service.h`'s header forbids that claim in as many words.
+        case UiProvOutcome::save_failed: return "NOTHING CHANGED";
+        case UiProvOutcome::refused:     return a.reason;      // the SERVICE's own token (U1) — never a second table
+        case UiProvOutcome::created:
+        case UiProvOutcome::none:        return "";
+    }
+    return "";
 }
 
 // ★★★ SPEC §3.3's THREE LITERALS, AND THEY ARE THREE FACTS RATHER THAN ONE STATE.
@@ -378,6 +635,21 @@ struct UiSnapshot {
     //   ⛔ FALSE by default, which is §3.6.2's own ruled state for "the transport is not compiled" — not an invented
     //   fallback. It is false in every env in the tree today (see `settings_rows`).
     bool     ble_row = false;
+    // ★★★ §UI-15 slice 4 — §6's TWO CHILD PREDICATES, one field each, published from the ONE site that knows them
+    //     exactly as `team_build` / `ble_row` / `mobile_build` are (U3). See `provision_rows` for what each one IS and
+    //     for why they may NEVER be collapsed into one "provisioning is supported" flag.
+    // ⛔ FALSE BY DEFAULT, and that direction is ruled rather than convenient: a false parameter HIDES the child, so a
+    //    build (or a partially-wired probe) that has published nothing offers no operation it may be unable to
+    //    perform. The opposite default would offer CREATE TEAM on a gateway.
+    // ⓘ DECLARED HERE, PUBLISHED WITH THE SCREENS (slice 5) — the §CHROME-1 precedent immediately below, and the same
+    //   argument: nothing in THIS slice renders a child, and the model must be able to EXPRESS the fact before the
+    //   site that knows it is asked for it. ⚠ Until then both read FALSE on device, i.e. the PROVISION menu offers
+    //   only BACK. Stated rather than discovered.
+    // ⓘ COST, MEASURED not assumed (the §CHROME-1 placement rule below, applied): the two bools land in the padding
+    //   the tail already carried, so `sizeof(UiSnapshot)` stays **608** and `sizeof(UiState)` stays **72** — this
+    //   slice adds ZERO bytes to either, on a struct instantiated twice on the OLED envs.
+    bool     prov_create_team = false;   // `MR_N_LAYERS < 2 && MR_FEAT_TEAM` — §3.6.3's primary path
+    bool     prov_join_static = false;   // `MR_N_LAYERS < 2`                — §3.6.3's secondary path
 
     // ================================================================== §CHROME-1 — the status strip's new authorities
     // ★★★ DEFINED HERE, PUBLISHED IN SLICE 3. Design §8.2's chrome projection is PURE and may not touch `g_node`, but
@@ -750,9 +1022,34 @@ struct UiState {
     // DISCARD / RELOAD have only ONE failure between them — the store could not be read (`CfgRefresh::nv_failed`) —
     // and on that path the draft SURVIVES. Success needs no note: the marker itself disappearing IS the feedback.
     bool     cfg_refresh_failed = false;
-    // §3.6.3 is §UI-15's. The ROW exists (§3.6.2 lists it) and the activation REFUSES OUT LOUD (C2) rather than
-    // doing nothing — a menu row that silently ignores a press reads as a broken panel.
-    bool     cfg_provision_na = false;
+    // ★★★ §UI-15 slice 4 — THE PROVISIONING SUB-STATE, frozen with everything else so the renderer (slice 5) reads it
+    //     from the frame and from nothing else. ⛔ `Settings::provisioning` alone cannot say WHICH arm is up; see the
+    //     `Provision` block for the invariant that binds the two and for the two primitives that are allowed to move
+    //     them.
+    Provision   provisioning = Provision::closed;
+    // §3.6.3: *"a confirmation with BACK selected initially"*. ⓘ It is the CONFIRM ARMS' cursor and nothing else's —
+    // the `menu`'s own cursor is `UiState::cursor`, the ordinary list index every other screen uses (U1).
+    ProvConfirm prov_confirm = ProvConfirm::back;
+    // §4's refusal, TRANSIENT exactly like `cfg_have_save` / `team_pick_gone`: it describes the act the operator just
+    // performed, and the next navigation press retires it (`clear_settings_note`).
+    // ⛔ It REPLACES §UI-14's `bool cfg_provision_na` ("PROVISION: UI-15"), which was the placeholder refusal for a
+    //    flow that did not exist. The flow exists now, so the only remaining refusal is §4's precondition — and that
+    //    one has TWO cells with TWO remedies, which is why a bool could not carry it.
+    ProvBlock   prov_block = ProvBlock::none;
+    // ★★★ §UI-15 slice 5 — WHAT THE TRANSACTION ANSWERED, frozen with everything else so `create_result` renders the
+    //     verdict and nothing else. ⛔ IT IS NOT A SECOND STATE MODEL: it is the ADAPTER's typed answer stored
+    //     verbatim, exactly as `cfg_save` stores the SERVICE's `CfgSave` verbatim one screen up (⛔ never a `mrui::`
+    //     mirror of `ProvVerdict`/`ProvErr` — that is the parallel enum U1 forbids, and the panel could then claim an
+    //     outcome the transaction never returned).
+    // ★ EVERY ARM ENTRY CLEARS IT (`enter_provision`) and only `run_create_team` writes it, immediately after
+    //   `perform()` RETURNED — so a stale verdict can never be under a screen that did not establish it.
+    // ⓘ COST, MEASURED not assumed, and ⚠ NATIVE ALIGNMENT HIDES THE BOARD FIGURE (D2's standing warning — the
+    //   `const char*` is 8 bytes on the host and 4 on ARM): on the host `sizeof(UiProvAnswer)` is 16 and
+    //   `sizeof(UiState)` moves 72 -> 96; on a 32-bit board the carrier is 12 bytes. ⛔ The authoritative number is a
+    //   per-board `RAM_used` diff, which is the board gate's — this struct is instantiated TWICE on the OLED envs
+    //   (the model's and the frame's frozen copy). `sizeof(UiSnapshot)` is UNCHANGED at 608 (slice 4's two bools
+    //   already landed in the tail's padding).
+    UiProvAnswer prov_answer{};
     bool    blanked = false;
     bool    dirty   = true;
 };
@@ -765,7 +1062,16 @@ struct UiState {
 //     path that prints `SAVED` before `save()` came back, and none that prints it for a refusal — `invalid`,
 //     `conflict` and `nv_failed` each have their own words, and the last two are the SERVICE's ruled ones.
 inline const char* settings_note(const UiState& st) {
-    if (st.cfg_provision_na)   return "PROVISION: UI-15";
+    // ★★★★ §4's TWO CELLS, AND THE WHOLE POINT IS THAT THEY SAY DIFFERENT THINGS. `conflict()` means `/mrcfg` moved
+    //     under the draft, so ⛔ the note MUST NOT suggest SAVE: `save()` refuses a conflict outright
+    //     (firmware_config_service.h's gate 2a), and pointing the operator at an operation that cannot succeed is the
+    //     conflation plan §4 exists to correct. RELOAD (the three-way merge) and DISCARD are the two that work.
+    // ⓘ `default`-less, so a third block reason cannot be added without a word for it.
+    switch (st.prov_block) {
+        case ProvBlock::conflict: return "RELOAD OR DISCARD";
+        case ProvBlock::unsaved:  return "SAVE OR DISCARD";
+        case ProvBlock::none:     break;
+    }
     if (st.cfg_refresh_failed) return "NV READ FAILED";
     if (!st.cfg_have_save)     return "";
     switch (st.cfg_save) {
@@ -854,6 +1160,11 @@ public:
         // ⚠ It is checked AFTER the emergency arms above (§4.2: emergency pre-empts everything, and `long` has already
         //   left the editor) and after the two modals, which cannot coexist with it — the same ordering statement
         //   §UI-7D made for the detail modal, for the same reason: the view that owns the BODY owns the press.
+        // ★★★ §UI-15 slice 4 — THE PROVISIONING SUB-VIEW OWNS THE PRESS, and it is checked here for the reason this
+        //     file has now stated three times: THE VIEW THAT OWNS THE BODY OWNS THE PRESS. It cannot coexist with the
+        //     editor (one `Settings` value names one of them), so the order between the two is free — and it is
+        //     written down anyway, so a later reader cannot make it ambiguous.
+        if (_st.settings == Settings::provisioning) { provision_gesture(g, s); return; }
         if (_st.settings == Settings::editing) { settings_edit_gesture(g, s); return; }
         // ⚠ `note_settings_cursor` runs AFTER the move and `sync_settings` BEFORE it (at the top of this function) —
         //   the same split as the other two cursors, and it is load-bearing: syncing after the move would drag the
@@ -927,11 +1238,21 @@ public:
     void attach_config(mrfw::ConfigService& c) { _cfg = &c; }
     mrfw::ConfigService*       config()       { return _cfg; }
     const mrfw::ConfigService* config() const { return _cfg; }
+    // ★★ §UI-15 slice 5 — THE PROVISIONING SEAM, ATTACHED exactly as the config service is (U3). `src/firmware_ui.cpp`
+    //    constructs the adapter over the device bindings and hands it here once, at `mr_ui_init`; the native suite
+    //    hands over the SAME pure adapter built on the transaction's own fakes. ⛔ The model never constructs one.
+    void attach_provision(IUiProvision& p) { _prov = &p; }
     // The visible SETTINGS rows for THIS snapshot — one construction, shared by the cursor bound (`list_len`), the
     // activation and the renderer (U1/U2). ⛔ Never rebuild the list at a call site: a renderer whose list differed
     // from the model's by one row would highlight one thing and act on another.
     CfgRowList settings_row_list(const UiSnapshot& s) const {
-        return settings_rows(s.ble_row, _cfg && _cfg->conflict());
+        return settings_rows(s.ble_row, _cfg && _cfg->conflict(),
+                             provision_has_child(s.prov_create_team, s.prov_join_static));
+    }
+    // ★ §UI-15 slice 4 — the same rule one level down (U1/U2): ONE construction of the PROVISION menu's children,
+    //   shared by the cursor bound, the activation and (slice 5) the renderer. ⛔ Never rebuild it at a call site.
+    ProvRowList provision_row_list(const UiSnapshot& s) const {
+        return provision_rows(s.prov_create_team, s.prov_join_static);
     }
     void clear_dirty() { _st.dirty = false; }
     // ★★ §B108: AN ARRIVAL IS A REASON TO REPAINT. `mr_ui_on_push` moved the unread counters and the recency stamps
@@ -1450,6 +1771,10 @@ protected:
     //    ⇒ this model gains 8 bytes and no config state of its own — the draft, the baseline and the conflict latch
     //    all live in the service, which is what makes "there is one draft" structural rather than a convention.
     mrfw::ConfigService* _cfg = nullptr;
+    // ★ §UI-15 slice 5's ONE new member, and it is the same shape and the same argument as `_cfg` above: a POINTER to
+    //   the ADAPTER, never an instance. The transaction, its store and its entropy all live behind it, so this model
+    //   gains 4/8 bytes and no provisioning state of its own beyond the answer it was handed.
+    IUiProvision* _prov = nullptr;
     // ★ The SETTINGS cursor's selection, held by ROW IDENTITY rather than by index — see `sync_settings` for why that
     //   is live here and not merely tidy. ⓘ NO ARITHMETIC VALUE IS RESERVED (§B74): `_cfg_sel_valid` is its own flag,
     //   so row 0 needs no special case and cannot be confused with "nothing is selected".
@@ -1552,6 +1877,17 @@ private:
     void settings_follow_screen() {
         if (_st.screen == Screen::settings) return;
         if (_st.settings != Settings::closed) { _st.settings = Settings::closed; _st.dirty = true; }
+        // ★★★★ §UI-15 slice 4, plan §5's FIRST PIN — **PROVISIONING IS CLOSED WHENEVER SETTINGS IS LEFT**, paid HERE
+        //     because this is the one primitive BOTH leave-paths already run (the `short` walk off the last row and
+        //     the `back` row), and a guard belongs to the INVARIANT rather than to the site where it was needed.
+        // ★★ THE DECISION IS NOT WRITTEN HERE, and that is [[B223]]'s correction rather than a style choice: for every
+        //    state the model can reach TODAY this call cannot change anything, because the sub-view OWNS THE PRESS —
+        //    while it is open no gesture reaches `advance_or_next` or the `back` row, so `_st.screen` cannot leave
+        //    SETTINGS underneath it. An in-line reset would therefore be undrivable and unmutatable HERE, so the
+        //    reset is `provision_reset_on_leave`'s (see it) and this is a forward. The invariant is "leaving closes
+        //    it", not "the paths that can leave today close it": the first slice-5/6 arm that a push or a timeout
+        //    moves the screen out of finds this already true.
+        if (provision_reset_on_leave(_st.provisioning, _st.prov_confirm)) _st.dirty = true;
         _cfg_sel_valid = false;
     }
     void sync_settings(const UiSnapshot& s) {
@@ -1575,6 +1911,12 @@ private:
         //   activation is REFUSED. Here the only row that can vanish is RELOAD, it vanishes only because its own
         //   conflict was just resolved, and nothing in this menu can address the wrong record — so the cursor lands on
         //   the SAFE action (BACK, which leaves and preserves) and the panel shows that highlight before any press.
+        // ★★ §UI-15 slice 4 — THE SUB-VIEW'S GUARD, AND IT IS `sync_team_cursor`'s COMPOSE GUARD VERBATIM (U3): while
+        //    PROVISION is open `_st.cursor` is the PROVISION menu's index, not a SETTINGS row, so re-anchoring it here
+        //    would drag the highlight back onto the PROVISION row every tick — and the operator's next press would
+        //    then act on whatever child that index named. ⓘ The SETTINGS pick itself is deliberately left INTACT, so
+        //    closing the sub-view lands the highlight back on PROVISION where the operator left it.
+        if (_st.settings == Settings::provisioning) return;
         const CfgRowList l = settings_row_list(s);
         if (!_cfg_sel_valid) { note_settings_cursor(s); return; }   // first arrival: whatever row 0 is IS the pick
         for (uint8_t i = 0; i < l.n; ++i) {
@@ -1588,6 +1930,10 @@ private:
     // The WRITE side, exactly as `note_team_cursor` / `note_inbox_cursor` are: whatever row the cursor has come to
     // rest on IS the new selection, so "the pick" is always something the operator's last press actually pointed at.
     void note_settings_cursor(const UiSnapshot& s) {
+        // ⛔ The same sub-view guard as `sync_settings`'s, and it belongs to the INVARIANT rather than to the site
+        //    where it was first needed: a PROVISION-menu index read as a SETTINGS row would REPLACE the remembered
+        //    pick with whatever row that number happens to name — `DISCARD`, one row from `BACK`.
+        if (_st.settings == Settings::provisioning) return;
         CfgRow r{};
         if (_st.screen == Screen::settings && settings_row_list(s).at(_st.cursor, r)) {
             _cfg_sel_row = r; _cfg_sel_valid = true; return;
@@ -1624,11 +1970,29 @@ private:
             return;
         }
         switch (r) {
-            // ⛔⛔ §3.6.3 IS §UI-15's, ENTIRELY. The row is rendered because §3.6.2's menu lists it; the ACTION
-            //     refuses out loud. ★ AND ITS PRECONDITION IS DELIBERATELY NOT IMPLEMENTED HERE: §3.6.3's *"if a
-            //     settings draft is unsaved, PROVISION first requires SAVE or DISCARD"* is a rule about a flow that
-            //     does not exist, and enforcing it now would be building part of that slice.
-            case CfgRow::provision: _st.cfg_provision_na = true; break;
+            // ★★★★ §UI-15 slice 4 — §3.6.3's PRECONDITION, AND PLAN §4 SPLITS IT INTO **TWO CELLS WITH TWO
+            //     REMEDIES**. §3.6.2's table says only *"opens §3.6.3"*; §3.6.3 adds *"if a settings draft is
+            //     unsaved, PROVISION first requires SAVE or DISCARD"*; and plan §4 records that v1 CONFLATED the two
+            //     states the service actually distinguishes:
+            //       · `conflict()`       — `/mrcfg` moved under the draft. ⛔ The note may NOT say SAVE: `save()`
+            //                              refuses a conflict (gate 2a), so RELOAD or DISCARD are the ways out.
+            //       · `config_unsaved()` — the ordinary unsaved draft. SAVE or DISCARD.
+            //     ⇒ CONFLICT IS CHECKED FIRST, and the order is the behaviour rather than a style: a conflicted draft
+            //     is USUALLY also unsaved, so testing `config_unsaved()` first would print SAVE for a conflict — the
+            //     exact conflation, arriving through the ordering.
+            // ⛔⛔ AND IT NEVER SAVES ON THE OPERATOR'S BEHALF (C2). A gate that "helpfully" saved would spend a flash
+            //     write and change the persisted config for a press that asked for neither — and on the conflict cell
+            //     it would be the last-writer-wins outcome §3.6.1 forbids. The suite counts the writes.
+            // ⓘ NO CONFIG SERVICE, or one that could not open: refuse, opening nothing. Neither predicate can be
+            //   established without a baseline, and the file's standing rule is that a null service FAILS CLOSED.
+            //   ⛔ It is deliberately NOT reported as a `ProvBlock`: those two are §4's cells and carry §4's remedies,
+            //   neither of which applies when there is no draft at all — the panel already says `CFG UNAVAILABLE`.
+            case CfgRow::provision:
+                if (!_cfg || !_cfg->is_open())      break;
+                if (_cfg->conflict())               { _st.prov_block = ProvBlock::conflict; break; }
+                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }
+                enter_provision(Provision::menu);
+                break;
             case CfgRow::reload:
                 // The conflict's OTHER way out ([[B192]], owner-ruled: the three-way merge). Reported form: fields the
                 // operator did not edit adopt the current persisted values; fields they did edit stay in the draft.
@@ -1651,8 +2015,11 @@ private:
                 //   for it — a draft-preserving no-op by construction, called so the property is assertable rather
                 //   than merely intended (mutation C28 turns it into a `discard()`).
                 if (_cfg) _cfg->on_back();
-                _st.screen = Screen::status; _st.cursor = 0; _st.settings = Settings::closed;
-                _cfg_sel_valid = false;                  // the pick belonged to a screen we have left
+                _st.screen = Screen::status; _st.cursor = 0;
+                // ★ §UI-15 slice 4: the sub-view state is retired through the ONE primitive that owns the invariant
+                //   (it closes the editor, `Provision` and the row pick together), rather than by re-spelling half of
+                //   it here — which is how the `Provision` half would have been forgotten.
+                settings_follow_screen();
                 break;
             case CfgRow::ble_mode: case CfgRow::e2e_dm: case CfgRow::intro_attach:
             case CfgRow::mobile_autoregister:   // handled above by `cfg_row_field`; listed so -Wswitch stays useful
@@ -1664,7 +2031,131 @@ private:
     // idiom). ⛔ It is cleared as a SET, in one place: three flags cleared at three sites would be the drift that lets
     // a `SAVED` from two presses ago sit under a fresh `BAD VALUE`.
     void clear_settings_note() {
-        _st.cfg_have_save = false; _st.cfg_refresh_failed = false; _st.cfg_provision_na = false;
+        _st.cfg_have_save = false; _st.cfg_refresh_failed = false; _st.prov_block = ProvBlock::none;
+    }
+    // ================================================================ §UI-15 slice 4 — the PROVISIONING transitions
+    // ★★★ THE TWO PRIMITIVES THAT MAY MOVE THE PROVISIONING STATE, AND NOTHING ELSE MAY (see `Provision`'s block):
+    //     `Settings::provisioning` ⟺ `Provision != closed` is an invariant over TWO fields, and two fields assigned
+    //     at N call sites is the drift that puts the panel in a state the model says it is not in.
+    // ★ EVERY ARM CHANGE GOES THROUGH `enter_provision`, so §3.6.3's *"a confirmation opens with BACK selected"* is
+    //   STRUCTURAL rather than remembered: the confirm arms are slice 5/6's, and whichever entry they land as, it goes
+    //   through here and cannot forget to re-anchor the cursor. ⓘ Resetting it on the NON-confirm arms too is
+    //   deliberate — the field then has exactly one meaning ("what a confirmation would open on"), and no arm can
+    //   inherit a CONFIRM selected in a previous, abandoned confirmation. ⇒ the default is asserted on the one entry
+    //   this slice CAN drive (`menu`), which is the same assignment every later entry will run.
+    void enter_provision(Provision p) {
+        _st.settings = Settings::provisioning; _st.provisioning = p;
+        _st.prov_confirm = ProvConfirm::back;
+        _st.cursor = 0;                        // each arm's list starts at its own first row
+        // ★ §UI-15 slice 5: the ANSWER is retired by EVERY entry, so the only thing `create_result` can ever render is
+        //   the verdict `run_create_team` wrote one statement after the transaction returned. ⛔ A result that
+        //   survived into a later screen would be the "success that isn't" this project has already registered once.
+        _st.prov_answer = UiProvAnswer{};
+        _st.dirty = true;
+    }
+    // ⓘ Back to `browsing`, ⛔ never to `closed`: leaving PROVISION returns to the SETTINGS MENU, not off the screen.
+    //   The highlight lands back on the PROVISION row by itself — `sync_settings` re-anchors from `_cfg_sel_row`,
+    //   which this sub-view was forbidden to touch, and it runs before any frame can freeze.
+    // ⓘ ONE spelling of "retire the sub-state" (U1), shared with the leave-the-screen path: the two transitions differ
+    //   only in where they LAND (`browsing` here, `closed` there), and the fields they retire are the same two.
+    void close_provisioning() {
+        _st.settings = Settings::browsing;
+        provision_reset_on_leave(_st.provisioning, _st.prov_confirm);
+        _st.dirty = true;
+    }
+    // ★★★ THE SUB-VIEW'S GESTURES. `short` CYCLES within the arm's list and ⛔ never walks out of the screen — the
+    //     `InboxModal` / compose rule (a sub-view is left by its own BACK, by the long gesture or by the blank), not
+    //     `advance_or_next`'s walk-off, which belongs to the ordinary screen cycle.
+    // ⛔ WHAT IS NOT HERE, BY SLICE ([[B222]], and see this file's header block): the FOUR `join_*` arms are slice 6's
+    //    — the profile list they select from is `/mrjoin`'s — so they are still entered by nothing and keep the
+    //    LEAVE-only fail-safe below. §UI-15 slice 5 lands the CREATE half: `create_confirm` and `create_result`.
+    void provision_gesture(Gesture g, const UiSnapshot& s) {
+        if (g != Gesture::short_press && g != Gesture::double_press) return;
+        switch (_st.provisioning) {
+            case Provision::menu:           provision_menu_gesture(g, s);    return;
+            case Provision::create_confirm: provision_confirm_gesture(g);    return;
+            // ★★ THE RESULT IS TERMINAL AND EITHER PRESS LEAVES IT (the panel says `press = back`, the same contract
+            //    the send result and the `MESSAGE GONE` modal already carry). ⛔ Nothing is re-run and nothing is
+            //    confirmed here: the act is over, and the only thing this arm owns is the way out.
+            case Provision::create_result:  enter_provision(Provision::menu); return;
+            // ★ THE FOUR PENDING ARMS, AND THIS IS A LEAVE-ONLY FAIL-SAFE RATHER THAN THEIR FLOW: nothing in this tree
+            //   enters them, and if slice 6's push or timeout ever does before its gestures land, a `double` still
+            //   gets the operator back to the menu instead of trapping the panel. ⛔ It claims nothing, cancels
+            //   nothing and confirms nothing — a `double` here is NOT a CONFIRM, which is exactly why `join_confirm`
+            //   may sit in this branch until slice 6 gives it one.
+            case Provision::join_confirm:
+            case Provision::join_select:
+            case Provision::join_waiting:
+            case Provision::join_result:
+                if (g == Gesture::double_press) enter_provision(Provision::menu);
+                return;
+            // ⛔ UNREACHABLE BY THE INVARIANT (`Settings::provisioning` implies a non-`closed` arm) and handled rather
+            //    than defaulted: if it is ever reached the two fields have drifted, and the safe answer is to put them
+            //    back in step instead of interpreting a press against a state that does not exist.
+            case Provision::closed: close_provisioning(); return;
+        }
+    }
+    void provision_menu_gesture(Gesture g, const UiSnapshot& s) {
+        const ProvRowList l = provision_row_list(s);
+        if (g == Gesture::short_press) {
+            if (l.n) _st.cursor = uint8_t((_st.cursor + 1) % l.n);   // CYCLES — a sub-view is never walked out of
+            _st.dirty = true;
+            return;
+        }
+        ProvRow r{};
+        if (!l.at(_st.cursor, r)) return;                            // fails closed — see ProvRowList::at
+        switch (r) {
+            // ★★ §UI-15 slice 5 — CREATE OPENS ITS CONFIRMATION, and it lands WITH the adapter behind it ([[B222]]'s
+            //    rule honoured rather than waived): `enter_provision` is what re-anchors the cursor on BACK, so
+            //    §3.6.3's *"reaching CREATE requires `short` then `double`"* is structural.
+            case ProvRow::create_team: enter_provision(Provision::create_confirm); return;
+            // ⛔⛔ THE JOIN FLOW IS STILL SLICE 6's, ENTRY INCLUDED ([[B222]], QG-ruled): the PROFILE SELECTION's rows
+            //     are `/mrjoin`'s, read through the static-join adapter, so an entry landing now would offer a list
+            //     with no rows. ⇒ ACTIVATING THIS ROW DOES NOTHING HERE.
+            // ⓘ The row is still SHOWN whenever its §6 predicate holds, and that is not the refusing stub [[B209]]
+            //   forbids: [[B209]] is about a child THE BUILD CANNOT SUPPORT, and this one it can — see the header
+            //   block. Nor is anything SAID: no `ProvBlock`, no note. §4's two cells are the gate's remedies and
+            //   neither of them is "come back in a slice".
+            case ProvRow::join_static: return;
+            case ProvRow::back:        close_provisioning(); return;
+            case ProvRow::count:       return;   // the enum's BOUND, listed so -Wswitch stays useful
+        }
+    }
+    // ★★★★ THE CONFIRMATION, AND ITS TWO GESTURES ARE THE `InboxAction` PAIR ONE SCREEN OVER (§3.5, U3): `short`
+    //      TOGGLES between the two actions and `double` PERFORMS the selected one. ⛔ `short` may not walk out of the
+    //      screen and ⛔ `double` on BACK may not fall through into the act — the two are separate branches for the
+    //      same reason the delete modal keeps them separate: one press must never be able to mean the destructive one.
+    // ⛔ NO SNAPSHOT IS READ HERE, deliberately: the act's inputs are the DEVICE's (the record, the live PHY, the
+    //    build floor) and they are gathered by the adapter at the instant it runs — ⛔ never frozen a frame earlier
+    //    into a UI snapshot, which is how a stale PHY reading would silently pass the precondition.
+    void provision_confirm_gesture(Gesture g) {
+        if (g == Gesture::short_press) {
+            _st.prov_confirm = (_st.prov_confirm == ProvConfirm::back) ? ProvConfirm::confirm : ProvConfirm::back;
+            _st.dirty = true;
+            return;
+        }
+        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }
+        run_create_team();
+    }
+    // ★★★★ THE ACT ITSELF, AND THE ORDER OF THESE FOUR STATEMENTS IS §8 PIN 2: the transaction RUNS, RETURNS, and only
+    //      then does the screen move and the verdict land. ⛔ There is no path that enters `create_result` first and
+    //      fills the answer afterwards, and none that shows a success text before `perform()` came back — which is why
+    //      the "no screen claims success before the save returns" rule is structural here rather than remembered.
+    // ⓘ A NULL SEAM REFUSES OUT LOUD (C2) rather than doing nothing: a `double` on CREATE that changed no pixel is
+    //   indistinguishable from a dead button. ⛔ It is NOT a `ProvErr` — the transaction never ran — so the reason is
+    //   this unit's own token, in the same shape `settings_note` uses for a service that could not open.
+    void run_create_team() {
+        UiProvAnswer a{};
+        if (_prov) {
+            UiProvIntent in{};
+            in.op = UiProvOp::create_team;
+            a = _prov->perform(in);
+        } else {
+            a.outcome = UiProvOutcome::refused;
+            a.reason  = "no service";
+        }
+        enter_provision(Provision::create_result);
+        _st.prov_answer = a;
     }
     // ★★★★ §B64 — THE TEAMMATE THE CURSOR IS ON, HELD BY IDENTITY, AND RE-FOUND IN EVERY SNAPSHOT.
     // ★ THE IDENTITY IS THE ROW'S OWN `id`, DERIVED AND NOT INVENTED (U1): it is the team-plane id the snapshot already
@@ -1903,6 +2394,16 @@ inline void UiModel::emergency_gesture(Gesture g, const UiSnapshot& s) {
     //   §3.6.1 forbids, triggered by a press the operator may still cancel.
     // ⓘ The cursor is left where it was, which is a VALUE row by construction: only a value row can be in `editing`
     //   at all, so this can never come back to rest on `DISCARD`.
+    // ★★★★ §UI-15 slice 4 — AND THE PROVISIONING SUB-VIEW CLOSES AT `long_arm` TOO, one level deeper and for the
+    //     STRONGER of the two reasons: §3.6.5 rule 1 is that *"emergency PRE-EMPTS any provisioning screen — an
+    //     unconfirmed destructive action does not survive"*. A sub-view left standing under an overlay that owns the
+    //     body is invisible AND still holds the press — in this tree that is the child MENU (the confirmations are
+    //     slice 5/6's), and the row one press from BACK is CREATE TEAM, which replaces a membership.
+    // ⚠ IT IS PLACED **BEFORE** THE EDITOR'S LINE DELIBERATELY, and the reason is instrument hygiene rather than
+    //   behaviour (the two states are mutually exclusive): the mutation battery's M36/M37 anchor on the editor line
+    //   TOGETHER WITH the `long_arm` line below it, and an insertion between them would silently drop both to match
+    //   count 0 — VACUOUS. This file has already lost two entries that way (see M27/M28's re-anchoring note).
+    if (_st.settings == Settings::provisioning) close_provisioning();
     if (_st.settings == Settings::editing) { _st.settings = Settings::browsing; _st.dirty = true; }
     if (g == Gesture::long_arm)    { _emg = Emergency::arming; _arm_fire_at_ms = s.now_ms + kArmToFireMs; return; }
     if (g == Gesture::long_cancel) { _emg = Emergency::cancelled; _cancelled_until_ms = s.now_ms + kCancelledMs; return; }

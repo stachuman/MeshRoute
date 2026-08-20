@@ -2,20 +2,30 @@
 
 > Status: Skeleton. Chapters are reviewed incrementally against current source and metal-test evidence before they are marked complete.
 
-This manual is for people who install, configure, and operate MeshRoute nodes. Start with the quick-start path, or open an individual chapter when you need a specific task.
+This manual is for people who install, configure, and operate MeshRoute nodes. New users can begin with a real-world goal; experienced users can open an individual task or reference chapter directly.
 
-## Quick-start path
+## Start here
 
-1. [Choose a build, flash a node, and verify first boot](01-getting-started.md).
-2. [Connect over USB or BLE](02-connections.md).
-3. [Create or join a static network](03-static-networks.md).
-4. [Send a direct or channel message](06-messaging.md).
-5. [Handle received messages](07-inbox.md).
+1. [Choose the path that matches your goal](00-choose-your-path.md).
+2. Follow the matching guided journey from preparation through a working message test.
+3. Use the task chapters for detailed procedures and the command reference for exact syntax.
 
-## Chapters
+## Guided journeys
+
+| I want to... | Journey | Documentation status |
+| --- | --- | --- |
+| Use a mobile device on an existing network | [Mobile on an existing network](journeys/mobile-on-existing-network.md) | Skeleton |
+| Install or add a fixed network node | [Install a static node](journeys/install-static-node.md) | Skeleton |
+| Create or join a group | [Create or join a team](journeys/create-or-join-team.md) | Skeleton |
+| Prepare several people and devices for a trip | [Prepare a hiking group](journeys/hiking-group.md) | Skeleton |
+
+Journey pages provide an end-to-end sequence and link to the canonical task instructions. They do not duplicate command syntax.
+
+## Task chapters
 
 | Chapter | Scope | Documentation status |
 | --- | --- | --- |
+| [Choose your path](00-choose-your-path.md) | Starting situations and guided journeys | Skeleton |
 | [Getting started](01-getting-started.md) | Build selection, flashing, and first boot | Skeleton |
 | [Connections](02-connections.md) | USB console and BLE | Skeleton |
 | [Static networks](03-static-networks.md) | Create, join, verify, and leave | Skeleton |

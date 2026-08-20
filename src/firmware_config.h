@@ -45,6 +45,36 @@ void nv_load_stamped(mrnv::Blob& b);
 ICfgStore& device_cfg_store();
 ICfgLive&  device_cfg_live();
 
+// ★★★ §UI-15 slice 5 — THE THREE DEVICE PRIMITIVES §3.6.3's OLED TEAM-CREATE NEEDS FROM THIS CLUSTER, AND NOTHING
+// MORE. ⛔ NO DECISION IS EXPORTED: the adapter is `src/firmware_ui_prov.h`, which is PURE and natively compiled;
+// these are the three facts the OLED layer cannot reach on its own, and each is a forward.
+// ⓘ WHY THE ADAPTER IS NOT IMPLEMENTED HERE, stated because it is a boundary and not a preference: this file must not
+//   learn that a panel exists (`tools/probe_board_ui`'s W13 is that rule, and the §notify-every-save hook is
+//   deliberately feature-NEUTRAL). It exports facts; the OLED layer composes them.
+// ⚠ `ProvSnapshot` / `ProvPhyFloor` / `ProvisioningService` are FORWARD-DECLARED rather than included: this header is
+//   pulled in by `fw_main.cpp` and by both UI probes, and `firmware_provisioning_service.h` drags monocypher +
+//   identity + node_role behind it. Every caller of these three already includes it.
+struct ProvSnapshot;
+struct ProvPhyFloor;
+class  ProvisioningService;
+#if MR_N_LAYERS < 2
+// The ONE transaction instance (function-local static, like the two bindings above, so its construction order against
+// the OLED layer's adapter is defined). `handle_team` and the OLED path share it — ⛔ never two services over one store.
+ProvisioningService& prov_service();
+// The LIVE facts the transaction reads plus the BUILD floor a `0` in the persisted record resolves to.
+// ⚠⚠ IT IS A SECOND SITE, AND THE DUPLICATION IS DECLARED RATHER THAN ACCIDENTAL (U1): `handle_team` fills the same
+//    fields inline, and `tools/probe_prov_tx`'s S11 pins those six assignments INSIDE that function's body — so the
+//    console's copy cannot be routed through here without changing that probe, which is not this slice's to change.
+//    ⇒ ★ THE TWO ARE EDITED TOGETHER; a field added to `ProvSnapshot` belongs in BOTH, and S11 is what catches the
+//    console half going stale.
+void prov_device_facts(ProvSnapshot& snap, ProvPhyFloor& floor);
+// Sync fw_main's team-DAD persist tracker to what the transaction actually WROTE (`ProvResult::persisted_team_local_id`
+// — the service reports it for exactly this purpose). ⛔ Without it a newly assigned `team_local_id` can never reach NV;
+// `handle_team` does the same assignment inline, and `src/firmware_ui.cpp` cannot: `fw_context.h` is barred from that
+// TU (`tools/probe_firmware_ui`'s C0).
+void prov_note_persisted_team_local_id(uint8_t v);
+#endif
+
 // `cfg set <key> <value>` — accumulate onto the pending NV blob + apply live where possible (dispatch verb).
 void handle_cfg_set(const char* args, Print& out);
 

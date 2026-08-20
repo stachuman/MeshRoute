@@ -24,4 +24,4 @@
 
 ## Next step
 
-Continue to [Static Networks](03-static-networks.md).
+Return to [Choose Your Path](00-choose-your-path.md) and continue the journey that matches your goal.

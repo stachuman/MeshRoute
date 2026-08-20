@@ -2665,14 +2665,19 @@ bool cursor_to(UiModel& m, const UiSnapshot& s, CfgRow want) {
     return false;
 }
 UiSnapshot cfg_snap(uint32_t now_ms = 1000, bool ble_row = false) {
-    UiSnapshot s = snap(now_ms); s.ble_row = ble_row; return s;
+    UiSnapshot s = snap(now_ms); s.ble_row = ble_row;
+    // ★ §UI-15 slice 5: BOTH child predicates ON, which is the build every §UI-14 case above was written against —
+    //   the PROVISION row was UNCONDITIONAL until the owner's 2026-08-19 ruling made it follow its children. Setting
+    //   them here PRESERVES those cases' subject; the ruling's own arms are driven explicitly (`ui15-parent`).
+    s.prov_create_team = true; s.prov_join_static = true;
+    return s;
 }
 
 }  // namespace
 
 // ---------------------------------------------------------------------------------------------- the row list
 TEST_CASE("ui14-rows: the menu is §3.6.2's, and the BLE row is ABSENT when the transport is not compiled") {
-    const CfgRowList l = settings_rows(/*ble_row=*/false, /*conflict=*/false);
+    const CfgRowList l = settings_rows(/*ble_row=*/false, /*conflict=*/false, /*provision=*/true);
     CHECK(l.n == 7);
     CfgRow r{};
     CHECK(l.at(0, r)); CHECK(r == CfgRow::e2e_dm);
@@ -2689,7 +2694,7 @@ TEST_CASE("ui14-rows: the menu is §3.6.2's, and the BLE row is ABSENT when the 
 }
 
 TEST_CASE("ui14-rows: the BLE row is PRESENT when the transport's condition is met, and it comes first") {
-    const CfgRowList l = settings_rows(/*ble_row=*/true, /*conflict=*/false);
+    const CfgRowList l = settings_rows(/*ble_row=*/true, /*conflict=*/false, /*provision=*/true);
     CHECK(l.n == 8);
     CfgRow r{};
     CHECK(l.at(0, r)); CHECK(r == CfgRow::ble_mode);
@@ -2702,10 +2707,10 @@ TEST_CASE("ui14-rows: the BLE row is PRESENT when the transport's condition is m
 }
 
 TEST_CASE("ui14-rows: RELOAD appears ONLY while a conflict stands, exactly once, and before SAVE") {
-    const CfgRowList clean = settings_rows(false, /*conflict=*/false);
+    const CfgRowList clean = settings_rows(false, /*conflict=*/false, /*provision=*/true);
     CfgRow r{};
     for (uint8_t i = 0; i < clean.n; ++i) { CHECK(clean.at(i, r)); CHECK(r != CfgRow::reload); }
-    const CfgRowList conf = settings_rows(false, /*conflict=*/true);
+    const CfgRowList conf = settings_rows(false, /*conflict=*/true, /*provision=*/true);
     CHECK(conf.n == uint8_t(clean.n + 1));
     int i_reload = -1, i_save = -1, n_reload = 0;
     for (uint8_t i = 0; i < conf.n; ++i) {
@@ -3030,27 +3035,673 @@ TEST_CASE("ui14-back: BLANKING preserves the draft too — a timeout may never d
     CHECK(f.store.writes == 0);
 }
 
-// ---------------------------------------------------------------------------------------------- PROVISION
-TEST_CASE("ui14-provision: the row is PRESENT and INERT — it refuses out loud and changes nothing (§UI-15)") {
-    CfgFix f; const auto s = cfg_snap();
+// ================================================================ §UI-15 slice 4 — the PROVISIONING state model
+// ★★★ WHAT THIS BLOCK MEASURES, and what it deliberately does NOT. The §UI-14 case it replaces pinned a PLACEHOLDER
+//     (`PROVISION: UI-15`, an activation that refused because §3.6.3 had no flow); plan §4/§5/§6 replace that refusal
+//     with a GATED STATE MODEL, so the placeholder's assertions are retired WITH the placeholder — nothing they
+//     measured survives.
+// ⛔⛔ AND THE REACHABLE SURFACE IS EXACTLY FOUR THINGS ([[B222]], QG-ruled): the gated entry to `menu`, the menu's
+//     cycling, its BACK, and the close-on-leave. NOTHING DEEPER — activating CREATE TEAM or JOIN NETWORK does nothing
+//     in this tree, because those entries land WITH the adapters behind them (slices 5/6). That is asserted below
+//     (`ui15-pending`), not argued: it is the case a premature transition fails.
+// ⛔ NOT measured here, by slice: any screen, any adapter, any live seam.
+namespace {
+// A snapshot whose §6 CHILD PREDICATES are both satisfied. ⛔ They are two SEPARATE parameters, never one flag — see
+// `ui15-hide` below, which is the case that would pass on a model that collapsed them.
+UiSnapshot prov_snap(bool create_team = true, bool join_static = true, uint32_t now_ms = 1000) {
+    UiSnapshot s = cfg_snap(now_ms);
+    s.prov_create_team = create_team; s.prov_join_static = join_static;
+    return s;
+}
+// Walk to SETTINGS, put the cursor on PROVISION and open it. ⚠ The caller ASSERTS the landing — this returns the
+// gate's verdict rather than claiming one, because "the gate refused" is exactly what half these cases drive.
+bool open_provision(UiModel& m, const UiSnapshot& s) {
+    to_settings(m, s);
+    if (!cursor_to(m, s, CfgRow::provision)) return false;
+    m.on_gesture(Gesture::double_press, s);
+    return m.state().settings == Settings::provisioning;
+}
+// The child row the PROVISION cursor is on, by identity — the same question the renderer will ask (slice 5).
+bool prov_row_under_cursor(UiModel& m, const UiSnapshot& s, ProvRow& out) {
+    return m.provision_row_list(s).at(m.state().cursor, out);
+}
+// Cycle the sub-view's cursor onto a named child. ⛔ Never a hardcoded index: BOTH children are conditional, so an
+// index means different things in different arms — §B66's coupling, one menu deeper. BOUNDED, so a missing row fails
+// the caller's check instead of looping.
+bool prov_cursor_to(UiModel& m, const UiSnapshot& s, ProvRow want) {
+    for (int i = 0; i < 12; ++i) {
+        ProvRow r{};
+        if (prov_row_under_cursor(m, s, r) && r == want) return true;
+        m.on_gesture(Gesture::short_press, s);
+    }
+    return false;
+}
+}  // namespace
+
+// ---------------------------------------------------------------------------------------------- §5 — the state shape
+TEST_CASE("ui15-model: the Provision enum is the eight ADOPTED arms, and the sub-state is an ENUM not a flag") {
+    // ★ The arms and their ORDER are plan §5's, listed one by one rather than counted: a battery that asserted only
+    //   a total would pass on a set with the right size and the wrong members.
+    CHECK(uint8_t(Provision::closed)         == 0);
+    CHECK(uint8_t(Provision::menu)           == 1);
+    CHECK(uint8_t(Provision::create_confirm) == 2);
+    CHECK(uint8_t(Provision::create_result)  == 3);
+    CHECK(uint8_t(Provision::join_select)    == 4);
+    CHECK(uint8_t(Provision::join_confirm)   == 5);
+    CHECK(uint8_t(Provision::join_waiting)   == 6);
+    CHECK(uint8_t(Provision::join_result)    == 7);
+    // ⛔ AND THE SUB-VIEW IS THE `Settings` ENUM'S FOURTH ARM, ⛔ never a `bool in_provision` beside it: the domain
+    //    is four-valued and this file's own block names the binary-test-over-a-ternary-domain defect five times over.
+    CHECK(uint8_t(Settings::provisioning) == 3);
+    // The default state of a fresh model is CLOSED on both authorities — the invariant, at rest.
+    UiState st{};
+    CHECK(st.settings == Settings::closed);
+    CHECK(st.provisioning == Provision::closed);
+    CHECK(st.prov_confirm == ProvConfirm::back);
+    CHECK(st.prov_block == ProvBlock::none);
+}
+
+// ---------------------------------------------------------------------------------------------- §4 — the gate
+TEST_CASE("ui15-gate: a CLEAN draft OPENS PROVISION on its menu, and nothing was written to get there") {
+    CfgFix f; const auto s = prov_snap();
+    CHECK(open_provision(f.m, s));
+    CHECK(f.m.state().settings == Settings::provisioning);
+    CHECK(f.m.state().provisioning == Provision::menu);
+    CHECK(f.m.state().screen == Screen::settings);            // ⛔ no sixth cycle slot — PROVISION lives INSIDE SETTINGS
+    CHECK(strcmp(settings_note(f.m.state()), "") == 0);       // nothing refused, so nothing is said
+    CHECK(f.store.writes == 0);
+    CHECK(f.live.applies == 0);
+}
+
+TEST_CASE("ui15-gate: an UNSAVED draft refuses with SAVE OR DISCARD, opens nothing and SAVES NOTHING") {
+    CfgFix f; const auto s = prov_snap();
     to_settings(f.m, s);
     CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
     f.m.on_gesture(Gesture::double_press, s);
-    f.m.on_gesture(Gesture::short_press, s);                 // leave an UNSAVED draft standing...
+    f.m.on_gesture(Gesture::short_press, s);                  // the operator edits e2e_dm 0 -> 1, and does not save
     f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.svc.config_unsaved() == true);
+    CHECK(f.svc.conflict() == false);
     CHECK(cursor_to(f.m, s, CfgRow::provision));
     f.m.on_gesture(Gesture::double_press, s);
-    CHECK(f.m.state().cfg_provision_na == true);
-    CHECK(strcmp(settings_note(f.m.state()), "PROVISION: UI-15") == 0);
-    CHECK(f.m.state().screen == Screen::settings);           // ⛔ it opened NOTHING
-    CHECK(f.m.state().settings == Settings::browsing);
+    CHECK(f.m.state().prov_block == ProvBlock::unsaved);
+    CHECK(strcmp(settings_note(f.m.state()), "SAVE OR DISCARD") == 0);
+    CHECK(f.m.state().settings == Settings::browsing);        // ⛔ it opened NOTHING
+    CHECK(f.m.state().provisioning == Provision::closed);
+    // ⛔⛔ C2 / plan §4 — PROVISION NEVER SAVES ON THE OPERATOR'S BEHALF, and this is the COUNTED discriminator
+    //    rather than a state assertion: a gate that "helpfully" saved would leave `config_unsaved()` false and every
+    //    state check above would still pass.
     CHECK(f.store.writes == 0);
     CHECK(f.live.applies == 0);
-    // ⛔ AND §3.6.3's "an unsaved draft requires SAVE or DISCARD first" is NOT implemented here — that precondition is
-    //    §UI-15's. The unsaved draft is untouched and was not a factor in the refusal.
+    CHECK(f.svc.config_unsaved() == true);                    // the draft is exactly where the operator left it
+    CHECK(f.svc.draft().at(mrfw::CfgField::e2e_dm) == 1);
+    f.m.on_gesture(Gesture::short_press, s);                  // the note is transient, like every other one
+    CHECK(f.m.state().prov_block == ProvBlock::none);
+    CHECK(strcmp(settings_note(f.m.state()), "") == 0);
+}
+
+TEST_CASE("ui15-gate: a CONFLICT refuses with RELOAD OR DISCARD — ⛔ never SAVE — opens nothing and writes nothing") {
+    CfgFix f; const auto s = prov_snap();
+    to_settings(f.m, s);
+    // An external writer moves a COVERED field under a draft the operator has not touched ⇒ `conflict()` WITHOUT
+    // `config_unsaved()`. That is the cell v1 conflated: the two predicates are different comparisons.
+    f.store.rec.intro_attach = 0;
+    f.svc.note_external_write(f.store.rec);
+    CHECK(f.svc.conflict() == true);
+    CHECK(f.svc.config_unsaved() == false);
+    CHECK(cursor_to(f.m, s, CfgRow::provision));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().prov_block == ProvBlock::conflict);
+    CHECK(strcmp(settings_note(f.m.state()), "RELOAD OR DISCARD") == 0);
+    // ★★ THE NEGATIVE HALF IS THE POINT OF §4: the note may NOT point at SAVE, because `save()` REFUSES a conflict
+    //    (gate 2a). Asserted as an absence of the word, so a re-worded remedy that still says SAVE fails here.
+    CHECK(strstr(settings_note(f.m.state()), "SAVE") == nullptr);
+    CHECK(f.m.state().settings == Settings::browsing);
+    CHECK(f.m.state().provisioning == Provision::closed);
+    CHECK(f.store.writes == 0);                               // ⛔ COUNTED — see the unsaved cell
+    CHECK(f.live.applies == 0);
+    CHECK(f.svc.conflict() == true);                          // ...and the gate resolved nothing on the way past
+}
+
+TEST_CASE("ui15-gate: CONFLICT OUTRANKS UNSAVED — a draft that is BOTH is told to RELOAD, never to SAVE") {
+    CfgFix f; const auto s = prov_snap();
+    to_settings(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);                  // an unsaved edit...
+    f.m.on_gesture(Gesture::double_press, s);
+    f.store.rec.intro_attach = 0;                             // ...UNDER a companion write to a different covered field
+    f.svc.note_external_write(f.store.rec);
+    // ★ BOTH predicates stand, which is the ORDINARY conflicted state — a conflict is normally also unsaved.
+    CHECK(f.svc.conflict() == true);
     CHECK(f.svc.config_unsaved() == true);
-    f.m.on_gesture(Gesture::short_press, s);                 // the note is transient, like every other one
-    CHECK(f.m.state().cfg_provision_na == false);
+    CHECK(cursor_to(f.m, s, CfgRow::provision));
+    f.m.on_gesture(Gesture::double_press, s);
+    // ⇒ testing `config_unsaved()` FIRST would print SAVE OR DISCARD here: the §4 conflation, arriving through the
+    //   ORDER rather than through the predicate. That is why this is its own case.
+    CHECK(f.m.state().prov_block == ProvBlock::conflict);
+    CHECK(strcmp(settings_note(f.m.state()), "RELOAD OR DISCARD") == 0);
+    CHECK(f.m.state().provisioning == Provision::closed);
+    CHECK(f.store.writes == 0);
+}
+
+TEST_CASE("ui15-gate: with NO usable config the gate refuses and opens nothing (fails closed)") {
+    // ⛔ Neither §4 predicate can be ESTABLISHED without a baseline, so the answer is neither cell — it is a refusal.
+    UiFakeStore store; UiFakeLive live;
+    store.can_load = false;
+    mrfw::ConfigService svc{store, live};
+    UiModel m; m.attach_config(svc);
+    const auto s = prov_snap();
+    to_settings(m, s);
+    CHECK(svc.is_open() == false);
+    CHECK(cursor_to(m, s, CfgRow::provision));
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().settings == Settings::browsing);
+    CHECK(m.state().provisioning == Provision::closed);
+    CHECK(m.state().prov_block == ProvBlock::none);           // ⛔ §4's remedies do not apply to "there is no draft"
+    CHECK(store.writes == 0);
+    // ...and the same for a model with NO service at all
+    UiModel m2; const auto s2 = prov_snap();
+    to_settings(m2, s2);
+    CHECK(cursor_to(m2, s2, CfgRow::provision));
+    m2.on_gesture(Gesture::double_press, s2);
+    CHECK(m2.state().settings == Settings::browsing);
+    CHECK(m2.state().provisioning == Provision::closed);
+}
+
+// ---------------------------------------------------------------------------------------------- §5 — the transitions
+TEST_CASE("ui15-menu: BACK closes the sub-view back to the SETTINGS MENU, with the highlight on PROVISION") {
+    CfgFix f; const auto s = prov_snap();
+    CHECK(open_provision(f.m, s));
+    CHECK(prov_cursor_to(f.m, s, ProvRow::back));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().settings == Settings::browsing);        // ⛔ back to the MENU, never off the screen
+    CHECK(f.m.state().provisioning == Provision::closed);
+    CHECK(f.m.state().screen == Screen::settings);
+    // ★ THE PICK SURVIVED THE SUB-VIEW: `sync_settings` re-anchors from the row identity the operator left on, which
+    //   is why the sub-view is forbidden to touch it. Without that guard the cursor would come back on a CHILD index.
+    f.m.on_tick(s);
+    CfgRow r{};
+    CHECK(row_under_cursor(f.m, s, r));
+    CHECK(r == CfgRow::provision);
+}
+
+TEST_CASE("ui15-menu: `short` CYCLES the children and never walks out of the screen") {
+    CfgFix f; const auto s = prov_snap();
+    CHECK(open_provision(f.m, s));
+    ProvRow r{};
+    CHECK(prov_row_under_cursor(f.m, s, r)); CHECK(r == ProvRow::create_team);
+    f.m.on_gesture(Gesture::short_press, s);
+    CHECK(prov_row_under_cursor(f.m, s, r)); CHECK(r == ProvRow::join_static);
+    f.m.on_gesture(Gesture::short_press, s);
+    CHECK(prov_row_under_cursor(f.m, s, r)); CHECK(r == ProvRow::back);
+    // ★ ...and the next press WRAPS rather than leaving. A sub-view is left by its own BACK, by the long gesture or
+    //   by the blank — ⛔ never by `advance_or_next`'s walk-off, which belongs to the ordinary screen cycle.
+    f.m.on_gesture(Gesture::short_press, s);
+    CHECK(f.m.state().screen == Screen::settings);
+    CHECK(f.m.state().settings == Settings::provisioning);
+    CHECK(prov_row_under_cursor(f.m, s, r)); CHECK(r == ProvRow::create_team);
+}
+
+TEST_CASE("ui15-pending: activating JOIN NETWORK does NOTHING — the static-join flow is slice 6's") {
+    // ★★★ [[B222]]'s PIN, and it is asserted rather than argued: `join_select` is UNREACHABLE BY GESTURE in this tree.
+    //     A transition lands WITH the flow behind it — an entry that arrived one slice early would offer a profile
+    //     list with no rows.
+    // ⚠ RE-AIMED 2026-08-19 (§UI-15 slice 5): this case used to drive BOTH children. CREATE TEAM now HAS its flow, so
+    //   asserting that it does nothing would pin the ABSENCE of the very thing this slice lands — the case covers
+    //   only the row that is still pending, and the create half is driven by the `ui15-create` cases below.
+    CfgFix f; const auto s = prov_snap();
+    CHECK(open_provision(f.m, s));
+    CHECK(prov_cursor_to(f.m, s, ProvRow::join_static));
+    const uint8_t before = f.m.state().cursor;
+    f.m.on_gesture(Gesture::double_press, s);
+    // ⛔ STILL THE MENU, on both authorities, with the highlight exactly where the operator left it.
+    CHECK(f.m.state().provisioning == Provision::menu);
+    CHECK(f.m.state().settings == Settings::provisioning);
+    CHECK(f.m.state().cursor == before);
+    ProvRow r{};
+    CHECK(prov_row_under_cursor(f.m, s, r));
+    CHECK(r == ProvRow::join_static);
+    // ⛔ AND NOTHING IS SAID EITHER: §4's two cells are the GATE's remedies, and "come back in a slice" is not one
+    //    of them. ⛔ Nor is anything written, applied or confirmed.
+    CHECK(f.m.state().prov_block == ProvBlock::none);
+    CHECK(strcmp(settings_note(f.m.state()), "") == 0);
+    CHECK(f.store.writes == 0);
+    CHECK(f.live.applies == 0);
+    // ...and BACK still leaves from right here, so a pending child cannot strand the operator in the sub-view.
+    CHECK(prov_cursor_to(f.m, s, ProvRow::back));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().settings == Settings::browsing);
+    CHECK(f.m.state().provisioning == Provision::closed);
+}
+
+TEST_CASE("ui15-confirm: the confirmation cursor's DEFAULT is BACK — as MODEL STATE, on the one entry this slice has") {
+    // ★★ §3.6.3, VERBATIM IN SUBSTANCE: *"opens a confirmation with BACK selected initially; reaching CREATE requires
+    //    `short` then `double`"*. The FLOW that reads it is slice 5/6's ([[B222]]), so the DEFAULT is pinned where it
+    //    actually lives — the field's rest value and the value every entry primitive establishes — ⛔ never through a
+    //    transition this slice does not have.
+    CHECK(uint8_t(ProvConfirm::back) == 0);                   // the zero value IS the safe one: `ProvConfirm{}` is BACK
+    CHECK(uint8_t(ProvConfirm::confirm) == 1);
+    UiState fresh{};
+    CHECK(fresh.prov_confirm == ProvConfirm::back);
+    CfgFix f; const auto s = prov_snap();
+    // `enter_provision` is the ONE primitive every arm entry goes through, and `menu` is the entry this slice can
+    // drive — the same assignment slice 5/6's confirm entries will run.
+    CHECK(open_provision(f.m, s));
+    CHECK(f.m.state().provisioning == Provision::menu);
+    CHECK(f.m.state().prov_confirm == ProvConfirm::back);
+    CHECK(f.m.state().cursor == 0);                           // each arm's list starts at its own first row
+    // ⛔ AND NOTHING IN THIS TREE MOVES IT: no gesture in the sub-view touches the field, so it cannot drift off BACK
+    //    between the entry and the close — walking the whole child menu twice leaves it exactly where it started.
+    for (int i = 0; i < 6; ++i) {
+        f.m.on_gesture(Gesture::short_press, s);
+        CHECK(f.m.state().prov_confirm == ProvConfirm::back);
+    }
+    CHECK(prov_cursor_to(f.m, s, ProvRow::back));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().prov_confirm == ProvConfirm::back);      // ...and the close re-establishes it too
+    CHECK(f.store.writes == 0);
+}
+
+// ---------------------------------------------------------------------------------------------- §5's FIRST PIN
+TEST_CASE("ui15-close: ALL EIGHT arms are retired by the close-on-leave reset, cursor included ([[B223]])") {
+    // ★★★★ THE REQUIRED GUARD, DRIVEN DIRECTLY. The reset is `provision_reset_on_leave`'s and NOT
+    //     `settings_follow_screen`'s (see the helper): at its call site the clause is UNREACHABLE — while the sub-view
+    //     owns the press nothing can move `_st.screen` out of SETTINGS underneath it — so a guard written there could
+    //     be driven by no test and reddened by no mutation. ⛔ Stating that gap does not discharge the requirement;
+    //     hoisting the decision does, and this is the case that spends it.
+    // ★ ALL EIGHT ARMS, not the ones a gesture happens to reach: the arms slices 5/6 add are exactly the ones a push
+    //   or a timeout may leave standing when the screen moves, which is the situation this guard exists for.
+    const Provision arms[] = { Provision::closed,       Provision::menu,        Provision::create_confirm,
+                               Provision::create_result, Provision::join_select, Provision::join_confirm,
+                               Provision::join_waiting,  Provision::join_result };
+    CHECK(sizeof(arms) / sizeof(arms[0]) == 8u);
+    for (Provision arm : arms) {
+        for (ProvConfirm c : { ProvConfirm::back, ProvConfirm::confirm }) {
+            Provision a = arm; ProvConfirm cur = c;
+            const bool changed = provision_reset_on_leave(a, cur);
+            CHECK(a == Provision::closed);
+            // ⛔ AND THE CONFIRM CURSOR RE-ANCHORS TOO: a stale CONFIRM would re-open the next confirmation with the
+            //    destructive choice already selected, one `double` from replacing a membership.
+            CHECK(cur == ProvConfirm::back);
+            // ⓘ "changed" is what the caller repaints on — true for every arm but the one already at rest.
+            CHECK(changed == (arm != Provision::closed || c != ProvConfirm::back));
+        }
+    }
+    // ...and it is IDEMPOTENT: a second call on a state already at rest reports no change, so a screen sitting off
+    // SETTINGS does not mark the panel dirty on every tick.
+    Provision a = Provision::join_waiting; ProvConfirm cur = ProvConfirm::confirm;
+    CHECK(provision_reset_on_leave(a, cur) == true);
+    CHECK(provision_reset_on_leave(a, cur) == false);
+    CHECK(a == Provision::closed);
+    CHECK(cur == ProvConfirm::back);
+}
+
+TEST_CASE("ui15-close: the reachable arm survives a tick and is closed by the long gesture, on BOTH authorities") {
+    // ⓘ THE ARM DRIVEN HERE IS THE ONE THIS SLICE CAN REACH (`menu`); the other seven are driven through the pure
+    //   helper above, which is the only honest way to reach them in this tree ([[B222]]/[[B223]]).
+    // ★ THE NEGATIVE HALF FIRST: a tick must NOT close the sub-view. `sync_settings` runs on every tick and every
+    //   gesture, and a version of it that "tidied up" would make provisioning unusable one frame after it opened.
+    CfgFix f; const auto s = prov_snap();
+    CHECK(open_provision(f.m, s));
+    CHECK(f.m.state().provisioning == Provision::menu);
+    f.m.on_tick(s);
+    CHECK(f.m.state().provisioning == Provision::menu);       // ...still exactly where the operator left it
+    CHECK(f.m.state().settings == Settings::provisioning);
+    // ⇒ and the long gesture, which §3.6.5 rule 1 requires to pre-empt it, closes BOTH fields together.
+    f.m.on_gesture(Gesture::long_cancel, s);
+    CHECK(f.m.state().provisioning == Provision::closed);
+    CHECK(f.m.state().settings == Settings::browsing);
+}
+
+TEST_CASE("ui15-close: leaving SETTINGS by its BACK row retires the sub-state, and coming back opens the MENU") {
+    // ⚠ RE-TITLED AND RE-AIMED at [[B223]]: this case used to be called *"walking OFF the SETTINGS screen closes
+    //   provisioning"*, which it never did — it closes the sub-view FIRST (it has to: while the sub-view is open no
+    //   gesture reaches the SETTINGS BACK row), so it could not exercise the reset it named. ⇒ it now claims only
+    //   what it drives: the ORDINARY leave path leaves nothing behind, and re-entry is a fresh menu. The reset ITSELF
+    //   is driven directly, above.
+    CfgFix f; const auto s = prov_snap();
+    CHECK(open_provision(f.m, s));
+    CHECK(prov_cursor_to(f.m, s, ProvRow::back));
+    f.m.on_gesture(Gesture::double_press, s);                 // the sub-view -> the SETTINGS menu
+    CHECK(f.m.state().settings == Settings::browsing);
+    CHECK(cursor_to(f.m, s, CfgRow::back));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().screen == Screen::status);
+    CHECK(f.m.state().settings == Settings::closed);
+    CHECK(f.m.state().provisioning == Provision::closed);
+    // ★ AND COMING BACK OPENS THE MENU at its first row — ⛔ never something the operator abandoned.
+    CHECK(open_provision(f.m, s));
+    CHECK(f.m.state().provisioning == Provision::menu);
+    CHECK(f.m.state().cursor == 0);
+}
+
+TEST_CASE("ui15-emergency: a long press CLOSES the provisioning sub-view before arming (§3.6.5 rule 1)") {
+    CfgFix f; const auto s = prov_snap();
+    CHECK(open_provision(f.m, s));
+    CHECK(f.m.state().provisioning == Provision::menu);
+    // ⓘ The cursor is left on CREATE TEAM, the row a `double` would act on — which is what the pre-emption is FOR.
+    CHECK(prov_cursor_to(f.m, s, ProvRow::create_team));
+    f.m.on_gesture(Gesture::long_arm, s);
+    // ⛔ AN UNCONFIRMED DESTRUCTIVE ACTION DOES NOT SURVIVE AN ALARM: the overlay owns the body, so a sub-view left
+    //    standing underneath is invisible AND still holding the press, with CREATE TEAM under its cursor.
+    CHECK(f.m.state().provisioning == Provision::closed);
+    CHECK(f.m.state().settings == Settings::browsing);
+    // ...and a cancel does not bring it back — closing is destructive, exactly as it is for the editor and the modal.
+    f.m.on_gesture(Gesture::long_cancel, s);
+    CHECK(f.m.state().provisioning == Provision::closed);
+    CHECK(f.store.writes == 0);
+}
+
+// ---------------------------------------------------------------------------------------------- §6 — availability
+TEST_CASE("ui15-hide: each child follows its OWN predicate, and STATIC JOIN survives a team-less build") {
+    ProvRow r{};
+    const ProvRowList both = provision_rows(true, true);
+    CHECK(both.n == 3);
+    CHECK(both.at(0, r)); CHECK(r == ProvRow::create_team);
+    CHECK(both.at(1, r)); CHECK(r == ProvRow::join_static);
+    CHECK(both.at(2, r)); CHECK(r == ProvRow::back);
+    CHECK(both.at(3, r) == false);                            // ⛔ fails closed, like every other row list here
+    CHECK(both.at(255, r) == false);
+    // ★★★ PLAN §6's CORRECTION, AND THIS IS THE CASE THAT CARRIES IT: with the TEAM plane absent, CREATE is hidden
+    //     and ⛔ STATIC JOIN IS NOT — it has nothing to do with the team plane. A model that governed both children
+    //     by one flag passes every other case in this block and fails here.
+    const ProvRowList join_only = provision_rows(false, true);
+    CHECK(join_only.n == 2);
+    CHECK(join_only.at(0, r)); CHECK(r == ProvRow::join_static);
+    CHECK(join_only.at(1, r)); CHECK(r == ProvRow::back);
+    const ProvRowList create_only = provision_rows(true, false);
+    CHECK(create_only.n == 2);
+    CHECK(create_only.at(0, r)); CHECK(r == ProvRow::create_team);
+    CHECK(create_only.at(1, r)); CHECK(r == ProvRow::back);
+    // ⓘ NEITHER child (the `gateway_heltec` shape: OLED=1, MR_N_LAYERS=2) — the menu still has BACK, because leaving
+    //   must never depend on a build flag.
+    const ProvRowList none = provision_rows(false, false);
+    CHECK(none.n == 1);
+    CHECK(none.at(0, r)); CHECK(r == ProvRow::back);
+    // ...and every row's label fits the rail's 19-column body with its `>` marker
+    for (uint8_t i = 0; i < kMaxProvRows; ++i) CHECK(1u + strlen(provision_row_label(ProvRow(i))) <= 19u);
+    CHECK(strcmp(provision_row_label(ProvRow::create_team), "CREATE TEAM") == 0);
+    CHECK(strcmp(provision_row_label(ProvRow::join_static), "JOIN NETWORK") == 0);
+    CHECK(strcmp(provision_row_label(ProvRow::back), "BACK") == 0);
+}
+
+TEST_CASE("ui15-hide: a HIDDEN child has NO refusing stub — it cannot be reached, walked to or activated") {
+    // The team plane is absent; static join is not. [[B209]]: hide it, ⛔ never render a row that refuses.
+    CfgFix f; const auto s = prov_snap(/*create_team=*/false, /*join_static=*/true);
+    CHECK(open_provision(f.m, s));
+    CHECK(f.m.provision_row_list(s).n == 2);
+    // Walk the WHOLE menu twice: the hidden child is on no row, so no press can select it and none can activate it.
+    for (int i = 0; i < 5; ++i) {
+        ProvRow r{};
+        CHECK(prov_row_under_cursor(f.m, s, r));
+        CHECK(r != ProvRow::create_team);
+        f.m.on_gesture(Gesture::short_press, s);
+    }
+    // ...and the child that IS supported is on the list and can be walked to — ⓘ its FLOW is slice 6's, so activating
+    // it does nothing here (`ui15-pending`); what §6 owns is which rows EXIST, and that is what is asserted.
+    CHECK(prov_cursor_to(f.m, s, ProvRow::join_static));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::menu);
+    CHECK(f.store.writes == 0);
+}
+
+// ---------------------------------------------------------------- §UI-15 slice 5 — the OWNER's PARENT-ROW RULING
+TEST_CASE("ui15-parent: with NO child the PROVISION row is HIDDEN, and it returns when a child predicate holds") {
+    // ★★★★ OWNER RULING 2026-08-19 (reported form): **the parent row is HIDDEN when no child is available.**
+    // ⚠ WHAT THIS CASE REPLACES, recorded rather than silently overwritten: slice 4's *"a build with NEITHER child
+    //   opens a menu that offers only BACK, and BACK still works"*. That menu is now UNREACHABLE BY CONSTRUCTION —
+    //   which is the ruling — so the case that walked into it could not survive; the property it really carried
+    //   (leaving never depends on a build flag) lives on in `provision_rows(false,false).n == 1` below and in
+    //   `ui15-hide`'s list case.
+    CHECK(provision_has_child(true,  true)  == true);
+    CHECK(provision_has_child(true,  false) == true);
+    CHECK(provision_has_child(false, true)  == true);         // ⛔ static join alone STILL earns the parent row
+    CHECK(provision_has_child(false, false) == false);
+    // ⓘ ...and the child list itself is unchanged: BACK is still unconditional, so the sub-view could still be left
+    //   if anything ever opened it. The ruling removes the DOOR, not the exit.
+    CHECK(provision_rows(false, false).n == 1);
+
+    // The `gateway_heltec` shape (OLED=1, MR_N_LAYERS=2): the row is on no list, so no press can select or activate it.
+    CfgFix f; const auto s = prov_snap(/*create_team=*/false, /*join_static=*/false);
+    to_settings(f.m, s);
+    const CfgRowList l = f.m.settings_row_list(s);
+    CfgRow r{};
+    for (uint8_t i = 0; i < l.n; ++i) { CHECK(l.at(i, r)); CHECK(r != CfgRow::provision); }
+    CHECK(cursor_to(f.m, s, CfgRow::provision) == false);     // ⛔ unreachable by gesture, not merely unrendered
+    // ⛔ AND THE MENU-OFFERING-ONLY-BACK STATE IS NOT REACHABLE AT ALL: walking the WHOLE menu twice never enters
+    //    provisioning, and nothing is written to find that out.
+    for (int i = 0; i < 2 * kMaxCfgRows; ++i) {
+        f.m.on_gesture(Gesture::short_press, s);
+        CHECK(f.m.state().settings != Settings::provisioning);
+    }
+    CHECK(f.m.state().provisioning == Provision::closed);
+    CHECK(f.store.writes == 0);
+    // ★ ...and ONE child predicate is enough to bring the row back, on the SAME model and the same service.
+    const auto s2 = prov_snap(/*create_team=*/false, /*join_static=*/true);
+    CHECK(cursor_to(f.m, s2, CfgRow::provision));
+    f.m.on_gesture(Gesture::double_press, s2);
+    CHECK(f.m.state().settings == Settings::provisioning);
+    CHECK(f.m.state().provisioning == Provision::menu);
+}
+
+// ============================================================ §UI-15 slice 5 — the TEAM-CREATE CONFIRMATION + RESULT
+// ★★ WHAT THIS BLOCK MEASURES: the FLOW and the LANDING — how many times the act runs, from which gesture, what the
+//    screen says afterwards, and what a BACK costs (nothing). ⛔ IT DOES NOT MEASURE THE ADAPTER: the PHY
+//    precondition, `phy.present = false` and the verdict mapping are `test/test_firmware_ui_prov.cpp`'s, driven
+//    against the REAL transaction over its own fakes, where a store write and a live apply are counted for real.
+namespace {
+// The seam's fake. ★ IT RECORDS WHERE THE MODEL WAS WHEN IT RAN, which is what makes §8 pin 2 a measurement rather
+// than a reading of the source: at the instant the transaction is performed the screen must still be the CONFIRMATION
+// and there must be no result text anywhere.
+struct UiFakeProvision : IUiProvision {
+    const UiModel* m = nullptr;
+    int          calls   = 0;
+    UiProvOp     last_op = UiProvOp::none;
+    Provision    arm_at_call = Provision::closed;
+    const char*  head_at_call = "?";
+    UiProvAnswer answer{};                      // the scripted verdict this fake hands back
+    UiProvAnswer perform(const UiProvIntent& in) override {
+        ++calls;
+        last_op = in.op;
+        if (m) {
+            arm_at_call  = m->state().provisioning;
+            head_at_call = prov_result_head(m->state().prov_answer);
+        }
+        return answer;
+    }
+};
+struct CreateFix : CfgFix {
+    UiFakeProvision prov;
+    CreateFix() { prov.m = &m; m.attach_provision(prov); }
+};
+// Open PROVISION and put the confirmation up. The caller ASSERTS the landing.
+bool open_create_confirm(CreateFix& f, const UiSnapshot& s) {
+    if (!open_provision(f.m, s)) return false;
+    if (!prov_cursor_to(f.m, s, ProvRow::create_team)) return false;
+    f.m.on_gesture(Gesture::double_press, s);
+    return f.m.state().provisioning == Provision::create_confirm;
+}
+UiProvAnswer created_answer(uint32_t id) {
+    UiProvAnswer a{}; a.outcome = UiProvOutcome::created; a.team_id = id; return a;
+}
+}  // namespace
+
+TEST_CASE("ui15-create: CREATE TEAM opens the confirmation on BACK, and opening it performs NOTHING") {
+    CreateFix f; const auto s = prov_snap();
+    CHECK(open_create_confirm(f, s));
+    CHECK(f.m.state().settings == Settings::provisioning);
+    // ★ §3.6.3: *"opens a confirmation with BACK selected initially"* — and it is `enter_provision` that establishes
+    //   it, so the default cannot be forgotten by the entry that lands here.
+    CHECK(f.m.state().prov_confirm == ProvConfirm::back);
+    // ⛔ NOTHING HAS HAPPENED YET: no transaction, no write, no live apply — and no result text exists.
+    CHECK(f.prov.calls == 0);
+    CHECK(f.store.writes == 0);
+    CHECK(f.live.applies == 0);
+    CHECK(f.m.state().prov_answer.outcome == UiProvOutcome::none);
+    CHECK(strcmp(prov_result_head(f.m.state().prov_answer), "") == 0);
+    // `short` TOGGLES between the two actions and ⛔ never walks out of the screen (the InboxAction pair, §3.5).
+    f.m.on_gesture(Gesture::short_press, s);
+    CHECK(f.m.state().prov_confirm == ProvConfirm::confirm);
+    CHECK(f.m.state().provisioning == Provision::create_confirm);
+    f.m.on_gesture(Gesture::short_press, s);
+    CHECK(f.m.state().prov_confirm == ProvConfirm::back);
+    CHECK(f.prov.calls == 0);                                 // toggling is not acting
+}
+
+TEST_CASE("ui15-create: BACK from the confirmation returns to the MENU and drives ZERO transactions") {
+    CreateFix f; const auto s = prov_snap();
+    f.prov.answer = created_answer(0x12A1B2C3u);              // scripted, so a stray call would be VISIBLE as a result
+    CHECK(open_create_confirm(f, s));
+    f.m.on_gesture(Gesture::double_press, s);                 // `double` on BACK — the SAFE action, selected by default
+    CHECK(f.m.state().provisioning == Provision::menu);
+    CHECK(f.m.state().settings == Settings::provisioning);
+    // ★ THE PIN: BACK anywhere drives ZERO — counted on all three instruments, not argued.
+    CHECK(f.prov.calls == 0);
+    CHECK(f.store.writes == 0);
+    CHECK(f.live.applies == 0);
+    CHECK(f.m.state().prov_answer.outcome == UiProvOutcome::none);
+    // ...and the menu's own BACK still leaves, so the round trip strands nobody.
+    CHECK(prov_cursor_to(f.m, s, ProvRow::back));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().settings == Settings::browsing);
+    CHECK(f.prov.calls == 0);
+}
+
+TEST_CASE("ui15-create: CONFIRM drives EXACTLY ONE transaction, and the RESULT is rendered only after it RETURNED") {
+    CreateFix f; const auto s = prov_snap();
+    f.prov.answer = created_answer(0x12A1B2C3u);
+    CHECK(open_create_confirm(f, s));
+    f.m.on_gesture(Gesture::short_press, s);                  // BACK -> CREATE: the deliberate short-then-double
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.prov.calls == 1);                                 // ★ EXACTLY ONE
+    CHECK(f.prov.last_op == UiProvOp::create_team);
+    // ★★★ §8 PIN 2, MEASURED: at the instant the act ran the screen was still the CONFIRMATION and NO success text
+    //     existed anywhere. ⛔ A model that moved to the result first and filled it afterwards fails HERE.
+    CHECK(f.prov.arm_at_call == Provision::create_confirm);
+    CHECK(strcmp(f.prov.head_at_call, "") == 0);
+    // ...and only now does the verdict exist, on the arm that the act established.
+    CHECK(f.m.state().provisioning == Provision::create_result);
+    CHECK(f.m.state().prov_answer.outcome == UiProvOutcome::created);
+    CHECK(f.m.state().prov_answer.team_id == 0x12A1B2C3u);
+    CHECK(strcmp(prov_result_head(f.m.state().prov_answer), "TEAM CREATED") == 0);
+    // ⛔ AND IT IS NOT RE-RUN BY THE PRESS THAT LEAVES: the result is terminal, either press goes back to the menu.
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::menu);
+    CHECK(f.prov.calls == 1);
+    // ★ EVERY ENTRY RETIRES THE ANSWER, so a verdict can never sit under a screen that did not establish it.
+    CHECK(f.m.state().prov_answer.outcome == UiProvOutcome::none);
+    f.m.on_gesture(Gesture::short_press, s);                  // a SHORT press leaves it too (`press = back`)
+    CHECK(f.prov.calls == 1);
+}
+
+TEST_CASE("ui15-create: a SHORT press leaves the result, and a null seam REFUSES OUT LOUD rather than doing nothing") {
+    {
+        CreateFix f; const auto s = prov_snap();
+        f.prov.answer = created_answer(7u);
+        CHECK(open_create_confirm(f, s));
+        f.m.on_gesture(Gesture::short_press, s);
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.m.state().provisioning == Provision::create_result);
+        f.m.on_gesture(Gesture::short_press, s);              // `press = back` means EITHER press
+        CHECK(f.m.state().provisioning == Provision::menu);
+    }
+    // ⓘ NO SEAM AT ALL — a `!MR_N_LAYERS<2` build or a partially-wired probe. C2: it refuses out loud, so a `double`
+    //   on CREATE is never indistinguishable from a dead button, and ⛔ it claims nothing.
+    CfgFix f; const auto s = prov_snap();
+    CHECK(open_provision(f.m, s));
+    CHECK(prov_cursor_to(f.m, s, ProvRow::create_team));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::create_confirm);
+    f.m.on_gesture(Gesture::short_press, s);
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::create_result);
+    CHECK(f.m.state().prov_answer.outcome == UiProvOutcome::refused);
+    CHECK(strcmp(prov_result_head(f.m.state().prov_answer), "CREATE REFUSED") == 0);
+    CHECK(strcmp(prov_result_detail(f.m.state().prov_answer), "no service") == 0);
+    CHECK(f.store.writes == 0);
+}
+
+TEST_CASE("ui15-create: the two screens' STRINGS, and each outcome says a DIFFERENT thing") {
+    // ★ §B115's rule: the visible bytes are asserted where the suite can read them, so a reworded panel is a RED
+    //   suite rather than a discovery on metal.
+    CHECK(strcmp(kProvCreateTitle, "CREATE NEW TEAM") == 0);
+    CHECK(strcmp(prov_confirm_label(ProvConfirm::back), "BACK") == 0);
+    CHECK(strcmp(prov_confirm_label(ProvConfirm::confirm), "CREATE") == 0);
+    UiProvAnswer a{};
+    CHECK(strcmp(prov_result_head(a), "") == 0);              // nothing established -> nothing said
+    CHECK(strcmp(prov_result_detail(a), "") == 0);
+    a.outcome = UiProvOutcome::created;
+    CHECK(strcmp(prov_result_head(a), "TEAM CREATED") == 0);
+    CHECK(strcmp(prov_result_detail(a), "") == 0);            // its second row is the ID, which is a value
+    // ★★ THE OWNER'S RULED REFUSAL, split across the two rows by §7.1 rule 5 (24 columns against a 19-column body).
+    a.outcome = UiProvOutcome::phy_differs;
+    CHECK(strcmp(prov_result_head(a), "PHY DIFFERS") == 0);
+    CHECK(strcmp(prov_result_detail(a), "USE SERIAL") == 0);
+    // ★ §UI-13's RULED string, CALLED and never re-spelled — the same treatment `settings_note` gives it.
+    a.outcome = UiProvOutcome::save_failed;
+    CHECK(strcmp(prov_result_head(a), mrfw::cfg_save_panel(mrfw::CfgSave::nv_failed)) == 0);
+    CHECK(strcmp(prov_result_head(a), "SAVE FAILED") == 0);
+    CHECK(strcmp(prov_result_detail(a), "NOTHING CHANGED") == 0);
+    // ★ A staging refusal carries the SERVICE's own token, never a second ProvErr-to-text table.
+    a.outcome = UiProvOutcome::refused; a.reason = "role_refused";
+    CHECK(strcmp(prov_result_head(a), "CREATE REFUSED") == 0);
+    CHECK(strcmp(prov_result_detail(a), "role_refused") == 0);
+    // ⛔ THE FOUR HEADLINES ARE FOUR DIFFERENT STRINGS: a collapse would make two outcomes indistinguishable, which is
+    //    the "success that isn't" shape one screen over.
+    const UiProvOutcome all[] = { UiProvOutcome::created, UiProvOutcome::phy_differs,
+                                  UiProvOutcome::save_failed, UiProvOutcome::refused };
+    for (UiProvOutcome x : all) {
+        for (UiProvOutcome y : all) {
+            UiProvAnswer ax{}; ax.outcome = x; UiProvAnswer ay{}; ay.outcome = y;
+            const bool same = strcmp(prov_result_head(ax), prov_result_head(ay)) == 0;
+            CHECK(same == (x == y));
+        }
+    }
+    // ...and every one of them fits the rail's 19-column body, with the `>`-less full width available to it.
+    for (UiProvOutcome x : all) {
+        UiProvAnswer ax{}; ax.outcome = x; ax.reason = "no_mobile_plane";   // the widest prov_err_name
+        CHECK(strlen(prov_result_head(ax)) <= 19u);
+        CHECK(strlen(prov_result_detail(ax)) <= 19u);
+    }
+    CHECK(1u + strlen(kProvCreateTitle) <= 19u);
+    CHECK(1u + strlen(prov_confirm_label(ProvConfirm::confirm)) <= 19u);
+}
+
+TEST_CASE("ui15-create: the newly reachable arms are CLOSED by leaving and PRE-EMPTED by the alarm (§3.6.5 rule 1)") {
+    // ★★ [[B223]]'s guard, now earning its coverage on arms a GESTURE can reach — slice 4 could only drive `menu`.
+    for (int stage = 0; stage < 2; ++stage) {                 // 0 = the confirmation, 1 = the result
+        CreateFix f; const auto s = prov_snap();
+        f.prov.answer = created_answer(0x00A1B2C3u);
+        CHECK(open_create_confirm(f, s));
+        if (stage == 1) {
+            f.m.on_gesture(Gesture::short_press, s);
+            f.m.on_gesture(Gesture::double_press, s);
+            CHECK(f.m.state().provisioning == Provision::create_result);
+        } else {
+            f.m.on_gesture(Gesture::short_press, s);          // ...with CREATE selected: the destructive choice
+            CHECK(f.m.state().prov_confirm == ProvConfirm::confirm);
+        }
+        const int before = f.prov.calls;
+        // ⛔ AN UNCONFIRMED DESTRUCTIVE ACTION DOES NOT SURVIVE AN ALARM (§3.6.5 rule 1): the overlay owns the body,
+        //    so a confirmation left standing underneath would be invisible AND still holding the press.
+        f.m.on_gesture(Gesture::long_arm, s);
+        CHECK(f.m.state().provisioning == Provision::closed);
+        CHECK(f.m.state().settings == Settings::browsing);
+        CHECK(f.m.state().prov_confirm == ProvConfirm::back);
+        CHECK(f.prov.calls == before);                        // ⛔ the alarm confirmed NOTHING on its way past
+        f.m.on_gesture(Gesture::long_cancel, s);
+        CHECK(f.m.state().provisioning == Provision::closed); // ...and a cancel does not bring it back
+        // ⓘ `cancelled` self-clears after `kCancelledMs` (it sent nothing, so it is not sticky) — the tick below is
+        //   what returns the panel to the ordinary screens, exactly as the shipped loop does.
+        const auto s2 = prov_snap(/*create_team=*/true, /*join_static=*/true, s.now_ms + kCancelledMs + 1);
+        f.m.on_tick(s2);
+        CHECK(f.m.emergency() == Emergency::idle);
+        // ★ RE-ENTERING opens the MENU at its first row — ⛔ never the confirmation the operator abandoned.
+        CHECK(open_provision(f.m, s2));
+        CHECK(f.m.state().provisioning == Provision::menu);
+        CHECK(f.m.state().prov_answer.outcome == UiProvOutcome::none);
+    }
 }
 
 // ---------------------------------------------------------------------------------------------- the LONG gesture
@@ -3207,8 +3858,24 @@ TEST_CASE("chrome4-audit: every PURE panel string fits the rail's 19-column body
     st.cfg_have_save = false;
     st.cfg_refresh_failed = true;  CHECK(strlen(settings_note(st)) <= kCols);
     st.cfg_refresh_failed = false;
-    st.cfg_provision_na  = true;   CHECK(strlen(settings_note(st)) <= kCols);
+    // §UI-15 slice 4: §4's two refusal notes, and the PROVISION menu's own action rows (`%c%s`, like SETTINGS')
+    for (ProvBlock b : { ProvBlock::none, ProvBlock::unsaved, ProvBlock::conflict }) {
+        st.prov_block = b; CHECK(strlen(settings_note(st)) <= kCols);
+    }
+    st.prov_block = ProvBlock::none;
+    for (uint8_t i = 0; i < kMaxProvRows; ++i) CHECK(1u + strlen(provision_row_label(ProvRow(i))) <= kCols);
     CHECK(strlen(kCfgRestartText) <= kCols);
+    // §UI-15 slice 5: the CONFIRMATION's title and its two action rows (`%c%s`), and the RESULT's two lines — the
+    // detail at its widest reachable value, which is the longest `ProvErr` name the panel can be handed.
+    CHECK(1u + strlen(kProvCreateTitle) <= kCols);
+    for (ProvConfirm a : { ProvConfirm::back, ProvConfirm::confirm })
+        CHECK(1u + strlen(prov_confirm_label(a)) <= kCols);
+    for (UiProvOutcome o : { UiProvOutcome::none, UiProvOutcome::created, UiProvOutcome::phy_differs,
+                             UiProvOutcome::save_failed, UiProvOutcome::refused }) {
+        UiProvAnswer a{}; a.outcome = o; a.reason = "no_mobile_plane";   // the widest mrfw::prov_err_name
+        CHECK(strlen(prov_result_head(a)) <= kCols);
+        CHECK(strlen(prov_result_detail(a)) <= kCols);
+    }
 
     // ---- the inbox detail's header, at its widest reachable expansion (`pages` is bounded by kDetailMaxPages)
     char l[48];
@@ -3256,7 +3923,10 @@ TEST_CASE("ui14-marker: every SAVE outcome has its own words, and none of them s
     // the other two note sources OUTRANK a stale save outcome, and each has its own words
     st.cfg_save = mrfw::CfgSave::saved;
     st.cfg_refresh_failed = true;  CHECK(strcmp(settings_note(st), "NV READ FAILED") == 0);
-    st.cfg_provision_na   = true;  CHECK(strcmp(settings_note(st), "PROVISION: UI-15") == 0);
+    // ★ §UI-15 slice 4 replaced the placeholder `PROVISION: UI-15` with §4's TWO CELLS, and they OUTRANK both of the
+    //   above for the same reason those outranked the save: the note belongs to the act just performed.
+    st.prov_block = ProvBlock::unsaved;   CHECK(strcmp(settings_note(st), "SAVE OR DISCARD") == 0);
+    st.prov_block = ProvBlock::conflict;  CHECK(strcmp(settings_note(st), "RELOAD OR DISCARD") == 0);
     for (uint8_t i = 0; i < 8; ++i) CHECK(strlen(settings_note(st)) <= 21u);   // every note fits the panel
 }
 

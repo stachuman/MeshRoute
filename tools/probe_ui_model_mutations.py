@@ -64,6 +64,10 @@ TARGET_SRC = {
     #    have had no controlled mutation at all — which is the shape ([[B217]]) this run exists to avoid repeating.
     "devicenv": "src/device_nv.h",              # §UI-15 slice 2 correction — the read arms' SlotIo facts (blockers 1+2)
     "cfgparse": "src/firmware_config_parse.h",  # §UI-15 slice 2 correction — the strict positional parse (blocker 3)
+    # ★★ ADDED 2026-08-19 BY §UI-15 slice 5, for the reason the two targets above were added: the OWNER's PHY
+    #    precondition and plan §2.1's `phy.present = false` live in a file of their own, so without its own target the
+    #    ruling would have had no controlled mutation at all — the [[B217]] shape this runner exists to avoid.
+    "uiprov": "src/firmware_ui_prov.h",         # §UI-15 slice 5 — the OLED team-create adapter
 }
 _flags = [a for a in sys.argv[1:] if a.startswith("--")]
 _TARGET = "model"
@@ -80,7 +84,76 @@ H = os.path.join(ROOT, TARGET_SRC[_TARGET])
 #    measured nothing — the instrument-that-cannot-fail shape, in the tool built to prevent it. ⇒ the clean tree is run
 #    FIRST and must produce EXACTLY these figures, or the run ABORTS before a single mutation is applied.
 #    ⓘ Override deliberately (a slice that legitimately adds cases): MR_MUT_BASE="cases,asserts".
-BASE_CASES, BASE_ASSERTS = 1767, 85636   # ★★ RE-PINNED 2026-08-19 by §UI-15 slice 3 (the pure team-id
+BASE_CASES, BASE_ASSERTS = 1800, 86200   # ★★ RE-PINNED 2026-08-19 by §UI-15 slice 5 (the team-create adapter and
+                                         # its two screens): **1783 / 85884 -> 1800 / 86200** (+17 cases /
+                                         # +316 assertions). ⓘ DERIVED, NOT MERELY OBSERVED — which is what
+                                         # proves the slice-4 pin below was still exact:
+                                         #   +9  test/test_firmware_ui_prov.cpp, the NEW adapter suite
+                                         #        (control · the `phy.present=false` request · the four
+                                         #         one-field PHY divergences + their positive arm · the
+                                         #         two-ProvPhy pin · unreadable record · failed save ·
+                                         #         staging refusal · incomplete PHY · intent dispatch)
+                                         #                                                    +132 asserts
+                                         #   +6  `ui15-create:` in test_firmware_ui_model.cpp
+                                         #        (open-on-BACK · BACK costs nothing · CONFIRM drives
+                                         #         exactly one and lands after it · the short-press exit
+                                         #         and the null seam · the strings · close+pre-emption
+                                         #         over the two new arms)                     +108 asserts
+                                         #   +1  `ui15-parent:` — the owner's parent-row ruling         +41
+                                         #   -1  ...REPLACING slice 4's "a build with NEITHER child opens
+                                         #        a menu that offers only BACK", which the ruling makes
+                                         #        UNREACHABLE by construction                    -9 asserts
+                                         #   +2  `chrome-teamid:` / `chrome-replaces:` in
+                                         #        test_firmware_ui_chrome.cpp                  +45 asserts
+                                         #   +0  `ui15-pending:` re-aimed at the JOIN row only (the create
+                                         #        half now HAS its flow), same case            -14 asserts
+                                         #   +0  `chrome4-audit:` — the confirmation's title/actions and
+                                         #        the result's two lines added to the width walk +13 asserts
+                                         #                                            net +17 / +316
+                                         # ⓘ EVERY LINE ABOVE IS MEASURED (`program -tc=<group>` /
+                                         #   `-sf=<file>`), not estimated; the two totals balance exactly.
+                                         # ---- the previous pin's derivation, kept as history ----
+                                         # ★★ RE-PINNED 2026-08-19 by the §UI-15 slice 4 CORRECTIONS
+                                         # ([[B222]] the two early child-flow entries removed, [[B223]] the
+                                         # close-on-leave reset hoisted into a PURE helper the suite drives):
+                                         # **1782 / 85815 -> 1783 / 85884** (+1 case / +69 assertions).
+                                         # ⓘ DERIVED, NOT MERELY OBSERVED — and both directions are in it,
+                                         # which is what proves the slice-4 pin below was exact:
+                                         #   -2  the two `ui15-confirm:` FLOW cases, deleted WITH the
+                                         #        transitions they rode through (CREATE -> create_confirm
+                                         #        9 asserts, JOIN -> join_select 5)              -14 asserts
+                                         #   +1  `ui15-pending:` — activating either child does
+                                         #        NOTHING (2 children x 14)                      +28 asserts
+                                         #   +1  `ui15-confirm:` — the BACK default asserted
+                                         #        DIRECTLY as model state, no flow                +16 asserts
+                                         #   +1  `ui15-close:` — the pure reset over ALL EIGHT
+                                         #        arms x 2 confirm values x 3, + 1 count + 4
+                                         #        idempotence                                    +53 asserts
+                                         #   +0  `ui15-close:` (the tick/long case) rewritten in
+                                         #        place: 3 driven arms -> the 1 reachable one     -14 asserts
+                                         #   +0  `ui15-close:` (the leave-by-BACK case) RE-TITLED
+                                         #        in place; `ui15-emergency:` and `ui15-hide:`
+                                         #        re-aimed off the removed flows, same counts      +0 asserts
+                                         #                                            net  +1 / +69
+                                         # ---- the previous pin's derivation, kept as history ----
+                                         # ★★ RE-PINNED 2026-08-19 by §UI-15 slice 4 (the pure provisioning
+                                         # state model + the §4 gate + §6 hiding): **1767 / 85636 -> 1782 /
+                                         # 85815** (+15 cases / +179 assertions). ⓘ DERIVED, NOT MERELY
+                                         # OBSERVED — which is what proves the previous pin was still exact:
+                                         #   +16 NEW cases, the `ui15-{model,gate,menu,confirm,close,
+                                         #        emergency,hide}` groups in
+                                         #        test/test_firmware_ui_model.cpp            +183 asserts
+                                         #   -1  the §UI-14 PLACEHOLDER case `ui14-provision:
+                                         #        the row is PRESENT and INERT`, retired WITH the
+                                         #        placeholder it pinned (`cfg_provision_na`)   -10 asserts
+                                         #   +0  `chrome4-audit:` — the one `cfg_provision_na`
+                                         #        width line replaced by the 3 `ProvBlock` notes
+                                         #        + the 3 `provision_row_label` rows            +5 asserts
+                                         #   +0  `ui14-marker:` — the one `PROVISION: UI-15`
+                                         #        line replaced by §4's TWO remedy cells        +1 assert
+                                         #                                          net  +15 / +179
+                                         # ---- the previous pin's derivation, kept as history ----
+                                         # ★★ RE-PINNED 2026-08-19 by §UI-15 slice 3 (the pure team-id
                                          # fingerprint): **1764 / 84729 -> 1767 / 85636** (+3 cases / +907
                                          # assertions, ALL three in test/test_firmware_ui_chrome.cpp's new
                                          # `chrome-fingerprint:` group). ⓘ THE DELTA IS DERIVED, NOT MERELY
@@ -643,6 +716,127 @@ MUTS_MODEL = [
  ("M53 the page capacity is re-clamped to its old 42 instead of derived from kDetailCols",
   "inline constexpr uint8_t  kDetailPageChars = uint8_t(kDetailCols * kDetailBodyRows);",
   "inline constexpr uint8_t  kDetailPageChars = 42;"),
+ # --- §UI-15 slice 4: the provisioning state model, the §4 gate and §6's hiding ---------------------------------------
+ # ★ THE AIM IS THE ONE PLAN §4 NAMES: **THE STATE COLLAPSE**. `conflict()` and `config_unsaved()` are different
+ #   comparisons with different escapes, and v1 of the plan conflated them — so M55/M56/M57/M58 are the four ways that
+ #   conflation can be re-introduced (order, either cell dropped, remedies swapped), each on its own. M59 is C2's
+ #   COUNTED discriminator (a gate that saves for the operator), M60/M61 are §6's *"do NOT hide static join merely
+ #   because MR_FEAT_TEAM is off"* in both directions, and M54/M62..M67 are the sub-view's own invariants.
+ # ⛔ EVERY ENTRY HERE AIMS AT BEHAVIOUR THIS SLICE CAN REACH ([[B222]]): the child FLOWS (`create_confirm`,
+ #   `join_select` and everything behind them) are slices 5/6's, so no entry mutates a transition into them — there is
+ #   none to mutate. The entries that guarded those flows in the held version were re-aimed (M54, M66) or are covered
+ #   by the pending-entry pin (`ui15-pending`), and M67 was ADDED for the guard [[B223]] found unmeasured.
+ # ⓘ M67 IS OUT OF NUMERIC ORDER DELIBERATELY, placed beside the sibling it pairs with (M54): the numbers of the
+ #   entries that survived the correction stay exactly as QG read them, so a re-aim can never be mistaken for a
+ #   renumber.
+ # ⚠ [[B223]]'s CORRECTION, and it is why there are now TWO close entries rather than one: the close-on-leave reset
+ #   used to be written inline in `settings_follow_screen`, where it is UNREACHABLE (the sub-view owns the press, so
+ #   the screen cannot leave SETTINGS underneath it) — an unreachable line cannot redden a suite, so the required
+ #   guard had NO instrument and M54 measured a DIFFERENT path. The decision is now the pure `provision_reset_on_leave`
+ #   (driven over all eight arms by the suite), so ★ M67 mutates THE REQUIRED GUARD ITSELF and M54 stays as the
+ #   REACHABLE-PATH control on the gesture half.
+ ("M54 leaving the provisioning sub-view keeps the arm (a stale confirmation survives into the next visit)",
+  "        _st.settings = Settings::browsing;\n"
+  "        provision_reset_on_leave(_st.provisioning, _st.prov_confirm);",
+  "        _st.settings = Settings::browsing;"),
+ ("M67 the close-on-leave reset only closes the arm a GESTURE can reach (7 of the 8 survive leaving the screen)",
+  "    arm = Provision::closed;",
+  "    if (arm == Provision::menu) arm = Provision::closed;"),
+ ("M55 the §4 gate tests UNSAVED first, so a CONFLICT is told to SAVE (plan §4's conflation, through the ORDER)",
+  "                if (_cfg->conflict())               { _st.prov_block = ProvBlock::conflict; break; }\n"
+  "                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }",
+  "                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }\n"
+  "                if (_cfg->conflict())               { _st.prov_block = ProvBlock::conflict; break; }"),
+ ("M56 the UNSAVED cell is dropped — PROVISION opens over an unsaved draft (§3.6.3's precondition gone)",
+  "                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }",
+  "                ;"),
+ ("M57 the CONFLICT cell is dropped — the two states collapse into one",
+  "                if (_cfg->conflict())               { _st.prov_block = ProvBlock::conflict; break; }",
+  "                ;"),
+ ("M58 the two remedies are SWAPPED (a conflict is pointed at SAVE, which refuses)",
+  '        case ProvBlock::conflict: return "RELOAD OR DISCARD";\n'
+  '        case ProvBlock::unsaved:  return "SAVE OR DISCARD";',
+  '        case ProvBlock::conflict: return "SAVE OR DISCARD";\n'
+  '        case ProvBlock::unsaved:  return "RELOAD OR DISCARD";'),
+ ("M59 the gate SAVES on the operator's behalf and then opens (the helpful write C2 forbids)",
+  "                if (_cfg->config_unsaved())         { _st.prov_block = ProvBlock::unsaved;  break; }",
+  "                if (_cfg->config_unsaved())         { (void)_cfg->save(); enter_provision(Provision::menu); break; }"),
+ ("M60 static join is hidden because the TEAM plane is off (plan §6's named defect, verbatim)",
+  "    if (join_static) l.row[l.n++] = ProvRow::join_static;",
+  "    if (create_team && join_static) l.row[l.n++] = ProvRow::join_static;"),
+ ("M61 an unsupported child is rendered anyway (the refusing stub [[B209]] forbids)",
+  "    if (create_team) l.row[l.n++] = ProvRow::create_team;",
+  "    (void)create_team; l.row[l.n++] = ProvRow::create_team;"),
+ ("M62 a confirmation opens with CONFIRM selected (the destructive default §3.6.3 rules out)",
+  "        _st.prov_confirm = ProvConfirm::back;\n"
+  "        _st.cursor = 0;                        // each arm's list starts at its own first row",
+  "        _st.prov_confirm = ProvConfirm::confirm;\n"
+  "        _st.cursor = 0;                        // each arm's list starts at its own first row"),
+ ("M63 the sub-view does NOT own the press (the SETTINGS menu walks underneath it)",
+  "if (_st.settings == Settings::provisioning) { provision_gesture(g, s); return; }",
+  ";"),
+ ("M64 the SETTINGS cursor is re-anchored while the sub-view owns it (the highlight leaves the child list)",
+  "        if (_st.settings == Settings::provisioning) return;\n"
+  "        const CfgRowList l = settings_row_list(s);",
+  "        const CfgRowList l = settings_row_list(s);"),
+ ("M65 the child menu WALKS OFF instead of cycling (a sub-view left by the ordinary screen advance)",
+  "            if (l.n) _st.cursor = uint8_t((_st.cursor + 1) % l.n);   // CYCLES — a sub-view is never walked out of",
+  "            if (l.n && _st.cursor + 1u < l.n) _st.cursor = uint8_t(_st.cursor + 1);"),
+ ("M66 the provisioning sub-view survives the alarm (§3.6.5 rule 1's pre-emption dropped)",
+  "    if (_st.settings == Settings::provisioning) close_provisioning();",
+  "    ;"),
+ # --- §UI-15 slice 5: the CREATE flow, its landing, and the OWNER's parent-row ruling -------------------------------
+ # ★ THE AIM IS THE TWO WAYS A CONFIRMATION LIES: it acts on the SAFE choice (M68/M69), or it CLAIMS an outcome the
+ #   act has not returned yet (M70/M71). Both are the "a success that isn't" class this project has recorded once.
+ ("M68 ★★ the confirmation fires the transaction on BACK too (the safe action performs the destructive one)",
+  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }\n"
+  "        run_create_team();",
+  "        run_create_team();"),
+ ("M69 `short` in the confirmation ACTS instead of toggling (one press reaches CREATE)",
+  "        if (g == Gesture::short_press) {\n"
+  "            _st.prov_confirm = (_st.prov_confirm == ProvConfirm::back) ? ProvConfirm::confirm : ProvConfirm::back;\n"
+  "            _st.dirty = true;\n"
+  "            return;\n"
+  "        }",
+  "        if (g == Gesture::short_press) { run_create_team(); return; }"),
+ # ⛔⛔ M70 IS §8 PIN 2 INVERTED, AND IT IS THE TEMPTING SHAPE: move the screen first "so the panel is already showing
+ #    the right state when the answer lands". The act then runs UNDER the result screen — which is precisely the
+ #    "claims success before the save returns" the design forbids. The fake records WHERE the model was when it ran,
+ #    which is why this is measurable at all.
+ ("M70 ★★ the RESULT screen is entered BEFORE the transaction runs (§8 pin 2, inverted)",
+  "        UiProvAnswer a{};\n        if (_prov) {",
+  "        UiProvAnswer a{};\n        enter_provision(Provision::create_result);\n        if (_prov) {"),
+ ("M71 the answer is never retired, so a stale verdict survives into the next screen",
+  "        _st.prov_answer = UiProvAnswer{};\n"
+  "        _st.dirty = true;\n"
+  "    }",
+  "        _st.dirty = true;\n"
+  "    }"),
+ ("M72 the result arm RE-RUNS the transaction on the press that leaves it",
+  "            case Provision::create_result:  enter_provision(Provision::menu); return;",
+  "            case Provision::create_result:  run_create_team(); return;"),
+ ("M73 a NULL seam does NOTHING instead of refusing out loud (a dead-button create, C2)",
+  "            a.outcome = UiProvOutcome::refused;\n"
+  "            a.reason  = \"no service\";",
+  "            return;"),
+ # ⓘ AIMED AT ONE LINE, deliberately: the two remedies are not adjacent in the source (the `save_failed` arm carries
+ #   the transaction's guarantee in a comment between them), so a two-line swap matches nothing — which the runner
+ #   reports as VACUOUS rather than passing. This is the same defect from the other end: the OWNER'S RULED REMEDY is
+ #   replaced by the other outcome's line, so the operator is never sent to the serial console.
+ ("M74 the PHY refusal loses its ruled remedy (it borrows the save failure's line instead)",
+  '        case UiProvOutcome::phy_differs: return "USE SERIAL";',
+  '        case UiProvOutcome::phy_differs: return "NOTHING CHANGED";'),
+ ("M75 the PHY refusal renders as a SUCCESS headline (the two outcomes collapse)",
+  '        case UiProvOutcome::phy_differs: return "PHY DIFFERS";',
+  '        case UiProvOutcome::phy_differs: return "TEAM CREATED";'),
+ # ⛔ M76 IS THE OWNER'S 2026-08-19 RULING, INVERTED: the parent row kept unconditional, i.e. slice 4's shape. A build
+ #   with no child then offers a menu whose only entry is BACK — the state the ruling forbids.
+ ("M76 the PROVISION row is unconditional again (the parent-row ruling not applied)",
+  "    if (provision) l.row[l.n++] = CfgRow::provision;",
+  "    l.row[l.n++] = CfgRow::provision;"),
+ ("M77 the parent's predicate counts the UNCONDITIONAL back row, so every build shows PROVISION",
+  "        if (l.row[i] != ProvRow::back) return true;",
+  "        return true;"),
 ]
 
 # ===== §UI-13 — src/firmware_config_service.h =====================================================================
@@ -942,6 +1136,21 @@ MUTS_CHROME = [
  ("X33 the hex digits are LOWER case (the two ends of a join render the same team differently)",
   'const int n = snprintf(out, cap, "%06lX", (unsigned long)(team_id & kTeamFpMask));',
   'const int n = snprintf(out, cap, "%06lx", (unsigned long)(team_id & kTeamFpMask));'),
+ # --- §UI-15 slice 5: the TWO id lines §3.6.3's screens draw. ★ X34/X35 are the SAME defect class as X31-X33 — a
+ #     token that still LOOKS right and is not the shared/authority value — and X36/X37 are the WARNING LINE's own
+ #     condition, which design §3.6.3 makes conditional on membership.
+ ("X34 the FULL id loses its zero padding (a low id renders short, and it is the AUTHORITY value)",
+  'const int n = snprintf(out, cap, "0x%08lX", (unsigned long)team_id);',
+  'const int n = snprintf(out, cap, "0x%lX", (unsigned long)team_id);'),
+ ("X35 the success screen's 'full id' is the MASKED one (the fingerprint drawn twice, no authority value)",
+  'const int n = snprintf(out, cap, "0x%08lX", (unsigned long)team_id);',
+  'const int n = snprintf(out, cap, "0x%08lX", (unsigned long)(team_id & kTeamFpMask));'),
+ ("X36 a TEAMLESS node is warned that its membership will be replaced (a warning about nothing)",
+  "    if (team_id == 0) { ui_pad_token(out, cap, 0u); return false; }",
+  "    ;"),
+ ("X37 the replacement warning names the team by a PRIVATE truncation of the shared token",
+  '    const int n = snprintf(out, cap, "REPLACES %s", fp);',
+  '    const int n = snprintf(out, cap, "REPLACES %s", fp + 1);'),
 ]
 
 # ===== §CHROME-1 — src/firmware_ui_icons.h =========================================================================
@@ -1165,8 +1374,65 @@ MUTS_CFGPARSE = [
   "    return *p == '\\0' || *p == ' ';"),
 ]
 
+# ===== §UI-15 slice 5 — src/firmware_ui_prov.h =====================================================================
+# ★★★ WHAT THIS BATTERY IS AIMED AT: **THE PRECONDITION THAT CAN SILENTLY BECOME A NO-OP.** `live_phy_matches` EARLY-
+#     RETURNS TRUE on `!phy.present`, so three of the entries below (V01/V02/V05) are the SAME defect wearing three
+#     faces — a create that passes the owner's PHY check without ever comparing anything. ⛔ None of them is a
+#     deletion: each is a tempting wrong fix (drop the guard, invert it, "reuse" the request's phy object).
+# ★ V03 is plan §2.1's OTHER half — `present = true` on the REQUEST, which re-introduces the [[B209]] retune path —
+#   and V04 is [[B211]] one file over: the `sf_list` field left out of the comparison, which is exactly the field a
+#   hand-written equality forgets.
+MUTS_UIPROV = [
+ # --- the precondition ---------------------------------------------------------------------------------------------
+ ("V01 the PHY precondition is dropped (the owner's refusal never fires)",
+  "    if (!live_phy_matches(persisted, snap)) {\n"
+  "        a.outcome = mrui::UiProvOutcome::phy_differs;   // the panel says `PHY DIFFERS` / `USE SERIAL`\n"
+  "        return a;                                       // ⛔ 0 transaction calls, 0 writes, 0 airtime, 0 retunes\n"
+  "    }",
+  "    ;"),
+ ("V02 the precondition is INVERTED (a converged node is refused, a divergent one creates)",
+  "    if (!live_phy_matches(persisted, snap)) {",
+  "    if (live_phy_matches(persisted, snap)) {"),
+ ("V05 ★★ the comparison's ProvPhy is left `present = false` — `live_phy_matches` then ALWAYS returns true",
+  "    persisted.present           = true;",
+  "    persisted.present           = false;"),
+ ("V04 [[B211]]: the `sf_list` is left out of the comparison (the field a hand-written equality forgets)",
+  "    persisted.allowed_sf_bitmap = rec.allowed_sf_bitmap;",
+  "    persisted.allowed_sf_bitmap = snap.live_allowed_sf_bitmap;"),
+ ("V06 the persisted PHY is read from the LIVE snapshot instead of the record (the comparison compares live to live)",
+  "    persisted.freq_mhz          = rec.freq_mhz;",
+  "    persisted.freq_mhz          = snap.live_freq_mhz;"),
+ ("V07 an unreadable record is treated as a satisfied precondition (the create proceeds on no evidence)",
+  "    if (!dev.load_record(rec)) {",
+  "    if (false) {"),
+ # --- plan §2.1's request ------------------------------------------------------------------------------------------
+ ("V03 ★★ `phy.present = TRUE` on the REQUEST — the retune [[B209]] forbids, smuggled in as 'capture the PHY'",
+  "    rq.mint  = true;",
+  "    rq.mint  = true;\n    rq.phy = persisted;"),
+ ("V08 the create is not a MINT (it becomes `team 0`, i.e. a LEAVE)",
+  "    rq.mint  = true;", "    rq.mint  = false;"),
+ ("V09 the build floor is dropped, so a 0 in the record refuses for the wrong reason",
+  "    rq.floor = floor;", "    ;"),
+ # --- the verdict mapping + the post-save bookkeeping ---------------------------------------------------------------
+ ("V10 the notification fires on EVERY verdict ([[B194]] inverted: a claim on a write that never happened)",
+  "    const ProvResult r = dev.apply(rq, snap);\n    switch (r.verdict) {",
+  "    const ProvResult r = dev.apply(rq, snap);\n    dev.on_applied(r);\n    switch (r.verdict) {"),
+ ("V11 a FAILED save is reported as a refusal (the operator is not told the write failed)",
+  "            a.outcome = mrui::UiProvOutcome::save_failed;",
+  "            a.outcome = mrui::UiProvOutcome::refused;"),
+ ("V12 a staging refusal loses the service's typed reason (the panel says nothing actionable)",
+  "            a.reason  = prov_err_name(r.err);           // the SERVICE's own token (U1) — never a second table",
+  "            a.reason  = \"\";"),
+ ("V13 the created answer carries no id, so the success screen cannot show one",
+  "            a.team_id = r.team_id;", "            a.team_id = 0;"),
+ ("V14 the intent dispatch performs a create for the INERT `none` op",
+  "            case mrui::UiProvOp::none:        break;",
+  "            case mrui::UiProvOp::none:        return ui_prov_create_team(_dev);"),
+]
+
 MUTS_BY_TARGET = {"model": MUTS_MODEL, "config": MUTS_CONFIG, "chrome": MUTS_CHROME, "icons": MUTS_ICONS,
-                  "joinprofiles": MUTS_JOINPROFILES, "devicenv": MUTS_DEVICENV, "cfgparse": MUTS_CFGPARSE}
+                  "joinprofiles": MUTS_JOINPROFILES, "devicenv": MUTS_DEVICENV, "cfgparse": MUTS_CFGPARSE,
+                  "uiprov": MUTS_UIPROV}
 MUTS = MUTS_BY_TARGET[_TARGET]
 
 def md5(p):

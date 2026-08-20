@@ -220,6 +220,42 @@ inline void ui_fmt_team_fingerprint(char* out, std::size_t cap, uint32_t team_id
     ui_pad_token(out, cap, (n < 0) ? 0u : std::size_t(n) + 1u);   // the neighbours' rule: the WHOLE buffer is defined
 }
 
+// ============================================ §UI-15 slice 5 — THE TWO TEAM-ID LINES §3.6.3's SCREENS DRAW
+// ★★ THEY LIVE HERE, BESIDE THE FINGERPRINT, FOR THE §B115 REASON: a string built in `src/firmware_ui.cpp` is a string
+//    no automated gate can read, and these two are drawn one row apart from `ui_fmt_team_fingerprint` — keeping them
+//    together is what stops a second spelling of either token being born at the draw site (U1).
+//
+// ★ THE FULL ID, i.e. design §3.6.3's *"success shows the FULL new team id plus the same short fingerprint"*. The two
+//   are DIFFERENT tokens on purpose and both are drawn: the full id is the AUTHORITY value (the one an operator types
+//   into `team <id>` on another node), the fingerprint is the human selection aid §3.6.4 shares with the joiner.
+// ⓘ `0x%08lX` is the console's own full-id spelling (`firmware_config.cpp`'s `> team -> team_id=0x…`), deliberately:
+//   an operator reading the panel and the serial log must see the SAME string for the same team.
+inline constexpr std::size_t kTeamIdTokenCap = 11;   // "0x" + eight uppercase hex + NUL
+inline void ui_fmt_team_id_full(char* out, std::size_t cap, uint32_t team_id) {
+    const int n = snprintf(out, cap, "0x%08lX", (unsigned long)team_id);
+    ui_pad_token(out, cap, (n < 0) ? 0u : std::size_t(n) + 1u);   // the neighbours' rule: the WHOLE buffer is defined
+}
+
+// ★★★ THE CONFIRMATION'S WARNING LINE — design §3.6.3: *"If already in a team, the screen says the current membership
+//     will be replaced."* ⛔ THE CONDITION IS THE DECISION AND IT IS **HERE**, not at the draw site: `team_id == 0` is
+//     the core's own "not in a team" (node.h:261), and a renderer that tested it would be a decision no automated gate
+//     compiles. ⇒ this returns FALSE and an EMPTY token for a teamless node, and the renderer simply draws the row it
+//     is given.
+// ★ The team is named by its FINGERPRINT, through the ONE definition (U1) — ⛔ never a second truncation, and never
+//   the full id: this line is a human recognition aid, and the id being replaced is not an authority value here.
+// ⚠ `REPLACES <fp>` is 15 of the rail's 19 columns. ⓘ REPORTED, NOT INVENTED: the design rules the SEMANTIC ("says the
+//   current membership will be replaced") and no lexeme; this is the file-cluster's house style applied to it, pinned
+//   by a native case so an owner ruling changes it in one place.
+inline constexpr std::size_t kProvReplacesCap = 16;   // "REPLACES " + six hex + NUL
+inline bool ui_fmt_prov_replaces(char* out, std::size_t cap, uint32_t team_id) {
+    if (team_id == 0) { ui_pad_token(out, cap, 0u); return false; }
+    char fp[kTeamFpTokenCap];
+    ui_fmt_team_fingerprint(fp, sizeof fp, team_id);
+    const int n = snprintf(out, cap, "REPLACES %s", fp);
+    ui_pad_token(out, cap, (n < 0) ? 0u : std::size_t(n) + 1u);
+    return true;
+}
+
 // ================================================================================ §5.2 — the ONE navigation mapping
 //
 // ★★★ ONE PURE FUNCTION, AND EVERY DISPATCH IN IT IS A `switch` WITH NO `default:`. That is the whole design of it:
@@ -269,7 +305,12 @@ inline NavSlot ui_nav_slot(const UiState& st, Emergency emg) {
     // and because the redundancy is what makes the row survive a future editor reachable from elsewhere.
     switch (st.settings) {
         case Settings::browsing:
-        case Settings::editing: return NavSlot::settings;
+        case Settings::editing:
+        // ★ §UI-15 slice 4 APPENDED THE FOURTH ARM, and it joins the SAME answer: §3.6.3's provisioning sub-view is
+        //   reached only from SETTINGS and is closed the moment SETTINGS is left (`settings_follow_screen`), so the
+        //   rail describes the body it is drawn over. ⓘ This arm is `-Wswitch`-FORCED, which is the discipline
+        //   working: a fourth `Settings` state could not be added without a reader stating what the rail says for it.
+        case Settings::provisioning: return NavSlot::settings;
         case Settings::closed:  break;
     }
     switch (st.screen) {

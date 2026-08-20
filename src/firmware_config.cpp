@@ -1450,13 +1450,44 @@ struct DeviceProvLive : mrfw::IProvLive {
 };
 }  // namespace
 // Function-local statics: constructed on first CALL, so there is no cross-TU initialisation-order question (the same
-// reasoning as `device_cfg_store()`). ONE service instance, which is also what the future OLED path will reach for.
-static mrfw::ProvisioningService& prov_service() {
+// reasoning as `device_cfg_store()`). ONE service instance, and §UI-15 slice 5 is the OLED path that now reaches for
+// it too — ⛔ never a second service over the same store, which would be two transactions with one durable seam.
+// ⓘ It LOST its `static` for that reason and is declared in `firmware_config.h`; nothing else about it moved.
+mrfw::ProvisioningService& prov_service() {
     static DeviceProvLive     live;
     static DeviceProvEntropy  ent;
     static mrfw::ProvisioningService s(device_cfg_store(), live, ent);
     return s;
 }
+
+// ★★ §UI-15 slice 5 — THE OLED PATH's TWO DEVICE FORWARDS (declared in firmware_config.h, which carries the boundary
+//    argument). ⛔ NEITHER TAKES A DECISION: one gathers reads, the other performs one assignment.
+// ⚠⚠ THE SNAPSHOT FILL IS A SECOND COPY OF `handle_team`'s, DECLARED RATHER THAN ACCIDENTAL — `tools/probe_prov_tx`'s
+//    S11 pins those six assignments INSIDE `handle_team`'s own body (a check whose whole point is that a zeroed
+//    snapshot would make every live comparison read "freq 0.0 / no key"), so routing the console through here would
+//    turn that probe red for a refactor this slice is not allowed to make (C1). ★ THE TWO ARE EDITED TOGETHER: the
+//    accessors, and the reasons for each one, are documented once at `handle_team` (`:1719`) and are not restated.
+// ⚠ THE OUT-PARAMETER IS `out`, NOT `snap`, AND THAT IS DELIBERATE RATHER THAN A STYLE PREFERENCE: `probe_prov_tx`'s
+//   C12/C13/C13b delete `handle_team`'s live reads BY EXACT TEXT and require a match count of ONE, so a second
+//   `snap.live_… = g_node.…()` block in this file would make all three controls UNUSABLE — i.e. it would silently
+//   disarm the instrument that proves the console fills its snapshot. ⓘ It fails LOUDLY (the runner reports
+//   "match count=2") rather than passing vacuously, which is how this was found; the name keeps each control aimed at
+//   the copy it was written for. (`out` is also this cluster's own out-parameter idiom — `ICfgStore::load(out)`.)
+void prov_device_facts(mrfw::ProvSnapshot& out, mrfw::ProvPhyFloor& floor) {
+    const meshroute::NodeConfig& c = g_node.config();
+    out.mobile_reg_count       = g_node.mobile_reg_count();
+    out.key_hash32             = g_node.key_hash32();
+    out.live_freq_mhz          = g_node.active_freq_mhz();
+    out.live_bw_hz             = g_node.active_bw_hz();
+    out.live_routing_sf        = c.layers[0].routing_sf;
+    out.live_allowed_sf_bitmap = c.layers[0].allowed_sf_bitmap;
+    out.live_key_pub           = g_node.team_channel_pub();
+    out.live_key_priv          = g_node.team_channel_priv();
+    // The same two build defaults `handle_team` passes (§3.4): what a `0` in the persisted record resolves to.
+    floor.freq_mhz             = (double)LORA_FREQ;
+    floor.bw_hz                = meshroute::protocol::khz_to_hz(LORA_BW);
+}
+void prov_note_persisted_team_local_id(uint8_t v) { g_persist_team_local_id = v; }
 
 // §PROV-TX — THE VOICE OF A NON-`applied` VERDICT, and it is a separate function for two reasons rather than one:
 // U3 (`handle_team` stays parse -> request -> render, not a wall of strings) and because ONE guarded early return is

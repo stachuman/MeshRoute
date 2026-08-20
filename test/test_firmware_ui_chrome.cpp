@@ -482,6 +482,68 @@ TEST_CASE("chrome-fingerprint: the WHOLE destination is defined, per the chrome 
     CHECK(std::strcmp(small, "A1B") == 0);
 }
 
+// =============================================== §UI-15 slice 5 — the TWO TEAM-ID LINES §3.6.3's SCREENS DRAW
+// ★★ Both live beside the fingerprint for the §B115 reason (a string built in `src/firmware_ui.cpp` is a string no
+//    automated gate can read), and both are driven DIRECTLY here — the renderer that calls them is not compiled by
+//    this suite, so these cases are the only place their VISIBLE BYTES are established.
+
+TEST_CASE("chrome-teamid: the FULL id is the console's own spelling — `0x` + EIGHT uppercase hex, zero-padded") {
+    char tok[kTeamIdTokenCap];
+    struct { uint32_t id; const char* tok; } k[] = {
+        { 0x12A1B2C3u, "0x12A1B2C3" },
+        { 0x00000000u, "0x00000000" },   // ⛔ no special case: design §3.6.3 asks for the FULL id, whatever it is
+        { 0x00000001u, "0x00000001" },   // the zero-padding, at its most visible
+        { 0xFFFFFFFFu, "0xFFFFFFFF" },
+        { 0x000ABCDEu, "0x000ABCDE" },   // every letter digit, UPPER case
+    };
+    for (const auto& c : k) {
+        ui_fmt_team_id_full(tok, sizeof tok, c.id);
+        CHECK(std::strcmp(tok, c.tok) == 0);
+        // ⛔ EXACTLY TEN CHARACTERS, ALWAYS — a `%lX` without the width passes the first row and fails here.
+        CHECK(std::strlen(tok) == 10u);
+    }
+    CHECK(kTeamIdTokenCap == 11);                            // the token plus its NUL
+    // ★★ AND IT IS A DIFFERENT TOKEN FROM THE FINGERPRINT, which is the whole reason design §3.6.3 draws BOTH: the
+    //    full id is the AUTHORITY value, the fingerprint is the human aid. Two ids that fingerprint IDENTICALLY (the
+    //    mask's own property) must still render as two different full ids.
+    char fpa[kTeamFpTokenCap], fpb[kTeamFpTokenCap], ida[kTeamIdTokenCap], idb[kTeamIdTokenCap];
+    ui_fmt_team_fingerprint(fpa, sizeof fpa, 0x11A1B2C3u);
+    ui_fmt_team_fingerprint(fpb, sizeof fpb, 0x22A1B2C3u);
+    ui_fmt_team_id_full(ida, sizeof ida, 0x11A1B2C3u);
+    ui_fmt_team_id_full(idb, sizeof idb, 0x22A1B2C3u);
+    CHECK(std::strcmp(fpa, fpb) == 0);
+    CHECK(std::strcmp(ida, idb) != 0);
+    // The neighbours' padding rule: the WHOLE destination is defined (poison it first, or this passes vacuously).
+    char big[16];
+    std::memset(big, 'Z', sizeof big);
+    ui_fmt_team_id_full(big, sizeof big, 0x12A1B2C3u);
+    CHECK(std::strcmp(big, "0x12A1B2C3") == 0);
+    for (std::size_t i = 10; i < sizeof big; ++i) CHECK(big[i] == '\0');
+}
+
+TEST_CASE("chrome-replaces: the confirmation's warning line — and a TEAMLESS node is NOT warned about a replacement") {
+    char l[kProvReplacesCap];
+    std::memset(l, 'Z', sizeof l);
+    // ★★★ THE CONDITION IS THE DECISION, and it lives HERE: design §3.6.3 says the screen warns *"if already in a
+    //     team"*, and `team_id == 0` is the core's own "not in a team" (node.h:261). ⛔ A renderer that tested it
+    //     would be a decision no automated gate compiles.
+    CHECK(ui_fmt_prov_replaces(l, sizeof l, 0u) == false);
+    CHECK(std::strcmp(l, "") == 0);                          // ...and it leaves NO stale text behind for the panel
+    for (std::size_t i = 0; i < sizeof l; ++i) CHECK(l[i] == '\0');
+    // ★ A MEMBER IS warned, and the team is named by the ONE fingerprint definition — ⛔ never a second truncation.
+    CHECK(ui_fmt_prov_replaces(l, sizeof l, 0x12A1B2C3u) == true);
+    CHECK(std::strcmp(l, "REPLACES A1B2C3") == 0);
+    char fp[kTeamFpTokenCap];
+    ui_fmt_team_fingerprint(fp, sizeof fp, 0x12A1B2C3u);
+    CHECK(std::strstr(l, fp) != nullptr);                    // the SHARED token, not a private spelling of it
+    CHECK(std::strlen(l) <= 19u);                            // §7.3: it fits the rail's 19-column body
+    CHECK(kProvReplacesCap == 16);
+    // ⓘ EVERY non-zero id warns — including one whose fingerprint is all zeros, which a `fingerprint != 0` shortcut
+    //   would silently drop (the team `0x01000000` is a real membership).
+    CHECK(ui_fmt_prov_replaces(l, sizeof l, 0x01000000u) == true);
+    CHECK(std::strcmp(l, "REPLACES 000000") == 0);
+}
+
 // ===================================================================================== §6 — the badge priority
 
 TEST_CASE("chrome-badge: conflict > unsaved > restart-required > clean, including the two overlapping pairs") {
