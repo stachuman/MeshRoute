@@ -71,6 +71,13 @@
 // 60 s `STILL JOINING` word change as an EDGE-TRIGGERED latch in `on_tick`, the session (`_join`, whose whole
 // lifetime is plan §2.3's) and the push entry point `on_join_push`. ★ The FOUR-TERM CORRELATION RULE itself and every
 // panel string of these screens live in `src/firmware_ui_join.h`, which has its OWN mutation battery.
+// DONE here (2026-08-20, [[B232]] — the SETTINGS SINGLE ENTRY, owner-ruled): SETTINGS now LANDS on a CLOSED view of
+// ONE row (`kSettingsEnterText`), so `short` passes the screen in ONE press like every other screen and `double`
+// ENTERS the menu (`open_settings_menu` / `close_settings_menu` — the PROVISION-child enter-by-double idiom).
+// ⛔ IT REVERSES §UI-14's DOCUMENTED LANDING, in which `sync_settings` auto-entered `browsing` on arrival and the
+//    cursor had to walk all nine rows before the screen advanced. ★ The service is STILL OPENED ON ARRIVAL — the
+//    §3.6.1 baseline, the conflict latch and the rail badge all depend on it, and deferring `open()` to the menu is
+//    the tempting wrong fix.
 // ⛔ WHAT IS STILL MISSING AND WHY (this is the [[meshroute-mark-done-vs-missing-in-code]] statement): §3.6.4's
 //    nearby-team scan and its sealed key grant are §UI-16's, and ⛔ [[B215]] — the audit finding that
 //    `reset_join_for_reprovision()` cancels only the claim guard and not the old listen/retry timers — is ITS OWN
@@ -173,8 +180,10 @@ enum class Compose : uint8_t { none = 0, dm, channel };
 // ★★★ THE STATE THAT SEPARATES `short`'s TWO MODES, AND IT IS A TERNARY BECAUSE THE DOMAIN IS.
 // Spec §3.6.2: *"`short` advances rows OR CYCLES A FINITE VALUE WHILE EDITING; `double` enters/accepts"* — so one
 // gesture has two meanings and something has to say which. The three states, and each is reachable and distinct:
-//   `closed`   — SETTINGS is not the current screen. `short` is the ordinary list-aware advance of §3.2, and the
-//                editor MUST NOT survive here: leaving the screen closes it (see `sync_settings`).
+//   `closed`   — the menu is NOT up. ★★ [[B232]] gave this arm a SECOND, VISIBLE meaning and it is the ruling's
+//                whole shape: it is still what SETTINGS is off-screen (the editor MUST NOT survive there — leaving
+//                the screen closes it, see `sync_settings`), and it is ALSO the view SETTINGS now LANDS on — one
+//                entry row (`kSettingsEnterText`), `short` passes the screen, `double` opens the menu.
 //   `browsing` — the menu is up. `short` walks the rows; `double` ENTERS a value row or performs an action row.
 //   `editing`  — one value row is open. `short` CYCLES that row's finite value in the RAM draft; `double` ACCEPTS.
 //   `provisioning` — §UI-15: §3.6.3's sub-view OWNS THE BODY, so it owns the press. WHICH provisioning state is up is
@@ -594,6 +603,12 @@ inline const char* cfg_marker_text(bool unsaved, bool conflict) {
 }
 inline constexpr const char* kCfgRestartText = "RESTART NEEDED";   // §3.3: a durable save whose effect is boot-only
 
+// ★★★ [[B232]]'s ONE NEW STRING — the CLOSED view's single entry row (owner's suggested lexeme *"enter settings"*).
+// ⚠ IT IS UPPER-CASE BECAUSE THE HOUSE IDIOM FOR AN "ENTERS SOMETHING" ROW IS (`PROVISION`, `CREATE TEAM`,
+//   `JOIN NETWORK`, `BACK`); the lower-case labels in `settings_row_label` are the VALUE rows, which this is not.
+// ⓘ WIDTH: the row renders as `<marker><label>` on the rail's 19-column body, so 1 + 14 = 15 of 19 (`draw_settings_screen`).
+inline constexpr const char* kSettingsEnterText = "ENTER SETTINGS";
+
 // ★★★ §UI-7D slice B — THE INBOX DETAIL MODAL'S GEOMETRY (spec §3.5), DERIVED AND NOT RESTATED ([[B120]]).
 // Two body rows of the panel's small-font columns expose `kDetailCols * kDetailBodyRows` characters per page, so the
 // largest stored body needs `ceil(inbox_max_body / that)` pages. ⛔ The page count is a CONSEQUENCE of those three
@@ -801,7 +816,8 @@ struct UiInboxCounters {
 //   handful of pushes. `firmware_ui.cpp` owns only the `pull()` trampoline and the text clamping.
 // ⓘ The panel order stays BLOCK order (all DM rows, then all channel rows), never chronological: the two seq spaces
 //   are independent and there is no shared clock to interleave on — spec §6.1 says adopting interleaving needs a
-//   stated reboot/uptime rule first.
+//   stated reboot/uptime rule first. ★ WITHIN a block the rows are NEWEST-FIRST since [[B231]] — see `publish`, which
+//   is the only place that decides presentation order.
 inline constexpr uint8_t kInboxRowsPerKind = uint8_t(kMaxInboxRows / 2);
 class InboxRowBudget {
 public:
@@ -820,10 +836,17 @@ public:
     }
     // ★ THE ONE CONVERSION PATH into the snapshot (U2), like `UiInboxCounters::publish`. `total` is what `pull`
     //   VISITED, so the screen can say the list is truncated instead of implying it is complete (spec §6.1).
+    // ★★★ [[B231]] — OWNER RULED 2026-08-20: THE NEWEST MESSAGE IS AT THE TOP OF ITS BLOCK, so each ring is copied
+    //     in REVERSE. `add()` stores in `pull()`'s order (oldest-first) and the retention is newest-wins, so a ring's
+    //     LAST slot is its NEWEST row — which is why the newest message used to render at the BOTTOM. ⛔ The retention
+    //     itself is UNCHANGED: which rows survive is `add()`'s business, and only their presentation moved here.
+    // ⛔ THE BLOCK ORDER IS UNTOUCHED AND IS NOT WHAT THIS RULES ON — all DM rows, then all channel rows, never
+    //    interleaved. The two seq spaces share no clock and spec §6.1 requires a stated reboot/uptime rule before any
+    //    interleaving; newest-first WITHIN a block needs no such rule, and this is not a step toward one.
     void publish(UiSnapshot& s, uint16_t total) const {
         uint8_t k = 0;
-        for (uint8_t i = 0; i < _n_dm && k < kMaxInboxRows; ++i) s.inbox[k++] = _dm[i];
-        for (uint8_t i = 0; i < _n_ch && k < kMaxInboxRows; ++i) s.inbox[k++] = _ch[i];
+        for (uint8_t i = _n_dm; i > 0 && k < kMaxInboxRows; --i) s.inbox[k++] = _dm[i - 1];
+        for (uint8_t i = _n_ch; i > 0 && k < kMaxInboxRows; --i) s.inbox[k++] = _ch[i - 1];
         s.inbox_shown = k;
         s.inbox_total = total;
     }
@@ -1302,6 +1325,22 @@ public:
         //    while `activate()` addressed another — the mis-send this ruling closes, arriving from the other side.
         //    ⓘ After the auto-exit above, deliberately: a modal that just closed gets its team cursor back the same tick.
         sync_team_cursor(s);
+        // ★★★★ [[B233]] — THE SERVICED MUTATION'S ONE EXTRA FRAME, and the defect it closes is in the TICK's ORDER
+        //      rather than in any single call: `mr_ui_tick` builds the snapshot FIRST, serves the erase MID-TICK
+        //      (firmware_ui.cpp:1643 — deliberately, or the press would do nothing for a whole frame), and the frame
+        //      that then freezes carries the PRE-ERASE rows *and* consumes `dirty`. The next tick pulls fresh,
+        //      tombstone-filtered rows — but on a CLEAN model `FrameGate::step` answers `idle`, so on metal the
+        //      deleted row stayed on the panel INDEFINITELY and a `double` on it opened its neighbour.
+        // ★ THIS SNAPSHOT IS THE FIRST ONE BUILT AFTER THE STORE CHANGED ⇒ the repaint is owed NOW. Consumed here, so
+        //   a latch that re-raised itself cannot repaint at tick rate for ever.
+        // ⛔ IT PULLS NOTHING AND RE-READS NOTHING — this unit may not touch `g_node.inbox()` at all. It only ASKS for
+        //   a paint, exactly as §CHROME-3's invalidation does; the tick's existing single pull is what supplies the
+        //   fresh rows, so the fix costs no extra store traffic (counted in the native suite, not argued).
+        // ⓘ WHY THE ARTEFACT WAS NOT UNIVERSAL, measured both ways: deleting the LAST row leaves the fallback cursor
+        //   on a predecessor that now sits at a DIFFERENT index, so `sync_inbox_cursor` below moved the highlight and
+        //   marked the frame dirty as a SIDE EFFECT — that arm always refreshed. A middle-row delete leaves the
+        //   neighbour at the SAME index, nothing moves, and nothing else in this model watches the rows.
+        if (_inbox_rows_stale) { _inbox_rows_stale = false; _st.dirty = true; }
         sync_inbox_cursor(s);            // ★ §UI-7D: same placement, same argument — the frozen frame must show the
                                          //   highlight beside the record `activate()` would actually open.
         sync_settings(s);                // ★ §UI-14: same placement, same argument — the frame FREEZES immediately
@@ -1476,6 +1515,12 @@ public:
                 _inbox_sel_valid = _inbox_nb_valid;
                 if (!_inbox_sel_valid) _st.cursor = 0;
                 _st.inbox_pick_gone = false;
+                // ★★★ [[B233]] — THE STORE JUST CHANGED UNDER A SNAPSHOT THAT IS ALREADY BUILT. `close_detail()`
+                //     below marks the model dirty, but the frame that consumes that `dirty` freezes THIS TICK's
+                //     rows — pulled before the erase ran. ⇒ ONE MORE repaint is owed, from the NEXT tick's fresh
+                //     pull. ⛔ Raised ONLY on `erased`: `not_found` and `io_error` changed nothing in the store, so
+                //     the rows they were rendered from are still the truth.
+                _inbox_rows_stale = true;
                 close_detail();
                 break;
             case InboxEraseResult::not_found:
@@ -1878,6 +1923,10 @@ protected:
     InboxKind _inbox_nb_kind  = InboxKind::dm;
     uint32_t  _inbox_nb_seq   = 0;
     bool      _inbox_nb_valid = false;
+    // ★★★★ [[B233]] — "THE ROWS I WAS SHOWN ARE OLDER THAN THE STORE". Raised by a serviced MUTATION, consumed by the
+    //     next `on_tick`, and it is a ONE-SHOT LATCH rather than a counter or a timestamp for the reason §B74 gives:
+    //     no arithmetic value is reserved to mean "no repaint owed", the flag IS the predicate. See `on_tick`.
+    bool      _inbox_rows_stale = false;
     // The in-flight request. ★ `_inbox_taken` says the request has been HANDED OUT and an answer is owed; the pair stays
     //   readable until that answer arrives, because checking the answer against it is the identity assertion.
     InboxReq  _inbox_req{};
@@ -1947,6 +1996,11 @@ private:
     void advance_or_next(const UiSnapshot& s) {
         const uint8_t n = list_len(s);
         if (n > 1 && _st.cursor + 1 < n) { ++_st.cursor; return; }
+        // ★★★ [[B232]] — WALKING OFF THE LAST SETTINGS ROW RETURNS TO THE CLOSED SINGLE-ENTRY VIEW, ⛔ NOT off the
+        //     screen. It is the PROVISION-child containment idiom (`close_provisioning` lands back in the menu it was
+        //     opened from), and it is the whole reason the ruling exists: leaving the screen from the last row is the
+        //     "where am I" jump. ⇒ one more `short` then passes SETTINGS, exactly as it does from a fresh arrival.
+        if (_st.screen == Screen::settings && _st.settings == Settings::browsing) { close_settings_menu(); return; }
         _st.screen = next_screen(_st.screen, s); _st.cursor = 0;
     }
     // ★★★★ §B64 IS PAID HERE (OWNER-RULED 2026-08-05) — THE SEND TARGET IS THE REMEMBERED TEAMMATE, NEVER A ROW INDEX.
@@ -1993,6 +2047,22 @@ private:
             _inbox_req = { InboxWhat::open, _inbox_sel_kind, _inbox_sel_seq };
             _inbox_taken = false;
         } else if (_st.screen == Screen::settings) {
+            // ★★★ [[B232]] — `double` ON THE CLOSED VIEW OPENS THE MENU, and that is the ONE gesture the single entry
+            //     row offers. It is checked here rather than inside `settings_activate` because that function is
+            //     "`double` IN THE MENU" — it reads a `CfgRow` out of the row list, and the closed view has none.
+            // ★★★★ ⛔⛔ ...AND ONLY WHEN THERE IS A MENU TO DRAW (QG-RULED 2026-08-20 — [[B232]]'s own defect, one
+            //      double-press deep). `draw_settings_screen` prints `CFG UNAVAILABLE` and RETURNS while the service
+            //      is not open (`src/firmware_ui.cpp`), so EVERY ROW IS INVISIBLE — opening `browsing` there would
+            //      hand the operator a cursor walking rows nothing draws, and up to nine presses before the screen
+            //      advanced. That is exactly the multi-press problem this ruling exists to remove, re-created behind
+            //      a `double`. ⇒ THE VIEW STAYS CLOSED: it keeps rendering its unavailable state, and `short` still
+            //      passes the screen in ONE press (`list_len` answers 1 while closed, whatever the service says).
+            // ⓘ A NULL `_cfg` FAILS CLOSED the same way — this file's standing rule for an unattached model, and the
+            //   panel says `CFG UNAVAILABLE` for that too (`freeze_settings` reports `open == false` for both).
+            if (_st.settings == Settings::closed) {
+                if (_cfg && _cfg->is_open()) open_settings_menu();
+                return;
+            }
             settings_activate(s);
         }
     }
@@ -2009,11 +2079,16 @@ private:
     // ⓘ `open()` on a tick is free after the first: `already_open` returns before touching the store, so this is not a
     //   flash read per tick.
     // ★★ THE EDITOR MAY NEVER OUTLIVE ITS SCREEN, AND THIS IS THE ONE PRIMITIVE THAT ENFORCES IT — called from BOTH
-    //    paths that can leave SETTINGS (the `short` walk off the last row, and `sync_settings` itself), because a
+    //    paths that can leave SETTINGS (the `short` that advances the CYCLE, and `sync_settings` itself), because a
     //    guard belongs to the INVARIANT and not to the site where it was first needed. ⛔ Leaving it to `sync_settings`
-    //    alone is a real hole: the walk-off happens INSIDE a gesture, after that gesture's sync has already run, so
+    //    alone is a real hole: the advance happens INSIDE a gesture, after that gesture's sync has already run, so
     //    the state would stay `browsing`/`editing` for the rest of the pass — and a frame frozen in between would
     //    render a SETTINGS editor over the STATUS screen.
+    // ⛔ CORRECTED IN PLACE 2026-08-20 ([[B232]], V1): the first of those two paths used to be *"the `short` walk off
+    //    the last row"*, and it is not one any more — walking off the last row now lands on the CLOSED single-entry
+    //    view and stays on SETTINGS (`advance_or_next`). The screen is left by the `short` taken FROM that closed
+    //    view, which reaches this function through the same branch. ⓘ The `BACK` row was a third path and no longer
+    //    is: it calls `close_settings_menu()` and the panel stays put.
     void settings_follow_screen() {
         if (_st.screen == Screen::settings) return;
         if (_st.settings != Settings::closed) { _st.settings = Settings::closed; _st.dirty = true; }
@@ -2030,16 +2105,37 @@ private:
         if (provision_reset_on_leave(_st.provisioning, _st.prov_confirm)) _st.dirty = true;
         _cfg_sel_valid = false;
     }
+    // ★★★ [[B232]]'s TWO PRIMITIVES, and they are two because the menu is now ENTERED and LEFT rather than merely
+    //     "the state SETTINGS is in". Both re-establish the SAME three facts, which is why neither is spelled out at
+    //     a call site (the `enter_provision`/`close_provisioning` pairing one level down, U1/U3):
+    //       · the arm, · the cursor at row 0, · and `_cfg_sel_valid` false so `sync_settings` re-anchors the pick.
+    // ⓘ THE MENU ALWAYS OPENS ON ITS FIRST ROW, exactly as `enter_provision`'s *"each arm's list starts at its own
+    //   first row"* does. ⛔ It deliberately does NOT restore the row the operator left on: the closed view is the
+    //   PARENT here and it has one row, so there is no parent pick that a remembered child row could disagree with.
+    void open_settings_menu() {
+        _st.settings = Settings::browsing; _st.cursor = 0; _cfg_sel_valid = false; _st.dirty = true;
+    }
+    void close_settings_menu() {
+        _st.settings = Settings::closed;   _st.cursor = 0; _cfg_sel_valid = false; _st.dirty = true;
+    }
     void sync_settings(const UiSnapshot& s) {
         settings_follow_screen();
         if (_st.screen != Screen::settings) return;
-        if (_st.settings == Settings::closed) { _st.settings = Settings::browsing; _st.dirty = true; }
         if (_cfg && !_cfg->is_open()) {
             // ⛔ A REFUSED OPEN IS NOT RETRIED SILENTLY BEHIND A WORKING-LOOKING MENU: `no_record` means the store
             //    could not produce a record, so there is no baseline and nothing may be saved. The renderer says so
             //    (C2) and every activation below refuses, because `is_open()` stays false.
             (void)_cfg->open();
         }
+        // ★★★★ [[B232]] — ARRIVAL LANDS ON THE **CLOSED** SINGLE-ENTRY VIEW, and this early return is where the old
+        //      auto-enter used to be (`_st.settings = Settings::browsing` on the first tick after arrival). That is
+        //      what cost the operator up to NINE short presses to cycle past a screen every other screen passes in one.
+        // ⛔⛔ AND IT IS PLACED **BELOW** THE `open()` ABOVE, WHICH IS THE POINT RATHER THAN THE ORDER FALLING OUT:
+        //     the SERVICE still opens ON ARRIVAL. §3.6.1's baseline is snapshotted here, `note_external_write`'s
+        //     conflict latch fires against it while the closed view is up, and the rail badge reads the three
+        //     predicates it establishes. Deferring `open()` to the menu is the tempting wrong fix — it would leave a
+        //     node whose operator glanced at SETTINGS with no baseline, so a companion write raised no conflict at all.
+        if (_st.settings == Settings::closed) return;
         // ★★★★ THE CURSOR TRACKS THE ROW, NOT THE INDEX — §B64's ruling and §B66's lesson, arriving on a THIRD screen
         //     and for a reason that is LIVE rather than hypothetical: the RELOAD row is CONDITIONAL, so the list grows
         //     by one at the exact moment a refused SAVE raises the conflict. ⇒ a cursor left on index 4 was pointing
@@ -2075,7 +2171,15 @@ private:
         //    pick with whatever row that number happens to name — `DISCARD`, one row from `BACK`.
         if (_st.settings == Settings::provisioning) return;
         CfgRow r{};
-        if (_st.screen == Screen::settings && settings_row_list(s).at(_st.cursor, r)) {
+        // ★ [[B232]]: only the BROWSING view's cursor is a `CfgRow` index. On the CLOSED single-entry view it names
+        //   the one entry row, so reading it as a menu row would record `_cfg_sel_row = <whatever row 0 is>` from a
+        //   press that pointed at nothing of the sort — and the menu would then open on a pick nobody made.
+        // ⚠ STATED HONESTLY ([[meshroute-mark-done-vs-missing-in-code]]): NO SUITE CAN DRIVE THIS TERM TODAY, so it
+        //   has no mutation of its own. `open_settings_menu` clears `_cfg_sel_valid` on the one path back into the
+        //   menu, so a pick recorded here would be discarded before anything read it. It is written because the
+        //   INVARIANT is "a cursor is only a row while the rows are up", not because a reader is reachable.
+        if (_st.screen == Screen::settings && _st.settings == Settings::browsing &&
+            settings_row_list(s).at(_st.cursor, r)) {
             _cfg_sel_row = r; _cfg_sel_valid = true; return;
         }
         _cfg_sel_valid = false;
@@ -2106,6 +2210,13 @@ private:
         if (cfg_row_field(r, f)) {
             // ⛔ Refused while the service is not open: there is no draft to edit, and an editor over nothing would
             //    show a value the operator could change and never save.
+            // ⚠ NO LONGER REACHABLE, AND STATED RATHER THAN QUIETLY KEPT ([[meshroute-mark-done-vs-missing-in-code]]):
+            //   since [[B232]]'s QG correction the MENU ITSELF cannot be entered while the service is not open
+            //   (`activate`'s closed-view guard), and `_open` is never cleared once set (firmware_config_service.h) —
+            //   so no gesture sequence reaches this line with a shut service. ⇒ its mutation was WITHDRAWN from the
+            //   battery (M50; the property is now measured one layer out, by M105) and this is defence in depth, the
+            //   same standing as the `CfgRow::provision` arm's `!_cfg || !_cfg->is_open()` line below, which has
+            //   never had a mutation for exactly this reason.
             if (_cfg && _cfg->is_open()) { _st.settings = Settings::editing; _st.dirty = true; }
             return;
         }
@@ -2155,11 +2266,16 @@ private:
                 //   for it — a draft-preserving no-op by construction, called so the property is assertable rather
                 //   than merely intended (mutation C28 turns it into a `discard()`).
                 if (_cfg) _cfg->on_back();
-                _st.screen = Screen::status; _st.cursor = 0;
-                // ★ §UI-15 slice 4: the sub-view state is retired through the ONE primitive that owns the invariant
-                //   (it closes the editor, `Provision` and the row pick together), rather than by re-spelling half of
-                //   it here — which is how the `Provision` half would have been forgotten.
-                settings_follow_screen();
+                // ★★★ [[B232]] — BACK NOW LEAVES THE **MENU**, NOT THE SCREEN. It used to jump to STATUS, which was
+                //     the "where am I" jump from the other direction; the panel stays on SETTINGS showing the closed
+                //     single-entry view, and one more `short` passes the screen. ⓘ §3.6.2 says only that *"`BACK` is
+                //     safe and PRESERVES an unsaved draft"* — which `on_back()` above is, unchanged — so the landing
+                //     was always this file's choice rather than a documented one.
+                // ★ §UI-15 slice 4's argument survives verbatim, one primitive over: the state is retired through the
+                //   ONE function that owns it rather than by re-spelling half of it here. ⓘ `Provision` needs no
+                //   retiring on this path — the sub-view owns the press while it is open, so BACK is unreachable from
+                //   it, and `settings_follow_screen` still closes everything the moment the screen itself is left.
+                close_settings_menu();
                 break;
             case CfgRow::ble_mode: case CfgRow::e2e_dm: case CfgRow::intro_attach:
             case CfgRow::mobile_autoregister:   // handled above by `cfg_row_field`; listed so -Wswitch stays useful
@@ -2572,6 +2688,11 @@ private:
     uint8_t list_len(const UiSnapshot& s) const {
         if (_st.screen == Screen::team)  return s.team_shown;
         if (_st.screen == Screen::inbox) return s.inbox_shown;
+        // ★★★★ [[B232]] — THE CLOSED SINGLE-ENTRY VIEW IS **ONE** ROW, which is the whole of "one press passes the
+        //      screen": `advance_or_next` sees `n == 1`, so there is nothing to walk and the cycle advances. ⛔ It is
+        //      NOT `settings_row_list(s).n` clamped or special-cased below — the closed view does not show the menu's
+        //      rows at all, so its length is not that list's length made shorter.
+        if (_st.screen == Screen::settings && _st.settings == Settings::closed) return 1;
         // ★ §UI-14: SETTINGS is list-aware exactly like TEAM and INBOX (§3.2: *"`short` walks the list and leaves only
         //   at the end"*), and the length is the ONE row-list construction — never a hand-written count, which is
         //   §B66's defect one screen over: two conditional rows mean the number is not a constant.

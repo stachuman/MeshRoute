@@ -710,6 +710,24 @@ if [ "${1:-}" != "--no-neg" ]; then
   ctl "C89 the child predicates are published as TRUE on a build with no children" yes \
       's|    s.prov_join_static = (MR_N_LAYERS < 2);|    s.prov_join_static = true;|'
 
+  # ============================================================================================= [[B232]]: C90-C92
+  # ★★★★ THE SETTINGS SINGLE ENTRY, AT THE RENDERER. The model's half is under the native gate (M97-M104); these are
+  #   the three steps NO native case can reach, because nothing but this probe compiles `draw_settings_screen`.
+  # ⛔ C90 IS THE RULING NOT APPLIED HERE: the model lands CLOSED and the renderer draws the MENU anyway, so the
+  #    operator sees nine rows, presses `short` expecting to walk them, and passes the screen instead. Every native
+  #    case stays green — the model is correct in this mutant.
+  ctl "C90 the closed view draws the MENU's rows anyway (the ruling not applied at the renderer)" yes \
+      's|    if (st.settings == mrui::Settings::closed) {|    if (false) {|'
+  # ⛔⛔ C91 IS DESIGN §6's FORBIDDEN ICON-ONLY ERROR, arriving through the closed view: give that view a body of its
+  #     own and `CFG* UNSAVED` / `CFG! RELOAD` / `RESTART NEEDED` are readable only after the operator opens a menu
+  #     they have no reason to open. The badge would still be right and there would be no remedy to read.
+  ctl "C91 the closed view keeps the note/reboot row to itself (§6's icon-only error)" yes \
+      's|^        draw_settings_tail(st, c);$|        ;|'
+  # ⓘ C92 the entry label RE-SPELLED at the draw site instead of called (U1) — the panel then says something the
+  #   native suite's label case cannot see, which is §B115's whole reason for keeping the string in the pure header.
+  ctl "C92 the entry row's label is re-spelled at the draw site" yes \
+      's|        snprintf(l, sizeof l, ">%s", mrui::kSettingsEnterText);|        snprintf(l, sizeof l, ">SETTINGS");|'
+
   # ================================================================================= [[B225]]: L1-L9, THE `v3` ARM's
   # ★★★★ THE CONTROLS FOR `draw_provision_screen` ITSELF, AND THEY EXIST ONLY HERE because the screens they mutate are
   #   unreachable on the `l2` arm — a mutation of an unreachable renderer arm is the definition of a control that

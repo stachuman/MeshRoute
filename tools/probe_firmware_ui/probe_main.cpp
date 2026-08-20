@@ -734,6 +734,32 @@ bool live_has(meshroute::InboxKind k, uint32_t seq) {
     (void)g_node.inbox().pull(0, 0, live_cb, &c);
     return c.found;
 }
+// ★★★★ WHICH RECORD DID THE PANEL ACTUALLY DELETE — DERIVED FROM THE STORE, NEVER ASSUMED FROM THE ROW ORDER.
+//      [[B231]] (the owner's newest-at-top ruling) moved which record the cursor starts on, and every hardcoded
+//      `live_has(kind, 1)` here went red for a reason that was not a defect. ⇒ the cases below name the vanished
+//      record by MEASURING it, exactly as P6g already picks its victim, and then assert the properties that are
+//      really theirs: exactly one record left, of the right KIND, and [[B133]]'s "the same seq in the OTHER store
+//      survived". ⓘ The fixture's seqs are 1..3 in both stores; nothing outside that range exists to look for.
+constexpr uint32_t kFixtureSeqs = 3;
+struct KindSet { bool live[kFixtureSeqs + 1] = {}; };
+KindSet live_set(meshroute::InboxKind k) {
+    KindSet s;
+    for (uint32_t q = 1; q <= kFixtureSeqs; ++q) s.live[q] = live_has(k, q);
+    return s;
+}
+// The ONE seq that was live in `before` and is not live now. ⛔ 0 when none or more than one vanished — a sentinel the
+// caller must check, so "exactly one record was removed" cannot be mistaken for "some record was removed".
+uint32_t vanished_since(meshroute::InboxKind k, const KindSet& before) {
+    uint32_t gone = 0; int n = 0;
+    for (uint32_t q = 1; q <= kFixtureSeqs; ++q) if (before.live[q] && !live_has(k, q)) { gone = q; ++n; }
+    return n == 1 ? gone : 0;
+}
+// Every OTHER seq of that kind that was live before is still live. (`gone == 0` makes this trivially true, which is
+// why the caller asserts `gone != 0` first.)
+bool others_survived(meshroute::InboxKind k, const KindSet& before, uint32_t gone) {
+    for (uint32_t q = 1; q <= kFixtureSeqs; ++q) if (before.live[q] && q != gone && !live_has(k, q)) return false;
+    return true;
+}
 
 // §UI-14: press `short` until the panel SHOWS `want`, then leave it on screen. ⚠ BOUNDED and asserted by the caller,
 // never assumed: if the walk never finds it, the caller's own check is what fails.
@@ -814,6 +840,32 @@ uint32_t open_highlighted(uint32_t t, const char* want) {
         if (strstr(g_c.page_text, want) != nullptr) { t = double_press(t + 500); paint(t); return t; }
         t = settle(t + 500);
     }
+    return t;
+}
+
+// ★★★★ [[B232]] — REACH THE SETTINGS **MENU**, WHICH IS NOW A PLACE YOU HAVE TO ENTER. The screen LANDS on a CLOSED
+//      single-entry view: `short` passes it in ONE press and `double` opens the menu (the PROVISION-child idiom).
+// ⛔⛔ AND IT MUST WORK FROM WHATEVER STATE THE PREVIOUS PHASE LEFT BEHIND, which is why it walks to the closed view
+//     FIRST rather than double-pressing wherever it happens to be: a `double` in the menu ACTIVATES the highlighted
+//     row (`>DISCARD` is one of them), and the ordinary `settle` cycle can no longer wander back into the menu on its
+//     own — walking off the last row lands on the closed view and the next press leaves the screen entirely.
+// ⇒ every caller starts at ROW 0 of the menu, exactly as a fresh arrival plus one `double` does.
+uint32_t to_cfg_menu(uint32_t t) {
+    t = walk_to_slot(t, kSlotSettings);
+    t = walk_to(t, mrui::kSettingsEnterText);   // already in the menu? walk the rows round to the closed view
+    t = double_press(t + 500); paint(t);
+    return t;
+}
+// The menu-row walk every SETTINGS phase used to spell as a bare `walk_to`. ⓘ ONE function (U1): the entry press is
+// part of reaching a row now, so a phase that forgot it would walk the whole cycle and measure another screen.
+uint32_t cfg_walk_to(uint32_t t, const char* want) { return walk_to(to_cfg_menu(t), want); }
+// ...and its counterpart: land on the CLOSED single-entry view — the view SETTINGS now shows on ARRIVAL, and
+// therefore the one design §6's *"the icon may replace the STATUS decoration; it may NEVER replace the instruction"*
+// has to be satisfied from. ⚠ It PAINTS, so the caller reads the frame this walk produced and not an earlier one.
+uint32_t to_cfg_closed(uint32_t t) {
+    t = walk_to_slot(t, kSlotSettings);
+    t = walk_to(t, mrui::kSettingsEnterText);
+    paint(t);
     return t;
 }
 }  // namespace
@@ -1074,25 +1126,44 @@ int main() {
     CHK("P6d a short press selects `delete`",              strstr(g_c.page_text, ">delete") != nullptr &&
                                                            strstr(g_c.page_text, ">back") == nullptr);
     CHK("P6d ...and still nothing has been deleted",       live_count() == 6);
+    const KindSet ch_before = live_set(meshroute::InboxKind::channel);
     t = double_press(t + 500); paint(t);
-    CHK("P6d the channel record is GONE from a real pull", !live_has(meshroute::InboxKind::channel, 1));
+    const uint32_t ch_gone = vanished_since(meshroute::InboxKind::channel, ch_before);
+    CHK("P6d a channel record is GONE from a real pull",   ch_gone != 0);
     CHK("P6d ...exactly one record was removed",           live_count() == 5);
-    CHK("P6d ★ the DM with the SAME seq survived",         live_has(meshroute::InboxKind::dm, 1));
-    CHK("P6d ...and so did the other channel posts",       live_has(meshroute::InboxKind::channel, 2) &&
-                                                           live_has(meshroute::InboxKind::channel, 3));
+    // ★★ [[B231]] ON THE GLASS, END TO END: the highlight starts on the FIRST row of the channel block, and the owner's
+    //    ruling is that that row is the NEWEST post. So the record the shipped path just deleted names the order — and
+    //    it is measured through a real pull rather than read off the panel.
+    CHK("P6d ★ ...and it is the NEWEST channel post ([[B231]] newest-at-top)", ch_gone == 3u);
+    CHK("P6d ★ the DM with the SAME seq survived",         live_has(meshroute::InboxKind::dm, ch_gone));
+    CHK("P6d ...and so did the other channel posts",
+        others_survived(meshroute::InboxKind::channel, ch_before, ch_gone));
     CHK("P6d the modal closed back to the list",           strstr(g_c.page_text, "INBOX") != nullptr &&
                                                            strstr(g_c.page_text, ">delete") == nullptr);
+    // ★★★★ [[B233]] ON THE GLASS, AND THIS IS THE ONLY INSTRUMENT THAT CAN SEE IT: the frame that closed the modal
+    //      froze the snapshot built at the TOP of the delete's own tick, i.e. the PRE-erase rows — so the header still
+    //      says 6/6 while the store holds 5. The fix owes ONE more repaint, from the next tick's fresh pull.
+    // ⛔ NO PRESS, deliberately: a gesture repaints for an unrelated reason and this check would pass on the broken
+    //    code. Time alone is advanced, past `kPaintThrottleMs`.
+    // ⓘ The COUNT is what the panel can distinguish here — every fixture record renders the same preview text — and it
+    //   is exactly the quantity the stale frame gets wrong.
+    t += 700; paint(t);
+    CHK("P6d ★★ the list itself catches up with NO further press ([[B233]])",
+        strstr(g_c.page_text, "INBOX 5/5") != nullptr);
 
     // ---- (d) THE SAME on a DM, so neither store is assumed symmetric with the other -------------------------------
     t = open_highlighted(t + 500, ">DM  ");
     CHK("P6e a DM record opens with the DM header",        strstr(g_c.page_text, "DM from 48") != nullptr);
     CHK("P6e ...and its own body",                         strstr(g_c.page_text, "dm-one") != nullptr);
+    const KindSet dm_before = live_set(meshroute::InboxKind::dm);
+    const KindSet ch_before_dm_delete = live_set(meshroute::InboxKind::channel);
     t = settle(t + 500); paint(t);
     t = double_press(t + 500); paint(t);
-    CHK("P6e the DM is GONE from a real pull",             !live_has(meshroute::InboxKind::dm, 1));
+    const uint32_t dm_gone = vanished_since(meshroute::InboxKind::dm, dm_before);
+    CHK("P6e a DM is GONE from a real pull",               dm_gone != 0);
     CHK("P6e ...exactly one record was removed",           live_count() == 4);
-    CHK("P6e ★ the channel posts are untouched",           live_has(meshroute::InboxKind::channel, 2) &&
-                                                           live_has(meshroute::InboxKind::channel, 3));
+    CHK("P6e ★ the channel posts are untouched",
+        others_survived(meshroute::InboxKind::channel, ch_before_dm_delete, 0));
 
     // ---- (e) A RECORD REMOVED BEHIND THE UI'S BACK. The console verb `del_msg` does exactly this between two frames.
     //          The list is rebuilt from the store every tick, so the selection is dropped and the activation REFUSED.
@@ -1149,21 +1220,32 @@ int main() {
         lv.eff = mrfw::cfg_values_from_blob(st.rec);          // a freshly booted node: effective == persisted
         t = walk_to_slot(t + 2000, kSlotSettings);
         CHK("P7 the SETTINGS screen is reachable by pressing",  rail_boxed_slot() == kSlotSettings);
-        CHK("P7 ...and it lists a covered field with its value", strstr(g_c.page_text, "DM crypt") != nullptr);
+        // ★★★★ [[B232]] — THE LANDING, ON THE PANEL. The native suite drives the MODEL's arm; what only this file can
+        //      say is what the operator actually SEES on arrival: the single entry row, and ⛔ NOT the menu's rows.
+        CHK("P7 [[B232]] SETTINGS lands on the single entry row",
+            strstr(g_c.page_text, mrui::kSettingsEnterText) != nullptr);
+        CHK("P7 [[B232]] ...and the menu's rows are NOT on the panel", strstr(g_c.page_text, "DM crypt") == nullptr &&
+                                                                       strstr(g_c.page_text, "DISCARD") == nullptr);
         CHK("P7 ...opening it wrote NOTHING",                    st.writes == 0);
         CHK("P7 ...and applied NOTHING live",                    lv.applies == 0);
+        // ⇒ and a `double` opens the menu, which is what every phase below walks.
+        t = to_cfg_menu(t + 500);
+        CHK("P7 ...and it lists a covered field with its value", strstr(g_c.page_text, "DM crypt") != nullptr);
     // ★★ SPEC §3.6.2's CONDITIONAL ROW, MEASURED IN BOTH ARMS — and the same source file asserts both, so neither arm
     //    can rot unnoticed. `run.sh` builds this file AND `firmware_ui.cpp` a second time with `-DMR_UI_BLE_ROW=1`.
 #if MR_UI_BLE_ROW
-        t = walk_to(t + 500, ">BLE");
+        t = cfg_walk_to(t + 500, ">BLE");
         CHK("P7 the BLE row IS rendered when the transport condition is met",
             strstr(g_c.page_text, "BLE") != nullptr);
 #else
         // Walk the WHOLE menu once and require the row to appear on none of its frames — a single frame shows only
         // three rows, so checking one would prove nothing.
+        // ⚠ [[B232]]: the walk STARTS INSIDE THE MENU (`to_cfg_menu`) and is bounded by the menu's own length — the
+        //   `settle` cycle no longer re-enters it, so a loop that ran past the last row would look at other screens.
         {
             bool seen_ble = false;
-            for (int i = 0; i < 10; ++i) { paint(t); if (strstr(g_c.page_text, "BLE")) seen_ble = true; t = settle(t + 500); }
+            t = to_cfg_menu(t + 500);
+            for (int i = 0; i < 8; ++i) { paint(t); if (strstr(g_c.page_text, "BLE")) seen_ble = true; t = settle(t + 500); }
             // ⚠ THE LABEL IS UNDER 64 CHARACTERS ON PURPOSE: `run.sh`'s coverage roll-up parses `%-64s`, so a longer
             //   one silently drops out of the "N of M reddened" denominator — measured on this very check.
             CHK("P7 the BLE row is ABSENT (no UI-12 transport in any env)", !seen_ble);
@@ -1180,7 +1262,8 @@ int main() {
         // ⚠ THE WHOLE MENU IS WALKED, not one frame: a frame shows three rows, so a single look would prove nothing.
         {
             bool seen_prov = false;
-            for (int i = 0; i < 12; ++i) { paint(t); if (strstr(g_c.page_text, "PROVISION")) seen_prov = true; t = settle(t + 500); }
+            t = to_cfg_menu(t + 500);       // [[B232]]: the rows exist only inside the menu — see `to_cfg_menu`
+            for (int i = 0; i < 9; ++i) { paint(t); if (strstr(g_c.page_text, "PROVISION")) seen_prov = true; t = settle(t + 500); }
             // ⚠ THE LABEL IS UNDER 64 CHARACTERS ON PURPOSE — `run.sh`'s coverage roll-up parses `%-64s`, so a longer
             //   one silently drops out of the "N of M reddened" denominator (measured on this very check).
 #if MR_N_LAYERS < 2
@@ -1191,9 +1274,8 @@ int main() {
             t = walk_to_slot(t + 500, kSlotSettings);
         }
         // ---- the EDITOR: `double` enters, `short` cycles the DRAFT, `double` accepts -------------------------------
-        t = walk_to(t + 500, ">DM crypt");
+        t = cfg_walk_to(t + 500, ">DM crypt");
         CHK("P7a the value row can be highlighted",             strstr(g_c.page_text, ">DM crypt") != nullptr);
-        printf("DBG PAGE=[%s]\n", g_c.page_text);
         CHK("P7a ...and shows the persisted value",             strstr(g_c.page_text, "DM crypt off") != nullptr);
         t = double_press(t + 500); paint(t);
         CHK("P7a a double ENTERS the editor (the value is bracketed)",
@@ -1223,7 +1305,7 @@ int main() {
             strstr(g_c.page_text, "CFG* UNSAVED") == nullptr && strstr(g_c.page_text, "CFG! RELOAD") == nullptr);
         CHK("P7b ...and it is NOT the word `dirty` in any form", strstr(g_c.page_text, "dirty") == nullptr);
         // ---- SAVE ------------------------------------------------------------------------------------------------
-        t = walk_to(t + 500, ">SAVE");
+        t = cfg_walk_to(t + 500, ">SAVE");
         CHK("P7c the SAVE row can be highlighted",              strstr(g_c.page_text, ">SAVE") != nullptr);
         t = double_press(t + 500); paint(t);
         CHK("P7c the panel says SAVED",                         strstr(g_c.page_text, "SAVED") != nullptr);
@@ -1236,13 +1318,13 @@ int main() {
         CHK("P7c the unsaved badge is GONE once it is durable",  rail_glyph_at(kSlotSettings) == mrui::icons::kIconSettings);
         CHK("P7c ...and no RESTART is claimed for a live field", strstr(g_c.page_text, "RESTART NEEDED") == nullptr);
         // ---- A FAILED WRITE: the panel must say so, and the marker must SURVIVE -----------------------------------
-        t = walk_to(t + 500, ">key attach");
+        t = cfg_walk_to(t + 500, ">key attach");
         t = double_press(t + 500); paint(t);                    // enter
         t = settle(t + 500);                                    // cycle 1 -> 0
         t = double_press(t + 500); paint(t);                    // accept
         st.can_save = false;
         const int writes_before = st.writes;
-        t = walk_to(t + 500, ">SAVE");
+        t = cfg_walk_to(t + 500, ">SAVE");
         t = double_press(t + 500); paint(t);
         CHK("P7d a failed durable write says SAVE FAILED",      strstr(g_c.page_text, "SAVE FAILED") != nullptr);
         CHK("P7d ...it was ATTEMPTED",                          st.writes == writes_before + 1);
@@ -1252,7 +1334,7 @@ int main() {
                                                                  rail_glyph_at(kSlotSettings) == mrui::icons::kIconSettingsUnsaved));
         // ---- BACK preserves it, and a REBOOT-CLASS save shows the third literal -----------------------------------
         st.can_save = true;
-        t = walk_to(t + 500, ">DISCARD");
+        t = cfg_walk_to(t + 500, ">DISCARD");
         t = double_press(t + 500); paint(t);
         CHK("P7e DISCARD clears the marker without writing",    st.writes == writes_before + 1);
         t = walk_to_slot(t + 500, kSlotStatus);
@@ -1295,19 +1377,19 @@ int main() {
             //   from every ordinary screen. The ACTIONABLE text is asserted on SETTINGS by P8b/P8f below.
             CHK("P8a a covered external write shows the conflict badge at once",
                 rail_glyph_at(kSlotSettings) == mrui::icons::kIconSettingsConflict);
-            CHK("P8a ...and the RELOAD row is offered",         (t = walk_to(t + 500, ">RELOAD"),
+            CHK("P8a ...and the RELOAD row is offered",         (t = cfg_walk_to(t + 500, ">RELOAD"),
                                                                 strstr(g_c.page_text, ">RELOAD") != nullptr));
             // (b) the CHANGE -> REVERT case the SAVE-time byte comparison cannot catch: the record goes back, so the
             //     bytes match the baseline again — and the latch must SURVIVE that, or the save proceeds.
             st.rec.intro_attach = 1;
             mr_ui_on_config_saved();
             const int writes_before2 = st.writes;
-            t = walk_to(t + 500, ">SAVE");
+            t = cfg_walk_to(t + 500, ">SAVE");
             t = double_press(t + 500); paint(t);
             CHK("P8b a reverted external write STILL refuses the save",
                 strstr(g_c.page_text, "CFG! RELOAD") != nullptr);
             CHK("P8b ...with zero writes",                      st.writes == writes_before2);
-            t = walk_to(t + 500, ">DISCARD");
+            t = cfg_walk_to(t + 500, ">DISCARD");
             t = double_press(t + 500); paint(t);           // the ruled way out
             t += 700; paint(t);
             CHK("P8b DISCARD clears it",                        strstr(g_c.page_text, "CFG! RELOAD") == nullptr);
@@ -1338,7 +1420,7 @@ int main() {
             //     verb makes: `handle_leave` rebuilds the record from a zeroed `mrnv::Blob` and persists it, so ALL
             //     FOUR covered fields land at 0 under whatever draft is open. Before this slice that write notified
             //     nothing. ⓘ The CALL SITE is `tools/probe_board_ui/`'s W18 — `firmware_config.cpp` is not in this link.
-            t = walk_to(t + 500, ">key attach");
+            t = cfg_walk_to(t + 500, ">key attach");
             t = double_press(t + 500); paint(t);           // enter the editor
             t = settle(t + 500);                           // cycle the DRAFT (intro_attach 1 -> 0)
             t = double_press(t + 500); paint(t);           // accept
@@ -1352,12 +1434,12 @@ int main() {
             t += 700; paint(t);                            // NO gesture: the repaint must come from the hook alone
             CHK("P8f a LEAVE-shaped write (all four reset) shows CFG! RELOAD",
                 strstr(g_c.page_text, "CFG! RELOAD") != nullptr);
-            t = walk_to(t + 500, ">SAVE");
+            t = cfg_walk_to(t + 500, ">SAVE");
             t = double_press(t + 500); paint(t);
             CHK("P8f ...and the SAVE over the wiped record is REFUSED",
                 strstr(g_c.page_text, "CFG! RELOAD") != nullptr);
             CHK("P8f ...with zero writes",                  st.writes == writes_before3);
-            t = walk_to(t + 500, ">DISCARD");
+            t = cfg_walk_to(t + 500, ">DISCARD");
             t = double_press(t + 500); paint(t);
             t += 700; paint(t);
             CHK("P8f DISCARD clears it, onto the record leave left",
@@ -2026,7 +2108,7 @@ int main() {
             ProbeCfgLive&  lv = probe_live();
             st.can_save = true; st.can_load = true;
             t16 = walk_to_slot(t16 + 500, kSlotSettings);
-            t16 = walk_to(t16 + 500, ">DISCARD");
+            t16 = cfg_walk_to(t16 + 500, ">DISCARD");
             t16 = double_press(t16 + 500); paint(t16);           // a clean draft over the current record
             lv.eff = mrfw::cfg_values_from_blob(st.rec);
             t16 += 700; paint(t16);
@@ -2035,7 +2117,7 @@ int main() {
                 strstr(g_c.page_text, "CFG* UNSAVED") == nullptr &&
                 strstr(g_c.page_text, "CFG! RELOAD")  == nullptr);
             // unsaved: edit a covered field in the DRAFT only
-            t16 = walk_to(t16 + 500, ">DM crypt");
+            t16 = cfg_walk_to(t16 + 500, ">DM crypt");
             t16 = double_press(t16 + 500); paint(t16);
             t16 = settle(t16 + 500);
             t16 = double_press(t16 + 500); paint(t16);
@@ -2059,7 +2141,7 @@ int main() {
             CHK("P14g ...and SETTINGS SAYS `CFG! RELOAD`, the remedy",
                 strstr(g_c.page_text, "CFG! RELOAD") != nullptr);
             // ...clear the conflict and the draft; only the reboot fact is left
-            t16 = walk_to(t16 + 500, ">DISCARD");
+            t16 = cfg_walk_to(t16 + 500, ">DISCARD");
             t16 = double_press(t16 + 500); paint(t16);
             t16 += 700; paint(t16);
             CHK("P14g restart alone -> the gear with the restart marker",
@@ -2067,7 +2149,48 @@ int main() {
             CHK("P14g ...and it is NOT the unsaved or the conflict glyph",
                 rail_glyph_at(kSlotSettings) != mrui::icons::kIconSettingsUnsaved &&
                 rail_glyph_at(kSlotSettings) != mrui::icons::kIconSettingsConflict);
+            // ★★★★ [[B232]] — AND EVERY CELL AGAIN FROM THE **CLOSED SINGLE-ENTRY VIEW**, which is what SETTINGS now
+            //      shows on ARRIVAL. The checks above read the MENU, and after the ruling an operator can see the
+            //      badge and never open the menu at all — so a renderer that gave the closed view a body of its own
+            //      would satisfy every one of them while leaving §6's forbidden ICON-ONLY ERROR on the panel.
+            // ⚠ Driven state by state through the same real service, in §6's own priority order.
+            t16 = to_cfg_closed(t16 + 500);
+            CHK("P14g [[B232]] restart alone SAYS RESTART NEEDED when closed",
+                strstr(g_c.page_text, "RESTART NEEDED") != nullptr &&
+                strstr(g_c.page_text, mrui::kSettingsEnterText) != nullptr);
+            CHK("P14g [[B232]] ...and claims no draft state it has not got",
+                strstr(g_c.page_text, "CFG* UNSAVED") == nullptr &&
+                strstr(g_c.page_text, "CFG! RELOAD")  == nullptr);
             lv.eff.at(mrfw::CfgField::ble_mode) = 0;
+            // unsaved, read from the closed view
+            t16 = cfg_walk_to(t16 + 500, ">DM crypt");
+            t16 = double_press(t16 + 500); paint(t16);
+            t16 = settle(t16 + 500);
+            t16 = double_press(t16 + 500); paint(t16);
+            t16 = to_cfg_closed(t16 + 500);
+            CHK("P14g [[B232]] unsaved SAYS `CFG* UNSAVED` from the closed view",
+                strstr(g_c.page_text, "CFG* UNSAVED") != nullptr &&
+                strstr(g_c.page_text, mrui::kSettingsEnterText) != nullptr);
+            CHK("P14g [[B232]] ...and the badge is there too (it never replaces)",
+                rail_glyph_at(kSlotSettings) == mrui::icons::kIconSettingsUnsaved);
+            // conflict, read from the closed view — the remedy the operator has to be able to READ
+            st.rec.mobile_autoregister = st.rec.mobile_autoregister ? 0 : 1;
+            mr_ui_on_config_saved();
+            t16 = to_cfg_closed(t16 + 500);
+            CHK("P14g [[B232]] conflict SAYS `CFG! RELOAD` from the closed view",
+                strstr(g_c.page_text, "CFG! RELOAD") != nullptr &&
+                strstr(g_c.page_text, mrui::kSettingsEnterText) != nullptr);
+            CHK("P14g [[B232]] ...and CONFLICT still outranks UNSAVED there",
+                strstr(g_c.page_text, "CFG* UNSAVED") == nullptr &&
+                rail_glyph_at(kSlotSettings) == mrui::icons::kIconSettingsConflict);
+            // ...and the CLEAN cell: back to a clean draft, and the closed view invents nothing
+            t16 = cfg_walk_to(t16 + 500, ">DISCARD");
+            t16 = double_press(t16 + 500); paint(t16);
+            t16 = to_cfg_closed(t16 + 500);
+            CHK("P14g [[B232]] clean says nothing it cannot act on, when closed",
+                strstr(g_c.page_text, "CFG* UNSAVED") == nullptr &&
+                strstr(g_c.page_text, "CFG! RELOAD")  == nullptr &&
+                strstr(g_c.page_text, mrui::kSettingsEnterText) != nullptr);
         }
     }
 
@@ -2128,7 +2251,7 @@ int main() {
 
         // ---- (a) THE PARENT ROW OPENS THE CHILD MENU ---------------------------------------------------------------
         t17 = walk_to_slot(t17 + 2000, kSlotSettings);
-        t17 = walk_to(t17 + 500, ">PROVISION");
+        t17 = cfg_walk_to(t17 + 500, ">PROVISION");
         CHK("P15a the PROVISION row can be highlighted",  strstr(g_c.page_text, ">PROVISION") != nullptr);
         t17 = see(double_press(t17 + 500));
         CHK("P15a a double OPENS the child menu, on CREATE TEAM", body_row_is(0, ">CREATE TEAM"));

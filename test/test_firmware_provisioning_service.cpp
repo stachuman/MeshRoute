@@ -885,18 +885,22 @@ TEST_CASE("§PROV-TX the O2/R4 role refusals stop the transaction before any sav
 // ---------------------------------------------------------------------------------------------------------------
 // ★ THE INCOMPLETE-PHY REFUSAL, EVALUATED AGAINST THE **STAGED CANDIDATE** — never against live state.
 TEST_CASE("§PROV-TX an incomplete STAGED PHY refuses; the build floor resolves a zero in the record") {
-    // (a) the record has no DATA-SF set at all -> refuse
+    // (a) the record has no DATA-SF set at all -> refuse. ★ [[B230]]: the VERDICT and the counts are exactly what they
+    //     were; what changed is the CLASSIFICATION — an empty `sf_list` is its own arm, because its remedy is
+    //     `cfg set sf_list …` and not the PHY tail this verb accepts.
     {
         PFix f;
         f.store.rec.allowed_sf_bitmap = 0;
         TeamRequest r = f.join(0xBEEFu);
         const mrfw::ProvResult res = f.svc.apply_team(r, f.cfg, f.snap);
         CHECK(res.verdict == ProvVerdict::refused);
-        CHECK(res.err == ProvErr::incomplete_phy);
+        CHECK(res.err == ProvErr::sf_list_empty);
         CHECK(f.store.writes == 0);
         CHECK(f.live.total_calls() == 0);
     }
-    // (b) an out-of-domain routing_sf in the record -> refuse
+    // (b) an out-of-domain routing_sf in the record -> refuse. ★ [[B230]] PIN 2's NAMED CONTROL: the `sf_list` IS
+    //     present here (the seed record holds {7}), so the GENERIC arm answers and the inline remedy the console
+    //     prints for it — `team new freq=… sf=… bw=…` — really can repair this node. Unchanged behaviour, now named.
     {
         PFix f;
         f.store.rec.routing_sf = 4;
@@ -904,6 +908,7 @@ TEST_CASE("§PROV-TX an incomplete STAGED PHY refuses; the build floor resolves 
         const mrfw::ProvResult res = f.svc.apply_team(r, f.cfg, f.snap);
         CHECK(res.verdict == ProvVerdict::refused);
         CHECK(res.err == ProvErr::incomplete_phy);
+        CHECK(f.store.rec.allowed_sf_bitmap != 0);        // ⛔ non-vacuity: this really is the sf_list-PRESENT arm
     }
     // (c) ★ THE STAGED TAIL REPAIRS IT: the same broken record plus a complete PHY tail is ACCEPTED, which is what
     //     "evaluate the CANDIDATE" means — a live-state check could not see the repair.
@@ -1537,7 +1542,10 @@ TEST_CASE("§B211 pin 5 — an unspecified sf_list over an EMPTY record is still
     const mrfw::ProvResult res = f.svc.apply_team(r, f.cfg, f.snap);
 
     CHECK(res.verdict == ProvVerdict::refused);
-    CHECK(res.err == ProvErr::incomplete_phy);
+    // ★ [[B230]] RE-CLASSIFIED, ⛔ NOT RE-DECIDED: the verdict, the zero writes and the zero live calls below are
+    //   exactly what [[B211]] pinned. Only the ARM is finer, so the console can name `cfg set sf_list` as the remedy
+    //   instead of an inline tail that cannot carry the field.
+    CHECK(res.err == ProvErr::sf_list_empty);
     CHECK(f.store.writes == 0);
     CHECK(f.live.total_calls() == 0);
     // ★ THE DISCRIMINATOR: the SAME empty record with an EXPLICIT set in the tail is accepted — so the refusal is
@@ -1553,4 +1561,105 @@ TEST_CASE("§B211 pin 5 — an unspecified sf_list over an EMPTY record is still
     const mrfw::ProvResult res2 = g.svc.apply_team(q, g.cfg, g.snap);
     CHECK(res2.verdict == ProvVerdict::applied);
     CHECK(g.store.rec.allowed_sf_bitmap == static_cast<uint16_t>((1u << 9) | (1u << 10)));
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// ★★★ [[B230]] — WHICH PART IS MISSING, AS A TYPED FACT. The console cannot name the missing part unless the
+//     transaction tells it, and the transaction is the only place a gate can drive: `src/firmware_config.cpp` is
+//     compiled by neither the native suite nor the simulator. ⇒ the classification lives here and is asserted here.
+// ⛔ WHAT THIS CASE MAY NOT BE READ AS: a behaviour change. Every row below still REFUSES, still writes nothing and
+//    still spends no airtime — the counts are asserted alongside the arm precisely so the split cannot smuggle one in.
+TEST_CASE("§B230 the incomplete-PHY refusal names WHICH part is missing — sf_list is its own arm") {
+    // ★ PIN 1, AND IT IS THE MEASURED CONSOLE TRANSCRIPT: an EMPTY persisted sf_list with a COMPLETE, in-range tail —
+    //   `team new freq=869 sf=7 bw=125` on a factory-reset node. Before the split this answered `incomplete_phy`, whose
+    //   remedy is that very command; now it answers the arm whose remedy is `cfg set sf_list 6,7`.
+    {
+        PFix f;
+        f.store.rec.allowed_sf_bitmap = 0;
+        f.converge_live_phy();
+        TeamRequest r = f.mint();
+        b211_tail(r, 869.0, 7, 125000);                   // freq / routing sf / bw ALL supplied and ALL in range
+        const mrfw::ProvResult res = f.svc.apply_team(r, f.cfg, f.snap);
+        CHECK(res.verdict == ProvVerdict::refused);
+        CHECK(res.err == ProvErr::sf_list_empty);
+        CHECK(f.store.writes == 0);                       // ⛔ the OUTCOME is untouched by the split…
+        CHECK(f.live.total_calls() == 0);                 // ⛔ …zero live applies, zero airtime
+    }
+    // ★ PIN 2's CONTROL, in the same shape so the two are comparable: the sf_list is PRESENT and the TAIL is what is
+    //   incomplete (no usable bw anywhere — neither the record nor the floor). The generic arm answers, unchanged.
+    {
+        PFix f;
+        f.store.rec.bw_hz = 0;
+        f.converge_live_phy();
+        TeamRequest r = f.join(0xBEEFu);
+        r.floor.bw_hz = 0;                                // ⛔ and no build floor to resolve it from
+        const mrfw::ProvResult res = f.svc.apply_team(r, f.cfg, f.snap);
+        CHECK(res.verdict == ProvVerdict::refused);
+        CHECK(res.err == ProvErr::incomplete_phy);
+        CHECK(f.store.rec.allowed_sf_bitmap != 0);        // the discriminator between the two arms
+        CHECK(f.store.writes == 0);
+    }
+    // ★★ THE ORDER, WHICH IS THE FIX AND NOT A PREFERENCE: with BOTH broken, the sf_list arm WINS. The generic arm's
+    //    remedy is the inline tail, and the tail carries no `sf_list=` key ([[B211]]) — so while the set is empty that
+    //    suggestion is a command that cannot succeed, which is exactly the dead end [[B230]] records. ⛔ An
+    //    implementation that reported `incomplete_phy` here would hand the operator the failing command a second time.
+    {
+        PFix f;
+        f.store.rec.allowed_sf_bitmap = 0;
+        f.store.rec.routing_sf        = 4;                // ALSO out of domain
+        f.converge_live_phy();
+        TeamRequest r = f.join(0xBEEFu);
+        const mrfw::ProvResult res = f.svc.apply_team(r, f.cfg, f.snap);
+        CHECK(res.verdict == ProvVerdict::refused);
+        CHECK(res.err == ProvErr::sf_list_empty);
+        CHECK(f.store.writes == 0);
+        CHECK(f.live.total_calls() == 0);
+    }
+    // ★ NON-VACUITY FROM THE OTHER SIDE: fill the sf_list and NOTHING ELSE, and the same node applies. So the refusal
+    //   above is caused by the empty set and not by the fixture.
+    {
+        PFix f;
+        f.store.rec.allowed_sf_bitmap = 0;
+        f.converge_live_phy();
+        TeamRequest r0 = f.mint();
+        b211_tail(r0, 869.0, 7, 125000);
+        CHECK(f.svc.apply_team(r0, f.cfg, f.snap).err == ProvErr::sf_list_empty);
+
+        PFix g;
+        g.store.rec.allowed_sf_bitmap = kSfList67;    // the ONE field that moves
+        g.converge_live_phy();
+        TeamRequest r1 = g.mint();
+        b211_tail(r1, 869.0, 7, 125000);
+        const mrfw::ProvResult res = g.svc.apply_team(r1, g.cfg, g.snap);
+        CHECK(res.verdict == ProvVerdict::applied);
+        CHECK(g.store.rec.allowed_sf_bitmap == kSfList67);   // …and the tail PRESERVED it ([[B211]] still holds)
+    }
+}
+
+// ★★ THE ALL-ENUMERATORS CASE. `prov_err_name` is rendered VERBATIM on the OLED (`firmware_ui_prov.h` -> the panel's
+//    result-detail row), so a new arm that reached the panel as `?` — or as a duplicate of a neighbour's token — would
+//    be an unreadable refusal nothing else catches. ⛔ `-Werror=switch` proves the function is TOTAL over the
+//    enumerators; it cannot prove the tokens are distinct, non-empty, or short enough for the 19-column body.
+TEST_CASE("§B230 prov_err_name is total, distinct and panel-sized over EVERY ProvErr arm") {
+    const ProvErr all[] = {
+        ProvErr::none,           ProvErr::role_refused,  ProvErr::no_mobile_plane, ProvErr::key_on_leave,
+        ProvErr::phy_on_leave,   ProvErr::key_degenerate, ProvErr::key_mismatch,   ProvErr::keygen_failed,
+        ProvErr::incomplete_phy, ProvErr::sf_list_empty, ProvErr::id_unavailable,  ProvErr::nv_load_failed,
+        ProvErr::nv_save_failed,
+    };
+    const size_t n = sizeof all / sizeof all[0];
+    CHECK(n == 13);                                    // ⛔ a new arm must be ADDED here, not silently uncovered
+    for (size_t i = 0; i < n; ++i) {
+        const char* a = mrfw::prov_err_name(all[i]);
+        CHECK(a[0] != '\0');
+        CHECK(strcmp(a, "?") != 0);                    // ⛔ never the fall-through token
+        // ★ the OLED's §7.3 budget: the result-detail row is 19 columns and `no_mobile_plane` (15) is its widest
+        //   reachable value — a longer token would silently truncate on the panel.
+        CHECK(strlen(a) <= 15);
+        for (size_t j = i + 1; j < n; ++j) CHECK(strcmp(a, mrfw::prov_err_name(all[j])) != 0);
+    }
+    CHECK(strcmp(mrfw::prov_err_name(ProvErr::incomplete_phy), "incomplete_phy") == 0);
+    CHECK(strcmp(mrfw::prov_err_name(ProvErr::sf_list_empty),  "sf_list_empty")  == 0);
+    // ...and the total function's floor, which `-Wswitch` structurally cannot reach: a value that is no enumerator.
+    CHECK(strcmp(mrfw::prov_err_name(static_cast<ProvErr>(200)), "?") == 0);
 }

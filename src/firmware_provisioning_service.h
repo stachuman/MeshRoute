@@ -68,7 +68,7 @@ struct ProvPhy {
     //    / bw only; `stage_team_candidate` RESOLVES a 0 from the PERSISTED RECORD before either comparison runs, and
     //    the resolved value comes back out on `ProvResult::phy` so the caller can report WHAT LANDED.
     //    ⓘ Why `0` is a safe sentinel and needs no companion flag: an empty DATA SF set blocks DATA entirely and is
-    //    already refused (`ProvErr::incomplete_phy` below), and the [[data-sf-removed]] ruling makes an empty
+    //    already refused (`ProvErr::sf_list_empty` below, [[B230]]'s own arm), and the [[data-sf-removed]] ruling makes an empty
     //    `sf_list` illegal ⇒ 0 can never be a legitimate REQUEST value. A caller that really means one SF sets that
     //    one bit explicitly.
     uint16_t allowed_sf_bitmap  = 0;
@@ -170,7 +170,15 @@ enum class ProvErr : uint8_t {
     key_degenerate,    // the supplied/minted scalar is all-zero or derives a degenerate point (derive refused)
     key_mismatch,      // ★ `tkpub=` is not `tkpriv=`'s public key — the cross-check the SYNTAX parser cannot do
     keygen_failed,     // `team new`: the entropy seam produced material the derivation refuses (a dead CSPRNG)
-    incomplete_phy,    // the STAGED effective PHY lacks freq / routing_sf(5..12) / sf_list / bw
+    incomplete_phy,    // the STAGED effective PHY lacks freq / routing_sf(5..12) / bw — the TAIL-SETTABLE fields
+    // ★★★ [[B230]] — THE STAGED `sf_list` IS EMPTY, AND IT IS A **SEPARATE ARM** BECAUSE ITS REMEDY IS A DIFFERENT
+    //     COMMAND. freq / routing_sf / bw ride the `team new` / `team <id>` PHY tail; the DATA SF set does ⛔ NOT
+    //     ([[B211]]'s deliberate omission — the tail PRESERVES the node's own list), so the ONLY way to fill it is
+    //     `cfg set sf_list …`. Folded into `incomplete_phy`, the console could only offer the inline tail — i.e. a
+    //     command that FAILS THE SAME CHECK, which is exactly the dead end the operator measured on metal.
+    // ⛔ THE REFUSAL ITSELF IS UNCHANGED (C2 / [[data-sf-removed]]: an empty set blocks DATA entirely and must never
+    //    silently default). Same inputs, same verdict, same zero writes — only the CLASSIFICATION is finer.
+    sf_list_empty,
     id_unavailable,    // `team new` could not draw an id that is neither 0 nor the CURRENT team (§3.5)
     nv_load_failed,    // the record could not be read, so the non-provisioning fields cannot be preserved
     nv_save_failed,    // the single write failed
@@ -186,6 +194,10 @@ inline const char* prov_err_name(ProvErr e) {
         case ProvErr::key_mismatch:    return "key_mismatch";
         case ProvErr::keygen_failed:   return "keygen_failed";
         case ProvErr::incomplete_phy:  return "incomplete_phy";
+        // ⓘ [[B230]] — 13 characters, DELIBERATELY: this token is rendered VERBATIM on the OLED's result-detail row
+        //   (`firmware_ui_prov.h:130` -> `mrui::prov_result_detail`), whose §7.3 audit budgets 19 columns and names
+        //   `no_mobile_plane` (15) as the widest `prov_err_name`. A longer spelling would have moved that audit.
+        case ProvErr::sf_list_empty:   return "sf_list_empty";
         case ProvErr::id_unavailable:  return "id_unavailable";
         case ProvErr::nv_load_failed:  return "nv_load_failed";
         case ProvErr::nv_save_failed:  return "nv_save_failed";
@@ -526,8 +538,9 @@ inline ProvErr stage_team_candidate(const TeamRequest& req, const TeamProjection
     //   diverge on this device: `mobile register sf=…` collapses the LIVE bitmap without persisting
     //   (`Node::adopt_mobile_phy`), which is the [[B207]] condition bench 27.8 exercises. Resolving from live would
     //   LAUNDER that collapse into NV — the very defect this slice removes, one layer down.
-    // ⚠ A record that genuinely holds NO DATA SF resolves to 0 and is still REFUSED by the incomplete-PHY check
-    //   below: resolution must not turn a real "no DATA SF" configuration into a silent pass (C2).
+    // ⚠ A record that genuinely holds NO DATA SF resolves to 0 and is still REFUSED by the check below — since
+    //   [[B230]] under its OWN arm, `ProvErr::sf_list_empty`: resolution must not turn a real "no DATA SF"
+    //   configuration into a silent pass (C2), and the operator must be told WHICH part is missing.
     if (plan.phy.present && plan.phy.allowed_sf_bitmap == 0) plan.phy.allowed_sf_bitmap = cand.allowed_sf_bitmap;
     if (plan.phy.present) {
         if (cand.freq_mhz          != plan.phy.freq_mhz
@@ -547,14 +560,24 @@ inline ProvErr stage_team_candidate(const TeamRequest& req, const TeamProjection
     //     compatibility EXPLICITLY EXCLUDING it — "freq/bw/routing_sf/cr; NOT layer_id ... NOT sf_list — F-SF-1 keeps
     //     that across registration". ⇒ `sf_list` is NODE-LOCAL and is PRESERVED from the persisted record (step 5b
     //     above); it is checked here only for NON-EMPTINESS, because an empty set blocks DATA entirely
-    //     ([[data-sf-removed]]) — not for agreement with anyone else.
+    //     ([[data-sf-removed]]) — not for agreement with anyone else. ★ [[B230]]: being NODE-LOCAL is also why its
+    //     emptiness is a DIFFERENT refusal from the shared triplet's — a different field, set by a different verb.
     //     ⓘ The old check read LIVE values that the retune above it had ALREADY MOVED, under a comment claiming
     //     nothing had changed. Leave (id 0) is exempt.
+    // ★★★ [[B230]] — THE EMPTY `sf_list` IS ITS OWN ARM AND IT IS TESTED **FIRST**, and the ORDER IS THE FIX rather
+    //     than a preference. The generic arm's remedy is the INLINE tail (`team new freq=… sf=… bw=…`); that tail
+    //     carries no `sf_list=` key ([[B211]]), so while the staged set is empty the suggested command CANNOT succeed
+    //     — it fails this very check. Reporting the tail-settable complaint first would therefore hand the operator a
+    //     failing command a second time, which IS the measured defect. ⇒ whenever the inline remedy would be a lie,
+    //     the sf_list arm speaks; the generic arm is reachable only once the inline remedy is actually usable.
+    // ⛔ NO OUTCOME MOVES: both arms are the SAME refusal — zero saves, zero live applies, zero airtime. The split
+    //    changes WHICH SENTENCE the caller renders, nothing else.
     if (plan.team_id != 0) {
         const double   eff_freq = (cand.freq_mhz > 0.0) ? cand.freq_mhz : req.floor.freq_mhz;
         const uint32_t eff_bw   = cand.bw_hz ? cand.bw_hz : req.floor.bw_hz;
+        if (cand.allowed_sf_bitmap == 0) return ProvErr::sf_list_empty;
         if (eff_freq <= 0.0 || cand.routing_sf < 5 || cand.routing_sf > 12
-            || cand.allowed_sf_bitmap == 0 || eff_bw == 0) return ProvErr::incomplete_phy;
+            || eff_bw == 0) return ProvErr::incomplete_phy;
     }
 
     // (7) ★★ KEY STAGING — ALL FALLIBLE KEY WORK HAPPENS HERE, BEFORE THE SAVE.

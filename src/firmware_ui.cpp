@@ -1297,6 +1297,18 @@ void draw_provision_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
     }
 }
 
+// The SETTINGS body's LAST ROW, and it is one function because [[B232]] gave it TWO callers (the closed single-entry
+// view and the menu). ⛔ Re-spelling it at the second site is how the closed view would have quietly lost `RESTART
+// NEEDED` — the icon-only state design §6 forbids.
+// The note and the reboot fact share the row, and the ORDER is deliberate: the note describes the act the operator
+// just performed and is transient, so while it stands it is what they are looking for; `RESTART NEEDED` is durable and
+// comes back the moment the note is retired by the next press.
+void draw_settings_tail(const mrui::UiState& st, const SettingsView& c) {
+    const char* note = mrui::settings_note(st);
+    if (note[0])   body_text(kBodyRows - 1, note);
+    else if (c.reboot) body_text(kBodyRows - 1, mrui::kCfgRestartText);
+}
+
 void draw_settings_screen(const mrui::UiState& st, const mrui::UiSnapshot& s, const SettingsView& c) {
     char l[kLineCap];
     // ★ §UI-15: the sub-view owns the press, so it owns the body. It is dispatched HERE rather than in `draw_frame`
@@ -1312,10 +1324,18 @@ void draw_settings_screen(const mrui::UiState& st, const mrui::UiSnapshot& s, co
     //    activation below is refused by the model. Saying so is the whole of this screen in that state — rendering an
     //    editable-looking menu over no draft is the "success that isn't".
     if (!c.open) { body_text(2, "CFG UNAVAILABLE"); return; }
-    // The note and the reboot fact share the last row, and the ORDER is deliberate: the note describes the act the
-    // operator just performed and is transient, so while it stands it is what they are looking for; `RESTART NEEDED`
-    // is durable and comes back the moment the note is retired by the next press.
-    const char* note = mrui::settings_note(st);
+    // ★★★★ [[B232]] — THE CLOSED SINGLE-ENTRY VIEW. It replaces the MENU's ROWS and ⛔ NOTHING ELSE: the marker row
+    //      ABOVE is already drawn, and the note/reboot row BELOW is reached through `draw_settings_tail`, which both
+    //      views call. That is structural on purpose — design §6 forbids an icon-only error, so `CFG* UNSAVED` /
+    //      `CFG! RELOAD` and `RESTART NEEDED` must be READABLE from the view SETTINGS now LANDS on, and a closed view
+    //      with a body of its own is exactly how a later reader would lose them.
+    // ⓘ The `>` is the same highlight every menu row carries: there is exactly one row and it IS the selection.
+    if (st.settings == mrui::Settings::closed) {
+        snprintf(l, sizeof l, ">%s", mrui::kSettingsEnterText);
+        body_text(top, l);
+        draw_settings_tail(st, c);
+        return;
+    }
     const uint8_t rows = uint8_t(kBodyRows - 1 - top);   // the last row is the note/reboot line; `top` is the marker's
     const mrui::CfgRowList list = mrui::settings_rows(s.ble_row, c.conflict,
                                                       mrui::provision_has_child(s.prov_create_team, s.prov_join_static));
@@ -1335,8 +1355,7 @@ void draw_settings_screen(const mrui::UiState& st, const mrui::UiSnapshot& s, co
         }
         body_text(uint8_t(row + top), l);
     }
-    if (note[0])   body_text(kBodyRows - 1, note);
-    else if (c.reboot) body_text(kBodyRows - 1, mrui::kCfgRestartText);
+    draw_settings_tail(st, c);
 }
 
 // §7.3 AUDIT: `SEND to team` 12 · `double = pick text` 18 · `long   = EMERGENCY` 18.

@@ -1976,17 +1976,29 @@ and does not corrupt the record when the power is cut mid-write.**
 ⛔⛔ **UNTIL THIS PART RUNS, [[B193]] IS NOT DISCHARGED AND NOTHING MAY CLAIM THE STORAGE IS SOUND.** The service and
 its bindings are proved against fakes; a green suite says the LOGIC is right, never that the storage is.
 
+⛔⛔ **PRESS SEQUENCES CHANGED 2026-08-20 ([[B232]], owner ruling). READ THIS BEFORE ANY STEP BELOW.** SETTINGS now
+**lands CLOSED**: the body shows ONE row, `>ENTER SETTINGS`. ⇒ **every "walk to `<row>`" in this Part begins with a
+`double` press on that row to open the menu.** A `short` on the closed view **passes the screen** — that is the
+ruling, not a fault. ⛔ **Fail if cycling past SETTINGS costs more than ONE short press.** ⓘ Leaving the menu — the
+`BACK` row, or walking off the last row — returns you to `>ENTER SETTINGS`, **not** to STATUS; one further `short`
+then leaves the screen. ⓘ When the service cannot open, the closed view shows the unavailable state and a `double`
+**stays closed** (the QG-caught arm).
+
 ### 20.1 — the menu, and that a draft is RAM only
 
 1. Cycle past SEND (or past INBOX on a `gateway_heltec`): the fifth screen is SETTINGS.
+   ⇒ Expected body: a single row `>ENTER SETTINGS`. ⛔ **No menu rows may be visible before you `double`**
+   ([[B232]]). Press `double`: the menu opens on its first row.
    ⛔⛔ **RETARGETED 2026-08-16 (§CHROME-4, QG): THIS STEP READ *"the fifth screen's title row reads `SETTINGS`"* AND
    THAT IS NOW FALSE — §7.2 REMOVED the standalone title and gave the row to the menu.** ⇒ **you are on SETTINGS when
    the NAVIGATION RAIL's fifth (bottom) slot carries the one-pixel selection frame**, per Part 25.1. The withdrawn
    wording is kept visible rather than deleted (§3 rule 3).
    ⛔ **There must be NO `BLE` row** — the UI-12 transport is not compiled on any ESP32 env. If one appears, the
    build set `MR_UI_BLE_ROW` and the rest of this part is about a different menu.
-2. Expected rows, in order, three at a time as you `short`-press: `DM crypt`, `key attach`, `auto reg`, `PROVISION`,
-   `SAVE`, `DISCARD`, `BACK`. Each of the first three shows its value (`off` / `on`) to the right of the label.
+2. Expected rows **once the menu is open** ([[B232]]), in order, three at a time as you `short`-press: `DM crypt`,
+   `key attach`, `auto reg`, `PROVISION`, `SAVE`, `DISCARD`, `BACK`. ⛔ **A `short` past `BACK` (the last row)
+   returns to `>ENTER SETTINGS`** — it does not leave the screen. Each of the first three shows its value
+   (`off` / `on`) to the right of the label.
    ★ Compare them with `cfg` over USB: **the panel's values must equal the persisted ones**, not the live ones.
 3. Highlight `DM crypt`, **double press**: the value becomes **bracketed** (`>DM crypt   [off]`). **Short press**: it
    flips to `[on]`. ⛔ The cursor must NOT move to the next row while bracketed — that is the whole of `short`'s two
@@ -1996,6 +2008,9 @@ its bindings are proved against fakes; a green suite says the LOGIC is right, ne
    The **marker is RETAINED** (§6: the badge *"may replace the STATUS decoration; it may never replace the
    instruction"*); only the `SETTINGS` **title** is gone (§7.2), so the row now carries the marker alone.
    ★ The SETTINGS rail slot's badge gains its dot at the same moment — see Part 25.4.
+   ★ ⛔ **[[B232]]: walk out to `>ENTER SETTINGS` and confirm `CFG* UNSAVED` is STILL on the panel there.** An
+   operator who never opens the menu must still be able to read the remedy — design §6's forbidden state is an
+   icon-only error.
 5. Cycle to **STATUS**: ⛔⛔ **RETARGETED 2026-08-16 (§CHROME-4) — the withdrawn step read *"it reads
    `STATUS CFG* UNSAVED` on its title row"*, and §6 REMOVED that decoration together with the STATUS title.**
    ⇒ **the unsaved state is now visible from every ordinary screen as the SETTINGS rail slot's BADGE** (Part 25.4).
@@ -2005,8 +2020,10 @@ its bindings are proved against fakes; a green suite says the LOGIC is right, ne
    move of this decoration onto the SETTINGS rail icon is **slice 4**, not done here.
 6. ★★ **Leave the board alone for ~20 s so the panel BLANKS, then press once to wake it.** The marker is still there
    and the value is still edited. ⛔ **A draft may never be discarded because attention timed out.**
-7. Walk to `BACK` and double-press: the panel returns to STATUS **with the marker still up**. Cycle back into
-   SETTINGS: the edited value is **still edited**. ⛔ Re-entering must not reset the draft.
+7. Walk to `BACK` and double-press: ⛔ **CORRECTED 2026-08-20 ([[B232]]) — the withdrawn step read *"the panel
+   returns to STATUS"*.** The panel stays on SETTINGS showing `>ENTER SETTINGS`, **with the marker still up**. One
+   further `short` leaves for STATUS. Cycle back into SETTINGS and `double`: the edited value is **still edited**.
+   ⛔ Re-entering must not reset the draft. ⓘ The menu re-opens on its **first** row, not on `BACK`.
 
 ### 20.2 — ★ THE SAVE THAT REACHES REAL FLASH, AND WHAT IT MUST NOT DESTROY
 
@@ -2060,7 +2077,7 @@ and expect **`SAVED`** plus a **`RESTART NEEDED`** row that stays on STATUS unti
 
 ### 20.5 — ⛔⛔ THE RESET-DURING-WRITE CHECK, which is why [[B193]] is still open
 
-1. Set up a real edit and get the cursor onto `SAVE`.
+1. Set up a real edit and get the cursor onto `SAVE` — **`double` on `>ENTER SETTINGS` first** ([[B232]]).
 2. Press `double` and **cut the power within a second** (pull USB / hit reset). Repeat this ~5 times, varying the
    delay.
 3. On each reboot, `cfg` over USB must report **either the complete OLD record or the complete NEW one** (§3.6.5).
@@ -2486,10 +2503,14 @@ and **no env sets it**. ⓘ Part **20.4** already records this (`⚠ Only reacha
 compiled … which no env sets today`); this Part had not inherited it.
 ⇒ ★ **On a stock `heltec_mobile`, test PLAIN, UNSAVED and CONFLICT only.** ⛔ **Restart-related combinations are N/A
 unless the image is built with `-DMR_UI_BLE_ROW=1`** — record them **not-run with that reason**, ⛔ never as a FAIL.
+⛔ **[[B232]] (2026-08-20): READ THE "SETTINGS must ALSO still print" COLUMN FROM THE CLOSED `>ENTER SETTINGS`
+VIEW**, i.e. just cycle to SETTINGS — do **not** open the menu first. That is the view an operator who saw the badge
+actually lands on, and §6's ban on an icon-only error has to hold *there*. ⓘ Reaching the states still needs the
+menu (`double`, walk, edit, `BACK`); only the **reading** moves.
 
 ⚠ The badge is a 7x7 glyph; read it at arm's length and confirm the states are **distinguishable**.
 
-| do this | badge on the SETTINGS rail icon | ⛔ SETTINGS must ALSO still print |
+| do this | badge on the SETTINGS rail icon | ⛔ SETTINGS must ALSO still print (read it from `>ENTER SETTINGS`) |
 |---|---|---|
 | nothing (fresh boot, never opened SETTINGS) | plain gear | — |
 | edit a value, do not save | gear **+ dot** | `CFG* UNSAVED` |
@@ -2806,6 +2827,32 @@ This is a truthfulness check. It does not change or qualify the attachment algor
 ⓘ `recovering` and the impossible `attached`-without-home diagnostic are host-gated. Do not destabilise a metal
 topology merely to manufacture them.
 
+### 27.17 — ★ [[B230]]: the incomplete-PHY refusal names the MISSING part and a remedy that WORKS
+⇒ Metal-only because `team_report_not_applied` lives in `src/firmware_config.cpp`, a TU compiled by neither the
+native suite nor the simulator. The classification is host-gated (§B230 x2 + `--target=provservice`); ⛔ only the
+SENTENCE the operator reads is unreachable, and it is what the defect was.
+1. On a node whose persisted `sf_list` is EMPTY (`factory_reset`, then `cfg` shows no DATA SF), type
+   `team new freq=869 sf=7 bw=125` ⇒ **must answer EXACTLY:**
+   `> team err: incomplete PHY — the MISSING part is this node's `sf_list` (the DATA SF set): it is EMPTY, which blocks DATA entirely.`
+   `>   ★ `sf_list` is NOT a `team` key — the team PHY tail carries freq/sf/bw only and PRESERVES this node's own DATA SF set.`
+   `>   set it FIRST: `cfg set sf_list 6,7`, then retry your original `team` command.`
+   `>   NOTHING changed — team_id, the team channel key, the PHY and NV are all as they were.`
+   ⛔ It must NOT say `need freq, routing_sf(5..12), sf_list(DATA SF), bw` and must NOT suggest
+   `set them inline: `team new freq=869.0 sf=7 bw=125`` — that was the pre-fix answer, and it was the command
+   that had just failed.
+2. ★★ **THE FORM-NEUTRALITY CHECK, AND IT IS THE ONE A `team new`-ONLY TEST MISSES:** repeat step 1 as a **JOIN** —
+   `team 0x12A1B2C3 freq=869 sf=7 bw=125` on the same empty-`sf_list` node ⇒ **the SAME four lines, verbatim.**
+   ⛔ The remedy must NOT name `team new`: an operator who typed a join must be sent back to their own command,
+   never told to create a different random team.
+3. ★ **THE REMEDY IS FOLLOWED, which is the whole point:** `cfg set sf_list 6,7` then re-run the command from step 1
+   ⇒ the team is created/joined, and `> team PHY:` ends `sf_list=6,7` (⛔ not `7` — [[B211]] still holds).
+4. **Control, the generic arm:** with a valid `sf_list` in place, provoke a genuinely incomplete tail ⇒ must still
+   answer `> team err: incomplete PHY — need freq, routing_sf(5..12), bw. …` followed by
+   `>   set them inline on your `team` command: `freq=869.0 sf=7 bw=125` …` — ⛔ also form-neutral, and the inline
+   remedy must NOT have been withdrawn: on this arm it really can repair the node.
+5. `cfg` after steps 1 and 2 ⇒ **team_id, key, PHY and NV all unchanged** (each refusal spends no write, no airtime).
+⇒ When 1-5 hold, [[B230]] is metal-closed.
+
 ## Part 28 — §UI-15 slice 2: the `/mrjoin` profile store on REAL flash (2026-08-19)
 
 ⛔ **THE RESIDUE ONLY.** The record layout, the tri-state read, the absent/corrupt matrix, the units and the
@@ -3017,3 +3064,17 @@ Stop and preserve both boot-to-failure logs plus the flashed ELF if any of these
 
 Record each checkbox as PASS / FAIL / NOT-RUN with the exact reason. For a failure, retain the profile listing,
 before/after `cfg`, `whoami`, `status`, radio trace, OLED photograph and artefact hashes.
+
+## Part 31 — [[B231]]/[[B233]]: inbox order + delete-refresh ON GLASS (2026-08-20)
+
+⛔ **THE RESIDUE ONLY.** The reversal, the latch, the counted single-pull and both delete arms are host-gated
+(`test_firmware_ui_model.cpp` M92-M96 + the probe's no-press catch-up check). **What no host reaches: pixels on
+glass and real time** — that the reorder and the time-only refresh LOOK right on the panel.
+
+1. With ≥2 channel posts and ≥2 DMs stored: INBOX shows the DM block first, then the channel block (unchanged),
+   and **within each block the NEWEST is at the TOP**. Post one more channel message ⇒ it appears at the TOP of
+   the channel block; the highlight stays on the record it was on (pushed one row down, not re-targeted).
+2. **Delete a MIDDLE row** from its detail ⇒ back at the list, the deleted row is **GONE with NO further press**
+   (time only — within ~1 s at the 2 Hz cadence), the highlight beside where it was.
+3. **Delete the LAST row of a block** ⇒ same: gone, no press, highlight on its predecessor (the arm that worked
+   pre-fix must still work).

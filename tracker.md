@@ -15,6 +15,7 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 
 1. `2026-08-07-mobile-home-attachment-reliability-design.md` — resume after OLED metal testing with narrowed B178
    proactive roaming and S6; add B151/B184 scenarios only if still needed.
+1.1. 2026-08-20-status-screen-redesign-note - change of initial screen content
 2. `2026-08-08-hybrid-rts-flight-identity-design.md` — resume with B161, close B153/B157, then address B158 jitter
    and B166 NAV pricing.
 3. `2026-08-05-channel-app-code-draft.md` — define stable channel application codes, then emergency message and
@@ -30,13 +31,14 @@ individual defects belong in `docs/2026-07-30-open-bug-register.md`.
 
 ## Bugs - suggested order
 
-  1. B207 provisioning transaction - awaiting QG
-  2. Parallel metal checks: B196, B164, B193 - B196 awaiting final test, B164 - awaiting final test, B193 - probably not implemented
-  3. B206/B138 measurement reliability, then B205.
-  4. B20/B21, B35, B159 message correctness.
-  5. B161 → B157 → B153 hybrid-RTS closure.
-  6. B151 → B178 → B186b mobile-home work.
-  7. B134, O4, and remaining product/UI backlog.
+  B209 - autoregister bug
+  B207 provisioning transaction - awaiting QG
+  Parallel metal checks: B196, B164, B193 - B196 awaiting final test, B164 - awaiting final test, B193 - probably not implemented
+  B206/B138 measurement reliability, then B205.
+  B20/B21, B35, B159 message correctness.
+  B161 → B157 → B153 hybrid-RTS closure.
+  B151 → B178 → B186b mobile-home work.
+  B134, O4, and remaining product/UI backlog.
 
 
 

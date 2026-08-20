@@ -1,7 +1,14 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
-# Metal session run sheet — v3, 2026-08-18
+# Metal session run sheet — v4, 2026-08-20
 
-**Status: v3 — checkbox front page added; v2's corrected procedures and stop rules retained below.**
+**Status: v4 — the §UI-15 qualification (Parts 28-30 + the slice-7 `/mrjoin` power-cut) added as §12-§17; v3's
+front page and procedures retained below unchanged.** ⓘ The plan-§10 pre-gate for destructive OLED provisioning —
+`/mrcfg` Part 20.5 — is **DISCHARGED** (§9 below, confirmed OK), so the UI-15 metal arc may run.
+⚠ v3's hardware line is POINT-IN-TIME (2026-08-18) — ★ re-confirm the inventory from the banners at §0, never from
+this sheet.
+★★ **FOR THE SESSION ITSELF USE `2026-08-20-metal-session-walkthrough.md` — a single linear document with every
+command and expected line INLINED** (owner-requested 2026-08-20: no cross-document jumping). This sheet stays as
+the sequencing rationale; the bench script stays the authority over both.
 ⚠ **`docs/2026-07-31-bench-test-script.md` REMAINS THE AUTHORITY (M2).** This sheet adds *sequencing, preconditions and
 stop rules* only. ⛔ Where the two disagree, **the bench script wins and this sheet is wrong.**
 
@@ -170,3 +177,75 @@ Per check: verdict · the console lines verbatim · what was skipped and why.
 ⛔ **Report failures with their output; do not tune around one** (D3) — several of this arc's findings came from
 exactly that discipline. ⛔ **Mark N/A items (25.4 restart arm, 25.7, possibly 27.6) as not-run WITH THE REASON**,
 never as passes and never as failures.
+
+---
+# v4 — the §UI-15 QUALIFICATION RUN (slice 7) · added 2026-08-20
+
+⚠ **`docs/2026-07-31-bench-test-script.md` Parts 28, 29, 30 REMAIN THE AUTHORITY (M2)** — this block adds
+sequencing, preconditions and stop rules only. Run on the **slice-6 commit** with a fresh §0 (archive + banner
+check on every node; `nogit` is a failure).
+
+## Checklist — UI-15 run
+
+- [ ] §12 — 28.4 fresh-chip line, ⛔ FIRST, on a full-erased node, before ANY other console input that saves.
+- [ ] §13 — Part 28 remainder (28.1-28.3, 28.5; 28.6 stated-not-reachable; the gateway line not-run unless §16).
+- [ ] §14 — leftover v3 items that need the TEAM: §2 chrome (24.1-25.5 subset) and §6 / Part 22 — BEFORE 29
+      mutates team state.
+- [ ] §15 — Part 29 (OLED team create), incl. 29.5 PHY divergence; restore/verify team state after.
+- [ ] §16 — Part 30 (OLED static join) — needs a STATIC layer-17 peer (factory-erase one node; `team 0` does NOT
+      demote, the §8 lesson).
+- [ ] §17 — ⚠⚠ the slice-7 `/mrjoin` POWER-CUT — GENUINELY LAST (the only device-mutating check in this run).
+- [ ] gateway-image arms (29.1 hidden PROVISION row; 28's `gateway_build` refusal) — a separate `gateway_heltec`
+      flash, or not-run WITH THE REASON (the §10 rule; ⛔ never faked on a mobile image).
+
+## §12 — 28.4 FIRST, and the window is ONE-SHOT
+★★ **The fresh-chip line needs an `mr` NVS namespace that has NEVER been written, and the FIRST save of ANY record
+closes the window forever** — including `cfg set`, `regen`, a team join, an inbox write.
+⇒ on the chosen ESP32-S3 node, **full-erase before flashing** (`esptool.py erase_flash`, or PlatformIO's erase
+target), flash §0's image, boot, and **the very first command is `joinprofile list`** ⇒ **`NO PROFILES`**, ⛔ never
+the storage-failure line.
+⚠ ⛔ **`factory_reset confirm` does NOT reopen the window** — it `clear()`s the keys but the namespace persists, so
+`nvs_open(NVS_READONLY)` no longer answers `ESP_ERR_NVS_NOT_FOUND`. Only the full flash erase does. If you cannot
+establish the namespace state, record the check AMBIGUOUS with the reason — ⛔ not PASS.
+
+## §13 — Part 28 remainder (one Heltec, ordinary provisioning allowed from here on)
+28.1 → 28.2 (★ the `869.4625` four-decimal Hz pin) → 28.3 (coalescing) → the 28.x power-cycle → 28.5 (strict
+index) → `factory_reset` line. 28.6 is stated-not-reachable (record as such). The `gateway_build` refusal line
+rides §16's gateway flash or is not-run.
+
+## §14 — the v3 leftovers that need TEAMMATES — before Part 29 touches team state
+Restore the two-Heltec team (§4 procedure), then run **§2's chrome subset** (24.1, 24.2, 25.1-25.5 as scoped in
+v3) and **§6 / Part 22** (B164 TxDone→AIRED, the third node as the no-AIRED negative). ⓘ Sequenced HERE because
+Part 29 creates/replaces teams — running chrome after it would re-provision twice.
+
+## §15 — Part 29 (OLED team create)
+Run 29.2-29.4, 29.6, 29.7 on a leaf Heltec per the script. Notes the script cannot carry:
+- **29.5 (PHY divergence) leaves the radio LIVE-RETUNED off the persisted PHY** (`mobile register` persists
+  nothing) — ★ after the refusal is recorded, **reboot** to restore live==persisted before anything else reads
+  the radio.
+- 29.3/29.4 replace team membership — **§14 must already be complete**; re-export the key if the old team is
+  still wanted afterwards.
+- 29.1 (gateway hidden row) belongs to the gateway-image arm (checklist last item).
+
+## §16 — Part 30 (OLED static join)
+Follow 30.0-30.7 verbatim — the script's own sequencing is already correct (sparse profile list, layer-17 peer,
+blank/wake, the declared no-hijack behaviour, stop rules).
+★ The static peer: **factory-erase one node first** (`team 0` does not demote — the §8 lesson), then
+`create layer=17 …` per 30.0. ⓘ 30.6's conditional arms stay conditional — ⛔ do not manufacture collisions or
+damage storage for a string; the host probes are the mandatory control for those.
+
+## §17 — ⚠⚠ the slice-7 `/mrjoin` POWER-CUT — LAST (plan §10's second gate, the UI-15 closure item)
+The B193 method, over `/mrjoin` (the §9 procedure was `/mrcfg`'s and does NOT carry over):
+1. Seed a known state: `joinprofile reset confirm`, then `joinprofile set 1 …` with values you record.
+2. Issue a DIFFERENT `joinprofile set 1 …` and **cut power at varying delays across ~5 attempts** (vary from
+   immediately-after-enter to ~1 s).
+3. **Every boot: `joinprofile list` yields the COMPLETE OLD or the COMPLETE NEW slot — ⛔ a `PROFILE STORE
+   INVALID` after a cut IS the torn-record FAIL** this check exists to catch (honest detection is not a pass).
+4. ⚠ ABI note: this run's nodes are ESP32-S3 (NVS, log-structured — the expected-robust arm). **The nRF52
+   LittleFS arm (remove-then-write, the riskier path) is NOT-RUN unless an nRF52 node is on the bench — record
+   it with the hardware reason**, exactly as §7 records `stackhw`.
+5. Finish with `joinprofile reset confirm` + re-seed if profiles are still wanted.
+
+## §18 — Recording
+As §11: verdict per checkbox · console lines verbatim · not-run items WITH THE REASON, never as passes or
+failures. Failures ship with their output (D3). Retain Part 30.7's evidence set for any stop-rule hit.

@@ -73,6 +73,11 @@ TARGET_SRC = {
     #    2600-line model it would have shared `model`'s 80 entries and the four terms would have had no isolated
     #    controls at all — the [[B217]] shape this runner exists to avoid.
     "uijoin": "src/firmware_ui_join.h",         # §UI-15 slice 6 — the static-join screens' pure unit + the rule
+    # ★★ ADDED 2026-08-20 BY [[B230]], and for the reason every target above it was added: the incomplete-PHY
+    #    CLASSIFICATION (which part is missing, and therefore which remedy the console offers) now lives in this
+    #    header, and a battery is per-SOURCE-FILE. Without its own target the split would have had no controlled
+    #    mutation at all — the [[B217]] shape this runner exists to avoid.
+    "provservice": "src/firmware_provisioning_service.h",  # §PROV-TX — the typed team-provisioning transaction
 }
 _flags = [a for a in sys.argv[1:] if a.startswith("--")]
 _TARGET = "model"
@@ -89,7 +94,89 @@ H = os.path.join(ROOT, TARGET_SRC[_TARGET])
 #    measured nothing — the instrument-that-cannot-fail shape, in the tool built to prevent it. ⇒ the clean tree is run
 #    FIRST and must produce EXACTLY these figures, or the run ABORTS before a single mutation is applied.
 #    ⓘ Override deliberately (a slice that legitimately adds cases): MR_MUT_BASE="cases,asserts".
-BASE_CASES, BASE_ASSERTS = 1829, 86790   # ★★ RE-PINNED 2026-08-20 by §UI-15 slice 6 (the static-join adapter,
+BASE_CASES, BASE_ASSERTS = 1843, 87045   # ★★ RE-PINNED 2026-08-20 by [[B232]] (the SETTINGS single entry):
+                                         # **1837 / 86986 -> 1843 / 87045** (+6 cases / +59 assertions), all of
+                                         # them in test/test_firmware_ui_model.cpp. DERIVED, not merely observed:
+                                         #   +1 `b232-entry: SETTINGS LANDS CLOSED …` — 9 (the landing 3 · the
+                                         #        one press that passes it 2 · the press-per-LAP measurement,
+                                         #        3 arrival checks over three laps + the `on_settings == 3`)
+                                         #   +1 `b232-entry: a double ENTERS the menu at its FIRST row` — 9
+                                         #        (the landing 1 · the transition 3 · the row BY IDENTITY 2 ·
+                                         #         the 3 negative-space checks that the entry press performed
+                                         #         nothing at all)
+                                         #   +1 `b232-entry: the entry row's label …` — 3
+                                         #   +1 `b232-open: the ConfigService is OPENED ON ARRIVAL …` — 6
+                                         #        (the closed landing 1 · is_open 1 · zero writes/applies 2 ·
+                                         #         the latch raised from the closed view 1 · still closed 1)
+                                         #   +1 `b232-remedy: the remedy WORDS stand from the CLOSED view` — 12
+                                         #        (arm (a) 2 · arm (b) 5 · arm (c) 4 · the note row 1)
+                                         #   +1 `b232-exit: BOTH menu exits …` — 13 (the BACK exit 4 · the
+                                         #        re-entry-on-row-0 block 4 · the walk-off exit 3 · the press
+                                         #        that only THEN passes the screen 2)
+                                         #   +0 `ui14-cycle:` — SAME case, +3: the walk off the last row now
+                                         #        lands on the CLOSED view (screen / arm / cursor) before the
+                                         #        press that leaves the screen, which it already asserted.
+                                         #   +0 `ui14-back:` +1 · `ui15-close:` +2 · `ui14-open:` +1 — SAME
+                                         #        cases: BACK's landing is RE-POINTED to the closed view and
+                                         #        the press that then leaves the screen is driven as well.
+                                         #   ⇒ 6 cases; 9 + 9 + 3 + 6 + 12 + 13 = 52 in the new cases, plus
+                                         #     3 + 1 + 2 + 1 = 7 in the four corrected ones ⇒ +59.
+                                         # ⓘ ⛔ THE PIN DID **NOT** MOVE FOR QG's UNAVAILABLE-CONFIG CORRECTION
+                                         #   (same day, same slice), and the arithmetic is recorded so nobody
+                                         #   reads that as an unverified claim: three cases were RETARGETED off
+                                         #   the invisible-row walk — `ui14-open` (store) 11 -> 11, `ui14-open`
+                                         #   (unattached) 5 -> 6, `ui15-gate` 9 -> 8. ⇒ +1 -1 = 0, and no case
+                                         #   was added or removed. The clean baseline gate re-ran at exactly
+                                         #   1843 / 87045 / 0.
+                                         # ⓘ THE PREVIOUS PIN, kept because its derivation is still the record of
+                                         # how the figure below it was reached:
+                                         # ★★ RE-PINNED 2026-08-20 by [[B230]] (the `incomplete PHY` remedy text):
+                                         # **1835 / 86848 -> 1837 / 86986** (+2 cases / +138 assertions). DERIVED,
+                                         # not merely observed:
+                                         #   +1 `§B230 the incomplete-PHY refusal names WHICH part is missing`
+                                         #        in test/test_firmware_provisioning_service.cpp — 15 assertions
+                                         #        over FOUR blocks: pin 1 (empty sf_list + a COMPLETE tail, 4) ·
+                                         #        pin 2's named control (sf_list PRESENT, no bw anywhere, 4) ·
+                                         #        ★ the ORDER (both broken -> the sf_list arm WINS, 4) · the
+                                         #        non-vacuity pair (fill the set and NOTHING else -> applied, 3)
+                                         #   +1 `§B230 prov_err_name is total, distinct and panel-sized` — 121
+                                         #        assertions, and the figure is arithmetic rather than a count:
+                                         #        1 (the arm census, n == 13) + 13x3 = 39 (non-empty · never the
+                                         #        `?` fall-through · <= 15 columns for the OLED's §7.3 body) +
+                                         #        13x12/2 = 78 (every PAIR distinct) + 2 token spellings + 1 the
+                                         #        out-of-enum floor. ⇒ 1 + 39 + 78 + 3 = 121.
+                                         #   +1 assertion in the SAME `§PROV-TX an incomplete STAGED PHY refuses`
+                                         #        case — arm (b) now asserts `allowed_sf_bitmap != 0`, so "this is
+                                         #        the sf_list-PRESENT arm" is measured, not assumed
+                                         #   +1 assertion in the SAME `§UI15-PROV a STAGING refusal carries the
+                                         #        SERVICE's own typed reason` case — the new arm's token
+                                         #   ⇒ 15 + 121 + 1 + 1 = +138 assertions; 1 + 1 = +2 cases.
+                                         # ⓘ ⛔ ZERO cases moved for a CHANGED OUTCOME: three existing assertions
+                                         #   (§PROV-TX arm (a), §B211 pin 5, §UI15-PROV's incomplete-PHY case)
+                                         #   were RE-POINTED from `incomplete_phy` to `sf_list_empty` in place —
+                                         #   same verdict, same zero writes, same zero live calls.
+                                         # ⓘ THE PREVIOUS PIN, kept because its derivation is still the record of
+                                         # how the figure below it was reached:
+                                         # ★★ RE-PINNED 2026-08-20 by the [[B231]]/[[B233]] inbox-list pair:
+                                         # **1829 / 86790 -> 1835 / 86848** (+6 cases / +58 assertions), all of
+                                         # them in test/test_firmware_ui_model.cpp. DERIVED, not merely observed:
+                                         #   +2 `ui7-inbox B231:` — the newest-at-top order WITH the untouched
+                                         #        block order in the same case (a DM-only check would pass on an
+                                         #        implementation that had started interleaving), and the
+                                         #        one-row / empty-block edge of the two reversed loops
+                                         #   +3 `ui7d-B233:` over a new TICK HARNESS (`InboxTick`, which replays
+                                         #        `mr_ui_tick`'s ORDER — build, gesture, tick, serve the erase,
+                                         #        freeze): the delete-MIDDLE regression, the delete-LAST arm that
+                                         #        already worked, and the FAILED delete that owes no repaint
+                                         #   +1 `ui7d-B231:` — §B64's identity rule driven from the new direction
+                                         #        (an arrival now pushes the rows DOWN, not up)
+                                         #   +0 `ui7-inbox: within a kind the NEWEST rows win` — SAME case, +4
+                                         #        assertions: the surviving SET is now asserted row by row, so
+                                         #        retention and presentation order cannot be confused
+                                         # ⇒ 2 + 3 + 1 = +6 cases; 13 + 7 + 13 + 8 + 5 + 8 + 4 = +58 assertions.
+                                         # ⓘ THE PREVIOUS PIN, kept because its derivation is still the record of
+                                         # how the figure below it was reached:
+                                         # ★★ RE-PINNED 2026-08-20 by §UI-15 slice 6 (the static-join adapter,
                                          # the ASYNC outcome and the four join screens):
                                          # **1800 / 86200 -> 1829 / 86790** (+29 cases / +590 assertions).
                                          # ⚠ THE ASSERTION FIGURE MOVED TWICE DURING THE SLICE — 86781 -> 86789
@@ -595,9 +682,18 @@ MUTS_MODEL = [
  ("M49 the editor SETS instead of cycling (one press can never turn a value off)",
   "(void)_cfg->set(f, cfg_menu_next(f, _cfg->draft().at(f)));",
   "(void)_cfg->set(f, uint8_t(1));"),
- ("M50 a value row can be edited while the service is not open",
-  "if (_cfg && _cfg->is_open()) { _st.settings = Settings::editing; _st.dirty = true; }",
-  "{ _st.settings = Settings::editing; _st.dirty = true; }"),
+ # ⛔⛔ M50 IS **WITHDRAWN IN PLACE** 2026-08-20 (QG's [[B232]] correction), and it is left standing as a comment
+ #     rather than deleted because the reason is the record. It read:
+ #       ("M50 a value row can be edited while the service is not open",
+ #        "if (_cfg && _cfg->is_open()) { _st.settings = Settings::editing; _st.dirty = true; }",
+ #        "{ _st.settings = Settings::editing; _st.dirty = true; }"),
+ #     ⇒ THE STATE IT MUTATED IS NO LONGER REACHABLE. QG ruled that a `double` on the closed SETTINGS view must
+ #     LEAVE IT CLOSED when the service is not open (the renderer draws `CFG UNAVAILABLE` and nothing else), and
+ #     `ConfigService::_open` is never cleared once set — so no gesture sequence reaches `settings_activate` with a
+ #     shut service, the mutant is behaviourally identical to the clean tree, and this entry would be reported
+ #     UNUSABLE. ★ THE PROPERTY DID NOT GO AWAY, IT MOVED OUT: **M105** measures it where it is now decided, and the
+ #     inner gate survives as defence in depth with a note in the source saying exactly that ([[B223]]'s lesson:
+ #     an unreachable decision gets a statement, never a mutation that cannot fail).
  # --- §CHROME-1: the one snapshot field whose TYPE is the correctness argument ----------------------------------------
  # ⚠ THE FORMATTER'S OWN 32-BIT MUTATION LIVES IN THE `chrome` BATTERY (X01). This entry is the OTHER half and it is
  #   not redundant: the age could be truncated in the CARRIER while the formatter's parameter stayed 64-bit, and a
@@ -809,6 +905,78 @@ MUTS_MODEL = [
  ("M91 the cached requested layer is the NIBBLE, so term 2 can never hold above layer 15 (trap 2, in the model)",
   "            requested_layer = in.join.layer;             // the FULL byte, cached for the correlation's term 2/3",
   "            requested_layer = uint8_t(in.join.layer & 0x0F);"),
+ # --- 2026-08-20: the two INBOX-LIST fixes ---------------------------------------------------------------------------
+ # ★ ONE ENTRY EACH, ON THE ONE LINE THAT IS THE BEHAVIOUR (the M27/M28 lesson): a pattern spanning two statements is a
+ #   pattern the next slice breaks into a VACUOUS count-0 match.
+ ("M92 [[B231]] the DM block is published OLDEST-FIRST again (the newest message back at the BOTTOM)",
+  "        for (uint8_t i = _n_dm; i > 0 && k < kMaxInboxRows; --i) s.inbox[k++] = _dm[i - 1];",
+  "        for (uint8_t i = 0; i < _n_dm && k < kMaxInboxRows; ++i) s.inbox[k++] = _dm[i];"),
+ # ⓘ The channel block gets its OWN entry rather than sharing M92's: the two loops are independent statements, and a
+ #   fix that reversed only the block it was looking at is exactly the half-applied shape worth being able to catch.
+ ("M93 [[B231]] the CHANNEL block is published OLDEST-FIRST (only half the ruling applied)",
+  "        for (uint8_t i = _n_ch; i > 0 && k < kMaxInboxRows; --i) s.inbox[k++] = _ch[i - 1];",
+  "        for (uint8_t i = 0; i < _n_ch && k < kMaxInboxRows; ++i) s.inbox[k++] = _ch[i];"),
+ ("M94 [[B233]] the serviced-mutation latch asks for NO repaint (the stale row stands for ever)",
+  "        if (_inbox_rows_stale) { _inbox_rows_stale = false; _st.dirty = true; }",
+  "        if (_inbox_rows_stale) { _inbox_rows_stale = false; }"),
+ # ★ THE OPPOSITE DEFECT, and it is the one a "just leave it dirty" fix produces: a latch that is never consumed
+ #   repaints at TICK RATE for ever — invisible to any case that only asked "did it repaint at all".
+ ("M95 [[B233]] the latch is never consumed (a permanent repaint, not one more frame)",
+  "        if (_inbox_rows_stale) { _inbox_rows_stale = false; _st.dirty = true; }",
+  "        if (_inbox_rows_stale) { _st.dirty = true; }"),
+ # ★ THE SCOPE OF THE LATCH, attacked from the other side: raising it for EVERY erase answer is the tempting
+ #   simplification, and it claims a repaint is owed for a store that was never touched (`io_error` / `not_found`).
+ ("M96 [[B233]] every erase ANSWER claims the rows are stale, including the ones that deleted nothing",
+  "        if (!inbox_answer_is(InboxWhat::erase, kind, seq)) return;",
+  "        if (!inbox_answer_is(InboxWhat::erase, kind, seq)) return;\n        _inbox_rows_stale = true;"),
+ # --- [[B232]]: the SETTINGS SINGLE ENTRY (owner-ruled 2026-08-20) --------------------------------------------------
+ # ★ THE AIM IS THE RULING'S FOUR MOVING PARTS, EACH ON ITS OWN: the LANDING (M97/M98 — the two independent ways the
+ #   nine-press walk comes back), the ENTRY (M99), the SERVICE STILL OPENING ON ARRIVAL (M100 — the register names
+ #   the defer-to-browsing shape as the tempting WRONG fix, so it gets a control rather than a comment), and the two
+ #   EXITS (M101/M102 — either one leaving the SCREEN re-creates the "where am I" jump the ruling removes).
+ # ⛔ M97 IS THE REVERSION, LITERALLY: it puts the auto-enter back where `sync_settings` used to hold it.
+ ("M97 [[B232]] SETTINGS auto-enters the menu on arrival again (up to 9 presses to pass the screen)",
+  "if (_st.settings == Settings::closed) return;",
+  "if (_st.settings == Settings::closed) { _st.settings = Settings::browsing; _st.dirty = true; }"),
+ # ⛔ M98 IS THE SAME SYMPTOM THROUGH THE OTHER MECHANISM, and that is why both exist: the landing can be right and
+ #    the screen still cost a press per row if the CLOSED view reports the menu's length to `advance_or_next`.
+ ("M98 [[B232]] the closed view reports the MENU's length, so `short` walks rows that are not on the panel",
+  "if (_st.screen == Screen::settings && _st.settings == Settings::closed) return 1;",
+  ";"),
+ # ⚠ M99's ANCHOR MOVED 2026-08-20 (QG's correction gave the branch a body); the ENTRY it mutates is unchanged.
+ ("M99 [[B232]] the entry row cannot be entered (a screen with one row and no way in)",
+  "            if (_st.settings == Settings::closed) {\n"
+  "                if (_cfg && _cfg->is_open()) open_settings_menu();\n"
+  "                return;\n"
+  "            }",
+  "            ;"),
+ # ⛔⛔ M105 IS QG's BLOCKER, AS A CONTROL. `draw_settings_screen` prints `CFG UNAVAILABLE` and RETURNS while the
+ #     service is not open, so a menu opened there is a cursor walking INVISIBLE rows — [[B232]]'s own multi-press
+ #     defect re-created one double-press deep. ⓘ It replaces M50 as the reachable measurement of that property; see
+ #     M50's withdrawal note below.
+ ("M105 [[B232]] the menu opens over an UNAVAILABLE config (a walk over rows nothing draws)",
+  "                if (_cfg && _cfg->is_open()) open_settings_menu();",
+  "                open_settings_menu();"),
+ # ⛔⛔ M100 IS THE REGISTER'S NAMED WRONG FIX: defer `open()` to the menu. The §3.6.1 BASELINE is then never taken
+ #     for an operator who only cycled past SETTINGS, so `note_external_write` has nothing to compare against and the
+ #     conflict latch — and the rail badge that reads it — stay silent on a companion write.
+ ("M100 [[B232]] the ConfigService is opened only when the MENU is entered (the defer-to-browsing fix)",
+  "            (void)_cfg->open();",
+  "            if (_st.settings != Settings::closed) (void)_cfg->open();"),
+ ("M101 [[B232]] the walk off the last row leaves the SCREEN again (the jump the ruling removes)",
+  "if (_st.screen == Screen::settings && _st.settings == Settings::browsing) { close_settings_menu(); return; }",
+  ";"),
+ ("M102 [[B232]] the BACK row jumps to STATUS instead of leaving the MENU",
+  "                close_settings_menu();\n                break;",
+  "                _st.screen = Screen::status; _st.cursor = 0;\n                settings_follow_screen();\n                break;"),
+ # ⓘ M103 is the CLOSED view's own cursor: the single entry row is index 0, and a close that left the menu's index
+ #   behind would put the highlight on a row that view does not draw — and `note_settings_cursor` would then read it.
+ ("M103 [[B232]] leaving the menu keeps the MENU's cursor, so the single-entry view holds a menu index",
+  "        _st.settings = Settings::closed;   _st.cursor = 0; _cfg_sel_valid = false; _st.dirty = true;",
+  "        _st.settings = Settings::closed;   _st.dirty = true;"),
+ ("M104 [[B232]] the entry row has no label (an entry nobody can read — C2)",
+  'inline constexpr const char* kSettingsEnterText = "ENTER SETTINGS";',
+  'inline constexpr const char* kSettingsEnterText = "";'),
 ]
 
 # ===== §UI-13 — src/firmware_config_service.h =====================================================================
@@ -1513,9 +1681,41 @@ MUTS_UIJOIN = [
   'inline const char* join_confirm_label(bool confirm) { return confirm ? "BACK" : "JOIN"; }'),
 ]
 
+# ===== [[B230]] — src/firmware_provisioning_service.h ==============================================================
+# ★★★ WHAT THIS BATTERY IS AIMED AT, AND IT IS DELIBERATELY NARROW: **A REFUSAL WHOSE OWN REMEDY CANNOT WORK.** The
+#     transaction's BEHAVIOUR (one save, nothing applied on failure, the `no_change` rule, [[B211]]'s resolution) is
+#     already covered by `test/test_firmware_provisioning_service.cpp` and by `tools/probe_prov_tx`; what [[B230]]
+#     added is a CLASSIFICATION — an empty `sf_list` is a different refusal from an incomplete freq/sf/bw triplet,
+#     because the first is repaired by `cfg set sf_list …` and the second by the verb's own PHY tail.
+# ⛔ NONE OF THE FOUR IS A DELETION. Each is the tempting wrong fix: fold the arm back in (P01, the pre-[[B230]] source
+#    VERBATIM), invert the test (P02), reorder the two checks so the tail complaint wins (P03 — which re-creates the
+#    dead end exactly: the operator is handed `team new freq=… sf=… bw=…`, the command that just failed), or let the
+#    new arm answer with its neighbour's token (P04, the panel/console saying the wrong thing while the enum is right).
+MUTS_PROVSERVICE = [
+ ("P01 the sf_list arm is folded back into the generic refusal (the pre-[[B230]] source, verbatim)",
+  "        if (cand.allowed_sf_bitmap == 0) return ProvErr::sf_list_empty;\n"
+  "        if (eff_freq <= 0.0 || cand.routing_sf < 5 || cand.routing_sf > 12\n"
+  "            || eff_bw == 0) return ProvErr::incomplete_phy;",
+  "        if (eff_freq <= 0.0 || cand.routing_sf < 5 || cand.routing_sf > 12\n"
+  "            || cand.allowed_sf_bitmap == 0 || eff_bw == 0) return ProvErr::incomplete_phy;"),
+ ("P02 the classification is INVERTED (a PRESENT sf_list is reported as the empty one)",
+  "        if (cand.allowed_sf_bitmap == 0) return ProvErr::sf_list_empty;",
+  "        if (cand.allowed_sf_bitmap != 0) return ProvErr::sf_list_empty;"),
+ ("P03 ★★ the ORDER is reversed — the tail complaint wins, so the failing command is suggested again",
+  "        if (cand.allowed_sf_bitmap == 0) return ProvErr::sf_list_empty;\n"
+  "        if (eff_freq <= 0.0 || cand.routing_sf < 5 || cand.routing_sf > 12\n"
+  "            || eff_bw == 0) return ProvErr::incomplete_phy;",
+  "        if (eff_freq <= 0.0 || cand.routing_sf < 5 || cand.routing_sf > 12\n"
+  "            || eff_bw == 0) return ProvErr::incomplete_phy;\n"
+  "        if (cand.allowed_sf_bitmap == 0) return ProvErr::sf_list_empty;"),
+ ("P04 the new arm answers with its NEIGHBOUR's token (the enum splits, the words do not)",
+  '        case ProvErr::sf_list_empty:   return "sf_list_empty";',
+  '        case ProvErr::sf_list_empty:   return "incomplete_phy";'),
+]
+
 MUTS_BY_TARGET = {"model": MUTS_MODEL, "config": MUTS_CONFIG, "chrome": MUTS_CHROME, "icons": MUTS_ICONS,
                   "joinprofiles": MUTS_JOINPROFILES, "devicenv": MUTS_DEVICENV, "cfgparse": MUTS_CFGPARSE,
-                  "uiprov": MUTS_UIPROV, "uijoin": MUTS_UIJOIN}
+                  "uiprov": MUTS_UIPROV, "uijoin": MUTS_UIJOIN, "provservice": MUTS_PROVSERVICE}
 MUTS = MUTS_BY_TARGET[_TARGET]
 
 def md5(p):

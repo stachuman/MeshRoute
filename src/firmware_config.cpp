@@ -1536,9 +1536,30 @@ static void team_report_not_applied(const mrfw::ProvResult& res, Print& out) {
                 case mrfw::ProvErr::keygen_failed:
                     out.println(F("> team err: team channel keygen FAILED (crypto RNG returned no entropy). Team NOT minted."));
                     return;
+                // ★★★ [[B230]] — TWO ARMS BECAUSE THERE ARE TWO REMEDIES, and the split is the whole fix. MEASURED on
+                //     metal 2026-08-20: on a node whose persisted `sf_list` is empty, `team new freq=869 sf=7 bw=125`
+                //     answered *"need freq, routing_sf(5..12), sf_list(DATA SF), bw"* and then suggested
+                //     `team new freq=869.0 sf=7 bw=125` — THE LINE THAT HAD JUST FAILED — while `sf_list=` is ⛔ not a
+                //     `team new` key at all ([[B211]]'s deliberate tail omission), so the operator's obvious next try
+                //     answered *"bad/unknown key: sf_list"*. A dead end whose own remedy could not work.
+                // ⛔ THE REFUSALS THEMSELVES ARE UNCHANGED (C2 / [[data-sf-removed]]): the same inputs refuse exactly
+                //    as before, with zero writes, zero live applies and zero airtime. Only the sentence moved.
+                // ⛔⛔ AND BOTH REMEDIES ARE **FORM-NEUTRAL**, WHICH IS A CORRECTNESS REQUIREMENT AND NOT A STYLE
+                //     PREFERENCE (QG 2026-08-20). All THREE forms reach these arms — `team new` (mint) and
+                //     `team <id>` (join) alike — and `ProvResult` carries no record of which one was typed, so this
+                //     reporter STRUCTURALLY CANNOT know. A remedy naming `team new` therefore tells an operator who
+                //     typed `team 0x12345678 freq=… sf=… bw=…` to CREATE A DIFFERENT RANDOM TEAM instead of retrying
+                //     the join they asked for — the [[B230]] defect one layer over: a remedy the operator must not
+                //     follow. ⇒ say *"your original `team` command"*, and ⛔ never a specific subcommand.
+                case mrfw::ProvErr::sf_list_empty:
+                    out.println(F("> team err: incomplete PHY — the MISSING part is this node's `sf_list` (the DATA SF set): it is EMPTY, which blocks DATA entirely."));
+                    out.println(F(">   ★ `sf_list` is NOT a `team` key — the team PHY tail carries freq/sf/bw only and PRESERVES this node's own DATA SF set."));
+                    out.println(F(">   set it FIRST: `cfg set sf_list 6,7`, then retry your original `team` command."));
+                    out.println(F(">   NOTHING changed — team_id, the team channel key, the PHY and NV are all as they were."));
+                    return;
                 case mrfw::ProvErr::incomplete_phy:
-                    out.println(F("> team err: incomplete PHY — need freq, routing_sf(5..12), sf_list(DATA SF), bw."));
-                    out.println(F(">   set them inline: `team new freq=869.0 sf=7 bw=125` — ALL members MUST use the SAME freq/sf/bw."));
+                    out.println(F("> team err: incomplete PHY — need freq, routing_sf(5..12), bw. (The DATA `sf_list` is present; these three are the team's SHARED radio settings.)"));
+                    out.println(F(">   set them inline on your `team` command: `freq=869.0 sf=7 bw=125` — ALL members MUST use the SAME freq/sf/bw."));
                     return;
                 case mrfw::ProvErr::id_unavailable:
                     out.println(F("> team err: could not mint a usable team id (every draw came back 0 or this node's CURRENT team). NOTHING changed — retry."));
@@ -1740,8 +1761,8 @@ void handle_team(const char* args, Print& out) {
             // ⛔⛔ AND THE FIX IS HERE, NOT IN THE PARSER: `parse_phy_tail` is SHARED with `handle_mobile` (`:1458`), so
             //     changing it would silently alter `mobile register` semantics — which the owner's ruling excludes.
             // ★ `0` = "the operator named no sf_list", and it is a SAFE sentinel needing no new field: an empty set
-            //   blocks DATA entirely and is already refused (`ProvErr::incomplete_phy`,
-            //   `firmware_provisioning_service.h:551`), and the [[data-sf-removed]] ruling makes it illegal as a value
+            //   blocks DATA entirely and is already refused (`ProvErr::sf_list_empty`, [[B230]]'s own arm at
+            //   `firmware_provisioning_service.h:578`), and the [[data-sf-removed]] ruling makes it illegal as a value
             //   ⇒ it can never be a legitimate request. `stage_team_candidate` RESOLVES it from the PERSISTED RECORD
             //   before either comparison runs, and `res.phy.allowed_sf_bitmap` carries the resolved set back for the
             //   echo below — so what is reported is what actually landed.

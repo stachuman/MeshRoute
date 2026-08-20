@@ -362,6 +362,7 @@ TEST_CASE("§UI15-PROV a STAGING refusal carries the SERVICE's own typed reason,
     // ⓘ ...and the reason is the SERVICE's token verbatim: every `ProvErr` name reaches the panel unchanged, so no
     //   second table can drift from it. (A sample of the arms an OLED create can actually reach.)
     CHECK(strcmp(mrfw::prov_err_name(ProvErr::incomplete_phy), "incomplete_phy") == 0);
+    CHECK(strcmp(mrfw::prov_err_name(ProvErr::sf_list_empty), "sf_list_empty") == 0);   // [[B230]]'s arm
     CHECK(strcmp(mrfw::prov_err_name(ProvErr::keygen_failed), "keygen_failed") == 0);
     CHECK(strcmp(mrfw::prov_err_name(ProvErr::nv_save_failed), "nv_save_failed") == 0);
 }
@@ -372,8 +373,11 @@ TEST_CASE("§UI15-PROV an INCOMPLETE persisted PHY refuses at staging — the cr
     d.converge();                                    // ⇒ live and persisted still AGREE, so the precondition passes
     const UiProvAnswer a = create(d);
     CHECK(a.outcome == UiProvOutcome::refused);
-    CHECK(d.last_result.err == ProvErr::incomplete_phy);
-    CHECK(strcmp(mrui::prov_result_detail(a), "incomplete_phy") == 0);
+    // ★ [[B230]]: the OLED reaches the SAME finer arm the console does — one classification, two renderers (U1). The
+    //   panel prints the token verbatim, so `sf_list_empty` (13 of the 19-column body) is what the operator now reads
+    //   instead of the field-list `incomplete_phy`. ⛔ The outcome, the write count and the live count do not move.
+    CHECK(d.last_result.err == ProvErr::sf_list_empty);
+    CHECK(strcmp(mrui::prov_result_detail(a), "sf_list_empty") == 0);
     CHECK(d.apply_calls == 1);                       // the PRECONDITION passed; the TRANSACTION refused
     CHECK(d.store.writes == 0);
     CHECK(d.live_total() == 0);

@@ -486,6 +486,64 @@ def s19_range_message_names_no_wrong_verb(svc, cfg, rsvc, rcfg):
 
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# [[B230]] (2026-08-20). The CLASSIFICATION half — an empty staged `sf_list` is its own `ProvErr` arm, and it wins over
+# the tail-settable triplet — is pinned by the NATIVE suite (`§B230` x2 in test_firmware_provisioning_service.cpp,
+# plus the four `--target=provservice` mutations). ⛔ WHAT NO AUTOMATED BUILD CAN SEE IS THE SENTENCE: the arm-to-text
+# mapping lives in `team_report_not_applied` in `src/firmware_config.cpp`, a TU neither the native suite nor the
+# simulator compiles — which is why the defect shipped GREEN in the first place. ⇒ S20 pins the two texts as source
+# facts, and the load-bearing clause is the NEGATIVE one: the failing remedy must not appear on the sf_list arm.
+def s20_sf_list_arm_names_its_own_remedy(svc, cfg, rsvc, rcfg):
+    """S20 - [[B230]]: the sf_list refusal points at `cfg set sf_list`, and NEVER at the tail that cannot carry it.
+
+    RAW/decommented sources throughout, because every clause is about a STRING LITERAL and `neutral()` blanks them.
+    Six clauses, because each weaker shape is the defect in a different disguise:
+      (a) both arms exist as SEPARATE case labels in `team_report_not_applied` -- a shared label would be one
+          message again, which is the state this fix ends;
+      (b) the remedy `cfg set sf_list 6,7` occurs EXACTLY ONCE in the TU, and inside that reporter;
+      (c) ⛔⛔ THE DEFECT ITSELF, AS A NEGATIVE: the inline suggestion (`set them inline`) occurs ZERO times inside
+          the sf_list arm. That suggestion is the freq/sf/bw tail, i.e. the command that JUST FAILED -- offering it
+          here is precisely what the operator measured on metal;
+      (d) ...and it still occurs EXACTLY ONCE overall, on the GENERIC arm, where it really can repair the node.
+          ⛔ Deleting the string outright would satisfy (c) while losing the working remedy;
+      (e) ⛔ `sf_list=` is never spelled as a key inside the sf_list arm -- it is not a `team` key ([[B211]]'s
+          deliberate tail omission), and naming it with an `=` is the second half of what sent the operator to
+          `team err bad/unknown key: sf_list`;
+      (f) ★ AND THE CORRECTION IS ON THE RECORD (S19's clause (c2), one bug over): the WITHDRAWN field list
+          `sf_list(DATA SF)` is gone from the code and still NAMED in the production comment, so a tree whose prose
+          forgot what it corrected fails too;
+      (g) ★★ FORM-NEUTRALITY, THE QG-RULED CLAUSE (2026-08-20), AND IT COVERS **BOTH** ARMS: neither remedy may name
+          `team new`. All three forms reach these arms and `ProvResult` records none of them, so a remedy naming the
+          MINT form tells an operator who typed `team <id> freq=... sf=... bw=...` to create a different random team
+          instead of retrying the join -- a remedy the operator must not follow, which is [[B230]]'s own defect
+          shape. ⓘ Counted over the two arm windows only: other refusals in this reporter legitimately name forms
+          (`team 0` is the LEAVE refusal's actual subject), and a file-wide ban would fail on those.
+    """
+    code = decomment(rcfg)                       # comments blanked, literals KEPT
+    rb = body(rcfg, 'static void team_report_not_applied(')
+    cb = body(code, 'static void team_report_not_applied(')
+    labels = (cb.count('case mrfw::ProvErr::sf_list_empty:'), cb.count('case mrfw::ProvErr::incomplete_phy:'))
+    remedy_file, remedy_body = code.count('cfg set sf_list 6,7'), cb.count('cfg set sf_list 6,7')
+    at = cb.find('case mrfw::ProvErr::sf_list_empty:')
+    end = cb.find('case mrfw::ProvErr::incomplete_phy:')
+    tail = cb.find('case mrfw::ProvErr::id_unavailable:')
+    arm = cb[at:end] if (at >= 0 and end > at) else ''
+    arm_gen = cb[end:tail] if (end >= 0 and tail > end) else ''
+    inline_in_arm, inline_file = arm.count('set them inline'), code.count('set them inline')
+    key_spelling = arm.count('sf_list=')
+    withdrawn_code, withdrawn_prose = code.count('sf_list(DATA SF)'), rcfg.count('sf_list(DATA SF)')
+    forms = (arm.count('team new'), arm_gen.count('team new'))
+    ok = (labels == (1, 1) and remedy_file == 1 and remedy_body == 1
+          and inline_in_arm == 0 and inline_file == 1 and key_spelling == 0
+          and withdrawn_code == 0 and withdrawn_prose == 1 and len(rb) > 0
+          and forms == (0, 0) and len(arm_gen) > 0)
+    return ok, ('case labels(sf_list,generic)=%s "cfg set sf_list 6,7" file/reporter=%d/%d '
+                '"set them inline" in-arm/file=%d/%d "sf_list=" in-arm=%d withdrawn list code/prose=%d/%d '
+                '"team new" in (sf_list,generic) arms=%s'
+                % (str(labels), remedy_file, remedy_body, inline_in_arm, inline_file, key_spelling,
+                   withdrawn_code, withdrawn_prose, str(forms)))
+
+
 CHECKS = [
     ('S1 no fallible key primitive in the transaction header', s1_no_fallible_in_service),
     ('S2 IProvLive::install_key returns void',                 s2_install_key_is_void),
@@ -506,6 +564,7 @@ CHECKS = [
     ('S17 the team-DAD line is gated on res.dad_fired',         s17_team_dad_line_is_gated_on_dad_fired),
     ('S18 the leave PHY tail REACHES the transaction',           s18_leave_phy_reaches_the_transaction),
     ('S19 the range message names no wrong verb',                s19_range_message_names_no_wrong_verb),
+    ('S20 the sf_list refusal names `cfg set sf_list`',           s20_sf_list_arm_names_its_own_remedy),
 ]
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -687,6 +746,41 @@ CONTROLS = [
     # this arc would have produced) -- clause (c2).
     ('C39 the correction record is erased from the comment', 'cfg',
      'which is PRESERVED rather than tidied (C1)"*', 'which is elided"*', 'S19'),
+    # ---- [[B230]]'s controls. C40 is THE DEFECT ITSELF, reinstated verbatim: the sf_list arm hands the operator the
+    # inline tail -- the command that just failed and that cannot carry the field it is missing.
+    ('C40 the sf_list arm suggests the failing inline tail again', 'cfg',
+     '                    out.println(F(">   NOTHING changed — team_id, the team channel key, the PHY and NV are all as they were."));',
+     '                    out.println(F(">   set them inline: `team new freq=869.0 sf=7 bw=125`"));\n'
+     '                    out.println(F(">   NOTHING changed — team_id, the team channel key, the PHY and NV are all as they were."));', 'S20'),
+    # ...and the other direction, which is why the remedy is COUNTED: dropping `cfg set sf_list` leaves an arm that
+    # names the missing field and still tells the operator nothing they can act on.
+    ('C41 the `cfg set sf_list` remedy line is deleted', 'cfg',
+     '                    out.println(F(">   set it FIRST: `cfg set sf_list 6,7`, then retry your original `team` command."));\n',
+     '', 'S20'),
+    # ⛔ the naive half-fix: keep ONE arm and re-add `sf_list` to the field list the generic message says to set
+    # inline -- the wording the owner's ruling withdrew, because `sf_list=` is not a `team` key.
+    ('C42 the generic message names sf_list as inline-settable again', 'cfg',
+     'need freq, routing_sf(5..12), bw. (The DATA `sf_list` is present;',
+     'need freq, routing_sf(5..12), sf_list(DATA SF), bw. (The DATA set is present;', 'S20'),
+    # ...and the record itself: a tree whose corrected comment forgot WHAT it corrected -- clause (f), the same
+    # obligation C39 enforces one bug over.
+    ('C43 the correction record is erased from the comment', 'cfg',
+     'answered *"need freq, routing_sf(5..12), sf_list(DATA SF), bw"*',
+     'answered a field list', 'S20'),
+    # ⛔ the arms collapse back into one label, so the split exists in the enum and nowhere the operator can see
+    ('C44 the two arms share one case label (one message again)', 'cfg',
+     '                case mrfw::ProvErr::sf_list_empty:\n                    out.println(F("> team err: incomplete PHY — the MISSING part',
+     '                case mrfw::ProvErr::sf_list_empty:\n                case mrfw::ProvErr::incomplete_phy:\n                    out.println(F("> team err: incomplete PHY — the MISSING part', 'S20'),
+    # ⛔⛔ THE QG-CAUGHT HALF, REINSTATED VERBATIM: the sf_list remedy names the MINT form again. It reads correctly
+    # to anyone testing with `team new` and MISDIRECTS every joiner — `team <id> freq=… sf=… bw=…` would be answered
+    # with "create a different random team". The reporter cannot tell the forms apart, so the wording must not try.
+    ('C45 the sf_list remedy names the `team new` FORM again (wrong for a join)', 'cfg',
+     'out.println(F(">   set it FIRST: `cfg set sf_list 6,7`, then retry your original `team` command."));',
+     'out.println(F(">   set it FIRST: `cfg set sf_list 6,7` — and then `team new [freq=… sf=… bw=…]`."));', 'S20'),
+    # ...and the SAME defect on the adjacent generic arm, which is where it was inherited from (it predates [[B230]]).
+    ('C46 the generic remedy names the `team new` FORM again', 'cfg',
+     'out.println(F(">   set them inline on your `team` command: `freq=869.0 sf=7 bw=125` — ALL members MUST use the SAME freq/sf/bw."));',
+     'out.println(F(">   set them inline: `team new freq=869.0 sf=7 bw=125` — ALL members MUST use the SAME freq/sf/bw."));', 'S20'),
 ]
 
 

@@ -1901,13 +1901,56 @@ TEST_CASE("ui7-inbox: a chatty channel CANNOT evict the DM rows — the budget i
     CHECK(s.inbox[2].kind == InboxKind::channel);
 }
 
+// ★★ RETENTION, AND IT IS UNCHANGED BY [[B231]]: which rows SURVIVE is `add()`'s newest-wins eviction; only the order
+//    they are PUBLISHED in moved. `rx_age_s` carries the arrival counter here, so the surviving SET is asserted
+//    independently of where each row landed — a case that only read `inbox[0]` could not tell the two apart.
 TEST_CASE("ui7-inbox: within a kind the NEWEST rows win, because pull() hands them oldest-first") {
     InboxRowBudget b; UiSnapshot s{};
     for (uint8_t i = 0; i < uint8_t(kInboxRowsPerKind + 3); ++i) b.add(row(true, 0, i));
     b.publish(s, uint16_t(kInboxRowsPerKind + 3));
     CHECK(s.inbox_shown == kInboxRowsPerKind);
-    CHECK(s.inbox[0].rx_age_s == 3u);                             // the three oldest were displaced
-    CHECK(s.inbox[kInboxRowsPerKind - 1].rx_age_s == uint32_t(kInboxRowsPerKind + 2));
+    // the three oldest (0, 1, 2) were displaced; 3 .. kInboxRowsPerKind+2 survive, newest at the TOP
+    CHECK(s.inbox[0].rx_age_s == uint32_t(kInboxRowsPerKind + 2));
+    CHECK(s.inbox[kInboxRowsPerKind - 1].rx_age_s == 3u);
+    for (uint8_t i = 0; i < kInboxRowsPerKind; ++i)
+        CHECK(s.inbox[i].rx_age_s == uint32_t(kInboxRowsPerKind + 2 - i));
+}
+
+// ★★★★ [[B231]] — OWNER RULED 2026-08-20: THE NEWEST MESSAGE IS AT THE TOP. The store hands `pull()`'s rows
+//      oldest-first, so this is the ONE place the two orders differ — and the row the operator's cursor starts on is
+//      the one this decides.
+// ⛔ AND THE BLOCK ORDER IS ASSERTED IN THE SAME CASE, deliberately: the ruling is newest-first WITHIN a block, and
+//    the spec §6.1 block order (all DM rows, then all channel rows) is a SEPARATE decision that this may not disturb.
+//    A case that checked only the DM rows would pass on an implementation that had started interleaving.
+TEST_CASE("ui7-inbox B231: within each block the NEWEST row is at the TOP, and the BLOCK order is untouched") {
+    InboxRowBudget b; UiSnapshot s{};
+    for (uint32_t i = 1; i <= 3; ++i) b.add(row(true,  0, i, i));   // pull()'s order: the DM block, oldest-first...
+    for (uint32_t i = 1; i <= 3; ++i) b.add(row(false, 7, i, i));   // ...then the channel block, oldest-first
+    b.publish(s, 6);
+    CHECK(s.inbox_shown == 6);
+    CHECK(s.inbox[0].kind == InboxKind::dm);       CHECK(s.inbox[0].seq == 3u);   // ★ the NEWEST DM is row 0
+    CHECK(s.inbox[1].kind == InboxKind::dm);       CHECK(s.inbox[1].seq == 2u);
+    CHECK(s.inbox[2].kind == InboxKind::dm);       CHECK(s.inbox[2].seq == 1u);   // ...the oldest DM is LAST of its block
+    CHECK(s.inbox[3].kind == InboxKind::channel);  CHECK(s.inbox[3].seq == 3u);   // ⛔ still a BLOCK, never interleaved
+    CHECK(s.inbox[4].kind == InboxKind::channel);  CHECK(s.inbox[4].seq == 2u);
+    CHECK(s.inbox[5].kind == InboxKind::channel);  CHECK(s.inbox[5].seq == 1u);
+}
+
+// ★ A block with ONE row and an EMPTY block: the reversed loops must handle both, and an empty ring must not publish a
+//   zeroed row. ⓘ `_n_ch == 0` is where a reversed `for (i = _n_ch; i > 0; --i)` written as an underflowing
+//   `for (i = _n_ch - 1; i >= 0; --i)` on a `uint8_t` would run 256 times — stated because that is the tempting form.
+TEST_CASE("ui7-inbox B231: one row, and an empty block, publish exactly what they hold") {
+    InboxRowBudget b; UiSnapshot s{};
+    b.add(row(true, 0, 9, 9));
+    b.publish(s, 1);
+    CHECK(s.inbox_shown == 1);
+    CHECK(s.inbox[0].kind == InboxKind::dm); CHECK(s.inbox[0].seq == 9u);
+    CHECK(b.ch_count() == 0);
+    InboxRowBudget b2; UiSnapshot s2{};
+    b2.add(row(false, 7, 5, 5));
+    b2.publish(s2, 1);
+    CHECK(s2.inbox_shown == 1);
+    CHECK(s2.inbox[0].kind == InboxKind::channel); CHECK(s2.inbox[0].seq == 5u);
 }
 
 TEST_CASE("ui7-inbox: truncation is VISIBLE — total is what pull visited, not what fitted") {
@@ -2486,6 +2529,212 @@ TEST_CASE("ui7d-delete: an activation whose record has vanished refuses at the A
     CHECK(m.state().inbox_pick_gone == true);                    // ...and said so
 }
 
+// ============================================================= [[B233]] — THE WHOLE TICK, BECAUSE THE DEFECT IS THE ORDER
+// ★★★★ WHY A TICK HARNESS AT ALL, and it is the reason the owner found this on metal and no case above could:
+//      every case in this file drives the model with a HAND-BUILT snapshot, so none of them can see a defect that lives
+//      in the ORDER `src/firmware_ui.cpp`'s `mr_ui_tick` calls them in — build the snapshot FIRST, gesture, tick, SERVE
+//      THE ERASE MID-TICK (`:1643`, deliberately before the gate so the press is not a no-op for a whole frame), then
+//      freeze. The frame that freezes therefore carries PRE-ERASE rows *and* consumes `dirty`, and on a clean model
+//      `FrameGate::step` answers `idle` for ever after.
+// ⚠ IT IS HAND-REPLICATED WIRING, and §B97's caution stands unchanged: this cannot fail for a MIS-WIRED `mr_ui_tick` —
+//   only `tools/probe_firmware_ui` compiles that TU. What it measures is the model's contract UNDER that order, which
+//   is exactly where the defect was.
+// ⓘ ONE PAGE PER FRAME here, not eight: `on_page(false, ...)` completes the frame inside the tick. The page count is
+//   `FrameGate`'s own property and is measured by its own cases; what these need is "a frame opened and froze THESE
+//   rows".
+struct InboxTick {
+    UiModel         m;
+    FrameGate       g;
+    UiInboxCounters ctr{};
+    // The store, in `Inbox::pull()`'s OWN order: the DM block first, then the channel block, each oldest-first
+    // (inbox.h:106-109). ⛔ Not the panel's order — deriving the panel's order from this is the thing under test.
+    InboxRow  store[2 * kInboxRowsPerKind]{};
+    uint8_t   n_store = 0;
+    uint32_t  ticks = 0, pulls = 0, frames = 0;   // ★ COUNTED, not argued — see the no-extra-pulls case
+    UiSnapshot frozen{};                          // the frame the panel is actually showing right now
+    bool      erase_fails = false;                // the store refuses: `io_error`, i.e. NOTHING was deleted
+
+    void push(InboxKind k, uint32_t seq) {
+        if (n_store >= uint8_t(sizeof store / sizeof store[0])) return;
+        uint8_t at = n_store;                                     // a DM slots in ahead of the channel block
+        if (k == InboxKind::dm)
+            while (at > 0 && store[at - 1].kind == InboxKind::channel) { store[at] = store[at - 1]; --at; }
+        store[at] = InboxRow{}; store[at].kind = k; store[at].seq = seq; store[at].rx_age_s = seq;
+        ++n_store;
+    }
+    bool store_has(InboxKind k, uint32_t seq) const {
+        for (uint8_t i = 0; i < n_store; ++i) if (store[i].kind == k && store[i].seq == seq) return true;
+        return false;
+    }
+    InboxEraseResult erase(InboxKind k, uint32_t seq) {
+        for (uint8_t i = 0; i < n_store; ++i) {
+            if (store[i].kind != k || store[i].seq != seq) continue;
+            for (uint8_t j = uint8_t(i + 1); j < n_store; ++j) store[j - 1] = store[j];
+            --n_store;
+            return InboxEraseResult::erased;
+        }
+        return InboxEraseResult::not_found;
+    }
+    // `build_snapshot` + `fill_inbox_rows`: ONE pull per tick, through the REAL `InboxRowBudget`.
+    UiSnapshot build(uint32_t now_ms) {
+        ++pulls;
+        UiSnapshot s = snap(now_ms);
+        InboxRowBudget b;
+        for (uint8_t i = 0; i < n_store; ++i) b.add(store[i]);
+        b.publish(s, n_store);
+        return s;
+    }
+    // `ui_service_inbox_request`, all of it: the pull-by-pair, its refusal, and the erase.
+    void serve(uint32_t now_ms) {
+        InboxReq rq{};
+        if (!m.take_inbox_request(rq)) return;
+        if (rq.what == InboxWhat::open) {
+            if (store_has(rq.kind, rq.seq))
+                m.on_inbox_opened(rq.kind, rq.seq, 48, rq.kind == InboxKind::dm ? 0 : 7,
+                                  kBody7, sizeof kBody7, now_ms);
+            else m.on_inbox_open_gone(rq.kind, rq.seq);
+        } else if (rq.what == InboxWhat::erase) {
+            m.on_inbox_erased(rq.kind, rq.seq,
+                              erase_fails ? InboxEraseResult::io_error : erase(rq.kind, rq.seq));
+        }
+    }
+    // ONE `mr_ui_tick` pass, in `mr_ui_tick`'s own order.
+    void tick(uint32_t now_ms, Gesture ges = Gesture::none) {
+        ++ticks;
+        const UiSnapshot s = build(now_ms);
+        m.on_gesture(ges, s);
+        m.on_tick(s);
+        serve(now_ms);                                   // ★ MID-TICK, before the gate — firmware_ui.cpp:1643
+        switch (g.step(m, s, /*mac_idle=*/true)) {
+            case FrameStep::open:      frozen = s; ++frames; g.on_page(false, m, ctr); break;
+            case FrameStep::next_page: g.on_page(false, m, ctr); break;
+            default: break;                              // mac_busy / blank / idle draw nothing at all
+        }
+    }
+    bool frozen_has(InboxKind k, uint32_t seq) const {
+        for (uint8_t i = 0; i < frozen.inbox_shown; ++i)
+            if (frozen.inbox[i].kind == k && frozen.inbox[i].seq == seq) return true;
+        return false;
+    }
+};
+// ⓘ 600 ms a tick, so `kPaintThrottleMs` never decides anything these cases are asking about: every dirty tick is free
+//   to open its frame. A tighter step would make "no repaint came" ambiguous between the defect and the throttle.
+static constexpr uint32_t kTickStep = 600;
+// STATUS -> TEAM(0,1,2) -> INBOX, one press a tick, exactly as `to_inbox` does it without one.
+static uint32_t to_inbox_ticks(InboxTick& h, uint32_t t) {
+    for (int i = 0; i < 4; ++i) h.tick(t += kTickStep, Gesture::short_press);
+    return t;
+}
+
+TEST_CASE("ui7d-B233: a serviced DELETE of a MIDDLE row repaints — the panel may not keep a record the store lost") {
+    InboxTick h;
+    for (uint32_t i = 1; i <= 3; ++i) h.push(InboxKind::dm, i);
+    uint32_t t = to_inbox_ticks(h, 1000);
+    h.tick(t += kTickStep, Gesture::short_press);                // cursor 1 = the MIDDLE row, seq 2 in EITHER order
+    CHECK(h.m.state().cursor == 1);
+    h.tick(t += kTickStep, Gesture::double_press);               // open it
+    CHECK(h.m.state().detail == InboxModal::body);
+    CHECK(h.m.state().detail_seq == 2u);
+    h.tick(t += kTickStep, Gesture::short_press);                // arm `delete`
+    CHECK(h.m.state().detail_action == InboxAction::del);
+    const uint32_t frames_before = h.frames;
+    h.tick(t += kTickStep, Gesture::double_press);               // confirm — the erase is SERVED inside this tick
+    CHECK(h.store_has(InboxKind::dm, 2) == false);               // ★ the STORE is the authority, never the panel
+    // ⓘ THIS frame legitimately still carries the deleted row: it froze the snapshot built at the top of the tick, and
+    //   re-ordering the tick to avoid that is fix shape (b), which this fix deliberately did not take.
+    CHECK(h.frozen_has(InboxKind::dm, 2) == true);
+    // ★★ AND THIS IS THE HYPOTHESIS THE REGISTER ASKED TO BE CONFIRMED, asserted as the CAUSE rather than narrated:
+    //    the delete leaves the cursor on a still-valid neighbour AT THE SAME INDEX, so on every later tick
+    //    `sync_inbox_cursor` finds it where it already was, changes nothing, and marks nothing dirty. Nothing else in
+    //    the model is watching the rows at all. (The LAST-row arm below is the same mechanism with the other answer.)
+    CHECK(h.m.state().cursor == 1);
+    CHECK(h.m.state().inbox_pick_gone == false);
+    // ⇒ the NEXT frame must show the rebuilt list. ⛔ Before [[B233]] was fixed this frame NEVER CAME.
+    for (int i = 0; i < 4; ++i) h.tick(t += kTickStep);
+    CHECK(h.m.state().cursor == 1);                              // ★ still index 1, i.e. still nothing to notice
+    CHECK(h.frozen_has(InboxKind::dm, 2) == false);
+    CHECK(h.frozen.inbox_shown == 2);
+    // ★ EXACTLY ONE further frame: the latch is ONE-SHOT. A latch that never cleared would repaint at tick rate for
+    //   ever — the opposite defect, and just as invisible in a case that only asked "did it repaint at all".
+    CHECK(h.frames == frames_before + 2);
+    // ★★ COUNTED, NOT ARGUED (the brief's pin 6): the fix costs NO extra `Inbox::pull()`. One pull per tick, on the
+    //    mutation tick like every other. Fix shape (b) — re-filling the rows after the drain — would read one more.
+    CHECK(h.pulls == h.ticks);
+}
+
+// ★★ THE ARM THAT ALREADY WORKED, kept so the fix cannot regress it. The owner measured on metal that deleting the LAST
+//    message refreshed correctly, and the mechanism above says why: the predecessor the cursor falls back to sits at a
+//    DIFFERENT index afterwards, so `sync_inbox_cursor` moves the highlight and marks the frame dirty as a SIDE EFFECT.
+// ⓘ The doomed record's `seq` is READ from the modal rather than assumed: which record is last depends on the publish
+//   order, and this case is about the LAST ROW, not about a number.
+TEST_CASE("ui7d-B233: deleting the LAST row still repaints (the arm that worked before the fix)") {
+    InboxTick h;
+    for (uint32_t i = 1; i <= 3; ++i) h.push(InboxKind::dm, i);
+    uint32_t t = to_inbox_ticks(h, 1000);
+    h.tick(t += kTickStep, Gesture::short_press);
+    h.tick(t += kTickStep, Gesture::short_press);                // cursor 2 = the LAST row
+    CHECK(h.m.state().cursor == 2);
+    h.tick(t += kTickStep, Gesture::double_press);
+    CHECK(h.m.state().detail == InboxModal::body);
+    const uint32_t doomed = h.m.state().detail_seq;
+    h.tick(t += kTickStep, Gesture::short_press);
+    h.tick(t += kTickStep, Gesture::double_press);               // confirm
+    CHECK(h.store_has(InboxKind::dm, doomed) == false);
+    // ⓘ MEASURED: the cursor is still on the OLD index at the end of the erase tick — `sync_inbox_cursor` ran during
+    //   `on_tick`, i.e. BEFORE the erase was served. The re-anchoring happens on the NEXT tick...
+    CHECK(h.m.state().cursor == 2);
+    h.tick(t += kTickStep);
+    CHECK(h.m.state().cursor == 1);   // ★ ...where the fallback MOVED — and THAT is what re-dirtied this arm all along
+    for (int i = 0; i < 3; ++i) h.tick(t += kTickStep);
+    CHECK(h.frozen_has(InboxKind::dm, doomed) == false);
+    CHECK(h.frozen.inbox_shown == 2);
+    CHECK(h.pulls == h.ticks);
+}
+
+// ★★ THE LATCH'S SCOPE, from the other side: a delete that FAILED changed nothing in the store, so the rows the panel
+//    is showing are still the truth and no repaint is owed. Raising the latch on every erase ANSWER is the tempting
+//    simplification, and it would spend a frame saying nothing — on a device whose panel is its power budget.
+TEST_CASE("ui7d-B233: a FAILED delete owes NO extra repaint — nothing was deleted, so nothing went stale") {
+    InboxTick h; h.erase_fails = true;
+    for (uint32_t i = 1; i <= 3; ++i) h.push(InboxKind::dm, i);
+    uint32_t t = to_inbox_ticks(h, 1000);
+    h.tick(t += kTickStep, Gesture::short_press);
+    h.tick(t += kTickStep, Gesture::double_press);                // open
+    h.tick(t += kTickStep, Gesture::short_press);                 // arm `delete`
+    const uint32_t frames_before = h.frames;
+    h.tick(t += kTickStep, Gesture::double_press);                // confirm -> the store refuses
+    CHECK(h.m.state().detail == InboxModal::body);                // ⛔ NOT closed: nothing was deleted
+    CHECK(h.m.state().detail_del_failed == true);
+    CHECK(h.store_has(InboxKind::dm, 2) == true);
+    for (int i = 0; i < 4; ++i) h.tick(t += kTickStep);
+    CHECK(h.frames == frames_before + 1);                         // ★ the failure's OWN frame, and not one more
+    CHECK(h.pulls == h.ticks);
+}
+
+// ★★★★ [[B231]]'s RIPPLE, AND IT IS THE HALF THAT COULD HAVE GONE WRONG SILENTLY — §B64's identity rule, now driven
+//      from the OTHER DIRECTION. Under the old oldest-first order an arrival pushed the retained rows UP; newest-first
+//      pushes them DOWN, and every row above the cursor moves. ⛔ The highlight must follow the RECORD, so the
+//      arrival must not silently re-target the selection onto the message that has taken its index — which is one
+//      press from an open and two from a Delete.
+TEST_CASE("ui7d-B231: a message arriving ABOVE the cursor moves the highlight WITH the record, never onto the newcomer") {
+    InboxTick h;
+    for (uint32_t i = 1; i <= 3; ++i) h.push(InboxKind::dm, i);
+    uint32_t t = to_inbox_ticks(h, 1000);
+    h.tick(t += kTickStep, Gesture::short_press);                // cursor 1 = seq 2 (rows are 3, 2, 1)
+    CHECK(h.m.state().cursor == 1);
+    CHECK(h.frozen.inbox[1].seq == 2u);
+    h.push(InboxKind::dm, 4);                                    // a newer DM lands at the TOP and shifts the rest down
+    h.tick(t += kTickStep);
+    CHECK(h.frozen.inbox[0].seq == 4u);                          // ★ the newcomer is row 0...
+    CHECK(h.m.state().cursor == 2);                              // ★ ...and the highlight moved WITH seq 2, to row 2
+    CHECK(h.m.state().inbox_pick_gone == false);
+    // ...and the activation names the record the highlight is on, which is the whole point of tracking by identity.
+    h.tick(t += kTickStep, Gesture::double_press);
+    CHECK(h.m.state().detail == InboxModal::body);
+    CHECK(h.m.state().detail_kind == InboxKind::dm);
+    CHECK(h.m.state().detail_seq == 2u);                         // ⛔ never 4, the message that took its index
+}
+
 // ------------------------------------------------------------------------------------------- THE EMERGENCY INTERPLAY
 
 TEST_CASE("ui7d-emergency: `long_arm` closes the modal BEFORE arming, and a long_cancel does not bring it back") {
@@ -2643,6 +2892,19 @@ void to_settings(UiModel& m, const UiSnapshot& s) {
     //   that had not happened yet rather than the behaviour it meant to drive. (Observed exactly that, once.)
     m.on_tick(s);
 }
+// ★★★★ [[B232]] — WALK TO SETTINGS **AND OPEN THE MENU**, which is now a `double`. Every §UI-14/§UI-15 case below
+//      was written against a screen that auto-entered `browsing` on arrival; the owner's ruling replaced that landing
+//      with the CLOSED single-entry view, so what changed for those cases is exactly ONE PRESS OF PREFIX and nothing
+//      else. ⇒ they keep their subject, and the landing itself is asserted by the `b232-` cases rather than here.
+// ⚠ ASSERTED by the caller afterwards, never assumed — same rule as `to_settings`'s own walk.
+// ⚠ THE `double` IS CONDITIONAL, and that is what makes this the exact analogue of the landing it replaces: a caller
+//   that is ALREADY on SETTINGS with the menu up walked zero presses before and must walk zero now — an
+//   unconditional `double` there would ACTIVATE the highlighted row instead of opening anything.
+void to_settings_menu(UiModel& m, const UiSnapshot& s) {
+    to_settings(m, s);
+    if (m.state().settings == Settings::closed) m.on_gesture(Gesture::double_press, s);
+    m.on_tick(s);
+}
 // The row the cursor is CURRENTLY on, by identity — the same question the renderer asks.
 // ⚠ THE RAW `cursor` IS ONLY MEANINGFUL AFTER A SYNC, and that is a property of the design rather than of this
 //   helper: `sync_settings` re-anchors the highlight onto the remembered ROW, and it runs at the top of every gesture
@@ -2655,11 +2917,19 @@ bool row_under_cursor(UiModel& m, const UiSnapshot& s, CfgRow& out) {
 // hardcoded index: two rows are conditional, so an index means different things in different arms — the exact
 // coupling §B66 exists to warn about, and §UI-14's own RELOAD row makes it live. It wraps through the cycle the way
 // the operator would, and it is BOUNDED so a missing row fails the caller's check instead of looping.
+// ★★ [[B232]]: THE MENU HAS TO BE ENTERED, and the walk can now land BACK on the closed view (the walk off the last
+//    row), so this presses `double` there — exactly what the operator does. ⛔ The `browsing` term is NOT belt-and-
+//    braces: `settings_row_list(s).at(0, …)` answers a row on the closed view too, so without it a `cursor_to` for
+//    whatever row 0 happens to be would return true from a view that shows no rows at all.
 bool cursor_to(UiModel& m, const UiSnapshot& s, CfgRow want) {
     for (int i = 0; i < 60; ++i) {
         CfgRow r{};
         m.on_tick(s);          // ...which is why this ticks first — see `row_under_cursor`
-        if (m.state().screen == Screen::settings && row_under_cursor(m, s, r) && r == want) return true;
+        if (m.state().screen == Screen::settings && m.state().settings == Settings::closed) {
+            m.on_gesture(Gesture::double_press, s); continue;
+        }
+        if (m.state().screen == Screen::settings && m.state().settings == Settings::browsing &&
+            row_under_cursor(m, s, r) && r == want) return true;
         m.on_gesture(Gesture::short_press, s);
     }
     return false;
@@ -2779,7 +3049,7 @@ TEST_CASE("ui14-rows: the MENU's cycle is off/on, and an out-of-menu value steps
 // ---------------------------------------------------------------------------------------------- the cycle
 TEST_CASE("ui14-cycle: SETTINGS is the last slot, and it is LIST-AWARE like TEAM and INBOX") {
     CfgFix f; const auto s = cfg_snap();
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(f.m.state().screen == Screen::settings);
     CHECK(f.m.state().settings == Settings::browsing);
     CHECK(f.m.state().cursor == 0);
@@ -2790,15 +3060,159 @@ TEST_CASE("ui14-cycle: SETTINGS is the last slot, and it is LIST-AWARE like TEAM
         CHECK(f.m.state().screen == Screen::settings);
         CHECK(f.m.state().cursor == i);
     }
-    f.m.on_gesture(Gesture::short_press, s);               // ...and leaves only at the end (§3.2)
+    // ★★ [[B232]] CORRECTED THE LANDING IN PLACE: the walk off the last row used to leave the SCREEN, and it now
+    //    returns to the CLOSED single-entry view. The property "`short` walks the rows and leaves only at the end"
+    //    is unchanged; what the end IS has moved one step inwards, and the screen is left by the press after it.
+    f.m.on_gesture(Gesture::short_press, s);               // ...and leaves the MENU only at the end (§3.2)
+    CHECK(f.m.state().screen == Screen::settings);
+    CHECK(f.m.state().settings == Settings::closed);
+    CHECK(f.m.state().cursor == 0);                        // the single entry row IS the selection
+    f.m.on_gesture(Gesture::short_press, s);               // ...and one more press passes the screen
     CHECK(f.m.state().screen == Screen::status);
     CHECK(f.m.state().settings == Settings::closed);       // ⛔ the editor state never survives the screen
+}
+
+// ------------------------------------------------------------------------------- [[B232]] the SETTINGS single entry
+// ★★★★ THE OWNER'S RULING (2026-08-20), AND IT REVERSES A DOCUMENTED §UI-14 BEHAVIOUR: SETTINGS used to auto-enter
+//      the menu on arrival, so cycling past it cost one short press PER ROW — up to nine, where every other screen
+//      costs one. It now LANDS CLOSED on a single entry row; `short` passes, `double` enters.
+// ⇒ WHAT THIS BLOCK MEASURES: the LANDING, the one-press cycle parity, the `double` entry, the service still opening
+//   ON ARRIVAL (the §3.6.1 baseline and its conflict latch), the remedy WORDS still readable from the closed view,
+//   and BOTH exits from the menu returning THERE rather than off the screen.
+// ⛔ NOT measured here: the closed view's own PIXELS (`draw_settings_screen`'s branch and the rail badge beside it) —
+//   no test in this file compiles `src/firmware_ui.cpp`; that is `tools/probe_firmware_ui`'s P7/P14g.
+TEST_CASE("b232-entry: SETTINGS LANDS CLOSED on ONE entry row, and `short` passes it in ONE press") {
+    CfgFix f; const auto s = cfg_snap();
+    to_settings(f.m, s);                                   // ⚠ the WALK ONLY — ⛔ no `double`, which is the subject
+    CHECK(f.m.state().screen == Screen::settings);
+    CHECK(f.m.state().settings == Settings::closed);       // ★ THE RULING: the menu is NOT up on arrival
+    CHECK(f.m.state().cursor == 0);
+    // ★★ ONE PRESS, and it is asserted as the CYCLE PARITY rather than as a single transition: the menu has seven
+    //    rows in this build, so a screen that still auto-entered would need seven more presses to reach STATUS.
+    f.m.on_gesture(Gesture::short_press, s);
+    CHECK(f.m.state().screen == Screen::status);
+    CHECK(f.m.state().settings == Settings::closed);
+    // ...and it stays one press per LAP. ⚠ Counted as "presses spent WHILE SETTINGS is up", not as a whole-cycle
+    //   total: TEAM and INBOX are legitimately list-aware (§3.2) and their rosters make a total meaningless. This is
+    //   the register's own measurement — *"cycling past SETTINGS costs a short press per row, up to 9"*.
+    int on_settings = 0;
+    for (int lap = 0; lap < 3; ++lap) {
+        for (int i = 0; i < 60 && (i == 0 || f.m.state().screen != Screen::settings); ++i) {
+            f.m.on_gesture(Gesture::short_press, s); f.m.on_tick(s);
+        }
+        CHECK(f.m.state().screen == Screen::settings);
+        while (f.m.state().screen == Screen::settings && on_settings < 20) {
+            f.m.on_gesture(Gesture::short_press, s); f.m.on_tick(s); ++on_settings;
+        }
+    }
+    CHECK(on_settings == 3);                               // ⛔ one press per lap, never one per row
+}
+
+TEST_CASE("b232-entry: `double` ENTERS the menu at its FIRST row — the PROVISION-child idiom") {
+    CfgFix f; const auto s = cfg_snap();
+    to_settings(f.m, s);
+    CHECK(f.m.state().settings == Settings::closed);
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().settings == Settings::browsing);
+    CHECK(f.m.state().screen == Screen::settings);
+    CHECK(f.m.state().cursor == 0);
+    f.m.on_tick(s);
+    CfgRow r{};
+    CHECK(row_under_cursor(f.m, s, r));
+    CHECK(r == CfgRow::e2e_dm);                            // whatever row 0 IS, by identity — ⛔ never an index
+    // ⛔ AND THE ENTRY PRESS PERFORMED NOTHING: it is a navigation, so no draft moved, nothing was written and no
+    //    action row fired. (`e2e_dm` is row 0 here, so a `double` mis-read as a menu activation would be an EDITOR.)
+    CHECK(f.store.writes == 0);
+    CHECK(f.live.applies == 0);
+    CHECK(f.svc.config_unsaved() == false);
+}
+
+TEST_CASE("b232-entry: the entry row's label is the panel's, and it fits the 19-column body") {
+    CHECK(strcmp(kSettingsEnterText, "ENTER SETTINGS") == 0);
+    // the row renders as `<marker><label>` (`draw_settings_screen`), so the marker's column counts too
+    CHECK(strlen(kSettingsEnterText) + 1 <= 19u);
+    CHECK(kSettingsEnterText[0] != '\0');                  // ⛔ C2: an entry row nobody can read is no entry at all
+}
+
+TEST_CASE("b232-open: the ConfigService is OPENED ON ARRIVAL, while the CLOSED view is up") {
+    CfgFix f; const auto s = cfg_snap();
+    to_settings(f.m, s);                                   // ⚠ again the WALK ONLY: the menu is never entered here
+    CHECK(f.m.state().settings == Settings::closed);
+    // ★★★ THE PIN. §3.6.1's baseline is snapshotted by `open()`, and the rail badge, the conflict latch and every
+    //     later SAVE are all comparisons AGAINST it. Deferring the open to the menu is the tempting wrong fix — it
+    //     would leave a node whose operator only glanced at SETTINGS with no baseline at all.
+    CHECK(f.svc.is_open() == true);
+    CHECK(f.store.writes == 0);                            // ⛔ ...and opening is still a READ (§3.6.1)
+    CHECK(f.live.applies == 0);
+    // ⇒ AND THE LATCH FIRES FROM HERE: a companion write lands while the closed view is up and is SEEN.
+    f.store.rec.e2e_dm = 1;
+    f.svc.note_external_write(f.store.rec);
+    CHECK(f.svc.conflict() == true);
+    CHECK(f.m.state().settings == Settings::closed);       // ...without the menu ever having been opened
+}
+
+TEST_CASE("b232-remedy: the remedy WORDS stand from the CLOSED view — every badge-table cell (§6)") {
+    CfgFix f; const auto s = cfg_snap();
+    // (a) clean: no marker, and ⛔ nothing invented
+    to_settings(f.m, s);
+    CHECK(f.m.state().settings == Settings::closed);
+    CHECK(strcmp(cfg_marker_text(f.svc.config_unsaved(), f.svc.conflict()), "") == 0);
+    // (b) UNSAVED, read from the closed view the operator lands on: enter, edit, walk back out to the closed view
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.svc.config_unsaved() == true);
+    CHECK(cursor_to(f.m, s, CfgRow::back));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().settings == Settings::closed);
+    CHECK(strcmp(cfg_marker_text(f.svc.config_unsaved(), f.svc.conflict()), "CFG* UNSAVED") == 0);
+    // (c) CONFLICT wins over unsaved, and it is the SERVICE's own string — ⛔ never SAVE, which `save()` refuses
+    f.store.rec.intro_attach = 0;
+    f.svc.note_external_write(f.store.rec);
+    CHECK(f.svc.conflict() == true);
+    CHECK(f.m.state().settings == Settings::closed);
+    CHECK(strcmp(cfg_marker_text(f.svc.config_unsaved(), f.svc.conflict()), "CFG! RELOAD") == 0);
+    CHECK(strcmp(cfg_marker_text(f.svc.config_unsaved(), f.svc.conflict()),
+                 mrfw::cfg_save_panel(mrfw::CfgSave::conflict)) == 0);
+    // (d) the TRANSIENT note and the durable RESTART line are `UiState`'s, so they render from the closed view by
+    //     construction — the renderer draws them OUTSIDE its closed/menu branch (`draw_settings_tail`).
+    CHECK(strcmp(settings_note(f.m.state()), "") == 0);
+}
+
+TEST_CASE("b232-exit: BOTH menu exits return to the CLOSED view — ⛔ never straight off the screen") {
+    CfgFix f; const auto s = cfg_snap();
+    // (a) the BACK ROW
+    to_settings_menu(f.m, s);
+    CHECK(cursor_to(f.m, s, CfgRow::back));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().screen == Screen::settings);
+    CHECK(f.m.state().settings == Settings::closed);
+    CHECK(f.m.state().cursor == 0);
+    // (b) THE WALK OFF THE LAST ROW, reached by walking rather than by naming an index
+    f.m.on_gesture(Gesture::double_press, s);              // back into the menu
+    CHECK(f.m.state().settings == Settings::browsing);
+    // ★ RE-ENTRY OPENS ON THE FIRST ROW — ⛔ never on the row the operator left the menu from, which was `BACK`:
+    //   the closed view is the parent here and it has ONE row, so there is no pick for a remembered row to restore.
+    f.m.on_tick(s);
+    CHECK(f.m.state().cursor == 0);
+    { CfgRow r0{}; CHECK(row_under_cursor(f.m, s, r0)); CHECK(r0 == CfgRow::e2e_dm); }
+    for (int i = 0; i < 20 && f.m.state().settings == Settings::browsing; ++i)
+        f.m.on_gesture(Gesture::short_press, s);
+    CHECK(f.m.state().screen == Screen::settings);
+    CHECK(f.m.state().settings == Settings::closed);
+    CHECK(f.m.state().cursor == 0);
+    // ★ AND ONLY THEN DOES THE SCREEN CHANGE — the "where am I" jump the ruling exists to remove.
+    f.m.on_gesture(Gesture::short_press, s);
+    CHECK(f.m.state().screen == Screen::status);
+    CHECK(f.m.state().settings == Settings::closed);
 }
 
 // ---------------------------------------------------------------------------------------------- short's two modes
 TEST_CASE("ui14-edit: `double` ENTERS a value row and `short` then CYCLES ITS VALUE — the draft only") {
     CfgFix f; const auto s = cfg_snap();
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
     CHECK(f.svc.is_open());
     CHECK(f.svc.draft().at(mrfw::CfgField::e2e_dm) == 0);
@@ -2827,7 +3241,7 @@ TEST_CASE("ui14-edit: `double` ENTERS a value row and `short` then CYCLES ITS VA
 
 TEST_CASE("ui14-edit: `dirty` and `config_unsaved` are DIFFERENT FACTS and this is the file where both are read") {
     CfgFix f; const auto s = cfg_snap();
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(f.m.state().dirty == true);                      // a repaint is owed (the walk marked it)
     CHECK(f.svc.config_unsaved() == false);                // ...and NOTHING is unsaved
     f.m.clear_dirty();
@@ -2843,7 +3257,7 @@ TEST_CASE("ui14-edit: `dirty` and `config_unsaved` are DIFFERENT FACTS and this 
 // ---------------------------------------------------------------------------------------------- SAVE
 TEST_CASE("ui14-save: an edited draft SAVES once, applies live, and is no longer unsaved") {
     CfgFix f; const auto s = cfg_snap();
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(cursor_to(f.m, s, CfgRow::mobile_autoregister));
     f.m.on_gesture(Gesture::double_press, s);
     f.m.on_gesture(Gesture::short_press, s);               // OFF -> ON in the draft
@@ -2866,7 +3280,7 @@ TEST_CASE("ui14-save: an edited draft SAVES once, applies live, and is no longer
 
 TEST_CASE("ui14-save: a no-op SAVE says NO CHANGE and writes nothing") {
     CfgFix f; const auto s = cfg_snap();
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(cursor_to(f.m, s, CfgRow::save));
     f.m.on_gesture(Gesture::double_press, s);
     CHECK(f.m.state().cfg_save == mrfw::CfgSave::no_change);
@@ -2877,7 +3291,7 @@ TEST_CASE("ui14-save: a no-op SAVE says NO CHANGE and writes nothing") {
 
 TEST_CASE("ui14-save: a FAILED write says SAVE FAILED and RETAINS the draft and its marker") {
     CfgFix f; const auto s = cfg_snap();
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
     f.m.on_gesture(Gesture::double_press, s);
     f.m.on_gesture(Gesture::short_press, s);
@@ -2898,7 +3312,7 @@ TEST_CASE("ui14-save: a FAILED write says SAVE FAILED and RETAINS the draft and 
 
 TEST_CASE("ui14-save: a reboot-class save is SAVED and REBOOT-REQUIRED — two independent facts") {
     CfgFix f; auto s = cfg_snap(); s.ble_row = true;        // the BLE row is the only reboot-class one
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(cursor_to(f.m, s, CfgRow::ble_mode));
     f.m.on_gesture(Gesture::double_press, s);
     f.m.on_gesture(Gesture::short_press, s);                // off -> on, in the draft
@@ -2924,7 +3338,7 @@ TEST_CASE("ui14-save: a reboot-class save is SAVED and REBOOT-REQUIRED — two i
 // ---------------------------------------------------------------------------------------------- conflict
 TEST_CASE("ui14-conflict: SAVE is refused with CFG! RELOAD, and RELOAD then merges the three states") {
     CfgFix f; const auto s = cfg_snap();
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
     f.m.on_gesture(Gesture::double_press, s);
     f.m.on_gesture(Gesture::short_press, s);                // the operator edits e2e_dm 0 -> 1
@@ -2962,7 +3376,7 @@ TEST_CASE("ui14-conflict: SAVE is refused with CFG! RELOAD, and RELOAD then merg
 // ---------------------------------------------------------------------------------------------- DISCARD / BACK
 TEST_CASE("ui14-discard: DISCARD is the explicit full reset, and it clears the marker") {
     CfgFix f; const auto s = cfg_snap();
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
     f.m.on_gesture(Gesture::double_press, s);
     f.m.on_gesture(Gesture::short_press, s);
@@ -2979,7 +3393,7 @@ TEST_CASE("ui14-discard: DISCARD is the explicit full reset, and it clears the m
 
 TEST_CASE("ui14-discard: an unreadable store says NV READ FAILED and the draft SURVIVES") {
     CfgFix f; const auto s = cfg_snap();
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
     f.m.on_gesture(Gesture::double_press, s);
     f.m.on_gesture(Gesture::short_press, s);
@@ -2993,9 +3407,12 @@ TEST_CASE("ui14-discard: an unreadable store says NV READ FAILED and the draft S
     CHECK(f.svc.config_unsaved() == true);
 }
 
-TEST_CASE("ui14-back: BACK is safe — it leaves the screen and PRESERVES the unsaved draft") {
+// ⛔ TITLE CORRECTED IN PLACE 2026-08-20 ([[B232]]): it read *"it leaves the screen"*, and BACK now leaves the MENU
+//    and stays on SETTINGS. §3.6.2's actual words — *"`BACK` is safe and PRESERVES an unsaved draft"* — are what this
+//    case measures and they are untouched; the landing was always this model's choice.
+TEST_CASE("ui14-back: BACK is safe — it leaves the MENU and PRESERVES the unsaved draft") {
     CfgFix f; const auto s = cfg_snap();
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
     f.m.on_gesture(Gesture::double_press, s);
     f.m.on_gesture(Gesture::short_press, s);
@@ -3003,9 +3420,11 @@ TEST_CASE("ui14-back: BACK is safe — it leaves the screen and PRESERVES the un
     CHECK(f.svc.config_unsaved() == true);
     CHECK(cursor_to(f.m, s, CfgRow::back));
     f.m.on_gesture(Gesture::double_press, s);
-    CHECK(f.m.state().screen == Screen::status);
+    CHECK(f.m.state().screen == Screen::settings);         // ★ [[B232]]: the CLOSED view, ⛔ never straight off
     CHECK(f.m.state().settings == Settings::closed);
     CHECK(f.m.state().cursor == 0);
+    f.m.on_gesture(Gesture::short_press, s);               // ...and one more press passes the screen
+    CHECK(f.m.state().screen == Screen::status);
     // ★★ THE WHOLE POINT: the draft is still there, the marker is still up, and the service is still open.
     CHECK(f.svc.config_unsaved() == true);
     CHECK(f.svc.draft().at(mrfw::CfgField::e2e_dm) == 1);
@@ -3014,7 +3433,7 @@ TEST_CASE("ui14-back: BACK is safe — it leaves the screen and PRESERVES the un
     // ...and STATUS is where the marker is seen without cycling back (§3.3)
     CHECK(strcmp(cfg_marker_text(f.svc.config_unsaved(), f.svc.conflict()), "CFG* UNSAVED") == 0);
     // RE-ENTERING must not reset it either — `CfgOpen::already_open` is a no-op by contract
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(f.m.state().screen == Screen::settings);
     CHECK(f.svc.draft().at(mrfw::CfgField::e2e_dm) == 1);
     CHECK(f.svc.config_unsaved() == true);
@@ -3022,7 +3441,7 @@ TEST_CASE("ui14-back: BACK is safe — it leaves the screen and PRESERVES the un
 
 TEST_CASE("ui14-back: BLANKING preserves the draft too — a timeout may never discard (§3.6.1)") {
     CfgFix f; auto s = cfg_snap();
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
     f.m.on_gesture(Gesture::double_press, s);
     f.m.on_gesture(Gesture::short_press, s);
@@ -3063,7 +3482,7 @@ UiSnapshot prov_snap(bool create_team = true, bool join_static = true, uint32_t 
 // Walk to SETTINGS, put the cursor on PROVISION and open it. ⚠ The caller ASSERTS the landing — this returns the
 // gate's verdict rather than claiming one, because "the gate refused" is exactly what half these cases drive.
 bool open_provision(UiModel& m, const UiSnapshot& s) {
-    to_settings(m, s);
+    to_settings_menu(m, s);
     if (!cursor_to(m, s, CfgRow::provision)) return false;
     m.on_gesture(Gesture::double_press, s);
     return m.state().settings == Settings::provisioning;
@@ -3122,7 +3541,7 @@ TEST_CASE("ui15-gate: a CLEAN draft OPENS PROVISION on its menu, and nothing was
 
 TEST_CASE("ui15-gate: an UNSAVED draft refuses with SAVE OR DISCARD, opens nothing and SAVES NOTHING") {
     CfgFix f; const auto s = prov_snap();
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
     f.m.on_gesture(Gesture::double_press, s);
     f.m.on_gesture(Gesture::short_press, s);                  // the operator edits e2e_dm 0 -> 1, and does not save
@@ -3149,7 +3568,7 @@ TEST_CASE("ui15-gate: an UNSAVED draft refuses with SAVE OR DISCARD, opens nothi
 
 TEST_CASE("ui15-gate: a CONFLICT refuses with RELOAD OR DISCARD — ⛔ never SAVE — opens nothing and writes nothing") {
     CfgFix f; const auto s = prov_snap();
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     // An external writer moves a COVERED field under a draft the operator has not touched ⇒ `conflict()` WITHOUT
     // `config_unsaved()`. That is the cell v1 conflated: the two predicates are different comparisons.
     f.store.rec.intro_attach = 0;
@@ -3172,7 +3591,7 @@ TEST_CASE("ui15-gate: a CONFLICT refuses with RELOAD OR DISCARD — ⛔ never SA
 
 TEST_CASE("ui15-gate: CONFLICT OUTRANKS UNSAVED — a draft that is BOTH is told to RELOAD, never to SAVE") {
     CfgFix f; const auto s = prov_snap();
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
     f.m.on_gesture(Gesture::double_press, s);
     f.m.on_gesture(Gesture::short_press, s);                  // an unsaved edit...
@@ -3192,8 +3611,13 @@ TEST_CASE("ui15-gate: CONFLICT OUTRANKS UNSAVED — a draft that is BOTH is told
     CHECK(f.store.writes == 0);
 }
 
-TEST_CASE("ui15-gate: with NO usable config the gate refuses and opens nothing (fails closed)") {
-    // ⛔ Neither §4 predicate can be ESTABLISHED without a baseline, so the answer is neither cell — it is a refusal.
+// ★★★ RETARGETED 2026-08-20 (QG, on [[B232]]) — SAME CORRECTION AS THE TWO `ui14-open` CASES, and the withdrawn
+//     subject is recorded rather than deleted: this case used to walk the menu to `PROVISION` on an unopened service.
+//     ⛔ That walk is over rows the renderer does not draw (`CFG UNAVAILABLE`), so the menu is no longer ENTERABLE at
+//     all in this state. ⇒ §4's *"neither predicate can be ESTABLISHED without a baseline"* refusal is now paid ONE
+//     LAYER OUT — the sub-view cannot be opened because the menu that offers it cannot be opened.
+// ⓘ `settings_activate`'s own `!_cfg || !_cfg->is_open()` arm is unchanged and is now unreachable, stated in code.
+TEST_CASE("ui15-gate: with NO usable config the MENU never opens, so the gate is never reached") {
     UiFakeStore store; UiFakeLive live;
     store.can_load = false;
     mrfw::ConfigService svc{store, live};
@@ -3201,19 +3625,18 @@ TEST_CASE("ui15-gate: with NO usable config the gate refuses and opens nothing (
     const auto s = prov_snap();
     to_settings(m, s);
     CHECK(svc.is_open() == false);
-    CHECK(cursor_to(m, s, CfgRow::provision));
-    m.on_gesture(Gesture::double_press, s);
-    CHECK(m.state().settings == Settings::browsing);
+    m.on_gesture(Gesture::double_press, s); m.on_tick(s);
+    CHECK(m.state().settings == Settings::closed);            // ⛔ no menu, therefore no PROVISION row to activate
     CHECK(m.state().provisioning == Provision::closed);
     CHECK(m.state().prov_block == ProvBlock::none);           // ⛔ §4's remedies do not apply to "there is no draft"
     CHECK(store.writes == 0);
     // ...and the same for a model with NO service at all
     UiModel m2; const auto s2 = prov_snap();
     to_settings(m2, s2);
-    CHECK(cursor_to(m2, s2, CfgRow::provision));
-    m2.on_gesture(Gesture::double_press, s2);
-    CHECK(m2.state().settings == Settings::browsing);
+    m2.on_gesture(Gesture::double_press, s2); m2.on_tick(s2);
+    CHECK(m2.state().settings == Settings::closed);
     CHECK(m2.state().provisioning == Provision::closed);
+    CHECK(m2.state().prov_block == ProvBlock::none);
 }
 
 // ---------------------------------------------------------------------------------------------- §5 — the transitions
@@ -3348,8 +3771,11 @@ TEST_CASE("ui15-close: leaving SETTINGS by its BACK row retires the sub-state, a
     CHECK(f.m.state().settings == Settings::browsing);
     CHECK(cursor_to(f.m, s, CfgRow::back));
     f.m.on_gesture(Gesture::double_press, s);
-    CHECK(f.m.state().screen == Screen::status);
+    CHECK(f.m.state().screen == Screen::settings);            // ★ [[B232]]: BACK leaves the MENU, not the screen
     CHECK(f.m.state().settings == Settings::closed);
+    CHECK(f.m.state().provisioning == Provision::closed);
+    f.m.on_gesture(Gesture::short_press, s);                  // ...and the press after it leaves the screen
+    CHECK(f.m.state().screen == Screen::status);
     CHECK(f.m.state().provisioning == Provision::closed);
     // ★ AND COMING BACK OPENS THE MENU at its first row — ⛔ never something the operator abandoned.
     CHECK(open_provision(f.m, s));
@@ -3448,7 +3874,7 @@ TEST_CASE("ui15-parent: with NO child the PROVISION row is HIDDEN, and it return
 
     // The `gateway_heltec` shape (OLED=1, MR_N_LAYERS=2): the row is on no list, so no press can select or activate it.
     CfgFix f; const auto s = prov_snap(/*create_team=*/false, /*join_static=*/false);
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     const CfgRowList l = f.m.settings_row_list(s);
     CfgRow r{};
     for (uint8_t i = 0; i < l.n; ++i) { CHECK(l.at(i, r)); CHECK(r != CfgRow::provision); }
@@ -4166,7 +4592,7 @@ TEST_CASE("ui15-join: ★★ TRAP 2 — a join at LAYER 17 correlates through th
 // ---------------------------------------------------------------------------------------------- the LONG gesture
 TEST_CASE("ui14-long: `long_arm` LEAVES THE EDITOR — and a `long_cancel` does not bring it back") {
     CfgFix f; const auto s = cfg_snap();
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
     f.m.on_gesture(Gesture::double_press, s);
     f.m.on_gesture(Gesture::short_press, s);
@@ -4191,7 +4617,7 @@ TEST_CASE("ui14-long: `long_arm` LEAVES THE EDITOR — and a `long_cancel` does 
 
 TEST_CASE("ui14-long: `long_fire` from the editor arms the alarm and the editor is already gone") {
     CfgFix f; const auto s = cfg_snap();
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
     f.m.on_gesture(Gesture::double_press, s);
     CHECK(f.m.state().settings == Settings::editing);
@@ -4207,7 +4633,7 @@ TEST_CASE("ui14-long: `long_fire` from the editor arms the alarm and the editor 
 
 TEST_CASE("ui14-long: the emergency overlay ABSORBS a double over SETTINGS (ledger §1.4)") {
     CfgFix f; const auto s = cfg_snap();
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(cursor_to(f.m, s, CfgRow::discard));
     f.m.on_gesture(Gesture::long_arm, s);
     CHECK(f.m.emergency() == Emergency::arming);
@@ -4220,38 +4646,51 @@ TEST_CASE("ui14-long: the emergency overlay ABSORBS a double over SETTINGS (ledg
 }
 
 // ---------------------------------------------------------------------------------------------- the refused open
-TEST_CASE("ui14-open: a store that cannot produce a record REFUSES to open, and every activation is refused") {
+// ★★★★ RETARGETED 2026-08-20 (QG, on [[B232]]) — AND THE WITHDRAWN SUBJECT IS RECORDED RATHER THAN DELETED. Both
+//      cases below used to ENTER `browsing` on an unopened service and WALK ITS ROWS, asserting each activation
+//      refused. ⛔ THAT IS A STATE THE RENDERER CANNOT PRODUCE: `draw_settings_screen` prints `CFG UNAVAILABLE` and
+//      RETURNS while `open` is false, so every row is INVISIBLE — the cases were driving a cursor over rows nothing
+//      draws, which is [[B232]]'s own multi-press defect one double-press deep.
+// ⇒ WHAT THEY MEASURE NOW: the `double` LEAVES SETTINGS CLOSED, the closed view keeps its unavailable state, and the
+//   screen still passes in ONE short press. ⓘ The refusals they used to assert are unchanged in the source and are
+//   now UNREACHABLE by construction — see `settings_activate`'s note, which says so in code.
+TEST_CASE("ui14-open: a store that cannot produce a record REFUSES to open, and the MENU never opens") {
     UiFakeStore store; UiFakeLive live;
     store.can_load = false;
     mrfw::ConfigService svc{store, live};
     UiModel m; m.attach_config(svc);
     const auto s = cfg_snap();
-    to_settings(m, s);
+    to_settings(m, s);                                       // ⚠ the WALK ONLY — the entry press is the subject
     CHECK(m.state().screen == Screen::settings);
     CHECK(svc.is_open() == false);                           // ⛔ the panel says CFG UNAVAILABLE and offers nothing
-    CHECK(cursor_to(m, s, CfgRow::e2e_dm));
-    m.on_gesture(Gesture::double_press, s);
-    CHECK(m.state().settings == Settings::browsing);          // ⛔ no editor over a draft that does not exist
-    CHECK(cursor_to(m, s, CfgRow::save));
-    m.on_gesture(Gesture::double_press, s);
-    CHECK(m.state().cfg_save == mrfw::CfgSave::not_open);
+    CHECK(m.state().settings == Settings::closed);
+    // ★★★ THE GUARD: a `double` opens NOTHING, however many times it is pressed.
+    m.on_gesture(Gesture::double_press, s); m.on_tick(s);
+    CHECK(m.state().settings == Settings::closed);
+    CHECK(m.state().screen == Screen::settings);
+    m.on_gesture(Gesture::double_press, s); m.on_tick(s);
+    CHECK(m.state().settings == Settings::closed);
+    // ⛔ ...and it activated nothing on the way: no editor, no save, no durable write, no live apply
+    CHECK(m.state().cfg_have_save == false);
     CHECK(store.writes == 0);
     CHECK(live.applies == 0);
-    // ...and BACK still works, because leaving must never depend on the store
-    CHECK(cursor_to(m, s, CfgRow::back));
-    m.on_gesture(Gesture::double_press, s);
+    // ★ AND THE SCREEN STILL COSTS ONE PRESS — the whole point of the ruling holds when the store is broken too.
+    m.on_gesture(Gesture::short_press, s);
     CHECK(m.state().screen == Screen::status);
+    CHECK(m.state().settings == Settings::closed);
 }
 
-TEST_CASE("ui14-open: an UNATTACHED model shows the menu and refuses every activation (fails closed)") {
+TEST_CASE("ui14-open: an UNATTACHED model opens NO menu and refuses every activation (fails closed)") {
     UiModel m; const auto s = cfg_snap();                     // ⛔ no attach_config at all
     to_settings(m, s);
     CHECK(m.state().screen == Screen::settings);
     CHECK(m.config() == nullptr);
-    CHECK(m.settings_row_list(s).n == 7);
-    m.on_gesture(Gesture::double_press, s);                   // on e2e_dm: nothing to edit
-    CHECK(m.state().settings == Settings::browsing);
+    CHECK(m.state().settings == Settings::closed);
+    m.on_gesture(Gesture::double_press, s); m.on_tick(s);     // ⛔ a null service fails closed, exactly as a shut one
+    CHECK(m.state().settings == Settings::closed);
     CHECK(m.state().cfg_have_save == false);
+    m.on_gesture(Gesture::short_press, s);                    // ...and one press still passes the screen
+    CHECK(m.state().screen == Screen::status);
 }
 
 // ---------------------------------------------------------------------------------------------- the marker's bytes
@@ -4432,7 +4871,7 @@ TEST_CASE("ui14-marker: every SAVE outcome has its own words, and none of them s
 //     third screen. ⓘ The negative half is asserted too: the identity does NOT move on its own.
 TEST_CASE("ui14-cursor: the highlight follows the ROW when a conflict inserts one above it") {
     CfgFix f; const auto s = cfg_snap();
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(cursor_to(f.m, s, CfgRow::save));
     const uint8_t before = f.m.state().cursor;
     CHECK(f.m.settings_row_list(s).n == 7);
@@ -4454,7 +4893,7 @@ TEST_CASE("ui14-cursor: the highlight follows the ROW when a conflict inserts on
 
 TEST_CASE("ui14-cursor: when the RELOAD row retires, the highlight lands on the SAFE action, never on DISCARD") {
     CfgFix f; const auto s = cfg_snap();
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     f.store.rec.intro_attach = 0;
     CHECK(cursor_to(f.m, s, CfgRow::save));
     f.m.on_gesture(Gesture::double_press, s);         // refused -> the conflict stands and RELOAD appears
@@ -4483,7 +4922,7 @@ TEST_CASE("ui14-cursor: when the RELOAD row retires, the highlight lands on the 
 //   {BYTES MATCH, LATCH SET} — and only the third needs the notification.
 TEST_CASE("ui14-notify: change -> REVERT -> SAVE is refused, which the byte comparison alone cannot do") {
     CfgFix f; const auto s = cfg_snap();
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
     f.m.on_gesture(Gesture::double_press, s);
     f.m.on_gesture(Gesture::short_press, s);                 // the operator edits e2e_dm 0 -> 1
@@ -4512,7 +4951,7 @@ TEST_CASE("ui14-notify: change -> REVERT -> SAVE is refused, which the byte comp
 
 TEST_CASE("ui14-notify: a NON-COVERED external write raises NOTHING, and a SAVE still goes through") {
     CfgFix f; const auto s = cfg_snap();
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
     f.m.on_gesture(Gesture::double_press, s);
     f.m.on_gesture(Gesture::short_press, s);
@@ -4556,7 +4995,7 @@ TEST_CASE("ui14-notify: a LEAVE-shaped external write (all four covered fields r
     CfgFix f; const auto s = cfg_snap();
     f.store.rec.e2e_dm = 1; f.store.rec.intro_attach = 1; f.store.rec.mobile_autoregister = 1; f.store.rec.ble_mode = 2;
     f.live.eff = mrfw::cfg_values_from_blob(f.store.rec);
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(f.svc.draft().at(mrfw::CfgField::mobile_autoregister) == 1);
     CHECK(cursor_to(f.m, s, CfgRow::intro_attach));
     f.m.on_gesture(Gesture::double_press, s);
@@ -4587,7 +5026,7 @@ TEST_CASE("ui14-notify: a LEAVE-shaped external write (all four covered fields r
 //    provisioning field can reach the marker however many of them move.
 TEST_CASE("ui14-notify: a JOIN-shaped external write moves no covered field and raises NOTHING") {
     CfgFix f; const auto s = cfg_snap();
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(cursor_to(f.m, s, CfgRow::e2e_dm));
     f.m.on_gesture(Gesture::double_press, s);
     f.m.on_gesture(Gesture::short_press, s);
@@ -4616,7 +5055,7 @@ TEST_CASE("ui14-notify: a write while the service is CLOSED is harmless, and doe
     f.store.rec.e2e_dm = 1;
     f.svc.note_external_write(f.store.rec);                  // ⇒ a no-op by construction
     CHECK(f.svc.conflict() == false);
-    to_settings(f.m, s);
+    to_settings_menu(f.m, s);
     CHECK(f.svc.is_open() == true);
     // ★ the baseline is whatever the record holds NOW, so the companion's change is simply the starting state
     CHECK(f.svc.draft().at(mrfw::CfgField::e2e_dm) == 1);
