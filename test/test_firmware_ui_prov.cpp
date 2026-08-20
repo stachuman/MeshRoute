@@ -138,6 +138,58 @@ struct DevFake : mrfw::ITeamCreateDevice {
 
 UiProvAnswer create(DevFake& d) { return mrfw::ui_prov_create_team(d); }
 
+// ================================================================ §UI-15 slice 6 — the STATIC-JOIN half's fakes
+// ★★★ THE SAME DISCIPLINE ONE FEATURE OVER: what runs below is the REAL `JoinProfileService` (slice 2) and the REAL
+//     `JoinService` (slice 1) over counting fakes, so "exactly one durable write" and "zero live calls on a refusal"
+//     are MEASUREMENTS. ⛔ The adapter is never handed a model of a transaction.
+struct FakeJoinStore : mrfw::IJoinStore {
+    mrnv::JoinBlob rec{};
+    mrnv::JoinRead answer = mrnv::JoinRead::ok;
+    int loads = 0, writes = 0;
+    FakeJoinStore() { mrnv::join_blob_init(rec); }
+    mrnv::JoinRead load(mrnv::JoinBlob& out) override {
+        ++loads;
+        if (answer == mrnv::JoinRead::ok) out = rec;
+        return answer;
+    }
+    bool save(const mrnv::JoinBlob& b) override { ++writes; rec = b; return true; }
+};
+// The join transaction's LIVE seam — it really counts, so "nothing was applied" is a measurement and not an absence.
+struct FakeJoinLive : mrfw::IJoinLive {
+    int        calls = 0;
+    mrnv::Blob last{};
+    void apply_and_start(const mrnv::Blob& b) override { ++calls; last = b; }
+};
+// ★ THE DEVICE SEAM's FAKE: on hardware these three are forwards to `join_profile_service()`, `join_service()` and
+//   `mr_ui_on_config_saved()`. Here they are the SAME forwards over the same real services.
+struct JoinDevFake : mrfw::IJoinDevice {
+    FakeStore     cfg;                                   // the `/mrcfg` record the transaction writes through
+    FakeJoinStore presets;                               // the `/mrjoin` record the SELECT screen reads
+    FakeJoinLive  live;
+    mrfw::JoinProfileService psvc{presets};
+    mrfw::JoinService        jsvc{cfg, live};
+
+    int list_calls = 0, apply_calls = 0, on_started_calls = 0;
+    mrfw::JoinRequest last_rq{};
+
+    mrfw::ProfileResult list_profiles(mrnv::JoinBlob& out) override { ++list_calls; return psvc.list(out); }
+    mrfw::JoinResult apply(const mrfw::JoinRequest& rq) override {
+        ++apply_calls;
+        last_rq = rq;                                    // ⚠ CAPTURED: the ONE conversion is asserted on this object
+        return jsvc.apply_join(rq);
+    }
+    void on_started(const mrfw::JoinResult&) override { ++on_started_calls; }
+};
+
+// A stored preset, as `joinprofile set` would have written it. ⚠ 869.4625 MHz is 869462500 Hz EXACTLY and is ⛔ not
+// representable in integral kHz — the value the whole units decision rests on.
+mrnv::JoinProfile preset(uint8_t layer, uint8_t sf, uint32_t freq_hz, uint32_t bw_hz) {
+    mrnv::JoinProfile p{};
+    p.present = 1; p.layer = layer; p.routing_sf = sf; p.freq_hz = freq_hz; p.bw_hz = bw_hz;
+    return p;
+}
+UiProvAnswer join(JoinDevFake& d, const mrnv::JoinProfile& p) { return mrfw::ui_prov_join_static(d, p); }
+
 }  // namespace
 
 // ------------------------------------------------------------------------------------------------------ the control
@@ -328,10 +380,179 @@ TEST_CASE("§UI15-PROV an INCOMPLETE persisted PHY refuses at staging — the cr
     CHECK(d.on_applied_calls == 0);
 }
 
+// ======================================================== §UI-15 slice 6 — THE STATIC-JOIN ADAPTER (plan §2.3/§3)
+TEST_CASE("§UI15-JOIN control — a selected preset STARTS the join: ONE write, ONE live apply, ONE notification") {
+    JoinDevFake d;
+    const UiProvAnswer a = join(d, preset(4, 9, 869462500u, 125000u));
+    // ⛔⛔ `joining`, ⛔ NEVER `joined`: the transaction has written once and STARTED DAD, and nothing more is known.
+    CHECK(a.outcome == UiProvOutcome::joining);
+    CHECK(strcmp(mrui::prov_result_head(a), "JOINING") == 0);
+    CHECK(strcmp(mrui::prov_result_detail(a), "") == 0);
+    CHECK(d.apply_calls == 1);
+    CHECK(d.cfg.writes == 1);                        // ★ EXACTLY ONE durable write
+    CHECK(d.live.calls == 1);                        // ...and the live retune + re-DAD, AFTER it
+    CHECK(d.on_started_calls == 1);                  // ...and §notify-every-save, on this arm alone
+    CHECK(a.node_id == 0);                           // ⛔ no id is claimed: DAD has only begun
+}
+
+TEST_CASE("§UI15-JOIN ★★ the ONE integral -> double conversion — 869.4625 MHz survives the store round trip") {
+    // ★★★★ PLAN §3's UNITS DECISION, MEASURED END TO END: the STORED profile is integral Hz (869462500), the
+    //      TRANSIENT request carries the operator's MHz/kHz `double`s, and what lands in `/mrcfg` must be the value
+    //      the bench actually flies. ⛔ An integral kHz field anywhere on this path rounds 869462.5 to 869462 and
+    //      CHANGES THE FREQUENCY — the defect the Hz-not-kHz ruling exists for.
+    JoinDevFake d;
+    const UiProvAnswer a = join(d, preset(4, 9, 869462500u, 125000u));
+    CHECK(a.outcome == UiProvOutcome::joining);
+    CHECK(d.last_rq.freq_mhz == 869.4625);           // ⚠ the REQUEST, captured before the transaction ran
+    CHECK(d.last_rq.bw_khz == 125.0);
+    CHECK(d.last_rq.layer == 4);
+    CHECK(d.last_rq.routing_sf == 9);
+    CHECK(d.cfg.rec.freq_mhz == 869.4625);           // ...and the RECORD the transaction composed
+    CHECK(d.cfg.rec.bw_hz == 125000u);
+    CHECK(d.cfg.rec.routing_sf == 9);
+    // ★ A FRACTIONAL BANDWIDTH SURVIVES TOO: 62.5 kHz is a real LoRa BW and is 62500 Hz exactly.
+    JoinDevFake d2;
+    CHECK(join(d2, preset(4, 7, 868000000u, 62500u)).outcome == UiProvOutcome::joining);
+    CHECK(d2.last_rq.bw_khz == 62.5);
+    CHECK(d2.cfg.rec.bw_hz == 62500u);
+}
+
+TEST_CASE("§UI15-JOIN ★★ a preset ABOVE LAYER 15 persists the FULL byte and the NIBBLE — trap 2's other end") {
+    // ★★★ The correlation rule's terms 2 and 3 are only satisfiable because the CANDIDATE keeps the two apart. This
+    //     is the same distinction from the writing side: layer 17 persists 17 and leaves leaf 1 on the wire.
+    JoinDevFake d;
+    CHECK(join(d, preset(17, 9, 869462500u, 125000u)).outcome == UiProvOutcome::joining);
+    CHECK(d.cfg.rec.layer0_id == 17);
+    CHECK(d.cfg.rec.leaf_id == 1);
+    CHECK(d.live.last.layer0_id == 17);              // ...and the LIVE apply was handed the same record
+    CHECK(d.live.last.leaf_id == 1);
+}
+
+TEST_CASE("§UI15-JOIN an EMPTY slot is not a join — zero transactions, zero writes, zero airtime") {
+    JoinDevFake d;
+    mrnv::JoinProfile empty{};
+    CHECK(empty.present == 0);
+    const UiProvAnswer a = join(d, empty);
+    CHECK(a.outcome == UiProvOutcome::join_refused);
+    CHECK(strcmp(mrui::prov_result_head(a), "JOIN REFUSED") == 0);
+    CHECK(strcmp(a.reason, "empty slot") == 0);
+    CHECK(d.apply_calls == 0);
+    CHECK(d.cfg.writes == 0);
+    CHECK(d.live.calls == 0);
+    CHECK(d.on_started_calls == 0);
+    // ★ THE POSITIVE ARM, in the same case: the identical device with a PRESENT slot joins normally.
+    CHECK(join(d, preset(4, 9, 869462500u, 125000u)).outcome == UiProvOutcome::joining);
+    CHECK(d.cfg.writes == 1);
+}
+
+TEST_CASE("§UI15-JOIN a DOMAIN refusal carries the TRANSACTION's own typed reason, and spends nothing") {
+    // ⓘ REACHABLE ON DEVICE: `joinprofile set` validates, but a record written by an older build — or one whose
+    //   bytes are valid-but-wrong — can hold an SF of 0. The screen must say WHICH field, which is exactly why slice
+    //   1 kept the four domain arms distinct where the console renders them with one usage line.
+    JoinDevFake d;
+    const UiProvAnswer a = join(d, preset(4, /*sf=*/0, 869462500u, 125000u));
+    CHECK(a.outcome == UiProvOutcome::join_refused);
+    CHECK(strcmp(a.reason, mrfw::join_err_name(mrfw::JoinErr::invalid_sf)) == 0);
+    CHECK(strcmp(mrui::prov_result_detail(a), "invalid_sf") == 0);
+    CHECK(d.apply_calls == 1);                       // the transaction RAN and refused...
+    CHECK(d.cfg.loads == 0);                         // ...before it loaded anything
+    CHECK(d.cfg.writes == 0);
+    CHECK(d.live.calls == 0);
+    CHECK(d.on_started_calls == 0);
+    // ...and a layer of 0 (the unset value) refuses in its own arm, so the four are not one refusal wearing four names.
+    JoinDevFake d2;
+    CHECK(strcmp(join(d2, preset(0, 9, 869462500u, 125000u)).reason,
+                 mrfw::join_err_name(mrfw::JoinErr::invalid_layer)) == 0);
+}
+
+TEST_CASE("§UI15-JOIN a FAILED save reports SAVE FAILED, notifies NOTHING and leaves the live node alone") {
+    JoinDevFake d;
+    d.cfg.write_ok = false;
+    const UiProvAnswer a = join(d, preset(4, 9, 869462500u, 125000u));
+    CHECK(a.outcome == UiProvOutcome::save_failed);
+    CHECK(strcmp(mrui::prov_result_head(a), "SAVE FAILED") == 0);
+    CHECK(strcmp(mrui::prov_result_detail(a), "NOTHING CHANGED") == 0);
+    CHECK(d.apply_calls == 1);                       // the transaction RAN...
+    CHECK(d.cfg.writes == 1);                        // ...and attempted EXACTLY ONE write
+    CHECK(d.live.calls == 0);                        // ⛔ ...which failed, so no retune and no DAD airtime
+    // ⛔⛔ AND IT DID NOT NOTIFY: §notify-every-save's condition is a write that HAPPENED ([[B194]] inverted).
+    CHECK(d.on_started_calls == 0);
+}
+
+TEST_CASE("§UI15-JOIN an unreadable `/mrcfg` refuses — and it is the TRANSACTION's arm, not an invented one") {
+    JoinDevFake d;
+    d.cfg.have = false;
+    const UiProvAnswer a = join(d, preset(4, 9, 869462500u, 125000u));
+    CHECK(a.outcome == UiProvOutcome::join_refused);
+    CHECK(strcmp(a.reason, mrfw::join_err_name(mrfw::JoinErr::nv_load_failed)) == 0);
+    CHECK(d.apply_calls == 1);
+    CHECK(d.cfg.writes == 0);
+    CHECK(d.live.calls == 0);
+    CHECK(d.on_started_calls == 0);
+}
+
+// ------------------------------------------------------------------------- the SELECT screen's ONE read (plan §3)
+TEST_CASE("§UI15-JOIN the profile read carries the SERVICE's own answer for all FOUR store states") {
+    // ★★ THE FOUR-STATE READ IS SLICE 2's AND IS NOT RE-DERIVED HERE: the adapter's whole job is to carry it, so the
+    //    panel can tell an ordinary fresh device from a corrupt record from a store that would not open.
+    {   // ok, with two presets
+        JoinDevFake d;
+        d.presets.rec.prof[0] = preset(4, 9, 869462500u, 125000u);
+        d.presets.rec.prof[3] = preset(9, 7, 868000000u, 125000u);
+        const mrui::UiJoinList l = mrfw::ui_prov_join_profiles(d);
+        CHECK(d.list_calls == 1);
+        CHECK(l.served == true);
+        CHECK(l.res.verdict == mrfw::ProfileVerdict::ok);
+        CHECK(mrui::join_list_count(l) == 2);
+        CHECK(mrui::join_sel_rows(l).n == 3);        // two slots + BACK
+        CHECK(strcmp(mrui::join_store_head(l), "") == 0);
+        CHECK(l.rec.prof[0].freq_hz == 869462500u);  // ⛔ the record arrives INTEGRAL — no conversion on the read path
+    }
+    {   // absent — an ordinary fresh device
+        JoinDevFake d;
+        d.presets.answer = mrnv::JoinRead::absent;
+        const mrui::UiJoinList l = mrfw::ui_prov_join_profiles(d);
+        CHECK(l.served == true);
+        CHECK(l.res.verdict == mrfw::ProfileVerdict::empty);
+        CHECK(strcmp(mrui::join_store_head(l), "NO PROFILES") == 0);
+    }
+    {   // invalid — the RECORD is wrong
+        JoinDevFake d;
+        d.presets.answer = mrnv::JoinRead::invalid;
+        const mrui::UiJoinList l = mrfw::ui_prov_join_profiles(d);
+        CHECK(l.res.verdict == mrfw::ProfileVerdict::refused);
+        CHECK(l.res.err == mrfw::ProfileErr::store_invalid);
+        CHECK(strcmp(mrui::join_store_head(l), "PROFILE STORE") == 0);
+        CHECK(strcmp(mrui::join_store_detail(l), "INVALID") == 0);
+    }
+    {   // ⛔⛔ io_failed — the STORE would not open, and it must NEVER read as absent or as invalid
+        JoinDevFake d;
+        d.presets.answer = mrnv::JoinRead::io_failed;
+        const mrui::UiJoinList l = mrfw::ui_prov_join_profiles(d);
+        CHECK(l.res.verdict == mrfw::ProfileVerdict::refused);
+        CHECK(l.res.err == mrfw::ProfileErr::store_io_failed);
+        CHECK(strcmp(mrui::join_store_head(l), "STORAGE FAILURE") == 0);
+        CHECK(strcmp(mrui::join_store_detail(l), "CHECK faults") == 0);
+    }
+    // ⛔ AND THE READ WRITES NOTHING, on every state: `list()` is READ-ONLY and repairing on a read is exactly the
+    //    silent fallback the record exists to avoid.
+    for (mrnv::JoinRead st : { mrnv::JoinRead::ok, mrnv::JoinRead::absent,
+                               mrnv::JoinRead::invalid, mrnv::JoinRead::io_failed }) {
+        JoinDevFake d;
+        d.presets.answer = st;
+        (void)mrfw::ui_prov_join_profiles(d);
+        CHECK(d.presets.writes == 0);
+        CHECK(d.cfg.writes == 0);
+        CHECK(d.apply_calls == 0);
+        CHECK(d.live.calls == 0);
+    }
+}
+
 // -------------------------------------------------------------------------------------------- the intent dispatch
 TEST_CASE("§UI15-PROV the adapter dispatches on the INTENT, and `none` performs nothing at all") {
     DevFake d;
-    mrfw::UiProvisionAdapter ad(d);
+    JoinDevFake j;
+    mrfw::UiProvisionAdapter ad(d, j);
     UiProvIntent none{};
     CHECK(none.op == UiProvOp::none);                // the zero value is the inert one
     const UiProvAnswer a0 = ad.perform(none);
@@ -341,10 +562,27 @@ TEST_CASE("§UI15-PROV the adapter dispatches on the INTENT, and `none` performs
     CHECK(d.apply_calls == 0);
     CHECK(d.store.writes == 0);
     CHECK(d.live_total() == 0);
+    CHECK(j.apply_calls == 0);                       // ⛔ ...and it did not reach the OTHER act either
+    CHECK(j.cfg.writes == 0);
     // ...and the create intent goes to the create act, once per call.
     UiProvIntent mk{}; mk.op = UiProvOp::create_team;
     const UiProvAnswer a1 = ad.perform(mk);
     CHECK(a1.outcome == UiProvOutcome::created);
     CHECK(d.apply_calls == 1);
     CHECK(d.store.writes == 1);
+    CHECK(j.apply_calls == 0);                       // ⛔ a CREATE never runs the JOIN transaction
+    // ★★ §UI-15 slice 6 — THE SECOND OP, ON THE SAME SEAM, AND IT CARRIES ITS PROFILE WITH IT: a slot index would
+    //    have made the adapter re-read the store, so what was SHOWN and what is JOINED could differ.
+    UiProvIntent jn{}; jn.op = UiProvOp::join_static; jn.join = preset(4, 9, 869462500u, 125000u);
+    const UiProvAnswer a2 = ad.perform(jn);
+    CHECK(a2.outcome == UiProvOutcome::joining);
+    CHECK(j.apply_calls == 1);
+    CHECK(j.cfg.writes == 1);
+    CHECK(j.last_rq.freq_mhz == 869.4625);
+    CHECK(d.apply_calls == 1);                       // ⛔ ...and a JOIN never runs the TEAM transaction
+    // ...and `profiles()` reaches the join device and nothing else.
+    const mrui::UiJoinList l = ad.profiles();
+    CHECK(l.served == true);
+    CHECK(j.list_calls == 1);
+    CHECK(d.load_calls == 1);                        // unchanged by the read (the create above spent it)
 }

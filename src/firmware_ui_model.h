@@ -63,15 +63,18 @@
 // success before the save returns"), the terminal `create_result` arm, both screens' PURE strings
 // (`kProvCreateTitle` / `prov_confirm_label` / `prov_result_head` / `prov_result_detail`), and the OWNER-RULED
 // hiding of the PARENT `PROVISION` row when no child is available (`provision_has_child`, `settings_rows`).
-// ⛔ WHAT IS STILL MISSING AND WHY (this is the [[meshroute-mark-done-vs-missing-in-code]] statement — read the
-//    per-arm table at `Provision` for the detail, and [[B222]] for the ruling): the FOUR `join_*` arms are DEFINED and
-//    ENTERED BY NOTHING. Activating JOIN NETWORK does NOTHING here — the profile list it selects from is `/mrjoin`'s,
-//    read through the static-join adapter (slice 6), so that transition lands WITH the flow behind it rather than
-//    ahead of it. ⛔ NOT here either, by scope: §2.3's ASYNC join outcome (the `join_adopted` correlation rule, the
-//    60 s `STILL JOINING` timeout) and §3.6.4's nearby-team scan (§UI-16).
-// ⛔ The JOIN row is nonetheless VISIBLE whenever its §6 predicate holds, and that is NOT the refusing stub [[B209]]
-//    forbids: the child IS supported on this build — only the flow behind it is pending, and a row that vanished and
-//    came back one slice later would be a menu that lies about the build it is running on.
+// DONE here (2026-08-20, §UI-15 slice 6 — the STATIC-JOIN half of §3.6.3 and its ASYNCHRONOUS outcome, plan
+// §2.3/§3/§8): the `menu -> join_select` entry and its ONE `/mrjoin` read (`load_join_profiles`), the slot list and
+// its gestures (`join_select_gesture`), the confirmation and its shared BACK-default toggle (`join_confirm_gesture` /
+// `prov_confirm_toggle`), the ONE act (`run_join_static`, whose statement order IS §8 pin 2 for the join half), the
+// three new outcomes (`joining` / `adopted` / `join_refused` — ⛔ never a `JOINED` before a correlated adopt), the
+// 60 s `STILL JOINING` word change as an EDGE-TRIGGERED latch in `on_tick`, the session (`_join`, whose whole
+// lifetime is plan §2.3's) and the push entry point `on_join_push`. ★ The FOUR-TERM CORRELATION RULE itself and every
+// panel string of these screens live in `src/firmware_ui_join.h`, which has its OWN mutation battery.
+// ⛔ WHAT IS STILL MISSING AND WHY (this is the [[meshroute-mark-done-vs-missing-in-code]] statement): §3.6.4's
+//    nearby-team scan and its sealed key grant are §UI-16's, and ⛔ [[B215]] — the audit finding that
+//    `reset_join_for_reprovision()` cancels only the claim guard and not the old listen/retry timers — is ITS OWN
+//    slice by owner disposition (plan §11 q2), so nothing here compensates for it.
 // ⛔ NOT here, by unit boundary: the SERVICE's own state (draft/baseline/latch) — it lives in `ConfigService`, which
 //    this unit POINTS AT and never copies; and the DEVICE bindings of `ICfgStore`/`ICfgLive`, which are
 //    `src/firmware_config.cpp`'s ([[B193]]). ⛔ NOT here at all, by scope: §3.6.3's SCREENS and its adapters to
@@ -139,6 +142,12 @@
 // ⛔ THE MARKER IS `config_unsaved`, NEVER `dirty` — `UiState::dirty` (below) already means "a repaint is owed", and
 //   this file is the one place both are read. That collision is why §3.6.1 named the field in advance.
 #include "firmware_config_service.h"
+// ★★★ §UI-15 slice 6 — the STATIC-JOIN pure unit: the profile-list carrier this file stores in `UiState`, the four
+//     store-state panel strings, the confirmation's value lines, the waiting screen's two headlines and THE
+//     FOUR-TERM CORRELATION RULE. ⛔ It is a file of its own rather than more of this one so that the rule gets its
+//     OWN mutation battery (`--target=uijoin`) — see its header. ⓘ It costs this unit NO new dependency:
+//     `device_nv.h` already arrives through `firmware_config_service.h` above.
+#include "firmware_ui_join.h"
 #include "firmware_ui_input.h"
 
 namespace mrui {
@@ -193,19 +202,19 @@ enum class Settings : uint8_t { closed = 0, browsing, editing, provisioning };
 // ruling is [[B222]]'s: a transition lands WITH the flow behind it, never one slice ahead of it.
 //   `closed`         — LIVE. Not in provisioning. The SETTINGS menu owns the press.
 //   `menu`           — LIVE: the child list (§6, `provision_rows`), the cycling cursor, and BACK (-> `closed`).
-//                      ⛔ Activating JOIN NETWORK does NOTHING here — see `provision_menu_gesture`.
+//                      ⓘ §UI-15 slice 6 gave JOIN NETWORK its landing too (`provision_menu_gesture`).
 //   `create_confirm` — LIVE (slice 5): §3.6.3's confirmation, opened on BACK, `short` toggles, `double` performs.
 //   `create_result`  — LIVE (slice 5): the transaction's verdict, and it is entered ONLY by `run_create_team`, i.e.
 //                      only by the act that established it. Terminal; either press returns to the menu.
-//   `join_select`    — ⛔ slice 6, ENTRY INCLUDED: the PROFILE LIST it selects from is `/mrjoin`'s (slice 2's store,
-//                      read through slice 6's adapter), so an arm that could be entered now would show an empty list.
-//   `join_confirm`   — ⛔ slice 6: entered from `join_select`, so it cannot precede it.
-//   `join_waiting`   — ⛔ slice 6: it exists only once something can START a join, and its ELIGIBILITY/CORRELATION
-//                      rule (plan §2.3 rule 7's four like-for-like terms) is that slice's mutation-tested core.
-//   `join_result`    — ⛔ slice 6: a result arm may only be entered by the act that established it.
-// ⓘ The four pending arms are DEFINED now (the enum is plan §5's adopted shape, and `-Wswitch` then forces every reader
-//   to name them) and they carry a LEAVE-only fail-safe in `provision_gesture` — no arm can trap a press, not even one
-//   nothing can currently enter.
+//   `join_select`    — LIVE (slice 6): the four `/mrjoin` slots (`join_sel_rows` over `UiState::join_list`, read ONCE
+//                      on the transition) plus BACK. A non-`ok` store offers no slot and SAYS why (`join_store_head`).
+//   `join_confirm`   — LIVE (slice 6): design §3.6.3's *"the complete values before confirmation, with BACK selected
+//                      initially"*; `short` toggles, `double` performs. BACK returns to `join_select`, ⛔ not the menu.
+//   `join_waiting`   — LIVE (slice 6): entered ONLY by a `started` transaction. It shows `JOINING`, becomes
+//                      `STILL JOINING` at 60 s (⛔ never a failure), and either press LEAVES IT WITHOUT CANCELLING
+//                      ANYTHING (plan §2.3 rule 4). Its completion is the four-term rule's (`join_push_correlates`).
+//   `join_result`    — LIVE (slice 6): entered by the act that established it (`run_join_static` for a refusal or a
+//                      failed save) or by a CORRELATED adopt (`on_join_push`). ⛔ By nothing else. Terminal.
 enum class Provision : uint8_t {
     closed = 0, menu, create_confirm, create_result, join_select, join_confirm, join_waiting, join_result
 };
@@ -218,7 +227,8 @@ enum class Provision : uint8_t {
 // ⓘ §UI-15 slice 5 gave it its dispatch: `provision_confirm_gesture` toggles it on `short` and acts on it on
 //   `double`, and `prov_confirm_label` renders it. The DEFAULT is unchanged and stays plan §5's closing pin — `back`
 //   is the zero value, so a `ProvConfirm{}` anywhere is already the safe one, and every transition primitive
-//   re-establishes it. ⓘ The JOIN confirmation (slice 6) will reuse this same pair rather than growing a second one.
+//   re-establishes it. ★ §UI-15 slice 6's JOIN confirmation REUSES this same pair (its labels are
+//   `join_confirm_label`'s) rather than growing a second two-member enum — U1, as that note anticipated.
 enum class ProvConfirm : uint8_t { back = 0, confirm };
 
 // ★★★ §4's REFUSAL, AND IT IS A THREE-VALUED DOMAIN BECAUSE THE REMEDIES DIFFER — plan §4 in as many words: *"v1
@@ -442,9 +452,19 @@ inline const char* provision_row_label(ProvRow r) {
 //     turns one into the other, and it is where plan §2.1's `phy.present = false` rule lives.
 // ⓘ A one-field struct rather than a bare enum, deliberately: slice 6's join intent carries the SELECTED PROFILE with
 //   it, and a carrier that cannot grow a field is how a second parallel intent type gets born instead (U1).
-enum class UiProvOp : uint8_t { none = 0, create_team };
+// ★★ §UI-15 slice 6 GREW IT EXACTLY AS THAT NOTE ANTICIPATED, and the growth is the point: `join_static` is a SECOND
+//    op on the SAME seam, so the `default`-less dispatch in `UiProvisionAdapter::perform` forces a reader to state
+//    what performs it. ⛔ A parallel `IUiJoin` seam would have been the second dispatch U1 forbids.
+enum class UiProvOp : uint8_t { none = 0, create_team, join_static };
 struct UiProvIntent {
     UiProvOp op = UiProvOp::none;
+    // ★★★ THE SELECTED PROFILE, CARRIED WHOLE (U2) — ⛔ never a slot INDEX the adapter would re-read the store for.
+    //     WHAT WAS SHOWN IS WHAT IS JOINED: design §3.6.3 requires the complete values on the panel BEFORE the
+    //     confirmation, so re-reading `/mrjoin` at CONFIRM time would let a serial `joinprofile set` between the two
+    //     presses join something the operator never saw. ⓘ MEANINGFUL ONLY when `op == join_static`.
+    // ⓘ It is the STORE's own record type, integral Hz and all: the ONE Hz -> MHz/kHz conversion belongs to the
+    //   REQUEST and is `mrfw::join_request_from_profile`'s, which the adapter calls (U2 — one conversion path).
+    mrnv::JoinProfile join{};
 };
 
 // ★★★ THE TYPED ANSWER, AND THE FOUR OUTCOMES ARE FOUR DIFFERENT THINGS TO SAY — ⛔ never one `bool ok`. `created` is
@@ -453,13 +473,30 @@ struct UiProvIntent {
 //     is the durable write that came back false — §3.6.5's "no screen claims success before the save returns" is what
 //     makes it a state of its own rather than a flavour of `refused`; `refused` is a STAGING refusal, which by the
 //     transaction's contract spent zero writes and zero airtime.
-enum class UiProvOutcome : uint8_t { none = 0, created, phy_differs, save_failed, refused };
+// ★★★ §UI-15 slice 6 ADDS THREE, AND ⛔ NONE OF THEM REUSES `created`/`refused`: a JOIN is not a CREATE, and the two
+//     verbs' words must differ on the panel or the operator cannot tell which operation answered. The three:
+//       `joining`      — the transaction STARTED, i.e. exactly one durable write happened and DAD has BEGUN.
+//                        ⛔⛔ IT IS NOT "JOINED" AND MUST NEVER BE RENDERED AS ONE (plan §2.3 rule 1): the real
+//                        outcome arrives later as a push, and correlating it is `join_push_correlates`'s job.
+//       `adopted`      — a CORRELATED `join_adopted` landed (plan §2.3 rule 2). ★ IT IS THE ONLY OUTCOME THAT MAY
+//                        SHOW A NODE ID, and it is written by `on_join_push` and by nothing else — so no earlier
+//                        state can produce it, which is §8 pin 2 for the asynchronous half.
+//       `join_refused` — a validation / load refusal from the transaction: ZERO writes, ZERO airtime.
+enum class UiProvOutcome : uint8_t {
+    none = 0, created, phy_differs, save_failed, refused, joining, adopted, join_refused
+};
 // ⓘ `reason` IS A POINTER TO STATIC STORAGE and never an owned buffer: the adapter fills it from
 //   `mrfw::prov_err_name`, whose arms are string literals. ⛔ It is never null — `""` is the "nothing to add" value, so
 //   the renderer needs no null test and cannot print a stray pointer. Keeping the token as the SERVICE's own name is
 //   what stops a second `ProvErr`-to-text table being born in the UI (U1).
 struct UiProvAnswer {
     UiProvOutcome outcome = UiProvOutcome::none;
+    // ★ §UI-15 slice 6: the ADOPTED node id, and ⛔ MEANINGFUL ONLY when `outcome == adopted`. It is a SEPARATE
+    //   field from `team_id` because they are different planes' identities and one carrier holding "the id" would be
+    //   the display-shaped field that eventually makes an addressing decision (the rule that killed B48).
+    // ⓘ COST, MEASURED: it lands in the padding after `outcome`, so `sizeof(UiProvAnswer)` stays 16 on the host and
+    //   12 on a 32-bit board.
+    uint8_t       node_id = 0;
     uint32_t      team_id = 0;     // ⛔ MEANINGFUL ONLY when `outcome == created`
     const char*   reason  = "";    // a STATIC token; "" when the outcome carries no second line
 };
@@ -472,6 +509,12 @@ struct UiProvAnswer {
 struct IUiProvision {
     virtual ~IUiProvision() = default;
     virtual UiProvAnswer perform(const UiProvIntent& intent) = 0;
+    // ★★ §UI-15 slice 6 — THE SELECT SCREEN's ONE READ, and it is a METHOD rather than a fourth `UiProvOp` because
+    //    its answer is a 112-byte RECORD, not a verdict: stuffing it into `UiProvAnswer` would make every create
+    //    refusal carry a profile store it has nothing to do with.
+    // ⛔ IT IS CALLED ONCE, ON THE `menu -> join_select` TRANSITION, and never per tick or per page: it reads flash.
+    //    The result is held in `UiState` (frozen with the frame) precisely so the renderer never asks.
+    virtual UiJoinList profiles() = 0;
 };
 
 // ★ THE CONFIRMATION'S TITLE — design §3.6.3's own name for the operation (*"`CREATE NEW TEAM` opens a confirmation"*),
@@ -503,6 +546,16 @@ inline const char* prov_result_head(const UiProvAnswer& a) {
         case UiProvOutcome::phy_differs: return "PHY DIFFERS";
         case UiProvOutcome::save_failed: return mrfw::cfg_save_panel(mrfw::CfgSave::nv_failed);   // "SAVE FAILED"
         case UiProvOutcome::refused:     return "CREATE REFUSED";
+        // ★★ §UI-15 slice 6. ⛔ `joining` CALLS the waiting screen's own word rather than re-spelling it (U1): one
+        //    declaration of `JOINING`, so the transaction's verdict and the screen the operator is looking at can
+        //    never drift apart. ⛔⛔ AND THERE IS NO `JOINED`-SHAPED STRING ON THIS PATH AT ALL — plan §2.3 rule 1.
+        case UiProvOutcome::joining:      return join_wait_head(/*still=*/false);
+        // ⚠ REPORTED, NOT INVENTED (the slice-5 precedent): design §3.6.3 requires *"`JOINING`, adopted/refused, and
+        //   the resulting node id"* and names the STATE `adopted`, but rules no LEXEME for the headline.
+        //   `ADOPTED` is the design's own word; `JOIN REFUSED` is `CREATE REFUSED`'s house-style twin. Both are one
+        //   line each and pinned by a native case, so an owner ruling changes them here and nowhere else.
+        case UiProvOutcome::adopted:      return "ADOPTED";
+        case UiProvOutcome::join_refused: return "JOIN REFUSED";
         case UiProvOutcome::none:        return "";
     }
     return "";
@@ -517,6 +570,12 @@ inline const char* prov_result_detail(const UiProvAnswer& a) {
         //   the flash bytes; `firmware_provisioning_service.h`'s header forbids that claim in as many words.
         case UiProvOutcome::save_failed: return "NOTHING CHANGED";
         case UiProvOutcome::refused:     return a.reason;      // the SERVICE's own token (U1) — never a second table
+        // ★ §UI-15 slice 6: the TRANSACTION's own `JoinErr` token, exactly as `refused` carries `ProvErr`'s — ⛔ never
+        //   a second JoinErr-to-text table. ⓘ `adopted`'s second row is the NODE ID, which is a VALUE and not a
+        //   string this unit owns; `joining` has nothing to add, and the waiting screen says its own words.
+        case UiProvOutcome::join_refused: return a.reason;
+        case UiProvOutcome::joining:
+        case UiProvOutcome::adopted:
         case UiProvOutcome::created:
         case UiProvOutcome::none:        return "";
     }
@@ -1050,6 +1109,25 @@ struct UiState {
     //   (the model's and the frame's frozen copy). `sizeof(UiSnapshot)` is UNCHANGED at 608 (slice 4's two bools
     //   already landed in the tail's padding).
     UiProvAnswer prov_answer{};
+    // ★★★ §UI-15 slice 6 — THE PROFILE LIST THE SELECT SCREEN WALKS, READ ONCE AND FROZEN WITH THE FRAME. ⛔ It is
+    //     NOT re-read per tick or per page: `IUiProvision::profiles()` reaches flash, and U8g2 replays the whole
+    //     scene eight times per frame — a renderer that asked would pay eight reads for one picture.
+    // ★ AND IT IS WHAT THE CONFIRMATION SHOWS **AND** WHAT THE TRANSACTION IS GIVEN (`run_join_static` builds the
+    //   intent from `slot[join_sel - 1]`), so "what was shown is what is joined" is structural rather than intended.
+    // ⓘ COST, MEASURED not assumed, and ⚠ NATIVE ALIGNMENT HIDES THE BOARD FIGURE (D2's standing warning): on the
+    //   host `sizeof(UiJoinList)` is 108 and `sizeof(UiState)` moves 96 -> **200** — the list plus `join_sel` and
+    //   `join_still`, which land in its tail padding and therefore cost ZERO further bytes. `sizeof(UiSnapshot)` is
+    //   UNCHANGED at 608 (this slice adds no snapshot field: the profile list is a MODEL fact, read on a transition,
+    //   ⛔ never republished per tick). ⛔ The authoritative number is a per-board `RAM_used` diff, which is the board
+    //   gate's — this struct is instantiated TWICE on the OLED envs, so the host figure is +208 B of model state.
+    UiJoinList join_list{};
+    // The SELECTED slot, 1..kJoinProfiles, and ⛔ 0 = nothing picked. It is a SLOT NUMBER and never a row index:
+    // rows are built from the `present` flags, so an index means a different profile in a different record (§B66).
+    uint8_t     join_sel = 0;
+    // ★ Plan §2.3 rule 5's word change, LATCHED rather than recomputed at the draw: `FrameGate::step` returns `idle`
+    //   while the model is clean, so a text that changed without a `dirty` would be true and INVISIBLE until some
+    //   unrelated event repainted the panel. `on_tick` moves it exactly at the edge. ⛔ It is not a failure state.
+    bool        join_still = false;
     bool    blanked = false;
     bool    dirty   = true;
 };
@@ -1205,6 +1283,19 @@ public:
             refresh_detail_page();
             _st.dirty = true;
         }
+        // ★★★★ §UI-15 slice 6 / plan §2.3 rule 5 — 60 s ⇒ `STILL JOINING`, ⛔ **AND NOTHING ELSE HAPPENS**. No state
+        //     moves, no transaction is re-run, the session is untouched and ⛔ NO FAILURE IS DECLARED: normal
+        //     adoption is ~23 s, one conflict/retry reaches ~53 s, and retries are NOT finitely bounded — so a
+        //     deadline that failed would LIE about an operation that is still progressing.
+        // ★ EDGE-TRIGGERED, exactly as `mr_ui_on_config_saved`'s latch is, and for the same measured reason:
+        //   `FrameGate::step` answers `idle` while the model is clean, so a word that changed without a `dirty`
+        //   would be TRUE AND INVISIBLE until something unrelated repainted the panel.
+        // ⓘ IT RIDES THE SESSION's CLOCK, not `_last_input_ms`: the operator pressing nothing is not the join taking
+        //   longer, and the panel's own blank timer must keep its separate meaning.
+        if (_st.provisioning == Provision::join_waiting) {
+            const bool still = _join.active && elapsed(s.now_ms, _join.started_ms) >= kJoinStillMs;
+            if (still != _st.join_still) { _st.join_still = still; _st.dirty = true; }
+        }
         // ★★★ §B64, AND THE PLACEMENT IS THE POINT: `FrameGate::step` FREEZES the state immediately after this call
         //    (`mr_ui_tick`: on_gesture -> on_tick -> step), so the highlight must already name the remembered teammate
         //    IN THIS SNAPSHOT. Re-anchoring only on a gesture would leave the panel showing `>` beside one teammate
@@ -1242,6 +1333,37 @@ public:
     //    constructs the adapter over the device bindings and hands it here once, at `mr_ui_init`; the native suite
     //    hands over the SAME pure adapter built on the transaction's own fakes. ⛔ The model never constructs one.
     void attach_provision(IUiProvision& p) { _prov = &p; }
+    // ★★★ §UI-15 slice 6 — THE ASYNCHRONOUS OUTCOME's TWO ENTRY POINTS.
+    // `join_session_active()` is the DEVICE's cheap guard and NOTHING ELSE: `src/firmware_ui.cpp` must read
+    // `/mrcfg` and `g_node` to supply term 2 and term 4, and paying a flash read on every inbound push would be a
+    // per-push cost for a state nothing else on the device needs. ⛔ It is NOT half of the rule — the rule is
+    // `join_push_correlates` and lives in one place, so the guard and the decision cannot drift.
+    // ⛔ CORRECTED IN PLACE 2026-08-20 ([[B228]], V1): this comment used to bound the cost by saying the session is
+    //    *"up for a minute or two in a device's life"*. That was FALSE and it mattered — see `_join` below: BACK, the
+    //    blank, the screen cycle and the 60 s deadline all leave the session RUNNING, so a join that is never adopted
+    //    keeps it active for the rest of the uptime. ⇒ the guard alone was never a bound on the cost, and
+    //    `src/firmware_ui.cpp` carries the kind PREFILTER that actually is one.
+    bool join_session_active() const { return _join.active; }
+    // ★★★★ THE ONE PLACE A PUSH MAY TOUCH THIS SCREEN, and it is a FORWARD to the pure four-term rule plus the two
+    //      state changes a correlated adopt earns. ⛔ EVERY non-correlated push — a boot DAD, a heal re-adopt, any
+    //      `join_refused` reason whatsoever — returns here having changed NOTHING: no screen move, no failure text,
+    //      no session end. That is plan §2.3 rules 2 and 6 expressed as one early return.
+    void on_join_push(const MESHROUTE_NS::Push& pu, uint8_t persisted_layer0_id, uint8_t canonical_node_id) {
+        if (!join_push_correlates(_join, pu.kind, pu.layer_id, pu.dst, persisted_layer0_id, canonical_node_id))
+            return;
+        _join.active = false;                       // ★ the session's ONLY ordinary end (see `_join`'s block)
+        // ⛔ THE SCREEN IS COMPLETED ONLY IF IT IS THE SCREEN THAT IS UP. A push may not navigate the panel; if the
+        //    operator has left `join_waiting` the operation still completed, and the STATUS screen is where a node
+        //    id belongs — ⛔ not a result view that appeared under his thumb.
+        if (_st.provisioning == Provision::join_waiting) {
+            enter_provision(Provision::join_result);
+            UiProvAnswer a{};
+            a.outcome = UiProvOutcome::adopted;
+            a.node_id = pu.dst;                     // ★ the ADOPTED id, read off the push the rule accepted
+            _st.prov_answer = a;
+        }
+        _st.dirty = true;
+    }
     // The visible SETTINGS rows for THIS snapshot — one construction, shared by the cursor bound (`list_len`), the
     // activation and the renderer (U1/U2). ⛔ Never rebuild the list at a call site: a renderer whose list differed
     // from the model's by one row would highlight one thing and act on another.
@@ -1775,6 +1897,24 @@ protected:
     //   the ADAPTER, never an instance. The transaction, its store and its entropy all live behind it, so this model
     //   gains 4/8 bytes and no provisioning state of its own beyond the answer it was handed.
     IUiProvision* _prov = nullptr;
+    // ★★★★ §UI-15 slice 6 — THE JOIN SESSION, AND IT IS DELIBERATELY **NOT** IN `UiState`: it is not rendered (the
+    //      one thing the panel needs from it, the 60 s word change, is latched into `UiState::join_still`), and it
+    //      must OUTLIVE the screen. Freezing it with the frame would suggest it belonged to a picture.
+    // ★★★ ITS LIFETIME IS PLAN §2.3's, TERM BY TERM, AND EVERY EDGE IS THE PLAN's RATHER THAN A CHOICE MADE HERE:
+    //      · it STARTS when a transaction answers `started` (§2.3 rule 1 — the write happened and DAD began);
+    //      · ⛔ BACK does NOT end it (§2.3 rule 4: *"BACK during JOINING only LEAVES THE SCREEN — it does not cancel
+    //        or roll back an already-persisted operation"*). Neither does the blank, nor the screen cycle;
+    //      · ⛔ THE 60 s DEADLINE DOES NOT END IT EITHER (§2.3 rule 5: retries are not finitely bounded, so a
+    //        deadline that ended the session would be the failure the rule forbids, wearing a different name);
+    //      · ⛔ THE ALARM DOES NOT END IT (§8 rule 1 pre-empts the SCREEN; *"an unconfirmed destructive action does
+    //        not survive"* — a join that is already persisted is neither unconfirmed nor cancellable from here);
+    //      · it ENDS on a CORRELATED `join_adopted` (§2.3 rule 2), and on a NEW `started` transaction replacing it.
+    // ⚠ CONSEQUENCE, STATED RATHER THAN DISCOVERED: a correlated adopt that lands while the operator has walked away
+    //   from the waiting screen ENDS the session and shows nothing. ⛔ It does NOT drag the panel to a result screen
+    //   the operator did not ask for — nothing in §2.3 or §3.6.5 authorises a push to navigate, and §3.6.5's own rule
+    //   is that these states are *"never triggered by the waking press"*. The screen that was up is the screen that
+    //   completes.
+    UiJoinSession _join{};
     // ★ The SETTINGS cursor's selection, held by ROW IDENTITY rather than by index — see `sync_settings` for why that
     //   is live here and not merely tidy. ⓘ NO ARITHMETIC VALUE IS RESERVED (§B74): `_cfg_sel_valid` is its own flag,
     //   so row 0 needs no special case and cannot be confused with "nothing is selected".
@@ -2038,7 +2178,7 @@ private:
     //     `Settings::provisioning` ⟺ `Provision != closed` is an invariant over TWO fields, and two fields assigned
     //     at N call sites is the drift that puts the panel in a state the model says it is not in.
     // ★ EVERY ARM CHANGE GOES THROUGH `enter_provision`, so §3.6.3's *"a confirmation opens with BACK selected"* is
-    //   STRUCTURAL rather than remembered: the confirm arms are slice 5/6's, and whichever entry they land as, it goes
+    //   STRUCTURAL rather than remembered: BOTH confirm arms (create and join) land through here, so neither can
     //   through here and cannot forget to re-anchor the cursor. ⓘ Resetting it on the NON-confirm arms too is
     //   deliberate — the field then has exactly one meaning ("what a confirmation would open on"), and no arm can
     //   inherit a CONFIRM selected in a previous, abandoned confirmation. ⇒ the default is asserted on the one entry
@@ -2066,9 +2206,8 @@ private:
     // ★★★ THE SUB-VIEW'S GESTURES. `short` CYCLES within the arm's list and ⛔ never walks out of the screen — the
     //     `InboxModal` / compose rule (a sub-view is left by its own BACK, by the long gesture or by the blank), not
     //     `advance_or_next`'s walk-off, which belongs to the ordinary screen cycle.
-    // ⛔ WHAT IS NOT HERE, BY SLICE ([[B222]], and see this file's header block): the FOUR `join_*` arms are slice 6's
-    //    — the profile list they select from is `/mrjoin`'s — so they are still entered by nothing and keep the
-    //    LEAVE-only fail-safe below. §UI-15 slice 5 lands the CREATE half: `create_confirm` and `create_result`.
+    // ★★ §UI-15 slice 6 LANDS THE JOIN HALF, so the four `join_*` arms below have left the leave-only fail-safe and
+    //    have their own flows. ⛔ WHAT IS STILL NOT HERE, by scope: §3.6.4's nearby-team scan (§UI-16).
     void provision_gesture(Gesture g, const UiSnapshot& s) {
         if (g != Gesture::short_press && g != Gesture::double_press) return;
         switch (_st.provisioning) {
@@ -2078,17 +2217,16 @@ private:
             //    the send result and the `MESSAGE GONE` modal already carry). ⛔ Nothing is re-run and nothing is
             //    confirmed here: the act is over, and the only thing this arm owns is the way out.
             case Provision::create_result:  enter_provision(Provision::menu); return;
-            // ★ THE FOUR PENDING ARMS, AND THIS IS A LEAVE-ONLY FAIL-SAFE RATHER THAN THEIR FLOW: nothing in this tree
-            //   enters them, and if slice 6's push or timeout ever does before its gestures land, a `double` still
-            //   gets the operator back to the menu instead of trapping the panel. ⛔ It claims nothing, cancels
-            //   nothing and confirms nothing — a `double` here is NOT a CONFIRM, which is exactly why `join_confirm`
-            //   may sit in this branch until slice 6 gives it one.
-            case Provision::join_confirm:
-            case Provision::join_select:
-            case Provision::join_waiting:
-            case Provision::join_result:
-                if (g == Gesture::double_press) enter_provision(Provision::menu);
-                return;
+            case Provision::join_select:    join_select_gesture(g);          return;
+            case Provision::join_confirm:   join_confirm_gesture(g, s);      return;
+            // ★★★★ THE WAITING SCREEN, AND EITHER PRESS **ONLY LEAVES IT** — plan §2.3 rule 4, verbatim in
+            //      substance: *"BACK during `JOINING` only LEAVES THE SCREEN; ⛔ it does not cancel or roll back an
+            //      already-persisted operation"*. ⇒ the session is untouched here, deliberately and visibly: the
+            //      join was durably written and DAD is running, and there is no verb on this device that could
+            //      un-write it. ⛔ Nothing is cancelled, nothing is retried, nothing is said.
+            case Provision::join_waiting:   enter_provision(Provision::menu); return;
+            // The join RESULT is terminal in exactly the same way the create one is.
+            case Provision::join_result:    enter_provision(Provision::menu); return;
             // ⛔ UNREACHABLE BY THE INVARIANT (`Settings::provisioning` implies a non-`closed` arm) and handled rather
             //    than defaulted: if it is ever reached the two fields have drifted, and the safe answer is to put them
             //    back in step instead of interpreting a press against a state that does not exist.
@@ -2109,14 +2247,15 @@ private:
             //    rule honoured rather than waived): `enter_provision` is what re-anchors the cursor on BACK, so
             //    §3.6.3's *"reaching CREATE requires `short` then `double`"* is structural.
             case ProvRow::create_team: enter_provision(Provision::create_confirm); return;
-            // ⛔⛔ THE JOIN FLOW IS STILL SLICE 6's, ENTRY INCLUDED ([[B222]], QG-ruled): the PROFILE SELECTION's rows
-            //     are `/mrjoin`'s, read through the static-join adapter, so an entry landing now would offer a list
-            //     with no rows. ⇒ ACTIVATING THIS ROW DOES NOTHING HERE.
-            // ⓘ The row is still SHOWN whenever its §6 predicate holds, and that is not the refusing stub [[B209]]
-            //   forbids: [[B209]] is about a child THE BUILD CANNOT SUPPORT, and this one it can — see the header
-            //   block. Nor is anything SAID: no `ProvBlock`, no note. §4's two cells are the gate's remedies and
-            //   neither of them is "come back in a slice".
-            case ProvRow::join_static: return;
+            // ★★★★ §UI-15 slice 6 — THE JOIN FLOW's ENTRY, LANDING WITH THE FLOW BEHIND IT ([[B222]]'s rule
+            //      honoured rather than waived: slice 5 left this arm a `return` precisely because the list it
+            //      selects from did not exist yet). ⛔ THE LIST IS READ **HERE AND ONCE** — on the transition, not
+            //      per tick and not per page: `profiles()` reaches flash.
+            // ⓘ A refusing store is NOT a refusing transition: the screen OPENS and SAYS what is wrong
+            //   (`join_store_head`/`_detail`), because "there are no profiles" and "the store is corrupt" are facts
+            //   the operator came here to learn. ⛔ Silently refusing to open would be indistinguishable from a dead
+            //   button — the complaint `run_create_team`'s null-seam arm is built against.
+            case ProvRow::join_static: load_join_profiles(); enter_provision(Provision::join_select); return;
             case ProvRow::back:        close_provisioning(); return;
             case ProvRow::count:       return;   // the enum's BOUND, listed so -Wswitch stays useful
         }
@@ -2128,12 +2267,16 @@ private:
     // ⛔ NO SNAPSHOT IS READ HERE, deliberately: the act's inputs are the DEVICE's (the record, the live PHY, the
     //    build floor) and they are gathered by the adapter at the instant it runs — ⛔ never frozen a frame earlier
     //    into a UI snapshot, which is how a stale PHY reading would silently pass the precondition.
+    // ★ §UI-15 slice 6 hoisted the TOGGLE into one spelling (U1) because the JOIN confirmation is the same pair with
+    //   a different landing — two copies of "flip the cursor" is how one of them eventually stops marking dirty.
+    //   ⛔ The two LANDINGS stay separate functions: they perform different acts and return to different screens,
+    //   and one function branching on the arm is how a `double` on BACK eventually reaches the wrong one.
+    void prov_confirm_toggle() {
+        _st.prov_confirm = (_st.prov_confirm == ProvConfirm::back) ? ProvConfirm::confirm : ProvConfirm::back;
+        _st.dirty = true;
+    }
     void provision_confirm_gesture(Gesture g) {
-        if (g == Gesture::short_press) {
-            _st.prov_confirm = (_st.prov_confirm == ProvConfirm::back) ? ProvConfirm::confirm : ProvConfirm::back;
-            _st.dirty = true;
-            return;
-        }
+        if (g == Gesture::short_press) { prov_confirm_toggle(); return; }
         if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }
         run_create_team();
     }
@@ -2155,6 +2298,89 @@ private:
             a.reason  = "no service";
         }
         enter_provision(Provision::create_result);
+        _st.prov_answer = a;
+    }
+
+    // ============================================================== §UI-15 slice 6 — the STATIC-JOIN flow (§3.6.3)
+    // ★★ THE ONE READ OF `/mrjoin`, and it happens on the TRANSITION (see `provision_menu_gesture`). ⛔ A null seam
+    //    is a REAL STATE and fails closed: `served` stays false, so the screen offers no slot and says so.
+    void load_join_profiles() {
+        _st.join_list = _prov ? _prov->profiles() : UiJoinList{};
+        _st.join_sel  = 0;
+    }
+    // `short` CYCLES the slot list and ⛔ never walks out of the screen (the sub-view rule, three menus deep);
+    // `double` opens the CONFIRMATION for the selected slot, or leaves.
+    void join_select_gesture(Gesture g) {
+        const JoinSelList l = join_sel_rows(_st.join_list);
+        if (g == Gesture::short_press) {
+            // ⓘ SPELLED OUT rather than shared with `provision_menu_gesture`'s identical line: the two walk
+            //   different lists, and one function branching on the arm is how a press eventually acts on the other.
+            if (l.n) _st.cursor = uint8_t((_st.cursor + 1) % l.n);   // CYCLES — the sub-view rule, three menus deep
+            _st.dirty = true;
+            return;
+        }
+        JoinSelRow r{};
+        if (!l.at(_st.cursor, r)) return;                            // fails closed — see JoinSelList::at
+        if (r.back) { enter_provision(Provision::menu); return; }
+        // ★ THE PICK IS THE SLOT NUMBER, ⛔ never the row index (§B66): the rows are built from the `present` flags,
+        //   so index 1 is slot 2 on one record and slot 3 on another. `enter_provision` re-anchors the cursor and the
+        //   BACK default, so the confirmation cannot open on the destructive choice.
+        _st.join_sel = r.slot1;
+        enter_provision(Provision::join_confirm);
+    }
+    // ★★★★ THE JOIN CONFIRMATION — the `InboxAction`/create pair a third time (U3): `short` TOGGLES, `double`
+    //      PERFORMS the selected one, and ⛔ `double` on BACK may NOT fall through into the act. Its landing differs
+    //      from the create one's by design: BACK returns to the SLOT LIST the operator came from, not to the child
+    //      menu, because that is the screen he was choosing on.
+    // ⓘ THE SNAPSHOT IS READ HERE, and this is the ONE deliberate difference from `provision_confirm_gesture`'s
+    //   "no snapshot" rule: the act starts a SESSION whose only clock fact is when it began (plan §2.3 rule 5's
+    //   60 s word change). ⛔ It is not an INPUT to the transaction — the profile values are — and nothing about the
+    //   device is read from the frame.
+    void join_confirm_gesture(Gesture g, const UiSnapshot& s) {
+        if (g == Gesture::short_press) { prov_confirm_toggle(); return; }
+        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::join_select); return; }
+        run_join_static(s);
+    }
+    // ★★★★ THE ACT, AND THE ORDER OF ITS STATEMENTS IS §8 PIN 2 EXACTLY AS `run_create_team`'s IS: the transaction
+    //      RUNS, RETURNS, and only then does the screen move and the verdict land. ⛔ There is no path that shows a
+    //      `JOINING` before `perform()` came back, and ⛔⛔ NO PATH AT ALL that shows an ADOPTED — that outcome is
+    //      `on_join_push`'s alone, behind the four-term rule.
+    // ⓘ A NULL SEAM, OR A PICK THAT NAMES NO PRESENT SLOT, REFUSES OUT LOUD (C2) rather than doing nothing — the
+    //   dead-button complaint, and here it also covers a list that moved under a stale `join_sel`.
+    void run_join_static(const UiSnapshot& s) {
+        UiProvAnswer a{};
+        const uint8_t sel = _st.join_sel;
+        // ⓘ ⚠ THE SLOT CLAUSES ARE A FLOOR AND ARE **UNREACHABLE BY CONSTRUCTION**, and that is MARKED rather
+        //   than claimed as tested (the slice-5 `no_change`-arm precedent): `join_confirm` is entered ONLY by
+        //   `join_select_gesture`, which has just read the slot off a row built from the `present` flags. ⇒ a
+        //   mutation dropping them stays GREEN, so ⛔ no battery entry counts them as covered. They are written
+        //   because C2 requires the act to fail closed, not because a path reaches them today.
+        const bool ok = _prov && sel >= 1 && sel <= mrnv::kJoinProfiles && _st.join_list.rec.prof[sel - 1].present;
+        uint8_t requested_layer = 0;
+        if (ok) {
+            UiProvIntent in{};
+            in.op   = UiProvOp::join_static;
+            in.join = _st.join_list.rec.prof[sel - 1];   // ★ WHAT WAS SHOWN IS WHAT IS JOINED (U2 — the whole record)
+            requested_layer = in.join.layer;             // the FULL byte, cached for the correlation's term 2/3
+            a = _prov->perform(in);
+        } else {
+            a.outcome = UiProvOutcome::join_refused;
+            a.reason  = "no service";
+        }
+        // ★★★ THE TWO LANDINGS, AND THE `joining` ONE IS THE POINT OF THE WHOLE SLICE: a started transaction has
+        //     written once and begun DAD, so the screen WAITS — it does not report a result it does not have.
+        if (a.outcome == UiProvOutcome::joining) {
+            enter_provision(Provision::join_waiting);
+            // ⛔ THE SESSION IS ARMED ONLY HERE, AFTER `perform()` RETURNED `joining`. Arming it before (or on a
+            //    refusal) would leave a correlation window open for an operation that never started — the mirror of
+            //    the "success that isn't", one layer down.
+            _join.active          = true;
+            _join.requested_layer = requested_layer;
+            _join.started_ms      = s.now_ms;
+            _st.join_still        = false;               // a fresh session starts at `JOINING`, never mid-word
+        } else {
+            enter_provision(Provision::join_result);
+        }
         _st.prov_answer = a;
     }
     // ★★★★ §B64 — THE TEAMMATE THE CURSOR IS ON, HELD BY IDENTITY, AND RE-FOUND IN EVERY SNAPSHOT.
@@ -2397,8 +2623,12 @@ inline void UiModel::emergency_gesture(Gesture g, const UiSnapshot& s) {
     // ★★★★ §UI-15 slice 4 — AND THE PROVISIONING SUB-VIEW CLOSES AT `long_arm` TOO, one level deeper and for the
     //     STRONGER of the two reasons: §3.6.5 rule 1 is that *"emergency PRE-EMPTS any provisioning screen — an
     //     unconfirmed destructive action does not survive"*. A sub-view left standing under an overlay that owns the
-    //     body is invisible AND still holds the press — in this tree that is the child MENU (the confirmations are
-    //     slice 5/6's), and the row one press from BACK is CREATE TEAM, which replaces a membership.
+    //     body is invisible AND still holds the press, and the row one press from BACK is CREATE TEAM (which
+    //     replaces a membership) or a JOIN CONFIRMATION (which re-provisions the node).
+    // ★★ §UI-15 slice 6, AND IT IS THE ONE THING THE PRE-EMPTION DELIBERATELY DOES **NOT** DO: closing the sub-view
+    //    does ⛔ NOT end a join SESSION. §3.6.5's words are *"an UNCONFIRMED destructive action does not survive"* —
+    //    a join that is already written and already DAD-ing is neither unconfirmed nor cancellable from a screen, and
+    //    pretending otherwise would be plan §2.3 rule 4's forbidden rollback arriving through the alarm.
     // ⚠ IT IS PLACED **BEFORE** THE EDITOR'S LINE DELIBERATELY, and the reason is instrument hygiene rather than
     //   behaviour (the two states are mutually exclusive): the mutation battery's M36/M37 anchor on the editor line
     //   TOGETHER WITH the `long_arm` line below it, and an insertion between them would silently drop both to match

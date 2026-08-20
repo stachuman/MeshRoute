@@ -1,7 +1,9 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # §UI-15 slice 5 — team-create adapter + screens · dispatch brief · 2026-08-19
 
-⚠ **OPEN OWNER RULING (added 2026-08-20, survives the slice):** four result-screen strings are HOUSE-STYLE DRAFTS,
+✅ **SETTLED 2026-08-20 — OWNER RULING (reported form): ALL drafted strings APPROVED UNCHANGED.** ⓘ Kept below as
+written for the record; no wording change is owed.
+⚠ ~~OPEN OWNER RULING (added 2026-08-20, survives the slice):~~ four result-screen strings were HOUSE-STYLE DRAFTS,
 not owner-ruled — **`TEAM CREATED` · `CREATE REFUSED` · `NOTHING CHANGED` · `REPLACES <fp>`** (plus `no service`
 for a null seam; `CREATE NEW TEAM` is the design's own name; `PHY DIFFERS`/`USE SERIAL` IS ruled). Each is one line
 in `firmware_ui_model.h`/`firmware_ui_chrome.h` with a native case pinning it. QG gated WITH the drafts; a later

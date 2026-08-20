@@ -68,6 +68,11 @@ TARGET_SRC = {
     #    precondition and plan §2.1's `phy.present = false` live in a file of their own, so without its own target the
     #    ruling would have had no controlled mutation at all — the [[B217]] shape this runner exists to avoid.
     "uiprov": "src/firmware_ui_prov.h",         # §UI-15 slice 5 — the OLED team-create adapter
+    # ★★ ADDED 2026-08-20 BY §UI-15 slice 6, and for the reason every target above it was added: plan §2.3's
+    #    FOUR-TERM CORRELATION RULE must be attacked TERM BY TERM, and a battery is per-SOURCE-FILE. Left inside the
+    #    2600-line model it would have shared `model`'s 80 entries and the four terms would have had no isolated
+    #    controls at all — the [[B217]] shape this runner exists to avoid.
+    "uijoin": "src/firmware_ui_join.h",         # §UI-15 slice 6 — the static-join screens' pure unit + the rule
 }
 _flags = [a for a in sys.argv[1:] if a.startswith("--")]
 _TARGET = "model"
@@ -84,153 +89,52 @@ H = os.path.join(ROOT, TARGET_SRC[_TARGET])
 #    measured nothing — the instrument-that-cannot-fail shape, in the tool built to prevent it. ⇒ the clean tree is run
 #    FIRST and must produce EXACTLY these figures, or the run ABORTS before a single mutation is applied.
 #    ⓘ Override deliberately (a slice that legitimately adds cases): MR_MUT_BASE="cases,asserts".
-BASE_CASES, BASE_ASSERTS = 1800, 86200   # ★★ RE-PINNED 2026-08-19 by §UI-15 slice 5 (the team-create adapter and
-                                         # its two screens): **1783 / 85884 -> 1800 / 86200** (+17 cases /
-                                         # +316 assertions). ⓘ DERIVED, NOT MERELY OBSERVED — which is what
-                                         # proves the slice-4 pin below was still exact:
-                                         #   +9  test/test_firmware_ui_prov.cpp, the NEW adapter suite
-                                         #        (control · the `phy.present=false` request · the four
-                                         #         one-field PHY divergences + their positive arm · the
-                                         #         two-ProvPhy pin · unreadable record · failed save ·
-                                         #         staging refusal · incomplete PHY · intent dispatch)
-                                         #                                                    +132 asserts
-                                         #   +6  `ui15-create:` in test_firmware_ui_model.cpp
-                                         #        (open-on-BACK · BACK costs nothing · CONFIRM drives
-                                         #         exactly one and lands after it · the short-press exit
-                                         #         and the null seam · the strings · close+pre-emption
-                                         #         over the two new arms)                     +108 asserts
-                                         #   +1  `ui15-parent:` — the owner's parent-row ruling         +41
-                                         #   -1  ...REPLACING slice 4's "a build with NEITHER child opens
-                                         #        a menu that offers only BACK", which the ruling makes
-                                         #        UNREACHABLE by construction                    -9 asserts
-                                         #   +2  `chrome-teamid:` / `chrome-replaces:` in
-                                         #        test_firmware_ui_chrome.cpp                  +45 asserts
-                                         #   +0  `ui15-pending:` re-aimed at the JOIN row only (the create
-                                         #        half now HAS its flow), same case            -14 asserts
-                                         #   +0  `chrome4-audit:` — the confirmation's title/actions and
-                                         #        the result's two lines added to the width walk +13 asserts
-                                         #                                            net +17 / +316
-                                         # ⓘ EVERY LINE ABOVE IS MEASURED (`program -tc=<group>` /
-                                         #   `-sf=<file>`), not estimated; the two totals balance exactly.
-                                         # ---- the previous pin's derivation, kept as history ----
-                                         # ★★ RE-PINNED 2026-08-19 by the §UI-15 slice 4 CORRECTIONS
-                                         # ([[B222]] the two early child-flow entries removed, [[B223]] the
-                                         # close-on-leave reset hoisted into a PURE helper the suite drives):
-                                         # **1782 / 85815 -> 1783 / 85884** (+1 case / +69 assertions).
-                                         # ⓘ DERIVED, NOT MERELY OBSERVED — and both directions are in it,
-                                         # which is what proves the slice-4 pin below was exact:
-                                         #   -2  the two `ui15-confirm:` FLOW cases, deleted WITH the
-                                         #        transitions they rode through (CREATE -> create_confirm
-                                         #        9 asserts, JOIN -> join_select 5)              -14 asserts
-                                         #   +1  `ui15-pending:` — activating either child does
-                                         #        NOTHING (2 children x 14)                      +28 asserts
-                                         #   +1  `ui15-confirm:` — the BACK default asserted
-                                         #        DIRECTLY as model state, no flow                +16 asserts
-                                         #   +1  `ui15-close:` — the pure reset over ALL EIGHT
-                                         #        arms x 2 confirm values x 3, + 1 count + 4
-                                         #        idempotence                                    +53 asserts
-                                         #   +0  `ui15-close:` (the tick/long case) rewritten in
-                                         #        place: 3 driven arms -> the 1 reachable one     -14 asserts
-                                         #   +0  `ui15-close:` (the leave-by-BACK case) RE-TITLED
-                                         #        in place; `ui15-emergency:` and `ui15-hide:`
-                                         #        re-aimed off the removed flows, same counts      +0 asserts
-                                         #                                            net  +1 / +69
-                                         # ---- the previous pin's derivation, kept as history ----
-                                         # ★★ RE-PINNED 2026-08-19 by §UI-15 slice 4 (the pure provisioning
-                                         # state model + the §4 gate + §6 hiding): **1767 / 85636 -> 1782 /
-                                         # 85815** (+15 cases / +179 assertions). ⓘ DERIVED, NOT MERELY
-                                         # OBSERVED — which is what proves the previous pin was still exact:
-                                         #   +16 NEW cases, the `ui15-{model,gate,menu,confirm,close,
-                                         #        emergency,hide}` groups in
-                                         #        test/test_firmware_ui_model.cpp            +183 asserts
-                                         #   -1  the §UI-14 PLACEHOLDER case `ui14-provision:
-                                         #        the row is PRESENT and INERT`, retired WITH the
-                                         #        placeholder it pinned (`cfg_provision_na`)   -10 asserts
-                                         #   +0  `chrome4-audit:` — the one `cfg_provision_na`
-                                         #        width line replaced by the 3 `ProvBlock` notes
-                                         #        + the 3 `provision_row_label` rows            +5 asserts
-                                         #   +0  `ui14-marker:` — the one `PROVISION: UI-15`
-                                         #        line replaced by §4's TWO remedy cells        +1 assert
-                                         #                                          net  +15 / +179
-                                         # ---- the previous pin's derivation, kept as history ----
-                                         # ★★ RE-PINNED 2026-08-19 by §UI-15 slice 3 (the pure team-id
-                                         # fingerprint): **1764 / 84729 -> 1767 / 85636** (+3 cases / +907
-                                         # assertions, ALL three in test/test_firmware_ui_chrome.cpp's new
-                                         # `chrome-fingerprint:` group). ⓘ THE DELTA IS DERIVED, NOT MERELY
-                                         # OBSERVED, which is what proves the previous pin was still exact:
-                                         #   definition table  1 + 9 rows x (strcmp + strlen + 6 char-class) + 2 =  75
-                                         #   the MASK case     256 top-byte pairs x 2 + 24 visible low bits
-                                         #                     + C(24,2)=276 pairwise + 8 invisible high bits  = 820
-                                         #   the padding case  1 + 10 poisoned tail bytes + 1 short-cap        =  12
-                                         #                                                              total  = 907
-                                         # ---- the previous pin's derivation, kept as history ----
-                                         # ★★ RE-PINNED 2026-08-19 by the [[B218]] REOPEN correction (§UI-15
-                                         # slice 2): **1764 / 84705 -> 1764 / 84729** (+0 cases / +24
-                                         # assertions — the false "an OPEN failure is an ORDINARY absent slot"
-                                         # case was REWRITTEN IN PLACE as the tri-state lookup case (NOENT /
-                                         # metadata error / present-but-unopenable, as SUBCASES — hence no case
-                                         # movement), plus the counted `lookups == 0` discriminator on every
-                                         # io == nullptr path of the PIN 6 case).
-                                         # ---- the previous pin's derivation, kept as history ----
-                                         # ★★ RE-PINNED 2026-08-19 by the §UI-15 slice 2 CORRECTIONS:
-                                         # **1754 / 84519 -> 1764 / 84705** (+10 cases / +186 assertions —
-                                         # the two read arms driven through fake backends, the strict
-                                         # positional parse, and the io_failed column of the store matrix).
-                                         # ⛔ RE-PINNING IS PART OF THE SLICE, NOT AN AFTERTHOUGHT: a stale
-                                         # pin ABORTS every battery WITHOUT APPLYING A MUTATION and reports
-                                         # no RED lines — indistinguishable from a battery that found
-                                         # nothing. That is [[B217]], and slice 1 shipped it.
-                                         # ---- the previous pin's derivation, kept as history ----
-                                         # ★★ RE-PINNED 2026-08-19 by §UI-15 slice 2: 1680 / 83432 -> **1754 / 84519**.
-                                         # ⚠ THE PIN WAS ALREADY STALE WHEN THIS SLICE FOUND IT: §UI-15 slice 1 added
-                                         # test/test_firmware_join_service.cpp (uncommitted in the tree) and did NOT
-                                         # re-pin, so the gate below ABORTED on every target. The new value is the
-                                         # MEASURED clean tree (1733/84164 before this slice's 21 cases / 355
-                                         # assertions). ★ The baseline is a property of the TREE, not of the target —
-                                         # one number serves all five batteries, and a stale one disarms all five.
-                                         # (+2 cases / +86 assertions: `chrome4-audit:` — design §7.3's audit of
-                                         # every PURE panel string against the rail's 19-column body, including
-                                         # §7.1 rule 6's preset-collision check — and `chrome-nav:`'s pin on the
-                                         # rail enumerator order the renderer indexes by. The remaining assertions
-                                         # are the RE-DERIVED inbox-detail geometry: 21 -> 19 columns, 42 -> 38
-                                         # characters a page, 6 -> 7 pages.)
-                                         # ---- §CHROME-3's derivation, kept as history ----
-                                         # ★★ RE-PINNED 2026-08-16 by §CHROME-3: 1673 / 83284 -> **1678 / 83346**
-                                         # (+5 cases / +62 assertions, ALL in `test/test_firmware_ui_chrome.cpp`'s
-                                         # new `chrome-invalidate:` group — §8.3's rule, including the case that
-                                         # pins §8.3.1's WITHDRAWN instruction as NOT implemented).
-                                         # ---- §CHROME-1's derivation, kept as history ----
-                                         # ★★ RE-PINNED 2026-08-16 by §CHROME-1: 1651 / 82867 -> 1671 / 83252
-                                         # (round 1: +20 cases / +385 assertions, ALL in the new
-                                         # `test/test_firmware_ui_chrome.cpp`) -> **1673 / 83284** (round 2's QG
-                                         # corrections: the compose/inbox-detail PRECEDENCE case split out with its
-                                         # own control, one REAL model-driven outcome transition, the geometric
-                                         # battery bound, and the two vacuous 17-iteration outcome loops REPLACED by
-                                         # a cross product that can actually come out differently).
-                                         # ⛔⛔ AND THE PIN WAS ALREADY STALE WHEN THIS SLICE FOUND IT, which is
-                                         # worth recording rather than quietly overwriting: it still read
-                                         # 1615 / 82362 while HEAD `b8929e5` measured 1651 / 82867 — i.e. §T3 and
-                                         # the §B200 arc added 36 cases / 505 assertions without re-pinning, so
-                                         # ANY run of this tool in between ABORTED at the baseline gate and
-                                         # measured NOTHING. ⓘ That is the gate working (it refused rather than
-                                         # reporting successes), but a gate nobody can pass is a battery nobody
-                                         # runs. The 1615 -> 1651 step is NOT attributed here; only 1651 -> 1671 is.
-                                         # ---- the pre-§CHROME-1 derivation, kept as history ----
-                                         # 2026-08-13 §notify-every-save ([[B194]]): +2 cases / +23 assertions — the
-                                         # `leave` SHAPE (all four covered fields reset to 0 under an open draft ->
-                                         # conflict + SAVE refused) and its NEGATIVE half (a `join`-shaped write moves
-                                         # no covered field and must raise NOTHING, which is what makes "notify on
-                                         # EVERY user-initiated save" self-limiting rather than merely loud).
-                                         # 2026-08-13 §UI-14 follow-up: 1610 / 82310 -> 1613 / 82339 for the IMMEDIATE
-                                         # external-write notification (spec §3.6.1) — incl. the change->REVERT->SAVE
-                                         # case the save-time byte comparison structurally cannot catch.
-                                         # 2026-08-13 §UI-14: 1581 / 81943 -> +29 cases / +367 assertions, all in
-                                         # test/test_firmware_ui_model.cpp (the SETTINGS screen, its marker and the
-                                         # save/discard/reboot states) — 2 of those assertions are the CYCLE update
-                                         # existing cases needed, the rest are new. ⓘ Before that: 1552 / 81563 ->
-                                         # 1581 / 81943 was §UI-13's. The pin is the WHOLE suite's, so BOTH targets
-                                         # move together when either adds cases — that is why it is one constant and
-                                         # not a per-target one.
+BASE_CASES, BASE_ASSERTS = 1829, 86790   # ★★ RE-PINNED 2026-08-20 by §UI-15 slice 6 (the static-join adapter,
+                                         # the ASYNC outcome and the four join screens):
+                                         # **1800 / 86200 -> 1829 / 86790** (+29 cases / +590 assertions).
+                                         # ⚠ THE ASSERTION FIGURE MOVED TWICE DURING THE SLICE — 86781 -> 86789
+                                         # -> 86790 — and the moves are recorded because each one is the
+                                         # instrument WORKING rather than noise:
+                                         #   · the first `--target=uijoin` run reported J02/J13/J20 UNUSABLE —
+                                         #     three cases that DESCRIBED a property and MEASURED a neighbouring
+                                         #     one (term 2's shape was already separated by term 3; the fault
+                                         #     lists were EMPTY, so a dropped verdict gate found nothing anyway;
+                                         #     a full-width label truncated to the same answer a `%s` would give).
+                                         #     Re-shaped: +8 assertions, and all three then went RED.
+                                         #   · the first `--target=model` run reported the slot-vs-index entry
+                                         #     UNUSABLE for the same class of reason — its fixture held slots 1
+                                         #     and 2, where the ROW INDEX and the SLOT NUMBER coincide. Re-shaped
+                                         #     to slots 1 and 3: +1 assertion.
+                                         # ⓘ DERIVED, NOT MERELY OBSERVED — which is what proves the slice-5 pin
+                                         # below was still exact:
+                                         #   +12 test/test_firmware_ui_join.cpp, the NEW pure-unit suite
+                                         #        (the correlation CONTROL · the four TERMS one at a time · the
+                                         #         kind gate over every PushKind and every JoinRefuseReason ·
+                                         #         trap 2 above layer 15 · the four-state store matrix as panel
+                                         #         text · the select row list · the label / value / waiting /
+                                         #         node strings)
+                                         #   +8  `§UI15-JOIN` in test/test_firmware_ui_prov.cpp, the ADAPTER half
+                                         #        (control · the ONE integral->double conversion · layer 17's
+                                         #         full-byte/nibble split · the empty-slot floor · a domain
+                                         #         refusal · a failed save · an unreadable /mrcfg · the
+                                         #         four-state profile read)
+                                         #   +10 `ui15-entry:` + the nine `ui15-join:` cases in
+                                         #        test_firmware_ui_model.cpp (the entry's ONE read · the store
+                                         #         matrix on the screen · BACK costs nothing on all four arms
+                                         #         while CONFIRM drives exactly one · JOINING-never-JOINED · the
+                                         #         refusal/save landings · the four uncorrelated shapes by name ·
+                                         #         every JoinRefuseReason ignored · the 60 s word change and
+                                         #         BACK-cancels-nothing · close-on-leave + pre-emption over the
+                                         #         four new arms · trap 2 through the screen)
+                                         #   -1  ...MINUS `ui15-pending`, whose whole content was that activating
+                                         #        JOIN NETWORK does NOTHING — the state this slice ends. It is
+                                         #        WITHDRAWN IN PLACE (a comment where it stood), and `ui15-entry`
+                                         #        carries the property it really held.
+                                         #   +0  `chrome4-audit:` widened to the three new outcomes and to the
+                                         #        join screens' seven strings — same case, more assertions
+                                         #   +0  `ui15-hide:`'s landing moved from `menu` to `join_select` (the
+                                         #        supported child now HAS a flow) — same case
+                                         #   ⇒ 12 + 8 + 10 - 1 = +29 cases.
 if os.environ.get("MR_MUT_BASE"):
     BASE_CASES, BASE_ASSERTS = (int(x) for x in os.environ["MR_MUT_BASE"].split(","))
 
@@ -792,13 +696,16 @@ MUTS_MODEL = [
   "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }\n"
   "        run_create_team();",
   "        run_create_team();"),
+ # ⚠ M69 RETARGETED 2026-08-20 (§UI-15 slice 6), and the retarget is recorded rather than the entry quietly
+ #   rewritten: the four-line toggle it used to match was HOISTED into `prov_confirm_toggle()` because the JOIN
+ #   confirmation is the same pair with a different landing (U1 — two copies is how one of them stops marking dirty).
+ #   ⇒ a sed for the old lines would now match NOTHING and be reported VACUOUS. ★ The SEMANTIC is unchanged: `short`
+ #   in the CREATE confirmation acts instead of toggling, so one press reaches CREATE.
  ("M69 `short` in the confirmation ACTS instead of toggling (one press reaches CREATE)",
-  "        if (g == Gesture::short_press) {\n"
-  "            _st.prov_confirm = (_st.prov_confirm == ProvConfirm::back) ? ProvConfirm::confirm : ProvConfirm::back;\n"
-  "            _st.dirty = true;\n"
-  "            return;\n"
-  "        }",
-  "        if (g == Gesture::short_press) { run_create_team(); return; }"),
+  "        if (g == Gesture::short_press) { prov_confirm_toggle(); return; }\n"
+  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }",
+  "        if (g == Gesture::short_press) { run_create_team(); return; }\n"
+  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }"),
  # ⛔⛔ M70 IS §8 PIN 2 INVERTED, AND IT IS THE TEMPTING SHAPE: move the screen first "so the panel is already showing
  #    the right state when the answer lands". The act then runs UNDER the result screen — which is precisely the
  #    "claims success before the save returns" the design forbids. The fake records WHERE the model was when it ran,
@@ -837,6 +744,71 @@ MUTS_MODEL = [
  ("M77 the parent's predicate counts the UNCONDITIONAL back row, so every build shows PROVISION",
   "        if (l.row[i] != ProvRow::back) return true;",
   "        return true;"),
+ # --- §UI-15 slice 6: the STATIC-JOIN flow, its landings and the ASYNCHRONOUS outcome ------------------------------
+ # ★ THE AIM IS THE FOUR WAYS THIS FLOW LIES: it acts on the SAFE choice (M77/M78), it claims an outcome the act has
+ #   not returned (M79/M83), it CANCELS an already-persisted operation the plan says it may not (M81/M82), or it
+ #   turns the 60 s word change into the FAILURE plan §2.3 rule 5 forbids (M80).
+ ("M78 the JOIN entry never reads the profile store (the list opens on whatever the last visit left)",
+  "            case ProvRow::join_static: load_join_profiles(); enter_provision(Provision::join_select); return;",
+  "            case ProvRow::join_static: enter_provision(Provision::join_select); return;"),
+ ("M79 ★★ the join confirmation fires the transaction on BACK too (the safe action performs the join)",
+  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::join_select); return; }\n"
+  "        run_join_static(s);",
+  "        run_join_static(s);"),
+ ("M80 `short` in the join confirmation ACTS instead of toggling (one press starts a join)",
+  "        if (g == Gesture::short_press) { prov_confirm_toggle(); return; }\n"
+  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::join_select); return; }",
+  "        if (g == Gesture::short_press) { run_join_static(s); return; }\n"
+  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::join_select); return; }"),
+ ("M81 ★★ the RESULT screen is entered BEFORE the join transaction runs (§8 pin 2, inverted, join half)",
+  "        UiProvAnswer a{};\n        const uint8_t sel = _st.join_sel;",
+  "        UiProvAnswer a{};\n        enter_provision(Provision::join_result);\n        const uint8_t sel = _st.join_sel;"),
+ ("M82 ⛔⛔ 60 s becomes a TERMINAL FAILURE (plan §2.3 rule 5's forbidden deadline, and retries are unbounded)",
+  "            if (still != _st.join_still) { _st.join_still = still; _st.dirty = true; }",
+  "            if (still != _st.join_still) { _st.join_still = still; _st.dirty = true;\n"
+  "                if (still) { _join.active = false; enter_provision(Provision::join_result);\n"
+  "                    UiProvAnswer f{}; f.outcome = UiProvOutcome::join_refused; f.reason = \"timeout\";\n"
+  "                    _st.prov_answer = f; } }"),
+ ("M83 ⛔ BACK from the waiting screen CANCELS the persisted join (plan §2.3 rule 4's forbidden rollback)",
+  "            case Provision::join_waiting:   enter_provision(Provision::menu); return;",
+  "            case Provision::join_waiting:   _join.active = false; enter_provision(Provision::menu); return;"),
+ ("M84 ⛔ the ALARM cancels the persisted join (§3.6.5 pre-empts the SCREEN, never the operation)",
+  "    if (_st.settings == Settings::provisioning) close_provisioning();",
+  "    if (_st.settings == Settings::provisioning) { _join.active = false; close_provisioning(); }"),
+ ("M85 ⛔⛔ ANY `join_refused` push FAILS the screen (plan §2.3 rule 6: no reason terminally fails v1)",
+  "        if (!join_push_correlates(_join, pu.kind, pu.layer_id, pu.dst, persisted_layer0_id, canonical_node_id))\n"
+  "            return;",
+  "        if (pu.kind == MESHROUTE_NS::PushKind::join_refused && _st.provisioning == Provision::join_waiting) {\n"
+  "            _join.active = false; enter_provision(Provision::join_result);\n"
+  "            UiProvAnswer f{}; f.outcome = UiProvOutcome::join_refused; f.reason = \"refused\";\n"
+  "            _st.prov_answer = f; return; }\n"
+  "        if (!join_push_correlates(_join, pu.kind, pu.layer_id, pu.dst, persisted_layer0_id, canonical_node_id))\n"
+  "            return;"),
+ ("M86 the session is armed on EVERY verdict, so a refusal leaves a correlation window open for a BOOT DAD",
+  "        if (a.outcome == UiProvOutcome::joining) {",
+  "        _join.active = true; _join.requested_layer = requested_layer;\n"
+  "        if (a.outcome == UiProvOutcome::joining) {"),
+ ("M87 a correlated adopt NAVIGATES the panel from whatever screen is up (a push that moves the operator)",
+  "        if (_st.provisioning == Provision::join_waiting) {\n"
+  "            enter_provision(Provision::join_result);",
+  "        if (true) {\n"
+  "            enter_provision(Provision::join_result);"),
+ ("M88 the adopted answer carries no node id (plan §2.3 rule 2's `resulting node id` never shows)",
+  "            a.node_id = pu.dst;                     // ★ the ADOPTED id, read off the push the rule accepted",
+  "            a.node_id = 0;"),
+ ("M89 the SELECT list activates the row INDEX as a slot number (§B66 — slot 3 is joined as slot 2)",
+  "        _st.join_sel = r.slot1;", "        _st.join_sel = uint8_t(_st.cursor + 1);"),
+ # ⛔ AN ENTRY WAS **NOT** ADDED FOR `run_join_static`'s EMPTY-PICK FLOOR, and the absence is stated rather than
+ #   left to be noticed: `join_confirm` is entered ONLY by `join_select_gesture`, which has just read the slot off a
+ #   row built from the `present` flags — so a pick that names no present slot is UNREACHABLE BY CONSTRUCTION and a
+ #   mutation dropping the clause would stay GREEN. It is the `no_change`-arm precedent from slice 5, one screen over:
+ #   written for C2, marked here, ⛔ and not counted as covered.
+ ("M90 the join intent carries no profile, so the adapter is handed an empty slot",
+  "            in.join = _st.join_list.rec.prof[sel - 1];   // ★ WHAT WAS SHOWN IS WHAT IS JOINED (U2 — the whole record)",
+  "            in.join = mrnv::JoinProfile{};"),
+ ("M91 the cached requested layer is the NIBBLE, so term 2 can never hold above layer 15 (trap 2, in the model)",
+  "            requested_layer = in.join.layer;             // the FULL byte, cached for the correlation's term 2/3",
+  "            requested_layer = uint8_t(in.join.layer & 0x0F);"),
 ]
 
 # ===== §UI-13 — src/firmware_config_service.h =====================================================================
@@ -1417,9 +1389,12 @@ MUTS_UIPROV = [
  ("V10 the notification fires on EVERY verdict ([[B194]] inverted: a claim on a write that never happened)",
   "    const ProvResult r = dev.apply(rq, snap);\n    switch (r.verdict) {",
   "    const ProvResult r = dev.apply(rq, snap);\n    dev.on_applied(r);\n    switch (r.verdict) {"),
+ # ⚠ V11 RE-ANCHORED 2026-08-20 (§UI-15 slice 6): `save_failed` is now written by BOTH halves of this file, so the
+ #   bare assignment matches TWICE and the runner would report it ambiguous. The verdict label above it is what makes
+ #   the CREATE half's arm unique; the join half's twin is V16.
  ("V11 a FAILED save is reported as a refusal (the operator is not told the write failed)",
-  "            a.outcome = mrui::UiProvOutcome::save_failed;",
-  "            a.outcome = mrui::UiProvOutcome::refused;"),
+  "        case ProvVerdict::nv_failed:\n            a.outcome = mrui::UiProvOutcome::save_failed;",
+  "        case ProvVerdict::nv_failed:\n            a.outcome = mrui::UiProvOutcome::refused;"),
  ("V12 a staging refusal loses the service's typed reason (the panel says nothing actionable)",
   "            a.reason  = prov_err_name(r.err);           // the SERVICE's own token (U1) — never a second table",
   "            a.reason  = \"\";"),
@@ -1428,11 +1403,119 @@ MUTS_UIPROV = [
  ("V14 the intent dispatch performs a create for the INERT `none` op",
   "            case mrui::UiProvOp::none:        break;",
   "            case mrui::UiProvOp::none:        return ui_prov_create_team(_dev);"),
+ # ================================================== §UI-15 slice 6 — the STATIC-JOIN half of the SAME adapter file
+ # ★ THE AIM IS THE THREE WAYS A JOIN ADAPTER LIES: it claims membership the transaction never established (V19),
+ #   it notifies for a write that did not happen (V15/V16), or it converts the units wrong and joins another carrier
+ #   (V18) — the defect the Hz-not-kHz ruling exists for, arriving at the last place that could still commit it.
+ ("V15 the join notification fires on EVERY verdict ([[B194]] inverted, one feature over)",
+  "    const JoinResult  r  = dev.apply(rq);\n    switch (r.verdict) {",
+  "    const JoinResult  r  = dev.apply(rq);\n    dev.on_started(r);\n    switch (r.verdict) {"),
+ ("V16 a FAILED join save is reported as a refusal (the operator is not told the write failed)",
+  "            a.outcome = mrui::UiProvOutcome::save_failed;\n            return a;\n        case JoinVerdict::refused:",
+  "            a.outcome = mrui::UiProvOutcome::join_refused;\n            return a;\n        case JoinVerdict::refused:"),
+ ("V17 the EMPTY-slot floor is dropped — an unwritten slot runs the transaction",
+  "    if (!p.present) {\n        a.outcome = mrui::UiProvOutcome::join_refused;\n"
+  "        a.reason  = \"empty slot\";\n        return a;",
+  "    if (false) {\n        a.outcome = mrui::UiProvOutcome::join_refused;\n"
+  "        a.reason  = \"empty slot\";\n        return a;"),
+ ("V18 ★★ the units conversion is re-derived here in kHz — 869462500 Hz joins 869462.5 MHz",
+  "    const JoinRequest rq = join_request_from_profile(p);",
+  "    JoinRequest rq{}; rq.layer = p.layer; rq.routing_sf = p.routing_sf;\n"
+  "    rq.freq_mhz = double(p.freq_hz) / 1000.0; rq.bw_khz = double(p.bw_hz) / 1000.0;"),
+ ("V19 ⛔⛔ a STARTED transaction claims ADOPTION — the `JOINED`-before-a-correlated-adopt defect, at its source",
+  "            a.outcome = mrui::UiProvOutcome::joining;",
+  "            a.outcome = mrui::UiProvOutcome::adopted;"),
+ ("V20 a join refusal loses the transaction's typed reason (the screen cannot say WHICH field is wrong)",
+  "            a.reason  = join_err_name(r.err);        // the TRANSACTION's own token (U1) — never a second table",
+  "            a.reason  = \"\";"),
+ ("V21 the SELECT read never marks itself served (every store reads as a missing seam)",
+  "    l.served = true;", "    ;"),
+ ("V22 the intent dispatch sends a JOIN to the TEAM-CREATE act (the two ops collapse)",
+  "            case mrui::UiProvOp::join_static: return ui_prov_join_static(_join, intent.join);",
+  "            case mrui::UiProvOp::join_static: return ui_prov_create_team(_dev);"),
+]
+
+# ==================================================================== §UI-15 slice 6 — src/firmware_ui_join.h
+# ★★★★ THE FOUR TERMS ARE MUTATED **SEPARATELY**, which is plan §2.3 rule 7's own requirement (*"⛔ Mutation-test ALL
+#      FOUR terms separately"*) and the reason this file has a target of its own. Each single-term drop makes the
+#      rule ACCEPT an uncorrelated push, and the case that then reddens is the one NAMED after the event it would
+#      have completed: a boot DAD, a heal re-adopt, a wrong nibble, a foreign or zero dst.
+# ⛔ J07/J08 ARE THE **TRAP 2** PAIR AND NEITHER IS A DROP: they are the two ways to write the comparison WRONG WHILE
+#    IT STILL LOOKS RIGHT — full-against-nibble and nibble-against-full. v3 of the plan shipped the first and it was
+#    unsatisfiable above layer 15, which is why it is a control here rather than a note.
+MUTS_UIJOIN = [
+ ("J01 TERM 1 dropped — a BOOT DAD completes a screen nobody opened (`join_adopted` fires at every boot)",
+  "    if (!sess.active) return false;", "    ;"),
+ ("J02 TERM 2 dropped — a HEAL RE-ADOPT on the record's CURRENT layer completes the operator's join",
+  "    if (sess.requested_layer != persisted_layer0_id) return false;", "    ;"),
+ ("J03 TERM 3 dropped — an adopt on ANY leaf completes the screen (the nibble is never checked)",
+  "    if (push_layer_id != mrfw::join_leaf_of_layer(sess.requested_layer)) return false;", "    ;"),
+ ("J04 TERM 4a dropped — somebody ELSE's adoption completes our screen (the id is never compared)",
+  "    if (push_dst != canonical_node_id) return false;", "    ;"),
+ ("J05 TERM 4b dropped — a ZERO dst completes the screen (a node that adopted NOTHING reports success)",
+  "    if (push_dst == 0) return false;", "    ;"),
+ ("J06 ★★ the KIND GATE widened to `join_refused` — a wire-version OBSERVATION ABOUT ANOTHER PEER reaches the screen",
+  "    if (kind != MESHROUTE_NS::PushKind::join_adopted) return false;",
+  "    if (kind != MESHROUTE_NS::PushKind::join_adopted && kind != MESHROUTE_NS::PushKind::join_refused) return false;"),
+ ("J07 ★★ TRAP 2: term 3 compares the push's NIBBLE against the FULL byte (plan v3's unsatisfiable rule, restored)",
+  "    if (push_layer_id != mrfw::join_leaf_of_layer(sess.requested_layer)) return false;",
+  "    if (push_layer_id != sess.requested_layer) return false;"),
+ ("J08 ★★ TRAP 2, the mirror: term 2 compares the NIBBLE against the persisted FULL byte",
+  "    if (sess.requested_layer != persisted_layer0_id) return false;",
+  "    if (mrfw::join_leaf_of_layer(sess.requested_layer) != persisted_layer0_id) return false;"),
+ # --- §3's store matrix, as PANEL TEXT ------------------------------------------------------------------------------
+ ("J09 ⛔ `io_failed` is collapsed into `invalid` — a mount failure invites `reset confirm`, discarding 4 presets",
+  '            return l.res.err == mrfw::ProfileErr::store_io_failed ? "STORAGE FAILURE" : "PROFILE STORE";',
+  '            return "PROFILE STORE";'),
+ ("J10 ⛔ an UNREADABLE store reads as an EMPTY one (the [[B218]] collapse, i.e. corruption as a fresh device)",
+  "        case mrfw::ProfileVerdict::refused:\n"
+  "            return l.res.err == mrfw::ProfileErr::store_io_failed ? \"STORAGE FAILURE\" : \"PROFILE STORE\";",
+  "        case mrfw::ProfileVerdict::refused: return \"NO PROFILES\";"),
+ ("J11 a MISSING SEAM reads as an ordinary empty store (the panel claims a store it never asked)",
+  '    if (!l.served) return "NO JOIN SERVICE";', '    if (!l.served) return "NO PROFILES";'),
+ ("J12 the two remedies are swapped (a corrupt record is sent to `faults`, a dead store to `reset`)",
+  '    return l.res.err == mrfw::ProfileErr::store_io_failed ? "CHECK faults" : "INVALID";',
+  '    return l.res.err == mrfw::ProfileErr::store_io_failed ? "INVALID" : "CHECK faults";'),
+ # --- the SELECT list ----------------------------------------------------------------------------------------------
+ ("J13 ⛔ a store that could not be READ still offers its slots (a join from a record nobody could load)",
+  "    if (l.served && l.res.verdict == mrfw::ProfileVerdict::ok) {",
+  "    if (true) {"),
+ ("J14 the row carries its POSITION instead of its SLOT NUMBER (§B66 — slot 3 becomes slot 2)",
+  "            out.row[out.n].slot1 = uint8_t(i + 1);", "            out.row[out.n].slot1 = uint8_t(out.n + 1);"),
+ ("J15 an EMPTY slot becomes a row, so a `double` can land on one",
+  "            if (!l.rec.prof[i].present) continue;", "            ;"),
+ ("J16 BACK becomes CONDITIONAL on the store (leaving depends on a record)",
+  "    out.row[out.n].back = true;\n    ++out.n;",
+  "    if (out.n) { out.row[out.n].back = true; ++out.n; }"),
+ # --- the strings --------------------------------------------------------------------------------------------------
+ ("J17 ⛔⛔ the waiting screen says `JOINED` before any adopt (plan §2.3 rule 1, verbatim)",
+  'inline const char* join_wait_head(bool still) { return still ? "STILL JOINING" : "JOINING"; }',
+  'inline const char* join_wait_head(bool still) { return still ? "STILL JOINING" : "JOINED"; }'),
+ ("J18 the 60 s threshold is 0, so the panel opens on `STILL JOINING`",
+  "inline constexpr uint32_t kJoinStillMs = 60000;", "inline constexpr uint32_t kJoinStillMs = 0;"),
+ ("J19 an empty NAME renders nothing instead of plan §11's `PROFILE n` default",
+  '    if (n == 0) { snprintf(out, cap, "PROFILE %u", unsigned(slot1)); return; }', "    ;"),
+ ("J20 ⛔ the stored label is read as a C string (it is NOT NUL-terminated — the read runs into `freq_hz`)",
+  "    if (n > cap - 1) n = cap - 1;\n    memcpy(out, p.name, n);\n    out[n] = '\\0';",
+  "    snprintf(out, cap, \"%s\", p.name);"),
+ ("J21 the frequency loses its four decimals — 869.4625 MHz renders (and reads) as 869",
+  '    snprintf(out, cap, "%lu.%04lu MHz", mhz, frac);', '    snprintf(out, cap, "%lu MHz", mhz);'),
+ ("J22 the confirmation shows the LEAF NIBBLE instead of the full layer byte (17 reads as 1)",
+  '    snprintf(out, cap, "L%u SF%u BW%lu.%02lu", unsigned(p.layer), unsigned(p.routing_sf), khz, cen);',
+  '    snprintf(out, cap, "L%u SF%u BW%lu.%02lu", unsigned(p.layer & 0x0F), unsigned(p.routing_sf), khz, cen);'),
+ ("J23 the bandwidth is rendered in Hz (500000.00 — the units mix plan §3's mutation controls name)",
+  "    const unsigned long khz = (unsigned long)(p.bw_hz / 1000u);",
+  "    const unsigned long khz = (unsigned long)p.bw_hz;"),
+ ("J24 the RESULT's node line drops the id (the one thing plan §2.3 rule 2 requires it to show)",
+  '    snprintf(out, cap, "node %u", unsigned(node_id));', '    snprintf(out, cap, "node");'),
+ ("J25 the confirmation's two actions are swapped, so `>BACK` performs the join",
+  'inline const char* join_confirm_label(bool confirm) { return confirm ? "JOIN" : "BACK"; }',
+  'inline const char* join_confirm_label(bool confirm) { return confirm ? "BACK" : "JOIN"; }'),
 ]
 
 MUTS_BY_TARGET = {"model": MUTS_MODEL, "config": MUTS_CONFIG, "chrome": MUTS_CHROME, "icons": MUTS_ICONS,
                   "joinprofiles": MUTS_JOINPROFILES, "devicenv": MUTS_DEVICENV, "cfgparse": MUTS_CFGPARSE,
-                  "uiprov": MUTS_UIPROV}
+                  "uiprov": MUTS_UIPROV, "uijoin": MUTS_UIJOIN}
 MUTS = MUTS_BY_TARGET[_TARGET]
 
 def md5(p):

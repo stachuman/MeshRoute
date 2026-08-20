@@ -68,8 +68,15 @@
 //             tracker, which lives behind `firmware_config.cpp` because `fw_context.h` is barred from this TU).
 //   ⛔ AND NOT ONE DECISION OF IT IS HERE, by requirement: the OWNER's live-vs-persisted PHY precondition,
 //             `TeamRequest::phy.present = false` and the verdict mapping are all `src/firmware_ui_prov.h`'s, which the
-//             native suite compiles; every string is `firmware_ui_model.h`'s or `firmware_ui_chrome.h`'s. ⛔ The four
-//             `join_*` arms are slice 6's — they are entered by nothing and draw only the leave line.
+//             native suite compiles; every string is `firmware_ui_model.h`'s or `firmware_ui_chrome.h`'s.
+//   ★★ DONE 2026-08-20 (§UI-15 slice 6) — §3.6.3's STATIC JOIN, DEVICE HALF ONLY: the three forwards of
+//             `mrfw::IJoinDevice` (the `/mrjoin` list through slice 2's service, the transaction through slice 1's,
+//             and the §notify-every-save hook on the `started` arm alone), the four `join_*` renderer arms, and
+//             `ui_join_note_push` — which supplies the TWO DEVICE FACTS the correlation needs (`/mrcfg.layer0_id`
+//             and `canonical_node_id()`) behind the model's cheap session guard, and ⛔ decides nothing.
+//   ⛔ AND NOT ONE DECISION OF THE JOIN HALF IS HERE EITHER: the four-term correlation rule, the 60 s word change,
+//             the store-state texts and the value lines are `src/firmware_ui_join.h`'s; the verdict mapping and the
+//             ONE integral -> double conversion are `src/firmware_ui_prov.h`'s. Both are natively compiled.
 //   ★ DONE 2026-08-13 (§UI-14 follow-up) — the IMMEDIATE conflict notification §3.6.1 requires: `mr_ui_on_config_saved`
 //             below, called after a SUCCESSFUL PERSISTED write through the feature-neutral fourth hook in
 //             `lib/hal/mr_ui.h`. ⛔ **CORRECTED IN PLACE: this line read *"NOT DONE HERE, and NOT anywhere
@@ -210,8 +217,29 @@ struct DeviceTeamCreate : mrfw::ITeamCreateDevice {
         mrfw::prov_note_persisted_team_local_id(r.persisted_team_local_id);
     }
 };
+// ★★★★ §UI-15 slice 6 — THE DEVICE HALF OF §3.6.3's STATIC JOIN, AND EVERY LINE OF IT IS A FORWARD, exactly as the
+//      team half above is. The decisions — which store state says what, the ONE integral -> double conversion, the
+//      verdict mapping and the four-term correlation rule — are `src/firmware_ui_prov.h`'s and
+//      `src/firmware_ui_join.h`'s, both pure and both natively compiled.
+// ⛔ THE TWO SERVICES ARE THE CONSOLE's OWN INSTANCES (`firmware_config.h` declares them): the OLED runs the SAME
+//    transaction `join` runs and reads through the SAME store service `joinprofile` uses. Two services over one
+//    record would be two write policies.
+struct DeviceJoinProvision : mrfw::IJoinDevice {
+    mrfw::ProfileResult list_profiles(mrnv::JoinBlob& out) override {
+        return mrfw::join_profile_service().list(out);
+    }
+    mrfw::JoinResult apply(const mrfw::JoinRequest& rq) override {
+        return mrfw::join_service().apply_join(rq);
+    }
+    // ⛔ THE ARM IS NOT DECIDED HERE — the adapter calls this ONLY on `JoinVerdict::started` (i.e. the ONE durable
+    //    write happened and succeeded), which is §notify-every-save's exact condition and is a decision the native
+    //    suite drives. This is the BODY of that decision and nothing else. ⓘ Site 8 of the rule; `handle_join` is
+    //    site 3, and its own note records why the resulting ordering is unobservable.
+    void on_started(const mrfw::JoinResult& r) override { (void)r; mr_ui_on_config_saved(); }
+};
 DeviceTeamCreate         s_team_create;
-mrfw::UiProvisionAdapter s_prov_adapter(s_team_create);
+DeviceJoinProvision      s_join_prov;
+mrfw::UiProvisionAdapter s_prov_adapter(s_team_create, s_join_prov);
 #endif
 
 int32_t  s_batt_mv        = -1;      // last GOOD reading; <0 = never had one -> render `--`
@@ -1140,6 +1168,15 @@ void draw_inbox_detail(const mrui::UiState& st) {
 //   result detail   `NOTHING CHANGED` 15 · `no_mobile_plane` 15 (the widest `prov_err_name`) · `USE SERIAL` 10
 //   result id       `0x12A1B2C3` 10 · fingerprint `A1B2C3` 6
 //   exit line       `press = back`                                       = 12
+// §7.3 AUDIT, §UI-15 slice 6's four arms (same 19-column body; every figure DERIVED from the field's own widest value):
+//   select row      `%c%s`         : `>` + a 12-byte label, or `PROFILE 4` = 13
+//   select note     `NO JOIN SERVICE` 15 · `STORAGE FAILURE` 15 · `PROFILE STORE` 13 · `NO PROFILES` 11
+//                   ...and its second row `CHECK faults` 12 · `INVALID` 7
+//   confirm values  `L255 SF12 BW500.00` 18 · `1000.0000 MHz`            = 13
+//   confirm action  `%c%s`         : `>JOIN`                             = 5
+//   waiting head    `STILL JOINING` 13 · `JOINING`                       = 7
+//   result head     `JOIN REFUSED` 12 · `ADOPTED` 7 · `SAVE FAILED` 11
+//   result detail   `nv_load_failed` 14 (the widest `join_err_name`) · node line `node 255` = 8
 void draw_provision_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
     char l[kLineCap];
     switch (st.provisioning) {
@@ -1186,15 +1223,74 @@ void draw_provision_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
             body_text(4, "press = back");
             return;
         }
-        // ⛔ SLICE 6's FOUR ARMS: nothing in this tree enters them (`firmware_ui_model.h`'s per-arm table), and their
-        //    text is that slice's to specify — ⛔ no copy is invented here for a screen the design has not been read
-        //    against. They draw the LEAVE line only, which matches the model's leave-only fail-safe for them.
-        case mrui::Provision::join_select:
-        case mrui::Provision::join_confirm:
+        // ★★★★ §UI-15 slice 6 — THE FOUR STATIC-JOIN ARMS. ⛔ NOTHING BELOW DECIDES ANYTHING: the row list is
+        //      `mrui::join_sel_rows` (the SAME builder the model bounds its cursor with, U1/U2), the store texts are
+        //      `join_store_head`/`_detail`, the labels and value lines are `join_row_label`/`join_fmt_phy`/
+        //      `join_fmt_freq`, the waiting headline is `join_wait_head` off the model's LATCH (⛔ never a deadline
+        //      re-derived here), and the result's two lines are `prov_result_head`/`_detail`.
+        case mrui::Provision::join_select: {
+            // ★ THE STORE's ANSWER OWNS THE TOP ROWS, and the list starts under it — the `draw_settings_screen`
+            //   marker idiom. On an `ok` store with profiles both are `""`, so the list gets all five rows.
+            const char* head = mrui::join_store_head(st.join_list);
+            const char* det  = mrui::join_store_detail(st.join_list);
+            uint8_t top = 0;
+            if (head[0]) { body_text(top, head); ++top; }
+            if (det[0])  { body_text(top, det);  ++top; }
+            const mrui::JoinSelList list = mrui::join_sel_rows(st.join_list);
+            const uint8_t rows  = uint8_t(kBodyRows - top);
+            const uint8_t first = list_first(st.cursor, list.n, rows);
+            for (uint8_t row = 0; row < rows && first + row < list.n; ++row) {
+                mrui::JoinSelRow r{};
+                if (!list.at(uint8_t(first + row), r)) break;
+                char label[mrui::kJoinLabelCap];
+                if (r.back) snprintf(label, sizeof label, "BACK");
+                else mrui::join_row_label(label, sizeof label, st.join_list.rec.prof[r.slot1 - 1], r.slot1);
+                snprintf(l, sizeof l, "%c%s", (first + row == st.cursor) ? '>' : ' ', label);
+                body_text(top + row, l);
+            }
+            return;
+        }
+        case mrui::Provision::join_confirm: {
+            // ⛔ FAILS CLOSED: a pick that names no slot draws no values, so a confirmation can never show one
+            //    profile's numbers over another's selection.
+            if (st.join_sel < 1 || st.join_sel > mrnv::kJoinProfiles) return;
+            const mrnv::JoinProfile& p = st.join_list.rec.prof[st.join_sel - 1];
+            char label[mrui::kJoinLabelCap];
+            mrui::join_row_label(label, sizeof label, p, st.join_sel);
+            body_text(0, label);
+            // Design §3.6.3: *"OLED shows the COMPLETE values before confirmation"* — all four, on two rows.
+            char phy[mrui::kJoinPhyLineCap];  mrui::join_fmt_phy(phy, sizeof phy, p);    body_text(1, phy);
+            char frq[mrui::kJoinFreqLineCap]; mrui::join_fmt_freq(frq, sizeof frq, p);   body_text(2, frq);
+            // ★ BACK FIRST and selected on entry, so JOIN costs the deliberate `short` -> `double` (§3.6.3).
+            snprintf(l, sizeof l, "%c%s", (st.prov_confirm == mrui::ProvConfirm::back) ? '>' : ' ',
+                     mrui::join_confirm_label(/*confirm=*/false));
+            body_text(3, l);
+            snprintf(l, sizeof l, "%c%s", (st.prov_confirm == mrui::ProvConfirm::confirm) ? '>' : ' ',
+                     mrui::join_confirm_label(/*confirm=*/true));
+            body_text(4, l);
+            return;
+        }
         case mrui::Provision::join_waiting:
-        case mrui::Provision::join_result:
+            // ⛔⛔ `JOINING` / `STILL JOINING`, AND ⛔ NEVER A FAILURE (plan §2.3 rule 5). The 60 s edge is the
+            //    MODEL's latch (`UiState::join_still`); re-deriving it from a clock here would put a decision in the
+            //    one TU no automated gate compiles.
+            body_text(0, mrui::join_wait_head(st.join_still));
             body_text(4, "press = back");
             return;
+        case mrui::Provision::join_result: {
+            // ⛔ §8 pin 2 for the ASYNC half: `ADOPTED` is written by `on_join_push` behind the four-term rule and by
+            //    nothing else, so no arm here can invent it.
+            body_text(0, mrui::prov_result_head(st.prov_answer));
+            const char* detail = mrui::prov_result_detail(st.prov_answer);
+            if (detail[0]) body_text(1, detail);
+            if (st.prov_answer.outcome == mrui::UiProvOutcome::adopted) {
+                char id[mrui::kJoinNodeLineCap];
+                mrui::join_fmt_node(id, sizeof id, st.prov_answer.node_id);
+                body_text(1, id);                    // plan §2.3 rule 2: *"showing the resulting node id"*
+            }
+            body_text(4, "press = back");
+            return;
+        }
         // ⛔ UNREACHABLE BY THE INVARIANT (`Settings::provisioning` implies a non-`closed` arm) — listed so -Wswitch
         //    stays useful, and drawing nothing is the honest answer for a state that says it is not open.
         case mrui::Provision::closed: return;
@@ -1683,6 +1779,37 @@ void mr_ui_on_config_saved() {
     if (s_cfg.conflict() != was) s_model.mark_dirty();  //   so a non-covered write raises NOTHING, by construction
 }
 
+// ★★★★ §UI-15 slice 6 — THE ASYNCHRONOUS JOIN OUTCOME's DEVICE HALF, AND IT IS A FACT-READER, ⛔ NOT A DECISION.
+//      The rule that says which push belongs to the operator's join is `mrui::join_push_correlates` (pure, four
+//      terms, its own mutation battery); all this does is supply the two facts a pure unit cannot reach — and it
+//      supplies them LIKE FOR LIKE, which is the whole of plan §2.3's trap 2:
+//        · `Blob::layer0_id` — the PERSISTED FULL byte, held against the session's PERSISTED FULL request;
+//        · `canonical_node_id()` — the live id, held against `Push::dst`.
+// ★★ THE `join_session_active()` GUARD IS FIRST, AND IT IS NOT DEFENSIVE — IT IS WHAT KEEPS THIS FREE (the
+//    `mr_ui_on_config_saved` argument, verbatim one hook over): with no UI join in flight there is nothing any push
+//    could complete, so an ordinary `join_adopted` at boot costs exactly one boolean test — ⛔ no flash read.
+// ★★★ AND THE KIND PREFILTER IS SECOND ([[B228]]), FOR THE SAME REASON AND NO OTHER. A session is NOT a brief state:
+//     it ends only on a correlated adopt or on a replacing transaction (`UiJoinSession`, firmware_ui_model.h), so a
+//     join that is never adopted leaves it active for the rest of the uptime — and EVERY push then reaching this hook
+//     paid a `/mrcfg` read before `join_push_correlates`' own kind gate threw it away. ⛔ IT IS NOT HALF OF THE RULE
+//     AND MUST NEVER GROW A TERM: it is the ONE clause of the rule that needs no fact from flash, restated where it
+//     can save the read. The complete four-term rule below stays the sole authority on what COMPLETES a join, so the
+//     guard and the decision cannot drift apart.
+// ⛔ A RECORD WE CANNOT READ FAILS CLOSED: term 2 cannot be ESTABLISHED without `layer0_id`, and an unestablished
+//    term may never be treated as satisfied. The join is unaffected — it is already persisted and DAD-ing; only the
+//    SCREEN's completion is withheld, which is the honest answer.
+void ui_join_note_push(const MESHROUTE_NS::Push& pu) {
+#if MR_N_LAYERS < 2
+    if (!s_model.join_session_active()) return;
+    if (pu.kind != MESHROUTE_NS::PushKind::join_adopted) return;   // [[B228]] — the one clause that costs no flash
+    mrnv::Blob b{};
+    if (!mrfw::device_cfg_store().load(b)) return;
+    s_model.on_join_push(pu, b.layer0_id, g_node.canonical_node_id());
+#else
+    (void)pu;   // no static-join child on a gateway build: `handle_join` and the transaction are compiled out
+#endif
+}
+
 void mr_ui_on_push(const MESHROUTE_NS::Push& pu) {
     const uint32_t now = uint32_t(g_hal.now());
     switch (pu.kind) {
@@ -1702,6 +1829,7 @@ void mr_ui_on_push(const MESHROUTE_NS::Push& pu) {
         // structurally impossible rather than merely unlikely (spec §2.1). The routing itself is pure and tested.
         default:
             (void)mrui::ui_route_send_push(s_tracker_emg, s_tracker_normal, s_model, pu, now);
+            ui_join_note_push(pu);          // §UI-15 slice 6 — see the function; ⛔ it never displaces the routing above
             break;
     }
 }

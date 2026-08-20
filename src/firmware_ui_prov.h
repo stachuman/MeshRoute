@@ -26,8 +26,17 @@
 //          and re-introduce the [[B209]] path (a provisioning PHY apply must never start static-home discovery).
 //      ⇒ the OLED create is a MEMBERSHIP operation and nothing else. The two objects are named `persisted` and
 //        `rq.phy` below and are never assigned to one another.
+//
+// ★★★★ §UI-15 slice 6 ADDED THE SECOND HALF — the STATIC-JOIN adapter — TO THIS FILE RATHER THAN TO A NEW ONE, and
+//      that is a boundary decision rather than convenience: `mrui::IUiProvision` is ONE seam with a `default`-less
+//      op dispatch (the model's own note asked for exactly that), so its implementation must be ONE class. ⛔ A
+//      second adapter file would have needed a second seam, a second `attach_*` and a second null-check — the
+//      parallel dispatch U1 forbids. What the join half adds is `IJoinDevice` (three forwards), the ONE
+//      integral -> double conversion (`join_request_from_profile`, §3's single authority) and the verdict mapping.
 #pragma once
-#include "device_nv.h"                     // mrnv::Blob — the PERSISTED record the precondition reads
+#include "device_nv.h"                     // mrnv::Blob / JoinProfile — the PERSISTED records both halves read
+#include "firmware_join_profiles.h"        // mrfw::ProfileResult + join_request_from_profile — the ONE Hz conversion
+#include "firmware_join_service.h"         // mrfw::JoinRequest / JoinResult / JoinErr — slice 1's typed transaction
 #include "firmware_provisioning_service.h" // the transaction, `live_phy_matches` (U1: REUSED, never re-spelled)
 #include "firmware_ui_model.h"             // mrui::UiProvIntent / UiProvAnswer / IUiProvision — the pure carriers
 
@@ -133,23 +142,96 @@ inline mrui::UiProvAnswer ui_prov_create_team(ITeamCreateDevice& dev) {
     return a;
 }
 
+// ================================================================== §UI-15 slice 6 — THE STATIC-JOIN HALF (§3.6.3)
+// ---- the DEVICE half, as a seam ---------------------------------------------------------------------------------
+// ★★ THREE OPERATIONS, EVERY ONE OF THEM A FORWARD, and the shape is `ITeamCreateDevice`'s deliberately (U3):
+//    read · act · notify-on-the-one-arm.
+//   `list_profiles` -> `mrfw::JoinProfileService::list` (slice 2), i.e. the SAME service the `joinprofile` verbs use.
+//                      ⛔ NOT a second reader of `/mrjoin`: `list()` is where "leave a VALID EMPTY record behind on a
+//                      failed read" lives, so a panel that rendered anyway shows nothing rather than garbage.
+//   `apply`         -> `mrfw::JoinService::apply_join` (slice 1), i.e. the SAME transaction the `join` verb runs.
+//                      ⛔ Never a second validate/load/save path — that is the whole reason slice 1 was extracted.
+//   `on_started`    -> ⛔ CALLED ON THE `started` ARM AND NOWHERE ELSE (see `ui_prov_join_static`): it is the
+//                      §notify-every-save hook, whose condition is "a durable write happened". A refusal spends no
+//                      write and a failed save reports one that did not land, so neither may notify — [[B194]]
+//                      inverted, exactly as `ITeamCreateDevice::on_applied` states it one screen over.
+struct IJoinDevice {
+    virtual ~IJoinDevice() = default;
+    virtual ProfileResult list_profiles(mrnv::JoinBlob& out) = 0;
+    virtual JoinResult    apply(const JoinRequest& rq) = 0;
+    virtual void          on_started(const JoinResult& r) = 0;
+};
+
+// ---- the SELECT screen's ONE read ------------------------------------------------------------------------------
+// ★ `served = true` is set BEFORE the read and not after it: it means *"a seam answered"*, ⛔ not *"the answer was
+//   good"*. The four store states are `res`'s, and the panel tells them apart (`mrui::join_store_head`).
+inline mrui::UiJoinList ui_prov_join_profiles(IJoinDevice& dev) {
+    mrui::UiJoinList l{};
+    l.served = true;
+    l.res    = dev.list_profiles(l.rec);
+    return l;
+}
+
+// ---- the ACT ----------------------------------------------------------------------------------------------------
+// ★★★★ THE ONE INTEGRAL -> DOUBLE CONVERSION OF THIS FEATURE, AND IT LIVES HERE BECAUSE THE REQUEST IS WHAT NEEDS IT
+//      (plan §3): the STORED profile is integral Hz — 869.4625 MHz is exactly 869462500 Hz and is ⛔ not
+//      representable in integral kHz — while the TRANSIENT `JoinRequest` carries the operator's raw MHz/kHz
+//      `double`s, because `valid_bw_khz` must be able to accept the NaN the console has always accepted
+//      ([[B216]], and `firmware_join_service.h`'s standing instruction). ⇒ `join_request_from_profile` is the ONE
+//      authority for that conversion (U2) and is CALLED, ⛔ never re-derived here: a second `freq_hz / 1e6` would let
+//      the panel and the radio disagree about which carrier a profile means.
+// ⛔ AN EMPTY SLOT IS NOT A JOIN, and this is a SECOND floor rather than a duplicate check: the model already refuses
+//    a pick that names no present slot, and this refuses one that reached the seam anyway (a probe, a future caller).
+//    ⓘ It costs zero writes and zero airtime, which is what a floor must cost.
+inline mrui::UiProvAnswer ui_prov_join_static(IJoinDevice& dev, const mrnv::JoinProfile& p) {
+    mrui::UiProvAnswer a{};
+    if (!p.present) {
+        a.outcome = mrui::UiProvOutcome::join_refused;
+        a.reason  = "empty slot";
+        return a;                                    // ⛔ 0 transaction calls, 0 writes, 0 airtime
+    }
+    const JoinRequest rq = join_request_from_profile(p);
+    const JoinResult  r  = dev.apply(rq);
+    switch (r.verdict) {
+        case JoinVerdict::started:
+            // ★ THE ONE ARM THAT WROTE. The bookkeeping happens HERE rather than in the device forward so that
+            //   "notify only on started" is a decision the native suite drives.
+            dev.on_started(r);
+            // ⛔⛔ `joining`, ⛔ NEVER `joined`: the transaction has written once and STARTED DAD, and the real
+            //    outcome arrives later as a push that `mrui::join_push_correlates` must accept first (plan §2.3).
+            a.outcome = mrui::UiProvOutcome::joining;
+            return a;
+        case JoinVerdict::nv_failed:
+            a.outcome = mrui::UiProvOutcome::save_failed;
+            return a;
+        case JoinVerdict::refused:
+            a.outcome = mrui::UiProvOutcome::join_refused;
+            a.reason  = join_err_name(r.err);        // the TRANSACTION's own token (U1) — never a second table
+            return a;
+    }
+    return a;
+}
+
 // ---- the model's seam, implemented ONCE, HERE --------------------------------------------------------------------
-// ★ The op dispatch is `default`-less so a second intent (slice 6's join) cannot be added without a reader stating
-//   what performs it. ⛔ `none` FAILS CLOSED: it performs nothing and answers `none`, which renders nothing — an
-//   intent nobody raised must never become an act.
+// ★ The op dispatch is `default`-less so a third intent (§UI-16's nearby-team join) cannot be added without a reader
+//   stating what performs it. ⛔ `none` FAILS CLOSED: it performs nothing and answers `none`, which renders nothing —
+//   an intent nobody raised must never become an act.
 class UiProvisionAdapter : public mrui::IUiProvision {
   public:
-    explicit UiProvisionAdapter(ITeamCreateDevice& dev) : _dev(dev) {}
+    UiProvisionAdapter(ITeamCreateDevice& team, IJoinDevice& join) : _dev(team), _join(join) {}
     mrui::UiProvAnswer perform(const mrui::UiProvIntent& intent) override {
         switch (intent.op) {
             case mrui::UiProvOp::create_team: return ui_prov_create_team(_dev);
+            case mrui::UiProvOp::join_static: return ui_prov_join_static(_join, intent.join);
             case mrui::UiProvOp::none:        break;
         }
         return mrui::UiProvAnswer{};
     }
+    mrui::UiJoinList profiles() override { return ui_prov_join_profiles(_join); }
 
   private:
     ITeamCreateDevice& _dev;
+    IJoinDevice&       _join;
 };
 
 }  // namespace mrfw

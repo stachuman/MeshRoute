@@ -186,33 +186,100 @@ PROBE_LIST=1 "$OUT/probe_v3" 2>/dev/null | sed -n 's/^  CHECK //p' | sort -u > "
 : > "$OUT/reddened-l2.txt"; : > "$OUT/reddened-v3.txt"
 
 # ---------------------------------------------------------------------------------------------------------------
+# ★★★★ [[B227]] — A CONTROL LABEL IS **DATA**, AND THIS RUNNER PROVES IT RATHER THAN PROMISING IT
+# ---------------------------------------------------------------------------------------------------------------
+# MEASURED, not hygiene. L19's label carried `` `/mrcfg` `` inside DOUBLE quotes, so the shell ran `/mrcfg` as a
+# COMMAND SUBSTITUTION while building the argument — before `ctl` was even entered. The gate printed
+# `run.sh: line 730: /mrcfg: No such file or directory` on stderr, emptied that part of the label, and STILL REPORTED
+# PASS. ⇒ two halves, because neither can do the other's job:
+#   · THE AUDIT below forbids a backtick or a `$` substitution in any `ctl` label IN THIS FILE. That is where the
+#     expansion actually happens, and ⛔ no printer can undo an expansion that already occurred at the call site;
+#   · THE PRINTER (`printf '%s'` of a variable, ⛔ never `eval`, and ⛔ never `echo`) is what makes a label come out
+#     VERBATIM once it IS inside `ctl`. ⓘ STATED EXACTLY, because overclaiming here would be the same defect wearing
+#     the other hat: `echo "$label"` did NOT cause this bug and does not re-run backticks — but it DOES interpret a
+#     leading `-n`/`-e` and, under `xpg_echo`, backslash escapes, so a label is one `\n` away from a mangled line.
+#     `printf '%s'` has no such arm at all.
+# ⚠ THE AUDIT READS THIS FILE'S OWN TEXT, which is the only thing that can speak for labels that do not exist yet.
+#   Every `ctl` call in this file is one line of the shape `ctl "<label>" yes|no \`, so the label extracts exactly.
+# ⛔ VIA `$HERE`, ⛔ NEVER VIA A BARE `$0`: this script has already `cd`-ed to its own directory, so a `$0` given
+#   relative to the caller's cwd would name nothing and the audit would silently measure ZERO labels ([[B82]]).
+B227_SELF="$HERE/$(basename "$0")"
+echo
+echo "== [[B227]] every control label is inert data =="
+b227_labels=$(sed -n 's/^[[:space:]]*ctl "\(.*\)" \(yes\|no\) \\$/\1/p' "$B227_SELF")
+b227_hits=$(printf '%s\n' "$b227_labels" | grep -nE '`|\$' || true)
+b227_n=$(printf '%s' "$b227_labels" | grep -c '')
+b227_calls=$(grep -c '^[[:space:]]*ctl "' "$B227_SELF")
+# ⛔ THE EXTRACTOR MUST HAVE SEEN **EVERY** CALL. A `ctl` line written in some other shape would be silently skipped,
+#   and an audit that read NONE of the labels would still report "ok" — the instrument-that-cannot-fail shape this
+#   whole file is built against. ⇒ the two counts are compared, so a new call shape fails the gate rather than
+#   escaping it. ⓘ The figure is COUNTED, never written down here: that is how the header's "20 of 25" went stale.
+if [ "$b227_n" != "$b227_calls" ]; then
+  echo "  FAIL the label extractor read $b227_n of $b227_calls ctl calls — the audit below covers only part of them"
+  rc=1
+elif [ -n "$b227_hits" ]; then
+  echo "  FAIL a ctl label carries a shell substitution — it EXECUTES before ctl ever sees it:"
+  printf '%s\n' "$b227_hits" | sed 's/^/    /'; rc=1
+else
+  echo "  ok   none of the $b227_n ctl labels (all $b227_calls calls) contains a backtick or a \$-substitution"
+fi
+# ⚠ AND THE VACUITY GUARD FOR IT (§T3 P6's rule, one section over): a detector that cannot FIND anything proves
+#   nothing. The same expression is run over a line that DOES carry the defect and is required to match.
+if printf '%s\n' 'ctl "X the session guard is dropped (a `/mrcfg` read)" yes \' \
+     | sed -n 's/^[[:space:]]*ctl "\(.*\)" \(yes\|no\) \\$/\1/p' | grep -qE '`|\$'; then
+  echo "  ok   ...and the detector DOES fire on a label that carries one"
+else
+  echo "  FAIL the detector matches nothing at all — the check above proved nothing"; rc=1
+fi
+# ⓘ THE PRINTER's OWN PROOF. The label is assigned in SINGLE quotes, so nothing is expanded at the assignment, and it
+#   is then printed through the exact `printf '%s'` form `ctl` uses. It must come back BYTE-FOR-BYTE — backticks and
+#   `$HOME` included — with NOTHING on stderr, which is the half of the defect that WAS visible: the original ran
+#   `/mrcfg` and wrote `No such file or directory` to a stream nothing was reading.
+# ⚠ THE EXPECTED TEXT IS SPELLED OUT A SECOND TIME rather than compared against `$b227_probe`: holding a variable
+#   against itself would pass however mangled it got, which is the tautology this whole block is about.
+b227_probe='a `/mrcfg` read and a $HOME that is not mine'
+b227_seen=$(printf '%s' "$b227_probe" 2>"$OUT/b227.err")
+if [ "$b227_seen" = 'a `/mrcfg` read and a $HOME that is not mine' ] && [ ! -s "$OUT/b227.err" ]; then
+  echo "  ok   ...and a backtick/\$-bearing label prints verbatim, executing nothing"
+else
+  echo "  FAIL a label with shell metacharacters did not survive the printer: [$b227_seen]"
+  sed 's/^/    /' "$OUT/b227.err"; rc=1
+fi
+
+# ---------------------------------------------------------------------------------------------------------------
 # NEGATIVE CONTROLS
 # ---------------------------------------------------------------------------------------------------------------
 n_ctl=0; n_bad=0
 # ctl(label, must_build, sed-script) — must_build=yes: the mutant has to compile AND the probe has to go red.
 #                                      must_build=no : the mutant has to FAIL TO COMPILE (the build IS the check).
+# ⛔ THE LABEL IS PRINTED WITH `printf '%s'` AND NEVER INTERPOLATED INTO A COMMAND — see the [[B227]] block above.
 ctl() {
   local label=$1 must_build=$2 script=$3
   sed "$script" "$FW_UI" > "$OUT/mutant.cpp"
   if cmp -s "$FW_UI" "$OUT/mutant.cpp"; then
-    n_bad=$((n_bad+1)); echo "  FAIL $label — the mutation changed NOTHING, so the control is VACUOUS"; return
+    n_bad=$((n_bad+1))
+    printf '  FAIL %s — the mutation changed NOTHING, so the control is VACUOUS\n' "$label"; return
   fi
   if [ "$must_build" = no ]; then
     if build_variant "$OUT/mutant.cpp" "$OUT/mutant.bin"; then
-      n_bad=$((n_bad+1)); echo "  FAIL $label — it still BUILDS, so the property is not what this control claims"
+      n_bad=$((n_bad+1))
+      printf '  FAIL %s — it still BUILDS, so the property is not what this control claims\n' "$label"
     else
-      n_ctl=$((n_ctl+1)); echo "  ok   $label (build fails, as required)"
+      n_ctl=$((n_ctl+1)); printf '  ok   %s (build fails, as required)\n' "$label"
     fi
     return
   fi
   if ! build_variant "$OUT/mutant.cpp" "$OUT/mutant.bin"; then
-    n_bad=$((n_bad+1)); echo "  FAIL $label — the mutant does not COMPILE, so the probe never ran against it:"
+    n_bad=$((n_bad+1))
+    printf '  FAIL %s — the mutant does not COMPILE, so the probe never ran against it:\n' "$label"
     sed 's/^/        /' "$OUT/build.log" | head -6; return
   fi
   if "$OUT/mutant.bin" >"$OUT/mutant.out" 2>&1; then
-    n_bad=$((n_bad+1)); echo "  FAIL $label — the probe still PASSES against the mutant (the check measures nothing)"
+    n_bad=$((n_bad+1))
+    printf '  FAIL %s — the probe still PASSES against the mutant (the check measures nothing)\n' "$label"
   else
-    n_ctl=$((n_ctl+1)); echo "  ok   $label -> RED ($(grep -c '^  FAIL' "$OUT/mutant.out") check(s) failed)"
+    n_ctl=$((n_ctl+1))
+    printf '  ok   %s -> RED (%s check(s) failed)\n' "$label" "$(grep -c '^  FAIL' "$OUT/mutant.out")"
     # record WHICH checks this control reddened, for the roll-up (the CHK format is "  FAIL <label padded to 64>  <expr>")
     # ⓘ INTO THE CURRENT ARM's file: a control mutates ONE build, so its evidence belongs to that arm's ratio.
     sed -n 's/^  FAIL \(.\{1,64\}\)  .*$/\1/p' "$OUT/mutant.out" | sed 's/[[:space:]]*$//' >> "$OUT/reddened-$ARM.txt"
@@ -699,6 +766,52 @@ if [ "${1:-}" != "--no-neg" ]; then
   #    that HAS children, so §3.6.3 becomes unreachable from the panel — the one direction C88 alone cannot see.
   ctl "L10 the parent row is hidden on a build that HAS a child" yes \
       's|                                                      mrui::provision_has_child(s.prov_create_team, s.prov_join_static));|                                                      false);|'
+
+  # ======================================================================= §UI-15 slice 6: L11-L22, THE JOIN SCREENS
+  # ★★★★ THE CONTROLS FOR THE FOUR `join_*` RENDERER ARMS AND FOR `ui_join_note_push`, AND THEY EXIST ONLY HERE for
+  #   the reason L1-L10 do: the screens are unreachable on the `l2` arm. Each is the TEMPTING WRONG IMPLEMENTATION
+  #   rather than a deletion, and each leaves the WHOLE native suite green — `test_firmware_ui_join.cpp` drives the
+  #   rule and the strings, `test_firmware_ui_prov.cpp` the adapter, `test_firmware_ui_model.cpp` the flow, and NONE
+  #   of them compiles this file.
+  # ⛔ L18 IS THE ONE THAT MATTERS MOST. The correlation rule is pure and mutation-tested; what NOTHING else in the
+  #   tree can see is whether THIS file supplies its two facts LIKE FOR LIKE. Feed it the push's own values and every
+  #   term it was given collapses into a tautology — a rule that is right and an instrument that is blind.
+  ctl "L11 the slot label is drawn from the ROW INDEX instead of the slot number (§B66)" yes \
+      's|                else mrui::join_row_label(label, sizeof label, st.join_list.rec.prof\[r.slot1 - 1\], r.slot1);|                else mrui::join_row_label(label, sizeof label, st.join_list.rec.prof[row], uint8_t(row + 1));|'
+  ctl "L12 the store-state note is never drawn (an unreadable store looks like an empty list)" yes \
+      's|            if (head\[0\]) { body_text(top, head); ++top; }|            (void)head;|'
+  ctl "L13 the note is drawn but the list is not moved down (the rows collide with it)" yes \
+      's|            uint8_t top = 0;|            uint8_t top = 0; const uint8_t keep_top = 0;|
+       s|            const uint8_t rows  = uint8_t(kBodyRows - top);|            top = keep_top; const uint8_t rows = uint8_t(kBodyRows);|'
+  ctl "L14 the confirmation shows only the label — design §3.6.3's COMPLETE values are dropped" yes \
+      's|            char phy\[mrui::kJoinPhyLineCap\];  mrui::join_fmt_phy(phy, sizeof phy, p);    body_text(1, phy);|            ;|'
+  ctl "L15 the confirmation always renders SLOT 1 (the pick is ignored)" yes \
+      's|            const mrnv::JoinProfile\& p = st.join_list.rec.prof\[st.join_sel - 1\];|            const mrnv::JoinProfile\& p = st.join_list.rec.prof[0];|'
+  # ⛔⛔ L16 IS PLAN §2.3 RULE 1, LITERALLY: the waiting screen claiming membership it has not got.
+  ctl "L16 the waiting screen says JOINED before any correlated adopt (plan §2.3 rule 1)" yes \
+      's|            body_text(0, mrui::join_wait_head(st.join_still));|            body_text(0, "JOINED");|'
+  ctl "L17 the RESULT never shows the adopted node id (the one thing §2.3 rule 2 requires)" yes \
+      's|                body_text(1, id);                    // plan §2.3 rule 2: \*"showing the resulting node id"\*|                ;|'
+  ctl "L18 ★★ the correlation is fed the PUSH's OWN id, so term 4 becomes a tautology" yes \
+      's|    s_model.on_join_push(pu, b.layer0_id, g_node.canonical_node_id());|    s_model.on_join_push(pu, b.layer0_id, pu.dst);|'
+  # ⓘ NO BACKTICKS IN THIS LABEL — see the [[B227]] audit above, which is where they cost a gate its meaning. The
+  #   label says /mrcfg plainly; the audit forbids any future one from saying it in a way the shell would run.
+  ctl "L19 the session guard is dropped (a /mrcfg read on every inbound push)" yes \
+      's|    if (!s_model.join_session_active()) return;|    ;|'
+  ctl "L20 the push tap is never called, so no adopt can ever complete the screen" yes \
+      's|            ui_join_note_push(pu);          // §UI-15 slice 6 — see the function; ⛔ it never displaces the routing above|            ;|'
+  # ⛔⛔ L21 IS [[B226]], AND IT IS THE CONTROL THE SLICE SHIPPED WITHOUT. The 60 s word change is a MODEL latch with
+  #   its own native cases and its own mutation — but the only thing that puts it ON THE PANEL is this one argument,
+  #   and no native suite or corpus compiles this file. Hard-wire `false` and the screen says `JOINING` for ever while
+  #   every other gate stays green: the vacuous-coverage class. ⓘ It is DELIBERATELY the surviving-mutant shape rather
+  #   than L16's louder `"JOINED"` — P16d would still pass against it, so only P16f's sequence can catch it.
+  ctl "L21 ★★ the waiting head is hard-wired to false, so STILL JOINING can never appear" yes \
+      's|            body_text(0, mrui::join_wait_head(st.join_still));|            body_text(0, mrui::join_wait_head(false));|'
+  # ⛔ L22 IS [[B228]]'s COST, AND ⛔ NOT ITS RULE: dropping the prefilter changes no verdict whatsoever (the rule's
+  #   own kind gate still rejects the push one call later), so the ONLY thing that can catch it is the /mrcfg read
+  #   count P16e now takes. A control that reddens a CORRECTNESS check would be measuring the wrong property.
+  ctl "L22 the kind prefilter is dropped (every push pays a /mrcfg read again)" yes \
+      's|    if (pu.kind != MESHROUTE_NS::PushKind::join_adopted) return;.*|    ;|'
   ARM=l2; ARM_DEFS=DEFS
 fi
 

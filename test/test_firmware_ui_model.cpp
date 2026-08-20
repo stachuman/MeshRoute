@@ -3040,11 +3040,18 @@ TEST_CASE("ui14-back: BLANKING preserves the draft too — a timeout may never d
 //     (`PROVISION: UI-15`, an activation that refused because §3.6.3 had no flow); plan §4/§5/§6 replace that refusal
 //     with a GATED STATE MODEL, so the placeholder's assertions are retired WITH the placeholder — nothing they
 //     measured survives.
-// ⛔⛔ AND THE REACHABLE SURFACE IS EXACTLY FOUR THINGS ([[B222]], QG-ruled): the gated entry to `menu`, the menu's
-//     cycling, its BACK, and the close-on-leave. NOTHING DEEPER — activating CREATE TEAM or JOIN NETWORK does nothing
-//     in this tree, because those entries land WITH the adapters behind them (slices 5/6). That is asserted below
-//     (`ui15-pending`), not argued: it is the case a premature transition fails.
-// ⛔ NOT measured here, by slice: any screen, any adapter, any live seam.
+// ⛔⛔ THE REACHABLE SURFACE WAS EXACTLY FOUR THINGS WHEN SLICE 4 WROTE THIS ([[B222]], QG-ruled): the gated entry to
+//     `menu`, the menu's cycling, its BACK, and the close-on-leave. NOTHING DEEPER — activating CREATE TEAM or JOIN
+//     NETWORK did nothing in this tree, because those entries had to land WITH the adapters behind them, and that
+//     absence was itself asserted (`ui15-pending`) rather than argued.
+// ✅ CORRECTED IN PLACE 2026-08-20 (§UI-15 slice 6): both entries now HAVE their flows — slice 5 landed CREATE TEAM
+//    and slice 6 the static join — so the four-thing surface and the `ui15-pending` pin are both HISTORY. The pin was
+//    WITHDRAWN, not deleted (the note where it stood, further down), and the property it really carried — a
+//    transition lands WITH its flow, never one slice ahead of it — lives on as `ui15-entry`.
+// ⇒ WHAT **THIS BLOCK** MEASURES IS UNCHANGED and is the slice-4 STATE MODEL: the gate, the menu, its BACK and the
+//   close-on-leave. The flows themselves are measured in their OWN blocks below (§UI-15 slice 5 and slice 6), and the
+//   RENDERER in neither — no test here compiles `src/firmware_ui.cpp` (`tools/probe_firmware_ui` is its cover).
+// ⛔ STILL NOT measured anywhere, by scope: §3.6.4's nearby-team scan (§UI-16).
 namespace {
 // A snapshot whose §6 CHILD PREDICATES are both satisfied. ⛔ They are two SEPARATE parameters, never one flag — see
 // `ui15-hide` below, which is the case that would pass on a model that collapsed them.
@@ -3243,38 +3250,12 @@ TEST_CASE("ui15-menu: `short` CYCLES the children and never walks out of the scr
     CHECK(prov_row_under_cursor(f.m, s, r)); CHECK(r == ProvRow::create_team);
 }
 
-TEST_CASE("ui15-pending: activating JOIN NETWORK does NOTHING — the static-join flow is slice 6's") {
-    // ★★★ [[B222]]'s PIN, and it is asserted rather than argued: `join_select` is UNREACHABLE BY GESTURE in this tree.
-    //     A transition lands WITH the flow behind it — an entry that arrived one slice early would offer a profile
-    //     list with no rows.
-    // ⚠ RE-AIMED 2026-08-19 (§UI-15 slice 5): this case used to drive BOTH children. CREATE TEAM now HAS its flow, so
-    //   asserting that it does nothing would pin the ABSENCE of the very thing this slice lands — the case covers
-    //   only the row that is still pending, and the create half is driven by the `ui15-create` cases below.
-    CfgFix f; const auto s = prov_snap();
-    CHECK(open_provision(f.m, s));
-    CHECK(prov_cursor_to(f.m, s, ProvRow::join_static));
-    const uint8_t before = f.m.state().cursor;
-    f.m.on_gesture(Gesture::double_press, s);
-    // ⛔ STILL THE MENU, on both authorities, with the highlight exactly where the operator left it.
-    CHECK(f.m.state().provisioning == Provision::menu);
-    CHECK(f.m.state().settings == Settings::provisioning);
-    CHECK(f.m.state().cursor == before);
-    ProvRow r{};
-    CHECK(prov_row_under_cursor(f.m, s, r));
-    CHECK(r == ProvRow::join_static);
-    // ⛔ AND NOTHING IS SAID EITHER: §4's two cells are the GATE's remedies, and "come back in a slice" is not one
-    //    of them. ⛔ Nor is anything written, applied or confirmed.
-    CHECK(f.m.state().prov_block == ProvBlock::none);
-    CHECK(strcmp(settings_note(f.m.state()), "") == 0);
-    CHECK(f.store.writes == 0);
-    CHECK(f.live.applies == 0);
-    // ...and BACK still leaves from right here, so a pending child cannot strand the operator in the sub-view.
-    CHECK(prov_cursor_to(f.m, s, ProvRow::back));
-    f.m.on_gesture(Gesture::double_press, s);
-    CHECK(f.m.state().settings == Settings::browsing);
-    CHECK(f.m.state().provisioning == Provision::closed);
-}
-
+// ⚠⚠ `ui15-pending` LIVED HERE AND IS WITHDRAWN, NOT DELETED (2026-08-20, §UI-15 slice 6). It asserted that
+//    activating JOIN NETWORK *"does NOTHING — the static-join flow is slice 6's"*, which was [[B222]]'s pin and was
+//    TRUE until this slice landed the flow behind the row; keeping it would pin the ABSENCE of the very thing being
+//    built. ★ The property it really carried — a transition lands WITH its flow, never one slice ahead of it — lives
+//    on as `ui15-entry` below, which asserts that the entry READS the profile list, so the screen it opens can never
+//    be an empty one it could not have populated.
 TEST_CASE("ui15-confirm: the confirmation cursor's DEFAULT is BACK — as MODEL STATE, on the one entry this slice has") {
     // ★★ §3.6.3, VERBATIM IN SUBSTANCE: *"opens a confirmation with BACK selected initially; reaching CREATE requires
     //    `short` then `double`"*. The FLOW that reads it is slice 5/6's ([[B222]]), so the DEFAULT is pinned where it
@@ -3438,11 +3419,14 @@ TEST_CASE("ui15-hide: a HIDDEN child has NO refusing stub — it cannot be reach
         CHECK(r != ProvRow::create_team);
         f.m.on_gesture(Gesture::short_press, s);
     }
-    // ...and the child that IS supported is on the list and can be walked to — ⓘ its FLOW is slice 6's, so activating
-    // it does nothing here (`ui15-pending`); what §6 owns is which rows EXIST, and that is what is asserted.
+    // ...and the child that IS supported is on the list, can be walked to and OPENS ITS OWN FLOW — ⚠ the landing was
+    // `Provision::menu` until §UI-15 slice 6 landed that flow (it was `ui15-pending`'s state). What §6 owns is which
+    // rows EXIST, and that is what is asserted: the SUPPORTED child works while the hidden one is unreachable.
     CHECK(prov_cursor_to(f.m, s, ProvRow::join_static));
     f.m.on_gesture(Gesture::double_press, s);
-    CHECK(f.m.state().provisioning == Provision::menu);
+    CHECK(f.m.state().provisioning == Provision::join_select);
+    // ⓘ With no seam attached (`CfgFix` has none) the list is UNSERVED, so it offers BACK alone and joins nothing.
+    CHECK(f.m.state().join_list.served == false);
     CHECK(f.store.writes == 0);
 }
 
@@ -3501,15 +3485,24 @@ struct UiFakeProvision : IUiProvision {
     Provision    arm_at_call = Provision::closed;
     const char*  head_at_call = "?";
     UiProvAnswer answer{};                      // the scripted verdict this fake hands back
+    // ★★ §UI-15 slice 6: the JOIN half's script and its instruments. `join_answer` is what the join op returns (the
+    //    create op keeps `answer`, so a case cannot accidentally measure the wrong act); `last_join` is the PROFILE
+    //    the model handed over, which is what makes "what was SHOWN is what is JOINED" assertable.
+    UiProvAnswer      join_answer{};
+    mrnv::JoinProfile last_join{};
+    UiJoinList        list{};                   // what `profiles()` answers
+    int               list_calls = 0;
     UiProvAnswer perform(const UiProvIntent& in) override {
         ++calls;
         last_op = in.op;
+        if (in.op == UiProvOp::join_static) last_join = in.join;
         if (m) {
             arm_at_call  = m->state().provisioning;
             head_at_call = prov_result_head(m->state().prov_answer);
         }
-        return answer;
+        return in.op == UiProvOp::join_static ? join_answer : answer;
     }
+    UiJoinList profiles() override { ++list_calls; return list; }
 };
 struct CreateFix : CfgFix {
     UiFakeProvision prov;
@@ -3704,6 +3697,472 @@ TEST_CASE("ui15-create: the newly reachable arms are CLOSED by leaving and PRE-E
     }
 }
 
+
+// ================================================================ §UI-15 slice 6 — the STATIC-JOIN FLOW (§3.6.3)
+// ★★ WHAT THIS BLOCK MEASURES: the FLOW, the LANDINGS and the ASYNCHRONOUS OUTCOME as the MODEL sees them — which
+//    screen a press reaches, how many times the act runs, what a BACK costs (nothing, on every arm), and which
+//    pushes may complete the waiting screen. ⛔ IT DOES NOT MEASURE THE ADAPTER (the ONE Hz -> MHz conversion and the
+//    verdict mapping are `test/test_firmware_ui_prov.cpp`'s, driven against the REAL transaction) and ⛔ NOT the
+//    correlation RULE itself (`test/test_firmware_ui_join.cpp`'s, term by term).
+namespace {
+// A `UiJoinList` in the ORDINARY state, with a preset in each slot named by the mask. ⚠ The frequency is the build's
+// own carrier: 869.4625 MHz = 869462500 Hz exactly, ⛔ not representable in integral kHz.
+UiJoinList ok_join_list(uint8_t slot_mask, uint8_t layer = 4) {
+    UiJoinList l{};
+    l.served = true;
+    l.res.verdict = mrfw::ProfileVerdict::ok;
+    mrnv::join_blob_init(l.rec);
+    for (uint8_t i = 0; i < mrnv::kJoinProfiles; ++i) {
+        if (!(slot_mask & (1u << i))) continue;
+        l.rec.prof[i].present    = 1;
+        l.rec.prof[i].layer      = layer;
+        l.rec.prof[i].routing_sf = 9;
+        l.rec.prof[i].freq_hz    = 869462500u;
+        l.rec.prof[i].bw_hz      = 125000u;
+    }
+    return l;
+}
+UiJoinList fault_join_list(mrfw::ProfileErr e) {
+    UiJoinList l{};
+    l.served = true;
+    l.res.verdict = mrfw::ProfileVerdict::refused;
+    l.res.err     = e;
+    mrnv::join_blob_init(l.rec);
+    return l;
+}
+UiJoinList absent_join_list() {
+    UiJoinList l{};
+    l.served = true;
+    l.res.verdict = mrfw::ProfileVerdict::empty;
+    mrnv::join_blob_init(l.rec);
+    return l;
+}
+// Cycle the SELECT cursor onto a named row. ⛔ Never a hardcoded index: the rows are built from the `present` flags,
+// so an index means a different profile in a different record (§B66). BOUNDED, so a missing row fails the caller.
+bool join_cursor_to(UiModel& m, JoinSelRow want) {
+    const JoinSelList l = join_sel_rows(m.state().join_list);
+    const auto s = prov_snap();
+    for (uint8_t i = 0; i < uint8_t(l.n + 1u); ++i) {
+        JoinSelRow r{};
+        if (l.at(m.state().cursor, r) && r.back == want.back && (want.back || r.slot1 == want.slot1)) return true;
+        m.on_gesture(Gesture::short_press, s);
+    }
+    return false;
+}
+UiProvAnswer joining_answer() { UiProvAnswer a{}; a.outcome = UiProvOutcome::joining; return a; }
+// Open PROVISION -> JOIN NETWORK -> the slot list. The caller ASSERTS the landing.
+// ⓘ TOLERANT OF ALREADY BEING IN THE SUB-VIEW's MENU, deliberately: `open_provision` walks the SETTINGS cycle, which
+//   a model that is ALREADY in provisioning cannot do (the sub-view owns the press). Several cases below leave the
+//   list and come back, which is exactly the round trip the operator makes.
+bool open_join_select(CreateFix& f, const UiSnapshot& s) {
+    if (f.m.state().provisioning != Provision::menu && !open_provision(f.m, s)) return false;
+    if (!prov_cursor_to(f.m, s, ProvRow::join_static)) return false;
+    f.m.on_gesture(Gesture::double_press, s);
+    return f.m.state().provisioning == Provision::join_select;
+}
+// ...and on to the confirmation for the named slot.
+bool open_join_confirm(CreateFix& f, const UiSnapshot& s, uint8_t slot1) {
+    if (!open_join_select(f, s)) return false;
+    if (!join_cursor_to(f.m, JoinSelRow{slot1, false})) return false;
+    f.m.on_gesture(Gesture::double_press, s);
+    return f.m.state().provisioning == Provision::join_confirm;
+}
+// Drive it all the way to `join_waiting` with a scripted `joining` verdict.
+bool start_join(CreateFix& f, const UiSnapshot& s, uint8_t slot1 = 1) {
+    f.prov.join_answer = joining_answer();
+    if (!open_join_confirm(f, s, slot1)) return false;
+    f.m.on_gesture(Gesture::short_press, s);          // BACK -> JOIN: the deliberate short-then-double
+    f.m.on_gesture(Gesture::double_press, s);
+    return f.m.state().provisioning == Provision::join_waiting;
+}
+// A push, built field by field so every case can move exactly one fact.
+MESHROUTE_NS::Push adopt_push(uint8_t leaf, uint8_t dst) {
+    MESHROUTE_NS::Push pu{};
+    pu.kind = MESHROUTE_NS::PushKind::join_adopted;
+    pu.layer_id = leaf;
+    pu.dst = dst;
+    return pu;
+}
+}  // namespace
+
+TEST_CASE("ui15-entry: activating JOIN NETWORK opens the SLOT LIST and reads `/mrjoin` EXACTLY ONCE") {
+    // ⚠ RE-AIMED 2026-08-20 (§UI-15 slice 6), and the withdrawal is recorded rather than the case deleted: this used
+    //   to be `ui15-pending`, which asserted that activating JOIN NETWORK *"does NOTHING — the static-join flow is
+    //   slice 6's"*. That was [[B222]]'s pin and it was TRUE until this slice landed the flow behind the row; keeping
+    //   it would pin the ABSENCE of the very thing being built. ★ The property it really carried — a transition lands
+    //   WITH its flow — survives as the assertion that the list is READ on the transition, so the screen the entry
+    //   opens is never an empty one it could not have populated.
+    CreateFix f; const auto s = prov_snap();
+    f.prov.list = ok_join_list(/*slots=*/0b0101);             // slots 1 and 3 hold presets
+    CHECK(open_provision(f.m, s));
+    CHECK(prov_cursor_to(f.m, s, ProvRow::join_static));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::join_select);
+    CHECK(f.m.state().settings == Settings::provisioning);
+    // ★★ THE ONE READ, ON THE TRANSITION. ⛔ Not per tick and not per page: `profiles()` reaches flash, and U8g2
+    //    replays the whole scene eight times per frame.
+    CHECK(f.prov.list_calls == 1);
+    for (int i = 0; i < 5; ++i) f.m.on_tick(s);
+    CHECK(f.prov.list_calls == 1);
+    // ★ THE ROWS ARE THE PRESENT SLOTS, BY SLOT NUMBER, plus the unconditional BACK.
+    const JoinSelList l = join_sel_rows(f.m.state().join_list);
+    CHECK(l.n == 3);
+    JoinSelRow r{};
+    CHECK(l.at(0, r)); CHECK(r.slot1 == 1);
+    CHECK(l.at(1, r)); CHECK(r.slot1 == 3);
+    CHECK(l.at(2, r)); CHECK(r.back);
+    // ⛔ AND OPENING IT PERFORMED NOTHING: no transaction, no durable write, no live apply, and no note.
+    CHECK(f.prov.calls == 0);
+    CHECK(f.store.writes == 0);
+    CHECK(f.live.applies == 0);
+    CHECK(f.m.state().prov_block == ProvBlock::none);
+    CHECK(strcmp(settings_note(f.m.state()), "") == 0);
+    // ...and BACK from the list returns to the child menu, so the entry cannot strand the operator.
+    CHECK(join_cursor_to(f.m, JoinSelRow{0, true}));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::menu);
+    CHECK(f.prov.calls == 0);
+}
+
+TEST_CASE("ui15-join: the STORE MATRIX reaches the panel — four states, four texts, and NO slot to join from") {
+    // ★★★★ PIN 1. The three faults are three different texts and `io_failed` never reads as absent or as invalid —
+    //      the distinction [[B218]] bought. ⛔ AND NONE OF THEM OFFERS A SLOT: a store that could not be read must
+    //      not be joined from, so the only row is BACK.
+    struct Arm { UiJoinList list; const char* head; const char* detail; };
+    const Arm arms[] = {
+        { absent_join_list(),                                  "NO PROFILES",     "" },
+        { fault_join_list(mrfw::ProfileErr::store_invalid),    "PROFILE STORE",   "INVALID" },
+        { fault_join_list(mrfw::ProfileErr::store_io_failed),  "STORAGE FAILURE", "CHECK faults" },
+        { ok_join_list(/*slots=*/0),                           "NO PROFILES",     "" },   // valid, four empty slots
+    };
+    for (const Arm& a : arms) {
+        CreateFix f; const auto s = prov_snap();
+        f.prov.list = a.list;
+        CHECK(open_join_select(f, s));
+        CHECK(strcmp(join_store_head(f.m.state().join_list), a.head) == 0);
+        CHECK(strcmp(join_store_detail(f.m.state().join_list), a.detail) == 0);
+        const JoinSelList l = join_sel_rows(f.m.state().join_list);
+        CHECK(l.n == 1);
+        JoinSelRow r{};
+        CHECK(l.at(0, r));
+        CHECK(r.back == true);
+        // ⛔ A `double` ON THE ONLY ROW LEAVES — it cannot start anything, because there is nothing to start.
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.m.state().provisioning == Provision::menu);
+        CHECK(f.prov.calls == 0);
+        CHECK(f.store.writes == 0);
+        CHECK(f.live.applies == 0);
+    }
+    // ⓘ A MISSING SEAM IS A FOURTH ANSWER AGAIN, and it is reached without a `CreateFix`: an unattached model.
+    CfgFix f; const auto s = prov_snap();
+    CHECK(open_provision(f.m, s));
+    CHECK(prov_cursor_to(f.m, s, ProvRow::join_static));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::join_select);
+    CHECK(f.m.state().join_list.served == false);
+    CHECK(strcmp(join_store_head(f.m.state().join_list), "NO JOIN SERVICE") == 0);
+    CHECK(join_sel_rows(f.m.state().join_list).n == 1);
+}
+
+TEST_CASE("ui15-join: BACK at select/confirm/waiting/result drives ZERO — and CONFIRM drives EXACTLY ONE") {
+    // ★★★★ PIN 2, counted on all three instruments rather than argued. ⓘ `waiting` and `result` are reached through
+    //      a real CONFIRM, so the "exactly one" is asserted on the same run as the "zero afterwards".
+    CreateFix f; const auto s = prov_snap();
+    // ⚠ SLOTS **1 AND 3**, DELIBERATELY: the pick below then sits at ROW INDEX 1 while naming SLOT 3, so a model
+    //   that activated the index would join a different profile (§B66). With slots 1 and 2 the two numbers coincide
+    //   and the defect is invisible — which is exactly what a first version of this case measured (nothing).
+    f.prov.list = ok_join_list(0b0101);
+    // --- BACK from the SELECT list
+    CHECK(open_join_select(f, s));
+    CHECK(join_cursor_to(f.m, JoinSelRow{0, true}));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::menu);
+    CHECK(f.prov.calls == 0);
+    // --- BACK from the CONFIRMATION returns to the LIST (⛔ not the menu: it is the screen he was choosing on)
+    CHECK(open_join_confirm(f, s, 1));
+    CHECK(f.m.state().prov_confirm == ProvConfirm::back);     // §3.6.3: opens on the SAFE action
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::join_select);
+    CHECK(f.prov.calls == 0);
+    CHECK(f.store.writes == 0);
+    CHECK(f.live.applies == 0);
+    // --- CONFIRM: exactly ONE, and the profile handed over is the one the SELECTED slot holds
+    f.prov.join_answer = joining_answer();
+    CHECK(join_cursor_to(f.m, JoinSelRow{3, false}));
+    // ★★ THE ROW INDEX AND THE SLOT NUMBER DIFFER HERE, AND THAT IS THE WHOLE POINT OF THE 1-AND-3 FIXTURE: the pick
+    //    the model records must be the SLOT (§B66), so a model that stored the index would join slot 2's profile.
+    //    ⓘ Read BEFORE the activation, because `enter_provision` re-anchors the cursor to each arm's first row.
+    CHECK(f.m.state().cursor == 1);
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::join_confirm);
+    CHECK(f.m.state().join_sel == 3);
+    f.m.on_gesture(Gesture::short_press, s);
+    CHECK(f.m.state().prov_confirm == ProvConfirm::confirm);
+    CHECK(f.prov.calls == 0);                                 // ⛔ toggling is not acting
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.prov.calls == 1);                                 // ★ EXACTLY ONE
+    CHECK(f.prov.last_op == UiProvOp::join_static);
+    CHECK(f.prov.last_join.present == 1);                     // ★ WHAT WAS SHOWN IS WHAT WAS JOINED (slot 3's record)
+    CHECK(f.prov.last_join.freq_hz == 869462500u);
+    // ★★★ §8 PIN 2: at the instant the act ran the screen was still the CONFIRMATION and no result text existed.
+    CHECK(f.prov.arm_at_call == Provision::join_confirm);
+    CHECK(strcmp(f.prov.head_at_call, "") == 0);
+    // --- BACK from WAITING and from the RESULT: still zero more
+    CHECK(f.m.state().provisioning == Provision::join_waiting);
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::menu);
+    CHECK(f.prov.calls == 1);
+    // ★ AND RE-ENTERING THE LIST RETIRES THE PICK ALONG WITH THE RECORD IT NAMED: the two are refreshed by the SAME
+    //   call (`load_join_profiles`), because a slot number means nothing without the record it indexes — that pair
+    //   going out of step is how a confirmation ends up showing one profile's values for another's selection.
+    CHECK(f.m.state().join_sel == 3);                         // still the old pick while the menu is up...
+    CHECK(open_join_select(f, s));
+    CHECK(f.m.state().join_sel == 0);                         // ...and retired by the read that rebuilt the list
+    CHECK(f.prov.list_calls == 3);
+    CHECK(f.prov.calls == 1);
+}
+
+TEST_CASE("ui15-join: transaction success shows JOINING — ⛔ and NO `JOINED`-shaped text is reachable before an adopt") {
+    // ★★★★ PIN 3, and it is the whole reason `joining` is a state of its own: a successful transaction has written
+    //      once and STARTED DAD. Claiming membership there is the *"a success that isn't"* class, one plane over.
+    CreateFix f; const auto s = prov_snap();
+    f.prov.list = ok_join_list(0b0001);
+    CHECK(start_join(f, s));
+    CHECK(f.m.state().prov_answer.outcome == UiProvOutcome::joining);
+    CHECK(strcmp(prov_result_head(f.m.state().prov_answer), "JOINING") == 0);
+    CHECK(strcmp(join_wait_head(f.m.state().join_still), "JOINING") == 0);
+    CHECK(f.m.state().join_still == false);
+    // ⛔ NO ARM OF EITHER STRING FUNCTION SAYS `JOINED` — walked over every outcome, so the property is about the
+    //    VOCABULARY and not about the one state this case happens to be in.
+    const UiProvOutcome all[] = { UiProvOutcome::none, UiProvOutcome::created, UiProvOutcome::phy_differs,
+                                  UiProvOutcome::save_failed, UiProvOutcome::refused, UiProvOutcome::joining,
+                                  UiProvOutcome::adopted, UiProvOutcome::join_refused };
+    for (UiProvOutcome o : all) {
+        UiProvAnswer a{}; a.outcome = o; a.reason = "nv_load_failed";
+        CHECK(strstr(prov_result_head(a), "JOINED") == nullptr);
+        CHECK(strstr(prov_result_detail(a), "JOINED") == nullptr);
+        CHECK(strlen(prov_result_head(a)) <= 19u);            // ...and every one still fits the rail's body
+        CHECK(strlen(prov_result_detail(a)) <= 19u);
+    }
+    // ★ THE JOIN OUTCOMES SAY DIFFERENT THINGS FROM THE CREATE ONES: a collapse would make the panel unable to say
+    //   which operation answered.
+    UiProvAnswer jr{}; jr.outcome = UiProvOutcome::join_refused; jr.reason = "invalid_sf";
+    CHECK(strcmp(prov_result_head(jr), "JOIN REFUSED") == 0);
+    CHECK(strcmp(prov_result_detail(jr), "invalid_sf") == 0);
+    UiProvAnswer ad{}; ad.outcome = UiProvOutcome::adopted; ad.node_id = 42;
+    CHECK(strcmp(prov_result_head(ad), "ADOPTED") == 0);
+    CHECK(strcmp(prov_result_detail(ad), "") == 0);           // its second row is the node ID, a VALUE
+}
+
+TEST_CASE("ui15-join: a refusal or a failed save LANDS ON THE RESULT — and arms no session at all") {
+    for (int arm = 0; arm < 2; ++arm) {
+        CreateFix f; const auto s = prov_snap();
+        f.prov.list = ok_join_list(0b0001);
+        f.prov.join_answer = UiProvAnswer{};
+        if (arm == 0) { f.prov.join_answer.outcome = UiProvOutcome::join_refused;
+                        f.prov.join_answer.reason  = "invalid_bw"; }
+        else          { f.prov.join_answer.outcome = UiProvOutcome::save_failed; }
+        CHECK(open_join_confirm(f, s, 1));
+        f.m.on_gesture(Gesture::short_press, s);
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.m.state().provisioning == Provision::join_result);
+        CHECK(f.prov.calls == 1);
+        // ⛔⛔ NO SESSION IS ARMED ON A NON-`joining` VERDICT: a correlation window open for an operation that never
+        //    started is the mirror of the "success that isn't", and a later BOOT DAD would then complete a screen.
+        CHECK(f.m.join_session_active() == false);
+        f.m.on_join_push(adopt_push(4, 42), 4, 42);           // the perfectly-shaped adopt
+        CHECK(f.m.state().provisioning == Provision::join_result);
+        CHECK(f.m.state().prov_answer.outcome != UiProvOutcome::adopted);
+    }
+    // ⓘ A NULL SEAM REFUSES OUT LOUD (C2) rather than doing nothing — the dead-button complaint one screen over.
+    CfgFix f; const auto s = prov_snap();
+    CHECK(open_provision(f.m, s));
+    CHECK(prov_cursor_to(f.m, s, ProvRow::join_static));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::join_select);
+    CHECK(join_sel_rows(f.m.state().join_list).n == 1);       // only BACK, so the act is not even reachable
+    CHECK(f.m.join_session_active() == false);
+}
+
+TEST_CASE("ui15-join: ★★ ONLY A CORRELATED ADOPT COMPLETES — the four uncorrelated shapes, by name") {
+    // ★★★★ PIN 4, driven THROUGH THE MODEL: each shape leaves the screen on `JOINING`, leaves the session ARMED, and
+    //      says nothing. ⓘ The rule itself is pinned term by term in `test/test_firmware_ui_join.cpp`; this is the
+    //      other end — that the model consults it and changes nothing when it answers no.
+    struct Shape { const char* name; MESHROUTE_NS::Push pu; uint8_t persisted; uint8_t canonical; bool active; };
+    const Shape shapes[] = {
+        // a BOOT DAD: perfectly formed, but nobody started a UI join (term 1). Driven by clearing the session below.
+        { "boot DAD (no active session)",  adopt_push(4, 42), 4, 42, false },
+        // ★★ a HEAL RE-ADOPT on the layer the record CURRENTLY holds, while the screen waits for another (term 2).
+        //    ⛔ THE LAYERS SHARE A NIBBLE ON PURPOSE (20 & 0x0F == 4): the two operations' pushes are then IDENTICAL
+        //    ON THE WIRE, so nothing but the record's FULL byte can separate them — which is what term 2 is for.
+        { "heal re-adopt on another layer", adopt_push(4, 42), 20, 42, true },
+        { "wrong layer nibble",             adopt_push(5, 42), 4, 42, true },
+        { "a foreign dst",                  adopt_push(4, 43), 4, 42, true },
+        { "a ZERO dst",                     adopt_push(4, 0),  4, 0,  true },
+    };
+    for (const Shape& sh : shapes) {
+        CreateFix f; const auto s = prov_snap();
+        f.prov.list = ok_join_list(0b0001);
+        CHECK(start_join(f, s));
+        CHECK(f.m.join_session_active() == true);
+        if (!sh.active) {                                     // the boot-DAD shape: no session behind the push
+            f.m.on_gesture(Gesture::double_press, s);         // leave the screen...
+            CHECK(f.m.state().provisioning == Provision::menu);
+        }
+        const Provision before = f.m.state().provisioning;
+        f.m.on_join_push(sh.pu, sh.persisted, sh.canonical);
+        // ⛔ NOTHING MOVED: not the screen, not the answer, not the session.
+        CHECK(f.m.state().provisioning == before);
+        CHECK(f.m.state().prov_answer.outcome != UiProvOutcome::adopted);
+        CHECK(f.m.join_session_active() == sh.active);        // ...and an ARMED session is still armed
+        if (sh.active) CHECK(strcmp(join_wait_head(f.m.state().join_still), "JOINING") == 0);
+    }
+    // ★ THE POSITIVE ARM, on the same fixture: the identical push with every fact correct COMPLETES.
+    CreateFix f; const auto s = prov_snap();
+    f.prov.list = ok_join_list(0b0001);
+    CHECK(start_join(f, s));
+    f.m.on_join_push(adopt_push(4, 42), 4, 42);
+    CHECK(f.m.state().provisioning == Provision::join_result);
+    CHECK(f.m.state().prov_answer.outcome == UiProvOutcome::adopted);
+    CHECK(f.m.state().prov_answer.node_id == 42);
+    CHECK(strcmp(prov_result_head(f.m.state().prov_answer), "ADOPTED") == 0);
+    CHECK(f.m.join_session_active() == false);                // ★ a correlated adopt is the session's ONE ordinary end
+    CHECK(f.prov.calls == 1);                                 // ⛔ and it re-ran nothing
+}
+
+TEST_CASE("ui15-join: ⛔ EVERY `JoinRefuseReason` IS IGNORED FOR COMPLETION — the screen stays JOINING") {
+    // ★★★★ PIN 5 / plan §2.3 rule 6: the shared push cannot separate static DAD, team DAD and an unrelated
+    //      wire-version OBSERVATION ABOUT ANOTHER PEER, so ⛔ NO reason terminally fails UI-15 v1.
+    const MESHROUTE_NS::JoinRefuseReason reasons[] = {
+        MESHROUTE_NS::JoinRefuseReason::wire_version, MESHROUTE_NS::JoinRefuseReason::leaf_full,
+        MESHROUTE_NS::JoinRefuseReason::phy_mismatch, MESHROUTE_NS::JoinRefuseReason::sf_list_mismatch,
+    };
+    for (MESHROUTE_NS::JoinRefuseReason r : reasons) {
+        CreateFix f; const auto s = prov_snap();
+        f.prov.list = ok_join_list(0b0001);
+        CHECK(start_join(f, s));
+        MESHROUTE_NS::Push pu = adopt_push(4, 42);            // ...otherwise PERFECTLY correlated
+        pu.kind = MESHROUTE_NS::PushKind::join_refused;
+        pu.join_reason = r;
+        f.m.on_join_push(pu, 4, 42);
+        // ⛔ STILL JOINING, on every authority: the arm, the answer and the session.
+        CHECK(f.m.state().provisioning == Provision::join_waiting);
+        CHECK(f.m.state().prov_answer.outcome == UiProvOutcome::joining);
+        CHECK(strcmp(join_wait_head(f.m.state().join_still), "JOINING") == 0);
+        CHECK(f.m.join_session_active() == true);
+        // ...and the real adopt that follows STILL completes, so a refusal did not poison the session either.
+        f.m.on_join_push(adopt_push(4, 42), 4, 42);
+        CHECK(f.m.state().provisioning == Provision::join_result);
+        CHECK(f.m.state().prov_answer.outcome == UiProvOutcome::adopted);
+    }
+}
+
+TEST_CASE("ui15-join: 60 s is a WORD CHANGE — ⛔ never a failure — and BACK from WAITING cancels nothing") {
+    // ★★★★ PIN 6. Normal adoption is ~23 s and a conflict/retry reaches ~53 s, and retries are NOT finitely bounded.
+    CreateFix f; auto s = prov_snap();
+    f.prov.list = ok_join_list(0b0001);
+    CHECK(start_join(f, s));
+    const int writes_at_start = f.store.writes;
+    CHECK(f.m.state().join_still == false);
+    // ...one millisecond short of the deadline is still `JOINING`.
+    auto s1 = prov_snap(true, true, s.now_ms + kJoinStillMs - 1);
+    f.m.on_tick(s1);
+    CHECK(f.m.state().join_still == false);
+    CHECK(strcmp(join_wait_head(f.m.state().join_still), "JOINING") == 0);
+    // ...and at the deadline the WORD changes and ⛔ NOTHING ELSE DOES.
+    auto s2 = prov_snap(true, true, s.now_ms + kJoinStillMs);
+    f.m.on_tick(s2);
+    CHECK(f.m.state().join_still == true);
+    CHECK(strcmp(join_wait_head(f.m.state().join_still), "STILL JOINING") == 0);
+    CHECK(f.m.state().provisioning == Provision::join_waiting);      // ⛔ NOT a result, NOT a failure
+    CHECK(f.m.state().prov_answer.outcome == UiProvOutcome::joining);
+    CHECK(f.m.join_session_active() == true);
+    CHECK(f.prov.calls == 1);                                        // ⛔ nothing was retried
+    CHECK(f.store.writes == writes_at_start);
+    // ★ AND IT ASKS FOR A REPAINT AT THE EDGE, exactly once: a word that changed without a `dirty` would be true and
+    //   INVISIBLE (`FrameGate::step` answers `idle` on a clean model).
+    f.m.clear_dirty();
+    f.m.on_tick(prov_snap(true, true, s.now_ms + kJoinStillMs + 5000));
+    CHECK(f.m.state().dirty == false);                               // ⛔ not every tick past the edge
+    // ⓘ AND THE PANEL HAS BLANKED BY NOW, which is honest rather than incidental: `kBlankMs` is 15 s and the waiting
+    //   screen needs no attention. ⛔ THE BLANK CANCELS NOTHING EITHER — the same rule BACK obeys, arriving from the
+    //   timer instead of the button.
+    CHECK(f.m.state().blanked == true);
+    CHECK(f.m.join_session_active() == true);
+    CHECK(f.m.state().provisioning == Provision::join_waiting);
+    f.m.on_gesture(Gesture::short_press, s2);                        // the waking press is CONSUMED (§B102)
+    CHECK(f.m.state().blanked == false);
+    CHECK(f.m.state().provisioning == Provision::join_waiting);
+    // ★★★ PLAN §2.3 RULE 4: BACK during JOINING only LEAVES THE SCREEN. ⛔ It cancels nothing, rolls nothing back and
+    //     costs no write — the operation is already persisted and DAD is running.
+    f.m.on_gesture(Gesture::double_press, s2);
+    CHECK(f.m.state().provisioning == Provision::menu);
+    CHECK(f.m.join_session_active() == true);
+    CHECK(f.store.writes == writes_at_start);
+    CHECK(f.live.applies == 0);
+    CHECK(f.prov.calls == 1);
+    // ...and the adopt that arrives afterwards still ENDS the session, even though no screen is there to show it.
+    f.m.on_join_push(adopt_push(4, 42), 4, 42);
+    CHECK(f.m.join_session_active() == false);
+    CHECK(f.m.state().provisioning == Provision::menu);              // ⛔ a push may NOT navigate the panel
+}
+
+TEST_CASE("ui15-join: the FOUR join arms are CLOSED by leaving and PRE-EMPTED by the alarm — and the session SURVIVES") {
+    // ★★★★ PIN 7, over the arms this slice makes reachable. ⓘ AND THE ONE THING THE PRE-EMPTION MUST NOT DO: closing
+    //      the SCREEN may not end a persisted join — §3.6.5's words are *"an UNCONFIRMED destructive action does not
+    //      survive"*, and a written, DAD-ing join is neither unconfirmed nor cancellable from a screen.
+    for (int stage = 0; stage < 4; ++stage) {
+        CreateFix f; const auto s = prov_snap();
+        f.prov.list = ok_join_list(0b0001);
+        f.prov.join_answer = joining_answer();
+        switch (stage) {
+            case 0: CHECK(open_join_select(f, s)); break;
+            case 1: CHECK(open_join_confirm(f, s, 1));
+                    f.m.on_gesture(Gesture::short_press, s);          // ...with JOIN selected: the destructive choice
+                    CHECK(f.m.state().prov_confirm == ProvConfirm::confirm); break;
+            case 2: CHECK(start_join(f, s)); break;
+            case 3: CHECK(start_join(f, s));
+                    f.m.on_join_push(adopt_push(4, 42), 4, 42);
+                    CHECK(f.m.state().provisioning == Provision::join_result); break;
+        }
+        const int before = f.prov.calls;
+        const bool session_before = f.m.join_session_active();
+        f.m.on_gesture(Gesture::long_arm, s);
+        CHECK(f.m.state().provisioning == Provision::closed);
+        CHECK(f.m.state().settings == Settings::browsing);
+        CHECK(f.m.state().prov_confirm == ProvConfirm::back);
+        CHECK(f.prov.calls == before);                                // ⛔ the alarm confirmed NOTHING on its way past
+        CHECK(f.store.writes == 0);
+        // ⛔⛔ AND THE SESSION IS UNTOUCHED: the alarm pre-empts the SCREEN, not the operation.
+        CHECK(f.m.join_session_active() == session_before);
+        f.m.on_gesture(Gesture::long_cancel, s);
+        CHECK(f.m.state().provisioning == Provision::closed);         // ...and a cancel does not bring it back
+        // ★ RE-ENTERING opens the MENU at its first row — ⛔ never the confirmation the operator abandoned.
+        const auto s2 = prov_snap(true, true, s.now_ms + kCancelledMs + 1);
+        f.m.on_tick(s2);
+        CHECK(f.m.emergency() == Emergency::idle);
+        CHECK(open_provision(f.m, s2));
+        CHECK(f.m.state().provisioning == Provision::menu);
+        CHECK(f.m.state().prov_answer.outcome == UiProvOutcome::none);
+    }
+}
+
+TEST_CASE("ui15-join: ★★ TRAP 2 — a join at LAYER 17 correlates through the NIBBLE and COMPLETES") {
+    // ★★★★ PIN 8, driven THROUGH THE SCREEN at a value above 15: the request persists the FULL byte, the wire carries
+    //      the NIBBLE, and v3's full==live comparison would have made this wait for ever.
+    CreateFix f; const auto s = prov_snap();
+    f.prov.list = ok_join_list(0b0001, /*layer=*/17);
+    CHECK(start_join(f, s));
+    CHECK(f.prov.last_join.layer == 17);                              // ★ the FULL byte reached the adapter
+    // ⛔ THE PUSH CARRYING THE FULL BYTE AS ITS LEAF IS NOT OURS (no leaf nibble can be 17).
+    f.m.on_join_push(adopt_push(17, 42), 17, 42);
+    CHECK(f.m.state().provisioning == Provision::join_waiting);
+    // ★ THE NIBBLE ONE COMPLETES — with `/mrcfg` still holding the FULL 17 (persisted <-> persisted).
+    f.m.on_join_push(adopt_push(1, 42), 17, 42);
+    CHECK(f.m.state().provisioning == Provision::join_result);
+    CHECK(f.m.state().prov_answer.outcome == UiProvOutcome::adopted);
+    CHECK(f.m.state().prov_answer.node_id == 42);
+}
 // ---------------------------------------------------------------------------------------------- the LONG gesture
 TEST_CASE("ui14-long: `long_arm` LEAVES THE EDITOR — and a `long_cancel` does not bring it back") {
     CfgFix f; const auto s = cfg_snap();
@@ -3870,11 +4329,48 @@ TEST_CASE("chrome4-audit: every PURE panel string fits the rail's 19-column body
     CHECK(1u + strlen(kProvCreateTitle) <= kCols);
     for (ProvConfirm a : { ProvConfirm::back, ProvConfirm::confirm })
         CHECK(1u + strlen(prov_confirm_label(a)) <= kCols);
+    // ⚠ §UI-15 slice 6 WIDENED THIS LOOP to the three new outcomes, and the reason is the trap this whole audit
+    //   exists around: a walk over a HARDCODED SUBSET of an enum measures only the arms somebody remembered. The
+    //   widest reason a JOIN answer can carry is `nv_load_failed` (14), the longest `mrfw::join_err_name`.
     for (UiProvOutcome o : { UiProvOutcome::none, UiProvOutcome::created, UiProvOutcome::phy_differs,
-                             UiProvOutcome::save_failed, UiProvOutcome::refused }) {
+                             UiProvOutcome::save_failed, UiProvOutcome::refused, UiProvOutcome::joining,
+                             UiProvOutcome::adopted, UiProvOutcome::join_refused }) {
         UiProvAnswer a{}; a.outcome = o; a.reason = "no_mobile_plane";   // the widest mrfw::prov_err_name
         CHECK(strlen(prov_result_head(a)) <= kCols);
         CHECK(strlen(prov_result_detail(a)) <= kCols);
+        a.reason = mrfw::join_err_name(mrfw::JoinErr::nv_load_failed);
+        CHECK(strlen(prov_result_detail(a)) <= kCols);
+    }
+    // §UI-15 slice 6: the SELECT screen's four store notes, the slot labels (`%c%s` with a 12-byte label or the
+    // `PROFILE n` default), the CONFIRMATION's two value lines at their widest reachable values and its two action
+    // rows, the WAITING screen's two words and the RESULT's node line.
+    {
+        UiJoinList l{};                                        // unserved
+        CHECK(strlen(join_store_head(l)) <= kCols);
+        CHECK(strlen(join_store_detail(l)) <= kCols);
+        l.served = true;
+        for (mrfw::ProfileVerdict v : { mrfw::ProfileVerdict::ok, mrfw::ProfileVerdict::unchanged,
+                                        mrfw::ProfileVerdict::empty, mrfw::ProfileVerdict::refused,
+                                        mrfw::ProfileVerdict::nv_failed }) {
+            for (mrfw::ProfileErr e : { mrfw::ProfileErr::none, mrfw::ProfileErr::store_invalid,
+                                        mrfw::ProfileErr::store_io_failed }) {
+                l.res.verdict = v; l.res.err = e;
+                CHECK(strlen(join_store_head(l)) <= kCols);
+                CHECK(strlen(join_store_detail(l)) <= kCols);
+            }
+        }
+        mrnv::JoinProfile p{};
+        p.present = 1; p.layer = 255; p.routing_sf = 12; p.freq_hz = 1000000000u; p.bw_hz = 500000u;
+        memcpy(p.name, "ABCDEFGHIJKL", sizeof p.name); p.name_len = uint8_t(sizeof p.name);
+        char tok[48];
+        join_row_label(tok, sizeof tok, p, 4);   CHECK(1u + strlen(tok) <= kCols);
+        p.name_len = 0;
+        join_row_label(tok, sizeof tok, p, 4);   CHECK(1u + strlen(tok) <= kCols);   // the `PROFILE 4` default
+        join_fmt_phy(tok, sizeof tok, p);        CHECK(strlen(tok) <= kCols);
+        join_fmt_freq(tok, sizeof tok, p);       CHECK(strlen(tok) <= kCols);
+        join_fmt_node(tok, sizeof tok, 255);     CHECK(strlen(tok) <= kCols);
+        for (bool still : { false, true })  CHECK(strlen(join_wait_head(still)) <= kCols);
+        for (bool c : { false, true })      CHECK(1u + strlen(join_confirm_label(c)) <= kCols);
     }
 
     // ---- the inbox detail's header, at its widest reachable expansion (`pages` is bounded by kDetailMaxPages)

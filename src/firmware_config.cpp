@@ -791,7 +791,9 @@ struct DeviceJoinLive : mrfw::IJoinLive {
 // Function-local statics: constructed on first CALL, so there is no cross-TU initialisation-order question (the same
 // reasoning as `device_cfg_store()` / `prov_service()`). ONE service instance, which §UI-15 slice 6's OLED adapter
 // will reach for as well.
-static mrfw::JoinService& join_service() {
+// ⛔ NOT `static` (§UI-15 slice 6): `src/firmware_ui.cpp`'s OLED adapter calls THIS instance, through the
+// declaration in `firmware_config.h`. Two services over one `/mrcfg` record would be two save paths.
+mrfw::JoinService& join_service() {
     static DeviceJoinLive live;
     static mrfw::JoinService s(device_cfg_store(), live);
     return s;
@@ -898,7 +900,10 @@ struct DeviceJoinProfileStore : mrfw::IJoinStore {
 }  // namespace
 // Function-local statics: constructed on first CALL, so there is no cross-TU initialisation-order question (the same
 // reasoning as `device_cfg_store()` / `join_service()`). ONE instance, which §UI-15 slice 6's OLED will reach for too.
-static mrfw::JoinProfileService& join_profile_service() {
+// ⛔ NOT `static`, for the same reason `join_service()` above is not: §UI-15 slice 6's OLED SELECT screen reads the
+// four presets through THIS instance (`firmware_config.h` declares it), so the panel and the `joinprofile` verbs
+// share one store service and one write policy.
+mrfw::JoinProfileService& join_profile_service() {
     static DeviceJoinProfileStore st;
     static mrfw::JoinProfileService s(st);
     return s;

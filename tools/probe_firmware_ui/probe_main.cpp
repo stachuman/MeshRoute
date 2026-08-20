@@ -105,6 +105,13 @@
                                 //   (`prov_service` / `prov_device_facts` / `prov_note_persisted_team_local_id`) are
                                 //   FAKED below, so what the child-enabled arm drives is the SHIPPED adapter over a
                                 //   scripted device — ⛔ never a stand-in for the adapter itself.
+#include "firmware_join_service.h"   // ★★ §UI-15 slice 6: slice 1's typed join transaction — the probe supplies the
+                                     //    ONE instance `mrfw::join_service()` returns (its real body is in
+                                     //    `src/firmware_config.cpp`, which is not in this link).
+#include "firmware_join_profiles.h"  // ★★ ...and slice 2's `/mrjoin` store service, the same way. Both are PURE, so
+                                     //    what the P16 phase drives is the SHIPPED logic over a scripted store.
+#include "firmware_ui_join.h"        // ★ the SELECT/CONFIRM/WAITING strings and the four-term rule — the P16 checks
+                                     //   compute their EXPECTATION with them, so a panel row is a VALUE RELATION.
 #include "firmware_ui_chrome.h" // ★ the SHARED id / fingerprint / REPLACES formatters. The P15 checks compute their
                                 //   EXPECTATION with them, so `the fingerprint on the panel` is a VALUE RELATION to
                                 //   `ui_fmt_team_fingerprint(the created id)` rather than "six hex characters appeared".
@@ -591,6 +598,51 @@ void prov_note_persisted_team_local_id(uint8_t v) {
     ++s.noted_calls; s.noted_team_local_id = v;
 }
 }  // namespace mrfw
+
+// ---- ★★★★ §UI-15 slice 6: THE STATIC-JOIN SEAMS' FAKES — the CHILD-ENABLED ARM ONLY ------------------------------
+// ★★★ THE SAME ARGUMENT AS THE PROVISIONING FAKES ABOVE, one feature over: `src/firmware_ui.cpp`'s
+//     `DeviceJoinProvision` forwards to `mrfw::join_service()` and `mrfw::join_profile_service()`, whose real bodies
+//     live in `src/firmware_config.cpp` (not in this link). Faking the two ACCESSORS is what lets this probe drive
+//     the SHIPPED renderer, the SHIPPED model and the SHIPPED `UiProvisionAdapter` against the REAL slice-1
+//     transaction and the REAL slice-2 store service — so every string the panel draws is the feature's own.
+// ⛔ THE `/mrcfg` SIDE IS THE **SAME** `ProbeCfgStore` the SETTINGS and team-create phases use (U1 — one durable
+//    seam, exactly as the device has one), so `writes` stays a single authority for "did anything durable happen".
+// ⛔ AND THE LIMIT, unchanged: no flash, no wear, no power-cut ([[B193]]). A green run says the SCREENS drive the
+//    transaction correctly, never that the storage is sound.
+namespace {
+// The `/mrjoin` record, with a settable four-state read so the panel's whole store matrix is reachable.
+struct ProbeJoinStore : mrfw::IJoinStore {
+    mrnv::JoinBlob rec{};
+    mrnv::JoinRead answer = mrnv::JoinRead::ok;
+    int loads = 0, writes = 0;
+    ProbeJoinStore() { mrnv::join_blob_init(rec); }
+    mrnv::JoinRead load(mrnv::JoinBlob& out) override {
+        ++loads;
+        if (answer == mrnv::JoinRead::ok) out = rec;
+        return answer;
+    }
+    bool save(const mrnv::JoinBlob& b) override { ++writes; rec = b; return true; }
+};
+// ⛔ THE LIVE SEAM IS COUNTED AND NOT PERFORMED: `provision_apply_live` retunes a radio and starts DAD, and this
+//    probe spends no airtime. ★ Leaving `g_node` untouched is also what keeps `canonical_node_id()` a STABLE fact
+//    the correlation phase can aim a synthesized push at.
+struct ProbeJoinLive : mrfw::IJoinLive {
+    int        calls = 0;
+    mrnv::Blob last{};
+    void apply_and_start(const mrnv::Blob& b) override { ++calls; last = b; }
+};
+struct JoinSeams {
+    ProbeJoinStore           presets;
+    ProbeJoinLive            live;
+    mrfw::JoinProfileService psvc{presets};
+    mrfw::JoinService        jsvc{probe_store(), live};
+};
+JoinSeams& join_seams() { static JoinSeams s; return s; }
+}  // namespace
+namespace mrfw {
+JoinService&        join_service()         { return join_seams().jsvc; }
+JoinProfileService& join_profile_service() { return join_seams().psvc; }
+}  // namespace mrfw
 #endif  // MR_N_LAYERS < 2
 
 // ==================================================================================================================
@@ -601,6 +653,11 @@ int g_pass = 0, g_fail = 0;
 // PROBE_LIST=1 makes every check announce itself whether it passed or not. `run.sh` uses that as the DENOMINATOR of
 // its "N of M checks are reddened by a control" roll-up, so the ratio is measured instead of restated in a comment —
 // the header of this file carried a hand-maintained "20 of 25" that went stale the moment six checks were added.
+// ⚠ ★ KEEP A LABEL AT **64 CHARACTERS OR FEWER**, and it is not a style rule: `run.sh` attributes a reddening by
+//   re-reading the FAIL line with `s/^  FAIL \(.\{1,64\}\)  .*$/\1/`, which needs the `%-64s` PADDING to find the
+//   label's end. A longer label overflows the field, the extraction misses, and the roll-up then reports a check
+//   that a control DOES redden as *"(no control reddens)"* — an under-count, i.e. the instrument lying in the
+//   quiet direction. ⓘ MEASURED 2026-08-20 ([[B226]]/[[B228]]): three new labels did exactly that and were shortened.
 const bool g_list = std::getenv("PROBE_LIST") != nullptr;
 #define CHK(label, expr) do {                                                              \
     const bool ok_ = (expr);                                                               \
@@ -2206,6 +2263,303 @@ int main() {
         t17 = see(double_press(t17 + 500));
         CHK("P15i BACK leaves the sub-view for the SETTINGS menu",
             strstr(g_c.page_text, "PROVISION") != nullptr && !body_row_is(0, ">CREATE TEAM"));
+
+        // ======================================================================================================= P16
+        // ★★★★ §UI-15 slice 6 — THE WHOLE STATIC-JOIN FLOW, THROUGH THE REAL RENDERER: select (including the store
+        //      states) -> confirm -> waiting -> the 60 s WORD CHANGE ACROSS A BLANK -> a SYNTHESIZED CORRELATED
+        //      ADOPT -> result, plus the two negative arms the plan's traps are named after (an UNCORRELATED adopt
+        //      and a REFUSED push).
+        // ★★ WHAT IS REAL AND WHAT IS SCRIPTED: the renderer, the model, the gesture path, `UiProvisionAdapter`'s
+        //    join half, the slice-1 `JoinService` and the slice-2 `JoinProfileService` are all the shipped ones, and
+        //    the push arrives through `mr_ui_on_push` — the EXACT seam `fw_main` calls. Scripted are only the two
+        //    accessors `src/firmware_config.cpp` would have supplied.
+        // ⛔ AND THE AUTHORITY FOR "IT HAPPENED" IS NEVER THE PANEL: every act is asserted on the `/mrcfg` write
+        //    count, the `/mrjoin` write count and the join live seam's counter.
+        // ⓘ WHICH P16 CHECKS THE ROLL-UP REPORTS AS UN-REDDENED, AND WHY — justified here rather than assumed
+        //   covered (the roll-up's own rule):
+        //     · the ZERO-WRITE lines (`...spent nothing`) are NEGATIVE SPACE, exactly as P15b's are: they have their
+        //       positive arm in (d), where the same counters move by exactly one;
+        //     · `869.4625 MHz renders EXACTLY` and `a STORAGE FAILURE never reads as empty/corrupt` are facts about
+        //       the PURE formatters, not about this file — no mutation of `firmware_ui.cpp` can move them, and they
+        //       are mutation-covered where they live (`--target=uijoin`, entries J21 and J09/J10);
+        //     · (f)'s first three lines are HARNESS PRECONDITIONS in P15a's sense — the panel really did blank, the
+        //       session really is still alive, the press really did wake it. They exist so the ONE line that carries
+        //       the property (`shows STILL JOINING`, reddened by L21 and L16) cannot pass or fail for a reason that
+        //       is about the harness. ⛔ A control that reddened them would be measuring the probe, not the file.
+        {
+            JoinSeams& js = join_seams();
+            const uint8_t me = g_node.canonical_node_id();          // the id a correlated adopt must name
+            // Two presets, in slots 1 and 3, so a row's SLOT NUMBER and its POSITION differ (§B66).
+            // ⚠ 869.4625 MHz is 869462500 Hz EXACTLY — the value no integral kHz can hold.
+            mrnv::join_blob_init(js.presets.rec);
+            js.presets.rec.prof[0].present = 1; js.presets.rec.prof[0].layer = 4;
+            js.presets.rec.prof[0].routing_sf = 9;
+            js.presets.rec.prof[0].freq_hz = 869462500u; js.presets.rec.prof[0].bw_hz = 125000u;
+            memcpy(js.presets.rec.prof[0].name, "hut", 3); js.presets.rec.prof[0].name_len = 3;
+            js.presets.rec.prof[2].present = 1; js.presets.rec.prof[2].layer = 17;   // ★ ABOVE 15 — trap 2's value
+            js.presets.rec.prof[2].routing_sf = 7;
+            js.presets.rec.prof[2].freq_hz = 868000000u; js.presets.rec.prof[2].bw_hz = 62500u;
+            js.presets.answer = mrnv::JoinRead::ok;
+
+            // ---- (a0) THE PUSH TAP COSTS NOTHING WHILE NO JOIN IS IN FLIGHT --------------------------------------
+            // ★★ `join_adopted` FIRES AT EVERY BOOT ON EVERY PROVISIONED NODE, so the tap's guard is not a nicety: a
+            //    `/mrcfg` read per push would be a flash read for an event that can never complete anything. ⛔ The
+            //    counter is the store's own, so this is a measurement rather than a reading of the source.
+            {
+                const int l0 = probe_store().loads;
+                MESHROUTE_NS::Push boot{};
+                boot.kind = MESHROUTE_NS::PushKind::join_adopted;
+                boot.layer_id = 1; boot.dst = me;
+                mr_ui_on_push(boot);
+                mr_ui_on_push(boot);
+                CHK("P16a0 a push with no join session reads no record",
+                    probe_store().loads == l0);
+            }
+
+            // ---- (a) THE SLOT LIST ------------------------------------------------------------------------------
+            t17 = see(double_press(t17 + 500));                     // SETTINGS menu -> the child menu
+            CHK("P16a the child menu is up again", body_row_is(0, ">CREATE TEAM"));
+            t17 = walk_to(t17 + 500, ">JOIN NETWORK");
+            const int jw0 = js.presets.writes, cw0 = probe_store().writes, lv0 = js.live.calls;
+            t17 = see(double_press(t17 + 500));
+            CHK("P16a JOIN NETWORK opens the SLOT LIST, by its label",
+                body_row_is(0, ">hut"));
+            // ★ THE SECOND ROW IS SLOT **3**, not row 1: an unnamed preset renders plan §11's `PROFILE n` default,
+            //   and the number in it is the SLOT's. A renderer using the row index would draw `PROFILE 2`.
+            CHK("P16a ...and an unnamed preset shows its SLOT number, not its row",
+                body_row_is(1, " PROFILE 3") && body_row_is(2, " BACK"));
+            // ⛔ THE ZEROS: opening a LIST reads flash and writes nothing, anywhere.
+            CHK("P16a ...and opening it spent no write of either record",
+                js.presets.writes == jw0 && probe_store().writes == cw0 && js.live.calls == lv0);
+
+            // ---- (b) THE CONFIRMATION: ALL FOUR VALUES, AND ITS BACK DEFAULT --------------------------------------
+            t17 = see(double_press(t17 + 500));
+            CHK("P16b a preset opens the CONFIRMATION, by its label", body_row_is(0, "hut"));
+            {   // ★ THE VALUES ARE A **VALUE RELATION** to the formatters, ⛔ never "some numbers appeared".
+                char phy[mrui::kJoinPhyLineCap], frq[mrui::kJoinFreqLineCap];
+                mrui::join_fmt_phy(phy, sizeof phy, js.presets.rec.prof[0]);
+                mrui::join_fmt_freq(frq, sizeof frq, js.presets.rec.prof[0]);
+                CHK("P16b ...showing layer, SF, BW and the carrier",
+                    body_row_is(1, phy) && body_row_is(2, frq));
+                CHK("P16b ...and 869.4625 MHz renders EXACTLY",
+                    strcmp(frq, "869.4625 MHz") == 0);
+            }
+            CHK("P16b ...with BACK selected, never JOIN", body_row_is(3, ">BACK") && body_row_is(4, " JOIN"));
+            CHK("P16b ...and it has still spent nothing",
+                js.presets.writes == jw0 && probe_store().writes == cw0 && js.live.calls == lv0);
+            // BACK returns to the LIST — ⛔ not to the child menu: that is the screen he was choosing on.
+            t17 = see(double_press(t17 + 500));
+            CHK("P16c a double on BACK returns to the SLOT LIST", body_row_is(0, ">hut"));
+            CHK("P16c ...having spent nothing at all",
+                js.presets.writes == jw0 && probe_store().writes == cw0 && js.live.calls == lv0);
+
+            // ---- (d) CONFIRM -> `JOINING`, and EXACTLY ONE durable write ------------------------------------------
+            // ⚠ SLOT 3 IS CHOSEN, i.e. LAYER 17 — the trap-2 value — so the correlation below is exercised where
+            //   plan v3's rule was unsatisfiable.
+            t17 = settle(t17 + 500);                                // `short`: the cursor moves to PROFILE 3
+            t17 = see(double_press(t17 + 500));
+            CHK("P16d the second preset's confirmation is up", body_row_is(0, "PROFILE 3"));
+            t17 = see(settle(t17 + 500));                           // `short` TOGGLES to JOIN
+            CHK("P16d a short press moves the selection to JOIN",
+                body_row_is(4, ">JOIN") && body_row_is(3, " BACK"));
+            t17 = see(double_press(t17 + 500));                     // `double` PERFORMS
+            // ⛔⛔ `JOINING`, ⛔ NEVER `JOINED`: the transaction has written once and DAD has only BEGUN.
+            CHK("P16d the panel says JOINING", body_row_is(0, "JOINING"));
+            CHK("P16d ...⛔ and no JOINED-shaped word is anywhere on the panel",
+                strstr(g_c.page_text, "JOINED") == nullptr);
+            CHK("P16d ...the way out is stated", body_row_is(4, "press = back"));
+            CHK("P16d EXACTLY ONE `/mrcfg` write, and ⛔ ZERO `/mrjoin` writes",
+                probe_store().writes == cw0 + 1 && js.presets.writes == jw0);
+            CHK("P16d ...the live apply ran ONCE, after the save", js.live.calls == lv0 + 1);
+            // ★★ THE RECORD KEEPS THE FULL BYTE AND THE NIBBLE APART — trap 2's writing end.
+            CHK("P16d ...the record holds layer 17 with leaf 1",
+                probe_store().rec.layer0_id == 17 && probe_store().rec.leaf_id == 1);
+            CHK("P16d ...the profile's Hz reached it as MHz",
+                probe_store().rec.freq_mhz == 868.0 && probe_store().rec.bw_hz == 62500u);
+
+            // ---- (e) THE NEGATIVE ARMS: an UNCORRELATED adopt and a REFUSED push -----------------------------------
+            // ⛔ EACH ARRIVES THROUGH `mr_ui_on_push`, the same seam a real adoption would, and each must change
+            //    NOTHING. A screen completed by one of these is the *"a success that isn't"* class the plan names.
+            // ⚠ THE PUSH SEQUENCE BELOW ADVANCES THE CLOCK IN **SMALL** STEPS AND THAT IS DELIBERATE, not tidiness:
+            //   `kBlankMs` is 15 s from the LAST PRESS, and a push is not a press (§8.3.1 rule 1 — a device event must
+            //   never touch the attention clock). Nine `see()`s at the ordinary +500 spacing would come within ~3 s of
+            //   blanking the panel, and a blanked panel draws NOTHING — every `body_row_is` below would then fail for
+            //   a reason that has nothing to do with the property. ⛔ A press to refresh the clock is not available
+            //   here: it would LEAVE the waiting screen, which is exactly what these checks are standing on.
+            {
+                MESHROUTE_NS::Push wrong{};
+                wrong.kind = MESHROUTE_NS::PushKind::join_adopted;
+                wrong.layer_id = 17; wrong.dst = me;                // ⛔ the FULL byte as a leaf — plan v3's rule
+                mr_ui_on_push(wrong);
+                t17 = see(t17 + 100);
+                CHK("P16e a FULL-layer-as-leaf adopt does NOT complete it",
+                    body_row_is(0, "JOINING"));
+                wrong.layer_id = 1; wrong.dst = uint8_t(me + 1);    // ⛔ somebody ELSE's adoption
+                mr_ui_on_push(wrong);
+                t17 = see(t17 + 100);
+                CHK("P16e a FOREIGN dst does not complete it either", body_row_is(0, "JOINING"));
+                wrong.dst = 0;                                      // ⛔ adopted NOTHING
+                mr_ui_on_push(wrong);
+                t17 = see(t17 + 100);
+                CHK("P16e ...nor a ZERO dst", body_row_is(0, "JOINING"));
+                // ⛔⛔ AND NO `join_refused` REASON FAILS IT (plan §2.3 rule 6): all four arms, otherwise perfectly
+                //    correlated. A wire-version OBSERVATION ABOUT ANOTHER PEER rides this very kind.
+                bool refused_ok = true;
+                for (int r = 0; r <= int(MESHROUTE_NS::JoinRefuseReason::sf_list_mismatch); ++r) {
+                    MESHROUTE_NS::Push rf{};
+                    rf.kind = MESHROUTE_NS::PushKind::join_refused;
+                    rf.join_reason = MESHROUTE_NS::JoinRefuseReason(r);
+                    rf.layer_id = 1; rf.dst = me;
+                    mr_ui_on_push(rf);
+                    t17 = see(t17 + 100);
+                    refused_ok = refused_ok && body_row_is(0, "JOINING");
+                }
+                CHK("P16e every JoinRefuseReason is IGNORED: still JOINING", refused_ok);
+                CHK("P16e ...and none of them spent a write or a live apply",
+                    probe_store().writes == cw0 + 1 && js.live.calls == lv0 + 1);
+                // ---- ★★★★ [[B228]] — AND NONE OF THEM READS THE RECORD, EITHER ---------------------------------
+                // ⛔ THE SESSION IS ACTIVE THROUGHOUT, which is the whole point: `join_session_active()` is TRUE, so
+                //    the only thing standing between an ordinary push and a `/mrcfg` read is the KIND PREFILTER in
+                //    `ui_join_note_push`. The session is not a brief state (BACK, the blank and the 60 s deadline all
+                //    leave it running), so without the prefilter a node whose join never completes pays a flash read
+                //    for every push it receives for the rest of its uptime.
+                // ⚠ NO TICKS INSIDE THE BRACKET, DELIBERATELY: the SETTINGS service reads `/mrcfg` on its own account,
+                //   so a `see()` between the pushes would put a legitimate load inside the window and this count would
+                //   be measuring the harness. The pushes go in back to back and the panel is asserted afterwards.
+                {
+                    const int ld = probe_store().loads;
+                    for (int r = 0; r <= int(MESHROUTE_NS::JoinRefuseReason::sf_list_mismatch); ++r) {
+                        MESHROUTE_NS::Push rf{};
+                        rf.kind = MESHROUTE_NS::PushKind::join_refused;
+                        rf.join_reason = MESHROUTE_NS::JoinRefuseReason(r);
+                        rf.layer_id = 1; rf.dst = me;                  // otherwise PERFECTLY correlated
+                        mr_ui_on_push(rf);
+                    }
+                    // ...and the ordinary traffic of a live node, every kind of which reaches the same default arm.
+                    const MESHROUTE_NS::PushKind others[] = {
+                        MESHROUTE_NS::PushKind::send_acked,   MESHROUTE_NS::PushKind::send_failed,
+                        MESHROUTE_NS::PushKind::send_aired,   MESHROUTE_NS::PushKind::hash_resolved,
+                        MESHROUTE_NS::PushKind::config_adopted, MESHROUTE_NS::PushKind::team_reg,
+                    };
+                    for (MESHROUTE_NS::PushKind k : others) {
+                        MESHROUTE_NS::Push un{};
+                        un.kind = k; un.layer_id = 1; un.dst = me;
+                        mr_ui_on_push(un);
+                    }
+                    CHK("P16e ⛔ [[B228]] no non-adopt push reads the record",
+                        probe_store().loads == ld);
+                    t17 = see(t17 + 100);
+                    CHK("P16e ...and the screen is untouched by all ten of them", body_row_is(0, "JOINING"));
+                }
+            }
+
+            // ---- (f) ★★★★ [[B226]] — THE 60 s `STILL JOINING`, THROUGH THE **REAL RENDERER**, ACROSS A BLANK -----
+            // ⛔⛔ WHY THIS EXISTS. Plan §2.3 rule 5's word change is a MODEL latch (`UiState::join_still`) with its
+            //    own native cases and its own mutation entry — but the only thing that puts it ON A PANEL is one
+            //    argument in this file (`join_wait_head(st.join_still)`), and NOTHING else in the tree compiles this
+            //    file. Until this block existed, `join_wait_head(false)` could be hard-wired in production and every
+            //    gate — native, the corpus, both probe arms — stayed green: the vacuous-coverage class. Control L21
+            //    applies exactly that mutation and requires this sequence to redden.
+            // ★★ AND IT IS DRIVEN ACROSS THE BLANK BECAUSE THAT IS THE REAL SHAPE OF THE EVENT: 60 s with no press is
+            //    45 s past `kBlankMs`, so the operator who comes back to a dark panel is the ONLY one who ever sees
+            //    this word. A sequence that kept pressing to stay awake would be measuring a screen no user is at.
+            // ⓘ THE STEPS ARE THE QG's, IN ORDER: past 60 s -> the panel is dark and the session is nonetheless
+            //   ALIVE -> ONE short press, consumed as the WAKE -> the renderer says `STILL JOINING` -> nothing was
+            //   written or applied to earn it.
+            {
+                const int cw_f = probe_store().writes, lv_f = js.live.calls, jw_f = js.presets.writes;
+                // (1) PAST THE DEADLINE WITH NO INPUT AT ALL. `kJoinStillMs` is 60 s from the transaction, and the
+                //     latch rides the SESSION's clock — not `_last_input_ms`, which is what the blank below uses.
+                t17 += mrui::kJoinStillMs + 5000;
+                tick(t17);
+                tick(t17 + 10);                                 // ...and let the power-save edge complete
+                // (2) THE PANEL IS DARK — and the session is nonetheless ALIVE.
+                CHK("P16f the panel blanks while the join is still in flight", g_c.last_power_save == 1);
+                {
+                    // ⛔ THE AUTHORITY FOR "THE SESSION IS STILL ACTIVE" IS THE STORE, ⛔ NEVER THE PANEL — which is
+                    //    dark and therefore says nothing at all. An UNCORRELATED adopt passes the session guard and
+                    //    the kind prefilter and reaches the `/mrcfg` load, so the load counter answers the question
+                    //    from outside the model. (P16a0 is the same measurement with the session CLOSED: no load.)
+                    const int ld = probe_store().loads;
+                    MESHROUTE_NS::Push probe_pu{};
+                    probe_pu.kind = MESHROUTE_NS::PushKind::join_adopted;
+                    probe_pu.layer_id = 1; probe_pu.dst = uint8_t(me + 1);   // ⛔ somebody ELSE's adoption
+                    mr_ui_on_push(probe_pu);
+                    CHK("P16f ...and the SESSION is still alive — measured on the store",
+                        probe_store().loads == ld + 1);
+                }
+                // (3) ONE SHORT PRESS, AND IT IS CONSUMED AS THE WAKE (`on_gesture`'s blanked arm returns early).
+                //     ⛔ If it were DELIVERED instead, `join_waiting`'s gesture arm would leave for the child menu —
+                //     which is what check (4)'s negative half asserts, so the two cannot both pass on a wrong model.
+                t17 = see(settle(t17 + 100));
+                CHK("P16f a single short press wakes the panel", g_c.last_power_save != 1);
+                CHK("P16f ...and was CONSUMED as the wake — the screen did not move",
+                    !body_row_is(0, ">CREATE TEAM"));
+                // (4) ★★★★ THE REAL RENDERER, SAYING THE 60 s WORD.
+                CHK("P16f ★★ the OLED renderer shows STILL JOINING once past 60 s",
+                    body_row_is(0, "STILL JOINING"));
+                CHK("P16f ...with the way out still stated", body_row_is(4, "press = back"));
+                // (5) ⛔ AND NOTHING WAS SPENT TO EARN IT: rule 5 is a WORD CHANGE and *"nothing else happens"* — no
+                //     re-run transaction, no second save, no live apply.
+                CHK("P16f ...having written nothing and applied nothing",
+                    probe_store().writes == cw_f && js.live.calls == lv_f && js.presets.writes == jw_f);
+            }
+
+            // ---- (g) THE CORRELATED ADOPT COMPLETES, showing the resulting node id ---------------------------------
+            {
+                MESHROUTE_NS::Push ok{};
+                ok.kind = MESHROUTE_NS::PushKind::join_adopted;
+                ok.layer_id = 1;                                    // ★ the NIBBLE of the requested 17
+                ok.dst = me;                                        // ★ ...and OUR canonical id, non-zero
+                mr_ui_on_push(ok);
+                t17 = see(t17 + 100);
+                char node[mrui::kJoinNodeLineCap];
+                mrui::join_fmt_node(node, sizeof node, me);
+                CHK("P16g ★★ a CORRELATED adopt completes the screen", body_row_is(0, "ADOPTED"));
+                CHK("P16g ...showing the resulting node id", body_row_is(1, node));
+                CHK("P16g ...and the way out", body_row_is(4, "press = back"));
+                CHK("P16g ...having spent NO further write and NO further live apply",
+                    probe_store().writes == cw0 + 1 && js.live.calls == lv0 + 1);
+                // ⛔ AND IT IS NOT RE-RUN BY A SECOND ADOPT: the session ended, so the screen is terminal.
+                mr_ui_on_push(ok);
+                t17 = see(t17 + 100);
+                CHK("P16g a SECOND adopt changes nothing",
+                    body_row_is(0, "ADOPTED") && probe_store().writes == cw0 + 1);
+            }
+            t17 = see(double_press(t17 + 500));
+            CHK("P16g a press leaves the result for the child menu", body_row_is(0, ">CREATE TEAM"));
+
+            // ---- (h) THE STORE MATRIX ON THE PANEL ----------------------------------------------------------------
+            // ★★★★ ALL FOUR STATES, EACH ITS OWN TEXT, AND ⛔ `io_failed` NEVER READING AS ABSENT OR AS INVALID —
+            //      the distinction [[B218]] bought. Each also offers NO SLOT, so a corrupt store cannot be joined from.
+            {
+                struct Arm { mrnv::JoinRead st; const char* head; const char* detail; };
+                const Arm arms[] = {
+                    { mrnv::JoinRead::absent,    "NO PROFILES",     nullptr },
+                    { mrnv::JoinRead::invalid,   "PROFILE STORE",   "INVALID" },
+                    { mrnv::JoinRead::io_failed, "STORAGE FAILURE", "CHECK faults" },
+                };
+                bool all_ok = true, io_distinct = true;
+                for (const Arm& a : arms) {
+                    js.presets.answer = a.st;
+                    t17 = walk_to(t17 + 500, ">JOIN NETWORK");
+                    t17 = see(double_press(t17 + 500));
+                    all_ok = all_ok && body_row_is(0, a.head);
+                    if (a.detail) all_ok = all_ok && body_row_is(1, a.detail);
+                    // ⛔ THE ONLY ROW IS BACK — under the note when there is one.
+                    all_ok = all_ok && body_row_is(a.detail ? 2 : 1, ">BACK");
+                    if (a.st == mrnv::JoinRead::io_failed)
+                        io_distinct = strstr(g_c.page_text, "NO PROFILES") == nullptr &&
+                                      strstr(g_c.page_text, "INVALID") == nullptr;
+                    t17 = see(double_press(t17 + 500));            // BACK -> the child menu
+                }
+                CHK("P16h every store state names itself, offering only BACK", all_ok);
+                CHK("P16h a STORAGE FAILURE never reads as empty/corrupt", io_distinct);
+                CHK("P16h ...and no store state spent a write",
+                    js.presets.writes == jw0 && probe_store().writes == cw0 + 1);
+                js.presets.answer = mrnv::JoinRead::ok;
+            }
+        }
     }
 #endif  // MR_N_LAYERS < 2
 

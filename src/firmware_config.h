@@ -73,6 +73,20 @@ void prov_device_facts(ProvSnapshot& snap, ProvPhyFloor& floor);
 // `handle_team` does the same assignment inline, and `src/firmware_ui.cpp` cannot: `fw_context.h` is barred from that
 // TU (`tools/probe_firmware_ui`'s C0).
 void prov_note_persisted_team_local_id(uint8_t v);
+
+// ★★★ §UI-15 slice 6 — THE TWO SERVICE INSTANCES §3.6.3's OLED STATIC JOIN NEEDS, AND NOTHING MORE. Both already
+// existed here for the console verbs and were file-static; exporting them is what makes the OLED path use the SAME
+// transaction and the SAME store service the `join` / `joinprofile` verbs use. ⛔ NEVER two services over one record
+// — that is the whole argument `prov_service()` above was exported on, one feature over.
+// ⚠ FORWARD-DECLARED for the reason the three above are: this header is pulled in by `fw_main.cpp` and both UI
+// probes, and `firmware_join_profiles.h` drags `device_nv.h` + `firmware_config_parse.h` behind it. Every caller of
+// these two already includes it.
+class JoinService;
+class JoinProfileService;
+// Slice 1's ONE typed static-join transaction (validate -> load -> ONE save -> the live retune + re-DAD).
+JoinService& join_service();
+// Slice 2's ONE `/mrjoin` preset store service (the absent/invalid/io_failed matrix and the write-coalescing rule).
+JoinProfileService& join_profile_service();
 #endif
 
 // `cfg set <key> <value>` — accumulate onto the pending NV blob + apply live where possible (dispatch verb).

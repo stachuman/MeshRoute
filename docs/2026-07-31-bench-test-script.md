@@ -16,7 +16,7 @@ do not execute it from top to bottom. For the current short, ordered checklist u
 Never erase a completed result when a later build needs a re-run. Add a new current-image checkbox and retain the old
 result with its revision. This keeps “done before” distinct from “qualified now”.
 
-## Current qualification snapshot — 2026-08-18
+## Current qualification snapshot — 2026-08-20
 
 | State | Work | Where |
 |---|---|---|
@@ -32,6 +32,7 @@ result with its revision. This keeps “done before” distinct from “qualifie
 | [-] | Live-keyless team install | Part 27.10; unreachable by construction |
 | [-] | Real save-failure injection | Part 27.7; optional unless a safe fault-injection method exists |
 | [ ] | Non-team OLED layout | Part 25.7; separate `gateway_heltec` image |
+| [ ] | OLED static join from a stored profile | Part 30; run after §UI-15 slice 6 QG passes |
 
 All earlier `[x]` marks below are preserved. They are subsystem history and are not prerequisites for every Heltec
 session.
@@ -2872,3 +2873,147 @@ real live-vs-persisted retune divergence, real flash persistence, a real team-DA
    draft baseline).
 7. **Persist tracker:** after create + DAD, note `team_local_id=<n>`; **power-cycle** ⇒ the same `<n>` and
    ⛔ **no re-DAD burst** on boot.
+
+## Part 30 — §UI-15 slice 6: OLED static join on REAL hardware (2026-08-20)
+
+⛔ **RUN ONLY AFTER SLICE 6 PASSES QG AND THE TESTED REVISION IS COMMITTED.** The host gates already cover the
+four-term adoption correlation, every `JoinRefuseReason`, storage-state rendering and save-before-live ordering.
+This Part measures what those gates cannot: the physical button flow, real `/mrcfg` persistence, radio retune,
+on-air DAD/adoption, the full-layer/nibble split on a real layer above 15, panel blank/wake, and actual connectivity.
+
+### 30.0 — equipment, build and evidence
+
+Required:
+
+- one OLED joiner: `heltec_mobile` or `heltec_v3`;
+- one already-adopted static peer on the target network;
+- a quiet bench carrier shared by both nodes. The procedure below uses **layer 17**, 869.4625 MHz, SF7/BW125.
+
+Build and flash the exact committed revision:
+
+```sh
+pio run -e heltec_mobile
+pio run -e heltec_mobile -t upload --upload-port /dev/ttyUSB0
+
+# If the static peer is another Heltec base build:
+pio run -e heltec_v3
+pio run -e heltec_v3 -t upload --upload-port /dev/ttyUSB1
+```
+
+Archive `.pio/build/<env>/firmware.elf`, `firmware.map`, the flashed `.bin` files, the commit hash and SHA-256 sums.
+On both nodes record `version`, `whoami`, `cfg`, `status`, and then enable `debug on`. ⛔ Stop if either banner is
+`nogit`, names a different revision, or the two PHYs do not match the intended stage of the test.
+
+Prepare the static peer on full layer **17** (wire leaf **1**) using an existing valid network, or create it first:
+
+```text
+create layer=17 freq=869.4625 bw=125 sf=7 sf_list=6,7 duty=1 name="Layer 17"
+```
+
+Wait for adoption. Record its non-zero node id as `<PEER_ID>`. On the OLED joiner create a deliberately sparse
+profile list:
+
+```text
+joinprofile reset confirm
+joinprofile set 1 layer=4 freq=868.5 bw=125 sf=9 name="old"
+joinprofile set 3 layer=17 freq=869.4625 bw=125 sf=7
+joinprofile list
+```
+
+Expected: only slots **1 and 3** are present; slot 3 keeps exactly `layer=17 freq=869.4625 bw=125.00 sf=7`.
+
+### 30.1 — the unsaved/conflict gate remains ahead of provisioning
+
+- [ ] Edit one SETTINGS value on the OLED but do not save it. Activate `PROVISION`.
+  - **Pass:** provisioning does not open; the panel says `SAVE OR DISCARD`; no J frame is transmitted.
+- [ ] `DISCARD`, then verify `PROVISION` opens normally.
+- [ ] Optional conflict arm: make another unsaved OLED edit, then change a covered field through serial/BLE.
+  Activating `PROVISION` must say `RELOAD OR DISCARD`, ⛔ never suggest SAVE. Resolve the conflict before continuing.
+
+### 30.2 — sparse list, complete confirmation and safe BACK
+
+1. SETTINGS → `PROVISION` → `JOIN NETWORK`.
+2. **Pass:** the list shows `old`, `PROFILE 3`, and `BACK`; slot 2/4 do not appear. Cycling must move directly between
+   those three rows. ★ `PROFILE 3` is the stored slot number, ⛔ not its second-row position.
+3. Open `PROFILE 3`. The physical panel must show all of:
+
+   ```text
+   PROFILE 3
+   L17 SF7 BW125.00
+   869.4625 MHz
+   >BACK
+    JOIN
+   ```
+
+4. With BACK still selected, double-press.
+   - **Pass:** returns to the profile list; `cfg`, `whoami`, the live PHY and `joinprofile list` are unchanged;
+     no outbound J CLAIM appears. Background beacons do not invalidate this check — the discriminator is a J claim,
+     not the aggregate TX counter.
+
+### 30.3 — real join, blank/wake and correlated result
+
+1. Open `PROFILE 3` again, short-press once to select `JOIN`, then double-press.
+2. Immediately after the transaction returns:
+   - **panel:** `JOINING`, never `JOINED` or `ADOPTED` yet;
+   - **console:** the record is saved, the radio retunes to 869.4625/SF7/BW125, then an outbound J CLAIM follows
+     after the listen window;
+   - ⛔ a save failure must not retune or transmit. If a real failure cannot be induced, record it as not-run rather
+     than pretending this branch was exercised.
+3. Do not touch the button for **16-18 seconds**. The panel should have blanked at 15 seconds while DAD continues.
+   Short-press **once**.
+   - **Pass:** that press is consumed only as wake; it still shows `JOINING` and does not return to the menu.
+4. Wait for the real correlated adoption (normally about 23 seconds without a collision).
+   - **panel:** `ADOPTED`, `node <N>`, `press = back`;
+   - **console:** `ADOPTED id=<N>` / `join_adopted`, with `<N>` non-zero;
+   - `whoami` reports the same `<N>`.
+5. ★★ **Layer-17 discriminator:** `cfg` must retain the **full layer 17**, while `whoami`/wire filtering uses
+   **leaf 1**. The result must still complete. A panel left forever on `JOINING` after the console adopted is the
+   full-byte-versus-nibble correlation regression.
+
+### 30.4 — leaving the waiting screen does not cancel or hijack the UI later
+
+1. Start the same profile again. As soon as `JOINING` appears, short-press once **before the panel blanks**.
+2. **Pass immediately:** the child provisioning menu returns. There is no cancel/rollback command and no second
+   write caused by leaving the screen.
+3. Leave the radio running and watch the console. DAD must continue and eventually adopt a non-zero id.
+4. **Pass after adoption:** the UI remains on whatever screen the operator selected; the late correlated adopt does
+   not force navigation to `ADOPTED`. `whoami`/`cfg` nevertheless show the completed join.
+
+### 30.5 — durability and actual network service
+
+- [ ] Power-cycle the joiner. `cfg` must still show layer 17 / leaf 1, the same PHY and a non-zero adopted node id.
+- [ ] While that boot settles, watch the panel: **the boot's own DAD re-adopt (`join_adopted` fires for boot DAD
+  too) changes NOTHING on screen** — no `ADOPTED` appears uninvited (correlation term 1 against the REAL boot push;
+  the host gate only ever synthesizes it).
+- [ ] Wait for routes/config sync. From the joiner send a unique plaintext DM to `<PEER_ID>`; verify application
+  delivery on the static peer, not merely CTS/ACK at an intermediate hop.
+- [ ] Send a unique plaintext DM back to the joiner's adopted id; verify it appears on the joiner and in its inbox.
+- [ ] Re-open JOIN NETWORK after reboot. Slot 3 and its four-decimal frequency must still render exactly as in 30.2.
+
+### 30.6 — conditional observations, not forced failures
+
+- **`STILL JOINING`:** ordinary DAD normally completes before 60 seconds. If a genuine collision/retry naturally
+  keeps the operation active past 60 seconds, let the panel blank, then short-press once. It must show
+  `STILL JOINING`, ⛔ not a failure, and the operation must continue. If adoption completes earlier, mark this metal
+  arm **not-run: normal adoption completed below 60 s**; do not manufacture a collision or saturate the leaf merely
+  to obtain the string. The real-renderer host probe is the mandatory control for this arm.
+- **Emergency pre-emption:** already mutation/probe-gated. Exercise it on metal only in a controlled RF bench where
+  transmitting/cancelling the emergency cannot be mistaken for a real alarm.
+- **Unreadable `/mrjoin` and physical save failure:** neither is safely operator-reachable. Preserve their native
+  evidence; do not damage NVS/LittleFS to manufacture them.
+- **Power-cut atomicity:** remains Part 20.5 for `/mrcfg`; the `/mrjoin`-specific power-cut qualification is the
+  separate UI-15 slice-7 gate. Run destructive power-cut work last.
+
+### 30.7 — stop rules and retained evidence
+
+Stop and preserve both boot-to-failure logs plus the flashed ELF if any of these occurs:
+
+- BACK emits a J claim or changes configuration;
+- the panel says `JOINED`/`ADOPTED` before the console adoption;
+- layer 17 adopts on the console but the screen never correlates it;
+- one wake press exits the waiting screen instead of revealing it;
+- leaving `JOINING` cancels DAD or a late adopt steals the current screen;
+- the node reboots into a different layer/PHY/id, or either direction of the final DM check fails.
+
+Record each checkbox as PASS / FAIL / NOT-RUN with the exact reason. For a failure, retain the profile listing,
+before/after `cfg`, `whoami`, `status`, radio trace, OLED photograph and artefact hashes.
