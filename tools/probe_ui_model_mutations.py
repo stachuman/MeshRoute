@@ -28,6 +28,15 @@ three reported as failures rather than passes:
   3. the suite still passes              -> FAIL (nothing measures the property).
 ⚠ The source is restored and md5-verified at the end; a differing md5 is a hard failure.
 
+★★ AND THE CLEAN BASELINE IS **DERIVED**, NOT HAND-PINNED ([[B217]], 2026-08-21). The clean tree is run FIRST and must
+show **0 FAILED** — that half still ABORTS loudly, with the failing output, because a RED verdict is only evidence if
+GREEN was the alternative. Its own case/assertion counts then BECOME this run's baseline. ⛔ A stale expectation can no
+longer zero a battery: the hand-written figure is a CROSS-CHECK that, when it disagrees, prints an unmissable banner at
+both ends of the run while the battery runs for the requested selection — IN FULL when no entry filter was given, and
+otherwise the filtered entries, which the banners name. See `PIN_CASES` for the measured incident that forced this.
+⛔ A label prefix matching NO entry is likewise refused before any build (exit 8): "ran nothing successfully" is not a
+result. Unrecognised arguments are refused too — see `_refuse_argv` ([[B235]]).
+
 ⛔⛔⛔ READ `guarded_write` BEFORE CHANGING ANYTHING THAT TOUCHES THE SOURCE FILE. This tool took SIX rounds and SIX
 defects to become safe, and the sixth was the fourth one left unfixed in a second code path — the three-arm
 original/mutant/FOREIGN check existed only in crash recovery while the normal loop still wrote unconditionally, across
@@ -80,6 +89,38 @@ TARGET_SRC = {
     "provservice": "src/firmware_provisioning_service.h",  # §PROV-TX — the typed team-provisioning transaction
 }
 _flags = [a for a in sys.argv[1:] if a.startswith("--")]
+
+# ⛔⛔ AN ARGUMENT THIS TOOL DOES NOT KNOW IS **REFUSED, NOT IGNORED** ([[B235]], 2026-08-21). The argv parse used to
+#     scan for the two forms it understood and drop everything else on the floor, so `--taret=config` — one missing
+#     character — exited 0 having run the **MODEL** battery in full while the operator read the summary as `config`'s.
+#     ★ That is the [[B217]] family seen from the other side: B217 measured NOTHING and looked like a clean battery,
+#     this measures THE WRONG FILE and looks like the right one. Neither is detectable from the exit code, and both
+#     are cured by the same rule — AN INSTRUMENT MAY NOT ACCEPT AN INSTRUCTION IT DID NOT UNDERSTAND. ⇒ refused here,
+#     at the top, BEFORE the target resolves and long before any lock, build or mutation, so a refused run cannot
+#     have touched the tree.
+_KNOWN_FLAGS = ("--where",)             # value-less flags
+_KNOWN_FLAG_PREFIXES = ("--target=",)   # `flag=value` forms
+def _refuse_argv(what, why):
+    print(f"  ABORT {what} — refused. {why}")
+    print(f"  known arguments:  --target=<{'|'.join(sorted(TARGET_SRC))}>")
+    print("                    --where                 (print the resolved source + backup dir, do nothing)")
+    print("                    <ENTRY-LABEL PREFIX>    (at most ONE, positional, e.g. M07 — runs just those entries)")
+    print("  known environment: MR_MUT_BASE=\"cases,asserts\"  (the OPTIONAL clean-baseline cross-check)")
+    print("  No mutation was applied; nothing was built.")
+    sys.exit(7)
+for _a in _flags:
+    if _a not in _KNOWN_FLAGS and not any(_a.startswith(p) for p in _KNOWN_FLAG_PREFIXES):
+        _refuse_argv(f"unrecognised flag {_a!r}",
+                     "An ignored flag is an operator who believes something was measured that was not.")
+# ⚠ The label filter is POSITIONAL and the flags are not: `--target=` must not be mistaken for an entry prefix (it
+#   would match nothing and the run would silently measure ZERO mutations while reporting success). ⛔ And a SECOND
+#   positional was silently dropped by exactly the parse [[B235]] is about — `M07 M08` ran M07 alone and said so
+#   nowhere — so it is refused here too, in the one place the argument vector is judged.
+_positional = [a for a in sys.argv[1:] if not a.startswith("--")]
+if len(_positional) > 1:
+    _refuse_argv(f"{len(_positional)} entry-label filters {_positional} — at most ONE is supported",
+                 "Only the first would have run, and the summary would not have said so.")
+
 _TARGET = "model"
 for _f in _flags:
     if _f.startswith("--target="):
@@ -89,12 +130,97 @@ if _TARGET not in TARGET_SRC:
     sys.exit(6)
 H = os.path.join(ROOT, TARGET_SRC[_TARGET])
 
-# ★★ THE PINNED CLEAN BASELINE, AND IT IS A GATE RATHER THAN A COMMENT. Every entry below is judged by "the suite went
-#    RED"; on a tree that is ALREADY red that verdict is meaningless and this runner would report 32 successes having
-#    measured nothing — the instrument-that-cannot-fail shape, in the tool built to prevent it. ⇒ the clean tree is run
-#    FIRST and must produce EXACTLY these figures, or the run ABORTS before a single mutation is applied.
-#    ⓘ Override deliberately (a slice that legitimately adds cases): MR_MUT_BASE="cases,asserts".
-BASE_CASES, BASE_ASSERTS = 1843, 87045   # ★★ RE-PINNED 2026-08-20 by [[B232]] (the SETTINGS single entry):
+# ★★ THE CLEAN BASELINE IS **DERIVED FROM THE CLEAN RUN ITSELF**; THE FIGURE BELOW IS ONLY A CROSS-CHECK ([[B217]],
+#    owner-ruled 2026-08-20, landed 2026-08-21).
+#    ⚠ CORRECTED IN PLACE — this block used to open "THE PINNED CLEAN BASELINE, AND IT IS A GATE RATHER THAN A
+#      COMMENT", and the gate it described `sys.exit(2)`-ed on ANY mismatch WITHOUT APPLYING A SINGLE MUTATION. That
+#      is the worst shape this arc has recorded: not a false GREEN but NO MEASUREMENT AT ALL, behind an exit code a
+#      careless reader takes for "ran, nothing wrong". ★★ MEASURED: §UI-15 slice 1 added a test file (1680/83432 ->
+#      1733/84164) and did not re-pin ⇒ from that moment every invocation of ALL FOUR then-existing targets ran ZERO
+#      mutations, and nothing said so. ⇒ ⛔ RE-PINNING BY HAND WAS NEVER THE FIX — hand-pinning is what failed, and a
+#      guard whose failure mode is "measures nothing, quietly" is not a guard.
+#    ★ THE REASON THE GATE EXISTS IS UNCHANGED, AND THAT HALF STILL ABORTS: every entry below is judged by "the suite
+#      went RED", so on an ALREADY-RED tree that verdict is meaningless and this runner would report N successes
+#      having measured nothing. ⇒ the clean tree is still run FIRST and must still report **0 FAILED**, or the run
+#      ABORTS — loudly, printing the failing output — before a single mutation is applied.
+#    ⛔ WHAT IS NO LONGER A GATE IS THE CASE/ASSERTION **COUNT**: a suite that legitimately grew is a moved figure,
+#      not a broken tree, and the two were conflated into one `exit(2)`. The clean run's OWN counts become this
+#      invocation's baseline (printed on the `ok clean baseline` line, and re-required verbatim by the exit gate on
+#      the restored source — so the restoration proof is unweakened). The figure below is compared against the
+#      derived counts and, when it differs, an UNMISSABLE banner prints at BOTH ends of the run and the battery
+#      CONTINUES on the derived value. ⓘ It does NOT move the exit code: the exit status is the MUTATIONS' verdict,
+#      and folding a bookkeeping drift into it would re-teach the reader that a stale figure means "did not run".
+#    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
+#      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
+#      stale-pin banner without editing this file.
+PIN_CASES, PIN_ASSERTS = 1861, 87209     # ★★ RE-PINNED 2026-08-21 by §UI-17 slice 1's QG remedy (the three
+                                         # DUPLICATED TEAM/INBOX decisions hoisted into shared pure helpers):
+                                         # **1858 / 87183 -> 1861 / 87209** (+3 cases / +26 assertions), all of
+                                         # them in test/test_firmware_ui_model.cpp. DERIVED, not observed:
+                                         #   +1 `ui17-len:` — 6 (three PASSIVE widths incl. the cap · the empty
+                                         #        entered list · a 3-row list · the cap + its exit row)
+                                         #   +1 `ui17-act:` — 11 (the passive arm 3 · member/leave 4 · ★ the
+                                         #        ORDER, refusal over BACK, 3 · entry outranks a stale refusal 1)
+                                         #   +1 `ui17-note:` — 9 ([[B223]]'s unreachable arm 2 · the passive
+                                         #        keep 2 · record 2 · retire-on-BACK 3)
+                                         #   ⇒ 6 + 11 + 9 = +26 assertions; +3 cases.
+                                         # ★★ THE HOIST ITSELF MOVED **NOTHING**, and that is the refactor's own
+                                         #   proof rather than a claim: the extracted tree ran 1858 / 87183 / 0 —
+                                         #   the previous pin exactly — BEFORE these three cases were added.
+                                         # ⓘ THE PREVIOUS PIN, kept because its derivation is still the record of
+                                         # how the figure below it was reached:
+                                         # ★★ RE-PINNED 2026-08-20 by §UI-17 slice 1 (TEAM/INBOX passive ↔
+                                         # interactive): **1843 / 87045 -> 1858 / 87183** (+15 cases / +138
+                                         # assertions), all of them in test/test_firmware_ui_model.cpp.
+                                         # DERIVED, not merely observed — the fifteen NEW `ui17-` cases first:
+                                         #   +1 `ui17-lex:` — 5 (the word · it EQUALS both shipped row tables'
+                                         #        spelling, which is what "one spelling" means · the width ·
+                                         #        the non-empty floor)
+                                         #   +1 `ui17-rowkind:` — 5 (two member rows · the row AFTER the
+                                         #        published ones · the FAILS-CLOSED row past the end · the
+                                         #        empty list's single row)
+                                         #   +1 `ui17-entered:` — 11 (STATUS 1 · SEND 1 · TEAM 2 · INBOX 2 ·
+                                         #        the four `Settings` arms 4 · `Screen::count` 1)
+                                         #   +1 `ui17-reset:` ([[B223]], driven at the pure helper) — 5
+                                         #        (changed+value · idempotent+value · the passive arm)
+                                         #   +1 `ui17-passive:` the LANDING — 6 (screen/view/cursor on TEAM ·
+                                         #        ONE press to INBOX + its view · ONE press to SEND)
+                                         #   +1 `ui17-passive:` the entering double — 11 (TEAM: view 1 ·
+                                         #        screen 1 · cursor 1 · 3 negative-space checks · INBOX:
+                                         #        screen/view 2 · view 1 · modal 1 · zero storage 1)
+                                         #   +1 `ui17-walk:` the CONTAINED walk — 14 (TEAM: 3 walked rows ·
+                                         #        the BACK landing 3 · the wrap 3 · nothing performed 1 ·
+                                         #        INBOX: the BACK landing 2 · the wrap 2)
+                                         #   +1 `ui17-back:` — 8 (the landing 3 · negative space 2 · the
+                                         #        press that then passes 1 · the next lap 2)
+                                         #   +1 `ui17-empty:` — 13 (TEAM 8 over the entry/one-row/exit ·
+                                         #        INBOX 5)
+                                         #   +1 `ui17-refuse:` TEAM, the ORDER — 8 (the pick 1 · the row's
+                                         #        kind 1 · the refusal 3 · the view NOT closed 1 · the
+                                         #        recovery 2)
+                                         #   +1 `ui17-refuse:` INBOX — 6 (the row's kind 1 · the refusal 3 ·
+                                         #        the view 1 · the recovery 1)
+                                         #   +1 `ui17-retain:` blank/wake — 7
+                                         #   +1 `ui17-emergency:` — 8 (TEAM 5 over arm+cancel · INBOX 2 ·
+                                         #        the modal's own close 1)
+                                         #   +1 `ui17-detail:` — 6
+                                         #   +1 `ui17-passive:` no pick ⇒ no refusal — 9 (TEAM 4 over
+                                         #        replace/empty · INBOX 5)
+                                         #   ⇒ 5+5+11+5+6+11+14+8+13+8+6+7+8+6+9 = 122 in the new cases.
+                                         # ⓘ AND +16 IN FIVE **REWRITTEN** CASES, whose press prefix moved by
+                                         #   exactly one `double` (the entering press) and whose ends now land
+                                         #   on the BACK row instead of the next screen:
+                                         #   `short press is SCREEN-AWARE` +3 · `INBOX is list-aware too` +3 ·
+                                         #   `a full team roster walks…` +3 · `B64 — the refusal is retired…`
+                                         #   +6 · `sub-view auto-exits…` +1. ⇒ 122 + 16 = +138.
+                                         # ⓘ ⛔ ZERO cases were added or removed for the ~40 OTHER re-pointed
+                                         #   call sites (the `to_team` / `to_inbox` / `to_inbox_ticks`
+                                         #   prefixes, and the same one-press prefix in
+                                         #   test_firmware_ui_send.cpp and test_firmware_ui_chrome.cpp): the
+                                         #   subject of each is unchanged and none gained an assertion.
+                                         # ⓘ THE PREVIOUS PIN, kept because its derivation is still the record
+                                         # of how the figure below it was reached:
+                                         # ★★ RE-PINNED 2026-08-20 by [[B232]] (the SETTINGS single entry):
                                          # **1837 / 86986 -> 1843 / 87045** (+6 cases / +59 assertions), all of
                                          # them in test/test_firmware_ui_model.cpp. DERIVED, not merely observed:
                                          #   +1 `b232-entry: SETTINGS LANDS CLOSED …` — 9 (the landing 3 · the
@@ -223,7 +349,13 @@ BASE_CASES, BASE_ASSERTS = 1843, 87045   # ★★ RE-PINNED 2026-08-20 by [[B232
                                          #        supported child now HAS a flow) — same case
                                          #   ⇒ 12 + 8 + 10 - 1 = +29 cases.
 if os.environ.get("MR_MUT_BASE"):
-    BASE_CASES, BASE_ASSERTS = (int(x) for x in os.environ["MR_MUT_BASE"].split(","))
+    PIN_CASES, PIN_ASSERTS = (int(x) for x in os.environ["MR_MUT_BASE"].split(","))
+
+# ★ THE DERIVED BASELINE, filled in by the baseline gate below from the clean run's own output and used by the exit
+#   gate on the restored source. Declared here so the two gates read one pair of names, and so a reader of the exit
+#   gate can see WHERE the figure it demands came from — it is this run's measurement, never a literal.
+BASE_CASES = BASE_ASSERTS = None
+_pin_stale = None      # set to (pinned, derived) by the gate when the cross-check above disagrees; re-announced at the end.
 
 # ★★★ RESTORATION IS GUARANTEED, NOT HOPED FOR. This tool EDITS A REAL SOURCE FILE in an uncommitted tree, so an
 #     exception, a Ctrl-C or a SIGTERM between the write and the restore would leave a MUTATION INSTALLED — and the next
@@ -540,8 +672,11 @@ MUTS_MODEL = [
  ("M05 activation CLAMPS instead of refusing a lost selection",
   "if (!_inbox_sel_valid) {\n                if (s.inbox_shown > 0) _st.inbox_pick_gone = true;",
   "if (false) {\n                if (s.inbox_shown > 0) _st.inbox_pick_gone = true;"),
+ # ⚠ M06's ANCHOR MOVED 2026-08-21 (the §UI-17 hoist put the INBOX-only identity guard inside the `record` arm);
+ #   the property is unchanged — an UNIDENTIFIABLE row must not be selected.
  ("M06 a row with seq 0 is selected anyway",
-  "&& s.inbox[_st.cursor].seq != 0) {", ") {"),
+  "                if (s.inbox[_st.cursor].seq != 0) {",
+  "                if (true) {"),
  ("M07 the erase target assumes the DM store ([[B133]]'s exact shape)",
   "_inbox_req = { InboxWhat::erase, _st.detail_kind, _st.detail_seq };",
   "_inbox_req = { InboxWhat::erase, InboxKind::dm, _st.detail_seq };"),
@@ -634,8 +769,12 @@ MUTS_MODEL = [
  ("M33 SETTINGS is unreachable on a non-team build (the cycle gate copied from TEAM)",
   "if (s.team_build || cand == Screen::status || cand == Screen::inbox || cand == Screen::settings) return cand;",
   "if (s.team_build || cand == Screen::status || cand == Screen::inbox) return cand;"),
+ # ⚠ M34's ANCHOR MOVED 2026-08-20 (§UI-17 S1 gave all three list screens ONE `entered` predicate inside `list_len`);
+ #   the property it mutates is unchanged — the SETTINGS MENU losing its list-awareness — and the mutation still
+ #   drops that arm whole, so the screen falls through to the one-row answer. ⓘ It shares M98's anchor line and
+ #   REPLACES it differently: M98 keeps the menu's length and loses the CLOSED view, this one loses both.
  ("M34 the SETTINGS screen is not list-aware (one press leaves it)",
-  "if (_st.screen == Screen::settings) return settings_row_list(s).n;",
+  "if (_st.screen == Screen::settings) return entered ? settings_row_list(s).n : uint8_t(1);",
   ";"),
  ("M35 `short` WALKS THE ROWS while editing (the double-duty trap)",
   "if (_st.settings == Settings::editing) { settings_edit_gesture(g, s); return; }",
@@ -940,9 +1079,12 @@ MUTS_MODEL = [
   "if (_st.settings == Settings::closed) { _st.settings = Settings::browsing; _st.dirty = true; }"),
  # ⛔ M98 IS THE SAME SYMPTOM THROUGH THE OTHER MECHANISM, and that is why both exist: the landing can be right and
  #    the screen still cost a press per row if the CLOSED view reports the menu's length to `advance_or_next`.
+ # ⚠ M98's ANCHOR MOVED 2026-08-20 (§UI-17 S1 gave all three list screens ONE `entered` predicate inside
+ #   `list_len`); the property it mutates is unchanged — the CLOSED view reporting the MENU's length — and the
+ #   mutation still touches the SETTINGS arm and nothing else.
  ("M98 [[B232]] the closed view reports the MENU's length, so `short` walks rows that are not on the panel",
-  "if (_st.screen == Screen::settings && _st.settings == Settings::closed) return 1;",
-  ";"),
+  "if (_st.screen == Screen::settings) return entered ? settings_row_list(s).n : uint8_t(1);",
+  "if (_st.screen == Screen::settings) return settings_row_list(s).n;"),
  # ⚠ M99's ANCHOR MOVED 2026-08-20 (QG's correction gave the branch a body); the ENTRY it mutates is unchanged.
  ("M99 [[B232]] the entry row cannot be entered (a screen with one row and no way in)",
   "            if (_st.settings == Settings::closed) {\n"
@@ -977,6 +1119,102 @@ MUTS_MODEL = [
  ("M104 [[B232]] the entry row has no label (an entry nobody can read — C2)",
   'inline constexpr const char* kSettingsEnterText = "ENTER SETTINGS";',
   'inline constexpr const char* kSettingsEnterText = "";'),
+ # --- §UI-17 slice 1: TEAM/INBOX PASSIVE <-> INTERACTIVE (spec §1.2/§1.3) --------------------------------------------
+ # ★ THE AIM IS THE SLICE'S SEVEN MOVING PARTS, EACH ON ITS OWN: the LANDING (M106/M107 — the two independent ways a
+ #   preview turns back into a selector), the ROW RESOLVER (M108, §B66), the two CONTAINMENTS (M109 the `BACK` row and
+ #   M110 the walk off the last row — either one leaving the SCREEN re-creates the "where am I" jump [[B232]] removed),
+ #   the LEAVE RESET (M111, driven at the pure helper because the model path is unreachable — [[B223]]), and the PICK
+ #   (M112/M113 — a passive screen that records one can announce a refusal for a choice nobody made), plus the shared
+ #   predicate itself (M114).
+ # ⛔ M106 IS THE REVERSION, LITERALLY: it puts the auto-enter back, on every arrival, exactly as M97 does one screen
+ #    over — and the harm is [[B232]]'s in the plane where it is worse, because the marked row is a SEND TARGET.
+ ("M106 [[UI-17]] TEAM/INBOX auto-enter on arrival again (a `>` beside a teammate nobody chose)",
+  "        if (_st.screen == Screen::team || _st.screen == Screen::inbox) return;",
+  "        if (_st.screen == Screen::team || _st.screen == Screen::inbox) { _st.list_view = ListView::interactive; return; }"),
+ # ⛔ M107 IS THE SAME SYMPTOM THROUGH THE OTHER MECHANISM, and that is why both exist: the landing can be right and
+ #    the screen still cost a press per teammate if the PASSIVE preview reports the roster's length.
+ # ⚠ RE-POINTED 2026-08-21 onto the HOISTED decision (QG): it used to mutate the TEAM arm of `list_len` and left
+ #   the INBOX arm — an independent copy of the same rule — unprotected. One site now, so it covers BOTH screens.
+ ("M107 [[UI-17]] a passive list reports its rows, so `short` walks a preview nobody entered",
+  "    return entered ? uint8_t(shown + 1) : uint8_t(1);",
+  "    return shown;"),
+ # ⛔⛔ M108 IS §B66 IN THIS SLICE's OWN SHAPE: position is not an identity. One off-by-one and the LAST TEAMMATE is
+ #     the row that "leaves" — so the operator's `double` on the person they highlighted closes the list instead of
+ #     addressing them, and the row after it is unreachable.
+ ("M108 [[UI-17]] the BACK row is resolved one row early, so the LAST teammate becomes the exit",
+  "    return (cursor >= shown) ? ListRow::back : ListRow::member;",
+  "    return (cursor + 1 >= shown) ? ListRow::back : ListRow::member;"),
+ # ⚠ RE-POINTED 2026-08-21 onto the HOISTED dispatch (QG): it used to mutate the TEAM arm and left the INBOX copy
+ #   unprotected. One site now, so the "where am I" jump is measured on BOTH screens.
+ ("M109 [[UI-17]] the BACK row leaves the SCREEN instead of closing the view (the jump the contract removes)",
+  "                case ListAct::leave:  close_list_view(s); return;",
+  "                case ListAct::leave:  _st.screen = next_screen(_st.screen, s); _st.cursor = 0;\n"
+  "                                      list_follow_screen(); _st.dirty = true; return;"),
+ ("M110 [[UI-17]] the walk off the last row leaves the screen again (the containment dropped)",
+  "        if (screen_is_entered(_st.screen, _st.settings, _st.list_view)) { _st.cursor = 0; _st.dirty = true; return; }",
+  "        ;"),
+ # ⛔ M111 IS [[B223]]'s OWN CONTROL, and it is why the reset is a PURE FUNCTION: mutate the assignment where the
+ #    decision actually lives. Written inline at its (currently unreachable) call site it would be unmutatable.
+ ("M111 [[B223]] the leave reset never resets — an entered list outlives its screen",
+  "    const bool changed = view != ListView::passive;\n    view = ListView::passive;\n    return changed;",
+  "    const bool changed = view != ListView::passive;\n    return changed;"),
+ # ⛔⛔ M112/M113 ARE THE PICK, AND THE HARM IS NOT THE MARKER: a pick recorded on a screen nobody entered lets
+ #     `sync_*_cursor` ANNOUNCE ITS LOSS — `TEAMMATE GONE` / `MESSAGE GONE` on a preview, about a choice the operator
+ #     never made.
+ # ⚠ RE-POINTED 2026-08-21 onto the HOISTED write-side decision (QG): the two `note_*_cursor` functions asked the
+ #   same three questions, so this now covers BOTH screens from one site.
+ ("M112 [[UI-17]] the pick is recorded on a PASSIVE preview (a refusal for a choice nobody made)",
+  "    if (!entered)   return ListNote::keep;",
+  "    ;"),
+ # ⛔⛔ M113 IS **WITHDRAWN IN PLACE** 2026-08-21, and it is left standing as a comment rather than deleted: it was
+ #     the INBOX HALF of M112, and the two halves are ONE decision since the hoist. A second entry over the same
+ #     line would report a coverage figure twice for one guard — the opposite of what this battery is for.
+ #     ⓘ Its property is M112's; the INBOX-only half that SURVIVES the hoist (the `seq != 0` identity guard) is
+ #     M06's, which was re-pointed in the same pass.
+ # ("M113 [[UI-17]] the INBOX pick is recorded while the list is PASSIVE", ...)
+ # ⓘ M114 attacks the SHARED predicate rather than either screen, which is the point of there being one: a single
+ #   wrong answer there turns every passive preview into a selector and every entered list into a preview.
+ ("M114 [[UI-17]] `is this screen entered` is inverted for the two list screens",
+  "        case Screen::inbox:    return view == ListView::interactive;",
+  "        case Screen::inbox:    return view == ListView::passive;"),
+ # --- §UI-17 S1, THE HOISTED DECISIONS' OWN CONTROLS (QG-RULED 2026-08-21) ------------------------------------------
+ # ★ Each entry below attacks ONE line of ONE pure decision, and therefore BOTH list screens at once. That is the
+ #   whole reason the branches were hoisted: five duplicated decisions could only ever be half-protected.
+ # ⛔⛔ M115 IS §B64's ORDER, REVERSED — the defect the deviation exists to prevent. A roster that shrank leaves the
+ #     lost pick's index sitting ON the `BACK` index, so resolving the row first turns a REFUSAL into a silent
+ #     "leave": the operator's `double`, aimed at a teammate, quietly closes the list and says nothing.
+ ("M115 [[UI-17]] the BACK row OUTRANKS the refusal, so a lost pick silently LEAVES instead",
+  "    if (!entered)  return ListAct::enter;\n    if (pick_gone) return ListAct::refuse;",
+  "    if (!entered)  return ListAct::enter;\n"
+  "    if (list_row_kind(cursor, shown) == ListRow::back) return ListAct::leave;\n"
+  "    if (pick_gone) return ListAct::refuse;"),
+ # ⛔ M116 is the row resolution collapsed the other way: the exit row activates as a MEMBER, so `BACK` sends.
+ ("M116 [[UI-17]] the BACK row activates as a MEMBER row (the exit SENDS)",
+  "    return (list_row_kind(cursor, shown) == ListRow::back) ? ListAct::leave : ListAct::member;",
+  "    return ListAct::member;"),
+ # ⛔⛔ M117 IS THE PASSIVE ENTRY DROPPED — i.e. the PRE-S1 behaviour, restored: a `double` on a screen the operator
+ #     never entered acts on whatever row the cursor happens to be on. That is the mis-send this slice removes.
+ ("M117 [[UI-17]] a `double` on a PASSIVE preview acts on the row instead of entering",
+  "    if (!entered)  return ListAct::enter;",
+  "    ;"),
+ # ⛔⛔ M118 IS THE DEAD END: the `BACK` row stops retiring the refusal, so a lost pick whose roster then EMPTIED
+ #     leaves the operator inside a list where every `double` refuses and `BACK` is one of them.
+ ("M118 [[UI-17]] resting on BACK no longer retires the refusal (the dead end)",
+  "    return (list_row_kind(cursor, shown) == ListRow::member) ? ListNote::record : ListNote::retire;",
+  "    return (list_row_kind(cursor, shown) == ListRow::member) ? ListNote::record : ListNote::keep;"),
+ # ⛔ M119 IS [[B223]]'s ARM, AND IT IS MUTATABLE ONLY BECAUSE THE DECISION WAS HOISTED: through the model nothing can
+ #    leave a screen while its list is entered, so this guard is unreachable there — written at the call site it would
+ #    have been a guard no suite drives and no mutation reddens. Here the pure case drives it directly.
+ ("M119 [[B223]] leaving the screen no longer retires its message (a stale refusal a lap later)",
+  "    if (!on_screen) return ListNote::retire;",
+  "    ;"),
+ # ⛔⛔ M120 IS THE ONE GAP WITH NOTHING TO HOIST — a SINGLE site, so it gets a direct control (QG's option (a) for
+ #     exactly this entry). Drop the row-0 identity establishment and the press that ENTERED the list records no
+ #     pick, so the very next `double` — the operator's first act inside the list — REFUSES.
+ ("M120 [[UI-17]] entering the list records no pick, so the first double inside it refuses",
+  "        _st.list_view = ListView::interactive; _st.cursor = 0; _st.dirty = true;\n"
+  "        note_team_cursor(s); note_inbox_cursor(s);",
+  "        _st.list_view = ListView::interactive; _st.cursor = 0; _st.dirty = true;"),
 ]
 
 # ===== §UI-13 — src/firmware_config_service.h =====================================================================
@@ -1718,6 +1956,39 @@ MUTS_BY_TARGET = {"model": MUTS_MODEL, "config": MUTS_CONFIG, "chrome": MUTS_CHR
                   "uiprov": MUTS_UIPROV, "uijoin": MUTS_UIJOIN, "provservice": MUTS_PROVSERVICE}
 MUTS = MUTS_BY_TARGET[_TARGET]
 
+# ⓘ `_positional` is built (and judged: at most one) in the argv block at the top of the file — see `_refuse_argv`.
+only = _positional[0] if _positional else None
+
+# ⛔⛔ AND A LABEL PREFIX THAT SELECTS **NOTHING** IS REFUSED — HERE, the first moment the entry list is known, and so
+#     BEFORE any lock, backup, build or mutation ([[B217]] follow-up, 2026-08-21). A mistyped `... ZZZ` used to select
+#     zero entries, apply zero mutations and exit **0** reporting `mutations: 0 RED / 0 unusable` — ★ A GREEN VERDICT
+#     ABOUT AN EMPTY RUN, which is precisely the silent-zero class the derived baseline above retires, arriving
+#     through the other door: B217 zeroed the battery from the BASELINE side, this zeroed it from the SELECTION side,
+#     and both exit like a run with nothing to report. ⇒ same rule as [[B235]]'s argv refusal: an instrument may not
+#     accept an instruction it did not understand, and "successfully ran nothing" is not a result.
+_sel = [_l for _l, _p, _r in MUTS if not only or _l.startswith(only)]
+_sel_n = len(_sel)
+if only and _sel_n == 0:
+    _heads = sorted({_l.split()[0] for _l, _p, _r in MUTS})
+    print(f"  ABORT no entry of the '{_TARGET}' battery matches the label prefix {only!r} — refused. A prefix that "
+          f"matches nothing applies ZERO mutations, and exiting 0 on that reads as a battery with nothing to find.")
+    print(f"  the {len(MUTS)} entry labels of '{_TARGET}' begin: {', '.join(_heads[:14])}"
+          f"{' …' if len(_heads) > 14 else ''}")
+    print("  No mutation was applied; nothing was built.")
+    sys.exit(8)
+
+# ★★ AND THE STALE-PIN BANNERS SAY WHICH RUN THEY ARE TALKING ABOUT ([[B217]] follow-up, 2026-08-21). ⚠ CORRECTED:
+#    the first version of those banners said the battery "RUNS anyway, in full" UNCONDITIONALLY, so a supported
+#    focused run (`MR_MUT_BASE=1,1 ... --target=model M115`) applied ONE mutation while the banner claimed a full
+#    battery. ⛔ A gate banner that overstates its own coverage is the exact honesty class this whole fix serves —
+#    the reader of a filtered run must not have to know the invocation to interpret the output. ⇒ the scope is
+#    computed ONCE here, from `only` and the SELECTED entry count, and both banners quote it.
+_SCOPE_NOW = (f"IN FULL (all {len(MUTS)} entries)" if not only else
+              f"as a FILTERED run — only the {_sel_n} entr{'y' if _sel_n == 1 else 'ies'} matching '{only}', "
+              f"of {len(MUTS)}")
+_SCOPE_PAST = (f"RAN IN FULL ({len(MUTS)} entries)" if not only else
+               f"ran ONLY THE REQUESTED SELECTION ({_sel_n} of {len(MUTS)} entries, matching '{only}')")
+
 def md5(p):
     return _md5(p)
 
@@ -1730,7 +2001,8 @@ def run_suite():
     c = re.search(r"test cases: *(\d+) \| *(\d+) passed \| *(\d+) failed", r.stdout)
     if not m or not c:
         return None, r.stdout[-800:]
-    # (failed assertions, total cases, total assertions) — the last two are what the baseline gate checks.
+    # (failed assertions, total cases, total assertions) — the FIRST is what the baseline gate gates on; the last two
+    # are what it DERIVES this run's baseline from ([[B217]]; they used to be checked against a literal).
     return (int(m.group(3)), int(c.group(1)), int(m.group(1))), r.stdout
 
 # ★ `--where` is a NO-OP DIAGNOSTIC: it prints the resolved source, its key and the keyed backup directory, and touches
@@ -1753,16 +2025,14 @@ arm_backup()
 orig = open(H).read()
 base_md5 = md5(H)
 ok = bad = 0
-# ⚠ The label filter is POSITIONAL and the flags are not: `--target=` must not be mistaken for an entry prefix (it
-#   would match nothing and the run would silently measure ZERO mutations while reporting success).
-_positional = [a for a in sys.argv[1:] if not a.startswith("--")]
-only = _positional[0] if _positional else None
-
 try:
-    # ★★ THE BASELINE GATE. ⛔ Nothing below may run on a tree whose clean suite is not exactly green: a RED verdict is
-    #    only evidence if GREEN was the alternative.
+    # ★★ THE BASELINE GATE, AND IT GATES ON **0 FAILED** — NOT ON A LITERAL (see PIN_CASES for why, [[B217]]).
+    #    ⛔ Nothing below may run on a tree whose clean suite is RED: a RED verdict is only evidence if GREEN was the
+    #    alternative. But the case/assertion COUNTS are this run's OWN measurement: they are derived here, printed,
+    #    and then required again by the exit gate on the restored source.
     print(f"-- target {_TARGET}: {Path(H).resolve()} ({len(MUTS)} entries)", flush=True)
-    print(f"-- baseline gate: the CLEAN tree must be exactly {BASE_CASES} / {BASE_ASSERTS} / 0", flush=True)
+    print("-- baseline gate: the CLEAN tree must run 0 FAILED; its own counts become this run's baseline "
+          f"(cross-check pin: {PIN_CASES} / {PIN_ASSERTS})", flush=True)
     base, base_out = run_suite()
     if base is None:
         print("  ABORT the clean tree does not build / did not run — no mutation was applied")
@@ -1771,12 +2041,31 @@ try:
                 print("        " + line[:160]); break
         sys.exit(2)
     base_failed, base_cases, base_asserts = base
-    if (base_failed, base_cases, base_asserts) != (0, BASE_CASES, BASE_ASSERTS):
-        print(f"  ABORT the clean baseline is {base_cases} / {base_asserts} / {base_failed}, expected "
-              f"{BASE_CASES} / {BASE_ASSERTS} / 0 — every mutation would read RED for the wrong reason. "
-              f"No mutation was applied.")
+    if base_failed != 0:
+        # ⛔ THE LOUD ARM. It prints the FAILING OUTPUT and not merely a count, because the reader's next question is
+        #   always "failing WHERE" and a run that answers it is a run nobody has to repeat.
+        print(f"  ABORT the clean tree is RED — {base_cases} / {base_asserts} / {base_failed} FAILED. Every mutation "
+              f"below would read RED for the wrong reason. No mutation was applied.")
+        _fails = [ln for ln in base_out.splitlines()
+                  if "ERROR:" in ln or "FATAL ERROR:" in ln or ln.startswith("TEST CASE:")]
+        for line in (_fails[:24] or base_out.splitlines()[-24:]):
+            print("        " + line[:200])
         sys.exit(2)
-    print(f"  ok   clean baseline {base_cases} / {base_asserts} / {base_failed}", flush=True)
+    BASE_CASES, BASE_ASSERTS = base_cases, base_asserts      # ★ DERIVED — this is the baseline, from here on.
+    print(f"  ok   clean baseline {base_cases} / {base_asserts} / {base_failed}   (DERIVED from this run)", flush=True)
+    if (PIN_CASES, PIN_ASSERTS) != (base_cases, base_asserts):
+        # ★★ THE STALE CROSS-CHECK ARM — LOUD, AND IT CONTINUES. This is the whole of [[B217]]: the old code
+        #    `sys.exit(2)`-ed here, having applied nothing, and that reads exactly like a battery with nothing to
+        #    find. A moved figure is bookkeeping; it is not a reason to stop measuring.
+        _pin_stale = ((PIN_CASES, PIN_ASSERTS), (base_cases, base_asserts))
+        print("  " + "!" * 112, flush=True)
+        print("  !!  STALE CROSS-CHECK PIN — the hand-pinned figure is NOT what this clean tree runs.", flush=True)
+        print(f"  !!      pinned   {PIN_CASES} / {PIN_ASSERTS}"
+              f"{'   (from MR_MUT_BASE)' if os.environ.get('MR_MUT_BASE') else '   (PIN_CASES, this file)'}", flush=True)
+        print(f"  !!      derived  {base_cases} / {base_asserts}   <-- THE BATTERY BELOW USES THIS", flush=True)
+        print(f"  !!  The battery RUNS anyway, {_SCOPE_NOW}: per [[B217]] a stale figure must NEVER zero a run.", flush=True)
+        print("  !!  Then re-pin PIN_CASES / PIN_ASSERTS with the derivation (or unset MR_MUT_BASE).", flush=True)
+        print("  " + "!" * 112, flush=True)
 
     for label, pat, rep in MUTS:
         if only and not label.startswith(only):
@@ -1828,8 +2117,10 @@ print(f"source restored: md5 {after} ({'MATCHES' if after == base_md5 else 'DIFF
 # ★★ THE EXIT GATE, AND IT EXISTS BECAUSE RESTORING THE SOURCE IS NOT THE WHOLE JOB: the binary left in
 #    `.pio/build/native/` is the LAST MUTANT'S, so anyone running `./.pio/build/native/program` immediately after this
 #    tool saw a spurious failure on a correct tree. (Observed — it fooled its own author once.) ⇒ rebuild once on the
-#    restored source and require the pinned baseline again. That refreshes the artefact AND proves the restoration is
-#    effective at the BUILD level, not merely at the file level.
+#    restored source and require THIS RUN'S DERIVED baseline again (it was the pinned literal before [[B217]]; the
+#    check is strictly stronger derived, because the figure it demands was measured on this very tree minutes ago
+#    rather than typed by hand weeks ago). That refreshes the artefact AND proves the restoration is effective at the
+#    BUILD level, not merely at the file level.
 exit_ok = True
 if after == base_md5:
     res, out = run_suite()
@@ -1840,4 +2131,13 @@ if after == base_md5:
     else:
         print(f"exit gate: the restored tree rebuilds to {res[1]} / {res[2]} / {res[0]} — the stale mutant binary is gone")
 print(f"mutations: {ok} RED / {bad} unusable")
+# ★★ AND THE STALE-PIN BANNER IS RE-ANNOUNCED HERE, because a warning printed before ~300 lines of build output has
+#    scrolled out of the reader's window by the time the verdict lands — "loud" that only holds at the top of a long
+#    run is not loud. ⛔ It still does not touch the exit code: see PIN_CASES.
+if _pin_stale:
+    print("  " + "!" * 112)
+    print(f"  !!  REMINDER — the cross-check pin is STALE: pinned {_pin_stale[0][0]} / {_pin_stale[0][1]}, this tree "
+          f"runs {_pin_stale[1][0]} / {_pin_stale[1][1]}.")
+    print(f"  !!  The battery above {_SCOPE_PAST} on the derived figure ([[B217]]); re-pin PIN_CASES / PIN_ASSERTS.")
+    print("  " + "!" * 112)
 sys.exit(0 if bad == 0 and after == base_md5 and exit_ok else 1)

@@ -673,7 +673,8 @@ TEST_CASE("chrome-nav: a REAL outcome landing on a live compose modal leaves the
     for (uint8_t i = 0; i < 3; ++i) { s.team[i].id = uint8_t(10 + i); s.team[i].last_heard_s = 60; }
     m.on_gesture(Gesture::short_press, s);                       // STATUS -> TEAM
     if (m.state().screen != Screen::team) { CHECK(false); return; }
-    m.on_gesture(Gesture::double_press, s);                      // open the DM compose sub-view
+    m.on_gesture(Gesture::double_press, s);                      // §UI-17 S1: ENTER the interactive TEAM list...
+    m.on_gesture(Gesture::double_press, s);                      // ...and open the DM compose sub-view
     if (m.state().compose != Compose::dm) { CHECK(false); return; }
     CHECK(ui_nav_slot(m.state(), m.emergency()) == NavSlot::send);
     CHECK(m.state().screen == Screen::team);                     // …while the SCREEN underneath is still TEAM

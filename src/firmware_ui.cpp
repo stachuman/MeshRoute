@@ -744,6 +744,16 @@ uint8_t list_first(uint8_t cursor, uint8_t n, uint8_t rows) {
     return uint8_t((first + rows > n) ? (n - rows) : first);
 }
 
+// ★★★ §UI-17 S1 — THE INTERACTIVE LIST'S LAST ROW, drawn by ONE function for BOTH screens (U1). It renders as
+//     `<marker><label>`, which is the shipped ACTION-row shape (`draw_settings_screen`'s `%c%s` arm), and the label is
+//     CALLED rather than re-spelled here — §B115: a string built in this TU is a string no automated gate can read.
+//     ⓘ 1 + 4 = 5 of the rail's 19 columns.
+void body_back_row(int row, bool here) {
+    char l[kLineCap];
+    snprintf(l, sizeof l, "%c%s", here ? '>' : ' ', mrui::kListBackText);
+    body_text(row, l);
+}
+
 // ==================================================================== §CHROME-3 / design §3.1 — THE STATUS STRIP
 //
 // ⛔⛔ WHAT THIS REPLACES, kept visible rather than deleted: the packed 6x10 line `DM%u CH%u T%u/%u %s` (and its
@@ -987,10 +997,19 @@ void draw_status_screen(const mrui::UiSnapshot& s, const SettingsView& c) {
     body_text(4, l);
 }
 
+// ★★★★ §UI-17 S1 — THE SCREEN IS EITHER A PASSIVE PREVIEW OR AN ENTERED LIST, and this one predicate is what says
+//      which (the model's `screen_is_entered`, ⛔ never re-derived here). PASSIVE: the rows are listed with NO marker
+//      anywhere and NO `BACK` row, because nothing has been picked and `short` passes the screen in one press.
+//      ENTERED: the marker is back, and the list carries one more row than the snapshot published — `BACK`.
 void draw_team_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
+    const bool entered = mrui::screen_is_entered(st.screen, st.settings, st.list_view);
     if (s.team_shown == 0) {
         body_text(0, "TEAM");
         body_text(1, "no teammates heard");
+        // ⓘ AN EMPTY ROSTER STILL OFFERS THE WAY OUT (spec S1 pin 5), on the row below its two lines: entering a list
+        //   that could only be left by walking rows it does not have would be a dead end. There is exactly one row and
+        //   it IS the selection, so the marker is unconditional — the same statement the SETTINGS entry row makes.
+        if (entered) body_back_row(2, true);
         return;
     }
     // ★★★ §B64 (owner-ruled 2026-08-05) — THE LOUD HALF OF THE REFUSAL, AND THE SUPPRESSED HIGHLIGHT IS THE OTHER HALF.
@@ -1000,9 +1019,22 @@ void draw_team_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
     // ★ AND THE `>` MARKER GOES AWAY. Leaving it beside whatever now occupies that row would be the mis-send in DISPLAY
     //   form: the panel would name a target the model has already refused to use. The two must agree, always.
     const uint8_t rows  = st.team_pick_gone ? uint8_t(kBodyRows - 1) : uint8_t(kBodyRows);
-    const uint8_t first = list_first(st.cursor, s.team_shown, rows);
-    for (uint8_t row = 0; row < rows && first + row < s.team_shown; ++row) {
-        const mrui::TeamRow& t = s.team[first + row];
+    // ★ §UI-17 S1: the ENTERED list is one row longer than the roster — the `BACK` row — and it scrolls with the rest
+    //   through the SAME window (`list_first`), so a full 8-teammate roster can still reach it.
+    const uint8_t n     = entered ? uint8_t(s.team_shown + 1) : s.team_shown;
+    const uint8_t first = list_first(st.cursor, n, rows);
+    for (uint8_t row = 0; row < rows && first + row < n; ++row) {
+        const uint8_t idx = uint8_t(first + row);
+        // ★ ONE marker predicate for both row kinds, and it keeps §B64's suppression EXACTLY as it was: while the
+        //   refusal stands no row is highlighted, because a `>` beside a teammate the model has already refused to act
+        //   on is the same mis-send in display form. The `entered` term is the new one — a passive preview marks
+        //   nothing at all.
+        const bool here = entered && !st.team_pick_gone && idx == st.cursor;
+        // ⛔ THE LAST ROW IS RESOLVED BY `list_row_kind`, ⛔ never by a bare `idx == s.team_shown` here (§B66:
+        //    position is not an identity) — the model's own resolver, so the row the panel draws and the row
+        //    `activate` acts on cannot disagree.
+        if (mrui::list_row_kind(idx, s.team_shown) == mrui::ListRow::back) { body_back_row(row, here); continue; }
+        const mrui::TeamRow& t = s.team[idx];
         char age[kAgeCap]; fmt_age(age, sizeof age, t.last_heard_s);
         char l[kLineCap];
         // §7.3 AUDIT, and the widths are PRECISIONS rather than paddings, which is the whole difference between a
@@ -1014,7 +1046,7 @@ void draw_team_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
         //    while the protocol's own hop limit is far below 99. The `> 99` arm exists so the FORMAT has a proven
         //    width; it is not reachable by any route this firmware can build.
         snprintf(l, sizeof l, "%c%-9.9s %4.4s %uh",
-                 (!st.team_pick_gone && first + row == st.cursor) ? '>' : ' ', t.label, age,
+                 here ? '>' : ' ', t.label, age,
                  unsigned(t.hops > 99 ? 99 : t.hops));
         body_text(row, l);
     }
@@ -1033,8 +1065,10 @@ void draw_team_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
 //   ordering claim the data does not support.
 // ★ TRUNCATION IS STATED, never implied: `inbox_total` is what `pull` VISITED, so a screen showing 8 of 40 says so
 //   rather than presenting the cap as the whole mailbox (the same rule the TEAM screen's `T4/12` follows).
+// ★★★★ §UI-17 S1 — the same PASSIVE ↔ ENTERED split as `draw_team_screen`'s, one plane over. See it.
 void draw_inbox_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
     char l[kLineCap], age[kAgeCap];
+    const bool entered = mrui::screen_is_entered(st.screen, st.settings, st.list_view);
     if (s.inbox_shown == 0) {
         body_text(0, "INBOX");
         // ⚠ NOT "no messages": an inbox with no durable store installed (`Inbox::enabled()` false ⇒ `pull` returns 0)
@@ -1046,6 +1080,9 @@ void draw_inbox_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
         fmt_age(age, sizeof age, s.last_ch_age_s);
         snprintf(l, sizeof l, "CH %u  newest %s", unsigned(s.unread_ch), age);
         body_text(2, l);
+        // ⓘ Row 3 is the one the layout already leaves free between the counters and `no stored rows` — see the TEAM
+        //   screen's own note for why an empty list still offers `BACK`.
+        if (entered) body_back_row(3, true);
         body_text(4, "no stored rows");
         return;
     }
@@ -1058,9 +1095,19 @@ void draw_inbox_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
     //     marker goes away — a highlight beside a record the model has already refused to act on is the same wrong in
     //     display form. The two must agree, always.
     const uint8_t rows  = st.inbox_pick_gone ? uint8_t(kBodyRows - 2) : uint8_t(kBodyRows - 1);
-    const uint8_t first = list_first(st.cursor, s.inbox_shown, rows);
-    for (uint8_t row = 0; row < rows && first + row < s.inbox_shown; ++row) {
-        const mrui::InboxRow& e = s.inbox[first + row];
+    // ★ §UI-17 S1: the ENTERED list carries the `BACK` row too, and ⚠ THE COST IS STATED RATHER THAN DISCOVERED ON
+    //   GLASS: row 0 is the header and one more row is RESERVED for `MESSAGE GONE`, so an interactive list showing a
+    //   refusal has at most TWO message rows. The scrolling window already handles it (`list_first`).
+    const uint8_t n     = entered ? uint8_t(s.inbox_shown + 1) : s.inbox_shown;
+    const uint8_t first = list_first(st.cursor, n, rows);
+    for (uint8_t row = 0; row < rows && first + row < n; ++row) {
+        const uint8_t idx = uint8_t(first + row);
+        // ★ ONE marker predicate, §UI-7D's suppression kept exactly as it was, plus the new `entered` term — see
+        //   `draw_team_screen`'s note.
+        const bool here = entered && !st.inbox_pick_gone && idx == st.cursor;
+        // ⛔ Resolved by `list_row_kind`, never positionally (§B66) — see `draw_team_screen`.
+        if (mrui::list_row_kind(idx, s.inbox_shown) == mrui::ListRow::back) { body_back_row(row + 1, here); continue; }
+        const mrui::InboxRow& e = s.inbox[idx];
         char tag[6];
         // ⓘ §UI-7D: the tag comes from `kind`, the row's ONLY kind field. `is_dm` is gone from the tree.
         if (e.kind == mrui::InboxKind::dm) snprintf(tag, sizeof tag, "DM");
@@ -1076,7 +1123,7 @@ void draw_inbox_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
         // ⓘ `%4.4s` is a BOUND THAT IS NEVER REACHED: `fmt_age` now emits at most 3 columns (`kAgeCap`), so the
         //   precision can never truncate a token — it is there so the row's width is provable from this line alone.
         snprintf(l, sizeof l, "%c%-5s%-8.8s %4.4s",
-                 (!st.inbox_pick_gone && first + row == st.cursor) ? '>' : ' ', tag, e.text, age);
+                 here ? '>' : ' ', tag, e.text, age);
         body_text(row + 1, l);
     }
     // Spec §3.5's own words for the refusal, on the last body row — the same place the TEAM screen puts its reason.

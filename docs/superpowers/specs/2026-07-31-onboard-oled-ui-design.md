@@ -290,12 +290,20 @@ are normative in `2026-08-15-heltec-mobile-status-navigation-ui-design.md`.
 
 | gesture | meaning |
 |---|---|
-| short | **advance within the current list; at the end, move to the next screen** |
-| double | activate the highlighted item — TEAM: open DM compose · INBOX: open detail (UI-7D) · SEND: open channel compose · SETTINGS: open the menu from the closed entry row, then edit/activate the row (UI-14, [[B232]]) · sub-view: confirm the highlighted action · STATUS: none |
+| short | **advance within the current ENTERED list; at its last row (`BACK`) come home to its first row; on a screen that has not been entered, move to the next screen** (§UI-17 S1) |
+| double | **enter the screen's interaction, then** activate the highlighted item — TEAM: enter the roster, then open DM compose · INBOX: enter the list, then open detail (UI-7D) · SEND: open channel compose · SETTINGS: open the menu from the closed entry row, then edit/activate the row (UI-14, [[B232]]) · sub-view: confirm the highlighted action · STATUS: none |
 | long | arm emergency, from **any** screen, sub-views included |
 
-`short` is **list-aware**: on STATUS and SEND it simply moves on; on TEAM and INBOX it walks the list and leaves
-only at the end. ⛔ **CORRECTED IN PLACE 2026-08-20 ([[B232]], owner-ruled): SETTINGS IS NO LONGER IN THAT SET, AND
+`short` is **screen-aware**: EVERY top-level screen costs exactly ONE press to pass. ⛔ **CORRECTED IN PLACE
+2026-08-21 (§UI-17 slice 1, QG-accepted), AND THE WITHDRAWN WORDING IS KEPT VISIBLE — it read *"on TEAM and INBOX
+it walks the list and leaves only at the end"*.** TEAM and INBOX now land **PASSIVE** — a preview list with no
+marker and no recorded pick — and are **ENTERED** by a `double`, exactly as SETTINGS is ([[B232]]) and as §3.6.3's
+child menu already was. Inside an entered list `short` walks the rows as before, its last row is `BACK`, and
+walking off that row returns to the **first** row — ⛔ never off the screen. `BACK` returns to the **passive form
+of the same screen**, which one further `short` then passes. ⓘ Why: as built, arriving on TEAM immediately
+recorded row 0 as the pick, so the panel showed `>` beside a teammate the operator never chose and a `double` was
+one press from a DM to them; and passing the screen cost one press per teammate.
+⛔ **CORRECTED IN PLACE 2026-08-20 ([[B232]], owner-ruled): SETTINGS IS NO LONGER IN THAT SET, AND
 THE WITHDRAWN WORDING IS KEPT VISIBLE — it read *"on TEAM, INBOX and SETTINGS it walks the list"*.** SETTINGS now
 **lands CLOSED on a single entry row** (`ENTER SETTINGS`); `short` passes the screen in **one** press like every
 other screen, and `double` **enters** the menu — the enter-by-double idiom §3.6.3's child menu already uses. Inside
@@ -974,7 +982,7 @@ No new inbox subsystem is needed for browsing; `Inbox::pull()` already visits bo
 - `pull()` returns the **DM block oldest-first, then the channel block oldest-first** (`inbox.h:107-109`). That is the STORE traversal order, not the panel order.
 - The panel renders **one screen with labelled rows** (`DM` / `CH <n>`): the complete DM block first, then the complete channel block, but **newest-first within each block** ([[B231]], owner ruling 2026-08-20). The two sequence spaces remain independent; chronological interleaving by `rx_time_ms` is explicitly *not* implied and would need a stated reboot/uptime rule first.
 - Retain only the bounded number of rows the panel can browse; clamp sender and body text to the display width. ⚠ **Allocate the bound PER KIND** (e.g. 4 DM + 4 channel), not as one shared pool filled in visit order — `pull()` visits the channel block second, so a shared "keep the newest N" would let a chatty channel evict every DM row, on a screen whose whole point is showing both.
-- `short` walks the retained rows and leaves at the end, like TEAM. When more rows exist than are retained, show that rather than implying the list is complete.
+- `short` walks the retained rows of the **entered** list and, at its last row (`BACK`), comes home to the first — ⛔ it never leaves the screen; leaving is `BACK`'s own act, to the passive INBOX preview (§UI-17 slice 1). ⛔ **WITHDRAWN WORDING, KEPT VISIBLE (corrected 2026-08-21):** *"`short` walks the retained rows and leaves at the end, like TEAM"*. When more rows exist than are retained, show that rather than implying the list is complete. ⚠ While the `MESSAGE GONE` refusal stands, the header row, the reserved refusal row and the `BACK` row together leave at most **two** message rows on the panel — the scrolling window handles it, and that is a stated cost, not a defect.
 - After a successful delete, the frame built before the erase may still contain the old row; the model therefore owes exactly one further repaint from the next tick's normal, fresh pull ([[B233]]). A failed delete changes no store row and owes no such repaint.
 - Viewing on the panel does **not** advance the durable `mark_read` cursor. The UI's unread counters stay session-local (§6 above); moving the durable cursor from a button press would desynchronise the companion app, which is the cursor's real owner.
 

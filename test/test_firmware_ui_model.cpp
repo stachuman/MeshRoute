@@ -46,18 +46,45 @@ static UiSnapshot snap_inbox(uint8_t n, uint32_t now_ms = 1000) {
     return s;
 }
 
+// ★★★★ §UI-17 S1 — REACH THE **INTERACTIVE** TEAM LIST AT ITS FIRST ROW: one `short` to the screen, one `double` to
+//      enter it. TEAM and INBOX now LAND PASSIVE (a preview with no marker and no recorded pick, passed by ONE
+//      `short`), so every case that walks or activates a row starts here — the [[B232]] `to_settings_menu` prefix,
+//      one screen over. ⇒ what changed for those cases is exactly ONE PRESS OF PREFIX and nothing else; the landing
+//      itself is asserted by the `ui17-` cases rather than here.
+// ⚠ ASSERTED by the caller afterwards, never assumed.
+static void to_team(UiModel& m, const UiSnapshot& s) {
+    m.on_gesture(Gesture::short_press,  s);   // STATUS -> TEAM, passive
+    m.on_gesture(Gesture::double_press, s);   // ...and ENTER the list, cursor on row 0
+}
+// The same, one plane over: STATUS -> TEAM -> INBOX (one press each, both passive) and then the `double` that enters.
+static void to_inbox(UiModel& m, const UiSnapshot& s) {
+    m.on_gesture(Gesture::short_press,  s);
+    m.on_gesture(Gesture::short_press,  s);
+    m.on_gesture(Gesture::double_press, s);
+}
+
 // ---------------------------------------------------------------- the plan's seven cases
 
-TEST_CASE("ui-model: short press is LIST-AWARE: it walks TEAM before leaving it") {
+// ★★★★ REWRITTEN IN PLACE BY §UI-17 S1 (the §B101/[[B232]] precedent: a case whose behaviour a slice changes is
+//      REWRITTEN, never deleted, with a heading saying what changed).
+// ⛔ WHAT IT USED TO PIN: that ONE `short` from STATUS landed on TEAM and the next THREE walked its three roster rows
+//    before the screen advanced — i.e. passing TEAM cost a press per teammate. §UI-17's contract is one press per
+//    screen; the list-awareness did not go away, it MOVED behind the `double` that enters, and the second half below
+//    is where it is now measured.
+TEST_CASE("ui-model: short press is SCREEN-AWARE: one press per screen, the LIST is behind the double") {
     UiModel m; const auto s = snap();
     m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::team);   CHECK(m.state().cursor == 0);
-    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::team);   CHECK(m.state().cursor == 1);
-    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::team);   CHECK(m.state().cursor == 2);
     m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::inbox);
     m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::send);
-    // ★ §UI-14 (spec §3.1): SETTINGS is appended to the cycle, so SEND no longer wraps straight to STATUS. It is a
-    //   LIST screen too — with no service attached the row list is still built, so the walk takes its rows first.
+    // ★ §UI-14 (spec §3.1): SETTINGS is appended to the cycle, so SEND no longer wraps straight to STATUS. It is
+    //   entered by a `double` too ([[B232]]), so it costs one press to pass like every other screen.
     m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::settings);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::status);
+    // ...and the walk the first half used to do is exactly what the ENTERED list still does.
+    to_team(m, s);
+    CHECK(m.state().screen == Screen::team);   CHECK(m.state().cursor == 0);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::team);   CHECK(m.state().cursor == 1);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::team);   CHECK(m.state().cursor == 2);
 }
 
 TEST_CASE("ui-model: an empty TEAM list is passed through, not a dead end") {
@@ -68,7 +95,7 @@ TEST_CASE("ui-model: an empty TEAM list is passed through, not a dead end") {
 
 TEST_CASE("ui-model: double on TEAM opens the DM sub-view bound to the highlighted peer") {
     UiModel m; const auto s = snap();
-    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);   // cursor 1
+    to_team(m, s); m.on_gesture(Gesture::short_press, s);   // cursor 1
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().compose == Compose::dm);
     CHECK(m.state().compose_peer == s.team[1].id);
@@ -77,7 +104,7 @@ TEST_CASE("ui-model: double on TEAM opens the DM sub-view bound to the highlight
 
 TEST_CASE("ui-model: sub-view: `back` leaves without sending") {
     UiModel m; const auto s = snap(); SendReq req{};
-    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::double_press, s);
+    to_team(m, s); m.on_gesture(Gesture::double_press, s);
     m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);    // -> back
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().compose == Compose::none);
@@ -87,7 +114,7 @@ TEST_CASE("ui-model: sub-view: `back` leaves without sending") {
 
 TEST_CASE("ui-model: sub-view: double on a message emits a DM request for the bound peer") {
     UiModel m; const auto s = snap(); SendReq req{};
-    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::double_press, s);
+    to_team(m, s); m.on_gesture(Gesture::double_press, s);
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.take_send_request(req) == true);            // plan wrote REQUIRE: unavailable (-fno-exceptions)
     CHECK(req.kind == SendKind::dm); CHECK(req.peer_id == s.team[0].id); CHECK(req.text_index == 0);
@@ -103,7 +130,9 @@ TEST_CASE("ui-model: sub-view: double on a message emits a DM request for the bo
 
 TEST_CASE("ui-model: sub-view auto-exits on inactivity WITHOUT sending") {
     UiModel m; SendReq req{};
-    m.on_gesture(Gesture::short_press, snap(1000)); m.on_gesture(Gesture::double_press, snap(1100));
+    to_team(m, snap(1000));                                       // §UI-17 S1: the list is ENTERED first...
+    m.on_gesture(Gesture::double_press, snap(1100));              // ...and this is what opens the sub-view
+    CHECK(m.state().compose == Compose::dm);
     m.on_tick(snap(1100 + kBlankMs + 1));
     CHECK(m.state().compose == Compose::none);
     CHECK(m.take_send_request(req) == false);
@@ -159,9 +188,7 @@ TEST_CASE("ui-model: double on STATUS activates nothing; on INBOX it now OPENS T
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().screen == Screen::status); CHECK(m.state().compose == Compose::none);
     CHECK(m.state().detail == InboxModal::closed);
-    m.on_gesture(Gesture::short_press, s);   // -> team
-    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);
-    m.on_gesture(Gesture::short_press, s);   // -> inbox
+    to_inbox(m, s);                          // §UI-17 S1: STATUS -> TEAM -> INBOX, then the `double` that ENTERS
     CHECK(m.state().screen == Screen::inbox);
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().compose == Compose::none); CHECK(m.state().screen == Screen::inbox);
@@ -183,7 +210,7 @@ TEST_CASE("ui-model: double on STATUS activates nothing; on INBOX it now OPENS T
 //   carve-out the empty TEAM roster has).
 TEST_CASE("ui-model: double on an EMPTY INBOX still activates nothing and says nothing (§UI-7D)") {
     UiModel m; auto s = snap_inbox(0); SendReq req{}; InboxReq rq{};
-    for (int i = 0; i < 4; ++i) m.on_gesture(Gesture::short_press, s);   // status -> team(0,1,2) -> inbox
+    to_inbox(m, s);                          // §UI-17 S1: ...and the entering `double` is itself one of the two here
     CHECK(m.state().screen == Screen::inbox);
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().detail == InboxModal::closed);
@@ -192,20 +219,26 @@ TEST_CASE("ui-model: double on an EMPTY INBOX still activates nothing and says n
     CHECK(m.take_send_request(req) == false);
 }
 
+// ★★★ REWRITTEN IN PLACE BY §UI-17 S1 (the §B101 precedent). ⛔ WHAT IT USED TO PIN: that the LAST row's `short`
+//     walked OFF the screen onto SEND. The list is now CONTAINED — its last row is `BACK` and the walk past it
+//     returns to the FIRST row — so the property "the cursor walks its rows" is unchanged and what happens at the END
+//     has moved. Leaving is `BACK`'s job, and `ui17-back` pins it.
 TEST_CASE("ui-model: INBOX is list-aware too — the cursor walks its rows before the screen moves") {
     UiModel m; const auto s = snap_inbox(3);
-    for (int i = 0; i < 4; ++i) m.on_gesture(Gesture::short_press, s);   // status -> team(0,1,2) -> inbox
+    to_inbox(m, s);
     CHECK(m.state().screen == Screen::inbox); CHECK(m.state().cursor == 0);
     m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::inbox); CHECK(m.state().cursor == 1);
     m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::inbox); CHECK(m.state().cursor == 2);
-    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::send);  CHECK(m.state().cursor == 0);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::inbox); CHECK(m.state().cursor == 3);
+    CHECK(list_row_kind(m.state().cursor, s.inbox_shown) == ListRow::back);          // ...the BACK row
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::inbox); CHECK(m.state().cursor == 0);
 }
 
 // The SEND screen is single-item, so `short` just moves on; `double` opens the CHANNEL list (spec §3.2.2), whose
 // rows are "Got your message" / "All good" / back — three, like the DM list, but a different SendKind.
 TEST_CASE("ui-model: SEND double opens the channel compose list and index 1 sends the second canned text") {
     UiModel m; const auto s = snap(); SendReq req{};
-    for (int i = 0; i < 5; ++i) m.on_gesture(Gesture::short_press, s);   // -> send
+    for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);   // STATUS -> TEAM -> INBOX -> SEND
     CHECK(m.state().screen == Screen::send);
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().compose == Compose::channel);
@@ -232,7 +265,7 @@ TEST_CASE("ui-model: SEND double opens the channel compose list and index 1 send
 
 TEST_CASE("ui-model: the channel list's last row is `back` and sends nothing") {
     UiModel m; const auto s = snap(); SendReq req{};
-    for (int i = 0; i < 5; ++i) m.on_gesture(Gesture::short_press, s);
+    for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);   // -> SEND, one press per screen
     m.on_gesture(Gesture::double_press, s);
     m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);   // -> back (index 2)
     CHECK(m.state().cursor == 2);
@@ -243,7 +276,7 @@ TEST_CASE("ui-model: the channel list's last row is `back` and sends nothing") {
 
 TEST_CASE("ui-model: the compose cursor wraps within the list, so `back` is always reachable") {
     UiModel m; const auto s = snap();
-    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::double_press, s);   // DM list, cursor 0
+    to_team(m, s); m.on_gesture(Gesture::double_press, s);   // §UI-17 S1: enter the list, then the DM list, cursor 0
     m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);
     CHECK(m.state().cursor == 2);
     m.on_gesture(Gesture::short_press, s);
@@ -255,7 +288,7 @@ TEST_CASE("ui-model: the compose cursor wraps within the list, so `back` is alwa
 // which would silently retarget a DM the user already aimed.
 TEST_CASE("ui-model: the bound peer survives a roster REORDER under the open modal") {
     UiModel m; auto s = snap(); SendReq req{};
-    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);   // TEAM cursor 1 -> id 11
+    to_team(m, s); m.on_gesture(Gesture::short_press, s);   // §UI-17 S1: enter, then TEAM cursor 1 -> id 11
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().compose_peer == 11);
     s.team[0].id = 77; s.team[1].id = 88; s.team[2].id = 99;                        // roster churn
@@ -280,7 +313,8 @@ TEST_CASE("ui-model: the bound peer survives a roster REORDER under the open mod
 //       moment anything else opened the view (§B110's measurement).
 TEST_CASE("ui-model: B64 — a teammate that VANISHED from the roster REFUSES the activation and sends NOTHING") {
     UiModel m; auto s = snap(); SendReq req{};
-    for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);   // TEAM, cursor 2 -> teammate id 12
+    to_team(m, s);                                                       // §UI-17 S1: enter the list first
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);   // TEAM, cursor 2 -> id 12
     CHECK(m.state().cursor == 2);
     CHECK(s.team[2].id == 12);
     s.team_shown = 2; s.team_total = 2;                                  // teammate 12 is GONE; 10 and 11 remain
@@ -299,7 +333,8 @@ TEST_CASE("ui-model: B64 — a teammate that VANISHED from the roster REFUSES th
 //    have sent. ⚠ And it must not re-dirty the frame on every subsequent tick, or the 2 Hz throttle repaints for ever.
 TEST_CASE("ui-model: B64 — a tick announces the lost pick, exactly once") {
     UiModel m; auto s = snap();
-    for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);   // TEAM, cursor 2 -> teammate id 12
+    to_team(m, s);                                                       // §UI-17 S1: enter the list first
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);   // TEAM, cursor 2 -> id 12
     CHECK(m.state().team_pick_gone == false);
     s.team_shown = 2; s.team_total = 2;                                  // teammate 12 leaves
     m.clear_dirty();
@@ -318,7 +353,8 @@ TEST_CASE("ui-model: B64 — a tick announces the lost pick, exactly once") {
 //     A control that cannot separate those is vacuous, which is exactly what the shrink-only case would have been.
 TEST_CASE("ui-model: B64 — a roster REORDER follows the TEAMMATE, so the send goes where the user pointed") {
     UiModel m; auto s = snap(); SendReq req{};
-    for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);   // TEAM, cursor 2 -> teammate id 12
+    to_team(m, s);                                                       // §UI-17 S1: enter the list first
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);   // TEAM, cursor 2 -> id 12
     CHECK(s.team[2].id == 12);
     s.team[0].id = 11; s.team[1].id = 12; s.team[2].id = 13;             // same size; 12 moved from row 2 to row 1
     m.on_tick(s);                                                        // a PLAIN TICK re-anchors the highlight...
@@ -344,7 +380,7 @@ TEST_CASE("ui-model: B64 — a roster REORDER follows the TEAMMATE, so the send 
 //   `queued` assertion catches directly.
 TEST_CASE("ui-model: B64 — the roster resync must NOT touch an open compose modal's cursor") {
     UiModel m; auto s = snap(); SendReq req{};
-    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);   // TEAM cursor 1 -> id 11
+    to_team(m, s); m.on_gesture(Gesture::short_press, s);   // §UI-17 S1: enter, then TEAM cursor 1 -> id 11
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().compose_peer == 11);
     m.on_gesture(Gesture::short_press, s);                               // the MODAL's cursor -> 1 ("I'm OK")
@@ -365,7 +401,7 @@ TEST_CASE("ui-model: B64 — the roster resync must NOT touch an open compose mo
 //   the ruling could have been implemented as a permanent lockout of the TEAM screen and still looked correct.
 TEST_CASE("ui-model: B64 — after a refusal the user re-picks by walking, and the next send targets that teammate") {
     UiModel m; auto s = snap(); SendReq req{};
-    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);   // TEAM cursor 1 -> id 11
+    to_team(m, s); m.on_gesture(Gesture::short_press, s);   // §UI-17 S1: enter, then TEAM cursor 1 -> id 11
     CHECK(m.state().cursor == 1);
     s.team[0].id = 10; s.team[1].id = 12; s.team[2].id = 13;             // teammate 11 is GONE, still three rows
     m.on_gesture(Gesture::double_press, s);
@@ -382,15 +418,33 @@ TEST_CASE("ui-model: B64 — after a refusal the user re-picks by walking, and t
     if (queued) CHECK(req.peer_id == 13);                                // the teammate now under the cursor
 }
 
-// ★ LEAVING THE SCREEN RETIRES THE MESSAGE TOO — otherwise a stale "TEAMMATE GONE, repick" would reappear the next time
-//   the cycle came back round to TEAM, describing a pick from minutes ago.
-TEST_CASE("ui-model: B64 — cycling off the TEAM screen retires the refusal message") {
+// ★ THE MESSAGE IS RETIRED BEFORE THE SCREEN CAN COME BACK ROUND — otherwise a stale "TEAMMATE GONE, pick" would
+//   reappear the next lap, describing a pick from minutes ago.
+// ★★★ REWRITTEN IN PLACE BY §UI-17 S1 (the §B101 precedent). ⛔ WHAT IT USED TO PIN: that the `short` which walked
+//     OFF the TEAM screen retired the message. The list is CONTAINED now, so that press cannot leave the screen at
+//     all — it walks the list — and the way out is `BACK`. ⇒ the property is unchanged and its DRIVER moved: the
+//     refusal is retired by moving off the lost pick (`note_team_cursor`), so the passive screen the operator leaves
+//     to, and every later lap, carry no message. ⓘ `note_team_cursor`'s screen clause is now structurally
+//     unreachable and says so in source ([[meshroute-mark-done-vs-missing-in-code]]).
+TEST_CASE("ui-model: B64 — the refusal is retired before TEAM can be left, and never comes back") {
     UiModel m; auto s = snap();
-    for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);   // TEAM, cursor 2 -> teammate id 12
+    to_team(m, s);                                                       // §UI-17 S1: enter the list first
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);   // TEAM, cursor 2 -> id 12
     s.team_shown = 2; s.team_total = 2;
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.state().team_pick_gone == true);
-    m.on_gesture(Gesture::short_press, s);                               // cursor 2 is past the 2-row list -> INBOX
+    // cursor 2 is the BACK row of the 2-row roster now, so the walk WRAPS to row 0 — ⛔ it does not leave the screen
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().screen == Screen::team);
+    CHECK(m.state().cursor == 0);
+    CHECK(m.state().team_pick_gone == false);                            // ★ re-picking retires it
+    // ...and leaving through BACK lands on a PASSIVE TEAM that says nothing, then passes the screen in one press
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);   // -> the BACK row (index 2)
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().screen == Screen::team);
+    CHECK(m.state().list_view == ListView::passive);
+    CHECK(m.state().team_pick_gone == false);
+    m.on_gesture(Gesture::short_press, s);
     CHECK(m.state().screen == Screen::inbox);
     CHECK(m.state().team_pick_gone == false);
 }
@@ -406,7 +460,7 @@ TEST_CASE("ui-model: an empty TEAM list opens no modal on double") {
 
 TEST_CASE("ui-model: a send request is drained exactly once") {
     UiModel m; const auto s = snap(); SendReq req{};
-    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::double_press, s);
+    to_team(m, s); m.on_gesture(Gesture::double_press, s);   // §UI-17 S1: enter the list, then open the DM sub-view
     m.on_gesture(Gesture::double_press, s);
     CHECK(m.take_send_request(req) == true);
     CHECK(m.take_send_request(req) == false);    // no duplicate send on the next service pass
@@ -444,7 +498,7 @@ TEST_CASE("ui-model: the blank transition sets dirty exactly once") {
 
 TEST_CASE("ui-model: the modal does NOT auto-exit before the blank window elapses") {
     UiModel m; SendReq req{};
-    m.on_gesture(Gesture::short_press, snap(1000));
+    to_team(m, snap(1000));                                            // §UI-17 S1: enter the list first
     m.on_gesture(Gesture::double_press, snap(1100));
     m.on_tick(snap(1100 + kBlankMs - 1));
     CHECK(m.state().compose == Compose::dm);
@@ -455,7 +509,7 @@ TEST_CASE("ui-model: the modal does NOT auto-exit before the blank window elapse
 
 TEST_CASE("ui-model: a gesture inside the modal refreshes its inactivity window") {
     UiModel m;
-    m.on_gesture(Gesture::short_press, snap(1000));
+    to_team(m, snap(1000));                                            // §UI-17 S1: enter the list first
     m.on_gesture(Gesture::double_press, snap(1100));
     m.on_gesture(Gesture::short_press, snap(1100 + kBlankMs - 100));   // still browsing the list
     m.on_tick(snap(1100 + kBlankMs + 10));
@@ -498,7 +552,7 @@ TEST_CASE("ui-model: blanking is wrap-safe across millis() rollover") {
 
 TEST_CASE("ui-model: the modal inactivity exit is wrap-safe too") {
     UiModel m;
-    m.on_gesture(Gesture::short_press, snap(0xFFFFF000u));
+    to_team(m, snap(0xFFFFF000u));                                     // §UI-17 S1: enter the list first
     m.on_gesture(Gesture::double_press, snap(0xFFFFF100u));
     CHECK(m.state().compose == Compose::dm);
     m.on_tick(snap(0x00000500u));
@@ -528,7 +582,7 @@ TEST_CASE("ui-model: a long gesture pre-empts blank-wake; ARM queues nothing, FI
 
 TEST_CASE("ui-model: a long gesture is not swallowed by an open modal (spec 4.2 ordering)") {
     UiModel m; const auto s = snap();
-    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::double_press, s);
+    to_team(m, s); m.on_gesture(Gesture::double_press, s);   // §UI-17 S1: enter the list, then the DM sub-view
     CHECK(m.state().compose == Compose::dm);
     m.clear_dirty();
     m.on_gesture(Gesture::long_arm, s);
@@ -554,11 +608,15 @@ TEST_CASE("ui-model: the model's declared bounds are the ones the spec fixed") {
     CHECK(sizeof(s.inbox) / sizeof(s.inbox[0]) == kMaxInboxRows);
 }
 
-TEST_CASE("ui-model: a full team roster walks every one of the eight rows") {
+// ★★★ REWRITTEN IN PLACE BY §UI-17 S1 (the §B101 precedent). ⛔ WHAT IT USED TO PIN: that the ninth `short` walked
+//     OFF the eight-row roster onto INBOX. The FULL roster is the worst case for the contained walk, so it is the
+//     case that proves `BACK` is still REACHABLE at the cap — and that the walk past it comes home rather than
+//     leaving.
+TEST_CASE("ui-model: a full team roster walks every one of the eight rows, then BACK, then home") {
     UiModel m; UiSnapshot s{};
     s.now_ms = 1000; s.team_shown = kMaxTeamRows; s.team_total = 12;   // truncated view, true total larger
     for (uint8_t i = 0; i < kMaxTeamRows; ++i) s.team[i].id = uint8_t(20 + i);
-    m.on_gesture(Gesture::short_press, s);
+    to_team(m, s);
     CHECK(m.state().screen == Screen::team);
     for (uint8_t i = 1; i < kMaxTeamRows; ++i) {
         m.on_gesture(Gesture::short_press, s);
@@ -566,7 +624,11 @@ TEST_CASE("ui-model: a full team roster walks every one of the eight rows") {
         CHECK(m.state().cursor == i);
     }
     m.on_gesture(Gesture::short_press, s);
-    CHECK(m.state().screen == Screen::inbox);
+    CHECK(m.state().screen == Screen::team);
+    CHECK(m.state().cursor == kMaxTeamRows);                          // ★ the BACK row exists even at the cap...
+    CHECK(list_row_kind(m.state().cursor, s.team_shown) == ListRow::back);
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().screen == Screen::team);                          // ⛔ ...and the walk past it NEVER leaves
     CHECK(m.state().cursor == 0);
 }
 
@@ -659,7 +721,7 @@ TEST_CASE("ui-model: retry deadline is wrap-safe") {
 
 TEST_CASE("ui-model: long gestures work from inside a compose sub-view") {
     UiModel m; const auto s = snap();
-    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::double_press, s);
+    to_team(m, s); m.on_gesture(Gesture::double_press, s);   // §UI-17 S1: enter the list, then the DM sub-view
     CHECK(m.state().compose == Compose::dm);
     m.on_gesture(Gesture::long_arm, s);
     CHECK(m.emergency() == Emergency::arming);
@@ -925,7 +987,7 @@ TEST_CASE("ui-model: cancelled returns to idle and a later arm works normally") 
 // ★ Spec §2.1's two slots: an emergency must never wait behind, or be overwritten by, normal UI work.
 TEST_CASE("ui-model: a queued alarm drains BEFORE a queued DM and neither is lost") {
     UiModel m; const auto s = snap(); SendReq req{};
-    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::double_press, s);   // DM modal
+    to_team(m, s); m.on_gesture(Gesture::double_press, s);                           // DM modal
     m.on_gesture(Gesture::double_press, s);                                          // queue the canned DM
     m.on_gesture(Gesture::long_arm,  s);
     m.on_gesture(Gesture::long_fire, s);                                             // queue the alarm
@@ -942,7 +1004,7 @@ TEST_CASE("ui-model: a compose send cannot overwrite a queued alarm") {
     UiModel m; const auto s = snap(); SendReq req{};
     m.on_gesture(Gesture::long_arm,  s); m.on_gesture(Gesture::long_fire, s);
     CHECK(m.emergency_pending() == true);
-    for (int i = 0; i < 5; ++i) m.on_gesture(Gesture::short_press, s);   // navigate to SEND
+    for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);   // navigate to SEND
     m.on_gesture(Gesture::double_press, s);                             // channel modal
     m.on_gesture(Gesture::double_press, s);                             // queue a canned channel post
     CHECK(m.emergency_pending() == true);                               // untouched
@@ -1081,7 +1143,7 @@ TEST_CASE("ui-model: a channel seal failure outside a live alarm is dropped whol
 // Pre-fix this case reads `idle` at the submitting CHECK.
 TEST_CASE("ui-model: draining a DM request enters SUBMITTING, and only a DM does") {
     UiModel m; const auto s = snap(); SendReq req{};
-    m.on_gesture(Gesture::short_press,  s);                      // -> TEAM
+    to_team(m, s);                                               // -> TEAM, and ENTER the list (§UI-17 S1)
     m.on_gesture(Gesture::double_press, s);                      // -> DM modal, bound to row 0
     m.on_gesture(Gesture::double_press, s);                      // queue "Are you OK?"
     CHECK(m.dm_state() == DmState::idle);                        // QUEUED is not yet submitted
@@ -1396,9 +1458,10 @@ TEST_CASE("ui-model: B71 — `double` gets NO emergency job, and `long` still re
 //    now closes the modal and resets the cursor, which removes the collision instead of arbitrating it.
 TEST_CASE("ui-model: B101 — committing an alarm CLOSES the compose modal and resets its cursor") {
     UiModel m; SendReq req{};
-    m.on_gesture(Gesture::short_press,  snap(1000));           // status -> team
+    m.on_gesture(Gesture::short_press,  snap(1000));           // status -> team (passive)
     CHECK(m.state().screen == Screen::team);
-    m.on_gesture(Gesture::double_press, snap(1100));           // open the DM compose sub-view
+    m.on_gesture(Gesture::double_press, snap(1050));           // §UI-17 S1: ENTER the list...
+    m.on_gesture(Gesture::double_press, snap(1100));           // ...and open the DM compose sub-view
     CHECK(m.state().compose == Compose::dm);
     m.on_gesture(Gesture::short_press,  snap(1150));           // ...and move OFF the `back` row onto a real message
     CHECK(m.state().cursor == 1);
@@ -1568,8 +1631,11 @@ TEST_CASE("ui-frame: a frame spans exactly the pages the panel reports, and only
 // A fired alarm carried to `o`, with the screen left on TEAM — the screen where `double` really does compose.
 static UiModel on_team_with_outcome(const SendOutcome& o, uint32_t at_ms) {
     UiModel m; SendReq req{};
-    m.on_gesture(Gesture::short_press, snap(1000));             // status -> team
+    m.on_gesture(Gesture::short_press, snap(1000));             // status -> team (passive)
     CHECK(m.state().screen == Screen::team);
+    // ★★ §UI-17 S1: the list is ENTERED before the alarm, deliberately — `double` only composes from an entered
+    //    list, so without this prefix the R2 cases below would be green against a missing overlay guard.
+    m.on_gesture(Gesture::double_press, snap(1050));
     m.on_gesture(Gesture::long_arm,  snap(1100));
     m.on_gesture(Gesture::long_fire, snap(4700));
     const bool got = m.take_send_request(req);                  // ⚠ DRAINS (§B70) — one call, into a local
@@ -1581,7 +1647,8 @@ static UiModel on_team_with_outcome(const SendOutcome& o, uint32_t at_ms) {
 
 TEST_CASE("ui-model: R2 — two DOUBLES under the overlay cannot open and then SEND an invisible compose view") {
     UiModel m; SendReq req{};
-    m.on_gesture(Gesture::short_press, snap(1000));             // status -> team
+    m.on_gesture(Gesture::short_press, snap(1000));             // status -> team (passive)
+    m.on_gesture(Gesture::double_press, snap(1050));            // §UI-17 S1: ENTER the list — see `on_team_with_outcome`
     CHECK(m.state().screen == Screen::team);
     m.on_gesture(Gesture::long_arm,  snap(1100));
     m.on_gesture(Gesture::long_fire, snap(4700));
@@ -1605,8 +1672,9 @@ TEST_CASE("ui-model: R2 — two DOUBLES under the overlay cannot open and then S
 
 TEST_CASE("ui-model: R2 — a DOUBLE cannot SEND from a compose modal left open under ARMING") {
     UiModel m;
-    m.on_gesture(Gesture::short_press,  snap(1000));            // status -> team
-    m.on_gesture(Gesture::double_press, snap(1100));            // open the DM compose modal
+    m.on_gesture(Gesture::short_press,  snap(1000));            // status -> team (passive)
+    m.on_gesture(Gesture::double_press, snap(1050));            // §UI-17 S1: ENTER the list...
+    m.on_gesture(Gesture::double_press, snap(1100));            // ...and open the DM compose modal
     CHECK(m.state().compose == Compose::dm);
     CHECK(m.state().cursor  == 0);
     // ★ `long_arm` deliberately leaves the modal alone (§B101: arming is cancellable), so the modal is LIVE and
@@ -1781,9 +1849,7 @@ TEST_CASE("ui7-B69: three handle-less attempts end in NOT HEARD carrying `no_han
 
 TEST_CASE("ui7-chan: a refused canned post is TERMINAL, not a permanent SENDING...") {
     UiModel m; SendReq req{};
-    m.on_gesture(Gesture::short_press, snap(1000));  // -> team
-    for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, snap(1000));   // walk team -> inbox -> send
-    m.on_gesture(Gesture::short_press, snap(1000));
+    for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, snap(1000));   // STATUS -> TEAM -> INBOX -> SEND
     m.on_gesture(Gesture::double_press, snap(1000));
     CHECK(m.state().compose == Compose::channel);
     m.on_gesture(Gesture::double_press, snap(1100));
@@ -1809,7 +1875,7 @@ TEST_CASE("ui7-chan: a DM outcome offered to the canned entry point is REFUSED, 
 
 static UiModel dm_sent() {
     UiModel m; SendReq req{};
-    m.on_gesture(Gesture::short_press, snap(1000));             // -> TEAM
+    to_team(m, snap(1000));                                     // -> TEAM, and ENTER the list (§UI-17 S1)
     m.on_gesture(Gesture::double_press, snap(1000));            // -> DM compose for team[0]
     m.on_gesture(Gesture::double_press, snap(1000));            // -> send "Are you OK?"
     const bool got = m.take_send_request(req); CHECK(got == true);
@@ -1990,10 +2056,8 @@ TEST_CASE("ui7-B66: the canned counts are derived from the tables and `back` is 
 // ⚠ [[B134]]: on the panel's own board (ESP32) the inbox is a volatile RAM ring. Nothing here asserts, or may assert,
 //   survival across a power cycle — `erased` means the tombstone was appended within this runtime.
 
-// Walk status -> team(0,1,2) -> inbox, leaving the cursor on inbox row 0 (snap_inbox's roster is 3 members).
-static void to_inbox(UiModel& m, const UiSnapshot& s) {
-    for (int i = 0; i < 4; ++i) m.on_gesture(Gesture::short_press, s);
-}
+// ⓘ `to_inbox` MOVED to the top of this file with §UI-17 S1 — the early cases need the same prefix now, and a
+//   second copy here would be the parallel helper U1 forbids. See it for what the prefix is.
 // The device half, in three lines, exactly as `firmware_ui.cpp` performs it: drain the request, look the record up by
 // the PAIR, and answer. Returns false if no open request was raised at all.
 static bool open_detail(UiModel& m, const UiSnapshot& s, const uint8_t* body, uint8_t len, uint8_t origin = 48) {
@@ -2620,9 +2684,12 @@ struct InboxTick {
 // ⓘ 600 ms a tick, so `kPaintThrottleMs` never decides anything these cases are asking about: every dirty tick is free
 //   to open its frame. A tighter step would make "no repaint came" ambiguous between the defect and the throttle.
 static constexpr uint32_t kTickStep = 600;
-// STATUS -> TEAM(0,1,2) -> INBOX, one press a tick, exactly as `to_inbox` does it without one.
+// STATUS -> TEAM -> INBOX and the `double` that ENTERS the list, one press a tick, exactly as `to_inbox` does it
+// without one (§UI-17 S1).
 static uint32_t to_inbox_ticks(InboxTick& h, uint32_t t) {
-    for (int i = 0; i < 4; ++i) h.tick(t += kTickStep, Gesture::short_press);
+    h.tick(t += kTickStep, Gesture::short_press);
+    h.tick(t += kTickStep, Gesture::short_press);
+    h.tick(t += kTickStep, Gesture::double_press);
     return t;
 }
 
@@ -5179,4 +5246,355 @@ TEST_CASE("ui-sleep: exactly one of the eight term combinations permits sleep") 
         CHECK(g.frame_open()    == want_frame);
         CHECK(ui_allows_sleep(m, in, g) == (want_blank && !want_input && !want_frame));
     }
+}
+
+// ==================================================================================================================
+// §UI-17 slice 1 — TEAM AND INBOX: THE PASSIVE ↔ INTERACTIVE MIGRATION (spec §1.2/§1.3, slice S1's eight pins)
+// ==================================================================================================================
+// ★★★★ THE CONTRACT, IN ONE PLACE: every top-level screen costs ONE `short` to pass; a screen that HAS an interaction
+//      is ENTERED by a `double`; the interactive list's last row is `BACK`; `BACK` returns to the PASSIVE form of the
+//      SAME screen and ⛔ never to another one. It is [[B232]]'s SETTINGS idiom applied twice, so what is measured
+//      here is the two NEW arms and the four properties the migration could silently have broken: §B64/§UI-7D's
+//      identity refusals, the empty-list carve-outs, blank/wake retention and the emergency pre-emption.
+// ⛔ NOT measured here: what any of it LOOKS like — the suppressed marker, the drawn `BACK` row and the reserved
+//    refusal rows are `src/firmware_ui.cpp`'s, which no test in this file compiles. That is
+//    `tools/probe_firmware_ui`'s P6h-P6k and P14d.
+
+TEST_CASE("ui17-lex: the list's BACK row is the SHIPPED spelling, and there is only one of it") {
+    CHECK(strcmp(kListBackText, "BACK") == 0);
+    // ★ THE POINT OF THE CASE: the same act is spelled the same way on every screen, so an operator reads one exit.
+    //   ⛔ A second spelling is what this measures against — not the constant's own value.
+    CHECK(strcmp(kListBackText, settings_row_label(CfgRow::back)) == 0);
+    CHECK(strcmp(kListBackText, provision_row_label(ProvRow::back)) == 0);
+    // the row renders as `<marker><label>` (`body_back_row`), so the marker's column counts too
+    CHECK(strlen(kListBackText) + 1 <= 19u);
+    CHECK(kListBackText[0] != '\0');                       // ⛔ C2: an exit nobody can read is no exit at all
+}
+
+TEST_CASE("ui17-rowkind: the BACK row is resolved by IDENTITY, and it fails CLOSED past the end") {
+    CHECK(list_row_kind(0, 3) == ListRow::member);
+    CHECK(list_row_kind(2, 3) == ListRow::member);
+    CHECK(list_row_kind(3, 3) == ListRow::back);           // the row AFTER the published rows
+    // ★★ FAILS CLOSED, and it is the reachable case rather than defensive: a roster that shrinks under an interactive
+    //    list leaves the cursor past the end for exactly one tick, and the row it names must be the one that SENDS
+    //    NOTHING — never a member row the caller would then read out of range.
+    CHECK(list_row_kind(4, 3) == ListRow::back);
+    CHECK(list_row_kind(0, 0) == ListRow::back);           // an empty list is ONE row, and it is the way out
+}
+
+TEST_CASE("ui17-entered: ONE predicate answers `is this screen entered`, for every screen") {
+    // STATUS and SEND have no interaction to enter, whatever the other two states say
+    CHECK(screen_is_entered(Screen::status, Settings::browsing, ListView::interactive) == false);
+    CHECK(screen_is_entered(Screen::send,   Settings::browsing, ListView::interactive) == false);
+    // TEAM and INBOX read `ListView`...
+    CHECK(screen_is_entered(Screen::team,  Settings::closed, ListView::passive)     == false);
+    CHECK(screen_is_entered(Screen::team,  Settings::closed, ListView::interactive) == true);
+    CHECK(screen_is_entered(Screen::inbox, Settings::closed, ListView::passive)     == false);
+    CHECK(screen_is_entered(Screen::inbox, Settings::closed, ListView::interactive) == true);
+    // ...and SETTINGS reads `Settings`, so [[B232]]'s closed view is the SAME fact expressed on the third screen
+    CHECK(screen_is_entered(Screen::settings, Settings::closed,       ListView::interactive) == false);
+    CHECK(screen_is_entered(Screen::settings, Settings::browsing,     ListView::passive)     == true);
+    CHECK(screen_is_entered(Screen::settings, Settings::editing,      ListView::passive)     == true);
+    CHECK(screen_is_entered(Screen::settings, Settings::provisioning, ListView::passive)     == true);
+    CHECK(screen_is_entered(Screen::count,    Settings::browsing,     ListView::interactive) == false);
+}
+
+// ★★★ [[B223]] — THE LEAVE RESET IS DRIVEN DIRECTLY, because in the model it is UNREACHABLE: an interactive list
+//     cannot be walked off its own screen, so a guard written only where it is currently reachable is a guard no
+//     mutation can redden. Both arms and the CHANGED report are driven here.
+TEST_CASE("ui17-reset: the leave reset is pure, reports the change, and is idempotent") {
+    ListView v = ListView::interactive;
+    CHECK(list_view_reset_on_leave(v) == true);            // it CHANGED, so a caller repaints
+    CHECK(v == ListView::passive);
+    CHECK(list_view_reset_on_leave(v) == false);           // ...and not again, so an off-screen tick is free
+    CHECK(v == ListView::passive);
+    ListView p = ListView::passive;
+    CHECK(list_view_reset_on_leave(p) == false);
+}
+
+TEST_CASE("ui17-passive: TEAM and INBOX LAND PASSIVE, and ONE press passes each of them") {
+    UiModel m; const auto s = snap_inbox(3);
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().screen == Screen::team);
+    CHECK(m.state().list_view == ListView::passive);       // ★ the landing: a preview, not a selector
+    CHECK(m.state().cursor == 0);
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().screen == Screen::inbox);              // ★ ONE press, with a 3-row roster behind it
+    CHECK(m.state().list_view == ListView::passive);
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().screen == Screen::send);               // ★ ONE press, with a 3-row inbox behind it
+}
+
+// ★★★ THE OTHER HALF OF THE LANDING, AND IT IS THE SAFETY ONE: a passive screen records NO pick, so the `double`
+//     that arrives there can only ENTER — it cannot open a DM, cannot open a record and cannot queue anything.
+TEST_CASE("ui17-passive: a `double` on a passive list ENTERS it and queues NOTHING") {
+    UiModel m; const auto s = snap_inbox(3); SendReq req{}; InboxReq rq{};
+    m.on_gesture(Gesture::short_press, s);                 // -> TEAM, passive
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().list_view == ListView::interactive);   // ...it ENTERED
+    CHECK(m.state().screen == Screen::team);
+    CHECK(m.state().cursor == 0);
+    CHECK(m.state().compose == Compose::none);             // ⛔ ...and opened no sub-view
+    CHECK(m.take_send_request(req) == false);              // ⛔ ...and addressed nobody
+    CHECK(m.state().team_pick_gone == false);              // ⛔ ...and raised no refusal either
+    // the same on INBOX: leave through BACK, walk on, and the entering double asks the store for nothing
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::short_press, s);                 // cursor 3 = the BACK row of a 3-row roster
+    m.on_gesture(Gesture::double_press, s);                // -> passive TEAM
+    m.on_gesture(Gesture::short_press, s);                 // -> INBOX, passive
+    CHECK(m.state().screen == Screen::inbox);
+    CHECK(m.state().list_view == ListView::passive);
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().list_view == ListView::interactive);
+    CHECK(m.state().detail == InboxModal::closed);
+    CHECK(m.take_inbox_request(rq) == false);              // ⛔ the entering press touched no storage
+}
+
+// ★★★★ SPEC S1 PIN 2 — THE WALK IS **CONTAINED**. It ends on `BACK` and the press past it comes HOME; ⛔ it never
+//      leaves the screen and ⛔ never wraps into an action.
+TEST_CASE("ui17-walk: the interactive walk ends on BACK and comes home, on BOTH screens") {
+    UiModel m; const auto s = snap_inbox(3);
+    to_team(m, s);
+    CHECK(m.state().cursor == 0);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().cursor == 1);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().cursor == 2);
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().cursor == 3);
+    CHECK(list_row_kind(m.state().cursor, s.team_shown) == ListRow::back);
+    CHECK(m.state().screen == Screen::team);
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().screen == Screen::team);               // ⛔ still here...
+    CHECK(m.state().cursor == 0);                          // ★ ...and back on the FIRST row
+    CHECK(m.state().compose == Compose::none);             // ⛔ and the wrap performed nothing
+    // INBOX, the same shape
+    UiModel n; InboxReq rq{};
+    to_inbox(n, s);
+    for (int i = 0; i < 3; ++i) n.on_gesture(Gesture::short_press, s);
+    CHECK(n.state().cursor == 3);
+    CHECK(list_row_kind(n.state().cursor, s.inbox_shown) == ListRow::back);
+    n.on_gesture(Gesture::short_press, s);
+    CHECK(n.state().screen == Screen::inbox);
+    CHECK(n.state().cursor == 0);
+    CHECK(n.take_inbox_request(rq) == false);
+}
+
+// ★★★★ SPEC S1 PIN 3 — `BACK` RETURNS TO THE **PASSIVE FORM OF THE SAME SCREEN**, and the press after it passes the
+//      screen exactly as a fresh arrival would. ⛔ It is never a jump to another screen — the "where am I" move
+//      [[B232]] removed one screen over.
+TEST_CASE("ui17-back: BACK closes the list to the SAME screen, and one further press then passes it") {
+    UiModel m; const auto s = snap_inbox(3); SendReq req{};
+    to_team(m, s);
+    for (int i = 0; i < 3; ++i) m.on_gesture(Gesture::short_press, s);      // -> the BACK row
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().screen == Screen::team);               // ⛔ NOT the next screen
+    CHECK(m.state().list_view == ListView::passive);       // ★ the PASSIVE form of it
+    CHECK(m.state().cursor == 0);
+    CHECK(m.state().compose == Compose::none);
+    CHECK(m.take_send_request(req) == false);              // ⛔ leaving sent nothing
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().screen == Screen::inbox);              // ★ and one press then passes it, like a fresh arrival
+    // ...and coming back round finds TEAM passive again — the view never outlives the visit
+    for (int i = 0; i < 4; ++i) m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().screen == Screen::team);
+    CHECK(m.state().list_view == ListView::passive);
+}
+
+// ★★★ SPEC S1 PIN 5 — AN EMPTY LIST IS NOT A TRAP. Entering one that has no rows must still offer the way out, or
+//     the operator is inside a screen whose only gesture refuses.
+TEST_CASE("ui17-empty: an empty roster and an empty inbox still offer BACK, and still leave") {
+    UiModel m; auto s = snap_inbox(0); s.team_shown = 0; s.team_total = 0; SendReq req{}; InboxReq rq{};
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().screen == Screen::team);
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().list_view == ListView::interactive);
+    CHECK(list_row_kind(m.state().cursor, s.team_shown) == ListRow::back);   // the ONE row is the exit
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().cursor == 0);                          // ⛔ a one-row list cannot walk anywhere
+    CHECK(m.state().screen == Screen::team);
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().list_view == ListView::passive);       // ★ ...and it LEAVES
+    CHECK(m.state().team_pick_gone == false);              // ⛔ ...saying nothing about a pick nobody made
+    CHECK(m.take_send_request(req) == false);
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().screen == Screen::inbox);
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().list_view == ListView::interactive);
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().list_view == ListView::passive);
+    CHECK(m.state().inbox_pick_gone == false);
+    CHECK(m.take_inbox_request(rq) == false);
+}
+
+// ★★★★ SPEC S1 PIN 4 — §B64 AND §UI-7D's IDENTITY REFUSALS SURVIVE THE MIGRATION, and the ORDER is what this case
+//      is really about: when the roster SHRINKS the lost pick's index can BE the `BACK` index, and a `double` there
+//      must still REFUSE — resolving the row first would turn a refusal into a silent "leave".
+TEST_CASE("ui17-refuse: a vanished pick REFUSES from the interactive list, and does not close it") {
+    UiModel m; auto s = snap(); SendReq req{};
+    to_team(m, s);
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);   // cursor 2 -> teammate id 12
+    CHECK(m.state().cursor == 2);
+    s.team_shown = 2; s.team_total = 2;                    // ...and now cursor 2 IS the BACK index of a 2-row list
+    CHECK(list_row_kind(m.state().cursor, s.team_shown) == ListRow::back);
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().team_pick_gone == true);               // ★ REFUSED, loudly (C2)
+    CHECK(m.state().compose == Compose::none);
+    CHECK(m.take_send_request(req) == false);              // ★ NOTHING was addressed to anybody
+    CHECK(m.state().list_view == ListView::interactive);   // ⛔ ...and the refusal did not read as "leave"
+    // ★ AND IT IS NOT A DEAD END: moving off the lost pick retires the message, and BACK then works normally.
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().team_pick_gone == false);
+    CHECK(m.state().cursor == 0);
+}
+
+TEST_CASE("ui17-refuse: a vanished RECORD refuses from the interactive INBOX list too") {
+    UiModel m; auto s = snap_inbox(3); InboxReq rq{};
+    to_inbox(m, s);
+    m.on_gesture(Gesture::short_press, s); m.on_gesture(Gesture::short_press, s);   // cursor 2, seq 3
+    auto s2 = snap_inbox(2);                               // the record is gone; cursor 2 is now the BACK index
+    CHECK(list_row_kind(m.state().cursor, s2.inbox_shown) == ListRow::back);
+    m.on_gesture(Gesture::double_press, s2);
+    CHECK(m.state().inbox_pick_gone == true);              // ★ MESSAGE GONE, not a silent leave
+    CHECK(m.state().detail == InboxModal::closed);
+    CHECK(m.take_inbox_request(rq) == false);              // ★ the store was not touched
+    CHECK(m.state().list_view == ListView::interactive);
+    m.on_gesture(Gesture::short_press, s2);
+    CHECK(m.state().inbox_pick_gone == false);             // moving off the lost pick retires it
+}
+
+// ★★★★ SPEC S1 PIN 6 — THE INTERACTIVE LIST SURVIVES BLANK/WAKE, and it gets NO timeout of its own. §3.3 forbids an
+//      attention timeout discarding an interaction; the panel going dark in a pocket must not silently return the
+//      operator to a preview with a different row under the cursor.
+TEST_CASE("ui17-retain: blanking KEEPS the list interactive and its selection, and the wake press is consumed") {
+    UiModel m; InboxReq rq{};
+    to_inbox(m, snap_inbox(3, 1000));
+    m.on_gesture(Gesture::short_press, snap_inbox(3, 1100));         // cursor 1
+    CHECK(m.state().cursor == 1);
+    m.on_tick(snap_inbox(3, 1100 + kBlankMs + 1));
+    CHECK(m.state().blanked == true);
+    CHECK(m.state().list_view == ListView::interactive);             // ★ the blank discards nothing
+    m.on_gesture(Gesture::short_press, snap_inbox(3, 1100 + kBlankMs + 10));
+    CHECK(m.state().blanked == false);
+    CHECK(m.state().list_view == ListView::interactive);             // ★ ...and the waking press is CONSUMED
+    CHECK(m.state().cursor == 1);                                    // ★ ...on the SAME row
+    CHECK(m.take_inbox_request(rq) == false);
+}
+
+// ★★★★ SPEC S1 PIN 7 — THE EMERGENCY PRE-EMPTS EVERYTHING AND STILL DOES NOT CLOSE THE LIST. Nothing can be sent
+//      from a list and arming is cancellable (§B101's own argument), so destroying the operator's position for a
+//      press they may still cancel would be a second, smaller wrong. ⛔ The DETAIL modal keeps its own close — a
+//      hidden Delete may not survive under an overlay (§UI-7D).
+TEST_CASE("ui17-emergency: long_arm leaves the interactive list alone, and still closes the detail modal") {
+    UiModel m; const auto s = snap();
+    to_team(m, s);
+    m.on_gesture(Gesture::short_press, s);
+    CHECK(m.state().cursor == 1);
+    m.on_gesture(Gesture::long_arm, snap(1100));
+    CHECK(m.emergency() == Emergency::arming);
+    CHECK(m.state().list_view == ListView::interactive);   // ★ the list is NOT closed
+    CHECK(m.state().cursor == 1);                          // ★ ...and the selection is where the operator left it
+    m.on_gesture(Gesture::long_cancel, snap(1200));
+    CHECK(m.state().list_view == ListView::interactive);
+    // ...while the INBOX detail modal still closes at ARM, with the list underneath it intact
+    UiModel n; auto si = snap_inbox(2);
+    to_inbox(n, si);
+    CHECK(open_detail(n, si, kBody7, sizeof kBody7) == true);
+    n.on_gesture(Gesture::long_arm, snap_inbox(2, 1100));
+    CHECK(n.state().detail == InboxModal::closed);         // ⛔ the modal DOES close
+    CHECK(n.state().list_view == ListView::interactive);   // ★ ...and the list it was opened from does not
+}
+
+// ★★★ SPEC S1 PIN 8 — THE MODAL RETURNS TO THE LIST IT WAS OPENED FROM. A `back` that landed on the PASSIVE preview
+//     would cost the operator a re-entry and lose their place in the list, every single time they read a message.
+TEST_CASE("ui17-detail: the modal's `back` returns to the INTERACTIVE list, not to the preview") {
+    UiModel m; auto s = snap_inbox(3);
+    to_inbox(m, s);
+    m.on_gesture(Gesture::short_press, s);                 // cursor 1
+    CHECK(open_detail(m, s, kBody7, sizeof kBody7) == true);
+    CHECK(m.state().detail == InboxModal::body);
+    m.on_gesture(Gesture::double_press, s);                // `back` is selected on entry
+    CHECK(m.state().detail == InboxModal::closed);
+    CHECK(m.state().screen == Screen::inbox);
+    CHECK(m.state().list_view == ListView::interactive);   // ★ the list it came from, still entered
+    CHECK(m.state().cursor == 1);                          // ★ ...on the same record
+}
+
+// ★★★★ THE PICK'S OWN CASE, AND THE HARM IT MEASURES IS NOT THE MARKER: a pick recorded on a screen nobody entered
+//      lets `sync_*_cursor` ANNOUNCE ITS LOSS — `TEAMMATE GONE` / `MESSAGE GONE` on a PREVIEW, about a choice the
+//      operator never made. ⇒ "while PASSIVE nothing is picked" is asserted through the refusal it would enable,
+//      never through a private flag.
+TEST_CASE("ui17-passive: a passive preview records NO pick, so a roster change raises no refusal") {
+    UiModel m; auto s = snap();
+    m.on_gesture(Gesture::short_press, s);                 // -> TEAM, passive, cursor 0 over a 3-row roster
+    CHECK(m.state().list_view == ListView::passive);
+    m.on_tick(s);
+    CHECK(m.state().team_pick_gone == false);
+    s.team[0].id = 77; s.team[1].id = 88; s.team[2].id = 99;   // the whole roster is replaced under the preview
+    m.on_tick(s);
+    CHECK(m.state().team_pick_gone == false);              // ⛔ nothing was picked, so nothing can have been lost
+    s.team_shown = 0; s.team_total = 0;                    // ...and the same when it empties entirely
+    m.on_tick(s);
+    CHECK(m.state().team_pick_gone == false);
+    // the INBOX side, one plane over
+    UiModel n; auto si = snap_inbox(3);
+    n.on_gesture(Gesture::short_press, si); n.on_gesture(Gesture::short_press, si);
+    CHECK(n.state().screen == Screen::inbox);
+    CHECK(n.state().list_view == ListView::passive);
+    n.on_tick(si);
+    CHECK(n.state().inbox_pick_gone == false);
+    n.on_tick(snap_inbox(1));                              // two records evicted under the preview
+    CHECK(n.state().inbox_pick_gone == false);
+    n.on_tick(snap_inbox(0));
+    CHECK(n.state().inbox_pick_gone == false);
+}
+
+// ★★★★ THE THREE HOISTED DECISIONS, DRIVEN DIRECTLY (QG-RULED 2026-08-21). TEAM and INBOX asked each of these
+//      questions TWICE, so a mutation could redden one arm and leave the other unprotected — [[B217]]'s own shape.
+//      They are ONE pure function each now, and these cases drive every arm at the helper, which is also what gives
+//      the [[B223]] arm the model cannot reach a driver at all.
+TEST_CASE("ui17-len: the list's length is ONE decision, and a screen nobody entered is ONE row") {
+    CHECK(list_len_of(/*entered=*/false, 0) == 1);
+    CHECK(list_len_of(/*entered=*/false, 3) == 1);          // ⛔ NOT `shown` clamped — the rows are not on offer
+    CHECK(list_len_of(/*entered=*/false, kMaxTeamRows) == 1);
+    CHECK(list_len_of(/*entered=*/true,  0) == 1);          // an empty list is just its exit row
+    CHECK(list_len_of(/*entered=*/true,  3) == 4);          // ...and an entered one is the rows PLUS that exit
+    CHECK(list_len_of(/*entered=*/true,  kMaxTeamRows) == kMaxTeamRows + 1);
+}
+
+TEST_CASE("ui17-act: what a `double` MEANS on a list screen — every arm, and the ORDER") {
+    // (1) a PASSIVE preview offers exactly one gesture, whatever the cursor or the roster say
+    CHECK(list_activate(/*entered=*/false, /*gone=*/false, 0, 3) == ListAct::enter);
+    CHECK(list_activate(/*entered=*/false, /*gone=*/false, 2, 3) == ListAct::enter);
+    CHECK(list_activate(/*entered=*/false, /*gone=*/true,  9, 0) == ListAct::enter);
+    // (2) an entered list: a member row activates, the row after the published ones leaves
+    CHECK(list_activate(/*entered=*/true, /*gone=*/false, 0, 3) == ListAct::member);
+    CHECK(list_activate(/*entered=*/true, /*gone=*/false, 2, 3) == ListAct::member);
+    CHECK(list_activate(/*entered=*/true, /*gone=*/false, 3, 3) == ListAct::leave);
+    CHECK(list_activate(/*entered=*/true, /*gone=*/false, 0, 0) == ListAct::leave);   // an empty list: only the exit
+    // ★★★★ (3) THE ORDER, AND IT IS THE WHOLE CASE: §B64's refusal OUTRANKS the row. A roster that shrank leaves the
+    //      lost pick's index sitting ON the `BACK` index, and resolving the row first would turn a refusal into a
+    //      silent "leave" — the mis-send arriving as a missing message.
+    CHECK(list_activate(/*entered=*/true, /*gone=*/true, 2, 2) == ListAct::refuse);   // ⛔ NOT `leave`
+    CHECK(list_activate(/*entered=*/true, /*gone=*/true, 1, 3) == ListAct::refuse);   // ...and on a member row too
+    CHECK(list_activate(/*entered=*/true, /*gone=*/true, 0, 0) == ListAct::refuse);
+    // ⓘ ...but a refusal can never PRE-EMPT the entry: a passive screen records no pick, so it cannot have lost one.
+    CHECK(list_activate(/*entered=*/false, /*gone=*/true, 2, 2) == ListAct::enter);
+}
+
+TEST_CASE("ui17-note: what the WRITE side does with the cursor — every arm, [[B223]]'s included") {
+    // ★★ THE ARM THE MODEL CANNOT REACH ([[B223]]): leaving the screen retires the message. Since S1 a refusal can
+    //    only stand while the list is entered and the only way out is `BACK`, which retires it first — so this is
+    //    driven HERE or nowhere, and a guard no suite drives is a guard no mutation can redden.
+    CHECK(list_note_kind(/*on_screen=*/false, /*entered=*/true,  0, 3) == ListNote::retire);
+    CHECK(list_note_kind(/*on_screen=*/false, /*entered=*/false, 0, 3) == ListNote::retire);
+    // a PASSIVE preview records NOTHING — so a roster change cannot announce the loss of a pick nobody made
+    CHECK(list_note_kind(/*on_screen=*/true, /*entered=*/false, 0, 3) == ListNote::keep);
+    CHECK(list_note_kind(/*on_screen=*/true, /*entered=*/false, 3, 3) == ListNote::keep);
+    // an ENTERED list: a member row IS the new pick...
+    CHECK(list_note_kind(/*on_screen=*/true, /*entered=*/true, 0, 3) == ListNote::record);
+    CHECK(list_note_kind(/*on_screen=*/true, /*entered=*/true, 2, 3) == ListNote::record);
+    // ...and coming to rest on `BACK` records nobody AND retires the message, which is what stops an emptied roster
+    // from trapping the operator in a list where every `double` refuses and `BACK` is one of them.
+    CHECK(list_note_kind(/*on_screen=*/true, /*entered=*/true, 3, 3) == ListNote::retire);
+    CHECK(list_note_kind(/*on_screen=*/true, /*entered=*/true, 4, 3) == ListNote::retire);   // fails closed past the end
+    CHECK(list_note_kind(/*on_screen=*/true, /*entered=*/true, 0, 0) == ListNote::retire);   // an empty entered list
 }

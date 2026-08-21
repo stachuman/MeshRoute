@@ -800,7 +800,12 @@ uint32_t walk_to(uint32_t t, const char* want) {
 //   the walk to the wrong screen — and every content check the caller then makes would fail. That direction is safe
 //   (it makes a defect louder, never quieter); what it cannot do is stand in for a check ON the rail, which is why
 //   P14 asserts the mapping directly instead of inferring it from a successful walk.
+// ★★★★ §UI-17 S1 — AND IT LEAVES AN ENTERED TEAM/INBOX LIST FIRST, because `short` can no longer walk out of one:
+//      the walk off the last row returns to the FIRST row (the contained-`BACK` rule), so a screen walk that started
+//      inside an interactive list would press against a wall for 22 iterations and then measure the wrong screen.
+uint32_t leave_list(uint32_t t);
 uint32_t walk_to_slot(uint32_t t, int slot) {
+    t = leave_list(t);
     for (int i = 0; i < 22; ++i) {
         paint(t);
         if (rail_boxed_slot() == slot) return t;
@@ -830,6 +835,24 @@ bool body_row_is(int row, const char* want) {
 }
 #endif
 
+// ★★★★ §UI-17 S1 — ESCAPE AN ENTERED TEAM/INBOX LIST, and it is a NO-OP everywhere else by two independent tests:
+//      the boxed slot must be TEAM or INBOX (so the SETTINGS menu, a compose modal — which boxes SEND by the §5.2
+//      ruling — and every other screen are left alone), and a DETAIL modal is recognised by its own lowercase
+//      `>back` and never operated on here.
+// ⓘ ON A PASSIVE LIST IT COSTS AT MOST TWO PRESSES and they are ordinary navigation: `short` moves TEAM -> INBOX ->
+//   SEND, the slot test then stops it, and `walk_to_slot`'s own loop puts the caller where it asked to be.
+uint32_t leave_list(uint32_t t) {
+    for (int i = 0; i < 12; ++i) {
+        paint(t);
+        const int slot = rail_boxed_slot();
+        if (slot != kSlotTeam && slot != kSlotInbox) return t;         // not on a list screen at all
+        if (strstr(g_c.page_text, ">back") != nullptr) return t;       // the DETAIL modal owns the body — leave it
+        if (strstr(g_c.page_text, ">BACK") != nullptr) { t = double_press(t + 500); paint(t); return t; }
+        t = settle(t + 500);
+    }
+    return t;
+}
+
 uint32_t open_highlighted(uint32_t t, const char* want) {
     // ⚠ THE BOUND IS THE WHOLE CYCLE, WITH SLACK, AND IT IS NOT DECORATION: §UI-14 appended a fifth screen whose menu
     //   is itself list-aware, so a walk sized for the four-screen cycle stopped short and every later phase drifted
@@ -841,6 +864,22 @@ uint32_t open_highlighted(uint32_t t, const char* want) {
         t = settle(t + 500);
     }
     return t;
+}
+
+// ★★★★ §UI-17 S1 — REACH AN **ENTERED** TEAM/INBOX LIST AT ITS FIRST ROW, which is `to_cfg_menu`'s shape one screen
+//      over: walk to the slot (which leaves whatever list the previous phase left behind), then `double`. ⇒ every
+//      caller starts on ROW 0 of the list, exactly as an operator arriving and pressing `double` does.
+// ⛔ IT MUST WORK FROM WHATEVER STATE THE PREVIOUS PHASE LEFT, which is why the leave is inside `walk_to_slot` and
+//    not written at each call site: a `double` issued inside an already-entered list ACTIVATES the highlighted row.
+uint32_t enter_list(uint32_t t, int slot) {
+    t = walk_to_slot(t, slot);
+    t = double_press(t + 500); paint(t);
+    return t;
+}
+// ...and the row walk on top of it. ⓘ ONE function (U1): entering is part of reaching a row now, so a phase that
+// forgot it would walk the whole cycle and measure another screen — the trap `to_cfg_menu` documents next door.
+uint32_t open_in_list(uint32_t t, int slot, const char* want) {
+    return open_highlighted(enter_list(t, slot), want);
 }
 
 // ★★★★ [[B232]] — REACH THE SETTINGS **MENU**, WHICH IS NOW A PLACE YOU HAVE TO ENTER. The screen LANDS on a CLOSED
@@ -1098,13 +1137,53 @@ int main() {
     //   the four-screen cycle plus slack — and §UI-14's fifth screen made it stop short, so P6a failed and every later
     //   phase drifted onto the wrong screen (MEASURED: 25 red checks, none of them about the inbox). A walk sized by
     //   hand to today's cycle is a walk that breaks on the next slice.
-    t = walk_to(t + 2000, "INBOX");
+    // ⚠ §UI-17 S1: BY THE RAIL, not by the body text. A `walk_to` over `page_text` presses `short` — which no
+    //   longer leaves an ENTERED list at all — so a screen walk must go through `walk_to_slot`, whose leave is
+    //   what makes it bounded (§CHROME-4 already made the rail the screen predicate).
+    t = walk_to_slot(t + 2000, kSlotInbox);
     CHK("P6a the INBOX screen is reachable by pressing",   strstr(g_c.page_text, "INBOX") != nullptr);
     CHK("P6a ...and it lists both kinds",                  strstr(g_c.page_text, "DM ") != nullptr &&
                                                            strstr(g_c.page_text, "CH7") != nullptr);
 
+    // ---- ★★★★ §UI-17 S1 — THE NAVIGATION CONTRACT, ON THE GLASS -----------------------------------------------
+    // ★★ WHAT ONLY THIS PROBE CAN SEE: the model's arms are under the native gate (`ui17-` cases, seven mutations);
+    //    what NOTHING there compiles is whether THIS file suppresses the marker while the list is passive, draws the
+    //    `BACK` row at all, and keeps the rail still while the walk is contained. The rail is the screen predicate
+    //    here (§CHROME-4), so "the press moved a ROW, not the screen" is measurable rather than inferred.
+    CHK("P6h INBOX lands PASSIVE: no row carries the marker",
+        strstr(g_c.page_text, ">DM  ") == nullptr && strstr(g_c.page_text, ">CH7 ") == nullptr);
+    // ⓘ THE "no BACK row while passive" HALF IS PINNED AT **P14d**, NOT HERE, AND THE REASON IS MEASURED: this
+    //   fixture holds six records, so the exit row (index 6) sits BELOW the four-row window at cursor 0 — a
+    //   control that drew it anyway could not be seen from this screen, and a check no control can redden is
+    //   the thing the roll-up exists to name. The TEAM roster there is ONE row, so its exit row is on screen.
+    t = settle(t + 500); paint(t);
+    CHK("P6h a short press on a passive list moves the RAIL, never a row",
+        rail_boxed_slot() == kSlotSend);
+    // ...and a `double` ENTERS it: the marker appears on the FIRST row and the list grows its exit row.
+    t = walk_to_slot(t + 500, kSlotInbox);
+    t = double_press(t + 500); paint(t);
+    CHK("P6i a double ENTERS the list: a row is marked",   strstr(g_c.page_text, ">") != nullptr);
+    CHK("P6i ...and it is the FIRST row of the list",      strstr(g_c.page_text, ">DM  ") != nullptr);
+    CHK("P6i ...and the entering press did not move the rail", rail_boxed_slot() == kSlotInbox);
+    // ★ THE CONTAINED WALK: `short` reaches BACK and the press past it comes HOME — ⛔ it never leaves the screen.
+    t = walk_to(t + 500, ">BACK");
+    CHK("P6j the walk reaches the BACK row without leaving the screen",
+        strstr(g_c.page_text, ">BACK") != nullptr && rail_boxed_slot() == kSlotInbox);
+    t = settle(t + 500); paint(t);
+    CHK("P6j one more short comes HOME to row 0, never off the screen",
+        rail_boxed_slot() == kSlotInbox && strstr(g_c.page_text, ">BACK") == nullptr &&
+        strstr(g_c.page_text, ">") != nullptr);
+    // ★ AND `BACK` RETURNS TO THE PASSIVE FORM OF THE SAME SCREEN, which one further `short` then passes.
+    t = walk_to(t + 500, ">BACK");
+    t = double_press(t + 500); paint(t);
+    CHK("P6k a double on BACK returns to the PASSIVE list, not elsewhere",
+        rail_boxed_slot() == kSlotInbox && strstr(g_c.page_text, "BACK") == nullptr &&
+        strstr(g_c.page_text, ">") == nullptr);
+    t = settle(t + 500); paint(t);
+    CHK("P6k ...and one further short then passes the screen", rail_boxed_slot() == kSlotSend);
+
     // ---- (a) A CHANNEL record, opened while its same-numbered DM is still live -------------------------------------
-    t = open_highlighted(t + 500, ">CH7 ");
+    t = open_in_list(t + 500, kSlotInbox, ">CH7 ");
     CHK("P6b a double opens the CHANNEL record's modal",    strstr(g_c.page_text, "CH7 from") != nullptr);
     CHK("P6b ...showing that record's own body",           strstr(g_c.page_text, "ch-one") != nullptr);
     CHK("P6b ...with `back` selected, never `delete`",     strstr(g_c.page_text, ">back") != nullptr &&
@@ -1120,7 +1199,7 @@ int main() {
     CHK("P6c ...including the one that was open",          live_has(meshroute::InboxKind::channel, 1));
 
     // ---- (c) THE DELIBERATE SEQUENCE on a channel record: open, short, double -------------------------------------
-    t = open_highlighted(t + 500, ">CH7 ");
+    t = open_in_list(t + 500, kSlotInbox, ">CH7 ");
     CHK("P6d the channel modal is open again",             strstr(g_c.page_text, "CH7 from") != nullptr);
     t = settle(t + 500); paint(t);                         // one SHORT press -> the action toggles
     CHK("P6d a short press selects `delete`",              strstr(g_c.page_text, ">delete") != nullptr &&
@@ -1152,7 +1231,7 @@ int main() {
         strstr(g_c.page_text, "INBOX 5/5") != nullptr);
 
     // ---- (d) THE SAME on a DM, so neither store is assumed symmetric with the other -------------------------------
-    t = open_highlighted(t + 500, ">DM  ");
+    t = open_in_list(t + 500, kSlotInbox, ">DM  ");
     CHK("P6e a DM record opens with the DM header",        strstr(g_c.page_text, "DM from 48") != nullptr);
     CHK("P6e ...and its own body",                         strstr(g_c.page_text, "dm-one") != nullptr);
     const KindSet dm_before = live_set(meshroute::InboxKind::dm);
@@ -1183,7 +1262,7 @@ int main() {
     // ---- (f) THE `not_found` DELETE OUTCOME, END TO END: the record is evicted WHILE THE MODAL IS OPEN, so the erase
     //          the user then confirms comes back `not_found`. ⛔ The modal must say MESSAGE GONE and must NOT read as a
     //          success — "a visual disappearance without durable success is forbidden" is precisely this path.
-    t = open_highlighted(t + 500, ">CH7 ");
+    t = open_in_list(t + 500, kSlotInbox, ">CH7 ");
     CHK("P6g a channel record is open",                    strstr(g_c.page_text, "CH7 from") != nullptr);
     {
         // remove whichever channel record is open, out of band, then confirm the delete from the modal
@@ -1543,7 +1622,7 @@ int main() {
             g_node.test_learn_route(/*dest=*/60, /*via=*/60, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
             g_exec = ExecLog{}; g_exec.ok = true; g_exec.code = MESHROUTE_NS::CmdCode::queued; g_exec.ctr = 42;
             t9 = settle(t9 + 1000);
-            t9 = open_highlighted(t9, ">id 60");           // the teammate row -> the DM compose list
+            t9 = open_in_list(t9, kSlotTeam, ">id 60");    // the teammate row -> the DM compose list
             t9 = double_press(t9 + 500); paint(t9);        // ...and send its first canned text
             CHK("P9d the DM really reached the executor", g_exec.calls == 1);
             CHK("P9d an ACCEPTED DM reads QUEUED, never SENT",
@@ -1700,7 +1779,7 @@ int main() {
         g_c.batt_answer = 4123;                                  // 4.123 V -> the token `4.1V`
         uint32_t t13 = settle(900000);
         run_ticks(t13, 4, 10);                                   // > 30 s since P5's last sample -> one good read
-        t13 = walk_to(t13 + 500, "INBOX");                       // a COMPLETE, VISIBLE inbox frame zeroes the unread
+        t13 = walk_to_slot(t13 + 500, kSlotInbox);               // a COMPLETE, VISIBLE inbox frame zeroes the unread
         paint(t13);
         t13 = settle(t13 + 500);
         paint(t13);
@@ -2007,14 +2086,22 @@ int main() {
         //    `Screen::inbox` is underneath it; the DM compose modal is opened from the TEAM screen, so a rail that
         //    followed the screen alone would say TEAM over a send.
         {
-            t16 = walk_to_slot(t16 + 500, kSlotInbox);
-            t16 = open_highlighted(t16 + 500, ">DM  ");
+            t16 = open_in_list(t16 + 500, kSlotInbox, ">DM  ");
             CHK("P14d precondition: the inbox DETAIL modal is open",
                 strstr(g_c.page_text, ">back") != nullptr);
             CHK("P14d the detail modal keeps INBOX selected",   rail_boxed_slot() == kSlotInbox);
             t16 = double_press(t16 + 500); paint(t16);          // `back` closes it
+            // ★ §UI-17 S1: TEAM lands PASSIVE, so the roster is on the panel with NO row marked — and the walk to
+            //   a row is `enter_list`'s `double` plus the row walk, never a bare `short` walk.
             t16 = walk_to_slot(t16 + 500, kSlotTeam);
-            t16 = open_highlighted(t16 + 500, ">id 60");        // a teammate row -> the DM compose modal
+            CHK("P14d TEAM lands passive: no teammate row is marked",
+                strstr(g_c.page_text, ">id 60") == nullptr);
+            CHK("P14d ...and its passive form offers no BACK row",
+                strstr(g_c.page_text, "BACK") == nullptr);
+            t16 = settle(t16 + 500); paint(t16);
+            CHK("P14d a short on passive TEAM moves the RAIL, never a row",
+                rail_boxed_slot() == kSlotInbox);
+            t16 = open_in_list(t16 + 500, kSlotTeam, ">id 60");   // a teammate row -> the DM compose modal
             CHK("P14d precondition: a DM compose modal is open over the TEAM screen",
                 strstr(g_c.page_text, "to: ") != nullptr);
             CHK("P14d a compose modal opened from TEAM selects SEND, not TEAM",
@@ -2080,8 +2167,7 @@ int main() {
                 if (body_text_max_x() > widest_right) widest_right = body_text_max_x();
             }
             // ...and the two body-REPLACING views, which the screen walk cannot reach
-            t16 = walk_to_slot(t16 + 500, kSlotInbox);
-            t16 = open_highlighted(t16 + 500, ">CH7 ");
+            t16 = open_in_list(t16 + 500, kSlotInbox, ">CH7 ");
             if (body_text_min_x() >= 0 && body_text_min_x() != kBodyXExpected) x_ok = false;
             if (body_text_max_x() > 127) w_ok = false;
             if (body_max_cols() > widest) widest = body_max_cols();

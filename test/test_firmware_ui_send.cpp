@@ -1556,8 +1556,9 @@ TEST_CASE("ui7-B69: a canned send_blocked reaches the sub-view as BLOCKED, not t
 TEST_CASE("ui7-slot: a late_ack slot is released once the sub-view has closed") {
     UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(42);
     UiSnapshot s{}; s.now_ms = 1000; s.team_shown = 1; s.team[0].id = 11;
-    m.on_gesture(Gesture::short_press, s);                 // -> TEAM
-    m.on_gesture(Gesture::double_press, s);                // -> DM compose
+    m.on_gesture(Gesture::short_press, s);                 // -> TEAM (passive)
+    m.on_gesture(Gesture::double_press, s);                // §UI-17 S1: ENTER the list...
+    m.on_gesture(Gesture::double_press, s);                // ...-> DM compose
     m.on_gesture(Gesture::double_press, s);                // -> send "Are you OK?"
     SendReq req{}; const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
     ui_perform_send(emg, normal, m, req, 0, false, fake_exec, &f, 1000);
@@ -1589,9 +1590,10 @@ TEST_CASE("ui7-slot: a late_ack slot is released once the sub-view has closed") 
 TEST_CASE("ui7-slot: an UNANSWERED late_ack slot is released once the sub-view has gone, or the device is bricked") {
     UiModel m; SendTracker emg, normal; FakeExec f; f.reply = ok_ctr(42);
     UiSnapshot s{}; s.now_ms = 1000; s.team_shown = 1; s.team[0].id = 11;
-    m.on_gesture(Gesture::short_press, s);
-    m.on_gesture(Gesture::double_press, s);
-    m.on_gesture(Gesture::double_press, s);
+    m.on_gesture(Gesture::short_press, s);                 // -> TEAM (passive)
+    m.on_gesture(Gesture::double_press, s);                // §UI-17 S1: ENTER the list
+    m.on_gesture(Gesture::double_press, s);                // -> DM compose
+    m.on_gesture(Gesture::double_press, s);                // -> send "Are you OK?"
     SendReq req{}; const bool got = m.take_send_request(req); CHECK(got == true); if (!got) return;
     ui_perform_send(emg, normal, m, req, 0, false, fake_exec, &f, 1000);
     SendOutcome o{};

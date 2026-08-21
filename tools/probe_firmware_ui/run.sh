@@ -546,8 +546,11 @@ if [ "${1:-}" != "--no-neg" ]; then
   ctl "C51 the policy is re-derived here without the input term (B197 back)" yes \
       's|    return mrui::ui_allows_sleep(s_model, s_input, s_gate);|    return s_model.state().blanked \&\& !s_gate.frame_open();|'
 
+  # ⚠ C26's ANCHOR MOVED 2026-08-20 (§UI-17 S1 gave both list renderers ONE marker predicate); the property it
+  #   mutates — §B64's suppression while a refusal stands — is unchanged, and the mutation still removes exactly that
+  #   term and nothing else.
   ctl "C26 the highlight is NOT suppressed while the refusal stands" yes \
-      's|                 (!st.inbox_pick_gone \&\& first + row == st.cursor) ? '"'"'>'"'"' : '"'"' '"'"', tag, e.text, age);|                 (first + row == st.cursor) ? '"'"'>'"'"' : '"'"' '"'"', tag, e.text, age);|'
+      's|        const bool here = entered \&\& !st.inbox_pick_gone \&\& idx == st.cursor;|        const bool here = entered \&\& idx == st.cursor;|'
 
   # C61-C68 ★★★★ §CHROME-3 — THE STATUS STRIP AND §8.3's INVALIDATION. Each is a plausible edit that leaves every
   #   native case green (the projection is pure and correct in all of them) and every earlier control green too.
@@ -727,6 +730,26 @@ if [ "${1:-}" != "--no-neg" ]; then
   #   native suite's label case cannot see, which is §B115's whole reason for keeping the string in the pure header.
   ctl "C92 the entry row's label is re-spelled at the draw site" yes \
       's|        snprintf(l, sizeof l, ">%s", mrui::kSettingsEnterText);|        snprintf(l, sizeof l, ">SETTINGS");|'
+
+  # ============================================================================== §UI-17 S1: C93-C95, THE TWO LISTS
+  # ★★★★ TEAM/INBOX PASSIVE ↔ INTERACTIVE, AT THE RENDERER. The model's half is under the native gate (`ui17-` cases
+  #   and M106-M120); these are the three steps NO native case can reach, because nothing but this probe compiles
+  #   `draw_team_screen` / `draw_inbox_screen`. ⓘ ONE sed hits BOTH screens: the predicate line is deliberately
+  #   identical in the two functions (U1), so a control cannot cover one list and quietly miss the other.
+  # ⚠ C93/C94 ARE DIRECTIONAL OPPOSITES on purpose, the C49/C50 shape: with only C93 a renderer stuck at "never
+  #   entered" would satisfy every "no marker while passive" check while the operator could never select anything;
+  #   with only C94, the converse.
+  ctl "C93 the list is drawn as ENTERED whatever the model says" yes \
+      's|    const bool entered = mrui::screen_is_entered(st.screen, st.settings, st.list_view);|    const bool entered = true;|'
+  ctl "C94 an entered list is drawn as PASSIVE (no marker, no exit)" yes \
+      's|    const bool entered = mrui::screen_is_entered(st.screen, st.settings, st.list_view);|    const bool entered = false;|'
+  # ⛔ C95 IS THE CONTAINMENT'S OWN CONTROL: the row exists in the model and the renderer never draws it, so the
+  #    operator is inside a list whose only exit is invisible — and `short` cannot leave it either (that is the whole
+  #    point of the contained walk). Two seds, because the two screens draw it on different rows (the INBOX list is
+  #    offset by its header).
+  ctl "C95 the interactive list's BACK row is never drawn" yes \
+      's|== mrui::ListRow::back) { body_back_row(row, here); continue; }|== mrui::ListRow::back) { continue; }|
+       s|== mrui::ListRow::back) { body_back_row(row + 1, here); continue; }|== mrui::ListRow::back) { continue; }|'
 
   # ================================================================================= [[B225]]: L1-L9, THE `v3` ARM's
   # ★★★★ THE CONTROLS FOR `draw_provision_screen` ITSELF, AND THEY EXIST ONLY HERE because the screens they mutate are

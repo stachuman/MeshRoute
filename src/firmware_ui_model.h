@@ -78,6 +78,15 @@
 //    cursor had to walk all nine rows before the screen advanced. ★ The service is STILL OPENED ON ARRIVAL — the
 //    §3.6.1 baseline, the conflict latch and the rail badge all depend on it, and deferring `open()` to the menu is
 //    the tempting wrong fix.
+// DONE here (2026-08-20, §UI-17 slice 1 — TEAM and INBOX migrated onto that same PASSIVE ↔ INTERACTIVE idiom, spec
+// §3.1/§3.2): both screens now LAND PASSIVE — a preview list with NO marker and NO recorded pick, which `short` passes
+// in ONE press — and are ENTERED by a `double` (`ListView`, `open_list_view` / `close_list_view`). The interactive
+// list's last row is `BACK` (`list_row_kind` / `kListBackText`), the walk off it returns to the FIRST row and ⛔ NEVER
+// leaves the screen, and `BACK` returns to the PASSIVE form of the SAME screen. "Is this screen entered" is ONE
+// `default`-less predicate for all three list screens (`screen_is_entered`, reading `Settings` for SETTINGS and
+// `ListView` for TEAM/INBOX), and leaving is one pure reset (`list_view_reset_on_leave`, the [[B223]] extraction).
+// ★ §B64/§UI-7D's identity cursors are UNCHANGED and are now gated on the interactive arm: a passive screen records no
+//   pick, so `activate` there cannot queue anything at all.
 // ⛔ WHAT IS STILL MISSING AND WHY (this is the [[meshroute-mark-done-vs-missing-in-code]] statement): §3.6.4's
 //    nearby-team scan and its sealed key grant are §UI-16's, and ⛔ [[B215]] — the audit finding that
 //    `reset_join_for_reprovision()` cancels only the claim guard and not the old listen/retry timers — is ITS OWN
@@ -194,6 +203,127 @@ enum class Compose : uint8_t { none = 0, dm, channel };
 //   beside it would leave the third state unnamed — the binary-test-over-a-ternary-domain defect this arc has hit five
 //   times (see `tools/probe_ui_model_mutations.py`'s `arm_backup` roll-call).
 enum class Settings : uint8_t { closed = 0, browsing, editing, provisioning };
+
+// ============================================================== §UI-17 slice 1 — TEAM/INBOX: PASSIVE ↔ INTERACTIVE
+// ★★★ THE SAME TWO-STATE IDIOM [[B232]] PROVED ON SETTINGS, APPLIED TO THE OTHER TWO LIST SCREENS (spec §3.1/§3.2):
+//     a screen is either a PASSIVE preview — no marker, no recorded pick, ONE row, so `short` passes it in ONE press —
+//     or it has been ENTERED, in which case `short` walks its rows and the last row is `BACK`.
+// ⛔ IT IS DELIBERATELY **NOT** FOLDED INTO `Settings`. That enum is SETTINGS's own richer four-arm state (it also has
+//    to separate `short`'s two modes and name the provisioning sub-view); folding this into it would be a refactor of
+//    shipped code riding a feature slice — C1 — and would give TEAM and INBOX two arms they can never be in.
+// ⛔ AND IT IS ⛔ NOT A SECOND AUTHORITY on "which screen is open": there is ONE field, because only the CURRENT screen
+//    can be entered and leaving RESETS it (`list_view_reset_on_leave`). The question *"is this screen entered"* is
+//    answered for all three list screens by the ONE `default`-less predicate below.
+enum class ListView : uint8_t { passive = 0, interactive };
+
+// ★★ THE ROW KINDS OF AN INTERACTIVE TEAM/INBOX LIST. Two, because the list is *"the rows the snapshot published"*
+//    plus the ONE row that leaves it — and §B66's rule is that a row's meaning may never be derived from its position
+//    at a call site.
+enum class ListRow : uint8_t { member = 0, back };
+
+// ★★★★ THE `BACK` ROW RESOLVER, AND IT IS A FUNCTION RATHER THAN A `cursor == shown` AT EACH SITE (§B66). FOUR
+//      production call sites ask it — `list_activate`, `list_note_kind` and the two renderers — and a fifth would be
+//      the one that got it wrong. ⓘ CORRECTED IN PLACE 2026-08-21 (QG, S1 close-out): this read "Three call sites —
+//      `activate`'s two arms and the renderer", written before the QG-ruled hoist moved the decisions into the two
+//      shared helpers.
+// ⛔ IT FAILS CLOSED: `>=`, not `==`. A cursor left BEYOND the published rows (the roster shrank under an interactive
+//    list between two ticks) names `BACK`, which leaves and sends nothing — never a member row it would then have to
+//    read out of range. ⓘ The `short` walk repairs the cursor on the very next press (`advance_or_next` wraps it to 0).
+inline ListRow list_row_kind(uint8_t cursor, uint8_t shown) {
+    return (cursor >= shown) ? ListRow::back : ListRow::member;
+}
+
+// ★ The row's label, in this PURE unit for the §B115 reason (a string built in `src/firmware_ui.cpp` is a string no
+//   automated gate can read), and it is DELIBERATELY the word the two shipped row tables already use
+//   (`settings_row_label(CfgRow::back)` / `provision_row_label(ProvRow::back)`) — spec §8's S-12: one spelling for one
+//   act, so an operator reads the same exit on every screen. A native case asserts the three agree.
+// ⓘ ⛔ AND THE THREE ARE NOT UNIFIED INTO ONE TABLE HERE: those two are other screens' row tables, and merging them is
+//   a refactor of shipped code, which may not ride a feature slice (C1).
+inline constexpr const char* kListBackText = "BACK";
+
+// ★★★★ §UI-17 S1 — **HOW LONG IS A LIST SCREEN?** ⛔ ONE decision for BOTH lists (QG-RULED 2026-08-21): TEAM and
+//      INBOX had this written out twice, so a mutation could redden one arm and leave the other unprotected —
+//      the shape [[B217]] exists to prevent. Only the DATA differs per screen (which roster), never the decision.
+// ★ A screen that has NOT been entered is ONE row, which is the whole of "one press passes the screen"; an ENTERED
+//   list is the published rows PLUS the `BACK` row that leaves it.
+inline uint8_t list_len_of(bool entered, uint8_t shown) {
+    return entered ? uint8_t(shown + 1) : uint8_t(1);
+}
+
+// ★★★★ **WHAT DOES A `double` ON A LIST SCREEN MEAN?** — the second decision the two screens shared, and the one
+//      whose ORDER is load-bearing. ⛔ ONE site (QG-RULED 2026-08-21), so each of its three rules is mutated once.
+enum class ListAct : uint8_t { enter = 0, refuse, leave, member };
+
+// ★★★ THE ORDER IS THE CONTRACT, and each line is a separate ruling:
+//   1. a PASSIVE preview offers exactly ONE gesture — the one that ENTERS it. ⛔ It cannot send a DM, open a record
+//      or raise a refusal, because it has recorded no pick at all (`list_note_kind` below).
+//   2. **§B64's REFUSAL OUTRANKS THE `BACK` ROW.** When the roster SHRINKS under an entered list the lost pick's
+//      index can BE the `BACK` index (cursor 2 meeting a 2-row roster; a record erased out of band does the same one
+//      plane over), and resolving the row FIRST would silently swallow a refusal into a "leave" — the mis-send
+//      arriving as a missing message. `pick_gone` is the flag `sync_*_cursor` has ALREADY raised for a vanished pick,
+//      and it is what separates "the pick was LOST" from "the cursor is simply on BACK, which picks nobody".
+//   3. only then the row itself, through `list_row_kind` — ⛔ never a bare `cursor == shown` (§B66).
+inline ListAct list_activate(bool entered, bool pick_gone, uint8_t cursor, uint8_t shown) {
+    if (!entered)  return ListAct::enter;
+    if (pick_gone) return ListAct::refuse;
+    return (list_row_kind(cursor, shown) == ListRow::back) ? ListAct::leave : ListAct::member;
+}
+
+// ★★★★ **WHAT DOES THE WRITE SIDE DO WITH THIS CURSOR?** — the third shared decision (`note_team_cursor` /
+//      `note_inbox_cursor` had it twice). ⛔ ONE site (QG-RULED 2026-08-21).
+enum class ListNote : uint8_t { record = 0, retire, keep };
+
+// ★★★ THREE ANSWERS, AND EACH IS A RULE THIS SLICE OWES:
+//   · `retire` when the screen has been LEFT — the message is TRANSIENT, so a stale `TEAMMATE GONE` may never
+//     reappear a lap later describing a pick from minutes ago. ⛔ Through the model this arm is UNREACHABLE today
+//     (an entered list cannot be walked off its screen), which is exactly why the decision lives HERE where the
+//     suite drives it and a mutation can redden it — [[B223]], for the sixth time in this arc.
+//   · `keep` on a PASSIVE preview: nothing was pointed at, so nothing is recorded — and a roster change therefore
+//     cannot announce the loss of a pick the operator never made.
+//   · on an ENTERED list the row decides: a MEMBER row is the new pick; the `BACK` row records nobody AND retires
+//     the message, because that row IS the way out and `list_activate`'s refusal arm deliberately outranks it —
+//     without this, a lost pick whose roster then EMPTIED would leave the operator inside a list where every
+//     `double` refuses and `BACK` is one of them, a dead end with no way back to the cycle.
+inline ListNote list_note_kind(bool on_screen, bool entered, uint8_t cursor, uint8_t shown) {
+    if (!on_screen) return ListNote::retire;
+    if (!entered)   return ListNote::keep;
+    return (list_row_kind(cursor, shown) == ListRow::member) ? ListNote::record : ListNote::retire;
+}
+
+// ★★★★ §UI-17 S1 / [[B223]] — **THE LEAVE RESET, AS A PURE FUNCTION**, hoisted out of its call sites for the reason
+//      `provision_reset_on_leave` states one screen over, and it is the FIFTH time this arc: the decision is
+//      UNREACHABLE where it would otherwise be written — an interactive TEAM/INBOX list cannot be walked off its own
+//      screen (`advance_or_next` contains it), so today NOTHING can move `_st.screen` away while `interactive` stands
+//      — and a guard living only at that call site is a guard no suite can drive and no mutation can redden.
+//      ⇒ THE DECISION LIVES HERE, where the suite drives both arms directly, and both call sites are forwards.
+// ★ The INVARIANT is "leaving the screen closes the view", ⛔ not "the paths that can leave today close it": the first
+//   arm that a push, a timeout or a future screen moves the screen out of finds this already true.
+// ⓘ Returns whether anything CHANGED, so a caller repaints for a real close and not for every tick spent off-screen.
+inline bool list_view_reset_on_leave(ListView& view) {
+    const bool changed = view != ListView::passive;
+    view = ListView::passive;
+    return changed;
+}
+
+// ★★★★ **HAS THIS SCREEN BEEN ENTERED?** — ONE predicate, for all three list screens, and it is what keeps `ListView`
+//      from becoming a second authority. It reads `Settings` for SETTINGS ([[B232]]'s closed view) and `ListView` for
+//      TEAM and INBOX; STATUS and SEND have no interaction to enter, so they answer false and their `double` stays the
+//      no-op it has always been.
+// ⛔ `default`-LESS, so `-Werror=switch` fails the build when a sixth screen is added without stating which side of
+//    this question it is on — the same discipline `cfg_row_field` and `cfg_field_name` hold one screen over. That is
+//    the whole reason it is a `switch` over `Screen` rather than a two-term boolean expression.
+// ⓘ `Screen::count` is not a screen; it answers false rather than being left to a fall-through.
+inline bool screen_is_entered(Screen sc, Settings settings, ListView view) {
+    switch (sc) {
+        case Screen::team:
+        case Screen::inbox:    return view == ListView::interactive;
+        case Screen::settings: return settings != Settings::closed;
+        case Screen::status:
+        case Screen::send:
+        case Screen::count:    return false;
+    }
+    return false;
+}
 
 // ================================================================================ §UI-15 slice 4 — PROVISIONING (§3.6.3)
 // ★★★ THE PROVISIONING SUB-STATE, AND IT IS ITS OWN ENUM RATHER THAN MORE `Settings` ARMS (plan §5, adopted). The two
@@ -1093,6 +1223,13 @@ struct UiState {
     //     through `ConfigService` at the freeze (`src/firmware_ui.cpp`'s `SettingsView`) — mirroring them into
     //     `UiState` would be a SECOND state model, which §3.6.1 forbids in as many words.
     Settings settings = Settings::closed;
+    // ★★★ §UI-17 slice 1 — WHETHER THE CURRENT TEAM/INBOX LIST HAS BEEN ENTERED, frozen with everything else because
+    //     the renderer needs it: the `>` marker and the `BACK` row exist only while it is `interactive`, and a
+    //     renderer that read it live would disagree with the frame it is drawing (§5's freeze contract).
+    // ⛔ ONE field for BOTH screens, deliberately: only the CURRENT screen can be entered, and leaving resets it
+    //    (`list_view_reset_on_leave`). Two fields would be two authorities that could disagree.
+    // ⓘ COST: it lands in this struct's tail padding — the slice REPORTS the measured `sizeof(UiState)`.
+    ListView list_view = ListView::passive;
     // The last ACTION's outcome, kept VERBATIM as the service's own typed result (⛔ never a `mrui::` mirror of
     // `CfgSave` — that is the parallel enum U1 forbids, and the panel would then be able to claim an outcome the
     // service never returned). `cfg_have_save` is the separate "there is one" flag, because `CfgSave` reserves no
@@ -1270,7 +1407,12 @@ public:
         // ⚠ `note_settings_cursor` runs AFTER the move and `sync_settings` BEFORE it (at the top of this function) —
         //   the same split as the other two cursors, and it is load-bearing: syncing after the move would drag the
         //   highlight straight back onto the row the operator just left.
-        if (g == Gesture::short_press)  { advance_or_next(s); note_team_cursor(s); note_inbox_cursor(s);
+        // ⚠ §UI-17 S1: `list_follow_screen` runs BEFORE the two `note_*_cursor` calls, and the order is load-bearing —
+        //   they are gated on the view, so a press that left TEAM/INBOX must have retired the view before the write
+        //   side reads it. (Both would refuse anyway on the `screen` term; stating the order means a later reader
+        //   cannot make it ambiguous.)
+        if (g == Gesture::short_press)  { advance_or_next(s); list_follow_screen();
+                                          note_team_cursor(s); note_inbox_cursor(s);
                                           settings_follow_screen(); note_settings_cursor(s);
                                           clear_settings_note(); _st.dirty = true; }
         else if (g == Gesture::double_press) { activate(s);   _st.dirty = true; }
@@ -1324,6 +1466,10 @@ public:
         //    IN THIS SNAPSHOT. Re-anchoring only on a gesture would leave the panel showing `>` beside one teammate
         //    while `activate()` addressed another — the mis-send this ruling closes, arriving from the other side.
         //    ⓘ After the auto-exit above, deliberately: a modal that just closed gets its team cursor back the same tick.
+        // ★★ §UI-17 S1 — the SECOND forward to `list_view_reset_on_leave`, and it is here for the reason
+        //    `settings_follow_screen`'s own block gives: the frame FREEZES immediately after this call, so an
+        //    entered list must already have been retired if the screen has moved on underneath it.
+        list_follow_screen();
         sync_team_cursor(s);
         // ★★★★ [[B233]] — THE SERVICED MUTATION'S ONE EXTRA FRAME, and the defect it closes is in the TICK's ORDER
         //      rather than in any single call: `mr_ui_tick` builds the snapshot FIRST, serves the erase MID-TICK
@@ -2001,6 +2147,16 @@ private:
         //     opened from), and it is the whole reason the ruling exists: leaving the screen from the last row is the
         //     "where am I" jump. ⇒ one more `short` then passes SETTINGS, exactly as it does from a fresh arrival.
         if (_st.screen == Screen::settings && _st.settings == Settings::browsing) { close_settings_menu(); return; }
+        // ★★★★ §UI-17 S1 — THE INTERACTIVE TEAM/INBOX LIST IS **CONTAINED**: the walk off its last row (`BACK`)
+        //      returns to the FIRST row, and ⛔ it never leaves the screen and never wraps into an action. It is the
+        //      same "where am I" ruling [[B232]] made one screen over, with the one difference the spec states: there
+        //      the walk-off LANDS on the closed view (SETTINGS has a parent view of its own with one row), here it
+        //      lands back on row 0 and the list is left by `double`-ing `BACK`.
+        // ⓘ It also REPAIRS a cursor left beyond the published rows by a roster that shrank between two ticks — which
+        //   is why it is `>=` in `list_row_kind` and a wrap to 0 here rather than a decrement.
+        // ⚠ The SETTINGS arm above owns its own containment and has already returned, so this can only be TEAM/INBOX
+        //   today; it is written through the shared predicate so a later entered screen inherits the rule.
+        if (screen_is_entered(_st.screen, _st.settings, _st.list_view)) { _st.cursor = 0; _st.dirty = true; return; }
         _st.screen = next_screen(_st.screen, s); _st.cursor = 0;
     }
     // ★★★★ §B64 IS PAID HERE (OWNER-RULED 2026-08-05) — THE SEND TARGET IS THE REMEMBERED TEAMMATE, NEVER A ROW INDEX.
@@ -2017,6 +2173,31 @@ private:
     //   defect one index over: it still SENDS, just to a different wrong teammate. The refusal is what makes the
     //   difference measurable — every clamp queues a request; the ruling queues nothing.
     void activate(const UiSnapshot& s) {
+        // ★★★★ §UI-17 S1 — **THE TWO LIST SCREENS ASK ONE QUESTION, AND IT IS ASKED ONCE** (QG-RULED 2026-08-21).
+        //      What a `double` means on a list screen is `list_activate`'s pure decision — the enter, §B64's refusal
+        //      and the contained `BACK`, in that order — so each of those three rules is written once and mutated
+        //      once. ⛔ Only the DATA differs per screen (which roster, which refusal flag); the DECISION does not,
+        //      and duplicating it is how one arm ends up protected and the other not.
+        // ⓘ `member` deliberately FALLS THROUGH to the per-screen activation below: what a member row DOES is
+        //   genuinely different on the two screens (a DM compose vs a store request), and that half is not shared.
+        if (_st.screen == Screen::team || _st.screen == Screen::inbox) {
+            const bool    team  = (_st.screen == Screen::team);
+            const uint8_t shown = team ? s.team_shown : s.inbox_shown;
+            const bool    gone  = team ? _st.team_pick_gone : _st.inbox_pick_gone;
+            switch (list_activate(screen_is_entered(_st.screen, _st.settings, _st.list_view),
+                                  gone, _st.cursor, shown)) {
+                // ⛔ QUEUES NOTHING: a screen the operator has not entered cannot send a DM, cannot open a record and
+                //    cannot raise a refusal — the whole point of the passive form.
+                case ListAct::enter:  open_list_view(s);  return;
+                // C2 — FAIL LOUD, and it RE-STATES the loss rather than raising it: `sync_*_cursor` announced it
+                // edge-triggered, and this arm queues NOTHING, which is the whole assertion.
+                case ListAct::refuse: _st.dirty = true;   return;
+                // The list's last row leaves the LIST, ⛔ NEVER the SCREEN — the `close_provisioning` containment
+                // idiom, for the third time in this arc.
+                case ListAct::leave:  close_list_view(s); return;
+                case ListAct::member: break;
+            }
+        }
         if (_st.screen == Screen::team) {
             if (!_team_sel_valid) {
                 // C2 — FAIL LOUD. `sync_team_cursor` has already announced a pick that vanished; announce it here too
@@ -2038,6 +2219,8 @@ private:
             //    is at this index now", opens somebody else's message and puts a DELETE two presses away from it.
             // ⓘ An EMPTY list is left silent: the screen already says it has no stored rows, which IS the reason. Same
             //   carve-out as the empty TEAM roster.
+            // ⓘ §UI-17 S1: the enter, the refusal and the contained `BACK` were resolved ABOVE, by the ONE shared
+            //   `list_activate` decision — this arm is reached only for a MEMBER row.
             if (!_inbox_sel_valid) {
                 if (s.inbox_shown > 0) _st.inbox_pick_gone = true;
                 _st.dirty = true;
@@ -2117,6 +2300,38 @@ private:
     }
     void close_settings_menu() {
         _st.settings = Settings::closed;   _st.cursor = 0; _cfg_sel_valid = false; _st.dirty = true;
+    }
+    // ★★★ §UI-17 S1's TWO PRIMITIVES, and they are the `open_settings_menu` / `close_settings_menu` pair above
+    //     VERBATIM in shape (U1/U3) because the idiom is the same one: the list is now ENTERED and LEFT rather than
+    //     being "the state TEAM/INBOX is in". Both re-establish the SAME three facts, which is why neither is spelled
+    //     out at a call site:
+    //       · the arm, · the cursor at row 0, · and the PICK re-established from that row — see below.
+    // ★★ THE PICK IS THE ONE PLACE THE TWO PAIRS DIFFER, AND THE DIFFERENCE IS §B64's. SETTINGS clears its pick and
+    //    lets `sync_settings` re-anchor on the next pass (*"first arrival: whatever row 0 is IS the pick"*). ⛔ TEAM
+    //    and INBOX MUST NOT do that: `sync_team_cursor`/`sync_inbox_cursor` treat an invalid pick as *"nothing picked
+    //    yet, OR a pick already LOST and announced"* — re-noting it there would silently re-select whatever row now
+    //    sits under the cursor, which is the exact mis-send §B64 forbids. ⇒ the pick is established HERE, by the press
+    //    that entered, because that press genuinely pointed at row 0. `note_*_cursor` is the ONE write side (U1), and
+    //    on close it does the opposite by construction: it is gated on `interactive`, so a passive screen records no
+    //    pick and `activate` there can queue nothing.
+    // ⓘ THE LIST ALWAYS OPENS ON ITS FIRST ROW, exactly as `open_settings_menu` does and for the same reason: the
+    //   passive preview is the PARENT here and it has one row, so there is no parent pick to disagree with.
+    void open_list_view(const UiSnapshot& s) {
+        _st.list_view = ListView::interactive; _st.cursor = 0; _st.dirty = true;
+        note_team_cursor(s); note_inbox_cursor(s);
+    }
+    void close_list_view(const UiSnapshot& s) {
+        _st.list_view = ListView::passive;     _st.cursor = 0; _st.dirty = true;
+        note_team_cursor(s); note_inbox_cursor(s);
+    }
+    // ★★ THE VIEW MAY NEVER OUTLIVE ITS SCREEN, and this is the one primitive that enforces it — the
+    //    `settings_follow_screen` shape one screen over, forwarding its DECISION to the pure
+    //    `list_view_reset_on_leave` for the [[B223]] reason stated there. Both call sites are forwards: the `short`
+    //    that advances the CYCLE, and `on_tick`, so a frame frozen between two gestures cannot render an entered list
+    //    over another screen.
+    void list_follow_screen() {
+        if (_st.screen == Screen::team || _st.screen == Screen::inbox) return;
+        if (list_view_reset_on_leave(_st.list_view)) _st.dirty = true;
     }
     void sync_settings(const UiSnapshot& s) {
         settings_follow_screen();
@@ -2531,13 +2746,27 @@ private:
     }
     // The WRITE side: whatever row the cursor has just come to rest on IS the new selection. Called after every cursor
     // or screen move, so "the pick" is always something the user's last press actually pointed at.
+    // ★★★ §UI-17 S1 — AND ONLY WHILE THE LIST IS ENTERED. A PASSIVE preview records NO pick: nothing there was
+    //     pointed at, so `activate` on it has nothing to send to and cannot queue (spec §1.2's *"while PASSIVE
+    //     nothing is picked"*). ⛔ Landing on TEAM and recording row 0 is exactly the defect this slice removes — the
+    //     panel showed `>` beside a teammate the operator never chose, one `double` from a DM.
+    // ⓘ The `cursor < s.team_shown` bound below ALSO excludes the `BACK` row, which is right: `BACK` is not a
+    //   teammate, so standing on it picks nobody. It raises no refusal either — see `sync_team_cursor`, which returns
+    //   early on an invalid pick.
+    // ★★★ §UI-17 S1 — THE THREE ANSWERS ARE `list_note_kind`'s, ⛔ NOT re-derived here (QG-RULED 2026-08-21): the
+    //     INBOX write side asked the same three questions, so a guard written twice is a guard one mutation can only
+    //     half protect. This function is now the TEAM-plane DATA of that one decision and nothing else.
     void note_team_cursor(const UiSnapshot& s) {
-        if (_st.screen == Screen::team && _st.cursor < s.team_shown) {
-            _team_sel_id = s.team[_st.cursor].id; _team_sel_valid = true; _st.team_pick_gone = false;
-            return;
+        switch (list_note_kind(_st.screen == Screen::team,
+                               _st.list_view == ListView::interactive, _st.cursor, s.team_shown)) {
+            case ListNote::record:
+                _team_sel_id = s.team[_st.cursor].id; _team_sel_valid = true; _st.team_pick_gone = false;
+                return;
+            case ListNote::retire:                       // the screen was left, or the cursor rests on `BACK`
+                _team_sel_valid = false; _st.team_pick_gone = false; return;
+            case ListNote::keep:                         // a PASSIVE preview: nothing pointed at, nothing recorded
+                _team_sel_valid = false; return;
         }
-        _team_sel_valid = false;                         // an empty roster, or a screen that has no teammates at all
-        if (_st.screen != Screen::team) _st.team_pick_gone = false;   // leaving the screen retires its message
     }
     // ★★★★ §UI-7D slice B — THE INBOX CURSOR, HELD BY THE RECORD'S IDENTITY, AND RE-FOUND IN EVERY SNAPSHOT.
     // ★ THE IDENTITY IS THE PAIR `(kind, seq)`, DERIVED AND NOT INVENTED (U1): both halves are fields the snapshot row
@@ -2569,14 +2798,27 @@ private:
     // The WRITE side: whatever row the cursor has come to rest on IS the new selection — so "the pick" is always
     // something the user's last press actually pointed at. ⓘ A row with `seq == 0` has no identity and is NOT selected
     // (see InboxRow): the refusal path above then applies, rather than a selection that could only resolve wrongly.
+    // ★★★ §UI-17 S1 — and only while the list is ENTERED, exactly as `note_team_cursor` is. See it.
+    // ★★★ §UI-17 S1 — the SAME three answers, from the SAME pure decision (`list_note_kind`); this function is the
+    //     INBOX-plane data of it. See `note_team_cursor`.
     void note_inbox_cursor(const UiSnapshot& s) {
-        if (_st.screen == Screen::inbox && _st.cursor < s.inbox_shown && s.inbox[_st.cursor].seq != 0) {
-            _inbox_sel_kind = s.inbox[_st.cursor].kind; _inbox_sel_seq = s.inbox[_st.cursor].seq;
-            _inbox_sel_valid = true; _st.inbox_pick_gone = false;
-            return;
+        switch (list_note_kind(_st.screen == Screen::inbox,
+                               _st.list_view == ListView::interactive, _st.cursor, s.inbox_shown)) {
+            case ListNote::record:
+                // ⓘ ...AND THE ROW MUST STILL BE IDENTIFIABLE, which is INBOX DATA rather than a shared decision and
+                //   is why it stays here: `seq == 0` has no identity (see InboxRow), so it is NOT selected and the
+                //   refusal path applies — rather than a selection that could only ever resolve wrongly.
+                if (s.inbox[_st.cursor].seq != 0) {
+                    _inbox_sel_kind = s.inbox[_st.cursor].kind; _inbox_sel_seq = s.inbox[_st.cursor].seq;
+                    _inbox_sel_valid = true; _st.inbox_pick_gone = false;
+                    return;
+                }
+                _inbox_sel_valid = false; return;
+            case ListNote::retire:
+                _inbox_sel_valid = false; _st.inbox_pick_gone = false; return;
+            case ListNote::keep:
+                _inbox_sel_valid = false; return;
         }
-        _inbox_sel_valid = false;                        // an empty list, an unidentifiable row, or another screen
-        if (_st.screen != Screen::inbox) _st.inbox_pick_gone = false;   // leaving the screen retires its message
     }
     // The row a successful delete should leave the highlight on: the one AFTER the selection, else the one BEFORE it.
     // Captured at activation because that is the last snapshot in which the doomed record is still present.
@@ -2685,18 +2927,22 @@ private:
     //   `on_tick`'s auto-exit and §B101's `long_fire` — and the phase flag MUST be cleared with the modal or a
     //   re-opened compose would render an outcome list against a stale result. It sends nothing, by construction.
     void close_compose() { _st.compose = Compose::none; _st.compose_result = false; _st.cursor = 0; _st.dirty = true; }
+    // ★★★★ [[B232]] + §UI-17 S1 — **A SCREEN THAT HAS NOT BEEN ENTERED IS ONE ROW**, and that is the whole of "one
+    //      press passes the screen": `advance_or_next` sees `n == 1`, so there is nothing to walk and the cycle
+    //      advances. It was [[B232]]'s ruling for the SETTINGS closed view and it is §UI-17's for the passive TEAM and
+    //      INBOX previews — ⛔ NOT three separate rules, which is why the three arms share ONE predicate.
+    // ⛔ THE PASSIVE LENGTH IS **NOT** `shown` CLAMPED: a passive screen does not offer those rows at all, so its
+    //    length is not that list's length made shorter — the same statement the closed view's own note made.
     uint8_t list_len(const UiSnapshot& s) const {
-        if (_st.screen == Screen::team)  return s.team_shown;
-        if (_st.screen == Screen::inbox) return s.inbox_shown;
-        // ★★★★ [[B232]] — THE CLOSED SINGLE-ENTRY VIEW IS **ONE** ROW, which is the whole of "one press passes the
-        //      screen": `advance_or_next` sees `n == 1`, so there is nothing to walk and the cycle advances. ⛔ It is
-        //      NOT `settings_row_list(s).n` clamped or special-cased below — the closed view does not show the menu's
-        //      rows at all, so its length is not that list's length made shorter.
-        if (_st.screen == Screen::settings && _st.settings == Settings::closed) return 1;
+        const bool entered = screen_is_entered(_st.screen, _st.settings, _st.list_view);
+        // ★ §UI-17 S1: the interactive list is the published rows PLUS the `BACK` row, which is what makes `BACK`
+        //   reachable by walking and the walk itself CONTAINED (`advance_or_next`).
+        if (_st.screen == Screen::team)  return list_len_of(entered, s.team_shown);
+        if (_st.screen == Screen::inbox) return list_len_of(entered, s.inbox_shown);
         // ★ §UI-14: SETTINGS is list-aware exactly like TEAM and INBOX (§3.2: *"`short` walks the list and leaves only
         //   at the end"*), and the length is the ONE row-list construction — never a hand-written count, which is
         //   §B66's defect one screen over: two conditional rows mean the number is not a constant.
-        if (_st.screen == Screen::settings) return settings_row_list(s).n;
+        if (_st.screen == Screen::settings) return entered ? settings_row_list(s).n : uint8_t(1);
         return 1;
     }
     static Screen next_screen(Screen cur, const UiSnapshot& s) {
