@@ -87,6 +87,17 @@ TARGET_SRC = {
     #    header, and a battery is per-SOURCE-FILE. Without its own target the split would have had no controlled
     #    mutation at all — the [[B217]] shape this runner exists to avoid.
     "provservice": "src/firmware_provisioning_service.h",  # §PROV-TX — the typed team-provisioning transaction
+    # ★★ ADDED 2026-08-21 BY §UI-17 slice 3, and for the reason every target above it was added: the STATUS body's
+    #    five rows carry NINE substitutions and one priority order, every one of which is a ruled decision that a
+    #    mutation must be able to attack ON ITS OWN — and a battery is per-SOURCE-FILE. Composed in
+    #    `src/firmware_ui.cpp` they would have had NO battery at all (that TU is compiled by neither the native
+    #    suite nor the simulator, §B115); left in the 2700-line model they would have shared `model`'s entries.
+    "uistatus": "src/firmware_ui_status.h",     # §UI-17 S3 — the STATUS body's rows, substitutions and priority
+    # ★★ ADDED 2026-08-21 BY §UI-17 slice 4, for the reason every target above it was added: the TEAM row's ruled
+    #    format has FIVE fields and the repaint invalidation has four separate rules (bucket, drawn prefix, screen,
+    #    raise-never-clear), each of which is a decision a mutation must be able to attack ON ITS OWN — and a battery
+    #    is per-SOURCE-FILE. Composed in `src/firmware_ui.cpp` they would have had NO battery at all (§B115).
+    "uiteam": "src/firmware_ui_team.h",         # §UI-17 S4 — the TEAM row + the F-8 clock-driven repaint
 }
 _flags = [a for a in sys.argv[1:] if a.startswith("--")]
 
@@ -153,7 +164,67 @@ H = os.path.join(ROOT, TARGET_SRC[_TARGET])
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 1865, 87296     # ⓘ ⛔ THE PIN DID **NOT** MOVE for QG's BOTH-DUE BOUNDARY fix (same day,
+PIN_CASES, PIN_ASSERTS = 1893, 87517     # ★★ CROSS-CHECK SYNCED 2026-08-21 by §UI-17 slice 4 (the TEAM row's pure
+                                         # unit + the F-8 repaint invalidation): **1877 / 87411 -> 1893 / 87517**
+                                         # (+16 cases / +106 assertions), ALL of them in the NEW
+                                         # test/test_firmware_ui_team.cpp — no existing case was touched, and
+                                         # `src/firmware_ui.cpp` compiles in neither the native suite nor the
+                                         # simulator, so nothing else could move. DERIVED, not merely observed —
+                                         # per case, in file order:
+                                         #    4 the ruled 19-column row, passive and marked
+                                         #    6 the `%-6.6s` clamp: a long name, a `0x<hash>`, the widest label
+                                         #    6 the label widths: padded / exactly six / empty
+                                         #    3 `--` for an unknown route age, and `0s` as its own state
+                                         #    3 the two RESERVED columns present and blank (+ the width identity)
+                                         #    2 the `BACK` row's one spelling and its fit
+                                         #    3 the age token's ruled table, its bound, and ⛔ not `old`
+                                         #    5 the bucket-vs-token `iff` sweep (3 sweeps, accumulated) + 3 pins
+                                         #    7 the F-8 gap closed: a turned token repaints a LIT screen
+                                         #    7 a raw age moving INSIDE its bucket raises nothing
+                                         #    9 an equal projection raises nothing and ⛔ clears nothing
+                                         #    8 the screen gate: no repaint asked for from INBOX
+                                         #    8 ★ the BODY gate: the 10-row visibility matrix (1) + a DM compose
+                                         #        opened FROM team, driven by real gestures (4) + the settle's 3
+                                         #   15 blanked: raises, never unblanks/clears/opens, survives the dark,
+                                         #        and ★ `ui_allows_sleep` stays TRUE across the token turns
+                                         #    9 the label's DRAWN PREFIX (a rename past column 6 is invisible)
+                                         #   11 positional + bounded by `team_shown` (swap · tail · fewer rows)
+                                         # ⓘ Three of those figures include `team_settle`'s own 3 CHECKs (the
+                                         # screen the gesture reached, plus lit + clean), which is why the
+                                         # invalidation cases run higher than their visible assertion count.
+                                         #
+                                         # ★★ AND BEFORE THAT, by §UI-17 slice 3's QG frame-freeze
+                                         # remedy (row 4 reads the FROZEN snapshot, so `UiSnapshot` gained
+                                         # own_fix/own_lat_e7/own_lon_e7): **1876 / 87407 -> 1877 / 87411**
+                                         # (+1 case / +4 assertions), all in test/test_firmware_ui_status.cpp.
+                                         # DERIVED, not observed: +1 `ui17-status:` the own_fix-is-the-authority
+                                         # case — 4 (the two combinations `build_snapshot` cannot produce, i.e.
+                                         # a cleared own_fix over live coordinates and the converse · the
+                                         # verbatim-fields row · the reboot fact still outranking all of them).
+                                         # ⛔ No existing assertion moved: the row-4 cases were re-expressed
+                                         # through a `loc()` helper that fills the same three snapshot fields,
+                                         # which changes how they are DRIVEN and not how many there are.
+                                         #
+                                         # ★★ AND BEFORE THAT, by the slice's first pass (the STATUS body):
+                                         # **1865 / 87296 -> 1876 / 87407** (+11 cases / +111 assertions), all of
+                                         # them in the NEW test/test_firmware_ui_status.cpp — no existing case was
+                                         # touched, and `src/firmware_ui.cpp` compiles in neither the native suite
+                                         # nor the simulator, so nothing else could move. DERIVED, not observed —
+                                         # per case, in file order:
+                                         #    8 row 0, the eight uppercase hex + `NO TEAM`
+                                         #    9 row 1, `ME T<n>` / blank / `ME NO ID`
+                                         #   10 row 2, `KNOWN` + the 0 / 9 / 10 / 255 saturation
+                                         #    7 row 2, `NO TEAM KEY` over the count + the two silences
+                                         #    9 row 3, the combined count and the 99+ crossing
+                                         #    8 row 3, `HOME --` vs the omitted half
+                                         #    8 row 4, the RESTART-over-coordinates priority
+                                         #   11 row 4, `NO LOCATION` + the five `have_fix` arms
+                                         #   14 row 4, truncation, four quadrants, `-0.000`, the widths
+                                         #    5 the gateway_heltec shape, all five rows
+                                         #   22 the width sweep: 6 direct + a 4-row loop x 4 checks (the
+                                         #        no-configuration-text assertions), which is why the file's 99
+                                         #        static CHECK sites execute as 111
+                                         # ⓘ ⛔ THE PIN DID **NOT** MOVE for QG's BOTH-DUE BOUNDARY fix (same day,
                                          # same slice), and the arithmetic is recorded so nobody reads that as an
                                          # unverified claim: the fix STRENGTHENED two existing assertions rather
                                          # than adding any. In each of the two `ui17-hold:` page cases a
@@ -2096,9 +2167,124 @@ MUTS_PROVSERVICE = [
   '        case ProvErr::sf_list_empty:   return "incomplete_phy";'),
 ]
 
+
+# ★★★ §UI-17 slice 3 — THE STATUS BODY. Every entry is a substitution the spec RULED, attacked on its own: six of
+#     them are the ones spec §4's S3 "Mutations" bullet names verbatim, and the rest are the ruled WORDS and the two
+#     silences (row 1 with no team, row 2 with no team configured), because a silence nothing can break is a silence
+#     nothing measures. ⓘ Each is the TEMPTING WRONG FIX rather than a deletion: the plausible id, the withdrawn
+#     word, the raw sum, the rounded coordinate — every one of them looks like tidier code.
+MUTS_UISTATUS = [
+ # --- row 4: the priority and the fix predicate (the two the spec names first) ------------------------------------
+ ("S01 ★★ row 4's priority is INVERTED — RESTART NEEDED only when there is nothing else to show",
+  "    if (reboot_required) {",
+  "    if (reboot_required && !s.own_fix) {"),
+ ("S02 the fix predicate becomes AND — a node on the equator or the meridian loses its position",
+  "inline bool ui_status_have_fix(int32_t lat_e7, int32_t lon_e7) { return lat_e7 != 0 || lon_e7 != 0; }",
+  "inline bool ui_status_have_fix(int32_t lat_e7, int32_t lon_e7) { return lat_e7 != 0 && lon_e7 != 0; }"),
+ ("S03 the fix predicate reads ONE coordinate only (the core's refusal reads both)",
+  "inline bool ui_status_have_fix(int32_t lat_e7, int32_t lon_e7) { return lat_e7 != 0 || lon_e7 != 0; }",
+  "inline bool ui_status_have_fix(int32_t lat_e7, int32_t lon_e7) { (void)lon_e7; return lat_e7 != 0; }"),
+ ("S04 ★★ the coordinate ROUNDS instead of truncating (a position further along than the stored one)",
+  '                     lat_neg ? "-" : "", (long)(la / 10000000), (unsigned long)((la / 10000) % 1000),',
+  '                     lat_neg ? "-" : "", (long)(la / 10000000), (unsigned long)(((la + 5000) / 10000) % 1000),'),
+ # --- row 0 / row 1: the two identity rows and their silences ------------------------------------------------------
+ ("S05 ⛔ NO TEAM is replaced by a zero id — `TEAM 00000000`, a plausible team nobody is in",
+  "    const int n = (s.team_id == 0) ? snprintf(out, cap, \"NO TEAM\")\n"
+  "                                   : snprintf(out, cap, \"TEAM %08lX\", (unsigned long)s.team_id);",
+  "    const int n = snprintf(out, cap, \"TEAM %08lX\", (unsigned long)s.team_id);"),
+ ("S06 row 1 says NO TEAM too (note a: two of five body rows spent on ONE fact)",
+  "    if (s.team_id == 0) { ui_pad_token(out, cap, 0); return; }    // note a: row 0 already said it",
+  "    if (s.team_id == 0) { snprintf(out, cap, \"NO TEAM\"); return; }    // note a: row 0 already said it"),
+ ("S07 ⛔ a node before team-DAD renders `ME T0` — a PLAUSIBLE id for a node that has none",
+  "    const int n = (s.my_team_id == 0) ? snprintf(out, cap, \"ME NO ID\")\n"
+  "                                      : snprintf(out, cap, \"ME T%u\", unsigned(s.my_team_id));",
+  "    const int n = snprintf(out, cap, \"ME T%u\", unsigned(s.my_team_id));"),
+ # --- row 2: the ruled word, the priority and the silence ----------------------------------------------------------
+ ("S08 ★★★ the WITHDRAWN word returns — `4 HEARD` for a count that is ROUTE EVIDENCE",
+  '        n = snprintf(out, cap, "%s KNOWN", tok);',
+  '        n = snprintf(out, cap, "%s HEARD", tok);'),
+ ("S09 NO TEAM KEY loses its priority to the count (the actionable half stops being said)",
+  "    if (!s.team_key_present) {",
+  "    if (false) {"),
+ ("S10 row 2's `team_id != 0` half is dropped, so a teamless node reads `-- KNOWN`",
+  "    const bool configured = s.team_build && s.team_id != 0;",
+  "    const bool configured = s.team_build;"),
+ # --- row 3: the token and the applicability split -----------------------------------------------------------------
+ ("S11 the unread token becomes the RAW SUM (the strip's 99+ and this row stop agreeing)",
+  "    ui_fmt_mail(mail, sizeof mail, overflow ? kMailMax : uint8_t(mail_total), overflow);",
+  '    snprintf(mail, sizeof mail, "%u", unsigned(mail_total));'),
+ ("S12 the HOME half is drawn on a build with NO mobile plane (`--` for not-applicable)",
+  "    if (!s.mobile_build) {",
+  "    if (false) {"),
+ # --- the frame-freeze remedy's own control (QG, 2026-08-21) -------------------------------------------------------
+ ("S13 ★★ row 4 RE-DERIVES the fix instead of trusting the published `own_fix` (a second definition)",
+  "    } else if (!s.own_fix) {",
+  "    } else if (!ui_status_have_fix(s.own_lat_e7, s.own_lon_e7)) {"),
+]
+
+MUTS_UITEAM = [
+ # --- the row's five fields (spec §3.2's ruled format, string S-11) ------------------------------------------------
+ ("T01 ★★ the label loses its PRECISION — a long name pushes the age and both reserved columns off the row",
+  '    const int n = snprintf(out, cap, "%c%-6.6s %3s %4s %2s",',
+  '    const int n = snprintf(out, cap, "%c%-6s %3s %4s %2s",'),
+ ("T02 ★★ the two RESERVED columns are dropped, so S5 cannot land without re-laying the row",
+  '    const int n = snprintf(out, cap, "%c%-6.6s %3s %4s %2s",\n'
+  "                           marked ? '>' : ' ', t.label, age, kTeamDistBlank, kTeamDirBlank);",
+  '    const int n = snprintf(out, cap, "%c%-6.6s %3s",\n'
+  "                           marked ? '>' : ' ', t.label, age);"),
+ ("T03 the marker is INVERTED — a passive preview marks every teammate it never picked",
+  "                           marked ? '>' : ' ', t.label, age, kTeamDistBlank, kTeamDirBlank);",
+  "                           marked ? ' ' : '>', t.label, age, kTeamDistBlank, kTeamDirBlank);"),
+ ("T04 ⛔ an UNKNOWN route age is rendered as an AGE (`old`) instead of `--`",
+  "    ui_fmt_home_age(out, cap, /*ever=*/age_s != UINT32_MAX, uint64_t(age_s) * 1000u);",
+  "    ui_fmt_home_age(out, cap, /*ever=*/true, uint64_t(age_s) * 1000u);"),
+ # --- the bucket: the second expression of the token's boundaries (the sweep is what keeps it honest) --------------
+ ("T05 ★★ the bucket's minute boundary is widened, so it stops agreeing with the drawn token",
+  "    if (m < 60u)  return 0x02000000u | m;",
+  "    if (m <= 60u) return 0x02000000u | m;"),
+ ("T06 the UNKNOWN age shares `0s`'s bucket — a `--` row that turns to `0s` never repaints",
+  "    if (age_s == UINT32_MAX) return kTeamAgeUnknown;      // the published \"unknown\", the token's `--`",
+  "    if (age_s == UINT32_MAX) return 0x01000000u;          // the published \"unknown\", the token's `--`"),
+ # --- the invalidation's four rules (spec §1.9 F-8 / §CHROME-3's idiom) --------------------------------------------
+ ("T07 ★★★ the invalidation CLEARS on the equal arm (§8.3.1's WITHDRAWN instruction, restored)",
+  "    if (ui_team_rows_equal(live, frozen)) return false;    // ⛔ nor on this one — an equal projection asks for nothing",
+  "    if (ui_team_rows_equal(live, frozen)) { m.clear_dirty(); return false; }"),
+ ("T08 ★★★ the comparison takes the RAW ages, so a lit TEAM screen repaints every second",
+  "        if (ui_team_age_bucket(a.team[i].last_heard_s) != ui_team_age_bucket(b.team[i].last_heard_s)) return false;",
+  "        if (a.team[i].last_heard_s != b.team[i].last_heard_s) return false;"),
+ ("T09 the label is compared over its WHOLE array — a rename nobody can see repaints the panel",
+  "        for (std::size_t c = 0; c < kTeamLabelCols; ++c)",
+  "        for (std::size_t c = 0; c < sizeof(a.team[i].label); ++c)"),
+ ("T10 the visibility gate is dropped entirely — every screen asks for TEAM's repaints",
+  "    if (!ui_team_rows_visible(m.state().screen, m.compose_open(), m.state().detail, m.emergency()))\n"
+  "        return false;                                      // ⛔ NOTHING is cleared on this arm either",
+  "    if (false)\n"
+  "        return false;                                      // ⛔ NOTHING is cleared on this arm either"),
+ # --- the visibility gate, term by term (each is one arm of `draw_frame`'s own precedence) -------------------------
+ ("T13 ★★ the COMPOSE term is dropped — a DM composed FROM team keeps asking for row repaints",
+  "        && !compose_open                   // ...then a compose sub-view, which TEAM itself opens",
+  "        && true                            // ...then a compose sub-view, which TEAM itself opens"),
+ ("T14 the EMERGENCY term is dropped, so an alarm's body pays for the roster's repaints",
+  "    return emg == Emergency::idle          // the alarm owns the body, from any screen",
+  "    return true                            // the alarm owns the body, from any screen"),
+ ("T15 the DETAIL term is dropped (the third body-replacing view stops being one)",
+  "        && detail == InboxModal::closed    // ...then the inbox detail modal",
+  "        && true                            // ...then the inbox detail modal"),
+ ("T16 the SCREEN term is dropped, so INBOX and SETTINGS ask for TEAM's repaints too",
+  "        && screen == Screen::team;         // ...and only then does the screen decide",
+  "        && true;                           // ...and only then does the screen decide"),
+ ("T11 the row loop runs to the ARRAY's end, so rows the panel never draws ask for paints",
+  "    for (uint8_t i = 0; i < a.team_shown; ++i) {",
+  "    for (uint8_t i = 0; i < kMaxTeamRows; ++i) {"),
+ ("T12 the roster SIZE stops being compared — a teammate joining or leaving never repaints",
+  "    if (a.team_shown != b.team_shown) return false;",
+  "    if (false) return false;"),
+]
+
 MUTS_BY_TARGET = {"model": MUTS_MODEL, "config": MUTS_CONFIG, "chrome": MUTS_CHROME, "icons": MUTS_ICONS,
                   "joinprofiles": MUTS_JOINPROFILES, "devicenv": MUTS_DEVICENV, "cfgparse": MUTS_CFGPARSE,
-                  "uiprov": MUTS_UIPROV, "uijoin": MUTS_UIJOIN, "provservice": MUTS_PROVSERVICE}
+                  "uiprov": MUTS_UIPROV, "uijoin": MUTS_UIJOIN, "provservice": MUTS_PROVSERVICE,
+                  "uistatus": MUTS_UISTATUS, "uiteam": MUTS_UITEAM}
 MUTS = MUTS_BY_TARGET[_TARGET]
 
 # ⓘ `_positional` is built (and judged: at most one) in the argv block at the top of the file — see `_refuse_argv`.

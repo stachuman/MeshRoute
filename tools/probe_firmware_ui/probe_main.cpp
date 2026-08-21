@@ -332,10 +332,31 @@ int rail_boxed_slot(int page = 0) {
     }
     return found;
 }
+// ⛔⛔ SCOPED TO THE RAIL's OWN COLUMN SINCE §UI-17 S3, AND IT IS A STRENGTHENING RATHER THAN A RELAXATION. This
+//   counted EVERY `[rect]` on the page, which was sound while the rail's selection frame was `draw_rect`'s only
+//   caller in the tree (§CHROME-4 said so in as many words). S3 gives it a second one — the STATUS body's reserved
+//   24x24 mark — so a page-wide tally would now answer 2 on STATUS and P14b's *"EXACTLY one navigation frame"*
+//   would fail against a CORRECT renderer. ⇒ the reader is scoped to what it is named for: a frame in the rail's
+//   column, at the rail's width. ⓘ The BODY's own rects have their own counter directly below, so nothing became
+//   invisible — the two regions are counted separately and both are asserted.
 int rail_frames_on_page(int page = 0) {
     int n = 0;
-    for (int i = 0; i < g_c.n_rec; ++i)
-        if (!g_c.rec[i].is_text && g_c.rec[i].page == page && strcmp(g_c.rec[i].s, "[rect]") == 0) ++n;
+    for (int i = 0; i < g_c.n_rec; ++i) {
+        const Canvas::Rec& r = g_c.rec[i];
+        if (r.is_text || r.page != page || strcmp(r.s, "[rect]") != 0) continue;
+        if (r.x == kRailX && r.w == kRailW) ++n;
+    }
+    return n;
+}
+// The rects the BODY drew — everything `[rect]` that is NOT the rail's selection frame. §UI-17 S3's STATUS mark is
+// the only one today; S6 replaces it with a real bitmap and this must then answer 0 on every screen.
+int body_rects_on_page(int page = 0) {
+    int n = 0;
+    for (int i = 0; i < g_c.n_rec; ++i) {
+        const Canvas::Rec& r = g_c.rec[i];
+        if (r.is_text || r.page != page || strcmp(r.s, "[rect]") != 0) continue;
+        if (!(r.x == kRailX && r.w == kRailW)) ++n;
+    }
     return n;
 }
 // How many rail glyphs a page drew, counting only bitmaps inside the rail's column band.
@@ -371,6 +392,51 @@ int body_text_max_x() {
     }
     return m;
 }
+// ★★★ §UI-17 S3 — THE BODY NOW HAS **TWO** ORIGINS ON ONE SCREEN, so `body_text_min_x()` alone can no longer say
+//     what P14f used to ask it. Spec §2.1: STATUS reserves `x = 12..35, y = 12..35` for a 24x24 mark and draws its
+//     first three rows at `x = 40` (88 px = 14 columns); rows 3-4 stay at `kBodyX` with the full 19. Every other
+//     screen keeps ONE origin. ⇒ the three readers below let P14f express *"a per-screen expected origin SET, plus
+//     positive terms so it can still fail"* — ⛔ NEVER the `min_x >= 12` relaxation, which is the
+//     instrument-that-cannot-fail shape this project has registered twenty-one times.
+// ⚠ THE GEOMETRY IS STATED HERE, independently of `src/firmware_ui.cpp`'s own table, exactly as `kBodyXExpected`
+//   and `kRailSlotY` are: a bound imported from the code under test agrees with a layout that has drifted.
+constexpr int kStatusTextXExpected  = 40;   // spec §2.1: past the 24x24 slot plus a 4-px gutter
+constexpr int kStatusNarrowColsExp  = 14;   // (128 - 40) / 6
+constexpr int kStatusMarkXExpected  = 12, kStatusMarkYExpected = 12;
+constexpr int kStatusMarkWExpected  = 24, kStatusMarkHExpected = 24;
+
+// Every body text draw's x is one of the allowed origins for this screen. ⛔ An EMPTY body answers true, which is
+// why P14f pairs this with the positive terms below rather than trusting it alone.
+bool body_x_only_in(const int* allowed, int n_allowed, int page = 0) {
+    for (int i = 0; i < g_c.n_rec; ++i) {
+        const Canvas::Rec& r = g_c.rec[i];
+        if (!r.is_text || r.page != page || r.y <= 9) continue;
+        bool ok = false;
+        for (int k = 0; k < n_allowed; ++k) if (r.x == allowed[k]) ok = true;
+        if (!ok) return false;
+    }
+    return true;
+}
+// How many body rows a page drew AT an exact origin, and how wide the widest of them is — the two positive terms.
+int body_rows_at_x(int x, int page = 0) {
+    int n = 0;
+    for (int i = 0; i < g_c.n_rec; ++i) {
+        const Canvas::Rec& r = g_c.rec[i];
+        if (r.is_text && r.page == page && r.y > 9 && r.x == x) ++n;
+    }
+    return n;
+}
+int body_max_cols_at_x(int x, int page = 0) {
+    int m = 0;
+    for (int i = 0; i < g_c.n_rec; ++i) {
+        const Canvas::Rec& r = g_c.rec[i];
+        if (!r.is_text || r.page != page || r.y <= 9 || r.x != x) continue;
+        const int n = int(strlen(r.s));
+        if (n > m) m = n;
+    }
+    return m;
+}
+
 // The widest body line, in COLUMNS — the figure design §7.3's audit is expressed in.
 int body_max_cols() {
     int m = 0;
@@ -680,11 +746,20 @@ int g_pass = 0, g_fail = 0;
 // PROBE_LIST=1 makes every check announce itself whether it passed or not. `run.sh` uses that as the DENOMINATOR of
 // its "N of M checks are reddened by a control" roll-up, so the ratio is measured instead of restated in a comment —
 // the header of this file carried a hand-maintained "20 of 25" that went stale the moment six checks were added.
-// ⚠ ★ KEEP A LABEL AT **64 CHARACTERS OR FEWER**, and it is not a style rule: `run.sh` attributes a reddening by
-//   re-reading the FAIL line with `s/^  FAIL \(.\{1,64\}\)  .*$/\1/`, which needs the `%-64s` PADDING to find the
-//   label's end. A longer label overflows the field, the extraction misses, and the roll-up then reports a check
-//   that a control DOES redden as *"(no control reddens)"* — an under-count, i.e. the instrument lying in the
-//   quiet direction. ⓘ MEASURED 2026-08-20 ([[B226]]/[[B228]]): three new labels did exactly that and were shortened.
+// ⛔⛔ CORRECTED IN PLACE 2026-08-21 (§UI-17 S4, [[B229]]'s residue CLOSED), AND THE WITHDRAWN RULE IS KEPT VISIBLE.
+//   This block read: *"⚠ ★ KEEP A LABEL AT **64 CHARACTERS OR FEWER**, and it is not a style rule: `run.sh`
+//   attributes a reddening by re-reading the FAIL line with `s/^  FAIL \(.\{1,64\}\)  .*$/\1/`, which needs the
+//   `%-64s` PADDING to find the label's end. A longer label overflows the field, the extraction misses, and the
+//   roll-up then reports a check that a control DOES redden as "(no control reddens)" — an under-count, i.e. the
+//   instrument lying in the quiet direction. ⓘ MEASURED 2026-08-20 ([[B226]]/[[B228]]): three new labels did exactly
+//   that and were shortened."*
+// ★ THE LENGTH RULE IS GONE BECAUSE THE MECHANISM IS: `run.sh`'s `attribute()` now matches a FAIL line against the
+//   arm's KNOWN label list (the same `PROBE_LIST=1` output that supplies the denominator) and takes the LONGEST
+//   label that prefixes it, so attribution no longer depends on the padding at all. Its own vacuity guard runs the
+//   WITHDRAWN parse over a synthetic 90-character label and requires it to MISS. ⓘ The `%-64s` padding stays — it is
+//   what keeps the FAIL lines readable — and a SHORT label is still better prose. It is no longer a correctness bound.
+// ⚠ WHAT IS STILL TRUE: a label must be UNIQUE and must not be a prefix of another label whose control it does not
+//   share, which longest-wins matching makes exact rather than approximate.
 const bool g_list = std::getenv("PROBE_LIST") != nullptr;
 #define CHK(label, expr) do {                                                              \
     const bool ok_ = (expr);                                                               \
@@ -844,23 +919,44 @@ uint32_t walk_to_slot(uint32_t t, int slot) {
 constexpr int kSlotStatus = 0, kSlotTeam = 1, kSlotInbox = 2, kSlotSend = 3, kSlotSettings = 4;
 // Design §3.2's normal body origin, stated here rather than imported from `src/firmware_ui.cpp`'s `kBodyX`.
 constexpr int kBodyXExpected = 12;
-#if MR_N_LAYERS < 2
 // ★★ §UI-15 slice 5 — THE BODY'S FIVE ROW BASELINES, stated here INDEPENDENTLY of the renderer's own table (P13's and
 //    P14's rule: a bound imported from the code under test agrees with a layout that has drifted). Design §3.2 puts
 //    them at 19/29/39/49/59.
+// ⓘ MOVED OUT OF THE `MR_N_LAYERS < 2` GUARD BY §UI-17 S3: `status_row` below reads the SAME baselines at the
+//   narrowed origin and runs on BOTH arms, so the table can no longer belong to one of them.
+constexpr int kBodyY0Expected = 19, kBodyDyExpected = 10;
+int body_y_expected(int row) { return kBodyY0Expected + row * kBodyDyExpected; }
+// ★ §UI-17 S3's SIBLING ROW READER, at `x = 40`. `text_at` is EXACT-COORDINATE, so reading a STATUS row 0-2 through
+//   `body_row` (x = 12) answers `nullptr` — the failure direction is loud, which is why the two readers are
+//   separate rather than one reader with a tolerance.
+const char* status_row(int row) { return text_at(kStatusTextXExpected, body_y_expected(row)); }
+bool status_row_is(int row, const char* want) {
+    const char* s = status_row(row);
+    return s != nullptr && strcmp(s, want) == 0;
+}
 // ⛔⛔ AND THE ROW IS WHY THIS READER EXISTS AT ALL, rather than a `strstr` over `page_text`: the success screen draws
 //    the FULL id `0x12A1B2C3` and the fingerprint `A1B2C3`, and the fingerprint is by definition the LAST SIX
 //    CHARACTERS OF THE ID — so a substring search for it matches inside the id token and would pass on a renderer
 //    that never drew the fingerprint row at all. The token is therefore asserted AS THE STRING AT ITS OWN ROW.
-// ⓘ Guarded with the phase that uses it: `probe_main.cpp` is built with `-Werror`, so an unused static on the OTHER
-//   arm is `-Wunused-function` and a build failure ([[B169]]'s shape, one file over).
-constexpr int kBodyY0Expected = 19, kBodyDyExpected = 10;
-const char* body_row(int row) { return text_at(kBodyXExpected, kBodyY0Expected + row * kBodyDyExpected); }
+// ⓘ IT USED TO BE GUARDED BY `#if MR_N_LAYERS < 2` (its only caller was P15/P16, and an unused static under
+//   `-Werror` is a build failure — [[B169]]'s shape). §UI-17 S3's P17 reads the WIDE STATUS rows through it on
+//   BOTH arms, so the guard is gone and the pair sits beside its narrowed sibling above.
+const char* body_row(int row) { return text_at(kBodyXExpected, body_y_expected(row)); }
 bool body_row_is(int row, const char* want) {
     const char* s = body_row(row);
     return s != nullptr && strcmp(s, want) == 0;
 }
-#endif
+// ★★★★ [[B237]] — A ROW READER THAT IS **FAIL-CLOSED ON `nullptr`**, and it exists because a check wrote
+//      `strchr(r[0], '>')` on a row that a MUTANT had moved elsewhere: `text_at` answered `nullptr`, the mutant
+//      SEGFAULTED, and `run.sh` counted the crash as a successful reddening (the B237 blocker — the runner's rule
+//      is fixed there too, because a null-safe check is not a substitute for a runner that cannot be fooled).
+// ⛔ THE ANSWER FOR A MISSING ROW IS **false**, NOT "well, it carries no marker": a row that is not on the panel
+//    cannot satisfy a claim ABOUT the panel. Every negative-space check here must read that way — the failure
+//    direction is loud, which is the same rule `body_row_is` follows one line up.
+bool body_row_unmarked(int row) {
+    const char* s = body_row(row);
+    return s != nullptr && strchr(s, '>') == nullptr;
+}
 
 // ★★★★ §UI-17 S1 — ESCAPE AN ENTERED TEAM/INBOX LIST, and it is a NO-OP everywhere else by two independent tests:
 //      the boxed slot must be TEAM or INBOX (so the SETTINGS menu, a compose modal — which boxes SEND by the §5.2
@@ -1689,7 +1785,17 @@ int main() {
             g_exec = ExecLog{}; g_exec.ok = true; g_exec.code = MESHROUTE_NS::CmdCode::queued; g_exec.ctr = 42;
             t9 = settle(t9 + 1000);
             t9 = open_in_list(t9, kSlotTeam, ">id 60");    // the teammate row -> the DM compose list
-            t9 = double_press(t9 + 500); paint(t9);        // ...and send its first canned text
+            t9 = double_press(t9 + 500);                   // ...and send its first canned text
+            // ⚠⚠ §UI-17 S4 — THE HARNESS PAYS FOR A REAL BEHAVIOUR CHANGE, and it is the S2 note two lines below
+            //    wearing the other hat. ⛔ MEASURED, not anticipated: this phase's teammate row carries a
+            //    SECOND-SCALE route age, so its token now turns every second and `ui_team_invalidate` asks for the
+            //    repaint §1.9 F-8 requires. One of those frames lands between the activation and the paint below and
+            //    SPENDS the 2 Hz window, so the RESULT's own frame is refused and `paint()` re-reads the compose
+            //    list. ⇒ advance past the throttle before reading the panel, exactly as P9e already does one block
+            //    up. ⛔ NOTHING IS WEAKENED: the same two checks assert the same bytes — the harness merely gives the
+            //    panel the window a repainting screen now costs. (Removing the invalidation makes this line
+            //    unnecessary again, which is how the cause was measured.)
+            t9 += 700; paint(t9);
             CHK("P9d the DM really reached the executor", g_exec.calls == 1);
             CHK("P9d an ACCEPTED DM reads QUEUED, never SENT",
                 strstr(g_c.page_text, "QUEUED") != nullptr && strstr(g_c.page_text, "SENT, waiting") == nullptr);
@@ -2089,6 +2195,13 @@ int main() {
     // ★★ THE GEOMETRY IS STATED IN THIS FILE (see `kRailSlotY` above), never imported from the renderer's table.
     {
         uint32_t t16 = settle(1200000);
+        // ★★ §UI-17 S3 — THE CENSUS BELOW IS TAKEN ON A **NAMED** SCREEN, and that is a re-point rather than a
+        //    convenience. The non-text tally was `== 11` on whatever screen the walk happened to leave up; S3 gives
+        //    the STATUS body a 24x24 `draw_rect` mark, so the expectation is now SCREEN-DEPENDENT (STATUS 12, every
+        //    other screen 11) and a census taken on an unnamed screen would measure one of two right answers at
+        //    random. ⇒ INBOX first, for the rail's own five-plus-one; the STATUS arm follows and pins the extra
+        //    record at its own coordinates.
+        t16 = walk_to_slot(t16, kSlotInbox);
         paint(t16);
 
         // ---- (a) THE FIVE SLOTS, each glyph by POINTER IDENTITY, each at its canonical y ------------------------
@@ -2123,7 +2236,35 @@ int main() {
             strip_max_x() <= 127 && body_max_x() <= 127 && strip_max_y() <= 63);
         // ★ THE WHOLE FRAME'S NON-TEXT TALLY, which is what a sixth rail glyph or a second selection frame moves and
         //   neither of the two scoped counters above would: 5 strip glyphs + 5 rail glyphs + 1 selection frame.
+        // ⛔⛔ RE-POINTED BY §UI-17 S3, ⛔ NOT WEAKENED. `bitmaps_on_page` counts EVERY non-text record, `draw_rect`
+        //   included, and the STATUS body now draws one. ⇒ the expectation is SCREEN-DEPENDENT: an ordinary screen
+        //   still owes exactly 11 (asserted here, on INBOX) and STATUS owes exactly 12, with the twelfth pinned at
+        //   its own `12,12,24,24` immediately below. ⛔ A relaxation to `>= 11` would be the
+        //   instrument-that-cannot-fail shape; the number stays EXACT on both arms of the split.
         CHK("P14a the frame draws exactly 5 + 5 glyphs and 1 frame", bitmaps_on_page(0) == 11);
+        CHK("P14a ...and an ordinary screen's body draws no rect of its own", body_rects_on_page(0) == 0);
+        // ---- (a2) §UI-17 S3 — THE STATUS BODY's RESERVED 24x24 MARK -----------------------------------------------
+        // ★★ S6 replaces this `draw_rect` with the real artwork at the SAME four numbers; the point of reserving the
+        //    slot is that nothing else moves when it does. ⓘ The mark is a body draw and must never be mistaken for
+        //    the rail's selection frame — hence the geometry, not merely the count.
+        {
+            t16 = walk_to_slot(t16 + 500, kSlotStatus);
+            CHK("P14a STATUS draws exactly ONE more non-text record",
+                bitmaps_on_page(0) == 12 && body_rects_on_page(0) == 1);
+            bool mark_ok = false;
+            for (int i = 0; i < g_c.n_rec; ++i) {
+                const Canvas::Rec& r = g_c.rec[i];
+                if (r.is_text || r.page != 0 || r.bits != nullptr) continue;
+                if (r.x == kStatusMarkXExpected && r.y == kStatusMarkYExpected &&
+                    r.w == kStatusMarkWExpected && r.h == kStatusMarkHExpected) mark_ok = true;
+            }
+            CHK("P14a ...and it is the 24x24 mark at 12,12", mark_ok);
+            CHK("P14a ...and STATUS still boxes exactly ONE rail slot",
+                rail_frames_on_page(0) == 1 && rail_boxed_slot() == kSlotStatus);
+            // ⛔ THE POSITIVE TERM FOR THE NARROWED GEOMETRY, read through the sibling row reader at `x = 40`: row 0
+            //    always draws (`TEAM …` or `NO TEAM`), so a renderer that left every row at `kBodyX` reads nullptr.
+            CHK("P14a ...and STATUS row 0 is drawn at the narrowed x=40 origin", status_row(0) != nullptr);
+        }
 
         // ---- (b) EXACTLY ONE FRAME, AND IT NAMES THE SCREEN ------------------------------------------------------
         // ⛔ `rail_boxed_slot` answers -2 for MORE THAN ONE, so "the right slot is boxed" cannot be satisfied by a
@@ -2217,9 +2358,11 @@ int main() {
                     if (!r.is_text || r.page != 0 || r.y <= 9) continue;
                     if (r.x != 0) all_at_zero = false;
                 }
-                // ⚠ THE LABEL IS UNDER 64 BYTES ON PURPOSE — `run.sh`'s coverage roll-up parses `%-64s`, so a
-                //   longer one silently drops out of the "N of M reddened" denominator. Measured here: the first
-                //   wording was 67 bytes and read as "no control reddens" while C82 was turning it red.
+                // ⓘ CORRECTED IN PLACE 2026-08-21 ([[B229]] closed): this note read *"THE LABEL IS UNDER 64 BYTES
+                //   ON PURPOSE — `run.sh`'s coverage roll-up parses `%-64s`, so a longer one silently drops out of
+                //   the 'N of M reddened' denominator"*. The measurement it records is real (this wording was 67
+                //   bytes and read as "no control reddens" while C82 was turning it red) — but the roll-up no
+                //   longer parses the padding at all, so the LENGTH is no longer the reason. See the `CHK` macro.
                 CHK("P14e ...and EVERY emergency body draw keeps x=0", all_at_zero && body_text_min_x() == 0);
             }
             g_c.button_down = false;
@@ -2235,24 +2378,50 @@ int main() {
         //     rail. A renderer that moved only SOME sites would satisfy neither.
         // ⚠ THE WALK COVERS THE MODAL BODIES TOO, because those are the widest lines in the tree (the inbox preview
         //   row and the detail header).
+        // ⛔⛔ RE-POINTED BY §UI-17 S3, ⛔ NOT WEAKENED, AND THE SHAPE OF THE RE-POINT IS THE WHOLE POINT. Spec §2.1
+        //   reserves `x = 12..35, y = 12..35` of the STATUS body for a 24x24 mark and moves that screen's first
+        //   three rows to `x = 40`; every other screen keeps the one `kBodyX`. ⇒ the assertion becomes a PER-SCREEN
+        //   EXPECTED ORIGIN **SET** — STATUS `{12, 40}`, everything else `{12}` — over EVERY body text record, plus
+        //   THREE POSITIVE TERMS so it can still fail: STATUS drew at least one row at 40, at least one at 12, and
+        //   no `x = 40` row exceeds 14 columns (88 px).
+        // ⛔ NEVER `min_x >= 12`. That was the tempting one-line "fix" and it is the instrument-that-cannot-fail
+        //   shape this project has registered twenty-one times: it would pass for a body drawn anywhere to the
+        //   right of the rail, including one whose STATUS rows had silently lost five columns of meaning.
         {
-            bool x_ok = true, w_ok = true;
+            bool x_ok = true, w_ok = true, narrow_ok = true;
             int  widest = 0, widest_right = 0;
+            static const int kOneOrigin[1]    = { kBodyXExpected };
+            static const int kStatusOrigins[2] = { kBodyXExpected, kStatusTextXExpected };
             for (int k = 0; k < 5; ++k) {
                 t16 = walk_to_slot(t16 + 500, k);
-                if (body_text_min_x() >= 0 && body_text_min_x() != kBodyXExpected) x_ok = false;
+                const bool status = (k == kSlotStatus);
+                if (!body_x_only_in(status ? kStatusOrigins : kOneOrigin, status ? 2 : 1)) x_ok = false;
+                if (status) {
+                    // the two positive terms + the narrowed budget, all three measured on the real renderer
+                    if (body_rows_at_x(kStatusTextXExpected) < 1) narrow_ok = false;
+                    if (body_rows_at_x(kBodyXExpected)       < 1) narrow_ok = false;
+                    if (body_max_cols_at_x(kStatusTextXExpected) > kStatusNarrowColsExp) narrow_ok = false;
+                    // ...and the ROW-LEVEL split, which the set alone cannot see: rows 0-2 belong to the narrowed
+                    // origin and rows 3-4 to the wide one. A single row that slipped back under the mark is a row
+                    // drawn ON TOP of the artwork S6 is about to land there.
+                    for (int row = 0; row <= 2; ++row)
+                        if (text_at(kBodyXExpected, body_y_expected(row)) != nullptr) narrow_ok = false;
+                    for (int row = 3; row <= 4; ++row)
+                        if (text_at(kStatusTextXExpected, body_y_expected(row)) != nullptr) narrow_ok = false;
+                }
                 if (body_text_max_x() > 127) w_ok = false;
                 if (body_max_cols() > widest) widest = body_max_cols();
                 if (body_text_max_x() > widest_right) widest_right = body_text_max_x();
             }
             // ...and the two body-REPLACING views, which the screen walk cannot reach
             t16 = open_in_list(t16 + 500, kSlotInbox, ">CH7 ");
-            if (body_text_min_x() >= 0 && body_text_min_x() != kBodyXExpected) x_ok = false;
+            if (!body_x_only_in(kOneOrigin, 1)) x_ok = false;
             if (body_text_max_x() > 127) w_ok = false;
             if (body_max_cols() > widest) widest = body_max_cols();
             if (body_text_max_x() > widest_right) widest_right = body_text_max_x();
             t16 = double_press(t16 + 500); paint(t16);
-            CHK("P14f every ordinary body draw starts at x=12 (the one kBodyX)", x_ok);
+            CHK("P14f every body draw starts at its screen's own origin", x_ok);
+            CHK("P14f ...STATUS uses BOTH origins, rows 0-2 at 40 in 14 cols", narrow_ok);
             CHK("P14f ...and no ordinary body line exceeds 116 px", w_ok);
             printf("  INFO §7.3 audit: widest ordinary body line = %d columns, right edge x = %d (bound 19 / 127)\n",
                    widest, widest_right);
@@ -2357,6 +2526,409 @@ int main() {
                 strstr(g_c.page_text, "CFG! RELOAD")  == nullptr &&
                 strstr(g_c.page_text, mrui::kSettingsEnterText) != nullptr);
         }
+    }
+
+    // ============================================================================================================ P17
+    // ★★★★ §UI-17 S3 — THE **PRODUCTION HANDOFF**, AND IT IS THE ONE THING THE PURE SUITE STRUCTURALLY CANNOT SEE.
+    //      `test/test_firmware_ui_status.cpp` proves what `mrui::ui_status_*` RETURNS and `--target=uistatus` proves
+    //      each substitution is load-bearing — but BOTH call the formatters directly. Delete `status_text(2, l)`
+    //      from `draw_status_screen`, or point it at row 1, and every native case stays green, all THIRTEEN
+    //      `uistatus` mutations stay RED, and P14's geometry stays green: the panel simply loses a row.
+    //      ⇒ this phase drives DISTINCTIVE facts through the REAL node and asserts EVERY row's EXACT BYTES AT ITS
+    //      EXACT COORDINATE. That is the [[B226]] discipline (a token the pure suite proves and the production
+    //      renderer never shows is not proven), applied at the HANDOFF SEAM.
+    // ★★ THE VALUES ARE CHOSEN SO NO TWO ROWS CAN BE CONFUSED FOR ONE ANOTHER: `TEAM 3D9348A5` · `ME T220` ·
+    //    `3 KNOWN` · the unread/home line · `52.123,21.456`. No row's text is a substring of another's, so a
+    //    misroute cannot pass by coincidence.
+    {
+        // ---- the fixture, through the core's own public seams (⛔ never a poked snapshot) ----------------------
+        uint8_t s_pub[32], s_priv[32];
+        for (int i = 0; i < 32; ++i) { s_pub[i] = uint8_t(0xA0 + i); s_priv[i] = uint8_t(0x40 + i); }
+        MESHROUTE_NS::NodeConfig scfg{};
+        scfg.routing_sf = 7; scfg.allowed_sf_bitmap = (1u << 7); scfg.leaf_id = 0;
+        scfg.team_id = 0x3D9348A5u;      // -> `TEAM 3D9348A5`
+        scfg.lat_e7  = 521234567;        // ->  52.123
+        scfg.lon_e7  = 214567890;        // ->  21.456
+        g_node.on_init(scfg);
+        g_node.set_team_local_id(220);   // -> `ME T220`
+        g_node.team_channel_key_load(s_pub, s_priv, /*present=*/true);
+        g_node.test_learn_route(/*dest=*/70, /*via=*/70, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
+        g_node.test_learn_route(/*dest=*/71, /*via=*/71, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
+        g_node.test_learn_route(/*dest=*/72, /*via=*/72, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
+
+        uint32_t t18 = settle(1400000);
+        t18 = walk_to_slot(t18 + 500, kSlotStatus);
+        paint(t18);
+
+        // ---- (a) EVERY ROW, EXACT BYTES AT ITS EXACT COORDINATE ------------------------------------------------
+        {
+            const char* r[5] = { status_row(0), status_row(1), status_row(2), body_row(3), body_row(4) };
+            printf("  INFO §UI-17 STATUS body: [%s] [%s] [%s] [%s] [%s]\n",
+                   r[0] ? r[0] : "-", r[1] ? r[1] : "-", r[2] ? r[2] : "-",
+                   r[3] ? r[3] : "-", r[4] ? r[4] : "-");
+        }
+        CHK("P17a STATUS row 0 is `TEAM 3D9348A5` at x=40",  status_row_is(0, "TEAM 3D9348A5"));
+        CHK("P17a row 1 is `ME T220` at x=40",               status_row_is(1, "ME T220"));
+        // ★★★ ROWS 2 AND 3 ARE ASSERTED AGAINST THE **STRIP's OWN TOKENS**, not against literals, and that is
+        //     STRONGER rather than weaker. Spec §2.2 notes d and e both rule that these two rows state the SAME two
+        //     facts the strip's people-count and envelope already draw, through the SAME `ui_fmt_team` /
+        //     `ui_fmt_mail` tokens, *"so the two surfaces cannot disagree"* (U1). Comparing the surfaces measures
+        //     exactly that rule. ⛔ It is not a tautology: the two tokens are produced at DIFFERENT call sites from
+        //     DIFFERENT structs (`UiChrome` vs `UiSnapshot`), and a body that stopped agreeing with the strip is
+        //     precisely the defect the rule exists to forbid. ⓘ And it is immune to how many routes an earlier
+        //     phase happened to leave behind, which a literal would not be.
+        // ⓘ The strip's slot coordinates are stated here independently of the renderer's table, as P13's are.
+        {
+            const char* team = text_at(/*people text_x=*/64, /*strip baseline=*/7);
+            const char* mail = text_at(/*mail   text_x=*/ 8, /*strip baseline=*/7);
+            char want2[32], want3[40];
+            snprintf(want2, sizeof want2, "%s KNOWN", team ? team : "?");
+            snprintf(want3, sizeof want3, "%s NEW / HOME --", mail ? mail : "?");
+            CHK("P17a row 2 is the STRIP's own team token + KNOWN, at x=40",
+                team != nullptr && status_row_is(2, want2));
+            CHK("P17a row 3 is the STRIP's own unread token + HOME, at x=12",
+                mail != nullptr && body_row_is(3, want3));
+        }
+        CHK("P17a row 4 is the configured position at x=12", body_row_is(4, "52.123,21.456"));
+        // ⛔ ...AND NO ROW IS DRAWN AT THE OTHER SCREEN'S ORIGIN. Without this a renderer that drew row 2 at BOTH
+        //    origins would satisfy every check above while overprinting the reserved mark.
+        {
+            bool split_ok = true;
+            for (int row = 0; row <= 2; ++row)
+                if (text_at(kBodyXExpected, body_y_expected(row)) != nullptr) split_ok = false;
+            for (int row = 3; row <= 4; ++row)
+                if (text_at(kStatusTextXExpected, body_y_expected(row)) != nullptr) split_ok = false;
+            CHK("P17a ...and no STATUS row is drawn at the other origin", split_ok);
+        }
+
+        // ---- (b) ★★★ THE FROZEN FRAME: A POSITION THAT MOVES **BETWEEN PAGES** MAY NOT TEAR THE ROW -------------
+        // ⛔⛔ THIS IS THE CONTROL FOR A DEFECT THAT SHIPPED IN S3's FIRST CUT: `draw_status_screen` read
+        //     `g_node.config()` LIVE, and `draw_frame` runs ONCE PER OLED PAGE. U8g2 re-clips the WHOLE scene per
+        //     page, so a `cfg set lat` landing between two of the eight replays drew half the coordinate row from
+        //     each fix. The cure is the snapshot (`own_lat_e7` / `own_lon_e7` / `own_fix`), and THIS is the only
+        //     venue in the tree that can see it — the same shape P13d uses for the strip's frozen chrome.
+        // ⚠ `mutable_config()` is the core's OWN live-tweak seam — exactly what a device `cfg set lat` writes.
+        // ⛔ NO `settle()` ANYWHERE BELOW, AND THAT IS LOAD-BEARING RATHER THAN TIDY: a `short` on STATUS is
+        //    ordinary NAVIGATION — it moves the rail to TEAM — so a press between these steps would measure the
+        //    wrong screen. The repaints are driven by a PUSH (`dirty_the_model`) plus time past the 2 Hz throttle,
+        //    which is exactly how a snapshot-only change reaches the panel on device. ⚠ The whole block stays well
+        //    inside `kBlankMs` (15 s) of the walk's last real press, or the panel would blank underneath it.
+        {
+            t18 += 1000;                                      // past the 500 ms paint throttle
+            dirty_the_model(t18);
+            run_ticks(t18 + 100, 3, 10);                      // open the frame and push three pages
+            const char* p0 = text_at(kBodyXExpected, body_y_expected(4), 0);
+            char frozen[24];
+            snprintf(frozen, sizeof frozen, "%s", p0 ? p0 : "?");
+            CHK("P17b precondition: page 0 drew the ORIGINAL position",
+                strcmp(frozen, "52.123,21.456") == 0);
+            g_node.mutable_config().lat_e7 = -891234567;      // ⚡ the fix MOVES under the open frame
+            g_node.mutable_config().lon_e7 = -1791234567;
+            run_ticks(t18 + 140, 6, 10);                      // ...and the remaining pages replay
+            bool same_every_page = true;
+            for (int p = 0; p < 8; ++p) {
+                const char* r = text_at(kBodyXExpected, body_y_expected(4), p);
+                if (r == nullptr || strcmp(r, frozen) != 0) same_every_page = false;
+            }
+            CHK("P17b every page of that frame drew the SAME position row", same_every_page);
+            CHK("P17b ...including the pages drawn AFTER the fix moved",
+                text_at(kBodyXExpected, body_y_expected(4), 7) != nullptr &&
+                strcmp(text_at(kBodyXExpected, body_y_expected(4), 7), "52.123,21.456") == 0);
+            // ★ AND THE MOVE IS NOT LOST (§8.3 rule 5 / §B107): the NEXT frame renders the newer position.
+            t18 += 1000; dirty_the_model(t18); paint(t18 + 100); t18 += 200;
+            CHK("P17b ...and the NEXT frame renders the new position",
+                body_row_is(4, "-89.123,-179.123"));
+        }
+
+        // ---- (c) THE PUBLISH SITE's OWN TWO ANSWERS, through the real renderer ---------------------------------
+        // ⛔ `(0,0)` IS `NO LOCATION`, NEVER `0.000,0.000` — the core refuses a located send there, so the panel
+        //    must not claim the Gulf of Guinea. And ONE non-zero coordinate IS a fix: the predicate is an OR,
+        //    because that is what the refusal is keyed on. Both are decided at `build_snapshot`'s publish site,
+        //    which no native case compiles.
+        {
+            g_node.mutable_config().lat_e7 = 0;
+            g_node.mutable_config().lon_e7 = 0;
+            t18 += 1000; dirty_the_model(t18); paint(t18 + 100); t18 += 200;
+            CHK("P17c no fix at all renders NO LOCATION, never 0.000,0.000",
+                body_row_is(4, "NO LOCATION"));
+            g_node.mutable_config().lon_e7 = 214567890;       // on the equator: lat 0, lon set -> STILL a fix
+            t18 += 1000; dirty_the_model(t18); paint(t18 + 100); t18 += 200;
+            CHK("P17c one non-zero coordinate IS a fix (the predicate is an OR)",
+                body_row_is(4, "0.000,21.456"));
+        }
+
+        // ---- restore the fixture P15/P16 inherit (P9d's team + P13's content key) ------------------------------
+        {
+            MESHROUTE_NS::NodeConfig back{};
+            back.routing_sf = 7; back.allowed_sf_bitmap = (1u << 7); back.leaf_id = 0;
+            back.team_id = 0xABCD1234u;
+            g_node.on_init(back);
+            g_node.set_team_local_id(50);
+            g_node.team_channel_key_load(s_pub, s_priv, /*present=*/true);
+            g_node.test_learn_route(/*dest=*/60, /*via=*/60, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
+            g_node.test_learn_route(/*dest=*/61, /*via=*/61, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
+            g_node.test_learn_route(/*dest=*/62, /*via=*/62, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
+            t18 = settle(t18 + 1000);
+        }
+    }
+
+    // ============================================================================================================ P18
+    // ★★★★ §UI-17 S4 — THE **PRODUCTION HANDOFF** FOR THE TEAM ROW, and it is the same seam P17 exists for one screen
+    //      over. `test/test_firmware_ui_team.cpp` proves what `mrui::ui_team_row` RETURNS and `--target=uiteam` proves
+    //      each field is load-bearing — but BOTH call the formatter directly. Point `draw_team_screen` at the wrong
+    //      snapshot row, drop the call, or hand it the wrong marker, and every native case stays green, all SIXTEEN
+    //      `uiteam` mutations stay RED, and P14's geometry stays green: the panel simply shows the wrong people.
+    //      ⇒ this phase drives THREE DISTINCTIVE teammates through the REAL node — the real label resolver, the real
+    //      route ages — and asserts EVERY row's EXACT BYTES AT ITS EXACT COORDINATE ([[B226]]'s discipline).
+    // ★★ THE THREE ROWS ARE THE THREE ANSWERS THE LABEL RESOLVER CAN GIVE (`label_for_team_id`), so a misroute cannot
+    //    pass by coincidence: a cached NAME (`Wolfgangetta` -> `Wolfga`), a key with NO name (`0x00c0ffee` ->
+    //    `0x00c0`) and no key at all (`id 83`). No row's text is a substring of another's, and each carries its own
+    //    route age (`3m` / `2m` / `1m`).
+    // ⛔ THE AGES ARE EXACT, NOT APPROXIMATE: the probe's clock is deterministic, so each route is STAMPED at a fixed
+    //    offset before the frame that reads it (`stamp_min` / the second-scale stamps below). ⚠ `set_now` alone moves
+    //    only the HAL clock the core stamps with — no `mr_ui_tick` runs at those instants, so the UI never sees the
+    //    backwards step.
+    {
+        // ---- the fixture, through the core's own public seams (⛔ never a poked snapshot) ----------------------
+        // ★ `set_team_id` is the core's OWN team-switch entry point and it drops the previous team's `_rt_team`,
+        //   `_team_peer` and `_team_keys` (`clear_team_routing_state`) — which is what makes the roster below
+        //   EXACTLY three rows rather than three added to whatever earlier phases left.
+        (void)g_node.set_team_id(0x51CE0004u);
+        g_node.set_team_local_id(90);
+
+        uint8_t pub81[32], pub82[32];
+        for (int i = 0; i < 32; ++i) { pub81[i] = uint8_t(0x10 + i); pub82[i] = uint8_t(0x60 + i); }
+        pub82[0] = 0xEE; pub82[1] = 0xFF; pub82[2] = 0xC0; pub82[3] = 0x00;   // -> LE hash 0x00C0FFEE
+        const uint32_t hash81 = MESHROUTE_NS::key_hash32_of(pub81);
+        const uint32_t hash82 = MESHROUTE_NS::key_hash32_of(pub82);
+        const bool named_ok = g_node.peer_key_set(hash81, pub81,
+                                                  MESHROUTE_NS::Node::PeerKeyConf::authoritative, "Wolfgangetta", 12);
+        CHK("P18 precondition: the named teammate's key and name are cached", named_ok);
+        CHK("P18 precondition: the unnamed teammate's hash is 0x00c0ffee", hash82 == 0x00C0FFEEu);
+
+        // ⚠⚠ A HARNESS TRAP, MEASURED RATHER THAN GUESSED, AND IT IS WHY THE ID→HASH BINDINGS ARE RE-STAMPED WITH THE
+        //    ROUTES BELOW. `DeviceHal::now()` extends the 32-bit `millis()` into a MONOTONIC 64-bit value, so every
+        //    deliberate BACKWARDS `set_now` here reads as a millis WRAP and advances that clock by 2^32 ms (~49.7
+        //    days). A `team_key_set` stamped before such a jump then falls past `team_key_of_id`'s 48 h freshness
+        //    gate, the resolver drops to the bare id, and the rows would quietly read `id 81` — a green-looking
+        //    fixture measuring the WRONG label. ⇒ `stamp` refreshes both bindings after every jump it makes.
+        // ⓘ The UI never sees the backwards step: no `mr_ui_tick` runs at those instants, and the model's own clock
+        //   is the `now_ms` argument, not the HAL's.
+        auto bind_keys = [&]() {
+            g_node.team_key_set(81, hash81, MESHROUTE_NS::Node::IdBindSource::bcn,
+                                MESHROUTE_NS::Node::IdBindConf::authoritative);
+            g_node.team_key_set(82, hash82, MESHROUTE_NS::Node::IdBindSource::bcn,
+                                MESHROUTE_NS::Node::IdBindConf::authoritative);
+        };
+        // stamp(when, a0, a1, a2) — put the three routes at EXACTLY those ages (ms) as of `when`, and leave the HAL
+        // clock at `when`. ⓘ `rt_merge` refreshes `last_seen_ms` on a same-next_hop merge whichever direction it
+        // moves (`node_routing.cpp`'s metadata-only arm), so a re-stamp is a re-stamp and not a "best wins".
+        // ⚠ THE THREE ARE STAMPED **OLDEST FIRST**, for the same clock reason: each BACKWARDS step is read as a wrap,
+        //   so the helper takes exactly ONE step back and then walks forward through the rest. Stamping them in
+        //   argument order would put a 2^32 ms gap between two rows and the first one would render `old`.
+        auto stamp = [&](uint32_t when, uint32_t a0, uint32_t a1, uint32_t a2) {
+            struct S { uint8_t id; uint32_t age; } r[3] = { {81, a0}, {82, a1}, {83, a2} };
+            for (int i = 0; i < 3; ++i)
+                for (int j = i + 1; j < 3; ++j)
+                    if (r[j].age > r[i].age) { const S sw = r[i]; r[i] = r[j]; r[j] = sw; }
+            for (const S& e : r) {
+                set_now(when - e.age);
+                g_node.test_learn_route(e.id, e.id, 1, 144, /*team_plane=*/true);
+            }
+            set_now(when);
+            bind_keys();
+        };
+        // The minute-scale fixture: 200 / 130 / 90 s, each chosen CLEAR of its token's boundary so a stray tick
+        // cannot move one.
+        auto stamp_min = [&](uint32_t when) { stamp(when, 200000, 130000, 90000); };
+
+        uint32_t t19 = settle(1600000);
+        t19 = walk_to_slot(t19 + 500, kSlotTeam);
+
+        // ---- (a) EVERY ROW, EXACT BYTES AT ITS EXACT COORDINATE, on the PASSIVE screen -------------------------
+        {
+            const uint32_t at = t19 + 1000;
+            stamp_min(at);
+            dirty_the_model(at);
+            paint(at + 100);
+            const char* r[4] = { body_row(0), body_row(1), body_row(2), body_row(3) };
+            printf("  INFO §UI-17 TEAM rows: [%s] [%s] [%s] [%s]\n",
+                   r[0] ? r[0] : "-", r[1] ? r[1] : "-", r[2] ? r[2] : "-", r[3] ? r[3] : "-");
+            CHK("P18a row 0 is the NAMED teammate, clamped to six columns",
+                body_row_is(0, " Wolfga  3m        "));
+            CHK("P18a row 1 is the 0x<hash> label, clamped the same way",
+                body_row_is(1, " 0x00c0  2m        "));
+            CHK("P18a row 2 is the bare-id fallback, and its own age",
+                body_row_is(2, " id 83   1m        "));
+            // ⛔ THE TWO RESERVED COLUMNS ARE PART OF EVERY ASSERTION ABOVE — each row is its WHOLE 19 characters,
+            //    trailing blanks included, which is what makes S5 a token substitution rather than a re-layout.
+            CHK("P18a every drawn row is exactly 19 columns wide",
+                r[0] != nullptr && strlen(r[0]) == 19 && r[1] != nullptr && strlen(r[1]) == 19 &&
+                r[2] != nullptr && strlen(r[2]) == 19);
+            // ⛔ ...AND NO ROW IS DRAWN AT THE **STATUS** ORIGIN. Without this a renderer that drew the roster at
+            //    `x = 40` — under S3's reserved mark — would satisfy nothing above and still look plausible.
+            bool only_body = true;
+            for (int row = 0; row <= 4; ++row)
+                if (text_at(kStatusTextXExpected, body_y_expected(row)) != nullptr) only_body = false;
+            CHK("P18a ...and no TEAM row is drawn at the STATUS origin", only_body);
+            // §UI-17 S1's rule, re-measured through the new format: a PASSIVE preview marks nothing and offers no
+            // exit row, so a fourth row must not exist at all.
+            // ⛔ READ THROUGH `body_row_unmarked`, ⛔ NEVER `strchr(r[i], …)` ([[B237]]): a mutant that MOVES the body
+            //    leaves `text_at` answering `nullptr`, and this check dereferenced it — a crash, which the runner
+            //    then scored as a successful control. The helper is fail-closed: no row means no claim.
+            CHK("P18a a passive TEAM screen marks no row and draws no BACK",
+                body_row_unmarked(0) && body_row_unmarked(1) && body_row_unmarked(2) && r[3] == nullptr);
+        }
+
+        // ---- (b) THE ENTERED LIST: the marker moves, and ⛔ nothing else on the line does -----------------------
+        {
+            uint32_t tb = t19 + 2000;
+            stamp_min(tb);
+            tb = double_press(tb); paint(tb);
+            CHK("P18b entering marks row 0 and moves no other column",
+                body_row_is(0, ">Wolfga  3m        "));
+            CHK("P18b ...and the last row is the shared BACK row", body_row_is(3, " BACK"));
+            // One `short` walks the list — ⛔ it does not leave the screen (the contained-`BACK` rule) — and the
+            // marker moves ONE row. ⚠ The rows are re-stamped first so the walk's own ~1.2 s cannot move a token.
+            stamp_min(tb + 400);
+            tb = settle(tb + 500);
+            CHK("P18b a short walks to row 1, which is now the marked one",
+                body_row_is(1, ">0x00c0  2m        ") && body_row_is(0, " Wolfga  3m        "));
+        }
+
+        // ---- (c) ★★★ THE FROZEN FRAME: A ROUTE AGE THAT MOVES **BETWEEN PAGES** MAY NOT TEAR THE ROW ------------
+        // ⛔ The S3 defect's shape, one screen over: `draw_frame` runs ONCE PER OLED PAGE and u8g2 re-clips the whole
+        //    scene each time, so a row read live would draw half of one age and half of another. The cure is the
+        //    frozen snapshot, and this is the only venue in the tree that can see it.
+        // ⛔ NO `settle()` INSIDE THIS BLOCK: a `short` here would walk the list or pass the screen, so the repaint
+        //    is driven by a PUSH plus time — exactly how a snapshot-only change reaches the panel on device.
+        {
+            uint32_t tc = walk_to_slot(t19 + 6000, kSlotTeam);
+            stamp_min(tc + 1000);
+            dirty_the_model(tc + 1000);
+            run_ticks(tc + 1100, 3, 10);                      // open the frame and push three pages
+            char frozen[24];
+            const char* p0 = text_at(kBodyXExpected, body_y_expected(0), 0);
+            snprintf(frozen, sizeof frozen, "%s", p0 ? p0 : "?");
+            CHK("P18c precondition: page 0 drew the row the frame froze",
+                strcmp(frozen, " Wolfga  3m        ") == 0);
+            stamp(tc + 1100, 500000, 130000, 90000);          // ⚡ the route age JUMPS under the open frame
+            run_ticks(tc + 1140, 6, 10);                      // ...and the remaining pages replay
+            bool same_every_page = true;
+            for (int p = 0; p < 8; ++p) {
+                const char* r = text_at(kBodyXExpected, body_y_expected(0), p);
+                if (r == nullptr || strcmp(r, frozen) != 0) same_every_page = false;
+            }
+            CHK("P18c every page of that frame drew the SAME team row", same_every_page);
+            // ★ AND THE MOVE IS NOT LOST (§8.3 rule 5 / §B107): the NEXT frame renders the newer age.
+            uint32_t tn = tc + 2200;
+            dirty_the_model(tn); paint(tn + 100);
+            CHK("P18c ...and the NEXT frame renders the newer route age",
+                body_row_is(0, " Wolfga  8m        "));
+        }
+
+        // ---- (d) ★★★★ §1.9 F-8 — A LIT TEAM SCREEN'S AGES **TURN**, WITH NO PRESS AND NO PUSH ------------------
+        // ⛔⛔ THIS IS THE PRE-EXISTING GAP THE SLICE CLOSES, AND IT IS COUNTED RATHER THAN ARGUED: before S4 the only
+        //    invalidation in the tree compared the CHROME projection, which carries no per-row body token, so
+        //    `FrameGate::step` answered `idle` for ever and the panel sat on a stale age. Every check below runs
+        //    with ⛔ NO gesture and ⛔ NO push — only the clock.
+        {
+            uint32_t td = walk_to_slot(t19 + 12000, kSlotTeam) + 1000;
+            // Row 0 is stamped in SECONDS (its token turns every second); rows 1 and 2 stay in minutes.
+            stamp(td, 12000, 130000, 90000);
+            dirty_the_model(td); paint(td + 100);
+            CHK("P18d precondition: the lit TEAM screen shows a 12s route age",
+                body_row_is(0, " Wolfga 12s        "));
+            const int frames0 = g_c.begin_frame;
+            run_ticks(td + 1200, 10, 10);                     // one second on, and NOTHING else has happened
+            CHK("P18d ★ the age turns on a LIT panel with no press and no push",
+                g_c.begin_frame == frames0 + 1 && body_row_is(0, " Wolfga 13s        "));
+            // ⓘ A reference paint whose NEXT token turn lands inside the 2 Hz window ...
+            run_ticks(td + 2900, 10, 10);
+            CHK("P18d ...a second turn repaints too (the rule is not one-shot)",
+                g_c.begin_frame == frames0 + 2 && body_row_is(0, " Wolfga 14s        "));
+            // ⛔ ...AND THE THROTTLE IS STILL FREE TO REFUSE IT. The invalidation only ever ASKS for a paint; the
+            //    MAC-idle gate and the 2 Hz throttle inside `FrameGate::step` decide.
+            const int frames2 = g_c.begin_frame;
+            run_ticks(td + 3050, 5, 10);                      // the token HAS turned, ~150 ms after that paint
+            CHK("P18d ⛔ the 2 Hz throttle still REFUSES a turn inside its window",
+                g_c.begin_frame == frames2 && body_row_is(0, " Wolfga 14s        "));
+            run_ticks(td + 3600, 10, 10);                     // past the throttle — the request was not lost
+            CHK("P18d ...and the refused request is not lost, it paints next",
+                g_c.begin_frame == frames2 + 1 && body_row_is(0, " Wolfga 15s        "));
+        }
+
+        // ---- (d2) ⛔ AND A RAW AGE THAT MOVES INSIDE ITS BUCKET ASKS FOR NOTHING ---------------------------------
+        // ★ Without this the fix above would be indistinguishable from "repaint every tick", which is the tempting
+        //   wrong implementation and would cost the panel its 2 Hz ceiling for a screen that did not change.
+        {
+            uint32_t te = walk_to_slot(t19 + 20000, kSlotTeam) + 1000;
+            stamp_min(te);                                    // 3m / 2m / 1m — every token far from its boundary
+            dirty_the_model(te); paint(te + 100);
+            CHK("P18d2 precondition: the panel is lit on the three minute-aged rows",
+                body_row_is(0, " Wolfga  3m        ") && body_row_is(2, " id 83   1m        "));
+            const int frames = g_c.begin_frame;
+            const int cmds   = g_c.bus_cmds();
+            run_ticks(te + 1200, 200, 10);                    // 2 s of ticks, no press, no push, no token turn
+            CHK("P18d2 ⛔ while every token holds, no frame opens at all", g_c.begin_frame == frames);
+            CHK("P18d2 ...and the panel bus is not touched either", g_c.bus_cmds() == cmds);
+        }
+
+        // ---- (e) ⛔ AND A **DARK** PANEL IS NOT WOKEN BY ANY OF IT, SO SLEEP IS UNAFFECTED ------------------------
+        // ★★ `FrameGate::step` tests `blanked` FIRST and never examines `dirty`, so an invalidation raised while dark
+        //    changes nothing observable — but that is a claim about a code path, and this measures it: no frame, no
+        //    bus command, and `mr_ui_allows_sleep()` true across a window in which the token turns every second.
+        {
+            uint32_t tk = walk_to_slot(t19 + 26000, kSlotTeam) + 1000;
+            stamp(tk, 12000, 130000, 90000);
+            dirty_the_model(tk); paint(tk + 100);
+            CHK("P18e precondition: the panel is lit on TEAM", body_row_is(0, " Wolfga 12s        "));
+            run_ticks(tk + 200, 170, 100);                    // 17 s with NO press: the attention window expires
+            CHK("P18e the panel blanked with no press at all", g_c.last_power_save == 1);
+            const int frames = g_c.begin_frame, cmds = g_c.bus_cmds();
+            for (int i = 0; i < 60; ++i) tick(tk + 17400 + uint32_t(i) * 100);   // 6 s: six token turns, in the dark
+            CHK("P18e ⛔ a dark TEAM screen opens no frame however many tokens turn",
+                g_c.begin_frame == frames && g_c.bus_cmds() == cmds);
+            // ⓘ THE SLEEP HALF IS MEASURED IN THE NATIVE SUITE, NOT HERE, AND THE REASON IS THIS BINARY's OWN STATE:
+            //   P10h deliberately latches `mr_ui_allows_sleep()` OFF for the whole boot (the fail-closed hardware
+            //   case), so every later phase would read `false` whatever the UI did — an instrument that cannot fail.
+            //   `test/test_firmware_ui_team.cpp`'s blanked case drives `ui_allows_sleep` directly and requires TRUE
+            //   across the same token turns. What IS attributable here is the two counters above: no frame opened, so
+            //   `frame_open()` — the term that would have taken sleep away — never became true.
+            // ★ THE WAKE PRESS IS CONSUMED and the frame it opens shows the CURRENT age — ⛔ never the one the panel
+            //   went dark on. The route is re-stamped so the expected token is exact rather than approximate.
+            // ⚠ STAMPED **BEFORE** `tw`, deliberately: `settle` ticks at `tw` and the stamp helper must not leave
+            //   the HAL clock ahead of that, or the backwards step would advance the monotonic epoch again (see the
+            //   clock note at the top of this phase) and every row would read `49d` from a bare id.
+            const uint32_t tw = tk + 24000;
+            stamp(tw - 1000, 200000, 130000, 90000);          // -> a MINUTE-scale age, so the expected token
+            //   cannot depend on WHICH tick of the wake opens the frame: `3m` spans 180..239 s and the frame opens
+            //   inside one second of `tw`. ⛔ And it is a token the dark frame could not have been showing — that
+            //   one froze on `12s` — so "the CURRENT age" is what this assertion actually distinguishes.
+            t19 = settle(tw);
+            CHK("P18e the wake paints the CURRENT route age, not the dark one",
+                body_row_is(0, " Wolfga  3m        "));
+        }
+
+        // ---- restore the fixture the later phases inherit (P17's own restore, verbatim) -------------------------
+        // ⚠ THE TEAM PLANE IS DROPPED FIRST, through the core's own verb, or this phase's three teammates would
+        //   linger in the roster every later phase reads.
+        {
+            uint8_t s_pub[32], s_priv[32];
+            for (int i = 0; i < 32; ++i) { s_pub[i] = uint8_t(0xA0 + i); s_priv[i] = uint8_t(0x40 + i); }
+            (void)g_node.set_team_id(0);
+            MESHROUTE_NS::NodeConfig back{};
+            back.routing_sf = 7; back.allowed_sf_bitmap = (1u << 7); back.leaf_id = 0;
+            back.team_id = 0xABCD1234u;
+            g_node.on_init(back);
+            g_node.set_team_local_id(50);
+            g_node.team_channel_key_load(s_pub, s_priv, /*present=*/true);
+            g_node.test_learn_route(/*dest=*/60, /*via=*/60, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
+            g_node.test_learn_route(/*dest=*/61, /*via=*/61, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
+            g_node.test_learn_route(/*dest=*/62, /*via=*/62, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
+            t19 = settle(t19 + 1000);
+        }
+        (void)t19;
     }
 
     // ============================================================================================================ P15

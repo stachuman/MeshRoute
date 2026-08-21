@@ -109,6 +109,12 @@
 #include "firmware_ui_icons.h"   // ★ the strip's glyphs. `inline constexpr` at namespace scope ⇒ `.rodata`, and
                                  //   §8.1's amendment requires them to land in FLASH, not RAM.
 #include "firmware_ui_send.h"
+#include "firmware_ui_status.h"  // ★★ §UI-17 S3: the STATUS body's five rows, EVERY substitution and row 4's
+                                 //   priority, as pure strings — §B115's rule, because nothing in this TU is
+                                 //   compiled by the native suite or the simulator. `draw_status_screen` below is
+                                 //   placement and one `draw_rect`, nothing else.
+#include "firmware_ui_team.h"    // ★★ §UI-17 S4: the TEAM row's ruled format, its route-age token, the two reserved
+                                 //   columns and the bounded clock-driven repaint — pure, for the same §B115 reason.
 #include "firmware_ui_prov.h"    // ★★ §UI-15 slice 5: the PURE team-create adapter (`mrfw::UiProvisionAdapter` over
                                  //   `mrfw::ITeamCreateDevice`). EVERY decision of §3.6.3's create — the PHY
                                  //   precondition, `phy.present = false`, the verdict mapping — lives THERE, where
@@ -429,9 +435,13 @@ mrui::SendExec ui_exec(const char* line, size_t len, void* /*ctx*/) {
 //    coordinates attached to it.
 // ⚠ The `(0,0)` test is the CORE's own predicate, reused rather than re-derived (U1): it is what the refusal is
 //   keyed on, so any other definition of "have a fix" would disagree with the thing that actually rejects us.
+// ⓘ §UI-17 S3: THE PREDICATE ITSELF MOVED INTO THE PURE UNIT and this is now a one-line forward. STATUS row 4 has
+//   to answer the same question (`(0,0)` renders `NO LOCATION`, spec §2.2 note h) and a second spelling of it here
+//   would be the S1/L9 fork this project keeps paying for (U1). ⛔ The MEANING is unchanged — same two fields, same
+//   `||` — so the `-l` gate above behaves exactly as it did; what changed is that a native case can now drive it.
 bool ui_have_fix() {
     const MESHROUTE_NS::NodeConfig& cfg = g_node.config();
-    return cfg.lat_e7 != 0 || cfg.lon_e7 != 0;
+    return mrui::ui_status_have_fix(cfg.lat_e7, cfg.lon_e7);
 }
 
 void ui_perform_send(const mrui::SendReq& req, uint32_t now_ms) {
@@ -612,6 +622,17 @@ mrui::UiSnapshot build_snapshot(uint32_t now_ms) {
     // ★ THE TEAM CHANNEL **CONTENT** KEY (§4.4) — not the node's own crypto identity, and not a cached peer key.
     //   ⓘ Stubbed to false on a !MR_FEAT_TEAM build, so no guard is needed here either.
     s.team_key_present     = g_node.team_channel_key_present();
+    // ★★★★ §UI-17 S3 — OUR OWN CONFIGURED POSITION, PUBLISHED HERE AND NOWHERE ELSE, because THIS is the site the
+    //      frame freezes. `draw_status_screen` used to read `g_node.config()` itself, and `draw_frame` runs ONCE
+    //      PER OLED PAGE — so a coordinate changing mid-frame TORE row 4 across the eight page replays. ⇒ the two
+    //      coordinates ride the snapshot VERBATIM (no cast, no clamp — the `home_confirm_age_ms` rule) and the
+    //      "do we have a fix at all" question is answered ONCE, by the one predicate, right here.
+    // ⓘ `ui_have_fix()` above calls the SAME predicate for the `-l` gate, where the LIVE answer at press time is
+    //   what a distress send needs; this is the FROZEN one, for the frame. Same definition, two instants (U1).
+    const MESHROUTE_NS::NodeConfig& own_cfg = g_node.config();
+    s.own_lat_e7           = own_cfg.lat_e7;
+    s.own_lon_e7           = own_cfg.lon_e7;
+    s.own_fix              = mrui::ui_status_have_fix(own_cfg.lat_e7, own_cfg.lon_e7);
     fill_inbox_rows(s);
     return s;
 }
@@ -709,6 +730,11 @@ static_assert(kBodyCols * 6 <= kBodyPx, "design §3.2: the body's column count d
 static_assert(kBodyCols == mrui::kDetailCols,
               "design §7.3: the inbox detail wraps at the MODEL's freeze point, so its column count and the "
               "renderer's body width are ONE number — a mismatch makes detail_pages a lie");
+// ★ §UI-17 S4: the TEAM row's five fields are budgeted against the SAME body width, in the pure unit that composes
+//   them. ⛔ Not a second literal there either — the header derives its 19 from its own field widths and this is
+//   where the two meet, so a body that narrowed and a row that did not cannot coexist.
+static_assert(int(mrui::kTeamRowCols) == kBodyCols,
+              "spec §3.2: the TEAM row fills the body's own column count — one width, not a second literal");
 
 // ★★★★ THE ONE ORDINARY-BODY DRAW, AND IT DELIBERATELY DOES **NOT** CLAMP THE LINE.
 //   §7.1 rule 5 requires dynamic labels to be *"explicitly clamped or moved to a second row"*, and every one of them
@@ -722,6 +748,36 @@ static_assert(kBodyCols == mrui::kDetailCols,
 //   the same information u8g2's clip loses, with a comment claiming it was a policy. ⇒ the width is PROVEN per
 //   format (the §7.3 audit written beside each screen) and MEASURED end to end by P14f, which can therefore fail.
 void body_text(int row, const char* s) { mrui::draw_text(kBodyX, body_y(row), s); }
+
+// ======================================================== §UI-17 S3 / spec §2.1 — THE STATUS BODY'S RESERVED MARK
+// ★★★ THE SLOT IS RESERVED **NOW** SO THE ARTWORK CAN LAND LATER WITHOUT MOVING A PIXEL OF TEXT. S3 draws a
+//     `draw_rect` placeholder; S6 replaces it with a native 24x24 monochrome XBM (72 B of `.rodata`, or an accepted
+//     16x16 centred inside the same slot) and ⛔ moves no geometry and no text — that is the whole point of
+//     reserving it. ⛔ NO RUNTIME SCALING, ever.
+// ★★ AND THE TEXT ORIGIN IS THE SLOT's CONSEQUENCE, not an independent number: rows 0-2 clear the mark at `x = 40`
+//    and therefore have 88 px = **14** columns, while rows 3-4 sit below it and keep the body's own 19 at `kBodyX`.
+//    ⛔ The two column budgets are `mrui::kStatusNarrowCols` / `kStatusWideCols` — declared beside the strings they
+//       bound — and the pixel arithmetic that justifies them is asserted here, where the pixels are.
+constexpr int kStatusMarkX = kBodyX;   // §2.1: x = 12..35 — the mark shares the body's left margin
+constexpr int kStatusMarkY = 12;       // §2.1: y = 12..35 — clear of the y = 9 rule
+constexpr int kStatusMarkW = 24;
+constexpr int kStatusMarkH = 24;
+constexpr int kStatusTextX = 40;       // §2.1: rows 0-2 start here, i.e. past the slot plus a 4-px gutter
+constexpr int kStatusNarrowPx = 128 - kStatusTextX;   // 88
+static_assert(kStatusTextX >= kStatusMarkX + kStatusMarkW,
+              "spec §2.1: rows 0-2 must clear the reserved 24x24 mark, never overdraw it");
+static_assert(int(mrui::kStatusNarrowCols) * 6 <= kStatusNarrowPx,
+              "spec §2.1: the narrowed STATUS rows' column count does not fit their 88-px width");
+static_assert(int(mrui::kStatusWideCols) == kBodyCols,
+              "spec §2.1: rows 3-4 are ordinary body rows — one width, not a second literal");
+static_assert(kStatusMarkY + kStatusMarkH - 1 <= 59,
+              "design §3.2: the body ends at y = 59; the mark may not reach past it");
+static_assert(int(mrui::kStatusLineCap) <= kLineCap,
+              "the STATUS formatters are handed a kLineCap buffer — it must be at least their own bound");
+// The narrowed rows' draw. ⛔ A row whose string is EMPTY draws NOTHING rather than an empty text record: `NO TEAM`
+// on row 0 with a blank row 1 beneath it is the ruled shape (spec §2.2 note a), and a zero-length draw would put a
+// record on the panel's audit trail that the panel itself does not show.
+void status_text(int row, const char* s) { if (s[0]) mrui::draw_text(kStatusTextX, body_y(row), s); }
 
 // ★★ THE FAILURE DETAIL, in the two alphabets that exist (spec §2.1 rule 6). A refusal the user cannot act on is the
 //    thing C2 and §err-reason exist to prevent — but the honest limit is real: five different walls all come back as
@@ -973,29 +1029,52 @@ void draw_rail(const mrui::UiChrome& c) {
 // ⓘ The badge is silent until the operator has actually opened SETTINGS: a draft cannot exist before then, and the
 //   service is not open, so `freeze_settings` reports all three false. Nothing is claimed about a config nobody edited.
 //
-// §7.3 AUDIT (widest reachable expansion, in 19-column units):
-//   `team ffffffff`                                                    13
-//   `me T255`                                                           7
-//   `DM 999, newest 49d`   (unread clamped to kUnreadCap; fmt_age <= 3) 18
-//   `CH 999, newest 49d`                                               18
-//   `RESTART NEEDED`                                                   14
-//   `batt -2147483648mV`   (int32_t, the type's own bound)             18
+// ★★★★ §UI-17 S3 — THE BODY IS NOW A **PLACEMENT**, AND EVERY BYTE IT PLACES COMES FROM `firmware_ui_status.h`.
+//      §B115's rule (`firmware_ui_model.h:102-104`): *a string built in `firmware_ui.cpp` is a string no automated
+//      gate can read* — this TU is compiled by neither the native suite nor the simulator. The five rows, their nine
+//      substitutions and row 4's priority are therefore PURE, driven by `test/test_firmware_ui_status.cpp` and
+//      attacked by `--target=uistatus`. ⛔ Nothing below may grow a condition: a decision written here is a decision
+//      no battery can redden.
+//
+// ⚠⚠ WHAT LEFT THIS BODY WITH S3, INVENTORIED — OWNER-ACCEPTED 2026-08-20 (spec §2.3), ⛔ NOT AN OVERSIGHT AND
+//    ⛔ NOT RESTORABLE BY A LATER SLICE ADDING A ROW:
+//      · `DM %u, newest %s` / `CH %u, newest %s` — the PER-KIND unread counts and the PER-KIND newest-message ages,
+//        two rows, replaced by one combined `3 NEW`. The per-kind SPLIT survives on the INBOX screen (its empty
+//        state prints both, and every populated row carries its own kind + age); the COMBINED count is also the
+//        strip's envelope. ⚠ The per-kind NEWEST AGE is shown nowhere else while the list is non-empty — stated,
+//        not glossed. It remains on the console.
+//      · `batt %ldmV` — the EXACT millivolts. The strip's `4.1V` decivolt token (`ui_fmt_batt`) and the console keep
+//        the reading; the exact mV leaves the panel.
+//      · `batt --` — dropped with it; the strip renders `--` for the same state by the same rule.
+//    KEPT: `RESTART NEEDED` (row 4, and it OWNS the row while it stands — design §3.6.5, spec §2.2 note g) and the
+//    team id / team-local id, uppercased, on rows 0-1.
+// ⛔ AND STILL GONE, BY RULING (§9 R-3 / §CHROME-4 / design §6): the `CFG* UNSAVED` / `CFG! RELOAD` text. The
+//    SETTINGS rail BADGE carries that state from every screen and SETTINGS says the words. `RESTART NEEDED` is the
+//    only configuration text this body may draw.
+//
+// §7.3 AUDIT (widest reachable expansion), and it is now TWO budgets — see the mark block beside `body_text`:
+//   row 0  x=40, <=14  `TEAM FFFFFFFF`                                 13
+//   row 1  x=40, <=14  `ME NO ID`                                       8
+//   row 2  x=40, <=14  `NO TEAM KEY`                                   11
+//   row 3  x=12, <=19  `99+ NEW / HOME 59m`                            18
+//   row 4  x=12, <=19  `-89.123,-179.123`                              16   (`RESTART NEEDED` is 14)
 void draw_status_screen(const mrui::UiSnapshot& s, const SettingsView& c) {
-    char l[kLineCap], age[kAgeCap];
-    snprintf(l, sizeof l, "team %08lx", (unsigned long)s.team_id);
-    body_text(0, l);
-    snprintf(l, sizeof l, "me T%u", unsigned(s.my_team_id));
-    body_text(1, l);
-    fmt_age(age, sizeof age, s.last_dm_age_s);
-    snprintf(l, sizeof l, "DM %u, newest %s", unsigned(s.unread_dm), age);
-    body_text(2, l);
-    fmt_age(age, sizeof age, s.last_ch_age_s);
-    snprintf(l, sizeof l, "CH %u, newest %s", unsigned(s.unread_ch), age);
-    body_text(3, l);
-    // §3.6.5: a saved-but-reboot-required state stays visible until the reboot — so it OWNS this row while it stands.
-    if (c.reboot) { body_text(4, mrui::kCfgRestartText); return; }
-    if (s.batt_mv >= 0) snprintf(l, sizeof l, "batt %ldmV", (long)s.batt_mv);
-    else                snprintf(l, sizeof l, "batt --");
+    // §2.1's reserved slot. S6 swaps this one call for `draw_bitmap` of the real 24x24 mark; ⛔ nothing else moves.
+    mrui::draw_rect(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH);
+    char l[kLineCap];
+    mrui::ui_status_team(l, sizeof l, s);         status_text(0, l);
+    mrui::ui_status_me(l, sizeof l, s);           status_text(1, l);
+    mrui::ui_status_known(l, sizeof l, s);        status_text(2, l);
+    mrui::ui_status_unread_home(l, sizeof l, s);  body_text(3, l);
+    // ⛔ `c.reboot` is handed to the PURE priority, never tested here: spec §2.2 note g's `RESTART NEEDED` >
+    //    coordinates > `NO LOCATION` order is the decision, and a decision made at this call site is one no
+    //    mutation battery can attack.
+    // ⛔⛔ AND THE POSITION COMES FROM THE **FROZEN SNAPSHOT** `s`, ⛔ NEVER FROM `g_node.config()` HERE. This
+    //    function runs ONCE PER OLED PAGE (see `draw_frame`'s own rule), so a live read would let a `cfg set lat`
+    //    landing between two page replays draw HALF A COORDINATE ROW from each fix — a torn position. The three
+    //    fields are published once per tick by `build_snapshot`. ⓘ CORRECTED HERE 2026-08-21 (QG): S3's first cut
+    //    read `g_node.config()` on this line, and that is the defect this comment now guards.
+    mrui::ui_status_location(l, sizeof l, c.reboot, s);
     body_text(4, l);
 }
 
@@ -1036,20 +1115,18 @@ void draw_team_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
         //    position is not an identity) — the model's own resolver, so the row the panel draws and the row
         //    `activate` acts on cannot disagree.
         if (mrui::list_row_kind(idx, s.team_shown) == mrui::ListRow::back) { body_back_row(row, here); continue; }
-        const mrui::TeamRow& t = s.team[idx];
-        char age[kAgeCap]; fmt_age(age, sizeof age, t.last_heard_s);
+        // ★★★★ §UI-17 S4 — EVERY BYTE OF THE ROW COMES FROM `firmware_ui_team.h`, and this line places it.
+        //      §B115: a string built in THIS TU is a string no automated gate can read. The format, the label
+        //      clamp, the route-age token and the two reserved columns are pure, driven by
+        //      `test/test_firmware_ui_team.cpp` and attacked by `--target=uiteam`.
+        // §7.3 AUDIT: marker 1 + label 6 + space 1 + age 3 + space 1 + dist 4 + space 1 + dir 2 = 19 of 19, and the
+        // arithmetic is static_asserted in that header rather than restated here.
+        // ⛔ WHAT THIS LINE USED TO DRAW: `%c%-9.9s %4.4s %uh` — a NINE-column label and a HOP COUNT. Hops left the
+        //    row BY RULING (spec §3.2 / §1.9 F-1): the new columns are distance and bearing and 19 columns hold no
+        //    sixth field. ⇒ `TeamRow::hops` is now written and read by nothing, exactly as `score_q4` already was;
+        //    deleting either is a REFACTOR and may not ride this slice (C1) — see the header's inventory.
         char l[kLineCap];
-        // §7.3 AUDIT, and the widths are PRECISIONS rather than paddings, which is the whole difference between a
-        // clamp and a clip: `%-9.9s` both pads AND bounds, so a 14-column `kLabelCap` name cannot push the age and
-        // the hop count off the panel the way `%-10s` did (that line was 25 columns at its widest — it already
-        // over-ran the OLD 21-column body and u8g2 was silently clipping it).
-        //   marker 1 + label 9 + space 1 + age 4 + space 1 + hops 3 = 19 of 19.
-        // ⛔ `hops` IS BOUNDED, NOT CLAMPED-IN-MEANING: it is a `uint8_t`, so `%uh` is 4 columns at its type bound,
-        //    while the protocol's own hop limit is far below 99. The `> 99` arm exists so the FORMAT has a proven
-        //    width; it is not reachable by any route this firmware can build.
-        snprintf(l, sizeof l, "%c%-9.9s %4.4s %uh",
-                 here ? '>' : ' ', t.label, age,
-                 unsigned(t.hops > 99 ? 99 : t.hops));
+        mrui::ui_team_row(l, sizeof l, here, s.team[idx]);
         body_text(row, l);
     }
     // ⛔⛔ RE-DERIVED 2026-08-16 (§CHROME-4 / §7.3), AND THE WORDING CHANGE IS FORCED RATHER THAN CHOSEN. This row read
@@ -1059,7 +1136,16 @@ void draw_team_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
     //    its last two characters (`…, repi` would have been the clip). ★ BOTH HALVES OF §B64's ruling survive intact:
     //    the row still NAMES the fact (the teammate is gone) and still gives the remedy (pick another), and the `>`
     //    highlight is still suppressed. ⓘ 19 characters exactly, so it cannot be clipped at the new width either.
-    if (st.team_pick_gone) body_text(kBodyRows - 1, "TEAMMATE GONE, pick");
+    // ★ §UI-17 S4 — AND "19 CHARACTERS EXACTLY" IS NOW A **PROOF**, NOT A COMMENT (spec S4's pin: *"the
+    //   `TEAMMATE GONE, pick` refusal row still fits"*). The literal is named ONCE and its width is asserted at
+    //   compile time against the body's own column count, so a re-wording that overran the panel would fail the
+    //   build rather than be clipped on glass. ⓘ The other half of §B64's ruling — the SUPPRESSED `>` — is the
+    //   `here` predicate above, which this slice did not touch and which `test/test_firmware_ui_model.cpp`'s
+    //   `team_pick_gone` cases and the renderer's own C107 control both hold.
+    static constexpr char kTeamGoneText[] = "TEAMMATE GONE, pick";
+    static_assert(sizeof kTeamGoneText - 1 == kBodyCols,
+                  "§7.1 rule 5: the TEAM refusal must FIT the body, never be clipped as a truncation policy");
+    if (st.team_pick_gone) body_text(kBodyRows - 1, kTeamGoneText);
 }
 
 // ★ UI-7: the real rows (spec §6.1). BLOCK ORDER — every DM row, then every channel row — never chronological: the
@@ -1731,6 +1817,16 @@ void mr_ui_tick(uint32_t now_ms) {
     const mrui::UiChrome live_chrome =
         mrui::ui_chrome(s, s_model.state(), s_model.emergency(), mrui::ChromeCfg::from(&s_cfg));
     (void)mrui::ui_chrome_invalidate(s_model, live_chrome, s_frame_chrome);
+
+    // ★★★★ §UI-17 S4 / spec §1.9 F-8 — THE SAME RULE FOR THE **BODY's** TEAM ROWS, and it closes a PRE-EXISTING gap
+    //   rather than paying for new code: the projection above carries the strip and the rail and NO per-row body
+    //   token, so a lit TEAM screen's age column simply went stale (`FrameGate::step` answers `idle` on a clean
+    //   model). ⛔ It RAISES or does nothing — never clears — and it compares the BUCKETED values that map 1:1 to
+    //   the drawn tokens, never the raw ages, which would ask for a repaint every second.
+    // ⓘ ZERO NEW RAM AND NO NEW TIMER: the reference is the snapshot this frame already froze (`s_frame_snap`,
+    //   updated at the freeze exactly as `s_frame_chrome` is) and the operand is the snapshot this tick already
+    //   built. While the panel is dark it costs one comparison and changes nothing — the gate tests `blanked` first.
+    (void)mrui::ui_team_invalidate(s_model, s, s_frame_snap);
 
     // ★★ ALL of the render POLICY — the §5 MAC-idle gate, the blank, the page continuation, the 2 Hz throttle and the
     //    emergency bypass — is `mrui::FrameGate::step`, a PURE class in firmware_ui_model.h. It moved there for the

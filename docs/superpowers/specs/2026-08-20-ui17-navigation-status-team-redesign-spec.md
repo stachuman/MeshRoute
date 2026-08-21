@@ -461,12 +461,21 @@ load-bearing rather than stylistic:
   `lib/core`. **The per-env flash delta is MEASURED in the slice, not assumed** (§6). If it proves unacceptable
   an integer cosine table is the fallback — a measured decision, taken then, not now.
 
-**Snapshot projection** (slice S5): `TeamRow` gains `peer_lat_e7`, `peer_lon_e7` (`int32_t`), `peer_loc_age_s`
-(`uint32_t`, **verbatim from the accessor's out-param** — the `home_confirm_age_ms` precedent at
-`firmware_ui_model.h:759-768`: no cast, no clamp, no re-derivation at the publish site) and `peer_loc_valid`
-(`bool`), plus `UiSnapshot` gains `own_lat_e7` / `own_lon_e7` / `own_fix`. The **decisions** — freshness,
-formatting, blanking — all live in the pure units where the native suite drives them; `build_snapshot` only
-copies (§B115).
+**Snapshot projection.** ★★★ **CORRECTED IN PLACE 2026-08-21 — THE OWN-LOCATION HALF WAS PULLED FORWARD INTO
+S3 AND IS DONE (QG-authorised).** ⛔ **WITHDRAWN WORDING, KEPT VISIBLE:** this paragraph was headed *"Snapshot
+projection (slice S5)"* and ended *"…and `peer_loc_valid` (`bool`), **plus `UiSnapshot` gains `own_lat_e7` /
+`own_lon_e7` / `own_fix`**"*, i.e. it assigned all six fields to S5.
+★ **WHY THEY MOVED, RECORDED AS THE QG BLOCKER IT WAS:** S3's row 4 renderer read `g_node.config()` **live, once
+per OLED page**, so the coordinate line could **TEAR MID-FRAME** across the eight page transfers a frame spans —
+the §5 freeze contract, broken by the very row this spec added. ⇒ the remedy is to **freeze the location into
+the snapshot**, and a remedy cannot wait for a later slice. **`own_lat_e7` / `own_lon_e7` / `own_fix` therefore
+landed in S3 and are DONE.**
+⇒ **What is still S5's, and it is the whole of the geo work:** `TeamRow` gains `peer_lat_e7`, `peer_lon_e7`
+(`int32_t`), `peer_loc_age_s` (`uint32_t`, **verbatim from the accessor's out-param** — the
+`home_confirm_age_ms` precedent at `firmware_ui_model.h:759-768`: no cast, no clamp, no re-derivation at the
+publish site) and `peer_loc_valid` (`bool`); the projection over `peer_loc_find`; and the freshness/distance/
+bearing maths. The **decisions** — freshness, formatting, blanking — all live in the pure units where the native
+suite drives them; `build_snapshot` only copies (§B115).
 
 ---
 
@@ -640,7 +649,8 @@ is dispatchable as written.
 ### S5 — Location projection: the existing cache, three pure helpers, two rendered columns
 
 - **Scope.** Publish the cache through the frozen snapshot; add `src/firmware_ui_geo.h`; render DIST/DIR.
-- **Files.** NEW pure `src/firmware_ui_geo.h`; `src/firmware_ui_model.h` (the `TeamRow`/`UiSnapshot` fields);
+- **Files.** NEW pure `src/firmware_ui_geo.h`; `src/firmware_ui_model.h` (the **`TeamRow` peer-location fields**
+  — ⓘ the `UiSnapshot` OWN-location fields are **already done**, pulled forward into S3, §3.4);
   `src/firmware_ui_team.h` (the two columns); `src/firmware_ui.cpp` (`build_snapshot` copies — nothing else).
   ⛔ **`lib/` untouched**: `peer_loc_find`, `team_key_of_id` and `NodeConfig` are read exactly as they are.
 - **Pins (the note §7 location matrix, in full).** own fix missing ⇒ blank · peer hash unresolvable ⇒ blank ·
@@ -840,9 +850,9 @@ is additionally a **stack** local (`firmware_ui.cpp:1639`). ⇒ a growth of *n* 
 |---|---|
 | S1 | `UiState` +1 byte (`ListView`); expected to land in existing tail padding ⇒ **0**. Measure. |
 | S2 | 0 |
-| S3 | 0 RAM (all strings are `.rodata` / stack buffers); flash: a handful of formatters. |
+| S3 | ⛔ **WITHDRAWN, KEPT VISIBLE:** *"0 RAM (all strings are `.rodata` / stack buffers)"* — **FALSE as written**, because the §3.4 pull-forward landed the own-location fields here. **MEASURED: `UiSnapshot` 608 → 616 (+8)** — the two `int32_t` coordinates; **the `bool` cost ZERO**, landing in existing padding (**offsetof-proven**, not argued). ⇒ **~+16 B static** across the struct's two instances and **+8 B loop-task stack**. Strings remain `.rodata`/stack; flash: a handful of formatters. |
 | S4 | 0 RAM (the invalidation reuses the existing frozen snapshot). |
-| S5 | `TeamRow` 28 → **~44** (`+4 +4 +4 +1` → padded to +16) ⇒ `UiSnapshot` 608 → **~736** (+128 for the 8-row array, plus `own_lat/own_lon/own_fix` which should land in tail padding). ⇒ ~+256 B static and ~+128 B stack on the OLED envs. Flash: `cosf`/`sqrtf` if not already linked. **All four figures are per-board `RAM_used` diffs, which is the board gate's job — D2's standing warning applies: native's 8-byte alignment structurally hides a 4-byte-align board padding shift.** |
+| S5 | `TeamRow` 28 → **~44** (`+4 +4 +4 +1` → padded to +16) ⇒ `UiSnapshot` **616 → ~744** (+128 for the 8-row array). ⚠ **ESTIMATE — MEASURE IT.** ⛔ **WITHDRAWN, KEPT VISIBLE:** *"608 → ~736 … plus `own_lat/own_lon/own_fix` which should land in tail padding"* — the baseline is now **616**, the own-location fields are **already in it** (S3, §3.4), and the `bool` that was predicted to be free **was** (measured). ⇒ ~+256 B static and ~+128 B stack on the OLED envs. Flash: `cosf`/`sqrtf` if not already linked. **All four figures are per-board `RAM_used` diffs, which is the board gate's job — D2's standing warning applies: native's 8-byte alignment structurally hides a 4-byte-align board padding shift.** |
 | S6 | flash +72 B `.rodata` (or +32 for a 16x16); **RAM 0** by construction. |
 | S8 | `UiModel` +4 bytes (`_msg_wake_until_ms`), expected to land beside the existing `uint32_t` deadlines; the model is instantiated **once** (`s_model`), so ⛔ this one does not double. Measure. |
 

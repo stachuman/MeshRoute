@@ -30,12 +30,18 @@
 #   standard command skipped them, so the reported gate never included them (QA, 2026-08-04). Same trap, same answer.
 #
 # ★★★ WHAT A CONTROL HAS TO BE HERE. Each one applies ONE mutation to a COPY of `src/firmware_ui.cpp` — the tempting
-#     WRONG FIX, not merely a deletion — and must make the probe RED. Three ways a control can be worthless, all three
-#     checked and all three have fired in this arc:
+#     WRONG FIX, not merely a deletion — and must make the probe RED. FOUR ways a control can be worthless, all four
+#     checked and all four have fired in this arc:
 #       1. the sed matched nothing        -> the copy is byte-identical  -> reported VACUOUS, counted as a failure;
 #       2. the mutant does not compile    -> the probe never ran         -> reported, counted as a failure
 #          (C0 is the ONE exception: it is the BUILD control and is REQUIRED to fail compilation);
-#       3. the probe still passes         -> the check does not measure the property -> counted as a failure.
+#       3. the probe still passes         -> the check does not measure the property -> counted as a failure;
+#       4. ★★ [[B237]], ADDED 2026-08-21 — the mutant **DID NOT REPORT, IT DIED**: a signal, an abort, or any exit
+#          the probe cannot produce, or a non-zero exit with ZERO `  FAIL ` lines. The probe answers 0 or 1 and
+#          nothing else, so anything else means it stopped mid-run and the checks after that point never executed.
+#          ⛔ Such a control is UNUSABLE, ⛔ never "verified" — see `classify_control`, which owns the whole rule and
+#          carries its own crashing repro. **MEASURED (QG): C81's mutant segfaulted with zero failed checks and the
+#          old `if binary; then … else RED` scored it as a successful reddening.**
 # ⚠ And the tree must come out untouched: the real sources' md5 is captured before and asserted after.
 
 set -uo pipefail
@@ -186,6 +192,56 @@ PROBE_LIST=1 "$OUT/probe_v3" 2>/dev/null | sed -n 's/^  CHECK //p' | sort -u > "
 : > "$OUT/reddened-l2.txt"; : > "$OUT/reddened-v3.txt"
 
 # ---------------------------------------------------------------------------------------------------------------
+# ★★★★ [[B229]] — THE ATTRIBUTION IS **LENGTH-PROOF**, AND THAT CLOSES THE MECHANISM RATHER THAN THE SYMPTOM
+# ---------------------------------------------------------------------------------------------------------------
+# WHAT WAS WRONG. A reddening used to be attributed by re-reading the FAIL line with
+# `s/^  FAIL \(.\{1,64\}\)  .*$/\1/` — a parse that depends on the `%-64s` PADDING to find the label's end. A label
+# LONGER than 64 characters overflows the field, the expression matches nothing (or, worse, an earlier double space
+# INSIDE the label), and the roll-up then reports a check that a control DOES redden as *"(no control reddens)"*.
+# ⛔ It is an UNDER-count, never a false PASS — the instrument lying in the quiet direction.
+# ⚠ MEASURED, and it was live in this tree: `C84` reddens *"P7b ...and the STATUS body no longer carries the
+#   withdrawn marker TEXT"* (70 characters, and §UI-17 S3 re-pointed C84 onto exactly that check), and the roll-up
+#   listed that check as un-reddened.
+# ★★ THE FIX IS THE PARSE, NOT THE LABELS. Shortening the four long labels would have closed THIS occurrence and left
+#    the mechanism armed for the next one (three labels had already been shortened once, [[B226]]/[[B228]]). The
+#    label list the roll-up already builds — every label the arm's probe announced under `PROBE_LIST=1` — is the
+#    authority for where a label ENDS, so attribution needs no delimiter at all: match the FAIL line against the
+#    KNOWN labels and take the LONGEST that prefixes it. ⓘ Longest-wins is what keeps a label that is a prefix of
+#    another from stealing its attribution.
+# ⇒ `CHK`'s own 64-character note in `probe_main.cpp` is corrected in place with this (V1: fix the comments you touch).
+attribute() {   # attribute <labels-file> <probe-output> -> the labels whose checks FAILED, one per line
+  awk 'NR==FNR { lab[FNR] = $0; n = FNR; next }
+       /^  FAIL /{ s = substr($0, 8); best = "";
+                   for (i = 1; i <= n; i++) { l = lab[i]
+                       if (index(s, l) == 1 && length(l) > length(best)) best = l }
+                   if (best != "") print best }' "$1" "$2"
+}
+echo
+echo "== [[B229]] the coverage roll-up attributes a label of ANY length =="
+# ⚠ THE GUARD IS SELF-CONTAINED, so it keeps measuring the property even if every real label were shortened one day:
+#   an ARTIFICIAL 90-character label is added to a COPY of the list and a synthetic FAIL line is built for it in the
+#   exact `%-64s` shape `CHK` prints. ⛔ Not a hand-written expectation of the parse — the same `attribute` the
+#   controls use is what is run.
+b229_long="P0 an artificial label deliberately past the sixty-four character field, to prove the parse"
+{ cat "$OUT/all_checks-l2.txt"; printf '%s\n' "$b229_long"; } > "$OUT/b229_labels.txt"
+printf '  FAIL %-64s  some_expression\n' "$b229_long" > "$OUT/b229.out"
+b229_seen=$(attribute "$OUT/b229_labels.txt" "$OUT/b229.out")
+if [ "$b229_seen" = "$b229_long" ]; then
+  echo "  ok   a ${#b229_long}-character label is attributed to its control"
+else
+  echo "  FAIL a long label is still not attributed: [$b229_seen]"; rc=1
+fi
+# ⚠ AND THE VACUITY GUARD FOR IT (§T3 P6's rule): a "fix" that changed nothing would pass the check above just as
+#   happily. The WITHDRAWN parse is run over the SAME synthetic line and is REQUIRED to miss it — which is what says
+#   the defect was real and that this run is measuring its absence.
+b229_old=$(sed -n 's/^  FAIL \(.\{1,64\}\)  .*$/\1/p' "$OUT/b229.out")
+if [ "$b229_old" != "$b229_long" ]; then
+  echo "  ok   ...and the WITHDRAWN 64-column parse does miss it, so the defect was real"
+else
+  echo "  FAIL the old parse attributed it too — this run proved nothing"; rc=1
+fi
+
+# ---------------------------------------------------------------------------------------------------------------
 # ★★★★ [[B227]] — A CONTROL LABEL IS **DATA**, AND THIS RUNNER PROVES IT RATHER THAN PROMISING IT
 # ---------------------------------------------------------------------------------------------------------------
 # MEASURED, not hygiene. L19's label carried `` `/mrcfg` `` inside DOUBLE quotes, so the shell ran `/mrcfg` as a
@@ -250,6 +306,65 @@ fi
 # NEGATIVE CONTROLS
 # ---------------------------------------------------------------------------------------------------------------
 n_ctl=0; n_bad=0
+
+# ---------------------------------------------------------------------------------------------------------------
+# ★★★★ [[B237]] — WHAT COUNTS AS "THE PROBE WENT RED", AS ONE FUNCTION
+# ---------------------------------------------------------------------------------------------------------------
+# ⛔ THE DEFECT THIS REPLACES: `if "$OUT/mutant.bin"; then …not red… else …RED… fi` — i.e. ANY non-zero exit was
+#   scored as a successful control. **MEASURED (QG, 2026-08-21):** control C81's mutant SEGFAULTED (signal 139) with
+#   ZERO failed checks and the runner reported it VERIFIED. A crash is not a measurement: the probe stopped
+#   somewhere in the middle, so nothing is known about the checks that never ran — and the roll-up then attributes
+#   nothing while the count says the property is covered. That is the quiet direction again.
+# ★ THE PROBE'S OWN CONTRACT MAKES THE RULE EXACT: `probe_main.cpp`'s `main` ends `return g_fail == 0 ? 0 : 1;` —
+#   0 = every check passed, 1 = at least one check FAILED, and it has no third answer. Anything else (a signal's
+#   128+n, an abort, a library exit) is the binary dying rather than reporting.
+# ⇒ RED requires BOTH: a NORMAL assertion-failure exit (exactly 1) **and** at least one `  FAIL ` line to name what
+#   was reddened. Everything else is UNUSABLE and is counted against the gate.
+classify_control() {   # classify_control <exit-code> <fail-line-count> -> red | passes | abnormal | silent
+  local rc=$1 fails=$2
+  if   [ "$rc" -eq 0 ];    then printf 'passes'    # the mutant satisfied every check — the property is not measured
+  elif [ "$rc" -ne 1 ];    then printf 'abnormal'  # a signal / abort / any exit the probe cannot produce = a crash
+  elif [ "$fails" -eq 0 ]; then printf 'silent'    # "failed" without naming one failure — nothing to attribute
+  else                          printf 'red'
+  fi
+}
+
+# ⚠ THE CONTROL-OF-THE-CONTROL, and it is END-TO-END rather than a table of arguments ([[B217]]'s precedent: the fix
+#   carries its own repro). A binary that REALLY dies of SIGSEGV is built and run through the SAME `$?` path `ctl`
+#   uses, and its verdict must come back `abnormal`. ⛔ Without this the new rule is itself unmeasured — which is
+#   the exact shape B237 is about.
+echo
+echo "== [[B237]] a CRASHING control is UNUSABLE, never verified =="
+printf 'int main() { volatile int* p = 0; return *p; }\n' > "$OUT/crasher.cpp"
+if "$CXX" -O0 "$OUT/crasher.cpp" -o "$OUT/crasher" 2>/dev/null; then
+  b237_rc=0
+  bash -c '"$1"; exit $?' _ "$OUT/crasher" > "$OUT/crash.out" 2>&1 || b237_rc=$?
+  b237_fails=$(grep -c '^  FAIL ' "$OUT/crash.out")
+  b237_verdict=$(classify_control "$b237_rc" "$b237_fails")
+  if [ "$b237_rc" -ge 128 ] && [ "$b237_verdict" = abnormal ]; then
+    echo "  ok   a real SIGSEGV (exit $b237_rc, $b237_fails failures) classifies as UNUSABLE"
+  else
+    echo "  FAIL a crashing control classified as '$b237_verdict' (exit $b237_rc) — the rule does not hold"; rc=1
+  fi
+  # ⚠ AND THE OTHER THREE ARMS, so the rule is not merely "reject everything": the shape that MUST still be RED, the
+  #   one that must read `passes`, and the non-zero-but-silent one the old rule could not tell from a real reddening.
+  if [ "$(classify_control 1 3)" = red ] && [ "$(classify_control 0 0)" = passes ] \
+     && [ "$(classify_control 1 0)" = silent ]; then
+    echo "  ok   ...and a genuine 1/3 stays RED, 0/0 is passes, 1/0 is silent — it still discriminates"
+  else
+    echo "  FAIL the classifier no longer separates a real reddening from a crash"; rc=1
+  fi
+  # ⓘ The shell's own `Segmentation fault` notice is captured, ⛔ not printed: a gate whose PASS output contains a
+  #   crash message trains the reader to ignore crash messages.
+  if grep -qiE 'segmentation|core dumped' "$OUT/crash.out"; then
+    echo "  ok   ...and the shell's crash notice was CAPTURED, not printed to this gate"
+  else
+    echo "  ok   ...and the crash produced no console notice at all"
+  fi
+else
+  echo "  FAIL the crash repro did not build — the new rule is unmeasured"; rc=1
+fi
+
 # ctl(label, must_build, sed-script) — must_build=yes: the mutant has to compile AND the probe has to go red.
 #                                      must_build=no : the mutant has to FAIL TO COMPILE (the build IS the check).
 # ⛔ THE LABEL IS PRINTED WITH `printf '%s'` AND NEVER INTERPOLATED INTO A COMMAND — see the [[B227]] block above.
@@ -274,15 +389,35 @@ ctl() {
     printf '  FAIL %s — the mutant does not COMPILE, so the probe never ran against it:\n' "$label"
     sed 's/^/        /' "$OUT/build.log" | head -6; return
   fi
-  if "$OUT/mutant.bin" >"$OUT/mutant.out" 2>&1; then
+  # ⛔⛔ [[B237]] — THE VERDICT IS `classify_control`'s, ⛔ NEVER A BARE "did it exit non-zero". A CRASHING mutant
+  #     exits non-zero having measured NOTHING, and this line used to score that as a successful reddening.
+  # ⓘ THE RUN GOES THROUGH AN INNER `bash -c`, and the trailing `exit $?` is load-bearing rather than decoration:
+  #   bash EXECs a LONE final command, which would leave OUR shell to print the `Segmentation fault` notice on its
+  #   own stderr — i.e. on the gate's console. With the extra statement the inner shell survives to report the death
+  #   into the capture file instead, where the `abnormal` arm above tails it. ⛔ A gate whose PASS output carries
+  #   crash noise teaches its reader to skip crash noise.
+  local rc_m=0
+  bash -c '"$1"; exit $?' _ "$OUT/mutant.bin" >"$OUT/mutant.out" 2>&1 || rc_m=$?
+  local fails; fails=$(grep -c '^  FAIL ' "$OUT/mutant.out")
+  local verdict; verdict=$(classify_control "$rc_m" "$fails")
+  if [ "$verdict" = passes ]; then
     n_bad=$((n_bad+1))
     printf '  FAIL %s — the probe still PASSES against the mutant (the check measures nothing)\n' "$label"
+  elif [ "$verdict" = abnormal ]; then
+    n_bad=$((n_bad+1))
+    printf '  FAIL %s — the mutant DIED (exit %s, %s reported failure(s)); a crash measures nothing\n' \
+           "$label" "$rc_m" "$fails"
+    sed 's/^/        /' "$OUT/mutant.out" | tail -4
+  elif [ "$verdict" = silent ]; then
+    n_bad=$((n_bad+1))
+    printf '  FAIL %s — exit %s with ZERO reported failures; nothing names what it reddened\n' "$label" "$rc_m"
   else
     n_ctl=$((n_ctl+1))
-    printf '  ok   %s -> RED (%s check(s) failed)\n' "$label" "$(grep -c '^  FAIL' "$OUT/mutant.out")"
-    # record WHICH checks this control reddened, for the roll-up (the CHK format is "  FAIL <label padded to 64>  <expr>")
+    printf '  ok   %s -> RED (%s check(s) failed)\n' "$label" "$fails"
+    # record WHICH checks this control reddened, for the roll-up. ⛔ NOT by re-parsing the `%-64s` field ([[B229]]):
+    # `attribute` matches the FAIL line against the arm's KNOWN label list, so a label of ANY length is attributed.
     # ⓘ INTO THE CURRENT ARM's file: a control mutates ONE build, so its evidence belongs to that arm's ratio.
-    sed -n 's/^  FAIL \(.\{1,64\}\)  .*$/\1/p' "$OUT/mutant.out" | sed 's/[[:space:]]*$//' >> "$OUT/reddened-$ARM.txt"
+    attribute "$OUT/all_checks-$ARM.txt" "$OUT/mutant.out" >> "$OUT/reddened-$ARM.txt"
   fi
 }
 
@@ -434,8 +569,16 @@ if [ "${1:-}" != "--no-neg" ]; then
       's|        case mrui::CfgBadge::unsaved:  return mrui::icons::kIconSettingsUnsaved;|        case mrui::CfgBadge::unsaved:  return mrui::icons::kIconSettings;|'
   ctl "C34 the editor is indistinguishable from the browsing row (no bracket)" yes \
       's|            if (ed) snprintf(l, sizeof l, "%c%-8s\[%s\]", here ? '"'"'>'"'"' : '"'"' '"'"', mrui::settings_row_label(r), v);|            if (false) { }|'
+  # ⛔⛔ C35 RETARGETED BY §UI-17 S3, AND THE RETARGETING IS RECORDED RATHER THAN THE CONTROL QUIETLY DELETED. It used
+  #   to mutate `if (c.reboot) { body_text(4, mrui::kCfgRestartText); return; }` — the priority test that STOOD IN
+  #   THIS FILE. S3 moves that decision into the pure `mrui::ui_status_location` (spec §2.2 note g), where a battery
+  #   can attack it, so a sed for the old line would now match NOTHING and be reported VACUOUS. ★ THE FACT IT
+  #   GUARDED DID NOT GO AWAY — the renderer still has to HAND the reboot fact over, and that seam is what this
+  #   control now attacks: pass `false` and the panel never says `RESTART NEEDED` again, which is exactly what the
+  #   old control described one presentation earlier. ⓘ The PRIORITY itself (restart over coordinates) is covered by
+  #   `--target=uistatus`, which is the split S3 exists to create.
   ctl "C35 RESTART NEEDED never reaches STATUS (the reboot fact is dropped)" yes \
-      's|    if (c.reboot) { body_text(4, mrui::kCfgRestartText); return; }|    ;|'
+      's|    mrui::ui_status_location(l, sizeof l, c.reboot, s);|    mrui::ui_status_location(l, sizeof l, false, s);|'
   # ⛔ C36 is the CONDITIONAL ROW's own control: rendering it unconditionally offers a setting this build cannot act on.
   ctl "C36 the BLE row is rendered unconditionally (the transport condition ignored)" yes \
       's|    s.ble_row    = (MR_UI_BLE_ROW != 0);|    s.ble_row    = true;|'
@@ -681,13 +824,24 @@ if [ "${1:-}" != "--no-neg" ]; then
   # ⛔ C83 A BODY LINE PUT BACK OVER 19 COLUMNS. `me T255  team ffffffff` is 22 columns and was the reason STATUS's
   #   identity took two rows; restoring the single line is exactly the "it used to fit" edit, and P14f's measured
   #   19-column bound is the only thing that sees it.
-  ctl "C83 the STATUS identity goes back onto one 22-column row" yes \
-      's|    snprintf(l, sizeof l, "team %08lx", (unsigned long)s.team_id);|    snprintf(l, sizeof l, "me T%u  team %08lx", unsigned(s.my_team_id), (unsigned long)s.team_id);|'
+  # ⛔⛔ C83 RETARGETED BY §UI-17 S3, AND THE RETARGETING IS RECORDED RATHER THAN THE CONTROL DELETED (the C14-C16 /
+  #   C33 / C38 precedent). Its sed named `snprintf(l, sizeof l, "team %08lx", …)` — a string S3 MOVED into the pure
+  #   `firmware_ui_status.h`, so it would now match NOTHING and be reported VACUOUS (it was, on the first S3 run).
+  #   ★ THE FACT IT GUARDED IS UNCHANGED and got HARDER: the identity rows are now at `x = 40` with **14** columns,
+  #   so folding them back onto one line is 21 columns in a 14-column slot. Same edit, same "it used to fit"
+  #   temptation, measured by P14f's narrowed budget as well as its 19-column one.
+  ctl "C83 the STATUS identity goes back onto one 21-column row" yes \
+      's|    mrui::ui_status_team(l, sizeof l, s);         status_text(0, l);|    { char t\[kLineCap\], m\[kLineCap\]; mrui::ui_status_team(t, sizeof t, s); mrui::ui_status_me(m, sizeof m, s); snprintf(l, sizeof l, "%s %s", t, m); } status_text(0, l);|'
   # ⛔ C84 THE WITHDRAWN STATUS PRESENTATION, RESTORED — and this is §6.1 rule 4's OTHER DIRECTION: *"the badge's
   #   tests must fail against the old STATUS presentation and vice versa, so the two cannot both pass"*. Without it,
   #   a renderer that drew BOTH the badge and the old title marker would satisfy every badge check.
+  # ⛔⛔ C84 RETARGETED BY §UI-17 S3 FOR THE SAME REASON, AND ITS FACT IS NOW ALSO A RULING (§9 R-3: *no
+  #   configuration text returns to STATUS*). Its sed named the deleted `snprintf(l, sizeof l, "me T%u", …)`; the
+  #   row it mutated is `status_text(1, …)` now, so the control follows it there. ⛔ The direction is §6.1 rule 4's
+  #   OTHER one — without it, a renderer that drew BOTH the badge and the withdrawn body text satisfies every badge
+  #   check — and P7b's *"the STATUS body no longer carries the withdrawn marker TEXT"* is what it reddens.
   ctl "C84 the withdrawn CFG marker is put back on the STATUS body (§6.1's other direction)" yes \
-      's|    snprintf(l, sizeof l, "me T%u", unsigned(s.my_team_id));|    snprintf(l, sizeof l, "%s", mrui::cfg_marker_text(c.unsaved, c.conflict));|'
+      's|    mrui::ui_status_me(l, sizeof l, s);           status_text(1, l);|    snprintf(l, sizeof l, "%s", mrui::cfg_marker_text(c.unsaved, c.conflict));           status_text(1, l);|'
   # ⛔ C85 THE SETTINGS INSTRUCTION IS REPLACED BY THE ICON — §6's explicit prohibition ("the icon may replace the
   #   STATUS decoration; it may NEVER replace the instruction"). The badge would still be right and the operator
   #   would have no remedy to read.
@@ -750,6 +904,105 @@ if [ "${1:-}" != "--no-neg" ]; then
   ctl "C95 the interactive list's BACK row is never drawn" yes \
       's|== mrui::ListRow::back) { body_back_row(row, here); continue; }|== mrui::ListRow::back) { continue; }|
        s|== mrui::ListRow::back) { body_back_row(row + 1, here); continue; }|== mrui::ListRow::back) { continue; }|'
+
+  # ================================================================ §UI-17 S3: C96-C104, THE STATUS BODY AT THE SEAM
+  # ★★★★ THE GEOMETRY **AND THE HANDOFF**, AT THE RENDERER. Every STRING and every substitution is pure and is
+  #   attacked by `--target=uistatus`; what NOTHING there can see is WHERE this file puts them, WHETHER IT PLACES
+  #   THEM AT ALL, and whether the reserved slot is drawn — `src/firmware_ui.cpp` is compiled by neither the native
+  #   suite nor the simulator (§B115). C96-C99 are the geometry (spec §4's S3 Probe bullet, plus the two
+  #   inversions); C100-C104 are the PRODUCTION HANDOFF and the FRAME FREEZE, which P17 measures.
+  # ⓘ COUNT CORRECTED IN PLACE 2026-08-21: this header said "C96-C98 / three controls" while the block already held
+  #   four. The figure is now the range and it is re-read from the block, not remembered.
+  # ⛔ C96 THE MARK NEVER DRAWN. S6 is about to put real artwork in that slot; a renderer that reserved nothing would
+  #    look correct today and clip the artwork the moment it lands. P14a's screen-dependent census is what sees it.
+  ctl "C96 the reserved 24x24 mark is never drawn (the slot vanishes)" yes \
+      's|    mrui::draw_rect(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH);|    ;|'
+  # ⛔⛔ C97 IS THE ONE SPEC §2.1 NAMES: rows 0-2 drawn at the BODY origin, i.e. straight through the reserved slot.
+  #     It is the tempting edit ("one body_text for all five rows, the way every other screen does it"), it leaves
+  #     every native case and every uistatus mutation green, and on glass it puts three lines of text ON TOP of the
+  #     mark. P14f's per-screen origin SET plus its row-level split is what reddens it.
+  ctl "C97 rows 0-2 are drawn at the body origin, through the reserved mark" yes \
+      's|void status_text(int row, const char\* s) { if (s\[0\]) mrui::draw_text(kStatusTextX, body_y(row), s); }|void status_text(int row, const char* s) { if (s[0]) mrui::draw_text(kBodyX, body_y(row), s); }|'
+  # ⓘ C98 IS C97's INVERSION and it is what makes the 14-column budget mean something: move rows 3-4 up to the
+  #   NARROWED origin and the two widest lines in this body (18 and 16 columns) are drawn in a 14-column slot, off
+  #   the right edge. Without it, "no x=40 row exceeds 14 columns" is negative space no mutation could move.
+  ctl "C98 row 3 is drawn at the NARROWED origin (18 columns in 14)" yes \
+      's|    mrui::ui_status_unread_home(l, sizeof l, s);  body_text(3, l);|    mrui::ui_status_unread_home(l, sizeof l, s);  status_text(3, l);|'
+  # ⓘ C99 IS C96's INVERSION and it is what makes *"an ordinary screen's body draws no rect of its own"* mean
+  #   something: without it that check is negative space no mutation could move. The edit is the tempting one —
+  #   "the mark is branding, put it in the chrome beside the strip" — and it draws a 24x24 box straight through the
+  #   TEAM roster and the INBOX list on every screen but the one it belongs to.
+  ctl "C99 the mark is drawn in the chrome, so EVERY screen shows it" yes \
+      's|    mrui::draw_hline(0, kBarRuleY, 128);|    mrui::draw_hline(0, kBarRuleY, 128);\n    mrui::draw_rect(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH);|'
+  # ⛔⛔ C100/C101 ARE THE HANDOFF ITSELF, and they are the controls this slice SHIPPED WITHOUT until QG found the
+  #   hole. The five rows are pure, natively pinned and mutation-covered — but every one of those instruments calls
+  #   `mrui::ui_status_*` DIRECTLY. Drop the call from this file, or point it at the wrong baseline, and the whole
+  #   pure gate stays green while the panel loses (or duplicates) a row. P17a's exact-bytes-at-exact-coordinate
+  #   checks are the only thing in the tree that can see it — [[B226]]'s discipline at the production seam.
+  ctl "C100 STATUS row 2 is never placed (the pure row is composed and dropped)" yes \
+      's|    mrui::ui_status_known(l, sizeof l, s);        status_text(2, l);|    mrui::ui_status_known(l, sizeof l, s);|'
+  ctl "C101 STATUS row 2 is placed on row 1's baseline (a misroute)" yes \
+      's|    mrui::ui_status_known(l, sizeof l, s);        status_text(2, l);|    mrui::ui_status_known(l, sizeof l, s);        status_text(1, l);|'
+  # ⛔⛔⛔ C102 IS THE DEFECT S3's FIRST CUT ACTUALLY SHIPPED, re-added deliberately so it can never come back
+  #     quietly: read `g_node.config()` LIVE in the renderer. `draw_frame` runs ONCE PER OLED PAGE, so a `cfg set
+  #     lat` between two of the eight replays draws HALF THE COORDINATE ROW from each fix. ⛔ Every native case,
+  #     every uistatus mutation and every geometry check stays GREEN against it — P17b is the only witness.
+  ctl "C102 row 4 reads the LIVE config again (the row can TEAR mid-frame)" yes \
+      's|    mrui::ui_status_location(l, sizeof l, c.reboot, s);|    mrui::UiSnapshot live = s; const MESHROUTE_NS::NodeConfig\& lc = g_node.config(); live.own_lat_e7 = lc.lat_e7; live.own_lon_e7 = lc.lon_e7; live.own_fix = mrui::ui_status_have_fix(lc.lat_e7, lc.lon_e7); mrui::ui_status_location(l, sizeof l, c.reboot, live);|'
+  # ⛔ C103/C104 THE PUBLISH SITE's OWN TWO WRONG ANSWERS. `own_fix` is the ONE predicate's answer written at the one
+  #   place that sees `NodeConfig`; hardcode it and a node with no position claims `0.000,0.000` (the plausible
+  #   substitution this screen exists to refuse), narrow it to one coordinate and a node on the equator loses its.
+  ctl "C103 own_fix is published as a constant (a fix that was never configured)" yes \
+      's|    s.own_fix              = mrui::ui_status_have_fix(own_cfg.lat_e7, own_cfg.lon_e7);|    s.own_fix              = true;|'
+  ctl "C104 own_fix is published from ONE coordinate (the OR narrowed to lat)" yes \
+      's|    s.own_fix              = mrui::ui_status_have_fix(own_cfg.lat_e7, own_cfg.lon_e7);|    s.own_fix              = (own_cfg.lat_e7 != 0);|'
+
+  # ================================================================= §UI-17 S4: C105-C112, THE TEAM ROW AT THE SEAM
+  # ★★★★ THE HANDOFF, AND IT IS THE ONE THING `--target=uiteam` AND `test_firmware_ui_team.cpp` STRUCTURALLY CANNOT
+  #   SEE: both call `mrui::ui_team_row` directly. Point it at the wrong snapshot row, hand it the wrong marker, draw
+  #   the result at the wrong origin, or stop calling it at all — and every native case stays green, all twelve
+  #   mutations stay RED, and the panel shows the wrong people. `src/firmware_ui.cpp` is compiled by neither the
+  #   native suite nor the simulator (§B115), so this file is the only venue that can redden any of it.
+  # ⛔ C105 IS THE REVERT TEMPTATION, spelled out rather than deleted: the pre-S4 row, composed inline — a nine-column
+  #    label, a four-column age and the HOP COUNT that spec §3.2 ruled off the row. It is what a reader who "restored"
+  #    the old line would produce, and it is 19 columns too, so only the per-row byte assertions can catch it.
+  # ⓘ THE MARKER IS WRITTEN AS 62/32 — the codes of `>` and a space — purely so this control's sed carries no nested
+  #   shell quotes; the [[B227]] audit above is about labels, and a script that needed escaping is a script that gets
+  #   one character wrong. `%c` takes an int either way.
+  ctl "C105 the pre-S4 row (9-column label + hops) is composed inline again" yes \
+      's|        mrui::ui_team_row(l, sizeof l, here, s.team\[idx\]);|        { char a_[kAgeCap]; fmt_age(a_, sizeof a_, s.team[idx].last_heard_s); snprintf(l, sizeof l, "%c%-9.9s %4.4s %uh", here ? 62 : 32, s.team[idx].label, a_, unsigned(s.team[idx].hops)); }|'
+  # ⛔⛔ C106 IS THE MISROUTE, and it is the reason every row is asserted at its OWN coordinate: a renderer that drew
+  #     the FIRST teammate on every row keeps the format, the width and the origin — and names the wrong person.
+  ctl "C106 every row is drawn from snapshot row 0 (the wrong teammate)" yes \
+      's|        mrui::ui_team_row(l, sizeof l, here, s.team\[idx\]);|        mrui::ui_team_row(l, sizeof l, here, s.team[0]);|'
+  # ⛔ C107 THE MARKER DROPPED AT THE SEAM. The pure unit renders whatever marker it is handed, so "the selected row
+  #    is marked" is THIS file's claim and nothing else's — §B64's suppression is one argument away from silent.
+  ctl "C107 the row marker is hard-wired off (no pick is ever shown)" yes \
+      's|        mrui::ui_team_row(l, sizeof l, here, s.team\[idx\]);|        mrui::ui_team_row(l, sizeof l, false, s.team[idx]);|'
+  # ⛔ C108 THE ROW DRAWN AT **STATUS's** NARROWED ORIGIN — under S3's reserved 24x24 mark. 19 columns at x = 40 also
+  #    runs off the right edge, so this is the §7.1 clip the whole width discipline exists to forbid.
+  ctl "C108 the team rows are ALSO drawn at the STATUS x=40 origin" yes \
+      's|        mrui::ui_team_row(l, sizeof l, here, s.team\[idx\]);|        mrui::ui_team_row(l, sizeof l, here, s.team[idx]); status_text(row, l);|'
+  # ⛔⛔ C109 THE §1.9 F-8 FIX REMOVED — the PRE-EXISTING defect, restored. Nothing else in the tree invalidates on a
+  #     body row, so a lit TEAM screen goes back to sitting on a stale age until an unrelated event repaints it.
+  ctl "C109 the S4 repaint invalidation is never called (F-8 re-opened)" yes \
+      's|    (void)mrui::ui_team_invalidate(s_model, s, s_frame_snap);|    ;|'
+  # ⛔⛔ C110 IS THE [[B226]] TAUTOLOGY SHAPE, and it is the one a review would wave through: the rule is called, with
+  #     the LIVE snapshot on both sides. It can never differ, so it never raises — a correct rule wired to itself.
+  ctl "C110 the invalidation compares the live snapshot with ITSELF" yes \
+      's|    (void)mrui::ui_team_invalidate(s_model, s, s_frame_snap);|    (void)mrui::ui_team_invalidate(s_model, s, s);|'
+  # ⛔ C111 IS THE OTHER DIRECTION, and without it every "the age turns" check above would be satisfied by a renderer
+  #    that simply repainted for ever: the tempting one-line cure for staleness, which costs the panel its 2 Hz
+  #    ceiling and the node its idle. Only the "no frame while every token holds" checks can see it.
+  ctl "C111 the tick marks the model dirty unconditionally instead" yes \
+      's|    (void)mrui::ui_team_invalidate(s_model, s, s_frame_snap);|    s_model.mark_dirty();|'
+  # ⛔⛔ C112 THE ORDERING, AND IT IS A RULING (§9 R-2: KEEP `rt_team_at` order; S7 stays deferred). A re-sort is the
+  #     most tempting "improvement" on this screen — worst-first, freshest-first, alphabetical — and NO width, format
+  #     or count check can see one. Only P18a's per-row bytes can, which is why the three teammates carry three
+  #     different labels AND three different ages. ⓘ Reversal is the cheapest expression of "the rows moved"; the
+  #     defect it stands for is any sort at all.
+  ctl "C112 the roster is drawn in REVERSE order (a re-sort by any other name)" yes \
+      's|        mrui::ui_team_row(l, sizeof l, here, s.team\[idx\]);|        mrui::ui_team_row(l, sizeof l, here, s.team[s.team_shown - 1 - idx]);|'
 
   # ================================================================================= [[B225]]: L1-L9, THE `v3` ARM's
   # ★★★★ THE CONTROLS FOR `draw_provision_screen` ITSELF, AND THEY EXIST ONLY HERE because the screens they mutate are

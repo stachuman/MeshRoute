@@ -329,7 +329,7 @@ Entered by `double` from TEAM (a DM to the highlighted peer) or from SEND (a tea
 
 - `short` moves the highlight; `double` sends the highlighted text, or leaves on **`back without sending`**.
 - When at least one preset is enabled, the cursor starts on the **first message**, not on `back` — the peer was chosen deliberately one gesture ago, and these texts are benign. If that catalog has no enabled presets, the view shows `no presets configured` plus `back without sending`, and the cursor starts on `back`.
-- **Auto-exit after `kBlankMs` of no input** (⛔ named `MR_UI_BLANK_MS` here until 2026-08-06; that macro exists nowhere in the tree — [[B130]]), returning to the parent screen **without sending**. A modal that can outlive the user's attention is a modal that eventually sends the wrong thing.
+- ~~**Auto-exit after `kBlankMs` of no input** (⛔ named `MR_UI_BLANK_MS` here until 2026-08-06; that macro exists nowhere in the tree — [[B130]]), returning to the parent screen **without sending**. A modal that can outlive the user's attention is a modal that eventually sends the wrong thing.~~ ⛔ **WITHDRAWN 2026-08-21 (§UI-17 R-1, owner-ruled; QG-gated):** the `kBlankMs` auto-exit is **deleted** for the compose sub-view. Blanking is a power action and PRESERVES the interaction (its list, cursor and phase); the consumed wake press restores it; only explicit `BACK`, a completed terminal operation, or the emergency `long_fire` may retire it. ⓘ The old sentence's fear ("eventually sends the wrong thing") is answered by structure, not a timer: nothing sends without a `double` on a send row, and the emergency slot is separate. ⚠ Stated cost, registered as [[B236]]: the normal send slot is held until the operator acknowledges a compose result.
 - `long` still arms the emergency from inside it.
 
 ### 3.2.2 Configurable preset catalog · 📝 not implemented
@@ -455,8 +455,18 @@ unsaved, conflict and restart-needed, with priority **conflict > unsaved > resta
 predicates remain `config_unsaved`, `conflict` and `reboot_required`; `UiState::dirty` still means only
 “repaint owed”. Actionable text such as `RELOAD`, `SAVE FAILED` and `RESTART NEEDED` remains in SETTINGS.
 
-STATUS remains the detail view: expanded home/team ages and identities, our own team local id, configured `team_id`,
-registration state and battery detail may live there without duplicating the compact strip.
+⛔ **CORRECTED IN PLACE 2026-08-21 (§UI-17 S3; owner-accepted 2026-08-20).** This paragraph read *"STATUS remains
+the detail view: expanded home/team ages and identities, our own team local id, configured `team_id`, registration
+state and **battery detail** may live there without duplicating the compact strip."* — kept visible, because two of
+those facts have now LEFT the panel by ruling rather than by accident.
+STATUS is a FIXED five-row body beside a reserved 24x24 mark (§UI-17 spec §2): `TEAM <8 uppercase hex>` ·
+`ME T<n>` · `<n> KNOWN` at `x = 40`, then `<n> NEW / HOME <age>` and the coordinates — or `RESTART NEEDED`, which
+owns that row while it stands — at `x = 12`. ⛔ **The EXACT battery millivolts are no longer on STATUS**: the
+strip's decivolt token and the console carry the reading. ⛔ **The PER-KIND newest-message age is no longer on
+STATUS either**; the per-kind split lives on INBOX and the combined unread count is row 3 and the strip's
+envelope. Both removals are OWNER-ACCEPTED (2026-08-20) and ⛔ no slice may re-add a row to restore either.
+⛔ And no configuration text returns here (§UI-17 R-3): `RESTART NEEDED` is the only one. Row 4 renders from the
+FROZEN snapshot's own-location fields — never a live config read (the S3 tear fix; probe P17b holds the frame).
 
 TEAM shows one row per teammate: a display label resolved through `team_key_of_id()` → `peer_name_find()`, falling
 back to `0x<hash>` and then the bare team id; plus last-heard age, signal quality and hops. When `rt_team_count()`
@@ -557,7 +567,11 @@ deliberate sequence **short → double** after opening the message.
   it meanwhile—and never affect another row. On storage failure stay in the modal and show `DELETE FAILED`; a visual
   disappearance without durable success is forbidden.
 - long press closes the detail modal before arming emergency; the hidden Delete action cannot survive underneath an
-  emergency overlay. Ordinary modal timeout returns to INBOX without deleting.
+  emergency overlay. ~~Ordinary modal timeout returns to INBOX without deleting.~~ ⛔ **WITHDRAWN 2026-08-21
+  (§UI-17 R-1): the detail modal has NO inactivity timeout.** Blanking preserves the modal — its record, its page
+  (the page cadence SUSPENDS while dark and restarts on the wake without changing the page; a blank due on the
+  same tick outranks a page turn, so the operator always wakes onto the page they last SAW) and its selected
+  action; the consumed wake press restores it. Only `back`, a successful delete, or `long_arm` retire it.
 
 Selection identity is **`(InboxKind, seq)`**, not the visible row index, origin, message counter or body. DM and
 channel sequence spaces are independent, so `seq` alone is insufficient. The preview snapshot must carry this pair;

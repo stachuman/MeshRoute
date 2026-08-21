@@ -852,6 +852,12 @@ struct UiSnapshot {
     // ⓘ COST, MEASURED not assumed (the §CHROME-1 placement rule below, applied): the two bools land in the padding
     //   the tail already carried, so `sizeof(UiSnapshot)` stays **608** and `sizeof(UiState)` stays **72** — this
     //   slice adds ZERO bytes to either, on a struct instantiated twice on the OLED envs.
+    //   ⓘ ⚠ **THE TWO TOTALS ABOVE ARE HISTORICAL — they are §UI-15 slice 4's own measurement (2026-08-19) and are
+    //     kept as written.** The CLAIM they support is still true (these two bools cost nothing), but neither
+    //     figure is the current one: `sizeof(UiSnapshot)` is **616** since §UI-17 S3 published `own_fix` +
+    //     `own_lat_e7` + `own_lon_e7` for the frame freeze (+8, see that block below), and `sizeof(UiState)` is
+    //     **200** since §UI-15 slices 5-6 (`prov_answer`, then `join_list`). ⛔ Do not read a past slice's
+    //     "stays N" as a statement about today's struct — that is how this line went stale.
     bool     prov_create_team = false;   // `MR_N_LAYERS < 2 && MR_FEAT_TEAM` — §3.6.3's primary path
     bool     prov_join_static = false;   // `MR_N_LAYERS < 2`                — §3.6.3's secondary path
 
@@ -885,7 +891,37 @@ struct UiSnapshot {
     //   `home_confirm_age_ms` lands at 600 and `sizeof(UiSnapshot)` is 592 -> **608**. Declared AFTER the age instead
     //   it measures **616** — the bool alone would have cost EIGHT. ⚠ `UiSnapshot` is instantiated twice on the OLED
     //   envs (the frozen `s_frame_snap` plus the per-tick build), so the 8 bytes are worth the two lines of ordering.
+    //   ⓘ ⚠ **FIGURES QUALIFIED IN PLACE 2026-08-21, AND THE WORDING IS KEPT AS WRITTEN.** The PLACEMENT ARGUMENT is
+    //     still LIVE and still correct — `home_confirm_age_ms` is still measured at offset **600** — but the two
+    //     TOTALS are §CHROME-3's (2026-08-16): the struct is **616** today, because §UI-17 S3 appended
+    //     `own_lat_e7`/`own_lon_e7` past that age for the frame freeze. ⛔⛔ AND THE `616` ON THE LINE ABOVE IS A
+    //     **COUNTERFACTUAL FROM THAT ERA** — "what this bool WOULD have cost declared after the age" — which now
+    //     collides numerically with today's REAL total by pure coincidence. They are different numbers about
+    //     different structs; ⛔ do not read one as evidence for the other.
     bool     team_key_present = false;
+    // ★★★★ §UI-17 — OUR OWN CONFIGURED POSITION, AND IT IS ON THE SNAPSHOT BECAUSE THE FRAME MUST FREEZE IT.
+    //      `draw_frame` runs ONCE PER OLED PAGE over the frozen copies (`src/firmware_ui.cpp`'s own rule: *"nothing
+    //      read that a later page could see differently, or the image tears across page boundaries"*). S3's first
+    //      cut read `g_node.config()` INSIDE `draw_status_screen`, so a `cfg set lat` landing between two of the
+    //      eight page replays would have drawn half a coordinate row from the old fix and half from the new one.
+    //      ⇒ published ONCE per tick in `build_snapshot`, exactly like every other body input.
+    // ⓘ SCOPE, STATED SO IT IS NOT MISREAD AS SCOPE CREEP: these three are S5's `UiSnapshot` fields, PULLED FORWARD
+    //   into S3 by QG direction (2026-08-21) for the freeze above, and NOTHING ELSE of S5 comes with them — the
+    //   PEER-location fields on `TeamRow` (`peer_lat_e7` / `peer_lon_e7` / `peer_loc_age_s` / `peer_loc_valid`) are
+    //   still S5's, and nothing here calls `peer_loc_find`.
+    // ★★ `own_fix` IS THE PUBLISHED ANSWER OF THE **ONE** PREDICATE (`mrui::ui_status_have_fix`,
+    //    `firmware_ui_status.h`), written at the single site that can see `NodeConfig` — the `team_build` /
+    //    `mobile_build` idiom (U3). ⛔ It is NOT a second definition and ⛔ the renderer must not re-derive it: the
+    //    core itself refuses a located send when BOTH coordinates are zero, and one surface disagreeing with that
+    //    refusal is the whole failure this field exists to prevent.
+    // ⓘ COST, MEASURED BY `offsetof` not assumed (the `team_key_present` placement rule above, applied again):
+    //   `own_fix` lands at **596**, inside the 596..599 pad that already sat before the 8-aligned
+    //   `home_confirm_age_ms` — which does **not** move, still **600** — so the bool costs ZERO. The two `int32_t`
+    //   then take **608** and **612** and cost their own 8. ⇒ `sizeof(UiSnapshot)` 608 -> **616**, and 616 needs no
+    //   tail pad at alignof 8. ⚠ Instantiated TWICE on the OLED envs plus a per-tick stack local, so that is ~+16 B
+    //   of static RAM and +8 B of loop-task stack. ⛔ Declared AFTER the age instead, the two int32 would still
+    //   cost 8 but the bool would have opened a new hole — which is why the two halves sit where they do.
+    bool     own_fix = false;
     // ★★★★ `uint64_t`, AND THE TYPE IS THE WHOLE POINT (design §4.2, and the trap this slice was briefed against).
     //     Authority: `Node::mobile_home_confirm_age_ms()`, which is `uint64_t`. ⛔⛔ NEVER a `uint32_t` millisecond
     //     age: that cast re-creates the ~49.7-day wrap this project already fixed once (see node.h's §MH-S4 ledger
@@ -896,6 +932,11 @@ struct UiSnapshot {
     //   carried WHOLE and is bucketed exactly once, in `ui_fmt_home_age` (src/firmware_ui_chrome.h).
     // ⓘ Meaningful only while `home_confirmed_ever` is true; 0 with `!ever` is "never", not "just now".
     uint64_t home_confirm_age_ms = 0;
+    // 1e-7 degrees, the scale `NodeConfig::lat_e7` / the wire already use — carried VERBATIM from the config, ⛔ no
+    // cast, no clamp, no re-derivation at the publish site (the `home_confirm_age_ms` precedent directly above).
+    // ⓘ Meaningful only while `own_fix` is true; `(0,0)` with `own_fix` false is "no position", ⛔ never the Gulf of
+    //   Guinea, which is why the row draws `NO LOCATION` rather than `0.000,0.000`.
+    int32_t  own_lat_e7 = 0, own_lon_e7 = 0;
 };
 
 // ★ THE UI-LOCAL UNREAD / RECENCY COUNTERS (spec §6). They were six file-static variables in firmware_ui.cpp, and
@@ -1268,6 +1309,10 @@ struct UiState {
     //   per-board `RAM_used` diff, which is the board gate's — this struct is instantiated TWICE on the OLED envs
     //   (the model's and the frame's frozen copy). `sizeof(UiSnapshot)` is UNCHANGED at 608 (slice 4's two bools
     //   already landed in the tail's padding).
+    //   ⓘ ⚠ **HISTORICAL FIGURE (§UI-15 slice 5, 2026-08-19), kept as written.** The claim is about THIS slice and
+    //     is unchanged — it adds no snapshot field — but 608 is no longer the current total: `sizeof(UiSnapshot)`
+    //     is **616** since §UI-17 S3's frame-freeze fields. The one place that figure is maintained is `own_fix`'s
+    //     own block above, which carries the `offsetof` proof; ⛔ never re-derive it from a line like this one.
     UiProvAnswer prov_answer{};
     // ★★★ §UI-15 slice 6 — THE PROFILE LIST THE SELECT SCREEN WALKS, READ ONCE AND FROZEN WITH THE FRAME. ⛔ It is
     //     NOT re-read per tick or per page: `IUiProvision::profiles()` reaches flash, and U8g2 replays the whole
@@ -1280,6 +1325,10 @@ struct UiState {
     //   UNCHANGED at 608 (this slice adds no snapshot field: the profile list is a MODEL fact, read on a transition,
     //   ⛔ never republished per tick). ⛔ The authoritative number is a per-board `RAM_used` diff, which is the board
     //   gate's — this struct is instantiated TWICE on the OLED envs, so the host figure is +208 B of model state.
+    //   ⓘ ⚠ **HISTORICAL FIGURE (§UI-15 slice 6, 2026-08-20), kept as written**, and the same qualification as
+    //     `prov_answer`'s directly above: the "this slice adds no snapshot field" claim stands, but the current
+    //     `sizeof(UiSnapshot)` is **616** (§UI-17 S3's `own_fix` / `own_lat_e7` / `own_lon_e7`). ⓘ `sizeof(UiState)`
+    //     **200** on this line IS still current — S3 added nothing to `UiState`.
     UiJoinList join_list{};
     // The SELECTED slot, 1..kJoinProfiles, and ⛔ 0 = nothing picked. It is a SLOT NUMBER and never a row index:
     // rows are built from the `present` flags, so an index means a different profile in a different record (§B66).
