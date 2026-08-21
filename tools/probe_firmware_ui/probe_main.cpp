@@ -72,6 +72,33 @@
 //     failure arms. ★ Each has a POSITIVE ARM IN THE SAME PHASE — the identical screen with the divergence removed
 //     really does create a team, write once and move the live node — so the zeros are evidence, not a fixture that
 //     could never do anything.
+//   ⓘ §UI-17 S2 ADDS SIX CHECKS — the `P6b2` blank-and-wake phase plus P9d's close — AND EXACTLY **ONE** OF THEM IS A
+//     STANDING EXCEPTION. ★ MEASURED off the roll-up rather than predicted, because the prediction was WRONG: this
+//     note first claimed no control could redden any of them. Five ARE reddened (a renderer stuck not painting fails
+//     them along with everything else, C10's shape), and only "P6b2 ...and the store came through it untouched" is
+//     not — the familiar NEGATIVE SPACE shape, since no mutation of a renderer can make a real `pull()` lose a
+//     record. ⛔ WHAT NO CONTROL IN THIS FILE CAN DO, and this is the division of labour rather than a gap, is INVERT
+//     THE RETENTION ITSELF: it lives in `src/firmware_ui_model.h` and every control in `run.sh` mutates
+//     `src/firmware_ui.cpp`. That half is named rather than assumed, and the inventory is COMPLETE — **SEVEN**
+//     entries in `tools/probe_ui_model_mutations.py --target=model`, every one of which turns the native suite RED:
+//       **S01** the compose sub-view's `kBlankMs` auto-exit re-instated · **S02** the detail modal's re-instated ·
+//       **S03** the compose sub-view no longer closed by a COMMITTED alarm (§B101's close dropped) ·
+//       **S04** the blank deadline made conditional on a modal being open ·
+//       **S05** the dark-page suspension removed (the cadence runs on a panel nobody can see) ·
+//       **S06** the wake-time cadence restart removed (the wake pass itself turns the page) ·
+//       **S07** the page turn no longer outranked by a blank due on the SAME tick.
+//     ⛔ CORRECTED IN PLACE 2026-08-21 (QG): this sentence named only S01/S02/S04/S05/S06 and then said *"all six of
+//     which"* — a count that matched neither the five it listed nor the seven that exist. A miscounted inventory is
+//     the same class of defect as a stale coverage ratio ([[B120]]), which is why it is corrected rather than tidied.
+//     ⇒ being reddened by a broad control proves these checks are WIRED; it does not prove they measure the ruling,
+//     and the model battery is where that is proved.
+//   ★ WHAT THIS PHASE ADDS OVER THE NATIVE CASES is the panel: that the power latch really goes down on the unmoved
+//     deadline with a modal up, and that the frame the consumed wake press produces draws the SAME record's modal
+//     with `back` still selected — none of which any native case compiles.
+//   ⓘ P9d's "acknowledging the result closes the sub-view" is a HARNESS PRECONDITION: it asserts the phase LEFT THE
+//     PANEL AS IT FOUND IT, which the deleted `kBlankMs` auto-exit used to do by accident. Without it P13's screen
+//     walk starts inside a retained sub-view and measures the wrong screen (MEASURED: P13a red on a mail count the
+//     INBOX frame it never reached could not clear).
 //   ★★ AND THERE ARE NOW **TWO ARMS OF THIS FILE**, on the `MR_N_LAYERS` axis, for the reason the `MR_UI_BLE_ROW` arm
 //     exists one paragraph up: with `-DMR_N_LAYERS=2` BOTH provisioning children hide, so `draw_provision_screen` is
 //     structurally unreachable and §UI-15 slice 5's three screens were measured by NOTHING ([[B225]]). `run.sh`
@@ -1191,6 +1218,45 @@ int main() {
     CHK("P6b ...and the page indicator reads 1/1",         strstr(g_c.page_text, "1/1") != nullptr);
     CHK("P6b opening DELETED NOTHING",                     live_count() == 6);
 
+    // ---- ★★★★ §UI-17 S2 — BLANK AND WAKE **OVER AN OPEN MODAL** (spec S2 pins 1/2/5, on the glass) -----------------
+    // ★★ WHAT ONLY THIS PROBE CAN SEE. The model's half is under the native gate (`ui17-hold:` cases, and the SEVEN
+    //    entries S01-S07 — the complete inventory is at the top of this file);
+    //    what NOTHING there compiles is the panel itself — that the power latch really goes down on the unmoved
+    //    `kBlankMs` deadline WITH a modal up, and that the frame the WAKE press produces draws the SAME record's
+    //    modal with `back` still selected rather than the list underneath it.
+    // ⛔ THE AUTHORITY FOR "NOTHING WAS DELETED" IS A REAL `pull()`, as everywhere else in P6: the whole point of
+    //    §3.3 is that a power event may not change anything durable, and the panel is exactly the wrong witness.
+    // ⓘ WHAT REDDENS THESE, MEASURED OFF THE ROLL-UP — ⛔ AND THE FIRST VERSION OF THIS NOTE WAS WRONG, so it is
+    //   corrected in place rather than quietly rewritten. It claimed *"NO CONTROL IN `run.sh` REDDENS THESE FOUR"*.
+    //   FIVE of the six checks this slice adds ARE reddened by `run.sh` controls (a renderer that stops painting
+    //   fails them along with everything else, C10's shape); only "P6b2 ...and the store came through it untouched"
+    //   is not, and that one is NEGATIVE SPACE — no mutation of a renderer can make a real `pull()` lose a record.
+    // ⛔ WHAT NO CONTROL HERE CAN DO is invert the RETENTION itself: it lives in `firmware_ui_model.h` while every
+    //   control in `run.sh` mutates `src/firmware_ui.cpp`. ⇒ being reddened by a broad control proves these checks
+    //   are WIRED; it does not prove they measure the ruling. That half is the SEVEN entries S01-S07 in
+    //   `tools/probe_ui_model_mutations.py --target=model`, each of which reddens the native suite; the complete
+    //   inventory, with what each one attacks, is at the top of this file.
+    {
+        const int live_before_blank = live_count();
+        CHK("P6b2 precondition: the panel is lit with the modal open",
+            g_c.last_power_save != 1 && strstr(g_c.page_text, ">back") != nullptr);
+        t += 16000;                                        // > kBlankMs (15 s) with NO input at all
+        tick(t);
+        tick(t + 10);                                      // ...and let the power-save edge complete
+        CHK("P6b2 the panel blanks on time with the modal still open",
+            g_c.last_power_save == 1 && live_count() == live_before_blank);
+        // ONE short press: the model CONSUMES it as the wake (`on_gesture`'s blanked arm returns early), so what the
+        // next frame draws is what the operator walked away from — ⛔ never the list, and ⛔ never `delete`.
+        t = settle(t + 5000);
+        paint(t);
+        CHK("P6b2 the wake press restores the SAME record's modal",
+            g_c.last_power_save != 1 && strstr(g_c.page_text, "CH7 from") != nullptr &&
+            strstr(g_c.page_text, "ch-one") != nullptr);
+        CHK("P6b2 ...with `back` still selected, never `delete`",
+            strstr(g_c.page_text, ">back") != nullptr && strstr(g_c.page_text, ">delete") == nullptr);
+        CHK("P6b2 ...and the store came through it untouched", live_count() == live_before_blank);
+    }
+
     // ---- (b) `back` CHANGES NOTHING IN STORAGE — asserted at the STORE, not on the screen --------------------------
     t = double_press(t + 500); paint(t);
     CHK("P6c `back` closes the modal",                     strstr(g_c.page_text, ">back") == nullptr &&
@@ -1631,6 +1697,19 @@ int main() {
             t9 += 700; paint(t9);
             CHK("P9d the DM airing turns QUEUED into SENT, waiting",
                 strstr(g_c.page_text, "SENT, waiting") != nullptr && strstr(g_c.page_text, "QUEUED") == nullptr);
+            // ---- ⚠⚠ §UI-17 S2 — THE PHASE THAT OPENS A MODAL NOW CLOSES IT, and this line is the harness paying for
+            //      the ruling rather than a new property. ⛔ MEASURED, not anticipated: until §9 R-1 the `kBlankMs`
+            //      auto-exit tidied this RESULT phase away during the long jump to P10, so every later phase started
+            //      on a top-level screen BY ACCIDENT. With the modal retained (which is the whole point), P13's
+            //      `walk_to_slot` met a sub-view whose rail boxes SEND, `leave_list` correctly answered "not on a
+            //      list screen", and the walk then spent all 22 presses inside the TEAM list it landed in — P13a
+            //      failed on a mail count the never-visible INBOX frame never cleared.
+            //      ⇒ acknowledge the outcome, exactly as an operator does. ⛔ The RETENTION itself is not measured
+            //      here — it is P6b2's and the native `ui17-hold:` cases' — this is the harness leaving the panel as
+            //      it found it.
+            t9 = settle(t9 + 1000); paint(t9);
+            CHK("P9d acknowledging the result closes the sub-view",
+                strstr(g_c.page_text, "SENT, waiting") == nullptr && strstr(g_c.page_text, "to: ") == nullptr);
         }
     }
 

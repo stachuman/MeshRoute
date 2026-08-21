@@ -1336,9 +1336,9 @@ public:
         _last_input_ms = s.now_ms; _seeded = true;
         // ★ spec §4.2: emergency gestures pre-empt EVERYTHING — blank-wake and the compose modal both.
         if (g == Gesture::long_arm || g == Gesture::long_fire || g == Gesture::long_cancel) {
-            _st.blanked = false; emergency_gesture(g, s); _st.dirty = true; return;
+            unblank(s.now_ms); emergency_gesture(g, s); _st.dirty = true; return;
         }
-        if (_st.blanked) { _st.blanked = false; _st.dirty = true; return; }   // the waking press is CONSUMED
+        if (_st.blanked) { unblank(s.now_ms); _st.dirty = true; return; }     // the waking press is CONSUMED
         // ★★★ §B71 (OWNER-RULED 2026-08-04, implemented by UI-6): once the alarm has been sent AND ITS RESULT SEEN,
         // the next SHORT press acknowledges it and restores the normal cycle. Before this there was NO exit at all —
         // `_emg` had no path back to `idle`, so a fired alarm owned the panel until reboot.
@@ -1426,22 +1426,77 @@ public:
         // ownership of the window rather than being overwritten by a late first tick.
         if (!_seeded) { _last_input_ms = s.now_ms; _seeded = true; }
         tick_emergency(s);
-        if (_st.compose != Compose::none && elapsed(s.now_ms, _last_input_ms) >= kBlankMs) {
-            close_compose();                                                 // never outlive attention; sends nothing
-        }
-        // ★ §UI-7D slice B, spec §3.5: "ordinary modal timeout returns to INBOX without deleting" — the SAME kBlankMs
-        //   window the compose sub-view uses (U1), for the same reason: a modal that outlives the user's attention is
-        //   one whose selected action eventually gets pressed by accident. It deletes nothing, by construction.
-        if (_st.detail != InboxModal::closed && elapsed(s.now_ms, _last_input_ms) >= kBlankMs) close_detail();
+        // ★★★★ §UI-17 S2 — **THERE ARE NO MODAL TIMEOUTS HERE ANY MORE**, and the absence is stated rather than left
+        //      as a gap somebody re-fills. §3.3 (owner-ruled 2026-08-20, spec §9 R-1) is that **blanking is a POWER
+        //      action**: it may not discard a draft, a detail selection or a compose choice. The panel goes dark, the
+        //      interaction and its stable selection stay exactly as the operator left them, and the consumed wake
+        //      press (`on_gesture`'s blanked arm) puts the SAME screen back.
+        // ⛔ **WITHDRAWN IN PLACE, KEPT VISIBLE** — the two statements that stood here, and the reasoning that put
+        //    them there, so nobody re-derives them from first principles a third time.
+        // ⚠ EACH IS DELIBERATELY WRAPPED MID-CONDITION so that no single-line pattern can match it: this file is the
+        //   mutation battery's `model` target, a pattern is a plain substring over the whole file, and an entry that
+        //   silently anchored on a COMMENT would mutate nothing, compile, stay green and be reported as a measured
+        //   property. (The same VACUOUS class M27/M28 and M06 were re-anchored for.)
+        //      if (_st.compose != Compose::none
+        //              && elapsed(s.now_ms, _last_input_ms) >= kBlankMs) {
+        //          close_compose();                                         // never outlive attention; sends nothing
+        //      }
+        //      // ★ §UI-7D slice B, spec §3.5: "ordinary modal timeout returns to INBOX without deleting" — the SAME
+        //      //   kBlankMs window the compose sub-view uses (U1), for the same reason: a modal that outlives the
+        //      //   user's attention is one whose selected action eventually gets pressed by accident.
+        //      if (_st.detail != InboxModal::closed
+        //              && elapsed(s.now_ms, _last_input_ms) >= kBlankMs) close_detail();
+        //    ⇒ design §3.2.1 (*"A modal that can outlive the user's attention is a modal that eventually sends the
+        //    wrong thing"*) and design §3.5 are both SUPERSEDED for these two timers. The trade was put to the owner
+        //    with the pocketed-device argument on the table and §3.3 won for BOTH.
+        // ★★ WHAT STILL RETIRES A MODAL, and it is a CLOSED LIST — verified against the call sites, not recalled:
+        //    an explicit `back` (`compose_gesture`'s last row / `detail_gesture`'s `back` action); a completed
+        //    terminal operation (the RESULT phase's acknowledgement, the `gone` screen's, and a SERVED erase); and
+        //    the EMERGENCY exception — `long_arm` closes the detail modal and `long_fire` closes compose
+        //    (`emergency_gesture`), because a hidden Delete or a selected canned message may not survive under an
+        //    alarm overlay.
+        // ⓘ "LEAVING THE SCREEN" IS NOT ON THAT LIST, and deliberately so rather than by omission: a modal OWNS the
+        //   press (`on_gesture` dispatches to `compose_gesture`/`detail_gesture` before `advance_or_next` is
+        //   reached), so no gesture can move `_st.screen` while one is open. The list above is therefore exhaustive.
+        // ⛔ AND THE BLANK ITSELF IS UNCONDITIONAL, which is the other half of the ruling: the deadline below neither
+        //    knows nor asks whether a modal is open. Making it conditional would keep a safety device's panel LIT for
+        //    ever behind an open modal — and, through `ui_allows_sleep` (which requires `blanked`), stop it
+        //    light-sleeping at all.
         // ★★★ THE 2 s PAGE ADVANCE, AND IT RIDES THIS TICK ON PURPOSE: `TimerWheel::kCap` is 91 and every id is
         //     allocated, so a `Node` timer was not available — and would have been the wrong layer anyway, since a
         //     display cadence is not protocol time.
         // ★ IT MARKS THE MODEL DIRTY BUT DELIBERATELY DOES NOT TOUCH `_last_input_ms` (spec §3.5): the page turning is
-        //   the DEVICE acting, not the user, so it must not postpone the blank or the modal's own timeout above. ⇒ a
-        //   long body cycles for exactly as long as the inactivity window, and then the panel blanks as it always would.
+        //   the DEVICE acting, not the user, so it must not postpone the blank. ⇒ a long body cycles for exactly as
+        //   long as the inactivity window, and then the panel blanks as it always would.
+        //   ⓘ CORRECTED 2026-08-21 (§UI-17 S2, V1): this read *"must not postpone the blank or the modal's own timeout
+        //     above"*. There is no modal timeout above any more (§9 R-1) — only the blank is postponed-or-not, and the
+        //     rule is unchanged for it. ⛔ THE GATE BELOW MUST NOT COUPLE THE TWO CLOCKS IN THE OTHER DIRECTION EITHER:
+        //     suspending the cadence while dark does NOT feed back into `_last_input_ms`, so the blank deadline is
+        //     exactly where it was.
+        // ★★★★ §UI-17 S2 — **AND IT IS SUSPENDED WHILE THE PANEL IS DARK.** ⛔ MEASURED, not anticipated: with the
+        //     modal now RETAINED across a blank (§9 R-1) this cadence kept running on a panel nobody can see, so a
+        //     retained modal drifted pages in the dark and the operator woke to a DIFFERENT page than they left —
+        //     which is precisely the "preserve the interaction and its stable selection" the ruling is about, lost
+        //     through the one clock the ruling did not name.
+        // ★ THE PAGE VALUE IS NEVER RESET BY ANY OF THIS — dark or lit, `detail_page` only ever moves by this advance.
+        //   The wake restarts the CADENCE (`unblank`), so the first dark-to-lit pass cannot bank the whole dark
+        //   interval and turn the page before the operator has seen it.
         // ⓘ The resulting repaint still obeys §5's MAC-idle/page-buffer gate — `FrameGate` is the only thing that
         //   decides a frame may open, and this only asks.
-        if (_st.detail == InboxModal::body && _st.detail_pages > 1 &&
+        // ★★★★ §UI-17 S2 — **AND THE BLANK OUTRANKS THE PAGE TURN WHEN BOTH ARE DUE ON THE SAME TICK** (QG-ruled
+        //      2026-08-21). ⛔ THE BOUNDARY THIS CLOSES, and it is a real tick on real hardware rather than a
+        //      contrived one: `on_tick` runs this advance BEFORE the blank transition below, so a sparse or delayed
+        //      tick that crosses BOTH deadlines turned the page and then immediately hid it — the operator woke onto
+        //      a page THEY NEVER SAW. That is the same loss §3.3 forbids, arriving through the ordering instead of
+        //      through the dark.
+        // ★ THE RULE, STATED AS THE CODE READS IT: **the page a blank hides must be the page the operator last saw.**
+        //   ⇒ on the crossing tick the panel simply goes dark on the current page; the cadence then restarts at the
+        //   wake (`unblank`), so nothing is owed and nothing is banked.
+        // ⛔⛔ IT IS THE **ORDER** THAT CHANGES, ⛔ NEVER EITHER DEADLINE. `blank_due` is the SAME predicate the
+        //     transition below uses — ONE authority, called twice (U1) — so the blank still fires on exactly the edge
+        //     it always did (pin 5), and this gate still does not touch `_last_input_ms`, so a page turn still cannot
+        //     postpone the blank (pin 4). The two clocks stay independent in both directions.
+        if (!_st.blanked && !blank_due(s) && _st.detail == InboxModal::body && _st.detail_pages > 1 &&
             elapsed(s.now_ms, _detail_page_at_ms) >= kDetailPageMs) {
             _st.detail_page = uint8_t((_st.detail_page + 1) % _st.detail_pages);   // ★ CYCLES, never stops at the last
             _detail_page_at_ms = s.now_ms;
@@ -1465,7 +1520,10 @@ public:
         //    (`mr_ui_tick`: on_gesture -> on_tick -> step), so the highlight must already name the remembered teammate
         //    IN THIS SNAPSHOT. Re-anchoring only on a gesture would leave the panel showing `>` beside one teammate
         //    while `activate()` addressed another — the mis-send this ruling closes, arriving from the other side.
-        //    ⓘ After the auto-exit above, deliberately: a modal that just closed gets its team cursor back the same tick.
+        //    ⓘ CORRECTED 2026-08-21 (§UI-17 S2, V1). This line read *"After the auto-exit above, deliberately: a modal
+        //      that just closed gets its team cursor back the same tick"* — and the auto-exit it named is DELETED. The
+        //      placement is unchanged and still load-bearing for the reason the paragraph above gives (the frame
+        //      freezes immediately after this call); it simply no longer has a timeout above it to be "after".
         // ★★ §UI-17 S1 — the SECOND forward to `list_view_reset_on_leave`, and it is here for the reason
         //    `settings_follow_screen`'s own block gives: the frame FREEZES immediately after this call, so an
         //    entered list must already have been retired if the screen has moved on underneath it.
@@ -1491,8 +1549,7 @@ public:
                                          //   highlight beside the record `activate()` would actually open.
         sync_settings(s);                // ★ §UI-14: same placement, same argument — the frame FREEZES immediately
                                          //   after this call, so the service must already be open when it does.
-        if (!_st.blanked && !hold_active(s.now_ms) &&
-            elapsed(s.now_ms, _last_input_ms) >= kBlankMs) {
+        if (blank_due(s)) {
             _st.blanked = true; _st.dirty = true;
             // ★★ §3.6.1, VERBATIM IN SUBSTANCE: *"`BACK` and blanking PRESERVE the draft; silently discarding because
             //    attention timed out is FORBIDDEN."* `on_blank()` is the named seam the service exposes for exactly
@@ -1741,6 +1798,8 @@ public:
     // read `SENDING...` until either the `channel_sent` verdict (up to ~36 s on a team post) or — first, on the common
     // path — the sub-view's own 15 s auto-exit. ⇒ a SUCCESSFUL send whose only feedback was a spinner that never
     // resolved, contradicting the bench guide's required sequence.
+    // ⓘ §UI-17 S2 2026-08-21 (V1): the 15 s auto-exit that made it arrive FIRST is DELETED (§9 R-1). B113's defect and
+    //   this arm's necessity are unchanged — the paragraph above is the historical record of why the arm exists.
     // ⓘ **§T3 2026-08-14 — WHAT THAT ARM PRINTS HAS CHANGED, and the two sentences above are corrected rather than
     //   left drifting (V1):** `ChanState::waiting` renders **`QUEUED`**, because acceptance is five measured gaps
     //   short of the air; `SENT, waiting` moved to `ChanState::aired`, reached only by a correlated `send_aired`.
@@ -1818,7 +1877,10 @@ public:
     //   already independent of the emergency. Two entry points writing `_dm` would be the fork U1 forbids.
     void on_channel_outcome(const SendOutcome& o, uint32_t now_ms) {
         using K = SendOutcome::Kind;
-        (void)now_ms;   // no deadline here: the sub-view's own kBlankMs auto-exit is the display window (spec §3.2.1)
+        // ⓘ CORRECTED 2026-08-21 (§UI-17 S2, V1): this read *"no deadline here: the sub-view's own kBlankMs auto-exit
+        //   is the display window (spec §3.2.1)"*. There is no auto-exit any more (§9 R-1) — the display window is now
+        //   the operator's own acknowledgement. The absence of a deadline HERE is unchanged and is still the point.
+        (void)now_ms;
         switch (o.kind) {
             case K::channel_relayed:     _chan = ChanState::relayed;     break;
             case K::channel_no_relay:    _chan = ChanState::no_relay;    break;
@@ -1955,7 +2017,11 @@ public:
         //   from THIS reply's own arrival — so the woken panel stays lit for a full window and then blanks with the
         //   state retained. `_last_input_ms` is deliberately untouched, and it is inert either way because
         //   kEmgHoldMs > kBlankMs (asserted in the test, not argued here).
-        _st.blanked = false;
+        // ★★ §UI-17 S2: routed through `unblank` (U1) rather than writing the flag. A reply lights the panel over a
+        //   RETAINED detail modal exactly as a press does, so it owes the same cadence restart — a guard installed
+        //   only where the defect was first seen is not a guard ([[B223]]). ⛔ It still does not touch
+        //   `_last_input_ms`; only the display clock moves.
+        unblank(now_ms);
     }
     const char* reply_who()  const { return _reply_who; }
     const char* reply_text() const { return _reply_text; }
@@ -2860,9 +2926,37 @@ private:
         _inbox_taken = false;
         _st.dirty = true;
     }
-    // ★ ONE exit for the modal (U1/U2). Five call sites reach it — `back`, the terminal state's acknowledgement,
-    //   `on_tick`'s timeout, a successful delete, and §UI-7D's `long_arm` — and every field must be cleared together or
-    //   a re-opened modal would render one record's page under another's header.
+    // ★ ONE exit for the modal (U1/U2). ⓘ CORRECTED 2026-08-21 (§UI-17 S2, V1): it read "Five call sites reach it —
+    //   `back`, the terminal state's acknowledgement, `on_tick`'s timeout, a successful delete, and §UI-7D's
+    //   `long_arm`". §9 R-1 deleted the `on_tick` timeout, so FOUR reach it: `back`, the terminal state's
+    //   acknowledgement, a successful delete ([[B233]]'s `erased` arm), and §UI-7D's `long_arm`. Every field must
+    //   still be cleared together or a re-opened modal would render one record's page under another's header.
+    // ★★★★ §UI-17 S2 — **THE ONE WAY OUT OF `blanked`**, and it exists so that two facts cannot be separated: the
+    //      panel lighting up, and the DISPLAY CADENCE restarting from that instant. ⛔ It does NOT move
+    //      `_st.detail_page`: §3.3 says the operator gets back the interaction they left, so the page they were
+    //      reading is the page that must be on the glass.
+    // ⛔⛔ WHY THE RESTART IS NOT OPTIONAL, AND IT IS THE REAL LOOP'S ORDER THAT MAKES IT SO (`firmware_ui.cpp`:
+    //     `on_gesture(...)` then `on_tick(s)` **against the same snapshot, in the same pass**): without it
+    //     `_detail_page_at_ms` is still the pre-blank stamp, so `elapsed >= kDetailPageMs` is already true and the
+    //     wake pass ITSELF turns the page — before a single frame has shown the operator what they came back to.
+    //     ⇒ the dark-suspension above and this restart are INDEPENDENT halves of one property; each has its own
+    //     mutation (S05/S06) because either one alone still loses the page.
+    // ⓘ `_last_input_ms` is deliberately NOT touched here — `on_gesture` already stamped it for the press, and
+    //   `on_reply` deliberately leaves it alone (its own note says why). This function owns the DISPLAY clock only.
+    void unblank(uint32_t now_ms) {
+        _st.blanked = false;
+        _detail_page_at_ms = now_ms;
+    }
+    // ★★★★ §UI-17 S2 — **"IS THE PANEL GOING DARK ON THIS TICK?"**, asked in ONE place and answered for TWO callers
+    //      (U1): the blank transition itself, and the page cadence that must stand aside for it. ⛔ A SECOND COPY OF
+    //      THIS PREDICATE IS THE WHOLE HAZARD — the cadence would go on turning pages on exactly the tick the blank
+    //      hides them the moment the two spellings drifted, which is the boundary this function exists to close.
+    // ⓘ It is a QUESTION, not an action: it moves nothing, so asking it early costs nothing and the transition below
+    //   remains the only writer of `blanked`. ⇒ the deadline is unchanged and unmoved; only the ORDER of two effects
+    //   on one tick is decided by it.
+    bool blank_due(const UiSnapshot& s) const {
+        return !_st.blanked && !hold_active(s.now_ms) && elapsed(s.now_ms, _last_input_ms) >= kBlankMs;
+    }
     void close_detail() {
         _st.detail = InboxModal::closed;
         _st.detail_action = InboxAction::back;
@@ -2901,12 +2995,16 @@ private:
         //    (spec §3.2.1/§3.4.1), so there is nothing to walk and nothing to activate — the only thing either gesture
         //    can mean is "I have read it".
         // ★ `double` closes because the spec says so verbatim ("the sub-view closes to its parent on an explicit
-        //   `double`, or after a bounded display window" — the window is `on_tick`'s kBlankMs auto-exit).
+        //   `double`, or after a bounded display window").
+        // ⓘ CORRECTED 2026-08-21 (§UI-17 S2, V1): that sentence used to end *"— the window is `on_tick`'s kBlankMs
+        //   auto-exit"*, and the paragraph below used to justify `short` by *"⛔ The alternative — ignore it — would
+        //   let a user tapping `short` hold a modal open indefinitely, since every gesture refreshes `_last_input_ms`
+        //   and so postpones the very auto-exit that is supposed to bound it"*. The auto-exit is DELETED (§9 R-1), so
+        //   **BOTH presses acknowledging is now the ONLY bounded display window there is** — which strengthens the
+        //   rule rather than weakening it.
         // ★ `short` closes too, and that is DERIVED from the shipped gesture contract rather than invented: §3.2's
         //   `short` is "advance within the current list; AT THE END, move to the next screen". The result phase has no
-        //   list, so every position is the end. ⛔ The alternative — ignore it — would let a user tapping `short`
-        //   hold a modal open indefinitely, since every gesture refreshes `_last_input_ms` and so postpones the very
-        //   auto-exit that is supposed to bound it. Neither choice can send: this branch queues nothing.
+        //   list, so every position is the end. Neither choice can send: this branch queues nothing.
         if (_st.compose_result) {
             if (g == Gesture::short_press || g == Gesture::double_press) close_compose();
             return;
@@ -2920,12 +3018,17 @@ private:
         //    RENDERER — `DELIVERED to <label>` (the one thing `-a` buys that a channel post can never offer),
         //    `NO KEY`, `NO CONFIRM` — all unreachable on the panel. The cursor is still reset, so a re-opened modal
         //    starts on the first message (H7-02/H7-04), and `compose_peer` is untouched so the result can name who it
-        //    went to. ⓘ It cannot outlive attention: `on_tick`'s kBlankMs auto-exit applies to BOTH phases.
+        //    went to.
+        // ⓘ CORRECTED 2026-08-21 (§UI-17 S2, V1): this line ended *"ⓘ It cannot outlive attention: `on_tick`'s
+        //   kBlankMs auto-exit applies to BOTH phases"*. §9 R-1 deleted that auto-exit — the RESULT phase now
+        //   survives blanking with the rest of the sub-view, and either press above acknowledges it.
         _st.compose_result = true; _st.cursor = 0; _st.dirty = true;
     }
-    // ★ ONE exit for the sub-view (U1/U2). Four call sites reach it — `back`, the result phase's acknowledgement,
-    //   `on_tick`'s auto-exit and §B101's `long_fire` — and the phase flag MUST be cleared with the modal or a
-    //   re-opened compose would render an outcome list against a stale result. It sends nothing, by construction.
+    // ★ ONE exit for the sub-view (U1/U2). ⓘ CORRECTED 2026-08-21 (§UI-17 S2): it read "Four call sites reach it —
+    //   `back`, the result phase's acknowledgement, `on_tick`'s auto-exit and §B101's `long_fire`". The auto-exit is
+    //   gone, so THREE reach it: `back`, the result phase's acknowledgement, and §B101's `long_fire`. The phase flag
+    //   MUST still be cleared with the modal or a re-opened compose would render an outcome list against a stale
+    //   result. It sends nothing, by construction.
     void close_compose() { _st.compose = Compose::none; _st.compose_result = false; _st.cursor = 0; _st.dirty = true; }
     // ★★★★ [[B232]] + §UI-17 S1 — **A SCREEN THAT HAS NOT BEEN ENTERED IS ONE ROW**, and that is the whole of "one
     //      press passes the screen": `advance_or_next` sees `n == 1`, so there is nothing to walk and the cycle

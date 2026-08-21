@@ -32,8 +32,12 @@
 // NOT here, by unit boundary ([[meshroute-mark-done-vs-missing-in-code]]):
 //   · a DM that comes back `queued` with `ctr == 0`. `tick()` releases the slot and invents nothing (a
 //     `channel_remote_mint` for a DM would be a type error), so the model is left on `DmState::submitting` until the
-//     sub-view's own kBlankMs auto-exit closes it. Bounded and never a false claim, but it answers nothing —
-//     register B111, with the measurement that made it reachable at all.
+//     sub-view is closed. Never a false claim, but it answers nothing — register B111, with the measurement that
+//     made it reachable at all.
+//     ⓘ CORRECTED 2026-08-21 (§UI-17 S2, V1): this read *"until the sub-view's own kBlankMs auto-exit closes it.
+//       Bounded and never a false claim"*. §9 R-1 DELETED that auto-exit, so the sub-view now closes on `BACK`, on
+//       either press acknowledging the result, or on `long_fire` — i.e. the display is bounded by the OPERATOR, not
+//       by a timer. The B111 gap itself is unchanged: `SENDING...` still never becomes a claim it cannot support.
 #pragma once
 #include <cstdint>
 #include <cstddef>   // std::size_t
@@ -285,10 +289,18 @@ inline void ui_pump_trackers(SendTracker& emg, SendTracker& normal, UiModel& m, 
     //    remains leaked".)
     // ★ THE SUB-VIEW IS THE ONLY RENDERER of a normal outcome, so a slot outliving it can only leak: spec §3.4.1
     //   bounds the NO CONFIRM -> DELIVERED upgrade to "while the sub-view is still showing", and once it is gone there
-    //   is nothing an arriving ack could update. ⚠ HONEST COST, stated rather than discovered: the modal auto-exits
-    //   after kBlankMs while a team `channel_sent` can take ~36 s and an e2e ack up to 60 s, so a late verdict is
-    //   ABANDONED rather than displayed. That is a display loss, never a false claim — and the alternative is a device
-    //   that cannot send again for a minute.
+    //   is nothing an arriving ack could update.
+    // ⚠⚠ THE COST MOVED 2026-08-21 (§UI-17 S2, §9 R-1) AND IT MOVED IN BOTH DIRECTIONS — recorded, not discovered
+    //   later. ⛔ WITHDRAWN WORDING, KEPT VISIBLE: *"HONEST COST … the modal auto-exits after kBlankMs while a team
+    //   `channel_sent` can take ~36 s and an e2e ack up to 60 s, so a late verdict is ABANDONED rather than
+    //   displayed. That is a display loss, never a false claim — and the alternative is a device that cannot send
+    //   again for a minute."*
+    //   ⇒ THERE IS NO 15 s AUTO-EXIT ANY MORE. **The gain:** the upgrade window is now the whole time the operator
+    //   leaves the sub-view up — blanking preserves it — so the ~36 s / 60 s late verdicts this paragraph called
+    //   abandoned are now the ones most likely to be SEEN. **The price, stated plainly:** the one normal slot is held
+    //   for exactly as long, so until the operator acknowledges the result (`BACK`, either press on the RESULT
+    //   phase, or `long_fire`) `mr_ui_tick` drains no further UI send. ⛔ The EMERGENCY slot is untouched by all of
+    //   this — an alarm has no modal — so the safety path cannot be blocked by a forgotten compose.
     // ⓘ The EMERGENCY slot is deliberately untouched: an alarm has no modal and must never be closed by one.
     if (!m.compose_open() && !normal.idle()) normal.close();
 }

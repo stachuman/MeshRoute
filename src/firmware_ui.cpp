@@ -89,8 +89,10 @@
 //             ⚠ Still true and deliberately unchanged: the INTERNAL writers (fw_main's ctr lease / leaf-config adopt,
 //             firmware_remote's admin writes) stay silent; that file records the measurement behind the exemption.
 //   ⚠ NOT DONE, stated so it is not read as shipped: a DM whose synchronous result is `queued` with `ctr == 0` has no
-//             handle to correlate and no outcome kind of its own, so the sub-view shows `SENDING...` until its own
-//             kBlankMs auto-exit. Bounded and never a false claim, but it answers nothing — register B111.
+//             handle to correlate and no outcome kind of its own, so the sub-view shows `SENDING...` until the
+//             operator closes it. Never a false claim, but it answers nothing — register B111.
+//             ⓘ CORRECTED 2026-08-21 (§UI-17 S2, V1): this read "until its own kBlankMs auto-exit. Bounded and never
+//               a false claim". §9 R-1 deleted that auto-exit — see `firmware_ui_model.h`'s `on_tick`.
 //   MISSING   a real battery reading. `mrui::battery_sample_mv()` is Task 9's; until then it answers "unavailable" and
 //             the status bar renders `--` (the console_json.h:126 rule), never a plausible wrong number.
 #include "mr_features.h"

@@ -128,13 +128,22 @@ TEST_CASE("ui-model: sub-view: double on a message emits a DM request for the bo
     CHECK(m.dm_state() == DmState::submitting);         // §B75: draining the request IS the hand-off point
 }
 
-TEST_CASE("ui-model: sub-view auto-exits on inactivity WITHOUT sending") {
+// ★★★★ REWRITTEN IN PLACE BY §UI-17 S2 (the §B101/[[B232]] precedent: a case whose behaviour a slice changes is
+//      REWRITTEN, never deleted, with a heading saying what changed).
+// ⛔ WHAT IT USED TO PIN, under the heading *"sub-view auto-exits on inactivity WITHOUT sending"*: that `on_tick`
+//    CLOSED the compose sub-view at `kBlankMs`. Spec §9 R-1 (owner-ruled 2026-08-20) deleted that timeout — blanking
+//    is a POWER action and may not discard the operator's compose choice. ★ The half that MATTERED is unchanged and
+//    is still asserted here: the inactivity window still SENDS NOTHING.
+TEST_CASE("ui-model: the sub-view SURVIVES inactivity, and inactivity still sends nothing") {
     UiModel m; SendReq req{};
     to_team(m, snap(1000));                                       // §UI-17 S1: the list is ENTERED first...
     m.on_gesture(Gesture::double_press, snap(1100));              // ...and this is what opens the sub-view
     CHECK(m.state().compose == Compose::dm);
     m.on_tick(snap(1100 + kBlankMs + 1));
-    CHECK(m.state().compose == Compose::none);
+    CHECK(m.state().compose == Compose::dm);                      // ★ §3.3: the interaction outlives the blank
+    CHECK(m.state().compose_peer == snap().team[0].id);           // ★ ...still bound to the SAME peer
+    CHECK(m.state().cursor == 0);                                 // ★ ...on the same canned message
+    CHECK(m.state().blanked == true);                             // ...and the panel is dark, on its own deadline
     CHECK(m.take_send_request(req) == false);
 }
 
@@ -496,38 +505,62 @@ TEST_CASE("ui-model: the blank transition sets dirty exactly once") {
     CHECK(m.state().dirty == false);              // edge-triggered: no repeated blank work (spec §5)
 }
 
-TEST_CASE("ui-model: the modal does NOT auto-exit before the blank window elapses") {
+// ★★★ REWRITTEN IN PLACE BY §UI-17 S2. ⛔ WHAT IT USED TO PIN, as *"the modal does NOT auto-exit before the blank
+//     window elapses"*: the modal open at `kBlankMs - 1` and CLOSED at `kBlankMs` — i.e. the deadline's exact edge.
+//     §9 R-1 deleted the deadline, so what is measured now is that BOTH sides of it are open, and that the BLANK
+//     itself still lands on the unmoved edge (spec S2 pin 5: deleting the timeouts may not extend `kBlankMs`).
+TEST_CASE("ui-model: the modal is open on BOTH sides of the blank edge, and the blank still lands on it") {
     UiModel m; SendReq req{};
     to_team(m, snap(1000));                                            // §UI-17 S1: enter the list first
     m.on_gesture(Gesture::double_press, snap(1100));
     m.on_tick(snap(1100 + kBlankMs - 1));
     CHECK(m.state().compose == Compose::dm);
+    CHECK(m.state().blanked == false);                                 // ★ one millisecond early: still lit
     m.on_tick(snap(1100 + kBlankMs));
-    CHECK(m.state().compose == Compose::none);
+    CHECK(m.state().compose == Compose::dm);                           // ★ the modal is RETAINED...
+    CHECK(m.state().blanked == true);                                  // ★ ...and the blank fired on the same edge
     CHECK(m.take_send_request(req) == false);
 }
 
-TEST_CASE("ui-model: a gesture inside the modal refreshes its inactivity window") {
+// ★★ REWRITTEN IN PLACE BY §UI-17 S2. ⛔ WHAT IT USED TO PIN, as *"a gesture inside the modal refreshes its
+//    inactivity window"*: that a `short` inside the sub-view restarted the modal's own timeout. There is no such
+//    timeout any more, so that case would have been VACUOUS — an assertion true whatever the implementation does.
+//    ★ The property it really rested on SURVIVES and is what is measured now: a press inside the modal is INPUT, so
+//    it moves `_last_input_ms` and therefore the BLANK deadline — which is the one clock the sub-view still shares.
+TEST_CASE("ui-model: a gesture inside the modal refreshes the BLANK window (the only clock it still shares)") {
     UiModel m;
     to_team(m, snap(1000));                                            // §UI-17 S1: enter the list first
     m.on_gesture(Gesture::double_press, snap(1100));
     m.on_gesture(Gesture::short_press, snap(1100 + kBlankMs - 100));   // still browsing the list
     m.on_tick(snap(1100 + kBlankMs + 10));
-    CHECK(m.state().compose == Compose::dm);                           // window restarted, not expired
+    CHECK(m.state().compose == Compose::dm);
+    CHECK(m.state().blanked == false);                                 // ★ window restarted, not expired
+    CHECK(m.state().cursor  == 1);                                     // ...and the press did move the list
+    m.on_tick(snap(1100 + kBlankMs - 100 + kBlankMs));                 // one full window after THAT press
+    CHECK(m.state().blanked == true);
+    CHECK(m.state().compose == Compose::dm);                           // ★ ...and the modal is still there under it
+    CHECK(m.state().cursor  == 1);                                     // ★ ...on the row the operator left it on
 }
 
-TEST_CASE("ui-model: blanking with a modal open closes the modal and the waking press shows the parent") {
+// ★★★★ REWRITTEN IN PLACE BY §UI-17 S2 — SPEC S2 PIN 1, driven through the shipped press sequence.
+// ⛔ WHAT IT USED TO PIN, as *"blanking with a modal open closes the modal and the waking press shows the parent"*:
+//    exactly the behaviour §9 R-1 reverses. Blanking is a POWER action; the consumed wake press restores the SAME
+//    interaction, ⛔ never its parent.
+TEST_CASE("ui-model: blanking KEEPS the modal, and the consumed waking press puts it back on the panel") {
     UiModel m; SendReq req{};
     m.on_gesture(Gesture::short_press, snap(1000));
-    m.on_gesture(Gesture::double_press, snap(1100));
+    m.on_gesture(Gesture::double_press, snap(1050));   // §UI-17 S1: enter the TEAM list
+    m.on_gesture(Gesture::double_press, snap(1100));   // ...and open the DM sub-view on row 0
+    CHECK(m.state().compose == Compose::dm);
     m.on_tick(snap(1100 + kBlankMs + 1));
     CHECK(m.state().blanked == true);
-    CHECK(m.state().compose == Compose::none);
+    CHECK(m.state().compose == Compose::dm);           // ★ the blank discarded nothing
     m.on_gesture(Gesture::short_press, snap(1100 + kBlankMs + 50));
     CHECK(m.state().blanked == false);
-    CHECK(m.state().screen  == Screen::team);      // the parent screen, and the press was consumed
-    CHECK(m.state().compose == Compose::none);
-    CHECK(m.take_send_request(req) == false);
+    CHECK(m.state().screen  == Screen::team);          // the parent screen is still underneath...
+    CHECK(m.state().compose == Compose::dm);           // ★ ...but the SUB-VIEW is what the press restored
+    CHECK(m.state().cursor  == 0);                     // ★ ...on the same canned message: the press was CONSUMED
+    CHECK(m.take_send_request(req) == false);          // ⛔ and nothing was sent by any of it
 }
 
 TEST_CASE("ui-model: a DOUBLE press also only wakes a blanked panel") {
@@ -550,15 +583,21 @@ TEST_CASE("ui-model: blanking is wrap-safe across millis() rollover") {
     CHECK(m.state().blanked == true);
 }
 
-TEST_CASE("ui-model: the modal inactivity exit is wrap-safe too") {
+// ★★ REWRITTEN IN PLACE BY §UI-17 S2. ⛔ WHAT IT USED TO PIN, as *"the modal inactivity exit is wrap-safe too"*: that
+//    the modal's OWN `kBlankMs` deadline handled a `millis()` rollover. That deadline is deleted (§9 R-1), so the
+//    wrap-safety that remains belongs to the BLANK — and the case is re-pointed onto it WITH a modal open, which is
+//    the combination the rollover could break: a wrapped comparison would blank the panel ~5 s early under a modal.
+TEST_CASE("ui-model: the blank is wrap-safe with a modal open, and the modal rides across the wrap") {
     UiModel m;
     to_team(m, snap(0xFFFFF000u));                                     // §UI-17 S1: enter the list first
     m.on_gesture(Gesture::double_press, snap(0xFFFFF100u));
     CHECK(m.state().compose == Compose::dm);
     m.on_tick(snap(0x00000500u));
-    CHECK(m.state().compose == Compose::dm);                    // ~5 s elapsed, not a wrapped eternity
+    CHECK(m.state().blanked == false);                          // ~5 s elapsed, not a wrapped eternity
+    CHECK(m.state().compose == Compose::dm);
     m.on_tick(snap(0x00003000u));
-    CHECK(m.state().compose == Compose::none);
+    CHECK(m.state().blanked == true);                           // 16 s after the press: blanked, across the wrap
+    CHECK(m.state().compose == Compose::dm);                    // ★ ...and the sub-view came across it intact
 }
 
 // ★ UI-3 replaced UI-2's inert stubs here. Before UI-3 this case pinned "a long gesture queues NOTHING"; it now pins
@@ -1916,17 +1955,29 @@ TEST_CASE("ui7-result: either press acknowledges and returns to the PARENT scree
 
 // ★★ Without clearing the flag, a modal re-opened later would render an OUTCOME view against a stale result — the
 //    user would see the previous message's verdict over a list they have not sent yet.
-TEST_CASE("ui7-result: the kBlankMs auto-exit clears the result phase, so a re-opened modal shows its LIST") {
+// ★★★ REWRITTEN IN PLACE BY §UI-17 S2. ⛔ WHAT IT USED TO PIN, as *"the kBlankMs auto-exit clears the result phase,
+//     so a re-opened modal shows its LIST"*: the TIMEOUT as the thing that cleared `compose_result`. §9 R-1 deleted
+//     it — the RESULT phase now rides the blank with the rest of the sub-view, exactly as spec S2 pin 1 requires.
+//     ★ The property this case exists for is UNCHANGED and is still what it ends on: whatever clears the modal must
+//     clear the phase with it, or a re-opened compose renders an outcome view against a stale result. What differs
+//     is only WHICH exit does it — the operator's acknowledgement, not a timer.
+TEST_CASE("ui7-result: the result phase RIDES the blank, and the acknowledgement is what clears it") {
     UiModel m = dm_sent();
     m.on_tick(snap(1000 + kBlankMs + 1));
+    CHECK(m.state().blanked == true);
+    CHECK(m.state().compose == Compose::dm);                     // ★ the sub-view is retained...
+    CHECK(m.state().compose_result == true);                     // ★ ...in its RESULT phase, with the verdict on it
+    // The waking press is CONSUMED (spec :378), so the operator sees the outcome they walked away from...
+    m.on_gesture(Gesture::double_press, snap(2000 + kBlankMs));
+    CHECK(m.state().blanked == false);
+    CHECK(m.state().compose_result == true);
+    // ...and the NEXT press is the acknowledgement that retires it (§9 R-5: either press acknowledges a result).
+    m.on_gesture(Gesture::double_press, snap(2100 + kBlankMs));
     CHECK(m.state().compose == Compose::none);
     CHECK(m.state().compose_result == false);
-    // ⓘ The same tick that auto-exits the modal also BLANKS the panel (both deadlines are kBlankMs from the last
-    //   input), and the waking press is CONSUMED (spec :378) — so re-opening takes two gestures here, not one. That
-    //   is the shipped blank contract, not an artefact of this case.
-    m.on_gesture(Gesture::double_press, snap(2000 + kBlankMs));  // wakes; consumed
-    CHECK(m.state().blanked == false);
-    m.on_gesture(Gesture::double_press, snap(2100 + kBlankMs));  // re-open from TEAM
+    CHECK(m.state().screen == Screen::team);
+    // ...so the modal re-opened after that shows its LIST, never the previous message's verdict.
+    m.on_gesture(Gesture::double_press, snap(2200 + kBlankMs));
     CHECK(m.state().compose == Compose::dm);
     CHECK(m.state().compose_result == false);                    // ★ the LIST, not a stale outcome
     CHECK(m.state().cursor == 0);
@@ -2358,29 +2409,46 @@ TEST_CASE("ui7d-modal: a ONE-page body never advances, so a short body cannot fl
 }
 
 // ★★★ THE CLAUSE THAT IS EASIEST TO GET WRONG: a page turn marks the model dirty but DOES NOT reset the user-inactivity
-//     deadline (spec §3.5). If it did, a long body would hold the modal — and its selected action — open for ever.
-TEST_CASE("ui7d-modal: paging does NOT postpone the inactivity timeout — the modal still closes at kBlankMs") {
+//     deadline (spec §3.5). If it did, a long body would hold the PANEL LIT for ever — and, through `ui_allows_sleep`,
+//     stop the node light-sleeping at all.
+// ★★★★ REWRITTEN IN PLACE BY §UI-17 S2 — SPEC S2 PIN 4. ⛔ WHAT IT USED TO PIN, as *"paging does NOT postpone the
+//      inactivity timeout — the modal still closes at kBlankMs"*: the modal CLOSING at the deadline the paging failed
+//      to postpone. §9 R-1 deleted that close. The clause under test is unchanged — the deadline is not postponed —
+//      and it is now read off the BLANK, which is the deadline that still exists. ⇒ a long body cycles for exactly
+//      one attention window and then the panel goes dark **with the modal retained**.
+TEST_CASE("ui7d-modal: paging does NOT postpone the deadline — the panel blanks on time, modal RETAINED") {
     static uint8_t b[241];
     for (uint16_t i = 0; i < sizeof b; ++i) b[i] = 'y';
     UiModel m; auto s = snap_inbox(1);
     to_inbox(m, s);
     CHECK(open_detail(m, s, b, uint8_t(sizeof b)) == true);
     CHECK(m.state().detail_pages == 7);                          // §CHROME-4: 38 chars a page, so the largest body is 7
-    for (uint32_t k = 1; k * kDetailPageMs < kBlankMs; ++k) m.on_tick(snap_inbox(1, 1000 + k * kDetailPageMs));
+    uint32_t turns = 0;
+    for (uint32_t k = 1; k * kDetailPageMs < kBlankMs; ++k) { m.on_tick(snap_inbox(1, 1000 + k * kDetailPageMs)); ++turns; }
+    CHECK(turns == 7);                                           // ⛔ non-vacuity: it really did page across the window
     CHECK(m.state().detail == InboxModal::body);                 // still open just inside the window
+    CHECK(m.state().blanked == false);
     m.on_tick(snap_inbox(1, 1000 + kBlankMs));
-    CHECK(m.state().detail == InboxModal::closed);               // ★ closed on time, having paged seven times
-    CHECK(m.state().screen == Screen::inbox);                    // ...and back on the list
+    CHECK(m.state().blanked == true);                            // ★ blanked on time, having paged seven times
+    CHECK(m.state().detail == InboxModal::body);                 // ★ ...and the modal is RETAINED underneath the dark
+    CHECK(m.state().screen == Screen::inbox);
 }
 
-TEST_CASE("ui7d-modal: the ordinary timeout deletes NOTHING") {
+// ★★★ REWRITTEN IN PLACE BY §UI-17 S2 — SPEC S2 PIN 2's storage half. ⛔ WHAT IT USED TO PIN, as *"the ordinary
+//     timeout deletes NOTHING"*: that the deleted timeout closed an `armed-delete` modal without erasing. There is no
+//     ordinary timeout (§9 R-1), so the stronger property is measured instead: the armed `delete` SURVIVES the blank
+//     with the modal — and still nothing is asked of storage. ⓘ The safety half that made the timeout attractive is
+//     paid by the EMERGENCY exception, not by a timer: `long_arm` closes this modal (see the S2 pin-3 case).
+TEST_CASE("ui7d-modal: an armed `delete` survives the blank and STILL asks storage for nothing") {
     UiModel m; auto s = snap_inbox(1);
     to_inbox(m, s);
     CHECK(open_detail(m, s, kBody7, sizeof kBody7) == true);
     m.on_gesture(Gesture::short_press, s);                       // arm `delete`, then walk away
     CHECK(m.state().detail_action == InboxAction::del);
     m.on_tick(snap_inbox(1, 1000 + kBlankMs));
-    CHECK(m.state().detail == InboxModal::closed);
+    CHECK(m.state().blanked == true);
+    CHECK(m.state().detail == InboxModal::body);                 // ★ retained, exactly as the operator left it
+    CHECK(m.state().detail_action == InboxAction::del);          // ★ ...including the armed action
     InboxReq rq{};
     CHECK(m.take_inbox_request(rq) == false);                    // ⛔ no erase was ever requested
 }
@@ -5477,6 +5545,183 @@ TEST_CASE("ui17-retain: blanking KEEPS the list interactive and its selection, a
     CHECK(m.state().list_view == ListView::interactive);             // ★ ...and the waking press is CONSUMED
     CHECK(m.state().cursor == 1);                                    // ★ ...on the SAME row
     CHECK(m.take_inbox_request(rq) == false);
+}
+
+// ============================================================================ §UI-17 S2 — §3.3 RETENTION CONFORMANCE
+// ★★★★ THE RULING THIS BLOCK MEASURES (spec §9 R-1, owner, 2026-08-20): **blanking is a POWER action.** It may not
+//      discard a draft, a detail selection or a compose choice, so the two shipped `kBlankMs` modal auto-exits are
+//      DELETED. ⛔ The exits that remain are a CLOSED LIST — an explicit `BACK`, a completed terminal operation,
+//      leaving the screen, and the EMERGENCY exception — and each of the three cases below drives one of the spec's
+//      five S2 pins through the shipped press sequence rather than through a flag.
+// ⓘ PIN 5 (the blank still fires on time — deleting the timeouts must not extend `kBlankMs`) is asserted INSIDE each
+//   case below rather than in a fourth: every one of them blanks the panel on the unmoved deadline as its precondition,
+//   which is the only way "the modal survived it" can mean anything at all.
+
+// ★★★★ SPEC S2 PIN 1 — THE COMPOSE SUB-VIEW, WITH A NON-DEFAULT SELECTION. ⛔ The selection is deliberately NOT row 0:
+//      a retention that reset the cursor would be indistinguishable from a correct one on a freshly opened modal, and
+//      "the SAME cursor" is half of what the ruling protects. ⛔ And nothing may be SENT by any of it — the pocketed
+//      device the ruling was argued against is exactly this state.
+TEST_CASE("ui17-hold: the compose sub-view survives the blank with its list, cursor and phase intact") {
+    UiModel m; const auto s = snap(); SendReq req{};
+    to_team(m, s);
+    m.on_gesture(Gesture::short_press, s);                          // cursor 1 -> teammate id 11
+    m.on_gesture(Gesture::double_press, s);                         // -> the DM sub-view, bound to that teammate
+    m.on_gesture(Gesture::short_press, snap(1100));                 // ...and pick the SECOND canned message
+    CHECK(m.state().compose == Compose::dm);
+    CHECK(m.state().compose_peer == s.team[1].id);
+    CHECK(m.state().cursor == 1);
+    CHECK(m.state().compose_result == false);                       // the LIST phase, not a result
+    m.on_tick(snap(1100 + kBlankMs));                               // ★ pin 5: the blank lands on the unmoved edge
+    CHECK(m.state().blanked == true);
+    CHECK(m.state().compose == Compose::dm);                        // ★ the interaction is preserved...
+    CHECK(m.state().compose_peer == s.team[1].id);                  // ★ ...bound to the same teammate...
+    CHECK(m.state().cursor == 1);                                   // ★ ...on the same canned message...
+    CHECK(m.state().compose_result == false);                       // ★ ...in the same phase
+    m.on_gesture(Gesture::short_press, snap(1100 + kBlankMs + 40)); // the WAKE press, consumed
+    CHECK(m.state().blanked == false);
+    CHECK(m.state().compose == Compose::dm);
+    CHECK(m.state().cursor == 1);                                   // ★ consumed: it did NOT walk the message list
+    CHECK(m.take_send_request(req) == false);                       // ⛔ nothing was sent by any press or tick here
+}
+
+// ★★★★ SPEC S2 PIN 2 — THE INBOX DETAIL MODAL, AND THE AUTHORITY FOR "NOTHING WAS DELETED" IS THE REQUEST QUEUE. A
+//      modal that quietly re-opened on a different record, or lost `back` to `delete`, would be two presses from an
+//      erase the operator never chose.
+// ⛔⛔ **WITHDRAWN IN PLACE, KEPT VISIBLE** (QG, 2026-08-21) — this note stood above the case and BOTH of its claims
+//    are now false, which is why it is quoted rather than deleted: *"ⓘ A ONE-PAGE body on purpose: the page CADENCE
+//    is a device action that keeps running while dark, so pinning 'the same page' against a cycling body would
+//    measure the cadence, not the retention. The cadence's own interaction with the blank is pin 4's case."*
+//    ⇒ ① the cadence does NOT keep running while dark any more — it is suspended (`!_st.blanked`), which is the
+//    property S05 measures; and ② the one-page fixture it justified was VACUOUS, which is exactly what let the
+//    drift through. The reasoning it replaced is below.
+// ⚠⚠ THE FIXTURE IS **MULTI-PAGE ON PURPOSE**, and the one-page version this case shipped with was VACUOUS one
+//    parameter deep (QG, 2026-08-21): with `detail_pages == 1` the cadence at `on_tick` is gated off by its own
+//    `detail_pages > 1` term, so `detail_page == 0` held whatever the implementation did — it could detect neither a
+//    reset nor a drift. ⇒ the body below is the largest one the store accepts (7 pages) and the case lands on a
+//    NONZERO page before blanking.
+static uint8_t* big_body_7pages() {
+    static uint8_t b[241];
+    for (uint16_t i = 0; i < sizeof b; ++i) b[i] = 'y';
+    return b;
+}
+TEST_CASE("ui17-hold: the detail modal survives the blank with its record, page and selected action") {
+    UiModel m; auto s = snap_inbox(3); InboxReq rq{};
+    to_inbox(m, s);
+    m.on_gesture(Gesture::short_press, s);                          // cursor 1 -> the CHANNEL row, seq 2
+    CHECK(open_detail(m, s, big_body_7pages(), 241) == true);
+    CHECK(m.state().detail == InboxModal::body);
+    CHECK(m.state().detail_kind == InboxKind::channel);
+    CHECK(m.state().detail_seq == 2u);
+    CHECK(m.state().detail_pages == 7);                             // ⛔ non-vacuity: the cadence is actually ARMED
+    CHECK(m.state().detail_action == InboxAction::back);
+    // Walk the cadence onto a NONZERO page while the panel is still lit — this is the DEVICE acting, as it always has.
+    m.on_tick(snap_inbox(3, 1000 + kDetailPageMs));
+    m.on_tick(snap_inbox(3, 1000 + 2 * kDetailPageMs));
+    CHECK(m.state().detail_page == 2);                              // ★ the page the operator is looking at
+    // ★★★ THE BLANKING TICK IS ALSO A PAGE-DUE TICK — 13 s since the last turn, well past `kDetailPageMs` — so this
+    //     is the BOTH-DUE boundary, and the blank must win. ⛔ THE LITERAL 2 IS THE POINT: this used to capture
+    //     whatever the tick left behind and assert it was merely nonzero, which DEFINED the drift as correct instead
+    //     of catching it (QG, 2026-08-21). The page a blank hides must be the page the operator last saw.
+    m.on_tick(snap_inbox(3, 1000 + kBlankMs));                      // ★ pin 5: blanked on the unmoved deadline
+    CHECK(m.state().blanked == true);
+    CHECK(m.state().detail_page == 2);                              // ★★ the LAST VISIBLE page, not a turned one
+    CHECK(m.state().detail == InboxModal::body);                    // ★ the modal is preserved...
+    CHECK(m.state().detail_kind == InboxKind::channel);             // ★ ...on the same record, by IDENTITY...
+    CHECK(m.state().detail_seq == 2u);
+    CHECK(m.state().detail_action == InboxAction::back);            // ★ ...with `back` still selected, never `delete`
+    m.on_gesture(Gesture::short_press, snap_inbox(3, 1000 + kBlankMs + 40));   // the WAKE press, consumed
+    CHECK(m.state().blanked == false);
+    CHECK(m.state().detail == InboxModal::body);
+    CHECK(m.state().detail_page == 2);                              // ★ ...and on the SAME page, not a reset one
+    CHECK(m.state().detail_action == InboxAction::back);            // ★ consumed: it did NOT toggle the action
+    CHECK(m.take_inbox_request(rq) == false);                       // ⛔ the store was never asked for anything
+}
+
+// ★★★★ §UI-17 S2 — **THE RETAINED PAGE, ACROSS THE DARK AND THROUGH THE REAL WAKE PASS** (QG-ruled 2026-08-21).
+//      ⛔⛔ THE DEFECT THIS CLOSES, AND IT IS TWO INDEPENDENT HALVES: with the modal now retained across a blank,
+//      (a) the 2 s page cadence kept running on a panel nobody can see, so the retained modal DRIFTED pages in the
+//      dark; and (b) even suspended, `_detail_page_at_ms` was still the pre-blank stamp, so the WAKE PASS ITSELF
+//      banked the whole dark interval and turned the page before the first frame.
+//      ⓘ AND A THIRD HALF FOUND BY QG (2026-08-21), which is why the case now names a LITERAL page throughout:
+//      (c) `on_tick` runs the page advance BEFORE the blank transition, so the tick that CROSSES the blank deadline
+//      turned the page and hid it in the same pass — the operator woke onto a page they never saw. ⛔ THE EARLIER
+//      SHAPE OF THIS CASE **EXHIBITED** THAT RATHER THAN CATCHING IT: it captured `dark_page` from whatever the
+//      crossing tick left behind and compared everything to that, which DEFINES the drift as correct. Every page
+//      assertion below is now against a literal derived from the walk.
+// ★★★ THE WAKE IS DRIVEN IN THE **REAL LOOP'S ORDER**, ⛔ NOT AN IDEALISED ONE: `mr_ui_tick` builds ONE snapshot,
+//      calls `on_gesture(...)` and then `on_tick(s)` — same object, same `now_ms`, same pass
+//      (`src/firmware_ui.cpp`). Half (b) is INVISIBLE to a harness that only presses and asserts, because the tick
+//      that loses the page is the very one the press shares its snapshot with. ⇒ mirrored here exactly.
+TEST_CASE("ui17-hold: a multi-page detail keeps its page in the dark AND through the real wake pass") {
+    UiModel m; auto s = snap_inbox(1);
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, big_body_7pages(), 241) == true);
+    CHECK(m.state().detail_pages == 7);                             // ⛔ non-vacuity: >1, so the cadence is armed
+    m.on_tick(snap_inbox(1, 1000 + kDetailPageMs));
+    m.on_tick(snap_inbox(1, 1000 + 2 * kDetailPageMs));
+    CHECK(m.state().detail_page == 2);                              // ⛔ NONZERO, and not 1: a reset OR a drift shows
+    // ---- (c) THE CROSSING TICK — **BOTH DEADLINES DUE AT ONCE**. 13 s have passed since the last page turn (well
+    //      past `kDetailPageMs`) and this is also the tick the blank deadline lands on. The blank must WIN: the page
+    //      the operator last saw is the page the dark panel keeps. ⛔ Asserted as the LITERAL 2, so a turn here
+    //      cannot be absorbed into the expectation.
+    m.on_tick(snap_inbox(1, 1000 + kBlankMs));
+    CHECK(m.state().blanked == true);
+    CHECK(m.state().detail_page == 2);                              // ★★ the blank outranks the page turn
+    // ---- (a) DARK TICKS. Each is well past `kDetailPageMs`, so an ungated cadence would turn the page every one.
+    for (uint32_t k = 1; k <= 4; ++k) m.on_tick(snap_inbox(1, 1000 + kBlankMs + k * kDetailPageMs));
+    CHECK(m.state().blanked == true);
+    CHECK(m.state().detail_page == 2);                              // ★ ⛔ the panel is dark: nothing may turn
+    CHECK(m.state().detail == InboxModal::body);
+    // ---- (b) THE WAKE PASS, IN THE REAL ORDER: one snapshot, on_gesture then on_tick, same now_ms.
+    const uint32_t wake_ms = 1000 + kBlankMs + 9 * kDetailPageMs;   // a LONG dark interval to bank, if it could
+    const UiSnapshot ws = snap_inbox(1, wake_ms);
+    m.on_gesture(Gesture::short_press, ws);                         // the consumed wake
+    m.on_tick(ws);                                                  // ...and the tick that shares its snapshot
+    CHECK(m.state().blanked == false);
+    CHECK(m.state().detail_page == 2);                              // ★★ the SAME page the operator left
+    CHECK(m.state().detail == InboxModal::body);
+    // ...and the cadence is RESTARTED, not stopped: it resumes from the wake, one full period later.
+    m.on_tick(snap_inbox(1, wake_ms + kDetailPageMs - 1));
+    CHECK(m.state().detail_page == 2);                              // ⛔ not a millisecond early
+    m.on_tick(snap_inbox(1, wake_ms + kDetailPageMs));
+    CHECK(m.state().detail_page == 3);                              // ★ ...and it does resume, on the NEXT page
+}
+
+// ★★★★ SPEC S2 PIN 3 — THE EMERGENCY EXCEPTION IS INTACT, AND IT IS THE HALF THAT PAYS FOR THE TWO DELETED TIMEOUTS.
+//      A hidden Delete may not survive under an alarm overlay (§UI-7D), and a selected canned message may not survive
+//      a COMMITTED alarm (§B101) — so `long_arm` still closes the detail modal and `long_fire` still closes compose.
+//      ⛔ Both are driven AFTER a blank/wake, i.e. over exactly the modals this slice now preserves.
+TEST_CASE("ui17-hold: the emergency still closes both modals — long_arm the detail, long_fire the compose") {
+    // (a) the DETAIL modal, with `delete` armed: `long_arm` closes it before the alarm is armed.
+    UiModel m; auto s = snap_inbox(2); InboxReq rq{};
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, kBody7, sizeof kBody7) == true);
+    m.on_gesture(Gesture::short_press, s);                          // arm `delete`
+    CHECK(m.state().detail_action == InboxAction::del);
+    m.on_tick(snap_inbox(2, 1000 + kBlankMs));
+    CHECK(m.state().blanked == true);
+    CHECK(m.state().detail == InboxModal::body);                    // retained across the blank (pin 2)
+    m.on_gesture(Gesture::long_arm, snap_inbox(2, 1000 + kBlankMs + 40));
+    CHECK(m.emergency() == Emergency::arming);
+    CHECK(m.state().detail == InboxModal::closed);                  // ⛔ ...and the armed Delete does NOT survive it
+    CHECK(m.take_inbox_request(rq) == false);                       // ⛔ closing erased nothing either
+    // (b) the COMPOSE sub-view: `long_arm` leaves it (arming is cancellable, §B101), `long_fire` closes it.
+    UiModel n; const auto t = snap(); SendReq req{};
+    to_team(n, t);
+    n.on_gesture(Gesture::double_press, t);                         // -> the DM sub-view
+    n.on_tick(snap(1000 + kBlankMs));
+    CHECK(n.state().blanked == true);
+    CHECK(n.state().compose == Compose::dm);                        // retained across the blank (pin 1)
+    n.on_gesture(Gesture::long_arm, snap(1000 + kBlankMs + 40));
+    CHECK(n.emergency() == Emergency::arming);
+    CHECK(n.state().compose == Compose::dm);                        // ★ arming is cancellable ⇒ the list position stays
+    n.on_gesture(Gesture::long_fire, snap(1000 + kBlankMs + 80));
+    CHECK(n.emergency() == Emergency::firing);
+    CHECK(n.state().compose == Compose::none);                      // ⛔ ...but COMMITTING an alarm closes it
+    CHECK(n.state().compose_result == false);
+    const bool got = n.take_send_request(req);
+    CHECK(got == true);                                             // the alarm itself, and ⛔ never a canned DM
+    if (got) CHECK(req.kind == SendKind::emergency);
 }
 
 // ★★★★ SPEC S1 PIN 7 — THE EMERGENCY PRE-EMPTS EVERYTHING AND STILL DOES NOT CLOSE THE LIST. Nothing can be sent

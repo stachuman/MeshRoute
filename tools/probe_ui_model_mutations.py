@@ -153,7 +153,64 @@ H = os.path.join(ROOT, TARGET_SRC[_TARGET])
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 1861, 87209     # ★★ RE-PINNED 2026-08-21 by §UI-17 slice 1's QG remedy (the three
+PIN_CASES, PIN_ASSERTS = 1865, 87296     # ⓘ ⛔ THE PIN DID **NOT** MOVE for QG's BOTH-DUE BOUNDARY fix (same day,
+                                         # same slice), and the arithmetic is recorded so nobody reads that as an
+                                         # unverified claim: the fix STRENGTHENED two existing assertions rather
+                                         # than adding any. In each of the two `ui17-hold:` page cases a
+                                         # capture-then-`!= 0` check (which DEFINED whatever the crossing tick left
+                                         # behind as correct) was replaced by a LITERAL `detail_page == 2`.
+                                         # ⇒ -1 +1 twice = 0; no case was added or removed, and the clean baseline
+                                         # gate re-ran at exactly 1865 / 87296 / 0.
+                                         # ★★ CROSS-CHECK SYNCED 2026-08-21 by §UI-17 slice 2's QG remedy (the
+                                         # RETAINED MODAL'S PAGE — the cadence suspended while dark, and restarted
+                                         # WITHOUT moving the page on the wake):
+                                         # **1864 / 87281 -> 1865 / 87296** (+1 case / +15 assertions), both in
+                                         # test/test_firmware_ui_model.cpp. DERIVED, not observed:
+                                         #   +1 `ui17-hold:` the multi-page dark/wake case — 13 (the armed
+                                         #        7-page fixture 2 · the nonzero starting page 1 · the blank
+                                         #        edge 2 · ★ the DARK half, 3 · ★ the REAL-ORDER wake pass, 3 ·
+                                         #        the cadence resuming a full period later, 2)
+                                         #   +2 in the REWRITTEN pin-2 case, whose ONE-PAGE fixture was vacuous
+                                         #        (`detail_pages == 1` gates the cadence off by its own term, so
+                                         #        `detail_page == 0` held whatever the code did): the fixture is
+                                         #        now the 7-page body, +`detail_pages == 7`, +the nonzero
+                                         #        `page_at_blank` guard, and the page assertion compares against
+                                         #        the captured value instead of the literal 0.
+                                         #   ⇒ 13 + 2 = +15.
+                                         # ⓘ THE PREVIOUS PIN, kept because its derivation is still the record of
+                                         # how the figure below it was reached:
+                                         # ★★ CROSS-CHECK SYNCED 2026-08-21 by §UI-17 slice 2 (§3.3 retention
+                                         # conformance — the two `kBlankMs` modal auto-exits DELETED, §9 R-1):
+                                         # **1861 / 87209 -> 1864 / 87281** (+3 cases / +72 assertions), all of
+                                         # them in test/test_firmware_ui_model.cpp and
+                                         # test/test_firmware_ui_send.cpp. DERIVED, not merely observed —
+                                         # the three NEW `ui17-hold:` cases first:
+                                         #   +1 `ui17-hold:` compose — 13 (the non-default selection 4 ·
+                                         #        across the blank 5 · the consumed wake 3 · ⛔ nothing sent 1)
+                                         #   +1 `ui17-hold:` detail — 16 (the opened record 6 · across the
+                                         #        blank 6 · the consumed wake 3 · ⛔ the store untouched 1)
+                                         #   +1 `ui17-hold:` the emergency exception — 16 (arm (a) the detail
+                                         #        modal with `delete` ARMED 7 · arm (b) compose, `long_arm`
+                                         #        keeps it and `long_fire` closes it 9)
+                                         #   ⇒ 13 + 16 + 16 = +45 in the new cases.
+                                         # ⓘ AND +27 IN TEN **REWRITTEN** cases, each of which pinned an
+                                         #   auto-exit this slice deletes and now pins the RETENTION plus the
+                                         #   unmoved blank deadline (spec S2 pin 5) in its place:
+                                         #   `the sub-view SURVIVES inactivity` +3 · `open on BOTH sides of
+                                         #   the blank edge` +2 · `a gesture … refreshes the BLANK window` +5 ·
+                                         #   `blanking KEEPS the modal` +2 · `the blank is wrap-safe with a
+                                         #   modal open` +2 · `ui7-result: the result phase RIDES the blank`
+                                         #   +5 · `ui7d-modal: paging does NOT postpone the deadline` +3 ·
+                                         #   `ui7d-modal: an armed delete survives the blank` +2 ·
+                                         #   `ui7-slot: a late_ack slot is released…` +1 ·
+                                         #   `ui7-slot: an UNANSWERED late_ack slot…` +2.
+                                         #   ⇒ 45 + 27 = +72.
+                                         # ⓘ ⛔ ZERO cases were added or removed: every one of the ten is a
+                                         #   REWRITE IN PLACE (the §B101/[[B232]] precedent), each carrying a
+                                         #   heading that states what it used to pin.
+                                         # ⓘ THE PREVIOUS PIN, kept because its derivation is still the record of
+                                         # how the figure below it was reached:
+                                         # ★★ RE-PINNED 2026-08-21 by §UI-17 slice 1's QG remedy (the three
                                          # DUPLICATED TEAM/INBOX decisions hoisted into shared pure helpers):
                                          # **1858 / 87183 -> 1861 / 87209** (+3 cases / +26 assertions), all of
                                          # them in test/test_firmware_ui_model.cpp. DERIVED, not observed:
@@ -712,9 +769,18 @@ MUTS_MODEL = [
  ("M18 both body rows render the SAME 19 columns",
   "const uint16_t i = uint16_t(off + uint16_t(row) * kDetailCols + n);",
   "const uint16_t i = uint16_t(off + n);"),
- ("M19 the modal has no inactivity timeout",
-  "if (_st.detail != InboxModal::closed && elapsed(s.now_ms, _last_input_ms) >= kBlankMs) close_detail();",
-  ";"),
+ # ⛔⛔ M19 IS **WITHDRAWN IN PLACE** 2026-08-21 (§UI-17 S2, §9 R-1), and it is left standing as a comment rather than
+ #     deleted because the reason is the record. It read:
+ #       ("M19 the modal has no inactivity timeout",
+ #        "if (_st.detail != InboxModal::closed && elapsed(s.now_ms, _last_input_ms) >= kBlankMs) close_detail();",
+ #        ";"),
+ #     ⇒ ITS PROPERTY IS NOW THE OPPOSITE OF THE RULING. §3.3 (owner-ruled 2026-08-20) makes blanking a POWER action
+ #     that preserves the interaction, so "the modal has an inactivity timeout" is the DEFECT rather than the
+ #     property, and the line it anchored on no longer exists — this entry would have been VACUOUS at match count 0.
+ #     ★ THE PROPERTY DID NOT GO AWAY, IT INVERTED: **S02** below re-instates exactly this statement and REQUIRES the
+ #     suite to redden. ⓘ The withdrawn source is quoted in `on_tick` too, deliberately wrapped mid-condition so no
+ #     pattern here can anchor on the COMMENT and measure nothing.
+ # ("M19 the modal has no inactivity timeout", ...)
  # --- gestures + the three outcomes --------------------------------------------------------------------------------
  ("M20 a freshly opened modal selects `delete`",
   "_st.detail_action = InboxAction::back;                // spec §3.5: deletion costs short -> double, always",
@@ -1215,6 +1281,85 @@ MUTS_MODEL = [
   "        _st.list_view = ListView::interactive; _st.cursor = 0; _st.dirty = true;\n"
   "        note_team_cursor(s); note_inbox_cursor(s);",
   "        _st.list_view = ListView::interactive; _st.cursor = 0; _st.dirty = true;"),
+ # --- §UI-17 slice 2: §3.3 RETENTION CONFORMANCE (spec §1.5's T3/T4 verdict block, ruled §9 R-1) ---------------------
+ # ★★★★ THIS BLOCK IS THE ONLY ONE IN THE FILE WHOSE MUTATIONS **ADD** SHIPPED CODE BACK, and that is what a
+ #   REVERSAL needs: the tempting wrong fix here is not a deletion but a RESTORATION — "a modal that can outlive the
+ #   user's attention is a modal that eventually sends the wrong thing" is a good argument, it is written down in
+ #   design §3.2.1 and §3.5, and it is exactly what the owner overruled. ⇒ S01/S02 put each timeout back, one modal
+ #   each, and REQUIRE the suite to go red; without them the deletion would be pinned by nothing but its own absence.
+ # ⛔ S01/S02 ANCHOR ON `tick_emergency(s);` — the live first statement of `on_tick` — rather than on the withdrawn
+ #   text, which is quoted in the source as a comment and deliberately wrapped so it cannot be matched (a mutation
+ #   that edits a comment compiles, stays green, and is reported as a measured property: the VACUOUS class).
+ ("S01 [[UI-17]] the compose sub-view's kBlankMs auto-exit is re-instated (§3.2.1 restored over §3.3)",
+  "        tick_emergency(s);\n",
+  "        tick_emergency(s);\n"
+  "        if (_st.compose != Compose::none && elapsed(s.now_ms, _last_input_ms) >= kBlankMs) close_compose();\n"),
+ ("S02 [[UI-17]] the detail modal's kBlankMs auto-exit is re-instated (§3.5 restored over §3.3)",
+  "        tick_emergency(s);\n",
+  "        tick_emergency(s);\n"
+  "        if (_st.detail != InboxModal::closed && elapsed(s.now_ms, _last_input_ms) >= kBlankMs) close_detail();\n"),
+ # ⛔⛔ S03 IS THE HALF THAT **PAYS** FOR S01/S02, and dropping it is the plausible tidy-up now that "modals are
+ #     preserved": a hidden `delete` selection then survives underneath an alarm overlay that owns the body and
+ #     absorbs a `double` — invisible, unreachable, and still armed the moment the overlay goes away (§UI-7D §3.5).
+ #     ⓘ M27/M28 attack the SAME line from the other two directions (wrong gesture · no close at all); this one is
+ #     listed with S01/S02 because after the ruling it is the emergency exception's own control.
+ ("S03 [[UI-17]] the compose sub-view is no longer closed by a COMMITTED alarm (§B101's close dropped)",
+  "    close_compose();\n    retain(s.now_ms);",
+  "    retain(s.now_ms);"),
+ # ⛔⛔ S04 IS THE RULING TAKEN ONE STEP TOO FAR — the "obvious" companion edit, and the reason the source states the
+ #     blank is UNCONDITIONAL. If preserving a modal is right, keeping the panel lit for it looks right too; it is
+ #     not. `ui_allows_sleep` requires `blanked`, so a node with a forgotten modal open would never blank AND never
+ #     light-sleep again — a power regression with nothing visible on the panel to explain it (spec S2 pin 5).
+ # ⛔⛔ S05/S06 ARE THE TWO INDEPENDENT HALVES OF "THE RETAINED MODAL KEEPS ITS PAGE" (QG-ruled 2026-08-21), and they
+ #     are separate entries because EITHER ONE ALONE STILL LOSES THE PAGE. They are also the slice's own lesson: the
+ #     ruling preserved the modal and the SELECTION, and the page drifted out through the one clock nobody named.
+ # ⛔ S05 — the cadence runs on a panel nobody can see, so a modal retained across a 15 s blank comes back on a
+ #    DIFFERENT page. Tempting precisely because the gate looks redundant next to `detail_pages > 1`.
+ # ⚠ S05's ANCHOR MOVED 2026-08-21 (the QG boundary fix put `!blank_due(s)` on the same condition); the property is
+ #   unchanged — the cadence must not run on a DARK panel — and the replacement deliberately KEEPS `!blank_due(s)`,
+ #   so this entry still reddens ONLY the dark-phase assertions and stays independent of S07.
+ ("S05 [[UI-17]] the detail page cadence keeps running while the panel is DARK",
+  "        if (!_st.blanked && !blank_due(s) && _st.detail == InboxModal::body && _st.detail_pages > 1 &&",
+  "        if (!blank_due(s) && _st.detail == InboxModal::body && _st.detail_pages > 1 &&"),
+ # ⛔⛔ S07 IS THE BOTH-DUE BOUNDARY (QG-ruled 2026-08-21), and it is a THIRD independent way to lose the page: drop
+ #     the priority and the tick that CROSSES the blank deadline turns the page and hides it in the same pass — the
+ #     operator wakes onto a page they never saw.
+ # ⓘ WHAT IT FAILS, ITEMISED AND **MEASURED** (⛔ CORRECTED IN PLACE: this note claimed it fired on *"ONE assertion …
+ #   and on nothing else"*, and the runner reports SEVEN — the claim was false as written, so it is replaced by the
+ #   list rather than by a narrower control). ★ ALL SEVEN ARE ONE DIVERGENCE PROPAGATING, which is provable from the
+ #   values rather than argued: every failure reads `page == expected + 1`, i.e. exactly the ONE extra turn the
+ #   crossing tick took, carried forward unchanged.
+ #     `ui17-hold: the detail modal survives the blank …`  (2)
+ #       :5627  at the blank            3 == 2   the page the dark panel keeps
+ #       :5635  after the wake          3 == 2   ...and the page the wake restores
+ #     `ui17-hold: a multi-page detail keeps its page …`   (5)
+ #       :5669  at the CROSSING tick    3 == 2   ★ the divergence itself
+ #       :5673  after 4 dark ticks      3 == 2   carried through the dark (S05's gate still holds)
+ #       :5681  after the wake pass     3 == 2   carried through the wake  (S06's restart still holds)
+ #       :5685  at wake + period - 1    3 == 2   carried, and still not early
+ #       :5687  at wake + period        4 == 3   the resume lands one page late
+ # ★ THE SEPARABILITY IS UNAFFECTED, and the list is what shows it: the dark ticks are still gated by `!_st.blanked`
+ #   (S05's term) and the wake still restarts the cadence (S06's), so ⛔ NO assertion outside the page property moves
+ #   — no modal closes, no record changes, no store request appears. Each of S05/S06/S07 still fails a set the other
+ #   two do not.
+ ("S07 [[UI-17]] the page turn is no longer outranked by a blank due on the SAME tick",
+  "        if (!_st.blanked && !blank_due(s) && _st.detail == InboxModal::body && _st.detail_pages > 1 &&",
+  "        if (!_st.blanked && _st.detail == InboxModal::body && _st.detail_pages > 1 &&"),
+ # ⛔⛔ S06 — the SUBTLER half, and it is invisible to any harness that does not mirror the real loop's order:
+ #     `mr_ui_tick` runs `on_gesture(...)` then `on_tick(s)` on ONE snapshot, so with a stale `_detail_page_at_ms`
+ #     the WAKE PASS ITSELF banks the whole dark interval and turns the page before the first frame. ⓘ `(void)` keeps
+ #     the mutant warning-clean, so a build failure can never be mistaken for the property.
+ ("S06 [[UI-17]] the wake does not restart the page cadence, so the wake pass turns the page",
+  "    void unblank(uint32_t now_ms) {\n        _st.blanked = false;\n        _detail_page_at_ms = now_ms;\n    }",
+  "    void unblank(uint32_t now_ms) {\n        _st.blanked = false;\n        (void)now_ms;\n    }"),
+ # ⚠ S04's ANCHOR MOVED 2026-08-21 (the QG boundary fix hoisted the predicate into `blank_due` so ONE authority
+ #   answers it for both the transition and the page cadence). The property is unchanged — the blank deadline may
+ #   not become conditional on a modal — and mutating the hoisted predicate now covers BOTH readers at once, which is
+ #   strictly stronger than the old single-site anchor.
+ ("S04 [[UI-17]] the blank deadline is made CONDITIONAL on no modal being open",
+  "        return !_st.blanked && !hold_active(s.now_ms) && elapsed(s.now_ms, _last_input_ms) >= kBlankMs;",
+  "        return !_st.blanked && !hold_active(s.now_ms) && _st.compose == Compose::none &&\n"
+  "               _st.detail == InboxModal::closed && elapsed(s.now_ms, _last_input_ms) >= kBlankMs;"),
 ]
 
 # ===== §UI-13 — src/firmware_config_service.h =====================================================================

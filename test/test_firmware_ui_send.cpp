@@ -1399,8 +1399,11 @@ TEST_CASE("ui7-send: a DM goes to the NORMAL slot and reaches waiting_ack; the a
 //     referenced exactly ONCE, by `firmware_ui.cpp`'s `"SENT, waiting"` arm — a DEAD STATE. `on_send_accepted` had
 //     arms for `emergency` and `dm` only, so an ACCEPTED canned post stayed on `submitting` and the panel read
 //     `SENDING...` until either the ~36 s `channel_sent` verdict or the sub-view's own 15 s auto-exit — which on the
-//     common path arrives FIRST. ⇒ a successful send whose only feedback was a spinner that never resolved. The bench
+//     common path arrived FIRST. ⇒ a successful send whose only feedback was a spinner that never resolved. The bench
 //     guide (H7-01) states the required behaviour verbatim.
+// ⓘ **§UI-17 S2 2026-08-21 (V1):** the 15 s auto-exit named above is DELETED (§9 R-1), so the race it described no
+//     longer exists — the ~36 s verdict now always arrives while the sub-view is still up. B113's defect and this
+//     case's subject are UNCHANGED; only the historical "arrives FIRST" clause has lapsed.
 // ⓘ **§T3 2026-08-14:** that sequence is now `SENDING...` -> `QUEUED` -> `SENT, waiting`, and this case's subject —
 //     the ACCEPTANCE arm — is the `QUEUED` step. `SENT, waiting` belongs to `ChanState::aired` and is reached only by
 //     a correlated `send_aired`; the ui-T3 cases at the bottom of this file own that half.
@@ -1578,7 +1581,15 @@ TEST_CASE("ui7-slot: a late_ack slot is released once the sub-view has closed") 
     //   (`if (acked) { _state = State::idle; }`), so a `normal.idle()` check at this point could not fail whatever
     //   `ui_pump_trackers` does. MEASURED — a mutation that removed the close entirely left this case fully green.
     //   The release is proved by the case below, which never receives its late ack.
+    // ⚠ RE-POINTED 2026-08-21 (§UI-17 S2, §9 R-1). This line used to be `m.on_tick(snap_at(3100 + kBlankMs + 1))` —
+    //   it closed the sub-view by the `kBlankMs` AUTO-EXIT, which is now DELETED. The sub-view's LIFETIME is still
+    //   what bounds the slot; what changed is who ends it. ⛔ The blank is driven FIRST and asserted NOT to end it,
+    //   so the re-point cannot hide a regression: an implementation that still timed the modal out would go red on
+    //   the `compose_open() == true` line below.
     m.on_tick(snap_at(3100 + kBlankMs + 1));
+    CHECK(m.compose_open() == true);                       // ★ §UI-17 S2: blanking preserves it
+    m.on_gesture(Gesture::short_press, snap_at(3100 + kBlankMs + 50));   // the WAKE press, consumed
+    m.on_gesture(Gesture::short_press, snap_at(3100 + kBlankMs + 90));   // ...and THIS acknowledges the result
     CHECK(m.compose_open() == false);
 }
 
@@ -1603,8 +1614,18 @@ TEST_CASE("ui7-slot: an UNANSWERED late_ack slot is released once the sub-view h
     // While the sub-view still shows, it is RETAINED — spec §3.4.1's upgrade window (the negative half).
     ui_pump_trackers(emg, normal, m, 2100);
     CHECK(normal.idle() == false);
-    // Once the sub-view has auto-exited, the slot is released and the device can send again.
+    // Once the sub-view has GONE, the slot is released and the device can send again.
+    // ⚠ RE-POINTED 2026-08-21 (§UI-17 S2, §9 R-1): the sub-view used to leave by the `kBlankMs` auto-exit, which is
+    //   DELETED. ★★ THE COST THIS RE-POINT MAKES VISIBLE, and it is the slice's one real consequence outside the two
+    //   modals: the slot is now held for as long as the operator leaves the result up — a blank no longer frees it.
+    //   ⛔ It is BOUNDED by attention, not unbounded: the wake press plus one acknowledgement release it, and the
+    //   EMERGENCY slot is a different slot, so a forgotten compose can never block an alarm.
     m.on_tick(snap_at(1000 + kBlankMs + 1));
+    CHECK(m.compose_open() == true);                       // ★ the blank preserves it...
+    ui_pump_trackers(emg, normal, m, 1000 + kBlankMs + 2);
+    CHECK(normal.idle() == false);                         // ★ ...so the slot is still held, deliberately
+    m.on_gesture(Gesture::short_press, snap_at(1000 + kBlankMs + 50));   // the WAKE press, consumed
+    m.on_gesture(Gesture::short_press, snap_at(1000 + kBlankMs + 90));   // ...and THIS acknowledges the result
     CHECK(m.compose_open() == false);
     ui_pump_trackers(emg, normal, m, 1000 + kBlankMs + 2);
     CHECK(normal.idle() == true);                          // ★ the gate `mr_ui_tick` reads before draining a request
