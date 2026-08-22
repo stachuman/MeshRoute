@@ -89,7 +89,7 @@ UI-1…UI-9. A setting already documented as persistent but lost after reboot re
 
 **Phased by board (owner ruling 2026-07-31): Phase A targets Heltec V3, Phase B adds V4.** V3 first because its panel and button are identical to V4's while it has no front-end module, so the display and input work can land without the radio port §10.2 describes. See §13.
 
-**GPS / distance-to-teammate: out for Phase A, IN for Phase B (V4).** No GPS driver exists anywhere in the tree today and `lat`/`lon` are typed by hand via `cfg set lat`/`lon` into `/mrid`, so Phase A's TEAM screen shows last-heard age and signal quality only — both already in the core. Phase B adds the GPS driver and the distance column (§10.3).
+**GPS / distance-to-teammate: out for Phase A, IN for Phase B (V4).** No GPS driver exists anywhere in the tree today and `lat`/`lon` are typed by hand via `cfg set lat`/`lon` into `/mrid`. ⛔ **CORRECTED IN PLACE 2026-08-21 (§UI-17 S4): the withdrawn clause read *"Phase A's TEAM screen shows last-heard age and signal quality only"*.** Since S4 the TEAM row renders the **label plus ROUTE/KNOWN age** (⛔ never "last heard" — route evidence), **removes hops and "signal quality"** (the latter was never rendered at all — `TeamRow::score_q4` is written and read by nothing), and **reserves BLANK distance/direction columns for §UI-17 S5**, which fills them from the EXISTING authenticated peer-location cache — no GPS driver needed for the opportunistic display; a live GPS remains Phase B (§10.3).
 
 ⚠ **Honest caveat on the evidence.** MeshCore's V4 config defines GPS pins *and* sets `ENV_INCLUDE_GPS=1`, which is what prompted reviving this. But its **V3** config also defines GPS pins (RX 47, TX 48, EN 26) without enabling GPS — so pin definitions alone do not prove an on-board module, and my earlier reading overstated the case. Practically this changes little: the driver work (UART NMEA on defined pins) is identical whether the receiver is on-board or attached to headers. What it changes is whether the *user* must attach a module, which needs confirming against the physical board before Phase B is planned.
 
@@ -469,7 +469,14 @@ envelope. Both removals are OWNER-ACCEPTED (2026-08-20) and ⛔ no slice may re-
 FROZEN snapshot's own-location fields — never a live config read (the S3 tear fix; probe P17b holds the frame).
 
 TEAM shows one row per teammate: a display label resolved through `team_key_of_id()` → `peer_name_find()`, falling
-back to `0x<hash>` and then the bare team id; plus last-heard age, signal quality and hops. When `rt_team_count()`
+back to `0x<hash>` and then the bare team id — **clamped to SIX columns** — plus its **ROUTE/KNOWN age** and two
+reserved BLANK columns for distance and direction (§UI-17 S5). ⛔ **CORRECTED IN PLACE 2026-08-21 (§UI-17 S4): the
+withdrawn wording read *"plus last-heard age, signal quality and hops"*.** HOPS left the row BY RULING (the
+19-column format `%c%-6.6s %3s %4s %2s` has no room, and `routes` on the console still carries it); **"signal
+quality" was never on the panel** — `TeamRow::score_q4` is written by `build_snapshot` and read by nothing in
+`src/`, `test/` or `tools/`; since S4 both it and `hops` are written-and-unread, and deleting either is its own
+refactor slice (C1). ⚠ And it is **ROUTE age, never "last heard"**: it comes from the primary route candidate's
+`last_seen_ms`, so on a multihop path somebody *else* heard that teammate. When `rt_team_count()`
 exceeds `kMaxTeamRows`, the screen shows the true total and a truncation marker (`3/12`) — it must never present
 the cap as the team size. **Phase B adds a distance column on V4**, rendered only when both our fix and the peer's
 location are known and fresh — omitted, never estimated (§10.3).
@@ -1251,6 +1258,12 @@ Four consequences, none of which belong in a UI spec:
 **Ruling (owner, 2026-07-31): the V4 radio port is its own spec, and Phase A proceeds on V3 meanwhile.** Folding a PA/LNA switching path and a transmit-power semantics change into a display feature would violate C1 outright, and the tx_power item is a regulatory question that deserves its own decision record. Nothing in Phase A depends on it, because V3 has no FEM.
 
 ### 10.3 GPS and distance — Phase B only
+⛔ **HEADING CORRECTED IN PLACE 2026-08-22 (§UI-17 S5): "Phase B only" is now TOO WIDE — the withdrawn scope was
+the ENTIRE distance column.** Since §UI-17 S5 the TEAM screen's **distance and direction columns are LIVE in
+Phase A**, filled opportunistically from the EXISTING authenticated peer-location cache (`peer_loc_find`) under
+the four-term show/blank rule with the 600 s freshness bound — zero wire, zero new traffic. **What remains Phase
+B is exactly:** a live GPS SOURCE for our own fix (today `cfg set lat`/`lon`), and any NEW location propagation
+(periodic broadcast, location requests) — a separate airtime/privacy/wire decision.
 
 Phase B adds, in this order:
 

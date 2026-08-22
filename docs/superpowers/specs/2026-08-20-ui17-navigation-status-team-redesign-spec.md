@@ -841,18 +841,30 @@ slice above quietly does it: **S1-S6 and S8 must not re-order the roster.**
 | `mrui::TeamRow` | **28** |
 | `mrui::InboxRow` | **40** |
 
-⚠ **`UiSnapshot` and `UiState` are each instantiated TWICE on the OLED envs** — the model's own copy plus the
-frame's frozen copy (`s_frame_snap` / `s_frame_state`, `firmware_ui.cpp:1703-1704`) — and the per-tick snapshot
-is additionally a **stack** local (`firmware_ui.cpp:1639`). ⇒ a growth of *n* bytes costs ~2*n* of static RAM
-**and** *n* of loop-task stack.
+⛔⛔ **CORRECTED IN PLACE 2026-08-22 BY S5's ELF INSPECTION — THE TWO STRUCTS DO NOT BEHAVE THE SAME, AND THE
+WITHDRAWN READING IS KEPT VISIBLE.** This paragraph read: *"**`UiSnapshot` and `UiState` are each instantiated
+TWICE on the OLED envs** — the model's own copy plus the frame's frozen copy (`s_frame_snap` / `s_frame_state`,
+`firmware_ui.cpp:1703-1704`) — and the per-tick snapshot is additionally a **stack** local
+(`firmware_ui.cpp:1639`). ⇒ a growth of n bytes costs ~2n of static RAM **and** n of loop-task stack."*
+★ **WHAT THE ELF SAYS INSTEAD:**
+- **`UiSnapshot` is static exactly ONCE** — `s_frame_snap`. **`s_model` embeds no snapshot** (measured: its size
+  did not move when the snapshot grew), because `UiModel` takes one as a *parameter*, never as a member. ⇒ a
+  growth of *n* costs **n of static RAM and n of TRANSIENT loop-task stack** (the `build_snapshot` local), ⛔ not
+  2*n* static.
+- **`UiState` genuinely is static twice** — the model's `_st` **and** `s_frame_state` — so for THAT struct the
+  ~2*n* reading stands.
+⚠ **THE LESSON, RECORDED BECAUSE IT COST TWO WRONG ROWS BELOW:** "frozen copy" and "model's own copy" are not
+symmetric, and the doubling must be **read off the image**, never inferred from the freeze pattern. ⛔ Every
+figure in this table is a per-board `RAM_used` diff plus an ELF read — D2's standing warning still applies on
+top: native's 8-byte alignment structurally hides a 4-byte-align board padding shift.
 
-| slice | predicted (⚠ ESTIMATE — the slice REPORTS the measured figure) |
+| slice | ⚠ **an unlanded slice's figure is an ESTIMATE and says so; a landed slice's is MEASURED and names its method** (S3, S5) |
 |---|---|
 | S1 | `UiState` +1 byte (`ListView`); expected to land in existing tail padding ⇒ **0**. Measure. |
 | S2 | 0 |
-| S3 | ⛔ **WITHDRAWN, KEPT VISIBLE:** *"0 RAM (all strings are `.rodata` / stack buffers)"* — **FALSE as written**, because the §3.4 pull-forward landed the own-location fields here. **MEASURED: `UiSnapshot` 608 → 616 (+8)** — the two `int32_t` coordinates; **the `bool` cost ZERO**, landing in existing padding (**offsetof-proven**, not argued). ⇒ **~+16 B static** across the struct's two instances and **+8 B loop-task stack**. Strings remain `.rodata`/stack; flash: a handful of formatters. |
+| S3 | ⛔ **WITHDRAWN, KEPT VISIBLE:** *"0 RAM (all strings are `.rodata` / stack buffers)"* — **FALSE as written**, because the §3.4 pull-forward landed the own-location fields here. **MEASURED: `UiSnapshot` 608 → 616 (+8)** — the two `int32_t` coordinates; **the `bool` cost ZERO**, landing in existing padding (**offsetof-proven**, not argued). ⇒ **~+8 B static and ~+8 B TRANSIENT loop-task stack.** ⛔ **WITHDRAWN, KEPT VISIBLE:** *"~+16 B static across the struct's two instances and +8 B loop-task stack"* — that used the two-static-instances reading S5's ELF inspection has since falsified (see the paragraph above this table). ⓘ **DERIVED, not separately measured:** it is this row's own measured +8 combined with S5's ELF fact that only `s_frame_snap` is static; a slice re-measuring it should report the observed figure. Strings remain `.rodata`/stack; flash: a handful of formatters. |
 | S4 | 0 RAM (the invalidation reuses the existing frozen snapshot). |
-| S5 | `TeamRow` 28 → **~44** (`+4 +4 +4 +1` → padded to +16) ⇒ `UiSnapshot` **616 → ~744** (+128 for the 8-row array). ⚠ **ESTIMATE — MEASURE IT.** ⛔ **WITHDRAWN, KEPT VISIBLE:** *"608 → ~736 … plus `own_lat/own_lon/own_fix` which should land in tail padding"* — the baseline is now **616**, the own-location fields are **already in it** (S3, §3.4), and the `bool` that was predicted to be free **was** (measured). ⇒ ~+256 B static and ~+128 B stack on the OLED envs. Flash: `cosf`/`sqrtf` if not already linked. **All four figures are per-board `RAM_used` diffs, which is the board gate's job — D2's standing warning applies: native's 8-byte alignment structurally hides a 4-byte-align board padding shift.** |
+| S5 | ★ **MEASURED, and it corrects TWO earlier claims of this table.** **`TeamRow` 28 → 40.** ⛔ **WITHDRAWN, KEPT VISIBLE:** *"`TeamRow` 28 → ~44 (`+4 +4 +4 +1` → padded to +16) ⇒ `UiSnapshot` 616 → ~744 (+128 …)"*, and before that *"608 → ~736 … plus `own_lat/own_lon/own_fix` which should land in tail padding"*. **The `bool` cost ZERO** — `offsetof(TeamRow, peer_loc_valid)` is **26**, inside the pad that already followed `label[15]`; the three 4-byte fields take **28/32/36** ⇒ **+12, not +16**. ⇒ **`UiSnapshot` 616 → 712 (+96, not +128).** <br>★★★ **RAM, BY ELF INSPECTION AND A CONTROLLED TWO-ENV A/B — AND THE "TWO OLED INSTANCES / ~+192 B STATIC" READING IS WITHDRAWN:** the image holds **ONE static `UiSnapshot`** (`s_frame_snap`, 0x268 → 0x2c8); **`s_model` embeds none** (0x248, unchanged) — the "second instance" is a **transient stack value**, the per-tick `build_snapshot` local. ⇒ **~+96 B static and ~+96 B TRANSIENT loop-task stack.** Confirmed on metal-shaped builds: `heltec_v3` RAM **216 684 → 216 780**, `gateway_heltec` **241 636 → 241 732** — **+96 on both.** <br>**Flash: +5 320 B** (`heltec_v3`) / **+5 316 B** (`gateway_heltec`), of which **3 561 B is libm — and it is the cosine's ARGUMENT REDUCTION, not the cosine**: `__kernel_rem_pio2f` 1 279 + `two_over_pi` 792 + `__ieee754_rem_pio2f` 552, against `cosf` itself **121** and `sqrtf` **60** — plus **805 B** of this slice's own code and **~950 B** of growth inside existing symbols. ⇒ §3.4's **integer-cosine-table fallback is QUANTIFIED at ~3.5 KB and NOT TAKEN**: flash sits at **39.0 % / 37.7 %** of 3 342 336 B. **`UiState` 200 and `UiModel` 600 unchanged**; warning sets identical pre↔post, `-Wswitch` zero. |
 | S6 | flash +72 B `.rodata` (or +32 for a 16x16); **RAM 0** by construction. |
 | S8 | `UiModel` +4 bytes (`_msg_wake_until_ms`), expected to land beside the existing `uint32_t` deadlines; the model is instantiated **once** (`s_model`), so ⛔ this one does not double. Measure. |
 

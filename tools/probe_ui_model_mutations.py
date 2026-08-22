@@ -98,6 +98,12 @@ TARGET_SRC = {
     #    raise-never-clear), each of which is a decision a mutation must be able to attack ON ITS OWN — and a battery
     #    is per-SOURCE-FILE. Composed in `src/firmware_ui.cpp` they would have had NO battery at all (§B115).
     "uiteam": "src/firmware_ui_team.h",         # §UI-17 S4 — the TEAM row + the F-8 clock-driven repaint
+    # ★★ ADDED 2026-08-21 BY §UI-17 slice 5, for the reason every target above it was added: the location columns'
+    #    FOUR-TERM rule, the 600 s freshness bound and the four load-bearing maths rules (int64 longitude, the
+    #    antimeridian fold, integer-differences-first, the atan2-free octant) are each a decision that must be
+    #    attacked ON ITS OWN — and a battery is per-SOURCE-FILE. Folded into the row formatter they would have shared
+    #    `uiteam`'s entries; composed in `src/firmware_ui.cpp` they would have had NO battery at all (§B115).
+    "uigeo":  "src/firmware_ui_geo.h",          # §UI-17 S5 — freshness, geometry and the two location tokens
 }
 _flags = [a for a in sys.argv[1:] if a.startswith("--")]
 
@@ -164,7 +170,57 @@ H = os.path.join(ROOT, TARGET_SRC[_TARGET])
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 1893, 87517     # ★★ CROSS-CHECK SYNCED 2026-08-21 by §UI-17 slice 4 (the TEAM row's pure
+PIN_CASES, PIN_ASSERTS = 1916, 87621     # ★★ CROSS-CHECK RE-SYNCED 2026-08-22 by §UI-17 slice 5's QG correction
+                                         # (the integer-first precision rule had NO isolated control, and the case
+                                         # offered as its proof stayed GREEN under the defect): **1915 / 87616 ->
+                                         # 1916 / 87621** (+1 case / +5 assertions), all in
+                                         # test/test_firmware_ui_geo.cpp. DERIVED, not observed:
+                                         #   +5 ★ the HIGH-COORDINATE fixture (89 N latitude ULP 64, 170 E
+                                         #      longitude ULP 128, against a metre's 89.83 e7 units): both legs
+                                         #      render `1m` integer-first and `0m` float-first (2 + 2), plus the
+                                         #      52 N vacuity guard that shows why the old walk could not see it (1)
+                                         #   +1 case only: the surviving 50 m walk SPLIT into its own case with its
+                                         #      scope stated honestly — its 2 assertions moved, they did not grow
+                                         # ⓘ The two mutations it reddens are G17 / G18.
+                                         #
+                                         # ★★ AND BEFORE THAT, 2026-08-21, by §UI-17 slice 5 itself (the location
+                                         # projection: the pure geo unit + the TEAM row's two filled columns):
+                                         # **1893 / 87517 -> 1915 / 87616** (+22 cases / +99 assertions), all of
+                                         # them in the NEW test/test_firmware_ui_geo.cpp (+16 / +61) and in
+                                         # test/test_firmware_ui_team.cpp (+6 / +38). ⛔ NO EXISTING CASE WAS
+                                         # TOUCHED: S4's row expectations are byte-identical because the default
+                                         # fixture carries no fix and no cached position, so both new columns are
+                                         # blank exactly as they were. `src/firmware_ui.cpp` compiles in neither the
+                                         # native suite nor the simulator, so nothing else could move.
+                                         # DERIVED, not merely observed — per case, in file order:
+                                         #   test_firmware_ui_geo.cpp (61)
+                                         #    7 the 600 s bound: 599 / 600 / 601 + the constant + `ui_geo_fresh`
+                                         #    2 `0xFFFFFFFF` is the cache's UNDATEABLE, and it blanks
+                                         #    5 each of the four terms blanks on its own (+ the shown arm)
+                                         #    3 a cache MISS is BLANK, and `0m` is a real and different answer
+                                         #    8 ★ the coincident RULING: `0m`, blank dir, no cardinal, the bucket
+                                         #    3 all eight bearings + the ruled S-14 lexemes + their bound
+                                         #    3 the octant boundary driven either side of 22.5 degrees
+                                         #    2 negative coordinates, all four quadrants (NE and SW)
+                                         #    4 ★ the antimeridian pair, read from both ends
+                                         #    2 an ORDINARY longitude pair is untouched by the fold
+                                         #    2 nearby peers survive the float mantissa (the 50 m walk)
+                                         #    4 the ruled distance table + its truncation
+                                         #    2 the saturation token and the NaN arm
+                                         #    3 the bucket-vs-token `iff` sweep + vacuity + never-zero
+                                         #    8 the bucket is what the PANEL draws, not the raw inputs
+                                         #    3 the bucket and the columns agree, swept together
+                                         #   test_firmware_ui_team.cpp (38)
+                                         #    5 a located teammate fills DIST/DIR at exactly 19 columns
+                                         #    4 a STALE position blanks (600 shows, 601 and UNDATEABLE blank)
+                                         #    2 no own fix ⇒ blank, however fresh the peer is
+                                         #    3 a COINCIDENT teammate draws `0m` and a blank direction
+                                         #    9 a distance token that turns repaints; a drift inside it does not
+                                         #   15 the octant / the freshness bound / our own fix each repaint alone
+                                         # ⓘ The last two figures include `team_settle`'s own 3 CHECKs, which is
+                                         # why the invalidation cases run higher than their visible count.
+                                         #
+                                         # ★★ AND BEFORE THAT, by §UI-17 slice 4 (the TEAM row's pure
                                          # unit + the F-8 repaint invalidation): **1877 / 87411 -> 1893 / 87517**
                                          # (+16 cases / +106 assertions), ALL of them in the NEW
                                          # test/test_firmware_ui_team.cpp — no existing case was touched, and
@@ -2227,14 +2283,14 @@ MUTS_UITEAM = [
  ("T01 ★★ the label loses its PRECISION — a long name pushes the age and both reserved columns off the row",
   '    const int n = snprintf(out, cap, "%c%-6.6s %3s %4s %2s",',
   '    const int n = snprintf(out, cap, "%c%-6s %3s %4s %2s",'),
- ("T02 ★★ the two RESERVED columns are dropped, so S5 cannot land without re-laying the row",
+ ("T02 ★★ the two location columns are dropped from the format, so the row loses them silently",
   '    const int n = snprintf(out, cap, "%c%-6.6s %3s %4s %2s",\n'
-  "                           marked ? '>' : ' ', t.label, age, kTeamDistBlank, kTeamDirBlank);",
+  "                           marked ? '>' : ' ', t.label, age, geo.dist, geo.dir);",
   '    const int n = snprintf(out, cap, "%c%-6.6s %3s",\n'
   "                           marked ? '>' : ' ', t.label, age);"),
  ("T03 the marker is INVERTED — a passive preview marks every teammate it never picked",
-  "                           marked ? '>' : ' ', t.label, age, kTeamDistBlank, kTeamDirBlank);",
-  "                           marked ? ' ' : '>', t.label, age, kTeamDistBlank, kTeamDirBlank);"),
+  "                           marked ? '>' : ' ', t.label, age, geo.dist, geo.dir);",
+  "                           marked ? ' ' : '>', t.label, age, geo.dist, geo.dir);"),
  ("T04 ⛔ an UNKNOWN route age is rendered as an AGE (`old`) instead of `--`",
   "    ui_fmt_home_age(out, cap, /*ever=*/age_s != UINT32_MAX, uint64_t(age_s) * 1000u);",
   "    ui_fmt_home_age(out, cap, /*ever=*/true, uint64_t(age_s) * 1000u);"),
@@ -2279,12 +2335,102 @@ MUTS_UITEAM = [
  ("T12 the roster SIZE stops being compared — a teammate joining or leaving never repaints",
   "    if (a.team_shown != b.team_shown) return false;",
   "    if (false) return false;"),
+ # --- §UI-17 S5: the row's HANDOFF to the location unit (the decisions themselves are `--target=uigeo`'s) ----------
+ ("T17 ★★★ the row hard-wires the cache age to ZERO, so a STALE position renders as a current one",
+  "    ui_geo_columns(geo, own, t.peer_loc_valid, t.peer_loc_age_s, t.peer_lat_e7, t.peer_lon_e7);",
+  "    ui_geo_columns(geo, own, t.peer_loc_valid, 0, t.peer_lat_e7, t.peer_lon_e7);"),
+ ("T18 the two location columns are composed and DROPPED (the row never shows a distance)",
+  "    ui_geo_columns(geo, own, t.peer_loc_valid, t.peer_loc_age_s, t.peer_lat_e7, t.peer_lon_e7);",
+  "    ui_geo_columns(geo, own, false, t.peer_loc_age_s, t.peer_lat_e7, t.peer_lon_e7);"),
+ ("T19 ★★ the own fix is RE-DERIVED from the coordinates instead of the published own_fix (a second definition)",
+  "    return GeoFix{ s.own_fix, s.own_lat_e7, s.own_lon_e7 };",
+  "    return GeoFix{ true, s.own_lat_e7, s.own_lon_e7 };"),
+ ("T20 ★★ the geo bucket leaves the repaint comparison, so a distance that turns never repaints",
+  "        if (ui_team_geo_bucket(a, a.team[i]) != ui_team_geo_bucket(b, b.team[i])) return false;",
+  "        if (false) return false;"),
+]
+
+# ★★★ §UI-17 slice 5 — THE LOCATION COLUMNS' DECISIONS. Every entry is the TEMPTING WRONG FIX rather than a deletion,
+#     and each attacks ONE ruled decision: the freshness bound and its `<=`, the four terms of the show/blank rule,
+#     the four maths rules spec §3.4 calls load-bearing, the two token tables, and the coincident-point RULING.
+#     ⛔ Six of them are the ones spec §4's S5 "Mutations" bullet names verbatim; the rest are the terms and the
+#     boundaries, because a rule whose terms have no isolated control is a rule measured by one case at best.
+MUTS_UIGEO = [
+ # --- the freshness bound (spec §3.4 term 4) -----------------------------------------------------------------------
+ ("G01 ★★ the freshness comparison narrows to `<`, so a position AT the bound blanks",
+  "inline bool ui_geo_fresh(uint32_t age_s) { return age_s <= kPeerLocMaxAgeS; }",
+  "inline bool ui_geo_fresh(uint32_t age_s) { return age_s < kPeerLocMaxAgeS; }"),
+ ("G02 ★★ the bound itself is widened to an hour (a ten-minute ruling, quietly re-ruled)",
+  "inline constexpr uint32_t kPeerLocMaxAgeS = 600;",
+  "inline constexpr uint32_t kPeerLocMaxAgeS = 3600;"),
+ # --- the four terms of the show/blank rule --------------------------------------------------------------------
+ ("G03 the OWN-FIX term is dropped — a node with no position of its own still draws distances",
+  "    if (!own.have)                  return a;   // (1) we do not know where WE are",
+  "    if (false)                      return a;   // (1) we do not know where WE are"),
+ ("G04 ⛔ the CACHE-MISS term is dropped, so an uncached peer renders from (0,0)",
+  "    if (!peer_valid)                return a;   // (2)+(3) no hash for that id, or nothing cached under it",
+  "    if (false)                      return a;   // (2)+(3) no hash for that id, or nothing cached under it"),
+ ("G05 ★★★ the FRESHNESS term is dropped — a week-old position renders as a current one",
+  "    if (!ui_geo_fresh(peer_age_s))  return a;   // (4) too old to be a fact — ⛔ never rendered as a current one",
+  "    if (false)                      return a;   // (4) too old to be a fact — ⛔ never rendered as a current one"),
+ # --- the four maths rules (spec §3.4, all four load-bearing) ------------------------------------------------------
+ ("G06 ★★★ the ANTIMERIDIAN FOLD is removed (two neighbours read as half a planet apart)",
+  "    if      (dlon >  kGeoLonHalfE7) dlon -= kGeoLonSpanE7;\n"
+  "    else if (dlon < -kGeoLonHalfE7) dlon += kGeoLonSpanE7;",
+  "    (void)kGeoLonSpanE7;"),
+ ("G07 ★★★ the longitude difference is taken in `int32_t`, where it OVERFLOWS",
+  "    int64_t       dlon = int64_t(peer_lon_e7) - int64_t(own.lon_e7);",
+  "    int64_t       dlon = int64_t(int32_t(peer_lon_e7 - own.lon_e7));"),
+ ("G08 ★★ the octant thresholds are swapped (every cardinal still looks right)",
+  "    if      (ax <= kGeoTan22_5 * ay) v.octant = (dy >= 0.0f) ? GeoOctant::n  : GeoOctant::s;",
+  "    if      (ay <= kGeoTan22_5 * ax) v.octant = (dy >= 0.0f) ? GeoOctant::n  : GeoOctant::s;"),
+ ("G09 ★★ `cos(mid_lat)` is dropped, so the longitude leg is unscaled (equator arithmetic everywhere)",
+  "    const float dx = float(dlon) * kGeoMetresPerE7 * std::cos(mid_lat_deg * kGeoDegToRad);",
+  "    const float dx = float(dlon) * kGeoMetresPerE7 * std::cos(0.0f * mid_lat_deg * kGeoDegToRad);"),
+ # --- rule 3: the difference is taken as an INTEGER FIRST (the mantissa-loss boundary) ------------------------------
+ # ⛔⛔ THESE TWO WERE MISSING WHEN S5 FIRST LANDED (QG, 2026-08-22) while the header claimed all four maths rules had
+ #    an isolated control — and the case then offered as the rule's proof stayed GREEN under exactly this defect,
+ #    because a 50 m step at 52 N is far above the quantisation there. ⇒ they are reddened by the HIGH-COORDINATE
+ #    fixture (89 N / 170 E), where a metre is 89.83 e7 units against a float ULP of 64 and 128: the correct path
+ #    renders `1m` and the float-first one `0m` — the panel telling a searcher their teammate is AT THEM.
+ ("G17 ★★★ the LATITUDE difference is taken between two FLOATS (a metre lost to the mantissa)",
+  "    const float dy = float(dlat) * kGeoMetresPerE7;",
+  "    const float dy = (float(peer_lat_e7) - float(own.lat_e7)) * kGeoMetresPerE7;"),
+ ("G18 ★★★ the LONGITUDE difference is taken between two FLOATS (and the fold goes with it)",
+  "    const float dx = float(dlon) * kGeoMetresPerE7 * std::cos(mid_lat_deg * kGeoDegToRad);",
+  "    const float dx = (float(peer_lon_e7) - float(own.lon_e7)) * kGeoMetresPerE7 * std::cos(mid_lat_deg * kGeoDegToRad);"),
+ # --- the coincident-point ruling, from both sides -----------------------------------------------------------------
+ ("G10 ★★★★ `has_bearing` is forced TRUE for a zero-length vector (a FABRICATED `N` at one campsite)",
+  "    if (dlat == 0 && dlon == 0) return v;",
+  "    if (dlat == 0 && dlon == 0) { v.has_bearing = true; return v; }"),
+ ("G11 ★★★ the direction column is written whether the vector has a bearing or not",
+  "    if (!a.v.has_bearing) return;",
+  "    if (false) return;"),
+ # --- the two token tables (string inventory S-13) -----------------------------------------------------------------
+ ("G12 ★★ the one-decimal arm ROUNDS instead of truncating (and overruns four columns)",
+  "        else if (m < 10000u) n = snprintf(out, cap, \"%lu.%luk\", (unsigned long)(m / 1000u),\n"
+  "                                                                (unsigned long)((m % 1000u) / 100u));",
+  "        else if (m < 10000u) n = snprintf(out, cap, \"%lu.%luk\", (unsigned long)(m / 1000u),\n"
+  "                                                                (unsigned long)((m % 1000u + 50u) / 100u));"),
+ ("G13 the metres arm runs to 10 km, so a five-column `1000m` is drawn in a four-column field",
+  "        if      (m < 1000u)  n = snprintf(out, cap, \"%lum\", (unsigned long)m);",
+  "        if      (m < 10000u) n = snprintf(out, cap, \"%lum\", (unsigned long)m);"),
+ ("G14 ★★ the saturation arm is spelled `>=`, so a NaN falls through to an UNDEFINED cast",
+  "    if (!(dist_m < 1000000.0f)) {",
+  "    if (dist_m >= 1000000.0f) {"),
+ # --- the repaint bucket (spec §1.9 F-8, extended by this slice) ---------------------------------------------------
+ ("G15 the bucket's decimal arm turns ten times per token, so it stops agreeing with what is drawn",
+  "    if (m < 10000u) return 0x02000000u | (m / 100u);                 // `%u.%uk` — ...every hundred metres",
+  "    if (m < 10000u) return 0x02000000u | (m / 10u);                  // `%u.%uk` — ...every hundred metres"),
+ ("G16 ★★ the bucket forgets the DIRECTION, so a bearing that turns never repaints the panel",
+  "    return (ui_geo_dist_key(a.v.dist_m) << 4) | dir;",
+  "    return (ui_geo_dist_key(a.v.dist_m) << 4) | (dir * 0u);"),
 ]
 
 MUTS_BY_TARGET = {"model": MUTS_MODEL, "config": MUTS_CONFIG, "chrome": MUTS_CHROME, "icons": MUTS_ICONS,
                   "joinprofiles": MUTS_JOINPROFILES, "devicenv": MUTS_DEVICENV, "cfgparse": MUTS_CFGPARSE,
                   "uiprov": MUTS_UIPROV, "uijoin": MUTS_UIJOIN, "provservice": MUTS_PROVSERVICE,
-                  "uistatus": MUTS_UISTATUS, "uiteam": MUTS_UITEAM}
+                  "uistatus": MUTS_UISTATUS, "uiteam": MUTS_UITEAM, "uigeo": MUTS_UIGEO}
 MUTS = MUTS_BY_TARGET[_TARGET]
 
 # ⓘ `_positional` is built (and judged: at most one) in the argv block at the top of the file — see `_refuse_argv`.

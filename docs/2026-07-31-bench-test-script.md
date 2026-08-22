@@ -3078,3 +3078,15 @@ glass and real time** — that the reorder and the time-only refresh LOOK right 
    (time only — within ~1 s at the 2 Hz cadence), the highlight beside where it was.
 3. **Delete the LAST row of a block** ⇒ same: gone, no press, highlight on its predecessor (the arm that worked
    pre-fix must still work).
+
+## Part 32 — §UI-17 S4: a lit TEAM screen's ages turn on their own (2026-08-21)
+
+⛔ **THE RESIDUE ONLY.** The bucket⇄token agreement, the raise-only invalidation, the body gate and the throttle
+interaction are host-gated (`test_firmware_ui_team.cpp` + `--target=uiteam` T05-T16 + probe P18d/P18e). **What no
+host reaches: real time on real glass, and the power cost of the ~1 repaint/s a second-scale age asks for.**
+
+1. On H1 with ≥1 teammate, enter TEAM and watch one row's age column for ~90 s **without pressing**. Expected:
+   the token advances on its own (`5s` → `6s` → … → `1m`) and never flickers between two values.
+   ⛔ FAIL if the age freezes at the value it had when the screen was opened — the pre-S4 (F-8) behaviour.
+2. Leave the node alone until the panel blanks, then confirm over USB from `status` that **sleeps are still
+   accumulating** (`slept=` climbs). ⛔ FAIL if idle sleeps stop — the repaint cadence must die with the panel.

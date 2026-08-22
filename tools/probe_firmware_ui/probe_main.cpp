@@ -2931,6 +2931,230 @@ int main() {
         (void)t19;
     }
 
+    // ============================================================================================================ P19
+    // ★★★★ §UI-17 S5 — THE **PRODUCTION HANDOFF** FOR THE LOCATION COLUMNS, and it is the [[B226]] seam again:
+    //      `test/test_firmware_ui_geo.cpp` proves what `mrui::ui_geo_*` DECIDES and `--target=uigeo` proves each term
+    //      is load-bearing — but every one of those instruments calls the pure unit DIRECTLY. Stop publishing
+    //      `peer_loc_find`'s answer, look it up under the wrong identity, hand the row a "fresh" age or a hard-wired
+    //      own fix, and every native case stays green, all 16 `uigeo` + 20 `uiteam` mutations stay RED, and the panel
+    //      shows a distance that is nobody's. `src/firmware_ui.cpp` is compiled by neither the native suite nor the
+    //      simulator (§B115), so this phase is the only venue that can see any of it.
+    // ★★ FOUR TEAMMATES, FOUR DIFFERENT ANSWERS, AND NO TWO ROWS CAN BE CONFUSED FOR ONE ANOTHER:
+    //      · `Alpha` — a FRESH cached position ~2 km north  ⇒ `2.0k  N`
+    //      · `Bravo` — a position **601 s** old             ⇒ ⛔ BOTH COLUMNS BLANK (⛔ never a plausible number)
+    //      · `Cleo`  — no cached position at all            ⇒ BLANK (⛔ never `0m`)
+    //      · `Delta` — a position IDENTICAL to ours         ⇒ `0m` and a BLANK direction (the owner's ruling, on glass)
+    // ⛔ THE POSITIONS ARE SEEDED THROUGH `Node::peer_loc_set` — THE CORE's OWN SEAM, the same one the authenticated
+    //    receive paths call — ⛔ never by poking a snapshot. So what this phase measures is the WHOLE chain: the
+    //    cache, the id->hash resolution, the publish site, the frozen frame and the renderer.
+    //
+    // ⚠⚠⚠ A HARNESS TRAP, MEASURED RATHER THAN GUESSED, AND IT IS WHY EVERY SUB-PHASE RE-STAMPS AFTER ITS WALK.
+    //     `walk_to_slot` PAINTS AT A TIME THE CLOCK HAS ALREADY PASSED: `leave_list` returns straight after its own
+    //     `paint(t)` (which ticks t .. t+90) and the caller then paints at that same `t` — a 90 ms BACKWARDS step,
+    //     which `ArduinoClock` reads as a millis WRAP and answers by adding 2^32 ms (~49.7 days) to the monotonic
+    //     epoch (`lib/hal/iclock.h`'s `accumulate_millis_wrap`). ⓘ It is PRE-EXISTING and harmless to the shipped
+    //     firmware (a real `millis()` never steps back), and this run crosses **137** such epochs before reaching
+    //     here. ⛔ BUT ANY NODE-SIDE STAMP TAKEN BEFORE A WALK IS 49 DAYS OLD AFTER IT: the route ages render `49d`,
+    //     `team_key_of_id` falls past its 48 h gate so every label drops to the bare id, and every cached position is
+    //     past its freshness bound. **MEASURED: that is exactly how this phase failed first.**
+    //  ⇒ THE RULE THIS PHASE FOLLOWS, and P18's `stamp` helper follows the same one for the same reason:
+    //     **walk FIRST, stamp SECOND, and never walk between a stamp and the frame that reads it.**
+    //     Waking a blanked panel is safe (a wake press paints where it stood — §B107) and is how each sub-phase gets
+    //     its lit frame without navigating.
+    {
+        // ---- the fixture, through the core's own public seams --------------------------------------------------
+        (void)g_node.set_team_id(0x51CE0005u);
+        g_node.set_team_local_id(91);
+        g_node.mutable_config().lat_e7 = 520000000;      // 52.0000000 N — OUR fix, the one `own_fix` is derived from
+        g_node.mutable_config().lon_e7 = 210000000;      // 21.0000000 E
+
+        uint8_t pub[4][32];
+        uint32_t hash[4];
+        const char* names[4] = { "Alpha", "Bravo", "Cleo", "Delta" };
+        bool keys_ok = true;
+        for (int k = 0; k < 4; ++k) {
+            for (int i = 0; i < 32; ++i) pub[k][i] = uint8_t(0x20 + k * 0x30 + i);
+            hash[k] = MESHROUTE_NS::key_hash32_of(pub[k]);
+            if (!g_node.peer_key_set(hash[k], pub[k], MESHROUTE_NS::Node::PeerKeyConf::authoritative,
+                                     names[k], uint8_t(strlen(names[k])))) keys_ok = false;
+        }
+        CHK("P19 precondition: four teammate keys and names are cached", keys_ok);
+
+        // ★★★ THE FIXTURE'S WHOLE TIMELINE, AND EVERY OFFSET IN IT IS LOAD-BEARING (⛔ forward only, see the trap):
+        //       base + 0        the four routes and the four id->hash bindings
+        //       base + 3600000  `Bravo`'s position                       ⇒ 601 s old at the frame — ⛔ ONE SECOND
+        //                                                                  past `kPeerLocMaxAgeS`, the ruled edge
+        //       base + 4201000  `Alpha`'s and `Delta`'s positions, and THE FRAME
+        //     ⇒ every row's ROUTE age is 4201 s, which the ruled table draws `1h` — and it stays `1h` until 7200 s,
+        //     so no expected row below can depend on how long a walk took. ⛔ The alternative, a second-scale route
+        //     age, is a fixture measuring itself. The AGE column is S4's and is pinned second-by-second at P18.
+        // ⓘ `Cleo` (hash[2]) is DELIBERATELY never given a position — the cache-miss row.
+        auto stamp_all = [&](uint32_t base) -> uint32_t {
+            set_now(base);
+            for (int k = 0; k < 4; ++k) {
+                g_node.test_learn_route(uint8_t(84 + k), uint8_t(84 + k), 1, 144, /*team_plane=*/true);
+                g_node.team_key_set(uint8_t(84 + k), hash[k], MESHROUTE_NS::Node::IdBindSource::bcn,
+                                    MESHROUTE_NS::Node::IdBindConf::authoritative);
+            }
+            set_now(base + 3600000);
+            (void)g_node.peer_loc_set(hash[1], 520000000 + 184000, 210000000,
+                                      MESHROUTE_NS::Node::PeerLocSrc::peer);        // Bravo — will be 601 s old
+            set_now(base + 4201000);
+            (void)g_node.peer_loc_set(hash[0], 520000000 + 184000, 210000000,
+                                      MESHROUTE_NS::Node::PeerLocSrc::peer);        // Alpha — ~2 km north, fresh
+            (void)g_node.peer_loc_set(hash[3], 520000000, 210000000,
+                                      MESHROUTE_NS::Node::PeerLocSrc::team);        // Delta — exactly where we are
+            return base + 4201000;
+        };
+
+        uint32_t t20 = settle(1700000);
+        t20 = walk_to_slot(t20 + 500, kSlotTeam);
+
+        // ---- (a) EVERY ROW, EXACT BYTES AT ITS EXACT COORDINATE --------------------------------------------------
+        {
+            // ⛔ THE WAKE PRESS IS THE ONLY GESTURE HERE, and it is what makes the frame LIT without navigating: the
+            //    4 201 s the fixture jumps blanks the panel, and §B107's wake paints where the operator left it.
+            const uint32_t at = stamp_all(t20 + 1000);
+            t20 = settle(at);
+            paint(t20 + 100);
+            const char* r[4] = { body_row(0), body_row(1), body_row(2), body_row(3) };
+            printf("  INFO §UI-17 S5 TEAM rows: [%s] [%s] [%s] [%s]\n",
+                   r[0] ? r[0] : "-", r[1] ? r[1] : "-", r[2] ? r[2] : "-", r[3] ? r[3] : "-");
+            CHK("P19a a FRESH cached position draws the distance and the octant",
+                body_row_is(0, " Alpha   1h 2.0k  N"));
+            // ⛔⛔ THE ONE THAT MATTERS MOST, and it is ONE SECOND past the bound: the position is still in the
+            //     cache, the peer is still on the roster, and the panel says NOTHING about where they are. A stale
+            //     fix rendered as a current one is worse than no fix, because the operator acts on it (C2).
+            CHK("P19a ⛔ a 601 s old position renders BLANK, never a number",
+                body_row_is(1, " Bravo   1h        "));
+            CHK("P19a a peer with NO cached position blanks too (⛔ never 0m)",
+                body_row_is(2, " Cleo    1h        "));
+            // ★★★★ THE OWNER'S COINCIDENT RULING, ON GLASS: a zero-length vector has no bearing, so the direction
+            //      column is blank beside a perfectly valid `0m`. ⛔ FAIL on `N` — a fabricated cardinal.
+            CHK("P19a ★ a COINCIDENT teammate draws `0m` and a BLANK direction",
+                body_row_is(3, " Delta   1h   0m   "));
+            CHK("P19a every drawn row is still exactly 19 columns wide",
+                r[0] != nullptr && strlen(r[0]) == 19 && r[1] != nullptr && strlen(r[1]) == 19 &&
+                r[2] != nullptr && strlen(r[2]) == 19 && r[3] != nullptr && strlen(r[3]) == 19);
+            t20 += 2000;
+        }
+
+        // ---- (b) ⛔⛔ RENDERING TEAM CREATES **NO TRAFFIC OF ANY KIND** (spec §3.4) -------------------------------
+        // ★★★ COUNTED, NOT ARGUED, and both counters are the REAL ones: `g_hal.txq_depth()` is the real DeviceHal
+        //     queue P2b moves, and `g_probe_radio.starts` is the real radio's start count. A full TEAM walk —
+        //     entering the interactive list, walking every row, leaving it and coming back — must move NEITHER.
+        // ⓘ This is the automated half of bench §7.3 step 6, and it is the stronger half: on metal a scheduled beacon
+        //   can never be told apart from a panel-driven send without a five-minute baseline.
+        {
+            const int s0 = g_probe_radio.starts;
+            // ⛔ THE BEFORE-CHECK IS NOT CEREMONY: sub-phase (a) has ALREADY drawn this roster several times, so a
+            //    renderer that asks for a position would have filled the queue before the walk even begins — and a
+            //    bare "the depth did not CHANGE" would then be satisfied by a queue that is merely still full.
+            CHK("P19b precondition: nothing is queued before the TEAM walk", g_hal.txq_depth() == 0);
+            uint32_t tb = t20 + 1000;
+            tb = double_press(tb); paint(tb);                 // enter the interactive list
+            for (int i = 0; i < 5; ++i) tb = settle(tb + 500); // walk every row, including BACK
+            tb = walk_to_slot(tb + 500, kSlotTeam);           // ...and back onto the screen from the rail
+            paint(tb + 500);
+            CHK("P19b ⛔ a full TEAM walk enqueues NOTHING (the real queue)",
+                g_hal.txq_depth() == 0);
+            // ★★ AND THE SECOND COUNTER IS NOT A DUPLICATE OF THE FIRST: a queue read alone cannot see a frame that
+            //    was queued AND already drained. ⇒ the two halves of the real service path are run — exactly as P2b
+            //    runs them — and the radio must STILL never have started. ⓘ On a clean tree there is nothing to
+            //    pump, which is the point.
+            g_hal.collect_tx_completion(); g_hal.pump_tx();
+            CHK("P19b ⛔ ...and pumping the queue starts NO transmission",
+                g_probe_radio.starts == s0);
+            t20 = tb + 1000;
+        }
+
+        // ---- (c) ★★★ THE FROZEN FRAME: OUR OWN FIX MOVING **BETWEEN PAGES** MAY NOT TEAR THE ROWS ----------------
+        // ⛔ THE S3 DEFECT'S SHAPE, ONE COLUMN OVER, and it is why the own fix is read ONCE from the frozen snapshot:
+        //    `draw_team_screen` runs ONCE PER OLED PAGE and u8g2 re-clips the whole scene each time, so a `cfg set
+        //    lat` landing between two of the eight replays would draw half the roster from one position and half
+        //    from another. ⛔ NO `settle()` INSIDE the block below: a press would walk the list; the repaint is
+        //    driven by a PUSH plus time, exactly as it is on device.
+        {
+            uint32_t tc = walk_to_slot(t20, kSlotTeam);
+            tc = settle(stamp_all(tc + 1000));                // ...walk FIRST, stamp SECOND (the trap above)
+            paint(tc + 100);
+            char frozen[24];
+            tc += 1000;
+            dirty_the_model(tc);
+            run_ticks(tc + 100, 3, 10);                       // open the frame and push three pages
+            const char* p0 = text_at(kBodyXExpected, body_y_expected(0), 0);
+            snprintf(frozen, sizeof frozen, "%s", p0 ? p0 : "?");
+            CHK("P19c precondition: page 0 drew the row the frame froze",
+                strcmp(frozen, " Alpha   1h 2.0k  N") == 0);
+            g_node.mutable_config().lat_e7 = 520000000 + 900000;   // ⚡ OUR fix MOVES under the open frame (~10 km)
+            run_ticks(tc + 140, 6, 10);                            // ...and the remaining pages replay
+            bool same_every_page = true;
+            for (int p = 0; p < 8; ++p) {
+                const char* r = text_at(kBodyXExpected, body_y_expected(0), p);
+                if (r == nullptr || strcmp(r, frozen) != 0) same_every_page = false;
+            }
+            CHK("P19c every page of that frame drew the SAME distance", same_every_page);
+            // ★ AND THE MOVE IS NOT LOST (§8.3 rule 5 / §B107): the NEXT frame renders the new distance — Alpha is
+            //   now ~8 km SOUTH of us rather than 2 km north.
+            const uint32_t tn = tc + 1400;
+            dirty_the_model(tn); paint(tn + 100);
+            CHK("P19c ...and the NEXT frame renders the distance from the NEW fix",
+                body_row_is(0, " Alpha   1h 7.9k  S"));
+            g_node.mutable_config().lat_e7 = 520000000;
+            t20 = tn + 1000;
+        }
+
+        // ---- (d) ★★★★ THE POSITION GOING STALE REPAINTS THE PANEL BY ITSELF (§1.9 F-8, extended by S5) -----------
+        // ⛔ NO PRESS AND NO PUSH once the panel is lit: the only thing that changes is the CLOCK crossing the 600 s
+        //    bound, and the columns must go blank on their own. Without the geo half of `ui_team_invalidate` the
+        //    panel would keep showing a distance that is no longer true until something unrelated repainted it —
+        //    which is the whole reason the bound exists.
+        // ⚠ THE ROUTE AGE IS DELIBERATELY PARKED MID-BUCKET (`1h` spans 3 600..7 199 s) SO IT CANNOT TURN INSIDE THIS
+        //   WINDOW: if it could, the repaint would be attributable to the AGE bucket and this check would prove
+        //   nothing about the location columns.
+        {
+            uint32_t td = walk_to_slot(t20, kSlotTeam);
+            const uint32_t base = td + 1000;
+            set_now(base);
+            for (int k = 0; k < 4; ++k) {
+                g_node.test_learn_route(uint8_t(84 + k), uint8_t(84 + k), 1, 144, /*team_plane=*/true);
+                g_node.team_key_set(uint8_t(84 + k), hash[k], MESHROUTE_NS::Node::IdBindSource::bcn,
+                                    MESHROUTE_NS::Node::IdBindConf::authoritative);
+            }
+            set_now(base + 3600000);
+            CHK("P19d precondition: Alpha's position is re-stamped exactly",
+                g_node.peer_loc_set(hash[0], 520000000 + 184000, 210000000,
+                                    MESHROUTE_NS::Node::PeerLocSrc::peer));
+            td = settle(base + 4194000);                      // the position is 594 s old — still inside the bound
+            paint(td + 100);
+            CHK("P19d precondition: the LIT screen shows Alpha's distance",
+                body_row_is(0, " Alpha   1h 2.0k  N"));
+            const int frames0 = g_c.begin_frame;
+            for (uint32_t at = td + 300; at <= base + 4201500; at += 200) tick(at);   // ⛔ the clock, and nothing else
+            CHK("P19d ★ the columns go BLANK on the clock alone, no press",
+                g_c.begin_frame > frames0 && body_row_is(0, " Alpha   1h        "));
+            t20 = base + 4203000;
+        }
+
+        // ---- restore the fixture the later phases inherit (P17's own restore, verbatim) -------------------------
+        {
+            uint8_t s_pub[32], s_priv[32];
+            for (int i = 0; i < 32; ++i) { s_pub[i] = uint8_t(0xA0 + i); s_priv[i] = uint8_t(0x40 + i); }
+            (void)g_node.set_team_id(0);
+            MESHROUTE_NS::NodeConfig back{};
+            back.routing_sf = 7; back.allowed_sf_bitmap = (1u << 7); back.leaf_id = 0;
+            back.team_id = 0xABCD1234u;
+            g_node.on_init(back);
+            g_node.set_team_local_id(50);
+            g_node.team_channel_key_load(s_pub, s_priv, /*present=*/true);
+            g_node.test_learn_route(/*dest=*/60, /*via=*/60, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
+            g_node.test_learn_route(/*dest=*/61, /*via=*/61, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
+            g_node.test_learn_route(/*dest=*/62, /*via=*/62, /*hops=*/1, /*snr_q4=*/144, /*team_plane=*/true);
+            t20 = settle(t20 + 1000);
+        }
+        (void)t20;
+    }
+
     // ============================================================================================================ P15
     // ★★★★ §UI-15 slice 5 / [[B225]] — THE PROVISIONING SUB-VIEW, DRIVEN THROUGH THE REAL `draw_provision_screen`.
     //      ⛔ IT RUNS ON THE CHILD-ENABLED ARM ONLY, and that is the whole of the correction: with `-DMR_N_LAYERS=2`

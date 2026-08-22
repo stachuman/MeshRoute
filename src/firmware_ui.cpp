@@ -115,6 +115,9 @@
                                  //   placement and one `draw_rect`, nothing else.
 #include "firmware_ui_team.h"    // ★★ §UI-17 S4: the TEAM row's ruled format, its route-age token, the two reserved
                                  //   columns and the bounded clock-driven repaint — pure, for the same §B115 reason.
+                                 // ★★ §UI-17 S5 pulls `firmware_ui_geo.h` in through it: the freshness bound, the
+                                 //   geometry and the two tokens. ⛔ THIS FILE DECIDES NONE OF IT — it publishes the
+                                 //   cache read (`build_snapshot`) and places the composed row, nothing else.
 #include "firmware_ui_prov.h"    // ★★ §UI-15 slice 5: the PURE team-create adapter (`mrfw::UiProvisionAdapter` over
                                  //   `mrfw::ITeamCreateDevice`). EVERY decision of §3.6.3's create — the PHY
                                  //   precondition, `phy.present = false`, the verdict mapping — lives THERE, where
@@ -358,12 +361,18 @@ void battery_maybe_sample(uint32_t now_ms) {
 void label_from_hash(uint32_t hash, char* out, uint8_t cap) {
     if (g_node.peer_name_find(hash, out, cap) == 0) snprintf(out, cap, "0x%08lx", (unsigned long)hash);
 }
-void label_for_team_id(uint8_t id, char* out, uint8_t cap) {
+// ★★★ §UI-17 S5 — IT **RETURNS THE HASH IT RESOLVED** (0 = none), AND THAT IS THE WHOLE OF THE CHANGE (spec §3.4
+//     term 2, U1): `build_snapshot` needs the same `team_key_of_id` answer to look the peer's cached POSITION up, and
+//     a second call there would be a second resolution of one fact — the fork this project keeps paying for. ⇒ ONE
+//     resolution per row, handed to both the label and `peer_loc_find`.
+// ⓘ The two compose call sites ignore the value; they only ever wanted the label, and that behaviour is unchanged.
+uint32_t label_for_team_id(uint8_t id, char* out, uint8_t cap) {
     uint32_t hash = 0;
     // ⓘ Inert on a !MR_FEAT_TEAM build: `team_key_of_id` stubs to false there, so the label falls straight through to
     //   the bare id. No #if needed — the stub IS the fallback.
-    if (g_node.team_key_of_id(id, hash) && hash != 0) { label_from_hash(hash, out, cap); return; }
+    if (g_node.team_key_of_id(id, hash) && hash != 0) { label_from_hash(hash, out, cap); return hash; }
     snprintf(out, cap, "id %u", unsigned(id));
+    return 0;   // ⛔ C2: "no hash" is said out loud, never a plausible one — the caller blanks the location columns
 }
 void label_for_origin(const MESHROUTE_NS::Push& pu, char* out, uint8_t cap) {
     // §chan-crypt CL2c: a channel_recv carries the sender's stable key_hash32 here too, and `origin` on a team post is
@@ -596,7 +605,31 @@ mrui::UiSnapshot build_snapshot(uint32_t now_ms) {
         } else {
             r.last_heard_s = UINT32_MAX;
         }
-        label_for_team_id(r.id, r.label, uint8_t(sizeof r.label));
+        // ★★★★ §UI-17 S5 — THE PEER's LAST AUTHENTICATED POSITION, READ FROM THE CACHE THAT ALREADY EXISTS, AND
+        //      PUBLISHED VERBATIM. ⛔⛔ THIS IS A `const` READ AND NOTHING ELSE: `Node::peer_loc_find`
+        //      (`node_hashlocate.cpp:432`) touches no timer, no queue and no radio, and NOTHING in this slice asks
+        //      for, refreshes or transmits a position. Rendering TEAM creates NO TRAFFIC OF ANY KIND (spec §3.4) —
+        //      the probe counts TX-queue depth and radio starts across a full TEAM walk rather than arguing it.
+        // ★ ONE RESOLUTION PER ROW (U1): `label_for_team_id` returns the very hash it labelled from, so the position
+        //   is looked up under the SAME identity the panel names. ⛔ A second `team_key_of_id` here would be a
+        //   second authority for "who is this row", and the two could disagree.
+        // ⛔ THE AGE IS TAKEN **VERBATIM** FROM THE OUT-PARAM — no cast, no clamp, no re-derivation against `now_ms`
+        //   (the `home_confirm_age_ms` rule below). `0xFFFFFFFF` is the cache's own "I cannot date this" and must
+        //   reach the freshness rule intact.
+        // ⓘ `hash == 0` is the resolver's "no key for this team id" and simply leaves `peer_loc_valid` false — the
+        //   same blank, through the same arm (spec §3.4's four terms; the other three are the pure unit's).
+        // ⓘ COST (spec §6): ONE linear scan of at most `cap_peer_loc` (16) slots per shown row, per tick, bounded by
+        //   `kMaxTeamRows` (8). ⛔ No flash, no radio, no allocation.
+        const uint32_t hash = label_for_team_id(r.id, r.label, uint8_t(sizeof r.label));
+        if (hash != 0) {
+            MESHROUTE_NS::Node::PeerLocSrc src = MESHROUTE_NS::Node::PeerLocSrc::peer;
+            r.peer_loc_valid = g_node.peer_loc_find(hash, r.peer_lat_e7, r.peer_lon_e7, r.peer_loc_age_s, src);
+            // ⓘ `src` (peer DM vs team post) is read and DELIBERATELY NOT PUBLISHED: 19 columns hold no provenance
+            //   field, both sources are authenticated by their own receive-site evidence test, and a fact the panel
+            //   cannot draw has no business riding the snapshot. Stated so its absence is a decision, not an
+            //   oversight ([[meshroute-mark-done-vs-missing-in-code]]).
+            (void)src;
+        }
     }
 #endif
     s.my_team_id = g_node.team_local_id();
@@ -1104,6 +1137,9 @@ void draw_team_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
     //   through the SAME window (`list_first`), so a full 8-teammate roster can still reach it.
     const uint8_t n     = entered ? uint8_t(s.team_shown + 1) : s.team_shown;
     const uint8_t first = list_first(st.cursor, n, rows);
+    // ★ §UI-17 S5 — OUR OWN FIX, read ONCE per body from the FROZEN snapshot (⛔ never `g_node.config()` here: this
+    //   function runs once per OLED PAGE, and a live read is exactly the tear S3 shipped and then cured).
+    const mrui::GeoFix own = mrui::ui_geo_fix_of(s);
     for (uint8_t row = 0; row < rows && first + row < n; ++row) {
         const uint8_t idx = uint8_t(first + row);
         // ★ ONE marker predicate for both row kinds, and it keeps §B64's suppression EXACTLY as it was: while the
@@ -1125,8 +1161,12 @@ void draw_team_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
         //    row BY RULING (spec §3.2 / §1.9 F-1): the new columns are distance and bearing and 19 columns hold no
         //    sixth field. ⇒ `TeamRow::hops` is now written and read by nothing, exactly as `score_q4` already was;
         //    deleting either is a REFACTOR and may not ride this slice (C1) — see the header's inventory.
+        // ★★★★ §UI-17 S5 — THE DISTANCE AND DIRECTION COLUMNS S4 RESERVED ARE FILLED FROM HERE ON, and this line
+        //      moved exactly one argument to do it: `own` is the FROZEN own fix (`ui_geo_fix_of`, hoisted above the
+        //      loop — one conversion, U2). ⛔ The four-term rule, the 600 s freshness bound and both token tables are
+        //      `firmware_ui_geo.h`'s; a condition spelled at THIS call site is a condition no battery can attack.
         char l[kLineCap];
-        mrui::ui_team_row(l, sizeof l, here, s.team[idx]);
+        mrui::ui_team_row(l, sizeof l, here, s.team[idx], own);
         body_text(row, l);
     }
     // ⛔⛔ RE-DERIVED 2026-08-16 (§CHROME-4 / §7.3), AND THE WORDING CHANGE IS FORCED RATHER THAN CHOSEN. This row read

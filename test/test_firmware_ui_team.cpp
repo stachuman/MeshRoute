@@ -42,9 +42,30 @@ TeamRow row_of(const char* label, uint32_t age_s) {
     return t;
 }
 
+// ★ §UI-17 S5 — THE DEFAULT FIXTURE HAS **NO OWN FIX AND NO CACHED PEER POSITION**, which is the honest majority
+//   state of the device and is what keeps every S4 expectation below byte-for-byte true: no evidence ⇒ both location
+//   columns blank. ⛔ It is not a convenience — the located rows are asserted in their own cases further down, and
+//   `test/test_firmware_ui_geo.cpp` drives every term of the rule that decides between the two.
 void fmt(Row& r, bool marked, const char* label, uint32_t age_s) {
     const TeamRow t = row_of(label, age_s);
-    ui_team_row(r.b, sizeof r.b, marked, t);
+    ui_team_row(r.b, sizeof r.b, marked, t, GeoFix{});
+}
+
+// ---- §UI-17 S5's fixture: our own fix, and a teammate at a stated offset from it ---------------------------------
+// ⓘ ⛔ NOT `(0,0)`: that pair is the core's own "no fix at all", so a located fixture built on it would be driving a
+//   position the device would have refused to publish. 52 N, 21 E — the same mid latitude the geo suite uses.
+constexpr int32_t kOwnLat = 520000000;
+constexpr int32_t kOwnLon = 210000000;
+constexpr int32_t kKmLat  = 89832;                 // ~1 000 m of latitude, in 1e-7 degrees
+const GeoFix kOwnFix{ /*have=*/true, kOwnLat, kOwnLon };
+
+TeamRow located_row(const char* label, uint32_t age_s, int32_t dlat, int32_t dlon, uint32_t loc_age_s) {
+    TeamRow t = row_of(label, age_s);
+    t.peer_loc_valid = true;
+    t.peer_lat_e7    = kOwnLat + dlat;
+    t.peer_lon_e7    = kOwnLon + dlon;
+    t.peer_loc_age_s = loc_age_s;
+    return t;
 }
 
 // A snapshot carrying `n` teammate rows, all with the same age, labelled `id <10+i>`.
@@ -144,10 +165,13 @@ TEST_CASE("ui17-team: an UNKNOWN route age renders `--`, ⛔ never a plausible n
     CHECK(std::strcmp(r.b, " id 60   0s        ") == 0);
 }
 
-TEST_CASE("ui17-team: the DISTANCE and DIRECTION columns are PRESENT and BLANK (S5 must not move a byte)") {
-    // ★★★ THIS IS THE PIN THAT MAKES S4's "reserved columns" MEAN SOMETHING. The row's last eight characters are
-    //     the separator + `%4s` + the separator + `%2s`, all blank in this slice. A row that simply STOPPED after
-    //     the age would satisfy every label and age assertion above and would then force S5 to re-lay the line.
+TEST_CASE("ui17-team: with NO location evidence the two columns are PRESENT and BLANK") {
+    // ★★★ THIS IS THE PIN THAT MADE S4's "reserved columns" MEAN SOMETHING, and §UI-17 S5 kept every byte of it: the
+    //     row's last eight characters are the separator + `%4s` + the separator + `%2s`, and with no own fix and no
+    //     cached position they are still BLANK. A row that simply STOPPED after the age would satisfy every label
+    //     and age assertion above — and S5 would have had to re-lay the line to fill them.
+    //     ⛔ IT IS ALSO THE C2 RULE AT THE ROW LEVEL: no evidence ⇒ no column, ⛔ never `0m` (which is a real and
+    //     different answer — see the coincident case below).
     Row r;
     const struct { const char* label; uint32_t age; } k[] = {
         { "id 60", 12 }, { "Wolfgangetta", 0 }, { "0xdeadbeef", UINT32_MAX }, { "id 255", 99u * 86400u },
@@ -163,6 +187,74 @@ TEST_CASE("ui17-team: the DISTANCE and DIRECTION columns are PRESENT and BLANK (
     CHECK(width_ok   == true);
     // ...and the columns are where the format says they are, derived from the widths rather than counted by hand.
     CHECK(1 + kTeamLabelCols + 1 + kTeamAgeCols + 1 + kTeamDistCols + 1 + kTeamDirCols == kTeamRowCols);
+}
+
+// ======================================================== §UI-17 S5 — THE TWO COLUMNS, FILLED, AT THE EXACT BYTES
+
+TEST_CASE("ui17-team: a located teammate fills DIST and DIR, and the row is STILL exactly 19 columns") {
+    // ★★★ THE HANDOFF THIS FILE OWNS: `firmware_ui_geo.h` decides what the two tokens SAY and this row decides where
+    //     they GO. Asserting the whole 19 characters is what proves S5 filled the reserved columns without moving a
+    //     byte of the label, the age or the separators.
+    Row r;
+    ui_team_row(r.b, sizeof r.b, /*marked=*/false, located_row("id 60", 12, /*dlat=*/184000, 0, /*loc_age=*/30),
+                kOwnFix);
+    CHECK(std::strcmp(r.b, " id 60  12s 2.0k  N") == 0);
+    CHECK(r.cols() == kTeamRowCols);
+    // ...a marked row moves the marker and ⛔ nothing else, exactly as it does without a location.
+    ui_team_row(r.b, sizeof r.b, /*marked=*/true, located_row("id 60", 12, 184000, 0, 30), kOwnFix);
+    CHECK(std::strcmp(r.b, ">id 60  12s 2.0k  N") == 0);
+    // ...and the WIDEST expansion of every field at once — a `kLabelCap` label, `99d`, a four-column distance and a
+    // two-column octant — is still 19. ⛔ This is the row's real width proof; the others are its corners.
+    char widest[kLabelCap + 1];
+    for (std::size_t i = 0; i < kLabelCap; ++i) widest[i] = 'W';
+    widest[kLabelCap] = '\0';
+    ui_team_row(r.b, sizeof r.b, true,
+                located_row(widest, 99u * 86400u, /*dlat=*/-184000, /*dlon=*/-460000, 600), kOwnFix);
+    CHECK(std::strcmp(r.b, ">WWWWWW 99d 3.7k SW") == 0);
+    CHECK(r.cols() == kTeamRowCols);
+}
+
+TEST_CASE("ui17-team: a STALE cached position renders BLANK — ⛔ never a plausible number") {
+    // ★★★★ THE C2 RULE, ON THE ROW ITSELF: the position is still there, the peer is still on the roster, and the
+    //      panel says NOTHING about where they are. ⛔ A stale fix rendered as a current one is worse than no fix,
+    //      because the operator acts on it. ⓘ The 600 s bound and its edges are the geo suite's; what this pins is
+    //      that the ROW carries the decision through to the drawn bytes.
+    Row r;
+    ui_team_row(r.b, sizeof r.b, false, located_row("id 60", 12, 184000, 0, /*loc_age=*/600), kOwnFix);
+    CHECK(std::strcmp(r.b, " id 60  12s 2.0k  N") == 0);         // 600 s — inside the bound, still shown
+    ui_team_row(r.b, sizeof r.b, false, located_row("id 60", 12, 184000, 0, /*loc_age=*/601), kOwnFix);
+    CHECK(std::strcmp(r.b, " id 60  12s        ") == 0);         // 601 s — BLANK, byte-identical to no evidence
+    CHECK(r.cols() == kTeamRowCols);
+    // ⛔ AND THE ROUTE AGE IS UNTOUCHED BY IT. The two ages are different facts with different bounds: the row stays,
+    //    named and route-aged, and only the location columns go. (The bench step measures exactly this on glass.)
+    ui_team_row(r.b, sizeof r.b, false, located_row("id 60", 12, 184000, 0, /*loc_age=*/0xFFFFFFFFu), kOwnFix);
+    CHECK(std::strcmp(r.b, " id 60  12s        ") == 0);         // the cache's UNDATEABLE — blank, not `4085d`
+}
+
+TEST_CASE("ui17-team: without OUR OWN fix every row's columns are blank, however fresh the peer is") {
+    // ⛔ A distance needs TWO positions. `own_fix` is the published answer of the one predicate the core's own
+    //    located-send refusal is keyed on, so a row that drew a distance without it would contradict the thing that
+    //    actually rejects us.
+    Row r;
+    ui_team_row(r.b, sizeof r.b, false, located_row("id 60", 12, 184000, 0, /*loc_age=*/0), GeoFix{});
+    CHECK(std::strcmp(r.b, " id 60  12s        ") == 0);
+    // ⓘ ...and the coordinates are still carried in the fix: `(0,0)` with `have == false` is "no position", never a
+    //   place. A row must not start drawing distances from the Gulf of Guinea.
+    ui_team_row(r.b, sizeof r.b, false, located_row("id 60", 12, 184000, 0, 0), GeoFix{ false, kOwnLat, kOwnLon });
+    CHECK(std::strcmp(r.b, " id 60  12s        ") == 0);
+}
+
+TEST_CASE("ui17-team: a COINCIDENT teammate draws `0m` and a BLANK direction — ⛔ never `N`") {
+    // ★★★★ THE RULING, AT THE BYTES (owner, 2026-08-20). Two nodes at one campsite: the distance is a fact and the
+    //      bearing does not exist. ⛔ Octant 0 would be a fabricated cardinal — the exact class this screen refuses.
+    Row r;
+    ui_team_row(r.b, sizeof r.b, false, located_row("id 60", 12, /*dlat=*/0, /*dlon=*/0, /*loc_age=*/30), kOwnFix);
+    CHECK(std::strcmp(r.b, " id 60  12s   0m   ") == 0);
+    CHECK(r.cols() == kTeamRowCols);
+    // ⛔ ...and it is NOT the same row as "no evidence": `0m` is an answer, blank is the absence of one.
+    Row none;
+    fmt(none, false, "id 60", 12);
+    CHECK(std::strcmp(r.b, none.b) != 0);
 }
 
 TEST_CASE("ui17-team: the interactive list's `BACK` row fits beside these, in the ONE shipped spelling") {
@@ -383,6 +475,72 @@ TEST_CASE("ui17-team: while BLANKED it raises, never unblanks, never clears, nev
     m.on_gesture(Gesture::short_press, s);
     CHECK(m.state().blanked == false);
     CHECK(g.step(m, s, true) == FrameStep::open);
+}
+
+// =========================================== §UI-17 S5 — THE INVALIDATION CARRIES THE TWO NEW COLUMNS (F-8 again)
+
+TEST_CASE("ui17-team: a DISTANCE token that turns repaints a lit TEAM screen; a drift inside it does not") {
+    UiModel m; FrameGate g; UiInboxCounters c{};
+    UiSnapshot s = team_snap(3, /*age_s=*/3600);       // `1h` — the AGE column is parked far from its boundary
+    s.own_fix = true; s.own_lat_e7 = kOwnLat; s.own_lon_e7 = kOwnLon;
+    for (uint8_t i = 0; i < s.team_shown; ++i) {
+        s.team[i].peer_loc_valid = true;
+        s.team[i].peer_lat_e7    = kOwnLat + 184000;   // ~2.0 km north
+        s.team[i].peer_lon_e7    = kOwnLon;
+        s.team[i].peer_loc_age_s = 30;
+    }
+    team_settle(m, g, c, s);
+    const UiSnapshot frozen = s;
+    // ⛔ A PEER DRIFTING A FEW METRES — AND ITS CACHE SECOND TICKING BY — IS NOT A REPAINT. Both raw inputs moved and
+    //    the drawn `2.0k N` did not; comparing either raw value would repaint this panel on every tick, for ever.
+    UiSnapshot live = s;
+    live.team[0].peer_lat_e7    += 270;                // ~3 m
+    live.team[0].peer_loc_age_s  = 45;
+    CHECK(ui_team_rows_equal(live, frozen) == true);
+    CHECK(ui_team_invalidate(m, live, frozen) == false);
+    CHECK(m.state().dirty == false);
+    // ...and a move that CROSSES the token's boundary is a different panel, so it repaints.
+    live.team[0].peer_lat_e7 = kOwnLat + 184000 + kKmLat / 2;     // `2.0k` -> `2.5k`
+    CHECK(ui_team_rows_equal(live, frozen) == false);
+    CHECK(ui_team_invalidate(m, live, frozen) == true);
+    CHECK(m.state().dirty == true);
+}
+
+TEST_CASE("ui17-team: the OCTANT, the freshness bound and OUR OWN fix each repaint on their own") {
+    UiModel m; FrameGate g; UiInboxCounters c{};
+    UiSnapshot s = team_snap(2, 3600);
+    s.own_fix = true; s.own_lat_e7 = kOwnLat; s.own_lon_e7 = kOwnLon;
+    s.team[0].peer_loc_valid = true;
+    s.team[0].peer_lat_e7    = kOwnLat + 184000;
+    s.team[0].peer_lon_e7    = kOwnLon;
+    s.team[0].peer_loc_age_s = 30;
+    team_settle(m, g, c, s);
+    // (a) the same distance in the opposite direction — `2.0k N` -> `2.0k S`.
+    UiSnapshot dir = s; dir.team[0].peer_lat_e7 = kOwnLat - 184000;
+    CHECK(ui_team_rows_equal(dir, s) == false);
+    CHECK(ui_team_invalidate(m, dir, s) == true);
+    m.clear_dirty();
+    // (b) ★★★ THE POSITION GOING STALE IS A REPAINT, and it is the one a "nothing moved" reading would miss: no
+    //     coordinate changed at all, the columns simply stop being true. ⛔ Without this the panel keeps showing a
+    //     distance past the bound until something unrelated repaints it — precisely the defect the bound exists for.
+    UiSnapshot stale = s; stale.team[0].peer_loc_age_s = 601;
+    CHECK(ui_team_rows_equal(stale, s) == false);
+    CHECK(ui_team_invalidate(m, stale, s) == true);
+    m.clear_dirty();
+    // ⓘ ...while an age moving INSIDE the bound is not (30 s -> 599 s, same columns, same panel).
+    UiSnapshot fresher = s; fresher.team[0].peer_loc_age_s = 599;
+    CHECK(ui_team_rows_equal(fresher, s) == true);
+    CHECK(ui_team_invalidate(m, fresher, s) == false);
+    CHECK(m.state().dirty == false);
+    // (c) OUR OWN fix moving changes every row on the screen, so it repaints — and losing it blanks them all.
+    UiSnapshot moved = s; moved.own_lat_e7 = kOwnLat + 184000;
+    CHECK(ui_team_rows_equal(moved, s) == false);
+    CHECK(ui_team_invalidate(m, moved, s) == true);
+    m.clear_dirty();
+    UiSnapshot lost = s; lost.own_fix = false;
+    CHECK(ui_team_rows_equal(lost, s) == false);
+    CHECK(ui_team_invalidate(m, lost, s) == true);
+    CHECK(m.state().dirty == true);
 }
 
 TEST_CASE("ui17-team: the LABEL's drawn prefix is compared — a rename past column 6 is invisible") {

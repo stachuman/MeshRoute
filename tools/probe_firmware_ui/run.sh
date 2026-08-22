@@ -960,8 +960,8 @@ if [ "${1:-}" != "--no-neg" ]; then
   # ================================================================= §UI-17 S4: C105-C112, THE TEAM ROW AT THE SEAM
   # ★★★★ THE HANDOFF, AND IT IS THE ONE THING `--target=uiteam` AND `test_firmware_ui_team.cpp` STRUCTURALLY CANNOT
   #   SEE: both call `mrui::ui_team_row` directly. Point it at the wrong snapshot row, hand it the wrong marker, draw
-  #   the result at the wrong origin, or stop calling it at all — and every native case stays green, all twelve
-  #   mutations stay RED, and the panel shows the wrong people. `src/firmware_ui.cpp` is compiled by neither the
+  #   the result at the wrong origin, or stop calling it at all — and every native case stays green, all SIXTEEN
+  #   mutations stay RED, and the panel shows the wrong people. (ⓘ count corrected 2026-08-21, QG: said "twelve".) `src/firmware_ui.cpp` is compiled by neither the
   #   native suite nor the simulator (§B115), so this file is the only venue that can redden any of it.
   # ⛔ C105 IS THE REVERT TEMPTATION, spelled out rather than deleted: the pre-S4 row, composed inline — a nine-column
   #    label, a four-column age and the HOP COUNT that spec §3.2 ruled off the row. It is what a reader who "restored"
@@ -970,19 +970,19 @@ if [ "${1:-}" != "--no-neg" ]; then
   #   shell quotes; the [[B227]] audit above is about labels, and a script that needed escaping is a script that gets
   #   one character wrong. `%c` takes an int either way.
   ctl "C105 the pre-S4 row (9-column label + hops) is composed inline again" yes \
-      's|        mrui::ui_team_row(l, sizeof l, here, s.team\[idx\]);|        { char a_[kAgeCap]; fmt_age(a_, sizeof a_, s.team[idx].last_heard_s); snprintf(l, sizeof l, "%c%-9.9s %4.4s %uh", here ? 62 : 32, s.team[idx].label, a_, unsigned(s.team[idx].hops)); }|'
+      's|        mrui::ui_team_row(l, sizeof l, here, s.team\[idx\], own);|        { char a_[kAgeCap]; fmt_age(a_, sizeof a_, s.team[idx].last_heard_s); snprintf(l, sizeof l, "%c%-9.9s %4.4s %uh", here ? 62 : 32, s.team[idx].label, a_, unsigned(s.team[idx].hops)); }|'
   # ⛔⛔ C106 IS THE MISROUTE, and it is the reason every row is asserted at its OWN coordinate: a renderer that drew
   #     the FIRST teammate on every row keeps the format, the width and the origin — and names the wrong person.
   ctl "C106 every row is drawn from snapshot row 0 (the wrong teammate)" yes \
-      's|        mrui::ui_team_row(l, sizeof l, here, s.team\[idx\]);|        mrui::ui_team_row(l, sizeof l, here, s.team[0]);|'
+      's|        mrui::ui_team_row(l, sizeof l, here, s.team\[idx\], own);|        mrui::ui_team_row(l, sizeof l, here, s.team[0], own);|'
   # ⛔ C107 THE MARKER DROPPED AT THE SEAM. The pure unit renders whatever marker it is handed, so "the selected row
   #    is marked" is THIS file's claim and nothing else's — §B64's suppression is one argument away from silent.
   ctl "C107 the row marker is hard-wired off (no pick is ever shown)" yes \
-      's|        mrui::ui_team_row(l, sizeof l, here, s.team\[idx\]);|        mrui::ui_team_row(l, sizeof l, false, s.team[idx]);|'
+      's|        mrui::ui_team_row(l, sizeof l, here, s.team\[idx\], own);|        mrui::ui_team_row(l, sizeof l, false, s.team[idx], own);|'
   # ⛔ C108 THE ROW DRAWN AT **STATUS's** NARROWED ORIGIN — under S3's reserved 24x24 mark. 19 columns at x = 40 also
   #    runs off the right edge, so this is the §7.1 clip the whole width discipline exists to forbid.
   ctl "C108 the team rows are ALSO drawn at the STATUS x=40 origin" yes \
-      's|        mrui::ui_team_row(l, sizeof l, here, s.team\[idx\]);|        mrui::ui_team_row(l, sizeof l, here, s.team[idx]); status_text(row, l);|'
+      's|        mrui::ui_team_row(l, sizeof l, here, s.team\[idx\], own);|        mrui::ui_team_row(l, sizeof l, here, s.team[idx], own); status_text(row, l);|'
   # ⛔⛔ C109 THE §1.9 F-8 FIX REMOVED — the PRE-EXISTING defect, restored. Nothing else in the tree invalidates on a
   #     body row, so a lit TEAM screen goes back to sitting on a stale age until an unrelated event repaints it.
   ctl "C109 the S4 repaint invalidation is never called (F-8 re-opened)" yes \
@@ -1002,7 +1002,47 @@ if [ "${1:-}" != "--no-neg" ]; then
   #     different labels AND three different ages. ⓘ Reversal is the cheapest expression of "the rows moved"; the
   #     defect it stands for is any sort at all.
   ctl "C112 the roster is drawn in REVERSE order (a re-sort by any other name)" yes \
-      's|        mrui::ui_team_row(l, sizeof l, here, s.team\[idx\]);|        mrui::ui_team_row(l, sizeof l, here, s.team[s.team_shown - 1 - idx]);|'
+      's|        mrui::ui_team_row(l, sizeof l, here, s.team\[idx\], own);|        mrui::ui_team_row(l, sizeof l, here, s.team[s.team_shown - 1 - idx], own);|'
+
+  # ============================================================== §UI-17 S5: C113-C118, THE LOCATION COLUMNS' SEAM
+  # ★★★★ THE HANDOFF AGAIN, ONE COLUMN OVER, AND IT IS THE ONE THING `--target=uigeo`, `--target=uiteam` AND BOTH
+  #   native suites STRUCTURALLY CANNOT SEE: all of them call the pure units directly. What lives ONLY in
+  #   `src/firmware_ui.cpp` is the PUBLISH SITE (the `peer_loc_find` read, under the hash the label resolved) and the
+  #   two arguments the renderer hands the row. Get any of that wrong and every native case stays green, all 16
+  #   `uigeo` + 20 `uiteam` mutations stay RED, and the panel draws a distance that belongs to nobody. P19 is the only
+  #   witness in the tree.
+  # ⛔ C113 IS THE S3 DEFECT'S SHAPE, RE-ADDED DELIBERATELY SO IT CANNOT COME BACK QUIETLY: read the fix LIVE in the
+  #    renderer instead of from the frozen snapshot. `draw_team_screen` runs ONCE PER OLED PAGE, so a `cfg set lat`
+  #    between two of the eight replays draws half the roster against the old position and half against the new one.
+  #    ⛔ Every native case and every mutation stays GREEN against it — P19c is the only thing that sees it.
+  ctl "C113 the own fix is read LIVE in the renderer (the rows can TEAR mid-frame)" yes \
+      's|    const mrui::GeoFix own = mrui::ui_geo_fix_of(s);|    const MESHROUTE_NS::NodeConfig\& lc_ = g_node.config(); const mrui::GeoFix own{ mrui::ui_status_have_fix(lc_.lat_e7, lc_.lon_e7), lc_.lat_e7, lc_.lon_e7 };|'
+  # ⛔⛔ C114 THE PUBLISH SITE SILENCED. The cache read never happens, so every row blanks — which is exactly what a
+  #     correct build shows for a peer nobody has heard a position from, and is therefore invisible to every check
+  #     that is not asserting a POSITIVE row.
+  ctl "C114 the cache is never read, so no teammate ever has a position" yes \
+      's|        if (hash != 0) {|        if (false) {|'
+  # ⛔⛔⛔ C115 IS THE STALE-NOT-BLANK DEFECT, AT THE PUBLISH SITE: the age is re-derived as "now" instead of carried
+  #      verbatim from the accessor, so a position from last week renders as a current one. ⛔ It is the single most
+  #      dangerous thing this slice can get wrong — the operator walks toward a number that was true ten minutes ago.
+  ctl "C115 the location age is published as ZERO, so a stale position renders as current" yes \
+      's|            r.peer_loc_valid = g_node.peer_loc_find(hash, r.peer_lat_e7, r.peer_lon_e7, r.peer_loc_age_s, src);|            r.peer_loc_valid = g_node.peer_loc_find(hash, r.peer_lat_e7, r.peer_lon_e7, r.peer_loc_age_s, src); r.peer_loc_age_s = 0;|'
+  # ⛔ C116 THE TWO COORDINATES CROSSED at the publish site — a copy-paste away, and it keeps every blank/shown
+  #    decision, every width and every count correct while naming a place on the other side of the world.
+  ctl "C116 latitude and longitude are published crossed" yes \
+      's|            r.peer_loc_valid = g_node.peer_loc_find(hash, r.peer_lat_e7, r.peer_lon_e7, r.peer_loc_age_s, src);|            r.peer_loc_valid = g_node.peer_loc_find(hash, r.peer_lon_e7, r.peer_lat_e7, r.peer_loc_age_s, src);|'
+  # ⛔⛔ C117 IS THE "SUCCESS THAT ISN'T" SHAPE ([[meshroute-id-to-hash-trust-model]]): the find's own answer is
+  #     discarded and the row is published VALID regardless, so a cache MISS renders from the untouched `(0,0)` —
+  #     a plausible-looking distance to the Gulf of Guinea for a teammate whose position nobody holds.
+  ctl "C117 the cache miss is published as a hit (0,0 becomes a position)" yes \
+      's|            r.peer_loc_valid = g_node.peer_loc_find(hash, r.peer_lat_e7, r.peer_lon_e7, r.peer_loc_age_s, src);|            (void)g_node.peer_loc_find(hash, r.peer_lat_e7, r.peer_lon_e7, r.peer_loc_age_s, src); r.peer_loc_valid = true;|'
+  # ⛔⛔⛔ C118 IS THE WHOLE §3.4 PROHIBITION, AS CODE: the panel ASKS for the position it does not have. It is the
+  #      most tempting "improvement" on this screen and it is ruled out — a continuously-refreshed teammate position
+  #      is a separate future specification covering airtime, privacy, authentication and user control. P19b's two
+  #      REAL counters (the DeviceHal queue and the radio's start count) are what make the rule measurable rather
+  #      than a promise.
+  ctl "C118 the renderer transmits a request for a peer it has no position for" yes \
+      's|        mrui::ui_team_row(l, sizeof l, here, s.team\[idx\], own);|        mrui::ui_team_row(l, sizeof l, here, s.team[idx], own); if (!s.team[idx].peer_loc_valid) { const uint8_t f_[8] = {0}; MESHROUTE_NS::TxParams p_; p_.sf = 8; (void)g_hal.tx(f_, sizeof f_, p_); }|'
 
   # ================================================================================= [[B225]]: L1-L9, THE `v3` ARM's
   # ★★★★ THE CONTROLS FOR `draw_provision_screen` ITSELF, AND THEY EXIST ONLY HERE because the screens they mutate are

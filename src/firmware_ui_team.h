@@ -1,9 +1,12 @@
 // MeshRoute — src/firmware_ui_team.h
 // Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
-// §UI-17 slice S4 — THE TEAM ROW, AS PURE BYTES, AND THE BOUNDED CLOCK-DRIVEN REPAINT THAT KEEPS IT TRUE. Every byte
-// a teammate row draws is composed here (spec §3.2's ruled `%c%-6.6s %3s %4s %2s`, string-inventory S-11); the
-// renderer (`src/firmware_ui.cpp`'s `draw_team_screen`) does nothing but place the result on a body row.
+// §UI-17 slices S4 + S5 — THE TEAM ROW, AS PURE BYTES, AND THE BOUNDED CLOCK-DRIVEN REPAINT THAT KEEPS IT TRUE.
+// Every byte a teammate row draws is composed here (spec §3.2's ruled `%c%-6.6s %3s %4s %2s`, string-inventory
+// S-11); the renderer (`src/firmware_ui.cpp`'s `draw_team_screen`) does nothing but place the result on a body row.
+// ⓘ S5 FILLED THE LAST TWO COLUMNS and moved no other byte: the distance and the octant are `firmware_ui_geo.h`'s
+//   tokens (S-13 / S-14), and every DECISION behind them — the four-term rule, the 600 s freshness bound, the
+//   coincident-point ruling — is that file's, driven by `test/test_firmware_ui_geo.cpp` and `--target=uigeo`.
 // Normative: docs/superpowers/specs/2026-08-20-ui17-navigation-status-team-redesign-spec.md §3 (identity, the row and
 // its width proof, the honest age word, the two reserved columns) and §1.9 F-1/F-2/F-8.
 //
@@ -29,7 +32,9 @@
 //      ⓘ The FIELD is still spelled `last_heard_s`; renaming it is a refactor of shipped code (C1) and belongs with
 //        the two deletions named below. The WORD on the panel and in every comment here is the honest one.
 //   2. **NOTHING PLAUSIBLE IN A COLUMN THAT HAS NO EVIDENCE.** `UINT32_MAX` renders `--` (the token's own "never"),
-//      and the distance/direction columns stay BLANK until S5 — ⛔ never `0m`, never a retained old value.
+//      and the distance/direction columns render BLANK whenever the four-term rule fails — ⛔ never `0m`, never a
+//      retained old value. ⓘ §UI-17 S5 FILLED THOSE COLUMNS and did not weaken that rule by one arm: the evidence
+//      test moved into `firmware_ui_geo.h`, where a mutation can attack each term on its own.
 //
 // ⛔⛔ WHAT LEFT THE ROW WITH THIS SLICE, INVENTORIED SO NOTHING GOES SILENTLY (spec §1.9 F-1/F-2, the
 //     [[meshroute-mark-done-vs-missing-in-code]] rule):
@@ -43,22 +48,39 @@
 //     a later slice can claim them, together with the two team-id spellings (F-6). ⛔ Until then they stay, and this
 //     comment is what stops a reader from concluding the renderer merely forgot them.
 //
-// ⓘ WHAT IS NOT HERE YET, AND WHY (the same rule, forward-looking): the DISTANCE and DIRECTION columns are
-//   **present and BLANK**. S5 adds `src/firmware_ui_geo.h`, the `TeamRow` peer-location fields and the projection
-//   over `Node::peer_loc_find`; ⛔ nothing in S4 computes, requests or transmits a position, and rendering TEAM
-//   creates no traffic of any kind (spec §3.4). The columns exist NOW so that S5 lands without moving a byte of
-//   this row — which is exactly what the exact-byte cases and the probe's row assertions pin.
+// ✅ WHAT WAS "NOT HERE YET" IN S4 AND **LANDED IN S5** (2026-08-21), kept as a record rather than deleted: the
+//   DISTANCE and DIRECTION columns were *"present and BLANK"*, reserved so that S5 could land **without moving a
+//   byte of this row**. It did — `src/firmware_ui_geo.h` supplies both tokens, `TeamRow` carries the four
+//   peer-location fields and `build_snapshot` performs the read. ⛔ AND THE STANDING PROHIBITION IS UNCHANGED AND
+//   IS NOT S4-SPECIFIC: nothing in this cluster computes a position for anyone else, requests one, refreshes one or
+//   transmits one — rendering TEAM creates NO TRAFFIC OF ANY KIND (spec §3.4), which the probe COUNTS.
 //
-// ⓘ RESOURCE COST, **MEASURED** (spec §6): **zero RAM**. The strings are `.rodata`, the scratch line is the
-//   renderer's existing stack buffer, and the invalidation below compares the frozen snapshot that already exists
-//   (`s_frame_snap`) against the live one the tick already builds — no new state, no new timer, no new buffer.
-//   `UiSnapshot` / `UiState` / `UiModel` / `TeamRow` are all byte-identical to S3's.
+// ⓘ RESOURCE COST, **MEASURED** (spec §6). This header itself still costs **zero RAM**: the strings are `.rodata`,
+//   the scratch line is the renderer's existing stack buffer, and the invalidation compares the frozen snapshot that
+//   already exists (`s_frame_snap`) against the live one the tick already builds — no new state, no new timer, no
+//   new buffer. ⚠ WHAT S5 DID COST IS THE CARRIER, AND IT IS MEASURED THERE: `TeamRow` 28 -> **40** and
+//   `UiSnapshot` 616 -> **712** (eight rows).
+//   ⛔ **CORRECTED IN PLACE 2026-08-22 (QG, BY ELF INSPECTION) — the withdrawn figure was *"~+192 B of static RAM
+//     on the OLED envs (the struct is instantiated twice) plus ~+96 B of loop-task stack"*.** There is exactly
+//     **ONE** static `UiSnapshot` in the image — `(anonymous namespace)::s_frame_snap`, measured **0x268 = 616 ->
+//     0x2c8 = 712** — and `s_model` does not embed one (0x248 = 584, unchanged either side). ⇒ the cost is
+//     **~+96 B static and ~+96 B TRANSIENT loop-task stack** (the per-tick `build_snapshot` local), and the board
+//     A/B agrees exactly: `RAM_used` moved **+96 B on both envs**. ⚠ THE "instantiated twice" WORDING IS INHERITED
+//     from §CHROME-1/S3 and is what made the estimate double-count; ⛔ do not propagate it without an ELF.
+//   `UiState` / `UiModel` are untouched.
+// ⚠ AND THE PER-TICK COST OF THE GEO BUCKET IS BOUNDED BY THE VISIBILITY GATE, not by good behaviour: at most
+//   `kMaxTeamRows` (8) solves — each a `cos`, a `sqrt` and a handful of multiplies — and ONLY while the TEAM rows
+//   are the body being drawn. Off that screen the gate returns before any of it. ⓘ Both OLED envs are ESP32 (an
+//   FPU part); spec §6 names an integer cosine table as the fallback if the per-env FLASH delta proves unacceptable
+//   — a measured decision taken by the board gate, ⛔ not a defensive one taken here.
 #pragma once
 #include <cstddef>   // std::size_t
 #include <cstdint>
 #include <cstdio>    // snprintf — the row is formatted HERE so the native suite asserts VISIBLE BYTES
 #include "firmware_ui_model.h"    // TeamRow / UiSnapshot / UiModel / Screen — the frozen facts and the dirty bit
 #include "firmware_ui_chrome.h"   // ui_fmt_home_age (design §4.2's ruled age table) + ui_pad_token — REUSED, not forked
+#include "firmware_ui_geo.h"      // ★ §UI-17 S5: the freshness bound, the geometry and the two tokens — every
+                                  //   DECISION about the distance/direction columns lives there, ⛔ none of it here
 
 namespace mrui {
 
@@ -69,10 +91,17 @@ namespace mrui {
 inline constexpr std::size_t kTeamRowCols   = 19;  // = kBodyCols; the renderer static_asserts its own width against it
 inline constexpr std::size_t kTeamLabelCols = 6;   // `%-6.6s` — pads AND bounds (the clamp/clip difference, §7.1 r5)
 inline constexpr std::size_t kTeamAgeCols   = 3;   // `%3s`  — `ui_fmt_home_age` is bounded to 3 BY CONSTRUCTION
-inline constexpr std::size_t kTeamDistCols  = 4;   // `%4s`  — S5's distance token; BLANK in S4
-inline constexpr std::size_t kTeamDirCols   = 2;   // `%2s`  — S5's eight-way octant; BLANK in S4
+inline constexpr std::size_t kTeamDistCols  = 4;   // `%4s`  — §UI-17 S5's distance token (`850m` / `1.2k` / `far`)
+inline constexpr std::size_t kTeamDirCols   = 2;   // `%2s`  — §UI-17 S5's eight-way octant (`N` .. `NW`)
 static_assert(1 + kTeamLabelCols + 1 + kTeamAgeCols + 1 + kTeamDistCols + 1 + kTeamDirCols == kTeamRowCols,
               "spec §3.2: the ruled TEAM row format must fill exactly the body's 19 columns");
+// ★ §UI-17 S5 — THE TWO NEW COLUMNS ARE THE TOKENS' OWN WIDTHS, BOUND AT COMPILE TIME rather than agreed by comment:
+//   `firmware_ui_geo.h` sizes its buffers from what its tables can emit, and these are the fields the format
+//   reserves. A token table that grew a column would fail the build here instead of pushing the row off the panel.
+static_assert(kGeoDistCap == kTeamDistCols + 1,
+              "spec §3.2/§8 S-13: the distance column is the distance TOKEN's own width");
+static_assert(kGeoDirCap == kTeamDirCols + 1,
+              "spec §3.2/§8 S-14: the direction column is the octant TOKEN's own width");
 // ★ THE AGE FIELD HAS NO PRECISION (`%3s`, ⛔ not `%3.3s`) AND IT IS STILL PROVABLY BOUNDED: `ui_fmt_home_age` emits
 //   at most three characters by construction (`kAgeTokenCap` = 3 + NUL), which IS the width the format reserves.
 //   ⓘ The shipped row used `%4.4s` — a bound that could never be reached — because the age formatter it predates
@@ -85,11 +114,21 @@ static_assert(kAgeTokenCap == kTeamAgeCols + 1,
 // under `-Wall` and GATE-BLOCKING in this project — it fires whenever GCC cannot PROVE the widest expansion fits.
 inline constexpr std::size_t kTeamLineCap = 48;
 
-// ★★ THE TWO RESERVED COLUMNS, NAMED RATHER THAN WRITTEN AS TWO BARE `""` AT THE CALL BELOW. S5 replaces these two
-//    expressions with its tokens and ⛔ moves nothing else; naming them is what makes that a one-line change and
-//    what lets a reader see that the blank is a DECISION (spec §3.4: no evidence ⇒ no column, ⛔ never `0m`).
-inline constexpr const char* kTeamDistBlank = "";
-inline constexpr const char* kTeamDirBlank  = "";
+// ★★ ⛔ **WHAT STOOD HERE UNTIL §UI-17 S5, KEPT VISIBLE BECAUSE IT WAS THE PLAN AND THE PLAN HELD:** S4 named the two
+//    reserved columns `kTeamDistBlank` / `kTeamDirBlank` — two empty strings — so that filling them would be a token
+//    substitution rather than a re-layout. It was: the row below moved not one byte of its format, and
+//    `test/test_firmware_ui_team.cpp`'s exact-19-column rows are what proved it.
+// ⓘ THE BLANK IS STILL A DECISION AND IT STILL LIVES IN ONE PLACE — it simply moved to where the EVIDENCE is
+//   (`mrui::ui_geo_columns`): no own fix, no resolved peer, no cached position or a position past
+//   `kPeerLocMaxAgeS` ⇒ both columns blank, ⛔ never `0m`, ⛔ never a stale coordinate in current-looking units.
+
+// ★★ OUR OWN FIX, TAKEN FROM THE FROZEN SNAPSHOT — the ONE conversion into the geo unit's carrier (U2), so no call
+//    site assembles those three fields for itself. ⛔ It reads `own_fix` and does NOT re-derive it from the
+//    coordinates: that predicate is `ui_status_have_fix`'s, answered at the one site that can see `NodeConfig`, and
+//    a second spelling of it here is the S1/L9 fork this project keeps paying for (U1).
+inline GeoFix ui_geo_fix_of(const UiSnapshot& s) {
+    return GeoFix{ s.own_fix, s.own_lat_e7, s.own_lon_e7 };
+}
 
 // ★★ THE ROUTE-AGE TOKEN. ⚠ A **DECLARED DUPLICATE** (the [[B224]] idiom) of `src/firmware_ui.cpp`'s one-line
 //    `fmt_age` adapter, and it is declared rather than shared for two reasons: that function is a RENDERER-TU helper
@@ -112,11 +151,18 @@ inline void ui_team_age_token(char* out, std::size_t cap, uint32_t age_s) {
 // ⓘ `%-6.6s` PADS **AND** BOUNDS, which is the whole difference between a clamp and a clip: a 14-column
 //   `kLabelCap` label can neither push the age off the row nor leave the columns ragged. §7.1 rule 5 forbids letting
 //   the panel clip as a truncation policy, so the bound is expressed HERE where its meaning can be judged.
-inline void ui_team_row(char* out, std::size_t cap, bool marked, const TeamRow& t) {
+// ★★★ §UI-17 S5 — THE TWO COLUMNS ARE COMPOSED HERE, FROM THE ROW's OWN PUBLISHED CACHE FIELDS AND THE FROZEN OWN
+//     FIX, and ⛔ the caller may not pre-compute them: a condition written in `firmware_ui.cpp` is a condition no
+//     battery can attack. `ui_geo_columns` owns the four-term rule, the freshness bound and both tables; this
+//     function only places what it hands back. ⛔ BOTH ARE `%s` OF A BUFFER THAT IS ALWAYS DEFINED — a blank column
+//     is an EMPTY STRING, never an unwritten one.
+inline void ui_team_row(char* out, std::size_t cap, bool marked, const TeamRow& t, const GeoFix& own) {
     char age[kAgeTokenCap];
     ui_team_age_token(age, sizeof age, t.last_heard_s);
+    GeoCols geo;
+    ui_geo_columns(geo, own, t.peer_loc_valid, t.peer_loc_age_s, t.peer_lat_e7, t.peer_lon_e7);
     const int n = snprintf(out, cap, "%c%-6.6s %3s %4s %2s",
-                           marked ? '>' : ' ', t.label, age, kTeamDistBlank, kTeamDirBlank);
+                           marked ? '>' : ' ', t.label, age, geo.dist, geo.dir);
     ui_pad_token(out, cap, (n < 0) ? 0u : std::size_t(n) + 1u);   // the neighbours' rule: the WHOLE buffer is defined
 }
 
@@ -148,8 +194,11 @@ inline void ui_team_row(char* out, std::size_t cap, bool marked, const TeamRow& 
 //        · the number of rows shown, because that is how many the renderer draws.
 //      ⛔ AND ⛔ NEVER A RE-FORMATTED STRING PER TICK: the bucket is an integer comparison, and its 1:1 agreement
 //      with `ui_fmt_home_age`'s token is MEASURED by a native sweep rather than asserted here.
-// ⓘ S5 EXTENDS THIS LIST with the distance token and the octant — the same rule, the same function; ⛔ it must not
-//   add the raw coordinates or the raw location age.
+//        · ★ §UI-17 S5's GEO BUCKET (`ui_geo_bucket`) — the DISTANCE TOKEN and the OCTANT, one integer per row,
+//          equal exactly when both columns would draw the same bytes. ⛔ NOT the raw coordinates and ⛔ NOT the raw
+//          location age: a peer drifting three metres, or a cache second ticking by, moves both of those on every
+//          tick and moves the drawn `1.2k`/`NE` not at all. ⓘ It also carries the OWN fix, because the columns
+//          depend on it — which is why the bucket is taken per SNAPSHOT and not from the `TeamRow` alone.
 //
 // THE BUCKET. The top byte is the UNIT the token uses and the low bytes the count it prints, so two ages compare
 // equal exactly when `ui_fmt_home_age` prints the same three characters. ⛔ It is a COMPARISON VALUE and is never
@@ -175,10 +224,17 @@ inline uint32_t ui_team_age_bucket(uint32_t age_s) {
 // ⓘ THE COMPARISON IS **POSITIONAL**, because the rows are drawn in the order the snapshot publishes them
 //   (`rt_team_at` order, owner-ruled KEPT — spec §9 R-2). Two rosters holding the same teammates in a different
 //   order draw a different panel and must repaint, which is exactly what indexing both sides by `i` says.
+// ★ §UI-17 S5 — one row's GEO comparison value, over its own snapshot's own-fix. ⛔ A row-only bucket would miss a
+//   `cfg set lat` on THIS node, which moves every distance on the screen.
+inline uint32_t ui_team_geo_bucket(const UiSnapshot& s, const TeamRow& t) {
+    return ui_geo_bucket(ui_geo_fix_of(s), t.peer_loc_valid, t.peer_loc_age_s, t.peer_lat_e7, t.peer_lon_e7);
+}
+
 inline bool ui_team_rows_equal(const UiSnapshot& a, const UiSnapshot& b) {
     if (a.team_shown != b.team_shown) return false;
     for (uint8_t i = 0; i < a.team_shown; ++i) {
         if (ui_team_age_bucket(a.team[i].last_heard_s) != ui_team_age_bucket(b.team[i].last_heard_s)) return false;
+        if (ui_team_geo_bucket(a, a.team[i]) != ui_team_geo_bucket(b, b.team[i])) return false;
         for (std::size_t c = 0; c < kTeamLabelCols; ++c)
             if (a.team[i].label[c] != b.team[i].label[c]) return false;
         // ⓘ A label SHORTER than the drawn width is NUL-padded (`build_snapshot` value-initialises the snapshot and

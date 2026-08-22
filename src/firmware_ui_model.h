@@ -791,8 +791,40 @@ enum class SendKind : uint8_t { emergency = 0, dm, channel_canned };
 struct SendReq { SendKind kind = SendKind::emergency; uint8_t peer_id = 0; uint8_t text_index = 0; };
 
 struct TeamRow {
+    // ⛔⛔ hops / score_q4 are WRITTEN AND READ BY NOTHING since §UI-17 S4 (spec §1.9 F-1/F-2) — deleting them is
+    //    their own refactor slice (C1). ⓘ `hops` LEFT THE ROW by ruling (19 columns hold no sixth field once
+    //    distance and direction arrived); `score_q4` was never rendered at all, so design §3.3's promised "signal
+    //    quality" has never been on the panel. Both are still FILLED by `build_snapshot`; this line is what stops a
+    //    reader from concluding the renderer merely forgot them ([[meshroute-mark-done-vs-missing-in-code]]).
     uint8_t  id = 0; uint32_t last_heard_s = 0; int16_t score_q4 = 0; uint8_t hops = 0;
     char     label[kLabelCap + 1] = {};   // resolved name / 0xhash / bare id, already clamped (spec §3.3)
+    // ★★★★ §UI-17 S5 — THE PEER's LAST **AUTHENTICATED** POSITION, AS THE CACHE HANDED IT OVER. Published by
+    //      `build_snapshot` from `Node::peer_loc_find` (a `const` read of the §AB4 ring, `node_hashlocate.cpp:432`);
+    //      the freshness / distance / bearing DECISIONS are `firmware_ui_geo.h`'s, where the native suite drives
+    //      them (§B115). ⛔ NOTHING here or downstream requests, refreshes or transmits a position — rendering TEAM
+    //      creates no traffic of any kind (spec §3.4).
+    // ⓘ COST, MEASURED BY `offsetof` NOT ASSUMED (the `own_fix` placement rule further down, applied again): the
+    //   `bool` lands at **26**, inside the 26..27 pad the array already carried after `label`, so it costs ZERO; the
+    //   three 4-byte fields then take 28 / 32 / 36 and `sizeof(TeamRow)` is 28 -> **40**. ⚠ There are
+    //   `kMaxTeamRows` (8) of these inside `UiSnapshot`, so that struct measures 616 -> **712**.
+    // ★★ WHAT THAT COSTS ON A BOARD, MEASURED BY **ELF INSPECTION AND A CONTROLLED A/B**, ⛔ not by counting
+    //    declarations (QG, 2026-08-22): the image holds exactly **ONE** static `UiSnapshot` — `s_frame_snap`,
+    //    0x268 -> 0x2c8 — and `s_model` embeds none (0x248, unchanged). ⇒ **+96 B of static RAM** and **+96 B of
+    //    TRANSIENT loop-task stack** (the per-tick `build_snapshot` local), which the two ruled envs confirm:
+    //    `heltec_v3` RAM 216 684 -> 216 780 and `gateway_heltec` 241 636 -> 241 732, **+96 on both**.
+    // ⛔ THE "INSTANTIATED TWICE ON THE OLED ENVS" WORDING IN THE OLDER BLOCKS BELOW IS AN INHERITED ESTIMATE AND
+    //    THE ELF DISAGREES WITH IT. Those lines are left as their slices wrote them (the correction idiom), but
+    //    ⛔ never re-derive a RAM figure from them — the frame's frozen copy is the ONE static; the "second
+    //    instance" is a stack value that exists only during a tick.
+    // ⛔ `peer_loc_valid` FALSE MEANS THE OTHER THREE ARE MEANINGLESS, and it covers BOTH "this team id resolves to
+    //    no peer hash" and "the cache holds no position for that hash". `(0,0)` here is never a coordinate.
+    bool     peer_loc_valid = false;
+    // ⛔⛔ `peer_loc_age_s` IS **VERBATIM FROM THE ACCESSOR's OUT-PARAM** — no cast, no clamp, no re-derivation at
+    //    the publish site (the `home_confirm_age_ms` precedent below). `0xFFFFFFFF` is the cache's own "I cannot
+    //    date this" for a backwards clock (`node_hashlocate.cpp:441`), and it must reach the freshness rule INTACT:
+    //    re-deriving it from `now_ms` here would turn an undateable position into a fresh-looking one.
+    int32_t  peer_lat_e7 = 0, peer_lon_e7 = 0;   // 1e-7 degrees — the scale the config and the wire already use
+    uint32_t peer_loc_age_s = 0;
 };
 // ★★★★ THE PREVIEW ROW, AND ITS IDENTITY IS THE PAIR `(kind, seq)` — spec §3.5/§6.1, verbatim in substance: "not the
 // visible row index, origin, message counter or body. DM and channel sequence spaces are independent, so `seq` alone is
@@ -854,8 +886,9 @@ struct UiSnapshot {
     //   slice adds ZERO bytes to either, on a struct instantiated twice on the OLED envs.
     //   ⓘ ⚠ **THE TWO TOTALS ABOVE ARE HISTORICAL — they are §UI-15 slice 4's own measurement (2026-08-19) and are
     //     kept as written.** The CLAIM they support is still true (these two bools cost nothing), but neither
-    //     figure is the current one: `sizeof(UiSnapshot)` is **616** since §UI-17 S3 published `own_fix` +
-    //     `own_lat_e7` + `own_lon_e7` for the frame freeze (+8, see that block below), and `sizeof(UiState)` is
+    //     figure is the current one: `sizeof(UiSnapshot)` is **712** — 608 -> 616 when §UI-17 S3 published
+    //     `own_fix` + `own_lat_e7` + `own_lon_e7` for the frame freeze (+8, see that block below), then 616 -> 712
+    //     when §UI-17 S5 gave `TeamRow` its four peer-location fields (+12 each, x8 rows) — and `sizeof(UiState)` is
     //     **200** since §UI-15 slices 5-6 (`prov_answer`, then `join_list`). ⛔ Do not read a past slice's
     //     "stays N" as a statement about today's struct — that is how this line went stale.
     bool     prov_create_team = false;   // `MR_N_LAYERS < 2 && MR_FEAT_TEAM` — §3.6.3's primary path
@@ -898,6 +931,10 @@ struct UiSnapshot {
     //     **COUNTERFACTUAL FROM THAT ERA** — "what this bool WOULD have cost declared after the age" — which now
     //     collides numerically with today's REAL total by pure coincidence. They are different numbers about
     //     different structs; ⛔ do not read one as evidence for the other.
+    //   ⓘ ⚠ **RE-QUALIFIED 2026-08-21 (§UI-17 S5), same rule again:** every ABSOLUTE offset in this block is now
+    //     96 bytes further on — `TeamRow` grew 28 -> 40 and `team[]` holds eight of them, ahead of everything here —
+    //     so `home_confirm_age_ms` MEASURES **696** and the struct **712**. The PLACEMENT ARGUMENT (this bool is
+    //     free in a pad that already existed) is untouched by that shift and is still the reason for the ordering.
     bool     team_key_present = false;
     // ★★★★ §UI-17 — OUR OWN CONFIGURED POSITION, AND IT IS ON THE SNAPSHOT BECAUSE THE FRAME MUST FREEZE IT.
     //      `draw_frame` runs ONCE PER OLED PAGE over the frozen copies (`src/firmware_ui.cpp`'s own rule: *"nothing
@@ -906,9 +943,11 @@ struct UiSnapshot {
     //      eight page replays would have drawn half a coordinate row from the old fix and half from the new one.
     //      ⇒ published ONCE per tick in `build_snapshot`, exactly like every other body input.
     // ⓘ SCOPE, STATED SO IT IS NOT MISREAD AS SCOPE CREEP: these three are S5's `UiSnapshot` fields, PULLED FORWARD
-    //   into S3 by QG direction (2026-08-21) for the freeze above, and NOTHING ELSE of S5 comes with them — the
-    //   PEER-location fields on `TeamRow` (`peer_lat_e7` / `peer_lon_e7` / `peer_loc_age_s` / `peer_loc_valid`) are
-    //   still S5's, and nothing here calls `peer_loc_find`.
+    //   into S3 by QG direction (2026-08-21) for the freeze above, and NOTHING ELSE of S5 came with them.
+    //   ✅ CORRECTED IN PLACE 2026-08-21: this note ended *"the PEER-location fields on `TeamRow` … are still S5's,
+    //     and nothing here calls `peer_loc_find`"*. S5 has since LANDED — `TeamRow` carries all four (see its own
+    //     block) and `build_snapshot` performs the `peer_loc_find` read per shown row. The half that is still true
+    //     and still load-bearing: ⛔ NOTHING requests or refreshes a position, here or anywhere in the UI.
     // ★★ `own_fix` IS THE PUBLISHED ANSWER OF THE **ONE** PREDICATE (`mrui::ui_status_have_fix`,
     //    `firmware_ui_status.h`), written at the single site that can see `NodeConfig` — the `team_build` /
     //    `mobile_build` idiom (U3). ⛔ It is NOT a second definition and ⛔ the renderer must not re-derive it: the
@@ -921,6 +960,11 @@ struct UiSnapshot {
     //   tail pad at alignof 8. ⚠ Instantiated TWICE on the OLED envs plus a per-tick stack local, so that is ~+16 B
     //   of static RAM and +8 B of loop-task stack. ⛔ Declared AFTER the age instead, the two int32 would still
     //   cost 8 but the bool would have opened a new hole — which is why the two halves sit where they do.
+    //   ⓘ ⚠ **THE FOUR OFFSETS ABOVE ARE S3's OWN MEASUREMENT (2026-08-21) AND ARE KEPT AS WRITTEN**; every one of
+    //     them moved +96 when §UI-17 S5 grew `TeamRow` (28 -> 40, x8 rows) ahead of them, so `own_fix` MEASURES
+    //     **692** today and the struct **712**. ⛔ The claim this block makes — the bool is free, the two `int32_t`
+    //     cost 8 between them — is about RELATIVE placement and is unaffected; ⛔ never read an absolute offset here
+    //     as current, re-measure it (the host reveal in spec §6).
     bool     own_fix = false;
     // ★★★★ `uint64_t`, AND THE TYPE IS THE WHOLE POINT (design §4.2, and the trap this slice was briefed against).
     //     Authority: `Node::mobile_home_confirm_age_ms()`, which is `uint64_t`. ⛔⛔ NEVER a `uint32_t` millisecond
@@ -1311,8 +1355,9 @@ struct UiState {
     //   already landed in the tail's padding).
     //   ⓘ ⚠ **HISTORICAL FIGURE (§UI-15 slice 5, 2026-08-19), kept as written.** The claim is about THIS slice and
     //     is unchanged — it adds no snapshot field — but 608 is no longer the current total: `sizeof(UiSnapshot)`
-    //     is **616** since §UI-17 S3's frame-freeze fields. The one place that figure is maintained is `own_fix`'s
-    //     own block above, which carries the `offsetof` proof; ⛔ never re-derive it from a line like this one.
+    //     is **712** (§UI-17 S3's frame-freeze fields took it to 616; S5's four `TeamRow` peer-location fields, at
+    //     eight rows, took it the rest of the way). The one place that figure is maintained is `own_fix`'s own block
+    //     above, which carries the `offsetof` proof; ⛔ never re-derive it from a line like this one.
     UiProvAnswer prov_answer{};
     // ★★★ §UI-15 slice 6 — THE PROFILE LIST THE SELECT SCREEN WALKS, READ ONCE AND FROZEN WITH THE FRAME. ⛔ It is
     //     NOT re-read per tick or per page: `IUiProvision::profiles()` reaches flash, and U8g2 replays the whole
@@ -1327,8 +1372,9 @@ struct UiState {
     //   gate's — this struct is instantiated TWICE on the OLED envs, so the host figure is +208 B of model state.
     //   ⓘ ⚠ **HISTORICAL FIGURE (§UI-15 slice 6, 2026-08-20), kept as written**, and the same qualification as
     //     `prov_answer`'s directly above: the "this slice adds no snapshot field" claim stands, but the current
-    //     `sizeof(UiSnapshot)` is **616** (§UI-17 S3's `own_fix` / `own_lat_e7` / `own_lon_e7`). ⓘ `sizeof(UiState)`
-    //     **200** on this line IS still current — S3 added nothing to `UiState`.
+    //     `sizeof(UiSnapshot)` is **712** (§UI-17 S3's `own_fix` / `own_lat_e7` / `own_lon_e7`, then S5's four
+    //     `TeamRow` peer-location fields x8 rows). ⓘ `sizeof(UiState)` **200** on this line IS still current —
+    //     neither S3 nor S5 added anything to `UiState`.
     UiJoinList join_list{};
     // The SELECTED slot, 1..kJoinProfiles, and ⛔ 0 = nothing picked. It is a SLOT NUMBER and never a row index:
     // rows are built from the `present` flags, so an index means a different profile in a different record (§B66).
