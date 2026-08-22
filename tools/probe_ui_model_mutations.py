@@ -104,6 +104,12 @@ TARGET_SRC = {
     #    attacked ON ITS OWN — and a battery is per-SOURCE-FILE. Folded into the row formatter they would have shared
     #    `uiteam`'s entries; composed in `src/firmware_ui.cpp` they would have had NO battery at all (§B115).
     "uigeo":  "src/firmware_ui_geo.h",          # §UI-17 S5 — freshness, geometry and the two location tokens
+    # ★★ ADDED 2026-08-22 BY §UI-17 slice 8, for the reason every target above it was added, and this one is the
+    #    [[B217]] shape at its plainest: the WAKE's whole safety argument is the `pu.enc` gate on ONE arm of
+    #    `ui_route_recv_push`, and a battery is per-SOURCE-FILE — so without its own target the gate, the two call
+    #    sites and the "⛔ do not copy it onto the DM arm" rule would have had NO controlled mutation at all. The
+    #    model's `--target=model` entries (S08-S16) attack the EFFECT; these attack the SCOPE.
+    "uisend": "src/firmware_ui_send.h",         # §UI-17 S8 — the recv router's two wake call sites + the `enc` gate
 }
 _flags = [a for a in sys.argv[1:] if a.startswith("--")]
 
@@ -170,7 +176,55 @@ H = os.path.join(ROOT, TARGET_SRC[_TARGET])
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 1916, 87621     # ★★ CROSS-CHECK RE-SYNCED 2026-08-22 by §UI-17 slice 5's QG correction
+PIN_CASES, PIN_ASSERTS = 1932, 87788     # ★★ CROSS-CHECK RE-SYNCED 2026-08-22 by §UI-17 slice 6 (the STATUS mark):
+                                         # **1931 / 87754 -> 1932 / 87788** (+1 case / +34 assertions), ONE new case
+                                         # in `test/test_firmware_ui_chrome.cpp` — ⛔ no existing case was touched,
+                                         # and none could be: S6 is ASSET-ONLY (one new array in
+                                         # `firmware_ui_icons.h`, one `draw_rect` -> `draw_bitmap` at the seam), and
+                                         # `src/firmware_ui.cpp` is compiled by neither the native suite nor the
+                                         # simulator (§B115), so the draw-site swap moves NO native count at all.
+                                         # DERIVED, not merely observed — the one case, term by term:
+                                         #   `chrome-icons: the 24x24 MeshRoute mark decodes to the INTERIM `MR`…`
+                                         #   24 the ASCII-art decode, one CHECK per pixel ROW (the picture IS the
+                                         #      specification, and the interim asset's successor re-points here)
+                                         #    3 stride_of(24)==3, byte_count_of(24,24)==sizeof, sizeof==72
+                                         #    5 negative controls for the decoder on BOTH asymmetric axes
+                                         #    2 ⛔ not a mis-copied 7-px strip glyph (vs kIconStatus/kIconBattery)
+                                         # ⓘ The mutations these red are I05/I06/I07 (`--target=icons`).
+                                         #
+                                         # ⓘ THE PRECEDING RE-SYNC, KEPT VISIBLE — 2026-08-22 by §UI-17 slice 8
+                                         # (wake-on-receive):
+                                         # **1916 / 87621 -> 1931 / 87754** (+15 cases / +133 assertions), all of them
+                                         # NEW cases — ⛔ no existing case was touched, and none could be: the wake is
+                                         # a new entry point (`UiModel::on_msg_wake`) plus two new call sites, and the
+                                         # blank deadline is unmoved (S2's own cases still land on the same edge).
+                                         # DERIVED, not merely observed — per case, in file order:
+                                         #   test_firmware_ui_model.cpp — 10 cases / 72 assertions (`ui17-wake:`)
+                                         #    3 a message lights a BLANKED panel + asks for the repaint (pin 1)
+                                         #    3 the window is a FULL kBlankMs from the MESSAGE, not the press (pin 9)
+                                         #    4 ...and the same edge from the dark side
+                                         #    8 a wake while ALREADY LIT moves only the deadline (pin 10)
+                                         #   13 ⛔ the wake NAVIGATES NOTHING — screen/list/cursor/both picks (pin 6)
+                                         #    9 ⛔ no emergency field moves, over a RETAINED outcome (pin 7)
+                                         #    4 a wake before the first tick does not consume [[B65]]'s seed (pin 8)
+                                         #   12 the QUIET node blanks and sleeps as before, at FOUR uptimes —
+                                         #      the fourth lands the blank inside the last window before
+                                         #      the millis wrap, which is the armed flag's own ground
+                                         #    4 ★ a message received 37 days ago does not REVIVE as a live
+                                         #      wake (the bound; measured in the probe, not imagined)
+                                         #   12 the retained multi-page modal keeps its page through the wake pass
+                                         #   test_firmware_ui_send.cpp — 5 cases / 61 assertions (`ui17-wake:`)
+                                         #    9 ★ the DISCRIMINATOR: the SAME post sealed wakes / cleartext does not
+                                         #    8 a DM wakes SEALED or NOT (two arms — the half-applied shape)
+                                         #    4 the FULL PushKind enum: every kind driven, exactly one wakes
+                                         #      (pin 4) — 3 + the QG non-vacuity floor added 2026-08-22
+                                         #      when the hard-coded bound became a compiler-derived one
+                                         #   28 counters/stamps/dirty UNCHANGED on all four arms (pin 5)
+                                         #   12 §R1 composes: a sealed reply still replies, a stranger still does not
+                                         # ⓘ The mutations these red are S08-S17 (`--target=model`) and U01-U06
+                                         #   (the NEW `--target=uisend`).
+                                         #
+                                         # ★★ AND BEFORE THAT, 2026-08-22, by §UI-17 slice 5's QG correction
                                          # (the integer-first precision rule had NO isolated control, and the case
                                          # offered as its proof stayed GREEN under the defect): **1915 / 87616 ->
                                          # 1916 / 87621** (+1 case / +5 assertions), all in
@@ -1483,10 +1537,74 @@ MUTS_MODEL = [
  #   answers it for both the transition and the page cadence). The property is unchanged — the blank deadline may
  #   not become conditional on a modal — and mutating the hoisted predicate now covers BOTH readers at once, which is
  #   strictly stronger than the old single-site anchor.
+ # ⚠ S04's ANCHOR MOVED AGAIN 2026-08-22 (§UI-17 S8 added `!wake_active(s.now_ms)` as the predicate's third term and
+ #   wrapped it onto two lines). The property is UNCHANGED — the blank deadline may not become conditional on a modal
+ #   — and the replacement keeps both existing terms, so this entry stays independent of S10/S11 below.
  ("S04 [[UI-17]] the blank deadline is made CONDITIONAL on no modal being open",
-  "        return !_st.blanked && !hold_active(s.now_ms) && elapsed(s.now_ms, _last_input_ms) >= kBlankMs;",
-  "        return !_st.blanked && !hold_active(s.now_ms) && _st.compose == Compose::none &&\n"
-  "               _st.detail == InboxModal::closed && elapsed(s.now_ms, _last_input_ms) >= kBlankMs;"),
+  "        return !_st.blanked && !hold_active(s.now_ms) && !wake_active(s.now_ms) &&\n"
+  "               elapsed(s.now_ms, _last_input_ms) >= kBlankMs;",
+  "        return !_st.blanked && !hold_active(s.now_ms) && !wake_active(s.now_ms) &&\n"
+  "               _st.compose == Compose::none && _st.detail == InboxModal::closed &&\n"
+  "               elapsed(s.now_ms, _last_input_ms) >= kBlankMs;"),
+ # --- §UI-17 slice 8: WAKE ON RECEIVE — the MODEL half (the EFFECT; the scope is `uisend`'s) ------------------------
+ # ★★★★ THE RULING (owner, 2026-08-20, spec §9 R-6/R-7): a received message lights the panel, for a DM addressed to us
+ #      and for a SEALED team post — with ⛔ no rate limiter. WHICH push may call `on_msg_wake` is decided in
+ #      `src/firmware_ui_send.h` and is attacked by the `uisend` target; every entry HERE attacks the EFFECT, i.e. one
+ #      of the five invariants the ruling put around it (the separate deadline, the untouched input clock, no
+ #      navigation, no emergency write, the quiet node's sleep).
+ # ⛔⛔ THE SPEC's *"the wake writing `_last_input_ms`"* MUTATION IS **NOT LISTED IN ITS BARE FORM, AND THE OMISSION IS
+ #     MEASURED RATHER THAN AN OVERSIGHT**: §9 R-1 deleted both modal auto-exits, so `blank_due` is the ONLY remaining
+ #     reader of that field, and a `kBlankMs`-from-now wake window is ARITHMETICALLY IDENTICAL to stamping it — the
+ #     bare mutant is behaviourally inert and would be reported GREEN, i.e. "nothing measures the property", which is
+ #     exactly what this runner refuses to file as a measurement. ⇒ S09 mutates the TEMPTING FULL SHAPE instead (the
+ #     `on_gesture` pair, `_last_input_ms` **and** `_seeded`), which re-creates [[B65]] and IS observable.
+ ("S08 [[UI-17]] the wake marks the model dirty but leaves the panel DARK (§R1's exact defect, one plane over)",
+  "        if (_st.blanked) { unblank(now_ms); _st.dirty = true; }",
+  "        if (_st.blanked) { _st.dirty = true; }"),
+ ("S09 [[UI-17]] the wake stamps the input clock the way `on_gesture` does (and consumes [[B65]]'s seed)",
+  "        _msg_wake_until_ms = now_ms + kBlankMs;\n        _msg_wake_armed = true;",
+  "        _msg_wake_until_ms = now_ms + kBlankMs;\n        _msg_wake_armed = true;\n"
+  "        _last_input_ms = now_ms; _seeded = true;"),
+ # ⛔ S10 IS THE ONE-LINE VERSION OF THIS SLICE — clear `blanked` and rely on the existing deadline, which is what
+ #    `on_reply` legitimately does (`kEmgHoldMs > kBlankMs` holds ITS panel lit). A plain message has no hold, so the
+ #    very next tick blanks it again: a ONE-FRAME FLASH, and the ruling's attention window never happens.
+ ("S10 [[UI-17]] the wake deadline is dropped from the blank condition (the one-frame flash)",
+  "        return !_st.blanked && !hold_active(s.now_ms) && !wake_active(s.now_ms) &&",
+  "        return !_st.blanked && !hold_active(s.now_ms) &&"),
+ ("S11 [[UI-17]] `wake_active` is INVERTED — the window is live everywhere except during it",
+  "        return _msg_wake_armed && left != 0 && left <= kBlankMs;            // i.e. now < deadline, at most one window",
+  "        return _msg_wake_armed && !(left != 0 && left <= kBlankMs);          // i.e. now < deadline, at most one window"),
+ # ⛔⛔ S12 IS THE FLAG THE SPEC's ESTIMATE DID NOT CARRY, and it is not fastidiousness: without it the initial 0 reads
+ #     as a deadline 24.8 DAYS AHEAD for every `now_ms > 2^31`, so a node that has been up four weeks and received
+ #     NOTHING never blanks and (through `ui_allows_sleep`) never light-sleeps again — spec pin 11 failing on the one
+ #     node the ruling promises to leave alone.
+ ("S12 [[UI-17]] the ARMED flag is dropped, so a quiet node past 2^31 ms never blanks again",
+  "        return _msg_wake_armed && left != 0 && left <= kBlankMs;            // i.e. now < deadline, at most one window",
+  "        return left != 0 && left <= kBlankMs;            // i.e. now < deadline, at most one window"),
+ # ⛔⛔ S17 IS THE BOUND's OWN CONTROL, and the defect it re-opens was MEASURED IN THE PROBE rather than imagined: with
+ #     `hold_active`'s bare half-counter comparison an EXPIRED wake deadline reads as a FUTURE one again once `now` has
+ #     run 2^31 ms past it, so a node that received ONE message and then nothing stops blanking ~24.8 days later — for
+ #     the next ~24.8 days. ⓘ The armed flag cannot see it (it never clears), which is why this is a SECOND entry.
+ ("S17 [[UI-17]] the wake window loses its upper bound, so a month-old wake revives",
+  "        return _msg_wake_armed && left != 0 && left <= kBlankMs;            // i.e. now < deadline, at most one window",
+  "        return _msg_wake_armed && left != 0 && left < (1u << 31);           // i.e. now < deadline, at most one window"),
+ # ⛔ S13 — the unconditional `unblank`, which is how `on_reply` writes it and therefore the plausible copy. On an
+ #    ALREADY-LIT panel it restarts the detail page cadence, so a reader mid-page is interrupted by traffic (pin 10).
+ ("S13 [[UI-17]] a wake on an ALREADY-LIT panel restarts the display cadence (the unconditional unblank)",
+  "        if (_st.blanked) { unblank(now_ms); _st.dirty = true; }",
+  "        unblank(now_ms); _st.dirty = true;"),
+ ("S14 [[UI-17]] the wake NAVIGATES to INBOX (the [[B233]] class: the operator's place taken by a push)",
+  "        _msg_wake_armed = true;\n        if (_st.blanked)",
+  "        _msg_wake_armed = true;\n        _st.screen = Screen::inbox;\n        if (_st.blanked)"),
+ ("S15 [[UI-17]] the wake clears the emergency, so a message dismisses a retained distress outcome",
+  "        _msg_wake_armed = true;\n        if (_st.blanked)",
+  "        _msg_wake_armed = true;\n        _emg = Emergency::idle;\n        if (_st.blanked)"),
+ # ⛔ S16 — "one clock, surely": measure the window from the last INPUT instead of from the message. A message arriving
+ #    late in an attention window then buys almost nothing, and the ruling's *"the standard blank timeout re-applies
+ #    after the wake"* becomes "...expires with whatever the press left over" (pin 9).
+ ("S16 [[UI-17]] the wake window is measured from the last PRESS, not from the message",
+  "        _msg_wake_until_ms = now_ms + kBlankMs;",
+  "        _msg_wake_until_ms = _last_input_ms + kBlankMs;"),
 ]
 
 # ===== §UI-13 — src/firmware_config_service.h =====================================================================
@@ -1819,6 +1937,102 @@ MUTS_ICONS = [
  ("I04 two SETTINGS badge states share one picture (§6's priority becomes unobservable)",
   "inline constexpr uint8_t kIconSettingsUnsaved[7] = { 0x0E, 0x1F, 0x1B, 0x1F, 0x0E, 0x60, 0x60 };",
   "inline constexpr uint8_t kIconSettingsUnsaved[7] = { 0x0E, 0x1F, 0x1B, 0x1F, 0x0E, 0x00, 0x00 };"),
+ # --- §UI-17 S6, the 24x24 STATUS mark. ★★ THE SAME THREE AUTHORING ERRORS ONE SIZE UP, and the size is the point:
+ #     this is the FIRST 3-byte-stride asset in the tree, so a mirror, an MSB-first byte and a wrong width each
+ #     produce a PICTURE rather than a compile error. ⛔ The asset is INTERIM (owner ruling 2026-08-22) — when the
+ #     final artwork lands, RE-POINT these two tables at it; ⛔ never drop them, or the swap ships unmeasured.
+ ("I05 the MARK is authored MIRRORED (the R comes first and both letters are reversed)",
+  "inline constexpr uint8_t kMarkMeshRoute[72] = {\n"
+  "    0x00, 0x00, 0x00,\n"
+  "    0x00, 0x00, 0x00,\n"
+  "    0x00, 0x00, 0x00,\n"
+  "    0x03, 0xE6, 0x3F,\n"
+  "    0x07, 0xE7, 0x7F,\n"
+  "    0x8F, 0x67, 0x60,\n"
+  "    0xDB, 0x66, 0x60,\n"
+  "    0x73, 0x66, 0x60,\n"
+  "    0x23, 0x66, 0x60,\n"
+  "    0x03, 0x66, 0x60,\n"
+  "    0x03, 0xE6, 0x7F,\n"
+  "    0x03, 0xE6, 0x3F,\n"
+  "    0x03, 0x66, 0x06,\n"
+  "    0x03, 0x66, 0x0C,\n"
+  "    0x03, 0x66, 0x0C,\n"
+  "    0x03, 0x66, 0x18,\n"
+  "    0x03, 0x66, 0x30,\n"
+  "    0x03, 0x66, 0x60,\n"
+  "    0x03, 0x66, 0xC0,\n"
+  "    0x03, 0x66, 0xC0,\n"
+  "    0x03, 0x66, 0xC0,\n"
+  "    0x00, 0x00, 0x00,\n"
+  "    0x00, 0x00, 0x00,\n"
+  "    0x00, 0x00, 0x00,\n"
+  "};",
+  "inline constexpr uint8_t kMarkMeshRoute[72] = {\n"
+  "    0x00, 0x00, 0x00,\n"
+  "    0x00, 0x00, 0x00,\n"
+  "    0x00, 0x00, 0x00,\n"
+  "    0xFC, 0x67, 0xC0,\n"
+  "    0xFE, 0xE7, 0xE0,\n"
+  "    0x06, 0xE6, 0xF1,\n"
+  "    0x06, 0x66, 0xDB,\n"
+  "    0x06, 0x66, 0xCE,\n"
+  "    0x06, 0x66, 0xC4,\n"
+  "    0x06, 0x66, 0xC0,\n"
+  "    0xFE, 0x67, 0xC0,\n"
+  "    0xFC, 0x67, 0xC0,\n"
+  "    0x60, 0x66, 0xC0,\n"
+  "    0x30, 0x66, 0xC0,\n"
+  "    0x30, 0x66, 0xC0,\n"
+  "    0x18, 0x66, 0xC0,\n"
+  "    0x0C, 0x66, 0xC0,\n"
+  "    0x06, 0x66, 0xC0,\n"
+  "    0x03, 0x66, 0xC0,\n"
+  "    0x03, 0x66, 0xC0,\n"
+  "    0x03, 0x66, 0xC0,\n"
+  "    0x00, 0x00, 0x00,\n"
+  "    0x00, 0x00, 0x00,\n"
+  "    0x00, 0x00, 0x00,\n"
+  "};"),
+ ("I06 the MARK is authored MSB-first (every byte bit-reversed — the V4-port hazard §8.1 names, at stride 3)",
+  "    0x03, 0xE6, 0x3F,\n"
+  "    0x07, 0xE7, 0x7F,\n"
+  "    0x8F, 0x67, 0x60,\n"
+  "    0xDB, 0x66, 0x60,\n"
+  "    0x73, 0x66, 0x60,\n"
+  "    0x23, 0x66, 0x60,\n"
+  "    0x03, 0x66, 0x60,\n"
+  "    0x03, 0xE6, 0x7F,\n"
+  "    0x03, 0xE6, 0x3F,\n"
+  "    0x03, 0x66, 0x06,\n"
+  "    0x03, 0x66, 0x0C,\n"
+  "    0x03, 0x66, 0x0C,\n"
+  "    0x03, 0x66, 0x18,\n"
+  "    0x03, 0x66, 0x30,\n"
+  "    0x03, 0x66, 0x60,\n"
+  "    0x03, 0x66, 0xC0,\n"
+  "    0x03, 0x66, 0xC0,\n"
+  "    0x03, 0x66, 0xC0,",
+  "    0xC0, 0x67, 0xFC,\n"
+  "    0xE0, 0xE7, 0xFE,\n"
+  "    0xF1, 0xE6, 0x06,\n"
+  "    0xDB, 0x66, 0x06,\n"
+  "    0xCE, 0x66, 0x06,\n"
+  "    0xC4, 0x66, 0x06,\n"
+  "    0xC0, 0x66, 0x06,\n"
+  "    0xC0, 0x67, 0xFE,\n"
+  "    0xC0, 0x67, 0xFC,\n"
+  "    0xC0, 0x66, 0x60,\n"
+  "    0xC0, 0x66, 0x30,\n"
+  "    0xC0, 0x66, 0x30,\n"
+  "    0xC0, 0x66, 0x18,\n"
+  "    0xC0, 0x66, 0x0C,\n"
+  "    0xC0, 0x66, 0x06,\n"
+  "    0xC0, 0x66, 0x03,\n"
+  "    0xC0, 0x66, 0x03,\n"
+  "    0xC0, 0x66, 0x03,"),
+ ("I07 the MARK is declared 8 px wide, so its rows stop being 3 bytes (I03's smear, one asset up)",
+  "inline constexpr uint8_t kMarkW = 24;", "inline constexpr uint8_t kMarkW = 8;"),
 ]
 
 MUTS_JOINPROFILES = [
@@ -2427,10 +2641,45 @@ MUTS_UIGEO = [
   "    return (ui_geo_dist_key(a.v.dist_m) << 4) | (dir * 0u);"),
 ]
 
+# ===== §UI-17 S8 — src/firmware_ui_send.h ==========================================================================
+# ★★★★ THE SCOPE OF THE WAKE, AND NOTHING ELSE. The ruling (owner, 2026-08-20, spec §9 R-7) is that exactly two things
+#      light the panel: a DM delivered to us (`msg_recv`, **sealed or not** — it is addressed to us) and a channel post
+#      that arrived **SEALED** (`channel_recv` **and `pu.enc`**). ⛔ A CLEARTEXT post must not wake, which is what
+#      keeps §R1/[[B109]]'s *"a stranger's post does not light a dark panel"* (bench §8.15) true BY CONSTRUCTION.
+# ★★ EVERY ENTRY BELOW IS A **PLAUSIBLE** SHAPE OF THAT GATE, not a deletion: dropped (the headline), inverted,
+#    copied onto the DM arm (the HALF-APPLIED shape, which an `enc == true` fixture alone would survive), hoisted above
+#    the kind gate, or missing from one arm. ⓘ The EFFECT of the wake — the deadline, the input clock, navigation, the
+#    emergency fields, the quiet node's sleep — belongs to `--target=model` (S08-S16).
+MUTS_UISEND = [
+ ("U01 ★★★ the `enc` GATE IS DROPPED — a CLEARTEXT stranger's post lights a dark panel (§8.15 broken)",
+  "    if (pu.enc) m.on_msg_wake(now_ms);",
+  "    m.on_msg_wake(now_ms);"),
+ ("U02 ★★ the gate is INVERTED — only the posts we could NOT open wake the panel",
+  "    if (pu.enc) m.on_msg_wake(now_ms);",
+  "    if (!pu.enc) m.on_msg_wake(now_ms);"),
+ # ⛔⛔ U03 IS THE HALF-APPLIED SHAPE, and it is the one a single sealed fixture cannot see: the channel arm's gate
+ #     looks like a rule about messages, so it gets "applied consistently" to the DM arm — and an UNSEALED DM, which is
+ #     ADDRESSED TO US, silently stops waking the panel.
+ ("U03 ★★★ the `enc` gate is COPIED onto the msg_recv arm, so an UNSEALED DM stops waking",
+  "        m.on_msg_wake(now_ms);\n        return true;",
+  "        if (pu.enc) m.on_msg_wake(now_ms);\n        return true;"),
+ ("U04 ★★ the wake is hoisted ABOVE the kind gate — every push kind wakes the panel",
+  "                               const char* who, uint32_t now_ms) {\n    using PK = MESHROUTE_NS::PushKind;",
+  "                               const char* who, uint32_t now_ms) {\n    using PK = MESHROUTE_NS::PushKind;\n"
+  "    m.on_msg_wake(now_ms);"),
+ ("U05 the wake is dropped from the channel_recv arm only (a sealed team post no longer wakes)",
+  "    if (pu.enc) m.on_msg_wake(now_ms);",
+  "    (void)pu.enc;"),
+ ("U06 the wake is dropped from the msg_recv arm only (a DM addressed to us no longer wakes)",
+  "        m.on_msg_wake(now_ms);\n        return true;",
+  "        return true;"),
+]
+
 MUTS_BY_TARGET = {"model": MUTS_MODEL, "config": MUTS_CONFIG, "chrome": MUTS_CHROME, "icons": MUTS_ICONS,
                   "joinprofiles": MUTS_JOINPROFILES, "devicenv": MUTS_DEVICENV, "cfgparse": MUTS_CFGPARSE,
                   "uiprov": MUTS_UIPROV, "uijoin": MUTS_UIJOIN, "provservice": MUTS_PROVSERVICE,
-                  "uistatus": MUTS_UISTATUS, "uiteam": MUTS_UITEAM, "uigeo": MUTS_UIGEO}
+                  "uistatus": MUTS_UISTATUS, "uiteam": MUTS_UITEAM, "uigeo": MUTS_UIGEO,
+                  "uisend": MUTS_UISEND}
 MUTS = MUTS_BY_TARGET[_TARGET]
 
 # ⓘ `_positional` is built (and judged: at most one) in the argv block at the top of the file — see `_refuse_argv`.

@@ -3090,3 +3090,33 @@ host reaches: real time on real glass, and the power cost of the ~1 repaint/s a 
    ⛔ FAIL if the age freezes at the value it had when the screen was opened — the pre-S4 (F-8) behaviour.
 2. Leave the node alone until the panel blanks, then confirm over USB from `status` that **sleeps are still
    accumulating** (`slept=` climbs). ⛔ FAIL if idle sleeps stop — the repaint cadence must die with the panel.
+
+## Part 33 — §UI-17 S5: distance/direction on glass (2026-08-22)
+
+⛔ **THE RESIDUE ONLY.** The four show/blank terms, the 600 s edge, the octants, the antimeridian fold, the
+integer-first precision rule and the zero-traffic counters are host-gated (`test_firmware_ui_geo.cpp` +
+`--target=uigeo` G01-G18 + probe P19a-P19d). **Metal-only: real radio, real time on glass.**
+
+1. Follow the UI-17 spec §7.3 steps 4-8 verbatim (the sealed located send `send 0x<H1-hash> "hi" -t -a -e -l`;
+   the ten-minute stale window with H2 kept **alive and beaconing**; the five-minute STATUS-vs-TEAM
+   outbound-baseline comparison; `cfg set lat 0`/`lon 0`; the coincident pair).
+2. Expected TEAM row shape: `<name≤6> <route age> <dist> <dir>`, e.g. `Wolfga  3m 850m  NE`. Past ten minutes the
+   row **REMAINS** and both right-hand columns go BLANK on the clock alone.
+   ⛔ FAIL on: a distance surviving past the freshness bound · `0m` for an uncached peer (a miss is BLANK — a
+   real and different answer) · any cardinal letter beside a coincident `0m`.
+
+## Part 34 — §UI-17 S8: wake-on-receive on glass (2026-08-22)
+
+⛔ **THE RESIDUE ONLY.** The scope (`msg_recv` any `enc`; `channel_recv` only with `enc`), the separate deadline,
+the untouched input clock, the no-navigation / no-emergency-write invariants and the quiet-node sleep guard are
+host-gated (`ui17-wake:` cases + `--target=model` S08-S17 + `--target=uisend` U01-U06 + probe P20a-P20e with
+controls C119/C120). **Metal-only: a real radio, a real dark panel, real sleep accounting.**
+
+1. Follow UI-17 spec §7.8 steps 1-7 verbatim.
+2. Expected: within one repaint the panel **lights by itself on the screen that was current**, envelope count up
+   by one. ⛔ FAIL if it switched screens or opened anything.
+3. ⛔ **Step 2b is the one that must not be skipped:** a post arriving **unsealed** on the same channel id leaves
+   the panel **DARK** while the unread count still moves. A panel that lights there is the `enc` gate missing —
+   and with it §8.15's *"a stranger's post does not light a dark panel"*.
+4. Record for the owner (⛔ not pass/fail — spec §9 R-6 / F-10): `slept=` before the wake and two minutes after it
+   re-blanked, plus how many messages arrived in that window.

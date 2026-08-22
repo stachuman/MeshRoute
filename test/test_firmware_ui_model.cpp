@@ -5843,3 +5843,222 @@ TEST_CASE("ui17-note: what the WRITE side does with the cursor — every arm, [[
     CHECK(list_note_kind(/*on_screen=*/true, /*entered=*/true, 4, 3) == ListNote::retire);   // fails closed past the end
     CHECK(list_note_kind(/*on_screen=*/true, /*entered=*/true, 0, 0) == ListNote::retire);   // an empty entered list
 }
+
+// ================================================================ §UI-17 S8 — WAKE ON RECEIVE, the PURE MODEL half
+// ★★★★ THE RULING (owner, 2026-08-20, spec §9 R-6/R-7): **a received message lights the panel.** The SCOPE — which
+//      push may call this at all — belongs to `mrui::ui_route_recv_push` and is pinned in `test_firmware_ui_send.cpp`
+//      (the sealed-vs-cleartext pair). What THESE cases own is the EFFECT and its five invariants: the separate
+//      deadline, the untouched input clock, no navigation, no emergency write, and the quiet node's sleep.
+// ⓘ EVERY CASE DRIVES `on_msg_wake` DIRECTLY, which is exactly what the router does with it — ⛔ no flag is poked and
+//   no deadline is written by hand, so a mutation inside the model is what these fail against.
+TEST_CASE("ui17-wake: a message lights a BLANKED panel and asks for the repaint") {
+    UiModel m; auto s = snap(1000);
+    m.on_tick(s);                                                   // B65: the first tick seeds the attention clock
+    m.on_tick(snap(1000 + kBlankMs));
+    CHECK(m.state().blanked == true);
+    m.clear_dirty();
+    m.on_msg_wake(1000 + kBlankMs + 500);
+    CHECK(m.state().blanked == false);                              // ★ spec pin 1
+    CHECK(m.state().dirty   == true);                               // ★ ...and the panel is owed a frame
+}
+
+// ★★★★ SPEC PIN 9 — **THE WINDOW IS `kBlankMs` FROM THE MESSAGE, NOT FROM THE LAST PRESS**, and the case is built so
+//      the two answers differ by 10 s: the press is at 1 000 and the message at 11 000, so a wake that merely cleared
+//      `blanked` would let the very next tick blank it again (the one-frame flash the spec names), and one that
+//      inherited the press's deadline would blank at 16 000 instead of 26 000.
+TEST_CASE("ui17-wake: the panel stays lit a FULL window measured from the MESSAGE, then blanks by itself") {
+    UiModel m; auto s = snap(1000);
+    m.on_gesture(Gesture::short_press, s);                          // a real press at 1 000
+    m.on_msg_wake(11000);                                           // ...and a message 10 s later, panel still lit
+    m.on_tick(snap(16000));
+    CHECK(m.state().blanked == false);                              // ⛔ NOT the press's deadline (1 000 + 15 000)
+    m.on_tick(snap(11000 + kBlankMs - 1));
+    CHECK(m.state().blanked == false);                              // ⛔ not a millisecond early...
+    m.on_tick(snap(11000 + kBlankMs));
+    CHECK(m.state().blanked == true);                               // ★ ...and exactly on the message's own edge
+}
+
+// ★★ AND THE SAME EDGE FROM THE DARK SIDE: a message that wakes a blanked panel buys a full window from ITSELF.
+TEST_CASE("ui17-wake: a wake from the dark re-blanks kBlankMs after the message") {
+    UiModel m; auto s = snap(1000);
+    m.on_tick(s);
+    m.on_tick(snap(1000 + kBlankMs));
+    CHECK(m.state().blanked == true);
+    const uint32_t msg = 40000;                                     // long after the press's window closed
+    m.on_msg_wake(msg);
+    m.on_tick(snap(msg + 10));
+    CHECK(m.state().blanked == false);                              // ⛔ the next tick does NOT re-blank it
+    m.on_tick(snap(msg + kBlankMs - 1));
+    CHECK(m.state().blanked == false);
+    m.on_tick(snap(msg + kBlankMs));
+    CHECK(m.state().blanked == true);                               // ★ pin 9, from the dark
+}
+
+// ★★★★ SPEC PIN 10 — A WAKE ON AN ALREADY-LIT PANEL MOVES **ONLY THE DEADLINE**. ⛔ It does not re-dirty the model
+//      (the router's `mark_dirty` is the one that does, on every arm), and it does not restart the page cadence — a
+//      reader mid-page is not interrupted by traffic. Both are asserted, because "changes nothing" is otherwise a
+//      claim about code rather than about behaviour.
+TEST_CASE("ui17-wake: a wake while ALREADY LIT moves only the deadline") {
+    UiModel m; auto s = snap_inbox(1);
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, big_body_7pages(), 241) == true);
+    CHECK(m.state().detail_pages == 7);                             // ⛔ non-vacuity: the cadence is armed
+    m.on_tick(snap_inbox(1, 1000 + kDetailPageMs));
+    CHECK(m.state().detail_page == 1);
+    m.clear_dirty();
+    m.on_msg_wake(1000 + kDetailPageMs + 500);                      // ...a message arrives mid-page
+    CHECK(m.state().blanked == false);
+    CHECK(m.state().dirty   == false);                              // ★ the model itself asked for nothing
+    CHECK(m.state().detail_page == 1);                              // ★ ...and turned nothing
+    // ★ THE CADENCE IS NOT RESTARTED: the next page still turns on the ORIGINAL stamp's schedule, not the message's.
+    m.on_tick(snap_inbox(1, 1000 + 2 * kDetailPageMs));
+    CHECK(m.state().detail_page == 2);
+    // ...and the deadline DID move: the panel is still lit a full window after the message, past the press's edge.
+    m.on_tick(snap_inbox(1, 1000 + kBlankMs + 100));
+    CHECK(m.state().blanked == false);
+}
+
+// ★★★★ SPEC PIN 6 — ⛔ **A PUSH NEVER NAVIGATES.** The wake lights the CURRENT screen with the operator's place on it
+//      intact: the [[B233]] class. Driven over the state that has the most to lose — an ENTERED interactive INBOX
+//      list with a non-default row selected — and every field the operator can see is compared across the wake.
+TEST_CASE("ui17-wake: the wake NAVIGATES NOTHING — screen, list, cursor and both picks survive it") {
+    UiModel m; InboxReq rq{};
+    to_inbox(m, snap_inbox(3, 1000));
+    m.on_gesture(Gesture::short_press, snap_inbox(3, 1100));         // cursor 1, an entered list
+    CHECK(m.state().screen    == Screen::inbox);
+    CHECK(m.state().list_view == ListView::interactive);
+    CHECK(m.state().cursor    == 1);
+    m.on_tick(snap_inbox(3, 1100 + kBlankMs));
+    CHECK(m.state().blanked == true);
+    const UiState before = m.state();
+    m.on_msg_wake(1100 + kBlankMs + 200);
+    CHECK(m.state().blanked         == false);
+    CHECK(m.state().screen          == before.screen);               // ⛔ never switched to INBOX-or-anything
+    CHECK(m.state().list_view       == before.list_view);            // ⛔ the list did not fall back to passive
+    CHECK(m.state().cursor          == before.cursor);               // ⛔ the highlight did not move
+    CHECK(m.state().compose         == before.compose);
+    CHECK(m.state().detail          == before.detail);
+    CHECK(m.state().team_pick_gone  == before.team_pick_gone);       // ⛔ no transient note was retired...
+    CHECK(m.state().inbox_pick_gone == before.inbox_pick_gone);
+    CHECK(m.take_inbox_request(rq)  == false);                       // ⛔ ...and the store was asked for nothing
+}
+
+// ★★★★ SPEC PIN 7 — ⛔ **EMERGENCY OVERLAYS OWN THE PANEL.** The wake writes no `_emg`, no `_tries`, no hold and no
+//      news counter, so a RETAINED outcome (§B71/§B102 — terminal AND presented) is still retained, still says the
+//      same thing, and is still one press from being dismissed rather than zero.
+TEST_CASE("ui17-wake: a message disturbs NO emergency field, over a retained outcome") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::long_arm, snap(1000)); m.on_gesture(Gesture::long_fire, snap(4500));
+    const bool got = m.take_send_request(req);
+    CHECK(got == true);
+    m.on_send_accepted(SendKind::emergency, 5000);
+    m.on_outcome(SendOutcome::channel_relayed(), 6000);
+    CHECK(m.emergency() == Emergency::picked_up);
+    m.mark_outcome_presented(Emergency::picked_up, m.emg_news());   // a COMPLETED frame put it on the glass
+    CHECK(m.emg_outcome_retained() == true);
+    const uint8_t  tries_before = m.attempts();
+    const uint32_t news_before  = m.emg_news();
+    const uint32_t dark_ms = 6000 + kEmgHoldMs + kBlankMs;          // the hold has expired and the panel is dark
+    m.on_tick(snap(dark_ms));
+    CHECK(m.state().blanked == true);
+    m.on_msg_wake(dark_ms + 100);
+    CHECK(m.state().blanked        == false);                       // it lights...
+    CHECK(m.emergency()            == Emergency::picked_up);        // ★ ...showing the SAME outcome
+    CHECK(m.attempts()             == tries_before);                // ⛔ no attempt was spent
+    CHECK(m.emg_news()             == news_before);                 // ⛔ no news was manufactured
+    CHECK(m.emg_outcome_retained() == true);                        // ⛔ and it is still there to be acknowledged
+}
+
+// ★★★★ SPEC PIN 8 — ⛔ **THE WAKE DOES NOT STAMP THE INPUT CLOCK.** ⓘ REPORTED HONESTLY RATHER THAN OVERCLAIMED: with
+//      §9 R-1 having deleted both modal auto-exits, `blank_due` is the ONLY reader of `_last_input_ms` left, and a
+//      `kBlankMs`-from-now wake window is ARITHMETICALLY IDENTICAL to writing that field — so the write alone is
+//      unobservable today. What IS observable is the tempting fix's full shape: `on_gesture` stamps the pair
+//      `_last_input_ms = now; _seeded = true;`, and copying THAT into the wake re-creates [[B65]] exactly — a message
+//      arriving before the first tick would consume the seed, and the panel would be DARK the first time the operator
+//      looks at it. ⇒ that is the property this case measures, and it is the shape the battery mutates.
+TEST_CASE("ui17-wake: a wake before the first tick does not consume the B65 seed") {
+    UiModel m;
+    m.on_msg_wake(1000);                                            // a message arrives BEFORE any tick or press
+    CHECK(m.state().blanked == false);
+    m.on_tick(snap(200000));                                        // the first tick, long after (a slow NV boot)
+    CHECK(m.state().blanked == false);                              // ★ the seed is still this tick's, so no blank...
+    m.on_tick(snap(200000 + kBlankMs - 1));
+    CHECK(m.state().blanked == false);
+    m.on_tick(snap(200000 + kBlankMs));
+    CHECK(m.state().blanked == true);                               // ★ ...and the window runs from the FIRST TICK
+}
+
+// ★★★★ SPEC PIN 11 — **THE QUIET NODE IS UNTOUCHED, AND THAT INCLUDES PAST 2^31 ms OF UPTIME.** ⛔ THE DEFECT THIS
+//      CLOSES IS THE `_msg_wake_armed` FLAG's WHOLE REASON: a wrap-safe "now < deadline" reads the initial 0 as a
+//      deadline 24.8 DAYS AHEAD for every `now_ms > 2^31`, so a node that has merely been up four weeks and received
+//      NOTHING would never blank again — and, through `ui_allows_sleep`, never light-sleep again.
+TEST_CASE("ui17-wake: a node that received NOTHING blanks and sleeps exactly as before, at any uptime") {
+    // ⚠ THE FOURTH BASE IS THE ONE THE FLAG EXISTS FOR, and it is chosen rather than round: `2^32 - 20 000` puts the
+    //   BLANK TICK inside the last `kBlankMs` before the millis wrap, which is the only window in which the initial
+    //   deadline of 0 is less than one window ahead — i.e. the only place the bound alone cannot see it.
+    InputFsm in; FrameGate g;
+    for (uint32_t base : { uint32_t(1000), uint32_t(0x80000000u), uint32_t(0xFFFF0000u),
+                           uint32_t(0xFFFFFFFFu - 20000u) }) {
+        UiModel m;
+        m.on_tick(snap(base));
+        CHECK(m.state().blanked == false);
+        m.on_tick(snap(base + kBlankMs));
+        CHECK(m.state().blanked == true);                           // ★ it still blanks on the unmoved deadline...
+        in.update(/*pressed=*/false, base + kBlankMs);
+        CHECK(ui_allows_sleep(m, in, g) == true);                   // ★ ...and it still light-sleeps
+    }
+}
+
+// ★★★★ **THE WINDOW IS BOUNDED ABOVE, AND THIS IS THE CASE THAT SAYS WHY** — ⛔ MEASURED IN THE PROBE BEFORE IT COULD
+//      REACH METAL, and it is a SECOND, INDEPENDENT half of pin 11. A bare wrap-safe "now < deadline" is only correct
+//      for half the counter: once `now` has run 2^31 ms past an EXPIRED deadline the comparison flips back and the
+//      ancient wake reads as live again. ⇒ a node that received ONE message and then nothing would stop blanking
+//      ~24.8 days later, for the next ~24.8 days. ⓘ `_msg_wake_armed` cannot see this — it never clears — so the
+//      `left <= kBlankMs` bound is what closes it: a LIVE window is at most one window ahead, by construction.
+TEST_CASE("ui17-wake: a message received 37 days ago does not revive as a live wake") {
+    UiModel m;
+    m.on_tick(snap(1000));
+    m.on_msg_wake(2000);                                            // the ONE message this node ever received
+    m.on_tick(snap(2000 + kBlankMs));
+    CHECK(m.state().blanked == true);                               // its window closed normally, that same minute
+    const uint32_t much_later = 2000 + 0xC0000000u;                 // ~37 days on: deliberately PAST 2^31
+    m.on_gesture(Gesture::short_press, snap(much_later));           // the operator looks at it — the wake press
+    CHECK(m.state().blanked == false);
+    m.on_tick(snap(much_later + kBlankMs - 1));
+    CHECK(m.state().blanked == false);
+    m.on_tick(snap(much_later + kBlankMs));
+    CHECK(m.state().blanked == true);                               // ★ ...and it still blanks on the press's edge
+}
+
+// ★★★★ THE COMPOSITION WITH §UI-17 S2's RETENTION, IN THE REAL LOOP'S ORDER — `mr_ui_tick` builds ONE snapshot and
+//      calls `on_gesture` then `on_tick` against it, and `mr_ui_on_push` runs BEFORE that pass with the same clock.
+//      ⛔ THE HALF THAT IS INVISIBLE TO A HARNESS THAT ONLY WAKES AND ASSERTS: without `unblank`'s cadence restart
+//      the waking tick itself banks the whole dark interval and turns the page before a single frame has shown the
+//      operator what they came back to (S06's property, arriving through the message door instead of the press one).
+TEST_CASE("ui17-wake: a message wake keeps the retained modal's page, through the real wake pass") {
+    UiModel m; auto s = snap_inbox(1);
+    to_inbox(m, s);
+    CHECK(open_detail(m, s, big_body_7pages(), 241) == true);
+    CHECK(m.state().detail_pages == 7);                             // ⛔ non-vacuity: >1, so the cadence is armed
+    m.on_tick(snap_inbox(1, 1000 + kDetailPageMs));
+    m.on_tick(snap_inbox(1, 1000 + 2 * kDetailPageMs));
+    CHECK(m.state().detail_page == 2);
+    m.on_tick(snap_inbox(1, 1000 + kBlankMs));
+    CHECK(m.state().blanked == true);
+    CHECK(m.state().detail_page == 2);
+    for (uint32_t k = 1; k <= 4; ++k) m.on_tick(snap_inbox(1, 1000 + kBlankMs + k * kDetailPageMs));
+    CHECK(m.state().detail_page == 2);                              // ⛔ the dark cadence is suspended (S05)
+    // ---- THE MESSAGE, then the tick that shares its clock: a LONG dark interval is banked if the restart is missing.
+    const uint32_t wake_ms = 1000 + kBlankMs + 9 * kDetailPageMs;
+    m.on_msg_wake(wake_ms);
+    m.on_tick(snap_inbox(1, wake_ms));
+    CHECK(m.state().blanked     == false);
+    CHECK(m.state().detail      == InboxModal::body);
+    CHECK(m.state().detail_page == 2);                              // ★★ the SAME page the operator left
+    CHECK(m.state().detail_seq  == 1u);                             // ★ ...of the same record
+    // ...and the cadence resumes from the WAKE, one full period later — never a millisecond early.
+    m.on_tick(snap_inbox(1, wake_ms + kDetailPageMs - 1));
+    CHECK(m.state().detail_page == 2);
+    m.on_tick(snap_inbox(1, wake_ms + kDetailPageMs));
+    CHECK(m.state().detail_page == 3);
+}

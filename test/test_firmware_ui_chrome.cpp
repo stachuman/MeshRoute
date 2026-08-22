@@ -133,6 +133,64 @@ TEST_CASE("chrome-icons: every glyph is 7 px high, and the four SETTINGS badge v
             CHECK(std::memcmp(homes[a], homes[b], icons::kIconH) != 0);
 }
 
+// ★★★★ §UI-17 S6 — THE STATUS BODY'S 24x24 MARK, DECODED ROW BY ROW. Same instrument as the two 7-px conformance
+//      glyphs above and for the same reason, with one addition that only this asset has: it is the FIRST 3-BYTE-
+//      STRIDE asset in the tree, so a decoder or an authoring pass that assumed the battery's stride of 2 — or the
+//      other fourteen assets' stride of 1 — produces a picture, not a compile error.
+// ★★ THE ART IS THE SPECIFICATION, and it is pinned in FULL rather than by sampled pixels: the asset is INTERIM
+//    (owner ruling 2026-08-22) and the final mark arrives as a byte swap, so this case is exactly the thing that
+//    tells whoever performs that swap what the bytes are supposed to draw. ⛔ Re-point it to the new picture; ⛔
+//    never relax it to "some ink somewhere", which every mirror, flip and bit-reversal would satisfy.
+TEST_CASE("chrome-icons: the 24x24 MeshRoute mark decodes to the INTERIM `MR` letterform, stride 3") {
+    static const char* kMarkArt[24] = {
+        "........................",
+        "........................",
+        "........................",
+        "##.......##..#########..",
+        "###.....###..##########.",
+        "####...####..##......##.",
+        "##.##.##.##..##......##.",
+        "##..###..##..##......##.",
+        "##...#...##..##......##.",
+        "##.......##..##......##.",
+        "##.......##..##########.",
+        "##.......##..#########..",
+        "##.......##..##..##.....",
+        "##.......##..##...##....",
+        "##.......##..##...##....",
+        "##.......##..##....##...",
+        "##.......##..##.....##..",
+        "##.......##..##......##.",
+        "##.......##..##.......##",
+        "##.......##..##.......##",
+        "##.......##..##.......##",
+        "........................",
+        "........................",
+        "........................",
+    };
+    char row[32];
+    for (uint8_t y = 0; y < icons::kMarkH; ++y) {
+        icon_row_art(icons::kMarkMeshRoute, icons::kMarkW, y, row);
+        CHECK(std::strcmp(row, kMarkArt[y]) == 0);
+    }
+    // The stride is DERIVED for this asset too, and its size follows from it. ⛔ A hand-written stride of 1 would
+    //   read the mark as a 8x24 smear of its own left third — the `kIconBattery` failure one size up.
+    CHECK(icons::stride_of(icons::kMarkW) == 3);
+    CHECK(icons::byte_count_of(icons::kMarkW, icons::kMarkH) == sizeof icons::kMarkMeshRoute);
+    CHECK(sizeof icons::kMarkMeshRoute == 72u);
+    // NEGATIVE CONTROLS FOR THE DECODER ITSELF, on the two axes the letterform is asymmetric about — without these
+    // the row comparison above could pass against a decoder that agreed with a mirrored asset.
+    CHECK(icon_pixel(icons::kMarkMeshRoute, icons::kMarkW, 3,  0) == true);   // the M's stem, top-left
+    CHECK(icon_pixel(icons::kMarkMeshRoute, icons::kMarkW, 3, 23) == false);  // …and the R's bowl stops short of it
+    CHECK(icon_pixel(icons::kMarkMeshRoute, icons::kMarkW, 20, 23) == true);  // the R's leg foot, bottom-RIGHT
+    CHECK(icon_pixel(icons::kMarkMeshRoute, icons::kMarkW, 20, 13) == true);  // …and the R's stem beside it
+    CHECK(icon_pixel(icons::kMarkMeshRoute, icons::kMarkW, 20,  5) == false); // the M is hollow at the bottom
+    // …and the mark is not one of the 7-px glyphs by accident: it must differ from every one of them in its first
+    // seven bytes, which is all a mistaken copy-paste of a strip asset would leave behind.
+    CHECK(std::memcmp(icons::kMarkMeshRoute, icons::kIconStatus, icons::kIconH) != 0);
+    CHECK(std::memcmp(icons::kMarkMeshRoute, icons::kIconBattery, icons::kIconH) != 0);
+}
+
 // ===================================================================================== §4.1 — the mail slot
 
 TEST_CASE("chrome-mail: 0 / 1 / 99 exact, 100 -> 99+, and a SUM that crosses the boundary") {

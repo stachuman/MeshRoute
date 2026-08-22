@@ -2042,3 +2042,176 @@ TEST_CASE("ui-T3: after SENT the terminal verdict still applies, in every direct
       m.on_channel_outcome(SendOutcome::channel_no_relay(), 1200);
       CHECK(m.chan_state() == ChanState::no_relay); }
 }
+
+// ============================================ §UI-17 S8 — WAKE ON RECEIVE: **THE SCOPE**, which is this unit's alone
+// ★★★★ THE RULING (owner, 2026-08-20, spec §9 R-7). The OLED wakes for exactly two things: **(a)** a DM delivered to
+//      us (`msg_recv`, SEALED OR NOT — it is addressed to us) and **(b)** a channel post that arrived **SEALED** and
+//      was opened with our channel key (`channel_recv` **AND `pu.enc`**). ⛔ A CLEARTEXT post does NOT wake, and ⛔ no
+//      other push kind wakes anything.
+// ★★★ WHY THE `enc` GATE IS THE WHOLE SAFETY ARGUMENT (spec §1.9 F-9), measured at `lib/core/node_channel.cpp:405-419`
+//      rather than argued: an UNDECRYPTABLE/foreign post is not `readable`, so it is never inboxed and emits NO PUSH
+//      AT ALL; a post we OPENED arrives `enc = true` (`:415`); and a CLEARTEXT post on a matching channel id — the one
+//      case that delivers from OUTSIDE our key — arrives `enc = false`. ⇒ §R1/[[B109]]'s *"a stranger's post does not
+//      light a dark panel"* (bench §8.15) survives BY CONSTRUCTION and nothing about it is withdrawn.
+// ⛔ THE EFFECT ITSELF (the separate deadline, the untouched input clock, no navigation, no emergency write, the quiet
+//    node's sleep) is `UiModel::on_msg_wake`'s and is pinned by the `ui17-wake:` cases in test_firmware_ui_model.cpp.
+//    What THESE cases own is which push may reach it at all.
+
+// A panel that has gone dark on its own — ⛔ no press, so nothing here can be confused with the §R1 reply-wake path.
+static UiModel dark_model(uint32_t at_ms = 1000) {
+    UiModel m; UiSnapshot s{};
+    s.now_ms = at_ms;              m.on_tick(s);   // [[B65]]: the first tick seeds the attention clock...
+    s.now_ms = at_ms + kBlankMs;   m.on_tick(s);   // ...and the next one past kBlankMs blanks the panel
+    return m;
+}
+// The same post twice, differing in `enc` ALONE — the pair that makes the gate MEASURABLE rather than merely present.
+static MESHROUTE_NS::Push chan_post_enc(uint8_t channel_id, uint32_t team, const char* text, bool enc) {
+    MESHROUTE_NS::Push pu = chan_post(channel_id, team, text);
+    pu.enc = enc;
+    return pu;
+}
+
+// ★★★★ SPEC PINS 2 AND 3 — **THE DISCRIMINATOR**, and it is the arm that would be forgotten. Same kind, same channel
+//      id, same team, same body, same everything: the two pushes differ in `enc` and in nothing else.
+TEST_CASE("ui17-wake: a SEALED team post lights a dark panel — and the SAME post CLEARTEXT does not") {
+    const MESHROUTE_NS::Push sealed_post = chan_post_enc(0, 0x1234ABCD, "on my way", /*enc=*/true);
+    const MESHROUTE_NS::Push clear_post  = chan_post_enc(0, 0x1234ABCD, "on my way", /*enc=*/false);
+    {   UiModel m = dark_model(); UiInboxCounters c{};
+        CHECK(m.state().blanked == true);
+        CHECK(ui_route_recv_push(c, m, sealed_post, 0, /*same_team_post=*/true, "Ana", 40000) == true);
+        CHECK(m.state().blanked == false);                  // ★ pin 2: opened with OUR key ⇒ it lights the panel
+    }
+    {   UiModel m = dark_model(); UiInboxCounters c{};
+        CHECK(m.state().blanked == true);
+        CHECK(ui_route_recv_push(c, m, clear_post, 0, /*same_team_post=*/true, "Ana", 40000) == true);
+        CHECK(m.state().blanked == true);                   // ★★★ pin 3: ⛔ a CLEARTEXT post leaves it DARK
+        CHECK(c.unread_ch()     == 1);                      // ★ pin 5: ...and it is still UNREAD, and still counted
+        CHECK(c.have_ch         == true);
+        CHECK(c.last_ch_ms      == 40000u);
+    }
+}
+
+// ★★★★ SPEC PIN 1's SECOND HALF — **A DM WAKES WITH `enc` FALSE AS WELL AS TRUE**, driven as two cases because a gate
+//      COPIED onto this arm (the half-applied shape) is invisible to an `enc == true` fixture alone.
+TEST_CASE("ui17-wake: a DM addressed to us lights a dark panel, SEALED or NOT") {
+    for (bool sealed_dm : { false, true }) {
+        UiModel m = dark_model(); UiInboxCounters c{};
+        MESHROUTE_NS::Push dm = push_of(MESHROUTE_NS::PushKind::msg_recv);
+        dm.origin = 42; dm.sender_hash = 0xDEADBEEFu; dm.enc = sealed_dm;
+        CHECK(m.state().blanked == true);
+        CHECK(ui_route_recv_push(c, m, dm, 0, /*same_team_post=*/false, "Ana", 40000) == true);
+        CHECK(m.state().blanked == false);                  // ★ addressed to us either way
+        CHECK(c.unread_dm()     == 1);
+    }
+}
+
+// ★★★★ THE ROSTER'S SIZE, **ASKED OF THE COMPILER RATHER THAN TYPED IN** (QG, 2026-08-22). ⛔⛔ THE CLAIM THIS REPLACES
+//      WAS FALSE AS WRITTEN AND IS KEPT VISIBLE: *"THE LOOP'S BOUND IS THE ENUM'S LAST MEMBER (`send_aired`) and the
+//      count is asserted, so a kind APPENDED later cannot quietly fall outside what this case drives."* A hard-coded
+//      bound sweeps exactly the kinds that existed the day it was typed; an 18th kind sails past it **unswept**, and
+//      the prose promising otherwise is worse than no promise.
+// ★★★ THE MECHANISM, AND IT IS A BUILD FAILURE RATHER THAN A CONVENTION: the switch below has ⛔ **NO `default:`**, so
+//      a kind appended to `lib/core/command.h` makes it non-exhaustive — and `-Werror=switch` is BLANKET in
+//      `[common] build_flags` (owner-ruled 2026-07-27), which `[env:native]` inherits. ⇒ the native suite **STOPS
+//      COMPILING, HERE, AT THE SWEEP**, and the only way past it is to add the new kind's `case` label — which is
+//      exactly the act that grows the bound. ⓘ EVERY ARM IS THE SAME EXPRESSION, so there is no ordinal to type
+//      wrong: the arm answers "one past my own value", and the maximum over the underlying type IS the count.
+// ⓘ A value that is not an enumerator is well defined for a scoped enum with a fixed underlying type (`uint8_t`), so
+//   the probe over 0..255 below is legal; those values simply match no label and take the `return 0` at the end.
+// ⛔ NOT SHARED WITH THE PROBE's COPY (`tools/probe_firmware_ui/probe_main.cpp`), deliberately and for that file's own
+//   standing reason: the two instruments state their expectations INDEPENDENTLY, and the only place a shared helper
+//   could live is `src/`, i.e. production code no product needs. Both copies fail their own build on a new kind.
+static uint8_t push_kind_after(MESHROUTE_NS::PushKind k) {
+    using PK = MESHROUTE_NS::PushKind;
+    switch (k) {
+        case PK::msg_recv:       case PK::channel_recv:   case PK::send_acked:     case PK::send_failed:
+        case PK::send_e2e_acked: case PK::hash_resolved:  case PK::peer_key_cached: case PK::config_adopted:
+        case PK::join_refused:   case PK::send_blocked:   case PK::channel_sent:   case PK::mobile_reg:
+        case PK::team_reg:       case PK::join_adopted:   case PK::team_key_received:
+        case PK::team_channel_no_key: case PK::send_aired:
+            return uint8_t(uint8_t(k) + 1u);
+    }
+    return 0;
+}
+static uint8_t push_kind_count() {
+    uint8_t n = 0;
+    for (uint16_t v = 0; v <= 0xFF; ++v) {
+        const uint8_t a = push_kind_after(MESHROUTE_NS::PushKind(uint8_t(v)));
+        if (a > n) n = a;
+    }
+    return n;
+}
+
+// ★★★★ SPEC PIN 4 — ⛔ **EVERY OTHER PushKind WAKES NOTHING**, driven over the FULL enum rather than a sample. Each
+//      push is the DEFAULT one, i.e. `enc == false`, so `channel_recv` appears here as the CLEARTEXT case and must
+//      stay dark; `msg_recv` is the single kind that may light the panel.
+// ⓘ THE `>= 17` BELOW IS A **FLOOR, NEVER AN EQUALITY**: `PushKind` only ever APPENDS (the contract rule stated at
+//   every one of its last three enumerators), so the floor can only be exceeded. It is there to prove the sweep is
+//   not VACUOUS — ⛔ it does not pin the roster, and a new kind must never need it edited.
+TEST_CASE("ui17-wake: the full PushKind enum — only a DM wakes a dark panel with enc false") {
+    using PK = MESHROUTE_NS::PushKind;
+    const uint8_t n_kinds = push_kind_count();
+    int driven = 0, woke = 0;
+    for (uint8_t k = 0; k < n_kinds; ++k) {
+        UiModel m = dark_model(); UiInboxCounters c{};
+        SendTracker emg, normal;
+        MESHROUTE_NS::Push pu = push_of(PK(k));
+        ++driven;
+        // The device routes a non-RX kind to the SEND half; both are driven so nothing wakes through the other door.
+        if (!ui_route_recv_push(c, m, pu, 0, /*same_team_post=*/true, "x", 40000))
+            (void)ui_route_send_push(emg, normal, m, pu, 40000);
+        if (!m.state().blanked) { ++woke; CHECK(PK(k) == PK::msg_recv); }
+    }
+    CHECK(driven == int(n_kinds));                          // ⛔ the whole enum, not a sample...
+    CHECK(n_kinds >= 17);                                   // ...and the sweep is not vacuous (a FLOOR, see above)
+    CHECK(woke   == 1);                                     // ★ and exactly ONE kind of it lights the panel
+}
+
+// ★★★★ SPEC PIN 5 — ⛔ **THE GATE GOVERNS THE WAKE AND NOTHING ELSE.** Every arm's counters, stamps and repaint
+//      request are what they were before this slice: a cleartext post is still unread, still counted, and still
+//      repaints a LIT panel. ⓘ Driven on a LIT model so `dirty` is about the arrival and not about the wake.
+TEST_CASE("ui17-wake: the counters and the repaint are UNCHANGED on every arm, sealed or not") {
+    struct Arm { const char* what; MESHROUTE_NS::Push pu; bool dm; };
+    MESHROUTE_NS::Push dm_clear  = push_of(MESHROUTE_NS::PushKind::msg_recv);
+    MESHROUTE_NS::Push dm_sealed = dm_clear; dm_sealed.enc = true;
+    const Arm arms[] = { { "DM cleartext",      dm_clear,                                        true  },
+                         { "DM sealed",         dm_sealed,                                       true  },
+                         { "post cleartext",    chan_post_enc(0, 0x1234ABCD, "hi", false),       false },
+                         { "post sealed",       chan_post_enc(0, 0x1234ABCD, "hi", true),        false } };
+    for (const Arm& a : arms) {
+        UiModel m; UiInboxCounters c{};
+        m.clear_dirty();
+        CHECK(m.state().blanked == false);                  // a LIT panel: the wake changes nothing observable here
+        CHECK(ui_route_recv_push(c, m, a.pu, 0, /*same_team_post=*/true, "Ana", 7000) == true);
+        CHECK(m.state().dirty == true);                     // ★ §B108: an arrival always asks for a repaint
+        CHECK((a.dm ? c.unread_dm() : c.unread_ch()) == 1u);
+        CHECK((a.dm ? c.last_dm_ms  : c.last_ch_ms)  == 7000u);
+        CHECK((a.dm ? c.have_dm     : c.have_ch)     == true);
+        CHECK((a.dm ? c.unread_ch() : c.unread_dm()) == 0u);  // ⛔ and never the other kind's counter
+    }
+}
+
+// ★★ THE COMPOSITION WITH §R1: an accepted REPLY still un-blanks through `on_reply`'s own path, and the S8 wake does
+//    not displace it — the sealed post that IS a distress answer both wakes the panel and moves the alarm, while the
+//    CLEARTEXT one on the same channel does neither (§F4's guard is `same_team_post`, and the wake's is `enc`).
+TEST_CASE("ui17-wake: a sealed teammate reply still becomes a REPLY, and a cleartext stranger still does neither") {
+    {   SendTracker emg; UiModel m = alarm_accepted(emg, /*ctr=*/77); UiInboxCounters c{};
+        m.on_tick([]{ UiSnapshot s{}; s.now_ms = 20000; return s; }());
+        m.on_tick([]{ UiSnapshot s{}; s.now_ms = 20000 + kEmgHoldMs + kBlankMs; return s; }());
+        CHECK(m.state().blanked == true);                   // the hold expired and the panel went dark
+        (void)ui_route_recv_push(c, m, chan_post_enc(0, 0x1234ABCD, "on my way", true), 0, true, "Ana", 90000);
+        CHECK(m.state().blanked == false);
+        CHECK(m.emergency()     == Emergency::reply);       // ★ §R1's path is untouched
+        CHECK(strncmp(m.reply_text(), "on my way", 9) == 0);
+    }
+    {   SendTracker emg; UiModel m = alarm_accepted(emg, /*ctr=*/77); UiInboxCounters c{};
+        m.on_tick([]{ UiSnapshot s{}; s.now_ms = 20000; return s; }());
+        m.on_tick([]{ UiSnapshot s{}; s.now_ms = 20000 + kEmgHoldMs + kBlankMs; return s; }());
+        CHECK(m.state().blanked == true);
+        (void)ui_route_recv_push(c, m, chan_post_enc(0, /*team=*/0, "hello everyone", false), 0, false,
+                                 "stranger", 90000);
+        CHECK(m.state().blanked == true);                   // ⛔ §8.15: a stranger's post does not light a dark panel
+        CHECK(m.emergency()     == Emergency::firing);      // ⛔ ...and it is still not a distress REPLY
+        CHECK(c.unread_ch()     == 1);                      // ...though it is still a message, and still counted
+    }
+}

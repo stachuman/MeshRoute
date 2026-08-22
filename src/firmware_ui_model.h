@@ -957,8 +957,11 @@ struct UiSnapshot {
     //   `own_fix` lands at **596**, inside the 596..599 pad that already sat before the 8-aligned
     //   `home_confirm_age_ms` — which does **not** move, still **600** — so the bool costs ZERO. The two `int32_t`
     //   then take **608** and **612** and cost their own 8. ⇒ `sizeof(UiSnapshot)` 608 -> **616**, and 616 needs no
-    //   tail pad at alignof 8. ⚠ Instantiated TWICE on the OLED envs plus a per-tick stack local, so that is ~+16 B
-    //   of static RAM and +8 B of loop-task stack. ⛔ Declared AFTER the age instead, the two int32 would still
+    //   tail pad at alignof 8. ⛔ CORRECTED 2026-08-22 (S5's ELF inspection disproved the premise): ~~"Instantiated
+    //   TWICE on the OLED envs plus a per-tick stack local, so that is ~+16 B of static RAM"~~ — the image holds
+    //   ONE static `UiSnapshot` (`s_frame_snap`); `s_model` embeds NONE (it takes one as a parameter). ⇒ S3's cost
+    //   is **~+8 B static and ~+8 B TRANSIENT loop-task stack** — read the doubling off the IMAGE, never infer it
+    //   from the freeze pattern. ⛔ Declared AFTER the age instead, the two int32 would still
     //   cost 8 but the bool would have opened a new hole — which is why the two halves sit where they do.
     //   ⓘ ⚠ **THE FOUR OFFSETS ABOVE ARE S3's OWN MEASUREMENT (2026-08-21) AND ARE KEPT AS WRITTEN**; every one of
     //     them moved +96 when §UI-17 S5 grew `TeamRow` (28 -> 40, x8 rows) ahead of them, so `own_fix` MEASURES
@@ -1718,6 +1721,38 @@ public:
     // and then asked for nothing, so a new message sat unshown until some UNRELATED gesture or timer happened to
     // invalidate the panel. The counts ride the STATUS BAR, which every screen draws, so this is not Inbox-specific.
     void mark_dirty() { _st.dirty = true; }
+    // ★★★★ §UI-17 S8 (owner-ruled 2026-08-20, spec §9 R-6/R-7) — **A RECEIVED MESSAGE LIGHTS THE PANEL.** THE ONE
+    //      ENTRY POINT, and the scope decision is ⛔ NOT here: `mrui::ui_route_recv_push` calls this from its
+    //      `msg_recv` arm unconditionally and from its `channel_recv` arm ONLY when `pu.enc` — a DM is addressed to
+    //      us either way, a CLEARTEXT channel post must NOT wake (§8.15's *"a stranger's post does not light a dark
+    //      panel"* survives BY CONSTRUCTION, R-7). This function is the EFFECT; the router owns the RULE.
+    // ★★★ IT USES A **SEPARATE** DEADLINE AND ⛔ NEVER WRITES `_last_input_ms`. That field is written only by a real
+    //      gesture and the first-tick seed, and a push postponing it would postpone whatever else it ever comes to
+    //      drive — which is exactly what the ruling forbids. ⇒ `_msg_wake_until_ms` + `wake_active()`, read beside
+    //      `hold_active()` in `blank_due`, so S2 and S8 are ORDER-INDEPENDENT: the two modal deadlines behave
+    //      identically whether or not S2 has landed. **The window is `kBlankMs` measured from the MESSAGE's own
+    //      arrival** (the ruling's *"the standard blank timeout re-applies after the wake"*); ⛔ no second constant.
+    // ⓘ WHY NOT `on_reply`'s trick of relying on an existing deadline: `on_reply` needs none because
+    //   `kEmgHoldMs > kBlankMs` keeps the panel lit through `hold_active`. A plain message has no hold, so clearing
+    //   `blanked` alone would blank again on the very next tick — a one-frame flash. Stated because that is the
+    //   tempting one-line version of this slice.
+    // ⛔⛔ IT NAVIGATES NOTHING (spec pin 6, the [[B233]] class): no screen, no cursor, no list view, no selection, no
+    //     `*_pick_gone`, no modal, no transient note — the wake lights **the CURRENT screen**, whatever it is, which
+    //     is what makes it safe to combine with §3.3's retention. ⛔ AND IT WRITES NO EMERGENCY FIELD (pin 7): if an
+    //     alarm state is up the panel lights showing the alarm, which is the safety-first answer.
+    // ★★ THE UNBLANK GOES THROUGH `unblank` (U1) — §UI-17 S2 made that **THE ONE WAY OUT OF `blanked`** precisely so
+    //    the display cadence restarts with the light: without the restart `_detail_page_at_ms` is still the pre-blank
+    //    stamp and the waking pass ITSELF turns the page of a retained modal before a single frame has shown the
+    //    operator what they came back to. A message wake owes that exactly as a press and a reply do ([[B223]]: a
+    //    guard installed only where the defect was first seen is not a guard).
+    // ⛔ A WAKE ON AN ALREADY-LIT PANEL MOVES **ONLY THE DEADLINE** (pin 10): no repeat power command (the board
+    //   latches it and the frame gate is the only thing that talks to the panel), and ⛔ no cadence restart either —
+    //   a reader mid-page is not interrupted by traffic. `dirty` is the ROUTER's, on every arm, unchanged (pin 5).
+    void on_msg_wake(uint32_t now_ms) {
+        _msg_wake_until_ms = now_ms + kBlankMs;
+        _msg_wake_armed = true;
+        if (_st.blanked) { unblank(now_ms); _st.dirty = true; }
+    }
     // ★ TWO independent slots, emergency first. One shared slot would let a normal compose action OVERWRITE a queued
     // alarm, and (with the tick's in-flight gate) serialise the emergency behind a DM awaiting its e2e ack — which
     // defeats "long press fires from any screen". Normal work never touches the emergency slot. Spec §2.1.
@@ -2177,7 +2212,23 @@ protected:
 
     UiState  _st{};
     uint32_t _last_input_ms = 0;
+    // ★★ §UI-17 S8 — THE MESSAGE WAKE's OWN DEADLINE, beside the panel's other display clock and ⛔ deliberately NOT
+    //    inside it: `_last_input_ms` means "the operator acted" and a push is not the operator (see `on_msg_wake`).
+    uint32_t _msg_wake_until_ms = 0;
     bool     _seeded = false;            // B65: _last_input_ms is meaningless until the first tick/gesture
+    // ★★★ §UI-17 S8 — **THE ARMED FLAG IS LOAD-BEARING, NOT FASTIDIOUS** (§B74's discipline, and here it is a real
+    //     defect rather than a principle): a wrap-safe "now < deadline" reads the initial 0 as a deadline **24.8 days
+    //     IN THE FUTURE** for every `now_ms > 2^31`. ⇒ without this flag a node that has simply been up for four
+    //     weeks and has received NOTHING would report a live wake for the next 24.8 days: the panel would never
+    //     blank, and — through `ui_allows_sleep`, which requires `blanked` — it would never light-sleep again. That
+    //     is spec pin 11 (*"quiet node: sleep unaffected"*) failing on the one node the ruling promises to leave
+    //     alone. ⛔ NO ARITHMETIC VALUE IS RESERVED instead; this is `_retry_armed`'s shape and its argument.
+    // ⚠ IT IS ONLY HALF THE GUARD, AND THE OTHER HALF IS IN `wake_active`: this flag never clears, so it says nothing
+    //   about a deadline that has EXPIRED — see the BOUND there, and the measured defect it closes.
+    // ⓘ MEASURED, NOT ASSUMED (spec §6 expected `+4`): the `uint32_t` above costs **ZERO** — it lands in existing
+    //   padding — and this `bool` costs the struct's whole 8-byte tail step on the host (`sizeof(UiModel)` 600 -> 608
+    //   with both; 600 with the deadline alone). D2's warning applies in the usual direction for the board figure.
+    bool     _msg_wake_armed = false;
     SendReq  _req{};
     bool     _req_pending = false;
     bool     _emg_req_pending = false;   // separate slot: normal work can never clobber a queued alarm
@@ -3049,8 +3100,29 @@ private:
     // ⓘ It is a QUESTION, not an action: it moves nothing, so asking it early costs nothing and the transition below
     //   remains the only writer of `blanked`. ⇒ the deadline is unchanged and unmoved; only the ORDER of two effects
     //   on one tick is decided by it.
+    // ★★★★ §UI-17 S8 — **`!wake_active` IS THE THIRD TERM**, and it is `hold_active`'s shape verbatim (U3): a
+    //      DEADLINE compared wrap-safely, guarded by an ARMED flag so no arithmetic value is reserved (§B74). ⛔ It
+    //      is what makes the wake last a full attention window instead of one frame — see `on_msg_wake`.
+    // ⓘ ONE predicate, TWO readers, exactly as `blank_due`'s own note says: the wake therefore also keeps the detail
+    //   page cadence running (a lit panel turns its pages), and it re-blanks `kBlankMs` after the MESSAGE, not after
+    //   the operator's last press — the two clocks stay independent in both directions.
+    // ⓘ THE EDGE IS THE PRESS's, NOT `hold_active`'s, AND THE ONE-LINE DIFFERENCE IS DELIBERATE: `left != 0` excludes
+    //   the instant the deadline ARRIVES, so a message-woken panel blanks on exactly the tick a press-woken one would
+    //   (`elapsed(now, _last_input_ms) >= kBlankMs` fires AT the edge). Spec pin 9 is that edge, to the millisecond.
+    // ★★★★ AND THE WINDOW IS **BOUNDED ABOVE**, WHICH IS NOT DECORATION — ⛔ MEASURED, in the probe, before it could
+    //      reach metal: `hold_active`'s bare "now < deadline" is only wrap-safe for HALF the counter, so an EXPIRED
+    //      deadline reads as a FUTURE one again once `now` has run 2^31 ms past it. ⇒ a node that received ONE
+    //      message and then nothing would stop blanking ~24.8 days later, for the next ~24.8 days — the F-10 power
+    //      regression arriving from the clock instead of from the traffic. `hold_active` is immune only because its
+    //      `retained` term clears; this predicate's `_msg_wake_armed` never does, so the BOUND is what closes it: a
+    //      live window is at most `kBlankMs` ahead, by construction, and anything further is a stale deadline.
+    bool wake_active(uint32_t now_ms) const {
+        const uint32_t left = elapsed(_msg_wake_until_ms, now_ms);          // deadline - now, wrap-safe
+        return _msg_wake_armed && left != 0 && left <= kBlankMs;            // i.e. now < deadline, at most one window
+    }
     bool blank_due(const UiSnapshot& s) const {
-        return !_st.blanked && !hold_active(s.now_ms) && elapsed(s.now_ms, _last_input_ms) >= kBlankMs;
+        return !_st.blanked && !hold_active(s.now_ms) && !wake_active(s.now_ms) &&
+               elapsed(s.now_ms, _last_input_ms) >= kBlankMs;
     }
     void close_detail() {
         _st.detail = InboxModal::closed;

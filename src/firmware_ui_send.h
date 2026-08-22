@@ -540,12 +540,33 @@ inline bool ui_route_recv_push(UiInboxCounters& c, UiModel& m, const MESHROUTE_N
         //    to the three digits the bar can draw. See `UiInboxCounters` for the wraparound argument.
         ++c.arr_dm;
         m.mark_dirty();                       // ★ §B108: the counts moved -> the STATUS BAR is stale on every screen
+        // ★★★★ §UI-17 S8 (owner-ruled 2026-08-20, §9 R-7) — **A DM DELIVERED TO US LIGHTS THE PANEL, SEALED OR NOT.**
+        //      ⛔ THE CHANNEL ARM's `enc` GATE MUST NOT BE COPIED HERE: this message is ADDRESSED TO US, and gating it
+        //      on `pu.enc` would silence an unsealed DM — the half-applied shape an `enc == true` fixture alone would
+        //      never see (it has its own mutation). ⓘ `pu.enc` on this path is `crypted_ok` (node_mac_rx.cpp:1758).
+        //      ⓘ This is a WAKE and nothing else: it navigates nothing and writes no emergency field (see
+        //      `UiModel::on_msg_wake`), so §B114's ruling above — a DM is NOT emergency confirmation — is untouched.
+        m.on_msg_wake(now_ms);
         return true;
     }
     if (pu.kind != PK::channel_recv) return false;
     c.last_ch_ms = now_ms; c.have_ch = true;
     ++c.arr_ch;                               // ★★ §B108 round 2: uncapped, exactly as above
     m.mark_dirty();
+    // ★★★★ §UI-17 S8 — **ONLY A POST THAT ARRIVED *SEALED* WAKES THE PANEL**, and `pu.enc` IS THE WHOLE SAFETY
+    //      ARGUMENT (spec §1.9 F-9, ruling §9 R-7). The three delivery cases, measured at `node_channel.cpp:405-419`
+    //      rather than argued: an UNDECRYPTABLE/foreign post is not `readable`, so it is never inboxed and emits ⛔ NO
+    //      PUSH AT ALL — nothing here could wake for it; a post WE OPENED with our channel key arrives `enc = true`
+    //      (`:415`) ⇒ it wakes; and a CLEARTEXT post on a matching channel id — the one case that delivers from
+    //      OUTSIDE our key — arrives `enc = false` ⇒ ⛔ it must NOT wake. ⇒ §R1/[[B109]]'s *"a stranger's post does
+    //      not light a dark panel"* (bench §8.15) survives BY CONSTRUCTION, and nothing about it is withdrawn.
+    // ⛔ THE GATE GOVERNS THE **WAKE** AND NOTHING ELSE: the counters and `mark_dirty()` above are unconditional, so a
+    //   cleartext post still counts as unread and still repaints a LIT panel. Moving this line above them — or above
+    //   the kind gate — is the tempting simplification and it is wake-on-any-push wearing a scope's clothes.
+    // ⛔ It is deliberately NOT also gated on the team-channel scope below: `enc` already means "opened with a key we
+    //   hold", which is the ruling's exposure — the operator's own team's sealed traffic. The scope below is
+    //   `on_reply`'s (§4.4), and a wake is not a distress confirmation.
+    if (pu.enc) m.on_msg_wake(now_ms);
     // Spec §4.4: ONLY a post on our own team's channel qualifies. The model applies the rest of the guard — a state
     // whitelist plus "at least one alarm was actually transmitted" (`on_reply`).
     // ★★ §R1 (OWNER-RULED 2026-08-05): an ACCEPTED reply also UN-BLANKS the panel, and that happens inside `on_reply`

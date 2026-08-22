@@ -913,10 +913,11 @@ if [ "${1:-}" != "--no-neg" ]; then
   #   inversions); C100-C104 are the PRODUCTION HANDOFF and the FRAME FREEZE, which P17 measures.
   # ⓘ COUNT CORRECTED IN PLACE 2026-08-21: this header said "C96-C98 / three controls" while the block already held
   #   four. The figure is now the range and it is re-read from the block, not remembered.
-  # ⛔ C96 THE MARK NEVER DRAWN. S6 is about to put real artwork in that slot; a renderer that reserved nothing would
-  #    look correct today and clip the artwork the moment it lands. P14a's screen-dependent census is what sees it.
+  # ⛔ C96 THE MARK NEVER DRAWN. ⓘ RE-POINTED BY §UI-17 S6 at the `draw_bitmap` that replaced S3's placeholder rect
+  #    — the control is the SAME question (does the reserved slot get drawn at all?) asked of the line that now
+  #    answers it. P14a's screen-dependent census is what sees it, through the asset's pointer identity.
   ctl "C96 the reserved 24x24 mark is never drawn (the slot vanishes)" yes \
-      's|    mrui::draw_rect(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH);|    ;|'
+      's|    mrui::draw_bitmap(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH, mrui::icons::kMarkMeshRoute);|    ;|'
   # ⛔⛔ C97 IS THE ONE SPEC §2.1 NAMES: rows 0-2 drawn at the BODY origin, i.e. straight through the reserved slot.
   #     It is the tempting edit ("one body_text for all five rows, the way every other screen does it"), it leaves
   #     every native case and every uistatus mutation green, and on glass it puts three lines of text ON TOP of the
@@ -930,10 +931,10 @@ if [ "${1:-}" != "--no-neg" ]; then
       's|    mrui::ui_status_unread_home(l, sizeof l, s);  body_text(3, l);|    mrui::ui_status_unread_home(l, sizeof l, s);  status_text(3, l);|'
   # ⓘ C99 IS C96's INVERSION and it is what makes *"an ordinary screen's body draws no rect of its own"* mean
   #   something: without it that check is negative space no mutation could move. The edit is the tempting one —
-  #   "the mark is branding, put it in the chrome beside the strip" — and it draws a 24x24 box straight through the
+  #   "the mark is branding, put it in the chrome beside the strip" — and it draws the 24x24 mark straight through the
   #   TEAM roster and the INBOX list on every screen but the one it belongs to.
   ctl "C99 the mark is drawn in the chrome, so EVERY screen shows it" yes \
-      's|    mrui::draw_hline(0, kBarRuleY, 128);|    mrui::draw_hline(0, kBarRuleY, 128);\n    mrui::draw_rect(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH);|'
+      's|    mrui::draw_hline(0, kBarRuleY, 128);|    mrui::draw_hline(0, kBarRuleY, 128);\n    mrui::draw_bitmap(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH, mrui::icons::kMarkMeshRoute);|'
   # ⛔⛔ C100/C101 ARE THE HANDOFF ITSELF, and they are the controls this slice SHIPPED WITHOUT until QG found the
   #   hole. The five rows are pure, natively pinned and mutation-covered — but every one of those instruments calls
   #   `mrui::ui_status_*` DIRECTLY. Drop the call from this file, or point it at the wrong baseline, and the whole
@@ -1043,6 +1044,51 @@ if [ "${1:-}" != "--no-neg" ]; then
   #      than a promise.
   ctl "C118 the renderer transmits a request for a peer it has no position for" yes \
       's|        mrui::ui_team_row(l, sizeof l, here, s.team\[idx\], own);|        mrui::ui_team_row(l, sizeof l, here, s.team[idx], own); if (!s.team[idx].peer_loc_valid) { const uint8_t f_[8] = {0}; MESHROUTE_NS::TxParams p_; p_.sf = 8; (void)g_hal.tx(f_, sizeof f_, p_); }|'
+
+  # ==================================================================================== §UI-17 S8: C119-C120, THE WAKE
+  # ★★★★ THE [[B226]] SEAM ONE MORE TIME, AND THE SPEC NAMES IT: *"a control that hard-wires the wake must redden"*.
+  #   `test_firmware_ui_send.cpp` proves which push the PURE router lets through and `--target=uisend` proves the `enc`
+  #   gate is load-bearing — but a wake wired into `mr_ui_on_push`, the DEVICE entry point, leaves every one of those
+  #   instruments green (§B115: this TU is compiled by neither the native suite nor the simulator). P20's two negative
+  #   arms are the only thing in the tree that can see it.
+  # ⛔ C119 IS WAKE-ON-ANY-PUSH, i.e. the ruling's scope discarded at the one layer that can discard it silently: the
+  #    cleartext post and every other kind then light a dark panel, which is exactly §8.15's rule broken.
+  ctl "C119 the wake is hard-wired into the device push entry (wake-on-any-push)" yes \
+      's|    const uint32_t now = uint32_t(g_hal.now());|    const uint32_t now = uint32_t(g_hal.now()); s_model.on_msg_wake(now);|'
+  # ⛔ C120 IS THE OTHER DIRECTION and it is why the positive arms are not decoration: route the RX kinds through the
+  #    SEND half — the "one router, surely" simplification — and the panel never wakes for a message at all, while the
+  #    pure recv unit stays perfectly correct and perfectly unreached.
+  ctl "C120 the RX kinds are routed to the SEND half, so no message ever wakes the panel" yes \
+      's|            char who\[mrui::kLabelCap + 1\]; label_for_origin(pu, who, uint8_t(sizeof who));|            char who[mrui::kLabelCap + 1]; label_for_origin(pu, who, uint8_t(sizeof who)); (void)who; (void)mrui::ui_route_send_push(s_tracker_emg, s_tracker_normal, s_model, pu, now); if (true) break;|'
+
+  # ================================================================================= §UI-17 S6: C121-C122, THE MARK
+  # ★★★★ THE ASSET IS PURE AND ITS BYTES ARE PINNED NATIVELY (`test_firmware_ui_chrome.cpp`) AND ATTACKED BY
+  #   `--target=icons` — but NOTHING there can see WHERE this file draws it, or WHETHER IT DRAWS THAT ASSET AT ALL.
+  #   §B115 again: `src/firmware_ui.cpp` is compiled by neither the native suite nor the simulator. C96/C99 already
+  #   cover "never drawn" and "drawn on every screen"; these two cover the two ways a drawn mark can still be wrong.
+  # ⛔ C121 IS THE SLOT ABANDONED: the artwork lands at the TEXT origin, straight through rows 0-2. It is the exact
+  #    edit redesign-note §4.1 reserved a permanent slot to forbid, it leaves every native case and every `icons`
+  #    mutation green, and on glass it prints `TEAM ……` over the mark. P14a's exact-rect term is the witness.
+  ctl "C121 the mark is drawn at the STATUS text origin (through rows 0-2)" yes \
+      's|    mrui::draw_bitmap(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH, mrui::icons::kMarkMeshRoute);|    mrui::draw_bitmap(kStatusTextX, kStatusMarkY, kStatusMarkW, kStatusMarkH, mrui::icons::kMarkMeshRoute);|'
+  # ⛔ C122 IS THE WRONG ASSET AT THE RIGHT PLACE — a copy-paste from the strip's draw calls two screens up. Every
+  #    coordinate is correct, a 24x24 record appears in the census, and the panel shows a 24x24 field of garbage
+  #    (a 7-px glyph's 14 bytes read as 72). ⇒ this is what makes P14a's POINTER-IDENTITY term load-bearing rather
+  #    than decoration; without it "a 24x24 bitmap at 12,12" is satisfied by any pointer at all.
+  ctl "C122 the mark slot is drawn with a STRIP glyph (right place, wrong bytes)" yes \
+      's|    mrui::draw_bitmap(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH, mrui::icons::kMarkMeshRoute);|    mrui::draw_bitmap(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH, mrui::icons::kIconBattery);|'
+  # ⛔⛔ C123/C124 ARE THE **INCOMPLETE SWAP**, and they exist because S6 REMOVED a draw: `body_rects_on_page` used to
+  #     be reddened on both arms of its split by S3's placeholder (C96 took it away, C99 spread it everywhere), and a
+  #     check whose only control disappeared with the code it watched is negative space. ⇒ the placeholder comes back
+  #     as a MUTATION, in the two places a half-done swap leaves it. ⓘ It is the likeliest S6 defect of all: adding
+  #     the bitmap is the visible half of the job, deleting the rect is the half nobody looks at.
+  ctl "C123 S6's swap is HALF DONE: the placeholder rect is still drawn behind the artwork" yes \
+      's|    mrui::draw_bitmap(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH, mrui::icons::kMarkMeshRoute);|    mrui::draw_rect(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH);\n    mrui::draw_bitmap(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH, mrui::icons::kMarkMeshRoute);|'
+  # ⛔ C124 IS THE SAME LEFTOVER ONE LAYER OUT — "show the reservation on every screen while the art is interim" —
+  #    and it is the ONLY control that can redden *an ordinary screen's body draws no rect of its own*, which is the
+  #    other arm of the census split. Without it that term measures nothing at all.
+  ctl "C124 the leftover placeholder drifts into the chrome (every screen shows an empty reserved box)" yes \
+      's|    mrui::draw_hline(0, kBarRuleY, 128);|    mrui::draw_hline(0, kBarRuleY, 128);\n    mrui::draw_rect(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH);|'
 
   # ================================================================================= [[B225]]: L1-L9, THE `v3` ARM's
   # ★★★★ THE CONTROLS FOR `draw_provision_screen` ITSELF, AND THEY EXIST ONLY HERE because the screens they mutate are

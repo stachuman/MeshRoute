@@ -318,7 +318,7 @@ struct Push {
     uint8_t  channel_id = 0;   // channel_recv only
     uint8_t  layer_id = 0;     // msg_recv/channel_recv: the FULL 8-bit receiving layer id (§2/Q13 — disambiguates origin across a gateway's leaves)
     uint8_t  origin_layer = 0; // §GapA (cross-layer mobile): msg_recv — the SENDER's layer (layer_ids[0] of the preserved XL path; 0 = same-layer/non-XL). Lets the recipient build the (layer_path, hash) REPLY address; JSON omit-when-0.
-    bool     enc = false;      // §8b: msg_recv -> the DM was delivered SEALED (CRYPTED + opened); channel_recv -> false (cleartext today)
+    bool     enc = false;      // §8b: msg_recv -> the DM was delivered SEALED (CRYPTED + opened); channel_recv -> the post arrived SEALED and was opened with our channel key (node_channel.cpp:415 — ⛔ the "false (cleartext today)" this said was falsified by §chan-crypt CL2a; §UI-17 S8 makes the field load-bearing for the panel)
     bool     blocked_channel = false;  // send_blocked: true => "channel", false => "dm"
     bool     relayed = false;          // channel_sent: a relay of our channel post was overheard (true) or the re-offer exhausted (false).
                                        // ⚠ §b38: PLANE-DEPENDENT MEANING — see the PushKind::channel_sent note above.

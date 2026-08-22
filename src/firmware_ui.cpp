@@ -783,10 +783,11 @@ static_assert(int(mrui::kTeamRowCols) == kBodyCols,
 void body_text(int row, const char* s) { mrui::draw_text(kBodyX, body_y(row), s); }
 
 // ======================================================== §UI-17 S3 / spec §2.1 — THE STATUS BODY'S RESERVED MARK
-// ★★★ THE SLOT IS RESERVED **NOW** SO THE ARTWORK CAN LAND LATER WITHOUT MOVING A PIXEL OF TEXT. S3 draws a
-//     `draw_rect` placeholder; S6 replaces it with a native 24x24 monochrome XBM (72 B of `.rodata`, or an accepted
-//     16x16 centred inside the same slot) and ⛔ moves no geometry and no text — that is the whole point of
-//     reserving it. ⛔ NO RUNTIME SCALING, ever.
+// ★★★ THE SLOT WAS RESERVED SO THE ARTWORK COULD LAND WITHOUT MOVING A PIXEL OF TEXT, AND IT HAS (S6, 2026-08-22).
+//     S3 drew a `draw_rect` placeholder; S6 replaced it with the native 24x24 monochrome XBM `icons::kMarkMeshRoute`
+//     (72 B of `.rodata`, RAM 0) at THESE FOUR NUMBERS, unchanged — no geometry and no text moved. ⛔ NO RUNTIME
+//     SCALING, ever. ⓘ The asset itself is INTERIM by owner ruling 2026-08-22; the final mark is a pure byte swap
+//     inside `firmware_ui_icons.h` and touches nothing in this file.
 // ★★ AND THE TEXT ORIGIN IS THE SLOT's CONSEQUENCE, not an independent number: rows 0-2 clear the mark at `x = 40`
 //    and therefore have 88 px = **14** columns, while rows 3-4 sit below it and keep the body's own 19 at `kBodyX`.
 //    ⛔ The two column budgets are `mrui::kStatusNarrowCols` / `kStatusWideCols` — declared beside the strings they
@@ -805,6 +806,12 @@ static_assert(int(mrui::kStatusWideCols) == kBodyCols,
               "spec §2.1: rows 3-4 are ordinary body rows — one width, not a second literal");
 static_assert(kStatusMarkY + kStatusMarkH - 1 <= 59,
               "design §3.2: the body ends at y = 59; the mark may not reach past it");
+// ★ ONE AUTHORITY FOR THE MARK'S SIZE (U1). The slot's numbers and the asset's own declared dimensions must agree
+//   or the draw is a lie in one direction or the other — a wider asset spills into the text, a narrower one leaves
+//   the reservation over-sized. ⛔ This is what makes "the final artwork is a pure byte swap" enforceable rather
+//   than merely asserted: a replacement of a different SIZE stops the build here instead of shipping.
+static_assert(kStatusMarkW == int(mrui::icons::kMarkW) && kStatusMarkH == int(mrui::icons::kMarkH),
+              "§UI-17 S6: the reserved slot and the mark asset must state the SAME dimensions");
 static_assert(int(mrui::kStatusLineCap) <= kLineCap,
               "the STATUS formatters are handed a kLineCap buffer — it must be at least their own bound");
 // The narrowed rows' draw. ⛔ A row whose string is EMPTY draws NOTHING rather than an empty text record: `NO TEAM`
@@ -1092,8 +1099,10 @@ void draw_rail(const mrui::UiChrome& c) {
 //   row 3  x=12, <=19  `99+ NEW / HOME 59m`                            18
 //   row 4  x=12, <=19  `-89.123,-179.123`                              16   (`RESTART NEEDED` is 14)
 void draw_status_screen(const mrui::UiSnapshot& s, const SettingsView& c) {
-    // §2.1's reserved slot. S6 swaps this one call for `draw_bitmap` of the real 24x24 mark; ⛔ nothing else moves.
-    mrui::draw_rect(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH);
+    // §2.1's reserved slot, now carrying the ARTWORK (§UI-17 S6). ⛔ The four numbers are unchanged from S3's
+    // placeholder — that is the whole point of having reserved the slot — and the asset is INTERIM (owner ruling
+    // 2026-08-22): the final mark replaces `kMarkMeshRoute`'s 72 bytes and NOTHING here.
+    mrui::draw_bitmap(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH, mrui::icons::kMarkMeshRoute);
     char l[kLineCap];
     mrui::ui_status_team(l, sizeof l, s);         status_text(0, l);
     mrui::ui_status_me(l, sizeof l, s);           status_text(1, l);

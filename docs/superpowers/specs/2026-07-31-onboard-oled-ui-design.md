@@ -469,8 +469,10 @@ envelope. Both removals are OWNER-ACCEPTED (2026-08-20) and ⛔ no slice may re-
 FROZEN snapshot's own-location fields — never a live config read (the S3 tear fix; probe P17b holds the frame).
 
 TEAM shows one row per teammate: a display label resolved through `team_key_of_id()` → `peer_name_find()`, falling
-back to `0x<hash>` and then the bare team id — **clamped to SIX columns** — plus its **ROUTE/KNOWN age** and two
-reserved BLANK columns for distance and direction (§UI-17 S5). ⛔ **CORRECTED IN PLACE 2026-08-21 (§UI-17 S4): the
+back to `0x<hash>` and then the bare team id — **clamped to SIX columns** — plus its **ROUTE/KNOWN age** and the **distance and direction columns, FILLED
+since §UI-17 S5** from the existing authenticated peer-location cache — and BLANK whenever our fix, the peer's
+cache entry, or its 600 s freshness is missing (⛔ never a stale or estimated value). ⛔ **Corrected 2026-08-22:
+this read "two reserved BLANK columns for distance and direction (§UI-17 S5)" — true between S4 and S5 only.** ⛔ **CORRECTED IN PLACE 2026-08-21 (§UI-17 S4): the
 withdrawn wording read *"plus last-heard age, signal quality and hops"*.** HOPS left the row BY RULING (the
 19-column format `%c%-6.6s %3s %4s %2s` has no room, and `routes` on the console still carries it); **"signal
 quality" was never on the panel** — `TeamRow::score_q4` is written by `build_snapshot` and read by nothing in
@@ -478,8 +480,9 @@ quality" was never on the panel** — `TeamRow::score_q4` is written by `build_s
 refactor slice (C1). ⚠ And it is **ROUTE age, never "last heard"**: it comes from the primary route candidate's
 `last_seen_ms`, so on a multihop path somebody *else* heard that teammate. When `rt_team_count()`
 exceeds `kMaxTeamRows`, the screen shows the true total and a truncation marker (`3/12`) — it must never present
-the cap as the team size. **Phase B adds a distance column on V4**, rendered only when both our fix and the peer's
-location are known and fresh — omitted, never estimated (§10.3).
+the cap as the team size. ⛔ **Corrected 2026-08-22 (was: "Phase B adds a distance column on V4"): the COLUMN landed in Phase A (§UI-17
+S5), over the cache, exactly under the known-and-fresh-or-omitted rule; Phase B adds a live GPS SOURCE for our
+own fix and any NEW peer-location propagation** (§10.3).
 
 ⛔ **SUPERSEDED:** the pre-CHROME implementation used a full-width 21-column body, a textual
 `DM… CH… B* …V` top row, and `CFG* UNSAVED` / `CFG! RELOAD` on STATUS. Those placements are historical and must
@@ -969,6 +972,20 @@ blanks with the state retained. ⓘ **Deliberately unruled and therefore unimple
 `not_heard` / `failed` outcome arriving at a dark panel does **not** wake it. Widening the wake to the other retained
 outcomes is an open owner question, not a coder's call.
 
+★★ **AMENDED 2026-08-22 BY §UI-17 S8 (owner-ruled 2026-08-20, spec §9 R-6/R-7) — THE WAKE IS WIDER THAN "A REPLY",
+AND ⛔ NOTHING IN R1 IS WITHDRAWN.** R1's *"it is not wake-on-any-push — what wakes is a post §4.4 accepts as an
+answer"* was exhaustive when written and is now **one of three**: the panel also wakes for **a DM delivered to us**
+(`msg_recv`, sealed or not — it is addressed to us) and for **a channel post that arrived SEALED and was opened
+with our channel key** (`channel_recv` with `Push::enc`). ⛔ A **CLEARTEXT** post — including the stranger's
+channel-0 post this ruling names — still does not light the panel, and an undecryptable/foreign post emits no push
+at all (`node_channel.cpp:405-419`) ⇒ *"a stranger's channel-0 post must not light the panel"* holds **BY
+CONSTRUCTION**, and bench §8.15 needs no edit (verified). ⓘ R1's *"the wake invents no second window"* is true of
+the REPLY path only: a plain message has no `kEmgHoldMs` hold, so S8 carries its **own** deadline
+(`_msg_wake_until_ms`, one `kBlankMs` from the message — window-BOUNDED against deadline-wrap revival, [[B239]]) —
+⛔ still no new constant. ⓘ Unchanged: a `blocked`/`picked_up`/`not_heard`/`failed` outcome arriving at a dark
+panel still does not wake it. ⚠ Cost accepted for v1 with ⛔ no rate limiter (spec §9 R-6): one attention window of
+lit panel **and** of suppressed light sleep per message (F-10), measured at spec §7.8 step 4 / bench Part 34.
+
 ★★ **R2 OWNER RULING 2026-08-05 — A DOUBLE PRESS UNDER THE EMERGENCY OVERLAY IS IGNORED ENTIRELY.** The overlay
 **absorbs** it: **no** emergency action (consistent with B71's *"double gets no emergency job"*), **no** operation of
 the screen underneath, **no** dismiss, **no** re-fire. ⇒ this closes a hidden mis-send: the overlay owns the body, so
@@ -1257,8 +1274,8 @@ Four consequences, none of which belong in a UI spec:
 
 **Ruling (owner, 2026-07-31): the V4 radio port is its own spec, and Phase A proceeds on V3 meanwhile.** Folding a PA/LNA switching path and a transmit-power semantics change into a display feature would violate C1 outright, and the tx_power item is a regulatory question that deserves its own decision record. Nothing in Phase A depends on it, because V3 has no FEM.
 
-### 10.3 GPS and distance — Phase B only
-⛔ **HEADING CORRECTED IN PLACE 2026-08-22 (§UI-17 S5): "Phase B only" is now TOO WIDE — the withdrawn scope was
+### 10.3 GPS source and NEW location propagation — Phase B (the DISPLAY landed in Phase A)
+⛔ **HEADING CORRECTED IN PLACE 2026-08-22 (§UI-17 S5) — it read "GPS and distance — Phase B only", now TOO WIDE — the withdrawn scope was
 the ENTIRE distance column.** Since §UI-17 S5 the TEAM screen's **distance and direction columns are LIVE in
 Phase A**, filled opportunistically from the EXISTING authenticated peer-location cache (`peer_loc_find`) under
 the four-term show/blank rule with the 600 s freshness bound — zero wire, zero new traffic. **What remains Phase
@@ -1269,10 +1286,17 @@ Phase B adds, in this order:
 
 1. **A UART NMEA driver** behind a board-gated seam, on V4's `PIN_GPS_RX 38` / `PIN_GPS_TX 39`, with `PIN_GPS_EN 34` (active LOW) and `PIN_GPS_RESET 42` (active LOW) for power control. It must not block: NMEA arrives continuously and the parser has to be fed incrementally from the service loop, never with a blocking read — the same discipline §5 imposes on the panel and §7 on the battery.
 2. **Feed the fix into the existing location plumbing** rather than inventing a parallel one (U1): `lat_e7` / `lon_e7` already exist in `NodeConfig` and in the identity record, and a DM location piggyback already exists. A GPS fix should write the same fields `cfg set lat/lon` writes, so every existing consumer works unchanged.
-3. **Distance column on the TEAM screen**, shown only when both our fix and the peer's location are known and fresh; otherwise the column is omitted, never estimated. This follows the project rule already recorded for battery (`console_json.h:126`): an unavailable reading is omitted, never faked. A wrong distance in a safety context is worse than no distance.
+3. ~~**Distance column on the TEAM screen**~~ ✅ **LANDED IN PHASE A (§UI-17 S5, 2026-08-21)** — shown only when
+   both our fix and the peer's cached location are known and fresh (600 s); otherwise BLANK, never estimated —
+   exactly the omitted-never-faked rule this item stated (`console_json.h:126`). Phase B changes only the
+   SOURCES feeding it (a live GPS fix; any new propagation), never the column's rules.
 4. **Location in the emergency message** is already resolved for both phases (§4.1: include when available). Phase B changes only its *quality* — a live fix replaces a hand-typed coordinate — so no decision is outstanding, and the conditional `-l` written for Phase A needs no change.
 
-Peer location exchange is the open dependency: distance needs teammates' coordinates, and how those propagate on the team plane (beacon TLV, DM piggyback, or channel message) is not settled. That question belongs to the Phase B spec, not this one.
+⛔ **Corrected 2026-08-22:** ~~"Peer location exchange is the open dependency: distance needs teammates'
+coordinates"~~ — the OPPORTUNISTIC half is answered: the authenticated cache (sealed located DMs, attributed
+encrypted channel posts) already feeds the column with zero new traffic (§UI-17 S5). **What stays open for the
+Phase B spec is any NEW propagation** — periodic beacon TLV, DM piggyback cadence, or location requests — an
+airtime/privacy/wire decision this spec still does not make.
 
 ## 11. Flash / RAM budget and D2
 
@@ -1525,7 +1549,7 @@ ambiguity it names is still live** — see §2.1 rule 2 and §B84, which is the 
 | B-1 | V4 radio port: FEM TX/RX switching, runtime GC1109-vs-KCT8103L detection, LoRa RST 12, `SX126X_REGISTER_PATCH` | ✅ **spec'd**: `2026-08-01-heltec-v4-radio-port-and-board-rf-seam-design.md` (slices R1-R3) |
 | B-2 | `tx_power` semantics and per-board clamp — a compliance decision | ✅ **spec'd + RULED 2026-08-01** (= antenna dBm) — same spec, §4 + slice R4 |
 | B-3 | V4 board port for the UI: battery polarity fixed HIGH, the `delay(10)` restructured, Vext ACTIVE=HIGH | this spec's §7 + §10.1, applied to a new env |
-| B-4 | GPS driver + peer-location exchange + TEAM distance column | **new spec** (§10.3) |
+| B-4 | GPS driver + NEW peer-location propagation (⛔ corrected 2026-08-22: the TEAM distance COLUMN landed in Phase A, §UI-17 S5) | **new spec** (§10.3) |
 
 B-1 and B-2 must land before any V4 hardware is trusted on air. B-3 is small once B-1 exists. B-4 is the largest and depends on a decision this spec does not make (how peer locations propagate on the team plane).
 

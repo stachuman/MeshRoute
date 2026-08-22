@@ -32,6 +32,9 @@
 //   four `kIconSettings*`, 42 B). ⇒ **every asset has a real ODR-user and `nm` finds all fifteen in all three OLED
 //   images**; none is discarded by `--gc-sections`, and §11.2's *"linked and exercised"* bullet is CLOSED for the
 //   assets and for both canvas primitives. Flash cost is MEASURED throughout; **RAM cost is ZERO** (§8.1).
+// ⓘ AMENDED 2026-08-22 by §UI-17 S6: **SIXTEEN.** The sixteenth is `kMarkMeshRoute`, the STATUS body's 24x24 mark
+//   (72 B), drawn by `draw_status_screen` — so it too has a real ODR-user from the slice that adds it. ⛔ The count
+//   above is amended, not deleted (§3 rule 3): it read *"ALL FIFTEEN"* and was true until this asset landed.
 // ⛔ WITHDRAWN (§3 rule 3): the intervening wording said the six rail-only assets "still have no ODR-user" and were
 //   discarded until §CHROME-4 drew them. True when written; false now.
 // ⛔ WITHDRAWN WORDING, KEPT VISIBLE (§3 rule 3): this block previously read *"Nothing draws them yet — the canvas
@@ -239,6 +242,75 @@ inline constexpr uint8_t kIconSettingsConflict[7] = { 0x0E, 0x1F, 0x5B, 0x5F, 0x
 //   .....#.
 //   .....##
 inline constexpr uint8_t kIconSettingsRestart[7] = { 0x0E, 0x1F, 0x1B, 0x1F, 0x6E, 0x20, 0x60 };
+
+// ------------------------------------------------------------------- the STATUS body's MeshRoute mark (§UI-17 S6)
+// ★★★★ **INTERIM ARTWORK — OWNER RULING 2026-08-22.** This is a plain "MR" letterform standing in for the real
+//      MeshRoute mark, which the owner supplies later. ⇒ THE FINAL MARK REPLACES THESE 72 BYTES AND NOTHING ELSE:
+//      not `kMarkW`/`kMarkH`, not the slot (`kStatusMarkX/Y/W/H` in `src/firmware_ui.cpp`), not one text row, not
+//      the single `draw_bitmap` call site. A swap that had to move a coordinate would mean the slot was never
+//      reserved — which is the entire reason redesign-note §4.1 reserved it as a PERMANENT 24x24 before any
+//      artwork existed. ⛔ NO RUNTIME SCALING, ever: a 24x24 asset is drawn at 24x24 or it is re-authored.
+//      ⓘ Whoever lands the final artwork: re-author the ASCII art in this comment from the new bytes, and re-point
+//        the row-by-row decode case in `test/test_firmware_ui_chrome.cpp` plus the two `I0*` mark mutations in
+//        `tools/probe_ui_model_mutations.py` at it. Those are the only three places that read the picture.
+//
+// ⚠ STRIDE 3 — 24 px wide ⇒ every row is THREE bytes (`stride_of(24) == 3`), so this is the second asset here that
+//   is not one byte per row. `byte_count_of(24, 24) == 72`.
+// ★ ASYMMETRIC ON BOTH AXES BY CONSTRUCTION, which is what makes the decode test an instrument that CAN fail: a
+//   horizontal mirror puts the R first and reverses both letters, a vertical flip turns the M into a W and stands
+//   the R on its head, and an MSB-first authoring scrambles every 8-px run. A symmetric mark would pass all three.
+//   ........................
+//   ........................
+//   ........................
+//   ##.......##..#########..
+//   ###.....###..##########.
+//   ####...####..##......##.
+//   ##.##.##.##..##......##.
+//   ##..###..##..##......##.
+//   ##...#...##..##......##.
+//   ##.......##..##......##.
+//   ##.......##..##########.
+//   ##.......##..#########..
+//   ##.......##..##..##.....
+//   ##.......##..##...##....
+//   ##.......##..##...##....
+//   ##.......##..##....##...
+//   ##.......##..##.....##..
+//   ##.......##..##......##.
+//   ##.......##..##.......##
+//   ##.......##..##.......##
+//   ##.......##..##.......##
+//   ........................
+//   ........................
+//   ........................
+inline constexpr uint8_t kMarkW = 24;
+inline constexpr uint8_t kMarkH = 24;
+inline constexpr uint8_t kMarkMeshRoute[72] = {
+    0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00,
+    0x03, 0xE6, 0x3F,
+    0x07, 0xE7, 0x7F,
+    0x8F, 0x67, 0x60,
+    0xDB, 0x66, 0x60,
+    0x73, 0x66, 0x60,
+    0x23, 0x66, 0x60,
+    0x03, 0x66, 0x60,
+    0x03, 0xE6, 0x7F,
+    0x03, 0xE6, 0x3F,
+    0x03, 0x66, 0x06,
+    0x03, 0x66, 0x0C,
+    0x03, 0x66, 0x0C,
+    0x03, 0x66, 0x18,
+    0x03, 0x66, 0x30,
+    0x03, 0x66, 0x60,
+    0x03, 0x66, 0xC0,
+    0x03, 0x66, 0xC0,
+    0x03, 0x66, 0xC0,
+    0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00,
+};
 
 }  // namespace icons
 }  // namespace mrui

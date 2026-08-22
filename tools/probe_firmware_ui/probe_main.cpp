@@ -348,8 +348,10 @@ int rail_frames_on_page(int page = 0) {
     }
     return n;
 }
-// The rects the BODY drew — everything `[rect]` that is NOT the rail's selection frame. §UI-17 S3's STATUS mark is
-// the only one today; S6 replaces it with a real bitmap and this must then answer 0 on every screen.
+// The rects the BODY drew — everything `[rect]` that is NOT the rail's selection frame. ⓘ §UI-17 S3's STATUS mark
+// placeholder was the only one; S6 REPLACED IT WITH A REAL BITMAP, so this now answers 0 on EVERY screen, STATUS
+// included. ⛔ It is kept, not deleted: a body that starts drawing frames of its own is exactly what it exists to
+// catch (C99's "put the mark in the chrome" edit is the shipped example), and P14a asserts the 0 on both arms.
 int body_rects_on_page(int page = 0) {
     int n = 0;
     for (int i = 0; i < g_c.n_rec; ++i) {
@@ -799,6 +801,42 @@ void dirty_the_model(uint32_t now_ms) {
     pu.origin = 7; pu.sender_hash = 0xDEADBEEFu;
     pu.body[0] = 'h'; pu.body[1] = 'i'; pu.body_len = 2;
     mr_ui_on_push(pu);
+}
+
+// ★★★★ §UI-17 S8 — THE PushKind ROSTER'S SIZE, **ASKED OF THE COMPILER RATHER THAN TYPED IN** (QG, 2026-08-22).
+//      ⛔⛔ THE CLAIM THIS REPLACES WAS FALSE AS WRITTEN AND IS KEPT VISIBLE: P20d's bound was the enum's last member
+//      (`send_aired`) with the note *"a kind appended later cannot quietly fall outside what this arm drives"* — a
+//      hard-coded bound sweeps only the kinds that existed the day it was typed, and an 18th kind sails past it
+//      UNSWEPT while the prose says it cannot.
+// ★★★ THE MECHANISM IS A BUILD FAILURE, NOT A CONVENTION: the switch below has ⛔ **NO `default:`**, so a kind
+//      appended to `lib/core/command.h` makes it non-exhaustive — and `run.sh` compiles THIS FILE with
+//      `-Wall -Wextra -Werror`. ⇒ the probe harness **STOPS COMPILING, HERE**, on both arms, and the only way past it
+//      is to add the new kind's `case` label, which is the very act that grows the sweep. ⓘ Every arm is the SAME
+//      expression — "one past my own value" — so there is no ordinal to type wrong, and the maximum over the
+//      underlying type IS the count. ⓘ A non-enumerator value is well defined for a scoped enum with a fixed
+//      underlying type, so the 0..255 probe is legal; such values match no label and take the final `return 0`.
+// ⛔ `test/test_firmware_ui_send.cpp` carries its OWN copy, deliberately: the two instruments state their
+//    expectations independently (this file's standing rule), and a shared helper could only live in `src/`, i.e.
+//    production code no product needs. Each copy fails its own build on a new kind.
+uint8_t push_kind_after(MESHROUTE_NS::PushKind k) {
+    using PK = MESHROUTE_NS::PushKind;
+    switch (k) {
+        case PK::msg_recv:       case PK::channel_recv:   case PK::send_acked:      case PK::send_failed:
+        case PK::send_e2e_acked: case PK::hash_resolved:  case PK::peer_key_cached: case PK::config_adopted:
+        case PK::join_refused:   case PK::send_blocked:   case PK::channel_sent:    case PK::mobile_reg:
+        case PK::team_reg:       case PK::join_adopted:   case PK::team_key_received:
+        case PK::team_channel_no_key: case PK::send_aired:
+            return uint8_t(uint8_t(k) + 1u);
+    }
+    return 0;
+}
+uint8_t push_kind_count() {
+    uint8_t n = 0;
+    for (uint16_t v = 0; v <= 0xFF; ++v) {
+        const uint8_t a = push_kind_after(MESHROUTE_NS::PushKind(uint8_t(v)));
+        if (a > n) n = a;
+    }
+    return n;
 }
 
 // ★ BRING THE PANEL TO A KNOWN STATE and hand back the time it is in. Awake, no frame open, not dirty, throttle
@@ -2237,28 +2275,35 @@ int main() {
         // ★ THE WHOLE FRAME'S NON-TEXT TALLY, which is what a sixth rail glyph or a second selection frame moves and
         //   neither of the two scoped counters above would: 5 strip glyphs + 5 rail glyphs + 1 selection frame.
         // ⛔⛔ RE-POINTED BY §UI-17 S3, ⛔ NOT WEAKENED. `bitmaps_on_page` counts EVERY non-text record, `draw_rect`
-        //   included, and the STATUS body now draws one. ⇒ the expectation is SCREEN-DEPENDENT: an ordinary screen
-        //   still owes exactly 11 (asserted here, on INBOX) and STATUS owes exactly 12, with the twelfth pinned at
-        //   its own `12,12,24,24` immediately below. ⛔ A relaxation to `>= 11` would be the
+        //   included, and the STATUS body draws one more than the rest. ⇒ the expectation is SCREEN-DEPENDENT: an
+        //   ordinary screen still owes exactly 11 (asserted here, on INBOX) and STATUS owes exactly 12, with the
+        //   twelfth pinned at its own `12,12,24,24` immediately below. ⛔ A relaxation to `>= 11` would be the
         //   instrument-that-cannot-fail shape; the number stays EXACT on both arms of the split.
         CHK("P14a the frame draws exactly 5 + 5 glyphs and 1 frame", bitmaps_on_page(0) == 11);
         CHK("P14a ...and an ordinary screen's body draws no rect of its own", body_rects_on_page(0) == 0);
-        // ---- (a2) §UI-17 S3 — THE STATUS BODY's RESERVED 24x24 MARK -----------------------------------------------
-        // ★★ S6 replaces this `draw_rect` with the real artwork at the SAME four numbers; the point of reserving the
-        //    slot is that nothing else moves when it does. ⓘ The mark is a body draw and must never be mistaken for
-        //    the rail's selection frame — hence the geometry, not merely the count.
+        // ---- (a2) §UI-17 S6 — THE STATUS BODY's 24x24 MARK, NOW THE REAL ASSET -------------------------------------
+        // ★★★★ RE-POINTED BY §UI-17 S6, ⛔ NOT WEAKENED, and the re-point is the MEASUREMENT of the slice: S3 drew a
+        //      `draw_rect` placeholder in this slot and S6 draws `icons::kMarkMeshRoute` there instead. ⇒ the census
+        //      MOVES in exactly two ways and both are asserted: `body_rects_on_page(0)` **1 -> 0** (the placeholder
+        //      rect is gone from every screen, STATUS included) while `bitmaps_on_page(0)` **stays 12** — that
+        //      counter tallies EVERY non-text record, rect or glyph, so the twelfth record changed KIND, not count.
+        // ★★ THE MARK'S EXACT RECT IS STILL ASSERTED, through the bitmap record instead of the rect record, and with
+        //    the asset's POINTER IDENTITY added on top — the same standard `bitmap_at` holds the strip's glyphs to.
+        //    ⛔ "a 24x24 bitmap appeared at 12,12" would pass against any icon in the header drawn at the wrong size.
+        // ⓘ The mark is a BODY draw and must never be mistaken for the rail's selection frame — hence the geometry,
+        //   and hence `rail_glyphs_on_page`'s x-band scoping, which the mark at x=12 stays outside of.
         {
             t16 = walk_to_slot(t16 + 500, kSlotStatus);
-            CHK("P14a STATUS draws exactly ONE more non-text record",
-                bitmaps_on_page(0) == 12 && body_rects_on_page(0) == 1);
+            CHK("P14a STATUS draws exactly ONE more non-text record, and NO body rect at all",
+                bitmaps_on_page(0) == 12 && body_rects_on_page(0) == 0);
             bool mark_ok = false;
             for (int i = 0; i < g_c.n_rec; ++i) {
                 const Canvas::Rec& r = g_c.rec[i];
-                if (r.is_text || r.page != 0 || r.bits != nullptr) continue;
+                if (r.is_text || r.page != 0 || r.bits != mrui::icons::kMarkMeshRoute) continue;
                 if (r.x == kStatusMarkXExpected && r.y == kStatusMarkYExpected &&
                     r.w == kStatusMarkWExpected && r.h == kStatusMarkHExpected) mark_ok = true;
             }
-            CHK("P14a ...and it is the 24x24 mark at 12,12", mark_ok);
+            CHK("P14a ...and it is the MeshRoute mark ASSET, at 24x24 on 12,12", mark_ok);
             CHK("P14a ...and STATUS still boxes exactly ONE rail slot",
                 rail_frames_on_page(0) == 1 && rail_boxed_slot() == kSlotStatus);
             // ⛔ THE POSITIVE TERM FOR THE NARROWED GEOMETRY, read through the sibling row reader at `x = 40`: row 0
@@ -3153,6 +3198,152 @@ int main() {
             t20 = settle(t20 + 1000);
         }
         (void)t20;
+    }
+
+    // ============================================================================================================ P20
+    // ★★★★ §UI-17 S8 — **WAKE ON RECEIVE, THROUGH THE PRODUCTION SEAM**, and it is the [[B226]] handoff again:
+    //      `test_firmware_ui_send.cpp` proves which push the pure router lets through and `--target=uisend` proves the
+    //      `enc` gate is load-bearing, but every one of those instruments calls the pure unit DIRECTLY. `mr_ui_on_push`
+    //      (`src/firmware_ui.cpp`) is compiled by neither the native suite nor the simulator (§B115), so a wake wired
+    //      in THERE — or a recv arm that stopped reaching the router at all — is invisible to all of them. This phase
+    //      is the only venue that can see the PANEL actually light, and the only one that can see it NOT light.
+    // ★★ THE FOUR ARMS, and the negative pair is the half that would be forgotten:
+    //      · a DM (`msg_recv`)                         ⇒ the panel LIGHTS, on the screen that was current
+    //      · a SEALED team post (`channel_recv`+`enc`) ⇒ the panel LIGHTS
+    //      · ⛔ a CLEARTEXT post (the SAME push, `enc` false) ⇒ it stays DARK, in the P13f zero-bus shape
+    //      · ⛔ every OTHER push kind                        ⇒ it stays DARK, same shape
+    // ⓘ THE ZERO-BUS MEASUREMENT IS `bus_cmds()`, NOT `bus_ops()` (§CHROME-3): the board LATCHES `set_power_save`, so
+    //   the per-blanked-tick call is a genuine no-op and counting CALLS would fail a correct implementation.
+    // ⛔ THE SEQUENCE ALWAYS BEGINS AFTER THE BLANKING EDGE HAS COMPLETED, exactly as P13f's does — the first
+    //   `set_power_save(true)` legitimately issues one panel command, and counting it would measure the harness.
+    {
+        uint32_t t22 = settle(1800000);
+        t22 = walk_to_slot(t22 + 500, kSlotTeam);            // ⛔ NOT the landing screen: "no navigation" is only
+        paint(t22);                                          //   measurable from a screen a push could move us off
+        CHK("P20 precondition: the panel is LIT on TEAM",
+            g_c.last_power_save != 1 && rail_boxed_slot() == kSlotTeam);
+
+        // Take the panel dark WITHOUT a press, and let the power-save edge complete. Returns the time it left behind.
+        auto go_dark = [&](uint32_t at) -> uint32_t {
+            tick(at + 16000);                                // > kBlankMs (15 s) since the last input OR message
+            tick(at + 16010);
+            return at + 16020;
+        };
+        // A push as `fw_main`'s drain delivers it. ⓘ `team` is `Push::team_id` (node_channel.cpp:413); the restored
+        //   fixture's team is `0xABCD1234`, so a post tagged with it is OUR team's — which is what the operator's
+        //   sealed traffic looks like. ⛔ The WAKE does not read it: the gate is `pu.enc` and the kind, nothing else.
+        auto post = [](bool enc) {
+            MESHROUTE_NS::Push pu{};
+            pu.kind = MESHROUTE_NS::PushKind::channel_recv;
+            pu.channel_id = uint8_t(MR_UI_TEAM_CHANNEL_ID); pu.team_id = 0xABCD1234u; pu.origin = 61;
+            pu.enc = enc;
+            pu.body[0] = 'w'; pu.body[1] = 'a'; pu.body[2] = 'k'; pu.body[3] = 'e'; pu.body_len = 4;
+            return pu;
+        };
+        auto dm = [](bool enc) {
+            MESHROUTE_NS::Push pu{};
+            pu.kind = MESHROUTE_NS::PushKind::msg_recv;
+            pu.origin = 61; pu.sender_hash = 0xC0FFEE01u; pu.enc = enc;
+            pu.body[0] = 'h'; pu.body[1] = 'i'; pu.body_len = 2;
+            return pu;
+        };
+
+        // ---- (a) A DM LIGHTS THE DARK PANEL, ON THE SCREEN THAT WAS CURRENT ------------------------------------
+        {
+            t22 = go_dark(t22);
+            CHK("P20a precondition: the panel went dark with no press", g_c.last_power_save == 1);
+            const int pwr0 = g_c.power_cmds, frames0 = g_c.begin_frame;
+            set_now(t22 + 100);
+            mr_ui_on_push(dm(/*enc=*/false));                // ⛔ UNSEALED, and it must still wake: it is ours
+            run_ticks(t22 + 200, 12, 10);
+            CHK("P20a a DM lights the panel by itself, no press",
+                g_c.last_power_save == 0 && g_c.power_cmds == pwr0 + 1 && g_c.begin_frame > frames0);
+            CHK("P20a ...on the SCREEN THAT WAS CURRENT — a push navigates nothing",
+                rail_boxed_slot() == kSlotTeam && body_row(0) != nullptr);
+            t22 += 1000;
+        }
+
+        // ---- (b) A SEALED TEAM POST DOES THE SAME ----------------------------------------------------------------
+        {
+            t22 = go_dark(t22);
+            CHK("P20b precondition: the panel is dark again", g_c.last_power_save == 1);
+            const int pwr0 = g_c.power_cmds;
+            set_now(t22 + 100);
+            mr_ui_on_push(post(/*enc=*/true));
+            run_ticks(t22 + 200, 12, 10);
+            CHK("P20b a SEALED team post lights the panel, still on TEAM",
+                g_c.last_power_save == 0 && g_c.power_cmds == pwr0 + 1 && rail_boxed_slot() == kSlotTeam);
+            t22 += 1000;
+        }
+
+        // ---- (c) ★★★ THE DISCRIMINATOR — THE SAME POST, CLEARTEXT, LEAVES THE PANEL DARK -------------------------
+        // ⛔⛔ THIS IS THE ARM THAT PROVES THE GATE, and it is the one a hurried slice omits. Byte-for-byte the same
+        //     push as (b) with `enc` false — the case §R1/[[B109]]'s *"a stranger's post does not light a dark panel"*
+        //     (bench §8.15) is about, and the reason S8 reverses nothing.
+        {
+            t22 = go_dark(t22);
+            CHK("P20c precondition: the panel is dark before the cleartext post", g_c.last_power_save == 1);
+            const int bus0 = g_c.bus_cmds(), pwr0 = g_c.power_cmds;
+            const int frames0 = g_c.begin_frame, pages0 = g_c.next_page;
+            set_now(t22 + 100);
+            mr_ui_on_push(post(/*enc=*/false));
+            run_ticks(t22 + 200, 40, 100);                   // four seconds of ticks: no wake may appear late either
+            CHK("P20c ⛔ a CLEARTEXT post does NOT light the panel",
+                g_c.last_power_save == 1 && g_c.power_cmds == pwr0);
+            CHK("P20c ...issuing ZERO bus commands, opening no frame and paging nothing",
+                g_c.bus_cmds() == bus0 && g_c.begin_frame == frames0 && g_c.next_page == pages0);
+            t22 += 5000;
+        }
+
+        // ---- (d) ⛔ NOTHING ELSE WAKES IT — THE FULL PushKind ENUM, MINUS THE ONE KIND THAT MAY -------------------
+        // ★ THE BOUND IS `push_kind_count()`, i.e. the COMPILER'S answer rather than a literal — see that function for
+        //   the whole argument and for the withdrawn claim it replaces. A kind appended to `command.h` breaks THIS
+        //   BINARY'S BUILD at the roster switch, so it cannot fall outside this sweep unnoticed.
+        // ⓘ Every push is the DEFAULT one, i.e. `enc == false`, so `channel_recv` appears here as the cleartext case
+        //   a second time — deliberately. ⓘ The `>= 17` is a FLOOR (the enum only ever appends), there to prove the
+        //   sweep is not vacuous; ⛔ it pins no roster and a new kind must never need it edited.
+        {
+            t22 = go_dark(t22);
+            CHK("P20d precondition: the panel is dark before the other push kinds", g_c.last_power_save == 1);
+            const int bus0 = g_c.bus_cmds(), pwr0 = g_c.power_cmds;
+            const int frames0 = g_c.begin_frame, pages0 = g_c.next_page;
+            const uint8_t n_kinds = push_kind_count();
+            int driven = 0;
+            for (uint8_t k = 0; k < n_kinds; ++k) {
+                if (MESHROUTE_NS::PushKind(k) == MESHROUTE_NS::PushKind::msg_recv) continue;
+                MESHROUTE_NS::Push pu{};
+                pu.kind = MESHROUTE_NS::PushKind(k);
+                set_now(t22 + 100 + uint32_t(driven) * 10);
+                mr_ui_on_push(pu);
+                ++driven;
+            }
+            run_ticks(t22 + 1000, 40, 100);
+            CHK("P20d the whole enum was driven, one kind excepted",
+                driven == int(n_kinds) - 1 && n_kinds >= 17);
+            CHK("P20d ⛔ no other push kind wakes the panel",
+                g_c.last_power_save == 1 && g_c.power_cmds == pwr0);
+            CHK("P20d ...and none of them touched the bus, a frame or a page",
+                g_c.bus_cmds() == bus0 && g_c.begin_frame == frames0 && g_c.next_page == pages0);
+            t22 += 6000;
+        }
+
+        // ---- (e) THE WOKEN PANEL RE-BLANKS ON THE **MESSAGE's** OWN DEADLINE, with no press anywhere in the phase --
+        // ★ Spec pin 9 on glass: the wake buys ONE attention window measured from the message, and then the node goes
+        //   back to exactly what it was doing. ⛔ A wake that never re-blanked would be the F-10 power regression.
+        {
+            t22 = go_dark(t22);
+            const uint32_t msg_at = t22 + 100;
+            set_now(msg_at);
+            mr_ui_on_push(dm(/*enc=*/true));
+            run_ticks(msg_at + 100, 12, 10);
+            CHK("P20e precondition: a sealed DM woke it too", g_c.last_power_save == 0);
+            for (uint32_t at = msg_at + 1000; at <= msg_at + 14000; at += 500) tick(at);
+            CHK("P20e ...and it is STILL lit most of a window later", g_c.last_power_save == 0);
+            tick(msg_at + 15000); tick(msg_at + 15010);      // kBlankMs after the MESSAGE
+            CHK("P20e ...then blanks by itself, on the message's own deadline", g_c.last_power_save == 1);
+            t22 = msg_at + 16000;
+        }
+        (void)t22;
     }
 
     // ============================================================================================================ P15

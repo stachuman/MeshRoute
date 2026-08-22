@@ -725,6 +725,17 @@ is dispatchable as written.
   It is `hold_active`'s shape verbatim (U3), it is wrap-safe the same way, and it leaves every real-press
   behaviour untouched. **The window is `kBlankMs`, measured from the message's OWN arrival** — the ruling's
   *"the standard blank timeout re-applies after the wake"*. ⛔ No second constant.
+  ★★★ **ONE EXCEPTION, AND IT IS §B65's SEED WINNING — CORRECTED IN PLACE 2026-08-22 (implemented and tested).**
+  ⛔ **WITHDRAWN WORDING, KEPT VISIBLE:** the sentence above was written as an absolute, and pin (9) below read
+  *"The panel re-blanks `kBlankMs` after the message, not after the previous press"* **with no exception**.
+  ⇒ **A MESSAGE THAT ARRIVES BEFORE THE FIRST TICK MEASURES ITS WINDOW FROM THE FIRST TICK**, not from its own
+  arrival. **Why it must:** production **drains pushes immediately before `mr_ui_tick`**, so a wake stamp taken
+  ahead of the first tick would land where §B65's seed belongs and **consume it** — and §B65 exists because a
+  `mr_ui_init()` running more than `kBlankMs` after boot otherwise **blanks the panel on its very first tick**,
+  leaving a safety device dark the first time it is looked at (`firmware_ui_model.h:1280-1285`). ⇒ **the seed
+  outranks the message stamp**, the operator still gets a full window, and the case is driven directly
+  (`test/test_firmware_ui_model.cpp:5972`). ⛔ It is not a tolerance or a rounding artefact — it is a stated
+  priority between two deadlines, and a slice that "simplifies" it re-opens B65.
   ⓘ **Why not `on_reply`'s trick of relying on an existing deadline:** `on_reply` needs none because
   `kEmgHoldMs > kBlankMs` keeps the panel lit through `hold_active` (`:1808-1811`). A plain message has no hold,
   so clearing `blanked` alone would blank again on the very next tick — a one-frame flash. Stated because that
@@ -763,9 +774,18 @@ is dispatchable as written.
   panel; ⛔ the gate governs the WAKE and nothing else. (6) ⛔ **No navigation:** across a wake, `screen`,
   `cursor`, the interactive view state, both selections and both `*_pick_gone` flags are byte-identical to
   before. (7) ⛔ **No emergency field moves**, in every emergency state including a retained outcome.
-  (8) `_last_input_ms` is **unchanged** by the wake (assert the field's effect: an open modal's own deadline,
-  where one still exists, is not postponed). (9) The panel re-blanks **`kBlankMs` after the message**, not after
-  the previous press. (10) A wake **while already awake** changes nothing but the deadline (⛔ no repeat
+  (8) `_last_input_ms` is **unchanged** by the wake — ★ **and this is an IMPLEMENTATION INVARIANT, stated and
+  reviewed, ⛔ NOT an independently observable behaviour.** ⛔ **WITHDRAWN WORDING, KEPT VISIBLE:** this pin read
+  *"(assert the field's effect: an open modal's own deadline, where one still exists, is not postponed)"* — and
+  **there is no such deadline to assert against: this spec's own §9 R-1 DELETED both of them** (S2 removed the
+  compose and detail auto-exits), which leaves **`blank_due` as the field's only reader**. ⇒ a wake window of
+  `kBlankMs`-from-now is **arithmetically identical** to stamping the field, so no test can tell the two apart.
+  ⚠ **THE LESSON, RECORDED BECAUSE THE FALSIFIER WAS ONE RULING EARLIER IN THIS SAME DOCUMENT:** a spec that
+  rules a DELETION must sweep the assertions that stood on the deleted thing — an obligation phrased against a
+  timer that no longer exists is an instrument that cannot fail, and this one survived three revisions. (9) The panel re-blanks **`kBlankMs` after the message**, not after
+  the previous press — **EXCEPT a message that arrives BEFORE THE FIRST TICK, whose window runs from the FIRST
+  TICK** (§B65's seed outranks the message stamp; see the mechanism bullet above). **Both arms are pinned**, and
+  ⛔ the pre-first-tick arm is the one a "simplification" would silently drop. (10) A wake **while already awake** changes nothing but the deadline (⛔ no repeat
   `set_power_save` storm — the board latches it, and the frame gate is the only thing that talks to the panel).
   (11) **Quiet node: sleep unaffected** — with no pushes, `ui_allows_sleep` answers exactly as today.
 - **Mutations (`--target=model` for the deadline/predicate; NEW `--target=uisend` for the placement + the gate).**
@@ -773,8 +793,12 @@ is dispatchable as written.
   control; **the gate INVERTED** (⇒ only cleartext wakes); **the gate COPIED onto the `msg_recv` arm** (⇒ an
   unsealed DM stops waking — the half-applied shape, which a `enc == true` fixture alone would survive); the
   wake moved ahead of the kind gate (⇒ every push wakes); the wake dropped from the `channel_recv` arm only;
-  `wake_active` inverted; the wake writing `_last_input_ms`; the wake writing `_st.screen`; the wake clearing
-  `_emg`. ⓘ `src/firmware_ui_send.h` has **no battery target today**
+  `wake_active` inverted; ★ **the wake writing `_last_input_ms` TOGETHER WITH `_seeded`** — ⛔ **WITHDRAWN,
+  KEPT VISIBLE:** this entry read *"the wake writing `_last_input_ms`"* **alone**, which post-R-1 is
+  **behaviourally INERT** (see pin (8)) and would be a mutation that cannot redden. The live entry is the
+  **plausible copied-from-`on_gesture` defect** — the wake stamping the seed pair exactly as a real press does
+  (`tools/probe_ui_model_mutations.py:1558`, S09) — which **re-creates §B65** and **is** observable; the wake
+  writing `_st.screen`; the wake clearing `_emg`. ⓘ `src/firmware_ui_send.h` has **no battery target today**
   (`tools/probe_ui_model_mutations.py:55-81`) — a battery is per-source-file, so without its own target the two
   call sites **and the `enc` gate** would have no controlled mutation at all, which is the [[B217]] shape this
   project registers.
@@ -866,7 +890,7 @@ top: native's 8-byte alignment structurally hides a 4-byte-align board padding s
 | S4 | 0 RAM (the invalidation reuses the existing frozen snapshot). |
 | S5 | ★ **MEASURED, and it corrects TWO earlier claims of this table.** **`TeamRow` 28 → 40.** ⛔ **WITHDRAWN, KEPT VISIBLE:** *"`TeamRow` 28 → ~44 (`+4 +4 +4 +1` → padded to +16) ⇒ `UiSnapshot` 616 → ~744 (+128 …)"*, and before that *"608 → ~736 … plus `own_lat/own_lon/own_fix` which should land in tail padding"*. **The `bool` cost ZERO** — `offsetof(TeamRow, peer_loc_valid)` is **26**, inside the pad that already followed `label[15]`; the three 4-byte fields take **28/32/36** ⇒ **+12, not +16**. ⇒ **`UiSnapshot` 616 → 712 (+96, not +128).** <br>★★★ **RAM, BY ELF INSPECTION AND A CONTROLLED TWO-ENV A/B — AND THE "TWO OLED INSTANCES / ~+192 B STATIC" READING IS WITHDRAWN:** the image holds **ONE static `UiSnapshot`** (`s_frame_snap`, 0x268 → 0x2c8); **`s_model` embeds none** (0x248, unchanged) — the "second instance" is a **transient stack value**, the per-tick `build_snapshot` local. ⇒ **~+96 B static and ~+96 B TRANSIENT loop-task stack.** Confirmed on metal-shaped builds: `heltec_v3` RAM **216 684 → 216 780**, `gateway_heltec` **241 636 → 241 732** — **+96 on both.** <br>**Flash: +5 320 B** (`heltec_v3`) / **+5 316 B** (`gateway_heltec`), of which **3 561 B is libm — and it is the cosine's ARGUMENT REDUCTION, not the cosine**: `__kernel_rem_pio2f` 1 279 + `two_over_pi` 792 + `__ieee754_rem_pio2f` 552, against `cosf` itself **121** and `sqrtf` **60** — plus **805 B** of this slice's own code and **~950 B** of growth inside existing symbols. ⇒ §3.4's **integer-cosine-table fallback is QUANTIFIED at ~3.5 KB and NOT TAKEN**: flash sits at **39.0 % / 37.7 %** of 3 342 336 B. **`UiState` 200 and `UiModel` 600 unchanged**; warning sets identical pre↔post, `-Wswitch` zero. |
 | S6 | flash +72 B `.rodata` (or +32 for a 16x16); **RAM 0** by construction. |
-| S8 | `UiModel` +4 bytes (`_msg_wake_until_ms`), expected to land beside the existing `uint32_t` deadlines; the model is instantiated **once** (`s_model`), so ⛔ this one does not double. Measure. |
+| S8 | ★ **MEASURED (A/B).** **`UiModel` 600 → 608 on BOTH ESP32 ELFs.** ⛔ **WITHDRAWN, KEPT VISIBLE:** *"`UiModel` +4 bytes (`_msg_wake_until_ms`), expected to land beside the existing `uint32_t` deadlines … Measure."* — the **`uint32_t` deadline did land in existing padding and cost ZERO**; what costs is the **`bool`**, which takes the struct's **8-byte tail step**. `UiModel` is instantiated **once** (`s_model`), so ⛔ it does not double. <br>**Controlled per-env totals after S8, read off the image:** `heltec_v3` RAM **216 796** / flash **1 303 560** (post-S5: 216 780 / 1 303 444 ⇒ **+16 RAM / +116 flash**); `gateway_heltec` RAM **241 732** / flash **1 259 668** (post-S5: 241 732 / 1 259 596 ⇒ **+0 RAM / +72 flash**). ⚠ **The per-env RAM deltas differ from the naive +8 — +16 on one env, +0 on the other — and that is REPORTED AS READ OFF THE IMAGE, ⛔ not reconciled by argument:** section rounding and alignment decide where an 8-byte struct step actually lands, and D2's standing warning is exactly that native alignment cannot predict it. **`UiSnapshot` 712 / `UiState` 200 / `TeamRow` 40 unchanged.** |
 
 **Per-tick cost.**
 - S5 adds, per tick while the snapshot is built: ≤8 `team_key_of_id` lookups (already paid — `label_for_team_id`
