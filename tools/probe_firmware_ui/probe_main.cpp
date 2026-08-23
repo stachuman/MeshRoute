@@ -118,6 +118,8 @@
 #include "board_ui.h"          // the mrui:: canvas contract — IMPLEMENTED below as counting fakes
 #include "mr_ui.h"             // mr_ui_init / mr_ui_tick / mr_ui_on_push — the seam under test
 #include "fw_context_pure.h"   // §B105: g_hal / g_node — DEFINED here (fw_main.cpp is not in this link)
+#include "frame_codec.h"      // ★★ §UI-16 N2: pack_beacon / pack_team_id_tlv — the P21 phase seeds the
+                              //   nearby-team cache through the REAL RX path, ⛔ never by poking a snapshot.
 #include "firmware_commands.h" // mrfw::exec_command — faked below
 #include "firmware_config.h"   // §UI-14: mrfw::device_cfg_store / device_cfg_live — the two seams, faked below
 #include "iclock.h"
@@ -143,6 +145,7 @@
                                 //   EXPECTATION with them, so `the fingerprint on the panel` is a VALUE RELATION to
                                 //   `ui_fmt_team_fingerprint(the created id)` rather than "six hex characters appeared".
 #include <Arduino.h>           // the shim: millis / Print / F() / Serial  (tools/probe_board_ui/fakes)
+#include <span>             // std::span — the codec's own frame/ext parameter type (P21's beacon injection)
 #include <cstdio>
 #include <cstring>
 #include <cctype>
@@ -668,15 +671,28 @@ struct ProbeEntropy : mrfw::IEntropy {
 };
 // ⓘ The transaction runs over the SAME `ProbeCfgStore` the SETTINGS phases use (U1 — one durable seam, exactly as the
 //   device has one), so `writes` is a single authority for "did anything durable happen" across both features.
+// §UI-16 K2 — the `/mrteams` keyring the transaction now persists a created/imported key into, BEFORE it writes the
+// `/mrcfg` candidate that marks it active. ⓘ An in-RAM store: this probe measures the PANEL, and the keyring's own
+// write policy is measured by `test/test_firmware_team_keyring.cpp` + the `teamkeyring` battery. `saves` is here so a
+// future phase can assert the panel path spends no unexpected durable write.
+struct ProbeTeamKeyStore : mrfw::ITeamKeyStore {
+    mrnv::TeamKeyBlob rec{};
+    mrnv::TeamKeyRead state = mrnv::TeamKeyRead::absent;
+    int saves = 0;
+    mrnv::TeamKeyRead load(mrnv::TeamKeyBlob& out) override { out = rec; return state; }
+    bool save(const mrnv::TeamKeyBlob& b) override { ++saves; rec = b; state = mrnv::TeamKeyRead::ok; return true; }
+};
 struct ProvSeams {
     ProbeProvLive      live;
     ProbeEntropy       ent;
+    ProbeTeamKeyStore  keys;
+    mrfw::TeamKeyringService keyring{keys};
     mrfw::ProvSnapshot snap{};
     mrfw::ProvPhyFloor floor{};
     int     facts_calls = 0;              // = how many times the ADAPTER was entered (its first act is this read)
     int     noted_calls = 0;
     uint8_t noted_team_local_id = 0xFF;
-    mrfw::ProvisioningService svc{probe_store(), live, ent};
+    mrfw::ProvisioningService svc{probe_store(), live, ent, keyring};
 };
 ProvSeams& prov_seams() { static ProvSeams s; return s; }
 }  // namespace
@@ -3407,8 +3423,10 @@ int main() {
         CHK("P15a the PROVISION row can be highlighted",  strstr(g_c.page_text, ">PROVISION") != nullptr);
         t17 = see(double_press(t17 + 500));
         CHK("P15a a double OPENS the child menu, on CREATE TEAM", body_row_is(0, ">CREATE TEAM"));
-        CHK("P15a ...which also offers JOIN NETWORK and BACK",
-            body_row_is(1, " JOIN NETWORK") && body_row_is(2, " BACK"));
+        // ★ §UI-16 N2 JOINED THIS LIST — the check is EXTENDED rather than re-scoped: what P15a measures is that the
+        //   parent row opens the CHILD MENU and which children it offers, and there are now three of them.
+        CHK("P15a ...which also offers JOIN NETWORK, JOIN TEAM and BACK",
+            body_row_is(1, " JOIN NETWORK") && body_row_is(2, " JOIN TEAM") && body_row_is(3, " BACK"));
 
         // ---- (b) THE CONFIRMATION: ITS BACK DEFAULT AND ITS `REPLACES` WARNING ---------------------------------------
         // ⛔ §3.6.3: reaching CREATE costs a deliberate `short` THEN `double`. A confirmation opening on CREATE would
@@ -3833,6 +3851,205 @@ int main() {
                 CHK("P16h ...and no store state spent a write",
                     js.presets.writes == jw0 && probe_store().writes == cw0 + 1);
                 js.presets.answer = mrnv::JoinRead::ok;
+            }
+        }
+
+        // ======================================================================================================= P21
+        // ★★★★ §UI-16 N2 — THE READ-ONLY NEARBY SCAN, END TO END THROUGH THE **REAL** PATHS. This is the production
+        //      HANDOFF the pure unit cannot see: `test/test_firmware_ui_nearby.cpp` proves what `nearby_capture` /
+        //      `ui_fmt_nearby_row` RETURN and the `uinearby`/`uinearbyrow` batteries prove each decision is
+        //      load-bearing — but ALL of them call those functions directly. Point `build_snapshot` at the wrong
+        //      accessor, publish the raw ring without its age, draw from the LIVE array instead of the frozen copy, or
+        //      hand the row a resolved NAME, and every native case stays green, every mutation stays RED, and the
+        //      panel simply shows the wrong thing. ⇒ this phase drives DISTINCTIVE observations through the REAL
+        //      beacon RX path into the REAL core cache and asserts EVERY drawn row's EXACT BYTES AT ITS EXACT
+        //      COORDINATE ([[B226]]'s discipline, P18's shape one screen over).
+        // ★★ WHAT IS REAL HERE: `Node::ingest_beacon`'s observation site, `Node::team_seen_count/at`, the retention
+        //    window, `build_snapshot`'s projection, the model's one-shot capture, the gesture path and
+        //    `draw_provision_screen`. ⛔ NOTHING is scripted — there is no seam to fake, because a scan asks nobody.
+        // ⚠ THE CLOCK IS STEPPED **BACK ONCE AND THEN FORWARD**, which is P18's own rule and for its measured reason:
+        //   `DeviceHal::now()` extends the 32-bit `millis()` monotonically, so every BACKWARDS `set_now` reads as a
+        //   wrap and adds ~49.7 days. Two backwards steps would put a 2^32 ms gap between two observations and their
+        //   ages would render `old`. ⇒ the oldest beacon is injected first, and the id->hash bindings below are
+        //   stamped AFTER the last jump (a binding stamped before it falls past `team_key_of_id`'s 48 h gate).
+        {
+            // ---- the fixture, through the core's own public seams (⛔ never a poked snapshot) --------------------
+            (void)g_node.set_team_id(0x51CE0004u);        // ★ we are in a team of our OWN — so the filter has work to do
+            g_node.set_team_local_id(90);
+            const uint32_t at = t17 + 4000;              // the instant every age below is measured against
+            // ★★ THE ADVERTISER GETS A CACHED NODE NAME, AND WITHOUT IT THE NEGATIVE WOULD PASS FOR THE WRONG REASON
+            //    (spec §3 P-5b / ruling R-13 rule 1, metal §7.1 step 3): the row must read the TEAM fingerprint even
+            //    when this node CAN resolve a name for the beacon's sender.
+            uint8_t pub213[32];
+            for (int i = 0; i < 32; ++i) pub213[i] = uint8_t(0xA0 + i);
+            const uint32_t hash213 = MESHROUTE_NS::key_hash32_of(pub213);
+            // One team beacon from `src`, carrying the type-5 team TLV, heard at `when` with `snr_db`.
+            auto hear_team = [&](uint8_t src, uint32_t team_id, float snr_db, uint32_t when) {
+                uint8_t ext[8];
+                const size_t en = MESHROUTE_NS::pack_team_id_tlv(team_id, std::span<uint8_t>(ext, sizeof ext));
+                MESHROUTE_NS::beacon_in in{};
+                in.leaf_id    = g_node.config().leaf_id;   // ⚠ OUR nibble: a teamless joiner drops any other BEFORE parse (F-1)
+                in.src        = src;
+                in.key_hash32 = (src == 213) ? hash213 : uint32_t(0x5A00u + src);
+                in.is_mobile  = true;                      // ★ the eligibility rule's other half — a team member is mobile
+                if (en) in.ext = std::span<const uint8_t>(ext, en);
+                uint8_t buf[64];
+                const size_t n = MESHROUTE_NS::pack_beacon(in, std::span<uint8_t>(buf, sizeof buf));
+                set_now(when);
+                MESHROUTE_NS::RxMeta m{}; m.snr_db = snr_db; m.rssi_dbm = -70.0f; m.recv_ms = 0; m.src_hint = -1;
+                g_node.on_recv(buf, n, m);
+            };
+            // ★ THREE DISTINCTIVE OBSERVATIONS, OLDEST FIRST. The fingerprints share no substring, and the SIGNAL
+            //   DECREASES down the list while the AGE decreases too — so a sort by EITHER key would reorder them.
+            hear_team(213, 0x77D9348Au, -8.0f,  at - 180000);   // `D9348A`, weak, 3m — heard FIRST
+            hear_team(214, 0x88ABCDEFu, 10.0f,  at - 120000);   // `ABCDEF`, strong, 2m
+            hear_team(215, 0x51CE0004u, 10.0f,  at -  60000);   // ★ OUR OWN team — recorded by N1, FILTERED by N2
+            set_now(at);
+            // ...and NOW the name bindings, after the last jump (see the clock note above).
+            const bool named_ok = g_node.peer_key_set(hash213, pub213,
+                                                      MESHROUTE_NS::Node::PeerKeyConf::authoritative, "Wolfgangetta", 12);
+            g_node.team_key_set(213, hash213, MESHROUTE_NS::Node::IdBindSource::bcn,
+                                MESHROUTE_NS::Node::IdBindConf::authoritative);
+            // ⚠⚠ AND THE TEAM ROUTE IS PART OF THE FIXTURE, MEASURED RATHER THAN ASSUMED: `team_key_of_id` gates on
+            //    `is_team_peer(id)` (`lib/core/node_routing.cpp` — *"only a known same-team peer"*), and that bit is
+            //    set by a team-plane ROUTE, ⛔ not by `team_key_set`. Without it the resolver falls straight through
+            //    to `id 213` and the P21d negative below would pass because NOTHING could be resolved — the vacuous
+            //    shape. ⓘ It is also the realistic collision: a team-local id is namespaced PER TEAM, so OUR team
+            //    having a member 213 while a FOREIGN team's advertiser is also `src=213` is the ordinary case, not a
+            //    contrivance (C3's plane rule, seen from the display side).
+            g_node.test_learn_route(213, 213, 1, 144, /*team_plane=*/true);
+            char name_probe[16] = {};
+            uint32_t resolved_hash = 0;
+            CHK("P21 precondition: the advertiser HAS a cached node name (else the negative is vacuous)",
+                named_ok && g_node.peer_name_find(hash213, name_probe, sizeof name_probe) > 0 &&
+                strncmp(name_probe, "Wolfga", 6) == 0);
+            CHK("P21 precondition: ...and this node CAN resolve that name from the advertiser's id",
+                g_node.team_key_of_id(213, resolved_hash) && resolved_hash == hash213);
+            CHK("P21 precondition: the REAL core cache holds all three observations",
+                g_node.team_seen_count() == 3);
+
+            // ---- (a) THE CHILD ROW, AND IT OPENS THE LIST **DIRECTLY** (OQ-1) ---------------------------------
+            // ⚠ NO PRESS HERE: P16 left the CHILD MENU up with its cursor on row 0, and a `double` would open the
+            //   CREATE confirmation instead of measuring this menu. The phase PAINTS and reads.
+            t17 = see(at + 500);
+            // ⓘ The rows are asserted by LABEL at their exact coordinate, marker excluded — which row carries the
+            //   cursor is P16's business, and this check is about the LIST.
+            auto row_label_is = [](int r, const char* want) {
+                const char* s0 = body_row(r);
+                return s0 != nullptr && s0[0] != '\0' && strcmp(s0 + 1, want) == 0;
+            };
+            CHK("P21a the PROVISION menu offers JOIN TEAM as its third child",
+                row_label_is(0, "CREATE TEAM") && row_label_is(1, "JOIN NETWORK") &&
+                row_label_is(2, "JOIN TEAM") && row_label_is(3, "BACK"));
+            t17 = walk_to(t17 + 500, ">JOIN TEAM");
+            t17 = see(double_press(t17 + 500));
+            // ⛔ NO SUBMENU: what a `double` opens is the SCAN ITSELF, with its two honest PHY lines.
+            CHK("P21a a double opens the NEARBY LIST directly, headed by its title",
+                body_row_is(0, mrui::kNearbyTitle));
+            CHK("P21a ...with the CURRENT-PHY line and F-1's honest second line",
+                body_row_is(1, mrui::kNearbyPhyLine) && body_row_is(2, mrui::kNearbyLeafLine));
+
+            // ---- (b) EVERY ROW, EXACT BYTES AT ITS EXACT COORDINATE -------------------------------------------
+            // ★★ THE TOKENS ARE A VALUE RELATION: the fingerprint half of each row must equal
+            //    `ui_fmt_team_fingerprint` OF THE ID THAT WAS HEARD — ⛔ never "six hex characters appeared".
+            {
+                char fpA[mrui::kTeamFpTokenCap], fpB[mrui::kTeamFpTokenCap], fpOwn[mrui::kTeamFpTokenCap];
+                mrui::ui_fmt_team_fingerprint(fpA,   sizeof fpA,   0x77D9348Au);
+                mrui::ui_fmt_team_fingerprint(fpB,   sizeof fpB,   0x88ABCDEFu);
+                mrui::ui_fmt_team_fingerprint(fpOwn, sizeof fpOwn, 0x51CE0004u);
+                char rowA[32], rowB[32];
+                snprintf(rowA, sizeof rowA, ">%s 1/3 3m", fpA);
+                snprintf(rowB, sizeof rowB, " %s 3/3 2m", fpB);
+                const char* r3 = body_row(3);
+                const char* r4 = body_row(4);
+                printf("  INFO §UI-16 NEARBY rows: [%s] [%s]\n", r3 ? r3 : "-", r4 ? r4 : "-");
+                // ★ ROW 3 IS THE **FIRST-OBSERVED** TEAM — the WEAKEST and the OLDEST. A list sorted by signal or by
+                //   age would put `ABCDEF` here, and a list re-read per tick would carry the third team.
+                CHK("P21b row 3 is the FIRST-observed team: fingerprint, 1/3 and its own age",
+                    body_row_is(3, rowA));
+                CHK("P21b row 4 is the SECOND, stronger and fresher — ⛔ the order is not signal's",
+                    body_row_is(4, rowB));
+                // ⛔ (c) OUR OWN TEAM IS FILTERED AT DISPLAY, though the CORE recorded it (count 3 above, 2 rows here).
+                CHK("P21c ⛔ our OWN team is on no row, though the core cache holds it",
+                    strstr(g_c.page_text, fpOwn) == nullptr);
+                // ⛔⛔ (d) R-13 RULE 1 — AN ADVERTISER'S NODE NAME IS NEVER THE TEAM'S NAME. The name IS resolvable
+                //     here (the precondition above proved it), so this is a measurement rather than a coincidence.
+                CHK("P21d ⛔ the advertiser's cached NODE NAME appears nowhere on the scan",
+                    strstr(g_c.page_text, "Wolfga") == nullptr);
+                CHK("P21d ...and no `0x` spelling of any hash reached the panel either",
+                    strstr(g_c.page_text, "0x") == nullptr);
+            }
+
+            // ---- (e) THE WALK: the marker moves, BACK scrolls into view, and BACK returns to the MENU ----------
+            t17 = see(settle(t17 + 500));
+            CHK("P21e a short press moves the marker to the second team",
+                body_row_is(4, ">ABCDEF 3/3 2m") && body_row_is(3, " D9348A 1/3 3m"));
+            t17 = see(settle(t17 + 500));
+            CHK("P21e ...and the next one brings the UNCONDITIONAL BACK row into the window",
+                body_row_is(4, ">BACK"));
+            // ⛔ AND THE FILTER HOLDS ACROSS THE WHOLE WALK, ⛔ not merely on the first screenful: the cursor has now
+            //    visited every row, so a list that still carried our own team would have drawn it by here. That is
+            //    what makes P21c a MEASUREMENT — a single-page look would pass on a list where the own-team row is
+            //    simply the one below the window.
+            {
+                char fp_own[mrui::kTeamFpTokenCap];
+                mrui::ui_fmt_team_fingerprint(fp_own, sizeof fp_own, 0x51CE0004u);
+                CHK("P21c ⛔ ...and it is on no row after the WHOLE list has been walked",
+                    strstr(g_c.page_text, fp_own) == nullptr && body_row_is(3, " ABCDEF 3/3 2m"));
+            }
+
+            // ---- (f) ★★★ ZERO TRAFFIC ACROSS A FULL WALK (spec §3 P-4) ------------------------------------------
+            // ★★ COUNTED, NOT ARGUED, and both counters are the REAL ones: `g_hal.txq_depth()` is the real DeviceHal
+            //    queue and `g_probe_radio.starts` the real radio's start count. ⓘ This is the automated half of bench
+            //    §7.1 step 6, and it is the STRONGER half — on metal a scheduled beacon cannot be told apart from a
+            //    panel-driven send without a five-minute baseline.
+            {
+                g_hal.collect_tx_completion(); g_hal.pump_tx();     // start from rest, whatever the fixture left
+                const int d0 = g_hal.txq_depth();
+                const int s0 = g_probe_radio.starts;
+                CHK("P21f precondition: nothing is queued before the NEARBY walk", d0 == 0);
+                uint32_t tb = t17 + 500;
+                for (int i = 0; i < 6; ++i) tb = settle(tb + 300);  // walk every row, twice round, BACK included
+                paint(tb + 300);
+                CHK("P21f ⛔ a full NEARBY walk enqueues NOTHING (the real queue)", g_hal.txq_depth() == 0);
+                g_hal.collect_tx_completion(); g_hal.pump_tx();
+                CHK("P21f ⛔ ...and pumping the queue starts NO transmission", g_probe_radio.starts == s0);
+                t17 = tb + 500;
+            }
+
+            // ---- (g) THE LIST SURVIVES A BLANK, AND THE WAKE PRESS IS CONSUMED --------------------------------
+            {
+                t17 = walk_to(t17 + 500, ">D9348A 1/3 3m");        // land on a KNOWN row before going dark
+                t17 += 20000;                                  // > `kBlankMs` (15 s) with NO input at all
+                tick(t17); tick(t17 + 10);
+                CHK("P21g the panel blanks with the scan still open", g_c.last_power_save == 1);
+                t17 = see(settle(t17 + 100));
+                CHK("P21g a single short press wakes it", g_c.last_power_save != 1);
+                CHK("P21g ...and was CONSUMED as the wake — the SAME row is still marked",
+                    body_row_is(3, ">D9348A 1/3 3m"));
+                CHK("P21g ...with the scan's own lines intact",
+                    body_row_is(0, mrui::kNearbyTitle) && body_row_is(1, mrui::kNearbyPhyLine));
+            }
+
+            // ---- (h) PAST THE RETENTION WINDOW: the empty state, and a BACK that still leaves ------------------
+            // ★ THE WINDOW IS THE CORE'S and is applied AT THE READ, so nothing here sweeps or clears anything: the
+            //   clock simply moves past it and the accessors stop returning the rows.
+            {
+                t17 = see(double_press(t17 + 500));                // BACK is not under the cursor -> a no-op double
+                t17 = walk_to(t17 + 500, ">BACK");
+                t17 = see(double_press(t17 + 500));
+                CHK("P21h BACK returns to the PROVISION MENU, ⛔ not off the screen",
+                    body_row_is(0, ">CREATE TEAM"));
+                t17 += MESHROUTE_NS::protocol::team_seen_retain_ms + 5000;
+                tick(t17); tick(t17 + 10);                         // ...the panel blanks on the way
+                t17 = see(settle(t17 + 100));                      // one press wakes it, consumed
+                CHK("P21h precondition: the core cache has aged out at the READ", g_node.team_seen_count() == 0);
+                t17 = walk_to(t17 + 500, ">JOIN TEAM");
+                t17 = see(double_press(t17 + 500));
+                CHK("P21h an aged-out scan says NO TEAMS NEARBY", body_row_is(3, mrui::kNearbyEmpty));
+                CHK("P21h ...and offers a BACK row that still leaves", body_row_is(4, ">BACK"));
+                t17 = see(double_press(t17 + 500));
+                CHK("P21h ...which it does", body_row_is(0, ">CREATE TEAM"));
             }
         }
     }

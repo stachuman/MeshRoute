@@ -120,9 +120,18 @@ struct Blob {                  // packed-ish POD; written/read verbatim. Bump kV
     uint8_t  team_ch_pub[32];
     uint8_t  team_ch_priv[32];
     uint8_t  team_ch_key_present;        // v22: 1 once a pair was minted/adopted (distinguishes a real key from all-zero, exactly as admin_provisioned does)
+    // v24: §UI-16 K2 — THE ACTIVE BINDING between this node and one `/mrteams` keyring record ([[B240]], P-2b).
+    // ★★★ IT IS A SECOND AUTHORITY ON PURPOSE, AND ⛔ NOT A DUPLICATE OF `team_id` ABOVE. `team_id` is MEMBERSHIP,
+    //     and membership is PUBLIC — the id rides every team beacon. If the boot restore keyed on it alone, then
+    //     leaving a team and later re-joining it (which anyone who heard the beacon can do) would SILENTLY REINSTALL
+    //     the retained key — the reactivation the owner's keyring ruling forbids. ⇒ this pair records which team the
+    //     key was ACTIVATED for, is CLEARED by `team 0` while the keyring record is RETAINED, and the restore
+    //     installs only on an EXACT match of both. Re-arming it takes an explicit operator act (§UI-16 K5).
+    uint32_t team_key_team_id;           // v24: the team the active key belongs to (0 = no active binding)
+    uint8_t  team_key_active;            // v24: 1 = a /mrteams record for team_key_team_id is ACTIVE
 };
 constexpr uint32_t kMagic   = 0x4D524331u;   // 'MRC1'
-constexpr uint16_t kVersion = 23;            // v23: §loc-per-send — the `loc_in_dm` byte is GONE (location became the per-send `send -l` flag; the toggle aired coordinates in the clear, open-bug-register B0). ⚠ REPROVISION-ON-REFLASH: the struct layout changed, so load() rejects a v22 blob and the node comes up UNPROVISIONED on first contact after this flash — the companion must expect that. v22: §team-ch-key team channel keypair (team_ch_pub + team_ch_priv + team_ch_key_present) — REPROVISION-ON-REFLASH, see the fields. v21: §S2 intro_attach toggle (first-contact pubkey attach). v20: remote-mgmt admin auth (admin_pubkey + admin_counter_floor + admin_provisioned). v19: team_local_id (§mobile 6.4 — persist the team-DAD id across reboot). v18: team_id (§mobile 6.1). v17: per-layer BW+CR (l1_bw_hz + l1_cr). v16: anti-spam per-leaf tunables (channel_active_fraction + the two burst floors). v15: channel_ctr persist (reboot id-reuse fix). v14: R6.1 leaf-config (lineage_id + config_epoch + leaf_name). v13: gw_herd_slack. v12: per-layer frequency (l1_freq_mhz). v11: gateway-announce duty knobs. v10: e2e_dm toggle. v9: loc_in_dm toggle. v8: DUAL-LAYER GATEWAY (n_layers + layer0_id + window schedule + the l1_*
+constexpr uint16_t kVersion = 24;            // v24: §UI-16 K2 — the team-key ACTIVE BINDING (team_key_team_id + team_key_active), so a retained /mrteams key is never reactivated by mere knowledge of the public team id. ⚠ REPROVISION-ON-REFLASH: the struct layout changed, so load() rejects a v23 blob and the node comes up UNPROVISIONED on first contact after this flash — the companion must expect that. ⛔ THIS IS AN **NV** VERSION, ⛔ NOT `wire_version`: no frame moves, no scenario re-anchors, and a new NV record (`/mrteams`) is not a wire change either. v23: §loc-per-send — the `loc_in_dm` byte is GONE (location became the per-send `send -l` flag; the toggle aired coordinates in the clear, open-bug-register B0). ⚠ REPROVISION-ON-REFLASH: the struct layout changed, so load() rejects a v22 blob and the node comes up UNPROVISIONED on first contact after this flash — the companion must expect that. v22: §team-ch-key team channel keypair (team_ch_pub + team_ch_priv + team_ch_key_present) — REPROVISION-ON-REFLASH, see the fields. v21: §S2 intro_attach toggle (first-contact pubkey attach). v20: remote-mgmt admin auth (admin_pubkey + admin_counter_floor + admin_provisioned). v19: team_local_id (§mobile 6.4 — persist the team-DAD id across reboot). v18: team_id (§mobile 6.1). v17: per-layer BW+CR (l1_bw_hz + l1_cr). v16: anti-spam per-leaf tunables (channel_active_fraction + the two burst floors). v15: channel_ctr persist (reboot id-reuse fix). v14: R6.1 leaf-config (lineage_id + config_epoch + leaf_name). v13: gw_herd_slack. v12: per-layer frequency (l1_freq_mhz). v11: gateway-announce duty knobs. v10: e2e_dm toggle. v9: loc_in_dm toggle. v8: DUAL-LAYER GATEWAY (n_layers + layer0_id + window schedule + the l1_*
                                              // block). v7: BLE companion policy. v6: role/topology (is_gateway/...). The Blob
                                              // grew, so every pre-v8 blob fails the `n == sizeof(out)` size check in load()
                                              // and is rejected -> the node re-provisions from defaults (BOTH boards — the
@@ -262,6 +271,54 @@ static_assert(sizeof(JoinProfile) == 24, "device_nv.h: the /mrjoin profile layou
 static_assert(alignof(JoinProfile) == 4, "device_nv.h: /mrjoin profile alignment moved — the 24-byte claim is ABI-dependent");
 static_assert(sizeof(JoinBlob) == 8 + 4 * 24, "device_nv.h: the /mrjoin record layout moved — bump kJoinVersion");
 
+// ---- Team-key KEYRING record (`/mrteams`) — §UI-16 K1, register [[B240]] ------------------------------
+// Spec: docs/superpowers/specs/2026-08-22-ui16-nearby-onboarding-spec.md §4-K1 (owner-ruled 2026-08-22).
+//
+// ★★★ THE DEFECT IT EXISTS FOR: a team CONTENT key that arrived over the air (the sealed T-K3 grant) was adopted
+//     into RAM and NEVER PERSISTED — `team_key_grant_receive` installs live, the push handler prints, and the only
+//     writers of `Blob::team_ch_*` are reached from `seed_blob_from_live` on OTHER verbs' save paths. ⇒ a member
+//     could read the encrypted channel until the first power-cycle and then silently could not. [[B240]].
+// ★★ WHY A RECORD OF ITS OWN AND NOT A `/mrcfg` FIELD (owner ruling, spec §9 R-6): `/mrcfg` holds ONE key, so it
+//    cannot hold a key PER TEAM, cannot survive `team 0`, and makes "retained but not active" unrepresentable.
+// ⛔ A NEW NV RECORD IS NOT A WIRE CHANGE. No frame moves; nothing re-anchors.
+//
+// ★ FOUR ENTRIES, matching the four `/mrjoin` join profiles — the same "four networks I can be in" shape.
+// ⓘ `reserved[4]` is a NAMED member and ⛔ never implicit tail padding — the [[AB1]]/`PeerRec::_pad` rule: implicit
+//   padding is indeterminate after value-initialisation, which would make a whole-record compare unsound, and the
+//   write-coalescing policy in `firmware_team_keyring.h` IS a whole-record compare.
+// ⚠ SECRET-BEARING. `team_ch_priv` is a standalone secret: ⛔ NO seed derives it (`lib/core/node_role.h:89`), so
+//   these bytes and whatever the operator distributed are its only copies. Losing them = re-key the team.
+// ★ BOTH HALVES ARE STORED so a restore can DERIVE the public half from the private one and REJECT a record whose
+//   stored pub disagrees — `Node::team_channel_key_adopt` (`lib/core/node.h:228`) already performs exactly that
+//   derive-and-cross-check, so the keyring CALLS it rather than re-deriving (U1). ⛔ The pub is therefore not
+//   redundant: it is the corruption detector.
+struct TeamKeyRecord {
+    // ⛔ `0` IS NEVER STORED (the write policy refuses it): 0 means "no team" everywhere else in this codebase, so a
+    //    zero-keyed record would match every teamless node's binding and hand it a key it was never granted.
+    uint32_t team_id;
+    uint8_t  team_ch_pub[32];    // the public half — cross-checked against the derived one on restore
+    uint8_t  team_ch_priv[32];   // ⚠ THE SECRET
+    uint8_t  reserved[4];        // NAMED padding — see the note above; zeroed by the one composition path
+};
+constexpr uint8_t kTeamKeyRecs = 4;           // FIXED four slots — ⛔ no dynamic count, so the record has ONE size
+struct TeamKeyBlob {
+    uint32_t magic;              // kTeamKeyMagic
+    uint16_t version;            // kTeamKeyVersion — EQUALITY (see team_key_blob_state)
+    uint16_t count;              // records in use (0..kTeamKeyRecs); the header carries the padding, as JoinBlob's does
+    TeamKeyRecord rec[kTeamKeyRecs];
+};
+constexpr uint32_t kTeamKeyMagic   = 0x4D524B31u;   // 'MRK1' — its OWN magic, ⛔ never kMagic ('MRC1') and never kJoinMagic
+constexpr uint16_t kTeamKeyVersion = 1;             // v1: the first /mrteams layout. A bump REJECTS the old record
+                                                    // outright (equality policy) -> the node comes up with NO stored
+                                                    // team keys, which leaves it keyless rather than wrongly keyed.
+// ★ PER-ABI, NOT native-only — the same reason PeerRec's and JoinProfile's pins are here: `sizeof` IS the migration
+//   policy (load_team_keys' exact size check), and test/ can only measure the HOST ABI, so pin it where it compiles
+//   on ARM and Xtensa too. 4 + 32 + 32 + 4 = 72 with alignof 4 and ⛔ NO tail padding — which is what `reserved[4]`
+//   buys and why it is spelled out. Blob = 8-byte header + 4 × 72 = 296 B (the owner's estimate, now MEASURED).
+static_assert(sizeof(TeamKeyRecord) == 72, "device_nv.h: the /mrteams record layout moved — bump kTeamKeyVersion");
+static_assert(alignof(TeamKeyRecord) == 4, "device_nv.h: /mrteams record alignment moved — the 72-byte claim is ABI-dependent");
+static_assert(sizeof(TeamKeyBlob) == 8 + 4 * 72, "device_nv.h: the /mrteams blob layout moved — bump kTeamKeyVersion");
+
 // ---- slot table --------------------------------------------------------------------------------------
 // The ONE place each record's storage names live. Both live backends address the same four records with
 // different models, so a slot carries both spellings and each arm reads the field it needs.
@@ -279,6 +336,16 @@ inline constexpr Slot kSlotFault { "/mrfault", "mrfault", "log"   };
 // /mrfault is the deliberate exception ABOVE and this record is emphatically not one: presets are user
 // configuration, so the fault-history precedent does NOT apply (spec §3).
 inline constexpr Slot kSlotJoin  { "/mrjoin",  "mr",      "join"  };
+// §UI-16 K1 — the team-key keyring. ★★ `"mr"` IS THE FACTORY-RESET RULING, EXPRESSED AS DATA, exactly as it is for
+// `/mrjoin` one line above: the ESP32 `factory_erase()` clears the whole `"mr"` namespace in one `clear()` and the
+// nRF52 arm's `InternalFS.format()` takes every file, so *"factory reset ERASES /mrteams"* is delivered by the
+// namespace choice alone, with ⛔ not one line of new code. `/mrfault` is the deliberate exception ABOVE, and a
+// store of team SECRETS is emphatically not one — a factory-reset device must not keep the team's content key.
+// ⛔⛔ AND IT IS DELIBERATELY **NOT** IN `mount_or_repair()`'s nRF52 PROBE LIST (`kFiles[]`), for the same reason
+//    `/mrjoin` is not: that function recovers by `InternalFS.format()`, so listing an optional store there would
+//    make ITS corruption destroy identity AND config. A failed/short/invalid read is handled LOCALLY, as
+//    `TeamKeyRead::invalid` / `io_failed`.
+inline constexpr Slot kSlotTeams { "/mrteams", "mr",      "teams" };
 
 // ---- record validation — ONE definition, DELIBERATELY ABOVE the platform `#if` -----------------------
 // This predicate was hand-written SIX times (Blob/IdBlob/PeerBlob × the two backend arms) inside those
@@ -458,6 +525,52 @@ inline void join_blob_init(JoinBlob& b) {
     b = JoinBlob{};
     b.magic   = kJoinMagic;
     b.version = kJoinVersion;
+}
+
+// ---- /mrteams: the SAME FOUR-STATE READ, for a record whose contents are SECRETS (§UI-16 K1) ----------
+// ★★★ WHY THE FOUR STATES ARE OWED HERE TOO, and it is not symmetry for its own sake: this store answers
+//     "is the team's content key still on this device?". An ABSENT store is an ordinary fresh device and the node
+//     comes up keyless; a CORRUPT one means the flash ate an UNRECOVERABLE secret (⛔ no seed re-derives a team
+//     content key) and the operator must be told, because the remedy is a re-grant from a teammate; and an
+//     `io_failed` store means NOTHING IS KNOWN — over which a blind rewrite would destroy up to four intact keys
+//     because a mount failed transiently. Collapsing any pair would make one of those three read as another.
+// ⓘ U1, CONSIDERED AND ANSWERED IN PLACE: `JoinRead` (above) carries the same four states, and this enum is a
+//   SIBLING rather than a reuse — its four arms are documented in `/mrjoin`'s terms (profiles, `joinprofile reset
+//   confirm`, four retypes), none of which is true of a key store, and `join_read_unreadable` / the
+//   `ProfileErr` relabel are `/mrjoin` verb vocabulary. ★ A SHARED classifier under a record-neutral name is the
+//   right end state and is NOT taken here: it would be a refactor of a shipped record folded into a feature slice
+//   (C1). What IS shared, and deliberately so, are the primitives underneath — `SlotIo`, `kSlotAbsent`,
+//   `slot_size_ok` and `blob_valid_exact` — so the version/length/backend policy has one implementation.
+enum class TeamKeyRead : uint8_t {
+    ok,        // a record of the right size, magic and version was read
+    absent,    // ★ NO RECORD AT ALL — an ordinary fresh-device state, ⛔ never an error
+    invalid,   // ⛔ present but unreadable: short, over-long, wrong magic, wrong version, or a backend read ERROR
+    io_failed, // ⛔ the STORE would not answer at all — a fact about the DEVICE, ⛔ not about the record
+};
+// The branch ORDER mirrors `join_blob_state`'s and for the same measured reasons: a backend that would not open
+// returns `kSlotAbsent`, so testing `absent` first would launder a dead store into "no keys stored"; and an
+// OVER-LENGTH record is `invalid` and ⛔ never `ok`, because nRF52 reads `len` bytes out of a longer file and a
+// valid PREFIX would otherwise pass every check below.
+inline TeamKeyRead team_key_blob_state(const TeamKeyBlob& b, int n, const SlotIo& io = SlotIo{}) {
+    if (io.backend_failed) return TeamKeyRead::io_failed;
+    if (io.oversize)       return TeamKeyRead::invalid;
+    if (n == kSlotAbsent)  return TeamKeyRead::absent;
+    // EQUALITY on the version, like /mrid, /mrpeers and /mrjoin and ⛔ unlike /mrcfg's range: there is no migration
+    // arm for a key store and there must not be one — a rejected record leaves the node KEYLESS, which is safe and
+    // visible, whereas a half-understood migration would install bytes under a layout guess.
+    return blob_valid_exact(b, n, kTeamKeyMagic, kTeamKeyVersion) ? TeamKeyRead::ok : TeamKeyRead::invalid;
+}
+// Stamp an EMPTY, VALID keyring. ONE path (U2) — the magic/version/count triple is never re-typed at a write site,
+// exactly as `peers_blob_init` and `join_blob_init` exist so that it is not. ★ `TeamKeyBlob{}` zeroes every record
+// INCLUDING `reserved`, which is what makes the per-record byte compare a valid "nothing changed".
+inline void team_key_blob_init(TeamKeyBlob& b) {
+    b = TeamKeyBlob{};
+    b.magic   = kTeamKeyMagic;
+    b.version = kTeamKeyVersion;
+    // ⓘ REDUNDANT BY CONSTRUCTION, AND SAID SO RATHER THAN LEFT TO LOOK LIKE COVERAGE: the value-initialisation
+    //   above already zeroed `count`, so ⛔ no mutation can redden this line. It is kept for symmetry with
+    //   `peers_blob_init`, which spells the same triple for the same reason.
+    b.count   = 0;
 }
 
 // ---- /mrpeers RECORD POLICY — pure, and ABOVE the platform `#if` for the SAME reason as blob_valid_* ----------
@@ -792,4 +905,18 @@ inline JoinRead load_join(JoinBlob& out) {
 //    can COUNT the writes of. Repeating /mrcfg's pattern here would add a second flash READ per write and would
 //    still be untestable off-device, which is exactly how "seventeen green instruments" happened.
 inline bool save_join(const JoinBlob& b) { return write_slot(kSlotJoin, &b, sizeof b); }
+// §UI-16 K1 — the team-key keyring. ★ The SECOND wrapper pair that does not return a bool, for the reason
+// `TeamKeyRead` states: absent, corrupt and unreadable take three different answers when the thing at stake is an
+// UNRECOVERABLE secret. ⓘ It asks the primitive for `SlotIo` exactly as `load_join` does; the four bool records
+// still pass no `io` and are therefore byte-for-byte the calls they were.
+inline TeamKeyRead load_team_keys(TeamKeyBlob& out) {
+    SlotIo io;
+    const int n = read_slot(kSlotTeams, &out, sizeof out, &io);
+    return team_key_blob_state(out, n, io);   // ⚠ `out` may hold a PARTIAL read on a non-ok answer — the caller re-inits
+}
+// ⛔ NO read-before-write COALESCING HERE — the same deliberate asymmetry `save_join` states, and for the same
+//    reason plus one more: the keyring's caller has ALREADY loaded the record (it must, to place one of four
+//    entries), so the compare is FREE one level up in `mrfw::TeamKeyringService`, where the native suite can COUNT
+//    the writes; here it would cost a second flash READ **of a secret** and still be untestable off-device.
+inline bool save_team_keys(const TeamKeyBlob& b) { return write_slot(kSlotTeams, &b, sizeof b); }
 }  // namespace mrnv

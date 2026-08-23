@@ -87,6 +87,30 @@ class JoinProfileService;
 JoinService& join_service();
 // Slice 2's ONE `/mrjoin` preset store service (the absent/invalid/io_failed matrix and the write-coalescing rule).
 JoinProfileService& join_profile_service();
+
+// ★★★ §UI-16 K1/K2 ([[B240]]) — THE `/mrteams` KEYRING: ONE service instance, and ONE boot forward.
+// ⚠ FORWARD-DECLARED for the reason every declaration above is: this header is pulled in by `fw_main.cpp` and both
+//   UI probes, and `firmware_team_keyring.h` drags `device_nv.h` + monocypher behind it. ⓘ An `enum class` with a
+//   FIXED underlying type may be declared opaquely, which is what keeps the boot forward's return type honest here
+//   without the include — ⛔ the alternative (returning a bare `uint8_t`) would launder five distinct outcomes
+//   through an untyped byte at exactly the seam that reports whether a team key survived a reboot.
+class TeamKeyringService;
+enum class KeyringRestore : uint8_t;
+// The ONE keyring service instance. `prov_service()` holds a reference to it (create/import store the key here
+// BEFORE the `/mrcfg` candidate that marks it active is written), and §UI-16 K3's grant-receive persistence will
+// reach for the SAME one — ⛔ never a second service over one record.
+TeamKeyringService& team_keyring_service();
+// ★★★ THE BOOT RESTORE — THE **ONE AUTHORITY** over the live team content key, called ONCE from `fw_main`'s startup
+// right after `/mrcfg` is loaded. ⛔ `fw_main` no longer installs `/mrcfg`'s v22 copy itself: that key is passed in
+// here as the COMMITTED WITNESS, so this call's verdict governs instead of following (QG blocker 1, 2026-08-22).
+// It takes the whole record because the exact match is FIVE terms — active · membership == binding · a record for
+// that team · the record's pub == the committed pub · the pub derives from the stored priv. ⛔ Keying it on the
+// PUBLIC membership id alone would let anyone who heard a team beacon reactivate a retained key (P-2b); keying it on
+// the binding alone let a stale binding install another team's key and let a FAILED re-key become effective after a
+// reboot (QG blockers 2 and 3).
+// ★ ZERO writes on every path, ZERO reads when there is no binding — and every non-installing path leaves the node
+// KEYLESS, actively.
+KeyringRestore team_keyring_restore_boot(const mrnv::Blob& nv);
 #endif
 
 // `cfg set <key> <value>` — accumulate onto the pending NV blob + apply live where possible (dispatch verb).

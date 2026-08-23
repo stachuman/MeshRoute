@@ -88,14 +88,27 @@ struct FakeEntropy : mrfw::IEntropy {
 //     are the SAME forwards over fakes — so what the suite drives is the REAL transaction, not a model of it.
 // ★ IT CAPTURES THE REQUEST, which is what lets plan §2.1's trap be ASSERTED rather than argued: `last_rq.phy.present`
 //   is read off the object the adapter actually handed to `apply_team`.
+// §UI-16 K2 — the `/mrteams` keyring the transaction persists a created/imported key into before it writes the
+// `/mrcfg` candidate. ⓘ An in-RAM store: this file measures the ADAPTER, and the keyring's own write policy is
+// measured by `test/test_firmware_team_keyring.cpp`.
+struct FakeKeyStore : mrfw::ITeamKeyStore {
+    mrnv::TeamKeyBlob rec{};
+    mrnv::TeamKeyRead state = mrnv::TeamKeyRead::absent;
+    int saves = 0;
+    mrnv::TeamKeyRead load(mrnv::TeamKeyBlob& out) override { out = rec; return state; }
+    bool save(const mrnv::TeamKeyBlob& b) override { ++saves; rec = b; state = mrnv::TeamKeyRead::ok; return true; }
+};
+
 struct DevFake : mrfw::ITeamCreateDevice {
     FakeStore   store;
     FakeLive    live;
     FakeEntropy ent;
+    FakeKeyStore keys;
+    mrfw::TeamKeyringService keyring{keys};
     meshroute::NodeConfig cfg{};
     ProvSnapshot snap{};
     ProvPhyFloor floor{};
-    ProvisioningService svc{store, live, ent};
+    ProvisioningService svc{store, live, ent, keyring};
 
     int  load_calls = 0, facts_calls = 0, apply_calls = 0, on_applied_calls = 0;
     bool load_answer = true;

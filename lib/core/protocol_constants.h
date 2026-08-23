@@ -589,6 +589,20 @@ inline constexpr uint32_t peer_key_ttl_ms = id_bind_ttl_ms;   // pubkeys are imm
 // ages entries out, it REPORTS the age (`loc_age_s`) and lets the app decide; see node.h's PeerLoc for why.
 inline constexpr uint8_t  cap_peer_loc    = 16;
 
+// ---- §UI-16 N1 — the nearby-team observation cache (spec 2026-08-22 §2.1) ---
+// A READ-ONLY record of the team ids audible on our current PHY, for the onboarding UI's NEARBY list.
+// See lib/core/team_seen_ring.h for the record, the ring policy and why none of it writes any other plane.
+// ⚠ NOT wire constants: nothing on air depends on either figure, so both are purely this node's RAM /
+// display budget and changing them breaks no peer.
+inline constexpr uint8_t  cap_team_seen        = 8;        // slots; 16 B/slot (measured) = 128 B of Node RAM
+// ★ 10 MINUTES IS EXACTLY TWO DEFAULT TEAM-BEACON PERIODS, and that is the whole derivation (owner ruling
+// R-2(i), 2026-08-22): NodeConfig::team_beacon_period_ms defaults to 300000 — "a TEAM member's STEADY-state
+// beacon period ... 3x more responsive than static's 15 min" (lib/core/node_carriers.h). Two periods is the
+// SMALLEST window that survives one missed beacon. ⛔ It is deliberately a CONSTANT and not `2 *
+// _cfg.team_beacon_period_ms`: the window we apply is over a FOREIGN team's cadence, which we do not know
+// and must not infer from our own config.
+inline constexpr uint32_t team_seen_retain_ms  = 600000;
+
 // ---- Command interface (the app<->firmware seam) ---------------------------
 inline constexpr uint8_t gw_env_max_hops = 4;    // GW_ENV_MAX_HOPS (send_layer hop path)
 inline constexpr uint8_t cap_push_ring   = 32;   // async push ring

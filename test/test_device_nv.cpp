@@ -480,10 +480,27 @@ TEST_CASE("device_nv: the record sizes the version policy guards are what the st
     CHECK(kMaxPeerRecs == 16);                                // == protocol::cap_peer_keys (the RAM table's cap)
     CHECK(kPeersVersion == 2);                                // §AB1: v2 = confidence + name persisted; v1 rejected outright
     CHECK(kIdVersion == 1);
-    CHECK(kVersion == 23);                                    // §loc-per-send dropped loc_in_dm at v23
+    CHECK(kVersion == 24);                                    // §UI-16 K2 added the team-key ACTIVE BINDING at v24 (v23 dropped loc_in_dm)
     CHECK(kMagic == 0x4D524331u);                             // 'MRC1'
     CHECK(kIdMagic == 0x4D524944u);                           // 'MRID'
     CHECK(kPeersMagic == 0x4D525052u);                        // 'MRPR'
+    // ★★ §UI-16 K1 — THE `/mrteams` KEYRING's ABI, pinned HERE beside its siblings because `sizeof` IS the migration
+    //    policy for it too (`load_team_keys`' exact size check). ⚠ 72 with ⛔ NO tail padding, which is exactly what
+    //    the NAMED `reserved[4]` buys: the write policy's whole-record `memcmp` would otherwise compare
+    //    indeterminate bytes. 8-byte header + 4 × 72 = 296 B — the owner's estimate, now MEASURED.
+    CHECK(sizeof(TeamKeyRecord) == 72);
+    CHECK(offsetof(TeamKeyRecord, team_id) == 0);             // the on-flash field order, pinned: a reorder is a format change
+    CHECK(offsetof(TeamKeyRecord, team_ch_pub) == 4);
+    CHECK(offsetof(TeamKeyRecord, team_ch_priv) == 36);
+    CHECK(offsetof(TeamKeyRecord, reserved) == 68);
+    CHECK(sizeof(TeamKeyBlob) == 8 + kTeamKeyRecs * sizeof(TeamKeyRecord));
+    CHECK(sizeof(TeamKeyBlob) == 296);
+    CHECK(offsetof(TeamKeyBlob, rec) == 8);                   // the header carries the padding, as JoinBlob's does
+    CHECK(kTeamKeyRecs == 4);                                 // FOUR — matching the four /mrjoin join profiles
+    CHECK(kTeamKeyVersion == 1);
+    CHECK(kTeamKeyMagic == 0x4D524B31u);                      // 'MRK1' — ⛔ its own, never kMagic and never kJoinMagic
+    CHECK(kTeamKeyMagic != kMagic);
+    CHECK(kTeamKeyMagic != kJoinMagic);
 }
 
 // ============================================================ §UI-15 slice 2 CORRECTION (2026-08-19) — THE READ ARMS

@@ -576,6 +576,21 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (b.has_ext) peer_team = parse_team_id_tlv(beacon_ext(std::span<const uint8_t>(bytes, len), b));   // §6.2 (draw-free pure parse; s18 has no TLV -> 0)
     [[maybe_unused]] const bool same_team_beacon = b.is_mobile && same_team(peer_team);   // §P2-1: leaf-exempt iff a same-team teammate
     if (!leaf_match && !same_team_beacon) return;         // foreign nibble AND not a same-team teammate -> drop as before
+    // ★★★ §UI-16 N1 (spec 2026-08-22 §2.1/§4-N1) — THE ONE WRITE SITE OF THE NEARBY-TEAM OBSERVATION
+    // CACHE, and it is READ-ONLY OBSERVATION: it retains the team id in a Node-global RAM ring and does
+    // nothing else. ⛔ No route/peer/membership/key/NV write, no TX, no timer, no telemetry, no wire byte.
+    // ★ PLACED HERE DELIBERATELY, between two existing gates, and BOTH sides matter:
+    //   · AFTER parse_beacon + the raw wire_version gate (:559-565) -> nothing unparsed or
+    //     wire-incompatible is ever recorded;
+    //   · BEFORE the R6.1 leaf-config membership filter below, which can `return` at six sites — a
+    //     FOREIGN team's node legitimately fails that filter, and observing a node we refuse to PEER with
+    //     is exactly what a passive scan is. ⛔ No existing branch was moved or reordered to reach this.
+    // ★ THE ELIGIBILITY RULE LIVES HERE, IN ONE PLACE: a MOBILE beacon (a team member is mobile by
+    // construction) carrying a NON-ZERO type-5 team id. `peer_team` is already parsed above and is 0 both
+    // when no TLV rides the beacon and on every static-suite frame (s18 has no TLV) -> the whole slice is
+    // inert there by construction. ⓘ OUR OWN team id is recorded like any other; the own-team filter is
+    // the reader's (N2), so each decision lives in exactly one place.
+    if (b.is_mobile && peer_team != 0) team_seen_observe(peer_team, protocol::db_to_q4(meta.snr_db), b.src);
     // R6.1 leaf-config membership filter (§3.3): same nibble is NOT enough — refuse to peer across a config divergence
     // (the misconfig gate). Compares the advertised lineage/epoch/config_hash against ours.
     // §GW (metal 2026-07-05): a GATEWAY is exempt from the R6.1 leaf-config membership plane in BOTH directions —

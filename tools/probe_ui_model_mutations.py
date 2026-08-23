@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 # Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
-"""The NATIVE mutation battery for the PURE `src/` units — §UI-7D slice B's `firmware_ui_model.h` and §UI-13's
-`firmware_config_service.h`.
+"""The NATIVE mutation battery for the tree's PURE units — §UI-7D slice B's `firmware_ui_model.h`, §UI-13's
+`firmware_config_service.h`, and (since §UI-16 N1, 2026-08-22) the first two `lib/core` targets.
+⚠ THIS LINE USED TO READ *"the PURE `src/` units"* AND IS CORRECTED IN PLACE: the restriction was never in the
+machinery — every guard is keyed by the RESOLVED PATH or by the build directory — it was only in the target table.
 
 ★★ WHY IT LIVES IN THE REPOSITORY. A proven instrument kept in a session scratchpad is a lost instrument: this project
 has already lost a 33-assert scenario that way ([[meshroute-agent-scratchpad-is-volatile]]). The two UI probes carry
@@ -110,6 +112,35 @@ TARGET_SRC = {
     #    sites and the "⛔ do not copy it onto the DM arm" rule would have had NO controlled mutation at all. The
     #    model's `--target=model` entries (S08-S16) attack the EFFECT; these attack the SCOPE.
     "uisend": "src/firmware_ui_send.h",         # §UI-17 S8 — the recv router's two wake call sites + the `enc` gate
+    # ★★ ADDED 2026-08-22 BY §UI-16 K1, and for the reason every target above it was added: the keyring's WRITE
+    #    POLICY is a set of ruled clauses — `team_id == 0` never stored, one record per team, identical material
+    #    writes nothing, a FULL keyring never evicts, boot install only on an exact active-team match — each of which
+    #    must be attacked ON ITS OWN, and a battery is per-SOURCE-FILE. Bound in `src/firmware_config.cpp` they would
+    #    have had NO battery at all (that TU is compiled by neither the native suite nor the simulator, §B115).
+    "teamkeyring": "src/firmware_team_keyring.h",  # §UI-16 K1 — the /mrteams store, its policy and the boot restore
+    # ★★★ THE FIRST TWO `lib/core` TARGETS, ADDED 2026-08-22 BY §UI-16 N1 (QG blocker 1), and the reason is the one
+    #    every target above was added for: the spec requires N1's decisions mutated INDIVIDUALLY at match count 1, and
+    #    a battery reported in a session transcript is a battery that re-proves nothing next slice
+    #    ([[meshroute-agent-scratchpad-is-volatile]] — a proven 33-assert scenario was lost exactly that way).
+    # ⓘ THE RUNNER NEEDED NO ADAPTATION BEYOND THESE TWO ROWS AND THEIR TWO ENTRY LISTS, and that is a measurement,
+    #    not a hope: every safety mechanism is keyed by `Path(H).resolve()` (`_BK_KEY`) or by the build directory
+    #    (`_BUILD_KEY`), neither of which knows or cares that the path used to start with `src/`. Nothing in the tool
+    #    tests the extension either, which is why a `.cpp` target works beside twenty `.h` ones. The ONE thing that
+    #    changed in behaviour is scope: this file's title line no longer says "the PURE `src/` units".
+    # ⚠ WHY **TWO** TARGETS FOR ONE SLICE AND NOT ONE: a battery is per-SOURCE-FILE (see the header — the backup, the
+    #    marker and the lock are all keyed by the resolved path), and N1's decisions genuinely live in two files. The
+    #    RING POLICY (de-dup key, the EWMA, retention, order) is pure and lives in the header; the ELIGIBILITY RULE and
+    #    the READ-ONLY discipline are properties of the CALL SITE and can only be attacked where the call is made.
+    # ★★ ADDED 2026-08-23 BY §UI-16 N2, and for the reason every target above was added — plus one this arc had not
+    #    met before: the NEARBY screen's pure logic is TWO headers, because `src/firmware_ui_chrome.h:36` includes
+    #    `firmware_ui_model.h`, so a header the MODEL includes may not include chrome. The carriers + the OWN-TEAM
+    #    FILTER + the row list must be model-includable (`UiSnapshot` publishes the array, `UiState` freezes it);
+    #    the two TOKENS need chrome's shared formatters and therefore sit downstream. ⇒ two files, two targets, and
+    #    each ruled decision keeps a battery of its own (R-5's filter/order in one, R-4's tier map in the other).
+    "uinearby":    "src/firmware_ui_nearby.h",      # §UI-16 N2 — the own-team filter, the order, the rows, the lexemes
+    "uinearbyrow": "src/firmware_ui_nearby_row.h",  # §UI-16 N2 — the `n/3` tier map + the fingerprint/age row (S-6/S-7)
+    "teamseen":     "lib/core/team_seen_ring.h",  # §UI-16 N1 — the pure nearby-team ring: de-dup, EWMA, retention, order
+    "teamseensite": "lib/core/node_beacon.cpp",   # §UI-16 N1 — the ONE write site: eligibility + the read-only discipline
 }
 _flags = [a for a in sys.argv[1:] if a.startswith("--")]
 
@@ -176,7 +207,111 @@ H = os.path.join(ROOT, TARGET_SRC[_TARGET])
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 1932, 87788     # ★★ CROSS-CHECK RE-SYNCED 2026-08-22 by §UI-17 slice 6 (the STATUS mark):
+PIN_CASES, PIN_ASSERTS = 1998, 88655     # ★★ CROSS-CHECK RE-SYNCED 2026-08-23 by §UI-16 N2 (the `JOIN TEAM` child
+                                         # + the read-only NEARBY list):
+                                         # **1980 / 88475 -> 1998 / 88655** (+18 cases / +180 assertions).
+                                         # DERIVED, not merely observed, and MEASURED case-by-case with
+                                         # `program -tc=` per block; 98 + 75 + 7 = 180 closes exactly:
+                                         #  +10 cases / +75 assertions — the NEW file
+                                         #    `test/test_firmware_ui_nearby.cpp` (targets `uinearby` +
+                                         #    `uinearbyrow`): the own-team filter incl. its full-32-bit
+                                         #    equality, the teamless-joiner arm, the fail-closed/bounded
+                                         #    capture, the first-observed order driven against a fixture
+                                         #    where signal and age both disagree with it, BACK as the
+                                         #    unconditional last row, a row's identity surviving the
+                                         #    filter's re-indexing, the FOUR tier tokens at their shared
+                                         #    -12/-4/+4 dB boundaries, the row's exact bytes + the
+                                         #    fingerprint VALUE RELATION, the reused age table incl. `--`
+                                         #    and the 64-bit range, and every lexeme.
+                                         #  +8 cases / +98 assertions — the §UI-16 N2 block appended to
+                                         #    `test/test_firmware_ui_model.cpp` (target `model`): the third
+                                         #    child + the DIRECT landing (OQ-1), the child's own predicate
+                                         #    and the parent row it alone earns, the ONE-SHOT capture
+                                         #    (R-10's freeze, driven against a snapshot that changes under
+                                         #    the open screen), the own-team filter through the model, the
+                                         #    cycling walk with BACK's containment, the "can only look"
+                                         #    counters, blank/wake retention and the alarm's pre-emption.
+                                         #  +7 assertions — the RESIDUE (180 - 98 - 75), and it is
+                                         #    measured by subtraction rather than counted by eye: five
+                                         #    LANDED cases extended in place — the `Provision` enum's
+                                         #    ninth arm, `ui15-menu`'s walk (the third child joined the
+                                         #    cycle, two lines), `ui15-hide`'s label table (S-1) and its
+                                         #    label-width loop (`kMaxProvRows` 3 -> 4, one more
+                                         #    iteration), and `ui15-parent` gaining *"the nearby child
+                                         #    ALONE earns the parent row"*.
+                                         # ⛔ THE PREVIOUS ENTRY IS KEPT VISIBLE BELOW, unedited.
+                                         # ---- (previous) 2026-08-22 by §UI-16 N1 (the read-only nearby-team
+                                         # observation cache — the arc's ONE lib/core slice):
+                                         # **1967 / 88323 -> 1980 / 88475** (+13 cases / +152 assertions).
+                                         # DERIVED, not merely observed, and MEASURED case-by-case with
+                                         # `program -tc="*UI-16 N1*"` — every one of them is the single new file
+                                         # `test/test_node_team_seen.cpp`, and 52 + 100 = 152 closes exactly:
+                                         #  +7 cases / +52 assertions — PART A, the PURE ring (team_seen_ring.h)
+                                         #    driven with no Node, no HAL and no frame: the window/capacity
+                                         #    DERIVATION pin (10 min == 2 x the default team_beacon_period_ms),
+                                         #    the seeded first observation, de-duplication BY TEAM across senders,
+                                         #    the SNR EWMA driven as a SEQUENCE (⛔ not max-seen, ⛔ not
+                                         #    last-sample), retention-at-the-READ with its inclusive boundary,
+                                         #    first-observed order under a refresh, and overflow shifting the
+                                         #    STALEST out while appending the newcomer LAST.
+                                         #  +6 cases / +100 assertions — PART B, the ONE write site
+                                         #    (node_beacon.cpp) through the existing beacon-injection fixture:
+                                         #    the landed record, the eligibility rule (mobile + non-zero id, our
+                                         #    own team recorded like any other), cross-sender de-dup + retention
+                                         #    at the node's read, the wire-version/parse refusals EACH WITH A
+                                         #    SAME-SITE CONTROL, ZERO telemetry on the new path, and the headline
+                                         #    READ-ONLY case (rt/rt_team/id_bind/peer_keys/_team_peer/_team_keys/
+                                         #    content key/our team id/TX all unmoved across 36 foreign beacons).
+                                         # ⛔ THE PREVIOUS ENTRY IS KEPT VISIBLE BELOW, unedited — it is history,
+                                         # not a competing figure.
+                                         # ---- (previous) 2026-08-22 by §UI-16 K1+K2 (the /mrteams keyring,
+                                         # [[B240]]) and its QG correction: **1932 / 87788 -> 1967 / 88323**
+                                         # (+35 cases / +535 assertions).
+                                         # DERIVED, not merely observed — the arithmetic is written out so it can be
+                                         # CHECKED rather than trusted, and 328 + 13 + 123 + 71 = 535:
+                                         #  ★ THE QG ROUND (2026-08-22) moved it 1962 / 88211 -> 1967 / 88323
+                                         #    (+5 cases / +112 assertions), ALL of them the three blockers' cover:
+                                         #    the restore's exact match went from TWO terms to FIVE, so the boot
+                                         #    section became one case PER TERM (i…v) plus the governance arm
+                                         #    `QG-B1` (a key ALREADY LIVE must not survive a refusal, driven over
+                                         #    all SEVEN refusing arms) — +4 cases / +95 in the keyring file — and
+                                         #    `QG-B2` (a FAILED same-team re-key must not become active after a
+                                         #    reboot, with its positive control) — +1 case / +15, +2 in the
+                                         #    round-trip case's new governance assertions.
+                                         #  +24 cases / +328 assertions — the NEW
+                                         #      `test/test_firmware_team_keyring.cpp`. One case per ruled clause:
+                                         #      the record ABI (`reserved` NAMED, 72/296) · the own magic + the
+                                         #      `"mr"` factory-reset namespace · the FOUR read states and their
+                                         #      order · `team_key_blob_init` · ★ the secret wipe guard ·
+                                         #      the zero-first composition · `team_id == 0` refused with ZERO
+                                         #      loads · the absent-store seed in ONE write · ★ identical material
+                                         #      = ZERO writes, counted over five re-puts · one record per team
+                                         #      (re-key in place) · ★★★ P-15 full = loud + four secrets
+                                         #      byte-identical · the two unreadable answers · the failed save ·
+                                         #      the bit-rot clamp · the exact-match restore · ★★★ P-2b (a
+                                         #      cleared binding is not even READ) · the pub/priv rejection ·
+                                         #      absent/unreadable = keyless · the three enum name functions ·
+                                         #      ★ the WHOLE-RECORD compare (a dirty `reserved` is repaired, ⛔ not
+                                         #      read as equal — the case that makes the NAMED padding load-bearing).
+                                         #  +0 cases / +13 assertions — `test/test_device_nv.cpp`: the /mrteams ABI
+                                         #      joins the existing "record sizes the version policy guards" case
+                                         #      (sizeof 1, four offsetofs, two blob identities, offsetof(rec),
+                                         #      kTeamKeyRecs, kTeamKeyVersion, the magic + its two `!=` controls),
+                                         #      and `kVersion` moves 23 -> 24 in place (⛔ an NV version, never
+                                         #      `wire_version`).
+                                         #  +11 cases / +123 assertions — `test_firmware_provisioning_service.cpp`,
+                                         #      the K2 block: create · import · ★ `team 0` clears the binding and
+                                         #      RETAINS the record · a switch installs nothing · the reboot round
+                                         #      trip (pins 3+4) · ★ the ORDER (the keyring write has happened when
+                                         #      the /mrcfg save fails) · P-15 through the transaction · the three
+                                         #      keyring-failure arms · the zero-write re-grant · the relabel.
+                                         #  +0 cases / +71 assertions — the same file's `prov_err_name` case, whose
+                                         #      loop is `3n + n(n-1)/2` over the arm list: n 13 -> 17 is
+                                         #      (51 + 136) - (39 + 78) = +70, plus the one new spelled-out arm.
+                                         # ⓘ The mutations these red are the NEW `--target=teamkeyring` (T01-T21),
+                                         #   `--target=provservice` P05-P10 and `--target=devicenv` N13-N16.
+                                         #
+                                         # ⓘ THE PRECEDING RE-SYNC, KEPT VISIBLE — 2026-08-22 by §UI-17 slice 6 (the STATUS mark):
                                          # **1931 / 87754 -> 1932 / 87788** (+1 case / +34 assertions), ONE new case
                                          # in `test/test_firmware_ui_chrome.cpp` — ⛔ no existing case was touched,
                                          # and none could be: S6 is ASSET-ONLY (one new array in
@@ -1605,6 +1740,43 @@ MUTS_MODEL = [
  ("S16 [[UI-17]] the wake window is measured from the last PRESS, not from the message",
   "        _msg_wake_until_ms = now_ms + kBlankMs;",
   "        _msg_wake_until_ms = _last_input_ms + kBlankMs;"),
+ # ===== §UI-16 N2 — the `JOIN TEAM` child, the DIRECT landing and the FROZEN list ================================
+ # ★★★ N01 AND N04 ARE THE HEADLINE PAIR. N01 encodes the coincidence `provision_rows` refuses to encode (all three
+ #     predicates are true in every env in the tree today, so the fold is INVISIBLE on hardware and shows up only in
+ #     the arm the native suite drives). N04 breaks owner ruling R-10's freeze — a per-tick re-read is the shape a
+ #     reviewer reaches for when the list "looks stale", and it is precisely what lets a row move under the cursor.
+ ("N01 ★★ the JOIN TEAM child is FOLDED into the CREATE predicate — the coincidence encoded as a rule",
+  "    if (join_team)   l.row[l.n++] = ProvRow::join_team;",
+  "    if (create_team) l.row[l.n++] = ProvRow::join_team;"),
+ ("N02 ★★ the parent-row predicate is RE-SPELLED from the old two children instead of derived from the child list "
+  "— the third child opens a sub-view no visible row leads to",
+  "    const ProvRowList l = provision_rows(create_team, join_static, join_team);\n"
+  "    for (uint8_t i = 0; i < l.n; ++i)\n"
+  "        if (l.row[i] != ProvRow::back) return true;\n"
+  "    return false;",
+  "    return create_team || join_static;"),
+ ("N03 ★★ the own-team id is not handed to the capture — the team we are already in is offered as a candidate",
+  "        _st.nearby = nearby_capture(s.nearby, s.nearby_n, s.team_id);",
+  "        _st.nearby = nearby_capture(s.nearby, s.nearby_n, 0);"),
+ ("N04 ★★★ the scan is RE-READ EVERY TICK — owner ruling R-10's frozen-per-entry snapshot is gone and a team that "
+  "walks into range inserts a row under the operator's cursor",
+  "        list_follow_screen();",
+  "        if (_st.provisioning == Provision::nearby) load_nearby(s);\n        list_follow_screen();"),
+ ("N05 ★★ BACK leaves the SCREEN instead of returning to the PROVISION menu (the containment contract, broken)",
+  # ⚠ ANCHORED ON THE LINE ABOVE IT TOO: `join_select_gesture` carries the IDENTICAL `back` landing one screen over,
+  #   so the bare line matches TWICE and the runner reports it VACUOUS — which is exactly what it did on the first
+  #   full pass. The fail-closed line's comment names `NearbySelList`, so the pair is unique.
+  "        if (!l.at(_st.cursor, r)) return;                            // fails closed — see NearbySelList::at\n"
+  "        if (r.back) { enter_provision(Provision::menu); return; }",
+  "        if (!l.at(_st.cursor, r)) return;                            // fails closed — see NearbySelList::at\n"
+  "        if (r.back) { close_settings_menu(); return; }"),
+ ("N06 ★★ ANY double leaves the scan, not just the one on BACK — a press on a team row acts (as a way OUT here, as "
+  "a JOIN the day N3 lands)",
+  "        NearbySelRow r{};\n"
+  "        if (!l.at(_st.cursor, r)) return;                            // fails closed — see NearbySelList::at",
+  "        NearbySelRow r{};\n"
+  "        if (!l.at(_st.cursor, r)) return;\n"
+  "        enter_provision(Provision::menu);"),
 ]
 
 # ===== §UI-13 — src/firmware_config_service.h =====================================================================
@@ -2191,6 +2363,355 @@ MUTS_DEVICENV = [
  ("N12 ⛔ the ESP32 nvs_open classification runs for every record, on every open failure",
   "    if (!nvs.open(ns)) { if (io && !nvs.ns_absent(ns)) io->backend_failed = true; return kSlotAbsent; }",
   "    if (!nvs.open(ns)) { const bool miss = nvs.ns_absent(ns); if (io && !miss) io->backend_failed = true; return kSlotAbsent; }"),
+ # --- §UI-16 K1: the /mrteams read state, which repeats the SAME three traps one record over ------------------------
+ ("N17 ★★ the keyring's backend-failure arm is ordered AFTER `absent`, so a dead flash reports NO STORED KEYS",
+  "    if (io.backend_failed) return TeamKeyRead::io_failed;\n"
+  "    if (io.oversize)       return TeamKeyRead::invalid;\n"
+  "    if (n == kSlotAbsent)  return TeamKeyRead::absent;",
+  "    if (n == kSlotAbsent)  return TeamKeyRead::absent;\n"
+  "    if (io.backend_failed) return TeamKeyRead::io_failed;\n"
+  "    if (io.oversize)       return TeamKeyRead::invalid;"),
+ ("N18 an OVER-LENGTH keyring is accepted as a valid PREFIX (the nRF52 short-read hazard, one record over)",
+  "    if (io.oversize)       return TeamKeyRead::invalid;",
+  "    ;"),
+ ("N19 ★ the keyring's version policy is RELAXED from equality to a range — an unknown layout is parsed as keys",
+  "    return blob_valid_exact(b, n, kTeamKeyMagic, kTeamKeyVersion) ? TeamKeyRead::ok : TeamKeyRead::invalid;",
+  "    return blob_valid_range(b, n, kTeamKeyMagic, 1, 0xFFFFu) ? TeamKeyRead::ok : TeamKeyRead::invalid;"),
+ # ⓘ AND ONE MUTATION IS DELIBERATELY ABSENT: `b.count = 0;` in `team_key_blob_init` cannot be attacked — `b =
+ #   TeamKeyBlob{}` one line above has already zeroed it, so deleting the assignment changes nothing a test can see.
+ #   It is kept in the source for symmetry with `peers_blob_init` and is marked there as redundant-by-construction,
+ #   ⛔ not left to look like coverage. (It was written as an entry, measured UNUSABLE, and removed.)
+ ("N20 the keyring seed does not STAMP the version, so a fresh record is rejected by its own read policy",
+  "    b.version = kTeamKeyVersion;",
+  "    ;"),
+]
+
+# ===== §UI-16 K1 — src/firmware_team_keyring.h =====================================================================
+# ★★★ WHAT THESE MEASURE: every clause of the OWNER'S RULED WRITE POLICY, attacked ON ITS OWN. The stakes are why the
+#     battery exists — a team content key is UNRECOVERABLE (no seed derives it), so each of these mutations is a way
+#     to lose one silently, and every one of them is a plausible simplification rather than a deletion. ⛔ P-15's
+#     entry is the headline: "evict the oldest" is the idiom used EVERYWHERE ELSE in this tree, and here it destroys
+#     a secret.
+MUTS_TEAMKEYRING = [
+ # --- the write policy -------------------------------------------------------------------------------------------
+ ("T01 ★★★ P-15 BROKEN: a FULL keyring EVICTS THE OLDEST record — the tree's own idiom, destroying a secret",
+  "            if (cur.count >= mrnv::kTeamKeyRecs) { r.err = KeyringErr::keyring_full; return r; }\n"
+  "            cur.rec[cur.count++] = want;",
+  "            if (cur.count >= mrnv::kTeamKeyRecs) {\n"
+  "                for (uint8_t i = 0; i + 1u < mrnv::kTeamKeyRecs; ++i) cur.rec[i] = cur.rec[i + 1];\n"
+  "                cur.rec[mrnv::kTeamKeyRecs - 1] = want;\n"
+  "            } else cur.rec[cur.count++] = want;"),
+ ("T02 ★ the byte-identical coalescing guard is dropped — every re-grant of the SAME key writes flash",
+  "            if (memcmp(&want, &cur.rec[idx], sizeof want) == 0) {\n"
+  "                r.verdict = KeyringVerdict::unchanged;                     // ★ ZERO writes\n"
+  "                return r;\n"
+  "            }",
+  ";"),
+ ("T03 the compare covers only the KEY, not the whole record (a moved id or a dirty `reserved` reads as unchanged)",
+  "            if (memcmp(&want, &cur.rec[idx], sizeof want) == 0) {",
+  "            if (memcmp(want.team_ch_priv, cur.rec[idx].team_ch_priv, 32) == 0) {"),
+ ("T04 ★★ `team_id == 0` IS STORED — a zero-keyed row that matches every teamless node's binding",
+  "        if (team_id == 0) { r.err = KeyringErr::zero_team; return r; }     // ⛔ 0 loads, 0 writes",
+  ";"),
+ ("T05 ★★ ONE RECORD PER TEAM BROKEN: a re-key APPENDS a second row for the same team_id",
+  "        const int idx = team_key_find(cur, team_id);\n"
+  "        if (idx >= 0) {",
+  "        const int idx = -1;\n"
+  "        if (idx >= 0) {"),
+ ("T06 the composition path no longer zeroes the record first — a stale tail defeats the coalescing compare",
+  "    r = mrnv::TeamKeyRecord{};\n    r.team_id = team_id;",
+  "    r.team_id = team_id;"),
+ ("T07 an UNREADABLE store is silently RESEEDED — up to four intact keys destroyed by a transient mount fault",
+  "        if (team_key_read_unreadable(st)) { r.err = keyring_err_of_unreadable(st); return r; }   // ⛔ 0 writes",
+  "        if (team_key_read_unreadable(st)) mrnv::team_key_blob_init(cur);"),
+ ("T08 the two unreadable answers are COLLAPSED, so a dead store and a corrupt record read alike",
+  "    return st == mrnv::TeamKeyRead::io_failed ? KeyringErr::store_io_failed : KeyringErr::store_invalid;",
+  "    return KeyringErr::store_invalid;"),
+ ("T09 `io_failed` stops counting as unreadable, so `put` writes onto a record it never read",
+  "    return st == mrnv::TeamKeyRead::invalid || st == mrnv::TeamKeyRead::io_failed;",
+  "    return st == mrnv::TeamKeyRead::invalid;"),
+ ("T10 the ABSENT seed is dropped, so a partial read's GARBAGE is written back as the keyring",
+  "        if (st == mrnv::TeamKeyRead::absent) mrnv::team_key_blob_init(cur);",
+  ";"),
+ ("T11 a failed save is reported as a success (the 'success that isn't', over a key nothing stored)",
+  "        if (!_store.save(cur)) { r.verdict = KeyringVerdict::nv_failed; r.err = KeyringErr::nv_save_failed; return r; }",
+  "        _store.save(cur);"),
+ # --- the SECRET WIPE. ★ It is measurable at all only because the guard is a NAMED type (see the header). ----------
+ # ⛔ AND ONE MUTATION IS DELIBERATELY ABSENT, STATED RATHER THAN LEFT AS A GAP: `crypto_wipe` -> `memset` cannot be
+ #    an entry. It zeroes the bytes just as well, so the SUITE CANNOT TELL THEM APART — the difference is a
+ #    compiler's licence to ELIDE a dead store, which no host assertion can observe. It was written, measured
+ #    UNUSABLE, and removed; the rule lives in the header's comment instead. (Adding it back would report a green
+ #    battery entry that measures nothing, which is the [[B217]] family.)
+ ("T12 ★★ THE SECRET BUFFER IS LEFT UNWIPED — the transient key material outlives the call",
+  "    ~SecretWipeGuard() { crypto_wipe(&ref, sizeof(T)); }",
+  "    ~SecretWipeGuard() { }"),
+ # --- the BOOT RESTORE: ★★★ ONE MUTATION PER TERM OF THE FIVE-TERM EXACT MATCH (QG, 2026-08-22) -------------------
+ # The four-term-correlation precedent: a predicate whose terms are only ever attacked TOGETHER is a predicate whose
+ # terms are not measured. Each entry below breaks EXACTLY ONE term, and the case that reddens it breaks the same one.
+ ("T14 ★★★ TERM (i) — P-2b BROKEN: the ACTIVE flag is dropped, so mere knowledge of the team id reactivates the key",
+  "        if (!bind.key_active || bind.binding_team_id == 0) return refuse(live, KeyringRestore::no_binding);  // ⛔ 0 loads",
+  "        if (bind.binding_team_id == 0) return refuse(live, KeyringRestore::no_binding);"),
+ ("T22 ★★★ TERM (ii) — MEMBERSHIP DROPPED: a stale binding installs ANOTHER team's key on this node",
+  "        if (bind.membership_team_id != bind.binding_team_id) return refuse(live, KeyringRestore::team_mismatch);",
+  ";"),
+ ("T15 ★★ TERM (iii) — the restore falls back to the FIRST record when the bound team has none",
+  "        const int idx = team_key_find(cur, bind.binding_team_id);\n"
+  "        if (idx < 0) return refuse(live, KeyringRestore::no_record);",
+  "        int idx = team_key_find(cur, bind.binding_team_id);\n"
+  "        if (idx < 0) idx = 0;"),
+ ("T23 ★★★ TERM (iv) — THE COMMITTED WITNESS DROPPED: a FAILED re-key becomes effective at the next boot",
+  "        if (!bind.committed_present || !bind.committed_pub\n"
+  "            || memcmp(cur.rec[idx].team_ch_pub, bind.committed_pub, 32) != 0)\n"
+  "            return refuse(live, KeyringRestore::not_committed);",
+  ";"),
+ ("T25 TERM (iv) HALF-APPLIED: the witness is consulted only when /mrcfg happens to carry one",
+  "        if (!bind.committed_present || !bind.committed_pub\n"
+  "            || memcmp(cur.rec[idx].team_ch_pub, bind.committed_pub, 32) != 0)\n"
+  "            return refuse(live, KeyringRestore::not_committed);",
+  "        if (bind.committed_present && bind.committed_pub\n"
+  "            && memcmp(cur.rec[idx].team_ch_pub, bind.committed_pub, 32) != 0)\n"
+  "            return refuse(live, KeyringRestore::not_committed);"),
+ ("T16 ★★ TERM (v) — THE CORRUPTION CHECK IS IGNORED: a record whose pub does not verify is reported as installed",
+  "        if (!live.adopt_key(cur.rec[idx].team_ch_pub, cur.rec[idx].team_ch_priv))\n"
+  "            return refuse(live, KeyringRestore::rejected);",
+  "        live.adopt_key(cur.rec[idx].team_ch_pub, cur.rec[idx].team_ch_priv);"),
+ # --- the GOVERNANCE. ★ QG blocker 1: a verdict that is reported but not APPLIED left the old key live. -----------
+ ("T24 ★★★ THE VERDICT IS REPORTED BUT NOT APPLIED — a key installed by an earlier boot step SURVIVES a refusal",
+  "    static KeyringRestore refuse(ITeamKeyLive& live, KeyringRestore why) {\n"
+  "        live.clear_key();\n"
+  "        return why;\n"
+  "    }",
+  "    static KeyringRestore refuse(ITeamKeyLive& live, KeyringRestore why) {\n"
+  "        (void)live;\n"
+  "        return why;\n"
+  "    }"),
+ ("T26 the governance is HALF-APPLIED: the store arms clear, the BINDING arms do not (the stale-binding hole)",
+  "        if (!bind.key_active || bind.binding_team_id == 0) return refuse(live, KeyringRestore::no_binding);  // ⛔ 0 loads",
+  "        if (!bind.key_active || bind.binding_team_id == 0) return KeyringRestore::no_binding;"),
+ ("T17 an UNREADABLE store is reported as 'no key stored' (the honesty this record's four states exist for)",
+  "        if (st != mrnv::TeamKeyRead::ok)     return refuse(live, KeyringRestore::store_failed);   // invalid / io_failed",
+  "        if (st != mrnv::TeamKeyRead::ok)     return refuse(live, KeyringRestore::no_record);"),
+ ("T18 the restore WRITES (a 'repair' on the read path — flash wear, and a corrupt store overwritten unread)",
+  "        if (st == mrnv::TeamKeyRead::absent) return refuse(live, KeyringRestore::no_record);",
+  "        if (st == mrnv::TeamKeyRead::absent) { mrnv::team_key_blob_init(cur); _store.save(cur); return refuse(live, KeyringRestore::no_record); }"),
+ # --- the lookup -------------------------------------------------------------------------------------------------
+ ("T19 `team_key_find` answers for team 0, so a bit-rotted zero row can satisfy a binding",
+  "    if (team_id == 0) return -1;                      // ⛔ 0 is never stored, so it can never be FOUND either",
+  ";"),
+ ("T20 a bit-rotted count is PERSISTED FORWARD instead of repaired by the write that follows it",
+  "        team_key_clamp_count(cur);\n"
+  "\n"
+  "        mrnv::TeamKeyRecord want{};",
+  "        mrnv::TeamKeyRecord want{};"),
+ ("T21 the ruled `KEYRING FULL` lexeme is re-spelled (a string declared once, changed in one place — or not)",
+  'inline constexpr const char* kKeyringFullText = "KEYRING FULL";',
+  'inline constexpr const char* kKeyringFullText = "KEYRING IS FULL";'),
+]
+
+# ===== §UI-16 N1 — lib/core/team_seen_ring.h: THE PURE RING POLICY ==================================================
+# ★★ Every entry below is one of the owner's 2026-08-22 rulings turned into its TEMPTING WRONG FIX. The ring is the
+#    half of N1 that decides things — what counts as the same team, how signal is smoothed, what "recently" means, and
+#    what order the operator sees — so it is the half a reviewer's reflex would "improve".
+# ⚠ THE WINDOW ENTRIES (S06/S07) ARE ANCHORED WHERE THE WINDOW IS **APPLIED**, NOT AT THE LITERAL IN
+#   `protocol_constants.h`, and that placement is deliberate rather than a compromise: a battery is per-source-file,
+#   the applied window is what any reader actually experiences, and the LITERAL is separately guarded by a committed
+#   native case that pins it AT ITS DERIVATION (`team_seen_retain_ms == 2 x NodeConfig{}.team_beacon_period_ms ==
+#   600000`) — so the number and the rule it comes from cannot drift apart unnoticed either.
+# ===== §UI-16 N2 — src/firmware_ui_nearby.h: THE OWN-TEAM FILTER, THE ORDER AND THE ROWS ============================
+# ★★★ THE FIRST TWO ARE THE SLICE'S STRUCTURAL HEADLINE (spec §4-N2 pins 3 and 6 / owner rulings R-5): the filter is
+#     the READER's by ruling — N1 records our own team like any other, deliberately — and the order is the ring's own
+#     first-observed one, which is what stops a row moving under the operator's cursor.
+MUTS_UINEARBY = [
+ ("Y01 ★★★ the OWN-TEAM filter is DROPPED — the team we are already in is offered as a candidate",
+  "        if (src[i].team_id == own_team_id) continue;       // ★ the team we are ALREADY in is not a candidate",
+  "        // (filter removed)"),
+ ("Y02 ★★ the own-team filter is INVERTED — the ONLY team offered is the one we cannot join",
+  "        if (src[i].team_id == own_team_id) continue;       // ★ the team we are ALREADY in is not a candidate",
+  "        if (src[i].team_id != own_team_id) continue;"),
+ ("Y03 ★★ the filter compares the DISPLAY FINGERPRINT instead of the full id — a different team with the same low "
+  "24 bits silently vanishes from the list",
+  "        if (src[i].team_id == own_team_id) continue;       // ★ the team we are ALREADY in is not a candidate",
+  "        if ((src[i].team_id & 0x00FFFFFFu) == (own_team_id & 0x00FFFFFFu)) continue;"),
+ ("Y04 ★★★ the captured list is SORTED BY SIGNAL ('show the best first') — the ruled first-observed order is gone "
+  "and the list re-orders under the cursor",
+  "    return out;\n"
+  "}\n"
+  "\n"
+  "// ------------------------------------------------------------------------- the rows, AS IDENTITIES",
+  "    for (uint8_t i = 0; i + 1 < out.n; ++i)\n"
+  "        for (uint8_t j = uint8_t(i + 1); j < out.n; ++j)\n"
+  "            if (out.row[j].snr_q4 > out.row[i].snr_q4) { const NearbyRow sw = out.row[i]; out.row[i] = out.row[j]; out.row[j] = sw; }\n"
+  "    return out;\n"
+  "}\n"
+  "\n"
+  "// ------------------------------------------------------------------------- the rows, AS IDENTITIES"),
+ ("Y05 the capture's BOUND is dropped — a publisher that overran would write past the fixed array",
+  "    if (n > kMaxNearbyRows) n = kMaxNearbyRows;            // the publisher's bound, restated where the copy happens",
+  "    // (bound removed)"),
+ ("Y06 a null source is answered with a FULL-LOOKING list instead of failing closed",
+  "    if (!src) return out;                                  // ⛔ FAILS CLOSED: no source is an EMPTY list, never a guess",
+  "    if (!src) { out.n = n; return out; }"),
+ ("Y07 ★★ BACK becomes CONDITIONAL — an empty scan offers no way out at all",
+  "    out.row[out.n].back = true;\n"
+  "    ++out.n;",
+  "    if (l.n) { out.row[out.n].back = true; ++out.n; }"),
+ ("Y08 ★ BACK is put FIRST instead of last — the row one press from the top is now the exit, and the last row is a "
+  "team (the shape §B66 forbids reasoning about positionally)",
+  "    for (uint8_t i = 0; i < l.n && i < kMaxNearbyRows; ++i) {\n"
+  "        out.row[out.n].team = l.row[i];\n"
+  "        out.row[out.n].back = false;\n"
+  "        ++out.n;\n"
+  "    }\n"
+  "    out.row[out.n].back = true;\n"
+  "    ++out.n;",
+  "    out.row[out.n].back = true;\n"
+  "    ++out.n;\n"
+  "    for (uint8_t i = 0; i < l.n && i < kMaxNearbyRows; ++i) {\n"
+  "        out.row[out.n].team = l.row[i];\n"
+  "        out.row[out.n].back = false;\n"
+  "        ++out.n;\n"
+  "    }"),
+ ("Y09 the row list stops FAILING CLOSED past its end — an out-of-range cursor is handed a plausible row",
+  "    bool at(uint8_t i, NearbySelRow& out) const { if (i >= n) return false; out = row[i]; return true; }",
+  "    bool at(uint8_t i, NearbySelRow& out) const { out = row[(i < n) ? i : 0]; return true; }"),
+ ("Y10 the empty-state note is INVERTED — a list WITH teams says NO TEAMS NEARBY",
+  "inline const char* nearby_note(const NearbyList& l) { return l.n == 0 ? kNearbyEmpty : \"\"; }",
+  "inline const char* nearby_note(const NearbyList& l) { return l.n == 0 ? \"\" : kNearbyEmpty; }"),
+ ("Y11 F-1's honest second line is dropped to a copy of the first (the panel stops naming the LEAF gate)",
+  'inline constexpr const char* kNearbyLeafLine = "SAME RADIO + LEAF";  // spec S-4 — F-1\'s second line',
+  'inline constexpr const char* kNearbyLeafLine = "CURRENT PHY ONLY";'),
+]
+
+# ===== §UI-16 N2 — src/firmware_ui_nearby_row.h: THE TIER MAP AND THE ROW =========================================
+# ★★★ Z01 IS THE NAMED FORBIDDEN SHAPE (owner ruling R-4): a SECOND definition of signal quality. It is written as a
+#     local threshold ladder that AGREES WITH THE TIERS TODAY at two of the four boundaries and disagrees at the
+#     others — which is exactly how such a fork ships and exactly why the boundaries are driven individually.
+# ★★ Z02 IS U1's: the six-hex fingerprint re-spelled locally instead of calling the ONE shared helper. It also agrees
+#    today (`%06lX` of the same mask), so only the VALUE RELATION in the native case and the probe's exact bytes can
+#    tell them apart — a lowercase `x` is the version of it that ships.
+MUTS_UINEARBYROW = [
+ ("Z01 ★★★ the tier is RE-DERIVED from raw q4 thresholds instead of calling presence_quality_tier — the SECOND "
+  "definition of signal quality the ruling forbids",
+  "    const unsigned tier = MESHROUTE_NS::protocol::presence_quality_tier(snr_q4);",
+  "    const unsigned tier = (snr_q4 >= 0) ? 3u : (snr_q4 >= -96) ? 2u : (snr_q4 >= -224) ? 1u : 0u;"),
+ ("Z02 ★★ the fingerprint is re-spelled locally instead of calling the ONE shared helper (U1)",
+  "    char fp[kTeamFpTokenCap];   ui_fmt_team_fingerprint(fp, sizeof fp, r.team_id);",
+  "    char fp[kTeamFpTokenCap];   snprintf(fp, sizeof fp, \"%06lx\", (unsigned long)(r.team_id & 0x00FFFFFFu));"),
+ ("Z03 ★ the fingerprint is drawn from the WHOLE 32-bit id — a second, wider token beside the shared six-hex one",
+  "    char fp[kTeamFpTokenCap];   ui_fmt_team_fingerprint(fp, sizeof fp, r.team_id);",
+  "    char fp[kTeamFpTokenCap];   snprintf(fp, sizeof fp, \"%08lX\", (unsigned long)r.team_id);"),
+ ("Z04 ★★ an UNDATEABLE observation is rendered as `0s` instead of `--` — an age the surface cannot know reads as "
+  "'just now' (the fabricated-freshness class)",
+  "    char age[kAgeTokenCap];     ui_fmt_home_age(age, sizeof age, r.age_valid, r.age_ms);",
+  "    char age[kAgeTokenCap];     ui_fmt_home_age(age, sizeof age, true, r.age_ms);"),
+ ("Z05 the 64-bit age is CAST to 32 bits on the way into the one bucketing (the ~49.7-day wrap, re-created)",
+  "    char age[kAgeTokenCap];     ui_fmt_home_age(age, sizeof age, r.age_valid, r.age_ms);",
+  "    char age[kAgeTokenCap];     ui_fmt_home_age(age, sizeof age, r.age_valid, uint32_t(r.age_ms));"),
+ ("Z06 the row's three tokens are drawn in the WRONG ORDER (age where the signal belongs)",
+  '    const int n = snprintf(out, cap, "%s %s %s", fp, sig, age);',
+  '    const int n = snprintf(out, cap, "%s %s %s", fp, age, sig);'),
+ ("Z07 the tier DENOMINATOR is hardcoded — a token that names a scale the tier map no longer has",
+  '    const int n = snprintf(out, cap, "%u/%u", tier, unsigned(kNearbyTierMax));',
+  '    const int n = snprintf(out, cap, "%u/9", tier);'),
+]
+
+MUTS_TEAMSEEN = [
+ ("S01 ★★ the de-dup key becomes the SENDER, not the TEAM — one team with four advertisers fills the ring",
+  "        if (ring[i].team_id != team_id) continue;",
+  "        if (ring[i].src_id != src_id) continue;"),
+ ("S02 ★★★ the SNR EWMA replaced by MAX-SEEN — the ruling's named refusal: it latches the best moment and never decays",
+  "        ring[i].snr_q4  = protocol::snr_ewma_update(ring[i].snr_q4, sample_q4);",
+  "        ring[i].snr_q4  = (sample_q4 > ring[i].snr_q4) ? sample_q4 : ring[i].snr_q4;"),
+ ("S03 ★★ the SNR EWMA replaced by the RAW LAST SAMPLE — no smoothing at all, so one deep fade reads as the link",
+  "        ring[i].snr_q4  = protocol::snr_ewma_update(ring[i].snr_q4, sample_q4);",
+  "        ring[i].snr_q4  = sample_q4;"),
+ ("S04 ★★ a REFRESH MOVES THE ENTRY TO THE END — first-observed order stops being structural and the list re-orders "
+  "under the operator's cursor",
+  "        ring[i].snr_q4  = protocol::snr_ewma_update(ring[i].snr_q4, sample_q4);\n"
+  "        ring[i].last_ms = now_ms;\n"
+  "        ring[i].src_id  = src_id;\n"
+  "        return;",
+  "        const TeamSeen moved{ now_ms, team_id, protocol::snr_ewma_update(ring[i].snr_q4, sample_q4), src_id, 0 };\n"
+  "        for (uint8_t k = i; k + 1 < n; ++k) ring[k] = ring[k + 1];\n"
+  "        ring[n - 1] = moved;\n"
+  "        return;"),
+ ("S05 ★★ OVERFLOW EVICTS THE NEWEST instead of the stalest — the team that just walked into range is the one dropped",
+  "    for (uint8_t i = 1; i < n; ++i) if (ring[i].last_ms < ring[o].last_ms) o = i;",
+  "    for (uint8_t i = 1; i < n; ++i) if (ring[i].last_ms > ring[o].last_ms) o = i;"),
+ ("S06 the retention boundary loses its INCLUSIVE form (>= becomes >), so an entry exactly one window old vanishes "
+  "— the boundary recent_ring.h unified for the whole tree",
+  "    const uint64_t cutoff = recent_ring_cutoff(now_ms, retain_ms);\n"
+  "    uint8_t live = 0;\n"
+  "    for (uint8_t i = 0; i < n; ++i) if (ring[i].last_ms >= cutoff) ++live;",
+  "    const uint64_t cutoff = recent_ring_cutoff(now_ms, retain_ms);\n"
+  "    uint8_t live = 0;\n"
+  "    for (uint8_t i = 0; i < n; ++i) if (ring[i].last_ms > cutoff) ++live;"),
+ ("S07 ★★ THE WINDOW ITSELF IS HALVED at the read (600000 -> a hardcoded 300000) — 'one beacon period is surely "
+  "enough', which is exactly the reasoning the two-periods ruling refuses",
+  "    const uint64_t cutoff = recent_ring_cutoff(now_ms, retain_ms);\n"
+  "    uint8_t live = 0;\n"
+  "    for (uint8_t i = 0; i < n; ++i) if (ring[i].last_ms >= cutoff) ++live;",
+  "    const uint64_t cutoff = recent_ring_cutoff(now_ms, 300000u);\n"
+  "    uint8_t live = 0;\n"
+  "    for (uint8_t i = 0; i < n; ++i) if (ring[i].last_ms >= cutoff) ++live;"),
+]
+
+# ===== §UI-16 N1 — lib/core/node_beacon.cpp: THE ONE WRITE SITE =====================================================
+# ★★★ THE FIRST THREE ARE THE SLICE'S HEADLINE CONTROLS (spec §3 P-3), and they are written as the "while we're here"
+#     shape rather than as a random extra call, because that IS the defect: the advertiser's id, key hash and SNR are
+#     all in scope at the observation site, so caching them "since we already have them" is a one-line edit a reviewer
+#     would wave through — and it would turn a PASSIVE SCAN into an ingest that binds identities and learns routes
+#     from a team we are not in.
+# ⚠ W06 IS THE GATE FALLING THROUGH, NOT THE WRITE BEING HOISTED, and the substitution is deliberate: a battery entry
+#   is ONE replacement, while hoisting the write above the version gate also requires moving `parse_beacon` (the id
+#   does not exist before it). "The gate merely warns and lets the frame through — looking at it is harmless" is the
+#   same defect from the reachable side, at match count 1, and it is a far more tempting wrong fix than a relocation.
+MUTS_TEAMSEENSITE = [
+ ("W01 ★★★ READ-ONLY BROKEN: the observation ALSO caches the advertiser's key hash in _team_keys ('we have it anyway')",
+  "    if (b.is_mobile && peer_team != 0) team_seen_observe(peer_team, protocol::db_to_q4(meta.snr_db), b.src);",
+  "    if (b.is_mobile && peer_team != 0) {\n"
+  "        team_seen_observe(peer_team, protocol::db_to_q4(meta.snr_db), b.src);\n"
+  "        team_key_set(b.src, b.key_hash32, IdBindSource::bcn, IdBindConf::authoritative);\n"
+  "    }"),
+ ("W02 ★★★ READ-ONLY BROKEN: the observation ALSO writes the STATIC id->hash binding plane",
+  "    if (b.is_mobile && peer_team != 0) team_seen_observe(peer_team, protocol::db_to_q4(meta.snr_db), b.src);",
+  "    if (b.is_mobile && peer_team != 0) {\n"
+  "        team_seen_observe(peer_team, protocol::db_to_q4(meta.snr_db), b.src);\n"
+  "        id_bind_set(b.src, b.key_hash32, IdBindSource::bcn, IdBindConf::authoritative);\n"
+  "    }"),
+ ("W03 ★★★ READ-ONLY BROKEN: the observation ALSO learns a TEAM-plane route to a team we are not in",
+  "    if (b.is_mobile && peer_team != 0) team_seen_observe(peer_team, protocol::db_to_q4(meta.snr_db), b.src);",
+  "    if (b.is_mobile && peer_team != 0) {\n"
+  "        team_seen_observe(peer_team, protocol::db_to_q4(meta.snr_db), b.src);\n"
+  "        learn_direct_neighbor(b.src, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/true);\n"
+  "    }"),
+ ("W04 ★★ the `peer_team != 0` term is dropped — every teamless mobile's beacon records a phantom team 0",
+  "    if (b.is_mobile && peer_team != 0) team_seen_observe(peer_team, protocol::db_to_q4(meta.snr_db), b.src);",
+  "    if (b.is_mobile) team_seen_observe(peer_team, protocol::db_to_q4(meta.snr_db), b.src);"),
+ ("W05 ★★ the `b.is_mobile` term is dropped — a STATIC advertiser's TLV is recorded as a nearby team",
+  "    if (b.is_mobile && peer_team != 0) team_seen_observe(peer_team, protocol::db_to_q4(meta.snr_db), b.src);",
+  "    if (peer_team != 0) team_seen_observe(peer_team, protocol::db_to_q4(meta.snr_db), b.src);"),
+ ("W06 ★★ the WIRE-VERSION gate merely warns and falls through ('observing is harmless'), so a wire-incompatible "
+  "frame is parsed and recorded",
+  "    if (their_wire_ver != protocol::wire_version) {                     // incompatible wire -> refuse + tell the operator (Push, not telemetry)\n"
+  "        push_join_refused_wire(their_wire_ver);\n"
+  "        return;                                                        // don't peer, don't parse a foreign-version format\n"
+  "    }",
+  "    if (their_wire_ver != protocol::wire_version) {\n"
+  "        push_join_refused_wire(their_wire_ver);\n"
+  "    }"),
+ # ★★ AND THIS ONE'S EVIDENCE IS IN THE REPOSITORY, BY PATH — not in a session report. Applying W07 and rebuilding
+ #    `lus` moves `s38_team_origin_learn_meshroute` OFF its anchor (`1d0bb046`/526 -> `b850daba`/550, +24 events, all
+ #    of them the mutant's own emit and nothing else in the histogram): the captured three-step clean/mutant/restored
+ #    comparison, with the anchor quoted from simulation/BASELINE.md, is
+ #        docs/superpowers/evidence/2026-08-22-ui16-n1-evidence.md  (§2)
+ #    ⇒ the ABSENCE of telemetry on the N1 path is a MEASURED decision, and the proof outlives the session.
+ ("W07 ★★★ an MR_EMIT is added on the new path — the control that makes the ABSENCE of telemetry a measured "
+  "decision rather than an omission (it also MOVES a team corpus stream: see "
+  "docs/superpowers/evidence/2026-08-22-ui16-n1-evidence.md §2)",
+  "    if (b.is_mobile && peer_team != 0) team_seen_observe(peer_team, protocol::db_to_q4(meta.snr_db), b.src);",
+  "    if (b.is_mobile && peer_team != 0) team_seen_observe(peer_team, protocol::db_to_q4(meta.snr_db), b.src);\n"
+  '    if (b.is_mobile && peer_team != 0) MR_EMIT("team_seen", EF_I("team", static_cast<int64_t>(peer_team)));'),
 ]
 
 # ===== §UI-15 slice 2 CORRECTIONS — src/firmware_config_parse.h (blocker 3) =========================================
@@ -2435,6 +2956,57 @@ MUTS_PROVSERVICE = [
  ("P04 the new arm answers with its NEIGHBOUR's token (the enum splits, the words do not)",
   '        case ProvErr::sf_list_empty:   return "sf_list_empty";',
   '        case ProvErr::sf_list_empty:   return "incomplete_phy";'),
+ # --- §UI-16 K2: the keyring step and the ACTIVE BINDING. ⛔ Each is a plausible "simplification", not a deletion. --
+ ("P05 ★★★ [[B240]] RESTORED: the created/imported key is never written to the keyring (only /mrcfg moves)",
+  "        if (plan.key_action == KeyAction::install) {\n"
+  "            const KeyringResult kr = _keyring.put(plan.team_id, plan.key_pub, plan.key_priv);",
+  "        if (false) {\n"
+  "            const KeyringResult kr = _keyring.put(plan.team_id, plan.key_pub, plan.key_priv);"),
+ ("P06 ★★ THE ORDER IS REVERSED: the /mrcfg record that ACTIVATES the key is written BEFORE the key is durable",
+  "        if (plan.key_action == KeyAction::install) {\n"
+  "            const KeyringResult kr = _keyring.put(plan.team_id, plan.key_pub, plan.key_priv);\n"
+  "            if (kr.verdict == KeyringVerdict::refused || kr.verdict == KeyringVerdict::nv_failed) {\n"
+  "                r.err     = prov_err_of_keyring(kr.err);\n"
+  "                r.verdict = (kr.verdict == KeyringVerdict::nv_failed) ? ProvVerdict::nv_failed : ProvVerdict::refused;\n"
+  "                return r;                                 // ⛔ 0 /mrcfg writes, 0 live calls, 0 airtime\n"
+  "            }\n"
+  "        }\n"
+  "\n"
+  "        if (!_store.save(cand)) {                         // ★ EXACTLY ONE save ATTEMPT\n"
+  "            r.err     = ProvErr::nv_save_failed;\n"
+  "            r.verdict = ProvVerdict::nv_failed;\n"
+  "            return r;                                     // ⛔ 0 live calls — live PHY/role/team/keys untouched, 0 airtime\n"
+  "        }\n",
+  "        if (!_store.save(cand)) {                         // ★ EXACTLY ONE save ATTEMPT\n"
+  "            r.err     = ProvErr::nv_save_failed;\n"
+  "            r.verdict = ProvVerdict::nv_failed;\n"
+  "            return r;                                     // ⛔ 0 live calls — live PHY/role/team/keys untouched, 0 airtime\n"
+  "        }\n"
+  "\n"
+  "        if (plan.key_action == KeyAction::install) {\n"
+  "            const KeyringResult kr = _keyring.put(plan.team_id, plan.key_pub, plan.key_priv);\n"
+  "            if (kr.verdict == KeyringVerdict::refused || kr.verdict == KeyringVerdict::nv_failed) {\n"
+  "                r.err     = prov_err_of_keyring(kr.err);\n"
+  "                r.verdict = (kr.verdict == KeyringVerdict::nv_failed) ? ProvVerdict::nv_failed : ProvVerdict::refused;\n"
+  "                return r;                                 // ⛔ 0 /mrcfg writes, 0 live calls, 0 airtime\n"
+  "            }\n"
+  "        }\n"),
+ ("P07 ★★★ P-15 SOFTENED: a keyring REFUSAL (full/corrupt) no longer refuses the transaction — /mrcfg claims an active key nothing stored",
+  "            if (kr.verdict == KeyringVerdict::refused || kr.verdict == KeyringVerdict::nv_failed) {",
+  "            if (kr.verdict == KeyringVerdict::nv_failed) {"),
+ ("P08 ★★ `team 0` LEAVES THE BINDING ARMED — a re-join silently reactivates the retained key (P-2b)",
+  "        if (cand.team_key_team_id != 0 || cand.team_key_active != 0) differs = true;\n"
+  "        cand.team_key_team_id = 0;\n"
+  "        cand.team_key_active  = 0;",
+  "        if (cand.team_key_team_id != 0 || cand.team_key_active != 0) differs = true;"),
+ ("P09 the key is STORED but never ACTIVATED — a reboot finds a keyring record no binding points at",
+  "        cand.team_key_team_id = plan.team_id;\n"
+  "        cand.team_key_active  = 1;",
+  "        cand.team_key_team_id = plan.team_id;\n"
+  "        cand.team_key_active  = 0;"),
+ ("P10 the two unreadable keyring answers are COLLAPSED, so a dead store is reported as a corrupt record",
+  "        case KeyringErr::store_io_failed: return ProvErr::keyring_io_fail;",
+  "        case KeyringErr::store_io_failed: return ProvErr::keyring_invalid;"),
 ]
 
 
@@ -2679,7 +3251,9 @@ MUTS_BY_TARGET = {"model": MUTS_MODEL, "config": MUTS_CONFIG, "chrome": MUTS_CHR
                   "joinprofiles": MUTS_JOINPROFILES, "devicenv": MUTS_DEVICENV, "cfgparse": MUTS_CFGPARSE,
                   "uiprov": MUTS_UIPROV, "uijoin": MUTS_UIJOIN, "provservice": MUTS_PROVSERVICE,
                   "uistatus": MUTS_UISTATUS, "uiteam": MUTS_UITEAM, "uigeo": MUTS_UIGEO,
-                  "uisend": MUTS_UISEND}
+                  "uisend": MUTS_UISEND, "teamkeyring": MUTS_TEAMKEYRING,
+                  "teamseen": MUTS_TEAMSEEN, "teamseensite": MUTS_TEAMSEENSITE,
+                  "uinearby": MUTS_UINEARBY, "uinearbyrow": MUTS_UINEARBYROW}
 MUTS = MUTS_BY_TARGET[_TARGET]
 
 # ⓘ `_positional` is built (and judged: at most one) in the argv block at the top of the file — see `_refuse_argv`.

@@ -862,8 +862,11 @@ if [ "${1:-}" != "--no-neg" ]; then
   #      published rather than assumed — a snapshot that reported a child this build does not have would put the row
   #      back through the front door. ⛔ Without C89 the check would be reddened only by an edit to the row builder,
   #      and the PUBLISHING half — which is this file's whole contribution — would be negative space (the §W10b lesson).
+  # ⚠ RE-ANCHORED 2026-08-23 (§UI-16 N2): the predicate gained a third child and was hoisted to its own line, so
+  #   this control now mutates the LOCAL rather than the argument. Its MEANING is unchanged — the parent row is
+  #   offered whatever the children say.
   ctl "C88 the PROVISION row is rendered unconditionally (the ruling not applied)" yes \
-      's|                                                      mrui::provision_has_child(s.prov_create_team, s.prov_join_static));|                                                      true);|'
+      's|    const bool prov_child = mrui::provision_has_child(s.prov_create_team, s.prov_join_static, s.prov_join_team);|    const bool prov_child = true;|'
   ctl "C89 the child predicates are published as TRUE on a build with no children" yes \
       's|    s.prov_join_static = (MR_N_LAYERS < 2);|    s.prov_join_static = true;|'
 
@@ -1144,8 +1147,9 @@ if [ "${1:-}" != "--no-neg" ]; then
       's|    s.prov_create_team = (MR_N_LAYERS < 2) \&\& (MR_FEAT_TEAM != 0);|    s.prov_create_team = false;|'
   # ⛔ L10 IS C88's MIRROR: the owner's HIDE ruling applied where it must NOT be. The parent row vanishes on a build
   #    that HAS children, so §3.6.3 becomes unreachable from the panel — the one direction C88 alone cannot see.
+  # ⚠ RE-ANCHORED 2026-08-23 (§UI-16 N2), the same way and for the same reason as C88 above; meaning unchanged.
   ctl "L10 the parent row is hidden on a build that HAS a child" yes \
-      's|                                                      mrui::provision_has_child(s.prov_create_team, s.prov_join_static));|                                                      false);|'
+      's|    const bool prov_child = mrui::provision_has_child(s.prov_create_team, s.prov_join_static, s.prov_join_team);|    const bool prov_child = false;|'
 
   # ======================================================================= §UI-15 slice 6: L11-L22, THE JOIN SCREENS
   # ★★★★ THE CONTROLS FOR THE FOUR `join_*` RENDERER ARMS AND FOR `ui_join_note_push`, AND THEY EXIST ONLY HERE for
@@ -1192,6 +1196,39 @@ if [ "${1:-}" != "--no-neg" ]; then
   #   count P16e now takes. A control that reddens a CORRECTNESS check would be measuring the wrong property.
   ctl "L22 the kind prefilter is dropped (every push pays a /mrcfg read again)" yes \
       's|    if (pu.kind != MESHROUTE_NS::PushKind::join_adopted) return;.*|    ;|'
+
+  # ==================================================================== §UI-16 N2: N1-N8, THE READ-ONLY NEARBY SCAN
+  # ★★★★ THE CONTROLS FOR THE PROJECTION AND THE SCAN'S RENDERER ARM, AND THEY EXIST ONLY HERE for the reason L1-L22
+  #   do: the screen is unreachable on the `l2` arm, and `src/firmware_ui.cpp` is compiled by NO other gate. The pure
+  #   decisions have their own batteries (`--target=uinearby` / `--target=uinearbyrow` / `--target=model`); what NOTHING
+  #   else in the tree can see is whether THIS file PUBLISHES the cache correctly and DRAWS the frozen copy of it.
+  # ⛔ N4 IS THE ONE THAT MATTERS MOST — spec §3 P-5b / ruling R-13 rule 1. It is written as the two-line "while we're
+  #   here" edit a reviewer would wave through (the advertiser's id IS in scope at the observation site, and this file
+  #   already owns a name resolver), and it turns a TEAM's identity into a NODE's self-asserted, mutable label.
+  ctl "N1 the projection is never published (an audible team reads as an empty band)" yes \
+      's|        s.nearby_n = (seen > mrui::kMaxNearbyRows) ? mrui::kMaxNearbyRows : seen;|        s.nearby_n = 0; (void)seen;|'
+  ctl "N2 the age is published as the raw ARRIVAL STAMP instead of the elapsed time (every row reads old)" yes \
+      's|            r.age_ms    = r.age_valid ? (seen_now - e->last_ms) : 0;|            r.age_ms    = e->last_ms;|'
+  ctl "N3 the ring is walked BACKWARDS (strongest/newest first) — the ruled first-observed order is gone" yes \
+      's|            const MESHROUTE_NS::TeamSeen\* e = g_node.team_seen_at(i);|            const MESHROUTE_NS::TeamSeen* e = g_node.team_seen_at(uint8_t(s.nearby_n - 1 - i));|'
+  ctl "N4 the advertiser NODE NAME is resolved into the row and drawn as the TEAM (R-13 rule 1)" yes \
+      's|            r.snr_q4    = e->snr_q4;                  |            r.snr_q4    = e->snr_q4; r.reserved = e->src_id;   |
+       s|                else        mrui::ui_fmt_nearby_row(label, sizeof label, r.team);|                else        label_for_team_id(r.team.reserved, label, uint8_t(sizeof label));|'
+  ctl "N9 the TEAM ID is treated as a peer key hash and drawn through the name resolver (a third hash spelling)" yes \
+      's|                else        mrui::ui_fmt_nearby_row(label, sizeof label, r.team);|                else        label_from_hash(r.team.team_id, label, uint8_t(sizeof label));|'
+  # ⛔⛔ N10 IS THE ZERO-TX RULE'S OWN CONTROL, in C118's shape one screen over (spec §3 P-4): *"the scan transmits
+  #   nothing"* is a PROMISE until something that DOES transmit is shown to break it. The tempting wrong fix is a
+  #   liveness ping — *"is that team still there?"* — and it is exactly what a read-only observation may not do.
+  ctl "N10 the scan pings each observed team to refresh it (a read-only scan that transmits)" yes \
+      's|                else        mrui::ui_fmt_nearby_row(label, sizeof label, r.team);|                else { mrui::ui_fmt_nearby_row(label, sizeof label, r.team); const uint8_t f_[8] = {0}; MESHROUTE_NS::TxParams p_; p_.sf = 8; (void)g_hal.tx(f_, sizeof f_, p_); }|'
+  ctl "N5 the scan draws the LIVE snapshot array instead of the model FROZEN copy (R-10, and the own-team row returns)" yes \
+      's|            const mrui::NearbySelList list = mrui::nearby_sel_rows(st.nearby);|            const mrui::NearbySelList list = mrui::nearby_sel_rows(mrui::nearby_capture(s.nearby, s.nearby_n, 0));|'
+  ctl "N6 F-1's honest second line is never drawn (the panel claims a general PHY scan)" yes \
+      's|            body_text(2, mrui::kNearbyLeafLine);|            ;|'
+  ctl "N7 the empty note is drawn but the list is not moved down (the note and BACK collide)" yes \
+      's|            if (note\[0\]) { body_text(top, note); ++top; }|            if (note[0]) body_text(top, note);|'
+  ctl "N8 the JOIN TEAM child is published as absent on a build that has it" yes \
+      's|    s.prov_join_team   = (MR_N_LAYERS < 2) \&\& (MR_FEAT_TEAM != 0);|    s.prov_join_team   = false;|'
   ARM=l2; ARM_DEFS=DEFS
 fi
 

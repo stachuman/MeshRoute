@@ -3120,3 +3120,72 @@ controls C119/C120). **Metal-only: a real radio, a real dark panel, real sleep a
    and with it §8.15's *"a stranger's post does not light a dark panel"*.
 4. Record for the owner (⛔ not pass/fail — spec §9 R-6 / F-10): `slept=` before the wake and two minutes after it
    re-blanked, plus how many messages arrived in that window.
+
+## Part 35 — §UI-16 K1/K2: the `/mrteams` keyring on real flash (2026-08-22)
+
+⚠ **PRECONDITIONS:** the K2 `/mrcfg` **v24** bump means the first boot after this flash comes up **UNPROVISIONED**
+— reprovision before starting, and `cfg set sf_list 6,7` first or `team new` refuses ([[B230]]).
+⛔ **THE RESIDUE ONLY.** The five-term restore predicate, the governance funnel, the coalescing, P-15 and the
+policy set are host-gated (`test_firmware_team_keyring.cpp` + `--target=teamkeyring` 25 entries +
+`--target=provservice`). **Metal-only: real flash, real reboots, the power cut.**
+
+1. ☐ **The boot line exists and is honest.** Reboot ⇒ the startup block prints one line beginning `  team key  = `.
+   Fresh chip: `  team key  = no active binding (no saved key in use) | live key: none`. ⛔ No key material on any
+   arm, ever.
+2. ☐ **★★★ THE B240 FALSIFIER.** `team new freq=869.4625 sf=7 bw=125` ⇒ applied; `team exportkey` ⇒ a key.
+   **Power-cycle.** ⇒ boot prints `  team key  = restored from NV (/mrteams) | live key: YES`, `team exportkey`
+   returns **the same key**, and a sealed post from a teammate is readable. ⛔ Pre-slice this FAILS by construction
+   — record the result either way.
+3. ☐ **Retained, not reactivated (P-2b).** `team 0` ⇒ keyless. Reboot ⇒ `no active binding`, keyless. Re-join the
+   **same** id and reboot ⇒ **still** `no active binding`, still keyless. ⛔ FAIL if the key returns on its own.
+4. ☐ **A FULL keyring fails loudly (P-15).** `team new …` five times: the **fifth** prints `> team err: KEYRING
+   FULL — this node already stores team keys for 4 teams, and a key is NEVER silently dropped to make room.` +
+   `>   NOTHING changed — no team was joined, no key was stored, and no stored key was replaced or lost.` Then
+   `cfg` still shows the **fourth** team and its key still exports. ⛔ FAIL on any silent eviction or a fifth join.
+5. ☐ **⛔⛔ THE POWER-CUT** ([[B193]]'s class, one record over). With three teams stored, `team new …` and **cut
+   power within a second**; ~5 attempts, varying delay. Each reboot: `team exportkey` + the boot line show
+   **either the complete old state or the complete new one** — ⛔ never a half record, never `REJECTED — the
+   stored record does not verify`, never a keyring that lost a *previously stored* team. Any `UNREADABLE` /
+   `REJECTED` ⇒ a REAL finding: record the repro, ⛔ do not "fix" from the store layer.
+6. ☐ **Failed-re-key honesty (the QG blocker-2 arm, on metal):** if a `/mrcfg` save failure can be observed in the
+   field (it cannot be safely induced — conditional, record not-run otherwise): the console reports failure AND the
+   next reboot prints `NOT COMMITTED — the saved key was never confirmed (re-grant or re-key)` and boots keyless —
+   ⛔ never silently activating the failed request.
+7. ☐ **Factory reset erases it.** `factory_reset confirm`, reboot ⇒ `no active binding … live key: none`; a new
+   `team new` succeeds with exactly one record (the four old ones are gone, not "full").
+8. ☐ ⓘ **Flash WEAR remains unmeasured** — identical-material re-puts write nothing (counted natively); operator
+   re-key frequency is the wear question and this part does not answer it.
+
+## Part 36 — §UI-16 N2: the NEARBY scan on glass (2026-08-23)
+
+⛔ **THE RESIDUE ONLY.** The list model, own-team filter, row format, four-tier signal, first-observed order,
+blank/wake retention and the zero-TX rule are host-gated (`test_firmware_ui_nearby.cpp` + `--target=uinearby` 11 +
+`--target=uinearbyrow` 7 entries + probe P21 incl. the zero-TX assertion). **Metal-only: real beacons over real
+air, the SSD1306's own rendering, the pre-parse leaf drop (F-1), and the 10-minute window on a real clock.**
+
+Setup: H1 = teamless joiner, H2 = team owner, **same PHY and same leaf nibble**.
+
+1. ☐ H2 `team new …` ⇒ `team_id=0x<TEAMID>`; H1 `team` ⇒ `team_id=0x00000000`.
+2. ☐ H1: SETTINGS → PROVISION ⇒ `CREATE TEAM` · `JOIN NETWORK` · **`JOIN TEAM`** · `BACK`. ⛔ FAIL if
+   `JOIN TEAM` is absent.
+3. ☐ `double` on `JOIN TEAM` ⇒ **the list opens directly** (⛔ not a submenu):
+   `NEARBY` / `CURRENT PHY ONLY` / `SAME RADIO + LEAF` / `>XXXXXX n/3 Ns` / ` BACK`, where `XXXXXX` = the
+   **last six hex digits** of `0x<TEAMID>`. ⛔ FAIL on any name-shaped text, or if the six digits differ from the
+   console's id.
+4. ☐ **Name negative:** on H1 `peername 0x<H2-hash> "Wolfgangetta"`, re-enter ⇒ the row **still** reads the
+   six-hex TEAM fingerprint. ⛔ FAIL if `Wolfga` appears anywhere on the panel.
+5. ☐ ★ **LEAF-NIBBLE NEGATIVE (F-1) — no host gate can reach the pre-parse drop.** Change H1's `leaf_id` to a
+   different nibble, reboot, re-enter ⇒ **`NO TEAMS NEARBY`** although H2 is beaconing on the same frequency.
+   Restore the nibble ⇒ the row returns within one team-beacon period. This is the line `SAME RADIO + LEAF`
+   exists for.
+6. ☐ **Frozen per entry:** stay in the list past a beacon period ⇒ the age does **not** tick and no row appears
+   or moves; leave and re-enter ⇒ it refreshes (manual refresh only).
+7. ☐ **Read-only + zero TX:** after the walk, `peers`, the team-route listing and `team` unchanged
+   (`0x00000000`); five minutes idle on STATUS vs five minutes entering/leaving NEARBY ⇒ no additional query,
+   DATA or join-shaped transmission. Power-cycle H1 ⇒ the observation is gone (RAM-only) and returns within one
+   beacon period.
+8. ☐ **Own-team filter:** H1 `team 0x<TEAMID>` (the typed-id path), re-enter NEARBY ⇒ that team — now H1's
+   **own** — is **no longer listed**: `NO TEAMS NEARBY` + a `BACK` row that still leaves. ⛔ FAIL if the own
+   team's fingerprint shows. Then `team 0` to restore the teamless setup if continuing.
+9. ☐ **Retention (empty-list BACK):** power H2 off, wait past **10 minutes** ⇒ `NO TEAMS NEARBY` and a `BACK`
+   row that still leaves.

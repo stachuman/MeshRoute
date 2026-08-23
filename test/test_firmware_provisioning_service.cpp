@@ -78,6 +78,45 @@ mrnv::Blob prov_seed_record() {
     return b;
 }
 
+// §UI-16 K2 — the record's ACTIVE BINDING (v24), seeded beside a key the record already holds.
+// ★★ IT IS PART OF "THE RECORD ALREADY SAYS EXACTLY THIS", and that is a requirement of the no-change rows rather
+//    than a convenience: a record holding team T's key with NO active binding is genuinely OUT OF DATE — a reboot
+//    would find no activation and come up keyless — so the transaction is RIGHT to move it. ⇒ a case that means
+//    "nothing is owed" seeds BOTH halves; the case that means "the binding is stale" is pinned separately below.
+void prov_seed_binding(mrnv::Blob& b, uint32_t team_id) {
+    b.team_key_team_id = team_id;
+    b.team_key_active  = 1;
+}
+
+// §UI-16 K1 — THE BOOT SEAM, as the device binds it. ★ `adopt_key` is a 1:1 mirror of `Node::team_channel_key_adopt`
+// over the SAME `team_channel_key_derive` (derive the public half, cross-check, refuse on mismatch), and `clear_key`
+// mirrors `team_channel_key_clear` — so a reboot case measures the REAL rules, not a stub that says yes.
+struct RebootLive : mrfw::ITeamKeyLive {
+    int  calls = 0, clear_calls = 0;
+    bool installed = false;
+    uint8_t priv[32] = {};
+    bool adopt_key(const uint8_t p[32], const uint8_t s[32]) override {
+        ++calls;
+        uint8_t dp[32], cp[32];
+        if (!meshroute::team_channel_key_derive(dp, cp, s)) return false;
+        if (memcmp(dp, p, 32) != 0) return false;
+        memcpy(priv, cp, 32); installed = true; return true;
+    }
+    void clear_key() override { ++clear_calls; installed = false; memset(priv, 0, sizeof priv); }
+};
+// The FIVE terms, read off the `/mrcfg` record exactly as `mrfw::team_keyring_restore_boot` reads them on device.
+// ⛔ Built HERE from the record rather than hand-assembled per case, so no case can accidentally present a binding
+//    the device could never produce.
+mrfw::TeamKeyBinding boot_binding(const mrnv::Blob& rec) {
+    mrfw::TeamKeyBinding b{};
+    b.membership_team_id = rec.team_id;
+    b.binding_team_id    = rec.team_key_team_id;
+    b.key_active         = (rec.team_key_active != 0);
+    b.committed_present  = (rec.team_ch_key_present != 0);
+    b.committed_pub      = rec.team_ch_pub;
+    return b;
+}
+
 struct FakeProvStore : mrfw::ICfgStore {
     mrnv::Blob rec = prov_seed_record();
     bool have     = true;      // false => `load` reports no usable record
@@ -170,13 +209,38 @@ struct FakeEntropy : mrfw::IEntropy {
 
 // The fixture: a store, a live sink, an entropy seam, a LIVE NodeConfig and the service over all three.
 // Default live node: an already-MOBILE, TEAMLESS node — the common case, and the one where no role promotion is owed.
+// §UI-16 K2 — THE `/mrteams` KEYRING SEAM, and it COUNTS: the transaction now makes an installed key durable in the
+// keyring BEFORE it writes the `/mrcfg` candidate that marks it active, so "how many keyring writes did this verb
+// spend" is a fact the cases below assert directly. ★ `state` lets a case put the store in `invalid` / `io_failed`
+// (both must REFUSE the whole transaction with zero `/mrcfg` writes), and `save_ok` lets it fail the one write.
+struct FakeKeyStore : mrfw::ITeamKeyStore {
+    mrnv::TeamKeyBlob rec{};
+    mrnv::TeamKeyBlob written{};
+    mrnv::TeamKeyRead state = mrnv::TeamKeyRead::absent;
+    int  loads = 0, saves = 0;
+    bool save_ok = true;
+    mrnv::TeamKeyRead load(mrnv::TeamKeyBlob& out) override {
+        ++loads;
+        out = rec;                       // a partial read's residue is the keyring suite's own case; here the fake is honest
+        return state;
+    }
+    bool save(const mrnv::TeamKeyBlob& b) override {
+        ++saves;
+        if (!save_ok) return false;
+        written = b; rec = b; state = mrnv::TeamKeyRead::ok;
+        return true;
+    }
+};
+
 struct PFix {
     FakeProvStore store;
     FakeProvLive  live;
     FakeEntropy   ent;
+    FakeKeyStore  keys;
+    mrfw::TeamKeyringService keyring{keys};
     meshroute::NodeConfig cfg{};
     ProvSnapshot  snap{};
-    ProvisioningService svc{store, live, ent};
+    ProvisioningService svc{store, live, ent, keyring};
     // ★★ THE FIXTURE'S OWN LIVE-KEY STORAGE, and it is deliberately NOT the record's buffers. `ProvSnapshot` carries
     //    POINTERS to the live pair (no secret copy, §3.10 — see the struct), and if those pointed INTO `store.rec` then
     //    "the record holds X" and "the node holds X" could never be made to disagree — which is precisely the
@@ -1037,6 +1101,7 @@ TEST_CASE("§PROV-TX ① an IDENTICAL re-supplied key is no_change — it is NOT
     f.cfg.team_id       = 0x4444u;
     f.store.rec.team_id = 0x4444u;
     mrfw::blob_put_team_channel_key(f.store.rec, pub, priv);   // the record ALREADY holds this exact canonical pair
+    prov_seed_binding(f.store.rec, 0x4444u);                   // …INCLUDING §UI-16 K2's active binding (see the helper)
     f.set_live_key(pub, priv);                                 // ★ …AND SO DOES THE LIVE NODE (QG round 3: NV agreeing
                                                                //   is no longer enough — see the divergent arms below)
     TeamRequest r = f.join(0x4444u);
@@ -1259,6 +1324,7 @@ TEST_CASE("§PROV-TX QG3 — record key == the request but the LIVE key differs/
         f.cfg.team_id       = 0x4444u;
         f.store.rec.team_id = 0x4444u;
         mrfw::blob_put_team_channel_key(f.store.rec, pub, priv);   // the RECORD already holds the requested pair
+        prov_seed_binding(f.store.rec, 0x4444u);                   // …and its §UI-16 K2 binding, so the ONLY difference is LIVE
         if (arm == 1) f.set_live_key(pub2, priv2);
         if (arm == 2) f.set_live_key(pub, priv2);                  // pub matches, priv does NOT
         if (arm == 0) { CHECK(f.snap.live_key_pub == nullptr); }   // the fixture's default: no key installed
@@ -1288,6 +1354,7 @@ TEST_CASE("§PROV-TX QG3 — record key == the request but the LIVE key differs/
     g.cfg.team_id       = 0x4444u;
     g.store.rec.team_id = 0x4444u;
     mrfw::blob_put_team_channel_key(g.store.rec, pub, priv);
+    prov_seed_binding(g.store.rec, 0x4444u);
     g.set_live_key(pub, priv);
     TeamRequest q = g.join(0x4444u);
     q.key_supplied = true;
@@ -1646,9 +1713,11 @@ TEST_CASE("§B230 prov_err_name is total, distinct and panel-sized over EVERY Pr
         ProvErr::phy_on_leave,   ProvErr::key_degenerate, ProvErr::key_mismatch,   ProvErr::keygen_failed,
         ProvErr::incomplete_phy, ProvErr::sf_list_empty, ProvErr::id_unavailable,  ProvErr::nv_load_failed,
         ProvErr::nv_save_failed,
+        // §UI-16 K2 — the four keyring arms
+        ProvErr::keyring_full,   ProvErr::keyring_invalid, ProvErr::keyring_io_fail, ProvErr::keyring_failed,
     };
     const size_t n = sizeof all / sizeof all[0];
-    CHECK(n == 13);                                    // ⛔ a new arm must be ADDED here, not silently uncovered
+    CHECK(n == 17);                                    // ⛔ a new arm must be ADDED here, not silently uncovered
     for (size_t i = 0; i < n; ++i) {
         const char* a = mrfw::prov_err_name(all[i]);
         CHECK(a[0] != '\0');
@@ -1660,6 +1729,279 @@ TEST_CASE("§B230 prov_err_name is total, distinct and panel-sized over EVERY Pr
     }
     CHECK(strcmp(mrfw::prov_err_name(ProvErr::incomplete_phy), "incomplete_phy") == 0);
     CHECK(strcmp(mrfw::prov_err_name(ProvErr::sf_list_empty),  "sf_list_empty")  == 0);
+    CHECK(strcmp(mrfw::prov_err_name(ProvErr::keyring_full),   "keyring_full")   == 0);
     // ...and the total function's floor, which `-Wswitch` structurally cannot reach: a value that is no enumerator.
     CHECK(strcmp(mrfw::prov_err_name(static_cast<ProvErr>(200)), "?") == 0);
+}
+
+// ==================================================================== §UI-16 K2 — THE KEYRING + THE ACTIVE BINDING
+// ★★★ WHAT THIS BLOCK MEASURES, AND WHY IT LIVES IN **THIS** SUITE: `team new`, `team <id>` and `team 0` all route
+//     through ONE transaction, so the keyring write and the `/mrcfg` active binding are decided here, once. The cases
+//     count TWO stores independently — `store.writes` (the `/mrcfg` record) and `keys.saves` (the `/mrteams` keyring)
+//     — because the whole ruling is about their ORDER and their INDEPENDENCE: the key becomes durable FIRST, the
+//     activation is written SECOND, and leaving a team clears the second while ⛔ RETAINING the first.
+
+TEST_CASE("§UI-16 K2 pin 1 — `team new` stores the minted pair in the keyring AND marks it active") {
+    PFix f;
+    TeamRequest r = f.mint();
+    const mrfw::ProvResult res = f.svc.apply_team(r, f.cfg, f.snap);
+    CHECK(res.verdict == ProvVerdict::applied);
+    CHECK(res.key_minted);
+    CHECK(res.key_action == KeyAction::install);
+    // the KEY is durable in the keyring…
+    CHECK(f.keys.saves == 1);
+    CHECK(f.keys.rec.count == 1);
+    CHECK(f.keys.rec.rec[0].team_id == res.team_id);
+    CHECK(!all_zero32(f.keys.rec.rec[0].team_ch_priv));
+    CHECK(memcmp(f.keys.rec.rec[0].team_ch_priv, f.live.priv, 32) == 0);   // ⚠ the SAME material that went live
+    CHECK(memcmp(f.keys.rec.rec[0].team_ch_pub,  f.live.pub,  32) == 0);
+    // …and the `/mrcfg` record says it is ACTIVE, for THIS team
+    CHECK(f.store.writes == 1);
+    CHECK(f.store.rec.team_key_active == 1);
+    CHECK(f.store.rec.team_key_team_id == res.team_id);
+    CHECK(f.store.rec.team_id == res.team_id);
+}
+
+TEST_CASE("§UI-16 K2 pin 1b — an IMPORT (`team <id> tkpub=/tkpriv=`) stores and activates the same way") {
+    uint8_t pub[32], priv[32];
+    CHECK(make_pair(0x2B, pub, priv));
+    PFix f;
+    TeamRequest r = f.join(0x77AA55u);
+    r.key_supplied = true;
+    memcpy(r.key_pub, pub, 32);
+    memcpy(r.key_priv, priv, 32);
+    const mrfw::ProvResult res = f.svc.apply_team(r, f.cfg, f.snap);
+    CHECK(res.verdict == ProvVerdict::applied);
+    CHECK_FALSE(res.key_minted);                               // ADOPTED, not minted
+    CHECK(f.keys.saves == 1);
+    CHECK(f.keys.rec.rec[0].team_id == 0x77AA55u);
+    CHECK(memcmp(f.keys.rec.rec[0].team_ch_priv, priv, 32) == 0);
+    CHECK(f.store.rec.team_key_active == 1);
+    CHECK(f.store.rec.team_key_team_id == 0x77AA55u);
+}
+
+TEST_CASE("§UI-16 K2 pin 2 — ★ `team 0` CLEARS the binding and RETAINS the stored key") {
+    uint8_t pub[32], priv[32];
+    CHECK(make_pair(0x3C, pub, priv));
+    PFix f;
+    // in a team, holding its key, with the record and the keyring agreeing — the state a member reaches after a grant
+    f.cfg.team_id       = 0x9001u;
+    f.store.rec.team_id = 0x9001u;
+    mrfw::blob_put_team_channel_key(f.store.rec, pub, priv);
+    prov_seed_binding(f.store.rec, 0x9001u);
+    f.set_live_key(pub, priv);
+    CHECK(f.keyring.put(0x9001u, pub, priv).verdict == mrfw::KeyringVerdict::ok);
+    const int keyring_saves_before = f.keys.saves;
+    const mrnv::TeamKeyBlob keyring_before = f.keys.rec;
+
+    TeamRequest r = f.leave();
+    const mrfw::ProvResult res = f.svc.apply_team(r, f.cfg, f.snap);
+    CHECK(res.verdict == ProvVerdict::applied);
+    CHECK(res.key_action == KeyAction::clear);
+    CHECK(f.store.writes == 1);
+    // the ACTIVE BINDING is gone…
+    CHECK(f.store.rec.team_key_active == 0);
+    CHECK(f.store.rec.team_key_team_id == 0);
+    CHECK(f.store.rec.team_ch_key_present == 0);               // …the /mrcfg copy of the key is gone with it…
+    CHECK(f.live.set_team_calls == 1);                         // …the LIVE key is destroyed by set_team_id…
+    // …★ AND THE KEYRING RECORD IS STILL THERE, BYTE FOR BYTE. ⛔ A leave must never delete a granted key: that is
+    //   the retention half of the ruling, and K5's explicit `USE SAVED KEY` is what offers it back.
+    CHECK(f.keys.saves == keyring_saves_before);               // ⛔ ZERO keyring writes on a leave
+    CHECK(memcmp(&keyring_before, &f.keys.rec, sizeof keyring_before) == 0);
+    CHECK(mrfw::team_key_find(f.keys.rec, 0x9001u) == 0);
+    CHECK(memcmp(f.keys.rec.rec[0].team_ch_priv, priv, 32) == 0);
+}
+
+TEST_CASE("§UI-16 K2 pin 5 — SWITCHING to another team installs NOTHING from the keyring, and retains both") {
+    uint8_t pub[32], priv[32];
+    CHECK(make_pair(0x4D, pub, priv));
+    PFix f;
+    f.cfg.team_id       = 0x9001u;
+    f.store.rec.team_id = 0x9001u;
+    mrfw::blob_put_team_channel_key(f.store.rec, pub, priv);
+    prov_seed_binding(f.store.rec, 0x9001u);
+    f.set_live_key(pub, priv);
+    CHECK(f.keyring.put(0x9001u, pub, priv).verdict == mrfw::KeyringVerdict::ok);
+    const mrnv::TeamKeyBlob keyring_before = f.keys.rec;
+    const int keyring_saves_before = f.keys.saves;
+
+    TeamRequest r = f.join(0xB002u);                           // a bare join of ANOTHER team
+    const mrfw::ProvResult res = f.svc.apply_team(r, f.cfg, f.snap);
+    CHECK(res.verdict == ProvVerdict::applied);
+    CHECK(res.key_action == KeyAction::clear);
+    CHECK(f.live.install_calls == 0);                          // ⛔ NOTHING is installed by this slice…
+    CHECK(f.store.rec.team_key_active == 0);                   // …the node joins KEYLESS…
+    CHECK(f.store.rec.team_key_team_id == 0);
+    CHECK(f.keys.saves == keyring_saves_before);               // …and ⛔ the old team's key is neither written nor lost
+    CHECK(memcmp(&keyring_before, &f.keys.rec, sizeof keyring_before) == 0);
+}
+
+TEST_CASE("§UI-16 K2 pin 3/4 — the ROUND TRIP: what `team new` wrote is what a reboot restores, and only that") {
+    PFix f;
+    TeamRequest r = f.mint();
+    const mrfw::ProvResult res = f.svc.apply_team(r, f.cfg, f.snap);
+    CHECK(res.verdict == ProvVerdict::applied);
+    uint8_t created_priv[32];
+    memcpy(created_priv, f.live.priv, 32);
+
+    // pin 3 — reboot IN TEAM with a matching record: the key comes back automatically, with ⛔ zero writes.
+    RebootLive live;
+    const int saves_before = f.keys.saves;
+    CHECK(f.keyring.restore(boot_binding(f.store.rec), live) == mrfw::KeyringRestore::installed);
+    CHECK(live.installed);
+    CHECK(memcmp(live.priv, created_priv, 32) == 0);
+    CHECK(live.clear_calls == 0);
+    CHECK(f.keys.saves == saves_before);                       // ⛔ a restore never writes
+
+    // pin 4 — reboot IN TEAM with NO matching record: keyless, ⛔ never a wrong key. (Here the binding and the
+    // membership move together to a team the keyring has never held — a single-term break of (iii).)
+    RebootLive live2;
+    mrfw::TeamKeyBinding b2 = boot_binding(f.store.rec);
+    b2.membership_team_id = b2.binding_team_id = (res.team_id ^ 0x5A5Au);
+    CHECK(f.keyring.restore(b2, live2) == mrfw::KeyringRestore::no_record);
+    CHECK(live2.calls == 0);
+    CHECK_FALSE(live2.installed);
+    CHECK(live2.clear_calls == 1);                             // ★ the verdict is APPLIED, not merely reported
+}
+
+TEST_CASE("§UI-16 K2 — ★ THE ORDER: the key is DURABLE BEFORE the `/mrcfg` record that activates it") {
+    // ⛔ THE MEASUREMENT, NOT THE ARGUMENT: fail the `/mrcfg` write and ask what the keyring did. Persistence-first
+    //    means the key IS stored (one keyring write) while the activation is NOT — the safe residue, because a
+    //    retained record with no binding is inert by construction (P-2b). The reversed order would leave a record
+    //    claiming an ACTIVE key that no store holds, and the next boot would come up keyless with the panel saying
+    //    otherwise. ⇒ this is the case a mutation swapping the two lines reddens.
+    PFix f;
+    f.store.write_ok = false;
+    TeamRequest r = f.mint();
+    const mrfw::ProvResult res = f.svc.apply_team(r, f.cfg, f.snap);
+    CHECK(res.verdict == ProvVerdict::nv_failed);
+    CHECK(res.err == ProvErr::nv_save_failed);
+    CHECK(f.store.writes == 1);                                // the ONE /mrcfg attempt, which FAILED
+    CHECK(f.keys.saves == 1);                                  // ★ and the keyring write had ALREADY happened
+    CHECK(f.live.total_calls() == 0);                          // ⛔ nothing live, ⛔ no airtime
+}
+
+TEST_CASE("§UI-16 K2 — ★★★ P-15 through the transaction: a FULL keyring refuses the CREATE, loudly and completely") {
+    PFix f;
+    // four other teams already hold records
+    for (int i = 0; i < 4; ++i) {
+        uint8_t p[32], s[32];
+        CHECK(make_pair(static_cast<uint8_t>(0x11 + 0x20 * i), p, s));
+        CHECK(f.keyring.put(static_cast<uint32_t>(0xC000u + i), p, s).verdict == mrfw::KeyringVerdict::ok);
+    }
+    const mrnv::TeamKeyBlob before = f.keys.rec;
+    const int keyring_saves_before = f.keys.saves;
+    const mrnv::Blob cfg_before = f.store.rec;
+
+    TeamRequest r = f.mint();
+    const mrfw::ProvResult res = f.svc.apply_team(r, f.cfg, f.snap);
+    CHECK(res.verdict == ProvVerdict::refused);
+    CHECK(res.err == ProvErr::keyring_full);
+    CHECK(f.keys.saves == keyring_saves_before);               // ⛔ ZERO keyring writes
+    CHECK(memcmp(&before, &f.keys.rec, sizeof before) == 0);   // ⛔ NOTHING EVICTED — four secrets byte-identical
+    CHECK(f.store.writes == 0);                                // ⛔ ZERO /mrcfg writes…
+    CHECK(memcmp(&cfg_before, &f.store.rec, sizeof cfg_before) == 0);
+    CHECK(f.live.total_calls() == 0);                          // …⛔ zero live applies…
+    CHECK(f.live.dad_calls == 0);                              // …and ⛔ ZERO AIRTIME
+}
+
+TEST_CASE("§UI-16 K2 — an UNREADABLE or FAILING keyring refuses the transaction, each with its own arm") {
+    struct Arm { mrnv::TeamKeyRead state; bool save_ok; ProvVerdict verdict; ProvErr err; };
+    const Arm arms[] = {
+        { mrnv::TeamKeyRead::invalid,   true,  ProvVerdict::refused,   ProvErr::keyring_invalid },
+        { mrnv::TeamKeyRead::io_failed, true,  ProvVerdict::refused,   ProvErr::keyring_io_fail },
+        { mrnv::TeamKeyRead::absent,    false, ProvVerdict::nv_failed, ProvErr::keyring_failed  },
+    };
+    for (const Arm& a : arms) {
+        PFix f;
+        f.keys.state   = a.state;
+        f.keys.save_ok = a.save_ok;
+        TeamRequest r = f.mint();
+        const mrfw::ProvResult res = f.svc.apply_team(r, f.cfg, f.snap);
+        CHECK(res.verdict == a.verdict);
+        CHECK(res.err == a.err);
+        CHECK(f.store.writes == 0);                            // ⛔ the /mrcfg record is never written…
+        CHECK(f.live.total_calls() == 0);                      // …⛔ nothing is applied live…
+        CHECK(f.live.dad_calls == 0);                          // …and ⛔ no airtime is spent
+    }
+}
+
+TEST_CASE("§UI-16 K2 — a re-grant of IDENTICAL material spends ZERO keyring writes (counted at the transaction)") {
+    uint8_t pub[32], priv[32];
+    CHECK(make_pair(0x5E, pub, priv));
+    PFix f;
+    f.cfg.team_id       = 0xD00Du;
+    f.store.rec.team_id = 0xD00Du;
+    mrfw::blob_put_team_channel_key(f.store.rec, pub, priv);
+    CHECK(f.keyring.put(0xD00Du, pub, priv).verdict == mrfw::KeyringVerdict::ok);
+    const int keyring_saves_before = f.keys.saves;
+    // ⚠ THE BINDING IS DELIBERATELY **NOT** SEEDED: this is the STALE-BINDING repair — the record holds the key but
+    //   claims no activation, so a reboot would come up keyless. The transaction is RIGHT to write `/mrcfg` here…
+    TeamRequest r = f.join(0xD00Du);
+    r.key_supplied = true;
+    memcpy(r.key_pub, pub, 32);
+    memcpy(r.key_priv, priv, 32);
+    const mrfw::ProvResult res = f.svc.apply_team(r, f.cfg, f.snap);
+    CHECK(res.verdict == ProvVerdict::applied);
+    CHECK(f.store.writes == 1);
+    CHECK(f.store.rec.team_key_active == 1);                   // …and the repair is exactly this
+    CHECK(f.store.rec.team_key_team_id == 0xD00Du);
+    // …★ WHILE THE KEYRING WRITES NOTHING: the material is identical, so `put` answers `unchanged`.
+    CHECK(f.keys.saves == keyring_saves_before);
+}
+
+TEST_CASE("§UI-16 K2 — the keyring-error relabel is TOTAL and ⛔ never reports a refusal as a success") {
+    CHECK(mrfw::prov_err_of_keyring(mrfw::KeyringErr::keyring_full)    == ProvErr::keyring_full);
+    CHECK(mrfw::prov_err_of_keyring(mrfw::KeyringErr::store_invalid)   == ProvErr::keyring_invalid);
+    CHECK(mrfw::prov_err_of_keyring(mrfw::KeyringErr::store_io_failed) == ProvErr::keyring_io_fail);
+    CHECK(mrfw::prov_err_of_keyring(mrfw::KeyringErr::nv_save_failed)  == ProvErr::keyring_failed);
+    // the two arms that cannot arise on this path map to a FAILURE, ⛔ never to `none` (C2)
+    CHECK(mrfw::prov_err_of_keyring(mrfw::KeyringErr::zero_team) != ProvErr::none);
+    CHECK(mrfw::prov_err_of_keyring(mrfw::KeyringErr::none)      != ProvErr::none);
+    for (uint8_t i = 0; i <= static_cast<uint8_t>(mrfw::KeyringErr::nv_save_failed); ++i)
+        CHECK(mrfw::prov_err_of_keyring(static_cast<mrfw::KeyringErr>(i)) != ProvErr::none);
+}
+
+// ==== QG BLOCKER 2 — written FIRST, against the UNFIXED code, to falsify it ======================================
+TEST_CASE("§UI-16 K2 QG-B2 a FAILED same-team re-key must not become active after a reboot") {
+    uint8_t pub1[32], priv1[32], pub2[32], priv2[32];
+    CHECK(make_pair(0x24, pub1, priv1));
+    CHECK(make_pair(0x9C, pub2, priv2));
+    PFix f;
+    // in team A, holding K1, with BOTH stores committed and the binding active
+    f.cfg.team_id       = 0xA0A0u;
+    f.store.rec.team_id = 0xA0A0u;
+    mrfw::blob_put_team_channel_key(f.store.rec, pub1, priv1);
+    prov_seed_binding(f.store.rec, 0xA0A0u);
+    f.set_live_key(pub1, priv1);
+    CHECK(f.keyring.put(0xA0A0u, pub1, priv1).verdict == mrfw::KeyringVerdict::ok);
+
+    // a same-team RE-KEY to K2 whose /mrcfg write FAILS ⇒ the command reports failure and nothing goes live…
+    f.store.write_ok = false;
+    TeamRequest r = f.join(0xA0A0u);
+    r.key_supplied = true;
+    memcpy(r.key_pub, pub2, 32);
+    memcpy(r.key_priv, priv2, 32);
+    const mrfw::ProvResult res = f.svc.apply_team(r, f.cfg, f.snap);
+    CHECK(res.verdict == ProvVerdict::nv_failed);
+    CHECK(f.live.install_calls == 0);                 // nothing applied live — the command FAILED
+
+    // …but the keyring now holds K2 while /mrcfg still holds K1 and an ACTIVE binding for team A.
+    CHECK(memcmp(f.keys.rec.rec[0].team_ch_priv, priv2, 32) == 0);
+    CHECK(memcmp(f.store.rec.team_ch_pub, pub1, 32) == 0);
+    CHECK(f.store.rec.team_key_active == 1);
+
+    // ★ THE REBOOT. A command reported as FAILED must not become effective across a power cycle.
+    RebootLive boot;
+    CHECK(f.keyring.restore(boot_binding(f.store.rec), boot) == mrfw::KeyringRestore::not_committed);
+    CHECK_FALSE(boot.installed);                      // ⛔ the FAILED request's key must NOT be installed…
+    CHECK(memcmp(boot.priv, priv2, 32) != 0);         //    …not under any name…
+    CHECK(boot.clear_calls == 1);                     //    …and the node comes up KEYLESS, actively
+    // ★ THE POSITIVE CONTROL, on the SAME fixture: had the /mrcfg write SUCCEEDED, the two stores would agree and
+    //   the very same reboot WOULD install K2 — so the arm above is not passing because the restore is inert.
+    mrfw::blob_put_team_channel_key(f.store.rec, pub2, priv2);   // what a successful save would have committed
+    RebootLive boot_ok;
+    CHECK(f.keyring.restore(boot_binding(f.store.rec), boot_ok) == mrfw::KeyringRestore::installed);
+    CHECK(boot_ok.installed);
+    CHECK(memcmp(boot_ok.priv, priv2, 32) == 0);
 }

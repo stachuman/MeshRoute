@@ -3609,9 +3609,14 @@ TEST_CASE("ui14-back: BLANKING preserves the draft too — a timeout may never d
 namespace {
 // A snapshot whose §6 CHILD PREDICATES are both satisfied. ⛔ They are two SEPARATE parameters, never one flag — see
 // `ui15-hide` below, which is the case that would pass on a model that collapsed them.
-UiSnapshot prov_snap(bool create_team = true, bool join_static = true, uint32_t now_ms = 1000) {
+// ⚠ §UI-16 N2 ADDED THE THIRD PREDICATE **BEFORE** `now_ms`, deliberately: the three children belong together and a
+//   `bool` appended after the clock would read as an afterthought. ⛔ Every call that passed a positional `now_ms`
+//   was updated with it — a `uint32_t` landing in a `bool` parameter converts SILENTLY, so the parameter order was
+//   chosen to make the compiler's arity the thing that catches a miss rather than a plausible-looking `true`.
+UiSnapshot prov_snap(bool create_team = true, bool join_static = true, bool join_team = true,
+                     uint32_t now_ms = 1000) {
     UiSnapshot s = cfg_snap(now_ms);
-    s.prov_create_team = create_team; s.prov_join_static = join_static;
+    s.prov_create_team = create_team; s.prov_join_static = join_static; s.prov_join_team = join_team;
     return s;
 }
 // Walk to SETTINGS, put the cursor on PROVISION and open it. ⚠ The caller ASSERTS the landing — this returns the
@@ -3651,6 +3656,8 @@ TEST_CASE("ui15-model: the Provision enum is the eight ADOPTED arms, and the sub
     CHECK(uint8_t(Provision::join_confirm)   == 5);
     CHECK(uint8_t(Provision::join_waiting)   == 6);
     CHECK(uint8_t(Provision::join_result)    == 7);
+    // ★ §UI-16 N2's arm, APPENDED — the eight above keep their values, so no landed case's arm moved.
+    CHECK(uint8_t(Provision::nearby)         == 8);
     // ⛔ AND THE SUB-VIEW IS THE `Settings` ENUM'S FOURTH ARM, ⛔ never a `bool in_provision` beside it: the domain
     //    is four-valued and this file's own block names the binary-test-over-a-ternary-domain defect five times over.
     CHECK(uint8_t(Settings::provisioning) == 3);
@@ -3799,6 +3806,10 @@ TEST_CASE("ui15-menu: `short` CYCLES the children and never walks out of the scr
     f.m.on_gesture(Gesture::short_press, s);
     CHECK(prov_row_under_cursor(f.m, s, r)); CHECK(r == ProvRow::join_static);
     f.m.on_gesture(Gesture::short_press, s);
+    // ★ §UI-16 N2's child joined the walk here — the case is EXTENDED rather than re-scoped: what it measures is
+    //   that `short` visits every row IN LIST ORDER and then WRAPS, and the list is now three children long.
+    CHECK(prov_row_under_cursor(f.m, s, r)); CHECK(r == ProvRow::join_team);
+    f.m.on_gesture(Gesture::short_press, s);
     CHECK(prov_row_under_cursor(f.m, s, r)); CHECK(r == ProvRow::back);
     // ★ ...and the next press WRAPS rather than leaving. A sub-view is left by its own BACK, by the long gesture or
     //   by the blank — ⛔ never by `advance_or_next`'s walk-off, which belongs to the ordinary screen cycle.
@@ -3938,7 +3949,7 @@ TEST_CASE("ui15-emergency: a long press CLOSES the provisioning sub-view before 
 // ---------------------------------------------------------------------------------------------- §6 — availability
 TEST_CASE("ui15-hide: each child follows its OWN predicate, and STATIC JOIN survives a team-less build") {
     ProvRow r{};
-    const ProvRowList both = provision_rows(true, true);
+    const ProvRowList both = provision_rows(true, true, /*join_team=*/false);
     CHECK(both.n == 3);
     CHECK(both.at(0, r)); CHECK(r == ProvRow::create_team);
     CHECK(both.at(1, r)); CHECK(r == ProvRow::join_static);
@@ -3948,29 +3959,30 @@ TEST_CASE("ui15-hide: each child follows its OWN predicate, and STATIC JOIN surv
     // ★★★ PLAN §6's CORRECTION, AND THIS IS THE CASE THAT CARRIES IT: with the TEAM plane absent, CREATE is hidden
     //     and ⛔ STATIC JOIN IS NOT — it has nothing to do with the team plane. A model that governed both children
     //     by one flag passes every other case in this block and fails here.
-    const ProvRowList join_only = provision_rows(false, true);
+    const ProvRowList join_only = provision_rows(false, true, /*join_team=*/false);
     CHECK(join_only.n == 2);
     CHECK(join_only.at(0, r)); CHECK(r == ProvRow::join_static);
     CHECK(join_only.at(1, r)); CHECK(r == ProvRow::back);
-    const ProvRowList create_only = provision_rows(true, false);
+    const ProvRowList create_only = provision_rows(true, false, /*join_team=*/false);
     CHECK(create_only.n == 2);
     CHECK(create_only.at(0, r)); CHECK(r == ProvRow::create_team);
     CHECK(create_only.at(1, r)); CHECK(r == ProvRow::back);
     // ⓘ NEITHER child (the `gateway_heltec` shape: OLED=1, MR_N_LAYERS=2) — the menu still has BACK, because leaving
     //   must never depend on a build flag.
-    const ProvRowList none = provision_rows(false, false);
+    const ProvRowList none = provision_rows(false, false, /*join_team=*/false);
     CHECK(none.n == 1);
     CHECK(none.at(0, r)); CHECK(r == ProvRow::back);
     // ...and every row's label fits the rail's 19-column body with its `>` marker
     for (uint8_t i = 0; i < kMaxProvRows; ++i) CHECK(1u + strlen(provision_row_label(ProvRow(i))) <= 19u);
     CHECK(strcmp(provision_row_label(ProvRow::create_team), "CREATE TEAM") == 0);
     CHECK(strcmp(provision_row_label(ProvRow::join_static), "JOIN NETWORK") == 0);
+    CHECK(strcmp(provision_row_label(ProvRow::join_team), "JOIN TEAM") == 0);   // §UI-16 S-1
     CHECK(strcmp(provision_row_label(ProvRow::back), "BACK") == 0);
 }
 
 TEST_CASE("ui15-hide: a HIDDEN child has NO refusing stub — it cannot be reached, walked to or activated") {
     // The team plane is absent; static join is not. [[B209]]: hide it, ⛔ never render a row that refuses.
-    CfgFix f; const auto s = prov_snap(/*create_team=*/false, /*join_static=*/true);
+    CfgFix f; const auto s = prov_snap(/*create_team=*/false, /*join_static=*/true, /*join_team=*/false);
     CHECK(open_provision(f.m, s));
     CHECK(f.m.provision_row_list(s).n == 2);
     // Walk the WHOLE menu twice: the hidden child is on no row, so no press can select it and none can activate it.
@@ -3999,16 +4011,19 @@ TEST_CASE("ui15-parent: with NO child the PROVISION row is HIDDEN, and it return
     //   which is the ruling — so the case that walked into it could not survive; the property it really carried
     //   (leaving never depends on a build flag) lives on in `provision_rows(false,false).n == 1` below and in
     //   `ui15-hide`'s list case.
-    CHECK(provision_has_child(true,  true)  == true);
-    CHECK(provision_has_child(true,  false) == true);
-    CHECK(provision_has_child(false, true)  == true);         // ⛔ static join alone STILL earns the parent row
-    CHECK(provision_has_child(false, false) == false);
+    CHECK(provision_has_child(true,  true,  false) == true);
+    CHECK(provision_has_child(true,  false, false) == true);
+    CHECK(provision_has_child(false, true,  false) == true);  // ⛔ static join alone STILL earns the parent row
+    CHECK(provision_has_child(false, false, false) == false);
+    // ★ §UI-16 N2 — AND THE NEARBY CHILD ALONE EARNS IT TOO, which is the whole point of deriving the predicate
+    //   from the child list: this line needed no change to `provision_has_child` beyond the parameter it forwards.
+    CHECK(provision_has_child(false, false, true)  == true);
     // ⓘ ...and the child list itself is unchanged: BACK is still unconditional, so the sub-view could still be left
     //   if anything ever opened it. The ruling removes the DOOR, not the exit.
-    CHECK(provision_rows(false, false).n == 1);
+    CHECK(provision_rows(false, false, false).n == 1);
 
     // The `gateway_heltec` shape (OLED=1, MR_N_LAYERS=2): the row is on no list, so no press can select or activate it.
-    CfgFix f; const auto s = prov_snap(/*create_team=*/false, /*join_static=*/false);
+    CfgFix f; const auto s = prov_snap(/*create_team=*/false, /*join_static=*/false, /*join_team=*/false);
     to_settings_menu(f.m, s);
     const CfgRowList l = f.m.settings_row_list(s);
     CfgRow r{};
@@ -4023,7 +4038,7 @@ TEST_CASE("ui15-parent: with NO child the PROVISION row is HIDDEN, and it return
     CHECK(f.m.state().provisioning == Provision::closed);
     CHECK(f.store.writes == 0);
     // ★ ...and ONE child predicate is enough to bring the row back, on the SAME model and the same service.
-    const auto s2 = prov_snap(/*create_team=*/false, /*join_static=*/true);
+    const auto s2 = prov_snap(/*create_team=*/false, /*join_static=*/true, /*join_team=*/false);
     CHECK(cursor_to(f.m, s2, CfgRow::provision));
     f.m.on_gesture(Gesture::double_press, s2);
     CHECK(f.m.state().settings == Settings::provisioning);
@@ -4248,7 +4263,7 @@ TEST_CASE("ui15-create: the newly reachable arms are CLOSED by leaving and PRE-E
         CHECK(f.m.state().provisioning == Provision::closed); // ...and a cancel does not bring it back
         // ⓘ `cancelled` self-clears after `kCancelledMs` (it sent nothing, so it is not sticky) — the tick below is
         //   what returns the panel to the ordinary screens, exactly as the shipped loop does.
-        const auto s2 = prov_snap(/*create_team=*/true, /*join_static=*/true, s.now_ms + kCancelledMs + 1);
+        const auto s2 = prov_snap(/*create_team=*/true, /*join_static=*/true, /*join_team=*/true, s.now_ms + kCancelledMs + 1);
         f.m.on_tick(s2);
         CHECK(f.m.emergency() == Emergency::idle);
         // ★ RE-ENTERING opens the MENU at its first row — ⛔ never the confirmation the operator abandoned.
@@ -4626,12 +4641,12 @@ TEST_CASE("ui15-join: 60 s is a WORD CHANGE — ⛔ never a failure — and BACK
     const int writes_at_start = f.store.writes;
     CHECK(f.m.state().join_still == false);
     // ...one millisecond short of the deadline is still `JOINING`.
-    auto s1 = prov_snap(true, true, s.now_ms + kJoinStillMs - 1);
+    auto s1 = prov_snap(true, true, true, s.now_ms + kJoinStillMs - 1);
     f.m.on_tick(s1);
     CHECK(f.m.state().join_still == false);
     CHECK(strcmp(join_wait_head(f.m.state().join_still), "JOINING") == 0);
     // ...and at the deadline the WORD changes and ⛔ NOTHING ELSE DOES.
-    auto s2 = prov_snap(true, true, s.now_ms + kJoinStillMs);
+    auto s2 = prov_snap(true, true, true, s.now_ms + kJoinStillMs);
     f.m.on_tick(s2);
     CHECK(f.m.state().join_still == true);
     CHECK(strcmp(join_wait_head(f.m.state().join_still), "STILL JOINING") == 0);
@@ -4643,7 +4658,7 @@ TEST_CASE("ui15-join: 60 s is a WORD CHANGE — ⛔ never a failure — and BACK
     // ★ AND IT ASKS FOR A REPAINT AT THE EDGE, exactly once: a word that changed without a `dirty` would be true and
     //   INVISIBLE (`FrameGate::step` answers `idle` on a clean model).
     f.m.clear_dirty();
-    f.m.on_tick(prov_snap(true, true, s.now_ms + kJoinStillMs + 5000));
+    f.m.on_tick(prov_snap(true, true, true, s.now_ms + kJoinStillMs + 5000));
     CHECK(f.m.state().dirty == false);                               // ⛔ not every tick past the edge
     // ⓘ AND THE PANEL HAS BLANKED BY NOW, which is honest rather than incidental: `kBlankMs` is 15 s and the waiting
     //   screen needs no attention. ⛔ THE BLANK CANCELS NOTHING EITHER — the same rule BACK obeys, arriving from the
@@ -4699,7 +4714,7 @@ TEST_CASE("ui15-join: the FOUR join arms are CLOSED by leaving and PRE-EMPTED by
         f.m.on_gesture(Gesture::long_cancel, s);
         CHECK(f.m.state().provisioning == Provision::closed);         // ...and a cancel does not bring it back
         // ★ RE-ENTERING opens the MENU at its first row — ⛔ never the confirmation the operator abandoned.
-        const auto s2 = prov_snap(true, true, s.now_ms + kCancelledMs + 1);
+        const auto s2 = prov_snap(true, true, true, s.now_ms + kCancelledMs + 1);
         f.m.on_tick(s2);
         CHECK(f.m.emergency() == Emergency::idle);
         CHECK(open_provision(f.m, s2));
@@ -6061,4 +6076,217 @@ TEST_CASE("ui17-wake: a message wake keeps the retained modal's page, through th
     CHECK(m.state().detail_page == 2);
     m.on_tick(snap_inbox(1, wake_ms + kDetailPageMs));
     CHECK(m.state().detail_page == 3);
+}
+
+// =====================================================================================================================
+// §UI-16 N2 — THE `JOIN TEAM` CHILD AND THE READ-ONLY NEARBY LIST (spec §4-N2)
+// =====================================================================================================================
+// ★★★ WHAT THIS BLOCK MEASURES AND WHAT IT DOES NOT. The PURE decisions — the own-team filter, the first-observed
+//     order, the three tokens and every lexeme — belong to `test/test_firmware_ui_nearby.cpp` and to the `uinearby` /
+//     `uinearbyrow` batteries. What lives HERE is the MODEL's half: the third child, the DIRECT landing (OQ-1), the
+//     ONE-SHOT capture that makes the list frozen per entry (R-10), BACK's containment, and the fact that a screen
+//     which *can only look* performs NOTHING — asserted on the store's write count and the seam's call count, ⛔ never
+//     on a state field alone.
+// ⛔ THE RENDERER IS MEASURED IN NEITHER: `src/firmware_ui.cpp` is compiled by no automated gate (§B115), and its
+//    cover is `tools/probe_firmware_ui`'s NEARBY phase.
+namespace {
+// A snapshot carrying N observed teams, newest LAST — i.e. in the ring's own first-observed order.
+// ⚠ THE SIGNALS DECREASE DOWN THE LIST while the ages INCREASE, so a sort by either key would be visible.
+UiSnapshot nearby_snap(uint8_t n, uint32_t own_team_id = 0, uint32_t now_ms = 1000) {
+    UiSnapshot s = prov_snap(true, true, true, now_ms);
+    s.team_id  = own_team_id;
+    s.nearby_n = n;
+    for (uint8_t i = 0; i < n && i < mrui::kMaxNearbyRows; ++i) {
+        s.nearby[i].team_id   = 0xBEEF0001u + i;
+        s.nearby[i].snr_q4    = int16_t(64 - 16 * i);
+        s.nearby[i].age_ms    = 1000u * (i + 1);
+        s.nearby[i].age_valid = true;
+    }
+    return s;
+}
+// Open PROVISION and land on the NEARBY list. The caller ASSERTS the landing.
+bool open_nearby(CfgFix& f, const UiSnapshot& s) {
+    if (!open_provision(f.m, s)) return false;
+    if (!prov_cursor_to(f.m, s, ProvRow::join_team)) return false;
+    f.m.on_gesture(Gesture::double_press, s);
+    return f.m.state().provisioning == Provision::nearby;
+}
+}  // namespace
+
+TEST_CASE("ui16-menu: JOIN TEAM is the THIRD child, and a double opens the LIST DIRECTLY — ⛔ no submenu") {
+    // ✅ OQ-1 (owner, 2026-08-22): a submenu arrives only when a SECOND join method exists.
+    CfgFix f; const auto s = nearby_snap(2);
+    CHECK(open_provision(f.m, s));
+    const ProvRowList l = f.m.provision_row_list(s);
+    ProvRow r{};
+    CHECK(l.n == 4);
+    CHECK(l.at(0, r)); CHECK(r == ProvRow::create_team);
+    CHECK(l.at(1, r)); CHECK(r == ProvRow::join_static);
+    CHECK(l.at(2, r)); CHECK(r == ProvRow::join_team);
+    CHECK(l.at(3, r)); CHECK(r == ProvRow::back);
+    // ⚠ THE WALK IS DONE FROM HERE, ⛔ not through `open_nearby`: the sub-view already OWNS THE PRESS, so a helper
+    //   that re-entered SETTINGS from inside it would be driving the wrong list.
+    CHECK(prov_cursor_to(f.m, s, ProvRow::join_team));
+    f.m.on_gesture(Gesture::double_press, s);
+    // ★ THE LANDING IS THE LIST ITSELF — ⛔ never another menu — and it opens on its FIRST row.
+    CHECK(f.m.state().provisioning == Provision::nearby);
+    CHECK(f.m.state().cursor == 0);
+    CHECK(f.m.state().nearby.n == 2);
+    // ⛔ AND LOOKING COSTS NOTHING DURABLE: opening the scan spends no write and applies nothing live.
+    CHECK(f.store.writes == 0);
+    CHECK(f.live.applies == 0);
+}
+
+TEST_CASE("ui16-hide: the NEARBY child follows its OWN predicate, and it alone earns the parent row") {
+    {   // the child is hidden: no row, and no press can reach the arm
+        CfgFix f; auto s = nearby_snap(2);
+        s.prov_join_team = false;
+        CHECK(open_provision(f.m, s));
+        CHECK(f.m.provision_row_list(s).n == 3);
+        for (int i = 0; i < 6; ++i) {
+            ProvRow r{};
+            CHECK(prov_row_under_cursor(f.m, s, r));
+            CHECK(r != ProvRow::join_team);
+            f.m.on_gesture(Gesture::double_press, s);
+            CHECK(f.m.state().provisioning != Provision::nearby);
+            if (f.m.state().settings != Settings::provisioning) CHECK(open_provision(f.m, s));
+            else if (f.m.state().provisioning != Provision::menu) f.m.on_gesture(Gesture::double_press, s);
+            f.m.on_gesture(Gesture::short_press, s);
+        }
+    }
+    {   // ★ ...and on a build where it is the ONLY child, the PARENT row is offered because of it
+        CfgFix f; auto s = nearby_snap(1);
+        s.prov_create_team = false; s.prov_join_static = false;
+        CHECK(provision_has_child(s.prov_create_team, s.prov_join_static, s.prov_join_team) == true);
+        CHECK(open_provision(f.m, s));
+        const ProvRowList l = f.m.provision_row_list(s);
+        ProvRow r{};
+        CHECK(l.n == 2);
+        CHECK(l.at(0, r)); CHECK(r == ProvRow::join_team);
+        CHECK(l.at(1, r)); CHECK(r == ProvRow::back);
+        CHECK(prov_cursor_to(f.m, s, ProvRow::join_team));
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.m.state().provisioning == Provision::nearby);
+    }
+}
+
+TEST_CASE("ui16-freeze: the cache is read ONCE, ON THE TRANSITION — ⛔ the list does not refresh under the cursor") {
+    // ★★★★ OWNER RULING R-10: *"NEARBY teams = a frozen snapshot per entry, manual refresh only (leave and
+    //      re-enter)"*. ⇒ a team that walks into range while the operator is walking the list may ⛔ NOT appear, and
+    //      one that walks out may ⛔ not vanish — either would move the row under the cursor mid-press.
+    CfgFix f; const auto s = nearby_snap(2);
+    CHECK(open_nearby(f, s));
+    CHECK(f.m.state().nearby.n == 2);
+    // The world changes: a third team is now audible and the first has been re-heard with a different signal.
+    auto s2 = nearby_snap(3, /*own_team_id=*/0, s.now_ms + 5000);
+    s2.nearby[0].snr_q4 = -300;
+    f.m.on_tick(s2);
+    f.m.on_gesture(Gesture::short_press, s2);
+    // ★ THE FROZEN LIST IS UNMOVED — count, identity AND the signal the row was drawn with.
+    CHECK(f.m.state().nearby.n == 2);
+    CHECK(f.m.state().nearby.row[0].team_id == 0xBEEF0001u);
+    CHECK(f.m.state().nearby.row[0].snr_q4 == 64);
+    // ...and LEAVING AND RE-ENTERING is the manual refresh — which is the ONLY way to see the third team.
+    CHECK(f.m.state().cursor == 1);                // the `short` above moved onto the second team
+    f.m.on_gesture(Gesture::short_press, s2);      // ...and this one onto BACK (2 teams + BACK = 3 rows)
+    CHECK(f.m.state().provisioning == Provision::nearby);   // ⛔ `short` never walks out of a sub-view
+    f.m.on_gesture(Gesture::double_press, s2);     // BACK -> the PROVISION menu
+    CHECK(f.m.state().provisioning == Provision::menu);
+    CHECK(prov_cursor_to(f.m, s2, ProvRow::join_team));
+    f.m.on_gesture(Gesture::double_press, s2);
+    CHECK(f.m.state().nearby.n == 3);
+    CHECK(f.m.state().nearby.row[0].snr_q4 == -300);
+}
+
+TEST_CASE("ui16-filter: OUR OWN team is not offered, and a scan of only our own team is EMPTY") {
+    CfgFix f; const auto s = nearby_snap(3, /*own_team_id=*/0xBEEF0002u);
+    CHECK(open_nearby(f, s));
+    CHECK(f.m.state().nearby.n == 2);
+    CHECK(f.m.state().nearby.row[0].team_id == 0xBEEF0001u);
+    CHECK(f.m.state().nearby.row[1].team_id == 0xBEEF0003u);   // ★ the survivors keep their relative order
+    {   // ⓘ ...and an EMPTY list still OPENS and can still be left (pin 4) — a scan is not a refusal.
+        CfgFix g; const auto s1 = nearby_snap(1, /*own_team_id=*/0xBEEF0001u);
+        CHECK(open_nearby(g, s1));
+        CHECK(g.m.state().nearby.n == 0);
+        CHECK(strcmp(mrui::nearby_note(g.m.state().nearby), mrui::kNearbyEmpty) == 0);
+        g.m.on_gesture(Gesture::double_press, s1);              // the ONLY row is BACK, and it still leaves
+        CHECK(g.m.state().provisioning == Provision::menu);
+    }
+}
+
+TEST_CASE("ui16-walk: `short` CYCLES the teams then BACK and WRAPS; BACK returns to the PROVISION MENU") {
+    // ★ THE CONTAINMENT IS §UI-17's landed contract: a list's BACK returns to ITS OWN PARENT — here the PROVISION
+    //   menu (`close_provisioning`'s idiom) — ⛔ never off the screen and ⛔ never to another screen.
+    CfgFix f; const auto s = nearby_snap(2);
+    CHECK(open_nearby(f, s));
+    const mrui::NearbySelList l = mrui::nearby_sel_rows(f.m.state().nearby);
+    CHECK(l.n == 3);                                            // two teams + the unconditional BACK
+    for (uint8_t i = 0; i < l.n; ++i) {
+        CHECK(f.m.state().cursor == i);
+        f.m.on_gesture(Gesture::short_press, s);
+    }
+    CHECK(f.m.state().cursor == 0);                             // ★ WRAPS — a sub-view is never walked out of
+    CHECK(f.m.state().provisioning == Provision::nearby);
+    CHECK(f.m.state().screen == Screen::settings);
+    // ...and a `double` on the LAST row leaves the list for the menu it was opened from.
+    for (uint8_t i = 0; i + 1 < l.n; ++i) f.m.on_gesture(Gesture::short_press, s);
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::menu);
+    CHECK(f.m.state().settings == Settings::provisioning);      // ⛔ NOT out of the sub-view, NOT out of the screen
+    CHECK(f.store.writes == 0);
+}
+
+TEST_CASE("ui16-look: a double on a TEAM row performs NOTHING — N2 can only look (spec §3 P-3/P-4)") {
+    // ⛔⛔ [[B222]] IN ITS ORIGINAL DIRECTION: the act (`JOIN <fingerprint>?`) is §UI-16 N3's, so this slice must not
+    //     anticipate it. ★ AND THE AUTHORITY IS THE COUNTERS, ⛔ not the screen: a model that quietly performed a join
+    //     would still be sitting on `nearby` afterwards if it also failed to navigate.
+    CreateFix f; const auto s = nearby_snap(3);
+    CHECK(open_nearby(f, s));
+    const int calls = f.prov.calls, writes = f.store.writes, applies = f.live.applies;
+    for (uint8_t i = 0; i < 2; ++i) {
+        f.m.on_gesture(Gesture::double_press, s);               // a `double` on a TEAM row (⛔ not on BACK)
+        CHECK(f.m.state().provisioning == Provision::nearby);   // it stays exactly where it was
+        f.m.on_gesture(Gesture::short_press, s);
+    }
+    CHECK(f.prov.calls   == calls);                             // ⛔ the seam was never entered
+    CHECK(f.store.writes == writes);                            // ⛔ nothing durable was spent
+    CHECK(f.live.applies == applies);                           // ⛔ nothing was applied live
+    CHECK(f.m.state().prov_answer.outcome == UiProvOutcome::none);
+}
+
+TEST_CASE("ui16-blank: the NEARBY list SURVIVES blank/wake, and the wake press is consumed") {
+    // §UI-17's landed contract, inherited rather than re-litigated: interaction state survives the blank and the
+    // waking press does not act.
+    CfgFix f; const auto s = nearby_snap(3);
+    CHECK(open_nearby(f, s));
+    f.m.on_gesture(Gesture::short_press, s);                    // ...on the SECOND row when the panel goes dark
+    CHECK(f.m.state().cursor == 1);
+    f.m.on_tick(nearby_snap(3, 0, s.now_ms + kBlankMs + 1));
+    CHECK(f.m.state().blanked == true);
+    CHECK(f.m.state().provisioning == Provision::nearby);       // ⛔ the blank closes nothing
+    const auto sw = nearby_snap(3, 0, s.now_ms + kBlankMs + 50);
+    f.m.on_gesture(Gesture::short_press, sw);
+    CHECK(f.m.state().blanked == false);
+    CHECK(f.m.state().cursor == 1);                             // ★ the wake press was CONSUMED — the cursor stood still
+    CHECK(f.m.state().nearby.n == 3);                           // ...and the frozen list is intact
+    CHECK(f.m.state().nearby.row[0].team_id == 0xBEEF0001u);
+}
+
+TEST_CASE("ui16-alarm: `long_arm` PRE-EMPTS the scan, and re-entering finds the same teams") {
+    // ★★ §3.6.5 rule 1 as the tree already implements it: the alarm closes the provisioning sub-view (P-14,
+    //    `provision_reset_on_leave`). ⛔ WHAT IT MAY NOT DO is disturb the OBSERVATIONS — they are core RAM, nothing
+    //    on this path writes them, and the operator who cancels comes back to the same nearby teams.
+    CfgFix f; const auto s = nearby_snap(3);
+    CHECK(open_nearby(f, s));
+    f.m.on_gesture(Gesture::long_arm, s);
+    CHECK(f.m.state().provisioning == Provision::closed);
+    CHECK(f.m.state().settings == Settings::browsing);
+    CHECK(f.store.writes == 0);                                 // ⛔ the alarm confirmed nothing on its way past
+    f.m.on_gesture(Gesture::long_cancel, s);
+    const auto s2 = nearby_snap(3, 0, s.now_ms + kCancelledMs + 1);
+    f.m.on_tick(s2);
+    CHECK(f.m.emergency() == Emergency::idle);
+    CHECK(open_nearby(f, s2));                                  // ★ re-entering RE-CAPTURES...
+    CHECK(f.m.state().nearby.n == 3);                           // ...the same three teams
+    CHECK(f.m.state().cursor == 0);                             // ⛔ and it opens on its FIRST row, never where it was
 }

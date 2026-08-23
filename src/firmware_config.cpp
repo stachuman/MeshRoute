@@ -24,6 +24,7 @@
 //    its decision logic, which nothing compiling THIS file can.
 #include "firmware_join_service.h"
 #include "firmware_join_profiles.h"   // §UI-15 slice 2: mrfw::JoinProfileService — the /mrjoin preset store (pure; this file only binds + renders)
+#include "firmware_team_keyring.h"    // §UI-16 K1/K2: mrfw::TeamKeyringService — the /mrteams key store ([[B240]]); pulled in transitively by the transaction above, named here because this file BINDS it
 // ★ [[B211]]: `mrfw::print_sf_list` — THE ONE bitmap->CSV formatter (`firmware_commands.cpp:250`), reused by the
 //   `> team PHY:` echo so no third implementation is written (U1). ⚠ The B211 brief stated this header was already
 //   reachable here; it was NOT included by this TU (verified per V1) — one declaration-only include, no new seam.
@@ -739,6 +740,12 @@ static void seed_blob_from_live(mrnv::Blob& b) {
     b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;  b.team_id = nc.team_id; b.mobile_autoregister = nc.mobile_autoregister ? 1 : 0; b.team_local_id = g_node.team_local_id();   // §mobile: preserve team + autoreg + team-DAD id across create/join
     b.intro_attach = nc.intro_attach ? 1 : 0;   // v21 §S2: preserve the first-contact INTRO toggle across create/join
     blob_take_team_channel_key(b);              // v22 §team-ch-key: preserve the team channel keypair across create/join (it is UNRECOVERABLE if dropped — no seed derives it)
+    // v24 §UI-16 K2: preserve the ACTIVE BINDING across a seed. ★ DERIVED FROM THE LIVE NODE, ⛔ never fabricated:
+    // the binding is "the live key belongs to the team we are in", which is exactly what the two accessors answer.
+    // A keyless node (or a teamless one) seeds a CLEARED binding — so a seed can never claim an activation the node
+    // does not have, which is the same rule `blob_take_team_channel_key` follows one line above.
+    b.team_key_active  = (nc.team_id != 0 && g_node.team_channel_key_present()) ? 1 : 0;
+    b.team_key_team_id = b.team_key_active ? nc.team_id : 0;
     b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;  b.ble_pin = g_ble_pin;
     b.e2e_dm     = nc.e2e_dm ? 1 : 0;   // §loc-per-send: `b.loc_in_dm` GONE with the NV field (kVersion 23) — location is per-send (`send -l`)
     b.gw_announce_duty_pct = nc.gw_announce_duty_pct; b.gw_announce_min_interval_ms = nc.gw_announce_min_interval_ms;
@@ -1461,8 +1468,61 @@ struct DeviceProvLive : mrfw::IProvLive {
 mrfw::ProvisioningService& prov_service() {
     static DeviceProvLive     live;
     static DeviceProvEntropy  ent;
-    static mrfw::ProvisioningService s(device_cfg_store(), live, ent);
+    static mrfw::ProvisioningService s(device_cfg_store(), live, ent, team_keyring_service());
     return s;
+}
+
+// ============================================================ §UI-16 K1/K2 — THE `/mrteams` KEYRING's DEVICE BINDINGS
+// ★★ THIN ON PURPOSE, for the fourth time in this file and for the same measured reason: this TU is compiled by
+//    NEITHER the native suite nor the simulator, so every DECISION lives in `src/firmware_team_keyring.h`, where
+//    `test/test_firmware_team_keyring.cpp` can COUNT the writes and DRIVE the restore. What is left here is two
+//    forwards and one adapter.
+// ⛔ NOT `device_cfg_store()`: this is a DIFFERENT record ([[B240]]'s whole point — `/mrcfg` holds ONE key, so it
+//    cannot hold a key per team, cannot survive `team 0`, and makes "retained but not active" unrepresentable) with
+//    a FOUR-valued read.
+namespace {
+struct DeviceTeamKeyStore : mrfw::ITeamKeyStore {
+    mrnv::TeamKeyRead load(mrnv::TeamKeyBlob& out) override { return mrnv::load_team_keys(out); }
+    bool save(const mrnv::TeamKeyBlob& b) override { return mrnv::save_team_keys(b); }
+};
+// ★ THE LIVE INSTALL, AND IT IS AN **EXISTING** CORE ACCESSOR (U1, verified at `lib/core/node.h:228`):
+//   `team_channel_key_adopt` DERIVES the public half from the private one and REFUSES when the stored pub disagrees
+//   or the scalar is degenerate. ⛔ NOT `team_channel_key_load`, the `void` verbatim primitive `/mrcfg` restores
+//   with — verbatim would install a corrupted pair as if it were a key.
+struct DeviceTeamKeyLive : mrfw::ITeamKeyLive {
+    bool adopt_key(const uint8_t pub[32], const uint8_t priv[32]) override {
+        return g_node.team_channel_key_adopt(pub, priv);
+    }
+    // ★ THE GOVERNANCE HALF (QG blocker 1) — also an EXISTING core accessor (`lib/core/node.h:234`): a `crypto_wipe`
+    //   of both halves. ⓘ `set_team_id` used to be its only caller; the boot restore is the second, and the reason is
+    //   the same one the accessor was written for — a content key that does not belong to this node's team must not
+    //   be live. ⛔ It is not reachable from the console and this does not make it so.
+    void clear_key() override { g_node.team_channel_key_clear(); }
+};
+}  // namespace
+// Function-local statics, exactly as `device_cfg_store()` / `join_profile_service()` are: constructed on first CALL,
+// so there is no cross-TU initialisation-order question. ONE instance — `prov_service()` above holds a reference to
+// it, and K3's grant-receive persistence will reach for the SAME one. ⛔ Never two services over one record.
+mrfw::TeamKeyringService& team_keyring_service() {
+    static DeviceTeamKeyStore st;
+    static mrfw::TeamKeyringService s(st);
+    return s;
+}
+// The BOOT forward. ⛔ It takes no decision: the FIVE terms are read straight off the just-loaded `/mrcfg` record and
+// the verdict goes straight back to `fw_main`, which prints ONE line. ⚠ The adapter is a stack local because it holds
+// no state and must not outlive the call.
+// ★★ THE WITNESS IS THE RECORD'S OWN `team_ch_pub` (v22), passed by POINTER — it is the PUBLIC half, so no secret is
+//    copied, and it is what makes a half-finished transaction detectable at boot (QG blocker 2). ⛔ The caller no
+//    longer installs that key itself; this service is the one authority (QG blocker 1).
+mrfw::KeyringRestore team_keyring_restore_boot(const mrnv::Blob& nv) {
+    DeviceTeamKeyLive live;
+    mrfw::TeamKeyBinding bind{};
+    bind.membership_team_id = nv.team_id;               // (ii) WHO WE ARE IN
+    bind.binding_team_id    = nv.team_key_team_id;      // (i)/(ii) who the active key is FOR
+    bind.key_active         = (nv.team_key_active != 0);
+    bind.committed_present  = (nv.team_ch_key_present != 0);
+    bind.committed_pub      = nv.team_ch_pub;           // (iv) the COMMITTED public half
+    return team_keyring_service().restore(bind, live);
 }
 
 // ★★ §UI-15 slice 5 — THE OLED PATH's TWO DEVICE FORWARDS (declared in firmware_config.h, which carries the boundary
@@ -1567,6 +1627,28 @@ static void team_report_not_applied(const mrfw::ProvResult& res, Print& out) {
                 case mrfw::ProvErr::nv_load_failed:
                     out.println(F("> team err nv_load_failed — the config record could not be read, so the non-team fields cannot be preserved. NOTHING changed."));
                     return;
+                // ★★★ §UI-16 K2 — THE FOUR KEYRING REFUSALS. The transaction stores the team's content key in
+                //     `/mrteams` BEFORE it writes the `/mrcfg` record that ACTIVATES it, so a keyring refusal is the
+                //     verb's refusal: nothing durable moved, nothing went live, no airtime was spent.
+                // ⛔⛔ NO KEY BYTE APPEARS ON ANY OF THESE LINES, and none may ever be added: they name FACTS about
+                //     the store (full, unreadable, would not open) — ⛔ never material (P-8).
+                // ⓘ FOUR ARMS BECAUSE THERE ARE FOUR REMEDIES, the same argument the two `/mrjoin` store arms make:
+                //   a full keyring is the operator's to resolve, a corrupt record needs a re-grant from a teammate,
+                //   an unreadable store is a DEVICE fault, and a failed write is a retry.
+                case mrfw::ProvErr::keyring_full:
+                    out.println(F("> team err: KEYRING FULL — this node already stores team keys for 4 teams, and a key is NEVER silently dropped to make room."));
+                    out.println(F(">   NOTHING changed — no team was joined, no key was stored, and no stored key was replaced or lost."));
+                    return;
+                case mrfw::ProvErr::keyring_invalid:
+                    out.println(F("> team err: the saved team-key store (/mrteams) is CORRUPT, so a new key cannot be stored beside the others."));
+                    out.println(F(">   NOTHING changed. The keys it held are unreadable — a teammate must re-grant (`team grantkey`) once the store is usable."));
+                    return;
+                case mrfw::ProvErr::keyring_io_fail:
+                    out.println(F("> team err: the saved team-key store (/mrteams) COULD NOT BE OPENED, so nothing is known about the keys it holds."));
+                    out.println(F(">   NOTHING changed, and NOTHING was rewritten — up to 4 intact keys may be behind a transient storage fault. Check `faults`, then retry."));
+                    return;
+                case mrfw::ProvErr::keyring_failed:    // carried by the nv_failed VERDICT below, never by this arm
+                    return;
                 case mrfw::ProvErr::nv_save_failed:   // carried by the nv_failed VERDICT below, never by this arm
                 case mrfw::ProvErr::none:             // unreachable for a refusal; listed so -Wswitch stays exhaustive
                     return;
@@ -1580,7 +1662,15 @@ static void team_report_not_applied(const mrfw::ProvResult& res, Print& out) {
         //     what the transaction itself did: it attempted EXACTLY ONE write, applied NOTHING when that write reported
         //     failure, and reached no `fire_dad`. ⇒ say that, and nothing about the flash.
         case mrfw::ProvVerdict::nv_failed:
-            out.println(F("> team err nv_save_failed — persistence FAILED: NO live state was applied (team, role, keys and PHY are ALL as they were) and NO AIRTIME was spent. Retry, or check flash."));
+            // §UI-16 K2: the verdict now has TWO durable sources — the `/mrcfg` record and, one step earlier, the
+            // `/mrteams` keyring. ⛔ They are named apart because the operator's next move differs (and because a
+            // line naming the wrong store is the [[B230]] shape): a keyring failure means the KEY never became
+            // durable, so nothing was joined at all; a `/mrcfg` failure means the key IS stored but no activation
+            // was recorded — a retained record, which is inert until an explicit re-join stores it again.
+            if (res.err == mrfw::ProvErr::keyring_failed)
+                out.println(F("> team err keyring_save_failed — the team KEY could not be stored (/mrteams): NO live state was applied (team, role, keys and PHY are ALL as they were) and NO AIRTIME was spent. Retry, or check flash."));
+            else
+                out.println(F("> team err nv_save_failed — persistence FAILED: NO live state was applied (team, role, keys and PHY are ALL as they were) and NO AIRTIME was spent. Retry, or check flash."));
             return;
         // ★★ A HARD REQUIREMENT, not an optimisation (§3.7): a same-team request that changes nothing performs ZERO
         //    saves and ZERO live applies. ⓘ `mrnv::save` would have coalesced the byte-identical record anyway — the

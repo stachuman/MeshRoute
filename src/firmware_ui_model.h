@@ -164,6 +164,13 @@
 //     OWN mutation battery (`--target=uijoin`) — see its header. ⓘ It costs this unit NO new dependency:
 //     `device_nv.h` already arrives through `firmware_config_service.h` above.
 #include "firmware_ui_join.h"
+// ★ §UI-16 N2 — the NEARBY scan screen's pure unit, MODEL SIDE: the row carrier, its identity, the
+//   own-team filter, the rows the operator walks and every lexeme. `UiSnapshot` publishes its `NearbyRow`
+//   array and `UiState` holds the FROZEN copy, so the types must be visible here (the `UiJoinList`
+//   precedent above). ⓘ Its row TOKENS live in `firmware_ui_nearby_row.h`, which this unit must NOT
+//   include: that file needs `firmware_ui_chrome.h`, and chrome includes THIS header — see the split's own
+//   note. `src/firmware_ui.cpp`, the tests and the probe include both.
+#include "firmware_ui_nearby.h"
 #include "firmware_ui_input.h"
 
 namespace mrui {
@@ -354,8 +361,15 @@ inline bool screen_is_entered(Screen sc, Settings settings, ListView view) {
 //                      ANYTHING (plan §2.3 rule 4). Its completion is the four-term rule's (`join_push_correlates`).
 //   `join_result`    — LIVE (slice 6): entered by the act that established it (`run_join_static` for a refusal or a
 //                      failed save) or by a CORRELATED adopt (`on_join_push`). ⛔ By nothing else. Terminal.
+//   `nearby`         — LIVE (§UI-16 N2): design §3.6.4 point 2's READ-ONLY scan. The retained nearby-team
+//                      observations (`Node::team_seen_*`), captured ONCE on the transition into
+//                      `UiState::nearby` and rendered as `fingerprint · n/3 · age` plus BACK. ⛔ It performs
+//                      NOTHING — no join, no confirmation, no airtime — and BACK returns to the PROVISION
+//                      menu. The act (`JOIN <fingerprint>?`) is §UI-16 N3's, and until it lands a `double`
+//                      on a team row deliberately does nothing ([[B222]]: a transition lands WITH its flow).
 enum class Provision : uint8_t {
-    closed = 0, menu, create_confirm, create_result, join_select, join_confirm, join_waiting, join_result
+    closed = 0, menu, create_confirm, create_result, join_select, join_confirm, join_waiting, join_result,
+    nearby
 };
 
 // ★★ THE CONFIRMATION'S TWO ACTIONS, AND `back` IS FIRST BECAUSE §3.6.3 REQUIRES IT TO BE THE DEFAULT — verbatim:
@@ -516,8 +530,13 @@ inline uint8_t cfg_menu_next(mrfw::CfgField f, uint8_t v) {
 
 // ============================================================ §UI-15 slice 4 — §6 AVAILABILITY: THE PROVISION MENU
 // ★★★ THE CHILDREN OF §3.6.3, AS STABLE IDENTITIES — the `CfgRow` rule one level down, and it is LIVE here for the
-//     same reason: two of the three rows are CONDITIONAL, so a row's meaning may not be derived from its position.
-enum class ProvRow : uint8_t { create_team = 0, join_static, back, count };
+//     same reason: ⛔ CORRECTED 2026-08-23 (§UI-16 N2) — this line read *"two of the three rows are CONDITIONAL"*;
+//     it is now THREE of FOUR, and the rule it states is unchanged: a row's meaning may not be derived from its
+//     position.
+// ★ §UI-16 N2 adds the THIRD child (`join_team`), and the code above ANTICIPATED it by name — see
+//   `provision_has_child`, which derives the parent row's condition FROM this list precisely so a new child
+//   is picked up with zero change there.
+enum class ProvRow : uint8_t { create_team = 0, join_static, join_team, back, count };
 inline constexpr uint8_t kMaxProvRows = uint8_t(ProvRow::count);
 
 // ⛔ NOT `CfgRowList` GENERALISED INTO A TEMPLATE, and that is C1 rather than laziness: turning `CfgRowList` into
@@ -550,10 +569,21 @@ struct ProvRowList {
 // ⓘ `back` is UNCONDITIONAL. Leaving must never depend on a build flag, a store or a service — the same rule
 //   `ui14-open`'s "BACK still works" case pins one level down. ⇒ a build with neither child still opens a menu the
 //   operator can leave; it just offers nothing, which is the honest answer for `gateway_heltec` (OLED=1, N_LAYERS=2).
-inline ProvRowList provision_rows(bool create_team, bool join_static) {
+// ★★★★ §UI-16 N2 — AND THE THIRD PREDICATE IS A **THIRD SEPARATE PARAMETER**, for the reason the first two
+//      are separate and not because three reads better than one: `join_team` is a TEAM-plane operation on a
+//      LEAF build (it needs `MR_FEAT_TEAM` for the observation cache to exist at all and `MR_N_LAYERS < 2`
+//      for the membership verbs), which happens to coincide with `create_team` in every env in the tree
+//      today — and a coincidence is not a rule. ⇒ the native suite drives the combination the tree cannot
+//      build, and a later profile that splits them cannot silently take this row with it.
+// ✅ OQ-1 RULED (owner, 2026-08-22): `JOIN TEAM` OPENS THE NEARBY LIST **DIRECTLY** — ⛔ never a submenu.
+//    A submenu arrives only when a SECOND join method exists; in v1 NEARBY is this row's only child, so a
+//    submenu would be exactly the *"row that costs the operator a walk and a `double` to discover it offers
+//    nothing"* the 2026-08-19 hiding ruling refuses.
+inline ProvRowList provision_rows(bool create_team, bool join_static, bool join_team) {
     ProvRowList l{};
     if (create_team) l.row[l.n++] = ProvRow::create_team;
     if (join_static) l.row[l.n++] = ProvRow::join_static;
+    if (join_team)   l.row[l.n++] = ProvRow::join_team;
     l.row[l.n++] = ProvRow::back;
     return l;
 }
@@ -564,8 +594,11 @@ inline ProvRowList provision_rows(bool create_team, bool join_static) {
 //      nearby-team child) could add a child the parent row never learned about — a menu entry that opens a sub-view
 //      the operator cannot see. ⓘ `back` is UNCONDITIONAL, so it is excluded BY IDENTITY rather than by assuming it
 //      is last: the list is built by position and §B66's rule is that position is never an identity.
-inline bool provision_has_child(bool create_team, bool join_static) {
-    const ProvRowList l = provision_rows(create_team, join_static);
+// ✅ AND IT NEEDED NO CHANGE OF SHAPE WHEN §UI-16 N2 ADDED THE THIRD CHILD — only the parameter it forwards.
+//    That is the note above being paid off rather than re-argued: `back` is excluded BY IDENTITY, so the
+//    predicate learned about `join_team` the moment `provision_rows` did.
+inline bool provision_has_child(bool create_team, bool join_static, bool join_team) {
+    const ProvRowList l = provision_rows(create_team, join_static, join_team);
     for (uint8_t i = 0; i < l.n; ++i)
         if (l.row[i] != ProvRow::back) return true;
     return false;
@@ -578,6 +611,7 @@ inline const char* provision_row_label(ProvRow r) {
     switch (r) {
         case ProvRow::create_team: return "CREATE TEAM";
         case ProvRow::join_static: return "JOIN NETWORK";
+        case ProvRow::join_team:   return "JOIN TEAM";     // §UI-16 S-1 — the design's own path word (§3.6.4 :797)
         case ProvRow::back:        return "BACK";
         case ProvRow::count:       return "?";
     }
@@ -893,6 +927,11 @@ struct UiSnapshot {
     //     "stays N" as a statement about today's struct — that is how this line went stale.
     bool     prov_create_team = false;   // `MR_N_LAYERS < 2 && MR_FEAT_TEAM` — §3.6.3's primary path
     bool     prov_join_static = false;   // `MR_N_LAYERS < 2`                — §3.6.3's secondary path
+    // ★ §UI-16 N2's THIRD child predicate, published from the same one site (U3) and ⛔ never collapsed into
+    //   `prov_create_team`: see `provision_rows` for why a coincidence in today's envs is not a rule.
+    //   ⓘ COST, MEASURED not assumed: it lands in the padding this run of bools already carried — the slice
+    //   reports the `sizeof(UiSnapshot)` figure, which moves only by the `nearby[]` array further down.
+    bool     prov_join_team   = false;   // `MR_N_LAYERS < 2 && MR_FEAT_TEAM` — §3.6.4's nearby-join path
 
     // ================================================================== §CHROME-1 — the status strip's new authorities
     // ★★★ DEFINED HERE, PUBLISHED IN SLICE 3. Design §8.2's chrome projection is PURE and may not touch `g_node`, but
@@ -969,6 +1008,11 @@ struct UiSnapshot {
     //     cost 8 between them — is about RELATIVE placement and is unaffected; ⛔ never read an absolute offset here
     //     as current, re-measure it (the host reveal in spec §6).
     bool     own_fix = false;
+    // ★ §UI-16 N2 — HOW MANY OF `nearby[]` BELOW ARE REAL. ⓘ ITS PLACEMENT IS MEASURED, not reasoned: declared
+    //   HERE it takes one of the three pad bytes that already sat between `own_fix` and the 8-aligned
+    //   `home_confirm_age_ms`, so the count byte costs ZERO. Declared beside the array it would have opened a
+    //   fresh 8-byte quantum. (The `node.h` padding-placement rule, applied to `UiSnapshot`.)
+    uint8_t  nearby_n = 0;
     // ★★★★ `uint64_t`, AND THE TYPE IS THE WHOLE POINT (design §4.2, and the trap this slice was briefed against).
     //     Authority: `Node::mobile_home_confirm_age_ms()`, which is `uint64_t`. ⛔⛔ NEVER a `uint32_t` millisecond
     //     age: that cast re-creates the ~49.7-day wrap this project already fixed once (see node.h's §MH-S4 ledger
@@ -984,6 +1028,25 @@ struct UiSnapshot {
     // ⓘ Meaningful only while `own_fix` is true; `(0,0)` with `own_fix` false is "no position", ⛔ never the Gulf of
     //   Guinea, which is why the row draws `NO LOCATION` rather than `0.000,0.000`.
     int32_t  own_lat_e7 = 0, own_lon_e7 = 0;
+    // ★★★★ §UI-16 N2 — THE NEARBY-TEAM OBSERVATIONS, PROJECTED FROM `Node::team_seen_count()` /
+    //      `team_seen_at()` AT THE ONE SITE THAT MAY TOUCH `g_node` (`build_snapshot`), exactly as every
+    //      other body input is. ⛔ The renderer asks the node NOTHING: `draw_frame` runs once per OLED page,
+    //      so a cache observation landing between two of the eight replays would TEAR the list — the §UI-17
+    //      S3 defect class, which must not return.
+    // ⛔ THIS ARRAY IS **NOT** WHAT THE SCREEN WALKS. It is the LIVE projection, republished every tick; the
+    //    screen walks `UiState::nearby`, the FROZEN copy the model captures ONCE on the `menu -> nearby`
+    //    transition (owner ruling R-10: NEARBY is a frozen snapshot per entry, manual refresh only). Reading
+    //    this array from the renderer would auto-refresh the list and let a team walking into range insert a
+    //    row under the operator's cursor — which is exactly what R-5's structural order exists to prevent.
+    // ⓘ COST, MEASURED not assumed: `sizeof(NearbyRow)` is **16** (align 8; `age_ms` at 0, `team_id` at 8,
+    //   `snr_q4` at 12, `age_valid` at 14, the NAMED `reserved` at 15) x `kMaxNearbyRows` (8) = **128**, and
+    //   `sizeof(UiSnapshot)` moves 712 -> **840**. The array lands at offset 712 — the struct's old END, already
+    //   8-aligned — so it opens NO hole, and `nearby_n` above costs ZERO in the pad at 694. ⚠ Native alignment
+    //   hides the BOARD figure (D2); the authoritative number is the per-board `RAM_used` diff, which is the
+    //   board gate's. ★ AND THE STATIC/STACK SPLIT IS READ OFF THE IMAGE, ⛔ never inferred from the freeze
+    //   pattern (spec §6's standing lesson): there is exactly ONE static `UiSnapshot` (`s_frame_snap`) plus the
+    //   per-tick `build_snapshot` local, i.e. +128 B static and +128 B of TRANSIENT loop-task stack.
+    NearbyRow nearby[kMaxNearbyRows] = {};
 };
 
 // ★ THE UI-LOCAL UNREAD / RECENCY COUNTERS (spec §6). They were six file-static variables in firmware_ui.cpp, and
@@ -1388,6 +1451,24 @@ struct UiState {
     bool        join_still = false;
     bool    blanked = false;
     bool    dirty   = true;
+    // ★★★★ §UI-16 N2 — THE NEARBY LIST THE SCREEN WALKS, CAPTURED ONCE AND FROZEN UNTIL THE OPERATOR LEAVES.
+    //      ⛔ It is NOT `UiSnapshot::nearby`, and the two are deliberately different things: the snapshot
+    //      carries the LIVE projection (republished every tick), this carries what the operator ENTERED with.
+    //      Owner ruling R-10 — *"NEARBY teams = a frozen snapshot per entry, manual refresh only (leave and
+    //      re-enter)"* — cannot be expressed by a per-tick array alone, and R-5's first-observed order stops
+    //      meaning anything if a row can appear mid-walk under the cursor.
+    // ★ IT IS THE `join_list` DISCIPLINE ONE ARM OVER (U3), with the same "what was shown is what is acted
+    //   on" consequence for N3: the id that confirmation will carry is the id in THIS copy.
+    // ⓘ It is the OWN-TEAM-FILTERED list (`nearby_capture`) — the filter is the READER's by ruling, so it is
+    //   applied exactly once, here, at capture.
+    // ⓘ COST, MEASURED not assumed, and ⚠ NATIVE ALIGNMENT HIDES THE BOARD FIGURE (D2's standing warning): on the
+    //   host `sizeof(NearbyList)` is 136 (8 x 16 B rows + the count in the array's tail padding) and
+    //   `sizeof(UiState)` moves 200 -> **336**, i.e. EXACTLY the carrier and not one byte more.
+    // ⚠ ITS DECLARATION ORDER IS LOAD-BEARING AND THAT TOO WAS MEASURED, not reasoned: declared ABOVE the two
+    //   `bool`s (beside `join_sel`, where it reads better) it measures **344** — the 8-aligned array pushes
+    //   `blanked`/`dirty` past its end and opens a fresh 8-byte tail quantum. Declared here, after them, the bools
+    //   keep the slot they already had. The `node.h` padding-placement rule, applied to `UiState`.
+    NearbyList  nearby{};
 };
 
 // ★★ THE ONE-LINE NOTE THE SETTINGS PANEL SHOWS AFTER AN ACTION — formatted in this PURE unit so the native suite can
@@ -1709,12 +1790,12 @@ public:
     // from the model's by one row would highlight one thing and act on another.
     CfgRowList settings_row_list(const UiSnapshot& s) const {
         return settings_rows(s.ble_row, _cfg && _cfg->conflict(),
-                             provision_has_child(s.prov_create_team, s.prov_join_static));
+                             provision_has_child(s.prov_create_team, s.prov_join_static, s.prov_join_team));
     }
     // ★ §UI-15 slice 4 — the same rule one level down (U1/U2): ONE construction of the PROVISION menu's children,
     //   shared by the cursor bound, the activation and (slice 5) the renderer. ⛔ Never rebuild it at a call site.
     ProvRowList provision_row_list(const UiSnapshot& s) const {
-        return provision_rows(s.prov_create_team, s.prov_join_static);
+        return provision_rows(s.prov_create_team, s.prov_join_static, s.prov_join_team);
     }
     void clear_dirty() { _st.dirty = false; }
     // ★★ §B108: AN ARRIVAL IS A REASON TO REPAINT. `mr_ui_on_push` moved the unread counters and the recency stamps
@@ -2770,6 +2851,9 @@ private:
             case Provision::join_waiting:   enter_provision(Provision::menu); return;
             // The join RESULT is terminal in exactly the same way the create one is.
             case Provision::join_result:    enter_provision(Provision::menu); return;
+            // §UI-16 N2 — the READ-ONLY scan list. Its `short`/`double` are `join_select`'s shape, ⛔ not
+            // TEAM's: it opens on its first row and its last row is BACK.
+            case Provision::nearby:         nearby_select_gesture(g);        return;
             // ⛔ UNREACHABLE BY THE INVARIANT (`Settings::provisioning` implies a non-`closed` arm) and handled rather
             //    than defaulted: if it is ever reached the two fields have drifted, and the safe answer is to put them
             //    back in step instead of interpreting a press against a state that does not exist.
@@ -2799,6 +2883,15 @@ private:
             //   the operator came here to learn. ⛔ Silently refusing to open would be indistinguishable from a dead
             //   button — the complaint `run_create_team`'s null-seam arm is built against.
             case ProvRow::join_static: load_join_profiles(); enter_provision(Provision::join_select); return;
+            // ★★★★ §UI-16 N2 / ✅ OQ-1 — `JOIN TEAM` OPENS THE NEARBY LIST **DIRECTLY**, ⛔ never a submenu.
+            //      ⛔ THE CACHE IS READ **HERE AND ONCE** — on the transition, ⛔ not per tick and ⛔ not per
+            //      page (owner ruling R-10). The read itself is cheap (a bounded `const` walk of at most
+            //      `cap_team_seen` entries, no flash and no radio); what the once-ness buys is that the list
+            //      cannot re-order or grow under the operator's cursor while they are walking it.
+            // ⓘ AN EMPTY SCAN IS NOT A REFUSING TRANSITION: the screen OPENS and says `NO TEAMS NEARBY`,
+            //   because "nothing is audible here" is a fact the operator came to learn — the same reasoning
+            //   `join_static`'s refusing-store arm carries one row up.
+            case ProvRow::join_team:   load_nearby(s);       enter_provision(Provision::nearby);      return;
             case ProvRow::back:        close_provisioning(); return;
             case ProvRow::count:       return;   // the enum's BOUND, listed so -Wswitch stays useful
         }
@@ -2926,6 +3019,41 @@ private:
         }
         _st.prov_answer = a;
     }
+    // ================================================== §UI-16 N2 — the READ-ONLY NEARBY scan (§3.6.4 point 2)
+    // ★★ THE ONE READ OF THE OBSERVATION CACHE, and it happens on the TRANSITION (see `provision_menu_gesture`).
+    //    ⛔ IT IS A **COPY**, ⛔ never a pointer into the snapshot: the snapshot is rebuilt every tick, so a
+    //    screen holding a reference into it would be the auto-refresh owner ruling R-10 forbids, wearing the
+    //    shape of an optimisation.
+    // ★ THE OWN-TEAM FILTER IS APPLIED HERE, ONCE, by the pure `nearby_capture` — N1 records our own team like
+    //   any other, deliberately, so that *"which teams are audible"* and *"which of them are worth offering"*
+    //   have one authority each (spec §4-N1 pin 9 / §4-N2 pin 3).
+    void load_nearby(const UiSnapshot& s) {
+        _st.nearby = nearby_capture(s.nearby, s.nearby_n, s.team_id);
+    }
+    // `short` CYCLES the scan list and ⛔ never walks out of the screen (the sub-view rule, three menus deep);
+    // `double` on BACK returns to the PROVISION MENU — the `close_provisioning` CONTAINMENT idiom, and ⛔ not
+    // off the screen (§UI-17's landed navigation contract: a list's BACK returns to its own parent).
+    // ⛔⛔ AND A `double` ON A TEAM ROW DOES **NOTHING**, DELIBERATELY AND VISIBLY. N2 is the list; the act is
+    //     §UI-16 N3's `JOIN <fingerprint>?` confirmation over the existing
+    //     `TeamRequest{ mint=false, team_id }` transaction. [[B222]]'s rule is that a transition lands WITH
+    //     the flow behind it, never one slice ahead of it — slice 5 left `join_static` a bare `return` for
+    //     exactly this reason, and this is that arm's twin. ⚠ It is stated here rather than in a plan,
+    //     because a reader who finds a silent `return` and no note assumes it is a bug.
+    void nearby_select_gesture(Gesture g) {
+        const NearbySelList l = nearby_sel_rows(_st.nearby);
+        if (g == Gesture::short_press) {
+            // ⓘ SPELLED OUT rather than shared with the two identical lines above: the three walk different
+            //   lists, and one function branching on the arm is how a press eventually acts on another's.
+            if (l.n) _st.cursor = uint8_t((_st.cursor + 1) % l.n);   // CYCLES — the sub-view rule
+            _st.dirty = true;
+            return;
+        }
+        NearbySelRow r{};
+        if (!l.at(_st.cursor, r)) return;                            // fails closed — see NearbySelList::at
+        if (r.back) { enter_provision(Provision::menu); return; }
+        // ⛔ N3's landing goes HERE — and until it does, looking really does only look (spec §3 P-4).
+    }
+
     // ★★★★ §B64 — THE TEAMMATE THE CURSOR IS ON, HELD BY IDENTITY, AND RE-FOUND IN EVERY SNAPSHOT.
     // ★ THE IDENTITY IS THE ROW'S OWN `id`, DERIVED AND NOT INVENTED (U1): it is the team-plane id the snapshot already
     //   carries, the id `compose_peer` already stores, and the id `ui_compose_send_line` already puts on the wire

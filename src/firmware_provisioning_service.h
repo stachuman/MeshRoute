@@ -44,6 +44,7 @@
 #include <cstring>                     // memcpy/memcmp — the staged keypair into the plan, and the change tracker
 #include "device_nv.h"                 // mrnv::Blob — THE durable carrier (never rebuilt field-by-field, U2)
 #include "firmware_config_service.h"   // ICfgStore — REUSED UNCHANGED (U1); this file adds no second durable seam
+#include "firmware_team_keyring.h"     // §UI-16 K2: mrfw::TeamKeyringService — the `/mrteams` durable key store
 #include "firmware_config_parse.h"     // mrfw::team_fnv1a32 — the `team new` id derivation, already pure + tested
 #include "identity.h"                  // meshroute::team_channel_key_derive — the PURE crypto (no Node, no install)
 #include "node_role.h"                 // meshroute::role_enforce / role_set_refusal / NodeConfig (pure truth tables)
@@ -182,6 +183,16 @@ enum class ProvErr : uint8_t {
     id_unavailable,    // `team new` could not draw an id that is neither 0 nor the CURRENT team (§3.5)
     nv_load_failed,    // the record could not be read, so the non-provisioning fields cannot be preserved
     nv_save_failed,    // the single write failed
+    // ★★★ §UI-16 K2 — THE FOUR KEYRING ARMS. The transaction now makes the key DURABLE (`/mrteams`) BEFORE it
+    //     persists the `/mrcfg` candidate that marks it ACTIVE, so the keyring's refusals are the transaction's
+    //     refusals: ⛔ zero `/mrcfg` writes, ⛔ zero live applies, ⛔ zero airtime, and the keyring itself untouched.
+    //     ⓘ They are FOUR and not one because each takes a different action from the operator, exactly as
+    //     `/mrjoin`'s `store_invalid` / `store_io_failed` split does — and each is ≤15 characters, the width
+    //     `prov_err_name`'s widest existing arm (`no_mobile_plane`) already budgets on the 19-column panel.
+    keyring_full,      // ★ P-15: four teams are stored and this is a fifth ⇒ REFUSED LOUDLY, ⛔ nothing evicted
+    keyring_invalid,   // the `/mrteams` record is present but unreadable — a teammate must re-grant the key
+    keyring_io_fail,   // the `/mrteams` store would not open at all — nothing is known; ⛔ never blind-rewritten
+    keyring_failed,    // the ONE keyring save attempt failed
 };
 inline const char* prov_err_name(ProvErr e) {
     switch (e) {
@@ -201,8 +212,31 @@ inline const char* prov_err_name(ProvErr e) {
         case ProvErr::id_unavailable:  return "id_unavailable";
         case ProvErr::nv_load_failed:  return "nv_load_failed";
         case ProvErr::nv_save_failed:  return "nv_save_failed";
+        // §UI-16 K2 — 12/15/15/14 characters; see the enum's note on the 19-column budget.
+        case ProvErr::keyring_full:    return "keyring_full";
+        case ProvErr::keyring_invalid: return "keyring_invalid";
+        case ProvErr::keyring_io_fail: return "keyring_io_fail";
+        case ProvErr::keyring_failed:  return "keyring_failed";
     }
     return "?";
+}
+// §UI-16 K2 — the 1:1 relabel of a keyring refusal into this transaction's vocabulary. ⛔ ONE mapping, `default`-less
+// so a new `KeyringErr` arm fails the build here rather than silently becoming somebody's nearest neighbour.
+// ⓘ `none` is unreachable on a refusal path and is mapped to the keyring's own generic failure rather than to
+//   `ProvErr::none`, which would report a refusal as a success (C2).
+inline ProvErr prov_err_of_keyring(KeyringErr e) {
+    switch (e) {
+        case KeyringErr::keyring_full:    return ProvErr::keyring_full;
+        case KeyringErr::store_invalid:   return ProvErr::keyring_invalid;
+        case KeyringErr::store_io_failed: return ProvErr::keyring_io_fail;
+        case KeyringErr::nv_save_failed:  return ProvErr::keyring_failed;
+        // `zero_team` cannot arise here — `key_action == install` implies a non-zero team (a key on `team 0` is
+        // refused by `key_on_leave` in phase 1, and a mint always stages a non-zero id). Mapped to the keyring's
+        // generic failure rather than dropped, so an unreachable arm cannot become a silent success.
+        case KeyringErr::zero_team:
+        case KeyringErr::none:            return ProvErr::keyring_failed;
+    }
+    return ProvErr::keyring_failed;
 }
 
 // ---- PHASE 1's OUTPUT: the ROLE + ID PROJECTION -----------------------------------------------------------------
@@ -638,6 +672,31 @@ inline ProvErr stage_team_candidate(const TeamRequest& req, const TeamProjection
     // preserve: ⛔ the loaded record's key bytes are left untouched — that IS the preservation, and it is by
     // construction not a difference.
 
+    // (7b) ★★★ §UI-16 K2 — THE ACTIVE BINDING (`/mrcfg` v24), COMPOSED FROM THE **SAME** `KeyAction` THE LIVE APPLY
+    //      WILL USE, so the record can never claim a key the node does not hold.
+    //        install  -> this team's `/mrteams` record is ACTIVE  (the keyring write happens BEFORE the save below)
+    //        clear    -> ★ the binding is CLEARED and the KEYRING RECORD IS **RETAINED**. That pair IS the ruling:
+    //                    `team 0` (and a switch) destroys the LIVE key via `set_team_id` and forgets the ACTIVATION,
+    //                    while the stored key survives — and ⛔ mere knowledge of the public team id can never bring
+    //                    it back, because the restore requires this binding and not `team_id` (P-2b).
+    //        preserve -> ⛔ untouched: a same-team PHY-only update must not re-arm or drop an activation it never
+    //                    mentioned, exactly as it must not touch the key bytes.
+    // ⛔ IT IS NOT DERIVED FROM `cand.team_id`, and that is the point of carrying a second id at all — see the field's
+    //    own note in `src/device_nv.h`.
+    if (plan.key_action == KeyAction::install) {
+        if (cand.team_key_team_id != plan.team_id || cand.team_key_active != 1) differs = true;
+        cand.team_key_team_id = plan.team_id;
+        cand.team_key_active  = 1;
+    } else if (plan.key_action == KeyAction::clear) {
+        // ⓘ ⚠ LIKE THE `team_local_id` AND KEY-`clear` CLAUSES ABOVE, THIS ONE CAN NEVER DECIDE THE VERDICT and is
+        //   not claimed as tested: `clear` is reached only with `membership_changed` true, which already forces
+        //   `no_change` false. The ASSIGNMENT is load-bearing (it is what `team 0` persists); only the `differs`
+        //   term is defence in depth.
+        if (cand.team_key_team_id != 0 || cand.team_key_active != 0) differs = true;
+        cand.team_key_team_id = 0;
+        cand.team_key_active  = 0;
+    }
+
     // (8) ★ DAD LAST, AND ONLY FOR A CHANGED, NON-ZERO TEAM. A same-team re-key must NOT spend airtime.
     plan.fire_dad = plan.membership_changed && plan.team_id != 0 && plan.projected_is_mobile;
     // ★★ THE `no_change` ROW IS A HARD REQUIREMENT, NOT AN OPTIMISATION: a same-team request that changes nothing
@@ -671,11 +730,16 @@ inline ProvErr stage_team_candidate(const TeamRequest& req, const TeamProjection
 // single call, so there is no state between calls to go stale (and no secret to sit in a member).
 class ProvisioningService {
   public:
-    ProvisioningService(ICfgStore& store, IProvLive& live, IEntropy& entropy)
-        : _store(store), _live(live), _entropy(entropy) {}
+    // ★★ §UI-16 K2 — THE KEYRING IS A **REQUIRED** SEAM, ⛔ NOT AN OPTIONAL/NULLABLE ONE. A binding that could be
+    //    left unwired would make a `team new` on that build persist NOTHING durable and report success — which is
+    //    [[B240]] itself, arriving through the constructor. Every construction site passes one (C2).
+    ProvisioningService(ICfgStore& store, IProvLive& live, IEntropy& entropy, TeamKeyringService& keyring)
+        : _store(store), _live(live), _entropy(entropy), _keyring(keyring) {}
 
     // ★★★ THE TRANSACTION. The order of the seven steps IS the contract (§3.2):
     //   1-4. parse (the caller's) → validate + PROJECT → stage id + key → compose the candidate
+    //   4b.  §UI-16 K2: when the plan INSTALLS a key, make it DURABLE in the `/mrteams` keyring FIRST. A refusal
+    //        there refuses the whole transaction — ⛔ no `/mrcfg` write, no live apply, no airtime.
     //   5.   ONE `store.save`. On false: return `nv_failed`, apply NOTHING, ⛔ no `fire_dad`, so NO AIRTIME.
     //   6.   on success ONLY, in this order: (a) switch team if membership changed · (b) apply the plan's KeyAction
     //        — `install` calls the `void` load, `preserve` makes NO key call, `clear` happens via `set_team` ·
@@ -719,6 +783,28 @@ class ProvisioningService {
         if (e != ProvErr::none) { r.err = e; return r; }   // ⛔ REFUSED: 0 writes, 0 live calls, 0 airtime
         if (plan.no_change) { r.verdict = ProvVerdict::no_change; return r; }   // ⛔ 0 writes, 0 live calls
 
+        // ---------- §UI-16 K2 — THE KEY IS MADE DURABLE **FIRST**, AND THE ORDER IS THE CONTRACT. ----------
+        // ★★★ PERSISTENCE BEFORE ACTIVATION, the same ruling K3 applies to a received grant (spec F-10/R-9): the
+        //     `/mrcfg` candidate composed above CLAIMS an active binding, so writing it before the key is stored
+        //     would let a reboot find an activation with no key behind it. ⇒ the keyring write happens here, and
+        //     ⛔ a keyring refusal REFUSES THE WHOLE TRANSACTION: zero `/mrcfg` writes, zero live applies, zero
+        //     airtime — the §3.2 guarantee, unchanged in shape.
+        // ⓘ ONLY the `install` arm writes. `preserve` names no material, and `clear` RETAINS the stored record by
+        //   ruling — ⛔ leaving a team must never delete the key it was granted (that is what K5's explicit
+        //   `USE SAVED KEY` will later offer back).
+        // ⚠ WHAT A `keyring_full` REFUSAL COSTS, stated rather than glossed: a `team new` has already drawn its id
+        //   nonce and its key scalar from the CSPRNG. It still spends no write, no apply and no airtime — the same
+        //   honest qualification `nv_load_failed` carries above.
+        // ⓘ `unchanged` is a SUCCESS and the common one (a re-grant of identical material) — ★ ZERO flash writes.
+        if (plan.key_action == KeyAction::install) {
+            const KeyringResult kr = _keyring.put(plan.team_id, plan.key_pub, plan.key_priv);
+            if (kr.verdict == KeyringVerdict::refused || kr.verdict == KeyringVerdict::nv_failed) {
+                r.err     = prov_err_of_keyring(kr.err);
+                r.verdict = (kr.verdict == KeyringVerdict::nv_failed) ? ProvVerdict::nv_failed : ProvVerdict::refused;
+                return r;                                 // ⛔ 0 /mrcfg writes, 0 live calls, 0 airtime
+            }
+        }
+
         if (!_store.save(cand)) {                         // ★ EXACTLY ONE save ATTEMPT
             r.err     = ProvErr::nv_save_failed;
             r.verdict = ProvVerdict::nv_failed;
@@ -746,6 +832,7 @@ class ProvisioningService {
     ICfgStore& _store;
     IProvLive& _live;
     IEntropy&  _entropy;
+    TeamKeyringService& _keyring;   // §UI-16 K2 — the `/mrteams` durable key store (⛔ never null, see the ctor)
 };
 
 }  // namespace mrfw

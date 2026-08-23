@@ -43,6 +43,7 @@ using mrfw::kv_next;
 using mrfw::team_fnv1a32;
 #include "firmware_remote.h"         // §cleanup 2026-07-14: remote-mgmt cluster moved out; REMOTE_FLAG_SEALED (used by mesh_service) lives here
 #include "firmware_config.h"         // §cleanup 2026-07-14: config/provisioning cluster
+#include "firmware_team_keyring.h"   // §UI-16 K1/K2 ([[B240]]): mrfw::KeyringRestore — the boot forward's five OUTCOMES (firmware_config.h declares the enum opaquely; the startup switch needs its enumerators)
 #include "firmware_inbox.h"          // §cleanup 2026-07-14: inbox/companion-sync cluster (pull_inbox / mark_read)
 using mrfw::handle_pull_inbox;       // dispatch + ble_dispatch_line verbs; call sites unchanged
 using mrfw::handle_mark_read;
@@ -783,10 +784,43 @@ void setup() {
     cfg.lat_e7 = g_lat_e7; cfg.lon_e7 = g_lon_e7;             // the node's fix, from /mrid — what a per-send `send … -l` attaches (§loc-per-send; there is no `loc_in_dm` toggle any more)
     // §remote-mgmt (v20): restore the pinned admin pubkey + replay counter floor (no-op stub when MR_FEAT_REMOTE_MGMT=0).
     g_node.admin_load(nv.admin_pubkey, nv.admin_counter_floor, nv.admin_provisioned);
-    // §team-ch-key (v22): restore the TEAM CHANNEL keypair (no-op stub when MR_FEAT_TEAM=0). `nv` is
-    // ZERO-INITIALISED above, so a fresh chip or a version-rejected blob restores present=0 + zeroed buffers —
-    // never a fabricated key. Verbatim, no re-derivation: these bytes ARE the secret (there is no seed).
-    g_node.team_channel_key_load(nv.team_ch_pub, nv.team_ch_priv, nv.team_ch_key_present != 0);
+#if MR_N_LAYERS < 2
+    // §UI-16 K1/K2 ([[B240]]) — THE TEAM CONTENT KEY IS RESTORED BY THE `/mrteams` KEYRING, AND BY NOTHING ELSE.
+    // ⛔⛔ WITHDRAWN CALL, KEPT VISIBLE (QG blocker 1, 2026-08-22): this block used to begin with
+    //     `g_node.team_channel_key_load(nv.team_ch_pub, nv.team_ch_priv, nv.team_ch_key_present != 0)` — the v22
+    //     `/mrcfg` restore — and only THEN consult the keyring. So whenever the keyring could not restore (absent,
+    //     corrupt, unreadable, or naming another team) the OLD `/mrcfg` key STAYED LIVE while the service reported it
+    //     had restored nothing. ⇒ the load is GONE; `/mrcfg`'s public half is now passed to the service as the
+    //     COMMITTED WITNESS (term iv), and the service's verdict GOVERNS — every non-installing arm leaves this node
+    //     keyless, actively.
+    // ⛔ A FORWARD AND A PRINT, nothing else: all five terms, the derive-and-cross-check and the six zero-write
+    //    refusals live in `src/firmware_team_keyring.h`, which the native suite drives.
+    // ⛔⛔ NO KEY BYTE IS PRINTED ON ANY ARM — the lines name FACTS about the store, never material (P-8).
+    {
+        const mrfw::KeyringRestore kr = mrfw::team_keyring_restore_boot(nv);
+        mrcon.print(F("  team key  = "));
+        switch (kr) {
+            case mrfw::KeyringRestore::installed:     mrcon.print(F("restored from NV (/mrteams)")); break;
+            case mrfw::KeyringRestore::no_binding:    mrcon.print(F("no active binding (no saved key in use)")); break;
+            case mrfw::KeyringRestore::team_mismatch: mrcon.print(F("the saved binding is for ANOTHER team — keyless")); break;
+            case mrfw::KeyringRestore::no_record:     mrcon.print(F("no /mrteams record for the active team")); break;
+            case mrfw::KeyringRestore::not_committed: mrcon.print(F("NOT COMMITTED — the saved key was never confirmed (re-grant or re-key)")); break;
+            case mrfw::KeyringRestore::rejected:      mrcon.print(F("REJECTED — the stored record does not verify")); break;
+            case mrfw::KeyringRestore::store_failed:  mrcon.print(F("/mrteams UNREADABLE — nothing was rewritten")); break;
+        }
+        // ★★ AND THE LIVE FACT IS READ OFF THE NODE, ⛔ never inferred from the verdict — so this line cannot drift
+        //    from what `team exportkey` will say one command later. It is now expected to read `none` on every arm
+        //    but `installed`, and asserting it here is what would catch that stopping being true.
+        mrcon.println(g_node.team_channel_key_present() ? F(" | live key: YES") : F(" | live key: none"));
+    }
+#else
+    // The gateway build has no team plane at all (MR_PROFILE_GATEWAY ⇒ MR_N_LAYERS=2 ⇒ MR_FEAT_TEAM=0), so there is
+    // no team content key to restore and the `/mrteams` binding above is compiled out with the transaction that
+    // writes it. ⛔ Asserted rather than assumed: if that stopped holding, this arm would silently restore NOTHING.
+    static_assert(MR_FEAT_TEAM == 0,
+                  "§UI-16 K1: a build with a TEAM plane but no keyring restore would come up keyless for ever — "
+                  "the restore lives in the MR_N_LAYERS < 2 arm above; move it if this combination becomes real.");
+#endif
     // node_id DAD: restore the persisted lease state so a reboot KEEPS its id + tiebreak seniority (NV blob v4).
     g_node.restore_join_state(nv.claim_epoch, (node_id != 0) && (nv.joined != 0));
     g_persist_id = node_id; g_persist_epoch = nv.claim_epoch;        // prime the persist tracker -> no spurious boot write

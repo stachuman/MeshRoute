@@ -48,7 +48,11 @@ The four largest reversals are collected here so none is discovered by accident:
   dispatch brief picks exactly two; ⛔ a brief may never pre-authorise more. ⚠ **N1 and K1 are exceptions in KIND, not
   in count:** a `lib/core` change moves `sizeof(Node)` and an NV record moves flash, and D2 requires a **per-board
   `RAM_used`/flash diff**, so those two briefs name which envs are *measured* — a measurement, not a widened build
-  gate.
+  gate. ★ **AND FOR N1 THE PAIR IS NOW NAMED, OWNER/QG-RULED 2026-08-23 (N1 re-gate): `heltec_mobile` (Xtensa, full
+  team plane) and `gateway` (nRF52/ARM, `MR_FEAT_TEAM=0`)** — ⛔ still exactly two, chosen because they span both
+  toolchains and both team arms, which is the axis a `lib/core` change moves. **The same pair carries the RAM/flash
+  diff AND the warning comparison (§2.2, §5) — one pair of builds, two readings, ⛔ never a third env.**
+  ⓘ They are ⛔ **not** OLED envs and do not need to be: N1 is headless core. A UI slice's own two remain the brief's.
 - **C1 throughout:** each slice is a feature XOR a refactor XOR a fix.
 
 ---
@@ -268,6 +272,50 @@ into the next visit would re-open a confirmation the operator never asked for, w
   re-enter). **INVITE** candidates = **locally refreshed while the window is active** — which performs **no scan and
   transmits nothing**: it only re-reads member state the node already holds (`rt_team_at` / `team_key_of_id`, both
   `const`). **Selection stays identity-based, and opening a confirmation FREEZES the selected hash/id.**
+- **F-15 · ⛔ THE DRAFT BANNED NAMES OUTRIGHT WHERE §3.6.4 ONLY BANS *GUESSED* ONES — THERE IS A LIFECYCLE, AND IT IS
+  ALREADY HALF-BUILT.** ⛔ **WITHDRAWN WORDING, KEPT VISIBLE:** the draft's **P-5** read *"rows render fingerprint ·
+  signal · age and ⛔ nothing name-shaped"* as a permanent rule on **both** screens.
+  ★ **THE THREE AS-BUILT FACTS THAT MAKE THAT TOO STRONG, each verified:**
+  **(a)** the **TEAM member list already prefers the cached node name** — the chain
+  `team_key_of_id → peer_name_find → 0x<hash> → bare id` is declared at `src/firmware_ui.cpp:359` and implemented at
+  `label_from_hash` (`:361`) / `label_for_team_id`. ⇒ an outright ban would make the **invite** view describe a member
+  more poorly than the **TEAM** view already describes that same member, on the same panel.
+  **(b)** **team creation distributes no names; a name travels WITH the public-key exchange, in BOTH directions** —
+  the **request** carries the requester's name across the forward (`lib/core/node_hashlocate.cpp:1178`, *"§name: carry
+  the requester's name across the forward (WITH the pubkey)"*; the WANT_PUBKEY H is sized `+1+name_len`, up to 77 B,
+  `:1181`), and the **response** appends `effective_name` (`:1251`, *"§1.3: ‖ [name_len][name] (OUR name; the owner
+  answers its own key)"*). It is **cached beside the peer key** (`:1142`, *"§name: cache hash->name too (WITH the
+  pubkey), symmetric to the TYPE-5 answer"*) through the ONE name writer `peer_key_set → peer_name_set`
+  (`:335 :346 :377 :386`).
+  ⓘ **REFINED CITE, REPORTED RATHER THAN SILENTLY ADOPTED:** the amendment named `node_hashlocate.cpp:1245`; the
+  response-side append is at **`:1251`** and the request side is a **separate** site at **`:1178`**. The claim holds
+  in full — only the line was off.
+  **(c)** ⇒ such a name is ⛔ **never guessed from an id** — which is the thing `:805` actually forbids.
+  ⛔⛔ **REWORDED IN PLACE 2026-08-22 (QG, K1 gate round), AND THE WITHDRAWN CLAIM IS KEPT VISIBLE:** this bullet read
+  *"⇒ **the pubkey exchange IS an 'authenticated source' in §3.6.4's own sense**"*. **THAT OVERCLAIMS, and the
+  falsifier is this section's own bound two paragraphs down.** A node name is **MUTABLE METADATA CACHED ALONGSIDE a
+  verified pubkey**; it is ⛔ **not itself cryptographically authenticated**. The permission is unchanged — what
+  `:805` forbids is a label **guessed from an id**, and this one is not guessed: it is **carried by, and cached with,
+  an exchange whose KEY half is verified**. ⇒ the ground is **PROVENANCE, ⛔ not authentication.**
+  *Falsifier: the QG K1-gate ruling, plus this section's own analysis — the key is verified (`ed_pub[:4] ==
+  key_hash32`), the name is refreshed mutable metadata (`lib/core/node_hashlocate.cpp:346`).*
+  ★★ **THE TRUST BOUND, STATED HONESTLY BECAUSE IT IS WHAT MAKES RULES 4 AND 5 NECESSARY:** the exchange
+  authenticates the **KEY** (`peer_key_set` re-verifies `ed_pub[:4] == key_hash32`), ⛔ **not the truthfulness of the
+  NAME.** The name is the peer's own self-assertion and it is **MUTABLE** — *"REFRESH the name (mutable) even when the
+  key is unchanged"* (`node_hashlocate.cpp:346`). Same class of accepted bound as `PeerLocSrc`'s (`lib/core/node.h:190-195`).
+  ⇒ **a name may DESCRIBE and may ⛔ NEVER IDENTIFY.**
+  ✅ **RULED (QA-proposed, owner-forwarded 2026-08-22) — FIVE LIFECYCLE RULES:** (1) NEARBY rows stay identified by the
+  **team** fingerprint only, and ⛔ **an advertiser's NODE name is never presented as the TEAM name**; (2) a NEW-MEMBER
+  row **initially** shows the **member** fingerprint — the draft's rule, now the **initial state of a lifecycle**
+  rather than a permanent ban; (3) after an explicit `REQUEST PUBKEY` **succeeds for that hash**, the invitation **and**
+  TEAM views **prefer the cached node name**, through the **existing** resolver (U1 — called, ⛔ never re-spelled);
+  (4) the **full hash stays VISIBLE** in the confirmation/detail screen — ⛔ a name is never the only identity shown at
+  the moment of an irreversible act; (5) selection, pubkey requests and key grants stay keyed **EXCLUSIVELY by the full
+  hash**, ⛔ never by the mutable display name (§B64 identity discipline).
+  ⇒ landed at **§3 P-5 / P-5b / P-7c / P-7d**, in slices **N2** (confirmed unchanged, plus one new control), **N4**,
+  **N5** and **N6**, at strings **S-6 / S-13 / S-35 / S-36**, and at metal **§7.1.3 · §7.3.3 · §7.4.3b**.
+  ⛔ **THE K-SLICES ARE UNTOUCHED BY THIS AMENDMENT:** the keyring record carries **no labels by ruling**, so nothing
+  here changes what is stored, written or restored. This is a **display lifecycle only**.
 
 ---
 
@@ -349,8 +397,22 @@ is that a briefed 16 B measured 20, so the implementer **pins `sizeof` and two `
   documented pre-existing movers named at their published values · `sizeof(Node)` **re-measured by a compile-only
   template reveal on the native flag set** and the `static_assert` ledger line at `node.h:3388` **extended in place
   with the arithmetic** · a **per-board `RAM_used` diff** on the named envs (native's 8-byte alignment structurally
-  hides a 4-byte-align board padding shift) · `TimerWheel::kCap` unchanged · `warning_census.sh` at its pins,
-  `-Wswitch` zero.
+  hides a 4-byte-align board padding shift) · `TimerWheel::kCap` unchanged · **the TWO-ENV WARNING COMPARISON below.**
+- ★★ **THE WARNING CHECK IS A TWO-ENV COMPARISON, ⛔ NOT A CENSUS RUN — OWNER/QG-RULED 2026-08-23 (N1 re-gate),
+  AND THE WITHDRAWN WORDING IS KEPT VISIBLE.** This bullet ended *"· `warning_census.sh` at its pins, `-Wswitch`
+  zero"*. ⇒ **Compare the warning sets, pre ↔ post, on EXACTLY TWO ENVS:**
+  · **`heltec_mobile`** — Xtensa, **full team plane** (`platformio.ini:467`, extends `heltec_v3` + `-DMR_PROFILE_MOBILE`);
+  · **`gateway`** — nRF52 / **ARM**, **`MR_FEAT_TEAM=0`** (`:416`, extends `xiao_sx1262` ⇒ `platform = nordicnrf52`,
+    plus `gateway_flags`);
+  with **`-Wswitch` = 0 on both**, and **no new warning vs the pre-image on either**.
+  ★ **THE PAIR IS CHOSEN, NOT ARBITRARY:** it spans **both toolchains** (Xtensa + ARM) and **both team arms**
+  (compiled-in + compiled-out), which is exactly the axis a `lib/core` change moves — and N1's cache is
+  `MR_FEAT_TEAM`-gated, so `gateway` is the env that proves the **inert** arm.
+  ⛔ **NEVER A THIRD ENVIRONMENT** — the owner's standing two-env limit applies here as it does to the board build,
+  and ⛔ a brief may not pre-authorise more.
+  ⓘ **AND THESE ARE THE SAME TWO THE N1/K1 BRIEF BUILDS** (§0's "exception in KIND, not in count"): the RAM/flash
+  diff and the warning comparison are two readings of **one** pair of builds, ⛔ not four builds.
+  *Falsifier: the QG N1-gate rulings (findings 2 and 4 of the first round, re-flagged in the re-gate).*
 
 ---
 
@@ -364,7 +426,10 @@ is that a briefed 16 B measured 20, so the implementer **pins `sizeof` and two `
 | **P-3** | the **observation path is READ-ONLY** | N1's write site touches **only** the new array; ⛔ it calls no `rt_merge`, `team_key_set`, `id_bind_set`, `peer_key_set` or NV path | ★ the slice's headline controls: three mutations routing the observation into `_rt_team` / `_team_keys` / `id_bind_set`, each RED at match count 1; plus a native case asserting `rt_team_count()`, `_team_keys` occupancy and `team_channel_key_present()` unchanged across N foreign beacons. Metal §7.1 step 5 |
 | **P-4** | the scan **transmits nothing** | N1 adds no send site; N2 renders a cache | N2 probe arm: a full NEARBY walk with TX-queue depth and radio starts asserted **zero**. Metal §7.1 step 6 measures it against a STATUS baseline |
 | **P-4b** | ★ the **INVITE refresh** transmits nothing either (F-14) | it re-reads `rt_team_at` / `team_key_of_id`, both `const`; ⛔ no scan, no query | N4 probe arm: an INVITE window held open across many refreshes, TX asserted **zero** |
-| **P-5** | a **label** may be shown only from an authenticated local profile | ⛔ **no label is shown at all in v1** (F-3) | N2/N4 pin: rows render fingerprint · signal · age and ⛔ nothing name-shaped; a mutation substituting `label_for_team_id` (`src/firmware_ui.cpp:350-359`) must redden |
+| **P-5** | a label may be shown only from a **trusted PROVENANCE**, ⛔ never **guessed from an id**. ⛔ **REWORDED 2026-08-22 (QG, K1 gate round), WITHDRAWN TEXT KEPT VISIBLE:** this cell read *"from an **authenticated source**"* — ⛔ **overclaims**; see F-15(c) | ⛔⛔ **REWRITTEN IN PLACE 2026-08-22 (F-15), AND THE WITHDRAWN CELL IS KEPT VISIBLE:** it read *"⛔ **no label is shown at all in v1** (F-3) · N2/N4 pin: rows render fingerprint · signal · age and ⛔ nothing name-shaped"*. **That over-applies the rule.** ★ **TEAM-name half unchanged and still absolute:** ⛔ **no TEAM label exists to show** (F-3) — nothing is stored, so nothing is rendered, on either screen. ★ **MEMBER-name half is a LIFECYCLE:** a member's **node name** is **MUTABLE METADATA CACHED ALONGSIDE a verified pubkey** — ⛔ **not itself authenticated** (⛔ **reworded 2026-08-22, QG K1 gate round; the withdrawn phrase was *"is authenticated-by-exchange"***) — and, once cached, **is preferred** (rules 2-3) | N2 pin: a NEARBY row renders the **team** fingerprint · signal · age and ⛔ nothing name-shaped. N4 pins: a candidate row's name column is **blank** until a pubkey lands, then carries the cached name. A mutation substituting `label_for_team_id` (`src/firmware_ui.cpp:359-361`) into a **NEARBY** row must redden |
+| **P-5b** | ★ **rule 1 — ⛔ AN ADVERTISER'S NODE NAME IS NEVER PRESENTED AS THE TEAM NAME** | the NEARBY row's identity is the **team fingerprint**, and the pure unit has ⛔ no access to a node-name source for that row | ★ N2's headline privacy control: a mutation that resolves the **beacon sender's** name (via `peer_name_find`) and renders it as the row's team label must **redden**. ⓘ This is a genuinely plausible defect — the sender's hash is in scope at the observation site — which is why it is a control and not a comment. Metal §7.1 step 3 |
+| **P-7c** | ★ **rule 4 — the FULL hash stays VISIBLE at the moment of an irreversible act** | the confirmation / detail screen renders the full `0x%08lX` hash beside whatever name is shown | N4/N5/N6 pins: the `REQUEST PUBKEY`, `GRANT KEY` and `REJECT` confirmations each carry the full hash **even when a name is available**; ⛔ a name is never the only identity on those screens. Metal §7.4 |
+| **P-7d** | ★ **rule 5 — selection, pubkey requests and key grants are keyed EXCLUSIVELY by the full hash** | the row identity, the `reqpubkey` target and the grant target are all the `key_hash32`; the name is a **render input only** and never reaches a decision | ★ N4/N5/N6 mutations: the selection keyed by the display name · the `reqpubkey` target derived from the name · the grant target derived from the name — each RED at match count 1. ⓘ §B64 discipline, and the name is **mutable** (`node_hashlocate.cpp:346`), so this is not hypothetical |
 | **P-6** | ⛔ **`NEW MEMBER`**, never `KEYLESS` | N4's lexeme, declared once | native case pins the exact bytes; ⛔ `grep -R "KEYLESS" src/ test/` hitting this path is a FAIL |
 | **P-6b** | ★ a candidate is **NEW only when NEITHER its hash NOR its current id** was in the opening snapshot (F-11) | N4's **two** snapshot authorities | N4 pins: a route-only member whose hash turns authoritative mid-window is ⛔ **not** a candidate; a re-DAD'd member is ⛔ not a candidate; the **double-change** case prompts and is documented in-source as a **safe false prompt** |
 | **P-7** | the fingerprint is a **human selection aid**, never authentication | the confirmation carries the **full 32-bit id**; the grant refuses without an authoritative pubkey (`node.cpp:194-196`) | N3 mutations: the id re-derived from the token, or from the cursor index — both RED at match count 1 ([[B48]] shape) |
@@ -442,14 +507,32 @@ that **K3 consumes N6's grant** in the end-to-end metal run, and **K5 consumes N
   `src/firmware_team_keyring.h` (the typed store service — every decision lives here, because the device TU is
   compiled by neither the native suite nor the simulator). `src/firmware_config.cpp` / `src/fw_main.cpp`
   (**forwards only**: the boot restore call).
-- **Pins.** (1) Absent record ⇒ **empty, not an error**, zero writes. (2) Corrupt / wrong magic / wrong version ⇒
+- **Pins.** ★★ **(1) — REWRITTEN IN PLACE 2026-08-22 (QG's `KeyringVerdict::empty` NO-PRODUCER finding, K1 gate
+  round), AND THE WITHDRAWN PIN IS KEPT VISIBLE:** it read *"(1) Absent record ⇒ **empty, not an error**, zero
+  writes."* ⛔ **That pin describes an outcome the resolved contract does not produce**, and it was mirroring
+  `/mrjoin`'s `ProfileVerdict::empty` (cited two bullets above) without asking whether the keyring has a **reader**
+  that could act on one. It has not: absence means two different things here and each already has a better answer.
+  ⇒ **THE ALIGNED CONTRACT, IN TWO ARMS:**
+  **(1a) ABSENT ON RESTORE ⇒ `no_record`** — ⛔ **never `empty`** — **zero writes**, and the node comes up **keyless**.
+  That is an ordinary fresh-device state, ⛔ never an error (the *substance* of `/mrjoin`'s `empty` survives; only the
+  verdict's name and its no-producer shape do not).
+  **(1b) ABSENT ON PUT ⇒ the store SEEDS the header and WRITES ONCE, landing `ok`** — ⛔ not `empty`, and ⛔ not two
+  writes (a seed-then-put would double the flash cost of every first grant).
+  ⓘ **⛔ THE `/mrjoin` PRECEDENT IS FOLLOWED FOR THE MATRIX AND DELIBERATELY *NOT* FOR THIS VERDICT** — the divergence
+  is stated here so the spec and the K1 resolution cannot drift apart, and so no later slice "restores" an `empty`
+  arm that nothing produces and nothing reads. ⚠ A verdict with no producer is an instrument that cannot fail, which
+  is the class this project registers.
+  (2) Corrupt / wrong magic / wrong version ⇒
   **refused**, zero writes, and ⛔ `/mrcfg`, identity and the join profiles are untouched. (3) Identical material ⇒
   **`unchanged`, ZERO writes.** (4) A **full** keyring + a fifth team ⇒ **`KEYRING FULL`**, zero writes, ⛔ nothing
   evicted (P-15). (5) `team_id == 0` ⇒ refused. (6) A stored record whose `pub` does not match the derived-from-`priv`
   value ⇒ **rejected on restore**, and the node comes up keyless rather than with a wrong key. (7) Boot restore
   installs **only** on an exact match with the active team binding; a record for another team is ⛔ retained and
   ⛔ not installed. (8) Factory reset erases it.
-- **Mutations (new `--target=teamkeyring`).** Eviction added on full (P-15) · the `unchanged` compare dropped
+- **Mutations (new `--target=teamkeyring`).** ★ **ADDED with pin (1):** the restore arm answering an `ok`-shaped
+  verdict on an absent record (⇒ a keyless node reads as restored) · **the put arm refusing instead of seeding**
+  (⇒ the first grant on a fresh device can never be stored) · **the put arm seeding and writing TWICE**
+  (⇒ double flash cost per first grant). Plus: eviction added on full (P-15) · the `unchanged` compare dropped
   (⇒ a write per boot, flash wear) · the version policy relaxed from equality · the pub/priv mismatch check dropped ·
   `team_id == 0` accepted · boot install on a **non**-matching team · the secret buffer left unwiped · two records for
   one `team_id`.
@@ -522,10 +605,24 @@ that **K3 consumes N6's grant** in the end-to-end metal run, and **K5 consumes N
   token, and the **tier→`n/3`** rendering). `src/firmware_ui_model.h` (the row enum, the arm, `provision_rows`'s third
   parameter, the landings, the snapshot fields). `src/firmware_ui.cpp` (**forwards only**).
   ⛔ `src/firmware_ui_chrome.h` is **read** (the fingerprint) and **not modified**.
+
+  > ⛔ **CORRECTED IN PLACE 2026-08-23 (N2 as landed, QG-passed), ORIGINAL KEPT VISIBLE.** The ONE pure unit above
+  > had to be **TWO**: `src/firmware_ui_chrome.h:36` includes the model, so **no model-included header may include
+  > chrome** — and the capture/filter/selection carriers must be model-included (`UiSnapshot` publishes the array,
+  > `UiState` freezes it), while the two formatting tokens genuinely need chrome's shared formatters.
+  > ⇒ `src/firmware_ui_nearby.h` (model-side: carriers, `nearby_capture` own-team filter, selection, lexemes
+  > S-2..S-5) + `src/firmware_ui_nearby_row.h` (downstream: `ui_fmt_nearby_signal` S-7, `ui_fmt_nearby_row` S-6).
+  > The same layering as the landed `TeamRow` / `ui_team_row` split. Net effect: two battery targets (`uinearby`,
+  > `uinearbyrow`), so the R-4 second-signal-definition control and the own-team-filter control never share a file.
 - **The menu shape (✅ OQ-1 ruled).** `provision_rows(create_team, join_static, join_team)` — a **third separate
   parameter**, for the reason the existing two are separate (`src/firmware_ui_model.h:539-547`): a coincidence is not
   a rule, and the native suite must drive the combination the tree cannot build. `provision_has_child` needs ⛔ **no
   change** (`:567-572`).
+
+  > ⛔ **CORRECTED IN PLACE 2026-08-23 (N2 as landed, QG-passed).** "`provision_has_child` needs no change" was
+  > wrong: it derives the parent's condition **from the child list**, so the third child means a **third parameter**
+  > (`src/firmware_ui_model.h:600`, forwarded at `firmware_ui.cpp:1613` via the hoisted `prov_child`). The intent —
+  > parent and children can never disagree — is exactly why it had to move with the list.
 - **The signal token (✅ OQ-4 ruled).** `0/3 1/3 2/3 3/3`, **derived from `presence_quality_tier()`**
   (`lib/core/protocol_constants.h:905`) — ⛔ **the UI does not define a second notion of signal quality**, it maps the
   existing tier to four fixed-width ASCII tokens. ⓘ 3 columns; ASCII by ruling, so it survives every font and every
@@ -544,11 +641,19 @@ that **K3 consumes N6's grant** in the end-to-end metal run, and **K5 consumes N
   its **team id**, ⛔ never its index (§B66). (7) Blank/wake retention. (8) `long_arm` arms the alarm; the list is
   intact on return. (9) ★ **Zero traffic** across a full walk. (10) `gateway_heltec` offers no `JOIN TEAM` row.
   (11) ★ All four tier values render, driven directly — ⛔ not a sample.
+  ★ **(12) — ADDED 2026-08-22 (F-15 rule 1), AND N2's CONTENT IS OTHERWISE CONFIRMED UNCHANGED BY THAT AMENDMENT:**
+  ⛔ **an advertiser's NODE name is never presented as the TEAM name.** A beacon whose sender has a **cached node
+  name** still renders a row identified by the **team fingerprint** — driven with the name cache deliberately
+  populated, because an empty cache would pass this case for the wrong reason. ⓘ The lifecycle of rules 2-3 belongs
+  to the **invite** view (N4/N5); NEARBY has no member in it to name.
 - **Mutations (new `--target=uinearby`, plus `model`).** The own-team filter dropped / inverted · the row identified
   by index · the fingerprint re-spelled locally instead of calling the shared helper (the U1 control) · the label
   resolver substituted in (P-5) · the cache re-read per tick · `BACK` leaving the SCREEN · the `join_team` parameter
   folded into `create_team` · the age bound dropped · ★ **the tier mapping re-derived from raw SNR instead of calling
-  `presence_quality_tier`** (the second-definition control) · **the list sorted by signal**.
+  `presence_quality_tier`** (the second-definition control) · **the list sorted by signal** · ★ **the SENDER's cached
+  node name rendered as the row's team label** (P-5b, F-15 rule 1 — the control for the one "improvement" a reviewer's
+  reflex would reach for, and the sender's hash **is** in scope at the observation site, so it is plausible rather
+  than theoretical).
 - **Probe.** A seeded-cache NEARBY arm through the **real renderer** ([[B226]]), the **zero-bus / zero-TX** negative
   arm (the P13f shape), and a PROVISION row census.
 - **Battery/probe hygiene.** [[B217]]: read the CURRENT `BASE_CASES`/`BASE_ASSERTS` pin from
@@ -597,6 +702,19 @@ that **K3 consumes N6's grant** in the end-to-end metal run, and **K5 consumes N
 - **★ THE CANDIDATE SET IS BUILT THROUGH `team_key_of_id` AT THE AUTHORITATIVE FLOOR (F-7, C2)** — a route-only member
   has no fingerprint and no seal target, so it is ⛔ **not listed as grantable**, while its **id** is still in
   authority (b) so it can never be mislabelled later.
+- **★★ THE CANDIDATE ROW, AND ITS NAME LIFECYCLE (F-15 rules 2-3) — ⛔ THE NAME IS AN ADDED COLUMN, NOT A SWAPPED
+  TOKEN.** The row is `%c%-6.6s T%-3u %6s` = marker · **name (6, blank until known)** · **team-local id** ·
+  **member fingerprint (6)** — width proof `1 + 6 + 1 + 4 + 1 + 6 = 19`, exactly the body budget.
+  ★ **THE FINGERPRINT NEVER LEAVES THE ROW.** Rule 2 (*initially the member fingerprint*) and rule 3 (*then prefer the
+  cached name*) are therefore ⛔ **not a substitution**: the identity aid the operator learned to read stays put and a
+  **blank column fills in**. That is strictly safer than swapping, and it is what lets rule 4 hold at row level too.
+  ★ **THE NAME SOURCE IS `Node::peer_name_find` (`lib/core/node.h:1030`) AND NOTHING ELSE (U1)** — the *same* single
+  name source the TEAM chain's second step already uses (`src/firmware_ui.cpp:361`). ⛔ **It is NOT
+  `label_from_hash`** and ⛔ not `label_for_team_id`: those two fall back to `0x%08lx` (ten columns) and to a bare id,
+  which in a 6-column field would render a **truncated `0x` form** — a **third spelling of the hash** beside the full
+  id and the fingerprint. ⇒ **one name source, one fingerprint definition (S-13), zero new resolvers.**
+  ⓘ **THE 6-COLUMN CLAMP IS DELIBERATE AND MATCHES THE TEAM ROW's `%-6.6s`** (§UI-17 S-11): a member that appears on
+  both TEAM and the invite list must not render **two different truncations of one name**.
 - **★ THE WINDOW REFRESHES LOCALLY WHILE ACTIVE (✅ F-14 ruled)** — it re-reads `rt_team_at` / `team_key_of_id`, both
   `const`: ⛔ no scan, ⛔ nothing transmitted. **Selection stays identity-based, and opening a confirmation FREEZES the
   selected hash/id** — so a refresh between the two presses cannot move what the operator is about to act on.
@@ -618,6 +736,12 @@ that **K3 consumes N6's grant** in the end-to-end metal run, and **K5 consumes N
   closing the window. (11) With the window closed, a new member changes ⛔ no screen, cursor or note (P-12).
   (12) The row is hidden on a teamless node and on `gateway_heltec`. (13) The window survives blank/wake; an
   unfinished confirmation does not.
+  ★ **ADDED 2026-08-22 (F-15):** (14) **rule 2** — a candidate with **no cached name** renders a **blank** name column
+  and its **member fingerprint**, and ⛔ the fingerprint column is never empty. (15) **rule 3** — with a name cached
+  for that hash, the name column carries it, **clamped to 6**, ⛔ and the fingerprint column is **unchanged**.
+  (16) **rule 5** — the row's identity is the **`key_hash32`**; two candidates with the **same cached name** and
+  different hashes are two distinct rows and select independently. (17) **rule 4** — every confirmation opened from
+  this list carries the **full `0x%08lX` hash**, ⛔ even when a name is shown.
 - **Mutations (new `--target=uiinvite`, plus `model`).** ★ **authority (b) dropped** (⇒ the route-only member is
   mislabelled — the correction's own control) · ★ **authority (a) dropped** (⇒ a re-DAD'd member is mislabelled) ·
   the diff keyed by `last_seen_ms` · the snapshot taken at first **render** instead of at window **open** · the
@@ -625,7 +749,13 @@ that **K3 consumes N6's grant** in the end-to-end metal run, and **K5 consumes N
   writing `_last_input_ms` · `NEW MEMBER` re-spelled as `KEYLESS` · the candidate list produced while closed ·
   ★ **the handled set dropped** (⇒ a rejected candidate returns on the next refresh) · ★ **the handled set made
   persistent** (⇒ it survives the window, which the ruling forbids) · the confirmation **not** freezing the selection
-  (⇒ a refresh moves the target between the two presses).
+  (⇒ a refresh moves the target between the two presses) ·
+  ★ **ADDED 2026-08-22 (F-15):** the row **keyed by the display name** instead of the hash (P-7d — RED at match count
+  1; the name is **mutable**, `node_hashlocate.cpp:346`) · the name column **replacing** the fingerprint instead of
+  filling beside it (⇒ the identity aid vanishes the moment a name arrives) · the name resolved through
+  `label_from_hash` and clamped (⇒ the truncated-`0x` third spelling) · the name rendered **without** the 6-column
+  clamp (⇒ a long name pushes the id and the fingerprint off the row) · the confirmation dropping the **full hash**
+  once a name is available (P-7c).
 - **Probe.** An INVITE arm with a seeded member set asserting the exact candidate rows; a window-expiry arm; a
   held-open-across-refreshes **zero-TX** arm (P-4b).
 
@@ -651,9 +781,20 @@ that **K3 consumes N6's grant** in the end-to-end metal run, and **K5 consumes N
   `peer_key_cached` **for that hash** enables `GRANT KEY`; one for a **different** hash ⛔ does not. (5) A timeout
   leaves `WAITING FOR PUBKEY` and ⛔ grants nothing. (6) ⛔ The word `WAITING FOR KEY` appears nowhere in the tree on
   this path.
+  ★ **ADDED 2026-08-22 (F-15 rule 3) — THE NAME ARRIVES ON THIS EXCHANGE, AND THAT IS WHY THE RULE ATTACHES HERE:**
+  (7) after the request **succeeds for that hash**, the candidate's row **fills its name column** from the cache —
+  because the answer carried the name (`node_hashlocate.cpp:1251`) and `peer_key_set` cached it beside the key
+  (`:1142`, `:377`). ⛔ **No extra lookup, no second request, no new field** — the slice renders what the exchange
+  already stored. (8) A request that **fails or times out** leaves the name column **blank** and the fingerprint
+  intact. (9) ⛔ **The name never gates anything:** `GRANT KEY` is enabled by the **key**, ⛔ never by the presence of
+  a name. (10) The confirmation carries the **full hash** throughout, name or no name (P-7c).
 - **Mutations (`uiinvite`, `model`).** ★ **the request auto-issued on entering the row** (the headline control — it
   is the ruling-reversal shape) · the confirmation defaulting to `REQUEST PUBKEY` · the plane changed to
-  `GLOBAL`/`AUTO` · **any** `peer_key_cached` enabling the grant (hash not compared) · the timeout enabling the grant.
+  `GLOBAL`/`AUTO` · **any** `peer_key_cached` enabling the grant (hash not compared) · the timeout enabling the grant ·
+  ★ **ADDED 2026-08-22 (F-15):** the **request target derived from the display name** rather than the hash (P-7d) ·
+  the name column filled from **any** `peer_key_cached` rather than the one for that hash (⇒ one member wearing
+  another's name — the worst shape this lifecycle can take) · **the presence of a name enabling `GRANT KEY`** (⇒ a
+  describe-only field making an airtime-and-secret decision, the [[B48]] class).
 
 ### N6 — UI: `GRANT KEY` / `REJECT` with `send_aired` correlation
 
@@ -683,11 +824,18 @@ that **K3 consumes N6's grant** in the end-to-end metal run, and **K5 consumes N
   `send_aired`; an **uncorrelated** one (different `dst`, or different `ctr`) ⛔ does not promote it. (6) ⛔ No arm
   prints a completion word. (7) ⛔ No key material reaches any screen (P-8). (8) The grant is unreachable with the
   window closed. (9) Terminal, acknowledged by either press.
+  ★ **ADDED 2026-08-22 (F-15 rules 4-5):** (10) the `GRANT KEY` and `REJECT` confirmations carry the **full
+  `0x%08lX` hash**, ⛔ **even when a name is shown** — a name is never the only identity at the moment a private key
+  is shipped (P-7c). (11) the **grant target is the `key_hash32`** and ⛔ never the display name; a member whose name
+  changes between the row and the confirmation is still granted **the same key** (P-7d).
 - **Mutations (`uiinvite`, `uisend`, `model`).** ★ **`queued` mapped straight to `KEY SENT`** (the F-9 defect
   restored — the headline control) · the correlation dropped to `ctr` alone · the correlation dropped entirely
   (⇒ any `send_aired` promotes) · the eight arms collapsed to `ok`/`failed` · `delegated` returning a plausible word
   instead of failing loudly · `REJECT` calling the send · `REJECT` not adding to the handled set · any arm printing a
-  completion word · the plane changed away from `Plane::TEAM` (⇒ `delegated` becomes reachable).
+  completion word · the plane changed away from `Plane::TEAM` (⇒ `delegated` becomes reachable) ·
+  ★ **ADDED 2026-08-22 (F-15):** ★ **the grant target taken from the display name** (P-7d — RED at match count 1) ·
+  the confirmation **dropping the full hash** when a name is present (P-7c) · the handled set keyed by the **name**
+  rather than the hash (⇒ rejecting one member silences another that shares its name).
 - **Probe.** An INVITE→GRANT arm against a **fake** grant device returning each of the eight outcomes plus both push
   outcomes, asserting the exact panel line for each; ⛔ the fake is the seam, never a hard-wired string.
 
@@ -780,9 +928,21 @@ that **K3 consumes N6's grant** in the end-to-end metal run, and **K5 consumes N
 - ⛔ **Probe check labels stay at or under 64 characters** ([[B229]]).
 - **Gate before "ready" (D1/D3):** `pio test -e native` **then run** `./.pio/build/native/program` (the wrapper
   misreports *"0 test cases"*) · the s18 md5 **read from `simulation/BASELINE.md`** — inert by construction for every
-  slice except **N1**, which carries §2.2's full set · the two board envs, sequentially · `warning_census.sh` at its
-  pins, `-Wswitch` zero · `git diff -- lib/` **empty for every slice except N1**. Report failures with output; say
-  what was skipped.
+  slice except **N1**, which carries §2.2's full set · the two board envs, sequentially · **the TWO-ENV WARNING
+  COMPARISON** · `git diff -- lib/` **empty for every slice except N1**. Report failures with output; say what was
+  skipped.
+- ★★ **THE TWO-ENV WARNING COMPARISON — OWNER/QG-RULED 2026-08-23 (N1 re-gate), AND THE WITHDRAWN WORDING IS KEPT
+  VISIBLE.** The gate line above read *"· `warning_census.sh` at its pins, `-Wswitch` zero"*. ⇒ **compare the warning
+  sets pre ↔ post on EXACTLY TWO ENVS — `heltec_mobile` (Xtensa, full team plane) and `gateway` (nRF52/ARM,
+  `MR_FEAT_TEAM=0`) — with `-Wswitch` = 0 on BOTH and no new warning vs the pre-image on either.**
+  ⛔ **NEVER A THIRD ENVIRONMENT** (the owner's standing two-env limit), and ⛔ a brief may not pre-authorise one.
+  ⓘ These are the **same two builds** the slice already makes for the board gate — one pair of builds, two readings.
+  ⓘ The pair spans both toolchains and both team arms, which is why it needs no third.
+  *Falsifier: the QG N1-gate rulings (findings 2 and 4 of the first round, re-flagged in the re-gate).*
+  ⛔ **ONE SWEEP, NO LEFTOVER:** these are the **only two** sites in this spec that ever required a census run; both
+  are corrected here and at §2.2, and ⛔ no slice may reintroduce one. ⓘ The phrase *"PROVISION row census"* in §4-N2
+  and §5 is a **probe phase name** (a row-inventory assertion) and is ⛔ unrelated to warning counting — it is left
+  exactly as it stands.
 
 ---
 
@@ -799,7 +959,7 @@ genuinely is static **twice** ⇒ for that struct ~2*n* stands. D2's warning app
 | K1 | **flash ≈ 296 B** for the record (owner's figure: 4 × ~72 B + header) plus the store service; ★ **⛔ NO permanent `Node` RAM growth** — the live key already lives in `_team_ch_*`. ⚠ The 296 B is the **owner's estimate**; the slice measures the real `sizeof(TeamKeyBlob)` and pins it per-ABI, `/mrjoin`-style (*"`sizeof` IS the migration policy"*). ⚠ A **transient** 64-byte secret buffer may appear on the stack — it is **wiped** and its lifetime is stated. |
 | K2 | `/mrcfg` grows by a `uint32_t` + a flag ⇒ **`mrnv::kVersion` bumps** and the record's own reprovision note is updated. RAM: expected 0. **Measure.** |
 | N1 | `sizeof(Node)` grows by **record × 8**, Node-global and `MR_FEAT_TEAM`-gated ⇒ **+0 on both gateway envs**. ★ The record is **ruled to lead with `uint64_t last_ms`** and is **expected to measure 16 B** (against the draft's padded 24) — ⚠ **SUBJECT TO THE REQUIRED ABI MEASUREMENT**, pinned by `sizeof` + two `offsetof`s. The count byte is expected in existing padding ⇒ **measure by removal, not by argument.** |
-| N2 | `UiSnapshot` grows by the published candidate array (8 × row) ⇒ ~that much static **and** transient stack. `UiState` gains an arm + cursor, expected in tail padding ⇒ **0. Measure.** |
+| N2 | `UiSnapshot` grows by the published candidate array (8 × row) ⇒ ~that much static **and** transient stack. `UiState` gains an arm + cursor, expected in tail padding ⇒ **0. Measure.** ⛔ **MEASURED 2026-08-23 — the `UiState` estimate was WRONG, and the reason is R-10:** a frozen-per-entry list cannot be expressed by the per-tick snapshot array alone, so `UiState` carries the captured copy ⇒ **+136 B** (200→336; declared above the two bools it would otherwise measure 344 — placement load-bearing, recorded in-source). `UiSnapshot` 712→840 (+128, array at the old 8-aligned end, no hole; `nearby_n` free in the pad at 694). Board truth: heltec_mobile **+416 B RAM** vs the N1 baseline (+400 accounted: snapshot + two `UiState` statics; +16 linker alignment); gateway **RAM-neutral** (QG-measured). |
 | N3 | `UiProvIntent` gains a `uint32_t` — it already carries a 112-byte `mrnv::JoinProfile` (`src/firmware_ui_model.h:606`) ⇒ marginal cost likely **0**; the new outcome is an **enumerator**, not a field ⇒ **0**. **Measure both.** |
 | N4 | `UiState` gains `_invite_until_ms` (u32) + an arm; the real cost is the **two snapshot authorities** (hashes: capacity × 4 B; the id bitset: **32 B** for 1..254) **plus the handled set**. ⚠ **The `bool`s are the ones that cost** — the §UI-17 S8 measurement was that a `uint32_t` deadline landed free while a `bool` took the struct's 8-byte tail step ⇒ **offsetof-prove the placement.** |
 | N5 | ~0 RAM (one arm + three strings). |
@@ -844,6 +1004,10 @@ does not edit the bench script (supervisor-landed after PASS).
    **last six hex digits of `0x<TEAMID>`**, a **`n/3`** signal token and an age; a `BACK` row; and the lines
    **`CURRENT PHY ONLY`** and **`SAME RADIO + LEAF`**. ⛔ FAIL if the row shows a **name** of any kind (P-5), or if
    the six hex digits do not match the console's id.
+   ★ **AND MAKE THE NEGATIVE MEAN SOMETHING (P-5b, F-15 rule 1):** first give H2 a cached node name on H1 —
+   `peername 0x<H2-hash> "Wolfgangetta"` on H1 (⚠ the verb takes a **hash**, never an id) — **then** re-enter NEARBY.
+   Expected: the row **still** reads the six-hex **team** fingerprint. ⛔ FAIL if `Wolfga…` appears: an advertiser's
+   NODE name is ⛔ never the TEAM name. ⓘ Without seeding the name first this step passes for the wrong reason.
 4. ☐ **De-duplication and order:** leave, wait for several of H2's beacons, re-enter ⇒ **still one row**, with a
    **fresher age**, in the **same position**. ⛔ FAIL on a second row, or on a row that moved.
 5. ☐ ★★★ **READ-ONLY (P-3).** On H1 run `peers`, the team-route listing and `team`. Expected:
@@ -884,6 +1048,9 @@ does not edit the bench script (supervisor-landed after PASS).
 3. ☐ Leave the window. On **H1**: `team 0`, then re-join through NEARBY (§7.2). On **H2**: open `INVITE MEMBER`
    **before** H1 re-joins and wait. Expected: H1 appears as **`NEW MEMBER`** with its team-local id and a
    member-hash fingerprint. ⛔ FAIL on the word **`KEYLESS`** anywhere.
+   ★ **RULE 2 — THE INITIAL STATE, READ OFF THE GLASS:** the row's **name column is BLANK** and its **fingerprint
+   column is populated**. ⛔ FAIL if a name is already showing — H2 holds no verified pubkey for H1 yet, so no name
+   has been cached alongside one. ⛔ FAIL if the fingerprint column is empty.
 4. ☐ ★ **THE LOCAL REFRESH TRANSMITS NOTHING (P-4b).** Hold the window open for a full **five minutes**, capturing
    H2's console. Expected: candidates refresh on the panel and ⛔ **no query, DM, channel post or location request
    appears** that a STATUS window would not also show.
@@ -903,6 +1070,18 @@ does not edit the bench script (supervisor-landed after PASS).
    **`WAITING FOR PUBKEY`**.
 3. ☐ When H1's key arrives, H2's `peers` shows H1 with a key and the panel enables **`GRANT KEY`**. ⛔ FAIL if
    `GRANT KEY` was enabled by a `peer_key_cached` for a **different** peer.
+3b. ☐ ★★ **RULE 3 — THE ROW UPGRADES FROM FINGERPRINT TO NAME, AND THE FINGERPRINT STAYS.** Give H1 a name first
+   (on H1: `cfg set name "Wolfgangetta"`, or whatever this build's name verb is — confirm with `whoami`), and make
+   sure the pubkey exchange of step 2 happened **after** it. Expected on H2's candidate row: the **name column now
+   reads `Wolfga`** (six columns, clamped) **and the member fingerprint column is UNCHANGED** beside it.
+   ⛔ FAIL if the fingerprint disappeared — the name is an added column, ⛔ never a swap. ⛔ FAIL if the name is
+   clipped at a different width than the same peer's name on the **TEAM** screen (one name, one truncation).
+   ⓘ Cross-check the source: on H2 `nameof 0x<H1-hash>` prints the same string — it came from the pubkey exchange
+   (`lib/core/node_hashlocate.cpp:1251`), ⛔ not from anything guessed.
+3c. ☐ ★★★ **RULE 4 — THE HASH SURVIVES INTO THE IRREVERSIBLE ACT.** Open the `GRANT KEY` confirmation on that
+   now-named candidate. Expected: the screen carries the **full `0x<H1-hash>`**, ⛔ **even though a name is
+   available**. ⛔ FAIL if the name is the only identity on the confirmation — a mutable, self-asserted label may
+   never be the sole thing an operator reads before a private key is shipped.
 4. ☐ **NEGATIVE — `REJECT` is the default and does nothing.** `double` on the candidate ⇒ the confirmation opens on
    **`REJECT`**. `double` ⇒ ⛔ nothing is sent, H1 is still keyless, ★ **and the candidate does not come back on the
    next refresh** (F-13). Then close and re-open the window ⇒ ★ **the candidate returns** (the set is volatile).
@@ -961,14 +1140,14 @@ house style applied to it, one line each, pinned by a native case.
 | S-3 | `CURRENT PHY ONLY` | the scan screen | 16 | **REUSED FROM THE DESIGN, VERBATIM** (`:829-830`) |
 | S-4 | `SAME RADIO + LEAF` | the scan screen, second line | 17 | **NEW** — F-1's honest completion of S-3; ⚠ the one line an owner may want reworded |
 | S-5 | `NO TEAMS NEARBY` | the scan screen, empty | 15 | **NEW** |
-| S-6 | `%s %s %s` → `3D9348 2/3  42s` | a candidate row | ≤19 | **NEW format**; fingerprint = the shared helper, age = `ui_fmt_home_age`'s token **REUSED** (`src/firmware_ui_chrome.h:118`) |
+| S-6 | `%s %s %s` → `3D9348 2/3  42s` | a **NEARBY team** row | ≤19 | **NEW format**; fingerprint = the shared helper, age = `ui_fmt_home_age`'s token **REUSED** (`src/firmware_ui_chrome.h:118`). ★ **AMENDED 2026-08-22 (F-15 rule 1):** the row is identified by the **TEAM fingerprint ONLY** — ⛔ **an advertiser's NODE name is never rendered here** (see S-36). ⓘ The header formerly read *"a candidate row"*, which was ambiguous once the invite row got its own format (S-35) |
 | S-7 | `0/3` `1/3` `2/3` `3/3` | the signal column | 3 | ★ **NEW, OWNER-RULED 2026-08-22** — **four** levels from `presence_quality_tier()` (`lib/core/protocol_constants.h:905`). ⛔ **WITHDRAWN, KEPT VISIBLE:** the draft proposed a **three**-level token from `bucket_of_snr_4b`; that would be a **second definition of signal quality** and is forbidden |
 | S-8 | `JOIN %s?` → `JOIN 3D9348?` | the join confirmation | 12 | **NEW** — §3.6.4 `:806` names this form verbatim |
 | S-9 | `JOIN` / `BACK` | the confirmation's actions | 5 | **REUSED** — `join_confirm_label` spells exactly this pair (`src/firmware_ui_join.h:189`); `BACK` is the shipped spelling (`src/firmware_ui_model.h:581`) |
 | S-10 | `TEAM JOINED` | the join result | 11 | **NEW** — F-4: ⛔ may not reuse `TEAM CREATED` |
 | S-11 | `JOIN REFUSED` · `PHY DIFFERS` · `USE SERIAL` · `SAVE FAILED` | the join result's other arms | 14 | **REUSED** — all four shipped and **called** (`prov_result_head`, `src/firmware_ui_model.h:682-700`) |
 | S-12 | `INVITE MEMBER` | PROVISION child row + window screen | 14 | **REUSED FROM THE DESIGN, VERBATIM** (`:800`) |
-| S-13 | `%06lX` over a **`key_hash32`** → `6C2971` | a candidate's member fingerprint | 6 | **NEW definition, SEPARATELY NAMED** — F-8; ⛔ never merged with the team-id helper |
+| S-13 | `%06lX` over a **`key_hash32`** → `6C2971` | a candidate's member fingerprint | 6 | **NEW definition, SEPARATELY NAMED** — F-8; ⛔ never merged with the team-id helper. ★ **AMENDED 2026-08-22 (F-15 rule 2):** it is a **PERSISTENT COLUMN**, ⛔ not a placeholder — when a cached name arrives it fills the **separate** name column and this one is **unchanged**. ⛔ A name never replaces it |
 | S-14 | `NEW MEMBER` | the candidate row | 10 | **REUSED FROM THE DESIGN, VERBATIM** (`:815`); ⛔ `KEYLESS` is FORBIDDEN and its absence is a test |
 | S-15 | `NO CANDIDATES` | the window, empty | 13 | **NEW** |
 | S-16 | `WINDOW CLOSED` | the window, on expiry | 13 | **NEW** — `:824` rules the behaviour and no lexeme |
@@ -990,18 +1169,27 @@ house style applied to it, one line each, pinned by a native case.
 | S-32 | `JOIN COMPLETE` | — | 13 | ⛔ **FORBIDDEN** — §3.6.4 `:821` refuses it explicitly; absence is a test |
 | S-33 | `KEYLESS` | — | 7 | ⛔ **FORBIDDEN** — §3.6.4 `:815`; absence is a test |
 | S-34 | `WAITING FOR KEY` | — | 15 | ⛔ **NEWLY FORBIDDEN, OWNER-RULED 2026-08-22.** ⛔ **WITHDRAWN, KEPT VISIBLE:** the draft carried it twice as a live lexeme (the `no_pubkey` landing and the PARKED sub-state). It is **ambiguous between the recipient's PUBKEY and the team CONTENT key** — the two secrets this screen sits between. Its slots are now S-20 and S-21 |
+| S-35 | `%c%-6.6s T%-3u %6s` → `>Wolfga T221 6C2971` | the **INVITE candidate** row | **19 exactly** | ★ **NEW format, ADDED 2026-08-22 (F-15 rules 2-3)** — marker · **name (6, BLANK until a name is cached alongside a verified pubkey)** · team-local id · **member fingerprint (S-13)**. Width proof `1+6+1+4+1+6 = 19`. ★ The name comes from **`Node::peer_name_find`** (`lib/core/node.h:1030`) — the TEAM chain's own second step (`src/firmware_ui.cpp:361`), ⛔ **never `label_from_hash`/`label_for_team_id`**, whose `0x%08lx` fallback would render a **truncated `0x` form** = a third spelling of the hash. Clamp is `%-6.6s`, **matching the TEAM row** (§UI-17 S-11) so one name has one truncation |
+| S-36 | *(a node name rendered as a **team** name)* | — | — | ⛔ **FORBIDDEN USAGE, ⛔ NOT A LEXEME — ADDED 2026-08-22 (F-15 rule 1, P-5b).** There is no string to declare: the rule is that **no name-shaped value may occupy a NEARBY row's identity**, and it is enforced by a **control** (a mutation resolving the beacon sender's name into that row must redden), ⛔ not by a spelling. ⓘ Recorded here because the string inventory is where a future slice looks before adding a label |
 
-**Count: 34 entries — 23 NEW, 8 REUSED, 3 FORBIDDEN.** ⚠ **The arithmetic is written out so it can be checked rather
-than trusted:**
-- **NEW (23):** S-1, S-2, S-4, S-5, S-6, S-7, S-8, S-10, S-13, S-15, S-16, S-18, S-19, S-20, S-21, S-23, S-24,
-  S-26, S-27, S-28, S-29, S-30, S-31 (S-24 is one row carrying six arms, counted once; S-31 is reserved and unused).
+**Count: 36 entries — 24 NEW, 8 REUSED, 3 FORBIDDEN lexemes, 1 FORBIDDEN USAGE.** ⚠ **The arithmetic is written out
+so it can be checked rather than trusted:**
+- **NEW (24):** S-1, S-2, S-4, S-5, S-6, S-7, S-8, S-10, S-13, S-15, S-16, S-18, S-19, S-20, S-21, S-23, S-24,
+  S-26, S-27, S-28, S-29, S-30, S-31, **S-35** (S-24 is one row carrying six arms, counted once; S-31 is reserved and
+  unused).
 - **REUSED (8):** **6 are §3.6.4's own words carried verbatim** — S-3, S-12, S-14, S-17, S-22, S-25 — and **2 are
   shipped strings CALLED rather than re-spelled** — S-9 (`join_confirm_label`) and S-11 (`prov_result_head`).
-- **FORBIDDEN (3):** S-32, S-33, S-34 — absence is a test, ⛔ not a preference.
-- ⓘ **The team-id fingerprint is NOT an entry**, because it defines nothing: every site calls the one helper.
-- ⓘ **Delta vs the reviewed draft: 22 → 34 entries** (+12): the four ruled pubkey/grant lexemes (S-18…S-21, S-23),
-  the four keyring lexemes (S-26…S-30), the reserved S-31, the split-out signal token S-7, and `WAITING FOR KEY`
-  moving from a live lexeme to a forbidden one (S-34).
+- **FORBIDDEN LEXEMES (3):** S-32, S-33, S-34 — absence is a test, ⛔ not a preference.
+- **FORBIDDEN USAGE (1):** **S-36** — ⛔ **not a lexeme and deliberately not given one**: there is no string to
+  declare, only a rule about what may occupy a NEARBY row's identity, enforced by a control.
+- ⓘ **The team-id fingerprint is NOT an entry**, because it defines nothing: every site calls the one helper. The
+  **member name** is likewise not an entry — it is data from `peer_name_find`, not a string this spec declares;
+  S-35 is the **format that places it**.
+- ⓘ **Delta vs the reviewed draft: 22 → 34 → 36 entries.** The first +12 was the owner review (the four ruled
+  pubkey/grant lexemes S-18…S-21/S-23, the four keyring lexemes S-26…S-30, the reserved S-31, the split-out signal
+  token S-7, and `WAITING FOR KEY` moving from live to forbidden). The **+2 is the name-lifecycle amendment**:
+  **S-35** (the invite row format) and **S-36** (the forbidden usage) — plus **in-place amendments to S-6 and S-13**,
+  which add no entries.
 
 ---
 
@@ -1108,6 +1296,31 @@ NEITHER its hash NOR its current id was in the opening snapshot.** The unavoidab
 member changing id **and** acquiring a hash in one window) is **documented as a SAFE FALSE PROMPT** requiring human
 confirmation. ⇒ landed at **§1.7 F-11**, **§4-N4**, **§3 P-6b**, metal **§7.3 steps 2-3**.
 
+**R-13 · Name display — ★ A LIFECYCLE, NOT A BAN (QA-proposed, owner-forwarded 2026-08-22).**
+*Asked:* the draft forbade names in invitation rows outright and required fingerprint/signal/age only — while the
+**TEAM** view on the same panel already prefers the cached node name.
+*Ruled:* **five rules.** (1) NEARBY rows stay identified by the **team fingerprint only**, and ⛔ **an advertiser's
+NODE name is never presented as the TEAM name**; (2) a NEW-MEMBER row **initially** shows the **member fingerprint** —
+the draft's rule, restated as the **initial state of a lifecycle**; (3) after an explicit `REQUEST PUBKEY` **succeeds
+for that hash**, the invitation **and** TEAM views **prefer the cached node name**, through the **existing** resolver
+(U1 — called, ⛔ never re-spelled); (4) the **full hash stays VISIBLE** in the confirmation/detail screen — ⛔ a name
+is never the only identity at the moment of an irreversible act; (5) selection, pubkey requests and key grants stay
+keyed **EXCLUSIVELY by the full hash**, ⛔ never by the mutable display name (§B64).
+★ **IT REFINES §3.6.4 RATHER THAN CONTRADICTING IT:** the label-provenance rule forbids a label *guessed from an id*
+and permits one whose **PROVENANCE is trusted** — and this one is carried by, and cached with, an exchange whose
+**KEY half is verified**, in **both** directions (`lib/core/node_hashlocate.cpp:1178 / :1251 / :1142`).
+⛔ **REWORDED IN PLACE 2026-08-22 (QG, K1 gate round), WITHDRAWN TEXT KEPT VISIBLE:** this sentence read *"permits one
+from an **authenticated source** — and the pubkey exchange **is** one"*. **⛔ THAT OVERCLAIMS: the name is MUTABLE
+METADATA CACHED ALONGSIDE a verified pubkey, ⛔ not itself cryptographically authenticated.** The ruling and every
+rule under it are unchanged — only the ground shifts from *authentication* to *provenance*, which is what the bound
+below already said. *Falsifier: the QG K1-gate ruling plus §1.7 F-15's own analysis (`node_hashlocate.cpp:346`).*
+⚠ **AND THE BOUND IS STATED, WHICH IS WHY RULES 4 AND 5 EXIST:** the exchange authenticates the **key**, ⛔ not the
+truthfulness of the name, and the name is **mutable** (`:346`) ⇒ **a name may DESCRIBE and may ⛔ NEVER IDENTIFY.**
+⇒ landed at **§1.7 F-15**, **§3 P-5 (rewritten in place) / P-5b / P-7c / P-7d**, slices **N2** (confirmed unchanged
+plus one control), **N4**, **N5**, **N6**, strings **S-6 / S-13 amended, S-35 / S-36 added**, metal **§7.1.3 ·
+§7.3.3 · §7.4.3b · §7.4.3c**. ⛔ **The K-slices are untouched** — the keyring record carries no labels by ruling, so
+this is a display lifecycle only and K1 may proceed in implementation unaffected.
+
 ---
 
 ### ⓘ Open questions: **NONE.**
@@ -1127,7 +1340,14 @@ lapse because the list is empty.
 - ⛔ **no relaxation of the pre-parse leaf-nibble drop** (`node_beacon.cpp:558`) — F-1 reports the consequence and the
   panel says so honestly (S-3 + S-4);
 - ⛔ **no second definition of signal quality** — the panel maps `presence_quality_tier()` and defines nothing (R-4);
-- ⛔ **no team LABEL store, on either side and in the keyring record** (F-3, and the keyring ruling repeats it);
+- ⛔ **no team LABEL store, on either side and in the keyring record** (F-3, and the keyring ruling repeats it) —
+  ⛔ **CORRECTED, KEPT VISIBLE: this bullet is about a TEAM label and must not be read as forbidding the MEMBER-name
+  display.** A member's **node name** is **mutable metadata cached alongside a verified pubkey** — ⛔ **not itself
+  authenticated** (⛔ **reworded 2026-08-22, QG K1 gate round; the withdrawn phrase was *"is
+  authenticated-by-exchange"***) — and, once cached, **is shown** (R-13 rules 2-3);
+  what stays absent is a **team** label, and ⛔ **a node name may never stand in for one** (R-13 rule 1, S-36);
+- ⛔ **no name is ever an identity** — selection, pubkey requests and key grants are keyed exclusively by the full
+  hash, and the full hash stays visible at every irreversible act (R-13 rules 4-5);
 - ⛔ **no automatic pubkey resolution** — §no-auto-reqpubkey stands; the operator authorises it explicitly (R-7);
 - ⛔ **no silent reactivation of a retained key** by mere knowledge of the public team_id (R-6, P-2b) — and ⛔ **no
   silent eviction from a full keyring** (P-15);

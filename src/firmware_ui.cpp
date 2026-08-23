@@ -106,6 +106,11 @@
                                  //   MEETS A BOARD TOOLCHAIN — §CHROME-1 and §CHROME-2 both reported that nothing
                                  //   in the tree included them, so their `-Os` cross-compile behaviour and their
                                  //   flash cost were UNVERIFIED until this slice.
+#include "firmware_ui_nearby_row.h"  // ★★ §UI-16 N2: the NEARBY row's three tokens — the SHARED team fingerprint,
+                                 //   the `n/3` tier (`presence_quality_tier`'s answer, ⛔ never a second one) and the
+                                 //   REUSED age table. ⛔ Nothing in this TU re-spells any of the three. ⓘ It pulls
+                                 //   `firmware_ui_nearby.h` in with it — the carriers, the own-team filter and the
+                                 //   lexemes, which `firmware_ui_model.h` above already included.
 #include "firmware_ui_icons.h"   // ★ the strip's glyphs. `inline constexpr` at namespace scope ⇒ `.rodata`, and
                                  //   §8.1's amendment requires them to land in FLASH, not RAM.
 #include "firmware_ui_send.h"
@@ -585,6 +590,12 @@ mrui::UiSnapshot build_snapshot(uint32_t now_ms) {
     //   `MR_PROFILE_GATEWAY`, which sets `MR_N_LAYERS=2`), which is exactly why they are published separately.
     s.prov_join_static = (MR_N_LAYERS < 2);
     s.prov_create_team = (MR_N_LAYERS < 2) && (MR_FEAT_TEAM != 0);
+    // ★ §UI-16 N2 — the THIRD child, published as its OWN predicate (see `provision_rows`): a nearby join is
+    //   a MEMBERSHIP operation on a leaf build AND it needs the team plane, because the observation cache it
+    //   lists is `MR_FEAT_TEAM`-gated in the core (`node.h`'s `team_seen_*` stubs answer an empty list on a
+    //   gateway). ⛔ It coincides with `prov_create_team` in every env in the tree today and is still not the
+    //   same fact — the coincidence is what `provision_rows` refuses to encode.
+    s.prov_join_team   = (MR_N_LAYERS < 2) && (MR_FEAT_TEAM != 0);
 #if MR_FEAT_TEAM
     // ⚠ `rt_team_at` has NO !MR_FEAT_TEAM stub, by deliberate core design (there is no `_rt_team` to read), so this
     //   whole block must be guarded — the two counters around it stub to 0 and would compile either way.
@@ -634,6 +645,36 @@ mrui::UiSnapshot build_snapshot(uint32_t now_ms) {
 #endif
     s.my_team_id = g_node.team_local_id();
     s.team_id    = g_node.config().team_id;
+    // ★★★★ §UI-16 N2 — THE NEARBY-TEAM OBSERVATIONS (§3.6.4 point 2), PROJECTED HERE AND NOWHERE ELSE.
+    //      ⛔⛔ THIS IS A `const` READ AND NOTHING ELSE. `Node::team_seen_count()` / `team_seen_at()` walk a
+    //      RAM ring (`lib/core/team_seen_ring.h`) and touch no timer, no queue and no radio; nothing in this
+    //      slice asks for, refreshes, probes or transmits anything to fill it. THE SCAN IS PASSIVE — the N2
+    //      probe arm counts the TX-queue depth and the radio's start count across a full NEARBY walk rather
+    //      than arguing it, exactly as §UI-17 S5's TEAM walk does.
+    // ⛔ NO `#if MR_FEAT_TEAM` GUARD, and that is deliberate rather than an omission: unlike `rt_team_at`,
+    //    both accessors have `#else` stubs (`node.h`) that answer `0` / `nullptr` on a build with no team
+    //    plane, so a gateway compiles this loop and publishes an EMPTY list — one code path, both arms.
+    // ⛔ THE RETENTION WINDOW IS THE CORE'S, APPLIED INSIDE THE ACCESSORS AT THE READ. This site adds no
+    //    second staleness rule; an entry past the window is simply not returned.
+    // ⓘ THE AGE IS DERIVED FROM **ONE** CLOCK READ and is published with its own validity flag: a stamp
+    //   ahead of `now` (a clock that stepped backwards, or an entry that expired between the count and the
+    //   fetch) is UNDATEABLE, and `ui_fmt_home_age` renders that as `--`. ⛔ Never a fabricated `0s` — the
+    //   `peer_loc_age_s`/`home_confirm_age_ms` rule: an age a surface cannot know must not read as fresh.
+    // ⓘ COST (spec §6): at most `cap_team_seen` (8) iterations per tick, no flash, no radio, no allocation.
+    {
+        const uint64_t seen_now = g_hal.now();
+        const uint8_t  seen     = g_node.team_seen_count();
+        s.nearby_n = (seen > mrui::kMaxNearbyRows) ? mrui::kMaxNearbyRows : seen;
+        for (uint8_t i = 0; i < s.nearby_n; ++i) {
+            const MESHROUTE_NS::TeamSeen* e = g_node.team_seen_at(i);
+            if (!e) { s.nearby_n = i; break; }        // ⛔ FAILS CLOSED: the list ends where the cache does
+            mrui::NearbyRow& r = s.nearby[i];
+            r.team_id   = e->team_id;                 // ★ the row's IDENTITY, carried whole (§B66)
+            r.snr_q4    = e->snr_q4;                  // ★ RAW — the tier is the pure unit's, via presence_quality_tier
+            r.age_valid = (seen_now >= e->last_ms);
+            r.age_ms    = r.age_valid ? (seen_now - e->last_ms) : 0;
+        }
+    }
     s.batt_mv    = s_batt_mv;
     // ================================================== §CHROME-3 — THE FIVE FIELDS §CHROME-1 DEFINED BUT COULD NOT
     // PUBLISH. The projection is PURE and may not touch `g_node`; every fact below is a `g_node` accessor, so this is
@@ -1365,7 +1406,8 @@ void draw_provision_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
     char l[kLineCap];
     switch (st.provisioning) {
         case mrui::Provision::menu: {
-            const mrui::ProvRowList list = mrui::provision_rows(s.prov_create_team, s.prov_join_static);
+            const mrui::ProvRowList list =
+                mrui::provision_rows(s.prov_create_team, s.prov_join_static, s.prov_join_team);
             const uint8_t first = list_first(st.cursor, list.n, uint8_t(kBodyRows));
             for (uint8_t row = 0; row < kBodyRows && first + row < list.n; ++row) {
                 mrui::ProvRow r{};
@@ -1475,6 +1517,49 @@ void draw_provision_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
             body_text(4, "press = back");
             return;
         }
+        // ★★★★ §UI-16 N2 — THE READ-ONLY NEARBY LIST. ⛔ NOTHING HERE DECIDES ANYTHING: the rows are
+        //      `mrui::nearby_sel_rows` over the model's FROZEN copy (the SAME builder the model bounds its
+        //      cursor with, U1/U2), the empty-state note is `nearby_note`, the row's three tokens are
+        //      `ui_fmt_nearby_row`'s (fingerprint · `n/3` · age), and BACK is `provision_row_label`'s one
+        //      spelling. ⛔ AND IT READS `st.nearby`, ⛔ NEVER `s.nearby`: the snapshot's array is the LIVE
+        //      projection and drawing from it would auto-refresh the list under the operator's cursor, which
+        //      owner ruling R-10 forbids.
+        // §7.3 AUDIT (widest reachable expansion, 19-column body):
+        //   title           `NEARBY`                                            = 6
+        //   phy line 1      `CURRENT PHY ONLY`                                  = 16
+        //   phy line 2      `SAME RADIO + LEAF`                                 = 17
+        //   empty note      `NO TEAMS NEARBY`                                   = 15
+        //   team row        `%c%s`  : `>` + `3D9348 2/3 42s`                     = 15
+        //   back row        `%c%s`  : `>BACK`                                   = 5
+        // ⓘ THE GEOMETRY IS A CONSEQUENCE, NOT A CHOICE: three of the five body rows are spoken for by the
+        //   title and the two PHY lines (spec §4-N2 pin 5 requires both of the latter ON THE SCREEN), so the
+        //   list gets the remaining TWO and scrolls through `list_first` exactly as every longer list here
+        //   does. With the empty note up, the one remaining row is BACK — which still leaves (pin 4).
+        case mrui::Provision::nearby: {
+            body_text(0, mrui::kNearbyTitle);
+            body_text(1, mrui::kNearbyPhyLine);
+            body_text(2, mrui::kNearbyLeafLine);
+            uint8_t top = 3;
+            const char* note = mrui::nearby_note(st.nearby);
+            if (note[0]) { body_text(top, note); ++top; }
+            const mrui::NearbySelList list = mrui::nearby_sel_rows(st.nearby);
+            // ⓘ `list_rows`, ⛔ not `rows`: the join arm above spells its window `const uint8_t rows  = …`, and that
+            //   line is control L13's ANCHOR. A second identical line makes L13 match twice — its two-expression
+            //   mutation then edits BOTH arms and does not compile, i.e. a landed control silently stops measuring.
+            //   Measured, not anticipated: that is exactly what the first full probe run reported.
+            const uint8_t list_rows = uint8_t(kBodyRows - top);
+            const uint8_t first     = list_first(st.cursor, list.n, list_rows);
+            for (uint8_t row = 0; row < list_rows && first + row < list.n; ++row) {
+                mrui::NearbySelRow r{};
+                if (!list.at(uint8_t(first + row), r)) break;
+                char label[mrui::kNearbyRowCap];
+                if (r.back) snprintf(label, sizeof label, "%s", mrui::provision_row_label(mrui::ProvRow::back));
+                else        mrui::ui_fmt_nearby_row(label, sizeof label, r.team);
+                snprintf(l, sizeof l, "%c%s", (first + row == st.cursor) ? '>' : ' ', label);
+                body_text(top + row, l);
+            }
+            return;
+        }
         // ⛔ UNREACHABLE BY THE INVARIANT (`Settings::provisioning` implies a non-`closed` arm) — listed so -Wswitch
         //    stays useful, and drawing nothing is the honest answer for a state that says it is not open.
         case mrui::Provision::closed: return;
@@ -1521,8 +1606,12 @@ void draw_settings_screen(const mrui::UiState& st, const mrui::UiSnapshot& s, co
         return;
     }
     const uint8_t rows = uint8_t(kBodyRows - 1 - top);   // the last row is the note/reboot line; `top` is the marker's
-    const mrui::CfgRowList list = mrui::settings_rows(s.ble_row, c.conflict,
-                                                      mrui::provision_has_child(s.prov_create_team, s.prov_join_static));
+    // ⓘ §UI-16 N2 — THE PARENT-ROW PREDICATE IS HOISTED TO ITS OWN LINE, and that is instrument hygiene rather than
+    //   taste: the third child made the call two lines long, and the two landed controls that mutate this predicate
+    //   (`C88` renders the row unconditionally, `L10` hides it on a build that HAS a child) anchor on ONE line each.
+    //   A two-line call left them matching a fragment and produced a VACUOUS control — measured, not anticipated.
+    const bool prov_child = mrui::provision_has_child(s.prov_create_team, s.prov_join_static, s.prov_join_team);
+    const mrui::CfgRowList list = mrui::settings_rows(s.ble_row, c.conflict, prov_child);
     const uint8_t first = list_first(st.cursor, list.n, rows);
     for (uint8_t row = 0; row < rows && first + row < list.n; ++row) {
         mrui::CfgRow r{};
