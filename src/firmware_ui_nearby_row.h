@@ -3,6 +3,8 @@
 //
 // §UI-16 N2 — THE NEARBY ROW'S THREE TOKENS, i.e. the render half of `src/firmware_ui_nearby.h`: the
 // `n/3` signal token (owner ruling R-4) and the `<fingerprint> <n/3> <age>` row (spec string S-6).
+// §UI-16 N3 appended ONE more of the same kind — the `JOIN <fingerprint>?` confirmation title (S-8) — for the
+// include-order reason this header exists at all; see the note at that function.
 //
 // ⚠⚠ WHY IT IS A SEPARATE FILE FROM `firmware_ui_nearby.h` — REPORTED, because the spec's file list named
 //    ONE new unit. It is an INCLUDE-ORDER FACT of this tree, measured rather than preferred:
@@ -72,6 +74,29 @@ inline void ui_fmt_nearby_row(char* out, std::size_t cap, const NearbyRow& r) {
     char sig[kNearbySignalCap]; ui_fmt_nearby_signal(sig, sizeof sig, r.snr_q4);
     char age[kAgeTokenCap];     ui_fmt_home_age(age, sizeof age, r.age_valid, r.age_ms);
     const int n = snprintf(out, cap, "%s %s %s", fp, sig, age);
+    ui_pad_token(out, cap, (n < 0) ? 0u : std::size_t(n) + 1u);
+}
+
+// ★★★★ §UI-16 N3 / spec §8 S-8 — THE CONFIRMATION'S TITLE: `JOIN %s?` -> `JOIN 3D9348?`, the form §3.6.4 `:806`
+//      names VERBATIM. ⓘ 12 of the rail's 19 columns at its widest.
+// ⚠⚠ WHY IT LIVES IN **THIS** FILE AND NOT IN `firmware_ui_model.h`, REPORTED because the spec's §4-N3 file list
+//    names three files and this is a fourth: the title's one variable part is the SHARED team fingerprint, which
+//    lives in chrome — and `src/firmware_ui_chrome.h:36` includes the model, so ⛔ no model-included header may
+//    include chrome. ⇒ the title belongs downstream, beside the row token that has the same dependency, and ⛔ NOT
+//    in `src/firmware_ui.cpp`, where §B115 would leave it a string no automated gate can read and no mutation can
+//    attack. It is the SAME include-order fact N2 reported when its one pure unit had to become two.
+// ★★★ THE FINGERPRINT IS `ui_fmt_team_fingerprint`'s AND NOTHING ELSE (U1, §8's opening rule) — the SAME six
+//     characters the row the operator pressed on was drawn with, so the confirmation cannot describe a different
+//     team from the one selected. ⛔ A local `%06lX` here would be a second definition of the token, and the two
+//     could then disagree while both looked right.
+// ⛔⛔ AND THE TOKEN IS A HUMAN SELECTION AID, ⛔ NEVER AN AUTHORITY (spec §3 P-7): what the ACT carries is the FULL
+//     32-bit id from the row's identity (`UiState::nearby_sel_id` -> `UiProvIntent::team_id`), ⛔ never a value
+//     re-parsed from these six characters — they are the low 24 bits, and 255 other teams share them.
+inline constexpr std::size_t kNearbyJoinTitleCap = 5 + (kTeamFpTokenCap - 1) + 1 + 1;   // `JOIN ` + 6 + `?` + NUL
+inline void ui_fmt_nearby_join_title(char* out, std::size_t cap, uint32_t team_id) {
+    if (!out || cap == 0) return;
+    char fp[kTeamFpTokenCap]; ui_fmt_team_fingerprint(fp, sizeof fp, team_id);
+    const int n = snprintf(out, cap, "JOIN %s?", fp);
     ui_pad_token(out, cap, (n < 0) ? 0u : std::size_t(n) + 1u);
 }
 

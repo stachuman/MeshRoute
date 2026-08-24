@@ -483,6 +483,17 @@ The status strip is a fixed-slot summary. A missing value changes its token to `
 | key, x=79 | key / crossed-key icon | actual team content-key presence |
 | battery, x=91 / token x=104 | fixed battery outline plus one-decimal volts, or `--` | cached board reading |
 
+★ **AMENDED 2026-08-23 (§CHROME-5, owner+QA ruled — pixel-exact table in
+`2026-08-15-heltec-mobile-status-navigation-ui-design.md` §3.1, which is the authority for the moved x values).**
+A sixth slot, **duty, x=83..89**: a 7×7 duty-utilization gauge — ⛔ icon only, never a percentage (exact pct and
+recovery time stay in `duty`/companion diagnostics). Three states: **crossed** = duty limiting disabled ·
+**empty-to-full** = approximate 0–99 % utilization · **full + warning mark** = 100 %, transmission currently
+duty-blocked. Semantic authority = **`Node::duty_status()`** — ⛔ never raw `duty_ms`, ⛔ never the separate
+five-minute anti-spam budget. To fit it, home/people/key shift left to one-pixel gaps (home x=27, people x=54,
+key x=75); **battery is unchanged**. Snapshot-classified before the frozen `UiChrome`; repaint only on a visible
+bucket change; no wire/NV/routing/`Node` change. ⛔ Not part of §UI-16 — implementation plan
+`docs/superpowers/plans/2026-08-23-chrome5-duty-gauge.md`.
+
 Battery remains volts, not percentage: a percentage requires an unapproved chemistry/discharge-curve policy.
 
 The rail has five stable semantic slots — STATUS, TEAM, INBOX, SEND, SETTINGS. TEAM/SEND may be absent in a build,

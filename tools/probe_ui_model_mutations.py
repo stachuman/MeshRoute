@@ -137,6 +137,14 @@ TARGET_SRC = {
     #    FILTER + the row list must be model-includable (`UiSnapshot` publishes the array, `UiState` freezes it);
     #    the two TOKENS need chrome's shared formatters and therefore sit downstream. ⇒ two files, two targets, and
     #    each ruled decision keeps a battery of its own (R-5's filter/order in one, R-4's tier map in the other).
+    # ★★ ADDED 2026-08-23 BY §UI-16 N4, and for the reason every target above it was added: the invitation
+    #    window's rulings — the TWO snapshot authorities (each of which must be attacked ALONE, or the other
+    #    hides it), the AUTHORITATIVE floor that keeps a route-only member off the grantable list, the VOLATILE
+    #    handled set, and the name lifecycle that ADDS a column instead of swapping one — are each a decision a
+    #    mutation must reach ON ITS OWN, and a battery is per-SOURCE-FILE. ⓘ ONE target, not two: unlike N2's
+    #    row this unit needs nothing from `firmware_ui_chrome.h` (its fingerprint is a SEPARATE definition by
+    #    ruling and its row is fixed-width by construction), so it is model-includable in full.
+    "uiinvite":    "src/firmware_ui_invite.h",      # §UI-16 N4 — the two authorities, the handled set, the row
     "uinearby":    "src/firmware_ui_nearby.h",      # §UI-16 N2 — the own-team filter, the order, the rows, the lexemes
     "uinearbyrow": "src/firmware_ui_nearby_row.h",  # §UI-16 N2 — the `n/3` tier map + the fingerprint/age row (S-6/S-7)
     "teamseen":     "lib/core/team_seen_ring.h",  # §UI-16 N1 — the pure nearby-team ring: de-dup, EWMA, retention, order
@@ -207,7 +215,125 @@ H = os.path.join(ROOT, TARGET_SRC[_TARGET])
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 1998, 88655     # ★★ CROSS-CHECK RE-SYNCED 2026-08-23 by §UI-16 N2 (the `JOIN TEAM` child
+PIN_CASES, PIN_ASSERTS = 2043, 90143     # ★★ CROSS-CHECK RE-SYNCED 2026-08-23 by §CHROME-5 (the status
+                                         # strip's DUTY GAUGE): **2039 / 89691 -> 2043 / 90143**
+                                         # (+4 cases / +452 assertions). DERIVED, and MEASURED block by
+                                         # block with `program -tc=`; 446 + 5 + 1 = 452 closes EXACTLY:
+                                         #  +4 cases / +446 assertions — the four NEW cases in
+                                         #    `test/test_firmware_ui_chrome.cpp` (target `chrome`, with the
+                                         #    artwork half attacked through `icons`): the DERIVATION pin —
+                                         #    N from the glyph's drawable rows, the enum span, the
+                                         #    row-by-row bottom-up decode of all six levels and the
+                                         #    all-eight-pictures-distinct sweep (88); the pct -> step map
+                                         #    over the whole 0..99 domain against an INDEPENDENTLY stated
+                                         #    boundary table (317); the two boundary rulings — disabled
+                                         #    beats any pct, 100 is blocked and never fill_N — plus the
+                                         #    projection's five arms (23); and the repaint economy: two
+                                         #    pcts inside one bucket owe NOTHING while both boundaries owe
+                                         #    a frame (18).
+                                         #  +5 — `chrome-equality: visible…`, extended in place: the
+                                         #    same-bucket/disabled-either-way INVISIBLE pair (2) and three
+                                         #    positive terms (a boundary crossing, 100 %, and losing the
+                                         #    duty limit).
+                                         #  +1 — `chrome-projection:`'s untouched-snapshot row for the
+                                         #    gauge (`disabled`, ⛔ not the empty picture).
+                                         # ⛔ THE PREVIOUS ENTRY IS KEPT VISIBLE BELOW, unedited.
+                                         # ---- (previous) 2026-08-23 by §UI-16 N4's TWO QG
+                                         # BLOCKER FIXES: **2039 / 89688 -> 2039 / 89691** (+0 cases /
+                                         # +3 assertions). DERIVED, and it is a NET of two edits inside
+                                         # two EXISTING cases, which is why no case count moves:
+                                         #  −1 — `ui16-invexpire` (target `model`): the exact-deadline
+                                         #    tick was pinned OPEN and is now pinned CLOSED, so the
+                                         #    at-deadline CHECK and the separate at-`+1` pair collapse
+                                         #    into one pair (3 asserts -> 2).
+                                         #  +4 — `ui16-snap` (target `uiinvite`): the null-source arm was
+                                         #    ONE fail-open pair and is now TWO arms — `(nullptr, 0)`
+                                         #    valid+taken (2) and `(nullptr, n>0)` REFUSED with its two
+                                         #    consequence checks, `invite_snap_has_id` and
+                                         #    `invite_is_new` (4) — i.e. 2 -> 6.
+                                         # ⛔ THE PREVIOUS ENTRY IS KEPT VISIBLE BELOW, unedited.
+                                         # ---- (previous) 2026-08-23 by §UI-16 N4 (the
+                                         # `INVITE MEMBER` window, its two snapshot authorities, its
+                                         # handled set and its candidate row):
+                                         # **2015 / 89104 -> 2039 / 89688** (+24 cases / +584 assertions).
+                                         # DERIVED, not merely observed, and MEASURED block by block with
+                                         # `program -tc=`; 372 + 200 + 8 + 2 + 1 + 1 = 584 closes EXACTLY:
+                                         #  +16 cases / +201 assertions — the NEW file
+                                         #    `test/test_firmware_ui_invite.cpp` (target `uiinvite`): the
+                                         #    five-minute constant WITH its derivation pin (3), the
+                                         #    snapshot's two authorities incl. both ends of the id space
+                                         #    (22), the six diff cases — present-at-open, arrived-after,
+                                         #    ★ re-DAD'd, ★ route-only-turned-authoritative, ★ the DRIVEN
+                                         #    double-change SAFE FALSE PROMPT and the no-snapshot floor
+                                         #    (53), the handled set incl. its full-set refusal and its two
+                                         #    same-named members (33), the three row cases at exact bytes
+                                         #    (31), the member fingerprint (8), the full-hash identity (9),
+                                         #    the no-name-shaped-identity case (3) and the lexeme sweep
+                                         #    over the three FORBIDDEN words (39).
+                                         #  +8 cases / +171 assertions — the §UI-16 N4 block appended to
+                                         #    `test/test_firmware_ui_model.cpp` (target `model`): the
+                                         #    fourth child and its RUNTIME predicate (32), the
+                                         #    snapshot-at-OPEN with its zero-transaction proof (19), the
+                                         #    self-expiry at the exact edge (22), blank/wake with the
+                                         #    unfinished confirmation dropped (16), the freeze + REJECT +
+                                         #    the volatile set (37), the refresh-cannot-move-the-target
+                                         #    case (11), the window-closed quiet case (25) and the alarm's
+                                         #    pre-emption (9).
+                                         #  +200 assertions — `ui15-close`'s arm sweep, extended in place:
+                                         #    it drove TEN arms x 2 confirms x 3 checks and now drives
+                                         #    THIRTEEN x 2 x 10, because `provision_reset_on_leave` gained
+                                         #    the window as a THIRD fact to retire (65 -> 265, measured).
+                                         #  +8 — `ui15-model`: the three new `Provision` values and
+                                         #    `provision_is_invite`'s five arms.
+                                         #  +2 — `ui15-hide`: the `INVITE MEMBER` label plus one more
+                                         #    iteration of its width sweep (`kMaxProvRows` 4 -> 5).
+                                         #  +1 — `ui15-parent`: the invite child alone earning the row.
+                                         #  +1 — the §CHROME-4 width sweep (`test_firmware_ui_model.cpp`'s
+                                         #    second `kMaxProvRows` loop), which gained the same row.
+                                         # ⛔ THE PREVIOUS ENTRY IS KEPT VISIBLE BELOW, unedited.
+                                         # ---- (previous) 2026-08-23 by §UI-16 N3 (the
+                                         # `JOIN <fingerprint>?` confirmation + the act over the existing team
+                                         # transaction):
+                                         # **1998 / 88655 -> 2015 / 89104** (+17 cases / +449 assertions).
+                                         # DERIVED, not merely observed, and MEASURED block-by-block with
+                                         # `program -tc=`; 171 + 236 + 15 + 27 = 449 closes exactly:
+                                         #  +9 cases / +171 assertions — the §UI-16 N3 block appended to
+                                         #    `test/test_firmware_ui_prov.cpp` (target `uiprov`): the control,
+                                         #    the `mint = false` + FULL-32-bit request with
+                                         #    `phy.present = false`, the inherited PHY precondition over all
+                                         #    four fields with its positive arm, the two `ProvPhy` objects
+                                         #    driven apart, ★ the KEYLESS proof on a node that really held a
+                                         #    key, ★ the RETAINED-keyring record left untouched and
+                                         #    uninstalled (P-2b — N3 does not anticipate K5), the failed save
+                                         #    that keeps the previous membership AND key, the four refusal
+                                         #    arms (staging / unreadable record / zero id / `no_change`), and
+                                         #    the three-op dispatch.
+                                         #  +7 cases / +236 assertions — the §UI-16 N3 block appended to
+                                         #    `test/test_firmware_ui_model.cpp` (target `model`): the
+                                         #    confirmation's BACK default and its `short`-then-`double` cost,
+                                         #    ★ the act carrying the ROW's full id against a fixture where the
+                                         #    cursor, the published index and the fingerprint are all
+                                         #    different values, BACK's landing on the LIST, the terminal
+                                         #    result under either press, the whole-vocabulary lexeme sweep
+                                         #    (155 of the 236 — nine outcomes x nine, plus the three
+                                         #    forbidden words), the two fail-closed arms and the alarm's
+                                         #    pre-emption of an unfinished confirmation.
+                                         #  +1 case / +15 assertions — `ui16-jointitle` in
+                                         #    `test/test_firmware_ui_nearby.cpp` (target `uinearbyrow`): S-8's
+                                         #    exact bytes, its VALUE RELATION to the shared fingerprint helper
+                                         #    over five ids, the low-24-bit collision that makes the token a
+                                         #    selection aid and never an authority, and the fail-closed calls.
+                                         #  +27 assertions — the RESIDUE (449 - 171 - 236 - 15), and it is
+                                         #    measured by subtraction rather than counted by eye: four LANDED
+                                         #    cases extended in place — the `Provision` enum's tenth arm (+1),
+                                         #    `ui15-reset`'s arm sweep, whose *"ALL EIGHT ARMS"* array was
+                                         #    stale at NINE and now drives TEN (+12 = 2 arms x 2 confirm
+                                         #    values x 3 checks), the static-join `JOINED` sweep gaining its
+                                         #    named exemption (+10), and `ui16-look`, whose double on a team
+                                         #    row now OPENS the confirmation and is asserted to still perform
+                                         #    nothing (+4).
+                                         # ⛔ THE PREVIOUS ENTRY IS KEPT VISIBLE BELOW, unedited.
+                                         # ---- (previous) 2026-08-23 by §UI-16 N2 (the `JOIN TEAM` child
                                          # + the read-only NEARBY list):
                                          # **1980 / 88475 -> 1998 / 88655** (+18 cases / +180 assertions).
                                          # DERIVED, not merely observed, and MEASURED case-by-case with
@@ -1258,7 +1384,7 @@ MUTS_MODEL = [
  #   REACHABLE-PATH control on the gesture half.
  ("M54 leaving the provisioning sub-view keeps the arm (a stale confirmation survives into the next visit)",
   "        _st.settings = Settings::browsing;\n"
-  "        provision_reset_on_leave(_st.provisioning, _st.prov_confirm);",
+  "        provision_reset_on_leave(_st.provisioning, _st.prov_confirm, _st.invite);",
   "        _st.settings = Settings::browsing;"),
  ("M67 the close-on-leave reset only closes the arm a GESTURE can reach (7 of the 8 survive leaving the screen)",
   "    arm = Provision::closed;",
@@ -1331,11 +1457,8 @@ MUTS_MODEL = [
   "        UiProvAnswer a{};\n        if (_prov) {",
   "        UiProvAnswer a{};\n        enter_provision(Provision::create_result);\n        if (_prov) {"),
  ("M71 the answer is never retired, so a stale verdict survives into the next screen",
-  "        _st.prov_answer = UiProvAnswer{};\n"
-  "        _st.dirty = true;\n"
-  "    }",
-  "        _st.dirty = true;\n"
-  "    }"),
+  "        _st.prov_answer = UiProvAnswer{};",
+  "        // (the answer is not retired)"),
  ("M72 the result arm RE-RUNS the transaction on the press that leaves it",
   "            case Provision::create_result:  enter_provision(Provision::menu); return;",
   "            case Provision::create_result:  run_create_team(); return;"),
@@ -1750,7 +1873,7 @@ MUTS_MODEL = [
   "    if (create_team) l.row[l.n++] = ProvRow::join_team;"),
  ("N02 ★★ the parent-row predicate is RE-SPELLED from the old two children instead of derived from the child list "
   "— the third child opens a sub-view no visible row leads to",
-  "    const ProvRowList l = provision_rows(create_team, join_static, join_team);\n"
+  "    const ProvRowList l = provision_rows(create_team, join_static, join_team, invite);\n"
   "    for (uint8_t i = 0; i < l.n; ++i)\n"
   "        if (l.row[i] != ProvRow::back) return true;\n"
   "    return false;",
@@ -1770,13 +1893,122 @@ MUTS_MODEL = [
   "        if (r.back) { enter_provision(Provision::menu); return; }",
   "        if (!l.at(_st.cursor, r)) return;                            // fails closed — see NearbySelList::at\n"
   "        if (r.back) { close_settings_menu(); return; }"),
- ("N06 ★★ ANY double leaves the scan, not just the one on BACK — a press on a team row acts (as a way OUT here, as "
-  "a JOIN the day N3 lands)",
-  "        NearbySelRow r{};\n"
-  "        if (!l.at(_st.cursor, r)) return;                            // fails closed — see NearbySelList::at",
-  "        NearbySelRow r{};\n"
-  "        if (!l.at(_st.cursor, r)) return;\n"
-  "        enter_provision(Provision::menu);"),
+ # ⛔⛔ N06 RE-ANCHORED 2026-08-23 (§UI-16 N3), AND THE WITHDRAWN PATTERN IS KEPT VISIBLE — it read:
+ #        "        NearbySelRow r{};\n"
+ #        "        if (!l.at(_st.cursor, r)) return;                            // fails closed — …"
+ #      ->  "        NearbySelRow r{};\n        if (!l.at(_st.cursor, r)) return;\n        enter_provision(Provision::menu);"
+ #      i.e. *"ANY double LEAVES the scan"*, which is what the arm could do wrongly while it did nothing at all.
+ # ★ IT WENT DEAD THE MOMENT N3 LANDED, and the full pass of 2026-08-23 MEASURED it: **`FAIL N06 … the suite still
+ #   PASSES; nothing measures this`**. The reason is structural, not a missing case — the arm now ENDS in
+ #   `enter_provision(Provision::nearby_confirm)`, so an injected landing two lines above it is OVERWRITTEN on every
+ #   path (a team row lands on the confirmation either way; BACK lands on the menu either way) and the mutant is
+ #   observationally identical to the original. ⚠ An entry that cannot fail is the [[B217]] class, so it is
+ #   re-anchored rather than deleted or left standing.
+ # ⇒ THE SAME DEFECT CLASS IN THE NEW SHAPE: *"ANY double ACTS, not just the one on a TEAM row"* — the BACK branch
+ #   dropped, so leaving the list opens a `JOIN <fingerprint>?` for whatever the BACK row's empty `team` holds.
+ #   ⓘ It is ⛔ NOT N10's twin: N10 is the CONFIRMATION's BACK, this is the LIST's.
+ ("N06 ★★ ANY double ACTS, not just the one on a TEAM row — leaving the list opens a JOIN confirmation",
+  "        if (r.back) { enter_provision(Provision::menu); return; }\n"
+  "        // ★★★ THE PICK IS THE ROW'S OWN FULL 32-BIT TEAM ID",
+  "        // ★★★ THE PICK IS THE ROW'S OWN FULL 32-BIT TEAM ID"),
+ # ===== §UI-16 N3 — the `JOIN <fingerprint>?` confirmation and the act ==========================================
+ # ★★★ N08 AND N09 ARE THE SPEC'S OWN HEADLINE PAIR (§4-N3 pin 2, §3 P-7, [[B48]]'s class), and they are the two
+ #     ways a selection stops being an identity: the INDEX (a list that is own-team-FILTERED, so the same index is a
+ #     different team on a different node) and the TOKEN (the low 24 bits — 255 teams share every fingerprint). Both
+ #     are one expression, both leave the panel looking exactly right, and both join the wrong team.
+ # ⛔ N07/N12/N13 ARE THE CONFIRMATION'S SAFETY: the default arm, the BACK branch that must not fall through, and the
+ #    floor that stops a pick of 0 — which is `team 0`, i.e. a LEAVE — from reaching the transaction.
+ ("N07 ★★ the confirmation opens on CONFIRM (P-13's safe default gone: one press from a membership change)",
+  "        _st.nearby_sel_id = r.team.team_id;\n"
+  "        enter_provision(Provision::nearby_confirm);",
+  "        _st.nearby_sel_id = r.team.team_id;\n"
+  "        enter_provision(Provision::nearby_confirm);\n"
+  "        _st.prov_confirm = ProvConfirm::confirm;"),
+ ("N08 ★★★ the act is handed the CURSOR INDEX instead of the row identity (§B66)",
+  "        _st.nearby_sel_id = r.team.team_id;",
+  "        _st.nearby_sel_id = _st.cursor;"),
+ ("N09 ★★★ the id is RE-DERIVED from the six-hex fingerprint the panel shows (the low 24 bits, [[B48]])",
+  "        _st.nearby_sel_id = r.team.team_id;",
+  "        _st.nearby_sel_id = r.team.team_id & 0x00FFFFFFu;"),
+ ("N10 ★★ the confirmation BACK returns to the MENU instead of the NEARBY list (the containment contract)",
+  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::nearby); return; }",
+  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }"),
+ ("N11 ★★ `team_joined` is mapped onto CREATE's string — a JOIN reports TEAM CREATED (F-4, at its source)",
+  "        case UiProvOutcome::team_joined: return \"TEAM JOINED\";",
+  "        case UiProvOutcome::team_joined: return \"TEAM CREATED\";"),
+ ("N12 ★★ a double on BACK falls through into the act (one press means the other)",
+  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::nearby); return; }\n"
+  "        run_join_team();",
+  "        run_join_team();"),
+ ("N13 the zero-pick floor is dropped, so a row naming no team performs `team 0` — a LEAVE",
+  "        if (_prov && _st.nearby_sel_id != 0) {",
+  "        if (_prov) {"),
+ # ===== §UI-16 N4 — the INVITATION WINDOW's MODEL HALF (the pure unit's own rulings are `--target=uiinvite`) =====
+ # ★★★ V01-V03 ARE THE **SNAPSHOT's THREE WAYS TO BE WRONG**, and they are three entries because they fail
+ #     differently: keyed on the wrong thing, taken at the wrong TIME, or never taken at all. ⓘ V01 is the one the
+ #     spec names by its temptation — `last_seen_ms` is RIGHT THERE on the TEAM row this loop already walks, and it
+ #     means *last heard*, so a diff keyed on it announces the whole team on its next beacon (§1.3).
+ # ★★ V05 IS THE POWER DEFECT: a window that stamps `_last_input_ms` keeps a safety device's panel lit for five
+ #    minutes and, through `ui_allows_sleep` (which requires `blanked`), stops it light-sleeping at all — ✅ OQ-3
+ #    ruled the window does NOT hold the panel lit, and this is that ruling's control.
+ ("V01 ★★ the diff is keyed on the row's FRESHNESS (`last_heard_s`) instead of the opening snapshot — the "
+  "`last_seen_ms` defect §1.3 names, at the one site where that field is in scope",
+  "        const InviteSelList l = invite_sel_rows(_st.invite, s.member, s.team_shown);",
+  "        InviteSelList l{};\n"
+  "        for (uint8_t i = 0; i < s.team_shown && i < kMaxInviteRows; ++i)\n"
+  "            if (s.team[i].last_heard_s < 60u && s.member[i].key_hash32 != 0) {\n"
+  "                l.row[l.n].cand = s.member[i]; l.row[l.n].back = false; ++l.n; }\n"
+  "        l.row[l.n].back = true; ++l.n;"),
+ ("V02 ★★★ the snapshot is re-taken at every RENDER instead of at the window's OPEN — so the candidate the window "
+  "exists to surface is inside the snapshot by the time it is drawn",
+  "    void tick_invite(const UiSnapshot& s) {\n"
+  "        if (!provision_is_invite(_st.provisioning)) return;",
+  "    void tick_invite(const UiSnapshot& s) {\n"
+  "        if (!provision_is_invite(_st.provisioning)) return;\n"
+  "        _st.invite = invite_snapshot_take(s.member, s.team_shown);"),
+ ("V03 ★★ the snapshot is NEVER taken — the window opens with no authorities at all",
+  "            case ProvRow::invite:      load_invite(s);       enter_provision(Provision::invite);      return;",
+  "            case ProvRow::invite:      enter_provision(Provision::invite);      return;"),
+ ("V04 ★★★ the expiry RENEWS the window instead of closing it — the bounded window is unbounded and the panel "
+  "never says WINDOW CLOSED (P-11)",
+  "        enter_provision(Provision::invite_closed);",
+  "        _invite_until_ms = s.now_ms + kInviteWindowMs;"),
+ ("V05 ★★★ the open window WRITES `_last_input_ms` on every tick — the panel never blanks and the node never "
+  "light-sleeps while it is up (OQ-3's refusal)",
+  "        if (!provision_is_invite(_st.provisioning)) return;\n"
+  "        if (window_active(s.now_ms)) return;",
+  "        if (!provision_is_invite(_st.provisioning)) return;\n"
+  "        _last_input_ms = s.now_ms;\n"
+  "        if (window_active(s.now_ms)) return;"),
+ ("V06 ★★★ the handled set is made PERSISTENT — a candidate rejected in one window stays suppressed in the next, "
+  "which the ruling forbids (F-13: it is discarded when the window closes)",
+  "        if (!provision_is_invite(p)) _st.invite = InviteWindow{};",
+  "        if (!provision_is_invite(p)) { const InviteWindow keep = _st.invite; _st.invite = InviteWindow{};\n"
+  "            _st.invite.handled_n = keep.handled_n;\n"
+  "            for (uint8_t i = 0; i < kMaxInviteRows; ++i) _st.invite.handled[i] = keep.handled[i]; }"),
+ ("V07 ★★★ the confirmation does NOT freeze the selection — every refresh re-points it at the row under the "
+  "cursor, so a member arriving between the two presses moves the target (F-14)",
+  "        if (window_active(s.now_ms)) return;",
+  "        if (_st.provisioning == Provision::invite_confirm) {\n"
+  "            InviteSelRow rr{};\n"
+  "            if (invite_sel_rows(_st.invite, s.member, s.team_shown).at(_st.cursor, rr) && !rr.back) {\n"
+  "                _st.invite.sel_hash = rr.cand.key_hash32; _st.invite.sel_id = rr.cand.id; }\n"
+  "        }\n"
+  "        if (window_active(s.now_ms)) return;"),
+ ("V08 ★★★ the row is keyed by the DISPLAY NAME instead of the hash — the act carries a name-derived value, and "
+  "the name is MUTABLE (P-7d, node_hashlocate.cpp:346)",
+  "        _st.invite.sel_hash = r.cand.key_hash32;",
+  "        { uint32_t k = 0; for (const char* p = r.cand.name; *p; ++p) k = uint32_t(k * 31u + uint8_t(*p));\n"
+  "          _st.invite.sel_hash = k; }"),
+ # ★★★ V09 IS `hold_active`'s BARE COMPARISON, RESTORED — and it is the entry the QG blocker had no control for.
+ #     `elapsed(deadline, now)` is ZERO **at** the deadline, so a bare `< 2^31` reads the arrival instant as "still
+ #     open" and the ruled FIVE MINUTES runs for five minutes and ONE MILLISECOND. It is the most tempting wrong fix
+ #     in the file — the neighbouring `hold_active` is written exactly this way — which is precisely why the edge
+ #     needs a control rather than a comment.
+ ("V09 ★★★ the window's `left != 0` term is dropped — at the EXACT deadline the window is still open, so the "
+  "five-minute bound is five minutes and one millisecond (`wake_active`'s edge, lost)",
+  "               left != 0 && left < (1u << 31);                       // i.e. now < deadline, STRICTLY",
+  "               left < (1u << 31);"),
 ]
 
 # ===== §UI-13 — src/firmware_config_service.h =====================================================================
@@ -2091,6 +2323,37 @@ MUTS_CHROME = [
  ("X37 the replacement warning names the team by a PRIVATE truncation of the shared token",
   '    const int n = snprintf(out, cap, "REPLACES %s", fp);',
   '    const int n = snprintf(out, cap, "REPLACES %s", fp + 1);'),
+ # --- §CHROME-5, the duty gauge. ★★ THE TWO BOUNDARY FACTS ARE ATTACKED SEPARATELY (X38/X39/X40) because they are
+ #     separate rulings: 100 % is its own picture, and `enabled == false` outranks every pct. A single entry that
+ #     broke both would prove only that something is wrong. ⚠ X38 REPLACES the `blocked` answer rather than removing
+ #     the guard, and that is MEASURED not stylistic: at exactly pct = 100 the fill map computes
+ #     `fill_0 + 100*6/100` = the `blocked` enumerator by ARITHMETIC COINCIDENCE, so a mutant that merely widened the
+ #     comparison would still return the right picture and the entry would report a FAIL having measured nothing.
+ ("X38 100 % is drawn as the full gauge (the warning mark never appears — right about the level, silent about the "
+  "consequence)",
+  "    if (pct >= 100) return DutyGauge::blocked;",
+  "    if (pct >= 100) return DutyGauge::fill_5;"),
+ ("X39 the pct is tested BEFORE `enabled` (a node with NO duty limit reports itself duty-blocked at 100)",
+  "    if (!enabled)   return DutyGauge::disabled;\n"
+  "    if (pct >= 100) return DutyGauge::blocked;",
+  "    if (pct >= 100) return DutyGauge::blocked;\n"
+  "    if (!enabled)   return DutyGauge::disabled;"),
+ ("X40 `enabled` is ignored, so an UNLIMITED node draws an empty gauge (`0 % used`, which it never measured)",
+  "    if (!enabled)   return DutyGauge::disabled;",
+  "    if (false)      return DutyGauge::disabled;"),
+ ("X41 the step map divides by the gauge's ROW count, not its LEVEL count (the full gauge becomes unreachable)",
+  "                             + unsigned(pct) * unsigned(icons::kDutyFillLevels) / 100u));",
+  "                             + unsigned(pct) * unsigned(icons::kDutyGaugeRows) / 100u));"),
+ ("X42 every step boundary begins one percent early (the off-by-one a re-derived table would agree with)",
+  "                             + unsigned(pct) * unsigned(icons::kDutyFillLevels) / 100u));",
+  "                             + (unsigned(pct) + 1u) * unsigned(icons::kDutyFillLevels) / 100u));"),
+ ("X43 the gauge is dropped from the equality (a visible bucket change owes no repaint — the strip goes stale)",
+  "        && a.duty            == b.duty\n"
+  "        && a.badge           == b.badge",
+  "        && a.badge           == b.badge"),
+ ("X44 the projection hard-codes the gauge, so the slot always claims there is no duty limit",
+  "    c.duty = ui_duty_bucket(s.duty_enabled, s.duty_pct);",
+  "    c.duty = DutyGauge::disabled;"),
 ]
 
 # ===== §CHROME-1 — src/firmware_ui_icons.h =========================================================================
@@ -2205,6 +2468,21 @@ MUTS_ICONS = [
   "    0xC0, 0x66, 0x03,"),
  ("I07 the MARK is declared 8 px wide, so its rows stop being 3 bytes (I03's smear, one asset up)",
   "inline constexpr uint8_t kMarkW = 24;", "inline constexpr uint8_t kMarkW = 8;"),
+ # --- §CHROME-5's duty gauge. ★★ THE ARTWORK IS PART OF THE CONTRACT HERE IN A WAY NO OTHER ASSET'S IS: the FILL
+ #     LEVEL COUNT IS DERIVED FROM THE PICTURE (`kDutyGaugeRows`), so an authoring error does not merely look wrong —
+ #     it makes a percentage range unreachable or turns the ramp upside down. I08-I11 are the four ways that happens.
+ ("I08 the DISABLED gauge is authored as the EMPTY one (`no duty limit` collapses into `0 % used`)",
+  "inline constexpr uint8_t kIconDutyDisabled[7] = { 0x7F, 0x61, 0x51, 0x49, 0x45, 0x43, 0x7F };",
+  "inline constexpr uint8_t kIconDutyDisabled[7] = { 0x7F, 0x41, 0x41, 0x41, 0x41, 0x41, 0x7F };"),
+ ("I09 the BLOCKED gauge loses its warning mark (100 % becomes indistinguishable from 99 %)",
+  "inline constexpr uint8_t kIconDutyBlocked[7] = { 0x7F, 0x77, 0x77, 0x77, 0x7F, 0x77, 0x7F };",
+  "inline constexpr uint8_t kIconDutyBlocked[7] = { 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F };"),
+ ("I10 one fill level inks the wrong row count (two adjacent levels draw the same picture)",
+  "    { 0x7F, 0x41, 0x41, 0x7F, 0x7F, 0x7F, 0x7F },",
+  "    { 0x7F, 0x41, 0x41, 0x41, 0x7F, 0x7F, 0x7F },"),
+ ("I11 a fill level is authored TOP-DOWN (the gauge drains as utilization rises)",
+  "    { 0x7F, 0x41, 0x41, 0x41, 0x41, 0x7F, 0x7F },",
+  "    { 0x7F, 0x7F, 0x41, 0x41, 0x41, 0x41, 0x7F },"),
 ]
 
 MUTS_JOINPROFILES = [
@@ -2613,6 +2891,77 @@ MUTS_UINEARBYROW = [
  ("Z07 the tier DENOMINATOR is hardcoded — a token that names a scale the tier map no longer has",
   '    const int n = snprintf(out, cap, "%u/%u", tier, unsigned(kNearbyTierMax));',
   '    const int n = snprintf(out, cap, "%u/9", tier);'),
+ # ===== §UI-16 N3 — the confirmation's title (S-8), which lives here for the same include-order reason ==========
+ # ★ Z08 IS Z02's TWIN ON THE NEW TOKEN, and it needs its own entry for the reason every twin in this file does: a
+ #   control that reddens the ROW says nothing about the TITLE, and the two are what the operator compares when the
+ #   confirmation opens over the list. A locally re-spelled fingerprint agrees today and drifts the day the shared
+ #   helper's width or case is ruled again.
+ ("Z08 ★★ the join title re-spells the fingerprint locally instead of calling the ONE shared helper (U1)",
+  "    char fp[kTeamFpTokenCap]; ui_fmt_team_fingerprint(fp, sizeof fp, team_id);",
+  "    char fp[kTeamFpTokenCap]; snprintf(fp, sizeof fp, \"%06lx\", (unsigned long)(team_id & 0x00FFFFFFu));"),
+ ("Z09 the join title asks about NO team at all (the id is dropped from the question)",
+  '    const int n = snprintf(out, cap, "JOIN %s?", fp);',
+  '    const int n = snprintf(out, cap, "JOIN?");'),
+]
+
+# ===== §UI-16 N4 — src/firmware_ui_invite.h: THE TWO AUTHORITIES, THE HANDLED SET AND THE NAME LIFECYCLE =========
+# ★★★ I01 AND I02 ARE THE CORRECTION'S OWN CONTROLS (F-11), AND THEY MUST BE SEPARATE ENTRIES: the draft's
+#     single-authority diff is exactly "I01 applied", and the two authorities cover DIFFERENT cases — drop (b) and
+#     the route-only member is announced as NEW, drop (a) and the re-DAD'd one is. An entry that dropped both would
+#     redden and prove only that the pair matters.
+# ★★ I07-I09 ARE THE NAME LIFECYCLE (F-15 rules 2-3): the name is an ADDED COLUMN, from ONE source, CLAMPED. Each
+#    of the three ways to get it wrong is a separate, plausible edit — and I08 is the one that looks most like a
+#    fix, because `label_from_hash` is the resolver the TEAM screen next door really does use.
+MUTS_UIINVITE = [
+ ("I01 ★★★ AUTHORITY (b) IS DROPPED — a route-only member whose hash turns authoritative mid-window is announced "
+  "as NEW MEMBER although it was present all along (F-11's own defect)",
+  "    if (invite_snap_has_id(w, m.id)) return false;",
+  "    // (authority (b) dropped)"),
+ ("I02 ★★★ AUTHORITY (a) IS DROPPED — a member that re-ran team-DAD (same hash, new id) is announced as NEW",
+  "    if (invite_snap_has_hash(w, m.key_hash32)) return false;",
+  "    // (authority (a) dropped)"),
+ ("I03 ★★ the AUTHORITATIVE floor is lowered — a member with NO key binding is listed as grantable, with an "
+  "invented all-zero fingerprint (F-7 / C2)",
+  "    if (m.key_hash32 == 0) return false;",
+  "    // (floor lowered)"),
+ ("I04 ★★ the candidate list is produced WHILE THE WINDOW IS CLOSED — the `taken` guard is ignored, so a state "
+  "with no snapshot treats every member as new (P-12)",
+  "    if (!w.taken) return false;",
+  "    // (the snapshot's existence is no longer consulted)"),
+ ("I05 ★★ `NEW MEMBER` is re-spelled as the design's FORBIDDEN word (S-33)",
+  'inline constexpr const char* kInviteNew    = "NEW MEMBER";      // S-14 — the design\'s own word (§3.6.4 :815)',
+  'inline constexpr const char* kInviteNew    = "KEYLESS";'),
+ ("I06 ★★★ THE HANDLED SET IS DROPPED — a REJECTed candidate comes back on the very next refresh (F-13's "
+  "self-contradiction, restored)",
+  "            if (invite_handled_has(w, mem[i].key_hash32)) continue;",
+  "            // (the handled set is no longer consulted)"),
+ ("I07 ★★ the cached name REPLACES the member fingerprint instead of filling the column beside it — the identity "
+  "aid vanishes the moment a name arrives (F-15 rule 2)",
+  '    snprintf(out, cap, "%c%-6.6s T%-3u %6s", marker, m.name, unsigned(m.id), fp);',
+  '    snprintf(out, cap, "%c%-6.6s T%-3u %6s", marker, "", unsigned(m.id), m.name[0] ? m.name : fp);'),
+ ("I08 ★★ the name column falls back to `label_from_hash`'s `0x` spelling when no name is cached — the TRUNCATED "
+  "`0x` third spelling of the hash, in six columns (F-15's named refusal)",
+  '    snprintf(out, cap, "%c%-6.6s T%-3u %6s", marker, m.name, unsigned(m.id), fp);',
+  '    char nm[12]; snprintf(nm, sizeof nm, "0x%08lx", (unsigned long)m.key_hash32);\n'
+  '    snprintf(out, cap, "%c%-6.6s T%-3u %6s", marker, m.name[0] ? m.name : nm, unsigned(m.id), fp);'),
+ ("I09 ★ the name is rendered WITHOUT the six-column clamp — a long name pushes the id and the fingerprint off "
+  "the 19-column row",
+  '    snprintf(out, cap, "%c%-6.6s T%-3u %6s", marker, m.name, unsigned(m.id), fp);',
+  '    snprintf(out, cap, "%c%s T%-3u %6s", marker, m.name, unsigned(m.id), fp);'),
+ ("I10 ★★★ THE CONFIRMATION DROPS THE FULL HASH — the irreversible act's screen is downgraded to the six-column "
+  "selection aid, which 255 other peers answer to (P-7c / [[B48]])",
+  '    snprintf(out, cap, "0x%08lX", (unsigned long)key_hash32);',
+  '    snprintf(out, cap, "%06lX", (unsigned long)(key_hash32 & kMemberFpMask));'),
+ # ★★★ I11 IS THE FAIL-**OPEN** SNAPSHOT, AND IT IS A DIFFERENT DEFECT FROM I04 — which is why it is its own entry.
+ #     I04 ignores an honestly-absent snapshot at the READ; I11 manufactures a snapshot at the WRITE, recording a
+ #     TAKEN-but-EMPTY window for a publisher that claimed `n` members and handed over no source. The read then
+ #     answers *new* for EVERY member observed, because the authorities really are empty — a whole team announced as
+ #     candidates on a caller's bug, wearing a comment that says "fails closed". ⇒ the refusal needs its own control.
+ ("I11 ★★★ THE NULL SOURCE FAILS **OPEN** — `(nullptr, n > 0)` is recorded as a TAKEN, EMPTY snapshot, so every "
+  "member the window then observes is announced as NEW MEMBER (C2, inverted)",
+  "    if (!mem && n != 0) return w;          // ⛔ REFUSED: members claimed, no source — `taken` stays false\n"
+  "    w.taken = true;",
+  "    w.taken = true;"),
 ]
 
 MUTS_TEAMSEEN = [
@@ -2846,6 +3195,47 @@ MUTS_UIPROV = [
  ("V22 the intent dispatch sends a JOIN to the TEAM-CREATE act (the two ops collapse)",
   "            case mrui::UiProvOp::join_static: return ui_prov_join_static(_join, intent.join);",
   "            case mrui::UiProvOp::join_static: return ui_prov_create_team(_dev);"),
+ # ============================================ §UI-16 N3 — the NEARBY-TEAM JOIN half of the SAME adapter file
+ # ★★★★ V23 IS THE SLICE'S HEADLINE CONTROL AND IT IS **ONE WORD**: a "join" that MINTS. The operator presses JOIN on
+ #      a team they can see, and the transaction draws a NEW random id and a NEW keypair — so they end up ALONE, in a
+ #      team that never existed, holding a key nobody else has, with `TEAM JOINED` on the panel. ⓘ Nothing about the
+ #      screen changes; only the request does.
+ # ⛔ V24/V25 ARE THE PRECONDITION'S TWO HALVES ON THIS ARM — the refusal deleted, and the comparison turned into the
+ #    no-op `live_phy_matches` early-returns for a `present = false` phy. They are V01/V05's twins, and they need
+ #    their own entries because a control that reddens the CREATE arm says nothing about the JOIN one.
+ ("V23 ★★★ `mint` is left TRUE — a JOIN that MINTS A NEW TEAM (the headline control)",
+  "    rq.mint    = false;            // ★★★ A JOIN, ⛔ NEVER A MINT — see difference 1 in the block above",
+  "    rq.mint    = true;"),
+ ("V24 the join arm's PHY precondition never refuses (the owner ruling applies to creates only)",
+  "    if (!phy_ok) {", "    if (false) {"),
+ ("V25 ★★ the join precondition is built with `present = false`, so `live_phy_matches` ALWAYS passes",
+  "    persisted.present = true;      // ⚠ THE COMPARISON's object", "    persisted.present = false;      // ⚠ THE COMPARISON's object"),
+ ("V26 ★★ `rq.phy.present` is set TRUE on the request — a membership join that RETUNES ([[B209]])",
+  "    rq.team_id = team_id;", "    rq.team_id = team_id;\n    rq.phy = persisted;"),
+ ("V27 ★★ a FAILED save is rendered as a SUCCESS — `TEAM JOINED` for a write that did not land",
+  "            a.outcome = mrui::UiProvOutcome::save_failed;\n"
+  "            return a;\n"
+  "        case ProvVerdict::refused:\n"
+  "            a.outcome = mrui::UiProvOutcome::join_refused;",
+  "            a.outcome = mrui::UiProvOutcome::team_joined;\n"
+  "            return a;\n"
+  "        case ProvVerdict::refused:\n"
+  "            a.outcome = mrui::UiProvOutcome::join_refused;"),
+ ("V28 `no_change` is rendered as a success — the screen claims a membership nothing wrote",
+  "            a.outcome = mrui::UiProvOutcome::join_refused;\n"
+  "            a.reason  = \"no change\";",
+  "            a.outcome = mrui::UiProvOutcome::team_joined;\n"
+  "            a.reason  = \"no change\";"),
+ ("V29 the zero-id floor is dropped — `team_id = 0` reaches the transaction, where it means LEAVE",
+  "    if (team_id == 0) {", "    if (false) {"),
+ ("V30 the join notification fires on every verdict ([[B194]] inverted, a third time)",
+  "    const ProvResult res = dev.apply(rq, snap);\n    switch (res.verdict) {",
+  "    const ProvResult res = dev.apply(rq, snap);\n    dev.on_applied(res);\n    switch (res.verdict) {"),
+ ("V31 the joined answer carries no id, so the success screen can show neither identity",
+  "            a.team_id = res.team_id;", "            a.team_id = 0;"),
+ ("V32 the intent dispatch sends the NEARBY JOIN to the create act (a JOIN that mints, by routing)",
+  "            case mrui::UiProvOp::join_team:   return ui_prov_join_team(_dev, intent.team_id);",
+  "            case mrui::UiProvOp::join_team:   return ui_prov_create_team(_dev);"),
 ]
 
 # ==================================================================== §UI-15 slice 6 — src/firmware_ui_join.h
@@ -3253,7 +3643,8 @@ MUTS_BY_TARGET = {"model": MUTS_MODEL, "config": MUTS_CONFIG, "chrome": MUTS_CHR
                   "uistatus": MUTS_UISTATUS, "uiteam": MUTS_UITEAM, "uigeo": MUTS_UIGEO,
                   "uisend": MUTS_UISEND, "teamkeyring": MUTS_TEAMKEYRING,
                   "teamseen": MUTS_TEAMSEEN, "teamseensite": MUTS_TEAMSEENSITE,
-                  "uinearby": MUTS_UINEARBY, "uinearbyrow": MUTS_UINEARBYROW}
+                  "uinearby": MUTS_UINEARBY, "uinearbyrow": MUTS_UINEARBYROW,
+                  "uiinvite": MUTS_UIINVITE}
 MUTS = MUTS_BY_TARGET[_TARGET]
 
 # ⓘ `_positional` is built (and judged: at most one) in the argv block at the top of the file — see `_refuse_argv`.

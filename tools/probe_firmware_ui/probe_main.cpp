@@ -92,6 +92,30 @@
 //     the same class of defect as a stale coverage ratio ([[B120]]), which is why it is corrected rather than tidied.
 //     ⇒ being reddened by a broad control proves these checks are WIRED; it does not prove they measure the ruling,
 //     and the model battery is where that is proved.
+//   ⓘ §UI-16 N3 (P22) ADDS SEVEN STANDING EXCEPTIONS, MEASURED OFF THE ROLL-UP RATHER THAN PREDICTED, and every one
+//     of them is one of the two shapes above. The HARNESS PRECONDITION: "P22 precondition: in a team, HOLDING its
+//     key, with a retained key for the target" — it asserts the FIXTURE, which is what makes the keyless and
+//     retained-key checks beside it mean anything (without the seed a node with no key cannot be shown to lose one).
+//     The NEGATIVE SPACE: "P22a ...and opening it entered NO transaction and spent NO write" · "P22b ...having
+//     performed NOTHING" · "P22b ...and the membership and the key are exactly as they were" · "P22c ...and the
+//     toggle is still not the act" · "P22c the RETAINED key ... was NOT installed and NOT rewritten" · "P22c ...the
+//     two are DIFFERENT tokens, both drawn" (a vacuity guard on the fixture's two ids, not on this file).
+//     ⛔ WHAT NO CONTROL IN THIS FILE CAN DO, and this is the division of labour rather than a gap: the renderer
+//     cannot install a key, spend a write or enter a transaction, so the mutations that would move those four live
+//     in `tools/probe_ui_model_mutations.py --target=uiprov` (V23-V32) and `--target=model` (N07-N13) — where the
+//     act and the flow are, and where each is RED at match count 1. ★ The one that LOOKED like negative space and is
+//     not is P22c's banned-lexeme sweep: **N16** adds a `KEYLESS` row from the renderer and reddens it.
+//   ⓘ §CHROME-5 (P24) ADDS SIX STANDING EXCEPTIONS, MEASURED OFF THE ROLL-UP RATHER THAN PREDICTED, and every one
+//     of them is one of the two shapes above. The HARNESS PRECONDITIONS — "the injected frame's airtime is non-zero
+//     and the window fits a uint32", "the node now HAS a duty limit and has spent none of it", "the core now reports
+//     no duty limit, pct 0" and "the fixture is restored" — assert the DUTY FIXTURE itself (a `NodeConfig` write plus
+//     `recompute_duty_budget()`, neither of which lives in the file under test). They are this phase's vacuity guard:
+//     without them the whole ramp could be measuring a node whose budget never armed, and they CAN fail — a core that
+//     stopped deriving the budget live, or an `airtime_ms` of 0, trips them. The NEGATIVE SPACE: "P24c ⛔ ...and never
+//     the blocked picture below 100 %" and "P24e ⛔ ...and neither blocked nor full" — each the paired refusal that
+//     makes the positive check beside it evidence. ★ THE ONE THAT LOOKED LIKE NEGATIVE SPACE AND IS NOT is
+//     "P24f ⛔ ...and §CHROME-3's superseded coordinates draw NOTHING": **C133** reddens it by restoring ONE of the
+//     five moved slots, which is the likeliest half-done version of this whole amendment.
 //   ★ WHAT THIS PHASE ADDS OVER THE NATIVE CASES is the panel: that the power latch really goes down on the unmoved
 //     deadline with a modal up, and that the frame the consumed wake press produces draws the SAME record's modal
 //     with `back` still selected — none of which any native case compiles.
@@ -125,6 +149,9 @@
 #include "iclock.h"
 #include "iradio.h"
 #include "command.h"
+#include "airtime.h"           // ★ §CHROME-5: `airtime_ms` — P24 SIZES ITS DUTY BUDGET from the very airtime the
+                               //   `DeviceHal` ledger will debit, so one injected frame is exactly one per cent and
+                               //   the fixture's percentage is a MEASUREMENT rather than an approximation.
 #include "firmware_ui_icons.h"  // ★ §CHROME-3: the strip's glyphs, so "the RIGHT icon" is POINTER IDENTITY rather
                                 //   than "a bitmap appeared". ⓘ Pure and Arduino-free, which is why a probe may
                                 //   include it without dragging the model in.
@@ -144,6 +171,9 @@
 #include "firmware_ui_chrome.h" // ★ the SHARED id / fingerprint / REPLACES formatters. The P15 checks compute their
                                 //   EXPECTATION with them, so `the fingerprint on the panel` is a VALUE RELATION to
                                 //   `ui_fmt_team_fingerprint(the created id)` rather than "six hex characters appeared".
+#include "firmware_ui_nearby_row.h"  // ★ §UI-16 N3: `ui_fmt_nearby_join_title` — the P22 checks compute the
+                                //   confirmation's expected title with the SHIPPED formatter, for the same reason.
+                                //   ⓘ It pulls `firmware_ui_nearby.h` with it (the two halves of one screen).
 #include <Arduino.h>           // the shim: millis / Print / F() / Serial  (tools/probe_board_ui/fakes)
 #include <span>             // std::span — the codec's own frame/ext parameter type (P21's beacon injection)
 #include <cstdio>
@@ -2005,9 +2035,15 @@ int main() {
     //    test would agree with a layout that had drifted — the "instrument that cannot fail" shape this arc keeps
     //    finding. `Font::small` is 6 px per column; every glyph but the battery is 7 px wide.
     {
+        // ⛔⛔ THESE ARE §CHROME-5's MOVED COORDINATES, RESTATED — NOT IMPORTED (§3.1's own rule, and the reason this
+        //    block exists at all). The sixth slot cost the strip its 2/3/5-px reserves: home, people and key each
+        //    moved LEFT to one-pixel gaps and the duty gauge took 83..89, while the battery did NOT move — glyph 91,
+        //    token 104, last column 127. ⇒ 26 + 1 + 26 + 1 + 20 + 1 + 7 + 1 + 7 + 1 + 37 = 128 exactly.
+        // ⚠ RE-ANCHORED, NOT RELAXED: every number below changed except the mail slot's and the battery's, and a
+        //   bound that had been imported from `kStrip[]` would have agreed with the move without measuring it.
         struct Slot { int icon_x, text_x; };
-        const Slot kMail = {  0,   8 }, kHome = { 28, 36 }, kTeam = { 56, 64 };
-        const Slot kKey  = { 79,  -1 }, kBatt = { 91, 104 };
+        const Slot kMail = {  0,   8 }, kHome = { 27, 35 }, kTeam = { 54, 62 };
+        const Slot kKey  = { 75,  -1 }, kDuty = { 83,  -1 }, kBatt = { 91, 104 };
         const int  kIconY = 0, kBaseY = 7;
 
         // ---- the fixture. The team plane already carries P9d's `team_id` + one route to id 60; the CONTENT key is
@@ -2044,6 +2080,13 @@ int main() {
             text_at(kTeam.text_x, kBaseY) != nullptr && strcmp(text_at(kTeam.text_x, kBaseY), "1") == 0);
         CHK("P13a a held team CONTENT key draws the normal key",
             bitmap_at(kKey.icon_x, kIconY) == mrui::icons::kIconKey);
+        // §CHROME-5 — the sixth slot. This fixture's node has NO duty limit (`NodeConfig::duty_cycle` defaults to 0,
+        // so `duty_status()` answers `{0, 0, false}`), which is the CROSSED gauge. ⛔ NOT the empty one: "unlimited"
+        // and "none of the budget used" are different facts, and P24 drives the other seven pictures.
+        CHK("P13a the duty slot draws the CROSSED gauge (this node has no duty limit)",
+            bitmap_at(kDuty.icon_x, kIconY) == mrui::icons::kIconDutyDisabled);
+        CHK("P13a ...and it is NOT the empty gauge (`no limit` is not `0 % used`)",
+            bitmap_at(kDuty.icon_x, kIconY) != mrui::icons::kIconDutyFill[0]);
         CHK("P13a the battery outline is the 11-px asset",
             bitmap_at(kBatt.icon_x, kIconY) == mrui::icons::kIconBattery);
         // ★ THE DIMENSIONS TRAVEL WITH THE POINTER, and this is not pedantry: the battery is the ONE asset whose rows
@@ -2064,7 +2107,9 @@ int main() {
         CHK("P13a ...voltage in the right-anchored token column",
             text_at(kBatt.text_x, kBaseY) != nullptr && strcmp(text_at(kBatt.text_x, kBaseY), "4.1V") == 0);
         CHK("P13a the y=9 rule is still drawn under the strip", g_c.draw_hline > 0);
-        CHK("P13a exactly five glyphs on the strip (no sixth)", strip_glyphs_on_page(0) == 5);
+        // ⓘ RE-ANCHORED BY §CHROME-5 (it read *"exactly five glyphs on the strip (no sixth)"*): the duty gauge IS the
+        //   sixth, and it is drawn unconditionally — every build has a radio and therefore a duty answer.
+        CHK("P13a exactly six glyphs on the strip (no seventh)", strip_glyphs_on_page(0) == 6);
         // ★ §CHROME-4: the rail lives BELOW the rule and is measured in full by P14; what this pins here is that the
         //   two regions are disjoint — the strip kept its five and the rail drew its own five plus one frame.
         CHK("P13a ...and the rail drew five glyphs and ONE frame below it",
@@ -2085,7 +2130,8 @@ int main() {
         //   makes this check ALSO the end-to-end proof of the guard, through the shipped renderer.
         // ⓘ It cannot be produced by an unavailable READ: spec §7's last-good rule keeps the previous voltage for
         //   ever, and P5 already took a good sample in this process.
-        const int mail_x = kMail.icon_x, home_x = kHome.icon_x, team_x = kTeam.icon_x, key_x = kKey.icon_x;
+        const int mail_x = kMail.icon_x, home_x = kHome.icon_x, team_x = kTeam.icon_x, key_x = kKey.icon_x,
+                  duty_x = kDuty.icon_x;
         g_c.batt_answer = 12000;                                 // 12.0 V — outside the four-column slot
         t13 += 31000; run_ticks(t13, 2, 10);
         t13 = settle(t13 + 1000);
@@ -2094,11 +2140,15 @@ int main() {
             text_at(kBatt.text_x, kBaseY) != nullptr && strcmp(text_at(kBatt.text_x, kBaseY), "--") == 0);
         CHK("P13c ...and the battery ICON did not move with it",
             bitmap_at(kBatt.icon_x, kIconY) == mrui::icons::kIconBattery);
+        // ★★ §3.1's RIGHT-ANCHORING PROPERTY, RE-PROVEN AT THE MOVED TABLE (§CHROME-5): with a `4.1V` token and with
+        //    a `--` token, EVERY EARLIER GLYPH IS AT THE SAME x — now including the duty gauge, which sits one pixel
+        //    from the battery and is therefore the first thing a flowed layout would drag.
         CHK("P13c ...nor did any icon before it (anchored, not flowed)",
             bitmap_at(mail_x, kIconY) == mrui::icons::kIconMail &&
             bitmap_at(home_x, kIconY) == mrui::icons::kIconHomeUnknown &&
             bitmap_at(team_x, kIconY) == mrui::icons::kIconPeople &&
-            bitmap_at(key_x,  kIconY) == mrui::icons::kIconKey);
+            bitmap_at(key_x,  kIconY) == mrui::icons::kIconKey &&
+            bitmap_at(duty_x, kIconY) == mrui::icons::kIconDutyDisabled);
         CHK("P13c ...and the strip still fits 128 px", strip_max_x() <= 127);
 
         // ---- (d) ★★★ THE FROZEN CHROME, ACROSS ALL EIGHT PAGE REPLAYS ---------------------------------------------
@@ -2236,7 +2286,7 @@ int main() {
             CHK("P13i ...and the strip's draws issued no panel command",
                 g_c.power_cmds == pwr0);
             CHK("P13i ...having actually drawn the strip on that frame",
-                strip_glyphs_on_page(0) == 5);
+                strip_glyphs_on_page(0) == 6);   // ⓘ SIX since §CHROME-5 added the duty gauge
         }
     }
 
@@ -2289,19 +2339,22 @@ int main() {
         CHK("P14a no draw of the whole frame exceeds x=127 or y=63",
             strip_max_x() <= 127 && body_max_x() <= 127 && strip_max_y() <= 63);
         // ★ THE WHOLE FRAME'S NON-TEXT TALLY, which is what a sixth rail glyph or a second selection frame moves and
-        //   neither of the two scoped counters above would: 5 strip glyphs + 5 rail glyphs + 1 selection frame.
+        //   neither of the two scoped counters above would: 6 strip glyphs + 5 rail glyphs + 1 selection frame.
+        // ⓘ RE-ANCHORED 2026-08-23 (§CHROME-5), ⛔ NOT weakened: the strip's tally went 5 -> 6 when the duty gauge
+        //   took the sixth slot, so BOTH arms of the screen-dependent split move by exactly one — 11 -> 12 on an
+        //   ordinary screen and 12 -> 13 on STATUS. The numbers stay EXACT; the earlier wording is amended in place.
         // ⛔⛔ RE-POINTED BY §UI-17 S3, ⛔ NOT WEAKENED. `bitmaps_on_page` counts EVERY non-text record, `draw_rect`
         //   included, and the STATUS body draws one more than the rest. ⇒ the expectation is SCREEN-DEPENDENT: an
-        //   ordinary screen still owes exactly 11 (asserted here, on INBOX) and STATUS owes exactly 12, with the
+        //   ordinary screen still owes exactly 12 (asserted here, on INBOX) and STATUS owes exactly 13, with the
         //   twelfth pinned at its own `12,12,24,24` immediately below. ⛔ A relaxation to `>= 11` would be the
         //   instrument-that-cannot-fail shape; the number stays EXACT on both arms of the split.
-        CHK("P14a the frame draws exactly 5 + 5 glyphs and 1 frame", bitmaps_on_page(0) == 11);
+        CHK("P14a the frame draws exactly 6 + 5 glyphs and 1 frame", bitmaps_on_page(0) == 12);
         CHK("P14a ...and an ordinary screen's body draws no rect of its own", body_rects_on_page(0) == 0);
         // ---- (a2) §UI-17 S6 — THE STATUS BODY's 24x24 MARK, NOW THE REAL ASSET -------------------------------------
         // ★★★★ RE-POINTED BY §UI-17 S6, ⛔ NOT WEAKENED, and the re-point is the MEASUREMENT of the slice: S3 drew a
         //      `draw_rect` placeholder in this slot and S6 draws `icons::kMarkMeshRoute` there instead. ⇒ the census
         //      MOVES in exactly two ways and both are asserted: `body_rects_on_page(0)` **1 -> 0** (the placeholder
-        //      rect is gone from every screen, STATUS included) while `bitmaps_on_page(0)` **stays 12** — that
+        //      rect is gone from every screen, STATUS included) while `bitmaps_on_page(0)` **stayed put** — that
         //      counter tallies EVERY non-text record, rect or glyph, so the twelfth record changed KIND, not count.
         // ★★ THE MARK'S EXACT RECT IS STILL ASSERTED, through the bitmap record instead of the rect record, and with
         //    the asset's POINTER IDENTITY added on top — the same standard `bitmap_at` holds the strip's glyphs to.
@@ -2311,7 +2364,7 @@ int main() {
         {
             t16 = walk_to_slot(t16 + 500, kSlotStatus);
             CHK("P14a STATUS draws exactly ONE more non-text record, and NO body rect at all",
-                bitmaps_on_page(0) == 12 && body_rects_on_page(0) == 0);
+                bitmaps_on_page(0) == 13 && body_rects_on_page(0) == 0);
             bool mark_ok = false;
             for (int i = 0; i < g_c.n_rec; ++i) {
                 const Canvas::Rec& r = g_c.rec[i];
@@ -2407,7 +2460,7 @@ int main() {
                 strstr(g_c.page_text, "RELEASE!") != nullptr || strstr(g_c.page_text, "EMERGENCY IN") != nullptr);
             CHK("P14e an emergency frame draws NO rail glyph and NO frame",
                 rail_glyphs_on_page(0) == 0 && rail_frames_on_page(0) == 0);
-            CHK("P14e ...and the STRIP is still there (§5.3 keeps it)", strip_glyphs_on_page(0) == 5);
+            CHK("P14e ...and the STRIP is still there (§5.3 keeps it)", strip_glyphs_on_page(0) == 6);
             // ⛔⛔ EVERY emergency body draw, not just the leftmost. A check on `body_text_min_x()` alone PASSED over a
             //   mutant that moved the `Font::large` HEADLINE to `kBodyX` and left the small-font detail line at 0 —
             //   measured, on this very control (C82). The headline is the string that clips, so it is the one that
@@ -2640,7 +2693,11 @@ int main() {
         //     phase happened to leave behind, which a literal would not be.
         // ⓘ The strip's slot coordinates are stated here independently of the renderer's table, as P13's are.
         {
-            const char* team = text_at(/*people text_x=*/64, /*strip baseline=*/7);
+            // ⓘ RE-ANCHORED 2026-08-23 (§CHROME-5): the people token moved 64 -> 62 when the sixth slot took the
+            //   strip's reserve. ⛔ Not weakened — the coordinate is still stated here rather than imported, and a
+            //   stale 64 would have read `nullptr` and reddened both checks for the wrong reason. The mail token is
+            //   UNCHANGED at 8 (only home, people and key moved; the battery did not move at all).
+            const char* team = text_at(/*people text_x=*/62, /*strip baseline=*/7);
             const char* mail = text_at(/*mail   text_x=*/ 8, /*strip baseline=*/7);
             char want2[32], want3[40];
             snprintf(want2, sizeof want2, "%s KNOWN", team ? team : "?");
@@ -3362,6 +3419,239 @@ int main() {
         (void)t22;
     }
 
+    // ============================================================================================================ P24
+    // ★★★★ §CHROME-5 — THE DUTY GAUGE, DRIVEN THROUGH THE REAL `Node::duty_status()` AND THE REAL RENDERER.
+    //      `test/test_firmware_ui_chrome.cpp` proves what `ui_duty_bucket` RETURNS and `--target=chrome`/`--target=
+    //      icons` prove every ruling and every picture is load-bearing — but ALL of them call the pure unit directly.
+    //      Point `draw_status_strip` at the wrong bitmap, publish the wrong accessor into the snapshot, or read the
+    //      gauge LIVE in the renderer, and every native case stays green and every mutation stays RED: the panel
+    //      simply shows a duty state the node is not in. ⇒ this phase moves the REAL node's REAL duty ledger and
+    //      asserts the EXACT bitmap at the EXACT coordinate for every one of the eight pictures.
+    //
+    // ★★★ HOW A DETERMINISTIC PERCENTAGE IS PRODUCED WITHOUT A SINGLE POKED FIELD, because that is the part that
+    //     could have been faked and was not: the duty budget is `duty_cycle * duty_cycle_window_ms`, re-derived by
+    //     the core's OWN live-change entry point (`Node::recompute_duty_budget()` — the one `cfg set duty` and the
+    //     join/create verbs call). Sizing the window at `100 x airtime_ms(...)` with `duty_cycle = 1.0` makes the
+    //     budget exactly one hundred frames of the frame this phase injects ⇒ ONE `g_hal.tx()` + `pump_tx()` pair is
+    //     exactly ONE PER CENT, debited by `DeviceHal::pump_tx`'s own `_ledger.record(...)` on the real on-air path.
+    // ⛔ NOTHING HERE WRITES A PCT ANYWHERE. The fixture's own assertion is `duty_status().pct`, read back from the
+    //    core after each injection — so a phase that drifted off its intended percentage FAILS rather than measuring
+    //    the wrong bucket quietly.
+    // ⚠ IT RUNS ON BOTH ARMS (outside the `MR_N_LAYERS < 2` block below): duty is a RADIO fact, present on every
+    //   profile, and the gauge is the one strip slot with no build-time silence.
+    {
+        // ---- the fixture ---------------------------------------------------------------------------------------
+        // §CHROME-5's slot, STATED HERE INDEPENDENTLY of the renderer's table and of P13's copy of it (§3.1's rule:
+        // a bound imported from the code under test agrees with a layout that has drifted): glyph x = 83, y = 0.
+        const struct { int icon_x; } kDuty = { 83 };
+        const int kIconY = 0;
+        const uint32_t air = MESHROUTE_NS::airtime_ms(/*sf=*/12, /*bw_hz=*/125000, /*cr=*/5,
+                                                      /*preamble_sym=*/16, /*len=*/200);
+        const uint32_t win = air * 100u;                     // budget = 1.0 * win = 100 frames = 100 x 1 %
+        CHK("P24 precondition: the injected frame's airtime is non-zero and the window fits a uint32",
+            air > 0 && win / 100u == air);
+        MESHROUTE_NS::NodeConfig& live = g_node.mutable_config();
+        const double   duty_before   = live.duty_cycle;      // ⛔ restored at the end of the phase
+        const uint32_t window_before = live.duty_cycle_window_ms;
+        live.duty_cycle           = 1.0;
+        live.duty_cycle_window_ms = win;
+        g_node.recompute_duty_budget();                      // the core's own live-duty entry point
+        CHK("P24 precondition: the node now HAS a duty limit and has spent none of it",
+            g_node.duty_status().enabled == true && g_node.duty_status().pct == 0);
+
+        uint32_t t24 = settle(1900000);   // this file's convention: one absolute anchor per phase, monotonic
+        paint(t24);
+        // ⚠ PIN THE BATTERY FIRST, and this is a MEASURED precaution rather than a ritual: the 30 s ADC cadence is the
+        //   ONE other snapshot fact that can move on its own here, and (b) below asserts that NO frame opens. A
+        //   sample landing inside that window would open a frame for a reason nothing to do with duty and the check
+        //   would fail — or, far worse, pass for the wrong reason once somebody "fixed" it. ⇒ force the due sample
+        //   NOW, at a fixed value, so the next one is a full period away and every later reading is identical.
+        g_c.batt_answer = 4123;
+        t24 += 31000; run_ticks(t24, 4, 10);
+        t24 = settle(t24 + 500); paint(t24);
+
+        // ★ ONE injection helper (U1). Each pair queues a frame on the REAL `DeviceHal` and starts it on the REAL
+        //   `IRadio`, which is what debits the ledger; the queue is drained every time, so the §5 MAC-idle gate that
+        //   suppresses painting while a TX is pending cannot leave the panel frozen underneath the checks.
+        uint8_t frame[200];
+        for (int i = 0; i < 200; ++i) frame[i] = uint8_t(i);
+        auto burn_pct = [&](int n) {
+            for (int i = 0; i < n; ++i) {
+                meshroute::TxParams p; p.sf = 12; p.bw_hz = 125000; p.cr = 5; p.preamble_sym = 16;
+                (void)g_hal.tx(frame, sizeof frame, p);
+                g_hal.pump_tx();
+            }
+        };
+        // The gauge the amendment's ramp requires, STATED HERE and ⛔ not recomputed from `kDutyFillLevels`: six
+        // levels over 0..99 ⇒ the steps begin at 0, 17, 34, 50, 67 and 84 (P13's rule, applied to the ramp).
+        auto want_level = [](int pct) {
+            static const int kFirst[6] = { 0, 17, 34, 50, 67, 84 };
+            int lvl = 0;
+            for (int k = 0; k < 6; ++k) if (pct >= kFirst[k]) lvl = k;
+            return lvl;
+        };
+        // ★ THE REPAINT IS A REAL PRESS, ⛔ not a bare `dirty` + paint, and the reason is MEASURED rather than
+        //   stylistic: this phase spans ~15 s of probe clock, which is exactly `kBlankMs`. A push marks the model
+        //   dirty but does NOT touch the attention window (§8.3.1 rule 1 — and control C74 exists to keep it that
+        //   way), so a ladder driven by pushes alone would BLANK halfway through and every later check would fail
+        //   for a reason nothing to do with the gauge. A press refreshes the window the way a wearer's would.
+        // ⓘ A short press moves the RAIL, never the strip: the status strip is drawn on every screen (§3.1), so
+        //   which body the press lands on is irrelevant to every assertion below.
+        auto repaint = [&](uint32_t at) { uint32_t r = settle(at); paint(r); return r; };
+
+        // ---- (a) 0 % — THE EMPTY GAUGE, and ⛔ it is NOT the crossed one -----------------------------------------
+        // ★ This is the pair P13a cannot make on its own: there the node had NO duty limit (crossed); here it has one
+        //   and has spent none of it (empty). Two different pictures for two different facts, on the same slot.
+        t24 = repaint(t24 + 500);
+        CHK("P24a a duty-limited node with no airtime spent draws the EMPTY gauge",
+            bitmap_at(kDuty.icon_x, kIconY) == mrui::icons::kIconDutyFill[0]);
+        CHK("P24a ⛔ ...and never the crossed one (`0 % used` is not `no duty limit`)",
+            bitmap_at(kDuty.icon_x, kIconY) != mrui::icons::kIconDutyDisabled);
+        CHK("P24a the strip still fits 128 px with its sixth slot", strip_max_x() <= 127);
+        CHK("P24a ...and still draws exactly six glyphs", strip_glyphs_on_page(0) == 6);
+
+        // ---- (b) ★★★ THE REPAINT ECONOMY, ON GLASS (§8.3 through the bucket, ⛔ never the pct) -------------------
+        // ★★ A duty percentage moves on EVERY completed transmission. If the invalidation followed the reading, this
+        //    panel would repaint continuously on a busy relay — the §9 non-goal ("waking the panel for every
+        //    status-strip change") arriving through the back door. ⓘ The panel is LIT and CLEAN here, so
+        //    `FrameGate::step` answers `idle` for ever unless something invalidates.
+        {
+            t24 += 1000; tick(t24);
+            const int frames0 = g_c.begin_frame;
+            run_ticks(t24 + 10, 4, 10);
+            CHK("P24b precondition: a clean lit panel opens NO frame itself", g_c.begin_frame == frames0);
+            burn_pct(10);                                        // 0 % -> 10 %: still the EMPTY gauge
+            CHK("P24b the fixture really moved the node's duty reading", g_node.duty_status().pct == 10);
+            run_ticks(t24 + 100, 10, 10);
+            CHK("P24b ⛔ a pct move INSIDE one bucket opens no frame at all", g_c.begin_frame == frames0);
+            burn_pct(7);                                         // 10 % -> 17 %: the FIRST step boundary
+            CHK("P24b ...and the boundary fixture landed exactly", g_node.duty_status().pct == 17);
+            run_ticks(t24 + 300, 12, 10);
+            CHK("P24b crossing the boundary opens a frame, with no gesture and no push",
+                g_c.begin_frame > frames0);
+            CHK("P24b ...and the gauge is one step fuller",
+                bitmap_at(kDuty.icon_x, kIconY) == mrui::icons::kIconDutyFill[1]);
+            t24 += 2000;
+        }
+
+        // ---- (c) THE WHOLE RAMP, at every boundary and at the value one below it ---------------------------------
+        // ⓘ MONOTONIC BY CONSTRUCTION: airtime only accumulates, so the ladder is walked upward and each stop is
+        //   reached by burning the difference. The percentage is asserted at every stop before the picture is.
+        {
+            const int stops[] = { 33, 34, 49, 50, 66, 67, 83, 84, 99 };
+            int at = 17;
+            for (int want : stops) {
+                burn_pct(want - at); at = want;
+                CHK("P24c the ladder's stop is exactly where it claims to be",
+                    g_node.duty_status().pct == uint8_t(want));
+                t24 = repaint(t24 + 200);
+                CHK("P24c the gauge draws the level this percentage belongs to",
+                    bitmap_at(kDuty.icon_x, kIconY) == mrui::icons::kIconDutyFill[want_level(want)]);
+                CHK("P24c ⛔ ...and never the blocked picture below 100 %",
+                    bitmap_at(kDuty.icon_x, kIconY) != mrui::icons::kIconDutyBlocked);
+            }
+            CHK("P24c 99 % IS the full gauge (the ramp's last level is reachable)",
+                bitmap_at(kDuty.icon_x, kIconY) == mrui::icons::kIconDutyFill[mrui::icons::kDutyFillLevels - 1]);
+        }
+
+        // ---- (d) ★★★ 100 % — THE WARNING MARK, which is the one state that changes what the operator should do --
+        {
+            burn_pct(1);
+            CHK("P24d the node is now duty-BLOCKED, by the core's own reading",
+                g_node.duty_status().pct == 100 && g_node.duty_status().enabled == true);
+            t24 = repaint(t24 + 200);
+            CHK("P24d the gauge gains its warning mark",
+                bitmap_at(kDuty.icon_x, kIconY) == mrui::icons::kIconDutyBlocked);
+            CHK("P24d ⛔ ...and is NOT the plain full gauge (99 % and 100 % must be tellable apart)",
+                bitmap_at(kDuty.icon_x, kIconY) != mrui::icons::kIconDutyFill[mrui::icons::kDutyFillLevels - 1]);
+            // ⛔ AND STILL NO NUMBER ANYWHERE ON THE PANEL. Design §3.1's amendment: icon only, never a percentage —
+            //   the figure and the recovery time belong to the `duty` console verb.
+            // ⓘ SCOPED TO THE SLOT, not to the whole page: a body row may legitimately contain the digits `100`
+            //   (a sequence number, an age), so a page-wide substring check would fail for reasons nothing to do
+            //   with this slot. What must be true is that the gauge draws NO TEXT of its own — and that no `%`
+            //   reaches the panel at all, which P5 already established for the battery.
+            bool duty_text = false;
+            for (int i = 0; i < g_c.n_rec; ++i) {
+                const Canvas::Rec& r = g_c.rec[i];
+                if (r.is_text && r.y <= 9 && r.x >= kDuty.icon_x && r.x <= kDuty.icon_x + 6) duty_text = true;
+            }
+            CHK("P24d ⛔ the gauge draws no token of its own, and no `%` reaches the panel",
+                !duty_text && strchr(g_c.page_text, '%') == nullptr);
+        }
+
+        // ---- (e) ★★★★ `enabled == false` WINS OVER THE PCT, ON THE REAL RENDERER --------------------------------
+        // ★★ THE CONTROL THAT MAKES (a)-(d) MEAN SOMETHING: the ledger still holds 100 frames of airtime, so a
+        //    renderer (or a publish site) that classified the percentage first would keep drawing the BLOCKED gauge
+        //    for a node that is no longer duty-limited at all. Removing the limit must show the CROSSED gauge.
+        {
+            live.duty_cycle = 0.0;
+            g_node.recompute_duty_budget();
+            CHK("P24e precondition: the core now reports no duty limit, pct 0",
+                g_node.duty_status().enabled == false && g_node.duty_status().pct == 0);
+            t24 = repaint(t24 + 200);
+            CHK("P24e the gauge is CROSSED, though the airtime that filled it is still in the ledger",
+                bitmap_at(kDuty.icon_x, kIconY) == mrui::icons::kIconDutyDisabled);
+            CHK("P24e ⛔ ...and neither blocked nor full",
+                bitmap_at(kDuty.icon_x, kIconY) != mrui::icons::kIconDutyBlocked &&
+                bitmap_at(kDuty.icon_x, kIconY) != mrui::icons::kIconDutyFill[mrui::icons::kDutyFillLevels - 1]);
+        }
+
+        // ---- (f) THE MOVE ACTUALLY HAPPENED, AND NOTHING FLOWED ------------------------------------------------
+        // ⓘ THE UNCONDITIONAL SLOTS ONLY (mail, people, battery are drawn on every build and in every state); the
+        //   home and key glyphs are state-dependent and P13a pins their identities under a controlled fixture.
+        // ★★ THE SECOND HALF IS THE STRONGER ONE and it is state-independent: §CHROME-3's OLD coordinates (28, 56,
+        //    79) must now be EMPTY. A layout that had kept the old table and squeezed the gauge in anyway would pass
+        //    every positive check above; only the negative space proves the five earlier slots really moved.
+        CHK("P24f the unconditional glyphs are at the AMENDED coordinates",
+            bitmap_at(0,  kIconY) == mrui::icons::kIconMail &&
+            bitmap_at(54, kIconY) == mrui::icons::kIconPeople &&
+            bitmap_at(91, kIconY) == mrui::icons::kIconBattery);
+        CHK("P24f ⛔ ...and §CHROME-3's superseded coordinates draw NOTHING",
+            bitmap_at(28, kIconY) == nullptr && bitmap_at(56, kIconY) == nullptr &&
+            bitmap_at(79, kIconY) == nullptr);
+        CHK("P24f ...and the strip never left its own band", strip_max_y() <= 8 && strip_max_x() <= 127);
+
+        // ---- (g) ★★★ THE GAUGE IS DRAWN FROM THE **FROZEN** BUCKET, ACROSS ALL EIGHT PAGE REPLAYS ---------------
+        // U8g2 re-clips the WHOLE scene once per page, so one frame spans eight ticks. A renderer that asked
+        // `g_node.duty_status()` at the draw site — the "the value is right there" edit, and this slot's own version
+        // of C61 — is correct on any single page and TEARS the moment a TX completes mid-frame. ⛔ This is the ONLY
+        // place that can be measured, which is why the change is injected BETWEEN two pages of one frame.
+        // ★ THE DRIVER IS THE DUTY LIMIT ITSELF, deliberately: re-arming it against the airtime already in the ledger
+        //   jumps the gauge from CROSSED straight to BLOCKED — the widest possible move, so a live read cannot hide
+        //   inside one bucket.
+        {
+            t24 = settle(t24 + 500);                             // a real press: the attention window is fresh again
+            t24 += 1000;
+            dirty_the_model(t24);                                // an arrival, so a frame is owed
+            run_ticks(t24 + 700, 3, 10);                         // open it and push three pages
+            const uint8_t* frozen_gauge = bitmap_at(kDuty.icon_x, kIconY, 0);
+            live.duty_cycle = 1.0;                               // ⚡ ...under the open frame
+            g_node.recompute_duty_budget();
+            run_ticks(t24 + 740, 6, 10);                         // ...and the remaining pages replay
+            CHK("P24g the fixture really did move it under the open frame",
+                frozen_gauge == mrui::icons::kIconDutyDisabled && g_node.duty_status().pct == 100);
+            CHK("P24g every page of one frame drew the SAME strip", strip_identical_on_every_page(8));
+            CHK("P24g ...including the pages drawn after the duty limit came back",
+                bitmap_at(kDuty.icon_x, kIconY, 7) == frozen_gauge);
+            // ★ AND THE MID-FRAME CHANGE IS NOT LOST (§8.3 rule 5): ONE follow-up frame renders the newer bucket.
+            t24 += 3000; paint(t24);
+            CHK("P24g ...and the NEXT frame renders the newer bucket",
+                bitmap_at(kDuty.icon_x, kIconY) == mrui::icons::kIconDutyBlocked);
+        }
+
+        // ---- restore the duty configuration the later phases inherit --------------------------------------------
+        // ⓘ The LEDGER's airtime is deliberately NOT unwound (there is no public seam that could, and none is
+        //   wanted): with `duty_cycle` back at its original value the budget is 0 again, which is the sentinel every
+        //   duty check keys on, so the spent airtime is inert exactly as it was before this phase.
+        live.duty_cycle           = duty_before;
+        live.duty_cycle_window_ms = window_before;
+        g_node.recompute_duty_budget();
+        t24 = settle(t24 + 1000);
+        CHK("P24 the fixture is restored: the node reports no duty limit again",
+            g_node.duty_status().enabled == false);
+        (void)t24;
+    }
+
     // ============================================================================================================ P15
     // ★★★★ §UI-15 slice 5 / [[B225]] — THE PROVISIONING SUB-VIEW, DRIVEN THROUGH THE REAL `draw_provision_screen`.
     //      ⛔ IT RUNS ON THE CHILD-ENABLED ARM ONLY, and that is the whole of the correction: with `-DMR_N_LAYERS=2`
@@ -3425,8 +3715,14 @@ int main() {
         CHK("P15a a double OPENS the child menu, on CREATE TEAM", body_row_is(0, ">CREATE TEAM"));
         // ★ §UI-16 N2 JOINED THIS LIST — the check is EXTENDED rather than re-scoped: what P15a measures is that the
         //   parent row opens the CHILD MENU and which children it offers, and there are now three of them.
-        CHK("P15a ...which also offers JOIN NETWORK, JOIN TEAM and BACK",
-            body_row_is(1, " JOIN NETWORK") && body_row_is(2, " JOIN TEAM") && body_row_is(3, " BACK"));
+        // ⛔ AMENDED IN PLACE 2026-08-23 (§UI-16 N4), AND THE WITHDRAWN LINE IS KEPT VISIBLE: this check read
+        //    *"...which also offers JOIN NETWORK, JOIN TEAM and BACK"* over rows 1-3. N4 adds the FOURTH child
+        //    (`INVITE MEMBER`, available because this node is in a team by now — P18's fixture put it there), so
+        //    BACK moves to row 4. ⛔ The property is unchanged and is what the row list has always been about:
+        //    every child that is available is offered, and BACK is UNCONDITIONALLY last.
+        CHK("P15a ...which also offers JOIN NETWORK, JOIN TEAM, INVITE MEMBER and BACK",
+            body_row_is(1, " JOIN NETWORK") && body_row_is(2, " JOIN TEAM") &&
+            body_row_is(3, " INVITE MEMBER") && body_row_is(4, " BACK"));
 
         // ---- (b) THE CONFIRMATION: ITS BACK DEFAULT AND ITS `REPLACES` WARNING ---------------------------------------
         // ⛔ §3.6.3: reaching CREATE costs a deliberate `short` THEN `double`. A confirmation opening on CREATE would
@@ -3938,9 +4234,13 @@ int main() {
                 const char* s0 = body_row(r);
                 return s0 != nullptr && s0[0] != '\0' && strcmp(s0 + 1, want) == 0;
             };
-            CHK("P21a the PROVISION menu offers JOIN TEAM as its third child",
+            // ⛔ AMENDED IN PLACE 2026-08-23 (§UI-16 N4), AND THE WITHDRAWN LINE IS KEPT VISIBLE: the fourth
+            //    row was `BACK`; it is `INVITE MEMBER` now (this node is in a team, which is that row's runtime
+            //    predicate) and BACK is row 4. The claim this check makes — the children are offered in the
+            //    ruled order and BACK is last — is unchanged.
+            CHK("P21a the PROVISION menu offers JOIN TEAM as its third child, INVITE MEMBER as its fourth",
                 row_label_is(0, "CREATE TEAM") && row_label_is(1, "JOIN NETWORK") &&
-                row_label_is(2, "JOIN TEAM") && row_label_is(3, "BACK"));
+                row_label_is(2, "JOIN TEAM") && row_label_is(3, "INVITE MEMBER") && row_label_is(4, "BACK"));
             t17 = walk_to(t17 + 500, ">JOIN TEAM");
             t17 = see(double_press(t17 + 500));
             // ⛔ NO SUBMENU: what a `double` opens is the SCAN ITSELF, with its two honest PHY lines.
@@ -4035,7 +4335,12 @@ int main() {
             // ★ THE WINDOW IS THE CORE'S and is applied AT THE READ, so nothing here sweeps or clears anything: the
             //   clock simply moves past it and the accessors stop returning the rows.
             {
-                t17 = see(double_press(t17 + 500));                // BACK is not under the cursor -> a no-op double
+                // ⛔ AMENDED IN PLACE 2026-08-23 (§UI-16 N3), AND THE WITHDRAWN LINE IS KEPT VISIBLE: this step was
+                //    `t17 = see(double_press(t17 + 500));` with the note *"BACK is not under the cursor -> a no-op
+                //    double"*. N3 LANDED THE ACT, so a `double` on a TEAM row now opens the JOIN confirmation — the
+                //    press is no longer a no-op anywhere. ⇒ this phase, which is about the RETENTION WINDOW, walks
+                //    straight to BACK instead of pressing on a row whose meaning has changed. (P22 below is where
+                //    the new landing is measured.)
                 t17 = walk_to(t17 + 500, ">BACK");
                 t17 = see(double_press(t17 + 500));
                 CHK("P21h BACK returns to the PROVISION MENU, ⛔ not off the screen",
@@ -4050,6 +4355,439 @@ int main() {
                 CHK("P21h ...and offers a BACK row that still leaves", body_row_is(4, ">BACK"));
                 t17 = see(double_press(t17 + 500));
                 CHK("P21h ...which it does", body_row_is(0, ">CREATE TEAM"));
+            }
+
+            // ================================================================================================== P22
+            // ★★★★ §UI-16 N3 — THE CONFIRMED JOIN, END TO END THROUGH THE **REAL** ADAPTER AND THE **REAL**
+            //      TRANSACTION. This is the production handoff neither pure suite can see: `test_firmware_ui_prov.cpp`
+            //      proves what `ui_prov_join_team` returns and `test_firmware_ui_model.cpp` proves which gesture
+            //      reaches it — but ⛔ NEITHER compiles `src/firmware_ui.cpp`, so a confirmation drawn with the CREATE
+            //      title, an id taken from the wrong field, or a result screen that never learned about the new
+            //      outcome leaves every native case green and every mutation red while the panel says the wrong
+            //      thing. ⇒ every row below is asserted at its EXACT COORDINATE by its EXACT BYTES ([[B226]]).
+            // ★★ WHAT IS REAL HERE: the renderer, the model, the gesture path, `mrfw::UiProvisionAdapter`,
+            //    `ui_prov_join_team`'s PHY precondition and the `ProvisioningService` transaction — over the SAME
+            //    `ProbeCfgStore` every other phase writes through, so `writes` stays one authority for "did anything
+            //    durable happen". ⛔ The only scripted things are the three device forwards that live in
+            //    `src/firmware_config.cpp`, which is not in this link.
+            {
+                ProbeCfgStore& st = probe_store();
+                ProvSeams&     ps = prov_seams();
+                st.can_load = true; st.can_save = true;
+                // A row asserted by its STABLE bytes: the fingerprint and the signal token, ⛔ excluding the age,
+                // which advances while the walk that reaches the row is happening.
+                auto row_starts = [](int r, const char* want) {
+                    const char* s0 = body_row(r);
+                    return s0 != nullptr && strncmp(s0, want, strlen(want)) == 0;
+                };
+                // ---- THE CONVERGED NODE, re-established exactly as P15 establishes it (U3) and ⛔ not assumed: P16's
+                //      static join wrote a record of its own through the SAME store, so the record and the live PHY
+                //      must be put back in step or the owner's precondition would refuse for a reason this phase is
+                //      not about. ⚠ Both ends are seeded from the SAME four values on purpose.
+                ps.snap.mobile_reg_count       = g_node.mobile_reg_count();
+                ps.snap.key_hash32             = g_node.key_hash32();
+                ps.snap.live_freq_mhz          = 869.4625;
+                ps.snap.live_bw_hz             = 125000;
+                ps.snap.live_routing_sf        = 7;
+                ps.snap.live_allowed_sf_bitmap = uint16_t((1u << 6) | (1u << 7));
+                ps.floor.freq_mhz              = 869.4625;
+                ps.floor.bw_hz                 = 125000;
+                st.rec.freq_mhz          = ps.snap.live_freq_mhz;
+                st.rec.bw_hz             = ps.snap.live_bw_hz;
+                st.rec.routing_sf        = ps.snap.live_routing_sf;
+                st.rec.allowed_sf_bitmap = ps.snap.live_allowed_sf_bitmap;
+
+                // ★★★ THE JOINER STARTS **IN A TEAM AND HOLDING ITS CONTENT KEY**, and without that seed the keyless
+                //     assertion below would pass for the wrong reason: a node with no key cannot be shown to lose one
+                //     (the §W10b lesson). ⓘ `team_channel_key_load` is the boot-restore primitive — the same one
+                //     `ProbeProvLive::install_key` forwards to.
+                uint8_t kpub[32], kpriv[32];
+                for (int i = 0; i < 32; ++i) { kpub[i] = uint8_t(0x40 + i); kpriv[i] = uint8_t(0x80 + i); }
+                g_node.team_channel_key_load(kpub, kpriv, /*present=*/true);
+                st.rec.team_ch_key_present = 1;
+                st.rec.team_key_team_id    = g_node.config().team_id;
+                st.rec.team_key_active     = 1;
+                ps.snap.live_key_pub  = g_node.team_channel_pub();
+                ps.snap.live_key_priv = g_node.team_channel_priv();
+                // ★★ ...AND THE TEAM IT IS ABOUT TO JOIN ALREADY HAS A **RETAINED** KEY IN THE `/mrteams` KEYRING.
+                //    ⛔⛔ P-2b / §UI-16 K5: mere knowledge of the PUBLIC team id may never reactivate a stored secret,
+                //    and N3 must NOT anticipate K5's explicit `SAVED KEY FOUND` offer. Seeding it is what turns
+                //    "nothing was installed" from an absence into a measurement.
+                uint8_t rpub[32], rpriv[32];
+                for (int i = 0; i < 32; ++i) { rpub[i] = uint8_t(0x11 + i); rpriv[i] = uint8_t(0x91 + i); }
+                const bool retained_ok =
+                    ps.keyring.put(0x66C0FFEEu, rpub, rpriv).verdict == mrfw::KeyringVerdict::ok;
+                const mrnv::TeamKeyBlob keyring_before = ps.keys.rec;
+                const int keyring_saves_before = ps.keys.saves;
+
+                // ---- TWO FRESH OBSERVATIONS, through the REAL beacon RX path (P21's own fixture, reused) ---------
+                //      `C0FFEE` is the one that gets joined; `BADBAD` is kept for the PHY-refusal arm, because the
+                //      joined team leaves the list the moment it becomes OURS (the own-team filter, from the other
+                //      side).
+                hear_team(216, 0x66C0FFEEu, 10.0f, t17 + 1000);
+                hear_team(217, 0x99BADBADu,  0.0f, t17 + 2000);
+                set_now(t17 + 3000);
+                t17 += 3500;
+                CHK("P22 precondition: in a team, HOLDING its key, with a retained key for the target",
+                    g_node.config().team_id != 0u && g_node.team_channel_key_present() && retained_ok &&
+                    mrfw::team_key_find(keyring_before, 0x66C0FFEEu) >= 0);
+                const uint32_t was_team = g_node.config().team_id;
+
+                // ---- (a) A `double` ON A TEAM ROW OPENS THE CONFIRMATION, ON **BACK** ---------------------------
+                t17 = walk_to(t17 + 500, ">JOIN TEAM");
+                t17 = see(double_press(t17 + 500));
+                // ⚠ THE WALK TARGET CARRIES NO AGE TOKEN, and that is measured rather than fastidious: every
+                //   `settle` inside `walk_to` advances the clock ~1.2 s, so an age spelled into the target would be
+                //   a race against the walk itself. The row's stable bytes are asserted below by `row_starts`,
+                //   age excluded — the fingerprint and the signal token are what identify the row.
+                t17 = walk_to(t17 + 500, ">C0FFEE");
+                // ⚠ EVERY INSTRUMENT IS READ AS A **DELTA**, ⛔ never as an absolute: P15 and P16 have already spent
+                //   writes, live moves, DAD fires and a key install on this same node and these same counters, so an
+                //   `== 1` here would be measuring the phases above it.
+                const int w0 = st.writes, f0 = ps.facts_calls, lv0 = ps.live.total();
+                const int set0 = ps.live.set_team_calls, dad0 = ps.live.dad_calls;
+                const int inst0 = ps.live.install_calls, phy0 = ps.live.phy_calls, noted0 = ps.noted_calls;
+                t17 = see(double_press(t17 + 500));
+                {
+                    char want[mrui::kNearbyJoinTitleCap];
+                    mrui::ui_fmt_nearby_join_title(want, sizeof want, 0x66C0FFEEu);
+                    CHK("P22a a double on a team row opens JOIN <fingerprint>?", body_row_is(0, want));
+                    // ★ THE TITLE IS THE **SELECTED** TEAM's, ⛔ never the one we are in: they are different teams
+                    //   here, so a confirmation drawn from `s.team_id` would show the wrong six characters.
+                    char ours[mrui::kNearbyJoinTitleCap];
+                    mrui::ui_fmt_nearby_join_title(ours, sizeof ours, was_team);
+                    CHK("P22a ...naming the SELECTED team, ⛔ not the one we are leaving",
+                        strcmp(want, ours) != 0 && strstr(g_c.page_text, ours) == nullptr);
+                }
+                CHK("P22a BACK is selected initially, JOIN is not (P-13)",
+                    body_row_is(3, ">BACK") && body_row_is(4, " JOIN"));
+                CHK("P22a ...and opening it entered NO transaction and spent NO write",
+                    ps.facts_calls == f0 && st.writes == w0 && ps.live.total() == lv0);
+
+                // ---- (b) BACK PERFORMS NOTHING AND RETURNS TO THE **LIST**, ⛔ not the menu --------------------
+                t17 = see(double_press(t17 + 500));
+                CHK("P22b BACK returns to the NEARBY LIST, ⛔ not the PROVISION menu",
+                    body_row_is(0, mrui::kNearbyTitle) && body_row_is(1, mrui::kNearbyPhyLine));
+                CHK("P22b ...with the frozen list intact under the cursor", row_starts(3, ">C0FFEE 3/3"));
+                CHK("P22b ⛔ ...having performed NOTHING: no transaction, no write, no live move",
+                    ps.facts_calls == f0 && st.writes == w0 && ps.live.total() == lv0);
+                CHK("P22b ⛔ ...and the membership and the key are exactly as they were",
+                    g_node.config().team_id == was_team && g_node.team_channel_key_present());
+
+                // ---- (c) THE CONFIRMED JOIN: `short` then `double`, and the REAL transaction runs ---------------
+                t17 = see(double_press(t17 + 500));            // -> the confirmation again
+                t17 = see(settle(t17 + 500));                  // -> JOIN
+                CHK("P22c a short press moves the selection to JOIN",
+                    body_row_is(3, " BACK") && body_row_is(4, ">JOIN"));
+                CHK("P22c ⛔ ...and the toggle is still not the act", st.writes == w0 && ps.facts_calls == f0);
+                t17 = see(double_press(t17 + 500));
+                CHK("P22c the panel says TEAM JOINED — ⛔ never TEAM CREATED (F-4)", body_row_is(0, "TEAM JOINED"));
+                {
+                    char id_tok[mrui::kTeamIdTokenCap], fp_tok[mrui::kTeamFpTokenCap];
+                    mrui::ui_fmt_team_id_full(id_tok, sizeof id_tok, 0x66C0FFEEu);
+                    mrui::ui_fmt_team_fingerprint(fp_tok, sizeof fp_tok, 0x66C0FFEEu);
+                    CHK("P22c the FULL 8-hex team id is on the panel", body_row_is(1, id_tok));
+                    CHK("P22c ...and the SHARED fingerprint of that same id", body_row_is(2, fp_tok));
+                    CHK("P22c ...the two are DIFFERENT tokens, both drawn", strcmp(id_tok, fp_tok) != 0);
+                    CHK("P22c ...and the way out is stated", body_row_is(4, "press = back"));
+                }
+                CHK("P22c the adapter ran EXACTLY once and spent EXACTLY one durable write",
+                    ps.facts_calls == f0 + 1 && st.writes == w0 + 1);
+                // ★★★ P-1: THE JOINED TEAM IS **BYTE-EQUAL** TO THE OBSERVED ONE, on the record and on the live node.
+                CHK("P22c ★ the joined team is byte-equal to the OBSERVED id (P-1)",
+                    st.rec.team_id == 0x66C0FFEEu && g_node.config().team_id == 0x66C0FFEEu &&
+                    ps.live.last_team_id == 0x66C0FFEEu);
+                CHK("P22c ...the membership was applied live, DAD last, and ⛔ NO retune ([[B209]])",
+                    ps.live.set_team_calls == set0 + 1 && ps.live.dad_calls == dad0 + 1 &&
+                    ps.live.phy_calls == phy0);
+                CHK("P22c ...the post-save bookkeeping ran once", ps.noted_calls == noted0 + 1);
+                // ★★★ P-2 — THE JOINER IS **KEYLESS**, and it held a key one press ago.
+                CHK("P22c ★★★ the joiner is KEYLESS: the live team content key is gone (P-2)",
+                    g_node.team_channel_key_present() == false && ps.live.install_calls == inst0);
+                CHK("P22c ...and the record claims neither a key nor an active binding",
+                    st.rec.team_ch_key_present == 0 && st.rec.team_key_active == 0 &&
+                    st.rec.team_key_team_id == 0u);
+                // ⛔⛔ P-2b — THE RETAINED KEYRING RECORD IS UNTOUCHED AND UNINSTALLED (⛔ N3 does not anticipate K5).
+                CHK("P22c ⛔⛔ the RETAINED key for that team was NOT installed and NOT rewritten (P-2b)",
+                    ps.keys.saves == keyring_saves_before &&
+                    memcmp(&ps.keys.rec, &keyring_before, sizeof keyring_before) == 0 &&
+                    mrfw::team_key_find(ps.keys.rec, 0x66C0FFEEu) >= 0);
+                // ⛔ AND NO BANNED LEXEME REACHED THE GLASS — S-33 / S-32 / S-34, and K5's words are not here either.
+                CHK("P22c ⛔ no banned lexeme is on the panel (KEYLESS / JOIN COMPLETE / WAITING FOR KEY)",
+                    strstr(g_c.page_text, "KEYLESS") == nullptr &&
+                    strstr(g_c.page_text, "JOIN COMPLETE") == nullptr &&
+                    strstr(g_c.page_text, "WAITING FOR KEY") == nullptr &&
+                    strstr(g_c.page_text, "SAVED KEY") == nullptr);
+
+                // ---- (d) THE RESULT IS TERMINAL: either press acknowledges, and it carries no BACK row ----------
+                CHK("P22d the result carries no selectable BACK row", strstr(g_c.page_text, ">BACK") == nullptr);
+                t17 = see(settle(t17 + 500));                  // ★ a SHORT press — the other half of "either press"
+                CHK("P22d a single short press acknowledges it, landing on the PROVISION menu",
+                    body_row_is(0, ">CREATE TEAM"));
+                CHK("P22d ⛔ ...and acknowledging re-ran nothing",
+                    ps.facts_calls == f0 + 1 && st.writes == w0 + 1);
+
+                // ---- (e) THE PHY REFUSAL, ON THE SAME SCREEN ----------------------------------------------------
+                // The divergence is the real one: `mobile register sf=…` retunes the radio and moves `_cfg.layers[0]`
+                // WITHOUT persisting, so the record and the radio genuinely disagree.
+                const int w1 = st.writes, f1 = ps.facts_calls, lv1 = ps.live.total();
+                ps.snap.live_routing_sf = 9;
+                t17 = walk_to(t17 + 500, ">JOIN TEAM");
+                t17 = see(double_press(t17 + 500));
+                // ⓘ AND THE OWN-TEAM FILTER HAS ALREADY LEARNED THE NEW MEMBERSHIP: the team we just joined is gone
+                //   from the list, which is the filter measured from the other side.
+                CHK("P22e the team we just JOINED is no longer offered as a candidate",
+                    strstr(g_c.page_text, "C0FFEE") == nullptr);
+                t17 = walk_to(t17 + 500, ">BADBAD");
+                t17 = see(double_press(t17 + 500));
+                t17 = see(settle(t17 + 500));                  // -> JOIN
+                t17 = see(double_press(t17 + 500));
+                CHK("P22e a live/persisted PHY divergence says PHY DIFFERS", body_row_is(0, "PHY DIFFERS"));
+                CHK("P22e ...and names the remedy: USE SERIAL", body_row_is(1, "USE SERIAL"));
+                CHK("P22e ...the adapter refused BEFORE the transaction: zero writes, zero live moves",
+                    ps.facts_calls == f1 + 1 && st.writes == w1 && ps.live.total() == lv1);
+                CHK("P22e ⛔ ...and no team id is claimed for it", body_row(2) == nullptr);
+                CHK("P22e ⛔ ...the membership is untouched: still the team we joined",
+                    g_node.config().team_id == 0x66C0FFEEu && st.rec.team_id == 0x66C0FFEEu);
+                ps.snap.live_routing_sf = 7;                   // converged again
+                t17 = see(double_press(t17 + 500));
+                CHK("P22e a press leaves the refusal, rebuilding the menu", body_row_is(0, ">CREATE TEAM"));
+            }
+
+            // ================================================================================================== P23
+            // ★★★★ §UI-16 N4 — THE `INVITE MEMBER` WINDOW, WITH **REAL** MEMBERS THROUGH THE **REAL** NODE. This is
+            //      the production handoff neither pure suite can see: `test_firmware_ui_invite.cpp` proves what the
+            //      diff and the row RETURN and `test_firmware_ui_model.cpp` proves which gesture reaches them — but
+            //      ⛔ NEITHER compiles `src/firmware_ui.cpp`, so a window drawn from the FROZEN member array instead
+            //      of the live one, a note row wired to the wrong condition, or a confirmation drawn with the team's
+            //      fingerprint instead of the member's full hash leaves every native case green and every mutation
+            //      red while the panel says the wrong thing. ⇒ every row below is asserted at its EXACT COORDINATE
+            //      by its EXACT BYTES ([[B226]]).
+            // ★★ WHAT IS REAL HERE: the renderer, the model, the gesture path, `Node::rt_team_at`,
+            //    `Node::team_key_of_id` (at its AUTHORITATIVE floor) and `Node::peer_name_find` — the same three
+            //    reads `build_snapshot` performs on device. The members are established through the core's own
+            //    public seams (a team-plane route + an id binding + a peer key), ⛔ never a poked snapshot.
+            {
+                ProbeCfgStore& cs = probe_store();
+                // ---- THE FIXTURE: THREE MEMBERS OF **OUR** TEAM, AND ONE OF THEM IS ROUTE-ONLY -----------------
+                // ★ `is_team_peer(id)` — which `team_key_of_id` gates on — is set by a TEAM-PLANE ROUTE, ⛔ not by
+                //   `team_key_set` (P21's own measured trap, one phase up). The route is therefore part of the
+                //   fixture for every member, INCLUDING the one that must stay unidentified.
+                uint8_t pubA[32], pubB[32];
+                for (int i = 0; i < 32; ++i) { pubA[i] = uint8_t(0x20 + i); pubB[i] = uint8_t(0x50 + i); }
+                pubA[0] = 0x71; pubA[1] = 0x29; pubA[2] = 0x6C; pubA[3] = 0x00;   // -> LE hash 0x006C2971
+                // ⚠ `pubB`'s hash is deliberately NOT `…C0FFEE`: this node's own team is `0x66C0FFEE`, whose
+                //   fingerprint is the SAME six characters — a member token that collided with the screen's own
+                //   team token would make every "the fingerprint is on the row" check pass for the wrong reason.
+                pubB[0] = 0xAD; pubB[1] = 0xDE; pubB[2] = 0xBE; pubB[3] = 0x00;   // -> LE hash 0x00BEDEAD
+                const uint32_t hashA = MESHROUTE_NS::key_hash32_of(pubA);
+                const uint32_t hashB = MESHROUTE_NS::key_hash32_of(pubB);
+                auto member = [&](uint8_t id, uint32_t hash) {
+                    g_node.test_learn_route(id, id, 1, 144, /*team_plane=*/true);
+                    if (hash) g_node.team_key_set(id, hash, MESHROUTE_NS::Node::IdBindSource::bcn,
+                                                  MESHROUTE_NS::Node::IdBindConf::authoritative);
+                };
+                // ⓘ THE KEY IS CACHED WITHOUT A NAME, deliberately: that is rule 2's INITIAL state on real hardware
+                //   — H2 holds a verified pubkey for nobody until the exchange has run, so the name column is blank.
+                const bool keyA = g_node.peer_key_set(hashA, pubA, MESHROUTE_NS::Node::PeerKeyConf::authoritative);
+                const bool keyB = g_node.peer_key_set(hashB, pubB, MESHROUTE_NS::Node::PeerKeyConf::authoritative);
+                member(90, hashA);                    // a member PRESENT when the window opens
+                member(82, 0);                        // ★ ROUTE-ONLY: a real member with NO authoritative binding
+                char probe_name[16] = {};
+                CHK("P23 precondition: two verified pubkeys are cached, neither of them NAMED",
+                    keyA && keyB && g_node.peer_name_find(hashA, probe_name, sizeof probe_name) == 0);
+                uint32_t rh = 0;
+                CHK("P23 precondition: the route-only member resolves to NO hash at the authoritative floor",
+                    g_node.team_key_of_id(82, rh) == false && g_node.rt_team_count() >= 2);
+                const uint32_t team_now = g_node.config().team_id;
+                // ⓘ THE EXPECTED TOKEN IS THE PURE FORMATTER'S, ⛔ never a literal typed here: a literal would
+                //   keep passing if the ruled definition (S-13) moved, and it is what made the first cut of this
+                //   phase agree with the TEAM's own fingerprint by coincidence.
+                char fpB[mrui::kMemberFpCap]; mrui::ui_fmt_member_fingerprint(fpB, sizeof fpB, hashB);
+                CHK("P23 precondition: we are IN a team (the row's runtime predicate)", team_now != 0);
+
+                // ---- (a) THE ROW, THE WINDOW, AND THE SNAPSHOT TAKEN **AT OPEN** -----------------------------
+                t17 = walk_to(t17 + 500, ">INVITE MEMBER");
+                CHK("P23a INVITE MEMBER is the FOURTH child of the PROVISION menu",
+                    strstr(g_c.page_text, ">INVITE MEMBER") != nullptr);
+                t17 = see(double_press(t17 + 500));
+                CHK("P23a the window's title is the design's own words", body_row_is(0, mrui::kInviteTitle));
+                {
+                    // ★★ THE SCREEN'S IDENTITY IS **OUR TEAM's FINGERPRINT** AND ⛔ THERE IS NO LABEL (F-3, S-36).
+                    char fp_team[mrui::kTeamFpTokenCap];
+                    mrui::ui_fmt_team_fingerprint(fp_team, sizeof fp_team, team_now);
+                    CHK("P23a ...and its second row is the TEAM's own fingerprint, ⛔ no label",
+                        body_row_is(1, fp_team));
+                }
+                // ★★★ THE SNAPSHOT IS THE OPENING's: both members were already there, so the window is EMPTY.
+                //     ⛔ FAIL if an already-known member appears — bench §7.3 step 2, automated.
+                CHK("P23a a member ALREADY present at the open is ⛔ no candidate: NO CANDIDATES",
+                    body_row_is(2, mrui::kInviteEmpty));
+                CHK("P23a ...and the window still offers the UNCONDITIONAL BACK row", body_row_is(3, ">BACK"));
+                CHK("P23a ⛔ no forbidden word is anywhere on the panel",
+                    strstr(g_c.page_text, "KEYLESS") == nullptr &&
+                    strstr(g_c.page_text, "WAITING FOR KEY") == nullptr &&
+                    strstr(g_c.page_text, "GRANT KEY") == nullptr);
+
+                // ---- (b) A MEMBER ARRIVES **WHILE THE WINDOW IS OPEN** — rule 2's row, byte for byte ----------
+                // ★ THE LOCAL REFRESH IS WHAT MAKES THIS VISIBLE (F-14 / R-10): nothing is pressed and nothing is
+                //   re-entered — the panel is simply repainted, and the new member is on it.
+                member(221, hashB);
+                dirty_the_model(t17);
+                t17 = see(t17 + 100);
+                CHK("P23b the note row becomes the candidate word — ⛔ never KEYLESS (S-14/S-33)",
+                    body_row_is(2, mrui::kInviteNew));
+                {
+                    // ⓘ THE EXPECTED ROW IS COMPOSED BY THE PURE FORMATTER, so the check measures the RENDERER's
+                    //   placement and its inputs rather than re-spelling the ruled format here (which would pass a
+                    //   panel drawing a DIFFERENT format that this string had been edited to match).
+                    mrui::InviteMember want{};
+                    want.id = 221; want.key_hash32 = hashB;
+                    char row[mrui::kInviteRowCap];
+                    mrui::ui_fmt_invite_row(row, sizeof row, '>', want);
+                    CHK("P23b ★ rule 2 — a BLANK name column and a POPULATED member fingerprint, at 19 columns",
+                        body_row_is(3, row) && strlen(row) == 19u && strstr(row, fpB) != nullptr &&
+                        strncmp(row + 1, "      ", 6) == 0);
+                    CHK("P23b ...and BACK moved down a row rather than being replaced", body_row_is(4, " BACK"));
+                }
+                // ⛔ AND THE ROUTE-ONLY MEMBER IS ⛔ NOT LISTED (F-7 / C2) — it has no fingerprint and no seal
+                //    target, so it is not grantable, and it is ⛔ never drawn with a blank or invented one.
+                CHK("P23b ⛔ the ROUTE-ONLY member is on no row (no invented fingerprint anywhere)",
+                    strstr(g_c.page_text, "T82") == nullptr && strstr(g_c.page_text, "000000") == nullptr);
+
+                // ---- (c) ★★ ZERO TRAFFIC ACROSS A HELD-OPEN WINDOW (spec §3 P-4b) ---------------------------
+                // ★★ COUNTED, NOT ARGUED, and both counters are the REAL ones. ⓘ This is the automated half of
+                //    bench §7.3 step 4 — and the stronger half, because on metal a scheduled beacon cannot be told
+                //    apart from a panel-driven send without a baseline window.
+                {
+                    g_hal.collect_tx_completion(); g_hal.pump_tx();
+                    const int d0 = g_hal.txq_depth();
+                    const int s0 = g_probe_radio.starts;
+                    CHK("P23c precondition: nothing is queued before the window is held open", d0 == 0);
+                    uint32_t tb = t17 + 500;
+                    for (int i = 0; i < 8; ++i) {            // many refreshes: repaints AND a walk of every row
+                        dirty_the_model(tb);
+                        paint(tb + 100);
+                        tb = settle(tb + 300);
+                    }
+                    paint(tb + 300);
+                    CHK("P23c ⛔ a HELD-OPEN, repeatedly refreshed window enqueues NOTHING (the real queue)",
+                        g_hal.txq_depth() == 0);
+                    g_hal.collect_tx_completion(); g_hal.pump_tx();
+                    CHK("P23c ⛔ ...and pumping the queue starts NO transmission", g_probe_radio.starts == s0);
+                    t17 = tb + 500;
+                }
+
+                // ---- (d) ★★ RULE 3 — THE NAME ARRIVES AND **FILLS A COLUMN**, the fingerprint UNCHANGED ------
+                // ★ The name is cached BESIDE the verified pubkey by the ONE name writer, exactly as the pubkey
+                //   exchange does it on metal (`peer_key_set` -> `peer_name_set`). ⛔ Nothing is requested here.
+                {
+                    char before[mrui::kInviteRowCap] = {};
+                    t17 = walk_to(t17 + 500, "T221");
+                    const char* row_now = nullptr;
+                    for (int r = 3; r <= 4 && !row_now; ++r) {
+                        const char* c = body_row(r);
+                        if (c && strstr(c, "T221") != nullptr) row_now = c;
+                    }
+                    if (row_now) snprintf(before, sizeof before, "%s", row_now);
+                    CHK("P23d precondition: the candidate's row is on the panel with a BLANK name",
+                        row_now != nullptr && strstr(before, fpB) != nullptr &&
+                        strncmp(before + 1, "      ", 6) == 0);
+                    const bool named = g_node.peer_key_set(hashB, pubB,
+                                                           MESHROUTE_NS::Node::PeerKeyConf::authoritative,
+                                                           "Wolfgangetta", 12);
+                    // ⚠⚠ THE CLOCK STEP IS **LOAD-BEARING**, AND IT IS P18's OWN TRAP ARRIVING FROM A NEW
+                    //    DIRECTION (measured here, not anticipated): `walk_to` RETURNS THE INSTANT IT PAINTED AT,
+                    //    and its paint has already ticked 90 ms PAST that. `dirty_the_model` SETS the clock
+                    //    absolutely, so passing the returned value steps `millis()` BACKWARDS — which
+                    //    `accumulate_millis_wrap` reads as a 2^32 ms WRAP (~49.7 days). Every id binding then
+                    //    falls past `team_key_of_id`'s 48 h freshness gate, `build_snapshot` publishes
+                    //    `key_hash32 == 0` for EVERY member, and the window empties for a reason that has
+                    //    nothing to do with the code under test. ⇒ always re-dirty at a time COMFORTABLY PAST
+                    //    the last tick.
+                    dirty_the_model(t17 + 1000);
+                    t17 = see(t17 + 1100);
+                    const char* row_after = nullptr;
+                    for (int r = 3; r <= 4 && !row_after; ++r) {
+                        const char* c = body_row(r);
+                        if (c && strstr(c, "T221") != nullptr) row_after = c;
+                    }
+                    CHK("P23d ★★ rule 3 — the name column now reads `Wolfga`, CLAMPED to six",
+                        named && row_after != nullptr && strncmp(row_after + 1, "Wolfga", 6) == 0);
+                    CHK("P23d ⛔ ...and the member fingerprint is UNCHANGED beside it (⛔ never a swap)",
+                        row_after != nullptr && strstr(row_after, fpB) != nullptr &&
+                        strlen(row_after) == 19u && strcmp(row_after + 7, before + 7) == 0);
+                }
+
+                // ---- (e) THE CONFIRMATION CARRIES THE **FULL** HASH, AND `REJECT` IS THE ONLY ACT ------------
+                {
+                    const int w0 = cs.writes;
+                    // ⚠ THE WALK TARGET CARRIES THE **MARKER**: `walk_to` only guarantees the text is ON the panel,
+                    //   and a `double` acts on whatever the CURSOR is on — so a target without `>` would open the
+                    //   confirmation for a row the operator is not standing on (or for BACK).
+                    t17 = walk_to(t17 + 500, ">Wolfga T221");
+                    t17 = see(double_press(t17 + 500));
+                    CHK("P23e a double on a candidate opens NEW MEMBER", body_row_is(0, mrui::kInviteNew));
+                    {
+                        char full[mrui::kMemberHashCap];
+                        mrui::ui_fmt_member_hash_full(full, sizeof full, hashB);
+                        CHK("P23e ★★★ rule 4 — the FULL 0x hash is on the confirmation, EVEN THOUGH a name is "
+                            "cached (P-7c)", body_row_is(1, full));
+                        // ⛔ THE FULL HASH IS THE IDENTITY ON THIS SCREEN, and the SIX-column selection aid is
+                        //    ⛔ NOT what it draws: a confirmation downgraded to the aid names 255 other peers too.
+                        CHK("P23e ⛔ ...and it is the FULL hash, ⛔ not the six-column aid",
+                            body_row_is(1, full) && strcmp(full, fpB) != 0);
+                    }
+                    CHK("P23e BACK is selected initially and REJECT is not (P-13)",
+                        body_row_is(3, ">BACK") && body_row_is(4, " REJECT"));
+                    CHK("P23e ⛔ ...and no grant word exists on this screen at all",
+                        strstr(g_c.page_text, "GRANT") == nullptr);
+                    // BACK returns to the WINDOW (⛔ not the menu) and performs nothing.
+                    t17 = see(double_press(t17 + 500));
+                    CHK("P23e BACK returns to the WINDOW, ⛔ not the PROVISION menu",
+                        body_row_is(0, mrui::kInviteTitle));
+                    CHK("P23e ⛔ ...having spent no durable write", cs.writes == w0);
+                    // ...and `short` then `double` performs the REJECT, which removes the candidate.
+                    t17 = walk_to(t17 + 500, ">Wolfga T221");
+                    t17 = see(double_press(t17 + 500));
+                    t17 = see(settle(t17 + 500));                     // `short` -> REJECT
+                    t17 = see(double_press(t17 + 500));
+                    CHK("P23e REJECT lands back on the window with the candidate GONE",
+                        body_row_is(0, mrui::kInviteTitle) && strstr(g_c.page_text, "T221") == nullptr);
+                    CHK("P23e ...and the empty state is honest again", body_row_is(2, mrui::kInviteEmpty));
+                    CHK("P23e ⛔ REJECT spent no durable write and sent nothing",
+                        cs.writes == w0 && g_hal.txq_depth() == 0);
+                }
+
+                // ---- (f) ★★ THE WINDOW EXPIRES BY ITSELF, AND EXPIRY CHANGES NOTHING (P-11) -----------------
+                {
+                    const bool key_before = g_node.team_channel_key_present();
+                    const uint8_t members_before = g_node.rt_team_count();
+                    const uint32_t team_before = g_node.config().team_id;
+                    const int w0 = cs.writes;
+                    t17 += mrui::kInviteWindowMs + 2000;              // past the five minutes, untouched
+                    tick(t17); tick(t17 + 10);                        // ...the panel blanks on the way
+                    t17 = see(settle(t17 + 100));                     // one press wakes it, CONSUMED
+                    CHK("P23f the window closed itself and says so", body_row_is(0, mrui::kInviteClosed));
+                    CHK("P23f ⛔ ...and the expiry granted, revoked and rewrote NOTHING",
+                        g_node.team_channel_key_present() == key_before &&
+                        g_node.rt_team_count() == members_before &&
+                        g_node.config().team_id == team_before && cs.writes == w0);
+                    CHK("P23f the expiry screen is terminal — ⛔ no selectable BACK row",
+                        strstr(g_c.page_text, ">BACK") == nullptr);
+                    t17 = see(double_press(t17 + 500));
+                    CHK("P23f a press acknowledges it, landing on the PROVISION menu",
+                        body_row_is(0, ">CREATE TEAM"));
+                    // ★ AND RE-OPENING TAKES A FRESH SNAPSHOT: the candidate of the last window is an ordinary
+                    //   member of this one, and the REJECT of the last window did not outlive it.
+                    t17 = walk_to(t17 + 500, ">INVITE MEMBER");
+                    t17 = see(double_press(t17 + 500));
+                    CHK("P23f a re-opened window snapshots afresh: NO CANDIDATES again",
+                        body_row_is(0, mrui::kInviteTitle) && body_row_is(2, mrui::kInviteEmpty));
+                    t17 = walk_to(t17 + 500, ">BACK");
+                    t17 = see(double_press(t17 + 500));
+                    CHK("P23f ...and BACK returns to the PROVISION MENU", body_row_is(0, ">CREATE TEAM"));
+                }
             }
         }
     }

@@ -603,3 +603,303 @@ TEST_CASE("§UI15-PROV the adapter dispatches on the INTENT, and `none` performs
     CHECK(j.list_calls == 1);
     CHECK(d.load_calls == 1);                        // unchanged by the read (the create above spent it)
 }
+
+// ================================================== §UI-16 N3 — THE NEARBY-TEAM JOIN, ON THE SAME SEAM (§3.6.4 pt 3)
+// ★★★ WHY THESE CASES ARE HERE AND NOT IN THE MODEL's: this is where the join adapter meets the REAL
+//     `ProvisioningService` over counting fakes, so *"exactly one durable write"*, *"zero retunes"*, *"the previous
+//     key is gone"* and *"the keyring was not touched"* are MEASUREMENTS rather than readings of the source. The
+//     model's half — which gesture opens the confirmation, what BACK costs, what the act is handed — is
+//     `test/test_firmware_ui_model.cpp`'s.
+// ⛔ AND THE SAME BOUNDARY AS EVERY CASE ABOVE: nothing here says anything about FLASH ([[B193]]).
+namespace {
+UiProvAnswer join_team(DevFake& d, uint32_t id) { return mrfw::ui_prov_join_team(d, id); }
+// A node that is ALREADY in a team AND holds its content key — the only fixture on which "the joiner ends up
+// KEYLESS" is a measurement. ⛔ Both authorities are seeded (the live sink and the persisted record), because they
+// are two facts and P-2 is about both.
+// ⚠ THE KEY BYTES ARE FILE-SCOPE, ⛔ never locals: `ProvSnapshot`'s live key halves are POINTERS INTO THE NODE by
+//   contract, so pointing them at a stack buffer that dies with this function would leave the transaction comparing
+//   freed memory.
+uint8_t g_seed_pub[32], g_seed_priv[32];
+void seed_in_team_with_key(DevFake& d, uint32_t team_id) {
+    uint8_t* pub = g_seed_pub;
+    uint8_t* priv = g_seed_priv;
+    for (int i = 0; i < 32; ++i) { pub[i] = uint8_t(0x40 + i); priv[i] = uint8_t(0x80 + i); }
+    d.cfg.team_id           = team_id;
+    d.store.rec.team_id     = team_id;
+    mrfw::blob_put_team_channel_key(d.store.rec, pub, priv);
+    d.store.rec.team_key_team_id = team_id;
+    d.store.rec.team_key_active  = 1;
+    d.live.team_id     = team_id;
+    d.live.key_present = true;
+    d.snap.live_key_pub  = pub;                      // the `ProvSnapshot` contract: both null or both non-null
+    d.snap.live_key_priv = priv;
+}
+}  // namespace
+
+TEST_CASE("§UI16-N3 control — a nearby join is ONE write, ONE membership move, ONE notification, ZERO retunes") {
+    DevFake d;
+    const UiProvAnswer a = join_team(d, 0x77D9348Au);
+    CHECK(a.outcome == UiProvOutcome::team_joined);
+    CHECK(strcmp(mrui::prov_result_head(a), "TEAM JOINED") == 0);
+    // ⛔⛔ F-4, ON THE PANEL RATHER THAN IN A COMMENT: a join lands the SAME `applied` verdict a create does, so the
+    //     word is the only thing that tells the operator which operation answered.
+    CHECK(strcmp(mrui::prov_result_head(a), "TEAM CREATED") != 0);
+    CHECK(strcmp(mrui::prov_result_detail(a), "") == 0);
+    CHECK(d.facts_calls == 1);
+    CHECK(d.load_calls == 1);
+    CHECK(d.apply_calls == 1);
+    CHECK(d.on_applied_calls == 1);                  // §notify-every-save, on the applied arm ALONE
+    CHECK(d.store.writes == 1);                      // ★ EXACTLY ONE durable write
+    CHECK(d.live.set_team_calls == 1);
+    CHECK(d.live.dad_calls == 1);                    // ...and team-DAD started, LAST
+    CHECK(d.live.phy_calls == 0);                    // ⛔ NO retune ([[B209]])
+    CHECK(d.live.install_calls == 0);                // ⛔ and NO key was installed — a joiner receives one, later
+    // ★★★ P-1: THE JOINED TEAM IS BYTE-EQUAL TO THE OBSERVED ONE, on all three authorities.
+    CHECK(a.team_id == 0x77D9348Au);
+    CHECK(d.live.team_id == 0x77D9348Au);
+    CHECK(d.store.rec.team_id == 0x77D9348Au);
+    CHECK(d.last_result.team_id == 0x77D9348Au);
+}
+
+TEST_CASE("§UI16-N3 ★★ the request is a JOIN — `mint = false`, the FULL id, and `phy.present = FALSE`") {
+    DevFake d;
+    CHECK(join_team(d, 0x88ABCDEFu).outcome == UiProvOutcome::team_joined);
+    // ★★★★ THE HEADLINE, ASSERTED ON THE CAPTURED REQUEST: `mint = true` here would draw a NEW random id and a NEW
+    //      keypair — the operator would land alone in a team that never existed, having pressed JOIN on a team they
+    //      could see. ⓘ One word, which is why it is this slice's headline control.
+    CHECK(d.last_rq.mint == false);
+    CHECK(d.last_rq.team_id == 0x88ABCDEFu);         // ★ the FULL 32 bits, ⛔ not the fingerprint's low 24
+    CHECK((d.last_rq.team_id & 0x00FFFFFFu) != d.last_rq.team_id);   // ...and the top byte is load-bearing HERE
+    CHECK(d.last_rq.key_supplied == false);          // ⛔ no key is typed, sought or minted on this path
+    // ★★ THE TRAP, THE SAME ONE THE CREATE ARM CARRIES: `present = false` is what makes the transaction PRESERVE the
+    //    persisted PHY. ⛔ `true` would route a PHY through `IProvLive::apply_phy` — the [[B209]] path.
+    CHECK(d.last_rq.phy.present == false);
+    CHECK(d.live.phy_calls == 0);
+    // ★ AND THE BUILD FLOOR IS STILL CARRIED (§3.4), exactly as the create arm carries it.
+    CHECK(d.last_rq.floor.freq_mhz == 868.0);
+    CHECK(d.last_rq.floor.bw_hz == 125000u);
+    // ★ THE RECORD KEEPS ITS PHY, byte for byte — including the `sf_list` [[B211]] exists for.
+    CHECK(d.store.rec.freq_mhz == 869.4625);
+    CHECK(d.store.rec.bw_hz == 125000u);
+    CHECK(d.store.rec.routing_sf == 7);
+    CHECK(d.store.rec.allowed_sf_bitmap == uint16_t((1u << 6) | (1u << 7)));
+}
+
+TEST_CASE("§UI16-N3 the PHY precondition is INHERITED — PHY DIFFERS / USE SERIAL, and it applies NOTHING") {
+    // ★★★★ F-5: the OLED path narrows the console verb, and the narrowing is the SAME predicate on all FOUR fields —
+    //      including `sf_list`, the one a hand-written equality forgets ([[B211]]) and the one `mobile register sf=…`
+    //      moves without persisting.
+    for (int field = 0; field < 4; ++field) {
+        DevFake d;
+        switch (field) {
+            case 0: d.snap.live_freq_mhz          = 868.0; break;
+            case 1: d.snap.live_bw_hz             = 250000; break;
+            case 2: d.snap.live_routing_sf        = 9; break;
+            case 3: d.snap.live_allowed_sf_bitmap = uint16_t(1u << 7); break;
+        }
+        const UiProvAnswer a = join_team(d, 0x77D9348Au);
+        CHECK(a.outcome == UiProvOutcome::phy_differs);
+        CHECK(strcmp(mrui::prov_result_head(a), "PHY DIFFERS") == 0);
+        CHECK(strcmp(mrui::prov_result_detail(a), "USE SERIAL") == 0);
+        // ⛔ ZERO TRANSACTION CALLS, ZERO WRITES, ZERO AIRTIME, ZERO RETUNES (spec §4-N3 pin 4), on every instrument.
+        CHECK(d.apply_calls == 0);
+        CHECK(d.store.writes == 0);
+        CHECK(d.live_total() == 0);
+        CHECK(d.live.phy_calls == 0);
+        CHECK(d.live.dad_calls == 0);
+        CHECK(d.on_applied_calls == 0);
+        CHECK(a.team_id == 0);
+        CHECK(d.store.rec.team_id == 0u);            // ...and the membership is exactly as it was
+        CHECK(d.keys.saves == 0);                    // ⛔ and the keyring was not touched either
+    }
+    // ★ THE POSITIVE ARM, in the same case: the identical node with the divergence removed joins normally.
+    DevFake ok;
+    CHECK(join_team(ok, 0x77D9348Au).outcome == UiProvOutcome::team_joined);
+    CHECK(ok.apply_calls == 1);
+    CHECK(ok.store.writes == 1);
+    CHECK(ok.live.dad_calls == 1);
+}
+
+TEST_CASE("§UI16-N3 the precondition's ProvPhy is the PERSISTED one with present=TRUE — never the request's") {
+    // ★★★★ THE TWO OBJECTS, PINNED AS TWO on this arm as well: `live_phy_matches` EARLY-RETURNS TRUE on `!present`,
+    //      so a precondition built with `present = false` would pass ALWAYS — a silent no-op, in a screen whose
+    //      whole job is to refuse.
+    DevFake d;
+    d.snap.live_bw_hz = 250000;                       // a genuine divergence from the record's 125000
+    ProvPhy as_written{};
+    as_written.present           = true;
+    as_written.freq_mhz          = d.store.rec.freq_mhz;
+    as_written.routing_sf        = d.store.rec.routing_sf;
+    as_written.bw_hz             = d.store.rec.bw_hz;
+    as_written.allowed_sf_bitmap = d.store.rec.allowed_sf_bitmap;
+    CHECK(mrfw::live_phy_matches(as_written, d.snap) == false);      // ⇒ the refusal is REACHABLE
+    ProvPhy as_the_request{};
+    CHECK(as_the_request.present == false);
+    CHECK(mrfw::live_phy_matches(as_the_request, d.snap) == true);    // ⛔ always true — the trap, made visible
+    CHECK(join_team(d, 0x77D9348Au).outcome == UiProvOutcome::phy_differs);
+    DevFake conv;
+    CHECK(join_team(conv, 0x77D9348Au).outcome == UiProvOutcome::team_joined);
+    CHECK(conv.last_rq.phy.present == false);                        // ...and the REQUEST still carries the other one
+}
+
+TEST_CASE("§UI16-N3 ★★★ the joiner is KEYLESS — the live key is destroyed and the record claims none (P-2)") {
+    // ★★★★ §3.6.4 point 4, MEASURED ON A NODE THAT REALLY HELD ONE: without the seed this case would pass for the
+    //      wrong reason (a node with no key cannot be shown to lose it). The mechanism is `set_team_id`'s
+    //      `team_channel_key_clear()` (`lib/core/node.cpp:683`) reached through the transaction's `KeyAction::clear`.
+    DevFake d;
+    seed_in_team_with_key(d, 0x51CE0004u);
+    CHECK(d.live.key_present == true);                               // the precondition, asserted not assumed
+    CHECK(d.store.rec.team_ch_key_present == 1);
+    const UiProvAnswer a = join_team(d, 0x77D9348Au);
+    CHECK(a.outcome == UiProvOutcome::team_joined);
+    CHECK(d.store.writes == 1);
+    // ★★★ KEYLESS, ON BOTH AUTHORITIES.
+    CHECK(d.live.key_present == false);                              // the LIVE key is gone (set_team destroyed it)
+    CHECK(d.live.install_calls == 0);                                // ⛔ and nothing installed a replacement
+    CHECK(d.store.rec.team_ch_key_present == 0);                     // ...and the record claims none
+    CHECK(d.store.rec.team_key_active == 0);                         // ...nor an ACTIVE binding (K2's fact)
+    CHECK(d.store.rec.team_key_team_id == 0u);
+    // ⛔ AND THE PANEL NEITHER CLAIMS READERSHIP NOR USES THE BANNED WORD (S-33): the success screen's two lines are
+    //    the headline and the id, and neither says anything about a key.
+    CHECK(strcmp(mrui::prov_result_head(a), "TEAM JOINED") == 0);
+    CHECK(strstr(mrui::prov_result_head(a), "KEYLESS") == nullptr);
+    CHECK(strcmp(mrui::prov_result_detail(a), "") == 0);
+}
+
+TEST_CASE("§UI16-N3 ⛔⛔ a RETAINED keyring record is NOT installed by joining that team — N3 does not anticipate K5") {
+    // ★★★★ P-2b, AND IT IS THE ONE PROPERTY A LATER SLICE IS MOST LIKELY TO 'FIX': the node has joined a team whose
+    //      key it ALREADY HOLDS in `/mrteams`, and mere knowledge of the PUBLIC team id may ⛔ never bring that
+    //      secret back. The explicit `SAVED KEY FOUND` / `USE SAVED KEY` offer is §UI-16 K5's, later.
+    DevFake d;
+    uint8_t pub[32], priv[32];
+    for (int i = 0; i < 32; ++i) { pub[i] = uint8_t(0x11 + i); priv[i] = uint8_t(0x91 + i); }
+    CHECK(d.keyring.put(0x77D9348Au, pub, priv).verdict == mrfw::KeyringVerdict::ok);
+    const mrnv::TeamKeyBlob before = d.keys.rec;
+    const int saves_before = d.keys.saves;
+    CHECK(mrfw::team_key_find(before, 0x77D9348Au) >= 0);            // the precondition: the key IS retained
+    const UiProvAnswer a = join_team(d, 0x77D9348Au);                // ...and we join exactly that team
+    CHECK(a.outcome == UiProvOutcome::team_joined);
+    // ★★★ NOTHING WAS INSTALLED — the node is a member and still KEYLESS.
+    CHECK(d.live.install_calls == 0);
+    CHECK(d.live.key_present == false);
+    CHECK(d.store.rec.team_ch_key_present == 0);
+    CHECK(d.store.rec.team_key_active == 0);                         // ⛔ no active binding was armed either
+    // ★★★ ...AND THE RETAINED RECORD IS UNTOUCHED, byte for byte, with ZERO further keyring writes.
+    CHECK(d.keys.saves == saves_before);
+    CHECK(memcmp(&d.keys.rec, &before, sizeof before) == 0);
+    CHECK(mrfw::team_key_find(d.keys.rec, 0x77D9348Au) >= 0);
+    // ⛔ AND NO LEXEME OF K5's HAS LEAKED INTO THIS SLICE's VOCABULARY.
+    CHECK(strstr(mrui::prov_result_head(a), "SAVED KEY") == nullptr);
+    CHECK(strstr(mrui::prov_result_detail(a), "USE SAVED KEY") == nullptr);
+}
+
+TEST_CASE("§UI16-N3 a FAILED save keeps the PREVIOUS membership and key, and says so") {
+    DevFake d;
+    seed_in_team_with_key(d, 0x51CE0004u);
+    d.store.write_ok = false;
+    const UiProvAnswer a = join_team(d, 0x77D9348Au);
+    CHECK(a.outcome == UiProvOutcome::save_failed);
+    CHECK(strcmp(mrui::prov_result_head(a), "SAVE FAILED") == 0);
+    CHECK(strcmp(mrui::prov_result_detail(a), "NOTHING CHANGED") == 0);
+    CHECK(d.apply_calls == 1);                       // the transaction RAN...
+    CHECK(d.store.writes == 1);                      // ...and attempted EXACTLY ONE write
+    CHECK(d.live_total() == 0);                      // ⛔ which failed, so NOTHING was applied and no airtime spent
+    CHECK(d.on_applied_calls == 0);                  // ⛔ and it did not notify ([[B194]] inverted)
+    // ★★ THE PREVIOUS MEMBERSHIP AND KEY ARE EXACTLY AS THEY WERE (spec §4-N3 pin 6).
+    CHECK(d.store.rec.team_id == 0x51CE0004u);
+    CHECK(d.store.rec.team_ch_key_present == 1);
+    CHECK(d.live.team_id == 0x51CE0004u);
+    CHECK(d.live.key_present == true);
+    CHECK(a.team_id == 0);                           // ⛔ and no membership is claimed
+}
+
+TEST_CASE("§UI16-N3 the refusal arms carry the SERVICE's own reason and say JOIN REFUSED — never CREATE REFUSED") {
+    {   // a STAGING refusal (O2: promoting a host orphans its guests)
+        DevFake d;
+        d.cfg.is_mobile = false;
+        d.store.rec.is_mobile = 0;
+        d.snap.mobile_reg_count = 2;
+        const UiProvAnswer a = join_team(d, 0x77D9348Au);
+        CHECK(a.outcome == UiProvOutcome::join_refused);
+        CHECK(strcmp(mrui::prov_result_head(a), "JOIN REFUSED") == 0);
+        CHECK(strcmp(a.reason, mrfw::prov_err_name(ProvErr::role_refused)) == 0);
+        CHECK(strcmp(mrui::prov_result_detail(a), "role_refused") == 0);
+        CHECK(d.apply_calls == 1);
+        CHECK(d.store.writes == 0);
+        CHECK(d.live_total() == 0);
+        CHECK(d.on_applied_calls == 0);
+    }
+    {   // an UNREADABLE record — a precondition that could not be ESTABLISHED is never treated as satisfied
+        DevFake d;
+        d.load_answer = false;
+        const UiProvAnswer a = join_team(d, 0x77D9348Au);
+        CHECK(a.outcome == UiProvOutcome::join_refused);
+        CHECK(strcmp(a.reason, mrfw::prov_err_name(ProvErr::nv_load_failed)) == 0);
+        CHECK(strcmp(mrui::prov_result_detail(a), "nv_load_failed") == 0);
+        CHECK(d.apply_calls == 0);                   // ⛔ the transaction was never entered
+        CHECK(d.store.writes == 0);
+        CHECK(d.live_total() == 0);
+    }
+    {   // ⛔ A ZERO ID IS NOT A TEAM — it is `team 0`, a LEAVE. The floor costs zero of everything.
+        DevFake d;
+        const UiProvAnswer a = join_team(d, 0);
+        CHECK(a.outcome == UiProvOutcome::join_refused);
+        CHECK(strcmp(a.reason, "no team") == 0);
+        CHECK(d.facts_calls == 0);                   // ⛔ it refused before it even read the device
+        CHECK(d.load_calls == 0);
+        CHECK(d.apply_calls == 0);
+        CHECK(d.store.writes == 0);
+        CHECK(d.live_total() == 0);
+        // ★ THE POSITIVE ARM: the identical device with a real id joins normally, so the zeros are evidence.
+        CHECK(join_team(d, 0x77D9348Au).outcome == UiProvOutcome::team_joined);
+        CHECK(d.store.writes == 1);
+    }
+    {   // ★ ALREADY IN THAT TEAM ⇒ `no_change`, and it may ⛔ NOT render as a success: nothing was written.
+        //   ⓘ Reachable because the NEARBY list is FROZEN at entry (R-10) — a console `team <id>` between the
+        //   capture and the confirmation puts us in the team the panel is still offering.
+        DevFake d;
+        seed_in_team_with_key(d, 0x77D9348Au);
+        const UiProvAnswer a = join_team(d, 0x77D9348Au);
+        CHECK(d.last_result.verdict == ProvVerdict::no_change);
+        CHECK(a.outcome == UiProvOutcome::join_refused);
+        CHECK(strcmp(mrui::prov_result_head(a), "JOIN REFUSED") == 0);
+        CHECK(strcmp(a.reason, "no change") == 0);
+        CHECK(d.store.writes == 0);                  // ⛔ zero writes, zero live applies, zero airtime
+        CHECK(d.live_total() == 0);
+        CHECK(d.on_applied_calls == 0);
+        // ★ AND THE KEY IT ALREADY HELD IS PRESERVED — a same-team request is not a way to lose one.
+        CHECK(d.store.rec.team_ch_key_present == 1);
+        CHECK(d.live.key_present == true);
+    }
+}
+
+TEST_CASE("§UI16-N3 the intent dispatch routes join_team to the TEAM transaction — and never to the other two") {
+    DevFake d;
+    JoinDevFake j;
+    mrfw::UiProvisionAdapter ad(d, j);
+    UiProvIntent nb{};
+    nb.op      = UiProvOp::join_team;
+    nb.team_id = 0x77D9348Au;
+    const UiProvAnswer a = ad.perform(nb);
+    CHECK(a.outcome == UiProvOutcome::team_joined);
+    CHECK(d.apply_calls == 1);                       // ★ the TEAM transaction ran...
+    CHECK(d.last_rq.mint == false);                  // ...as a JOIN...
+    CHECK(d.last_rq.team_id == 0x77D9348Au);         // ...for the id the intent carried, whole
+    CHECK(d.store.writes == 1);
+    CHECK(j.apply_calls == 0);                       // ⛔ ...and the STATIC-join transaction was never entered
+    CHECK(j.cfg.writes == 0);
+    CHECK(j.list_calls == 0);
+    // ⛔ AND THE OTHER TWO OPS STILL GO WHERE THEY WENT: a create MINTS, a static join converts and starts.
+    UiProvIntent mk{}; mk.op = UiProvOp::create_team;
+    CHECK(ad.perform(mk).outcome == UiProvOutcome::created);
+    CHECK(d.last_rq.mint == true);
+    UiProvIntent jn{}; jn.op = UiProvOp::join_static; jn.join = preset(4, 9, 869462500u, 125000u);
+    CHECK(ad.perform(jn).outcome == UiProvOutcome::joining);
+    CHECK(j.apply_calls == 1);
+    // ⓘ ...and the inert op still performs nothing, with a third act now behind the same seam.
+    UiProvIntent none{};
+    const int w = d.store.writes, jw = j.cfg.writes;
+    CHECK(ad.perform(none).outcome == UiProvOutcome::none);
+    CHECK(d.store.writes == w);
+    CHECK(j.cfg.writes == jw);
+}

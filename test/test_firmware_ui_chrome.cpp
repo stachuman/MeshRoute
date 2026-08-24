@@ -446,6 +446,119 @@ TEST_CASE("chrome-batt: unavailable renders --, and the voltage TRUNCATES to one
     CHECK(kVoltsTokenCap == 5);
 }
 
+// ===================================================================== §CHROME-5 — the duty-utilization gauge
+//
+// ★★★ THE THREE THINGS THESE CASES EXIST TO EXCLUDE, each of which passes a naive "the gauge changes with the pct"
+//     test: (1) a step count TYPED as 6 instead of derived from the artwork, so a re-drawn glyph silently makes one
+//     level unreachable; (2) `pct == 100` drawn as the full gauge, which is right about the level and silent about
+//     the consequence — the node is REFUSING to transmit; (3) `enabled == false` losing to the pct, which draws
+//     "0 % used" for a node that measures no utilization at all (`duty_status()` returns `{0, 0, false}` there, so
+//     the wrong order is INDISTINGUISHABLE from an idle limited node unless the case names it).
+
+TEST_CASE("chrome-duty: N is DERIVED from the gauge's drawable rows — the artwork and the enum cannot drift") {
+    // ★★★★ THE DERIVATION PIN. The gauge is a 7x7 outline, so rows 0 and 6 are its border and `kIconH - 2` rows can
+    //      carry ink; the fill LEVELS are those rows plus empty. ⛔ Every one of these is stated here rather than
+    //      imported as a single constant, so a hand-edited step count disagrees with the picture rather than with
+    //      nothing (the P13 rule, applied to a number instead of a coordinate).
+    CHECK(icons::kIconH == 7);
+    CHECK(icons::kDutyGaugeRows  == icons::kIconH - 2);          // 5 interior rows
+    CHECK(icons::kDutyFillLevels == icons::kDutyGaugeRows + 1);  // 6 pictures: empty + one per row
+    CHECK(sizeof icons::kIconDutyFill == std::size_t(icons::kDutyFillLevels) * icons::kIconH);
+    // The enum carries EXACTLY one enumerator per level — the same relation the header's `static_assert` holds, driven
+    // here so the battery can attack it (a `static_assert` mutation is a build failure, i.e. an UNUSABLE entry).
+    CHECK(uint8_t(DutyGauge::blocked) - uint8_t(DutyGauge::fill_0) == icons::kDutyFillLevels);
+    for (uint8_t k = 0; k < icons::kDutyFillLevels; ++k)
+        CHECK(ui_duty_fill_level(DutyGauge(uint8_t(DutyGauge::fill_0) + k)) == k);
+
+    // ★★ AND THE ARTWORK ITSELF IS THE OTHER HALF OF THE DERIVATION: level `k` inks exactly `k` interior rows,
+    //    BOTTOM-UP, inside an intact outline. A picture that filled top-down, skipped a row or left the border open
+    //    would satisfy every "the glyphs are distinct" check and still be a gauge that reads backwards.
+    char row[16];
+    for (uint8_t k = 0; k < icons::kDutyFillLevels; ++k) {
+        const uint8_t* g = icons::kIconDutyFill[k];
+        icon_row_art(g, icons::kIconW, 0, row);
+        CHECK(std::strcmp(row, "#######") == 0);                                   // the top border, always solid
+        icon_row_art(g, icons::kIconW, uint8_t(icons::kIconH - 1), row);
+        CHECK(std::strcmp(row, "#######") == 0);                                   // ...and the bottom
+        uint8_t filled = 0;
+        for (uint8_t y = 1; y <= icons::kDutyGaugeRows; ++y) {
+            // ★ BOTTOM-UP, EXPRESSED AS THE ROW's OWN PREDICATE rather than as a count: level `k` inks the BOTTOM
+            //   `k` interior rows, i.e. every row from `kIconH - 1 - k` down. A count alone would pass a gauge that
+            //   filled from the top, which is the one authoring error that still looks like a gauge.
+            const bool want_ink = (y >= uint8_t(icons::kIconH - 1 - k));
+            icon_row_art(g, icons::kIconW, y, row);
+            CHECK(std::strcmp(row, want_ink ? "#######" : "#.....#") == 0);
+            if (want_ink) ++filled;
+        }
+        CHECK(filled == k);
+    }
+    // The empty and the full levels, spelled out — the two ends of the ramp, and the two a mutation reaches first.
+    CHECK(std::memcmp(icons::kIconDutyFill[0], icons::kIconDutyFill[icons::kDutyFillLevels - 1],
+                      icons::kIconH) != 0);
+    // ★ ALL EIGHT PICTURES ARE DISTINCT. `blocked` vs the full gauge is the load-bearing pair: they differ ONLY by
+    //   the warning mark, and that mark is the whole difference between "nearly out of budget" and "silent now".
+    const uint8_t* pics[icons::kDutyFillLevels + 2];
+    pics[0] = icons::kIconDutyDisabled;
+    for (uint8_t k = 0; k < icons::kDutyFillLevels; ++k) pics[k + 1] = icons::kIconDutyFill[k];
+    pics[icons::kDutyFillLevels + 1] = icons::kIconDutyBlocked;
+    for (int a = 0; a < int(icons::kDutyFillLevels) + 2; ++a)
+        for (int b = a + 1; b < int(icons::kDutyFillLevels) + 2; ++b)
+            CHECK(std::memcmp(pics[a], pics[b], icons::kIconH) != 0);
+}
+
+TEST_CASE("chrome-duty: every percentage maps to its step, at boundaries stated INDEPENDENTLY of the map") {
+    // ★★ THE EXPECTED BOUNDARIES ARE WRITTEN OUT, ⛔ not recomputed from `kDutyFillLevels`: a table that re-ran the
+    //    implementation's own arithmetic would agree with an off-by-one version of it. Six levels over 0..99 ⇒ the
+    //    steps begin at 0, 17, 34, 50, 67 and 84.
+    static const uint8_t kFirstPctOfLevel[6] = { 0, 17, 34, 50, 67, 84 };
+    CHECK(icons::kDutyFillLevels == 6);          // the table above is written for six; say so where it can fail
+    for (unsigned pct = 0; pct < 100; ++pct) {
+        uint8_t want = 0;
+        for (uint8_t k = 0; k < 6; ++k) if (pct >= kFirstPctOfLevel[k]) want = k;
+        const DutyGauge g = ui_duty_bucket(true, uint8_t(pct));
+        CHECK(ui_duty_fill_level(g) == want);
+        CHECK(g != DutyGauge::disabled);
+        CHECK(g != DutyGauge::blocked);          // ⛔ nothing below 100 is ever the blocked picture
+    }
+    // Each boundary, and the value one BELOW it, named individually — this is what an off-by-one moves.
+    for (uint8_t k = 1; k < 6; ++k) {
+        CHECK(ui_duty_fill_level(ui_duty_bucket(true, kFirstPctOfLevel[k]))          == k);
+        CHECK(ui_duty_fill_level(ui_duty_bucket(true, uint8_t(kFirstPctOfLevel[k] - 1))) == k - 1);
+    }
+    // ...and every level is REACHABLE: a map that never emitted one would leave a picture in flash nothing draws.
+    for (uint8_t k = 0; k < 6; ++k)
+        CHECK(ui_duty_fill_level(ui_duty_bucket(true, kFirstPctOfLevel[k])) == k);
+}
+
+TEST_CASE("chrome-duty: DISABLED wins over any pct, and 100 % is BLOCKED — never the full gauge") {
+    // (1) ★★★ `enabled == false` FIRST. `Node::duty_status()` answers `{0, 0, false}` for a node with no duty limit,
+    //     so a classification that tested the pct first would draw the EMPTY gauge — "0 % used" — for a node that is
+    //     not measuring utilization at all. Every pct is driven, including ones the accessor cannot produce here.
+    const uint8_t pcts[] = { 0, 1, 16, 17, 50, 83, 99, 100, 200, 255 };
+    for (uint8_t p : pcts) CHECK(ui_duty_bucket(false, p) == DutyGauge::disabled);
+    // (2) ★★★ 100 % IS ITS OWN PICTURE. The full gauge says "nearly out of budget"; the warning mark says "this node
+    //     must stay silent right now" (node.h's own `duty_status` wording). They are one step apart and they are the
+    //     one distinction on this slot that changes what an operator should do.
+    CHECK(ui_duty_bucket(true, 100) == DutyGauge::blocked);
+    CHECK(ui_duty_bucket(true, 100) != DutyGauge::fill_5);
+    CHECK(ui_duty_bucket(true,  99) == DutyGauge::fill_5);
+    CHECK(ui_duty_bucket(true,  99) != DutyGauge::blocked);
+    CHECK(ui_duty_fill_level(ui_duty_bucket(true, 99)) == icons::kDutyFillLevels - 1);   // 99 IS the full gauge
+    // ⓘ FAIL-SAFE DIRECTION, pinned: `duty_status()` cannot exceed 100 today, and an over-budget reading that ever
+    //   did must read as BLOCKED — ⛔ never as a fill index off the end of the artwork.
+    CHECK(ui_duty_bucket(true, 101) == DutyGauge::blocked);
+    CHECK(ui_duty_bucket(true, 255) == DutyGauge::blocked);
+    // (3) THE PROJECTION carries the bucket and takes its two inputs from the snapshot — the `batt_mv` -> `batt_dv`
+    //     shape (U3). An untouched snapshot is `disabled`, which is the honest reading of "no duty limit".
+    UiSnapshot s = chrome_snap();
+    CHECK(chrome_of(s).duty == DutyGauge::disabled);
+    s.duty_enabled = true;  s.duty_pct = 0;   CHECK(chrome_of(s).duty == DutyGauge::fill_0);
+    s.duty_pct = 50;                          CHECK(chrome_of(s).duty == DutyGauge::fill_3);
+    s.duty_pct = 99;                          CHECK(chrome_of(s).duty == DutyGauge::fill_5);
+    s.duty_pct = 100;                         CHECK(chrome_of(s).duty == DutyGauge::blocked);
+    s.duty_enabled = false;                   CHECK(chrome_of(s).duty == DutyGauge::disabled);   // ...even at 100
+}
+
 // ======================================================== §UI-15 §7 — the team-id fingerprint (DISPLAY-ONLY)
 //
 // ★★ THE ONLY REASON THIS HELPER EXISTS IS THAT TWO INDEPENDENT IMPLEMENTATIONS COULD DISAGREE, so these cases pin
@@ -877,6 +990,18 @@ TEST_CASE("chrome-equality: visible chrome equality changes ONLY when the render
     b.team_total = 200; b.team_shown = 3;
     CHECK(ui_chrome_equal(chrome_of(a), chrome_of(b)) == true);
 
+    // (4b) ★ §CHROME-5: two DIFFERENT utilizations inside one bucket draw the SAME gauge — 34 % and 49 % are both
+    //      level 2 — so the strip owes NOTHING. This is the whole reason the pct is classified before the freeze:
+    //      carrying it raw would repaint on every one of the hundred readings that render six pictures.
+    a = chrome_snap(); b = chrome_snap();
+    a.duty_enabled = b.duty_enabled = true;
+    a.duty_pct = 34; b.duty_pct = 49;
+    CHECK(ui_chrome_equal(chrome_of(a), chrome_of(b)) == true);
+    // ...and a node with no duty limit compares equal to itself whatever the accessor's pct field happens to hold.
+    a.duty_enabled = b.duty_enabled = false;
+    a.duty_pct = 0; b.duty_pct = 100;
+    CHECK(ui_chrome_equal(chrome_of(a), chrome_of(b)) == true);
+
     // (5) while the rail is SUPPRESSED, the slot mask is not on the panel either — so a team build and a non-team
     //     build with nothing else to show compare EQUAL under an emergency.
     a = chrome_snap(); b = chrome_snap();
@@ -890,6 +1015,7 @@ TEST_CASE("chrome-equality: visible chrome equality changes ONLY when the render
         s.mobile_build = true; s.home_link = MESHROUTE_NS::Node::MobileHomeLink::confirmed;
         s.home_confirmed_ever = true; s.home_confirm_age_ms = 5000;
         s.team_id = 5; s.team_total = 3; s.batt_mv = 4100; s.unread_dm = 2; s.team_key_present = true;
+        s.duty_enabled = true; s.duty_pct = 40;      // §CHROME-5: a NON-default gauge, so its term can fail
         return s; }();
     const UiChrome ref = chrome_of(base);
     CHECK(ui_chrome_equal(ref, chrome_of(base)) == true);        // reflexive, against a separately built operand
@@ -905,6 +1031,11 @@ TEST_CASE("chrome-equality: visible chrome equality changes ONLY when the render
     { UiSnapshot s = base; s.team_id = 0;                CHECK(ui_chrome_equal(ref, chrome_of(s)) == false); }
     { UiSnapshot s = base; s.team_key_present = false;   CHECK(ui_chrome_equal(ref, chrome_of(s)) == false); }
     { UiSnapshot s = base; s.batt_mv = 4200;             CHECK(ui_chrome_equal(ref, chrome_of(s)) == false); }
+    // §CHROME-5, both directions: a bucket BOUNDARY crossing (40 % is level 2, 50 % is level 3) and the loss of the
+    // duty limit itself. ⛔ Neither may be invisible — a stale gauge is a claim about airtime that is no longer true.
+    { UiSnapshot s = base; s.duty_pct = 50;              CHECK(ui_chrome_equal(ref, chrome_of(s)) == false); }
+    { UiSnapshot s = base; s.duty_pct = 100;             CHECK(ui_chrome_equal(ref, chrome_of(s)) == false); }
+    { UiSnapshot s = base; s.duty_enabled = false;       CHECK(ui_chrome_equal(ref, chrome_of(s)) == false); }
     { UiSnapshot s = base; s.batt_mv = -1;               CHECK(ui_chrome_equal(ref, chrome_of(s)) == false); }
     { UiSnapshot s = base; s.team_build = false;         CHECK(ui_chrome_equal(ref, chrome_of(s)) == false); }  // slots move
     { ChromeCfg cfg{}; cfg.unsaved = true;
@@ -927,6 +1058,7 @@ TEST_CASE("chrome-equality: two chromes with the SAME fields and DIFFERENT paddi
     s.mobile_build = true; s.home_link = MESHROUTE_NS::Node::MobileHomeLink::confirmed;
     s.home_confirmed_ever = true; s.home_confirm_age_ms = 5000;
     s.team_id = 5; s.team_total = 3; s.batt_mv = 4100; s.unread_dm = 2; s.team_key_present = true;
+    s.duty_enabled = true; s.duty_pct = 40;              // §CHROME-5: a non-default bucket to copy across
     const UiChrome ref = chrome_of(s);
 
     alignas(UiChrome) unsigned char buf[sizeof(UiChrome)];
@@ -937,7 +1069,7 @@ TEST_CASE("chrome-equality: two chromes with the SAME fields and DIFFERENT paddi
     for (std::size_t i = 0; i < kAgeTokenCap; ++i) p->home_age[i] = ref.home_age[i];
     p->team_configured = ref.team_configured; p->team_count = ref.team_count;
     p->team_overflow = ref.team_overflow; p->key = ref.key;
-    p->batt_dv = ref.batt_dv; p->badge = ref.badge;
+    p->batt_dv = ref.batt_dv; p->duty = ref.duty; p->badge = ref.badge;
     p->rail_visible = ref.rail_visible; p->nav = ref.nav; p->slots = ref.slots;
 
     // THE PROPERTY: every VISIBLE field agrees, so the projections are equal and no repaint is owed.
@@ -1048,6 +1180,51 @@ TEST_CASE("chrome-invalidate: an INVISIBLE change raises nothing (§11.1's last 
     CHECK(m.state().dirty == false);
 }
 
+TEST_CASE("chrome-invalidate: §CHROME-5 — the repaint follows the BUCKET, never the percentage") {
+    // ★★★★ THE ECONOMY OF THIS SLOT, DRIVEN THROUGH THE REAL INVALIDATION RULE. A duty percentage moves constantly on
+    //      a busy relay — every completed TX changes it — so an invalidation keyed on the READING would repaint the
+    //      whole panel on a value that draws the same seven pixels. §11.1: visible equality changes only when the
+    //      RENDERED OUTPUT changes.
+    UiModel m; FrameGate g; UiInboxCounters c{};
+    UiSnapshot s = chrome_snap();
+    s.duty_enabled = true; s.duty_pct = 34;              // level 2 — and 49 % is still level 2
+    chrome_settle(m, g, c, s);
+    const UiChrome frozen = chrome_of(s, m.state(), m.emergency());
+
+    // (1) TWO pcts inside one bucket ⇒ ZERO repaint owed, and the dirty bit is untouched.
+    for (uint8_t p : { uint8_t(35), uint8_t(40), uint8_t(49) }) {
+        UiSnapshot s2 = s; s2.duty_pct = p;
+        const UiChrome live = chrome_of(s2, m.state(), m.emergency());
+        CHECK(ui_chrome_equal(live, frozen) == true);
+        CHECK(ui_chrome_invalidate(m, live, frozen) == false);
+        CHECK(m.state().dirty == false);
+    }
+    // ...and the panel really does stay asleep: a clean model opens no frame on its own.
+    s.now_ms += kPaintThrottleMs;
+    CHECK(g.step(m, s, /*mac_idle=*/true) == FrameStep::idle);
+
+    // (2) THE BOUNDARY CROSSING — one percent further and the picture changes, so a repaint IS owed. Without this
+    //     half, "never invalidate" would pass (1) perfectly.
+    {
+        UiSnapshot s2 = s; s2.duty_pct = 50;             // level 2 -> level 3
+        const UiChrome live = chrome_of(s2, m.state(), m.emergency());
+        CHECK(ui_chrome_equal(live, frozen) == false);
+        CHECK(ui_chrome_invalidate(m, live, frozen) == true);
+        CHECK(m.state().dirty == true);
+        CHECK(g.step(m, s, true) == FrameStep::open);    // ...and the frame the invalidation bought
+        g.on_page(false, m, c);
+    }
+    // (3) 99 % -> 100 % is a boundary too, and it is the one that matters most: the gauge gains its warning mark.
+    {
+        UiSnapshot at99 = s; at99.duty_pct = 99;
+        const UiChrome full = chrome_of(at99, m.state(), m.emergency());
+        UiSnapshot at100 = s; at100.duty_pct = 100;
+        const UiChrome blocked = chrome_of(at100, m.state(), m.emergency());
+        CHECK(ui_chrome_equal(full, blocked) == false);
+        CHECK(ui_chrome_invalidate(m, blocked, full) == true);
+    }
+}
+
 TEST_CASE("chrome-invalidate: while BLANKED it never unblanks and never clears (§8.3.1 rules 1-2)") {
     UiModel m; FrameGate g; UiInboxCounters c{};
     UiSnapshot s = chrome_snap();
@@ -1118,6 +1295,9 @@ TEST_CASE("chrome-projection: an untouched snapshot reports NOTHING ESTABLISHED,
     CHECK(c.team_configured == false);
     CHECK(c.key == KeyIcon::blank);
     CHECK(c.batt_dv == -1);
+    // §CHROME-5: `disabled` — the CROSSED gauge, which is what `Node::duty_status()` reports for a node with no duty
+    // limit (`{0, 0, false}`). ⛔ Not the EMPTY gauge: "no limit" and "none of the budget used" are different facts.
+    CHECK(c.duty == DutyGauge::disabled);
     CHECK(c.badge == CfgBadge::clean);
     // `UiSnapshot::team_build` defaults TRUE (it is the majority build), so an all-defaults snapshot still draws the
     // five rail slots — stated so the number is not read as an accident.

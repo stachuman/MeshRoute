@@ -112,6 +112,37 @@ the previous one would satisfy the sentence and break the picture the moment the
 P13c measures the ruled property directly: with a `4.1V` token and with a `--` token, **every earlier glyph is at the
 same x**.
 
+★ **AMENDMENT 2026-08-23 (§CHROME-5 — the DUTY gauge; owner+QA ruled, mirrored in the parent design §3.3).**
+A sixth slot: a **7×7 duty-utilization gauge**, ⛔ **icon only, never a percentage** (the exact percentage and the
+recovery time stay in the `duty` console verb and the companion diagnostics). The strip was exactly full at the
+2026-08-16 pinned values, so the gaps shrink from the 2/3/5-px reserves to **one pixel between every pair** —
+battery is ⛔ untouched:
+
+| slot | glyph x | token x | right edge at its widest token |
+|---|---:|---:|---:|
+| mail | 0 | 8 | 25 (`99+`) |
+| home | **27** | **35** | **52** (`59m`) |
+| people | **54** | **62** | **73** (`9+`) |
+| team key | **75** | — | **81** |
+| **duty** | **83** | — | **89** |
+| battery | 91 | 104 | **127** (`4.1V`) |
+
+⇒ `26 + 1 + 26 + 1 + 20 + 1 + 7 + 1 + 7 + 1 + 37 = 128` px exactly, one-pixel gap between every pair, battery's
+glyph/token x and right-anchoring unchanged. The three visual states, and their ONE semantic authority:
+
+- **crossed gauge** — duty limiting disabled;
+- **empty-to-full gauge** — approximate utilization, 0–99 %;
+- **full gauge + warning mark** — 100 %: transmission currently duty-blocked.
+
+★ **The authority is `Node::duty_status()`** (`lib/core/node_mac.cpp:1716`, `DutyStatus{pct, avail_ms, enabled}`
+— `enabled == false` ⇒ crossed; `pct == 100` ⇒ blocked) — ⛔ **never raw `duty_ms` and never the separate
+five-minute anti-spam budget**, which answer different questions. The reading is snapshotted once per frame,
+**classified into its bucket BEFORE it enters the frozen `UiChrome`** (the renderer sees a bucket, never a pct),
+and a repaint is owed **only when the visible bucket changes**. ⛔ No wire, NV, routing or `Node` change —
+`duty_status()` is an existing `const` accessor. Implementation = the small plan
+`docs/superpowers/plans/2026-08-23-chrome5-duty-gauge.md` (⛔ deliberately NOT part of §UI-16); the P13 probe
+bounds restate the moved coordinates themselves, per this section's own rule.
+
 ### 3.2 Navigation rail
 
 The rail exists below the status rule only:

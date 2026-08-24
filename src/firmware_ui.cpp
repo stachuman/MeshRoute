@@ -48,6 +48,13 @@
 //             [battery][volts]` at fixed slots from ONE layout table here, drawn from a FIFTH frozen copy
 //             (`s_frame_chrome`) and from nothing else. `build_snapshot` publishes the five §CHROME-1 fields, and
 //             `fmt_volts` was DELETED in favour of `mrui::ui_fmt_batt` (same bytes, plus the width guard it lacked).
+//   ★★ DONE 2026-08-23 (§CHROME-5) — THE STRIP'S SIXTH SLOT: a 7x7 DUTY-UTILIZATION GAUGE at `x = 83..89`,
+//             ⛔ icon only and never a percentage. The line above is AMENDED, not withdrawn: the strip is now
+//             `[mail][count] [home][age] [people][count] [key] [duty] [battery][volts]`, home/people/key each moved
+//             LEFT to one-pixel gaps (27/54/75) in the SAME one layout table, and ⛔ the battery is untouched.
+//             `build_snapshot` publishes `Node::duty_status()`'s two fields (a SIXTH and SEVENTH §CHROME-1-shaped
+//             fact); `mrui::ui_duty_bucket` classifies them into the frozen `UiChrome` BEFORE the freeze, so the
+//             renderer switches on a bucket and a repaint is owed only when the PICTURE changes.
 //   ★★ DONE 2026-08-16 (§CHROME-4) — THE NAVIGATION RAIL, THE CONFIG BADGE AND THE 19-COLUMN BODY. `draw_rail` draws
 //             §3.2's five 10-px slots at `x = 0..9` from the FROZEN rail fields (`nav` / `slots` / `rail_visible`),
 //             boxes the active one with `draw_rect` (its first and only caller in the tree), and carries §6's
@@ -111,6 +118,12 @@
                                  //   REUSED age table. ⛔ Nothing in this TU re-spells any of the three. ⓘ It pulls
                                  //   `firmware_ui_nearby.h` in with it — the carriers, the own-team filter and the
                                  //   lexemes, which `firmware_ui_model.h` above already included.
+#include "firmware_ui_invite.h"  // ★★ §UI-16 N4: the INVITE window's pure unit — the two snapshot authorities, the
+                                 //   diff, the volatile handled set, the candidate row and every lexeme. ⓘ Named
+                                 //   EXPLICITLY although `firmware_ui_model.h` above already pulls it in (the
+                                 //   snapshot publishes its members and the state holds its window): this TU calls
+                                 //   its formatters and its list builder directly, and an include that documents a
+                                 //   dependency is what stops the next reader hunting for where they came from.
 #include "firmware_ui_icons.h"   // ★ the strip's glyphs. `inline constexpr` at namespace scope ⇒ `.rodata`, and
                                  //   §8.1's amendment requires them to land in FLASH, not RAM.
 #include "firmware_ui_send.h"
@@ -596,6 +609,16 @@ mrui::UiSnapshot build_snapshot(uint32_t now_ms) {
     //   gateway). ⛔ It coincides with `prov_create_team` in every env in the tree today and is still not the
     //   same fact — the coincidence is what `provision_rows` refuses to encode.
     s.prov_join_team   = (MR_N_LAYERS < 2) && (MR_FEAT_TEAM != 0);
+    // ★★★★ §UI-16 N4 — the FOURTH child, and the ONLY one with a RUNTIME term: `INVITE MEMBER` is available iff
+    //      we ARE IN A TEAM (spec §4-N4 pin 12). A teamless node has no membership to invite anyone into and no
+    //      content key it could ever grant, so the row is HIDDEN rather than offered and refused ([[B209]]) — and
+    //      it appears the moment `team <id>` lands and disappears the moment `team 0` does, on a running node.
+    // ⓘ `config().team_id` is the core's own "am I in a team" (0 = not, `node.h`'s own words) and it is ALREADY
+    //   published one block down as `s.team_id`. It is read a second time HERE rather than derived from that
+    //   field in the pure unit, deliberately: the four child predicates are FOUR PARAMETERS by ruling (see
+    //   `provision_rows`), and a predicate half-derived from another snapshot field would be the coincidence
+    //   that block refuses to encode.
+    s.prov_invite      = (MR_N_LAYERS < 2) && (MR_FEAT_TEAM != 0) && (g_node.config().team_id != 0);
 #if MR_FEAT_TEAM
     // ⚠ `rt_team_at` has NO !MR_FEAT_TEAM stub, by deliberate core design (there is no `_rt_team` to read), so this
     //   whole block must be guarded — the two counters around it stub to 0 and would compile either way.
@@ -632,6 +655,36 @@ mrui::UiSnapshot build_snapshot(uint32_t now_ms) {
         // ⓘ COST (spec §6): ONE linear scan of at most `cap_peer_loc` (16) slots per shown row, per tick, bounded by
         //   `kMaxTeamRows` (8). ⛔ No flash, no radio, no allocation.
         const uint32_t hash = label_for_team_id(r.id, r.label, uint8_t(sizeof r.label));
+        // ★★★★ §UI-16 N4 — THE **SECOND CONSUMER** OF THAT ONE RESOLUTION (spec §6, U1: *"one `team_key_of_id`
+        //      resolution per row and hands it to BOTH consumers, ⛔ never two lookups for one row"*). The INVITE
+        //      window needs the same member enumeration the TEAM screen is already walking, so it is projected
+        //      HERE, in the same loop, from the same `hash` — ⛔ never a second `rt_team_at` walk and ⛔ never a
+        //      second `team_key_of_id` call. ⓘ `team_shown` bounds BOTH arrays; there is no second count.
+        // ⛔⛔ THIS IS A `const` READ AND NOTHING ELSE, exactly as the location read above is: `peer_name_find`
+        //     (`node_hashlocate.cpp:450`) walks the peer-key table and touches no timer, no queue and no radio.
+        //     ⛔ NOTHING in this slice asks for, refreshes or transmits an identity — the window's local refresh
+        //     is these two `const` reads and nothing more (spec §3 P-4b; the probe asserts the TX-queue depth
+        //     and the radio's start count across a held-open window rather than arguing it).
+        mrui::InviteMember& mem = s.member[i];
+        mem.id         = r.id;
+        mem.key_hash32 = hash;          // ⛔ 0 = NO AUTHORITATIVE BINDING — the pure unit's fail-closed floor (F-7)
+        // ★★★ THE NAME IS `Node::peer_name_find`'s ANSWER AND NOTHING ELSE (F-15 rules 2-3), asked HERE rather
+        //     than copied out of `r.label`: that string carries `label_from_hash`'s `0x%08lx` fallback and
+        //     `label_for_team_id`'s bare `id <n>`, and either one truncated into the row's six-column name field
+        //     would be a THIRD spelling of the hash. `""` — the blank column — is the honest state until a name
+        //     is cached beside a verified pubkey.
+        // ⚠ AND IT IS TERMINATED EXPLICITLY: `peer_name_find` COPIES `n` BYTES AND RETURNS `n` — it does not
+        //   NUL-terminate — so the cap it is given is one short of the buffer and the terminator is written
+        //   here, ⛔ never left to the caller's zero-initialisation.
+        // ⚠ THE GUARD IS SPELLED `!= 0u`, ⛔ NOT `!= 0`, AND THAT IS DELIBERATE RATHER THAN A STYLE CHOICE
+        //   (measured, not anticipated): the location publish two lines down carries the guard `if (hash != 0) {`,
+        //   which is the ANCHOR of probe control C114 — a `sed` substring. A second identical line here makes that
+        //   control mutate THIS block instead, and a landed control silently stops measuring what it names.
+        mem.name[0] = '\0';
+        if (hash != 0u) {
+            const uint8_t nn = g_node.peer_name_find(hash, mem.name, uint8_t(sizeof mem.name - 1));
+            mem.name[nn] = '\0';
+        }
         if (hash != 0) {
             MESHROUTE_NS::Node::PeerLocSrc src = MESHROUTE_NS::Node::PeerLocSrc::peer;
             r.peer_loc_valid = g_node.peer_loc_find(hash, r.peer_lat_e7, r.peer_lon_e7, r.peer_loc_age_s, src);
@@ -679,6 +732,8 @@ mrui::UiSnapshot build_snapshot(uint32_t now_ms) {
     // ================================================== §CHROME-3 — THE FIVE FIELDS §CHROME-1 DEFINED BUT COULD NOT
     // PUBLISH. The projection is PURE and may not touch `g_node`; every fact below is a `g_node` accessor, so this is
     // the one site that can supply them (the same shape as `team_build` / `ble_row` above — U3).
+    // ⓘ AMENDED 2026-08-23 (§CHROME-5): SEVEN now — the duty gauge's two inputs are published from the same site for
+    //   the same reason, at the end of this block. The heading is kept as written (§3 rule 3).
     // ★ IS THERE A MOBILE-HOME PLANE ON THIS BUILD AT ALL? `gateway_heltec` is a REAL build with OLED=1 and MOBILE=0,
     //   where design §4.2 rules the home slot BLANK — never crossed, because "not applicable" is not a fault.
     s.mobile_build         = (MR_FEAT_MOBILE != 0);
@@ -696,6 +751,22 @@ mrui::UiSnapshot build_snapshot(uint32_t now_ms) {
     // ★ THE TEAM CHANNEL **CONTENT** KEY (§4.4) — not the node's own crypto identity, and not a cached peer key.
     //   ⓘ Stubbed to false on a !MR_FEAT_TEAM build, so no guard is needed here either.
     s.team_key_present     = g_node.team_channel_key_present();
+    // ★★★★ §CHROME-5 — THE DUTY GAUGE'S ONE SEMANTIC AUTHORITY, READ **ONCE PER TICK** AND PUBLISHED VERBATIM.
+    //      `Node::duty_status()` (`lib/core/node_mac.cpp:1716`) is an existing `const` accessor over the same budget
+    //      `duty_over_budget` enforces, so this slice changes no wire, no NV, no routing and nothing in `Node`.
+    // ⛔⛔ AND IT IS THE ONLY ACCEPTABLE SOURCE FOR THIS SLOT. ⛔ NOT raw `duty_ms` (a window sum, not a verdict), and
+    //     ⛔ NOT `channel_duty_budget_ms()` — the FIVE-MINUTE anti-spam basis, which is a different budget over a
+    //     different window answering a different question ("may I originate a channel post"), and which reads 0 while
+    //     duty is disabled. An icon that mixed them would be confidently wrong in both directions.
+    // ⛔ THE RENDERER NEVER CALLS IT: `draw_frame` replays the whole scene once per OLED page (§8.2), so a live read
+    //    there would let the gauge change between two pages of one image — the §UI-17 S3 tear class.
+    // ⓘ `avail_ms` is READ AND DELIBERATELY NOT PUBLISHED: the gauge is icon-only, so the recovery time is a fact the
+    //   panel cannot draw. `duty` on the console carries it (`firmware_commands.cpp`'s `dump_duty`).
+    {
+        const MESHROUTE_NS::Node::DutyStatus duty = g_node.duty_status();
+        s.duty_enabled     = duty.enabled;
+        s.duty_pct         = duty.pct;
+    }
     // ★★★★ §UI-17 S3 — OUR OWN CONFIGURED POSITION, PUBLISHED HERE AND NOWHERE ELSE, because THIS is the site the
     //      frame freezes. `draw_status_screen` used to read `g_node.config()` itself, and `draw_frame` runs ONCE
     //      PER OLED PAGE — so a coordinate changing mid-frame TORE row 4 across the eight page replays. ⇒ the two
@@ -917,12 +988,19 @@ struct StripSlot {
     int16_t right;       // ★ the slot's frozen RIGHT EDGE at its WIDEST token: what the probe pins, and what makes
 };                       //   "the battery cannot push an earlier icon out of budget" a measurement (§3.1's budget).
 constexpr int16_t kNoToken = -1;
-enum class Strip : uint8_t { mail = 0, home, team, key, batt, count };
+enum class Strip : uint8_t { mail = 0, home, team, key, duty, batt, count };
 // ⓘ THE ARITHMETIC BEHIND THE TABLE, so a future edit re-derives it instead of nudging numbers: `Font::small` is
 //   6 px/column and every glyph but the battery is 7 px wide (`icons::kIconW`); the battery outline is 11
 //   (`kBatteryW`). Widest tokens: mail `99+` and home `59m`/`old` = 3 columns, team `9+` = 2, battery `4.1V` = 4.
-//     mail 0..25 · gap · home 28..53 · gap · team 56..75 · gap · key 79..85 · gap · battery 91..127
-//   = 26 + 2 + 26 + 2 + 20 + 3 + 7 + 5 + 37 = 128 px exactly, with the battery's last column landing on x = 127.
+// ★★ AMENDED BY §CHROME-5 (design §3.1's 2026-08-23 amendment, which is the AUTHORITY for these numbers): a SIXTH
+//    slot — the 7x7 duty gauge at x = 83..89. The strip was exactly full at the §CHROME-3 values, so the 2/3/5-px
+//    reserves shrink to ONE PIXEL between every pair and home/people/key each move LEFT; ⛔ the battery is untouched,
+//    glyph and token both, because its right-anchoring is what §3.1's own justification rests on (see below).
+//     mail 0..25 · home 27..52 · team 54..73 · key 75..81 · duty 83..89 · battery 91..127
+//   = 26 + 1 + 26 + 1 + 20 + 1 + 7 + 1 + 7 + 1 + 37 = 128 px exactly, with the battery's last column still on x = 127.
+// ⛔⛔ WITHDRAWN, KEPT VISIBLE (§3 rule 3): the line above read *"mail 0..25 · gap · home 28..53 · gap · team 56..75 ·
+//    gap · key 79..85 · gap · battery 91..127 = 26 + 2 + 26 + 2 + 20 + 3 + 7 + 5 + 37"*. True until the sixth slot
+//    landed; the five earlier right edges are what paid for it.
 // ★ THE BATTERY SLOT IS ANCHORED TO THE RIGHT EDGE (§3.1: *"battery is right-aligned so `--` and `4.1V` do not move
 //   the preceding icons"*) — and being a FIXED slot is what delivers that: its icon and its token sit at constant x
 //   whatever the token's width, so a `--` leaves the trailing columns empty instead of dragging the strip. ⛔ A
@@ -930,9 +1008,10 @@ enum class Strip : uint8_t { mail = 0, home, team, key, batt, count };
 //   moment the mail count reached three digits.
 constexpr StripSlot kStrip[uint8_t(Strip::count)] = {
     /* mail */ {  0,       8,  25 },
-    /* home */ { 28,      36,  53 },
-    /* team */ { 56,      64,  75 },
-    /* key  */ { 79, kNoToken, 85 },
+    /* home */ { 27,      35,  52 },
+    /* team */ { 54,      62,  73 },
+    /* key  */ { 75, kNoToken, 81 },
+    /* duty */ { 83, kNoToken, 89 },
     /* batt */ { 91,     104, 127 },
 };
 constexpr const StripSlot& slot(Strip f) { return kStrip[uint8_t(f)]; }
@@ -981,6 +1060,22 @@ const uint8_t* key_glyph(mrui::KeyIcon k) {
     return nullptr;   // -Wreturn-type only
 }
 
+// §CHROME-5's three pictures — and the FILL family is INDEXED rather than dispatched, which is what keeps the step
+// count DERIVED from the artwork (`icons::kDutyFillLevels`) instead of re-typed as six near-identical arms here.
+// ⛔ `default`-less like its neighbours: a ninth gauge state must fail the build rather than render a wrong level.
+// ⚠ Unlike home and key there is NO `blank` state: every build has a radio and therefore a duty answer — `disabled`
+//   (no duty limit configured) is a PICTURE of its own, ⛔ never the absence of one.
+const uint8_t* duty_glyph(mrui::DutyGauge d) {
+    switch (d) {
+        case mrui::DutyGauge::disabled: return mrui::icons::kIconDutyDisabled;
+        case mrui::DutyGauge::blocked:  return mrui::icons::kIconDutyBlocked;
+        // The fill family falls through to the ONE indexed draw below (U1).
+        case mrui::DutyGauge::fill_0: case mrui::DutyGauge::fill_1: case mrui::DutyGauge::fill_2:
+        case mrui::DutyGauge::fill_3: case mrui::DutyGauge::fill_4: case mrui::DutyGauge::fill_5: break;
+    }
+    return mrui::icons::kIconDutyFill[mrui::ui_duty_fill_level(d)];
+}
+
 void draw_strip_icon(const StripSlot& sl, const uint8_t* bits) {
     mrui::draw_bitmap(sl.icon_x, kStripIconY, mrui::icons::kIconW, mrui::icons::kIconH, bits);
 }
@@ -1004,6 +1099,11 @@ void draw_status_strip(const mrui::UiChrome& c) {
     mrui::draw_text(slot(Strip::team).text_x, kBarBaseline, tok);
     // ---- [key] (§4.4) — the TEAM CHANNEL CONTENT key, never the node's own identity.
     if (const uint8_t* key = key_glyph(c.key)) draw_strip_icon(slot(Strip::key), key);
+    // ---- [duty] (§CHROME-5) — the duty-utilization gauge, ⛔ ICON ONLY and never a percentage: the exact figure and
+    //      the recovery time live in the `duty` console verb and the companion diagnostics. The bucket was classified
+    //      at the freeze (`ui_duty_bucket`), so this slot makes no display decision either — crossed = no duty limit,
+    //      empty-to-full = utilization, full + warning mark = 100 %, i.e. transmission is duty-blocked right now.
+    draw_strip_icon(slot(Strip::duty), duty_glyph(c.duty));
     // ---- [battery][voltage] (§4.5) — the outline is UNFILLED and stays that way: a fill level implies a chemistry
     //      and a discharge curve nobody has approved. `--` until a reading succeeds, and never a plausible guess.
     mrui::draw_bitmap(slot(Strip::batt).icon_x, kStripIconY, mrui::icons::kBatteryW, mrui::icons::kBatteryH,
@@ -1407,7 +1507,7 @@ void draw_provision_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
     switch (st.provisioning) {
         case mrui::Provision::menu: {
             const mrui::ProvRowList list =
-                mrui::provision_rows(s.prov_create_team, s.prov_join_static, s.prov_join_team);
+                mrui::provision_rows(s.prov_create_team, s.prov_join_static, s.prov_join_team, s.prov_invite);
             const uint8_t first = list_first(st.cursor, list.n, uint8_t(kBodyRows));
             for (uint8_t row = 0; row < kBodyRows && first + row < list.n; ++row) {
                 mrui::ProvRow r{};
@@ -1440,7 +1540,12 @@ void draw_provision_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
             const char* detail = mrui::prov_result_detail(st.prov_answer);
             if (detail[0]) body_text(1, detail);
             // Design §3.6.3: success shows the FULL new team id PLUS the same short fingerprint (§3.6.4's token).
-            if (st.prov_answer.outcome == mrui::UiProvOutcome::created) {
+            // ★ §UI-16 N3 JOINED THIS ARM — spec §4-N3 pin 5 asks a JOIN's success for exactly the same two rows
+            //   (*"plus the full id and the shared fingerprint"*), and the HEADLINE above already tells the two
+            //   operations apart (`TEAM JOINED` vs `TEAM CREATED`, F-4). ⛔ The condition is by OUTCOME and never by
+            //   arm: the arm renders whatever verdict the act that entered it established, and nothing else.
+            if (st.prov_answer.outcome == mrui::UiProvOutcome::created ||
+                st.prov_answer.outcome == mrui::UiProvOutcome::team_joined) {
                 char id[mrui::kTeamIdTokenCap]; mrui::ui_fmt_team_id_full(id, sizeof id, st.prov_answer.team_id);
                 body_text(1, id);
                 char fp[mrui::kTeamFpTokenCap]; mrui::ui_fmt_team_fingerprint(fp, sizeof fp, st.prov_answer.team_id);
@@ -1560,6 +1665,98 @@ void draw_provision_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
             }
             return;
         }
+        // ★★★★ §UI-16 N3 — THE `JOIN <fingerprint>?` CONFIRMATION. ⛔ NOTHING HERE DECIDES ANYTHING: the title is
+        //      `ui_fmt_nearby_join_title`'s (spec S-8, over the SHARED fingerprint), the two action words are
+        //      `join_confirm_label`'s — CALLED, ⛔ never re-spelled (S-9) — and which of them carries the marker is
+        //      the MODEL's `prov_confirm`, whose zero value is BACK.
+        // ★★ THE ID IT DRAWS IS `st.nearby_sel_id`, THE ROW'S OWN IDENTITY — ⛔ never `s.team_id` (that is the team
+        //    we are LEAVING, which is what the create screen's `REPLACES` line is for) and ⛔ never the cursor.
+        // §7.3 AUDIT (widest reachable expansion, 19-column body):
+        //   title           `JOIN 3D9348?`                                      = 12
+        //   confirm action  `%c%s`  : `>BACK` 5 · `>JOIN`                       = 5
+        case mrui::Provision::nearby_confirm: {
+            char title[mrui::kNearbyJoinTitleCap];
+            mrui::ui_fmt_nearby_join_title(title, sizeof title, st.nearby_sel_id);
+            body_text(0, title);
+            // ★ BACK FIRST and selected on entry, so JOIN costs the deliberate `short` -> `double` (§3.6.4 point 3).
+            snprintf(l, sizeof l, "%c%s", (st.prov_confirm == mrui::ProvConfirm::back) ? '>' : ' ',
+                     mrui::join_confirm_label(/*confirm=*/false));
+            body_text(3, l);
+            snprintf(l, sizeof l, "%c%s", (st.prov_confirm == mrui::ProvConfirm::confirm) ? '>' : ' ',
+                     mrui::join_confirm_label(/*confirm=*/true));
+            body_text(4, l);
+            return;
+        }
+        // ★★★★ §UI-16 N4 — THE INVITATION WINDOW. ⛔ NOTHING HERE DECIDES ANYTHING: the rows are
+        //      `mrui::invite_sel_rows` over the LIVE member projection (the SAME builder the model bounds its
+        //      cursor with, U1/U2 — so the highlight and the act can never name different people), the note is
+        //      `invite_note`, the row's three columns are `ui_fmt_invite_row`'s (name · team-local id · member
+        //      fingerprint) and BACK is `provision_row_label`'s one spelling.
+        // ★★ AND IT READS `s.member` — the LIVE array — WHERE NEARBY READS THE FROZEN `st.nearby`, which is
+        //    owner ruling R-10 in both directions: NEARBY is a frozen snapshot per entry (a team walking into
+        //    range must not insert a row under the cursor), while the INVITE window refreshes LOCALLY, because
+        //    showing somebody who arrives WHILE IT IS OPEN is the whole point of it. The FROZEN thing here is
+        //    the OPENING's snapshot (`st.invite`), which is what the rows are diffed against.
+        // ⛔ THE SECOND ROW IS THE TEAM's OWN **FINGERPRINT** AND ⛔ THERE IS NO LABEL (spec §4-N4 pin 9, F-3):
+        //    there is no team-name field anywhere in this firmware to show, and a node's name is a different
+        //    thing about a different entity (S-36's forbidden usage).
+        // §7.3 AUDIT (widest reachable expansion, 19-column body):
+        //   title           `INVITE MEMBER`                                     = 13
+        //   team token      `3D9348`                                            = 6
+        //   note            `NEW MEMBER` 10 · `NO CANDIDATES`                   = 13
+        //   candidate row   `%c%-6.6s T%-3u %6s` : `>Wolfga T221 6C2971`         = 19 exactly
+        //   back row        `%c%s`  : `>BACK`                                   = 5
+        case mrui::Provision::invite: {
+            body_text(0, mrui::kInviteTitle);
+            char fp[mrui::kTeamFpTokenCap];
+            mrui::ui_fmt_team_fingerprint(fp, sizeof fp, s.team_id);
+            body_text(1, fp);
+            const mrui::InviteSelList ilist = mrui::invite_sel_rows(st.invite, s.member, s.team_shown);
+            body_text(2, mrui::invite_note(ilist));
+            const uint8_t irows  = uint8_t(kBodyRows - 3);
+            const uint8_t ifirst = list_first(st.cursor, ilist.n, irows);
+            for (uint8_t row = 0; row < irows && ifirst + row < ilist.n; ++row) {
+                mrui::InviteSelRow r{};
+                if (!ilist.at(uint8_t(ifirst + row), r)) break;
+                const char marker = (ifirst + row == st.cursor) ? '>' : ' ';
+                char label[mrui::kInviteRowCap];
+                if (r.back) snprintf(label, sizeof label, "%c%s", marker,
+                                     mrui::provision_row_label(mrui::ProvRow::back));
+                else        mrui::ui_fmt_invite_row(label, sizeof label, marker, r.cand);
+                body_text(uint8_t(3 + row), label);
+            }
+            return;
+        }
+        // ★★★★ §UI-16 N4 — THE CANDIDATE'S CONFIRMATION. ⛔ NOTHING HERE DECIDES ANYTHING: the word is
+        //      `kInviteNew`, the identity is `ui_fmt_member_hash_full`'s and the two action words are
+        //      `invite_confirm_label`'s — CALLED, ⛔ never re-spelled.
+        // ★★★ THE FULL `0x%08lX` HASH IS DRAWN **ALWAYS** (spec §3 P-7c / F-15 rule 4), name or no name: a
+        //     mutable, self-asserted label may never be the only identity an operator reads at the moment of an
+        //     irreversible act. ⛔ AND IT IS THE **FROZEN** `st.invite.sel_hash` — the identity of the row the
+        //     cursor was on when the confirmation opened — ⛔ never a row re-read from the live list, which a
+        //     refresh between the two presses may have re-indexed.
+        // §7.3 AUDIT: `NEW MEMBER` 10 · `0x00C0FFEE` 10 · `%c%s` : `>REJECT` 7
+        case mrui::Provision::invite_confirm: {
+            body_text(0, mrui::kInviteNew);
+            char hash[mrui::kMemberHashCap];
+            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.invite.sel_hash);
+            body_text(1, hash);
+            // ★ BACK FIRST and selected on entry, so REJECT costs the deliberate `short` -> `double` (P-13).
+            snprintf(l, sizeof l, "%c%s", (st.prov_confirm == mrui::ProvConfirm::back) ? '>' : ' ',
+                     mrui::invite_confirm_label(/*confirm=*/false));
+            body_text(3, l);
+            snprintf(l, sizeof l, "%c%s", (st.prov_confirm == mrui::ProvConfirm::confirm) ? '>' : ' ',
+                     mrui::invite_confirm_label(/*confirm=*/true));
+            body_text(4, l);
+            return;
+        }
+        // ★★ §UI-16 N4 — THE WINDOW RAN OUT (S-16). ⛔ IT IS A STATEMENT ABOUT THE UI AND NOTHING ELSE (P-11):
+        //    nothing was granted, revoked or rewritten by the expiry, and the screen says only that. Terminal,
+        //    acknowledged by either press — ⛔ no selectable BACK row (§UI-17 §9 R-5).
+        case mrui::Provision::invite_closed:
+            body_text(0, mrui::kInviteClosed);
+            body_text(4, "press = back");
+            return;
         // ⛔ UNREACHABLE BY THE INVARIANT (`Settings::provisioning` implies a non-`closed` arm) — listed so -Wswitch
         //    stays useful, and drawing nothing is the honest answer for a state that says it is not open.
         case mrui::Provision::closed: return;
@@ -1610,7 +1807,8 @@ void draw_settings_screen(const mrui::UiState& st, const mrui::UiSnapshot& s, co
     //   taste: the third child made the call two lines long, and the two landed controls that mutate this predicate
     //   (`C88` renders the row unconditionally, `L10` hides it on a build that HAS a child) anchor on ONE line each.
     //   A two-line call left them matching a fragment and produced a VACUOUS control — measured, not anticipated.
-    const bool prov_child = mrui::provision_has_child(s.prov_create_team, s.prov_join_static, s.prov_join_team);
+    const bool prov_child =
+        mrui::provision_has_child(s.prov_create_team, s.prov_join_static, s.prov_join_team, s.prov_invite);
     const mrui::CfgRowList list = mrui::settings_rows(s.ble_row, c.conflict, prov_child);
     const uint8_t first = list_first(st.cursor, list.n, rows);
     for (uint8_t row = 0; row < rows && first + row < list.n; ++row) {

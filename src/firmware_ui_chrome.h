@@ -34,6 +34,11 @@
 #include <cstdint>
 #include <cstdio>    // snprintf — the compact tokens are formatted HERE so the native suite asserts VISIBLE BYTES
 #include "firmware_ui_model.h"
+// §CHROME-5 — for `icons::kDutyFillLevels` ALONE. ⓘ The duty gauge's step count is a property of its ARTWORK (the
+// 7x7 outline's drawable interior rows), so the enum below and the pct -> step map are DERIVED from that one constant
+// rather than typed here; see `kDutyGaugeRows`. The header is pure (`<cstdint>` only), so this costs the projection
+// nothing and keeps a second, hand-written step count from ever existing.
+#include "firmware_ui_icons.h"
 
 namespace mrui {
 
@@ -62,6 +67,56 @@ enum class KeyIcon : uint8_t {
     absent,      // team configured, no content key — crossed key
     present      // team configured, content key held — normal key
 };
+
+// ================================================================ §CHROME-5 — the DUTY-UTILIZATION gauge's domain
+//
+// ★★★ THE RENDERER SEES A BUCKET, NEVER A PERCENTAGE, and that is the whole shape of this slot. Design §3.1's
+//     amendment rules the gauge ⛔ ICON ONLY (the exact figure and the recovery time stay in the `duty` console verb
+//     and the companion diagnostics), so a pct riding the frozen chrome would be a number nothing draws — and §8.3
+//     would then mark the model dirty on every one of the hundred values that render the SAME six pictures, i.e. a
+//     repaint per tick for a panel that did not change. ⇒ the classification happens BEFORE the freeze, here.
+//
+// ★★★★ **N IS DERIVED, NOT TYPED.** The fill enumerators are one per drawable interior row of the 7x7 gauge, plus
+//      empty — `icons::kDutyFillLevels`, which is a property of the ARTWORK — and the `static_assert` below is what
+//      keeps the two in step: add a row to the picture without adding an enumerator (or the reverse) and the build
+//      fails here rather than making one level unreachable on the panel.
+// ⛔ THE FILL FAMILY IS INDEXED, NOT DISPATCHED: `ui_duty_fill_level` turns a fill enumerator into its row count, so
+//    the renderer needs ONE draw expression for all six and no six-arm copy of the table (U1).
+enum class DutyGauge : uint8_t {
+    disabled = 0,   // no duty limit on this node — the CROSSED gauge. ⛔ NOT "0 %": unlimited is not idle.
+    fill_0,         // 0 % .. the first step boundary — the empty gauge
+    fill_1, fill_2, fill_3, fill_4,
+    fill_5,         // the FULL gauge, still transmitting (99 % at most) — ⛔ never 100 %
+    blocked         // 100 %: the node must stay silent right now — the full gauge PLUS the warning mark
+};
+static_assert(uint8_t(DutyGauge::blocked) - uint8_t(DutyGauge::fill_0) == icons::kDutyFillLevels,
+              "§CHROME-5: exactly one fill enumerator per drawable gauge row, plus empty — see kDutyFillLevels");
+
+// The fill enumerator's LEVEL, i.e. how many interior rows are inked. ⛔ Defined only for `fill_0..fill_5`; the
+// renderer reaches it from those arms alone (`disabled`/`blocked` have pictures of their own, not fill levels).
+inline constexpr uint8_t ui_duty_fill_level(DutyGauge g) {
+    return uint8_t(uint8_t(g) - uint8_t(DutyGauge::fill_0));
+}
+
+// ★★★ THE ONE CLASSIFICATION, AND ITS TWO BOUNDARY FACTS ARE THE POINT OF IT BEING A FUNCTION AT ALL:
+//     1. `enabled == false` WINS OVER ANY pct. A node with no duty limit reports `pct = 0` (`node_mac.cpp:1717`
+//        returns `DutyStatus{0, 0, false}`), so testing the pct first would draw an EMPTY gauge — "0 % used" — for a
+//        node that is not measuring utilization at all. The crossed gauge is a different statement and it wins.
+//     2. `pct == 100` IS `blocked`, NEVER `fill_5`. 100 % is the core's own "the node must stay silent" (node.h's
+//        `duty_status` block), and the ONE thing this slot exists to make glanceable is the difference between a
+//        gauge that is nearly full and a radio that is currently refusing to transmit. A full gauge without the
+//        warning mark at 100 % would be a picture that is right about the level and silent about the consequence.
+// ⓘ `>= 100` rather than `== 100` fails in the SAFE direction: `duty_status` cannot return more than 100 today, and
+//   if it ever did, "blocked" is the honest reading of an over-budget node — ⛔ not an out-of-range fill index.
+// ★ THE MAP IS WRITTEN FROM `kDutyFillLevels` AND NOTHING ELSE (see the enum's note): step boundaries land at
+//   ceil(k * 100 / N) — 17, 34, 50, 67, 84 for six levels — and 99 % is the last fill, which is what makes `fill_5`
+//   and `blocked` two different pictures rather than a rounding accident.
+inline constexpr DutyGauge ui_duty_bucket(bool enabled, uint8_t pct) {
+    if (!enabled)   return DutyGauge::disabled;
+    if (pct >= 100) return DutyGauge::blocked;
+    return DutyGauge(uint8_t(uint8_t(DutyGauge::fill_0)
+                             + unsigned(pct) * unsigned(icons::kDutyFillLevels) / 100u));
+}
 
 // §6's configuration badge. The enumerators are LISTED in the visible priority order as a reading aid — ⛔ but that
 // is all it is: ★ WHAT ACTUALLY DECIDES THE PRIORITY IS `ui_cfg_badge`'s EXPLICIT `if` CHAIN AND THE EIGHT-ROW TRUTH
@@ -382,6 +437,12 @@ struct UiChrome {
     bool     team_overflow   = false;// true -> `9+`
     KeyIcon  key           = KeyIcon::blank;
     int16_t  batt_dv       = -1;     // §4.5 DECIVOLTS; < 0 = unavailable -> `--`, never a guess
+    // ★★ §CHROME-5's sixth slot, and it is a BUCKET — ⛔ never the pct. `ui_duty_bucket` classified it before this
+    //    struct was built, for the reason the whole projection exists (see that function): the panel draws eight
+    //    pictures, so carrying the hundred percentages would repaint on values that render identically.
+    // ⓘ `disabled` is the default, which is also the honest reading of an unpublished snapshot: `UiSnapshot`'s
+    //   `duty_enabled` defaults false and `Node::duty_status()` answers exactly that for a node with no duty limit.
+    DutyGauge duty         = DutyGauge::disabled;
     CfgBadge badge         = CfgBadge::clean;
     // ---- §3.2's navigation rail (the three fields §8.2's amendment ruled in) --------------------------------------
     // ★★ THEY LIVE HERE BECAUSE `UiState` ALONE CANNOT DERIVE THE RAIL HONESTLY, and the code says so: emergency is a
@@ -411,6 +472,9 @@ inline bool ui_chrome_equal(const UiChrome& a, const UiChrome& b) {
         && a.team_overflow   == b.team_overflow
         && a.key             == b.key
         && a.batt_dv         == b.batt_dv
+        // ★ §CHROME-5: THE BUCKET, which is the whole repaint economy of this slot — two pcts inside one bucket
+        //   render the same picture and owe NOTHING. ⛔ Never compare a percentage here; there is not one to compare.
+        && a.duty            == b.duty
         && a.badge           == b.badge
         && a.rail_visible    == b.rail_visible
         && a.nav             == b.nav
@@ -506,6 +570,11 @@ inline UiChrome ui_chrome(const UiSnapshot& s, const UiState& st, Emergency emg,
     //   plausible-looking voltage this node never measured, which is the one substitution the battery path forbids.
     const int32_t dv = (s.batt_mv < 0) ? int32_t(-1) : (s.batt_mv / 100);
     c.batt_dv = (dv < 0 || dv > int32_t(kBattMaxDv)) ? int16_t(-1) : int16_t(dv);
+
+    // §CHROME-5 — the duty gauge. ★ CLASSIFIED HERE, so the frozen chrome carries the PICTURE's identity and not the
+    // reading it came from; `build_snapshot` takes `Node::duty_status()` once per tick and publishes its two fields
+    // verbatim (⛔ never raw `duty_ms`, ⛔ never the separate five-minute anti-spam budget — different questions).
+    c.duty = ui_duty_bucket(s.duty_enabled, s.duty_pct);
 
     c.badge = ui_cfg_badge(cfg.conflict, cfg.unsaved, cfg.restart_required);
 

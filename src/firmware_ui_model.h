@@ -171,6 +171,12 @@
 //   include: that file needs `firmware_ui_chrome.h`, and chrome includes THIS header — see the split's own
 //   note. `src/firmware_ui.cpp`, the tests and the probe include both.
 #include "firmware_ui_nearby.h"
+// ★ §UI-16 N4 — the INVITE window's pure unit: the member projection `UiSnapshot` publishes, the window state
+//   `UiState` holds (the two snapshot authorities, the volatile handled set and the frozen selection), the diff,
+//   the candidate row and every lexeme. It is included HERE for the reason `firmware_ui_nearby.h` is — the types
+//   ride the snapshot and the state — and it is ONE file rather than two because, unlike N2's row, nothing in it
+//   needs `firmware_ui_chrome.h` (see its own opening note for the measured include chain).
+#include "firmware_ui_invite.h"
 #include "firmware_ui_input.h"
 
 namespace mrui {
@@ -179,6 +185,15 @@ inline constexpr uint32_t kBlankMs      = 15000;
 inline constexpr uint8_t  kMaxTeamRows  = 8;    // spec §11: a 3-10 member group; the snapshot reports the TRUE total too
 inline constexpr uint8_t  kMaxInboxRows = 8;
 inline constexpr uint8_t  kLabelCap     = 14;   // display-clamped teammate label
+// ★★ §UI-16 N4 — THE TWO BOUNDS THE INVITE UNIT COULD NOT STATE FOR ITSELF, ASSERTED RATHER THAN COMMENTED.
+//    `firmware_ui_invite.h` may not include this header (this one includes IT), so its capacities are declared
+//    there and TIED here: the member array is filled by the SAME loop, bounded by the SAME count, as `team[]`
+//    (spec §6: one enumeration, one `team_key_of_id` resolution, two consumers), and the cached name it carries
+//    must hold a whole `kLabelCap` label so the invite row and the TEAM row clamp ONE name at ONE width.
+static_assert(kMaxInviteRows >= kMaxTeamRows,
+              "§UI-16 N4: the invite member array is filled from the TEAM enumeration and must not be shorter");
+static_assert(std::size_t(kInviteNameCap) == std::size_t(kLabelCap) + 1u,
+              "§UI-16 N4: the cached name must be stored at the label's own width — one name, one truncation");
 
 // ⚠ ALIASES, not UI enums — they ARE `MESHROUTE_NS::InboxKind` / `MESHROUTE_NS::InboxEraseResult`, exactly as
 // `FailReason` below is `MESHROUTE_NS::SendFailReason`. They exist so this header names its cross-namespace
@@ -350,8 +365,16 @@ inline bool screen_is_entered(Screen sc, Settings settings, ListView view) {
 //   `menu`           — LIVE: the child list (§6, `provision_rows`), the cycling cursor, and BACK (-> `closed`).
 //                      ⓘ §UI-15 slice 6 gave JOIN NETWORK its landing too (`provision_menu_gesture`).
 //   `create_confirm` — LIVE (slice 5): §3.6.3's confirmation, opened on BACK, `short` toggles, `double` performs.
-//   `create_result`  — LIVE (slice 5): the transaction's verdict, and it is entered ONLY by `run_create_team`, i.e.
+//   `create_result`  — LIVE (slice 5): the transaction's verdict, and it is entered ONLY by an ACT THAT RAN, i.e.
 //                      only by the act that established it. Terminal; either press returns to the menu.
+//                      ⛔ CORRECTED IN PLACE 2026-08-23 (§UI-16 N3), AND THE WITHDRAWN WORDING IS KEPT VISIBLE:
+//                      this line read *"entered ONLY by `run_create_team`"*. It is now entered by `run_create_team`
+//                      AND by `run_join_team` — **two acts, one TERMINAL RESULT SCREEN**, because the screen
+//                      renders `UiState::prov_answer` and nothing else, and N3's scope is ⛔ ONE new `Provision`
+//                      arm (spec §4-N3), which the CONFIRMATION spends. ⓘ The property the old wording protected is
+//                      UNCHANGED and is what matters: ⛔ no path enters this arm without having just run a
+//                      transaction and written its verdict — see both `run_*` bodies, whose last two statements are
+//                      the same two in the same order.
 //   `join_select`    — LIVE (slice 6): the four `/mrjoin` slots (`join_sel_rows` over `UiState::join_list`, read ONCE
 //                      on the transition) plus BACK. A non-`ok` store offers no slot and SAYS why (`join_store_head`).
 //   `join_confirm`   — LIVE (slice 6): design §3.6.3's *"the complete values before confirmation, with BACK selected
@@ -365,12 +388,41 @@ inline bool screen_is_entered(Screen sc, Settings settings, ListView view) {
 //                      observations (`Node::team_seen_*`), captured ONCE on the transition into
 //                      `UiState::nearby` and rendered as `fingerprint · n/3 · age` plus BACK. ⛔ It performs
 //                      NOTHING — no join, no confirmation, no airtime — and BACK returns to the PROVISION
-//                      menu. The act (`JOIN <fingerprint>?`) is §UI-16 N3's, and until it lands a `double`
-//                      on a team row deliberately does nothing ([[B222]]: a transition lands WITH its flow).
+//                      menu. ✅ §UI-16 N3 LANDED ITS ACT: a `double` on a team row now opens `nearby_confirm`
+//                      below ([[B222]]'s rule paid off — the transition arrived WITH its flow, one slice later).
+//   `nearby_confirm` — LIVE (§UI-16 N3): design §3.6.4 point 3's *"`JOIN <fingerprint>?` with BACK selected
+//                      initially"*. `short` toggles, `double` performs, and ⛔ BACK returns to the NEARBY
+//                      LIST (⛔ not the menu) — the `join_confirm` -> `join_select` containment, one screen
+//                      over. ★ WHAT IT CARRIES IS `UiState::nearby_sel_id`, the FULL 32-bit team id of the
+//                      row the operator was standing on — ⛔ never the cursor index and ⛔ never a value
+//                      re-derived from the six-character fingerprint (spec §3 P-7, [[B48]]'s class).
+//   `invite`         — LIVE (§UI-16 N4): design §3.6.4 point 1's BOUNDED INVITATION WINDOW. It lists the members
+//                      that appeared AFTER the snapshot the OPENING took (`UiState::invite`, the two authorities
+//                      F-11 rules) and REFRESHES LOCALLY while it is up (R-10) — ⛔ no scan, ⛔ nothing
+//                      transmitted, it only re-reads member state the node already holds. ★ IT HAS ITS OWN
+//                      DEADLINE (`_invite_until_ms` / `window_active`, 5 minutes, R-3) which ⛔ does NOT hold the
+//                      panel lit and ⛔ never writes `_last_input_ms`.
+//   `invite_confirm` — LIVE (§UI-16 N4): the candidate's confirmation. It FREEZES the selected hash/id
+//                      (`UiState::invite.sel_*`) so a refresh between the two presses cannot move what the
+//                      operator is about to act on, it draws the FULL `0x%08lX` hash (P-7c), and the only act it
+//                      can perform is `REJECT` — ⛔ there is no grant and no pubkey request in this slice (N5/N6).
+//                      ⛔ An UNFINISHED one does NOT survive the blank (OQ-3's clarification); the WINDOW does.
+//   `invite_closed`  — LIVE (§UI-16 N4): the window RAN OUT (`WINDOW CLOSED`). Terminal, either press returns to
+//                      the menu. ⛔ ENTERING IT GRANTS, REVOKES AND REWRITES NOTHING (P-11) — it moves a screen
+//                      and drops RAM, and `enter_provision` is what discards the window's whole state with it.
 enum class Provision : uint8_t {
     closed = 0, menu, create_confirm, create_result, join_select, join_confirm, join_waiting, join_result,
-    nearby
+    nearby, nearby_confirm, invite, invite_confirm, invite_closed
 };
+
+// ★★ IS THIS ARM THE INVITATION WINDOW ITSELF? Asked in ONE place and answered for THREE readers (U1): the
+//    window's own deadline (`window_active`'s CLEARING TERM — `hold_active`'s shape, U3), the tick that closes
+//    an expired window, and `enter_provision`'s discard of the volatile per-window state (F-13).
+// ⛔ `invite_closed` IS DELIBERATELY NOT ONE OF THEM: the window is over on that screen, so a candidate list may
+//    not be produced there and the handled set must already be gone.
+inline bool provision_is_invite(Provision p) {
+    return p == Provision::invite || p == Provision::invite_confirm;
+}
 
 // ★★ THE CONFIRMATION'S TWO ACTIONS, AND `back` IS FIRST BECAUSE §3.6.3 REQUIRES IT TO BE THE DEFAULT — verbatim:
 //    *"opens a confirmation with `BACK` selected initially; reaching CREATE requires `short` then `double`"*. It is
@@ -401,11 +453,20 @@ enum class ProvBlock : uint8_t { none = 0, conflict, unsaved };
 //   stale `create_confirm` surviving into the next visit would re-open a confirmation the operator never asked for,
 //   which §3.6.5 rule 1 forbids in as many words. `ProvConfirm` says what a confirmation would OPEN ON: a stale
 //   `confirm` would re-open it with the destructive choice already selected, one `double` from CREATE TEAM.
+// ★★★★ §UI-16 N4 ADDS THE **THIRD** FACT, AND IT IS THE SAME ARGUMENT A THIRD TIME: the invitation window's state
+//      (the two authorities, the VOLATILE handled set and the frozen selection) may ⛔ not survive a leave either.
+//      P-14 is explicit — *"an unconfirmed destructive action does not survive"* an emergency — and F-13 is that the
+//      handled set dies WITH the window. An alarm that left the set standing would mean a candidate the operator
+//      rejected in a window they never returned to stays suppressed in the NEXT one.
+// ⛔ IT IS RESET HERE RATHER THAN AT THE TWO CALL SITES for the reason the other two fields are: a decision written
+//    at a call site is a decision the suite drives through a screen instead of directly, and this one has THREE
+//    writers (`close_provisioning`, `settings_follow_screen` and — for every non-window arm — `enter_provision`).
 // ⓘ Returns whether anything CHANGED, so a caller repaints for a real close and not for every tick spent off-screen.
-inline bool provision_reset_on_leave(Provision& arm, ProvConfirm& confirm) {
-    const bool changed = arm != Provision::closed || confirm != ProvConfirm::back;
+inline bool provision_reset_on_leave(Provision& arm, ProvConfirm& confirm, InviteWindow& window) {
+    const bool changed = arm != Provision::closed || confirm != ProvConfirm::back || window.taken;
     arm = Provision::closed;
     confirm = ProvConfirm::back;
+    window = InviteWindow{};
     return changed;
 }
 
@@ -536,7 +597,11 @@ inline uint8_t cfg_menu_next(mrfw::CfgField f, uint8_t v) {
 // ★ §UI-16 N2 adds the THIRD child (`join_team`), and the code above ANTICIPATED it by name — see
 //   `provision_has_child`, which derives the parent row's condition FROM this list precisely so a new child
 //   is picked up with zero change there.
-enum class ProvRow : uint8_t { create_team = 0, join_static, join_team, back, count };
+// ★★★★ §UI-16 N4 ADDS THE FOURTH CHILD (`invite`), and it is APPENDED before `back` rather than inserted:
+//      §3.6.4's own order puts the creator's invitation first, but every landed row here keeps its position for
+//      the operator who has learned this menu — and position is not identity anyway (§B66), so the ORDER is a
+//      usability choice while the ROW is the meaning.
+enum class ProvRow : uint8_t { create_team = 0, join_static, join_team, invite, back, count };
 inline constexpr uint8_t kMaxProvRows = uint8_t(ProvRow::count);
 
 // ⛔ NOT `CfgRowList` GENERALISED INTO A TEMPLATE, and that is C1 rather than laziness: turning `CfgRowList` into
@@ -579,11 +644,19 @@ struct ProvRowList {
 //    A submenu arrives only when a SECOND join method exists; in v1 NEARBY is this row's only child, so a
 //    submenu would be exactly the *"row that costs the operator a walk and a `double` to discover it offers
 //    nothing"* the 2026-08-19 hiding ruling refuses.
-inline ProvRowList provision_rows(bool create_team, bool join_static, bool join_team) {
+// ★★★★ §UI-16 N4 — AND THE FOURTH PREDICATE IS A **FOURTH SEPARATE PARAMETER**, for the reason the first three
+//      are separate: `invite` is the only child whose condition includes a RUNTIME fact — ⛔ it is not merely a
+//      build shape, it requires that WE ARE IN A TEAM (spec §4-N4 pin 12), because a teamless node has no
+//      membership to invite into and no key it could ever grant. ⇒ the row appears and disappears with
+//      `team <id>` / `team 0` on a running node, which no `#if` could express and which the native suite drives
+//      both ways. ⓘ On `gateway_heltec` (OLED=1, `MR_N_LAYERS=2`, `MR_FEAT_TEAM=0`) it is false on the BUILD
+//      half alone, which is the same pin from the other side.
+inline ProvRowList provision_rows(bool create_team, bool join_static, bool join_team, bool invite) {
     ProvRowList l{};
     if (create_team) l.row[l.n++] = ProvRow::create_team;
     if (join_static) l.row[l.n++] = ProvRow::join_static;
     if (join_team)   l.row[l.n++] = ProvRow::join_team;
+    if (invite)      l.row[l.n++] = ProvRow::invite;
     l.row[l.n++] = ProvRow::back;
     return l;
 }
@@ -597,8 +670,8 @@ inline ProvRowList provision_rows(bool create_team, bool join_static, bool join_
 // ✅ AND IT NEEDED NO CHANGE OF SHAPE WHEN §UI-16 N2 ADDED THE THIRD CHILD — only the parameter it forwards.
 //    That is the note above being paid off rather than re-argued: `back` is excluded BY IDENTITY, so the
 //    predicate learned about `join_team` the moment `provision_rows` did.
-inline bool provision_has_child(bool create_team, bool join_static, bool join_team) {
-    const ProvRowList l = provision_rows(create_team, join_static, join_team);
+inline bool provision_has_child(bool create_team, bool join_static, bool join_team, bool invite) {
+    const ProvRowList l = provision_rows(create_team, join_static, join_team, invite);
     for (uint8_t i = 0; i < l.n; ++i)
         if (l.row[i] != ProvRow::back) return true;
     return false;
@@ -612,6 +685,9 @@ inline const char* provision_row_label(ProvRow r) {
         case ProvRow::create_team: return "CREATE TEAM";
         case ProvRow::join_static: return "JOIN NETWORK";
         case ProvRow::join_team:   return "JOIN TEAM";     // §UI-16 S-1 — the design's own path word (§3.6.4 :797)
+        // ★ §UI-16 S-12 — the design's own words (§3.6.4 :800), CALLED from the window's title too: ONE spelling
+        //   for one operation, so the row the operator pressed and the screen it opened cannot drift apart.
+        case ProvRow::invite:      return kInviteTitle;    // "INVITE MEMBER" — 1 + 13 = 14 of the 19-column body
         case ProvRow::back:        return "BACK";
         case ProvRow::count:       return "?";
     }
@@ -628,7 +704,11 @@ inline const char* provision_row_label(ProvRow r) {
 // ★★ §UI-15 slice 6 GREW IT EXACTLY AS THAT NOTE ANTICIPATED, and the growth is the point: `join_static` is a SECOND
 //    op on the SAME seam, so the `default`-less dispatch in `UiProvisionAdapter::perform` forces a reader to state
 //    what performs it. ⛔ A parallel `IUiJoin` seam would have been the second dispatch U1 forbids.
-enum class UiProvOp : uint8_t { none = 0, create_team, join_static };
+// ★★★ §UI-16 N3 GREW IT A THIRD TIME, and the note above is being paid off for the second slice running: the nearby
+//     join is a THIRD op on the SAME seam, so `UiProvisionAdapter::perform`'s `default`-less dispatch forces a reader
+//     to state what performs it. ⛔ Not a fourth `IUiNearbyJoin` seam and ⛔ not a `bool mint` on the create op — the
+//     two verbs answer with different WORDS on the panel (`TEAM JOINED` vs `TEAM CREATED`, F-4), so they are two ops.
+enum class UiProvOp : uint8_t { none = 0, create_team, join_static, join_team };
 struct UiProvIntent {
     UiProvOp op = UiProvOp::none;
     // ★★★ THE SELECTED PROFILE, CARRIED WHOLE (U2) — ⛔ never a slot INDEX the adapter would re-read the store for.
@@ -638,6 +718,19 @@ struct UiProvIntent {
     // ⓘ It is the STORE's own record type, integral Hz and all: the ONE Hz -> MHz/kHz conversion belongs to the
     //   REQUEST and is `mrfw::join_request_from_profile`'s, which the adapter calls (U2 — one conversion path).
     mrnv::JoinProfile join{};
+    // ★★★★ §UI-16 N3 — THE OBSERVED TEAM'S **FULL 32-BIT** ID, CARRIED WHOLE (spec §4-N3 pin 2, §3 P-1/P-7).
+    //      ⓘ MEANINGFUL ONLY when `op == join_team`.
+    // ⛔⛔ IT IS THE ROW'S OWN IDENTITY AND ⛔ NEVER THE CURSOR INDEX: the NEARBY list is the OWN-TEAM-FILTERED copy,
+    //     so index 1 names a different team on a different node (§B66, the same argument `join_sel` makes for slots).
+    // ⛔⛔ AND IT IS ⛔ NEVER RE-DERIVED FROM THE SIX-CHARACTER FINGERPRINT the confirmation shows: that token is the
+    //     LOW 24 BITS (`ui_fmt_team_fingerprint`, `src/firmware_ui_chrome.h:212`) and is a HUMAN SELECTION AID, never
+    //     an authority — a display-shaped value that makes a membership decision is [[B48]]'s exact class, and the
+    //     top eight bits it cannot carry are 255 other teams whose fingerprint is identical.
+    // ⓘ COST, MEASURED not assumed (host, `-DMR_N_LAYERS=2`): `sizeof(UiProvIntent)` 28 -> **32**. There was no hole
+    //   to land in — `op` at 0, `join` (24 B) at 4, the struct ending at 28 with 4-byte alignment — so the field
+    //   costs its own four bytes WHEREVER it is declared (both placements measured 32). ⛔ The spec's §6 estimate
+    //   said *"marginal cost likely 0"*; it is 4, and this line is the measurement that replaces the estimate.
+    uint32_t team_id = 0;
 };
 
 // ★★★ THE TYPED ANSWER, AND THE FOUR OUTCOMES ARE FOUR DIFFERENT THINGS TO SAY — ⛔ never one `bool ok`. `created` is
@@ -655,8 +748,19 @@ struct UiProvIntent {
 //                        SHOW A NODE ID, and it is written by `on_join_push` and by nothing else — so no earlier
 //                        state can produce it, which is §8 pin 2 for the asynchronous half.
 //       `join_refused` — a validation / load refusal from the transaction: ZERO writes, ZERO airtime.
+// ★★★★ §UI-16 N3 ADDS THE EIGHTH, AND F-4 IS THE WHOLE REASON IT EXISTS: a nearby JOIN lands `ProvVerdict::applied`
+//      on the SAME transaction a create does, so without an arm of its own the panel would say **`TEAM CREATED`**
+//      for a join — *"a JOIN is not a CREATE, and the two verbs' words must differ on the panel or the operator
+//      cannot tell which operation answered"*, three paragraphs up, in the case that block was written against.
+//        `team_joined` — the TEAM-membership transaction returned `applied`: exactly one durable write happened and
+//                        this node is now a member of the OBSERVED team. ★ IT IS THE SECOND OUTCOME THAT MAY SHOW A
+//                        TEAM ID (`created` is the other), and it shows the id the operator SELECTED rather than a
+//                        minted one. ⛔⛔ IT SAYS NOTHING ABOUT A KEY, and that is the point of P-2: `set_team_id`
+//                        destroys the live content key on a switch (`lib/core/node.cpp:683`), so the joiner is a
+//                        **keyless member** — the screen may ⛔ never imply readership, and the forbidden lexeme
+//                        `KEYLESS` (S-33) is not how it says so: it simply does not claim one.
 enum class UiProvOutcome : uint8_t {
-    none = 0, created, phy_differs, save_failed, refused, joining, adopted, join_refused
+    none = 0, created, phy_differs, save_failed, refused, joining, adopted, join_refused, team_joined
 };
 // ⓘ `reason` IS A POINTER TO STATIC STORAGE and never an owned buffer: the adapter fills it from
 //   `mrfw::prov_err_name`, whose arms are string literals. ⛔ It is never null — `""` is the "nothing to add" value, so
@@ -670,7 +774,9 @@ struct UiProvAnswer {
     // ⓘ COST, MEASURED: it lands in the padding after `outcome`, so `sizeof(UiProvAnswer)` stays 16 on the host and
     //   12 on a 32-bit board.
     uint8_t       node_id = 0;
-    uint32_t      team_id = 0;     // ⛔ MEANINGFUL ONLY when `outcome == created`
+    // ⛔ MEANINGFUL ONLY when `outcome == created` or `team_joined` (§UI-16 N3 — the second writer of it, and the
+    //    only other outcome the transaction may hand an id to).
+    uint32_t      team_id = 0;
     const char*   reason  = "";    // a STATIC token; "" when the outcome carries no second line
 };
 
@@ -729,6 +835,13 @@ inline const char* prov_result_head(const UiProvAnswer& a) {
         //   line each and pinned by a native case, so an owner ruling changes them here and nowhere else.
         case UiProvOutcome::adopted:      return "ADOPTED";
         case UiProvOutcome::join_refused: return "JOIN REFUSED";
+        // ★★★ §UI-16 N3 / spec §8 S-10 — **`TEAM JOINED`**, and it is a NEW lexeme by F-4's ruling: ⛔ it may not
+        //     reuse `TEAM CREATED` (which is what this switch would have answered without the arm, since a join by
+        //     id lands `ProvVerdict::applied` on the same transaction). ⓘ 11 of the rail's 19 columns.
+        // ⛔ AND THE THREE FORBIDDEN NEIGHBOURS ARE NOT HERE AND MAY NOT BE ADDED: `JOIN COMPLETE` (S-32) claims an
+        //    end-to-end outcome nothing acknowledged, `KEYLESS` (S-33) is the design's own banned word for a member,
+        //    and `WAITING FOR KEY` (S-34) is ambiguous between two different secrets. Their ABSENCE is a test.
+        case UiProvOutcome::team_joined: return "TEAM JOINED";
         case UiProvOutcome::none:        return "";
     }
     return "";
@@ -747,6 +860,11 @@ inline const char* prov_result_detail(const UiProvAnswer& a) {
         //   a second JoinErr-to-text table. ⓘ `adopted`'s second row is the NODE ID, which is a VALUE and not a
         //   string this unit owns; `joining` has nothing to add, and the waiting screen says its own words.
         case UiProvOutcome::join_refused: return a.reason;
+        // ⓘ §UI-16 N3: `team_joined`'s second row is the JOINED TEAM's full id — a VALUE, and this unit owns no
+        //   string for it, exactly as `created`'s and `adopted`'s second rows are values. ⛔ It is deliberately NOT
+        //   a reassuring sentence about keys: the node is a keyless member and the panel neither says so in the
+        //   banned word nor implies the opposite (P-2 / S-33).
+        case UiProvOutcome::team_joined:
         case UiProvOutcome::joining:
         case UiProvOutcome::adopted:
         case UiProvOutcome::created:
@@ -932,6 +1050,13 @@ struct UiSnapshot {
     //   ⓘ COST, MEASURED not assumed: it lands in the padding this run of bools already carried — the slice
     //   reports the `sizeof(UiSnapshot)` figure, which moves only by the `nearby[]` array further down.
     bool     prov_join_team   = false;   // `MR_N_LAYERS < 2 && MR_FEAT_TEAM` — §3.6.4's nearby-join path
+    // ★★ §UI-16 N4's FOURTH child predicate, published from the same one site (U3) and ⛔ never collapsed into
+    //    `prov_create_team`: alone among the four it carries a RUNTIME term — `config().team_id != 0` — so this
+    //    row appears and disappears on a running node (spec §4-N4 pin 12). See `provision_rows`.
+    //    ⓘ COST, MEASURED not assumed: it lands in the padding this run of bools already carried (`offsetof`
+    //    proof in the slice report), so the flag itself costs ZERO; what this slice adds to the struct is the
+    //    member array further down.
+    bool     prov_invite      = false;   // `MR_N_LAYERS < 2 && MR_FEAT_TEAM && team_id != 0` — §3.6.4's window
 
     // ================================================================== §CHROME-1 — the status strip's new authorities
     // ★★★ DEFINED HERE, PUBLISHED IN SLICE 3. Design §8.2's chrome projection is PURE and may not touch `g_node`, but
@@ -1013,6 +1138,36 @@ struct UiSnapshot {
     //   `home_confirm_age_ms`, so the count byte costs ZERO. Declared beside the array it would have opened a
     //   fresh 8-byte quantum. (The `node.h` padding-placement rule, applied to `UiSnapshot`.)
     uint8_t  nearby_n = 0;
+    // ★★★★ §CHROME-5 — THE DUTY GAUGE'S TWO INPUTS, AND THEY ARE `Node::duty_status()`'s OWN FIELDS, CARRIED
+    //      VERBATIM. Authority: `duty_status()` (`lib/core/node_mac.cpp:1716`, `DutyStatus{pct, avail_ms, enabled}`)
+    //      — ⛔ NEVER raw `duty_ms` and ⛔ NEVER the separate five-minute anti-spam budget
+    //      (`channel_duty_budget_ms`), which answers "may I originate a channel post" rather than "how much of the
+    //      rolling-window airtime budget have I spent". Two different questions; one icon may only carry the one it
+    //      measures ([[B210]]/[[B214]]: a display-shaped field must never make an airtime decision, and the reverse
+    //      reading — an airtime-shaped field drawn as something else — is the same defect from the other side).
+    // ⛔ THE CLASSIFICATION IS **NOT** HERE: these are the raw reading, and `ui_duty_bucket` (firmware_ui_chrome.h)
+    //    turns them into the picture BEFORE the freeze. The pair is the `batt_mv` -> `batt_dv` shape exactly (U3).
+    // ⛔ `avail_ms` IS DELIBERATELY NOT PUBLISHED: the gauge is ICON ONLY (design §3.1's amendment), so the recovery
+    //    time is a fact the panel cannot draw — and a fact the panel cannot draw has no business riding the snapshot.
+    //    Stated so its absence is a decision, not an oversight ([[meshroute-mark-done-vs-missing-in-code]]).
+    // ⓘ FALSE/0 BY DEFAULT, and that is the honest unpublished state rather than a plausible one: `duty_status()`
+    //   answers `{0, 0, false}` for a node with no duty limit, which is exactly what these defaults say.
+    // ⓘ COST, **MEASURED AND NOT FREE** — and the honest number is stated here rather than a hoped-for zero, because
+    //   this is the FIRST application of the `team_key_present` / `own_fix` / `nearby_n` placement rule in this struct
+    //   that FINDS NO HOLE. The run of bools ends at `nearby_n` (694/695 native) and `home_confirm_age_ms` is already
+    //   8-ALIGNED at 696, so there is nothing to fill: the two bytes push that `uint64_t` to 704 and
+    //   `sizeof(UiSnapshot)` measures **1000 -> 1008 (+8)**. ⇒ ~+8 B static (ONE image-wide `UiSnapshot`,
+    //   `s_frame_snap`) and ~+8 B of TRANSIENT loop-task stack (`build_snapshot`'s local) — read off the image, ⛔
+    //   never doubled from the freeze pattern (§UI-17 S3's standing correction).
+    // ⚠ TWO GENUINE HOLES EXIST AND BOTH WERE **DECLINED** (M3: never contort a design to fit a spare byte): 26..27,
+    //   between `team_total` and the 4-aligned `team[]`, and 673..675, between `my_team_id` and the 4-aligned
+    //   `team_id`. Either placement measures +0 — and either one files the duty gauge's two inputs inside the TEAM
+    //   block, where no reader looking for them would find them and where a future edit to the team rows would sit on
+    //   top of them. `nearby_n`'s separation from `nearby[]` is the precedent for taking such a hole; it stayed in a
+    //   plausible neighbourhood (a count beside counts), and this pair would not.
+    // ⓘ Native alignment hides the BOARD figure (D2); the authoritative number is the per-board `RAM_used` diff.
+    bool     duty_enabled = false;
+    uint8_t  duty_pct     = 0;      // 0..100 of the rolling-window budget; 100 = the node must stay silent
     // ★★★★ `uint64_t`, AND THE TYPE IS THE WHOLE POINT (design §4.2, and the trap this slice was briefed against).
     //     Authority: `Node::mobile_home_confirm_age_ms()`, which is `uint64_t`. ⛔⛔ NEVER a `uint32_t` millisecond
     //     age: that cast re-creates the ~49.7-day wrap this project already fixed once (see node.h's §MH-S4 ledger
@@ -1047,6 +1202,33 @@ struct UiSnapshot {
     //   pattern (spec §6's standing lesson): there is exactly ONE static `UiSnapshot` (`s_frame_snap`) plus the
     //   per-tick `build_snapshot` local, i.e. +128 B static and +128 B of TRANSIENT loop-task stack.
     NearbyRow nearby[kMaxNearbyRows] = {};
+    // ★★★★ §UI-16 N4 — THE TEAM's MEMBERS AS THE INVITE WINDOW NEEDS THEM, PROJECTED IN THE **SAME** `rt_team_at`
+    //      WALK THAT FILLS `team[]` ABOVE, FROM THE **SAME** SINGLE `team_key_of_id` RESOLUTION (spec §6, U1:
+    //      *"one `team_key_of_id` resolution per row … handed to both consumers, ⛔ never two lookups for one
+    //      row"*). ⛔ It is NOT a second enumeration and ⛔ NOT a second resolution — it is the second CONSUMER.
+    // ⛔ THERE IS NO SECOND COUNT: `team_shown` bounds BOTH arrays, because ONE loop fills both. A `member_n`
+    //    beside it would be the second authority §B108 exists to warn about, able to disagree with the very
+    //    count its own loop ran to.
+    // ⚠⚠ AND THE WINDOW THEREFORE SEES AT MOST `kMaxTeamRows` MEMBERS — the TEAM screen's own bound, INHERITED
+    //    rather than chosen, and STATED so it is a known limit rather than a discovery ([[meshroute-mark-done-vs
+    //    -missing-in-code]]): on a team larger than eight, the ninth member is invisible to BOTH screens and can
+    //    therefore never be offered as a candidate. `team_total` is where the TRUE count is reported (spec §3.3),
+    //    and the console's `team`/`peers` verbs remain the complete view. ⛔ Widening this is NOT this slice's:
+    //    it moves `TeamRow` x N and is a resource decision of its own (spec §11 sizes the group at 3-10).
+    // ⛔ AND IT IS NOT `TeamRow`: that row's `label` is a DISPLAY string with two FORBIDDEN fallbacks for this
+    //    screen (`0x<hash>` truncated into six columns is a third spelling of the hash; a bare `id <n>` is not a
+    //    name at all). `InviteMember::name` is `peer_name_find`'s answer or `""`, and nothing else (F-15).
+    // ⓘ COST, MEASURED not assumed (host, `offsetof`-proved): `sizeof(InviteMember)` is **20** — `key_hash32` at
+    //   0, `id` at 4, the 15-byte `name` at 5, no tail hole at alignof 4 — x `kMaxInviteRows` (8) = **160**,
+    //   landing at offset **840**, the struct's old 8-aligned END, so it opens NO hole and
+    //   `sizeof(UiSnapshot)` moves 840 -> **1000**. ⓘ The slice's other snapshot field, the `prov_invite` bool,
+    //   costs **ZERO** — measured by REMOVAL, ⛔ not by argument: with it deleted the struct still measures 1000,
+    //   because it lands in the pad that already sat before the 8-aligned `home_confirm_age_ms` at 696.
+    // ⚠ Native alignment hides the BOARD figure (D2); the authoritative number is the per-board `RAM_used`
+    //   diff. ★ The static/stack split is read off the IMAGE (spec §6's standing lesson): ONE static
+    //   `UiSnapshot` (`s_frame_snap`) plus the per-tick `build_snapshot` local ⇒ +160 static and +160 of
+    //   TRANSIENT loop-task stack, ⛔ never 2 x 160 of static.
+    InviteMember member[kMaxInviteRows] = {};
 };
 
 // ★ THE UI-LOCAL UNREAD / RECENCY COUNTERS (spec §6). They were six file-static variables in firmware_ui.cpp, and
@@ -1469,6 +1651,36 @@ struct UiState {
     //   `blanked`/`dirty` past its end and opens a fresh 8-byte tail quantum. Declared here, after them, the bools
     //   keep the slot they already had. The `node.h` padding-placement rule, applied to `UiState`.
     NearbyList  nearby{};
+    // ★★★★ §UI-16 N3 — THE TEAM THE CONFIRMATION IS ABOUT, HELD BY **IDENTITY** (§B66, spec §4-N3 pin 2). It is the
+    //      `join_sel` discipline one screen over (U3) with the same consequence: what was SHOWN is what is JOINED.
+    // ⛔ IT IS THE FULL 32-BIT `team_id` OF THE ROW THE CURSOR WAS ON — ⛔ never the cursor index (the list is
+    //    own-team-FILTERED, so an index names a different team on a different node) and ⛔ never re-derived from the
+    //    fingerprint the confirmation prints (24 of the 32 bits; [[B48]]'s display-shaped-field class).
+    // ⓘ 0 = NOTHING SELECTED, and it needs no companion flag: N1's write gate is `peer_team != 0`, so no observed row
+    //   can carry 0, and `run_join_team` refuses a 0 out loud rather than handing it to the transaction (where it
+    //   would mean `team 0` — a LEAVE).
+    // ⓘ COST, MEASURED not assumed, and ⚠ NATIVE ALIGNMENT HIDES THE BOARD FIGURE (D2's standing warning): on the
+    //   host `sizeof(UiState)` moves 336 -> **344**. There is no hole for it anywhere in the struct (`join_sel`,
+    //   `join_still`, `blanked` and `dirty` fill 196-199 exactly, and `nearby`'s own tail padding belongs to
+    //   `NearbyList`), so the four bytes cost eight to the 8-aligned tail wherever they are declared — measured in
+    //   both placements, ⛔ not reasoned. This struct is instantiated TWICE on the OLED envs.
+    uint32_t    nearby_sel_id = 0;
+    // ★★★★ §UI-16 N4 — THE INVITATION WINDOW's WHOLE STATE: the TWO snapshot authorities taken AT OPEN (F-11),
+    //      the VOLATILE handled set (F-13) and the FROZEN selection. It is ONE carrier because they share ONE
+    //      lifetime — `enter_provision` takes it on the way into the window and DISCARDS it on the way out of
+    //      it, so "the handled set is discarded when the window closes" is structural rather than remembered.
+    // ⛔ IT IS NOT `UiSnapshot::member`, and the two are deliberately different things: the snapshot carries the
+    //    LIVE members (republished every tick — that is what makes the window refresh locally, R-10), this
+    //    carries what the window OPENED WITH. Diffing the live list against itself would announce nobody.
+    // ⓘ COST, MEASURED not assumed (host): `sizeof(InviteWindow)` is **104** (`offsetof` proof: `hash` 0,
+    //   `handled` 32, `id_bits` 64, `sel_hash` 96, `n` 100, `handled_n` 101, `sel_id` 102, `taken` 103 — ⛔ not
+    //   one padding byte in it) and `sizeof(UiState)` moves 344 -> **448**, i.e. exactly the carrier.
+    // ⚠ ITS DECLARATION ORDER WAS MEASURED TOO, ⛔ not reasoned (the `nearby` placement rule directly above,
+    //   which is where this struct learned the lesson): declared HERE — after the two `bool`s, beside the other
+    //   frozen selection — it costs its own 104 and not one byte more; declared ABOVE those bools it measures
+    //   **456**, because the 4-aligned array pushes `blanked`/`dirty` past its end into a fresh tail quantum.
+    //   This struct is instantiated TWICE on the OLED envs (the model's and the frame's frozen copy).
+    InviteWindow invite{};
 };
 
 // ★★ THE ONE-LINE NOTE THE SETTINGS PANEL SHOWS AFTER AN ACTION — formatted in this PURE unit so the native suite can
@@ -1695,6 +1907,12 @@ public:
             const bool still = _join.active && elapsed(s.now_ms, _join.started_ms) >= kJoinStillMs;
             if (still != _st.join_still) { _st.join_still = still; _st.dirty = true; }
         }
+        // ★★★★ §UI-16 N4 — THE BOUNDED WINDOW's EXPIRY, and it rides THIS tick for the reason the page cadence
+        //      does: it is a DISPLAY deadline, not protocol time, and `TimerWheel::kCap` is fully allocated
+        //      anyway. ⛔ It is placed BEFORE the blank transition below so that a tick which crosses BOTH
+        //      deadlines closes the window and then goes dark on `WINDOW CLOSED` — the operator wakes to the
+        //      truth, ⛔ never to a candidate list five minutes past its own expiry.
+        tick_invite(s);
         // ★★★ §B64, AND THE PLACEMENT IS THE POINT: `FrameGate::step` FREEZES the state immediately after this call
         //    (`mr_ui_tick`: on_gesture -> on_tick -> step), so the highlight must already name the remembered teammate
         //    IN THIS SNAPSHOT. Re-anchoring only on a gesture would leave the panel showing `>` beside one teammate
@@ -1730,6 +1948,16 @@ public:
                                          //   after this call, so the service must already be open when it does.
         if (blank_due(s)) {
             _st.blanked = true; _st.dirty = true;
+            // ★★★★ §UI-16 N4 / ✅ OQ-3's CLARIFICATION, AND IT IS THE ONE PLACE THE TWO HALVES DIFFER: **the
+            //      WINDOW survives blanking; an UNFINISHED CONFIRMATION does not.** ⇒ the arm falls back to the
+            //      LIST here, at the blank itself, so nothing stale is retained in the dark — the operator wakes
+            //      onto the candidate list, ⛔ never onto a confirmation whose act is one press away and which
+            //      they may not remember opening (§3.6.5 rule 1, the argument `provision_reset_on_leave` makes
+            //      for a stale `create_confirm`, arriving through the display clock instead of through a leave).
+            // ⛔ THE WINDOW's DEADLINE IS UNTOUCHED BY THIS: `enter_provision(invite)` re-anchors the cursor and
+            //    the BACK default and re-takes NOTHING — the five minutes keep running through the dark, which
+            //    is what "the window survives the blank" MEANS.
+            if (_st.provisioning == Provision::invite_confirm) enter_provision(Provision::invite);
             // ★★ §3.6.1, VERBATIM IN SUBSTANCE: *"`BACK` and blanking PRESERVE the draft; silently discarding because
             //    attention timed out is FORBIDDEN."* `on_blank()` is the named seam the service exposes for exactly
             //    this event, and it is a draft-preserving no-op BY CONSTRUCTION. ⇒ calling it is what makes the
@@ -1790,12 +2018,13 @@ public:
     // from the model's by one row would highlight one thing and act on another.
     CfgRowList settings_row_list(const UiSnapshot& s) const {
         return settings_rows(s.ble_row, _cfg && _cfg->conflict(),
-                             provision_has_child(s.prov_create_team, s.prov_join_static, s.prov_join_team));
+                             provision_has_child(s.prov_create_team, s.prov_join_static, s.prov_join_team,
+                                                 s.prov_invite));
     }
     // ★ §UI-15 slice 4 — the same rule one level down (U1/U2): ONE construction of the PROVISION menu's children,
     //   shared by the cursor bound, the activation and (slice 5) the renderer. ⛔ Never rebuild it at a call site.
     ProvRowList provision_row_list(const UiSnapshot& s) const {
-        return provision_rows(s.prov_create_team, s.prov_join_static, s.prov_join_team);
+        return provision_rows(s.prov_create_team, s.prov_join_static, s.prov_join_team, s.prov_invite);
     }
     void clear_dirty() { _st.dirty = false; }
     // ★★ §B108: AN ARRIVAL IS A REASON TO REPAINT. `mr_ui_on_push` moved the unread counters and the recency stamps
@@ -2296,6 +2525,19 @@ protected:
     // ★★ §UI-17 S8 — THE MESSAGE WAKE's OWN DEADLINE, beside the panel's other display clock and ⛔ deliberately NOT
     //    inside it: `_last_input_ms` means "the operator acted" and a push is not the operator (see `on_msg_wake`).
     uint32_t _msg_wake_until_ms = 0;
+    // ★★ §UI-16 N4 — THE INVITATION WINDOW's OWN DEADLINE, beside the panel's other two clocks and ⛔ deliberately
+    //    not inside either: it is neither an operator action (`_last_input_ms`) nor an arrival (`_msg_wake_*`),
+    //    and it must NOT keep the panel awake. Armed by `load_invite` at the OPEN, read by `window_active`.
+    // ⓘ IT NEEDS NO ARMED FLAG, unlike `_msg_wake_armed`: `window_active`'s clearing term is the ARM, and a
+    //   deadline is never consulted outside the two screens the open established (see that predicate's note).
+    // ⓘ COST, MEASURED not assumed, and ⛔ the measurement DISAGREES with the easy guess: `sizeof(UiModel)`
+    //   856 -> **864** on the host — the `uint32_t` takes the struct's whole 8-byte tail step, exactly as §UI-17
+    //   S8's `bool _msg_wake_armed` did (that slice measured the opposite pairing: its `uint32_t` was free and
+    //   its `bool` cost 8). ⚠ MEASURED IN TWO PLACEMENTS, ⛔ not reasoned: declared here beside the other two
+    //   display clocks, and declared inside the emergency block beside `_last_countdown` — **864 both ways**, so
+    //   there is no hole anywhere in this struct for it to land in and the legible placement is free of charge.
+    //   D2's warning applies for the board figure, which is the per-board `RAM_used` diff's.
+    uint32_t _invite_until_ms = 0;
     bool     _seeded = false;            // B65: _last_input_ms is meaningless until the first tick/gesture
     // ★★★ §UI-17 S8 — **THE ARMED FLAG IS LOAD-BEARING, NOT FASTIDIOUS** (§B74's discipline, and here it is a real
     //     defect rather than a principle): a wrap-safe "now < deadline" reads the initial 0 as a deadline **24.8 days
@@ -2578,7 +2820,7 @@ private:
         //    reset is `provision_reset_on_leave`'s (see it) and this is a forward. The invariant is "leaving closes
         //    it", not "the paths that can leave today close it": the first slice-5/6 arm that a push or a timeout
         //    moves the screen out of finds this already true.
-        if (provision_reset_on_leave(_st.provisioning, _st.prov_confirm)) _st.dirty = true;
+        if (provision_reset_on_leave(_st.provisioning, _st.prov_confirm, _st.invite)) _st.dirty = true;
         _cfg_sel_valid = false;
     }
     // ★★★ [[B232]]'s TWO PRIMITIVES, and they are two because the menu is now ENTERED and LEFT rather than merely
@@ -2815,6 +3057,16 @@ private:
         //   the verdict `run_create_team` wrote one statement after the transaction returned. ⛔ A result that
         //   survived into a later screen would be the "success that isn't" this project has already registered once.
         _st.prov_answer = UiProvAnswer{};
+        // ★★★★ §UI-16 N4 / F-13 — **THE WINDOW'S STATE IS DISCARDED BY EVERY ENTRY THAT IS NOT THE WINDOW**, and
+        //      that is what makes "volatile, per-window" STRUCTURAL rather than remembered. The handled set, the
+        //      two authorities and the frozen selection all die together here — on BACK to the menu, on the
+        //      expiry that lands `invite_closed`, on the alarm's `close_provisioning`, on any other arm.
+        // ⛔ IT IS ⛔ NOT A `taken = false` ALONE: a set that merely stopped being CONSULTED is a set that comes
+        //    back the moment somebody re-arms the flag, and the ruling is that the hashes themselves do not
+        //    survive the window (spec §3 P-11b: after close and re-open the set is EMPTY, which is a native pin).
+        // ⓘ The two INVITE arms keep it, deliberately: `invite -> invite_confirm -> invite` is one window, and a
+        //   confirmation opened and abandoned may not silently forget what the operator already rejected.
+        if (!provision_is_invite(p)) _st.invite = InviteWindow{};
         _st.dirty = true;
     }
     // ⓘ Back to `browsing`, ⛔ never to `closed`: leaving PROVISION returns to the SETTINGS MENU, not off the screen.
@@ -2824,14 +3076,18 @@ private:
     //   only in where they LAND (`browsing` here, `closed` there), and the fields they retire are the same two.
     void close_provisioning() {
         _st.settings = Settings::browsing;
-        provision_reset_on_leave(_st.provisioning, _st.prov_confirm);
+        provision_reset_on_leave(_st.provisioning, _st.prov_confirm, _st.invite);
         _st.dirty = true;
     }
     // ★★★ THE SUB-VIEW'S GESTURES. `short` CYCLES within the arm's list and ⛔ never walks out of the screen — the
     //     `InboxModal` / compose rule (a sub-view is left by its own BACK, by the long gesture or by the blank), not
     //     `advance_or_next`'s walk-off, which belongs to the ordinary screen cycle.
     // ★★ §UI-15 slice 6 LANDS THE JOIN HALF, so the four `join_*` arms below have left the leave-only fail-safe and
-    //    have their own flows. ⛔ WHAT IS STILL NOT HERE, by scope: §3.6.4's nearby-team scan (§UI-16).
+    //    have their own flows. ⛔ CORRECTED IN PLACE 2026-08-23 (§UI-16 N4, V1), AND THE WITHDRAWN LINE IS KEPT
+    //    VISIBLE: it read *"⛔ WHAT IS STILL NOT HERE, by scope: §3.6.4's nearby-team scan (§UI-16)"*. N2/N3
+    //    landed the scan and its join, and N4 lands the creator's window. ⛔ WHAT IS STILL NOT HERE, by scope:
+    //    the explicit `REQUEST PUBKEY` step (§UI-16 N5) and the `GRANT KEY` act with its `send_aired`
+    //    correlation (N6) — so the confirmation below offers `BACK` and `REJECT` and nothing else.
     void provision_gesture(Gesture g, const UiSnapshot& s) {
         if (g != Gesture::short_press && g != Gesture::double_press) return;
         switch (_st.provisioning) {
@@ -2854,6 +3110,17 @@ private:
             // §UI-16 N2 — the READ-ONLY scan list. Its `short`/`double` are `join_select`'s shape, ⛔ not
             // TEAM's: it opens on its first row and its last row is BACK.
             case Provision::nearby:         nearby_select_gesture(g);        return;
+            // §UI-16 N3 — the `JOIN <fingerprint>?` confirmation. Its shape is `join_confirm`'s (`short` toggles,
+            // `double` performs the SELECTED action) and ⛔ its landing differs: BACK returns to the NEARBY LIST.
+            case Provision::nearby_confirm: nearby_confirm_gesture(g);       return;
+            // §UI-16 N4 — the INVITATION WINDOW. Its `short`/`double` are the scan list's shape (it opens on its
+            // first row and its last row is BACK), and it needs the SNAPSHOT because the list it walks is the
+            // LIVE one: the window refreshes locally while it is open (R-10).
+            case Provision::invite:         invite_select_gesture(g, s);     return;
+            case Provision::invite_confirm: invite_confirm_gesture(g);       return;
+            // The EXPIRY screen is terminal in exactly the way the two result screens are: either press leaves
+            // it, and ⛔ nothing is re-run, re-opened or confirmed — the window is over.
+            case Provision::invite_closed:  enter_provision(Provision::menu); return;
             // ⛔ UNREACHABLE BY THE INVARIANT (`Settings::provisioning` implies a non-`closed` arm) and handled rather
             //    than defaulted: if it is ever reached the two fields have drifted, and the safe answer is to put them
             //    back in step instead of interpreting a press against a state that does not exist.
@@ -2892,6 +3159,15 @@ private:
             //   because "nothing is audible here" is a fact the operator came to learn — the same reasoning
             //   `join_static`'s refusing-store arm carries one row up.
             case ProvRow::join_team:   load_nearby(s);       enter_provision(Provision::nearby);      return;
+            // ★★★★ §UI-16 N4 — THE INVITATION WINDOW OPENS, AND **THE SNAPSHOT IS TAKEN HERE**: on the
+            //      TRANSITION, ⛔ not at the first render and ⛔ not per tick. That ordering IS the feature —
+            //      *"opening invitation mode snapshots the known member identities"* — and taking it at the
+            //      first draw would take it AFTER a member could already have arrived, hiding exactly the
+            //      candidate the window exists to surface (and re-taking it on every repaint).
+            // ⓘ AN EMPTY TEAM IS NOT A REFUSING TRANSITION (the `join_static` / `join_team` rule, a third time):
+            //   the window OPENS and says `NO CANDIDATES`, because "nobody new" is what the operator came to
+            //   learn. The row itself is hidden when we are in no team at all (`prov_invite`).
+            case ProvRow::invite:      load_invite(s);       enter_provision(Provision::invite);      return;
             case ProvRow::back:        close_provisioning(); return;
             case ProvRow::count:       return;   // the enum's BOUND, listed so -Wswitch stays useful
         }
@@ -3033,12 +3309,12 @@ private:
     // `short` CYCLES the scan list and ⛔ never walks out of the screen (the sub-view rule, three menus deep);
     // `double` on BACK returns to the PROVISION MENU — the `close_provisioning` CONTAINMENT idiom, and ⛔ not
     // off the screen (§UI-17's landed navigation contract: a list's BACK returns to its own parent).
-    // ⛔⛔ AND A `double` ON A TEAM ROW DOES **NOTHING**, DELIBERATELY AND VISIBLY. N2 is the list; the act is
-    //     §UI-16 N3's `JOIN <fingerprint>?` confirmation over the existing
-    //     `TeamRequest{ mint=false, team_id }` transaction. [[B222]]'s rule is that a transition lands WITH
-    //     the flow behind it, never one slice ahead of it — slice 5 left `join_static` a bare `return` for
-    //     exactly this reason, and this is that arm's twin. ⚠ It is stated here rather than in a plan,
-    //     because a reader who finds a silent `return` and no note assumes it is a bug.
+    // ✅ §UI-16 N3 LANDED THE ACT, AND THE WITHDRAWN N2 WORDING IS KEPT VISIBLE: this block read *"⛔⛔ AND A
+    //    `double` ON A TEAM ROW DOES NOTHING, DELIBERATELY AND VISIBLY … [[B222]]'s rule is that a transition lands
+    //    WITH the flow behind it"*. The flow is here now: a `double` on a team row OPENS THE CONFIRMATION, and
+    //    ⛔ STILL PERFORMS NOTHING — no transaction, no write, no airtime — because opening a confirmation is not
+    //    acting on it. ★ Reaching the act costs `short` THEN `double` (P-13), which `enter_provision`'s BACK default
+    //    makes structural rather than remembered.
     void nearby_select_gesture(Gesture g) {
         const NearbySelList l = nearby_sel_rows(_st.nearby);
         if (g == Gesture::short_press) {
@@ -3051,7 +3327,131 @@ private:
         NearbySelRow r{};
         if (!l.at(_st.cursor, r)) return;                            // fails closed — see NearbySelList::at
         if (r.back) { enter_provision(Provision::menu); return; }
-        // ⛔ N3's landing goes HERE — and until it does, looking really does only look (spec §3 P-4).
+        // ★★★ THE PICK IS THE ROW'S OWN FULL 32-BIT TEAM ID, ⛔ never the cursor index (§B66) and ⛔ never the
+        //     fingerprint the next screen prints (spec §3 P-7): the value acted on is the value the panel drew, and
+        //     it rides the row WHOLE from the observation cache (U2). `enter_provision` re-anchors the cursor and
+        //     the BACK default, so the confirmation cannot open on the act.
+        _st.nearby_sel_id = r.team.team_id;
+        enter_provision(Provision::nearby_confirm);
+    }
+    // ★★★★ §UI-16 N3 — THE JOIN CONFIRMATION: the `InboxAction`/create/join pair a FOURTH time (U3), `short` TOGGLES
+    //      and `double` PERFORMS THE SELECTED ONE — and ⛔ a `double` on BACK may NOT fall through into the act.
+    // ⛔ ITS LANDING IS THE **NEARBY LIST**, ⛔ NOT THE MENU (spec §4-N3 pin 3): BACK returns to the screen the
+    //    operator was choosing on, exactly as the static-join confirmation returns to its SLOT LIST. ⓘ Re-entering
+    //    `nearby` does ⛔ NOT re-read the cache — `load_nearby` runs on the `menu -> nearby` transition alone — so
+    //    owner ruling R-10's frozen list survives a look at a confirmation and a change of mind.
+    // ⛔ NO SNAPSHOT IS READ HERE, deliberately, and this follows `provision_confirm_gesture`'s rule rather than
+    //    `join_confirm_gesture`'s exception: the act's inputs are the DEVICE's (the record, the live PHY, the build
+    //    floor), gathered by the adapter at the instant it runs, and this act starts no session with a clock.
+    void nearby_confirm_gesture(Gesture g) {
+        if (g == Gesture::short_press) { prov_confirm_toggle(); return; }
+        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::nearby); return; }
+        run_join_team();
+    }
+    // ★★★★ THE ACT, AND THE ORDER OF ITS STATEMENTS IS §8 PIN 2 EXACTLY AS THE OTHER TWO ACTS' IS: the transaction
+    //      RUNS, RETURNS, and only then does the screen move and the verdict land. ⛔ There is no path that shows
+    //      `TEAM JOINED` before `perform()` came back with `applied`.
+    // ⛔⛔ THE INTENT CARRIES THE **FULL 32-BIT ID** AND NOTHING ELSE THE PANEL DERIVED (spec §4-N3 pin 2, §3 P-1):
+    //     the joined team must be BYTE-EQUAL to the observed one, so what travels is the id itself — ⛔ not the
+    //     cursor, ⛔ not the fingerprint, ⛔ not a re-read of anything.
+    // ⓘ A NULL SEAM, OR A PICK THAT NAMES NO TEAM, REFUSES OUT LOUD (C2) rather than doing nothing — the dead-button
+    //   complaint `run_create_team`'s own arm is built against. ★ The 0 clause is a REAL floor and not decoration:
+    //   `TeamRequest{ mint=false, team_id=0 }` is the console's `team 0`, i.e. a LEAVE — the one thing a JOIN screen
+    //   must never be able to perform by accident.
+    // ⛔ IT IS `join_refused`, ⛔ NOT `refused`: the panel must say `JOIN REFUSED` on this path (spec §8 S-11), or the
+    //   operator reads `CREATE REFUSED` for an operation that created nothing and was never a create.
+    void run_join_team() {
+        UiProvAnswer a{};
+        if (_prov && _st.nearby_sel_id != 0) {
+            UiProvIntent in{};
+            in.op      = UiProvOp::join_team;
+            in.team_id = _st.nearby_sel_id;      // ★ the row's identity, whole (U2)
+            a = _prov->perform(in);
+        } else {
+            a.outcome = UiProvOutcome::join_refused;
+            a.reason  = "no service";
+        }
+        enter_provision(Provision::create_result);
+        _st.prov_answer = a;
+    }
+    // ================================================ §UI-16 N4 — the BOUNDED INVITATION WINDOW (§3.6.4 point 1)
+    // ★★★★ THE OPEN, AND IT IS **TWO** FACTS ESTABLISHED TOGETHER: the two-authority SNAPSHOT and the window's own
+    //      DEADLINE. Both belong to the OPENING, so they are written by one function called from one place — a
+    //      deadline armed somewhere else would eventually be armed twice, and a snapshot taken somewhere else
+    //      would eventually be taken late (which is the mutation spec §4-N4 names).
+    // ⛔⛔ AND IT DOES ⛔ **NOT** TOUCH `_last_input_ms` — the §UI-17 S8 rule verbatim: that field means "the
+    //     OPERATOR acted", it is written only by a real gesture and the first-tick seed, and it drives the panel
+    //     blank. ✅ OQ-3 ruled that the window does NOT hold the panel lit: the panel blanks normally after
+    //     `kBlankMs` of silence, the WINDOW SURVIVES the blank, and an unfinished CONFIRMATION does not.
+    //     ⓘ The gesture that opened the window did of course stamp `_last_input_ms` at the top of `on_gesture` —
+    //     that is the PRESS, not the window, and the difference is measurable: hold the window open past
+    //     `kBlankMs` without pressing anything and the panel must go dark with the window still up.
+    void load_invite(const UiSnapshot& s) {
+        _st.invite      = invite_snapshot_take(s.member, s.team_shown);
+        _invite_until_ms = s.now_ms + kInviteWindowMs;
+    }
+    // ★★★★ THE LOCAL REFRESH IS THE LIST ITSELF (F-14 / R-10): the rows are built from the LIVE snapshot every
+    //      time they are needed — here for the cursor's bound, in `draw_provision_screen` for the pixels — so a
+    //      member that appears mid-window appears on the panel with ⛔ no scan, ⛔ no query and ⛔ nothing
+    //      transmitted (`rt_team_at` / `team_key_of_id` are both `const`, and the publisher already walked them
+    //      for the TEAM screen). ⛔ It is deliberately NOT a frozen copy: NEARBY is frozen per entry (R-10's
+    //      other half) because a team walking into range must not move a row under the cursor, while the invite
+    //      window's whole purpose is to show somebody who ARRIVES while it is open.
+    // ★ THE SELECTION IS THEREFORE FROZEN AT THE `double` AND ⛔ NOT HELD AS AN INDEX: a refresh between the two
+    //   presses may re-index the list, so what the confirmation carries is the row's own identity (P-7d).
+    void invite_select_gesture(Gesture g, const UiSnapshot& s) {
+        const InviteSelList l = invite_sel_rows(_st.invite, s.member, s.team_shown);
+        if (g == Gesture::short_press) {
+            // ⓘ SPELLED OUT rather than shared with the identical lines above: the four lists are different
+            //   lists, and one function branching on the arm is how a press eventually acts on another's.
+            if (l.n) _st.cursor = uint8_t((_st.cursor + 1) % l.n);   // CYCLES — the sub-view rule
+            _st.dirty = true;
+            return;
+        }
+        InviteSelRow r{};
+        if (!l.at(_st.cursor, r)) return;                            // fails closed — see InviteSelList::at
+        if (r.back) { enter_provision(Provision::menu); return; }
+        // ★★★ THE FREEZE (F-14, spec §4-N4's mutation): the hash AND the id of the row the cursor was on, copied
+        //     WHOLE out of the row's own identity — ⛔ never the cursor index (a refresh re-indexes) and ⛔ never
+        //     re-derived from the six-character fingerprint the row printed (that token is the low 24 bits and
+        //     255 other peers share them; [[B48]]'s class).
+        _st.invite.sel_hash = r.cand.key_hash32;
+        _st.invite.sel_id   = r.cand.id;
+        enter_provision(Provision::invite_confirm);
+    }
+    // ★★★★ THE CANDIDATE'S CONFIRMATION — the `InboxAction`/create/join/nearby pair a FIFTH time (U3): `short`
+    //      TOGGLES and `double` PERFORMS THE SELECTED ONE, and ⛔ a `double` on BACK may NOT fall through into
+    //      the act. ⛔ ITS LANDING IS THE WINDOW, ⛔ not the menu — the `nearby_confirm -> nearby` containment
+    //      one screen over — and re-entering the window does ⛔ NOT re-take the snapshot or re-arm the deadline
+    //      (only `load_invite` does, and it runs on the `menu -> invite` transition alone), so a look at a
+    //      confirmation and a change of mind cost the operator none of their five minutes' evidence.
+    void invite_confirm_gesture(Gesture g) {
+        if (g == Gesture::short_press) { prov_confirm_toggle(); return; }
+        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::invite); return; }
+        run_invite_reject();
+    }
+    // ★★★★ `REJECT`, AND IT IS THE **ONLY** ACT THIS SLICE CAN PERFORM (spec §4-N4's scope: ⛔ no grant, ⛔ no
+    //      pubkey request). WHAT IT CHANGES IS RAM THAT DIES WITH THE WINDOW: the candidate's HASH joins the
+    //      volatile handled set (F-13) and the screen returns to the list, where the refresh no longer offers it.
+    // ⛔⛔ IT TOUCHES ⛔ NO CORE, RADIO, MEMBERSHIP, KEY OR NV STATE — there is no seam call here at all, which is
+    //     why the native cases assert it on the SEAM's call count and the store's write count rather than on a
+    //     screen. ★ And the set is DISCARDED when the window closes, so the same candidate returns after a close
+    //     and re-open — which is the ruling's own pin, in both directions.
+    // ⓘ IT IS KEYED BY THE FROZEN HASH (P-7d), ⛔ never by the row the cursor happens to be on now: a refresh
+    //   between the two presses would otherwise reject somebody else.
+    void run_invite_reject() {
+        (void)invite_handled_add(_st.invite, _st.invite.sel_hash);
+        enter_provision(Provision::invite);
+    }
+    // ★★★★ THE WINDOW EXPIRES BY ITSELF (spec §3 P-11), AND EXPIRY ⛔ GRANTS, REVOKES AND REWRITES NOTHING: it
+    //      moves a screen and drops RAM. Across open -> expire -> re-open the membership, the content key and
+    //      the member set are byte-identical, which is a native pin AND a metal step.
+    // ⓘ ONE CALL, from `on_tick`, and it is a no-op on every other screen — the window is the only thing in this
+    //   model with a deadline of its own besides the emergency hold and the message wake.
+    void tick_invite(const UiSnapshot& s) {
+        if (!provision_is_invite(_st.provisioning)) return;
+        if (window_active(s.now_ms)) return;
+        enter_provision(Provision::invite_closed);
     }
 
     // ★★★★ §B64 — THE TEAMMATE THE CURSOR IS ON, HELD BY IDENTITY, AND RE-FOUND IN EVERY SNAPSHOT.
@@ -3247,6 +3647,26 @@ private:
     bool wake_active(uint32_t now_ms) const {
         const uint32_t left = elapsed(_msg_wake_until_ms, now_ms);          // deadline - now, wrap-safe
         return _msg_wake_armed && left != 0 && left <= kBlankMs;            // i.e. now < deadline, at most one window
+    }
+    // ★★★★ §UI-16 N4 — **IS THE INVITATION WINDOW STILL OPEN?** It is the SHARED IDIOM (U3): a DEADLINE compared
+    //      wrap-safely, guarded by a term that CLEARS, and closing AT the edge as `wake_active` does. ⛔ The
+    //      clearing term is what makes it
+    //      wrap-safe at all — a bare "now < deadline" reads an EXPIRED deadline as a future one again once `now`
+    //      has run 2^31 ms past it (the §UI-17 S8 measurement, and [[B239]]'s lesson) — and here that term is
+    //      the ARM ITSELF: the expiry lands `invite_closed`, which `provision_is_invite` excludes, so a stale
+    //      deadline can never be consulted. ⓘ That is exactly how `hold_active` is immune: its `retained` term
+    //      clears too. ⛔ NO ARITHMETIC VALUE IS RESERVED for "no window" (§B74).
+    // ⛔⛔ AND IT IS ⛔ NOT A TERM OF `blank_due`: the window does NOT hold the panel lit (✅ OQ-3), it survives
+    //     the blank, and `_last_input_ms` is untouched by every line of this feature.
+    // ★★★★ `left != 0` IS `wake_active`'s TERM, ⛔ NOT DECORATION: `elapsed(deadline, now)` is ZERO **at** the
+    //      deadline, and a bare `< 2^31` reads that zero as "still open" — so the ruled FIVE MINUTES would run for
+    //      five minutes and ONE MILLISECOND. The window must have STRICTLY POSITIVE time remaining, which puts the
+    //      close on exactly the tick the deadline arrives — the same edge `elapsed(now, _last_input_ms) >= kBlankMs`
+    //      already fires on, so the two clocks in this model agree to the millisecond (U3).
+    bool window_active(uint32_t now_ms) const {
+        const uint32_t left = elapsed(_invite_until_ms, now_ms);     // deadline - now, wrap-safe
+        return provision_is_invite(_st.provisioning) &&
+               left != 0 && left < (1u << 31);                       // i.e. now < deadline, STRICTLY
     }
     bool blank_due(const UiSnapshot& s) const {
         return !_st.blanked && !hold_active(s.now_ms) && !wake_active(s.now_ms) &&

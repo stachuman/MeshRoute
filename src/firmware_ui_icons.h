@@ -35,6 +35,10 @@
 // ⓘ AMENDED 2026-08-22 by §UI-17 S6: **SIXTEEN.** The sixteenth is `kMarkMeshRoute`, the STATUS body's 24x24 mark
 //   (72 B), drawn by `draw_status_screen` — so it too has a real ODR-user from the slice that adds it. ⛔ The count
 //   above is amended, not deleted (§3 rule 3): it read *"ALL FIFTEEN"* and was true until this asset landed.
+// ⓘ AMENDED AGAIN 2026-08-23 by §CHROME-5: **EIGHTEEN symbols, twenty-four pictures.** The duty gauge adds
+//   `kIconDutyDisabled`, `kIconDutyBlocked` and the INDEXED `kIconDutyFill[kDutyFillLevels]` (six pictures in one
+//   2-D block, 42 B) — 56 B of `.rodata` in total, all three drawn by `draw_status_strip`'s sixth slot, so every one
+//   of them has a real ODR-user in the slice that adds it. ⛔ The counts above are amended, not deleted (§3 rule 3).
 // ⛔ WITHDRAWN (§3 rule 3): the intervening wording said the six rail-only assets "still have no ODR-user" and were
 //   discarded until §CHROME-4 drew them. True when written; false now.
 // ⛔ WITHDRAWN WORDING, KEPT VISIBLE (§3 rule 3): this block previously read *"Nothing draws them yet — the canvas
@@ -172,6 +176,67 @@ inline constexpr uint8_t kIconBattery[14] = {
     0x01, 0x01,
     0xFF, 0x01,
 };
+
+// ------------------------------------------------------------- §CHROME-5 — the DUTY-UTILIZATION GAUGE (§3.1's sixth
+// slot, design §3.3). ⛔ ICON ONLY, NEVER A PERCENTAGE: the exact figure and the recovery time stay in the `duty`
+// console verb and the companion diagnostics, which is where a number that needs reading rather than glancing belongs.
+//
+// ★★★★ **N IS DERIVED FROM THE GLYPH, NOT TYPED.** The gauge is the same 7x7 square every other strip asset is, so its
+//      OUTLINE owns rows 0 and 6 and columns 0 and 6, and what is left — `kIconH - 2` rows — is the only thing that
+//      can carry ink. ⇒ the number of fill STEPS is a property of the picture (`kDutyGaugeRows`), the enumerators in
+//      `firmware_ui_chrome.h` are asserted against it at build time, and the pct -> step map is written from
+//      `kDutyFillLevels` alone. ⛔ Never hand-write a step count anywhere: a map that disagrees with the artwork
+//      renders two different percentages as the same picture (or worse, skips a row nobody notices is unreachable).
+// ★ The DERIVATION IS PINNED BY A NATIVE CASE that decodes each level back into ASCII art and asserts that level `k`
+//   inks exactly `k` interior rows, bottom-up — so the constant and the bytes cannot drift apart in silence.
+inline constexpr uint8_t kDutyGaugeRows  = uint8_t(kIconH - 2u);        // 5 — the drawable interior rows of the outline
+inline constexpr uint8_t kDutyFillLevels = uint8_t(kDutyGaugeRows + 1u);// 6 — empty, plus one level per interior row
+
+// DISABLED — the empty outline with a diagonal through it: this node has NO duty limit (`duty_cycle <= 0`), so there
+// is no utilization to report. ⛔ It is NOT "0 %": an unlimited node and an idle limited one are different facts, the
+// same split the crossed key draws one slot over (§4.4's "irrelevant" is not "missing").
+//   #######
+//   #....##
+//   #...#.#
+//   #..#..#
+//   #.#...#
+//   ##....#
+//   #######
+inline constexpr uint8_t kIconDutyDisabled[7] = { 0x7F, 0x61, 0x51, 0x49, 0x45, 0x43, 0x7F };
+
+// THE FILL FAMILY — ONE 2-D BLOCK, INDEXED BY LEVEL, ⛔ never six separately named symbols. Level `k` inks the
+// BOTTOM `k` interior rows, so the gauge fills upward like a tank and level `kDutyGaugeRows` is a solid square.
+// ⚠ It is a 2-D array rather than a table of POINTERS on purpose: a pointer table costs a relocation per entry and
+//   invites a call site to index past its end; `kIconDutyFill[level]` decays to the same `const uint8_t*` every other
+//   asset here hands `draw_bitmap`, and `sizeof kIconDutyFill` is the whole 42-byte cost, in `.rodata`.
+//   level 0            level 1            level 2            level 3            level 4            level 5
+//   #######            #######            #######            #######            #######            #######
+//   #.....#            #.....#            #.....#            #.....#            #.....#            #######
+//   #.....#            #.....#            #.....#            #.....#            #######            #######
+//   #.....#            #.....#            #.....#            #######            #######            #######
+//   #.....#            #.....#            #######            #######            #######            #######
+//   #.....#            #######            #######            #######            #######            #######
+//   #######            #######            #######            #######            #######            #######
+inline constexpr uint8_t kIconDutyFill[kDutyFillLevels][kIconH] = {
+    { 0x7F, 0x41, 0x41, 0x41, 0x41, 0x41, 0x7F },
+    { 0x7F, 0x41, 0x41, 0x41, 0x41, 0x7F, 0x7F },
+    { 0x7F, 0x41, 0x41, 0x41, 0x7F, 0x7F, 0x7F },
+    { 0x7F, 0x41, 0x41, 0x7F, 0x7F, 0x7F, 0x7F },
+    { 0x7F, 0x41, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F },
+    { 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F, 0x7F },
+};
+
+// BLOCKED — the FULL gauge plus a warning mark: 100 %, i.e. transmission is duty-blocked right now. The mark is an
+// exclamation KNOCKED OUT of the solid square (bar, gap, dot), so it cannot be confused with the plain full gauge at
+// 99 % — which is the one distinction on this slot that changes what an operator should do.
+//   #######
+//   ###.###
+//   ###.###
+//   ###.###
+//   #######
+//   ###.###
+//   #######
+inline constexpr uint8_t kIconDutyBlocked[7] = { 0x7F, 0x77, 0x77, 0x77, 0x7F, 0x77, 0x7F };
 
 // ------------------------------------------------------------------------------ the navigation rail's glyphs (§3.2)
 // ⓘ Two of the five slots reuse a strip glyph rather than declaring a second one (U1): TEAM is `kIconPeople` and

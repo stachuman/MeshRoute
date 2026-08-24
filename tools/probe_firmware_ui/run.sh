@@ -866,7 +866,7 @@ if [ "${1:-}" != "--no-neg" ]; then
   #   this control now mutates the LOCAL rather than the argument. Its MEANING is unchanged — the parent row is
   #   offered whatever the children say.
   ctl "C88 the PROVISION row is rendered unconditionally (the ruling not applied)" yes \
-      's|    const bool prov_child = mrui::provision_has_child(s.prov_create_team, s.prov_join_static, s.prov_join_team);|    const bool prov_child = true;|'
+      's|        mrui::provision_has_child(s.prov_create_team, s.prov_join_static, s.prov_join_team, s.prov_invite);|        true;|'
   ctl "C89 the child predicates are published as TRUE on a build with no children" yes \
       's|    s.prov_join_static = (MR_N_LAYERS < 2);|    s.prov_join_static = true;|'
 
@@ -1093,6 +1093,51 @@ if [ "${1:-}" != "--no-neg" ]; then
   ctl "C124 the leftover placeholder drifts into the chrome (every screen shows an empty reserved box)" yes \
       's|    mrui::draw_hline(0, kBarRuleY, 128);|    mrui::draw_hline(0, kBarRuleY, 128);\n    mrui::draw_rect(kStatusMarkX, kStatusMarkY, kStatusMarkW, kStatusMarkH);|'
 
+  # C125-C132 ★★★★ §CHROME-5 — THE STRIP'S SIXTH SLOT, THE DUTY GAUGE. Each is a plausible edit that leaves the WHOLE
+  #   native suite green (the projection is pure and correct in every one of them), every `--target=chrome` and
+  #   `--target=icons` mutation still RED, and every earlier control green too: what they break lives in THIS file —
+  #   which x the gauge lands on, which picture each bucket selects, and WHICH ACCESSOR the snapshot publishes.
+  # ⛔ C125 THE SLOT MOVED. §3.1's amendment freezes the gauge at x = 83..89 with one-pixel gaps on both sides; two
+  #    pixels right and it still FITS (81 < 84, 90 < 91) and still draws, so the build-time `strip_slots_fit()` cannot
+  #    see it and only a coordinate-level assertion can. That is exactly why P13/P24 restate the coordinates.
+  ctl "C125 the duty gauge's slot is moved (the amendment's frozen x redefined)" yes \
+      's|    /\* duty \*/ { 83, kNoToken, 89 },|    /* duty */ { 84, kNoToken, 90 },|'
+  # ⛔⛔ C126 THE SAFETY-SHAPED ONE, and it is the §4.4 crossed-key defect one slot over: a node with NO duty limit
+  #     drawn as one that has spent none of its budget. Both pictures are "nothing is wrong"; only one of them is true.
+  ctl "C126 a node with no duty limit draws the EMPTY gauge (no limit collapsed into 0 % used)" yes \
+      's|        case mrui::DutyGauge::disabled: return mrui::icons::kIconDutyDisabled;|        case mrui::DutyGauge::disabled: return mrui::icons::kIconDutyFill[0];|'
+  # ⛔⛔ C127 THE OTHER SAFETY-SHAPED ONE: 100 % drawn as the plain full gauge. It is right about the level and silent
+  #     about the consequence — the radio is REFUSING to transmit — which is the one duty fact an operator acts on.
+  ctl "C127 the duty-BLOCKED state loses its warning mark (100 % looks like 99 %)" yes \
+      's|        case mrui::DutyGauge::blocked:  return mrui::icons::kIconDutyBlocked;|        case mrui::DutyGauge::blocked:  return mrui::icons::kIconDutyFill[mrui::icons::kDutyFillLevels - 1];|'
+  # ⛔ C128 THE LEVEL IGNORED — the indexed draw pinned at one picture. Every count stays identical and a gauge is
+  #    drawn on every page; only a per-level assertion across the ramp sees that it never moves.
+  ctl "C128 every fill level draws the same picture (the bucket's level ignored)" yes \
+      's|    return mrui::icons::kIconDutyFill\[mrui::ui_duty_fill_level(d)\];|    return mrui::icons::kIconDutyFill[0];|'
+  # ⛔⛔ C129 THE GAUGE READ **LIVE** IN THE RENDERER — the "the value is right there" edit, one slot's worth of C61.
+  #     It is correct on any single page and TEARS across the eight replays of one frame, which only P24g can see.
+  ctl "C129 the gauge is read live from the node instead of the frozen bucket" yes \
+      's|    draw_strip_icon(slot(Strip::duty), duty_glyph(c.duty));|    draw_strip_icon(slot(Strip::duty), duty_glyph(mrui::ui_duty_bucket(g_node.duty_status().enabled, g_node.duty_status().pct)));|'
+  # ⛔ C130/C131 THE PUBLISH SITE. Neither touches the pure unit, so every native case and every chrome mutation stays
+  #    exactly as green/red as before: the snapshot simply carries a fact the node never reported.
+  ctl "C130 the utilization is never published (the gauge is empty at every percentage)" yes \
+      's|        s.duty_pct         = duty.pct;|        s.duty_pct         = 0;|'
+  ctl "C131 the duty limit is published as always-on (an unlimited node claims a utilization)" yes \
+      's|        s.duty_enabled     = duty.enabled;|        s.duty_enabled     = true;|'
+  # ⛔⛔⛔ C132 THE **WRONG AUTHORITY**, which is the defect this slot was briefed against by name: the FIVE-MINUTE
+  #     anti-spam basis (`channel_duty_budget_ms`, MF1/MF8) instead of the rolling-window duty status. Both are called
+  #     "duty" in the codebase, both are non-zero exactly when duty is configured, and they answer DIFFERENT questions
+  #     — so the mutant's gauge is plausible, stable, and unrelated to the airtime the node has actually spent.
+  ctl "C132 the gauge is driven by the five-minute anti-spam budget, not duty_status()" yes \
+      's|        s.duty_pct         = duty.pct;|        s.duty_pct         = uint8_t(g_node.channel_duty_budget_ms() / 1000u);|'
+  # ⛔⛔ C133 THE MOVE ONLY HALF APPLIED — the sixth slot added and ONE earlier slot left on its §CHROME-3 x. It is the
+  #     likeliest §CHROME-5 defect of all (adding the gauge is the visible half of the job; re-anchoring five slots
+  #     that already worked is the half nobody looks at), it still satisfies `strip_slots_fit()` — home's right edge
+  #     53 is still below people's 54 — and it is the ONE mutation that reddens P24f's negative space: §CHROME-3's
+  #     superseded coordinates must draw NOTHING.
+  ctl "C133 the home slot keeps its superseded x (the re-anchoring only half done)" yes \
+      's|    /\* home \*/ { 27,      35,  52 },|    /* home */ { 28,      36,  53 },|'
+
   # ================================================================================= [[B225]]: L1-L9, THE `v3` ARM's
   # ★★★★ THE CONTROLS FOR `draw_provision_screen` ITSELF, AND THEY EXIST ONLY HERE because the screens they mutate are
   #   unreachable on the `l2` arm — a mutation of an unreachable renderer arm is the definition of a control that
@@ -1148,8 +1193,11 @@ if [ "${1:-}" != "--no-neg" ]; then
   # ⛔ L10 IS C88's MIRROR: the owner's HIDE ruling applied where it must NOT be. The parent row vanishes on a build
   #    that HAS children, so §3.6.3 becomes unreachable from the panel — the one direction C88 alone cannot see.
   # ⚠ RE-ANCHORED 2026-08-23 (§UI-16 N2), the same way and for the same reason as C88 above; meaning unchanged.
+  # ⚠ RE-ANCHORED AGAIN 2026-08-23 (§UI-16 N4): the call gained the FOURTH child predicate and now wraps onto
+  #   two lines, so both controls anchor on the CALL line alone (a `sed` s||| cannot match across a newline).
+  #   Measured, not assumed: the stale anchors matched NOTHING and the run reported both as VACUOUS.
   ctl "L10 the parent row is hidden on a build that HAS a child" yes \
-      's|    const bool prov_child = mrui::provision_has_child(s.prov_create_team, s.prov_join_static, s.prov_join_team);|    const bool prov_child = false;|'
+      's|        mrui::provision_has_child(s.prov_create_team, s.prov_join_static, s.prov_join_team, s.prov_invite);|        false;|'
 
   # ======================================================================= §UI-15 slice 6: L11-L22, THE JOIN SCREENS
   # ★★★★ THE CONTROLS FOR THE FOUR `join_*` RENDERER ARMS AND FOR `ui_join_note_push`, AND THEY EXIST ONLY HERE for
@@ -1229,6 +1277,73 @@ if [ "${1:-}" != "--no-neg" ]; then
       's|            if (note\[0\]) { body_text(top, note); ++top; }|            if (note[0]) body_text(top, note);|'
   ctl "N8 the JOIN TEAM child is published as absent on a build that has it" yes \
       's|    s.prov_join_team   = (MR_N_LAYERS < 2) \&\& (MR_FEAT_TEAM != 0);|    s.prov_join_team   = false;|'
+
+  # ============================================== §UI-16 N3: N11-N15, THE `JOIN <fingerprint>?` CONFIRMATION SCREEN
+  # ★★★★ THE CONTROLS FOR THE CONFIRMATION AND FOR THE RESULT ARM'S NEW OUTCOME, and they exist ONLY here for the
+  #   reason L1-L22 and N1-N10 do: the screen is unreachable on the `l2` arm and `src/firmware_ui.cpp` is compiled by
+  #   NO other gate. The pure decisions have their own batteries (`--target=uiprov` for the act, `--target=model` for
+  #   the flow, `--target=uinearbyrow` for the title's bytes); what nothing else in the tree can see is whether THIS
+  #   file draws the SELECTED team, with the JOIN pair, and whether the RESULT screen learned about `team_joined`.
+  # ⛔ N13 IS THE ONE THAT MATTERS MOST — spec §4-N3 pin 2 / §3 P-7 arriving through the RENDERER's door: `s.team_id`
+  #   is one field away, it is what the CREATE confirmation legitimately draws (its `REPLACES` line), and it turns
+  #   the question *"join THIS team?"* into a confirmation about the team we are LEAVING. ⓘ Every native case stays
+  #   green: the id the ACT carries is untouched — only the six characters the operator reads are wrong.
+  # ⚠ THE MARKER IS SPELLED `char(62)` / `char(32)`, ⛔ never a quoted character: a control label and its sed script
+  #   are single-quoted shell words ([[B227]]), so an apostrophe inside one would end the quoting.
+  ctl "N11 the join confirmation is drawn with the CREATE title" yes \
+      's|            mrui::ui_fmt_nearby_join_title(title, sizeof title, st.nearby_sel_id);|            snprintf(title, sizeof title, "%s", mrui::kProvCreateTitle);|'
+  ctl "N13 the confirmation names the team we are LEAVING, not the selected one" yes \
+      's|            mrui::ui_fmt_nearby_join_title(title, sizeof title, st.nearby_sel_id);|            mrui::ui_fmt_nearby_join_title(title, sizeof title, s.team_id);|'
+  ctl "N12 the confirmation re-spells its actions with the CREATE pair (S-9 not called)" yes \
+      's|            body_text(0, title);|            body_text(0, title); snprintf(l, sizeof l, "%c%s", (st.prov_confirm == mrui::ProvConfirm::back) ? char(62) : char(32), mrui::prov_confirm_label(mrui::ProvConfirm::back)); body_text(3, l); snprintf(l, sizeof l, "%c%s", (st.prov_confirm == mrui::ProvConfirm::confirm) ? char(62) : char(32), mrui::prov_confirm_label(mrui::ProvConfirm::confirm)); body_text(4, l); return;|'
+  ctl "N14 the confirmation opens with JOIN marked instead of BACK (P-13 inverted)" yes \
+      's|            body_text(0, title);|            body_text(0, title); snprintf(l, sizeof l, "%c%s", (st.prov_confirm == mrui::ProvConfirm::confirm) ? char(62) : char(32), mrui::join_confirm_label(false)); body_text(3, l); snprintf(l, sizeof l, "%c%s", (st.prov_confirm == mrui::ProvConfirm::back) ? char(62) : char(32), mrui::join_confirm_label(true)); body_text(4, l); return;|'
+  # ⛔⛔ N15 IS THE HALF-DONE SLICE: the outcome is added, the model carries it, the words are right — and the RESULT
+  #   arm still tests only for `created`, so a join shows its headline and NEITHER identity. It is the exact shape a
+  #   reviewer waves through, and only a per-ROW assertion at the exact coordinate sees it.
+  ctl "N15 the result screen never learned about team_joined (no id, no fingerprint)" yes \
+      's|                st.prov_answer.outcome == mrui::UiProvOutcome::team_joined) {|                false) {|'
+  # ⛔⛔ N16 IS THE FORBIDDEN LEXEME ARRIVING THROUGH THE RENDERER'S DOOR (S-33), and it exists so that P22c's
+  #   *"no banned lexeme is on the panel"* is a MEASUREMENT rather than negative space: the native suite pins the
+  #   VOCABULARY of `prov_result_head`/`_detail`, but nothing there can stop this file adding a fourth row of its
+  #   own. It is the reassuring line a reviewer would add ("say what the operator now is"), and §3.6.4 `:815` bans
+  #   exactly that word for exactly this state.
+  ctl "N16 the join result adds a KEYLESS row of its own (S-33, straight into the renderer)" yes \
+      's|                body_text(2, fp);|                body_text(2, fp); if (st.prov_answer.outcome == mrui::UiProvOutcome::team_joined) body_text(3, "KEYLESS");|'
+
+  # ================================================ §UI-16 N4: O1-O9, THE `INVITE MEMBER` WINDOW's RENDERER ARM
+  # ★★★★ THE CONTROLS FOR THE WINDOW's THREE SCREENS AND FOR THE MEMBER PROJECTION, and they exist ONLY here for the
+  #   reason every N- and L- control above does: the screens are unreachable on the `l2` arm and `src/firmware_ui.cpp`
+  #   is compiled by NO other gate. The pure decisions have their own battery (`--target=uiinvite`) and the flow has
+  #   `--target=model`; what NOTHING else in the tree can see is whether THIS file publishes the members correctly
+  #   and draws the LIVE list, the TEAM's fingerprint and the FROZEN full hash.
+  # ⛔ O8 IS THE ONE THAT MATTERS MOST — spec §4-N4 / F-15's named refusal, arriving through the PUBLISH site's door:
+  #   `label_from_hash` is one call away, it is what the TEAM screen legitimately uses, and it looks like reuse (U1!)
+  #   — but its `0x%08lx` fallback clamped into six columns is a THIRD spelling of the hash beside the full id and
+  #   the fingerprint, on the very row whose job is to be readable. Every native case and every `uiinvite` mutation
+  #   stays green against it: the pure unit renders faithfully whatever it is handed.
+  # ⛔ O9 IS P-7d THROUGH THE RENDERER's DOOR: the frozen selection is one field away from the LIVE row under the
+  #   cursor, and a refresh between the two presses is exactly what F-14 says may not move the target.
+  ctl "O1 the window draws a FROZEN list instead of the live members (no local refresh, F-14)" yes \
+      's|            const mrui::InviteSelList ilist = mrui::invite_sel_rows(st.invite, s.member, s.team_shown);|            const mrui::InviteSelList ilist = mrui::invite_sel_rows(st.invite, nullptr, 0);|'
+  ctl "O2 the window heads itself with the TEAM label instead of its fingerprint (F-3 / S-36)" yes \
+      's|            mrui::ui_fmt_team_fingerprint(fp, sizeof fp, s.team_id);|            label_for_team_id(s.my_team_id, fp, uint8_t(sizeof fp));|'
+  ctl "O3 every candidate row is drawn UNMARKED — the cursor is invisible on the one list that grants a key" yes \
+      's|                else        mrui::ui_fmt_invite_row(label, sizeof label, marker, r.cand);|                else        mrui::ui_fmt_invite_row(label, sizeof label, char(32), r.cand);|'
+  ctl "O4 the note row is drawn but the list is not moved down (the note and the first candidate collide)" yes \
+      's|                body_text(uint8_t(3 + row), label);|                body_text(uint8_t(2 + row), label);|'
+  ctl "O5 the confirmation is drawn with the six-column selection aid instead of the FULL hash (P-7c)" yes \
+      's|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.invite.sel_hash);|            mrui::ui_fmt_member_fingerprint(hash, sizeof hash, st.invite.sel_hash);|'
+  ctl "O6 the confirmation shows the cached NAME instead of the hash — a mutable label as the only identity (P-7c)" yes \
+      's|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.invite.sel_hash);|            label_from_hash(st.invite.sel_hash, hash, uint8_t(sizeof hash));|'
+  ctl "O7 the INVITE child is published as absent on a build and a node that have it" yes \
+      's|    s.prov_invite      = (MR_N_LAYERS < 2) \&\& (MR_FEAT_TEAM != 0) \&\& (g_node.config().team_id != 0);|    s.prov_invite      = false;|'
+  ctl "O8 the member name is published through label_from_hash — the truncated 0x third spelling (F-15)" yes \
+      's|            const uint8_t nn = g_node.peer_name_find(hash, mem.name, uint8_t(sizeof mem.name - 1));|            label_from_hash(hash, mem.name, uint8_t(sizeof mem.name)); const uint8_t nn = 0; (void)nn;|
+       s|            mem.name\[nn\] = .\\\\0.;|            ;|'
+  ctl "O9 the confirmation re-reads the row under the cursor instead of the FROZEN selection (F-14 / P-7d)" yes \
+      's|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.invite.sel_hash);|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, s.member[st.cursor].key_hash32);|'
+
   ARM=l2; ARM_DEFS=DEFS
 fi
 

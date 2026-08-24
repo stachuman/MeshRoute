@@ -239,3 +239,35 @@ TEST_CASE("ui16-nearby: every lexeme is exact, fits 19 columns, and the empty st
     CHECK(only_mine.n == 0);
     CHECK(strcmp(nearby_note(only_mine), mrui::kNearbyEmpty) == 0);
 }
+
+// ============================================================ §UI-16 N3 — the confirmation's TITLE (spec §8 S-8)
+TEST_CASE("ui16-jointitle: `JOIN <fingerprint>?` is exact, is the SHARED helper's six characters, and fits 19") {
+    char out[mrui::kNearbyJoinTitleCap];
+    // ★ THE EXACT BYTES, at the form §3.6.4 `:806` names verbatim.
+    mrui::ui_fmt_nearby_join_title(out, sizeof out, 0x77D9348Au);
+    CHECK(strcmp(out, "JOIN D9348A?") == 0);
+    CHECK(strlen(out) <= 19u);
+    // ★★ THE VALUE RELATION, ⛔ not "six hex characters appeared": the title's variable part must be
+    //    `ui_fmt_team_fingerprint` OF THE SAME ID — so the confirmation and the row the operator pressed on cannot
+    //    describe two different teams. Driven over several ids, including the two boundaries.
+    const uint32_t ids[] = { 0x77D9348Au, 0x00000000u, 0xFFFFFFFFu, 0x00ABCDEFu, 0x88ABCDEFu };
+    for (uint32_t id : ids) {
+        char fp[mrui::kTeamFpTokenCap];  mrui::ui_fmt_team_fingerprint(fp, sizeof fp, id);
+        char want[mrui::kNearbyJoinTitleCap];
+        snprintf(want, sizeof want, "JOIN %s?", fp);
+        mrui::ui_fmt_nearby_join_title(out, sizeof out, id);
+        CHECK(strcmp(out, want) == 0);
+        CHECK(strlen(out) <= 19u);
+    }
+    // ⛔⛔ AND IT IS THE **LOW 24 BITS**, WHICH IS WHY THE TOKEN MAY NEVER BE AN AUTHORITY (spec §3 P-7): two ids one
+    //     byte apart print the SAME title, and only the FULL id the act carries tells them apart ([[B48]]'s class).
+    char a[mrui::kNearbyJoinTitleCap], b[mrui::kNearbyJoinTitleCap];
+    mrui::ui_fmt_nearby_join_title(a, sizeof a, 0x11ABCDEFu);
+    mrui::ui_fmt_nearby_join_title(b, sizeof b, 0x22ABCDEFu);
+    CHECK(strcmp(a, b) == 0);
+    CHECK(0x11ABCDEFu != 0x22ABCDEFu);
+    // ⛔ FAILS CLOSED like every token in this file: no output buffer means no write and no crash.
+    mrui::ui_fmt_nearby_join_title(nullptr, sizeof out, 0x77D9348Au);
+    mrui::ui_fmt_nearby_join_title(out, 0, 0x77D9348Au);
+    CHECK(strcmp(a, "JOIN ABCDEF?") == 0);       // ...and the neighbouring buffer is untouched by either call
+}

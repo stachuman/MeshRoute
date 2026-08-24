@@ -3189,3 +3189,65 @@ Setup: H1 = teamless joiner, H2 = team owner, **same PHY and same leaf nibble**.
    team's fingerprint shows. Then `team 0` to restore the teamless setup if continuing.
 9. ☐ **Retention (empty-list BACK):** power H2 off, wait past **10 minutes** ⇒ `NO TEAMS NEARBY` and a `BACK`
    row that still leaves.
+
+## Part 37 — §UI-16 N3: the confirmed nearby join on glass (2026-08-23)
+
+⛔ **THE RESIDUE ONLY.** The confirmation screen, the full-id act, the words, the refusals, keylessness and the
+zero-TX rule are host-gated (native §UI16-N3 blocks + `--target=uiprov` 32 / `--target=model` / probe P22 incl.
+the PHY DIFFERS and BACK-performs-nothing arms). **Metal-only: real flash across a power cycle, a real sealed
+post, a real retune.** Setup: H1 joins H2's team **through NEARBY** (Part 36 setup, same PHY + leaf).
+
+1. ☐ **Membership survives a real power cycle.** H1: NEARBY → row → `double` → `short` → `double` ⇒
+   `TEAM JOINED`, `0x<TEAMID>`, the six-hex fingerprint. Console `team` ⇒ `team_id=0x<TEAMID>`. **Pull power**,
+   reboot ⇒ `team` ⇒ the same digits. ⛔ FAIL on `0x00000000` or any differing digit.
+2. ☐ **Keyless against a real sealed post.** H1 `team exportkey` ⇒ the JSON error carrying `"no_key"` (⛔ never a
+   keypair). From H2 `send_channel 0 "sealed hello" -t -e` ⇒ H1 prints the `: ENCRYPTED — no team content key …
+   The post was still RELAYED.` line and ⛔ no body.
+3. ☐ **A RETAINED `/mrteams` key is not reactivated by the join (P-2b — K5 not anticipated).** Precondition: H1
+   was granted this team's key earlier, then `team 0` (record retained). Re-join through NEARBY ⇒ `TEAM JOINED`,
+   and ⛔ the panel NEVER shows `SAVED KEY FOUND` / `USE SAVED KEY`. `team exportkey` ⇒ `"no_key"`;
+   **power-cycle** ⇒ still `"no_key"`, and the record is still there (a later re-grant of the same material must
+   report `unchanged`, i.e. spend no write).
+4. ☐ **`PHY DIFFERS` from a real retune.** H1 `mobile register freq=<a different legal frequency>`, then a
+   NEARBY join attempt ⇒ `PHY DIFFERS` / `USE SERIAL`, `team` unchanged, zero writes, zero retunes. ⓘ If the
+   divergence cannot be provoked on this bench, record **not-run with that reason** — ⛔ never FAIL.
+
+## Part 38 — §UI-16 N4: the invitation window on glass (2026-08-23)
+
+⛔ **THE RESIDUE ONLY** (rows, two-authority snapshot, diff, handled set, freeze, expiry, blank/wake and zero-TX
+are host-gated: 24 native cases, `uiinvite` 11 / `model` V01-V09, probe P23a-f). **Metal-only: real light sleep,
+the wall clock, real member state.**
+
+1. ☐ H2 (in a team): PROVISION offers **`INVITE MEMBER`** as its fourth row; `double` ⇒ title, H2's six-hex team
+   fingerprint, **`NO CANDIDATES`**. ⛔ FAIL on anything name-shaped.
+2. ☐ ★ A REAL new member: H1 `team 0` then re-join; open the window **before** H1 re-joins ⇒ row
+   `>       T<id> <6-hex>` — name column **BLANK**, fingerprint **POPULATED**, 19 columns unclipped. ⛔ FAIL on
+   `KEYLESS`.
+3. ☐ ★ **Five-minute hold across REAL light sleep (P-4b + OQ-3)**: panel blanks on the ordinary ~15 s timer, the
+   node still light-sleeps (`mrcon` cadence vs a STATUS baseline — the half no host gate reaches), and ⛔ no
+   query/DM/post/location request appears.
+4. ☐ ★ **Expiry on the wall clock (P-11)**: untouched past 5 min ⇒ wake press, then **`WINDOW CLOSED`**; `team`,
+   `team exportkey` and the member list unchanged.
+5. ☐ **Blank/wake**: `double` a candidate ⇒ `NEW MEMBER` + full `0x<H1-hash>`; let it blank, press once ⇒ panel
+   returns to the **LIST**, window still open (its 5 min still running from the OPEN).
+6. ☐ **`REJECT` on real state**: candidate leaves the list, ⛔ nothing sent, H1 still a member and still keyless,
+   `/mrteams` untouched.
+7. ☐ **Outside the window (P-12)**: window closed, a new member appears ⇒ ⛔ no prompt on any screen.
+
+## Part 39 — §CHROME-5: the duty gauge on glass (2026-08-23)
+
+⛔ **THE RESIDUE ONLY** (the bucket map, boundaries, repaint economy, geometry and authority are host-gated:
+`chrome` 44 / `icons` 11 mutations, probe P24a-g + P13 restated). **Metal-only: a real radio actually refusing
+to transmit, and whether six 7-px slots with one-pixel gaps are readable on the physical panel.** Extends the
+Part 24/25 CHROME series.
+
+1. ☐ `cfg set duty 1` → `cfg save` → **reboot** (⚠ `duty` is *not* a live field — `firmware_config.cpp:313`
+   sets `live = false`; without the reboot the budget is not re-derived and the gauge will not move).
+2. ☐ Console `duty` prints a percentage; the strip's **sixth slot (x=83..89, between key and battery)** shows a
+   partially filled box that grows as traffic runs (`testch @sendms …`).
+3. ☐ Drive traffic until the console prints exactly `> duty` → `100% — SILENT, ~<n> s to availability`: the slot
+   shows the **full box with the warning mark knocked out of it**, and the node actually refuses to transmit.
+4. ☐ `cfg set duty 0` → `cfg save` → reboot: the slot shows the **crossed box**, ⛔ never an empty one.
+5. ☐ ⛔ No number and no `%` anywhere on the panel, in any of the three states.
+6. ☐ Visual: the key, gauge and battery outlines do not touch (one clear pixel column between each), and the
+   battery token still ends on the last column.

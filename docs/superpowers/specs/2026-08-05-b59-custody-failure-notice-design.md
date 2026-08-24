@@ -1,6 +1,12 @@
 <!-- Author: OpenAI Codex -->
 # B59 custody-failure notice — short design
 
+> **SUPERSEDED 2026-08-23.** Retained as the original B59 proposal; do not plan or
+> implement from this file. The active design is
+> [`2026-08-23-internal-data-and-custody-outcome-design.md`](2026-08-23-internal-data-and-custody-outcome-design.md),
+> which incorporates the owner-approved internal DATA namespace, durable diagnostic
+> records, inbox filtering/clear semantics, and the narrowed B59 v1 generation seam.
+
 *2026-08-05. Status: WIRE AND HANDLING PROPOSAL; AUTOMATIC RETRANSMISSION POLICY OPEN. This is an
 additive design for B59. It does not change route selection, cascade ordering or the previous-hop
 loop guard.*

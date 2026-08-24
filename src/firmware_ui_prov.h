@@ -142,6 +142,112 @@ inline mrui::UiProvAnswer ui_prov_create_team(ITeamCreateDevice& dev) {
     return a;
 }
 
+// ============================================== §UI-16 N3 — THE NEARBY-TEAM JOIN, ON THE **SAME** SEAM (§3.6.4 pt 3)
+// ★★★★ IT IS THE SAME `ITeamCreateDevice` AND THE SAME `ProvisioningService::apply_team`, AND THAT IS THE WHOLE
+//      DESIGN: §3.6.4 point 3 asks for *"the same role/PHY/team-DAD/persistence validation as the guarded
+//      `team <id>`"*, and the guarded `team <id>` IS `TeamRequest{ mint = false, team_id }` through that transaction
+//      (`src/firmware_provisioning_service.h`). ⛔ A second device seam, a second transaction or a second validation
+//      would be exactly the parallel path U1 forbids — and the field it would eventually forget is `sf_list`.
+// ★★★ THE THREE WAYS THIS ARM DIFFERS FROM THE CREATE ONE, EACH DELIBERATE:
+//      1. `mint = false` and `team_id = <the observed id>` — a JOIN, ⛔ not a mint. A `mint = true` here would draw a
+//         NEW random id and a NEW keypair: the operator would end up alone in a team that never existed, holding a
+//         key nobody else has, having asked to join the team on the panel in front of them. ★ That is the headline
+//         control of this slice's battery, and it is plausible precisely because it is one word.
+//      2. the answer is `team_joined` / `join_refused`, ⛔ never `created` / `refused` — F-4: a join by id lands the
+//         SAME `ProvVerdict::applied`, so without its own outcome the panel would say `TEAM CREATED` for a join.
+//      3. ⛔ NO KEY IS SUPPLIED AND NONE IS SOUGHT. `key_supplied` stays false and `mint` is false, so the
+//         transaction's key plan is `clear` on a membership change (`node.cpp:683`'s ruling, one layer down) ⇒ the
+//         joiner ends up a **KEYLESS MEMBER** (P-2), which is what §3.6.4 point 4 requires. ⛔⛔ AND IT MUST NOT
+//         ANTICIPATE §UI-16 K5: a team whose key is RETAINED in the `/mrteams` keyring is ⛔ not installed here —
+//         mere knowledge of the PUBLIC team id may never reactivate a stored secret (P-2b), and the explicit
+//         `SAVED KEY FOUND` / `USE SAVED KEY` offer is K5's, later. The record is left exactly as it was found.
+// ★★ THE PHY PRECONDITION IS **THE SAME RULING, REUSED** (F-5, U1): `live_phy_matches` — the transaction's own
+//    predicate — against the PERSISTED record with `present = true`, while the REQUEST's `ProvPhy` stays
+//    `present = false` so the transaction preserves the persisted PHY and performs NO retune. ⛔ Two objects, never
+//    assigned to one another; see this file's header, which states the trap once for both arms.
+// ⚠⚠ AND THE ASSIGNMENTS BELOW ARE DELIBERATELY **NOT COLUMN-ALIGNED** LIKE THE CREATE ARM'S, WHICH IS A REAL
+//    CONSTRAINT AND NOT A STYLE SLIP: `tools/probe_ui_model_mutations.py --target=uiprov` anchors THREE landed
+//    controls (V04/V05/V06) on those exact aligned lines by substring, so a byte-identical twin here would make each
+//    of them match TWICE and be reported VACUOUS — a landed control silently retired by a new slice.
+//    ⓘ MEASURED, ⛔ NOT ANTICIPATED, AND IT ACTUALLY FIRED: the first full `uiprov` pass of this slice reported
+//    **`VACUOUS V04 … match count 2`**, because `allowed_sf_bitmap` is the block's longest field name and therefore
+//    already sits one space from its `=` in the create arm — so THAT twin was byte-identical while the four shorter
+//    ones were not. ⇒ its `=` below carries a second space, which is the whole of the fix and the reason the line
+//    looks slightly off. (§UI-16 N2 hit the same hazard from the other side; its `N05` entry needed a two-line
+//    anchor.)
+inline mrui::UiProvAnswer ui_prov_join_team(ITeamCreateDevice& dev, uint32_t team_id) {
+    mrui::UiProvAnswer a{};
+    // ⛔ FAILS CLOSED (C2), and it is a FLOOR the model already holds one level up (`run_join_team` refuses a 0 pick
+    //    before building an intent): 0 is not a team, and `TeamRequest{ mint = false, team_id = 0 }` is `team 0` —
+    //    a LEAVE. ⇒ a join screen may never be able to perform one, whichever caller reached this seam.
+    if (team_id == 0) {
+        a.outcome = mrui::UiProvOutcome::join_refused;
+        a.reason  = "no team";
+        return a;                                       // ⛔ 0 transaction calls, 0 writes, 0 airtime
+    }
+    ProvSnapshot snap{};
+    ProvPhyFloor floor{};
+    dev.device_facts(snap, floor);
+
+    mrnv::Blob rec{};                                   // value-initialised: see the create arm's §nv-ritual note
+    const bool have_rec = dev.load_record(rec);
+    if (!have_rec) {
+        // ⛔ AN UNESTABLISHED PRECONDITION IS NEVER TREATED AS SATISFIED (the create arm's rule, verbatim in
+        //    substance): without the record there is no persisted PHY to compare against.
+        a.outcome = mrui::UiProvOutcome::join_refused;
+        a.reason  = prov_err_name(ProvErr::nv_load_failed);
+        return a;                                       // ⛔ 0 transaction calls, 0 writes, 0 airtime
+    }
+    ProvPhy persisted{};
+    persisted.present = true;      // ⚠ THE COMPARISON's object — `live_phy_matches` early-returns true on `!present`
+    persisted.freq_mhz = rec.freq_mhz;
+    persisted.routing_sf = rec.routing_sf;
+    persisted.bw_hz = rec.bw_hz;
+    persisted.allowed_sf_bitmap  = rec.allowed_sf_bitmap;  // ⓘ from the RECORD, never the live reading ([[B211]])
+    const bool phy_ok = live_phy_matches(persisted, snap);
+    if (!phy_ok) {
+        a.outcome = mrui::UiProvOutcome::phy_differs;   // the panel says `PHY DIFFERS` / `USE SERIAL`
+        return a;                                       // ⛔ 0 transaction calls, 0 writes, 0 airtime, 0 retunes
+    }
+
+    // ★★ THE REQUEST — a JOIN BY ID, and deliberately nothing else. `phy` stays default-constructed
+    //    (`present = false`) so the transaction carries the persisted PHY through untouched and never calls
+    //    `IProvLive::apply_phy` ([[B209]]); no key tail is supplied, so nothing is minted and nothing is installed.
+    TeamRequest rq{};
+    rq.mint    = false;            // ★★★ A JOIN, ⛔ NEVER A MINT — see difference 1 in the block above
+    rq.team_id = team_id;          // ★★★ the FULL 32 bits the operator selected (P-1: byte-equal to the observed id)
+    rq.floor   = floor;            // ⛔ still carried: a 0 in the record resolves against it (the create arm's note)
+    const ProvResult res = dev.apply(rq, snap);
+    switch (res.verdict) {
+        case ProvVerdict::applied:
+            // ★ THE ONE ARM THAT MAY SAY SO, and §notify-every-save's condition is a write that HAPPENED — the same
+            //   rule, the same seam, the same single call site pattern as the create arm's ([[B194]] inverted).
+            dev.on_applied(res);
+            a.outcome = mrui::UiProvOutcome::team_joined;
+            a.team_id = res.team_id;                    // ⛔ the TRANSACTION's own id, echoed — never the request's
+            return a;
+        case ProvVerdict::nv_failed:
+            // ⛔ THE PREVIOUS MEMBERSHIP AND KEY ARE UNTOUCHED and the panel says so (`SAVE FAILED` /
+            //    `NOTHING CHANGED`): the transaction applies NOTHING when its one write fails.
+            a.outcome = mrui::UiProvOutcome::save_failed;
+            return a;
+        case ProvVerdict::refused:
+            a.outcome = mrui::UiProvOutcome::join_refused;
+            a.reason  = prov_err_name(res.err);         // the SERVICE's own token (U1) — never a second table
+            return a;
+        // ⓘ ⚠ REACHABLE, BARELY, AND HANDLED HONESTLY: `no_change` means we are ALREADY in that team. The NEARBY
+        //   list filters our own team out, so the ordinary path cannot produce it — but the list is FROZEN at entry
+        //   (owner ruling R-10), so a console `team <id>` between the capture and the confirmation can. ⛔ It may
+        //   NOT render as a success: nothing was written, and `TEAM JOINED` on a screen that changed nothing is the
+        //   "success that isn't" this project registers.
+        case ProvVerdict::no_change:
+            a.outcome = mrui::UiProvOutcome::join_refused;
+            a.reason  = "no change";
+            return a;
+    }
+    return a;
+}
+
 // ================================================================== §UI-15 slice 6 — THE STATIC-JOIN HALF (§3.6.3)
 // ---- the DEVICE half, as a seam ---------------------------------------------------------------------------------
 // ★★ THREE OPERATIONS, EVERY ONE OF THEM A FORWARD, and the shape is `ITeamCreateDevice`'s deliberately (U3):
@@ -223,6 +329,10 @@ class UiProvisionAdapter : public mrui::IUiProvision {
         switch (intent.op) {
             case mrui::UiProvOp::create_team: return ui_prov_create_team(_dev);
             case mrui::UiProvOp::join_static: return ui_prov_join_static(_join, intent.join);
+            // ★ §UI-16 N3 — the THIRD op, and the `default`-less switch is what forced this line to be written: the
+            //   nearby join goes to the TEAM device (`_dev`), because it is the TEAM transaction. ⛔ Sending it to
+            //   `_join` would run the STATIC-network join for a team the operator selected.
+            case mrui::UiProvOp::join_team:   return ui_prov_join_team(_dev, intent.team_id);
             case mrui::UiProvOp::none:        break;
         }
         return mrui::UiProvAnswer{};
