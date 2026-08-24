@@ -339,7 +339,14 @@ inline bool ui_route_send_push(SendTracker& emg, SendTracker& normal, UiModel& m
             //   above: `match_dm` refuses a non-DM slot.
             if (emg.match_dm(pu.ctr, pu.dst, /*acked=*/false, pu.reason, o)) { m.on_outcome(o, now_ms); return true; }
             if (normal.match_dm(pu.ctr, pu.dst, /*acked=*/false, pu.reason, o)) { m.on_outcome(o, now_ms); return true; }
-            return false;
+            // ★★ §UI-16 N6 — the INVITE grant's failure arm, offered LAST for the reason the two slots are offered
+            //    first anywhere in this function: a UI send slot owns its own handle, and the grant is a flight
+            //    neither slot ever submitted. The correlation is the verdict's `{dst, ctr}` and it is exact.
+            // ⚠ CORRECTED 2026-08-24 (§UI-16 N6b, V1 — the comment had drifted from the code it describes): this
+            //   read *"the model's FROZEN `{dst, ctr}`"*. The `dst` is ⛔ NOT frozen — it is the id the CORE
+            //   RESOLVED AT SEND TIME and handed back, precisely so a re-DAD inside the window cannot strand the
+            //   verdict. Only the target HASH is frozen.
+            return m.on_invite_grant_push(pu);       // §UI-16 N6 — the grant's `GRANT FAILED` edge
         // ★★★ §T3 — THE EXPLICIT `send_aired` ARM. ⛔ It MUST be spelled out here and must never be left to the
         //     `default:` below (or to `firmware_ui.cpp:mr_ui_on_push`'s own `default:`): both would silently ignore
         //     the new kind and the whole app half of [[B164]] would compile and pass while doing nothing.
@@ -353,7 +360,12 @@ inline bool ui_route_send_push(SendTracker& emg, SendTracker& normal, UiModel& m
         case PK::send_aired:
             if (emg.match_aired(pu.dst, pu.ctr))    return true;   // correlated, and DELIBERATELY inert on the model
             if (normal.match_aired(pu.dst, pu.ctr)) { m.on_send_aired(normal.kind(), now_ms); return true; }
-            return false;
+            // ★★★★ §UI-16 N6 — **THE ONE EDGE THAT MAY SAY `KEY SENT`** (spec §4-N6, ✅ F-9). The grant's own
+            //      admission answer is `GRANT QUEUED`; only THIS push — the SX1262 TxDone edge for the flight whose
+            //      `{dst, ctr}` the confirmation froze — promotes it, and the model applies the correlation. ⛔ It
+            //      is offered LAST, after both UI slots, because a slot that submitted this handle owns it; the
+            //      grant is a flight neither slot ever submitted, so the two answers cannot overlap.
+            return m.on_invite_grant_push(pu);       // §UI-16 N6 — the grant's `KEY SENT` edge
         // ⓘ `default:` is correct here and is NOT §B72's -Wswitch hole: `PushKind` has 17 members on core's schedule
         //    and this unit is interested in exactly five. The kinds the UI renders rather than correlates
         //    (`msg_recv` / `channel_recv`) are handled by firmware_ui.cpp, which owns the counters they feed.

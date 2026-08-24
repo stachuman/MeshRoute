@@ -89,7 +89,7 @@ uint32_t Node::retry_jitter_ms() const { return 3 * airtime_routing_ms(8); }
 // Build + enqueue an app DATA. `tx_event` separates an app send ("tx_enqueue", the dm_delivery
 // record-creation key) from an internal protocol DATA like the E2E ack ("e2e_ack_tx") that must NOT
 // be counted as an app DM.
-uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, [[maybe_unused]] const char* tx_event, bool app_dm, uint8_t type, CryptIntent crypt, uint32_t override_dst_hash, uint32_t override_source_hash, uint8_t addr_len, Plane plane) {
+uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, [[maybe_unused]] const char* tx_event, bool app_dm, uint8_t type, CryptIntent crypt, uint32_t override_dst_hash, uint32_t override_source_hash, uint8_t addr_len, Plane plane, SendDispatch* out_dispatch) {
     // R6.1 §6.4 join-participation gate: an un-synced managed joiner must CONFIG_PULL before it originates app DMs (no
     // pre-membership pollution). Inert for UNMANAGED/adopted nodes (leaf_config_synced()). Internal DATA (app_dm=false:
     // E2E acks, forwards) is NEVER gated — only originations.
@@ -337,7 +337,25 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
         const uint64_t base = item.next_attempt_ms > _hal.now() ? item.next_attempt_ms : _hal.now();
         item.next_attempt_ms = base + static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(retry_jitter_ms()) + 1));
     }
-    if (_active->_tx_queue_n < kTxQueueCap) _active->_tx_queue[_active->_tx_queue_n++] = item;
+    // ★★★★ §UI-16 N6b (2026-08-24) — THE ADMISSION IS NOW **REPORTED**, AND ⛔ NOTHING ELSE HERE MOVED. The
+    //      condition, the store, the emit and the returned `ctr` are BYTE-FOR-BYTE the pre-existing behaviour: a
+    //      full queue still drops the frame silently and still returns the minted counter, because changing that
+    //      is a behaviour change and this slice is not one (C1). What changed is that the `if`'s own answer — the
+    //      fact this function has always computed and always discarded — is handed to a caller that asked for it.
+    // ⛔ THE `ctr` IS NOT THE ADMISSION AND NEVER WAS: it is minted at :154, above every bail, so a dropped frame
+    //    carries a perfectly ordinary non-zero handle. That is the exact misreading N6's first cut inherited.
+    const bool admitted = _active->_tx_queue_n < kTxQueueCap;
+    if (admitted) _active->_tx_queue[_active->_tx_queue_n++] = item;
+    if (out_dispatch) {
+        out_dispatch->admit = admitted ? SendDispatch::Admit::queued : SendDispatch::Admit::refused;
+        out_dispatch->dst   = item.dst;   // ★ the SEND-TIME resolved id — the same value push_send_aired_if_owned reports
+        // ⓘ ZEROING THE HANDLE ON A REFUSAL IS **DEFENCE IN DEPTH, AND IT IS MEASURED AS SUCH, ⛔ NOT CLAIMED AS
+        //   TESTED** (the `push_send_aired_if_owned` `inner_len < 6` precedent): its mutation — publish `ctr`
+        //   unconditionally — leaves the native suite GREEN, because `team_key_grant_send` writes `out_ctr` /
+        //   `out_dst` ONLY on the `queued` arm, so no public seam can observe a handle attached to a refused
+        //   dispatch. It stays because a future consumer reading `dsp` directly must not find one.
+        out_dispatch->ctr   = admitted ? ctr : uint16_t{0};   // ⛔ a refused frame has NO flight, so it gets NO handle
+    }
     MR_EMIT(tx_event, EF_I("origin", item.origin), EF_I("dst", item.dst),
             EF_I("ctr", item.ctr), EF_I("depth", _active->_tx_queue_n));
     // ★ E2E-ack DEADLINE (shelf item (i)): a same-layer -a ORIGINATION arms an emit-free deadline (byte-neutral when the
@@ -417,8 +435,8 @@ void Node::e2e_ack_deadline_fire() {
 }
 
 // E2E/PRIORITY ride the wire via `flags`; the E2E ACK behaviour lives in do_post_ack + send_e2e_ack.
-uint16_t Node::do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t override_dst_hash, uint8_t type, uint32_t override_source_hash, Plane plane) {
-    return enqueue_data(dst, body, body_len, flags, "tx_enqueue", /*app_dm=*/true, type, crypt, override_dst_hash, override_source_hash, /*addr_len=*/0, plane);   // app DM (dm_delivery record key); DST_HASH default-on (or the §3c mobile override); §mobile delegate: type/override_source_hash for MOBILE_SEND + the home re-originate; Wave 2: plane forced by the caller
+uint16_t Node::do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t override_dst_hash, uint8_t type, uint32_t override_source_hash, Plane plane, SendDispatch* out_dispatch) {
+    return enqueue_data(dst, body, body_len, flags, "tx_enqueue", /*app_dm=*/true, type, crypt, override_dst_hash, override_source_hash, /*addr_len=*/0, plane, out_dispatch);   // app DM (dm_delivery record key); DST_HASH default-on (or the §3c mobile override); §mobile delegate: type/override_source_hash for MOBILE_SEND + the home re-originate; Wave 2: plane forced by the caller
 }
 
 // ---- Slice 4d: cross-layer DM origination -------------------------------------------------------------------

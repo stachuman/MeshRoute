@@ -266,9 +266,50 @@ struct DeviceJoinProvision : mrfw::IJoinDevice {
     //    site 3, and its own note records why the resulting ordering is unobservable.
     void on_started(const mrfw::JoinResult& r) override { (void)r; mr_ui_on_config_saved(); }
 };
+// ★★★ §UI-16 N5 — TWO DEVICE FORWARDS AND NO DECISIONS. `peer_key_at_least` calls the exact accessor used by
+//      `Node::team_key_grant_send`'s no_pubkey arm and discards the public key bytes; the PURE caller supplies that
+//      arm's authoritative floor. `issue` hands the already-complete typed Command through the PURE formatter to
+//      the existing firmware command executor — the same sink the OLED send path uses — so this TU makes no
+//      kind/hash/plane decision and no second Node command path is opened.
+struct DeviceInvite : mrui::IUiInviteDevice {
+    bool peer_key_at_least(uint32_t key_hash32, MESHROUTE_NS::Node::PeerKeyConf floor) const override {
+        uint8_t ed[32];
+        MESHROUTE_NS::Node::PeerKeyConf conf = MESHROUTE_NS::Node::PeerKeyConf::overheard;
+        return g_node.peer_key_find(key_hash32, ed, &conf) &&
+               static_cast<uint8_t>(conf) >= static_cast<uint8_t>(floor);
+    }
+    // ⛔ IT REPORTS, IT DOES NOT JUDGE (QG blocker, 2026-08-24): the executor's `ok`, its `CmdCode` and its
+    //    `accepted` bit are handed back VERBATIM, and the PURE unit decides whether that is a started request. A
+    //    forward that mapped them here — even to a friendlier default — would be the decision this TU may not make.
+    // ⓘ An unformattable command executed NOTHING, so the default answer (`ok == false`) is the honest one; it is
+    //   the same shape a default-constructed `ExecResult` carries, `queued`-looking `code` included.
+    mrui::UiInviteIssue issue(const MESHROUTE_NS::Command& command) override {
+        mrui::UiInviteIssue out{};
+        char line[mrui::kInviteReqpubkeyLineCap];
+        const size_t n = mrui::ui_fmt_invite_reqpubkey_line(line, sizeof line, command);
+        if (n == 0) return out;
+        const mrfw::ExecResult r = mrfw::exec_command(line, n);
+        out.ok       = r.ok;
+        out.code     = r.result.code;
+        out.accepted = r.result.accepted;
+        return out;
+    }
+    // ★★★ §UI-16 N6 — THE THIRD FORWARD, AND IT DECIDES NOTHING EITHER. The plane is the PURE unit's constant,
+    //     arriving as an argument; the outcome and the TWO correlation terms the core wrote (`out_ctr` + §UI-16
+    //     N6b's `out_dst`) are handed back VERBATIM for `mrui::invite_grant_state_of` to word. ⛔ No mapping, no
+    //     default, no collapse here — and ⛔ nothing here substitutes a value the screen already held.
+    // ⓘ It goes through `mrfw::device_team_grant` rather than touching `g_node` directly — unlike
+    //   `peer_key_at_least` above, which is a pure cache READ. The reason is stated at that function: the console's
+    //   `team grantkey` originates the SAME verb, and both origination sites belong in ONE file.
+    MESHROUTE_NS::Node::TeamKeyGrantTx grant(uint32_t key_hash32, MESHROUTE_NS::Plane plane,
+                                             uint16_t* out_ctr, uint8_t* out_dst) override {
+        return mrfw::device_team_grant(key_hash32, plane, out_ctr, out_dst);
+    }
+};
 DeviceTeamCreate         s_team_create;
 DeviceJoinProvision      s_join_prov;
 mrfw::UiProvisionAdapter s_prov_adapter(s_team_create, s_join_prov);
+DeviceInvite             s_invite_dev;
 #endif
 
 int32_t  s_batt_mv        = -1;      // last GOOD reading; <0 = never had one -> render `--`
@@ -1738,16 +1779,63 @@ void draw_provision_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
         // §7.3 AUDIT: `NEW MEMBER` 10 · `0x00C0FFEE` 10 · `%c%s` : `>REJECT` 7
         case mrui::Provision::invite_confirm: {
             body_text(0, mrui::kInviteNew);
+            // ★★★ §UI-16 N6 — THE TWO IDENTITY ROWS ARE **DECIDED IN THE PURE UNIT** (`invite_id_rows`) and merely
+            //     PLACED here: what an operator reads at the moment a private key is shipped is a ruling (P-7c),
+            //     and a renderer-side `if (name) … else …` would be a rule no gate in this tree can attack (§B115).
+            //     The hash row is UNCONDITIONAL; the name is an ADDED row, drawn only when one is cached, and it
+            //     ⛔ never replaces the hash. ⓘ It is read from the LIVE member list against the FROZEN hash, so a
+            //     name that changed since the row is shown — while the act still keys on the hash (P-7d).
+            const mrui::InviteIdRows ident = mrui::invite_id_rows(s.member, s.team_shown, st.invite.sel_hash);
+            body_text(1, ident.hash);
+            if (ident.name[0]) body_text(2, ident.name);
+            // ★ REJECT is selected initially; GRANT KEY costs a `short` then a `double` — the model's, not this
+            //   file's: both labels and both markers are read out of the state (P-13).
+            snprintf(l, sizeof l, "%c%s", (st.prov_confirm == mrui::ProvConfirm::invite_reject) ? '>' : ' ',
+                     mrui::invite_confirm_label(/*grant=*/false));
+            body_text(3, l);
+            snprintf(l, sizeof l, "%c%s", (st.prov_confirm == mrui::ProvConfirm::invite_grant) ? '>' : ' ',
+                     mrui::invite_confirm_label(/*grant=*/true));
+            body_text(4, l);
+            return;
+        }
+        // ★★★★ §UI-16 N6 — THE GRANT'S VERDICT. ⛔ NOTHING HERE DECIDES ANYTHING: the word is
+        //      `mrui::invite_grant_word`'s (one word per outcome, ⛔ never collapsed — S-24), the identity is the
+        //      verdict's OWN full hash (P-7c — the window is gone by now, deliberately), and the promotion from
+        //      `GRANT QUEUED` to `KEY SENT` happens in the model when the correlated TxDone edge lands.
+        // ⛔ NO COMPLETION WORD IS REACHABLE FROM THIS SWITCH: there is no e2e ack on a grant, so `JOIN COMPLETE`
+        //    (S-32) and any "received" wording would be a claim about the OTHER node that this one cannot make.
+        // §7.4 AUDIT (19-column body): `GRANT QUEUED` 12 · `NOT IN A TEAM` 13 · `0x00BEDEAD` 10 · `press = back` 12
+        case mrui::Provision::invite_result: {
+            body_text(0, mrui::invite_grant_word(st.grant.st));
+            char hash[mrui::kMemberHashCap];
+            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.grant.hash);
+            body_text(1, hash);
+            body_text(4, "press = back");
+            return;
+        }
+        // ★★★ §UI-16 N5 — the missing-key landing. Full hash always; BACK is selected on entry; the request is
+        //      merely offered here and cannot air until the model sees short + double.
+        case mrui::Provision::invite_need_pubkey: {
+            body_text(0, mrui::kInviteNeedPubkey);
             char hash[mrui::kMemberHashCap];
             mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.invite.sel_hash);
             body_text(1, hash);
-            // ★ BACK FIRST and selected on entry, so REJECT costs the deliberate `short` -> `double` (P-13).
             snprintf(l, sizeof l, "%c%s", (st.prov_confirm == mrui::ProvConfirm::back) ? '>' : ' ',
-                     mrui::invite_confirm_label(/*confirm=*/false));
+                     mrui::invite_pubkey_label(/*request=*/false));
             body_text(3, l);
             snprintf(l, sizeof l, "%c%s", (st.prov_confirm == mrui::ProvConfirm::confirm) ? '>' : ' ',
-                     mrui::invite_confirm_label(/*confirm=*/true));
+                     mrui::invite_pubkey_label(/*request=*/true));
             body_text(4, l);
+            return;
+        }
+        // The request result and its internal locate timeout do not claim a grant. Only a matching cached-key push
+        // whose live cache entry still meets the grant floor returns the model to the refreshed candidate list.
+        case mrui::Provision::invite_wait_pubkey: {
+            body_text(0, mrui::kInviteWaitingPubkey);
+            char hash[mrui::kMemberHashCap];
+            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.invite.sel_hash);
+            body_text(1, hash);
+            body_text(4, "press = back");
             return;
         }
         // ★★ §UI-16 N4 — THE WINDOW RAN OUT (S-16). ⛔ IT IS A STATEMENT ABOUT THE UI AND NOTHING ELSE (P-11):
@@ -2093,6 +2181,7 @@ void mr_ui_init() {
     //    which the model treats as a loud refusal rather than a crash.
 #if MR_N_LAYERS < 2
     s_model.attach_provision(s_prov_adapter);
+    s_model.attach_invite(s_invite_dev);
 #endif
     // No boot splash: the first real frame is one tick away and goes through the page-chunked path. UI-5's splash
     // existed only to prove the canvas was reachable under --gc-sections; the feature layer calls all nine entry
@@ -2330,6 +2419,7 @@ void mr_ui_on_push(const MESHROUTE_NS::Push& pu) {
         default:
             (void)mrui::ui_route_send_push(s_tracker_emg, s_tracker_normal, s_model, pu, now);
             ui_join_note_push(pu);          // §UI-15 slice 6 — see the function; ⛔ it never displaces the routing above
+            s_model.on_invite_push(pu);     // §UI-16 N5 — pure hash correlation + grant-bar recheck
             break;
     }
 }

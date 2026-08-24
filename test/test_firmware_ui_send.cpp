@@ -2215,3 +2215,155 @@ TEST_CASE("ui17-wake: a sealed teammate reply still becomes a REPLY, and a clear
         CHECK(c.unread_ch()     == 1);                      // ...though it is still a message, and still counted
     }
 }
+
+// ============================================ §UI-16 N6 — THE GRANT'S OUTCOME ARM OF THE ONE PURE PUSH ROUTER
+// ★★★ WHAT IS MEASURED HERE IS THE **WIRING**, and only this TU can: the correlation RULE is the pure invite unit's
+//     (`test_firmware_ui_invite.cpp` drives both terms and all eight arms) and the SCREEN's half is the model's
+//     (`test_firmware_ui_model.cpp`) — but whether `ui_route_send_push` ever OFFERS a `send_aired` / `send_failed`
+//     to the invite verdict, and whether it does so WITHOUT disturbing the two UI send slots, lives in this file.
+//     Dropping either offer leaves every case in both other files green (the §T3 lesson, restored).
+// ⚠ THE FIXTURE IS LOCAL AND THAT IS DELIBERATE, with the same argument `UiFakeStore`'s own note in
+//   `test_firmware_ui_model.cpp` makes: extracting a shared provisioning fixture into `test/support/` is the U1
+//   move if a third consumer appears; ⛔ it is a REFACTOR, and this slice is a feature (C1).
+namespace {
+struct N6Store : mrfw::ICfgStore {
+    mrnv::Blob rec{};
+    int writes = 0;
+    N6Store() { rec.magic = mrnv::kMagic; rec.version = mrnv::kVersion; rec.node_id = 42; }
+    bool load(mrnv::Blob& out) override { out = rec; return true; }
+    bool save(const mrnv::Blob& b) override { ++writes; rec = b; return true; }
+};
+struct N6Live : mrfw::ICfgLive {
+    mrfw::CfgValues eff{};
+    mrfw::CfgValues effective() const override { return eff; }
+    void apply_live(const mrfw::CfgLiveFields&) override {}
+};
+// The grant seam, scripted — the ADMISSION arm with a handle, which is the only state a push may promote.
+struct N6Invite : IUiInviteDevice {
+    int grants = 0;
+    uint16_t tx_ctr = 4242;
+    bool peer_key_at_least(uint32_t, MESHROUTE_NS::Node::PeerKeyConf) const override { return true; }
+    UiInviteIssue issue(const MESHROUTE_NS::Command&) override { return UiInviteIssue{}; }
+    // §UI-16 N6b: the core's SEND-TIME resolved id, ⛔ not one the UI froze. ⓘ What THIS file measures is the
+    // ROUTER's offer order, so the value only has to be the one the pushes below carry; the rule that the verdict
+    // takes it from the CORE rather than from the frozen row is pinned where it lives (`uiinvite` / `model`).
+    uint8_t  tx_dst = 200;
+    MESHROUTE_NS::Node::TeamKeyGrantTx grant(uint32_t, MESHROUTE_NS::Plane, uint16_t* out_ctr, uint8_t* out_dst) override {
+        ++grants; if (out_ctr) *out_ctr = tx_ctr; if (out_dst) *out_dst = tx_dst;
+        return MESHROUTE_NS::Node::TeamKeyGrantTx::queued;
+    }
+};
+// The snapshot the invite window needs: in a team, one member, every provisioning child available.
+UiSnapshot n6_snap(uint32_t now_ms = 1000) {
+    UiSnapshot s{};
+    s.now_ms = now_ms;
+    s.prov_create_team = true; s.prov_join_static = true; s.prov_join_team = true; s.prov_invite = true;
+    s.team_id = 0x66C0FFEEu;
+    return s;
+}
+// Drive the SHIPPED gesture path all the way to the verdict screen, ⛔ never by poking state: what this case needs
+// is a model that really performed a grant and really holds a queued `{dst, ctr}`.
+// Returns false if any step did not land, so the caller asserts rather than assumes.
+struct N6Fix {
+    N6Store  store;
+    N6Live   live;
+    mrfw::ConfigService svc{store, live};
+    N6Invite dev;
+    UiModel  m;
+    N6Fix() { m.attach_config(svc); m.attach_invite(dev); }
+    bool to_verdict(UiSnapshot& s) {
+        for (int i = 0; i < 60 && m.state().screen != Screen::settings; ++i) m.on_gesture(Gesture::short_press, s);
+        m.on_tick(s);
+        for (int i = 0; i < 80; ++i) {
+            m.on_tick(s);
+            if (m.state().screen != Screen::settings) return false;
+            if (m.state().settings == Settings::closed) { m.on_gesture(Gesture::double_press, s); continue; }
+            if (m.state().settings == Settings::browsing) {
+                CfgRow r{};
+                if (m.settings_row_list(s).at(m.state().cursor, r) && r == CfgRow::provision) {
+                    m.on_gesture(Gesture::double_press, s); continue;
+                }
+                m.on_gesture(Gesture::short_press, s); continue;
+            }
+            break;                                        // Settings::provisioning
+        }
+        if (m.state().settings != Settings::provisioning) return false;
+        for (int i = 0; i < 12; ++i) {
+            ProvRow r{};
+            if (m.provision_row_list(s).at(m.state().cursor, r) && r == ProvRow::invite) break;
+            m.on_gesture(Gesture::short_press, s);
+        }
+        m.on_gesture(Gesture::double_press, s);           // open the window — the snapshot is taken HERE
+        if (m.state().provisioning != Provision::invite) return false;
+        // ...and only NOW does the candidate arrive, so the diff has something to announce.
+        s.team_total = s.team_shown = 1;
+        s.team[0].id = 200;
+        s.member[0].id = 200;
+        s.member[0].key_hash32 = 0xAABBCCDDu;
+        for (int i = 0; i < 12; ++i) {
+            InviteSelRow r{};
+            if (invite_sel_rows(m.state().invite, s.member, s.team_shown).at(m.state().cursor, r) &&
+                !r.back && r.cand.key_hash32 == 0xAABBCCDDu) break;
+            m.on_gesture(Gesture::short_press, s);
+        }
+        m.on_gesture(Gesture::double_press, s);           // the candidate -> the ready confirmation
+        if (m.state().provisioning != Provision::invite_confirm) return false;
+        m.on_gesture(Gesture::short_press, s);            // REJECT -> GRANT KEY
+        m.on_gesture(Gesture::double_press, s);           // ...and the act
+        return m.state().provisioning == Provision::invite_result;
+    }
+};
+MESHROUTE_NS::Push n6_push(MESHROUTE_NS::PushKind k, uint8_t dst, uint16_t ctr) {
+    MESHROUTE_NS::Push pu{}; pu.kind = k; pu.dst = dst; pu.ctr = ctr; return pu;
+}
+}  // namespace
+
+TEST_CASE("ui16-route: the router offers send_aired to the invite verdict — and only a CORRELATED one lands") {
+    N6Fix f; UiSnapshot s = n6_snap();
+    CHECK(f.to_verdict(s));
+    CHECK(f.dev.grants == 1);
+    CHECK(f.m.state().grant.st == InviteGrantState::queued);
+    SendTracker emg, normal;
+    // ⛔ NEITHER UI SLOT IS ARMED, so the two offers above the invite arm cannot claim anything — which is what
+    //    makes this a measurement of the THIRD offer.
+    CHECK(ui_route_send_push(emg, normal, f.m, n6_push(MESHROUTE_NS::PushKind::send_aired, 201, 4242), 7000)
+          == false);
+    CHECK(f.m.state().grant.st == InviteGrantState::queued);      // wrong dst
+    CHECK(ui_route_send_push(emg, normal, f.m, n6_push(MESHROUTE_NS::PushKind::send_aired, 200, 4243), 7000)
+          == false);
+    CHECK(f.m.state().grant.st == InviteGrantState::queued);      // wrong ctr
+    // ★★★ THE CORRELATED EDGE REACHES THE MODEL THROUGH THE ROUTER — this is the whole wiring.
+    CHECK(ui_route_send_push(emg, normal, f.m, n6_push(MESHROUTE_NS::PushKind::send_aired, 200, 4242), 7000)
+          == true);
+    CHECK(f.m.state().grant.st == InviteGrantState::sent);
+    CHECK(strcmp(invite_grant_word(f.m.state().grant.st), "KEY SENT") == 0);
+    // ⛔ ...and a later failure for the same flight does not rewrite a verdict already read.
+    CHECK(ui_route_send_push(emg, normal, f.m, n6_push(MESHROUTE_NS::PushKind::send_failed, 200, 4242), 7100)
+          == false);
+    CHECK(f.m.state().grant.st == InviteGrantState::sent);
+}
+
+TEST_CASE("ui16-route: the router offers send_failed too, and an ARMED UI slot still wins its own handle") {
+    {   N6Fix f; UiSnapshot s = n6_snap();
+        CHECK(f.to_verdict(s));
+        SendTracker emg, normal;
+        MESHROUTE_NS::Push fail = n6_push(MESHROUTE_NS::PushKind::send_failed, 200, 4242);
+        fail.reason = MESHROUTE_NS::SendFailReason::no_route;
+        CHECK(ui_route_send_push(emg, normal, f.m, fail, 7000) == true);
+        CHECK(f.m.state().grant.st == InviteGrantState::failed);
+        CHECK(strcmp(invite_grant_word(f.m.state().grant.st), "GRANT FAILED") == 0);
+    }
+    {   // ★★ THE OFFER ORDER, MEASURED: a UI DM slot holding the SAME handle claims the push FIRST and the grant
+        //    verdict is untouched — the invite arm is offered LAST precisely so a slot that submitted a handle
+        //    keeps it.
+        N6Fix f; UiSnapshot s = n6_snap();
+        CHECK(f.to_verdict(s));
+        SendTracker emg, normal; FakeExec fx; fx.reply = ok_ctr(4242);
+        ui_perform_send(emg, normal, f.m, SendReq{SendKind::dm, /*peer=*/200, 0}, 0, false, fake_exec, &fx, 6000);
+        CHECK(f.m.dm_state() == DmState::waiting_ack);
+        CHECK(ui_route_send_push(emg, normal, f.m, n6_push(MESHROUTE_NS::PushKind::send_aired, 200, 4242), 7000)
+              == true);
+        CHECK(f.m.dm_state() == DmState::aired_waiting);           // the SLOT took it...
+        CHECK(f.m.state().grant.st == InviteGrantState::queued);   // ...and the verdict is untouched
+    }
+}

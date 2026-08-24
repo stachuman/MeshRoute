@@ -1344,6 +1344,67 @@ if [ "${1:-}" != "--no-neg" ]; then
   ctl "O9 the confirmation re-reads the row under the cursor instead of the FROZEN selection (F-14 / P-7d)" yes \
       's|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.invite.sel_hash);|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, s.member[st.cursor].key_hash32);|'
 
+  # ====================================================== §UI-16 N5: O10-O16, REQUEST PUBKEY's DEVICE/RENDERER SEAMS
+  # ★★★ O10, O11 AND O16 ARE THE FORWARDS NO PURE TEST CAN SEE. The typed carrier, plane, hash correlation and grant
+  #   floor are mutation-covered in `firmware_ui_invite.h` / `firmware_ui_model.h`; only this host-compiled probe can
+  #   prove that the production TU really hands the command to its existing executor and really taps the incoming
+  #   cached-key push into the model. Both tempting omissions leave every native case green.
+  ctl "O10 ★★ the reqpubkey device forward DROPS the real executor call (the panel waits after airing nothing)" yes \
+      's|        const mrfw::ExecResult r = mrfw::exec_command(line, n);|        mrfw::ExecResult r{}; r.ok = true;|'
+  ctl "O11 ★★ the peer_key_cached push is never forwarded to the invite model (WAITING can never complete)" yes \
+      's|            s_model.on_invite_push(pu);     // §UI-16 N5 — pure hash correlation + grant-bar recheck|            ;|'
+  ctl "O12 NEED PUBKEY is rendered as WAITING before the operator has authorised a request" yes \
+      's|            body_text(0, mrui::kInviteNeedPubkey);|            body_text(0, mrui::kInviteWaitingPubkey);|'
+  ctl "O13 the waiting screen prints the forbidden ambiguous words WAITING FOR KEY (S-34)" yes \
+      's|            body_text(0, mrui::kInviteWaitingPubkey);|            body_text(0, "WAITING FOR KEY");|'
+  ctl "O14 the NEED PUBKEY renderer marks REQUEST instead of the model default BACK" yes \
+      '/case mrui::Provision::invite_need_pubkey:/,/return;/ s|st.prov_confirm == mrui::ProvConfirm::back|st.prov_confirm == mrui::ProvConfirm::confirm|'
+  ctl "O15 the grant-ready renderer marks GRANT KEY instead of the model default REJECT" yes \
+      '/case mrui::Provision::invite_confirm:/,/return;/ s|st.prov_confirm == mrui::ProvConfirm::invite_reject|st.prov_confirm == mrui::ProvConfirm::invite_grant|'
+  # ★★★ O16 IS THE QG BLOCKER's DEVICE HALF (2026-08-24), and it is the ONE shape no pure test can reach: the
+  #   forward reports `ok` honestly but INVENTS the outcome code, so every synchronous refusal reaches the pure
+  #   verdict wearing `queued` and the panel claims `WAITING FOR PUBKEY` for a request the executor REFUSED.
+  #   ⓘ It reddens on P23d's refusal arm, which is exactly why that arm drives the REAL forward and not a fake.
+  ctl "O16 ★★ the forward INVENTS the outcome code instead of reporting the executor's (a refusal reads as queued)" yes \
+      's|        out.code     = r.result.code;|        out.code     = MESHROUTE_NS::CmdCode::queued;|'
+
+  # ====================================================== §UI-16 N6: O17-O21, THE GRANT ACT's DEVICE/RENDERER SEAMS
+  # ★★★ WHAT ONLY THIS PROBE CAN SEE. The eight-arm mapping, the `{dst, ctr}` correlation and the flow all have their
+  #   own batteries (`--target=uiinvite` I20-I30, `--target=model` V15-V20, `--target=uisend` U07-U09) — but ⛔ NONE of
+  #   them compiles `src/firmware_ui.cpp`, so a verdict arm drawn from the wrong field, a word that ignores the state,
+  #   or a device forward that quietly picks its own plane leaves every native case green while the panel says the
+  #   wrong thing about a PRIVATE KEY.
+  # ⛔ O19 IS THE ONE THAT MATTERS MOST: the plane is a PURE ruling (`mrui::kInviteGrantPlane`), and the tempting
+  #   "helpful" edit is to hardcode it at the forward — which is exactly how `delegated` becomes reachable.
+  # ⛔ O21 IS THE HANDLE LOST AT THE FORWARD: `out_ctr` is one of the two terms the whole correlation hangs on, and
+  #   a forward that swallowed it leaves the panel at `GRANT QUEUED` with no promotion able to arrive.
+  #   ⛔ RE-ANCHORED 2026-08-24 (§UI-16 N6b): its old headline said *"every grant reads as PARKED"* — that was the
+  #   ctr-INFERENCE, which is exactly what the correction removed. The word is now the CORE's; what a swallowed
+  #   handle destroys is the CORRELATION, and the check that reddens says so.
+  # ⛔⛔ O23 IS THE **OTHER** TERM, AND IT IS THE N6b BLOCKER ITSELF WEARING THE SEAM'S CLOTHES: a forward that drops
+  #   `out_dst` hands the panel a zero destination, so the TxDone edge the core really produces can never match and
+  #   the screen waits at `GRANT QUEUED` for ever. ⛔ It is a SEPARATE control from O21 because the two terms fail on
+  #   two different pushes, and either alone is enough to strand the operator.
+  ctl "O17 the verdict screen draws a FIXED word instead of the outcome's own (S-24 collapsed at the renderer)" yes \
+      's|            body_text(0, mrui::invite_grant_word(st.grant.st));|            body_text(0, mrui::kInviteGrantQueued);|'
+  ctl "O18 the verdict draws the DISCARDED window selection instead of the verdict's own identity (P-7c)" yes \
+      's|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.grant.hash);|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.invite.sel_hash);|'
+  ctl "O19 ★★ the device forward PICKS ITS OWN PLANE instead of passing the pure unit's (delegated made reachable)" yes \
+      's|        return mrfw::device_team_grant(key_hash32, plane, out_ctr, out_dst);|        (void)plane; return mrfw::device_team_grant(key_hash32, MESHROUTE_NS::Plane::AUTO, out_ctr, out_dst);|'
+  ctl "O20 the confirmation shows the NAME in place of the full hash once one is cached (P-7c)" yes \
+      's|            body_text(1, ident.hash);|            body_text(1, ident.name[0] ? ident.name : ident.hash);|'
+  ctl "O21 ★★ the grant forward SWALLOWS the origination handle — nothing can ever correlate" yes \
+      's|        return mrfw::device_team_grant(key_hash32, plane, out_ctr, out_dst);|        uint16_t ignored = 0; (void)out_ctr; return mrfw::device_team_grant(key_hash32, plane, \&ignored, out_dst);|'
+  ctl "O23 ★★ the grant forward SWALLOWS the SEND-TIME resolved dst — the TxDone edge can never match (N6b)" yes \
+      's|        return mrfw::device_team_grant(key_hash32, plane, out_ctr, out_dst);|        uint8_t ignored_dst = 0; (void)out_dst; return mrfw::device_team_grant(key_hash32, plane, out_ctr, \&ignored_dst);|'
+  # ⛔⛔ O22 IS THE FORBIDDEN LEXEME ARRIVING THROUGH THE RENDERER'S DOOR, one screen on from N16, and it exists so
+  #   that P24a's *"no completion word anywhere on the panel"* is a MEASUREMENT rather than negative space: the pure
+  #   suite pins the VOCABULARY of `invite_grant_word` (and `uiinvite` I28 attacks the lexeme itself), but nothing
+  #   there can stop THIS file adding a reassuring row of its own — and `JOIN COMPLETE` (S-32) is exactly the row a
+  #   well-meaning author adds beside a verdict that says only `GRANT QUEUED`.
+  ctl "O22 ★★ the verdict screen adds a JOIN COMPLETE row of its own (S-32, straight into the renderer)" yes \
+      's|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.grant.hash);|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.grant.hash); body_text(3, "JOIN COMPLETE");|'
+
   ARM=l2; ARM_DEFS=DEFS
 fi
 

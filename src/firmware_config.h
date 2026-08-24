@@ -15,6 +15,8 @@
 #include <Arduino.h>     // Print
 #include "device_nv.h"   // mrnv::Blob
 #include "mr_features.h" // MR_FEAT_MOBILE / MR_FEAT_REMOTE_MGMT (guards below)
+#include "node.h"        // §UI-16 N6: meshroute::Node::TeamKeyGrantTx / meshroute::Plane — the ONE type below that
+                         // cannot be forward-declared (see `device_team_grant`); Arduino-free lib/core, guarded
 #include "firmware_config_service.h"   // §UI-14 / [[B193]]: mrfw::ICfgStore / ICfgLive — the two seams bound below
 
 namespace mrfw {
@@ -111,6 +113,18 @@ TeamKeyringService& team_keyring_service();
 // ★ ZERO writes on every path, ZERO reads when there is no binding — and every non-installing path leaves the node
 // KEYLESS, actively.
 KeyringRestore team_keyring_restore_boot(const mrnv::Blob& nv);
+
+// ★★★ §UI-16 N6 — THE OLED GRANT'S ONE DEVICE FORWARD (the body, and the full argument for where it lives, are at
+// its definition in `firmware_config.cpp`, beside `handle_team`'s own `grantkey` arm). It is `team_key_grant_send`
+// minus the two arguments the panel FIXES: no team `name=` (F-3), and the PLANE supplied by the pure unit that owns
+// that decision (`mrui::kInviteGrantPlane`) rather than chosen down here.
+// ⚠ IT IS THE ONE DECLARATION IN THIS HEADER THAT COULD NOT BE FORWARD-DECLARED: `TeamKeyGrantTx` is nested inside
+//   `meshroute::Node`, so the opaque-enum trick used for `KeyringRestore` above does not reach it — and laundering
+//   ELEVEN distinct outcomes through a bare `uint8_t` at the seam that ships a PRIVATE KEY is exactly the trade that
+//   note refuses. ⇒ `node.h` is included at the top of this header; every one of its five includers already compiles
+//   it (it is `lib/core`, Arduino-free, and guarded).
+// ⓘ §UI-16 N6b: `out_dst` is the core's SEND-TIME resolved destination — the panel's `send_aired` correlation term.
+meshroute::Node::TeamKeyGrantTx device_team_grant(uint32_t key_hash32, meshroute::Plane plane, uint16_t* out_ctr, uint8_t* out_dst);
 #endif
 
 // `cfg set <key> <value>` — accumulate onto the pending NV blob + apply live where possible (dispatch verb).

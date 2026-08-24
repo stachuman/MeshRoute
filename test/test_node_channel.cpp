@@ -2276,8 +2276,13 @@ TEST_CASE("§T-K3 send — every pre-flight refusal is DISTINCT, and none of the
       TkHal hal; Node n(hal, 2, A.key_hash32); arm_granter(n, hal, A, B);
       CHECK(n.team_key_grant_send(B.key_hash32, "123456789012345678901234567890123", 33) == Node::TeamKeyGrantTx::too_large); }
     { // ★ NOT A REFUSAL: a null name with a non-zero length is normalised to "no name", not a crash or a read of null
+      // ⓘ §UI-16 N6b RE-ANCHOR: this fixture has NO binding for B, so the send is PARKED behind an H resolve — and
+      //   the core now SAYS so instead of answering `queued` with a zero handle and leaving the caller to guess.
+      //   What the case pins is unchanged: the name is normalised, ⛔ not refused.
       TkHal hal; Node n(hal, 2, A.key_hash32); arm_granter(n, hal, A, B);
-      CHECK(n.team_key_grant_send(B.key_hash32, nullptr, 200) == Node::TeamKeyGrantTx::queued); }
+      const Node::TeamKeyGrantTx r = n.team_key_grant_send(B.key_hash32, nullptr, 200);
+      CHECK(r == Node::TeamKeyGrantTx::parked);
+      CHECK(r != Node::TeamKeyGrantTx::too_large); }
 }
 
 TEST_CASE("§o3-key-lifetime — after a switch, `exportkey`/`grantkey` take the existing NO-KEY paths") {

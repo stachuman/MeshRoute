@@ -280,8 +280,43 @@ public:
     // and the team_channel_* accessors have #else stubs, so on a MR_FEAT_TEAM 0 build these compile unchanged and
     // answer no_key / no_team BY CONSTRUCTION — ONE app-facing code path, and a stray type-19 can never be delivered
     // as a DM there either (C2: no silent success, no raw key bytes in an inbox).
+    // ★★★★ §UI-16 N6b (2026-08-24) — THE SEND PATH'S OWN DISPATCH FACTS, RETURNED INSTEAD OF DISCARDED.
+    //      ⛔ IT ADDS NO BEHAVIOUR: every field below is a value the dispatch already computed and threw away, and
+    //      the two facts it carries were the two the grant screen was INFERRING and getting wrong (QG, 2026-08-24):
+    //        (1) a FULL TX QUEUE silently drops the frame at `node_mac.cpp`'s `_tx_queue_n < kTxQueueCap` while
+    //            `enqueue_data` still returns the minted `ctr` ⇒ "a non-zero handle" did NOT mean "admitted";
+    //        (2) a FULL PARKED RING stores nothing at `node_hashlocate.cpp`'s `park_send` ⇒ "ctr == 0" did NOT
+    //            mean "parked".
+    //      ⇒ the ADMISSION is now stated by the layer that performs it, and ⛔ never derived from the counter.
+    // ★★★ `dst` IS THE **SEND-TIME RESOLVED** DESTINATION — the id `enqueue_data` addressed, i.e. exactly the value
+    //     `push_send_aired_if_owned` later puts on `PushKind::send_aired` (`pu.dst = pt.dst`). A caller correlating
+    //     a TxDone edge must use THIS, ⛔ never an id it froze earlier: `send_by_hash` re-resolves the hash against
+    //     the CURRENT binding, so a re-DAD between a UI selection and the send changes it.
+    struct SendDispatch {
+        enum class Admit : uint8_t {
+            none = 0,   // ⛔ NO admission point was reached at all. Every path that produces it has ALREADY reported
+                        //   the failure through `push_send_failed` (the joining gate, the mobile-no-home gate, the
+                        //   seal refusals, the type-19 delegate/cross-layer structural refusals, the TEAM plane with
+                        //   no routable team origin). ⓘ The ONE exception is arithmetic-unreachable and named at
+                        //   `node_mac.cpp`'s `SealOutcome::cross_layer/ok` arm.
+            queued,     // the TxItem was STORED in the TX queue — `ctr` is its origination handle, `dst` its address
+            parked,     // the ParkedSend was STORED behind an H resolve — ⛔ no handle exists (`ctr == 0`)
+            refused     // ADMISSION REFUSED: the TX queue or the parked ring was FULL. No grant DATA was stored or
+                        //   will air; an unresolved-target H lookup may still air. ⛔ No push will ever arrive for
+                        //   it. ⛔ This is the case that used to be indistinguishable from `queued`.
+                        // ⚠ THE SECOND CLAUSE IS A CORRECTION, ⛔ not a hedge (QG, 2026-08-24): the parked-ring
+                        //   arm calls `emit_hash_query` AFTER `park_send` returns, UNCONDITIONALLY — so a refused
+                        //   park is ⛔ not radio-silent. That is PRE-EXISTING behaviour this slice deliberately
+                        //   did not move; it is MEASURED by `ui16-grant-parkfull-air` (exactly one H frame,
+                        //   decoded as an H query), ⛔ never worded around.
+        };
+        Admit    admit = Admit::none;
+        uint8_t  dst   = 0;    // the send-time RESOLVED destination (0 = none was resolved)
+        uint16_t ctr   = 0;    // the origination handle of the STORED item (0 = no flight exists)
+    };
     enum class TeamKeyGrantTx : uint8_t {
-        queued = 0,     // handed to send_by_hash (ctr!=0 = airborne now; ctr==0 = parked behind an H resolve)
+        queued = 0,     // ★ ACTUALLY ADMITTED to the TX queue — `out_ctr` is its handle, `out_dst` its send-time id.
+                        //   ⛔ NOT "airborne": physical transmission arrives later as PushKind::send_aired (§T3).
         no_team,        // we are not in a team (team_id == 0) — there is nothing to grant
         no_key,         // we hold no team channel keypair (`team new` mints one; a joiner receives one)
         no_identity,    // no E2E crypto identity, so we cannot seal — and a grant is NEVER sent in the clear
@@ -289,7 +324,16 @@ public:
         self,           // the target hash is OUR OWN key — granting to yourself is a no-op mis-address, not a send
         delegated,      // we are a REGISTERED MOBILE with no resolved binding ⇒ send_by_hash would delegate, and the
                         //   MOBILE_SEND wrapper's enclosed-type slot is already SEALED_RELAY ⇒ the TYPE would be lost
-        too_large       // team_name too long for the body (cannot happen from the console — a defence-in-depth refusal)
+        too_large,      // team_name too long for the body (cannot happen from the console — a defence-in-depth refusal)
+        // ★★★ THE THREE §UI-16 N6b ARMS (2026-08-24). They are APPENDED so no existing value moves, and they exist
+        //     because all three used to be returned as `queued` — the word was true in one of the four cases.
+        parked,         // ★ ACTUALLY STORED behind an H resolve (`send_by_hash`'s park arm). ⛔ No handle exists.
+        queue_full,     // ★ ADMISSION REFUSED — the TX queue or the parked ring was FULL. ⛔ Nothing was stored and
+                        //   NO GRANT DATA will air (⚠ the parked-ring refusal's pre-existing H lookup still airs,
+                        //   unchanged — measured by `ui16-grant-parkfull-air`); ⛔ it is NOT a queued grant and
+                        //   ⛔ not an in-flight failure either.
+        send_failed     // ★ the send path refused BEFORE any admission point and has ALREADY pushed `send_failed`
+                        //   (see SendDispatch::Admit::none for the exhaustive list of the paths that produce it).
     };
     enum class TeamKeyGrantRx : uint8_t {
         adopted = 0,    // key installed (idempotent: a re-grant OVERWRITES — that is how re-keying lands)
@@ -300,7 +344,9 @@ public:
         team_mismatch,  // the grant names a DIFFERENT team (spec §2.3 Q2 ruling: team_id is carried defensively)
         bad_key         // tkpriv is all-zero / degenerate (team_channel_key_derive refused it)
     };
-    TeamKeyGrantTx team_key_grant_send(uint32_t target_hash, const char* name, uint8_t name_len, Plane plane = Plane::AUTO, uint16_t* out_ctr = nullptr);
+    // §UI-16 N6b: `out_ctr` and `out_dst` are the TWO CORRELATION TERMS of the flight this call created, and they are
+    // written TOGETHER — both 0 unless the return is `queued`, because no other outcome has a flight to name.
+    TeamKeyGrantTx team_key_grant_send(uint32_t target_hash, const char* name, uint8_t name_len, Plane plane = Plane::AUTO, uint16_t* out_ctr = nullptr, uint8_t* out_dst = nullptr);
     TeamKeyGrantRx team_key_grant_receive(const uint8_t* body, uint8_t body_len, uint32_t granter_hash, uint8_t granter_node);
     // §P2-3 (2026-07-21): is `next` a LOCAL id — a mobile last-mile (addr_len==1) OR a known same-team peer? The guard that
     // keeps a mobile/team LOCAL next OUT of the static node_id-indexed planes (bidi/liveness/rt-rerank). It was hand-pasted at
@@ -1421,13 +1467,16 @@ private:
     uint32_t cache_want_pubkey_requester(const h_out& h);          // §S3 part2/3: validate + cache a WANT_PUBKEY H's appended requester key (self-consistency + non-zero + the mobile/team id_bind gate), fire peer_key_cached. Returns the requester hash (0 = rejected). Used by the home proxy-answer branch + the mobile TX-free overhear cache.
     void    forward_requester_key_to_mobile(uint32_t mobile_hash, const uint8_t requester_ed_pub[32], const char* name, uint8_t name_len);   // §S3 part2: 1-hop last-mile DATA_TYPE_MOBILE_KEY_FORWARD to a hosted mobile (dedup same-requester via _mobile_reg[].last_key_fwd_hash32)
     // D — send-by-hash trigger (the deferred "address by key_hash32") + verify-on-use.
-    uint16_t send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def, uint32_t reply_to_hash = 0, uint16_t mobile_ctr = 0, Plane plane = Plane::AUTO, uint8_t type = 0, bool suppress_intro = false); // authoritative binding -> send now; soft/unknown -> park + flood (soft binding -> HARD verify). §mobile: reply_to_hash!=0 = the HOME re-originating for its mobile (stamps SOURCE_HASH=mobile hash); reply_to_hash==0 + is_mobile+registered = the mobile ITSELF -> delegate to its home (DATA_TYPE_MOBILE_SEND). mobile_ctr = the mobile's original ctr (ctr_M) -> the ctr_H->ctr_M reverse-ack map (0 = not delegated). §S2: type=0 lets INTRO auto-attach at origination (reply_to_hash==0); type=DATA_TYPE_INTRO = the HOME re-originating an already-prefixed delegated INTRO (no re-attach, threaded to the wire TYPE)
+    uint16_t send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def, uint32_t reply_to_hash = 0, uint16_t mobile_ctr = 0, Plane plane = Plane::AUTO, uint8_t type = 0, bool suppress_intro = false, SendDispatch* out_dispatch = nullptr); // §UI-16 N6b: out_dispatch (nullptr = every pre-existing caller) carries the arm's OWN admission fact + the SEND-TIME resolved dst — the return value is still "the ctr if sent immediately, else 0" and is unchanged. // authoritative binding -> send now; soft/unknown -> park + flood (soft binding -> HARD verify). §mobile: reply_to_hash!=0 = the HOME re-originating for its mobile (stamps SOURCE_HASH=mobile hash); reply_to_hash==0 + is_mobile+registered = the mobile ITSELF -> delegate to its home (DATA_TYPE_MOBILE_SEND). mobile_ctr = the mobile's original ctr (ctr_M) -> the ctr_H->ctr_M reverse-ack map (0 = not delegated). §S2: type=0 lets INTRO auto-attach at origination (reply_to_hash==0); type=DATA_TYPE_INTRO = the HOME re-originating an already-prefixed delegated INTRO (no re-attach, threaded to the wire TYPE)
     // §S2: decide + build the INTRO first-contact prefix [ed_pub 32][name_len 1][name] for a plaintext hash-addressed send to dst_hash. Returns the prefix length (33 + name_len), or 0 = no attach (send plain: no identity / sealed intent / already peer_confirmed / cfg off / would overflow the DM body cap — message delivery beats key bootstrap).
     uint8_t  intro_attach_prefix(uint32_t dst_hash, CryptIntent crypt, uint8_t body_len, uint8_t* pfx, uint8_t pfx_cap);
     // §id-hash S4a: `by_id` flips the query KEY SPACE — `query_key32` is then a node/team id ("who owns id N?"),
     // canonical per frame_codec.h. The default keeps the three best-effort callers byte-identical (C1).
     HQueryOutcome emit_hash_query(uint32_t query_key32, bool hard, bool want_pubkey = false, Plane plane = Plane::AUTO, bool by_id = false);   // H flood for query_key32 (hard = verify-on-use; want_pubkey = E2E §6, ask the owner's ed_pub). Wave 2: TEAM => team_scoped + origin=team_local_id (answer routes via _rt_team); GLOBAL => not team-scoped
-    void    park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def, uint32_t reply_to_hash = 0, uint16_t mobile_ctr = 0, uint8_t type = 0, bool reflood = false, bool reflood_hard = false, Plane reflood_plane = Plane::AUTO);   // M3: crypt stamped at park so a parked CRYPTED send flies sealed on drain. §mobile: reply_to_hash carried so a parked delegated send keeps the mobile's reply address; mobile_ctr -> the ctr_H->ctr_M reverse-ack map on drain. §S2: type (DATA_TYPE_INTRO) preserved so a parked INTRO re-originates with its TYPE + prefix intact on drain. §F-SL-1: reflood => re-emit the H (hard/plane preserved) on a jittered bounded retry while parked
+    // ★ §UI-16 N6b: it RETURNS ITS DISPOSITION now (true = the ParkedSend was STORED; false = the ring was FULL and the
+    // send was dropped) — the `emit_hash_query` idiom below, for the same reason: this function had a silent early-out
+    // and its callers were reporting it to the app as a parked send. Every pre-existing caller ignores the value.
+    bool    park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def, uint32_t reply_to_hash = 0, uint16_t mobile_ctr = 0, uint8_t type = 0, bool reflood = false, bool reflood_hard = false, Plane reflood_plane = Plane::AUTO);   // M3: crypt stamped at park so a parked CRYPTED send flies sealed on drain. §mobile: reply_to_hash carried so a parked delegated send keeps the mobile's reply address; mobile_ctr -> the ctr_H->ctr_M reverse-ack map on drain. §S2: type (DATA_TYPE_INTRO) preserved so a parked INTRO re-originates with its TYPE + prefix intact on drain. §F-SL-1: reflood => re-emit the H (hard/plane preserved) on a jittered bounded retry while parked
     void    park_reflood_arm();                                  // §F-SL-1: (re)arm kParkRefloodTimerId to the earliest pending re-flood (cancel if none)
     void    park_reflood_fire();                                 // §F-SL-1: scan parked sends -> re-emit the H for those due (bounded); re-arm
     void    park_send_layer(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags);   // Slice 4d: a cross-layer-capable park (resolves layer + gateway on the H-answer); flags carry the app's E2E_ACK_REQ etc.
@@ -2076,10 +2125,11 @@ private:
     // override_dst_hash (§mobile 3c): when non-zero, the DM's DST_HASH is stamped with THIS hash (the queried mobile hash M)
     // instead of key_hash_of_id(dst) — so a mobile's home_node sees dst_hash != its key and last-mile-forwards (not consumes).
     uint16_t do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def,
-                     uint32_t override_dst_hash = 0, uint8_t type = 0, uint32_t override_source_hash = 0, Plane plane = Plane::AUTO);  // returns the ctr. §mobile delegate: type=MOBILE_SEND + override_source_hash=the mobile's hash (home re-originating on its behalf)
+                     uint32_t override_dst_hash = 0, uint8_t type = 0, uint32_t override_source_hash = 0, Plane plane = Plane::AUTO,
+                     SendDispatch* out_dispatch = nullptr);  // returns the ctr. §mobile delegate: type=MOBILE_SEND + override_source_hash=the mobile's hash (home re-originating on its behalf). §UI-16 N6b: out_dispatch (nullptr = every pre-existing caller) receives enqueue_data's OWN admission fact
     uint16_t enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, const char* tx_event,
                           bool app_dm = false, uint8_t type = 0, CryptIntent crypt = CryptIntent::def, uint32_t override_dst_hash = 0, uint32_t override_source_hash = 0,
-                          uint8_t addr_len = 0, Plane plane = Plane::AUTO);   // §mobile: addr_len=1 ORIGINATES a last-mile DM to a hosted mobile's LOCAL id (E2E-ack back to a mobile); 0 = normal global-id send (byte-identical)
+                          uint8_t addr_len = 0, Plane plane = Plane::AUTO, SendDispatch* out_dispatch = nullptr);   // §mobile: addr_len=1 ORIGINATES a last-mile DM to a hosted mobile's LOCAL id (E2E-ack back to a mobile); 0 = normal global-id send (byte-identical). §UI-16 N6b: out_dispatch reports whether the TxItem was really STORED — the `ctr` alone never did
     void     send_e2e_ack(uint8_t to_origin, uint16_t acked_ctr, uint32_t sender_hash = 0);   // E2E ACK reply (TYPE=E2E_ACK; e2e_ack_tx). §mobile: sender_hash a hosted mobile -> last-mile the ack to it (origin was home-stamped == a self-send)
     // §GapB (2026-07-18): send_e2e_ack_cross_layer RETIRED — the reversed-path XL ack is now a normal send via send_xl_ack (declared above).
     // §mobile reverse-ack (delegated): a home re-originates a hosted mobile's send under its OWN ctr (ctr_H). When the

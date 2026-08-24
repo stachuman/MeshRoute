@@ -3251,3 +3251,20 @@ Part 24/25 CHROME series.
 5. ☐ ⛔ No number and no `%` anywhere on the panel, in any of the three states.
 6. ☐ Visual: the key, gauge and battery outlines do not touch (one clear pixel column between each), and the
    battery token still ends on the last column.
+
+## Part 40 — §UI-16 N5: the pubkey request on glass (2026-08-24)
+
+⛔ **THE RESIDUE ONLY** (the preflight, started-gating, refusal-stays, hash-matched enable, name lifecycle and
+the no-auto-emission command count are host-gated: `uiinvite` 19 / `model` 161 entries, probe P23d incl. the
+real-seam refusal arm). **Metal-only: the real over-the-air WANT_PUBKEY round trip and the console's own view
+of it.** The step-by-step walk is the UI-16 spec's **§7.4 steps 1-3b** (N5's half — NEED PUBKEY, the
+nothing-aired-without-the-operator negative, the hash-matched GRANT KEY enable, the fingerprint→name column
+upgrade); run it there, tick here.
+
+1. ☐ Spec §7.4 steps **1, 2, 3, 3b** ran on H1/H2 over real air. ⛔ FAIL conditions as written there.
+2. ☐ **The refusal never claims waiting (the 2026-08-24 QG fix, on metal):** on a node with **no identity**
+   (`regen` not run / identity cleared), `short` + `double` on `REQUEST PUBKEY` ⇒ the panel **still reads
+   `NEED PUBKEY`** (retry = one press). ⓘ The refusal is a **typed result, not a console line** — the UI's
+   `exec_command()` path returns it without printing, so the panel staying put is the whole observable. ⛔ FAIL
+   if it reads `WAITING FOR PUBKEY`. ⓘ If a no-identity state cannot be safely produced on this bench, record
+   not-run with that reason — ⛔ never FAIL.

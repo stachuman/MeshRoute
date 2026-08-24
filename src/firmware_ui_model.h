@@ -402,17 +402,26 @@ inline bool screen_is_entered(Screen sc, Settings settings, ListView view) {
 //                      transmitted, it only re-reads member state the node already holds. ★ IT HAS ITS OWN
 //                      DEADLINE (`_invite_until_ms` / `window_active`, 5 minutes, R-3) which ⛔ does NOT hold the
 //                      panel lit and ⛔ never writes `_last_input_ms`.
-//   `invite_confirm` — LIVE (§UI-16 N4): the candidate's confirmation. It FREEZES the selected hash/id
-//                      (`UiState::invite.sel_*`) so a refresh between the two presses cannot move what the
-//                      operator is about to act on, it draws the FULL `0x%08lX` hash (P-7c), and the only act it
-//                      can perform is `REJECT` — ⛔ there is no grant and no pubkey request in this slice (N5/N6).
-//                      ⛔ An UNFINISHED one does NOT survive the blank (OQ-3's clarification); the WINDOW does.
+//   `invite_confirm` — LIVE (§UI-16 N4/N5/N6): the grant-ready confirmation. It FREEZES the selected hash/id,
+//                      draws the FULL `0x%08lX` hash beside any cached name (P-7c), opens on REJECT and enables
+//                      GRANT KEY only after N5's preflight. ✅ §UI-16 N6 LANDED ITS ACT: a `double` on GRANT KEY
+//                      now performs the ONE forward to `Node::team_key_grant_send` and lands `invite_result`.
+//   `invite_result`  — LIVE (§UI-16 N6): the grant's VERDICT (`UiState::grant`), in the outcome's own word.
+//                      Terminal, either press returns to the menu. ★ IT OUTLIVES THE WINDOW deliberately — the act
+//                      ended it — which is why the verdict carries its own hash and its own `{dst, ctr}` handle,
+//                      and why `provision_is_invite` excludes this arm (an expiring window may ⛔ not overwrite a
+//                      verdict with `WINDOW CLOSED`).
+//   `invite_need_pubkey` / `invite_wait_pubkey` — LIVE (§UI-16 N5): the explicit BACK-default request and the
+//                      post-request wait. No request is automatic; a matching cached-key push returns to the
+//                      locally refreshed candidate row, whose next double re-runs the grant's own preflight.
 //   `invite_closed`  — LIVE (§UI-16 N4): the window RAN OUT (`WINDOW CLOSED`). Terminal, either press returns to
 //                      the menu. ⛔ ENTERING IT GRANTS, REVOKES AND REWRITES NOTHING (P-11) — it moves a screen
 //                      and drops RAM, and `enter_provision` is what discards the window's whole state with it.
 enum class Provision : uint8_t {
     closed = 0, menu, create_confirm, create_result, join_select, join_confirm, join_waiting, join_result,
-    nearby, nearby_confirm, invite, invite_confirm, invite_closed
+    nearby, nearby_confirm, invite, invite_confirm, invite_closed, invite_need_pubkey, invite_wait_pubkey,
+    invite_result   // §UI-16 N6 — APPENDED, ⛔ never inserted: `provision_reset_on_leave`'s arm sweep and every
+                    // renderer switch enumerate this type, and an insertion renumbers arms nothing else can see
 };
 
 // ★★ IS THIS ARM THE INVITATION WINDOW ITSELF? Asked in ONE place and answered for THREE readers (U1): the
@@ -420,8 +429,13 @@ enum class Provision : uint8_t {
 //    an expired window, and `enter_provision`'s discard of the volatile per-window state (F-13).
 // ⛔ `invite_closed` IS DELIBERATELY NOT ONE OF THEM: the window is over on that screen, so a candidate list may
 //    not be produced there and the handled set must already be gone.
+// ⛔⛔ AND `invite_result` IS NOT ONE OF THEM EITHER, for a SHARPER reason (§UI-16 N6): a grant's verdict is
+//     terminal and must survive until the operator acknowledges it, so an expiring window may ⛔ not replace
+//     `KEY SENT` with `WINDOW CLOSED`. Excluding it here is what makes `tick_invite` leave the verdict alone AND
+//     what makes `enter_provision` drop the window's whole state on the way into it — the act ended the window.
 inline bool provision_is_invite(Provision p) {
-    return p == Provision::invite || p == Provision::invite_confirm;
+    return p == Provision::invite || p == Provision::invite_confirm ||
+           p == Provision::invite_need_pubkey || p == Provision::invite_wait_pubkey;
 }
 
 // ★★ THE CONFIRMATION'S TWO ACTIONS, AND `back` IS FIRST BECAUSE §3.6.3 REQUIRES IT TO BE THE DEFAULT — verbatim:
@@ -434,7 +448,11 @@ inline bool provision_is_invite(Provision p) {
 //   is the zero value, so a `ProvConfirm{}` anywhere is already the safe one, and every transition primitive
 //   re-establishes it. ★ §UI-15 slice 6's JOIN confirmation REUSES this same pair (its labels are
 //   `join_confirm_label`'s) rather than growing a second two-member enum — U1, as that note anticipated.
-enum class ProvConfirm : uint8_t { back = 0, confirm };
+enum class ProvConfirm : uint8_t {
+    back = 0, confirm,
+    // Same two-slot carrier, named by IDENTITY on the ready screen rather than interpreted positionally (§B66).
+    invite_reject = back, invite_grant = confirm
+};
 
 // ★★★ §4's REFUSAL, AND IT IS A THREE-VALUED DOMAIN BECAUSE THE REMEDIES DIFFER — plan §4 in as many words: *"v1
 //     CONFLATED TWO STATES"*. `conflict()` and `config_unsaved()` are different comparisons (see
@@ -1681,6 +1699,18 @@ struct UiState {
     //   **456**, because the 4-aligned array pushes `blanked`/`dirty` past its end into a fresh tail quantum.
     //   This struct is instantiated TWICE on the OLED envs (the model's and the frame's frozen copy).
     InviteWindow invite{};
+    // ★★★★ §UI-16 N6 — THE GRANT'S VERDICT, AND IT IS A **SEPARATE** CARRIER FROM THE WINDOW ON PURPOSE. The two
+    //      have DIFFERENT LIFETIMES: the window dies when the operator leaves it (F-13), while the verdict must
+    //      survive precisely that — the act ends the window and the panel must still be able to draw what happened,
+    //      to whom (`hash`, P-7c), and to promote it when the TxDone edge lands. Folding it into `InviteWindow`
+    //      would have made "the handled set is discarded with the window" and "the verdict survives" one rule, and
+    //      they are two.
+    // ⓘ COST, MEASURED not assumed (host, `offsetof`-proved in `test_firmware_ui_invite.cpp`):
+    //   `sizeof(InviteGrantResult)` is **8** (`hash` 0, `ctr` 4, `dst` 6, `st` 7 — ⛔ not one padding byte) and
+    //   `sizeof(UiState)` moves 448 -> **456**: the 4-aligned carrier lands in the tail quantum the `invite` array
+    //   already opened, so it costs exactly itself. ⚠ Native alignment hides the board figure (D2's standing
+    //   warning), and this struct is instantiated TWICE on the OLED envs.
+    InviteGrantResult grant{};
 };
 
 // ★★ THE ONE-LINE NOTE THE SETTINGS PANEL SHOWS AFTER AN ACTION — formatted in this PURE unit so the native suite can
@@ -1957,7 +1987,13 @@ public:
             // ⛔ THE WINDOW's DEADLINE IS UNTOUCHED BY THIS: `enter_provision(invite)` re-anchors the cursor and
             //    the BACK default and re-takes NOTHING — the five minutes keep running through the dark, which
             //    is what "the window survives the blank" MEANS.
-            if (_st.provisioning == Provision::invite_confirm) enter_provision(Provision::invite);
+            // ⛔ §UI-16 N6: `invite_result` IS DELIBERATELY NOT IN THIS LIST. It is not an unfinished confirmation
+            //    one press from an act — it is a COMPLETED act's verdict, and the operator must wake to it (and to
+            //    its `KEY SENT` promotion, which may land while the panel is dark) rather than to a screen that
+            //    lost it. The window's expiry cannot overwrite it either — see `provision_is_invite`.
+            if (_st.provisioning == Provision::invite_confirm ||
+                _st.provisioning == Provision::invite_need_pubkey)
+                enter_provision(Provision::invite);
             // ★★ §3.6.1, VERBATIM IN SUBSTANCE: *"`BACK` and blanking PRESERVE the draft; silently discarding because
             //    attention timed out is FORBIDDEN."* `on_blank()` is the named seam the service exposes for exactly
             //    this event, and it is a draft-preserving no-op BY CONSTRUCTION. ⇒ calling it is what makes the
@@ -1982,6 +2018,34 @@ public:
     //    constructs the adapter over the device bindings and hands it here once, at `mr_ui_init`; the native suite
     //    hands over the SAME pure adapter built on the transaction's own fakes. ⛔ The model never constructs one.
     void attach_provision(IUiProvision& p) { _prov = &p; }
+    // ★ §UI-16 N5 — one pointer to the two device facts the pure model cannot own: the grant-bar cache read and
+    //   the final typed-command forward. The decisions (floor, hash, kind and TEAM plane) all live in
+    //   `firmware_ui_invite.h`; the device implementation is deliberately policy-free.
+    void attach_invite(IUiInviteDevice& d) { _invite_dev = &d; }
+    void on_invite_push(const MESHROUTE_NS::Push& pu) {
+        if (_st.provisioning != Provision::invite_wait_pubkey) return;
+        if (!invite_peer_key_cached_matches(pu, _st.invite.sel_hash)) return;
+        // Re-run the accessor rather than trusting/caching the push's answer: the grant does the same aged read.
+        if (!invite_grant_preflight(_invite_dev, _st.invite.sel_hash)) return;
+        // The push completes the WAIT, not the operator's next choice. Returning to the list exposes the name that
+        // `build_snapshot` reads from the existing cache; a push never supplies a parallel UI name field.
+        enter_provision(Provision::invite);
+    }
+    // ★★★★ §UI-16 N6 — THE GRANT'S OUTCOME PUSH, AND IT ARRIVES THROUGH THE **ONE PURE PUSH ROUTER**
+    //      (`mrui::ui_route_send_push`, `src/firmware_ui_send.h`) rather than through a second device call: that
+    //      router is already the single place a `send_aired` / `send_failed` is attributed to a UI slot, it is
+    //      compiled by the native suite, and it is reached from the ONE device entry point. ⛔ A parallel tap in
+    //      `firmware_ui.cpp` would be a second correlation site, i.e. two rules to keep in step.
+    // ⛔ IT IS SCOPED TO THE VERDICT SCREEN: once the operator has acknowledged the result there is nothing to
+    //    upgrade, and a promotion applied to a discarded verdict would be a claim about a screen nobody is looking
+    //    at. The correlation itself (both terms, and the queued-only upgrade) is the PURE unit's.
+    // ⓘ Returns whether the push was CLAIMED — diagnostic, exactly as the router's own arms do.
+    bool on_invite_grant_push(const MESHROUTE_NS::Push& pu) {
+        if (_st.provisioning != Provision::invite_result) return false;
+        if (!invite_grant_apply_push(_st.grant, pu)) return false;
+        _st.dirty = true;                 // the word on the panel changed — ⛔ an invisible promotion is not one
+        return true;
+    }
     // ★★★ §UI-15 slice 6 — THE ASYNCHRONOUS OUTCOME's TWO ENTRY POINTS.
     // `join_session_active()` is the DEVICE's cheap guard and NOTHING ELSE: `src/firmware_ui.cpp` must read
     // `/mrcfg` and `g_node` to supply term 2 and term 4, and paying a flash read on every inbound push would be a
@@ -2627,6 +2691,12 @@ protected:
     //   the ADAPTER, never an instance. The transaction, its store and its entropy all live behind it, so this model
     //   gains 4/8 bytes and no provisioning state of its own beyond the answer it was handed.
     IUiProvision* _prov = nullptr;
+    // §UI-16 N5's device forward; like `_prov`, attached once and never owned by the model.
+    // ⓘ COST, MEASURED on the host: this pointer moves `sizeof(UiModel)` **864 -> 872** and changes none of
+    //   `UiState` (448), `UiSnapshot` (1008) or `InviteWindow` (104). It is 4 B on the 32-bit board targets; the
+    //   stateless device object's vptr is another 4 B there. The native resource pin also preserves every
+    //   `InviteWindow` offset stated at its declaration, so a later reorder cannot hide inside the total.
+    IUiInviteDevice* _invite_dev = nullptr;
     // ★★★★ §UI-15 slice 6 — THE JOIN SESSION, AND IT IS DELIBERATELY **NOT** IN `UiState`: it is not rendered (the
     //      one thing the panel needs from it, the 60 s word change, is latched into `UiState::join_still`), and it
     //      must OUTLIVE the screen. Freezing it with the frame would suggest it belonged to a picture.
@@ -3067,6 +3137,11 @@ private:
         // ⓘ The two INVITE arms keep it, deliberately: `invite -> invite_confirm -> invite` is one window, and a
         //   confirmation opened and abandoned may not silently forget what the operator already rejected.
         if (!provision_is_invite(p)) _st.invite = InviteWindow{};
+        // ★★★ §UI-16 N6 — THE VERDICT IS RETIRED BY EVERY ENTRY THAT IS NOT THE VERDICT'S OWN SCREEN, which is the
+        //     `prov_answer` rule three lines up applied to the grant (U3): a result that survived into a later
+        //     screen is the "success that isn't" this project has already registered once. ⛔ The one arm excluded
+        //     is `invite_result` itself, because `run_invite_grant` writes the verdict and THEN enters it.
+        if (p != Provision::invite_result) _st.grant = InviteGrantResult{};
         _st.dirty = true;
     }
     // ⓘ Back to `browsing`, ⛔ never to `closed`: leaving PROVISION returns to the SETTINGS MENU, not off the screen.
@@ -3085,9 +3160,9 @@ private:
     // ★★ §UI-15 slice 6 LANDS THE JOIN HALF, so the four `join_*` arms below have left the leave-only fail-safe and
     //    have their own flows. ⛔ CORRECTED IN PLACE 2026-08-23 (§UI-16 N4, V1), AND THE WITHDRAWN LINE IS KEPT
     //    VISIBLE: it read *"⛔ WHAT IS STILL NOT HERE, by scope: §3.6.4's nearby-team scan (§UI-16)"*. N2/N3
-    //    landed the scan and its join, and N4 lands the creator's window. ⛔ WHAT IS STILL NOT HERE, by scope:
-    //    the explicit `REQUEST PUBKEY` step (§UI-16 N5) and the `GRANT KEY` act with its `send_aired`
-    //    correlation (N6) — so the confirmation below offers `BACK` and `REJECT` and nothing else.
+    //    landed the scan and its join, N4 the creator's window, and N5 now lands the explicit BACK-default
+    //    `REQUEST PUBKEY` plus the side-effect-free gate that enables `GRANT KEY`. ⛔ WHAT IS STILL NOT HERE is
+    //    the GRANT ACT and its `send_aired` correlation (N6); selecting GRANT below therefore remains inert.
     void provision_gesture(Gesture g, const UiSnapshot& s) {
         if (g != Gesture::short_press && g != Gesture::double_press) return;
         switch (_st.provisioning) {
@@ -3117,10 +3192,22 @@ private:
             // first row and its last row is BACK), and it needs the SNAPSHOT because the list it walks is the
             // LIVE one: the window refreshes locally while it is open (R-10).
             case Provision::invite:         invite_select_gesture(g, s);     return;
-            case Provision::invite_confirm: invite_confirm_gesture(g);       return;
+            // §UI-16 N6 — the grant-ready confirmation needs the SNAPSHOT for the window's own deadline: the act
+            // must be refused on an EXPIRED window, and the tick that would close it has not run yet.
+            case Provision::invite_confirm: invite_confirm_gesture(g, s);    return;
+            case Provision::invite_need_pubkey: invite_need_pubkey_gesture(g); return;
+            // The request has already been authorised and issued. Either press merely returns to the window;
+            // it cannot cancel, retry or grant anything (the join-waiting idiom one flow over).
+            case Provision::invite_wait_pubkey: enter_provision(Provision::invite); return;
             // The EXPIRY screen is terminal in exactly the way the two result screens are: either press leaves
             // it, and ⛔ nothing is re-run, re-opened or confirmed — the window is over.
             case Provision::invite_closed:  enter_provision(Provision::menu); return;
+            // ★★ §UI-16 N6 — THE GRANT'S VERDICT IS TERMINAL IN THE SAME WAY (pin 9): either press acknowledges it
+            //    and ⛔ NOTHING is re-run — a second grant would be a second private key on the air for one
+            //    operator decision. ⓘ It lands on the MENU and ⛔ not back in the window: the act ended the
+            //    window, and a re-opened one takes a FRESH snapshot in which the member just granted is simply
+            //    present (and therefore, correctly, no longer a candidate).
+            case Provision::invite_result:  enter_provision(Provision::menu); return;
             // ⛔ UNREACHABLE BY THE INVARIANT (`Settings::provisioning` implies a non-`closed` arm) and handled rather
             //    than defaulted: if it is ever reached the two fields have drifted, and the safe answer is to put them
             //    back in step instead of interpreting a press against a state that does not exist.
@@ -3417,21 +3504,51 @@ private:
         //     255 other peers share them; [[B48]]'s class).
         _st.invite.sel_hash = r.cand.key_hash32;
         _st.invite.sel_id   = r.cand.id;
-        enter_provision(Provision::invite_confirm);
+        // ★ N5'S SIDE-EFFECT-FREE PREFLIGHT. Merely entering the row asks the same aged cache question the grant
+        //   asks and emits NOTHING. A name is deliberately absent from this condition: descriptive text never
+        //   enables an airtime-and-secret action.
+        enter_provision(invite_grant_preflight(_invite_dev, _st.invite.sel_hash)
+                      ? Provision::invite_confirm : Provision::invite_need_pubkey);
     }
-    // ★★★★ THE CANDIDATE'S CONFIRMATION — the `InboxAction`/create/join/nearby pair a FIFTH time (U3): `short`
-    //      TOGGLES and `double` PERFORMS THE SELECTED ONE, and ⛔ a `double` on BACK may NOT fall through into
-    //      the act. ⛔ ITS LANDING IS THE WINDOW, ⛔ not the menu — the `nearby_confirm -> nearby` containment
-    //      one screen over — and re-entering the window does ⛔ NOT re-take the snapshot or re-arm the deadline
-    //      (only `load_invite` does, and it runs on the `menu -> invite` transition alone), so a look at a
-    //      confirmation and a change of mind cost the operator none of their five minutes' evidence.
-    void invite_confirm_gesture(Gesture g) {
+    // ★★★★ THE GRANT-READY CONFIRMATION. REJECT is the zero/default choice and remains the local act; ✅ §UI-16 N6
+    //      LANDS THE OTHER ARM — the one press on this device that ships a PRIVATE KEY, so it costs the ruled
+    //      `short` (REJECT -> GRANT KEY) and then a `double`, and neither press alone can reach it (P-13).
+    void invite_confirm_gesture(Gesture g, const UiSnapshot& s) {
+        if (g == Gesture::short_press) { prov_confirm_toggle(); return; }
+        if (_st.prov_confirm == ProvConfirm::invite_reject) { run_invite_reject(); return; }
+        // ★★★★ N6 PIN 8 — **THE GRANT IS UNREACHABLE WITH THE WINDOW CLOSED**, and the guard is HERE rather than
+        //      left to `tick_invite` because THE TICK RUNS AFTER THE GESTURE (`mr_ui_tick`: on_gesture -> on_tick ->
+        //      step). A `double` landing after the five minutes but before the closing tick would otherwise ship a
+        //      private key out of a window that had already expired — the one ordering in which the bound the owner
+        //      ruled is not a bound at all. ⇒ the expiry is applied first, and the operator is told (S-16).
+        if (!window_active(s.now_ms)) { enter_provision(Provision::invite_closed); return; }
+        // ★★★ THE TARGET IS THE **FROZEN `key_hash32`** AND ⛔ NEVER THE DISPLAY NAME (P-7d): the name is a render
+        //     input on this very screen, it is MUTABLE (`lib/core/node_hashlocate.cpp`), and a member whose name
+        //     changes between the row and this press is still granted THE SAME KEY.
+        // ⛔ §UI-16 N6b: ⛔ the FROZEN `_st.invite.sel_id` is deliberately NOT passed — the correlation's second
+        //    term is the id the CORE resolved at send time (see `run_invite_grant`).
+        run_invite_grant(_st.invite.sel_hash);
+    }
+    // ★★★ THE EXPLICIT REQUEST CONFIRMATION. BACK is selected on entry and sends nothing. Only the other arm's
+    //      double constructs and forwards the existing typed reqpubkey command, then enters the waiting screen.
+    void invite_need_pubkey_gesture(Gesture g) {
         if (g == Gesture::short_press) { prov_confirm_toggle(); return; }
         if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::invite); return; }
-        run_invite_reject();
+        // ★★★ THE WAITING SCREEN IS A CLAIM ABOUT A SUCCESSFULLY STARTED (OR LOCALLY COMPLETED) WORKFLOW, SO ONLY
+        //     ONE MAY REACH IT — ⛔ "started" here is `invite_request_started`'s term, NOT `CmdResult::accepted`
+        //     (QG blocker, 2026-08-24): with no attached seam, or against a synchronous refusal, `WAITING FOR PUBKEY`
+        //     would be waiting for an answer to a question nobody asked — and pin 5 then says a timeout leaves that
+        //     screen up for ever. ⛔ The verdict is `firmware_ui_invite.h`'s (`invite_request_started`), never this
+        //     call site's and never the device TU's.
+        // ⓘ A REFUSAL STAYS PUT, ⛔ AND IS DELIBERATELY NOT GIVEN A WORD: `REQUEST PUBKEY` remains selected and a
+        //   second double retries. §8's inventory carries no refusal lexeme for this screen, and inventing one here
+        //   would be an unruled string on an owner-ruled screen.
+        if (invite_issue_reqpubkey(_invite_dev, _st.invite.sel_hash))
+            enter_provision(Provision::invite_wait_pubkey);
     }
-    // ★★★★ `REJECT`, AND IT IS THE **ONLY** ACT THIS SLICE CAN PERFORM (spec §4-N4's scope: ⛔ no grant, ⛔ no
-    //      pubkey request). WHAT IT CHANGES IS RAM THAT DIES WITH THE WINDOW: the candidate's HASH joins the
+    // ★★★★ `REJECT`, THE WINDOW'S ONLY MEMBERSHIP-SHAPING ACT UNTIL N6. N5's explicit pubkey request exists beside
+    //      it, but that request neither grants nor rejects anything. WHAT REJECT CHANGES IS RAM THAT dies with the
+    //      window: the candidate's HASH joins the
     //      volatile handled set (F-13) and the screen returns to the list, where the refresh no longer offers it.
     // ⛔⛔ IT TOUCHES ⛔ NO CORE, RADIO, MEMBERSHIP, KEY OR NV STATE — there is no seam call here at all, which is
     //     why the native cases assert it on the SEAM's call count and the store's write count rather than on a
@@ -3442,6 +3559,29 @@ private:
     void run_invite_reject() {
         (void)invite_handled_add(_st.invite, _st.invite.sel_hash);
         enter_provision(Provision::invite);
+    }
+    // ★★★★ §UI-16 N6 — **THE GRANT**, AND EVERY DECISION IN IT IS SOMEBODY ELSE'S: the plane, the eight-arm outcome
+    //      mapping and the `queued`/`parked` split are `firmware_ui_invite.h`'s (pure, natively driven), the seal
+    //      and the send are `Node::team_key_grant_send`'s (ONE forward — ⛔ no second send path, no new payload, no
+    //      new frame type, no wire byte). What lives HERE is the ORDER: perform, record the verdict, then move.
+    // ⛔ NOTHING IS CLAIMED WHEN NOTHING RAN (C2): with no seam attached, or with no frozen identity, the perform
+    //    returns false and the screen STAYS PUT — ⛔ it does not enter a result screen with a word for an act that
+    //    never happened, which is the N5 QG blocker's shape one screen over.
+    // ★ THE VERDICT IS WRITTEN **BEFORE** `enter_provision`, deliberately: that primitive discards the window's
+    //   whole state (the two authorities, the handled set and the frozen selection) on the way to a non-window arm,
+    //   so the verdict must already carry its own identity — which is exactly why `InviteGrantResult` holds a hash.
+    // ★★★★ §UI-16 N6b (2026-08-24) — **THE FROZEN `dst_id` IS NO LONGER PASSED, AND ⛔ IT MAY NOT BE PUT BACK.**
+    //      ⛔ WITHDRAWN, KEPT VISIBLE: `run_invite_grant(target_hash, dst_id)` handing `_st.invite.sel_id` to the
+    //      perform, which stored it as the correlation's second term. The core resolves the destination AT SEND
+    //      TIME, so a member that re-ran team-DAD inside the window was granted on its NEW id while this screen
+    //      waited for a `send_aired` addressed to the id frozen at selection — a wait that never ends.
+    //      ⇒ the verdict's `dst` is the CORE's answer, and `_st.invite.sel_id` stays what F-14 made it: the frozen
+    //      selection's second half, ⛔ not an addressing or correlation input.
+    void run_invite_grant(uint32_t target_hash) {
+        InviteGrantResult r{};
+        if (!invite_grant_perform(_invite_dev, target_hash, r)) return;
+        _st.grant = r;
+        enter_provision(Provision::invite_result);
     }
     // ★★★★ THE WINDOW EXPIRES BY ITSELF (spec §3 P-11), AND EXPIRY ⛔ GRANTS, REVOKES AND REWRITES NOTHING: it
     //      moves a screen and drops RAM. Across open -> expire -> re-open the membership, the content key and

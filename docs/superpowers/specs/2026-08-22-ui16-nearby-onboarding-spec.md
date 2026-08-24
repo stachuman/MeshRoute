@@ -266,6 +266,11 @@ into the next visit would re-open a confirmation the operator never asked for, w
   ✅ **RULED (owner, 2026-08-22): a VOLATILE PER-WINDOW HANDLED SET.** `REJECT` **and** a queued grant add the
   candidate's **hash** to it; it changes ⛔ no core, radio, membership, key or NV state; and it is **discarded when
   the window closes**.
+  ⛔ **CORRECTED 2026-08-24 (N6 QG, owner-relayed; the "and a queued grant" clause WITHDRAWN, KEPT VISIBLE
+  ABOVE): the handled set is `REJECT`-ONLY.** The grant result screen closes and discards the window anyway, so
+  a grant-side write is **unobservable** — an instrument-shaped rule nothing can measure. The two N4/N6
+  mutations over the set (dropped / made persistent) and P-11b are unaffected; N6's pin 2 already says only
+  what `REJECT` does.
 - **F-14 · INVITE REFRESH IS NOT THE SAME QUESTION AS NEARBY REFRESH, AND THE DRAFT'S §10 CONFLATED THEM.**
   ⛔ **WITHDRAWN WORDING, KEPT VISIBLE:** the draft's §10 said *"⛔ **no auto-refresh of either list**"*.
   ✅ **RULED (owner, 2026-08-22):** **NEARBY** teams = a **frozen snapshot per entry**, manual refresh only (leave and
@@ -732,7 +737,8 @@ that **K3 consumes N6's grant** in the end-to-end metal run, and **K5 consumes N
   `_invite_until_ms` + `window_active(now)` beside the existing `hold_active(now)`, wrap-safe the same way (U3).
   ✅ **OQ-3 ruled: 5 minutes, and it does NOT hold the panel lit** — the panel blanks normally, **the window survives
   the blank**, and an **unfinished confirmation does not** (§1.6).
-- **★ THE HANDLED SET (✅ F-13 ruled)** — `REJECT` **and** a queued grant add the candidate's **hash**; it changes
+- **★ THE HANDLED SET (✅ F-13 ruled; ⛔ corrected 2026-08-24 — `REJECT`-ONLY, the queued-grant clause withdrawn
+  at §1.7 F-13, see there)** — `REJECT` adds the candidate's **hash**; it changes
   ⛔ no core, radio, membership, key or NV state; it is **discarded when the window closes**.
 - **Pins.** (1) The window **expires by itself** and expiry ⛔ grants, revokes and rewrites nothing (P-11).
   (2) A member present at snapshot is ⛔ never a candidate. (3) A member appearing after it is a candidate exactly
@@ -784,6 +790,24 @@ that **K3 consumes N6's grant** in the end-to-end metal run, and **K5 consumes N
   which are the two different secrets this very screen sits between.
 - **Files.** `src/firmware_ui_invite.h` (the arm + the words, pure); `src/firmware_ui_model.h` (the arm);
   a device forward for the command (⛔ the decision is not in the device TU).
+
+  > ★ **CLARIFIED 2026-08-24 (N5 coder's boundary question, supervisor-ruled from the tree — how the
+  > `no_pubkey` landing is REACHED before N6's grant act exists):** by a **side-effect-free PREFLIGHT**, ⛔ never
+  > by attempting the grant (a probe-by-attempting call is the shape that becomes an accidental act, and it
+  > overlaps N6). **And the preflight is NOT a new rule — it is the grant's own bar, REUSED (U1):**
+  > `Node::team_key_grant_send`'s `no_pubkey` arm (`lib/core/node.cpp:194-196`) is exactly
+  > `peer_key_find(target_hash, ed, &conf)` **and** `conf >= PeerKeyConf::authoritative` (deliberately
+  > `e2e_seal_inner`'s bar — authoritative OR pinned). The preflight calls the SAME existing accessor
+  > (`node.h:1071` — **read-only behaviorally but ⛔ NOT C++ `const`-qualified**, corrected 2026-08-24: QG) at
+  > the SAME floor through a device forward, cites the grant's arm in-source ("if that bar moves, this
+  > moves with it"), and only the boolean reaches the model — ⛔ no key byte is published (the `ed` out-buffer is
+  > public material, discarded). Candidate confirmation: preflight says missing/below-floor ⇒ the `NEED PUBKEY`
+  > confirmation; present-at-floor ⇒ `GRANT KEY` **enabled** (the act itself stays N6's). ⓘ `peer_key_find`
+  > AGES — an expired key preflights exactly as the grant would refuse it, which is the point of reusing the
+  > accessor. **Added mutation (this clarification's own control): the preflight's floor lowered to `overheard`**
+  > (⇒ `GRANT KEY` enabled for a spoofable key) — RED at match count 1. When N6 lands, one equivalence case
+  > drives the preflight and the real grant against one fixture at `authoritative` and one notch below it, so
+  > the two sites can never silently disagree.
 - **Pins.** (1) ★ **No WANT_PUBKEY is emitted without the operator's `double` on `REQUEST PUBKEY`** — driven by
   counting emitted commands, ⛔ not by reading a screen. (2) `BACK` is selected initially and `BACK` emits nothing.
   (3) The request is **team-scoped** (`Plane::TEAM`), matching the plane the grant will fly on. (4) A
@@ -822,6 +846,20 @@ that **K3 consumes N6's grant** in the end-to-end metal run, and **K5 consumes N
   is the arm that lies the day it becomes reachable (C2).
   ★ **The correlation is `{dst, ctr}` and both terms are load-bearing** — a `ctr` alone is a **local** handle and the
   same value legitimately names another flight (`command.h`'s own warning on `channel_sent`'s `ctr`).
+
+  > ⛔⛔ **CORRECTED 2026-08-24 (N6 first-gate QG, owner-relayed; the `ctr`-INFERENCE HALF ABOVE IS WITHDRAWN,
+  > KEPT VISIBLE): `queued`/`ctr` infer MORE than the core guarantees, so either word could be FALSE.** Measured:
+  > a full TX queue **silently drops the frame but still returns a non-zero counter** (`lib/core/node_mac.cpp:340`);
+  > a full parked-send ring **stores nothing** (`node_hashlocate.cpp:1891`); yet `team_key_grant_send()` returns
+  > `queued` in every one of those cases (`node.cpp:231`). ⇒ **RULED: the grant returns an EXPLICIT dispatch
+  > result** — *actually queued* · *actually parked (stored)* · *a distinct admission refusal* (`GRANT QUEUE
+  > FULL`) — **and the actually-RESOLVED destination together with the counter** (the UI's frozen roster id can
+  > be stale across a re-DAD between selection and send, `node_hashlocate.cpp:1605` resolves live ⇒ the
+  > correlation must carry the send-time `dst`, not the selection-time one). **`GRANT PARKED` may be shown ONLY
+  > for an explicitly-stored parked outcome** — ⛔ never inferred from `ctr == 0` (owner ruling on the lexeme).
+  > The corrective slice is `lib/core`-touching (return-value plumbing of already-computed facts — behaviour-inert
+  > on the wire, argued AND corpus-proven) + the UI mapping consuming it; new tests: full TX queue, full parked
+  > ring, re-DAD between selection and send.
 - **Files.** `src/firmware_ui_invite.h` (the mapping + the correlation rule, **pure**, so all eight arms and both
   push outcomes are natively drivable); `src/firmware_ui_model.h` (the arms + the op); a device forward;
   `src/firmware_ui_send.h` (the `send_aired` arm — it is already the ONE pure push router reached from the single
@@ -1181,7 +1219,11 @@ house style applied to it, one line each, pinned by a native case.
 | S-35 | `%c%-6.6s T%-3u %6s` → `>Wolfga T221 6C2971` | the **INVITE candidate** row | **19 exactly** | ★ **NEW format, ADDED 2026-08-22 (F-15 rules 2-3)** — marker · **name (6, BLANK until a name is cached alongside a verified pubkey)** · team-local id · **member fingerprint (S-13)**. Width proof `1+6+1+4+1+6 = 19`. ★ The name comes from **`Node::peer_name_find`** (`lib/core/node.h:1030`) — the TEAM chain's own second step (`src/firmware_ui.cpp:361`), ⛔ **never `label_from_hash`/`label_for_team_id`**, whose `0x%08lx` fallback would render a **truncated `0x` form** = a third spelling of the hash. Clamp is `%-6.6s`, **matching the TEAM row** (§UI-17 S-11) so one name has one truncation |
 | S-36 | *(a node name rendered as a **team** name)* | — | — | ⛔ **FORBIDDEN USAGE, ⛔ NOT A LEXEME — ADDED 2026-08-22 (F-15 rule 1, P-5b).** There is no string to declare: the rule is that **no name-shaped value may occupy a NEARBY row's identity**, and it is enforced by a **control** (a mutation resolving the beacon sender's name into that row must redden), ⛔ not by a spelling. ⓘ Recorded here because the string inventory is where a future slice looks before adding a label |
 
-**Count: 36 entries — 24 NEW, 8 REUSED, 3 FORBIDDEN lexemes, 1 FORBIDDEN USAGE.** ⚠ **The arithmetic is written out
+| S-37 | `GRANT PARKED` | the grant's parked sub-state | 12 | ★ **ADDED + OWNER-RULED 2026-08-24** (the N6 wording ruling): derived from the console's shipped `PARKED (resolving…)` in the cluster's `GRANT <state>` shape. ⛔ **Shown ONLY for an EXPLICITLY-STORED parked outcome** reported by the core's dispatch result — ⛔ never inferred from `ctr == 0` (the N6 first-gate correction in §4-N6) |
+| S-38 | `GRANT QUEUE FULL` | the grant's admission refusal | 16 | ★ **ADDED 2026-08-24 (N6 first-gate QG)** — the distinct refusal for a full TX queue / full parked ring, which the pre-correction core laundered into `queued`. ⛔ Never collapsed into `GRANT FAILED` (that word is the correlated in-flight failure's) |
+
+**Count: 36 entries — 24 NEW, 8 REUSED, 3 FORBIDDEN lexemes, 1 FORBIDDEN USAGE** *(⛔ corrected 2026-08-24:
+**38 entries — 26 NEW** with S-37/S-38 above; the rest of the arithmetic unchanged)*. ⚠ **The arithmetic is written out
 so it can be checked rather than trusted:**
 - **NEW (24):** S-1, S-2, S-4, S-5, S-6, S-7, S-8, S-10, S-13, S-15, S-16, S-18, S-19, S-20, S-21, S-23, S-24,
   S-26, S-27, S-28, S-29, S-30, S-31, **S-35** (S-24 is one row carrying six arms, counted once; S-31 is reserved and
@@ -1295,7 +1337,8 @@ refreshed while the window is active** — no scan, transmits nothing, it only r
 *Asked (implicitly):* the draft claimed `REJECT` both removes the candidate and changes no state — which cannot both
 hold, because the next refresh re-adds it.
 *Ruled:* **`REJECT` and a queued grant add the candidate hash to a VOLATILE per-window handled set**; it changes ⛔ no
-core, radio, membership, key or NV state; **the set is discarded when the window closes.** ⇒ landed at **§1.7 F-13**,
+core, radio, membership, key or NV state; **the set is discarded when the window closes.** ⛔ *Corrected 2026-08-24:
+`REJECT`-only — the queued-grant clause withdrawn at §1.7 F-13 (unobservable write).* ⇒ landed at **§1.7 F-13**,
 **§4-N4/N6**, **§3 P-11b**, metal **§7.4 step 4**.
 
 **R-12 · The snapshot — ★ TWO AUTHORITIES, NOT ONE.**

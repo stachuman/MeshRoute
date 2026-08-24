@@ -3672,8 +3672,12 @@ TEST_CASE("ui15-model: the Provision enum is the eight ADOPTED arms, and the sub
     CHECK(uint8_t(Provision::invite)         == 10);
     CHECK(uint8_t(Provision::invite_confirm) == 11);
     CHECK(uint8_t(Provision::invite_closed)  == 12);
+    CHECK(uint8_t(Provision::invite_need_pubkey) == 13);
+    CHECK(uint8_t(Provision::invite_wait_pubkey) == 14);
     CHECK(provision_is_invite(Provision::invite)         == true);
     CHECK(provision_is_invite(Provision::invite_confirm) == true);
+    CHECK(provision_is_invite(Provision::invite_need_pubkey) == true);
+    CHECK(provision_is_invite(Provision::invite_wait_pubkey) == true);
     CHECK(provision_is_invite(Provision::invite_closed)  == false);
     CHECK(provision_is_invite(Provision::menu)           == false);
     CHECK(provision_is_invite(Provision::nearby)         == false);
@@ -3892,8 +3896,9 @@ TEST_CASE("ui15-close: ALL EIGHT arms are retired by the close-on-leave reset, c
                                Provision::create_result, Provision::join_select, Provision::join_confirm,
                                Provision::join_waiting,  Provision::join_result,
                                Provision::nearby,        Provision::nearby_confirm,
-                               Provision::invite,        Provision::invite_confirm, Provision::invite_closed };
-    CHECK(sizeof(arms) / sizeof(arms[0]) == 13u);
+                               Provision::invite,        Provision::invite_confirm, Provision::invite_closed,
+                               Provision::invite_need_pubkey, Provision::invite_wait_pubkey };
+    CHECK(sizeof(arms) / sizeof(arms[0]) == 15u);
     for (Provision arm : arms) {
         for (ProvConfirm c : { ProvConfirm::back, ProvConfirm::confirm }) {
             Provision a = arm; ProvConfirm cur = c;
@@ -4141,9 +4146,46 @@ struct UiFakeProvision : IUiProvision {
     }
     UiJoinList profiles() override { ++list_calls; return list; }
 };
+struct UiFakeInvite : IUiInviteDevice {
+    bool present = true;
+    MESHROUTE_NS::Node::PeerKeyConf conf = MESHROUTE_NS::Node::PeerKeyConf::authoritative;
+    mutable int reads = 0;
+    mutable uint32_t read_hash = 0;
+    mutable MESHROUTE_NS::Node::PeerKeyConf read_floor = MESHROUTE_NS::Node::PeerKeyConf::overheard;
+    int commands = 0;
+    MESHROUTE_NS::Command last{};
+    // The executor's answer, scripted. Default = the ordinary acceptance; a refusal is what the panel may not
+    // report as `WAITING FOR PUBKEY` (QG blocker, 2026-08-24).
+    mrui::UiInviteIssue answer{ true, MESHROUTE_NS::CmdCode::queued, true };
+    bool peer_key_at_least(uint32_t hash, MESHROUTE_NS::Node::PeerKeyConf floor) const override {
+        ++reads; read_hash = hash; read_floor = floor;
+        return present && static_cast<uint8_t>(conf) >= static_cast<uint8_t>(floor);
+    }
+    mrui::UiInviteIssue issue(const MESHROUTE_NS::Command& command) override {
+        ++commands; last = command; return answer;
+    }
+    // ---- §UI-16 N6: the GRANT seam, scripted. ★ The default is the ordinary ADMISSION with a handle, so a case
+    //      that does not care about the outcome still exercises the promotable state; the eight arms and the words
+    //      themselves belong to `test_firmware_ui_invite.cpp` (they are the PURE unit's), and what is driven HERE
+    //      is which gesture may reach the seam at all, what it is handed, and what a push does to the screen.
+    MESHROUTE_NS::Node::TeamKeyGrantTx tx = MESHROUTE_NS::Node::TeamKeyGrantTx::queued;
+    uint16_t tx_ctr = 4242;
+    uint8_t  tx_dst = 0;      // §UI-16 N6b: what the core RESOLVED at send time — ⛔ never the row's frozen id
+    int      grants = 0;
+    uint32_t grant_hash = 0;
+    MESHROUTE_NS::Plane grant_plane = MESHROUTE_NS::Plane::AUTO;
+    MESHROUTE_NS::Node::TeamKeyGrantTx grant(uint32_t key_hash32, MESHROUTE_NS::Plane plane,
+                                             uint16_t* out_ctr, uint8_t* out_dst) override {
+        ++grants; grant_hash = key_hash32; grant_plane = plane;
+        if (out_ctr) *out_ctr = tx_ctr;
+        if (out_dst) *out_dst = tx_dst;
+        return tx;
+    }
+};
 struct CreateFix : CfgFix {
     UiFakeProvision prov;
-    CreateFix() { prov.m = &m; m.attach_provision(prov); }
+    UiFakeInvite invite_dev;
+    CreateFix() { prov.m = &m; m.attach_provision(prov); m.attach_invite(invite_dev); }
 };
 // Open PROVISION and put the confirmation up. The caller ASSERTS the landing.
 bool open_create_confirm(CreateFix& f, const UiSnapshot& s) {
@@ -6856,7 +6898,7 @@ TEST_CASE("ui16-invblank: pin 13 — the WINDOW survives blank/wake; an UNFINISH
     CHECK(f.m.state().provisioning == Provision::invite_closed);
 }
 
-TEST_CASE("ui16-invreject: pins 8/17 — the confirmation FREEZES the hash, and REJECT is the only act it reaches") {
+TEST_CASE("ui16-invreject: the ready confirmation freezes the hash, defaults REJECT and grants nothing in N5") {
     CreateFix f;
     auto s = invite_snap(1);
     CHECK(open_invite(f, s));
@@ -6870,27 +6912,32 @@ TEST_CASE("ui16-invreject: pins 8/17 — the confirmation FREEZES the hash, and 
     CHECK(f.m.state().provisioning == Provision::invite_confirm);
     CHECK(f.m.state().invite.sel_hash == 0xAABBCCDDu);
     CHECK(f.m.state().invite.sel_id == 200);
-    CHECK(f.m.state().prov_confirm == ProvConfirm::back);           // ...opened on the SAFE arm (P-13)
+    CHECK(f.m.state().prov_confirm == ProvConfirm::invite_reject);  // N6's ruled safe default
     {   // pin 17: what the confirmation draws is the FULL hash, ⛔ never the six-character selection aid
         char full[mrui::kMemberHashCap];
         mrui::ui_fmt_member_hash_full(full, sizeof full, f.m.state().invite.sel_hash);
         CHECK(strcmp(full, "0xAABBCCDD") == 0);
     }
-    // ⛔ BACK RETURNS TO THE WINDOW (⛔ not the menu) AND PERFORMS NOTHING — and the window is unchanged by it.
-    f.m.on_gesture(Gesture::double_press, s);
-    CHECK(f.m.state().provisioning == Provision::invite);
-    CHECK(f.m.state().invite.handled_n == 0);
-    CHECK(invite_cands(f.m, s) == 2);
-    // ★ REACHING `REJECT` COSTS `short` THEN `double` (P-13), and the toggle alone is not the act.
-    CHECK(invite_cursor_to(f.m, s, 0xAABBCCDDu));
-    f.m.on_gesture(Gesture::double_press, s);
+    // ★★ PIN 1 — REACHING `GRANT KEY` COSTS `short` **THEN** `double`: the `short` alone selects it and performs
+    //    NOTHING (⛔ no grant, no handled-set entry, no command). The act itself is `ui16-grantact`'s.
     f.m.on_gesture(Gesture::short_press, s);
-    CHECK(f.m.state().prov_confirm == ProvConfirm::confirm);
+    CHECK(f.m.state().prov_confirm == ProvConfirm::invite_grant);
+    CHECK(f.m.state().provisioning == Provision::invite_confirm);
     CHECK(f.m.state().invite.handled_n == 0);
-    CHECK(strcmp(mrui::invite_confirm_label(true), "REJECT") == 0);
+    CHECK(f.invite_dev.grants == 0);
+    CHECK(f.invite_dev.commands == 0);
+    CHECK(strcmp(mrui::invite_confirm_label(true), "GRANT KEY") == 0);
+    // REJECT is the safe default and stays the local act (F-13).
+    f.m.on_gesture(Gesture::short_press, s);
+    CHECK(f.m.state().prov_confirm == ProvConfirm::invite_reject);
     f.m.on_gesture(Gesture::double_press, s);
     // ★★ THE REJECT LANDED: the candidate is gone from the refreshed list, and the OTHER `Ann` is not.
     CHECK(f.m.state().provisioning == Provision::invite);
+    // ⛔⛔ PIN 2 — REJECT SENDS **NOTHING**: it reaches no seam at all, which is asserted on the seam's own call
+    //     count rather than on a screen (§UI-16 N6). ★ And the OTHER `Ann` below is what makes the handled set's
+    //     KEY measurable: it is the hash, so one member's rejection can never answer for another's (P-7d).
+    CHECK(f.invite_dev.grants == 0);
+    CHECK(f.m.state().grant.st == mrui::InviteGrantState::none);
     CHECK(f.m.state().invite.handled_n == 1);
     CHECK(mrui::invite_handled_has(f.m.state().invite, 0xAABBCCDDu));
     CHECK(invite_cands(f.m, s) == 1);
@@ -6954,7 +7001,6 @@ TEST_CASE("ui16-invfreeze: a refresh between the two presses does ⛔ NOT move w
         CHECK(r.cand.key_hash32 == 0x0BADF00Du);                    // ...although the CURSOR's row now names another
     }
     // ...and the act rejects the FROZEN one, ⛔ never the row that slid under the cursor.
-    f.m.on_gesture(Gesture::short_press, moved);
     f.m.on_gesture(Gesture::double_press, moved);
     CHECK(mrui::invite_handled_has(f.m.state().invite, 0xAABBCCDDu));
     CHECK(mrui::invite_handled_has(f.m.state().invite, 0x0BADF00Du) == false);
@@ -6983,7 +7029,282 @@ TEST_CASE("ui16-invquiet: pin 11 — with the window CLOSED a new member changes
     CHECK(f.store.writes == 0);
 }
 
-TEST_CASE("ui16-invalarm: `long_arm` PRE-EMPTS the window, and the handled set does not survive it (P-14)") {
+// ===============================================================================================================
+// §UI-16 N5 — SIDE-EFFECT-FREE PREFLIGHT, EXPLICIT REQUEST, MATCHED CACHE ARRIVAL AND NAME REFRESH
+// ===============================================================================================================
+TEST_CASE("ui16-reqpubkey: BACK is default and zero commands precede short + double on REQUEST PUBKEY") {
+    CreateFix f;
+    f.invite_dev.present = false;
+    auto s = invite_snap(1);
+    CHECK(open_invite(f, s));
+    add_member(s, 200, 0xAABBCCDDu);
+    CHECK(invite_cursor_to(f.m, s, 0xAABBCCDDu));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::invite_need_pubkey);
+    CHECK(f.m.state().prov_confirm == ProvConfirm::back);
+    CHECK(f.m.state().invite.sel_hash == 0xAABBCCDDu);
+    CHECK(f.invite_dev.commands == 0);                             // candidate entry/preflight aired nothing
+    CHECK(f.invite_dev.read_floor == MESHROUTE_NS::Node::PeerKeyConf::authoritative);
+    char full[mrui::kMemberHashCap];
+    mrui::ui_fmt_member_hash_full(full, sizeof full, f.m.state().invite.sel_hash);
+    CHECK(strcmp(full, "0xAABBCCDD") == 0);                       // full identity survives into the request screen
+
+    f.m.on_gesture(Gesture::double_press, s);                      // BACK
+    CHECK(f.m.state().provisioning == Provision::invite);
+    CHECK(f.invite_dev.commands == 0);
+
+    CHECK(invite_cursor_to(f.m, s, 0xAABBCCDDu));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);                       // select REQUEST PUBKEY
+    CHECK(f.m.state().prov_confirm == ProvConfirm::confirm);
+    CHECK(f.invite_dev.commands == 0);                             // the short alone is not authorisation
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::invite_wait_pubkey);
+    CHECK(f.invite_dev.commands == 1);
+    CHECK(f.invite_dev.last.kind == MESHROUTE_NS::CmdKind::reqpubkey);
+    CHECK(f.invite_dev.last.u.resolve.dst_hash == 0xAABBCCDDu);
+    CHECK(f.invite_dev.last.u.resolve.dst_id == 0);
+    CHECK(f.invite_dev.last.u.resolve.plane == static_cast<uint8_t>(MESHROUTE_NS::Plane::TEAM));
+
+    UiSnapshot later = s;
+    later.now_ms += MESHROUTE_NS::protocol::hash_locate_giveup_ms + 1u; // the REAL locate timeout is not a grant
+    f.m.on_tick(later);
+    CHECK(f.m.state().provisioning == Provision::invite_wait_pubkey);
+    CHECK(f.invite_dev.commands == 1);                             // no retry and no grant command
+}
+
+TEST_CASE("ui16-reqpubkey-floor: an overheard key and a name do not enable GRANT KEY; authoritative does") {
+    CreateFix f;
+    f.invite_dev.present = true;
+    f.invite_dev.conf = MESHROUTE_NS::Node::PeerKeyConf::overheard;
+    auto s = invite_snap(1);
+    CHECK(open_invite(f, s));
+    add_member(s, 200, 0xAABBCCDDu, "Spoofed name");
+    CHECK(invite_cursor_to(f.m, s, 0xAABBCCDDu));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::invite_need_pubkey); // name cannot raise confidence
+    CHECK(f.invite_dev.read_floor == MESHROUTE_NS::Node::PeerKeyConf::authoritative);
+    CHECK(f.invite_dev.commands == 0);
+    f.m.on_gesture(Gesture::double_press, s);                         // BACK
+
+    f.invite_dev.conf = MESHROUTE_NS::Node::PeerKeyConf::authoritative;
+    CHECK(invite_cursor_to(f.m, s, 0xAABBCCDDu));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::invite_confirm);
+    CHECK(f.m.state().prov_confirm == ProvConfirm::invite_reject);    // REJECT is selected; GRANT is enabled
+    CHECK(f.invite_dev.commands == 0);                               // preflight is still side-effect-free
+}
+
+TEST_CASE("ui16-reqpubkey-push: wrong hash stays waiting; right hash refreshes the cached name and enables grant") {
+    CreateFix f;
+    f.invite_dev.present = false;
+    auto s = invite_snap(1);
+    CHECK(open_invite(f, s));
+    add_member(s, 200, 0xAABBCCDDu);
+    CHECK(invite_cursor_to(f.m, s, 0xAABBCCDDu));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::invite_wait_pubkey);
+    CHECK(f.invite_dev.commands == 1);
+
+    f.invite_dev.present = true;
+    f.invite_dev.conf = MESHROUTE_NS::Node::PeerKeyConf::authoritative;
+    MESHROUTE_NS::Push wrong{};
+    wrong.kind = MESHROUTE_NS::PushKind::peer_key_cached;
+    wrong.sender_hash = 0x99887766u;
+    wrong.body_len = 5;
+    memcpy(wrong.body, "Wrong", 5);
+    const int reads_before = f.invite_dev.reads;
+    f.m.on_invite_push(wrong);
+    CHECK(f.m.state().provisioning == Provision::invite_wait_pubkey);
+    CHECK(f.invite_dev.reads == reads_before);                       // wrong identity does not even preflight
+    CHECK(s.member[1].name[0] == '\0');                              // no UI-side name field was populated
+
+    MESHROUTE_NS::Push right = wrong;
+    right.sender_hash = 0xAABBCCDDu;
+    f.m.on_invite_push(right);
+    CHECK(f.m.state().provisioning == Provision::invite);           // back to the locally refreshed candidate row
+    CHECK(f.invite_dev.read_hash == 0xAABBCCDDu);
+    CHECK(f.invite_dev.read_floor == MESHROUTE_NS::Node::PeerKeyConf::authoritative);
+    CHECK(f.invite_dev.commands == 1);                               // no second request
+
+    // `build_snapshot` now publishes the name from the EXISTING cache under this same hash; simulate that one read.
+    memcpy(s.member[1].name, "Wolfgangetta", 12);
+    char row[mrui::kInviteRowCap];
+    mrui::ui_fmt_invite_row(row, sizeof row, '>', s.member[1]);
+    CHECK(strcmp(row, ">Wolfga T200 BBCCDD") == 0);                 // name added; fingerprint unchanged
+    CHECK(invite_cursor_to(f.m, s, 0xAABBCCDDu));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::invite_confirm);   // live key, never the name, enables grant
+    CHECK(f.m.state().invite.sel_hash == 0xAABBCCDDu);
+}
+
+// ★★★★ THE QG BLOCKER, AT THE SCREEN (2026-08-24): `WAITING FOR PUBKEY` says an identity request is outstanding.
+//      The first cut entered it on the operator's `double` ALONE — with no seam attached, and against a
+//      synchronous refusal — so the panel waited for the answer to a question nobody asked, and pin 5 then leaves
+//      that screen up for ever. ⓘ Driven on the COMMAND COUNT and the state, ⛔ never on a word.
+TEST_CASE("ui16-reqpubkey-refused: no seam and a refusal both STAY at NEED PUBKEY — the wait is never claimed") {
+    // ---- (a) NO SEAM AT ALL. `CfgFix` attaches none, which is the `!MR_FEAT_OLED`-shaped build and the
+    //          partially-wired probe — and the arm that fails CLOSED, exactly as the preflight above it does.
+    {
+        CfgFix f;
+        auto s = invite_snap(1);
+        CHECK(open_invite(f, s));
+        add_member(s, 200, 0xAABBCCDDu);
+        CHECK(invite_cursor_to(f.m, s, 0xAABBCCDDu));
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.m.state().provisioning == Provision::invite_need_pubkey);   // the unattached preflight refuses
+        f.m.on_gesture(Gesture::short_press, s);
+        CHECK(f.m.state().prov_confirm == ProvConfirm::confirm);            // REQUEST PUBKEY selected
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.m.state().provisioning == Provision::invite_need_pubkey);   // ⛔ NOT invite_wait_pubkey
+        CHECK(f.m.state().prov_confirm == ProvConfirm::confirm);            // the action stays put, so a retry costs
+        UiSnapshot later = s;                                               // one press rather than a re-entry
+        // ⓘ THE STEP IS DELIBERATELY INSIDE `kBlankMs`: past it, pin 13's OWN ruling drops an unfinished
+        //   confirmation back to the window, which would mask what this line is asking (that ticking alone
+        //   promotes nothing). The blank behaviour has its own case.
+        later.now_ms += 5000;
+        f.m.on_tick(later);
+        CHECK(f.m.state().provisioning == Provision::invite_need_pubkey);   // ⛔ and no wait screen appears
+    }
+    // ---- (b) A SYNCHRONOUS REFUSAL. The command WAS attempted — the operator authorised it — and the request
+    //          still did not start, which is the whole distinction the first cut collapsed.
+    {
+        CreateFix f;
+        f.invite_dev.present = false;
+        f.invite_dev.answer = mrui::UiInviteIssue{ true, MESHROUTE_NS::CmdCode::err_no_identity, false };
+        auto s = invite_snap(1);
+        CHECK(open_invite(f, s));
+        add_member(s, 200, 0xAABBCCDDu);
+        CHECK(invite_cursor_to(f.m, s, 0xAABBCCDDu));
+        f.m.on_gesture(Gesture::double_press, s);
+        f.m.on_gesture(Gesture::short_press, s);
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.invite_dev.commands == 1);                                  // it was asked...
+        CHECK(f.m.state().provisioning == Provision::invite_need_pubkey);   // ...and ⛔ refused, so no wait
+        // The retry is one press, and it is still not a wait while the refusal stands.
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.invite_dev.commands == 2);
+        CHECK(f.m.state().provisioning == Provision::invite_need_pubkey);
+        // A parse/format failure has the SAME shape from here — and `code` alone cannot tell it from a success,
+        // because `CmdResult::code` defaults to `queued` (see the invite unit's own case).
+        f.invite_dev.answer = mrui::UiInviteIssue{};
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.invite_dev.commands == 3);
+        CHECK(f.m.state().provisioning == Provision::invite_need_pubkey);
+        // ★★★ AND THE RACE THAT **IS** A SUCCESS: `queued` with the TX path handed nothing (the local-cache
+        //     branch, which answers through `peer_key_cached`). ⛔ It must enter the wait, or the operator whose
+        //     request already succeeded is stranded on the confirmation.
+        f.invite_dev.answer = mrui::UiInviteIssue{ true, MESHROUTE_NS::CmdCode::queued, false };
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.invite_dev.commands == 4);
+        CHECK(f.m.state().provisioning == Provision::invite_wait_pubkey);
+        // ...and the arriving push completes it exactly as the accepted-on-air path's does.
+        f.invite_dev.present = true;
+        f.invite_dev.conf = MESHROUTE_NS::Node::PeerKeyConf::authoritative;
+        MESHROUTE_NS::Push right{};
+        right.kind = MESHROUTE_NS::PushKind::peer_key_cached;
+        right.sender_hash = 0xAABBCCDDu;
+        f.m.on_invite_push(right);
+        CHECK(f.m.state().provisioning == Provision::invite);
+        CHECK(f.invite_dev.commands == 4);
+    }
+}
+
+TEST_CASE("ui16-reqpubkey-resources: N5 adds no frame/state carrier and preserves the packed invite layout") {
+    CHECK(sizeof(mrui::InviteWindow) == 104u);
+    CHECK(offsetof(mrui::InviteWindow, hash) == 0u);
+    CHECK(offsetof(mrui::InviteWindow, handled) == 32u);
+    CHECK(offsetof(mrui::InviteWindow, id_bits) == 64u);
+    CHECK(offsetof(mrui::InviteWindow, sel_hash) == 96u);
+    CHECK(offsetof(mrui::InviteWindow, n) == 100u);
+    CHECK(offsetof(mrui::InviteWindow, handled_n) == 101u);
+    CHECK(offsetof(mrui::InviteWindow, sel_id) == 102u);
+    CHECK(offsetof(mrui::InviteWindow, taken) == 103u);
+    // ★★ §UI-16 N6 — THE ONE CARRIER THIS SLICE ADDS, AND IT COSTS EXACTLY ITSELF: `UiState` 448 -> **456** and
+    //    `UiModel` 872 -> **880** (+8 each — the 4-aligned verdict lands in the tail quantum the window's array
+    //    already opened). ⛔ The window is UNMOVED: the offsets above are the same eight they were, which is what
+    //    proves the verdict was ADDED beside it rather than folded into it.
+    // ⚠ NATIVE ALIGNMENT HIDES THE BOARD FIGURE (D2's standing warning) — this pins the shape, not the flash cost.
+    CHECK(sizeof(mrui::InviteGrantResult) == 8u);
+    CHECK(sizeof(mrui::UiState) == 456u);
+    CHECK(sizeof(mrui::UiSnapshot) == 1008u);          // ⛔ UNCHANGED: N6 publishes no new snapshot field
+    CHECK(sizeof(mrui::UiModel) == 880u);
+}
+
+// ================================================= §UI-16 N6 — THE GRANT ACT's MODEL HALF (the pure unit's own
+//                                                   rulings are `--target=uiinvite`)
+// ★★★ WHAT IS DRIVEN HERE IS THE **FLOW**: which gesture may reach the seam, what it is handed, what the verdict
+//     screen holds, and what a push does to it. The eight arms, the words and the correlation RULE are the pure
+//     unit's and are driven in `test_firmware_ui_invite.cpp`.
+TEST_CASE("ui16-grantact: `short` then `double` performs ONE grant, on the FROZEN hash, and lands the verdict") {
+    CreateFix f;
+    auto s = invite_snap(1);
+    CHECK(open_invite(f, s));
+    add_member(s, 200, 0xAABBCCDDu, "Ann");
+    add_member(s, 201, 0x99887766u, "Ann");                        // ★ the SAME name, a different hash (P-7d)
+    CHECK(invite_cursor_to(f.m, s, 0xAABBCCDDu));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::invite_confirm);
+    // ⛔ PIN 1 — REJECT IS SELECTED INITIALLY, so the FIRST double would REJECT: reaching the grant costs a short.
+    CHECK(f.m.state().prov_confirm == ProvConfirm::invite_reject);
+    CHECK(f.invite_dev.grants == 0);
+    f.m.on_gesture(Gesture::short_press, s);
+    CHECK(f.m.state().prov_confirm == ProvConfirm::invite_grant);
+    CHECK(f.invite_dev.grants == 0);                               // the SHORT alone still performs nothing
+    f.invite_dev.tx = MESHROUTE_NS::Node::TeamKeyGrantTx::queued;
+    f.invite_dev.tx_ctr = 4242;
+    // ★★★★ §UI-16 N6b — THE SEAM RESOLVES **77**, WHILE THE ROW THIS SCREEN FROZE SAYS **200**. That is a team-DAD
+    //      inside the window, and it is the exact input that used to make the verdict uncorrelatable: the core
+    //      airs the grant to the NEW id, and a panel holding the OLD one waits for a push that cannot come.
+    f.invite_dev.tx_dst = 77;
+    CHECK(f.m.state().invite.sel_id == 200);                       // the freeze itself is unchanged (F-14)...
+    f.m.on_gesture(Gesture::double_press, s);
+    // ★★★ EXACTLY ONE FORWARD, on the FROZEN hash, on the TEAM plane.
+    CHECK(f.invite_dev.grants == 1);
+    CHECK(f.invite_dev.grant_hash == 0xAABBCCDDu);
+    CHECK(f.invite_dev.grant_plane == mrui::kInviteGrantPlane);
+    CHECK(f.invite_dev.grant_plane == MESHROUTE_NS::Plane::TEAM);
+    // ★★★★ AND THE PANEL SAYS `GRANT QUEUED` — ⛔ NOT `KEY SENT` (F-9, the headline): nothing has aired yet.
+    CHECK(f.m.state().provisioning == Provision::invite_result);
+    CHECK(f.m.state().grant.st == mrui::InviteGrantState::queued);
+    CHECK(strcmp(mrui::invite_grant_word(f.m.state().grant.st), "GRANT QUEUED") == 0);
+    CHECK(strcmp(mrui::invite_grant_word(f.m.state().grant.st), "KEY SENT") != 0);
+    // ...the verdict carries its OWN identity, because the window is gone (P-7c).
+    CHECK(f.m.state().grant.hash == 0xAABBCCDDu);
+    // ★★★★ THE CORRELATION'S SECOND TERM IS THE **CORE'S** ANSWER (§UI-16 N6b), ⛔ not the frozen row's id.
+    CHECK(f.m.state().grant.dst == 77);
+    CHECK(f.m.state().grant.dst != 200);                           // ⛔ ...and provably not the selection's
+    CHECK(f.m.state().grant.ctr == 4242);
+    CHECK(f.m.state().invite.taken == false);                      // the act ENDED the window
+    CHECK(f.m.state().invite.sel_hash == 0);
+    // ⛔ NO DURABLE WRITE, NO TRANSACTION, NO LIVE APPLY: a grant is airtime, ⛔ never a provisioning act.
+    CHECK(f.store.writes == 0);
+    CHECK(f.prov.calls == 0);
+    CHECK(f.live.applies == 0);
+    // ★★ PIN 9 — TERMINAL, ACKNOWLEDGED BY EITHER PRESS, and ⛔ acknowledging RE-RUNS NOTHING.
+    f.m.on_gesture(Gesture::short_press, s);
+    CHECK(f.m.state().provisioning == Provision::menu);
+    CHECK(f.invite_dev.grants == 1);
+    CHECK(f.m.state().grant.st == mrui::InviteGrantState::none);   // ...and the verdict is retired with the screen
+    {   // the OTHER press acknowledges it too
+        CreateFix g;
+        auto t = invite_snap(1);
+        CHECK(open_invite(g, t));
+        add_member(t, 200, 0xAABBCCDDu);
+        CHECK(invite_cursor_to(g.m, t, 0xAABBCCDDu));
+        g.m.on_gesture(Gesture::double_press, t);
+        g.m.on_gesture(Gesture::short_press, t);
+        g.m.on_gesture(Gesture::double_press, t);
+        CHECK(g.m.state().provisioning == Provision::invite_result);
+        g.m.on_gesture(Gesture::double_press, t);
+        CHECK(g.m.state().provisioning == Provision::menu);
+        CHECK(g.m.state().grant.st == mrui::InviteGrantState::none);
+    }
+}
+
+TEST_CASE("ui16-grantpush: only a CORRELATED push promotes the verdict, and only on the verdict screen") {
     CreateFix f;
     auto s = invite_snap(1);
     CHECK(open_invite(f, s));
@@ -6991,6 +7312,119 @@ TEST_CASE("ui16-invalarm: `long_arm` PRE-EMPTS the window, and the handled set d
     CHECK(invite_cursor_to(f.m, s, 0xAABBCCDDu));
     f.m.on_gesture(Gesture::double_press, s);
     f.m.on_gesture(Gesture::short_press, s);
+    f.invite_dev.tx_ctr = 4242;
+    f.invite_dev.tx_dst = 77;                                       // §UI-16 N6b: a re-DAD moved the member off 200
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::invite_result);
+    CHECK(f.m.state().grant.st == mrui::InviteGrantState::queued);
+    auto aired = [](uint8_t dst, uint16_t ctr) {
+        MESHROUTE_NS::Push pu{};
+        pu.kind = MESHROUTE_NS::PushKind::send_aired; pu.dst = dst; pu.ctr = ctr; return pu;
+    };
+    // ⛔ BOTH TERMS: a different dst and a different ctr each leave `GRANT QUEUED` standing.
+    CHECK(f.m.on_invite_grant_push(aired(201, 4242)) == false);
+    CHECK(f.m.state().grant.st == mrui::InviteGrantState::queued);
+    CHECK(f.m.on_invite_grant_push(aired(77, 4243)) == false);
+    CHECK(f.m.state().grant.st == mrui::InviteGrantState::queued);
+    // ⛔⛔ AND THE **FROZEN** ID DOES NOT PROMOTE IT EITHER (§UI-16 N6b, blocker 2): the row said 200, the core
+    //     aired to 77, and a screen correlating on what it remembered would hang at `GRANT QUEUED` for ever.
+    CHECK(f.m.on_invite_grant_push(aired(200, 4242)) == false);
+    CHECK(f.m.state().grant.st == mrui::InviteGrantState::queued);
+    // ★★★ THE CORRELATED EDGE PROMOTES — and it marks the frame dirty, or the truth would be invisible.
+    f.m.on_tick(s);                                                 // consume any pending repaint
+    const bool was_dirty = f.m.state().dirty;
+    CHECK(f.m.on_invite_grant_push(aired(77, 4242)) == true);
+    CHECK(f.m.state().grant.st == mrui::InviteGrantState::sent);
+    CHECK(strcmp(mrui::invite_grant_word(f.m.state().grant.st), "KEY SENT") == 0);
+    CHECK((f.m.state().dirty || was_dirty));
+    CHECK(f.m.state().provisioning == Provision::invite_result);    // ⛔ a push NEVER navigates
+    // ⛔ ...AND OFF THE VERDICT SCREEN NOTHING IS PROMOTED: once acknowledged there is nothing to upgrade.
+    f.m.on_gesture(Gesture::short_press, s);
+    CHECK(f.m.state().provisioning == Provision::menu);
+    CHECK(f.m.on_invite_grant_push(aired(77, 4242)) == false);
+    CHECK(f.m.state().provisioning == Provision::menu);
+    // ★★★★ AND THE ALARM'S PATH IS THE ONE THAT LEAVES A LIVE VERDICT BEHIND: `long_arm` -> `close_provisioning`
+    //      retires the ARM and the window through `provision_reset_on_leave`, which by design knows nothing about
+    //      the verdict — so the queued `{dst, ctr}` is still in RAM. ⛔ A push may NOT promote it there: the panel
+    //      is showing an EMERGENCY, and a screen nobody can see may not be told a private key aired.
+    {
+        CreateFix g;
+        auto t = invite_snap(1);
+        CHECK(open_invite(g, t));
+        add_member(t, 200, 0xAABBCCDDu);
+        CHECK(invite_cursor_to(g.m, t, 0xAABBCCDDu));
+        g.m.on_gesture(Gesture::double_press, t);
+        g.m.on_gesture(Gesture::short_press, t);
+        g.invite_dev.tx_ctr = 4242;
+        g.invite_dev.tx_dst = 77;
+        g.m.on_gesture(Gesture::double_press, t);
+        CHECK(g.m.state().provisioning == Provision::invite_result);
+        g.m.on_gesture(Gesture::long_arm, t);
+        CHECK(g.m.state().provisioning == Provision::closed);
+        CHECK(g.m.state().grant.st == mrui::InviteGrantState::queued);   // ⚠ still in RAM, by construction
+        CHECK(g.m.on_invite_grant_push(aired(77, 4242)) == false);       // ⛔ ...and unreachable to a push
+        CHECK(g.m.state().grant.st == mrui::InviteGrantState::queued);
+    }
+}
+
+TEST_CASE("ui16-grantwindow: pin 8 — a double that lands on an EXPIRED window grants NOTHING") {
+    // ★★★★ THE TICK RUNS **AFTER** THE GESTURE, so this is the one ordering in which the ruled five minutes could
+    //      fail to bound the act: without the guard the grant fires and the closing tick arrives afterwards.
+    CreateFix f;
+    auto s = invite_snap(1);
+    CHECK(open_invite(f, s));
+    add_member(s, 200, 0xAABBCCDDu);
+    CHECK(invite_cursor_to(f.m, s, 0xAABBCCDDu));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);
+    CHECK(f.m.state().prov_confirm == ProvConfirm::invite_grant);
+    UiSnapshot late = s; late.now_ms = 1000 + mrui::kInviteWindowMs;   // EXACTLY the deadline: already closed
+    f.m.on_gesture(Gesture::double_press, late);
+    CHECK(f.invite_dev.grants == 0);
+    CHECK(f.m.state().provisioning == Provision::invite_closed);
+    CHECK(f.m.state().grant.st == mrui::InviteGrantState::none);
+    // ...and one millisecond EARLIER it is still a live window, so the guard is an EDGE and not a blanket refusal.
+    CreateFix g;
+    auto t = invite_snap(1);
+    CHECK(open_invite(g, t));
+    add_member(t, 200, 0xAABBCCDDu);
+    CHECK(invite_cursor_to(g.m, t, 0xAABBCCDDu));
+    g.m.on_gesture(Gesture::double_press, t);
+    g.m.on_gesture(Gesture::short_press, t);
+    UiSnapshot just = t; just.now_ms = 1000 + mrui::kInviteWindowMs - 1;
+    g.m.on_gesture(Gesture::double_press, just);
+    CHECK(g.invite_dev.grants == 1);
+    CHECK(g.m.state().provisioning == Provision::invite_result);
+}
+
+TEST_CASE("ui16-grantseam: with NO seam attached the grant performs nothing and claims nothing") {
+    // ⛔ FAIL CLOSED (C2), the N5 QG blocker's shape one screen over: an unattached model must ⛔ not enter a
+    //    verdict screen for an act that never ran.
+    CfgFix f;                                                        // ⛔ no `attach_invite` — this is the point
+    UiFakeProvision prov; prov.m = &f.m; f.m.attach_provision(prov);
+    auto s = invite_snap(1);
+    CHECK(open_invite(f, s));
+    add_member(s, 200, 0xAABBCCDDu);
+    CHECK(invite_cursor_to(f.m, s, 0xAABBCCDDu));
+    f.m.on_gesture(Gesture::double_press, s);
+    // ⓘ With no seam the preflight fails closed, so the candidate lands on NEED PUBKEY — and its own BACK-default
+    //   request cannot run either. The grant-ready arm is reached here only by driving the state directly, which
+    //   is what the second half of this case does.
+    CHECK(f.m.state().provisioning == Provision::invite_need_pubkey);
+    f.m.on_gesture(Gesture::short_press, s);
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::invite_need_pubkey);   // ⛔ no WAITING claim, no act
+    CHECK(f.m.state().grant.st == mrui::InviteGrantState::none);
+    CHECK(f.store.writes == 0);
+}
+
+TEST_CASE("ui16-invalarm: `long_arm` PRE-EMPTS the window, and the handled set does not survive it (P-14)") {
+    CreateFix f;
+    auto s = invite_snap(1);
+    CHECK(open_invite(f, s));
+    add_member(s, 200, 0xAABBCCDDu);
+    CHECK(invite_cursor_to(f.m, s, 0xAABBCCDDu));
+    f.m.on_gesture(Gesture::double_press, s);
     f.m.on_gesture(Gesture::double_press, s);                       // REJECT — the set now holds one hash
     CHECK(f.m.state().invite.handled_n == 1);
     f.m.on_gesture(Gesture::long_arm, s);

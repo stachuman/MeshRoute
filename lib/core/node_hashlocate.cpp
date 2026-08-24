@@ -1581,7 +1581,17 @@ void Node::on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool auth
 //
 // ★ A future slice that "fixes" this annoyance by auto-resolving is REVERSING A RULING, not improving ergonomics.
 // And do not add a config knob to enable auto-resolution — that was ruled out with it.
-uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t reply_to_hash, uint16_t mobile_ctr, Plane plane, uint8_t type, bool suppress_intro) {
+// ★★★★ §UI-16 N6b (2026-08-24) — `out_dispatch`, AND WHAT IT IS FOR. The return value has always been *"the ctr if
+// sent immediately, else 0"*, and both halves of that are ambiguous: a non-zero ctr survives a FULL TX QUEUE (the
+// frame is dropped and the counter is still minted) and a zero one covers a stored park, a FULL PARKED RING and a
+// loud refusal alike. ⇒ each arm below now states its OWN admission through the out-parameter, together with the
+// destination it RESOLVED AT SEND TIME. ⛔ NOTHING ELSE MOVED: no branch changed, no drop became a retry, no emit
+// was added or reordered, and `nullptr` (every pre-existing caller) is byte-for-byte the previous function.
+// ⓘ AN ARM THAT LEAVES IT AT `Admit::none` IS SAYING SOMETHING TRUE — *"no admission point was reached"* — and every
+//   such arm has already called `push_send_failed`. The cross-layer arm is deliberately among them: a type-19 is
+//   REFUSED inside `enqueue_cross_layer` (node_mac.cpp, §team-ch-key T-K3), and exposing that arm's own handle is
+//   ruled a separate behaviour change by the `return 0` note at its site (C1).
+uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t reply_to_hash, uint16_t mobile_ctr, Plane plane, uint8_t type, bool suppress_intro, SendDispatch* out_dispatch) {
     // §S2 INTRO first-contact attach (D1): at ORIGINATION (type==0 = not a pre-built INTRO; reply_to_hash==0 = not a
     // HOME re-originating for its mobile), a PLAINTEXT hash-addressed send rides as DATA_TYPE_INTRO carrying our
     // pubkey iff intro_attach_prefix says so (no peer_confirmed(dst), a crypto identity exists, cfg on, plaintext,
@@ -1605,15 +1615,21 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     if (plane == Plane::TEAM) {
         uint8_t tid = 0;
         if (_cfg.team_id != 0 && team_id_of_key(key_hash32, tid))
-            return do_send(tid, sbody, sblen, flags, crypt, /*override_dst_hash=*/0, /*type=*/itype, /*override_source_hash=*/reply_to_hash, Plane::TEAM);
+            // ★ `tid` IS THE SEND-TIME RESOLUTION (§UI-16 N6b): it is read from the team-key cache HERE, not frozen by
+            //   a caller, so a re-DAD between a UI selection and this line lands the frame on the NEW id — which is
+            //   why the dispatch carries the id `enqueue_data` really addressed rather than the one the caller held.
+            return do_send(tid, sbody, sblen, flags, crypt, /*override_dst_hash=*/0, /*type=*/itype, /*override_source_hash=*/reply_to_hash, Plane::TEAM, out_dispatch);
         // §F-TR-1: an UNHEARD teammate (>1 hop away, not in the beacon-only team-key cache) is resolved by a TEAM-SCOPED H
         // flood (emit_hash_query TEAM => team_scoped + origin=team_local_id; the answer routes home via _rt_team) — mirrors
         // the off-grid AUTO team path (:~1146). EXPLICIT `-t` WINS over the home-delegation default: a REGISTERED dual member
         // reaches HERE (the plane check precedes the delegate branch below) and floods the TEAM plane itself — no home. Gated
         // on team_local_id()!=0 (a routable team origin); a team member with no adopted team id still fails loud below.
         if (_cfg.team_id != 0 && team_local_id() != 0) {
-            park_send(key_hash32, sbody, sblen, flags, crypt, /*reply_to_hash=*/reply_to_hash, /*mobile_ctr=*/mobile_ctr, /*type=*/itype,
-                      /*reflood=*/true, /*reflood_hard=*/false, /*reflood_plane=*/Plane::TEAM);
+            // §UI-16 N6b: the park's OWN answer — `false` means the ring was full and this send was DROPPED, which
+            // used to be indistinguishable from a stored park (both returned 0 here).
+            const bool stored = park_send(key_hash32, sbody, sblen, flags, crypt, /*reply_to_hash=*/reply_to_hash, /*mobile_ctr=*/mobile_ctr, /*type=*/itype,
+                                          /*reflood=*/true, /*reflood_hard=*/false, /*reflood_plane=*/Plane::TEAM);
+            if (out_dispatch) out_dispatch->admit = stored ? SendDispatch::Admit::parked : SendDispatch::Admit::refused;
             emit_hash_query(key_hash32, /*hard=*/false, /*want_pubkey=*/false, Plane::TEAM);   // §no-auto-reqpubkey (see the header note): want_pubkey stays FALSE, owner-ratified 2026-07-29
             return 0;
         }
@@ -1625,7 +1641,7 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     IdBindConf conf = IdBindConf::claimed;
     const int id = id_bind_find_by_hash(key_hash32, &conf);
     if (id >= 0 && conf == IdBindConf::authoritative) {         // confident binding -> send NOW (a mobile still routes via its home; the reply returns by SOURCE_HASH -> no H-query, no storm)
-        const uint16_t ch = do_send(static_cast<uint8_t>(id), sbody, sblen, flags, crypt, /*override_dst_hash=*/0, /*type=*/itype, /*override_source_hash=*/reply_to_hash, plane);   // §8b: thread the per-message crypt intent + Wave 2 plane; §S2: itype threads an auto-attached INTRO
+        const uint16_t ch = do_send(static_cast<uint8_t>(id), sbody, sblen, flags, crypt, /*override_dst_hash=*/0, /*type=*/itype, /*override_source_hash=*/reply_to_hash, plane, out_dispatch);   // §8b: thread the per-message crypt intent + Wave 2 plane; §S2: itype threads an auto-attached INTRO
         if (reply_to_hash != 0) deleg_ack_put(reply_to_hash, ch, mobile_ctr);   // §mobile reverse-ack: HOME re-originating for its mobile toward a STATIC target -> map ctr_H->ctr_M keyed by the MOBILE's hash (no-op if mobile_ctr==0)
         return ch;
     }
@@ -1636,7 +1652,7 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     if (plane != Plane::GLOBAL && _cfg.is_mobile && _cfg.team_id != 0) {
         uint8_t tid = 0;
         if (team_id_of_key(key_hash32, tid))
-            return do_send(tid, sbody, sblen, flags, crypt, /*override_dst_hash=*/0, /*type=*/itype, /*override_source_hash=*/reply_to_hash, /*plane=*/Plane::TEAM);   // resolved to a teammate -> force the team plane
+            return do_send(tid, sbody, sblen, flags, crypt, /*override_dst_hash=*/0, /*type=*/itype, /*override_source_hash=*/reply_to_hash, /*plane=*/Plane::TEAM, out_dispatch);   // resolved to a teammate -> force the team plane
     }
 #endif
     // §mobile delegate (2026-07-11): UNRESOLVED + we are the MOBILE (reply_to_hash==0) -> DO NOT flood an H query (origin=our
@@ -1679,7 +1695,8 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
             for (uint8_t i = 0; i < rn; ++i) wbody[1 + i] = rbody[i];
             return do_send(_my_mobile_reg.home_id, wbody, static_cast<uint8_t>(rn + 1),
                            static_cast<uint8_t>(flags | DATA_FLAG_MS_ENCLOSED_TYPE), CryptIntent::off,
-                           /*override_dst_hash=*/key_hash32, /*type=*/DATA_TYPE_MOBILE_SEND);
+                           /*override_dst_hash=*/key_hash32, /*type=*/DATA_TYPE_MOBILE_SEND,
+                           /*override_source_hash=*/0, /*plane=*/Plane::AUTO, out_dispatch);
         }
         if (itype != 0) {
             // §S2 same-layer delegated INTRO (spec §3b): the SAME-LAYER MOBILE_SEND wrapper has no enclosed-type byte,
@@ -1690,9 +1707,11 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
             for (uint8_t i = 0; i < sblen; ++i) wbody[1 + i] = sbody[i];
             return do_send(_my_mobile_reg.home_id, wbody, static_cast<uint8_t>(sblen + 1),
                            static_cast<uint8_t>(flags | DATA_FLAG_MS_ENCLOSED_TYPE), crypt,
-                           /*override_dst_hash=*/key_hash32, /*type=*/DATA_TYPE_MOBILE_SEND);
+                           /*override_dst_hash=*/key_hash32, /*type=*/DATA_TYPE_MOBILE_SEND,
+                           /*override_source_hash=*/0, /*plane=*/Plane::AUTO, out_dispatch);
         }
-        return do_send(_my_mobile_reg.home_id, sbody, sblen, flags, crypt, /*override_dst_hash=*/key_hash32, /*type=*/DATA_TYPE_MOBILE_SEND);
+        return do_send(_my_mobile_reg.home_id, sbody, sblen, flags, crypt, /*override_dst_hash=*/key_hash32, /*type=*/DATA_TYPE_MOBILE_SEND,
+                       /*override_source_hash=*/0, /*plane=*/Plane::AUTO, out_dispatch);
     }
     // §mobile: a mobile WE HOST (in our _mobile_reg) is reached by a DIRECT last-mile (addr_len=1 -> its local id), NOT an H
     // query — the home is BOTH the querier and the proxy, so a flood deadlocks (the registered mobile suppresses its own-hash
@@ -1707,7 +1726,7 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
         if (_active->_mobile_reg[i].key_hash32 == key_hash32 && host_row_live_direct(i)) {
             const uint16_t lch = enqueue_data(_active->_mobile_reg[i].mobile_local_id, sbody, sblen, flags, "tx_enqueue", /*app_dm=*/true,
-                                              /*type=*/itype, crypt, /*override_dst_hash=*/0, /*override_source_hash=*/reply_to_hash, /*addr_len=*/1, plane);
+                                              /*type=*/itype, crypt, /*override_dst_hash=*/0, /*override_source_hash=*/reply_to_hash, /*addr_len=*/1, plane, out_dispatch);
             // ★ §xl-deleg-ack: the THIRD site that stamped the mobile's SOURCE_HASH without mapping ctr_H->ctr_M. Reached
             // when a home hosts BOTH the delegating mobile and the target: the target acks to us with DST_HASH = M, and the
             // hosted-mobile last-mile fork's deleg_ack_translate missed, so M received the HOME's ctr. Same one-line shape.
@@ -1753,7 +1772,7 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
         // (the target acks to the home with DST_HASH = M, the last-mile fork rewrites the ctr via
         // deleg_ack_translate, and a MISS forwarded the HOME's ctr to a mobile awaiting its own). The XL-CRYPT note that
         // sat here claimed this line already called deleg_ack_put; it did not — corrected per V1 while fixing it.
-        const uint16_t hch = do_send(static_cast<uint8_t>(home), sbody, sblen, flags, crypt, /*override_dst_hash=*/key_hash32, /*type=*/itype, /*override_source_hash=*/reply_to_hash);
+        const uint16_t hch = do_send(static_cast<uint8_t>(home), sbody, sblen, flags, crypt, /*override_dst_hash=*/key_hash32, /*type=*/itype, /*override_source_hash=*/reply_to_hash, /*plane=*/Plane::AUTO, out_dispatch);
         if (reply_to_hash != 0) deleg_ack_put(reply_to_hash, hch, mobile_ctr);   // §mobile reverse-ack: same shape as the id_bind arm above (no-op if mobile_ctr==0)
         return hch;
     }
@@ -1767,14 +1786,16 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     // (vs the AUTO param) guarantees the team scope + the team_local_id origin. (reply_to_hash==0 = our own origination; a
     // HOME re-originating for its mobile falls through to the global flood below.)
     if (reply_to_hash == 0 && _cfg.is_mobile && _cfg.team_id != 0 && !mobile_registered()) {
-        park_send(key_hash32, sbody, sblen, flags, crypt, /*reply_to_hash=*/reply_to_hash, /*mobile_ctr=*/mobile_ctr, /*type=*/itype,
-                  /*reflood=*/true, /*reflood_hard=*/false, /*reflood_plane=*/Plane::TEAM);   // §F-SL-1: a quiet-net team flood miss re-tries before giveup
+        const bool stored = park_send(key_hash32, sbody, sblen, flags, crypt, /*reply_to_hash=*/reply_to_hash, /*mobile_ctr=*/mobile_ctr, /*type=*/itype,
+                                      /*reflood=*/true, /*reflood_hard=*/false, /*reflood_plane=*/Plane::TEAM);   // §F-SL-1: a quiet-net team flood miss re-tries before giveup
+        if (out_dispatch) out_dispatch->admit = stored ? SendDispatch::Admit::parked : SendDispatch::Admit::refused;   // §UI-16 N6b
         emit_hash_query(key_hash32, /*hard=*/false, /*want_pubkey=*/false, Plane::TEAM);   // §no-auto-reqpubkey (see the header note)
         return 0;
     }
 #endif
-    park_send(key_hash32, sbody, sblen, flags, crypt, /*reply_to_hash=*/reply_to_hash, /*mobile_ctr=*/mobile_ctr, /*type=*/itype,
-              /*reflood=*/true, /*reflood_hard=*/(id >= 0), /*reflood_plane=*/plane);   // §F-SL-1: bounded jittered retry so a re-homed contact re-resolves in a quiet net
+    const bool parked_ok = park_send(key_hash32, sbody, sblen, flags, crypt, /*reply_to_hash=*/reply_to_hash, /*mobile_ctr=*/mobile_ctr, /*type=*/itype,
+                                     /*reflood=*/true, /*reflood_hard=*/(id >= 0), /*reflood_plane=*/plane);   // §F-SL-1: bounded jittered retry so a re-homed contact re-resolves in a quiet net
+    if (out_dispatch) out_dispatch->admit = parked_ok ? SendDispatch::Admit::parked : SendDispatch::Admit::refused;   // §UI-16 N6b
     emit_hash_query(key_hash32, /*hard=*/(id >= 0), /*want_pubkey=*/false, plane);   // Wave 2: GLOBAL flood is NOT team-scoped; AUTO keeps today's behavior. §no-auto-reqpubkey (see the header note): a CRYPTED send to an unresolved hash fails loud with no_pubkey — it does NOT escalate to WANT_PUBKEY
     return 0;
 }
@@ -1888,8 +1909,14 @@ Node::HQueryOutcome Node::emit_hash_query(uint32_t query_key32, bool hard, bool 
     return HQueryOutcome::sent;
 }
 
-void Node::park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t reply_to_hash, uint16_t mobile_ctr, uint8_t type, bool reflood, bool reflood_hard, Plane reflood_plane) {
-    if (_parked_sends_n >= protocol::cap_parked_sends) return;   // full -> drop (the app can retry)
+// ★★ §UI-16 N6b (2026-08-24): it RETURNS its disposition — `false` = the ring was FULL and this send was DROPPED.
+// ⛔ THE BEHAVIOUR IS UNCHANGED (the drop was there before and stays; the app still retries); what changed is that
+// the answer is no longer thrown away one frame up. Same shape and same reason as `emit_hash_query`'s §id-hash S1b
+// return: a function with a silent early-out whose caller was reporting that early-out to the app as a success.
+// ⓘ Every pre-existing caller ignores the value deliberately — they are best-effort parks whose failure is already
+//   covered by the H re-flood and the giveup, and giving them outcome handling would be a behaviour change (C1).
+bool Node::park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t reply_to_hash, uint16_t mobile_ctr, uint8_t type, bool reflood, bool reflood_hard, Plane reflood_plane) {
+    if (_parked_sends_n >= protocol::cap_parked_sends) return false;   // full -> drop (the app can retry)
     ParkedSend& p = _parked_sends[_parked_sends_n++];
     p = ParkedSend{};                                           // reset a RECYCLED slot: the array is compacted in
     // place (drain/age-out never clear vacated slots), so a slot last used by an L2c redirect would otherwise
@@ -1915,6 +1942,7 @@ void Node::park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len,
     for (uint8_t i = 0; i < p.body_len; ++i) p.body[i] = body[i];
     MR_EMIT("send_parked_for_hash", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
     if (reflood) park_reflood_arm();
+    return true;
 }
 
 // §F-SL-1: (re)arm the shared re-flood scan timer to the EARLIEST pending re-flood among parked sends. A one-shot

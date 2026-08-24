@@ -397,6 +397,20 @@ records. Filtering belongs to the view/adapter:
 The sequence stream is still shared. Advancing a DM read/sync cursor across an internal
 record is valid; it does not make that record an unread user message.
 
+This presentation filter is independent of the live protocol-specific result. Receiving
+a valid E2E ACK must still enqueue `send_e2e_acked` immediately, and an exactly correlated
+local send may therefore move to `DELIVERED` without waiting for an inbox pull or redraw.
+Hiding the stored receipt from the ordinary inbox must not suppress, delay, recreate or
+otherwise mediate that live push.
+
+Filtering occurs before any visible row budget or visible-total calculation. In
+particular, the OLED adapter must not publish the raw record count returned by
+`Inbox::pull()` as `inbox_total`: it counts only application records admitted to the
+ordinary view. Internal records therefore consume neither one of the per-kind visible row
+slots nor the ordinary-view total, while the raw pull still visits and reports them. This
+also ensures that internal records preceding a newer application message cannot hide that
+message behind the display budget.
+
 ### 7.5 Individual deletion and whole-inbox clear
 
 An internal report has no deletion protection. Once its sequence is known from the
@@ -902,7 +916,10 @@ own sub-slice before expanding semantics.
 
 - generalize internal-outcome record classification;
 - make E2E ACK use symbolic traits rather than literal 3;
-- exclude internal records from default companion/OLED inbox and unread presentation;
+- exclude internal records from default companion/OLED inbox and unread presentation,
+  before applying visible row budgets or visible-total calculations;
+- preserve the independent live `send_e2e_acked` fast path and its exact-correlation
+  transition to `DELIVERED`;
 - retain them in diagnostic pull;
 - prove ordinary eviction/deletion applies equally.
 
@@ -1025,6 +1042,12 @@ No slice adds automatic payload retry.
 8. Normal fixed/durable drop-oldest eviction may remove it; no reserved capacity exists.
 9. `clear_inbox` without confirmation is inert; confirmed clear wipes both stores, retains
    high-water values, resets cursors, increments epoch once and leaves non-inbox state.
+10. One received E2E ACK simultaneously proves both independent paths: the exactly
+    correlated live send becomes `DELIVERED`, while the stored receipt contributes no
+    ordinary OLED/companion row, visible total or unread count.
+11. Raw diagnostic pull still returns that same stored E2E-ACK record, and ordinary
+    application records following any number of internal records remain eligible for the
+    newest-visible row budget.
 
 ### 18.6 Correlation
 

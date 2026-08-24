@@ -175,8 +175,9 @@ constexpr uint8_t kGrantMinLen    = kGrantTeamIdLen + 1 + kGrantPrivLen;        
 // ORIGINATION. Pre-flights the refusals an operator/app can act on, then hands the sealed send to the ORDINARY
 // send-by-hash machinery (U1 — no parallel send path). CryptIntent::on is forced, never `def`: a node with e2e_dm
 // OFF must still not be able to air this in the clear, and enqueue_data's type-19 guard makes that structural.
-Node::TeamKeyGrantTx Node::team_key_grant_send(uint32_t target_hash, const char* name, uint8_t name_len, Plane plane, uint16_t* out_ctr) {
+Node::TeamKeyGrantTx Node::team_key_grant_send(uint32_t target_hash, const char* name, uint8_t name_len, Plane plane, uint16_t* out_ctr, uint8_t* out_dst) {
     if (out_ctr) *out_ctr = 0;
+    if (out_dst) *out_dst = 0;
     if (_cfg.team_id == 0)              return TeamKeyGrantTx::no_team;
     const uint8_t* priv = team_channel_priv();                                            // nullptr while keyless (node.h) — never a zero buffer
     if (!priv)                          return TeamKeyGrantTx::no_key;
@@ -228,13 +229,40 @@ Node::TeamKeyGrantTx Node::team_key_grant_send(uint32_t target_hash, const char*
     body[n++] = nlen;
     for (uint8_t i = 0; i < nlen; ++i) body[n++] = static_cast<uint8_t>(name[i]);
     for (uint8_t i = 0; i < kGrantPrivLen; ++i) body[n++] = priv[i];
-    const uint16_t ctr = send_by_hash(target_hash, body, n, /*flags=*/0, CryptIntent::on, /*reply_to_hash=*/0,
-                                      /*mobile_ctr=*/0, plane, DATA_TYPE_TEAM_KEY_GRANT);
+    SendDispatch dsp{};                                      // §UI-16 N6b: the dispatch's own facts, no longer discarded
+    // ⚠ `[[maybe_unused]]` IS LOAD-BEARING AND IS [[B169]]'s SHAPE, ⛔ not decoration: after N6b the ONLY remaining
+    //   reader of this local is the `MR_EMIT` below, and `MR_TELEMETRY` strips that ENTIRELY on every board env
+    //   (`MESHROUTE_NO_TELEMETRY`) ⇒ without it the ten board builds would fail `-Wunused-variable` while native and
+    //   the corpus stayed green. ⛔ The emit itself keeps publishing `send_by_hash`'s OWN return (⛔ never `dsp.ctr`),
+    //   because changing an emitted value is a corpus re-anchor and this slice must be inert.
+    [[maybe_unused]] const uint16_t ctr =
+        send_by_hash(target_hash, body, n, /*flags=*/0, CryptIntent::on, /*reply_to_hash=*/0,
+                     /*mobile_ctr=*/0, plane, DATA_TYPE_TEAM_KEY_GRANT, /*suppress_intro=*/false, &dsp);
     crypto_wipe(body, sizeof body);                          // the private half was in this frame — scrub it
-    if (out_ctr) *out_ctr = ctr;
     MR_EMIT("team_key_grant_tx", EF_I("hash", static_cast<int64_t>(target_hash)),
             EF_I("team", static_cast<int64_t>(_cfg.team_id)), EF_I("ctr", ctr), EF_I("nlen", nlen));
-    return TeamKeyGrantTx::queued;
+    // ★★★★ §UI-16 N6b (2026-08-24, QG-ruled) — THE DISPATCH IS NOW **REPORTED**, NOT INFERRED. This function used to
+    //      `return TeamKeyGrantTx::queued` unconditionally on reaching this line, so THREE genuinely different
+    //      outcomes wore one word and the screen split them on the COUNTER — which is not an admission signal:
+    //        · a FULL TX QUEUE dropped the frame and still returned a non-zero `ctr`  ⇒ `queued` was FALSE;
+    //        · a FULL PARKED RING stored nothing and returned 0                        ⇒ "parked" was FALSE;
+    //        · a loud pre-admission refusal (the joining gate, a seal failure, the type-19 delegate/cross-layer
+    //          structural refusals, a TEAM plane with no routable team origin) also returned 0 ⇒ both were FALSE.
+    //      Each of those facts was ALREADY computed one or two frames down; all this does is carry it up (C1: no
+    //      branch moved, no drop became a retry, nothing new is emitted — the `team_key_grant_tx` emit above is
+    //      unchanged and still fires for every arm, which is what keeps the corpus inert).
+    // ⛔ THE TWO CORRELATION TERMS ARE WRITTEN ONLY FOR AN ADMITTED FLIGHT, and `dsp.dst` is the SEND-TIME resolved
+    //    id (`send_by_hash` re-resolves the hash against the CURRENT binding) — ⛔ never an id the caller froze.
+    switch (dsp.admit) {
+        case SendDispatch::Admit::queued:
+            if (out_ctr) *out_ctr = dsp.ctr;
+            if (out_dst) *out_dst = dsp.dst;
+            return TeamKeyGrantTx::queued;
+        case SendDispatch::Admit::parked:  return TeamKeyGrantTx::parked;
+        case SendDispatch::Admit::refused: return TeamKeyGrantTx::queue_full;
+        case SendDispatch::Admit::none:    return TeamKeyGrantTx::send_failed;
+    }
+    return TeamKeyGrantTx::send_failed;   // ⛔ unreachable (-Wswitch guards the four arms); a REFUSAL, never a claim
 }
 
 // RECEIPT. Called ONLY from the delivery path, ONLY after a successful open (node_mac_rx.cpp) — `body` is already the

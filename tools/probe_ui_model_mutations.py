@@ -149,6 +149,19 @@ TARGET_SRC = {
     "uinearbyrow": "src/firmware_ui_nearby_row.h",  # §UI-16 N2 — the `n/3` tier map + the fingerprint/age row (S-6/S-7)
     "teamseen":     "lib/core/team_seen_ring.h",  # §UI-16 N1 — the pure nearby-team ring: de-dup, EWMA, retention, order
     "teamseensite": "lib/core/node_beacon.cpp",   # §UI-16 N1 — the ONE write site: eligibility + the read-only discipline
+    # ★★ ADDED 2026-08-24 BY §UI-16 N6b, and for the reason every target above it was added: the grant's DISPATCH
+    #    RESULT — *actually queued* vs *actually parked* vs *an admission refusal* vs *a pre-admission failure* — is
+    #    a four-way mapping of facts the send path computes, and EVERY ONE of the four used to be returned as
+    #    `queued`. Each collapse must be attackable ON ITS OWN, and a battery is per-SOURCE-FILE. ⓘ ONE target and
+    #    not three: the two FACTS (`node_mac.cpp`'s admission, `node_hashlocate.cpp`'s park) are single-expression
+    #    reports of an existing `if`, while the DECISIONS — what each fact is called, and whether the correlation
+    #    terms are published at all — all live in `team_key_grant_send`.
+    "teamgrant":    "lib/core/node.cpp",          # §UI-16 N6b — the grant's explicit dispatch result + its two terms
+    # ⓘ ...AND THE TWO **FACT** SITES GET ONE ENTRY EACH, in their own files, because a battery is per-SOURCE-FILE
+    #   and the facts are where the collapse ORIGINATES: `teamgrant` above attacks what each fact is CALLED, these
+    #   two attack whether the fact is TOLD AT ALL. One `if`'s own answer each, at match count 1.
+    "grantadmit":   "lib/core/node_mac.cpp",      # §UI-16 N6b — enqueue_data's TX-queue admission fact
+    "grantpark":    "lib/core/node_hashlocate.cpp",  # §UI-16 N6b — park_send's stored-or-dropped fact
 }
 _flags = [a for a in sys.argv[1:] if a.startswith("--")]
 
@@ -215,7 +228,126 @@ H = os.path.join(ROOT, TARGET_SRC[_TARGET])
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2043, 90143     # ★★ CROSS-CHECK RE-SYNCED 2026-08-23 by §CHROME-5 (the status
+PIN_CASES, PIN_ASSERTS = 2071, 90950     # ★★ CROSS-CHECK RE-SYNCED 2026-08-24 by §UI-16 N6b (the grant's
+                                         # EXPLICIT dispatch result), then TWICE MORE the same day by its two
+                                         # QG evidence rounds: **2066 / 90717 -> 2070 / 90891 -> 2071 / 90923
+                                         # -> 2071 / 90950** (+5 cases / +233 assertions overall).
+                                         # ★ QG ROUND 2's DELTA (+0 cases / +27 assertions), MEASURED:
+                                         #  +22 — `ui16-grant-words` 87 -> 109: the hand-written array is
+                                         #    GONE. The sweep now walks `0 .. InviteGrantState::count - 1`,
+                                         #    so it visits `none` too (asserted to render "", while every
+                                         #    other state is asserted NON-empty) and the per-state checks
+                                         #    apply to 13 values instead of 12. ⛔ There is no literal count
+                                         #    left to keep in sync: a new state is swept BY CONSTRUCTION,
+                                         #    and one added without a word is a -Werror=switch BUILD
+                                         #    FAILURE in `invite_grant_word`.
+                                         #  +5 — `ui16-grant-parkfull-air` 23 -> 28: the aired frame is now
+                                         #    DECODED with the shipped `parse_h` (U1) and pinned as an H
+                                         #    query FOR THE UNRESOLVED HASH, with the successful-park
+                                         #    control decoded the same way — "one transmission" became
+                                         #    "one H query, and nothing else aired".
+                                         # ⛔ Round 2 changed only COMMENTS under `lib/` (three false
+                                         # "nothing will air" descriptions) plus `src/` + `test/`, so the
+                                         # corpus and the board builds are again NOT re-run.
+                                         # ★ THE QG ROUND's OWN DELTA (+1 case / +32 assertions), MEASURED:
+                                         #  +23 / +1 case — `ui16-grant-parkfull-air`, the H-lookup PIN: a
+                                         #    refused park stores no grant DATA but is ⛔ NOT radio-silent —
+                                         #    the arm's UNCHANGED `emit_hash_query` still airs EXACTLY ONE
+                                         #    H frame, counted on the HAL and pinned, with a successful park
+                                         #    measured as its control (the same one H).
+                                         #  +9 — `ui16-grant-words` 78 -> 87: the sweep was missing
+                                         #    `queue_full`, so the 19-column bound and the
+                                         #    forbidden-completion sweep had never been applied to
+                                         #    `GRANT QUEUE FULL`; the array's SIZE is now asserted too
+                                         #    (⚠ that assertion went RED on its own first run at `11u` —
+                                         #    the real figure is 12 word-bearing states — which is exactly
+                                         #    why the count lives in a CHECK and not in a comment).
+                                         # ⛔ Test/comment-only: no `lib/` line changed in this round, so
+                                         # the corpus and the board builds are NOT re-run (nothing they
+                                         # measure can have moved).
+                                         #
+                                         # The first N6b sync follows, kept visible as the delta's base:
+                                         # 2070 / 90891 — **2066 / 90717 -> 2070 / 90891**
+                                         # (+4 cases / +174 assertions), DERIVED from the clean run.
+                                         # ★ THE ARITHMETIC, and each half says how it was obtained:
+                                         #  +4 cases / +119 assertions — MEASURED case by case with
+                                         #    `program -tc=`: the four NEW real-core scenario cases in
+                                         #    `test/test_firmware_ui_invite.cpp` (target `uiinvite`) —
+                                         #    `ui16-grant-queuefull` **53** (the TX queue filled with
+                                         #    EIGHT real admitted grants, then the refusal, then the
+                                         #    proof that nothing aired and no push can promote it),
+                                         #    `ui16-grant-parkfull` **38** (the parked ring filled with
+                                         #    eight real parks, then the refusal) and
+                                         #    `ui16-grant-redad` **12** (the binding moves between
+                                         #    selection and send; the frozen id does NOT correlate and
+                                         #    the real one promotes), and `ui16-grant-noroute` **16**
+                                         #    (a send that reaches NO admission point at all: the core
+                                         #    already pushed `send_failed`, so the panel says GRANT
+                                         #    FAILED and ⛔ never the PARKED word the withdrawn
+                                         #    inference put there). 53+38+12+16 = 119.
+                                         #  +55 assertions — the IN-PLACE re-anchors, and this figure is
+                                         #    ⚠ DERIVED BY SUBTRACTION (174-119), ⛔ not measured per
+                                         #    case, because the pre-slice binary no longer exists. The
+                                         #    six cases that moved, at their MEASURED new totals:
+                                         #    `ui16-grant-arms` 137 (the sweep went from EIGHT arms x2
+                                         #    handles to ELEVEN, and S-38 gained three
+                                         #    distinct-from-{failed,queued,parked} controls),
+                                         #    `ui16-grant-perform` 15, `ui16-grant-correlate` 70,
+                                         #    `ui16-grant-equiv` 18, `ui16-grantact` 33 and
+                                         #    `ui16-grantpush` 25 (both re-anchored onto the SEND-TIME
+                                         #    resolved dst, with the new ⛔-the-frozen-id-does-not-
+                                         #    promote control), plus `ui16-route` 21 (`uisend`).
+                                         # ⛔ NO case was deleted, and no case count fell.
+                                         # The superseded pin follows, kept visible because the
+                                         # derivation above is a DELTA on it:
+                                         #
+                                         # 2066 / 90717 — ★★ RE-SYNCED 2026-08-24 by §UI-16 N6 (the
+                                         # `GRANT KEY` / `REJECT` act, its EIGHT-arm outcome mapping and the
+                                         # `{dst, ctr}` `send_aired` correlation):
+                                         # **2052 / 90330 -> 2066 / 90717** (+14 cases / +387 assertions).
+                                         # DERIVED, and MEASURED case by case with `program -tc=`;
+                                         # 293 + 70 + 21 + 2 + 1 = 387 closes EXACTLY:
+                                         #  +8 cases / +293 assertions — the §UI-16 N6 block appended to
+                                         #    `test/test_firmware_ui_invite.cpp` (target `uiinvite`): the
+                                         #    TEAM plane named once (6), ★ all EIGHT arms x both handle
+                                         #    values through the real perform path, with the NINE
+                                         #    resulting words proved DISTINCT (101), the act's
+                                         #    fail-closed target handling (15), ★ the `{dst, ctr}`
+                                         #    correlation term by term incl. the terminal and
+                                         #    zero-handle refusals (58), the confirmation's two identity
+                                         #    rows (14), the forbidden-completion-word sweep over every
+                                         #    state (78), the verdict carrier's offsetof-proved 8 bytes
+                                         #    (5) and ★ PIN 12, the EQUIVALENCE case — one real-Node
+                                         #    fixture driving the preflight AND the real
+                                         #    `team_key_grant_send` at `authoritative`, one notch below
+                                         #    and one above (16).
+                                         #  +4 cases / +70 assertions — the §UI-16 N6 block appended to
+                                         #    `test/test_firmware_ui_model.cpp` (target `model`): the act
+                                         #    itself — short-then-double, ONE forward, the frozen hash,
+                                         #    `GRANT QUEUED` and the terminal verdict (31); the push
+                                         #    scope incl. the alarm's left-behind verdict (23); ★ pin 8,
+                                         #    the EXPIRED window at the exact edge (10); and the
+                                         #    unattached seam (6).
+                                         #  +2 cases / +21 assertions — the §UI-16 N6 block appended to
+                                         #    `test/test_firmware_ui_send.cpp` (target `uisend`): the
+                                         #    router's two invite offers, and the measured OFFER ORDER
+                                         #    (an armed UI slot keeps its own handle).
+                                         #  +2 — `ui16-invreject`, extended in place: REJECT reaches the
+                                         #    grant seam ZERO times and leaves no verdict.
+                                         #  +1 — `ui16-reqpubkey-resources`: `sizeof(InviteGrantResult)`
+                                         #    beside the moved `UiState`/`UiModel` figures (448 -> 456,
+                                         #    872 -> 880; the window's offsets are UNMOVED).
+                                         # ⚠ REPORTED, ⛔ NOT SILENTLY INHERITED: the figure this slice
+                                         #   started from (2052 / 90330) is NOT the one the §CHROME-5
+                                         #   entry below leaves (2043 / 90143). The 2043 -> 2052 /
+                                         #   90143 -> 90330 step is §UI-16 N5's and reached this pin
+                                         #   WITHOUT a derivation being written here. It was verified as
+                                         #   the CLEAN baseline before this slice began (`pio test -e
+                                         #   native` + the binary: 2052 / 90330 / 0 failed), so the
+                                         #   arithmetic above is anchored on a MEASURED start, ⛔ not on
+                                         #   the unexplained one.
+                                         # ⛔ THE PREVIOUS ENTRY IS KEPT VISIBLE BELOW, unedited.
+                                         # ---- (previous) 2026-08-23 by §CHROME-5 (the status
                                          # strip's DUTY GAUGE): **2039 / 89691 -> 2043 / 90143**
                                          # (+4 cases / +452 assertions). DERIVED, and MEASURED block by
                                          # block with `program -tc=`; 446 + 5 + 1 = 452 closes EXACTLY:
@@ -847,6 +979,34 @@ PIN_CASES, PIN_ASSERTS = 2043, 90143     # ★★ CROSS-CHECK RE-SYNCED 2026-08-
                                          #   +0  `ui15-hide:`'s landing moved from `menu` to `join_select` (the
                                          #        supported child now HAS a flow) — same case
                                          #   ⇒ 12 + 8 + 10 - 1 = +29 cases.
+                                         # ★ CROSS-CHECK RE-SYNCED 2026-08-24 by §UI-16 N5:
+                                         #   **2043 / 90143 -> 2050 / 90283** (+7 cases / +140 assertions).
+                                         #   DERIVED FROM THE SOURCE DIFF, not merely copied from the clean run:
+                                         #   +7 cases are the three new invite-pure cases, the three N5 model
+                                         #      flow cases and the one resource/offsetof case.
+                                         #   +140 assertions = +89 direct doctest checks (+99 added -10 removed)
+                                         #      plus +51 assertions executed by the existing cursor/menu/open
+                                         #      helpers on the new and reshaped paths. The seven new cases close
+                                         #      independently as 10 + 11 + 3 + 21 + 9 + 15 + 12 = 81; the
+                                         #      remaining +59 are the N4 cases reshaped for the new preflight and
+                                         #      REJECT/GRANT-ready boundary, including their helper executions.
+                                         # ★ CROSS-CHECK RE-SYNCED 2026-08-24 by §UI-16 N5's QG BLOCKER FIX (the
+                                         #   `WAITING FOR PUBKEY` claim is gated on the forward's answer):
+                                         #   **2050 / 90283 -> 2052 / 90330** (+2 cases / +47 assertions).
+                                         #   DERIVED, and MEASURED case by case with `program -tc=`;
+                                         #   28 + 19 = 47 closes EXACTLY, with ⛔ no existing case edited:
+                                         #   +1 case / +28 — `ui16-reqpubkey-started`
+                                         #     (`test/test_firmware_ui_invite.cpp`, target `uiinvite`): the null
+                                         #     seam and the zero target refused without spending a call (3), the
+                                         #     ordinary acceptance with its carrier (6), the parse-failure shape
+                                         #     INCLUDING the `code`-defaults-to-`queued` trap asserted rather
+                                         #     than described (5), the six synchronous refusals x 2 (12) and the
+                                         #     local-cache race counted as STARTED plus `accepted`-alone (2).
+                                         #   +1 case / +19 — `ui16-reqpubkey-refused`
+                                         #     (`test/test_firmware_ui_model.cpp`, target `model`): the
+                                         #     unattached-seam arm driven through the real gestures (8) and the
+                                         #     refusal/retry/parse-failure/race sequence with its completing
+                                         #     push (11).
 if os.environ.get("MR_MUT_BASE"):
     PIN_CASES, PIN_ASSERTS = (int(x) for x in os.environ["MR_MUT_BASE"].split(","))
 
@@ -1995,8 +2155,8 @@ MUTS_MODEL = [
   "                _st.invite.sel_hash = rr.cand.key_hash32; _st.invite.sel_id = rr.cand.id; }\n"
   "        }\n"
   "        if (window_active(s.now_ms)) return;"),
- ("V08 ★★★ the row is keyed by the DISPLAY NAME instead of the hash — the act carries a name-derived value, and "
-  "the name is MUTABLE (P-7d, node_hashlocate.cpp:346)",
+ ("V08 ★★★ the row is keyed by the DISPLAY NAME instead of the hash — N4's selection and N5's reqpubkey "
+  "target both carry the name-derived value, and the name is MUTABLE (P-7d, node_hashlocate.cpp:346)",
   "        _st.invite.sel_hash = r.cand.key_hash32;",
   "        { uint32_t k = 0; for (const char* p = r.cand.name; *p; ++p) k = uint32_t(k * 31u + uint8_t(*p));\n"
   "          _st.invite.sel_hash = k; }"),
@@ -2009,6 +2169,90 @@ MUTS_MODEL = [
   "five-minute bound is five minutes and one millisecond (`wake_active`'s edge, lost)",
   "               left != 0 && left < (1u << 31);                       // i.e. now < deadline, STRICTLY",
   "               left < (1u << 31);"),
+ # ===== §UI-16 N5 — the EXPLICIT pubkey request and its enable/act boundary =====================================
+ ("V10 ★★★ the request is AUTO-ISSUED on candidate entry — the operator never selected REQUEST PUBKEY or "
+  "double-confirmed it (the owner-ratified ban reversed)",
+  "        enter_provision(invite_grant_preflight(_invite_dev, _st.invite.sel_hash)\n"
+  "                      ? Provision::invite_confirm : Provision::invite_need_pubkey);",
+  "        if (_invite_dev) _invite_dev->issue(invite_reqpubkey_command(_st.invite.sel_hash));\n"
+  "        enter_provision(invite_grant_preflight(_invite_dev, _st.invite.sel_hash)\n"
+  "                      ? Provision::invite_confirm : Provision::invite_need_pubkey);"),
+ ("V11 ★★ the NEED PUBKEY confirmation defaults to REQUEST PUBKEY instead of BACK — an immediate double airs it",
+  "        _st.prov_confirm = ProvConfirm::back;",
+  "        _st.prov_confirm = (p == Provision::invite_need_pubkey) ? ProvConfirm::confirm : ProvConfirm::back;"),
+ ("V12 ★★★ the request timeout ENABLES GRANT KEY although no matching key arrived",
+  "        if (window_active(s.now_ms)) return;\n"
+  "        enter_provision(Provision::invite_closed);",
+  "        if (_st.provisioning == Provision::invite_wait_pubkey &&\n"
+  "            elapsed(s.now_ms, _last_input_ms) >= MESHROUTE_NS::protocol::hash_locate_giveup_ms) {\n"
+  "            enter_provision(Provision::invite_confirm); return; }\n"
+  "        if (window_active(s.now_ms)) return;\n"
+  "        enter_provision(Provision::invite_closed);"),
+ ("V13 ★★★ the PRESENCE OF A NAME enables GRANT KEY even when the key is only overheard (display metadata "
+  "makes an airtime-and-secret decision)",
+  "        enter_provision(invite_grant_preflight(_invite_dev, _st.invite.sel_hash)\n"
+  "                      ? Provision::invite_confirm : Provision::invite_need_pubkey);",
+  "        enter_provision((r.cand.name[0] || invite_grant_preflight(_invite_dev, _st.invite.sel_hash))\n"
+  "                      ? Provision::invite_confirm : Provision::invite_need_pubkey);"),
+ # ★★★★ V14 IS THE QG BLOCKER ITSELF, RESTORED (2026-08-24) — and it is a MODEL entry because the defect was the
+ #      CALL SITE ignoring an answer, not the answer being wrong (the four ways to compute the answer wrongly are
+ #      `--target=uiinvite` I16-I19). The shipped shape was `issue(...); enter_provision(wait)`, i.e. the screen
+ #      claimed an outstanding request with NO seam attached and against a synchronous refusal — and pin 5 then
+ #      leaves that claim on the panel for ever, because a timeout is ruled to change nothing.
+ ("V14 ★★★ the WAITING FOR PUBKEY screen is entered whatever the seam answered — an unattached seam and a "
+  "synchronous refusal both claim an outstanding request (the QG blocker, restored)",
+  "        if (invite_issue_reqpubkey(_invite_dev, _st.invite.sel_hash))\n"
+  "            enter_provision(Provision::invite_wait_pubkey);",
+  "        (void)invite_issue_reqpubkey(_invite_dev, _st.invite.sel_hash);\n"
+  "        enter_provision(Provision::invite_wait_pubkey);"),
+ # ===== §UI-16 N6 — THE GRANT ACT's FLOW (the outcome mapping itself is `--target=uiinvite` I20-I30) ===========
+ ("V15 ★★★ THE GRANT TARGET IS TAKEN FROM THE DISPLAY NAME (P-7d) — the private key is shipped to whatever the "
+  "MUTABLE label hashes to, so two members sharing a name are one target and a rename re-aims the act",
+  "        run_invite_grant(_st.invite.sel_hash);",
+  "        { uint32_t k = 0;\n"
+  "          for (const char* p = invite_name_of(s.member, s.team_shown, _st.invite.sel_hash); *p; ++p)\n"
+  "              k = uint32_t(k * 31u + uint8_t(*p));\n"
+  "          run_invite_grant(k); }"),
+ ("V16 ★★★ `REJECT` CALLS THE SEND — the SAFE default arm, the one selected on entry, ships the team's private "
+  "key; one double-press on an unchanged confirmation grants instead of declining",
+  "    void run_invite_reject() {\n"
+  "        (void)invite_handled_add(_st.invite, _st.invite.sel_hash);",
+  "    void run_invite_reject() {\n"
+  "        run_invite_grant(_st.invite.sel_hash);\n"
+  "        (void)invite_handled_add(_st.invite, _st.invite.sel_hash);"),
+ ("V17 ★★ `REJECT` no longer adds the hash to the handled set (F-13) — the local refresh re-offers the candidate "
+  "the operator has just declined, one tick later",
+  "        (void)invite_handled_add(_st.invite, _st.invite.sel_hash);\n"
+  "        enter_provision(Provision::invite);",
+  "        enter_provision(Provision::invite);"),
+ # ★★★★ V18 IS PIN 8, AND IT IS AN ORDERING DEFECT RATHER THAN A MISSING FEATURE: `on_gesture` runs BEFORE
+ #      `on_tick`, so without this guard a `double` that lands after the ruled five minutes grants — and the tick
+ #      that closes the window arrives afterwards, too late to have bounded anything.
+ ("V18 ★★★ the window's own deadline is not consulted by the act — a grant fires out of an EXPIRED window "
+  "because the closing tick has not run yet",
+  "        if (!window_active(s.now_ms)) { enter_provision(Provision::invite_closed); return; }",
+  "        (void)s;"),
+ ("V19 ★★ the verdict is retired by the entry that OPENS it — the result screen renders the empty word for the "
+  "act that just ran, and the correlated edge has nothing to promote",
+  "        if (p != Provision::invite_result) _st.grant = InviteGrantResult{};",
+  "        _st.grant = InviteGrantResult{};"),
+ ("V20 ★★ a push may promote the verdict on ANY screen — an alarm (or a menu) left a queued handle in RAM, and a "
+  "correlated edge upgrades a verdict nobody can see",
+  "        if (_st.provisioning != Provision::invite_result) return false;",
+  "        ;"),
+ # ===== §UI-16 N6b (2026-08-24) — THE CORRELATION'S SECOND TERM ================================================
+ # ★★★★ V21 IS THE QG BLOCKER ITSELF, RESTORED. The window freezes the row's team-local id; the core resolves the
+ #      hash against the binding live AT SEND TIME. A member that re-ran team-DAD in between is granted on its NEW
+ #      id — so a verdict carrying the FROZEN one can never be matched by the `send_aired` the core really emits,
+ #      and the panel sits at `GRANT QUEUED` for ever. ⛔ The mutant is the TIDIER-LOOKING code (the id is right
+ #      there in `_st.invite`), which is exactly why it needs a control rather than a comment.
+ ("V21 ★★★ THE CORRELATION dst IS TAKEN FROM THE FROZEN SELECTION instead of the core's SEND-TIME resolution — a "
+  "re-DAD inside the window leaves the verdict permanently unpromotable (§UI-16 N6b, QG blocker 2)",
+  "        _st.grant = r;\n"
+  "        enter_provision(Provision::invite_result);",
+  "        r.dst = _st.invite.sel_id;\n"
+  "        _st.grant = r;\n"
+  "        enter_provision(Provision::invite_result);"),
 ]
 
 # ===== §UI-13 — src/firmware_config_service.h =====================================================================
@@ -2962,6 +3206,138 @@ MUTS_UIINVITE = [
   "    if (!mem && n != 0) return w;          // ⛔ REFUSED: members claimed, no source — `taken` stays false\n"
   "    w.taken = true;",
   "    w.taken = true;"),
+ # ===== §UI-16 N5 — the grant's own floor, the request carrier and exact push correlation =====================
+ ("I12 ★★★ the preflight floor is lowered from AUTHORITATIVE to OVERHEARD — a spoofable key enables GRANT KEY",
+  "           dev->peer_key_at_least(key_hash32, MESHROUTE_NS::Node::PeerKeyConf::authoritative);",
+  "           dev->peer_key_at_least(key_hash32, MESHROUTE_NS::Node::PeerKeyConf::overheard);"),
+ ("I13 ★★★ the reqpubkey carrier is changed from TEAM to GLOBAL — the identity request flies on the wrong plane",
+  "    cmd.u.resolve.plane    = static_cast<uint8_t>(MESHROUTE_NS::Plane::TEAM);",
+  "    cmd.u.resolve.plane    = static_cast<uint8_t>(MESHROUTE_NS::Plane::GLOBAL);"),
+ ("I14 ★★★ ANY peer_key_cached enables GRANT KEY — the candidate's full hash is not compared",
+  "    return pu.kind == MESHROUTE_NS::PushKind::peer_key_cached && pu.sender_hash == key_hash32;",
+  "    return pu.kind == MESHROUTE_NS::PushKind::peer_key_cached;"),
+ ("I15 ★★ a peer_key_cached for ANOTHER peer completes this candidate's name-refresh wait — one member can "
+  "inherit another arrival's ceremony",
+  "    return pu.kind == MESHROUTE_NS::PushKind::peer_key_cached && pu.sender_hash == key_hash32;",
+  "    return pu.kind == MESHROUTE_NS::PushKind::peer_key_cached && pu.sender_hash != 0;"),
+ # ===== §UI-16 N5, the QG BLOCKER's FOUR WAYS TO MISREAD THE FORWARD's ANSWER (2026-08-24) ====================
+ # ★★★ THE PROPERTY IS ONE SENTENCE — *"`WAITING FOR PUBKEY` may be shown only for a request the executor
+ #     ACCEPTED"* — and these are the four distinct ways to get it wrong. They are four entries and not one
+ #     because they fail on four different inputs: no seam, a line that never parsed, a loud refusal, and
+ #     (the opposite direction) a success mistaken for a failure.
+ # ⚠ I17 IS THE SUBTLE ONE AND IT IS NOT HYPOTHETICAL: `CmdResult::code` DEFAULTS TO `queued`, so a
+ #   default-constructed `ExecResult` — exactly what a failed parse or an unformattable command yields — carries
+ #   the SUCCESS code. Dropping the `ok` term therefore reads a refusal as a successfully started workflow, and
+ #   the mutant looks tidier than the original.
+ # ★★ I19 IS THE OVER-STRICT FIX, i.e. the one a careful reader would reach for after seeing this blocker: also
+ #    require `accepted`. It is WRONG, and the `reqpubkey` note in `lib/core/command.h` says why — the branch that
+ #    answers from the LOCAL key cache reports `queued` with NO frame taken, so the strictest gate strands exactly
+ #    the operator whose request already succeeded.
+ ("I16 ★★★ the MISSING SEAM reads as a started request — an unattached model (a !MR_FEAT_OLED-shaped build, a "
+  "partially-wired probe) claims WAITING FOR PUBKEY having issued nothing at all",
+  "    if (!dev || key_hash32 == 0) return false;",
+  "    if (!dev || key_hash32 == 0) return true;"),
+ ("I17 ★★★ the `ok` term is dropped from the verdict — a line that never parsed carries `CmdResult`'s DEFAULT "
+  "`queued` code, so a format/parse failure reads as a successfully started workflow",
+  "    return r.ok && r.code == MESHROUTE_NS::CmdCode::queued;",
+  "    return r.code == MESHROUTE_NS::CmdCode::queued;"),
+ ("I18 ★★★ the CODE term is dropped — every synchronous refusal the executor can return (`err_no_identity`, a "
+  "full TX queue) is reported to the operator as a request under way",
+  "    return r.ok && r.code == MESHROUTE_NS::CmdCode::queued;",
+  "    return r.ok;"),
+ ("I19 ★★ the verdict ALSO demands `accepted` — the over-strict fix: the LOCAL-cache completion (`queued`, no "
+  "frame taken) is misread as a refusal, stranding the operator whose request already succeeded",
+  "    return r.ok && r.code == MESHROUTE_NS::CmdCode::queued;",
+  "    return r.ok && r.code == MESHROUTE_NS::CmdCode::queued && r.accepted;"),
+ # ===== §UI-16 N6 — THE GRANT'S OUTCOME MAPPING AND ITS CORRELATION ===========================================
+ # ★★★★ I20 IS THE HEADLINE CONTROL OF THE WHOLE SLICE (✅ F-9), AND IT IS THE **WITHDRAWN RULE RESTORED**:
+ #      *"`ctr != 0` = airborne ⇒ `KEY SENT`"*. It is the tidiest-looking line in the mapper and it is a claim
+ #      about the AIR made from an answer about the QUEUE — the operator reads `KEY SENT` while the frame is
+ #      still sitting in the TX queue (or is dropped by LBT and never leaves at all).
+ ("I20 ★★★ `queued` IS MAPPED STRAIGHT TO `KEY SENT` — the F-9 defect restored: an admission to the TX queue is "
+  "reported to the operator as a private key that has physically aired",
+  "        case TX::queued:      return InviteGrantState::queued;",
+  "        case TX::queued:      return InviteGrantState::sent;"),
+ # ⛔⛔ I21 RE-ANCHORED 2026-08-24 (§UI-16 N6b) AND THE OLD FORM IS KEPT VISIBLE: it used to drop the `ctr` SPLIT
+ #     inside the `queued` arm — but that split WAS the withdrawn inference, so there is no split left to drop.
+ #     The property it defended survives in a truer shape: the explicitly-STORED park must keep its OWN word and
+ #     ⛔ may not be laundered into the admission word.
+ ("I21 ★★ the explicitly-STORED park is reported with the ADMISSION word — a send sitting behind an H resolve, "
+  "with no flight and no handle, reads exactly like one really admitted to the TX queue",
+  "        case TX::parked:      return InviteGrantState::parked;       // S-37, and ⛔ ONLY from this explicit outcome",
+  "        case TX::parked:      return InviteGrantState::queued;"),
+ ("I22 ★★★ the correlation is dropped to the `ctr` ALONE — a LOCAL handle, which `command.h` warns legitimately "
+  "names another flight, so another origination's TxDone edge promotes this grant to KEY SENT",
+  "    return r.st == InviteGrantState::queued && r.ctr != 0 && pu.ctr == r.ctr && pu.dst == r.dst;",
+  "    return r.st == InviteGrantState::queued && r.ctr != 0 && pu.ctr == r.ctr;"),
+ ("I23 ★★★ the correlation is dropped ENTIRELY — ANY send_aired on the node promotes the verdict, which is the "
+  "false-confirmation shape the whole attribution layer exists to prevent",
+  "    return r.st == InviteGrantState::queued && r.ctr != 0 && pu.ctr == r.ctr && pu.dst == r.dst;",
+  "    (void)pu;\n    return r.st == InviteGrantState::queued;"),
+ ("I24 ★★ the zero-handle term is dropped — a PARKED grant (ctr == 0) correlates against the ctr-0 push six "
+  "unrelated operations emit, i.e. a wildcard match",
+  "    return r.st == InviteGrantState::queued && r.ctr != 0 && pu.ctr == r.ctr && pu.dst == r.dst;",
+  "    return (r.st == InviteGrantState::queued || r.st == InviteGrantState::parked) &&\n"
+  "           pu.ctr == r.ctr && pu.dst == r.dst;"),
+ ("I25 ★★★ THE SIX REFUSAL ARMS ARE COLLAPSED to one `failed` — `NO TEAM KEY` (ask a teammate), `NO IDENTITY` "
+  "(this node cannot seal) and `NOT IN A TEAM` (join first) stop being three different remedies (S-24)",
+  "        case TX::no_team:     return InviteGrantState::no_team;\n"
+  "        case TX::no_key:      return InviteGrantState::no_key;\n"
+  "        case TX::no_identity: return InviteGrantState::no_identity;\n"
+  "        case TX::no_pubkey:   return InviteGrantState::no_pubkey;\n"
+  "        case TX::self:        return InviteGrantState::self;\n"
+  "        case TX::delegated:   return InviteGrantState::wrong_plane;\n"
+  "        case TX::too_large:   return InviteGrantState::name_too_long;",
+  "        case TX::no_team:     return InviteGrantState::failed;\n"
+  "        case TX::no_key:      return InviteGrantState::failed;\n"
+  "        case TX::no_identity: return InviteGrantState::failed;\n"
+  "        case TX::no_pubkey:   return InviteGrantState::failed;\n"
+  "        case TX::self:        return InviteGrantState::failed;\n"
+  "        case TX::delegated:   return InviteGrantState::failed;\n"
+  "        case TX::too_large:   return InviteGrantState::failed;"),
+ # ⛔⛔ I26 IS THE UNREACHABLE ARM THAT LIES THE DAY IT BECOMES REACHABLE (C2). `delegated` cannot arrive while the
+ #     UI sends `Plane::TEAM` — so "map it to something harmless" costs nothing today and reports a grant that was
+ #     REFUSED as one admitted to the queue the moment I27 (or a future plane change) makes it reachable.
+ ("I26 ★★ `delegated` returns a PLAUSIBLE word instead of failing loudly — the unreachable arm is mapped to the "
+  "admission word, so a refused grant reads as a queued one",
+  "        case TX::delegated:   return InviteGrantState::wrong_plane;",
+  "        case TX::delegated:   return InviteGrantState::queued;"),
+ ("I27 ★★★ the grant's PLANE is changed away from TEAM — the member enumerated on the team plane is addressed on "
+  "another one, and `delegated` becomes reachable on the real seam",
+  "inline constexpr MESHROUTE_NS::Plane kInviteGrantPlane = MESHROUTE_NS::Plane::TEAM;",
+  "inline constexpr MESHROUTE_NS::Plane kInviteGrantPlane = MESHROUTE_NS::Plane::AUTO;"),
+ ("I28 ★★★ an arm prints a COMPLETION word — `KEY SENT` becomes `JOIN COMPLETE` (S-32), which claims an "
+  "end-to-end outcome no layer of this protocol acknowledges for a grant",
+  'inline constexpr const char* kInviteKeySent     = "KEY SENT";        // S-22 — the design\'s own word (§3.6.4 :821)',
+  'inline constexpr const char* kInviteKeySent     = "JOIN COMPLETE";'),
+ ("I29 ★★★ THE CONFIRMATION DROPS THE FULL HASH WHEN A NAME IS PRESENT (P-7c) — a mutable, self-asserted label "
+  "becomes the ONLY identity on the screen that ships a private key",
+  "    ui_fmt_member_hash_full(r.hash, sizeof r.hash, key_hash32);",
+  "    if (!invite_name_of(mem, n, key_hash32)[0]) ui_fmt_member_hash_full(r.hash, sizeof r.hash, key_hash32);"),
+ ("I30 ★★ the HANDLED SET is keyed by the display NAME rather than the hash (P-7d) — the name is MUTABLE, so a "
+  "rejection stops answering for the member that was rejected and starts answering for whoever wears the name",
+  "            if (invite_handled_has(w, mem[i].key_hash32)) continue;",
+  "            { uint32_t k = 0; for (const char* p = mem[i].name; *p; ++p) k = uint32_t(k * 31u + uint8_t(*p));\n"
+  "              if (invite_handled_has(w, k)) continue; }"),
+ # ===== §UI-16 N6b (2026-08-24) — THE TWO WORDS THAT USED TO BE INFERRED ======================================
+ # ★★★★ I31 IS THE WITHDRAWN INFERENCE ITSELF, PUT BACK. It is the defect the corrective slice exists to remove:
+ #      `GRANT PARKED` derived from a ZERO HANDLE rather than from an explicitly-stored park. Measured at the two
+ #      sites, the handle answers a DIFFERENT question — a full TX queue drops the frame and still returns a
+ #      non-zero counter, a full parked ring stores nothing and returns zero — so either word could be FALSE.
+ #      ⛔ The mutant is the shipped N6 line, which is precisely why it needs a standing control.
+ ("I31 ★★★ `GRANT PARKED` IS INFERRED FROM `ctr == 0` AGAIN — the withdrawn N6 rule restored, so a state the "
+  "core never reported is put on the panel from a counter that does not answer that question (S-37)",
+  "    out.st   = invite_grant_state_of(tx);    // ⛔ the outcome ALONE decides the word — ⛔ never the handle",
+  "    out.st   = (tx == MESHROUTE_NS::Node::TeamKeyGrantTx::queued && ctr == 0)\n"
+  "                 ? InviteGrantState::parked : invite_grant_state_of(tx);"),
+ # ⛔⛔ I32 IS S-38's OWN PROHIBITION: the ADMISSION REFUSAL collapsed into the in-flight failure's word. They are
+ #     different facts with different remedies — "the device is momentarily too busy to accept this" versus "a
+ #     flight this node made came back failed" — and the second invites the operator to conclude the grant was
+ #     attempted and lost.
+ ("I32 ★★★ `GRANT QUEUE FULL` IS COLLAPSED INTO `GRANT FAILED` — the admission refusal borrows the correlated "
+  "in-flight failure's word, which S-38 forbids in as many words",
+  "        case TX::queue_full:  return InviteGrantState::queue_full;   // S-38, and ⛔ never collapsed into `failed`",
+  "        case TX::queue_full:  return InviteGrantState::failed;"),
 ]
 
 MUTS_TEAMSEEN = [
@@ -3635,9 +4011,81 @@ MUTS_UISEND = [
  ("U06 the wake is dropped from the msg_recv arm only (a DM addressed to us no longer wakes)",
   "        m.on_msg_wake(now_ms);\n        return true;",
   "        return true;"),
+ # ===== §UI-16 N6 — THE ROUTER'S TWO INVITE OFFERS ============================================================
+ # ★★★ THE §T3 SHAPE, ONE FEATURE OVER: an arm that is not spelled out here is an arm that silently answers
+ #     `false`, and the ENTIRE feature then compiles, passes both pure suites and does nothing on the panel. The
+ #     correlation RULE is `--target=uiinvite`'s; what these two attack is whether the push ever ARRIVES.
+ ("U07 ★★★ the `send_aired` arm never offers the push to the INVITE verdict — `GRANT QUEUED` can never become "
+  "`KEY SENT`, and every pure case in both other suites stays green",
+  "            return m.on_invite_grant_push(pu);       // §UI-16 N6 — the grant's `KEY SENT` edge",
+  "            return false;"),
+ ("U08 ★★ the `send_failed` arm never offers the push to the INVITE verdict — a grant that gave up sits on "
+  "`GRANT QUEUED` for as long as the operator looks at it",
+  "            return m.on_invite_grant_push(pu);       // §UI-16 N6 — the grant's `GRANT FAILED` edge",
+  "            return false;"),
+ ("U09 ★★ the invite offer is made FIRST, before the two UI send slots — a UI DM holding the same handle loses "
+  "its own TxDone edge to the grant verdict (the offer ORDER, inverted)",
+  "        case PK::send_aired:\n"
+  "            if (emg.match_aired(pu.dst, pu.ctr))    return true;   // correlated, and DELIBERATELY inert on the model",
+  "        case PK::send_aired:\n"
+  "            if (m.on_invite_grant_push(pu)) return true;\n"
+  "            if (emg.match_aired(pu.dst, pu.ctr))    return true;   // correlated, and DELIBERATELY inert on the model"),
 ]
 
-MUTS_BY_TARGET = {"model": MUTS_MODEL, "config": MUTS_CONFIG, "chrome": MUTS_CHROME, "icons": MUTS_ICONS,
+MUTS_TEAMGRANT = [
+ # ★★★★ THE WHOLE TARGET IS ONE RULING: **the dispatch says what happened, and the caller never infers it.** All
+ #      four entries are the SAME tempting wrong fix wearing four hats — collapse one of the outcomes back into
+ #      `queued`, which is what the pre-correction function returned for every one of them. ⛔ Each is applied at
+ #      exactly one site and each reddens a DIFFERENT native case, which is why they are four entries and not one.
+ # ⚠ THIS TARGET COMPILES `lib/core`, so the whole native suite rebuilds behind each mutation — expect the run to
+ #   be slower than a `src/` battery. That cost is the point: these are the arms the corpus cannot see either.
+ ("G01 ★★★ THE ADMISSION REFUSAL IS LAUNDERED BACK INTO `queued` — a full TX queue (or a full parked ring) drops "
+  "the frame at the door and the caller is told it was admitted, which is the QG blocker verbatim",
+  "        case SendDispatch::Admit::refused: return TeamKeyGrantTx::queue_full;",
+  "        case SendDispatch::Admit::refused: return TeamKeyGrantTx::queued;"),
+ ("G02 ★★★ THE EXPLICITLY-STORED PARK IS REPORTED AS `queued` — the pre-correction answer, which left the panel "
+  "to guess the parked state from a zero handle (the inference S-37 now forbids)",
+  "        case SendDispatch::Admit::parked:  return TeamKeyGrantTx::parked;",
+  "        case SendDispatch::Admit::parked:  return TeamKeyGrantTx::queued;"),
+ ("G03 ★★★ A SEND THAT NEVER REACHED AN ADMISSION POINT IS REPORTED AS `queued` — the loud refusals (the joining "
+  "gate, a seal failure, the type-19 structural refusals) are dressed as a successful enqueue",
+  "        case SendDispatch::Admit::none:    return TeamKeyGrantTx::send_failed;",
+  "        case SendDispatch::Admit::none:    return TeamKeyGrantTx::queued;"),
+ # ⛔⛔ G04 IS THE CORRELATION'S SECOND TERM, KILLED AT THE SOURCE. The UI cannot compensate: a zero dst matches
+ #     nothing the TxDone edge can carry, so the verdict is unpromotable no matter how correct the mapper is.
+ ("G04 ★★★ THE SEND-TIME RESOLVED DESTINATION IS NEVER PUBLISHED — the caller gets a handle with no address, so "
+  "no `send_aired` can ever correlate and the grant screen waits for ever",
+  "            if (out_dst) *out_dst = dsp.dst;",
+  "            if (out_dst) *out_dst = 0;"),
+]
+
+# ★★★★ THE TX-QUEUE ADMISSION **FACT**, at the one site that owns it (`--target=grantadmit`). ⛔ The mutant is the
+#      shipped pre-N6b shape wearing a report: the store still happens or not exactly as before, and the caller is
+#      told "admitted" either way — so every word derived from it is wrong again, and nothing one frame up can tell.
+MUTS_GRANTADMIT = [
+ ("A01 ★★★ the enqueue reports ADMITTED whether or not it stored the item — the `if`'s own answer discarded "
+  "again, one layer below every word that depends on it",
+  "        out_dispatch->admit = admitted ? SendDispatch::Admit::queued : SendDispatch::Admit::refused;",
+  "        out_dispatch->admit = SendDispatch::Admit::queued;"),
+ # ⛔⛔ A SECOND ENTRY WAS WRITTEN, MEASURED **GREEN**, AND IS PUBLISHED AS SUCH RATHER THAN QUIETLY KEPT (the
+ #     `inner_len < 6` precedent, BASELINE.md §T3): *"a REFUSED frame is still given its minted handle"* —
+ #     `out_dispatch->ctr = ctr;` instead of the `admitted ? ctr : 0` guard. It leaves the suite GREEN, and the
+ #     reason is structural rather than a missing test: `team_key_grant_send` publishes `out_ctr`/`out_dst` ONLY on
+ #     the `queued` arm, so a handle attached to a refused dispatch is unreachable from every public seam. ⇒ the
+ #     zeroing is DEFENCE IN DEPTH, it is labelled as such at the site, and it is ⛔ NOT claimed as tested.
+]
+
+# ★★★★ THE PARKED-RING **FACT** (`--target=grantpark`). `park_send` had a silent early-out and its callers reported
+#      it to the app as a parked send; the mutant restores exactly that by claiming a store the ring never made.
+MUTS_GRANTPARK = [
+ ("K01 ★★★ a FULL parked ring reports a STORED park — the send is dropped and the caller is told it is waiting "
+  "behind an H resolve, which is `GRANT PARKED` shown for a state the node is not in (S-37)",
+  "    if (_parked_sends_n >= protocol::cap_parked_sends) return false;   // full -> drop (the app can retry)",
+  "    if (_parked_sends_n >= protocol::cap_parked_sends) return true;"),
+]
+
+MUTS_BY_TARGET = {"teamgrant": MUTS_TEAMGRANT, "grantadmit": MUTS_GRANTADMIT, "grantpark": MUTS_GRANTPARK,
+                  "model": MUTS_MODEL, "config": MUTS_CONFIG, "chrome": MUTS_CHROME, "icons": MUTS_ICONS,
                   "joinprofiles": MUTS_JOINPROFILES, "devicenv": MUTS_DEVICENV, "cfgparse": MUTS_CFGPARSE,
                   "uiprov": MUTS_UIPROV, "uijoin": MUTS_UIJOIN, "provservice": MUTS_PROVSERVICE,
                   "uistatus": MUTS_UISTATUS, "uiteam": MUTS_UITEAM, "uigeo": MUTS_UIGEO,

@@ -171,6 +171,8 @@
 #include "firmware_ui_chrome.h" // ★ the SHARED id / fingerprint / REPLACES formatters. The P15 checks compute their
                                 //   EXPECTATION with them, so `the fingerprint on the panel` is a VALUE RELATION to
                                 //   `ui_fmt_team_fingerprint(the created id)` rather than "six hex characters appeared".
+#include "identity.h"           // ★ §UI-16 N6: Identity / identity_from_seed — P24c gives the node a REAL crypto
+                                //   identity so the REAL `team_key_grant_send` can SEAL, ⛔ instead of refusing
 #include "firmware_ui_nearby_row.h"  // ★ §UI-16 N3: `ui_fmt_nearby_join_title` — the P22 checks compute the
                                 //   confirmation's expected title with the SHIPPED formatter, for the same reason.
                                 //   ⓘ It pulls `firmware_ui_nearby.h` with it (the two halves of one screen).
@@ -194,7 +196,12 @@ struct ProbeRadio : meshroute::IRadio {
     meshroute::TxResult start_transmit(const uint8_t*, size_t, int16_t, int32_t, int8_t, int8_t, int16_t) override {
         ++starts; return meshroute::TxResult::ok;
     }
-    bool poll_tx_done() override { return false; }
+    // ★★ §UI-16 N6 — ONE SCRIPTED TxDone EDGE. Default `false` keeps every earlier phase byte-identical (this fake
+    //    has never completed a transmission); the GRANT handoff arm sets it so `DeviceHal::collect_tx_completion`
+    //    builds a REAL `TxOutcome` from the REAL in-flight tag/seq and `Node::on_tx_complete` decides, for itself,
+    //    whether that airing OWNS a `send_aired` push. ⛔ It is one-shot: an edge is an event, not a state.
+    bool complete_next = false;
+    bool poll_tx_done() override { if (!complete_next) return false; complete_next = false; return true; }
     bool tx_busy() const override { return busy_tx; }
     void abort_tx() override {}
     void set_rx_sf(int) override {}
@@ -783,6 +790,53 @@ JoinSeams& join_seams() { static JoinSeams s; return s; }
 namespace mrfw {
 JoinService&        join_service()         { return join_seams().jsvc; }
 JoinProfileService& join_profile_service() { return join_seams().psvc; }
+}  // namespace mrfw
+
+// ---- ★★★★ §UI-16 N6: THE GRANT SEAM's FAKE — AND ITS PASSTHROUGH TO THE REAL NODE ---------------------------------
+// ★★★ WHY IT IS FAKED AT ALL, stated because the sibling seam one screen up is NOT: `DeviceInvite::peer_key_at_least`
+//     reads `g_node` directly and this probe HAS a real node, so it is measured for real. The GRANT's eight outcomes
+//     are a different matter — `no_team`, `no_identity`, `delegated` and `too_large` are UNREACHABLE from a node this
+//     screen can put in front of the operator (the window itself requires a team, and the UI sends `Plane::TEAM` and
+//     no `name=`), so a real-node-only arm could drive at most half the mapping. ⇒ the SEAM is scripted, exactly as
+//     `mrfw::exec_command` is one feature over, and ⛔ the expected panel word is computed by the PURE mapper from the
+//     outcome the fake returned — ⛔ never a literal typed here, which would keep agreeing with a mapping that had
+//     been edited underneath it.
+// ★★ AND IT CARRIES A **PASSTHROUGH**, which is the other half of the requirement: with it on, the production body is
+//    run against the REAL `Node::team_key_grant_send` over the REAL node, so the handoff — the plane, the target hash
+//    and the origination handle — is measured rather than scripted.
+namespace {
+struct GrantSeam {
+    bool     passthrough = false;                      // forward to the REAL core (the handoff arm)
+    MESHROUTE_NS::Node::TeamKeyGrantTx tx = MESHROUTE_NS::Node::TeamKeyGrantTx::queued;
+    uint16_t ctr = 0;                                  // what the core would have written into `out_ctr`
+    uint8_t  dst = 0;                                  // §UI-16 N6b: ...and into `out_dst` (the SEND-TIME resolved id)
+    int      calls = 0;
+    uint16_t last_out_ctr = 0;                         // what the call really answered (the PASSTHROUGH's own handle)
+    uint8_t  last_out_dst = 0;                         // ★ ...and the destination it really resolved
+    uint32_t last_hash = 0;
+    MESHROUTE_NS::Plane last_plane = MESHROUTE_NS::Plane::AUTO;   // ⛔ NOT the expected value
+};
+GrantSeam& grant_seam() { static GrantSeam s; return s; }
+}  // namespace
+namespace mrfw {
+MESHROUTE_NS::Node::TeamKeyGrantTx device_team_grant(uint32_t key_hash32, MESHROUTE_NS::Plane plane,
+                                                    uint16_t* out_ctr, uint8_t* out_dst) {
+    GrantSeam& g = grant_seam();
+    ++g.calls; g.last_hash = key_hash32; g.last_plane = plane;
+    // ⓘ THE PASSTHROUGH IS `src/firmware_config.cpp`'s BODY, VERBATIM — same arguments, same fixed `nullptr` name.
+    if (g.passthrough) {
+        const MESHROUTE_NS::Node::TeamKeyGrantTx r =
+            g_node.team_key_grant_send(key_hash32, /*name=*/nullptr, /*name_len=*/0, plane, out_ctr, out_dst);
+        g.last_out_ctr = out_ctr ? *out_ctr : 0;
+        g.last_out_dst = out_dst ? *out_dst : 0;
+        return r;
+    }
+    if (out_ctr) *out_ctr = g.ctr;
+    if (out_dst) *out_dst = g.dst;
+    g.last_out_ctr = g.ctr;
+    g.last_out_dst = g.dst;
+    return g.tx;
+}
 }  // namespace mrfw
 #endif  // MR_N_LAYERS < 2
 
@@ -4590,12 +4644,13 @@ int main() {
                 // ⓘ THE KEY IS CACHED WITHOUT A NAME, deliberately: that is rule 2's INITIAL state on real hardware
                 //   — H2 holds a verified pubkey for nobody until the exchange has run, so the name column is blank.
                 const bool keyA = g_node.peer_key_set(hashA, pubA, MESHROUTE_NS::Node::PeerKeyConf::authoritative);
-                const bool keyB = g_node.peer_key_set(hashB, pubB, MESHROUTE_NS::Node::PeerKeyConf::authoritative);
                 member(90, hashA);                    // a member PRESENT when the window opens
                 member(82, 0);                        // ★ ROUTE-ONLY: a real member with NO authoritative binding
                 char probe_name[16] = {};
-                CHK("P23 precondition: two verified pubkeys are cached, neither of them NAMED",
-                    keyA && keyB && g_node.peer_name_find(hashA, probe_name, sizeof probe_name) == 0);
+                uint8_t key_probe[32]; MESHROUTE_NS::Node::PeerKeyConf key_conf{};
+                CHK("P23 precondition: the old member has a key; the arriving member has NO cached pubkey/name",
+                    keyA && g_node.peer_key_find(hashB, key_probe, &key_conf) == false &&
+                    g_node.peer_name_find(hashB, probe_name, sizeof probe_name) == 0);
                 uint32_t rh = 0;
                 CHK("P23 precondition: the route-only member resolves to NO hash at the authoritative floor",
                     g_node.team_key_of_id(82, rh) == false && g_node.rt_team_count() >= 2);
@@ -4678,9 +4733,7 @@ int main() {
                     t17 = tb + 500;
                 }
 
-                // ---- (d) ★★ RULE 3 — THE NAME ARRIVES AND **FILLS A COLUMN**, the fingerprint UNCHANGED ------
-                // ★ The name is cached BESIDE the verified pubkey by the ONE name writer, exactly as the pubkey
-                //   exchange does it on metal (`peer_key_set` -> `peer_name_set`). ⛔ Nothing is requested here.
+                // ---- (d) N5: THE EXPLICIT REQUEST, MATCHED ARRIVAL AND RULE 3's NAME UPGRADE -----------------
                 {
                     char before[mrui::kInviteRowCap] = {};
                     t17 = walk_to(t17 + 500, "T221");
@@ -4693,9 +4746,96 @@ int main() {
                     CHK("P23d precondition: the candidate's row is on the panel with a BLANK name",
                         row_now != nullptr && strstr(before, fpB) != nullptr &&
                         strncmp(before + 1, "      ", 6) == 0);
+                    mrui::InviteMember blank_pick{};
+                    blank_pick.id = 221; blank_pick.key_hash32 = hashB;
+                    char blank_target[mrui::kInviteRowCap];
+                    mrui::ui_fmt_invite_row(blank_target, sizeof blank_target, '>', blank_pick);
+
+                    // Missing key -> NEED PUBKEY. Merely entering and then double-pressing BACK air nothing.
+                    const int d0 = g_hal.txq_depth(), s0 = g_probe_radio.starts, x0 = g_exec.calls;
+                    t17 = walk_to(t17 + 500, blank_target);
+                    t17 = see(double_press(t17 + 500));
+                    CHK("P23d missing key lands on NEED PUBKEY with BACK selected",
+                        body_row_is(0, mrui::kInviteNeedPubkey) && body_row_is(3, ">BACK") &&
+                        body_row_is(4, " REQUEST PUBKEY"));
+                    {
+                        char full[mrui::kMemberHashCap];
+                        mrui::ui_fmt_member_hash_full(full, sizeof full, hashB);
+                        CHK("P23d the request confirmation carries the FULL hash", body_row_is(1, full));
+                    }
+                    CHK("P23d ⛔ preflight/entry emitted no WANT_PUBKEY",
+                        g_hal.txq_depth() == d0 && g_probe_radio.starts == s0 &&
+                        g_exec.calls == x0);
+                    t17 = see(double_press(t17 + 500));             // BACK
+                    CHK("P23d BACK returns to the window and still emits nothing",
+                        body_row_is(0, mrui::kInviteTitle) && g_hal.txq_depth() == d0 &&
+                        g_probe_radio.starts == s0 && g_exec.calls == x0);
+
+                    // ---- ★★★ THE REFUSED REQUEST, THROUGH THE REAL FORWARD (QG blocker, 2026-08-24) ---------
+                    // `WAITING FOR PUBKEY` says a request is outstanding. When the executor REFUSES synchronously
+                    // — here `err_no_identity`, this verb's own refusal: no Ed25519 identity, so the mutual
+                    // WANT_PUBKEY exchange is impossible — nothing is outstanding, and the panel must ⛔ not say
+                    // it is. ⓘ Measured at the REAL `DeviceInvite::issue`/`exec_command` seam, so it also proves
+                    // the answer survives the forward rather than being decided in the model's fake.
+                    g_exec.ok = true;
+                    g_exec.code = MESHROUTE_NS::CmdCode::err_no_identity;
+                    t17 = walk_to(t17 + 500, blank_target);
+                    t17 = see(double_press(t17 + 500));
+                    t17 = see(settle(t17 + 500));                   // short -> REQUEST PUBKEY
+                    t17 = see(double_press(t17 + 500));
+                    CHK("P23d ★★ a REFUSED request leaves NEED PUBKEY up — ⛔ it never claims the wait",
+                        body_row_is(0, mrui::kInviteNeedPubkey) &&
+                        strstr(g_c.page_text, mrui::kInviteWaitingPubkey) == nullptr);
+                    CHK("P23d ...and the refusal was a REAL attempt: the line was executed, once",
+                        g_exec.calls == x0 + 1 && strcmp(g_exec.last, "reqpubkey 0x00BEDEAD -t") == 0);
+                    // ⓘ THE ACTION IS STILL SELECTED, so leaving costs a `short` FIRST — a second `double` here
+                    //   would be a RETRY, which is precisely the affordance the refusal is meant to leave behind.
+                    t17 = see(settle(t17 + 500));                   // short -> BACK
+                    CHK("P23d ...and the refusal leaves the retry one press away", body_row_is(3, ">BACK"));
+                    t17 = see(double_press(t17 + 500));
+                    CHK("P23d ...and BACK still returns to the window",
+                        body_row_is(0, mrui::kInviteTitle) && g_exec.calls == x0 + 1);
+
+                    // The ruled short + double is the ONE command-producing path.
+                    // ⓘ THE ACCEPTED ANSWER HERE IS `queued` WITH ⛔ NO FRAME TAKEN (`ExecLog` leaves `accepted`
+                    //   false), i.e. exactly the local-cache completion shape — and it MUST start the wait.
+                    g_exec.ok = true;
+                    g_exec.code = MESHROUTE_NS::CmdCode::queued;
+                    const int x1 = g_exec.calls;
+                    t17 = walk_to(t17 + 500, blank_target);
+                    t17 = see(double_press(t17 + 500));
+                    t17 = see(settle(t17 + 500));                   // short -> REQUEST PUBKEY
+                    CHK("P23d REQUEST PUBKEY is selected but the short alone emits nothing",
+                        body_row_is(4, ">REQUEST PUBKEY") && g_hal.txq_depth() == d0 &&
+                        g_probe_radio.starts == s0 && g_exec.calls == x1);
+                    t17 = see(double_press(t17 + 500));
+                    CHK("P23d short + double enters the exact WAITING FOR PUBKEY screen",
+                        body_row_is(0, mrui::kInviteWaitingPubkey));
+                    CHK("P23d ★ the real typed-command forward emitted exactly one TEAM request",
+                        g_exec.calls == x1 + 1 && strcmp(g_exec.last, "reqpubkey 0x00BEDEAD -t") == 0 &&
+                        g_hal.txq_depth() == d0 && g_probe_radio.starts == s0);
+
+                    // A different peer's cached-key push must leave this wait untouched.
+                    MESHROUTE_NS::Push wrong{};
+                    wrong.kind = MESHROUTE_NS::PushKind::peer_key_cached;
+                    wrong.sender_hash = hashA;
+                    mr_ui_on_push(wrong);
+                    dirty_the_model(t17 + 500);
+                    t17 = see(t17 + 600);
+                    CHK("P23d a peer_key_cached for the WRONG full hash does not enable GRANT KEY",
+                        body_row_is(0, mrui::kInviteWaitingPubkey) && strstr(g_c.page_text, "GRANT KEY") == nullptr);
+
+                    // The real cache write carries the name beside the authoritative key; only the matching push
+                    // completes the wait. build_snapshot then performs its existing peer_name_find(hash) read.
                     const bool named = g_node.peer_key_set(hashB, pubB,
                                                            MESHROUTE_NS::Node::PeerKeyConf::authoritative,
                                                            "Wolfgangetta", 12);
+                    MESHROUTE_NS::Push right{};
+                    right.kind = MESHROUTE_NS::PushKind::peer_key_cached;
+                    right.sender_hash = hashB;
+                    right.body_len = 12;
+                    memcpy(right.body, "Wolfgangetta", 12);
+                    mr_ui_on_push(right);
                     // ⚠⚠ THE CLOCK STEP IS **LOAD-BEARING**, AND IT IS P18's OWN TRAP ARRIVING FROM A NEW
                     //    DIRECTION (measured here, not anticipated): `walk_to` RETURNS THE INSTANT IT PAINTED AT,
                     //    and its paint has already ticked 90 ms PAST that. `dirty_the_model` SETS the clock
@@ -4719,7 +4859,7 @@ int main() {
                         strlen(row_after) == 19u && strcmp(row_after + 7, before + 7) == 0);
                 }
 
-                // ---- (e) THE CONFIRMATION CARRIES THE **FULL** HASH, AND `REJECT` IS THE ONLY ACT ------------
+                // ---- (e) THE READY CONFIRMATION: FULL HASH, REJECT DEFAULT, GRANT ENABLED BUT N6-OWNED --------
                 {
                     const int w0 = cs.writes;
                     // ⚠ THE WALK TARGET CARRIES THE **MARKER**: `walk_to` only guarantees the text is ON the panel,
@@ -4738,25 +4878,27 @@ int main() {
                         CHK("P23e ⛔ ...and it is the FULL hash, ⛔ not the six-column aid",
                             body_row_is(1, full) && strcmp(full, fpB) != 0);
                     }
-                    CHK("P23e BACK is selected initially and REJECT is not (P-13)",
-                        body_row_is(3, ">BACK") && body_row_is(4, " REJECT"));
-                    CHK("P23e ⛔ ...and no grant word exists on this screen at all",
-                        strstr(g_c.page_text, "GRANT") == nullptr);
-                    // BACK returns to the WINDOW (⛔ not the menu) and performs nothing.
-                    t17 = see(double_press(t17 + 500));
-                    CHK("P23e BACK returns to the WINDOW, ⛔ not the PROVISION menu",
-                        body_row_is(0, mrui::kInviteTitle));
-                    CHK("P23e ⛔ ...having spent no durable write", cs.writes == w0);
-                    // ...and `short` then `double` performs the REJECT, which removes the candidate.
-                    t17 = walk_to(t17 + 500, ">Wolfga T221");
-                    t17 = see(double_press(t17 + 500));
-                    t17 = see(settle(t17 + 500));                     // `short` -> REJECT
+                    CHK("P23e REJECT is selected initially and GRANT KEY is enabled",
+                        body_row_is(3, ">REJECT") && body_row_is(4, " GRANT KEY"));
+                    {   // ★★ P-7c THROUGH THE RENDERER, WITH A NAME ON THE SCREEN: the cached name is drawn AND the
+                        //    full hash stays put. ⓘ Both rows are the PURE unit's `invite_id_rows`, placed here.
+                        const mrui::InviteIdRows want = mrui::invite_id_rows(nullptr, 0, hashB);
+                        CHK("P23e ⛔ the confirmation shows the NAME **and** keeps the full hash (P-7c)",
+                            body_row_is(1, want.hash) && body_row_is(2, "Wolfgangetta"));
+                    }
+                    const int d0 = g_hal.txq_depth(), s0 = g_probe_radio.starts;
+                    const int gc0 = grant_seam().calls;
+                    t17 = see(settle(t17 + 500));                     // short -> GRANT KEY
+                    CHK("P23e GRANT KEY is selectable, and the SHORT ALONE performs nothing",
+                        body_row_is(4, ">GRANT KEY") && grant_seam().calls == gc0 && cs.writes == w0 &&
+                        g_hal.txq_depth() == d0 && g_probe_radio.starts == s0);
+                    t17 = see(settle(t17 + 500));                     // short -> REJECT
                     t17 = see(double_press(t17 + 500));
                     CHK("P23e REJECT lands back on the window with the candidate GONE",
                         body_row_is(0, mrui::kInviteTitle) && strstr(g_c.page_text, "T221") == nullptr);
                     CHK("P23e ...and the empty state is honest again", body_row_is(2, mrui::kInviteEmpty));
-                    CHK("P23e ⛔ REJECT spent no durable write and sent nothing",
-                        cs.writes == w0 && g_hal.txq_depth() == 0);
+                    CHK("P23e ⛔ REJECT spent no durable write, reached NO grant seam and sent nothing",
+                        cs.writes == w0 && grant_seam().calls == gc0 && g_hal.txq_depth() == 0);
                 }
 
                 // ---- (f) ★★ THE WINDOW EXPIRES BY ITSELF, AND EXPIRY CHANGES NOTHING (P-11) -----------------
@@ -4787,6 +4929,225 @@ int main() {
                     t17 = walk_to(t17 + 500, ">BACK");
                     t17 = see(double_press(t17 + 500));
                     CHK("P23f ...and BACK returns to the PROVISION MENU", body_row_is(0, ">CREATE TEAM"));
+                }
+
+                // ============================================================================================ P24
+                // ★★★★ §UI-16 N6 — THE GRANT ACT, ALL EIGHT OUTCOMES AND BOTH PUSHES, THROUGH THE SHIPPED SCREEN.
+                //      `test_firmware_ui_invite.cpp` proves what the MAPPER returns and `test_firmware_ui_model.cpp`
+                //      proves which gesture reaches it — ⛔ NEITHER compiles `src/firmware_ui.cpp`, so a result arm
+                //      wired to the wrong field, a word drawn from the wrong state, or an identity row lost on the
+                //      way would leave every native case green while the panel says the wrong thing about a
+                //      PRIVATE KEY. ⇒ every row below is asserted at its EXACT COORDINATE by its EXACT BYTES.
+                // ★★★ THE FAKE IS THE SEAM AND THE PURE MAPPER IS THE ORACLE: the expected word is computed from
+                //     the outcome the fake returned, ⛔ never typed here.
+                {
+                    char full[mrui::kMemberHashCap];
+                    mrui::ui_fmt_member_hash_full(full, sizeof full, hashB);
+                    // ONE pass of the ruled ceremony, from the PROVISION menu to the verdict screen.
+                    // ⓘ THE WINDOW MUST OPEN WITH THE MEMBER ABSENT, or it is no candidate (the snapshot is taken at
+                    //   OPEN). `clear_team_routing_state()` is the core's own team-plane wipe — it drops the route,
+                    //   the team-peer bit and the id->hash cache while leaving the CONTENT key and the cached PUBKEY
+                    //   alone, which is exactly the fixture each pass needs.
+                    auto grant_pass = [&](MESHROUTE_NS::Node::TeamKeyGrantTx tx, uint16_t ctr, uint8_t dst = 221) {
+                        grant_seam().tx = tx; grant_seam().ctr = ctr; grant_seam().dst = dst;
+                        g_node.clear_team_routing_state();
+                        t17 = walk_to(t17 + 500, ">INVITE MEMBER");
+                        t17 = see(double_press(t17 + 500));           // the snapshot is taken HERE, and it is EMPTY
+                        member(221, hashB);                            // ...and only now does the candidate arrive
+                        dirty_the_model(t17 + 1000);
+                        t17 = see(t17 + 1100);
+                        t17 = walk_to(t17 + 500, ">Wolfga T221");
+                        t17 = see(double_press(t17 + 500));           // -> the ready confirmation
+                        t17 = see(settle(t17 + 500));                 // short: REJECT -> GRANT KEY
+                        t17 = see(double_press(t17 + 500));           // ...and the act
+                    };
+                    // ---- (a) THE ELEVEN ARMS, EACH WITH ITS OWN WORD -----------------------------------------
+                    // ★★ RE-ANCHORED 2026-08-24 BY §UI-16 N6b: the row that used to read `queued` with a ZERO
+                    //    handle is GONE, because that pair was the withdrawn PARKED *inference* — the core now
+                    //    says `parked` outright, and the two admission refusals it used to hide (`queue_full`)
+                    //    and the pre-admission failure (`send_failed`) are arms of their own.
+                    const struct { MESHROUTE_NS::Node::TeamKeyGrantTx tx; uint16_t ctr; const char* label; } arms[] = {
+                        { MESHROUTE_NS::Node::TeamKeyGrantTx::queued,      4242, "P24a queued+handle" },
+                        { MESHROUTE_NS::Node::TeamKeyGrantTx::parked,         0, "P24a parked" },
+                        { MESHROUTE_NS::Node::TeamKeyGrantTx::queue_full,     0, "P24a queue_full" },
+                        { MESHROUTE_NS::Node::TeamKeyGrantTx::send_failed,    0, "P24a send_failed" },
+                        { MESHROUTE_NS::Node::TeamKeyGrantTx::no_team,        0, "P24a no_team" },
+                        { MESHROUTE_NS::Node::TeamKeyGrantTx::no_key,         0, "P24a no_key" },
+                        { MESHROUTE_NS::Node::TeamKeyGrantTx::no_identity,    0, "P24a no_identity" },
+                        { MESHROUTE_NS::Node::TeamKeyGrantTx::no_pubkey,      0, "P24a no_pubkey" },
+                        { MESHROUTE_NS::Node::TeamKeyGrantTx::self,           0, "P24a self" },
+                        { MESHROUTE_NS::Node::TeamKeyGrantTx::delegated,      0, "P24a delegated" },
+                        { MESHROUTE_NS::Node::TeamKeyGrantTx::too_large,      0, "P24a too_large" },
+                    };
+                    for (const auto& a : arms) {
+                        const int gc = grant_seam().calls;
+                        grant_pass(a.tx, a.ctr);
+                        const char* want = mrui::invite_grant_word(mrui::invite_grant_state_of(a.tx));
+                        char note[96];
+                        snprintf(note, sizeof note, "%s -> the panel says its own word", a.label);
+                        CHK(note, body_row_is(0, want) && want[0] != 0);
+                        snprintf(note, sizeof note, "%s ...carrying the FULL hash and the way out", a.label);
+                        CHK(note, body_row_is(1, full) && body_row_is(4, "press = back"));
+                        snprintf(note, sizeof note, "%s ⛔ ...and no completion word anywhere on the panel", a.label);
+                        CHK(note, strstr(g_c.page_text, "JOIN COMPLETE") == nullptr &&
+                                  strstr(g_c.page_text, "KEYLESS") == nullptr &&
+                                  strstr(g_c.page_text, "WAITING FOR KEY") == nullptr);
+                        snprintf(note, sizeof note, "%s the seam was reached EXACTLY once, on TEAM, by hash", a.label);
+                        CHK(note, grant_seam().calls == gc + 1 && grant_seam().last_hash == hashB &&
+                                  grant_seam().last_plane == mrui::kInviteGrantPlane);
+                        t17 = see(double_press(t17 + 500));           // terminal: acknowledge -> the PROVISION menu
+                        snprintf(note, sizeof note, "%s terminal — a press lands on the PROVISION menu", a.label);
+                        CHK(note, body_row_is(0, ">CREATE TEAM") && grant_seam().calls == gc + 1);
+                    }
+                    // ---- (b) ★★★★ THE TWO PUSH OUTCOMES, THROUGH THE REAL `mr_ui_on_push` ---------------------
+                    // ★★★ `GRANT QUEUED` IS ⛔ NOT `KEY SENT` (F-9, the headline), and only a CORRELATED TxDone
+                    //     edge promotes it. The uncorrelated ones are driven FIRST, so the promotion below cannot
+                    //     be mistaken for "any push repaints it".
+                    {
+                        grant_pass(MESHROUTE_NS::Node::TeamKeyGrantTx::queued, 4242);
+                        CHK("P24b the admission says GRANT QUEUED — ⛔ never KEY SENT",
+                            body_row_is(0, mrui::kInviteGrantQueued) &&
+                            strstr(g_c.page_text, mrui::kInviteKeySent) == nullptr);
+                        MESHROUTE_NS::Push pu{};
+                        pu.kind = MESHROUTE_NS::PushKind::send_aired; pu.dst = 90; pu.ctr = 4242;
+                        mr_ui_on_push(pu);
+                        dirty_the_model(t17 + 1000); t17 = see(t17 + 1100);
+                        CHK("P24b ⛔ a send_aired for a DIFFERENT dst does not promote it",
+                            body_row_is(0, mrui::kInviteGrantQueued));
+                        pu.dst = 221; pu.ctr = 4243;
+                        mr_ui_on_push(pu);
+                        dirty_the_model(t17 + 1000); t17 = see(t17 + 1100);
+                        CHK("P24b ⛔ a send_aired for a DIFFERENT ctr does not promote it",
+                            body_row_is(0, mrui::kInviteGrantQueued));
+                        pu.dst = 221; pu.ctr = 4242;
+                        mr_ui_on_push(pu);
+                        dirty_the_model(t17 + 1000); t17 = see(t17 + 1100);
+                        CHK("P24b ★★ the CORRELATED send_aired promotes it to KEY SENT",
+                            body_row_is(0, mrui::kInviteKeySent) && body_row_is(1, full));
+                        t17 = see(double_press(t17 + 500));
+                        CHK("P24b ...and the verdict is terminal in the same way", body_row_is(0, ">CREATE TEAM"));
+                    }
+                    {
+                        grant_pass(MESHROUTE_NS::Node::TeamKeyGrantTx::queued, 4242);
+                        MESHROUTE_NS::Push pu{};
+                        pu.kind = MESHROUTE_NS::PushKind::send_failed; pu.dst = 221; pu.ctr = 4242;
+                        pu.reason = MESHROUTE_NS::SendFailReason::no_route;
+                        mr_ui_on_push(pu);
+                        dirty_the_model(t17 + 1000); t17 = see(t17 + 1100);
+                        CHK("P24b a CORRELATED failure says GRANT FAILED",
+                            body_row_is(0, mrui::kInviteGrantFailed) && body_row_is(1, full));
+                        t17 = see(double_press(t17 + 500));
+                        CHK("P24b ...and it too is terminal", body_row_is(0, ">CREATE TEAM"));
+                    }
+                    // ---- (c) ★★★★ THE HANDOFF, WITH THE UNIT: TWO REAL GRANTS THROUGH THE REAL NODE --------
+                    // ★★★ THIS IS THE ARM NO FAKE CAN GIVE: the production forward really calls
+                    //     `Node::team_key_grant_send`, the core really pre-flights it, mints the origination handle
+                    //     and owns its app future — so the value the panel correlates on is the CORE's, ⛔ not one
+                    //     invented here. The fixture is H2-shaped: a cached AUTHORITATIVE pubkey for the target
+                    //     (P23d installed it), a crypto identity to seal WITH, and a team content key to grant.
+                    {
+                        uint8_t seed[32], tkpriv[32];
+                        for (int i = 0; i < 32; ++i) { seed[i] = uint8_t(0x90 + i); tkpriv[i] = uint8_t(0x40 + i); }
+                        MESHROUTE_NS::Identity me{};
+                        MESHROUTE_NS::identity_from_seed(me, seed);
+                        g_node.set_crypto_identity(me.x_secret, me.ed_pub);
+                        const bool keyed = g_node.team_channel_key_adopt_priv(tkpriv);
+                        uint8_t edb[32]; MESHROUTE_NS::Node::PeerKeyConf cf{};
+                        CHK("P24c precondition: a team content key to grant, and an AUTHORITATIVE pubkey to seal to",
+                            keyed && g_node.team_channel_key_present() &&
+                            g_node.peer_key_find(hashB, edb, &cf) &&
+                            uint8_t(cf) >= uint8_t(MESHROUTE_NS::Node::PeerKeyConf::authoritative));
+
+                        // ---- (c1) THE REAL CORE'S OWN VERDICT, WHATEVER IT IS ---------------------------------
+                        // ⛔⛔ RE-ANCHORED 2026-08-24 BY §UI-16 N6b, AND THE OLD EXPECTATION IS KEPT VISIBLE BECAUSE
+                        //     IT WAS PINNING THE DEFECT: this arm used to assert *"the REAL grant is admitted and
+                        //     the panel says GRANT QUEUED"* with *"a handle the CORE minted"*. ★★ MEASURED: on this
+                        //     harness the seal REFUSES — `mrrng::fill` is the HOST fallback and returns ZEROS **by
+                        //     design** (`src/device_rng.h`: *"INTENTIONALLY a degenerate seed so a mis-target is
+                        //     loud"*), so `e2e_seal_inner` answers `bad_rng`, `enqueue_data` pushes
+                        //     `send_failed{bad_rng}` and RETURNS THE MINTED COUNTER WITHOUT ENQUEUEING ANYTHING.
+                        //     The pre-N6b seam therefore answered `queued` with a NON-ZERO handle for a frame that
+                        //     had never existed — and this check asserted it. ⇒ a THIRD live instance of the exact
+                        //     defect the correction removes, found inside the arm that exists to prove the panel
+                        //     reports the CORE's own values.
+                        // ★ WHAT THE ARM MEASURES NOW: the production forward really reaches
+                        //   `Node::team_key_grant_send`, and the panel says what that call really answered —
+                        //   ⛔ no phantom admission, ⛔ no handle for a flight that does not exist.
+                        // ⓘ THE PROMOTION TO `KEY SENT` IS MEASURED IN (b) ABOVE, over the scripted seam (the
+                        //   renderer's path is identical), and against the REAL core by the native cases
+                        //   `ui16-grant-redad` / `ui16-grant-queuefull`, whose HAL supplies real entropy. The real
+                        //   TxDone edge remains METAL (bench §7.4 step 5).
+                        grant_seam().passthrough = true;
+                        grant_pass(MESHROUTE_NS::Node::TeamKeyGrantTx::queued, 0);   // ⓘ both fields IGNORED here
+                        grant_seam().passthrough = false;
+                        CHK("P24c the REAL seam was handed the frozen hash on the TEAM plane",
+                            grant_seam().last_hash == hashB &&
+                            grant_seam().last_plane == MESHROUTE_NS::Plane::TEAM);
+                        CHK("P24c ★★ the REAL core's refusal reaches the panel as GRANT FAILED — ⛔ never as an "
+                            "admission (the host RNG is degenerate BY DESIGN, so the seal refuses)",
+                            body_row_is(0, mrui::kInviteGrantFailed) && body_row_is(1, full) &&
+                            strstr(g_c.page_text, mrui::kInviteKeySent) == nullptr &&
+                            strstr(g_c.page_text, mrui::kInviteGrantQueued) == nullptr);
+                        CHK("P24c ⛔ ...and NO handle and NO dst are offered for a flight that never existed",
+                            grant_seam().last_out_ctr == 0 && grant_seam().last_out_dst == 0);
+                        // ⛔⛔ PIN 7 / P-8 — ⛔ NO KEY MATERIAL REACHES ANY SCREEN, MEASURED on the probe-captured
+                        //     render rather than argued from the code: the grant just sealed THIS private half, and
+                        //     neither hex spelling of it may appear on the panel.
+                        {
+                            char up[17] = {}, lo[17] = {};
+                            for (int i = 0; i < 8; ++i) {
+                                snprintf(up + 2 * i, 3, "%02X", tkpriv[i]);
+                                snprintf(lo + 2 * i, 3, "%02x", tkpriv[i]);
+                            }
+                            CHK("P24c ⛔ no team private-key material anywhere on the panel (P-8)",
+                                strstr(g_c.page_text, up) == nullptr && strstr(g_c.page_text, lo) == nullptr);
+                        }
+                        t17 = see(double_press(t17 + 500));
+                        CHK("P24c the real verdict is terminal too", body_row_is(0, ">CREATE TEAM"));
+
+                        // ---- (c2) ★★★★ AND THE PUSH THE CORE REALLY EMITS, WITH ⛔ NOTHING INJECTED AT ALL ---
+                        // ★★★ THE NODE IS SERVICED THE WAY `fw_main`'s LOOP DOES IT, IN ITS ORDER (§T3 §2.1):
+                        //     collect completions -> drain outcomes into the core -> fire due timers -> pump ->
+                        //     drain the push ring into `mr_ui_on_push`. ⓘ This probe otherwise never services the
+                        //     node (it drives the UI), which is why the loop is spelled out here.
+                        // ⛔⛔ RE-ANCHORED WITH (c1) AND FOR THE SAME MEASUREMENT: the refusal is SYNCHRONOUS now,
+                        //     so the verdict is already terminal when the loop runs. ★ THE PROPERTY THAT SURVIVES
+                        //     IS THE ONE WORTH KEEPING: the core pushes `send_failed` for a grant it refused, that
+                        //     push travels the WHOLE production chain (push ring -> `mr_ui_on_push` ->
+                        //     `ui_route_send_push` -> the model) with ⛔ no hand-built push anywhere, and it
+                        //     ⛔ neither promotes nor rewrites a verdict the operator has already read.
+                        bool aired_seen = false, real_fail = false;
+                        grant_seam().passthrough = true;
+                        grant_pass(MESHROUTE_NS::Node::TeamKeyGrantTx::queued, 0);
+                        grant_seam().passthrough = false;
+                        CHK("P24c2 the second REAL grant reports the same refusal, and ⛔ mints no handle",
+                            body_row_is(0, mrui::kInviteGrantFailed) && grant_seam().last_out_ctr == 0 &&
+                            grant_seam().last_out_dst == 0);
+                        for (int i = 0; i < 8; ++i) {
+                            set_now(t17 + 200 + uint32_t(i) * 50);
+                            g_hal.collect_tx_completion();
+                            for (MESHROUTE_NS::TxOutcome o; g_hal.pop_tx_outcome(o); ) g_node.on_tx_complete(o);
+                            for (int id; (id = g_hal.pop_due_timer()) >= 0; ) g_node.on_timer(uint32_t(id));
+                            g_hal.pump_tx();
+                            MESHROUTE_NS::Push pu{};
+                            while (g_node.next_push(pu)) {
+                                if (pu.kind == MESHROUTE_NS::PushKind::send_aired) aired_seen = true;
+                                if (pu.kind == MESHROUTE_NS::PushKind::send_failed) real_fail = true;
+                                mr_ui_on_push(pu);
+                            }
+                        }
+                        dirty_the_model(t17 + 1000); t17 = see(t17 + 1100);
+                        CHK("P24c2 ★★★ the CORE really pushed send_failed for the grant it refused, and the whole "
+                            "production chain carried it with NOTHING injected",
+                            real_fail);
+                        CHK("P24c2 ⛔ ...and it neither promoted nor rewrote the verdict already on the panel",
+                            body_row_is(0, mrui::kInviteGrantFailed) && body_row_is(1, full) &&
+                            strstr(g_c.page_text, mrui::kInviteKeySent) == nullptr);
+                        CHK("P24c2 ⓘ ...and ⛔ no send_aired is producible on this harness (no CTS, no RX path)",
+                            aired_seen == false);
+                        t17 = see(double_press(t17 + 500));
+                        CHK("P24c2 the failure verdict is terminal too", body_row_is(0, ">CREATE TEAM"));
+                    }
                 }
             }
         }

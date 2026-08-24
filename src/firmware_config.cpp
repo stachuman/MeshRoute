@@ -1364,20 +1364,46 @@ static void team_grant_key(const char* tail, Print& out) {
         }
     }
     uint16_t ctr = 0;
+    uint8_t  dst = 0;                                  // §UI-16 N6b: the core's SEND-TIME resolved destination
     const auto res = g_node.team_key_grant_send(hash, ga.name_len ? ga.name : nullptr, ga.name_len,
-                                                ga.team_plane ? meshroute::Plane::TEAM : meshroute::Plane::AUTO, &ctr);
+                                                ga.team_plane ? meshroute::Plane::TEAM : meshroute::Plane::AUTO, &ctr, &dst);
     const char* reason = nullptr;
     const __FlashStringHelper* detail = nullptr;
     switch (res) {
+        // ★★★★ §UI-16 N6b (2026-08-24) — THE THREE OUTCOMES THE CORE USED TO LAUNDER INTO `queued` NOW ARRIVE AS
+        //      THEMSELVES, and this console says three different things where it used to say two, one of which was
+        //      a guess. ⛔ WITHDRAWN, KEPT VISIBLE: the `queued` arm read `if (ctr) "queued ctr=" else "PARKED"` —
+        //      an inference off the COUNTER, which is minted above every bail and therefore survives a dropped
+        //      frame. The success EVENT stays on the truly-queued arm alone (a `team_key_grant` record now means a
+        //      frame really is in the queue); the other three are `team_key_err` reasons like every other refusal.
         case meshroute::Node::TeamKeyGrantTx::queued: {
             const size_t m = meshroute::console::write_team_key_grant(s_inbox_jb, sizeof s_inbox_jb, hash, ctr);
             if (m) out.write(s_inbox_jb, m);
             out.print(F("> team grantkey: SEALED grant to 0x"));
             { char hx[9]; snprintf(hx, sizeof hx, "%08lX", (unsigned long)hash); out.print(hx); }
-            if (ctr) { out.print(F(" queued ctr=")); out.println(ctr); }
-            else     out.println(F(" PARKED (resolving the target's node id — it flies when the binding arrives)"));
+            out.print(F(" queued ctr=")); out.print(ctr);
+            out.print(F(" dst=")); out.println(dst);
             return;
         }
+        case meshroute::Node::TeamKeyGrantTx::parked: {
+            const size_t m = meshroute::console::write_team_key_grant(s_inbox_jb, sizeof s_inbox_jb, hash, /*ctr=*/0);
+            if (m) out.write(s_inbox_jb, m);
+            out.print(F("> team grantkey: SEALED grant to 0x"));
+            { char hx[9]; snprintf(hx, sizeof hx, "%08lX", (unsigned long)hash); out.print(hx); }
+            out.println(F(" PARKED (resolving the target's node id — it flies when the binding arrives)"));
+            return;
+        }
+        case meshroute::Node::TeamKeyGrantTx::queue_full:
+            reason = "queue_full";
+            // ⚠ THE WORDING IS EXACT (QG, 2026-08-24): a refused PARK still fires the arm's unconditional
+            //   `emit_hash_query`, so "nothing will air" was FALSE on that path. The operator is told what is
+            //   true of the GRANT — no DATA stored, none coming — and that a locate may still go out.
+            detail = F("> team err: the TX queue (or the parked-send ring) is FULL — the grant was NOT accepted. No grant DATA was stored or will air; an unresolved-target H lookup may still air. Retry in a moment.");
+            break;
+        case meshroute::Node::TeamKeyGrantTx::send_failed:
+            reason = "send_failed";
+            detail = F("> team err: the send path refused the grant before it could be queued (see the send_failed event for the reason).");
+            break;
         case meshroute::Node::TeamKeyGrantTx::no_team:
             reason = "no_team";  detail = F("> team err: not in a team — there is no team key to grant (`team new` or `team <id>` first)"); break;
         case meshroute::Node::TeamKeyGrantTx::no_key:
@@ -1553,6 +1579,25 @@ void prov_device_facts(mrfw::ProvSnapshot& out, mrfw::ProvPhyFloor& floor) {
     floor.bw_hz                = meshroute::protocol::khz_to_hz(LORA_BW);
 }
 void prov_note_persisted_team_local_id(uint8_t v) { g_persist_team_local_id = v; }
+
+// ★★★★ §UI-16 N6 — THE OLED GRANT'S DEVICE FORWARD, AND IT IS A FORWARD AND NOTHING ELSE. It exists HERE, beside
+//      `handle_team`'s `grantkey` arm (:1367), for the U1 reason the snapshot fill above states about its own
+//      duplication: BOTH origination sites of this one verb are then in ONE file, so a change to how this device
+//      grants a team key cannot land on one of them and miss the other.
+// ⛔ NO DECISION IS TAKEN HERE (the rule this whole binding region runs on): the PLANE arrives from the pure unit
+//    (`mrui::kInviteGrantPlane`), the eleven-valued outcome is returned VERBATIM for the pure mapper to word, and the
+//    two correlation terms the core wrote (`out_ctr` + §UI-16 N6b's `out_dst`) are passed straight back. A forward
+//    that mapped, defaulted or "helpfully" collapsed any of them would be a decision unreachable by every automated
+//    gate — this TU is compiled by neither the native suite nor the simulator (§B115).
+// ★ THE `name` IS DELIBERATELY `nullptr` (F-3): the optional field is the TEAM's human label, this firmware stores
+//   no such label anywhere, and inventing one on a one-button panel would put an unruled string inside a sealed
+//   frame. The console keeps its own `name="…"` argument, which is where an operator can type one.
+// ⓘ It is exported so `src/firmware_ui.cpp` can call it WITHOUT reaching a second Node send path, and so
+//   `tools/probe_firmware_ui` can substitute a scriptable one and drive all eleven outcomes — the same seam shape
+//   (and the same reason) as `prov_service()` / `join_service()` above.
+meshroute::Node::TeamKeyGrantTx device_team_grant(uint32_t key_hash32, meshroute::Plane plane, uint16_t* out_ctr, uint8_t* out_dst) {
+    return g_node.team_key_grant_send(key_hash32, /*name=*/nullptr, /*name_len=*/0, plane, out_ctr, out_dst);
+}
 
 // §PROV-TX — THE VOICE OF A NON-`applied` VERDICT, and it is a separate function for two reasons rather than one:
 // U3 (`handle_team` stays parse -> request -> render, not a wall of strings) and because ONE guarded early return is
