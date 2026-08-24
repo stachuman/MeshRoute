@@ -3268,3 +3268,23 @@ upgrade); run it there, tick here.
    `exec_command()` path returns it without printing, so the panel staying put is the whole observable. ⛔ FAIL
    if it reads `WAITING FOR PUBKEY`. ⓘ If a no-identity state cannot be safely produced on this bench, record
    not-run with that reason — ⛔ never FAIL.
+
+## Part 41 — §UI-16 N6b: the grant's dispatch truth on glass (2026-08-24)
+
+⛔ **THE RESIDUE ONLY** (all four dispatch outcomes, both refusals, the re-DAD correlation and the H-vs-DATA
+distinction are host-gated: `teamgrant`/`grantadmit`/`grantpark` 6 entries, `uiinvite` I31/I32, `model` V21,
+probe P24a's arms, the decoded `ui16-grant-parkfull-air` pin). **Metal-only: the queue-full arm against a real
+radio, and the real TxDone edge.** Walk = spec §7.4 steps 3c-6; run it there, tick here.
+
+1. ☐ **`GRANT QUEUE FULL` on glass, if provokable:** with H1's radio busy (a long channel post, or grants to
+   members back-to-back inside one window), a `GRANT KEY` the TX queue refuses reads **`GRANT QUEUE FULL`** —
+   ⛔ never `GRANT QUEUED`, `GRANT PARKED` or `GRANT FAILED`. Console twin: the queue/ring-FULL refusal line.
+   ⓘ If the 8-deep queue cannot be filled by hand on this bench, record **not-run with that reason** — ⛔ never
+   FAIL.
+2. ☐ **The console prints the resolved dst:** `team grantkey 0x<hash> -t` on a resolved teammate ⇒ the queued
+   line carries `ctr=<n> dst=<id>`, and `<id>` equals the teammate's team-local id on the TEAM row.
+3. ☐ **`GRANT PARKED` only when really parked:** grant to a teammate in the team but **not heard** ⇒
+   `PARKED (resolving…)` on console and `GRANT PARKED` on glass (ⓘ one H lookup may air — that is the
+   pre-existing locate, not grant DATA); a grant with **no adopted team id** (`me T--`) ⇒ **`GRANT FAILED`**,
+   ⛔ never `GRANT PARKED`.
+4. ☐ Spec §7.4 step 5 unchanged: `GRANT QUEUED` first, `KEY SENT` only after the frame leaves the radio.

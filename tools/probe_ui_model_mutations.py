@@ -47,13 +47,59 @@ ONE PRIMITIVE, from FOUR call sites, and the rule that produced it is: A GUARD B
 INCIDENT — a guard installed only where the bug was observed is not a guard. The six defects and the scope each fix was
 wrongly given are tabulated at the primitive.
 
+★★★ AND SINCE 2026-08-24 THE BATTERY RUNS IN **SCRATCH TREES, IN PARALLEL — THE REAL TREE IS NEVER TOUCHED.**
+⛔⛔ THAT IS THE HEADLINE, AND IT IS A SAFETY CHANGE BEFORE IT IS A SPEED ONE. Every defect tabulated at
+`guarded_write` shares one precondition: THIS TOOL USED TO EDIT AND BUILD THE OWNER'S LIVE WORKING TREE. Remove the
+precondition and the whole family stops being reachable:
+  · defect 3 (a stale MUTANT BINARY left in `.pio/build/native`) is **DELETED, NOT MOVED** — the real tree is never
+    built by this runner at all, so its binary is never a mutant's, and the exit-gate rebuild that used to refresh it
+    has nothing left to refresh. (In a scratch tree the same gate would prove restoration at the BUILD level — but the
+    tree is deleted seconds later and nothing ever runs its binary, so the proof would be about a corpse. What
+    replaces it is the REAL-TREE FINGERPRINT: every target file's md5 taken at launch and required again at the end.)
+  · the edit-a-target-mid-battery incident, and the sibling session whose board build wiped `.pio/build/native`
+    underneath a running battery, both become impossible: neither the source nor the build directory is shared.
+★ THE SHAPE. A parent ORCHESTRATOR (no lock, no backup, no build — it never writes the repository) rsyncs the WORKING
+  tree — ⛔ never `git archive`: this tree is DIRTY BY DESIGN and an uncommitted slice is the normal state — into one
+  scratch tree per worker, shards the selected entries across them, and re-execs THIS SAME FILE inside each tree as a
+  WORKER. A worker is the serial runner, unchanged: `ROOT` derives from `__file__`, so a worker's every guard —
+  the per-path backup, the INFLIGHT marker, the source lock, the build lock, `guarded_write`'s three arms, the derived
+  baseline, the md5-verified restore — keys itself to ITS OWN tree with no code change at all. ⇒ `--workers 1` is the
+  EXACT pre-2026-08-24 serial path (in a scratch tree), and is kept as the reference implementation the parallel
+  default is proved against.
+⛔ A SHARD THAT DOES NOT REPORT IS A FAILURE, NEVER A PASS ([[B227]]/[[B237]]: a harness whose own plumbing launders
+  "did not measure" into "measured"). The parent knows the exact index list it handed out; every index must come back
+  named with a verdict, or the run prints the missing ones and exits 9. A worker writes its result file after EVERY
+  entry (atomically), so a `kill -9` mid-entry loses one entry and reports the rest — and the parent says which.
+⛔⛔ COMPILER CACHE — AND THE MEASUREMENT SAYS IT DOES NOTHING FOR THIS RUNNER, WHICH IS NOT WHAT THE PLAN ASSUMED.
+  `tools/ccache_native.py` routes the native env's host compiles through ccache in the user-default `CCACHE_DIR`, and
+  the assumption was that scratch trees after the first would build warm. MEASURED 2026-08-24, on this tree:
+    · WITHIN one tree it works exactly as hoped — a mutate-build is 10.3 s / 0-of-8 hits (novel content, nothing to
+      hit), and the following build of RESTORED or ALREADY-SEEN content is 2.0 s / 8-of-8 hits.
+    · ACROSS trees it is **0 % warm, always**: a second scratch tree cold-builds in 17.0 s with 74/74 MISSES, and a
+      REPEAT of the same 10-entry battery scores 0/524 hits. Cause, verified rather than guessed: `-g` (the native
+      env is `build_type = debug`) makes ccache hash the build directory (`hash_dir`), and the absolute `-I`/source
+      paths differ per tree. `CCACHE_BASEDIR` ALONE DOES NOT FIX IT (0/74, still 16.3 s).
+  ⇒ ★ SINCE EVERY RUN NOW BUILDS IN FRESH SCRATCH PATHS, THE CACHE NEVER HITS DURING A BATTERY. The wiring still
+    earns its keep for the owner's OWN `pio test -e native` in the real tree, whose path is stable — but no battery
+    run, first or repeat, is faster for it.
+  ⓘ THE FIX IS MEASURED AND DELIBERATELY NOT APPLIED: `CCACHE_BASEDIR` + `CCACHE_NOHASHDIR` gives 74/74 cross-tree
+    hits, and takes a repeat of the 10-entry sample from 75.8 s to **11.5 s (524/524 hits, byte-identical verdicts)**.
+    ⛔ It is an OWNER RULING, not a coder's call, because `NOHASHDIR` costs correct debug-info directories and the
+    cache in question is SHARED with the owner's real builds: a real `pio test -e native` could then hit an object
+    whose DWARF `comp_dir` names a deleted scratch tree. The safe shape, if ruled: a BATTERY-PRIVATE persistent cache
+    dir (not `~/.ccache`) plus those two variables in the worker environment — one line here, no `platformio.ini`
+    change. Until then the honest statement is the one above: this runner's speed comes from Part A, not Part B.
+
 USAGE:  python3 tools/probe_ui_model_mutations.py                    # the model battery (the default target)
         python3 tools/probe_ui_model_mutations.py M07                # one entry, by its label prefix
         python3 tools/probe_ui_model_mutations.py --target=config     # the §UI-13 config-service battery
         python3 tools/probe_ui_model_mutations.py --target=config C05 # one entry of it
+        python3 tools/probe_ui_model_mutations.py --workers=1         # the serial reference path (one scratch tree)
         python3 tools/probe_ui_model_mutations.py --where            # print the resolved source + its keyed backup dir, do nothing
+  env   MR_MUT_SCRATCH=<dir>   put the scratch trees under <dir> (default: `TMPDIR`); they are removed on exit
+        MR_MUT_KEEP_SCRATCH=1  keep them instead, for post-mortem
 """
-import atexit, fcntl, hashlib, json, os, re, shutil, signal, subprocess, sys, tempfile
+import atexit, fcntl, hashlib, json, os, re, shutil, signal, subprocess, sys, tempfile, threading, time
 from pathlib import Path
 
 # ★ THE REPOSITORY ROOT IS DERIVED, NOT HARDCODED. An absolute path baked into a tool is a tool that measures somebody
@@ -174,13 +220,20 @@ _flags = [a for a in sys.argv[1:] if a.startswith("--")]
 #     at the top, BEFORE the target resolves and long before any lock, build or mutation, so a refused run cannot
 #     have touched the tree.
 _KNOWN_FLAGS = ("--where",)             # value-less flags
-_KNOWN_FLAG_PREFIXES = ("--target=",)   # `flag=value` forms
+# ⓘ The last three are INTERNAL: the orchestrator's own re-exec of this file inside a scratch tree. They are listed
+#   here (rather than special-cased) because [[B235]]'s rule is about the ARGUMENT VECTOR, not about who typed it —
+#   a worker invocation this parse could not name would be as unmeasurable as an operator's typo.
+_KNOWN_FLAG_PREFIXES = ("--target=", "--workers=", "--shard-id=", "--shard-entries=", "--shard-result=")
 def _refuse_argv(what, why):
     print(f"  ABORT {what} — refused. {why}")
     print(f"  known arguments:  --target=<{'|'.join(sorted(TARGET_SRC))}>")
+    print("                    --workers=<N>           (parallel scratch-tree workers; 1 = the serial reference)")
     print("                    --where                 (print the resolved source + backup dir, do nothing)")
     print("                    <ENTRY-LABEL PREFIX>    (at most ONE, positional, e.g. M07 — runs just those entries)")
+    print("                    --shard-id/--shard-entries/--shard-result   (INTERNAL — the orchestrator's workers)")
     print("  known environment: MR_MUT_BASE=\"cases,asserts\"  (the OPTIONAL clean-baseline cross-check)")
+    print("                     MR_MUT_SCRATCH=<dir>          (where the scratch trees go; default TMPDIR)")
+    print("                     MR_MUT_KEEP_SCRATCH=1         (keep them for post-mortem)")
     print("  No mutation was applied; nothing was built.")
     sys.exit(7)
 for _a in _flags:
@@ -204,6 +257,55 @@ if _TARGET not in TARGET_SRC:
     print(f"  ABORT unknown --target={_TARGET}; known targets: {', '.join(sorted(TARGET_SRC))}")
     sys.exit(6)
 H = os.path.join(ROOT, TARGET_SRC[_TARGET])
+
+
+# ===== ★★ THE PARALLEL LAYER'S ARGUMENTS, AND WHICH SIDE OF THE FORK THIS PROCESS IS ON ============================
+# ⛔ EXACTLY ONE OF TWO ROLES, decided here and never ambiguous: with `--shard-entries` this process is a WORKER (it
+#   owns the tree it was started in, and everything below `take_lock()` is its unchanged serial body); without it, it
+#   is the ORCHESTRATOR (it owns no lock, arms no backup, compiles nothing, and never writes the repository).
+def _usable_cores():
+    """The CPUs this process may actually be scheduled on — `sched_getaffinity`, not `cpu_count`.
+
+    ⚠ MEASURED 2026-08-24, and it is why this is not the `(physical id, core id)` dedup it was first written as:
+      this host is a VM whose topology is PARTLY SYNTHETIC. `lscpu` claims 48 CPUs / 24 cores / 2 threads, while
+      `/proc/cpuinfo` lists 24 processors carrying only **18 distinct `(physical id, core id)` pairs**. A dedup over
+      those pairs therefore answers 18 for a 24-vCPU machine — it UNDERSTATES the box, and it would understate a
+      cgroup-limited container by more. ⇒ ★ ask the scheduler what it will actually give us, and let the hard cap
+      below (6) do the reserving; the hyperthread question this dedup was trying to answer is one no VM answers
+      honestly, and at a cap of 6 it cannot change the result anyway.
+    """
+    try:
+        return len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        return os.cpu_count() or 1
+
+
+# ★ THE DEFAULT IS `min(usable cores - 2, 6)`, and the cap is deliberate rather than shy: each worker's `pio` build is
+#   ITSELF parallel, so the workers do not divide an idle machine between them — two cores are left for the session
+#   that launched the run, and 6 is the point past which this tree's 8-TU native build stops being the bottleneck.
+#   ⇒ raise it only on a MEASUREMENT, never on the core count alone.
+_WORKERS_DEFAULT = max(1, min(_usable_cores() - 2, 6))
+_WORKERS = _WORKERS_DEFAULT
+_SHARD_ID = None
+_SHARD_ENTRIES = None
+_SHARD_RESULT = None
+for _f in _flags:
+    if _f.startswith("--workers="):
+        _v = _f.split("=", 1)[1]
+        if not _v.isdigit() or int(_v) < 1:
+            _refuse_argv(f"--workers={_v!r} is not a positive integer",
+                         "A worker count this tool cannot read is a shard layout nobody can check.")
+        _WORKERS = int(_v)
+    elif _f.startswith("--shard-id="):
+        _SHARD_ID = _f.split("=", 1)[1]
+    elif _f.startswith("--shard-entries="):
+        _SHARD_ENTRIES = [int(x) for x in _f.split("=", 1)[1].split(",") if x != ""]
+    elif _f.startswith("--shard-result="):
+        _SHARD_RESULT = _f.split("=", 1)[1]
+_IS_WORKER = _SHARD_ENTRIES is not None
+if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
+    _refuse_argv("--shard-entries without --shard-id/--shard-result",
+                 "A shard that cannot report where its verdicts go would be a silently missing shard.")
 
 # ★★ THE CLEAN BASELINE IS **DERIVED FROM THE CLEAN RUN ITSELF**; THE FIGURE BELOW IS ONLY A CROSS-CHECK ([[B217]],
 #    owner-ruled 2026-08-20, landed 2026-08-21).
@@ -1014,7 +1116,8 @@ if os.environ.get("MR_MUT_BASE"):
 #   gate on the restored source. Declared here so the two gates read one pair of names, and so a reader of the exit
 #   gate can see WHERE the figure it demands came from — it is this run's measurement, never a literal.
 BASE_CASES = BASE_ASSERTS = None
-_pin_stale = None      # set to (pinned, derived) by the gate when the cross-check above disagrees; re-announced at the end.
+# ⓘ ...and the cross-check itself is judged by the ORCHESTRATOR, once, against the baseline the worker trees agreed
+#   on (see `orchestrate`'s `pin_stale`) — it is announced at BOTH ends of the merged report, exactly as before.
 
 # ★★★ RESTORATION IS GUARANTEED, NOT HOPED FOR. This tool EDITS A REAL SOURCE FILE in an uncommitted tree, so an
 #     exception, a Ctrl-C or a SIGTERM between the write and the restore would leave a MUTATION INSTALLED — and the next
@@ -1305,8 +1408,20 @@ def disarm():
 
 
 def _sig(signum, _frame):
+    # ⛔ `os._exit` SKIPS `atexit`, so an ORCHESTRATOR killed here would leave its workers running as orphans and its
+    #   scratch trees on disk. The two roles need different teardown and this is the only handler either gets, so it
+    #   does both — worker first (put the source back), then parent (kill the children, remove the trees).
+    #   ⓘ `globals().get` because this handler is installed at IMPORT time, hundreds of lines before the orchestrator's
+    #   helpers exist: a signal arriving in that window must not die of a NameError inside the handler.
     restore(f"signal {signum}")
     disarm()
+    for _fn in ("_kill_workers", "_cleanup_scratch"):
+        _f = globals().get(_fn)
+        if _f:
+            try:
+                _f()
+            except Exception:                      # a teardown that raises must not stop the other half
+                pass
     os._exit(128 + signum)
 
 
@@ -4107,6 +4222,11 @@ only = _positional[0] if _positional else None
 #     accept an instruction it did not understand, and "successfully ran nothing" is not a result.
 _sel = [_l for _l, _p, _r in MUTS if not only or _l.startswith(only)]
 _sel_n = len(_sel)
+# ★ THE SELECTION IS CARRIED AS **INDICES INTO `MUTS`**, not as labels, because the parallel layer has to hand a shard
+#   to another process and then prove that the verdicts that came back are about the entries it asked for. An index is
+#   the only handle both sides can check against the same table (the parent re-checks each returned label against
+#   `MUTS[idx][0]` — see the merge), and it is what makes a MISSING entry nameable rather than merely uncounted.
+_SEL_IDX = [_i for _i, (_l, _p, _r) in enumerate(MUTS) if not only or _l.startswith(only)]
 if only and _sel_n == 0:
     _heads = sorted({_l.split()[0] for _l, _p, _r in MUTS})
     print(f"  ABORT no entry of the '{_TARGET}' battery matches the label prefix {only!r} — refused. A prefix that "
@@ -4152,7 +4272,374 @@ if "--where" in sys.argv[1:]:
     print(f"source     {Path(H).resolve()}")
     print(f"key        {_BK_KEY}")
     print(f"backup dir {_BK_DIR}")
+    print(f"workers    {_WORKERS} (default {_WORKERS_DEFAULT} = min(usable cores {_usable_cores()} - 2, 6))")
     sys.exit(0)
+
+
+# ===== ★★★ THE ORCHESTRATOR — IT NEVER TOUCHES THE REPOSITORY ======================================================
+# ⛔⛔ EVERYTHING IN THIS BLOCK IS READ-ONLY WITH RESPECT TO `ROOT`. It takes md5s, it rsyncs OUT of the tree, and it
+#    reads worker output. It takes NO source lock and NO build lock (there is nothing of the real tree left to
+#    serialise against — two orchestrations can now run side by side, which is exactly what the old shared
+#    `.pio/build/native` made impossible), it arms NO backup, and it starts NO build. The only thing it asserts about
+#    the real tree is that it is UNCHANGED, twice: once between launch and the shard copies, and once at the end.
+_SCRATCH_ROOT = None
+_WORKER_PROCS = []
+_WORKER_SIDECARS = []       # the /tmp keyed dirs+locks the workers will create; see `_worker_sidecar_paths`
+
+
+def _worker_sidecar_paths(tree):
+    """The two keyed paths a worker in `tree` will create OUTSIDE its tree, computed by the SAME rules the worker
+    uses (`_BK_DIR` / `_BUILD_LOCK` above).
+
+    ⛔ THEY MUST BE CLEANED UP OR EVERY RUN LITTERS: the sidecar backup and the build lock are keyed by a hash of a
+    RESOLVED PATH, and a scratch tree's path is unique per run — so N workers leave N dead `mr_*-<key>` entries in
+    the temp dir every time, keyed to trees that no longer exist. (Measured before this was added: 54 of them.) ⓘ
+    They are derived, not discovered: this removes only the exact paths OUR trees map to, never a glob that could
+    reach another session's live backup.
+    """
+    src_key = hashlib.sha1(str(Path(os.path.join(tree, TARGET_SRC[_TARGET])).resolve()).encode()).hexdigest()[:16]
+    bld_key = hashlib.sha1(str(Path(os.path.join(tree, ".pio/build/native")).resolve()).encode()).hexdigest()[:16]
+    return (os.path.join(tempfile.gettempdir(), f"mr_ui7d_mutation_backup-{src_key}"),
+            os.path.join(tempfile.gettempdir(), f"mr_mutation_buildlock-{bld_key}"))
+
+
+def _cleanup_scratch():
+    """Remove the scratch trees and the keyed sidecars their workers made.
+
+    ⓘ `MR_MUT_KEEP_SCRATCH=1` keeps the trees — a crashed worker's tree still holds its installed mutant and its
+    build directory, which is the only post-mortem material a deleted tree would destroy. The sidecars are kept with
+    them, because a tree without its INFLIGHT marker is half a post-mortem.
+    """
+    global _SCRATCH_ROOT
+    d, _SCRATCH_ROOT = _SCRATCH_ROOT, None
+    if not d:
+        return
+    if os.environ.get("MR_MUT_KEEP_SCRATCH"):
+        print(f"  scratch KEPT (MR_MUT_KEEP_SCRATCH=1): {d}", flush=True)
+        return
+    shutil.rmtree(d, ignore_errors=True)
+    for bk_dir, bld_lock in _WORKER_SIDECARS:
+        shutil.rmtree(bk_dir, ignore_errors=True)
+        try:
+            os.remove(bld_lock)
+        except OSError:
+            pass
+
+
+def _kill_workers():
+    for p in _WORKER_PROCS:
+        if p.poll() is None:
+            try:
+                p.kill()
+            except OSError:
+                pass
+
+
+def _real_fingerprint():
+    """md5 of EVERY target file this runner knows how to mutate — not merely the one selected.
+
+    ⚠ Deliberately wider than the run: the promise being kept is "this tool did not write your tree", and a promise
+    scoped to the one file the run happened to select is a promise about the incident rather than the invariant.
+    """
+    return {rel: _md5(os.path.join(ROOT, rel))
+            for rel in sorted(set(TARGET_SRC.values())) if os.path.exists(os.path.join(ROOT, rel))}
+
+
+def orchestrate():
+    global _SCRATCH_ROOT, _WORKERS
+    t0 = time.time()
+    me = os.path.abspath(__file__)
+    rel_me = os.path.relpath(me, ROOT)
+    if shutil.which("rsync") is None:
+        print("  ABORT `rsync` is not on PATH — the scratch trees cannot be made, so nothing was measured.")
+        print("  ⛔ There is no fallback on purpose: a half-copied tree would build and report verdicts about a tree")
+        print("     that is not yours. Install rsync (it is the only external tool this runner needs).")
+        sys.exit(9)
+
+    # ⓘ Never more workers than entries: an empty shard is a scratch tree rsynced, a `.pio` allocated and a cold
+    #   native build paid for nothing.
+    _WORKERS = min(_WORKERS, len(_SEL_IDX))
+    print(f"-- target {_TARGET}: {Path(H).resolve()} ({len(MUTS)} entries)", flush=True)
+    print(f"-- selection: {_SCOPE_NOW}", flush=True)
+    print(f"-- workers: {_WORKERS}"
+          f"{'' if _WORKERS != _WORKERS_DEFAULT else f' (default = min(usable cores {_usable_cores()} - 2, 6))'}"
+          f"{'   [SERIAL REFERENCE PATH]' if _WORKERS == 1 else ''}", flush=True)
+
+    # ★★ THE INFLIGHT MARKER'S JOB, ADAPTED. In the serial tool the marker answered "is the file in the tree still
+    #    mine?" across a build. Nothing of ours is in the tree any more, so the question it now answers is the only
+    #    one left that can invalidate a run: DID THE REAL TREE MOVE BETWEEN THE LAUNCH AND THE COPIES? A shard cut
+    #    from a source the operator was mid-edit on measures a file nobody has.
+    fp_launch = _real_fingerprint()
+
+    _SCRATCH_ROOT = tempfile.mkdtemp(prefix="mr_mutation_run-",
+                                     dir=os.environ.get("MR_MUT_SCRATCH") or None)
+    atexit.register(_cleanup_scratch)
+    print(f"-- scratch root: {_SCRATCH_ROOT}   (removed on exit; MR_MUT_KEEP_SCRATCH=1 to keep)", flush=True)
+
+    trees = []
+    t_copy = time.time()
+    for w in range(_WORKERS):
+        tree = os.path.join(_SCRATCH_ROOT, f"w{w}")
+        # ⛔ rsync OF THE WORKING TREE, never `git archive`: this repository is DIRTY BY DESIGN — an uncommitted
+        #   slice is the normal state here, and a battery run against `HEAD` would measure code nobody wrote yet.
+        #   `.git` and `.pio` are excluded: the first is 100x the payload and no build reads it (the native env has
+        #   no `git_rev.py`), the second is a 140 MB build directory each worker must own a FRESH copy of anyway.
+        r = subprocess.run(["rsync", "-a", "--delete", "--exclude=.git", "--exclude=.pio", ROOT + "/", tree + "/"],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            print(f"  ABORT rsync of the working tree into {tree} failed (rc {r.returncode}):")
+            print("        " + (r.stderr.strip().splitlines() or ["(no stderr)"])[-1][:200])
+            sys.exit(9)
+        # ⛔ AND THE COPY OF THIS FILE MUST BE BYTE-IDENTICAL, checked rather than assumed: the worker judges entries
+        #   by ITS OWN `MUTS` table, so a scratch tree carrying a different revision of this script would return
+        #   verdicts about entries the parent cannot name. (It cannot happen today — the copy is seconds old — which
+        #   is exactly when a guard is cheap to install and impossible to argue about later.)
+        if _md5(os.path.join(tree, rel_me)) != _md5(me):
+            print(f"  ABORT the copy of {rel_me} in {tree} is not byte-identical to the running script.")
+            sys.exit(9)
+        _WORKER_SIDECARS.append(_worker_sidecar_paths(tree))
+        trees.append(tree)
+    copy_s = time.time() - t_copy
+
+    fp_now = _real_fingerprint()
+    if fp_now != fp_launch:
+        # ⛔ REFUSE TO START — before a single build. This is the [[B217]] rule at the other end of the run: a battery
+        #   whose baseline was cut from a moving tree is not a weaker measurement, it is a measurement OF NOTHING.
+        print("  ABORT the real tree changed between launch and the shard copies — refused before any build.")
+        for k in sorted(set(fp_launch) | set(fp_now)):
+            if fp_launch.get(k) != fp_now.get(k):
+                print(f"        {k}: {fp_launch.get(k, '(absent)')} -> {fp_now.get(k, '(absent)')}")
+        print("  The shards would have been cut from different revisions of the tree. Nothing was measured.")
+        sys.exit(9)
+
+    # ★ ROUND-ROBIN, not contiguous blocks: a VACUOUS entry costs no build at all while a compiling one costs a
+    #   full native build, and contiguous blocks would hand one worker a run of cheap entries and another a run of
+    #   expensive ones. Round-robin needs no cost model to stay balanced.
+    shards = [[] for _ in range(_WORKERS)]
+    for n, idx in enumerate(_SEL_IDX):
+        shards[n % _WORKERS].append(idx)
+
+    results, streams = [None] * _WORKERS, [[] for _ in range(_WORKERS)]
+
+    def _pump(w, proc):
+        for line in proc.stdout:
+            line = line.rstrip("\n")
+            streams[w].append(line)
+            print(f"  [w{w}] {line}", flush=True)
+
+    threads = []
+    t_run = time.time()
+    for w, tree in enumerate(trees):
+        if not shards[w]:
+            continue                       # ⓘ fewer selected entries than workers — an empty shard is not launched
+        res_path = os.path.join(_SCRATCH_ROOT, f"result-w{w}.json")
+        cmd = [sys.executable, os.path.join(tree, rel_me), f"--target={_TARGET}",
+               f"--shard-id={w}", f"--shard-entries={','.join(str(i) for i in shards[w])}",
+               f"--shard-result={res_path}"]
+        p = subprocess.Popen(cmd, cwd=tree, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             text=True, bufsize=1)
+        _WORKER_PROCS.append(p)
+        results[w] = {"proc": p, "path": res_path, "tree": tree, "assigned": shards[w]}
+        t = threading.Thread(target=_pump, args=(w, p), daemon=True)
+        t.start()
+        threads.append(t)
+
+    for w, r in enumerate(results):
+        if r:
+            r["rc"] = r["proc"].wait()
+    for t in threads:
+        t.join()
+    run_s = time.time() - t_run
+
+    # ===== THE MERGE, AND ITS ONE RULE: EVERY INDEX HANDED OUT COMES BACK NAMED ====================================
+    print("", flush=True)
+    print("=" * 118, flush=True)
+    print(f"-- MERGED REPORT — target {_TARGET}: {Path(H).resolve()}", flush=True)
+
+    integrity = []                          # ⛔ anything in here means the run cannot be read as a verdict at all
+    verdicts, bases = {}, []
+    for w, r in enumerate(results):
+        if not r:
+            continue
+        try:
+            with open(r["path"]) as f:
+                r["json"] = json.load(f)
+        except (OSError, ValueError) as e:
+            r["json"] = None
+            integrity.append(f"worker {w} left no readable result file ({e}); it exited {r['rc']}")
+            continue
+        j = r["json"]
+        if j.get("base"):
+            bases.append((w, tuple(j["base"])))
+        for ent in j.get("entries", []):
+            i = ent["idx"]
+            if not (0 <= i < len(MUTS)) or MUTS[i][0] != ent["label"]:
+                here = repr(MUTS[i][0]) if 0 <= i < len(MUTS) else "(index out of range)"
+                integrity.append(f"worker {w} reported index {i} as {ent['label']!r}, this table has {here}")
+                continue
+            if i in verdicts:
+                integrity.append(f"index {i} ({MUTS[i][0]}) was reported twice")
+            verdicts[i] = ent
+        # ⛔ 0 = every entry RED, 1 = at least one worthless entry. ANY other code is an abort (2..8) or a death, and
+        #   both mean this shard's entries were not all judged — see the missing-index sweep below, which is what
+        #   actually names them. This line exists so the reader is told WHY they are missing.
+        if r["rc"] not in (0, 1):
+            integrity.append(f"worker {w} exited {r['rc']} — not a verdict code (0 = all RED, 1 = something "
+                             f"worthless); its shard was not completed")
+        if not j.get("restored"):
+            integrity.append(f"worker {w} did not report its source restored")
+
+    missing = [i for i in _SEL_IDX if i not in verdicts]
+
+    if bases:
+        agreed = {b for _, b in bases}
+        if len(agreed) != 1:
+            integrity.append("the workers derived DIFFERENT clean baselines from copies of one tree: "
+                             + "; ".join(f"w{w} {b[0]} / {b[1]} / {b[2]}" for w, b in bases))
+        b0 = bases[0][1]
+        print(f"  ok   clean baseline {b0[0]} / {b0[1]} / {b0[2]}   (DERIVED per worker tree; "
+              f"{len(bases)} tree(s) agree)", flush=True)
+    else:
+        b0 = None
+        integrity.append("no worker derived a clean baseline — nothing measured a clean tree")
+
+    # ★★ THE CROSS-CHECK PIN, ONCE, AGAINST THE MERGED (agreed) BASELINE — warn-only, per [[B217]]: a moved figure is
+    #    bookkeeping and must never zero a run, so it does not touch the exit code.
+    pin_stale = None
+    if b0 and (PIN_CASES, PIN_ASSERTS) != (b0[0], b0[1]):
+        pin_stale = ((PIN_CASES, PIN_ASSERTS), (b0[0], b0[1]))
+        print("  " + "!" * 112, flush=True)
+        print("  !!  STALE CROSS-CHECK PIN — the hand-pinned figure is NOT what these clean trees run.", flush=True)
+        print(f"  !!      pinned   {PIN_CASES} / {PIN_ASSERTS}"
+              f"{'   (from MR_MUT_BASE)' if os.environ.get('MR_MUT_BASE') else '   (PIN_CASES, this file)'}",
+              flush=True)
+        print(f"  !!      derived  {b0[0]} / {b0[1]}   <-- THE BATTERY USED THIS", flush=True)
+        print(f"  !!  The battery RAN anyway, {_SCOPE_NOW}: per [[B217]] a stale figure must NEVER zero a run.",
+              flush=True)
+        print("  !!  Then re-pin PIN_CASES / PIN_ASSERTS with the derivation (or unset MR_MUT_BASE).", flush=True)
+        print("  " + "!" * 112, flush=True)
+
+    ok = bad = 0
+    for i in _SEL_IDX:
+        ent = verdicts.get(i)
+        if ent is None:
+            # ⛔⛔ THE [[B227]]/[[B237]] LINE. A shard that died mid-entry loses THIS entry and no other, and the one
+            #    thing that must never happen is for it to be absent from the report and therefore read as fine.
+            print(f"  MISSING {MUTS[i][0]} — NO VERDICT (its worker did not report it)", flush=True)
+            bad += 1
+            continue
+        print(ent["line"], flush=True)
+        for x in ent.get("extra", []):
+            print(x, flush=True)
+        if ent["verdict"] == "RED":
+            ok += 1
+        else:
+            bad += 1
+
+    for w, r in enumerate(results):
+        if not r:
+            continue
+        j = r["json"] or {}
+        print(f"  worker {w}: {len(j.get('entries', []))}/{len(r['assigned'])} entries, "
+              f"{sum(1 for e in j.get('entries', []) if e['verdict'] == 'RED')} RED / "
+              f"{sum(1 for e in j.get('entries', []) if e['verdict'] != 'RED')} worthless, "
+              f"wall {j.get('elapsed', 0.0):.1f}s, rc {r['rc']}, "
+              f"source restored: md5 {j.get('md5_after', '(none)')} "
+              f"({'MATCHES' if j.get('restored') else 'DIFFERS — FAIL'})   {r['tree']}", flush=True)
+
+    # ★★ WHAT REPLACES THE EXIT-GATE REBUILD (defect 3). The old gate rebuilt the REAL tree to prove the restoration
+    #    was effective at the BUILD level, because the real tree's binary was the last mutant's. This runner never
+    #    built the real tree, so there is no binary to refresh and no restoration to prove — what is worth proving is
+    #    the stronger statement the new shape allows: the tree is BYTE-IDENTICAL to how we found it.
+    fp_end = _real_fingerprint()
+    if fp_end != fp_launch:
+        print("  ⛔ FAIL the real tree is NOT byte-identical to launch:", flush=True)
+        for k in sorted(set(fp_launch) | set(fp_end)):
+            if fp_launch.get(k) != fp_end.get(k):
+                print(f"        {k}: {fp_launch.get(k, '(absent)')} -> {fp_end.get(k, '(absent)')}", flush=True)
+        integrity.append("the real tree's target files moved during the run")
+    else:
+        print(f"real tree untouched: all {len(fp_launch)} target files byte-identical to launch (md5); "
+              f"no build ran in {ROOT}", flush=True)
+
+    print(f"timing: copy {copy_s:.1f}s + battery {run_s:.1f}s = {time.time() - t0:.1f}s total, "
+          f"{len(_SEL_IDX)} entries over {sum(1 for r in results if r)} worker(s)", flush=True)
+    # ⚠ THE SHAPE IS THE SERIAL RUNNER'S, AND THE PARENTHETICAL IS NOT DECORATION: a MISSING entry counts toward
+    #   `unusable` (it is certainly not RED), but "worthless mutation" and "never judged" are different facts about
+    #   the tree and a reader who cannot tell them apart from this line has been laundered to ([[B237]]).
+    print(f"mutations: {ok} RED / {bad} unusable"
+          f"{f' (of which {len(missing)} MISSING — never judged)' if missing else ''}", flush=True)
+
+    if integrity:
+        print("  " + "#" * 112, flush=True)
+        print("  ##  ⛔ RUN INTEGRITY FAILURE — this run's verdicts may NOT be read as a battery result.", flush=True)
+        for m in integrity:
+            print(f"  ##    {m}", flush=True)
+        if missing:
+            print(f"  ##    {len(missing)} selected entr{'y' if len(missing) == 1 else 'ies'} came back with NO "
+                  f"verdict: {', '.join(MUTS[i][0].split()[0] for i in missing)}", flush=True)
+        print("  ##  A shard that did not report is NOT a shard that passed ([[B227]]/[[B237]]).", flush=True)
+        print("  " + "#" * 112, flush=True)
+    if pin_stale:
+        print("  " + "!" * 112)
+        print(f"  !!  REMINDER — the cross-check pin is STALE: pinned {pin_stale[0][0]} / {pin_stale[0][1]}, these "
+              f"trees run {pin_stale[1][0]} / {pin_stale[1][1]}.")
+        print(f"  !!  The battery above {_SCOPE_PAST} on the derived figure ([[B217]]); re-pin PIN_CASES/PIN_ASSERTS.")
+        print("  " + "!" * 112)
+
+    # ⛔ 9 OUTRANKS 1: "some entry is worthless" and "this run cannot be trusted" are different answers, and folding
+    #   the second into the first is the laundering [[B237]] closed on the sibling harness.
+    # ★ BUT AN ABORT EVERY WORKER AGREED ON KEEPS ITS OWN CODE. A RED clean tree (2), a held lock (3), a foreign edit
+    #   (5) — these are the serial runner's documented answers, and they describe the TREE, which every worker copied
+    #   from the same place. Reporting them as a generic 9 would tell a reader "the harness broke" about a condition
+    #   the harness diagnosed correctly. ⓘ Only when they ALL agree: a mixed set really is a harness problem.
+    codes = {r["rc"] for r in results if r}
+    if len(codes) == 1 and codes <= {2, 3, 4, 5}:
+        sys.exit(codes.pop())
+    if integrity:
+        sys.exit(9)
+    sys.exit(0 if bad == 0 else 1)
+
+
+if not _IS_WORKER:
+    try:
+        orchestrate()
+    except KeyboardInterrupt:
+        print("\n  INTERRUPTED — killing the workers and removing the scratch trees. The real tree was never "
+              "written to by this run; its targets are unchanged.", flush=True)
+        _kill_workers()
+        _cleanup_scratch()
+        sys.exit(130)
+
+# ===== ★ FROM HERE DOWN: THE WORKER — the unchanged serial runner, in a scratch tree it owns outright ==============
+# ⓘ `ROOT` is this scratch tree (it derives from `__file__`), so `_BK_DIR`, `_BK_LOCK` and `_BUILD_LOCK` — all keyed by
+#   a resolved path — are private to this worker by construction. THAT is why N workers need no new locking: the
+#   guards were already keyed to the resource, and the resource is now per-worker.
+_SEL_IDX = _SHARD_ENTRIES
+for _i in _SEL_IDX:
+    if not 0 <= _i < len(MUTS):
+        _refuse_argv(f"--shard-entries names index {_i}, outside the {len(MUTS)}-entry '{_TARGET}' table",
+                     "A shard index this table cannot resolve is a verdict about nothing.")
+_shard = {"shard": _SHARD_ID, "target": _TARGET, "root": ROOT, "base": None,
+          "entries": [], "restored": False, "md5_after": None, "elapsed": 0.0}
+_shard_t0 = time.time()
+
+
+def _shard_flush():
+    """Write the result file after EVERY entry, atomically.
+
+    ⛔ THE POINT IS THE CRASH, not tidiness: a worker killed mid-entry must still have told the parent about the
+    entries it DID judge, so the parent's missing-index sweep names exactly one entry rather than the whole shard.
+    `os.replace` so the parent can never read a half-written file.
+    """
+    _shard["elapsed"] = time.time() - _shard_t0
+    tmp = _SHARD_RESULT + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(_shard, f)
+    os.replace(tmp, _SHARD_RESULT)
+
+
+_shard_flush()
 
 if not take_lock():
     print(f"  ABORT another run already holds the lock for {Path(H).resolve()} ({_BK_LOCK}).")
@@ -4169,9 +4656,10 @@ try:
     #    ⛔ Nothing below may run on a tree whose clean suite is RED: a RED verdict is only evidence if GREEN was the
     #    alternative. But the case/assertion COUNTS are this run's OWN measurement: they are derived here, printed,
     #    and then required again by the exit gate on the restored source.
-    print(f"-- target {_TARGET}: {Path(H).resolve()} ({len(MUTS)} entries)", flush=True)
-    print("-- baseline gate: the CLEAN tree must run 0 FAILED; its own counts become this run's baseline "
-          f"(cross-check pin: {PIN_CASES} / {PIN_ASSERTS})", flush=True)
+    print(f"-- target {_TARGET}: {Path(H).resolve()} ({len(_SEL_IDX)} of {len(MUTS)} entries in this shard)",
+          flush=True)
+    print("-- baseline gate: THIS WORKER'S OWN clean tree must run 0 FAILED; its own counts become this shard's "
+          "baseline", flush=True)
     base, base_out = run_suite()
     if base is None:
         print("  ABORT the clean tree does not build / did not run — no mutation was applied")
@@ -4191,27 +4679,30 @@ try:
             print("        " + line[:200])
         sys.exit(2)
     BASE_CASES, BASE_ASSERTS = base_cases, base_asserts      # ★ DERIVED — this is the baseline, from here on.
-    print(f"  ok   clean baseline {base_cases} / {base_asserts} / {base_failed}   (DERIVED from this run)", flush=True)
-    if (PIN_CASES, PIN_ASSERTS) != (base_cases, base_asserts):
-        # ★★ THE STALE CROSS-CHECK ARM — LOUD, AND IT CONTINUES. This is the whole of [[B217]]: the old code
-        #    `sys.exit(2)`-ed here, having applied nothing, and that reads exactly like a battery with nothing to
-        #    find. A moved figure is bookkeeping; it is not a reason to stop measuring.
-        _pin_stale = ((PIN_CASES, PIN_ASSERTS), (base_cases, base_asserts))
-        print("  " + "!" * 112, flush=True)
-        print("  !!  STALE CROSS-CHECK PIN — the hand-pinned figure is NOT what this clean tree runs.", flush=True)
-        print(f"  !!      pinned   {PIN_CASES} / {PIN_ASSERTS}"
-              f"{'   (from MR_MUT_BASE)' if os.environ.get('MR_MUT_BASE') else '   (PIN_CASES, this file)'}", flush=True)
-        print(f"  !!      derived  {base_cases} / {base_asserts}   <-- THE BATTERY BELOW USES THIS", flush=True)
-        print(f"  !!  The battery RUNS anyway, {_SCOPE_NOW}: per [[B217]] a stale figure must NEVER zero a run.", flush=True)
-        print("  !!  Then re-pin PIN_CASES / PIN_ASSERTS with the derivation (or unset MR_MUT_BASE).", flush=True)
-        print("  " + "!" * 112, flush=True)
+    print(f"  ok   clean baseline {base_cases} / {base_asserts} / {base_failed}   (DERIVED from this tree)",
+          flush=True)
+    # ⓘ THE CROSS-CHECK PIN IS **NOT** JUDGED HERE ANY MORE — the parent judges it ONCE, against the baseline the
+    #   worker trees agreed on, and prints the [[B217]] banner at both ends of the merged report. N workers printing
+    #   N identical banners is not louder, it is noise; and a per-shard banner could not say `_SCOPE_NOW` truthfully
+    #   (this process ran a shard, not the selection). The derived figure travels in the result file instead.
+    _shard["base"] = [base_cases, base_asserts, base_failed]
+    _shard_flush()
 
-    for label, pat, rep in MUTS:
-        if only and not label.startswith(only):
-            continue
+    for _i in _SEL_IDX:
+        label, pat, rep = MUTS[_i]
+        # ★ Each entry's verdict is recorded as the EXACT LINE the serial runner printed, so the parent's merged
+        #   report is the same report — reassembled in table order — rather than a paraphrase of it.
+        def _verdict(kind, line, extra=()):
+            print(line, flush=True)
+            for _x in extra:
+                print(_x, flush=True)
+            _shard["entries"].append({"idx": _i, "label": label, "verdict": kind, "line": line,
+                                      "extra": list(extra)})
+            _shard_flush()
+
         hits = orig.count(pat)
         if hits != 1:
-            print(f"  VACUOUS {label} — match count {hits} (must be exactly 1)", flush=True); bad += 1; continue
+            _verdict("VACUOUS", f"  VACUOUS {label} — match count {hits} (must be exactly 1)"); bad += 1; continue
         # ★★ CALLERS 1 AND 2 OF THE ONE GUARDED WRITE (`guarded_write`). The INSTALL may only overwrite the recorded
         #    ORIGINAL — if the file is anything else, somebody edited it and this run stops rather than erasing them.
         #    The RESTORE may only overwrite our own MUTANT (or no-op on the original) — and the window it protects is
@@ -4223,16 +4714,14 @@ try:
         guarded_write(orig, f"restoring after {label}", allow=("original", "mutant"))
         clear_mutant()
         if res is None:
-            print(f"  UNUSABLE {label} — the mutant does not compile / did not run", flush=True)
-            for line in out.splitlines():
-                if "error:" in line:
-                    print("        " + line[:160]); break
+            _err = [f"        {line[:160]}" for line in out.splitlines() if "error:" in line][:1]
+            _verdict("UNUSABLE", f"  UNUSABLE {label} — the mutant does not compile / did not run", _err)
             bad += 1; continue
         failed, cases, asserts = res
         if failed > 0:
-            print(f"  ok   {label} -> RED ({failed} assertion(s) failed, match count 1)", flush=True); ok += 1
+            _verdict("RED", f"  ok   {label} -> RED ({failed} assertion(s) failed, match count 1)"); ok += 1
         else:
-            print(f"  FAIL {label} — the suite still PASSES; nothing measures this", flush=True); bad += 1
+            _verdict("FAIL", f"  FAIL {label} — the suite still PASSES; nothing measures this"); bad += 1
 except KeyboardInterrupt:
     # A bare traceback here would bury the one fact a reader needs — WAS THE SOURCE PUT BACK? — so say it plainly.
     # ⚠ CORRECTED: this comment used to claim *"the `finally` below has already run by the time this prints"*. IT HAS
@@ -4240,9 +4729,12 @@ except KeyboardInterrupt:
     #   `restore()` below is here and not redundant: it is what makes the md5 line printed at the end of this block TRUE
     #   at the moment it is printed. `restore()` is idempotent (it no-ops when the md5 already matches), so the `finally`
     #   running second changes nothing. ⓘ Same family as a comment asserting a `-Wswitch` guard the code did not have.
-    print("\n  INTERRUPTED — restoring the real source now, before this exits", flush=True)
+    print("\n  INTERRUPTED — restoring this shard's source now, before this exits", flush=True)
     restore("SIGINT")
     disarm()
+    _shard["md5_after"] = md5(H)
+    _shard["restored"] = (md5(H) == base_md5)
+    _shard_flush()          # ⛔ the entries judged so far still get reported; the parent names the rest as MISSING
     print(f"source restored: md5 {md5(H)} ({'MATCHES' if md5(H) == base_md5 else 'DIFFERS — FAIL'})")
     sys.exit(130)
 finally:
@@ -4251,32 +4743,25 @@ finally:
     disarm()
 
 after = md5(H)
+_shard["md5_after"] = after
+_shard["restored"] = (after == base_md5)
+_shard_flush()
 print(f"source restored: md5 {after} ({'MATCHES' if after == base_md5 else 'DIFFERS — FAIL'})")
 
-# ★★ THE EXIT GATE, AND IT EXISTS BECAUSE RESTORING THE SOURCE IS NOT THE WHOLE JOB: the binary left in
-#    `.pio/build/native/` is the LAST MUTANT'S, so anyone running `./.pio/build/native/program` immediately after this
-#    tool saw a spurious failure on a correct tree. (Observed — it fooled its own author once.) ⇒ rebuild once on the
-#    restored source and require THIS RUN'S DERIVED baseline again (it was the pinned literal before [[B217]]; the
-#    check is strictly stronger derived, because the figure it demands was measured on this very tree minutes ago
-#    rather than typed by hand weeks ago). That refreshes the artefact AND proves the restoration is effective at the
-#    BUILD level, not merely at the file level.
-exit_ok = True
-if after == base_md5:
-    res, out = run_suite()
-    if res is None or res != (0, BASE_CASES, BASE_ASSERTS):
-        got = "did not build/run" if res is None else f"{res[1]} / {res[2]} / {res[0]}"
-        print(f"  FAIL the restored tree does not rebuild to {BASE_CASES} / {BASE_ASSERTS} / 0 (got {got})")
-        exit_ok = False
-    else:
-        print(f"exit gate: the restored tree rebuilds to {res[1]} / {res[2]} / {res[0]} — the stale mutant binary is gone")
-print(f"mutations: {ok} RED / {bad} unusable")
-# ★★ AND THE STALE-PIN BANNER IS RE-ANNOUNCED HERE, because a warning printed before ~300 lines of build output has
-#    scrolled out of the reader's window by the time the verdict lands — "loud" that only holds at the top of a long
-#    run is not loud. ⛔ It still does not touch the exit code: see PIN_CASES.
-if _pin_stale:
-    print("  " + "!" * 112)
-    print(f"  !!  REMINDER — the cross-check pin is STALE: pinned {_pin_stale[0][0]} / {_pin_stale[0][1]}, this tree "
-          f"runs {_pin_stale[1][0]} / {_pin_stale[1][1]}.")
-    print(f"  !!  The battery above {_SCOPE_PAST} on the derived figure ([[B217]]); re-pin PIN_CASES / PIN_ASSERTS.")
-    print("  " + "!" * 112)
-sys.exit(0 if bad == 0 and after == base_md5 and exit_ok else 1)
+# ★★★ THE EXIT-GATE REBUILD IS **GONE, NOT MOVED**, AND THAT IS THE POINT OF THE SCRATCH-TREE SHAPE (2026-08-24).
+#     ⚠ WHAT IT USED TO SAY, kept because the reasoning is the record: *"restoring the source is not the whole job —
+#       the binary left in `.pio/build/native/` is the LAST MUTANT'S, so anyone running `./.pio/build/native/program`
+#       immediately after this tool saw a spurious failure on a correct tree (observed; it fooled its own author
+#       once)"*. ⇒ it rebuilt once on the restored source and re-required the derived baseline.
+#     ⛔ THAT DEFECT NO LONGER EXISTS TO GUARD AGAINST. It was never about the source; it was about a MUTANT ARTEFACT
+#       LEFT WHERE SOMEBODY WOULD RUN IT. The only tree this runner builds is a scratch copy that is deleted moments
+#       from now and whose binary no human or gate will ever execute — while `ROOT`'s own `.pio/build/native` is
+#       never written by this runner at all, so it can no longer be a mutant's. A rebuild here would prove a
+#       restoration nothing depends on, at the cost of one full native build PER WORKER.
+#     ★ WHAT PROVES THE RESTORATION NOW, and it is strictly stronger than a rebuild ever was: (1) the md5 line above
+#       — the file is byte-identical to the one this shard started from, and a build is a pure function of its
+#       sources, so a re-derivation of the same counts could not tell us anything the hash has not; and (2) in the
+#       PARENT, the real tree's every target file re-hashed against its launch fingerprint. The old gate proved a
+#       copy was clean; the new one proves the ORIGINAL was never touched.
+print(f"shard {_SHARD_ID}: {ok} RED / {bad} unusable   (of {len(_SEL_IDX)} entries)")
+sys.exit(0 if bad == 0 and after == base_md5 else 1)

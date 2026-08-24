@@ -1,10 +1,11 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # Harness slice — parallel mutation batteries + compiler cache · plan · 2026-08-24
 
-**Status: QUEUED — ⛔ do not dispatch until QG's N6b gate VERDICT lands** (N6b's code is in-tree, but QG's gate
-re-runs the batteries with this very runner and owns `.pio` while it does; a runner edit or a scratch-tree
-battery storm under a live gate makes its verdicts ambiguous). ⛔ Harness-only: **zero firmware behaviour
-change** — `src/`, `lib/`, `test/` are untouched except where Part B touches `platformio.ini`'s native env.
+**Status: DISPATCHED 2026-08-24 (N6b QG-passed — the runner-file conflict is cleared).** ⛔ Harness-only:
+**zero firmware behaviour change** — `src/`, `lib/`, `test/` are untouched. ⓘ **Part B's WIRING is ALREADY
+DONE** (owner-ordered, landed 2026-08-24: `tools/ccache_native.py` + the `[env:native]` `extra_scripts` line;
+proven 19.2 s → 2.8 s on a wiped-`.pio` rebuild) — Part B reduces to the FORMAL MEASUREMENT REPORT and any
+correction the measurement demands.
 ⓘ **[[B238]] (the probe clock-wrap trap) stays a SEPARATE owed slice** — bundling it here was considered and
 rejected (C1: it is a different harness, `probe_firmware_ui`, with its own risk).
 

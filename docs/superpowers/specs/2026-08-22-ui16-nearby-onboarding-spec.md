@@ -1204,7 +1204,7 @@ house style applied to it, one line each, pinned by a native case.
 | S-20 | `WAITING FOR PUBKEY` | after the request | 18 | ★ **NEW, OWNER-RULED** (F-12) — ⛔ **never `WAITING FOR KEY`** |
 | S-21 | `GRANT QUEUED` | `queued`, `ctr != 0` | 12 | ★ **NEW, OWNER-RULED 2026-08-22** (F-9) — admission, ⛔ not air |
 | S-22 | `KEY SENT` | ONLY on a **correlated `send_aired`** | 8 | **REUSED FROM THE DESIGN, VERBATIM** (`:821`) — ★ its **trigger** is corrected by F-9 |
-| S-23 | `GRANT FAILED` | a correlated failure | 12 | ★ **NEW, OWNER-RULED** (F-9) |
+| S-23 | `GRANT FAILED` | a correlated failure **or a synchronous send-path refusal** | 12 | ★ **NEW, OWNER-RULED** (F-9). ★ **WIDENED 2026-08-24 (N6b, QG-passed):** also the word for the core's synchronous, already-pushed `send_failed` (`SendDispatch::Admit::none` — the no-route/seal-refusal family) — one fact, one word, rather than an unruled 39th lexeme. ⛔ `GRANT QUEUE FULL` (S-38) stays strictly separate |
 | S-24 | `NO TEAM KEY` · `NO IDENTITY` · `NOT IN A TEAM` · `SELF` · `NAME TOO LONG` · `WRONG PLANE` | the six remaining `TeamKeyGrantTx` arms (`lib/core/node.h:257-276`) | ≤14 | **NEW**, one line each — ⛔ they may not collapse. ⓘ `WRONG PLANE` is `delegated`'s: unreachable on the real seam (the UI sends `Plane::TEAM`) but the mapper **fails loudly** for it |
 | S-25 | `TEAM KEY RECEIVED` | the joiner, **after a `saved` persist** | 17 | **REUSED FROM THE DESIGN, VERBATIM** (`:822`); ★ reachable only via K3 (F-10) |
 | S-26 | `TEAM KEY ACTIVE` | the save-failed path, line 1 | 15 | ★ **NEW, OWNER-RULED** (keyring) — it is live in RAM, and that is true |
