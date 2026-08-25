@@ -234,10 +234,25 @@ wchk "W6 the tick maps FrameStep onto the panel: blank->power_save(1), every awa
 #    whether this file computes that bit at all. Passing a literal `true` would compile, keep every native case green,
 #    and make a fix-less node send `-t -l` — which `node.cpp:1553` REFUSES OUTRIGHT, so the distress call becomes NO
 #    CALL. ⇒ the tick must reach the pure driver through the real predicate AND the real executor.
+# ⛔⛔ RE-ANCHORED 2026-08-25 ([[B244]]) — AND ⛔ NOT WEAKENED: this check had been FAILING PRE-EXISTINGLY because
+#    clause 2 named a spelling §UI-17 S3 moved, ⛔ not because the wiring broke. S3 lifted the `(0,0)` test itself
+#    into the pure `mrui::ui_status_have_fix` (`src/firmware_ui_status.h`) so STATUS row 4 and the `-l` gate could
+#    stop being two spellings of one question (U1 — the S1/L9 fork this project keeps paying for), and
+#    `ui_have_fix()` became a one-line forward to it. The PROPERTY is unchanged and still exactly what W7 exists to
+#    pin: this file must reach the pure driver through the REAL predicate (whose value is computed from THIS node's
+#    live coordinates) and the REAL executor — a literal `true` would compile, keep every native case green, and
+#    make a fix-less node send `-t -l`, which `node.cpp` REFUSES OUTRIGHT ⇒ the distress call becomes NO CALL.
+#    ⇒ clause 2 now names the FORWARD, at match count 1. ⓘ A standing FAIL is the normalization-of-red shape the
+#    register logged as [[B244]]: a check nobody can distinguish from a real regression teaches the reader to skip it.
+# ★ TWO CONTROLS, one per clause, because either alone can be satisfied while the other is broken:
+#   (1) the call site stops passing the predicate's answer (a literal `true` at the seam);
+#   (2) the PREDICATE ITSELF stops asking the node and answers `true` — the same harm arriving one level down,
+#       which clause 1 cannot see because the call site still reads `ui_have_fix(), ui_exec`.
 w7() { code_flat "$1" | grep -qE 'mrui::ui_perform_send\([^;]*ui_have_fix\(\), ui_exec' && \
-       code_flat "$1" | grep -qE 'cfg\.lat_e7 != 0 \|\| cfg\.lon_e7 != 0'; }
+       code_flat "$1" | grep -qF 'return mrui::ui_status_have_fix(cfg.lat_e7, cfg.lon_e7);'; }
 wchk "W7 the tick reaches mrui::ui_perform_send through ui_have_fix() and the real executor" \
-     w7 's/ui_have_fix(), ui_exec/true, ui_exec/'
+     w7 's/ui_have_fix(), ui_exec/true, ui_exec/' \
+        's/return mrui::ui_status_have_fix(cfg\.lat_e7, cfg\.lon_e7);/return true;/'
 # W8 UI-7, NEGATIVE SPACE — the twin of W3/W4. Line COMPOSITION lives in `firmware_ui_send.h`, where the native suite
 #    asserts the issued command byte-for-byte. If this file ever builds a `send`/`send_channel` line itself, that
 #    assertion is guarding a string nothing sends, and the conditional `-l` / the `back`-row refusal are bypassed —
@@ -261,12 +276,21 @@ wchk "W8 firmware_ui.cpp composes no send line itself (the pure composer owns th
 #        SIZED TO THE OLD BODY (its own comment said so); at 19 the panel would have clipped it to `…, repi`, which
 #        §7.1 rule 5 forbids as a truncation policy. ★ Both halves of §B64's ruling are intact — the row still names
 #        the fact AND gives the remedy, and the `>` highlight is still suppressed.
+# ⛔⛔ RE-ANCHORED AGAIN 2026-08-25 ([[B244]]) — AND ⛔ NOT WEAKENED. This check had been FAILING PRE-EXISTINGLY on
+#    clause 2 alone: §UI-17 S1 gave the ENTERED list its own `BACK` row and collapsed the two row kinds onto ONE
+#    marker predicate, so `first + row == st.cursor` became `idx == st.cursor` (`idx` IS `first + row`, hoisted for
+#    the row-kind resolver) and the predicate gained the `entered &&` term — a PASSIVE preview marks nothing at all.
+#    ⛔ NEITHER HALF OF §B64's RULING MOVED: the refusal row is still reserved and drawn, and the `>` is still
+#    suppressed while `team_pick_gone` stands. ⇒ clause 2 names the as-built suppression, at match count 1.
+# ⚠ The control still targets the SUPPRESSION ALONE (it removes `!st.team_pick_gone` and leaves `entered &&`
+#   standing), because that half is a SAFETY property rather than a message: without it the panel names a target
+#   the model has already refused to act on — the mis-send surviving one layer down in display form.
 w9() { code_flat "$1" | grep -qE 'st\.team_pick_gone \? uint8_t\(kBodyRows - 1\)' && \
-       code_flat "$1" | grep -qE '!st\.team_pick_gone && first \+ row == st\.cursor' && \
+       code_flat "$1" | grep -qE 'entered && !st\.team_pick_gone && idx == st\.cursor' && \
        code_flat "$1" | grep -qF 'st.team_pick_gone) body_text' && \
        code_flat "$1" | grep -qF 'TEAMMATE GONE, pick'; }
 wchk "W9 the TEAM screen says B64's refusal AND suppresses the highlight while it stands" \
-     w9 's/!st\.team_pick_gone && first + row == st\.cursor/first + row == st.cursor/'
+     w9 's/!st\.team_pick_gone && idx == st\.cursor/idx == st.cursor/'
 # W10 §B115 (owner-MEASURED on metal 2026-08-05) — THE LAST MILE OF THE ATTEMPT COUNTER, and it is the one step no
 #     native test can reach. The model's ordinal and the one formatter are both natively driven (`ui7-b115: …` cases,
 #     the whole `1 of 3` -> `2 of 3` -> `3 of 3` sequence asserted as BYTES). What happens next is HERE, and this file
@@ -407,23 +431,38 @@ CFG_CPP="$ROOT/src/firmware_config.cpp"
 # ★★ AND THE CREDIT IS STILL EARNED PER ROUTE, NOT GRANTED AS A NUMBER: each named route must be present EXACTLY
 #    ONCE. A refactor that deletes either one drops its term to 0 and fails LOUDLY — the reason §PROV-TX made this a
 #    counted match instead of a constant in the first place. W20's controls (e)/(f) exercise both.
+# ★★★ UPDATED 2026-08-24 BY §UI-16 K3 — THE FIRST **DELIBERATELY SILENT** `/mrcfg` WRITER IN THIS FILE, AND THE
+#     ARITHMETIC IS EXTENDED THE SAME WAY §PROV-TX AND §UI-15 s1 EXTENDED IT RATHER THAN RELAXED. The grant-receipt
+#     path (`DeviceTeamKeyBinding::commit_active`, reached from `team_key_grant_persist`) writes `/mrcfg` — the v22
+#     committed witness plus the v24 ACTIVE BINDING — and ⛔ does NOT notify, because it fails BOTH halves of
+#     `§notify-every-save`'s test: it is not USER-INITIATED on this node (the operator who acted is the GRANTER, on
+#     another device — a radio arrival draining out of the push ring is `fw_main`'s ctr-lease category), and it
+#     assigns NONE of the four covered fields. The exemption is recorded beside the rule in `firmware_config.cpp`.
+# ★★ AND THE CREDIT IS EARNED, exactly as `exempt` and the two `routed` terms are: `CFG_SILENT_SITES` is granted
+#    only if that write's own SEQUENCE is present. Delete or rename it and `silent` drops to 0 and the balance fails
+#    LOUDLY — so a future reader cannot turn "one measured exemption" into "a constant somebody bumped".
+# ⛔ A SECOND SILENT WRITER OWES A BUMP **AND** ITS OWN W-CHECK (W47 below is this one's), never just a bigger number.
 CFG_NOTIFY_SITES=7                 # the seven USER-INITIATED verbs — bump this ONLY together with a new W-check
 CFG_STORE_SAVE='bool save(const mrnv::Blob& b) override { return mrnv::save(b); }'   # the ONE exempt save
 CFG_ROUTED_SITES=2                 # verbs whose /mrcfg write goes through ICfgStore::save, not mrnv::save
 CFG_ROUTED_CALL='prov_service().apply_team('        # §PROV-TX  — the team route that earns its credit
 CFG_ROUTED_CALL2='join_service().apply_join('       # §UI-15 s1 — the static-join route that earns its credit
+CFG_SILENT_SITES=1                 # §UI-16 K3 — writers that are MEASURED-silent; each owes its own W-check
+CFG_SILENT_SAVE='b.team_key_team_id = team_id; b.team_key_active = 1; return mrnv::save(b);'
 cfg_writer_counts_ok() {  # the SHARED tripwire: every non-exempt /mrcfg write in this file has a notification
-  local notifies saves exempt routed routed2
+  local notifies saves exempt routed routed2 silent
   notifies=$(code_flat "$1" | grep -oF 'mr_ui_on_config_saved()' | grep -c .)
   saves=$(code_flat "$1"   | grep -oF 'mrnv::save('            | grep -c .)
   exempt=$(code_flat "$1" | tr -s ' ' | grep -oF "$CFG_STORE_SAVE" | grep -c .)
   routed=$(code_flat "$1" | tr -s ' ' | grep -oF "$CFG_ROUTED_CALL" | grep -c .)
   routed2=$(code_flat "$1" | tr -s ' ' | grep -oF "$CFG_ROUTED_CALL2" | grep -c .)
+  silent=$(code_flat "$1" | tr -s ' ' | grep -oF "$CFG_SILENT_SAVE" | grep -c .)
   [ "$exempt" -eq 1 ]                        || return 1   # the override must stay identifiable, or the sum lies
   [ "$routed" -eq 1 ] && [ "$routed2" -eq 1 ] || return 1  # ★ EACH routed credit must be EARNED by a present route
   [ "$((routed + routed2))" -eq "$CFG_ROUTED_SITES" ] || return 1
+  [ "$silent" -eq "$CFG_SILENT_SITES" ]      || return 1   # ★ the silent credit is EARNED by its own write, too
   [ "$notifies" -eq "$CFG_NOTIFY_SITES" ]    || return 1   # the PIN: any new writer forces the harness to be updated
-  [ "$((saves - exempt + routed + routed2))" -eq "$notifies" ]; }    # the TRIPWIRE: a BARE save is an unnotified writer
+  [ "$((saves - exempt - silent + routed + routed2))" -eq "$notifies" ]; }   # TRIPWIRE: a BARE save is unnotified
 nsite() {  # nsite(file, literal-comment-stripped-space-squeezed-sequence)
   cfg_writer_counts_ok "$1" || return 1
   code_flat "$1" | tr -s ' ' | grep -qF "$2"; }
@@ -1030,6 +1069,57 @@ w46() { sleep_fn_code "$1" | grep -qF 'esp_sleep_enable_ext1_wakeup(' && \
 wchk_in "$FW_MAIN" "W46 board_sleep_until() asserts NO power domain (the per-attempt call is gone, B196)" \
      w46 's|^        esp_sleep_enable_ext1_wakeup((1ULL << LORA_PIN_DIO1), ESP_EXT1_WAKEUP_ANY_HIGH);.*$|        esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);\n\&|' \
          's|^        esp_sleep_enable_ext1_wakeup((1ULL << LORA_PIN_DIO1), ESP_EXT1_WAKEUP_ANY_HIGH);.*$|        static bool s_pd_done = false; if (!s_pd_done) { s_pd_done = true; esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON); }\n\&|'
+# ================================================================================================ W47-W48
+# ★★★★ §UI-16 K3 ([[B240]], ✅ F-10) — **THE ORDERING RULING, PINNED WHERE IT LIVES.** `src/fw_main.cpp` is compiled
+#      by NEITHER the native suite NOR the simulator (§B115), so the DRAIN LOOP's gate — persistence FIRST, and the
+#      push forwarded to `mr_ui_on_push` on a `saved` verdict and on no other — is reachable by no automated build.
+#      The pure service's own order and its four re-checks ARE natively driven (`test/test_firmware_team_keyring.cpp`,
+#      which also runs the drain loop's shape as a fixture); what only a SOURCE fact can say is that the REAL loop
+#      carries that shape and carries it ONCE.
+# ⛔ THE DEFECT THIS RESTORES IS THE REGISTERED ONE: before K3 the line read `mr_ui_on_push(pu);` unconditionally, so
+#    the panel's word about durable adoption ran BEFORE anything durable happened — [[B240]]'s receive half exactly.
+# ★★★★ EXTENDED 2026-08-25 ([[B243]] CLOSED) AND ⛔ CORRECTED THE SAME DAY (QG blocker) — **THE GATE HAS THREE
+#      ROUTES, AND ALL THREE ARE PINNED HERE.** F-10's refusal to forward a failed receipt left the honest verdict
+#      (the key IS live, and it will NOT survive a reboot) with nowhere to go, so a failed save was SILENT on the
+#      panel — [[B243]]. The second door is `mr_ui_on_team_key_unsaved()`, the eighth hook in `lib/hal/mr_ui.h`.
+# ⛔⛔ AND THE FIRST CUT OF THAT WIRE WAS A **BOOLEAN**, WHICH LIED IN THE OTHER DIRECTION: every refusal took the
+#    failed-save door, so a receipt whose live key had been WIPED (`no_live_key`), one for a team we had LEFT
+#    (`not_our_team`) or one naming team 0 got `TEAM KEY ACTIVE` — a panel inventing an active key. ⇒ the seam
+#    returns `mrfw::GrantUiRoute` and this is a `default`-less SWITCH with a THIRD arm that says nothing.
+# ⛔ Pinned INSIDE W47 rather than as new W-checks because these are not separate properties: they are the three
+#    OUTCOMES of this one branch, and a check that could pass while an arm was misrouted pins a fraction of a gate.
+# ★ SEVEN CONTROLS, one per wrong answer: forward unconditionally (F-10 restored, the headline); forward BEFORE the
+#   persistence runs; drop the persistence call (a gate on a constant); DROP the unsaved arm ([[B243]] restored);
+#   fire the unsaved arm on a FORWARDED receipt too (both notes race for one slot); INVERT the two doors; and
+#   ★★★ route a SUPPRESSED receipt to the unsaved door — **QG's 2026-08-25 blocker itself**, the panel announcing an
+#   active key for a receipt where none is.
+w47() {
+  code_flat "$1" | tr -s ' ' | grep -qF 'const mrfw::GrantUiRoute ui_route = (pu.kind != meshroute::PushKind::team_key_received) ? mrfw::GrantUiRoute::received : mrfw::team_key_grant_persist(pu.team_id); #else const mrfw::GrantUiRoute ui_route = mrfw::GrantUiRoute::received; #endif switch (ui_route) { case mrfw::GrantUiRoute::received: mr_ui_on_push(pu); break; case mrfw::GrantUiRoute::active_unsaved: mr_ui_on_team_key_unsaved(); break; case mrfw::GrantUiRoute::suppressed: break; case mrfw::GrantUiRoute::count: break; }'
+}
+wchk_in "$FW_MAIN" "W47 the drain loop persists a grant receipt FIRST and routes the verdict three ways (F-10)" \
+     w47 's@^            case mrfw::GrantUiRoute::received:       mr_ui_on_push(pu);            break;$@            case mrfw::GrantUiRoute::received:                                     break;@; s@^        switch (ui_route) {$@        mr_ui_on_push(pu);\n        switch (ui_route) {@' \
+         's@^            case mrfw::GrantUiRoute::received:       mr_ui_on_push(pu);            break;$@            case mrfw::GrantUiRoute::received:                                     break;@; s@^        const mrfw::GrantUiRoute ui_route = (pu.kind != meshroute::PushKind::team_key_received)$@        mr_ui_on_push(pu);\n&@' \
+         's@mrfw::team_key_grant_persist(pu.team_id)@mrfw::GrantUiRoute::received@' \
+         's@^            case mrfw::GrantUiRoute::active_unsaved: mr_ui_on_team_key_unsaved();  break;$@            case mrfw::GrantUiRoute::active_unsaved:                               break;@' \
+         's@^            case mrfw::GrantUiRoute::received:       mr_ui_on_push(pu);            break;$@            case mrfw::GrantUiRoute::received:       mr_ui_on_push(pu); mr_ui_on_team_key_unsaved(); break;@' \
+         's@^            case mrfw::GrantUiRoute::received:       mr_ui_on_push(pu);            break;$@            case mrfw::GrantUiRoute::received:       mr_ui_on_team_key_unsaved();  break;@; s@^            case mrfw::GrantUiRoute::active_unsaved: mr_ui_on_team_key_unsaved();  break;$@            case mrfw::GrantUiRoute::active_unsaved: mr_ui_on_push(pu);            break;@' \
+         's@^            case mrfw::GrantUiRoute::suppressed:                                   break;$@            case mrfw::GrantUiRoute::suppressed:     mr_ui_on_team_key_unsaved();  break;@'
+# ★★★ W48 — THE MEASURED SILENCE. §notify-every-save's rule is "every USER-INITIATED `/mrcfg` write notifies"; the
+#     grant receipt is the first write in that file which is deliberately NOT one, and an exemption that is merely
+#     ABSENT from a harness is indistinguishable from an omission. ⇒ the balance above carries a NAMED, EARNED term
+#     for it and this check pins the write's own shape: the committed witness and the ACTIVE BINDING, then ONE save.
+# ★ Control (a) ADDS the notification — the count clause must fire (8 notifications against a pinned 7), which is
+#   what proves the exemption is a decision the harness knows about rather than a hole. (b) drops the binding
+#   assignment, so the silent credit is unearned and the balance fails LOUDLY. (c) drops the committed witness, which
+#   would leave the five-term boot restore answering `not_committed` for ever — a key saved that never installs.
+w48() {
+  cfg_writer_counts_ok "$1" || return 1
+  code_flat "$1" | tr -s ' ' | grep -qF 'blob_put_team_channel_key(b, pub, priv); b.team_key_team_id = team_id; b.team_key_active = 1; return mrnv::save(b);'
+}
+wchk_in "$CFG_CPP" "W48 the grant-receipt /mrcfg write is the MEASURED-silent one (witness + binding, one save)" \
+     w48 's@        b.team_key_active  = 1;@        b.team_key_active  = 1; mr_ui_on_config_saved();@' \
+         's@b.team_key_team_id = team_id;@;@' \
+         's@blob_put_team_channel_key(b, pub, priv);@;@'
 echo "structural: $s_pass passed / $s_fail failed / $((s_pass+s_fail)) total"
 echo "wiring:     $w_pass passed / $w_fail failed / $((w_pass+w_fail)) total; $w_ctl negative control(s) verified RED"
 [ "$s_fail" -eq 0 ] || rc=1

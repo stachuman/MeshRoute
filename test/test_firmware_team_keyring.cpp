@@ -30,10 +30,22 @@ using mrfw::KeyringVerdict;
 using mrfw::KeyringErr;
 using mrfw::KeyringRestore;
 
+// ★★★ §UI-16 K3 — THE SHARED ORDER LOG, and it is what turns *"the key is persisted BEFORE the activation"* from a
+//     claim about source order into a MEASUREMENT. Both durable seams stamp one character; the assertion is on the
+//     resulting word. ⛔ Asserting two call COUNTS cannot see an order, which is exactly how an ordering rule gets
+//     "refactored" into its inverse while every count stays right.
+struct OrderLog {
+    char ev[8] = {};
+    int  n     = 0;
+    void put(char c) { if (n < 7) ev[n++] = c; }
+    const char* str() const { return ev; }
+};
+
 // The COUNTING store. ★ `state` is the FOUR-valued answer, so a case can put the fake in `absent`, `invalid` or
 // `io_failed` without forging bytes; `rec` is assigned only on a successful save, so "the stored record did not
 // move" is measurable too.
 struct FakeKeyStore : mrfw::ITeamKeyStore {
+    OrderLog* log = nullptr;   // §UI-16 K3: stamps 'K' on a `/mrteams` write attempt (see OrderLog)
     mrnv::TeamKeyBlob rec{};
     mrnv::TeamKeyBlob written{};
     mrnv::TeamKeyRead state = mrnv::TeamKeyRead::ok;
@@ -54,6 +66,7 @@ struct FakeKeyStore : mrfw::ITeamKeyStore {
     }
     bool save(const mrnv::TeamKeyBlob& b) override {
         ++saves;
+        if (log) log->put('K');
         if (!save_ok) return false;
         written = b; rec = b; state = mrnv::TeamKeyRead::ok;
         return true;
@@ -668,4 +681,464 @@ TEST_CASE("ui16-keyring: every enum renders, and the name functions are TOTAL") 
     CHECK(static_cast<uint8_t>(KeyringVerdict::nv_failed) == 3);
     // ⛔ NO NAME FUNCTION CARRIES MATERIAL: every string is a FACT about the store (P-8).
     CHECK(std::strlen(mrfw::keyring_err_name(KeyringErr::store_io_failed)) == 15);
+}
+
+// ==================================================== §UI-16 K3 — THE GRANT RECEIVE: PERSISTENCE **FIRST**
+// ★★★ WHAT THESE CASES MEASURE, and it is the same discipline the write-policy cases above are held to: a
+//     CONSEQUENCE, never a returned value on its own. *"Nothing was written"* is `saves == 0 && commits == 0`;
+//     *"the key landed before the activation"* is the ORDER LOG reading `"KC"`; *"the UI was not told"* is a sink
+//     that recorded nothing. ⛔ A verdict is a value the implementation CHOOSES — a wrong implementation can choose
+//     the right one while doing the wrong thing ([[B240]]'s receive half was exactly that shape: adopt, push, and
+//     persist nothing).
+// ⛔ THE LIMIT OF EVERY CLAIM HERE is K1's, unchanged: both stores are FAKES. ⛔ No NVS/LittleFS write, no flash
+//    WEAR and no reset-during-write ([[B193]]). The power-cut half of a RECEIVED grant is METAL-ONLY (M2, spec §7.5).
+namespace {
+
+using mrfw::GrantSave;
+
+// The `/mrcfg` half's counting fake. ★ It MODELS the real binding rather than merely recording: `commit_active`
+// updates the record it will hand back on the next `read`, which is what makes the ZERO-WRITE idempotence case a
+// measurement of the second receipt rather than of a stub that always looks stale.
+struct FakeBinding : mrfw::ITeamKeyBinding {
+    uint32_t membership   = 0;        // `/mrcfg` team_id      — re-check (4)'s authority
+    uint32_t binding_team = 0;        // `/mrcfg` team_key_team_id
+    bool     active       = false;    // `/mrcfg` team_key_active
+    bool     has_pub      = false;    // `/mrcfg` team_ch_key_present
+    uint8_t  pub[32]      = {};       // `/mrcfg` team_ch_pub — the COMMITTED witness (PUBLIC half only)
+    bool     read_ok = true, commit_ok = true;
+    int      reads = 0, commits = 0;
+    OrderLog* log = nullptr;
+    uint32_t committed_team = 0;
+    uint8_t  committed_priv[32] = {};
+
+    // ★★ ON A FAILED READ THE FAKE MAY STILL DEPOSIT A PLAUSIBLE RECORD, DELIBERATELY, and it is the same discipline
+    //    `FakeKeyStore::deposit_rec` carries one store over: the REAL read is `nv_load_stamped` over `mrnv::load`,
+    //    which may leave a PARTIAL record in `out` before answering false (device_nv.h's §nv-ritual warning). ⇒ a
+    //    caller that IGNORES the `false` does not get zeroes — it gets bytes that LOOK right, which is exactly why
+    //    "fails closed" has to be measured against a deposit rather than against an empty struct. ⛔ Without this the
+    //    fail-open mutation is masked by re-check (4) and the control measures nothing (MEASURED 2026-08-24).
+    bool deposit_on_fail = false;
+
+    bool read(mrfw::TeamKeyBinding& out) override {
+        ++reads;
+        if (!read_ok && !deposit_on_fail) return false;
+        out = mrfw::TeamKeyBinding{};
+        out.membership_team_id = membership;
+        out.binding_team_id    = binding_team;
+        out.key_active         = active;
+        out.committed_present  = has_pub;
+        out.committed_pub      = has_pub ? pub : nullptr;
+        return read_ok;              // ★ the deposit above happened EITHER WAY — see `deposit_on_fail`
+    }
+    bool commit_active(uint32_t team_id, const uint8_t p[32], const uint8_t s[32]) override {
+        ++commits;
+        if (log) log->put('C');
+        if (!commit_ok) return false;
+        committed_team = team_id;
+        std::memcpy(committed_priv, s, 32);
+        binding_team = team_id; active = true; has_pub = true;
+        std::memcpy(pub, p, 32);
+        return true;
+    }
+};
+
+// One receipt, everything wired. ⓘ The keyring service is the SAME `TeamKeyringService` the console and the boot
+// restore use — ⛔ never a second service over one record, which is the rule `prov_service()` is built on.
+struct GrantFix {
+    OrderLog                 log;
+    FakeKeyStore             store;
+    FakeBinding              binding;
+    mrfw::TeamKeyringService keyring{store};
+    mrfw::TeamKeyGrantService svc{keyring, binding};
+    uint8_t pub[32] = {}, priv[32] = {};
+
+    explicit GrantFix(uint32_t team = 0xAA11u, uint8_t seed = 7) {
+        mrnv::team_key_blob_init(store.rec);
+        store.log = &log; binding.log = &log;
+        binding.membership = team;
+        CHECK(make_pair(seed, pub, priv));
+    }
+    mrfw::TeamKeyGrant grant(uint32_t push_team, uint32_t live_team) const {
+        mrfw::TeamKeyGrant g{};
+        g.push_team_id = push_team; g.live_team_id = live_team;
+        g.live_pub = pub; g.live_priv = priv;
+        return g;
+    }
+    int writes() const { return store.saves + binding.commits; }
+};
+
+// ★★★★ THE DRAIN LOOP'S GATE, REPRODUCED EXACTLY, so the F-10 ORDER is proved on the shape `src/fw_main.cpp`
+//      actually carries and not only on the service in isolation. ⛔ `fw_main.cpp` is compiled by NEITHER the native
+//      suite NOR the simulator (§B115), so this is the closest a host gate can stand to it — and the SOURCE half
+//      (that the real loop carries this and only this) is pinned by `tools/probe_firmware_ui/run.sh`'s K3 checks.
+// ⓘ The real lines read
+//      `const mrfw::GrantUiRoute ui_route = (pu.kind != PushKind::team_key_received)`
+//      `                                    ? mrfw::GrantUiRoute::received`
+//      `                                    : mrfw::team_key_grant_persist(pu.team_id);`
+//      `switch (ui_route) { received -> mr_ui_on_push(pu); active_unsaved -> mr_ui_on_team_key_unsaved(); `
+//      `                    suppressed -> ; count -> ; }`
+//   — a switch over a RETURNED classification, ⛔ no decision (U3). `calls` = `mr_ui_on_push`,
+//   `unsaved` = `mr_ui_on_team_key_unsaved`, `silent` = neither door was opened.
+// ★★★★ [[B243]] CLOSED 2026-08-25 — the second door made the failure SAYABLE.
+// ⛔⛔ **AND THE FIRST CUT OF IT WAS WRONG, WHICH IS WHY THIS FIXTURE HAS THREE COUNTERS AND NOT TWO (QG blocker,
+//    same day).** ⛔ WITHDRAWN, KEPT VISIBLE: `const bool ok = … outcome == saved; if (ok) ++ui.calls; else
+//    ++ui.unsaved;` — a BOOLEAN, so EVERY refusal counted as the failed-save door and **these cases pinned that as
+//    correct**. It is not: `TEAM KEY ACTIVE` is FALSE when the live pair was wiped (`no_live_key`), when we have
+//    LEFT the team (`not_our_team`) and when the receipt named none (`zero_team`). ⇒ the cases below are RE-PINNED
+//    on the three-valued route, and `silent` exists so *"the panel says nothing"* is a COUNTED fact rather than the
+//    absence of one — an assertion that only ever reads `unsaved == 0` cannot tell silence from a door that fired.
+// ⓘ The bool return is kept ("was the push FORWARDED") because that is what the ~20 existing call sites ask; the
+//   two failure routes are told apart by the counters, ⛔ never by the return.
+struct UiSink { int calls = 0; int unsaved = 0; int silent = 0; uint32_t last_team = 0; };
+bool drain_one(mrfw::TeamKeyGrantService& svc, const mrfw::TeamKeyGrant& g, bool is_grant_push, UiSink& ui) {
+    const mrfw::GrantUiRoute r = is_grant_push ? mrfw::grant_ui_route_of(svc.receive(g).outcome)
+                                               : mrfw::GrantUiRoute::received;
+    switch (r) {
+        case mrfw::GrantUiRoute::received:       ++ui.calls; ui.last_team = g.push_team_id; break;
+        case mrfw::GrantUiRoute::active_unsaved: ++ui.unsaved; break;
+        case mrfw::GrantUiRoute::suppressed:     ++ui.silent;  break;
+        case mrfw::GrantUiRoute::count:          break;        // ⛔ not a route; unreachable
+    }
+    return r == mrfw::GrantUiRoute::received;
+}
+
+// ★★★★ THE PRECONDITION OF THE WORD `ACTIVE`, ASSERTED RATHER THAN ASSUMED (QG, 2026-08-25). `TEAM KEY ACTIVE` is
+//      true exactly when the three terms re-checks (1)-(3) establish are all in force: a non-zero team, the LIVE
+//      membership equal to it, and the key pair actually present. Every `active_unsaved` arm is reached only past
+//      those three by control flow — so this is the fixture's independent restatement of that fact, and an arm
+//      wrongly classified `active_unsaved` would have to satisfy it to be believed.
+// ⓘ It is the fixture's equivalent of the device's `team_channel_pub()/priv()` non-nullness: `GrantFix` hands the
+//   service the same two pointers, so "the key is live" means the same thing on both sides of the seam.
+bool live_key_really_active(const GrantFix& f, const mrfw::TeamKeyGrant& g) {
+    (void)f;
+    return g.push_team_id != 0 && g.push_team_id == g.live_team_id
+           && g.live_pub != nullptr && g.live_priv != nullptr;
+}
+
+}  // namespace
+
+// ---- PIN 1 + the ORDER -------------------------------------------------------------------------------------------
+TEST_CASE("ui16-K3: a successful persist writes the KEY FIRST, the ACTIVATION SECOND, and only then forwards") {
+    GrantFix f;
+    UiSink ui;
+    const bool fwd = drain_one(f.svc, f.grant(0xAA11u, 0xAA11u), /*is_grant_push=*/true, ui);
+
+    CHECK(fwd);
+    CHECK(ui.calls == 1);                      // ★ PIN 1 — a `saved` verdict forwards the push…
+    CHECK(ui.unsaved == 0);                    // …and ⛔ NEVER also raises [[B243]]'s failure note (one door per receipt)
+    CHECK(ui.silent == 0);                     // …⛔ nor suppresses it: EXACTLY one of the three routes is taken
+    // ★★★ THE F-10 ORDER, AS A MEASUREMENT: `/mrteams` then `/mrcfg`. A reboot landing between the two finds a
+    //     RETAINED record with no active binding ⇒ KEYLESS, which is honest. The inverse finds an ACTIVATION with
+    //     no key behind it — a binding that lies, and QG blocker 2 arriving by push.
+    CHECK(std::strcmp(f.log.str(), "KC") == 0);
+    CHECK(f.store.saves == 1);
+    CHECK(f.binding.commits == 1);
+    // The material really landed, in both records, and it is the LIVE pair — ⛔ not something derived here.
+    const int idx = mrfw::team_key_find(f.store.rec, 0xAA11u);
+    // ⚠ `-fno-exceptions` ⇒ doctest's `REQUIRE` is unavailable in this build (the note `test_node_query.cpp:331`
+    //   carries), so a guard that must stop the case is written as `CHECK` + an explicit `if`.
+    CHECK(idx >= 0);
+    if (idx >= 0) {
+        CHECK(std::memcmp(f.store.rec.rec[idx].team_ch_pub,  f.pub,  32) == 0);
+        CHECK(std::memcmp(f.store.rec.rec[idx].team_ch_priv, f.priv, 32) == 0);
+    }
+    CHECK(f.binding.committed_team == 0xAA11u);
+    CHECK(f.binding.active);
+    CHECK(f.binding.has_pub);
+    CHECK(std::memcmp(f.binding.pub, f.pub, 32) == 0);      // the COMMITTED witness == the keyring's pub (term iv)
+    // ⓘ A push of ANY OTHER KIND is untouched by the gate — the drain loop forwards it with no persistence at all.
+    UiSink other; CHECK(drain_one(f.svc, f.grant(0xAA11u, 0xAA11u), /*is_grant_push=*/false, other));
+    CHECK(other.calls == 1);
+    CHECK(f.writes() == 2);                                  // ⛔ and it spent no further write
+}
+
+// ---- PIN 2 — a FAILED persist ⇒ ⛔ NOT forwarded, and the failure is surfaced ------------------------------------
+TEST_CASE("ui16-K3: a FAILED persist is NOT forwarded — the panel can never say RECEIVED for a RAM-only key") {
+    SUBCASE("the /mrteams save fails: the ACTIVATION is never attempted") {
+        GrantFix f;
+        f.store.save_ok = false;
+        UiSink ui;
+        CHECK_FALSE(drain_one(f.svc, f.grant(0xAA11u, 0xAA11u), true, ui));
+        CHECK(ui.calls == 0);                                 // ★ PIN 2 — ⛔ the UI is not told it was RECEIVED…
+        // ★★★★ [[B243]] — …**AND IT IS TOLD THE TRUE THING INSTEAD**, which is the half that was missing until
+        //      2026-08-25: the second door fires EXACTLY ONCE, and ⛔ the two doors are mutually exclusive (a
+        //      receipt that raised both would put two verdicts in one result slot and the panel would show the
+        //      last writer). The WORDS the note then carries — `TEAM KEY ACTIVE` / `NOT SAVED` / `LOST ON REBOOT`
+        //      — are `test/test_firmware_ui_send.cpp`'s; what this pins is that the DEVICE PATH reaches them.
+        CHECK(ui.unsaved == 1);
+        CHECK(ui.silent == 0);                                // ⛔ and it is ⛔ NOT suppressed — see the note above
+        // ★★ AND THE WORDING IS TRUE HERE, WHICH IS THE WHOLE REASON THIS ARM GETS A DOOR AT ALL (QG, 2026-08-25):
+        //    `keyring_failed` is reached only PAST re-check (3), so all three preconditions of `TEAM KEY ACTIVE`
+        //    are established BY CONTROL FLOW — asserted, ⛔ not assumed.
+        CHECK(live_key_really_active(f, f.grant(0xAA11u, 0xAA11u)));
+        CHECK(f.store.saves == 1);                            // ONE attempt…
+        CHECK(f.binding.commits == 0);                        // …and ⛔ NO activation behind a key that did not land
+        CHECK(std::strcmp(f.log.str(), "K") == 0);
+        const mrfw::GrantSaveResult r = mrfw::TeamKeyGrantService(f.keyring, f.binding).receive(f.grant(0xAA11u, 0xAA11u));
+        CHECK(r.outcome == GrantSave::keyring_failed);
+        CHECK(r.err == mrfw::KeyringErr::nv_save_failed);     // the failure is NAMED, ⛔ never material
+    }
+    SUBCASE("the /mrcfg activation fails AFTER the key landed: still not forwarded") {
+        GrantFix f;
+        f.binding.commit_ok = false;
+        UiSink ui;
+        CHECK_FALSE(drain_one(f.svc, f.grant(0xAA11u, 0xAA11u), true, ui));
+        CHECK(ui.calls == 0);
+        CHECK(ui.unsaved == 1);                               // ★ past re-check (3) ⇒ the note is TRUE and IS shown
+        CHECK(ui.silent == 0);
+        CHECK(live_key_really_active(f, f.grant(0xAA11u, 0xAA11u)));
+        CHECK(f.store.saves == 1);                            // the key IS durable…
+        CHECK(f.binding.commits == 1);                        // …the binding is not, so the next boot comes up KEYLESS
+        CHECK(std::strcmp(f.log.str(), "KC") == 0);
+    }
+    SUBCASE("a FULL keyring refuses LOUDLY (P-15) — zero writes, nothing evicted, not forwarded") {
+        GrantFix f;
+        for (uint8_t i = 0; i < mrnv::kTeamKeyRecs; ++i) {
+            uint8_t p[32], s[32];
+            CHECK(make_pair(static_cast<uint8_t>(30 + i), p, s));
+            CHECK(f.keyring.put(0xB000u + i, p, s).verdict == KeyringVerdict::ok);
+        }
+        const mrnv::TeamKeyBlob before = f.store.rec;
+        const int saves_before = f.store.saves;
+        f.binding.membership = 0xC0DEu;
+        UiSink ui;
+        CHECK_FALSE(drain_one(f.svc, f.grant(0xC0DEu, 0xC0DEu), true, ui));
+        CHECK(ui.calls == 0);
+        // ★ P-15's loud refusal is a `keyring_failed`, i.e. an AFTER-re-check-(3) arm: the key really is live, so
+        //   the operator is told so and told it will not survive — ⛔ not left in silence.
+        CHECK(ui.unsaved == 1);
+        CHECK(ui.silent == 0);
+        CHECK(live_key_really_active(f, f.grant(0xC0DEu, 0xC0DEu)));
+        CHECK(f.store.saves == saves_before);                 // ⛔ ZERO further writes
+        CHECK(f.binding.commits == 0);
+        CHECK(std::memcmp(&before, &f.store.rec, sizeof before) == 0);   // ⛔ NOTHING evicted
+    }
+    SUBCASE("an UNREADABLE /mrcfg record FAILS CLOSED — zero writes on both records") {
+        GrantFix f;
+        f.binding.read_ok = false;
+        // ★★ AND THE RECORD IT DEPOSITED WOULD HAVE PASSED re-check (4) — that is the whole point. A fake that
+        //    returns `false` and leaves ZEROES lets re-check (4) refuse for the WRONG reason, so a caller that
+        //    ignored the `false` would still be caught and the control would measure nothing (MEASURED).
+        f.binding.deposit_on_fail = true;
+        UiSink ui;
+        CHECK_FALSE(drain_one(f.svc, f.grant(0xAA11u, 0xAA11u), true, ui));
+        // ★ `record_unreadable` sits IMMEDIATELY past re-check (3) — the `/mrcfg` read is the first thing after it
+        //   — so the live pair is present and it is this team's: the note is true and the door is the right one.
+        CHECK(ui.unsaved == 1);
+        CHECK(ui.silent == 0);
+        CHECK(f.writes() == 0);
+        CHECK(f.store.loads == 0);                            // ⛔ the keyring is not even opened
+    }
+}
+
+// ---- PIN 3 — THE FOUR HANDLING-TIME RE-CHECKS, each failing the write ON ITS OWN --------------------------------
+// ★★ EVERY CASE STARTS FROM THE HEALTHY RECEIPT AND BREAKS EXACTLY ONE TERM, so no assertion below can pass for a
+//    second reason — the same construction the FIVE-TERM boot restore's cases use.
+TEST_CASE("ui16-K3: each of the four handling-time re-checks fails the write on its own, with ZERO writes") {
+    SUBCASE("(1) the push names team 0 — ⛔ 0 reads and 0 writes, refused before anything is opened") {
+        GrantFix f;
+        UiSink ui;
+        CHECK_FALSE(drain_one(f.svc, f.grant(0u, 0u), true, ui));
+        // ⛔⛔ **SUPPRESSED — NEITHER DOOR** (QG, 2026-08-25). The receipt named no team, so there is no team whose
+        //    key could be called ACTIVE and nothing true to put on the panel. ⛔ These three lines used to read
+        //    `ui.unsaved == 1` by omission, which pinned the defect.
+        CHECK(ui.calls == 0);
+        CHECK(ui.unsaved == 0);
+        CHECK(ui.silent == 1);
+        CHECK(f.writes() == 0);
+        CHECK(f.binding.reads == 0);
+        CHECK(f.store.loads == 0);
+        CHECK(f.svc.receive(f.grant(0u, 0u)).outcome == GrantSave::zero_team);
+    }
+    SUBCASE("(2) the LIVE membership moved between RX and drain (`team 0`, or a switch)") {
+        GrantFix f;
+        UiSink ui;
+        CHECK_FALSE(drain_one(f.svc, f.grant(0xAA11u, /*live=*/0u), true, ui));      // we have LEFT the team
+        // ⛔⛔ **SUPPRESSED — NEITHER DOOR.** We are no longer in that team, so its key is not this node's active
+        //    key and `TEAM KEY ACTIVE` would be a false statement about a membership we have already dropped.
+        CHECK(ui.calls == 0);
+        CHECK(ui.unsaved == 0);
+        CHECK(ui.silent == 1);
+        CHECK(f.writes() == 0);
+        CHECK(f.svc.receive(f.grant(0xAA11u, 0u)).outcome == GrantSave::not_our_team);
+        CHECK(f.svc.receive(f.grant(0xAA11u, 0xBEEFu)).outcome == GrantSave::not_our_team);   // …or moved to another
+    }
+    SUBCASE("(3) the LIVE key is gone — ⛔ 64 zero bytes are never persisted as a team key") {
+        GrantFix f;
+        mrfw::TeamKeyGrant g = f.grant(0xAA11u, 0xAA11u);
+        g.live_pub = nullptr;                                  // `team_channel_pub()` answers null while keyless
+        UiSink ui;
+        CHECK_FALSE(drain_one(f.svc, g, true, ui));
+        // ⛔⛔ **SUPPRESSED — NEITHER DOOR, AND THIS IS THE ARM QG's BLOCKER NAMED FIRST.** The pair was WIPED
+        //    between RX and drain: there is no live key, so `TEAM KEY ACTIVE` is not merely unhelpful, it is FALSE.
+        CHECK(ui.calls == 0);
+        CHECK(ui.unsaved == 0);
+        CHECK(ui.silent == 1);
+        CHECK(g.live_pub == nullptr);                          // the fixture really is keyless (⛔ not vacuous)
+        CHECK(f.writes() == 0);
+        // ★★ AND IT REFUSES BEFORE ANY I/O AT ALL — ⛔ zero `/mrcfg` reads and zero keyring loads. A refusal that
+        //    still paid a flash read would be a receipt-shaped cost for a receipt that was always going to be
+        //    dropped, and it is the PLACEMENT half of this clause (its own mutation, T37).
+        CHECK(f.binding.reads == 0);
+        CHECK(f.store.loads == 0);
+        CHECK(f.svc.receive(g).outcome == GrantSave::no_live_key);
+        mrfw::TeamKeyGrant h = f.grant(0xAA11u, 0xAA11u);
+        h.live_priv = nullptr;                                 // …and the PRIVATE half alone is enough to refuse
+        CHECK(f.svc.receive(h).outcome == GrantSave::no_live_key);
+        CHECK(f.writes() == 0);
+    }
+    SUBCASE("(4) the PERSISTED record names ANOTHER team — the second authority, and it disagrees") {
+        // ★★★ THIS IS THE ONE A LIVE-ONLY CHECK CANNOT SEE: `/mrcfg` legitimately lags the running config between a
+        //     live change and its save, so (2) passing says nothing about what a REBOOT would read. Marking a key
+        //     ACTIVE against a record that names another team is QG blocker 3 arriving by push.
+        GrantFix f;
+        f.binding.membership = 0xBEEFu;                        // the RECORD still says we are in the old team
+        UiSink ui;
+        CHECK_FALSE(drain_one(f.svc, f.grant(0xAA11u, 0xAA11u), true, ui));
+        CHECK(ui.calls == 0);
+        // ★ ⛔ NOT suppressed: re-checks (1)-(3) all PASSED, so the live key is present and it is THIS team's. The
+        //   key really is active; only the durable side refused. The three ruled rows are true here.
+        CHECK(ui.unsaved == 1);
+        CHECK(ui.silent == 0);
+        CHECK(live_key_really_active(f, f.grant(0xAA11u, 0xAA11u)));
+        CHECK(f.binding.reads == 1);                           // it WAS asked…
+        CHECK(f.writes() == 0);                                // …and answered with zero writes
+        CHECK(f.store.loads == 0);                             // ⛔ and the keyring was never opened
+        CHECK(f.svc.receive(f.grant(0xAA11u, 0xAA11u)).outcome == GrantSave::record_mismatch);
+    }
+}
+
+// ---- PIN 4 — a RE-GRANT replaces that team's record ATOMICALLY and IDEMPOTENTLY ---------------------------------
+TEST_CASE("ui16-K3: a re-key REPLACES this team's record in place — one row, one write, both records agree") {
+    GrantFix f;
+    UiSink ui;
+    CHECK(drain_one(f.svc, f.grant(0xAA11u, 0xAA11u), true, ui));
+    CHECK(f.store.rec.count == 1);
+
+    uint8_t pub2[32], priv2[32];
+    CHECK(make_pair(99, pub2, priv2));
+    mrfw::TeamKeyGrant g2 = f.grant(0xAA11u, 0xAA11u);
+    g2.live_pub = pub2; g2.live_priv = priv2;                  // the teammate re-granted with NEW material
+    CHECK(drain_one(f.svc, g2, true, ui));
+
+    CHECK(ui.calls == 2);
+    CHECK(f.store.rec.count == 1);                             // ★ ONE row for one team_id — ⛔ never a second
+    const int idx = mrfw::team_key_find(f.store.rec, 0xAA11u);
+    CHECK(idx >= 0);
+    if (idx >= 0) CHECK(std::memcmp(f.store.rec.rec[idx].team_ch_priv, priv2, 32) == 0);
+    CHECK(std::memcmp(f.binding.pub, pub2, 32) == 0);          // and the WITNESS moved with it, or the boot rejects
+    CHECK(f.store.saves == 2);
+    CHECK(f.binding.commits == 2);
+}
+
+// ---- PIN 5 — a DIFFERENT team's grant is refused UPSTREAM, and would write nothing here either ------------------
+TEST_CASE("ui16-K3: a foreign team's grant never gets here — and if it did it would write NOTHING") {
+    // ★★ THE UPSTREAM REFUSAL IS `lib/core`'s AND IS PINNED THERE, ⛔ not re-implemented: `team_key_grant_receive`
+    //    answers `TeamKeyGrantRx::team_mismatch` for `their_team != _cfg.team_id` (`lib/core/node.cpp:286`) and
+    //    ⛔ enqueues NO push at all — `test/test_node_channel.cpp` drives both that verdict and the
+    //    "no team_key_received push" assertion. ⇒ this handler is a SECOND line, and the case exists because a
+    //    handler that relies on an upstream guard is a handler that breaks when the guard moves (C2).
+    GrantFix f;
+    UiSink ui;
+    CHECK_FALSE(drain_one(f.svc, f.grant(/*push=*/0xF00Du, /*live=*/0xAA11u), true, ui));
+    CHECK(ui.calls == 0);
+    CHECK(f.writes() == 0);
+    CHECK(f.store.loads == 0);
+}
+
+// ---- PIN 6 — IDENTICAL MATERIAL ⇒ **ZERO WRITES**, counted on BOTH records --------------------------------------
+TEST_CASE("ui16-K3: a re-grant of IDENTICAL material writes NOTHING — on the keyring AND on /mrcfg") {
+    // ⓘ Re-granting the SAME key is the COMMON case, not an edge one: a teammate re-sends on every join, and the
+    //   flash this receipt would otherwise burn is a SECRET's flash. K1 measured the keyring half; this measures
+    //   the half K3 adds, because a coalescing guard installed on one of two records is not a coalescing guard.
+    GrantFix f;
+    UiSink ui;
+    CHECK(drain_one(f.svc, f.grant(0xAA11u, 0xAA11u), true, ui));
+    const int saves = f.store.saves, commits = f.binding.commits;
+    CHECK(saves == 1);
+    CHECK(commits == 1);
+
+    for (int i = 0; i < 5; ++i) CHECK(drain_one(f.svc, f.grant(0xAA11u, 0xAA11u), true, ui));
+
+    CHECK(ui.calls == 6);                                      // ★ every one of them is still FORWARDED…
+    CHECK(f.store.saves   == saves);                           // …at a cost of ⛔ ZERO further writes
+    CHECK(f.binding.commits == commits);
+    // ★ AND THE ACTIVATION IS SKIPPED ONLY WHEN THE RECORD REALLY WITNESSES **THIS** KEY: break the witness alone
+    //   and the very next receipt rewrites it, so the guard is "already correct", ⛔ never "already present".
+    f.binding.has_pub = false;
+    CHECK(drain_one(f.svc, f.grant(0xAA11u, 0xAA11u), true, ui));
+    CHECK(f.binding.commits == commits + 1);
+    CHECK(f.store.saves == saves);                             // ⛔ and the keyring still wrote nothing
+    f.binding.active = false;                                  // the binding was cleared (`team 0` then re-join)
+    CHECK(drain_one(f.svc, f.grant(0xAA11u, 0xAA11u), true, ui));
+    CHECK(f.binding.commits == commits + 2);
+    uint8_t stranger[32]; std::memset(stranger, 0x5A, sizeof stranger);
+    std::memcpy(f.binding.pub, stranger, 32);                  // …or witnesses a DIFFERENT public half
+    CHECK(drain_one(f.svc, f.grant(0xAA11u, 0xAA11u), true, ui));
+    CHECK(f.binding.commits == commits + 3);
+}
+
+TEST_CASE("ui16-K3: the verdict enum renders in full, and ⛔ no arm carries material") {
+    // ⛔⛔⛔ **THE INVENTORY IS THE ENUM's, ⛔ NOT A BOUND RE-TYPED HERE** (2026-08-25, the §UI-16 N6b precedent
+    //      applied a second time). ⚠ THE HISTORY IS THE ARGUMENT: this loop used to read
+    //      `i <= uint8_t(GrantSave::binding_failed)` — a HAND-WRITTEN last enumerator — so a ninth outcome appended
+    //      after `binding_failed` would have been left unswept while the case still called itself exhaustive. That
+    //      is the exact shape that already cost this arc one silently-short sweep (`InviteGrantState`'s array).
+    // ★★★★ THE COUPLING IS MECHANICAL NOW, ON TWO INDEPENDENT AXES, AND NEITHER IS A LITERAL:
+    //      (1) the sweep walks `0 .. GrantSave::count - 1`, so an outcome added to the enum is visited BY
+    //          CONSTRUCTION — there is no bound to forget; and
+    //      (2) `grant_save_name`'s switch has ⛔ no `default:`, so an outcome added and NOT worded is a
+    //          **BUILD FAILURE** (the blanket `-Werror=switch`), not a green test.
+    //      ⇒ adding an outcome without extending this case's coverage is impossible: it either compiles and is
+    //      swept, or it does not compile.
+    for (uint8_t i = 0; i < static_cast<uint8_t>(GrantSave::count); ++i)
+        CHECK(std::strcmp(mrfw::grant_save_name(static_cast<GrantSave>(i)), "?") != 0);
+    CHECK(std::strcmp(mrfw::grant_save_name(GrantSave::saved), "saved") == 0);
+    CHECK(std::strcmp(mrfw::grant_save_name(GrantSave::record_mismatch), "record_mismatch") == 0);
+    // ⓘ THE SENTINEL IS NOT SWEPT AND MUST NOT BE: it is not an outcome, so its honest answer is the SAME `?`
+    //   refusal an out-of-range cast gets. Pinned in both directions so it cannot quietly become a state — and so
+    //   that the `<` above cannot be "fixed" back to a `<=` without this line reddening.
+    CHECK(std::strcmp(mrfw::grant_save_name(GrantSave::count), "?") == 0);
+    CHECK(static_cast<uint8_t>(GrantSave::count) > static_cast<uint8_t>(GrantSave::binding_failed));
+    // ★ `saved` IS ZERO deliberately: it is the only value the drain loop's gate lets through, and a default-
+    //   constructed `GrantSaveResult` must ⛔ NOT be it — the fail-closed direction (C2).
+    CHECK(static_cast<uint8_t>(GrantSave::saved) == 0);
+    CHECK(mrfw::GrantSaveResult{}.outcome != GrantSave::saved);
+}
+
+// ---- [[B243]] / QG 2026-08-25 — THE UI ROUTING CLASSIFICATION, ARM BY ARM AND OVER THE WHOLE ENUM ----------------
+TEST_CASE("ui16-K3: every GrantSave arm is classified, and ⛔ no arm claims a key that is not live") {
+    using R = mrfw::GrantUiRoute;
+    // ★★★ THE SWEEP IS THE ENUM's (the same fence the word sweep uses): `0 .. count-1`, so an outcome added to
+    //     `GrantSave` is classified here BY CONSTRUCTION, and one added and NOT classified is a `-Werror=switch`
+    //     BUILD FAILURE in `grant_ui_route_of`. ⛔ There is no list beside the enum to keep in sync.
+    int received = 0, unsaved = 0, silent = 0;
+    for (uint8_t i = 0; i < static_cast<uint8_t>(GrantSave::count); ++i) {
+        const R r = mrfw::grant_ui_route_of(static_cast<GrantSave>(i));
+        CHECK(r != R::count);                                  // ⛔ the sentinel is never a classification
+        if      (r == R::received)       ++received;
+        else if (r == R::active_unsaved) ++unsaved;
+        else                             ++silent;
+    }
+    CHECK(received == 1);                                      // ⛔ EXACTLY ONE outcome forwards the push
+    CHECK(received + unsaved + silent == int(GrantSave::count));
+    // ★★★★ **THE THREE SUPPRESSED ARMS, NAMED — THIS IS QG's 2026-08-25 BLOCKER TURNED INTO A PIN.** Each of them
+    //      is refused BEFORE re-check (3), so at that point there is ⛔ NO live key, ⛔ no established membership,
+    //      or ⛔ no team at all — and `TEAM KEY ACTIVE` would be a FALSE statement, not merely an unhelpful one.
+    CHECK(mrfw::grant_ui_route_of(GrantSave::zero_team)    == R::suppressed);
+    CHECK(mrfw::grant_ui_route_of(GrantSave::not_our_team) == R::suppressed);
+    CHECK(mrfw::grant_ui_route_of(GrantSave::no_live_key)  == R::suppressed);
+    CHECK(silent == 3);                                        // …and ⛔ NO OTHER arm is silenced
+    // ★ THE FOUR `active_unsaved` ARMS, ALSO NAMED: every one sits PAST re-check (3), so the key genuinely is live
+    //   and the failure is durability alone. ⛔ None of them may be collapsed into silence — that loses the honest
+    //   note [[B243]] exists to deliver.
+    CHECK(mrfw::grant_ui_route_of(GrantSave::record_unreadable) == R::active_unsaved);
+    CHECK(mrfw::grant_ui_route_of(GrantSave::record_mismatch)   == R::active_unsaved);
+    CHECK(mrfw::grant_ui_route_of(GrantSave::keyring_failed)    == R::active_unsaved);
+    CHECK(mrfw::grant_ui_route_of(GrantSave::binding_failed)    == R::active_unsaved);
+    CHECK(unsaved == 4);
+    CHECK(mrfw::grant_ui_route_of(GrantSave::saved) == R::received);
+    // ⛔ AND THE SENTINEL FAILS CLOSED: a value that should be impossible may never talk its way onto the panel.
+    CHECK(mrfw::grant_ui_route_of(GrantSave::count) == R::suppressed);
+    CHECK(static_cast<uint8_t>(R::count) > static_cast<uint8_t>(R::suppressed));
 }

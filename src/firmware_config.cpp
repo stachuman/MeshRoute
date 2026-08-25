@@ -113,6 +113,19 @@ void nv_load_stamped(mrnv::Blob& b) {
 //    pubkey-rotate writes (admin fields only) assign NONE of the four, and all four are load-IF-PRESENT or
 //    load-or-seed so the covered bytes are carried through untouched. They are also not user-initiated and the lease
 //    fires on a TIMER: notifying there would put a flash read on a periodic path for a latch that can never move.
+// ⛔ THE INTERNAL WRITERS STAY SILENT — SECOND ENTRY, ADDED 2026-08-24 BY §UI-16 K3, AND IT IS RECORDED HERE RATHER
+//    THAN OMITTED so no future reader mistakes it for the oversight this rule exists to prevent:
+//    **`team_key_grant_persist`** (the `team_key_received` grant receipt, further down this file) writes `/mrcfg`
+//    — the committed witness plus the v24 ACTIVE BINDING — and ⛔ does NOT notify. Both halves of the rule's test
+//    fail it, measured rather than assumed:
+//      · it is ⛔ NOT USER-INITIATED **on this node**. The operator who acted is the GRANTER, on another device; the
+//        receiver's own act is a radio arrival draining out of the push ring, which is the same category as
+//        `fw_main`'s ctr-lease and leaf-config writes above.
+//      · it assigns ⛔ NONE of the four covered fields (`ble_mode`, `e2e_dm`, `intro_attach`,
+//        `mobile_autoregister`): it loads through the §nv-ritual and touches `team_ch_*` + `team_key_*` only, so the
+//        covered bytes are carried through untouched and the self-limiting comparison would raise NOTHING anyway.
+//    ⓘ K2's activation write is a DIFFERENT question with a different answer — it rides `handle_team`, which is
+//      user-initiated and IS one of the seven sites.
 // ⛔ NO `MR_FEAT_OLED` MAY APPEAR IN THIS FILE. `lib/hal/mr_ui.h` supplies the inline no-op off the OLED profile,
 //    exactly as it does for `mr_ui_on_push`, so the config cluster never learns whether a panel exists.
 //    (`tools/probe_board_ui/`'s W13 is the check that keeps it true; W12/W14-W19 pin the seven placements.)
@@ -1549,6 +1562,75 @@ mrfw::KeyringRestore team_keyring_restore_boot(const mrnv::Blob& nv) {
     bind.committed_present  = (nv.team_ch_key_present != 0);
     bind.committed_pub      = nv.team_ch_pub;           // (iv) the COMMITTED public half
     return team_keyring_service().restore(bind, live);
+}
+
+// ============================================================ §UI-16 K3 — THE GRANT RECEIVE's DEVICE BINDINGS
+// ★★ THIN FOR THE FIFTH TIME IN THIS FILE AND FOR THE SAME MEASURED REASON: this TU is compiled by NEITHER the
+//    native suite NOR the simulator (§B115), so the DECISION — the four handling-time re-checks, the order (the key
+//    durably FIRST, the activation second) and the zero-write coalescing — lives in `mrfw::TeamKeyGrantService`
+//    (`src/firmware_team_keyring.h`), where `test/test_firmware_team_keyring.cpp` COUNTS the writes. What is here is
+//    one adapter and one forward.
+namespace {
+// ★★★ THE `/mrcfg` HALF, AND EVERY LINE OF IT IS AN EXISTING AUTHORITY CALLED RATHER THAN A NEW RULE (U1/U2):
+//     · the READ is the §nv-ritual `nv_load_stamped` — load-or-seed + stamp, the same prologue every write path in
+//       this file opens with, so a fresh/version-rejected chip is handled once and not per site;
+//     · the WITNESS is `blob_put_team_channel_key` — THE one conversion of key material into `mrnv::Blob` (U2,
+//       owner-ruled v4 §4). ⛔ The bytes are never assigned field-by-field here;
+//     · the BINDING is the same two assignments `stage_team_plan` makes on its `KeyAction::install` arm
+//       (`src/firmware_provisioning_service.h`), and it is written out rather than shared for that function's own
+//       stated reason: it composes a candidate inside a transaction that also decides PHY, role and DAD, none of
+//       which a grant receipt touches.
+// ⛔ NO DECISION IS TAKEN HERE: which team, which material, and WHETHER to write at all are all the pure service's.
+// ⚠ TWO LOADS PER RECEIPT (one for `read`, one inside `commit_active`) and that is deliberate rather than sloppy:
+//   the alternative is holding a `Blob` — 300+ bytes with a PRIVATE KEY in it — alive across the keyring write, and
+//   a resident secret is exactly the trade `firmware_team_keyring.h`'s header refuses. A receipt is a rare,
+//   operator-visible event, ⛔ not a hot path.
+struct DeviceTeamKeyBinding : mrfw::ITeamKeyBinding {
+    bool read(mrfw::TeamKeyBinding& out) override {
+        mrnv::Blob b{};
+        nv_load_stamped(b);                             // §nv-ritual — ⛔ CANNOT fail (see its own note); `true` is honest
+        out.membership_team_id = b.team_id;             // (4) the PERSISTED membership — a SECOND authority
+        out.binding_team_id    = b.team_key_team_id;
+        out.key_active         = (b.team_key_active != 0);
+        out.committed_present  = (b.team_ch_key_present != 0);
+        // ⚠ `_pub` is a MEMBER, not `b`'s storage: `b` dies with this frame and the caller reads the pointer after
+        //   the call returns. It is the PUBLIC half, so nothing secret is copied — and nothing secret survives here.
+        memcpy(_pub, b.team_ch_pub, sizeof _pub);
+        out.committed_pub      = _pub;
+        return true;
+    }
+    bool commit_active(uint32_t team_id, const uint8_t pub[32], const uint8_t priv[32]) override {
+        mrnv::Blob b{};
+        nv_load_stamped(b);
+        blob_put_team_channel_key(b, pub, priv);        // the COMMITTED witness (v22) — the ONE conversion path
+        b.team_key_team_id = team_id;                   // the ACTIVE binding (v24)
+        b.team_key_active  = 1;
+        return mrnv::save(b);                           // ONE whole-record write; `mrnv::save` coalesces an identical one
+    }
+    uint8_t _pub[32] = {};
+};
+}  // namespace
+
+// ⛔ THE FORWARD, AND IT IS A FORWARD (the rule this whole binding region runs on). It gathers the four LIVE facts
+//    the pure service re-checks — and reads them through the SAME accessors `blob_take_team_channel_key` uses, which
+//    return `nullptr` while keyless, so re-check (3) is answered by the one authority and not by a second boolean.
+// ★ THE ADAPTERS ARE STACK LOCALS: they hold no state worth keeping and must not outlive the call (the
+//   `team_keyring_restore_boot` precedent one function up). ⛔ The SERVICE they compose is the ONE keyring instance.
+// ⚠ `§notify-every-save`: this path stays SILENT and that is MEASURED — see the exemption recorded with the rule.
+// ★★★★ ⛔ CORRECTED 2026-08-25 (QG blocker, [[B243]]): the last line used to read
+//      `return svc.receive(g).outcome == mrfw::GrantSave::saved;` — a BOOLEAN, which collapsed eight outcomes into
+//      "forward" / "don't", and `fw_main`'s `else` then told the panel a key was ACTIVE for three arms where none
+//      is. ⇒ the typed outcome is CLASSIFIED, once, by the pure unit that owns the rule. ⛔ Still no decision here:
+//      this line names no arm and tests no term — it forwards `receive`'s verdict into `grant_ui_route_of`.
+mrfw::GrantUiRoute team_key_grant_persist(uint32_t push_team_id) {
+    DeviceTeamKeyBinding binding;
+    mrfw::TeamKeyGrantService svc(team_keyring_service(), binding);
+    mrfw::TeamKeyGrant g{};
+    g.push_team_id = push_team_id;
+    g.live_team_id = g_node.config().team_id;
+    g.live_pub     = g_node.team_channel_pub();
+    g.live_priv    = g_node.team_channel_priv();
+    return mrfw::grant_ui_route_of(svc.receive(g).outcome);
 }
 
 // ★★ §UI-15 slice 5 — THE OLED PATH's TWO DEVICE FORWARDS (declared in firmware_config.h, which carries the boundary

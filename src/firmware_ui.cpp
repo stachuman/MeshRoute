@@ -142,7 +142,9 @@
                                  //   the native suite compiles it; this file supplies only the four device forwards.
 #include "board_ui.h"        // resolved by `-I variants/heltec_v3` — ★ THIS is the task that makes that flag
                              //   load-bearing; §A0 predicted Task 5 and UI-5 measured it dead there three ways.
-#include "mr_ui.h"           // the three hook DECLARATIONS we define below (fw_main calls them unconditionally)
+#include "mr_ui.h"           // the hook DECLARATIONS we define below (fw_main calls them unconditionally). ⛔ V1: this
+                             //   comment said "three" and the header now declares EIGHT — a count in prose beside a
+                             //   list drifts, so it names no number at all.
 #include "fw_context_pure.h" // ★ §B105: g_node / g_hal through PURE headers. It was `fw_context.h`, whose only extra
                              //   offering here was the concrete `g_iradio` — and that one include cost §B106's +2
                              //   per-TU warnings AND made this file impossible to host-compile (§B104). The radio is
@@ -1580,6 +1582,13 @@ void draw_provision_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
             body_text(0, mrui::prov_result_head(st.prov_answer));
             const char* detail = mrui::prov_result_detail(st.prov_answer);
             if (detail[0]) body_text(1, detail);
+            // ★★ §UI-16 K4 — THE THIRD ROW, and it is drawn for EXACTLY ONE ruled sentence: S-27's
+            //    `NOT SAVED — LOST ON REBOOT` is 26 columns against a 19-column body, so it renders across two rows
+            //    exactly as the ruled `PHY DIFFERS` / `USE SERIAL` pair does. ⛔ Every other outcome answers `""` and
+            //    draws nothing, so no existing arm's layout moves. ⓘ The DECISION is the pure `prov_result_detail2`;
+            //    this file only places it.
+            const char* detail2 = mrui::prov_result_detail2(st.prov_answer);
+            if (detail2[0]) body_text(2, detail2);
             // Design §3.6.3: success shows the FULL new team id PLUS the same short fingerprint (§3.6.4's token).
             // ★ §UI-16 N3 JOINED THIS ARM — spec §4-N3 pin 5 asks a JOIN's success for exactly the same two rows
             //   (*"plus the full id and the shared fingerprint"*), and the HEADLINE above already tells the two
@@ -1655,6 +1664,12 @@ void draw_provision_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
             body_text(0, mrui::prov_result_head(st.prov_answer));
             const char* detail = mrui::prov_result_detail(st.prov_answer);
             if (detail[0]) body_text(1, detail);
+            // ★★ §UI-16 K4's third row, here for the reason it is on the `create_result` arm above: a grant receipt
+            //    can land while EITHER result screen is up (a nearby join renders on `create_result`, a static join
+            //    on this one), and a note that appeared on only one of them would be a note the operator misses
+            //    depending on which verb he used. ⛔ The decision is the pure `prov_result_detail2`'s.
+            const char* detail2 = mrui::prov_result_detail2(st.prov_answer);
+            if (detail2[0]) body_text(2, detail2);
             if (st.prov_answer.outcome == mrui::UiProvOutcome::adopted) {
                 char id[mrui::kJoinNodeLineCap];
                 mrui::join_fmt_node(id, sizeof id, st.prov_answer.node_id);
@@ -2156,7 +2171,9 @@ void draw_frame(const mrui::UiState& st, const mrui::UiSnapshot& s, const Outcom
 }  // namespace
 
 // ====================================================================================================== the hooks
-// ★ These three are the seam `lib/hal/mr_ui.h` declares and `fw_main` calls UNCONDITIONALLY. They lived TEMPORARILY in
+// ★ These are the seam `lib/hal/mr_ui.h` declares and `fw_main` calls UNCONDITIONALLY (⛔ V1 2026-08-25: this line
+//   said "these three" and the seam is now EIGHT hooks — it names no number, for the reason the header's own count
+//   line gives). They lived TEMPORARILY in
 //   variants/heltec_v3/board_ui.cpp so UI-5 could link; Task 6 took ownership and DELETED those copies. Defining them
 //   in both places is a duplicate-symbol link failure.
 
@@ -2414,6 +2431,19 @@ void mr_ui_on_push(const MESHROUTE_NS::Push& pu) {
                                            g_node.same_team(pu.team_id), who, now);
             break;
         }
+        // ★★★★ §UI-16 K4 — THE GRANT RECEIPT JOINS THE **RECEIVE** ROUTER, and reaching this line at all is the
+        //      guarantee: `src/fw_main.cpp` forwards a `team_key_received` push to `mr_ui_on_push` only when
+        //      `mrfw::team_key_grant_persist` returned `saved` (spec §4-K3 / F-10), so the note's word is a
+        //      control-flow fact rather than a claim this TU makes.
+        // ⛔ THE LABEL IS `""` AND THAT IS THE POINT, not laziness: the arm reads no name, and `label_for_origin`
+        //    would resolve the GRANTER's node name — which F-3/P-5 forbid anywhere near a team's identity (S-36).
+        //    Passing an empty label makes that unreachable instead of merely unused, and saves the cache lookup.
+        // ⛔ It is ⛔ NOT routed to `ui_route_send_push` below: that router correlates what WE sent. A receipt is an
+        //    ARRIVAL, and the receive router is where arrivals are owned (§B103's split).
+        case MESHROUTE_NS::PushKind::team_key_received:
+            (void)mrui::ui_route_recv_push(s_counters, s_model, pu, uint8_t(MR_UI_TEAM_CHANNEL_ID),
+                                           /*same_team_post=*/false, /*who=*/"", now);
+            break;
         // Every branch that can move the emergency goes through a tracker first — that is what makes a false PICKED UP
         // structurally impossible rather than merely unlikely (spec §2.1). The routing itself is pure and tested.
         default:
@@ -2422,6 +2452,22 @@ void mr_ui_on_push(const MESHROUTE_NS::Push& pu) {
             s_model.on_invite_push(pu);     // §UI-16 N5 — pure hash correlation + grant-bar recheck
             break;
     }
+}
+
+// ★★★★ [[B243]] — THE FAILED SAVE'S DEVICE PATH, AND IT IS THE OTHER HALF OF THE SAME RULING. `mr_ui_on_push` above
+//      renders the receipt's SUCCESS word and can only be reached by a push `src/fw_main.cpp` FORWARDED; F-10 forbids
+//      forwarding a failed one, so this second door is where the withheld push's honest verdict arrives instead.
+// ⛔ THE MODEL ENTRY POINT IS THE **SAME ONE** (U1), and that is the whole design rather than a convenience: both
+//    words are `UiModel::on_team_key_note`'s two arms, so the K4 negatives — no navigation, no cursor move, no
+//    emergency field write, ⛔ no WAKE — hold on this path BY CONSTRUCTION and cannot drift from the push path's.
+//    The one bit that differs between the two doors is the `saved` argument, which is exactly the fact that differs.
+// ⛔ IT IS NOT ROUTED THROUGH `mrui::ui_route_recv_push`: that router's job is to classify a PUSH, and here there is
+//    no push to classify — the drain loop withheld it. Handing it a synthetic one would re-create the very thing
+//    F-10 removed (a UI-side gate deciding whether a receipt was durable).
+// ⓘ `g_hal.now()` is read exactly as `mr_ui_on_push` reads it; the model takes the clock and deliberately does not
+//   use it (see `on_team_key_note` — the parameter exists so a "it woke" mutation has something to compile against).
+void mr_ui_on_team_key_unsaved() {
+    s_model.on_team_key_note(/*saved=*/false, uint32_t(g_hal.now()));
 }
 
 #endif  // MR_FEAT_OLED

@@ -2,10 +2,10 @@
 // Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // §featuresplit slice 4: the board-UI seam (MR_FEAT_OLED). A board with a display (e.g. the heltec_v3's on-board
-// SSD1306) implements these SEVEN hooks (⛔ corrected in place THREE times — 2026-08-13 this line said "three" while
-// the block at the fourth one already called it "THE FOURTH HOOK", 2026-08-14 §B197/§B198 added the fifth, and
-// 2026-08-15 §B200 added the arm/disarm PAIR; a count in prose beside a list is exactly the thing that drifts, so it
-// is checked against the list when either changes)
+// SSD1306) implements these EIGHT hooks (⛔ corrected in place FOUR times — 2026-08-13 this line said "three" while
+// the block at the fourth one already called it "THE FOURTH HOOK", 2026-08-14 §B197/§B198 added the fifth,
+// 2026-08-15 §B200 added the arm/disarm PAIR, and 2026-08-25 [[B243]] added the eighth; a count in prose beside a
+// list is exactly the thing that drifts, so it is checked against the list when either changes)
 // in a TU compiled under `#if MR_FEAT_OLED` (variants/heltec_v3/board_ui.cpp — §A0 2026-08-03; the port is
 // per-BOARD, so V4 brings its own variants/heltec_v4/board_ui.cpp). EVERY other
 // profile gets the inline no-ops below, so the fw_main call sites are UNCONDITIONAL (no `#if` sprawl at the call
@@ -74,11 +74,33 @@ enum class MrUiWakeArm : uint8_t { ok = 0, button_down = 1, failed = 2 };
 //   ESP32 light-sleep branch of `board_sleep_until()`. The nRF52 branch uses WFE, has no armable GPIO wake source
 //   and no panel, so it calls neither — correct now, and ⛔ a FUTURE nRF52 panel port must wire the pair into that
 //   branch itself; the stubs below would otherwise let it light-sleep with nothing armed, silently.
+// ★★★★ THE EIGHTH HOOK ([[B243]], §UI-16 K3+K4 correction 2026-08-25) — **THE FAILED SAVE'S ONLY DOOR**, and it
+// exists because the seven above structurally could NOT carry it. §UI-16's F-10 rules that a `team_key_received`
+// push whose durable save FAILED must ⛔ NOT be forwarded through `mr_ui_on_push` — that refusal is precisely what
+// makes `TEAM KEY RECEIVED` true by construction rather than by a gate a reviewer must trust. ⇒ the HONEST half of
+// the verdict (the key IS live in RAM, and it will NOT survive a reboot) had no door at all, and on device a failed
+// save was SILENT on the panel: [[B243]], measured and registered — ⛔ never a false success, but never the truth
+// either. This is that door, and it carries nothing else.
+// ⚠ THE CONTRACT IS AS NARROW AS THE FOURTH HOOK's AND FOR THE SAME REASON: call it ONLY when a `team_key_received`
+//   push was WITHHELD because the persistence forward answered "not saved". ⛔ Not on a success — the two notes
+//   would race for one result slot and the panel would show the last writer; ⛔ not on any other `PushKind`; and
+//   ⛔ never INSTEAD of `mr_ui_on_push` for a push that WAS forwarded. There is exactly ONE call site and it is the
+//   `else` of the drain loop's forward gate in `src/fw_main.cpp` — where `fw_main` gains a CALL, ⛔ not a decision.
+// ⛔⛔ EVERY §UI-16 K4 NEGATIVE BINDS THIS DOOR EXACTLY AS IT BINDS THE PUSH ARM, and structurally rather than by
+//    restatement: the OLED side funnels into the SAME `UiModel::on_team_key_note` (U1 — one entry point, one set of
+//    refusals), so it ⛔ navigates nothing, ⛔ opens nothing, ⛔ moves no cursor, ⛔ writes no emergency field and
+//    ⛔ does NOT WAKE a dark panel. (§UI-17 R-7 scoped the wake to a DM addressed to us and a SEALED channel post;
+//    a grant receipt is neither, and widening it is a new owner ruling — so the omission is a decision.)
+// ⓘ IT TAKES NO ARGUMENT, and that is the note's own rule arriving at the seam: the note carries no team id (left at
+//   0 deliberately — an id off the air is not an operator's selection) and the granter's optional `name=` is never
+//   read at all (F-3/P-5, spec §8 S-36's forbidden usage). There is nothing true this hook could pass that the panel
+//   would be allowed to draw, so passing anything would only invite a future renderer to draw it.
 #if MR_FEAT_OLED
 void mr_ui_init();                                // boot: bring the panel up (called once, end of setup())
 void mr_ui_tick(uint32_t now_ms);                 // main loop: periodic refresh — THROTTLE inside (called every service pass)
 void mr_ui_on_push(const meshroute::Push& pu);    // event: an app Push worth surfacing (RX DM / channel / ACK / send-failed)
 void mr_ui_on_config_saved();                     // event: a SUCCESSFUL, PERSISTED /mrcfg write by serial/BLE (§3.6.1)
+void mr_ui_on_team_key_unsaved();                 // [[B243]]: a grant receipt whose durable save FAILED (RAM-only)
 bool mr_ui_allows_sleep();                        // policy: may the CPU light-sleep now? (false = panel lit / gesture / open frame)
 MrUiWakeArm mr_ui_arm_button_wake();              // §B200: arm the button wake FOR THIS SLEEP ONLY — call immediately before halting
 bool mr_ui_disarm_button_wake();                  // §B200: ...and immediately after waking, on EVERY path (false = hardware failure)
@@ -88,6 +110,7 @@ inline void mr_ui_init() {}
 inline void mr_ui_tick(uint32_t /*now_ms*/) {}
 inline void mr_ui_on_push(const meshroute::Push& /*pu*/) {}
 inline void mr_ui_on_config_saved() {}
+inline void mr_ui_on_team_key_unsaved() {}
 inline bool mr_ui_allows_sleep() { return true; }
 // ⓘ No panel ⇒ no button ⇒ nothing to arm, so the answer is the PERMISSION (`ok`) and the disarm is a no-op that
 //   cannot fail. Both fold to constants at the call site, which is what keeps a non-OLED profile's sleep path

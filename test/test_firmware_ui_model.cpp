@@ -7438,3 +7438,74 @@ TEST_CASE("ui16-invalarm: `long_arm` PRE-EMPTS the window, and the handled set d
     f.m.on_tick(s2);
     CHECK(f.m.emergency() == Emergency::idle);
 }
+
+// ============================================ §UI-16 K4 — THE GRANT RECEIPT'S NOTE, IN THE MODEL'S OWN TERMS
+// ⓘ The ROUTER half (which push reaches this, and that no other kind does) is `test/test_firmware_ui_send.cpp`'s;
+//   the GATE that only a `saved` persist forwards is `test/test_firmware_team_keyring.cpp`'s. What is measured
+//   here is the MODEL's contract: the two ruled sentences, the slot they occupy, and that they are TRANSIENT.
+TEST_CASE("ui16-K4: the note occupies the panel's ONE transient team answer, and every entry retires it") {
+    CreateFix f; const auto s = prov_snap();
+    f.prov.answer = created_answer(0x12A1B2C3u);
+    CHECK(open_create_confirm(f, s));
+    f.m.on_gesture(Gesture::short_press, s);
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::create_result);
+    CHECK(strcmp(prov_result_head(f.m.state().prov_answer), "TEAM CREATED") == 0);
+
+    const uint8_t  cur_before  = f.m.state().cursor;
+    const Screen   scr_before  = f.m.state().screen;
+    // ★★ THE NOTE REPLACES THE PREVIOUS VERDICT, and that is the ruling rather than an accident: `TEAM CREATED`
+    //    followed by `TEAM KEY RECEIVED` is the true sequence of two facts about ONE team, newest last. ⛔ What it
+    //    must NOT do is move the operator: same screen, same arm, same cursor.
+    f.m.on_team_key_note(/*saved=*/true, 9000);
+    CHECK(f.m.state().prov_answer.outcome == UiProvOutcome::team_key_received);
+    CHECK(strcmp(prov_result_head(f.m.state().prov_answer), "TEAM KEY RECEIVED") == 0);
+    // ★★ THE SLOT IS CLEARED, ⛔ NOT MERELY RE-LABELLED: the previous act's id would otherwise render UNDER this
+    //    note's headline — one screen showing another operation's data, which is the "success that isn't" shape.
+    CHECK(f.m.state().prov_answer.team_id == 0u);
+    CHECK(f.m.state().prov_answer.node_id == 0u);
+    CHECK(strcmp(f.m.state().prov_answer.reason, "") == 0);
+    CHECK(f.m.state().provisioning == Provision::create_result);
+    CHECK(f.m.state().screen == scr_before);
+    CHECK(f.m.state().cursor == cur_before);
+    CHECK(f.prov.calls == 1);                       // ⛔ and it ran no transaction — a push is not an act
+
+    // ★ TRANSIENT: the press that leaves the result retires it through `enter_provision`, exactly as it retires a
+    //   create/join verdict — so a note can never sit under a screen that did not establish it.
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::menu);
+    CHECK(f.m.state().prov_answer.outcome == UiProvOutcome::none);
+    CHECK(strcmp(prov_result_head(f.m.state().prov_answer), "") == 0);
+}
+
+TEST_CASE("ui16-K4: the three result rows are TOTAL over the whole UiProvOutcome enum, and every row fits") {
+    // ★ THE `-Werror=switch` DISCIPLINE'S OTHER HALF, applied to the two enumerators K4 adds: drive the FULL enum,
+    //   ⛔ not a sample, and require every answer to be a real string that fits the 19-column body.
+    for (uint8_t i = 0; i <= uint8_t(UiProvOutcome::team_key_unsaved); ++i) {
+        UiProvAnswer a{}; a.outcome = UiProvOutcome(i);
+        a.reason = "";                              // `refused`/`join_refused` carry the SERVICE's token, "" here
+        CHECK(prov_result_head(a)    != nullptr);
+        CHECK(prov_result_detail(a)  != nullptr);
+        CHECK(prov_result_detail2(a) != nullptr);
+        CHECK(strlen(prov_result_head(a))    <= 19u);
+        CHECK(strlen(prov_result_detail(a))  <= 19u);
+        CHECK(strlen(prov_result_detail2(a)) <= 19u);
+    }
+    // ⛔ THE THIRD ROW IS NOT A GENERAL SLOT: it exists for exactly ONE ruled sentence (S-27's second half) and
+    //    every other outcome answers `""`. A future outcome that grows one must say so here, deliberately.
+    int with_detail2 = 0;
+    for (uint8_t i = 0; i <= uint8_t(UiProvOutcome::team_key_unsaved); ++i) {
+        UiProvAnswer a{}; a.outcome = UiProvOutcome(i); a.reason = "";
+        if (prov_result_detail2(a)[0]) { ++with_detail2; CHECK(UiProvOutcome(i) == UiProvOutcome::team_key_unsaved); }
+    }
+    CHECK(with_detail2 == 1);
+    // ⛔ THE THREE FORBIDDEN LEXEMES STAY ABSENT FROM EVERY ARM (spec §8 S-32/S-33/S-34): absence is a test.
+    for (uint8_t i = 0; i <= uint8_t(UiProvOutcome::team_key_unsaved); ++i) {
+        UiProvAnswer a{}; a.outcome = UiProvOutcome(i); a.reason = "";
+        for (const char* forbidden : { "JOIN COMPLETE", "KEYLESS", "WAITING FOR KEY" }) {
+            CHECK(strstr(prov_result_head(a),    forbidden) == nullptr);
+            CHECK(strstr(prov_result_detail(a),  forbidden) == nullptr);
+            CHECK(strstr(prov_result_detail2(a), forbidden) == nullptr);
+        }
+    }
+}

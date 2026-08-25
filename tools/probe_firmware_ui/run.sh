@@ -1404,6 +1404,32 @@ if [ "${1:-}" != "--no-neg" ]; then
   #   well-meaning author adds beside a verdict that says only `GRANT QUEUED`.
   ctl "O22 ★★ the verdict screen adds a JOIN COMPLETE row of its own (S-32, straight into the renderer)" yes \
       's|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.grant.hash);|            mrui::ui_fmt_member_hash_full(hash, sizeof hash, st.grant.hash); body_text(3, "JOIN COMPLETE");|'
+  # ⛔⛔ K1 IS THE §T3 SHAPE FOR §UI-16 K4, AND IT IS THE CONTROL THAT KEEPS P15k FROM BEING VACUOUS. The pure arm
+  #   lives in `firmware_ui_send.h` (target `uisend`, entries U10-U13) and the drain-loop GATE lives in
+  #   `src/fw_main.cpp` (`probe_board_ui`'s W47) — but the only thing that carries a FORWARDED receipt from
+  #   `mr_ui_on_push` into that arm is the `case` label in THIS file, and no native suite or corpus compiles it.
+  #   Drop the case and the push falls through to the SEND router, which answers `false` and renders nothing: the
+  #   whole feature stays green everywhere else and the panel never says a word.
+  ctl "K1 ★★★ the team_key_received case is dropped from mr_ui_on_push (the receipt never reaches the note)" yes \
+      's|        case MESHROUTE_NS::PushKind::team_key_received:|        case MESHROUTE_NS::PushKind::hash_resolved:|'
+  # ⛔ K2 IS F-3/P-5 ARRIVING THROUGH THE RENDERER'S DOOR, exactly as O22 is for S-32: the pure arm reads no label
+  #   and the note carries no label FIELD, so the only way a granter's self-asserted name can reach a team's
+  #   identity on this panel is a row this file adds. That is the row a well-meaning author adds.
+  ctl "K2 ★★ the grant receipt's name= is drawn as a row of its own (F-3/P-5, S-36's forbidden usage)" yes \
+      's|            const char\* detail2 = mrui::prov_result_detail2(st.prov_answer);|            if (st.prov_answer.outcome == mrui::UiProvOutcome::team_key_received) body_text(3, "Wolfgangetta");\n            const char* detail2 = mrui::prov_result_detail2(st.prov_answer);|'
+  # ⛔⛔ K3/K4 ARE [[B243]]'s HALF, AND THEY ARE WHAT KEEPS P15k2 FROM BEING VACUOUS. The eighth hook in
+  #   `lib/hal/mr_ui.h` is a DECLARATION; its body is here, and no native suite and no corpus compiles this file.
+  #   The drain loop's side of the wire (the `else` itself, dropped / fired on success too / inverted) is pinned by
+  #   `tools/probe_board_ui`'s W47 — six controls — because that is where the branch lives.
+  # ⓘ SCOPE STATED RATHER THAN OVERCLAIMED, exactly as P15k states its own: the ⛔ NAVIGATE and ⛔ WAKE negatives of
+  #   this door are attacked where they can be MEASURED — `UiModel::on_team_key_note` is the single entry point both
+  #   doors share (U1), so `--target=model` V23/V24 attack them directly and `test/test_firmware_ui_send.cpp` drives
+  #   the failure arm against a DARK model. A wake control HERE would be worthless: the panel is LIT at P15k2, so
+  #   `set_power_save` could not move and the mutant would pass — an unusable control, ⛔ never a "verified" one.
+  ctl "K3 ★★★ the failed-save door renders the SUCCESS verdict (a RAM-only key reads as RECEIVED)" yes \
+      's|    s_model.on_team_key_note(/\*saved=\*/false, uint32_t(g_hal.now()));|    s_model.on_team_key_note(/*saved=*/true, uint32_t(g_hal.now()));|'
+  ctl "K4 ★★★ the failed-save door does nothing at all ([[B243]] restored from the new end)" yes \
+      's|    s_model.on_team_key_note(/\*saved=\*/false, uint32_t(g_hal.now()));|    (void)0;|'
 
   ARM=l2; ARM_DEFS=DEFS
 fi

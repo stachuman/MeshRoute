@@ -712,12 +712,40 @@ struct ProbeEntropy : mrfw::IEntropy {
 // `/mrcfg` candidate that marks it active. ⓘ An in-RAM store: this probe measures the PANEL, and the keyring's own
 // write policy is measured by `test/test_firmware_team_keyring.cpp` + the `teamkeyring` battery. `saves` is here so a
 // future phase can assert the panel path spends no unexpected durable write.
+// ★ `can_save` ADDED 2026-08-25 ([[B243]]): the P15k2 arm needs a persist that REALLY FAILS, not a verdict handed
+//   to the renderer by hand — the whole point of that arm is that the failure note is reached the way the device
+//   reaches it. It mirrors `ProbeCfgStore::can_save` (U3, same idiom) and defaults TRUE, so every phase written
+//   before it is byte-for-byte unaffected.
 struct ProbeTeamKeyStore : mrfw::ITeamKeyStore {
     mrnv::TeamKeyBlob rec{};
     mrnv::TeamKeyRead state = mrnv::TeamKeyRead::absent;
     int saves = 0;
+    bool can_save = true;
     mrnv::TeamKeyRead load(mrnv::TeamKeyBlob& out) override { out = rec; return state; }
-    bool save(const mrnv::TeamKeyBlob& b) override { ++saves; rec = b; state = mrnv::TeamKeyRead::ok; return true; }
+    bool save(const mrnv::TeamKeyBlob& b) override {
+        ++saves;                                   // ⛔ COUNTED EVEN WHEN IT FAILS: "one attempt was made" is the
+        if (!can_save) return false;               //    fact a refusing store must still report ([[B193]]).
+        rec = b; state = mrnv::TeamKeyRead::ok; return true;
+    }
+};
+// ★★ [[B243]] — THE `/mrcfg` SIDE OF THE GRANT RECEIVE, faked for the SAME reason the keyring store is: the real
+//    `DeviceTeamKeyBinding` lives in `src/firmware_config.cpp`, which is not in this link. It answers the FOUR
+//    re-check terms and nothing else, so `TeamKeyGrantService::receive` runs its REAL decision here.
+// ⓘ `membership` is set by the caller to the node's LIVE team id, so re-check (4) passes and the arm measures the
+//   failure it means to measure — a re-check refusal would refuse for a DIFFERENT reason and the check would be
+//   worthless (the §7.1 rule-1 lesson: a fixture must not pass for the wrong reason).
+struct ProbeGrantBinding : mrfw::ITeamKeyBinding {
+    uint32_t membership = 0;
+    int commits = 0;
+    bool read(mrfw::TeamKeyBinding& out) override {
+        out.membership_team_id = membership;
+        out.binding_team_id    = 0;         // ⛔ nothing active yet ⇒ `binding_current` is false and the ACTIVATION
+        out.key_active         = false;     //    would be attempted — so a keyring failure is the ONLY thing that
+        out.committed_present  = false;     //    can stop the transaction here.
+        out.committed_pub      = nullptr;
+        return true;
+    }
+    bool commit_active(uint32_t, const uint8_t[32], const uint8_t[32]) override { ++commits; return true; }
 };
 struct ProvSeams {
     ProbeProvLive      live;
@@ -3850,6 +3878,173 @@ int main() {
             ps.live.set_team_calls == 1 && ps.live.install_calls == 1 && ps.live.dad_calls == 1);
         CHK("P15e ...and NO retune happened ([[B209]])",       ps.live.phy_calls == 0);
         CHK("P15e ...the post-save bookkeeping ran once",      ps.noted_calls == 1);
+
+        // ---- ★★★★ (k) §UI-16 K4 — THE GRANT RECEIPT'S NOTE, THROUGH THE **REAL** DEVICE PUSH ENTRY POINT ---------------
+        // ⓘ WHAT THIS ARM REACHES AND WHAT IT DOES NOT, stated because the seam is the whole point: `mr_ui_on_push`
+        //   is the ONE door `src/fw_main.cpp` calls, and everything under it here is SHIPPED code — that function's
+        //   own `team_key_received` case, the pure `mrui::ui_route_recv_push` arm, `UiModel::on_team_key_note`, and
+        //   the real `draw_provision_screen`. ⛔ `fw_main.cpp`'s GATE (persist first, forward only on `saved`) is not
+        //   in this link — that TU is compiled by neither the native suite nor the simulator — so it is measured by
+        //   `test/test_firmware_team_keyring.cpp`'s drain-loop fixture and by this probe's `run.sh` SOURCE checks.
+        //   ⇒ here the push arrives ALREADY FORWARDED, which is exactly the state the gate delivers it in.
+        {
+            const int w_k = st.writes, lv_k = ps.live.total(), bus_k = g_c.bus_ops();
+            const int lps_k = g_c.last_power_save;   // the panel's LATCHED state, ⛔ not the call count
+            MESHROUTE_NS::Push gp{};
+            gp.kind = MESHROUTE_NS::PushKind::team_key_received;
+            gp.team_id = created; gp.sender_hash = 0x6C2971u; gp.origin = 221;
+            // ★ THE GRANTER'S OPTIONAL `name=`, CARRIED ON PURPOSE: without a name AVAILABLE the F-3/P-5 check below
+            //   would pass for the wrong reason — the §7.1 rule-1 lesson, one feature over.
+            const char* granter = "Wolfgangetta";
+            gp.body_len = uint8_t(strlen(granter));
+            for (uint8_t i = 0; i < gp.body_len; ++i) gp.body[i] = uint8_t(granter[i]);
+            mr_ui_on_push(gp);
+            const bool quiet_push = (g_c.bus_ops() == bus_k);   // read BEFORE the repaint the tick owns
+            t17 = see(t17 + 500);
+            CHK("P15k a forwarded grant receipt says TEAM KEY RECEIVED", body_row_is(0, "TEAM KEY RECEIVED"));
+            CHK("P15k ...the granter's name= is NOWHERE on the panel (F-3/P-5)",
+                strstr(g_c.page_text, granter) == nullptr && strstr(g_c.page_text, "Wolfga") == nullptr);
+            CHK("P15k ...and no forbidden completion word came with it",
+                strstr(g_c.page_text, "JOIN COMPLETE") == nullptr && strstr(g_c.page_text, "KEYLESS") == nullptr);
+            CHK("P15k ...the screen did NOT move — still the result, still `press = back`",
+                body_row_is(4, "press = back"));
+            CHK("P15k ...the previous verdict's id rows went with it (the slot is CLEARED, not relabelled)",
+                body_row(1) == nullptr && body_row(2) == nullptr);
+            CHK("P15k ⛔ ...the push itself touched no panel bus (the repaint belongs to the tick)", quiet_push);
+            // ⛔ NO PANEL POWER TRANSITION. ⓘ THE SCOPE IS STATED RATHER THAN OVERCLAIMED: the panel is LIT here (the
+            //    create walked it awake), so what this measures is that the receipt neither blanks nor re-asserts the
+            //    latch. The "⛔ a DARK panel STAYS dark" half needs a blanked model and is measured natively
+            //    (`test/test_firmware_ui_send.cpp`'s `dark_model` case), where 15 s of silence costs nothing.
+            CHK("P15k ⛔ ...and the panel's power latch did not move (a receipt is not a wake edge)",
+                g_c.last_power_save == lps_k);
+            CHK("P15k ⛔ ...zero durable writes and zero live applies from a push",
+                st.writes == w_k && ps.live.total() == lv_k);
+            // ⛔ AND NO OTHER KIND WRITES THE NOTE. One neighbouring kind is enough HERE — the FULL enum is swept in
+            //    `test/test_firmware_ui_send.cpp`, which can drive all seventeen without seventeen repaints.
+            MESHROUTE_NS::Push other{};
+            other.kind = MESHROUTE_NS::PushKind::join_refused; other.team_id = created;
+            mr_ui_on_push(other);
+            t17 = see(t17 + 500);
+            CHK("P15k ⛔ ...and a neighbouring PushKind neither writes nor erases the note",
+                body_row_is(0, "TEAM KEY RECEIVED") && body_row_is(4, "press = back"));
+        }
+
+        // ---- ★★★★ (k2) [[B243]] — THE **FAILED** SAVE'S DEVICE PATH, THROUGH THE REAL SECOND DOOR -------------------
+        // ⓘ THIS IS THE HALF (k) STRUCTURALLY COULD NOT REACH. F-10 forbids forwarding a failed receipt through
+        //   `mr_ui_on_push`, so until 2026-08-25 the ruled failure wording was implemented, natively driven and
+        //   DEVICE-UNREACHABLE — a failed save was SILENT on the panel ([[B243]]). The eighth hook in
+        //   `lib/hal/mr_ui.h` is the door, and everything under it here is SHIPPED code: `mr_ui_on_team_key_unsaved`,
+        //   `UiModel::on_team_key_note`'s failure arm and the real `draw_provision_screen`.
+        // ★★★ AND THE PERSIST REALLY FAILS — ⛔ the verdict is not handed to the renderer by hand. The REAL
+        //     `mrfw::TeamKeyGrantService` runs over the REAL `TeamKeyringService`, whose store refuses its ONE save;
+        //     the outcome is ASSERTED before it is used, so a fixture that stopped failing would redden here rather
+        //     than quietly measure the success path twice.
+        // ⛔ THE GATE ITSELF IS STILL `fw_main`'s AND STILL NOT IN THIS LINK (see (k)): its SOURCE shape — this
+        //    `else` included — is pinned by `tools/probe_board_ui`'s W47, and `test/test_firmware_team_keyring.cpp`'s
+        //    drain-loop fixture COUNTS both doors. What is measured HERE is the panel.
+        {
+            const int w_kf = st.writes, lv_kf = ps.live.total();
+            const int lps_kf = g_c.last_power_save;             // the panel's LATCHED state, ⛔ not the call count
+            const mrnv::TeamKeyBlob keys_rec_before   = ps.keys.rec;
+            const mrnv::TeamKeyRead keys_state_before = ps.keys.state;
+            // The record the create wrote is GONE and the store will refuse to write another: `put` therefore
+            // reaches its one `save`, which answers false ⇒ `KeyringVerdict::nv_failed`.
+            ps.keys.state = mrnv::TeamKeyRead::absent;
+            ps.keys.can_save = false;
+            ProbeGrantBinding gb; gb.membership = g_node.config().team_id;
+            mrfw::TeamKeyGrantService gsvc(ps.keyring, gb);
+            mrfw::TeamKeyGrant gg{};
+            gg.push_team_id = g_node.config().team_id;
+            gg.live_team_id = g_node.config().team_id;
+            gg.live_pub     = g_node.team_channel_pub();
+            gg.live_priv    = g_node.team_channel_priv();
+            const mrfw::GrantSaveResult gv = gsvc.receive(gg);
+            // ★★ THE ARM MUST BE AN **AFTER-RE-CHECK-(3)** FAILURE OR THE WORDING WOULD BE FALSE (QG, 2026-08-25):
+            //    `keyring_failed` is reached only past the live-key check, so the key really IS live and the three
+            //    ruled rows are three true sentences. Both facts are asserted, ⛔ neither is assumed.
+            CHK("P15k2 the persist REALLY failed (the store refused its save)",
+                gv.outcome == mrfw::GrantSave::keyring_failed && gb.commits == 0);
+            CHK("P15k2 ...and it classifies as active_unsaved (the key IS live)",
+                mrfw::grant_ui_route_of(gv.outcome) == mrfw::GrantUiRoute::active_unsaved
+                && gg.live_pub != nullptr && gg.live_priv != nullptr
+                && gg.push_team_id != 0 && gg.push_team_id == gg.live_team_id);
+            // ★ THE DRAIN LOOP's THREE-WAY SWITCH, mirrored line for line (`src/fw_main.cpp`). ⓘ The push is
+            //   composed even though this verdict cannot reach it, so the mirror is the real branch and not one
+            //   arm written on its own.
+            MESHROUTE_NS::Push fp{};
+            fp.kind = MESHROUTE_NS::PushKind::team_key_received; fp.team_id = gg.push_team_id;
+            const int bus_kf = g_c.bus_ops();
+            switch (mrfw::grant_ui_route_of(gv.outcome)) {
+                case mrfw::GrantUiRoute::received:       mr_ui_on_push(fp);           break;
+                case mrfw::GrantUiRoute::active_unsaved: mr_ui_on_team_key_unsaved(); break;
+                case mrfw::GrantUiRoute::suppressed:                                  break;
+                case mrfw::GrantUiRoute::count:                                       break;
+            }
+            const bool quiet_unsaved = (g_c.bus_ops() == bus_kf);   // read BEFORE the repaint the tick owns
+            t17 = see(t17 + 500);
+            CHK("P15k2 a failed save says TEAM KEY ACTIVE",       body_row_is(0, "TEAM KEY ACTIVE"));
+            CHK("P15k2 ...NOT SAVED",                            body_row_is(1, "NOT SAVED"));
+            CHK("P15k2 ...LOST ON REBOOT (the 3rd row S-27 needs)", body_row_is(2, "LOST ON REBOOT"));
+            // ⛔⛔ THE SAFETY HALF, AND IT IS THE WHOLE REASON F-10 EXISTS: the RECEIVED word must be nowhere on the
+            //    panel — ⛔ not in the headline this arm replaced, and not left behind in any other row.
+            CHK("P15k2 ⛔ ...and TEAM KEY RECEIVED is nowhere on the panel",
+                strstr(g_c.page_text, "TEAM KEY RECEIVED") == nullptr);
+            CHK("P15k2 ⛔ ...the screen did NOT move — still the result, still `press = back`",
+                body_row_is(4, "press = back"));
+            CHK("P15k2 ⛔ ...the door touched no panel bus (the tick owns that)", quiet_unsaved);
+            CHK("P15k2 ⛔ ...and the panel's power latch did not move (⛔ no wake)",
+                g_c.last_power_save == lps_kf);
+            CHK("P15k2 ⛔ ...zero durable /mrcfg writes and zero live applies",
+                st.writes == w_kf && ps.live.total() == lv_kf);
+            // ---- ★★★★ (k3) THE **SUPPRESSED** ARM — ⛔ NEITHER DOOR, AND THE PANEL SAYS NOTHING (QG, 2026-08-25) --
+            // ⛔⛔ THIS IS THE BLOCKER TURNED INTO AN ON-GLASS CHECK. The first cut of [[B243]] answered the seam
+            //    with a BOOLEAN, so a receipt whose live key had been WIPED between RX and drain took the
+            //    failed-save door and the panel announced `TEAM KEY ACTIVE` — about a key this node does not hold.
+            //    ⇒ `no_live_key` classifies `suppressed`, no door opens, and the panel is left EXACTLY as it was.
+            // ★ THE PRECEDING ARM IS THE INSTRUMENT: (k2) has just put `TEAM KEY ACTIVE` on the screen, so "nothing
+            //   happened" is measured as THOSE THREE ROWS STILL STANDING — ⛔ not as the absence of a change nobody
+            //   could have seen. A mutant that routes this arm to a door repaints and the rows move.
+            // ⓘ WHERE THIS ARM's CONTROLS LIVE, stated because `run.sh`'s roll-up will list these labels as
+            //   un-reddened and an unexplained gap is the thing that roll-up exists to expose: the DECISION is
+            //   `mrfw::grant_ui_route_of` in `src/firmware_team_keyring.h`, which `run.sh` cannot mutate (its `ctl`
+            //   only edits `src/firmware_ui.cpp`). It is attacked at match count 1 by `--target=teamkeyring` T39
+            //   (a suppressed arm routed to the unsaved door — QG's blocker itself), T40 and T41, and the ROUTING
+            //   in `src/fw_main.cpp` is attacked by `tools/probe_board_ui`'s W47 control 7.
+            {
+                const int lps_s = g_c.last_power_save, bus_s = g_c.bus_ops();
+                mrfw::TeamKeyGrant sg = gg;
+                sg.live_pub = nullptr; sg.live_priv = nullptr;      // the pair was wiped between RX and drain
+                const mrfw::GrantSaveResult sv = gsvc.receive(sg);
+                CHK("P15k3 a wiped live pair really refuses with no_live_key",
+                    sv.outcome == mrfw::GrantSave::no_live_key);
+                CHK("P15k3 ...and it classifies as SUPPRESSED, never a door",
+                    mrfw::grant_ui_route_of(sv.outcome) == mrfw::GrantUiRoute::suppressed);
+                switch (mrfw::grant_ui_route_of(sv.outcome)) {
+                    case mrfw::GrantUiRoute::received:       mr_ui_on_push(fp);           break;
+                    case mrfw::GrantUiRoute::active_unsaved: mr_ui_on_team_key_unsaved(); break;
+                    case mrfw::GrantUiRoute::suppressed:                                  break;
+                    case mrfw::GrantUiRoute::count:                                       break;
+                }
+                // ⚠ READ BEFORE THE TICK, exactly as (k2)'s `quiet_unsaved` is, and the scope is stated rather than
+                //   overclaimed: what a door may not do is touch the panel bus ITSELF. The tick that follows owns
+                //   its own repaint cadence, so measuring bus ops ACROSS it would pin the tick, not this arm
+                //   (MEASURED: it does repaint, and the first cut of this check failed for exactly that reason).
+                const bool quiet_suppressed = (g_c.bus_ops() == bus_s);
+                t17 = see(t17 + 500);
+                CHK("P15k3 ⛔ the panel is UNCHANGED — still (k2)'s three rows",
+                    body_row_is(0, "TEAM KEY ACTIVE") && body_row_is(1, "NOT SAVED")
+                    && body_row_is(2, "LOST ON REBOOT"));
+                CHK("P15k3 ⛔ ...and never the RECEIVED word, still `press = back`",
+                    strstr(g_c.page_text, "TEAM KEY RECEIVED") == nullptr && body_row_is(4, "press = back"));
+                CHK("P15k3 ⛔ ...the suppressed route touched no panel bus", quiet_suppressed);
+                CHK("P15k3 ⛔ ...and no power transition, no write, nothing applied",
+                    g_c.last_power_save == lps_s && st.writes == w_kf && ps.live.total() == lv_kf);
+            }
+            // ⛔ RESTORED, because every phase after this one shares these seams (U1 — one durable store, as the
+            //    device has one). The success arm's own record is put back byte for byte.
+            ps.keys.can_save = true;
+            ps.keys.rec = keys_rec_before; ps.keys.state = keys_state_before;
+        }
 
         // ---- (f) THE OWNER's PHY PRECONDITION, ON THE PANEL -------------------------------------------------------------
         // The divergence is the real one: `mobile register sf=…` retunes the radio and moves `_cfg.layers[0]` WITHOUT

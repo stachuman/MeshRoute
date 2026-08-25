@@ -777,8 +777,23 @@ struct UiProvIntent {
 //                        destroys the live content key on a switch (`lib/core/node.cpp:683`), so the joiner is a
 //                        **keyless member** — the screen may ⛔ never imply readership, and the forbidden lexeme
 //                        `KEYLESS` (S-33) is not how it says so: it simply does not claim one.
+// ★★★★ §UI-16 K4 ADDS THE NINTH AND TENTH, AND THEY ARE THE ONLY TWO IN THIS ENUM THAT NO TRANSACTION PRODUCES —
+//      a push does (spec §4-K4). ⛔ THAT IS DELIBERATE AND IT IS WHY THEY LIVE HERE RATHER THAN IN A NEW CARRIER:
+//      `UiProvAnswer` is the panel's ONE transient "what just happened to this node's team" slot — retired by every
+//      `enter_provision` — and the durable-adoption note is the newest fact about exactly that. A second slot would
+//      be a second thing to retire, a second thing to render, and two answers free to disagree on one screen.
+//        `team_key_received` — ★ REACHABLE **ONLY** THROUGH A PUSH K3 FORWARDED (F-10): the persistence runs first
+//                              and ⛔ only a `saved` verdict lets the push reach the renderer, so `TEAM KEY RECEIVED`
+//                              (S-25) is true BY CONSTRUCTION rather than by a gate a reviewer must trust.
+//        `team_key_unsaved`  — ★ THE KEY IS LIVE IN RAM AND WILL NOT SURVIVE A REBOOT, said as the two true things
+//                              the owner ruled: `TEAM KEY ACTIVE` (S-26) / `NOT SAVED — LOST ON REBOOT` (S-27).
+//                              ⛔ NEVER `TEAM KEY RECEIVED` — that word claims durability.
+//      ⛔⛔ AND NEITHER MAY EVER CARRY A LABEL. The granter's optional `name=` rides the push and stops there
+//         (`lib/core/node.cpp:264-266`); rendering it here would make an unauthenticated, self-asserted string the
+//         TEAM's identity on a screen (F-3 / P-5), which is the forbidden USAGE spec §8 S-36 exists to name.
 enum class UiProvOutcome : uint8_t {
-    none = 0, created, phy_differs, save_failed, refused, joining, adopted, join_refused, team_joined
+    none = 0, created, phy_differs, save_failed, refused, joining, adopted, join_refused, team_joined,
+    team_key_received, team_key_unsaved
 };
 // ⓘ `reason` IS A POINTER TO STATIC STORAGE and never an owned buffer: the adapter fills it from
 //   `mrfw::prov_err_name`, whose arms are string literals. ⛔ It is never null — `""` is the "nothing to add" value, so
@@ -860,6 +875,15 @@ inline const char* prov_result_head(const UiProvAnswer& a) {
         //    end-to-end outcome nothing acknowledged, `KEYLESS` (S-33) is the design's own banned word for a member,
         //    and `WAITING FOR KEY` (S-34) is ambiguous between two different secrets. Their ABSENCE is a test.
         case UiProvOutcome::team_joined: return "TEAM JOINED";
+        // ★★★ §UI-16 K4 / spec §8 S-25 — **`TEAM KEY RECEIVED`**, 17 of the rail's 19 columns, and it is §3.6.4
+        //     point 6's own word carried VERBATIM. ⛔ It is reachable only through a K3-forwarded push, so it can
+        //     never appear for a key that is RAM-only. ⛔ `JOIN COMPLETE` (S-32) is NOT its neighbour and may not be
+        //     added: nothing acknowledged anything end-to-end here.
+        case UiProvOutcome::team_key_received: return "TEAM KEY RECEIVED";
+        // ★★★ S-26 — the FAILED-SAVE headline, owner-ruled. ★ IT IS TRUE: `Node::team_key_grant_receive` adopted the
+        //     pair into RAM before it ever pushed, so the key genuinely IS active. The panel says both true things —
+        //     it works now (this row) and it will not survive a reboot (the two rows below).
+        case UiProvOutcome::team_key_unsaved:  return "TEAM KEY ACTIVE";
         case UiProvOutcome::none:        return "";
     }
     return "";
@@ -882,11 +906,45 @@ inline const char* prov_result_detail(const UiProvAnswer& a) {
         //   string for it, exactly as `created`'s and `adopted`'s second rows are values. ⛔ It is deliberately NOT
         //   a reassuring sentence about keys: the node is a keyless member and the panel neither says so in the
         //   banned word nor implies the opposite (P-2 / S-33).
+        // ★★★ §UI-16 K4 / spec §8 S-27 — THE FIRST HALF of the ruled sentence `NOT SAVED — LOST ON REBOOT`. It is
+        //     26 columns against a 19-column body, so it renders across TWO rows — ⛔ exactly as the ruled
+        //     `PHY DIFFERS` / `USE SERIAL` pair immediately above does, and for the identical reason (§7.1 rule 5:
+        //     the panel may not clip an actionable statement). ⛔ NEITHER HALF MAY BE REWORDED OR CLIPPED, and the
+        //     em dash is the ROW BREAK rather than a character: `drawStr` is not UTF-8 aware
+        //     (`variants/heltec_v3/board_ui.cpp:301`), so a literal `—` would draw two garbage glyphs. The
+        //     precedent is the same one this pair copies — the design writes `PHY DIFFERS — USE SERIAL` and the
+        //     panel renders the two halves on two rows with no dash.
+        case UiProvOutcome::team_key_unsaved: return "NOT SAVED";
+        // ⓘ `team_key_received`'s second row is deliberately EMPTY: the headline is the whole message, and the only
+        //   thing this arm could add is the granter's `name=` — which is exactly what F-3/P-5 forbid.
+        case UiProvOutcome::team_key_received:
         case UiProvOutcome::team_joined:
         case UiProvOutcome::joining:
         case UiProvOutcome::adopted:
         case UiProvOutcome::created:
         case UiProvOutcome::none:        return "";
+    }
+    return "";
+}
+// ★★★ §UI-16 K4 — THE THIRD ROW, AND IT EXISTS FOR EXACTLY ONE RULED SENTENCE (spec §8 S-27's second half). ⛔ It is
+//     NOT a general "detail 2" slot inviting every future outcome to grow one: every other arm answers `""`, the
+//     switch is `default`-less so a new outcome must decide here too, and the renderer skips an empty answer.
+// ⓘ WHY A THIRD ROW AT ALL, stated so it is not read as sprawl: `TEAM KEY ACTIVE` + `NOT SAVED — LOST ON REBOOT` is
+//   TWO ruled sentences, the second of which itself needs two rows — three rows in total, against the two the
+//   head/detail pair carries. The alternative was clipping a statement about durability, which §7.1 rule 5 forbids.
+inline const char* prov_result_detail2(const UiProvAnswer& a) {
+    switch (a.outcome) {
+        case UiProvOutcome::team_key_unsaved:  return "LOST ON REBOOT";
+        case UiProvOutcome::team_key_received:
+        case UiProvOutcome::phy_differs:
+        case UiProvOutcome::save_failed:
+        case UiProvOutcome::refused:
+        case UiProvOutcome::join_refused:
+        case UiProvOutcome::team_joined:
+        case UiProvOutcome::joining:
+        case UiProvOutcome::adopted:
+        case UiProvOutcome::created:
+        case UiProvOutcome::none:              return "";
     }
     return "";
 }
@@ -2045,6 +2103,59 @@ public:
         if (!invite_grant_apply_push(_st.grant, pu)) return false;
         _st.dirty = true;                 // the word on the panel changed — ⛔ an invisible promotion is not one
         return true;
+    }
+    // ★★★★ §UI-16 K4 — THE GRANT RECEIPT'S NOTE, AND WHAT IT DOES **NOT** DO IS THE SPECIFICATION.
+    //      ⛔⛔ **A PUSH NEVER NAVIGATES** (spec §4-K4 pin 3): this writes ONE transient field and raises the repaint
+    //         flag. ⛔ No `screen`, no `settings`, no `provisioning` arm, no `cursor`, no `compose`, no `detail`, no
+    //         EMERGENCY field — an arrival is not an act by the operator, and a note that moved the panel under his
+    //         thumb would be the §UI-7D lesson inverted.
+    //      ⛔⛔ **AND IT DOES NOT WAKE** — ⛔ no `unblank`, no `on_msg_wake`. ★ THAT IS A DECISION, ⛔ NOT AN
+    //         OMISSION: §UI-17 R-7 scoped the wake to a DM ADDRESSED TO US and a SEALED channel post, and widening it
+    //         is a new owner ruling this spec explicitly declined to make (§4-K4). ⇒ v1 leaves a dark panel dark; the
+    //         note is there when the operator next looks. `mark_dirty()` is the whole effect on a LIT panel.
+    // ★ THE SLOT IS `prov_answer`, THE PANEL'S ONE TRANSIENT "what just happened to this node's team" ANSWER — so
+    //   this note is retired by every `enter_provision`, exactly as a create/join verdict is, and ⛔ can never sit
+    //   under a screen that did not establish it. ⓘ It REPLACES a previous verdict deliberately: `TEAM JOINED`
+    //   followed by `TEAM KEY RECEIVED` is the true sequence of two facts about one team, newest last.
+    // ⓘ `saved` is the K3 verdict and NOTHING ELSE decides the word (spec §4-K4 pins 1-2). ⛔ There is deliberately
+    //   no third arm and no default: two outcomes, two ruled sentences.
+    // ⛔⛔ WHAT IS **DONE**, stated in the code because docs rot ([[meshroute-mark-done-vs-missing-in-code]]) —
+    //    ✅ **BOTH ARMS ARE NOW WIRED END TO END ON DEVICE**, and the two doors are DIFFERENT doors by ruling:
+    //      · ✅ `saved == true`  — `src/fw_main.cpp` -> `mrfw::team_key_grant_persist` -> (only on `saved`)
+    //        `mr_ui_on_push` -> `mrui::ui_route_recv_push`'s arm -> here.
+    //      · ✅ `saved == false` — the SAME gate's `else` -> `mr_ui_on_team_key_unsaved()` (the EIGHTH hook in
+    //        `lib/hal/mr_ui.h`) -> `src/firmware_ui.cpp` -> here. ⛔ CORRECTED IN PLACE 2026-08-25, [[B243]]
+    //        CLOSED: this block used to say the failure arm was *"NOT REACHED ON DEVICE YET"* because
+    //        `mr_ui_on_push` was the only door the seam declared and F-10 forbids forwarding a failed push through
+    //        it — accurate when written, and the gap it named (a failed save SILENT on the panel; ⛔ never a false
+    //        `TEAM KEY RECEIVED`) is what the second door closed. Bench §7.5's forced-save-failure step is now
+    //        WRITABLE rather than owed.
+    //    ★ The two doors converge HERE on purpose (U1): one entry point means the failure path's negatives — no
+    //      navigation, no cursor move, no emergency write, ⛔ no wake — are the push path's negatives, not a second
+    //      set free to drift from them.
+    // ⛔⛔ AND THERE IS A **THIRD** OUTCOME THAT REACHES NEITHER ARM, stated here because its absence is a DECISION
+    //    (QG, 2026-08-25): a receipt refused BEFORE the live-key re-check — the pair was wiped, we had left the
+    //    team, or the receipt named team 0 — routes to `GrantUiRoute::suppressed` and the panel says NOTHING. ⛔ It
+    //    must never arrive here with `saved = false`: `TEAM KEY ACTIVE` would be FALSE, and a panel inventing an
+    //    active key is the same defect class as one inventing a durable key. The classification is
+    //    `mrfw::grant_ui_route_of`'s; this function only has the two arms for which a true sentence exists.
+    // ⓘ `now_ms` IS TAKEN AND DELIBERATELY UNUSED, and the parameter stays for two measured reasons rather than
+    //   symmetry: every other model entry point on this seam takes the clock, and — the load-bearing half — the two
+    //   things this function must NOT do (`unblank(now_ms)`, a retained deadline) are the ones that WOULD need it,
+    //   so a control that adds one has something to compile against. ⛔ Dropping the parameter would make the
+    //   "it does not wake" mutation UNUSABLE rather than RED, which is coverage lost to a tidier signature.
+    void on_team_key_note(bool saved, uint32_t now_ms) {
+        (void)now_ms;
+        // ⛔ THE SLOT IS COMPOSED FRESH, ⛔ never patched in place: a note carries NO id, NO node id and NO reason,
+        //    and a previous verdict's fields surviving under this headline is one screen showing two acts' data.
+        UiProvAnswer note{};
+        note.outcome = saved ? UiProvOutcome::team_key_received : UiProvOutcome::team_key_unsaved;
+        _st.prov_answer = note;
+        // ⛔⛔ `team_id` IS DELIBERATELY LEFT AT 0 AND THE RENDERER MUST NOT SHOW ONE. The id rows belong to
+        //    `created` / `team_joined`, whose id came from an operator's own selection; a push's id came off the
+        //    air. ⓘ And the granter's `name=` is not carried AT ALL — F-3/P-5: an advertiser's self-asserted string
+        //    may never occupy a team's identity on a screen (spec §8 S-36, the forbidden USAGE).
+        _st.dirty = true;                      // a repaint is owed; ⛔ a wake is not (see above)
     }
     // ★★★ §UI-15 slice 6 — THE ASYNCHRONOUS OUTCOME's TWO ENTRY POINTS.
     // `join_session_active()` is the DEVICE's cheap guard and NOTHING ELSE: `src/firmware_ui.cpp` must read

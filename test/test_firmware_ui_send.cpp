@@ -2367,3 +2367,150 @@ TEST_CASE("ui16-route: the router offers send_failed too, and an ARMED UI slot s
         CHECK(f.m.state().grant.st == InviteGrantState::queued);   // ...and the verdict is untouched
     }
 }
+
+// ================================================== §UI-16 K4 — THE GRANT RECEIPT'S NOTE, AND WHAT IT MUST NOT DO
+// ★★★ THE WORD IS TRUE **BY CONSTRUCTION**, ⛔ NOT BY A GATE THIS UNIT APPLIES (spec §4-K3/K4, ✅ F-10):
+//     `src/fw_main.cpp` routes a `team_key_received` push through `mrfw::team_key_grant_persist` FIRST and forwards
+//     it to `mr_ui_on_push` on a `saved` verdict and on NO OTHER. ⇒ every case below drives the arm the way the
+//     device can reach it; the GATE itself is measured in `test/test_firmware_team_keyring.cpp` (§UI-16 K3), on the
+//     drain loop's own shape, and its source form is pinned by `tools/probe_firmware_ui/run.sh`.
+static MESHROUTE_NS::Push k4_grant_push(uint32_t team = 0x3D9348u) {
+    MESHROUTE_NS::Push pu = push_of(MESHROUTE_NS::PushKind::team_key_received);
+    pu.team_id = team; pu.sender_hash = 0x6C2971u; pu.origin = 221;
+    // ★ THE GRANTER'S OPTIONAL `name=`, PRESENT ON PURPOSE: F-3/P-5's control needs a name to be AVAILABLE, or the
+    //   "it is not rendered" assertion passes for the wrong reason (the §7.1 rule-1 lesson, one feature over).
+    const char* nm = "Wolfgangetta";
+    pu.body_len = uint8_t(strlen(nm));
+    for (uint8_t i = 0; i < pu.body_len; ++i) pu.body[i] = uint8_t(nm[i]);
+    return pu;
+}
+
+TEST_CASE("ui16-K4: a forwarded grant receipt shows TEAM KEY RECEIVED — and the failure path never does") {
+    {   // ★ PIN 1 — the arm claims the push and the panel's ONE transient team answer becomes the note.
+        UiModel m; UiInboxCounters c{};
+        CHECK(ui_route_recv_push(c, m, k4_grant_push(), /*ui_team_channel_id=*/0,
+                                 /*same_team_post=*/false, /*who=*/"", 5000) == true);
+        CHECK(m.state().prov_answer.outcome == UiProvOutcome::team_key_received);
+        CHECK(strcmp(prov_result_head(m.state().prov_answer), "TEAM KEY RECEIVED") == 0);   // S-25, verbatim
+        CHECK(strcmp(prov_result_detail(m.state().prov_answer), "") == 0);
+        CHECK(strcmp(prov_result_detail2(m.state().prov_answer), "") == 0);
+        CHECK(m.state().dirty);                                   // a repaint is owed — an invisible note is not one
+    }
+    {   // ★★ PIN 2 — THE FAILED SAVE SAYS BOTH TRUE THINGS AND ⛔ NEVER THE COMPLETION WORD.
+        UiModel m;
+        m.on_team_key_note(/*saved=*/false, 5000);
+        CHECK(m.state().prov_answer.outcome == UiProvOutcome::team_key_unsaved);
+        CHECK(strcmp(prov_result_head(m.state().prov_answer),    "TEAM KEY ACTIVE") == 0);   // S-26
+        CHECK(strcmp(prov_result_detail(m.state().prov_answer),  "NOT SAVED") == 0);         // S-27, first row
+        CHECK(strcmp(prov_result_detail2(m.state().prov_answer), "LOST ON REBOOT") == 0);    // S-27, second row
+        CHECK(strcmp(prov_result_head(m.state().prov_answer), "TEAM KEY RECEIVED") != 0);
+        // ⛔ THE RULED SENTENCE IS NOT CLIPPED: 9 + 14 == the 23 characters of `NOT SAVED` + `LOST ON REBOOT`, and
+        //    each half fits the 19-column body on its own (§7.1 rule 5 — the panel may not clip a durability claim).
+        CHECK(strlen(prov_result_detail(m.state().prov_answer))  <= 19u);
+        CHECK(strlen(prov_result_detail2(m.state().prov_answer)) <= 19u);
+        CHECK(strlen(prov_result_head(m.state().prov_answer))    <= 19u);
+        // …and the SUCCESS lexeme is 17 columns, as spec §8 S-25 states.
+        UiProvAnswer ok{}; ok.outcome = UiProvOutcome::team_key_received;
+        CHECK(strlen(prov_result_head(ok)) == 17u);
+    }
+    {   // ★★ PIN 4 (F-3 / P-5 / S-36) — THE GRANTER'S `name=` IS NOT THE TEAM'S IDENTITY, AND IT IS NOT RENDERED.
+        //    ⛔ The note carries no label field at all, so there is nothing for a renderer to reach for: the whole
+        //    answer is three ruled strings plus a zeroed `UiProvAnswer`.
+        UiModel m; UiInboxCounters c{};
+        CHECK(ui_route_recv_push(c, m, k4_grant_push(), 0, false, "", 5000) == true);
+        CHECK(strstr(prov_result_head(m.state().prov_answer),    "Wolfga") == nullptr);
+        CHECK(strstr(prov_result_detail(m.state().prov_answer),  "Wolfga") == nullptr);
+        CHECK(strstr(prov_result_detail2(m.state().prov_answer), "Wolfga") == nullptr);
+        CHECK(m.state().prov_answer.reason != nullptr);
+        CHECK(strstr(m.state().prov_answer.reason, "Wolfga") == nullptr);
+        // ⛔ AND NO TEAM ID EITHER: the id rows belong to `created` / `team_joined`, whose id an operator SELECTED.
+        CHECK(m.state().prov_answer.team_id == 0u);
+        CHECK(m.state().prov_answer.node_id == 0u);
+    }
+}
+
+TEST_CASE("ui16-K4: ⛔ the note NEVER navigates, moves no cursor, writes no emergency field and does NOT wake") {
+    // ★★★ PIN 3, AND EVERY CLAUSE IS A SEPARATE ASSERTION because a note that moved ONE of them would be a panel
+    //     that jumped under the operator's thumb on somebody else's radio traffic.
+    UiModel m = dark_model(); UiInboxCounters c{};
+    const UiState before = m.state();
+    CHECK(before.blanked);                                        // the panel is DARK before the arrival
+
+    CHECK(ui_route_recv_push(c, m, k4_grant_push(), 0, false, "", 40000) == true);
+    const UiState& a = m.state();
+    // ⛔⛔ IT DOES NOT WAKE — §UI-17 R-7 scoped the wake to a DM ADDRESSED TO US and a SEALED channel post, and
+    //    widening it is a new owner ruling this spec declined to make. ⇒ v1 leaves a dark panel dark, deliberately.
+    CHECK(a.blanked);
+    CHECK(a.screen       == before.screen);
+    CHECK(a.cursor       == before.cursor);
+    CHECK(a.settings     == before.settings);
+    CHECK(a.provisioning == before.provisioning);
+    CHECK(a.prov_confirm == before.prov_confirm);
+    CHECK(a.compose      == before.compose);
+    CHECK(a.detail       == before.detail);
+    CHECK(a.list_view    == before.list_view);
+    // ⛔ NO EMERGENCY FIELD MOVES: a grant receipt is not an answer to a distress call (§B114's ruling one door over).
+    CHECK(m.emergency() == Emergency::idle);
+    CHECK(strcmp(m.reply_who(),  "") == 0);
+    CHECK(strcmp(m.reply_text(), "") == 0);
+    // ⛔ AND IT COUNTS NOTHING — a grant is CONTROL traffic and is never inboxed, so an unread the operator could
+    //    not open would be a phantom in the status bar.
+    CHECK(c.unread_dm() == 0u);
+    CHECK(c.unread_ch() == 0u);
+    CHECK(c.arr_dm == 0u);
+    CHECK(c.arr_ch == 0u);
+    CHECK_FALSE(c.have_dm);
+    CHECK_FALSE(c.have_ch);
+
+    // ★★★★ [[B243]] 2026-08-25 — **AND EVERY ONE OF THOSE NEGATIVES BINDS THE SECOND DOOR TOO.** A failed save no
+    //      longer forwards nothing: it reaches the panel through `mr_ui_on_team_key_unsaved()` (the eighth hook in
+    //      `lib/hal/mr_ui.h`), which lands on THIS entry point with `saved = false`. ⛔ The negatives are not
+    //      re-derived for it — they are re-ASSERTED on the arm that now carries them, because a door whose
+    //      properties nothing measures is a door that is free to grow one.
+    // ⓘ It is asserted from a SECOND dark model rather than continuing the one above, so the "still dark, still on
+    //   the same screen" answers cannot be inherited from the success arm's own inaction.
+    UiModel f = dark_model();
+    const UiState fb = f.state();
+    CHECK(fb.blanked);
+    f.on_team_key_note(/*saved=*/false, 40000);
+    const UiState& fa = f.state();
+    CHECK(fa.prov_answer.outcome == UiProvOutcome::team_key_unsaved);   // the arm really ran (⛔ not a vacuous pass)
+    CHECK(fa.dirty);                                                    // a repaint IS owed…
+    CHECK(fa.blanked);                                                  // …⛔ but a WAKE is not
+    CHECK(fa.screen       == fb.screen);
+    CHECK(fa.cursor       == fb.cursor);
+    CHECK(fa.settings     == fb.settings);
+    CHECK(fa.provisioning == fb.provisioning);
+    CHECK(fa.prov_confirm == fb.prov_confirm);
+    CHECK(fa.compose      == fb.compose);
+    CHECK(fa.detail       == fb.detail);
+    CHECK(fa.list_view    == fb.list_view);
+    CHECK(f.emergency() == Emergency::idle);
+    CHECK(strcmp(f.reply_who(),  "") == 0);
+    CHECK(strcmp(f.reply_text(), "") == 0);
+}
+
+TEST_CASE("ui16-K4: the FULL PushKind enum — only team_key_received writes the note") {
+    // ★★★ PIN 5, DRIVEN OVER THE WHOLE ENUM AND ⛔ NOT A SAMPLE, with the bound asked of the COMPILER
+    //     (`push_kind_count`, above) so an 18th kind cannot sail past unswept.
+    using PK = MESHROUTE_NS::PushKind;
+    const uint8_t n_kinds = push_kind_count();
+    CHECK(n_kinds >= 17);                       // a FLOOR that proves the sweep is not vacuous — ⛔ never an equality
+    int driven = 0, noted = 0;
+    for (uint8_t k = 0; k < n_kinds; ++k) {
+        UiModel m; UiInboxCounters c{};
+        SendTracker emg, normal;
+        MESHROUTE_NS::Push pu = push_of(PK(k));
+        pu.team_id = 0x3D9348u;
+        ++driven;
+        // Both doors are driven, so nothing can reach the note through the OTHER router either.
+        (void)ui_route_recv_push(c, m, pu, 0, false, "", 5000);
+        (void)ui_route_send_push(emg, normal, m, pu, 5000);
+        const bool wrote = m.state().prov_answer.outcome == UiProvOutcome::team_key_received
+                        || m.state().prov_answer.outcome == UiProvOutcome::team_key_unsaved;
+        if (wrote) { ++noted; CHECK(PK(k) == PK::team_key_received); }
+        else       CHECK(m.state().prov_answer.outcome == UiProvOutcome::none);
+    }
+    CHECK(driven == int(n_kinds));
+    CHECK(noted == 1);                          // EXACTLY ONE kind writes the note
+}

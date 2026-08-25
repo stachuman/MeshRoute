@@ -561,6 +561,24 @@ inline bool ui_route_recv_push(UiInboxCounters& c, UiModel& m, const MESHROUTE_N
         m.on_msg_wake(now_ms);
         return true;
     }
+    // ★★★★ §UI-16 K4 — THE GRANT RECEIPT'S NOTE, AND ITS WORD IS TRUE **BY CONSTRUCTION** (spec §4-K4, ✅ F-10).
+    //      ⛔ THIS ARM IS UNREACHABLE FOR A RAW PUSH: `src/fw_main.cpp` routes a `team_key_received` push through
+    //      `mrfw::team_key_grant_persist` FIRST and forwards it to `mr_ui_on_push` on a `saved` verdict and on no
+    //      other — so `TEAM KEY RECEIVED` (S-25) cannot appear for a key that is only in RAM. That is the whole
+    //      reason the gate is in the DRAIN LOOP and not here: a gate a renderer applies is a gate a renderer can be
+    //      mutated out of, and this one is a control-flow fact instead.
+    // ⛔⛔ IT NEITHER NAVIGATES NOR WAKES — see `UiModel::on_team_key_note`, which is where both refusals are
+    //    written down and both are §UI-16/§UI-17-ruled. In particular ⛔ NO `on_msg_wake` may be added here: R-7
+    //    scoped the wake to a DM addressed to us and a SEALED channel post, and a grant receipt is neither.
+    // ⛔ IT COUNTS NOTHING. A grant is CONTROL traffic — `lib/core` never inboxes it (`node_mac_rx.cpp` consumes the
+    //    DM) — so touching `arr_dm` / `arr_ch` here would put a phantom in the unread bar the operator can never
+    //    open. ⓘ The counters above are for things with a body the INBOX holds.
+    // ⓘ `pu.body` (the granter's optional `name=`) is ⛔ NEVER READ on this arm. F-3/P-5: an advertiser's
+    //   self-asserted string may never occupy a team's identity on a screen (spec §8 S-36, the forbidden USAGE).
+    if (pu.kind == PK::team_key_received) {
+        m.on_team_key_note(/*saved=*/true, now_ms);
+        return true;
+    }
     if (pu.kind != PK::channel_recv) return false;
     c.last_ch_ms = now_ms; c.have_ch = true;
     ++c.arr_ch;                               // ★★ §B108 round 2: uncapped, exactly as above

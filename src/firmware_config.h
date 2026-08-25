@@ -114,6 +114,32 @@ TeamKeyringService& team_keyring_service();
 // KEYLESS, actively.
 KeyringRestore team_keyring_restore_boot(const mrnv::Blob& nv);
 
+// ★★★★ §UI-16 K3 ([[B240]]'s receive half) — THE GRANT-RECEIVE PERSISTENCE FORWARD, AND IT IS `fw_main`'s ONE CALL.
+//       A `team_key_received` push is routed THROUGH this before `mr_ui_on_push` sees it, and ⛔ **only a `true`
+//       return forwards it** (spec §4-K3 / F-10): the panel therefore cannot say `TEAM KEY RECEIVED` for a key that
+//       is RAM-only, because the push never reaches the renderer.
+// ⛔ IT TAKES NO DECISION HERE AND NEITHER DOES `fw_main` (U3). The four handling-time re-checks, the write ORDER
+//    (the key durably FIRST, the activation second) and the zero-write coalescing are all in
+//    `mrfw::TeamKeyGrantService` (`src/firmware_team_keyring.h`), which is pure and which
+//    `test/test_firmware_team_keyring.cpp` COUNTS the writes of. This forward gathers the four live facts and
+//    CLASSIFIES the outcome through the pure `mrfw::grant_ui_route_of`.
+// ★★★★ ⛔ **CORRECTED IN PLACE 2026-08-25 (QG blocker) — THE RETURN TYPE USED TO BE `bool` AND THAT WAS THE DEFECT.**
+//      ⛔ WITHDRAWN, KEPT VISIBLE: *"returns `verdict == GrantSave::saved` — the typed verdict is deliberately NOT
+//      exported: `fw_main` needs one bit"*. One bit could not tell the TWO KINDS OF FAILURE apart, so every refusal
+//      reached the failed-save door and the panel announced `TEAM KEY ACTIVE` for receipts where the live key had
+//      been WIPED, where we had LEFT the team, or which named no team at all — ⛔ a false statement in the other
+//      direction. ⇒ the seam now carries `mrfw::GrantUiRoute`, whose three values ARE the three doors, and
+//      **`fw_main` gains a switch over a returned classification, ⛔ still not a judgement** (U3 intact: the
+//      decision is `grant_ui_route_of`'s, pure and battery-attackable).
+// ⓘ Declared opaquely below for the reason `KeyringRestore` is (see that block): a fixed-underlying-type
+//   `enum class` needs no definition to name a return type, and ⛔ a bare `uint8_t` here would launder the three
+//   routes through an untyped byte at precisely the seam this correction exists to make honest.
+// ⚠ SILENT BY MEASUREMENT, ⛔ NOT BY OVERSIGHT — see the `§notify-every-save` exemption recorded beside the rule in
+//   `src/firmware_config.cpp`: a grant receipt is not user-initiated on this node and assigns none of the four
+//   covered `/mrcfg` fields.
+enum class GrantUiRoute : uint8_t;
+GrantUiRoute team_key_grant_persist(uint32_t push_team_id);
+
 // ★★★ §UI-16 N6 — THE OLED GRANT'S ONE DEVICE FORWARD (the body, and the full argument for where it lives, are at
 // its definition in `firmware_config.cpp`, beside `handle_team`'s own `grantkey` arm). It is `team_key_grant_send`
 // minus the two arguments the panel FIXES: no team `name=` (F-3), and the PLANE supplied by the pure unit that owns

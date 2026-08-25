@@ -64,8 +64,11 @@
 //       record for this team id?" — which is not key material; it is not added here because K5 is its own slice and
 //       an accessor with no caller is untested surface.
 //     · ⛔ NO `FORGET KEY` remover — owner-named as a future verb (spec string S-31), ⛔ not in this spec.
-//     · ⛔ NO grant-receive persistence path — that is K3, which routes the `team_key_received` push through a
-//       persistence function BEFORE the UI sees it (spec §4-K3 / F-10). K3 calls `put()` below; it adds no policy.
+//     · ✅ LANDED 2026-08-24 (§UI-16 K3) — the GRANT-RECEIVE persistence path. ⛔ THIS ENTRY IS CORRECTED IN PLACE
+//       RATHER THAN DELETED: it read *"⛔ NO grant-receive persistence path — that is K3 … K3 calls `put()` below;
+//       it adds no policy."* The first half is now false; ★ the second half HELD — `TeamKeyGrantService` at the foot
+//       of this file calls `put()` unchanged and adds ⛔ no write policy of its own. What it adds is the ORDER and
+//       the FOUR HANDLING-TIME RE-CHECKS (spec §4-K3 / F-10), which are a different question.
 #pragma once
 #include <cstdint>
 #include <cstring>        // memcmp/memcpy — the byte-identical write guard and the one composition path
@@ -408,6 +411,246 @@ class TeamKeyringService {
     }
 
     ITeamKeyStore& _store;
+};
+
+// ================================================================ §UI-16 K3 — THE GRANT-RECEIVE PERSISTENCE
+// ★★★ THE ORDERING RULING (✅ F-10, spec §4-K3). `mr_ui_on_push(pu)` is the FIRST statement in `fw_main`'s drain
+//     loop, so the draft's *"gate the note on the save"* was not expressible at all. ⇒ for `team_key_received` the
+//     PERSISTENCE RUNS FIRST and ⛔ **only a `saved` verdict forwards the push to the UI**. The panel therefore
+//     cannot say `TEAM KEY RECEIVED` for a key that is RAM-only: not because a reviewer checked a gate, but because
+//     the push never reaches the renderer.
+// ★★ THE FOUR HANDLING-TIME RE-CHECKS, AND THEY CLOSE A REAL RACE RATHER THAN RESTATING THE RECEIVER'S. A push is
+//    ENQUEUED inside `Node::team_key_grant_receive` and DRAINED some time later; membership can move in between
+//    (`team 0`, a switch, a `/mrcfg` write from the companion). The core's own checks answered questions about the
+//    node AT RX TIME. These four ask them again AT HANDLING TIME, and each names a different authority:
+//      (1) `pu.team_id != 0`                        — ⛔ id 0 is never stored (the keyring refuses it too, and this
+//                                                     refuses it EARLIER so the load never happens);
+//      (2) `pu.team_id == live NodeConfig.team_id`  — the LIVE membership, which `team 0` clears immediately;
+//      (3) the LIVE key is present                  — `set_team_id` wipes the pair on a switch, so "adopted at RX"
+//                                                     does not mean "still held now"; ⛔ never persist a wiped pair;
+//      (4) `pu.team_id == the PERSISTED record's `team_id`` — the /mrcfg record, which is a DIFFERENT authority from
+//                                                     (2) and legitimately disagrees with it between a live change
+//                                                     and its save. ⛔ Marking a key ACTIVE against a record that
+//                                                     names another team is exactly QG blocker 3 arriving by push.
+//    ⛔ ANY ONE FAILING ⇒ ZERO WRITES on BOTH records and the UI is ⛔ not told a key was adopted.
+// ⛔⛔ SECRET HYGIENE IS K1's, UNCHANGED AND ABSOLUTE: no key byte is printed, echoed, logged or placed in an outcome
+//    — the verdicts below name FACTS ("the record names another team", "the one save attempt failed"), ⛔ never
+//    material. ★ AND THIS SERVICE HOLDS NO SECRET AT ALL: it takes the live pair as two `const uint8_t*` and hands
+//    them straight to `put()` / `commit_active()`, so there is no transient copy here to wipe (`TeamKeyringService`
+//    owns the one that exists, under its own scope guard).
+
+// ---- the /mrcfg half's seam ------------------------------------------------------------------------------------
+// ★★★ WHY A THIRD SEAM AND ⛔ NOT `ICfgStore` DIRECTLY (U1 was checked first, twice): the `/mrcfg` candidate for an
+//     ACTIVATION is composed by `mrfw::blob_put_team_channel_key` — the ONE conversion authority for key material
+//     into `mrnv::Blob` (U2) — which lives in `src/firmware_provisioning_service.h`, and THAT file includes THIS
+//     one. Reaching for it here would invert the include graph. ⇒ this seam names the two OPERATIONS the decision
+//     needs and leaves the four assignments where their authority already lives; the device binding
+//     (`src/firmware_config.cpp`) is a forward with ⛔ no decision in it, exactly as `DeviceTeamKeyLive` is.
+// ⓘ `read` REUSES `TeamKeyBinding` above rather than declaring a parallel struct: the boot restore and the grant
+//   receive ask the SAME record the SAME five questions, and two structs would be two things free to drift.
+struct ITeamKeyBinding {
+    virtual ~ITeamKeyBinding() = default;
+    // The PERSISTED `/mrcfg` facts. `false` = the record could not be read ⇒ ★ the receive FAILS CLOSED (C2): an
+    // unestablished term is ⛔ never treated as satisfied, so nothing is written and nothing is claimed.
+    // ⚠ `out.committed_pub` may point into storage the callee owns; it must stay valid for the duration of the call
+    //   and is ⛔ never retained past it (the same contract `TeamKeyBinding` carries for the boot restore).
+    virtual bool read(TeamKeyBinding& out) = 0;
+    // Persist {the committed witness, the ACTIVE binding} for `team_id`. `false` = THE WRITE FAILED. ⛔ Never
+    // "nothing was written" — a failed save may have written PARTIALLY ([[B193]]), and no voice above may say otherwise.
+    virtual bool commit_active(uint32_t team_id, const uint8_t pub[32], const uint8_t priv[32]) = 0;
+};
+
+// ---- what the handler is given, at HANDLING time -----------------------------------------------------------------
+// ⓘ Every field is a RE-CHECK TERM or the material itself. ⛔ THERE IS NO `name` FIELD and its absence is the ruling,
+//   not an omission: the granter's optional `name=` rides the push and stops there (`lib/core/node.cpp:264-266`), and
+//   there is no team-label store anywhere in this codebase for it to reach (K1's own `⛔ NO LABELS` clause).
+// ★ `live_pub`/`live_priv` come from `Node::team_channel_pub()` / `team_channel_priv()`, which return `nullptr`
+//   while the node is KEYLESS — so their nullness IS re-check (3)'s answer, taken from the ONE authority rather than
+//   carried as a second boolean that could disagree with it (U1).
+struct TeamKeyGrant {
+    uint32_t       push_team_id = 0;        // (1)/(2)/(4) — the team the GRANT named (`Push::team_id`)
+    uint32_t       live_team_id = 0;        // (2) — `g_node.config().team_id`, the LIVE membership
+    const uint8_t* live_pub     = nullptr;  // (3) + the material — null while keyless
+    const uint8_t* live_priv    = nullptr;  // (3) + the material — null while keyless
+};
+
+// ---- the verdict -------------------------------------------------------------------------------------------------
+// ★★ `saved` IS THE ONLY VALUE THAT MAY REACH THE PANEL AS `TEAM KEY RECEIVED` (spec §8 S-25, F-10). Every other
+//    arm means the key is LIVE IN RAM AND NOT DURABLE — which is a true and different thing to say (S-26/S-27).
+enum class GrantSave : uint8_t {
+    saved,              // ★ both records now hold this team's key, or already did (zero writes) — the UI may be told
+    zero_team,          // re-check (1) — ⛔ 0 loads, 0 writes
+    not_our_team,       // re-check (2) — LIVE membership moved between RX and drain
+    no_live_key,        // re-check (3) — the pair was wiped between RX and drain; ⛔ never persist a wiped key
+    record_mismatch,    // re-check (4) — the PERSISTED record names another team
+    record_unreadable,  // the `/mrcfg` record could not be read ⇒ FAIL CLOSED, ⛔ zero writes
+    keyring_failed,     // the `/mrteams` write refused or failed — `err` names WHICH (⛔ never material)
+    binding_failed,     // the `/mrcfg` activation write failed AFTER the key landed durably
+    // ★★★★ THE INVENTORY SENTINEL (2026-08-25, the §UI-16 N6b precedent applied again — see
+    //      `mrui::InviteGrantState::count`, which exists because a HAND-WRITTEN inventory had already failed this
+    //      arc: an array stayed short while its hand-typed literal stayed right, and the sweep went on calling
+    //      itself exhaustive). The totality case used to walk `0 .. binding_failed`, i.e. it re-typed the LAST
+    //      ENUMERATOR — so an outcome appended after `binding_failed` would have been silently unswept.
+    //      ⇒ THE INVENTORY IS NOW A PROPERTY OF THE ENUM, on two independent axes and neither is a literal:
+    //        (1) the case iterates `0 .. count-1`, so an outcome added above this line is visited BY CONSTRUCTION;
+    //        (2) `grant_save_name`'s switch has ⛔ NO `default:`, so an outcome added and NOT worded is a
+    //            **BUILD FAILURE** under the blanket `-Werror=switch`.
+    //      ⇒ ★ AN OUTCOME ADDED WITHOUT A WORD DOES NOT COMPILE; ONE ADDED WITH A WORD IS SWEPT AUTOMATICALLY.
+    //        There is no pair left to keep in sync.
+    // ⛔ IT IS ⛔ NOT AN OUTCOME and no `GrantSaveResult` may ever carry it: it names how many there are, nothing
+    //    more. ⛔ It must stay LAST — that is what makes it the count.
+    count
+};
+// enum -> string, `default`-LESS for the reason `keyring_verdict_name` gives: this project has shipped THREE
+// enum->string defects the byte-identity gate was structurally blind to.
+inline const char* grant_save_name(GrantSave g) {
+    switch (g) {
+        case GrantSave::saved:             return "saved";
+        case GrantSave::zero_team:         return "zero_team";
+        case GrantSave::not_our_team:      return "not_our_team";
+        case GrantSave::no_live_key:       return "no_live_key";
+        case GrantSave::record_mismatch:   return "record_mismatch";
+        case GrantSave::record_unreadable: return "record_unreadable";
+        case GrantSave::keyring_failed:    return "keyring_failed";
+        case GrantSave::binding_failed:    return "binding_failed";
+        // ⛔ THE SENTINEL IS ⛔ NOT AN OUTCOME, so it has NO name — and it is spelled out HERE rather than left to a
+        //    `default:` for exactly the reason this switch has none: a `default:` would swallow a REAL outcome added
+        //    above it, which is precisely the miss the sentinel was introduced to make impossible. `"?"` is the same
+        //    refusal the out-of-range return below answers with — ⛔ never a plausible-looking word.
+        case GrantSave::count:             return "?";
+    }
+    return "?";
+}
+
+// ================================================================ [[B243]] — THE UI ROUTING VERDICT (QG, 2026-08-25)
+// ★★★★ **A BOOLEAN WAS THE WRONG SHAPE AND IT PRODUCED A FALSE PANEL STATEMENT.** ⛔ CORRECTED IN PLACE, and the
+//      withdrawn shape is kept visible because it is the lesson: `team_key_grant_persist` used to answer
+//      `outcome == saved`, so `fw_main`'s `else` sent EVERY refusal to the failed-save door and the panel said
+//      `TEAM KEY ACTIVE` / `NOT SAVED` / `LOST ON REBOOT` about receipts for which **nothing is active at all** —
+//      `no_live_key` (the pair was WIPED between RX and drain), `not_our_team` (we are no longer in that team),
+//      `zero_team` (the receipt named no team). A panel that invents an active key is the same defect class as a
+//      panel that claims a durable one; ⛔ the direction of the lie does not excuse it.
+// ★★★ SO THE VERDICT IS THREE-VALUED, AND THE THIRD VALUE IS **SILENCE** — the honest answer when there is no true
+//     team-key sentence to say (C2: refuse rather than invent). ⓘ The CONSOLE half is untouched on every arm: the
+//     operator watching the serial line still sees the receipt whatever this answers. Silence is the PANEL's.
+enum class GrantUiRoute : uint8_t {
+    received,        // ★ the push is FORWARDED unchanged -> `mr_ui_on_push` -> `TEAM KEY RECEIVED` (S-25)
+    active_unsaved,  // ★ the second door -> `TEAM KEY ACTIVE` / `NOT SAVED` / `LOST ON REBOOT` (S-26/S-27)
+    suppressed,      // ⛔ NEITHER door — the panel says nothing, because nothing true can be said
+    // The inventory sentinel, for the reason `GrantSave::count` carries one and enforced the same way. ⛔ Not a route.
+    count
+};
+
+// ★★★★ THE CLASSIFICATION, AND IT IS **STRUCTURAL RATHER THAN A TASTE JUDGEMENT**: the dividing line is exactly
+//      *where the arm sits relative to re-check (3)* in `TeamKeyGrantService::receive` (`:545` area).
+//      ⇒ EVERY arm reached AFTER re-check (3) has, by control flow and not by assumption, established all three of:
+//          · `push_team_id != 0`                (re-check 1 passed)
+//          · `push_team_id == live_team_id`     (re-check 2 passed — this IS our current team)
+//          · `live_pub && live_priv`            (re-check 3 passed — the pair IS live in RAM)
+//        i.e. **the team key genuinely IS ACTIVE**, and the only thing that failed is DURABILITY. `TEAM KEY ACTIVE`
+//        / `NOT SAVED` / `LOST ON REBOOT` is then three true sentences. ⇒ `active_unsaved`.
+//      ⇒ EVERY arm reached BEFORE it has established NONE of that, so there is no active key to report and no team
+//        to report it for. ⇒ `suppressed`. ⛔ A future arm added inside `receive` must be classified BY THIS RULE,
+//        not by how it reads.
+// ⚠ THE FOUR `active_unsaved` ARMS, EACH CHECKED AGAINST THAT RULE RATHER THAN GROUPED BY NAME:
+//   · `record_unreadable` — the `/mrcfg` read failed. It sits AFTER re-check (3) (the read is the first thing past
+//     it), so the live pair is present and it is our team's: active, and nothing was written. TRUE.
+//   · `record_mismatch`   — the PERSISTED record names another team while the LIVE config names this one. The live
+//     key is present and live membership matches the grant ⇒ active; the durable side refused ⇒ not saved, and the
+//     five-term boot restore will not install it. TRUE on all three rows.
+//   · `keyring_failed`    — includes `keyring_full` (P-15's loud refusal) and the store's I/O refusals. Live key
+//     present, zero durable writes. TRUE.
+//   · `binding_failed`    — the key DID land durably but the activation did not, so the next boot comes up KEYLESS.
+//     `LOST ON REBOOT` is true in the sense that matters to the operator: it will not be there.
+// ⛔ `default`-LESS, so an arm added to `GrantSave` and not CLASSIFIED is a `-Werror=switch` BUILD FAILURE — the
+//    same fence `grant_save_name` carries, and the reason the sentinel's arm is spelled out instead.
+inline GrantUiRoute grant_ui_route_of(GrantSave g) {
+    switch (g) {
+        case GrantSave::saved:             return GrantUiRoute::received;
+        // ---- BEFORE re-check (3): ⛔ NOTHING IS ACTIVE, so ⛔ NOTHING IS SAID (the QG blocker, 2026-08-25) --------
+        case GrantSave::zero_team:         return GrantUiRoute::suppressed;
+        case GrantSave::not_our_team:      return GrantUiRoute::suppressed;
+        case GrantSave::no_live_key:       return GrantUiRoute::suppressed;
+        // ---- AFTER re-check (3): THE KEY **IS** LIVE; only durability failed --------------------------------------
+        case GrantSave::record_unreadable: return GrantUiRoute::active_unsaved;
+        case GrantSave::record_mismatch:   return GrantUiRoute::active_unsaved;
+        case GrantSave::keyring_failed:    return GrantUiRoute::active_unsaved;
+        case GrantSave::binding_failed:    return GrantUiRoute::active_unsaved;
+        // ⛔ THE SENTINEL IS NOT AN OUTCOME AND GETS NO DOOR. `suppressed` is the FAIL-CLOSED answer (C2): a value
+        //    that should be impossible may never talk its way onto the panel.
+        case GrantSave::count:             return GrantUiRoute::suppressed;
+    }
+    return GrantUiRoute::suppressed;   // ⛔ unreachable; a REFUSAL, never a claim
+}
+struct GrantSaveResult {
+    GrantSave  outcome = GrantSave::zero_team;
+    KeyringErr err     = KeyringErr::none;   // meaningful on `keyring_failed`; ⛔ names a FACT, never material
+};
+
+// ---- the service ------------------------------------------------------------------------------------------------
+// RAM: two references. ⛔ No cached verdict and no state between calls — a receipt is a single transaction, so there
+// is nothing to go stale and nothing holding a secret between calls (`TeamKeyringService`'s own rule, restated).
+class TeamKeyGrantService {
+  public:
+    TeamKeyGrantService(TeamKeyringService& keyring, ITeamKeyBinding& binding)
+        : _keyring(keyring), _binding(binding) {}
+
+    // ★★★ THE ORDER IS THE CONTRACT, and it is the SAME order the provisioning transaction uses for the same reason
+    //     (QG blocker 2): re-check -> **the KEY, durably, FIRST** -> then the ACTIVATION. A reboot that lands between
+    //     the two finds a RETAINED record with no active binding, which comes up KEYLESS — the honest answer. The
+    //     opposite order finds an ACTIVATION with no key behind it, which is a binding that lies.
+    // ★ ZERO WRITES on every refusing path, and ZERO writes when nothing moved: a re-grant of IDENTICAL material
+    //   costs `KeyringVerdict::unchanged` (the keyring's own counted guard) plus ⛔ no `commit_active` at all, because
+    //   the record already witnesses exactly this key for exactly this team. That is K1's coalescing discipline
+    //   applied to the SECOND record — counted by the fakes, ⛔ never argued.
+    GrantSaveResult receive(const TeamKeyGrant& g) {
+        GrantSaveResult r{};
+        // (1) ⛔ 0 reads, 0 writes. It is refused HERE as well as in `put` deliberately: `put`'s refusal is the
+        //     STORE's policy, this one is the HANDLER's, and neither may rely on the other having run.
+        if (g.push_team_id == 0)              { r.outcome = GrantSave::zero_team;   return r; }
+        // (2) THE LIVE MEMBERSHIP. ⛔ Not the granter's claim and not the record's — `Node` refused a foreign team at
+        //     RX (`team_mismatch`, `lib/core/node.cpp:286` — verified 2026-08-24; the spec's `:258` had drifted),
+        //     and this asks the same question again of the CURRENT config.
+        if (g.push_team_id != g.live_team_id) { r.outcome = GrantSave::not_our_team; return r; }
+        // (3) THE PAIR IS STILL LIVE. A switch between RX and drain wipes it; persisting a wiped pair would store 64
+        //     zero bytes as if they were a team key, and the boot restore would then REJECT them for ever.
+        if (!g.live_pub || !g.live_priv)      { r.outcome = GrantSave::no_live_key;  return r; }
+
+        // (4) THE PERSISTED RECORD, WHICH IS A SECOND AUTHORITY. ⛔ Fails closed on an unreadable record.
+        TeamKeyBinding cur{};
+        if (!_binding.read(cur))                              { r.outcome = GrantSave::record_unreadable; return r; }
+        if (cur.membership_team_id != g.push_team_id)         { r.outcome = GrantSave::record_mismatch;   return r; }
+
+        // ★★ THE KEY, DURABLY, FIRST. `put` owns the whole write policy (one record per team, atomic replace,
+        //    identical material writes nothing, a full keyring refuses loudly) — ⛔ nothing is re-decided here.
+        const KeyringResult kr = _keyring.put(g.push_team_id, g.live_pub, g.live_priv);
+        if (kr.verdict != KeyringVerdict::ok && kr.verdict != KeyringVerdict::unchanged) {
+            r.outcome = GrantSave::keyring_failed; r.err = kr.err; return r;   // ⛔ the activation is NOT written
+        }
+
+        // ★ THEN THE ACTIVATION — and only when it would MOVE something (the zero-write guard, counted).
+        if (!binding_current(cur, g)) {
+            if (!_binding.commit_active(g.push_team_id, g.live_pub, g.live_priv)) {
+                r.outcome = GrantSave::binding_failed; return r;
+            }
+        }
+        r.outcome = GrantSave::saved;
+        return r;
+    }
+
+  private:
+    // Does `/mrcfg` ALREADY witness exactly this key for exactly this team, and say it is active? ★ All four terms
+    // are the boot restore's terms (i), (ii)-as-binding, and (iv) — asked here so a re-grant of material the record
+    // already holds spends ⛔ NO flash. ⛔ It is not "is a key present": a binding naming another team, or witnessing
+    // a DIFFERENT public half, must be rewritten, not accepted.
+    static bool binding_current(const TeamKeyBinding& cur, const TeamKeyGrant& g) {
+        return cur.key_active && cur.binding_team_id == g.push_team_id
+               && cur.committed_present && cur.committed_pub
+               && memcmp(cur.committed_pub, g.live_pub, 32) == 0;
+    }
+
+    TeamKeyringService& _keyring;
+    ITeamKeyBinding&    _binding;
 };
 
 }  // namespace mrfw

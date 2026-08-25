@@ -910,7 +910,8 @@ that **K3 consumes N6's grant** in the end-to-end metal run, and **K5 consumes N
 - **Pins.** (1) A successful persist ⇒ the push is forwarded. (2) A **failed** persist ⇒ ⛔ the push is **not**
   forwarded and the failure is surfaced. (3) Each of the four re-checks fails the write on its own — four cases, four
   mutations. (4) A **re-grant** replaces that team's record atomically and idempotently. (5) A grant for a
-  **different** team is refused upstream (`team_mismatch`, `lib/core/node.cpp:258`) and writes nothing.
+  **different** team is refused upstream (`team_mismatch`, `lib/core/node.cpp:286` — ⛔ corrected 2026-08-25:
+  this read `:258`, which had drifted; verified at implementation) and writes nothing.
   (6) Identical material ⇒ **zero writes**.
 - **Mutations (`teamkeyring`, `config`).** The push forwarded before the persist (⇒ F-10 restored — the headline
   control) · the push forwarded on a **failed** persist · each of the four re-checks dropped · the active mark

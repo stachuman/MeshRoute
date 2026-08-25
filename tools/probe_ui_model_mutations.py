@@ -82,13 +82,13 @@ precondition and the whole family stops being reachable:
   ⇒ ★ SINCE EVERY RUN NOW BUILDS IN FRESH SCRATCH PATHS, THE CACHE NEVER HITS DURING A BATTERY. The wiring still
     earns its keep for the owner's OWN `pio test -e native` in the real tree, whose path is stable — but no battery
     run, first or repeat, is faster for it.
-  ⓘ THE FIX IS MEASURED AND DELIBERATELY NOT APPLIED: `CCACHE_BASEDIR` + `CCACHE_NOHASHDIR` gives 74/74 cross-tree
-    hits, and takes a repeat of the 10-entry sample from 75.8 s to **11.5 s (524/524 hits, byte-identical verdicts)**.
-    ⛔ It is an OWNER RULING, not a coder's call, because `NOHASHDIR` costs correct debug-info directories and the
-    cache in question is SHARED with the owner's real builds: a real `pio test -e native` could then hit an object
-    whose DWARF `comp_dir` names a deleted scratch tree. The safe shape, if ruled: a BATTERY-PRIVATE persistent cache
-    dir (not `~/.ccache`) plus those two variables in the worker environment — one line here, no `platformio.ini`
-    change. Until then the honest statement is the one above: this runner's speed comes from Part A, not Part B.
+  ⓘ THE FIX WAS MEASURED FIRST, THEN ★ APPLIED BY OWNER RULING 2026-08-24 (the safe shape exactly): a
+    BATTERY-PRIVATE persistent cache (`~/.cache/meshroute-battery-ccache` — ⛔ never `~/.ccache`, so
+    NOHASHDIR-relativized objects can never reach the owner's real builds' debug info) + `CCACHE_BASEDIR=<worker
+    tree>` + `CCACHE_NOHASHDIR=1`, injected ONLY into the worker environment at the spawn site (search
+    `BATTERY-PRIVATE COMPILER CACHE`). Measured before ruling: 74/74 cross-tree hits, a repeat of the 10-entry
+    sample 75.8 s -> **11.5 s (524/524 hits, byte-identical verdicts)**. The owner's own `pio test -e native`
+    in the real tree still uses the default `~/.ccache` via `tools/ccache_native.py`, untouched.
 
 USAGE:  python3 tools/probe_ui_model_mutations.py                    # the model battery (the default target)
         python3 tools/probe_ui_model_mutations.py M07                # one entry, by its label prefix
@@ -330,7 +330,97 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2071, 90950     # ★★ CROSS-CHECK RE-SYNCED 2026-08-24 by §UI-16 N6b (the grant's
+PIN_CASES, PIN_ASSERTS = 2084, 91382     # ★★ CROSS-CHECK RE-SYNCED 2026-08-25 by §UI-16 slice 8b **round 2**
+                                         # (the QG blocker: [[B243]]'s seam was a BOOLEAN, so every refusal took
+                                         # the failed-save door and the panel claimed `TEAM KEY ACTIVE` for
+                                         # receipts where nothing is active). **2083 / 91336 -> 2084 / 91382**
+                                         # (+1 case / **+46 assertions**), DERIVED from the clean run.
+                                         # ⛔ NOTHING HERE IS A SUBTRACTION.
+                                         # MEASURED case by case with `program -tc=`, ⛔ not estimated (the
+                                         # first draft of this block guessed 37 for the new case and was
+                                         # wrong by 15 — the totals below are the tool's own figures):
+                                         #  +22 — NEW case, `test/test_firmware_team_keyring.cpp`:
+                                         #    `…every GrantSave arm is classified, and ⛔ no arm claims a key
+                                         #     that is not live…`                            0 -> 22
+                                         #       (the 8-wide enum sweep asserts `r != count` once per arm = 8,
+                                         #        plus the two tallies, the three SUPPRESSED arms named,
+                                         #        `silent==3`, the four `active_unsaved` arms named,
+                                         #        `unsaved==4`, `saved`, and the sentinel's two pins)
+                                         #  +24 — the RE-PINNED existing cases, three counters instead of one:
+                                         #    `…a successful persist writes the KEY FIRST…`   17 -> 18  (+1)
+                                         #       (`silent == 0` — exactly ONE of the three routes is taken)
+                                         #    `…a FAILED persist is NOT forwarded…`           33 -> 43 (+10)
+                                         #       (all four subcases are AFTER-re-check-(3) arms ⇒ each gains
+                                         #        its `unsaved`/`silent` pin and, where the wording is the
+                                         #        claim, `live_key_really_active`)
+                                         #    `…each of the four handling-time re-checks…`    26 -> 39 (+13)
+                                         #       (re-checks 1-3 are the SUPPRESSED arms and each gains
+                                         #        `calls==0 / unsaved==0 / silent==1`; re-check (4) gains the
+                                         #        `active_unsaved` pin plus the live-key precondition)
+                                         #    22 + 1 + 10 + 13 = 46. ✓
+                                         #
+                                         # The superseded ROUND-1 sync follows, kept visible as the base:
+                                         # 2083 / 91336 — ★★ RE-SYNCED 2026-08-25 by §UI-16 slice 8b (the K3+K4
+                                         # corrections — [[B243]]'s hook, [[B244]]'s re-anchor, the GrantSave
+                                         # count fence): **2083 / 91317 -> 2083 / 91336** (+0 cases /
+                                         # **+19 assertions**), DERIVED from the clean run and MEASURED case by
+                                         # case with `program -tc=`. ⛔ NOTHING HERE IS A SUBTRACTION, and no
+                                         # case was added — every assertion lands inside a case that already
+                                         # existed, because both fixes are about a path that was already driven.
+                                         #  +4 — `test/test_firmware_team_keyring.cpp`, [[B243]]'s second door:
+                                         #    `…a successful persist writes the KEY FIRST…`        +1
+                                         #       (`ui.unsaved == 0` — a forwarded receipt ⛔ never ALSO raises
+                                         #        the failure note; the two doors are mutually exclusive)
+                                         #    `…a FAILED persist is NOT forwarded…`                +1
+                                         #       (`ui.unsaved == 1` — K4 pin 2's DEVICE half, which was the
+                                         #        registered gap: the panel was silent, ⛔ never wrong)
+                                         #    `…the verdict enum renders in full…`                 +2
+                                         #       (the sentinel answers `?`, and it is GREATER than the last
+                                         #        real outcome — so the `<` bound cannot be "fixed" to `<=`)
+                                         #    1+1+2 = 4.
+                                         #  +15 — `test/test_firmware_ui_send.cpp`, ONE case:
+                                         #    `…⛔ the note NEVER navigates, moves no cursor, writes no
+                                         #     emergency field and does NOT wake…`                +15
+                                         #       (a SECOND dark model driven through the FAILURE door: the arm
+                                         #        ran, a repaint is owed, the panel stays DARK, eight state
+                                         #        fields unmoved, and the three emergency fields unmoved)
+                                         #    4 + 15 = 19. ✓
+                                         #
+                                         # The superseded K3+K4 sync follows, kept visible as the base:
+                                         # 2083 / 91317 — ★★ RE-SYNCED 2026-08-24 by §UI-16 K3+K4 (the
+                                         # persistence-FIRST grant receive and its durable note):
+                                         # **2071 / 90950 -> 2083 / 91317** (+12 cases / +367 assertions),
+                                         # DERIVED from the clean run and MEASURED case by case with
+                                         # `program -tc=` (the totals below add up to the delta exactly —
+                                         # ⛔ nothing here is a subtraction).
+                                         # ★ K3 — `test/test_firmware_team_keyring.cpp`, +7 cases / +122:
+                                         #    `…a successful persist writes the KEY FIRST…`            16
+                                         #    `…a FAILED persist is NOT forwarded…`                    32
+                                         #    `…each of the four handling-time re-checks…`             26
+                                         #    `…a re-key REPLACES this team's record in place…`        12
+                                         #    `…a foreign team's grant never gets here…`                5
+                                         #    `…a re-grant of IDENTICAL material writes NOTHING…`      19
+                                         #    `…the verdict enum renders in full…`                     12
+                                         #    16+32+26+12+5+19+12 = 122.
+                                         # ★ K4 — `test/test_firmware_ui_send.cpp` (+3 / +63) and
+                                         #   `test/test_firmware_ui_model.cpp` (+2 / +182):
+                                         #    `…a forwarded grant receipt shows TEAM KEY RECEIVED…`    23
+                                         #    `…the note NEVER navigates … and does NOT wake`          20
+                                         #    `…the FULL PushKind enum — only team_key_received…`      20
+                                         #    `…the note occupies the panel's ONE transient answer…`   15
+                                         #    `…the three result rows are TOTAL over the whole enum…`  167
+                                         #    23+20+20+15+167 = 245.  122+245 = 367.
+                                         # ⓘ THE 167 IS NOT A TYPO AND IT IS NOT PADDING: that case
+                                         #   sweeps ELEVEN outcomes x (3 rows x {non-null, <= 19 cols})
+                                         #   plus the third-row exclusivity count plus the THREE
+                                         #   forbidden lexemes x 3 rows x 11 outcomes — the "drive the
+                                         #   full enum, ⛔ not a sample" rule applied to a 3-row renderer.
+                                         # ⛔ `src/` + `test/` + `tools/` only: `git diff -- lib/` is
+                                         # EMPTY, so the corpus and the board builds are NOT re-run
+                                         # (nothing they measure can have moved).
+                                         #
+                                         # The superseded N6b sync follows, kept visible as the base:
+                                         # 2071 / 90950 — ★★ RE-SYNCED 2026-08-24 by §UI-16 N6b (the grant's
                                          # EXPLICIT dispatch result), then TWICE MORE the same day by its two
                                          # QG evidence rounds: **2066 / 90717 -> 2070 / 90891 -> 2071 / 90923
                                          # -> 2071 / 90950** (+5 cases / +233 assertions overall).
@@ -2368,6 +2458,38 @@ MUTS_MODEL = [
   "        r.dst = _st.invite.sel_id;\n"
   "        _st.grant = r;\n"
   "        enter_provision(Provision::invite_result);"),
+ # ===== §UI-16 K4 — THE GRANT RECEIPT'S NOTE: THE MODEL HALF ===================================================
+ # ★★★ The ROUTER's entries (`--target=uisend`, U10-U13) attack whether the push ever ARRIVES. These attack what
+ #     the model DOES with it — the two ruled sentences, and the three things a push must never do.
+ ("V22 ★★★ THE TWO RULED SENTENCES ARE SWAPPED — a save that FAILED renders `TEAM KEY RECEIVED`, which is the one "
+  "word spec §4-K4 forbids on that path (the key is live in RAM and will not survive a reboot)",
+  "        note.outcome = saved ? UiProvOutcome::team_key_received : UiProvOutcome::team_key_unsaved;",
+  "        note.outcome = saved ? UiProvOutcome::team_key_unsaved : UiProvOutcome::team_key_received;"),
+ ("V23 ★★★ THE NOTE NAVIGATES — a radio arrival opens the provisioning result arm under the operator's thumb, "
+  "which is the one thing spec §4-K4 pin 3 rules out in as many words",
+  "        _st.dirty = true;                      // a repaint is owed; ⛔ a wake is not (see above)",
+  "        enter_provision(Provision::create_result);\n"
+  "        _st.dirty = true;"),
+ ("V24 ★★★ THE NOTE WAKES A DARK PANEL — §UI-17 R-7 scoped the wake to a DM addressed to us and a SEALED channel "
+  "post; widening it here is a new owner ruling nobody made",
+  "        _st.dirty = true;                      // a repaint is owed; ⛔ a wake is not (see above)",
+  "        unblank(now_ms);\n        _st.dirty = true;"),
+ ("V25 ★★ THE NOTE IS WRITTEN WITHOUT CLEARING THE SLOT — a previous verdict's `reason` / `team_id` / `node_id` "
+  "survive under the new headline, so the panel renders another act's data beside this one's word",
+  "        UiProvAnswer note{};",
+  "        UiProvAnswer note = _st.prov_answer;"),
+ ("V26 ★★ THE SUCCESS LEXEME IS RE-SPELLED — S-25 is §3.6.4's own word carried VERBATIM, and it is declared once "
+  "so an owner re-ruling changes it in exactly one place",
+  '        case UiProvOutcome::team_key_received: return "TEAM KEY RECEIVED";',
+  '        case UiProvOutcome::team_key_received: return "KEY RECEIVED";'),
+ ("V27 ★★ THE FAILURE'S SECOND ROW IS CLIPPED INTO THE FIRST — the ruled 26-column sentence is truncated to fit "
+  "the 19-column body instead of rendering across two rows (§7.1 rule 5 — a durability claim may not be clipped)",
+  '        case UiProvOutcome::team_key_unsaved: return "NOT SAVED";',
+  '        case UiProvOutcome::team_key_unsaved: return "NOT SAVED - LOST ON";'),
+ ("V28 ★ THE THIRD ROW BECOMES A GENERAL SLOT — `save_failed` grows one too, so the row stops meaning \"the ruled "
+  "sentence continues here\" and the arm that owns it can no longer be told from the arms that do not",
+  "        case UiProvOutcome::save_failed:\n        case UiProvOutcome::refused:",
+  '        case UiProvOutcome::save_failed:       return "RETRY";\n        case UiProvOutcome::refused:'),
 ]
 
 # ===== §UI-13 — src/firmware_config_service.h =====================================================================
@@ -3143,6 +3265,111 @@ MUTS_TEAMKEYRING = [
  ("T21 the ruled `KEYRING FULL` lexeme is re-spelled (a string declared once, changed in one place — or not)",
   'inline constexpr const char* kKeyringFullText = "KEYRING FULL";',
   'inline constexpr const char* kKeyringFullText = "KEYRING IS FULL";'),
+ # ===== §UI-16 K3 — THE GRANT RECEIVE: PERSISTENCE **FIRST**, AND THE FOUR HANDLING-TIME RE-CHECKS ==============
+ # ★★★ THE HEADLINE IS T27/T28: [[B240]]'s receive half was *adopt, push, persist nothing*, and the F-10 ruling is
+ #     that the persistence runs FIRST and ⛔ only a `saved` verdict forwards the push. `src/fw_main.cpp` applies
+ #     that as ONE branch on this service's answer — so ANY mutation that makes a non-persisting receipt answer
+ #     `saved` restores the defect exactly, one layer below the branch, where no gate in `fw_main` could see it.
+ ("T27 ★★★ THE ORDER IS INVERTED — the `/mrcfg` ACTIVATION is written BEFORE the durable key, so a reboot landing "
+  "between the two finds a binding with no key behind it (QG blocker 2, arriving by push)",
+  "        const KeyringResult kr = _keyring.put(g.push_team_id, g.live_pub, g.live_priv);",
+  "        if (!binding_current(cur, g) && !_binding.commit_active(g.push_team_id, g.live_pub, g.live_priv)) {\n"
+  "            r.outcome = GrantSave::binding_failed; return r;\n"
+  "        }\n"
+  "        const KeyringResult kr = _keyring.put(g.push_team_id, g.live_pub, g.live_priv);"),
+ ("T28 ★★★ A FAILED `/mrteams` WRITE STILL ANSWERS `saved` — the push is forwarded and the panel says TEAM KEY "
+  "RECEIVED for a key that exists only in RAM. This IS [[B240]] restored (F-10, the headline)",
+  "        if (kr.verdict != KeyringVerdict::ok && kr.verdict != KeyringVerdict::unchanged) {\n"
+  "            r.outcome = GrantSave::keyring_failed; r.err = kr.err; return r;   // ⛔ the activation is NOT written\n"
+  "        }",
+  "        (void)kr;"),
+ ("T29 ★★ A FAILED `/mrcfg` ACTIVATION STILL ANSWERS `saved` — the key is durable but nothing will ever install it, "
+  "and the panel claims durable adoption anyway",
+  "            if (!_binding.commit_active(g.push_team_id, g.live_pub, g.live_priv)) {\n"
+  "                r.outcome = GrantSave::binding_failed; return r;\n"
+  "            }",
+  "            (void)_binding.commit_active(g.push_team_id, g.live_pub, g.live_priv);"),
+ # ★★ THE FOUR RE-CHECKS, EACH DROPPED ALONE. They are four entries and not one because each names a DIFFERENT
+ #    authority — the push, the LIVE config, the live KEY, and the PERSISTED record — and dropping any one leaves
+ #    the other three able to hide it.
+ ("T30 ★ RE-CHECK (1) DROPPED — a grant naming team 0 reaches the store, which then has to refuse it there",
+  "        if (g.push_team_id == 0)              { r.outcome = GrantSave::zero_team;   return r; }",
+  ";"),
+ ("T31 ★★★ RE-CHECK (2) DROPPED — the LIVE membership is not re-asked, so a `team 0` between RX and drain still "
+  "activates the departed team's key",
+  "        if (g.push_team_id != g.live_team_id) { r.outcome = GrantSave::not_our_team; return r; }",
+  ";"),
+ # ⛔⛔ T32's SHAPE IS CONSTRAINED BY THE PROPERTY ITSELF, AND THE CONSTRAINT IS RECORDED RATHER THAN WORKED AROUND.
+ #    The obvious mutant — DELETE re-check (3) — hands a NULL pointer to `memcpy` inside `team_key_rec_put`, i.e.
+ #    UNDEFINED BEHAVIOUR: MEASURED 2026-08-24, that mutant left the suite reporting 0 failed, so the runner scored
+ #    it WORTHLESS ("nothing measures this") when in truth nothing could. ⇒ the entry attacks the same clause with a
+ #    WELL-DEFINED tempting wrong fix — *"there is nothing to persist, so nothing failed"* — which is exactly the
+ #    answer that forwards the push and puts `TEAM KEY RECEIVED` on the panel of a node that is KEYLESS. T37 below
+ #    attacks the clause's PLACEMENT, which is the other half the deletion would have covered.
+ ("T32 ★★★ RE-CHECK (3) ANSWERS `saved` — a node whose key was WIPED between RX and drain forwards the push and "
+  "the panel says TEAM KEY RECEIVED for a key it does not even hold",
+  "        if (!g.live_pub || !g.live_priv)      { r.outcome = GrantSave::no_live_key;  return r; }",
+  "        if (!g.live_pub || !g.live_priv)      { r.outcome = GrantSave::saved;        return r; }"),
+ ("T37 ★★ RE-CHECK (3) IS MOVED **BELOW** THE `/mrcfg` READ — the refusal still happens, but a node with no key "
+  "now pays a flash read for a receipt it was always going to drop (the ⛔ ZERO-I/O half of the rule)",
+  "        if (!g.live_pub || !g.live_priv)      { r.outcome = GrantSave::no_live_key;  return r; }\n"
+  "\n"
+  "        // (4) THE PERSISTED RECORD, WHICH IS A SECOND AUTHORITY. ⛔ Fails closed on an unreadable record.\n"
+  "        TeamKeyBinding cur{};\n"
+  "        if (!_binding.read(cur))                              { r.outcome = GrantSave::record_unreadable; return r; }",
+  "        TeamKeyBinding cur{};\n"
+  "        if (!_binding.read(cur))                              { r.outcome = GrantSave::record_unreadable; return r; }\n"
+  "        if (!g.live_pub || !g.live_priv)      { r.outcome = GrantSave::no_live_key;  return r; }"),
+ ("T33 ★★★ RE-CHECK (4) DROPPED — the PERSISTED record is never compared, so a key is marked ACTIVE against a "
+  "`/mrcfg` that names another team (QG blocker 3, arriving by push)",
+  "        if (cur.membership_team_id != g.push_team_id)         { r.outcome = GrantSave::record_mismatch;   return r; }",
+  ";"),
+ ("T34 ★★ THE UNREADABLE `/mrcfg` RECORD FAILS **OPEN** — an unestablished term is treated as satisfied and both "
+  "records are written on facts nobody read (C2, inverted)",
+  "        if (!_binding.read(cur))                              { r.outcome = GrantSave::record_unreadable; return r; }",
+  "        (void)_binding.read(cur);"),
+ ("T35 ★★ THE ACTIVATION'S ZERO-WRITE GUARD IS DROPPED — every re-grant of the SAME key rewrites `/mrcfg`, and a "
+  "teammate re-sends on every join (K1's flash-wear discipline, on the second record)",
+  "        if (!binding_current(cur, g)) {",
+  "        if (true) {"),
+ ("T36 ★ THE GUARD BECOMES 'A KEY IS PRESENT' RATHER THAN 'THIS KEY' — a stale witness for another team, or for a "
+  "different public half, is accepted and the boot then rejects the pair it names",
+  "        return cur.key_active && cur.binding_team_id == g.push_team_id\n"
+  "               && cur.committed_present && cur.committed_pub\n"
+  "               && memcmp(cur.committed_pub, g.live_pub, 32) == 0;",
+  "        return cur.key_active && cur.committed_present && g.push_team_id != 0;"),
+ # ===== the INVENTORY SENTINEL (2026-08-25) ======================================================================
+ # ★★ THE FENCE ITSELF NEEDS NO ENTRY AND CANNOT HAVE ONE — that is the point of it: an outcome added without a word
+ #    is a `-Werror=switch` BUILD FAILURE, and the totality case walks `0 .. count-1`, so the two halves are the
+ #    COMPILER and the ENUM rather than anything a sed can weaken. (The N6b precedent, `mrui::InviteGrantState::count`,
+ #    carries no entry either for the same reason.) What CAN drift is the sentinel's own status, and T38 is that:
+ ("T38 ★ THE SENTINEL IS GIVEN A PLAUSIBLE WORD — `count` stops reading as 'not an outcome' and starts reading as "
+  "one, which is how a sentinel quietly becomes a state a carrier may hold",
+  '        case GrantSave::count:             return "?";',
+  '        case GrantSave::count:             return "count";'),
+ # ===== [[B243]] — THE UI ROUTING CLASSIFICATION (QG blocker, 2026-08-25) ========================================
+ # ★★★ These three attack the decision that turns EIGHT outcomes into THREE doors. It is the decision the first cut
+ #     of [[B243]] did not have — it answered the seam with a BOOLEAN — and the consequence was a panel announcing
+ #     `TEAM KEY ACTIVE` for receipts where no key is active at all. The rule is structural (which side of
+ #     re-check (3) an arm sits on), so each entry breaks it in a way that reads perfectly reasonable in isolation.
+ ("T39 ★★★★ A SUPPRESSED ARM IS ROUTED TO THE FAILED-SAVE DOOR — the live pair was WIPED between RX and drain, and "
+  "the panel is made to say `TEAM KEY ACTIVE` about a key this node does not hold. THIS IS THE QG BLOCKER of "
+  "2026-08-25, restored verbatim (the honest-looking 'tell the operator something' reflex)",
+  "        case GrantSave::no_live_key:       return GrantUiRoute::suppressed;",
+  "        case GrantSave::no_live_key:       return GrantUiRoute::active_unsaved;"),
+ ("T40 ★★★ AN `active_unsaved` ARM IS COLLAPSED INTO SILENCE — a keyring write that really failed over a key that "
+  "really IS live says NOTHING, so the operator walks away believing a key he will lose on the next reboot is "
+  "durable ([[B243]] restored from the other side)",
+  "        case GrantSave::keyring_failed:    return GrantUiRoute::active_unsaved;",
+  "        case GrantSave::keyring_failed:    return GrantUiRoute::suppressed;"),
+ ("T41 ★★★★ THE VERDICT IS COLLAPSED BACK TO A BOOLEAN — every non-`saved` outcome takes the failed-save door, "
+  "which is the WITHDRAWN shape exactly: the three before-re-check-(3) arms all claim an ACTIVE key",
+  "        case GrantSave::zero_team:         return GrantUiRoute::suppressed;\n"
+  "        case GrantSave::not_our_team:      return GrantUiRoute::suppressed;\n"
+  "        case GrantSave::no_live_key:       return GrantUiRoute::suppressed;",
+  "        case GrantSave::zero_team:         return GrantUiRoute::active_unsaved;\n"
+  "        case GrantSave::not_our_team:      return GrantUiRoute::active_unsaved;\n"
+  "        case GrantSave::no_live_key:       return GrantUiRoute::active_unsaved;"),
 ]
 
 # ===== §UI-16 N1 — lib/core/team_seen_ring.h: THE PURE RING POLICY ==================================================
@@ -4145,6 +4372,29 @@ MUTS_UISEND = [
   "        case PK::send_aired:\n"
   "            if (m.on_invite_grant_push(pu)) return true;\n"
   "            if (emg.match_aired(pu.dst, pu.ctr))    return true;   // correlated, and DELIBERATELY inert on the model"),
+ # ===== §UI-16 K4 — THE GRANT RECEIPT'S NOTE ==================================================================
+ # ★★★ THE §T3 SHAPE FOR THE THIRD TIME IN THIS FILE: an arm that is not spelled out here is an arm that silently
+ #     answers `false`, and the whole feature compiles, passes the keyring suite and shows NOTHING on the panel.
+ ("U10 ★★★ the `team_key_received` arm is never spelled out — a receipt K3 persisted and FORWARDED reaches the "
+  "router and renders nothing at all, while every K3 case stays green",
+  "    if (pu.kind == PK::team_key_received) {\n"
+  "        m.on_team_key_note(/*saved=*/true, now_ms);\n"
+  "        return true;\n"
+  "    }",
+  ";"),
+ ("U11 ★★★ the arm renders the FAILURE wording for a push K3 FORWARDED — the panel says `TEAM KEY ACTIVE` / "
+  "`NOT SAVED` about a key that IS durable, which is the ruled pair told backwards",
+  "        m.on_team_key_note(/*saved=*/true, now_ms);",
+  "        m.on_team_key_note(/*saved=*/false, now_ms);"),
+ ("U12 ★★★ the arm WAKES the panel — §UI-17 R-7 scoped the wake to a DM ADDRESSED TO US and a SEALED channel "
+  "post, and widening it to a grant receipt is a new owner ruling nobody made",
+  "        m.on_team_key_note(/*saved=*/true, now_ms);\n        return true;",
+  "        m.on_team_key_note(/*saved=*/true, now_ms);\n        m.on_msg_wake(now_ms);\n        return true;"),
+ ("U13 ★★ the receipt is COUNTED as an arriving DM — a phantom in the unread bar the operator can never open, "
+  "because `lib/core` never inboxes a grant (it consumes the DM as control traffic)",
+  "        m.on_team_key_note(/*saved=*/true, now_ms);\n        return true;",
+  "        m.on_team_key_note(/*saved=*/true, now_ms);\n"
+  "        c.last_dm_ms = now_ms; c.have_dm = true; ++c.arr_dm;\n        return true;"),
 ]
 
 MUTS_TEAMGRANT = [
@@ -4436,8 +4686,16 @@ def orchestrate():
         cmd = [sys.executable, os.path.join(tree, rel_me), f"--target={_TARGET}",
                f"--shard-id={w}", f"--shard-entries={','.join(str(i) for i in shards[w])}",
                f"--shard-result={res_path}"]
+        # ★ BATTERY-PRIVATE COMPILER CACHE (owner-ruled 2026-08-24 — see the header's ⛔⛔ COMPILER CACHE block):
+        #   a persistent cache of the batteries' OWN (⛔ never ~/.ccache: NOHASHDIR-relativized objects must not
+        #   leak into the owner's real builds' debug info), with CCACHE_BASEDIR = this worker's tree so paths
+        #   relativize and CCACHE_NOHASHDIR so `-g` stops hashing the per-tree build dir. Measured: 524/524
+        #   cross-tree hits, a warm 10-entry repeat 75.8 s -> 11.5 s, verdicts byte-identical.
+        wenv = dict(os.environ,
+                    CCACHE_DIR=os.path.expanduser("~/.cache/meshroute-battery-ccache"),
+                    CCACHE_BASEDIR=tree, CCACHE_NOHASHDIR="1")
         p = subprocess.Popen(cmd, cwd=tree, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                             text=True, bufsize=1)
+                             text=True, bufsize=1, env=wenv)
         _WORKER_PROCS.append(p)
         results[w] = {"proc": p, "path": res_path, "tree": tree, "assigned": shards[w]}
         t = threading.Thread(target=_pump, args=(w, p), daemon=True)

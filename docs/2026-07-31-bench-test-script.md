@@ -3288,3 +3288,43 @@ radio, and the real TxDone edge.** Walk = spec §7.4 steps 3c-6; run it there, t
    pre-existing locate, not grant DATA); a grant with **no adopted team id** (`me T--`) ⇒ **`GRANT FAILED`**,
    ⛔ never `GRANT PARKED`.
 4. ☐ Spec §7.4 step 5 unchanged: `GRANT QUEUED` first, `KEY SENT` only after the frame leaves the radio.
+
+## Part 42 — §UI-16 K3/K4 + [[B243]]: the grant receipt on glass, all three verdicts (2026-08-25)
+
+⛔ **THE RESIDUE ONLY** (both doors, the three-way `GrantUiRoute` classification, the ruled wording, every
+negative and the drain-loop shape are host-gated: `teamkeyring` 40 entries incl. T39-T41, `model` V22-V28,
+`uisend` U10-U13, probe P15k/P15k2/P15k3 + K3/K4 controls, `probe_board_ui` W47's seven controls).
+**Metal-only: a `/mrteams` write that really refuses on real flash, the real SSD1306, and the power-cut.**
+Extends §7.5's Part 35 series; setup = H1/H2 as in Parts 36-41.
+
+1. ☐ **The failure is provokable with SUPPORTED VERBS — ⛔ no fault injection.** On H1: `team new …` **four**
+   times (four `/mrteams` records; a fifth `team new` would print `KEYRING FULL`, Part 35 step 4). Then
+   `team 0x<H2-TEAMID>` ⇒ H1 is a **member** of H2's team and **keyless** (K5 has not landed; P-2b forbids
+   reactivation). `team exportkey` ⇒ nothing.
+2. ☐ **The grant arrives and the panel says the TRUE thing.** H2: `team grantkey 0x<H1-hash> -t`. H1's panel
+   reads, on three body rows: `TEAM KEY ACTIVE` / `NOT SAVED` / `LOST ON REBOOT` (keyring-full is an
+   after-live-check failure ⇒ `active_unsaved` — the classification is host-verified, not assumed).
+   ⛔ **FAIL if `TEAM KEY RECEIVED` appears anywhere** (B240's harm). ⛔ **FAIL if the panel says nothing**
+   (B243's original defect). ⓘ The console half still prints its receipt on every arm — the gate is the
+   panel's, not the log's.
+3. ☐ **Both halves of the sentence are true.** Immediately: a fresh **sealed** post from H2 IS readable (the
+   key really is live). Then **power-cycle H1** ⇒ boot prints `no active binding … live key: none`,
+   `team exportkey` returns nothing, the same sealed post is no longer readable. ⛔ FAIL if the key survives.
+4. ☐ ★★★ **THE SUPPRESSED ARM — THE PANEL SAYS NOTHING, AND THAT IS THE RULING (QG, 2026-08-25).** ⛔ Do not
+   duplicate the setup: **spec §7.5 step 3 already produces it** (`team 0` on H1 ⇒ keyless and out of the
+   team). Run §7.5 step 3, and while H1 is in that state have H2 send `team grantkey 0x<H1-hash> -t` ⇒ the
+   console still prints its receipt line, and the **panel must not change at all** — ⛔ never
+   `TEAM KEY ACTIVE`, ⛔ never `TEAM KEY RECEIVED`. ⓘ Whichever race the node lands in (`not_our_team` if the
+   membership went first, `no_live_key` if the wipe did) both classify `suppressed`; the observable is the
+   same. ⛔ **FAIL if the panel announces an active key** — a false statement, not merely an unhelpful one.
+5. ☐ **⛔ IT NEVER NAVIGATES AND NEVER WAKES.** Repeat step 2 with H1's panel **blanked** ⇒ it **stays dark**;
+   one short press wakes it to the screen it was left on, cursor unmoved — ⛔ never a provisioning screen
+   (§UI-17 R-7 scoped the wake to a DM addressed to us and a sealed post; a grant receipt is neither).
+6. ☐ **The success arm still works (anti-overcorrection).** Free a record (`factory_reset confirm`), re-join,
+   repeat the grant with room ⇒ **`TEAM KEY RECEIVED`** and the key **survives** a power-cycle (§7.5 steps
+   1-2). ⛔ FAIL if the failure wording appears on a save that succeeded.
+7. ☐ ⓘ **`binding_failed` (a `/mrcfg` write failing AFTER the key landed) is NOT provokable by hand** — record
+   **not-run with that reason**; host-gated by `teamkeyring` T29.
+
+⇒ spec §7.5 step 2's *"force a save failure"* is now answerable: **the method is step 1 above**, and it needs
+no fault injection.

@@ -1342,7 +1342,60 @@ static void mesh_service_once() {
     // 3) App pushes: surface deliveries / ACKs over the console.
     meshroute::Push pu{};
     while (g_node.next_push(pu)) {
-        mr_ui_on_push(pu);   // §featuresplit slice 4: surface the delivery/ACK on the board display (no-op unless MR_FEAT_OLED)
+        // ★★★★ §UI-16 K3 ([[B240]], ✅ F-10) — **PERSISTENCE RUNS FIRST FOR A GRANT RECEIPT**, and ⛔ only a `saved`
+        //      verdict forwards the push to the UI. The line below used to be UNCONDITIONAL and it was the whole
+        //      defect: `mr_ui_on_push(pu)` is the FIRST statement in this loop, so a panel note gated on the save was
+        //      not expressible at all — the note would have run before anything persisted. ⇒ the receipt is routed
+        //      THROUGH the persistence forward, and the panel can no longer say `TEAM KEY RECEIVED` for a key that is
+        //      RAM-only, because the push never reaches the renderer.
+        // ⛔ `fw_main` GAINS A CALL, ⛔ NOT A DECISION (U3): the four handling-time re-checks, the write ORDER (the
+        //    key durably FIRST, the activation second) and the zero-write coalescing all live in
+        //    `mrfw::TeamKeyGrantService` (`src/firmware_team_keyring.h`), which the native suite drives and COUNTS.
+        // ★★★★ [[B243]] CLOSED 2026-08-25 — **AND THE ROUTE IS THREE-VALUED, NOT TWO.** F-10's refusal to forward a
+        //      failed receipt left the panel unable to say the TRUE thing about it, so a failed save was SILENT on
+        //      glass. ⇒ a second door: `mr_ui_on_team_key_unsaved()`, the eighth hook in `lib/hal/mr_ui.h`, which
+        //      renders the ruled `TEAM KEY ACTIVE` / `NOT SAVED` / `LOST ON REBOOT`.
+        // ⛔⛔ **CORRECTED THE SAME DAY (QG blocker) — TWO DOORS WERE NOT ENOUGH AND THE FIRST CUT LIED.** ⛔
+        //    WITHDRAWN, KEPT VISIBLE: `const bool ui_push_ok = … ; if (ui_push_ok) mr_ui_on_push(pu); else
+        //    mr_ui_on_team_key_unsaved();`. A boolean cannot tell the TWO KINDS OF FAILURE apart, so `no_live_key`
+        //    (the pair was WIPED between RX and drain), `not_our_team` (we have LEFT that team) and `zero_team` (the
+        //    receipt named none) all reached the failed-save door — and the panel announced `TEAM KEY ACTIVE` about
+        //    a key that is not active at all. ⇒ the seam now returns `mrfw::GrantUiRoute` and this is a SWITCH over
+        //    it, with a third arm that says NOTHING.
+        // ⛔ STILL A CALL AND ⛔ STILL NOT A JUDGEMENT (U3): the four handling-time re-checks, the write ORDER, the
+        //    zero-write coalescing AND the classification itself (`mrfw::grant_ui_route_of`, whose rule is "which
+        //    side of re-check (3) is this arm on") all live in `src/firmware_team_keyring.h`, pure, driven by
+        //    `test/test_firmware_team_keyring.cpp` and attacked by `--target=teamkeyring`. This switch names no
+        //    outcome and tests no term; it maps three returned values onto the three things a panel may do.
+        // ⛔ `default`-LESS, exactly like the `PushKind` switch below and for the same reason: a fourth route added
+        //    and not routed must FAIL THE BUILD, since `fw_main` is invisible to the native gate and the corpus.
+        // ⓘ Both hooks inline to nothing off `MR_FEAT_OLED`, so no `#if` reaches this gate; on the
+        //   `MR_N_LAYERS >= 2` arm the route is a compile-time `received` and the other arms are dead code the
+        //   optimiser drops — a gateway can never receive a grant (see the note above).
+        // ⓘ The CONSOLE / BLE half below is deliberately untouched and still runs on EVERY arm — INCLUDING the
+        //   suppressed one: an operator watching the serial line must see the receipt whatever the store did. The
+        //   silence is the PANEL's, ⛔ never the log's.
+        // ⓘ `#if MR_N_LAYERS < 2` for the reason the boot restore carries it: the keyring's device bindings are
+        //   compiled only on the non-gateway profiles, and a gateway (`team_id == 0`) can never receive a grant —
+        //   `Node::team_key_grant_receive` answers `no_team` before any push is enqueued.
+#if MR_N_LAYERS < 2
+        const mrfw::GrantUiRoute ui_route = (pu.kind != meshroute::PushKind::team_key_received)
+                                            ? mrfw::GrantUiRoute::received
+                                            : mrfw::team_key_grant_persist(pu.team_id);
+#else
+        const mrfw::GrantUiRoute ui_route = mrfw::GrantUiRoute::received;
+#endif
+        switch (ui_route) {
+            // §featuresplit slice 4: surface the delivery/ACK on the board display (no-op unless MR_FEAT_OLED)
+            case mrfw::GrantUiRoute::received:       mr_ui_on_push(pu);            break;
+            case mrfw::GrantUiRoute::active_unsaved: mr_ui_on_team_key_unsaved();  break;
+            // ⛔ NEITHER DOOR, AND THE EMPTY ARM IS THE RULING — not an oversight and not a TODO. There is no true
+            //    team-key sentence to put on the panel for this receipt (see `grant_ui_route_of`), and inventing a
+            //    reassuring or an alarming one would both be the same defect.
+            case mrfw::GrantUiRoute::suppressed:                                   break;
+            // ⛔ The inventory sentinel is not a route; it is spelled out rather than swallowed by a `default:`.
+            case mrfw::GrantUiRoute::count:                                        break;
+        }
         // ★ ALL 17 PushKinds are rendered, and this switch is DELIBERATELY `default`-less so -Wswitch fails the build
         // when an 18th is added (owner ruling 2026-07-26; 6 kinds used to fall through and print NOTHING here, which is
         // BASELINE 25m's enum→string defect class — this file is invisible to the native gate, so the compiler is the
