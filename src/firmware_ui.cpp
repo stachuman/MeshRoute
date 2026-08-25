@@ -247,6 +247,13 @@ struct DeviceTeamCreate : mrfw::ITeamCreateDevice {
         mr_ui_on_config_saved();                                        // the OLED's own /mrcfg writer, §notify-every-save
         mrfw::prov_note_persisted_team_local_id(r.persisted_team_local_id);
     }
+    // ★★ §UI-16 K5 — TWO MORE FORWARDS, AND ⛔ NEITHER DECIDES ANYTHING. The presence QUESTION and the explicit
+    //    ACTIVATION both live in `mrfw::TeamKeyringService` (pure, natively driven, battery-attacked); the two
+    //    functions below are `src/firmware_config.cpp`'s thin bindings over the ONE keyring instance the
+    //    transaction already writes through. ⛔ WHEN either runs is the ADAPTER's decision, not this file's — the
+    //    question on the `applied` arm of a join, the act on a `double` over `USE SAVED KEY`.
+    bool has_saved_key(uint32_t team_id) override { return mrfw::has_saved_team_key(team_id); }
+    mrfw::SavedKeyUse use_saved_key(uint32_t team_id) override { return mrfw::team_keyring_use_saved(team_id); }
 };
 // ★★★★ §UI-15 slice 6 — THE DEVICE HALF OF §3.6.3's STATIC JOIN, AND EVERY LINE OF IT IS A FORWARD, exactly as the
 //      team half above is. The decisions — which store state says what, the ONE integral -> double conversion, the
@@ -1730,6 +1737,32 @@ void draw_provision_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
         // §7.3 AUDIT (widest reachable expansion, 19-column body):
         //   title           `JOIN 3D9348?`                                      = 12
         //   confirm action  `%c%s`  : `>BACK` 5 · `>JOIN`                       = 5
+        // ★★★★ §UI-16 K5 — THE `SAVED KEY FOUND` OFFER. ⛔ NOTHING HERE DECIDES ANYTHING: the title is
+        //      `mrui::kSavedKeyTitle` (S-28, owner-ruled, declared once), the two action words are
+        //      `saved_key_label`'s (S-29 plus the ONE `BACK` spelling, CALLED — ⛔ never re-spelled), and which of
+        //      them carries the marker is the MODEL's `prov_confirm`, whose zero value is BACK.
+        // ★★ THE IDENTITY IT DRAWS IS THE **TEAM FINGERPRINT** THROUGH `ui_fmt_team_fingerprint` AND NOTHING ELSE
+        //    (spec §8's standing rule — ⛔ zero new definitions of it), over `st.saved_key_team`: the id the
+        //    TRANSACTION joined. ⛔ Never `s.team_id` read a frame later, ⛔ never the cursor, and ⛔ never a
+        //    name-shaped value — there is no team label in this firmware and S-36 forbids inventing one here.
+        // §7.3 AUDIT (widest reachable expansion, 19-column body):
+        //   title           `SAVED KEY FOUND`                                   = 15
+        //   team token      `3D9348`                                            = 6
+        //   confirm action  `%c%s`  : `>BACK` 5 · `>USE SAVED KEY`              = 14
+        case mrui::Provision::saved_key: {
+            body_text(0, mrui::kSavedKeyTitle);
+            char fp[mrui::kTeamFpTokenCap];
+            mrui::ui_fmt_team_fingerprint(fp, sizeof fp, st.saved_key_team);
+            body_text(1, fp);
+            // ★ BACK FIRST and selected on entry, so USE SAVED KEY costs the deliberate `short` -> `double` (P-13).
+            snprintf(l, sizeof l, "%c%s", (st.prov_confirm == mrui::ProvConfirm::back) ? '>' : ' ',
+                     mrui::saved_key_label(mrui::ProvConfirm::back));
+            body_text(3, l);
+            snprintf(l, sizeof l, "%c%s", (st.prov_confirm == mrui::ProvConfirm::confirm) ? '>' : ' ',
+                     mrui::saved_key_label(mrui::ProvConfirm::confirm));
+            body_text(4, l);
+            return;
+        }
         case mrui::Provision::nearby_confirm: {
             char title[mrui::kNearbyJoinTitleCap];
             mrui::ui_fmt_nearby_join_title(title, sizeof title, st.nearby_sel_id);

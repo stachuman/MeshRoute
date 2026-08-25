@@ -747,6 +747,55 @@ struct ProbeGrantBinding : mrfw::ITeamKeyBinding {
     }
     bool commit_active(uint32_t, const uint8_t[32], const uint8_t[32]) override { ++commits; return true; }
 };
+// ★★★★ §UI-16 K5 — THE SAVED-KEY OFFER's TWO DEVICE SEAMS, AND BOTH ARE THE **REAL** ONES: `src/firmware_config.cpp`
+//      is not in this link, so the probe supplies its two forwards — but it supplies them over `g_node` and over the
+//      probe's own `/mrcfg` store, i.e. exactly what the device composes. ⇒ what runs here is the REAL
+//      `TeamKeyringService::use_saved` driving the REAL `Node::team_channel_key_adopt` (which re-derives the public
+//      half and refuses a record that does not verify) and the REAL one-conversion `/mrcfg` writer.
+// ★ THAT IS THE WHOLE POINT OF DOING IT IN THE PROBE: the native suite proves the DECISIONS against fakes; this
+//   proves that the panel's `USE SAVED KEY` reaches a key the CORE really holds, and that the state it leaves behind
+//   satisfies the five-term boot predicate when the restore is driven against it.
+namespace {
+struct ProbeSavedKeyLive : mrfw::ITeamKeyLive {
+    int adopts = 0, clears = 0;
+    bool adopt_key(const uint8_t pub[32], const uint8_t priv[32]) override {
+        ++adopts;
+        return g_node.team_channel_key_adopt(pub, priv);
+    }
+    void clear_key() override { ++clears; g_node.team_channel_key_clear(); }
+};
+// The `/mrcfg` half, over the probe's OWN store (U1 — one durable seam, exactly as the device has one), so the
+// activation's write is counted by the SAME `writes` counter every other phase reads.
+struct ProbeSavedKeyBinding : mrfw::ITeamKeyBinding {
+    int commits = 0;
+    uint8_t _pub[32] = {};
+    bool read(mrfw::TeamKeyBinding& out) override {
+        const mrnv::Blob& b = probe_store().rec;
+        out.membership_team_id = b.team_id;
+        out.binding_team_id    = b.team_key_team_id;
+        out.key_active         = (b.team_key_active != 0);
+        out.committed_present  = (b.team_ch_key_present != 0);
+        memcpy(_pub, b.team_ch_pub, sizeof _pub);
+        out.committed_pub      = _pub;
+        return true;
+    }
+    bool commit_active(uint32_t team_id, const uint8_t pub[32], const uint8_t priv[32]) override {
+        ++commits;
+        mrnv::Blob b{};
+        if (!probe_store().load(b)) return false;
+        // ★ THE DEVICE WRITER'S SECOND AUTHORITY, through the SAME pure predicate (QG blocker 1, 2026-08-25): an
+        //   ACTIVE BINDING may ⛔ never be written into a record whose MEMBERSHIP names another team.
+        if (!mrfw::commit_membership_ok(b.team_id, team_id)) return false;
+        mrfw::blob_put_team_channel_key(b, pub, priv);   // the ONE conversion path (U2)
+        b.team_key_team_id = team_id;
+        b.team_key_active  = 1;
+        return probe_store().save(b);
+    }
+};
+ProbeSavedKeyLive&    saved_key_live()    { static ProbeSavedKeyLive s;    return s; }
+ProbeSavedKeyBinding& saved_key_binding() { static ProbeSavedKeyBinding s; return s; }
+}  // namespace
+
 struct ProvSeams {
     ProbeProvLive      live;
     ProbeEntropy       ent;
@@ -772,6 +821,13 @@ void prov_device_facts(ProvSnapshot& out, ProvPhyFloor& floor) {
 void prov_note_persisted_team_local_id(uint8_t v) {
     ProvSeams& s = prov_seams();
     ++s.noted_calls; s.noted_team_local_id = v;
+}
+// §UI-16 K5 — the two forwards `src/firmware_config.cpp` supplies on hardware, over the SAME one keyring service the
+// transaction writes through and the SAME two adapters (see `ProbeSavedKeyLive` / `ProbeSavedKeyBinding`).
+// ⛔ NEITHER TAKES A DECISION here either: the presence test and the activation ORDER are the pure service's.
+bool has_saved_team_key(uint32_t team_id) { return prov_seams().keyring.has_record(team_id); }
+SavedKeyUse team_keyring_use_saved(uint32_t team_id) {
+    return prov_seams().keyring.use_saved(team_id, saved_key_live(), saved_key_binding());
 }
 }  // namespace mrfw
 
@@ -4102,6 +4158,64 @@ int main() {
         CHK("P15i BACK leaves the sub-view for the SETTINGS menu",
             strstr(g_c.page_text, "PROVISION") != nullptr && !body_row_is(0, ">CREATE TEAM"));
 
+        // ---- ★★★★ (j) §UI-17 keyrecv — THE SUCCESS NOTE'S ACKNOWLEDGEMENT LANDS ON **STATUS** ------------------------
+        // ★★ OWNER-RULED 2026-08-25, shape (a): after a team key arrives the operator's next question is *"am I set
+        //    up?"*, which is the STATUS screen's — so acknowledging `TEAM KEY RECEIVED` LEAVES the provisioning flow.
+        // ⓘ WHY IT IS A SEPARATE ARM RATHER THAN AN EXTRA PRESS INSIDE (k): (k2)/(k3) need a result screen up to
+        //   render onto, and (k)'s acknowledgement destroys exactly that. ⇒ the landing is measured LAST, on a
+        //   freshly-minted result, and this arm PUTS THE PANEL BACK where (i) left it so P16 is unaffected.
+        // ⛔ THE FAILURE NOTE'S OWN LANDING IS **NOT** RE-MEASURED HERE AND IS NOT MISSING: (k2) put `TEAM KEY ACTIVE`
+        //    on the screen and (f)'s first press acknowledged it — landing on the CHILD MENU, which is what
+        //    `P15f a press leaves the result for the child menu` has always asserted. That check is now carrying the
+        //    ruling's other half, and it is unchanged because the failure pair's landing is unchanged.
+        // ⛔⛔ AND THE RESULT SCREEN IT USES IS THE **REFUSAL** ONE, ⛔ deliberately not a successful create — MEASURED,
+        //     not preferred: a create here installs a live team channel key and a membership, and P22's whole K5 phase
+        //     is arranged around a KEYLESS node (`P22g precondition … team_channel_key_present() == false`), which the
+        //     first cut of this arm broke. ★ (h)'s unreadable-record refusal puts `create_result` up having spent ⛔ no
+        //     write, applied ⛔ nothing live and claimed ⛔ no team — so the LANDING can be measured without the arm
+        //     leaving a single durable trace behind it. ⓘ The note replacing that verdict is the ruled behaviour, not
+        //     a compromise: `prov_answer` is ONE transient slot and the newest fact owns it.
+        {
+            const int w_j = st.writes, lv_j = ps.live.total();
+            t17 = see(double_press(t17 + 500));                    // the SETTINGS menu -> the child menu
+            CHK("P15j the child menu is up again",                 body_row_is(0, ">CREATE TEAM"));
+            st.can_load = false;                                   // (h)'s precondition failure, re-armed
+            t17 = see(double_press(t17 + 500));                    // -> the confirmation
+            t17 = see(settle(t17 + 500));                          // `short` TOGGLES to CREATE
+            t17 = see(double_press(t17 + 500));                    // `double` PERFORMS -> the refusal
+            st.can_load = true;
+            CHK("P15j precondition: a REAL result screen is up, having changed NOTHING",
+                body_row_is(0, "CREATE REFUSED") && st.writes == w_j && ps.live.total() == lv_j);
+            MESHROUTE_NS::Push gp{};
+            gp.kind = MESHROUTE_NS::PushKind::team_key_received;
+            gp.team_id = g_node.config().team_id;
+            mr_ui_on_push(gp);
+            t17 = see(t17 + 500);
+            // ⛔ THE ARRIVAL STILL MOVES NOTHING (spec §4-K4 pin 3, re-proven on the path that now HAS a destination).
+            CHK("P15j the forwarded receipt lands on the result screen and moves nothing",
+                body_row_is(0, "TEAM KEY RECEIVED") && body_row_is(4, "press = back")
+                && rail_boxed_slot() == kSlotSettings);
+            t17 = see(double_press(t17 + 500));
+            CHK("P15j ★ acknowledging it LANDS ON THE STATUS SCREEN",
+                rail_boxed_slot() == kSlotStatus);
+            CHK("P15j ⛔ ...and the provisioning flow is gone from the panel entirely",
+                strstr(g_c.page_text, "TEAM KEY RECEIVED") == nullptr
+                && strstr(g_c.page_text, "press = back") == nullptr
+                && !body_row_is(0, ">CREATE TEAM"));
+            // ⛔ AND THE WHOLE ARM SPENT NOTHING — the refusal, the receipt and the acknowledgement together. That is
+            //    both the "acknowledging re-runs nothing" property and this arm's promise to leave no trace.
+            // ⓘ THE ROLL-UP REPORTS THIS ONE LINE AS UN-REDDENED, justified here rather than assumed covered (the
+            //   roll-up's own rule): it is NEGATIVE SPACE in P15b's exact sense — the same two counters have their
+            //   POSITIVE arm in (e), where a real create moves both by exactly one. A control that reddened it would
+            //   be measuring the harness.
+            CHK("P15j ⛔ ...and the arm spent no durable write and applied nothing live",
+                st.writes == w_j && ps.live.total() == lv_j);
+            // ⛔ RESTORED: P16 starts from the SETTINGS menu with PROVISION highlighted, which is where (i) left it.
+            t17 = cfg_walk_to(t17 + 500, ">PROVISION");
+            CHK("P15j the phase leaves the panel where it found it",
+                strstr(g_c.page_text, ">PROVISION") != nullptr);
+        }
+
         // ======================================================================================================= P16
         // ★★★★ §UI-15 slice 6 — THE WHOLE STATIC-JOIN FLOW, THROUGH THE REAL RENDERER: select (including the store
         //      states) -> confirm -> waiting -> the 60 s WORD CHANGE ACROSS A BLANK -> a SYNTHESIZED CORRELATED
@@ -4769,12 +4883,51 @@ int main() {
                     strstr(g_c.page_text, "SAVED KEY") == nullptr);
 
                 // ---- (d) THE RESULT IS TERMINAL: either press acknowledges, and it carries no BACK row ----------
+                // ⛔⛔ **CORRECTED IN PLACE 2026-08-25 (§UI-16 K5 LANDED), AND THE WITHDRAWN EXPECTATION IS KEPT
+                //     VISIBLE:** the second check read *"P22d a single short press acknowledges it, landing on the
+                //     PROVISION menu"* with `body_row_is(0, ">CREATE TEAM")`. That landing was right for a join with
+                //     NO retained record — and THIS fixture deliberately seeded one (see the P22 precondition), so
+                //     the acknowledgement now lands on K5's `SAVED KEY FOUND` offer. ★ The two properties the old
+                //     line carried are UNCHANGED and are still asserted: EITHER press acknowledges, and
+                //     acknowledging re-runs NOTHING. The no-record landing is measured in (f) below, on a team the
+                //     keyring holds nothing for.
                 CHK("P22d the result carries no selectable BACK row", strstr(g_c.page_text, ">BACK") == nullptr);
                 t17 = see(settle(t17 + 500));                  // ★ a SHORT press — the other half of "either press"
-                CHK("P22d a single short press acknowledges it, landing on the PROVISION menu",
-                    body_row_is(0, ">CREATE TEAM"));
+                CHK("P22d a single short press acknowledges it, and the RETAINED key is OFFERED (S-28)",
+                    body_row_is(0, "SAVED KEY FOUND"));
+                {
+                    char fp_tok[mrui::kTeamFpTokenCap];
+                    mrui::ui_fmt_team_fingerprint(fp_tok, sizeof fp_tok, 0x66C0FFEEu);
+                    CHK("P22d ...over the JOINED team's fingerprint, through the ONE helper", body_row_is(1, fp_tok));
+                }
+                CHK("P22d ★ BACK is selected initially, USE SAVED KEY is not (P-13, over a stored SECRET)",
+                    row_starts(3, ">BACK") && row_starts(4, " USE SAVED KEY"));
                 CHK("P22d ⛔ ...and acknowledging re-ran nothing",
                     ps.facts_calls == f0 + 1 && st.writes == w0 + 1);
+                // ⛔⛔ THE P-2b HEADLINE ON THE GLASS: REACHING THE OFFER INSTALLED NOTHING. The node is still
+                //     KEYLESS, the record is byte-identical, and ⛔ no `/mrcfg` activation was written.
+                CHK("P22d ⛔⛔ reaching the offer installed NOTHING — still keyless, record byte-identical (P-2b)",
+                    g_node.team_channel_key_present() == false &&
+                    ps.keys.saves == keyring_saves_before &&
+                    memcmp(&ps.keys.rec, &keyring_before, sizeof keyring_before) == 0 &&
+                    st.rec.team_key_active == 0 && st.rec.team_ch_key_present == 0);
+                CHK("P22d ⛔ ...and `FORGET KEY` (S-31, a future verb) is nowhere on the panel",
+                    strstr(g_c.page_text, "FORGET") == nullptr);
+
+                // ---- (d2) `BACK` COSTS NOTHING AND LANDS WHERE THE ACKNOWLEDGEMENT WOULD HAVE -------------------
+                {
+                    const int wd = st.writes, ksd = ps.keys.saves, instd = ps.live.install_calls;
+                    t17 = see(double_press(t17 + 500));        // `double` on BACK — the arm the screen opened on
+                    CHK("P22d2 BACK lands on the PROVISION menu — the acknowledgement's own landing",
+                        body_row_is(0, ">CREATE TEAM"));
+                    CHK("P22d2 ⛔⛔ ...having installed NOTHING: keyless, zero writes, record byte-identical",
+                        g_node.team_channel_key_present() == false && st.writes == wd &&
+                        ps.keys.saves == ksd && ps.live.install_calls == instd &&
+                        memcmp(&ps.keys.rec, &keyring_before, sizeof keyring_before) == 0 &&
+                        st.rec.team_key_active == 0);
+                    CHK("P22d2 ⛔ ...and the retained record is STILL there for a later offer",
+                        mrfw::team_key_find(ps.keys.rec, 0x66C0FFEEu) >= 0);
+                }
 
                 // ---- (e) THE PHY REFUSAL, ON THE SAME SCREEN ----------------------------------------------------
                 // The divergence is the real one: `mobile register sf=…` retunes the radio and moves `_cfg.layers[0]`
@@ -4801,6 +4954,126 @@ int main() {
                 ps.snap.live_routing_sf = 7;                   // converged again
                 t17 = see(double_press(t17 + 500));
                 CHK("P22e a press leaves the refusal, rebuilding the menu", body_row_is(0, ">CREATE TEAM"));
+
+                // ---- (f) §UI-16 K5 — A JOIN WITH **NO** RETAINED RECORD MAKES NO OFFER -------------------------
+                // ★★ THIS IS THE WITHDRAWN (d) EXPECTATION'S REAL HOME, and it is where it belongs: `BADBAD` is a
+                //    team the keyring holds NOTHING for, so its acknowledgement lands on the PROVISION MENU exactly
+                //    as every join did before K5 (spec §4-K5 pin 4 — the landed N3 flow, unchanged).
+                {
+                    CHK("P22f precondition: the keyring holds NO record for BADBAD (else the negative is vacuous)",
+                        mrfw::team_key_find(ps.keys.rec, 0x99BADBADu) < 0);
+                    const int wf = st.writes, ksf = ps.keys.saves;
+                    t17 = walk_to(t17 + 500, ">JOIN TEAM");
+                    t17 = see(double_press(t17 + 500));
+                    t17 = walk_to(t17 + 500, ">BADBAD");
+                    t17 = see(double_press(t17 + 500));
+                    t17 = see(settle(t17 + 500));              // -> JOIN
+                    t17 = see(double_press(t17 + 500));
+                    CHK("P22f a join with no retained record still says TEAM JOINED", body_row_is(0, "TEAM JOINED"));
+                    t17 = see(double_press(t17 + 500));        // acknowledge it
+                    CHK("P22f ⛔⛔ ...and the acknowledgement lands on the MENU — ⛔ NO offer (pin 4)",
+                        body_row_is(0, ">CREATE TEAM"));
+                    CHK("P22f ⛔ ...no K5 lexeme was ever drawn for it",
+                        strstr(g_c.page_text, "SAVED KEY") == nullptr);
+                    CHK("P22f ⛔ ...and the node is still KEYLESS, with the OTHER team's record untouched",
+                        g_node.team_channel_key_present() == false && ps.keys.saves == ksf &&
+                        memcmp(&ps.keys.rec, &keyring_before, sizeof keyring_before) == 0);
+                    CHK("P22f ...the join itself cost exactly its one durable write", st.writes == wf + 1);
+                }
+
+                // ---- (g) §UI-16 K5 — `USE SAVED KEY`: THE KEY GOES LIVE IN THE **REAL CORE**, DURABLY ----------
+                // ★★★★ THIS IS THE HANDOFF SEAM NEITHER PURE SUITE CAN SEE. The native cases prove the DECISIONS
+                //      against counting fakes; here the panel's `double` reaches `Node::team_channel_key_adopt`
+                //      through the real renderer, the real model and the real `TeamKeyringService` — and the
+                //      DURABILITY is proved by clearing the live key (a power cycle) and driving the REAL five-term
+                //      restore against the `/mrcfg` record the activation really wrote.
+                {
+                    // A THIRD team, with a REAL derived pair retained for it — so the adopt below is refused or
+                    // accepted by the CORE's own derivation rather than by a stub.
+                    uint8_t spub[32], spriv[32], scalar[32];
+                    for (int i = 0; i < 32; ++i) scalar[i] = uint8_t(0x21 + i);
+                    const bool derived = meshroute::team_channel_key_derive(spub, spriv, scalar);
+                    const bool retained2 =
+                        ps.keyring.put(0x33FEED33u, spub, spriv).verdict == mrfw::KeyringVerdict::ok;
+                    hear_team(218, 0x33FEED33u, 8.0f, t17 + 1000);
+                    set_now(t17 + 1500);
+                    t17 += 2000;
+                    CHK("P22g precondition: a REAL pair is retained for the third team, and it is audible",
+                        derived && retained2 && mrfw::team_key_find(ps.keys.rec, 0x33FEED33u) >= 0 &&
+                        g_node.team_channel_key_present() == false);
+                    const int ks0 = ps.keys.saves, w2 = st.writes;
+                    const int adopts0 = saved_key_live().adopts, clears0 = saved_key_live().clears;
+                    g_hal.collect_tx_completion(); g_hal.pump_tx();
+                    const int txd0 = g_hal.txq_depth(), starts0 = g_probe_radio.starts;
+
+                    t17 = walk_to(t17 + 500, ">JOIN TEAM");
+                    t17 = see(double_press(t17 + 500));
+                    t17 = walk_to(t17 + 500, ">FEED33");
+                    t17 = see(double_press(t17 + 500));
+                    t17 = see(settle(t17 + 500));              // -> JOIN
+                    t17 = see(double_press(t17 + 500));
+                    CHK("P22g the join lands first, in its own word", body_row_is(0, "TEAM JOINED"));
+                    t17 = see(double_press(t17 + 500));        // acknowledge -> the OFFER
+                    CHK("P22g ...and its acknowledgement opens the offer (S-28)", body_row_is(0, "SAVED KEY FOUND"));
+                    CHK("P22g ⛔ ...still keyless at this point (P-2b: the screen is not the act)",
+                        g_node.team_channel_key_present() == false &&
+                        saved_key_live().adopts == adopts0 && ps.keys.saves == ks0);
+                    t17 = see(settle(t17 + 500));              // a SHORT press -> USE SAVED KEY
+                    CHK("P22g a short press moves the selection to USE SAVED KEY",
+                        row_starts(4, ">USE SAVED KEY") && row_starts(3, " BACK"));
+                    CHK("P22g ⛔ ...and the toggle is still not the act",
+                        g_node.team_channel_key_present() == false && saved_key_live().adopts == adopts0);
+                    t17 = see(double_press(t17 + 500));        // ...and THIS performs it
+                    // ★★★ THE PANEL SAYS ONLY WHAT IS TRUE — S-26's ruled lexeme, ⛔ and NOT the RAM-only screen's
+                    //     two extra rows (the key IS durable), ⛔ and never `TEAM KEY RECEIVED` (nothing arrived).
+                    CHK("P22g the panel says TEAM KEY ACTIVE", body_row_is(0, "TEAM KEY ACTIVE"));
+                    CHK("P22g ⛔ ...with NO durability warning under it (this key IS saved)",
+                        body_row(1) == nullptr && strstr(g_c.page_text, "NOT SAVED") == nullptr &&
+                        strstr(g_c.page_text, "LOST ON REBOOT") == nullptr);
+                    CHK("P22g ⛔ ...and never TEAM KEY RECEIVED — nothing was received",
+                        strstr(g_c.page_text, "TEAM KEY RECEIVED") == nullptr);
+                    CHK("P22g ...and the way out is stated", body_row_is(4, "press = back"));
+                    // ★★★ THE REAL CORE NOW HOLDS THE REAL KEY — adopted ONCE, through the accessor that re-derives.
+                    CHK("P22g ★★★ the REAL core holds the retained pair, adopted exactly once",
+                        g_node.team_channel_key_present() && saved_key_live().adopts == adopts0 + 1 &&
+                        saved_key_live().clears == clears0 &&
+                        memcmp(g_node.team_channel_pub(), spub, 32) == 0);
+                    // ★★ THE DURABLE HALF: exactly ONE `/mrcfg` activation write, and ⛔ ZERO keyring writes (the
+                    //    key was already durable — an activation may not spend flash on it).
+                    CHK("P22g ...the activation cost exactly ONE /mrcfg write and ZERO keyring writes",
+                        st.writes == w2 + 2 && ps.keys.saves == ks0);   // +1 the join, +1 the activation
+                    CHK("P22g ...and the record now carries the ACTIVE binding for that exact team",
+                        st.rec.team_key_active == 1 && st.rec.team_key_team_id == 0x33FEED33u &&
+                        st.rec.team_ch_key_present == 1 && st.rec.team_id == 0x33FEED33u);
+                    // ⛔ ZERO TX FROM THE OFFER, EITHER CHOICE, AND THE ACTIVATION — the P-4 shape, counted on the
+                    //    REAL queue and the REAL radio (this is the automated half of the bench's own step).
+                    CHK("P22g ⛔ the offer and the activation enqueued NOTHING", g_hal.txq_depth() == txd0);
+                    g_hal.collect_tx_completion(); g_hal.pump_tx();
+                    CHK("P22g ⛔ ...and pumping the queue started NO transmission",
+                        g_probe_radio.starts == starts0);
+                    // ★★★★ THE POWER-CYCLE PROOF, DRIVEN RATHER THAN ARGUED: wipe the LIVE key (what a reboot does)
+                    //      and run the REAL five-term restore against the record this activation wrote.
+                    {
+                        g_node.team_channel_key_clear();
+                        CHK("P22g precondition: the simulated power cycle really left it keyless",
+                            g_node.team_channel_key_present() == false);
+                        mrfw::TeamKeyBinding bind{};
+                        bind.membership_team_id = st.rec.team_id;
+                        bind.binding_team_id    = st.rec.team_key_team_id;
+                        bind.key_active         = (st.rec.team_key_active != 0);
+                        bind.committed_present  = (st.rec.team_ch_key_present != 0);
+                        bind.committed_pub      = st.rec.team_ch_pub;
+                        const mrfw::KeyringRestore kr = ps.keyring.restore(bind, saved_key_live());
+                        CHK("P22g ★★★★ the FIVE TERMS hold: the next boot RESTORES the same key (BOOT-DURABLE)",
+                            kr == mrfw::KeyringRestore::installed && g_node.team_channel_key_present() &&
+                            memcmp(g_node.team_channel_pub(), spub, 32) == 0);
+                        CHK("P22g ⛔ ...and the restore itself wrote nothing",
+                            ps.keys.saves == ks0 && st.writes == w2 + 2);
+                    }
+                    t17 = see(double_press(t17 + 500));        // acknowledge the result
+                    CHK("P22g the activation's result is terminal — a press rebuilds the menu",
+                        body_row_is(0, ">CREATE TEAM"));
+                }
             }
 
             // ================================================================================================== P23

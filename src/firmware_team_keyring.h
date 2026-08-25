@@ -60,9 +60,13 @@
 //    METAL-ONLY (M2) and is owed as a bench part.
 //
 // ⓘ WHAT THIS FILE DELIBERATELY DOES **NOT** HAVE YET (per [[meshroute-mark-done-vs-missing-in-code]]):
-//     · ⛔ NO reader that hands key MATERIAL out. K5 (`SAVED KEY FOUND`) needs a PRESENCE question — "is there a
-//       record for this team id?" — which is not key material; it is not added here because K5 is its own slice and
-//       an accessor with no caller is untested surface.
+//     · ✅ LANDED 2026-08-25 (§UI-16 K5) — the PRESENCE question and the EXPLICIT activation. ⛔ THIS ENTRY IS
+//       CORRECTED IN PLACE RATHER THAN DELETED: it read *"⛔ NO reader that hands key MATERIAL out. K5
+//       (`SAVED KEY FOUND`) needs a PRESENCE question — 'is there a record for this team id?' — which is not key
+//       material; it is not added here because K5 is its own slice and an accessor with no caller is untested
+//       surface."* ★ THE HALF THAT HELD IS THE ONE THAT MATTERED: `has_record()` below answers a **BOOLEAN** and
+//       `use_saved()` hands the material to the **LIVE SEAM AND THE `/mrcfg` WRITER AND NOWHERE ELSE** — ⛔ there is
+//       still no reader that returns key bytes to a caller, and there is still no caller that could print one.
 //     · ⛔ NO `FORGET KEY` remover — owner-named as a future verb (spec string S-31), ⛔ not in this spec.
 //     · ✅ LANDED 2026-08-24 (§UI-16 K3) — the GRANT-RECEIVE persistence path. ⛔ THIS ENTRY IS CORRECTED IN PLACE
 //       RATHER THAN DELETED: it read *"⛔ NO grant-receive persistence path — that is K3 … K3 calls `put()` below;
@@ -232,6 +236,97 @@ inline const char* keyring_restore_name(KeyringRestore r) {
     return "?";
 }
 
+// ---- §UI-16 K5 — THE **EXPLICIT** ACTIVATION's OUTCOME (spec §4-K5, P-2b) ----------------------------------------
+// ★★★★ WHY THIS IS A THIRD OUTCOME TYPE AND ⛔ NOT `KeyringRestore` REUSED, checked before it was written (U1): the
+//      restore's block one screen up states *"EVERY ARM PERFORMS ZERO WRITES"* and that is the property its whole
+//      vocabulary is built on. ★ THIS VERB **WRITES** — it commits the `/mrcfg` ACTIVE BINDING — so folding it into
+//      that enum would put a writing arm inside a type a reader has been told cannot persist anything. (It is the
+//      same argument `KeyringRestore` itself makes for not being a `KeyringVerdict`.)
+// ★★★ THE GOVERNANCE IS **NOT** THE BOOT RESTORE'S — ⛔ CORRECTED IN PLACE 2026-08-25 (QG blocker 1), AND THE
+//     WITHDRAWN CONTRACT IS KEPT VISIBLE BECAUSE IT WAS NORMATIVE: this block read *"AND IT IS THE SAME
+//     **GOVERNANCE**: ⛔ EXACTLY ONE ARM LEAVES A KEY LIVE. Every other arm goes through `refuse()` below, which
+//     CLEARS — so a `USE SAVED KEY` that could not complete leaves the node **KEYLESS**"*. ⛔ **THAT RULE WAS WRONG
+//     HERE, AND WRONG IN THE DANGEROUS DIRECTION**: the live key at this moment belongs to whatever team `/mrcfg`
+//     currently NAMES, so clearing on a refusal destroys the CURRENT team's innocent key — see the SURGICAL block
+//     below, which is what replaced it. ★ THE HALF THAT SURVIVED IS THE ONE THAT MATTERS: ⛔ never half-installed
+//     (C2), and the RETAINED RECORD IS UNTOUCHED on every one of them.
+// ⛔⛔ P-2b IS WHAT THIS VERB EXISTS TO OBEY, NOT TO WEAKEN: nothing here runs unless an operator pressed
+//     `USE SAVED KEY` on the offer screen. Knowledge of the PUBLIC team id reaches `has_record()` — a BOOLEAN — and
+//     stops there. ⛔ There is no path from a join, a beacon or a push to this function.
+// ★★★★ THE REFUSAL IS **SURGICAL**, ⛔ NOT THE GLOBAL CLEARING FUNNEL — ADDED 2026-08-25 (QG blocker 1), and the
+//      distinction is the whole safety argument of this verb: `refuse()` (the boot restore's) exists because THERE
+//      the live key IS THE SUSPECT — a previous boot step may have installed one this node must not hold, so the
+//      verdict has to be APPLIED by clearing. ⛔ HERE THE LIVE KEY IS INNOCENT: the offer is reached from a join
+//      that left the node keyless, and if a live key exists at all it belongs to the team `/mrcfg` currently names —
+//      which this verb has no mandate to destroy. ⇒ every refusing arm below returns DIRECTLY and clears NOTHING.
+//      ★ THE ONE EXCEPTION IS `binding_failed`, and it is not a "clear" but an **UNDO of this verb's own install**:
+//      the pair was adopted one statement earlier and the durable half then failed, so leaving it live would be the
+//      half-installed node [[B240]] is about. It is spelled AT the call site, ⛔ not routed through a funnel.
+enum class SavedKeyUse : uint8_t {
+    installed,       // ★ THE ONE INSTALLING ARM: the record VERIFIED (`adopt_key` re-derived the pub) and the
+                     //   `/mrcfg` binding is COMMITTED ⇒ the five-term boot predicate now holds ⇒ BOOT-DURABLE
+    zero_team,       // 0 is not a team — ⛔ 0 reads, 0 writes (`put`'s own floor, asked again by the HANDLER)
+    // ★★★★ THE STALE-TARGET ARM (QG blocker 1). The offer was BUILT for team A and the `double` arrives some time
+    //      later; a `team <id>` over serial/BLE in between moves MEMBERSHIP to B. Installing A's key then would put
+    //      A's secret live under a `/mrcfg` that says B — the panel claiming `TEAM KEY ACTIVE` for a binding the
+    //      five-term boot restore will REJECT. ⇒ refused, and ⛔ B's live key, B's binding and A's record are all
+    //      left exactly as they were. ⓘ It is the K3 HANDLING-TIME re-check discipline applied to an operator's act.
+    not_our_team,
+    record_unreadable,  // the `/mrcfg` record could not be read ⇒ ★ FAIL CLOSED (C2): an unestablished term is
+                        // ⛔ never treated as satisfied, so nothing is adopted and nothing is written
+    no_record,       // the keyring holds nothing for that team ⇒ ⛔ nothing to install; the offer should not have been
+    store_failed,    // the store is corrupt / would not open ⇒ ⛔ nothing is known, ⛔ nothing is written
+    rejected,        // ★ the record does not VERIFY (`adopt_key` refused: pub != derived-from-priv, or degenerate)
+    binding_failed,  // ★ the `/mrcfg` ACTIVATION write failed ⇒ THIS VERB'S OWN install is UNDONE (see the block above)
+    // ★★★★ THE INVENTORY SENTINEL (2026-08-25, QG blocker 2 — the THIRD instance of this fence, after
+    //      `GrantSave::count` and `mrui::InviteGrantState::count`, and it is added for the reason those two exist:
+    //      a HAND-WRITTEN inventory had already failed this arc once. The sweep in
+    //      `test/test_firmware_team_keyring.cpp` used to RE-TYPE all six values, so an arm appended here would have
+    //      been silently unswept while the case went on calling itself exhaustive.
+    //      ⇒ THE INVENTORY IS NOW A PROPERTY OF THE ENUM, on two independent axes and neither is a literal:
+    //        (1) the case iterates `0 .. count-1`, so an arm added above this line is visited BY CONSTRUCTION;
+    //        (2) `saved_key_use_name`'s switch has ⛔ NO `default:`, so an arm added and NOT worded is a
+    //            **BUILD FAILURE** under the blanket `-Werror=switch`.
+    // ⛔ IT IS ⛔ NOT AN OUTCOME: ⛔ no `use_saved` may return it and ⛔ no answer may carry it. It must stay LAST —
+    //    that is what makes it the count.
+    count
+};
+// enum -> string, `default`-LESS for the reason `keyring_verdict_name` gives. ⓘ These tokens are what the panel's
+// SECOND row carries (the `UiProvAnswer::reason` mechanism — the SERVICE's own token, ⛔ never a second table);
+// ⛔ they name FACTS and carry no material, which is K1's hygiene rule applied to the newest voice.
+inline const char* saved_key_use_name(SavedKeyUse v) {
+    switch (v) {
+        case SavedKeyUse::installed:         return "installed";
+        case SavedKeyUse::zero_team:         return "zero_team";
+        case SavedKeyUse::not_our_team:      return "not_our_team";
+        case SavedKeyUse::record_unreadable: return "record_unreadable";
+        case SavedKeyUse::no_record:         return "no_record";
+        case SavedKeyUse::store_failed:      return "store_failed";
+        case SavedKeyUse::rejected:          return "rejected";
+        case SavedKeyUse::binding_failed:    return "binding_failed";
+        // ⛔ THE SENTINEL IS ⛔ NOT AN OUTCOME, so it has NO word — spelled out HERE rather than left to a
+        //    `default:` for exactly the reason this switch has none (`grant_save_name`'s own note): a `default:`
+        //    would swallow a REAL arm added above it, which is the miss the sentinel exists to make impossible.
+        case SavedKeyUse::count:             return "?";
+    }
+    return "?";
+}
+
+// ★★★★ THE COMMIT'S **SECOND AUTHORITY** (QG blocker 1), AND IT IS PURE SO IT CAN BE ATTACKED — added 2026-08-25.
+//      `ITeamKeyBinding::commit_active` writes the ACTIVE BINDING into the `/mrcfg` record it has just loaded. That
+//      record carries the MEMBERSHIP, and a binding for a team the record does not name is a binding that LIES: the
+//      five-term boot restore compares the two (term (ii)) and comes up KEYLESS, so the operator is told a key is
+//      active that no reboot will ever install. ⇒ EVERY writer asks this FIRST and refuses without writing.
+// ⓘ WHY A FREE PREDICATE AND NOT A LINE INSIDE THE DEVICE WRITER: `src/firmware_config.cpp` is compiled by NEITHER
+//   the native suite NOR the simulator (§B115), so a guard written only there is a guard no gate can drive and no
+//   mutation can redden. Declared here, the REAL writer, the two test fakes and the probe's binding all call the
+//   SAME one authority (U1) — and `--target=teamkeyring` can attack it at match count 1.
+// ⛔ IT IS ⛔ NOT A SUBSTITUTE FOR `use_saved`'s OWN RE-CHECK: that one refuses BEFORE a secret is adopted and can
+//    say WHY; this one is the last fence in front of the write, in the shape K3's re-check (4) already uses.
+inline bool commit_membership_ok(uint32_t record_team_id, uint32_t want_team_id) {
+    return want_team_id != 0 && record_team_id == want_team_id;
+}
+
 // ---- the two UNREADABLE answers, named once (U1) ----------------------------------------------------------------
 // ⛔ `absent` IS NOT UNREADABLE. A fresh device read its store perfectly; there was simply nothing in it.
 inline bool team_key_read_unreadable(mrnv::TeamKeyRead st) {
@@ -289,6 +384,13 @@ inline int team_key_find(const mrnv::TeamKeyBlob& b, uint32_t team_id) {
 inline void team_key_clamp_count(mrnv::TeamKeyBlob& b) {
     if (b.count > mrnv::kTeamKeyRecs) b.count = mrnv::kTeamKeyRecs;
 }
+
+// ⓘ §UI-16 K5 — FORWARD-DECLARED ONLY. `ITeamKeyBinding` is DEFINED in the K3 section at the foot of this file (its
+//   own note says why it lives there: `blob_put_team_channel_key`, the one `/mrcfg` conversion authority, is in a
+//   file that includes THIS one, so the seam names the operations and leaves the assignments where they already
+//   live). `TeamKeyringService::use_saved` needs both seams, so it is DECLARED in the class below and DEFINED after
+//   that struct — ⛔ never by hoisting the struct, which would move code a landed battery anchors by text (C1).
+struct ITeamKeyBinding;
 
 // ---- the service -------------------------------------------------------------------------------------------
 // RAM: one reference. ⛔ No cached record and no draft — each verb is a single load-edit-store transaction, so there
@@ -398,6 +500,32 @@ class TeamKeyringService {
         return KeyringRestore::installed;
     }
 
+    // ================================================================ §UI-16 K5 — THE **PRESENCE** QUESTION (P-2b)
+    // ★★★★ IT ANSWERS A **BOOLEAN**, AND THAT IS THE WHOLE OF ITS CONTRACT: *"is a key for this team RETAINED?"* —
+    //      ⛔ never *"give me the key"*. K1's standing rule (see the header) is that this file has no reader which
+    //      hands MATERIAL out, and this does not become one: the only thing that leaves is one bit, and the only
+    //      caller is the join adapter deciding whether to OFFER a screen.
+    // ⛔⛔ ANSWERING TRUE INSTALLS NOTHING AND IMPLIES NOTHING (P-2b). A retained record plus knowledge of the public
+    //     team id is exactly the pair the ruling says may ⛔ never reactivate a secret; what it earns is an OFFER
+    //     with `BACK` selected, which is why K5 is a SCREEN and not a rule.
+    // ★ ZERO WRITES, and it FAILS CLOSED (C2): an ABSENT, CORRUPT or UNREADABLE store answers **false** — ⛔ never
+    //   "probably". An offer made against a store nobody could read would end on a refusal the operator did not need
+    //   to be walked into. ⓘ The three are one answer HERE and stay distinguishable where it matters — `use_saved`
+    //   below tells `no_record` and `store_failed` apart, because there the operator has ASKED.
+    bool has_record(uint32_t team_id) {
+        if (team_id == 0) return false;                    // ⛔ 0 is never stored ⇒ ⛔ 0 loads, and never an offer
+        mrnv::TeamKeyBlob cur{};
+        SecretWipeGuard<mrnv::TeamKeyBlob> cguard{cur};    // ⚠ SECRET-BEARING: the same one guard, the same rule
+        if (_store.load(cur) != mrnv::TeamKeyRead::ok) return false;
+        team_key_clamp_count(cur);
+        return team_key_find(cur, team_id) >= 0;
+    }
+
+    // ================================================================ §UI-16 K5 — THE **EXPLICIT** ACTIVATION
+    // ⛔ DECLARED HERE, DEFINED BELOW `ITeamKeyBinding` (see the forward declaration above this class). The contract
+    //    is written at the definition, with the order it enforces.
+    SavedKeyUse use_saved(uint32_t team_id, ITeamKeyLive& live, ITeamKeyBinding& binding);
+
   private:
     // ★★★ THE GOVERNANCE, SPELLED ONCE (U1) — QG blocker 1's fix, and the shape matters: every non-installing return
     //     of `restore` goes through this, so a refusal arm added later CANNOT forget to leave the node keyless. A
@@ -405,6 +533,11 @@ class TeamKeyringService {
     //     added and missed (the reason `apply_team` uses a scope guard for its wipe).
     // ⛔ It is NOT "clear if a key is present": the seam is idempotent and the service must not hold a belief about
     //    live state it did not establish.
+    // ⛔⛔ IT IS THE **BOOT RESTORE'S** GOVERNANCE AND ⛔ NOT A GENERAL ONE — ★ STATED HERE 2026-08-25 (QG blocker
+    //    1), because §UI-16 K5 briefly made it a template and that was WRONG: the clearing is correct exactly where
+    //    THE LIVE KEY IS THE SUSPECT (a previous boot step may have installed a key this node must not hold). In
+    //    `use_saved` the live key belongs to the team `/mrcfg` currently NAMES and is INNOCENT, so that verb refuses
+    //    surgically and clears nothing (see its own block). ⇒ this stays `KeyringRestore`'s, with ONE caller family.
     static KeyringRestore refuse(ITeamKeyLive& live, KeyringRestore why) {
         live.clear_key();
         return why;
@@ -459,6 +592,93 @@ struct ITeamKeyBinding {
     // "nothing was written" — a failed save may have written PARTIALLY ([[B193]]), and no voice above may say otherwise.
     virtual bool commit_active(uint32_t team_id, const uint8_t pub[32], const uint8_t priv[32]) = 0;
 };
+
+// ================================================================ §UI-16 K5 — `USE SAVED KEY`, THE ONE ACTIVATION
+// ★★★★ THE ORDER IS THE CONTRACT, AND IT IS **K3's ORDER WITH ITS FIRST STEP ALREADY DONE**: K3 writes *the key
+//      durably FIRST, then the activation*, because a reboot landing between the two must find a retained record
+//      with no active binding (which comes up KEYLESS — the honest answer) rather than a binding with no key behind
+//      it (a binding that lies). ★ HERE THE KEY IS **ALREADY DURABLE** — it is the retained record — so the only
+//      write left is the ACTIVATION, and the step that precedes it is the VERIFICATION.
+//        refuse id 0 -> ★ **RE-CHECK THE PERSISTED MEMBERSHIP** -> load -> absent/unreadable, told apart -> find the
+//        team's record -> **ADOPT IT LIVE** (which is what verifies it) -> **COMMIT THE `/mrcfg` ACTIVE BINDING**
+//        -> installed.
+// ★★★ EVERY LINE OF IT IS AN EXISTING AUTHORITY **CALLED** (U1/U2), and that is a REQUIREMENT of this slice rather
+//     than a description of it — ⛔ there is ⛔ NO second install sequence anywhere in this tree:
+//       · the LIVE install is `ITeamKeyLive::adopt_key` — the boot restore's own term (v), i.e.
+//         `Node::team_channel_key_adopt`, which RE-DERIVES the public half from the private one and REFUSES a record
+//         that does not verify. ⛔ Not `team_channel_key_load` and ⛔ not a derivation re-spelled here;
+//       · the DURABLE half is `ITeamKeyBinding::commit_active` — K3's own writer, i.e. `blob_put_team_channel_key`
+//         (the ONE conversion of key material into `mrnv::Blob`) plus the two binding assignments;
+//       · the REFUSAL is ⛔ **NOT** `refuse()` — see `SavedKeyUse`'s block: this verb's refusals are SURGICAL and
+//         clear nothing, and the one arm that wipes (`binding_failed`) is UNDOING ITS OWN INSTALL, at the call site.
+// ★★★★ WHAT `installed` BUYS, STATED AS THE FIVE TERMS BECAUSE THAT IS HOW IT IS PINNED: after this returns
+//      `installed`, `/mrcfg` names this team as MEMBERSHIP (the JOIN wrote that, before the offer was ever shown) and
+//      as the ACTIVE BINDING, and it WITNESSES the very public half the keyring holds — so `restore()`'s (i)…(v) all
+//      hold and the key survives the power cycle. ⛔ THE CLAIM IS NOT MADE BY THIS COMMENT: the suite DRIVES
+//      `restore()` against the state this function wrote.
+// ⛔⛔ SECRET HYGIENE IS K1's, UNCHANGED: the material is loaded into the ONE scope-guarded transient, handed to the
+//     two seams, and wiped on EVERY exit. ⛔ No key byte reaches a verdict, a token, a log or the panel — the
+//     outcomes name FACTS (`rejected`, `binding_failed`), and `saved_key_use_name` is what the screen may print.
+// ⚠ THE LIMIT OF THE CLAIM, in this file's standing words: `commit_active` returning false may still have written
+//   PARTIALLY ([[B193]]) — so `binding_failed` means *"the activation did not complete"*, ⛔ never *"no flash was
+//   changed"*. The node is left KEYLESS, which is true whatever the flash did.
+inline SavedKeyUse TeamKeyringService::use_saved(uint32_t team_id, ITeamKeyLive& live, ITeamKeyBinding& binding) {
+    // ⛔ THE HANDLER's OWN FLOOR (C2), asked here as well as in `put` and for `receive`'s stated reason: neither verb
+    //    may rely on the other having run. ⓘ ZERO reads, ZERO writes, ⛔ nothing cleared.
+    if (team_id == 0) return SavedKeyUse::zero_team;
+
+    // ★★★★ (1) THE MEMBERSHIP RE-CHECK, AT **HANDLING** TIME — QG blocker 1, and it is K3's re-check (2)/(4)
+    //      discipline applied to an OPERATOR'S ACT rather than to a drained push. The reason is identical and it is
+    //      not hypothetical: the offer screen was BUILT from a join that had just returned, and the `double` arrives
+    //      some seconds later. A `team <id>` over serial or BLE in between moves the membership underneath it, and
+    //      the id this verb was handed is then STALE — it names the team the operator was looking at, ⛔ not the
+    //      team this node is in.
+    // ★★★ IT IS ASKED OF THE **PERSISTED** RECORD, which is the same authority `commit_active` is about to write
+    //     into — so the term this refuses on is the very term the boot restore will compare (term (ii)). Asking the
+    //     UI, or trusting the id it retained, would be asking the party that is already wrong.
+    // ⛔ AND IT IS ASKED **BEFORE THE KEYRING IS EVEN OPENED**: a stale target costs ZERO secret-bearing loads,
+    //    ZERO adopts and ZERO writes. ⓘ FAIL CLOSED on an unreadable record (C2) — an unestablished term is never
+    //    treated as satisfied.
+    TeamKeyBinding cur_bind{};
+    if (!binding.read(cur_bind))                       return SavedKeyUse::record_unreadable;
+    if (cur_bind.membership_team_id != team_id)        return SavedKeyUse::not_our_team;
+
+    mrnv::TeamKeyBlob cur{};
+    SecretWipeGuard<mrnv::TeamKeyBlob> cguard{cur};        // ⚠ SECRET-BEARING FROM THE NEXT LINE ON
+    const mrnv::TeamKeyRead st = _store.load(cur);
+    // ⛔ THE TWO ABSENT-ISH ANSWERS ARE **NOT** COLLAPSED, for `keyring_err_of_unreadable`'s reason one screen up:
+    //    "there is no record for this team" and "the store could not be read at all" take different operator
+    //    actions, and the operator has explicitly ASKED here, so he gets the one that is true.
+    // ⛔⛔ AND NEITHER ARM CLEARS ANYTHING (the SURGICAL refusal, see `SavedKeyUse`'s block): past the re-check the
+    //     node's membership IS this team, so any live key it holds is this team's — installed by a serial import a
+    //     moment ago, say — and a keyring that could not be read is ⛔ no reason to destroy it.
+    if (st == mrnv::TeamKeyRead::absent) return SavedKeyUse::no_record;
+    if (st != mrnv::TeamKeyRead::ok)     return SavedKeyUse::store_failed;
+    team_key_clamp_count(cur);
+    const int idx = team_key_find(cur, team_id);
+    if (idx < 0) return SavedKeyUse::no_record;
+
+    // ★★ THE VERIFICATION **IS** THE INSTALL (the boot restore's term (v), the same call): a record whose pub does
+    //    not derive from its priv installs NOTHING. ⛔ There is deliberately no fallback that loads the pair
+    //    verbatim — a pair whose halves disagree seals posts nobody can read. ⓘ `adopt_key` leaves the live state
+    //    UNTOUCHED on a refusal (its own contract), so there is nothing to undo and ⛔ nothing is cleared.
+    if (!live.adopt_key(cur.rec[idx].team_ch_pub, cur.rec[idx].team_ch_priv))
+        return SavedKeyUse::rejected;
+    // ★★★ THEN THE DURABLE ACTIVATION, AND A FAILURE HERE **UNDOES THIS VERB'S OWN INSTALL** (C2): the operator
+    //     asked for a key that would still be there after a reboot, and half of that is worse than none — a live key
+    //     with no binding is a node that reads the channel today and silently cannot tomorrow, which is [[B240]]'s
+    //     exact shape. ⓘ THE UNDO IS SAFE PRECISELY BECAUSE OF THE RE-CHECK ABOVE: membership is this team, so the
+    //     pair being wiped is the one adopted two lines up and ⛔ never another team's. ★ It is spelled HERE, at the
+    //     one arm that owns it, ⛔ not routed through the boot restore's clearing funnel.
+    // ⚠ THE LIMIT OF THE CLAIM, in this file's standing words: a `commit_active` that returns false may still have
+    //   written PARTIALLY ([[B193]]) — so `binding_failed` means *"the activation did not complete"*, ⛔ never
+    //   *"no flash was changed"*. THE RETAINED RECORD IS UNTOUCHED on this path, and that IS established.
+    if (!binding.commit_active(team_id, cur.rec[idx].team_ch_pub, cur.rec[idx].team_ch_priv)) {
+        live.clear_key();
+        return SavedKeyUse::binding_failed;
+    }
+    return SavedKeyUse::installed;
+}
 
 // ---- what the handler is given, at HANDLING time -----------------------------------------------------------------
 // ⓘ Every field is a RE-CHECK TERM or the material itself. ⛔ THERE IS NO `name` FIELD and its absence is the ruling,

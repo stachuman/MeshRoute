@@ -87,6 +87,11 @@
 // `ListView` for TEAM/INBOX), and leaving is one pure reset (`list_view_reset_on_leave`, the [[B223]] extraction).
 // ★ §B64/§UI-7D's identity cursors are UNCHANGED and are now gated on the interactive arm: a passive screen records no
 //   pick, so `activate` there cannot queue anything at all.
+// DONE here (2026-08-25, §UI-17 keyrecv — OWNER-RULED, shape (a)): acknowledging the `TEAM KEY RECEIVED` note LEAVES
+// the provisioning flow for the PASSIVE STATUS screen (`team_key_note_ack_landed`, keyed on the ANSWER so BOTH result
+// arms share one rule). ⛔ ONE landing moved: the failure pair (`TEAM KEY ACTIVE` / `NOT SAVED` / `LOST ON REBOOT`) and
+// every other terminal — `TEAM CREATED`, `TEAM JOINED`, `ADOPTED`, every refusal, K5's two endings — land exactly where
+// they landed before, and ⛔ the note's ARRIVAL still navigates nothing and wakes nothing (spec §4-K4 pin 3).
 // ⛔ WHAT IS STILL MISSING AND WHY (this is the [[meshroute-mark-done-vs-missing-in-code]] statement): §3.6.4's
 //    nearby-team scan and its sealed key grant are §UI-16's, and ⛔ [[B215]] — the audit finding that
 //    `reset_join_for_reprovision()` cancels only the claim guard and not the old listen/retry timers — is ITS OWN
@@ -414,14 +419,27 @@ inline bool screen_is_entered(Screen sc, Settings settings, ListView view) {
 //   `invite_need_pubkey` / `invite_wait_pubkey` — LIVE (§UI-16 N5): the explicit BACK-default request and the
 //                      post-request wait. No request is automatic; a matching cached-key push returns to the
 //                      locally refreshed candidate row, whose next double re-runs the grant's own preflight.
+//   `saved_key`      — LIVE (§UI-16 K5): design §3.6.4 point 4's *"`SAVED KEY FOUND` with `BACK` selected and an
+//                      explicit `USE SAVED KEY`"*. ★★★ IT IS REACHED FROM THE **ACKNOWLEDGEMENT OF A `team_joined`
+//                      RESULT**, and only when the JOINED team has a RETAINED `/mrteams` record — ⛔ never from the
+//                      confirmation, ⛔ never from the join act itself. That placement IS P-2b: the membership
+//                      transaction has already run, returned and been REPORTED before the key question is asked, so
+//                      nothing about the key can be read as part of joining. `short` toggles, `double` performs the
+//                      selected one; `BACK` lands on the MENU exactly where the acknowledgement would have, and
+//                      ★ CHANGES **NO KEY STATE AT ALL** — nothing installed, nothing cleared, the retained record
+//                      untouched. (⛔ ⛔ It does ⛔ NOT "leave the node keyless": after a membership change under
+//                      the offer the node may legitimately hold the CURRENT team's key, and declining an offer
+//                      about another team may never destroy it.)
 //   `invite_closed`  — LIVE (§UI-16 N4): the window RAN OUT (`WINDOW CLOSED`). Terminal, either press returns to
 //                      the menu. ⛔ ENTERING IT GRANTS, REVOKES AND REWRITES NOTHING (P-11) — it moves a screen
 //                      and drops RAM, and `enter_provision` is what discards the window's whole state with it.
 enum class Provision : uint8_t {
     closed = 0, menu, create_confirm, create_result, join_select, join_confirm, join_waiting, join_result,
     nearby, nearby_confirm, invite, invite_confirm, invite_closed, invite_need_pubkey, invite_wait_pubkey,
-    invite_result   // §UI-16 N6 — APPENDED, ⛔ never inserted: `provision_reset_on_leave`'s arm sweep and every
+    invite_result,  // §UI-16 N6 — APPENDED, ⛔ never inserted: `provision_reset_on_leave`'s arm sweep and every
                     // renderer switch enumerate this type, and an insertion renumbers arms nothing else can see
+    saved_key       // §UI-16 K5 — APPENDED for the same reason, and it is the slice's ONE new arm (its RESULT
+                    // reuses `create_result`, which renders `prov_answer` and nothing else — N3's own precedent)
 };
 
 // ★★ IS THIS ARM THE INVITATION WINDOW ITSELF? Asked in ONE place and answered for THREE readers (U1): the
@@ -726,7 +744,13 @@ inline const char* provision_row_label(ProvRow r) {
 //     join is a THIRD op on the SAME seam, so `UiProvisionAdapter::perform`'s `default`-less dispatch forces a reader
 //     to state what performs it. ⛔ Not a fourth `IUiNearbyJoin` seam and ⛔ not a `bool mint` on the create op — the
 //     two verbs answer with different WORDS on the panel (`TEAM JOINED` vs `TEAM CREATED`, F-4), so they are two ops.
-enum class UiProvOp : uint8_t { none = 0, create_team, join_static, join_team };
+// ★★★★ §UI-16 K5 ADDS THE FOURTH OP, AND IT IS AN OP RATHER THAN A FLAG ON `join_team` BECAUSE IT IS A DIFFERENT
+//      ACT PERFORMED AT A DIFFERENT TIME BY A SEPARATE OPERATOR DECISION (P-2b): the join runs, returns and is
+//      REPORTED; only then may `use_saved_key` run, and only on a `double` over a confirmation whose default is
+//      `BACK`. ⛔ A `bool install_saved` on the join intent would make the two one transaction again, which is
+//      exactly what the ruling forbids. ⓘ `UiProvisionAdapter::perform`'s dispatch is `default`-less, so this line
+//      forced a reader to state what performs it.
+enum class UiProvOp : uint8_t { none = 0, create_team, join_static, join_team, use_saved_key };
 struct UiProvIntent {
     UiProvOp op = UiProvOp::none;
     // ★★★ THE SELECTED PROFILE, CARRIED WHOLE (U2) — ⛔ never a slot INDEX the adapter would re-read the store for.
@@ -791,9 +815,39 @@ struct UiProvIntent {
 //      ⛔⛔ AND NEITHER MAY EVER CARRY A LABEL. The granter's optional `name=` rides the push and stops there
 //         (`lib/core/node.cpp:264-266`); rendering it here would make an unauthenticated, self-asserted string the
 //         TEAM's identity on a screen (F-3 / P-5), which is the forbidden USAGE spec §8 S-36 exists to name.
+// ★★★★ §UI-16 K5 ADDS THE ELEVENTH AND TWELFTH: ONE REUSES A RULED LEXEME, THE OTHER **HAS ITS OWN, S-39**.
+//      ⛔ CORRECTED IN PLACE 2026-08-25 (the owner's S-39 ruling), AND THE WITHDRAWN CLAIM IS KEPT VISIBLE BECAUSE
+//      IT WAS NORMATIVE: this block read *"AND ⛔ **NEITHER INVENTS A LEXEME** — spec §8 … rules ⛔ NO result word
+//      for what follows it. ⇒ REPORTED, ⛔ NOT INVENTED: both arms END ON A RULED LEXEME THAT IS TRUE OF THE
+//      RESULTING STATE"*. ★ THE PROCESS HELD AND IS WHY THE RULING EXISTS — nothing was invented silently, the
+//      candidate was reported — but the OUTCOME moved: ⛔ no ruled lexeme was true on every failing arm, so the
+//      owner RULED A NEW ONE (**S-39 `KEY NOT INSTALLED`**, 2026-08-25). ⇒ the success arm reuses S-26 and the
+//      failure arm has S-39, and ⛔ neither claims an EVENT:
+//        `saved_key_used`   — ★ `TEAM KEY ACTIVE` (S-26). The key IS live: `adopt_key` re-derived and accepted the
+//                             record, and `commit_active` returned true, so the five-term boot predicate holds.
+//                             ⛔ IT DELIBERATELY SHOWS ⛔ NO SECOND ROW: S-27's `NOT SAVED — LOST ON REBOOT` is the
+//                             OTHER screen's, and this one is durable. ⛔ NOT `TEAM KEY RECEIVED` (S-25): nothing
+//                             was received — the key may well be one this node MINTED and later left behind — and
+//                             K4's rule that S-25 appears only on a K3-forwarded push stays intact.
+//        `saved_key_failed` — ★ **`KEY NOT INSTALLED`** (spec §8 **S-39**, OWNER-RULED 2026-08-25) plus the
+//                             service's own token. It states **THE ACT'S OUTCOME** and ⛔ never the node's key
+//                             inventory, which is what makes it true on every failing arm. ⛔ Never `SAVE FAILED`
+//                             (only one arm is a failed write) and ⛔ never `JOIN REFUSED` (the join SUCCEEDED —
+//                             that is why this screen exists).
+//                             ⛔⛔ **CORRECTED IN PLACE 2026-08-25 (QG blocker 1), AND THE WITHDRAWN LEXEME AND ITS
+//                             ARGUMENT ARE KEPT VISIBLE BECAUSE BOTH WERE NORMATIVE:** this read *"★ `NO TEAM KEY`
+//                             (S-24) … the SAME sentence the STATUS body already prints for exactly this state …
+//                             and it is TRUE on every failing arm, because every one of them leaves the node
+//                             KEYLESS (the keyring's governance clears)"*. ⛔ **THE PREMISE DIED WITH THE CLEARING
+//                             FUNNEL**: the refusals are now SURGICAL (they must be — a stale-target refusal may
+//                             not destroy the current team's innocent key), so after one the node may very well
+//                             still hold a team key, and `NO TEAM KEY` became a sentence that can be FALSE.
+//      ⚠ THE ONE THING A READER MUST NOT MISREAD: `saved_key_used` and `team_key_unsaved` SHARE A HEADLINE, and the
+//      screens differ by the two rows K4 added. That is safe in the ONLY direction that matters — the SHORT screen
+//      is producible ⛔ ONLY after a committed activation, so it can never be the durable claim on a RAM-only key.
 enum class UiProvOutcome : uint8_t {
     none = 0, created, phy_differs, save_failed, refused, joining, adopted, join_refused, team_joined,
-    team_key_received, team_key_unsaved
+    team_key_received, team_key_unsaved, saved_key_used, saved_key_failed
 };
 // ⓘ `reason` IS A POINTER TO STATIC STORAGE and never an owned buffer: the adapter fills it from
 //   `mrfw::prov_err_name`, whose arms are string literals. ⛔ It is never null — `""` is the "nothing to add" value, so
@@ -807,6 +861,17 @@ struct UiProvAnswer {
     // ⓘ COST, MEASURED: it lands in the padding after `outcome`, so `sizeof(UiProvAnswer)` stays 16 on the host and
     //   12 on a 32-bit board.
     uint8_t       node_id = 0;
+    // ★★★★ §UI-16 K5 — *"the team just joined has a key RETAINED in `/mrteams`"*, and it is ⛔ MEANINGFUL ONLY when
+    //      `outcome == team_joined`. It is a REPORT, ⛔ never an instruction: nothing is installed by it, and the one
+    //      thing it earns is the OFFER screen with `BACK` selected (P-2b — the whole reason K5 is a screen).
+    // ⛔ IT IS ANSWERED BY THE **KEYRING**, through the device seam, and ⛔ never inferred from the id, the
+    //    fingerprint or a name: the question is *"is there a record for this exact 32-bit team id"*.
+    // ⓘ COST, MEASURED (host, `-DMR_N_LAYERS=2`): it lands at offset 2, in the hole between `node_id` and the
+    //   4-aligned `team_id`, so `sizeof(UiProvAnswer)` is **UNCHANGED at 16** and ⛔ no landed field moved. The
+    //   placement is pinned by `offsetof` in `test/test_firmware_ui_model.cpp`, ⛔ not asserted in prose. ⚠ The
+    //   board figure (12, from the 4-byte `reason` pointer) is UNVERIFIED HERE — no board is built by this slice —
+    //   but the hole it lands in exists on both ABIs.
+    bool          saved_key = false;
     // ⛔ MEANINGFUL ONLY when `outcome == created` or `team_joined` (§UI-16 N3 — the second writer of it, and the
     //    only other outcome the transaction may hand an id to).
     uint32_t      team_id = 0;
@@ -838,6 +903,34 @@ inline const char* prov_confirm_label(ProvConfirm a) {
     switch (a) {
         case ProvConfirm::back:    return "BACK";
         case ProvConfirm::confirm: return "CREATE";
+    }
+    return "?";
+}
+// ★★★★ §UI-16 K5 — THE SAVED-KEY OFFER's TITLE AND ITS TWO ACTIONS, both OWNER-RULED (spec §8 S-28 / S-29) and both
+//      carried VERBATIM. 15 and 13 of the rail's 19 columns; with the `>` marker the action row is 14.
+// ⛔⛔ `FORGET KEY` (S-31) IS **NOT HERE AND MAY NOT BE ADDED**: the owner named it a FUTURE verb and spec §4-K5 says
+//     in as many words that it is not in this spec. Its absence is a test, ⛔ not a preference.
+inline constexpr const char* kSavedKeyTitle = "SAVED KEY FOUND";
+// ★★★★ THE ACTIVATION'S REFUSAL WORD — spec §8 **S-39**, ★ **OWNER-RULED 2026-08-25**, declared here ONCE so a
+//      re-ruling changes exactly one line. ⓘ IT WAS PROPOSED RATHER THAN INVENTED: §8 ruled S-28/S-29 for the OFFER
+//      and no lexeme for what follows it, and ⛔ none of the ruled ones is true on every failing arm (the full check
+//      is written at `prov_result_head`'s arm), so §8's own standing rule was applied — the house style, over the
+//      SEMANTIC the code establishes — and the candidate was reported for the ruling it has now had.
+// ★★★ WHAT MAKES IT SAFE: it states **THE ACT'S OUTCOME** and ⛔ never the node's key inventory. The refusals are
+//     SURGICAL — a stale-target refusal must ⛔ not destroy the current team's innocent live key — so "this node has
+//     no team key" is a sentence the panel is ⛔ no longer entitled to make here, while "the saved key was not
+//     installed" is true on all seven arms. ⓘ The SECOND row carries the service's own token (`not_our_team`,
+//     `rejected`, …), so the operator still learns WHICH way it refused.
+inline constexpr const char* kSavedKeyFailedText = "KEY NOT INSTALLED";
+// The offer's two actions, by IDENTITY (§B66: ⛔ never by position). ★ `BACK` is `prov_confirm_label`'s spelling
+// CALLED — ⛔ never re-spelled (the S-9 treatment, one screen over) — so the panel has ONE `BACK`.
+// ★★★ THE SAFE ARM IS THE ZERO VALUE AND THEREFORE THE DEFAULT (P-13): `enter_provision` re-establishes
+//     `ProvConfirm::back` on every entry, so *"`SAVED KEY FOUND` with `BACK` selected"* is STRUCTURAL rather than
+//     remembered — and reaching the act costs `short` THEN `double`.
+inline const char* saved_key_label(ProvConfirm a) {
+    switch (a) {
+        case ProvConfirm::back:    return prov_confirm_label(ProvConfirm::back);
+        case ProvConfirm::confirm: return "USE SAVED KEY";
     }
     return "?";
 }
@@ -883,7 +976,36 @@ inline const char* prov_result_head(const UiProvAnswer& a) {
         // ★★★ S-26 — the FAILED-SAVE headline, owner-ruled. ★ IT IS TRUE: `Node::team_key_grant_receive` adopted the
         //     pair into RAM before it ever pushed, so the key genuinely IS active. The panel says both true things —
         //     it works now (this row) and it will not survive a reboot (the two rows below).
+        // ★★★★ §UI-16 K5 — THE ACTIVATION'S TWO ENDINGS: the success arm REUSES S-26, the failure arm has its own
+        //      owner-ruled **S-39** (see `UiProvOutcome`'s block for the full reasoning, the alternatives refused
+        //      and the withdrawn "neither invents a lexeme" claim).
+        //   ⛔ `saved_key_used` SHARES S-26's SPELLING BY **FALLING THROUGH**, ⛔ never by a second string literal:
+        //      one lexeme, one place, so an owner re-ruling S-26 moves both screens at once (U1 — the rule this
+        //      whole switch is built on). ★ The two screens are told apart by the rows BELOW, which is where the
+        //      durability claim lives, and only this arm is producible after a COMMITTED activation.
+        case UiProvOutcome::saved_key_used:
         case UiProvOutcome::team_key_unsaved:  return "TEAM KEY ACTIVE";
+        // ★★★★ ⛔⛔ **CORRECTED IN PLACE 2026-08-25 (QG blocker 1), AND THE WITHDRAWN LEXEME IS KEPT VISIBLE:** this
+        //      arm returned **`NO TEAM KEY`** (S-24), on the argument that *"the keyring's governance CLEARS on
+        //      every non-installing path, so the node really holds none"*. ⛔ **THAT ARGUMENT DIED WITH THE
+        //      CLEARING FUNNEL.** The refusals are now SURGICAL — they must be, or a stale-target refusal would
+        //      destroy the CURRENT team's innocent live key — so after a refusal the node may very well still hold
+        //      a team key: the one belonging to the team it moved to, or one a serial import installed between the
+        //      offer and the press. ⇒ `NO TEAM KEY` became a sentence that can be **FALSE**, which is the class
+        //      this project registers.
+        // ★★★★ **REPORTED, NOT INVENTED — AND ★ OWNER-RULED 2026-08-25 AS SPEC §8 S-39.** §8 ruled S-28/S-29 for the
+        //      OFFER and ⛔ no lexeme for what follows it, and NO ruled lexeme is true on every failing arm (checked
+        //      one by one: `NO TEAM KEY` false when the node still holds one · `NOT IN A TEAM` false — we are in a
+        //      team, just not that one · `SAVE FAILED` false — most arms spend ZERO writes · `JOIN REFUSED` false —
+        //      the join SUCCEEDED, which is why this screen exists at all). ⇒ this is §8's own standing rule applied
+        //      (*"where a ruling settles a SEMANTIC and no lexeme, the wording is this cluster's house style applied
+        //      to it, one line each, pinned by a native case"*): the word states **THE ACT'S OUTCOME**, ⛔ never the
+        //      node's key inventory, so it is true on ALL SEVEN arms and claims nothing about any other key.
+        //      ⛔ SILENCE WAS CONSIDERED AND REFUSED: K3's `suppressed` ruling (*"no true sentence ⇒ say nothing"*)
+        //      was made for an UNSOLICITED push; here the OPERATOR PRESSED A BUTTON, and a `double` that changes no
+        //      pixel is the dead-button complaint C2 exists against. ⓘ 17 of the rail's 19 columns.
+        //      ★ ONE PLACE TO RE-RULE IT: `kSavedKeyFailedText`, declared once beside the offer's own two lexemes.
+        case UiProvOutcome::saved_key_failed:  return kSavedKeyFailedText;
         case UiProvOutcome::none:        return "";
     }
     return "";
@@ -915,6 +1037,14 @@ inline const char* prov_result_detail(const UiProvAnswer& a) {
         //     precedent is the same one this pair copies — the design writes `PHY DIFFERS — USE SERIAL` and the
         //     panel renders the two halves on two rows with no dash.
         case UiProvOutcome::team_key_unsaved: return "NOT SAVED";
+        // ★★ §UI-16 K5 — the SERVICE's own token (`mrfw::saved_key_use_name`), carried exactly as `refused`'s and
+        //    `join_refused`'s are: ⛔ never a second SavedKeyUse-to-text table, and ⛔ never key material — the
+        //    tokens name FACTS (`rejected`, `binding_failed`, `no_record`, `store_failed`).
+        case UiProvOutcome::saved_key_failed: return a.reason;
+        // ⛔⛔ AND `saved_key_used` HAS ⛔ NO SECOND ROW, WHICH IS THE HALF THAT KEEPS THE HEADLINE HONEST: S-27's
+        //     `NOT SAVED` belongs to the RAM-only screen, and this key is durable. Adding a reassuring sentence here
+        //     would be inventing the very lexeme spec §8 declined to rule.
+        case UiProvOutcome::saved_key_used:
         // ⓘ `team_key_received`'s second row is deliberately EMPTY: the headline is the whole message, and the only
         //   thing this arm could add is the granter's `name=` — which is exactly what F-3/P-5 forbid.
         case UiProvOutcome::team_key_received:
@@ -935,6 +1065,12 @@ inline const char* prov_result_detail(const UiProvAnswer& a) {
 inline const char* prov_result_detail2(const UiProvAnswer& a) {
     switch (a.outcome) {
         case UiProvOutcome::team_key_unsaved:  return "LOST ON REBOOT";
+        // ⛔⛔ §UI-16 K5 — AND THE TWO NEW ARMS ANSWER `""`, WHICH IS THE POINT RATHER THAN AN OMISSION: this row is
+        //     the durability WARNING, and a `USE SAVED KEY` that succeeded is durable while one that failed left no
+        //     key at all. Either arm answering `LOST ON REBOOT` would be a false sentence in one direction or the
+        //     other. ⓘ The `default`-less switch is what forced this decision to be written down.
+        case UiProvOutcome::saved_key_used:
+        case UiProvOutcome::saved_key_failed:
         case UiProvOutcome::team_key_received:
         case UiProvOutcome::phy_differs:
         case UiProvOutcome::save_failed:
@@ -1741,6 +1877,22 @@ struct UiState {
     //   `NearbyList`), so the four bytes cost eight to the 8-aligned tail wherever they are declared — measured in
     //   both placements, ⛔ not reasoned. This struct is instantiated TWICE on the OLED envs.
     uint32_t    nearby_sel_id = 0;
+    // ★★★★ §UI-16 K5 — THE TEAM THE SAVED-KEY OFFER IS ABOUT, HELD BY **IDENTITY** exactly as `nearby_sel_id` is,
+    //      and for a SHARPER reason: this value selects a stored SECRET. It is the full 32-bit id the **TRANSACTION**
+    //      reported (`UiProvAnswer::team_id`, i.e. the team the durable write actually joined) — ⛔ never the cursor,
+    //      ⛔ never the six-hex fingerprint the screen prints (24 of 32 bits, [[B48]]'s class), and ⛔ never a
+    //      name-shaped value (S-36's forbidden usage: there is no team label in this firmware at all).
+    // ⛔ IT IS ⛔ NOT `nearby_sel_id` REUSED, although the two are equal on the ordinary path: that field is *"what
+    //    the operator picked"* and this one is *"what the transaction joined"*, and the act must be keyed on the
+    //    authority that WROTE. ⓘ They can differ only if some future caller reaches the seam another way, which is
+    //    precisely when the difference matters.
+    // ⓘ 0 = NO OFFER IS OPEN. It is retired by EVERY `enter_provision` (the `prov_answer` rule, one field over) and
+    //   re-written immediately after the entry that opens the offer — so no later screen can act on a stale one.
+    // ⓘ COST, MEASURED not assumed (host, `-DMR_N_LAYERS=2`): `sizeof(UiState)` **is unchanged at 456** — the four
+    //   bytes land in the tail quantum the grant verdict already opened, so the carrier costs ZERO. ⛔ Not reasoned:
+    //   the size AND the placement (`offsetof` 340, between `nearby_sel_id` and `invite`) are pinned by
+    //   `test/test_firmware_ui_model.cpp`'s `ui16-k5-resources` case. ⚠ Native alignment hides the board figure.
+    uint32_t    saved_key_team = 0;
     // ★★★★ §UI-16 N4 — THE INVITATION WINDOW's WHOLE STATE: the TWO snapshot authorities taken AT OPEN (F-11),
     //      the VOLATILE handled set (F-13) and the FROZEN selection. It is ONE carrier because they share ONE
     //      lifetime — `enter_provision` takes it on the way into the window and DISCARDS it on the way out of
@@ -2052,6 +2204,15 @@ public:
             if (_st.provisioning == Provision::invite_confirm ||
                 _st.provisioning == Provision::invite_need_pubkey)
                 enter_provision(Provision::invite);
+            // ★★★★ §UI-16 K5 — THE SAVED-KEY OFFER IS AN **UNFINISHED CONFIRMATION** AND THEREFORE DOES NOT SURVIVE
+            //      THE BLANK EITHER (OQ-3, the same clause the two arms above answer to). ⛔ It is one `double` from
+            //      installing a stored SECRET, so waking onto it — on a screen the operator may not remember
+            //      opening — is exactly what that rule forbids.
+            // ★ IT FALLS BACK TO THE **MENU**, ⛔ not to a list and ⛔ not to the result it was reached from: the
+            //   join is finished and its verdict was acknowledged (that acknowledgement is what opened this), so
+            //   the honest landing is the one `BACK` itself takes. ⓘ `enter_provision` retires `saved_key_team`
+            //   with it, so nothing stale is retained in the dark — the offer must be earned by a fresh join.
+            if (_st.provisioning == Provision::saved_key) enter_provision(Provision::menu);
             // ★★ §3.6.1, VERBATIM IN SUBSTANCE: *"`BACK` and blanking PRESERVE the draft; silently discarding because
             //    attention timed out is FORBIDDEN."* `on_blank()` is the named seam the service exposes for exactly
             //    this event, and it is a draft-preserving no-op BY CONSTRUCTION. ⇒ calling it is what makes the
@@ -2113,6 +2274,11 @@ public:
     //         OMISSION: §UI-17 R-7 scoped the wake to a DM ADDRESSED TO US and a SEALED channel post, and widening it
     //         is a new owner ruling this spec explicitly declined to make (§4-K4). ⇒ v1 leaves a dark panel dark; the
     //         note is there when the operator next looks. `mark_dirty()` is the whole effect on a LIT panel.
+    //      ⓘ ITS **ACKNOWLEDGEMENT** IS A DIFFERENT QUESTION AND HAS A DIFFERENT ANSWER since 2026-08-25 (§UI-17
+    //        keyrecv, owner-ruled): the operator's press on the SUCCESS note leaves the flow for the STATUS screen
+    //        (`team_key_note_ack_landed`). ⛔ That does not weaken one word of the two negatives above — the ARRIVAL
+    //        still moves nothing and wakes nothing; only a PRESS chooses a destination. The FAILURE note's press is
+    //        unchanged and stays in the flow, where the remedies are.
     // ★ THE SLOT IS `prov_answer`, THE PANEL'S ONE TRANSIENT "what just happened to this node's team" ANSWER — so
     //   this note is retired by every `enter_provision`, exactly as a create/join verdict is, and ⛔ can never sit
     //   under a screen that did not establish it. ⓘ It REPLACES a previous verdict deliberately: `TEAM JOINED`
@@ -3253,6 +3419,12 @@ private:
         //     screen is the "success that isn't" this project has already registered once. ⛔ The one arm excluded
         //     is `invite_result` itself, because `run_invite_grant` writes the verdict and THEN enters it.
         if (p != Provision::invite_result) _st.grant = InviteGrantResult{};
+        // ★★★ §UI-16 K5 — THE OFFER'S TARGET IS RETIRED BY **EVERY** ENTRY, which is the `prov_answer` rule three
+        //     blocks up applied to the field that names a stored SECRET (U3). ⛔ It is retired on the way INTO the
+        //     offer as well — the caller re-writes it immediately afterwards, from the answer the transaction just
+        //     returned, exactly as `run_join_team` writes `prov_answer` after entering the result screen. ⇒ a stale
+        //     target cannot survive into a later screen, and ⛔ no arm but the one that just joined can arm this act.
+        _st.saved_key_team = 0;
         _st.dirty = true;
     }
     // ⓘ Back to `browsing`, ⛔ never to `closed`: leaving PROVISION returns to the SETTINGS MENU, not off the screen.
@@ -3282,7 +3454,11 @@ private:
             // ★★ THE RESULT IS TERMINAL AND EITHER PRESS LEAVES IT (the panel says `press = back`, the same contract
             //    the send result and the `MESSAGE GONE` modal already carry). ⛔ Nothing is re-run and nothing is
             //    confirmed here: the act is over, and the only thing this arm owns is the way out.
-            case Provision::create_result:  enter_provision(Provision::menu); return;
+            // ⛔ CORRECTED IN PLACE 2026-08-25 (§UI-16 K5), AND THE WITHDRAWN LINE IS KEPT VISIBLE: it read
+            //    `case Provision::create_result:  enter_provision(Provision::menu); return;`. The two properties it
+            //    carried are UNCHANGED — either press acknowledges, and ⛔ nothing is re-run — and what is added is
+            //    WHERE the acknowledgement lands when the verdict itself has a follow-up question.
+            case Provision::create_result:  create_result_gesture();          return;
             case Provision::join_select:    join_select_gesture(g);          return;
             case Provision::join_confirm:   join_confirm_gesture(g, s);      return;
             // ★★★★ THE WAITING SCREEN, AND EITHER PRESS **ONLY LEAVES IT** — plan §2.3 rule 4, verbatim in
@@ -3292,13 +3468,25 @@ private:
             //      un-write it. ⛔ Nothing is cancelled, nothing is retried, nothing is said.
             case Provision::join_waiting:   enter_provision(Provision::menu); return;
             // The join RESULT is terminal in exactly the same way the create one is.
-            case Provision::join_result:    enter_provision(Provision::menu); return;
+            // ⛔ CORRECTED IN PLACE 2026-08-25 (§UI-17 keyrecv), AND THE WITHDRAWN LINE IS KEPT VISIBLE: it read
+            //    `case Provision::join_result:    enter_provision(Provision::menu); return;`. `ADOPTED` — and every
+            //    other verdict this screen can carry — still lands on the MENU, byte for byte. What is added is the
+            //    ONE answer whose landing the owner moved: a `TEAM KEY RECEIVED` note can be sitting in `prov_answer`
+            //    on THIS screen too (a static join renders here), and the note's landing is the NOTE's, ⛔ not the
+            //    screen's — see `team_key_note_ack_landed`.
+            case Provision::join_result:
+                if (!team_key_note_ack_landed()) enter_provision(Provision::menu);
+                return;
             // §UI-16 N2 — the READ-ONLY scan list. Its `short`/`double` are `join_select`'s shape, ⛔ not
             // TEAM's: it opens on its first row and its last row is BACK.
             case Provision::nearby:         nearby_select_gesture(g);        return;
             // §UI-16 N3 — the `JOIN <fingerprint>?` confirmation. Its shape is `join_confirm`'s (`short` toggles,
             // `double` performs the SELECTED action) and ⛔ its landing differs: BACK returns to the NEARBY LIST.
             case Provision::nearby_confirm: nearby_confirm_gesture(g);       return;
+            // §UI-16 K5 — the `SAVED KEY FOUND` offer. Its shape is `nearby_confirm`'s (`short` toggles, `double`
+            // performs the SELECTED action) and its BACK lands on the MENU — exactly where the acknowledgement it
+            // was reached from would have landed, so declining costs the operator nothing.
+            case Provision::saved_key:      saved_key_gesture(g);            return;
             // §UI-16 N4 — the INVITATION WINDOW. Its `short`/`double` are the scan list's shape (it opens on its
             // first row and its last row is BACK), and it needs the SNAPSHOT because the list it walks is the
             // LIVE one: the window refreshes locally while it is open (R-10).
@@ -3567,6 +3755,128 @@ private:
             a = _prov->perform(in);
         } else {
             a.outcome = UiProvOutcome::join_refused;
+            a.reason  = "no service";
+        }
+        enter_provision(Provision::create_result);
+        _st.prov_answer = a;
+    }
+    // ★★★★ §UI-17 (OWNER-RULED 2026-08-25, shape (a)) — **ACKNOWLEDGING `TEAM KEY RECEIVED` LANDS ON STATUS**, and
+    //      ⛔ NOT back in the provisioning flow. After a team key arrives the operator's next question is *"am I set
+    //      up?"*, and that question is the STATUS screen's; the provisioning menu answers a question nobody asked.
+    //      ⓘ Shape (b) — a `BACK TO MAIN` row on the result — was considered and REJECTED at the ruling: it would need
+    //        a new lexeme and would break the terminal shape every result screen shares.
+    // ★★ IT IS KEYED ON THE **ANSWER**, ⛔ never on the arm, and that is what makes it ONE rule rather than two. The
+    //    note occupies `prov_answer` (`on_team_key_note`) and the renderer draws it on WHICHEVER result screen happens
+    //    to be up — `create_result` for a create/nearby-join flow, `join_result` for a static join
+    //    (`src/firmware_ui.cpp:1674` says so at the row it shares). Keying on the screen would give ONE note TWO
+    //    landings, which is the drift this file keeps one decision in one place to avoid (U1).
+    // ⛔⛔ THE FAILURE PAIR IS DELIBERATELY **NOT** HERE, and its absence is the ruling rather than an oversight:
+    //     `TEAM KEY ACTIVE` / `NOT SAVED` / `LOST ON REBOOT` (S-26/S-27) acknowledges to the LANDED landing, because
+    //     that is where the REMEDIES are. A save that failed is exactly the moment not to walk the operator out of
+    //     the flow that can retry it. ⓘ Every other terminal — `TEAM JOINED`, `ADOPTED`, `TEAM CREATED`, every
+    //     refusal, K5's own two endings — is untouched for the same reason: this slice moved ONE landing.
+    // ⛔ AND IT IS THE **PRESS** THAT NAVIGATES, ⛔ never the arrival: spec §4-K4 pin 3 (*"a push never navigates"*)
+    //    is untouched — `on_team_key_note` still moves no screen, no arm and no cursor and wakes nothing. This
+    //    function is reachable ONLY from `provision_gesture`, i.e. only from an operator's own press.
+    // ★ THE LANDING IS **PASSIVE** STATUS, in §UI-17's own terms: STATUS has no interactive form (`screen_is_entered`
+    //   answers false for it, so its `double` is the no-op it has always been), and the two sub-views that COULD be
+    //   left standing are retired through the primitives that own them rather than by assigning their fields here —
+    //   `settings_follow_screen()` closes SETTINGS *and* forwards to `provision_reset_on_leave`, `list_follow_screen()`
+    //   forwards to `list_view_reset_on_leave`.
+    // ⛔⛔ WAITING FOR THE TICK TO RUN THOSE TWO IS A REAL HOLE, ⛔ not a tidier equivalent: `provision_gesture`
+    //     RETURNS before `on_gesture` reaches its own `settings_follow_screen()` call, and `FrameGate::step` can
+    //     freeze a frame before the next `on_tick` — which would render a provisioning result over the STATUS screen,
+    //     the exact artefact `settings_follow_screen`'s own block warns about.
+    // ⓘ `list_follow_screen()` cannot change anything TODAY and is called anyway, marked rather than left to look like
+    //   coverage ([[meshroute-mark-done-vs-missing-in-code]]): an interactive TEAM/INBOX list cannot coexist with
+    //   `Settings::provisioning` (the `short` that left those screens already retired it), so ⛔ no mutation of it can
+    //   redden here. It is the `list_view_reset_on_leave` invariant stated at a second leave-path, exactly as
+    //   `settings_follow_screen` states its own — "leaving retires it", ⛔ not "the paths that can leave today do".
+    // ⓘ `prov_answer` is deliberately NOT retired: retiring is what an ENTRY does (`enter_provision`), and LEAVING has
+    //   never done it (`close_provisioning` does not either). Nothing renders it off the two result arms, and the next
+    //   entry into PROVISION clears it before a pixel of it can be drawn.
+    // ⓘ Returns whether it TOOK the landing, so each terminal arm keeps its own `return` and ⛔ no arm can fall
+    //   through into a second landing.
+    bool team_key_note_ack_landed() {
+        if (_st.prov_answer.outcome != UiProvOutcome::team_key_received) return false;
+        _st.screen = Screen::status;
+        _st.cursor = 0;
+        settings_follow_screen();
+        list_follow_screen();
+        _st.dirty = true;
+        return true;
+    }
+    // ============================================ §UI-16 K5 — `SAVED KEY FOUND` / `USE SAVED KEY` (§3.6.4 point 4)
+    // ★★★★ THE ACKNOWLEDGEMENT OF THE RESULT SCREEN, AND **WHERE THE OFFER SITS IS THIS FUNCTION** — a design
+    //      decision, so it is written down rather than left to be inferred (the N6 `GRANT PARKED` precedent:
+    //      reported, ⛔ not assumed). THREE constraints fix it here and nowhere else:
+    //        1. ⛔ IT CANNOT PRECEDE THE JOIN. The keyring's boot predicate compares the ACTIVE BINDING against the
+    //           MEMBERSHIP `/mrcfg` holds (term (ii), QG blocker 3), so an activation committed before the join's
+    //           durable write would name a team this node is not yet in — a binding that lies, and one the very
+    //           next boot would refuse. The membership must be written FIRST.
+    //        2. ⛔ IT CANNOT REPLACE THE JOIN'S RESULT. Spec §4-N3 pin 5 requires the join's own verdict — the word,
+    //           the full id and the fingerprint — and the join *"succeeds or fails exactly as N3 landed it"*:
+    //           membership is ⛔ never gated on the key decision, in either direction.
+    //        3. ★ AND MAKING IT THE **ACKNOWLEDGEMENT'S** LANDING IS WHAT PUTS P-2b IN THE CONTROL FLOW: the
+    //           transaction has run, returned and been REPORTED, and the operator has PRESSED PAST it, before the
+    //           key question is even asked. ⇒ nothing about the key can be read as part of joining — which is the
+    //           whole reason the ruling asks for a screen instead of a rule.
+    // ⛔ THE OFFER IS OPENED BY THE ANSWER, ⛔ NEVER BY THE ARM: the condition is `team_joined` + the KEYRING's own
+    //    report + a non-zero id. A create's acknowledgement, a refusal's, a failed save's — all land on the menu
+    //    exactly as they always did, and so does a join of a team with NO retained record (spec §4-K5 pin 4).
+    // ⛔ AND THE TARGET IS THE **TRANSACTION's** id (`a.team_id`, which `ui_prov_join_team` echoes from
+    //    `ProvResult`), ⛔ not the cursor, ⛔ not `nearby_sel_id`, ⛔ not the fingerprint the screen printed.
+    void create_result_gesture() {
+        // ★ §UI-17 keyrecv (2026-08-25): the GRANT RECEIPT's own landing is checked FIRST and leaves the flow — see
+        //   `team_key_note_ack_landed`. It cannot collide with K5's offer below (that arm requires `team_joined`).
+        if (team_key_note_ack_landed()) return;
+        const UiProvAnswer a = _st.prov_answer;       // read BEFORE the entry that retires it
+        if (a.outcome == UiProvOutcome::team_joined && a.saved_key && a.team_id != 0) {
+            enter_provision(Provision::saved_key);
+            _st.saved_key_team = a.team_id;           // ★ the joined team's identity, whole (U2)
+            return;
+        }
+        enter_provision(Provision::menu);
+    }
+    // ★★★ THE OFFER'S TWO GESTURES — `nearby_confirm`'s shape, a fifth time (U3): `short` TOGGLES and `double`
+    //     PERFORMS THE SELECTED ONE, and ⛔ a `double` on BACK may NOT fall through into the act. The two branches
+    //     are separate for the reason the delete modal keeps them separate: one press must never be able to mean
+    //     the other — and here "the other" installs a secret.
+    // ⛔⛔ `BACK` PERFORMS **NOTHING AT ALL** (spec §4-K5 pin 2): no seam call, no keyring read, no write, no
+    //     airtime. ★ IT CHANGES **NO KEY STATE** — ⛔ nothing installed and ⛔ nothing cleared — and the retained
+    //     record stays exactly as it was found, byte for byte, with zero writes, which is what the suite counts.
+    //     ⓘ *"Changes no key state"* rather than *"leaves the node keyless"*: a membership change under the offer
+    //     can leave the CURRENT team's key legitimately live, and declining an offer about ANOTHER team may never
+    //     destroy it. It lands on the MENU, i.e. exactly where the acknowledgement that opened this screen would
+    //     have landed, so declining costs the operator nothing.
+    void saved_key_gesture(Gesture g) {
+        if (g == Gesture::short_press) { prov_confirm_toggle(); return; }
+        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }
+        run_use_saved_key();
+    }
+    // ★★★★ THE ACT, AND THE ORDER OF ITS STATEMENTS IS §8 PIN 2 EXACTLY AS THE OTHER THREE ACTS' IS: the service
+    //      RUNS, RETURNS, and only then does the screen move and the verdict land. ⛔ There is no path that shows
+    //      `TEAM KEY ACTIVE` before `perform()` came back with `saved_key_used`.
+    // ⛔ A NULL SEAM, OR AN OFFER THAT NAMES NO TEAM, REFUSES OUT LOUD (C2) — `run_create_team`'s and
+    //    `run_join_team`'s own arm, a third time: a `double` that changed no pixel is a dead button. ⓘ The refusal
+    //    is `saved_key_failed`, so the panel says `KEY NOT INSTALLED` (S-39) — which is TRUE, because nothing was
+    //    installed. ⓘ It names the ACT's outcome and ⛔ not the node's key inventory, so it stays true whatever key
+    //    the node happens to hold (the withdrawal of `NO TEAM KEY` is recorded at the lexeme's declaration).
+    // ⛔⛔ AND BOTH TERMS ARE **UNREACHABLE FROM THIS LAYER TODAY**, MARKED RATHER THAN LEFT TO LOOK LIKE COVERAGE
+    //     ([[meshroute-mark-done-vs-missing-in-code]]): the only entry to this screen is `create_result_gesture`,
+    //     which required a NON-NULL seam (it produced the `team_joined` answer) and a NON-ZERO id (a term of its
+    //     condition). ⇒ ⛔ no gesture sequence drives this `else`, ⛔ no mutation of it can redden, and it is a
+    //     FLOOR for the day another caller reaches the act — exactly the shape `run_join_team`'s zero clause has.
+    //     The equivalent floor IS measured one layer down, in `ui_prov_use_saved_key`, where it is reachable.
+    void run_use_saved_key() {
+        UiProvAnswer a{};
+        if (_prov && _st.saved_key_team != 0) {
+            UiProvIntent in{};
+            in.op      = UiProvOp::use_saved_key;
+            in.team_id = _st.saved_key_team;     // ★ the JOINED team's identity, whole (U2)
+            a = _prov->perform(in);
+        } else {
+            a.outcome = UiProvOutcome::saved_key_failed;
             a.reason  = "no service";
         }
         enter_provision(Provision::create_result);

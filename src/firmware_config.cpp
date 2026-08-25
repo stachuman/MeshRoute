@@ -1602,6 +1602,16 @@ struct DeviceTeamKeyBinding : mrfw::ITeamKeyBinding {
     bool commit_active(uint32_t team_id, const uint8_t pub[32], const uint8_t priv[32]) override {
         mrnv::Blob b{};
         nv_load_stamped(b);
+        // ★★★★ THE SECOND AUTHORITY, ADDED 2026-08-25 (QG blocker 1), and it is a FENCE IN FRONT OF THE WRITE rather
+        //      than a re-statement of the caller's rule: this record carries the MEMBERSHIP, and a binding for a
+        //      team it does not name is a binding that LIES — the five-term boot restore compares the two (term
+        //      (ii)) and comes up KEYLESS while the panel claimed a key was active. ⛔ ZERO writes on a refusal.
+        // ⓘ THE DECISION IS THE PURE `mrfw::commit_membership_ok`'s, CALLED (U1): this TU is compiled by neither the
+        //   native suite nor the simulator (§B115), so a predicate written here would be one no gate can drive. The
+        //   same one authority is called by the two suite fakes and by the UI probe's binding.
+        // ⓘ IT COSTS THE K3 PATH NOTHING: `TeamKeyGrantService`'s re-check (4) has already established exactly this
+        //   equality on exactly this record, so the guard can only fire when membership MOVED under the transaction.
+        if (!mrfw::commit_membership_ok(b.team_id, team_id)) return false;
         blob_put_team_channel_key(b, pub, priv);        // the COMMITTED witness (v22) — the ONE conversion path
         b.team_key_team_id = team_id;                   // the ACTIVE binding (v24)
         b.team_key_active  = 1;
@@ -1631,6 +1641,28 @@ mrfw::GrantUiRoute team_key_grant_persist(uint32_t push_team_id) {
     g.live_pub     = g_node.team_channel_pub();
     g.live_priv    = g_node.team_channel_priv();
     return mrfw::grant_ui_route_of(svc.receive(g).outcome);
+}
+
+// ============================================================ §UI-16 K5 — THE SAVED-KEY OFFER's DEVICE BINDINGS
+// ★★ THIN FOR THE SIXTH TIME IN THIS FILE AND FOR THE SAME MEASURED REASON (§B115): this TU is compiled by NEITHER
+//    the native suite NOR the simulator, so the DECISIONS — what "retained" means, the HANDLING-TIME MEMBERSHIP
+//    RE-CHECK, the order (VERIFY by adopting, then commit the activation), and the rule that every non-installing
+//    arm installs NOTHING and refuses SURGICALLY (⛔ it may not clear a live key belonging to the team we are in) —
+//    live in `mrfw::TeamKeyringService` and are driven by `test/test_firmware_team_keyring.cpp`. Here: two calls.
+// ⛔ THE QUESTION WRITES NOTHING AND INSTALLS NOTHING (P-2b): it exists so the join can OFFER a screen, and the
+//    offer opens on `BACK`.
+bool has_saved_team_key(uint32_t team_id) { return team_keyring_service().has_record(team_id); }
+// ★ THE ACT REUSES **BOTH** EXISTING ADAPTERS RATHER THAN A THIRD PATH (U1): `DeviceTeamKeyLive` is the boot
+//   restore's (i.e. `Node::team_channel_key_adopt`, which re-derives the pub and refuses a record that does not
+//   verify, plus `team_channel_key_clear` for the governance), and `DeviceTeamKeyBinding` is K3's `/mrcfg` writer
+//   (i.e. `blob_put_team_channel_key` — the ONE conversion of key material into `mrnv::Blob` — plus the two binding
+//   assignments). ⛔ There is no second install sequence in this tree, and this line is where that is visible.
+// ⚠ THE ADAPTERS ARE STACK LOCALS, for the reason the two forwards above give: they hold no state worth keeping and
+//   must not outlive the call. ⛔ The SERVICE they compose is the ONE keyring instance.
+mrfw::SavedKeyUse team_keyring_use_saved(uint32_t team_id) {
+    DeviceTeamKeyLive    live;
+    DeviceTeamKeyBinding binding;
+    return team_keyring_service().use_saved(team_id, live, binding);
 }
 
 // ★★ §UI-15 slice 5 — THE OLED PATH's TWO DEVICE FORWARDS (declared in firmware_config.h, which carries the boundary

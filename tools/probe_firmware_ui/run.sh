@@ -1311,6 +1311,28 @@ if [ "${1:-}" != "--no-neg" ]; then
   ctl "N16 the join result adds a KEYLESS row of its own (S-33, straight into the renderer)" yes \
       's|                body_text(2, fp);|                body_text(2, fp); if (st.prov_answer.outcome == mrui::UiProvOutcome::team_joined) body_text(3, "KEYLESS");|'
 
+  # ======================================== §UI-16 K5: K5a-K5c, THE `SAVED KEY FOUND` OFFER's RENDERER ARM
+  # ★★★★ THE CONTROLS FOR THE OFFER SCREEN, and they exist ONLY here for the reason every N- and L- control above
+  #   does: the screen is unreachable on the `l2` arm and `src/firmware_ui.cpp` is compiled by NO other gate. The
+  #   pure decisions have their own batteries (`--target=teamkeyring` for the activation, `--target=uiprov` for the
+  #   mapping, `--target=model` for the flow and the two lexemes); what NOTHING else in the tree can see is whether
+  #   THIS file draws the ruled title, an IDENTITY beside it, and the two actions with BACK on the safe row.
+  # ⛔⛔ K5a IS THE ONE THAT MATTERS MOST: the row the operator reads as `BACK` — the row the screen OPENS ON — is
+  #   drawn with the OTHER action's word. Every native case stays green (the model's `prov_confirm` is untouched and
+  #   the act is still gated on it); only the six characters under the marker are wrong, and pressing what the panel
+  #   calls BACK installs a stored secret. That is P-13 defeated at the one door where the act is a KEY.
+  ctl "K5a the offer draws USE SAVED KEY on the BACK row too (the safe word gone from the safe arm)" yes \
+      's|                     mrui::saved_key_label(mrui::ProvConfirm::back));|                     mrui::saved_key_label(mrui::ProvConfirm::confirm));|'
+  # ⛔ K5b — THE OFFER WITH NO IDENTITY ON IT: the operator is asked whether to install "the saved key" with nothing
+  #   on the glass saying WHICH team's. §3 P-7c's rule is that the identity stays visible at the moment of an
+  #   irreversible act, and installing a content key is one.
+  ctl "K5b the offer draws no team identity at all (which team is this key for?)" yes \
+      's|            mrui::ui_fmt_team_fingerprint(fp, sizeof fp, st.saved_key_team);|            fp[0] = 0;|'
+  # ⛔ K5c — THE RULED TITLE REPLACED BY A LANDED ONE (S-28 not called). It is the shape N11 attacks one screen over:
+  #   a title that reads plausibly and names the wrong operation entirely.
+  ctl "K5c the offer is drawn with the CREATE title instead of S-28" yes \
+      's|            body_text(0, mrui::kSavedKeyTitle);|            body_text(0, mrui::kProvCreateTitle);|'
+
   # ================================================ §UI-16 N4: O1-O9, THE `INVITE MEMBER` WINDOW's RENDERER ARM
   # ★★★★ THE CONTROLS FOR THE WINDOW's THREE SCREENS AND FOR THE MEMBER PROJECTION, and they exist ONLY here for the
   #   reason every N- and L- control above does: the screens are unreachable on the `l2` arm and `src/firmware_ui.cpp`

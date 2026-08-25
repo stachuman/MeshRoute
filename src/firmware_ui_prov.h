@@ -54,12 +54,26 @@ namespace mrfw {
 //                      §notify-every-save hook plus the team-DAD persist tracker `ProvResult` reports for exactly
 //                      this purpose. A `no_change`, a refusal or a failed save must NOT notify — that is [[B194]]
 //                      inverted, and the transaction's own contract says the write never happened.
+// ★★★★ §UI-16 K5 ADDS THE FIFTH AND SIXTH, AND THEY GO **HERE** RATHER THAN ON A SEAM OF THEIR OWN for this file's
+//      own stated reason (see the header's slice-6 note): `mrui::IUiProvision` is ONE seam with a `default`-less op
+//      dispatch, so its implementation is ONE class — and both of these are TEAM-device operations, on the same
+//      `g_node` and the same one keyring instance the transaction already writes through.
+//   `has_saved_key` -> `mrfw::has_saved_team_key`, i.e. `TeamKeyringService::has_record`. ⛔ A BOOLEAN: *"is a key
+//                      for this exact 32-bit team id RETAINED?"*. ⛔ ZERO writes, ⛔ nothing installed, ⛔ no
+//                      material returned — P-2b is that knowing the PUBLIC id may never reactivate a secret, so all
+//                      this earns is an OFFER whose default is `BACK`.
+//   `use_saved_key` -> `mrfw::team_keyring_use_saved`, i.e. `TeamKeyringService::use_saved` over the SAME two
+//                      adapters the boot restore and the grant receive compose (`adopt_key` verifies by re-deriving
+//                      the pub; `commit_active` writes the `/mrcfg` binding). ⛔ THERE IS NO SECOND INSTALL PATH IN
+//                      THIS TREE, and this line is the seam where that is visible.
 struct ITeamCreateDevice {
     virtual ~ITeamCreateDevice() = default;
     virtual bool       load_record(mrnv::Blob& out) = 0;
     virtual void       device_facts(ProvSnapshot& snap, ProvPhyFloor& floor) = 0;
     virtual ProvResult apply(TeamRequest& rq, const ProvSnapshot& snap) = 0;
     virtual void       on_applied(const ProvResult& r) = 0;
+    virtual bool        has_saved_key(uint32_t team_id) = 0;
+    virtual SavedKeyUse use_saved_key(uint32_t team_id) = 0;
 };
 
 // ---- the ACT ----------------------------------------------------------------------------------------------------
@@ -157,10 +171,14 @@ inline mrui::UiProvAnswer ui_prov_create_team(ITeamCreateDevice& dev) {
 //         SAME `ProvVerdict::applied`, so without its own outcome the panel would say `TEAM CREATED` for a join.
 //      3. ⛔ NO KEY IS SUPPLIED AND NONE IS SOUGHT. `key_supplied` stays false and `mint` is false, so the
 //         transaction's key plan is `clear` on a membership change (`node.cpp:683`'s ruling, one layer down) ⇒ the
-//         joiner ends up a **KEYLESS MEMBER** (P-2), which is what §3.6.4 point 4 requires. ⛔⛔ AND IT MUST NOT
-//         ANTICIPATE §UI-16 K5: a team whose key is RETAINED in the `/mrteams` keyring is ⛔ not installed here —
-//         mere knowledge of the PUBLIC team id may never reactivate a stored secret (P-2b), and the explicit
-//         `SAVED KEY FOUND` / `USE SAVED KEY` offer is K5's, later. The record is left exactly as it was found.
+//         joiner ends up a **KEYLESS MEMBER** (P-2), which is what §3.6.4 point 4 requires. ⛔⛔ AND THE BAN HELD
+//         WHEN §UI-16 K5 LANDED — ⛔ CORRECTED IN PLACE 2026-08-25, THE WITHDRAWN WORDING KEPT VISIBLE: this read
+//         *"AND IT MUST NOT ANTICIPATE §UI-16 K5 … the explicit `SAVED KEY FOUND` / `USE SAVED KEY` offer is K5's,
+//         **later**"*. K5 is here now, and ⛔ **NOTHING ABOUT THIS SENTENCE'S SUBSTANCE CHANGED**: a team whose key
+//         is RETAINED in the `/mrteams` keyring is still ⛔ NOT installed here, because mere knowledge of the PUBLIC
+//         team id may never reactivate a stored secret (P-2b). The one thing the applied arm now does is **ASK** —
+//         `a.saved_key = dev.has_saved_key(...)`, a BOOLEAN — so the acknowledgement of this result can OFFER the
+//         key on a screen whose default is `BACK`. ★ The record is still left exactly as it was found.
 // ★★ THE PHY PRECONDITION IS **THE SAME RULING, REUSED** (F-5, U1): `live_phy_matches` — the transaction's own
 //    predicate — against the PERSISTED record with `present = true`, while the REQUEST's `ProvPhy` stays
 //    `present = false` so the transaction preserves the persisted PHY and performs NO retune. ⛔ Two objects, never
@@ -225,6 +243,16 @@ inline mrui::UiProvAnswer ui_prov_join_team(ITeamCreateDevice& dev, uint32_t tea
             dev.on_applied(res);
             a.outcome = mrui::UiProvOutcome::team_joined;
             a.team_id = res.team_id;                    // ⛔ the TRANSACTION's own id, echoed — never the request's
+            // ★★★★ §UI-16 K5 — AND THE **ONLY** THING THE JOIN DOES ABOUT A RETAINED KEY: it ASKS, and REPORTS the
+            //      answer. ⛔ Still nothing installed, ⛔ still nothing read out of the record, ⛔ still no write —
+            //      the paragraph above (difference 3) is UNCHANGED and K5 did not weaken it. What the flag earns is
+            //      an OFFER screen with `BACK` selected, two presses away from an act (P-2b: the id is PUBLIC, so
+            //      knowing it may never be enough).
+            // ⛔ IT IS ASKED WITH THE **TRANSACTION's** id, ⛔ never the request's and ⛔ never a display token: the
+            //    question must be about the team that was actually joined.
+            // ⓘ ASKED ONLY ON THIS ARM: a refusal, a failed save and `no_change` joined nothing, so there is no
+            //   team to offer a key for — and a keyring read on those paths would be a load spent to no purpose.
+            a.saved_key = dev.has_saved_key(res.team_id);
             return a;
         case ProvVerdict::nv_failed:
             // ⛔ THE PREVIOUS MEMBERSHIP AND KEY ARE UNTOUCHED and the panel says so (`SAVE FAILED` /
@@ -245,6 +273,48 @@ inline mrui::UiProvAnswer ui_prov_join_team(ITeamCreateDevice& dev, uint32_t tea
             a.reason  = "no change";
             return a;
     }
+    return a;
+}
+
+// ================================================ §UI-16 K5 — `USE SAVED KEY`, THE EXPLICIT ACTIVATION (§3.6.4 pt 4)
+// ★★★★ IT IS A **MAPPING AND NOTHING ELSE**, and that is the whole design: every decision — what "retained" means,
+//      the HANDLING-TIME MEMBERSHIP RE-CHECK, the load, the VERIFY-BY-ADOPTING, the activation ORDER, and the rule
+//      that every non-installing arm installs NOTHING and leaves the RETAINED RECORD UNTOUCHED (refusing
+//      SURGICALLY — ⛔ it may not clear a live key that belongs to the team we are in) — belongs to
+//      `mrfw::TeamKeyringService::use_saved`
+//      (`src/firmware_team_keyring.h`), which is pure, which `test/test_firmware_team_keyring.cpp` DRIVES and which
+//      `--target=teamkeyring` attacks. ⛔ A second install sequence written here would be exactly the parallel path
+//      U1 forbids — and the term it would eventually forget is the pub/priv cross-check, i.e. the one that keeps a
+//      corrupt record from being installed as if it were a key.
+// ★★★ THE ZERO FLOOR IS A REAL FLOOR AND NOT DECORATION (C2), and it is the THIRD ask (the model refuses an offer
+//     that names no team; the service refuses id 0 too): 0 is not a team, and a screen that can reach a stored
+//     secret must be unable to reach it with a wildcard, whichever caller arrives at this seam.
+// ⛔⛔ AND THE TWO ENDINGS SAY ONLY WHAT IS TRUE: `installed` ⇒ the key is live AND the binding is committed, so it
+//     survives the power cycle; every other arm ⇒ **THE SAVED KEY WAS NOT INSTALLED** (spec §8 S-39,
+//     `KEY NOT INSTALLED`), with the SERVICE's token beside it. ★ THE FAILING WORD NAMES **THIS ACT'S OUTCOME** AND
+//     ⛔ NEVER THE NODE'S KEY INVENTORY, which is what keeps it true: a refusal installs nothing and PRESERVES
+//     whatever unrelated key state the node already had — only `binding_failed` undoes THIS operation's own
+//     adoption. ⛔ No arm reports a failure as a success, and ⛔ no key byte reaches either.
+inline mrui::UiProvAnswer ui_prov_use_saved_key(ITeamCreateDevice& dev, uint32_t team_id) {
+    mrui::UiProvAnswer a{};
+    if (team_id == 0) {
+        a.outcome = mrui::UiProvOutcome::saved_key_failed;
+        a.reason  = saved_key_use_name(SavedKeyUse::zero_team);   // the SERVICE's own token (U1)
+        return a;                                       // ⛔ 0 keyring calls, 0 writes, 0 airtime
+    }
+    const SavedKeyUse v = dev.use_saved_key(team_id);
+    // ★ ONE ARM IS THE SUCCESS AND IT IS NAMED, ⛔ never `v != something`: a verdict added to `SavedKeyUse` later
+    //   must land on the FAILING side by default, because a new outcome is a new way for the activation not to have
+    //   completed. ⓘ That is the fail-closed direction; the opposite would be a "success that isn't".
+    if (v == SavedKeyUse::installed) {
+        a.outcome = mrui::UiProvOutcome::saved_key_used;
+        // ⛔ NO SECOND ROW AND ⛔ NO ID: `UiProvAnswer::team_id` is documented as meaningful for `created` /
+        //    `team_joined` only, and the success screen's whole message is that the key is active. A token nobody
+        //    renders is a field that eventually gets rendered by somebody.
+        return a;
+    }
+    a.outcome = mrui::UiProvOutcome::saved_key_failed;
+    a.reason  = saved_key_use_name(v);                  // ⛔ a FACT token, ⛔ never material
     return a;
 }
 
@@ -333,6 +403,11 @@ class UiProvisionAdapter : public mrui::IUiProvision {
             //   nearby join goes to the TEAM device (`_dev`), because it is the TEAM transaction. ⛔ Sending it to
             //   `_join` would run the STATIC-network join for a team the operator selected.
             case mrui::UiProvOp::join_team:   return ui_prov_join_team(_dev, intent.team_id);
+            // ★ §UI-16 K5 — the FOURTH op, and the `default`-less switch is what forced this line to be written:
+            //   the saved-key activation goes to the TEAM device (`_dev`), because the keyring, the live key and
+            //   the `/mrcfg` binding are all that device's. ⛔ It carries `intent.team_id` — the id the TRANSACTION
+            //   joined — and ⛔ never `intent.join`, which is another plane's record entirely.
+            case mrui::UiProvOp::use_saved_key: return ui_prov_use_saved_key(_dev, intent.team_id);
             case mrui::UiProvOp::none:        break;
         }
         return mrui::UiProvAnswer{};

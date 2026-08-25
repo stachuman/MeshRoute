@@ -3328,3 +3328,26 @@ Extends §7.5's Part 35 series; setup = H1/H2 as in Parts 36-41.
 
 ⇒ spec §7.5 step 2's *"force a save failure"* is now answerable: **the method is step 1 above**, and it needs
 no fault injection.
+
+## Part 43 — §UI-16 K5: the saved key on glass (2026-08-25)
+
+⛔ **THE RESIDUE ONLY** (the offer, P-2b, the surgical refusal, the A→B race, the boot predicate and the S-39
+wording are host-gated: `teamkeyring` 53 / `uiprov` 40 / `model` 186 entries, probe P22d-g + K5a-c controls).
+**Metal-only: the real flash write, its power-cut behaviour, and the real boot path ([[B193]]'s class).**
+Setup: node B holds a retained `/mrteams` record for team T (granted earlier, then `team 0`).
+
+1. ☐ **A USED saved key survives the power cycle.** On B: panel `JOIN TEAM` → T's row → `JOIN` ⇒
+   `TEAM JOINED`; press ⇒ row0 `SAVED KEY FOUND`, row1 T's six-hex fingerprint, `>BACK` / ` USE SAVED KEY`.
+   `short`+`double` ⇒ row0 **`TEAM KEY ACTIVE`**, ⛔ **no second/third row** (S-27's `NOT SAVED` pair belongs
+   to the RAM-only screen; this key is durable). **Power-cycle** ⇒ boot prints
+   `  team key  = restored from NV (/mrteams) | live key: YES`; a sealed team post is readable. ⛔ FAIL on a
+   keyless boot.
+2. ☐ **BACK changes no key state, across a power cycle.** Same to the offer, `double` on `BACK` ⇒ the menu;
+   STATUS shows no team key. **Power-cycle** ⇒ `no active binding … live key: none`; repeat the join ⇒ the
+   offer appears again (BACK wrote and erased nothing — the record is intact).
+3. ☐ ★★★ **THE A→B RACE, on metal (supported verbs).** Reach `SAVED KEY FOUND` for team A; on the serial
+   console run `team <B>`; then `short`+`double` on `USE SAVED KEY` ⇒ row0 **`KEY NOT INSTALLED`** (S-39),
+   row1 the service token (`not_our_team`); `team` shows B's membership and **B's key still present**.
+   **Power-cycle** ⇒ the boot line restores **B's** key (`live key: YES`); re-joining A offers
+   `SAVED KEY FOUND` again (A's record intact). ⛔ FAIL if B's key was cleared, if A's key went live, or if
+   the panel claimed `TEAM KEY ACTIVE`.

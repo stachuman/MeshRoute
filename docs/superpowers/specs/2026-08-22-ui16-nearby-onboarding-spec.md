@@ -447,7 +447,7 @@ is that a briefed 16 B measured 20, so the implementer **pins `sizeof` and two `
 | **P-12** | ⛔ no unsolicited one-button grant prompt outside a window | the diff runs only while the window arm is live; ⛔ no push navigates | N4 pin: with the window closed, a new member changes ⛔ no screen, cursor or note |
 | **P-13** | every state-changing action confirms with the **safe action selected initially** | `ProvConfirm::back` is the **zero value** and every transition primitive re-establishes it (`src/firmware_ui_model.h:361-371`) | N3/N5/N6/K2 pins: the confirmation opens on the safe arm; reaching the act costs `short` then `double` |
 | **P-14** | emergency pre-empts everything; an unconfirmed destructive action does not survive it | `provision_reset_on_leave` (`src/firmware_ui_model.h:391-396`) | every UI slice pins it; ✅ and OQ-3's clarification: the **window** survives blanking, the **confirmation** does not |
-| **P-15** | ★ **a FULL keyring fails LOUDLY and ⛔ never silently evicts a secret** (keyring ruling) | K1's write policy | K1 pin: a fifth team's key on a full keyring ⇒ **`KEYRING FULL`**, ⛔ zero writes, ⛔ no record replaced; a mutation that evicts must redden — ★ this is the one place where "evict-oldest", the idiom used everywhere else in this tree, is **wrong**, and the pin exists because a reviewer's reflex is to reach for it |
+| **P-15** | ★ **a FULL keyring fails LOUDLY and ⛔ never silently evicts a secret** (keyring ruling) | K1's write policy + K6's explicit removal | K1 pin: a fifth team's key on a full keyring ⇒ **`KEYRING FULL`**, ⛔ zero writes, ⛔ no record replaced; K6 pin: only an operator-confirmed full-id selection may remove an **inactive** record. A mutation that evicts in `put`, deletes ACTIVE, or keys deletion on the short fingerprint must redden — ★ "evict-oldest" remains wrong even though explicit lifecycle management now exists |
 
 ---
 
@@ -472,8 +472,9 @@ trailing. The keyring is now **first**, and the pubkey request is a step of its 
 | **7** | **N6** | `GRANT KEY` / `REJECT` + **`send_aired` correlation** | inert | `S5` (corrected) |
 | **8** | **K3 + K4** | persistence-FIRST grant receive with the four handling-time re-checks, then the durable `TEAM KEY RECEIVED` note | inert | *(replaces `S7`)* |
 | **later** | **K5** | `SAVED KEY FOUND` / `USE SAVED KEY` inside the nearby join | inert | *(new — keyring ruling)* |
+| **follow-up** | **K6** | explicit saved-key management: list, protect ACTIVE, confirm `FORGET KEY`, then retry the refused create/grant | inert | *(new — 2026-08-25 retention ruling)* |
 
-ⓘ **Dependencies:** K1 → K2 → K3 → K4 → K5. N1 → N2 → N3. N4 → N5 → N6. The two families are independent except
+ⓘ **Dependencies:** K1 → K2 → K3 → K4 → K5 → K6. N1 → N2 → N3. N4 → N5 → N6. The two families are independent except
 that **K3 consumes N6's grant** in the end-to-end metal run, and **K5 consumes N3's join screen**.
 
 ---
@@ -936,16 +937,74 @@ that **K3 consumes N6's grant** in the end-to-end metal run, and **K5 consumes N
 - **Mutations (`uisend`, `model`).** The words rendered off a raw push · the failure path rendering success · the arm
   navigating · the arm waking the panel · the `name=` rendered as a label.
 
-### K5 (LATER) — `SAVED KEY FOUND` / `USE SAVED KEY` inside the nearby join
+### K5 (LANDED) — `SAVED KEY FOUND` / `USE SAVED KEY` inside the nearby join
 
-*Owner-sequenced **later** in the keyring arc; recorded here so no slice above quietly does it.*
+*Originally owner-sequenced **later** in the keyring arc; now landed. The historical sequencing remains stated so no
+earlier slice is rewritten as though it had always included activation.*
 
 - **Scope.** When N3's join targets a team whose key is **retained** in the keyring, the flow offers **`SAVED KEY
   FOUND`** with **`BACK` selected** and an explicit **`USE SAVED KEY`**. ⛔ **Nothing is installed by mere knowledge
   of the public team id** (P-2b) — that is the whole reason this is a screen and not a rule.
-- ⛔ **N3 must NOT anticipate it:** until K5 lands, a nearby join of a previously-known team leaves the node
-  **keyless**, exactly as §3.6.4 point 4 requires, and the retained record is untouched.
-- A future explicit **`FORGET KEY`** removes a record; ⛔ it is not in this spec.
+- ⛔ **N3 did NOT anticipate it:** before K5 landed, a nearby join of a previously-known team left the node
+  **keyless**, exactly as §3.6.4 point 4 requires, and the retained record stayed untouched.
+- ⛔ **WITHDRAWN, KEPT VISIBLE:** this section ended with *"A future explicit `FORGET KEY` removes a record; it is
+  not in this spec."* Repeated real-team creation filled the four records and proved that retention without a
+  removal path is not an operable lifecycle. The owner ruled K6 below on 2026-08-25: removal is now explicit,
+  confirmed and limited to an inactive record; P-15's ban on silent eviction remains unchanged.
+
+### K6 (FOLLOW-UP) — explicit saved-key lifecycle / `FORGET KEY`
+
+*Owner-ruled 2026-08-25 after metal testing filled all four `/mrteams` records. This is a PRODUCT/UX completion of
+the keyring lifecycle, not a correction to K1: K1's loud refusal and no-silent-eviction policy remain correct.*
+
+- **Problem.** Re-keying the **same** `team_id` already replaces its record in place and consumes no new slot.
+  Repeated `team new`, however, creates distinct random team ids; each retained key consumes one of the four slots.
+  The fifth correctly reaches **`KEYRING FULL`**, but today the operator has no safe way to free a deliberately
+  retained key. ⛔ Do not describe this as cryptographic key rotation: it is **saved-key retention management**.
+- **Policy.** Keep the fixed four-record bound. ⛔ Do not grow the record and ⛔ do not add an automatic FIFO/LRU
+  policy. A full store still performs **zero writes and zero eviction** until the operator chooses a specific
+  inactive record and confirms `FORGET KEY`. The **active key is protected and cannot be removed**. A key received
+  asynchronously never evicts anything to make room.
+- **Two explicit transactions, never one disguised transaction.** Removing a key completes first and reports its
+  own verdict. Team creation or a renewed grant is then retried. ⛔ `team new` must never delete a record as a side
+  effect: `/mrteams` and `/mrcfg` are separate durable records, so "evict then create" cannot be one atomic commit;
+  hiding both behind one action would allow a failed create to destroy an unrelated saved key.
+- **Pure service.** Add a metadata-only enumeration (`team_id`, active marker; ⛔ never key bytes) and a typed
+  `forget(team_id, binding)` operation. The operation: refuse id 0 · fail closed on invalid/unreadable storage ·
+  return not-found with zero writes · refuse the active binding with zero writes · remove exactly the selected
+  record · compact deterministically · wipe the vacated record · save exactly once. A failed save is reported as a
+  failed save; it may not be described as "nothing changed" because the real backend's power-cut outcome is M2.
+- **Console.** `team keys` lists the retained team ids/fingerprints and marks the active one, revealing no key
+  material. `team forgetkey 0x<team-id> confirm` removes one inactive record. Omitting `confirm`, targeting the
+  active key, using id 0, or naming an absent record performs zero writes and fails loudly. `team exportkey` is
+  unchanged and is not reused as the list operation.
+- **OLED.** PROVISION gains a **`SAVED KEYS`** child. Its list uses the shared team fingerprint helper; the active
+  row is visibly marked **`ACTIVE`**. Selection is carried by the full 32-bit `team_id`, never by the six-hex-digit
+  display token or by a mutable row index. The irreversible confirmation shows the **full team id**, opens with
+  `BACK` selected, and offers `FORGET KEY` only for an inactive row. An active row lands on **`ACTIVE KEY` /
+  `CANNOT FORGET`** with no destructive action. An empty list says **`NO SAVED KEYS`**. Successful removal says
+  **`KEY FORGOTTEN`** and returns to the refreshed list; a storage failure stays visible and offers no false success.
+- **Full-store direction.** A `KEYRING FULL` result does not choose a victim. Its acknowledgement enters the saved
+  key list, where `BACK` remains safe and the operator makes the separate selection and confirmation. After a
+  successful forget, the original create/grant is ⛔ not replayed automatically; the operator retries it.
+- **Identity and secret hygiene.** List rows may abbreviate with the shared fingerprint, but the confirmation must
+  carry the full id. Names are metadata and never deletion identity. No key byte reaches the model, renderer,
+  console list, outcome token, telemetry or mutation output. Every temporary secret-bearing blob retains K1's wipe
+  guard on every return.
+- **Pins.** (1) Full + unconfirmed ⇒ zero writes and no eviction. (2) Active target ⇒ zero writes and live key,
+  binding, membership and all records unchanged. (3) Inactive target ⇒ exactly one save, the selected id absent,
+  every other record byte-identical and the vacated tail zero. (4) Not-found / zero / unreadable ⇒ zero writes.
+  (5) Save failure never renders `KEY FORGOTTEN`. (6) The list exposes ids/status only, no material. (7) A short
+  fingerprint collision cannot delete the wrong record. (8) `KEYRING FULL` acknowledgement opens management but
+  never deletes or retries by itself. (9) Re-keying one existing team remains an in-place replace and never invokes
+  K6.
+- **Mutation classes.** Silent oldest-record eviction in `put` · active-key deletion accepted · confirmation
+  bypassed · delete keyed on the fingerprint/cursor · compaction leaves a duplicate or secret-bearing tail · save
+  failure rendered as success · create automatically resumed · list returns key material · missing-store and
+  unreadable-store collapsed.
+- **Files / boundary.** `src/firmware_team_keyring.h` (pure typed policy), its device forwards in
+  `src/firmware_config.cpp`, UI model/renderer/provisioning adapter, native tests and the existing batteries/probes.
+  ⛔ No `lib/core`, frame, timer, routing or simulator change.
 
 ---
 
@@ -963,6 +1022,8 @@ that **K3 consumes N6's grant** in the end-to-end metal run, and **K5 consumes N
 | N6 | `test/test_firmware_ui_invite.cpp` + `test/test_firmware_ui_send.cpp` | `uiinvite`, **`uisend`**, `model` | eight-outcome + two-push GRANT arm against the fake seam |
 | K3 | `test/test_firmware_team_keyring.cpp` | `teamkeyring`, `config` | ⛔ none; the real-flash half is **metal-only** |
 | K4 | `test/test_firmware_ui_send.cpp` | `uisend`, `model` | a push arm asserting the note and the **absence** of navigation/wake |
+| K5 | `test/test_firmware_team_keyring.cpp`, `test/test_firmware_ui_prov.cpp`, `test/test_firmware_ui_model.cpp` | `teamkeyring`, `uiprov`, `model` | saved-key offer + explicit activation arms |
+| K6 | `test/test_firmware_team_keyring.cpp`, console/parser tests, `test/test_firmware_ui_model.cpp` | `teamkeyring`, `uiprov`, `model` | full-store → management; list, active refusal, full-id confirmation and successful refresh |
 
 **Standing rules for every slice.**
 - **[[B217]] re-pin duty.** The runner aborts with `sys.exit(2)` and **applies zero mutations** when the clean
@@ -1014,6 +1075,8 @@ genuinely is static **twice** ⇒ for that struct ~2*n* stands. D2's warning app
 | N6 | ~0 RAM (a pure mapping + the correlation pair `{dst, ctr}` in `UiState`). Flash: the outcome words. |
 | K3 | 0 RAM. Flash: the persistence call plus four re-checks. ⛔ **Flash WEAR is a separate, unmeasured axis** and is bench-only (M2). |
 | K4 | 0 RAM (one arm + an existing transient-note slot). |
+| K5 | Landed separately; use its implementation report as the measured authority. |
+| K6 | Expected 0 `Node` growth and no NV-record growth. UI state needs one full `team_id` selection plus arms; the list should reuse the existing four-record bound. **Measure**, including transient keyring-blob stack and both permitted board envs. |
 
 **Per-tick cost.**
 - N1: one comparison and at most one upsert **per received beacon** — ⛔ not per tick, ⛔ no allocation, flash or radio.
@@ -1021,7 +1084,7 @@ genuinely is static **twice** ⇒ for that struct ~2*n* stands. D2's warning app
 - N4: the member enumeration is **already paid** — `build_snapshot` walks `rt_team_at` today
   (`src/firmware_ui.cpp:591-598`) — so the refresh takes **one** `team_key_of_id` resolution per row and hands it to
   both consumers (U1), ⛔ never two lookups for one row. The refresh runs **only while the window is active**.
-- N5/N6/K3/K4: nothing periodic at all.
+- N5/N6/K3/K4/K5/K6: nothing periodic at all.
 - ⛔ **No new timer id in any slice.** `TimerWheel::kCap` is untouched — nothing here is protocol time.
 
 ---
@@ -1142,16 +1205,16 @@ does not edit the bench script (supervisor-landed after PASS).
    ⛔ **No key material may appear on any console or panel** (P-8).
 7. ☐ **The round trip.** From H2: `send_channel 0 "sealed again" -t -e` ⇒ H1 prints the body with `[enc]`.
 
-### 7.5 Durability — the keyring (K1, K2, K3, K4)
+### 7.5 Durability and lifecycle — the keyring (K1…K6)
 1. ☐ ★★★ **THE FALSIFIER FOR [[B240]].** **Power-cycle H1.** Then `team exportkey` ⇒ the key is **still there**, and
    a fresh sealed post from H2 is readable. ⛔ **Before the keyring lands this FAILS by construction** — run it as the
    falsifier and record the result either way.
 2. ☐ **The panel said the true thing.** On the grant, H1's panel showed **`TEAM KEY RECEIVED`**. Now force a save
    failure (the bench part K1 drafts names the method) and repeat ⇒ the panel must show **`TEAM KEY ACTIVE`** /
    **`NOT SAVED — LOST ON REBOOT`** and ⛔ **never `TEAM KEY RECEIVED`**.
-3. ☐ ★ **RETAINED, NOT REACTIVATED (P-2b).** On H1: `team 0` ⇒ keyless and out of the team. Re-join the **same** team
-   through NEARBY ⇒ ⛔ **the node is KEYLESS** (K5 has not landed) and the stored record is untouched. ⛔ FAIL if the
-   key came back on its own — that is the reactivation the ruling forbids.
+3. ☐ ★ **RETAINED, NOT SILENTLY REACTIVATED (P-2b).** On H1: `team 0` ⇒ keyless and out of the team. Re-join the
+   **same** team through NEARBY ⇒ `SAVED KEY FOUND`, with `BACK` selected. ⛔ The key remains inactive until the
+   explicit `USE SAVED KEY` action; BACK changes no key state.
 4. ☐ **Reboot in-team restores.** With H1 in the team and holding the key, power-cycle ⇒ the key is active again
    automatically.
 5. ☐ ★ **A FULL KEYRING FAILS LOUDLY (P-15).** Fill four teams' records, then receive a fifth team's grant ⇒
@@ -1160,6 +1223,15 @@ does not edit the bench script (supervisor-landed after PASS).
    **either the complete old one or the complete new one**, ⛔ never half. ⓘ Precedent: the §UI-15 slice-7 `/mrjoin`
    power-cut.
 7. ☐ **Factory reset erases it.** After a factory reset, `/mrteams` holds nothing and the node is keyless.
+8. ☐ ★ **EXPLICIT RETENTION MANAGEMENT (K6).** With four records present, `team keys` lists four ids and marks
+   exactly the active one; no key bytes appear. Attempt `team forgetkey <active-id> confirm` ⇒ loud refusal, zero
+   writes and the active key still works. Omit `confirm` on an inactive id ⇒ zero writes. Then confirm removal of a
+   chosen inactive id ⇒ exactly that id disappears; reboot and verify all other records plus the active key survive.
+9. ☐ **FULL → MANAGEMENT, NEVER AUTO-EVICTION.** Refill to four, provoke a fifth-team `KEYRING FULL`, acknowledge it
+   on OLED ⇒ the saved-key list opens with no row removed and no create/grant retried. Select an inactive row, verify
+   the confirmation shows its **full** team id with BACK selected, choose `FORGET KEY`, then manually retry the
+   original operation. ⛔ FAIL if an oldest row disappears automatically, ACTIVE can be selected for deletion, or
+   the original operation replays itself.
 
 ### 7.6 Stop rules
 - ⛔ **Stop and report** on: a join or a grant the operator did not confirm; a WANT_PUBKEY aired without an explicit
@@ -1213,7 +1285,7 @@ house style applied to it, one line each, pinned by a native case.
 | S-28 | `SAVED KEY FOUND` | K5, on joining a known team | 15 | ★ **NEW, OWNER-RULED** (keyring) — **later** |
 | S-29 | `USE SAVED KEY` | K5's explicit action, `BACK` default | 13 | ★ **NEW, OWNER-RULED** (keyring) — **later** |
 | S-30 | `KEYRING FULL` | K1, a fifth team | 12 | ★ **NEW, OWNER-RULED** (keyring, P-15) — the loud failure that ⛔ never evicts |
-| S-31 | `FORGET KEY` | — | 10 | ★ **RESERVED, OWNER-NAMED as future** — ⛔ not in this spec; listed so it is not spelled two ways later |
+| S-31 | `FORGET KEY` | K6 inactive-key confirmation/action | 10 | ★ **ACTIVATED 2026-08-25 from the previously reserved owner-named lexeme.** BACK is selected by default; this action is absent for the active row |
 | S-32 | `JOIN COMPLETE` | — | 13 | ⛔ **FORBIDDEN** — §3.6.4 `:821` refuses it explicitly; absence is a test |
 | S-33 | `KEYLESS` | — | 7 | ⛔ **FORBIDDEN** — §3.6.4 `:815`; absence is a test |
 | S-34 | `WAITING FOR KEY` | — | 15 | ⛔ **NEWLY FORBIDDEN, OWNER-RULED 2026-08-22.** ⛔ **WITHDRAWN, KEPT VISIBLE:** the draft carried it twice as a live lexeme (the `no_pubkey` landing and the PARKED sub-state). It is **ambiguous between the recipient's PUBKEY and the team CONTENT key** — the two secrets this screen sits between. Its slots are now S-20 and S-21 |
@@ -1222,13 +1294,24 @@ house style applied to it, one line each, pinned by a native case.
 
 | S-37 | `GRANT PARKED` | the grant's parked sub-state | 12 | ★ **ADDED + OWNER-RULED 2026-08-24** (the N6 wording ruling): derived from the console's shipped `PARKED (resolving…)` in the cluster's `GRANT <state>` shape. ⛔ **Shown ONLY for an EXPLICITLY-STORED parked outcome** reported by the core's dispatch result — ⛔ never inferred from `ctr == 0` (the N6 first-gate correction in §4-N6) |
 | S-38 | `GRANT QUEUE FULL` | the grant's admission refusal | 16 | ★ **ADDED 2026-08-24 (N6 first-gate QG)** — the distinct refusal for a full TX queue / full parked ring, which the pre-correction core laundered into `queued`. ⛔ Never collapsed into `GRANT FAILED` (that word is the correlated in-flight failure's) |
+| S-39 | `KEY NOT INSTALLED` | K5's `USE SAVED KEY` refusal | 17 | ★ **ADDED + OWNER-RULED 2026-08-25** (the K5 round-2 wording): states **the act's outcome, never the node's key inventory**, so it is true on every refusing arm — incl. the stale-membership race, where another team's key legitimately remains live (which made the withdrawn `NO TEAM KEY` candidate FALSE). Second row = the service token |
+| S-40 | `SAVED KEYS` | K6's PROVISION child row + list title | 10 | ★ **ADDED + OWNER-RULED 2026-08-25** (§K6) |
+| S-41 | `NO SAVED KEYS` | K6's list, empty | 13 | ★ **ADDED + OWNER-RULED 2026-08-25** (§K6) |
+| S-42 | `KEY FORGOTTEN` | K6's successful removal | 13 | ★ **ADDED + OWNER-RULED 2026-08-25** (§K6); ⛔ a storage failure never renders it (K6 pin 5) |
+| S-43 | `ACTIVE KEY` / `CANNOT FORGET` | K6's active-row landing, no destructive action | 10 / 13 | ★ **ADDED + OWNER-RULED 2026-08-25** (§K6) — the two-row shape, the `PHY DIFFERS`/`USE SERIAL` precedent |
+| S-44 | `ACTIVE` | K6's list marker on the active row | 6 | ★ **ADDED + OWNER-RULED 2026-08-25** (§K6) — a row MARKER, not a screen; rides the row beside the shared fingerprint |
+| S-40 | `SAVED KEYS` | K6 PROVISION child + list title | 10 | ★ **NEW 2026-08-25** — management of retained records, ⛔ never an export-key screen |
+| S-41 | `ACTIVE` | K6 row marker | 6 | ★ **NEW 2026-08-25** — status only; the full binding predicate remains the authority and the word never authorises deletion |
+| S-42 | `ACTIVE KEY` / `CANNOT FORGET` | K6 protected-row result | 13 | ★ **NEW 2026-08-25** — two true rows, no destructive action |
+| S-43 | `NO SAVED KEYS` | K6 empty list | 13 | ★ **NEW 2026-08-25** — says the keyring has no retained records; ⛔ not `NO TEAM KEY`, which is a claim about live state |
+| S-44 | `KEY FORGOTTEN` | K6 successful committed removal | 13 | ★ **NEW 2026-08-25** — reachable only after the keyring save succeeds; failure uses the existing failure vocabulary and never this word |
 
-**Count: 36 entries — 24 NEW, 8 REUSED, 3 FORBIDDEN lexemes, 1 FORBIDDEN USAGE** *(⛔ corrected 2026-08-24:
-**38 entries — 26 NEW** with S-37/S-38 above; the rest of the arithmetic unchanged)*. ⚠ **The arithmetic is written out
+**Count: 44 entries — 32 NEW, 8 REUSED, 3 FORBIDDEN lexemes, 1 FORBIDDEN USAGE** *(corrected through K6 on
+2026-08-25; S-31 moved from reserved to live but remains in the same NEW bucket)*. ⚠ **The arithmetic is written out
 so it can be checked rather than trusted:**
-- **NEW (24):** S-1, S-2, S-4, S-5, S-6, S-7, S-8, S-10, S-13, S-15, S-16, S-18, S-19, S-20, S-21, S-23, S-24,
-  S-26, S-27, S-28, S-29, S-30, S-31, **S-35** (S-24 is one row carrying six arms, counted once; S-31 is reserved and
-  unused).
+- **NEW (32):** S-1, S-2, S-4, S-5, S-6, S-7, S-8, S-10, S-13, S-15, S-16, S-18, S-19, S-20, S-21, S-23, S-24,
+  S-26, S-27, S-28, S-29, S-30, S-31, S-35, S-37, S-38, S-39, S-40, S-41, S-42, S-43, S-44 (S-24 is one row
+  carrying six arms, counted once).
 - **REUSED (8):** **6 are §3.6.4's own words carried verbatim** — S-3, S-12, S-14, S-17, S-22, S-25 — and **2 are
   shipped strings CALLED rather than re-spelled** — S-9 (`join_confirm_label`) and S-11 (`prov_result_head`).
 - **FORBIDDEN LEXEMES (3):** S-32, S-33, S-34 — absence is a test, ⛔ not a preference.
@@ -1237,11 +1320,11 @@ so it can be checked rather than trusted:**
 - ⓘ **The team-id fingerprint is NOT an entry**, because it defines nothing: every site calls the one helper. The
   **member name** is likewise not an entry — it is data from `peer_name_find`, not a string this spec declares;
   S-35 is the **format that places it**.
-- ⓘ **Delta vs the reviewed draft: 22 → 34 → 36 entries.** The first +12 was the owner review (the four ruled
+- ⓘ **Delta vs the reviewed draft: 22 → 34 → 36 → 39 → 44 entries.** The first +12 was the owner review (the four ruled
   pubkey/grant lexemes S-18…S-21/S-23, the four keyring lexemes S-26…S-30, the reserved S-31, the split-out signal
   token S-7, and `WAITING FOR KEY` moving from live to forbidden). The **+2 is the name-lifecycle amendment**:
   **S-35** (the invite row format) and **S-36** (the forbidden usage) — plus **in-place amendments to S-6 and S-13**,
-  which add no entries.
+  which add no entries. S-37…S-39 came from N6/K5; S-40…S-44 are K6's lifecycle words.
 
 ---
 
@@ -1298,8 +1381,8 @@ metal **§7.1 step 4**.
 power-cut part, the `/mrjoin` storage precedent for the absent/corrupt/io_failed matrix, coalescing and factory
 reset, and the explicit note that **a new NV record is not a wire change**. Keys are **RETAINED on leave** and ⛔
 **never silently reactivated by mere knowledge of the public team_id** ⇒ `/mrcfg` gains a small active-binding fact.
-⇒ landed at **§1.7 F-6**, the whole of **§4-K1/K2/K5**, **§3 P-2b and P-15**, **§6**, metal **§7.5**, strings
-**S-26…S-31**, and register **[[B240]]** (`docs/2026-07-30-open-bug-register.md:130`).
+⇒ landed at **§1.7 F-6**, the whole of **§4-K1/K2/K5/K6**, **§3 P-2b and P-15**, **§6**, metal **§7.5**, strings
+**S-26…S-31 and S-39…S-44**, and register **[[B240]]** (`docs/2026-07-30-open-bug-register.md:130`).
 
 **R-7 · `no_pubkey` — ★ AN EXPLICIT, OPERATOR-AUTHORISED `REQUEST PUBKEY` STEP.**
 *Asked (implicitly, by the draft):* UI-16 dead-ends where the grant refuses for want of a verified pubkey, and
@@ -1374,6 +1457,16 @@ plus one control), **N4**, **N5**, **N6**, strings **S-6 / S-13 amended, S-35 / 
 §7.3.3 · §7.4.3b · §7.4.3c**. ⛔ **The K-slices are untouched** — the keyring record carries no labels by ruling, so
 this is a display lifecycle only and K1 may proceed in implementation unaffected.
 
+**R-14 · Saved-key lifecycle — ★ EXPLICIT REMOVAL, NEVER SILENT ROTATION.**
+*Asked after metal testing:* repeated `team new` operations retain four different team keys and the fifth refuses;
+should the keyring rotate automatically?
+*Ruled:* **provide explicit management instead.** List retained team identities without material · mark and protect
+the active key · require a full-id, BACK-default confirmation for `FORGET KEY` · make `KEYRING FULL` lead to that
+management view · and require the operator to retry creation/grant afterwards. ⛔ No automatic oldest/LRU victim,
+no eviction on asynchronous receipt, and no combined delete+create transaction across `/mrteams` and `/mrcfg`.
+⇒ landed at **§3 P-15**, **§4-K6**, **§5/§6 K6**, metal **§7.5 steps 8-9**, strings **S-31 and S-40…S-44**, and
+§10's corrected scope boundary.
+
 ---
 
 ### ⓘ Open questions: **NONE.**
@@ -1410,9 +1503,9 @@ lapse because the list is empty.
   INVITE DOES refresh locally** while its window is active, transmitting nothing (R-10);
 - ⛔ **no invitation carrier on the wire**, ⛔ **no cross-PHY onboarding**, ⛔ **no Crockford-Base32 rendering and no
   one-button character entry** — all four are named in §3.6.4 as later or out of scope (`:830-837`);
-- ⛔ **no `SAVED KEY FOUND` / `USE SAVED KEY` in this arc's first pass** — owner-sequenced later (K5), and ⛔ N3 must
-  not anticipate it;
-- ⛔ **no `FORGET KEY`** — named as a future verb (S-31) so it is not spelled two ways later;
+- ⛔ **WITHDRAWN, KEPT VISIBLE:** the first pass excluded `SAVED KEY FOUND` / `USE SAVED KEY` and `FORGET KEY`.
+  K5 and K6 now implement those deliberately separated acts; what remains forbidden is silent activation or silent
+  eviction, not the explicit verbs;
 - ⛔ **no widening of the §UI-17 R-7 wake scope** — a `team_key_received` push does not wake a dark panel in v1 (K4);
 - ⛔ **no unification of the two team-id spellings and no deletion of `TeamRow::score_q4`** — both are refactors
   already claimed by §UI-17 F-6, and ⛔ neither rides a slice here (C1);

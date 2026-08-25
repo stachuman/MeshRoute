@@ -99,12 +99,76 @@ struct FakeKeyStore : mrfw::ITeamKeyStore {
     bool save(const mrnv::TeamKeyBlob& b) override { ++saves; rec = b; state = mrnv::TeamKeyRead::ok; return true; }
 };
 
+// ★★★★ §UI-16 K5 — THE TWO SEAMS THE ACTIVATION RUNS OVER, FAKED THE WAY THE DEVICE COMPOSES THEM. On hardware
+//      these are `DeviceTeamKeyLive` (i.e. `Node::team_channel_key_adopt` / `_clear`) and `DeviceTeamKeyBinding`
+//      (i.e. `blob_put_team_channel_key` + the two `/mrcfg` binding assignments) — the SAME two adapters the boot
+//      restore and the grant receive compose. Here they are the same shape over the fixture's own state, so what the
+//      suite drives is the REAL `TeamKeyringService::use_saved`, ⛔ never a model of it.
+// ★★ `FakeTeamKeyLive` ROUTES INTO `FakeLive`, deliberately: `key_present` must have ONE authority in this fixture,
+//    or "the join left us keyless and the offer put a key back" would be two counters free to disagree.
+// ⚠ THE ADOPT IS ALLOWED TO **REFUSE**, which is what makes the `rejected` arm reachable: the real accessor
+//   re-derives the public half from the private one and refuses a record that does not verify. ⓘ The fake refuses on
+//   a flag rather than by re-deriving — the DERIVATION itself is `lib/core`'s and is pinned by `test_node_channel`;
+//   what this file measures is what the ADAPTER does with a refusal.
+struct FakeTeamKeyLive : mrfw::ITeamKeyLive {
+    FakeLive& live;
+    bool adopt_ok = true;
+    int  adopt_calls = 0, clear_calls = 0;
+    uint8_t last_pub[32] = {}, last_priv[32] = {};
+    explicit FakeTeamKeyLive(FakeLive& l) : live(l) {}
+    bool adopt_key(const uint8_t pub[32], const uint8_t priv[32]) override {
+        ++adopt_calls;
+        if (!adopt_ok) return false;                 // ⛔ and the live state is UNTOUCHED on a refusal
+        memcpy(last_pub, pub, 32); memcpy(last_priv, priv, 32);
+        live.key_present = true;
+        return true;
+    }
+    void clear_key() override { ++clear_calls; live.key_present = false; }
+};
+// The `/mrcfg` half, over the SAME `FakeStore` the transaction writes through (U1 — one durable seam, exactly as the
+// device has one), so the five-term boot predicate can be driven against the record this really wrote.
+struct FakeTeamKeyBinding : mrfw::ITeamKeyBinding {
+    FakeStore& store;
+    bool commit_ok = true;
+    int  read_calls = 0, commit_calls = 0;
+    uint8_t _pub[32] = {};
+    explicit FakeTeamKeyBinding(FakeStore& s) : store(s) {}
+    bool read(mrfw::TeamKeyBinding& out) override {
+        ++read_calls;
+        out.membership_team_id = store.rec.team_id;
+        out.binding_team_id    = store.rec.team_key_team_id;
+        out.key_active         = (store.rec.team_key_active != 0);
+        out.committed_present  = (store.rec.team_ch_key_present != 0);
+        memcpy(_pub, store.rec.team_ch_pub, sizeof _pub);
+        out.committed_pub      = _pub;
+        return true;
+    }
+    bool commit_active(uint32_t team_id, const uint8_t pub[32], const uint8_t priv[32]) override {
+        ++commit_calls;
+        if (!commit_ok) return false;                // ⛔ COUNTED EVEN WHEN IT FAILS ([[B193]]'s rule)
+        mrnv::Blob b{};
+        if (!store.load(b)) return false;
+        // ★ THE SECOND AUTHORITY THE DEVICE WRITER CARRIES (QG blocker 1, 2026-08-25), through the SAME pure
+        //   predicate (U1): an ACTIVE BINDING may ⛔ never be written into a record whose MEMBERSHIP names another
+        //   team. ⓘ A fake more permissive than the device is a fake that green-lights what hardware refuses.
+        if (!mrfw::commit_membership_ok(b.team_id, team_id)) return false;
+        mrfw::blob_put_team_channel_key(b, pub, priv);   // the ONE conversion path (U2)
+        b.team_key_team_id = team_id;
+        b.team_key_active  = 1;
+        return store.save(b);
+    }
+};
+
 struct DevFake : mrfw::ITeamCreateDevice {
     FakeStore   store;
     FakeLive    live;
     FakeEntropy ent;
     FakeKeyStore keys;
     mrfw::TeamKeyringService keyring{keys};
+    FakeTeamKeyLive    key_live{live};
+    FakeTeamKeyBinding key_binding{store};
+    int has_saved_calls = 0, use_saved_calls = 0;
+    uint32_t last_has_saved_id = 0, last_use_saved_id = 0;
     meshroute::NodeConfig cfg{};
     ProvSnapshot snap{};
     ProvPhyFloor floor{};
@@ -146,6 +210,15 @@ struct DevFake : mrfw::ITeamCreateDevice {
         return last_result;
     }
     void on_applied(const ProvResult& r) override { ++on_applied_calls; noted_team_local_id = r.persisted_team_local_id; }
+    // §UI-16 K5 — the two forwards, over the SAME one keyring service and the SAME two adapters the device composes.
+    bool has_saved_key(uint32_t team_id) override {
+        ++has_saved_calls; last_has_saved_id = team_id;
+        return keyring.has_record(team_id);
+    }
+    mrfw::SavedKeyUse use_saved_key(uint32_t team_id) override {
+        ++use_saved_calls; last_use_saved_id = team_id;
+        return keyring.use_saved(team_id, key_live, key_binding);
+    }
     int live_total() const { return live.total(); }
 };
 
@@ -766,10 +839,21 @@ TEST_CASE("§UI16-N3 ★★★ the joiner is KEYLESS — the live key is destroy
     CHECK(strcmp(mrui::prov_result_detail(a), "") == 0);
 }
 
-TEST_CASE("§UI16-N3 ⛔⛔ a RETAINED keyring record is NOT installed by joining that team — N3 does not anticipate K5") {
+TEST_CASE("§UI16-N3/K5 ⛔⛔ a RETAINED keyring record is NOT installed by joining that team — it is OFFERED") {
     // ★★★★ P-2b, AND IT IS THE ONE PROPERTY A LATER SLICE IS MOST LIKELY TO 'FIX': the node has joined a team whose
     //      key it ALREADY HOLDS in `/mrteams`, and mere knowledge of the PUBLIC team id may ⛔ never bring that
-    //      secret back. The explicit `SAVED KEY FOUND` / `USE SAVED KEY` offer is §UI-16 K5's, later.
+    //      secret back.
+    // ⛔⛔ **CORRECTED IN PLACE 2026-08-25 (§UI-16 K5 LANDED), AND THE WITHDRAWN EXPECTATION IS KEPT VISIBLE.** The
+    //     title read *"N3 does not anticipate K5"* and the case ended on two assertions that ⛔ **no K5 lexeme had
+    //     leaked into this slice's vocabulary**:
+    //         CHECK(strstr(mrui::prov_result_head(a), "SAVED KEY") == nullptr);
+    //         CHECK(strstr(mrui::prov_result_detail(a), "USE SAVED KEY") == nullptr);
+    //     ★ THOSE TWO ARE **DELIBERATELY RETAINED BELOW AND STILL PASS**, because what they actually pinned is a
+    //     property K5 does not weaken: the JOIN's RESULT SCREEN says `TEAM JOINED` and ⛔ nothing about a key. The
+    //     offer is a SEPARATE screen reached by acknowledging that result (see `create_result_gesture`).
+    // ★ WHAT FLIPS IS THE ONE EXPECTATION K5 WAS ALWAYS GOING TO REVERSE — *"a nearby join of a previously-known
+    //   team leaves the node keyless AND THAT IS THE END OF IT"*. It still leaves it KEYLESS (every assertion below
+    //   is unchanged), and the answer now also REPORTS that a record exists, which is a bit, not a key.
     DevFake d;
     uint8_t pub[32], priv[32];
     for (int i = 0; i < 32; ++i) { pub[i] = uint8_t(0x11 + i); priv[i] = uint8_t(0x91 + i); }
@@ -788,9 +872,16 @@ TEST_CASE("§UI16-N3 ⛔⛔ a RETAINED keyring record is NOT installed by joinin
     CHECK(d.keys.saves == saves_before);
     CHECK(memcmp(&d.keys.rec, &before, sizeof before) == 0);
     CHECK(mrfw::team_key_find(d.keys.rec, 0x77D9348Au) >= 0);
-    // ⛔ AND NO LEXEME OF K5's HAS LEAKED INTO THIS SLICE's VOCABULARY.
+    // ⛔ AND NO LEXEME OF K5's APPEARS ON THE **JOIN'S RESULT SCREEN** — the two withdrawn-title assertions, kept
+    //    because the property they measure survived the flip intact.
     CHECK(strstr(mrui::prov_result_head(a), "SAVED KEY") == nullptr);
     CHECK(strstr(mrui::prov_result_detail(a), "USE SAVED KEY") == nullptr);
+    // ★★★ THE FLIPPED HALF (§UI-16 K5): the answer REPORTS the retained record — one bit, asked with the
+    //     TRANSACTION's own id — and that is ALL it does. ⛔ The install counters above are still zero.
+    CHECK(a.saved_key == true);
+    CHECK(d.has_saved_calls == 1);                                   // asked ONCE, on the applied arm
+    CHECK(d.last_has_saved_id == 0x77D9348Au);                       // ...about the team the transaction JOINED
+    CHECK(d.use_saved_calls == 0);                                   // ⛔⛔ and the ACT was never entered
 }
 
 TEST_CASE("§UI16-N3 a FAILED save keeps the PREVIOUS membership and key, and says so") {
@@ -902,4 +993,238 @@ TEST_CASE("§UI16-N3 the intent dispatch routes join_team to the TEAM transactio
     CHECK(ad.perform(none).outcome == UiProvOutcome::none);
     CHECK(d.store.writes == w);
     CHECK(j.cfg.writes == jw);
+}
+
+// =====================================================================================================================
+// §UI-16 K5 — THE SAVED-KEY OFFER's ADAPTER HALF: the PRESENCE REPORT and the EXPLICIT ACTIVATION (spec §4-K5)
+// =====================================================================================================================
+// ★★★ WHAT THIS BLOCK MEASURES: what the JOIN reports about a retained record (a bit, and nothing else), and what
+//     `USE SAVED KEY` maps onto — the PANEL's words, the counters, and the state the node is left in. ⛔ WHERE the
+//     offer sits in the flow is the MODEL's (`test/test_firmware_ui_model.cpp`); the keyring's own order and
+//     governance are `test/test_firmware_team_keyring.cpp`'s. Neither is re-measured here.
+namespace {
+UiProvAnswer use_saved(DevFake& d, uint32_t id) { return mrfw::ui_prov_use_saved_key(d, id); }
+// Retain a VERIFIABLE pair for `team_id` in the keyring — the state a `team 0` (leave) or a re-join arrives at.
+// ⚠ It is a REAL derived pair, so `FakeTeamKeyLive`'s adopt is not the thing under test in the positive arms.
+void retain_key(DevFake& d, uint32_t team_id) {
+    uint8_t pub[32], priv[32];
+    for (int i = 0; i < 32; ++i) { pub[i] = uint8_t(0x11 + i); priv[i] = uint8_t(0x91 + i); }
+    CHECK(d.keyring.put(team_id, pub, priv).verdict == mrfw::KeyringVerdict::ok);
+}
+}  // namespace
+
+TEST_CASE("§UI16-K5 a join of a team with NO retained record makes ⛔ NO offer — the landed N3 flow, unchanged") {
+    // ★★ SPEC §4-K5 PIN 4. ⓘ The keyring is EMPTY here, so the question is answered by the store rather than by a
+    //    short-circuit — and the answer is the only thing that differs from the retained-record case above.
+    DevFake d;
+    const UiProvAnswer a = join_team(d, 0x77D9348Au);
+    CHECK(a.outcome == UiProvOutcome::team_joined);
+    CHECK(a.saved_key == false);                     // ⛔⛔ NO OFFER
+    CHECK(d.has_saved_calls == 1);                   // ...and it was ASKED (a zero that is evidence, not an absence)
+    CHECK(d.last_has_saved_id == 0x77D9348Au);
+    // ★ AND EVERYTHING ELSE IS N3's, unchanged: one write, one membership move, one notification, keyless.
+    CHECK(d.apply_calls == 1);
+    CHECK(d.store.writes == 1);
+    CHECK(d.on_applied_calls == 1);
+    CHECK(d.live.key_present == false);
+    CHECK(d.keys.saves == 0);
+    CHECK(d.use_saved_calls == 0);
+    CHECK(strcmp(mrui::prov_result_head(a), "TEAM JOINED") == 0);
+}
+
+TEST_CASE("§UI16-K5 ⛔ the QUESTION is asked ONLY on the applied arm, and ⛔ never for the CREATE act") {
+    {   // A REFUSED join joined nothing, so there is no team to offer a key for — and a keyring read would be a
+        //   load spent to no purpose.
+        DevFake d;
+        retain_key(d, 0x77D9348Au);
+        d.snap.live_bw_hz = 250000;                  // a PHY divergence ⇒ `phy_differs`, zero transaction calls
+        const UiProvAnswer a = join_team(d, 0x77D9348Au);
+        CHECK(a.outcome == UiProvOutcome::phy_differs);
+        CHECK(a.saved_key == false);
+        CHECK(d.has_saved_calls == 0);
+    }
+    {   // A FAILED SAVE joined nothing either — the previous membership stands, so an offer would be about a team
+        //   this node is not in (and the boot predicate's term (ii) would refuse the binding anyway).
+        DevFake d;
+        retain_key(d, 0x77D9348Au);
+        d.store.write_ok = false;
+        const UiProvAnswer a = join_team(d, 0x77D9348Au);
+        CHECK(a.outcome == UiProvOutcome::save_failed);
+        CHECK(a.saved_key == false);
+        CHECK(d.has_saved_calls == 0);
+    }
+    {   // ⛔ AND A CREATE NEVER ASKS: it MINTED a key and stored it, so there is nothing to "find". A `create_result`
+        //   that carried the flag would open the offer on the acknowledgement of a CREATE (see the model's own pin).
+        DevFake d;
+        const UiProvAnswer a = create(d);
+        CHECK(a.outcome == UiProvOutcome::created);
+        CHECK(a.saved_key == false);
+        CHECK(d.has_saved_calls == 0);
+        CHECK(d.keys.saves == 1);                    // ...although the keyring really was written by the mint
+    }
+}
+
+TEST_CASE("§UI16-K5 ★★★ `USE SAVED KEY` installs the retained key, and the node is BOOT-DURABLE afterwards") {
+    // ★★★★ THE POSITIVE ARM, END TO END THROUGH THE ADAPTER: a nearby join of a team whose key is retained, then
+    //      the explicit act — and the durability is proved by DRIVING THE REAL RESTORE against what was written.
+    DevFake d;
+    retain_key(d, 0x77D9348Au);
+    const mrnv::TeamKeyBlob keyring_before = d.keys.rec;
+    const int keyring_saves = d.keys.saves;
+    const UiProvAnswer joined = join_team(d, 0x77D9348Au);
+    CHECK(joined.outcome == UiProvOutcome::team_joined);
+    CHECK(joined.saved_key == true);
+    CHECK(d.live.key_present == false);                              // ★ the JOIN left us keyless (P-2), asserted
+    const int writes_after_join = d.store.writes;
+
+    const UiProvAnswer a = use_saved(d, joined.team_id);
+    CHECK(a.outcome == UiProvOutcome::saved_key_used);
+    CHECK(d.use_saved_calls == 1);
+    CHECK(d.last_use_saved_id == 0x77D9348Au);                       // ★ keyed on the TRANSACTION's id, whole
+    // ★★ THE PANEL SAYS ONLY WHAT IS TRUE: the key is ACTIVE, and ⛔ NOT the RAM-only screen's two extra rows.
+    CHECK(strcmp(mrui::prov_result_head(a), "TEAM KEY ACTIVE") == 0);   // S-26, REUSED — ⛔ no new lexeme
+    CHECK(strcmp(mrui::prov_result_detail(a), "") == 0);
+    CHECK(strcmp(mrui::prov_result_detail2(a), "") == 0);            // ⛔ never `LOST ON REBOOT` — this one is not
+    CHECK(strcmp(mrui::prov_result_head(a), "TEAM KEY RECEIVED") != 0);  // ⛔ nothing was RECEIVED (S-25 is K3's)
+    // ★★ THE STATE: live, committed, and the retained record spent ⛔ ZERO further writes.
+    CHECK(d.live.key_present == true);
+    CHECK(d.key_live.adopt_calls == 1);
+    CHECK(d.key_live.clear_calls == 0);
+    CHECK(d.key_binding.commit_calls == 1);
+    CHECK(d.store.writes == writes_after_join + 1);                  // exactly ONE `/mrcfg` activation write
+    CHECK(d.keys.saves == keyring_saves);
+    CHECK(memcmp(&d.keys.rec, &keyring_before, sizeof keyring_before) == 0);
+    CHECK(d.store.rec.team_key_active == 1);
+    CHECK(d.store.rec.team_key_team_id == 0x77D9348Au);
+    CHECK(d.store.rec.team_ch_key_present == 1);
+    CHECK(d.store.rec.team_id == 0x77D9348Au);                       // ★ membership == binding (the boot term (ii))
+    // ★★★★ THE POWER-CYCLE PROOF: the FIVE TERMS read off the `/mrcfg` record this really wrote, driven through the
+    //      REAL `TeamKeyringService::restore` with a FRESH live seam.
+    FakeLive rebooted_live;
+    FakeTeamKeyLive rebooted(rebooted_live);
+    mrfw::TeamKeyBinding bind{};
+    bind.membership_team_id = d.store.rec.team_id;
+    bind.binding_team_id    = d.store.rec.team_key_team_id;
+    bind.key_active         = (d.store.rec.team_key_active != 0);
+    bind.committed_present  = (d.store.rec.team_ch_key_present != 0);
+    bind.committed_pub      = d.store.rec.team_ch_pub;
+    CHECK(d.keyring.restore(bind, rebooted) == mrfw::KeyringRestore::installed);
+    CHECK(rebooted_live.key_present == true);
+    CHECK(d.keys.saves == keyring_saves);                            // ⛔ and a restore still writes nothing
+}
+
+TEST_CASE("§UI16-K5 ★★★ a FAILED activation refuses LOUDLY, installs nothing, and leaves the record intact") {
+    // ★★★★ C2. ⛔ NO ARM REPORTS A FAILURE AS A SUCCESS. ⛔ TITLE CORRECTED 2026-08-25 (QG blocker 1), THE
+    //      WITHDRAWN CLAIM KEPT VISIBLE: it read *"says `NO TEAM KEY` … and leaves the node KEYLESS"*, and
+    //      BOTH halves were wrong once the refusals became SURGICAL — the panel now states the ACT's outcome,
+    //      and a refusal may ⛔ not destroy a key that belongs to whatever team `/mrcfg` currently names.
+    {   // (a) THE RECORD DOES NOT VERIFY — the adopt refuses (on hardware: pub != derived-from-priv).
+        DevFake d;
+        retain_key(d, 0x77D9348Au);
+        CHECK(join_team(d, 0x77D9348Au).saved_key == true);
+        d.key_live.adopt_ok = false;
+        const mrnv::TeamKeyBlob before = d.keys.rec;
+        const int writes = d.store.writes;
+        const UiProvAnswer a = use_saved(d, 0x77D9348Au);
+        CHECK(a.outcome == UiProvOutcome::saved_key_failed);
+        // ⛔ CORRECTED 2026-08-25 (QG blocker 1), THE WITHDRAWN EXPECTATION KEPT VISIBLE: this read
+        //    `CHECK(strcmp(…, "NO TEAM KEY") == 0);  // S-24, REUSED — and TRUE`. It stopped being true when the
+        //    refusals became SURGICAL: a node that still holds ANOTHER key must not be told it holds none.
+        CHECK(strcmp(mrui::prov_result_head(a), mrui::kSavedKeyFailedText) == 0);
+        CHECK(strcmp(mrui::prov_result_head(a), "KEY NOT INSTALLED") == 0);   // S-39, owner-ruled — pinned here
+        CHECK(strcmp(a.reason, "rejected") == 0);                        // the SERVICE's own token (U1)
+        CHECK(strcmp(mrui::prov_result_detail(a), "rejected") == 0);
+        CHECK(d.live.key_present == false);                              // ⛔ KEYLESS
+        CHECK(d.key_binding.commit_calls == 0);                          // ⛔ no activation for a bad record
+        CHECK(d.store.writes == writes);
+        CHECK(memcmp(&d.keys.rec, &before, sizeof before) == 0);         // ★ the record is INTACT
+    }
+    {   // (b) THE `/mrcfg` ACTIVATION FAILS — the live half is UNDONE rather than left half-installed.
+        DevFake d;
+        retain_key(d, 0x77D9348Au);
+        CHECK(join_team(d, 0x77D9348Au).saved_key == true);
+        d.key_binding.commit_ok = false;
+        const UiProvAnswer a = use_saved(d, 0x77D9348Au);
+        CHECK(a.outcome == UiProvOutcome::saved_key_failed);
+        CHECK(strcmp(mrui::prov_result_head(a), mrui::kSavedKeyFailedText) == 0);
+        CHECK(strcmp(a.reason, "binding_failed") == 0);
+        CHECK(d.key_live.adopt_calls == 1);                              // it WAS adopted...
+        CHECK(d.key_live.clear_calls == 1);                              // ...and then undone
+        CHECK(d.live.key_present == false);
+        CHECK(d.store.rec.team_key_active == 0);                         // ⛔ no binding was committed
+    }
+    {   // (c) NO RECORD AT ALL — a caller that reached the seam without an offer behind it (a future caller, a
+        //     probe). ⓘ ⛔ CORRECTED 2026-08-25 (QG blocker 1): the node must first BE in the team, or the new
+        //     membership re-check refuses earlier and this arm would measure the wrong refusal.
+        DevFake d;
+        CHECK(join_team(d, 0x77D9348Au).outcome == UiProvOutcome::team_joined);   // membership == the target...
+        const int writes = d.store.writes;
+        const UiProvAnswer a = use_saved(d, 0x77D9348Au);                         // ...but nothing was retained
+        CHECK(a.outcome == UiProvOutcome::saved_key_failed);
+        CHECK(strcmp(a.reason, "no_record") == 0);
+        CHECK(d.live.key_present == false);
+        CHECK(d.store.writes == writes);
+        CHECK(d.keys.saves == 0);
+    }
+    {   // ★★★★ (e) **THE A -> B RACE, THROUGH THE ADAPTER** (QG blocker 1): the offer was built for A, a serial
+        //     `team <id>` moved MEMBERSHIP to B before the `double`, and the activation must refuse WITHOUT
+        //     touching B's live key, B's binding or A's retained record.
+        DevFake d;
+        retain_key(d, 0x51CE0004u);                                       // A's key is retained...
+        CHECK(join_team(d, 0x51CE0004u).saved_key == true);                // ...and the offer would have been made
+        // THE RACE: /mrcfg (and the live plane) move to B, which holds its OWN key.
+        seed_in_team_with_key(d, 0x77D9348Au);
+        const mrnv::TeamKeyBlob before = d.keys.rec;
+        const int ks = d.keys.saves, writes = d.store.writes, adopts = d.key_live.adopt_calls;
+        const UiProvAnswer a = use_saved(d, 0x51CE0004u);                  // the STALE target
+        CHECK(a.outcome == UiProvOutcome::saved_key_failed);
+        CHECK(strcmp(a.reason, "not_our_team") == 0);
+        CHECK(strcmp(mrui::prov_result_head(a), mrui::kSavedKeyFailedText) == 0);
+        // ★★★ B's LIVE KEY, B's BINDING AND A's RECORD — all exactly as they were.
+        CHECK(d.live.key_present == true);
+        CHECK(d.key_live.adopt_calls == adopts);
+        CHECK(d.key_live.clear_calls == 0);                                // ⛔ the refusal cleared NOTHING
+        CHECK(d.key_binding.commit_calls == 0);
+        CHECK(d.store.writes == writes);
+        CHECK(d.store.rec.team_key_team_id == 0x77D9348Au);                // still B's binding
+        CHECK(d.keys.saves == ks);
+        CHECK(memcmp(&d.keys.rec, &before, sizeof before) == 0);
+        CHECK(mrfw::team_key_find(d.keys.rec, 0x51CE0004u) >= 0);          // ★ A's record survives for a retry
+    }
+    {   // (d) THE ZERO FLOOR — ⛔ 0 device calls at all: the act may not reach a stored secret with a wildcard.
+        DevFake d;
+        retain_key(d, 0x77D9348Au);
+        const int keyring_saves = d.keys.saves;                          // ⚠ the retention itself wrote once
+        const mrnv::TeamKeyBlob before = d.keys.rec;
+        const UiProvAnswer a = use_saved(d, 0u);
+        CHECK(a.outcome == UiProvOutcome::saved_key_failed);
+        CHECK(strcmp(a.reason, "zero_team") == 0);
+        CHECK(d.use_saved_calls == 0);                                   // ⛔ the seam was never entered
+        CHECK(d.store.writes == 0);
+        CHECK(d.keys.saves == keyring_saves);                            // ⛔ and nothing further was written
+        CHECK(memcmp(&d.keys.rec, &before, sizeof before) == 0);
+        CHECK(d.live.key_present == false);
+    }
+}
+
+TEST_CASE("§UI16-K5 the dispatch routes the FOURTH op to the TEAM device — and ⛔ leaves the other three where they were") {
+    DevFake d;
+    JoinDevFake j;
+    mrfw::UiProvisionAdapter ad(d, j);
+    retain_key(d, 0x77D9348Au);
+    UiProvIntent nb{}; nb.op = UiProvOp::join_team; nb.team_id = 0x77D9348Au;
+    CHECK(ad.perform(nb).saved_key == true);
+    UiProvIntent sk{}; sk.op = UiProvOp::use_saved_key; sk.team_id = 0x77D9348Au;
+    const UiProvAnswer a = ad.perform(sk);
+    CHECK(a.outcome == UiProvOutcome::saved_key_used);
+    CHECK(d.use_saved_calls == 1);
+    CHECK(d.apply_calls == 1);                       // ⛔ the TEAM TRANSACTION did NOT run a second time...
+    CHECK(j.apply_calls == 0);                       // ⛔ ...and the STATIC-join transaction was never entered
+    CHECK(j.list_calls == 0);
+    // ⛔ AND THE INERT OP STILL PERFORMS NOTHING, with a FOURTH act now behind the same seam.
+    UiProvIntent none{};
+    const int w = d.store.writes, uc = d.use_saved_calls;
+    CHECK(ad.perform(none).outcome == UiProvOutcome::none);
+    CHECK(d.store.writes == w);
+    CHECK(d.use_saved_calls == uc);
 }

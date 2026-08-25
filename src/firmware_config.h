@@ -140,6 +140,24 @@ KeyringRestore team_keyring_restore_boot(const mrnv::Blob& nv);
 enum class GrantUiRoute : uint8_t;
 GrantUiRoute team_key_grant_persist(uint32_t push_team_id);
 
+// ★★★★ §UI-16 K5 — THE `SAVED KEY FOUND` / `USE SAVED KEY` OFFER's TWO DEVICE FORWARDS, and the split between them
+//       IS P-2b: the FIRST answers a BOOLEAN (*"is a key for this team retained?"*) and installs ⛔ nothing; the
+//       SECOND runs only when the operator pressed `USE SAVED KEY` on a confirmation whose default is `BACK`.
+//       ⛔ Knowledge of the PUBLIC team id may never reactivate a stored secret — which is why the first exists as a
+//       question and the second as an act, rather than the two being one rule.
+// ⛔ NEITHER TAKES A DECISION (U3, the rule this whole cluster runs on): the presence test, the load, the
+//    VERIFY-BY-ADOPTING and the activation ORDER all live in `mrfw::TeamKeyringService::has_record` /
+//    `::use_saved` (`src/firmware_team_keyring.h`), which is pure, which `test/test_firmware_team_keyring.cpp`
+//    drives and which `--target=teamkeyring` attacks. These two compose the SAME adapters
+//    `team_keyring_restore_boot` and `team_key_grant_persist` compose, over the SAME one service instance.
+// ★ ZERO WRITES on the question, at most ONE `/mrcfg` write on the act — and ⛔ every non-installing arm of the act
+//   installs NOTHING and leaves the retained record UNTOUCHED (C2: never half-installed). ⓘ The act RE-CHECKS the
+//   persisted MEMBERSHIP before it adopts anything (a `team <id>` can move it between the offer and the press), and
+//   its refusals are SURGICAL — ⛔ they may not clear a live key that belongs to the team we are in.
+bool has_saved_team_key(uint32_t team_id);
+enum class SavedKeyUse : uint8_t;
+SavedKeyUse team_keyring_use_saved(uint32_t team_id);
+
 // ★★★ §UI-16 N6 — THE OLED GRANT'S ONE DEVICE FORWARD (the body, and the full argument for where it lives, are at
 // its definition in `firmware_config.cpp`, beside `handle_team`'s own `grantkey` arm). It is `team_key_grant_send`
 // minus the two arguments the panel FIXES: no team `name=` (F-3), and the PLANE supplied by the pure unit that owns

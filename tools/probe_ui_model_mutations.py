@@ -330,7 +330,103 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2084, 91382     # ★★ CROSS-CHECK RE-SYNCED 2026-08-25 by §UI-16 slice 8b **round 2**
+PIN_CASES, PIN_ASSERTS = 2107, 92038     # ★★ CROSS-CHECK RE-SYNCED 2026-08-25 by **§UI-17 keyrecv** (the
+                                         # owner-ruled shape (a): acknowledging `TEAM KEY RECEIVED` lands on
+                                         # the PASSIVE STATUS screen).
+                                         # **2102 / 91886 -> 2107 / 92038** (+5 cases / **+152 assertions**),
+                                         # DERIVED from the clean run. ⛔ NOTHING HERE IS A SUBTRACTION.
+                                         # MEASURED case by case with `program -tc=`:
+                                         #  +147 — 5 NEW cases, `test/test_firmware_ui_model.cpp`:
+                                         #    `…EITHER press … PASSIVE STATUS … EITHER result`   56
+                                         #       (2 presses x 2 result arms, each asserting the
+                                         #        arrival moved nothing BEFORE the press)
+                                         #    `…the note's ARRIVAL still navigates nothing…`     24
+                                         #    `…the FAILURE pair's acknowledgement stays…`       28
+                                         #    `…every NEIGHBOURING terminal's … untouched…`      20
+                                         #    `…keeps the LANDED blank/wake rules…`              19
+                                         #  +5 — ONE existing case corrected in place:
+                                         #    `ui16-K4: the note occupies…`               15 -> 20 (+5)
+                                         #       (the withdrawn "ack lands on the menu" block kept
+                                         #        VISIBLE in comment; the new landing's five fields
+                                         #        asserted, and the RETIREMENT re-proven on the next
+                                         #        ENTRY where it has always belonged)
+                                         #    147 + 5 = 152. ✓
+                                         #
+                                         # The superseded K5-round-2 sync follows, kept visible as the base:
+                                         # 2102 / 91886 — ★★ RE-SYNCED 2026-08-25 by §UI-16 **K5 round 2** (the QG
+                                         # blockers: the A -> B membership race, the SURGICAL refusal, the
+                                         # writer's second authority, and the `SavedKeyUse` count fence).
+                                         # **2101 / 91787 -> 2102 / 91886** (+1 case / **+99 assertions**),
+                                         # DERIVED from the clean run. ⛔ NOTHING HERE IS A SUBTRACTION.
+                                         # MEASURED case by case with `program -tc=`:
+                                         #  +13 — NEW case, `test/test_firmware_team_keyring.cpp`:
+                                         #    `…the WRITER refuses an ACTIVE BINDING for a team its own
+                                         #     record does not name…`                     0 -> 13
+                                         #       (the pure predicate's five arms, plus the FAKE enforcing it:
+                                         #        the refusal counted, nothing written, and the positive arm)
+                                         #  +86 — FOUR existing cases rewritten/extended in place:
+                                         #    `…EVERY failing arm…`                      49 -> 77 (+28)
+                                         #       (the A -> B race with a REAL live key for B that must
+                                         #        survive, the `record_unreadable` fail-closed arm, and every
+                                         #        arm's `clear_calls == 0` where it used to demand == 1)
+                                         #    `…the SavedKeyUse inventory…`              56 -> 95 (+39)
+                                         #       (the sweep is now `0 .. count-1` over EIGHT arms instead of a
+                                         #        hand-typed six, so the n x n distinctness grid grew with it)
+                                         #    `§UI16-K5 …a FAILED activation…`           32 -> 48 (+16)
+                                         #       (the adapter-level A -> B race arm, and the withdrawn
+                                         #        `NO TEAM KEY` expectation replaced by S-39's word)
+                                         #    `…the two ruled lexemes…`                  35 -> 38  (+3)
+                                         #       (`kSavedKeyFailedText` declared once, its 17 columns, and
+                                         #        ⛔ that it is NOT `NO TEAM KEY` any more)
+                                         #    13 + 28 + 39 + 16 + 3 = 99. ✓
+                                         #
+                                         # The superseded ROUND-1 sync follows, kept visible as the base:
+                                         # 2101 / 91787 — ★★ RE-SYNCED 2026-08-25 by §UI-16 **K5** (`SAVED KEY FOUND`
+                                         # / `USE SAVED KEY`). **2084 / 91382 -> 2101 / 91787**
+                                         # (+17 cases / **+405 assertions**), DERIVED from the clean run.
+                                         # ⛔ NOTHING HERE IS A SUBTRACTION.
+                                         # MEASURED case by case with `program -tc=`, ⛔ not estimated:
+                                         #  +139 — 4 NEW cases, `test/test_firmware_team_keyring.cpp`:
+                                         #    `…has_record answers a BOOLEAN…`                    17
+                                         #       (14 at first, +3 when the T42 fail-open control came back
+                                         #        GREEN: the unreadable loop needed the store to DEPOSIT a
+                                         #        plausible record, or its `false` was the fixture's and not
+                                         #        the rule's — the [[B217]] shape, caught by its own battery)
+                                         #    `…USE SAVED KEY installs … BOOT-DURABLE…`           17
+                                         #    `…EVERY failing arm leaves the node KEYLESS…`       49
+                                         #    `…the six SavedKeyUse arms are six DIFFERENT words…` 56
+                                         #  +90 — 5 NEW cases, `test/test_firmware_ui_prov.cpp`:
+                                         #    `…a join … with NO retained record…`                11
+                                         #    `…the QUESTION is asked ONLY on the applied arm…`    12
+                                         #    `…USE SAVED KEY installs … BOOT-DURABLE afterwards`  25
+                                         #    `…a FAILED activation says NO TEAM KEY…`             32
+                                         #    `…the dispatch routes the FOURTH op…`                10
+                                         #  +129 — 8 NEW cases, `test/test_firmware_ui_model.cpp`:
+                                         #    `…the offer opens on the ACKNOWLEDGEMENT…`           24
+                                         #    `…⛔ NO offer without a retained record…`            10
+                                         #    `…BACK performs NOTHING…`                            11
+                                         #    `…reaching USE SAVED KEY costs short THEN double…`   18
+                                         #    `…a REFUSED join opens no offer …two floors MARKED`   7
+                                         #    `…the UNFINISHED offer does not survive BLANKING…`   13
+                                         #    `…the two ruled lexemes are VERBATIM…`               35
+                                         #    `ui16-k5-resources…`                                 11
+                                         #  +47 — THREE existing cases extended in place:
+                                         #    `§UI16-N3/K5 …a RETAINED record is NOT installed…`  12 -> 16  (+4)
+                                         #       (the FLIPPED N3 case: the answer now REPORTS the record —
+                                         #        `saved_key`, the ask count, the asked id, and ⛔ that the
+                                         #        ACT was never entered; the two withdrawn "no K5 lexeme"
+                                         #        assertions are RETAINED and still pass)
+                                         #    `ui15-model: the Provision enum…`                   27 -> 30  (+3)
+                                         #       (`invite_result` == 15, `saved_key` == 16, and that the
+                                         #        new arm is ⛔ not a window arm)
+                                         #    `…the close-on-leave reset…`                       305 -> 345 (+40)
+                                         #       (TWO arms joined the sweep — `saved_key` AND the
+                                         #        `invite_result` §UI-16 N6 appended without extending it —
+                                         #        at 2 confirm values x 10 assertions each)
+                                         #    139 + 90 + 129 + 47 = 405. ✓
+                                         #
+                                         # The superseded slice-8b round-2 sync follows, kept visible as the base:
+                                         # 2084 / 91382 — ★★ RE-SYNCED 2026-08-25 by §UI-16 slice 8b **round 2**
                                          # (the QG blocker: [[B243]]'s seam was a BOOLEAN, so every refusal took
                                          # the failed-save door and the panel claimed `TEAM KEY ACTIVE` for
                                          # receipts where nothing is active). **2083 / 91336 -> 2084 / 91382**
@@ -1809,11 +1905,18 @@ MUTS_MODEL = [
  #   confirmation is the same pair with a different landing (U1 — two copies is how one of them stops marking dirty).
  #   ⇒ a sed for the old lines would now match NOTHING and be reported VACUOUS. ★ The SEMANTIC is unchanged: `short`
  #   in the CREATE confirmation acts instead of toggling, so one press reaches CREATE.
+ # ⚠ M69 RE-ANCHORED AGAIN 2026-08-25 (§UI-16 K5), and recorded for the reason the 2026-08-20 retarget above is:
+ #   K5's `saved_key_gesture` is the SAME two lines — `short` toggles, and BACK lands on the MENU — so the two-line
+ #   anchor matched TWICE and the runner reported it VACUOUS. ★ The SEMANTIC is unchanged; the THIRD line
+ #   (`run_create_team();`) is what makes it the CREATE confirmation's, and the saved-key twin has its own control
+ #   (`--target=model` V29, `BACK` performs the install).
  ("M69 `short` in the confirmation ACTS instead of toggling (one press reaches CREATE)",
   "        if (g == Gesture::short_press) { prov_confirm_toggle(); return; }\n"
-  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }",
+  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }\n"
+  "        run_create_team();",
   "        if (g == Gesture::short_press) { run_create_team(); return; }\n"
-  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }"),
+  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }\n"
+  "        run_create_team();"),
  # ⛔⛔ M70 IS §8 PIN 2 INVERTED, AND IT IS THE TEMPTING SHAPE: move the screen first "so the panel is already showing
  #    the right state when the answer lands". The act then runs UNDER the result screen — which is precisely the
  #    "claims success before the save returns" the design forbids. The fake records WHERE the model was when it ran,
@@ -1824,8 +1927,12 @@ MUTS_MODEL = [
  ("M71 the answer is never retired, so a stale verdict survives into the next screen",
   "        _st.prov_answer = UiProvAnswer{};",
   "        // (the answer is not retired)"),
+ # ⚠ M72 RE-ANCHORED 2026-08-25 (§UI-16 K5): the arm now forwards to `create_result_gesture()`, which decides WHERE
+ #   the acknowledgement lands (the menu, or K5's saved-key offer when the joined team has a retained record). The
+ #   old one-line anchor matched NOTHING and the runner reported it VACUOUS. ★ The SEMANTIC is unchanged and is the
+ #   one that matters: acknowledging a result may ⛔ never re-run the act.
  ("M72 the result arm RE-RUNS the transaction on the press that leaves it",
-  "            case Provision::create_result:  enter_provision(Provision::menu); return;",
+  "            case Provision::create_result:  create_result_gesture();          return;",
   "            case Provision::create_result:  run_create_team(); return;"),
  ("M73 a NULL seam does NOTHING instead of refusing out loud (a dead-button create, C2)",
   "            a.outcome = UiProvOutcome::refused;\n"
@@ -2246,10 +2353,17 @@ MUTS_MODEL = [
  ("N03 ★★ the own-team id is not handed to the capture — the team we are already in is offered as a candidate",
   "        _st.nearby = nearby_capture(s.nearby, s.nearby_n, s.team_id);",
   "        _st.nearby = nearby_capture(s.nearby, s.nearby_n, 0);"),
+ # ⚠ N04 RE-ANCHORED 2026-08-25 (§UI-17 keyrecv), and the re-anchor is RECORDED rather than the entry quietly
+ #   rewritten (M69/M72's idiom): the bare `        list_follow_screen();` is no longer unique — the new
+ #   `team_key_note_ack_landed` forwards to the SAME primitive at the same indent (deliberately: "leaving retires the
+ #   view" is one invariant with two leave-paths, U1), so the one-line anchor matched TWICE and the runner reported it
+ #   VACUOUS. ★ The SEMANTIC is unchanged and is still R-10's: the TICK must not re-read the scan. The following
+ #   `sync_team_cursor(s);` is what makes the pair the TICK's.
  ("N04 ★★★ the scan is RE-READ EVERY TICK — owner ruling R-10's frozen-per-entry snapshot is gone and a team that "
   "walks into range inserts a row under the operator's cursor",
-  "        list_follow_screen();",
-  "        if (_st.provisioning == Provision::nearby) load_nearby(s);\n        list_follow_screen();"),
+  "        list_follow_screen();\n        sync_team_cursor(s);",
+  "        if (_st.provisioning == Provision::nearby) load_nearby(s);\n"
+  "        list_follow_screen();\n        sync_team_cursor(s);"),
  ("N05 ★★ BACK leaves the SCREEN instead of returning to the PROVISION menu (the containment contract, broken)",
   # ⚠ ANCHORED ON THE LINE ABOVE IT TOO: `join_select_gesture` carries the IDENTICAL `back` landing one screen over,
   #   so the bare line matches TWICE and the runner reports it VACUOUS — which is exactly what it did on the first
@@ -2490,6 +2604,84 @@ MUTS_MODEL = [
   "sentence continues here\" and the arm that owns it can no longer be told from the arms that do not",
   "        case UiProvOutcome::save_failed:\n        case UiProvOutcome::refused:",
   '        case UiProvOutcome::save_failed:       return "RETRY";\n        case UiProvOutcome::refused:'),
+ # ===== §UI-16 K5 — THE SAVED-KEY OFFER: WHERE IT OPENS, WHAT IT DEFAULTS TO, WHAT EACH CHOICE COSTS ===========
+ # ★★★★ V29 IS THE MODEL'S HALF OF THE P-2b PAIR: `BACK` — the arm the screen OPENS ON — performs the install. One
+ #      press on the SAFE action reactivates a stored secret, which is the shape the delete modal's two separate
+ #      branches exist to prevent, arriving in the one flow where the act is a key.
+ ("V29 ★★★★ `BACK` PERFORMS THE INSTALL — the SAFE default arm activates the saved key, so declining the offer "
+  "does the thing the offer was asking about (P-2b, the model's headline)",
+  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::menu); return; }\n"
+  "        run_use_saved_key();",
+  "        run_use_saved_key();"),
+ ("V30 ★★★ THE OFFER OPENS WITHOUT THE KEYRING'S REPORT — every nearby join lands on `SAVED KEY FOUND`, so the "
+  "operator is offered a key for a team no record exists for",
+  "        if (a.outcome == UiProvOutcome::team_joined && a.saved_key && a.team_id != 0) {",
+  "        if (a.outcome == UiProvOutcome::team_joined && a.team_id != 0) {"),
+ ("V31 ★★ THE OFFER OPENS ON **ANY** ACKNOWLEDGEMENT — a CREATE's result screen leads into a saved-key offer for "
+  "a team whose key was just minted",
+  "        if (a.outcome == UiProvOutcome::team_joined && a.saved_key && a.team_id != 0) {",
+  "        if (a.saved_key && a.team_id != 0) {"),
+ ("V32 ★★★ THE ACT IS KEYED ON THE **FINGERPRINT** — the low 24 bits the offer screen printed, which 255 other "
+  "teams share, instead of the id the transaction joined ([[B48]]'s class, over a stored secret)",
+  "            in.team_id = _st.saved_key_team;     // ★ the JOINED team's identity, whole (U2)",
+  "            in.team_id = _st.saved_key_team & 0x00FFFFFFu;"),
+ ("V33 ★★★ THE OFFER OPENS ON THE **ACT** — `prov_confirm` is moved to CONFIRM after the entry, so the first "
+  "`double` installs a stored secret (P-13 broken at the one screen that reaches a key)",
+  "            enter_provision(Provision::saved_key);\n"
+  "            _st.saved_key_team = a.team_id;           // ★ the joined team's identity, whole (U2)",
+  "            enter_provision(Provision::saved_key);\n"
+  "            _st.prov_confirm = ProvConfirm::confirm;\n"
+  "            _st.saved_key_team = a.team_id;"),
+ ("V34 ★★★ THE UNFINISHED OFFER SURVIVES THE BLANK — the operator wakes onto a screen they may not remember "
+  "opening, one `double` from installing a key (OQ-3, and the arm is the one that reaches a secret)",
+  "            if (_st.provisioning == Provision::saved_key) enter_provision(Provision::menu);",
+  "            ;"),
+ ("V35 ★★ THE OFFER'S TARGET IS NOT RETIRED BY THE ENTRY — a stale team id survives into later screens, so a "
+  "later act can be aimed at a team the operator left",
+  "        _st.saved_key_team = 0;",
+  "        ;"),
+ ("V36 ★★ THE SUCCESS AND FAILURE ENDINGS COLLAPSE INTO ONE WORD — a failed activation renders `TEAM KEY ACTIVE`, "
+  "which is the 'success that isn't' over a node that holds no key",
+  # ⚠ RE-ANCHORED 2026-08-25 (QG blocker 1): the failure head is now `kSavedKeyFailedText` (spec §8 S-39),
+  #   because `NO TEAM KEY` became a sentence that can be FALSE once the refusals stopped clearing. The SEMANTIC is
+  #   unchanged — a failed activation may ⛔ never render the success word.
+  "        case UiProvOutcome::saved_key_failed:  return kSavedKeyFailedText;",
+  "        case UiProvOutcome::saved_key_failed:  return \"TEAM KEY ACTIVE\";"),
+ ("V37 ★★ THE SUCCESS SCREEN GROWS THE DURABILITY WARNING — `NOT SAVED` under a key that IS durable, i.e. S-27's "
+  "ruled sentence said about the one path where it is false",
+  "        case UiProvOutcome::saved_key_used:\n"
+  "        // ⓘ `team_key_received`'s second row is deliberately EMPTY",
+  "        case UiProvOutcome::saved_key_used:    return \"NOT SAVED\";\n"
+  "        // ⓘ `team_key_received`'s second row is deliberately EMPTY"),
+ ("V38 ★ the ruled offer lexeme is re-spelled — S-28 is owner-ruled and declared once, so a re-ruling must change "
+  "it in exactly one place",
+  'inline constexpr const char* kSavedKeyTitle = "SAVED KEY FOUND";',
+  'inline constexpr const char* kSavedKeyTitle = "SAVED KEY";'),
+ ("V39 ★ the ruled ACTION lexeme is re-spelled — S-29 is owner-ruled, and the word the operator presses is the "
+  "one place the offer states what it will do",
+  '        case ProvConfirm::confirm: return "USE SAVED KEY";',
+  '        case ProvConfirm::confirm: return "INSTALL KEY";'),
+ # ===== §UI-17 keyrecv — WHERE THE `TEAM KEY RECEIVED` ACKNOWLEDGEMENT LANDS (owner-ruled 2026-08-25, shape (a)) ===
+ # ★★★ THREE ENTRIES, ONE PER WAY THIS RULING CAN BE UNDONE: the ask reverted, the ask over-applied, and the ⛔
+ #     a-push-never-navigates control re-proven THROUGH the new landing (it is the K4 pin that a new destination is
+ #     most likely to erode: once a press can navigate, wiring the arrival to the same helper is one line away).
+ ("V40 ★★★★ THE LANDING IS REVERTED TO THE MENU — the owner's ask undone, and undone in the shape it would really "
+  "arrive in: the helper stays, and simply goes back where every other terminal goes",
+  "        if (_st.prov_answer.outcome != UiProvOutcome::team_key_received) return false;\n"
+  "        _st.screen = Screen::status;\n"
+  "        _st.cursor = 0;",
+  "        if (_st.prov_answer.outcome != UiProvOutcome::team_key_received) return false;\n"
+  "        enter_provision(Provision::menu);"),
+ ("V41 ★★★ THE SCOPE OVERRUN — the FAILURE pair jumps to STATUS too, so a save that did NOT survive walks the "
+  "operator away from the flow the remedies are in (the ⛔ consistency extension nobody ruled)",
+  "        if (_st.prov_answer.outcome != UiProvOutcome::team_key_received) return false;",
+  "        if (_st.prov_answer.outcome != UiProvOutcome::team_key_received\n"
+  "                && _st.prov_answer.outcome != UiProvOutcome::team_key_unsaved) return false;"),
+ ("V42 ★★★★ THE **ARRIVAL** NAVIGATES, THROUGH THE NEW LANDING — a radio receipt moves the panel to STATUS under "
+  "the operator's thumb. ⛔ Spec §4-K4 pin 3 is unchanged by the ruling: only the PRESS may choose a destination",
+  "        _st.dirty = true;                      // a repaint is owed; ⛔ a wake is not (see above)",
+  "        team_key_note_ack_landed();\n"
+  "        _st.dirty = true;                      // a repaint is owed; ⛔ a wake is not (see above)"),
 ]
 
 # ===== §UI-13 — src/firmware_config_service.h =====================================================================
@@ -3236,6 +3428,10 @@ MUTS_TEAMKEYRING = [
   "        live.adopt_key(cur.rec[idx].team_ch_pub, cur.rec[idx].team_ch_priv);"),
  # --- the GOVERNANCE. ★ QG blocker 1: a verdict that is reported but not APPLIED left the old key live. -----------
  ("T24 ★★★ THE VERDICT IS REPORTED BUT NOT APPLIED — a key installed by an earlier boot step SURVIVES a refusal",
+  # ⓘ RESTORED TO ITS LANDED ANCHOR 2026-08-25 (QG blocker 1): §UI-16 K5 briefly made `refuse` a template so the
+  #   saved-key activation could share it. That was WRONG — the clearing is correct only where the LIVE KEY IS THE
+  #   SUSPECT (this arm), while `use_saved` refuses SURGICALLY (its live key belongs to the current team and is
+  #   innocent, see `--target=teamkeyring` T52). ⇒ the funnel is the boot restore's again, and so is this control.
   "    static KeyringRestore refuse(ITeamKeyLive& live, KeyringRestore why) {\n"
   "        live.clear_key();\n"
   "        return why;\n"
@@ -3370,6 +3566,80 @@ MUTS_TEAMKEYRING = [
   "        case GrantSave::zero_team:         return GrantUiRoute::active_unsaved;\n"
   "        case GrantSave::not_our_team:      return GrantUiRoute::active_unsaved;\n"
   "        case GrantSave::no_live_key:       return GrantUiRoute::active_unsaved;"),
+ # ===== §UI-16 K5 — THE PRESENCE QUESTION AND THE EXPLICIT ACTIVATION ==========================================
+ # ★★★★ T41 IS P-2b's SIBLING HEADLINE AND IT IS ONE CHARACTER: the presence test stops asking about THIS team and
+ #      starts asking whether the keyring holds ANYTHING — so a node that once belonged to some other team is
+ #      offered "its" saved key for a team it has never met. ⓘ The other half of the P-2b pair (installing without
+ #      the explicit double) lives in `--target=uiprov` and `--target=model`, because that is where the OFFER and
+ #      the ACT are separated.
+ ("T42 ★★ the presence question FAILS OPEN — an unreadable store answers 'yes', so the offer is made against a "
+  "keyring nobody could read and the operator is walked into a refusal",
+  "        if (_store.load(cur) != mrnv::TeamKeyRead::ok) return false;",
+  "        if (_store.load(cur) == mrnv::TeamKeyRead::io_failed) return false;"),
+ ("T43 ★★★ the presence question stops naming THE TEAM — any record at all answers yes, so `SAVED KEY FOUND` is "
+  "offered for a team with NO retained record (P-2b's sibling)",
+  "        return team_key_find(cur, team_id) >= 0;",
+  "        return cur.count > 0;"),
+ ("T44 ★★★★ THE ACTIVATION FORKS A SECOND INSTALL PATH — the binding is committed WITHOUT adopting, so the record "
+  "is never verified and the panel reports a key the core does not hold",
+  "    if (!live.adopt_key(cur.rec[idx].team_ch_pub, cur.rec[idx].team_ch_priv))\n"
+  "        return SavedKeyUse::rejected;",
+  "    ;"),
+ ("T45 ★★★ A FAILED ACTIVATION IS REPORTED AS A SUCCESS — the `/mrcfg` write came back false and the verb still "
+  "answers `installed`, so the panel claims a key the next boot will not restore",
+  "    if (!binding.commit_active(team_id, cur.rec[idx].team_ch_pub, cur.rec[idx].team_ch_priv)) {\n"
+  "        live.clear_key();\n"
+  "        return SavedKeyUse::binding_failed;\n"
+  "    }",
+  "    (void)binding.commit_active(team_id, cur.rec[idx].team_ch_pub, cur.rec[idx].team_ch_priv);"),
+ ("T46 ★★★ THE FAILED ACTIVATION IS LEFT **HALF-INSTALLED** — the live key stays up with no durable binding "
+  "behind it, which is [[B240]]'s exact shape (works at the trailhead, dead at the summit)",
+  "        live.clear_key();\n"
+  "        return SavedKeyUse::binding_failed;",
+  "        return SavedKeyUse::binding_failed;"),
+ ("T47 ★★ THE ORDER IS INVERTED — the `/mrcfg` activation is committed BEFORE the record is verified, so a "
+  "CORRUPT record leaves an active binding with nothing behind it",
+  "    if (!live.adopt_key(cur.rec[idx].team_ch_pub, cur.rec[idx].team_ch_priv))\n"
+  "        return SavedKeyUse::rejected;\n",
+  "    if (!binding.commit_active(team_id, cur.rec[idx].team_ch_pub, cur.rec[idx].team_ch_priv))\n"
+  "        return SavedKeyUse::binding_failed;\n"
+  "    if (!live.adopt_key(cur.rec[idx].team_ch_pub, cur.rec[idx].team_ch_priv))\n"
+  "        return SavedKeyUse::rejected;\n"),
+ ("T48 ★★ the activation's ZERO FLOOR is dropped — `use_saved(0)` reaches the store instead of being refused "
+  "before a load, and answers a different arm's word",
+  "    if (team_id == 0) return SavedKeyUse::zero_team;",
+  "    ;"),
+ ("T49 ★ the two absent-ish answers are COLLAPSED — 'there is no record for this team' and 'the store could not "
+  "be read at all' read alike, although they take different operator actions",
+  "    if (st != mrnv::TeamKeyRead::ok)     return SavedKeyUse::store_failed;",
+  "    if (st != mrnv::TeamKeyRead::ok)     return SavedKeyUse::no_record;"),
+
+ # ===== §UI-16 K5 round 2 — THE MEMBERSHIP RE-CHECK, THE SURGICAL REFUSAL AND THE WRITER'S FENCE (QG blocker 1) ===
+ # ★★★★ T50 IS THE BLOCKER ITSELF, RESTORED: the offer is built for team A and the operator's `double` lands some
+ #      seconds later; a `team <id>` over serial moves MEMBERSHIP to B in between. Without the re-check, A's key goes
+ #      LIVE under a `/mrcfg` that says B — the panel announces `TEAM KEY ACTIVE` for a binding the five-term boot
+ #      restore will REJECT, i.e. a key that works until the next power cycle and then does not. ⓘ Nothing about the
+ #      screen changes; only the term that was never asked.
+ ("T50 ★★★★ THE MEMBERSHIP RE-CHECK IS DROPPED — a STALE offer installs another team's key under this team's "
+  "record (the A -> B race, QG blocker 1 restored verbatim)",
+  "    if (cur_bind.membership_team_id != team_id)        return SavedKeyUse::not_our_team;",
+  "    ;"),
+ ("T51 ★★★ THE RE-CHECK ASKS THE **BINDING** INSTEAD OF THE MEMBERSHIP — a stale binding then authorises itself, "
+  "which is QG blocker 3's shape (the boot restore's term (ii)) arriving through the operator's button",
+  "    if (cur_bind.membership_team_id != team_id)        return SavedKeyUse::not_our_team;",
+  "    if (cur_bind.binding_team_id != team_id)           return SavedKeyUse::not_our_team;"),
+ ("T52 ★★★★ THE REFUSAL GOES BACK THROUGH A CLEARING FUNNEL — the stale-target arm WIPES the live key, which at "
+  "that moment belongs to the team we ARE in: an innocent key destroyed by a refusal about a different one",
+  "    if (cur_bind.membership_team_id != team_id)        return SavedKeyUse::not_our_team;",
+  "    if (cur_bind.membership_team_id != team_id)        { live.clear_key(); return SavedKeyUse::not_our_team; }"),
+ ("T53 ★★★ THE WRITER'S SECOND AUTHORITY IS DROPPED — `commit_active` will write an ACTIVE BINDING into a `/mrcfg` "
+  "record whose MEMBERSHIP names another team, i.e. a binding that lies and a boot that comes up keyless",
+  "    return want_team_id != 0 && record_team_id == want_team_id;",
+  "    return true;"),
+ ("T54 ★★ THE FAIL-CLOSED READ IS FAIL-OPEN — an unreadable `/mrcfg` record is treated as a satisfied membership "
+  "term, so the activation proceeds on facts nobody read (C2, inverted — T34's shape one verb over)",
+  "    if (!binding.read(cur_bind))                       return SavedKeyUse::record_unreadable;",
+  "    ;"),
 ]
 
 # ===== §UI-16 N1 — lib/core/team_seen_ring.h: THE PURE RING POLICY ==================================================
@@ -3944,8 +4214,15 @@ MUTS_UIPROV = [
   "            a.reason  = \"no change\";",
   "            a.outcome = mrui::UiProvOutcome::team_joined;\n"
   "            a.reason  = \"no change\";"),
+ # ⚠ V29 RE-ANCHORED 2026-08-25 (§UI-16 K5), and the re-anchor is RECORDED rather than the entry quietly rewritten:
+ #   K5 added a SECOND zero floor to this file (`ui_prov_use_saved_key`'s, entry V38), so the one-line anchor matched
+ #   TWICE and the runner reported it VACUOUS — a landed control silently retired by a new slice, which is exactly
+ #   what this file's own N3 note warns about. ★ The SEMANTIC is unchanged: the JOIN's floor is dropped, and
+ #   `TeamRequest{ mint = false, team_id = 0 }` is `team 0`, i.e. a LEAVE. The second line is what makes it the
+ #   JOIN arm's — the two floors answer with different outcomes.
  ("V29 the zero-id floor is dropped — `team_id = 0` reaches the transaction, where it means LEAVE",
-  "    if (team_id == 0) {", "    if (false) {"),
+  "    if (team_id == 0) {\n        a.outcome = mrui::UiProvOutcome::join_refused;",
+  "    if (false) {\n        a.outcome = mrui::UiProvOutcome::join_refused;"),
  ("V30 the join notification fires on every verdict ([[B194]] inverted, a third time)",
   "    const ProvResult res = dev.apply(rq, snap);\n    switch (res.verdict) {",
   "    const ProvResult res = dev.apply(rq, snap);\n    dev.on_applied(res);\n    switch (res.verdict) {"),
@@ -3954,6 +4231,47 @@ MUTS_UIPROV = [
  ("V32 the intent dispatch sends the NEARBY JOIN to the create act (a JOIN that mints, by routing)",
   "            case mrui::UiProvOp::join_team:   return ui_prov_join_team(_dev, intent.team_id);",
   "            case mrui::UiProvOp::join_team:   return ui_prov_create_team(_dev);"),
+ # ================================ §UI-16 K5 — the SAVED-KEY OFFER's REPORT and the EXPLICIT ACTIVATION
+ # ★★★★ V33 IS THE SLICE'S HEADLINE CONTROL AND IT IS THE P-2b RULING ITSELF: the join stops REPORTING that a key
+ #      is retained and starts INSTALLING it. The panel looks identical — `TEAM JOINED`, same id, same fingerprint —
+ #      while a stored secret has been reactivated by nothing but knowledge of a PUBLIC team id, which is the one
+ #      thing the keyring ruling forbids. ⓘ It is a plausible "fix" precisely because it saves the operator two
+ #      presses, which is how it would be argued for.
+ # ⛔ V34 IS ITS SIBLING: the offer appears for a team with NO retained record, so the operator is walked into a
+ #    refusal for a key that does not exist. The two together are the pair spec §4-K5 names.
+ ("V33 ★★★★ THE JOIN **INSTALLS** THE RETAINED KEY INSTEAD OF REPORTING IT — P-2b broken by the one edit that "
+  "looks like a convenience (the headline control)",
+  "            a.saved_key = dev.has_saved_key(res.team_id);",
+  "            a.saved_key = (dev.use_saved_key(res.team_id) == SavedKeyUse::installed);"),
+ ("V34 ★★★ THE OFFER IS REPORTED UNCONDITIONALLY — `SAVED KEY FOUND` for a team whose key was never retained",
+  "            a.saved_key = dev.has_saved_key(res.team_id);",
+  "            a.saved_key = true;"),
+ ("V35 ★★★ THE QUESTION IS KEYED ON THE **FINGERPRINT** — the low 24 bits the panel prints, which 255 other teams "
+  "share ([[B48]]'s display-shaped-field class, one screen over)",
+  "            a.saved_key = dev.has_saved_key(res.team_id);",
+  "            a.saved_key = dev.has_saved_key(res.team_id & 0x00FFFFFFu);"),
+ ("V36 ★★ THE QUESTION IS ASKED BEFORE THE VERDICT IS KNOWN — a REFUSED or FAILED join reports a retained key for "
+  "a team it never joined, so the offer opens on a membership that does not exist",
+  "    const ProvResult res = dev.apply(rq, snap);\n    switch (res.verdict) {",
+  "    const ProvResult res = dev.apply(rq, snap);\n"
+  "    a.saved_key = dev.has_saved_key(rq.team_id);\n    switch (res.verdict) {"),
+ ("V37 ★★★ A FAILED ACTIVATION IS RENDERED AS A SUCCESS — everything but the zero floor reads as `installed`, so "
+  "`TEAM KEY ACTIVE` appears over a node that holds no key at all",
+  "    if (v == SavedKeyUse::installed) {",
+  "    if (v != SavedKeyUse::zero_team) {"),
+ ("V38 ★★ the activation's ZERO FLOOR is dropped — a `team_id` of 0 reaches the device seam instead of being "
+  "refused before it",
+  "    if (team_id == 0) {\n"
+  "        a.outcome = mrui::UiProvOutcome::saved_key_failed;",
+  "    if (false) {\n"
+  "        a.outcome = mrui::UiProvOutcome::saved_key_failed;"),
+ ("V39 ★ the failure loses the SERVICE's typed token, so the panel cannot say WHICH way the activation failed",
+  "    a.reason  = saved_key_use_name(v);                  // ⛔ a FACT token, ⛔ never material",
+  '    a.reason  = "";'),
+ ("V40 ★★ the intent dispatch sends the SAVED-KEY activation to the nearby-JOIN act — a second membership "
+  "transaction for an operator decision about a key",
+  "            case mrui::UiProvOp::use_saved_key: return ui_prov_use_saved_key(_dev, intent.team_id);",
+  "            case mrui::UiProvOp::use_saved_key: return ui_prov_join_team(_dev, intent.team_id);"),
 ]
 
 # ==================================================================== §UI-15 slice 6 — src/firmware_ui_join.h

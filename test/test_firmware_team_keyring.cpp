@@ -21,6 +21,7 @@
 #include <doctest.h>
 #include <cstddef>
 #include <cstring>
+#include <initializer_list>   // §UI-16 K5: the range-for sweeps over the four-valued read and the six-armed verdict
 #include "firmware_team_keyring.h"
 #include "identity.h"    // meshroute::team_channel_key_derive — the REAL derivation the live seam's fake mirrors
 
@@ -733,6 +734,13 @@ struct FakeBinding : mrfw::ITeamKeyBinding {
     bool commit_active(uint32_t team_id, const uint8_t p[32], const uint8_t s[32]) override {
         ++commits;
         if (log) log->put('C');
+        // ★★★★ THE FAKE ENFORCES WHAT THE REAL WRITER MUST — ADDED 2026-08-25 (QG blocker 1), and it is the
+        //      `deposit_on_fail` lesson one seam over: a fake that is MORE PERMISSIVE than the device it stands for
+        //      makes every case above it pass for a reason the device does not have. `DeviceTeamKeyBinding` refuses
+        //      to write an ACTIVE BINDING into a `/mrcfg` record whose MEMBERSHIP names another team (a binding
+        //      that lies, which the five-term boot restore then rejects), and it refuses through the SAME pure
+        //      predicate this line calls (U1 — one authority, and `--target=teamkeyring` can attack it).
+        if (!mrfw::commit_membership_ok(membership, team_id)) return false;
         if (!commit_ok) return false;
         committed_team = team_id;
         std::memcpy(committed_priv, s, 32);
@@ -1141,4 +1149,333 @@ TEST_CASE("ui16-K3: every GrantSave arm is classified, and ⛔ no arm claims a k
     // ⛔ AND THE SENTINEL FAILS CLOSED: a value that should be impossible may never talk its way onto the panel.
     CHECK(mrfw::grant_ui_route_of(GrantSave::count) == R::suppressed);
     CHECK(static_cast<uint8_t>(R::count) > static_cast<uint8_t>(R::suppressed));
+}
+
+// =====================================================================================================================
+// §UI-16 K5 — THE PRESENCE QUESTION AND THE **EXPLICIT** ACTIVATION (spec §4-K5, P-2b)
+// =====================================================================================================================
+// ★★★ WHAT THIS BLOCK MEASURES: the two decisions `SAVED KEY FOUND` / `USE SAVED KEY` rest on — *"is a key for this
+//     exact team RETAINED?"* (a BOOLEAN, zero writes, fails closed) and *"install it, durably, or leave the node
+//     KEYLESS"*. ⛔ WHERE THE OFFER SITS IN THE FLOW is the MODEL's (`test/test_firmware_ui_model.cpp`) and the
+//     MAPPING onto panel words is the ADAPTER's (`test/test_firmware_ui_prov.cpp`); neither is re-measured here.
+// ⛔ AND NOTHING HERE MAY BE DESCRIBED AS PROVING ANYTHING ABOUT FLASH — the store is a fake, and [[B193]]'s
+//    power-cut half is a bench check (this file's standing boundary, unchanged).
+
+TEST_CASE("ui16-k5: `has_record` answers a BOOLEAN about ONE exact id, spends ZERO writes and FAILS CLOSED") {
+    Fix f;
+    uint8_t pub[32], priv[32];
+    CHECK(make_pair(0x41, pub, priv));
+    CHECK(f.svc.put(0x51CE0004u, pub, priv).verdict == mrfw::KeyringVerdict::ok);
+    const int saves_after_put = f.store.saves;
+    const mrnv::TeamKeyBlob before = f.store.rec;
+
+    CHECK(f.svc.has_record(0x51CE0004u) == true);           // the team whose key we hold
+    CHECK(f.svc.has_record(0x51CE0005u) == false);          // ⛔ a NEIGHBOURING id — one bit apart, no record
+    CHECK(f.svc.has_record(0u) == false);                   // ⛔ 0 is never stored, so it can never be FOUND
+    // ★★ ZERO WRITES ON EVERY ANSWER, and the record did not move one byte: a QUESTION may not touch the store.
+    CHECK(f.store.saves == saves_after_put);
+    CHECK(std::memcmp(&f.store.rec, &before, sizeof before) == 0);
+
+    // ★★★ AND IT FAILS CLOSED (C2) ON EVERY UNREADABLE STATE: an offer made against a store nobody could read
+    //     would walk the operator into a refusal. ⓘ The three are one answer HERE and stay distinguishable in
+    //     `use_saved`, where he has ASKED.
+    // ⚠⚠ THE STORE **DEPOSITS A PLAUSIBLE RECORD ON EVERY FAILING READ**, AND WITHOUT IT THIS LOOP MEASURED
+    //    NOTHING — ★ MEASURED 2026-08-25, ⛔ not reasoned: the first cut left `deposit_rec` false, so a failing read
+    //    handed back 0xA5 filler in which no lookup could succeed, and `--target=teamkeyring` T42 (the FAIL-OPEN
+    //    mutation) stayed GREEN. That is the [[B217]] shape exactly — a case whose zero came from the fixture rather
+    //    than from the rule. ⓘ The real `read_slot` may leave a PARTIAL record behind before answering false
+    //    (device_nv.h's §nv-ritual warning), so a reader that IGNORES the answer does ⛔ not get zeroes — it gets
+    //    bytes that LOOK right, and here they are THIS TEAM's own record. ⇒ `false` below is now a decision about
+    //    the READ ANSWER and about nothing else.
+    f.store.deposit_rec = true;
+    for (mrnv::TeamKeyRead st : { mrnv::TeamKeyRead::absent, mrnv::TeamKeyRead::invalid,
+                                  mrnv::TeamKeyRead::io_failed }) {
+        f.store.state = st;
+        CHECK(mrfw::team_key_find(f.store.rec, 0x51CE0004u) >= 0);   // the deposit REALLY holds the team (⛔ vacuity)
+        CHECK(f.svc.has_record(0x51CE0004u) == false);
+        CHECK(f.store.saves == saves_after_put);            // ⛔ still zero writes
+    }
+    f.store.state = mrnv::TeamKeyRead::ok;
+    CHECK(f.svc.has_record(0x51CE0004u) == true);           // ★ the positive arm again: the zeros above are evidence
+}
+
+TEST_CASE("ui16-k5: ★★★ `USE SAVED KEY` installs the RETAINED pair and makes it BOOT-DURABLE (the five terms hold)") {
+    // ★★★★ THE SLICE'S POSITIVE ARM, AND IT IS PROVED BY **DRIVING THE REAL RESTORE PATH** against the state this
+    //      activation wrote — ⛔ not by reading the source and agreeing that the terms look satisfied.
+    Fix f;
+    FakeKeyLive live;
+    FakeBinding bind;
+    uint8_t pub[32], priv[32];
+    CHECK(make_pair(0x77, pub, priv));
+    CHECK(f.svc.put(0x77D9348Au, pub, priv).verdict == mrfw::KeyringVerdict::ok);
+    const mrnv::TeamKeyBlob before = f.store.rec;
+    const int saves_before = f.store.saves;
+    bind.membership = 0x77D9348Au;              // we JOINED that team first — the membership write already happened
+    CHECK(live.installed == false);             // ...and the join left us KEYLESS (the precondition, asserted)
+
+    CHECK(f.svc.use_saved(0x77D9348Au, live, bind) == mrfw::SavedKeyUse::installed);
+    // ★★ THE LIVE HALF: adopted EXACTLY ONCE, through the accessor that RE-DERIVES the public half — and ⛔ the
+    //    governance never fired, because this is the one arm that does not refuse.
+    CHECK(live.installed == true);
+    CHECK(live.calls == 1);
+    CHECK(live.clear_calls == 0);
+    CHECK(std::memcmp(live.pub, pub, 32) == 0);
+    // ★★ THE DURABLE HALF: exactly ONE `/mrcfg` activation, for exactly THIS team...
+    CHECK(bind.commits == 1);
+    CHECK(bind.committed_team == 0x77D9348Au);
+    CHECK(bind.active == true);
+    // ...and ⛔ ZERO `/mrteams` writes: the key was ALREADY durable, so an activation may not spend flash on it.
+    CHECK(f.store.saves == saves_before);
+    CHECK(std::memcmp(&f.store.rec, &before, sizeof before) == 0);
+
+    // ★★★★ THE BOOT-DURABILITY PROOF: a FRESH live seam (i.e. a power cycle — nothing is installed) plus the FIVE
+    //      TERMS read off the record this activation actually wrote. ⛔ The binding is not hand-built: `bind.pub`
+    //      and `bind.binding_team` are what `commit_active` stored.
+    FakeKeyLive rebooted;
+    mrfw::TeamKeyBinding after{};
+    after.membership_team_id = bind.membership;
+    after.binding_team_id    = bind.binding_team;
+    after.key_active         = bind.active;
+    after.committed_present  = bind.has_pub;
+    after.committed_pub      = bind.pub;
+    CHECK(f.svc.restore(after, rebooted) == mrfw::KeyringRestore::installed);
+    CHECK(rebooted.installed == true);
+    CHECK(std::memcmp(rebooted.pub, pub, 32) == 0);         // ★ the SAME key, after the reboot
+    CHECK(f.store.saves == saves_before);                   // ⛔ and a restore still writes nothing
+}
+
+TEST_CASE("ui16-k5: ★★★ EVERY failing arm installs NOTHING, keeps the record INTACT and clears SURGICALLY") {
+    // ★★★★ ⛔ TITLE AND SHAPE CORRECTED IN PLACE 2026-08-25 (QG blocker 1), AND THE WITHDRAWN CONTRACT IS KEPT
+    //      VISIBLE: this case read *"EVERY failing arm leaves the node KEYLESS…"* and asserted `clear_calls == 1` on
+    //      every one of them, because the first cut routed all refusals through the boot restore's clearing funnel.
+    //      ⛔ **THAT WAS WRONG, AND IT WAS WRONG IN THE DANGEROUS DIRECTION**: the live key at this moment belongs to
+    //      whatever team `/mrcfg` currently NAMES, so a refusal that clears destroys an INNOCENT key — the key of
+    //      the team the operator is actually in. ⇒ the refusals are now SURGICAL, and the assertions below flip with
+    //      them: `clear_calls == 0` on every arm, and ⛔ EXACTLY ONE arm wipes — `binding_failed`, which is UNDOING
+    //      ITS OWN INSTALL and not applying a verdict to somebody else's key.
+    // ★★ EVERY ARM SEEDS THE MEMBERSHIP IT MEANS TO MEASURE (the §7.1 rule-1 discipline): without it each one would
+    //    refuse at the NEW re-check and the case would pass for the wrong reason — which is exactly what the first
+    //    run of this correction did, and why the seeds below are asserted rather than assumed.
+    uint8_t pub[32], priv[32];
+    CHECK(make_pair(0x31, pub, priv));
+
+    {   // (a) `zero_team` — ⛔ 0 READS and 0 writes: the floor is asked before any authority is consulted.
+        Fix f; FakeKeyLive live; FakeBinding bind;
+        CHECK(f.svc.put(0x51CE0004u, pub, priv).verdict == mrfw::KeyringVerdict::ok);
+        const int loads = f.store.loads, saves = f.store.saves;
+        CHECK(f.svc.use_saved(0u, live, bind) == mrfw::SavedKeyUse::zero_team);
+        CHECK(f.store.loads == loads);                      // ⛔ ZERO keyring loads — the floor is FIRST
+        CHECK(f.store.saves == saves);
+        CHECK(bind.reads == 0);                             // ⛔ ...and ⛔ not even the /mrcfg record was read
+        CHECK(live.calls == 0);
+        CHECK(bind.commits == 0);
+        CHECK(live.clear_calls == 0);                       // ⛔ SURGICAL: nothing of ours, nothing cleared
+    }
+    {   // ★★★★ (b) **THE A -> B RACE — QG BLOCKER 1's OWN CASE.** The offer was built for team A; a `team <id>` over
+        //     serial moves MEMBERSHIP to B before the operator's `double` lands. Installing A's key then would put
+        //     A's secret live under a `/mrcfg` that says B — a binding the five-term boot restore REJECTS, under a
+        //     panel that just claimed `TEAM KEY ACTIVE`. ⇒ REFUSED, and ⛔ B's live key, B's binding and A's record
+        //     are all left EXACTLY as they were.
+        Fix f; FakeKeyLive live; FakeBinding bind;
+        const uint32_t A = 0x51CE0004u, B = 0x77D9348Au;
+        CHECK(f.svc.put(A, pub, priv).verdict == mrfw::KeyringVerdict::ok);
+        // ...and B is a REAL team with a REAL live key and its OWN active binding — without that, "B's key survived"
+        // would be a statement about a node that never had one (the §W10b lesson).
+        uint8_t bpub[32], bpriv[32];
+        CHECK(make_pair(0x62, bpub, bpriv));
+        CHECK(live.adopt_key(bpub, bpriv));
+        bind.membership   = B;                              // ★ THE RACE: /mrcfg now names B
+        bind.binding_team = B;
+        bind.active       = true;
+        bind.has_pub      = true;
+        std::memcpy(bind.pub, bpub, 32);
+        const mrnv::TeamKeyBlob before = f.store.rec;
+        const int saves = f.store.saves, loads = f.store.loads;
+        const int adopts = live.calls;
+
+        CHECK(f.svc.use_saved(A, live, bind) == mrfw::SavedKeyUse::not_our_team);
+        // ★★★ B's LIVE KEY IS UNTOUCHED — ⛔ not cleared, ⛔ not overwritten by A's.
+        CHECK(live.installed == true);
+        CHECK(live.clear_calls == 0);
+        CHECK(live.calls == adopts);                        // ⛔ A's pair was never even offered to the accessor
+        CHECK(std::memcmp(live.pub, bpub, 32) == 0);        // ...and it is still B's
+        // ★★★ B's ACTIVE BINDING IS UNTOUCHED, and ⛔ NOTHING was written on either record.
+        CHECK(bind.commits == 0);
+        CHECK(bind.binding_team == B);
+        CHECK(bind.active == true);
+        CHECK(f.store.saves == saves);
+        CHECK(f.store.loads == loads);                      // ⛔ the SECRET store was not even opened
+        // ★★★ AND A's RETAINED RECORD IS INTACT — the operator can still be offered it after re-joining A.
+        CHECK(std::memcmp(&f.store.rec, &before, sizeof before) == 0);
+        CHECK(mrfw::team_key_find(f.store.rec, A) >= 0);
+        // ★★ THE POSITIVE ARM IN THE SAME CASE: the identical call with the race removed INSTALLS — so the refusal
+        //    above is a measurement of the re-check and ⛔ not of a fixture that cannot succeed.
+        bind.membership = A;
+        CHECK(f.svc.use_saved(A, live, bind) == mrfw::SavedKeyUse::installed);
+        CHECK(std::memcmp(live.pub, pub, 32) == 0);
+        CHECK(bind.commits == 1);
+    }
+    {   // (c) `record_unreadable` — the `/mrcfg` record could not be read ⇒ FAIL CLOSED (C2): an unestablished term
+        //     is ⛔ never treated as satisfied, so ⛔ nothing is adopted, written or cleared.
+        Fix f; FakeKeyLive live; FakeBinding bind;
+        CHECK(f.svc.put(0x51CE0004u, pub, priv).verdict == mrfw::KeyringVerdict::ok);
+        bind.membership = 0x51CE0004u;                      // the term WOULD have passed — the read is what fails
+        bind.read_ok    = false;
+        const int saves = f.store.saves, loads = f.store.loads;
+        CHECK(f.svc.use_saved(0x51CE0004u, live, bind) == mrfw::SavedKeyUse::record_unreadable);
+        CHECK(live.calls == 0);
+        CHECK(live.clear_calls == 0);
+        CHECK(bind.commits == 0);
+        CHECK(f.store.saves == saves);
+        CHECK(f.store.loads == loads);
+    }
+    {   // (d) `no_record` — an ABSENT store, and a store that simply holds ANOTHER team's key. ⛔ Never a substitute.
+        Fix f; FakeKeyLive live; FakeBinding bind;
+        bind.membership = 0x51CE0004u;
+        f.store.state = mrnv::TeamKeyRead::absent;
+        CHECK(f.svc.use_saved(0x51CE0004u, live, bind) == mrfw::SavedKeyUse::no_record);
+        CHECK(live.clear_calls == 0);
+        CHECK(bind.commits == 0);
+        CHECK(f.store.saves == 0);
+
+        Fix g; FakeKeyLive live2; FakeBinding bind2;
+        CHECK(g.svc.put(0x51CE0004u, pub, priv).verdict == mrfw::KeyringVerdict::ok);
+        const mrnv::TeamKeyBlob before = g.store.rec;
+        const int saves = g.store.saves;
+        bind2.membership = 0x77D9348Au;                     // we ARE in the team we are asking about...
+        CHECK(g.svc.use_saved(0x77D9348Au, live2, bind2) == mrfw::SavedKeyUse::no_record);   // ...it just has no key
+        CHECK(live2.installed == false);                    // ⛔ the OTHER team's key was NOT installed
+        CHECK(live2.calls == 0);
+        CHECK(live2.clear_calls == 0);
+        CHECK(g.store.saves == saves);
+        CHECK(std::memcmp(&g.store.rec, &before, sizeof before) == 0);
+    }
+    {   // (e) `store_failed` — ⛔ NOT collapsed with `no_record`: "the record is not there" and "the store could not
+        //     be read" take different operator actions, and he has explicitly asked.
+        for (mrnv::TeamKeyRead st : { mrnv::TeamKeyRead::invalid, mrnv::TeamKeyRead::io_failed }) {
+            Fix f; FakeKeyLive live; FakeBinding bind;
+            bind.membership = 0x51CE0004u;
+            f.store.state = st;
+            CHECK(f.svc.use_saved(0x51CE0004u, live, bind) == mrfw::SavedKeyUse::store_failed);
+            CHECK(live.clear_calls == 0);
+            CHECK(live.installed == false);
+            CHECK(bind.commits == 0);
+            CHECK(f.store.saves == 0);                      // ⛔ a blind rewrite would destroy four intact keys
+        }
+    }
+    {   // (f) `rejected` — THE CORRUPTION ARM, and it is measured against the REAL rule: the fake's `adopt_key` is a
+        //     1:1 mirror of `Node::team_channel_key_adopt`, so a record whose pub does not derive from its priv is
+        //     refused BY THE DERIVATION and ⛔ never installed verbatim.
+        // ★★ AND THE **INNOCENT LIVE KEY SURVIVES IT**: the node holds this same team's key (a serial import a
+        //    moment ago), the saved record is corrupt, and the refusal may ⛔ not take the working key with it.
+        Fix f; FakeKeyLive live; FakeBinding bind;
+        uint8_t bad_pub[32];
+        std::memcpy(bad_pub, pub, 32);
+        bad_pub[0] = static_cast<uint8_t>(bad_pub[0] ^ 0x01);          // one bit of rot in the PUBLIC half
+        CHECK(f.svc.put(0x51CE0004u, bad_pub, priv).verdict == mrfw::KeyringVerdict::ok);
+        uint8_t ipub[32], ipriv[32];
+        CHECK(make_pair(0x55, ipub, ipriv));
+        CHECK(live.adopt_key(ipub, ipriv));                 // ...the innocent key, live before the act
+        const mrnv::TeamKeyBlob before = f.store.rec;
+        const int saves = f.store.saves, adopts = live.calls;
+        bind.membership = 0x51CE0004u;
+        CHECK(f.svc.use_saved(0x51CE0004u, live, bind) == mrfw::SavedKeyUse::rejected);
+        CHECK(live.calls == adopts + 1);                    // ...it WAS offered to the accessor...
+        CHECK(live.clear_calls == 0);                       // ⛔ ...and the refusal cleared NOTHING (surgical)
+        CHECK(live.installed == true);                      // ★ the innocent key is still live...
+        CHECK(std::memcmp(live.pub, ipub, 32) == 0);        // ...and it is still the SAME key
+        CHECK(bind.commits == 0);                           // ⛔ and ⛔ no activation was written for a bad record
+        CHECK(f.store.saves == saves);
+        CHECK(std::memcmp(&f.store.rec, &before, sizeof before) == 0);
+    }
+    {   // (g) `binding_failed` — ★ THE ONE ARM THAT WIPES, AND IT IS AN **UNDO OF ITS OWN INSTALL**: the key was
+        //     adopted, the `/mrcfg` write failed, so the node is put back rather than left reading a channel it will
+        //     lose at the next boot. ⓘ The record stays RETAINED — the operator can try again.
+        Fix f; FakeKeyLive live; FakeBinding bind;
+        CHECK(f.svc.put(0x51CE0004u, pub, priv).verdict == mrfw::KeyringVerdict::ok);
+        const mrnv::TeamKeyBlob before = f.store.rec;
+        const int saves = f.store.saves;
+        bind.membership = 0x51CE0004u;
+        bind.commit_ok  = false;
+        CHECK(f.svc.use_saved(0x51CE0004u, live, bind) == mrfw::SavedKeyUse::binding_failed);
+        CHECK(live.calls == 1);                             // it really was adopted first...
+        CHECK(bind.commits == 1);                           // ...the ONE attempt was made and reported false...
+        CHECK(live.clear_calls == 1);                       // ...and THIS VERB'S OWN install was UNDONE
+        CHECK(live.installed == false);
+        CHECK(f.store.saves == saves);
+        CHECK(std::memcmp(&f.store.rec, &before, sizeof before) == 0);
+        CHECK(mrfw::team_key_find(f.store.rec, 0x51CE0004u) >= 0);      // ★ still RETAINED — a retry is possible
+        // ★★ AND THE NEXT BOOT COMES UP KEYLESS, driven rather than argued: no active binding was committed.
+        FakeKeyLive rebooted;
+        mrfw::TeamKeyBinding after{};
+        after.membership_team_id = 0x51CE0004u;
+        after.binding_team_id    = bind.binding_team;       // ⛔ still 0 — the commit failed
+        after.key_active         = bind.active;
+        CHECK(f.svc.restore(after, rebooted) == mrfw::KeyringRestore::no_binding);
+        CHECK(rebooted.installed == false);
+    }
+}
+
+TEST_CASE("ui16-k5: ★★★ the WRITER refuses an ACTIVE BINDING for a team its own record does not name") {
+    // ★★★★ QG blocker 1's SECOND AUTHORITY, and it is pure so it can be attacked: `commit_active` writes the binding
+    //      into the `/mrcfg` record it has just loaded, and that record carries the MEMBERSHIP. A binding for a team
+    //      the record does not name is a binding that LIES — the five-term boot restore compares the two (term (ii))
+    //      and comes up KEYLESS while the panel claimed a key was active. ⇒ the writer refuses, ⛔ without writing.
+    // ⓘ THE REAL DEVICE WRITER (`DeviceTeamKeyBinding`, `src/firmware_config.cpp`), THIS SUITE'S FAKE, the adapter
+    //   suite's fake and the UI probe's binding all call THIS ONE predicate (U1) — the device TU is compiled by no
+    //   gate (§B115), so the decision has to live where a mutation can reach it.
+    CHECK(mrfw::commit_membership_ok(0x51CE0004u, 0x51CE0004u) == true);
+    CHECK(mrfw::commit_membership_ok(0x77D9348Au, 0x51CE0004u) == false);   // ★ the A -> B race, at the write
+    CHECK(mrfw::commit_membership_ok(0u, 0x51CE0004u) == false);            // an unprovisioned record names no team
+    CHECK(mrfw::commit_membership_ok(0x51CE0004u, 0u) == false);            // ⛔ and 0 is never a target
+    CHECK(mrfw::commit_membership_ok(0u, 0u) == false);
+    // ★★ AND THE FAKE ENFORCES IT, so no case above can pass against a writer more permissive than the device's.
+    FakeBinding bind;
+    bind.membership = 0x77D9348Au;                                        // /mrcfg says B...
+    uint8_t pub[32], priv[32];
+    CHECK(make_pair(0x44, pub, priv));
+    CHECK(bind.commit_active(0x51CE0004u, pub, priv) == false);            // ...so a binding for A is REFUSED
+    CHECK(bind.commits == 1);                                             // the attempt is counted ([[B193]]'s rule)
+    CHECK(bind.binding_team == 0u);                                       // ⛔ and nothing was written
+    CHECK(bind.active == false);
+    CHECK(bind.commit_active(0x77D9348Au, pub, priv) == true);            // ★ the positive arm: B's own binding lands
+    CHECK(bind.binding_team == 0x77D9348Au);
+    CHECK(bind.active == true);
+}
+
+TEST_CASE("ui16-k5: the `SavedKeyUse` inventory is a PROPERTY OF THE ENUM — ⛔ not a hand-typed list") {
+    // ★★★★ ⛔ REWRITTEN IN PLACE 2026-08-25 (QG blocker 2), AND THE WITHDRAWN SHAPE IS KEPT VISIBLE: this case built
+    //      `const mrfw::SavedKeyUse every[] = { installed, zero_team, no_record, store_failed, rejected,
+    //      binding_failed };` and asserted `sizeof(every)/sizeof(every[0]) == 6u` — a HAND-MAINTAINED inventory whose
+    //      literal and whose array could only agree by somebody remembering to edit both. ⛔ This arc has already
+    //      failed exactly that way once (`mrui::InviteGrantState`: an array stayed short while its hand-typed
+    //      literal stayed right, and the sweep went on calling itself exhaustive). ⇒ THE THIRD INSTANCE OF THE
+    //      FENCE, matching `GrantSave::count` and `InviteGrantState::count`:
+    //        (1) the sweep IS `0 .. count-1`, so an arm added to the enum is visited BY CONSTRUCTION;
+    //        (2) `saved_key_use_name` has ⛔ NO `default:`, so an arm added and NOT worded is a BUILD FAILURE;
+    //        (3) the sentinel itself is pinned LAST and answers `?`, so it cannot quietly become an outcome.
+    //      ⇒ there is no pair left to keep in sync.
+    const int n = static_cast<int>(mrfw::SavedKeyUse::count);
+    CHECK(n >= 6);                                          // a floor, ⛔ not an equality: arms may be ADDED
+    int worded = 0;
+    for (int i = 0; i < n; ++i) {
+        const mrfw::SavedKeyUse x = static_cast<mrfw::SavedKeyUse>(i);
+        const char* wx = mrfw::saved_key_use_name(x);
+        CHECK(wx[0] != '\0');
+        CHECK(std::strcmp(wx, "?") != 0);                   // ⛔ no arm falls through to the refusal token
+        CHECK(std::strlen(wx) <= 19u);                      // ...and the panel's 19-column body still holds it
+        ++worded;
+        // ⛔ EVERY WORD IS DISTINCT: a collapse would make two outcomes indistinguishable on the operator's second
+        //    row, which is the "success that isn't" shape at the diagnostic end.
+        for (int j = 0; j < n; ++j)
+            CHECK((std::strcmp(wx, mrfw::saved_key_use_name(static_cast<mrfw::SavedKeyUse>(j))) == 0) == (i == j));
+    }
+    CHECK(worded == n);                                     // the sweep really visited every arm
+    // ★ THE SENTINEL IS ⛔ NOT AN OUTCOME: it is LAST, and it answers the refusal token rather than a plausible word.
+    CHECK(std::strcmp(mrfw::saved_key_use_name(mrfw::SavedKeyUse::count), "?") == 0);
+    CHECK(static_cast<int>(mrfw::SavedKeyUse::binding_failed) < n);
+    // ★ AND THE NAMED ARMS ARE STILL THE ARMS THE SERVICE RETURNS — spelled once, so a RENAME is visible here.
+    CHECK(std::strcmp(mrfw::saved_key_use_name(mrfw::SavedKeyUse::installed), "installed") == 0);
+    CHECK(std::strcmp(mrfw::saved_key_use_name(mrfw::SavedKeyUse::not_our_team), "not_our_team") == 0);
+    CHECK(std::strcmp(mrfw::saved_key_use_name(mrfw::SavedKeyUse::record_unreadable), "record_unreadable") == 0);
 }
