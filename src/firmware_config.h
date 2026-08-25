@@ -137,8 +137,18 @@ KeyringRestore team_keyring_restore_boot(const mrnv::Blob& nv);
 // ⚠ SILENT BY MEASUREMENT, ⛔ NOT BY OVERSIGHT — see the `§notify-every-save` exemption recorded beside the rule in
 //   `src/firmware_config.cpp`: a grant receipt is not user-initiated on this node and assigns none of the four
 //   covered `/mrcfg` fields.
+// ★★★★ ⛔ CORRECTED AGAIN 2026-08-25 (§UI-16 K6's QG blocker), AND THE WITHDRAWN SHAPE IS KEPT VISIBLE: this read
+//      `GrantUiRoute team_key_grant_persist(uint32_t push_team_id);`. A ROUTE alone cannot say WHY the durable half
+//      refused, and exactly one refusal has somewhere to send the operator — a FULL keyring. Spec §K6 `:987` rules
+//      that a `KEYRING FULL` result of **either origin** lands its acknowledgement in `SAVED KEYS`, so the receipt
+//      path needs the same typed fact the create path already carries (`mrui::UiProvAnswer::keyring_full`).
+// ⛔ THE THREE RULED ROWS ARE UNCHANGED (S-26/S-27): the key IS live and IS lost on reboot, and the flag changes
+//    ⛔ no word — only where the acknowledging PRESS lands. ⛔ And it deletes nothing and retries nothing.
+// ⓘ `GrantUiRoute` gains ⛔ NO enumerator, so every landed `default`-less switch over it is untouched; the second
+//   fact rides beside it in a carrier, the `GrantSaveResult{outcome, err}` shape one file over.
 enum class GrantUiRoute : uint8_t;
-GrantUiRoute team_key_grant_persist(uint32_t push_team_id);
+struct GrantUiVerdict;
+GrantUiVerdict team_key_grant_persist(uint32_t push_team_id);
 
 // ★★★★ §UI-16 K5 — THE `SAVED KEY FOUND` / `USE SAVED KEY` OFFER's TWO DEVICE FORWARDS, and the split between them
 //       IS P-2b: the FIRST answers a BOOLEAN (*"is a key for this team retained?"*) and installs ⛔ nothing; the
@@ -157,6 +167,27 @@ GrantUiRoute team_key_grant_persist(uint32_t push_team_id);
 bool has_saved_team_key(uint32_t team_id);
 enum class SavedKeyUse : uint8_t;
 SavedKeyUse team_keyring_use_saved(uint32_t team_id);
+
+// ★★★★ §UI-16 K6 — SAVED-KEY **RETENTION MANAGEMENT**'s TWO DEVICE FORWARDS (⛔ never described as key rotation).
+//       The split between them is the ruling's **two explicit transactions** rule at its smallest: the FIRST is a
+//       READ that performs nothing, and the SECOND is a REMOVAL that completes and reports its own verdict — after
+//       which the create/grant that ran out of room is retried BY THE OPERATOR. ⛔ Neither resumes anything.
+// ⛔ NEITHER TAKES A DECISION (U3, the rule this whole cluster runs on): the metadata-only shape of the
+//    enumeration, the ACTIVE marker's authority (the `/mrcfg` binding — ⛔ never membership, ⛔ never "a key is
+//    present"), the PROTECTION of the active record, the FULL-32-bit lookup, the order-preserving compaction, the
+//    WIPE of the vacated slot and the at-most-one-save rule all live in `mrfw::TeamKeyringService::list` /
+//    `::forget` (`src/firmware_team_keyring.h`), which is pure, which `test/test_firmware_team_keyring.cpp` drives
+//    and which `--target=teamkeyring` attacks. These two compose the SAME `/mrcfg` binding adapter K3 and K5
+//    compose, over the SAME one keyring service instance.
+// ★ ZERO WRITES on the list; at most ONE keyring write on the removal, and ⛔ ZERO on every refusing arm — a full
+//   store still evicts NOTHING until the operator names a SPECIFIC inactive record and confirms (P-15, completed).
+// ⚠ `SavedKeyList` is FORWARD-DECLARED and returned BY VALUE, which is legal for a declaration: every caller of
+//   these forwards already includes `firmware_team_keyring.h` (through `firmware_ui_prov.h`). That keeps this
+//   header's no-heavy-include rule, exactly as the opaque `enum class` declarations above do.
+struct SavedKeyList;
+enum class KeyringForget : uint8_t;
+SavedKeyList  team_keyring_list();
+KeyringForget team_keyring_forget(uint32_t team_id);
 
 // ★★★ §UI-16 N6 — THE OLED GRANT'S ONE DEVICE FORWARD (the body, and the full argument for where it lives, are at
 // its definition in `firmware_config.cpp`, beside `handle_team`'s own `grantkey` arm). It is `team_key_grant_send`

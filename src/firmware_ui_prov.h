@@ -74,6 +74,17 @@ struct ITeamCreateDevice {
     virtual void       on_applied(const ProvResult& r) = 0;
     virtual bool        has_saved_key(uint32_t team_id) = 0;
     virtual SavedKeyUse use_saved_key(uint32_t team_id) = 0;
+    // ★★★★ §UI-16 K6 ADDS THE SEVENTH AND EIGHTH, HERE for the same reason the fifth and sixth are here: both are
+    //      TEAM-device operations over the SAME one keyring instance the transaction already writes through.
+    //   `saved_key_list` -> `mrfw::team_keyring_list`, i.e. `TeamKeyringService::list`. ⛔ **METADATA ONLY** —
+    //                       `{team_id, active}` per record and the store's own four-valued read. ⛔ ZERO writes,
+    //                       ⛔ no key byte, and the ACTIVE marker comes from the `/mrcfg` binding (⛔ never inferred
+    //                       from membership or from "a key is present").
+    //   `forget_key`     -> `mrfw::team_keyring_forget`, i.e. `TeamKeyringService::forget`. ⛔ It is the SECOND of
+    //                       **two explicit transactions**: it completes and reports its own verdict, and ⛔ nothing
+    //                       resumes the create/grant that ran out of room — the operator retries that himself.
+    virtual SavedKeyList  saved_key_list() = 0;
+    virtual KeyringForget forget_key(uint32_t team_id) = 0;
 };
 
 // ---- the ACT ----------------------------------------------------------------------------------------------------
@@ -142,6 +153,19 @@ inline mrui::UiProvAnswer ui_prov_create_team(ITeamCreateDevice& dev) {
         case ProvVerdict::refused:
             a.outcome = mrui::UiProvOutcome::refused;
             a.reason  = prov_err_name(r.err);           // the SERVICE's own token (U1) — never a second table
+            // ★★★★ §UI-16 K6 — **THE ONE REFUSAL THAT HAS SOMEWHERE TO SEND THE OPERATOR.** `KEYRING FULL` is P-15's
+            //      loud refusal: four teams are retained, this is a fifth, and ⛔ nothing was evicted to make room.
+            //      Reported as a TYPED FLAG so the acknowledgement can land on the SAVED KEYS list, where the dead
+            //      end can actually be resolved — ⛔ never as a text comparison of `reason` at the model
+            //      (`mrui::UiProvAnswer::keyring_full` states why).
+            // ⛔⛔ AND THE FLAG EARNS **NAVIGATION AND NOTHING ELSE**: ⛔ no victim is chosen, ⛔ nothing is deleted,
+            //     and ⛔ this create is NOT resumed after a removal. Two explicit transactions, never one.
+            // ⓘ IT IS SET ON THE **CREATE** ARM ONLY, and that is measured rather than an omission: the keyring is
+            //   written by the transaction's KEY-INSTALL plan, and a nearby JOIN supplies no key and mints none
+            //   (`ui_prov_join_team`'s difference 3 — the joiner is a KEYLESS member), so `ProvErr::keyring_full`
+            //   is unreachable from that verb. A second identical assignment there would also be a byte-identical
+            //   twin, which this file's own header records as a landed-control hazard.
+            a.keyring_full = (r.err == ProvErr::keyring_full);
             return a;
         // ⓘ ⚠ UNREACHABLE FOR A MINT, BY CONSTRUCTION, AND MARKED RATHER THAN CLAIMED AS TESTED: `no_change` requires
         //   `!membership_changed`, and `project_team` resamples until the minted id is neither 0 nor the CURRENT team
@@ -318,6 +342,52 @@ inline mrui::UiProvAnswer ui_prov_use_saved_key(ITeamCreateDevice& dev, uint32_t
     return a;
 }
 
+// ================================================ §UI-16 K6 — THE RETENTION LIST'S ONE READ (§4-K6)
+// ★ IT IS A ONE-LINE FORWARD, AND IT IS HERE RATHER THAN IN THE MODEL for `ui_prov_join_profiles`'s reason: the
+//   model may hold the SERVICE's answer but may not reach a service. ⛔ ZERO writes, ⛔ zero evictions — opening
+//   the management screen performs NOTHING (spec §4-K6 pin 1).
+// ⛔⛔ **METADATA ONLY**: `mrfw::SavedKeyList` carries `{team_id, active}` per record and the store's own read
+//     state. ⛔ No key byte crosses this seam, and the carrier is SHAPED so none can (pin 6).
+inline mrfw::SavedKeyList ui_prov_saved_keys(ITeamCreateDevice& dev) { return dev.saved_key_list(); }
+
+// ================================================ §UI-16 K6 — `FORGET KEY`, THE CONFIRMED REMOVAL (§4-K6)
+// ★★★★ IT IS A **MAPPING AND NOTHING ELSE**, exactly as `ui_prov_use_saved_key` is: every decision — the ACTIVE
+//      record's PROTECTION, the fail-closed binding read, the FULL-32-bit lookup, the order-preserving compaction,
+//      the WIPE of the vacated slot and the rule that exactly one path writes and writes exactly once — belongs to
+//      `mrfw::TeamKeyringService::forget` (`src/firmware_team_keyring.h`), which is pure, which
+//      `test/test_firmware_team_keyring.cpp` DRIVES and which `--target=teamkeyring` attacks. ⛔ A second removal
+//      sequence written here would be the parallel path U1 forbids — and the term it would eventually forget is the
+//      active-record refusal, i.e. the one that keeps a working node from being silently un-keyed.
+// ★★★ THE ZERO FLOOR IS A REAL FLOOR AND NOT DECORATION (C2), and it is the SECOND ask (the model refuses a
+//     selection that names no team; the service refuses id 0 too): a screen that can DESTROY a stored secret must
+//     be unable to reach one with a wildcard, whichever caller arrives at this seam.
+// ⛔⛔ AND THE TWO ENDINGS SAY ONLY WHAT IS TRUE: `forgotten` ⇒ the record is gone, the survivors are compacted, the
+//     vacated slot is wiped and the ONE save RETURNED TRUE; every other arm ⇒ **THE KEY WAS NOT FORGOTTEN**, with
+//     the SERVICE's token beside it. ★ ⛔ A FAILED SAVE IS ⛔ NEVER RENDERED AS A SUCCESS AND ⛔ NEVER AS "NOTHING
+//     CHANGED" ([[B193]]: a save that reports failure may have written PARTIALLY — the real backend's power-cut
+//     outcome is M2's). ⛔ And no key byte reaches either ending.
+inline mrui::UiProvAnswer ui_prov_forget_key(ITeamCreateDevice& dev, uint32_t team_id) {
+    mrui::UiProvAnswer a{};
+    if (team_id == 0) {
+        a.outcome = mrui::UiProvOutcome::key_forget_failed;
+        a.reason  = keyring_forget_name(KeyringForget::zero_team);   // the SERVICE's own token (U1)
+        return a;                                       // ⛔ 0 keyring calls, 0 writes, 0 airtime
+    }
+    const KeyringForget v = dev.forget_key(team_id);
+    // ★ ONE ARM IS THE SUCCESS AND IT IS NAMED, ⛔ never `v != something`: an outcome added to `KeyringForget` later
+    //   must land on the FAILING side by default, because a new outcome is a new way for the removal not to have
+    //   completed. ⓘ That is the fail-closed direction; the opposite would be a "success that isn't".
+    if (v == KeyringForget::forgotten) {
+        a.outcome = mrui::UiProvOutcome::key_forgotten;
+        // ⛔ NO SECOND ROW AND ⛔ NO ID: the success screen's whole message is that the record is gone, and a token
+        //    nobody renders is a field that eventually gets rendered by somebody.
+        return a;
+    }
+    a.outcome = mrui::UiProvOutcome::key_forget_failed;
+    a.reason  = keyring_forget_name(v);                 // ⛔ a FACT token, ⛔ never material
+    return a;
+}
+
 // ================================================================== §UI-15 slice 6 — THE STATIC-JOIN HALF (§3.6.3)
 // ---- the DEVICE half, as a seam ---------------------------------------------------------------------------------
 // ★★ THREE OPERATIONS, EVERY ONE OF THEM A FORWARD, and the shape is `ITeamCreateDevice`'s deliberately (U3):
@@ -408,11 +478,17 @@ class UiProvisionAdapter : public mrui::IUiProvision {
             //   the `/mrcfg` binding are all that device's. ⛔ It carries `intent.team_id` — the id the TRANSACTION
             //   joined — and ⛔ never `intent.join`, which is another plane's record entirely.
             case mrui::UiProvOp::use_saved_key: return ui_prov_use_saved_key(_dev, intent.team_id);
+            // ★ §UI-16 K6 — the FIFTH op, and the `default`-less switch is what forced this line to be written: the
+            //   removal goes to the TEAM device (`_dev`), because the keyring is that device's. ⛔ It carries
+            //   `intent.team_id` — the FULL 32-bit id of the row the operator confirmed — and ⛔ never `intent.join`.
+            case mrui::UiProvOp::forget_key:  return ui_prov_forget_key(_dev, intent.team_id);
             case mrui::UiProvOp::none:        break;
         }
         return mrui::UiProvAnswer{};
     }
     mrui::UiJoinList profiles() override { return ui_prov_join_profiles(_join); }
+    // ★ §UI-16 K6 — the retention list, over the TEAM device for the reason the op above goes there.
+    mrfw::SavedKeyList saved_keys() override { return ui_prov_saved_keys(_dev); }
 
   private:
     ITeamCreateDevice& _dev;

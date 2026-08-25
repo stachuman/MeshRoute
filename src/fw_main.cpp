@@ -1379,16 +1379,19 @@ static void mesh_service_once() {
         //   compiled only on the non-gateway profiles, and a gateway (`team_id == 0`) can never receive a grant —
         //   `Node::team_key_grant_receive` answers `no_team` before any push is enqueued.
 #if MR_N_LAYERS < 2
-        const mrfw::GrantUiRoute ui_route = (pu.kind != meshroute::PushKind::team_key_received)
-                                            ? mrfw::GrantUiRoute::received
+        const mrfw::GrantUiVerdict ui_route = (pu.kind != meshroute::PushKind::team_key_received)
+                                            ? mrfw::GrantUiVerdict{ mrfw::GrantUiRoute::received, false }
                                             : mrfw::team_key_grant_persist(pu.team_id);
 #else
-        const mrfw::GrantUiRoute ui_route = mrfw::GrantUiRoute::received;
+        const mrfw::GrantUiVerdict ui_route{ mrfw::GrantUiRoute::received, false };
 #endif
-        switch (ui_route) {
+        switch (ui_route.route) {
             // §featuresplit slice 4: surface the delivery/ACK on the board display (no-op unless MR_FEAT_OLED)
             case mrfw::GrantUiRoute::received:       mr_ui_on_push(pu);            break;
-            case mrfw::GrantUiRoute::active_unsaved: mr_ui_on_team_key_unsaved();  break;
+            // ★ §UI-16 K6 — THE SECOND FACT IS **FORWARDED**, ⛔ not judged: `fw_main` still gains a CALL and takes
+            //   no decision (U3). `keyring_full` was classified by the pure `mrfw::grant_ui_verdict_of`, and it
+            //   chooses only WHERE the acknowledging press lands — ⛔ not one of the three ruled rows.
+            case mrfw::GrantUiRoute::active_unsaved: mr_ui_on_team_key_unsaved(ui_route.keyring_full); break;
             // ⛔ NEITHER DOOR, AND THE EMPTY ARM IS THE RULING — not an oversight and not a TODO. There is no true
             //    team-key sentence to put on the panel for this receipt (see `grant_ui_route_of`), and inventing a
             //    reassuring or an alarming one would both be the same defect.

@@ -575,8 +575,14 @@ inline bool ui_route_recv_push(UiInboxCounters& c, UiModel& m, const MESHROUTE_N
     //    open. ⓘ The counters above are for things with a body the INBOX holds.
     // ⓘ `pu.body` (the granter's optional `name=`) is ⛔ NEVER READ on this arm. F-3/P-5: an advertiser's
     //   self-asserted string may never occupy a team's identity on a screen (spec §8 S-36, the forbidden USAGE).
+    // ⛔ §UI-16 K6: the SECOND argument below is SPELLED OUT rather than defaulted (the model's parameter carries
+    //    no default at all, and its own block records the measured reason): a receipt that PERSISTED has no dead
+    //    end to send anyone to, and the model refuses the flag on this arm by construction anyway.
+    // ⚠ THE COMMENT SITS **HERE**, ABOVE THE `if`, RATHER THAN INSIDE IT: `--target=uisend`'s landed control U10
+    //   anchors on the four-line arm as ONE contiguous block, and a comment between the brace and the call makes it
+    //   match NOTHING. ⓘ MEASURED, ⛔ not anticipated — the first full pass after the change reported it VACUOUS.
     if (pu.kind == PK::team_key_received) {
-        m.on_team_key_note(/*saved=*/true, now_ms);
+        m.on_team_key_note(/*saved=*/true, /*keyring_full=*/false, now_ms);
         return true;
     }
     if (pu.kind != PK::channel_recv) return false;

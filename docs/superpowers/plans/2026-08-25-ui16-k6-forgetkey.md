@@ -1,7 +1,8 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # §UI-16 slice 10 — saved-key lifecycle / `FORGET KEY` (K6) · dispatch brief · 2026-08-25
 
-**Status: QUEUED — ⛔ do not dispatch until the STATUS-landing tweak's QG verdict lands** (same files).
+**Status: ✅ COMPLETE — QG-PASSED 2026-08-25 (combined K6+K7 gate; three rounds: base + the typed
+`keyring_full` carrier + the drain-fixture integrity round). Metal residue = bench Part 44.**
 **The APPROVED spec is the AUTHORITY:** `docs/superpowers/specs/2026-08-22-ui16-nearby-onboarding-spec.md`
 **§K6 (:955-1009)** — owner-ruled 2026-08-25 after metal testing filled all four `/mrteams` records. Read it IN
 FULL; it is complete (problem, policy, service, console, OLED, pins 1-9, mutation classes, boundary). Also:
@@ -54,14 +55,20 @@ unreadable-store collapsed. Plus the sentinel/count fences on any new enum (the 
 - C1: K6 only. Everything landed survives (through K5 + the STATUS-landing tweak). Files per the spec's
   boundary: `src/firmware_team_keyring.h` (pure policy) · `src/firmware_config.{h,cpp}` forwards (⚠ that TU's
   first compile is QG's boards — say so) · UI model/renderer/prov adapter · tests · batteries/probes. ⛔ No
-  `lib/` of any kind.
+  `lib/` of any kind. ⛔ **AMENDED 2026-08-25 (round 2, QG-required — the withdrawn "no lib/" kept visible):**
+  the typed `keyring_full` carrier required **`lib/hal/mr_ui.h:117`** (the hook's parameter) — the ONE
+  permitted HAL declaration/stub site per the spec §0 amended boundary. Measured simulator fact, stated at the
+  gate: **`lib/hal/mr_ui.h` is not compiled into `lus`** (zero `lib/hal` references in the sim's explicit
+  source list; the header is included only by `src/`/`tools/` TUs) ⇒ **s18 remains exact**.
 - Batteries (parallel runner, per its header): iterate; ONE full pass per touched target; sync `PIN_*` with
   derivation; ⛔ never pipe; ⛔ no pollers; ⛔ never edit a target mid-run.
 - Handoff seam WITH the unit: the probe drives list → confirm → forget through the REAL services (a real
   4-record store), incl. the active-row refusal and the KEYRING FULL → list entry; controls RED.
-- Verification you run (QG runs boards; `src/`-only ⇒ s18-inert by construction — say so): native (RUN the
-  binary) · touched-target batteries · both probes green · `git diff --check` clean · `git diff -- lib/`
-  EMPTY.
+- Verification you run (QG runs boards): native (RUN the binary) · touched-target batteries · both probes
+  green · `git diff --check` clean · ⛔ **corrected 2026-08-25: this line demanded "`git diff -- lib/` EMPTY;
+  `src/`-only ⇒ s18-inert by construction" — round 2's boundary amendment supersedes it:**
+  `git diff --stat -- lib/` = **exactly `lib/hal/mr_ui.h`** and nothing else, with the not-compiled-into-`lus`
+  fact stated ⇒ s18 exact.
 - ⛔ NEVER `git commit` / `git add` / `git checkout --`. ⛔ No docs/plans/specs/register/bench/tracker/
   platformio.ini/ccache_native.py/parallel-session files. Metal residue (the real-flash forget + power-cut
   mid-forget — [[B193]]'s class over a compacting write — and the on-glass KEYRING FULL → SAVED KEYS walk):

@@ -95,8 +95,16 @@ struct FakeKeyStore : mrfw::ITeamKeyStore {
     mrnv::TeamKeyBlob rec{};
     mrnv::TeamKeyRead state = mrnv::TeamKeyRead::absent;
     int saves = 0;
+    // ★ §UI-16 K6 — a save that REALLY FAILS, so the removal's `nv_save_failed` arm is reached the way the device
+    //   reaches it (⛔ never a verdict handed to the mapper by hand). ⓘ The attempt is COUNTED even when it fails:
+    //   "one write was attempted" is the fact a refusing store must still report ([[B193]]).
+    bool save_ok = true;
     mrnv::TeamKeyRead load(mrnv::TeamKeyBlob& out) override { out = rec; return state; }
-    bool save(const mrnv::TeamKeyBlob& b) override { ++saves; rec = b; state = mrnv::TeamKeyRead::ok; return true; }
+    bool save(const mrnv::TeamKeyBlob& b) override {
+        ++saves;
+        if (!save_ok) return false;
+        rec = b; state = mrnv::TeamKeyRead::ok; return true;
+    }
 };
 
 // ★★★★ §UI-16 K5 — THE TWO SEAMS THE ACTIVATION RUNS OVER, FAKED THE WAY THE DEVICE COMPOSES THEM. On hardware
@@ -218,6 +226,15 @@ struct DevFake : mrfw::ITeamCreateDevice {
     mrfw::SavedKeyUse use_saved_key(uint32_t team_id) override {
         ++use_saved_calls; last_use_saved_id = team_id;
         return keyring.use_saved(team_id, key_live, key_binding);
+    }
+    // §UI-16 K6 — the two RETENTION forwards, over the SAME one keyring service and the SAME `/mrcfg` binding
+    // adapter, so what runs here is the REAL enumeration and the REAL removal (⛔ never a scripted answer).
+    int      list_calls = 0, forget_calls = 0;
+    uint32_t last_forget_id = 0;
+    mrfw::SavedKeyList saved_key_list() override { ++list_calls; return keyring.list(key_binding); }
+    mrfw::KeyringForget forget_key(uint32_t team_id) override {
+        ++forget_calls; last_forget_id = team_id;
+        return keyring.forget(team_id, key_binding);
     }
     int live_total() const { return live.total(); }
 };
@@ -1227,4 +1244,214 @@ TEST_CASE("§UI16-K5 the dispatch routes the FOURTH op to the TEAM device — an
     CHECK(ad.perform(none).outcome == UiProvOutcome::none);
     CHECK(d.store.writes == w);
     CHECK(d.use_saved_calls == uc);
+}
+
+// ================================================ §UI-16 K6 — SAVED-KEY RETENTION MANAGEMENT, THE ADAPTER'S HALF
+// ★★★ WHAT THIS BLOCK MEASURES: what the RETENTION LIST carries across the seam (metadata, and nothing else), what
+//     `FORGET KEY` maps onto (the panel's words and the counters), and that the FIFTH op reaches the TEAM device.
+//     ⛔ WHERE the screens sit in the flow is the MODEL's; the PROTECTION, the compaction, the wipe and the
+//     at-most-one-save rule are `test/test_firmware_team_keyring.cpp`'s. Neither is re-measured here.
+// ⛔ AND IT IS **RETENTION MANAGEMENT**, ⛔ NEVER "KEY ROTATION" — the ruling's own first sentence.
+namespace {
+mrfw::SavedKeyList keys_of(DevFake& d) { return mrfw::ui_prov_saved_keys(d); }
+UiProvAnswer forget(DevFake& d, uint32_t id) { return mrfw::ui_prov_forget_key(d, id); }
+}  // namespace
+
+TEST_CASE("§UI16-K6 the LIST crosses the seam as METADATA and costs ZERO writes") {
+    DevFake d;
+    retain_key(d, 0x11111111u);
+    retain_key(d, 0x22222222u);
+    const int ks = d.keys.saves, w = d.store.writes;
+    const mrfw::SavedKeyList l = keys_of(d);
+    CHECK(d.list_calls == 1);
+    CHECK(l.served);
+    CHECK(l.binding_read);
+    CHECK(l.st == mrnv::TeamKeyRead::ok);
+    CHECK(l.n == 2);
+    CHECK(l.rec[0].team_id == 0x11111111u);
+    CHECK(l.rec[1].team_id == 0x22222222u);
+    // ⛔ ZERO WRITES on either record — opening the management screen performs NOTHING (spec §4-K6 pin 1).
+    CHECK(d.keys.saves == ks);
+    CHECK(d.store.writes == w);
+    // ⛔⛔ AND ⛔ NO KEY MATERIAL CROSSES: a byte scan of the whole carrier, ⛔ not an inspection of its fields, so a
+    //     field added later that carried material reddens this without anybody remembering to look.
+    uint8_t pub[32], priv[32];
+    for (int i = 0; i < 32; ++i) { pub[i] = uint8_t(0x11 + i); priv[i] = uint8_t(0x91 + i); }
+    const uint8_t* raw = reinterpret_cast<const uint8_t*>(&l);
+    bool leaked = false;
+    for (size_t i = 0; i + 32 <= sizeof l; ++i) {
+        if (memcmp(raw + i, priv, 32) == 0) leaked = true;
+        if (memcmp(raw + i, pub,  32) == 0) leaked = true;
+    }
+    CHECK(leaked == false);
+}
+
+TEST_CASE("§UI16-K6 ★★★ `FORGET KEY` removes exactly the named record, and the mapping says only what is true") {
+    DevFake d;
+    retain_key(d, 0x11111111u);
+    retain_key(d, 0x22222222u);
+    const mrnv::TeamKeyBlob before = d.keys.rec;
+    const int ks = d.keys.saves, w = d.store.writes;
+
+    const UiProvAnswer a = forget(d, 0x22222222u);
+    CHECK(a.outcome == UiProvOutcome::key_forgotten);
+    CHECK(strcmp(mrui::prov_result_head(a), "KEY FORGOTTEN") == 0);
+    CHECK(strcmp(mrui::prov_result_detail(a), "") == 0);       // ⛔ no second row, ⛔ no id, ⛔ no material
+    CHECK(d.forget_calls == 1);
+    CHECK(d.last_forget_id == 0x22222222u);                    // ★ the FULL 32 bits, carried whole
+    CHECK(d.keys.saves == ks + 1);                             // ★ EXACTLY ONE keyring write
+    CHECK(d.store.writes == w);                                // ⛔ and ⛔ NO `/mrcfg` write: a removal is not a binding
+    CHECK(mrfw::team_key_find(d.keys.rec, 0x22222222u) < 0);
+    CHECK(memcmp(&d.keys.rec.rec[0], &before.rec[0], sizeof before.rec[0]) == 0);   // the survivor, byte for byte
+    CHECK(d.keys.rec.count == 1);
+}
+
+TEST_CASE("§UI16-K6 ⛔ every non-`forgotten` arm renders KEY NOT FORGOTTEN plus the SERVICE's token — never a success") {
+    // ---- the ZERO FLOOR: refused BEFORE the seam is entered (C2) --------------------------------------------------
+    {
+        DevFake d;
+        retain_key(d, 0x11111111u);
+        const mrnv::TeamKeyBlob before = d.keys.rec;
+        const int ks = d.keys.saves;
+        const UiProvAnswer a = forget(d, 0);
+        CHECK(a.outcome == UiProvOutcome::key_forget_failed);
+        CHECK(strcmp(a.reason, "zero_team") == 0);
+        CHECK(d.forget_calls == 0);                            // ⛔ the seam was never entered
+        CHECK(d.keys.saves == ks);
+        CHECK(memcmp(&d.keys.rec, &before, sizeof before) == 0);
+    }
+    // ---- the PROTECTED record: the panel says the ACT's outcome, and the store is byte-identical -------------------
+    {
+        DevFake d;
+        retain_key(d, 0x11111111u);
+        d.store.rec.team_id           = 0x11111111u;           // membership...
+        d.store.rec.team_key_team_id  = 0x11111111u;           // ...and the ACTIVE binding names it
+        d.store.rec.team_key_active   = 1;
+        const mrnv::TeamKeyBlob before = d.keys.rec;
+        const int ks = d.keys.saves;
+        const UiProvAnswer a = forget(d, 0x11111111u);
+        CHECK(a.outcome == UiProvOutcome::key_forget_failed);
+        CHECK(strcmp(mrui::prov_result_head(a), "KEY NOT FORGOTTEN") == 0);
+        CHECK(strcmp(a.reason, "active_key") == 0);            // ⛔ a FACT token, ⛔ never material
+        CHECK(d.keys.saves == ks);                             // ⛔ ZERO writes
+        CHECK(memcmp(&d.keys.rec, &before, sizeof before) == 0);
+    }
+    // ---- NOT FOUND: zero writes, and a word that is true -----------------------------------------------------------
+    {
+        DevFake d;
+        retain_key(d, 0x11111111u);
+        const int ks = d.keys.saves;
+        const UiProvAnswer a = forget(d, 0x99999999u);
+        CHECK(a.outcome == UiProvOutcome::key_forget_failed);
+        CHECK(strcmp(a.reason, "no_record") == 0);
+        CHECK(d.keys.saves == ks);
+    }
+    // ---- A FAILED SAVE IS ⛔ NEVER RENDERED AS `KEY FORGOTTEN` (spec §4-K6 pin 5) ---------------------------------
+    {
+        DevFake d;
+        retain_key(d, 0x11111111u);
+        d.keys.save_ok = false;
+        const UiProvAnswer a = forget(d, 0x11111111u);
+        CHECK(a.outcome == UiProvOutcome::key_forget_failed);
+        CHECK(a.outcome != UiProvOutcome::key_forgotten);
+        CHECK(strcmp(mrui::prov_result_head(a), "KEY NOT FORGOTTEN") == 0);
+        CHECK(strcmp(mrui::prov_result_head(a), "KEY FORGOTTEN") != 0);
+        CHECK(strcmp(a.reason, "nv_save_failed") == 0);
+        // ⚠ AND THE WORD DOES ⛔ NOT SAY "nothing changed": a `save` that reports failure may have written
+        //   PARTIALLY ([[B193]]), and nothing at this layer is entitled to claim otherwise.
+        CHECK(strstr(mrui::prov_result_head(a), "NOTHING") == nullptr);
+        CHECK(strstr(a.reason, "nothing") == nullptr);
+    }
+    // ---- and the SIX failing service arms all map onto the ONE true sentence ---------------------------------------
+    for (int i = 1; i < int(mrfw::KeyringForget::count); ++i) {
+        UiProvAnswer a{};
+        a.outcome = UiProvOutcome::key_forget_failed;
+        a.reason  = mrfw::keyring_forget_name(mrfw::KeyringForget(i));
+        CHECK(strcmp(mrui::prov_result_head(a), "KEY NOT FORGOTTEN") == 0);
+        CHECK(strcmp(mrui::prov_result_detail(a), a.reason) == 0);
+        CHECK(strcmp(mrui::prov_result_detail2(a), "") == 0);
+    }
+}
+
+TEST_CASE("§UI16-K6 `KEYRING FULL` is reported as a TYPED flag — and ⛔ only for that refusal") {
+    // ★★★★ THE FLAG IS WHAT LETS THE ACKNOWLEDGEMENT LAND ON THE MANAGEMENT SCREEN, and it is set from the
+    //      TRANSACTION's own `ProvErr` — ⛔ never from a comparison of the display token.
+    {
+        DevFake d;
+        // Fill all four records so the create's key-install plan hits P-15's loud refusal.
+        retain_key(d, 0x11111111u);
+        retain_key(d, 0x22222222u);
+        retain_key(d, 0x33333333u);
+        retain_key(d, 0x44444444u);
+        const mrnv::TeamKeyBlob before = d.keys.rec;
+        const int ks = d.keys.saves, w = d.store.writes;
+        const UiProvAnswer a = create(d);
+        CHECK(a.outcome == UiProvOutcome::refused);
+        CHECK(strcmp(a.reason, "keyring_full") == 0);
+        CHECK(a.keyring_full == true);
+        // ⛔⛔ AND NOTHING WAS EVICTED TO MAKE ROOM — P-15, measured on the bytes rather than on the verdict.
+        CHECK(d.keys.saves == ks);
+        CHECK(d.store.writes == w);
+        CHECK(memcmp(&d.keys.rec, &before, sizeof before) == 0);
+        CHECK(d.keys.rec.count == 4);
+    }
+    // ⛔ EVERY OTHER REFUSAL LEAVES THE FLAG FALSE: the door is the FLAG's, and it must not open for a PHY refusal,
+    //    a failed save or a corrupt keyring.
+    {
+        DevFake d;
+        d.snap.live_bw_hz = 250000;                            // a PHY divergence ⇒ `phy_differs`
+        const UiProvAnswer a = create(d);
+        CHECK(a.outcome == UiProvOutcome::phy_differs);
+        CHECK(a.keyring_full == false);
+    }
+    {
+        DevFake d;
+        d.store.write_ok = false;
+        const UiProvAnswer a = create(d);
+        CHECK(a.outcome == UiProvOutcome::save_failed);
+        CHECK(a.keyring_full == false);
+    }
+    {
+        DevFake d;
+        d.keys.state = mrnv::TeamKeyRead::io_failed;
+        const UiProvAnswer a = create(d);
+        CHECK(a.outcome == UiProvOutcome::refused);
+        CHECK(strcmp(a.reason, "keyring_io_fail") == 0);
+        CHECK(a.keyring_full == false);                        // ⛔ a DIFFERENT fault, ⛔ a different door
+    }
+    // ⛔ AND A SUCCESSFUL CREATE CARRIES IT FALSE TOO.
+    {
+        DevFake d;
+        const UiProvAnswer a = create(d);
+        CHECK(a.outcome == UiProvOutcome::created);
+        CHECK(a.keyring_full == false);
+    }
+}
+
+TEST_CASE("§UI16-K6 the dispatch routes the FIFTH op to the TEAM device — and ⛔ leaves the other four where they were") {
+    DevFake d;
+    JoinDevFake j;
+    mrfw::UiProvisionAdapter ad(d, j);
+    retain_key(d, 0x77D9348Au);
+    retain_key(d, 0x11111111u);
+    // ★ the LIST reaches the TEAM device...
+    const mrfw::SavedKeyList l = ad.saved_keys();
+    CHECK(d.list_calls == 1);
+    CHECK(l.n == 2);
+    CHECK(j.list_calls == 0);                                  // ⛔ ...and never the STATIC-join store service
+    // ★ ...and so does the ACT, carrying the FULL id.
+    UiProvIntent fk{}; fk.op = UiProvOp::forget_key; fk.team_id = 0x11111111u;
+    const UiProvAnswer a = ad.perform(fk);
+    CHECK(a.outcome == UiProvOutcome::key_forgotten);
+    CHECK(d.forget_calls == 1);
+    CHECK(d.last_forget_id == 0x11111111u);
+    CHECK(d.apply_calls == 0);                                 // ⛔ the TEAM TRANSACTION did NOT run...
+    CHECK(j.apply_calls == 0);                                 // ⛔ ...and neither did the STATIC-join one
+    CHECK(d.use_saved_calls == 0);                             // ⛔ and the ACTIVATION was not entered either
+    // ⛔ AND THE INERT OP STILL PERFORMS NOTHING, with a FIFTH act now behind the same seam.
+    UiProvIntent none{};
+    const int fc = d.forget_calls, ks = d.keys.saves;
+    CHECK(ad.perform(none).outcome == UiProvOutcome::none);
+    CHECK(d.forget_calls == fc);
+    CHECK(d.keys.saves == ks);
 }

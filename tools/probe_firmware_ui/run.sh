@@ -865,8 +865,11 @@ if [ "${1:-}" != "--no-neg" ]; then
   # ⚠ RE-ANCHORED 2026-08-23 (§UI-16 N2): the predicate gained a third child and was hoisted to its own line, so
   #   this control now mutates the LOCAL rather than the argument. Its MEANING is unchanged — the parent row is
   #   offered whatever the children say.
+  # ⚠ RE-ANCHORED AGAIN 2026-08-25 (§UI-16 K6): the predicate gained a FIFTH child (`SAVED KEYS`). The call is kept
+  #   on ONE line for exactly this reason — `sed` cannot match across a newline, and a wrapped call would leave this
+  #   control anchored on a fragment and VACUOUS. Meaning unchanged.
   ctl "C88 the PROVISION row is rendered unconditionally (the ruling not applied)" yes \
-      's|        mrui::provision_has_child(s.prov_create_team, s.prov_join_static, s.prov_join_team, s.prov_invite);|        true;|'
+      's|        mrui::provision_has_child(s.prov_create_team, s.prov_join_static, s.prov_join_team, s.prov_invite, s.prov_saved_keys);|        true;|'
   ctl "C89 the child predicates are published as TRUE on a build with no children" yes \
       's|    s.prov_join_static = (MR_N_LAYERS < 2);|    s.prov_join_static = true;|'
 
@@ -1196,8 +1199,9 @@ if [ "${1:-}" != "--no-neg" ]; then
   # ⚠ RE-ANCHORED AGAIN 2026-08-23 (§UI-16 N4): the call gained the FOURTH child predicate and now wraps onto
   #   two lines, so both controls anchor on the CALL line alone (a `sed` s||| cannot match across a newline).
   #   Measured, not assumed: the stale anchors matched NOTHING and the run reported both as VACUOUS.
+  # ⚠ RE-ANCHORED AGAIN 2026-08-25 (§UI-16 K6), the same way and for the same reason as C88 above; meaning unchanged.
   ctl "L10 the parent row is hidden on a build that HAS a child" yes \
-      's|        mrui::provision_has_child(s.prov_create_team, s.prov_join_static, s.prov_join_team, s.prov_invite);|        false;|'
+      's|        mrui::provision_has_child(s.prov_create_team, s.prov_join_static, s.prov_join_team, s.prov_invite, s.prov_saved_keys);|        false;|'
 
   # ======================================================================= §UI-15 slice 6: L11-L22, THE JOIN SCREENS
   # ★★★★ THE CONTROLS FOR THE FOUR `join_*` RENDERER ARMS AND FOR `ui_join_note_push`, AND THEY EXIST ONLY HERE for
@@ -1449,9 +1453,60 @@ if [ "${1:-}" != "--no-neg" ]; then
   #   the failure arm against a DARK model. A wake control HERE would be worthless: the panel is LIT at P15k2, so
   #   `set_power_save` could not move and the mutant would pass — an unusable control, ⛔ never a "verified" one.
   ctl "K3 ★★★ the failed-save door renders the SUCCESS verdict (a RAM-only key reads as RECEIVED)" yes \
-      's|    s_model.on_team_key_note(/\*saved=\*/false, uint32_t(g_hal.now()));|    s_model.on_team_key_note(/*saved=*/true, uint32_t(g_hal.now()));|'
+      's|    s_model.on_team_key_note(/\*saved=\*/false, keyring_full, uint32_t(g_hal.now()));|    s_model.on_team_key_note(/*saved=*/true, keyring_full, uint32_t(g_hal.now()));|'
   ctl "K4 ★★★ the failed-save door does nothing at all ([[B243]] restored from the new end)" yes \
-      's|    s_model.on_team_key_note(/\*saved=\*/false, uint32_t(g_hal.now()));|    (void)0;|'
+      's|    s_model.on_team_key_note(/\*saved=\*/false, keyring_full, uint32_t(g_hal.now()));|    (void)keyring_full;|'
+
+  # ============================================= §UI-16 K6: K5-K10, SAVED-KEY RETENTION MANAGEMENT AT THE RENDERER
+  # ★★★★ THE CONTROLS FOR THE RETENTION SCREENS' RENDERER ARMS AND FOR THE FIFTH CHILD PREDICATE, and they exist
+  #   ONLY here for the reason every L/N/O control does: `src/firmware_ui.cpp` is compiled by NO other gate, so a
+  #   list drawn with the wrong token, a marker wired to the wrong fact or a protected screen that grew a
+  #   destructive row leaves the WHOLE native suite green (the service, the model and the adapter are each proved
+  #   against their own fakes) and every mutation RED — while the panel invites the operator to destroy a key.
+  # ⛔ K7 IS THE ONE THAT MATTERS MOST (spec §4-K6 pin 7): it is the "tidy the two screens up" edit a reviewer would
+  #   wave through — the LIST already prints a fingerprint, so why should the confirmation print something else? —
+  #   and it makes a SHORT-FINGERPRINT COLLISION able to name the wrong record on the one screen that destroys one.
+  # ⚠ THE ANCHOR DELIBERATELY STOPS BEFORE THE `&&`: `&` is `sed`'s replacement metacharacter and its escaping
+  #   differs between the pattern and the replacement, so the shortest SAFE anchor is the first conjunct — and
+  #   falsifying it falsifies the whole expression.
+  ctl "K5 ★★ the fifth child is never published, so SAVED KEYS is unreachable from the panel" yes \
+      's|    s.prov_saved_keys  = (MR_N_LAYERS < 2)|    s.prov_saved_keys  = (0 != 0)|'
+  ctl "K6 ★★★ the ACTIVE marker is drawn on EVERY row — the protected record is indistinguishable (S-44 collapsed)" yes \
+      's|                    snprintf(l, sizeof l, "%c%s%s", marker, fp, mrui::saved_key_row_tag(r.key));|                    snprintf(l, sizeof l, "%c%s%s", marker, fp, " ACTIVE");|'
+  ctl "K7 ★★★★ the IRREVERSIBLE confirmation draws the six-hex FINGERPRINT instead of the FULL id — a short-token collision can then name the wrong record on the one screen that destroys one" yes \
+      's|            mrui::ui_fmt_team_id_full(fid, sizeof fid, st.forget_team);|            mrui::ui_fmt_team_fingerprint(fid, sizeof fid, st.forget_team);|'
+  ctl "K8 ★★★★ the PROTECTED screen grows the destructive action row — the panel offers FORGET KEY for the ACTIVE key" yes \
+      's|            body_text(2, aid);|            body_text(2, aid); body_text(4, mrui::kForgetKeyText);|'
+  ctl "K9 ★★★ the removal's verdict screen draws a FIXED word instead of the outcome's own — a failed removal reads as KEY FORGOTTEN" yes \
+      's|            const char\* khead = mrui::prov_result_head(st.prov_answer);|            const char* khead = mrui::kKeyForgottenText;|'
+  ctl "K10 ★★★ the retention list is drawn WITHOUT its store-state note, so an unreadable keyring reads as an empty one" yes \
+      's|            const char\* knote = mrui::saved_keys_head(st.saved_keys);|            const char* knote = "";|'
+
+  # ============================== §UI-16 K7 ([[B245]]): R1-R4, THE ROSTER GRANT'S RENDERER + PUBLISH ARMS
+  # ★★★★ THEY EXIST ONLY HERE for the reason every N-, L- and K- control above does: the DM act sub-view's optional
+  #   row is reachable only where a provisioning child is (`prov_invite` carries `MR_N_LAYERS < 2`), and
+  #   `src/firmware_ui.cpp` is compiled by NO other gate. The pure decisions have their own battery entries
+  #   (`--target=model` W01-W11); what nothing else in the tree can see is whether THIS file draws the act's row set
+  #   from the model's resolver, and whether it publishes the identity the SELF veto is asked at.
+  # ⛔⛔ R1 IS THE HALF-DONE SLICE and the likeliest defect of all: the row's TEXT is taken from the pure unit (so the
+  #   act is visibly there) while the LENGTH is taken from the canned table again — which is §B66 exactly: the
+  #   optional row steals `back`'s slot and the operator's way out is off the panel.
+  ctl "R1 ★★★ the act sub-view's LENGTH comes from the canned table again, so the optional row pushes the way out off the panel (§B66)" yes \
+      's|    const uint8_t n     = mrui::compose_row_count(dm, grant);|    const uint8_t n     = dm ? mrui::kDmTextCount : mrui::kChannelTextCount;|'
+  # ⛔⛔ R2 IS THE OTHER HALF: the length knows about the act and the TEXT does not, so the row is drawn as a SECOND
+  #   `back, don't send` — a list with two identical exits, one of which is the door to a private key.
+  ctl "R2 ★★★ the row TEXT is resolved without the act, so the grant row renders as a second way out" yes \
+      's|                 mrui::compose_row_text(uint8_t(first + row), dm, grant));|                 mrui::compose_row_text(uint8_t(first + row), dm, false));|'
+  # ⛔⛔⛔ R3 IS THE RENDERER DECIDING WHAT THE MODEL DECIDED — the "every DM has a member, so just draw it" edit. It
+  #   offers the act for a ROUTE-ONLY member (no binding, no seal target) and for OURSELVES, i.e. it defeats the
+  #   whole hide predicate at the one door where the act ships a private key.
+  ctl "R3 ★★★★ the act's row is drawn on EVERY DM sub-view, ignoring the model's offer (the four vetoes bypassed)" yes \
+      's|    const bool    grant = st.compose_grant_row;|    const bool    grant = (st.compose == mrui::Compose::dm);|'
+  # ⛔⛔ R4 IS THE PUBLISH SITE, and it leaves the whole native suite green: the model still asks the SELF question,
+  #   the snapshot simply never carries the answer — so a roster row that is US is offered a grant of the key to
+  #   itself. ⓘ `0` is the honest "no identity yet" value, which is precisely why it is the tempting stub.
+  ctl "R4 ★★★ our own stable identity is never published, so the SELF veto can never fire" yes \
+      's|    s.my_key_hash32        = g_node.key_hash32();|    s.my_key_hash32        = 0;|'
 
   ARM=l2; ARM_DEFS=DEFS
 fi

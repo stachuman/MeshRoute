@@ -67,7 +67,14 @@
 //       surface."* ★ THE HALF THAT HELD IS THE ONE THAT MATTERED: `has_record()` below answers a **BOOLEAN** and
 //       `use_saved()` hands the material to the **LIVE SEAM AND THE `/mrcfg` WRITER AND NOWHERE ELSE** — ⛔ there is
 //       still no reader that returns key bytes to a caller, and there is still no caller that could print one.
-//     · ⛔ NO `FORGET KEY` remover — owner-named as a future verb (spec string S-31), ⛔ not in this spec.
+//     · ✅ LANDED 2026-08-25 (§UI-16 K6) — the `FORGET KEY` remover and its metadata-only enumeration. ⛔ THIS ENTRY
+//       IS CORRECTED IN PLACE RATHER THAN DELETED: it read *"⛔ NO `FORGET KEY` remover — owner-named as a future
+//       verb (spec string S-31), ⛔ not in this spec."* Repeated real-team creation filled all four records on metal,
+//       and retention without a removal path is not an operable lifecycle — so the owner RULED it (spec §4-K6).
+//       ★ THE HALVES THAT HELD ARE THE ONES THAT MATTERED: `list()` returns `{team_id, active}` and ⛔ NO key bytes,
+//       so there is STILL no reader that hands material out; and `put()` above is byte-for-byte unchanged — P-15's
+//       loud `KEYRING FULL` still refuses a fifth team and still evicts NOTHING. ⛔ It is saved-key RETENTION
+//       MANAGEMENT, ⛔ never key rotation, and the ACTIVE key is PROTECTED.
 //     · ✅ LANDED 2026-08-24 (§UI-16 K3) — the GRANT-RECEIVE persistence path. ⛔ THIS ENTRY IS CORRECTED IN PLACE
 //       RATHER THAN DELETED: it read *"⛔ NO grant-receive persistence path — that is K3 … K3 calls `put()` below;
 //       it adds no policy."* The first half is now false; ★ the second half HELD — `TeamKeyGrantService` at the foot
@@ -312,6 +319,108 @@ inline const char* saved_key_use_name(SavedKeyUse v) {
     return "?";
 }
 
+// ================================================ §UI-16 K6 — SAVED-KEY **RETENTION MANAGEMENT** (spec §4-K6)
+// ⛔⛔ IT IS ⛔ NOT KEY ROTATION AND MAY NEVER BE DESCRIBED AS ONE (the ruling's own first sentence): nothing here
+//     re-keys a team, re-derives a scalar or replaces material. It REMOVES ONE RETAINED RECORD the operator named
+//     and confirmed, so that the fixed FOUR-record bound stops being a dead end once four distinct `team new`s have
+//     filled it. K1's P-15 is COMPLETED here, ⛔ not corrected: a full store still performs ZERO writes and ZERO
+//     evictions until an operator picks a SPECIFIC inactive record and confirms.
+// ★★★★ **TWO EXPLICIT TRANSACTIONS, NEVER ONE DISGUISED ONE** — the ruling's load-bearing clause, and it is a
+//      SAFETY property rather than a UX one: `/mrteams` and `/mrcfg` are two separate durable records, so
+//      "evict then create" CANNOT be one atomic commit. Hiding both behind one act would let a create that failed
+//      its `/mrcfg` write destroy an unrelated saved key on the way. ⇒ `forget` completes and reports ITS OWN
+//      verdict; the create/grant is retried BY THE OPERATOR. ⛔ Nothing in this file resumes anything, and `put`
+//      above is byte-for-byte unchanged — it still refuses a fifth team loudly and still evicts nothing.
+// ⛔⛔ AND THE ACTIVE KEY IS PROTECTED. Removing the record behind the LIVE binding would leave a node reading the
+//     team channel today and — the five-term boot restore finding no record — silently unable to tomorrow, which is
+//     [[B240]]'s exact shape arriving through a management screen.
+
+// ★★★ THE **ONE** ACTIVE PREDICATE (U1), asked by BOTH the enumeration's marker and `forget`'s refusal, so a row
+//     the panel marks `ACTIVE` and a record the service protects can never be two different records. It is the boot
+//     restore's term (i) — *"a key is active, and it is for THIS team"* — ⛔ never membership, and ⛔ never "a key is
+//     present": the thing that must not be removed is the record the ACTIVE BINDING points at.
+// ⓘ `team_id == 0` answers false for the reason it answers false everywhere else here: 0 is never stored, so no
+//   record can BE the active one.
+inline bool saved_key_is_active(const TeamKeyBinding& b, uint32_t team_id) {
+    return team_id != 0 && b.key_active && b.binding_team_id == team_id;
+}
+
+// ★★★★ THE METADATA-ONLY ROW. ⛔⛔ THERE IS NO KEY FIELD AND ONE MAY NEVER BE ADDED — that is the whole contract of
+//      this type and the reason it exists at all rather than the panel being handed a `TeamKeyRecord`. K1's standing
+//      rule is that this file has ⛔ no reader which hands MATERIAL out; an enumeration is exactly where that rule
+//      would be lost, so the carrier is SHAPED so it cannot be: two facts, both of which are already public
+//      (the team id is public by design — P-2 — and "is this the active one" is a status).
+struct SavedKeyEntry {
+    uint32_t team_id = 0;
+    bool     active  = false;    // ⛔ the marker only; ⛔ never authority to delete (the refusal is `forget`'s)
+    // ★ NAMED, ⛔ never implicit tail padding — the `mrnv::TeamKeyRecord::reserved` / `mrui::NearbyRow::reserved`
+    //   rule: implicit padding is INDETERMINATE after `SavedKeyEntry{}`, which would make any whole-record compare
+    //   (in a test, or in a future de-dup) unsound. ⓘ It costs nothing: the struct measures 8 either way.
+    uint8_t  reserved[3] = {};
+};
+// The whole answer, and it keeps the store's OWN four-valued read VERBATIM (U1 — `UiJoinList`'s rule one feature
+// over): "there is no store yet", "the record is corrupt" and "the store would not open" take three different
+// operator actions, and collapsing any two is a registered defect class here.
+// ⓘ `served` IS A THIRD FACT and not a fifth store state: it says ⛔ NO SEAM ANSWERED AT ALL (a build with no team
+//   plane, a partially-wired probe). ⓘ `binding_read` is a FOURTH: the ACTIVE marker's authority is the `/mrcfg`
+//   binding, and when THAT could not be read the marker is UNESTABLISHED — so the list FAILS CLOSED and offers ⛔ no
+//   row at all, rather than offering rows one of which might silently be the protected one (C2).
+struct SavedKeyList {
+    SavedKeyEntry     rec[mrnv::kTeamKeyRecs] = {};
+    uint8_t           n            = 0;
+    mrnv::TeamKeyRead st           = mrnv::TeamKeyRead::absent;
+    bool              served       = false;
+    bool              binding_read = false;
+};
+
+// ---- the REMOVAL's outcome ---------------------------------------------------------------------------------------
+// ★★★ A FOURTH OUTCOME TYPE, ⛔ NOT `KeyringVerdict` REUSED, and the argument is `SavedKeyUse`'s own one screen up:
+//     that vocabulary is `put`'s (`unchanged` = the flash-wear guard, `refused` = a policy refusal on a WRITE of new
+//     material), and folding a REMOVAL into it would make `unchanged` mean two unrelated things — "your material was
+//     already stored" and "there was nothing to remove". These are different questions with different remedies.
+// ⛔⛔ `nv_save_failed` IS **A FAILED SAVE**, ⛔ NEVER "NOTHING CHANGED" — the ruling says so in as many words, and
+//     [[B193]] is why: a backend can fail AFTER a partial write, so the honest statement is that the removal did not
+//     COMPLETE. The real backend's power-cut behaviour is METAL-ONLY (M2) and no voice above may claim otherwise.
+enum class KeyringForget : uint8_t {
+    forgotten,           // ★ the record is gone, the survivors are compacted, the vacated tail is WIPED, ONE save
+    zero_team,           // 0 is not a team ⇒ ⛔ 0 reads, 0 writes (`put`'s floor, asked again by this verb)
+    // ★★★ FAIL CLOSED (C2): the ACTIVE marker's authority could not be read, so "is this the protected record" is
+    //     UNESTABLISHED — and an unestablished term is ⛔ never treated as satisfied. ⛔ 0 keyring reads, 0 writes.
+    binding_unreadable,
+    // ★★★★ THE PROTECTION, AND IT IS THE SLICE'S HEADLINE REFUSAL: the target IS the record the ACTIVE BINDING
+    //      points at. ⛔ ZERO writes, ⛔ nothing removed, ⛔ nothing compacted — the live key, the binding, the
+    //      membership and ALL FOUR records are exactly as they were found.
+    active_key,
+    no_record,           // an ABSENT store, or a store with no record for that team ⇒ ⛔ 0 writes
+    store_failed,        // invalid / io_failed ⇒ ⛔ nothing is known, ⛔ 0 writes (⛔ never collapsed into `no_record`)
+    nv_save_failed,      // the ONE save attempt failed ⇒ the removal did ⛔ NOT complete (see the block above)
+    // ★★★★ THE INVENTORY SENTINEL — the FOURTH instance of this fence (`GrantSave::count`,
+    //      `mrui::InviteGrantState::count`, `SavedKeyUse::count`), added for the reason those three exist: a
+    //      HAND-WRITTEN inventory has already failed this arc once. Two independent axes, neither a literal:
+    //        (1) the sweep iterates `0 .. count-1`, so an arm added above this line is visited BY CONSTRUCTION;
+    //        (2) `keyring_forget_name`'s switch has ⛔ NO `default:`, so an arm added and NOT worded is a
+    //            **BUILD FAILURE** under the blanket `-Werror=switch`.
+    // ⛔ IT IS ⛔ NOT AN OUTCOME: ⛔ no `forget` may return it. It must stay LAST — that is what makes it the count.
+    count
+};
+// enum -> string, `default`-LESS for the reason `keyring_verdict_name` gives. ⓘ These tokens are what the panel's
+// SECOND row carries and what the console prints; ⛔ they name FACTS and carry ⛔ no material.
+inline const char* keyring_forget_name(KeyringForget v) {
+    switch (v) {
+        case KeyringForget::forgotten:          return "forgotten";
+        case KeyringForget::zero_team:          return "zero_team";
+        case KeyringForget::binding_unreadable: return "binding_unreadable";
+        case KeyringForget::active_key:         return "active_key";
+        case KeyringForget::no_record:          return "no_record";
+        case KeyringForget::store_failed:       return "store_failed";
+        case KeyringForget::nv_save_failed:     return "nv_save_failed";
+        // ⛔ THE SENTINEL IS ⛔ NOT AN OUTCOME, so it has NO word — spelled out HERE rather than left to a
+        //    `default:`, which would swallow a REAL arm added above it (`grant_save_name`'s own note).
+        case KeyringForget::count:              return "?";
+    }
+    return "?";
+}
+
 // ★★★★ THE COMMIT'S **SECOND AUTHORITY** (QG blocker 1), AND IT IS PURE SO IT CAN BE ATTACKED — added 2026-08-25.
 //      `ITeamKeyBinding::commit_active` writes the ACTIVE BINDING into the `/mrcfg` record it has just loaded. That
 //      record carries the MEMBERSHIP, and a binding for a team the record does not name is a binding that LIES: the
@@ -526,6 +635,17 @@ class TeamKeyringService {
     //    is written at the definition, with the order it enforces.
     SavedKeyUse use_saved(uint32_t team_id, ITeamKeyLive& live, ITeamKeyBinding& binding);
 
+    // ================================================================ §UI-16 K6 — THE **METADATA-ONLY** ENUMERATION
+    // ⛔ DECLARED HERE, DEFINED BELOW `ITeamKeyBinding`, exactly as `use_saved` is and for the same reason.
+    // ★★★ ZERO WRITES ON EVERY PATH, and ⛔ NO KEY BYTE LEAVES: the loaded blob is scope-guarded and WIPED, and what
+    //     is copied out is `{team_id, active}` per record and nothing else. That is K1's *"no reader hands MATERIAL
+    //     out"* rule surviving the one verb that most invites breaking it.
+    SavedKeyList list(ITeamKeyBinding& binding);
+
+    // ================================================================ §UI-16 K6 — THE **CONFIRMED** REMOVAL
+    // ⛔ DECLARED HERE, DEFINED BELOW `ITeamKeyBinding`. The ORDER it enforces is written at the definition.
+    KeyringForget forget(uint32_t team_id, ITeamKeyBinding& binding);
+
   private:
     // ★★★ THE GOVERNANCE, SPELLED ONCE (U1) — QG blocker 1's fix, and the shape matters: every non-installing return
     //     of `restore` goes through this, so a refusal arm added later CANNOT forget to leave the node keyless. A
@@ -680,6 +800,93 @@ inline SavedKeyUse TeamKeyringService::use_saved(uint32_t team_id, ITeamKeyLive&
     return SavedKeyUse::installed;
 }
 
+// ================================================================ §UI-16 K6 — THE ENUMERATION, DEFINED
+// ★★★★ THE ORDER IS THE CONTRACT, AND ITS FIRST STEP IS THE ONE A READER WOULD NOT EXPECT: **THE BINDING IS READ
+//      FIRST, BEFORE THE KEYRING IS OPENED AT ALL.** The ACTIVE marker's authority is `/mrcfg`, and a list whose
+//      marker is unestablished is a list in which the operator cannot tell the PROTECTED record from the three he
+//      may remove. ⇒ an unreadable binding yields ⛔ ZERO ROWS (C2), ⛔ not four unmarked ones.
+// ⛔ EVERY ARM IS READ-ONLY: ⛔ zero writes, ⛔ nothing seeded, ⛔ nothing compacted, ⛔ nothing installed or cleared.
+//    An ABSENT store is NOT seeded here — `put` owns that, and seeding on a READ would spend a flash write to answer
+//    a question (and would create a record the operator never asked for).
+// ⛔⛔ AND ⛔ NO KEY BYTE LEAVES THIS FUNCTION. The blob is the same scope-guarded transient every other verb uses;
+//     what is copied out is the PUBLIC team id and one status bit per record.
+inline SavedKeyList TeamKeyringService::list(ITeamKeyBinding& binding) {
+    SavedKeyList out{};
+    out.served = true;                    // ⛔ *"a seam answered"*, ⛔ never *"the answer was good"* (UiJoinList's rule)
+
+    TeamKeyBinding bind{};
+    if (!binding.read(bind)) return out;   // `binding_read` stays FALSE ⇒ ⛔ zero rows, ⛔ zero keyring loads
+    out.binding_read = true;
+
+    mrnv::TeamKeyBlob cur{};
+    SecretWipeGuard<mrnv::TeamKeyBlob> cguard{cur};    // ⚠ SECRET-BEARING FROM THE NEXT LINE ON — the one guard
+    out.st = _store.load(cur);
+    // ⛔ THE THREE NON-`ok` ANSWERS ARE CARRIED VERBATIM AND ⛔ NOT COLLAPSED (`keyring_err_of_unreadable`'s reason):
+    //    a fresh device, a corrupt record and a store that would not open take three different operator actions.
+    if (out.st != mrnv::TeamKeyRead::ok) return out;
+    team_key_clamp_count(cur);
+    for (uint16_t i = 0; i < cur.count; ++i) {
+        // ⛔ 0 IS NEVER STORED, so a record carrying it is corruption and is ⛔ not offered as a removable row: it
+        //    could not be removed anyway (`forget` refuses id 0 before it reads anything).
+        if (cur.rec[i].team_id == 0) continue;
+        out.rec[out.n].team_id = cur.rec[i].team_id;
+        out.rec[out.n].active  = saved_key_is_active(bind, cur.rec[i].team_id);   // ★ THE ONE PREDICATE (U1)
+        ++out.n;
+    }
+    return out;
+}
+
+// ================================================================ §UI-16 K6 — THE REMOVAL, DEFINED
+// ★★★★ THE ORDER IS THE CONTRACT: refuse id 0 -> READ THE BINDING (fail closed) -> **REFUSE THE ACTIVE RECORD** ->
+//      load -> absent/unreadable, told apart -> find the record BY ITS FULL 32-BIT ID -> COMPACT -> **WIPE THE
+//      VACATED TAIL** -> EXACTLY ONE save.
+//      ⇒ a zero id costs ⛔ ZERO reads and ZERO writes; an unreadable binding costs ZERO keyring reads and ZERO
+//        writes; the ACTIVE record costs ZERO writes; an absent, corrupt or unreachable store costs ZERO writes; a
+//        record that is not there costs ZERO writes. ★ EXACTLY ONE PATH WRITES, AND IT WRITES EXACTLY ONCE.
+// ★★★ THE PROTECTION IS ASKED **BEFORE THE KEYRING IS OPENED**, deliberately: the active record must be refused
+//     whatever state the store is in, and refusing it after a load would make the refusal depend on the store being
+//     readable — i.e. a corrupt store could turn a PROTECTION into a different answer.
+// ⛔⛔ THE IDENTITY IS THE **FULL 32-BIT `team_id`** (`team_key_find`, the one lookup): ⛔ never the six-hex display
+//     fingerprint (24 of 32 bits — [[B48]]'s class, and pin 7 drives two teams that share those digits), ⛔ never a
+//     row index (the list skips a corrupt 0-id record, so an index is not an identity — §B66), and ⛔ never a name
+//     (there is no team label in this firmware at all — K1's `⛔ NO LABELS` clause).
+// ★★★★ THE COMPACTION IS **ORDER-PRESERVING AND DETERMINISTIC**, ⛔ not a swap-with-the-last: every surviving record
+//      keeps its bytes AND its relative order, so `list()` does not re-order under an operator who is about to
+//      remove a second one. ⓘ `reserved[4]` being a NAMED member is what makes "byte-identical" checkable at all.
+// ⛔⛔ AND THE VACATED SLOT IS `crypto_wipe`d, WHICH IS THE SECURITY HALF OF THE COMPACTION: the shift leaves the
+//     TAIL holding a byte-for-byte DUPLICATE of a record that is still live, so a compaction that merely decremented
+//     the count would persist a second copy of a team's PRIVATE key in a slot nothing reads and nothing clears —
+//     recoverable from a flash dump long after the operator believed a key had been removed. ⛔ `crypto_wipe`,
+//     ⛔ never `memset` (`Node::team_channel_key_clear`'s own reason: a compiler may elide the latter).
+// ⚠ THE LIMIT OF THE CLAIM, in this file's standing words: a `save` that returns false may have written PARTIALLY
+//   ([[B193]]) — so `nv_save_failed` means *"the removal did not complete"*, ⛔ never *"no flash was changed"*. The
+//   keyring's power-cut behaviour is METAL-ONLY (M2) and is owed as a bench part.
+inline KeyringForget TeamKeyringService::forget(uint32_t team_id, ITeamKeyBinding& binding) {
+    if (team_id == 0) return KeyringForget::zero_team;                  // ⛔ 0 reads, 0 writes
+
+    TeamKeyBinding bind{};
+    if (!binding.read(bind))                     return KeyringForget::binding_unreadable;   // ⛔ 0 keyring reads
+    if (saved_key_is_active(bind, team_id))      return KeyringForget::active_key;           // ★ PROTECTED, 0 writes
+
+    mrnv::TeamKeyBlob cur{};
+    SecretWipeGuard<mrnv::TeamKeyBlob> cguard{cur};    // ⚠ SECRET-BEARING FROM THE NEXT LINE ON
+    const mrnv::TeamKeyRead st = _store.load(cur);
+    if (st == mrnv::TeamKeyRead::absent) return KeyringForget::no_record;
+    if (st != mrnv::TeamKeyRead::ok)     return KeyringForget::store_failed;
+    team_key_clamp_count(cur);
+    const int idx = team_key_find(cur, team_id);
+    if (idx < 0) return KeyringForget::no_record;                       // ⛔ 0 writes — there is nothing to remove
+
+    // ★ THE COMPACTION. Every later record moves down ONE slot, in order, WHOLE (U2 — ⛔ never field by field).
+    for (uint16_t i = static_cast<uint16_t>(idx); i + 1 < cur.count; ++i) cur.rec[i] = cur.rec[i + 1];
+    cur.count = static_cast<uint16_t>(cur.count - 1);
+    // ★★ THE VACATED TAIL, WIPED — see the block above for why this line is not tidiness.
+    crypto_wipe(&cur.rec[cur.count], sizeof cur.rec[cur.count]);
+
+    if (!_store.save(cur)) return KeyringForget::nv_save_failed;        // ⛔ never reported as "nothing changed"
+    return KeyringForget::forgotten;
+}
+
 // ---- what the handler is given, at HANDLING time -----------------------------------------------------------------
 // ⓘ Every field is a RE-CHECK TERM or the material itself. ⛔ THERE IS NO `name` FIELD and its absence is the ruling,
 //   not an omission: the granter's optional `name=` rides the push and stops there (`lib/core/node.cpp:264-266`), and
@@ -806,6 +1013,38 @@ struct GrantSaveResult {
     GrantSave  outcome = GrantSave::zero_team;
     KeyringErr err     = KeyringErr::none;   // meaningful on `keyring_failed`; ⛔ names a FACT, never material
 };
+
+// ================================================================ §UI-16 K6 — THE ONE FACT A ROUTE COULD NOT CARRY
+// ★★★★ **THE QG BLOCKER OF 2026-08-25, AND IT IS A *LANDING*, ⛔ NEVER A WORD.** `grant_ui_route_of` above answers
+//      WHICH DOOR a receipt takes, and it is right: a `keyring_failed` receipt IS `active_unsaved`, and its three
+//      ruled rows (`TEAM KEY ACTIVE` / `NOT SAVED` / `LOST ON REBOOT`, S-26/S-27) are three TRUE sentences — the key
+//      really is live in RAM and really will not survive a reboot. ⛔ **NOT ONE OF THOSE ROWS CHANGES.**
+//      What the route could not carry is WHY the durable half refused, and exactly one refusal has somewhere to send
+//      the operator: **a FULL keyring**. Spec §K6 (`:987`) rules the direction for *"a `KEYRING FULL` result"* —
+//      ⛔ **either origin** — so the RECEIVED grant's acknowledgement must reach `SAVED KEYS` exactly as the
+//      `team new` refusal's already does. Without this the fifth RECEIVED grant is a dead end with no way out.
+// ★★★ `grant_ui_route_of` IS LEFT **BYTE-FOR-BYTE UNCHANGED** AND IS **CALLED** (U1), which is the whole shape of
+//     this correction: ⛔ no enumerator is added to `GrantUiRoute`, so every landed `default`-less switch over it —
+//     `fw_main`'s four arms, the probe's two replicas, the suite's totality sweep — keeps its cases and its meaning.
+//     The new fact rides BESIDE the route, in a carrier, exactly as `GrantSaveResult` carries `{outcome, err}`.
+// ⛔ IT IS A **TYPED** DERIVATION FROM `KeyringErr::keyring_full`, ⛔ never a text compare and ⛔ never "the store
+//    looked full" re-read at the UI: the authority is the transaction's own error, reported once.
+inline bool grant_ui_keyring_full(const GrantSaveResult& r) {
+    return r.outcome == GrantSave::keyring_failed && r.err == KeyringErr::keyring_full;
+}
+// The two facts about ONE receipt, travelling together so they cannot be read apart (the `GrantSaveResult` shape).
+// ⓘ `keyring_full` is ⛔ MEANINGFUL ONLY on the `active_unsaved` route — `grant_ui_keyring_full` can only answer
+//   true for `keyring_failed`, which `grant_ui_route_of` sends there — so no other arm can carry it.
+struct GrantUiVerdict {
+    GrantUiRoute route        = GrantUiRoute::suppressed;   // FAIL-CLOSED default: say nothing (C2)
+    bool         keyring_full = false;
+};
+inline GrantUiVerdict grant_ui_verdict_of(const GrantSaveResult& r) {
+    GrantUiVerdict v{};
+    v.route        = grant_ui_route_of(r.outcome);   // ★ the LANDED classifier, CALLED — ⛔ never re-spelled
+    v.keyring_full = grant_ui_keyring_full(r);
+    return v;
+}
 
 // ---- the service ------------------------------------------------------------------------------------------------
 // RAM: two references. ⛔ No cached verdict and no state between calls — a receipt is a single transaction, so there

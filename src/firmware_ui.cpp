@@ -254,6 +254,14 @@ struct DeviceTeamCreate : mrfw::ITeamCreateDevice {
     //    question on the `applied` arm of a join, the act on a `double` over `USE SAVED KEY`.
     bool has_saved_key(uint32_t team_id) override { return mrfw::has_saved_team_key(team_id); }
     mrfw::SavedKeyUse use_saved_key(uint32_t team_id) override { return mrfw::team_keyring_use_saved(team_id); }
+    // ★★ §UI-16 K6 — TWO MORE FORWARDS, AND ⛔ NEITHER DECIDES ANYTHING. The METADATA-ONLY enumeration and the
+    //    CONFIRMED removal both live in `mrfw::TeamKeyringService` (pure, natively driven, battery-attacked); the
+    //    two functions below are `src/firmware_config.cpp`'s thin bindings over the ONE keyring instance and the
+    //    SAME `/mrcfg` binding adapter K3 and K5 compose. ⛔ WHEN either runs is the MODEL's decision, not this
+    //    file's — the list on the `menu -> SAVED KEYS` transition (and on the verdict's acknowledgement), the
+    //    removal on a `double` over `FORGET KEY` on a confirmation that opened on `BACK`.
+    mrfw::SavedKeyList  saved_key_list() override { return mrfw::team_keyring_list(); }
+    mrfw::KeyringForget forget_key(uint32_t team_id) override { return mrfw::team_keyring_forget(team_id); }
 };
 // ★★★★ §UI-15 slice 6 — THE DEVICE HALF OF §3.6.3's STATIC JOIN, AND EVERY LINE OF IT IS A FORWARD, exactly as the
 //      team half above is. The decisions — which store state says what, the ONE integral -> double conversion, the
@@ -669,6 +677,12 @@ mrui::UiSnapshot build_snapshot(uint32_t now_ms) {
     //   `provision_rows`), and a predicate half-derived from another snapshot field would be the coincidence
     //   that block refuses to encode.
     s.prov_invite      = (MR_N_LAYERS < 2) && (MR_FEAT_TEAM != 0) && (g_node.config().team_id != 0);
+    // ★★★★ §UI-16 K6 — the FIFTH child, published as its OWN predicate (see `provision_rows`), and ⛔ deliberately
+    //      WITHOUT the runtime term `prov_invite` carries: `SAVED KEYS` manages the `/mrteams` KEYRING, and a node
+    //      that has left every team may still hold four retained records it needs to free. Gating on
+    //      `config().team_id != 0` would hide the screen exactly when the operator needs it — the dead end K6 exists
+    //      to open. ⓘ The BUILD half is the keyring's own: the store and its service are `MR_FEAT_TEAM`-side.
+    s.prov_saved_keys  = (MR_N_LAYERS < 2) && (MR_FEAT_TEAM != 0);
 #if MR_FEAT_TEAM
     // ⚠ `rt_team_at` has NO !MR_FEAT_TEAM stub, by deliberate core design (there is no `_rt_team` to read), so this
     //   whole block must be guarded — the two counters around it stub to 0 and would compile either way.
@@ -801,6 +815,11 @@ mrui::UiSnapshot build_snapshot(uint32_t now_ms) {
     // ★ THE TEAM CHANNEL **CONTENT** KEY (§4.4) — not the node's own crypto identity, and not a cached peer key.
     //   ⓘ Stubbed to false on a !MR_FEAT_TEAM build, so no guard is needed here either.
     s.team_key_present     = g_node.team_channel_key_present();
+    // ★★★ §UI-16 K7 ([[B245]]) — OUR OWN STABLE IDENTITY, published so the roster grant's SELF test is the SAME
+    //     comparison `Node::team_key_grant_send`'s `self` arm makes (`target_hash == _key_hash32`). It is an
+    //     unconditional `const` accessor on every build — no team plane, no crypto identity and no cached peer key
+    //     is required to READ it, and 0 is the honest "this node has no stable identity yet".
+    s.my_key_hash32        = g_node.key_hash32();
     // ★★★★ §CHROME-5 — THE DUTY GAUGE'S ONE SEMANTIC AUTHORITY, READ **ONCE PER TICK** AND PUBLISHED VERBATIM.
     //      `Node::duty_status()` (`lib/core/node_mac.cpp:1716`) is an existing `const` accessor over the same budget
     //      `duty_over_budget` enforces, so this slice changes no wire, no NV, no routing and nothing in `Node`.
@@ -1557,7 +1576,8 @@ void draw_provision_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
     switch (st.provisioning) {
         case mrui::Provision::menu: {
             const mrui::ProvRowList list =
-                mrui::provision_rows(s.prov_create_team, s.prov_join_static, s.prov_join_team, s.prov_invite);
+                mrui::provision_rows(s.prov_create_team, s.prov_join_static, s.prov_join_team, s.prov_invite,
+                                     s.prov_saved_keys);
             const uint8_t first = list_first(st.cursor, list.n, uint8_t(kBodyRows));
             for (uint8_t row = 0; row < kBodyRows && first + row < list.n; ++row) {
                 mrui::ProvRow r{};
@@ -1763,6 +1783,99 @@ void draw_provision_screen(const mrui::UiState& st, const mrui::UiSnapshot& s) {
             body_text(4, l);
             return;
         }
+        // ★★★★ §UI-16 K6 — THE SAVED-KEY RETENTION LIST. ⛔ NOTHING HERE DECIDES ANYTHING: the rows are
+        //      `mrui::saved_keys_sel_rows` over the model's FROZEN copy (the SAME builder the model bounds its
+        //      cursor with, U1/U2 — so the highlight and the act can never name different records), the note is
+        //      `saved_keys_head`, the `ACTIVE` marker is `saved_key_row_tag`'s decision (S-44) and BACK is
+        //      `provision_row_label`'s one spelling.
+        // ⛔⛔ AND IT DRAWS **NO KEY MATERIAL**, WHICH IS A PROPERTY OF THE CARRIER RATHER THAN OF THIS LOOP:
+        //     `mrfw::SavedKeyList` holds `{team_id, active}` and has no key field to draw (spec §4-K6 pin 6).
+        // ★★ THE ROW'S IDENTITY TOKEN IS THE **SHARED** `ui_fmt_team_fingerprint` (⛔ zero new definitions of it,
+        //    §8's standing rule) — a HUMAN SELECTION AID. ⛔ It is ⛔ NOT what the removal is keyed on: the model
+        //    carries the FULL 32-bit `team_id` from the row, and the confirmation one screen over prints it whole.
+        // §7.3 AUDIT (widest reachable expansion, 19-column body):
+        //   title           `SAVED KEYS`                                        = 10
+        //   note            `NO SAVED KEYS` 13 · `CONFIG UNREADABLE` 17 · `KEY STORE INVALID` 17
+        //   key row         `%c%s%s` : `>3D9348 ACTIVE`                          = 14
+        //   back row        `%c%s`   : `>BACK`                                   = 5
+        case mrui::Provision::saved_keys: {
+            body_text(0, mrui::kSavedKeysTitle);
+            uint8_t ktop = 1;
+            const char* knote = mrui::saved_keys_head(st.saved_keys);
+            if (knote[0]) { body_text(ktop, knote); ++ktop; }
+            const mrui::SavedKeySelList klist = mrui::saved_keys_sel_rows(st.saved_keys);
+            const uint8_t krows  = uint8_t(kBodyRows - ktop);
+            const uint8_t kfirst = list_first(st.cursor, klist.n, krows);
+            for (uint8_t row = 0; row < krows && kfirst + row < klist.n; ++row) {
+                mrui::SavedKeySelRow r{};
+                if (!klist.at(uint8_t(kfirst + row), r)) break;
+                const char marker = (kfirst + row == st.cursor) ? '>' : ' ';
+                if (r.back) {
+                    snprintf(l, sizeof l, "%c%s", marker, mrui::provision_row_label(mrui::ProvRow::back));
+                } else {
+                    char fp[mrui::kTeamFpTokenCap];
+                    mrui::ui_fmt_team_fingerprint(fp, sizeof fp, r.key.team_id);
+                    snprintf(l, sizeof l, "%c%s%s", marker, fp, mrui::saved_key_row_tag(r.key));
+                }
+                body_text(uint8_t(ktop + row), l);
+            }
+            return;
+        }
+        // ★★★★ §UI-16 K6 — THE IRREVERSIBLE CONFIRMATION. ⛔ NOTHING HERE DECIDES ANYTHING: the title is
+        //      `kForgetKeyText` (S-31, owner-ruled, declared once), the identity is the **FULL** id through the
+        //      shared `ui_fmt_team_id_full` (⛔ never the six-hex fingerprint — a short-fingerprint collision must
+        //      not be able to name the wrong record, spec §4-K6 pin 7), the two action words are
+        //      `forget_key_label`'s (the ONE `BACK` spelling CALLED, ⛔ never re-spelled), and which of them carries
+        //      the marker is the MODEL's `prov_confirm`, whose zero value is BACK.
+        // ⛔ THIS ARM IS UNREACHABLE FOR AN ACTIVE ROW BY CONSTRUCTION — the active row lands on its own screen
+        //    below, which offers no destructive action at all.
+        // §7.3 AUDIT: title `FORGET KEY` 10 · id `0x66C0FFEE` 10 · actions `>BACK` 5 · `>FORGET KEY` 11
+        case mrui::Provision::saved_keys_confirm: {
+            body_text(0, mrui::kForgetKeyText);
+            char fid[mrui::kTeamIdTokenCap];
+            mrui::ui_fmt_team_id_full(fid, sizeof fid, st.forget_team);
+            body_text(1, fid);
+            // ★ BACK FIRST and selected on entry, so FORGET KEY costs the deliberate `short` -> `double` (P-13).
+            snprintf(l, sizeof l, "%c%s", (st.prov_confirm == mrui::ProvConfirm::back) ? '>' : ' ',
+                     mrui::forget_key_label(mrui::ProvConfirm::back));
+            body_text(3, l);
+            snprintf(l, sizeof l, "%c%s", (st.prov_confirm == mrui::ProvConfirm::confirm) ? '>' : ' ',
+                     mrui::forget_key_label(mrui::ProvConfirm::confirm));
+            body_text(4, l);
+            return;
+        }
+        // ★★★★ §UI-16 K6 — THE PROTECTED LANDING (S-43), and it is the ruled TWO-ROW shape: `ACTIVE KEY` /
+        //      `CANNOT FORGET`, split across two rows exactly as `PHY DIFFERS` / `USE SERIAL` is and for the
+        //      identical reason (§7.1 rule 5 — the panel may not clip a statement). ⛔ NEITHER HALF MAY BE REWORDED.
+        // ⛔⛔ THERE IS ⛔ NO ACTION ROW ON THIS SCREEN AT ALL, which is the point: the active key cannot be
+        //     forgotten from the panel, and either press simply returns to the list. It still shows the FULL id, so
+        //     the operator knows exactly which record he selected.
+        case mrui::Provision::saved_keys_active: {
+            body_text(0, mrui::kActiveKeyText);
+            body_text(1, mrui::kCannotForgetText);
+            char aid[mrui::kTeamIdTokenCap];
+            mrui::ui_fmt_team_id_full(aid, sizeof aid, st.forget_team);
+            body_text(2, aid);
+            return;
+        }
+        // ★★★★ §UI-16 K6 — THE REMOVAL'S VERDICT, and it renders `st.prov_answer` and NOTHING ELSE — the
+        //      `create_result` discipline verbatim, so no earlier state can produce `KEY FORGOTTEN` (S-42): that
+        //      word is written by `run_forget_key` from a `forgotten` the service returned after its ONE save came
+        //      back true. ⛔ A storage failure gets `KEY NOT FORGOTTEN` plus the service's own token and is ⛔ never
+        //      rendered as a success.
+        // §7.3 AUDIT: head `KEY FORGOTTEN` 13 · `KEY NOT FORGOTTEN` 17 · detail `binding_unreadable` 18 (the widest
+        //   `keyring_forget_name`)
+        case mrui::Provision::saved_keys_result: {
+            // ⓘ `khead` IS A NAMED LOCAL RATHER THAN AN INLINE CALL, and that is instrument hygiene rather than
+            //   taste (the `list_rows` note one arm over): two other result arms draw `prov_result_head` with the
+            //   IDENTICAL line, so a control anchored on it would match three times and be reported VACUOUS —
+            //   i.e. the one check that proves this screen renders the OUTCOME's own word would stop measuring.
+            const char* khead = mrui::prov_result_head(st.prov_answer);
+            body_text(0, khead);
+            const char* kd = mrui::prov_result_detail(st.prov_answer);
+            if (kd[0]) body_text(1, kd);
+            return;
+        }
         case mrui::Provision::nearby_confirm: {
             char title[mrui::kNearbyJoinTitleCap];
             mrui::ui_fmt_nearby_join_title(title, sizeof title, st.nearby_sel_id);
@@ -1943,8 +2056,11 @@ void draw_settings_screen(const mrui::UiState& st, const mrui::UiSnapshot& s, co
     //   taste: the third child made the call two lines long, and the two landed controls that mutate this predicate
     //   (`C88` renders the row unconditionally, `L10` hides it on a build that HAS a child) anchor on ONE line each.
     //   A two-line call left them matching a fragment and produced a VACUOUS control — measured, not anticipated.
+    // ⚠ §UI-16 K6 — AND IT STAYS **ONE LINE** THOUGH IT NOW CARRIES FIVE PREDICATES, which is the same instrument
+    //   hygiene the note above records: `sed` cannot match across a newline, so a wrapped call would leave C88/L10
+    //   anchored on a fragment and VACUOUS. The line is 126 columns; this file already carries 46 lines past 124.
     const bool prov_child =
-        mrui::provision_has_child(s.prov_create_team, s.prov_join_static, s.prov_join_team, s.prov_invite);
+        mrui::provision_has_child(s.prov_create_team, s.prov_join_static, s.prov_join_team, s.prov_invite, s.prov_saved_keys);
     const mrui::CfgRowList list = mrui::settings_rows(s.ble_row, c.conflict, prov_child);
     const uint8_t first = list_first(st.cursor, list.n, rows);
     for (uint8_t row = 0; row < rows && first + row < list.n; ++row) {
@@ -2065,12 +2181,19 @@ void draw_compose(const mrui::UiState& st, const OutcomeView& v) {
     }
     body_text(0, head);
     if (st.compose_result) { draw_compose_result(st, v); return; }
-    const char* const* texts = dm ? mrui::kDmTexts : mrui::kChannelTexts;
-    const uint8_t n = dm ? mrui::kDmTextCount : mrui::kChannelTextCount;
+    // ★★★ §UI-16 K7 ([[B245]]) — THE ROW SET IS THE MODEL'S DECISION, AND THIS LOOP MAKES NONE. ⛔ WITHDRAWN, KEPT
+    //     VISIBLE: `const char* const* texts = dm ? kDmTexts : kChannelTexts;` with `n` = the table's own count.
+    //     The per-member `GRANT KEY` act is an OPTIONAL row between the canned texts and `back`, and whether it is
+    //     offered is four ruled facts (`compose_grant_offered`) — a renderer-side `if` over any of them would be a
+    //     rule no gate in this tree can attack (§B115: this TU is compiled by neither the native suite nor the
+    //     simulator). ⇒ the length, the row kind and the row's TEXT all come from the pure unit.
+    const bool    grant = st.compose_grant_row;
+    const uint8_t n     = mrui::compose_row_count(dm, grant);
     const uint8_t first = list_first(st.cursor, n, kBodyRows - 1);
     for (uint8_t row = 0; row + 1 < kBodyRows && first + row < n; ++row) {
         char l[kLineCap];
-        snprintf(l, sizeof l, "%c%s", (first + row == st.cursor) ? '>' : ' ', texts[first + row]);
+        snprintf(l, sizeof l, "%c%s", (first + row == st.cursor) ? '>' : ' ',
+                 mrui::compose_row_text(uint8_t(first + row), dm, grant));
         body_text(row + 1, l);
     }
 }
@@ -2499,8 +2622,10 @@ void mr_ui_on_push(const MESHROUTE_NS::Push& pu) {
 //    F-10 removed (a UI-side gate deciding whether a receipt was durable).
 // ⓘ `g_hal.now()` is read exactly as `mr_ui_on_push` reads it; the model takes the clock and deliberately does not
 //   use it (see `on_team_key_note` — the parameter exists so a "it woke" mutation has something to compile against).
-void mr_ui_on_team_key_unsaved() {
-    s_model.on_team_key_note(/*saved=*/false, uint32_t(g_hal.now()));
+// ★ §UI-16 K6 — the SECOND fact is passed straight through to the SAME model entry point (U1), exactly as `saved`
+//   is: it is the transaction's own typed `keyring_full`, and this file neither re-derives it nor reads the store.
+void mr_ui_on_team_key_unsaved(bool keyring_full) {
+    s_model.on_team_key_note(/*saved=*/false, keyring_full, uint32_t(g_hal.now()));
 }
 
 #endif  // MR_FEAT_OLED

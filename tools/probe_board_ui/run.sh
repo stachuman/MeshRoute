@@ -1094,16 +1094,21 @@ wchk_in "$FW_MAIN" "W46 board_sleep_until() asserts NO power domain (the per-att
 #   ★★★ route a SUPPRESSED receipt to the unsaved door — **QG's 2026-08-25 blocker itself**, the panel announcing an
 #   active key for a receipt where none is.
 w47() {
-  code_flat "$1" | tr -s ' ' | grep -qF 'const mrfw::GrantUiRoute ui_route = (pu.kind != meshroute::PushKind::team_key_received) ? mrfw::GrantUiRoute::received : mrfw::team_key_grant_persist(pu.team_id); #else const mrfw::GrantUiRoute ui_route = mrfw::GrantUiRoute::received; #endif switch (ui_route) { case mrfw::GrantUiRoute::received: mr_ui_on_push(pu); break; case mrfw::GrantUiRoute::active_unsaved: mr_ui_on_team_key_unsaved(); break; case mrfw::GrantUiRoute::suppressed: break; case mrfw::GrantUiRoute::count: break; }'
+  code_flat "$1" | tr -s ' ' | grep -qF 'const mrfw::GrantUiVerdict ui_route = (pu.kind != meshroute::PushKind::team_key_received) ? mrfw::GrantUiVerdict{ mrfw::GrantUiRoute::received, false } : mrfw::team_key_grant_persist(pu.team_id); #else const mrfw::GrantUiVerdict ui_route{ mrfw::GrantUiRoute::received, false }; #endif switch (ui_route.route) { case mrfw::GrantUiRoute::received: mr_ui_on_push(pu); break; case mrfw::GrantUiRoute::active_unsaved: mr_ui_on_team_key_unsaved(ui_route.keyring_full); break; case mrfw::GrantUiRoute::suppressed: break; case mrfw::GrantUiRoute::count: break; }'
 }
+# ⚠ RE-ANCHORED 2026-08-25 (§UI-16 K6's QG blocker): the router now forwards a two-fact `GrantUiVerdict` — the
+#   LANDED route plus the typed `keyring_full` — so every anchor below carries the new spelling. ⛔ MEANING
+#   UNCHANGED for all seven, and an EIGHTH is added: the second fact SWALLOWED at the router, which is the blocker's
+#   own shape one layer out (the fifth RECEIVED grant loses its way out of the dead end while every row stays right).
 wchk_in "$FW_MAIN" "W47 the drain loop persists a grant receipt FIRST and routes the verdict three ways (F-10)" \
-     w47 's@^            case mrfw::GrantUiRoute::received:       mr_ui_on_push(pu);            break;$@            case mrfw::GrantUiRoute::received:                                     break;@; s@^        switch (ui_route) {$@        mr_ui_on_push(pu);\n        switch (ui_route) {@' \
-         's@^            case mrfw::GrantUiRoute::received:       mr_ui_on_push(pu);            break;$@            case mrfw::GrantUiRoute::received:                                     break;@; s@^        const mrfw::GrantUiRoute ui_route = (pu.kind != meshroute::PushKind::team_key_received)$@        mr_ui_on_push(pu);\n&@' \
-         's@mrfw::team_key_grant_persist(pu.team_id)@mrfw::GrantUiRoute::received@' \
-         's@^            case mrfw::GrantUiRoute::active_unsaved: mr_ui_on_team_key_unsaved();  break;$@            case mrfw::GrantUiRoute::active_unsaved:                               break;@' \
-         's@^            case mrfw::GrantUiRoute::received:       mr_ui_on_push(pu);            break;$@            case mrfw::GrantUiRoute::received:       mr_ui_on_push(pu); mr_ui_on_team_key_unsaved(); break;@' \
-         's@^            case mrfw::GrantUiRoute::received:       mr_ui_on_push(pu);            break;$@            case mrfw::GrantUiRoute::received:       mr_ui_on_team_key_unsaved();  break;@; s@^            case mrfw::GrantUiRoute::active_unsaved: mr_ui_on_team_key_unsaved();  break;$@            case mrfw::GrantUiRoute::active_unsaved: mr_ui_on_push(pu);            break;@' \
-         's@^            case mrfw::GrantUiRoute::suppressed:                                   break;$@            case mrfw::GrantUiRoute::suppressed:     mr_ui_on_team_key_unsaved();  break;@'
+     w47 's@^            case mrfw::GrantUiRoute::received:       mr_ui_on_push(pu);            break;$@            case mrfw::GrantUiRoute::received:                                     break;@; s@^        switch (ui_route.route) {$@        mr_ui_on_push(pu);\n        switch (ui_route.route) {@' \
+         's@^            case mrfw::GrantUiRoute::received:       mr_ui_on_push(pu);            break;$@            case mrfw::GrantUiRoute::received:                                     break;@; s@^        const mrfw::GrantUiVerdict ui_route = (pu.kind != meshroute::PushKind::team_key_received)$@        mr_ui_on_push(pu);\n&@' \
+         's@mrfw::team_key_grant_persist(pu.team_id)@mrfw::GrantUiVerdict{ mrfw::GrantUiRoute::received, false }@' \
+         's@^            case mrfw::GrantUiRoute::active_unsaved: mr_ui_on_team_key_unsaved(ui_route.keyring_full); break;$@            case mrfw::GrantUiRoute::active_unsaved:                               break;@' \
+         's@^            case mrfw::GrantUiRoute::received:       mr_ui_on_push(pu);            break;$@            case mrfw::GrantUiRoute::received:       mr_ui_on_push(pu); mr_ui_on_team_key_unsaved(false); break;@' \
+         's@^            case mrfw::GrantUiRoute::received:       mr_ui_on_push(pu);            break;$@            case mrfw::GrantUiRoute::received:       mr_ui_on_team_key_unsaved(false);  break;@; s@^            case mrfw::GrantUiRoute::active_unsaved: mr_ui_on_team_key_unsaved(ui_route.keyring_full); break;$@            case mrfw::GrantUiRoute::active_unsaved: mr_ui_on_push(pu);            break;@' \
+         's@^            case mrfw::GrantUiRoute::suppressed:                                   break;$@            case mrfw::GrantUiRoute::suppressed:     mr_ui_on_team_key_unsaved(false);  break;@' \
+         's@mr_ui_on_team_key_unsaved(ui_route.keyring_full)@mr_ui_on_team_key_unsaved(false)@'
 # ★★★ W48 — THE MEASURED SILENCE. §notify-every-save's rule is "every USER-INITIATED `/mrcfg` write notifies"; the
 #     grant receipt is the first write in that file which is deliberately NOT one, and an exemption that is merely
 #     ABSENT from a harness is indistinguishable from an omission. ⇒ the balance above carries a NAMED, EARNED term

@@ -778,15 +778,33 @@ struct GrantFix {
 // ★★★★ THE DRAIN LOOP'S GATE, REPRODUCED EXACTLY, so the F-10 ORDER is proved on the shape `src/fw_main.cpp`
 //      actually carries and not only on the service in isolation. ⛔ `fw_main.cpp` is compiled by NEITHER the native
 //      suite NOR the simulator (§B115), so this is the closest a host gate can stand to it — and the SOURCE half
-//      (that the real loop carries this and only this) is pinned by `tools/probe_firmware_ui/run.sh`'s K3 checks.
-// ⓘ The real lines read
-//      `const mrfw::GrantUiRoute ui_route = (pu.kind != PushKind::team_key_received)`
-//      `                                    ? mrfw::GrantUiRoute::received`
+//      (that the real loop carries this and only this) is pinned by `tools/probe_board_ui/run.sh`'s **W47**.
+// ⚠ THE ATTRIBUTION ABOVE WAS DRIFTED AND IS CORRECTED (V1, 2026-08-25): it read *"`tools/probe_firmware_ui/run.sh`'s
+//   K3 checks"*, but that file's K3 is a RENDERER negative control and its harness never opens `src/fw_main.cpp`
+//   (`FW_MAIN` is declared in `probe_board_ui/run.sh` alone). A reader following the wrong pointer would find the
+//   source half unpinned and conclude it is not pinned at all.
+// ⓘ The real lines read (the SAME text `probe_board_ui`'s W47 pins verbatim — ⛔ the two must agree on what the
+//   word "exact" means, so this quote is copied from that anchor and not paraphrased):
+//      `const mrfw::GrantUiVerdict ui_route = (pu.kind != meshroute::PushKind::team_key_received)`
+//      `                                    ? mrfw::GrantUiVerdict{ mrfw::GrantUiRoute::received, false }`
 //      `                                    : mrfw::team_key_grant_persist(pu.team_id);`
-//      `switch (ui_route) { received -> mr_ui_on_push(pu); active_unsaved -> mr_ui_on_team_key_unsaved(); `
-//      `                    suppressed -> ; count -> ; }`
+//      `switch (ui_route.route) { received -> mr_ui_on_push(pu); `
+//      `                          active_unsaved -> mr_ui_on_team_key_unsaved(ui_route.keyring_full); `
+//      `                          suppressed -> ; count -> ; }`
 //   — a switch over a RETURNED classification, ⛔ no decision (U3). `calls` = `mr_ui_on_push`,
 //   `unsaved` = `mr_ui_on_team_key_unsaved`, `silent` = neither door was opened.
+// ★★★★ §UI-16 K6 (QG HOLD, 2026-08-25) — **THE FIXTURE NOW CARRIES THE SECOND FACT, BECAUSE THE REAL GATE DOES.**
+//      ⛔ WITHDRAWN, KEPT VISIBLE: `const mrfw::GrantUiRoute r = … grant_ui_route_of(svc.receive(g).outcome); …
+//      case active_unsaved: ++ui.unsaved;` — a fixture that switched on the ROUTE ALONE, **threw the `KeyringErr`
+//      away at the seam** and therefore could not carry `keyring_full` at all. Its comment still claimed the real
+//      loop was reproduced EXACTLY, and after round 2 that claim was FALSE: `fw_main` routes a two-fact
+//      `mrfw::GrantUiVerdict` and passes `ui_route.keyring_full` INTO the second door. A fixture that models a
+//      shape the device no longer has cannot catch the device's regressions — it pins the old one.
+// ⇒ `drain_one` routes the VERDICT, and the argument the unsaved door is called WITH is counted: `unsaved_full` is
+//   the subset of `unsaved` calls that carried `keyring_full == true`, so `unsaved - unsaved_full` is the ordinary
+//   note and the FULL landing is a COUNTED fact rather than an invisible one (the same reason `silent` exists).
+// ⛔ The route is still `grant_ui_route_of`'s, reached through `grant_ui_verdict_of` — ⛔ nothing is re-classified
+//   here, exactly as `fw_main` re-classifies nothing (U3).
 // ★★★★ [[B243]] CLOSED 2026-08-25 — the second door made the failure SAYABLE.
 // ⛔⛔ **AND THE FIRST CUT OF IT WAS WRONG, WHICH IS WHY THIS FIXTURE HAS THREE COUNTERS AND NOT TWO (QG blocker,
 //    same day).** ⛔ WITHDRAWN, KEPT VISIBLE: `const bool ok = … outcome == saved; if (ok) ++ui.calls; else
@@ -797,17 +815,22 @@ struct GrantFix {
 //    absence of one — an assertion that only ever reads `unsaved == 0` cannot tell silence from a door that fired.
 // ⓘ The bool return is kept ("was the push FORWARDED") because that is what the ~20 existing call sites ask; the
 //   two failure routes are told apart by the counters, ⛔ never by the return.
-struct UiSink { int calls = 0; int unsaved = 0; int silent = 0; uint32_t last_team = 0; };
+struct UiSink { int calls = 0; int unsaved = 0; int unsaved_full = 0; int silent = 0; uint32_t last_team = 0; };
 bool drain_one(mrfw::TeamKeyGrantService& svc, const mrfw::TeamKeyGrant& g, bool is_grant_push, UiSink& ui) {
-    const mrfw::GrantUiRoute r = is_grant_push ? mrfw::grant_ui_route_of(svc.receive(g).outcome)
-                                               : mrfw::GrantUiRoute::received;
-    switch (r) {
+    // ⓘ The non-grant arm is the real gate's own `GrantUiVerdict{ received, false }`, spelled the same way — a push
+    //   of another kind is forwarded with no persistence and can carry no keyring fact.
+    const mrfw::GrantUiVerdict v = is_grant_push
+                                 ? mrfw::grant_ui_verdict_of(svc.receive(g))
+                                 : mrfw::GrantUiVerdict{ mrfw::GrantUiRoute::received, false };
+    switch (v.route) {
         case mrfw::GrantUiRoute::received:       ++ui.calls; ui.last_team = g.push_team_id; break;
-        case mrfw::GrantUiRoute::active_unsaved: ++ui.unsaved; break;
+        // ★ THE ARGUMENT IS THE MEASUREMENT: `mr_ui_on_team_key_unsaved(ui_route.keyring_full)` — the door and the
+        //   fact it was called WITH, ⛔ never the door alone (that was the withdrawn shape above).
+        case mrfw::GrantUiRoute::active_unsaved: ++ui.unsaved; if (v.keyring_full) ++ui.unsaved_full; break;
         case mrfw::GrantUiRoute::suppressed:     ++ui.silent;  break;
         case mrfw::GrantUiRoute::count:          break;        // ⛔ not a route; unreachable
     }
-    return r == mrfw::GrantUiRoute::received;
+    return v.route == mrfw::GrantUiRoute::received;
 }
 
 // ★★★★ THE PRECONDITION OF THE WORD `ACTIVE`, ASSERTED RATHER THAN ASSUMED (QG, 2026-08-25). `TEAM KEY ACTIVE` is
@@ -874,6 +897,10 @@ TEST_CASE("ui16-K3: a FAILED persist is NOT forwarded — the panel can never sa
         //      last writer). The WORDS the note then carries — `TEAM KEY ACTIVE` / `NOT SAVED` / `LOST ON REBOOT`
         //      — are `test/test_firmware_ui_send.cpp`'s; what this pins is that the DEVICE PATH reaches them.
         CHECK(ui.unsaved == 1);
+        // ★ §UI-16 K6: the door fired with `keyring_full == false` — this refusal is the STORE's I/O
+        //   (`nv_save_failed`), ⛔ not a full keyring, so there is no `SAVED KEYS` landing to offer and the
+        //   acknowledging press must ⛔ NOT be sent to one. The old fixture could not tell these two apart at all.
+        CHECK(ui.unsaved_full == 0);
         CHECK(ui.silent == 0);                                // ⛔ and it is ⛔ NOT suppressed — see the note above
         // ★★ AND THE WORDING IS TRUE HERE, WHICH IS THE WHOLE REASON THIS ARM GETS A DOOR AT ALL (QG, 2026-08-25):
         //    `keyring_failed` is reached only PAST re-check (3), so all three preconditions of `TEAM KEY ACTIVE`
@@ -893,6 +920,7 @@ TEST_CASE("ui16-K3: a FAILED persist is NOT forwarded — the panel can never sa
         CHECK_FALSE(drain_one(f.svc, f.grant(0xAA11u, 0xAA11u), true, ui));
         CHECK(ui.calls == 0);
         CHECK(ui.unsaved == 1);                               // ★ past re-check (3) ⇒ the note is TRUE and IS shown
+        CHECK(ui.unsaved_full == 0);                          // ⛔ `binding_failed` — the keyring took the key, so ⛔ not FULL
         CHECK(ui.silent == 0);
         CHECK(live_key_really_active(f, f.grant(0xAA11u, 0xAA11u)));
         CHECK(f.store.saves == 1);                            // the key IS durable…
@@ -915,6 +943,11 @@ TEST_CASE("ui16-K3: a FAILED persist is NOT forwarded — the panel can never sa
         // ★ P-15's loud refusal is a `keyring_failed`, i.e. an AFTER-re-check-(3) arm: the key really is live, so
         //   the operator is told so and told it will not survive — ⛔ not left in silence.
         CHECK(ui.unsaved == 1);
+        // ★★★ §UI-16 K6 — AND **THIS** ONE IS THE FULL KEYRING, WHICH THE OLD FIXTURE COULD NOT SAY.
+        //     ⛔ WITHDRAWN, KEPT VISIBLE: `CHECK(ui.unsaved == 1);` ALONE was the whole assertion here, and it is
+        //     satisfied identically by a store that would not open — the two refusals reach the SAME door and only
+        //     one of them has a way out (`SAVED KEYS`). ⇒ the flag the door is called with is asserted too.
+        CHECK(ui.unsaved_full == 1);
         CHECK(ui.silent == 0);
         CHECK(live_key_really_active(f, f.grant(0xC0DEu, 0xC0DEu)));
         CHECK(f.store.saves == saves_before);                 // ⛔ ZERO further writes
@@ -933,6 +966,7 @@ TEST_CASE("ui16-K3: a FAILED persist is NOT forwarded — the panel can never sa
         // ★ `record_unreadable` sits IMMEDIATELY past re-check (3) — the `/mrcfg` read is the first thing after it
         //   — so the live pair is present and it is this team's: the note is true and the door is the right one.
         CHECK(ui.unsaved == 1);
+        CHECK(ui.unsaved_full == 0);                          // ⛔ the keyring was never even OPENED, so ⛔ not FULL
         CHECK(ui.silent == 0);
         CHECK(f.writes() == 0);
         CHECK(f.store.loads == 0);                            // ⛔ the keyring is not even opened
@@ -1007,6 +1041,7 @@ TEST_CASE("ui16-K3: each of the four handling-time re-checks fails the write on 
         // ★ ⛔ NOT suppressed: re-checks (1)-(3) all PASSED, so the live key is present and it is THIS team's. The
         //   key really is active; only the durable side refused. The three ruled rows are true here.
         CHECK(ui.unsaved == 1);
+        CHECK(ui.unsaved_full == 0);                           // ⛔ `record_mismatch` — the keyring was never opened
         CHECK(ui.silent == 0);
         CHECK(live_key_really_active(f, f.grant(0xAA11u, 0xAA11u)));
         CHECK(f.binding.reads == 1);                           // it WAS asked…
@@ -1478,4 +1513,648 @@ TEST_CASE("ui16-k5: the `SavedKeyUse` inventory is a PROPERTY OF THE ENUM — �
     CHECK(std::strcmp(mrfw::saved_key_use_name(mrfw::SavedKeyUse::installed), "installed") == 0);
     CHECK(std::strcmp(mrfw::saved_key_use_name(mrfw::SavedKeyUse::not_our_team), "not_our_team") == 0);
     CHECK(std::strcmp(mrfw::saved_key_use_name(mrfw::SavedKeyUse::record_unreadable), "record_unreadable") == 0);
+}
+
+// ==================================================================== §UI-16 K6 — SAVED-KEY RETENTION MANAGEMENT
+// ★★★★ THIS BLOCK IS ABOUT **REMOVING ONE RETAINED RECORD**, ⛔ NEVER ABOUT KEY ROTATION — the ruling's own first
+//      sentence, restated where its cases live. K1's P-15 is COMPLETED rather than corrected: a full keyring still
+//      performs ZERO writes and ZERO evictions until an operator names a SPECIFIC inactive record and confirms.
+// ★★★ AND EVERY CASE BELOW MEASURES A **CONSEQUENCE** RATHER THAN A VERDICT (this file's standing rule): "nothing
+//     was evicted" is the four records being BYTE-IDENTICAL afterwards, "exactly one save" is `saves == n + 1`, and
+//     "the vacated slot was wiped" is a `memcmp` against zero — ⛔ never "it returned `active_key`".
+// ⛔ THE LIMIT OF EVERY CLAIM IS K1's, UNCHANGED: the store is a FAKE. ⛔ No NVS/LittleFS write, no flash WEAR and
+//    ⛔ no reset-during-write ([[B193]]) — and a COMPACTING write interrupted mid-flight is the first of that class
+//    where a partial write could smear a NEIGHBOURING record. That is METAL-ONLY (M2) and is owed as a bench part.
+namespace {
+
+using mrfw::KeyringForget;
+
+// The retention fixture: a keyring service, a `/mrcfg` binding and a helper that fills N distinct records.
+// ⓘ It reuses `FakeKeyStore` and `FakeBinding` — ⛔ never a third pair of fakes for one more verb (U1).
+struct ForgetFix {
+    FakeKeyStore             store;
+    FakeBinding              binding;
+    mrfw::TeamKeyringService svc{store};
+    uint8_t pub[8][32] = {}, priv[8][32] = {};
+
+    ForgetFix() { mrnv::team_key_blob_init(store.rec); }
+    // ★ Records are stored THROUGH `put`, ⛔ never forged into `rec` by hand: the fixture must be reachable by the
+    //   same policy the device runs, or a case could prove something about a state the device cannot produce.
+    void store_key(uint32_t team, uint8_t slot, uint8_t seed) {
+        CHECK(make_pair(seed, pub[slot], priv[slot]));
+        CHECK(svc.put(team, pub[slot], priv[slot]).verdict == mrfw::KeyringVerdict::ok);
+    }
+    void fill4() {                       // the state metal testing reached: four distinct `team new`s
+        store_key(0x11111111u, 0, 11);
+        store_key(0x22222222u, 1, 23);
+        store_key(0x33333333u, 2, 37);
+        store_key(0x44444444u, 3, 53);
+    }
+    int writes() const { return store.saves; }
+};
+
+}  // namespace
+
+TEST_CASE("ui16-k6-pin1: a FULL keyring plus an UNCONFIRMED selection costs ZERO writes and evicts NOTHING") {
+    ForgetFix f;
+    f.fill4();
+    const mrnv::TeamKeyBlob before = f.store.rec;
+    const int saves_before = f.writes();
+    CHECK(before.count == 4);
+
+    // ★★★ HALF ONE — K1's P-15, RE-PROVEN RATHER THAN ASSUMED: a fifth team on a full keyring still refuses LOUDLY.
+    //     ⛔ K6 did not soften it, and the whole point of the slice is that it did not have to.
+    uint8_t p5[32], s5[32];
+    CHECK(make_pair(71, p5, s5));
+    const mrfw::KeyringResult r = f.svc.put(0x55555555u, p5, s5);
+    CHECK(r.verdict == mrfw::KeyringVerdict::refused);
+    CHECK(r.err     == mrfw::KeyringErr::keyring_full);
+    CHECK(f.writes() == saves_before);                                    // ⛔ ZERO writes
+    CHECK(std::memcmp(&f.store.rec, &before, sizeof before) == 0);        // ⛔ NOTHING evicted, byte for byte
+
+    // ★★★ HALF TWO — AND THE MANAGEMENT SCREEN'S **READ** COSTS NOTHING EITHER. Enumerating a full keyring is what
+    //     the operator does next, and it must not write, seed, compact or choose a victim.
+    const mrfw::SavedKeyList l = f.svc.list(f.binding);
+    CHECK(l.served);
+    CHECK(l.binding_read);
+    CHECK(l.n == 4);
+    CHECK(f.writes() == saves_before);                                    // ⛔ still ZERO writes
+    CHECK(std::memcmp(&f.store.rec, &before, sizeof before) == 0);        // ⛔ and still byte-identical
+
+    // ★★★ HALF THREE — **NOTHING GOES UNTIL `forget` IS CALLED.** The list names four candidates and the service
+    //     has removed none of them: selecting is not confirming, and confirming is a separate operator act.
+    CHECK(mrfw::team_key_find(f.store.rec, 0x11111111u) >= 0);
+    CHECK(mrfw::team_key_find(f.store.rec, 0x22222222u) >= 0);
+    CHECK(mrfw::team_key_find(f.store.rec, 0x33333333u) >= 0);
+    CHECK(mrfw::team_key_find(f.store.rec, 0x44444444u) >= 0);
+    CHECK(f.store.rec.count == 4);
+}
+
+TEST_CASE("ui16-k6-pin2: the ACTIVE record is PROTECTED — zero writes, and live key/binding/records untouched") {
+    ForgetFix f;
+    f.fill4();
+    // The node is IN team 3 and its key is the ACTIVE binding — the ordinary healthy state.
+    f.binding.membership   = 0x33333333u;
+    f.binding.binding_team = 0x33333333u;
+    f.binding.active       = true;
+    f.binding.has_pub      = true;
+    std::memcpy(f.binding.pub, f.pub[2], 32);
+
+    const mrnv::TeamKeyBlob before = f.store.rec;
+    const int saves_before = f.writes();
+
+    CHECK(f.svc.forget(0x33333333u, f.binding) == KeyringForget::active_key);
+    // ⛔ THE MEASUREMENT IS THE CONSEQUENCE, ⛔ not the verdict: nothing written, nothing moved.
+    CHECK(f.writes() == saves_before);                                    // ⛔ ZERO writes
+    CHECK(std::memcmp(&f.store.rec, &before, sizeof before) == 0);        // ⛔ ALL FOUR records byte-identical
+    CHECK(f.store.rec.count == 4);
+    // ⛔ ...and the `/mrcfg` side is untouched too: no binding was rewritten and no membership moved.
+    CHECK(f.binding.commits == 0);
+    CHECK(f.binding.membership   == 0x33333333u);
+    CHECK(f.binding.binding_team == 0x33333333u);
+    CHECK(f.binding.active);
+    CHECK(std::memcmp(f.binding.pub, f.pub[2], 32) == 0);
+
+    // ★ AND THE PROTECTION IS THE **BINDING'S**, ⛔ NOT MEMBERSHIP'S: with the binding cleared (a `team 0` that
+    //   RETAINS the record, P-2b) the very same record becomes removable — which is what makes the refusal above a
+    //   measurement of the active predicate rather than of "the team we happen to be in".
+    f.binding.active = false;
+    CHECK(f.svc.forget(0x33333333u, f.binding) == KeyringForget::forgotten);
+    CHECK(f.writes() == saves_before + 1);
+}
+
+TEST_CASE("ui16-k6-pin3: an INACTIVE target = EXACTLY ONE save, the id absent, every survivor byte-identical, the vacated tail ZERO") {
+    ForgetFix f;
+    f.fill4();
+    f.binding.membership   = 0x11111111u;      // in team 1, whose key is live — ⛔ NOT the removal target
+    f.binding.binding_team = 0x11111111u;
+    f.binding.active       = true;
+    f.binding.has_pub      = true;
+    std::memcpy(f.binding.pub, f.pub[0], 32);
+
+    const mrnv::TeamKeyBlob before = f.store.rec;
+    const int saves_before = f.writes();
+    // The record removed is the SECOND of four, so the compaction has to move two records down — the case that
+    // distinguishes an order-preserving shift from a swap-with-the-last.
+    CHECK(mrfw::team_key_find(before, 0x22222222u) == 1);
+
+    CHECK(f.svc.forget(0x22222222u, f.binding) == KeyringForget::forgotten);
+    CHECK(f.writes() == saves_before + 1);                 // ★ EXACTLY ONE save, ⛔ never two
+    CHECK(f.binding.commits == 0);                         // ⛔ and the `/mrcfg` record is NOT touched by a removal
+
+    const mrnv::TeamKeyBlob& after = f.store.rec;
+    CHECK(after.count == 3);
+    CHECK(after.magic == before.magic);
+    CHECK(after.version == before.version);
+    // ★★★ THE SELECTED ID IS ABSENT — and not merely "not found by the lookup": ⛔ no BYTE of its record survives
+    //     anywhere in the blob, which is what the wipe below is for.
+    CHECK(mrfw::team_key_find(after, 0x22222222u) < 0);
+
+    // ★★★★ THE BYTE-LEVEL COMPACTION PROOF: every OTHER record is byte-identical to the one it was, in the
+    //      order-preserving positions the shift produces. ⛔ Not "the ids are still there" — the WHOLE 72-byte
+    //      record, `reserved[4]` included, which is exactly what that named member buys.
+    CHECK(std::memcmp(&after.rec[0], &before.rec[0], sizeof before.rec[0]) == 0);   // 1st unmoved
+    CHECK(std::memcmp(&after.rec[1], &before.rec[2], sizeof before.rec[2]) == 0);   // 3rd shifted down one
+    CHECK(std::memcmp(&after.rec[2], &before.rec[3], sizeof before.rec[3]) == 0);   // 4th shifted down one
+    // ★ ...and the ORDER is preserved, which a swap-with-the-last would have inverted.
+    CHECK(after.rec[0].team_id == 0x11111111u);
+    CHECK(after.rec[1].team_id == 0x33333333u);
+    CHECK(after.rec[2].team_id == 0x44444444u);
+
+    // ★★★★ THE VACATED TAIL IS **ZERO**, BYTE FOR BYTE — the security half of the compaction. Without the wipe the
+    //      slot would hold a byte-for-byte DUPLICATE of the record that shifted out of it, i.e. a second persisted
+    //      copy of a LIVE team's private key in a slot nothing reads and nothing clears.
+    CHECK(all_zero(&after.rec[3], sizeof after.rec[3]));
+    // ⛔ AND THE DUPLICATE IS REALLY GONE: the tail is not merely zero-COUNTED, it does not equal the record that
+    //    used to sit one slot up (which is what a bare `--count` would have left there).
+    CHECK(std::memcmp(&after.rec[3], &before.rec[3], sizeof before.rec[3]) != 0);
+    // ⛔ ...and no byte of the REMOVED record's private half survives anywhere in the blob.
+    const uint8_t* blob = reinterpret_cast<const uint8_t*>(&after);
+    bool found_removed_priv = false;
+    for (size_t i = 0; i + 32 <= sizeof after; ++i)
+        if (std::memcmp(blob + i, f.priv[1], 32) == 0) found_removed_priv = true;
+    CHECK(found_removed_priv == false);
+
+    // ★ THE LIVE TEAM'S OWN RECORD IS STILL THERE AND STILL VERIFIES — a removal must not disturb the key the node
+    //   is using. ⓘ Driven through the REAL boot restore, over the REAL `team_channel_key_derive` mirror.
+    FakeKeyLive live;
+    CHECK(f.svc.restore(healthy(0x11111111u, f.pub[0]), live) == KeyringRestore::installed);
+    CHECK(live.installed);
+    CHECK(std::memcmp(live.priv, f.priv[0], 32) == 0);
+}
+
+TEST_CASE("ui16-k6-pin4: not-found, id 0 and an unreadable store each cost ZERO writes — and are told APART") {
+    // ---- id 0: ⛔ 0 reads, 0 writes, and the binding is not even consulted -------------------------------------
+    {
+        ForgetFix f;
+        f.fill4();
+        const mrnv::TeamKeyBlob before = f.store.rec;
+        const int saves_before = f.writes(), loads_before = f.store.loads, reads_before = f.binding.reads;
+        CHECK(f.svc.forget(0, f.binding) == KeyringForget::zero_team);
+        CHECK(f.writes() == saves_before);
+        CHECK(f.store.loads == loads_before);              // ⛔ 0 loads — the floor is asked FIRST
+        CHECK(f.binding.reads == reads_before);            // ⛔ and the `/mrcfg` record is not read either
+        CHECK(std::memcmp(&f.store.rec, &before, sizeof before) == 0);
+    }
+    // ---- NOT FOUND on a healthy store: zero writes, and every record survives -----------------------------------
+    {
+        ForgetFix f;
+        f.fill4();
+        const mrnv::TeamKeyBlob before = f.store.rec;
+        const int saves_before = f.writes();
+        CHECK(f.svc.forget(0x99999999u, f.binding) == KeyringForget::no_record);
+        CHECK(f.writes() == saves_before);
+        CHECK(std::memcmp(&f.store.rec, &before, sizeof before) == 0);
+    }
+    // ---- an ABSENT store: `no_record`, ⛔ never seeded ------------------------------------------------------------
+    {
+        ForgetFix f;
+        f.store.state = mrnv::TeamKeyRead::absent;
+        const int saves_before = f.writes();
+        CHECK(f.svc.forget(0x11111111u, f.binding) == KeyringForget::no_record);
+        CHECK(f.writes() == saves_before);                 // ⛔ a READ never seeds — that is `put`'s job alone
+    }
+    // ---- an UNREADABLE store: ⛔ NOT collapsed into `no_record`, and NOTHING is blind-rewritten -------------------
+    // ★★★ THE TWO ARE DIFFERENT ANSWERS BECAUSE THEY TAKE DIFFERENT OPERATOR ACTIONS: "there is no such record" is
+    //     a fact about a store that WAS read; "the store would not open" says nothing is known, and a blind rewrite
+    //     would destroy up to four intact keys because a mount failed transiently.
+    for (const mrnv::TeamKeyRead st : { mrnv::TeamKeyRead::invalid, mrnv::TeamKeyRead::io_failed }) {
+        ForgetFix f;
+        f.fill4();
+        const mrnv::TeamKeyBlob before = f.store.rec;
+        const int saves_before = f.writes();
+        f.store.state = st;
+        f.store.deposit_rec = true;      // ⚠ the real read may leave a PLAUSIBLE record behind — see FakeKeyStore
+        CHECK(f.svc.forget(0x11111111u, f.binding) == KeyringForget::store_failed);
+        CHECK(f.writes() == saves_before);
+        f.store.state = mrnv::TeamKeyRead::ok;
+        CHECK(std::memcmp(&f.store.rec, &before, sizeof before) == 0);
+    }
+    // ---- an UNREADABLE `/mrcfg` BINDING: FAIL CLOSED, ⛔ zero keyring loads and zero writes ------------------------
+    // ★★★ AN UNESTABLISHED TERM IS ⛔ NEVER TREATED AS SATISFIED (C2): without the binding the service cannot tell
+    //     the PROTECTED record from the three that may go, so it refuses BEFORE it opens the keyring at all.
+    {
+        ForgetFix f;
+        f.fill4();
+        const mrnv::TeamKeyBlob before = f.store.rec;
+        const int saves_before = f.writes(), loads_before = f.store.loads;
+        f.binding.read_ok = false;
+        f.binding.deposit_on_fail = true;     // ⚠ a plausible deposit — "fails closed" must not pass on zeroes
+        CHECK(f.svc.forget(0x22222222u, f.binding) == KeyringForget::binding_unreadable);
+        CHECK(f.writes() == saves_before);
+        CHECK(f.store.loads == loads_before);              // ⛔ the keyring was never even opened
+        CHECK(std::memcmp(&f.store.rec, &before, sizeof before) == 0);
+        // ...and the LIST fails closed the same way: it offers ⛔ no row rather than four unmarked ones.
+        const mrfw::SavedKeyList l = f.svc.list(f.binding);
+        CHECK(l.served);
+        CHECK(l.binding_read == false);
+        CHECK(l.n == 0);
+        CHECK(f.writes() == saves_before);
+    }
+}
+
+TEST_CASE("ui16-k6-pin5: a FAILED save is reported as a failed save — ⛔ never as `forgotten` and ⛔ never as nothing-changed") {
+    ForgetFix f;
+    f.fill4();
+    const int saves_before = f.writes();
+    f.store.save_ok = false;                     // the ONE attempt comes back false
+    CHECK(f.svc.forget(0x22222222u, f.binding) == KeyringForget::nv_save_failed);
+    // ★ THE ATTEMPT IS COUNTED EVEN THOUGH IT FAILED: "one save was attempted" is the fact a refusing store must
+    //   still report, and it is what keeps this arm distinguishable from the five that spend zero.
+    CHECK(f.writes() == saves_before + 1);
+    // ⛔ IT IS ⛔ NOT `forgotten`, and the distinction is the whole pin: the panel and the console may not render
+    //    `KEY FORGOTTEN` for a write that did not land.
+    CHECK(f.svc.forget(0x22222222u, f.binding) != KeyringForget::forgotten);
+    // ⛔ AND IT IS ⛔ NOT `no_record` EITHER: the record was found; the WRITE failed. Collapsing them would tell the
+    //    operator the key is already gone.
+    CHECK(f.svc.forget(0x22222222u, f.binding) != KeyringForget::no_record);
+    // ⚠ THE CLAIM STOPS HERE, deliberately: the fake did not write, but the REAL backend may have written PARTIALLY
+    //   ([[B193]]) — so nothing above says "the flash is unchanged", and the outcome's own word does not either.
+    CHECK(std::strcmp(mrfw::keyring_forget_name(KeyringForget::nv_save_failed), "nv_save_failed") == 0);
+}
+
+TEST_CASE("ui16-k6-pin6: the LIST exposes ids and status ONLY — ⛔ no key material, on any arm") {
+    ForgetFix f;
+    f.fill4();
+    f.binding.membership   = 0x33333333u;
+    f.binding.binding_team = 0x33333333u;
+    f.binding.active       = true;
+    f.binding.has_pub      = true;
+    std::memcpy(f.binding.pub, f.pub[2], 32);
+
+    const mrfw::SavedKeyList l = f.svc.list(f.binding);
+    CHECK(l.served);
+    CHECK(l.binding_read);
+    CHECK(l.st == mrnv::TeamKeyRead::ok);
+    CHECK(l.n == 4);
+    // ★ THE IDS ARE THE STORE'S OWN, IN THE STORE'S OWN ORDER — ⛔ never sorted, which would re-order the list
+    //   under an operator who is about to remove a record.
+    CHECK(l.rec[0].team_id == 0x11111111u);
+    CHECK(l.rec[1].team_id == 0x22222222u);
+    CHECK(l.rec[2].team_id == 0x33333333u);
+    CHECK(l.rec[3].team_id == 0x44444444u);
+    // ★ EXACTLY ONE ROW IS MARKED ACTIVE, and it is the one the BINDING names.
+    CHECK(l.rec[0].active == false);
+    CHECK(l.rec[1].active == false);
+    CHECK(l.rec[2].active == true);
+    CHECK(l.rec[3].active == false);
+
+    // ★★★★ THE SECRET-HYGIENE MEASUREMENT, PART ONE — **EVERY ROW IS BYTE-EXACT**, ⛔ not merely "the ids look
+    //      right": each entry must equal a freshly composed `{team_id, active}` down to its NAMED `reserved` bytes.
+    //      That is what makes a smuggled byte — a fill that copied a few bytes of the private half into the row's
+    //      storage — visible at all, and it is why `reserved` is a named member rather than implicit padding.
+    for (uint8_t i = 0; i < l.n; ++i) {
+        mrfw::SavedKeyEntry want{};
+        want.team_id = l.rec[i].team_id;
+        want.active  = l.rec[i].active;
+        CHECK(std::memcmp(&l.rec[i], &want, sizeof want) == 0);
+        CHECK(all_zero(l.rec[i].reserved, sizeof l.rec[i].reserved));
+    }
+    // ★★★★ PART TWO — A **BYTE SCAN OF THE WHOLE CARRIER** rather than an inspection of its fields: ⛔ no 32-byte
+    //      window of the answer equals any stored private OR public half. A field added later that carried material
+    //      would redden this without anybody remembering to check for it.
+    const uint8_t* raw = reinterpret_cast<const uint8_t*>(&l);
+    for (int k = 0; k < 4; ++k) {
+        bool leaked = false;
+        for (size_t i = 0; i + 32 <= sizeof l; ++i) {
+            if (std::memcmp(raw + i, f.priv[k], 32) == 0) leaked = true;
+            if (std::memcmp(raw + i, f.pub[k],  32) == 0) leaked = true;
+        }
+        CHECK(leaked == false);
+    }
+    // ★ AND THE CARRIER HAS NO ROOM FOR ONE: four 8-byte metadata rows plus four status bytes. ⓘ MEASURED, and it
+    //   is the shape that makes pin 6 a property of the type rather than a discipline at the call site.
+    CHECK(sizeof(mrfw::SavedKeyEntry) == 8u);
+    CHECK(offsetof(mrfw::SavedKeyEntry, team_id) == 0u);
+    CHECK(offsetof(mrfw::SavedKeyEntry, active)  == 4u);
+    CHECK(sizeof(mrfw::SavedKeyList) == 36u);
+    CHECK(sizeof(mrfw::SavedKeyList) < 32u * 4u);          // ⛔ it could not hold four keys even if it tried
+
+    // ★ AN EMPTY / ABSENT STORE STILL ANSWERS METADATA ONLY, and says which state it is in.
+    {
+        ForgetFix e;
+        e.store.state = mrnv::TeamKeyRead::absent;
+        const mrfw::SavedKeyList el = e.svc.list(e.binding);
+        CHECK(el.served);
+        CHECK(el.binding_read);
+        CHECK(el.st == mrnv::TeamKeyRead::absent);
+        CHECK(el.n == 0);
+    }
+    // ★ ...and an UNREADABLE one carries its own state VERBATIM rather than a collapsed "empty".
+    for (const mrnv::TeamKeyRead st : { mrnv::TeamKeyRead::invalid, mrnv::TeamKeyRead::io_failed }) {
+        ForgetFix e;
+        e.fill4();
+        e.store.state = st;
+        e.store.deposit_rec = true;
+        const mrfw::SavedKeyList el = e.svc.list(e.binding);
+        CHECK(el.served);
+        CHECK(el.binding_read);
+        CHECK(el.st == st);
+        CHECK(el.n == 0);                                  // ⛔ nothing is offered from a store nobody could read
+    }
+}
+
+TEST_CASE("ui16-k6-pin7: a SHORT-FINGERPRINT COLLISION cannot remove the wrong record") {
+    // ★★★★ TWO REAL TEAMS THAT SHARE THEIR SIX DISPLAY HEX DIGITS. `ui_fmt_team_fingerprint` prints the LOW 24 BITS,
+    //      so these two draw the IDENTICAL row token — and 255 other teams would draw it too. If the removal were
+    //      keyed on the fingerprint (or on a row index derived from it) the operator would destroy the wrong key
+    //      while the panel showed the right one: [[B48]]'s class, arriving through a delete.
+    ForgetFix f;
+    f.store_key(0xAA3D9348u, 0, 13);
+    f.store_key(0xBB3D9348u, 1, 29);
+    CHECK((0xAA3D9348u & 0xFFFFFFu) == (0xBB3D9348u & 0xFFFFFFu));   // the collision is REAL, not assumed
+    const mrnv::TeamKeyBlob before = f.store.rec;
+    const int saves_before = f.writes();
+
+    CHECK(f.svc.forget(0xBB3D9348u, f.binding) == KeyringForget::forgotten);
+    CHECK(f.writes() == saves_before + 1);
+    // ★ THE ONE NAMED BY THE **FULL 32 BITS** IS GONE...
+    CHECK(mrfw::team_key_find(f.store.rec, 0xBB3D9348u) < 0);
+    // ...and its twin — which shares every display digit — is still there, BYTE-IDENTICAL.
+    const int keep = mrfw::team_key_find(f.store.rec, 0xAA3D9348u);
+    CHECK(keep >= 0);
+    CHECK((keep >= 0 && std::memcmp(&f.store.rec.rec[keep], &before.rec[0], sizeof before.rec[0]) == 0));
+    CHECK(f.store.rec.count == 1);
+    CHECK(all_zero(&f.store.rec.rec[1], sizeof f.store.rec.rec[1]));
+
+    // ★ AND THE SURVIVOR STILL VERIFIES against the real derivation — a compaction that had smeared the neighbour
+    //   would fail here even if its `team_id` looked right.
+    FakeKeyLive live;
+    f.binding.membership = 0xAA3D9348u;
+    CHECK(f.svc.restore(healthy(0xAA3D9348u, f.pub[0]), live) == KeyringRestore::installed);
+    CHECK(std::memcmp(live.priv, f.priv[0], 32) == 0);
+
+    // ⛔ AND A REQUEST FOR THE *FINGERPRINT VALUE ITSELF* MATCHES NOTHING: it is not a team id.
+    const int saves_now = f.writes();
+    CHECK(f.svc.forget(0x003D9348u, f.binding) == KeyringForget::no_record);
+    CHECK(f.writes() == saves_now);
+}
+
+TEST_CASE("ui16-k6-pin9: re-keying ONE existing team is an in-place REPLACE and never invokes the removal") {
+    // ★★★ K6 IS NOT REACHED BY A RE-KEY, AND THAT IS WHAT KEEPS THE FOUR-RECORD BOUND FROM BEING A PROBLEM FOR THE
+    //     ORDINARY CASE: re-granting or re-minting the SAME `team_id` overwrites that team's row in place and
+    //     consumes no slot. ⛔ It removes nothing, compacts nothing and never calls `forget`.
+    ForgetFix f;
+    f.fill4();
+    const int saves_before = f.writes();
+    const mrnv::TeamKeyBlob before = f.store.rec;
+
+    uint8_t np[32], ns[32];
+    CHECK(make_pair(97, np, ns));
+    CHECK(f.svc.put(0x22222222u, np, ns).verdict == mrfw::KeyringVerdict::ok);
+    CHECK(f.writes() == saves_before + 1);                  // ONE write, the replace
+    CHECK(f.store.rec.count == 4);                          // ⛔ still four — no slot consumed, none freed
+    // ⛔ IT REPLACED IN PLACE: the row kept its INDEX, the three neighbours are byte-identical, and there is no
+    //    second row for that team.
+    CHECK(mrfw::team_key_find(f.store.rec, 0x22222222u) == 1);
+    CHECK(std::memcmp(&f.store.rec.rec[0], &before.rec[0], sizeof before.rec[0]) == 0);
+    CHECK(std::memcmp(&f.store.rec.rec[2], &before.rec[2], sizeof before.rec[2]) == 0);
+    CHECK(std::memcmp(&f.store.rec.rec[3], &before.rec[3], sizeof before.rec[3]) == 0);
+    CHECK(std::memcmp(f.store.rec.rec[1].team_ch_priv, ns, 32) == 0);
+    // ⛔ AND IDENTICAL MATERIAL STILL WRITES NOTHING (K1's flash-wear guard, unchanged by K6).
+    const int saves_now = f.writes();
+    CHECK(f.svc.put(0x22222222u, np, ns).verdict == mrfw::KeyringVerdict::unchanged);
+    CHECK(f.writes() == saves_now);
+}
+
+TEST_CASE("ui16-k6-two-transactions: a create/grant NEVER deletes a record as a side effect") {
+    // ★★★★ THE RULING'S LOAD-BEARING CLAUSE, MEASURED: *"two explicit transactions, never one disguised one"*.
+    //      `/mrteams` and `/mrcfg` are two durable records, so "evict then create" cannot be one atomic commit —
+    //      and hiding both behind one act would let a create that failed its second write destroy an unrelated
+    //      saved key. ⇒ on a FULL keyring the store-side of a create refuses and REMOVES NOTHING, and the same is
+    //      true of a received GRANT, which reaches `put` through `TeamKeyGrantService`.
+    ForgetFix f;
+    f.fill4();
+    const mrnv::TeamKeyBlob before = f.store.rec;
+    const int saves_before = f.writes();
+
+    // ---- the CREATE/IMPORT path: `put` a fifth team ------------------------------------------------------------
+    uint8_t p5[32], s5[32];
+    CHECK(make_pair(83, p5, s5));
+    const mrfw::KeyringResult r = f.svc.put(0x55555555u, p5, s5);
+    CHECK(r.err == mrfw::KeyringErr::keyring_full);
+    CHECK(f.writes() == saves_before);
+    CHECK(std::memcmp(&f.store.rec, &before, sizeof before) == 0);
+    CHECK(f.store.rec.count == 4);                          // ⛔ NOTHING was freed to make room
+
+    // ---- the RECEIVED-GRANT path: the SAME `put`, reached through the handling-time re-checks -------------------
+    // ⓘ It goes through the real `TeamKeyGrantService`, so the fifth key really does travel the device's own route.
+    {
+        FakeBinding gb;
+        gb.membership = 0x55555555u;
+        mrfw::TeamKeyGrantService gsvc(f.svc, gb);
+        mrfw::TeamKeyGrant g{};
+        g.push_team_id = 0x55555555u;
+        g.live_team_id = 0x55555555u;
+        g.live_pub = p5; g.live_priv = s5;
+        const mrfw::GrantSaveResult gr = gsvc.receive(g);
+        CHECK(gr.outcome == mrfw::GrantSave::keyring_failed);
+        CHECK(gr.err     == mrfw::KeyringErr::keyring_full);
+        CHECK(gb.commits == 0);                             // ⛔ and no activation was written either
+    }
+    CHECK(f.writes() == saves_before);                      // ⛔ STILL zero writes
+    CHECK(std::memcmp(&f.store.rec, &before, sizeof before) == 0);   // ⛔ STILL byte-identical
+
+    // ---- and the removal, when it happens, is the OPERATOR'S OWN, SEPARATE act ----------------------------------
+    // ★ It completes and reports ITS OWN verdict; ⛔ nothing here re-attempts the create, and the keyring is left
+    //   with a free slot the operator must fill himself.
+    CHECK(f.svc.forget(0x44444444u, f.binding) == KeyringForget::forgotten);
+    CHECK(f.writes() == saves_before + 1);                  // exactly the removal's ONE write
+    CHECK(f.store.rec.count == 3);
+    CHECK(mrfw::team_key_find(f.store.rec, 0x55555555u) < 0);   // ⛔⛔ the create was ⛔ NOT resumed
+    // ...and only NOW does the operator's retry fit.
+    CHECK(f.svc.put(0x55555555u, p5, s5).verdict == mrfw::KeyringVerdict::ok);
+    CHECK(f.store.rec.count == 4);
+}
+
+TEST_CASE("ui16-k6-active-predicate: the ACTIVE marker and the PROTECTION are ONE authority") {
+    // ★★★ ONE PREDICATE, TWO READERS (U1): the list's marker and `forget`'s refusal. Two spellings would let the
+    //     panel mark one row and the service protect another — an operator told a key is safe while a different one
+    //     is protected.
+    mrfw::TeamKeyBinding b{};
+    b.membership_team_id = 0x1234u;
+    b.binding_team_id    = 0x1234u;
+    b.key_active         = true;
+    CHECK(mrfw::saved_key_is_active(b, 0x1234u));
+    // ⛔ 0 IS NEVER STORED, so it can never BE the active record.
+    CHECK(mrfw::saved_key_is_active(b, 0) == false);
+    // ⛔ A DIFFERENT TEAM IS NOT THE ACTIVE ONE.
+    CHECK(mrfw::saved_key_is_active(b, 0x1235u) == false);
+    // ⛔ AND THE `active` FLAG IS A TERM: `team 0` clears it while RETAINING the record (P-2b), and the retained
+    //    record is then removable — which is the whole point of the screen.
+    { mrfw::TeamKeyBinding c = b; c.key_active = false; CHECK(mrfw::saved_key_is_active(c, 0x1234u) == false); }
+    // ⛔ IT IS THE **BINDING**, ⛔ NOT MEMBERSHIP: a binding naming another team protects THAT team's record, and a
+    //    membership that disagrees does not make this one protected (the boot restore's terms (i) and (ii) are
+    //    different questions, and this predicate asks (i)).
+    { mrfw::TeamKeyBinding c = b; c.binding_team_id = 0x9999u;
+      CHECK(mrfw::saved_key_is_active(c, 0x1234u) == false);
+      CHECK(mrfw::saved_key_is_active(c, 0x9999u) == true); }
+}
+
+TEST_CASE("ui16-k6-inventory: the KeyringForget sweep is a PROPERTY of the enum, and the sentinel is not an outcome") {
+    // ★★★ THE FOURTH INSTANCE OF THIS FENCE (`GrantSave::count`, `InviteGrantState::count`, `SavedKeyUse::count`),
+    //     and it is here for the reason those three exist: a HAND-WRITTEN inventory had already failed this arc.
+    //     The sweep walks `0 .. count-1`, so an arm APPENDED above the sentinel is visited BY CONSTRUCTION.
+    const int n = static_cast<int>(KeyringForget::count);
+    CHECK(n == 7);
+    int worded = 0;
+    for (int i = 0; i < n; ++i) {
+        const KeyringForget x = static_cast<KeyringForget>(i);
+        const char* wx = mrfw::keyring_forget_name(x);
+        CHECK(wx[0] != '\0');
+        CHECK(std::strcmp(wx, "?") != 0);                   // ⛔ no arm falls through to the refusal token
+        CHECK(std::strlen(wx) <= 19u);                      // ...and the panel's 19-column body still holds it
+        ++worded;
+        // ⛔ EVERY WORD IS DISTINCT: a collapse would make two outcomes indistinguishable on the operator's second
+        //    row — and two of these ("there is no such record" / "the store would not open") take different actions.
+        for (int j = 0; j < n; ++j)
+            CHECK((std::strcmp(wx, mrfw::keyring_forget_name(static_cast<KeyringForget>(j))) == 0) == (i == j));
+    }
+    CHECK(worded == n);
+    // ★ THE SENTINEL IS ⛔ NOT AN OUTCOME: it is LAST, and it answers the refusal token rather than a plausible word.
+    CHECK(std::strcmp(mrfw::keyring_forget_name(KeyringForget::count), "?") == 0);
+    CHECK(static_cast<int>(KeyringForget::nv_save_failed) < n);
+    // ★ AND THE NAMED ARMS ARE STILL THE ARMS THE SERVICE RETURNS — spelled once, so a RENAME is visible here.
+    CHECK(std::strcmp(mrfw::keyring_forget_name(KeyringForget::forgotten), "forgotten") == 0);
+    CHECK(std::strcmp(mrfw::keyring_forget_name(KeyringForget::active_key), "active_key") == 0);
+    CHECK(std::strcmp(mrfw::keyring_forget_name(KeyringForget::store_failed), "store_failed") == 0);
+    CHECK(std::strcmp(mrfw::keyring_forget_name(KeyringForget::binding_unreadable), "binding_unreadable") == 0);
+}
+
+// ============================== §UI-16 K6 (QG blocker, 2026-08-25) — THE **RECEIVED** GRANT'S FULL-KEYRING LANDING
+// ★★★★ THE BLOCKER IN ONE SENTENCE: a `KEYRING FULL` refusal of a **received grant** was collapsed into the generic
+//      `active_unsaved`, so the fifth RECEIVED grant showed the three correct rows and then acknowledged into a menu
+//      that says nothing — while the `team new` refusal of the SAME store state reached `SAVED KEYS`. Spec §K6
+//      (`:987`) rules the direction for a `KEYRING FULL` result of **either origin**.
+// ⛔ WHAT IS NOT UNDER TEST HERE IS AS IMPORTANT AS WHAT IS: ⛔ not one of the three ruled rows moves, ⛔ the ROUTE
+//    is unchanged, and ⛔ `grant_ui_route_of` is byte-for-byte the function it was — the new fact rides BESIDE it.
+TEST_CASE("ui16-k6-grantfull: a fifth RECEIVED grant refuses LOUDLY, and the verdict carries the FULL fact") {
+    GrantFix f(0x5A5A5A5Au, 41);
+    // FOUR OTHER teams already retained — stored THROUGH `put`, i.e. a state the device can really be in.
+    bool filled = true;
+    for (int k = 0; k < 4; ++k) {
+        uint8_t p[32], v[32];
+        filled = filled && make_pair(static_cast<uint8_t>(101 + 7 * k), p, v);
+        filled = filled && f.keyring.put(0xE0000001u + static_cast<uint32_t>(k), p, v).verdict
+                           == mrfw::KeyringVerdict::ok;
+    }
+    CHECK(filled);
+    CHECK(f.store.rec.count == 4);
+    const mrnv::TeamKeyBlob before = f.store.rec;
+    const int ks = f.store.saves, cm = f.binding.commits;
+
+    const mrfw::GrantSaveResult r = f.svc.receive(f.grant(0x5A5A5A5Au, 0x5A5A5A5Au));
+    CHECK(r.outcome == GrantSave::keyring_failed);
+    CHECK(r.err     == mrfw::KeyringErr::keyring_full);
+    // ⛔ P-15 ARRIVING OVER THE AIR: zero writes on BOTH durable records, and nothing evicted to make room.
+    CHECK(f.store.saves    == ks);
+    CHECK(f.binding.commits == cm);
+    CHECK(std::memcmp(&f.store.rec, &before, sizeof before) == 0);
+    CHECK(f.store.rec.count == 4);
+
+    const mrfw::GrantUiVerdict v = mrfw::grant_ui_verdict_of(r);
+    // ★ THE ROUTE IS THE LANDED ONE, AND IT IS THE LANDED FUNCTION'S ANSWER — so the three ruled rows still apply.
+    CHECK(v.route == mrfw::GrantUiRoute::active_unsaved);
+    CHECK(v.route == mrfw::grant_ui_route_of(r.outcome));
+    // ★★★ ...AND THE SECOND FACT IS WHAT THE ROUTE COULD NOT CARRY.
+    CHECK(v.keyring_full == true);
+    CHECK(mrfw::grant_ui_keyring_full(r) == true);
+
+    // ⛔ THE OTHER KEYRING REFUSALS ARE **NOT** THE FULL ONE: an unreadable or unopenable store has no dead end to
+    //    send the operator to, and offering him a removal list for a store nobody could read would be a false remedy.
+    for (const mrfw::KeyringErr e : { mrfw::KeyringErr::store_invalid, mrfw::KeyringErr::store_io_failed,
+                                      mrfw::KeyringErr::nv_save_failed, mrfw::KeyringErr::none,
+                                      mrfw::KeyringErr::zero_team }) {
+        mrfw::GrantSaveResult x{}; x.outcome = GrantSave::keyring_failed; x.err = e;
+        CHECK(mrfw::grant_ui_keyring_full(x) == false);
+        CHECK(mrfw::grant_ui_verdict_of(x).route == mrfw::GrantUiRoute::active_unsaved);
+        CHECK(mrfw::grant_ui_verdict_of(x).keyring_full == false);
+    }
+}
+
+// ★★★★ …AND THE SAME RECEIPT **THROUGH THE DRAIN LOOP'S GATE** (QG HOLD, 2026-08-25). The case above measures the
+//      pure verdict; this one measures what `src/fw_main.cpp` would actually DO with it, on the fixture that
+//      reproduces that gate — because a `keyring_full` classified correctly and then dropped at the router is the
+//      blocker's own shape one layer out, and it is exactly the eighth negative control `probe_board_ui`'s W47
+//      carries (`mr_ui_on_team_key_unsaved(ui_route.keyring_full)` → `…(false)`). ⛔ The route must not move: the
+//      panel still shows the three ruled rows; only the way OUT of the dead end is added.
+TEST_CASE("ui16-k6-grantfull-drain: the fifth RECEIVED grant takes the unsaved door WITH the FULL fact, and deletes nothing") {
+    GrantFix f(0x5A5A5A5Au, 41);
+    // FOUR OTHER teams already retained — stored THROUGH `put`, i.e. a state the device can really be in.
+    bool filled = true;
+    for (int k = 0; k < 4; ++k) {
+        uint8_t p[32], v[32];
+        filled = filled && make_pair(static_cast<uint8_t>(101 + 7 * k), p, v);
+        filled = filled && f.keyring.put(0xE0000001u + static_cast<uint32_t>(k), p, v).verdict
+                           == mrfw::KeyringVerdict::ok;
+    }
+    CHECK(filled);
+    CHECK(f.store.rec.count == 4);
+    const mrnv::TeamKeyBlob before = f.store.rec;
+    const int ks = f.store.saves, cm = f.binding.commits;
+
+    UiSink ui;
+    CHECK_FALSE(drain_one(f.svc, f.grant(0x5A5A5A5Au, 0x5A5A5A5Au), true, ui));
+    // ⛔ NOT FORWARDED (F-10, unchanged): the panel may never say RECEIVED for a key that did not land.
+    CHECK(ui.calls == 0);
+    CHECK(ui.last_team == 0);
+    // ★ THE UNSAVED DOOR, ⛔ never silence: P-15's refusal sits PAST re-check (3), so the key really IS live and the
+    //   three ruled rows are three true sentences.
+    CHECK(ui.unsaved == 1);
+    CHECK(ui.silent == 0);
+    CHECK(live_key_really_active(f, f.grant(0x5A5A5A5Au, 0x5A5A5A5Au)));
+    // ★★★★ **AND THE DOOR IS CALLED WITH THE FULL FACT** — the whole point of round 2, measured at the gate rather
+    //      than only at `grant_ui_verdict_of`. A router that swallowed it would satisfy every line above.
+    CHECK(ui.unsaved_full == 1);
+    // ⛔ ZERO WRITES ON BOTH DURABLE RECORDS, AND ⛔ NOTHING EVICTED TO MAKE ROOM (the two-transactions ruling).
+    CHECK(f.store.saves     == ks);
+    CHECK(f.binding.commits == cm);
+    CHECK(f.writes() == ks + cm);
+    CHECK(std::memcmp(&f.store.rec, &before, sizeof before) == 0);    // ⛔ byte-identical blob
+    CHECK(f.store.rec.count == 4);
+    CHECK(mrfw::team_key_find(f.store.rec, 0x5A5A5A5Au) < 0);         // ⛔ the fifth key never landed…
+    for (int k = 0; k < 4; ++k)
+        CHECK(mrfw::team_key_find(f.store.rec, 0xE0000001u + static_cast<uint32_t>(k)) >= 0);  // …and none was lost
+
+    // ⛔ A RETRY IS NOT A RESUMPTION: the teammate re-grants on every join, so the SECOND receipt must refuse the
+    //    same way — same door, same fact, still no eviction. ⛔ The keyring never frees a slot on its own.
+    CHECK_FALSE(drain_one(f.svc, f.grant(0x5A5A5A5Au, 0x5A5A5A5Au), true, ui));
+    CHECK(ui.calls == 0);
+    CHECK(ui.unsaved == 2);
+    CHECK(ui.unsaved_full == 2);
+    CHECK(ui.silent == 0);
+    CHECK(f.store.saves == ks);
+    CHECK(std::memcmp(&f.store.rec, &before, sizeof before) == 0);
+}
+
+TEST_CASE("ui16-k6-grantverdict: the verdict is the LANDED route plus ONE fact, and no other arm can carry it") {
+    // ★★★ THE SWEEP IS A PROPERTY OF THE ENUMS (the `count` fence, a fourth time): every `GrantSave` x every
+    //     `KeyringErr`, so an arm added to either is visited BY CONSTRUCTION rather than by a hand-typed list.
+    const int n_out = static_cast<int>(GrantSave::count);
+    const mrfw::KeyringErr errs[] = { mrfw::KeyringErr::none, mrfw::KeyringErr::zero_team,
+                                      mrfw::KeyringErr::keyring_full, mrfw::KeyringErr::store_invalid,
+                                      mrfw::KeyringErr::store_io_failed, mrfw::KeyringErr::nv_save_failed };
+    int full_seen = 0;
+    for (int i = 0; i < n_out; ++i) {
+        for (const mrfw::KeyringErr e : errs) {
+            mrfw::GrantSaveResult x{}; x.outcome = static_cast<GrantSave>(i); x.err = e;
+            const mrfw::GrantUiVerdict v = mrfw::grant_ui_verdict_of(x);
+            // ★ THE ROUTE IS **ALWAYS** THE LANDED CLASSIFIER'S — ⛔ the new carrier re-decides nothing.
+            CHECK(v.route == mrfw::grant_ui_route_of(x.outcome));
+            // ★ AND THE FACT IS TRUE FOR EXACTLY ONE PAIR: `keyring_failed` x `keyring_full`.
+            const bool want = (x.outcome == GrantSave::keyring_failed && e == mrfw::KeyringErr::keyring_full);
+            CHECK(v.keyring_full == want);
+            if (want) {
+                ++full_seen;
+                // ⛔ AND IT CAN ONLY EVER RIDE THE `active_unsaved` DOOR: a suppressed or a received verdict that
+                //    carried it would be a landing offered for a screen that says nothing, or for a SUCCESS.
+                CHECK(v.route == mrfw::GrantUiRoute::active_unsaved);
+            }
+        }
+    }
+    CHECK(full_seen == 1);
+    // ⓘ The default-constructed carrier FAILS CLOSED: say nothing, and offer no landing.
+    const mrfw::GrantUiVerdict d{};
+    CHECK(d.route == mrfw::GrantUiRoute::suppressed);
+    CHECK(d.keyring_full == false);
 }

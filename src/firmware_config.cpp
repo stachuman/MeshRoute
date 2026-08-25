@@ -1632,7 +1632,13 @@ struct DeviceTeamKeyBinding : mrfw::ITeamKeyBinding {
 //      "forward" / "don't", and `fw_main`'s `else` then told the panel a key was ACTIVE for three arms where none
 //      is. ⇒ the typed outcome is CLASSIFIED, once, by the pure unit that owns the rule. ⛔ Still no decision here:
 //      this line names no arm and tests no term — it forwards `receive`'s verdict into `grant_ui_route_of`.
-mrfw::GrantUiRoute team_key_grant_persist(uint32_t push_team_id) {
+// ★★★★ ⛔ CORRECTED AGAIN 2026-08-25 (§UI-16 K6's QG blocker): the return type carries **TWO** facts now, and the
+//      second one is a LANDING rather than a word. `GrantUiRoute` alone could not say WHY the durable half refused,
+//      so a fifth RECEIVED grant showed the right three rows and then acknowledged into a menu that says nothing
+//      about the dead end — while the `team new` refusal of the SAME store state reached `SAVED KEYS`. Spec §K6
+//      `:987` rules the direction for a `KEYRING FULL` result of EITHER origin. ⇒ `grant_ui_verdict_of`, which
+//      CALLS the unchanged `grant_ui_route_of` and adds the typed `keyring_full`. ⛔ Still no decision here.
+mrfw::GrantUiVerdict team_key_grant_persist(uint32_t push_team_id) {
     DeviceTeamKeyBinding binding;
     mrfw::TeamKeyGrantService svc(team_keyring_service(), binding);
     mrfw::TeamKeyGrant g{};
@@ -1640,7 +1646,7 @@ mrfw::GrantUiRoute team_key_grant_persist(uint32_t push_team_id) {
     g.live_team_id = g_node.config().team_id;
     g.live_pub     = g_node.team_channel_pub();
     g.live_priv    = g_node.team_channel_priv();
-    return mrfw::grant_ui_route_of(svc.receive(g).outcome);
+    return mrfw::grant_ui_verdict_of(svc.receive(g));
 }
 
 // ============================================================ §UI-16 K5 — THE SAVED-KEY OFFER's DEVICE BINDINGS
@@ -1663,6 +1669,26 @@ mrfw::SavedKeyUse team_keyring_use_saved(uint32_t team_id) {
     DeviceTeamKeyLive    live;
     DeviceTeamKeyBinding binding;
     return team_keyring_service().use_saved(team_id, live, binding);
+}
+
+// ============================================================ §UI-16 K6 — SAVED-KEY RETENTION MANAGEMENT's FORWARDS
+// ★★ THIN FOR THE SEVENTH TIME IN THIS FILE AND FOR THE SAME MEASURED REASON (§B115): this TU is compiled by
+//    NEITHER the native suite NOR the simulator, so the DECISIONS — that the enumeration is METADATA ONLY, that the
+//    ACTIVE marker's authority is the `/mrcfg` binding, that the ACTIVE record is PROTECTED, that the lookup is on
+//    the FULL 32 bits, that the compaction preserves order and WIPES the vacated slot, and that exactly one path
+//    writes — all live in `mrfw::TeamKeyringService`, where `test/test_firmware_team_keyring.cpp` COUNTS the writes
+//    and PROVES the bytes. Here: two calls.
+// ⛔ THE LIST WRITES NOTHING AND CHOOSES NOTHING; the removal is the operator's SECOND, SEPARATE transaction and
+//    ⛔ resumes no create (the two-explicit-transactions ruling).
+// ⚠ THE ADAPTER IS A STACK LOCAL, for the reason the four forwards above give: it holds no state worth keeping and
+//   must not outlive the call. ⛔ The SERVICE it composes is the ONE keyring instance.
+mrfw::SavedKeyList team_keyring_list() {
+    DeviceTeamKeyBinding binding;
+    return team_keyring_service().list(binding);
+}
+mrfw::KeyringForget team_keyring_forget(uint32_t team_id) {
+    DeviceTeamKeyBinding binding;
+    return team_keyring_service().forget(team_id, binding);
 }
 
 // ★★ §UI-15 slice 5 — THE OLED PATH's TWO DEVICE FORWARDS (declared in firmware_config.h, which carries the boundary
@@ -1848,6 +1874,119 @@ static void team_report_not_applied(const mrfw::ProvResult& res, Print& out) {
     }
 }
 
+// ============================================================ §UI-16 K6 — `team keys` / `team forgetkey` (§4-K6)
+// ★★★★ SAVED-KEY **RETENTION MANAGEMENT**, ⛔ NEVER "KEY ROTATION": nothing here re-keys a team. `team new` mints a
+//      fresh random id each time, so four of them fill the fixed four-record `/mrteams` keyring and the fifth
+//      correctly reaches `KEYRING FULL` (P-15, which ⛔ never evicts). These two verbs are how the operator frees a
+//      slot — and they are **TWO EXPLICIT TRANSACTIONS**: the removal completes and reports its own verdict, after
+//      which the operator retries the create. ⛔ `team new` deletes NOTHING as a side effect, here or anywhere.
+// ⛔⛔ AND NO KEY BYTE IS PRINTED BY EITHER, ON ANY ARM. The list carries the PUBLIC team id and one status word;
+//     the removal's refusals name FACTS about the store. `team exportkey` remains the ONE disclosure verb and is
+//     ⛔ NOT reused as the list (spec §4-K6's own clause).
+// ⓘ BOTH ARE REPORTING HALVES ONLY (this file's rule): the enumeration's metadata-only shape, the ACTIVE marker's
+//   authority, the PROTECTION of the active record, the full-32-bit lookup, the compaction and the wipe are all
+//   `mrfw::TeamKeyringService`'s, which is pure and which the native suite drives. ⚠ This TU is compiled by NEITHER
+//   the native suite NOR the simulator (§B115), so what is below must stay decision-free — and it is why the two
+//   `switch`es are `default`-less: a new outcome is a BUILD FAILURE here until it is worded.
+static void team_list_keys(Print& out) {
+    const mrfw::SavedKeyList l = mrfw::team_keyring_list();
+    // ⛔ THE FOUR READ STATES ARE FOUR DIFFERENT SENTENCES, for `join_store_head`'s reason one feature over: a fresh
+    //    device, a corrupt record and a store that would not open take three different operator actions.
+    if (!l.served) { out.println(F("> team keys err: no keyring service on this build")); return; }
+    if (!l.binding_read) {
+        out.println(F("> team keys err: the config record (/mrcfg) could not be read, so the ACTIVE key cannot be identified."));
+        out.println(F(">   NOTHING is listed — a list that cannot mark the active key could invite you to remove it. Check `faults`."));
+        return;
+    }
+    switch (l.st) {
+        case mrnv::TeamKeyRead::absent:
+            out.println(F("> team keys: none retained (this node has never stored a team key)")); return;
+        case mrnv::TeamKeyRead::invalid:
+            out.println(F("> team keys err: the saved team-key store (/mrteams) is CORRUPT — the keys it held are unreadable."));
+            out.println(F(">   NOTHING changed. A teammate must re-grant (`team grantkey`) once the store is usable."));
+            return;
+        case mrnv::TeamKeyRead::io_failed:
+            out.println(F("> team keys err: the saved team-key store (/mrteams) COULD NOT BE OPENED — nothing is known about the keys it holds."));
+            out.println(F(">   NOTHING changed and NOTHING was rewritten. Check `faults`, then retry."));
+            return;
+        case mrnv::TeamKeyRead::ok:
+            break;
+    }
+    if (l.n == 0) { out.println(F("> team keys: none retained")); return; }
+    out.print(F("> team keys: ")); out.print((unsigned)l.n);
+    out.print(F(" of ")); out.print((unsigned)mrnv::kTeamKeyRecs); out.println(F(" retained"));
+    for (uint8_t i = 0; i < l.n; ++i) {
+        char id[9]; snprintf(id, sizeof id, "%08lX", (unsigned long)l.rec[i].team_id);
+        out.print(F(">   0x")); out.print(id);
+        // ⓘ The marker is the SERVICE's `active` fact (the `/mrcfg` binding), ⛔ never re-derived here from
+        //   membership or from "a key is present" — and it is a STATUS, ⛔ not authority to remove anything.
+        if (l.rec[i].active) out.print(F("  ACTIVE"));
+        out.println();
+    }
+    out.println(F(">   remove ONE inactive record with `team forgetkey 0x<team-id> confirm` (the ACTIVE key is protected)."));
+    out.println(F(">   \xe2\x9b\x94 no key material is listed — `team exportkey` is the ONE disclosure verb."));
+}
+// `team forgetkey 0x<team-id> confirm` — ONE inactive record, and every other input performs ZERO writes and fails
+// LOUDLY. ★ THE `confirm` TOKEN IS MANDATORY AND IS CHECKED BEFORE THE SERVICE IS EVEN CALLED: an irreversible
+// removal must cost a deliberate second word, exactly as `joinprofile reset confirm` does (U3).
+static void team_forget_key(const char* args, Print& out) {
+    while (*args == ' ') ++args;
+    uint32_t t = 0;
+    const char* tail = nullptr;
+    if (!*args || !parse_team_target(args, t, tail)) {
+        out.println(F("> team err usage: `team forgetkey 0x<team-id> confirm` — removes ONE retained (inactive) team key."));
+        out.println(F(">   run `team keys` for the ids. The ACTIVE key is PROTECTED and cannot be removed."));
+        out.println(F(">   \xe2\x9b\x94 NOTHING changed — this verb writes nothing without the `confirm` word."));
+        return;
+    }
+    while (*tail == ' ') ++tail;
+    if (strcmp(tail, "confirm") != 0) {
+        out.println(F("> team err: `forgetkey` REFUSED — the `confirm` word is missing (removing a team key is IRREVERSIBLE:"));
+        out.println(F(">   no seed derives a team content key, so only a teammate's re-grant can restore it)."));
+        out.println(F(">   NOTHING changed. Retype it as `team forgetkey 0x<team-id> confirm`."));
+        return;
+    }
+    // ⛔ `-Werror=switch` here too, `default`-less, for `team_report_not_applied`'s reason: a new outcome must be
+    //    worded before this file builds. ⓘ Each arm names a FACT and a REMEDY; ⛔ none names material.
+    switch (mrfw::team_keyring_forget(t)) {
+        case mrfw::KeyringForget::forgotten: {
+            char id[9]; snprintf(id, sizeof id, "%08lX", (unsigned long)t);
+            out.print(F("> team: KEY FORGOTTEN — the retained team key for 0x")); out.print(id);
+            out.println(F(" was removed from /mrteams."));
+            out.println(F(">   The remaining records are unchanged. \xe2\x9b\x94 Nothing was re-created: retry your `team new` yourself."));
+            return;
+        }
+        case mrfw::KeyringForget::zero_team:
+            out.println(F("> team err: 0 is not a team id — nothing was read and NOTHING changed.")); return;
+        case mrfw::KeyringForget::binding_unreadable:
+            out.println(F("> team err: the config record (/mrcfg) could not be read, so the ACTIVE key cannot be identified."));
+            out.println(F(">   REFUSED with NOTHING changed — a removal that cannot tell which key is live must not run. Check `faults`."));
+            return;
+        // ★★★★ THE PROTECTION, AND THE MESSAGE SAYS WHAT TO DO INSTEAD rather than only refusing ([[B230]]'s rule).
+        case mrfw::KeyringForget::active_key:
+            out.println(F("> team err: that is the ACTIVE team key — it is PROTECTED and cannot be forgotten."));
+            out.println(F(">   NOTHING changed. Leave the team first (`team 0`) if you really mean to retire it, then retry."));
+            return;
+        case mrfw::KeyringForget::no_record:
+            out.println(F("> team err: no retained key for that team id — NOTHING changed. Run `team keys` for the ids.")); return;
+        case mrfw::KeyringForget::store_failed:
+            out.println(F("> team err: the saved team-key store (/mrteams) is CORRUPT or COULD NOT BE OPENED — nothing is known about it."));
+            out.println(F(">   REFUSED with NOTHING written: up to 4 intact keys may be behind a transient fault. Check `faults`, then retry."));
+            return;
+        // ⛔⛔ A FAILED SAVE IS REPORTED AS A FAILED SAVE, ⛔ NEVER AS "nothing changed" — [[B193]]: a backend can
+        //     fail AFTER a partial write, and this file may not claim the flash did not move. What IS established is
+        //     that the removal did not COMPLETE.
+        case mrfw::KeyringForget::nv_save_failed:
+            out.println(F("> team err keyring_save_failed — the removal did NOT complete: the /mrteams write reported failure."));
+            out.println(F(">   \xe2\x9a\xa0 This is NOT a claim that flash is unchanged. Run `team keys` to see the store's CURRENT contents, then retry."));
+            return;
+        // ⛔ NOT AN OUTCOME (the enum's inventory sentinel) — listed so -Wswitch stays exhaustive, and answered with
+        //    a refusal rather than a plausible-looking word.
+        case mrfw::KeyringForget::count:
+            return;
+    }
+}
+
 // §mobile 6.1: FNV-1a over (key_hash32 ‖ nonce) = the 32-bit team_id (team_fnv1a32, firmware_config_parse.h).
 // `team new` = MINT a fresh team_id = hash(our key ‖ HW-RNG nonce). `team <id>` = JOIN an existing team. `team 0` = leave.
 void handle_team(const char* args, Print& out) {
@@ -1876,6 +2015,21 @@ void handle_team(const char* args, Print& out) {
     // `exportkey` (strtoul would read `grantkey …` as `team 0` = LEAVE). ⚠ `grantkey` must be tested before any prefix
     // of it could match something else — it shares no prefix with `new`/`exportkey`, so order among the three is free.
     if (!strncmp(args, "grantkey", 8)) { team_grant_key(args + 8, out); return; }
+    // ★★★★ §UI-16 K6 — THE FIFTH AND SIXTH SUBCOMMANDS: SAVED-KEY **RETENTION MANAGEMENT** (⛔ never key rotation).
+    //      Matched BEFORE the numeric parse for the SAME safety reason `exportkey`/`grantkey` are (`strtoul` reads a
+    //      non-numeric tail as `team 0` = LEAVE THE TEAM). ⓘ `forgetkey` must be tested before `keys` could ever
+    //      prefix-match it — it cannot (`f` vs `k`), so order among the four is free; both share no prefix with
+    //      `new`/`exportkey`/`grantkey` either.
+    // ⛔⛔ ORDER MATTERS THE OTHER WAY TOO: `keys` is tested with a LENGTH-CHECKED compare rather than a bare
+    //     `strncmp(args, "keys", 4)`, because the latter would also swallow a future `keysomething`.
+    if (!strncmp(args, "forgetkey", 9)) { team_forget_key(args + 9, out); return; }
+    if (!strncmp(args, "keys", 4) && (args[4] == '\0' || args[4] == ' ')) {
+        const char* tail = args + 4; while (*tail == ' ') ++tail;
+        // C2: never silently ignore a tail — and never let one reach the leave path below.
+        if (*tail) { out.println(F("> team err: `team keys` takes no arguments")); return; }
+        team_list_keys(out);
+        return;
+    }
     const bool mint_form = !strncmp(args, "new", 3);
     if (mint_form) {
         // ★★ §PROV-TX §3.5: THE ID IS NO LONGER MINTED HERE. It used to be `t = team_fnv1a32(key_hash32, nonce)` on
@@ -1908,6 +2062,7 @@ void handle_team(const char* args, Print& out) {
         out.println(F(">   mistyped subcommand parsed as `team 0` and LEFT THE TEAM, a 0x-less hex id JOINED THE WRONG TEAM, and"));
         out.println(F(">   an out-of-range id JOINED GARBAGE TEAM 0xFFFFFFFF on the 32-bit boards — or LEFT THE TEAM on a 64-bit host.)"));
         out.println(F(">   valid: `team new` | `team <id>` | `team 0` (leave) | `team exportkey` | `team grantkey <target>`"));
+        out.println(F(">          | `team keys` (list the retained keys) | `team forgetkey 0x<team-id> confirm`"));
         out.println(F(">   run `team` with no argument for the full usage."));
         return;
     } else {
@@ -1915,6 +2070,10 @@ void handle_team(const char* args, Print& out) {
         out.println(F(">   both forms also take `[tkpub=<64 hex> tkpriv=<64 hex>]` to ADOPT an existing team channel key (else `team new` mints one)"));
         out.println(F(">   `team exportkey` prints this team's channel keypair as JSON (for the app's team QR) — it discloses a PRIVATE key"));
         out.println(F(">   `team grantkey <target>` sends this team's channel key to a teammate in a SEALED DM (needs a verified pubkey for it)"));
+        // §UI-16 K6 — saved-key RETENTION management (⛔ not key rotation): the 4-record keyring's list and its one
+        // explicit, confirmed removal. The ACTIVE key is protected; `team new` never deletes a record to make room.
+        out.println(F(">   `team keys` lists the RETAINED team keys (ids + which is ACTIVE) — no key material is printed"));
+        out.println(F(">   `team forgetkey 0x<team-id> confirm` removes ONE retained INACTIVE key, freeing a slot when `KEYRING FULL`"));
         return;
     }
     // ★★★ §PROV-TX ([[B207]], owner-ruled 2026-08-17) — FROM HERE THIS VERB IS **ONE TYPED TRANSACTION**.

@@ -91,16 +91,31 @@ enum class MrUiWakeArm : uint8_t { ok = 0, button_down = 1, failed = 2 };
 //    refusals), so it ⛔ navigates nothing, ⛔ opens nothing, ⛔ moves no cursor, ⛔ writes no emergency field and
 //    ⛔ does NOT WAKE a dark panel. (§UI-17 R-7 scoped the wake to a DM addressed to us and a SEALED channel post;
 //    a grant receipt is neither, and widening it is a new owner ruling — so the omission is a decision.)
-// ⓘ IT TAKES NO ARGUMENT, and that is the note's own rule arriving at the seam: the note carries no team id (left at
-//   0 deliberately — an id off the air is not an operator's selection) and the granter's optional `name=` is never
-//   read at all (F-3/P-5, spec §8 S-36's forbidden usage). There is nothing true this hook could pass that the panel
-//   would be allowed to draw, so passing anything would only invite a future renderer to draw it.
+// ⛔⛔ **CORRECTED IN PLACE 2026-08-25 (§UI-16 K6's QG blocker), AND THE WITHDRAWN CLAIM IS KEPT VISIBLE BECAUSE IT
+//     WAS NORMATIVE:** this read *"ⓘ IT TAKES NO ARGUMENT, and that is the note's own rule arriving at the seam: the
+//     note carries no team id (left at 0 deliberately — an id off the air is not an operator's selection) and the
+//     granter's optional `name=` is never read at all (F-3/P-5, spec §8 S-36's forbidden usage). There is nothing
+//     true this hook could pass that the panel would be allowed to DRAW, so passing anything would only invite a
+//     future renderer to draw it."*
+// ★★★ THE HALF THAT HELD IS THE ONE THAT MATTERED, AND IT IS WHY THE PARAMETER IS SAFE: there is still nothing this
+//     hook may pass that the panel may **DRAW** — ⛔ no team id, ⛔ no name, ⛔ no key byte, and ⛔ not one of the
+//     three ruled rows changes. What the parameter carries is a **LANDING**: *was this receipt's durable refusal the
+//     FULL keyring?* Spec §K6 (`:987`) rules that a `KEYRING FULL` result — of **either origin**, a `team new` or a
+//     received grant — acknowledges into the `SAVED KEYS` list, where the dead end can be resolved. Without it the
+//     fifth RECEIVED grant showed three true rows and then walked the operator to a menu that says nothing.
+// ★ ONE DOOR, ONE FACT — ⛔ deliberately NOT a ninth hook: a second door for the SAME event is exactly the race this
+//   block warns about two paragraphs up (*"the two notes would race for one result slot"*). The fact is a TYPED
+//   derivation of `mrfw::KeyringErr::keyring_full` made by a pure unit the native suite drives; this seam only
+//   carries it, and `fw_main` only forwards it (U3 — it gains a CALL, ⛔ never a decision).
+// ⛔ AND IT AUTHORISES NOTHING ELSE: the landing deletes no record and ⛔ retries no grant — the removal remains the
+//    operator's own separate, confirmed transaction, as everywhere in K6.
 #if MR_FEAT_OLED
 void mr_ui_init();                                // boot: bring the panel up (called once, end of setup())
 void mr_ui_tick(uint32_t now_ms);                 // main loop: periodic refresh — THROTTLE inside (called every service pass)
 void mr_ui_on_push(const meshroute::Push& pu);    // event: an app Push worth surfacing (RX DM / channel / ACK / send-failed)
 void mr_ui_on_config_saved();                     // event: a SUCCESSFUL, PERSISTED /mrcfg write by serial/BLE (§3.6.1)
-void mr_ui_on_team_key_unsaved();                 // [[B243]]: a grant receipt whose durable save FAILED (RAM-only)
+void mr_ui_on_team_key_unsaved(bool keyring_full);// [[B243]]: a grant receipt whose durable save FAILED (RAM-only)
+                                                  //           §UI-16 K6: `keyring_full` = the refusal was P-15's FULL store ⇒ the ack lands in SAVED KEYS
 bool mr_ui_allows_sleep();                        // policy: may the CPU light-sleep now? (false = panel lit / gesture / open frame)
 MrUiWakeArm mr_ui_arm_button_wake();              // §B200: arm the button wake FOR THIS SLEEP ONLY — call immediately before halting
 bool mr_ui_disarm_button_wake();                  // §B200: ...and immediately after waking, on EVERY path (false = hardware failure)
@@ -110,7 +125,7 @@ inline void mr_ui_init() {}
 inline void mr_ui_tick(uint32_t /*now_ms*/) {}
 inline void mr_ui_on_push(const meshroute::Push& /*pu*/) {}
 inline void mr_ui_on_config_saved() {}
-inline void mr_ui_on_team_key_unsaved() {}
+inline void mr_ui_on_team_key_unsaved(bool /*keyring_full*/) {}
 inline bool mr_ui_allows_sleep() { return true; }
 // ⓘ No panel ⇒ no button ⇒ nothing to arm, so the answer is the PERMISSION (`ok`) and the disarm is a no-op that
 //   cannot fail. Both fold to constants at the call site, which is what keeps a non-OLED profile's sleep path

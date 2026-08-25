@@ -3617,11 +3617,16 @@ namespace {
 // clock are positional in ~40 call sites, and re-ordering them would be a refactor riding a feature (C1). Its
 // default is FALSE, i.e. the row is hidden unless a case asks for it — the same direction the snapshot's own
 // default takes, and for the same reason (a fixture that published nothing must offer nothing).
+// ⚠ §UI-16 K6's `saved_keys` predicate is appended LAST, after `invite`, for the identical reason that one was
+// appended after `now_ms`: the landed children and the clock are positional in ~40 call sites and re-ordering them
+// would be a refactor riding a feature (C1). Its default is FALSE — the row is hidden unless a case asks for it, so
+// every landed case keeps the exact four-child menu it was written against.
 UiSnapshot prov_snap(bool create_team = true, bool join_static = true, bool join_team = true,
-                     uint32_t now_ms = 1000, bool invite = false) {
+                     uint32_t now_ms = 1000, bool invite = false, bool saved_keys = false) {
     UiSnapshot s = cfg_snap(now_ms);
     s.prov_create_team = create_team; s.prov_join_static = join_static; s.prov_join_team = join_team;
     s.prov_invite = invite;
+    s.prov_saved_keys = saved_keys;
     return s;
 }
 // Walk to SETTINGS, put the cursor on PROVISION and open it. ⚠ The caller ASSERTS the landing — this returns the
@@ -4015,7 +4020,7 @@ TEST_CASE("ui15-emergency: a long press CLOSES the provisioning sub-view before 
 // ---------------------------------------------------------------------------------------------- §6 — availability
 TEST_CASE("ui15-hide: each child follows its OWN predicate, and STATIC JOIN survives a team-less build") {
     ProvRow r{};
-    const ProvRowList both = provision_rows(true, true, /*join_team=*/false, /*invite=*/false);
+    const ProvRowList both = provision_rows(true, true, /*join_team=*/false, /*invite=*/false, /*saved_keys=*/false);
     CHECK(both.n == 3);
     CHECK(both.at(0, r)); CHECK(r == ProvRow::create_team);
     CHECK(both.at(1, r)); CHECK(r == ProvRow::join_static);
@@ -4025,17 +4030,17 @@ TEST_CASE("ui15-hide: each child follows its OWN predicate, and STATIC JOIN surv
     // ★★★ PLAN §6's CORRECTION, AND THIS IS THE CASE THAT CARRIES IT: with the TEAM plane absent, CREATE is hidden
     //     and ⛔ STATIC JOIN IS NOT — it has nothing to do with the team plane. A model that governed both children
     //     by one flag passes every other case in this block and fails here.
-    const ProvRowList join_only = provision_rows(false, true, /*join_team=*/false, /*invite=*/false);
+    const ProvRowList join_only = provision_rows(false, true, /*join_team=*/false, /*invite=*/false, /*saved_keys=*/false);
     CHECK(join_only.n == 2);
     CHECK(join_only.at(0, r)); CHECK(r == ProvRow::join_static);
     CHECK(join_only.at(1, r)); CHECK(r == ProvRow::back);
-    const ProvRowList create_only = provision_rows(true, false, /*join_team=*/false, /*invite=*/false);
+    const ProvRowList create_only = provision_rows(true, false, /*join_team=*/false, /*invite=*/false, /*saved_keys=*/false);
     CHECK(create_only.n == 2);
     CHECK(create_only.at(0, r)); CHECK(r == ProvRow::create_team);
     CHECK(create_only.at(1, r)); CHECK(r == ProvRow::back);
     // ⓘ NEITHER child (the `gateway_heltec` shape: OLED=1, MR_N_LAYERS=2) — the menu still has BACK, because leaving
     //   must never depend on a build flag.
-    const ProvRowList none = provision_rows(false, false, /*join_team=*/false, /*invite=*/false);
+    const ProvRowList none = provision_rows(false, false, /*join_team=*/false, /*invite=*/false, /*saved_keys=*/false);
     CHECK(none.n == 1);
     CHECK(none.at(0, r)); CHECK(r == ProvRow::back);
     // ...and every row's label fits the rail's 19-column body with its `>` marker
@@ -4078,20 +4083,20 @@ TEST_CASE("ui15-parent: with NO child the PROVISION row is HIDDEN, and it return
     //   which is the ruling — so the case that walked into it could not survive; the property it really carried
     //   (leaving never depends on a build flag) lives on in `provision_rows(false,false).n == 1` below and in
     //   `ui15-hide`'s list case.
-    CHECK(provision_has_child(true,  true,  false, false) == true);
-    CHECK(provision_has_child(true,  false, false, false) == true);
-    CHECK(provision_has_child(false, true,  false, false) == true);  // ⛔ static join alone STILL earns the parent
-    CHECK(provision_has_child(false, false, false, false) == false);
+    CHECK(provision_has_child(true,  true,  false, false, false) == true);
+    CHECK(provision_has_child(true,  false, false, false, false) == true);
+    CHECK(provision_has_child(false, true,  false, false, false) == true);  // ⛔ static join alone STILL earns the parent
+    CHECK(provision_has_child(false, false, false, false, false) == false);
     // ★ §UI-16 N2 — AND THE NEARBY CHILD ALONE EARNS IT TOO, which is the whole point of deriving the predicate
     //   from the child list: this line needed no change to `provision_has_child` beyond the parameter it forwards.
-    CHECK(provision_has_child(false, false, true, false)  == true);
+    CHECK(provision_has_child(false, false, true, false, false)  == true);
     // ★ §UI-16 N4 — AND THE INVITE CHILD ALONE EARNS IT, for the third time and still with no change to this
     //   predicate beyond the parameter it forwards. ⓘ It is the one child that can be the ONLY one on a real
     //   node: a leaf that is in a team but whose two join paths a future profile compiled out.
-    CHECK(provision_has_child(false, false, false, true) == true);
+    CHECK(provision_has_child(false, false, false, true, false) == true);
     // ⓘ ...and the child list itself is unchanged: BACK is still unconditional, so the sub-view could still be left
     //   if anything ever opened it. The ruling removes the DOOR, not the exit.
-    CHECK(provision_rows(false, false, false, false).n == 1);
+    CHECK(provision_rows(false, false, false, false, false).n == 1);
 
     // The `gateway_heltec` shape (OLED=1, MR_N_LAYERS=2): the row is on no list, so no press can select or activate it.
     CfgFix f; const auto s = prov_snap(/*create_team=*/false, /*join_static=*/false, /*join_team=*/false);
@@ -4151,12 +4156,22 @@ struct UiFakeProvision : IUiProvision {
     //    assertable rather than argued. ⓘ 0 = no `use_saved_key` intent was ever performed.
     UiProvAnswer      saved_answer{};
     uint32_t          last_saved_key_id = 0;
+    // ★★ §UI-16 K6: the RETENTION half — a FIFTH script for the reason the third and fourth exist (a case must not
+    //    be able to measure another act by accident), plus the LIST's own answer and its call counter. ⓘ
+    //    `last_forget_id` 0 = no `forget_key` intent was ever performed, which no real selection can produce (the
+    //    model refuses a 0 out loud); `keys_calls` is what makes *"the keyring is read ONCE, on the transition"* and
+    //    *"the result's acknowledgement REFRESHES it"* measurements rather than readings of the source.
+    UiProvAnswer        forget_answer{};
+    uint32_t            last_forget_id = 0;
+    mrfw::SavedKeyList  keys{};
+    int                 keys_calls = 0;
     UiProvAnswer perform(const UiProvIntent& in) override {
         ++calls;
         last_op = in.op;
         if (in.op == UiProvOp::join_static) last_join = in.join;
         if (in.op == UiProvOp::join_team)   last_team_id = in.team_id;
         if (in.op == UiProvOp::use_saved_key) last_saved_key_id = in.team_id;
+        if (in.op == UiProvOp::forget_key)  last_forget_id = in.team_id;
         if (m) {
             arm_at_call  = m->state().provisioning;
             head_at_call = prov_result_head(m->state().prov_answer);
@@ -4164,9 +4179,11 @@ struct UiFakeProvision : IUiProvision {
         if (in.op == UiProvOp::join_static) return join_answer;
         if (in.op == UiProvOp::join_team)   return team_answer;
         if (in.op == UiProvOp::use_saved_key) return saved_answer;
+        if (in.op == UiProvOp::forget_key)  return forget_answer;
         return answer;
     }
     UiJoinList profiles() override { ++list_calls; return list; }
+    mrfw::SavedKeyList saved_keys() override { ++keys_calls; return keys; }
 };
 struct UiFakeInvite : IUiInviteDevice {
     bool present = true;
@@ -6303,7 +6320,7 @@ TEST_CASE("ui16-hide: the NEARBY child follows its OWN predicate, and it alone e
         CfgFix f; auto s = nearby_snap(1);
         s.prov_create_team = false; s.prov_join_static = false;
         CHECK(provision_has_child(s.prov_create_team, s.prov_join_static, s.prov_join_team,
-                                  s.prov_invite) == true);
+                                  s.prov_invite, s.prov_saved_keys) == true);
         CHECK(open_provision(f.m, s));
         const ProvRowList l = f.m.provision_row_list(s);
         ProvRow r{};
@@ -7040,8 +7057,8 @@ TEST_CASE("ui16-inviterow: pin 12 — the row is the FOURTH child, and it is HID
     }
     // ⓘ THE `gateway_heltec` SHAPE (OLED=1, MR_N_LAYERS=2, MR_FEAT_TEAM=0): every child is off, so the PARENT row
     //   is hidden too — the predicate derived from the child list, which needed no change for a fourth child.
-    CHECK(provision_has_child(false, false, false, false) == false);
-    CHECK(provision_rows(false, false, false, false).n == 1);
+    CHECK(provision_has_child(false, false, false, false, false) == false);
+    CHECK(provision_rows(false, false, false, false, false).n == 1);
     // ★ AND WITH IT PUBLISHED, IT IS THE FOURTH ROW AND IT OPENS THE WINDOW.
     {
         CfgFix f; const auto s = invite_snap(1);
@@ -7518,9 +7535,20 @@ TEST_CASE("ui16-reqpubkey-resources: N5 adds no frame/state carrier and preserve
     //    proves the verdict was ADDED beside it rather than folded into it.
     // ⚠ NATIVE ALIGNMENT HIDES THE BOARD FIGURE (D2's standing warning) — this pins the shape, not the flash cost.
     CHECK(sizeof(mrui::InviteGrantResult) == 8u);
-    CHECK(sizeof(mrui::UiState) == 456u);
+    // ⚠ RE-MEASURED 2026-08-25 (§UI-16 K6): `UiState` 456 -> **496** and `UiModel` 880 -> **920**, because K6's two
+    //   carriers (`forget_team` 4 B + the frozen `SavedKeyList` 36 B) land at the struct's tail. ⛔ NOTHING N6 owns
+    //   moved — the eight `InviteWindow` offsets above and `InviteGrantResult`'s size are the ones it landed with,
+    //   which is what proves K6 ADDED beside this slice rather than into it (the full K6 arithmetic is in
+    //   `ui16-k6-resources`).
+    // ⚠ RE-MEASURED 2026-08-25 (§UI-16 K7, [[B245]]): `UiState` 496 -> **504** and `UiModel` 920 -> **928**,
+    //   because the roster grant's two frozen fields (`compose_grant_hash` 4 B + `compose_grant_row` 1 B) take one
+    //   8-byte quantum at the head of the struct. ⛔ NOTHING N5/N6 OWNS MOVED — the eight `InviteWindow` offsets
+    //   above and `InviteGrantResult`'s size are the ones those slices landed with, and `UiSnapshot` is untouched
+    //   because K7's one published field lands in an existing pad (the full K7 arithmetic is in
+    //   `ui16-k7-resources`).
+    CHECK(sizeof(mrui::UiState) == 504u);
     CHECK(sizeof(mrui::UiSnapshot) == 1008u);          // ⛔ UNCHANGED: N6 publishes no new snapshot field
-    CHECK(sizeof(mrui::UiModel) == 880u);
+    CHECK(sizeof(mrui::UiModel) == 928u);
 }
 
 // ================================================= §UI-16 N6 — THE GRANT ACT's MODEL HALF (the pure unit's own
@@ -7729,6 +7757,381 @@ TEST_CASE("ui16-invalarm: `long_arm` PRE-EMPTS the window, and the handled set d
     CHECK(f.m.emergency() == Emergency::idle);
 }
 
+// =====================================================================================================================
+// §UI-16 K7 ([[B245]]) — THE ROSTER GRANT: the per-member act on the ENTERED TEAM screen (spec §K7, ruled 2026-08-25)
+// =====================================================================================================================
+// ★★★ WHAT THIS BLOCK MEASURES, AND WHAT IT DELIBERATELY DOES NOT. K7 is an **ENTRY POINT** and nothing else: every
+//     screen, lexeme, send path and outcome word past the act belongs to N5/N6, is reached VERBATIM, and is already
+//     driven by the cases above and by `test/test_firmware_ui_invite.cpp`. ⇒ what is driven HERE is exactly the
+//     seam: WHERE the act hangs, WHEN it is offered, WHAT identity it freezes, and that reaching the landed chain
+//     from this door changes NOTHING about the chain — including the invitation window it deliberately bypasses.
+// ⛔ THE RENDERER IS MEASURED IN NEITHER SUITE (§B115): its cover is `tools/probe_firmware_ui`'s roster-grant phase,
+//    which drives the whole B245 repro through the REAL services.
+namespace {
+// `invite_snap`'s fixture PLUS the two facts the roster grant asks about **US**: the content key we would ship, and
+// our own stable identity — the value `Node::team_key_grant_send`'s `self` arm compares against.
+UiSnapshot k7_snap(uint8_t n, uint32_t now_ms = 1000) {
+    UiSnapshot s = invite_snap(n, now_ms);
+    s.team_key_present = true;
+    s.my_key_hash32    = 0x5E1F0000u;
+    return s;
+}
+// Enter the TEAM roster (§UI-17 S1: `short` to the screen, `double` to enter) and open the act sub-view of the
+// member at published row `idx`. ⚠ The caller ASSERTS the landing; this returns a verdict rather than claiming one.
+bool open_member_acts(UiModel& m, const UiSnapshot& s, uint8_t idx) {
+    to_team(m, s);
+    for (uint8_t i = 0; i < idx; ++i) m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::double_press, s);
+    return m.state().compose == Compose::dm && m.state().compose_peer == s.team[idx].id;
+}
+// Walk the act sub-view's cursor onto the GRANT row. ⛔ Never a hardcoded index: the row is OPTIONAL, which is
+// exactly the positional coupling §B66 forbids reasoning about. BOUNDED, so an ABSENT row fails the caller's check.
+bool compose_cursor_to_grant(UiModel& m, const UiSnapshot& s) {
+    for (int i = 0; i < mrui::kDmTextCount + 2; ++i) {
+        if (mrui::compose_row_kind(m.state().cursor, m.state().compose == Compose::dm,
+                                   m.state().compose_grant_row) == mrui::ComposeRow::grant) return true;
+        m.on_gesture(Gesture::short_press, s);
+    }
+    return false;
+}
+// Leave the provisioning sub-view, then the SETTINGS menu, then the screen — landing on STATUS, from which
+// `to_team` runs. ⛔ Every step is by ROW IDENTITY, never by a press count.
+void leave_settings_to_status(UiModel& m, const UiSnapshot& s) {
+    if (m.state().provisioning == Provision::invite) leave_invite(m, s);   // the window has a list of its OWN
+    if (m.state().settings == Settings::provisioning) {
+        (void)prov_cursor_to(m, s, ProvRow::back);
+        m.on_gesture(Gesture::double_press, s);
+    }
+    if (m.state().settings == Settings::browsing) {
+        (void)cursor_to(m, s, CfgRow::back);
+        m.on_gesture(Gesture::double_press, s);
+    }
+    m.on_gesture(Gesture::short_press, s);   // [[B232]]'s closed entry view passes the screen in ONE press
+}
+}  // namespace
+
+TEST_CASE("ui16-k7-act: pin 1 — the act hangs on an entered-TEAM member row and opens the chain with the ROW'S hash") {
+    const auto s = k7_snap(2);
+    {   // ⛔ THE PASSIVE PREVIEW OFFERS NOTHING (§UI-17 S1, P-12): the roster must be ENTERED first, and the act is
+        //    three deliberate presses past that — enter, open the member, walk to the row, confirm.
+        CreateFix p;
+        p.m.on_gesture(Gesture::short_press, s);
+        CHECK(p.m.state().screen == Screen::team);
+        CHECK(p.m.state().list_view == ListView::passive);
+        CHECK(p.m.state().compose == Compose::none);
+        CHECK(p.invite_dev.grants == 0);
+        CHECK(p.invite_dev.reads == 0);
+    }
+    CreateFix f;
+    CHECK(open_member_acts(f.m, s, 1));                            // the SECOND roster row, not the first
+    CHECK(f.m.state().compose_peer == s.team[1].id);
+    // ★★★ THE ACT IS OFFERED, AND ITS TARGET IS THE ROW'S OWN `key_hash32` — resolved through the TEAM chain's one
+    //     lookup per row (`UiSnapshot::member`), ⛔ never the display name and ⛔ never the row index.
+    CHECK(f.m.state().compose_grant_row  == true);
+    CHECK(f.m.state().compose_grant_hash == s.member[1].key_hash32);
+    CHECK(f.m.state().compose_grant_hash != s.member[0].key_hash32);
+    // ...and the sub-view is the canned list PLUS one row, with `back` still LAST.
+    CHECK(mrui::compose_row_count(true, true) == uint8_t(mrui::kDmTextCount + 1));
+    CHECK(mrui::compose_row_kind(uint8_t(mrui::kDmSendableTexts), true, true) == mrui::ComposeRow::grant);
+    CHECK(mrui::compose_row_kind(uint8_t(mrui::kDmTextCount), true, true) == mrui::ComposeRow::back);
+    // ⛔ THE WORD IS S-17, DECLARED ONCE IN THE INVITE UNIT AND REUSED — §K7 adds ⛔ no lexeme.
+    CHECK(mrui::compose_row_text(uint8_t(mrui::kDmSendableTexts), true, true) == mrui::kInviteGrantKey);
+    CHECK(strcmp(mrui::compose_row_text(uint8_t(mrui::kDmSendableTexts), true, true), "GRANT KEY") == 0);
+
+    CHECK(compose_cursor_to_grant(f.m, s));
+    CHECK(f.invite_dev.grants == 0);                               // walking onto it performs NOTHING
+    f.m.on_gesture(Gesture::double_press, s);
+    // ★★★★ AND IT LANDS IN THE **LANDED** N5/N6 CHAIN. The preflight ran, at the GRANT'S OWN BAR, on the row's hash.
+    CHECK(f.m.state().provisioning == Provision::invite_confirm);
+    CHECK(f.m.state().settings == Settings::provisioning);
+    CHECK(f.m.state().screen == Screen::settings);
+    CHECK(f.invite_dev.read_hash  == s.member[1].key_hash32);
+    CHECK(f.invite_dev.read_floor == MESHROUTE_NS::Node::PeerKeyConf::authoritative);
+    // ★★★ THE FROZEN SELECTION IS THE CHAIN'S OWN CARRIER (U2), and ⛔ NO SNAPSHOT WAS TAKEN: this door contributes
+    //     nothing to F-11's two authorities, so it announces nobody as `NEW MEMBER` (rule 1, fail-CLOSED).
+    CHECK(f.m.state().invite.sel_hash == s.member[1].key_hash32);
+    CHECK(f.m.state().invite.taken == false);
+    CHECK(f.m.state().invite.n == 0);
+    CHECK(f.m.state().invite.handled_n == 0);
+    CHECK(mrui::invite_sel_rows(f.m.state().invite, s.member, s.team_shown).n == 1);   // BACK alone
+    // ★★ REJECT is still selected initially — the safe default the chain owns (N6 pin 1), inherited, not restated.
+    CHECK(f.m.state().prov_confirm == ProvConfirm::invite_reject);
+    CHECK(f.invite_dev.grants == 0);
+    // ...and the sub-view it was opened from is gone, with BOTH frozen fields retired.
+    CHECK(f.m.state().compose == Compose::none);
+    CHECK(f.m.state().compose_grant_hash == 0);
+    CHECK(f.m.state().compose_grant_row == false);
+}
+
+TEST_CASE("ui16-k7-b245: pin 2 — THE REPRO, END TO END: a member present BEFORE any window is grantable HERE") {
+    CreateFix f; const auto s = k7_snap(2);                        // both members joined BEFORE anything was opened
+    // ---- THE DEAD END, DRIVEN RATHER THAN QUOTED: the invitation window sees neither of them, and is RIGHT to.
+    CHECK(open_invite(f, s));
+    CHECK(f.m.state().invite.taken == true);
+    CHECK(invite_cands(f.m, s) == 0);                              // N4 pin 2 — present at snapshot ⇒ never a candidate
+    CHECK(strcmp(mrui::invite_note(mrui::invite_sel_rows(f.m.state().invite, s.member, s.team_shown)),
+                 mrui::kInviteEmpty) == 0);
+    leave_settings_to_status(f.m, s);
+    CHECK(f.m.state().screen == Screen::status);
+    CHECK(f.invite_dev.grants == 0);                               // ⛔ the whole window round trip granted NOTHING
+
+    // ---- ...AND THE ROSTER REACHES THE VERY SAME MEMBER. This is [[B245]] closed, in one model, in one case.
+    CHECK(open_member_acts(f.m, s, 0));
+    CHECK(f.m.state().compose_grant_row == true);
+    CHECK(compose_cursor_to_grant(f.m, s));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::invite_confirm);
+    f.invite_dev.tx     = MESHROUTE_NS::Node::TeamKeyGrantTx::queued;
+    f.invite_dev.tx_ctr = 909;
+    f.invite_dev.tx_dst = 41;                                      // the id the CORE resolved at send time (N6b)
+    f.m.on_gesture(Gesture::short_press, s);                       // REJECT -> GRANT KEY
+    CHECK(f.invite_dev.grants == 0);
+    f.m.on_gesture(Gesture::double_press, s);
+    // ★★★★ ONE forward, on the row's hash, on the TEAM plane — the LANDED act, reached from the new door.
+    CHECK(f.invite_dev.grants == 1);
+    CHECK(f.invite_dev.grant_hash  == s.member[0].key_hash32);
+    CHECK(f.invite_dev.grant_plane == mrui::kInviteGrantPlane);
+    CHECK(f.m.state().provisioning == Provision::invite_result);
+    CHECK(f.m.state().grant.st == mrui::InviteGrantState::queued);
+    CHECK(strcmp(mrui::invite_grant_word(f.m.state().grant.st), "GRANT QUEUED") == 0);
+    CHECK(strcmp(mrui::invite_grant_word(f.m.state().grant.st), "KEY SENT") != 0);   // F-9, from this entry too
+    // ★★★ AND THE `{dst, ctr}` CORRELATION PROMOTES IT — the SAME rule, on the SAME carrier, reached the same way.
+    MESHROUTE_NS::Push wrong{};
+    wrong.kind = MESHROUTE_NS::PushKind::send_aired; wrong.ctr = 909; wrong.dst = 42;
+    CHECK(f.m.on_invite_grant_push(wrong) == false);
+    CHECK(f.m.state().grant.st == mrui::InviteGrantState::queued);
+    MESHROUTE_NS::Push aired{};
+    aired.kind = MESHROUTE_NS::PushKind::send_aired; aired.ctr = 909; aired.dst = 41;
+    CHECK(f.m.on_invite_grant_push(aired) == true);
+    CHECK(f.m.state().grant.st == mrui::InviteGrantState::sent);
+    CHECK(strcmp(mrui::invite_grant_word(f.m.state().grant.st), "KEY SENT") == 0);
+    // ⛔ NO DURABLE WRITE, NO TRANSACTION, NO LIVE APPLY: a grant is airtime, ⛔ never a provisioning act.
+    CHECK(f.store.writes == 0);
+    CHECK(f.prov.calls == 0);
+    CHECK(f.live.applies == 0);
+}
+
+TEST_CASE("ui16-k7-window: pin 3 — the invitation window is UNDISTURBED in both directions") {
+    // ★★★ THE STRONGEST PROOF IS A DIFF (`src/firmware_ui_invite.h` is untouched by this slice); what is driven
+    //     here is the STATE the two doors share, because that is the one thing a diff cannot answer.
+    CreateFix f; const auto s = k7_snap(2);
+    // ---- (a) THE ROSTER GRANT LEAVES NOTHING BEHIND for a window opened afterwards ------------------------------
+    CHECK(open_member_acts(f.m, s, 0));
+    CHECK(compose_cursor_to_grant(f.m, s));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::invite_confirm);
+    f.m.on_gesture(Gesture::double_press, s);                      // REJECT — the handled set's only writer
+    CHECK(f.m.state().provisioning == Provision::invite);
+    CHECK(f.m.state().invite.handled_n == 1);                      // ...it works from this door too (F-13)
+    CHECK(f.m.state().invite.taken == false);                      // ⛔ but there is still NO snapshot
+    // The window proper, opened afterwards, takes its OWN snapshot and starts with an EMPTY handled set.
+    leave_invite(f.m, s);                                          // ...this list's BACK lands on the PROVISION menu
+    CHECK(f.m.state().provisioning == Provision::menu);
+    CHECK(prov_cursor_to(f.m, s, ProvRow::invite));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::invite);
+    CHECK(f.m.state().invite.taken == true);
+    CHECK(f.m.state().invite.n == 2);                              // BOTH authoritative hashes, as always
+    CHECK(f.m.state().invite.handled_n == 0);                      // ★ the roster entry's rejection did NOT survive
+    CHECK(invite_cands(f.m, s) == 0);                              // and the diff answers exactly as it did before
+    // ---- (b) ...AND A LIVE WINDOW IS NOT REACHABLE FROM THE ROSTER AT ALL --------------------------------------
+    // ⓘ The sub-view owns the press, so leaving SETTINGS is what it takes to reach TEAM — which is precisely why
+    //   the two flows can never be open at once and cannot share `_invite_until_ms`.
+    CHECK(f.m.state().screen == Screen::settings);
+    leave_settings_to_status(f.m, s);
+    CHECK(f.m.state().settings == Settings::closed);
+    CHECK(f.m.state().provisioning == Provision::closed);
+    CHECK(f.m.state().invite.taken == false);                      // the window's whole state died with the leave
+}
+
+TEST_CASE("ui16-k7-silent: pin 4 — nothing transmits without the operator's EXPLICIT confirmations (counted)") {
+    // ★★★ THE N5 IDIOM, RE-PROVEN FROM THIS ENTRY: the assertion is a COMMAND COUNT, ⛔ never a screen. A panel
+    //     saying `WAITING FOR PUBKEY` proves nothing about the air; the executor's call count does.
+    CreateFix f; const auto s = k7_snap(1);
+    f.invite_dev.present = false;                                  // no cached pubkey ⇒ the ceremony, not the grant
+    CHECK(open_member_acts(f.m, s, 0));
+    CHECK(f.invite_dev.commands == 0);
+    CHECK(f.invite_dev.grants == 0);
+    CHECK(compose_cursor_to_grant(f.m, s));
+    CHECK(f.invite_dev.commands == 0);                             // ⛔ walking onto the act asks for nothing
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::invite_need_pubkey);
+    // ★★★★ THE HEADLINE: entering the row issues ⛔ NO WANT_PUBKEY. §no-auto-reqpubkey is PRESERVED through the new
+    //      door — a slice that auto-issued here would be reversing an owner ratification, not adding a shortcut.
+    CHECK(f.invite_dev.commands == 0);
+    CHECK(f.m.state().prov_confirm == ProvConfirm::back);          // ...and BACK is what is selected
+    f.m.on_gesture(Gesture::short_press, s);                       // BACK -> REQUEST PUBKEY
+    CHECK(f.invite_dev.commands == 0);                             // the SHORT alone asks for nothing either
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.invite_dev.commands == 1);                             // ★ EXACTLY ONE, and only now
+    CHECK(f.invite_dev.last.kind == MESHROUTE_NS::CmdKind::reqpubkey);
+    CHECK(f.invite_dev.last.u.resolve.dst_hash == s.member[0].key_hash32);
+    CHECK(f.invite_dev.last.u.resolve.plane == uint8_t(MESHROUTE_NS::Plane::TEAM));
+    CHECK(f.m.state().provisioning == Provision::invite_wait_pubkey);
+    CHECK(f.invite_dev.grants == 0);                               // ⛔ and no key has been offered, let alone shipped
+}
+
+TEST_CASE("ui16-k7-self: pin 5 — the SELF row offers nothing, and the core's own `self` arm is driven from here") {
+    // ---- (a) THE ROW IS ABSENT, at the identity the CORE refuses on (`target_hash == _key_hash32`) --------------
+    CreateFix f; auto s = k7_snap(1);
+    s.member[0].key_hash32 = s.my_key_hash32;                      // this roster row IS us
+    CHECK(open_member_acts(f.m, s, 0));
+    CHECK(f.m.state().compose_grant_hash == s.my_key_hash32);      // the identity is still frozen, honestly...
+    CHECK(f.m.state().compose_grant_row == false);                 // ...⛔ and the act is not offered
+    CHECK(mrui::compose_row_count(true, false) == mrui::kDmTextCount);   // the list is EXACTLY today's
+    CHECK(compose_cursor_to_grant(f.m, s) == false);
+    CHECK(f.invite_dev.reads == 0);                                // ⛔ not even the preflight is spent
+    // ...and the last row is still `back, don't send`, which sends nothing.
+    SendReq req{};
+    for (int i = 0; i < 8 && mrui::compose_row_kind(f.m.state().cursor, true, false) != mrui::ComposeRow::back; ++i)
+        f.m.on_gesture(Gesture::short_press, s);
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().compose == Compose::none);
+    CHECK(f.m.take_send_request(req) == false);
+    CHECK(f.invite_dev.grants == 0);
+    // ---- (b) AND THE CORE'S OWN REFUSAL IS DRIVEN THROUGH THIS ENTRY, in its own word --------------------------
+    CreateFix g; const auto t = k7_snap(1);
+    g.invite_dev.tx = MESHROUTE_NS::Node::TeamKeyGrantTx::self;
+    CHECK(open_member_acts(g.m, t, 0));
+    CHECK(compose_cursor_to_grant(g.m, t));
+    g.m.on_gesture(Gesture::double_press, t);
+    g.m.on_gesture(Gesture::short_press, t);
+    g.m.on_gesture(Gesture::double_press, t);
+    CHECK(g.m.state().grant.st == mrui::InviteGrantState::self);
+    CHECK(strcmp(mrui::invite_grant_word(g.m.state().grant.st), "SELF") == 0);
+}
+
+TEST_CASE("ui16-k7-keyless: pin 6 — a KEYLESS node offers nothing, and neither does a build that cannot grant") {
+    // ★★★ THE DESIGN DECISION, DRIVEN: the act is HIDDEN, ⛔ never drawn-and-refusing. Each of the four vetoes is
+    //     asserted ON ITS OWN, because a single collapsed predicate is one mutation away from covering for another.
+    {   // (a) ⛔ NO CONTENT KEY — there is nothing to ship, so there is no act (spec §K7 pin 6)
+        CreateFix f; auto s = k7_snap(1); s.team_key_present = false;
+        CHECK(open_member_acts(f.m, s, 0));
+        CHECK(f.m.state().compose_grant_row == false);
+        CHECK(compose_cursor_to_grant(f.m, s) == false);
+        CHECK(f.invite_dev.reads == 0);
+    }
+    {   // (b) ⛔ NO GRANT PLANE ON THIS BUILD / NOT IN A TEAM — the INVITE row's own predicate, REUSED (U1)
+        CreateFix f; auto s = k7_snap(1); s.prov_invite = false;
+        CHECK(open_member_acts(f.m, s, 0));
+        CHECK(f.m.state().compose_grant_row == false);
+    }
+    {   // (c) ⛔ A ROUTE-ONLY MEMBER — no authoritative binding, so no seal target (F-7's floor, the invite list's)
+        CreateFix f; auto s = k7_snap(1); s.member[0].key_hash32 = 0;
+        CHECK(open_member_acts(f.m, s, 0));
+        CHECK(f.m.state().compose_grant_hash == 0);
+        CHECK(f.m.state().compose_grant_row == false);
+    }
+    {   // (d) ⛔ AND THE CHANNEL COMPOSE NEVER OFFERS IT: it has no member at all (`compose_peer == 0`)
+        CreateFix f; const auto s = k7_snap(1);
+        f.m.on_gesture(Gesture::short_press, s); f.m.on_gesture(Gesture::short_press, s);
+        f.m.on_gesture(Gesture::short_press, s);                   // STATUS -> TEAM -> INBOX -> SEND
+        CHECK(f.m.state().screen == Screen::send);
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.m.state().compose == Compose::channel);
+        CHECK(f.m.state().compose_peer == 0);
+        CHECK(f.m.state().compose_grant_row == false);
+        CHECK(mrui::compose_row_count(false, false) == mrui::kChannelTextCount);
+        CHECK(mrui::compose_grant_offered(/*dm=*/false, true, true, 0x1234u, 0x9999u) == false);
+    }
+    // ⓘ ...and the pure predicate itself, term by term, so each veto is attributable at match count 1.
+    CHECK(mrui::compose_grant_offered(true,  true,  true,  0x1234u, 0x9999u) == true);
+    CHECK(mrui::compose_grant_offered(false, true,  true,  0x1234u, 0x9999u) == false);
+    CHECK(mrui::compose_grant_offered(true,  false, true,  0x1234u, 0x9999u) == false);
+    CHECK(mrui::compose_grant_offered(true,  true,  false, 0x1234u, 0x9999u) == false);
+    CHECK(mrui::compose_grant_offered(true,  true,  true,  0u,      0x9999u) == false);
+    CHECK(mrui::compose_grant_offered(true,  true,  true,  0x9999u, 0x9999u) == false);
+}
+
+TEST_CASE("ui16-k7-identity: pin 7 — P-7c/P-7d through THIS entry: the FULL hash, and a mutable field never moves it") {
+    CreateFix f; auto s = k7_snap(1);
+    // A member WITH a cached name — rule 3's state, and the one in which P-7c is worth anything.
+    const char* nm = "Wolfgangetta";
+    for (uint8_t b = 0; nm[b] && b + 1 < mrui::kInviteNameCap; ++b) s.member[0].name[b] = nm[b];
+    const uint32_t target = s.member[0].key_hash32;
+    CHECK(open_member_acts(f.m, s, 0));
+    CHECK(f.m.state().compose_grant_hash == target);               // FROZEN at entry, from the row's own resolution
+    // ★★★★ P-7d — THE NAME AND THE TEAM-LOCAL ID BOTH MOVE **BEFORE THE ACT IS EVEN PRESSED**, and the target does
+    //      not. ⓘ The two mutable fields are moved HERE, between the sub-view opening and the act, deliberately: a
+    //      target re-resolved at press time from either of them would land on nobody (or on somebody else), and
+    //      that is precisely the control this case exists to redden.
+    UiSnapshot moved = s;
+    for (uint8_t b = 0; b < mrui::kInviteNameCap; ++b) moved.member[0].name[b] = 0;
+    const char* nm2 = "Someone else";
+    for (uint8_t b = 0; nm2[b] && b + 1 < mrui::kInviteNameCap; ++b) moved.member[0].name[b] = nm2[b];
+    moved.member[0].id = uint8_t(s.member[0].id + 100);            // a team-DAD re-run
+    moved.team[0].id   = moved.member[0].id;
+    CHECK(mrui::team_member_hash_of(moved.member, moved.team_shown, s.member[0].id) == 0);   // the id names nobody now
+    CHECK(compose_cursor_to_grant(f.m, moved));
+    f.m.on_gesture(Gesture::double_press, moved);
+    CHECK(f.m.state().provisioning == Provision::invite_confirm);  // ...the act still ran, on the FROZEN identity
+    CHECK(f.m.state().invite.sel_hash == target);
+    {   // ★★★ P-7c — THE CONFIRMATION CARRIES THE FULL `0x%08lX`, ⛔ EVEN THOUGH A NAME IS SHOWN.
+        const mrui::InviteIdRows r = mrui::invite_id_rows(moved.member, moved.team_shown,
+                                                          f.m.state().invite.sel_hash);
+        char want[mrui::kMemberHashCap]; mrui::ui_fmt_member_hash_full(want, sizeof want, target);
+        CHECK(strcmp(r.hash, want) == 0);
+        CHECK(strlen(r.hash) == 10u);
+        CHECK(strcmp(r.name, nm2) == 0);                           // the name is an ADDED row, and it is the LIVE one
+        CHECK(strcmp(r.name, nm) != 0);
+    }
+    f.invite_dev.tx_dst = moved.member[0].id;                      // the core resolves the NEW id at send time
+    f.m.on_gesture(Gesture::short_press, moved);                   // REJECT -> GRANT KEY
+    f.m.on_gesture(Gesture::double_press, moved);
+    CHECK(f.invite_dev.grants == 1);
+    CHECK(f.invite_dev.grant_hash == target);                      // ★ THE SAME KEY, whatever the labels now say
+    CHECK(f.m.state().grant.hash == target);
+    CHECK(f.m.state().grant.dst == moved.member[0].id);            // ...and the correlation is the CORE'S answer
+}
+
+TEST_CASE("ui16-k7-words: pin 8 — the outcome words are N6's EXACTLY, over the WHOLE enum, through this entry") {
+    // ★★★ THE ANCHOR IS THE **REUSED CALL**: every expectation below is `invite_grant_word(invite_grant_state_of(tx))`
+    //     — the pure unit's own mapping — so a SECOND mapping forked behind this door cannot agree with it by
+    //     accident. ⛔ No literal is typed here for a state's word; the literals are `test_firmware_ui_invite.cpp`'s.
+    using TX = MESHROUTE_NS::Node::TeamKeyGrantTx;
+    const TX arms[] = { TX::queued, TX::parked, TX::queue_full, TX::send_failed, TX::no_team, TX::no_key,
+                        TX::no_identity, TX::no_pubkey, TX::self, TX::delegated, TX::too_large };
+    for (TX tx : arms) {
+        CreateFix f; const auto s = k7_snap(1);
+        f.invite_dev.tx = tx;
+        CHECK(open_member_acts(f.m, s, 0));
+        CHECK(compose_cursor_to_grant(f.m, s));
+        f.m.on_gesture(Gesture::double_press, s);
+        f.m.on_gesture(Gesture::short_press, s);
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.m.state().provisioning == Provision::invite_result);
+        CHECK(f.m.state().grant.st == mrui::invite_grant_state_of(tx));
+        CHECK(strcmp(mrui::invite_grant_word(f.m.state().grant.st),
+                     mrui::invite_grant_word(mrui::invite_grant_state_of(tx))) == 0);
+        // ⛔ AND NO COMPLETION WORD, EVER: there is no e2e ack on a grant, so this node cannot know it arrived.
+        for (const char* forbidden : { "JOIN COMPLETE", "KEY RECEIVED", "DELIVERED", "WAITING FOR KEY", "KEYLESS" })
+            CHECK(strstr(mrui::invite_grant_word(f.m.state().grant.st), forbidden) == nullptr);
+    }
+}
+
+TEST_CASE("ui16-k7-resources: the act's TWO frozen fields cost ONE quantum, and the published identity costs ZERO") {
+    // ★★ MEASURED, ⛔ NOT REASONED (the padding-placement rule, a fifteenth time), and every placement is
+    //    `offsetof`-proved rather than asserted in prose.
+    // ⚠ NATIVE ALIGNMENT HIDES THE BOARD FIGURE (D2's standing warning) — this pins the SHAPE, not the flash cost.
+    // ---- the SNAPSHOT's one new field is FREE **and moves nothing** ---------------------------------------------
+    CHECK(sizeof(mrui::UiSnapshot) == 1008u);                      // ⛔ UNCHANGED by K7
+    CHECK(offsetof(mrui::UiSnapshot, my_key_hash32) == 700u);      // ★ the pad before the 8-aligned age below
+    CHECK(offsetof(mrui::UiSnapshot, home_confirm_age_ms) == 704u);// ⛔ UNMOVED
+    CHECK(offsetof(mrui::UiSnapshot, prov_invite) == 689u);        // ⛔ UNMOVED
+    CHECK(offsetof(mrui::UiSnapshot, prov_saved_keys) == 690u);    // ⛔ UNMOVED
+    CHECK(offsetof(mrui::UiSnapshot, team_key_present) == 694u);   // ⛔ UNMOVED
+    // ---- ...and the STATE's two frozen fields cost exactly ONE 8-byte quantum, together, at the head -------------
+    CHECK(offsetof(mrui::UiState, compose_peer) == 3u);            // ⛔ UNMOVED
+    CHECK(offsetof(mrui::UiState, compose_grant_hash) == 4u);      // ★ 4-aligned, immediately after the pick
+    CHECK(offsetof(mrui::UiState, compose_grant_row) == 8u);       // ★ ...and the flag costs NOTHING on top
+    CHECK(offsetof(mrui::UiState, compose_result) == 9u);          // pushed 4 -> 9 by the 4-alignment above
+    CHECK(sizeof(mrui::UiState) == 504u);                          // 496 + 8
+    CHECK(sizeof(mrui::UiModel) == 928u);                          // 920 + the same 8
+    // ---- and K7 adds NO carrier to the chain it enters ------------------------------------------------------------
+    CHECK(sizeof(mrui::InviteWindow) == 104u);                     // ⛔ UNCHANGED
+    CHECK(sizeof(mrui::InviteGrantResult) == 8u);                  // ⛔ UNCHANGED
+}
+
 // ============================================ §UI-16 K4 — THE GRANT RECEIPT'S NOTE, IN THE MODEL'S OWN TERMS
 // ⓘ The ROUTER half (which push reaches this, and that no other kind does) is `test/test_firmware_ui_send.cpp`'s;
 //   the GATE that only a `saved` persist forwards is `test/test_firmware_team_keyring.cpp`'s. What is measured
@@ -7747,7 +8150,7 @@ TEST_CASE("ui16-K4: the note occupies the panel's ONE transient team answer, and
     // ★★ THE NOTE REPLACES THE PREVIOUS VERDICT, and that is the ruling rather than an accident: `TEAM CREATED`
     //    followed by `TEAM KEY RECEIVED` is the true sequence of two facts about ONE team, newest last. ⛔ What it
     //    must NOT do is move the operator: same screen, same arm, same cursor.
-    f.m.on_team_key_note(/*saved=*/true, 9000);
+    f.m.on_team_key_note(/*saved=*/true, /*keyring_full=*/false, 9000);
     CHECK(f.m.state().prov_answer.outcome == UiProvOutcome::team_key_received);
     CHECK(strcmp(prov_result_head(f.m.state().prov_answer), "TEAM KEY RECEIVED") == 0);
     // ★★ THE SLOT IS CLEARED, ⛔ NOT MERELY RE-LABELLED: the previous act's id would otherwise render UNDER this
@@ -7802,7 +8205,7 @@ bool put_note_on_create_result(CreateFix& f, const UiSnapshot& s, bool saved) {
     f.m.on_gesture(Gesture::short_press, s);          // BACK -> CREATE
     f.m.on_gesture(Gesture::double_press, s);
     if (f.m.state().provisioning != Provision::create_result) return false;
-    f.m.on_team_key_note(saved, s.now_ms);
+    f.m.on_team_key_note(saved, /*keyring_full=*/false, s.now_ms);
     return true;
 }
 bool put_note_on_join_result(CreateFix& f, const UiSnapshot& s, bool saved) {
@@ -7810,7 +8213,7 @@ bool put_note_on_join_result(CreateFix& f, const UiSnapshot& s, bool saved) {
     if (!start_join(f, s)) return false;
     f.m.on_join_push(adopt_push(4, 42), 4, 42);
     if (f.m.state().provisioning != Provision::join_result) return false;
-    f.m.on_team_key_note(saved, s.now_ms);
+    f.m.on_team_key_note(saved, /*keyring_full=*/false, s.now_ms);
     return true;
 }
 // The landing the ruling names, in the model's own fields. STATUS has no interactive form, so "passive" is exactly
@@ -7866,12 +8269,12 @@ TEST_CASE("ui17-keyrecv: the note's ARRIVAL still navigates nothing — on the n
     // ⛔ that is all. It may ⛔ not open the result screen it would be rendered on.
     f.m.clear_dirty();
     const uint8_t cur_before = f.m.state().cursor;
-    f.m.on_team_key_note(/*saved=*/true, s.now_ms + 1000);
+    f.m.on_team_key_note(/*saved=*/true, /*keyring_full=*/false, s.now_ms + 1000);
     CHECK(f.m.state().dirty == true);                    // the repaint IS owed
     CHECK(f.m.state().cursor == cur_before);
     check_passive_status(f.m);                           // ⛔ ...and NOTHING else moved
     // ⛔ AND THE FAILURE DOOR IS THE SAME DOOR (U1): it may not navigate from STATUS either.
-    f.m.on_team_key_note(/*saved=*/false, s.now_ms + 2000);
+    f.m.on_team_key_note(/*saved=*/false, /*keyring_full=*/false, s.now_ms + 2000);
     check_passive_status(f.m);
 }
 
@@ -8012,13 +8415,576 @@ TEST_CASE("ui16-k5-resources: the offer's TWO fields cost ZERO bytes — both la
     CHECK(offsetof(mrui::UiProvAnswer, node_id) == 1u);
     CHECK(offsetof(mrui::UiProvAnswer, saved_key) == 2u);     // ★ the hole between `node_id` and the 4-aligned id
     CHECK(offsetof(mrui::UiProvAnswer, team_id) == 4u);       // ⛔ UNMOVED — no landed field shifted
-    // ★ `UiState` is UNCHANGED at 456: the 4-byte target lands in the tail quantum the grant verdict already
-    //   opened. ⓘ The invite window is unmoved relative to the id it follows, which is what proves the field was
-    //   ADDED beside the other frozen selections rather than folded into one of them.
-    CHECK(sizeof(mrui::UiState) == 456u);
-    CHECK(sizeof(mrui::UiModel) == 880u);
+    // ★ K5's own field was FREE: it landed in the tail quantum the grant verdict had already opened, and the two
+    //   offsets below are what prove it was ADDED beside the other frozen selections rather than folded into one.
+    // ⚠ RE-MEASURED 2026-08-25 (§UI-16 K6): the STRUCT SIZES moved (456 -> 496 / 880 -> 920) because K6 appended
+    //   two carriers of its own; ⛔ K5's field did NOT move (`saved_key_team` is still 340), and neither did
+    //   `nearby_sel_id`. ⓘ `invite` shifted 344 -> 384 because K6's carriers were APPENDED before it — the K6 case
+    //   writes out that arithmetic; this one keeps K5's own placement claim, which is unaffected.
+    // ⚠ RE-MEASURED 2026-08-25 (§UI-16 K7): the STRUCT SIZES moved again (496 -> 504 / 920 -> 928) and both
+    //   offsets below shifted by exactly **+8**, because K7's two frozen compose fields are inserted at the HEAD of
+    //   `UiState` (beside `compose_peer`, where the act's target belongs) rather than appended. ⛔ K5's CLAIM is
+    //   unaffected and is what this case is about: its field still sits in the 4 bytes immediately after
+    //   `nearby_sel_id`, with ⛔ not one padding byte between them.
+    CHECK(sizeof(mrui::UiState) == 504u);
+    CHECK(sizeof(mrui::UiModel) == 928u);
     CHECK(sizeof(mrui::UiSnapshot) == 1008u);                 // ⛔ UNCHANGED: K5 publishes no new snapshot field
-    CHECK(offsetof(mrui::UiState, nearby_sel_id) == 336u);    // ⛔ UNMOVED
-    CHECK(offsetof(mrui::UiState, saved_key_team) == 340u);   // ★ the new field, in the 4 bytes after it
-    CHECK(offsetof(mrui::UiState, invite) == 344u);
+    CHECK(offsetof(mrui::UiState, nearby_sel_id) == 344u);    // 336 + 8 (K7's head insert)
+    CHECK(offsetof(mrui::UiState, saved_key_team) == 348u);   // ★ K5's field, still in the 4 bytes after it
+}
+
+// ============================================== §UI-16 K6 — SAVED-KEY RETENTION MANAGEMENT, THE MODEL'S HALF
+// ★★★★ WHAT **THIS** BLOCK MEASURES IS THE **FLOW AND THE LANDING**: which child row opens the list, when the
+//      keyring is READ, which landing a row takes, what a BACK costs (nothing), how many times the removal runs and
+//      what the screen says afterwards. ⛔ IT DOES NOT MEASURE THE SERVICE: the PROTECTION of the active record, the
+//      compaction, the wipe and the at-most-one-save rule are `test/test_firmware_team_keyring.cpp`'s, driven
+//      against counting fakes; the ADAPTER's mapping is `test/test_firmware_ui_prov.cpp`'s.
+// ⛔ AND IT IS **RETENTION MANAGEMENT**, ⛔ NEVER "KEY ROTATION" — the ruling's own first sentence.
+// ⛔ THE RENDERER IS MEASURED IN NEITHER: `src/firmware_ui.cpp` is compiled by no automated gate (§B115); its cover
+//    is `tools/probe_firmware_ui`'s SAVED KEYS phase.
+namespace {
+
+// A snapshot with the FIFTH child available. ⓘ It is the only predicate this screen needs — ⛔ there is no runtime
+// term, deliberately (a node that has LEFT every team may still hold four retained records to free).
+UiSnapshot keys_snap(uint32_t now_ms = 1000) {
+    return prov_snap(true, true, true, now_ms, /*invite=*/false, /*saved_keys=*/true);
+}
+// A metadata-only list, as the SERVICE would answer it. ⛔ It carries `{team_id, active}` and nothing else — there
+// is no key field to fill, which is the carrier's own contract.
+mrfw::SavedKeyList keys_list(uint8_t n, int active_row = -1) {
+    mrfw::SavedKeyList l{};
+    l.served = true; l.binding_read = true; l.st = mrnv::TeamKeyRead::ok;
+    for (uint8_t i = 0; i < n && i < mrnv::kTeamKeyRecs; ++i) {
+        l.rec[l.n].team_id = 0xAB000001u + i;
+        l.rec[l.n].active  = (int(i) == active_row);
+        ++l.n;
+    }
+    return l;
+}
+// Open PROVISION and land on the SAVED KEYS list. The caller ASSERTS the landing.
+bool open_saved_keys(CreateFix& f, const UiSnapshot& s) {
+    if (!open_provision(f.m, s)) return false;
+    if (!prov_cursor_to(f.m, s, ProvRow::saved_keys)) return false;
+    f.m.on_gesture(Gesture::double_press, s);
+    return f.m.state().provisioning == Provision::saved_keys;
+}
+// Put the list cursor on the row naming `team_id`. ⛔ Never a hardcoded index (§B66): the service skips a corrupt
+// zero-id record, so a position is not an identity. BOUNDED, so a missing row fails the caller's check.
+bool keys_cursor_to(CreateFix& f, const UiSnapshot& s, uint32_t team_id) {
+    for (int i = 0; i < 12; ++i) {
+        SavedKeySelRow r{};
+        const SavedKeySelList l = saved_keys_sel_rows(f.m.state().saved_keys);
+        if (l.at(f.m.state().cursor, r) && !r.back && r.key.team_id == team_id) return true;
+        f.m.on_gesture(Gesture::short_press, s);
+    }
+    return false;
+}
+UiProvAnswer forgotten_answer() { UiProvAnswer a{}; a.outcome = UiProvOutcome::key_forgotten; return a; }
+UiProvAnswer forget_failed_answer(const char* why) {
+    UiProvAnswer a{}; a.outcome = UiProvOutcome::key_forget_failed; a.reason = why; return a;
+}
+}  // namespace
+
+TEST_CASE("ui16-k6-menu: SAVED KEYS is the FIFTH child, hidden when the keyring plane is absent, and BACK stays last") {
+    // ★ FIVE SEPARATE PREDICATES, ⛔ never one flag: the row is offered on its own condition and on nothing else.
+    CHECK(provision_rows(false, false, false, false, /*saved_keys=*/true).n == 2);
+    { const ProvRowList l = provision_rows(false, false, false, false, true);
+      CHECK(l.row[0] == ProvRow::saved_keys);
+      CHECK(l.row[1] == ProvRow::back); }                      // ⛔ BACK is UNCONDITIONALLY last
+    CHECK(provision_has_child(false, false, false, false, /*saved_keys=*/true) == true);
+    // ⛔ HIDDEN, ⛔ never a refusing stub ([[B209]]): a build with no team plane offers no row at all.
+    CHECK(provision_rows(false, false, false, false, false).n == 1);
+    // ★ AND IT IS APPENDED, ⛔ not inserted: every landed row keeps the position the operator has learned.
+    { const ProvRowList all = provision_rows(true, true, true, true, true);
+      CHECK(all.n == 6);
+      CHECK(all.row[0] == ProvRow::create_team);
+      CHECK(all.row[1] == ProvRow::join_static);
+      CHECK(all.row[2] == ProvRow::join_team);
+      CHECK(all.row[3] == ProvRow::invite);
+      CHECK(all.row[4] == ProvRow::saved_keys);
+      CHECK(all.row[5] == ProvRow::back); }
+    // ★ ONE SPELLING FOR ONE OPERATION (U1): the row label IS the screen's title, so the two cannot drift.
+    CHECK(strcmp(provision_row_label(ProvRow::saved_keys), kSavedKeysTitle) == 0);
+    CHECK(strcmp(provision_row_label(ProvRow::saved_keys), "SAVED KEYS") == 0);
+    CHECK(strlen(provision_row_label(ProvRow::saved_keys)) + 1u <= 19u);   // the rail's body still holds the row
+}
+
+TEST_CASE("ui16-k6-open: the keyring is read ONCE on the transition, and OPENING the screen performs NOTHING") {
+    CreateFix f; const auto s = keys_snap();
+    f.prov.keys = keys_list(4, /*active_row=*/2);
+    CHECK(f.prov.keys_calls == 0);
+    CHECK(open_saved_keys(f, s));
+    // ★ ONE READ, ON THE TRANSITION — ⛔ not per tick and ⛔ not per page: the enumeration reaches flash.
+    CHECK(f.prov.keys_calls == 1);
+    // ⛔ OPENING PERFORMS NOTHING: no removal, no write, no eviction (spec §4-K6 pin 1).
+    CHECK(f.prov.calls == 0);
+    CHECK(f.store.writes == 0);
+    CHECK(f.prov.last_forget_id == 0);
+    // ★ THE COPY IS FROZEN AND IS WHAT THE SCREEN WALKS: four rows plus the unconditional BACK.
+    CHECK(f.m.state().saved_keys.n == 4);
+    CHECK(saved_keys_sel_rows(f.m.state().saved_keys).n == 5);
+    CHECK(f.m.state().cursor == 0);
+    // ...and a `short` walk over the whole list still reads it ZERO more times (the freeze, measured).
+    for (int i = 0; i < 8; ++i) f.m.on_gesture(Gesture::short_press, s);
+    CHECK(f.prov.keys_calls == 1);
+    CHECK(f.prov.calls == 0);
+    // ★ BACK LEAVES TO THE PROVISION MENU and still performs nothing.
+    { SavedKeySelRow r{};
+      for (int i = 0; i < 8; ++i) {
+          const SavedKeySelList l = saved_keys_sel_rows(f.m.state().saved_keys);
+          if (l.at(f.m.state().cursor, r) && r.back) break;
+          f.m.on_gesture(Gesture::short_press, s);
+      }
+      CHECK(r.back);
+      f.m.on_gesture(Gesture::double_press, s);
+      CHECK(f.m.state().provisioning == Provision::menu);
+      CHECK(f.prov.calls == 0);
+      CHECK(f.store.writes == 0); }
+}
+
+TEST_CASE("ui16-k6-confirm: an INACTIVE row opens the irreversible confirmation on BACK, carrying the FULL 32-bit id") {
+    CreateFix f; const auto s = keys_snap();
+    f.prov.keys = keys_list(4, /*active_row=*/2);
+    f.prov.forget_answer = forgotten_answer();
+    CHECK(open_saved_keys(f, s));
+    CHECK(keys_cursor_to(f, s, 0xAB000004u));                 // an INACTIVE row
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::saved_keys_confirm);
+    // ★ §3.6.3's default, established by `enter_provision` so it cannot be forgotten by the entry that lands here.
+    CHECK(f.m.state().prov_confirm == ProvConfirm::back);
+    // ★★★ THE TARGET IS THE ROW'S OWN FULL 32-BIT ID — ⛔ never the cursor, ⛔ never the six-hex fingerprint.
+    CHECK(f.m.state().forget_team == 0xAB000004u);
+    CHECK((f.m.state().forget_team & 0xFFFFFFu) != f.m.state().forget_team);   // the top byte really matters
+    // ⛔ OPENING IT PERFORMS NOTHING (pin 1): no seam call, no write.
+    CHECK(f.prov.calls == 0);
+    CHECK(f.store.writes == 0);
+
+    // ⛔⛔ `BACK` PERFORMS NOTHING AT ALL AND RETURNS TO THE **LIST** — ⛔ not the menu, and ⛔ without re-reading it.
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::saved_keys);
+    CHECK(f.prov.calls == 0);
+    CHECK(f.prov.keys_calls == 1);                            // ⛔ the frozen list survives a change of mind
+    CHECK(f.store.writes == 0);
+    CHECK(f.m.state().forget_team == 0);                      // ...and the target is RETIRED on the way out
+
+    // ★ REACHING THE ACT COSTS `short` THEN `double` (P-13): one press can never mean the destructive one.
+    CHECK(keys_cursor_to(f, s, 0xAB000004u));
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::saved_keys_confirm);
+    f.m.on_gesture(Gesture::short_press, s);
+    CHECK(f.m.state().prov_confirm == ProvConfirm::confirm);
+    CHECK(f.prov.calls == 0);                                  // ⛔ the toggle is not an act
+    f.m.on_gesture(Gesture::double_press, s);
+    // ★★★ EXACTLY ONE REMOVAL, KEYED ON THE FULL ID, AND THE SCREEN MOVED ONLY AFTER IT RETURNED.
+    CHECK(f.prov.calls == 1);
+    CHECK(f.prov.last_op == UiProvOp::forget_key);
+    CHECK(f.prov.last_forget_id == 0xAB000004u);
+    CHECK(f.prov.arm_at_call == Provision::saved_keys_confirm);   // §8 pin 2: it ran BEFORE the screen moved
+    CHECK(strcmp(f.prov.head_at_call, "") == 0);                  // ...and no result text existed yet
+    CHECK(f.m.state().provisioning == Provision::saved_keys_result);
+    CHECK(strcmp(prov_result_head(f.m.state().prov_answer), kKeyForgottenText) == 0);
+}
+
+TEST_CASE("ui16-k6-active: an ACTIVE row lands on ACTIVE KEY / CANNOT FORGET, with NO destructive action anywhere") {
+    CreateFix f; const auto s = keys_snap();
+    f.prov.keys = keys_list(4, /*active_row=*/2);              // 0xAB000003 is the ACTIVE one
+    CHECK(open_saved_keys(f, s));
+    CHECK(keys_cursor_to(f, s, 0xAB000003u));
+    f.m.on_gesture(Gesture::double_press, s);
+    // ★★★★ ITS OWN ARM, ⛔ NOT THE CONFIRMATION WITH A ROW HIDDEN: there is no action to select here, which is what
+    //      makes *"the active key cannot be forgotten from the panel"* STRUCTURAL rather than conditional.
+    CHECK(f.m.state().provisioning == Provision::saved_keys_active);
+    CHECK(f.m.state().provisioning != Provision::saved_keys_confirm);
+    // ★ It still shows WHICH record was selected, whole.
+    CHECK(f.m.state().forget_team == 0xAB000003u);
+    // ⛔ NOTHING WAS PERFORMED, AND NO PRESS ON THIS SCREEN CAN PERFORM ANYTHING.
+    CHECK(f.prov.calls == 0);
+    for (int i = 0; i < 6; ++i) {
+        f.m.on_gesture(Gesture::short_press, s);
+        CHECK(f.prov.calls == 0);
+        if (f.m.state().provisioning != Provision::saved_keys_active) break;
+    }
+    // ★ EITHER PRESS RETURNS TO THE LIST — the screen the operator was choosing on.
+    CHECK(f.m.state().provisioning == Provision::saved_keys);
+    CHECK(f.prov.calls == 0);
+    CHECK(f.store.writes == 0);
+    { CreateFix g; const auto s2 = keys_snap();
+      g.prov.keys = keys_list(4, 2);
+      CHECK(open_saved_keys(g, s2));
+      CHECK(keys_cursor_to(g, s2, 0xAB000003u));
+      // ★ THE OTHER PRESS TAKES THE SAME EXIT: `double` on this screen is not an act either.
+      g.m.on_gesture(Gesture::double_press, s2);
+      CHECK(g.m.state().provisioning == Provision::saved_keys_active);
+      g.m.on_gesture(Gesture::double_press, s2);
+      CHECK(g.m.state().provisioning == Provision::saved_keys);
+      CHECK(g.prov.calls == 0); }
+}
+
+TEST_CASE("ui16-k6-result: KEY FORGOTTEN is written by the ACT, and its acknowledgement returns to the REFRESHED list") {
+    CreateFix f; const auto s = keys_snap();
+    f.prov.keys = keys_list(4, 2);
+    f.prov.forget_answer = forgotten_answer();
+    CHECK(open_saved_keys(f, s));
+    CHECK(keys_cursor_to(f, s, 0xAB000001u));
+    f.m.on_gesture(Gesture::double_press, s);
+    f.m.on_gesture(Gesture::short_press, s);
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::saved_keys_result);
+    CHECK(strcmp(prov_result_head(f.m.state().prov_answer), "KEY FORGOTTEN") == 0);
+    CHECK(strcmp(prov_result_detail(f.m.state().prov_answer), "") == 0);    // ⛔ no second row, no id re-printed
+    CHECK(strcmp(prov_result_detail2(f.m.state().prov_answer), "") == 0);
+
+    // ★★★ THE ACKNOWLEDGEMENT **RE-READS** THE KEYRING — that is the whole of *"returns to the refreshed list"*.
+    //     ⛔ Returning to the frozen copy would show the record just removed still standing.
+    f.prov.keys = keys_list(3, 1);
+    const int reads_before = f.prov.keys_calls;
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::saved_keys);
+    CHECK(f.prov.keys_calls == reads_before + 1);
+    CHECK(f.m.state().saved_keys.n == 3);
+    // ⛔ AND NOTHING IS RE-RUN: acknowledging a removal may not remove a second key.
+    CHECK(f.prov.calls == 1);
+}
+
+TEST_CASE("ui16-k6-failure: a failed removal says KEY NOT FORGOTTEN plus the SERVICE's token — ⛔ never a success") {
+    // ★★★ THE SIX FAILING SERVICE ARMS ALL LAND ON ONE TRUE SENTENCE, and the SECOND row is the service's own word
+    //     so the operator still learns WHICH way it refused. ⛔ `KEY FORGOTTEN` is unreachable from any of them.
+    for (int i = 1; i < int(mrfw::KeyringForget::count); ++i) {
+        CreateFix f; const auto s = keys_snap();
+        f.prov.keys = keys_list(4, 2);
+        const char* tok = mrfw::keyring_forget_name(mrfw::KeyringForget(i));
+        f.prov.forget_answer = forget_failed_answer(tok);
+        CHECK(open_saved_keys(f, s));
+        CHECK(keys_cursor_to(f, s, 0xAB000002u));
+        f.m.on_gesture(Gesture::double_press, s);
+        f.m.on_gesture(Gesture::short_press, s);
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.m.state().provisioning == Provision::saved_keys_result);
+        CHECK(strcmp(prov_result_head(f.m.state().prov_answer), kKeyNotForgottenText) == 0);
+        CHECK(strcmp(prov_result_head(f.m.state().prov_answer), kKeyForgottenText) != 0);
+        CHECK(strcmp(prov_result_detail(f.m.state().prov_answer), tok) == 0);
+        // ⛔ AND THE FAILURE STAYS VISIBLE UNTIL IT IS ACKNOWLEDGED: it is a screen, not a flash.
+        CHECK(strcmp(prov_result_head(f.m.state().prov_answer), "") != 0);
+    }
+    // ⛔ A NULL SEAM REFUSES OUT LOUD (C2) rather than doing nothing — a `double` that changes no pixel is a dead
+    //    button. ⓘ The refusal is the FAILING outcome, so the panel cannot claim a removal that never ran.
+    {
+        CfgFix f; const auto s = keys_snap();                  // ⛔ no provisioning seam attached at all
+        CHECK(open_provision(f.m, s));
+        CHECK(prov_cursor_to(f.m, s, ProvRow::saved_keys));
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.m.state().provisioning == Provision::saved_keys);
+        CHECK(f.m.state().saved_keys.served == false);         // ★ the list FAILS CLOSED: nothing was served
+        CHECK(saved_keys_sel_rows(f.m.state().saved_keys).n == 1);   // ⛔ BACK only — no row may be selected
+        CHECK(strcmp(saved_keys_head(f.m.state().saved_keys), "NO KEYRING") == 0);
+    }
+}
+
+TEST_CASE("ui16-k6-pin8: KEYRING FULL's acknowledgement ENTERS the list — ⛔ it deletes nothing and ⛔ replays nothing") {
+    CreateFix f; const auto s = keys_snap();
+    f.prov.keys = keys_list(4, 2);
+    // The create refuses with P-15's loud `KEYRING FULL`, reported as the TYPED flag (⛔ never as display text).
+    UiProvAnswer full{};
+    full.outcome      = UiProvOutcome::refused;
+    full.reason       = "keyring_full";
+    full.keyring_full = true;
+    f.prov.answer = full;
+    CHECK(open_create_confirm(f, s));
+    f.m.on_gesture(Gesture::short_press, s);
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::create_result);
+    CHECK(f.prov.calls == 1);
+    const int keys_before = f.prov.keys_calls;
+
+    // ★★★★ THE ACKNOWLEDGEMENT LANDS ON THE MANAGEMENT SCREEN, where the dead end can be resolved.
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::saved_keys);
+    CHECK(f.prov.keys_calls == keys_before + 1);               // the list is READ, once, on the transition
+    // ⛔⛔ AND IT CHOOSES NOTHING: the cursor is on the FIRST row, no target is armed, nothing was removed.
+    CHECK(f.m.state().cursor == 0);
+    CHECK(f.m.state().forget_team == 0);
+    CHECK(f.prov.last_forget_id == 0);
+    CHECK(f.m.state().saved_keys.n == 4);                      // ⛔ all four records still listed
+    // ⛔⛔ AND THE CREATE IS **NOT REPLAYED**: `calls` is still the ONE create the operator asked for — two explicit
+    //     transactions, never one disguised one.
+    CHECK(f.prov.calls == 1);
+    CHECK(f.prov.last_op == UiProvOp::create_team);
+    CHECK(f.store.writes == 0);
+
+    // ★★★★ AND THE DOOR IS THE **FLAG'S**, ⛔ NEVER THE TOKEN'S. Two arms, because a text-shaped decision passes a
+    //      one-arm test by coincidence: the flag ALONE opens it (with a token the panel never matched on), and the
+    //      token ALONE does not. ⛔ A navigation decision taken by comparing a display string is [[B48]]'s class at
+    //      the navigation layer, and `reason` is explicitly the operator's to read — not code's to switch on.
+    {
+        CreateFix h; const auto s3 = keys_snap();
+        h.prov.keys = keys_list(4, 2);
+        UiProvAnswer flag_only{};
+        flag_only.outcome      = UiProvOutcome::refused;
+        flag_only.reason       = "";                       // ⛔ NOTHING for a text match to find
+        flag_only.keyring_full = true;
+        h.prov.answer = flag_only;
+        CHECK(open_create_confirm(h, s3));
+        h.m.on_gesture(Gesture::short_press, s3);
+        h.m.on_gesture(Gesture::double_press, s3);
+        h.m.on_gesture(Gesture::double_press, s3);
+        CHECK(h.m.state().provisioning == Provision::saved_keys);   // ★ the FLAG alone opened it
+        CHECK(h.prov.calls == 1);                                   // ⛔ and still no replay
+    }
+    {
+        CreateFix h; const auto s3 = keys_snap();
+        h.prov.keys = keys_list(4, 2);
+        UiProvAnswer text_only{};
+        text_only.outcome      = UiProvOutcome::refused;
+        text_only.reason       = "keyring_full";           // ★ the token the SERVICE really produces...
+        text_only.keyring_full = false;                    // ...but the transaction did NOT report that refusal
+        h.prov.answer = text_only;
+        CHECK(open_create_confirm(h, s3));
+        h.m.on_gesture(Gesture::short_press, s3);
+        h.m.on_gesture(Gesture::double_press, s3);
+        const int kb = h.prov.keys_calls;
+        h.m.on_gesture(Gesture::double_press, s3);
+        CHECK(h.m.state().provisioning == Provision::menu);          // ⛔ the TEXT alone opens nothing
+        CHECK(h.prov.keys_calls == kb);
+    }
+    // ⛔ AND EVERY OTHER REFUSAL STILL LANDS ON THE MENU, exactly as it always did: the flag is the only door.
+    {
+        CreateFix g; const auto s2 = keys_snap();
+        g.prov.keys = keys_list(4, 2);
+        UiProvAnswer other{};
+        other.outcome = UiProvOutcome::refused;
+        other.reason  = "keyring_invalid";
+        other.keyring_full = false;
+        g.prov.answer = other;
+        CHECK(open_create_confirm(g, s2));
+        g.m.on_gesture(Gesture::short_press, s2);
+        g.m.on_gesture(Gesture::double_press, s2);
+        const int kb = g.prov.keys_calls;
+        g.m.on_gesture(Gesture::double_press, s2);
+        CHECK(g.m.state().provisioning == Provision::menu);
+        CHECK(g.prov.keys_calls == kb);                        // ⛔ and no keyring read was spent on it
+    }
+}
+
+TEST_CASE("ui16-k6-rows: the list's rows are IDENTITIES, the ACTIVE marker is a status, and BACK is unconditional") {
+    // ★ BACK IS THE LAST ROW WHATEVER THE STORE SAYS — leaving may never depend on a store or a build flag.
+    { mrfw::SavedKeyList empty{}; empty.served = true; empty.binding_read = true; empty.st = mrnv::TeamKeyRead::ok;
+      const SavedKeySelList l = saved_keys_sel_rows(empty);
+      CHECK(l.n == 1);
+      CHECK(l.row[0].back); }
+    // ⛔ A LIST THAT WAS NOT ESTABLISHED OFFERS **NO ROW**: three different failures, one safe answer.
+    { mrfw::SavedKeyList l0{};                       CHECK(saved_keys_sel_rows(l0).n == 1); }   // ⛔ not served
+    { mrfw::SavedKeyList l1{}; l1.served = true; l1.st = mrnv::TeamKeyRead::ok; l1.n = 2;
+      CHECK(saved_keys_sel_rows(l1).n == 1); }                                                   // ⛔ binding unread
+    { mrfw::SavedKeyList l2 = keys_list(3); l2.st = mrnv::TeamKeyRead::io_failed;
+      CHECK(saved_keys_sel_rows(l2).n == 1); }                                                   // ⛔ store unreadable
+    // ★ THE ROW CARRIES THE WHOLE ENTRY (U2), so the highlight and the act name the same record.
+    { const SavedKeySelList l = saved_keys_sel_rows(keys_list(4, 1));
+      CHECK(l.n == 5);
+      CHECK(l.row[0].key.team_id == 0xAB000001u);
+      CHECK(l.row[1].key.team_id == 0xAB000002u);
+      CHECK(l.row[1].key.active);
+      CHECK(l.row[0].key.active == false);
+      CHECK(l.row[4].back);
+      // ⛔ FAILS CLOSED: an out-of-range index names NO row (here it would open an irreversible confirmation).
+      SavedKeySelRow r{};
+      CHECK(l.at(4, r));
+      CHECK(l.at(5, r) == false); }
+    // ★ THE `ACTIVE` MARKER IS A ROW SUFFIX AND A STATUS ONLY — the decision is the model's, ⛔ not the renderer's.
+    { mrfw::SavedKeyEntry a{}; a.active = true;
+      mrfw::SavedKeyEntry i{};
+      CHECK(strcmp(saved_key_row_tag(a), " ACTIVE") == 0);
+      CHECK(strcmp(saved_key_row_tag(i), "") == 0);
+      CHECK(strstr(saved_key_row_tag(a), kSavedKeyActiveTag) != nullptr); }
+}
+
+TEST_CASE("ui16-k6-lexemes: the SEVEN K6 words are declared ONCE, fit the rail, and the failure word is not the success") {
+    // ★ The owner-ruled spellings, carried VERBATIM (spec §8 S-31 / S-40..S-44), each pinned so a re-ruling changes
+    //   it in exactly one place. ⚠ WIDTH IS A CONSTRAINT: the rail leaves a 19-column body.
+    CHECK(strcmp(kSavedKeysTitle,    "SAVED KEYS")    == 0);      // S-40
+    CHECK(strcmp(kSavedKeysEmpty,    "NO SAVED KEYS") == 0);      // S-41
+    CHECK(strcmp(kKeyForgottenText,  "KEY FORGOTTEN") == 0);      // S-42
+    CHECK(strcmp(kActiveKeyText,     "ACTIVE KEY")    == 0);      // S-43 row 1
+    CHECK(strcmp(kCannotForgetText,  "CANNOT FORGET") == 0);      // S-43 row 2
+    CHECK(strcmp(kSavedKeyActiveTag, "ACTIVE")        == 0);      // S-44
+    CHECK(strcmp(kForgetKeyText,     "FORGET KEY")    == 0);      // S-31 — ACTIVATED, no longer reserved
+    CHECK(strcmp(kKeyNotForgottenText, "KEY NOT FORGOTTEN") == 0);
+    for (const char* w : { kSavedKeysTitle, kSavedKeysEmpty, kKeyForgottenText, kActiveKeyText,
+                           kCannotForgetText, kSavedKeyActiveTag, kForgetKeyText, kKeyNotForgottenText })
+        CHECK(strlen(w) <= 19u);
+    // ⛔ THE FAILURE WORD IS NOT THE SUCCESS WORD, and it is not a SUBSTRING of it either — a `strstr`-shaped reader
+    //    must not be able to see one in the other.
+    CHECK(strcmp(kKeyNotForgottenText, kKeyForgottenText) != 0);
+    CHECK(strstr(kKeyForgottenText, kKeyNotForgottenText) == nullptr);
+    // ★ THE CONFIRMATION'S TWO ACTIONS, BY IDENTITY — and `BACK` is the ONE spelling CALLED, ⛔ never re-spelled.
+    CHECK(strcmp(forget_key_label(ProvConfirm::back), prov_confirm_label(ProvConfirm::back)) == 0);
+    CHECK(strcmp(forget_key_label(ProvConfirm::back), "BACK") == 0);
+    CHECK(strcmp(forget_key_label(ProvConfirm::confirm), kForgetKeyText) == 0);
+    // ⛔ AND THE FORBIDDEN NEIGHBOURS STAY ABSENT: this is retention management, ⛔ never "key rotation".
+    for (const char* w : { kSavedKeysTitle, kSavedKeysEmpty, kKeyForgottenText, kActiveKeyText,
+                           kCannotForgetText, kForgetKeyText, kKeyNotForgottenText }) {
+        CHECK(strstr(w, "ROTATE") == nullptr);
+        CHECK(strstr(w, "ROTATION") == nullptr);
+    }
+    // ★ THE LIST'S FOUR HEADS ARE FOUR DIFFERENT SENTENCES (four different operator actions).
+    { mrfw::SavedKeyList l{};                       CHECK(strcmp(saved_keys_head(l), "NO KEYRING") == 0); }
+    { mrfw::SavedKeyList l{}; l.served = true;      CHECK(strcmp(saved_keys_head(l), "CONFIG UNREADABLE") == 0); }
+    { mrfw::SavedKeyList l = keys_list(0);          CHECK(strcmp(saved_keys_head(l), kSavedKeysEmpty) == 0); }
+    { mrfw::SavedKeyList l = keys_list(0); l.st = mrnv::TeamKeyRead::absent;
+      CHECK(strcmp(saved_keys_head(l), kSavedKeysEmpty) == 0); }                  // ⛔ absent is NEVER an error
+    { mrfw::SavedKeyList l = keys_list(2); l.st = mrnv::TeamKeyRead::invalid;
+      CHECK(strcmp(saved_keys_head(l), "KEY STORE INVALID") == 0); }
+    { mrfw::SavedKeyList l = keys_list(2); l.st = mrnv::TeamKeyRead::io_failed;
+      CHECK(strcmp(saved_keys_head(l), "STORAGE FAILURE") == 0); }
+    { mrfw::SavedKeyList l = keys_list(2);          CHECK(strcmp(saved_keys_head(l), "") == 0); }
+    for (const char* w : { "NO KEYRING", "CONFIG UNREADABLE", "KEY STORE INVALID", "STORAGE FAILURE" })
+        CHECK(strlen(w) <= 19u);
+}
+
+TEST_CASE("ui16-k6-resources: the retention carriers cost exactly themselves, and NO landed field moved") {
+    // ★★ MEASURED, ⛔ NOT REASONED, and every placement is `offsetof`-proved rather than asserted in prose.
+    // ⚠ NATIVE ALIGNMENT HIDES THE BOARD FIGURE (D2's standing warning) — this pins the SHAPE, not the flash cost.
+    // ---- the METADATA carrier: two facts per record, and ⛔ no room for a key ------------------------------------
+    CHECK(sizeof(mrfw::SavedKeyEntry) == 8u);
+    CHECK(offsetof(mrfw::SavedKeyEntry, team_id)  == 0u);
+    CHECK(offsetof(mrfw::SavedKeyEntry, active)   == 4u);
+    CHECK(offsetof(mrfw::SavedKeyEntry, reserved) == 5u);      // ★ NAMED padding — a whole-record compare is sound
+    CHECK(sizeof(mrfw::SavedKeyList) == 36u);                  // 4 x 8 + n + st + served + binding_read
+    // ---- the SNAPSHOT predicate is FREE: it lands in the bool run's existing padding ------------------------------
+    CHECK(sizeof(mrui::UiSnapshot) == 1008u);                  // ⛔ UNCHANGED by K6
+    CHECK(offsetof(mrui::UiSnapshot, prov_invite)     == 689u);   // ⛔ UNMOVED
+    CHECK(offsetof(mrui::UiSnapshot, prov_saved_keys) == 690u);   // ★ the new flag, in the pad beside it
+    // ---- the ANSWER's typed flag is FREE: it lands in the hole `saved_key` already sits in ------------------------
+    CHECK(sizeof(mrui::UiProvAnswer) == 16u);                  // ⛔ UNCHANGED
+    CHECK(offsetof(mrui::UiProvAnswer, saved_key)    == 2u);   // ⛔ UNMOVED
+    CHECK(offsetof(mrui::UiProvAnswer, keyring_full) == 3u);   // ★ the new flag
+    CHECK(offsetof(mrui::UiProvAnswer, team_id)      == 4u);   // ⛔ UNMOVED — no landed field shifted
+    CHECK(sizeof(mrui::UiProvIntent) == 32u);                  // ⛔ UNCHANGED: the fifth op carries no new field
+    // ---- and the STATE's two carriers cost EXACTLY themselves, 40 bytes, with no padding wasted ------------------
+    // ⚠ RE-MEASURED 2026-08-25 (§UI-16 K7): every offset below shifted by exactly **+8** and the two sizes with
+    //   them, because K7 inserts its two frozen compose fields at the HEAD of `UiState`. ⛔ K6's CLAIM — its two
+    //   carriers cost EXACTLY themselves, contiguously, with no padding wasted — is what these lines measure, and
+    //   the arithmetic below still closes: 348 + 4 = 352, 352 + 4 = 356, 356 + 36 = 392.
+    CHECK(offsetof(mrui::UiState, saved_key_team) == 348u);    // ⛔ K5's field (340 + 8)
+    CHECK(offsetof(mrui::UiState, forget_team)    == 352u);    // ★ 4 B, immediately after it
+    CHECK(offsetof(mrui::UiState, saved_keys)     == 356u);    // ★ 36 B, immediately after THAT
+    CHECK(offsetof(mrui::UiState, invite)         == 392u);    // = 356 + 36, i.e. ⛔ not one padding byte between
+    CHECK(sizeof(mrui::UiState) == 504u);                      // 456 + 4 + 36 + K7's 8 = 504 ✓
+    CHECK(sizeof(mrui::UiModel) == 928u);                      // 880 + the same 40 + K7's 8
+}
+
+// ============== §UI-16 K6 (QG blocker, 2026-08-25) — THE **RECEIVED** GRANT'S FULL-KEYRING ACKNOWLEDGEMENT
+// ★★★★ THE BLOCKER: a `KEYRING FULL` refusal of a RECEIVED grant showed the three correct rows and then
+//      acknowledged into the MENU, while the `team new` refusal of the SAME store state reached `SAVED KEYS`.
+//      Spec §K6 (`:987`) rules the direction for a `KEYRING FULL` result of **either origin**.
+// ⛔ WHAT THIS BLOCK ALSO MEASURES IS THE **ABSENCE** OF CHANGE: the three ruled rows (S-26/S-27) are byte-identical,
+//    the note still navigates nothing on ARRIVAL, and a NON-full unsaved note still lands on the MENU.
+TEST_CASE("ui16-k6-grantack: a FULL-keyring receipt keeps its three ruled rows and lands the ACK in SAVED KEYS") {
+    CreateFix f; const auto s = keys_snap();
+    f.prov.keys = keys_list(4, /*active_row=*/2);
+    f.prov.answer = created_answer(0x12A1B2C3u);
+    CHECK(open_create_confirm(f, s));
+    f.m.on_gesture(Gesture::short_press, s);
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::create_result);
+    const uint8_t cur_before = f.m.state().cursor;
+    const Screen  scr_before = f.m.state().screen;
+    const int     acts_before = f.prov.calls, keys_before = f.prov.keys_calls;
+
+    // ★ THE RECEIPT ARRIVES: a grant whose durable half was refused by a FULL keyring.
+    f.m.on_team_key_note(/*saved=*/false, /*keyring_full=*/true, 9000);
+    // ★★★ THE THREE RULED ROWS ARE **UNCHANGED** — S-26/S-27, byte for byte. They are three TRUE sentences: the key
+    //     IS live in RAM and it WILL be gone after a reboot. ⛔ The new fact changes ⛔ NO word.
+    CHECK(f.m.state().prov_answer.outcome == UiProvOutcome::team_key_unsaved);
+    CHECK(strcmp(prov_result_head(f.m.state().prov_answer),    "TEAM KEY ACTIVE")  == 0);
+    CHECK(strcmp(prov_result_detail(f.m.state().prov_answer),  "NOT SAVED")        == 0);
+    CHECK(strcmp(prov_result_detail2(f.m.state().prov_answer), "LOST ON REBOOT")   == 0);
+    CHECK(f.m.state().prov_answer.keyring_full == true);
+    // ⛔ AND THE ARRIVAL STILL NAVIGATES NOTHING (spec §4-K4 pin 3): same screen, same arm, same cursor, no act.
+    CHECK(f.m.state().provisioning == Provision::create_result);
+    CHECK(f.m.state().screen == scr_before);
+    CHECK(f.m.state().cursor == cur_before);
+    CHECK(f.prov.calls == acts_before);
+    CHECK(f.prov.keys_calls == keys_before);        // ⛔ and it read no flash
+
+    // ★★★★ THE PRESS — and ONLY the press — LANDS IN `SAVED KEYS`, where the dead end can be resolved.
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::saved_keys);
+    CHECK(f.prov.keys_calls == keys_before + 1);    // the list is READ, once, on the transition
+    // ⛔⛔ IT CHOSE NO VICTIM, DELETED NOTHING AND RETRIED NOTHING — the create-side arm's rules, verbatim.
+    CHECK(f.m.state().cursor == 0);
+    CHECK(f.m.state().forget_team == 0);
+    CHECK(f.prov.last_forget_id == 0);
+    CHECK(f.m.state().saved_keys.n == 4);
+    CHECK(f.prov.calls == acts_before);             // ⛔ no transaction was re-run — a grant is the granter's
+    CHECK(f.store.writes == 0);
+}
+
+TEST_CASE("ui16-k6-grantack-menu: a NON-full unsaved receipt still acknowledges to the MENU, and a SAVED one to STATUS") {
+    // ⛔ THE LANDING IS THE **FLAG'S**, not the note's: every other durable failure (`record_unreadable`,
+    //    `record_mismatch`, `binding_failed`, a corrupt or unopenable store) has no removal list to offer, and
+    //    walking the operator into one would be a false remedy.
+    {
+        CreateFix f; const auto s = keys_snap();
+        f.prov.keys = keys_list(4, 2);
+        f.prov.answer = created_answer(0x12A1B2C3u);
+        CHECK(open_create_confirm(f, s));
+        f.m.on_gesture(Gesture::short_press, s);
+        f.m.on_gesture(Gesture::double_press, s);
+        const int keys_before = f.prov.keys_calls;
+        f.m.on_team_key_note(/*saved=*/false, /*keyring_full=*/false, 9000);
+        CHECK(f.m.state().prov_answer.keyring_full == false);
+        // ★ the SAME three rows — which is the point: the words never depended on the flag.
+        CHECK(strcmp(prov_result_head(f.m.state().prov_answer),    "TEAM KEY ACTIVE") == 0);
+        CHECK(strcmp(prov_result_detail(f.m.state().prov_answer),  "NOT SAVED")       == 0);
+        CHECK(strcmp(prov_result_detail2(f.m.state().prov_answer), "LOST ON REBOOT")  == 0);
+        f.m.on_gesture(Gesture::double_press, s);
+        CHECK(f.m.state().provisioning == Provision::menu);
+        CHECK(f.prov.keys_calls == keys_before);    // ⛔ and no keyring read was spent on it
+    }
+    // ⛔⛔ AND A **SAVED** RECEIPT CAN NEVER CARRY THE FLAG — refused by construction in `on_team_key_note`, ⛔ not by
+    //     a discipline at the call sites: a receipt that PERSISTED has no dead end, and a `TEAM KEY RECEIVED` screen
+    //     whose acknowledgement opened a removal list would be the "success that isn't" from the other side.
+    {
+        CreateFix f; const auto s = keys_snap();
+        f.prov.keys = keys_list(4, 2);
+        f.prov.answer = created_answer(0x12A1B2C3u);
+        CHECK(open_create_confirm(f, s));
+        f.m.on_gesture(Gesture::short_press, s);
+        f.m.on_gesture(Gesture::double_press, s);
+        const int keys_before = f.prov.keys_calls;
+        f.m.on_team_key_note(/*saved=*/true, /*keyring_full=*/true, 9000);   // ⚠ a caller that got it wrong
+        CHECK(f.m.state().prov_answer.outcome == UiProvOutcome::team_key_received);
+        CHECK(f.m.state().prov_answer.keyring_full == false);                // ★ REFUSED at the one entry point
+        f.m.on_gesture(Gesture::double_press, s);
+        // ★ §UI-17 keyrecv's landed ruling is untouched: the SUCCESS note acknowledges to PASSIVE STATUS.
+        CHECK(f.m.state().screen == Screen::status);
+        CHECK(f.m.state().provisioning == Provision::closed);
+        CHECK(f.prov.keys_calls == keys_before);
+    }
+}
+
+TEST_CASE("ui16-k6-grantack-join: the FULL-keyring landing works from the STATIC-JOIN result screen too") {
+    // ⛔ ONE NOTE, ONE LANDING (the answer-keyed rule): the renderer draws the note on WHICHEVER result screen is up,
+    //    so a landing wired to only one of them would give the same receipt two different endings.
+    CreateFix f; const auto s = keys_snap();
+    f.prov.keys = keys_list(4, 2);
+    f.prov.list = ok_join_list(0b0001);
+    f.prov.join_answer = UiProvAnswer{};
+    f.prov.join_answer.outcome = UiProvOutcome::join_refused;
+    f.prov.join_answer.reason  = "invalid_bw";
+    // ⓘ Reached the way the operator reaches it — a real slot, a real confirmation, a scripted REFUSAL — so the
+    //   screen under test is the one the flow really produces. ⛔ No test-only entry point exists or may be added.
+    CHECK(open_join_confirm(f, s, 1));
+    f.m.on_gesture(Gesture::short_press, s);
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::join_result);
+    const int keys_before = f.prov.keys_calls;
+    f.m.on_team_key_note(/*saved=*/false, /*keyring_full=*/true, 9000);
+    CHECK(strcmp(prov_result_head(f.m.state().prov_answer), "TEAM KEY ACTIVE") == 0);
+    f.m.on_gesture(Gesture::double_press, s);
+    CHECK(f.m.state().provisioning == Provision::saved_keys);
+    CHECK(f.prov.keys_calls == keys_before + 1);
+    CHECK(f.m.state().saved_keys.n == 4);
+    CHECK(f.prov.calls == 1);          // ⛔ only the JOIN the operator asked for — ⛔ nothing was re-run
+    CHECK(f.m.state().forget_team == 0);
 }

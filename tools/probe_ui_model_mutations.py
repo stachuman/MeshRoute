@@ -330,7 +330,129 @@ if _IS_WORKER and (_SHARD_ID is None or _SHARD_RESULT is None):
 #    ⓘ MR_MUT_BASE="cases,asserts" still works and still means "the figure the clean tree is expected to show" — it
 #      now overrides the CROSS-CHECK rather than the gate, which also makes it the one-command way to exercise the
 #      stale-pin banner without editing this file.
-PIN_CASES, PIN_ASSERTS = 2107, 92038     # ★★ CROSS-CHECK RE-SYNCED 2026-08-25 by **§UI-17 keyrecv** (the
+PIN_CASES, PIN_ASSERTS = 2148, 93187     # ★★ CROSS-CHECK RE-SYNCED 2026-08-25 by **§UI-16 K7 ([[B245]])** — the
+                                         # ROSTER GRANT: an operator-initiated per-member act on the ENTERED
+                                         # TEAM screen that opens the LANDED N5/N6 chain verbatim.
+                                         # **2139 / 92925 -> 2148 / 93187** (+9 cases / **+262 assertions**),
+                                         # DERIVED from the clean run. ⛔ NOTHING HERE IS A SUBTRACTION, and ⛔ no
+                                         # EXISTING case's count moved — the three landed resource cases had
+                                         # figures RE-MEASURED in place (`UiState` 496 -> 504, `UiModel`
+                                         # 920 -> 928, and the +8 shift of every `UiState` offset past the head),
+                                         # which changes what they assert, ⛔ not how many times.
+                                         # MEASURED case by case with `program -tc=`:
+                                         #  +262 — 9 NEW cases, `test/test_firmware_ui_model.cpp`:
+                                         #    `ui16-k7-act       …pin 1, the act on a member row…`     32
+                                         #    `ui16-k7-b245      …pin 2, THE REPRO END TO END…`        26
+                                         #    `ui16-k7-window    …pin 3, the window UNDISTURBED…`      17
+                                         #    `ui16-k7-silent    …pin 4, counted, not read…`           15
+                                         #    `ui16-k7-self      …pin 5, the SELF row…`                13
+                                         #    `ui16-k7-keyless   …pin 6, four vetoes, each alone…`     21
+                                         #    `ui16-k7-identity  …pin 7, P-7c/P-7d…`                   14
+                                         #    `ui16-k7-words     …pin 8, the WHOLE enum…`             110
+                                         #    `ui16-k7-resources …the two frozen fields…`              14
+                                         #    32+26+17+15+13+21+14+110+14 = 262. ✓
+                                         # ⓘ `src/firmware_ui_invite.h` is ⛔ NOT TOUCHED by K7, so the whole
+                                         #   `--target=uiinvite` battery re-runs against an identical file.
+                                         #
+                                         # The superseded K6 round-2 GATE-INTEGRITY sync follows, kept visible:
+                                         # 2139 / 92925 — ★★ CROSS-CHECK RE-SYNCED 2026-08-25 by **§UI-16 K6 round 2's GATE-
+                                         # INTEGRITY FIX (C1)** — QG passed the implementation and HELD on one
+                                         # item: the native "exact drain-loop" fixture in
+                                         # `test/test_firmware_team_keyring.cpp` still switched on `GrantUiRoute`
+                                         # ALONE and threw the `KeyringErr` away at the seam, so it could not
+                                         # carry `keyring_full` — while `src/fw_main.cpp` routes a two-fact
+                                         # `mrfw::GrantUiVerdict`. A fixture whose comment claims the real loop is
+                                         # reproduced EXACTLY, and models the PREVIOUS shape, pins the old gate.
+                                         # **2138 / 92893 -> 2139 / 92925** (+1 case / **+32 assertions**),
+                                         # DERIVED from the clean run. ⛔ NOTHING HERE IS A SUBTRACTION.
+                                         # MEASURED case by case with `program -tc=`:
+                                         #  +27 — 1 NEW case, `test/test_firmware_team_keyring.cpp`:
+                                         #    `ui16-k6-grantfull-drain …the fifth RECEIVED grant…`  27
+                                         #       (the same full-4-record store as `ui16-k6-grantfull`,
+                                         #        driven THROUGH the drain-loop fixture: the unsaved
+                                         #        door WITH `keyring_full`, nothing forwarded, blob
+                                         #        byte-identical, zero saves — plus the retry)
+                                         #  +5 — the flag asserted in 5 EXISTING drain-loop cases that had
+                                         #       only ever read `ui.unsaved == 1` (the withdrawn shape is kept
+                                         #       visible at each), all in the same file:
+                                         #    `ui16-K3: a FAILED persist…`        43 -> 47   (+4, its 4 subcases)
+                                         #    `ui16-K3: each of the four…`        39 -> 40   (+1, re-check (4))
+                                         #    27 + 5 = 32. ✓
+                                         # ⓘ `drain_one` now routes `grant_ui_verdict_of(svc.receive(g))` and its
+                                         #   `UiSink` gained an `unsaved_full` counter; the ROUTE it switches on is
+                                         #   unchanged, so ⛔ no existing route assertion moved.
+                                         #
+                                         # The superseded K6 round-2 sync follows, kept visible as the base:
+                                         # 2138 / 92893 — ★★ CROSS-CHECK RE-SYNCED 2026-08-25 by **§UI-16 K6 round 2** — QG's
+                                         # blocker: a `KEYRING FULL` refusal of a **RECEIVED grant** was collapsed
+                                         # into the generic `active_unsaved`, so the fifth received grant showed the
+                                         # three correct rows and then acknowledged into a menu that says nothing,
+                                         # while the `team new` refusal of the SAME store state reached SAVED KEYS.
+                                         # **2133 / 92724 -> 2138 / 92893** (+5 cases / **+169 assertions**),
+                                         # DERIVED from the clean run. ⛔ NOTHING HERE IS A SUBTRACTION.
+                                         # MEASURED case by case with `program -tc=`:
+                                         #  +128 — 2 NEW cases, `test/test_firmware_team_keyring.cpp`:
+                                         #    `ui16-k6-grantfull …a fifth RECEIVED grant…`          28
+                                         #    `ui16-k6-grantverdict …the LANDED route plus ONE…`   100
+                                         #       (the `GrantSave` x `KeyringErr` sweep: the route is
+                                         #        ALWAYS the landed classifier's, and the fact is true
+                                         #        for exactly one pair)
+                                         #  +41 — 3 NEW cases, `test/test_firmware_ui_model.cpp`:
+                                         #    `ui16-k6-grantack …three ruled rows + the ACK…`       20
+                                         #    `ui16-k6-grantack-menu …NON-full still the MENU…`     13
+                                         #    `ui16-k6-grantack-join …from the JOIN result too…`     8
+                                         #    128 + 41 = 169. ✓
+                                         # ⓘ The landed `on_team_key_note` call sites gained a SPELLED-OUT second
+                                         #   argument (no default — see the model's block for the measured reason);
+                                         #   that moved ⛔ no assertion count anywhere.
+                                         #
+                                         # The superseded K6 round-1 sync follows, kept visible as the base:
+                                         # 2133 / 92724 — ★★ RE-SYNCED 2026-08-25 by **§UI-16 K6** (saved-key
+                                         # RETENTION MANAGEMENT — ⛔ never "key rotation": `team keys` /
+                                         # `team forgetkey`, and the OLED `SAVED KEYS` screens).
+                                         # **2107 / 92038 -> 2133 / 92724** (+26 cases / **+686 assertions**),
+                                         # DERIVED from the clean run. ⛔ NOTHING HERE IS A SUBTRACTION EXCEPT
+                                         # the ONE withdrawn line named below, which is stated rather than netted.
+                                         # MEASURED case by case with `program -tc=`:
+                                         #  +356 — 11 NEW cases, `test/test_firmware_team_keyring.cpp`:
+                                         #    `ui16-k6-pin1  …FULL + UNCONFIRMED = zero writes…`     24
+                                         #    `ui16-k6-pin2  …the ACTIVE record is PROTECTED…`       19
+                                         #    `ui16-k6-pin3  …ONE save, survivors byte-identical…`   28
+                                         #    `ui16-k6-pin4  …not-found / 0 / unreadable…`           64
+                                         #    `ui16-k6-pin5  …a FAILED save reported as failed…`     13
+                                         #    `ui16-k6-pin6  …the LIST exposes ids and status ONLY…` 65
+                                         #    `ui16-k6-pin7  …a SHORT-FINGERPRINT COLLISION…`        16
+                                         #    `ui16-k6-pin9  …a re-key is an in-place REPLACE…`      19
+                                         #    `ui16-k6-two-transactions …never a side effect…`       24
+                                         #    `ui16-k6-active-predicate …ONE authority…`              6
+                                         #    `ui16-k6-inventory …the count fence…`                  78
+                                         #  +229 — 10 NEW cases, `test/test_firmware_ui_model.cpp`:
+                                         #    `ui16-k6-menu …the FIFTH child…`                       15
+                                         #    `ui16-k6-open …read ONCE, performs NOTHING…`           15
+                                         #    `ui16-k6-confirm …the FULL 32-bit id…`                 24
+                                         #    `ui16-k6-active …no destructive action…`               15
+                                         #    `ui16-k6-result …the REFRESHED list…`                  10
+                                         #    `ui16-k6-failure …KEY NOT FORGOTTEN…`                  48
+                                         #    `ui16-k6-pin8 …KEYRING FULL's ack…`                    21
+                                         #    `ui16-k6-rows …IDENTITIES, BACK unconditional…`        16
+                                         #    `ui16-k6-lexemes …the SEVEN K6 words…`                 46
+                                         #    `ui16-k6-resources …costs exactly themselves…`         19
+                                         #  +100 — 5 NEW cases, `test/test_firmware_ui_prov.cpp`
+                                         #    (`§UI16-K6 …` — the list, the act, the six failing arms,
+                                         #     the typed `KEYRING FULL` flag, the fifth-op dispatch)
+                                         #  +2 — TWO EXISTING width loops gained one iteration each:
+                                         #    `…every row's label fits the rail…`  x2, because
+                                         #    `kMaxProvRows` moved 5 -> 6 with the `SAVED KEYS` child
+                                         #  −1 — ONE existing CHECK WITHDRAWN IN PLACE, and it is named rather
+                                         #    than netted: `ui16-k5-resources`'s
+                                         #    `offsetof(UiState, invite) == 344` — K6's two carriers now sit
+                                         #    between K5's field and the window, so that absolute offset is
+                                         #    K6's arithmetic and is asserted (as 384) in `ui16-k6-resources`.
+                                         #    K5's OWN claim (its field is FREE and UNMOVED at 340) is intact.
+                                         #    356 + 229 + 100 + 2 − 1 = 686. ✓
+                                         #
+                                         # The superseded §UI-17 keyrecv sync follows, kept visible as the base:
+                                         # 2107 / 92038 — ★★ RE-SYNCED 2026-08-25 by **§UI-17 keyrecv** (the
                                          # owner-ruled shape (a): acknowledging `TEAM KEY RECEIVED` lands on
                                          # the PASSIVE STATUS screen).
                                          # **2102 / 91886 -> 2107 / 92038** (+5 cases / **+152 assertions**),
@@ -2345,7 +2467,10 @@ MUTS_MODEL = [
   "    if (create_team) l.row[l.n++] = ProvRow::join_team;"),
  ("N02 ★★ the parent-row predicate is RE-SPELLED from the old two children instead of derived from the child list "
   "— the third child opens a sub-view no visible row leads to",
-  "    const ProvRowList l = provision_rows(create_team, join_static, join_team, invite);\n"
+  # ⚠ RE-ANCHORED 2026-08-25 (§UI-16 K6): the predicate gained a FIFTH child (`SAVED KEYS`), so the call it
+  #   derives from now carries five parameters. Meaning unchanged — the parent row must be DERIVED from the child
+  #   list and ⛔ never re-spelled from a fixed pair, which is the very drift this entry exists to catch.
+  "    const ProvRowList l = provision_rows(create_team, join_static, join_team, invite, saved_keys);\n"
   "    for (uint8_t i = 0; i < l.n; ++i)\n"
   "        if (l.row[i] != ProvRow::back) return true;\n"
   "    return false;",
@@ -2682,6 +2807,148 @@ MUTS_MODEL = [
   "        _st.dirty = true;                      // a repaint is owed; ⛔ a wake is not (see above)",
   "        team_key_note_ack_landed();\n"
   "        _st.dirty = true;                      // a repaint is owed; ⛔ a wake is not (see above)"),
+
+ # ===== §UI-16 K6 — SAVED-KEY RETENTION MANAGEMENT, THE MODEL'S HALF (⛔ never "key rotation") ===================
+ # ★★★★ THE FIVE WAYS THIS FLOW CAN BE UNDONE FROM THE MODEL, and each is a TEMPTING SIMPLIFICATION rather than a
+ #      deletion: the confirmation bypassed, the PROTECTED row given a destructive screen, the act keyed on the
+ #      cursor instead of the row's identity, the create RESUMED after the removal, and the "refreshed list" that
+ #      is not refreshed. ⓘ The SERVICE's own rules are `--target=teamkeyring` T55-T66; these attack the FLOW.
+ ("V43 ★★★★ THE CONFIRMATION IS BYPASSED — `double` on **BACK** falls through into the removal, so one press "
+  "destroys a stored secret the operator was still looking at (P-13 broken at the one screen that is irreversible)",
+  "        if (_st.prov_confirm == ProvConfirm::back) { enter_provision(Provision::saved_keys); return; }",
+  "        if (_st.prov_confirm == ProvConfirm::back) { }"),
+ ("V44 ★★★★ THE **ACTIVE** ROW IS GIVEN THE DESTRUCTIVE CONFIRMATION — the protected record lands on a screen "
+  "that offers `FORGET KEY`, so the panel invites the one removal the service must refuse (and the operator learns "
+  "the refusal only after pressing it)",
+  "        enter_provision(r.key.active ? Provision::saved_keys_active : Provision::saved_keys_confirm);",
+  "        enter_provision(Provision::saved_keys_confirm);"),
+ ("V45 ★★★★ THE REMOVAL IS KEYED ON THE **CURSOR** — a row INDEX stands in for the record's identity, and the list "
+  "skips a corrupt zero-id record, so the index names a different record than the panel drew (§B66, over a delete)",
+  "        _st.forget_team = r.key.team_id;",
+  "        _st.forget_team = _st.cursor;"),
+ ("V46 ★★★★ THE CREATE IS **AUTOMATICALLY RESUMED** after the full-keyring refusal — the ruling's *two explicit "
+  "transactions* collapsed into one, so a create that fails its second write can destroy an unrelated saved key on "
+  "the way, and the operator never chose either half",
+  "        if (a.outcome == UiProvOutcome::refused && a.keyring_full) {\n"
+  "            load_saved_keys();\n"
+  "            enter_provision(Provision::saved_keys);\n"
+  "            return;\n"
+  "        }",
+  "        if (a.outcome == UiProvOutcome::refused && a.keyring_full) {\n"
+  "            run_create_team();\n"
+  "            return;\n"
+  "        }"),
+ ("V47 ★★★ THE \"REFRESHED LIST\" IS NOT REFRESHED — acknowledging `KEY FORGOTTEN` returns to the FROZEN copy, so "
+  "the record just removed is still on the panel: a screen contradicting an act it reported as complete",
+  "    void saved_keys_result_gesture() {\n"
+  "        load_saved_keys();\n"
+  "        enter_provision(Provision::saved_keys);\n"
+  "    }",
+  "    void saved_keys_result_gesture() {\n"
+  "        enter_provision(Provision::saved_keys);\n"
+  "    }"),
+ ("V48 ★★★ A FAILED REMOVAL RENDERS THE SUCCESS WORD — `KEY FORGOTTEN` for a store that refused or a write that "
+  "did not land, which is the 'success that isn't' over a key that is still there (spec §4-K6 pin 5)",
+  "        case UiProvOutcome::key_forget_failed: return kKeyNotForgottenText;",
+  "        case UiProvOutcome::key_forget_failed: return kKeyForgottenText;"),
+ ("V49 ★★ THE FULL-STORE DOOR OPENS ON THE DISPLAY TOKEN — the navigation decision is taken by comparing "
+  "`reason`'s TEXT instead of the typed flag, so a re-worded service token silently closes the one route out of "
+  "the dead end ([[B48]]'s class at the navigation layer)",
+  "        if (a.outcome == UiProvOutcome::refused && a.keyring_full) {",
+  "        if (a.outcome == UiProvOutcome::refused && a.reason[0] == 'k' && a.reason[8] == 'f') {"),
+ # ===== §UI-16 K6 (QG blocker, 2026-08-25) — THE RECEIVED GRANT'S ACK, AT THE MODEL ============================
+ ("V51 ★★★★ THE RECEIVED-GRANT FULL LANDING IS DROPPED — the fifth received grant shows three correct rows and then "
+  "acknowledges into the MENU, which is the QG blocker restored at the layer that owns the landing",
+  "        if (!_st.prov_answer.keyring_full) return false;",
+  "        return false;"),
+ ("V52 ★★★ **EVERY** UNSAVED RECEIPT ACKNOWLEDGES INTO THE REMOVAL LIST — a corrupt store, an unreadable record or "
+  "a failed activation all walk the operator into a screen that offers to delete a key, which is a FALSE remedy",
+  "        if (!_st.prov_answer.keyring_full) return false;",
+  "        ;"),
+ ("V53 ★★★ THE FLAG IS ACCEPTED ON THE **SAVED** ARM — a `TEAM KEY RECEIVED` screen whose acknowledgement opens a "
+  "removal list, i.e. the 'success that isn't' from the other side",
+  "        note.keyring_full = !saved && keyring_full;",
+  "        note.keyring_full = keyring_full;"),
+ ("V54 ★★★ THE FULL LANDING IS KEYED ON THE **ARM** INSTEAD OF THE ANSWER — the static-join result screen renders "
+  "the same note and would then give ONE receipt TWO endings",
+  "        if (_st.prov_answer.outcome != UiProvOutcome::team_key_unsaved) return false;",
+  "        if (_st.provisioning != Provision::create_result) return false;"),
+
+
+ # ===== §UI-16 K7 ([[B245]]) — THE ROSTER GRANT'S ENTRY ===========================================================
+ # ★★★ THE SLICE IS AN **ENTRY POINT**, so its controls attack exactly that: WHERE the act hangs, WHEN it is
+ #     offered, WHAT identity it freezes, and that it REACHES the landed N5/N6 chain rather than a second copy of
+ #     it. ⓘ The chain's own rulings keep their own battery (`--target=uiinvite`), which K7 leaves byte-identical —
+ #     `src/firmware_ui_invite.h` is not touched by this slice at all, so those entries re-run unchanged.
+ ("W01 ★★★★ THE ACT AUTO-FIRES ON ROW SELECTION — merely opening a member's act sub-view opens the grant chain, "
+  "so the operator is put one press from shipping a private key by an act they did not ask for (P-12, the "
+  "no-unsolicited shape, and the headline control of this slice)",
+  "            _st.compose_grant_hash = team_member_hash_of(s.member, s.team_shown, _team_sel_id);\n"
+  "            _st.compose_grant_row  = compose_grant_offered(/*dm=*/true, s.prov_invite, s.team_key_present,\n"
+  "                                                           _st.compose_grant_hash, s.my_key_hash32);",
+  "            _st.compose_grant_hash = team_member_hash_of(s.member, s.team_shown, _team_sel_id);\n"
+  "            _st.compose_grant_row  = compose_grant_offered(/*dm=*/true, s.prov_invite, s.team_key_present,\n"
+  "                                                           _st.compose_grant_hash, s.my_key_hash32);\n"
+  "            if (_st.compose_grant_row) { run_roster_grant(s); return; }"),
+ ("W02 ★★★★ THE CONFIRMATION IS SKIPPED — the act performs the grant itself instead of opening the chain's "
+  "REJECT-default screen, so ONE double ships the key (P-13: the deliberate short-then-double is the whole guard)",
+  "        enter_provision(invite_grant_preflight(_invite_dev, target)\n"
+  "                      ? Provision::invite_confirm : Provision::invite_need_pubkey);",
+  "        if (invite_grant_preflight(_invite_dev, target)) { run_invite_grant(target); return; }\n"
+  "        enter_provision(Provision::invite_need_pubkey);"),
+ ("W03 ★★★★ A **SECOND OUTCOME MAPPING IS FORKED** — the act stops going through the ONE reused call and maps the "
+  "dispatch itself, so the panel's word and the core's word are free to disagree (the other headline; the anchor "
+  "IS the reused call, which is what makes 'K7 adds no mapping' measurable rather than argued)",
+  "        run_invite_grant(_st.invite.sel_hash);",
+  "        { InviteGrantResult r{}; uint16_t c = 0; uint8_t d = 0;\n"
+  "          const MESHROUTE_NS::Node::TeamKeyGrantTx tx =\n"
+  "              _invite_dev ? _invite_dev->grant(_st.invite.sel_hash, kInviteGrantPlane, &c, &d)\n"
+  "                          : MESHROUTE_NS::Node::TeamKeyGrantTx::queued;\n"
+  "          r.hash = _st.invite.sel_hash; r.ctr = c; r.dst = d;\n"
+  "          r.st = (tx == MESHROUTE_NS::Node::TeamKeyGrantTx::queued) ? InviteGrantState::sent\n"
+  "                                                                    : InviteGrantState::failed;\n"
+  "          _st.grant = r; enter_provision(Provision::invite_result); }"),
+ ("W04 ★★★ THE TARGET IS RE-RESOLVED AT PRESS TIME FROM THE MUTABLE TEAM-LOCAL ID instead of the hash frozen when "
+  "the operator pointed at the row — a member that re-ran team-DAD between the two is granted to whoever now "
+  "wears its id, or to nobody (P-7d)",
+  "        const uint32_t target = _st.compose_grant_hash;",
+  "        const uint32_t target = team_member_hash_of(s.member, s.team_shown, _st.compose_peer);"),
+ ("W05 ★★★ THE TARGET IS KEYED BY THE **DISPLAY NAME** — a mutable, self-asserted label decides whose private key "
+  "is shipped, which is [[B48]]'s class at the worst possible site (P-7d)",
+  "    for (uint8_t i = 0; i < n; ++i) if (mem[i].id == id) return mem[i].key_hash32;",
+  "    for (uint8_t i = 0; i < n; ++i) if (mem[i].name[0] != '\\0') return mem[i].key_hash32;"),
+ ("W06 ★★★ THE SELF REFUSAL IS DROPPED — the roster row that is US offers a GRANT KEY, and the operator is invited "
+  "to run a pubkey ceremony against themselves",
+  "    if (member_hash32 == own_hash32) return false;",
+  "    // (the self veto dropped)"),
+ ("W07 ★★★ THE KEYLESS OFFER APPEARS — a node with NO team content key offers to grant one, so the act's own "
+  "precondition is discovered at the seam instead of never being offered (§K7 pin 6)",
+  "    if (!dm || !can_grant || !team_key_present) return false;",
+  "    if (!dm || !can_grant) return false;"),
+ ("W08 ★★ THE AUTHORITATIVE FLOOR IS DROPPED — a ROUTE-ONLY member (no binding, no seal target) is offered as a "
+  "grant target, which is the same fail-OPEN F-7 keeps off the invite list",
+  "    if (member_hash32 == 0) return false;\n"
+  "    if (member_hash32 == own_hash32) return false;",
+  "    if (member_hash32 == own_hash32) return false;"),
+ ("W09 ★★★ THE ROSTER ENTRY TAKES THE WINDOW'S SNAPSHOT — the door that deliberately bypasses the F-11 diff starts "
+  "feeding it, so the two authorities and the volatile handled set acquire a second, unruled writer",
+  "        _st.invite = InviteWindow{};\n"
+  "        _st.invite.sel_hash = target;",
+  "        _st.invite = invite_snapshot_take(s.member, s.team_shown);\n"
+  "        _st.invite.sel_hash = target;"),
+ ("W10 ★★ THE OPTIONAL ROW IS RESOLVED POSITIONALLY AGAIN (§B66) — the grant's slot is claimed whether or not the "
+  "act is offered, so on every ordinary DM sub-view `back, don't send` becomes the grant row",
+  "    if (grant && idx == sendable) return ComposeRow::grant;",
+  "    if (idx == sendable) return ComposeRow::grant;"),
+ ("W11 ★★ THE RULED FIVE-MINUTE BOUND IS NOT ARMED — the approval opened from the roster has no deadline at all, "
+  "so N6 pin 8's 'the grant is unreachable with the window closed' guard never applies to this door",
+  "        _invite_until_ms    = s.now_ms + kInviteWindowMs;",
+  "        // (no deadline armed)"),
+
+ ("V50 ★ the ruled RETENTION lexemes are re-spelled — S-40/S-42 are owner-ruled and declared once, so a re-ruling "
+  "must change each in exactly one place (the V38/V39 treatment, one screen over)",
+  'inline constexpr const char* kSavedKeysTitle    = "SAVED KEYS";      // S-40 — the PROVISION child row AND the title',
+  'inline constexpr const char* kSavedKeysTitle    = "SAVED KEY LIST";'),
 ]
 
 # ===== §UI-13 — src/firmware_config_service.h =====================================================================
@@ -3640,6 +3907,94 @@ MUTS_TEAMKEYRING = [
   "term, so the activation proceeds on facts nobody read (C2, inverted — T34's shape one verb over)",
   "    if (!binding.read(cur_bind))                       return SavedKeyUse::record_unreadable;",
   "    ;"),
+
+ # ===== §UI-16 K6 — SAVED-KEY RETENTION MANAGEMENT (⛔ never "key rotation") ====================================
+ # ★★★★ T55 IS THE SLICE'S HEADLINE AND IT IS THE IDIOM EVERY OTHER RING IN THIS TREE USES: evict the oldest and
+ #      carry on. K1's P-15 exists because a team CONTENT key is UNRECOVERABLE — ⛔ no seed derives it — so the
+ #      reflex a reviewer reaches for here destroys a secret only a teammate's re-grant can restore, silently, to
+ #      make room for a key the operator was in the middle of creating. ⓘ It is a mutation of `put`, ⛔ not of
+ #      `forget`: the point of K6 is that removal became EXPLICIT, ⛔ not that the store started making room.
+ ("T55 ★★★★ SILENT OLDEST-RECORD EVICTION IN `put` — the fifth team quietly displaces the first, so a `team new` "
+  "destroys an unrelated retained key and the operator is never told (P-15 inverted, the idiom's own trap)",
+  "            if (cur.count >= mrnv::kTeamKeyRecs) { r.err = KeyringErr::keyring_full; return r; }",
+  "            if (cur.count >= mrnv::kTeamKeyRecs) {\n"
+  "                for (uint16_t e = 0; e + 1 < cur.count; ++e) cur.rec[e] = cur.rec[e + 1];\n"
+  "                cur.count = static_cast<uint16_t>(cur.count - 1);\n"
+  "            }"),
+ ("T56 ★★★★ THE ACTIVE KEY'S PROTECTION IS DROPPED — the record behind the LIVE binding can be forgotten, so a "
+  "working node reads the team channel today and, the boot restore finding no record, silently cannot tomorrow "
+  "([[B240]]'s exact shape arriving through a management screen)",
+  "    if (saved_key_is_active(bind, team_id))      return KeyringForget::active_key;           // ★ PROTECTED, 0 writes",
+  "    ;"),
+ ("T57 ★★★★ THE DELETE IS KEYED ON THE **DISPLAY FINGERPRINT** — the low 24 bits the panel prints — so two teams "
+  "that share six hex digits are indistinguishable and the wrong key is destroyed while the right one is on screen "
+  "([[B48]]'s class, arriving through a delete)",
+  "    const int idx = team_key_find(cur, team_id);\n"
+  "    if (idx < 0) return KeyringForget::no_record;                       // ⛔ 0 writes — there is nothing to remove",
+  "    int idx = -1;\n"
+  "    for (uint16_t i = 0; i < cur.count; ++i)\n"
+  "        if ((cur.rec[i].team_id & 0xFFFFFFu) == (team_id & 0xFFFFFFu)) { idx = static_cast<int>(i); break; }\n"
+  "    if (idx < 0) return KeyringForget::no_record;"),
+ ("T58 ★★★★ THE COMPACTION LEAVES A **SECRET-BEARING TAIL** — the vacated slot is not wiped, so the blob keeps a "
+  "byte-for-byte DUPLICATE of a still-live team's PRIVATE key in a slot nothing reads and nothing clears, "
+  "recoverable from a flash dump long after the operator believed a key had been removed",
+  "    crypto_wipe(&cur.rec[cur.count], sizeof cur.rec[cur.count]);",
+  "    ;"),
+ ("T59 ★★★ THE COMPACTION BECOMES A SWAP-WITH-THE-LAST — the survivors are re-ordered under the operator's cursor "
+  "between one removal and the next, and the tail wipe then clears a slot the swap already overwrote",
+  "    for (uint16_t i = static_cast<uint16_t>(idx); i + 1 < cur.count; ++i) cur.rec[i] = cur.rec[i + 1];",
+  "    cur.rec[idx] = cur.rec[cur.count - 1];"),
+ ("T60 ★★★ A FAILED SAVE IS RENDERED AS A SUCCESS — the one `/mrteams` write came back false and the verb still "
+  "answers `forgotten`, so the panel says `KEY FORGOTTEN` about a removal that did not complete",
+  "    if (!_store.save(cur)) return KeyringForget::nv_save_failed;        // ⛔ never reported as \"nothing changed\"",
+  "    (void)_store.save(cur);"),
+ ("T61 ★★★★ THE LIST RETURNS **KEY MATERIAL** — the metadata row is filled from the record's PRIVATE half instead "
+  "of from its public id, so the enumeration becomes the reader K1 says this file does not have",
+  "        out.rec[out.n].team_id = cur.rec[i].team_id;\n"
+  "        out.rec[out.n].active  = saved_key_is_active(bind, cur.rec[i].team_id);   // ★ THE ONE PREDICATE (U1)",
+  "        memcpy(&out.rec[out.n], cur.rec[i].team_ch_priv, sizeof out.rec[out.n]);\n"
+  "        out.rec[out.n].active  = saved_key_is_active(bind, cur.rec[i].team_id);"),
+ ("T62 ★★ THE MISSING STORE AND THE UNREADABLE STORE ARE COLLAPSED — \"the flash would not open\" reads as \"there "
+  "is no such record\", so the operator is told a key is already gone while four intact ones sit behind a transient "
+  "mount failure",
+  "    if (st != mrnv::TeamKeyRead::ok)     return KeyringForget::store_failed;",
+  "    if (st != mrnv::TeamKeyRead::ok)     return KeyringForget::no_record;"),
+ ("T63 ★★★ THE BINDING READ IS FAIL-OPEN — an unreadable `/mrcfg` record is treated as \"nothing is active\", so a "
+  "removal proceeds without ever establishing which record is the PROTECTED one (C2 inverted, T54's shape one verb "
+  "over and with a destructive consequence)",
+  "    if (!binding.read(bind))                     return KeyringForget::binding_unreadable;   // ⛔ 0 keyring reads",
+  "    (void)binding.read(bind);"),
+ ("T64 ★★★ THE ACTIVE PREDICATE ASKS **MEMBERSHIP** INSTEAD OF THE BINDING — a node that has left a team (`team 0` "
+  "clears the binding and RETAINS the record, P-2b) can no longer free that record, and a stale binding's own "
+  "record stops being protected: the marker and the protection both move to the wrong row",
+  "    return team_id != 0 && b.key_active && b.binding_team_id == team_id;",
+  "    return team_id != 0 && b.membership_team_id == team_id;"),
+ ("T65 ★★ THE REMOVAL'S ZERO FLOOR IS DROPPED — `forget(0)` reaches the binding and the store instead of being "
+  "refused before anything is read, and answers a different arm's word",
+  "    if (team_id == 0) return KeyringForget::zero_team;                  // ⛔ 0 reads, 0 writes",
+  "    ;"),
+ # ===== §UI-16 K6 (QG blocker, 2026-08-25) — THE RECEIVED GRANT'S FULL-KEYRING LANDING =========================
+ # ★★★★ T67 IS **THE BLOCKER ITSELF, RESTORED**: the `KEYRING FULL` refusal of a RECEIVED grant collapsed back into
+ #      the generic `active_unsaved`, so the fifth received grant still shows three correct rows and then
+ #      acknowledges wherever the generic note lands — a dead end reachable only over the air, while the `team new`
+ #      refusal of the SAME store state reaches `SAVED KEYS`. ⓘ It is ONE word, which is why it is plausible.
+ ("T67 ★★★★ THE RECEIVED GRANT'S FULL-KEYRING DISTINCTION IS REMOVED — the verdict stops carrying the one fact a "
+  "ROUTE cannot, so the fifth RECEIVED grant loses its way out of the dead end (spec §K6 :987, either origin)",
+  "    v.keyring_full = grant_ui_keyring_full(r);",
+  "    v.keyring_full = false;"),
+ ("T68 ★★★ THE FULL FACT IS CLAIMED FOR **EVERY** KEYRING REFUSAL — a corrupt or unopenable store also offers the "
+  "removal list, i.e. a false remedy for a fault that has nothing to do with the four records",
+  "    return r.outcome == GrantSave::keyring_failed && r.err == KeyringErr::keyring_full;",
+  "    return r.outcome == GrantSave::keyring_failed;"),
+ ("T69 ★★ THE VERDICT RE-DECIDES THE ROUTE instead of CALLING the landed classifier — the three ruled rows are put "
+  "at the mercy of a second authority that can drift from `grant_ui_route_of`",
+  "    v.route        = grant_ui_route_of(r.outcome);   // ★ the LANDED classifier, CALLED — ⛔ never re-spelled",
+  "    v.route        = (r.outcome == GrantSave::saved) ? GrantUiRoute::received : GrantUiRoute::active_unsaved;"),
+
+ ("T66 ★ THE `KeyringForget` SENTINEL IS GIVEN A PLAUSIBLE WORD — `count` stops reading as \"not an outcome\" and "
+  "starts reading as a successful removal, which is the fence's whole point (the T38 shape, a fourth enum over)",
+  "        case KeyringForget::count:              return \"?\";",
+  "        case KeyringForget::count:              return \"forgotten\";"),
 ]
 
 # ===== §UI-16 N1 — lib/core/team_seen_ring.h: THE PURE RING POLICY ==================================================
@@ -4272,6 +4627,35 @@ MUTS_UIPROV = [
   "transaction for an operator decision about a key",
   "            case mrui::UiProvOp::use_saved_key: return ui_prov_use_saved_key(_dev, intent.team_id);",
   "            case mrui::UiProvOp::use_saved_key: return ui_prov_join_team(_dev, intent.team_id);"),
+
+ # ===== §UI-16 K6 — SAVED-KEY RETENTION MANAGEMENT, THE ADAPTER'S HALF (⛔ never "key rotation") ================
+ # ★★★ FOUR ENTRIES, and they attack the MAPPING rather than the policy (which is `--target=teamkeyring`'s): the
+ #     failing side must be the DEFAULT, the zero floor must sit in front of the seam, the failure must keep the
+ #     service's own token, and the `KEYRING FULL` door must open on the TRANSACTION's error and nothing else.
+ ("V41 ★★★★ A FAILED REMOVAL IS RENDERED AS A SUCCESS — everything but the protected-record refusal reads as "
+  "`forgotten`, so `KEY FORGOTTEN` appears for a write that did not land and for a store nobody could read "
+  "(spec §4-K6 pin 5, and the fail-closed direction inverted by one word)",
+  "    if (v == KeyringForget::forgotten) {",
+  "    if (v != KeyringForget::active_key) {"),
+ ("V42 ★★ the removal's ZERO FLOOR is dropped — a `team_id` of 0 reaches the device seam instead of being refused "
+  "before it, so a screen that can DESTROY a stored secret can reach one with a wildcard",
+  "    if (team_id == 0) {\n"
+  "        a.outcome = mrui::UiProvOutcome::key_forget_failed;",
+  "    if (false) {\n"
+  "        a.outcome = mrui::UiProvOutcome::key_forget_failed;"),
+ ("V43 ★ the failure loses the SERVICE's typed token, so the panel cannot say WHICH way the removal refused — and "
+  "`active_key` (a correct refusal) becomes indistinguishable from `nv_save_failed` (a write that did not land)",
+  "    a.reason  = keyring_forget_name(v);                 // ⛔ a FACT token, ⛔ never material",
+  '    a.reason  = "";'),
+ ("V44 ★★★ THE `KEYRING FULL` DOOR OPENS FOR **EVERY** REFUSAL — a PHY divergence, a corrupt keyring or an "
+  "unopenable store all send the acknowledgement into the retention list, so the operator is invited to delete a "
+  "key over a fault that has nothing to do with the four records",
+  "            a.keyring_full = (r.err == ProvErr::keyring_full);",
+  "            a.keyring_full = true;"),
+ ("V45 ★★ the intent dispatch sends the REMOVAL to the ACTIVATION — the fifth op installs a key where the "
+  "operator asked to forget one, i.e. the two acts on one seam swapped",
+  "            case mrui::UiProvOp::forget_key:  return ui_prov_forget_key(_dev, intent.team_id);",
+  "            case mrui::UiProvOp::forget_key:  return ui_prov_use_saved_key(_dev, intent.team_id);"),
 ]
 
 # ==================================================================== §UI-15 slice 6 — src/firmware_ui_join.h
@@ -4696,22 +5080,22 @@ MUTS_UISEND = [
  ("U10 ★★★ the `team_key_received` arm is never spelled out — a receipt K3 persisted and FORWARDED reaches the "
   "router and renders nothing at all, while every K3 case stays green",
   "    if (pu.kind == PK::team_key_received) {\n"
-  "        m.on_team_key_note(/*saved=*/true, now_ms);\n"
+  "        m.on_team_key_note(/*saved=*/true, /*keyring_full=*/false, now_ms);\n"
   "        return true;\n"
   "    }",
   ";"),
  ("U11 ★★★ the arm renders the FAILURE wording for a push K3 FORWARDED — the panel says `TEAM KEY ACTIVE` / "
   "`NOT SAVED` about a key that IS durable, which is the ruled pair told backwards",
-  "        m.on_team_key_note(/*saved=*/true, now_ms);",
-  "        m.on_team_key_note(/*saved=*/false, now_ms);"),
+  "        m.on_team_key_note(/*saved=*/true, /*keyring_full=*/false, now_ms);",
+  "        m.on_team_key_note(/*saved=*/false, /*keyring_full=*/false, now_ms);"),
  ("U12 ★★★ the arm WAKES the panel — §UI-17 R-7 scoped the wake to a DM ADDRESSED TO US and a SEALED channel "
   "post, and widening it to a grant receipt is a new owner ruling nobody made",
-  "        m.on_team_key_note(/*saved=*/true, now_ms);\n        return true;",
-  "        m.on_team_key_note(/*saved=*/true, now_ms);\n        m.on_msg_wake(now_ms);\n        return true;"),
+  "        m.on_team_key_note(/*saved=*/true, /*keyring_full=*/false, now_ms);\n        return true;",
+  "        m.on_team_key_note(/*saved=*/true, /*keyring_full=*/false, now_ms);\n        m.on_msg_wake(now_ms);\n        return true;"),
  ("U13 ★★ the receipt is COUNTED as an arriving DM — a phantom in the unread bar the operator can never open, "
   "because `lib/core` never inboxes a grant (it consumes the DM as control traffic)",
-  "        m.on_team_key_note(/*saved=*/true, now_ms);\n        return true;",
-  "        m.on_team_key_note(/*saved=*/true, now_ms);\n"
+  "        m.on_team_key_note(/*saved=*/true, /*keyring_full=*/false, now_ms);\n        return true;",
+  "        m.on_team_key_note(/*saved=*/true, /*keyring_full=*/false, now_ms);\n"
   "        c.last_dm_ms = now_ms; c.have_dm = true; ++c.arr_dm;\n        return true;"),
 ]
 

@@ -44,6 +44,14 @@ The four largest reversals are collected here so none is discovered by accident:
 - ⛔ **EXACTLY ONE SLICE TOUCHES `lib/core`, AND IT IS N1.** Every other slice is `src/`-only and therefore s18-inert
   **by construction** (the simulator compiles `lib/core` + `lib/console`, not `src/` — measured repeatedly in
   `simulation/BASELINE.md`). N1 **re-runs the corpus** and carries the full D2 obligation set spelled out in §2.2.
+  ⛔ **AMENDED 2026-08-25 (K3+K4b and K6 round 2; QG-required):** two later corrections additionally touched **ONE
+  `lib/hal` file — `lib/hal/mr_ui.h`**, the UI hook header ([[B243]]'s second door; K6's `keyring_full` hook
+  parameter). The boundary now reads: `lib/core` = N1 only; `lib/hal/mr_ui.h` = the one permitted HAL
+  declaration/stub site, each touch carrying its measured simulator fact — **`lib/hal` is NOT compiled into `lus`**
+  (the sim's `CMakeLists.txt` lists its sources explicitly and references `lib/hal` zero times; `mr_ui.h` is
+  included only by `src/` and `tools/` TUs, none of which the simulator builds) ⇒ **s18 remains exact** on those
+  touches, verified at each gate. N6b's `lib/core` touch was its own QG-ruled corrective slice with the full
+  corpus run.
 - **Board gate: TWO envs, and this spec deliberately does not name a third.** Per the standing owner ruling the
   dispatch brief picks exactly two; ⛔ a brief may never pre-authorise more. ⚠ **N1 and K1 are exceptions in KIND, not
   in count:** a `lib/core` change moves `sizeof(Node)` and an NV record moves flash, and D2 requires a **per-board
@@ -1004,7 +1012,48 @@ the keyring lifecycle, not a correction to K1: K1's loud refusal and no-silent-e
   unreadable-store collapsed.
 - **Files / boundary.** `src/firmware_team_keyring.h` (pure typed policy), its device forwards in
   `src/firmware_config.cpp`, UI model/renderer/provisioning adapter, native tests and the existing batteries/probes.
-  ⛔ No `lib/core`, frame, timer, routing or simulator change.
+  ⛔ No `lib/core`, frame, timer, routing or simulator change. *(Amended 2026-08-25, QG: round 2's typed
+  `keyring_full` carrier required the one permitted HAL site — `lib/hal/mr_ui.h:117`, the hook's parameter —
+  per §0's amended boundary; `lib/hal` is not compiled into `lus`, s18 exact.)*
+
+### K7 — the roster grant: per-member `GRANT KEY` from the TEAM screen *(owner-ruled 2026-08-25, [[B245]])*
+
+*Born on the bench: H1 creates, H2 joins via NEARBY **before** H1 opens the invite window ⇒ H2 is in the
+window's opening snapshot and (N4 pin 2, correctly) can never be a candidate — the panel has no grant path.
+Option 1 ruled over widening the F-11 diff (a proxy wrong in both directions) and over snapshot-at-creation
+(persistent state, against F-13).*
+
+- **Scope.** An operator-initiated per-member act from the **TEAM screen's roster**: enter TEAM, select a
+  member, and an explicit act opens **the landed N5/N6 chain VERBATIM** — the pubkey preflight
+  (`invite_grant_preflight`, the grant's own bar) → `NEED PUBKEY` / `REQUEST PUBKEY` / `WAITING FOR PUBKEY`
+  (N5's screens, S-18..S-21) → the `GRANT KEY` confirmation (safe default, full `0x%08lX` hash even when
+  named — P-7c/P-7d) → the dispatch-truth outcome mapping and `{dst, ctr}` correlation (N6's, S-21..S-24,
+  S-37/S-38). ⛔ **No new screen, no new lexeme, no new send path, no new state machine** — this slice is an
+  ENTRY POINT to machinery that exists; if any piece cannot be reached verbatim, STOP and report.
+- **★ The rulings it must NOT disturb:** the invite window's F-11 diff and F-13 handled set stay byte-for-byte
+  (the window remains the watch-for-new-joiners flow); **P-12 stays whole** — nothing here is unsolicited: the
+  operator navigates to a member and acts. The TEAM screen's landed passive/entered contract (§UI-17) governs
+  where the act hangs; reconcile with the entered-TEAM selection model as built, and report the placement as a
+  design decision (the reported-not-assumed precedent).
+- **★ The grant target is the roster row's `key_hash32`** (the TEAM chain's own resolution, one lookup per row
+  — §UI-17 S5's rule), ⛔ never the display name, ⛔ never the row index; a member whose name or team-local id
+  changes between selection and confirmation is still granted the same key (P-7d; the N6b send-time-dst
+  correlation already covers the id half).
+- ⛔ **No self-grant** (the grant's own `self` arm refuses — drive it from here too). ⛔ A keyless node offers
+  no grant act (the `no_key` arm — but prefer the act hidden/absent when `team_channel_key_present()` is
+  false, stated as a design decision either way).
+- **Pins.** (1) The act exists on an entered-TEAM member row and opens the N5/N6 chain with the row's full
+  hash. (2) The early-joiner scenario end-to-end: a member present BEFORE any window opened is grantable here
+  (the B245 repro, now green). (3) The invite window's behaviour is byte-identical (its cases re-run
+  untouched). (4) Nothing transmits without the operator's explicit confirmations (the N5 command-count idiom
+  re-proven from this entry). (5) The self row refuses/offers nothing. (6) A keyless node offers nothing.
+  (7) P-7c/P-7d through this entry (full hash shown; target = hash). (8) The outcome words are N6's exactly —
+  ⛔ no new word.
+- **Mutation classes.** The act auto-issuing on row selection (the no-unsolicited shape) · the target from the
+  display name / row index · the self refusal dropped · the keyless offer appearing · a second outcome mapping
+  forked (anchor on the reused call) · the invite window's diff disturbed (its landed controls must stay RED).
+- **Files / boundary.** UI model (the TEAM-screen act + arms) · renderer forwards · reuse of the landed
+  invite/prov adapters. ⛔ No `lib/` of any kind, no wire, no NV.
 
 ---
 
@@ -1295,16 +1344,15 @@ house style applied to it, one line each, pinned by a native case.
 | S-37 | `GRANT PARKED` | the grant's parked sub-state | 12 | ★ **ADDED + OWNER-RULED 2026-08-24** (the N6 wording ruling): derived from the console's shipped `PARKED (resolving…)` in the cluster's `GRANT <state>` shape. ⛔ **Shown ONLY for an EXPLICITLY-STORED parked outcome** reported by the core's dispatch result — ⛔ never inferred from `ctr == 0` (the N6 first-gate correction in §4-N6) |
 | S-38 | `GRANT QUEUE FULL` | the grant's admission refusal | 16 | ★ **ADDED 2026-08-24 (N6 first-gate QG)** — the distinct refusal for a full TX queue / full parked ring, which the pre-correction core laundered into `queued`. ⛔ Never collapsed into `GRANT FAILED` (that word is the correlated in-flight failure's) |
 | S-39 | `KEY NOT INSTALLED` | K5's `USE SAVED KEY` refusal | 17 | ★ **ADDED + OWNER-RULED 2026-08-25** (the K5 round-2 wording): states **the act's outcome, never the node's key inventory**, so it is true on every refusing arm — incl. the stale-membership race, where another team's key legitimately remains live (which made the withdrawn `NO TEAM KEY` candidate FALSE). Second row = the service token |
-| S-40 | `SAVED KEYS` | K6's PROVISION child row + list title | 10 | ★ **ADDED + OWNER-RULED 2026-08-25** (§K6) |
-| S-41 | `NO SAVED KEYS` | K6's list, empty | 13 | ★ **ADDED + OWNER-RULED 2026-08-25** (§K6) |
-| S-42 | `KEY FORGOTTEN` | K6's successful removal | 13 | ★ **ADDED + OWNER-RULED 2026-08-25** (§K6); ⛔ a storage failure never renders it (K6 pin 5) |
+| S-40 | `SAVED KEYS` | K6's PROVISION child row + list title | 10 | ★ **ADDED + OWNER-RULED 2026-08-25** (§K6) — management of retained records, ⛔ never an export-key screen |
+| S-41 | `NO SAVED KEYS` | K6's list, empty | 13 | ★ **ADDED + OWNER-RULED 2026-08-25** (§K6) — says the keyring holds no retained records; ⛔ not `NO TEAM KEY`, which is a claim about LIVE state |
+| S-42 | `KEY FORGOTTEN` | K6's successful removal | 13 | ★ **ADDED + OWNER-RULED 2026-08-25** (§K6) — reachable only after the keyring save SUCCEEDS; ⛔ a storage failure never renders it (K6 pin 5) |
 | S-43 | `ACTIVE KEY` / `CANNOT FORGET` | K6's active-row landing, no destructive action | 10 / 13 | ★ **ADDED + OWNER-RULED 2026-08-25** (§K6) — the two-row shape, the `PHY DIFFERS`/`USE SERIAL` precedent |
-| S-44 | `ACTIVE` | K6's list marker on the active row | 6 | ★ **ADDED + OWNER-RULED 2026-08-25** (§K6) — a row MARKER, not a screen; rides the row beside the shared fingerprint |
-| S-40 | `SAVED KEYS` | K6 PROVISION child + list title | 10 | ★ **NEW 2026-08-25** — management of retained records, ⛔ never an export-key screen |
-| S-41 | `ACTIVE` | K6 row marker | 6 | ★ **NEW 2026-08-25** — status only; the full binding predicate remains the authority and the word never authorises deletion |
-| S-42 | `ACTIVE KEY` / `CANNOT FORGET` | K6 protected-row result | 13 | ★ **NEW 2026-08-25** — two true rows, no destructive action |
-| S-43 | `NO SAVED KEYS` | K6 empty list | 13 | ★ **NEW 2026-08-25** — says the keyring has no retained records; ⛔ not `NO TEAM KEY`, which is a claim about live state |
-| S-44 | `KEY FORGOTTEN` | K6 successful committed removal | 13 | ★ **NEW 2026-08-25** — reachable only after the keyring save succeeds; failure uses the existing failure vocabulary and never this word |
+| S-44 | `ACTIVE` | K6's list marker on the active row | 6 | ★ **ADDED + OWNER-RULED 2026-08-25** (§K6) — a row MARKER, not a screen; status only: the full binding predicate remains the authority and ⛔ the word never authorises deletion |
+| S-45 | `KEY NOT FORGOTTEN` | K6's forget failure headline | 17 | ★ **ADDED 2026-08-25 (K6, the S-39 method — reported, then QG/owner-passed with the slice):** the ACT's outcome, true on all six failing arms; second row = the service token. ⛔ Never `KEY FORGOTTEN` on any failure (pin 5) |
+| S-46 | `NO KEYRING` | K6's list, no `/mrteams` store exists | 10 | ★ **ADDED 2026-08-25 (K6)** — distinct from an UNREADABLE store, ⛔ never collapsed (the missing-vs-unreadable mutation) |
+| S-47 | `CONFIG UNREADABLE` | K6's list, the `/mrcfg` binding read failed | 17 | ★ **ADDED 2026-08-25 (K6)** — the ACTIVE marker cannot be computed, so the list refuses rather than guessing |
+| S-48 | `KEY STORE INVALID` | K6's list, the `/mrteams` blob fails validation | 17 | ★ **ADDED 2026-08-25 (K6)** — beside the console's existing `STORAGE FAILURE` for the same fault family; one fact per word |
 
 **Count: 44 entries — 32 NEW, 8 REUSED, 3 FORBIDDEN lexemes, 1 FORBIDDEN USAGE** *(corrected through K6 on
 2026-08-25; S-31 moved from reserved to live but remains in the same NEW bucket)*. ⚠ **The arithmetic is written out

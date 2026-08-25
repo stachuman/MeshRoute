@@ -829,6 +829,14 @@ bool has_saved_team_key(uint32_t team_id) { return prov_seams().keyring.has_reco
 SavedKeyUse team_keyring_use_saved(uint32_t team_id) {
     return prov_seams().keyring.use_saved(team_id, saved_key_live(), saved_key_binding());
 }
+// §UI-16 K6 — the two RETENTION forwards `src/firmware_config.cpp` supplies on hardware, over the SAME one keyring
+// service and the SAME `/mrcfg` binding adapter. ⛔ NEITHER TAKES A DECISION: the metadata-only shape, the ACTIVE
+// marker's authority, the PROTECTION of the active record, the full-32-bit lookup, the order-preserving compaction
+// and the WIPE of the vacated slot are all the pure service's — which is exactly what this probe drives FOR REAL.
+SavedKeyList  team_keyring_list() { return prov_seams().keyring.list(saved_key_binding()); }
+KeyringForget team_keyring_forget(uint32_t team_id) {
+    return prov_seams().keyring.forget(team_id, saved_key_binding());
+}
 }  // namespace mrfw
 
 // ---- ★★★★ §UI-15 slice 6: THE STATIC-JOIN SEAMS' FAKES — the CHILD-ENABLED ARM ONLY ------------------------------
@@ -3858,9 +3866,22 @@ int main() {
         //    (`INVITE MEMBER`, available because this node is in a team by now — P18's fixture put it there), so
         //    BACK moves to row 4. ⛔ The property is unchanged and is what the row list has always been about:
         //    every child that is available is offered, and BACK is UNCONDITIONALLY last.
-        CHK("P15a ...which also offers JOIN NETWORK, JOIN TEAM, INVITE MEMBER and BACK",
+        // ⛔ AMENDED IN PLACE AGAIN 2026-08-25 (§UI-16 K6), AND THE WITHDRAWN LINE IS KEPT VISIBLE: it read
+        //    *"...which also offers JOIN NETWORK, JOIN TEAM, INVITE MEMBER and BACK"* over rows 1-4. K6 adds the
+        //    FIFTH child (`SAVED KEYS`), so the list is now SIX rows against a five-row body and BACK has scrolled
+        //    OFF the first page — which is the list machinery working, ⛔ not a row lost: P15a walks to it two
+        //    lines below and the cursor's own `short` cycle reaches it. ⛔ The property is unchanged: every
+        //    available child is offered, in the ruled order, and BACK is UNCONDITIONALLY last.
+        CHK("P15a ...which also offers JOIN NETWORK, JOIN TEAM, INVITE MEMBER and SAVED KEYS",
             body_row_is(1, " JOIN NETWORK") && body_row_is(2, " JOIN TEAM") &&
-            body_row_is(3, " INVITE MEMBER") && body_row_is(4, " BACK"));
+            body_row_is(3, " INVITE MEMBER") && body_row_is(4, " SAVED KEYS"));
+        // ★ ...and BACK is still there, one page down: the list SCROLLS rather than dropping its last row, which is
+        //   the property that matters (leaving must never depend on how many children a build has).
+        {
+            const uint32_t tb = walk_to(t17 + 500, ">BACK");
+            CHK("P15a ...and BACK is still reachable, unconditionally last", strstr(g_c.page_text, ">BACK") != nullptr);
+            t17 = walk_to(tb + 500, ">CREATE TEAM");
+        }
 
         // ---- (b) THE CONFIRMATION: ITS BACK DEFAULT AND ITS `REPLACES` WARNING ---------------------------------------
         // ⛔ §3.6.3: reaching CREATE costs a deliberate `short` THEN `double`. A confirmation opening on CREATE would
@@ -4030,11 +4051,15 @@ int main() {
             MESHROUTE_NS::Push fp{};
             fp.kind = MESHROUTE_NS::PushKind::team_key_received; fp.team_id = gg.push_team_id;
             const int bus_kf = g_c.bus_ops();
-            switch (mrfw::grant_ui_route_of(gv.outcome)) {
-                case mrfw::GrantUiRoute::received:       mr_ui_on_push(fp);           break;
-                case mrfw::GrantUiRoute::active_unsaved: mr_ui_on_team_key_unsaved(); break;
-                case mrfw::GrantUiRoute::suppressed:                                  break;
-                case mrfw::GrantUiRoute::count:                                       break;
+            // ⛔ AMENDED IN PLACE 2026-08-25 (§UI-16 K6's QG blocker): the replica now carries the SECOND fact
+            //    the device's router carries — `grant_ui_verdict_of`, whose `keyring_full` chooses a LANDING and
+            //    ⛔ not a word. The three ruled rows below are unchanged.
+            const mrfw::GrantUiVerdict kfv = mrfw::grant_ui_verdict_of(gv);
+            switch (kfv.route) {
+                case mrfw::GrantUiRoute::received:       mr_ui_on_push(fp);                         break;
+                case mrfw::GrantUiRoute::active_unsaved: mr_ui_on_team_key_unsaved(kfv.keyring_full); break;
+                case mrfw::GrantUiRoute::suppressed:                                                break;
+                case mrfw::GrantUiRoute::count:                                                     break;
             }
             const bool quiet_unsaved = (g_c.bus_ops() == bus_kf);   // read BEFORE the repaint the tick owns
             t17 = see(t17 + 500);
@@ -4075,11 +4100,12 @@ int main() {
                     sv.outcome == mrfw::GrantSave::no_live_key);
                 CHK("P15k3 ...and it classifies as SUPPRESSED, never a door",
                     mrfw::grant_ui_route_of(sv.outcome) == mrfw::GrantUiRoute::suppressed);
-                switch (mrfw::grant_ui_route_of(sv.outcome)) {
-                    case mrfw::GrantUiRoute::received:       mr_ui_on_push(fp);           break;
-                    case mrfw::GrantUiRoute::active_unsaved: mr_ui_on_team_key_unsaved(); break;
-                    case mrfw::GrantUiRoute::suppressed:                                  break;
-                    case mrfw::GrantUiRoute::count:                                       break;
+                const mrfw::GrantUiVerdict svv = mrfw::grant_ui_verdict_of(sv);
+                switch (svv.route) {
+                    case mrfw::GrantUiRoute::received:       mr_ui_on_push(fp);                         break;
+                    case mrfw::GrantUiRoute::active_unsaved: mr_ui_on_team_key_unsaved(svv.keyring_full); break;
+                    case mrfw::GrantUiRoute::suppressed:                                                break;
+                    case mrfw::GrantUiRoute::count:                                                     break;
                 }
                 // ⚠ READ BEFORE THE TICK, exactly as (k2)'s `quiet_unsaved` is, and the scope is stated rather than
                 //   overclaimed: what a door may not do is touch the panel bus ITSELF. The tick that follows owns
@@ -4601,9 +4627,12 @@ int main() {
             //    row was `BACK`; it is `INVITE MEMBER` now (this node is in a team, which is that row's runtime
             //    predicate) and BACK is row 4. The claim this check makes — the children are offered in the
             //    ruled order and BACK is last — is unchanged.
+            // ⛔ AMENDED IN PLACE AGAIN 2026-08-25 (§UI-16 K6): the FIFTH child (`SAVED KEYS`) takes row 4 and
+            //    BACK scrolls to the second page. The claim is unchanged — the children are offered in the ruled
+            //    order — and BACK's unconditional last place is measured by P15a one phase up.
             CHK("P21a the PROVISION menu offers JOIN TEAM as its third child, INVITE MEMBER as its fourth",
                 row_label_is(0, "CREATE TEAM") && row_label_is(1, "JOIN NETWORK") &&
-                row_label_is(2, "JOIN TEAM") && row_label_is(3, "INVITE MEMBER") && row_label_is(4, "BACK"));
+                row_label_is(2, "JOIN TEAM") && row_label_is(3, "INVITE MEMBER") && row_label_is(4, "SAVED KEYS"));
             t17 = walk_to(t17 + 500, ">JOIN TEAM");
             t17 = see(double_press(t17 + 500));
             // ⛔ NO SUBMENU: what a `double` opens is the SCAN ITSELF, with its two honest PHY lines.
@@ -4973,8 +5002,13 @@ int main() {
                     t17 = see(double_press(t17 + 500));        // acknowledge it
                     CHK("P22f ⛔⛔ ...and the acknowledgement lands on the MENU — ⛔ NO offer (pin 4)",
                         body_row_is(0, ">CREATE TEAM"));
+                    // ⛔ AMENDED IN PLACE 2026-08-25 (§UI-16 K6): the anchor was the bare `"SAVED KEY"`, which K6's
+                    //    own PROVISION row (`SAVED KEYS`, S-40) now contains as a PREFIX — so the check would have
+                    //    reddened on a row that is not K5's at all. ⇒ it names K5's WHOLE title (S-28) plus K5's
+                    //    action word, which is what it was always about. Measured, ⛔ not anticipated.
                     CHK("P22f ⛔ ...no K5 lexeme was ever drawn for it",
-                        strstr(g_c.page_text, "SAVED KEY") == nullptr);
+                        strstr(g_c.page_text, mrui::kSavedKeyTitle) == nullptr &&
+                        strstr(g_c.page_text, "USE SAVED KEY") == nullptr);
                     CHK("P22f ⛔ ...and the node is still KEYLESS, with the OTHER team's record untouched",
                         g_node.team_channel_key_present() == false && ps.keys.saves == ksf &&
                         memcmp(&ps.keys.rec, &keyring_before, sizeof keyring_before) == 0);
@@ -5617,8 +5651,571 @@ int main() {
                         CHK("P24c2 the failure verdict is terminal too", body_row_is(0, ">CREATE TEAM"));
                     }
                 }
+
+                // ======================================================================================== P24k7
+                // ★★★★ §UI-16 K7 ([[B245]]) — THE ROSTER GRANT, AND THIS PHASE **IS THE BENCH REPRO**: H1 creates,
+                //      H2 joins BEFORE the invitation window is ever opened, and the panel must still be able to
+                //      grant them the key. Everything below runs through the REAL renderer, the REAL model, the
+                //      REAL `Node::rt_team_at` / `team_key_of_id` / `peer_name_find` reads and the REAL push entry
+                //      point — ⛔ nothing is poked into a snapshot.
+                // ★★★ WHY IT CANNOT BE A NATIVE CASE: `src/firmware_ui.cpp` is compiled by neither the native suite
+                //     nor the simulator (§B115), so an act row drawn at the wrong coordinate, a row list built from
+                //     the table instead of the model's resolver, or a `to:` header naming a different member would
+                //     leave every native case green while the panel offered a private key to the wrong person.
+                // ⓘ A REAL `send_aired` IS NOT PRODUCIBLE ON THIS HARNESS (no CTS, no RX path — P24c2 measured it),
+                //   so the promotion is driven over the SCRIPTED seam exactly as N6's own phase does; the real
+                //   TxDone edge stays METAL (bench §7.4).
+                {
+                    // ---- THE FIXTURE: ONE member, and they were there BEFORE anything was opened ---------------
+                    // ★ `clear_team_routing_state()` is the core's own team-plane wipe (it drops the route, the
+                    //   team-peer bit and the id->hash cache while leaving the CONTENT key and the cached PUBKEY
+                    //   alone), so the roster below is exactly the two-node bench: us, and one early joiner.
+                    // ⚠⚠ AND THE BINDING IS RE-ASSERTED IMMEDIATELY BEFORE EACH PANEL READ, which is P24's own
+                    //    `grant_pass` idiom and is a HARNESS fact rather than a behaviour: this probe's fake
+                    //    `millis()` is 32-bit and its phases step it backwards, so `ArduinoClock` accumulates a
+                    //    2^32-ms WRAP (`lib/hal/iclock.h`) — MEASURED here, once, inside this phase — and the core's
+                    //    48 h `id_bind_ttl_ms` then ages any id->hash row written before it. On metal a teammate's
+                    //    beacon refreshes the row continuously; here the refresh is explicit.
+                    // ⓘ ...AND THE CACHED PUBKEY AGES WITH IT: `Node::peer_key_find` carries the SAME TTL, and it is
+                    //   the GRANT's own preflight bar — so a fixture that refreshed only the id->hash row would land
+                    //   the ceremony instead of the confirmation, for a harness reason. Both halves, together.
+                    auto seat = [&](uint8_t id, uint32_t hash, const uint8_t* pub) {
+                        member(id, hash);
+                        if (pub) g_node.peer_key_set(hash, pub, MESHROUTE_NS::Node::PeerKeyConf::authoritative);
+                    };
+                    g_node.clear_team_routing_state();
+                    seat(90, hashA, pubA);
+                    char fullA[mrui::kMemberHashCap];
+                    mrui::ui_fmt_member_hash_full(fullA, sizeof fullA, hashA);
+                    {
+                        uint8_t edk[32]; MESHROUTE_NS::Node::PeerKeyConf cfk{};
+                        CHK("P24k7 precondition: an early joiner with an AUTHORITATIVE pubkey, and a team key to grant",
+                            g_node.rt_team_count() == 1 && g_node.team_channel_key_present() &&
+                            g_node.peer_key_find(hashA, edk, &cfk) &&
+                            uint8_t(cfk) >= uint8_t(MESHROUTE_NS::Node::PeerKeyConf::authoritative));
+                    }
+                    const int gc0 = grant_seam().calls;
+
+                    // ---- (a) THE DEAD END, ON GLASS: the window opened AFTER the join cannot see them ----------
+                    // ⛔ AND IT IS RIGHT NOT TO (N4 pin 2). This is the half [[B245]] reported, driven rather than
+                    //    quoted — and it is what makes the roster act below a NEW path rather than a duplicate one.
+                    t17 = walk_to(t17 + 500, ">INVITE MEMBER");
+                    t17 = see(double_press(t17 + 500));
+                    CHK("P24k7a ★★ the window opened AFTER the join shows NO CANDIDATES — [[B245]]'s dead end",
+                        body_row_is(0, mrui::kInviteTitle) && body_row_is(2, mrui::kInviteEmpty) &&
+                        body_row_is(3, ">BACK"));
+                    CHK("P24k7a ⛔ ...and it offers no grant of any kind",
+                        strstr(g_c.page_text, "GRANT KEY") == nullptr);
+                    t17 = see(double_press(t17 + 500));                 // BACK -> the PROVISION menu
+                    CHK("P24k7a ⛔ the whole window round trip reached NO grant seam and queued NOTHING",
+                        body_row_is(0, ">CREATE TEAM") && grant_seam().calls == gc0 && g_hal.txq_depth() == 0);
+
+                    // ---- (b) THE ROSTER ACT: enter TEAM, open the member, and the act is a ROW on their list ---
+                    t17 = open_highlighted(t17 + 500, ">BACK");         // leave PROVISION -> the SETTINGS menu
+                    t17 = enter_list(t17 + 500, kSlotTeam);             // ...and walk round to the ENTERED roster
+                    seat(90, hashA, pubA);                              // ...the binding + the pubkey, refreshed (see the note)
+                    dirty_the_model(t17 + 100); t17 = see(t17 + 200);
+                    {
+                        uint32_t hq = 0;
+                        CHK("P24k7b precondition: the roster row resolves to the member's hash at the AUTHORITATIVE floor",
+                            g_node.team_key_of_id(90, hq) && hq == hashA);
+                    }
+                    CHK("P24k7b the entered TEAM roster highlights the early joiner", !body_row_unmarked(0));
+                    t17 = see(double_press(t17 + 500));
+                    // ★★★ THE ACT SUB-VIEW IS THE MEMBER'S OWN, and `GRANT KEY` is an ADDED row: the canned texts
+                    //     keep their places and `back, don't send` stays LAST (⇒ ⛔ no landed row became a grant).
+                    CHK("P24k7b GRANT KEY is a row on the member's act sub-view, between the texts and the way out",
+                        body_row_is(1, ">Are you OK?") && body_row_is(2, " I'm OK") &&
+                        body_row_is(3, " GRANT KEY") && body_row_is(4, " back, don't send"));
+                    CHK("P24k7b ⛔ opening it reached NO grant seam, issued NO command and queued NOTHING (P-12)",
+                        grant_seam().calls == gc0 && g_hal.txq_depth() == 0);
+                    t17 = see(settle(t17 + 500));                       // short -> "I'm OK"
+                    t17 = see(settle(t17 + 500));                       // short -> GRANT KEY
+                    CHK("P24k7b GRANT KEY is selectable, and the SHORT ALONE performs nothing",
+                        body_row_is(3, ">GRANT KEY") && grant_seam().calls == gc0 && g_hal.txq_depth() == 0);
+                    grant_seam().tx = MESHROUTE_NS::Node::TeamKeyGrantTx::queued;
+                    grant_seam().ctr = 7777; grant_seam().dst = 90;
+                    t17 = see(double_press(t17 + 500));
+                    // ★★★★ ...AND IT OPENS THE **LANDED** N5/N6 CONFIRMATION: the preflight passed (an authoritative
+                    //      pubkey is cached), so the screen is N6's REJECT-default pair carrying the FULL hash.
+                    CHK("P24k7b the act opens N6's own confirmation — REJECT selected, GRANT KEY offered",
+                        body_row_is(1, fullA) && body_row_is(3, ">REJECT") && body_row_is(4, " GRANT KEY"));
+                    CHK("P24k7b ⛔ ...and reaching it STILL granted nothing", grant_seam().calls == gc0);
+                    t17 = see(settle(t17 + 500));                       // short: REJECT -> GRANT KEY
+                    t17 = see(double_press(t17 + 500));                 // ...and the act
+                    // ★★★ THE ADMISSION WORD IS N6's, ⛔ NOT A NEW ONE, and it is computed from the outcome the seam
+                    //     returned rather than typed here.
+                    CHK("P24k7b ★★ the grant says GRANT QUEUED — ⛔ never KEY SENT (F-9, through the new door)",
+                        body_row_is(0, mrui::invite_grant_word(
+                                          mrui::invite_grant_state_of(MESHROUTE_NS::Node::TeamKeyGrantTx::queued))) &&
+                        body_row_is(0, mrui::kInviteGrantQueued) && body_row_is(1, fullA) &&
+                        strstr(g_c.page_text, mrui::kInviteKeySent) == nullptr);
+                    CHK("P24k7b the seam was reached EXACTLY once, on the TEAM plane, by the ROW'S OWN hash",
+                        grant_seam().calls == gc0 + 1 && grant_seam().last_hash == hashA &&
+                        grant_seam().last_plane == mrui::kInviteGrantPlane);
+
+                    // ---- (c) ...AND THE CORRELATED EDGE PROMOTES IT, through the REAL push entry point ---------
+                    {
+                        MESHROUTE_NS::Push pu{};
+                        pu.kind = MESHROUTE_NS::PushKind::send_aired; pu.dst = 91; pu.ctr = 7777;
+                        mr_ui_on_push(pu);
+                        dirty_the_model(t17 + 1000); t17 = see(t17 + 1100);
+                        CHK("P24k7c ⛔ an UNCORRELATED send_aired (another dst) does not promote it",
+                            body_row_is(0, mrui::kInviteGrantQueued));
+                        pu.dst = 90; pu.ctr = 7778;
+                        mr_ui_on_push(pu);
+                        dirty_the_model(t17 + 1000); t17 = see(t17 + 1100);
+                        CHK("P24k7c ⛔ ...nor does one with another ctr", body_row_is(0, mrui::kInviteGrantQueued));
+                        pu.dst = 90; pu.ctr = 7777;
+                        mr_ui_on_push(pu);
+                        dirty_the_model(t17 + 1000); t17 = see(t17 + 1100);
+                        CHK("P24k7c ★★★★ THE CORRELATED EDGE PROMOTES IT TO KEY SENT — [[B245]] closed on the panel",
+                            body_row_is(0, mrui::kInviteKeySent) && body_row_is(1, fullA));
+                        t17 = see(double_press(t17 + 500));
+                        CHK("P24k7c the verdict is terminal, exactly as N6's is",
+                            body_row_is(0, ">CREATE TEAM") && grant_seam().calls == gc0 + 1);
+                    }
+
+                    // ---- (d) THE CEREMONY ARM: a member with NO cached pubkey reaches N5's screens, unchanged ---
+                    // ★★★ AND ⛔ NOTHING IS ASKED FOR ON THE WAY IN: §no-auto-reqpubkey is preserved through the new
+                    //     door, which is measured on the TX-queue depth and the panel's own BACK default.
+                    {
+                        uint8_t pubC[32];
+                        for (int i = 0; i < 32; ++i) pubC[i] = uint8_t(0xC0 + i);
+                        pubC[0] = 0x11; pubC[1] = 0x22; pubC[2] = 0x33; pubC[3] = 0x00;
+                        const uint32_t hashC = MESHROUTE_NS::key_hash32_of(pubC);
+                        uint8_t edc[32]; MESHROUTE_NS::Node::PeerKeyConf cfc{};
+                        g_node.clear_team_routing_state();
+                        seat(150, hashC, nullptr);                      // an AUTHORITATIVE team binding, and ⛔ NO cached pubkey
+                        CHK("P24k7d precondition: the member is bound but we hold NO pubkey for them",
+                            g_node.peer_key_find(hashC, edc, &cfc) == false && g_node.rt_team_count() == 1);
+                        char fullC[mrui::kMemberHashCap];
+                        mrui::ui_fmt_member_hash_full(fullC, sizeof fullC, hashC);
+                        const int gc1 = grant_seam().calls;
+                        t17 = open_highlighted(t17 + 500, ">BACK");     // leave PROVISION -> the SETTINGS menu
+                        t17 = enter_list(t17 + 500, kSlotTeam);
+                        seat(150, hashC, nullptr);                      // refreshed — see the note at the fixture
+                        dirty_the_model(t17 + 100); t17 = see(t17 + 200);
+                        t17 = see(double_press(t17 + 500));             // the member's act sub-view
+                        CHK("P24k7d the act is offered for them too — the pubkey is the CHAIN's question, not the row's",
+                            body_row_is(3, " GRANT KEY"));
+                        t17 = see(settle(t17 + 500));
+                        t17 = see(settle(t17 + 500));
+                        t17 = see(double_press(t17 + 500));
+                        // ★★★ N5's LANDING, VERBATIM: the ruled word, the FULL hash, BACK selected, and ⛔ the
+                        //     forbidden twin `WAITING FOR KEY` nowhere near it.
+                        CHK("P24k7d the preflight lands N5's NEED PUBKEY screen, with BACK selected",
+                            body_row_is(0, mrui::kInviteNeedPubkey) && body_row_is(1, fullC) &&
+                            body_row_is(3, ">BACK") && body_row_is(4, " REQUEST PUBKEY"));
+                        CHK("P24k7d ⛔ ...and reaching it asked for NOTHING on the air (§no-auto-reqpubkey)",
+                            g_hal.txq_depth() == 0 && grant_seam().calls == gc1 &&
+                            strstr(g_c.page_text, "WAITING FOR KEY") == nullptr);
+                        t17 = see(settle(t17 + 500));                   // short: BACK -> REQUEST PUBKEY
+                        CHK("P24k7d the SHORT alone still asks for nothing",
+                            body_row_is(4, ">REQUEST PUBKEY") && g_hal.txq_depth() == 0);
+                        t17 = see(double_press(t17 + 500));
+                        CHK("P24k7d the operator's DOUBLE reaches N5's waiting screen, on the same full hash",
+                            body_row_is(0, mrui::kInviteWaitingPubkey) && body_row_is(1, fullC) &&
+                            strstr(g_c.page_text, "WAITING FOR KEY") == nullptr);
+                        CHK("P24k7d ⛔ ...and no key was granted anywhere along the way",
+                            grant_seam().calls == gc1);
+                        t17 = see(double_press(t17 + 500));             // either press returns to the window list
+                        t17 = walk_to(t17 + 500, ">BACK");
+                        t17 = see(double_press(t17 + 500));
+                        CHK("P24k7d the ceremony's way out lands on the PROVISION menu", body_row_is(0, ">CREATE TEAM"));
+                    }
+
+                    // ---- (f) THE **SELF** ROW OFFERS NOTHING, at the identity the CORE refuses on -------------
+                    // ★★★ THE FIXTURE IS THE REAL ONE: a roster row bound to `Node::key_hash32()` — the very value
+                    //     `Node::team_key_grant_send`'s `self` arm compares `target_hash` against. ⇒ the panel's
+                    //     hide predicate and the core's refusal are measured against ONE value, ⛔ not two.
+                    {
+                        g_node.clear_team_routing_state();
+                        const uint32_t own = g_node.key_hash32();
+                        CHK("P24k7f precondition: this node HAS a stable identity to be confused with", own != 0);
+                        seat(95, own, nullptr);
+                        const int gcf = grant_seam().calls;
+                        t17 = open_highlighted(t17 + 500, ">BACK");
+                        t17 = enter_list(t17 + 500, kSlotTeam);
+                        seat(95, own, nullptr);
+                        dirty_the_model(t17 + 100); t17 = see(t17 + 200);
+                        t17 = see(double_press(t17 + 500));
+                        CHK("P24k7f ⛔ a roster row that is US offers NO act — the list is the shipped canned one",
+                            body_row_is(1, ">Are you OK?") && body_row_is(2, " I'm OK") &&
+                            body_row_is(3, " back, don't send") &&
+                            strstr(g_c.page_text, "GRANT KEY") == nullptr);
+                        t17 = see(settle(t17 + 500));
+                        t17 = see(settle(t17 + 500));
+                        t17 = see(double_press(t17 + 500));             // the way out, which grants nothing
+                        CHK("P24k7f ⛔ ...and leaving reached no grant seam and queued nothing",
+                            grant_seam().calls == gcf && g_hal.txq_depth() == 0);
+                    }
+
+                    // ---- (e) A ROUTE-ONLY MEMBER IS OFFERED NOTHING (F-7's floor, on the real panel) -----------
+                    {
+                        g_node.clear_team_routing_state();
+                        seat(82, 0, nullptr);                           // a real member with NO authoritative binding
+                        uint32_t rh2 = 0;
+                        CHK("P24k7e precondition: the member resolves to NO hash at the authoritative floor",
+                            g_node.team_key_of_id(82, rh2) == false && g_node.rt_team_count() == 1);
+                        const int gc2 = grant_seam().calls;
+                        t17 = open_highlighted(t17 + 500, ">BACK");
+                        t17 = enter_list(t17 + 500, kSlotTeam);
+                        seat(82, 0, nullptr);
+                        dirty_the_model(t17 + 100); t17 = see(t17 + 200);
+                        t17 = see(double_press(t17 + 500));
+                        CHK("P24k7e ⛔ the act is ABSENT — the list is exactly the shipped canned one",
+                            body_row_is(1, ">Are you OK?") && body_row_is(2, " I'm OK") &&
+                            body_row_is(3, " back, don't send") &&
+                            strstr(g_c.page_text, "GRANT KEY") == nullptr);
+                        t17 = see(settle(t17 + 500));
+                        t17 = see(settle(t17 + 500));
+                        CHK("P24k7e ...and the last row is still the way out, which grants nothing",
+                            body_row_is(3, ">back, don't send"));
+                        t17 = see(double_press(t17 + 500));
+                        CHK("P24k7e ⛔ leaving reached no grant seam and queued nothing",
+                            grant_seam().calls == gc2 && g_hal.txq_depth() == 0);
+                        // Put the phase's successor back where P24 left it.
+                        t17 = walk_to_slot(t17 + 500, kSlotSettings);
+                        t17 = to_cfg_menu(t17 + 500);
+                        t17 = open_highlighted(t17 + 500, ">PROVISION");
+                        CHK("P24k7e the panel is back on the PROVISION menu for the next phase",
+                            body_row_is(0, ">CREATE TEAM"));
+                    }
+                }
             }
         }
+
+        // ======================================================================================================= P25
+        // ★★★★ §UI-16 K6 — SAVED-KEY **RETENTION MANAGEMENT**, END TO END THROUGH THE **REAL** SERVICE (⛔ never
+        //      "key rotation"). This is the HANDOFF neither pure suite can see:
+        //      `test/test_firmware_team_keyring.cpp` proves the PROTECTION, the compaction and the wipe against
+        //      counting fakes, `test/test_firmware_ui_model.cpp` proves which gesture reaches them and
+        //      `test/test_firmware_ui_prov.cpp` proves the mapping — but ⛔ NONE of them compiles
+        //      `src/firmware_ui.cpp`, so a list drawn from the wrong copy, a row whose ACTIVE marker is wired to the
+        //      wrong fact, or a confirmation drawn with the six-hex FINGERPRINT instead of the full id leaves every
+        //      native case green and every mutation RED while the panel invites the operator to destroy the wrong
+        //      key. ⇒ every row below is asserted at its EXACT COORDINATE by its EXACT BYTES ([[B226]]), and every
+        //      "it happened" is the REAL store's own bytes and write count — ⛔ never the panel.
+        // ★★ WHAT IS REAL HERE: the renderer, the model, the gesture path, the `UiProvisionAdapter`, and the SHIPPED
+        //    `mrfw::TeamKeyringService::list` / `::forget` over a REAL four-record `/mrteams` blob and the REAL
+        //    `/mrcfg` binding adapter. Scripted are only the device forwards that live in `src/firmware_config.cpp`.
+        {
+            ProbeTeamKeyStore& ks = ps.keys;
+            // A row asserted by its LEADING bytes — the marker plus the token — ⛔ excluding whatever a longer row
+            // carries after it. ⓘ Spelled out here rather than shared with P22's identical lambda: the two live in
+            // sibling blocks, and one shared helper is how a phase eventually asserts against another's geometry.
+            auto row_starts = [](int r, const char* want) {
+                const char* s0 = body_row(r);
+                return s0 != nullptr && strncmp(s0, want, strlen(want)) == 0;
+            };
+            // ---- THE FIXTURE: the state metal testing reached — FOUR distinct `team new`s, one of them ACTIVE ----
+            // ★ The records are stored THROUGH `put`, ⛔ never forged into the blob, so the fixture is a state the
+            //   device can really be in. ⓘ The ids are chosen so their six-hex display tokens are distinctive AND
+            //   so ⛔ none of them collides with any other screen's token.
+            const uint32_t kT1 = 0x71000011u, kT2 = 0x72000022u, kT3 = 0x73000033u, kT4 = 0x74000044u;
+            bool seeded = true;
+            {
+                mrnv::team_key_blob_init(ks.rec);
+                ks.state = mrnv::TeamKeyRead::ok;
+                const uint32_t ids[4] = { kT1, kT2, kT3, kT4 };
+                for (int k = 0; k < 4; ++k) {
+                    uint8_t kp[32], kv[32], scal[32];
+                    for (int i = 0; i < 32; ++i) scal[i] = uint8_t(0x31 + 16 * k + i);
+                    seeded = seeded && meshroute::team_channel_key_derive(kp, kv, scal);
+                    seeded = seeded && ps.keyring.put(ids[k], kp, kv).verdict == mrfw::KeyringVerdict::ok;
+                }
+            }
+            // ★★ THE ACTIVE BINDING IS THE `/mrcfg` RECORD'S, which is the authority the SERVICE re-asks at the
+            //    instant of the act — ⛔ never a flag this phase invented. `kT2` is the protected one.
+            st.rec.team_id           = kT2;
+            st.rec.team_key_team_id  = kT2;
+            st.rec.team_key_active   = 1;
+            const int ks_seed = ks.saves, w_seed = st.writes;
+            g_hal.collect_tx_completion(); g_hal.pump_tx();
+            const int txd_k = g_hal.txq_depth(), starts_k = g_probe_radio.starts;
+            CHK("P25 precondition: FOUR real records are retained and one of them is the ACTIVE binding",
+                seeded && ks.rec.count == 4 && mrfw::team_key_find(ks.rec, kT2) >= 0 &&
+                st.rec.team_key_active == 1);
+            const mrnv::TeamKeyBlob k_before = ks.rec;
+
+            // ---- (a) THE LIST: every row's exact bytes, and the ACTIVE marker on the RIGHT row ------------------
+            t17 = walk_to(t17 + 500, ">SAVED KEYS");
+            CHK("P25a the PROVISION menu offers SAVED KEYS as its fifth child (S-40)",
+                strstr(g_c.page_text, ">SAVED KEYS") != nullptr);
+            t17 = see(double_press(t17 + 500));
+            CHK("P25a a double opens the RETENTION list, headed by its own title", body_row_is(0, "SAVED KEYS"));
+            CHK("P25a ...and every retained record is a row, by its SHARED fingerprint",
+                row_starts(1, ">000011") && row_starts(2, " 000022") &&
+                row_starts(3, " 000033") && row_starts(4, " 000044"));
+            CHK("P25a ★★ the ACTIVE marker (S-44) is on the row the BINDING names, and on ⛔ no other",
+                body_row_is(2, " 000022 ACTIVE") && body_row_is(1, ">000011") &&
+                body_row_is(3, " 000033") && body_row_is(4, " 000044"));
+            CHK("P25a ⛔ ...and NO key material reached the glass (P-8): no 64-hex blob, no `tkpriv`",
+                strstr(g_c.page_text, "tkpriv") == nullptr && strstr(g_c.page_text, "PRIV") == nullptr);
+            CHK("P25a ⛔ OPENING THE SCREEN PERFORMED NOTHING — zero writes, zero evictions, the blob untouched",
+                ks.saves == ks_seed && st.writes == w_seed && ks.rec.count == 4 &&
+                memcmp(&ks.rec, &k_before, sizeof k_before) == 0);
+
+            // ---- (b) THE **ACTIVE** ROW LANDS ON THE PROTECTED SCREEN, WITH NO DESTRUCTIVE ACTION ---------------
+            t17 = walk_to(t17 + 500, ">000022");
+            t17 = see(double_press(t17 + 500));
+            CHK("P25b an ACTIVE row lands on ACTIVE KEY / CANNOT FORGET (S-43, the two-row shape)",
+                body_row_is(0, "ACTIVE KEY") && body_row_is(1, "CANNOT FORGET"));
+            CHK("P25b ...and it still shows WHICH record, in FULL", body_row_is(2, "0x72000022"));
+            CHK("P25b ⛔⛔ THERE IS NO `FORGET KEY` ANYWHERE ON THIS SCREEN — the protection is STRUCTURAL",
+                strstr(g_c.page_text, "FORGET KEY") == nullptr);
+            // ★★ EITHER PRESS ONLY LEAVES IT, AND BOTH ARE DRIVEN: there is no action to select, so a `short` is
+            //    not a toggle and a `double` is not an act — each simply returns to the LIST it was chosen on.
+            t17 = see(settle(t17 + 500));                  // a `short`...
+            CHK("P25b a SHORT press only leaves it, returning to the LIST", body_row_is(0, "SAVED KEYS"));
+            CHK("P25b ⛔ ...and nothing was written or evicted on that path",
+                ks.saves == ks_seed && memcmp(&ks.rec, &k_before, sizeof k_before) == 0);
+            t17 = walk_to(t17 + 500, ">000022");
+            t17 = see(double_press(t17 + 500));            // ...and a `double`, from the same row
+            CHK("P25b the ACTIVE row lands on the same protected screen however it is reached",
+                body_row_is(0, "ACTIVE KEY") && body_row_is(1, "CANNOT FORGET"));
+            t17 = see(double_press(t17 + 500));
+            CHK("P25b a DOUBLE press only leaves it too — ⛔ it is not an act", body_row_is(0, "SAVED KEYS"));
+            CHK("P25b ⛔ ...and STILL nothing was written or evicted",
+                ks.saves == ks_seed && memcmp(&ks.rec, &k_before, sizeof k_before) == 0);
+
+            // ---- (c) AN **INACTIVE** ROW: the FULL id, BACK selected, and BACK performs NOTHING -----------------
+            t17 = walk_to(t17 + 500, ">000033");
+            t17 = see(double_press(t17 + 500));
+            CHK("P25c an INACTIVE row opens the irreversible confirmation, titled FORGET KEY (S-31)",
+                body_row_is(0, "FORGET KEY"));
+            // ★★★ THE IDENTITY ON THE CONFIRMATION IS THE **FULL 32-BIT ID**, ⛔ never the six-hex token: a
+            //     short-fingerprint collision must not be able to name the wrong record (spec §4-K6 pin 7).
+            CHK("P25c ★★ ...and it shows the FULL id, ⛔ not the display fingerprint", body_row_is(1, "0x73000033"));
+            CHK("P25c ★ BACK is selected initially, FORGET KEY is not (P-13, over an IRREVERSIBLE act)",
+                row_starts(3, ">BACK") && row_starts(4, " FORGET KEY"));
+            CHK("P25c ⛔ ...and opening it performed NOTHING",
+                ks.saves == ks_seed && memcmp(&ks.rec, &k_before, sizeof k_before) == 0);
+            t17 = see(double_press(t17 + 500));            // `double` on BACK
+            CHK("P25c ⛔⛔ BACK performs NOTHING and returns to the LIST — ⛔ not to the menu",
+                body_row_is(0, "SAVED KEYS") && ks.saves == ks_seed &&
+                memcmp(&ks.rec, &k_before, sizeof k_before) == 0);
+
+            // ---- (d) THE ACT: exactly ONE save, the record gone, the survivors intact, the tail ZERO -------------
+            t17 = walk_to(t17 + 500, ">000033");
+            t17 = see(double_press(t17 + 500));
+            t17 = see(settle(t17 + 500));                  // `short` -> FORGET KEY
+            CHK("P25d a short press moves the selection to FORGET KEY",
+                row_starts(4, ">FORGET KEY") && row_starts(3, " BACK"));
+            CHK("P25d ⛔ ...and the toggle is still not the act",
+                ks.saves == ks_seed && memcmp(&ks.rec, &k_before, sizeof k_before) == 0);
+            t17 = see(double_press(t17 + 500));            // ...and THIS performs it
+            CHK("P25d the panel says KEY FORGOTTEN (S-42)", body_row_is(0, "KEY FORGOTTEN"));
+            CHK("P25d ⛔ ...with no second row and ⛔ never the failure word",
+                body_row(1) == nullptr && strstr(g_c.page_text, "KEY NOT FORGOTTEN") == nullptr);
+            // ★★★ THE AUTHORITY IS THE STORE'S OWN BYTES. Exactly ONE keyring write, ZERO `/mrcfg` writes.
+            CHK("P25d ★★★ EXACTLY ONE keyring write, and ⛔ ZERO /mrcfg writes (a removal is not a binding)",
+                ks.saves == ks_seed + 1 && st.writes == w_seed);
+            CHK("P25d ★★ the selected record is GONE and the three survivors are byte-identical, IN ORDER",
+                ks.rec.count == 3 && mrfw::team_key_find(ks.rec, kT3) < 0 &&
+                memcmp(&ks.rec.rec[0], &k_before.rec[0], sizeof k_before.rec[0]) == 0 &&
+                memcmp(&ks.rec.rec[1], &k_before.rec[1], sizeof k_before.rec[1]) == 0 &&
+                memcmp(&ks.rec.rec[2], &k_before.rec[3], sizeof k_before.rec[3]) == 0);
+            {
+                mrnv::TeamKeyRecord zero{};
+                CHK("P25d ★★★★ the VACATED TAIL IS ZERO — ⛔ no duplicate of a live team's PRIVATE key survives",
+                    memcmp(&ks.rec.rec[3], &zero, sizeof zero) == 0 &&
+                    memcmp(&ks.rec.rec[3], &k_before.rec[3], sizeof zero) != 0);
+            }
+            CHK("P25d ⛔ ...and the ACTIVE record is untouched, live binding and all",
+                mrfw::team_key_find(ks.rec, kT2) >= 0 && st.rec.team_key_active == 1 &&
+                st.rec.team_key_team_id == kT2);
+            // ★★★ THE ACKNOWLEDGEMENT RETURNS TO THE **REFRESHED** LIST — three rows, and the removed one is gone.
+            t17 = see(double_press(t17 + 500));
+            CHK("P25d the verdict is terminal, and its press returns to the REFRESHED list",
+                body_row_is(0, "SAVED KEYS") && body_row_is(1, ">000011") &&
+                body_row_is(2, " 000022 ACTIVE") && body_row_is(3, " 000044"));
+            CHK("P25d ⛔ ...and the row that was removed is NOT on it any more",
+                strstr(g_c.page_text, "000033") == nullptr);
+            CHK("P25d ⛔ ...and acknowledging removed nothing further", ks.saves == ks_seed + 1);
+
+            // ---- (e) `KEYRING FULL`'s ACKNOWLEDGEMENT ENTERS THE LIST — ⛔ deleting nothing, ⛔ replaying nothing -
+            // ★★★★ THE RULING'S FULL-STORE DIRECTION, DRIVEN THROUGH THE REAL TRANSACTION: a fifth `team new` on a
+            //      full keyring refuses LOUDLY (P-15), and its acknowledgement lands the operator WHERE the dead end
+            //      can be resolved. ⛔ It chooses no victim, deletes nothing, and ⛔ does NOT re-run the create.
+            {
+                // Refill the fourth slot so the store is FULL again — through `put`, as everything else is.
+                uint8_t rp[32], rv[32], rs[32];
+                for (int i = 0; i < 32; ++i) rs[i] = uint8_t(0xC1 + i);
+                const bool refilled = meshroute::team_channel_key_derive(rp, rv, rs) &&
+                    ps.keyring.put(0x75000055u, rp, rv).verdict == mrfw::KeyringVerdict::ok;
+                CHK("P25e precondition: the keyring is FULL again (four records)",
+                    refilled && ks.rec.count == 4);
+                const mrnv::TeamKeyBlob full_before = ks.rec;
+                const int ksf = ks.saves, wf = st.writes;
+                // The create's PHY precondition must PASS or the refusal would be the wrong one (the §7.1 rule-1
+                // lesson: a fixture must not refuse for a different reason than the one under test).
+                ps.snap.live_freq_mhz          = st.rec.freq_mhz;
+                ps.snap.live_bw_hz             = st.rec.bw_hz;
+                ps.snap.live_routing_sf        = st.rec.routing_sf;
+                ps.snap.live_allowed_sf_bitmap = st.rec.allowed_sf_bitmap;
+                arm_live_key();
+                t17 = walk_to(t17 + 500, ">BACK");
+                t17 = see(double_press(t17 + 500));        // -> the PROVISION menu
+                t17 = walk_to(t17 + 500, ">CREATE TEAM");
+                t17 = see(double_press(t17 + 500));        // -> the create confirmation
+                t17 = see(settle(t17 + 500));              // `short` -> CREATE
+                t17 = see(double_press(t17 + 500));        // ...and perform it
+                CHK("P25e a fifth team on a FULL keyring is REFUSED LOUDLY (P-15), in the service's own token",
+                    body_row_is(0, "CREATE REFUSED") && body_row_is(1, "keyring_full"));
+                CHK("P25e ⛔ ...and NOTHING was evicted to make room — the four records are byte-identical",
+                    ks.saves == ksf && st.writes == wf &&
+                    memcmp(&ks.rec, &full_before, sizeof full_before) == 0);
+                t17 = see(double_press(t17 + 500));        // acknowledge the refusal
+                CHK("P25e ★★★★ the acknowledgement ENTERS the SAVED KEYS list, where the dead end can be resolved",
+                    body_row_is(0, "SAVED KEYS"));
+                CHK("P25e ⛔⛔ ...and it CHOSE NO VICTIM: the cursor is on the FIRST row and all four are listed",
+                    row_starts(1, ">000011") && body_row_is(2, " 000022 ACTIVE") &&
+                    body_row_is(3, " 000044") && body_row_is(4, " 000055"));
+                CHK("P25e ⛔⛔ ...it DELETED NOTHING and REPLAYED NOTHING — two explicit transactions, never one",
+                    ks.saves == ksf && st.writes == wf && ks.rec.count == 4 &&
+                    memcmp(&ks.rec, &full_before, sizeof full_before) == 0);
+            }
+
+            // ---- (f) ⛔ ZERO TX ACROSS THE WHOLE WALK — the P-4 shape, on the REAL queue and the REAL radio -------
+            CHK("P25f ⛔ the whole retention walk enqueued NOTHING", g_hal.txq_depth() == txd_k);
+            g_hal.collect_tx_completion(); g_hal.pump_tx();
+            CHK("P25f ⛔ ...and pumping the queue started NO transmission", g_probe_radio.starts == starts_k);
+            t17 = walk_to(t17 + 500, ">BACK");
+            t17 = see(double_press(t17 + 500));
+            CHK("P25f the list's BACK returns to the PROVISION menu", body_row_is(0, ">CREATE TEAM"));
+
+            // ---- (g) A REFUSING STORE: the note SAYS SO, no row is offered, and a failed write is NOT a success --
+            // ★★★★ THE TWO NEGATIVE ARMS THIS PHASE WOULD OTHERWISE HAVE LEFT AS NEGATIVE SPACE, and they are added
+            //      because their CONTROLS said so rather than because a reviewer felt they were missing: without
+            //      them a renderer that drew NO store-state note, and one that drew the SUCCESS word unconditionally,
+            //      both stayed invisible to every check above (the probe's own `ctl` reported each as measuring
+            //      NOTHING). ⓘ Measured, ⛔ not anticipated.
+            {
+                const mrnv::TeamKeyBlob g_before = ks.rec;
+                const int ksg = ks.saves, wg = st.writes;
+                // (g1) AN UNREADABLE KEYRING NAMES ITSELF AND OFFERS NOTHING. ⛔ "the store would not open" may never
+                //      read as "there are no saved keys" — they take different operator actions.
+                ks.state = mrnv::TeamKeyRead::io_failed;
+                t17 = walk_to(t17 + 500, ">SAVED KEYS");
+                t17 = see(double_press(t17 + 500));
+                CHK("P25g an UNREADABLE keyring SAYS SO on the list, ⛔ never reading as an empty one",
+                    body_row_is(0, "SAVED KEYS") && body_row_is(1, "STORAGE FAILURE") &&
+                    strstr(g_c.page_text, "NO SAVED KEYS") == nullptr);
+                CHK("P25g ⛔ ...and it offers NO row at all but BACK (C2: nothing may be selected for removal)",
+                    row_starts(2, ">BACK") && strstr(g_c.page_text, "000011") == nullptr &&
+                    strstr(g_c.page_text, "ACTIVE") == nullptr);
+                CHK("P25g ⛔ ...and a refusing store still cost ZERO writes",
+                    ks.saves == ksg && st.writes == wg);
+                ks.state = mrnv::TeamKeyRead::ok;
+                t17 = see(double_press(t17 + 500));           // BACK -> the PROVISION menu
+                CHK("P25g BACK still leaves a refusing list", body_row_is(0, ">CREATE TEAM"));
+
+                // (g2) A KEYRING WRITE THAT REALLY FAILS — ⛔ NEVER RENDERED AS `KEY FORGOTTEN` (spec §4-K6 pin 5).
+                //      ⓘ The store refuses the write itself, so the failure is reached the way the device reaches it
+                //      — ⛔ never a verdict handed to the renderer by hand.
+                ks.can_save = false;
+                t17 = walk_to(t17 + 500, ">SAVED KEYS");
+                t17 = see(double_press(t17 + 500));
+                t17 = walk_to(t17 + 500, ">000011");
+                t17 = see(double_press(t17 + 500));
+                t17 = see(settle(t17 + 500));                 // `short` -> FORGET KEY
+                t17 = see(double_press(t17 + 500));           // ...and perform it
+                CHK("P25g ★★★ a FAILED keyring write says KEY NOT FORGOTTEN plus the SERVICE's own token",
+                    body_row_is(0, "KEY NOT FORGOTTEN") && body_row_is(1, "nv_save_failed"));
+                CHK("P25g ⛔⛔ ...and ⛔ NEVER the success word",
+                    strstr(g_c.page_text, "KEY FORGOTTEN") == nullptr);
+                CHK("P25g ...exactly ONE write was ATTEMPTED, and the store still holds every record",
+                    ks.saves == ksg + 1 && st.writes == wg &&
+                    memcmp(&ks.rec, &g_before, sizeof g_before) == 0);
+                ks.can_save = true;
+                t17 = see(double_press(t17 + 500));           // acknowledge -> the refreshed list
+                CHK("P25g the failure is terminal too, and its press returns to the list",
+                    body_row_is(0, "SAVED KEYS"));
+                t17 = walk_to(t17 + 500, ">BACK");
+                t17 = see(double_press(t17 + 500));
+                CHK("P25g ...and the walk ends on the PROVISION menu", body_row_is(0, ">CREATE TEAM"));
+                CHK("P25g ⛔ the refusing arms enqueued NOTHING either", g_hal.txq_depth() == txd_k);
+            }
+
+            // ---- (h) §UI-16 K6 (QG blocker) — A **RECEIVED** GRANT INTO A FULL KEYRING -------------------------
+            // ★★★★ THE OTHER ORIGIN OF THE SAME DEAD END, AND IT IS THE ONE THAT ARRIVES OVER THE AIR: spec §K6
+            //      (`:987`) rules the direction for a `KEYRING FULL` result of **either origin**, and before the
+            //      correction the fifth RECEIVED grant showed three correct rows and then acknowledged into a menu
+            //      that says nothing — a dead end the operator could not act on.
+            // ★★ WHAT IS REAL HERE: the REAL `TeamKeyGrantService` over the REAL full `/mrteams` blob, the REAL
+            //    `grant_ui_verdict_of`, the REAL `mr_ui_on_team_key_unsaved` hook, the REAL model and renderer.
+            //    ⛔ NOTHING is injected: the refusal is the store's own answer to a fifth team.
+            {
+                const mrnv::TeamKeyBlob h_before = ks.rec;
+                const int ksh = ks.saves, wh = st.writes;
+                // The result screen the note renders on — reached by the create's own refusal, as an operator would.
+                t17 = walk_to(t17 + 500, ">CREATE TEAM");
+                t17 = see(double_press(t17 + 500));
+                t17 = see(settle(t17 + 500));
+                t17 = see(double_press(t17 + 500));
+                CHK("P25h precondition: a result screen is up and the store is FULL",
+                    body_row_is(0, "CREATE REFUSED") && ks.rec.count == 4);
+
+                ProbeGrantBinding hgb; hgb.membership = g_node.config().team_id;
+                mrfw::TeamKeyGrantService hsvc(ps.keyring, hgb);
+                mrfw::TeamKeyGrant hg{};
+                hg.push_team_id = g_node.config().team_id;
+                hg.live_team_id = g_node.config().team_id;
+                hg.live_pub     = g_node.team_channel_pub();
+                hg.live_priv    = g_node.team_channel_priv();
+                const mrfw::GrantSaveResult hv = hsvc.receive(hg);
+                CHK("P25h the REAL receive refuses with the FULL keyring, and writes NOTHING",
+                    hv.outcome == mrfw::GrantSave::keyring_failed &&
+                    hv.err     == mrfw::KeyringErr::keyring_full &&
+                    hgb.commits == 0 && ks.saves == ksh &&
+                    memcmp(&ks.rec, &h_before, sizeof h_before) == 0);
+                // ⓘ The live pair really is held, which is what makes the three ruled rows TRUE (the after-re-check-3
+                //   argument, asserted rather than assumed — the §7.1 rule-1 lesson).
+                CHK("P25h ...and the key really IS live, so the three rows are three true sentences",
+                    hg.live_pub != nullptr && hg.live_priv != nullptr &&
+                    hg.push_team_id != 0 && hg.push_team_id == hg.live_team_id);
+
+                // The drain loop's router, mirrored line for line.
+                const mrfw::GrantUiVerdict hvv = mrfw::grant_ui_verdict_of(hv);
+                CHK("P25h the verdict keeps the LANDED route and adds the FULL fact",
+                    hvv.route == mrfw::GrantUiRoute::active_unsaved && hvv.keyring_full == true);
+                MESHROUTE_NS::Push hp{};
+                hp.kind = MESHROUTE_NS::PushKind::team_key_received; hp.team_id = hg.push_team_id;
+                switch (hvv.route) {
+                    case mrfw::GrantUiRoute::received:       mr_ui_on_push(hp);                          break;
+                    case mrfw::GrantUiRoute::active_unsaved: mr_ui_on_team_key_unsaved(hvv.keyring_full); break;
+                    case mrfw::GrantUiRoute::suppressed:                                                 break;
+                    case mrfw::GrantUiRoute::count:                                                      break;
+                }
+                t17 = see(t17 + 500);
+                // ★★★ THE THREE RULED ROWS ARE UNCHANGED (S-26/S-27) — the correction moved a LANDING, ⛔ no word.
+                CHK("P25h the panel says TEAM KEY ACTIVE / NOT SAVED / LOST ON REBOOT, unchanged",
+                    body_row_is(0, "TEAM KEY ACTIVE") && body_row_is(1, "NOT SAVED") &&
+                    body_row_is(2, "LOST ON REBOOT"));
+                CHK("P25h ⛔ ...and TEAM KEY RECEIVED is nowhere on the panel (F-10)",
+                    strstr(g_c.page_text, "TEAM KEY RECEIVED") == nullptr);
+                CHK("P25h ⛔ ...and the ARRIVAL moved nothing and wrote nothing",
+                    body_row_is(4, "press = back") && ks.saves == ksh && st.writes == wh);
+
+                // ★★★★ AND THE ACKNOWLEDGING PRESS LANDS IN `SAVED KEYS` — the blocker's fix, on glass.
+                t17 = see(double_press(t17 + 500));
+                CHK("P25h ★★★ the acknowledgement ENTERS the SAVED KEYS list (spec §K6 :987, either origin)",
+                    body_row_is(0, "SAVED KEYS"));
+                CHK("P25h ⛔⛔ ...choosing NO victim: cursor on the first row, all four still listed",
+                    row_starts(1, ">000011") && body_row_is(2, " 000022 ACTIVE") &&
+                    body_row_is(3, " 000044") && body_row_is(4, " 000055"));
+                CHK("P25h ⛔⛔ ...deleting NOTHING and retrying NOTHING — the store is byte-identical",
+                    ks.saves == ksh && st.writes == wh && ks.rec.count == 4 &&
+                    memcmp(&ks.rec, &h_before, sizeof h_before) == 0);
+                CHK("P25h ⛔ ...and the whole receipt path enqueued NOTHING", g_hal.txq_depth() == txd_k);
+                t17 = walk_to(t17 + 500, ">BACK");
+                t17 = see(double_press(t17 + 500));
+                CHK("P25h the list's BACK still returns to the PROVISION menu", body_row_is(0, ">CREATE TEAM"));
+            }
+        }
+
     }
 #endif  // MR_N_LAYERS < 2
 

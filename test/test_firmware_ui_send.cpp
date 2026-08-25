@@ -2398,7 +2398,7 @@ TEST_CASE("ui16-K4: a forwarded grant receipt shows TEAM KEY RECEIVED — and th
     }
     {   // ★★ PIN 2 — THE FAILED SAVE SAYS BOTH TRUE THINGS AND ⛔ NEVER THE COMPLETION WORD.
         UiModel m;
-        m.on_team_key_note(/*saved=*/false, 5000);
+        m.on_team_key_note(/*saved=*/false, /*keyring_full=*/false, 5000);
         CHECK(m.state().prov_answer.outcome == UiProvOutcome::team_key_unsaved);
         CHECK(strcmp(prov_result_head(m.state().prov_answer),    "TEAM KEY ACTIVE") == 0);   // S-26
         CHECK(strcmp(prov_result_detail(m.state().prov_answer),  "NOT SAVED") == 0);         // S-27, first row
@@ -2472,7 +2472,7 @@ TEST_CASE("ui16-K4: ⛔ the note NEVER navigates, moves no cursor, writes no eme
     UiModel f = dark_model();
     const UiState fb = f.state();
     CHECK(fb.blanked);
-    f.on_team_key_note(/*saved=*/false, 40000);
+    f.on_team_key_note(/*saved=*/false, /*keyring_full=*/false, 40000);
     const UiState& fa = f.state();
     CHECK(fa.prov_answer.outcome == UiProvOutcome::team_key_unsaved);   // the arm really ran (⛔ not a vacuous pass)
     CHECK(fa.dirty);                                                    // a repaint IS owed…

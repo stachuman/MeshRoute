@@ -3351,3 +3351,57 @@ Setup: node B holds a retained `/mrteams` record for team T (granted earlier, th
    **Power-cycle** ⇒ the boot line restores **B's** key (`live key: YES`); re-joining A offers
    `SAVED KEY FOUND` again (A's record intact). ⛔ FAIL if B's key was cleared, if A's key went live, or if
    the panel claimed `TEAM KEY ACTIVE`.
+
+## Part 44 — §UI-16 K6: FORGET KEY on real flash (2026-08-25)
+
+⛔ **THE RESIDUE ONLY** (the pure policy, byte-level compaction/wipe, active-key protection, the two-transaction
+rule, the typed KEYRING FULL landings and all lexemes are host-gated: `teamkeyring` 68 / `model` 201+ /
+`uiprov` 45 entries, probes P25a-h). **Metal-only: real flash, the power-cut MID-FORGET, the real boot path.**
+
+1. ☐ **Real-flash forget.** Four `team new`s ⇒ `team keys` lists four ids, exactly one `ACTIVE`.
+   `team forgetkey 0x<inactive> confirm` ⇒ the KEY FORGOTTEN line. Power-cycle ⇒ `team keys` shows three, the
+   removed id absent, the ACTIVE marker unmoved; `team exportkey` still exports the live key.
+2. ☐ **Protection on real flash.** `team forgetkey 0x<the ACTIVE id> confirm` ⇒ the PROTECTED refusal, store
+   unchanged. Missing `confirm` ⇒ the confirm-missing refusal, store unchanged.
+3. ☐ ★★★ **POWER-CUT MID-FORGET — the [[B193]] class over a COMPACTING write, the first where an interrupted
+   write could smear a NEIGHBOURING record.** Fill four, issue the forget, cut power during the write (~10× at
+   varying delays). Each reboot's `team keys` answers exactly one of two states: four records unchanged, **or**
+   three with the survivors' ids intact **and in their original relative order**. ⛔ A duplicated id, a record
+   whose id is right but whose key no longer decrypts, or a `CORRUPT` store is the smear this part exists to
+   detect. Cross-check a survivor end to end (reboot restores the ACTIVE one; a retained inactive one still
+   installs via `team <id>` → `SAVED KEY FOUND` → `USE SAVED KEY`).
+4. ☐ **On-glass walk.** SETTINGS → PROVISION → `SAVED KEYS`: rows `<6 hex>` with ` ACTIVE` on exactly one;
+   active row ⇒ `ACTIVE KEY` / `CANNOT FORGET` / the full id, **no** `FORGET KEY` row, either press returns;
+   inactive row ⇒ `FORGET KEY` / full id / `>BACK`, `double` on BACK changes nothing (confirm on serial),
+   `short`+`double` ⇒ `KEY FORGOTTEN` then a list one row shorter.
+5. ☐ **`KEYRING FULL` → `SAVED KEYS`, both origins.** (a) CREATE: with four records, OLED `CREATE TEAM` ⇒ the
+   keyring_full refusal; its ack lands on `SAVED KEYS` with all four listed — ⛔ nothing deleted, ⛔ no team
+   created (serial `team` shows old membership); after forgetting one, `CREATE TEAM` must be pressed **again**.
+   (b) ★ RECEIVED: with four records and a teammate granting this node a key over the air ⇒ the panel shows
+   `TEAM KEY ACTIVE` / `NOT SAVED` / `LOST ON REBOOT` (three true rows — the key IS live), `team keys` shows
+   four unchanged; **press once** ⇒ `SAVED KEYS` with all four listed — ⛔ nothing deleted, ⛔ no grant
+   re-requested (the granter must re-send after a forget; this node never asks by itself). Power-cycle ⇒ the
+   node is keyless for that team — what `LOST ON REBOOT` promised.
+
+## Part 45 — §UI-16 K7 ([[B245]]): the roster grant on glass (2026-08-25)
+
+⛔ **THE RESIDUE ONLY** (placement, the four vetoes, the frozen identity, the eleven words and the `{dst,ctr}`
+correlation are host-gated: `model` W01-W11, native `ui16-k7-*` 9 cases / 262 asserts, probe P24k7a-f + R1-R4).
+**Metal-only: the REAL TxDone edge — no `send_aired` is producible on the host harness — and the joiner's real
+receipt.** Setup: H1 and H2 flashed; H1 has a crypto identity.
+
+1. ☐ **The repro, in its original order.** H1 `team new`. H2: `JOIN TEAM` → H1's row → `JOIN` ⇒ `TEAM JOINED`
+   (keyless). ⚠ Do **not** open the window first. H1: `INVITE MEMBER` ⇒ `NO CANDIDATES` / `>BACK`. ⛔ FAIL if
+   H2 appears.
+2. ☐ **The act.** H1: TEAM → `double` to enter → H2's row → `double` ⇒ the DM sub-view with ` GRANT KEY` as an
+   optional row. Walk to it, `double` ⇒ the confirmation with the **full `0x%08lX`** (ten chars, ⛔ never six),
+   `>REJECT` default, ` GRANT KEY`.
+3. ☐ ★★★ **The one thing no host gate can see.** `short` then `double` ⇒ `GRANT QUEUED`, then within a second
+   or two **`KEY SENT`**. ⛔ FAIL if it sits at `GRANT QUEUED` (correlation missed — suspect a team-DAD between
+   row and press) and ⛔ FAIL if `KEY SENT` appears *instantly* (F-9: admission mistaken for air). On H2:
+   `TEAM KEY RECEIVED`; power-cycle ⇒ `live key: YES`, a sealed team post readable.
+4. ☐ **The ceremony arm** (no cached pubkey for H2): `NEED PUBKEY` / full hash / `>BACK` / ` REQUEST PUBKEY`;
+   ⛔ nothing on the air before `short`+`double`; then `WAITING FOR PUBKEY` (⛔ never `WAITING FOR KEY`).
+5. ☐ **The window beside it is unchanged** — re-run Part 38's transcript verbatim; ⛔ FAIL on any difference.
+6. ☐ **No self-grant, no keyless offer** — on a node with no team content key, no member's sub-view shows a
+   `GRANT KEY` row at all (hidden, never a refusing stub).

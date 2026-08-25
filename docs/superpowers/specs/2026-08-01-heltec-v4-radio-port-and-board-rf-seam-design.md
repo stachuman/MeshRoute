@@ -5,7 +5,7 @@ First written 2026-08-01. Revision 3 refreshed 2026-08-25 against MeshRoute
 e9008794d0ebf4910872b518564f33dee647bb86, the current pinned PlatformIO framework, Heltec's current V4
 documentation, and MeshCore main at 0679dbeffc504d562d2f09eb072fdc223f8ffc2a.
 
-**Status: REFRESHED FIRST DRAFT; NOT DISPATCHED. Three owner answers in section 0.2 remain before implementation.**
+**Status: OWNER-APPROVED AND DISPATCHABLE (2026-08-25).**
 
 Revision 3 replaces Revision 2 in place. It keeps the approved generic board-RF seam and conducted-output contract,
 but corrects the source drift and closes omissions found by the 2026-08-25 audit:
@@ -22,8 +22,8 @@ but corrects the source drift and closes omissions found by the 2026-08-25 audit
 - all three V4 profiles, the warning census, the real-board UI probe and source provenance were absent from Revision 2;
 - a safe fixed-output first image can be built before a full RF calibration table exists.
 
-The purpose is practical: after the owner answers section 0.2, the slices in section 11 lead to a buildable and
-bench-safe heltec_v4 image without waiting for the later full power-calibration slice.
+The purpose is practical: the approved slices in section 11 lead to a buildable and bench-safe heltec_v4 image
+without waiting for the later full power-calibration slice.
 
 ---
 
@@ -40,27 +40,31 @@ These decisions were approved on 2026-08-01 and remain authoritative:
 5. Front-end initialization or mode failure is visible and refuses transmission. It never silently bypasses the FEM.
 6. Nothing in lib/core, the wire format, Node layout, timers or simulator behavior changes for this port.
 
-### 0.2 Answers required from the owner
+### 0.2 Owner rulings approved 2026-08-25
 
-Only these answers remain. Recommendations are deliberately explicit so implementation can begin immediately after
-review.
+The owner approved all three first-build decisions on 2026-08-25. No policy decision remains before implementation.
 
 **D1 — board population confirmation, not a policy choice.**
 
-Please confirm that both boards are the high-power 863–928 MHz models. This specification does not support the
-433–510 MHz low-power/no-FEM population. The high-power product supports both the 868 and 915 MHz ranges according
-to Heltec, and MeshRoute's present 869.4625 MHz plan is inside it.
+**Owner ruling:** both boards are the **high-power / 28 dBm HTIT-WB32LAF population**. A frequency label alone would
+not have been sufficient: Heltec's V4.2 datasheet also lists a low-power HTIT-WB32LAF-N-HF population covering the
+same 863–928 MHz range. The implementation additionally proves an external FEM bias at boot and fails closed if none
+is present. This specification does not support any -N low-power/no-FEM population or any 433–510 MHz population.
+The high-power product supports both the 868 and 915 MHz ranges, and MeshRoute's present 869.4625 MHz plan is inside
+it.
 
 **D2 — V4.3 receive LNA default.**
 
-Recommendation: **LNA enabled**. MeshRoute is a reachability-oriented hiking/safety system and should prefer receive
-sensitivity. V4.3 can instead bypass its LNA for lower current and potentially better strong-signal behavior.
-Revision 1 will expose the selected state in status but will not add a new command or NV field. A runtime setting is
-a later, separately designed feature.
+**Owner ruling: LNA enabled by default.** MeshRoute is a reachability-oriented hiking/safety system and should prefer
+receive sensitivity. V4.3 can instead bypass its LNA for lower current and potentially better strong-signal behavior.
+Heltec's current product page says MeshCore 1.15 enables it, while the pinned current MeshCore source initializes
+lna_enabled=false; neither conflicting external default should silently choose MeshRoute's policy.
+The first implementation exposes the selected state in status but does not add a new command or NV field. A runtime
+setting is a later, separately designed feature.
 
 **D3 — first-image transmit power.**
 
-Recommendation: support exactly **22 dBm nominal conducted output**, mapped to SX1262 chip drive 10 dBm, and refuse
+**Owner ruling:** support exactly **22 dBm nominal conducted output**, mapped to SX1262 chip drive 10 dBm, and refuse
 every other requested output. This is the conservative published reference point and permits a safe first bench
 image today. Do not expose 28 dBm until each board revision has a measured table. The status and boot banner must say
 that 22 dBm is nominal/reference-derived until measured locally; it must not claim regulatory compliance.
@@ -85,7 +89,7 @@ the detected FEM. This avoids pretending that two separately maintained images a
 Explicitly excluded from this design:
 
 - Heltec V4 R8: different ESP32-S3R8/PSRAM and peripheral pinout;
-- low-power or no-FEM V4 boards;
+- low-power or no-FEM V4 boards, including the high-frequency HTIT-WB32LAF-N-HF population;
 - 433–510 MHz operation;
 - TFT expansion displays;
 - GNSS input or location propagation;
@@ -230,6 +234,11 @@ The following is the target table for the original V4.2/V4.3 family:
 Heltec names the controller SSD1315; the current MeshCore OLED port and the compatible U8g2 command path use an
 SSD1306-class driver. Compatibility is an on-metal acceptance item, not a reason to duplicate the renderer.
 
+There is a documented-source conflict on Vext polarity: current pinned MeshCore declares GPIO36 active HIGH, while
+the V4.2 Heltec datasheet prose says VextCtrl must be LOW to use VE. The first build follows the current MeshCore
+reference (HIGH), but the trait is provisional until panel ACK and current are measured on both boards. If V4.2
+and V4.3 differ, derive the runtime level from the already detected FEM kind; do not choose one revision silently.
+
 GPIO0 remains a boot strap. Holding the UI button through reset can enter the ROM downloader, exactly as on V3.
 
 ---
@@ -295,13 +304,21 @@ All screens, strings, gestures and UI state remain unchanged.
 
 ### 4.4 Board assets
 
-Vendor these exact assets from MeshCore commit 0679dbeffc504d562d2f09eb072fdc223f8ffc2a:
+Vendor the exact content of these assets from MeshCore commit
+0679dbeffc504d562d2f09eb072fdc223f8ffc2a:
 
 - boards/heltec_v4.json;
-- variants/heltec_v4/pins_arduino.h.
+- upstream variants/heltec_v4/pins_arduino.h into
+  arduino_variants/heltec_v4/pins_arduino.h in this repository.
 
 The JSON specifies ESP32-S3R2, 16 MB flash, 2 MB QSPI PSRAM, default_16MB.csv, USB CDC on boot and USB mode 1.
-Set build.variants_dir to the repository variants directory so a clean checkout resolves pins_arduino.h.
+Set board_build.variants_dir = arduino_variants in the V4 PlatformIO environment so a clean checkout resolves the
+vendored pins_arduino.h.
+
+This directory split is deliberate. The pinned ESP32 builder compiles every source file under the selected Arduino
+variant as FrameworkArduinoVariant. MeshRoute's variants/heltec_v4 directory contains application-owned board_rf.cpp
+and must remain outside that implicit framework build; it is compiled exactly once by build_src_filter. Do not place
+either board_rf.cpp or the common canvas under arduino_variants.
 
 Extend tools/vendor_meshcore.sh and lib/meshcore/NOTICE so future re-syncs include these two assets and retain exact
 provenance. Do not require a sibling /home/staszek/MeshCore checkout at build time.
@@ -435,7 +452,7 @@ previously existed.
 
 ### 7.2 First-build power capability
 
-Subject to D3, the first V4 driver exposes the singleton supported set:
+Per approved D3, the first V4 driver exposes the singleton supported set:
 
 | requested nominal conducted output | SX1262 chip drive |
 |---:|---:|
@@ -451,7 +468,7 @@ Selection rounds down and never exceeds the requested conducted output. 28 dBm r
 
 ### 7.3 Frequency envelope
 
-Subject to D1, the V4 high-power capability accepts 863 through 928 MHz. The local cfg/create/join inputs must query
+Per confirmed D1, the V4 high-power capability accepts 863 through 928 MHz. The local cfg/create/join inputs must query
 one frequency predicate rather than each restating a range.
 
 The radio remains the final backstop because remote/adopted configuration is another producer. Add one concrete
@@ -459,6 +476,7 @@ Sx1262Radio frequency-apply helper used by both boot/grouped live configuration 
 frequency-valid flag; there must be no direct setFrequency bypass in fw_main or firmware_config:
 
 - an unsupported retune leaves the last valid RF setting, marks RF configuration invalid and counts the refusal;
+- validation precedes standby, so that refusal also leaves continuous RX armed on the last valid carrier;
 - start_transmit refuses while RF configuration is invalid;
 - a later valid retune clears that condition immediately, without a reboot;
 - status exposes the refusal count and validity.
@@ -477,7 +495,7 @@ Required V4-only values:
 
 - BOARD_HELTEC_V4;
 - MR_BOARD_RF_FRONTEND=1;
-- board heltec_v4 and project variants directory;
+- board heltec_v4 and board_build.variants_dir = arduino_variants;
 - LoRa NSS 8, DIO1 14, RESET 12, BUSY 13;
 - SPI SCLK 9, MISO 11, MOSI 10;
 - FEM GPIOs 7, 2, 46 and 5;
@@ -582,13 +600,15 @@ Before every TX test, attach the correct antenna or a rated dummy load.
 5. Receive a frame before this board has transmitted anything; this proves the initial RX transition.
 6. Exchange frames V4.2 to V4.3 and V4.3 to V4.2; verify TxDone, outcome delivery and restored RX.
 7. Exercise a forced startTransmit failure and watchdog abort; verify RX recovers.
-8. Let the OLED page frame complete; test blanking, short button wake and battery plausibility on both boards.
-9. While light-sleeping, receive a LoRa frame and prove the DIO1 wake counter increments and the frame is delivered.
-10. On V4.3, measure receive behavior and current with the D2 LNA state; compare against bypass before declaring the
-    default final.
-11. At the first-build 10 dBm chip drive, measure conducted output if suitable RF equipment is available. Until then,
+8. With no external Vext load attached, verify the GPIO36 level that powers the panel on each revision by panel ACK
+   and current; reconcile the MeshCore-HIGH / Heltec-datasheet-LOW conflict before pinning the trait.
+9. Let the OLED page frame complete; test blanking, short button wake and battery plausibility on both boards.
+10. While light-sleeping, receive a LoRa frame and prove the DIO1 wake counter increments and the frame is delivered.
+11. On V4.3, measure receive behavior and current with the approved D2 LNA state and compare against bypass; record
+    the evidence and revisit D2 only if metal contradicts the expected reachability tradeoff.
+12. At the first-build 10 dBm chip drive, measure conducted output if suitable RF equipment is available. Until then,
     label 22 dBm nominal/reference-derived.
-12. Preserve each firmware.elf and version banner with the result.
+13. Preserve each firmware.elf and version banner with the result.
 
 A second-node RSSI comparison is useful for function and relative sensitivity. It is not an absolute power
 calibration.
@@ -601,11 +621,11 @@ Each slice is independently reviewable and obeys C1.
 
 | slice | kind | content | completion |
 |---|---|---|---|
-| V4-0 | design | owner answers D1–D3 recorded here | specification dispatchable |
+| V4-0 | design | D1–D3 approved and recorded here on 2026-08-25 | complete; specification dispatchable |
 | V4-1 | refactor | move V3 canvas to heltec_common; required traits; dual board-ui probe; V3 byte/behavior proof | every existing gate green; no V4 env |
-| V4-2 | refactor/seam | IBoardRf/provider; Sx1262Radio single arm_rx authority; null FEM on every existing board; production-header probe | existing boards green; no V4 env or behavior |
-| V4-3 | feature | board assets, heltec_v4 env, V4 RF driver/detection, fixed power and band enforcement, truthful diagnostics, V4 UI traits | heltec_v4 builds and passes both-board base metal checklist |
-| V4-4 | profile expansion | heltec_v4_mobile and gateway_heltec_v4; census/docs/provenance | all profiles build and census is pinned |
+| V4-2 | RF-seam feature | IBoardRf/provider; Sx1262Radio single arm_rx authority; null FEM on every existing board; truthful initial-arm failure; production-header probe | existing boards green; no V4 env |
+| V4-3 | V4 feature | board assets and provenance, heltec_v4 env, V4 RF driver/detection, fixed power and band enforcement, truthful diagnostics, V4 UI traits | heltec_v4 builds and passes both-board base metal checklist |
+| V4-4 | profile expansion | heltec_v4_mobile and gateway_heltec_v4; census and user/developer docs | all profiles build and census is pinned |
 | V4-5 | later RF feature | measured per-revision power tables and any runtime LNA control | separate reviewed design and RF calibration |
 
 V4-3 is the first image the owner can flash today. There is deliberately no intermediate V4 environment whose binary
