@@ -17,7 +17,7 @@
 # expectations below, and EXITS NON-ZERO on any of: build failure · zero objects · warning-count mismatch · non-zero
 # -Wswitch · a missing RAM/Flash metric.
 #
-# USAGE:  tools/warning_census.sh                 # gate the three pinned OLED envs
+# USAGE:  tools/warning_census.sh                 # gate every derived, pinned OLED env
 #         tools/warning_census.sh --list          # show the derived OLED set and exit
 #         EXPECT_heltec_v3=179 tools/…            # override one expectation (for a deliberate, reviewed change)
 #
@@ -65,7 +65,11 @@ cd "$(dirname "$0")/.." || exit 1
 # ⓘ RAM unchanged to the byte: 214396 / 213916 / 239316 (`gateway_heltec` = 73.03 %). Flash **+16 B on each** — the one
 #   codegen delta, and it is expected: `mac_idle()` now dispatches `tx_busy()` virtually through `IRadio&` instead of
 #   naming the concrete `g_iradio`. Same instance, same volatile contract, same predicate.
-declare -A EXPECT_WARN=( [heltec_v3]=178 [heltec_mobile]=178 [gateway_heltec]=174 )
+# ★ V4-3 ADDITION 2026-08-26: the new `heltec_v4` OLED environment measures 327 objects / 183 warnings /
+#   `-Wswitch` 0. Its +5 versus `heltec_v3` is the existing RadioLib native-USB `#warning`, emitted once in each of
+#   five translation units; `variants/heltec_v4/board_rf.cpp` accounts for the one additional object and adds no
+#   warning. The existing 178/178/174 pins are unchanged.
+declare -A EXPECT_WARN=( [heltec_v3]=178 [heltec_mobile]=178 [gateway_heltec]=174 [heltec_v4]=183 )
 
 # ⚠ `pio project config --environment <e>` emits NOTHING greppable for build_flags — a v2 derivation built on it
 #   returned an empty set, and v1 only "worked" because I had passed the env names explicitly, so its

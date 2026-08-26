@@ -54,6 +54,7 @@ using mrfw::handle_peerkey;          // §3 export; call sites (service_console 
 using mrfw::handle_peername;         // §AB2 export; same two call sites, same shape as handle_peerkey
 using mrfw::dispatch;                 // §3 export: the console verb-router (service_console + ble_dispatch_line)
 using mrfw::print_banner;             // §3 export: setup() banner + `version`
+using mrfw::print_rf_diagnostics;      // V4-3: boot RF/FEM/config truth (same formatter as USB `status`)
 using mrfw::print_identity;           // §3 export: setup()
 using mrfw::print_sf_list;            // §3 export: setup() + mesh_service_once()
 using mrfw::board_name;               // §3 export: ble_dispatch_line `version`
@@ -202,7 +203,7 @@ uint32_t g_wake_sleep_fail = 0;    // §R2.1: esp_light_sleep_start() REFUSED (r
 bool     g_host_present = false; // a console byte was seen this boot -> a human is here -> stay awake (MeshCore inhibit_sleep)
 bool     g_force_sleep  = false; // the `sleep` console command -> light-sleep when idle even with a host present
 double   g_freq_mhz = LORA_FREQ;   // live operating freq (compile default; Slice-2 NV will override at boot)
-int8_t   g_tx_power = LORA_TX_POWER;   // live TX power (dBm); NV `cfg set tx_power` overrides at boot
+int8_t   g_tx_power = meshroute::default_output_dbm;   // requested conducted output (dBm); NV `cfg set tx_power` overrides at boot
 // BLE companion policy (NV v7; read at boot, reboot-to-apply). Compile defaults = the documented bare-metal
 // node: off / 15-min periodic window / PIN 123456 (spec §4 + §A.3). A v7 blob overrides these at boot.
 uint8_t  g_ble_mode = 0;            // 0=off (bare-metal), 1=on, 2=periodic — all extern in fw_context.h
@@ -693,7 +694,7 @@ void setup() {
         cfg.radio_bw_hz       = nv.bw_hz;        cfg.radio_cr     = nv.cr;
         cfg.duty_cycle        = nv.duty;         cfg.lbt_enabled  = nv.lbt != 0;
         cfg.beacon_period_ms  = nv.beacon_ms;
-        g_tx_power            = (nv.version >= 3) ? nv.tx_power : (int8_t)LORA_TX_POWER;   // v2 blob had no tx_power -> keep the default
+        g_tx_power            = (nv.version >= 3) ? nv.tx_power : meshroute::default_output_dbm;   // v2 blob had no tx_power -> keep the board's nominal-output default
         cfg.is_gateway        = nv.is_gateway != 0;   cfg.gateway_only = nv.gateway_only != 0;   // v6 role/topology (only v6 blobs load -> always present)
         cfg.is_mobile         = nv.is_mobile != 0;    cfg.leaf_id      = nv.leaf_id;
         cfg.team_id           = nv.team_id;           // §mobile 6.1: team-id overlay (0 = no team)
@@ -839,19 +840,22 @@ void setup() {
     if (cfg.allowed_sf_bitmap) { print_sf_list(mrcon, cfg.allowed_sf_bitmap); mrcon.println(F("  (receiver picks the fastest by SNR)")); }
     else                       { mrcon.println(F("(none — set sf_list; data send is REFUSED until configured)")); }
 
-    mrcon.print(F("  tx power  = ")); mrcon.print((int)g_tx_power); mrcon.println(F(" dBm"));
+    mrcon.print(F("  tx output = ")); mrcon.print((int)g_tx_power); mrcon.println(F(" dBm nominal conducted"));
 
-    // Apply the operating point to the radio (freq/SF/BW/CR), re-arm RX, and match the Hal airtime ledger.
+    // Apply the requested carrier through the board-envelope latch before FEM/RX initialization. A refusal leaves
+    // std_init's safe build-time carrier in hardware but does not poison hardware truth: begin still detects the
+    // FEM and arms RX there, while the independent invalid latch refuses every TX.
     if (ok) {
-        g_radio.setFrequency((float)g_freq_mhz);
+        (void)g_iradio.apply_frequency(g_freq_mhz, /*rearm=*/false);
         g_radio.setSpreadingFactor((uint8_t)cfg.routing_sf);
         g_radio.setBandwidth((float)cfg.radio_bw_hz / 1000.0f);
         g_radio.setCodingRate((uint8_t)cfg.radio_cr);
         g_radio.setSyncWord(MESHROUTE_SYNC_WORD);               // override std_init's PRIVATE (0x12): reject alien protocols at the PHY
-        ok = g_iradio.begin();                                  // FEM init + the truthful initial continuous-RX arm result
-    }
+        ok = g_iradio.begin();                                  // FEM init + truthful initial continuous-RX arm result
+    } else (void)g_iradio.validate_frequency(g_freq_mhz);       // establish config truth without touching failed hardware
     g_radio_ok = ok;
     mrcon.print(F("  radio     = ")); mrcon.println(g_radio_ok ? F("OK") : F("INIT FAILED"));
+    mrcon.print(F("  rf        = ")); print_rf_diagnostics(mrcon); mrcon.println();
     g_hal.configure(/*sf=*/(int16_t)cfg.routing_sf, /*bw_hz=*/(int32_t)cfg.radio_bw_hz,
                     /*cr=*/(int8_t)cfg.radio_cr, /*preamble=*/(int16_t)P::preamble_sym,
                     /*power=*/g_tx_power, /*channel_busy_hold_ms=*/100);

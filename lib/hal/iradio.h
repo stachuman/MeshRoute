@@ -26,9 +26,10 @@ struct IRadio {
     //   radio_error -> the PHY refused to start — nothing armed.
     // The caller (DeviceHal) MUST NOT call start_transmit() while tx_busy() — half-duplex, one in-flight
     // TX. bytes borrowed for the call only (impl copies into the PHY FIFO). Airtime accounting (the
-    // duty-cycle ledger) is the DeviceHal's job, not the radio's.
+    // duty-cycle ledger) is the DeviceHal's job, not the radio's. output_dbm is the requested nominal conducted
+    // output; a board RF front end may translate it before the silicon sees a chip-drive value.
     virtual TxResult start_transmit(const uint8_t* bytes, size_t len,
-                                    int16_t sf, int32_t bw_hz, int8_t cr, int8_t power_dbm, int16_t preamble_sym) = 0;
+                                    int16_t sf, int32_t bw_hz, int8_t cr, int8_t output_dbm, int16_t preamble_sym) = 0;
 
     // Drain the in-flight TX completion: true EXACTLY ONCE per start_transmit(), on the TxDone edge. On
     // that true edge the radio has restored the listening SF + re-armed continuous RX. false while no TX

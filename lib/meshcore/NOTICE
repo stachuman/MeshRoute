@@ -6,6 +6,11 @@ License          : MIT (see license.txt) — Copyright (c) 2025 Scott Powell / r
 MESHCORE_VERSION : 51dfbb2f6361e437f181a91e4a784f60bbc09aa8
 Vendored on      : 2026-05-30
 
+Heltec V4 board assets were audited and vendored later from:
+
+  HELTEC_V4_ASSET_VERSION : 0679dbeffc504d562d2f09eb072fdc223f8ffc2a
+  Vendored on             : 2026-08-26
+
 Vendored files (BYTE-IDENTICAL — DO NOT EDIT; editing breaks byte-identity
 with upstream and the `git diff` re-sync audit):
 
@@ -20,6 +25,13 @@ Also vendored from the same commit (xiao_sx1262 board build only):
   variants/Seeed_XIAO_nRF52840/variant.cpp            the Adafruit BSP ships no XIAO variant.
                                                       Dir renamed from MeshCore's variants/xiao_nrf52/
                                                       to match the board JSON's "variant" name.)
+
+Vendored byte-identically from HELTEC_V4_ASSET_VERSION (heltec_v4 board build only):
+
+  boards/heltec_v4.json                               (ESP32-S3R2, 16 MB flash, 2 MB QSPI PSRAM,
+                                                       native USB CDC board definition)
+  arduino_variants/heltec_v4/pins_arduino.h           (Arduino pin constants; kept separate from
+                                                       MeshRoute's application-owned board RF driver)
 
 Scope of reuse: the SX1262 PHY ONLY. MeshRoute does NOT vendor or use
 MeshCore's Dispatcher / Packet / Identity / mesh stack — the MAC, routing and

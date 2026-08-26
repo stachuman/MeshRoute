@@ -4,13 +4,14 @@ Practical instructions for building the firmware, debugging it (host + on-metal,
 
 **Toolchain:** [PlatformIO](https://platformio.org/). Pin to **PlatformIO Core 6.1.19** (`pio --version`) so every machine resolves identical platform/toolchain packages. Either the **VS Code PlatformIO IDE** extension (bundles everything) or the standalone CLI (`pipx install platformio==6.1.19`).
 
-**Three build environments** (`platformio.ini`):
+**Four base build environments** (`platformio.ini`):
 
 | Env | Target | Purpose | Radio |
 |---|---|---|---|
 | `native` | host (your dev machine) | doctest suite + the simulator driver | none (logic only) |
 | `xiao_sx1262` | Seeed XIAO nRF52840 + Wio-SX1262 | **primary** device | SX1262 |
 | `heltec_v3` | Heltec WiFi LoRa 32 V3 (ESP32-S3) | backup device | SX1262 |
+| `heltec_v4` | Heltec WiFi LoRa 32 V4.2/V4.3 (ESP32-S3) | first-build V4 base image | SX1262 + runtime-detected external FEM |
 
 > The protocol core (`lib/core`) is platform-neutral and depends only on the abstract `Hal`. The same code runs on the host (under the simulator) and on the device (over the MeshCore-vendored SX1262 PHY) — so **most development and debugging happens on `native`**, and the device builds prove it on metal.
 
@@ -20,7 +21,7 @@ Practical instructions for building the firmware, debugging it (host + on-metal,
 
 ### Prerequisites
 - PlatformIO Core 6.1.19 + `git`.
-- A clone of this repo. The device build needs files **vendored from MeshCore** that are already committed here: `lib/meshcore/` (the 2 SX1262 PHY headers), `boards/seeed-xiao-afruitnrf52-nrf52840.json` + `boards/nrf52840_s140_v7.ld` (custom board + linker script), `variants/Seeed_XIAO_nRF52840/` (the board variant). Re-sync them from a pinned MeshCore checkout with `tools/vendor_meshcore.sh` (needs `bash`; Git Bash on Windows).
+- A clone of this repo. The device build needs files **vendored from MeshCore** that are already committed here: `lib/meshcore/` (the 2 SX1262 PHY headers), the XIAO board/linker/variant assets, and `boards/heltec_v4.json` + `arduino_variants/heltec_v4/pins_arduino.h`. Re-sync them from a pinned MeshCore checkout with `tools/vendor_meshcore.sh` (needs `bash`; Git Bash on Windows). Exact source commits are recorded in `lib/meshcore/NOTICE`.
 
 ### Native (tests + simulator driver)
 ```bash
@@ -47,6 +48,17 @@ First run downloads the **Adafruit nRF52 BSP** (`framework-arduinoadafruitnrf52 
 ```bash
 pio run -e heltec_v3        # ESP32-S3; dedicated SPI bus (P_LORA_SCLK/MISO/MOSI)
 ```
+
+### Device — Heltec V4.2/V4.3 (base image)
+```bash
+pio run -e heltec_v4        # one image; the external FEM revision is detected at boot
+```
+
+This target is for the original high-power 863–928 MHz V4.2/V4.3 boards, not V4 R8, the low-power/no-FEM model,
+or the 433–510 MHz population. It supports one requested nominal conducted output: 22 dBm, translated to the
+first-build 10 dBm SX1262 drive. Other powers and frequencies outside 863–928 MHz are refused. The boot banner must
+say `board=heltec_v4`; the RF line must identify `fem=gc1109 lna=n/a` on V4.2 or `fem=kct8103l lna=on` on V4.3.
+Treat that runtime FEM label as the revision authority.
 
 ### Artifacts
 `.pio/build/<env>/firmware.elf` (+ `.hex`, and `.uf2` for the XIAO). Use `firmware.elf` for debugging, `firmware.uf2` for drag-drop flashing.
@@ -138,6 +150,19 @@ Or do it all at once: `pio run -e xiao_sx1262 -t upload && pio device monitor`.
 pio run -e heltec_v3 -t upload     # esptool over USB; auto-enters bootloader
 ```
 
+### Heltec V4.2/V4.3
+Attach the correct antenna or a rated dummy load before any transmission.
+
+```bash
+pio run -e heltec_v4 -t upload
+pio device monitor -e heltec_v4
+```
+
+V4 uses the ESP32-S3 native USB Serial/JTAG CDC path selected by its vendored board JSON, not V3's UART bridge. If
+automatic upload recovery fails, hold the active-low user button (GPIO0), tap RESET, then release the button after
+the ROM download port enumerates and repeat the upload. GPIO0 is a boot strap: holding the button through any reset
+can intentionally enter that downloader. Preserve `.pio/build/heltec_v4/firmware.elf` with every metal result.
+
 ### Troubleshooting
 - **`No device found` / upload hangs (XIAO):** enter the bootloader (double-tap reset) and re-run; verify `pio device list` shows the port; use a *data* USB cable (not charge-only). When in doubt, use the UF2 drag-drop path.
 - **`radio = INIT FAILED` on boot:** check the Wio-SX1262 shield seating, the pin macros (`LORA_PIN_*`/`SX126X_RXEN`), and `SX126X_DIO3_TCXO_VOLTAGE` (1.8 V for the Wio module). `std_init` retries once at TCXO 0 V on `-707/-706`.
@@ -150,12 +175,14 @@ pio run -e heltec_v3 -t upload     # esptool over USB; auto-enters bootloader
 # build
 pio test -e native              &&  .pio/build/native/program   # host tests (real counts)
 pio run  -e xiao_sx1262                                          # device firmware
+pio run  -e heltec_v4                                            # V4.2/V4.3 base firmware
 # debug
 pio debug -e native                                              # host gdb (logic)
 pio device monitor -e xiao_sx1262                                # serial (115200)
 pio debug -e xiao_sx1262                                         # SWD (needs a CMSIS-DAP probe)
 # upload
 pio run -e xiao_sx1262 -t upload                                 # nrfutil (double-tap reset)
+pio run -e heltec_v4 -t upload                                   # ESP32-S3 native USB / esptool
 #   or drag .pio/build/xiao_sx1262/firmware.uf2 onto the XIAO drive
 #   or manual DFU: adafruit-nrfutil dfu serial -p <PORT> -b 115200 --singlebank -pkg .pio/build/xiao_sx1262/firmware.zip
 

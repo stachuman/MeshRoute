@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""V4-2 source-shape checks that complement the production-header behavioral probe."""
+"""V4-3 source-shape checks that complement the production-header/GPIO behavioral probes."""
 
 from pathlib import Path
 import sys
 
 
 def main() -> int:
-    if len(sys.argv) != 3:
-        print("usage: structural.py DEVICE_RADIO_H FW_MAIN_CPP")
+    if len(sys.argv) != 6:
+        print("usage: structural.py DEVICE_RADIO_H FW_MAIN_CPP FIRMWARE_CONFIG_CPP FIRMWARE_COMMANDS_CPP PLATFORMIO_INI")
         return 2
 
     device = Path(sys.argv[1]).read_text()
     fw = Path(sys.argv[2]).read_text()
+    config = Path(sys.argv[3]).read_text()
+    commands = Path(sys.argv[4]).read_text()
+    platform = Path(sys.argv[5]).read_text()
     passed = 0
     failed = 0
 
@@ -58,6 +61,53 @@ def main() -> int:
     check("S10 every popped outcome reaches Node::on_tx_complete", fw.count(drain) == 1)
     check("S11 completion/drain precede timers and pump remains last",
           all(pos >= 0 for pos in positions) and positions == sorted(positions))
+
+    # One final frequency authority: validation is before standby; all public producers route through it.
+    freq_start = device.find("bool apply_frequency(double mhz, bool rearm)")
+    freq_end = device.find("bool validate_frequency(double mhz)", freq_start)
+    freq_block = device[freq_start:freq_end] if freq_start >= 0 and freq_end > freq_start else ""
+    unsupported = freq_block.find("if (!frequency_supported(mhz))")
+    standby = freq_block.find("_radio.standby()")
+    set_frequency = freq_block.find("_radio.setFrequency(")
+    check("S12 exactly one production SetRfFrequency expression, inside apply_frequency",
+          device.count("_radio.setFrequency(") == 1 and unsupported >= 0 and unsupported < standby < set_frequency)
+    check("S13 gateway set_rx_freq delegates to the shared helper",
+          device.count("(void)apply_frequency(mhz, /*rearm=*/true);") == 1)
+    tx_gate = "if ((_board_rf && !_board_rf_ready) || !_frequency_valid) return TxResult::radio_error;"
+    check("S14 TX frequency/FEM validity gate precedes output translation and standby",
+          device.find(tx_gate) >= 0 and device.find(tx_gate) < device.find("const BoardRfDrive drive = output_drive(pw);") < device.find("_radio.standby()"))
+
+    boot_apply = "(void)g_iradio.apply_frequency(g_freq_mhz, /*rearm=*/false);"
+    check("S15 boot applies requested frequency before FEM/RX begin",
+          fw.count(boot_apply) == 1 and fw.find(boot_apply) < fw.find(begin_binding))
+    live_apply = "if (g_iradio.apply_frequency(b.freq_mhz, /*rearm=*/false)) {"
+    check("S16 grouped live config is gated by the same frequency authority",
+          config.count(live_apply) == 1 and "(void)g_iradio.validate_frequency(b.freq_mhz);" in config)
+    check("S17 fw_main/config contain no direct RadioLib setFrequency bypass",
+          "g_radio.setFrequency(" not in fw and "g_radio.setFrequency(" not in config)
+
+    # USB diagnostics keep hardware/config/composite truth distinct and name the runtime FEM, never a compile-time
+    # V4 revision. The structured BLE/JSON status is intentionally untouched in this slice.
+    diag_tokens = ("fem=", " lna=", " radiohw=", " rfcfg=", " rfok=", " rfmodefail=", " rfbandfail=", " rfout=", " rfchip=")
+    check("S18 one USB RF formatter renders every required field",
+          commands.count("void print_rf_diagnostics(Print& out)") == 1 and all(token in commands for token in diag_tokens))
+    check("S19 rfok is the hardware/config conjunction",
+          "out.print((g_radio_ok && rfcfg) ? 1 : 0);" in commands)
+    check("S20 boot and status both call the same RF formatter",
+          fw.count("print_rf_diagnostics(mrcon);") == 1 and commands.count("print_rf_diagnostics(out);") == 1)
+    check("S21 board_name has an explicit Heltec V4 arm",
+          '#elif defined(BOARD_HELTEC_V4)\n    return "heltec_v4";' in commands)
+
+    v4_section = platform[platform.find("[env:heltec_v4]"):platform.find("[env:xiao_esp32s3]")]
+    check("S22 exactly one base heltec_v4 env, with no premature derived profiles",
+          platform.count("[env:heltec_v4]") == 1 and "heltec_v4_mobile" not in platform and "gateway_heltec_v4" not in platform)
+    required_v4 = ("board = heltec_v4", "board_build.variants_dir = arduino_variants", "-DMR_BOARD_RF_FRONTEND=1",
+                   "-DLORA_TX_POWER=10", "-DMR_DEFAULT_OUTPUT_DBM=22", "-DMR_RF_OUTPUT_MIN_DBM=22",
+                   "-DMR_RF_OUTPUT_MAX_DBM=22", "-DMR_RF_FREQ_MIN_MHZ=863.0", "-DMR_RF_FREQ_MAX_MHZ=928.0",
+                   "-DMR_RF_STRICT_ENVELOPE=1", "-DSX126X_REGISTER_PATCH=1",
+                   "+<../variants/heltec_v4/board_rf.cpp>")
+    check("S23 V4 env pins the first-build RF/output/variant contract",
+          bool(v4_section) and all(token in v4_section for token in required_v4))
 
     print(f"{passed} structural checks passed, {failed} failed")
     return 1 if failed else 0

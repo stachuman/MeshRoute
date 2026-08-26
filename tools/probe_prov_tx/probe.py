@@ -462,7 +462,8 @@ def s19_range_message_names_no_wrong_verb(svc, cfg, rsvc, rcfg):
     LEAVE used to say *"> team new err:"* -- a message naming a subcommand the operator did not type. RAW sources,
     because these ARE string literals and `neutral()` blanks them. Four clauses:
       (a) `> team new err` occurs ZERO times anywhere in the console TU;
-      (b) the replacement is verb-neutral and occurs EXACTLY ONCE -- ⛔ deleting the string would also satisfy (a);
+      (b) the replacement is verb-neutral, uses the shared board-range text, and occurs EXACTLY ONCE -- ⛔ deleting
+          the string would also satisfy (a);
       (c) it matches its siblings, which already said `> team err` -- the three `> team err`-prefixed literals in
           the TU counted together (`bad/unknown key` is used twice: the team-key reporter and this set);
       (c2) ★ and the CORRECTION IS ON THE RECORD: the withdrawn wording is still NAMED in the production comment at
@@ -475,7 +476,8 @@ def s19_range_message_names_no_wrong_verb(svc, cfg, rsvc, rcfg):
     wrong = code.count('> team new err')
     in_prose = rcfg.count('> team new err')
     record = rcfg.count('which is PRESERVED rather than tidied (C1)')
-    neutral_range = code.count('F("> team err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz")')
+    neutral_range = code.count(
+        'F("> team err: freq " MR_RF_FREQ_RANGE_TEXT " MHz, sf 5..12, bw 7..500 kHz")')
     siblings = code.count('F("> team err bad/unknown key: ")') + \
         code.count('F("> team err: PHY args need freq= (freq=<MHz> sf=<5-12> [bw=<kHz>])")')
     mobile = code.count('> mobile register err')
@@ -732,16 +734,16 @@ CONTROLS = [
      '        if (!strcmp(phy_args, "freq") || mrfw::classify_phy_tail(phy_args, phy_scan, sizeof phy_scan) == mrfw::PhyTailKeys::phy_only) {', 'S18'),
     # ---- S19's controls. C36 is half (b) of the defect, reinstated verbatim.
     ('C36 the range message says `team new err` again', 'cfg',
-     'F("> team err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz")',
-     'F("> team new err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz")', 'S19'),
+     'F("> team err: freq " MR_RF_FREQ_RANGE_TEXT " MHz, sf 5..12, bw 7..500 kHz")',
+     'F("> team new err: freq " MR_RF_FREQ_RANGE_TEXT " MHz, sf 5..12, bw 7..500 kHz")', 'S19'),
     # ...and the way a naive fix passes clause (a) while losing the message: delete the string outright
     ('C37 the range message is deleted outright', 'cfg',
-     '                               F("> team err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz") };',
+     '                               F("> team err: freq " MR_RF_FREQ_RANGE_TEXT " MHz, sf 5..12, bw 7..500 kHz") };',
      '                               nullptr };', 'S19'),
     # ⛔ the leak the owner's ruling excludes: the team wording pushed onto the SHARED parser's other caller
     ('C38 `mobile register` inherits the team prefix', 'cfg',
-     'F("> mobile register err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz")',
-     'F("> team err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz")', 'S19'),
+     'F("> mobile register err: freq " MR_RF_FREQ_RANGE_TEXT " MHz, sf 5..12, bw 7..500 kHz")',
+     'F("> team err: freq " MR_RF_FREQ_RANGE_TEXT " MHz, sf 5..12, bw 7..500 kHz")', 'S19'),
     # ...and the record itself: a tree whose corrected comment forgot WHAT it corrected (the fifth false comment
     # this arc would have produced) -- clause (c2).
     ('C39 the correction record is erased from the comment', 'cfg',

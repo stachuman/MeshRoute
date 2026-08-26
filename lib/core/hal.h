@@ -28,7 +28,7 @@ struct TxParams {                 // sentinel = use the radio default (RF plan S
     int16_t sf           = -1;
     int32_t bw_hz        = -1;    // Hz, not kHz (matches PendingTx::bw_hz)
     int8_t  cr           = -1;
-    int8_t  power_dbm    = -127;
+    int8_t  power_dbm    = -127;  // requested nominal conducted output; device board RF may translate chip drive
     int16_t preamble_sym = -1;
     uint16_t    tag   = 0;        // opaque token echoed back in on_radio_busy (heap-free retry match)
     // ★★★ §T1/T2 2026-08-14 — THE FLIGHT IDENTITY OF THIS HAND-OFF. DeviceHal carries it through its bounded TX

@@ -49,7 +49,7 @@ struct Blob {                  // packed-ish POD; written/read verbatim. Bump kV
     uint8_t  cr;
     uint8_t  lbt;
     uint8_t  node_id;          // 0 = unprovisioned (no sends until join / `cfg set node_id`)
-    int8_t   tx_power;         // dBm (repurposed _pad2); SX1262 range -9..22. `cfg set tx_power`
+    int8_t   tx_power;         // requested nominal conducted dBm (repurposed _pad2); board envelope validates it
     uint8_t  is_gateway;       // v6: role/topology config (was live-only; now persisted across reboot)
     uint8_t  gateway_only;     // v6: §7 pure-bridge flag (channel-plane consumer half off too)
     uint8_t  is_mobile;        // v6

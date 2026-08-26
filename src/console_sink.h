@@ -15,9 +15,14 @@
 //   That is MISLEADING SYNTAX, not RAM corruption. ⇒ the admission unit is now a LINE, never a fragment.
 //
 // ★★★ THE TRANSPORT CEILING THAT SHAPES THIS FILE — MEASURED IN THE INSTALLED FRAMEWORKS, NOT ASSUMED:
-//   ESP32-S3 (heltec_v3 / heltec_mobile / xiao_esp32s3): `Serial` is `Serial0` = UART0 (`ARDUINO_USB_CDC_ON_BOOT`
+//   ESP32-S3 UART profiles (heltec_v3 / heltec_mobile / xiao_esp32s3): `Serial` is `Serial0` = UART0 (`ARDUINO_USB_CDC_ON_BOOT`
 //     is unset ⇒ HardwareSerial.h:364 aliases it), and `HardwareSerial::_txBufferSize` defaults to 0 ⇒
 //     `availableForWrite()` == free bytes of the **128-byte** hardware TX FIFO (SOC_UART_FIFO_LEN = 128).
+//   ESP32-S3 native-USB profile (heltec_v4): the vendored board JSON sets `ARDUINO_USB_MODE=1` and
+//     `ARDUINO_USB_CDC_ON_BOOT=1`, so `Serial` is HWCDC. In the pinned framework HWCDC::availableForWrite() reports
+//     current TX-ring free bytes and HWCDC::write() first enqueues at most that space without waiting. This sink's
+//     single-writer rule prevents an intervening writer consuming the measured space; actual unplug/backpressure
+//     behaviour remains an explicit V4 metal check.
 //   nRF52840 (xiao_sx1262 / gateway): TinyUSB CDC ⇒ `availableForWrite()` == free bytes of CFG_TUD_CDC_TX_BUFSIZE =
 //     **256**. ⚠ And `Adafruit_USBD_CDC::write()` LOOPS WITH `yield()` when the FIFO is short — so a write must never
 //     be handed more than `availableForWrite()` bytes, or the anti-wedge is lost inside the core.

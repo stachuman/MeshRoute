@@ -93,7 +93,7 @@ enum class JoinVerdict : uint8_t {
 enum class JoinErr : uint8_t {
     none,
     invalid_layer,     // layer0_id domain 1..255 (0 = unset)
-    invalid_freq,      // 100..1000 MHz
+    invalid_freq,      // outside the current board's configured RF envelope
     invalid_bw,        // 7..500 kHz, tested on the RAW operator double (see JoinRequest::bw_khz)
     invalid_sf,        // routing SF 5..12
     nv_load_failed,    // the record could not be read, so the non-provisioning fields cannot be preserved

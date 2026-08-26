@@ -3440,3 +3440,41 @@ W49-W51. **Metal-only: real USB, real BLE, real flash and a real alarm.** Setup:
 7. ☐ **`clear emergency` ⇒ `mandatory`**, and `team`/`cfg` are unchanged afterwards — a phrase verb must never
    reprovision anything. Then `factory_reset confirm` ⇒ after the reboot `ui preset list` shows the compiled
    defaults and `generation` is back to 1 (the `mr` namespace took `/mrui` with it).
+
+## Part 47 — Heltec V4-3: first V4.2/V4.3 RF and native-USB bring-up (2026-08-26)
+
+⛔ **Attach the correct antenna or a rated dummy load before every TX step.** This is the residue only: the real
+GPIO bias, FEM, RF path, native USB peripheral, OLED/Vext polarity and conducted output cannot be established by a
+host probe. The production-header/GPIO probes already cover all transition order, floating/unstable classification,
+closed interval boundaries, singleton output mapping and recovery branches. Preserve each board's exact `version`
+line and `.pio/build/heltec_v4/firmware.elf` with the result.
+
+1. ☐ **Both boards take the same image.** Clean-flash, then ordinary-flash `heltec_v4` on one original V4.2 and one
+   V4.3. Native USB upload, reconnect, command input and complete output lines all work. The banner contains exactly
+   `board=heltec_v4`. If automatic recovery is needed: hold GPIO0/user, tap RESET, release after the ROM port appears.
+2. ☐ **V4.2 runtime truth.** Its stable boot line is exactly:
+   `  rf        = fem=gc1109 lna=n/a radiohw=1 rfcfg=1 rfok=1 rfmodefail=0 rfbandfail=0 rfout=22 rfchip=10`
+3. ☐ **V4.3 runtime truth.** Its stable boot line is exactly:
+   `  rf        = fem=kct8103l lna=on radiohw=1 rfcfg=1 rfok=1 rfmodefail=0 rfbandfail=0 rfout=22 rfchip=10`
+   ⛔ Never infer V4.2/V4.3 from the compiled board name; the `fem=` result is the authority.
+4. ☐ **Detector refuses ambiguity, if a safe fixture can produce it.** An input that follows the MCU pulls or changes
+   between repeated samples boots with `radio = INIT FAILED`; the RF line contains
+   `fem=unknown lna=n/a radiohw=0 rfcfg=1 rfok=0 rfmodefail=1`. ⓘ If the discriminator cannot be isolated safely on
+   a populated board, record not-run—do not damage the FEM to manufacture this arm.
+5. ☐ **Local limits are truthful and do not move the radio.** `cfg set freq 862.999` prints exactly
+   `> cfg err bad_value (freq 863..928 MHz)`; `cfg set tx_power 21` prints exactly
+   `> cfg err bad_value (tx_power 22 dBm)`. A following `status` retains `rfcfg=1 rfok=1 rfbandfail=0`.
+6. ☐ **Initial RX works before any local TX.** After boot, send a frame from a known node before issuing any command
+   that transmits. `rx=` increases and the message/route is delivered on both revisions.
+7. ☐ **Bidirectional FEM transitions and completion.** Exchange frames V4.2→V4.3 and V4.3→V4.2. Each sender's `tx=`
+   rises, `txfail=0 txto=0 rfmodefail=0`; each receiver continues receiving after the peer's reply. Repeat after a
+   forced startTransmit failure and after a TX-watchdog abort; RX must recover and the relevant existing failure
+   counter must rise instead of a false success.
+8. ☐ **Shared V4 UI traits on both revisions.** With no external Vext load, the OLED ACKs and paints with GPIO36 HIGH;
+   a page-buffer frame completes promptly, blanking and one short press work, and battery voltage is plausible. ⛔ If
+   either revision needs GPIO36 LOW, stop and revise the trait—do not add a revision guess.
+9. ☐ **Sleep/RF coexistence.** While light-sleeping, receive a LoRa frame: `wk_ext1=` and `rx=` both increase. The
+   short-button wake and one-page service cadence remain as in the existing Heltec UI parts.
+10. ☐ **V4.3 LNA and first-build output measurement.** Compare receive behavior/current with the approved LNA-on
+    state against a controlled bypass build if available. Measure conducted output at chip drive 10 dBm with suitable
+    RF equipment; until measured, report 22 dBm only as nominal/reference-derived, never calibrated fact.

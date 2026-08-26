@@ -491,6 +491,8 @@ const char* board_name() {
     return "xiao_esp32s3";
 #elif defined(BOARD_HELTEC_V3)
     return "heltec_v3";
+#elif defined(BOARD_HELTEC_V4)
+    return "heltec_v4";
 #elif defined(MESHROUTE_NATIVE)
     return "native";
 #else
@@ -507,6 +509,25 @@ void print_banner(Print& out) {
     out.println(buf);
 }
 
+// Board/RF bring-up truth, deliberately USB-text only for V4-3. Hardware readiness and requested-configuration
+// validity remain separate; rfok is their conjunction. Never infer a board revision from the build name: the FEM
+// driver's runtime classification is the authority.
+void print_rf_diagnostics(Print& out) {
+    const meshroute::BoardRfDrive drive = g_iradio.output_drive_for(g_tx_power);
+    const bool rfcfg = g_iradio.rf_config_valid(g_tx_power);
+    out.print(F("fem="));        out.print(meshroute::board_rf_kind_name(g_iradio.board_rf_kind()));
+    out.print(F(" lna="));       out.print(meshroute::board_rf_lna_state_name(g_iradio.board_rf_lna_state()));
+    out.print(F(" radiohw="));   out.print(g_radio_ok ? 1 : 0);
+    out.print(F(" rfcfg="));     out.print(rfcfg ? 1 : 0);
+    out.print(F(" rfok="));      out.print((g_radio_ok && rfcfg) ? 1 : 0);
+    out.print(F(" rfmodefail=")); out.print(g_iradio.rf_mode_failures());
+    out.print(F(" rfbandfail=")); out.print(g_iradio.rf_band_failures());
+    out.print(F(" rfout="));     out.print((int)g_tx_power);
+    out.print(F(" rfchip="));
+    if (drive.valid) out.print((int)drive.chip_dbm);
+    else             out.print('-');
+}
+
 static void dump_status(Print& out) {
     out.print(F("uptime_ms="));  out.print((uint32_t)g_hal.now());
     out.print(F(" rx="));                 out.print(g_rx_count);
@@ -518,6 +539,7 @@ static void dump_status(Print& out) {
     out.print(F(" txdrop="));             out.print(g_hal.txq_drops());      // outbound-queue overflow drops (should stay 0)
     out.print(F(" txfail="));             out.print(g_hal.tx_failed_arms()); // admitted frames whose radio arm failed
     out.print(F(" txoutdrop="));          out.print(g_hal.tx_outcome_drops()); // completion reports lost to ring overflow
+    out.print(' ');                        print_rf_diagnostics(out);
     // ★★★ §MH-S4b §10 — the two HOST-side OFFER admission counters, beside `txdrop` because §10 names it as their
     // precedent. Both existed since §MH-S2/[[B146]] as native-only accessors; the debt of making them device-visible
     // was explicitly assigned to S4 by the earlier slices and is discharged here. ⓘ Unconditional: a `0` is the
@@ -1025,6 +1047,7 @@ static void dump_help(Print& out) {
     out.println(F(""));
     out.println(F("CFG KEYS  (`cfg set <key> <val>`; bool keys take on|off / 1|0)"));
     out.println(F("  node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap team_hop_cap leaf_id"));
+    out.println(F("    RF envelope on this board: freq " MR_RF_FREQ_RANGE_TEXT " MHz; tx_power " MR_RF_OUTPUT_RANGE_TEXT " dBm nominal conducted"));
     out.println(F("  mobile mobile_autoregister host_mobiles intra_layer_relay gateway_only"));   // §team-id-cfg-removal: `team_id` REMOVED — a team is joined/left with the `team` verb (see below)
     out.println(F("  lat lon e2e_dm team_channel_crypt intro_attach ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack"));   // §loc-per-send: `loc_in_dm` REMOVED — use `send … -l` per message
     out.println(F("  active_fraction ch_min_ms dm_min_ms leaf_name"));

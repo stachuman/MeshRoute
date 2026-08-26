@@ -25,6 +25,7 @@
 #pragma once
 #include "iradio.h"
 #include "iboard_rf.h"
+#include "rf_capabilities.h"
 
 #if defined(ARDUINO)
 #include <RadioLib.h>
@@ -69,14 +70,17 @@ static void MR_ISR_ATTR mr_on_dio1() { g_dio1_fired = true; g_isr_count = g_isr_
 
 class Sx1262Radio : public IRadio {
 public:
-    Sx1262Radio(CustomSX1262& radio, IBoardRf* board_rf) : _radio(radio), _board_rf(board_rf) {}
+    Sx1262Radio(CustomSX1262& radio, IBoardRf* board_rf)
+        : _radio(radio), _board_rf(board_rf), _frequency_valid(board_rf == nullptr) {}
 
     // Register the DIO1 ISR, initialize an optional board FEM, then arm continuous RX through the ONE RX authority.
     // Call once in setup() (post-std_init). Any failed board transition is fail-closed: no startReceive follows it.
     bool begin() {
         _radio.setPacketReceivedAction(mr_on_dio1);              // DIO1 -> mr_on_dio1 (RxDone while in RX)
         g_dio1_fired = false;
-        const bool ok = rf_begin() && arm_rx();
+        _board_rf_ready = rf_begin();
+        const bool ok = _board_rf_ready && arm_rx();
+        _begun = ok;
         radio_canary_arm();                                     // snapshot the Module/HAL critical bytes (no-op unless MR_RADIO_CANARY)
         return ok;
     }
@@ -138,6 +142,9 @@ public:
     // ignores it while a TX is on air; poll_tx_done consumes it).
     TxResult start_transmit(const uint8_t* b, size_t n,
                             int16_t sf, int32_t bw_hz, int8_t cr, int8_t pw, int16_t pre) override {
+        // A board FEM must have completed detection/initialization, and the current carrier must have passed the
+        // board envelope. Both refusals happen before standby or any FEM/radio write, leaving RX undisturbed.
+        if ((_board_rf && !_board_rf_ready) || !_frequency_valid) return TxResult::radio_error;
         // Translate before touching the SX1262. A front end may expose only a bounded set of conducted-output
         // operating points; refusal leaves continuous RX exactly as it was. The null-FEM path is identity mapping.
         const BoardRfDrive drive = output_drive(pw);
@@ -208,16 +215,42 @@ public:
         _pre_seen = false;
     }
 
-    // Per-layer gateway: retune the RF carrier on a window switch. Like set_rx_sf, SetRfFrequency latches in STANDBY —
-    // issued mid-RX it is dropped — so standby -> setFrequency -> re-arm RX. The latched freq carries into the next TX
-    // (start_transmit never sets frequency), so DATA on this layer flies on this freq even as the SF varies in-flight.
+    // The one SetRfFrequency authority. An out-of-envelope request is rejected before standby and marks the current
+    // configuration invalid, so TX is refused while the radio keeps listening on its last valid carrier. A later
+    // valid request clears the latch. RadioLib failures restore RX when this is a live retune.
+    bool apply_frequency(double mhz, bool rearm) {
+        if (!frequency_supported(mhz)) {
+            _frequency_valid = false;
+            ++_rf_band_failures;
+            return false;
+        }
+        _radio.standby();
+        const int16_t st = _radio.setFrequency(static_cast<float>(mhz));
+        if (st != RADIOLIB_ERR_NONE) {
+            _frequency_valid = false;
+            ++_rf_band_failures;
+            if (_begun) (void)rearm_frequency_rx();
+            return false;
+        }
+        _frequency_valid = true;
+        if (rearm && _begun && !rearm_frequency_rx()) return false;
+        return true;
+    }
+
+    // Validate a pending configuration without touching the radio. Used when chip initialization failed: the
+    // hardware truth stays failed, while a later valid cfg set may still repair the independent config truth.
+    bool validate_frequency(double mhz) {
+        const bool valid = frequency_supported(mhz);
+        if (!valid) ++_rf_band_failures;
+        _frequency_valid = valid;
+        return valid;
+    }
+
+    // Per-layer gateway: retune the RF carrier on a window switch. The latched frequency carries into the next TX
+    // (start_transmit never sets frequency), so DATA on this layer flies on this frequency as SF varies in-flight.
     void set_rx_freq(double mhz) override {
         if (g_mr_trace_on) { Serial.print(F("↻ rx-freq → ")); Serial.print(mhz, 4); Serial.print(F("  t=")); Serial.print(millis()); Serial.println(F("ms")); }   // GATED
-        _radio.standby();
-        _radio.setFrequency(static_cast<float>(mhz));
-        g_dio1_fired = false;                                                      // drop any stale edge before re-arming on the new freq
-        arm_rx();
-        _pre_seen = false;
+        (void)apply_frequency(mhz, /*rearm=*/true);
     }
 
     // Per-layer gateway BW/CR retune on a window switch. Like set_rx_sf/set_rx_freq, SetModulationParams (BW/CR) latches
@@ -319,6 +352,17 @@ public:
     uint32_t rxbad_count() const { return g_rxbad_count; } // status diagnostic: failed-decode RX (CRC storm) — a clean counter delta, read by `status rxbad=` / `rcmd status`
     uint32_t rx_arm_failures() const { return _rx_arm_failures; } // L5 status diagnostic: startReceive() re-arm failures (SPI glitch) — a non-zero delta means the node went transiently deaf; visible instead of silent
     uint32_t rf_mode_failures() const { return _rf_mode_failures; } // failed external-FEM begin/RX/TX transitions; surfaced with V4 diagnostics
+    uint32_t rf_band_failures() const { return _rf_band_failures; } // rejected carrier or failed SX1262 frequency apply
+    bool frequency_valid() const { return _frequency_valid; }
+    bool frequency_supported(double mhz) const {
+        return _board_rf ? _board_rf->frequency_supported(mhz)
+                         : configured_frequency_supported(mhz);
+    }
+    BoardRfDrive output_drive_for(int8_t requested_dbm) const { return output_drive(requested_dbm); }
+    bool output_supported(int8_t requested_dbm) const { return output_drive(requested_dbm).valid; }
+    bool rf_config_valid(int8_t requested_dbm) const {
+        return _frequency_valid && output_supported(requested_dbm);
+    }
     BoardRfKind board_rf_kind() const { return _board_rf ? _board_rf->kind() : BoardRfKind::none; }
     BoardRfLnaState board_rf_lna_state() const {
         return _board_rf ? _board_rf->lna_state() : BoardRfLnaState::not_applicable;
@@ -363,9 +407,21 @@ private:
         ++_rx_arm_failures;
         return false;
     }
+    // A frequency apply enters standby before touching the SX1262. Any DIO1 edge from the old RX cycle is stale;
+    // discard it before the new arm, then end the old preamble window even when that arm fails.
+    bool rearm_frequency_rx() {
+        g_dio1_fired = false;
+        const bool armed = arm_rx();
+        _pre_seen = false;
+        return armed;
+    }
     uint32_t _tx_count = 0;   // frames transmitted (status diagnostic)
     uint32_t _rx_arm_failures = 0;   // L5: startReceive() re-arm failures (SPI glitch) — surfaced via rx_arm_failures()
     uint32_t _rf_mode_failures = 0;  // optional board-FEM transition failures; null-FEM boards never increment it
+    uint32_t _rf_band_failures = 0;  // rejected/out-of-envelope carrier or failed RadioLib frequency apply
+    bool _board_rf_ready = false;    // external-FEM detection/init completed; null provider is ready via rf_begin()
+    bool _frequency_valid;           // external-FEM boards start fail-closed until boot applies the persisted carrier
+    bool _begun = false;             // initial continuous RX succeeded; controls recovery after a live setFrequency failure
     bool _preamble = false;   // latched preamble event (drained by take_preamble)
     bool _pre_seen = false;   // edge-detect: preamble already latched this RX cycle
     bool _tx_in_flight = false; // async TX armed (start_transmit) until poll_tx_done drains the TxDone edge; routes the shared DIO1 flag

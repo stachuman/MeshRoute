@@ -222,6 +222,12 @@ pure headers, which **removes both new warnings** and unlocks the `probe_firmwar
 > **Flash is +16 B on each** — the one real codegen delta: `mac_idle()` now calls `tx_busy()` through the pure
 > `IRadio&` seam (a virtual dispatch) where it used to name the concrete `g_iradio` (devirtualizable). Same object,
 > same ISR-driven volatile state, same predicate — **measured**, not estimated: arm A 1253788 vs arm B 1253772.
+
+> ★ **V4-3 ADDENDUM 2026-08-26 — ONE NEW DERIVED OLED ENVIRONMENT, OLD PINS UNCHANGED.** The clean isolated census
+> now also derives `heltec_v4`: **327 objects / 183 warnings / `-Wswitch` 0 / 219668 B RAM / 1328916 B flash**. The
+> five-warning difference from `heltec_v3` is exactly RadioLib's existing native-USB `#warning`, emitted once in each
+> of five translation units; the V4 FEM driver's `board_rf.cpp` is the additional object and adds no warning. The live
+> pins remain `heltec_v3` 178, `heltec_mobile` 178, `gateway_heltec` 174, with `heltec_v4` appended at 183.
 ⓘ Superseded history: the 2026-08-04 post-B95/B96 pins were 325 objects / **178 / 178 / 174** at RAM 213308 / 212828 /
 238228. B95 added the console stage's object + 2048 B; B96's controlled delta was RAM **−16 B** / Flash **+52 B** and
 **no warning**. The absolute flash values are observations, not byte-identity requirements across sessions (B86).

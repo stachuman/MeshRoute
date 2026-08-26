@@ -624,6 +624,10 @@ V4-4 record the selected new V4 values. The warning census separately records ev
 **+8 B RAM / +448 B flash**; `heltec_v3` 219380/1329748 -> 219388/1329876,
 **+8 B RAM / +128 B flash**.
 
+**V4-3 measured board pair (2026-08-26, after the frequency-recovery latch correction):** `heltec_v4`
+**219668 B RAM / 1328916 B flash**; `xiao_sx1262` **171348 B RAM / 566588 B flash** (versus the V4-2 null-FEM
+baseline above: **+8 B RAM / +1584 B flash** for the shared enforcement and diagnostics).
+
 ### 10.2 Metal — both boards
 
 Add the irreducible checks to docs/2026-07-31-bench-test-script.md with exact expected lines.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Re-sync the vendored MeshCore PHY glue + the XIAO board def from a pinned
+# Re-sync the vendored MeshCore PHY glue + board/Arduino-variant assets from a pinned
 # MeshCore checkout, BYTE-IDENTICAL. We reuse the SX1262 PHY ONLY (not the
 # Dispatcher/mesh stack) — see lib/meshcore/NOTICE.
 #
@@ -22,7 +22,7 @@ if [[ ! -d "$SRC" ]]; then
   exit 1
 fi
 
-# The exact vendored set: 2 PHY headers + the custom board JSON + its ldscript.
+# The exact vendored set: 2 PHY headers, XIAO board/variant assets, and the Heltec V4 board/variant assets.
 # Format: "<src-relative-to-MeshCore>  <dst-relative-to-MeshRoute>"
 FILES=(
   "src/helpers/radiolib/CustomSX1262.h            lib/meshcore/src/helpers/radiolib/CustomSX1262.h"
@@ -31,6 +31,8 @@ FILES=(
   "boards/nrf52840_s140_v7.ld                     boards/nrf52840_s140_v7.ld"
   "variants/xiao_nrf52/variant.h                  variants/Seeed_XIAO_nRF52840/variant.h"
   "variants/xiao_nrf52/variant.cpp                variants/Seeed_XIAO_nRF52840/variant.cpp"
+  "boards/heltec_v4.json                          boards/heltec_v4.json"
+  "variants/heltec_v4/pins_arduino.h              arduino_variants/heltec_v4/pins_arduino.h"
 )
 
 for entry in "${FILES[@]}"; do

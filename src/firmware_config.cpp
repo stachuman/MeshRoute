@@ -59,12 +59,20 @@ static_assert(static_cast<uint32_t>(LORA_BW * 1000.0) == meshroute::protocol::kh
 static void apply_radio_live(const mrnv::Blob& b, bool reconfig) {
     g_freq_mhz = b.freq_mhz;
     g_tx_power = b.tx_power;
-    if (reconfig && g_radio_ok) {
-        g_radio.standby();                                         // SX1262: RF/modulation params latch in STANDBY
-        g_radio.setFrequency((float)b.freq_mhz);
-        g_radio.setBandwidth((float)b.bw_hz / 1000.0f);
-        g_radio.setCodingRate((uint8_t)b.cr);
-        g_iradio.set_rx_sf((int)b.routing_sf);                     // setSpreadingFactor + re-arm RX (+ _rx_sf)
+    if (reconfig) {
+        if (g_radio_ok) {
+            // apply_frequency is the final board-envelope authority. An invalid request is rejected before standby,
+            // so the old carrier remains listening; do not half-apply the accompanying modulation settings.
+            if (g_iradio.apply_frequency(b.freq_mhz, /*rearm=*/false)) {
+                g_radio.setBandwidth((float)b.bw_hz / 1000.0f);
+                g_radio.setCodingRate((uint8_t)b.cr);
+                g_iradio.set_rx_sf((int)b.routing_sf);             // setSpreadingFactor + re-arm RX (+ _rx_sf)
+            }
+        } else {
+            // Keep configuration truth independent of hardware truth: a valid correction can clear rfcfg even when
+            // the chip/FEM failed at boot, without pretending that radio hardware recovered.
+            (void)g_iradio.validate_frequency(b.freq_mhz);
+        }
     }
     g_hal.configure(/*sf=*/(int16_t)b.routing_sf, /*bw_hz=*/(int32_t)b.bw_hz, /*cr=*/(int8_t)b.cr,
                     /*preamble=*/(int16_t)meshroute::protocol::preamble_sym, /*power=*/(int8_t)b.tx_power, /*busy_hold=*/100);
@@ -290,8 +298,8 @@ void handle_cfg_set(const char* args, Print& out) {
 #endif
         b.node_id = (uint8_t)v; b.joined = 0; live = false;        // operator-pinned id -> NOT DAD-adopted (won't auto-yield)
     }
-    else if (!strcmp(key, "freq"))                                     { const double f = atof(val);        // mirror join/create: 100..1000 MHz — out-of-band persists an RF-dead node
-                                                                         if (!valid_freq_mhz(f)) { out.println(F("> cfg err bad_value (freq 100..1000 MHz)")); return; }
+    else if (!strcmp(key, "freq"))                                     { const double f = atof(val);        // one per-board predicate shared with create/join + the radio backstop
+                                                                         if (!valid_freq_mhz(f)) { out.println(F("> cfg err bad_value (freq " MR_RF_FREQ_RANGE_TEXT " MHz)")); return; }
                                                                          b.freq_mhz = f;                      reconfig = radio = true; }
     // BENCH NOTE (2026-06-19): SF5 does NOT lock over-the-air on the tested SX1262 modules (XIAO Wio-SX1262 +
     // Heltec V3) — the receiver completes ZERO reception (`status` isr==tx, rx=0) at BW125 AND BW500, and bumping
@@ -311,7 +319,7 @@ void handle_cfg_set(const char* args, Print& out) {
                                                                          b.cr = (uint8_t)cr;                  reconfig = radio = true; }
     else if (!strcmp(key, "tx_power")) {
         const int v = atoi(val);
-        if (v < -9 || v > 22) { out.println(F("> cfg err bad_value (tx_power -9..22 dBm)")); return; }
+        if (!valid_output_dbm(v)) { out.println(F("> cfg err bad_value (tx_power " MR_RF_OUTPUT_RANGE_TEXT " dBm)")); return; }
         b.tx_power = (int8_t)v; radio = true;                         // live, but no radio re-tune
     }
     // --- node-config knobs: LIVE via mutable_config() (the MAC re-reads each field per use), + persisted ---
@@ -2151,7 +2159,7 @@ void handle_team(const char* args, Print& out) {
     if (phy_args && *phy_args && !phy_refusal_to_transaction) {
         const PhyTailMsgs msg{ F("> team err bad/unknown key: "),
                                F("> team err: PHY args need freq= (freq=<MHz> sf=<5-12> [bw=<kHz>])"),
-                               F("> team err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz") };
+                               F("> team err: freq " MR_RF_FREQ_RANGE_TEXT " MHz, sf 5..12, bw 7..500 kHz") };
         meshroute::LayerConfig phy{}; double bw = 0.0;
         const PhyTail r = parse_phy_tail(phy_args, c.leaf_id, msg, out, phy, bw);
         if (r == PhyTail::error) return;                           // reported; NOTHING has been touched
@@ -2288,7 +2296,7 @@ void handle_mobile(const char* args, Print& out) {
         } else if (*p) {
             const PhyTailMsgs msg{ F("> mobile register err bad/unknown key: "),
                                    F("> mobile register err: args need freq= (freq=<MHz> sf=<5-12> [bw=<kHz>] | scan | <none>)"),
-                                   F("> mobile register err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz") };
+                                   F("> mobile register err: freq " MR_RF_FREQ_RANGE_TEXT " MHz, sf 5..12, bw 7..500 kHz") };
             meshroute::LayerConfig phy{}; double bw = 0.0;
             const PhyTail r = parse_phy_tail(p, c.leaf_id, msg, out, phy, bw);
             if (r == PhyTail::error) return;
@@ -2392,7 +2400,7 @@ void handle_leave(Print& out) {
     b = mrnv::Blob{};                                                        // zero everything...
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
     b.freq_mhz = keep_freq;                                                  // ...keep only freq
-    b.bw_hz = meshroute::protocol::khz_to_hz(LORA_BW); b.routing_sf = LORA_SF; b.cr = LORA_CR; b.tx_power = LORA_TX_POWER;   // §bw-round-invariant
+    b.bw_hz = meshroute::protocol::khz_to_hz(LORA_BW); b.routing_sf = LORA_SF; b.cr = LORA_CR; b.tx_power = meshroute::default_output_dbm;   // §bw-round-invariant
     b.beacon_ms = 900000; b.duty = (double)LORA_DUTY_CYCLE_PCT / 100.0;       // NodeConfig defaults (15 min, 10%)
     b.channel_active_fraction = 0.125f; b.channel_min_interval_ms = meshroute::protocol::channel_min_interval_ms; b.dm_min_interval_ms = meshroute::protocol::dm_min_interval_ms;   // v16 anti-spam per-leaf defaults
     if (!mrnv::save(b)) { out.println(F("> leave err nv_save_failed")); return; }

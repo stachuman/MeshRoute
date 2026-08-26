@@ -1,4 +1,4 @@
-// Counting CustomSX1262 stand-in for the V4-2 production-header probe. The class surface mirrors only what the real
+// Counting CustomSX1262 stand-in for the V4-3 production-header probe. The class surface mirrors only what the real
 // device_radio.h calls; it deliberately knows nothing about FEM sequencing, which must come from IBoardRf.
 #pragma once
 
@@ -12,6 +12,7 @@ public:
     std::vector<std::string> events;
     int16_t start_receive_result = RADIOLIB_ERR_NONE;
     int16_t start_transmit_result = RADIOLIB_ERR_NONE;
+    int16_t set_frequency_result = RADIOLIB_ERR_NONE;
     int16_t read_result = RADIOLIB_ERR_NONE;
     uint16_t irq_flags = 0;
     size_t packet_length = 3;
@@ -20,6 +21,7 @@ public:
     bool receiving = false;
     void (*dio1_action)() = nullptr;
     int8_t last_power = -127;
+    float last_frequency = 0.0f;
 
     void setPacketReceivedAction(void (*fn)()) { events.emplace_back("radio.set_action"); dio1_action = fn; }
     int16_t startReceive() {
@@ -47,7 +49,11 @@ public:
         events.emplace_back("radio.start_tx"); return start_transmit_result;
     }
     int16_t finishTransmit() { events.emplace_back("radio.finish_tx"); return RADIOLIB_ERR_NONE; }
-    int16_t setFrequency(float) { events.emplace_back("radio.freq"); return RADIOLIB_ERR_NONE; }
+    int16_t setFrequency(float mhz) {
+        last_frequency = mhz;
+        events.emplace_back("radio.freq");
+        return set_frequency_result;
+    }
     bool isReceiving() { events.emplace_back("radio.is_receiving"); return receiving; }
     float getRSSI(bool = true) { events.emplace_back("radio.rssi"); return packet_rssi; }
     float getSNR() { events.emplace_back("radio.snr"); return packet_snr; }

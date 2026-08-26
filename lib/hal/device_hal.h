@@ -95,14 +95,15 @@ public:
     const char* panic_why() const { return _panic_why; }
 
     // Operating-point params for airtime accounting (set from NodeConfig at boot so the device ledger
-    // matches the Node's own airtime math). busy_hold = how long a CAD-busy channel reads as occupied.
+    // matches the Node's own airtime math). output_dbm is requested nominal conducted output; busy_hold is how long
+    // a CAD-busy channel reads as occupied.
     void     configure(int16_t def_sf, int32_t bw_hz, int8_t cr, int16_t preamble_sym,
-                       int8_t power_dbm, uint32_t channel_busy_hold_ms) {
+                       int8_t output_dbm, uint32_t channel_busy_hold_ms) {
         // S2 flash-validation rule: bw_hz flows from an NV Blob (magic+version-only load). A corrupt persisted
         // radio_bw_hz==0 would divide-by-zero in rx_window_slop_ms/configure on the RX hot path -> a hard fault
         // that re-faults every boot (soft-brick). Clamp <=0 to the RF-plan default BW125 before it's stored.
         _def_sf = def_sf; _def_bw = bw_hz > 0 ? bw_hz : 125000; _def_cr = cr; _def_preamble = preamble_sym;
-        _def_power = power_dbm; _busy_hold_ms = channel_busy_hold_ms;
+        _def_power = output_dbm; _busy_hold_ms = channel_busy_hold_ms;
     }
 
 private:

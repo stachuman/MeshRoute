@@ -1,4 +1,4 @@
-// V4-2 radio sequencing probe. This compiles the REAL lib/hal/device_radio.h against counting silicon/FEM fakes.
+// V4-3 radio sequencing probe. This compiles the REAL lib/hal/device_radio.h against counting silicon/FEM fakes.
 #include "device_radio.h"
 
 #include <algorithm>
@@ -42,7 +42,7 @@ struct CountingRf final : IBoardRf {
     bool frequency_supported(double mhz) const override { return mhz >= 863.0 && mhz <= 928.0; }
     BoardRfDrive drive_for_output(int8_t output_dbm) const override {
         events.emplace_back("fem.drive:" + std::to_string(static_cast<int>(output_dbm)));
-        return drive;
+        return output_dbm == 22 ? drive : BoardRfDrive{false, 0};
     }
 };
 
@@ -117,6 +117,7 @@ void probe_tx_and_recovery() {
     CustomSX1262 chip;
     CountingRf rf(chip.events);
     Sx1262Radio radio(chip, &rf);
+    CHK("T-1 boot carrier applies before begin", radio.apply_frequency(869.4625, /*rearm=*/false));
     CHK("T0 setup begin succeeds", radio.begin());
     clear(chip);
 
@@ -205,6 +206,101 @@ void probe_retunes_and_rx_drain() {
     CHK("R7 packet drain preserves decoded length", out_len == 3);
 }
 
+void probe_frequency_and_config_truth() {
+    const uint8_t frame[2] = {0x10, 0x20};
+    CustomSX1262 chip;
+    CountingRf rf(chip.events);
+    Sx1262Radio radio(chip, &rf);
+
+    CHK("F1 external-FEM carrier starts invalid", !radio.frequency_valid());
+    CHK("F2 hardware begin is independent of an invalid config latch", radio.begin());
+    CHK("F3 valid output alone cannot make rfcfg true", !radio.rf_config_valid(22));
+
+    clear(chip);
+    CHK("F4 lower boundary is accepted", radio.apply_frequency(863.0, /*rearm=*/false));
+    CHK("F5 accepted carrier uses standby then the sole setFrequency", exact(chip.events, {"radio.standby", "radio.freq"}));
+    CHK("F6 lower boundary becomes current", chip.last_frequency == 863.0f && radio.frequency_valid());
+    clear(chip);
+    CHK("F7 upper boundary is accepted", radio.apply_frequency(928.0, /*rearm=*/false));
+    CHK("F8 upper boundary becomes current", chip.last_frequency == 928.0f && radio.frequency_valid());
+
+    clear(chip);
+    CHK("F9 below-band carrier is refused", !radio.apply_frequency(862.999, /*rearm=*/false));
+    CHK("F10 invalid validation precedes standby and leaves RX untouched", chip.events.empty());
+    CHK("F11 below-band refusal marks config invalid and counts once",
+        !radio.frequency_valid() && radio.rf_band_failures() == 1);
+    CHK("F12 TX is refused before FEM/radio work while carrier is invalid",
+        radio.start_transmit(frame, sizeof frame, 8, 125000, 5, 22, 16) == TxResult::radio_error && chip.events.empty());
+
+    clear(chip);
+    CHK("F13 later valid carrier clears the latch without reboot", radio.apply_frequency(869.4625, /*rearm=*/false));
+    clear(chip);
+    CHK("F14 singleton nominal output maps to chip drive 10",
+        radio.output_drive_for(22).valid && radio.output_drive_for(22).chip_dbm == 10);
+    CHK("F15 other requested output is unsupported", !radio.output_supported(21));
+    CHK("F16 valid carrier plus 22 dBm makes rfcfg true", radio.rf_config_valid(22));
+    CHK("F17 invalid output makes rfcfg false without changing carrier", !radio.rf_config_valid(21) && radio.frequency_valid());
+
+    uint8_t buf[8]{};
+    size_t out_len = 0;
+    float snr = 0.0f, rssi = 0.0f;
+    chip.irq_flags = SX126X_IRQ_PREAMBLE_DETECTED;
+    meshroute::g_dio1_fired = false;
+    CHK("F18 precondition latches one preamble window",
+        !radio.poll_rx(buf, sizeof buf, out_len, snr, rssi) && radio.take_preamble());
+
+    clear(chip);
+    meshroute::g_dio1_fired = true;
+    chip.set_frequency_result = -11;
+    CHK("F19a RadioLib frequency failure is surfaced", !radio.apply_frequency(870.0, /*rearm=*/true));
+    CHK("F19b failed live apply restores FEM RX and continuous RX",
+        exact(chip.events, {"radio.standby", "radio.freq", "fem.rx", "radio.start_rx"}));
+    CHK("F19c failed live apply clears the stale DIO1 edge", !meshroute::g_dio1_fired);
+    clear(chip);
+    CHK("F19d stale DIO1 cannot drain a phantom packet",
+        !radio.poll_rx(buf, sizeof buf, out_len, snr, rssi));
+    CHK("F19e phantom-packet check never reaches readData",
+        std::find(chip.events.begin(), chip.events.end(), "radio.read") == chip.events.end());
+    CHK("F19f failed live apply starts a fresh preamble window", radio.take_preamble());
+    CHK("F20 RadioLib frequency failure invalidates config and increments the same counter",
+        !radio.frequency_valid() && radio.rf_band_failures() == 2);
+
+    chip.set_frequency_result = RADIOLIB_ERR_NONE;
+    chip.start_receive_result = -12;
+    clear(chip);
+    CHK("F21 successful frequency apply surfaces a failed RX rearm",
+        !radio.apply_frequency(869.4625, /*rearm=*/true));
+    CHK("F22 failed RX rearm still follows the FEM/RX sequence",
+        exact(chip.events, {"radio.standby", "radio.freq", "fem.rx", "radio.start_rx"}));
+    chip.start_receive_result = RADIOLIB_ERR_NONE;
+    clear(chip);
+    CHK("F23 failed RX rearm also starts a fresh preamble window",
+        !radio.poll_rx(buf, sizeof buf, out_len, snr, rssi) && radio.take_preamble());
+
+    clear(chip);
+    CHK("F24 valid correction after the failed rearm recovers immediately",
+        radio.apply_frequency(869.4625, /*rearm=*/true));
+    CHK("F25 valid live correction re-arms FEM then RadioLib RX",
+        exact(chip.events, {"radio.standby", "radio.freq", "fem.rx", "radio.start_rx"}));
+
+    CustomSX1262 failed_chip;
+    CountingRf failed_rf(failed_chip.events);
+    failed_rf.begin_result = false;
+    Sx1262Radio failed_hw(failed_chip, &failed_rf);
+    CHK("F26 valid config can be established before failed hardware begin",
+        failed_hw.apply_frequency(869.4625, /*rearm=*/false) && failed_hw.rf_config_valid(22));
+    CHK("F27 failed hardware begin does not erase independent rfcfg truth", !failed_hw.begin() && failed_hw.rf_config_valid(22));
+
+    clear(chip);
+    radio.set_rx_freq(929.0);
+    CHK("F28 gateway/adopted out-of-band retune has the same no-standby refusal", chip.events.empty());
+    CHK("F29 gateway/adopted refusal also blocks TX", !radio.frequency_valid());
+    clear(chip);
+    radio.set_rx_freq(928.0);
+    CHK("F30 valid gateway retune clears the latch and restores RX",
+        radio.frequency_valid() && exact(chip.events, {"radio.standby", "radio.freq", "fem.rx", "radio.start_rx"}));
+}
+
 void probe_null_fem() {
     const uint8_t frame[2] = {0x10, 0x20};
     CustomSX1262 chip;
@@ -242,6 +338,7 @@ int main() {
     probe_begin();
     probe_tx_and_recovery();
     probe_retunes_and_rx_drain();
+    probe_frequency_and_config_truth();
     probe_null_fem();
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

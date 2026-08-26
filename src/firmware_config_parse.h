@@ -15,6 +15,7 @@
                                   // (host g++, arm-none-eabi-g++, xtensa-esp32s3-elf-g++ all error "not declared"), so
                                   // this include is required, not defensive.
 #include "protocol_constants.h"   // §3-A.2: flood_hop_max (the hop_cap domain ceiling) — pure constexpr, no Arduino
+#include "rf_capabilities.h"      // per-board frequency/output envelope; defaults retain the historic SX1262 domain
 
 namespace mrfw {
 
@@ -94,10 +95,11 @@ inline bool phy_arg_take(PhyArgs& a, const char* key, const char* val, bool allo
 }
 
 // The shared domain. ⚠ freq/bw are written as the NEGATION of the original reject-conditions rather than as a
-// positive range test, and that is deliberate: `atof("nan")` yields NaN, for which BOTH `< lo` and `> hi` are
-// false, so every one of these call sites has always ACCEPTED a NaN. `v >= lo && v <= hi` would start rejecting it
-// — a behaviour change smuggled into a refactor (C1). Preserve it; close it in a fix slice if the owner wants it.
-inline bool valid_freq_mhz(double mhz) { return !(mhz < 100.0 || mhz > 1000.0); }
+// positive range test, and that is deliberate on existing boards: `atof("nan")` yields NaN, for which BOTH `< lo`
+// and `> hi` are false, so those call sites have always ACCEPTED it. A board declaring MR_RF_STRICT_ENVELOPE opts
+// into the positive closed interval because its new hardware envelope has no legacy behaviour to preserve.
+inline bool valid_freq_mhz(double mhz) { return meshroute::configured_frequency_supported(mhz); }
+inline bool valid_output_dbm(int dbm)  { return meshroute::configured_output_supported(dbm); }
 inline bool valid_bw_khz(double khz)   { return !(khz < 7.0   || khz > 500.0);  }
 // layer0_id: the full 1..255 layer id (0 = unset). Distinct from valid_leaf_id, which bounds the 0..15 wire nibble.
 inline bool valid_layer0_id(long v)    { return v >= 1 && v <= 255; }
